@@ -14,7 +14,7 @@ include(cmake/CPM.cmake)
 CPMAddPackage(
   NAME aether-client-cpp
   GITHUB_REPOSITORY aethernetio/aether-client-cpp
-  GIT_TAG main
+  GIT_TAG 48bde3d44a2919457335661ec7b1ab4f05b29167
   EXCLUDE_FROM_ALL NO
   OPTIONS
     "AE_BUILD_TOOLS OFF"

@@ -2,7 +2,7 @@
 
 AppTraverse is a C++ application lifecycle platform for building long-lived distributed applications.
 
-It is a standalone platform — not an SDK and not an application.
+It is a standalone platform — not merely an SDK and not a product application.
 
 ## Status
 
@@ -24,17 +24,6 @@ cmake --build build
 ```
 
 This configures the project and builds the `aether` dependency from [aethernetio/aether-client-cpp](https://github.com/aethernetio/aether-client-cpp).
-
-## Layout
-
-```
-cmake/          CPM.cmake
-include/        Public headers (namespace apptraverse)
-src/            Library sources
-tests/          Tests
-examples/       Examples
-docs/           Documentation
-```
 
 ## Namespace
 
