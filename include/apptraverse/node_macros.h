@@ -16,7 +16,9 @@
  public:                                                      \
   template <typename Dnv>                                     \
   void Load(CurrentVersion, Dnv& dnv) {                       \
-    dnv(base_);                                               \
+    if constexpr (AppTraverseNodeSelf::kVersion == 0) {       \
+      dnv(base_);                                             \
+    }                                                         \
     if (ShouldTransferBusinessState()) {                      \
       dnv(__VA_ARGS__);                                       \
     }                                                         \
@@ -25,7 +27,9 @@
                                                               \
   template <typename Dnv>                                     \
   void Save(CurrentVersion, Dnv& dnv) const {                 \
-    dnv(base_);                                               \
+    if constexpr (AppTraverseNodeSelf::kVersion == 0) {       \
+      dnv(base_);                                             \
+    }                                                         \
     if (ShouldTransferBusinessState()) {                      \
       dnv(__VA_ARGS__);                                       \
     }                                                         \

@@ -121,3 +121,50 @@ add_test(
     -DSTATE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/node_inheritance_state
     -P ${CMAKE_CURRENT_SOURCE_DIR}/run_node_inheritance_test.cmake
 )
+
+add_executable(apptraverse_node_state_version_distiller_v0
+  node_state_version_distiller_v0.cpp
+)
+target_link_libraries(
+  apptraverse_node_state_version_distiller_v0 PRIVATE apptraverse
+)
+target_include_directories(apptraverse_node_state_version_distiller_v0 PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_compile_definitions(apptraverse_node_state_version_distiller_v0 PRIVATE
+  APPTRAVERSE_DISTILLATION_BUILD=1
+  APPTRAVERSE_STATE_SCHEMA_V0=1
+)
+
+add_executable(apptraverse_node_state_version_runtime_v1
+  node_state_version_runtime_v1.cpp
+)
+target_link_libraries(
+  apptraverse_node_state_version_runtime_v1 PRIVATE apptraverse
+)
+target_include_directories(apptraverse_node_state_version_runtime_v1 PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+add_executable(apptraverse_node_state_version_rollback_v0
+  node_state_version_rollback_v0.cpp
+)
+target_link_libraries(
+  apptraverse_node_state_version_rollback_v0 PRIVATE apptraverse
+)
+target_include_directories(apptraverse_node_state_version_rollback_v0 PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_compile_definitions(apptraverse_node_state_version_rollback_v0 PRIVATE
+  APPTRAVERSE_STATE_SCHEMA_V0=1
+)
+
+add_test(
+  NAME apptraverse_node_state_version_test
+  COMMAND ${CMAKE_COMMAND}
+    -DDISTILLER=$<TARGET_FILE:apptraverse_node_state_version_distiller_v0>
+    -DRUNTIME_V1=$<TARGET_FILE:apptraverse_node_state_version_runtime_v1>
+    -DROLLBACK_V0=$<TARGET_FILE:apptraverse_node_state_version_rollback_v0>
+    -DSTATE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/node_state_version_state
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_node_state_version_test.cmake
+)
