@@ -11,7 +11,7 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/event_for.h"
-#include "apptraverse/node.h"
+#include "apptraverse/node_macros.h"
 
 namespace apptraverse::test {
 
@@ -45,7 +45,7 @@ class SetObjectEvent;
 class SetValue3Event;
 
 class Node1 : public apptraverse::Node {
-  AE_OBJECT(Node1, apptraverse::Node, 0)
+  AT_NODE_OBJECT(Node1, apptraverse::Node, 0)
 
   Node1() = default;
 
@@ -56,33 +56,16 @@ class Node1 : public apptraverse::Node {
 #endif
 
  public:
-  AE_OBJECT_REFLECT()
-
-  template <typename Dnv>
-  void Load(CurrentVersion, Dnv& dnv) {
-    dnv(base_);
-    if (ShouldTransferBusinessState()) {
-      dnv(marker_);
-    }
-    FinishLoadIfMostDerived<Node1>();
-  }
-
-  template <typename Dnv>
-  void Save(CurrentVersion, Dnv& dnv) const {
-    dnv(base_);
-    if (ShouldTransferBusinessState()) {
-      dnv(marker_);
-    }
-  }
-
   std::int32_t marker() const { return marker_; }
 
  private:
   std::int32_t marker_{0};
+
+  AT_NODE_STATE(marker_)
 };
 
 class Node2 : public apptraverse::Node {
-  AE_OBJECT(Node2, apptraverse::Node, 0)
+  AT_NODE_OBJECT(Node2, apptraverse::Node, 0)
 
  protected:
   Node2() = default;
@@ -96,25 +79,6 @@ class Node2 : public apptraverse::Node {
 #endif
 
  public:
-  AE_OBJECT_REFLECT()
-
-  template <typename Dnv>
-  void Load(CurrentVersion, Dnv& dnv) {
-    dnv(base_);
-    if (ShouldTransferBusinessState()) {
-      dnv(factory_id_, object_);
-    }
-    FinishLoadIfMostDerived<Node2>();
-  }
-
-  template <typename Dnv>
-  void Save(CurrentVersion, Dnv& dnv) const {
-    dnv(base_);
-    if (ShouldTransferBusinessState()) {
-      dnv(factory_id_, object_);
-    }
-  }
-
   bool SetObject(ae::ObjId snapshot_id, ae::ObjId event_id,
                  ae::ObjId object_id);
 
@@ -151,10 +115,12 @@ class Node2 : public apptraverse::Node {
   ae::ObjId factory_id_;
   Node1::ptr object_;
   std::uint32_t set_object_apply_calls_{0};
+
+  AT_NODE_STATE(factory_id_, object_)
 };
 
 class Node3 : public Node2 {
-  AE_OBJECT(Node3, Node2, 0)
+  AT_NODE_OBJECT(Node3, Node2, 0)
 
   Node3() = default;
 
@@ -168,25 +134,6 @@ class Node3 : public Node2 {
 #endif
 
  public:
-  AE_OBJECT_REFLECT()
-
-  template <typename Dnv>
-  void Load(CurrentVersion, Dnv& dnv) {
-    dnv(base_);
-    if (ShouldTransferBusinessState()) {
-      dnv(factory_id3_, value3_);
-    }
-    FinishLoadIfMostDerived<Node3>();
-  }
-
-  template <typename Dnv>
-  void Save(CurrentVersion, Dnv& dnv) const {
-    dnv(base_);
-    if (ShouldTransferBusinessState()) {
-      dnv(factory_id3_, value3_);
-    }
-  }
-
   bool SetValue3(ae::ObjId snapshot_id, ae::ObjId event_id,
                  std::int32_t value);
 
@@ -207,6 +154,8 @@ class Node3 : public Node2 {
   ae::ObjId factory_id3_;
   std::int32_t value3_{30};
   std::uint32_t set_value3_apply_calls_{0};
+
+  AT_NODE_STATE(factory_id3_, value3_)
 };
 
 class SetObjectEvent

@@ -12,7 +12,7 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/event_for.h"
-#include "apptraverse/node.h"
+#include "apptraverse/node_macros.h"
 
 namespace apptraverse::test {
 
@@ -66,7 +66,7 @@ class RuntimeObject : public ae::Obj {
 };
 
 class HandlerNode : public apptraverse::Node {
-  AE_OBJECT(HandlerNode, apptraverse::Node, 0)
+  AT_NODE_OBJECT(HandlerNode, apptraverse::Node, 0)
 
   HandlerNode() = default;
 
@@ -78,20 +78,6 @@ class HandlerNode : public apptraverse::Node {
 #endif
 
  public:
-  AE_OBJECT_REFLECT()
-
-  template <typename Dnv>
-  void Load(CurrentVersion, Dnv& dnv) {
-    dnv(base_);
-    dnv(factory_id_, value_, last_event_, runtime_object_);
-  }
-
-  template <typename Dnv>
-  void Save(CurrentVersion, Dnv& dnv) const {
-    dnv(base_);
-    dnv(factory_id_, value_, last_event_, runtime_object_);
-  }
-
   bool SetValue(ae::ObjId event_id, std::int32_t value);
   bool CreateRuntimeObject(ae::ObjId object_id, std::int32_t runtime_value);
 
@@ -110,6 +96,8 @@ class HandlerNode : public apptraverse::Node {
   std::int32_t value_{10};
   ae::ObjPtr<SetValueEvent> last_event_;
   RuntimeObject::ptr runtime_object_;
+
+  AT_NODE_STATE(factory_id_, value_, last_event_, runtime_object_)
 };
 
 class SetValueEvent

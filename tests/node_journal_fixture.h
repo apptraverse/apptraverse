@@ -11,7 +11,7 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/event_for.h"
-#include "apptraverse/node.h"
+#include "apptraverse/node_macros.h"
 
 namespace apptraverse::test {
 
@@ -37,7 +37,7 @@ class JournalFactory;
 class JournalSetValueEvent;
 
 class JournalNode : public apptraverse::Node {
-  AE_OBJECT(JournalNode, apptraverse::Node, 0)
+  AT_NODE_OBJECT(JournalNode, apptraverse::Node, 0)
 
   JournalNode() = default;
 
@@ -49,25 +49,6 @@ class JournalNode : public apptraverse::Node {
 #endif
 
  public:
-  AE_OBJECT_REFLECT()
-
-  template <typename Dnv>
-  void Load(CurrentVersion, Dnv& dnv) {
-    dnv(base_);
-    if (ShouldTransferBusinessState()) {
-      dnv(factory_id_, value_);
-    }
-    FinishLoadIfMostDerived<JournalNode>();
-  }
-
-  template <typename Dnv>
-  void Save(CurrentVersion, Dnv& dnv) const {
-    dnv(base_);
-    if (ShouldTransferBusinessState()) {
-      dnv(factory_id_, value_);
-    }
-  }
-
   bool SetValue(ae::ObjId snapshot_id, ae::ObjId event_id,
                 std::int32_t value);
 
@@ -86,6 +67,8 @@ class JournalNode : public apptraverse::Node {
 
   ae::ObjId factory_id_;
   std::int32_t value_{10};
+
+  AT_NODE_STATE(factory_id_, value_)
 };
 
 class JournalSetValueEvent
