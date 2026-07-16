@@ -1,7 +1,7 @@
-add_executable(object_smoke_test
+add_executable(apptraverse_object_smoke_test
   object_smoke_test.cpp
 )
 
-target_link_libraries(object_smoke_test PRIVATE aether)
+target_link_libraries(apptraverse_object_smoke_test PRIVATE aether)
 
-add_test(NAME object_smoke_test COMMAND object_smoke_test)
+add_test(NAME apptraverse_object_smoke_test COMMAND apptraverse_object_smoke_test)

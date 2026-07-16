@@ -25,13 +25,13 @@ class TestObject : public ae::Obj {
 
 namespace {
 
-#define CHECK(cond)                                                         \
-  do {                                                                      \
-    if (!(cond)) {                                                          \
-      std::cerr << "CHECK failed: " #cond << " (" << __FILE__ << ':'       \
-                << __LINE__ << ")\n";                                       \
-      std::exit(1);                                                         \
-    }                                                                       \
+#define CHECK(cond)                                                       \
+  do {                                                                    \
+    if (!(cond)) {                                                        \
+      std::cerr << "CHECK failed: " #cond << " (" << __FILE__ << ':'     \
+                << __LINE__ << ")\n";                                     \
+      std::exit(1);                                                       \
+    }                                                                     \
   } while (0)
 
 constexpr ae::ObjId::Type kTestObjectId = 100;
@@ -48,12 +48,11 @@ int main() {
       TestObject::ptr::Create(ae::CreateWith{domain}.with_id(kTestObjectId));
 
   CHECK(obj);
+  CHECK(obj.id().id() == kTestObjectId);
   CHECK(obj->value == 0);
 
   obj->value = 42;
   CHECK(obj->value == 42);
-
-  CHECK(obj.id().id() == kTestObjectId);
 
   return 0;
 }
