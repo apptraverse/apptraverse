@@ -93,3 +93,31 @@ add_test(
     -DSTATE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/node_journal_state
     -P ${CMAKE_CURRENT_SOURCE_DIR}/run_node_journal_test.cmake
 )
+
+add_executable(apptraverse_node_inheritance_distiller
+  node_inheritance_distiller.cpp
+)
+target_link_libraries(apptraverse_node_inheritance_distiller PRIVATE apptraverse)
+target_include_directories(apptraverse_node_inheritance_distiller PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_compile_definitions(apptraverse_node_inheritance_distiller PRIVATE
+  APPTRAVERSE_DISTILLATION_BUILD=1
+)
+
+add_executable(apptraverse_node_inheritance_runtime
+  node_inheritance_runtime.cpp
+)
+target_link_libraries(apptraverse_node_inheritance_runtime PRIVATE apptraverse)
+target_include_directories(apptraverse_node_inheritance_runtime PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+add_test(
+  NAME apptraverse_node_inheritance_test
+  COMMAND ${CMAKE_COMMAND}
+    -DDISTILLER=$<TARGET_FILE:apptraverse_node_inheritance_distiller>
+    -DRUNTIME=$<TARGET_FILE:apptraverse_node_inheritance_runtime>
+    -DSTATE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/node_inheritance_state
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_node_inheritance_test.cmake
+)

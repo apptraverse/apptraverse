@@ -49,19 +49,19 @@ class Node : public ae::Obj {
     return io_mode_ == IoMode::kSnapshot || !base_snapshot_id_.IsValid();
   }
 
-  template <typename Concrete>
   bool CaptureBaseSnapshot(ae::ObjId snapshot_id) {
-    if (domain == nullptr || !snapshot_id.IsValid() || snapshot_id == obj_id) {
+    if (domain == nullptr || !obj_id.IsValid() || !snapshot_id.IsValid() ||
+        snapshot_id == obj_id) {
       return false;
     }
 
     IoModeGuard const guard{io_mode_};
-    ae::DomainGraph{domain}.Save(static_cast<Concrete const&>(*this),
-                                 snapshot_id);
+    Node::ptr self = Node::ptr::MakeFromThis(this);
+    ae::Obj::ptr root = self;
+    ae::DomainGraph{domain}.SaveRootImpl(root.Load(), snapshot_id);
     return true;
   }
 
-  template <typename Concrete>
   bool CommitEvent(Event::ptr event, ae::ObjId snapshot_id) {
     if (!event) {
       return false;
@@ -69,7 +69,7 @@ class Node : public ae::Obj {
 
     bool created_snapshot = false;
     if (!base_snapshot_id_.IsValid()) {
-      if (!CaptureBaseSnapshot<Concrete>(snapshot_id)) {
+      if (!CaptureBaseSnapshot(snapshot_id)) {
         return false;
       }
       base_snapshot_id_ = snapshot_id;

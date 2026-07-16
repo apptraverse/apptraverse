@@ -170,7 +170,7 @@ inline bool JournalNode::SetValue(ae::ObjId snapshot_id, ae::ObjId event_id,
     return false;
   }
 
-  return CommitEvent<JournalNode>(event, snapshot_id);
+  return CommitEvent(event, snapshot_id);
 }
 
 inline JournalSetValueEvent::ptr JournalFactory::CreateSetValueEvent(
