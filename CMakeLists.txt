@@ -22,3 +22,8 @@ CPMAddPackage(
     "AE_BUILD_TESTS OFF"
     "AE_INSTALL OFF"
 )
+
+include(CTest)
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
