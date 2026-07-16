@@ -22,3 +22,7 @@ CPMAddPackage(
     "AE_BUILD_TESTS OFF"
     "AE_INSTALL OFF"
 )
+
+enable_testing()
+add_subdirectory(tests)
+
