@@ -5,3 +5,11 @@ add_executable(apptraverse_object_smoke_test
 target_link_libraries(apptraverse_object_smoke_test PRIVATE aether)
 
 add_test(NAME apptraverse_object_smoke_test COMMAND apptraverse_object_smoke_test)
+
+add_executable(apptraverse_typed_event_test
+  typed_event_test.cpp
+)
+
+target_link_libraries(apptraverse_typed_event_test PRIVATE apptraverse)
+
+add_test(NAME apptraverse_typed_event_test COMMAND apptraverse_typed_event_test)

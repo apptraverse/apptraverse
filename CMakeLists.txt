@@ -23,6 +23,12 @@ CPMAddPackage(
     "AE_INSTALL OFF"
 )
 
+add_library(apptraverse INTERFACE)
+target_include_directories(apptraverse INTERFACE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(apptraverse INTERFACE aether)
+
 include(CTest)
 if(BUILD_TESTING)
   add_subdirectory(tests)
