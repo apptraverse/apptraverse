@@ -13,3 +13,14 @@ add_executable(apptraverse_typed_event_test
 target_link_libraries(apptraverse_typed_event_test PRIVATE apptraverse)
 
 add_test(NAME apptraverse_typed_event_test COMMAND apptraverse_typed_event_test)
+
+add_executable(apptraverse_directory_domain_storage_test
+  directory_domain_storage_test.cpp
+)
+
+target_link_libraries(apptraverse_directory_domain_storage_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_directory_domain_storage_test
+  COMMAND apptraverse_directory_domain_storage_test
+)

@@ -23,11 +23,14 @@ CPMAddPackage(
     "AE_INSTALL OFF"
 )
 
-add_library(apptraverse INTERFACE)
-target_include_directories(apptraverse INTERFACE
+add_library(apptraverse STATIC
+  src/directory_domain_storage.cpp
+)
+target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_link_libraries(apptraverse INTERFACE aether)
+target_link_libraries(apptraverse PUBLIC aether)
+target_compile_features(apptraverse PUBLIC cxx_std_20)
 
 include(CTest)
 if(BUILD_TESTING)
