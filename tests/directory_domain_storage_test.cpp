@@ -1,3 +1,5 @@
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -6,8 +8,6 @@
 #include <string>
 #include <system_error>
 #include <vector>
-
-#include <unistd.h>
 
 #include "aether/obj/domain.h"
 #include "aether/obj/obj.h"
@@ -25,15 +25,25 @@ namespace {
     }                                                                     \
   } while (0)
 
-std::filesystem::path MakeTestRoot(char const* suffix) {
+std::filesystem::path MakeUniqueTempPath(char const* suffix) {
+  static std::atomic<std::uint64_t> counter{0};
+
   std::error_code ec;
   auto const temp = std::filesystem::temp_directory_path(ec);
   CHECK(!ec);
   CHECK(!temp.empty());
 
-  auto root =
-      temp / (std::string{"apptraverse_dds_"} + std::to_string(::getpid()) +
-              "_" + suffix);
+  auto const ticks = static_cast<std::uint64_t>(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  auto const id = counter.fetch_add(1, std::memory_order_relaxed);
+
+  return temp / (std::string{"apptraverse_dds_"} + std::to_string(ticks) +
+                 "_" + std::to_string(id) + "_" + suffix);
+}
+
+std::filesystem::path MakeTestRoot(char const* suffix) {
+  std::error_code ec;
+  auto root = MakeUniqueTempPath(suffix);
   std::filesystem::remove_all(root, ec);
   std::filesystem::create_directories(root, ec);
   CHECK(!ec);
@@ -284,12 +294,7 @@ void TestCleanUp() {
 
 void TestFilesystemError() {
   std::error_code ec;
-  auto const temp = std::filesystem::temp_directory_path(ec);
-  CHECK(!ec);
-
-  auto const file_root =
-      temp / (std::string{"apptraverse_dds_"} + std::to_string(::getpid()) +
-              "_file_root");
+  auto const file_root = MakeUniqueTempPath("file_root");
   std::filesystem::remove_all(file_root, ec);
   {
     std::ofstream file{file_root};

@@ -24,3 +24,16 @@ add_test(
   NAME apptraverse_directory_domain_storage_test
   COMMAND apptraverse_directory_domain_storage_test
 )
+
+add_executable(apptraverse_versioned_directory_storage_test
+  versioned_directory_storage_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_versioned_directory_storage_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_versioned_directory_storage_test
+  COMMAND apptraverse_versioned_directory_storage_test
+)

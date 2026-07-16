@@ -8,6 +8,8 @@
 
 namespace apptraverse {
 
+class VersionedDirectoryStorage;
+
 class DirectoryDomainStorage final : public ae::IDomainStorage {
  public:
   explicit DirectoryDomainStorage(std::filesystem::path root);
@@ -24,6 +26,10 @@ class DirectoryDomainStorage final : public ae::IDomainStorage {
   void CleanUp() override;
 
  private:
+  friend class VersionedDirectoryStorage;
+
+  bool HasObjectDirectory(ae::ObjId const& obj_id) const;
+
   std::filesystem::path ObjectDir(ae::ObjId const& obj_id) const;
   std::filesystem::path ClassDir(ae::DomainQuery const& query) const;
   std::filesystem::path VersionPath(ae::DomainQuery const& query) const;

@@ -78,6 +78,12 @@ DirectoryDomainStorage::DirectoryDomainStorage(std::filesystem::path root)
 
 DirectoryDomainStorage::~DirectoryDomainStorage() = default;
 
+bool DirectoryDomainStorage::HasObjectDirectory(
+    ae::ObjId const& obj_id) const {
+  std::error_code ec;
+  return std::filesystem::is_directory(ObjectDir(obj_id), ec) && !ec;
+}
+
 std::filesystem::path DirectoryDomainStorage::ObjectDir(
     ae::ObjId const& obj_id) const {
   return root_ / obj_id.ToString();
