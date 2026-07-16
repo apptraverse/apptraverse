@@ -78,8 +78,19 @@ class HandlerNode : public apptraverse::Node {
 #endif
 
  public:
-  AE_OBJECT_REFLECT(AE_MMBR(factory_id_), AE_MMBR(value_), AE_MMBR(last_event_),
-                    AE_MMBR(runtime_object_))
+  AE_OBJECT_REFLECT()
+
+  template <typename Dnv>
+  void Load(CurrentVersion, Dnv& dnv) {
+    dnv(base_);
+    dnv(factory_id_, value_, last_event_, runtime_object_);
+  }
+
+  template <typename Dnv>
+  void Save(CurrentVersion, Dnv& dnv) const {
+    dnv(base_);
+    dnv(factory_id_, value_, last_event_, runtime_object_);
+  }
 
   bool SetValue(ae::ObjId event_id, std::int32_t value);
   bool CreateRuntimeObject(ae::ObjId object_id, std::int32_t runtime_value);
