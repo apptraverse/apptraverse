@@ -184,9 +184,7 @@ inline bool HandlerNode::SetValue(ae::ObjId event_id, std::int32_t value) {
     return false;
   }
 
-  if (!ApplyEvent(*event)) {
-    return false;
-  }
+  ApplyEvent(*event);
 
   last_event_ = event;
   return true;

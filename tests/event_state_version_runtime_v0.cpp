@@ -68,6 +68,8 @@ int main(int argc, char** argv) {
   APPTRAVERSE_CHECK(node->journal_size_for_test() == 0);
   APPTRAVERSE_CHECK(node->add_value_apply_calls_for_test() == 0);
 
+  node->InitializeReplicaForTest(apptraverse::ReplicaId{1});
+
   APPTRAVERSE_CHECK(node->AddValue(ae::ObjId{kBaseSnapshotId},
                                    ae::ObjId{kOldEventId},
                                    std::int64_t{20}));

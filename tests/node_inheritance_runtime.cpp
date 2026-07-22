@@ -117,6 +117,8 @@ int main(int argc, char** argv) {
     APPTRAVERSE_CHECK(node3->set_object_apply_calls() == 0);
     APPTRAVERSE_CHECK(node3->set_value3_apply_calls() == 0);
 
+    node3->InitializeReplicaForTest(apptraverse::ReplicaId{1});
+
     APPTRAVERSE_CHECK(node3->SetObject(ae::ObjId{kBaseSnapshotId},
                                        ae::ObjId{kSetObjectEventId},
                                        ae::ObjId{kNode1BId}));

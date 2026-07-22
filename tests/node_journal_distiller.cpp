@@ -23,11 +23,9 @@ int main(int argc, char** argv) {
   using apptraverse::test::JournalFactory;
   using apptraverse::test::JournalNode;
   using apptraverse::test::JournalSetValueEvent;
-  using apptraverse::test::UnrelatedEvent;
   using apptraverse::test::kJournalEventPrototypeId;
   using apptraverse::test::kJournalFactoryId;
   using apptraverse::test::kJournalNodeId;
-  using apptraverse::test::kUnrelatedEventPrototypeId;
 
   if (argc < 2) {
     std::cerr << "usage: apptraverse_node_journal_distiller <base-root>\n";
@@ -44,10 +42,6 @@ int main(int argc, char** argv) {
       std::int32_t{0});
   APPTRAVERSE_CHECK(event_prototype);
 
-  auto unrelated_event_prototype = UnrelatedEvent::ptr::Create(
-      ae::CreateWith{domain}.with_id(kUnrelatedEventPrototypeId));
-  APPTRAVERSE_CHECK(unrelated_event_prototype);
-
   auto factory = JournalFactory::ptr::Create(
       ae::CreateWith{domain}.with_id(kJournalFactoryId), event_prototype);
   APPTRAVERSE_CHECK(factory);
@@ -63,12 +57,10 @@ int main(int argc, char** argv) {
 
   factory.Save();
   node.Save();
-  unrelated_event_prototype.Save();
 
   APPTRAVERSE_CHECK(IsDirectory(base_root / "1"));
   APPTRAVERSE_CHECK(IsDirectory(base_root / "2"));
   APPTRAVERSE_CHECK(IsDirectory(base_root / "3"));
-  APPTRAVERSE_CHECK(IsDirectory(base_root / "4"));
 
   return 0;
 }

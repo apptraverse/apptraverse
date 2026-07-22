@@ -1,8 +1,11 @@
 #ifndef APPTRAVERSE_NODE_H_
 #define APPTRAVERSE_NODE_H_
 
+#include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "aether/obj/domain.h"
@@ -10,11 +13,16 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/event_record.h"
+#include "apptraverse/replica_id.h"
 
 namespace apptraverse {
 
+class JournalSynchronizer;
+
 class Node : public ae::Obj {
   AE_OBJECT(Node, ae::Obj, 0)
+
+  friend class JournalSynchronizer;
 
  protected:
   Node() = default;
@@ -28,7 +36,8 @@ class Node : public ae::Obj {
   void Load(CurrentVersion, Dnv& dnv) {
     dnv(base_);
     if (io_mode_ == IoMode::kLive) {
-      dnv(base_snapshot_id_, journal_);
+      dnv(base_snapshot_id_, replica_id_, next_local_sequence_, logical_clock_,
+          journal_);
     }
   }
 
@@ -36,103 +45,143 @@ class Node : public ae::Obj {
   void Save(CurrentVersion, Dnv& dnv) const {
     dnv(base_);
     if (io_mode_ == IoMode::kLive) {
-      dnv(base_snapshot_id_, journal_);
+      dnv(base_snapshot_id_, replica_id_, next_local_sequence_, logical_clock_,
+          journal_);
     }
   }
 
  protected:
-  bool ApplyEvent(Event const& event) { return event.ApplyTo(*this); }
+  void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 
   ae::ObjId BaseSnapshotId() const { return base_snapshot_id_; }
   std::size_t JournalSize() const { return journal_.size(); }
+  ReplicaId replica_id() const { return replica_id_; }
+  std::uint64_t next_local_sequence() const { return next_local_sequence_; }
+  std::uint64_t logical_clock() const { return logical_clock_; }
 
-  /**
-   * \brief Next local sequence for a newly committed record.
-   *
-   * Invariant: successfully committed records are numbered 1..N in commit
-   * order with no gaps. Failed commits remove the tentative record and do not
-   * consume a sequence number, so the next sequence is always
-   * journal_.size() + 1. No separate persisted counter is stored.
-   */
-  std::uint64_t NextLocalSequence() const {
-    return static_cast<std::uint64_t>(journal_.size()) + 1U;
+  EventRecord const& JournalRecordAt(std::size_t index) const {
+    assert(index < journal_.size());
+    return journal_[index];
   }
 
-  std::uint64_t JournalSequenceAt(std::size_t index) const {
-    if (index >= journal_.size()) {
-      return 0;
-    }
-    return journal_[index].sequence();
+  EventIdentity JournalIdentityAt(std::size_t index) const {
+    return JournalRecordAt(index).identity();
+  }
+
+  std::uint64_t JournalLogicalTimeAt(std::size_t index) const {
+    return JournalRecordAt(index).logical_time();
   }
 
   EventDeliveryState JournalDeliveryStateAt(std::size_t index) const {
-    if (index >= journal_.size()) {
-      return EventDeliveryState::kPending;
-    }
-    return journal_[index].delivery_state();
+    return JournalRecordAt(index).delivery_state();
   }
 
   Event::ptr JournalEventAt(std::size_t index) const {
-    if (index >= journal_.size()) {
-      return {};
-    }
-    return journal_[index].event();
+    return JournalRecordAt(index).event();
   }
 
   ae::ObjId JournalEventIdAt(std::size_t index) const {
     auto event = JournalEventAt(index);
-    if (!event.is_valid()) {
-      return {};
-    }
+    assert(event.is_valid());
     return event.id();
+  }
+
+  void InitializeReplica(ReplicaId replica_id) {
+    assert(replica_id.IsValid());
+    assert(journal_.empty());
+    assert(!replica_id_.IsValid() || replica_id_ == replica_id);
+    replica_id_ = replica_id;
   }
 
   bool ShouldTransferBusinessState() const {
     return io_mode_ == IoMode::kSnapshot || !base_snapshot_id_.IsValid();
   }
 
-  bool CaptureBaseSnapshot(ae::ObjId snapshot_id) {
-    if (domain == nullptr || !obj_id.IsValid() || !snapshot_id.IsValid() ||
-        snapshot_id == obj_id) {
-      return false;
-    }
+  void CaptureBaseSnapshot(ae::ObjId snapshot_id) {
+    assert(domain != nullptr);
+    assert(obj_id.IsValid());
+    assert(snapshot_id.IsValid());
+    assert(snapshot_id != obj_id);
 
     IoModeGuard const guard{io_mode_};
     Node::ptr self = Node::ptr::MakeFromThis(this);
     ae::Obj::ptr root = self;
     ae::DomainGraph{domain}.SaveRootImpl(root.Load(), snapshot_id);
-    return true;
   }
 
-  bool CommitEvent(Event::ptr event, ae::ObjId snapshot_id) {
-    if (!event || !event.is_valid()) {
-      return false;
-    }
+  void CommitEvent(Event::ptr event, ae::ObjId snapshot_id) {
+    assert(event && event.is_valid());
     event.Load();
-    if (!event) {
-      return false;
-    }
+    assert(event);
+    assert(replica_id_.IsValid());
+    assert(domain != nullptr);
 
-    bool created_snapshot = false;
     if (!base_snapshot_id_.IsValid()) {
-      if (!CaptureBaseSnapshot(snapshot_id)) {
-        return false;
-      }
+      CaptureBaseSnapshot(snapshot_id);
       base_snapshot_id_ = snapshot_id;
-      created_snapshot = true;
     }
 
-    auto const sequence = NextLocalSequence();
-    journal_.emplace_back(event, sequence, EventDeliveryState::kPending);
-    if (!ApplyEvent(*event)) {
-      journal_.pop_back();
-      if (created_snapshot) {
-        base_snapshot_id_.Invalidate();
-      }
-      return false;
+    ++logical_clock_;
+    EventIdentity const identity{replica_id_, next_local_sequence_};
+    ++next_local_sequence_;
+    // next_local_sequence_ always remains greater than every local sequence
+    // previously issued by this replica.
+    journal_.emplace_back(std::move(event), identity, logical_clock_,
+                          EventDeliveryState::kPending);
+    ApplyEvent(*journal_.back().event_);
+  }
+
+  void AcceptRemoteEvent(EventRecord record) {
+    assert(record.identity().IsValid());
+    assert(record.origin() != replica_id_);
+    assert(record.event().is_valid());
+
+    if (FindRecordIndex(record.identity()) < journal_.size()) {
+      return;
     }
 
-    return true;
+    if (record.logical_time() > logical_clock_) {
+      logical_clock_ = record.logical_time();
+    }
+
+    record.delivery_state_ = EventDeliveryState::kConfirmed;
+    journal_.push_back(std::move(record));
+    std::sort(journal_.begin(), journal_.end(), EventRecord::OrderBefore);
+    RebuildAfterJournalChange();
+  }
+
+  void MarkSent(EventIdentity const& identity) {
+    auto const index = FindRecordIndex(identity);
+    assert(index < journal_.size());
+    auto& state = journal_[index].delivery_state_;
+    assert(state == EventDeliveryState::kPending ||
+           state == EventDeliveryState::kSent ||
+           state == EventDeliveryState::kConfirmed);
+    if (state == EventDeliveryState::kPending) {
+      state = EventDeliveryState::kSent;
+    }
+  }
+
+  void MarkConfirmed(EventIdentity const& identity) {
+    auto const index = FindRecordIndex(identity);
+    assert(index < journal_.size());
+    auto& state = journal_[index].delivery_state_;
+    assert(state == EventDeliveryState::kPending ||
+           state == EventDeliveryState::kSent ||
+           state == EventDeliveryState::kConfirmed);
+    state = EventDeliveryState::kConfirmed;
+  }
+
+  template <typename Concrete>
+  void RestoreSnapshotAndReplay() {
+    assert(domain != nullptr);
+    assert(base_snapshot_id_.IsValid());
+    {
+      IoModeGuard const guard{io_mode_};
+      ae::DomainGraph{domain}.Load(static_cast<Concrete&>(*this),
+                                   base_snapshot_id_);
+    }
+    ReplayJournal();
   }
 
   template <typename Concrete>
@@ -146,14 +195,7 @@ class Node : public ae::Obj {
     if (!base_snapshot_id_.IsValid()) {
       return;
     }
-
-    {
-      IoModeGuard const guard{io_mode_};
-      ae::DomainGraph{domain}.Load(static_cast<Concrete&>(*this),
-                                   base_snapshot_id_);
-    }
-
-    ReplayJournal();
+    RestoreSnapshotAndReplay<Concrete>();
   }
 
  private:
@@ -164,8 +206,7 @@ class Node : public ae::Obj {
 
   class IoModeGuard {
    public:
-    explicit IoModeGuard(IoMode& mode)
-        : mode_{mode}, previous_{mode} {
+    explicit IoModeGuard(IoMode& mode) : mode_{mode}, previous_{mode} {
       mode_ = IoMode::kSnapshot;
     }
 
@@ -179,19 +220,31 @@ class Node : public ae::Obj {
     IoMode previous_;
   };
 
+  std::size_t FindRecordIndex(EventIdentity const& identity) const {
+    for (std::size_t i = 0; i < journal_.size(); ++i) {
+      if (journal_[i].identity() == identity) {
+        return i;
+      }
+    }
+    return journal_.size();
+  }
+
   void ReplayJournal() {
     for (auto& record : journal_) {
       record.event_.Load();
-      if (!record.event_) {
-        return;
-      }
-      if (!ApplyEvent(*record.event_)) {
-        return;
-      }
+      assert(record.event_);
+      ApplyEvent(*record.event_);
     }
   }
 
+  virtual void RebuildAfterJournalChange() {
+    assert(false && "most-derived Node must rebuild after journal changes");
+  }
+
   ae::ObjId base_snapshot_id_;
+  ReplicaId replica_id_{};
+  std::uint64_t next_local_sequence_{1};
+  std::uint64_t logical_clock_{0};
   std::vector<EventRecord> journal_;
   IoMode io_mode_{IoMode::kLive};
 };

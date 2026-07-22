@@ -12,6 +12,7 @@
 #include "apptraverse/event.h"
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_macros.h"
+#include "apptraverse/replica_id.h"
 
 namespace apptraverse::test {
 
@@ -65,6 +66,10 @@ class EventVersionNode : public apptraverse::Node {
   }
   ae::ObjId base_snapshot_id_for_test() const { return BaseSnapshotId(); }
   std::size_t journal_size_for_test() const { return JournalSize(); }
+
+  void InitializeReplicaForTest(apptraverse::ReplicaId replica_id) {
+    InitializeReplica(replica_id);
+  }
 
   void CorruptValueForTest(std::int64_t value) { value_ = value; }
 
@@ -226,7 +231,8 @@ inline bool EventVersionNode::AddValue(ae::ObjId snapshot_id,
     return false;
   }
 
-  return CommitEvent(event, snapshot_id);
+  CommitEvent(event, snapshot_id);
+  return true;
 }
 
 inline AddValueEvent::ptr EventVersionFactory::CreateAddValueEvent(

@@ -86,6 +86,8 @@ int main(int argc, char** argv) {
     APPTRAVERSE_CHECK(node->journal_size_for_test() == 0);
     APPTRAVERSE_CHECK(node->set_base_apply_calls() == 0);
 
+    node->InitializeReplicaForTest(apptraverse::ReplicaId{1});
+
     APPTRAVERSE_CHECK(node->SetBaseValue(ae::ObjId{kBaseSnapshotId},
                                          ae::ObjId{kSetBaseValueEventId},
                                          std::int64_t{90}));

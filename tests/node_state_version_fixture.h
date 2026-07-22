@@ -12,6 +12,7 @@
 #include "apptraverse/event.h"
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_macros.h"
+#include "apptraverse/replica_id.h"
 
 namespace apptraverse::test {
 
@@ -67,6 +68,10 @@ class VersionedNode2 : public apptraverse::Node {
   ae::ObjId base_snapshot_id_for_test() const { return BaseSnapshotId(); }
   std::size_t journal_size_for_test() const { return JournalSize(); }
   std::uint32_t set_base_apply_calls() const { return set_base_apply_calls_; }
+
+  void InitializeReplicaForTest(apptraverse::ReplicaId replica_id) {
+    InitializeReplica(replica_id);
+  }
 
 #if defined(APPTRAVERSE_STATE_SCHEMA_V0)
   std::int32_t legacy_base_value_for_test() const {
@@ -305,7 +310,8 @@ inline bool VersionedNode2::SetBaseValue(ae::ObjId snapshot_id,
     return false;
   }
 
-  return CommitEvent(event, snapshot_id);
+  CommitEvent(event, snapshot_id);
+  return true;
 }
 
 inline SetBaseValueEvent::ptr VersionedFactory::CreateSetBaseValueEvent(

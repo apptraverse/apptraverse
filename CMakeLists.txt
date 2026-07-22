@@ -26,6 +26,8 @@ CPMAddPackage(
 add_library(apptraverse STATIC
   src/directory_domain_storage.cpp
   src/versioned_directory_storage.cpp
+  src/event_object_codec.cpp
+  src/journal_synchronizer.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

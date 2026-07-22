@@ -40,7 +40,7 @@ class Node1 : public at::Node {
   std::int32_t value() const { return value_; }
   std::uint32_t apply_calls() const { return apply_calls_; }
 
-  bool ApplyForTest(at::Event const& event) { return ApplyEvent(event); }
+  void ApplyForTest(at::Event const& event) { ApplyEvent(event); }
 
  private:
   friend class at::EventFor<Node1, SetValueEvent>;
@@ -60,24 +60,6 @@ class Node1Derived : public Node1 {
   explicit Node1Derived(ae::ObjProp prop) : Node1{prop} {}
 
   AE_OBJECT_REFLECT()
-};
-
-class OtherNode : public at::Node {
-  AE_OBJECT(OtherNode, at::Node, 0)
-
-  OtherNode() = default;
-
- public:
-  explicit OtherNode(ae::ObjProp prop) : Node{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(marker_))
-
-  std::int32_t marker() const { return marker_; }
-
-  bool ApplyForTest(at::Event const& event) { return ApplyEvent(event); }
-
- private:
-  std::int32_t marker_{7};
 };
 
 class SetValueEvent : public at::EventFor<Node1, SetValueEvent> {
@@ -111,7 +93,7 @@ static_assert(SetValueEvent::kBaseClassId == at::Event::kClassId);
 
 template <typename EventT>
 concept ExternalCanCallApplyTo = requires(EventT const& event, at::Node& node) {
-  { event.ApplyTo(node) } -> std::same_as<bool>;
+  { event.ApplyTo(node) } -> std::same_as<void>;
 };
 
 template <typename EventT>
@@ -145,11 +127,11 @@ int main() {
     CHECK(node->value() == 0);
     CHECK(node->apply_calls() == 0);
 
-    CHECK(node->ApplyForTest(*event));
+    node->ApplyForTest(*event);
     CHECK(node->value() == 42);
     CHECK(node->apply_calls() == 1);
 
-    CHECK(node->ApplyForTest(*event));
+    node->ApplyForTest(*event);
     CHECK(node->value() == 42);
     CHECK(node->apply_calls() == 2);
   }
@@ -161,19 +143,9 @@ int main() {
     CHECK(node->value() == 0);
     CHECK(node->apply_calls() == 0);
 
-    CHECK(node->ApplyForTest(*event));
+    node->ApplyForTest(*event);
     CHECK(node->value() == 42);
     CHECK(node->apply_calls() == 1);
-  }
-
-  {
-    auto node =
-        OtherNode::ptr::Create(ae::CreateWith{domain}.with_id(3));
-    CHECK(node);
-    CHECK(node->marker() == 7);
-
-    CHECK(!node->ApplyForTest(*event));
-    CHECK(node->marker() == 7);
   }
 
   return 0;

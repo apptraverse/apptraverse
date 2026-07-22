@@ -229,3 +229,31 @@ add_test(
     -DSTATE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/event_state_version_state
     -P ${CMAKE_CURRENT_SOURCE_DIR}/run_event_state_version_test.cmake
 )
+
+add_executable(apptraverse_journal_sync_distiller
+  journal_sync_distiller.cpp
+)
+target_link_libraries(apptraverse_journal_sync_distiller PRIVATE apptraverse)
+target_include_directories(apptraverse_journal_sync_distiller PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_compile_definitions(apptraverse_journal_sync_distiller PRIVATE
+  APPTRAVERSE_DISTILLATION_BUILD=1
+)
+
+add_executable(apptraverse_journal_sync_runtime
+  journal_sync_runtime.cpp
+)
+target_link_libraries(apptraverse_journal_sync_runtime PRIVATE apptraverse)
+target_include_directories(apptraverse_journal_sync_runtime PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+add_test(
+  NAME apptraverse_journal_sync_test
+  COMMAND ${CMAKE_COMMAND}
+    -DDISTILLER=$<TARGET_FILE:apptraverse_journal_sync_distiller>
+    -DRUNTIME=$<TARGET_FILE:apptraverse_journal_sync_runtime>
+    -DSTATE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/journal_sync_state
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_journal_sync_test.cmake
+)

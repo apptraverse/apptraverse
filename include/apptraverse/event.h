@@ -19,7 +19,7 @@ class Event : public ae::Obj {
   AE_OBJECT_REFLECT()
 
  private:
-  virtual bool ApplyTo(Node& target) const = 0;
+  virtual void ApplyTo(Node& target) const = 0;
 
   friend class Node;
 };

@@ -3,13 +3,18 @@
 
 #include "apptraverse/node.h"
 
-#define AT_NODE_OBJECT(DERIVED, BASE, VERSION) \
-  AE_OBJECT(DERIVED, BASE, VERSION)            \
-                                               \
- public:                                       \
-  AE_OBJECT_REFLECT()                          \
-                                               \
- private:                                      \
+#define AT_NODE_OBJECT(DERIVED, BASE, VERSION)                    \
+  AE_OBJECT(DERIVED, BASE, VERSION)                               \
+                                                                  \
+ public:                                                          \
+  AE_OBJECT_REFLECT()                                            \
+                                                                  \
+ protected:                                                       \
+  void RebuildAfterJournalChange() override {                     \
+    RestoreSnapshotAndReplay<AppTraverseNodeSelf>();              \
+  }                                                               \
+                                                                  \
+ private:                                                         \
   using AppTraverseNodeSelf = DERIVED;
 
 #define AT_NODE_STATE(...)                                    \

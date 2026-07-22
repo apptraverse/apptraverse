@@ -12,6 +12,7 @@
 #include "apptraverse/event.h"
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_macros.h"
+#include "apptraverse/replica_id.h"
 
 namespace apptraverse::test {
 
@@ -97,6 +98,10 @@ class Node2 : public apptraverse::Node {
 
   ae::ObjId base_snapshot_id_for_test() const { return BaseSnapshotId(); }
   std::size_t journal_size_for_test() const { return JournalSize(); }
+
+  void InitializeReplicaForTest(apptraverse::ReplicaId replica_id) {
+    InitializeReplica(replica_id);
+  }
 
   void CorruptObjectForTest(ae::ObjId object_id) {
     if (domain == nullptr || !object_id.IsValid()) {
@@ -295,7 +300,8 @@ inline bool Node2::SetObject(ae::ObjId snapshot_id, ae::ObjId event_id,
     return false;
   }
 
-  return CommitEvent(event, snapshot_id);
+  CommitEvent(event, snapshot_id);
+  return true;
 }
 
 inline void Node3::Apply(SetValue3Event const& event) {
@@ -329,7 +335,8 @@ inline bool Node3::SetValue3(ae::ObjId snapshot_id, ae::ObjId event_id,
     return false;
   }
 
-  return CommitEvent(event, snapshot_id);
+  CommitEvent(event, snapshot_id);
+  return true;
 }
 
 inline SetObjectEvent::ptr Node2Factory::CreateSetObjectEvent(
