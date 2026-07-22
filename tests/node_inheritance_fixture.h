@@ -80,8 +80,7 @@ class Node2 : public apptraverse::Node {
 #endif
 
  public:
-  bool SetObject(ae::ObjId snapshot_id, ae::ObjId event_id,
-                 ae::ObjId object_id);
+  bool SetObject(ae::ObjId event_id, ae::ObjId object_id);
 
   ae::ObjId factory_id() const { return factory_id_; }
 
@@ -99,8 +98,9 @@ class Node2 : public apptraverse::Node {
   ae::ObjId base_snapshot_id_for_test() const { return BaseSnapshotId(); }
   std::size_t journal_size_for_test() const { return JournalSize(); }
 
-  void InitializeReplicaForTest(apptraverse::ReplicaId replica_id) {
-    InitializeReplica(replica_id);
+  void InitializeReplicaForTest(apptraverse::ReplicaId replica_id,
+                                 ae::ObjId base_snapshot_id) {
+    InitializeReplica(replica_id, base_snapshot_id);
   }
 
   void CorruptObjectForTest(ae::ObjId object_id) {
@@ -139,8 +139,7 @@ class Node3 : public Node2 {
 #endif
 
  public:
-  bool SetValue3(ae::ObjId snapshot_id, ae::ObjId event_id,
-                 std::int32_t value);
+  bool SetValue3(ae::ObjId event_id, std::int32_t value);
 
   ae::ObjId factory_id3() const { return factory_id3_; }
   std::int32_t value3() const { return value3_; }
@@ -288,8 +287,7 @@ inline ae::ObjPtr<Node2Factory> Node2::ResolveFactory() {
   return factory;
 }
 
-inline bool Node2::SetObject(ae::ObjId snapshot_id, ae::ObjId event_id,
-                             ae::ObjId object_id) {
+inline bool Node2::SetObject(ae::ObjId event_id, ae::ObjId object_id) {
   auto factory = ResolveFactory();
   if (!factory) {
     return false;
@@ -300,7 +298,7 @@ inline bool Node2::SetObject(ae::ObjId snapshot_id, ae::ObjId event_id,
     return false;
   }
 
-  CommitEvent(event, snapshot_id);
+  CommitEvent(event);
   return true;
 }
 
@@ -323,8 +321,7 @@ inline ae::ObjPtr<Node3Factory> Node3::ResolveFactory3() {
   return factory;
 }
 
-inline bool Node3::SetValue3(ae::ObjId snapshot_id, ae::ObjId event_id,
-                             std::int32_t value) {
+inline bool Node3::SetValue3(ae::ObjId event_id, std::int32_t value) {
   auto factory = ResolveFactory3();
   if (!factory) {
     return false;
@@ -335,7 +332,7 @@ inline bool Node3::SetValue3(ae::ObjId snapshot_id, ae::ObjId event_id,
     return false;
   }
 
-  CommitEvent(event, snapshot_id);
+  CommitEvent(event);
   return true;
 }
 

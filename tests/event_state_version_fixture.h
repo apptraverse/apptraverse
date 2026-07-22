@@ -56,8 +56,7 @@ class EventVersionNode : public apptraverse::Node {
 #endif
 
  public:
-  bool AddValue(ae::ObjId snapshot_id, ae::ObjId event_id,
-                std::int64_t logical_delta);
+  bool AddValue(ae::ObjId event_id, std::int64_t logical_delta);
 
   ae::ObjId factory_id() const { return factory_id_; }
   std::int64_t value_for_test() const { return value_; }
@@ -67,8 +66,9 @@ class EventVersionNode : public apptraverse::Node {
   ae::ObjId base_snapshot_id_for_test() const { return BaseSnapshotId(); }
   std::size_t journal_size_for_test() const { return JournalSize(); }
 
-  void InitializeReplicaForTest(apptraverse::ReplicaId replica_id) {
-    InitializeReplica(replica_id);
+  void InitializeReplicaForTest(apptraverse::ReplicaId replica_id,
+                                 ae::ObjId base_snapshot_id) {
+    InitializeReplica(replica_id, base_snapshot_id);
   }
 
   void CorruptValueForTest(std::int64_t value) { value_ = value; }
@@ -218,8 +218,7 @@ inline ae::ObjPtr<EventVersionFactory> EventVersionNode::ResolveFactory() {
   return factory;
 }
 
-inline bool EventVersionNode::AddValue(ae::ObjId snapshot_id,
-                                       ae::ObjId event_id,
+inline bool EventVersionNode::AddValue(ae::ObjId event_id,
                                        std::int64_t logical_delta) {
   auto factory = ResolveFactory();
   if (!factory) {
@@ -231,7 +230,7 @@ inline bool EventVersionNode::AddValue(ae::ObjId snapshot_id,
     return false;
   }
 
-  CommitEvent(event, snapshot_id);
+  CommitEvent(event);
   return true;
 }
 

@@ -96,8 +96,7 @@ int main(int argc, char** argv) {
                                   std::to_string(AddValueEvent::kClassId) /
                                   "1"));
 
-    APPTRAVERSE_CHECK(node->AddValue(ae::ObjId{kUnusedSnapshotId},
-                                     ae::ObjId{kNewEventId},
+    APPTRAVERSE_CHECK(node->AddValue(ae::ObjId{kNewEventId},
                                      std::int64_t{30}));
     APPTRAVERSE_CHECK(node->value_for_test() == 150);
     APPTRAVERSE_CHECK(node->base_snapshot_id_for_test().id() ==

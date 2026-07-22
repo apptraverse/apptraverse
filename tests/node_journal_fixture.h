@@ -52,12 +52,12 @@ class JournalNode : public apptraverse::Node {
 #endif
 
  public:
-  void InitializeReplicaForTest(ReplicaId replica_id) {
-    InitializeReplica(replica_id);
+  void InitializeReplicaForTest(ReplicaId replica_id,
+                                 ae::ObjId base_snapshot_id) {
+    InitializeReplica(replica_id, base_snapshot_id);
   }
 
-  bool SetValue(ae::ObjId snapshot_id, ae::ObjId event_id,
-                std::int32_t value);
+  bool SetValue(ae::ObjId event_id, std::int32_t value);
 
   std::int32_t value() const { return value_; }
   std::uint32_t apply_calls() const { return apply_calls_; }
@@ -172,8 +172,7 @@ inline ae::ObjPtr<JournalFactory> JournalNode::ResolveFactory() {
   return factory;
 }
 
-inline bool JournalNode::SetValue(ae::ObjId snapshot_id, ae::ObjId event_id,
-                                  std::int32_t value) {
+inline bool JournalNode::SetValue(ae::ObjId event_id, std::int32_t value) {
   auto factory = ResolveFactory();
   if (!factory) {
     return false;
@@ -184,7 +183,7 @@ inline bool JournalNode::SetValue(ae::ObjId snapshot_id, ae::ObjId event_id,
     return false;
   }
 
-  CommitEvent(event, snapshot_id);
+  CommitEvent(event);
   return true;
 }
 

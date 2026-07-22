@@ -60,8 +60,7 @@ class VersionedNode2 : public apptraverse::Node {
 #endif
 
  public:
-  bool SetBaseValue(ae::ObjId snapshot_id, ae::ObjId event_id,
-                    std::int64_t value);
+  bool SetBaseValue(ae::ObjId event_id, std::int64_t value);
 
   ae::ObjId factory_id() const { return factory_id_; }
 
@@ -69,8 +68,9 @@ class VersionedNode2 : public apptraverse::Node {
   std::size_t journal_size_for_test() const { return JournalSize(); }
   std::uint32_t set_base_apply_calls() const { return set_base_apply_calls_; }
 
-  void InitializeReplicaForTest(apptraverse::ReplicaId replica_id) {
-    InitializeReplica(replica_id);
+  void InitializeReplicaForTest(apptraverse::ReplicaId replica_id,
+                                 ae::ObjId base_snapshot_id) {
+    InitializeReplica(replica_id, base_snapshot_id);
   }
 
 #if defined(APPTRAVERSE_STATE_SCHEMA_V0)
@@ -135,8 +135,30 @@ class VersionedNode2 : public apptraverse::Node {
     }
   }
 
+  // Serialize enabled_ as uint8_t so an empty higher-version reader is a
+  // no-op (arithmetic read). Aether's bool extractor always assigns from a
+  // temporary and would clobber V0 migration results when the V1 layer is
+  // absent.
+  template <typename Dnv>
+  void Load(CurrentVersion, Dnv& dnv) {
+    if (ShouldTransferBusinessState()) {
+      std::uint8_t enabled_byte = enabled_ ? std::uint8_t{1} : std::uint8_t{0};
+      dnv(factory_id_, base_value_, enabled_byte);
+      enabled_ = enabled_byte != 0;
+    }
+    FinishLoadIfMostDerived<AppTraverseNodeSelf>();
+  }
+
+  template <typename Dnv>
+  void Save(CurrentVersion, Dnv& dnv) const {
+    if (ShouldTransferBusinessState()) {
+      std::uint8_t const enabled_byte =
+          enabled_ ? std::uint8_t{1} : std::uint8_t{0};
+      dnv(factory_id_, base_value_, enabled_byte);
+    }
+  }
+
  private:
-  AT_NODE_STATE(factory_id_, base_value_, enabled_)
 #endif
 };
 
@@ -297,8 +319,7 @@ inline ae::ObjPtr<VersionedFactory> VersionedNode2::ResolveFactory() {
   return factory;
 }
 
-inline bool VersionedNode2::SetBaseValue(ae::ObjId snapshot_id,
-                                         ae::ObjId event_id,
+inline bool VersionedNode2::SetBaseValue(ae::ObjId event_id,
                                          std::int64_t value) {
   auto factory = ResolveFactory();
   if (!factory) {
@@ -310,7 +331,7 @@ inline bool VersionedNode2::SetBaseValue(ae::ObjId snapshot_id,
     return false;
   }
 
-  CommitEvent(event, snapshot_id);
+  CommitEvent(event);
   return true;
 }
 

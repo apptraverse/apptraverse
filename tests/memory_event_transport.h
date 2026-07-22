@@ -2,6 +2,7 @@
 #define TESTS_MEMORY_EVENT_TRANSPORT_H_
 
 #include <cassert>
+#include <cstddef>
 #include <utility>
 #include <vector>
 
@@ -29,6 +30,7 @@ class MemoryEventTransport final : public IEventTransport {
 
   void SendEvent(EventTransportMessage message) override {
     assert(peer_ != nullptr);
+    ++event_send_count_;
     if (mode_ == MemoryTransportMode::kImmediate) {
       peer_->DeliverEvent(std::move(message));
       return;
@@ -38,6 +40,7 @@ class MemoryEventTransport final : public IEventTransport {
 
   void SendConfirmation(EventConfirmation confirmation) override {
     assert(peer_ != nullptr);
+    ++confirmation_send_count_;
     if (mode_ == MemoryTransportMode::kImmediate) {
       peer_->DeliverConfirmation(std::move(confirmation));
       return;
@@ -73,13 +76,15 @@ class MemoryEventTransport final : public IEventTransport {
   }
 
   void RedeliverLastEvent() {
-    assert(!last_delivered_event_.identity.IsValid() ||
-           last_delivered_event_.identity.IsValid());
     assert(last_delivered_event_.identity.IsValid());
     DeliverEvent(last_delivered_event_);
   }
 
   std::size_t queued_event_count() const { return outbound_events_.size(); }
+  std::size_t event_send_count() const { return event_send_count_; }
+  std::size_t confirmation_send_count() const {
+    return confirmation_send_count_;
+  }
 
  private:
   void DeliverEvent(EventTransportMessage message) {
@@ -99,6 +104,8 @@ class MemoryEventTransport final : public IEventTransport {
   std::vector<EventTransportMessage> outbound_events_;
   std::vector<EventConfirmation> outbound_confirmations_;
   EventTransportMessage last_delivered_event_{};
+  std::size_t event_send_count_{0};
+  std::size_t confirmation_send_count_{0};
 };
 
 }  // namespace apptraverse::test

@@ -21,7 +21,8 @@ namespace apptraverse::test {
 inline constexpr ae::ObjId::Type kSyncNodeId = 1;
 inline constexpr ae::ObjId::Type kSyncFactoryId = 2;
 inline constexpr ae::ObjId::Type kSyncEventPrototypeId = 3;
-inline constexpr ae::ObjId::Type kSyncBaseSnapshotId = 200;
+inline constexpr ae::ObjId::Type kSnapshotA = 200;
+inline constexpr ae::ObjId::Type kSnapshotB = 201;
 inline constexpr ReplicaId kReplicaA{1};
 inline constexpr ReplicaId kReplicaB{2};
 
@@ -50,12 +51,12 @@ class SyncNode : public apptraverse::Node {
 #endif
 
  public:
-  void InitializeReplicaForTest(ReplicaId replica_id) {
-    InitializeReplica(replica_id);
+  void InitializeReplicaForTest(ReplicaId replica_id,
+                                 ae::ObjId base_snapshot_id) {
+    InitializeReplica(replica_id, base_snapshot_id);
   }
 
-  bool AppendToken(ae::ObjId snapshot_id, ae::ObjId event_id,
-                   std::int32_t token);
+  bool AppendToken(ae::ObjId event_id, std::int32_t token);
 
   ae::ObjId factory_id() const { return factory_id_; }
   std::vector<std::int32_t> const& tokens() const { return tokens_; }
@@ -157,8 +158,7 @@ inline ae::ObjPtr<SyncFactory> SyncNode::ResolveFactory() {
   return factory;
 }
 
-inline bool SyncNode::AppendToken(ae::ObjId snapshot_id, ae::ObjId event_id,
-                                  std::int32_t token) {
+inline bool SyncNode::AppendToken(ae::ObjId event_id, std::int32_t token) {
   auto factory = ResolveFactory();
   if (!factory) {
     return false;
@@ -167,7 +167,7 @@ inline bool SyncNode::AppendToken(ae::ObjId snapshot_id, ae::ObjId event_id,
   if (!event) {
     return false;
   }
-  CommitEvent(event, snapshot_id);
+  CommitEvent(event);
   return true;
 }
 

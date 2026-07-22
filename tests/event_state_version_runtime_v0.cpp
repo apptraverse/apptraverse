@@ -68,10 +68,11 @@ int main(int argc, char** argv) {
   APPTRAVERSE_CHECK(node->journal_size_for_test() == 0);
   APPTRAVERSE_CHECK(node->add_value_apply_calls_for_test() == 0);
 
-  node->InitializeReplicaForTest(apptraverse::ReplicaId{1});
+  node->InitializeReplicaForTest(apptraverse::ReplicaId{1},
+                                 ae::ObjId{kBaseSnapshotId});
+  APPTRAVERSE_CHECK(node->base_snapshot_id_for_test().id() == kBaseSnapshotId);
 
-  APPTRAVERSE_CHECK(node->AddValue(ae::ObjId{kBaseSnapshotId},
-                                   ae::ObjId{kOldEventId},
+  APPTRAVERSE_CHECK(node->AddValue(ae::ObjId{kOldEventId},
                                    std::int64_t{20}));
   APPTRAVERSE_CHECK(node->value_for_test() == 120);
   APPTRAVERSE_CHECK(node->base_snapshot_id_for_test().id() == kBaseSnapshotId);

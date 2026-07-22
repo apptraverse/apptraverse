@@ -89,10 +89,11 @@ int main(int argc, char** argv) {
     APPTRAVERSE_CHECK(node->journal_size_for_test() == 0);
     APPTRAVERSE_CHECK(node->apply_calls() == 0);
 
-    node->InitializeReplicaForTest(kJournalReplicaId);
+    node->InitializeReplicaForTest(kJournalReplicaId,
+                                   ae::ObjId{kBaseSnapshotId});
+    APPTRAVERSE_CHECK(node->base_snapshot_id_for_test().id() == kBaseSnapshotId);
 
-    APPTRAVERSE_CHECK(node->SetValue(ae::ObjId{kBaseSnapshotId},
-                                     ae::ObjId{kFirstEventId},
+    APPTRAVERSE_CHECK(node->SetValue(ae::ObjId{kFirstEventId},
                                      std::int32_t{42}));
     APPTRAVERSE_CHECK(node->value() == 42);
     APPTRAVERSE_CHECK(node->apply_calls() == 1);
@@ -144,8 +145,7 @@ int main(int argc, char** argv) {
     APPTRAVERSE_CHECK(ReadFileBytes(snapshot_layer, snapshot_bytes_before));
     APPTRAVERSE_CHECK(!snapshot_bytes_before.empty());
 
-    APPTRAVERSE_CHECK(node->SetValue(ae::ObjId{kUnusedSecondSnapshotId},
-                                     ae::ObjId{kSecondEventId},
+    APPTRAVERSE_CHECK(node->SetValue(ae::ObjId{kSecondEventId},
                                      std::int32_t{84}));
     APPTRAVERSE_CHECK(node->value() == 84);
     APPTRAVERSE_CHECK(node->apply_calls() == 2);

@@ -14,6 +14,11 @@ JournalSynchronizer::JournalSynchronizer(Node& node, ae::Domain& domain,
       domain_{&domain},
       storage_{&storage},
       transport_{&transport} {
+  assert(node_->replica_id().IsValid());
+  assert(node_->BaseSnapshotId().IsValid());
+  assert(domain_ != nullptr);
+  assert(storage_ != nullptr);
+  assert(transport_ != nullptr);
   transport_->SetReceiver(this);
 }
 
@@ -51,6 +56,15 @@ void JournalSynchronizer::OnEvent(EventTransportMessage message) {
   assert(message.target_node_id == node_->obj_id);
   assert(message.identity.IsValid());
 
+  EventConfirmation confirmation;
+  confirmation.target_node_id = message.target_node_id;
+  confirmation.identity = message.identity;
+
+  if (node_->ContainsEvent(message.identity)) {
+    transport_->SendConfirmation(std::move(confirmation));
+    return;
+  }
+
   auto destination_event_id = ae::ObjId::GenerateUnique();
   auto event = DecodeEventObject(*domain_, *storage_, message.event_object,
                                  destination_event_id);
@@ -58,10 +72,6 @@ void JournalSynchronizer::OnEvent(EventTransportMessage message) {
   EventRecord record{std::move(event), message.identity, message.logical_time,
                      EventDeliveryState::kConfirmed};
   node_->AcceptRemoteEvent(std::move(record));
-
-  EventConfirmation confirmation;
-  confirmation.target_node_id = message.target_node_id;
-  confirmation.identity = message.identity;
   transport_->SendConfirmation(std::move(confirmation));
 }
 

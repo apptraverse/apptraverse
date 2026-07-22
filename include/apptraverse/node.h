@@ -86,10 +86,33 @@ class Node : public ae::Obj {
     return event.id();
   }
 
-  void InitializeReplica(ReplicaId replica_id) {
+  bool ContainsEvent(EventIdentity const& identity) const {
+    return FindRecordIndex(identity) < journal_.size();
+  }
+
+  /**
+   * \brief Configure local replica metadata and capture the base snapshot.
+   *
+   * Must be called after loading distilled business state and before any local
+   * or remote journal event. The snapshot is written before metadata is
+   * committed, so the first remote event can safely rebuild from it.
+   */
+  void InitializeReplica(ReplicaId replica_id, ae::ObjId base_snapshot_id) {
     assert(replica_id.IsValid());
+    assert(base_snapshot_id.IsValid());
+    assert(obj_id.IsValid());
+    assert(base_snapshot_id != obj_id);
+    assert(domain != nullptr);
+
+    if (replica_id_.IsValid() || base_snapshot_id_.IsValid()) {
+      assert(replica_id_ == replica_id);
+      assert(base_snapshot_id_ == base_snapshot_id);
+      return;
+    }
+
     assert(journal_.empty());
-    assert(!replica_id_.IsValid() || replica_id_ == replica_id);
+    CaptureBaseSnapshot(base_snapshot_id);
+    base_snapshot_id_ = base_snapshot_id;
     replica_id_ = replica_id;
   }
 
@@ -109,17 +132,13 @@ class Node : public ae::Obj {
     ae::DomainGraph{domain}.SaveRootImpl(root.Load(), snapshot_id);
   }
 
-  void CommitEvent(Event::ptr event, ae::ObjId snapshot_id) {
+  void CommitEvent(Event::ptr event) {
     assert(event && event.is_valid());
     event.Load();
     assert(event);
     assert(replica_id_.IsValid());
+    assert(base_snapshot_id_.IsValid());
     assert(domain != nullptr);
-
-    if (!base_snapshot_id_.IsValid()) {
-      CaptureBaseSnapshot(snapshot_id);
-      base_snapshot_id_ = snapshot_id;
-    }
 
     ++logical_clock_;
     EventIdentity const identity{replica_id_, next_local_sequence_};
@@ -135,8 +154,9 @@ class Node : public ae::Obj {
     assert(record.identity().IsValid());
     assert(record.origin() != replica_id_);
     assert(record.event().is_valid());
+    assert(base_snapshot_id_.IsValid());
 
-    if (FindRecordIndex(record.identity()) < journal_.size()) {
+    if (ContainsEvent(record.identity())) {
       return;
     }
 

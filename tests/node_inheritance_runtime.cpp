@@ -117,10 +117,12 @@ int main(int argc, char** argv) {
     APPTRAVERSE_CHECK(node3->set_object_apply_calls() == 0);
     APPTRAVERSE_CHECK(node3->set_value3_apply_calls() == 0);
 
-    node3->InitializeReplicaForTest(apptraverse::ReplicaId{1});
+    node3->InitializeReplicaForTest(apptraverse::ReplicaId{1},
+                                    ae::ObjId{kBaseSnapshotId});
+    APPTRAVERSE_CHECK(node3->base_snapshot_id_for_test().id() ==
+                      kBaseSnapshotId);
 
-    APPTRAVERSE_CHECK(node3->SetObject(ae::ObjId{kBaseSnapshotId},
-                                       ae::ObjId{kSetObjectEventId},
+    APPTRAVERSE_CHECK(node3->SetObject(ae::ObjId{kSetObjectEventId},
                                        ae::ObjId{kNode1BId}));
     APPTRAVERSE_CHECK(node3->object_id().id() == kNode1BId);
     APPTRAVERSE_CHECK(node3->object());
@@ -149,8 +151,7 @@ int main(int argc, char** argv) {
     APPTRAVERSE_CHECK(!node3_layer_before.empty());
     APPTRAVERSE_CHECK(!node2_layer_before.empty());
 
-    APPTRAVERSE_CHECK(node3->SetValue3(ae::ObjId{kUnusedSecondSnapshotId},
-                                       ae::ObjId{kSetValue3EventId},
+    APPTRAVERSE_CHECK(node3->SetValue3(ae::ObjId{kSetValue3EventId},
                                        std::int32_t{99}));
     APPTRAVERSE_CHECK(node3->object_id().id() == kNode1BId);
     APPTRAVERSE_CHECK(node3->value3() == 99);
