@@ -9,6 +9,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event.h"
+#include "apptraverse/event_record.h"
 
 namespace apptraverse {
 
@@ -45,6 +46,47 @@ class Node : public ae::Obj {
   ae::ObjId BaseSnapshotId() const { return base_snapshot_id_; }
   std::size_t JournalSize() const { return journal_.size(); }
 
+  /**
+   * \brief Next local sequence for a newly committed record.
+   *
+   * Invariant: successfully committed records are numbered 1..N in commit
+   * order with no gaps. Failed commits remove the tentative record and do not
+   * consume a sequence number, so the next sequence is always
+   * journal_.size() + 1. No separate persisted counter is stored.
+   */
+  std::uint64_t NextLocalSequence() const {
+    return static_cast<std::uint64_t>(journal_.size()) + 1U;
+  }
+
+  std::uint64_t JournalSequenceAt(std::size_t index) const {
+    if (index >= journal_.size()) {
+      return 0;
+    }
+    return journal_[index].sequence();
+  }
+
+  EventDeliveryState JournalDeliveryStateAt(std::size_t index) const {
+    if (index >= journal_.size()) {
+      return EventDeliveryState::kPending;
+    }
+    return journal_[index].delivery_state();
+  }
+
+  Event::ptr JournalEventAt(std::size_t index) const {
+    if (index >= journal_.size()) {
+      return {};
+    }
+    return journal_[index].event();
+  }
+
+  ae::ObjId JournalEventIdAt(std::size_t index) const {
+    auto event = JournalEventAt(index);
+    if (!event.is_valid()) {
+      return {};
+    }
+    return event.id();
+  }
+
   bool ShouldTransferBusinessState() const {
     return io_mode_ == IoMode::kSnapshot || !base_snapshot_id_.IsValid();
   }
@@ -63,6 +105,10 @@ class Node : public ae::Obj {
   }
 
   bool CommitEvent(Event::ptr event, ae::ObjId snapshot_id) {
+    if (!event || !event.is_valid()) {
+      return false;
+    }
+    event.Load();
     if (!event) {
       return false;
     }
@@ -76,7 +122,8 @@ class Node : public ae::Obj {
       created_snapshot = true;
     }
 
-    journal_.push_back(event);
+    auto const sequence = NextLocalSequence();
+    journal_.emplace_back(event, sequence, EventDeliveryState::kPending);
     if (!ApplyEvent(*event)) {
       journal_.pop_back();
       if (created_snapshot) {
@@ -133,19 +180,19 @@ class Node : public ae::Obj {
   };
 
   void ReplayJournal() {
-    for (auto& event : journal_) {
-      event.Load();
-      if (!event) {
+    for (auto& record : journal_) {
+      record.event_.Load();
+      if (!record.event_) {
         return;
       }
-      if (!ApplyEvent(*event)) {
+      if (!ApplyEvent(*record.event_)) {
         return;
       }
     }
   }
 
   ae::ObjId base_snapshot_id_;
-  std::vector<Event::ptr> journal_;
+  std::vector<EventRecord> journal_;
   IoMode io_mode_{IoMode::kLive};
 };
 

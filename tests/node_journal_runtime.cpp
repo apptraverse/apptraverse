@@ -8,6 +8,7 @@
 
 #include "aether/obj/domain.h"
 
+#include "apptraverse/event_record.h"
 #include "apptraverse/versioned_directory_storage.h"
 
 #include "node_journal_fixture.h"
@@ -54,12 +55,17 @@ bool ReadFileBytes(std::filesystem::path const& path,
 }  // namespace
 
 int main(int argc, char** argv) {
+  using apptraverse::EventDeliveryState;
   using apptraverse::test::JournalNode;
+  using apptraverse::test::UnrelatedEvent;
   using apptraverse::test::kBaseSnapshotId;
+  using apptraverse::test::kFailedEventId;
+  using apptraverse::test::kFailedSnapshotId;
   using apptraverse::test::kFirstEventId;
   using apptraverse::test::kJournalFactoryId;
   using apptraverse::test::kJournalNodeId;
   using apptraverse::test::kSecondEventId;
+  using apptraverse::test::kUnrelatedEventPrototypeId;
   using apptraverse::test::kUnusedSecondSnapshotId;
 
   if (argc < 3) {
@@ -84,13 +90,33 @@ int main(int argc, char** argv) {
     APPTRAVERSE_CHECK(node->factory_id().id() == kJournalFactoryId);
     APPTRAVERSE_CHECK(!node->base_snapshot_id_for_test().IsValid());
     APPTRAVERSE_CHECK(node->journal_size_for_test() == 0);
+    APPTRAVERSE_CHECK(node->apply_calls() == 0);
+
+    auto foreign_prototype = UnrelatedEvent::ptr::Declare(
+        ae::CreateWith{domain}.with_id(kUnrelatedEventPrototypeId));
+    foreign_prototype.Load();
+    APPTRAVERSE_CHECK(foreign_prototype);
+    auto foreign_event = foreign_prototype.Clone(ae::ObjId{kFailedEventId});
+    APPTRAVERSE_CHECK(foreign_event);
+    APPTRAVERSE_CHECK(!node->TryCommitEventForTest(
+        foreign_event, ae::ObjId{kFailedSnapshotId}));
+    APPTRAVERSE_CHECK(node->value() == 10);
+    APPTRAVERSE_CHECK(node->journal_size_for_test() == 0);
+    APPTRAVERSE_CHECK(!node->base_snapshot_id_for_test().IsValid());
+    APPTRAVERSE_CHECK(node->apply_calls() == 0);
 
     APPTRAVERSE_CHECK(node->SetValue(ae::ObjId{kBaseSnapshotId},
                                      ae::ObjId{kFirstEventId},
                                      std::int32_t{42}));
     APPTRAVERSE_CHECK(node->value() == 42);
+    APPTRAVERSE_CHECK(node->apply_calls() == 1);
     APPTRAVERSE_CHECK(node->base_snapshot_id_for_test().id() == kBaseSnapshotId);
     APPTRAVERSE_CHECK(node->journal_size_for_test() == 1);
+    APPTRAVERSE_CHECK(node->journal_sequence_at_for_test(0) == 1);
+    APPTRAVERSE_CHECK(node->journal_delivery_state_at_for_test(0) ==
+                      EventDeliveryState::kPending);
+    APPTRAVERSE_CHECK(node->journal_event_id_at_for_test(0).id() ==
+                      kFirstEventId);
 
     node.Save();
 
@@ -114,8 +140,14 @@ int main(int argc, char** argv) {
     node.Load();
     APPTRAVERSE_CHECK(node);
     APPTRAVERSE_CHECK(node->value() == 42);
+    APPTRAVERSE_CHECK(node->apply_calls() == 1);
     APPTRAVERSE_CHECK(node->base_snapshot_id_for_test().id() == kBaseSnapshotId);
     APPTRAVERSE_CHECK(node->journal_size_for_test() == 1);
+    APPTRAVERSE_CHECK(node->journal_sequence_at_for_test(0) == 1);
+    APPTRAVERSE_CHECK(node->journal_delivery_state_at_for_test(0) ==
+                      EventDeliveryState::kPending);
+    APPTRAVERSE_CHECK(node->journal_event_id_at_for_test(0).id() ==
+                      kFirstEventId);
     APPTRAVERSE_CHECK(node->factory_id().id() == kJournalFactoryId);
 
     auto const snapshot_layer =
@@ -127,8 +159,31 @@ int main(int argc, char** argv) {
                                      ae::ObjId{kSecondEventId},
                                      std::int32_t{84}));
     APPTRAVERSE_CHECK(node->value() == 84);
+    APPTRAVERSE_CHECK(node->apply_calls() == 2);
     APPTRAVERSE_CHECK(node->base_snapshot_id_for_test().id() == kBaseSnapshotId);
     APPTRAVERSE_CHECK(node->journal_size_for_test() == 2);
+    APPTRAVERSE_CHECK(node->journal_sequence_at_for_test(0) == 1);
+    APPTRAVERSE_CHECK(node->journal_sequence_at_for_test(1) == 2);
+    APPTRAVERSE_CHECK(node->journal_delivery_state_at_for_test(0) ==
+                      EventDeliveryState::kPending);
+    APPTRAVERSE_CHECK(node->journal_delivery_state_at_for_test(1) ==
+                      EventDeliveryState::kPending);
+    APPTRAVERSE_CHECK(node->journal_event_id_at_for_test(1).id() ==
+                      kSecondEventId);
+
+    auto foreign_prototype = UnrelatedEvent::ptr::Declare(
+        ae::CreateWith{domain}.with_id(kUnrelatedEventPrototypeId));
+    foreign_prototype.Load();
+    APPTRAVERSE_CHECK(foreign_prototype);
+    auto foreign_event = foreign_prototype.Clone(ae::ObjId{kFailedEventId});
+    APPTRAVERSE_CHECK(foreign_event);
+    APPTRAVERSE_CHECK(!node->TryCommitEventForTest(
+        foreign_event, ae::ObjId{kFailedSnapshotId}));
+    APPTRAVERSE_CHECK(node->value() == 84);
+    APPTRAVERSE_CHECK(node->journal_size_for_test() == 2);
+    APPTRAVERSE_CHECK(node->journal_sequence_at_for_test(0) == 1);
+    APPTRAVERSE_CHECK(node->journal_sequence_at_for_test(1) == 2);
+    APPTRAVERSE_CHECK(node->base_snapshot_id_for_test().id() == kBaseSnapshotId);
 
     node.Save();
 
@@ -148,9 +203,24 @@ int main(int argc, char** argv) {
     node.Load();
     APPTRAVERSE_CHECK(node);
     APPTRAVERSE_CHECK(node->value() == 84);
+    APPTRAVERSE_CHECK(node->apply_calls() == 2);
     APPTRAVERSE_CHECK(node->base_snapshot_id_for_test().id() == kBaseSnapshotId);
     APPTRAVERSE_CHECK(node->journal_size_for_test() == 2);
+    APPTRAVERSE_CHECK(node->journal_sequence_at_for_test(0) == 1);
+    APPTRAVERSE_CHECK(node->journal_sequence_at_for_test(1) == 2);
+    APPTRAVERSE_CHECK(node->journal_delivery_state_at_for_test(0) ==
+                      EventDeliveryState::kPending);
+    APPTRAVERSE_CHECK(node->journal_delivery_state_at_for_test(1) ==
+                      EventDeliveryState::kPending);
+    APPTRAVERSE_CHECK(node->journal_event_id_at_for_test(0).id() ==
+                      kFirstEventId);
+    APPTRAVERSE_CHECK(node->journal_event_id_at_for_test(1).id() ==
+                      kSecondEventId);
     APPTRAVERSE_CHECK(node->factory_id().id() == kJournalFactoryId);
+
+    auto first_event = node->journal_event_at_for_test(0);
+    APPTRAVERSE_CHECK(first_event.is_valid());
+    APPTRAVERSE_CHECK(first_event.id().id() == kFirstEventId);
   }
 
   APPTRAVERSE_CHECK(!PathExists(writable_root / "2"));
