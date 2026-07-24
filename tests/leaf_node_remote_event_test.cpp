@@ -8,7 +8,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
-#include "apptraverse/node.h"
+#include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
 
@@ -29,14 +29,14 @@ class AppendLeafNodeNameEvent
   std::string suffix;
 };
 
-class LeafNode : public apptraverse::Node {
+class LeafNode : public apptraverse::NodeFor<LeafNode> {
   AE_OBJECT(LeafNode, Node, 0)
 
  protected:
   LeafNode() = default;
 
  public:
-  explicit LeafNode(ae::ObjProp prop) : Node{prop} {}
+  explicit LeafNode(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(name))
 
@@ -44,7 +44,7 @@ class LeafNode : public apptraverse::Node {
 
   void Apply(AppendLeafNodeNameEvent const& event) { name += event.suffix; }
 
-  void CaptureBaseStateForTest() { CaptureBaseState(*this); }
+  void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time) {
     CommitEvent(std::move(event), time);
@@ -52,12 +52,10 @@ class LeafNode : public apptraverse::Node {
 
   void AcceptRemoteEventForTest(apptraverse::Event::ptr event,
                                 ae::TimePoint time) {
-    AcceptRemoteEvent(*this, std::move(event), time);
+    AcceptRemoteEvent(std::move(event), time);
   }
 
-  void RebuildFromBaseAndReplayForTest() {
-    RebuildFromBaseAndReplay(*this);
-  }
+  void RebuildFromBaseAndReplayForTest() { RebuildFromBaseAndReplay(); }
 };
 
 }  // namespace apptraverse::test

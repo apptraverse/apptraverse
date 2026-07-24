@@ -112,3 +112,16 @@ add_test(
   NAME apptraverse_graph_journal_scanner_test
   COMMAND apptraverse_graph_journal_scanner_test
 )
+
+add_executable(apptraverse_node_for_type_erased_accept_test
+  node_for_type_erased_accept_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_node_for_type_erased_accept_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_node_for_type_erased_accept_test
+  COMMAND apptraverse_node_for_type_erased_accept_test
+)

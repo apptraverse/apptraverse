@@ -7,7 +7,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
-#include "apptraverse/node.h"
+#include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
 
@@ -28,14 +28,14 @@ class AppendLeafNodeNameEvent
   std::string suffix;
 };
 
-class LeafNode : public apptraverse::Node {
+class LeafNode : public apptraverse::NodeFor<LeafNode> {
   AE_OBJECT(LeafNode, Node, 0)
 
  protected:
   LeafNode() = default;
 
  public:
-  explicit LeafNode(ae::ObjProp prop) : Node{prop} {}
+  explicit LeafNode(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(name))
 
@@ -45,11 +45,9 @@ class LeafNode : public apptraverse::Node {
 
   void ReplayJournalForTest() { ReplayJournal(); }
 
-  void RebuildFromBaseAndReplayForTest() {
-    RebuildFromBaseAndReplay(*this);
-  }
+  void RebuildFromBaseAndReplayForTest() { RebuildFromBaseAndReplay(); }
 
-  void CaptureBaseStateForTest() { CaptureBaseState(*this); }
+  void CaptureBaseStateForTest() { CaptureBaseState(); }
 };
 
 }  // namespace apptraverse::test

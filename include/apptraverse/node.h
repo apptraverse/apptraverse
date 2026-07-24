@@ -27,6 +27,10 @@ class Node : public ae::Obj {
   Node::ptr base;
   std::vector<EventRecord> journal;
 
+  void AcceptRemoteEvent(Event::ptr event, ae::TimePoint time) {
+    AcceptRemoteEventImpl(std::move(event), time);
+  }
+
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 
@@ -127,6 +131,13 @@ class Node : public ae::Obj {
     } else {
       RebuildFromBaseAndReplay(target);
     }
+  }
+
+ private:
+  virtual void AcceptRemoteEventImpl(Event::ptr event, ae::TimePoint time) {
+    (void)event;
+    (void)time;
+    assert(false && "Concrete Node must inherit through NodeFor");
   }
 };
 

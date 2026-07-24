@@ -5,18 +5,18 @@
 #include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/obj/obj.h"
 
-#include "apptraverse/node.h"
+#include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
 
-class LeafNode : public apptraverse::Node {
+class LeafNode : public apptraverse::NodeFor<LeafNode> {
   AE_OBJECT(LeafNode, Node, 0)
 
  protected:
   LeafNode() = default;
 
  public:
-  explicit LeafNode(ae::ObjProp prop) : Node{prop} {}
+  explicit LeafNode(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(name))
 

@@ -7,7 +7,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
-#include "apptraverse/node.h"
+#include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
 
@@ -42,14 +42,14 @@ class ClientObject : public ae::Obj {
 
 class ClientReferenceEvent;
 
-class ReferenceNode : public apptraverse::Node {
+class ReferenceNode : public apptraverse::NodeFor<ReferenceNode> {
   AE_OBJECT(ReferenceNode, Node, 0)
 
  protected:
   ReferenceNode() = default;
 
  public:
-  explicit ReferenceNode(ae::ObjProp prop) : Node{prop} {}
+  explicit ReferenceNode(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT()
 

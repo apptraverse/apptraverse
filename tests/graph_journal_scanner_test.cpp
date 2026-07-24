@@ -12,7 +12,7 @@
 
 #include "apptraverse/event_for.h"
 #include "apptraverse/graph_journal_scanner.h"
-#include "apptraverse/node.h"
+#include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
 
@@ -49,20 +49,20 @@ class LinkNodeEvent : public apptraverse::EventFor<ScanNode, LinkNodeEvent> {
   ae::ObjPtr<ScanNode> linked;
 };
 
-class ScanNode : public apptraverse::Node {
+class ScanNode : public apptraverse::NodeFor<ScanNode> {
   AE_OBJECT(ScanNode, Node, 0)
 
  protected:
   ScanNode() = default;
 
  public:
-  explicit ScanNode(ae::ObjProp prop) : Node{prop} {}
+  explicit ScanNode(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(name))
 
   std::string name;
 
-  void CaptureBaseStateForTest() { CaptureBaseState(*this); }
+  void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time) {
     CommitEvent(std::move(event), time);
@@ -70,7 +70,7 @@ class ScanNode : public apptraverse::Node {
 
   void AcceptRemoteEventForTest(apptraverse::Event::ptr event,
                                 ae::TimePoint time) {
-    AcceptRemoteEvent(*this, std::move(event), time);
+    AcceptRemoteEvent(std::move(event), time);
   }
 
   void Apply(AppendNameEvent const& event) { name += event.suffix; }
