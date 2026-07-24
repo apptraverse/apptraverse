@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_NODE_H_
 #define APPTRAVERSE_NODE_H_
 
+#include <algorithm>
 #include <cassert>
 #include <utility>
 #include <vector>
@@ -82,6 +83,7 @@ class Node : public ae::Obj {
     assert(event.is_valid());
     assert(event.is_loaded());
     assert(event.domain() == domain);
+    assert(journal.empty() || journal.back().time < time);
 
     journal.push_back(EventRecord{
         std::move(event),
@@ -90,6 +92,41 @@ class Node : public ae::Obj {
     });
 
     ApplyEvent(*journal.back().event);
+  }
+
+  template <typename ConcreteNode>
+  void AcceptRemoteEvent(ConcreteNode& target, Event::ptr event,
+                         ae::TimePoint time) {
+    assert(domain != nullptr);
+    assert(base.is_valid());
+    assert(base.is_loaded());
+    assert(event.is_valid());
+    assert(event.is_loaded());
+    assert(event.domain() == domain);
+
+    auto position = std::lower_bound(
+        journal.begin(), journal.end(), time,
+        [](EventRecord const& record, ae::TimePoint value) {
+          return record.time < value;
+        });
+
+    assert(position == journal.end() || position->time != time);
+
+    bool const appended = position == journal.end();
+
+    auto inserted = journal.insert(
+        position,
+        EventRecord{
+            std::move(event),
+            time,
+            DeliveryStatus::kDelivered,
+        });
+
+    if (appended) {
+      ApplyEvent(*inserted->event);
+    } else {
+      RebuildFromBaseAndReplay(target);
+    }
   }
 };
 

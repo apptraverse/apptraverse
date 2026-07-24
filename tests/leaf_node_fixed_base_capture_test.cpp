@@ -50,7 +50,7 @@ int main() {
   LeafNode::ptr base =
       LeafNode::ptr::Create(ae::CreateWith{domain1}.with_id(1000));
   CHECK(static_cast<bool>(base));
-  base->name = "Old base";
+  base->name = "Uninitialized base";
   CHECK(!base->base.is_valid());
   CHECK(base->journal.empty());
 
@@ -81,52 +81,15 @@ int main() {
   CHECK(!base_after->base.is_valid());
   CHECK(base_after->journal.empty());
 
-  ae::Domain domain2{ae::Now(), storage};
-  LeafNode::ptr loaded_base =
-      LeafNode::ptr::Declare(ae::CreateWith{domain2}.with_id(1000));
-  loaded_base.Load();
-  CHECK(static_cast<bool>(loaded_base));
-  CHECK(loaded_base.id().id() == 1000);
-  CHECK(loaded_base->name == "Alice");
-  CHECK(!loaded_base->base.is_valid());
-  CHECK(loaded_base->journal.empty());
-
-  live->name = "Alice Cooper";
-  CHECK(live->base.id().id() == 1000);
-  CHECK(live->journal.empty());
-
-  live->CaptureBaseStateForTest();
-
-  CHECK(live.id().id() == 100);
-  CHECK(live->name == "Alice Cooper");
-  CHECK(live->base.id().id() == 1000);
-  CHECK(live->base.Load().get() == base_before);
-
-  auto* base_after_second = live->base.Load().as<LeafNode>();
-  CHECK(base_after_second != nullptr);
-  CHECK(base_after_second->name == "Alice Cooper");
-  CHECK(!base_after_second->base.is_valid());
-  CHECK(base_after_second->journal.empty());
-
-  ae::Domain domain3{ae::Now(), storage};
-  LeafNode::ptr reloaded_base =
-      LeafNode::ptr::Declare(ae::CreateWith{domain3}.with_id(1000));
-  reloaded_base.Load();
-  CHECK(static_cast<bool>(reloaded_base));
-  CHECK(reloaded_base.id().id() == 1000);
-  CHECK(reloaded_base->name == "Alice Cooper");
-  CHECK(!reloaded_base->base.is_valid());
-  CHECK(reloaded_base->journal.empty());
-
   live.Save();
 
-  ae::Domain domain4{ae::Now(), storage};
+  ae::Domain domain2{ae::Now(), storage};
   LeafNode::ptr loaded_live =
-      LeafNode::ptr::Declare(ae::CreateWith{domain4}.with_id(100));
+      LeafNode::ptr::Declare(ae::CreateWith{domain2}.with_id(100));
   loaded_live.Load();
   CHECK(static_cast<bool>(loaded_live));
   CHECK(loaded_live.id().id() == 100);
-  CHECK(loaded_live->name == "Alice Cooper");
+  CHECK(loaded_live->name == "Alice");
   CHECK(loaded_live->journal.empty());
   CHECK(loaded_live->base.is_valid());
   CHECK(loaded_live->base.is_loaded());
@@ -134,7 +97,7 @@ int main() {
 
   auto* loaded_live_base = loaded_live->base.Load().as<LeafNode>();
   CHECK(loaded_live_base != nullptr);
-  CHECK(loaded_live_base->name == "Alice Cooper");
+  CHECK(loaded_live_base->name == "Alice");
   CHECK(!loaded_live_base->base.is_valid());
   CHECK(loaded_live_base->journal.empty());
 

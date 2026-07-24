@@ -73,3 +73,16 @@ add_test(
   NAME apptraverse_leaf_node_local_commit_test
   COMMAND apptraverse_leaf_node_local_commit_test
 )
+
+add_executable(apptraverse_leaf_node_remote_event_test
+  leaf_node_remote_event_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_leaf_node_remote_event_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_leaf_node_remote_event_test
+  COMMAND apptraverse_leaf_node_remote_event_test
+)
