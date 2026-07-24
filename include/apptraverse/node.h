@@ -74,6 +74,23 @@ class Node : public ae::Obj {
     ae::DomainGraph load_graph{domain};
     load_graph.Load(concrete_base, base.id());
   }
+
+  void CommitEvent(Event::ptr event, ae::TimePoint time) {
+    assert(domain != nullptr);
+    assert(base.is_valid());
+    assert(base.is_loaded());
+    assert(event.is_valid());
+    assert(event.is_loaded());
+    assert(event.domain() == domain);
+
+    journal.push_back(EventRecord{
+        std::move(event),
+        time,
+        DeliveryStatus::kPending,
+    });
+
+    ApplyEvent(*journal.back().event);
+  }
 };
 
 }  // namespace apptraverse

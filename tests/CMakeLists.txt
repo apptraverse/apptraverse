@@ -60,3 +60,16 @@ add_test(
   NAME apptraverse_leaf_node_fixed_base_capture_test
   COMMAND apptraverse_leaf_node_fixed_base_capture_test
 )
+
+add_executable(apptraverse_leaf_node_local_commit_test
+  leaf_node_local_commit_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_leaf_node_local_commit_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_leaf_node_local_commit_test
+  COMMAND apptraverse_leaf_node_local_commit_test
+)
