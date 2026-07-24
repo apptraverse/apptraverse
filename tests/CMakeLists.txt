@@ -8,3 +8,16 @@ add_test(
   NAME apptraverse_leaf_object_serialization_test
   COMMAND apptraverse_leaf_object_serialization_test
 )
+
+add_executable(apptraverse_leaf_node_base_serialization_test
+  leaf_node_base_serialization_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_leaf_node_base_serialization_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_leaf_node_base_serialization_test
+  COMMAND apptraverse_leaf_node_base_serialization_test
+)
