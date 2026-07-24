@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_NODE_H_
 #define APPTRAVERSE_NODE_H_
 
+#include <cassert>
 #include <utility>
 #include <vector>
 
@@ -45,6 +46,33 @@ class Node : public ae::Obj {
     base = saved_base;
     journal = std::move(saved_journal);
     ReplayJournal();
+  }
+
+  template <typename ConcreteNode>
+  void CaptureBaseState(ConcreteNode& target) {
+    assert(domain != nullptr);
+    assert(base.is_valid());
+    assert(base.is_loaded());
+    assert(journal.empty());
+    assert(base.id() != obj_id);
+
+    auto owner_id = obj_id;
+    auto saved_base = base;
+    auto saved_journal = journal;
+
+    base = {};
+    journal.clear();
+
+    ae::DomainGraph save_graph{domain};
+    save_graph.Save(target, saved_base.id());
+
+    obj_id = owner_id;
+    base = saved_base;
+    journal = std::move(saved_journal);
+
+    auto& concrete_base = static_cast<ConcreteNode&>(*base);
+    ae::DomainGraph load_graph{domain};
+    load_graph.Load(concrete_base, base.id());
   }
 };
 

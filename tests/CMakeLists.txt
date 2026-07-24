@@ -47,3 +47,16 @@ add_test(
   NAME apptraverse_leaf_node_reordered_journal_test
   COMMAND apptraverse_leaf_node_reordered_journal_test
 )
+
+add_executable(apptraverse_leaf_node_fixed_base_capture_test
+  leaf_node_fixed_base_capture_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_leaf_node_fixed_base_capture_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_leaf_node_fixed_base_capture_test
+  COMMAND apptraverse_leaf_node_fixed_base_capture_test
+)

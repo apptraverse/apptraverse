@@ -48,6 +48,8 @@ class LeafNode : public apptraverse::Node {
   void RebuildFromBaseAndReplayForTest() {
     RebuildFromBaseAndReplay(*this);
   }
+
+  void CaptureBaseStateForTest() { CaptureBaseState(*this); }
 };
 
 }  // namespace apptraverse::test
@@ -81,7 +83,6 @@ int main() {
   base->name = "Alice";
   CHECK(!base->base.is_valid());
   CHECK(base->journal.empty());
-  base.Save();
 
   LeafNode::ptr live =
       LeafNode::ptr::Create(ae::CreateWith{domain1}.with_id(100));
@@ -91,6 +92,8 @@ int main() {
   CHECK(live->journal.empty());
   CHECK(live->base.is_valid());
   CHECK(live->base.is_loaded());
+
+  live->CaptureBaseStateForTest();
 
   AppendLeafNodeNameEvent::ptr later_event =
       AppendLeafNodeNameEvent::ptr::Create(ae::CreateWith{domain1}.with_id(200));
