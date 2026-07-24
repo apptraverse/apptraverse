@@ -22,6 +22,15 @@ class Node : public ae::Obj {
 
   Node::ptr base;
   std::vector<EventRecord> journal;
+
+ protected:
+  void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
+
+  void ReplayJournal() {
+    for (auto const& record : journal) {
+      ApplyEvent(*record.event);
+    }
+  }
 };
 
 }  // namespace apptraverse

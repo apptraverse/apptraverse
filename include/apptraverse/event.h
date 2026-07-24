@@ -5,8 +5,12 @@
 
 namespace apptraverse {
 
+class Node;
+
 class Event : public ae::Obj {
   AE_OBJECT(Event, Obj, 0)
+
+  friend class Node;
 
  protected:
   Event() = default;
@@ -15,6 +19,9 @@ class Event : public ae::Obj {
   explicit Event(ae::ObjProp prop) : Obj{prop} {}
 
   AE_OBJECT_REFLECT()
+
+ private:
+  virtual void ApplyTo(Node& target) const = 0;
 };
 
 }  // namespace apptraverse
