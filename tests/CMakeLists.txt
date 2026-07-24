@@ -99,3 +99,16 @@ add_test(
   NAME apptraverse_event_reference_graph_serialization_test
   COMMAND apptraverse_event_reference_graph_serialization_test
 )
+
+add_executable(apptraverse_graph_journal_scanner_test
+  graph_journal_scanner_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_graph_journal_scanner_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_graph_journal_scanner_test
+  COMMAND apptraverse_graph_journal_scanner_test
+)
