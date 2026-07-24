@@ -86,3 +86,16 @@ add_test(
   NAME apptraverse_leaf_node_remote_event_test
   COMMAND apptraverse_leaf_node_remote_event_test
 )
+
+add_executable(apptraverse_event_reference_graph_serialization_test
+  event_reference_graph_serialization_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_event_reference_graph_serialization_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_event_reference_graph_serialization_test
+  COMMAND apptraverse_event_reference_graph_serialization_test
+)
