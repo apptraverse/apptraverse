@@ -111,13 +111,6 @@ class GraphRoot : public ae::Obj {
   ScanNode::ptr unloaded;
 };
 
-namespace {
-
-EnableEventGraphScan<AppendNameEvent> enable_append_name_event_scan;
-EnableEventGraphScan<LinkNodeEvent> enable_link_node_event_scan;
-
-}  // namespace
-
 }  // namespace apptraverse::test
 
 namespace {
