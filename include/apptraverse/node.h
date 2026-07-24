@@ -1,8 +1,10 @@
 #ifndef APPTRAVERSE_NODE_H_
 #define APPTRAVERSE_NODE_H_
 
+#include <utility>
 #include <vector>
 
+#include "aether/obj/domain.h"
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_record.h"
@@ -30,6 +32,19 @@ class Node : public ae::Obj {
     for (auto const& record : journal) {
       ApplyEvent(*record.event);
     }
+  }
+
+  template <typename ConcreteNode>
+  void RebuildFromBaseAndReplay(ConcreteNode& target) {
+    auto owner_id = obj_id;
+    auto saved_base = base;
+    auto saved_journal = journal;
+    ae::DomainGraph graph{domain};
+    graph.Load(target, saved_base.id());
+    obj_id = owner_id;
+    base = saved_base;
+    journal = std::move(saved_journal);
+    ReplayJournal();
   }
 };
 

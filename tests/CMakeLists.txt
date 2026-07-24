@@ -34,3 +34,16 @@ add_test(
   NAME apptraverse_leaf_node_journal_replay_test
   COMMAND apptraverse_leaf_node_journal_replay_test
 )
+
+add_executable(apptraverse_leaf_node_reordered_journal_test
+  leaf_node_reordered_journal_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_leaf_node_reordered_journal_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_leaf_node_reordered_journal_test
+  COMMAND apptraverse_leaf_node_reordered_journal_test
+)

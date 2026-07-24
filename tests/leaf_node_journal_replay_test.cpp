@@ -2,10 +2,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
-#include <utility>
 
 #include "aether/domain_storage/ram_domain_storage.h"
-#include "aether/obj/domain.h"
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
@@ -47,19 +45,8 @@ class LeafNode : public apptraverse::Node {
 
   void ReplayJournalForTest() { ReplayJournal(); }
 
-  void RebuildFromBaseAndReplay() {
-    auto owner_id = obj_id;
-    auto saved_base = base;
-    auto saved_journal = journal;
-
-    ae::DomainGraph graph{domain};
-    graph.Load(*this, saved_base.id());
-
-    obj_id = owner_id;
-    base = saved_base;
-    journal = std::move(saved_journal);
-
-    ReplayJournal();
+  void RebuildFromBaseAndReplayForTest() {
+    RebuildFromBaseAndReplay(*this);
   }
 };
 
@@ -159,7 +146,7 @@ int main() {
   CHECK(loaded_event->name == "Alice Cooper");
 
   loaded->name = "Transient value";
-  loaded->RebuildFromBaseAndReplay();
+  loaded->RebuildFromBaseAndReplayForTest();
 
   CHECK(loaded.id().id() == 100);
   CHECK(loaded->name == "Alice Cooper");
