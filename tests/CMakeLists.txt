@@ -125,3 +125,16 @@ add_test(
   NAME apptraverse_node_for_type_erased_accept_test
   COMMAND apptraverse_node_for_type_erased_accept_test
 )
+
+add_executable(apptraverse_journal_event_message_transfer_test
+  journal_event_message_transfer_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_journal_event_message_transfer_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_journal_event_message_transfer_test
+  COMMAND apptraverse_journal_event_message_transfer_test
+)
