@@ -69,7 +69,7 @@ namespace {
 }  // namespace
 
 int main() {
-  using apptraverse::DeliveryStatus;
+  using apptraverse::EventRecordOrigin;
   using apptraverse::test::AppendLeafNodeNameEvent;
   using apptraverse::test::LeafNode;
 
@@ -120,7 +120,8 @@ int main() {
   CHECK(live->journal.size() == 1);
   CHECK(live->journal[0].event.id().id() == 200);
   CHECK(live->journal[0].time == first_time);
-  CHECK(live->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[0].recipients.empty());
 
   auto* base_after_first = live->base.Load().as<LeafNode>();
   CHECK(base_after_first != nullptr);
@@ -142,8 +143,10 @@ int main() {
   CHECK(live->journal[1].event.id().id() == 201);
   CHECK(live->journal[0].time == first_time);
   CHECK(live->journal[1].time == second_time);
-  CHECK(live->journal[0].delivery_status == DeliveryStatus::kPending);
-  CHECK(live->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[0].recipients.empty());
+  CHECK(live->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[1].recipients.empty());
 
   auto* base_after_second = live->base.Load().as<LeafNode>();
   CHECK(base_after_second != nullptr);
@@ -166,7 +169,8 @@ int main() {
 
   CHECK(loaded->journal[0].event.id().id() == 200);
   CHECK(loaded->journal[0].time == first_time);
-  CHECK(loaded->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(loaded->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded->journal[0].recipients.empty());
   CHECK(loaded->journal[0].event.is_valid());
   CHECK(loaded->journal[0].event.is_loaded());
   CHECK(loaded->journal[0].event->GetClassId() ==
@@ -178,7 +182,8 @@ int main() {
 
   CHECK(loaded->journal[1].event.id().id() == 201);
   CHECK(loaded->journal[1].time == second_time);
-  CHECK(loaded->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(loaded->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded->journal[1].recipients.empty());
   CHECK(loaded->journal[1].event.is_valid());
   CHECK(loaded->journal[1].event.is_loaded());
   CHECK(loaded->journal[1].event->GetClassId() ==
@@ -203,8 +208,10 @@ int main() {
   CHECK(loaded->journal.size() == 2);
   CHECK(loaded->journal[0].event.id().id() == 200);
   CHECK(loaded->journal[1].event.id().id() == 201);
-  CHECK(loaded->journal[0].delivery_status == DeliveryStatus::kPending);
-  CHECK(loaded->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(loaded->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded->journal[0].recipients.empty());
+  CHECK(loaded->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded->journal[1].recipients.empty());
 
   auto* rebuilt_base = loaded->base.Load().as<LeafNode>();
   CHECK(rebuilt_base != nullptr);

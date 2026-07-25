@@ -74,7 +74,7 @@ namespace {
 }  // namespace
 
 int main() {
-  using apptraverse::DeliveryStatus;
+  using apptraverse::EventRecordOrigin;
   using apptraverse::test::AppendLeafNodeNameEvent;
   using apptraverse::test::LeafNode;
 
@@ -123,7 +123,8 @@ int main() {
   CHECK(live->journal.size() == 1);
   CHECK(live->journal[0].event.id().id() == 200);
   CHECK(live->journal[0].time == local_time);
-  CHECK(live->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[0].recipients.empty());
 
   AppendLeafNodeNameEvent::ptr earlier_remote_event =
       AppendLeafNodeNameEvent::ptr::Create(ae::CreateWith{domain1}.with_id(201));
@@ -140,11 +141,13 @@ int main() {
 
   CHECK(live->journal[0].event.id().id() == 201);
   CHECK(live->journal[0].time == earlier_remote_time);
-  CHECK(live->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(live->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(live->journal[0].recipients.empty());
 
   CHECK(live->journal[1].event.id().id() == 200);
   CHECK(live->journal[1].time == local_time);
-  CHECK(live->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(live->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[1].recipients.empty());
 
   auto* base_after_early = live->base.Load().as<LeafNode>();
   CHECK(base_after_early != nullptr);
@@ -166,14 +169,18 @@ int main() {
   CHECK(live->journal.size() == 3);
   CHECK(live->journal[2].event.id().id() == 202);
   CHECK(live->journal[2].time == later_remote_time);
-  CHECK(live->journal[2].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(live->journal[2].origin == EventRecordOrigin::kRemote);
+  CHECK(live->journal[2].recipients.empty());
 
   CHECK(live->journal[0].time == earlier_remote_time);
   CHECK(live->journal[1].time == local_time);
   CHECK(live->journal[2].time == later_remote_time);
-  CHECK(live->journal[0].delivery_status == DeliveryStatus::kDelivered);
-  CHECK(live->journal[1].delivery_status == DeliveryStatus::kPending);
-  CHECK(live->journal[2].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(live->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(live->journal[0].recipients.empty());
+  CHECK(live->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[1].recipients.empty());
+  CHECK(live->journal[2].origin == EventRecordOrigin::kRemote);
+  CHECK(live->journal[2].recipients.empty());
 
   live.Save();
 
@@ -190,7 +197,8 @@ int main() {
 
   CHECK(loaded->journal[0].event.id().id() == 201);
   CHECK(loaded->journal[0].time == earlier_remote_time);
-  CHECK(loaded->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(loaded->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded->journal[0].recipients.empty());
   CHECK(loaded->journal[0].event.is_valid());
   CHECK(loaded->journal[0].event.is_loaded());
   CHECK(loaded->journal[0].event->GetClassId() ==
@@ -202,7 +210,8 @@ int main() {
 
   CHECK(loaded->journal[1].event.id().id() == 200);
   CHECK(loaded->journal[1].time == local_time);
-  CHECK(loaded->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(loaded->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded->journal[1].recipients.empty());
   CHECK(loaded->journal[1].event.is_valid());
   CHECK(loaded->journal[1].event.is_loaded());
   CHECK(loaded->journal[1].event->GetClassId() ==
@@ -214,7 +223,8 @@ int main() {
 
   CHECK(loaded->journal[2].event.id().id() == 202);
   CHECK(loaded->journal[2].time == later_remote_time);
-  CHECK(loaded->journal[2].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(loaded->journal[2].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded->journal[2].recipients.empty());
   CHECK(loaded->journal[2].event.is_valid());
   CHECK(loaded->journal[2].event.is_loaded());
   CHECK(loaded->journal[2].event->GetClassId() ==
@@ -239,13 +249,16 @@ int main() {
   CHECK(loaded->journal.size() == 3);
   CHECK(loaded->journal[0].event.id().id() == 201);
   CHECK(loaded->journal[0].time == earlier_remote_time);
-  CHECK(loaded->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(loaded->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded->journal[0].recipients.empty());
   CHECK(loaded->journal[1].event.id().id() == 200);
   CHECK(loaded->journal[1].time == local_time);
-  CHECK(loaded->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(loaded->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded->journal[1].recipients.empty());
   CHECK(loaded->journal[2].event.id().id() == 202);
   CHECK(loaded->journal[2].time == later_remote_time);
-  CHECK(loaded->journal[2].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(loaded->journal[2].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded->journal[2].recipients.empty());
 
   auto* rebuilt_base = loaded->base.Load().as<LeafNode>();
   CHECK(rebuilt_base != nullptr);

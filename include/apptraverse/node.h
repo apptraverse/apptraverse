@@ -84,6 +84,11 @@ class Node : public ae::Obj {
   }
 
   void CommitEvent(Event::ptr event, ae::TimePoint time) {
+    CommitEvent(std::move(event), time, {});
+  }
+
+  void CommitEvent(Event::ptr event, ae::TimePoint time,
+                   std::vector<ae::ObjId> recipients) {
     assert(domain != nullptr);
     assert(base.is_valid());
     assert(base.is_loaded());
@@ -92,10 +97,28 @@ class Node : public ae::Obj {
     assert(event.domain() == domain);
     assert(journal.empty() || journal.back().time < time);
 
+    for (auto const& recipient : recipients) {
+      assert(recipient.IsValid());
+    }
+
+    std::sort(recipients.begin(), recipients.end());
+    assert(std::adjacent_find(recipients.begin(), recipients.end()) ==
+           recipients.end());
+
+    std::vector<EventRecipientState> recipient_states;
+    recipient_states.reserve(recipients.size());
+    for (auto const& recipient : recipients) {
+      recipient_states.push_back(EventRecipientState{
+          recipient,
+          DeliveryStatus::kPending,
+      });
+    }
+
     journal.push_back(EventRecord{
         std::move(event),
         time,
-        DeliveryStatus::kPending,
+        EventRecordOrigin::kLocal,
+        std::move(recipient_states),
     });
 
     ApplyEvent(*journal.back().event);
@@ -126,7 +149,8 @@ class Node : public ae::Obj {
         EventRecord{
             std::move(event),
             time,
-            DeliveryStatus::kDelivered,
+            EventRecordOrigin::kRemote,
+            {},
         });
 
     if (appended) {

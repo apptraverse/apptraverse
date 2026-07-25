@@ -97,7 +97,7 @@ bool ContainsObj(ae::RamDomainStorage const& storage, ae::ObjId::Type id) {
 }  // namespace
 
 int main() {
-  using apptraverse::DeliveryStatus;
+  using apptraverse::EventRecordOrigin;
   using apptraverse::test::CyclicNode;
   using apptraverse::test::CyclicPresenter;
   using apptraverse::test::RenameCyclicNodeEvent;
@@ -186,7 +186,8 @@ int main() {
 
   CHECK(live->name == "Alice Cooper");
   CHECK(live->journal.size() == 1);
-  CHECK(live->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[0].recipients.empty());
   CHECK(captured_base->name == "Alice");
   CHECK(presenter.Load().get() == presenter_address);
   CHECK(presenter->node.Load().get() == live_address);
@@ -224,7 +225,8 @@ int main() {
   CHECK(loaded->base.id().id() == 1000);
   CHECK(loaded->journal.size() == 1);
   CHECK(loaded->journal[0].event.id().id() == 200);
-  CHECK(loaded->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(loaded->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded->journal[0].recipients.empty());
   auto* loaded_event =
       loaded->journal[0].event.Load().as<RenameCyclicNodeEvent>();
   CHECK(loaded_event != nullptr);

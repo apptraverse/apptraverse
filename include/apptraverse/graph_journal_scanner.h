@@ -6,6 +6,8 @@
 #include <set>
 #include <utility>
 
+#include "aether/obj/obj_id.h"
+
 #include "apptraverse/event_record.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_graph_traversal.h"
@@ -15,9 +17,13 @@ namespace detail {
 
 class PendingJournalTraversal : public ObjectGraphTraversal {
  public:
-  explicit PendingJournalTraversal(
-      std::function<void(Node&, EventRecord&)> pending_visitor)
-      : pending_visitor_{std::move(pending_visitor)} {}
+  PendingJournalTraversal(
+      ae::ObjId recipient,
+      std::function<void(Node&, EventRecord&, EventRecipientState&)>
+          pending_visitor)
+      : recipient_{recipient}, pending_visitor_{std::move(pending_visitor)} {
+    assert(recipient_.IsValid());
+  }
 
  protected:
   void OnNode(Node& node) override {
@@ -26,16 +32,27 @@ class PendingJournalTraversal : public ObjectGraphTraversal {
     }
 
     for (auto& record : node.journal) {
-      if (record.delivery_status != DeliveryStatus::kPending) {
+      if (record.origin != EventRecordOrigin::kLocal) {
         continue;
       }
-      std::invoke(pending_visitor_, node, record);
+
+      auto* recipient_state = record.FindRecipient(recipient_);
+      if (recipient_state == nullptr) {
+        continue;
+      }
+      if (recipient_state->delivery_status != DeliveryStatus::kPending) {
+        continue;
+      }
+
+      std::invoke(pending_visitor_, node, record, *recipient_state);
     }
   }
 
  private:
+  ae::ObjId recipient_;
   std::set<Node*> visited_nodes_;
-  std::function<void(Node&, EventRecord&)> pending_visitor_;
+  std::function<void(Node&, EventRecord&, EventRecipientState&)>
+      pending_visitor_;
 };
 
 }  // namespace detail
@@ -43,16 +60,19 @@ class PendingJournalTraversal : public ObjectGraphTraversal {
 class GraphJournalScanner {
  public:
   template <typename RootPtr, typename PendingVisitor>
-  void VisitPending(RootPtr& root, PendingVisitor&& pending_visitor) const {
+  void VisitPending(RootPtr& root, ae::ObjId recipient,
+                    PendingVisitor&& pending_visitor) const {
     assert(root.is_valid());
     assert(root.is_loaded());
+    assert(recipient.IsValid());
 
-    std::function<void(Node&, EventRecord&)> callback =
-        [&](Node& node, EventRecord& record) {
-          std::invoke(pending_visitor, node, record);
+    std::function<void(Node&, EventRecord&, EventRecipientState&)> callback =
+        [&](Node& node, EventRecord& record,
+            EventRecipientState& recipient_state) {
+          std::invoke(pending_visitor, node, record, recipient_state);
         };
 
-    detail::PendingJournalTraversal traversal{std::move(callback)};
+    detail::PendingJournalTraversal traversal{recipient, std::move(callback)};
     traversal.Traverse(root);
   }
 };

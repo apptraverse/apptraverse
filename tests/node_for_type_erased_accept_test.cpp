@@ -67,7 +67,7 @@ namespace {
 }  // namespace
 
 int main() {
-  using apptraverse::DeliveryStatus;
+  using apptraverse::EventRecordOrigin;
   using apptraverse::test::AppendNameEvent;
   using apptraverse::test::TypeErasedNode;
 
@@ -105,7 +105,8 @@ int main() {
 
   CHECK(live->name == "Alice Cooper");
   CHECK(live->journal.size() == 1);
-  CHECK(live->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[0].recipients.empty());
 
   apptraverse::Node::ptr generic_live = live;
   CHECK(generic_live.is_valid());
@@ -128,11 +129,13 @@ int main() {
 
   CHECK(live->journal[0].event.id().id() == 201);
   CHECK(live->journal[0].time == earlier_time);
-  CHECK(live->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(live->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(live->journal[0].recipients.empty());
 
   CHECK(live->journal[1].event.id().id() == 200);
   CHECK(live->journal[1].time == local_time);
-  CHECK(live->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(live->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[1].recipients.empty());
 
   auto* captured_base = live->base.Load().as<TypeErasedNode>();
   CHECK(captured_base != nullptr);
@@ -160,10 +163,12 @@ int main() {
   CHECK(loaded->journal.size() == 2);
   CHECK(loaded->journal[0].event.id().id() == 201);
   CHECK(loaded->journal[0].time == earlier_time);
-  CHECK(loaded->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(loaded->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded->journal[0].recipients.empty());
   CHECK(loaded->journal[1].event.id().id() == 200);
   CHECK(loaded->journal[1].time == local_time);
-  CHECK(loaded->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(loaded->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded->journal[1].recipients.empty());
 
   AppendNameEvent::ptr later_event =
       AppendNameEvent::ptr::Create(ae::CreateWith{domain2}.with_id(202));
@@ -179,7 +184,8 @@ int main() {
   CHECK(loaded->journal.size() == 3);
   CHECK(loaded->journal[2].event.id().id() == 202);
   CHECK(loaded->journal[2].time == later_time);
-  CHECK(loaded->journal[2].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(loaded->journal[2].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded->journal[2].recipients.empty());
 
   auto* loaded_base = loaded->base.Load().as<TypeErasedNode>();
   CHECK(loaded_base != nullptr);

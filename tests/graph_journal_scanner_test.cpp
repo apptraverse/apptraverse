@@ -11,6 +11,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_record.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/node_for.h"
 
@@ -64,8 +65,9 @@ class ScanNode : public apptraverse::NodeFor<ScanNode> {
 
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
-  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time) {
-    CommitEvent(std::move(event), time);
+  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          std::vector<ae::ObjId> recipients) {
+    CommitEvent(std::move(event), time, std::move(recipients));
   }
 
   void AcceptRemoteEventForTest(apptraverse::Event::ptr event,
@@ -139,12 +141,15 @@ ScanNode::ptr MakeLiveNode(ae::Domain& domain, ae::ObjId::Type id,
 }
 
 std::set<PendingKey> CollectPending(apptraverse::GraphJournalScanner const& scanner,
-                                    GraphRoot::ptr& root) {
+                                    GraphRoot::ptr& root,
+                                    ae::ObjId recipient) {
   std::set<PendingKey> found;
-  scanner.VisitPending(root, [&](apptraverse::Node& node,
-                                 apptraverse::EventRecord& record) {
-    found.emplace(node.obj_id.id(), record.event.id().id());
-  });
+  scanner.VisitPending(
+      root, recipient,
+      [&](apptraverse::Node& node, apptraverse::EventRecord& record,
+          apptraverse::EventRecipientState&) {
+        found.emplace(node.obj_id.id(), record.event.id().id());
+      });
   return found;
 }
 
@@ -152,12 +157,15 @@ std::set<PendingKey> CollectPending(apptraverse::GraphJournalScanner const& scan
 
 int main() {
   using apptraverse::DeliveryStatus;
+  using apptraverse::EventRecordOrigin;
   using apptraverse::GraphJournalScanner;
   using apptraverse::test::AppendNameEvent;
   using apptraverse::test::BridgeObject;
   using apptraverse::test::GraphRoot;
   using apptraverse::test::LinkNodeEvent;
   using apptraverse::test::ScanNode;
+
+  ae::ObjId const receiver_peer{9001};
 
   ae::RamDomainStorage storage;
   ae::Domain domain{ae::Now(), storage};
@@ -181,7 +189,7 @@ int main() {
     link->linked = node_d;
     CHECK(link->linked.is_loaded());
     node_a->CommitEventForTest(
-        link, ae::TimePoint{std::chrono::microseconds{100}});
+        link, ae::TimePoint{std::chrono::microseconds{100}}, {receiver_peer});
   }
   {
     auto append =
@@ -189,11 +197,17 @@ int main() {
     CHECK(static_cast<bool>(append));
     append->suffix = " local-a";
     node_a->CommitEventForTest(
-        append, ae::TimePoint{std::chrono::microseconds{200}});
+        append, ae::TimePoint{std::chrono::microseconds{200}}, {receiver_peer});
   }
   CHECK(node_a->journal.size() == 2);
-  CHECK(node_a->journal[0].delivery_status == DeliveryStatus::kPending);
-  CHECK(node_a->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(node_a->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(node_a->journal[0].FindRecipient(receiver_peer) != nullptr);
+  CHECK(node_a->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
+  CHECK(node_a->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(node_a->journal[1].FindRecipient(receiver_peer) != nullptr);
+  CHECK(node_a->journal[1].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
   CHECK(node_a->name == "A local-a");
 
   {
@@ -210,11 +224,15 @@ int main() {
     CHECK(static_cast<bool>(local));
     local->suffix = " local-b";
     node_b->CommitEventForTest(
-        local, ae::TimePoint{std::chrono::microseconds{200}});
+        local, ae::TimePoint{std::chrono::microseconds{200}}, {receiver_peer});
   }
   CHECK(node_b->journal.size() == 2);
-  CHECK(node_b->journal[0].delivery_status == DeliveryStatus::kDelivered);
-  CHECK(node_b->journal[1].delivery_status == DeliveryStatus::kPending);
+  CHECK(node_b->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(node_b->journal[0].recipients.empty());
+  CHECK(node_b->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(node_b->journal[1].FindRecipient(receiver_peer) != nullptr);
+  CHECK(node_b->journal[1].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
   CHECK(node_b->name == "B remote-b local-b");
 
   {
@@ -223,10 +241,13 @@ int main() {
     CHECK(static_cast<bool>(append));
     append->suffix = " local-c";
     node_c->CommitEventForTest(
-        append, ae::TimePoint{std::chrono::microseconds{100}});
+        append, ae::TimePoint{std::chrono::microseconds{100}}, {receiver_peer});
   }
   CHECK(node_c->journal.size() == 1);
-  CHECK(node_c->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(node_c->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(node_c->journal[0].FindRecipient(receiver_peer) != nullptr);
+  CHECK(node_c->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
 
   {
     auto append =
@@ -234,10 +255,13 @@ int main() {
     CHECK(static_cast<bool>(append));
     append->suffix = " local-d";
     node_d->CommitEventForTest(
-        append, ae::TimePoint{std::chrono::microseconds{100}});
+        append, ae::TimePoint{std::chrono::microseconds{100}}, {receiver_peer});
   }
   CHECK(node_d->journal.size() == 1);
-  CHECK(node_d->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(node_d->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(node_d->journal[0].FindRecipient(receiver_peer) != nullptr);
+  CHECK(node_d->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
 
   {
     auto append =
@@ -245,10 +269,13 @@ int main() {
     CHECK(static_cast<bool>(append));
     append->suffix = " local-e";
     node_e->CommitEventForTest(
-        append, ae::TimePoint{std::chrono::microseconds{100}});
+        append, ae::TimePoint{std::chrono::microseconds{100}}, {receiver_peer});
   }
   CHECK(node_e->journal.size() == 1);
-  CHECK(node_e->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(node_e->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(node_e->journal[0].FindRecipient(receiver_peer) != nullptr);
+  CHECK(node_e->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
 
   auto root = GraphRoot::ptr::Create(ae::CreateWith{domain}.with_id(1));
   auto bridge = BridgeObject::ptr::Create(ae::CreateWith{domain}.with_id(2));
@@ -280,23 +307,31 @@ int main() {
       node_a->journal.size(), node_b->journal.size(), node_c->journal.size(),
       node_d->journal.size(), node_e->journal.size()};
   auto const statuses_a = std::vector<DeliveryStatus>{
-      node_a->journal[0].delivery_status, node_a->journal[1].delivery_status};
-  auto const statuses_b = std::vector<DeliveryStatus>{
-      node_b->journal[0].delivery_status, node_b->journal[1].delivery_status};
-  auto const status_c = node_c->journal[0].delivery_status;
-  auto const status_d = node_d->journal[0].delivery_status;
-  auto const status_e = node_e->journal[0].delivery_status;
+      node_a->journal[0].FindRecipient(receiver_peer)->delivery_status,
+      node_a->journal[1].FindRecipient(receiver_peer)->delivery_status};
+  auto const origin_b0 = node_b->journal[0].origin;
+  auto const recipients_b0_empty = node_b->journal[0].recipients.empty();
+  auto const status_b1 =
+      node_b->journal[1].FindRecipient(receiver_peer)->delivery_status;
+  auto const status_c =
+      node_c->journal[0].FindRecipient(receiver_peer)->delivery_status;
+  auto const status_d =
+      node_d->journal[0].FindRecipient(receiver_peer)->delivery_status;
+  auto const status_e =
+      node_e->journal[0].FindRecipient(receiver_peer)->delivery_status;
 
   GraphJournalScanner scanner;
 
   std::set<PendingKey> found;
   std::map<PendingKey, int> counts;
-  scanner.VisitPending(root, [&](apptraverse::Node& node,
-                                 apptraverse::EventRecord& record) {
-    PendingKey key{node.obj_id.id(), record.event.id().id()};
-    found.insert(key);
-    ++counts[key];
-  });
+  scanner.VisitPending(
+      root, receiver_peer,
+      [&](apptraverse::Node& node, apptraverse::EventRecord& record,
+          apptraverse::EventRecipientState&) {
+        PendingKey key{node.obj_id.id(), record.event.id().id()};
+        found.insert(key);
+        ++counts[key];
+      });
 
   std::set<PendingKey> const expected{
       {100, 1000},
@@ -325,13 +360,20 @@ int main() {
   CHECK(node_d->journal.size() == journal_sizes[3]);
   CHECK(node_e->journal.size() == journal_sizes[4]);
 
-  CHECK(node_a->journal[0].delivery_status == statuses_a[0]);
-  CHECK(node_a->journal[1].delivery_status == statuses_a[1]);
-  CHECK(node_b->journal[0].delivery_status == statuses_b[0]);
-  CHECK(node_b->journal[1].delivery_status == statuses_b[1]);
-  CHECK(node_c->journal[0].delivery_status == status_c);
-  CHECK(node_d->journal[0].delivery_status == status_d);
-  CHECK(node_e->journal[0].delivery_status == status_e);
+  CHECK(node_a->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        statuses_a[0]);
+  CHECK(node_a->journal[1].FindRecipient(receiver_peer)->delivery_status ==
+        statuses_a[1]);
+  CHECK(node_b->journal[0].origin == origin_b0);
+  CHECK(node_b->journal[0].recipients.empty() == recipients_b0_empty);
+  CHECK(node_b->journal[1].FindRecipient(receiver_peer)->delivery_status ==
+        status_b1);
+  CHECK(node_c->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        status_c);
+  CHECK(node_d->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        status_d);
+  CHECK(node_e->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        status_e);
 
   CHECK(node_a->name == name_a);
   CHECK(node_b->name == name_b);
@@ -339,15 +381,20 @@ int main() {
   CHECK(node_d->name == name_d);
   CHECK(node_e->name == name_e);
 
-  CHECK(node_a->journal[0].delivery_status == DeliveryStatus::kPending);
-  CHECK(node_a->journal[1].delivery_status == DeliveryStatus::kPending);
-  CHECK(node_b->journal[1].delivery_status == DeliveryStatus::kPending);
-  CHECK(node_d->journal[0].delivery_status == DeliveryStatus::kPending);
-  CHECK(node_b->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(node_a->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
+  CHECK(node_a->journal[1].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
+  CHECK(node_b->journal[1].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
+  CHECK(node_d->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
+  CHECK(node_b->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(node_b->journal[0].recipients.empty());
 
   CHECK(!root->unloaded.is_loaded());
 
-  auto second = CollectPending(scanner, root);
+  auto second = CollectPending(scanner, root, receiver_peer);
   CHECK(second == found);
   CHECK(second == expected);
 

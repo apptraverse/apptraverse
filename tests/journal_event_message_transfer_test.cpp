@@ -4,11 +4,13 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_record.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/journal_event_message.h"
 #include "apptraverse/journal_message_receiver.h"
@@ -51,8 +53,9 @@ class TransferNode : public apptraverse::NodeFor<TransferNode> {
 
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
-  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time) {
-    CommitEvent(std::move(event), time);
+  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          std::vector<ae::ObjId> recipients) {
+    CommitEvent(std::move(event), time, std::move(recipients));
   }
 };
 
@@ -92,11 +95,14 @@ static_assert(
 
 int main() {
   using apptraverse::DeliveryStatus;
+  using apptraverse::EventRecordOrigin;
   using apptraverse::GraphJournalScanner;
   using apptraverse::JournalEventMessage;
   using apptraverse::JournalTransportMessage;
   using apptraverse::test::AppendNameEvent;
   using apptraverse::test::TransferNode;
+
+  ae::ObjId const receiver_peer{9001};
 
   ae::RamDomainStorage sender_storage;
   ae::RamDomainStorage receiver_storage;
@@ -147,11 +153,14 @@ int main() {
   sender_event->suffix = " Cooper";
 
   ae::TimePoint const event_time{std::chrono::microseconds{100}};
-  sender_node->CommitEventForTest(sender_event, event_time);
+  sender_node->CommitEventForTest(sender_event, event_time, {receiver_peer});
 
   CHECK(sender_node->name == "Alice Cooper");
   CHECK(sender_node->journal.size() == 1);
-  CHECK(sender_node->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(sender_node->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(sender_node->journal[0].FindRecipient(receiver_peer) != nullptr);
+  CHECK(sender_node->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
   CHECK(receiver_node->name == "Alice");
   CHECK(receiver_node->journal.empty());
 
@@ -159,19 +168,21 @@ int main() {
   int callback_count = 0;
   JournalEventMessage::ptr message;
 
-  scanner.VisitPending(sender_node, [&](apptraverse::Node& node,
-                                        apptraverse::EventRecord& record) {
-    ++callback_count;
-    message = JournalEventMessage::ptr::Create(
-        ae::CreateWith{transfer_domain}.with_id(900));
+  scanner.VisitPending(
+      sender_node, receiver_peer,
+      [&](apptraverse::Node& node, apptraverse::EventRecord& record,
+          apptraverse::EventRecipientState&) {
+        ++callback_count;
+        message = JournalEventMessage::ptr::Create(
+            ae::CreateWith{transfer_domain}.with_id(900));
 
-    message->target = apptraverse::Node::ptr::MakeFromThis(&node);
-    message->target.Reset();
-    message->target.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+        message->target = apptraverse::Node::ptr::MakeFromThis(&node);
+        message->target.Reset();
+        message->target.SetFlags(ae::ObjFlags::kUnloadedByDefault);
 
-    message->event = record.event;
-    message->time = record.time;
-  });
+        message->event = record.event;
+        message->time = record.time;
+      });
 
   CHECK(callback_count == 1);
   CHECK(static_cast<bool>(message));
@@ -244,7 +255,8 @@ int main() {
   CHECK(receiver_node->journal.size() == 1);
   CHECK(receiver_node->journal[0].event.id().id() == 200);
   CHECK(receiver_node->journal[0].time == event_time);
-  CHECK(receiver_node->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(receiver_node->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(receiver_node->journal[0].recipients.empty());
   CHECK(receiver_node->journal[0].event.Load().get() ==
         incoming_event_message->event.Load().get());
   CHECK(incoming_event_message->event.is_valid());
@@ -252,20 +264,22 @@ int main() {
 
   CHECK(sender_node->name == "Alice Cooper");
   CHECK(sender_node->journal.size() == 1);
-  CHECK(sender_node->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(sender_node->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(sender_node->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
 
   int sender_pending = 0;
-  scanner.VisitPending(sender_node, [&](apptraverse::Node&,
-                                        apptraverse::EventRecord&) {
-    ++sender_pending;
-  });
+  scanner.VisitPending(
+      sender_node, receiver_peer,
+      [&](apptraverse::Node&, apptraverse::EventRecord&,
+          apptraverse::EventRecipientState&) { ++sender_pending; });
   CHECK(sender_pending == 1);
 
   int receiver_pending = 0;
-  scanner.VisitPending(receiver_node, [&](apptraverse::Node&,
-                                          apptraverse::EventRecord&) {
-    ++receiver_pending;
-  });
+  scanner.VisitPending(
+      receiver_node, receiver_peer,
+      [&](apptraverse::Node&, apptraverse::EventRecord&,
+          apptraverse::EventRecipientState&) { ++receiver_pending; });
   CHECK(receiver_pending == 0);
 
   receiver_node.Save();
@@ -285,7 +299,8 @@ int main() {
   CHECK(reloaded_node->base.id().id() == 1000);
   CHECK(reloaded_node->journal.size() == 1);
   CHECK(reloaded_node->journal[0].event.id().id() == 200);
-  CHECK(reloaded_node->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(reloaded_node->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(reloaded_node->journal[0].recipients.empty());
 
   auto* reloaded_event =
       reloaded_node->journal[0].event.Load().as<AppendNameEvent>();
@@ -302,7 +317,9 @@ int main() {
   CHECK(incoming_event_message->event.domain() == &receiver_domain);
   CHECK(sender_event.Load().get() !=
         incoming_event_message->event.Load().get());
-  CHECK(sender_node->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(sender_node->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(sender_node->journal[0].FindRecipient(receiver_peer)->delivery_status ==
+        DeliveryStatus::kPending);
   CHECK(incoming_event_message->target.Load().get() == receiver_node_address);
   CHECK(incoming_event_message->target.Load().get() !=
         sender_node.Load().get());

@@ -229,3 +229,16 @@ add_test(
   NAME apptraverse_chat_message_reference_synchronization_test
   COMMAND apptraverse_chat_message_reference_synchronization_test
 )
+
+add_executable(apptraverse_multi_recipient_delivery_test
+  multi_recipient_delivery_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_multi_recipient_delivery_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_multi_recipient_delivery_test
+  COMMAND apptraverse_multi_recipient_delivery_test
+)

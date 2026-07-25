@@ -66,8 +66,8 @@ namespace {
 }  // namespace
 
 int main() {
-  using apptraverse::DeliveryStatus;
   using apptraverse::EventRecord;
+  using apptraverse::EventRecordOrigin;
   using apptraverse::test::AppendLeafNodeNameEvent;
   using apptraverse::test::LeafNode;
 
@@ -100,7 +100,7 @@ int main() {
 
   ae::TimePoint const later_time{std::chrono::microseconds{200}};
   live->journal.push_back(
-      EventRecord{later_event, later_time, DeliveryStatus::kPending});
+      EventRecord{later_event, later_time, EventRecordOrigin::kLocal, {}});
 
   live->ReplayJournalForTest();
 
@@ -116,7 +116,7 @@ int main() {
   ae::TimePoint const earlier_time{std::chrono::microseconds{100}};
   live->journal.insert(
       live->journal.begin(),
-      EventRecord{earlier_event, earlier_time, DeliveryStatus::kPending});
+      EventRecord{earlier_event, earlier_time, EventRecordOrigin::kLocal, {}});
 
   CHECK(live->name == "Alice Cooper");
   CHECK(live->journal.size() == 2);

@@ -64,8 +64,8 @@ namespace {
 }  // namespace
 
 int main() {
-  using apptraverse::DeliveryStatus;
   using apptraverse::EventRecord;
+  using apptraverse::EventRecordOrigin;
   using apptraverse::test::LeafNode;
   using apptraverse::test::RenameLeafNodeEvent;
 
@@ -96,7 +96,7 @@ int main() {
 
   ae::TimePoint const event_time{std::chrono::microseconds{123456}};
   live->journal.push_back(
-      EventRecord{rename_event, event_time, DeliveryStatus::kPending});
+      EventRecord{rename_event, event_time, EventRecordOrigin::kLocal, {}});
 
   live->ReplayJournalForTest();
 
@@ -131,7 +131,8 @@ int main() {
 
   CHECK(loaded->journal.size() == 1);
   CHECK(loaded->journal[0].time == event_time);
-  CHECK(loaded->journal[0].delivery_status == DeliveryStatus::kPending);
+  CHECK(loaded->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded->journal[0].recipients.empty());
   CHECK(loaded->journal[0].event.is_valid());
   CHECK(loaded->journal[0].event.is_loaded());
   CHECK(loaded->journal[0].event.id().id() == 200);

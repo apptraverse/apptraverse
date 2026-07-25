@@ -67,8 +67,9 @@ class Chat : public apptraverse::NodeFor<Chat> {
 
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
-  void CommitFromPresenter(apptraverse::Event::ptr event, ae::TimePoint time) {
-    CommitEvent(std::move(event), time);
+  void CommitFromPresenter(apptraverse::Event::ptr event, ae::TimePoint time,
+                           std::vector<ae::ObjId> recipients) {
+    CommitEvent(std::move(event), time, std::move(recipients));
   }
 };
 
@@ -155,7 +156,8 @@ class ChatPresenter : public ae::Obj {
     client = std::move(value);
   }
 
-  void Join(ae::ObjId event_id, ae::TimePoint time);
+  void Join(ae::ObjId event_id, ae::TimePoint time,
+            std::vector<ae::ObjId> recipients);
 
   bool IsLocal(ChatEntry const& entry) const {
     return client.is_valid() && entry.client.is_valid() &&
@@ -226,7 +228,8 @@ Client::ptr Client::Instantiate(std::string name, ae::ObjPtr<Chat> chat) {
   return instance;
 }
 
-void ChatPresenter::Join(ae::ObjId event_id, ae::TimePoint time) {
+void ChatPresenter::Join(ae::ObjId event_id, ae::TimePoint time,
+                         std::vector<ae::ObjId> recipients) {
   assert(domain != nullptr);
   assert(chat.is_valid());
   assert(chat.is_loaded());
@@ -243,7 +246,7 @@ void ChatPresenter::Join(ae::ObjId event_id, ae::TimePoint time) {
   event->client = client;
   assert(event->client.is_loaded());
 
-  chat->CommitFromPresenter(event, time);
+  chat->CommitFromPresenter(event, time, std::move(recipients));
 }
 
 class Runtime : public ae::Obj {
@@ -394,10 +397,13 @@ bool ContainsObj(ae::RamDomainStorage const& storage, ae::ObjId id) {
   return storage.state.find(id) != storage.state.end();
 }
 
-int CountPending(apptraverse::GraphJournalScanner const& scanner, auto& root) {
+int CountPending(apptraverse::GraphJournalScanner const& scanner, auto& root,
+                 ae::ObjId recipient) {
   int count = 0;
-  scanner.VisitPending(root, [&](apptraverse::Node&,
-                                 apptraverse::EventRecord&) { ++count; });
+  scanner.VisitPending(
+      root, recipient,
+      [&](apptraverse::Node&, apptraverse::EventRecord&,
+          apptraverse::EventRecipientState&) { ++count; });
   return count;
 }
 
@@ -405,6 +411,7 @@ int CountPending(apptraverse::GraphJournalScanner const& scanner, auto& root) {
 
 int main() {
   using apptraverse::DeliveryStatus;
+  using apptraverse::EventRecordOrigin;
   using apptraverse::GraphJournalScanner;
   using apptraverse::GraphSynchronizer;
   using apptraverse::JournalMessageReceiver;
@@ -484,14 +491,18 @@ int main() {
   CHECK(support_runtime->chat->journal.empty());
 
   alice_runtime->chat->presenter->Join(
-      ae::ObjId{200}, ae::TimePoint{std::chrono::microseconds{100}});
+      ae::ObjId{200}, ae::TimePoint{std::chrono::microseconds{100}},
+      {support_id});
 
   CHECK(alice_runtime->chat->timeline.size() == 1);
   CHECK(alice_runtime->chat->timeline[0].client.Load().get() == alice_address);
   CHECK(alice_runtime->chat->journal.size() == 1);
   CHECK(alice_runtime->chat->journal[0].event.id().id() == 200);
-  CHECK(alice_runtime->chat->journal[0].delivery_status ==
-        DeliveryStatus::kPending);
+  CHECK(alice_runtime->chat->journal[0].origin == EventRecordOrigin::kLocal);
+  auto* alice_join_recipient =
+      alice_runtime->chat->journal[0].FindRecipient(support_id);
+  CHECK(alice_join_recipient != nullptr);
+  CHECK(alice_join_recipient->delivery_status == DeliveryStatus::kPending);
   auto* join_event =
       alice_runtime->chat->journal[0].event.Load().as<ClientJoinedEvent>();
   CHECK(join_event != nullptr);
@@ -533,7 +544,7 @@ int main() {
   LoopbackJournalMessageTransport transport{
       message_domain, transfer_storage, support_domain, support_storage,
       receiver};
-  GraphSynchronizer synchronizer{message_domain, transport};
+  GraphSynchronizer synchronizer{support_id, message_domain, transport};
 
   synchronizer.Synchronize(alice_runtime);
 
@@ -560,8 +571,11 @@ int main() {
   CHECK(!ContainsObj(transfer_storage, support_base_id));
   CHECK(!ContainsObj(transfer_storage, support_presenter_id));
 
-  CHECK(alice_runtime->chat->journal[0].delivery_status ==
-        DeliveryStatus::kDelivered);
+  CHECK(alice_runtime->chat->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(alice_runtime->chat->journal[0].FindRecipient(support_id) != nullptr);
+  CHECK(alice_runtime->chat->journal[0]
+            .FindRecipient(support_id)
+            ->delivery_status == DeliveryStatus::kDelivered);
   CHECK(alice_runtime->chat->timeline.size() == 1);
   CHECK(alice_runtime->chat->timeline[0].client.Load().get() == alice_address);
   CHECK(alice_runtime->chat->presenter->client.Load().get() == alice_address);
@@ -600,8 +614,8 @@ int main() {
   CHECK(support_runtime->chat->timeline.size() == 1);
   CHECK(support_runtime->chat->journal.size() == 1);
   CHECK(support_runtime->chat->journal[0].event.id().id() == 200);
-  CHECK(support_runtime->chat->journal[0].delivery_status ==
-        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(support_runtime->chat->journal[0].recipients.empty());
   CHECK(support_runtime->chat->timeline[0].client.id() == alice_id);
 
   auto* support_join =
@@ -656,8 +670,8 @@ int main() {
   CHECK(alice_id != support_id);
 
   GraphJournalScanner scanner;
-  CHECK(CountPending(scanner, alice_runtime) == 0);
-  CHECK(CountPending(scanner, support_runtime) == 0);
+  CHECK(CountPending(scanner, alice_runtime, support_id) == 0);
+  CHECK(CountPending(scanner, support_runtime, support_id) == 0);
 
   remote_alice->chat.Load();
   remote_alice->resource.Load();
@@ -717,7 +731,8 @@ int main() {
   CHECK(loaded_remote_base->name == "Alice");
   CHECK(loaded_remote_alice->journal.empty());
   CHECK(loaded_chat->journal[0].event.id().id() == 200);
-  CHECK(loaded_chat->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(loaded_chat->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded_chat->journal[0].recipients.empty());
 
   CHECK(!loaded_remote_alice->chat.is_loaded());
   CHECK(!loaded_remote_alice->resource.is_loaded());

@@ -6,6 +6,7 @@
 
 #include "aether/obj/domain.h"
 #include "aether/obj/obj.h"
+#include "aether/obj/obj_id.h"
 
 #include "apptraverse/event_record.h"
 #include "apptraverse/graph_journal_scanner.h"
@@ -17,9 +18,12 @@ namespace apptraverse {
 
 class GraphSynchronizer {
  public:
-  GraphSynchronizer(ae::Domain& message_domain,
+  GraphSynchronizer(ae::ObjId recipient, ae::Domain& message_domain,
                     IJournalMessageTransport& transport)
-      : message_domain_{&message_domain}, transport_{&transport} {
+      : recipient_{recipient},
+        message_domain_{&message_domain},
+        transport_{&transport} {
+    assert(recipient_.IsValid());
     assert(message_domain_ != nullptr);
     assert(transport_ != nullptr);
   }
@@ -32,37 +36,43 @@ class GraphSynchronizer {
     assert(root.is_loaded());
 
     GraphJournalScanner scanner;
-    scanner.VisitPending(root, [&](Node& node, EventRecord& record) {
-      assert(record.delivery_status == DeliveryStatus::kPending);
-      assert(record.event.is_valid());
-      assert(record.event.is_loaded());
-      assert(node.domain != nullptr);
-      assert(record.event.domain() == node.domain);
+    scanner.VisitPending(
+        root, recipient_,
+        [&](Node& node, EventRecord& record,
+            EventRecipientState& recipient_state) {
+          assert(record.origin == EventRecordOrigin::kLocal);
+          assert(recipient_state.recipient == recipient_);
+          assert(recipient_state.delivery_status == DeliveryStatus::kPending);
+          assert(record.event.is_valid());
+          assert(record.event.is_loaded());
+          assert(node.domain != nullptr);
+          assert(record.event.domain() == node.domain);
 
-      auto message = JournalEventMessage::ptr::Create(
-          ae::CreateWith{*message_domain_});
+          auto message = JournalEventMessage::ptr::Create(
+              ae::CreateWith{*message_domain_});
 
-      message->target = Node::ptr::MakeFromThis(&node);
-      message->target.Reset();
-      message->target.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+          message->target = Node::ptr::MakeFromThis(&node);
+          message->target.Reset();
+          message->target.SetFlags(ae::ObjFlags::kUnloadedByDefault);
 
-      assert(message->target.is_valid());
-      assert(!message->target.is_loaded());
+          assert(message->target.is_valid());
+          assert(!message->target.is_loaded());
 
-      message->event = record.event;
-      message->time = record.time;
+          message->event = record.event;
+          message->time = record.time;
 
-      assert(message->event.is_valid());
-      assert(message->event.is_loaded());
+          assert(message->event.is_valid());
+          assert(message->event.is_loaded());
 
-      JournalTransportMessage::ptr transport_message = message;
-      transport_->Send(std::move(transport_message));
+          JournalTransportMessage::ptr transport_message = message;
+          transport_->Send(std::move(transport_message));
 
-      record.delivery_status = DeliveryStatus::kDelivered;
-    });
+          recipient_state.delivery_status = DeliveryStatus::kDelivered;
+        });
   }
 
  private:
+  ae::ObjId recipient_;
   ae::Domain* message_domain_;
   IJournalMessageTransport* transport_;
 };
