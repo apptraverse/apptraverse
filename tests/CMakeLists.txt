@@ -151,3 +151,16 @@ add_test(
   NAME apptraverse_graph_synchronizer_test
   COMMAND apptraverse_graph_synchronizer_test
 )
+
+add_executable(apptraverse_multi_node_graph_synchronization_test
+  multi_node_graph_synchronization_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_multi_node_graph_synchronization_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_multi_node_graph_synchronization_test
+  COMMAND apptraverse_multi_node_graph_synchronization_test
+)
