@@ -10,6 +10,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/event_record.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/graph_synchronizer.h"
@@ -56,8 +57,9 @@ class SyncNode : public apptraverse::NodeFor<SyncNode> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          ae::ObjId origin,
                           std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, std::move(recipients));
+    CommitEvent(std::move(event), time, origin, std::move(recipients));
   }
 };
 
@@ -90,6 +92,7 @@ class LoopbackJournalMessageTransport final
     assert(event_message != nullptr);
     assert(event_message->target.is_valid());
     assert(!event_message->target.is_loaded());
+    assert(event_message->identity.IsValid());
     assert(event_message->event.is_valid());
     assert(event_message->event.is_loaded());
     assert(event_message->target.id().id() == 100);
@@ -100,18 +103,19 @@ class LoopbackJournalMessageTransport final
 
     auto const event_id = event_message->event.id();
     auto& sender = **sender_node_;
-    bool found_pending = false;
+    apptraverse::EventRecord const* sender_record = nullptr;
     for (auto const& record : sender.journal) {
       if (record.event.id() == event_id) {
+        sender_record = &record;
         auto const* recipient_state = record.FindRecipient(receiver_peer_);
         assert(recipient_state != nullptr);
         assert(recipient_state->delivery_status ==
                apptraverse::DeliveryStatus::kPending);
-        found_pending = true;
+        assert(record.identity == event_message->identity);
         break;
       }
     }
-    assert(found_pending);
+    assert(sender_record != nullptr);
 
     message_ids.push_back(message.id());
     message.Save();
@@ -123,7 +127,18 @@ class LoopbackJournalMessageTransport final
         apptraverse::JournalTransportMessage::ptr::Declare(
             ae::CreateWith{*receiver_domain_}.with_id(message.id()));
     incoming.Load();
-    receiver_->Receive(std::move(incoming));
+
+    auto* incoming_event_message =
+        incoming.Load().as<apptraverse::JournalEventMessage>();
+    assert(incoming_event_message != nullptr);
+    assert(incoming_event_message->identity.IsValid());
+    assert(incoming_event_message->identity == sender_record->identity);
+    assert(incoming_event_message->event.is_valid());
+    assert(!incoming_event_message->event.is_loaded());
+
+    receiver_->Receive(incoming);
+
+    assert(incoming_event_message->event.is_loaded());
 
     ++send_count;
   }
@@ -181,6 +196,7 @@ int main() {
   using apptraverse::test::LoopbackJournalMessageTransport;
   using apptraverse::test::SyncNode;
 
+  ae::ObjId const local_origin{9001};
   ae::ObjId const receiver_peer{9001};
 
   ae::RamDomainStorage sender_storage;
@@ -229,22 +245,27 @@ int main() {
   CHECK(static_cast<bool>(event_b));
   event_b->suffix = " B.";
   ae::TimePoint const time_b{std::chrono::microseconds{100}};
-  sender_node->CommitEventForTest(event_b, time_b, {receiver_peer});
+  sender_node->CommitEventForTest(event_b, time_b, local_origin, {receiver_peer});
 
   AppendNameEvent::ptr event_cooper = AppendNameEvent::ptr::Create(
       ae::CreateWith{sender_domain}.with_id(201));
   CHECK(static_cast<bool>(event_cooper));
   event_cooper->suffix = " Cooper";
   ae::TimePoint const time_cooper{std::chrono::microseconds{200}};
-  sender_node->CommitEventForTest(event_cooper, time_cooper, {receiver_peer});
+  sender_node->CommitEventForTest(event_cooper, time_cooper, local_origin,
+                                  {receiver_peer});
 
   CHECK(sender_node->name == "Alice B. Cooper");
   CHECK(sender_node->journal.size() == 2);
   CHECK(sender_node->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(sender_node->journal[0].identity.origin == local_origin);
+  CHECK(sender_node->journal[0].identity.sequence == 1);
   CHECK(sender_node->journal[0].FindRecipient(receiver_peer) != nullptr);
   CHECK(sender_node->journal[0].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
   CHECK(sender_node->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(sender_node->journal[1].identity.origin == local_origin);
+  CHECK(sender_node->journal[1].identity.sequence == 2);
   CHECK(sender_node->journal[1].FindRecipient(receiver_peer) != nullptr);
   CHECK(sender_node->journal[1].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
@@ -285,10 +306,14 @@ int main() {
   CHECK(receiver_node->journal[0].event.id().id() == 200);
   CHECK(receiver_node->journal[0].time == time_b);
   CHECK(receiver_node->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(receiver_node->journal[0].identity ==
+        sender_node->journal[0].identity);
   CHECK(receiver_node->journal[0].recipients.empty());
   CHECK(receiver_node->journal[1].event.id().id() == 201);
   CHECK(receiver_node->journal[1].time == time_cooper);
   CHECK(receiver_node->journal[1].origin == EventRecordOrigin::kRemote);
+  CHECK(receiver_node->journal[1].identity ==
+        sender_node->journal[1].identity);
   CHECK(receiver_node->journal[1].recipients.empty());
 
   CHECK(receiver_node->journal[0].event.Load().get() !=
@@ -372,8 +397,12 @@ int main() {
   CHECK(loaded_sender->journal[1].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kDelivered);
   CHECK(loaded_receiver->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded_receiver->journal[0].identity.origin == local_origin);
+  CHECK(loaded_receiver->journal[0].identity.sequence == 1);
   CHECK(loaded_receiver->journal[0].recipients.empty());
   CHECK(loaded_receiver->journal[1].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded_receiver->journal[1].identity.origin == local_origin);
+  CHECK(loaded_receiver->journal[1].identity.sequence == 2);
   CHECK(loaded_receiver->journal[1].recipients.empty());
   CHECK(loaded_sender->journal[0].time == time_b);
   CHECK(loaded_sender->journal[1].time == time_cooper);

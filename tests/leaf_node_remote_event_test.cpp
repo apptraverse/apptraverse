@@ -8,6 +8,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
@@ -46,13 +47,15 @@ class LeafNode : public apptraverse::NodeFor<LeafNode> {
 
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
-  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time) {
-    CommitEvent(std::move(event), time);
+  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          ae::ObjId origin) {
+    CommitEvent(std::move(event), time, origin);
   }
 
-  void AcceptRemoteEventForTest(apptraverse::Event::ptr event,
-                                ae::TimePoint time) {
-    AcceptRemoteEvent(std::move(event), time);
+  bool AcceptRemoteEventForTest(apptraverse::Event::ptr event,
+                                ae::TimePoint time,
+                                apptraverse::EventIdentity identity) {
+    return AcceptRemoteEvent(std::move(event), time, identity);
   }
 
   void RebuildFromBaseAndReplayForTest() { RebuildFromBaseAndReplay(); }
@@ -74,9 +77,13 @@ namespace {
 }  // namespace
 
 int main() {
+  using apptraverse::EventIdentity;
   using apptraverse::EventRecordOrigin;
   using apptraverse::test::AppendLeafNodeNameEvent;
   using apptraverse::test::LeafNode;
+
+  ae::ObjId const local_origin{9001};
+  ae::ObjId const remote_origin{9002};
 
   ae::RamDomainStorage storage;
 
@@ -117,14 +124,16 @@ int main() {
   local_event->suffix = " Cooper";
 
   ae::TimePoint const local_time{std::chrono::microseconds{200}};
-  live->CommitEventForTest(local_event, local_time);
+  live->CommitEventForTest(local_event, local_time, local_origin);
 
   CHECK(live->name == "Alice Cooper");
   CHECK(live->journal.size() == 1);
   CHECK(live->journal[0].event.id().id() == 200);
+  CHECK((live->journal[0].identity == EventIdentity{local_origin, 1}));
   CHECK(live->journal[0].time == local_time);
   CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
   CHECK(live->journal[0].recipients.empty());
+  CHECK(live->next_local_sequence == 2);
 
   AppendLeafNodeNameEvent::ptr earlier_remote_event =
       AppendLeafNodeNameEvent::ptr::Create(ae::CreateWith{domain1}.with_id(201));
@@ -132,7 +141,9 @@ int main() {
   earlier_remote_event->suffix = " B.";
 
   ae::TimePoint const earlier_remote_time{std::chrono::microseconds{100}};
-  live->AcceptRemoteEventForTest(earlier_remote_event, earlier_remote_time);
+  CHECK((live->AcceptRemoteEventForTest(
+      earlier_remote_event, earlier_remote_time,
+      EventIdentity{remote_origin, 1})));
 
   CHECK(live->name == "Alice B. Cooper");
   CHECK(live.id().id() == 100);
@@ -140,11 +151,13 @@ int main() {
   CHECK(live->journal.size() == 2);
 
   CHECK(live->journal[0].event.id().id() == 201);
+  CHECK((live->journal[0].identity == EventIdentity{remote_origin, 1}));
   CHECK(live->journal[0].time == earlier_remote_time);
   CHECK(live->journal[0].origin == EventRecordOrigin::kRemote);
   CHECK(live->journal[0].recipients.empty());
 
   CHECK(live->journal[1].event.id().id() == 200);
+  CHECK((live->journal[1].identity == EventIdentity{local_origin, 1}));
   CHECK(live->journal[1].time == local_time);
   CHECK(live->journal[1].origin == EventRecordOrigin::kLocal);
   CHECK(live->journal[1].recipients.empty());
@@ -161,13 +174,16 @@ int main() {
   later_remote_event->suffix = " Jr.";
 
   ae::TimePoint const later_remote_time{std::chrono::microseconds{300}};
-  live->AcceptRemoteEventForTest(later_remote_event, later_remote_time);
+  CHECK((live->AcceptRemoteEventForTest(
+      later_remote_event, later_remote_time,
+      EventIdentity{remote_origin, 2})));
 
   CHECK(live->name == "Alice B. Cooper Jr.");
   CHECK(live->name != "Alice B. Cooper B. Cooper Jr.");
   CHECK(live->name != "Alice B. Cooper Jr. Jr.");
   CHECK(live->journal.size() == 3);
   CHECK(live->journal[2].event.id().id() == 202);
+  CHECK((live->journal[2].identity == EventIdentity{remote_origin, 2}));
   CHECK(live->journal[2].time == later_remote_time);
   CHECK(live->journal[2].origin == EventRecordOrigin::kRemote);
   CHECK(live->journal[2].recipients.empty());
@@ -246,6 +262,7 @@ int main() {
   CHECK(loaded->name == "Alice B. Cooper Jr.");
   CHECK(loaded.id().id() == 100);
   CHECK(loaded->base.id().id() == 1000);
+  CHECK(loaded->next_local_sequence == 2);
   CHECK(loaded->journal.size() == 3);
   CHECK(loaded->journal[0].event.id().id() == 201);
   CHECK(loaded->journal[0].time == earlier_remote_time);

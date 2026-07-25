@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -22,13 +24,28 @@ class Node : public ae::Obj {
  public:
   explicit Node(ae::ObjProp prop) : Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal))
+  AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal),
+                    AE_MMBR(next_local_sequence))
 
   Node::ptr base;
   std::vector<EventRecord> journal;
+  std::uint32_t next_local_sequence{1};
 
-  void AcceptRemoteEvent(Event::ptr event, ae::TimePoint time) {
-    AcceptRemoteEventImpl(std::move(event), time);
+  bool AcceptRemoteEvent(Event::ptr event, ae::TimePoint time,
+                         EventIdentity identity) {
+    return AcceptRemoteEventImpl(std::move(event), time, identity);
+  }
+
+  bool ContainsEvent(EventIdentity identity) const {
+    assert(identity.IsValid());
+
+    for (auto const& record : journal) {
+      if (record.identity == identity) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
  protected:
@@ -45,11 +62,13 @@ class Node : public ae::Obj {
     auto owner_id = obj_id;
     auto saved_base = base;
     auto saved_journal = journal;
+    auto saved_next_local_sequence = next_local_sequence;
     ae::DomainGraph graph{domain};
     graph.Load(target, saved_base.id());
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
+    next_local_sequence = saved_next_local_sequence;
     ReplayJournal();
   }
 
@@ -64,6 +83,7 @@ class Node : public ae::Obj {
     auto owner_id = obj_id;
     auto saved_base = base;
     auto saved_journal = journal;
+    auto saved_next_local_sequence = next_local_sequence;
 
     base = {};
     journal.clear();
@@ -77,17 +97,18 @@ class Node : public ae::Obj {
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
+    next_local_sequence = saved_next_local_sequence;
 
     auto& concrete_base = static_cast<ConcreteNode&>(*base);
     ae::DomainGraph load_graph{domain};
     load_graph.Load(concrete_base, base.id());
   }
 
-  void CommitEvent(Event::ptr event, ae::TimePoint time) {
-    CommitEvent(std::move(event), time, {});
+  void CommitEvent(Event::ptr event, ae::TimePoint time, ae::ObjId origin) {
+    CommitEvent(std::move(event), time, origin, {});
   }
 
-  void CommitEvent(Event::ptr event, ae::TimePoint time,
+  void CommitEvent(Event::ptr event, ae::TimePoint time, ae::ObjId origin,
                    std::vector<ae::ObjId> recipients) {
     assert(domain != nullptr);
     assert(base.is_valid());
@@ -96,6 +117,16 @@ class Node : public ae::Obj {
     assert(event.is_loaded());
     assert(event.domain() == domain);
     assert(journal.empty() || journal.back().time < time);
+    assert(origin.IsValid());
+    assert(next_local_sequence != 0);
+    assert(next_local_sequence !=
+           std::numeric_limits<std::uint32_t>::max());
+
+    EventIdentity const identity{origin, next_local_sequence};
+    ++next_local_sequence;
+
+    assert(identity.IsValid());
+    assert(!ContainsEvent(identity));
 
     for (auto const& recipient : recipients) {
       assert(recipient.IsValid());
@@ -116,6 +147,7 @@ class Node : public ae::Obj {
 
     journal.push_back(EventRecord{
         std::move(event),
+        identity,
         time,
         EventRecordOrigin::kLocal,
         std::move(recipient_states),
@@ -125,14 +157,19 @@ class Node : public ae::Obj {
   }
 
   template <typename ConcreteNode>
-  void AcceptRemoteEvent(ConcreteNode& target, Event::ptr event,
-                         ae::TimePoint time) {
+  bool AcceptRemoteEvent(ConcreteNode& target, Event::ptr event,
+                         ae::TimePoint time, EventIdentity identity) {
     assert(domain != nullptr);
     assert(base.is_valid());
     assert(base.is_loaded());
     assert(event.is_valid());
     assert(event.is_loaded());
     assert(event.domain() == domain);
+    assert(identity.IsValid());
+
+    if (ContainsEvent(identity)) {
+      return false;
+    }
 
     auto position = std::lower_bound(
         journal.begin(), journal.end(), time,
@@ -148,6 +185,7 @@ class Node : public ae::Obj {
         position,
         EventRecord{
             std::move(event),
+            identity,
             time,
             EventRecordOrigin::kRemote,
             {},
@@ -158,13 +196,18 @@ class Node : public ae::Obj {
     } else {
       RebuildFromBaseAndReplay(target);
     }
+
+    return true;
   }
 
  private:
-  virtual void AcceptRemoteEventImpl(Event::ptr event, ae::TimePoint time) {
+  virtual bool AcceptRemoteEventImpl(Event::ptr event, ae::TimePoint time,
+                                     EventIdentity identity) {
     (void)event;
     (void)time;
+    (void)identity;
     assert(false && "Concrete Node must inherit through NodeFor");
+    return false;
   }
 };
 

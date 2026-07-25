@@ -10,6 +10,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/event_record.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/journal_event_message.h"
@@ -54,8 +55,9 @@ class TransferNode : public apptraverse::NodeFor<TransferNode> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          ae::ObjId origin,
                           std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, std::move(recipients));
+    CommitEvent(std::move(event), time, origin, std::move(recipients));
   }
 };
 
@@ -102,6 +104,7 @@ int main() {
   using apptraverse::test::AppendNameEvent;
   using apptraverse::test::TransferNode;
 
+  ae::ObjId const local_origin{9001};
   ae::ObjId const receiver_peer{9001};
 
   ae::RamDomainStorage sender_storage;
@@ -153,11 +156,14 @@ int main() {
   sender_event->suffix = " Cooper";
 
   ae::TimePoint const event_time{std::chrono::microseconds{100}};
-  sender_node->CommitEventForTest(sender_event, event_time, {receiver_peer});
+  sender_node->CommitEventForTest(sender_event, event_time, local_origin,
+                                  {receiver_peer});
 
   CHECK(sender_node->name == "Alice Cooper");
   CHECK(sender_node->journal.size() == 1);
   CHECK(sender_node->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(sender_node->journal[0].identity.origin == local_origin);
+  CHECK(sender_node->journal[0].identity.sequence == 1);
   CHECK(sender_node->journal[0].FindRecipient(receiver_peer) != nullptr);
   CHECK(sender_node->journal[0].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
@@ -181,6 +187,8 @@ int main() {
         message->target.SetFlags(ae::ObjFlags::kUnloadedByDefault);
 
         message->event = record.event;
+        message->event.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+        message->identity = record.identity;
         message->time = record.time;
       });
 
@@ -190,6 +198,8 @@ int main() {
   CHECK(message->target.is_valid());
   CHECK(message->target.id().id() == 100);
   CHECK(!message->target.is_loaded());
+  CHECK(message->identity.IsValid());
+  CHECK(message->identity == sender_node->journal[0].identity);
   CHECK(message->event.is_valid());
   CHECK(message->event.is_loaded());
   CHECK(message->event.id().id() == 200);
@@ -224,18 +234,14 @@ int main() {
   CHECK(incoming_event_message->target.id().id() == 100);
   CHECK(!incoming_event_message->target.is_loaded());
   CHECK(incoming_event_message->target.domain() == &receiver_domain);
+  CHECK(incoming_event_message->identity.IsValid());
+  CHECK(incoming_event_message->identity ==
+        sender_node->journal[0].identity);
   CHECK(incoming_event_message->event.is_valid());
-  CHECK(incoming_event_message->event.is_loaded());
+  CHECK(!incoming_event_message->event.is_loaded());
   CHECK(incoming_event_message->event.id().id() == 200);
   CHECK(incoming_event_message->event.domain() == &receiver_domain);
   CHECK(incoming_event_message->time == event_time);
-
-  auto* receiver_append =
-      incoming_event_message->event.Load().as<AppendNameEvent>();
-  CHECK(receiver_append != nullptr);
-  CHECK(receiver_append->suffix == " Cooper");
-  CHECK(incoming_event_message->event.Load().get() !=
-        sender_event.Load().get());
 
   auto* receiver_node_address = receiver_node.Load().get();
   CHECK(receiver_node_address != nullptr);
@@ -244,6 +250,14 @@ int main() {
 
   apptraverse::JournalMessageReceiver receiver;
   receiver.Receive(incoming_message);
+
+  CHECK(incoming_event_message->event.is_loaded());
+  auto* receiver_append =
+      incoming_event_message->event.Load().as<AppendNameEvent>();
+  CHECK(receiver_append != nullptr);
+  CHECK(receiver_append->suffix == " Cooper");
+  CHECK(incoming_event_message->event.Load().get() !=
+        sender_event.Load().get());
 
   CHECK(incoming_event_message->target.is_loaded());
   CHECK(incoming_event_message->target.Load().get() == receiver_node_address);
@@ -256,6 +270,8 @@ int main() {
   CHECK(receiver_node->journal[0].event.id().id() == 200);
   CHECK(receiver_node->journal[0].time == event_time);
   CHECK(receiver_node->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(receiver_node->journal[0].identity ==
+        incoming_event_message->identity);
   CHECK(receiver_node->journal[0].recipients.empty());
   CHECK(receiver_node->journal[0].event.Load().get() ==
         incoming_event_message->event.Load().get());

@@ -45,6 +45,7 @@ class GraphSynchronizer {
           assert(recipient_state.delivery_status == DeliveryStatus::kPending);
           assert(record.event.is_valid());
           assert(record.event.is_loaded());
+          assert(record.identity.IsValid());
           assert(node.domain != nullptr);
           assert(record.event.domain() == node.domain);
 
@@ -59,8 +60,11 @@ class GraphSynchronizer {
           assert(!message->target.is_loaded());
 
           message->event = record.event;
+          message->event.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+          message->identity = record.identity;
           message->time = record.time;
 
+          assert(message->identity.IsValid());
           assert(message->event.is_valid());
           assert(message->event.is_loaded());
 

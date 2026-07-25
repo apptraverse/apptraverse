@@ -9,6 +9,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
@@ -53,8 +54,9 @@ class CyclicNode : public apptraverse::NodeFor<CyclicNode> {
 
   void RebuildFromBaseAndReplayForTest() { RebuildFromBaseAndReplay(); }
 
-  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time) {
-    CommitEvent(std::move(event), time);
+  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          ae::ObjId origin) {
+    CommitEvent(std::move(event), time, origin);
   }
 };
 
@@ -97,10 +99,13 @@ bool ContainsObj(ae::RamDomainStorage const& storage, ae::ObjId::Type id) {
 }  // namespace
 
 int main() {
+  using apptraverse::EventIdentity;
   using apptraverse::EventRecordOrigin;
   using apptraverse::test::CyclicNode;
   using apptraverse::test::CyclicPresenter;
   using apptraverse::test::RenameCyclicNodeEvent;
+
+  ae::ObjId const local_origin{9001};
 
   ae::RamDomainStorage storage;
   ae::Domain domain1{ae::Now(), storage};
@@ -182,10 +187,11 @@ int main() {
   CHECK(static_cast<bool>(rename_event));
   rename_event->name = "Alice Cooper";
   ae::TimePoint const rename_time{std::chrono::microseconds{100}};
-  live->CommitEventForTest(rename_event, rename_time);
+  live->CommitEventForTest(rename_event, rename_time, local_origin);
 
   CHECK(live->name == "Alice Cooper");
   CHECK(live->journal.size() == 1);
+  CHECK((live->journal[0].identity == EventIdentity{local_origin, 1}));
   CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
   CHECK(live->journal[0].recipients.empty());
   CHECK(captured_base->name == "Alice");

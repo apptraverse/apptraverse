@@ -8,6 +8,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
@@ -48,8 +49,9 @@ class LeafNode : public apptraverse::NodeFor<LeafNode> {
 
   void RebuildFromBaseAndReplayForTest() { RebuildFromBaseAndReplay(); }
 
-  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time) {
-    CommitEvent(std::move(event), time);
+  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          ae::ObjId origin) {
+    CommitEvent(std::move(event), time, origin);
   }
 };
 
@@ -69,9 +71,12 @@ namespace {
 }  // namespace
 
 int main() {
+  using apptraverse::EventIdentity;
   using apptraverse::EventRecordOrigin;
   using apptraverse::test::AppendLeafNodeNameEvent;
   using apptraverse::test::LeafNode;
+
+  ae::ObjId const local_origin{9001};
 
   ae::RamDomainStorage storage;
 
@@ -112,16 +117,18 @@ int main() {
   first_event->suffix = " B.";
 
   ae::TimePoint const first_time{std::chrono::microseconds{100}};
-  live->CommitEventForTest(first_event, first_time);
+  live->CommitEventForTest(first_event, first_time, local_origin);
 
   CHECK(live->name == "Alice B.");
   CHECK(live.id().id() == 100);
   CHECK(live->base.id().id() == 1000);
   CHECK(live->journal.size() == 1);
   CHECK(live->journal[0].event.id().id() == 200);
+  CHECK((live->journal[0].identity == EventIdentity{local_origin, 1}));
   CHECK(live->journal[0].time == first_time);
   CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
   CHECK(live->journal[0].recipients.empty());
+  CHECK(live->next_local_sequence == 2);
 
   auto* base_after_first = live->base.Load().as<LeafNode>();
   CHECK(base_after_first != nullptr);
@@ -134,19 +141,22 @@ int main() {
   second_event->suffix = " Cooper";
 
   ae::TimePoint const second_time{std::chrono::microseconds{200}};
-  live->CommitEventForTest(second_event, second_time);
+  live->CommitEventForTest(second_event, second_time, local_origin);
 
   CHECK(live->name == "Alice B. Cooper");
   CHECK(live->name != "Alice B. B. Cooper");
   CHECK(live->journal.size() == 2);
   CHECK(live->journal[0].event.id().id() == 200);
   CHECK(live->journal[1].event.id().id() == 201);
+  CHECK((live->journal[0].identity == EventIdentity{local_origin, 1}));
+  CHECK((live->journal[1].identity == EventIdentity{local_origin, 2}));
   CHECK(live->journal[0].time == first_time);
   CHECK(live->journal[1].time == second_time);
   CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
   CHECK(live->journal[0].recipients.empty());
   CHECK(live->journal[1].origin == EventRecordOrigin::kLocal);
   CHECK(live->journal[1].recipients.empty());
+  CHECK(live->next_local_sequence == 3);
 
   auto* base_after_second = live->base.Load().as<LeafNode>();
   CHECK(base_after_second != nullptr);
@@ -205,6 +215,7 @@ int main() {
   CHECK(loaded->name == "Alice B. Cooper");
   CHECK(loaded.id().id() == 100);
   CHECK(loaded->base.id().id() == 1000);
+  CHECK(loaded->next_local_sequence == 3);
   CHECK(loaded->journal.size() == 2);
   CHECK(loaded->journal[0].event.id().id() == 200);
   CHECK(loaded->journal[1].event.id().id() == 201);

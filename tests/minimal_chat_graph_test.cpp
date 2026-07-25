@@ -13,6 +13,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/node_for.h"
 
@@ -76,8 +77,9 @@ class Chat : public apptraverse::NodeFor<Chat> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitFromPresenter(apptraverse::Event::ptr event, ae::TimePoint time,
+                           ae::ObjId origin,
                            std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, std::move(recipients));
+    CommitEvent(std::move(event), time, origin, std::move(recipients));
   }
 };
 
@@ -103,8 +105,9 @@ class Client : public apptraverse::NodeFor<Client> {
   void CapturePrefabBaseForTest() { CaptureBaseState(); }
 
   void CommitFromPresenter(apptraverse::Event::ptr event, ae::TimePoint time,
+                           ae::ObjId origin,
                            std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, std::move(recipients));
+    CommitEvent(std::move(event), time, origin, std::move(recipients));
   }
 
   Client::ptr Instantiate(std::string instance_name,
@@ -282,7 +285,7 @@ void ChatPresenter::Join(ae::ObjId event_id, ae::TimePoint time,
   ClientJoinedEvent::ptr event =
       ClientJoinedEvent::ptr::Create(ae::CreateWith{*domain}.with_id(event_id));
   event->client = client;
-  chat->CommitFromPresenter(event, time, std::move(recipients));
+  chat->CommitFromPresenter(event, time, client.id(), std::move(recipients));
 }
 
 void ChatPresenter::Send(std::string text, ae::ObjId event_id,
@@ -301,7 +304,7 @@ void ChatPresenter::Send(std::string text, ae::ObjId event_id,
       SendMessageEvent::ptr::Create(ae::CreateWith{*domain}.with_id(event_id));
   event->sender = client;
   event->text = std::move(text);
-  chat->CommitFromPresenter(event, time, std::move(recipients));
+  chat->CommitFromPresenter(event, time, client.id(), std::move(recipients));
 }
 
 void ClientPresenter::Rename(std::string name, ae::ObjId event_id,
@@ -316,7 +319,7 @@ void ClientPresenter::Rename(std::string name, ae::ObjId event_id,
   RenameClientEvent::ptr event =
       RenameClientEvent::ptr::Create(ae::CreateWith{*domain}.with_id(event_id));
   event->name = std::move(name);
-  client->CommitFromPresenter(event, time, std::move(recipients));
+  client->CommitFromPresenter(event, time, client.id(), std::move(recipients));
 }
 
 class Runtime : public ae::Obj {
@@ -373,6 +376,7 @@ using PendingKey = std::pair<ae::ObjId::Type, ae::ObjId::Type>;
 
 int main() {
   using apptraverse::DeliveryStatus;
+  using apptraverse::EventIdentity;
   using apptraverse::EventRecordOrigin;
   using apptraverse::GraphJournalScanner;
   using apptraverse::test::Chat;
@@ -562,6 +566,8 @@ int main() {
   CHECK(loaded_runtime->chat->journal[0].time ==
         ae::TimePoint{std::chrono::microseconds{100}});
   CHECK(loaded_runtime->chat->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded_runtime->chat->journal[0].identity.origin == alice_id);
+  CHECK(loaded_runtime->chat->journal[0].identity.sequence == 1);
   auto* join_recipient =
       loaded_runtime->chat->journal[0].FindRecipient(pending_peer);
   CHECK(join_recipient != nullptr);
@@ -584,6 +590,8 @@ int main() {
   CHECK(loaded_runtime->chat->journal[1].time ==
         ae::TimePoint{std::chrono::microseconds{300}});
   CHECK(loaded_runtime->chat->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded_runtime->chat->journal[1].identity.origin == alice_id);
+  CHECK(loaded_runtime->chat->journal[1].identity.sequence == 2);
   auto* send_recipient =
       loaded_runtime->chat->journal[1].FindRecipient(pending_peer);
   CHECK(send_recipient != nullptr);
@@ -596,8 +604,11 @@ int main() {
   remote_first_message->text = "first";
   ae::TimePoint const remote_time{std::chrono::microseconds{200}};
 
+  apptraverse::EventIdentity const remote_identity{alice_id, 3};
+
   apptraverse::Node::ptr generic_chat = loaded_runtime->chat;
-  generic_chat->AcceptRemoteEvent(remote_first_message, remote_time);
+  CHECK(generic_chat->AcceptRemoteEvent(remote_first_message, remote_time,
+                                        remote_identity));
 
   CHECK(loaded_runtime->chat->timeline.size() == 3);
   CHECK(loaded_runtime->chat->timeline[0].kind == ChatEntryKind::kClientJoined);
@@ -623,11 +634,14 @@ int main() {
   CHECK(loaded_runtime->chat->journal[1].event.id().id() == 203);
   CHECK(loaded_runtime->chat->journal[1].time == remote_time);
   CHECK(loaded_runtime->chat->journal[1].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded_runtime->chat->journal[1].identity == remote_identity);
   CHECK(loaded_runtime->chat->journal[1].recipients.empty());
   CHECK(loaded_runtime->chat->journal[2].event.id().id() == 201);
   CHECK(loaded_runtime->chat->journal[2].time ==
         ae::TimePoint{std::chrono::microseconds{300}});
   CHECK(loaded_runtime->chat->journal[2].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded_runtime->chat->journal[2].identity.origin == alice_id);
+  CHECK(loaded_runtime->chat->journal[2].identity.sequence == 2);
   auto* send_recipient_after_remote =
       loaded_runtime->chat->journal[2].FindRecipient(pending_peer);
   CHECK(send_recipient_after_remote != nullptr);
@@ -658,6 +672,8 @@ int main() {
   CHECK(alice->journal.size() == 1);
   CHECK(alice->journal[0].event.id().id() == 202);
   CHECK(alice->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(alice->journal[0].identity.origin == alice_id);
+  CHECK(alice->journal[0].identity.sequence == 1);
   auto* rename_recipient = alice->journal[0].FindRecipient(pending_peer);
   CHECK(rename_recipient != nullptr);
   CHECK(rename_recipient->delivery_status == DeliveryStatus::kPending);
@@ -749,13 +765,18 @@ int main() {
   CHECK(loaded_chat->journal[2].time ==
         ae::TimePoint{std::chrono::microseconds{300}});
   CHECK(loaded_chat->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded_chat->journal[0].identity.origin == alice_id);
+  CHECK(loaded_chat->journal[0].identity.sequence == 1);
   auto* loaded_join_recipient =
       loaded_chat->journal[0].FindRecipient(pending_peer);
   CHECK(loaded_join_recipient != nullptr);
   CHECK(loaded_join_recipient->delivery_status == DeliveryStatus::kPending);
   CHECK(loaded_chat->journal[1].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded_chat->journal[1].identity == remote_identity);
   CHECK(loaded_chat->journal[1].recipients.empty());
   CHECK(loaded_chat->journal[2].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded_chat->journal[2].identity.origin == alice_id);
+  CHECK(loaded_chat->journal[2].identity.sequence == 2);
   auto* loaded_send_recipient =
       loaded_chat->journal[2].FindRecipient(pending_peer);
   CHECK(loaded_send_recipient != nullptr);
@@ -801,6 +822,8 @@ int main() {
   CHECK(loaded_alice->journal.size() == 1);
   CHECK(loaded_alice->journal[0].event.id().id() == 202);
   CHECK(loaded_alice->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(loaded_alice->journal[0].identity.origin == alice_id);
+  CHECK(loaded_alice->journal[0].identity.sequence == 1);
   auto* loaded_rename_recipient =
       loaded_alice->journal[0].FindRecipient(pending_peer);
   CHECK(loaded_rename_recipient != nullptr);

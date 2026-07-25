@@ -10,6 +10,8 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
+#include "apptraverse/event_record.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/graph_synchronizer.h"
 #include "apptraverse/journal_event_message.h"
@@ -55,8 +57,9 @@ class MultiRecipientNode : public apptraverse::NodeFor<MultiRecipientNode> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          ae::ObjId origin,
                           std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, std::move(recipients));
+    CommitEvent(std::move(event), time, origin, std::move(recipients));
   }
 };
 
@@ -66,12 +69,14 @@ class LoopbackJournalMessageTransport final
   LoopbackJournalMessageTransport(
       ae::Domain& message_domain, ae::RamDomainStorage& transfer_storage,
       ae::Domain& receiver_domain, ae::RamDomainStorage& receiver_storage,
-      apptraverse::JournalMessageReceiver& receiver)
+      apptraverse::JournalMessageReceiver& receiver,
+      MultiRecipientNode::ptr& sender_node)
       : message_domain_{&message_domain},
         transfer_storage_{&transfer_storage},
         receiver_domain_{&receiver_domain},
         receiver_storage_{&receiver_storage},
-        receiver_{&receiver} {}
+        receiver_{&receiver},
+        sender_node_{&sender_node} {}
 
   std::size_t send_count{0};
   std::vector<ae::ObjId> message_ids;
@@ -86,8 +91,19 @@ class LoopbackJournalMessageTransport final
     assert(event_message != nullptr);
     assert(event_message->target.is_valid());
     assert(!event_message->target.is_loaded());
+    assert(event_message->identity.IsValid());
     assert(event_message->event.is_valid());
     assert(event_message->event.is_loaded());
+
+    apptraverse::EventRecord const* sender_record = nullptr;
+    for (auto const& record : (*sender_node_)->journal) {
+      if (record.event.id() == event_message->event.id()) {
+        sender_record = &record;
+        break;
+      }
+    }
+    assert(sender_record != nullptr);
+    assert(sender_record->identity == event_message->identity);
 
     message_ids.push_back(message.id());
     message.Save();
@@ -99,7 +115,18 @@ class LoopbackJournalMessageTransport final
         apptraverse::JournalTransportMessage::ptr::Declare(
             ae::CreateWith{*receiver_domain_}.with_id(message.id()));
     incoming.Load();
-    receiver_->Receive(std::move(incoming));
+
+    auto* incoming_event_message =
+        incoming.Load().as<apptraverse::JournalEventMessage>();
+    assert(incoming_event_message != nullptr);
+    assert(incoming_event_message->identity.IsValid());
+    assert(incoming_event_message->identity == sender_record->identity);
+    assert(incoming_event_message->event.is_valid());
+    assert(!incoming_event_message->event.is_loaded());
+
+    receiver_->Receive(incoming);
+
+    assert(incoming_event_message->event.is_loaded());
 
     ++send_count;
   }
@@ -110,6 +137,7 @@ class LoopbackJournalMessageTransport final
   ae::Domain* receiver_domain_;
   ae::RamDomainStorage* receiver_storage_;
   apptraverse::JournalMessageReceiver* receiver_;
+  MultiRecipientNode::ptr* sender_node_;
 };
 
 }  // namespace apptraverse::test
@@ -167,6 +195,7 @@ int main() {
   using apptraverse::test::LoopbackJournalMessageTransport;
   using apptraverse::test::MultiRecipientNode;
 
+  ae::ObjId const local_origin{9001};
   ae::ObjId const peer_b{2};
   ae::ObjId const peer_c{3};
 
@@ -201,11 +230,13 @@ int main() {
   CHECK(static_cast<bool>(event));
   event->suffix = "X";
   ae::TimePoint const event_time{std::chrono::microseconds{100}};
-  sender->CommitEventForTest(event, event_time, {peer_c, peer_b});
+  sender->CommitEventForTest(event, event_time, local_origin, {peer_c, peer_b});
 
   CHECK(sender->value == "AX");
   CHECK(sender->journal.size() == 1);
   CHECK(sender->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(sender->journal[0].identity.origin == local_origin);
+  CHECK(sender->journal[0].identity.sequence == 1);
   CHECK(sender->journal[0].recipients.size() == 2);
   CHECK(sender->journal[0].recipients[0].recipient == peer_b);
   CHECK(sender->journal[0].recipients[1].recipient == peer_c);
@@ -218,10 +249,10 @@ int main() {
   JournalMessageReceiver receiver_c_handler;
   LoopbackJournalMessageTransport transport_b{
       message_domain_b, transfer_b_storage, receiver_b_domain,
-      receiver_b_storage, receiver_b_handler};
+      receiver_b_storage, receiver_b_handler, sender};
   LoopbackJournalMessageTransport transport_c{
       message_domain_c, transfer_c_storage, receiver_c_domain,
-      receiver_c_storage, receiver_c_handler};
+      receiver_c_storage, receiver_c_handler, sender};
 
   GraphJournalScanner scanner;
   CHECK(CountPending(scanner, sender, peer_b) == 1);
@@ -240,6 +271,7 @@ int main() {
   CHECK(receiver_b->value == "AX");
   CHECK(receiver_b->journal.size() == 1);
   CHECK(receiver_b->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(receiver_b->journal[0].identity == sender->journal[0].identity);
   CHECK(receiver_b->journal[0].recipients.empty());
   CHECK(receiver_b->journal[0].event.id().id() == 200);
 
@@ -273,6 +305,7 @@ int main() {
   CHECK(receiver_c->value == "AX");
   CHECK(receiver_c->journal.size() == 1);
   CHECK(receiver_c->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(receiver_c->journal[0].identity == sender->journal[0].identity);
   CHECK(receiver_c->journal[0].recipients.empty());
   CHECK(state_b->delivery_status == DeliveryStatus::kDelivered);
   CHECK(state_c->delivery_status == DeliveryStatus::kDelivered);
@@ -289,7 +322,7 @@ int main() {
   JournalMessageReceiver forward_receiver;
   LoopbackJournalMessageTransport forward_transport{
       forward_message_domain, forward_transfer_storage, receiver_c_domain,
-      receiver_c_storage, forward_receiver};
+      receiver_c_storage, forward_receiver, receiver_b};
   GraphSynchronizer receiver_b_to_c{peer_c, forward_message_domain,
                                     forward_transport};
   auto const receiver_c_journal_before = receiver_c->journal.size();

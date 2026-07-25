@@ -11,6 +11,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/event_record.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/node_for.h"
@@ -66,13 +67,15 @@ class ScanNode : public apptraverse::NodeFor<ScanNode> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          ae::ObjId origin,
                           std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, std::move(recipients));
+    CommitEvent(std::move(event), time, origin, std::move(recipients));
   }
 
-  void AcceptRemoteEventForTest(apptraverse::Event::ptr event,
-                                ae::TimePoint time) {
-    AcceptRemoteEvent(std::move(event), time);
+  bool AcceptRemoteEventForTest(apptraverse::Event::ptr event,
+                                ae::TimePoint time,
+                                apptraverse::EventIdentity identity) {
+    return AcceptRemoteEvent(std::move(event), time, identity);
   }
 
   void Apply(AppendNameEvent const& event) { name += event.suffix; }
@@ -165,6 +168,8 @@ int main() {
   using apptraverse::test::LinkNodeEvent;
   using apptraverse::test::ScanNode;
 
+  ae::ObjId const local_origin{9001};
+  ae::ObjId const remote_origin{9002};
   ae::ObjId const receiver_peer{9001};
 
   ae::RamDomainStorage storage;
@@ -189,7 +194,8 @@ int main() {
     link->linked = node_d;
     CHECK(link->linked.is_loaded());
     node_a->CommitEventForTest(
-        link, ae::TimePoint{std::chrono::microseconds{100}}, {receiver_peer});
+        link, ae::TimePoint{std::chrono::microseconds{100}}, local_origin,
+        {receiver_peer});
   }
   {
     auto append =
@@ -197,14 +203,19 @@ int main() {
     CHECK(static_cast<bool>(append));
     append->suffix = " local-a";
     node_a->CommitEventForTest(
-        append, ae::TimePoint{std::chrono::microseconds{200}}, {receiver_peer});
+        append, ae::TimePoint{std::chrono::microseconds{200}}, local_origin,
+        {receiver_peer});
   }
   CHECK(node_a->journal.size() == 2);
   CHECK(node_a->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(node_a->journal[0].identity.origin == local_origin);
+  CHECK(node_a->journal[0].identity.sequence == 1);
   CHECK(node_a->journal[0].FindRecipient(receiver_peer) != nullptr);
   CHECK(node_a->journal[0].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
   CHECK(node_a->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(node_a->journal[1].identity.origin == local_origin);
+  CHECK(node_a->journal[1].identity.sequence == 2);
   CHECK(node_a->journal[1].FindRecipient(receiver_peer) != nullptr);
   CHECK(node_a->journal[1].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
@@ -215,8 +226,9 @@ int main() {
         AppendNameEvent::ptr::Create(ae::CreateWith{domain}.with_id(1002));
     CHECK(static_cast<bool>(remote));
     remote->suffix = " remote-b";
-    node_b->AcceptRemoteEventForTest(
-        remote, ae::TimePoint{std::chrono::microseconds{100}});
+    CHECK(node_b->AcceptRemoteEventForTest(
+        remote, ae::TimePoint{std::chrono::microseconds{100}},
+        apptraverse::EventIdentity{remote_origin, 1}));
   }
   {
     auto local =
@@ -224,12 +236,17 @@ int main() {
     CHECK(static_cast<bool>(local));
     local->suffix = " local-b";
     node_b->CommitEventForTest(
-        local, ae::TimePoint{std::chrono::microseconds{200}}, {receiver_peer});
+        local, ae::TimePoint{std::chrono::microseconds{200}}, local_origin,
+        {receiver_peer});
   }
   CHECK(node_b->journal.size() == 2);
   CHECK(node_b->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(node_b->journal[0].identity.origin == remote_origin);
+  CHECK(node_b->journal[0].identity.sequence == 1);
   CHECK(node_b->journal[0].recipients.empty());
   CHECK(node_b->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(node_b->journal[1].identity.origin == local_origin);
+  CHECK(node_b->journal[1].identity.sequence == 1);
   CHECK(node_b->journal[1].FindRecipient(receiver_peer) != nullptr);
   CHECK(node_b->journal[1].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
@@ -241,10 +258,13 @@ int main() {
     CHECK(static_cast<bool>(append));
     append->suffix = " local-c";
     node_c->CommitEventForTest(
-        append, ae::TimePoint{std::chrono::microseconds{100}}, {receiver_peer});
+        append, ae::TimePoint{std::chrono::microseconds{100}}, local_origin,
+        {receiver_peer});
   }
   CHECK(node_c->journal.size() == 1);
   CHECK(node_c->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(node_c->journal[0].identity.origin == local_origin);
+  CHECK(node_c->journal[0].identity.sequence == 1);
   CHECK(node_c->journal[0].FindRecipient(receiver_peer) != nullptr);
   CHECK(node_c->journal[0].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
@@ -255,10 +275,13 @@ int main() {
     CHECK(static_cast<bool>(append));
     append->suffix = " local-d";
     node_d->CommitEventForTest(
-        append, ae::TimePoint{std::chrono::microseconds{100}}, {receiver_peer});
+        append, ae::TimePoint{std::chrono::microseconds{100}}, local_origin,
+        {receiver_peer});
   }
   CHECK(node_d->journal.size() == 1);
   CHECK(node_d->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(node_d->journal[0].identity.origin == local_origin);
+  CHECK(node_d->journal[0].identity.sequence == 1);
   CHECK(node_d->journal[0].FindRecipient(receiver_peer) != nullptr);
   CHECK(node_d->journal[0].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
@@ -269,10 +292,13 @@ int main() {
     CHECK(static_cast<bool>(append));
     append->suffix = " local-e";
     node_e->CommitEventForTest(
-        append, ae::TimePoint{std::chrono::microseconds{100}}, {receiver_peer});
+        append, ae::TimePoint{std::chrono::microseconds{100}}, local_origin,
+        {receiver_peer});
   }
   CHECK(node_e->journal.size() == 1);
   CHECK(node_e->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(node_e->journal[0].identity.origin == local_origin);
+  CHECK(node_e->journal[0].identity.sequence == 1);
   CHECK(node_e->journal[0].FindRecipient(receiver_peer) != nullptr);
   CHECK(node_e->journal[0].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);

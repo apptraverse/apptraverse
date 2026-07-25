@@ -9,6 +9,7 @@
 #include "aether-miscpp/reflect/reflect.h"
 
 #include "apptraverse/event.h"
+#include "apptraverse/event_identity.h"
 
 namespace apptraverse {
 
@@ -31,6 +32,7 @@ struct EventRecipientState {
 
 struct EventRecord {
   Event::ptr event;
+  EventIdentity identity;
   ae::TimePoint time{};
   EventRecordOrigin origin{EventRecordOrigin::kLocal};
   std::vector<EventRecipientState> recipients;
@@ -53,7 +55,7 @@ struct EventRecord {
     return nullptr;
   }
 
-  AE_REFLECT_MEMBERS(event, time, origin, recipients)
+  AE_REFLECT_MEMBERS(event, identity, time, origin, recipients)
 };
 
 }  // namespace apptraverse

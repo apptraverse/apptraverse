@@ -11,6 +11,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/graph_synchronizer.h"
 #include "apptraverse/journal_event_message.h"
@@ -68,8 +69,9 @@ class Chat : public apptraverse::NodeFor<Chat> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitFromPresenter(apptraverse::Event::ptr event, ae::TimePoint time,
+                           ae::ObjId origin,
                            std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, std::move(recipients));
+    CommitEvent(std::move(event), time, origin, std::move(recipients));
   }
 };
 
@@ -246,7 +248,7 @@ void ChatPresenter::Join(ae::ObjId event_id, ae::TimePoint time,
   event->client = client;
   assert(event->client.is_loaded());
 
-  chat->CommitFromPresenter(event, time, std::move(recipients));
+  chat->CommitFromPresenter(event, time, client.id(), std::move(recipients));
 }
 
 class Runtime : public ae::Obj {
@@ -349,9 +351,13 @@ class LoopbackJournalMessageTransport final
     assert(event_message->target.is_valid());
     assert(event_message->target.id().id() == 100);
     assert(!event_message->target.is_loaded());
+    assert(event_message->identity.IsValid());
     assert(event_message->event.is_valid());
-    assert(event_message->event.id().id() == 200);
     assert(event_message->event.is_loaded());
+    assert(event_message->event.id().id() == 200);
+
+    apptraverse::EventIdentity const expected_identity =
+        event_message->identity;
 
     message_ids.push_back(message.id());
     message.Save();
@@ -363,7 +369,17 @@ class LoopbackJournalMessageTransport final
         apptraverse::JournalTransportMessage::ptr::Declare(
             ae::CreateWith{*receiver_domain_}.with_id(message.id()));
     incoming.Load();
-    receiver_->Receive(std::move(incoming));
+
+    auto* incoming_event_message =
+        incoming.Load().as<apptraverse::JournalEventMessage>();
+    assert(incoming_event_message != nullptr);
+    assert(incoming_event_message->identity == expected_identity);
+    assert(incoming_event_message->event.is_valid());
+    assert(!incoming_event_message->event.is_loaded());
+
+    receiver_->Receive(incoming);
+
+    assert(incoming_event_message->event.is_loaded());
 
     ++send_count;
   }
@@ -411,6 +427,7 @@ int CountPending(apptraverse::GraphJournalScanner const& scanner, auto& root,
 
 int main() {
   using apptraverse::DeliveryStatus;
+  using apptraverse::EventIdentity;
   using apptraverse::EventRecordOrigin;
   using apptraverse::GraphJournalScanner;
   using apptraverse::GraphSynchronizer;
@@ -499,6 +516,8 @@ int main() {
   CHECK(alice_runtime->chat->journal.size() == 1);
   CHECK(alice_runtime->chat->journal[0].event.id().id() == 200);
   CHECK(alice_runtime->chat->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(alice_runtime->chat->journal[0].identity.origin == alice_id);
+  CHECK(alice_runtime->chat->journal[0].identity.sequence == 1);
   auto* alice_join_recipient =
       alice_runtime->chat->journal[0].FindRecipient(support_id);
   CHECK(alice_join_recipient != nullptr);
@@ -615,6 +634,8 @@ int main() {
   CHECK(support_runtime->chat->journal.size() == 1);
   CHECK(support_runtime->chat->journal[0].event.id().id() == 200);
   CHECK(support_runtime->chat->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(support_runtime->chat->journal[0].identity ==
+        alice_runtime->chat->journal[0].identity);
   CHECK(support_runtime->chat->journal[0].recipients.empty());
   CHECK(support_runtime->chat->timeline[0].client.id() == alice_id);
 
@@ -732,6 +753,8 @@ int main() {
   CHECK(loaded_remote_alice->journal.empty());
   CHECK(loaded_chat->journal[0].event.id().id() == 200);
   CHECK(loaded_chat->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(loaded_chat->journal[0].identity ==
+        alice_runtime->chat->journal[0].identity);
   CHECK(loaded_chat->journal[0].recipients.empty());
 
   CHECK(!loaded_remote_alice->chat.is_loaded());

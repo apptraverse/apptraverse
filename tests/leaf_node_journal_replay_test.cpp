@@ -7,6 +7,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
@@ -64,10 +65,13 @@ namespace {
 }  // namespace
 
 int main() {
+  using apptraverse::EventIdentity;
   using apptraverse::EventRecord;
   using apptraverse::EventRecordOrigin;
   using apptraverse::test::LeafNode;
   using apptraverse::test::RenameLeafNodeEvent;
+
+  ae::ObjId const local_origin{9001};
 
   ae::RamDomainStorage storage;
 
@@ -95,8 +99,12 @@ int main() {
   rename_event->name = "Alice Cooper";
 
   ae::TimePoint const event_time{std::chrono::microseconds{123456}};
-  live->journal.push_back(
-      EventRecord{rename_event, event_time, EventRecordOrigin::kLocal, {}});
+  live->journal.push_back(EventRecord{
+      rename_event,
+      EventIdentity{local_origin, 1},
+      event_time,
+      EventRecordOrigin::kLocal,
+      {}});
 
   live->ReplayJournalForTest();
 

@@ -4,6 +4,7 @@
 #include "aether/clock.h"
 
 #include "apptraverse/event.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/journal_message_receiver.h"
 #include "apptraverse/node.h"
 
@@ -18,10 +19,12 @@ class JournalEventMessage : public JournalTransportMessage {
  public:
   explicit JournalEventMessage(ae::ObjProp prop) : JournalTransportMessage{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(target), AE_MMBR(event), AE_MMBR(time))
+  AE_OBJECT_REFLECT(AE_MMBR(target), AE_MMBR(event), AE_MMBR(identity),
+                    AE_MMBR(time))
 
   Node::ptr target;
   Event::ptr event;
+  EventIdentity identity;
   ae::TimePoint time{};
 
  private:
@@ -33,14 +36,24 @@ class JournalEventMessage : public JournalTransportMessage {
 inline void JournalMessageReceiver::ReceiveEvent(JournalEventMessage& message) {
   assert(message.target.is_valid());
   assert(message.event.is_valid());
-  assert(message.event.is_loaded());
+  assert(message.identity.IsValid());
   assert(message.target.domain() == message.event.domain());
 
   message.target.Load();
 
   assert(message.target.is_loaded());
 
-  message.target->AcceptRemoteEvent(message.event, message.time);
+  if (message.target->ContainsEvent(message.identity)) {
+    return;
+  }
+
+  message.event.Load();
+
+  assert(message.event.is_loaded());
+
+  bool const accepted = message.target->AcceptRemoteEvent(
+      message.event, message.time, message.identity);
+  assert(accepted);
 }
 
 }  // namespace apptraverse

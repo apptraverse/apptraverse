@@ -255,3 +255,16 @@ add_test(
   NAME apptraverse_three_peer_chat_fanout_test
   COMMAND apptraverse_three_peer_chat_fanout_test
 )
+
+add_executable(apptraverse_event_identity_duplicate_delivery_test
+  event_identity_duplicate_delivery_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_event_identity_duplicate_delivery_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_event_identity_duplicate_delivery_test
+  COMMAND apptraverse_event_identity_duplicate_delivery_test
+)

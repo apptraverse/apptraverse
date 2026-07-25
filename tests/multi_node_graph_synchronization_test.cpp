@@ -12,6 +12,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/event_identity.h"
 #include "apptraverse/event_record.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/graph_synchronizer.h"
@@ -44,8 +45,9 @@ class ChildNode : public apptraverse::NodeFor<ChildNode> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          ae::ObjId origin,
                           std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, std::move(recipients));
+    CommitEvent(std::move(event), time, origin, std::move(recipients));
   }
 };
 
@@ -90,8 +92,9 @@ class ParentNode : public apptraverse::NodeFor<ParentNode> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
+                          ae::ObjId origin,
                           std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, std::move(recipients));
+    CommitEvent(std::move(event), time, origin, std::move(recipients));
   }
 };
 
@@ -153,12 +156,14 @@ class LoopbackJournalMessageTransport final
   LoopbackJournalMessageTransport(
       ae::Domain& message_domain, ae::RamDomainStorage& transfer_storage,
       ae::Domain& receiver_domain, ae::RamDomainStorage& receiver_storage,
-      apptraverse::JournalMessageReceiver& receiver)
+      apptraverse::JournalMessageReceiver& receiver,
+      ApplicationRoot::ptr& sender_root)
       : message_domain_{&message_domain},
         transfer_storage_{&transfer_storage},
         receiver_domain_{&receiver_domain},
         receiver_storage_{&receiver_storage},
-        receiver_{&receiver} {}
+        receiver_{&receiver},
+        sender_root_{&sender_root} {}
 
   std::size_t send_count{0};
   std::vector<ae::ObjId> message_ids;
@@ -174,8 +179,33 @@ class LoopbackJournalMessageTransport final
     assert(event_message != nullptr);
     assert(event_message->target.is_valid());
     assert(!event_message->target.is_loaded());
+    assert(event_message->identity.IsValid());
     assert(event_message->event.is_valid());
     assert(event_message->event.is_loaded());
+
+    apptraverse::EventRecord const* sender_record = nullptr;
+    auto const target_id = event_message->target.id().id();
+    auto const event_id = event_message->event.id().id();
+    auto* sender_parent = (*sender_root_)->parent.Load().get();
+    if (sender_parent->obj_id.id() == target_id) {
+      for (auto const& record : sender_parent->journal) {
+        if (record.event.id().id() == event_id) {
+          sender_record = &record;
+          break;
+        }
+      }
+    }
+    if (sender_record == nullptr && sender_parent->child.is_valid() &&
+        sender_parent->child.id().id() == target_id) {
+      for (auto const& record : sender_parent->child->journal) {
+        if (record.event.id().id() == event_id) {
+          sender_record = &record;
+          break;
+        }
+      }
+    }
+    assert(sender_record != nullptr);
+    assert(sender_record->identity == event_message->identity);
 
     message_ids.push_back(message.id());
     target_event_pairs.emplace_back(event_message->target.id().id(),
@@ -190,7 +220,18 @@ class LoopbackJournalMessageTransport final
         apptraverse::JournalTransportMessage::ptr::Declare(
             ae::CreateWith{*receiver_domain_}.with_id(message.id()));
     incoming.Load();
-    receiver_->Receive(std::move(incoming));
+
+    auto* incoming_event_message =
+        incoming.Load().as<apptraverse::JournalEventMessage>();
+    assert(incoming_event_message != nullptr);
+    assert(incoming_event_message->identity.IsValid());
+    assert(incoming_event_message->identity == sender_record->identity);
+    assert(incoming_event_message->event.is_valid());
+    assert(!incoming_event_message->event.is_loaded());
+
+    receiver_->Receive(incoming);
+
+    assert(incoming_event_message->event.is_loaded());
 
     ++send_count;
   }
@@ -201,6 +242,7 @@ class LoopbackJournalMessageTransport final
   ae::Domain* receiver_domain_;
   ae::RamDomainStorage* receiver_storage_;
   apptraverse::JournalMessageReceiver* receiver_;
+  ApplicationRoot::ptr* sender_root_;
 };
 
 }  // namespace apptraverse::test
@@ -246,6 +288,7 @@ int main() {
   using apptraverse::test::RenameChildEvent;
   using apptraverse::test::RenameParentEvent;
 
+  ae::ObjId const local_origin{9001};
   ae::ObjId const receiver_peer{9001};
 
   ae::RamDomainStorage sender_storage;
@@ -353,7 +396,8 @@ int main() {
   CHECK(attach_event->child.id().id() == 200);
 
   ae::TimePoint const attach_time{std::chrono::microseconds{100}};
-  sender_parent->CommitEventForTest(attach_event, attach_time, {receiver_peer});
+  sender_parent->CommitEventForTest(attach_event, attach_time, local_origin,
+                                    {receiver_peer});
 
   CHECK(sender_parent->child.is_valid());
   CHECK(sender_parent->child.is_loaded());
@@ -361,6 +405,8 @@ int main() {
   CHECK(sender_parent->journal.size() == 1);
   CHECK(sender_parent->journal[0].event.id().id() == 300);
   CHECK(sender_parent->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(sender_parent->journal[0].identity.origin == local_origin);
+  CHECK(sender_parent->journal[0].identity.sequence == 1);
   CHECK(sender_parent->journal[0].FindRecipient(receiver_peer) != nullptr);
   CHECK(sender_parent->journal[0]
             .FindRecipient(receiver_peer)
@@ -374,7 +420,7 @@ int main() {
   JournalMessageReceiver receiver;
   LoopbackJournalMessageTransport attach_transport{
       attach_message_domain, attach_transfer_storage, receiver_domain,
-      receiver_storage, receiver};
+      receiver_storage, receiver, sender_root};
   GraphSynchronizer attach_synchronizer{receiver_peer, attach_message_domain,
                                         attach_transport};
 
@@ -413,6 +459,8 @@ int main() {
   CHECK(receiver_parent->journal[0].event.id().id() == 300);
   CHECK(receiver_parent->journal[0].time == attach_time);
   CHECK(receiver_parent->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(receiver_parent->journal[0].identity ==
+        sender_parent->journal[0].identity);
   CHECK(receiver_parent->journal[0].recipients.empty());
 
   auto* receiver_attach =
@@ -443,7 +491,7 @@ int main() {
   rename_parent->label = "Parent updated";
   ae::TimePoint const rename_parent_time{std::chrono::microseconds{200}};
   sender_parent->CommitEventForTest(rename_parent, rename_parent_time,
-                                    {receiver_peer});
+                                    local_origin, {receiver_peer});
 
   RenameChildEvent::ptr rename_child = RenameChildEvent::ptr::Create(
       ae::CreateWith{sender_domain}.with_id(302));
@@ -451,7 +499,7 @@ int main() {
   rename_child->name = "Alice Cooper";
   ae::TimePoint const rename_child_time{std::chrono::microseconds{100}};
   sender_child->CommitEventForTest(rename_child, rename_child_time,
-                                   {receiver_peer});
+                                     local_origin, {receiver_peer});
 
   CHECK(sender_parent->label == "Parent updated");
   CHECK(sender_child->name == "Alice Cooper");
@@ -462,19 +510,20 @@ int main() {
   CHECK(sender_parent->journal.size() == 2);
   CHECK(sender_parent->journal[1].event.id().id() == 301);
   CHECK(sender_parent->journal[1].origin == EventRecordOrigin::kLocal);
+  CHECK(sender_parent->journal[1].identity.origin == local_origin);
+  CHECK(sender_parent->journal[1].identity.sequence == 2);
   CHECK(sender_parent->journal[1]
             .FindRecipient(receiver_peer)
             ->delivery_status == DeliveryStatus::kPending);
   CHECK(sender_child->journal.size() == 1);
   CHECK(sender_child->journal[0].event.id().id() == 302);
   CHECK(sender_child->journal[0].origin == EventRecordOrigin::kLocal);
-  CHECK(sender_child->journal[0]
-            .FindRecipient(receiver_peer)
-            ->delivery_status == DeliveryStatus::kPending);
+  CHECK(sender_child->journal[0].identity.origin == local_origin);
+  CHECK(sender_child->journal[0].identity.sequence == 1);
 
   LoopbackJournalMessageTransport update_transport{
       update_message_domain, update_transfer_storage, receiver_domain,
-      receiver_storage, receiver};
+      receiver_storage, receiver, sender_root};
   GraphSynchronizer update_synchronizer{receiver_peer, update_message_domain,
                                         update_transport};
 
@@ -521,11 +570,15 @@ int main() {
   CHECK(receiver_parent->journal[1].event.id().id() == 301);
   CHECK(receiver_parent->journal[1].time == rename_parent_time);
   CHECK(receiver_parent->journal[1].origin == EventRecordOrigin::kRemote);
+  CHECK(receiver_parent->journal[1].identity ==
+        sender_parent->journal[1].identity);
   CHECK(receiver_parent->journal[1].recipients.empty());
 
   CHECK(receiver_parent->child->journal[0].event.id().id() == 302);
   CHECK(receiver_parent->child->journal[0].time == rename_child_time);
   CHECK(receiver_parent->child->journal[0].origin == EventRecordOrigin::kRemote);
+  CHECK(receiver_parent->child->journal[0].identity ==
+        sender_child->journal[0].identity);
   CHECK(receiver_parent->child->journal[0].recipients.empty());
 
   auto* receiver_rename_parent =
