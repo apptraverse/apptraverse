@@ -190,3 +190,16 @@ add_test(
   NAME apptraverse_client_prefab_instantiation_test
   COMMAND apptraverse_client_prefab_instantiation_test
 )
+
+add_executable(apptraverse_minimal_chat_graph_test
+  minimal_chat_graph_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_minimal_chat_graph_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_minimal_chat_graph_test
+  COMMAND apptraverse_minimal_chat_graph_test
+)
