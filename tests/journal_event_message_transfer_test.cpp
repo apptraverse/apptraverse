@@ -11,6 +11,7 @@
 #include "apptraverse/event_for.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/journal_event_message.h"
+#include "apptraverse/journal_message_receiver.h"
 #include "apptraverse/journal_transport_message.h"
 #include "apptraverse/node_for.h"
 
@@ -84,6 +85,8 @@ static_assert(
     !std::is_base_of_v<apptraverse::Event, apptraverse::JournalEventMessage>);
 static_assert(
     !std::is_base_of_v<apptraverse::Node, apptraverse::JournalEventMessage>);
+static_assert(
+    !std::is_base_of_v<ae::Obj, apptraverse::JournalMessageReceiver>);
 
 }  // namespace
 
@@ -225,18 +228,17 @@ int main() {
 
   auto* receiver_node_address = receiver_node.Load().get();
   CHECK(receiver_node_address != nullptr);
+  CHECK(receiver_node->name == "Alice");
+  CHECK(!incoming_event_message->target.is_loaded());
 
-  incoming_event_message->target.Load();
+  apptraverse::JournalMessageReceiver receiver;
+  receiver.Receive(incoming_message);
 
   CHECK(incoming_event_message->target.is_loaded());
   CHECK(incoming_event_message->target.Load().get() == receiver_node_address);
   CHECK(incoming_event_message->target.Load().get() !=
         sender_node.Load().get());
   CHECK(incoming_event_message->target.Load().as<TransferNode>() != nullptr);
-  CHECK(receiver_node->name == "Alice");
-
-  incoming_event_message->target->AcceptRemoteEvent(
-      incoming_event_message->event, incoming_event_message->time);
 
   CHECK(receiver_node->name == "Alice Cooper");
   CHECK(receiver_node->journal.size() == 1);
@@ -245,6 +247,8 @@ int main() {
   CHECK(receiver_node->journal[0].delivery_status == DeliveryStatus::kDelivered);
   CHECK(receiver_node->journal[0].event.Load().get() ==
         incoming_event_message->event.Load().get());
+  CHECK(incoming_event_message->event.is_valid());
+  CHECK(incoming_event_message->event.is_loaded());
 
   CHECK(sender_node->name == "Alice Cooper");
   CHECK(sender_node->journal.size() == 1);

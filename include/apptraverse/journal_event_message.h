@@ -4,7 +4,7 @@
 #include "aether/clock.h"
 
 #include "apptraverse/event.h"
-#include "apptraverse/journal_transport_message.h"
+#include "apptraverse/journal_message_receiver.h"
 #include "apptraverse/node.h"
 
 namespace apptraverse {
@@ -23,7 +23,25 @@ class JournalEventMessage : public JournalTransportMessage {
   Node::ptr target;
   Event::ptr event;
   ae::TimePoint time{};
+
+ private:
+  void DispatchImpl(JournalMessageReceiver& receiver) override {
+    receiver.ReceiveEvent(*this);
+  }
 };
+
+inline void JournalMessageReceiver::ReceiveEvent(JournalEventMessage& message) {
+  assert(message.target.is_valid());
+  assert(message.event.is_valid());
+  assert(message.event.is_loaded());
+  assert(message.target.domain() == message.event.domain());
+
+  message.target.Load();
+
+  assert(message.target.is_loaded());
+
+  message.target->AcceptRemoteEvent(message.event, message.time);
+}
 
 }  // namespace apptraverse
 
