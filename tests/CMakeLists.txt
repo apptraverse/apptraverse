@@ -242,3 +242,16 @@ add_test(
   NAME apptraverse_multi_recipient_delivery_test
   COMMAND apptraverse_multi_recipient_delivery_test
 )
+
+add_executable(apptraverse_three_peer_chat_fanout_test
+  three_peer_chat_fanout_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_three_peer_chat_fanout_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_three_peer_chat_fanout_test
+  COMMAND apptraverse_three_peer_chat_fanout_test
+)
