@@ -23,6 +23,34 @@
 
 namespace apptraverse::test {
 
+enum class TestObjectId : std::uint32_t {
+  kApplication = 1,
+  kChatUserPrefab = 10,
+  kChatUserBasePrefab = 11,
+  kChatUserPresenterPrefab = 12,
+  kChat = 100,
+  kChatBase = 101,
+  kChatPresenter = 102,
+  kAliceJoinEvent = 200,
+  kSupportJoinEvent = 201,
+  kBobJoinEvent = 202,
+  kAliceMessageEvent = 300,
+  kSupportReplyEvent = 301,
+};
+
+enum class TestRouteId : std::uint32_t {
+  kAlice = 7001,
+  kSupport = 7002,
+  kBob = 7003,
+};
+
+constexpr ae::ObjId ToObjId(TestObjectId id) {
+  return ae::ObjId{static_cast<ae::ObjId::Type>(id)};
+}
+constexpr ae::ObjId ToObjId(TestRouteId id) {
+  return ae::ObjId{static_cast<ae::ObjId::Type>(id)};
+}
+
 class Application;
 class Chat;
 class ChatPresenter;
@@ -92,23 +120,15 @@ class ChatPresenter : public ae::Obj {
  public:
   explicit ChatPresenter(ae::ObjProp prop) : Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(chat), AE_MMBR(local_user), AE_MMBR(title))
+  AE_OBJECT_REFLECT(AE_MMBR(chat), AE_MMBR(title))
 
   ae::ObjPtr<Chat> chat;
-  ChatUser::ptr local_user;
   std::string title;
 
-  void SetLocalUser(ChatUser::ptr user);
-
-  void Join(ae::ObjId event_id, ae::TimePoint time,
+  void Join(ChatUser::ptr user, ae::ObjId event_id, ae::TimePoint time,
             std::vector<ae::ObjId> recipients);
-  void SendMessage(std::string text, ae::ObjId event_id, ae::TimePoint time,
-                   std::vector<ae::ObjId> recipients);
-
-  bool IsLocal(ChatEntry const& entry) const {
-    return local_user.is_valid() && entry.sender.is_valid() &&
-           local_user.id() == entry.sender.id();
-  }
+  void SendMessage(ChatUser::ptr sender, std::string text, ae::ObjId event_id,
+                   ae::TimePoint time, std::vector<ae::ObjId> recipients);
 };
 
 static_assert(!std::is_base_of_v<apptraverse::Node, ChatPresenter>);
@@ -185,13 +205,6 @@ void Chat::Apply(MessageEvent const& event) {
   });
 }
 
-void ChatPresenter::SetLocalUser(ChatUser::ptr user) {
-  assert(user.is_valid());
-  assert(user.is_loaded());
-  assert(!local_user.is_valid());
-  local_user = std::move(user);
-}
-
 ChatUser::ptr ChatUser::Instantiate(std::string name, ae::ObjPtr<Chat> chat) {
   assert(domain != nullptr);
   assert(obj_id.IsValid());
@@ -248,24 +261,24 @@ void ChatUser::PrepareForIntroduction() {
   assert(!concrete_base->chat.is_loaded());
 }
 
-void ChatPresenter::Join(ae::ObjId event_id, ae::TimePoint time,
+void ChatPresenter::Join(ChatUser::ptr user, ae::ObjId event_id, ae::TimePoint time,
                          std::vector<ae::ObjId> recipients) {
   assert(domain != nullptr);
   assert(chat.is_valid());
   assert(chat.is_loaded());
-  assert(local_user.is_valid());
-  assert(local_user.is_loaded());
+  assert(user.is_valid());
+  assert(user.is_loaded());
   assert(event_id.IsValid());
   for (auto const& recipient : recipients) {
     assert(recipient.IsValid());
   }
 
-  local_user->PrepareForIntroduction();
+  user->PrepareForIntroduction();
 
   UserJoinedEvent::ptr event =
       UserJoinedEvent::ptr::Create(ae::CreateWith{*domain}.with_id(event_id));
-  event->sender = local_user;
-  event->user = local_user;
+  event->sender = user;
+  event->user = user;
 
   assert(event->sender.is_loaded());
   assert(event->user.is_loaded());
@@ -281,14 +294,14 @@ void ChatPresenter::Join(ae::ObjId event_id, ae::TimePoint time,
   assert(event->sequence != 0);
 }
 
-void ChatPresenter::SendMessage(std::string text, ae::ObjId event_id,
-                                ae::TimePoint time,
+void ChatPresenter::SendMessage(ChatUser::ptr sender, std::string text,
+                                ae::ObjId event_id, ae::TimePoint time,
                                 std::vector<ae::ObjId> recipients) {
   assert(domain != nullptr);
   assert(chat.is_valid());
   assert(chat.is_loaded());
-  assert(local_user.is_valid());
-  assert(local_user.is_loaded());
+  assert(sender.is_valid());
+  assert(sender.is_loaded());
   assert(event_id.IsValid());
   for (auto const& recipient : recipients) {
     assert(recipient.IsValid());
@@ -296,7 +309,7 @@ void ChatPresenter::SendMessage(std::string text, ae::ObjId event_id,
 
   MessageEvent::ptr event =
       MessageEvent::ptr::Create(ae::CreateWith{*domain}.with_id(event_id));
-  event->sender = local_user;
+  event->sender = sender;
   event->text = std::move(text);
 
   chat->CommitEventForTest(event, time, std::move(recipients));
@@ -320,7 +333,9 @@ class Application : public ae::Obj {
   Chat::ptr chat;
   ChatUser::ptr user_prefab;
 
-  ChatUser::ptr CreateLocalUser(std::string name) {
+  ChatUser::ptr CreateAndJoinLocalUser(std::string name, ae::ObjId event_id,
+                                       ae::TimePoint time,
+                                       std::vector<ae::ObjId> recipients) {
     assert(chat.is_valid());
     assert(chat.is_loaded());
     assert(user_prefab.is_valid());
@@ -329,7 +344,7 @@ class Application : public ae::Obj {
     assert(chat->presenter.is_loaded());
 
     auto user = user_prefab->Instantiate(std::move(name), chat);
-    chat->presenter->SetLocalUser(user);
+    chat->presenter->Join(user, event_id, time, std::move(recipients));
     return user;
   }
 };
@@ -337,29 +352,32 @@ class Application : public ae::Obj {
 static_assert(!std::is_base_of_v<apptraverse::Node, Application>);
 
 Application::ptr BuildInitialApplication(ae::Domain& domain) {
-  ChatPresenter::ptr chat_presenter =
-      ChatPresenter::ptr::Create(ae::CreateWith{domain}.with_id(102));
+  ChatPresenter::ptr chat_presenter = ChatPresenter::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(TestObjectId::kChatPresenter)));
   chat_presenter->title = "Chat";
 
-  Chat::ptr chat_base =
-      Chat::ptr::Create(ae::CreateWith{domain}.with_id(101));
+  Chat::ptr chat_base = Chat::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(TestObjectId::kChatBase)));
 
-  Chat::ptr chat = Chat::ptr::Create(ae::CreateWith{domain}.with_id(100));
+  Chat::ptr chat = Chat::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(TestObjectId::kChat)));
   chat->base = chat_base;
   chat->presenter = chat_presenter;
   chat_presenter->chat = chat;
   chat->CaptureBaseStateForTest();
 
-  ChatUserPresenter::ptr user_presenter =
-      ChatUserPresenter::ptr::Create(ae::CreateWith{domain}.with_id(12));
+  ChatUserPresenter::ptr user_presenter = ChatUserPresenter::ptr::Create(
+      ae::CreateWith{domain}.with_id(
+          ToObjId(TestObjectId::kChatUserPresenterPrefab)));
   user_presenter->caption = "ChatUser presenter";
 
-  ChatUser::ptr user_base =
-      ChatUser::ptr::Create(ae::CreateWith{domain}.with_id(11));
+  ChatUser::ptr user_base = ChatUser::ptr::Create(
+      ae::CreateWith{domain}.with_id(
+          ToObjId(TestObjectId::kChatUserBasePrefab)));
   user_base->name = "";
 
-  ChatUser::ptr user_prefab =
-      ChatUser::ptr::Create(ae::CreateWith{domain}.with_id(10));
+  ChatUser::ptr user_prefab = ChatUser::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(TestObjectId::kChatUserPrefab)));
   user_prefab->name = "";
   user_prefab->base = user_base;
   user_prefab->presenter = user_presenter;
@@ -368,8 +386,8 @@ Application::ptr BuildInitialApplication(ae::Domain& domain) {
   assert(!user_base->chat.is_valid());
   user_prefab->CaptureBaseStateForTest();
 
-  Application::ptr application =
-      Application::ptr::Create(ae::CreateWith{domain}.with_id(1));
+  Application::ptr application = Application::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(TestObjectId::kApplication)));
   application->chat = chat;
   application->user_prefab = user_prefab;
   application.Save();
@@ -377,8 +395,8 @@ Application::ptr BuildInitialApplication(ae::Domain& domain) {
 }
 
 Application::ptr LoadApplication(ae::Domain& domain) {
-  auto application =
-      Application::ptr::Declare(ae::CreateWith{domain}.with_id(1));
+  auto application = Application::ptr::Declare(
+      ae::CreateWith{domain}.with_id(ToObjId(TestObjectId::kApplication)));
   application.Load();
   return application;
 }
@@ -503,12 +521,32 @@ namespace {
     }                                                                        \
   } while (0)
 
-bool ContainsObj(ae::RamDomainStorage const& storage, ae::ObjId id) {
-  return storage.state.find(id) != storage.state.end();
+int CheckLocalJoin(apptraverse::test::Application::ptr& app, ae::ObjId local_id,
+                   apptraverse::test::TestObjectId join_event_id) {
+  using apptraverse::test::ChatUser;
+  using apptraverse::test::FindJoinedUser;
+  using apptraverse::test::FindRecord;
+  using apptraverse::test::ToObjId;
+  using apptraverse::test::UserJoinedEvent;
+
+  auto local_user = FindJoinedUser(*app->chat, local_id);
+  CHECK(local_user.is_valid());
+  CHECK(app->chat->entries[0].sender.id() == local_id);
+  app->chat->entries[0].sender.Load();
+  CHECK(app->chat->entries[0].sender.Load().get() == local_user.Load().get());
+  auto* join_record = FindRecord(*app->chat, ToObjId(join_event_id));
+  CHECK(join_record != nullptr);
+  auto* join_event = join_record->event.Load().as<UserJoinedEvent>();
+  CHECK(join_event != nullptr);
+  CHECK(join_event->user.is_loaded());
+  CHECK(join_event->user.Load().get() == local_user.Load().get());
+  CHECK(join_event->sender.id() == local_id);
+  CHECK(local_user->presenter->user.Load().get() == local_user.Load().get());
+  return EXIT_SUCCESS;
 }
 
-bool ContainsObj(ae::RamDomainStorage const& storage, ae::ObjId::Type id) {
-  return ContainsObj(storage, ae::ObjId{id});
+bool ContainsObj(ae::RamDomainStorage const& storage, ae::ObjId id) {
+  return storage.state.find(id) != storage.state.end();
 }
 
 bool ContainsAny(std::vector<ae::ObjId> const& ids, ae::ObjId id) {
@@ -518,10 +556,6 @@ bool ContainsAny(std::vector<ae::ObjId> const& ids, ae::ObjId id) {
     }
   }
   return false;
-}
-
-bool ContainsAny(std::vector<ae::ObjId> const& ids, ae::ObjId::Type id) {
-  return ContainsAny(ids, ae::ObjId{id});
 }
 
 int CountPending(apptraverse::GraphJournalScanner const& scanner, auto& root,
@@ -538,7 +572,6 @@ int CountPending(apptraverse::GraphJournalScanner const& scanner, auto& root,
 int main() {
   using apptraverse::DeliveryStatus;
   using apptraverse::GraphJournalScanner;
-  using apptraverse::GraphSynchronizer;
   using apptraverse::JournalMessageReceiver;
   using apptraverse::test::Application;
   using apptraverse::test::BuildInitialApplication;
@@ -552,11 +585,14 @@ int main() {
   using apptraverse::test::LoadApplication;
   using apptraverse::test::LoopbackJournalMessageTransport;
   using apptraverse::test::MessageEvent;
+  using apptraverse::test::TestObjectId;
+  using apptraverse::test::TestRouteId;
+  using apptraverse::test::ToObjId;
   using apptraverse::test::UserJoinedEvent;
 
-  ae::ObjId const route_alice{7001};
-  ae::ObjId const route_support{7002};
-  ae::ObjId const route_bob{7003};
+  ae::ObjId const route_alice = ToObjId(TestRouteId::kAlice);
+  ae::ObjId const route_support = ToObjId(TestRouteId::kSupport);
+  ae::ObjId const route_bob = ToObjId(TestRouteId::kBob);
 
   ae::RamDomainStorage alice_storage;
   ae::RamDomainStorage support_storage;
@@ -582,12 +618,22 @@ int main() {
     ae::Domain bob_domain{ae::Now(), bob_storage};
 
     auto alice_app = BuildInitialApplication(alice_domain);
-    auto support_app = BuildInitialApplication(support_domain);
-    auto bob_app = BuildInitialApplication(bob_domain);
+    auto alice = alice_app->CreateAndJoinLocalUser(
+        "Alice", ToObjId(TestObjectId::kAliceJoinEvent),
+        ae::TimePoint{std::chrono::microseconds{100}},
+        {route_support, route_bob});
 
-    auto alice = alice_app->CreateLocalUser("Alice");
-    auto support = support_app->CreateLocalUser("Support");
-    auto bob = bob_app->CreateLocalUser("Bob");
+    auto support_app = BuildInitialApplication(support_domain);
+    auto support = support_app->CreateAndJoinLocalUser(
+        "Support", ToObjId(TestObjectId::kSupportJoinEvent),
+        ae::TimePoint{std::chrono::microseconds{200}},
+        {route_alice, route_bob});
+
+    auto bob_app = BuildInitialApplication(bob_domain);
+    auto bob = bob_app->CreateAndJoinLocalUser(
+        "Bob", ToObjId(TestObjectId::kBobJoinEvent),
+        ae::TimePoint{std::chrono::microseconds{300}},
+        {route_alice, route_support});
 
     alice_user_id = alice.id();
     alice_user_base_id = alice->base.id();
@@ -609,53 +655,69 @@ int main() {
     CHECK(alice_user_presenter_id != bob_user_presenter_id);
     CHECK(support_user_presenter_id != bob_user_presenter_id);
 
-    CHECK(alice_app->chat->presenter->local_user.Load().get() ==
-          alice.Load().get());
-    CHECK(support_app->chat->presenter->local_user.Load().get() ==
-          support.Load().get());
-    CHECK(bob_app->chat->presenter->local_user.Load().get() == bob.Load().get());
-
-    CHECK(alice_app->chat->entries.empty());
-    CHECK(support_app->chat->entries.empty());
-    CHECK(bob_app->chat->entries.empty());
-    CHECK(alice_app->chat->journal.empty());
-    CHECK(support_app->chat->journal.empty());
-    CHECK(bob_app->chat->journal.empty());
-    CHECK(alice->journal.empty());
-    CHECK(support->journal.empty());
-    CHECK(bob->journal.empty());
-
     CHECK(alice_app->chat->presenter->chat.Load().get() ==
           alice_app->chat.Load().get());
+    CHECK(support_app->chat->presenter->chat.Load().get() ==
+          support_app->chat.Load().get());
+    CHECK(bob_app->chat->presenter->chat.Load().get() ==
+          bob_app->chat.Load().get());
     CHECK(alice->presenter->user.Load().get() == alice.Load().get());
     CHECK(support->presenter->user.Load().get() == support.Load().get());
     CHECK(bob->presenter->user.Load().get() == bob.Load().get());
 
-    // Phase 1A: Alice Join
-    alice_app->chat->presenter->Join(
-        ae::ObjId{200}, ae::TimePoint{std::chrono::microseconds{100}},
-        {route_support, route_bob});
-
-    CHECK(alice_app->chat->entries.size() == 1);
-    CHECK(alice_app->chat->entries[0].kind == ChatEntryKind::kUserJoined);
+    // Each domain has exactly its own local join before network sync.
+    for (auto* app : {&alice_app, &support_app, &bob_app}) {
+      CHECK((*app)->chat->entries.size() == 1);
+      CHECK((*app)->chat->journal.size() == 1);
+      CHECK((*app)->chat->entries[0].kind == ChatEntryKind::kUserJoined);
+    }
     CHECK(alice_app->chat->entries[0].sender.id() == alice_user_id);
-    CHECK(alice_app->chat->journal.size() == 1);
-    auto* alice_join = FindRecord(*alice_app->chat, ae::ObjId{200});
-    CHECK(alice_join != nullptr);
-    CHECK(alice_join->event->sender.id() == alice_user_id);
-    CHECK(!alice_join->event->sender.is_loaded());
-    auto* alice_join_event =
-        alice_join->event.Load().as<UserJoinedEvent>();
-    CHECK(alice_join_event != nullptr);
-    CHECK(alice_join_event->user.is_loaded());
-    CHECK(alice_join_event->sender.id() == alice_join_event->user.id());
-    CHECK(alice_join_event->sequence == 1);
-    CHECK(alice_app->chat->next_local_sequence == 2);
-    CHECK(alice_join->FindRecipient(route_support)->delivery_status ==
-          DeliveryStatus::kPending);
-    CHECK(alice_join->FindRecipient(route_bob)->delivery_status ==
-          DeliveryStatus::kPending);
+    CHECK(support_app->chat->entries[0].sender.id() == support_user_id);
+    CHECK(bob_app->chat->entries[0].sender.id() == bob_user_id);
+    CHECK(alice->journal.empty());
+    CHECK(support->journal.empty());
+    CHECK(bob->journal.empty());
 
+    // Physical address stability via FindJoinedUser.
+    {
+      void* alice_address = alice.Load().get();
+      alice_user_id = alice.id();
+      alice.Reset();
+      auto found_alice = FindJoinedUser(*alice_app->chat, alice_user_id);
+      CHECK(found_alice.is_valid());
+      CHECK(found_alice.Load().get() == alice_address);
+      alice = found_alice;
+    }
+    {
+      void* support_address = support.Load().get();
+      support_user_id = support.id();
+      support.Reset();
+      auto found_support = FindJoinedUser(*support_app->chat, support_user_id);
+      CHECK(found_support.is_valid());
+      CHECK(found_support.Load().get() == support_address);
+      support = found_support;
+    }
+    {
+      void* bob_address = bob.Load().get();
+      bob_user_id = bob.id();
+      bob.Reset();
+      auto found_bob = FindJoinedUser(*bob_app->chat, bob_user_id);
+      CHECK(found_bob.is_valid());
+      CHECK(found_bob.Load().get() == bob_address);
+      bob = found_bob;
+    }
+
+    CHECK(CheckLocalJoin(alice_app, alice_user_id,
+                         apptraverse::test::TestObjectId::kAliceJoinEvent) ==
+          EXIT_SUCCESS);
+    CHECK(CheckLocalJoin(support_app, support_user_id,
+                         apptraverse::test::TestObjectId::kSupportJoinEvent) ==
+          EXIT_SUCCESS);
+    CHECK(CheckLocalJoin(bob_app, bob_user_id,
+                         apptraverse::test::TestObjectId::kBobJoinEvent) ==
+          EXIT_SUCCESS);
+
+    // Fan-out all joins.
     alice_to_support_intro =
         DeliverPending(alice_app, route_support, support_domain, support_storage);
     alice_to_bob_intro =
@@ -663,39 +725,41 @@ int main() {
     CHECK(alice_to_support_intro.send_count == 1);
     CHECK(alice_to_bob_intro.send_count == 1);
 
-    CHECK(ContainsAny(alice_to_support_intro.transferred_ids, 200));
+    CHECK(ContainsAny(alice_to_support_intro.transferred_ids,
+                      ToObjId(TestObjectId::kAliceJoinEvent)));
     CHECK(ContainsAny(alice_to_support_intro.transferred_ids, alice_user_id));
     CHECK(ContainsAny(alice_to_support_intro.transferred_ids, alice_user_base_id));
     CHECK(ContainsAny(alice_to_support_intro.transferred_ids,
                       alice_user_presenter_id));
-    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids, 1));
-    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids, 10));
-    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids, 11));
-    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids, 12));
-    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids, 100));
-    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids, 101));
-    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids, 102));
+    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids,
+                       ToObjId(TestObjectId::kApplication)));
+    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids,
+                       ToObjId(TestObjectId::kChatUserPrefab)));
+    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids,
+                       ToObjId(TestObjectId::kChatUserBasePrefab)));
+    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids,
+                       ToObjId(TestObjectId::kChatUserPresenterPrefab)));
+    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids,
+                       ToObjId(TestObjectId::kChat)));
+    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids,
+                       ToObjId(TestObjectId::kChatBase)));
+    CHECK(!ContainsAny(alice_to_support_intro.transferred_ids,
+                       ToObjId(TestObjectId::kChatPresenter)));
 
-    CHECK(ContainsAny(alice_to_bob_intro.transferred_ids, 200));
+    CHECK(ContainsAny(alice_to_bob_intro.transferred_ids,
+                    ToObjId(TestObjectId::kAliceJoinEvent)));
     CHECK(ContainsAny(alice_to_bob_intro.transferred_ids, alice_user_id));
     CHECK(ContainsAny(alice_to_bob_intro.transferred_ids, alice_user_base_id));
     CHECK(ContainsAny(alice_to_bob_intro.transferred_ids, alice_user_presenter_id));
-    CHECK(!ContainsAny(alice_to_bob_intro.transferred_ids, 100));
-    CHECK(!ContainsAny(alice_to_bob_intro.transferred_ids, 1));
+    CHECK(!ContainsAny(alice_to_bob_intro.transferred_ids,
+                       ToObjId(TestObjectId::kChat)));
+    CHECK(!ContainsAny(alice_to_bob_intro.transferred_ids,
+                       ToObjId(TestObjectId::kApplication)));
 
-    // Phase 1B: Support Join
-    support_app->chat->presenter->Join(
-        ae::ObjId{201}, ae::TimePoint{std::chrono::microseconds{200}},
-        {route_alice, route_bob});
     CHECK(DeliverPending(support_app, route_alice, alice_domain, alice_storage)
               .send_count == 1);
     CHECK(DeliverPending(support_app, route_bob, bob_domain, bob_storage)
               .send_count == 1);
-
-    // Phase 1C: Bob Join
-    bob_app->chat->presenter->Join(
-        ae::ObjId{202}, ae::TimePoint{std::chrono::microseconds{300}},
-        {route_alice, route_support});
     CHECK(DeliverPending(bob_app, route_alice, alice_domain, alice_storage)
               .send_count == 1);
     CHECK(DeliverPending(bob_app, route_support, support_domain, support_storage)
@@ -710,6 +774,12 @@ int main() {
       CHECK((*app)->chat->entries[1].sender.id() == support_user_id);
       CHECK((*app)->chat->entries[2].kind == ChatEntryKind::kUserJoined);
       CHECK((*app)->chat->entries[2].sender.id() == bob_user_id);
+      CHECK((*app)->chat->journal[0].time ==
+            ae::TimePoint{std::chrono::microseconds{100}});
+      CHECK((*app)->chat->journal[1].time ==
+            ae::TimePoint{std::chrono::microseconds{200}});
+      CHECK((*app)->chat->journal[2].time ==
+            ae::TimePoint{std::chrono::microseconds{300}});
     }
 
     auto alice_on_alice = FindJoinedUser(*alice_app->chat, alice_user_id);
@@ -751,22 +821,6 @@ int main() {
     alice_on_bob->chat.Load();
     CHECK(alice_on_bob->chat.Load().get() == bob_app->chat.Load().get());
 
-    CHECK(alice_app->chat->presenter->local_user.Load().get() ==
-          alice.Load().get());
-    CHECK(support_app->chat->presenter->local_user.Load().get() ==
-          support.Load().get());
-    CHECK(bob_app->chat->presenter->local_user.Load().get() == bob.Load().get());
-
-    CHECK(alice_app->chat->presenter->IsLocal(alice_app->chat->entries[0]));
-    CHECK(!alice_app->chat->presenter->IsLocal(alice_app->chat->entries[1]));
-    CHECK(!alice_app->chat->presenter->IsLocal(alice_app->chat->entries[2]));
-    CHECK(!support_app->chat->presenter->IsLocal(support_app->chat->entries[0]));
-    CHECK(support_app->chat->presenter->IsLocal(support_app->chat->entries[1]));
-    CHECK(!support_app->chat->presenter->IsLocal(support_app->chat->entries[2]));
-    CHECK(!bob_app->chat->presenter->IsLocal(bob_app->chat->entries[0]));
-    CHECK(!bob_app->chat->presenter->IsLocal(bob_app->chat->entries[1]));
-    CHECK(bob_app->chat->presenter->IsLocal(bob_app->chat->entries[2]));
-
     alice_app.Save();
     support_app.Save();
     bob_app.Save();
@@ -787,19 +841,22 @@ int main() {
           alice_app->chat.Load().get());
     CHECK(bob_app->chat->presenter->chat.Load().get() ==
           bob_app->chat.Load().get());
-    CHECK(alice_app->chat->presenter->local_user.id() == alice_user_id);
-    CHECK(bob_app->chat->presenter->local_user.id() == bob_user_id);
-    CHECK(alice_app->chat->presenter->local_user->presenter->user.Load().get() ==
-          alice_app->chat->presenter->local_user.Load().get());
+
+    auto alice = FindJoinedUser(*alice_app->chat, alice_user_id);
+    CHECK(alice.is_valid());
+    CHECK(alice->presenter->user.Load().get() == alice.Load().get());
+    alice->chat.Load();
+    CHECK(alice->chat.Load().get() == alice_app->chat.Load().get());
 
     alice_app->chat->presenter->SendMessage(
-        "Message from Alice", ae::ObjId{300},
+        alice, "Message from Alice", ToObjId(TestObjectId::kAliceMessageEvent),
         ae::TimePoint{std::chrono::microseconds{400}},
         {route_support, route_bob});
 
     CHECK(alice_app->chat->entries.size() == 4);
     CHECK(alice_app->chat->journal.size() == 4);
-    auto* alice_message = FindRecord(*alice_app->chat, ae::ObjId{300});
+    auto* alice_message =
+        FindRecord(*alice_app->chat, ToObjId(TestObjectId::kAliceMessageEvent));
     CHECK(alice_message != nullptr);
     CHECK(alice_message->event.Load().as<MessageEvent>() != nullptr);
     CHECK(alice_message->event->sender.id() == alice_user_id);
@@ -814,14 +871,19 @@ int main() {
     auto bob_delivery =
         DeliverPending(alice_app, route_bob, bob_domain, bob_storage);
     CHECK(bob_delivery.send_count == 1);
-    CHECK(ContainsAny(bob_delivery.transferred_ids, 300));
+    CHECK(ContainsAny(bob_delivery.transferred_ids,
+                      ToObjId(TestObjectId::kAliceMessageEvent)));
     CHECK(!ContainsAny(bob_delivery.transferred_ids, alice_user_id));
     CHECK(!ContainsAny(bob_delivery.transferred_ids, alice_user_base_id));
     CHECK(!ContainsAny(bob_delivery.transferred_ids, alice_user_presenter_id));
-    CHECK(!ContainsAny(bob_delivery.transferred_ids, 100));
-    CHECK(!ContainsAny(bob_delivery.transferred_ids, 200));
-    CHECK(!ContainsAny(bob_delivery.transferred_ids, 201));
-    CHECK(!ContainsAny(bob_delivery.transferred_ids, 202));
+    CHECK(!ContainsAny(bob_delivery.transferred_ids,
+                       ToObjId(TestObjectId::kChat)));
+    CHECK(!ContainsAny(bob_delivery.transferred_ids,
+                       ToObjId(TestObjectId::kAliceJoinEvent)));
+    CHECK(!ContainsAny(bob_delivery.transferred_ids,
+                       ToObjId(TestObjectId::kSupportJoinEvent)));
+    CHECK(!ContainsAny(bob_delivery.transferred_ids,
+                       ToObjId(TestObjectId::kBobJoinEvent)));
 
     CHECK(alice_message->FindRecipient(route_bob)->delivery_status ==
           DeliveryStatus::kDelivered);
@@ -830,7 +892,8 @@ int main() {
 
     CHECK(bob_app->chat->entries.size() == 4);
     CHECK(bob_app->chat->journal.size() == 4);
-    auto* bob_remote_message = FindRecord(*bob_app->chat, ae::ObjId{300});
+    auto* bob_remote_message = FindRecord(
+        *bob_app->chat, ToObjId(TestObjectId::kAliceMessageEvent));
     CHECK(bob_remote_message != nullptr);
     CHECK(bob_remote_message->recipients.empty());
     CHECK(bob_app->chat->entries[3].kind == ChatEntryKind::kMessage);
@@ -862,18 +925,22 @@ int main() {
     auto bob_app = LoadApplication(bob_domain);
 
     CHECK(support_app->chat->entries.size() == 3);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{300}) == nullptr);
-    CHECK(support_app->chat->presenter->local_user.id() == support_user_id);
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent)) == nullptr);
+    auto support = FindJoinedUser(*support_app->chat, support_user_id);
+    CHECK(support.is_valid());
     CHECK(FindJoinedUser(*support_app->chat, alice_user_id).is_valid());
 
     support_app->chat->presenter->SendMessage(
-        "Reply from Support", ae::ObjId{301},
+        support, "Reply from Support",
+        ToObjId(TestObjectId::kSupportReplyEvent),
         ae::TimePoint{std::chrono::microseconds{500}},
         {route_alice, route_bob});
 
     CHECK(support_app->chat->entries.size() == 4);
     CHECK(support_app->chat->journal.size() == 4);
-    auto* support_reply = FindRecord(*support_app->chat, ae::ObjId{301});
+    auto* support_reply =
+        FindRecord(*support_app->chat, ToObjId(TestObjectId::kSupportReplyEvent));
     CHECK(support_reply != nullptr);
     CHECK(support_reply->event->sender.id() == support_user_id);
     CHECK(support_reply->event->sequence == 2);
@@ -886,7 +953,8 @@ int main() {
     auto bob_delivery =
         DeliverPending(support_app, route_bob, bob_domain, bob_storage);
     CHECK(bob_delivery.send_count == 1);
-    CHECK(ContainsAny(bob_delivery.transferred_ids, 301));
+    CHECK(ContainsAny(bob_delivery.transferred_ids,
+                      ToObjId(TestObjectId::kSupportReplyEvent)));
     CHECK(!ContainsAny(bob_delivery.transferred_ids, support_user_id));
 
     CHECK(support_reply->FindRecipient(route_bob)->delivery_status ==
@@ -903,7 +971,8 @@ int main() {
     CHECK(bob_app->chat->journal[4].time ==
           ae::TimePoint{std::chrono::microseconds{500}});
 
-    auto* bob_remote_reply = FindRecord(*bob_app->chat, ae::ObjId{301});
+    auto* bob_remote_reply =
+        FindRecord(*bob_app->chat, ToObjId(TestObjectId::kSupportReplyEvent));
     CHECK(bob_remote_reply != nullptr);
     CHECK(bob_remote_reply->recipients.empty());
     auto bob_side_support = FindJoinedUser(*bob_app->chat, support_user_id);
@@ -925,10 +994,10 @@ int main() {
   // Phase 4: Alice and Support sync missed messages; Bob already converged.
   void* alice_chat_address = nullptr;
   void* alice_presenter_address = nullptr;
-  void* alice_local_address = nullptr;
   void* support_chat_address = nullptr;
   void* support_presenter_address = nullptr;
-  void* support_local_address = nullptr;
+  void* support_user_address = nullptr;
+  void* support_user_presenter_address = nullptr;
 
   {
     ae::Domain alice_domain{ae::Now(), alice_storage};
@@ -939,36 +1008,53 @@ int main() {
     auto support_app = LoadApplication(support_domain);
     auto bob_app = LoadApplication(bob_domain);
 
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{300}) != nullptr);
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{301}) == nullptr);
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{300})
+    CHECK(FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent)) != nullptr);
+    CHECK(FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent)) == nullptr);
+    CHECK(FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent))
               ->FindRecipient(route_bob)
               ->delivery_status == DeliveryStatus::kDelivered);
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{300})
+    CHECK(FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent))
               ->FindRecipient(route_support)
               ->delivery_status == DeliveryStatus::kPending);
 
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{301}) != nullptr);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{300}) == nullptr);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{301})
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent)) != nullptr);
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent)) == nullptr);
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
               ->FindRecipient(route_bob)
               ->delivery_status == DeliveryStatus::kDelivered);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{301})
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
               ->FindRecipient(route_alice)
               ->delivery_status == DeliveryStatus::kPending);
 
-    CHECK(FindRecord(*bob_app->chat, ae::ObjId{300}) != nullptr);
-    CHECK(FindRecord(*bob_app->chat, ae::ObjId{301}) != nullptr);
-    CHECK(FindRecord(*bob_app->chat, ae::ObjId{300})->recipients.empty());
-    CHECK(FindRecord(*bob_app->chat, ae::ObjId{301})->recipients.empty());
+    CHECK(FindRecord(*bob_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent)) != nullptr);
+    CHECK(FindRecord(*bob_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent)) != nullptr);
+    CHECK(FindRecord(*bob_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent))
+              ->recipients.empty());
+    CHECK(FindRecord(*bob_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
+              ->recipients.empty());
 
     alice_chat_address = alice_app->chat.Load().get();
     alice_presenter_address = alice_app->chat->presenter.Load().get();
-    alice_local_address = alice_app->chat->presenter->local_user.Load().get();
     support_chat_address = support_app->chat.Load().get();
     support_presenter_address = support_app->chat->presenter.Load().get();
-    support_local_address =
-        support_app->chat->presenter->local_user.Load().get();
+    {
+      auto support_local = FindJoinedUser(*support_app->chat, support_user_id);
+      CHECK(support_local.is_valid());
+      support_user_address = support_local.Load().get();
+      support_user_presenter_address = support_local->presenter.Load().get();
+    }
 
     // Phase 4A: Alice → Support (insert Event#300 before local Event#301)
     CHECK(DeliverPending(alice_app, route_support, support_domain,
@@ -977,31 +1063,40 @@ int main() {
 
     CHECK(support_app->chat->entries.size() == 5);
     CHECK(support_app->chat->journal.size() == 5);
-    CHECK(support_app->chat->journal[3].event.id().id() == 300);
-    CHECK(support_app->chat->journal[4].event.id().id() == 301);
+    CHECK(support_app->chat->journal[3].event.id() ==
+          ToObjId(TestObjectId::kAliceMessageEvent));
+    CHECK(support_app->chat->journal[4].event.id() ==
+          ToObjId(TestObjectId::kSupportReplyEvent));
     CHECK(support_app->chat->journal[3].time ==
           ae::TimePoint{std::chrono::microseconds{400}});
     CHECK(support_app->chat->journal[4].time ==
           ae::TimePoint{std::chrono::microseconds{500}});
     CHECK(support_app->chat->entries[3].text == "Message from Alice");
     CHECK(support_app->chat->entries[4].text == "Reply from Support");
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{300})->recipients.empty());
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{301})
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent))
+              ->recipients.empty());
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
               ->FindRecipient(route_alice)
               ->delivery_status == DeliveryStatus::kPending);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{301})
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
               ->FindRecipient(route_bob)
               ->delivery_status == DeliveryStatus::kDelivered);
 
     CHECK(support_app->chat.Load().get() == support_chat_address);
     CHECK(support_app->chat->presenter.Load().get() ==
           support_presenter_address);
-    CHECK(support_app->chat->presenter->local_user.Load().get() ==
-          support_local_address);
+    {
+      auto support_after = FindJoinedUser(*support_app->chat, support_user_id);
+      CHECK(support_after.is_valid());
+      CHECK(support_after.Load().get() == support_user_address);
+      CHECK(support_after->presenter.Load().get() ==
+            support_user_presenter_address);
+    }
     CHECK(support_app->chat->presenter->chat.Load().get() ==
           support_chat_address);
-    CHECK(support_app->chat->presenter->local_user->presenter->user.Load()
-              .get() == support_local_address);
 
     // Phase 4B: Support → Alice
     CHECK(DeliverPending(support_app, route_alice, alice_domain, alice_storage)
@@ -1010,11 +1105,11 @@ int main() {
     CHECK(alice_app->chat->entries.size() == 5);
     CHECK(alice_app->chat->journal.size() == 5);
     CHECK(alice_app->chat->entries[4].text == "Reply from Support");
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{301})->recipients.empty());
+    CHECK(FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
+              ->recipients.empty());
     CHECK(alice_app->chat.Load().get() == alice_chat_address);
     CHECK(alice_app->chat->presenter.Load().get() == alice_presenter_address);
-    CHECK(alice_app->chat->presenter->local_user.Load().get() ==
-          alice_local_address);
     CHECK(alice_app->chat->presenter->chat.Load().get() == alice_chat_address);
 
     auto check_final = [&](Application::ptr& app) -> int {
@@ -1033,11 +1128,16 @@ int main() {
       CHECK(app->chat->entries[4].text == "Reply from Support");
       CHECK(app->chat->entries[4].sender.id() == support_user_id);
 
-      CHECK(app->chat->journal[0].event.id().id() == 200);
-      CHECK(app->chat->journal[1].event.id().id() == 201);
-      CHECK(app->chat->journal[2].event.id().id() == 202);
-      CHECK(app->chat->journal[3].event.id().id() == 300);
-      CHECK(app->chat->journal[4].event.id().id() == 301);
+      CHECK(app->chat->journal[0].event.id() ==
+            ToObjId(TestObjectId::kAliceJoinEvent));
+      CHECK(app->chat->journal[1].event.id() ==
+            ToObjId(TestObjectId::kSupportJoinEvent));
+      CHECK(app->chat->journal[2].event.id() ==
+            ToObjId(TestObjectId::kBobJoinEvent));
+      CHECK(app->chat->journal[3].event.id() ==
+            ToObjId(TestObjectId::kAliceMessageEvent));
+      CHECK(app->chat->journal[4].event.id() ==
+            ToObjId(TestObjectId::kSupportReplyEvent));
       CHECK(app->chat->journal[0].event->sender.id() == alice_user_id);
       CHECK(app->chat->journal[1].event->sender.id() == support_user_id);
       CHECK(app->chat->journal[2].event->sender.id() == bob_user_id);
@@ -1055,21 +1155,26 @@ int main() {
     CHECK(check_final(support_app) == EXIT_SUCCESS);
     CHECK(check_final(bob_app) == EXIT_SUCCESS);
 
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{300})
+    CHECK(FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent))
               ->FindRecipient(route_support)
               ->delivery_status == DeliveryStatus::kDelivered);
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{300})
+    CHECK(FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent))
               ->FindRecipient(route_bob)
               ->delivery_status == DeliveryStatus::kDelivered);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{301})
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
               ->FindRecipient(route_alice)
               ->delivery_status == DeliveryStatus::kDelivered);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{301})
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
               ->FindRecipient(route_bob)
               ->delivery_status == DeliveryStatus::kDelivered);
 
-    for (auto event_id :
-         {ae::ObjId{200}, ae::ObjId{201}, ae::ObjId{202}}) {
+    for (auto event_id : {ToObjId(TestObjectId::kAliceJoinEvent),
+                          ToObjId(TestObjectId::kSupportJoinEvent),
+                          ToObjId(TestObjectId::kBobJoinEvent)}) {
       auto* alice_record = FindRecord(*alice_app->chat, event_id);
       auto* support_record = FindRecord(*support_app->chat, event_id);
       auto* bob_record = FindRecord(*bob_app->chat, event_id);
@@ -1080,23 +1185,32 @@ int main() {
 
     // Remote copies only: local Join#200/#201/#202 keep recipient states.
     for (auto* remote_record :
-         {FindRecord(*alice_app->chat, ae::ObjId{201}),
-          FindRecord(*alice_app->chat, ae::ObjId{202}),
-          FindRecord(*alice_app->chat, ae::ObjId{301}),
-          FindRecord(*support_app->chat, ae::ObjId{200}),
-          FindRecord(*support_app->chat, ae::ObjId{202}),
-          FindRecord(*support_app->chat, ae::ObjId{300}),
-          FindRecord(*bob_app->chat, ae::ObjId{200}),
-          FindRecord(*bob_app->chat, ae::ObjId{201}),
-          FindRecord(*bob_app->chat, ae::ObjId{300}),
-          FindRecord(*bob_app->chat, ae::ObjId{301})}) {
+         {FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kSupportJoinEvent)),
+          FindRecord(*alice_app->chat, ToObjId(TestObjectId::kBobJoinEvent)),
+          FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent)),
+          FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kAliceJoinEvent)),
+          FindRecord(*support_app->chat, ToObjId(TestObjectId::kBobJoinEvent)),
+          FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent)),
+          FindRecord(*bob_app->chat, ToObjId(TestObjectId::kAliceJoinEvent)),
+          FindRecord(*bob_app->chat, ToObjId(TestObjectId::kSupportJoinEvent)),
+          FindRecord(*bob_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent)),
+          FindRecord(*bob_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))}) {
       CHECK(remote_record != nullptr);
       CHECK(remote_record->recipients.empty());
     }
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{200})->recipients.size() == 2);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{201})->recipients.size() ==
-          2);
-    CHECK(FindRecord(*bob_app->chat, ae::ObjId{202})->recipients.size() == 2);
+    CHECK(FindRecord(*alice_app->chat, ToObjId(TestObjectId::kAliceJoinEvent))
+              ->recipients.size() == 2);
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportJoinEvent))
+              ->recipients.size() == 2);
+    CHECK(FindRecord(*bob_app->chat, ToObjId(TestObjectId::kBobJoinEvent))
+              ->recipients.size() == 2);
 
     // No forwarding of accepted events.
     CHECK(DeliverPending(bob_app, route_support, support_domain, support_storage)
@@ -1140,11 +1254,6 @@ int main() {
             found_support.Load().get());
       CHECK(found_bob->presenter->user.Load().get() == found_bob.Load().get());
     }
-
-    CHECK(alice_app->chat->presenter->local_user.Load().get() ==
-          alice_local_address);
-    CHECK(support_app->chat->presenter->local_user.Load().get() ==
-          support_local_address);
 
     // Repeat sync: nothing pending.
     CHECK(DeliverPending(alice_app, route_support, support_domain,
@@ -1212,24 +1321,28 @@ int main() {
             found_alice.Load().get());
     }
 
-    CHECK(alice_app->chat->presenter->local_user.id() == alice_user_id);
-    CHECK(support_app->chat->presenter->local_user.id() == support_user_id);
-    CHECK(bob_app->chat->presenter->local_user.id() == bob_user_id);
-
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{300})
+    CHECK(FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent))
               ->FindRecipient(route_support)
               ->delivery_status == DeliveryStatus::kDelivered);
-    CHECK(FindRecord(*alice_app->chat, ae::ObjId{300})
+    CHECK(FindRecord(*alice_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent))
               ->FindRecipient(route_bob)
               ->delivery_status == DeliveryStatus::kDelivered);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{301})
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
               ->FindRecipient(route_alice)
               ->delivery_status == DeliveryStatus::kDelivered);
-    CHECK(FindRecord(*support_app->chat, ae::ObjId{301})
+    CHECK(FindRecord(*support_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
               ->FindRecipient(route_bob)
               ->delivery_status == DeliveryStatus::kDelivered);
-    CHECK(FindRecord(*bob_app->chat, ae::ObjId{300})->recipients.empty());
-    CHECK(FindRecord(*bob_app->chat, ae::ObjId{301})->recipients.empty());
+    CHECK(FindRecord(*bob_app->chat,
+                     ToObjId(TestObjectId::kAliceMessageEvent))
+              ->recipients.empty());
+    CHECK(FindRecord(*bob_app->chat,
+                     ToObjId(TestObjectId::kSupportReplyEvent))
+              ->recipients.empty());
 
     auto alice_on_alice = FindJoinedUser(*alice_app->chat, alice_user_id);
     auto alice_on_support = FindJoinedUser(*support_app->chat, alice_user_id);
