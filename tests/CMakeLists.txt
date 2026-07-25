@@ -177,3 +177,16 @@ add_test(
   NAME apptraverse_cyclic_node_base_capture_test
   COMMAND apptraverse_cyclic_node_base_capture_test
 )
+
+add_executable(apptraverse_client_prefab_instantiation_test
+  client_prefab_instantiation_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_client_prefab_instantiation_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_client_prefab_instantiation_test
+  COMMAND apptraverse_client_prefab_instantiation_test
+)
