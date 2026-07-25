@@ -69,6 +69,9 @@ class Node : public ae::Obj {
     journal.clear();
 
     ae::DomainGraph save_graph{domain};
+    bool const owner_marked =
+        save_graph.cycle_detector.Add(ConcreteNode::kClassId, owner_id);
+    assert(owner_marked);
     save_graph.Save(target, saved_base.id());
 
     obj_id = owner_id;

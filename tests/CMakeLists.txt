@@ -164,3 +164,16 @@ add_test(
   NAME apptraverse_multi_node_graph_synchronization_test
   COMMAND apptraverse_multi_node_graph_synchronization_test
 )
+
+add_executable(apptraverse_cyclic_node_base_capture_test
+  cyclic_node_base_capture_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_cyclic_node_base_capture_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_cyclic_node_base_capture_test
+  COMMAND apptraverse_cyclic_node_base_capture_test
+)
