@@ -216,3 +216,16 @@ add_test(
   NAME apptraverse_event_sender_duplicate_delivery_test
   COMMAND apptraverse_event_sender_duplicate_delivery_test
 )
+
+add_executable(apptraverse_distributed_chat_application_test
+  distributed_chat_application_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_distributed_chat_application_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_distributed_chat_application_test
+  COMMAND apptraverse_distributed_chat_application_test
+)
