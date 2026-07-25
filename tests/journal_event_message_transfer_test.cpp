@@ -10,7 +10,6 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
-#include "apptraverse/event_identity.h"
 #include "apptraverse/event_record.h"
 #include "apptraverse/graph_journal_scanner.h"
 #include "apptraverse/journal_event_message.h"
@@ -55,9 +54,8 @@ class TransferNode : public apptraverse::NodeFor<TransferNode> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
-                          ae::ObjId origin,
                           std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, origin, std::move(recipients));
+    CommitEvent(std::move(event), time, std::move(recipients));
   }
 };
 
@@ -97,14 +95,12 @@ static_assert(
 
 int main() {
   using apptraverse::DeliveryStatus;
-  using apptraverse::EventRecordOrigin;
   using apptraverse::GraphJournalScanner;
   using apptraverse::JournalEventMessage;
   using apptraverse::JournalTransportMessage;
   using apptraverse::test::AppendNameEvent;
   using apptraverse::test::TransferNode;
 
-  ae::ObjId const local_origin{9001};
   ae::ObjId const receiver_peer{9001};
 
   ae::RamDomainStorage sender_storage;
@@ -123,12 +119,12 @@ int main() {
   TransferNode::ptr sender_node =
       TransferNode::ptr::Create(ae::CreateWith{sender_domain}.with_id(100));
   CHECK(static_cast<bool>(sender_node));
-  sender_node->name = "Alice";
+  sender_node->name = "Root";
   sender_node->base = sender_base;
   sender_node->CaptureBaseStateForTest();
 
-  CHECK(sender_node->name == "Alice");
-  CHECK(sender_base->name == "Alice");
+  CHECK(sender_node->name == "Root");
+  CHECK(sender_base->name == "Root");
   CHECK(sender_node->journal.empty());
 
   TransferNode::ptr receiver_base =
@@ -139,7 +135,7 @@ int main() {
   TransferNode::ptr receiver_node =
       TransferNode::ptr::Create(ae::CreateWith{receiver_domain}.with_id(100));
   CHECK(static_cast<bool>(receiver_node));
-  receiver_node->name = "Alice";
+  receiver_node->name = "Root";
   receiver_node->base = receiver_base;
   receiver_node->CaptureBaseStateForTest();
 
@@ -153,21 +149,20 @@ int main() {
   AppendNameEvent::ptr sender_event =
       AppendNameEvent::ptr::Create(ae::CreateWith{sender_domain}.with_id(200));
   CHECK(static_cast<bool>(sender_event));
-  sender_event->suffix = " Cooper";
+  sender_event->suffix = " Value";
 
   ae::TimePoint const event_time{std::chrono::microseconds{100}};
-  sender_node->CommitEventForTest(sender_event, event_time, local_origin,
-                                  {receiver_peer});
+  sender_event->sender = sender_node;
+  sender_node->CommitEventForTest(sender_event, event_time, {receiver_peer});
 
-  CHECK(sender_node->name == "Alice Cooper");
+  CHECK(sender_node->name == "Root Value");
   CHECK(sender_node->journal.size() == 1);
-  CHECK(sender_node->journal[0].origin == EventRecordOrigin::kLocal);
-  CHECK(sender_node->journal[0].identity.origin == local_origin);
-  CHECK(sender_node->journal[0].identity.sequence == 1);
+  CHECK(sender_node->journal[0].event->sender.id() == sender_node.id());
+  CHECK(sender_node->journal[0].event->sequence == 1);
   CHECK(sender_node->journal[0].FindRecipient(receiver_peer) != nullptr);
   CHECK(sender_node->journal[0].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
-  CHECK(receiver_node->name == "Alice");
+  CHECK(receiver_node->name == "Root");
   CHECK(receiver_node->journal.empty());
 
   GraphJournalScanner scanner;
@@ -188,7 +183,6 @@ int main() {
 
         message->event = record.event;
         message->event.SetFlags(ae::ObjFlags::kUnloadedByDefault);
-        message->identity = record.identity;
         message->time = record.time;
       });
 
@@ -198,8 +192,9 @@ int main() {
   CHECK(message->target.is_valid());
   CHECK(message->target.id().id() == 100);
   CHECK(!message->target.is_loaded());
-  CHECK(message->identity.IsValid());
-  CHECK(message->identity == sender_node->journal[0].identity);
+  CHECK(message->event->HasValidIdentity());
+  CHECK(message->event->sender.id() == sender_node.id());
+  CHECK(message->event->sequence == 1);
   CHECK(message->event.is_valid());
   CHECK(message->event.is_loaded());
   CHECK(message->event.id().id() == 200);
@@ -234,9 +229,6 @@ int main() {
   CHECK(incoming_event_message->target.id().id() == 100);
   CHECK(!incoming_event_message->target.is_loaded());
   CHECK(incoming_event_message->target.domain() == &receiver_domain);
-  CHECK(incoming_event_message->identity.IsValid());
-  CHECK(incoming_event_message->identity ==
-        sender_node->journal[0].identity);
   CHECK(incoming_event_message->event.is_valid());
   CHECK(!incoming_event_message->event.is_loaded());
   CHECK(incoming_event_message->event.id().id() == 200);
@@ -245,17 +237,20 @@ int main() {
 
   auto* receiver_node_address = receiver_node.Load().get();
   CHECK(receiver_node_address != nullptr);
-  CHECK(receiver_node->name == "Alice");
+  CHECK(receiver_node->name == "Root");
   CHECK(!incoming_event_message->target.is_loaded());
 
   apptraverse::JournalMessageReceiver receiver;
   receiver.Receive(incoming_message);
 
   CHECK(incoming_event_message->event.is_loaded());
+  CHECK(incoming_event_message->event->HasValidIdentity());
+  CHECK(incoming_event_message->event->sender.id() == sender_node.id());
+  CHECK(incoming_event_message->event->sequence == 1);
   auto* receiver_append =
       incoming_event_message->event.Load().as<AppendNameEvent>();
   CHECK(receiver_append != nullptr);
-  CHECK(receiver_append->suffix == " Cooper");
+  CHECK(receiver_append->suffix == " Value");
   CHECK(incoming_event_message->event.Load().get() !=
         sender_event.Load().get());
 
@@ -265,22 +260,20 @@ int main() {
         sender_node.Load().get());
   CHECK(incoming_event_message->target.Load().as<TransferNode>() != nullptr);
 
-  CHECK(receiver_node->name == "Alice Cooper");
+  CHECK(receiver_node->name == "Root Value");
   CHECK(receiver_node->journal.size() == 1);
   CHECK(receiver_node->journal[0].event.id().id() == 200);
   CHECK(receiver_node->journal[0].time == event_time);
-  CHECK(receiver_node->journal[0].origin == EventRecordOrigin::kRemote);
-  CHECK(receiver_node->journal[0].identity ==
-        incoming_event_message->identity);
+  CHECK(receiver_node->journal[0].event->sender.id() == sender_node.id());
+  CHECK(receiver_node->journal[0].event->sequence == 1);
   CHECK(receiver_node->journal[0].recipients.empty());
   CHECK(receiver_node->journal[0].event.Load().get() ==
         incoming_event_message->event.Load().get());
   CHECK(incoming_event_message->event.is_valid());
   CHECK(incoming_event_message->event.is_loaded());
 
-  CHECK(sender_node->name == "Alice Cooper");
+  CHECK(sender_node->name == "Root Value");
   CHECK(sender_node->journal.size() == 1);
-  CHECK(sender_node->journal[0].origin == EventRecordOrigin::kLocal);
   CHECK(sender_node->journal[0].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
 
@@ -311,21 +304,20 @@ int main() {
 
   auto* reloaded_node = reloaded.Load().as<TransferNode>();
   CHECK(reloaded_node != nullptr);
-  CHECK(reloaded_node->name == "Alice Cooper");
+  CHECK(reloaded_node->name == "Root Value");
   CHECK(reloaded_node->base.id().id() == 1000);
   CHECK(reloaded_node->journal.size() == 1);
   CHECK(reloaded_node->journal[0].event.id().id() == 200);
-  CHECK(reloaded_node->journal[0].origin == EventRecordOrigin::kRemote);
   CHECK(reloaded_node->journal[0].recipients.empty());
 
   auto* reloaded_event =
       reloaded_node->journal[0].event.Load().as<AppendNameEvent>();
   CHECK(reloaded_event != nullptr);
-  CHECK(reloaded_event->suffix == " Cooper");
+  CHECK(reloaded_event->suffix == " Value");
 
   auto* reloaded_base = reloaded_node->base.Load().as<TransferNode>();
   CHECK(reloaded_base != nullptr);
-  CHECK(reloaded_base->name == "Alice");
+  CHECK(reloaded_base->name == "Root");
   CHECK(!reloaded_base->base.is_valid());
   CHECK(reloaded_base->journal.empty());
 
@@ -333,7 +325,6 @@ int main() {
   CHECK(incoming_event_message->event.domain() == &receiver_domain);
   CHECK(sender_event.Load().get() !=
         incoming_event_message->event.Load().get());
-  CHECK(sender_node->journal[0].origin == EventRecordOrigin::kLocal);
   CHECK(sender_node->journal[0].FindRecipient(receiver_peer)->delivery_status ==
         DeliveryStatus::kPending);
   CHECK(incoming_event_message->target.Load().get() == receiver_node_address);

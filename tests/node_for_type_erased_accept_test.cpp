@@ -8,12 +8,12 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
-#include "apptraverse/event_identity.h"
 #include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
 
 class TypeErasedNode;
+class RemoteSender;
 
 class AppendNameEvent
     : public apptraverse::EventFor<TypeErasedNode, AppendNameEvent> {
@@ -28,6 +28,18 @@ class AppendNameEvent
   AE_OBJECT_REFLECT(AE_MMBR(suffix))
 
   std::string suffix;
+};
+
+class RemoteSender : public ae::Obj {
+  AE_OBJECT(RemoteSender, Obj, 0)
+
+ protected:
+  RemoteSender() = default;
+
+ public:
+  explicit RemoteSender(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT()
 };
 
 class TypeErasedNode : public apptraverse::NodeFor<TypeErasedNode> {
@@ -47,9 +59,8 @@ class TypeErasedNode : public apptraverse::NodeFor<TypeErasedNode> {
 
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
-  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
-                          ae::ObjId origin) {
-    CommitEvent(std::move(event), time, origin);
+  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time) {
+    CommitEvent(std::move(event), time);
   }
 };
 
@@ -69,16 +80,16 @@ namespace {
 }  // namespace
 
 int main() {
-  using apptraverse::EventIdentity;
-  using apptraverse::EventRecordOrigin;
   using apptraverse::test::AppendNameEvent;
+  using apptraverse::test::RemoteSender;
   using apptraverse::test::TypeErasedNode;
-
-  ae::ObjId const local_origin{9001};
-  ae::ObjId const remote_origin{9002};
 
   ae::RamDomainStorage storage;
   ae::Domain domain1{ae::Now(), storage};
+
+  RemoteSender::ptr remote_sender =
+      RemoteSender::ptr::Create(ae::CreateWith{domain1}.with_id(9002));
+  CHECK(static_cast<bool>(remote_sender));
 
   TypeErasedNode::ptr base =
       TypeErasedNode::ptr::Create(ae::CreateWith{domain1}.with_id(1000));
@@ -90,29 +101,31 @@ int main() {
   TypeErasedNode::ptr live =
       TypeErasedNode::ptr::Create(ae::CreateWith{domain1}.with_id(100));
   CHECK(static_cast<bool>(live));
-  live->name = "Alice";
+  live->name = "Root";
   live->base = base;
   CHECK(live->journal.empty());
 
   live->CaptureBaseStateForTest();
 
-  CHECK(live->name == "Alice");
-  CHECK(live->base.Load().as<TypeErasedNode>()->name == "Alice");
+  CHECK(live->name == "Root");
+  CHECK(live->base.Load().as<TypeErasedNode>()->name == "Root");
   CHECK(live->journal.empty());
   CHECK(live->base->journal.empty());
 
   AppendNameEvent::ptr local_event =
       AppendNameEvent::ptr::Create(ae::CreateWith{domain1}.with_id(200));
   CHECK(static_cast<bool>(local_event));
-  local_event->suffix = " Cooper";
+  local_event->suffix = " Value";
 
   ae::TimePoint const local_time{std::chrono::microseconds{200}};
-  live->CommitEventForTest(local_event, local_time, local_origin);
+  local_event->sender = live;
+  live->CommitEventForTest(local_event, local_time);
 
-  CHECK(live->name == "Alice Cooper");
+  CHECK(live->name == "Root Value");
   CHECK(live->journal.size() == 1);
-  CHECK((live->journal[0].identity == EventIdentity{local_origin, 1}));
-  CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[0].event->sender.id() == live.id());
+  CHECK(!live->journal[0].event->sender.is_loaded());
+  CHECK(live->journal[0].event->sequence == 1);
   CHECK(live->journal[0].recipients.empty());
   CHECK(live->next_local_sequence == 2);
 
@@ -126,31 +139,32 @@ int main() {
       AppendNameEvent::ptr::Create(ae::CreateWith{domain1}.with_id(201));
   CHECK(static_cast<bool>(earlier_event));
   earlier_event->suffix = " B.";
+  earlier_event->sender = remote_sender;
+  earlier_event->sequence = 1;
 
   ae::TimePoint const earlier_time{std::chrono::microseconds{100}};
-  CHECK((generic_live->AcceptRemoteEvent(
-      earlier_event, earlier_time, EventIdentity{remote_origin, 1})));
+  CHECK((generic_live->AcceptRemoteEvent(earlier_event, earlier_time)));
 
-  CHECK(live->name == "Alice B. Cooper");
+  CHECK(live->name == "Root B. Value");
   CHECK(live.id().id() == 100);
   CHECK(live->base.id().id() == 1000);
   CHECK(live->journal.size() == 2);
 
   CHECK(live->journal[0].event.id().id() == 201);
-  CHECK((live->journal[0].identity == EventIdentity{remote_origin, 1}));
+  CHECK(live->journal[0].event->sender.id() == remote_sender.id());
+  CHECK(live->journal[0].event->sequence == 1);
   CHECK(live->journal[0].time == earlier_time);
-  CHECK(live->journal[0].origin == EventRecordOrigin::kRemote);
   CHECK(live->journal[0].recipients.empty());
 
   CHECK(live->journal[1].event.id().id() == 200);
-  CHECK((live->journal[1].identity == EventIdentity{local_origin, 1}));
+  CHECK(live->journal[1].event->sender.id() == live.id());
+  CHECK(live->journal[1].event->sequence == 1);
   CHECK(live->journal[1].time == local_time);
-  CHECK(live->journal[1].origin == EventRecordOrigin::kLocal);
   CHECK(live->journal[1].recipients.empty());
 
   auto* captured_base = live->base.Load().as<TypeErasedNode>();
   CHECK(captured_base != nullptr);
-  CHECK(captured_base->name == "Alice");
+  CHECK(captured_base->name == "Root");
   CHECK(!captured_base->base.is_valid());
   CHECK(captured_base->journal.empty());
 
@@ -169,40 +183,39 @@ int main() {
 
   auto* loaded = loaded_generic.Load().as<TypeErasedNode>();
   CHECK(loaded != nullptr);
-  CHECK(loaded->name == "Alice B. Cooper");
+  CHECK(loaded->name == "Root B. Value");
   CHECK(loaded->base.id().id() == 1000);
   CHECK(loaded->journal.size() == 2);
   CHECK(loaded->journal[0].event.id().id() == 201);
   CHECK(loaded->journal[0].time == earlier_time);
-  CHECK(loaded->journal[0].origin == EventRecordOrigin::kRemote);
   CHECK(loaded->journal[0].recipients.empty());
   CHECK(loaded->journal[1].event.id().id() == 200);
   CHECK(loaded->journal[1].time == local_time);
-  CHECK(loaded->journal[1].origin == EventRecordOrigin::kLocal);
   CHECK(loaded->journal[1].recipients.empty());
 
   AppendNameEvent::ptr later_event =
       AppendNameEvent::ptr::Create(ae::CreateWith{domain2}.with_id(202));
   CHECK(static_cast<bool>(later_event));
-  later_event->suffix = " Jr.";
+  later_event->suffix = " Second";
+  later_event->sender = remote_sender;
+  later_event->sequence = 2;
 
   ae::TimePoint const later_time{std::chrono::microseconds{300}};
-  CHECK((loaded_generic->AcceptRemoteEvent(
-      later_event, later_time, EventIdentity{remote_origin, 2})));
+  CHECK((loaded_generic->AcceptRemoteEvent(later_event, later_time)));
 
-  CHECK(loaded->name == "Alice B. Cooper Jr.");
-  CHECK(loaded->name != "Alice B. Cooper Jr. Jr.");
-  CHECK(loaded->name != "Alice B. Cooper B. Cooper Jr.");
+  CHECK(loaded->name == "Root B. Value Second");
+  CHECK(loaded->name != "Root B. Value Second Second");
+  CHECK(loaded->name != "Root B. Value B. Value Second");
   CHECK(loaded->journal.size() == 3);
   CHECK(loaded->journal[2].event.id().id() == 202);
-  CHECK((loaded->journal[2].identity == EventIdentity{remote_origin, 2}));
+  CHECK(loaded->journal[2].event->sender.id() == remote_sender.id());
+  CHECK(loaded->journal[2].event->sequence == 2);
   CHECK(loaded->journal[2].time == later_time);
-  CHECK(loaded->journal[2].origin == EventRecordOrigin::kRemote);
   CHECK(loaded->journal[2].recipients.empty());
 
   auto* loaded_base = loaded->base.Load().as<TypeErasedNode>();
   CHECK(loaded_base != nullptr);
-  CHECK(loaded_base->name == "Alice");
+  CHECK(loaded_base->name == "Root");
   CHECK(!loaded_base->base.is_valid());
   CHECK(loaded_base->journal.empty());
 

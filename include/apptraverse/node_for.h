@@ -23,10 +23,9 @@ class NodeFor : public Node {
   }
 
  private:
-  bool AcceptRemoteEventImpl(Event::ptr event, ae::TimePoint time,
-                             EventIdentity identity) override {
+  bool AcceptRemoteEventImpl(Event::ptr event, ae::TimePoint time) override {
     return Node::AcceptRemoteEvent(static_cast<ConcreteNode&>(*this),
-                                   std::move(event), time, identity);
+                                   std::move(event), time);
   }
 };
 

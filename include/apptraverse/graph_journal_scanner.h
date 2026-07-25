@@ -32,10 +32,6 @@ class PendingJournalTraversal : public ObjectGraphTraversal {
     }
 
     for (auto& record : node.journal) {
-      if (record.origin != EventRecordOrigin::kLocal) {
-        continue;
-      }
-
       auto* recipient_state = record.FindRecipient(recipient_);
       if (recipient_state == nullptr) {
         continue;

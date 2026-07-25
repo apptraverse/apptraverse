@@ -31,16 +31,20 @@ class Node : public ae::Obj {
   std::vector<EventRecord> journal;
   std::uint32_t next_local_sequence{1};
 
-  bool AcceptRemoteEvent(Event::ptr event, ae::TimePoint time,
-                         EventIdentity identity) {
-    return AcceptRemoteEventImpl(std::move(event), time, identity);
+  bool AcceptRemoteEvent(Event::ptr event, ae::TimePoint time) {
+    return AcceptRemoteEventImpl(std::move(event), time);
   }
 
-  bool ContainsEvent(EventIdentity identity) const {
-    assert(identity.IsValid());
+  bool ContainsEvent(Event const& event) const {
+    assert(event.HasValidIdentity());
 
     for (auto const& record : journal) {
-      if (record.identity == identity) {
+      assert(record.event.is_valid());
+
+      auto const& existing = record.event.Load();
+      assert(existing);
+
+      if (existing->HasSameIdentity(event)) {
         return true;
       }
     }
@@ -104,11 +108,11 @@ class Node : public ae::Obj {
     load_graph.Load(concrete_base, base.id());
   }
 
-  void CommitEvent(Event::ptr event, ae::TimePoint time, ae::ObjId origin) {
-    CommitEvent(std::move(event), time, origin, {});
+  void CommitEvent(Event::ptr event, ae::TimePoint time) {
+    CommitEvent(std::move(event), time, {});
   }
 
-  void CommitEvent(Event::ptr event, ae::TimePoint time, ae::ObjId origin,
+  void CommitEvent(Event::ptr event, ae::TimePoint time,
                    std::vector<ae::ObjId> recipients) {
     assert(domain != nullptr);
     assert(base.is_valid());
@@ -117,16 +121,24 @@ class Node : public ae::Obj {
     assert(event.is_loaded());
     assert(event.domain() == domain);
     assert(journal.empty() || journal.back().time < time);
-    assert(origin.IsValid());
+
+    assert(event->sender.is_valid());
+    assert(event->sequence == 0);
     assert(next_local_sequence != 0);
     assert(next_local_sequence !=
            std::numeric_limits<std::uint32_t>::max());
 
-    EventIdentity const identity{origin, next_local_sequence};
+    event->sender.Reset();
+    event->sender.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+
+    assert(event->sender.is_valid());
+    assert(!event->sender.is_loaded());
+
+    event->sequence = next_local_sequence;
     ++next_local_sequence;
 
-    assert(identity.IsValid());
-    assert(!ContainsEvent(identity));
+    assert(event->HasValidIdentity());
+    assert(!ContainsEvent(*event));
 
     for (auto const& recipient : recipients) {
       assert(recipient.IsValid());
@@ -147,9 +159,7 @@ class Node : public ae::Obj {
 
     journal.push_back(EventRecord{
         std::move(event),
-        identity,
         time,
-        EventRecordOrigin::kLocal,
         std::move(recipient_states),
     });
 
@@ -158,16 +168,23 @@ class Node : public ae::Obj {
 
   template <typename ConcreteNode>
   bool AcceptRemoteEvent(ConcreteNode& target, Event::ptr event,
-                         ae::TimePoint time, EventIdentity identity) {
+                         ae::TimePoint time) {
     assert(domain != nullptr);
     assert(base.is_valid());
     assert(base.is_loaded());
     assert(event.is_valid());
     assert(event.is_loaded());
     assert(event.domain() == domain);
-    assert(identity.IsValid());
+    assert(event->HasValidIdentity());
 
-    if (ContainsEvent(identity)) {
+    event->sender.Reset();
+    event->sender.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+
+    assert(event->sender.is_valid());
+    assert(!event->sender.is_loaded());
+    assert(event->HasValidIdentity());
+
+    if (ContainsEvent(*event)) {
       return false;
     }
 
@@ -185,9 +202,7 @@ class Node : public ae::Obj {
         position,
         EventRecord{
             std::move(event),
-            identity,
             time,
-            EventRecordOrigin::kRemote,
             {},
         });
 
@@ -201,11 +216,9 @@ class Node : public ae::Obj {
   }
 
  private:
-  virtual bool AcceptRemoteEventImpl(Event::ptr event, ae::TimePoint time,
-                                     EventIdentity identity) {
+  virtual bool AcceptRemoteEventImpl(Event::ptr event, ae::TimePoint time) {
     (void)event;
     (void)time;
-    (void)identity;
     assert(false && "Concrete Node must inherit through NodeFor");
     return false;
   }

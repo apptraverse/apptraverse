@@ -12,7 +12,6 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
-#include "apptraverse/event_identity.h"
 #include "apptraverse/graph_synchronizer.h"
 #include "apptraverse/journal_event_message.h"
 #include "apptraverse/journal_message_receiver.h"
@@ -22,17 +21,31 @@
 
 namespace apptraverse::test {
 
-class IdentityNode;
-
-class AppendIdentityValueEvent
-    : public apptraverse::EventFor<IdentityNode, AppendIdentityValueEvent> {
-  AE_OBJECT(AppendIdentityValueEvent, Event, 0)
+class SenderObject : public ae::Obj {
+  AE_OBJECT(SenderObject, Obj, 0)
 
  protected:
-  AppendIdentityValueEvent() = default;
+  SenderObject() = default;
 
  public:
-  explicit AppendIdentityValueEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit SenderObject(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT()
+};
+
+static_assert(!std::is_base_of_v<apptraverse::Node, SenderObject>);
+
+class IdentityNode;
+
+class AppendValueEvent
+    : public apptraverse::EventFor<IdentityNode, AppendValueEvent> {
+  AE_OBJECT(AppendValueEvent, Event, 0)
+
+ protected:
+  AppendValueEvent() = default;
+
+ public:
+  explicit AppendValueEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(suffix))
 
@@ -53,7 +66,7 @@ class IdentityNode : public apptraverse::NodeFor<IdentityNode> {
   std::string value;
   std::uint32_t apply_count{0};
 
-  void Apply(AppendIdentityValueEvent const& event) {
+  void Apply(AppendValueEvent const& event) {
     value += event.suffix;
     ++apply_count;
   }
@@ -61,9 +74,8 @@ class IdentityNode : public apptraverse::NodeFor<IdentityNode> {
   void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
-                          ae::ObjId origin,
                           std::vector<ae::ObjId> recipients) {
-    CommitEvent(std::move(event), time, origin, std::move(recipients));
+    CommitEvent(std::move(event), time, std::move(recipients));
   }
 };
 
@@ -73,14 +85,12 @@ class DuplicatingJournalMessageTransport final
   DuplicatingJournalMessageTransport(
       ae::Domain& message_domain, ae::RamDomainStorage& transfer_storage,
       ae::Domain& receiver_domain, ae::RamDomainStorage& receiver_storage,
-      apptraverse::JournalMessageReceiver& receiver,
-      apptraverse::EventIdentity expected_identity)
+      apptraverse::JournalMessageReceiver& receiver)
       : message_domain_{&message_domain},
         transfer_storage_{&transfer_storage},
         receiver_domain_{&receiver_domain},
         receiver_storage_{&receiver_storage},
-        receiver_{&receiver},
-        expected_identity_{expected_identity} {}
+        receiver_{&receiver} {}
 
   std::size_t send_count{0};
   std::vector<ae::ObjId> message_ids;
@@ -97,10 +107,9 @@ class DuplicatingJournalMessageTransport final
     auto* event_message =
         message.Load().as<apptraverse::JournalEventMessage>();
     assert(event_message != nullptr);
-    assert(event_message->identity.IsValid());
-    assert(event_message->identity == expected_identity_);
     assert(event_message->event.is_valid());
     assert(event_message->event.is_loaded());
+    assert(event_message->event->HasValidIdentity());
     assert((event_message->event.flags() &
             ae::ObjFlags::kUnloadedByDefault) ==
            ae::ObjFlags::kUnloadedByDefault);
@@ -112,13 +121,11 @@ class DuplicatingJournalMessageTransport final
         ae::CreateWith{*message_domain_});
     duplicate->target = event_message->target;
     duplicate->event = event_message->event;
-    duplicate->identity = event_message->identity;
     duplicate->time = event_message->time;
 
     assert(duplicate->event.is_valid());
     assert(duplicate->event.is_loaded());
     assert(duplicate->event.id() == event_message->event.id());
-    assert(duplicate->identity == event_message->identity);
     assert(duplicate.id() != message.id());
 
     duplicate.Save();
@@ -168,7 +175,6 @@ class DuplicatingJournalMessageTransport final
   ae::Domain* receiver_domain_;
   ae::RamDomainStorage* receiver_storage_;
   apptraverse::JournalMessageReceiver* receiver_;
-  apptraverse::EventIdentity expected_identity_;
 };
 
 }  // namespace apptraverse::test
@@ -196,33 +202,17 @@ bool ContainsObj(ae::RamDomainStorage const& storage, ae::ObjId id) {
 
 int main() {
   using apptraverse::DeliveryStatus;
-  using apptraverse::EventIdentity;
-  using apptraverse::EventRecordOrigin;
   using apptraverse::GraphSynchronizer;
   using apptraverse::JournalMessageReceiver;
-  using apptraverse::test::AppendIdentityValueEvent;
+  using apptraverse::test::AppendValueEvent;
   using apptraverse::test::DuplicatingJournalMessageTransport;
   using apptraverse::test::IdentityNode;
+  using apptraverse::test::SenderObject;
 
-  static_assert(std::is_same_v<decltype(EventIdentity{}.sequence),
-                               std::uint32_t>);
+  static_assert(std::is_same_v<
+                decltype(std::declval<apptraverse::Event&>().sequence),
+                std::uint32_t>);
 
-  {
-    EventIdentity default_identity{};
-    CHECK(!default_identity.IsValid());
-
-    EventIdentity zero_sequence{ae::ObjId{5001}, 0};
-    CHECK(!zero_sequence.IsValid());
-
-    EventIdentity invalid_origin{ae::ObjId{}, 1};
-    CHECK(!invalid_origin.IsValid());
-
-    EventIdentity valid{ae::ObjId{5001}, 1};
-    CHECK(valid.IsValid());
-  }
-
-  ae::ObjId const origin_a{5001};
-  ae::ObjId const origin_b{5002};
   ae::ObjId const recipient_b{6001};
 
   ae::RamDomainStorage sender_storage;
@@ -232,6 +222,11 @@ int main() {
   ae::Domain sender_domain{ae::Now(), sender_storage};
   ae::Domain receiver_domain{ae::Now(), receiver_storage};
   ae::Domain message_domain{ae::Now(), transfer_storage};
+
+  SenderObject::ptr sender_a =
+      SenderObject::ptr::Create(ae::CreateWith{sender_domain}.with_id(5001));
+  SenderObject::ptr sender_b =
+      SenderObject::ptr::Create(ae::CreateWith{sender_domain}.with_id(5002));
 
   IdentityNode::ptr sender_base =
       IdentityNode::ptr::Create(ae::CreateWith{sender_domain}.with_id(1000));
@@ -260,31 +255,31 @@ int main() {
   CHECK(sender.Load().get() != receiver.Load().get());
   CHECK(sender->next_local_sequence == 1);
 
-  AppendIdentityValueEvent::ptr first_event =
-      AppendIdentityValueEvent::ptr::Create(
-          ae::CreateWith{sender_domain}.with_id(200));
+  AppendValueEvent::ptr first_event = AppendValueEvent::ptr::Create(
+      ae::CreateWith{sender_domain}.with_id(200));
   first_event->suffix = "X";
+  first_event->sender = sender_a;
 
   ae::TimePoint const first_time{std::chrono::microseconds{100}};
-  sender->CommitEventForTest(first_event, first_time, origin_a, {recipient_b});
+  sender->CommitEventForTest(first_event, first_time, {recipient_b});
 
+  CHECK(first_event->sender.id() == sender_a.id());
+  CHECK(!first_event->sender.is_loaded());
+  CHECK(first_event->sequence == 1);
+  CHECK(sender->next_local_sequence == 2);
   CHECK(sender->value == "AX");
   CHECK(sender->apply_count == 1);
   CHECK(sender->journal.size() == 1);
-  CHECK(sender->journal[0].identity.origin == origin_a);
-  CHECK(sender->journal[0].identity.sequence == 1);
-  CHECK(sender->journal[0].identity.IsValid());
-  CHECK(sender->next_local_sequence == 2);
+  CHECK(sender->journal[0].event->sender.id() == sender_a.id());
+  CHECK(sender->journal[0].event->sequence == 1);
   CHECK(sender->journal[0].FindRecipient(recipient_b) != nullptr);
   CHECK(sender->journal[0].FindRecipient(recipient_b)->delivery_status ==
         DeliveryStatus::kPending);
 
-  auto const sender_identity = sender->journal[0].identity;
-
   JournalMessageReceiver message_receiver;
   DuplicatingJournalMessageTransport transport{
       message_domain, transfer_storage, receiver_domain, receiver_storage,
-      message_receiver, sender_identity};
+      message_receiver};
 
   GraphSynchronizer synchronizer{recipient_b, message_domain, transport};
   synchronizer.Synchronize(sender);
@@ -295,7 +290,6 @@ int main() {
   CHECK(!transport.first_event_loaded_before_receive);
   CHECK(transport.first_event_loaded_after_receive);
   CHECK(!transport.duplicate_event_loaded_before_receive);
-  CHECK(!transport.duplicate_event_loaded_after_receive);
 
   CHECK(sender->journal[0].FindRecipient(recipient_b)->delivery_status ==
         DeliveryStatus::kDelivered);
@@ -306,9 +300,9 @@ int main() {
   CHECK(receiver->value == "AX");
   CHECK(receiver->apply_count == 1);
   CHECK(receiver->journal.size() == 1);
-  CHECK(receiver->journal[0].origin == EventRecordOrigin::kRemote);
   CHECK(receiver->journal[0].recipients.empty());
-  CHECK(receiver->journal[0].identity == sender_identity);
+  CHECK(receiver->journal[0].event->sender.id() == sender_a.id());
+  CHECK(receiver->journal[0].event->sequence == 1);
   CHECK(receiver->journal[0].event.id().id() == 200);
 
   CHECK(transfer_storage.state.size() == 3);
@@ -318,29 +312,40 @@ int main() {
   CHECK(!ContainsObj(transfer_storage, 100));
   CHECK(!ContainsObj(transfer_storage, 1000));
 
-  AppendIdentityValueEvent::ptr second_event =
-      AppendIdentityValueEvent::ptr::Create(
-          ae::CreateWith{receiver_domain}.with_id(201));
+  SenderObject::ptr receiver_sender_a = SenderObject::ptr::Create(
+      ae::CreateWith{receiver_domain}.with_id(5001));
+  SenderObject::ptr receiver_sender_b = SenderObject::ptr::Create(
+      ae::CreateWith{receiver_domain}.with_id(5002));
+
+  AppendValueEvent::ptr second_event = AppendValueEvent::ptr::Create(
+      ae::CreateWith{receiver_domain}.with_id(201));
   second_event->suffix = "Y";
+  second_event->sender = receiver_sender_a;
+  second_event->sender.Reset();
+  second_event->sender.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+  second_event->sequence = 1;
 
   apptraverse::Node::ptr generic_receiver = receiver;
   bool const accepted_duplicate = generic_receiver->AcceptRemoteEvent(
-      second_event, ae::TimePoint{std::chrono::microseconds{200}},
-      sender_identity);
+      second_event, ae::TimePoint{std::chrono::microseconds{200}});
   CHECK(accepted_duplicate == false);
   CHECK(receiver->value == "AX");
   CHECK(receiver->apply_count == 1);
   CHECK(receiver->journal.size() == 1);
 
-  EventIdentity const other_identity{origin_b, 1};
-  bool const accepted_other_origin = generic_receiver->AcceptRemoteEvent(
-      second_event, ae::TimePoint{std::chrono::microseconds{200}},
-      other_identity);
-  CHECK(accepted_other_origin == true);
+  second_event->sender = receiver_sender_b;
+  second_event->sender.Reset();
+  second_event->sender.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+  second_event->sequence = 1;
+
+  bool const accepted_other_sender = generic_receiver->AcceptRemoteEvent(
+      second_event, ae::TimePoint{std::chrono::microseconds{200}});
+  CHECK(accepted_other_sender == true);
   CHECK(receiver->value == "AXY");
   CHECK(receiver->apply_count == 2);
   CHECK(receiver->journal.size() == 2);
-  CHECK(receiver->journal[1].identity == other_identity);
+  CHECK(receiver->journal[1].event->sender.id() == receiver_sender_b.id());
+  CHECK(receiver->journal[1].event->sequence == 1);
   CHECK(receiver->journal[1].event.id().id() == 201);
 
   sender.Save();
@@ -358,34 +363,41 @@ int main() {
   reloaded_receiver.Load();
 
   CHECK(reloaded_sender->journal.size() == 1);
-  CHECK(reloaded_sender->journal[0].identity == sender_identity);
+  CHECK(reloaded_sender->journal[0].event->sequence == 1);
+  CHECK(reloaded_sender->journal[0].event->sender.id().id() == 5001);
   CHECK(reloaded_sender->next_local_sequence == 2);
   CHECK(reloaded_sender->journal[0].FindRecipient(recipient_b) != nullptr);
   CHECK(reloaded_sender->journal[0].FindRecipient(recipient_b)->delivery_status ==
         DeliveryStatus::kDelivered);
 
   CHECK(reloaded_receiver->journal.size() == 2);
-  CHECK(reloaded_receiver->journal[0].identity == sender_identity);
-  CHECK(reloaded_receiver->journal[1].identity == other_identity);
+  CHECK(reloaded_receiver->journal[0].event->sender.id().id() == 5001);
+  CHECK(reloaded_receiver->journal[0].event->sequence == 1);
+  CHECK(reloaded_receiver->journal[1].event->sender.id().id() == 5002);
+  CHECK(reloaded_receiver->journal[1].event->sequence == 1);
   CHECK(reloaded_receiver->journal[0].recipients.empty());
   CHECK(reloaded_receiver->journal[1].recipients.empty());
   CHECK(reloaded_receiver->value == "AXY");
   CHECK(reloaded_receiver->apply_count == 2);
 
-  AppendIdentityValueEvent::ptr third_event =
-      AppendIdentityValueEvent::ptr::Create(
-          ae::CreateWith{sender_reload_domain}.with_id(202));
+  SenderObject::ptr reloaded_sender_a = SenderObject::ptr::Declare(
+      ae::CreateWith{sender_reload_domain}.with_id(5001));
+  reloaded_sender_a.Load();
+
+  AppendValueEvent::ptr third_event = AppendValueEvent::ptr::Create(
+      ae::CreateWith{sender_reload_domain}.with_id(202));
   third_event->suffix = "Z";
+  third_event->sender = reloaded_sender_a;
 
   reloaded_sender->CommitEventForTest(
-      third_event, ae::TimePoint{std::chrono::microseconds{300}}, origin_a,
-      {});
+      third_event, ae::TimePoint{std::chrono::microseconds{300}}, {});
 
   CHECK(reloaded_sender->journal.size() == 2);
-  CHECK(reloaded_sender->journal[1].identity.origin == origin_a);
-  CHECK(reloaded_sender->journal[1].identity.sequence == 2);
+  CHECK(third_event->sender.id() == reloaded_sender_a.id());
+  CHECK(!third_event->sender.is_loaded());
+  CHECK(third_event->sequence == 2);
   CHECK(reloaded_sender->next_local_sequence == 3);
-  CHECK(reloaded_sender->journal[0].identity.sequence == 1);
+  CHECK(reloaded_sender->journal[0].event->sequence == 1);
   CHECK(reloaded_sender->value == "AXZ");
   CHECK(reloaded_sender->apply_count == 2);
 

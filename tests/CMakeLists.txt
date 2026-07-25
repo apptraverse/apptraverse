@@ -178,56 +178,17 @@ add_test(
   COMMAND apptraverse_cyclic_node_base_capture_test
 )
 
-add_executable(apptraverse_client_prefab_instantiation_test
-  client_prefab_instantiation_test.cpp
+add_executable(apptraverse_prefab_subgraph_instantiation_test
+  prefab_subgraph_instantiation_test.cpp
 )
 
 target_link_libraries(
-  apptraverse_client_prefab_instantiation_test PRIVATE apptraverse
+  apptraverse_prefab_subgraph_instantiation_test PRIVATE apptraverse
 )
 
 add_test(
-  NAME apptraverse_client_prefab_instantiation_test
-  COMMAND apptraverse_client_prefab_instantiation_test
-)
-
-add_executable(apptraverse_minimal_chat_graph_test
-  minimal_chat_graph_test.cpp
-)
-
-target_link_libraries(
-  apptraverse_minimal_chat_graph_test PRIVATE apptraverse
-)
-
-add_test(
-  NAME apptraverse_minimal_chat_graph_test
-  COMMAND apptraverse_minimal_chat_graph_test
-)
-
-add_executable(apptraverse_chat_client_introduction_synchronization_test
-  chat_client_introduction_synchronization_test.cpp
-)
-
-target_link_libraries(
-  apptraverse_chat_client_introduction_synchronization_test PRIVATE apptraverse
-)
-
-add_test(
-  NAME apptraverse_chat_client_introduction_synchronization_test
-  COMMAND apptraverse_chat_client_introduction_synchronization_test
-)
-
-add_executable(apptraverse_chat_message_reference_synchronization_test
-  chat_message_reference_synchronization_test.cpp
-)
-
-target_link_libraries(
-  apptraverse_chat_message_reference_synchronization_test PRIVATE apptraverse
-)
-
-add_test(
-  NAME apptraverse_chat_message_reference_synchronization_test
-  COMMAND apptraverse_chat_message_reference_synchronization_test
+  NAME apptraverse_prefab_subgraph_instantiation_test
+  COMMAND apptraverse_prefab_subgraph_instantiation_test
 )
 
 add_executable(apptraverse_multi_recipient_delivery_test
@@ -243,28 +204,15 @@ add_test(
   COMMAND apptraverse_multi_recipient_delivery_test
 )
 
-add_executable(apptraverse_three_peer_chat_fanout_test
-  three_peer_chat_fanout_test.cpp
+add_executable(apptraverse_event_sender_duplicate_delivery_test
+  event_sender_duplicate_delivery_test.cpp
 )
 
 target_link_libraries(
-  apptraverse_three_peer_chat_fanout_test PRIVATE apptraverse
+  apptraverse_event_sender_duplicate_delivery_test PRIVATE apptraverse
 )
 
 add_test(
-  NAME apptraverse_three_peer_chat_fanout_test
-  COMMAND apptraverse_three_peer_chat_fanout_test
-)
-
-add_executable(apptraverse_event_identity_duplicate_delivery_test
-  event_identity_duplicate_delivery_test.cpp
-)
-
-target_link_libraries(
-  apptraverse_event_identity_duplicate_delivery_test PRIVATE apptraverse
-)
-
-add_test(
-  NAME apptraverse_event_identity_duplicate_delivery_test
-  COMMAND apptraverse_event_identity_duplicate_delivery_test
+  NAME apptraverse_event_sender_duplicate_delivery_test
+  COMMAND apptraverse_event_sender_duplicate_delivery_test
 )

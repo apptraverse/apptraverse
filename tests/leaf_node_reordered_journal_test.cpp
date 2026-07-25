@@ -7,7 +7,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
-#include "apptraverse/event_identity.h"
+#include "apptraverse/event_record.h"
 #include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
@@ -64,16 +64,20 @@ namespace {
     }                                                                        \
   } while (0)
 
+void PrepareCommittedEvent(apptraverse::Event::ptr event,
+                           ae::Obj::ptr sender, std::uint32_t sequence) {
+  event->sender = sender;
+  event->sequence = sequence;
+  event->sender.Reset();
+  event->sender.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+}
+
 }  // namespace
 
 int main() {
-  using apptraverse::EventIdentity;
   using apptraverse::EventRecord;
-  using apptraverse::EventRecordOrigin;
   using apptraverse::test::AppendLeafNodeNameEvent;
   using apptraverse::test::LeafNode;
-
-  ae::ObjId const local_origin{9001};
 
   ae::RamDomainStorage storage;
 
@@ -82,14 +86,14 @@ int main() {
   LeafNode::ptr base =
       LeafNode::ptr::Create(ae::CreateWith{domain1}.with_id(1000));
   CHECK(static_cast<bool>(base));
-  base->name = "Alice";
+  base->name = "Root";
   CHECK(!base->base.is_valid());
   CHECK(base->journal.empty());
 
   LeafNode::ptr live =
       LeafNode::ptr::Create(ae::CreateWith{domain1}.with_id(100));
   CHECK(static_cast<bool>(live));
-  live->name = "Alice";
+  live->name = "Root";
   live->base = base;
   CHECK(live->journal.empty());
   CHECK(live->base.is_valid());
@@ -100,19 +104,15 @@ int main() {
   AppendLeafNodeNameEvent::ptr later_event =
       AppendLeafNodeNameEvent::ptr::Create(ae::CreateWith{domain1}.with_id(200));
   CHECK(static_cast<bool>(later_event));
-  later_event->suffix = " Cooper";
+  later_event->suffix = " Value";
 
   ae::TimePoint const later_time{std::chrono::microseconds{200}};
-  live->journal.push_back(EventRecord{
-      later_event,
-      EventIdentity{local_origin, 2},
-      later_time,
-      EventRecordOrigin::kLocal,
-      {}});
+  PrepareCommittedEvent(later_event, live, 2);
+  live->journal.push_back(EventRecord{later_event, later_time, {}});
 
   live->ReplayJournalForTest();
 
-  CHECK(live->name == "Alice Cooper");
+  CHECK(live->name == "Root Value");
   CHECK(live->journal.size() == 1);
   CHECK(live->journal[0].event.id().id() == 200);
 
@@ -122,23 +122,18 @@ int main() {
   earlier_event->suffix = " B.";
 
   ae::TimePoint const earlier_time{std::chrono::microseconds{100}};
-  live->journal.insert(
-      live->journal.begin(),
-      EventRecord{
-          earlier_event,
-          EventIdentity{local_origin, 1},
-          earlier_time,
-          EventRecordOrigin::kLocal,
-          {}});
+  PrepareCommittedEvent(earlier_event, live, 1);
+  live->journal.insert(live->journal.begin(),
+                       EventRecord{earlier_event, earlier_time, {}});
 
-  CHECK(live->name == "Alice Cooper");
+  CHECK(live->name == "Root Value");
   CHECK(live->journal.size() == 2);
   CHECK(live->journal[0].event.id().id() == 201);
   CHECK(live->journal[1].event.id().id() == 200);
 
   live->RebuildFromBaseAndReplayForTest();
 
-  CHECK(live->name == "Alice B. Cooper");
+  CHECK(live->name == "Root B. Value");
   CHECK(live.id().id() == 100);
   CHECK(live->base.id().id() == 1000);
   CHECK(live->journal.size() == 2);
@@ -159,7 +154,7 @@ int main() {
 
   CHECK(static_cast<bool>(loaded));
   CHECK(loaded.id().id() == 100);
-  CHECK(loaded->name == "Alice B. Cooper");
+  CHECK(loaded->name == "Root B. Value");
   CHECK(loaded->base.id().id() == 1000);
   CHECK(loaded->journal.size() == 2);
 
@@ -183,20 +178,20 @@ int main() {
   auto* later_loaded =
       loaded->journal[1].event.Load().as<AppendLeafNodeNameEvent>();
   CHECK(later_loaded != nullptr);
-  CHECK(later_loaded->suffix == " Cooper");
+  CHECK(later_loaded->suffix == " Value");
   CHECK(loaded->journal[1].event->GetClassId() ==
         AppendLeafNodeNameEvent::kClassId);
 
   auto* loaded_base = loaded->base.Load().as<LeafNode>();
   CHECK(loaded_base != nullptr);
-  CHECK(loaded_base->name == "Alice");
+  CHECK(loaded_base->name == "Root");
   CHECK(!loaded_base->base.is_valid());
   CHECK(loaded_base->journal.empty());
 
   loaded->name = "Transient value";
   loaded->RebuildFromBaseAndReplayForTest();
 
-  CHECK(loaded->name == "Alice B. Cooper");
+  CHECK(loaded->name == "Root B. Value");
   CHECK(loaded.id().id() == 100);
   CHECK(loaded->base.id().id() == 1000);
   CHECK(loaded->journal.size() == 2);

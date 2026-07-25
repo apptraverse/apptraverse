@@ -7,7 +7,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
-#include "apptraverse/event_identity.h"
+#include "apptraverse/event_record.h"
 #include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
@@ -62,16 +62,20 @@ namespace {
     }                                                                        \
   } while (0)
 
+void PrepareCommittedEvent(apptraverse::Event::ptr event,
+                           ae::Obj::ptr sender, std::uint32_t sequence) {
+  event->sender = sender;
+  event->sequence = sequence;
+  event->sender.Reset();
+  event->sender.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+}
+
 }  // namespace
 
 int main() {
-  using apptraverse::EventIdentity;
   using apptraverse::EventRecord;
-  using apptraverse::EventRecordOrigin;
   using apptraverse::test::LeafNode;
   using apptraverse::test::RenameLeafNodeEvent;
-
-  ae::ObjId const local_origin{9001};
 
   ae::RamDomainStorage storage;
 
@@ -80,14 +84,14 @@ int main() {
   LeafNode::ptr base =
       LeafNode::ptr::Create(ae::CreateWith{domain1}.with_id(1000));
   CHECK(static_cast<bool>(base));
-  base->name = "Alice";
+  base->name = "Root";
   CHECK(!base->base.is_valid());
   CHECK(base->journal.empty());
 
   LeafNode::ptr live =
       LeafNode::ptr::Create(ae::CreateWith{domain1}.with_id(100));
   CHECK(static_cast<bool>(live));
-  live->name = "Alice";
+  live->name = "Root";
   live->base = base;
   CHECK(live->journal.empty());
   CHECK(live->base.is_valid());
@@ -96,19 +100,15 @@ int main() {
   RenameLeafNodeEvent::ptr rename_event =
       RenameLeafNodeEvent::ptr::Create(ae::CreateWith{domain1}.with_id(200));
   CHECK(static_cast<bool>(rename_event));
-  rename_event->name = "Alice Cooper";
+  rename_event->name = "Root Value";
 
   ae::TimePoint const event_time{std::chrono::microseconds{123456}};
-  live->journal.push_back(EventRecord{
-      rename_event,
-      EventIdentity{local_origin, 1},
-      event_time,
-      EventRecordOrigin::kLocal,
-      {}});
+  PrepareCommittedEvent(rename_event, live, 1);
+  live->journal.push_back(EventRecord{rename_event, event_time, {}});
 
   live->ReplayJournalForTest();
 
-  CHECK(live->name == "Alice Cooper");
+  CHECK(live->name == "Root Value");
   CHECK(live.id().id() == 100);
   CHECK(live->base.id().id() == 1000);
   CHECK(live->journal.size() == 1);
@@ -126,20 +126,19 @@ int main() {
   CHECK(static_cast<bool>(loaded));
   CHECK(loaded.is_loaded());
   CHECK(loaded.id().id() == 100);
-  CHECK(loaded->name == "Alice Cooper");
+  CHECK(loaded->name == "Root Value");
   CHECK(loaded->base.is_valid());
   CHECK(loaded->base.is_loaded());
   CHECK(loaded->base.id().id() == 1000);
 
   auto* loaded_base = loaded->base.Load().as<LeafNode>();
   CHECK(loaded_base != nullptr);
-  CHECK(loaded_base->name == "Alice");
+  CHECK(loaded_base->name == "Root");
   CHECK(!loaded_base->base.is_valid());
   CHECK(loaded_base->journal.empty());
 
   CHECK(loaded->journal.size() == 1);
   CHECK(loaded->journal[0].time == event_time);
-  CHECK(loaded->journal[0].origin == EventRecordOrigin::kLocal);
   CHECK(loaded->journal[0].recipients.empty());
   CHECK(loaded->journal[0].event.is_valid());
   CHECK(loaded->journal[0].event.is_loaded());
@@ -150,20 +149,20 @@ int main() {
   auto* loaded_event =
       loaded->journal[0].event.Load().as<RenameLeafNodeEvent>();
   CHECK(loaded_event != nullptr);
-  CHECK(loaded_event->name == "Alice Cooper");
+  CHECK(loaded_event->name == "Root Value");
 
   loaded->name = "Transient value";
   loaded->RebuildFromBaseAndReplayForTest();
 
   CHECK(loaded.id().id() == 100);
-  CHECK(loaded->name == "Alice Cooper");
+  CHECK(loaded->name == "Root Value");
   CHECK(loaded->base.id().id() == 1000);
   CHECK(loaded->journal.size() == 1);
   CHECK(loaded->journal[0].event.id().id() == 200);
 
   auto* rebuilt_base = loaded->base.Load().as<LeafNode>();
   CHECK(rebuilt_base != nullptr);
-  CHECK(rebuilt_base->name == "Alice");
+  CHECK(rebuilt_base->name == "Root");
   CHECK(!rebuilt_base->base.is_valid());
   CHECK(rebuilt_base->journal.empty());
 

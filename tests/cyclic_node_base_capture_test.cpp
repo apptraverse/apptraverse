@@ -9,7 +9,6 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_for.h"
-#include "apptraverse/event_identity.h"
 #include "apptraverse/node_for.h"
 
 namespace apptraverse::test {
@@ -54,9 +53,8 @@ class CyclicNode : public apptraverse::NodeFor<CyclicNode> {
 
   void RebuildFromBaseAndReplayForTest() { RebuildFromBaseAndReplay(); }
 
-  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time,
-                          ae::ObjId origin) {
-    CommitEvent(std::move(event), time, origin);
+  void CommitEventForTest(apptraverse::Event::ptr event, ae::TimePoint time) {
+    CommitEvent(std::move(event), time);
   }
 };
 
@@ -99,13 +97,9 @@ bool ContainsObj(ae::RamDomainStorage const& storage, ae::ObjId::Type id) {
 }  // namespace
 
 int main() {
-  using apptraverse::EventIdentity;
-  using apptraverse::EventRecordOrigin;
   using apptraverse::test::CyclicNode;
   using apptraverse::test::CyclicPresenter;
   using apptraverse::test::RenameCyclicNodeEvent;
-
-  ae::ObjId const local_origin{9001};
 
   ae::RamDomainStorage storage;
   ae::Domain domain1{ae::Now(), storage};
@@ -114,7 +108,7 @@ int main() {
   CyclicPresenter::ptr presenter =
       CyclicPresenter::ptr::Create(ae::CreateWith{domain1}.with_id(500));
   CHECK(static_cast<bool>(presenter));
-  presenter->caption = "Alice presenter";
+  presenter->caption = "Root presenter";
 
   CyclicNode::ptr base =
       CyclicNode::ptr::Create(ae::CreateWith{domain1}.with_id(1000));
@@ -127,7 +121,7 @@ int main() {
   CyclicNode::ptr live =
       CyclicNode::ptr::Create(ae::CreateWith{domain1}.with_id(100));
   CHECK(static_cast<bool>(live));
-  live->name = "Alice";
+  live->name = "Root";
   live->base = base;
   live->presenter = presenter;
   presenter->node = live;
@@ -155,7 +149,7 @@ int main() {
 
   CHECK(live.id().id() == 100);
   CHECK(live.Load().get() == live_address);
-  CHECK(live->name == "Alice");
+  CHECK(live->name == "Root");
   CHECK(live->base.id().id() == 1000);
   CHECK(live->base.is_loaded());
   CHECK(live->presenter.id().id() == 500);
@@ -166,7 +160,7 @@ int main() {
   auto* captured_base = live->base.Load().as<CyclicNode>();
   CHECK(captured_base != nullptr);
   CHECK(captured_base == base_address);
-  CHECK(captured_base->name == "Alice");
+  CHECK(captured_base->name == "Root");
   CHECK(!captured_base->base.is_valid());
   CHECK(captured_base->journal.empty());
   CHECK(captured_base->presenter.is_valid());
@@ -174,7 +168,7 @@ int main() {
   CHECK(captured_base->presenter.id().id() == 500);
   CHECK(captured_base->presenter.Load().get() == live->presenter.Load().get());
 
-  CHECK(presenter->caption == "Alice presenter");
+  CHECK(presenter->caption == "Root presenter");
   CHECK(presenter->node.is_valid());
   CHECK(presenter->node.is_loaded());
   CHECK(presenter->node.id().id() == 100);
@@ -185,23 +179,25 @@ int main() {
   RenameCyclicNodeEvent::ptr rename_event = RenameCyclicNodeEvent::ptr::Create(
       ae::CreateWith{domain1}.with_id(200));
   CHECK(static_cast<bool>(rename_event));
-  rename_event->name = "Alice Cooper";
+  rename_event->name = "Root Value";
   ae::TimePoint const rename_time{std::chrono::microseconds{100}};
-  live->CommitEventForTest(rename_event, rename_time, local_origin);
+  rename_event->sender = live;
+  live->CommitEventForTest(rename_event, rename_time);
 
-  CHECK(live->name == "Alice Cooper");
+  CHECK(live->name == "Root Value");
   CHECK(live->journal.size() == 1);
-  CHECK((live->journal[0].identity == EventIdentity{local_origin, 1}));
-  CHECK(live->journal[0].origin == EventRecordOrigin::kLocal);
+  CHECK(live->journal[0].event->sender.id() == live.id());
+  CHECK(!live->journal[0].event->sender.is_loaded());
+  CHECK(live->journal[0].event->sequence == 1);
   CHECK(live->journal[0].recipients.empty());
-  CHECK(captured_base->name == "Alice");
+  CHECK(captured_base->name == "Root");
   CHECK(presenter.Load().get() == presenter_address);
   CHECK(presenter->node.Load().get() == live_address);
 
   live->name = "Transient value";
   live->RebuildFromBaseAndReplayForTest();
 
-  CHECK(live->name == "Alice Cooper");
+  CHECK(live->name == "Root Value");
   CHECK(live.id().id() == 100);
   CHECK(live->base.id().id() == 1000);
   CHECK(live->journal.size() == 1);
@@ -209,7 +205,7 @@ int main() {
   CHECK(presenter->node.Load().get() == live_address);
   CHECK(live->base.Load().as<CyclicNode>()->presenter.Load().get() ==
         live->presenter.Load().get());
-  CHECK(live->base.Load().as<CyclicNode>()->name == "Alice");
+  CHECK(live->base.Load().as<CyclicNode>()->name == "Root");
 
   live.Save();
 
@@ -227,28 +223,27 @@ int main() {
   CHECK(loaded.is_valid());
   CHECK(loaded.is_loaded());
   CHECK(loaded.id().id() == 100);
-  CHECK(loaded->name == "Alice Cooper");
+  CHECK(loaded->name == "Root Value");
   CHECK(loaded->base.id().id() == 1000);
   CHECK(loaded->journal.size() == 1);
   CHECK(loaded->journal[0].event.id().id() == 200);
-  CHECK(loaded->journal[0].origin == EventRecordOrigin::kLocal);
   CHECK(loaded->journal[0].recipients.empty());
   auto* loaded_event =
       loaded->journal[0].event.Load().as<RenameCyclicNodeEvent>();
   CHECK(loaded_event != nullptr);
-  CHECK(loaded_event->name == "Alice Cooper");
+  CHECK(loaded_event->name == "Root Value");
 
   auto* loaded_base = loaded->base.Load().as<CyclicNode>();
   auto* loaded_presenter = loaded->presenter.Load().as<CyclicPresenter>();
   CHECK(loaded_base != nullptr);
   CHECK(loaded_presenter != nullptr);
-  CHECK(loaded_base->name == "Alice");
+  CHECK(loaded_base->name == "Root");
   CHECK(!loaded_base->base.is_valid());
   CHECK(loaded_base->journal.empty());
   CHECK(loaded->presenter.id().id() == 500);
   CHECK(loaded_base->presenter.id().id() == 500);
   CHECK(loaded->presenter.Load().get() == loaded_base->presenter.Load().get());
-  CHECK(loaded_presenter->caption == "Alice presenter");
+  CHECK(loaded_presenter->caption == "Root presenter");
   CHECK(loaded_presenter->node.id().id() == 100);
   CHECK(loaded_presenter->node.is_loaded());
   CHECK(loaded_presenter->node.Load().get() == loaded.Load().get());
@@ -258,7 +253,7 @@ int main() {
   loaded->name = "Transient value";
   loaded->RebuildFromBaseAndReplayForTest();
 
-  CHECK(loaded->name == "Alice Cooper");
+  CHECK(loaded->name == "Root Value");
   CHECK(loaded->presenter.Load().get() == presenter_after_reload);
   CHECK(loaded_presenter->node.Load().get() == loaded.Load().get());
   CHECK(loaded->base.Load().as<CyclicNode>()->presenter.Load().get() ==

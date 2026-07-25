@@ -47,7 +47,7 @@ int main() {
   CHECK(static_cast<bool>(original));
   CHECK(original.id().id() == 100);
 
-  original->name = "Alice";
+  original->name = "Root";
   original.Save();
 
   ae::Domain domain2{ae::Now(), storage};
@@ -63,7 +63,7 @@ int main() {
   CHECK(declared.is_loaded());
   CHECK(declared.id() == original.id());
   CHECK(declared.id().id() == 100);
-  CHECK(declared->name == "Alice");
+  CHECK(declared->name == "Root");
   CHECK(original.Load().get() != declared.Load().get());
 
   return EXIT_SUCCESS;

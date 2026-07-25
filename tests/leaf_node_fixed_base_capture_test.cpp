@@ -57,7 +57,7 @@ int main() {
   LeafNode::ptr live =
       LeafNode::ptr::Create(ae::CreateWith{domain1}.with_id(100));
   CHECK(static_cast<bool>(live));
-  live->name = "Alice";
+  live->name = "Root";
   live->base = base;
   CHECK(live->journal.empty());
   CHECK(live->base.is_valid());
@@ -69,7 +69,7 @@ int main() {
   live->CaptureBaseStateForTest();
 
   CHECK(live.id().id() == 100);
-  CHECK(live->name == "Alice");
+  CHECK(live->name == "Root");
   CHECK(live->base.id().id() == 1000);
   CHECK(live->base.is_loaded());
   CHECK(live->journal.empty());
@@ -77,7 +77,7 @@ int main() {
 
   auto* base_after = live->base.Load().as<LeafNode>();
   CHECK(base_after != nullptr);
-  CHECK(base_after->name == "Alice");
+  CHECK(base_after->name == "Root");
   CHECK(!base_after->base.is_valid());
   CHECK(base_after->journal.empty());
 
@@ -89,7 +89,7 @@ int main() {
   loaded_live.Load();
   CHECK(static_cast<bool>(loaded_live));
   CHECK(loaded_live.id().id() == 100);
-  CHECK(loaded_live->name == "Alice");
+  CHECK(loaded_live->name == "Root");
   CHECK(loaded_live->journal.empty());
   CHECK(loaded_live->base.is_valid());
   CHECK(loaded_live->base.is_loaded());
@@ -97,7 +97,7 @@ int main() {
 
   auto* loaded_live_base = loaded_live->base.Load().as<LeafNode>();
   CHECK(loaded_live_base != nullptr);
-  CHECK(loaded_live_base->name == "Alice");
+  CHECK(loaded_live_base->name == "Root");
   CHECK(!loaded_live_base->base.is_valid());
   CHECK(loaded_live_base->journal.empty());
 

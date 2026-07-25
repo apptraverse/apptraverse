@@ -40,12 +40,10 @@ class GraphSynchronizer {
         root, recipient_,
         [&](Node& node, EventRecord& record,
             EventRecipientState& recipient_state) {
-          assert(record.origin == EventRecordOrigin::kLocal);
           assert(recipient_state.recipient == recipient_);
           assert(recipient_state.delivery_status == DeliveryStatus::kPending);
           assert(record.event.is_valid());
           assert(record.event.is_loaded());
-          assert(record.identity.IsValid());
           assert(node.domain != nullptr);
           assert(record.event.domain() == node.domain);
 
@@ -61,12 +59,11 @@ class GraphSynchronizer {
 
           message->event = record.event;
           message->event.SetFlags(ae::ObjFlags::kUnloadedByDefault);
-          message->identity = record.identity;
           message->time = record.time;
 
-          assert(message->identity.IsValid());
           assert(message->event.is_valid());
           assert(message->event.is_loaded());
+          assert(message->event->HasValidIdentity());
 
           JournalTransportMessage::ptr transport_message = message;
           transport_->Send(std::move(transport_message));

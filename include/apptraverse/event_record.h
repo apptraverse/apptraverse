@@ -9,18 +9,12 @@
 #include "aether-miscpp/reflect/reflect.h"
 
 #include "apptraverse/event.h"
-#include "apptraverse/event_identity.h"
 
 namespace apptraverse {
 
 enum class DeliveryStatus : std::uint8_t {
   kPending,
   kDelivered,
-};
-
-enum class EventRecordOrigin : std::uint8_t {
-  kLocal,
-  kRemote,
 };
 
 struct EventRecipientState {
@@ -32,9 +26,7 @@ struct EventRecipientState {
 
 struct EventRecord {
   Event::ptr event;
-  EventIdentity identity;
   ae::TimePoint time{};
-  EventRecordOrigin origin{EventRecordOrigin::kLocal};
   std::vector<EventRecipientState> recipients;
 
   EventRecipientState* FindRecipient(ae::ObjId recipient) {
@@ -55,7 +47,7 @@ struct EventRecord {
     return nullptr;
   }
 
-  AE_REFLECT_MEMBERS(event, identity, time, origin, recipients)
+  AE_REFLECT_MEMBERS(event, time, recipients)
 };
 
 }  // namespace apptraverse
