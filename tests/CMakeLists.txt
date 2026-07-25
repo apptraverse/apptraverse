@@ -216,3 +216,16 @@ add_test(
   NAME apptraverse_chat_client_introduction_synchronization_test
   COMMAND apptraverse_chat_client_introduction_synchronization_test
 )
+
+add_executable(apptraverse_chat_message_reference_synchronization_test
+  chat_message_reference_synchronization_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_chat_message_reference_synchronization_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_chat_message_reference_synchronization_test
+  COMMAND apptraverse_chat_message_reference_synchronization_test
+)
