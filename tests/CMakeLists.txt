@@ -203,3 +203,16 @@ add_test(
   NAME apptraverse_minimal_chat_graph_test
   COMMAND apptraverse_minimal_chat_graph_test
 )
+
+add_executable(apptraverse_chat_client_introduction_synchronization_test
+  chat_client_introduction_synchronization_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_chat_client_introduction_synchronization_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_chat_client_introduction_synchronization_test
+  COMMAND apptraverse_chat_client_introduction_synchronization_test
+)
