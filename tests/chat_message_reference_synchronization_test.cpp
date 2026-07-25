@@ -540,6 +540,8 @@ int main() {
   ae::RamDomainStorage introduction_transfer_storage;
   ae::RamDomainStorage message_transfer_storage;
   ae::RamDomainStorage rename_transfer_storage;
+  ae::RamDomainStorage support_introduction_transfer_storage;
+  ae::RamDomainStorage support_message_transfer_storage;
 
   ae::Domain alice_domain{ae::Now(), alice_storage};
   ae::Domain support_domain{ae::Now(), support_storage};
@@ -547,6 +549,10 @@ int main() {
                                          introduction_transfer_storage};
   ae::Domain message_message_domain{ae::Now(), message_transfer_storage};
   ae::Domain rename_message_domain{ae::Now(), rename_transfer_storage};
+  ae::Domain support_introduction_message_domain{
+      ae::Now(), support_introduction_transfer_storage};
+  ae::Domain support_message_message_domain{ae::Now(),
+                                            support_message_transfer_storage};
 
   auto alice_runtime = BuildInitialRuntime(alice_domain);
   auto support_runtime = BuildInitialRuntime(support_domain);
@@ -570,13 +576,18 @@ int main() {
   auto* alice_base_address = alice->base.Load().get();
   auto* alice_runtime_address = alice_runtime.Load().get();
   auto* alice_chat_address = alice_runtime->chat.Load().get();
+  auto* alice_resource_address =
+      alice_runtime->client_prefab->resource.Load().get();
 
   auto const support_id = support.id();
   auto const support_base_id = support->base.id();
   auto const support_presenter_id = support->presenter.id();
   auto* support_address = support.Load().get();
+  auto* support_base_address = support->base.Load().get();
   auto* support_runtime_address = support_runtime.Load().get();
   auto* support_chat_address = support_runtime->chat.Load().get();
+  auto* support_resource_address =
+      support_runtime->client_prefab->resource.Load().get();
 
   CHECK(alice_runtime->chat->presenter->client.Load().get() == alice_address);
   CHECK(support_runtime->chat->presenter->client.Load().get() ==
@@ -1067,6 +1078,534 @@ int main() {
   CHECK(remote_alice->name == remote_name_before_repeat);
   CHECK(support_runtime->chat->timeline.size() == chat_timeline_before_repeat);
 
+  CHECK(alice_runtime->chat->timeline.size() == 2);
+  CHECK(alice_runtime->chat->journal.size() == 2);
+  CHECK(alice_runtime->chat->journal[0].event.id().id() == 200);
+  CHECK(alice_runtime->chat->journal[1].event.id().id() == 201);
+  CHECK(alice_runtime->chat->journal[0].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(alice_runtime->chat->journal[1].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(alice_runtime->chat->presenter->client.Load().get() == alice_address);
+  CHECK(alice->name == "Alice Cooper");
+  CHECK(alice->journal.size() == 1);
+  CHECK(alice->journal[0].event.id().id() == 202);
+  CHECK(alice->journal[0].delivery_status == DeliveryStatus::kDelivered);
+
+  CHECK(support_runtime->chat->timeline.size() == 2);
+  CHECK(support_runtime->chat->journal.size() == 2);
+  CHECK(support_runtime->chat->journal[0].event.id().id() == 200);
+  CHECK(support_runtime->chat->journal[1].event.id().id() == 201);
+  CHECK(support_runtime->chat->journal[0].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->journal[1].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->presenter->client.Load().get() ==
+        support_address);
+  CHECK(support->name == "Support");
+  CHECK(support->journal.empty());
+  CHECK(remote_alice->name == "Alice Cooper");
+  CHECK(remote_alice->journal.size() == 1);
+  CHECK(remote_alice->journal[0].event.id().id() == 202);
+  CHECK(remote_alice->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(CountPending(scanner, alice_runtime) == 0);
+  CHECK(CountPending(scanner, support_runtime) == 0);
+
+  CHECK(support.is_loaded());
+  CHECK(support->base.is_loaded());
+  CHECK(support->chat.is_valid());
+  CHECK(support->chat.is_loaded());
+  CHECK(support->presenter.is_valid());
+  CHECK(support->presenter.is_loaded());
+  CHECK(support->resource.is_valid());
+  CHECK(support->resource.is_loaded());
+  CHECK(support_runtime->chat->presenter->client.is_loaded());
+  CHECK(support_runtime->chat->presenter->client.Load().get() ==
+        support_address);
+  auto* support_presenter_address = support->presenter.Load().get();
+  CHECK(support_presenter_address != nullptr);
+
+  support_runtime->chat->presenter->Join(
+      ae::ObjId{203}, ae::TimePoint{std::chrono::microseconds{300}});
+
+  CHECK(support_runtime->chat->timeline.size() == 3);
+  CHECK(support_runtime->chat->timeline[0].kind ==
+        ChatEntryKind::kClientJoined);
+  CHECK(support_runtime->chat->timeline[1].kind == ChatEntryKind::kMessage);
+  CHECK(support_runtime->chat->timeline[2].kind ==
+        ChatEntryKind::kClientJoined);
+  CHECK(support_runtime->chat->timeline[2].client.id() == support_id);
+  CHECK(support_runtime->chat->timeline[2].client.is_loaded());
+  CHECK(support_runtime->chat->timeline[2].client.Load().get() ==
+        support_address);
+  CHECK(support_runtime->chat->timeline[2].text.empty());
+  CHECK(support_runtime->chat->presenter->IsLocal(
+      support_runtime->chat->timeline[2]));
+
+  CHECK(support_runtime->chat->journal.size() == 3);
+  CHECK(support_runtime->chat->journal[0].event.id().id() == 200);
+  CHECK(support_runtime->chat->journal[0].time ==
+        ae::TimePoint{std::chrono::microseconds{100}});
+  CHECK(support_runtime->chat->journal[0].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->journal[1].event.id().id() == 201);
+  CHECK(support_runtime->chat->journal[1].time ==
+        ae::TimePoint{std::chrono::microseconds{200}});
+  CHECK(support_runtime->chat->journal[1].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->journal[2].event.id().id() == 203);
+  CHECK(support_runtime->chat->journal[2].time ==
+        ae::TimePoint{std::chrono::microseconds{300}});
+  CHECK(support_runtime->chat->journal[2].delivery_status ==
+        DeliveryStatus::kPending);
+  auto* support_join_event =
+      support_runtime->chat->journal[2].event.Load().as<ClientJoinedEvent>();
+  CHECK(support_join_event != nullptr);
+  CHECK(support_join_event->client.is_loaded());
+  CHECK(support_join_event->client.id() == support_id);
+  CHECK(support_join_event->client.Load().get() == support_address);
+
+  CHECK(support->base.is_loaded());
+  CHECK(support->chat.is_valid());
+  CHECK(support->chat.id().id() == 100);
+  CHECK(!support->chat.is_loaded());
+  CHECK(support->presenter.is_valid());
+  CHECK(support->presenter.id() == support_presenter_id);
+  CHECK(!support->presenter.is_loaded());
+  CHECK(support->resource.is_valid());
+  CHECK(support->resource.id().id() == 50);
+  CHECK(!support->resource.is_loaded());
+  CHECK(support->journal.empty());
+  CHECK(support->name == "Support");
+
+  auto* support_base = support->base.Load().as<Client>();
+  CHECK(support_base != nullptr);
+  CHECK(support_base->name == "Support");
+  CHECK(!support_base->base.is_valid());
+  CHECK(support_base->journal.empty());
+  CHECK(support_base->chat.is_valid());
+  CHECK(support_base->chat.id().id() == 100);
+  CHECK(!support_base->chat.is_loaded());
+  CHECK(support_base->presenter.is_valid());
+  CHECK(support_base->presenter.id() == support_presenter_id);
+  CHECK(!support_base->presenter.is_loaded());
+  CHECK(support_base->resource.is_valid());
+  CHECK(support_base->resource.id().id() == 50);
+  CHECK(!support_base->resource.is_loaded());
+  CHECK(support_runtime->chat->presenter->client.is_loaded());
+  CHECK(support_runtime->chat->presenter->client.Load().get() ==
+        support_address);
+
+  CHECK(alice_runtime->chat->timeline.size() == 2);
+  CHECK(alice_runtime->chat->journal.size() == 2);
+  auto support_pending = CollectPending(scanner, support_runtime);
+  CHECK(support_pending.size() == 1);
+  CHECK(support_pending.count(PendingKey{100, 203}) == 1);
+  CHECK(CountPending(scanner, support_runtime) == 1);
+  CHECK(CountPending(scanner, alice_runtime) == 0);
+
+  LoopbackJournalMessageTransport support_introduction_transport{
+      support_introduction_message_domain, support_introduction_transfer_storage,
+      alice_domain, alice_storage, receiver};
+  GraphSynchronizer support_introduction_synchronizer{
+      support_introduction_message_domain, support_introduction_transport};
+  support_introduction_synchronizer.Synchronize(support_runtime);
+
+  CHECK(support_introduction_transport.send_count == 1);
+  CHECK(support_introduction_transport.message_ids.size() == 1);
+  CHECK(support_introduction_transport.target_event_pairs.size() == 1);
+  CHECK((support_introduction_transport.target_event_pairs[0] ==
+         PendingKey{100, 203}));
+
+  CHECK(support_introduction_transfer_storage.state.size() == 4);
+  CHECK(ContainsObj(support_introduction_transfer_storage,
+                     support_introduction_transport.message_ids[0]));
+  CHECK(ContainsObj(support_introduction_transfer_storage, 203));
+  CHECK(ContainsObj(support_introduction_transfer_storage, support_id));
+  CHECK(ContainsObj(support_introduction_transfer_storage, support_base_id));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 1));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 10));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 11));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 12));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 50));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 100));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 101));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 102));
+  CHECK(!ContainsObj(support_introduction_transfer_storage,
+                     support_presenter_id));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, alice_id));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, alice_base_id));
+  CHECK(!ContainsObj(support_introduction_transfer_storage,
+                     alice_presenter_id));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 200));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 201));
+  CHECK(!ContainsObj(support_introduction_transfer_storage, 202));
+
+  CHECK(support_runtime->chat->journal[2].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->timeline.size() == 3);
+  CHECK(support.Load().get() == support_address);
+  CHECK(support_runtime->chat->presenter->client.Load().get() ==
+        support_address);
+  CHECK(support_runtime->chat->presenter->IsLocal(
+      support_runtime->chat->timeline[2]));
+  CHECK(support->base.Load().get() == support_base_address);
+  CHECK(CountPending(scanner, support_runtime) == 0);
+
+  CHECK(alice_runtime->chat->timeline.size() == 3);
+  CHECK(alice_runtime->chat->journal.size() == 3);
+  CHECK(alice_runtime->chat->journal[2].event.id().id() == 203);
+  CHECK(alice_runtime->chat->journal[2].time ==
+        ae::TimePoint{std::chrono::microseconds{300}});
+  CHECK(alice_runtime->chat->journal[2].delivery_status ==
+        DeliveryStatus::kDelivered);
+  auto* alice_support_join =
+      alice_runtime->chat->journal[2].event.Load().as<ClientJoinedEvent>();
+  CHECK(alice_support_join != nullptr);
+
+  auto remote_support = alice_runtime->chat->timeline[2].client;
+  CHECK(remote_support.is_valid());
+  CHECK(remote_support.is_loaded());
+  CHECK(remote_support.id() == support_id);
+  CHECK(remote_support.Load().get() != support_address);
+  auto* remote_support_address = remote_support.Load().get();
+  CHECK(remote_support->name == "Support");
+  CHECK(remote_support->journal.empty());
+  CHECK(remote_support->base.id() == support_base_id);
+  CHECK(remote_support->base.is_loaded());
+  auto* remote_support_base = remote_support->base.Load().as<Client>();
+  CHECK(remote_support_base != nullptr);
+  CHECK(remote_support_base->name == "Support");
+  CHECK(!remote_support_base->base.is_valid());
+  CHECK(remote_support_base->journal.empty());
+  CHECK(alice_runtime->chat->timeline[2].client.Load().get() ==
+        remote_support_address);
+  CHECK(alice_support_join->client.Load().get() == remote_support_address);
+
+  CHECK(remote_support->chat.is_valid());
+  CHECK(remote_support->chat.id().id() == 100);
+  CHECK(!remote_support->chat.is_loaded());
+  CHECK(remote_support->presenter.is_valid());
+  CHECK(remote_support->presenter.id() == support_presenter_id);
+  CHECK(!remote_support->presenter.is_loaded());
+  CHECK(remote_support->resource.is_valid());
+  CHECK(remote_support->resource.id().id() == 50);
+  CHECK(!remote_support->resource.is_loaded());
+  CHECK(remote_support_base->chat.is_valid());
+  CHECK(remote_support_base->chat.id().id() == 100);
+  CHECK(!remote_support_base->chat.is_loaded());
+  CHECK(remote_support_base->presenter.is_valid());
+  CHECK(remote_support_base->presenter.id() == support_presenter_id);
+  CHECK(!remote_support_base->presenter.is_loaded());
+  CHECK(remote_support_base->resource.is_valid());
+  CHECK(remote_support_base->resource.id().id() == 50);
+  CHECK(!remote_support_base->resource.is_loaded());
+  CHECK(!ContainsObj(alice_storage, support_presenter_id));
+  CHECK(alice_runtime->chat->presenter->client.Load().get() == alice_address);
+  CHECK(alice->name == "Alice Cooper");
+  CHECK(alice->journal[0].event.id().id() == 202);
+  CHECK(alice->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(!alice_runtime->chat->presenter->IsLocal(
+      alice_runtime->chat->timeline[2]));
+  CHECK(support_runtime->chat->presenter->IsLocal(
+      support_runtime->chat->timeline[2]));
+
+  remote_support->chat.Load();
+  remote_support->resource.Load();
+  CHECK(remote_support->chat.is_loaded());
+  CHECK(remote_support->chat.Load().get() == alice_chat_address);
+  CHECK(remote_support->resource.is_loaded());
+  CHECK(remote_support->resource.Load().get() == alice_resource_address);
+  CHECK(remote_support->chat.Load().get() != support_chat_address);
+  CHECK(remote_support->resource.Load().get() != support_resource_address);
+  CHECK(!remote_support->presenter.is_loaded());
+
+  CHECK(support_runtime->chat->timeline.size() == 3);
+  CHECK(support_runtime->chat->presenter->client.Load().get() ==
+        support_address);
+  CHECK(support_runtime->chat->journal[2].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(CountPending(scanner, support_runtime) == 0);
+  CHECK(alice_runtime->chat->timeline.size() == 3);
+  CHECK(remote_support.Load().get() == remote_support_address);
+  CHECK(CountPending(scanner, alice_runtime) == 0);
+
+  bool const support_chat_loaded_before_send = support->chat.is_loaded();
+  bool const support_presenter_loaded_before_send =
+      support->presenter.is_loaded();
+  bool const support_resource_loaded_before_send =
+      support->resource.is_loaded();
+  auto const support_chat_id_before_send = support->chat.id();
+  auto const support_presenter_id_before_send = support->presenter.id();
+  auto const support_resource_id_before_send = support->resource.id();
+
+  support_runtime->chat->presenter->Send(
+      "Hello from Support", ae::ObjId{204},
+      ae::TimePoint{std::chrono::microseconds{400}});
+
+  CHECK(support_runtime->chat->timeline.size() == 4);
+  CHECK(support_runtime->chat->timeline[3].kind == ChatEntryKind::kMessage);
+  CHECK(support_runtime->chat->timeline[3].client.is_valid());
+  CHECK(support_runtime->chat->timeline[3].client.id() == support_id);
+  CHECK(!support_runtime->chat->timeline[3].client.is_loaded());
+  CHECK(support_runtime->chat->timeline[3].text == "Hello from Support");
+  CHECK(support_runtime->chat->presenter->IsLocal(
+      support_runtime->chat->timeline[3]));
+
+  CHECK(support_runtime->chat->journal.size() == 4);
+  CHECK(support_runtime->chat->journal[3].event.id().id() == 204);
+  CHECK(support_runtime->chat->journal[3].time ==
+        ae::TimePoint{std::chrono::microseconds{400}});
+  CHECK(support_runtime->chat->journal[3].delivery_status ==
+        DeliveryStatus::kPending);
+  auto* support_sender_event =
+      support_runtime->chat->journal[3].event.Load().as<SendMessageEvent>();
+  CHECK(support_sender_event != nullptr);
+  CHECK(support_sender_event->sender.is_valid());
+  CHECK(support_sender_event->sender.id() == support_id);
+  CHECK(!support_sender_event->sender.is_loaded());
+  CHECK(support_sender_event->text == "Hello from Support");
+
+  CHECK(support.id() == support_id);
+  CHECK(support->base.id() == support_base_id);
+  CHECK(support->presenter.id() == support_presenter_id);
+  CHECK(support->chat.is_loaded() == support_chat_loaded_before_send);
+  CHECK(support->presenter.is_loaded() == support_presenter_loaded_before_send);
+  CHECK(support->resource.is_loaded() == support_resource_loaded_before_send);
+  CHECK(support->chat.id() == support_chat_id_before_send);
+  CHECK(support->presenter.id() == support_presenter_id_before_send);
+  CHECK(support->resource.id() == support_resource_id_before_send);
+  CHECK(support->journal.empty());
+  CHECK(support->base.Load().get() == support_base_address);
+  CHECK(support_base->name == "Support");
+
+  CHECK(alice_runtime->chat->timeline.size() == 3);
+  CHECK(alice_runtime->chat->journal.size() == 3);
+  CHECK(remote_support.Load().get() == remote_support_address);
+  CHECK(CountPending(scanner, support_runtime) == 1);
+  CHECK(CountPending(scanner, alice_runtime) == 0);
+
+  LoopbackJournalMessageTransport support_message_transport{
+      support_message_message_domain, support_message_transfer_storage,
+      alice_domain, alice_storage, receiver};
+  GraphSynchronizer support_message_synchronizer{
+      support_message_message_domain, support_message_transport};
+  support_message_synchronizer.Synchronize(support_runtime);
+
+  CHECK(support_message_transport.send_count == 1);
+  CHECK(support_message_transport.message_ids.size() == 1);
+  CHECK(support_message_transport.target_event_pairs.size() == 1);
+  CHECK((support_message_transport.target_event_pairs[0] ==
+         PendingKey{100, 204}));
+  CHECK(support_message_transfer_storage.state.size() == 2);
+  CHECK(ContainsObj(support_message_transfer_storage,
+                     support_message_transport.message_ids[0]));
+  CHECK(ContainsObj(support_message_transfer_storage, 204));
+  CHECK(!ContainsObj(support_message_transfer_storage, 1));
+  CHECK(!ContainsObj(support_message_transfer_storage, 10));
+  CHECK(!ContainsObj(support_message_transfer_storage, 11));
+  CHECK(!ContainsObj(support_message_transfer_storage, 12));
+  CHECK(!ContainsObj(support_message_transfer_storage, 50));
+  CHECK(!ContainsObj(support_message_transfer_storage, 100));
+  CHECK(!ContainsObj(support_message_transfer_storage, 101));
+  CHECK(!ContainsObj(support_message_transfer_storage, 102));
+  CHECK(!ContainsObj(support_message_transfer_storage, support_id));
+  CHECK(!ContainsObj(support_message_transfer_storage, support_base_id));
+  CHECK(!ContainsObj(support_message_transfer_storage, support_presenter_id));
+  CHECK(!ContainsObj(support_message_transfer_storage, alice_id));
+  CHECK(!ContainsObj(support_message_transfer_storage, alice_base_id));
+  CHECK(!ContainsObj(support_message_transfer_storage, alice_presenter_id));
+  CHECK(!ContainsObj(support_message_transfer_storage, 200));
+  CHECK(!ContainsObj(support_message_transfer_storage, 201));
+  CHECK(!ContainsObj(support_message_transfer_storage, 202));
+  CHECK(!ContainsObj(support_message_transfer_storage, 203));
+
+  CHECK(support_runtime->chat->journal[3].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->timeline.size() == 4);
+  CHECK(support_runtime->chat->presenter->IsLocal(
+      support_runtime->chat->timeline[3]));
+  CHECK(support_runtime->chat->presenter->client.Load().get() ==
+        support_address);
+  CHECK(support->name == "Support");
+  CHECK(support->journal.empty());
+  CHECK(support->base.Load().get() == support_base_address);
+  CHECK(CountPending(scanner, support_runtime) == 0);
+
+  support_sender_event->sender.Load();
+  support_runtime->chat->timeline[3].client.Load();
+  CHECK(support_sender_event->sender.Load().get() == support_address);
+  CHECK(support_runtime->chat->timeline[3].client.Load().get() ==
+        support_address);
+
+  CHECK(alice_runtime->chat->timeline.size() == 4);
+  CHECK(alice_runtime->chat->journal.size() == 4);
+  CHECK(alice_runtime->chat->timeline[3].kind == ChatEntryKind::kMessage);
+  CHECK(alice_runtime->chat->timeline[3].client.id() == support_id);
+  CHECK(!alice_runtime->chat->timeline[3].client.is_loaded());
+  CHECK(alice_runtime->chat->timeline[3].text == "Hello from Support");
+  CHECK(!alice_runtime->chat->presenter->IsLocal(
+      alice_runtime->chat->timeline[3]));
+  CHECK(alice_runtime->chat->journal[3].event.id().id() == 204);
+  CHECK(alice_runtime->chat->journal[3].time ==
+        ae::TimePoint{std::chrono::microseconds{400}});
+  CHECK(alice_runtime->chat->journal[3].delivery_status ==
+        DeliveryStatus::kDelivered);
+  auto* alice_support_message =
+      alice_runtime->chat->journal[3].event.Load().as<SendMessageEvent>();
+  CHECK(alice_support_message != nullptr);
+  CHECK(alice_support_message->sender.is_valid());
+  CHECK(alice_support_message->sender.id() == support_id);
+  CHECK(!alice_support_message->sender.is_loaded());
+  CHECK(alice_support_message->text == "Hello from Support");
+
+  CHECK(remote_support.Load().get() == remote_support_address);
+  CHECK(alice.Load().get() == alice_address);
+  CHECK(alice_runtime->chat->presenter->client.Load().get() == alice_address);
+  CHECK(alice->name == "Alice Cooper");
+  CHECK(alice->journal[0].event.id().id() == 202);
+  CHECK(alice->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(remote_support->name == "Support");
+  CHECK(remote_support->journal.empty());
+
+  alice_support_message->sender.Load();
+  alice_runtime->chat->timeline[3].client.Load();
+  CHECK(alice_support_message->sender.Load().get() == remote_support_address);
+  CHECK(alice_runtime->chat->timeline[3].client.Load().get() ==
+        remote_support_address);
+  CHECK(alice_runtime->chat->timeline[2].client.Load().get() ==
+        remote_support_address);
+  CHECK(alice_support_join->client.Load().get() == remote_support_address);
+
+  CHECK(alice_runtime->chat->timeline.size() == 4);
+  CHECK(alice_runtime->chat->journal.size() == 4);
+  CHECK(support_runtime->chat->timeline.size() == 4);
+  CHECK(support_runtime->chat->journal.size() == 4);
+
+  CHECK(alice_runtime->chat->timeline[0].kind == ChatEntryKind::kClientJoined);
+  CHECK(alice_runtime->chat->timeline[1].kind == ChatEntryKind::kMessage);
+  CHECK(alice_runtime->chat->timeline[1].text == "Hello from Alice");
+  CHECK(alice_runtime->chat->timeline[2].kind == ChatEntryKind::kClientJoined);
+  CHECK(alice_runtime->chat->timeline[3].kind == ChatEntryKind::kMessage);
+  CHECK(alice_runtime->chat->timeline[3].text == "Hello from Support");
+  CHECK(support_runtime->chat->timeline[0].kind ==
+        ChatEntryKind::kClientJoined);
+  CHECK(support_runtime->chat->timeline[1].kind == ChatEntryKind::kMessage);
+  CHECK(support_runtime->chat->timeline[1].text == "Hello from Alice");
+  CHECK(support_runtime->chat->timeline[2].kind ==
+        ChatEntryKind::kClientJoined);
+  CHECK(support_runtime->chat->timeline[3].kind == ChatEntryKind::kMessage);
+  CHECK(support_runtime->chat->timeline[3].text == "Hello from Support");
+
+  CHECK(alice_runtime->chat->journal[0].event.id().id() == 200);
+  CHECK(alice_runtime->chat->journal[1].event.id().id() == 201);
+  CHECK(alice_runtime->chat->journal[2].event.id().id() == 203);
+  CHECK(alice_runtime->chat->journal[3].event.id().id() == 204);
+  CHECK(support_runtime->chat->journal[0].event.id().id() == 200);
+  CHECK(support_runtime->chat->journal[1].event.id().id() == 201);
+  CHECK(support_runtime->chat->journal[2].event.id().id() == 203);
+  CHECK(support_runtime->chat->journal[3].event.id().id() == 204);
+  CHECK(alice_runtime->chat->journal[0].time ==
+        ae::TimePoint{std::chrono::microseconds{100}});
+  CHECK(alice_runtime->chat->journal[1].time ==
+        ae::TimePoint{std::chrono::microseconds{200}});
+  CHECK(alice_runtime->chat->journal[2].time ==
+        ae::TimePoint{std::chrono::microseconds{300}});
+  CHECK(alice_runtime->chat->journal[3].time ==
+        ae::TimePoint{std::chrono::microseconds{400}});
+  CHECK(alice_runtime->chat->journal[0].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(alice_runtime->chat->journal[1].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(alice_runtime->chat->journal[2].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(alice_runtime->chat->journal[3].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->journal[0].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->journal[1].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->journal[2].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(support_runtime->chat->journal[3].delivery_status ==
+        DeliveryStatus::kDelivered);
+
+  CHECK(alice_runtime->chat->journal[0].event.Load().as<ClientJoinedEvent>() !=
+        nullptr);
+  CHECK(alice_runtime->chat->journal[1].event.Load().as<SendMessageEvent>() !=
+        nullptr);
+  CHECK(alice_runtime->chat->journal[2].event.Load().as<ClientJoinedEvent>() !=
+        nullptr);
+  CHECK(alice_runtime->chat->journal[3].event.Load().as<SendMessageEvent>() !=
+        nullptr);
+
+  CHECK(alice_runtime->chat->presenter->IsLocal(
+      alice_runtime->chat->timeline[0]));
+  CHECK(alice_runtime->chat->presenter->IsLocal(
+      alice_runtime->chat->timeline[1]));
+  CHECK(!alice_runtime->chat->presenter->IsLocal(
+      alice_runtime->chat->timeline[2]));
+  CHECK(!alice_runtime->chat->presenter->IsLocal(
+      alice_runtime->chat->timeline[3]));
+  CHECK(!support_runtime->chat->presenter->IsLocal(
+      support_runtime->chat->timeline[0]));
+  CHECK(!support_runtime->chat->presenter->IsLocal(
+      support_runtime->chat->timeline[1]));
+  CHECK(support_runtime->chat->presenter->IsLocal(
+      support_runtime->chat->timeline[2]));
+  CHECK(support_runtime->chat->presenter->IsLocal(
+      support_runtime->chat->timeline[3]));
+
+  CHECK(alice->name == "Alice Cooper");
+  CHECK(alice->journal.size() == 1);
+  CHECK(alice->journal[0].event.id().id() == 202);
+  CHECK(alice->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(remote_support->name == "Support");
+  CHECK(remote_support->journal.empty());
+  CHECK(remote_alice->name == "Alice Cooper");
+  CHECK(remote_alice->journal.size() == 1);
+  CHECK(remote_alice->journal[0].event.id().id() == 202);
+  CHECK(remote_alice->journal[0].delivery_status == DeliveryStatus::kDelivered);
+  CHECK(support->name == "Support");
+  CHECK(support->journal.empty());
+  CHECK(alice_base->name == "Alice");
+  CHECK(alice_base->journal.empty());
+  CHECK(support_base->name == "Support");
+  CHECK(support_base->journal.empty());
+  CHECK(remote_support_base->name == "Support");
+  CHECK(remote_support_base->journal.empty());
+  CHECK(remote_alice_base->name == "Alice");
+  CHECK(remote_alice_base->journal.empty());
+
+  CHECK(CountPending(scanner, alice_runtime) == 0);
+  CHECK(CountPending(scanner, support_runtime) == 0);
+
+  auto const support_msg_send_count_before_repeat =
+      support_message_transport.send_count;
+  auto const support_msg_ids_before_repeat =
+      support_message_transport.message_ids.size();
+  auto const support_msg_transfer_size_before_repeat =
+      support_message_transfer_storage.state.size();
+  auto const alice_timeline_before_repeat =
+      alice_runtime->chat->timeline.size();
+  auto const alice_journal_size_before_repeat =
+      alice_runtime->chat->journal.size();
+
+  support_message_synchronizer.Synchronize(support_runtime);
+
+  CHECK(support_message_transport.send_count ==
+        support_msg_send_count_before_repeat);
+  CHECK(support_message_transport.message_ids.size() ==
+        support_msg_ids_before_repeat);
+  CHECK(support_message_transfer_storage.state.size() ==
+        support_msg_transfer_size_before_repeat);
+  CHECK(alice_runtime->chat->timeline.size() == alice_timeline_before_repeat);
+  CHECK(alice_runtime->chat->journal.size() ==
+        alice_journal_size_before_repeat);
+  CHECK(alice_runtime->chat->timeline[3].text == "Hello from Support");
+  CHECK(remote_support.Load().get() == remote_support_address);
+  CHECK(alice.Load().get() == alice_address);
+
   alice_runtime.Save();
   support_runtime.Save();
 
@@ -1077,16 +1616,25 @@ int main() {
   CHECK(reloaded_alice_runtime.is_loaded());
 
   auto reloaded_alice_chat = reloaded_alice_runtime->chat;
-  CHECK(reloaded_alice_chat->timeline.size() == 2);
-  CHECK(reloaded_alice_chat->journal.size() == 2);
+  CHECK(reloaded_alice_chat->timeline.size() == 4);
+  CHECK(reloaded_alice_chat->journal.size() == 4);
   CHECK(reloaded_alice_chat->timeline[0].kind == ChatEntryKind::kClientJoined);
   CHECK(reloaded_alice_chat->timeline[1].kind == ChatEntryKind::kMessage);
   CHECK(reloaded_alice_chat->timeline[1].text == "Hello from Alice");
+  CHECK(reloaded_alice_chat->timeline[2].kind == ChatEntryKind::kClientJoined);
+  CHECK(reloaded_alice_chat->timeline[3].kind == ChatEntryKind::kMessage);
+  CHECK(reloaded_alice_chat->timeline[3].text == "Hello from Support");
   CHECK(reloaded_alice_chat->journal[0].event.id().id() == 200);
   CHECK(reloaded_alice_chat->journal[1].event.id().id() == 201);
+  CHECK(reloaded_alice_chat->journal[2].event.id().id() == 203);
+  CHECK(reloaded_alice_chat->journal[3].event.id().id() == 204);
   CHECK(reloaded_alice_chat->journal[0].delivery_status ==
         DeliveryStatus::kDelivered);
   CHECK(reloaded_alice_chat->journal[1].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(reloaded_alice_chat->journal[2].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(reloaded_alice_chat->journal[3].delivery_status ==
         DeliveryStatus::kDelivered);
 
   auto reloaded_alice = reloaded_alice_chat->presenter->client;
@@ -1105,33 +1653,65 @@ int main() {
   CHECK(reloaded_alice_base != nullptr);
   CHECK(reloaded_alice_base->name == "Alice");
   CHECK(reloaded_alice_base->journal.empty());
-  CHECK(reloaded_alice_chat->presenter->IsLocal(
-      reloaded_alice_chat->timeline[1]));
+
+  auto reloaded_remote_support = reloaded_alice_chat->timeline[2].client;
+  CHECK(reloaded_remote_support.is_loaded());
+  CHECK(reloaded_remote_support.id() == support_id);
+  CHECK(reloaded_remote_support->name == "Support");
+  CHECK(reloaded_remote_support->journal.empty());
+  auto* reloaded_remote_support_base =
+      reloaded_remote_support->base.Load().as<Client>();
+  CHECK(reloaded_remote_support_base != nullptr);
+  CHECK(reloaded_remote_support_base->name == "Support");
 
   CHECK(!reloaded_alice_chat->timeline[1].client.is_loaded());
-  auto* reloaded_sender_event =
+  CHECK(!reloaded_alice_chat->timeline[3].client.is_loaded());
+  auto* reloaded_alice_msg =
       reloaded_alice_chat->journal[1].event.Load().as<SendMessageEvent>();
-  CHECK(reloaded_sender_event != nullptr);
-  CHECK(!reloaded_sender_event->sender.is_loaded());
+  auto* reloaded_support_join =
+      reloaded_alice_chat->journal[2].event.Load().as<ClientJoinedEvent>();
+  auto* reloaded_support_msg =
+      reloaded_alice_chat->journal[3].event.Load().as<SendMessageEvent>();
+  CHECK(reloaded_alice_msg != nullptr);
+  CHECK(reloaded_support_join != nullptr);
+  CHECK(reloaded_support_msg != nullptr);
+  CHECK(!reloaded_alice_msg->sender.is_loaded());
+  CHECK(!reloaded_support_msg->sender.is_loaded());
 
   reloaded_alice_chat->timeline[0].client.Load();
   reloaded_alice_chat->timeline[1].client.Load();
-  reloaded_sender_event->sender.Load();
+  reloaded_alice_msg->sender.Load();
+  reloaded_alice_chat->timeline[3].client.Load();
+  reloaded_support_msg->sender.Load();
   CHECK(reloaded_alice_chat->timeline[0].client.Load().get() ==
         reloaded_alice.Load().get());
   CHECK(reloaded_alice_chat->timeline[1].client.Load().get() ==
         reloaded_alice.Load().get());
-  CHECK(reloaded_sender_event->sender.Load().get() ==
-        reloaded_alice.Load().get());
+  CHECK(reloaded_alice_msg->sender.Load().get() == reloaded_alice.Load().get());
+  CHECK(reloaded_alice_chat->timeline[2].client.Load().get() ==
+        reloaded_remote_support.Load().get());
+  CHECK(reloaded_alice_chat->timeline[3].client.Load().get() ==
+        reloaded_remote_support.Load().get());
+  CHECK(reloaded_support_join->client.Load().get() ==
+        reloaded_remote_support.Load().get());
+  CHECK(reloaded_support_msg->sender.Load().get() ==
+        reloaded_remote_support.Load().get());
   CHECK(reloaded_alice_chat->timeline[0].client->name == "Alice Cooper");
   CHECK(reloaded_alice_chat->timeline[1].client->name == "Alice Cooper");
-  CHECK(reloaded_alice_chat->journal.size() == 2);
-  CHECK(reloaded_alice_chat->journal[0].event.id().id() == 200);
-  CHECK(reloaded_alice_chat->journal[1].event.id().id() == 201);
-  CHECK(reloaded_alice_chat->journal[0].delivery_status ==
-        DeliveryStatus::kDelivered);
-  CHECK(reloaded_alice_chat->journal[1].delivery_status ==
-        DeliveryStatus::kDelivered);
+
+  CHECK(reloaded_remote_support->presenter.is_valid());
+  CHECK(reloaded_remote_support->presenter.id() == support_presenter_id);
+  CHECK(!reloaded_remote_support->presenter.is_loaded());
+  CHECK(!ContainsObj(alice_storage, support_presenter_id));
+
+  CHECK(reloaded_alice_chat->presenter->IsLocal(
+      reloaded_alice_chat->timeline[0]));
+  CHECK(reloaded_alice_chat->presenter->IsLocal(
+      reloaded_alice_chat->timeline[1]));
+  CHECK(!reloaded_alice_chat->presenter->IsLocal(
+      reloaded_alice_chat->timeline[2]));
+  CHECK(!reloaded_alice_chat->presenter->IsLocal(
+      reloaded_alice_chat->timeline[3]));
 
   CHECK(reloaded_alice->presenter.is_valid());
   CHECK(reloaded_alice->presenter.id() == alice_presenter_id);
@@ -1154,23 +1734,34 @@ int main() {
   CHECK(reloaded_support_runtime.is_loaded());
 
   auto reloaded_support_chat = reloaded_support_runtime->chat;
-  CHECK(reloaded_support_chat->timeline.size() == 2);
-  CHECK(reloaded_support_chat->journal.size() == 2);
+  CHECK(reloaded_support_chat->timeline.size() == 4);
+  CHECK(reloaded_support_chat->journal.size() == 4);
   CHECK(reloaded_support_chat->timeline[0].kind ==
         ChatEntryKind::kClientJoined);
   CHECK(reloaded_support_chat->timeline[1].kind == ChatEntryKind::kMessage);
   CHECK(reloaded_support_chat->timeline[1].text == "Hello from Alice");
+  CHECK(reloaded_support_chat->timeline[2].kind ==
+        ChatEntryKind::kClientJoined);
+  CHECK(reloaded_support_chat->timeline[3].kind == ChatEntryKind::kMessage);
+  CHECK(reloaded_support_chat->timeline[3].text == "Hello from Support");
   CHECK(reloaded_support_chat->journal[0].event.id().id() == 200);
   CHECK(reloaded_support_chat->journal[1].event.id().id() == 201);
+  CHECK(reloaded_support_chat->journal[2].event.id().id() == 203);
+  CHECK(reloaded_support_chat->journal[3].event.id().id() == 204);
   CHECK(reloaded_support_chat->journal[0].delivery_status ==
         DeliveryStatus::kDelivered);
   CHECK(reloaded_support_chat->journal[1].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(reloaded_support_chat->journal[2].delivery_status ==
+        DeliveryStatus::kDelivered);
+  CHECK(reloaded_support_chat->journal[3].delivery_status ==
         DeliveryStatus::kDelivered);
 
   auto reloaded_support = reloaded_support_chat->presenter->client;
   CHECK(reloaded_support.is_loaded());
   CHECK(reloaded_support.id() == support_id);
   CHECK(reloaded_support->name == "Support");
+  CHECK(reloaded_support->journal.empty());
 
   auto reloaded_remote_alice = reloaded_support_chat->timeline[0].client;
   CHECK(reloaded_remote_alice.is_loaded());
@@ -1184,18 +1775,31 @@ int main() {
       reloaded_remote_alice->journal[0].event.Load().as<RenameClientEvent>();
   CHECK(reloaded_remote_rename != nullptr);
   CHECK(reloaded_remote_rename->name == "Alice Cooper");
-  CHECK(!reloaded_support_chat->presenter->IsLocal(
-      reloaded_support_chat->timeline[1]));
+  auto* reloaded_remote_base = reloaded_remote_alice->base.Load().as<Client>();
+  CHECK(reloaded_remote_base != nullptr);
+  CHECK(reloaded_remote_base->name == "Alice");
+  CHECK(reloaded_remote_base->journal.empty());
 
   CHECK(!reloaded_support_chat->timeline[1].client.is_loaded());
+  CHECK(!reloaded_support_chat->timeline[3].client.is_loaded());
   auto* reloaded_receiver_event =
       reloaded_support_chat->journal[1].event.Load().as<SendMessageEvent>();
+  auto* reloaded_local_support_join =
+      reloaded_support_chat->journal[2].event.Load().as<ClientJoinedEvent>();
+  auto* reloaded_local_support_msg =
+      reloaded_support_chat->journal[3].event.Load().as<SendMessageEvent>();
   CHECK(reloaded_receiver_event != nullptr);
+  CHECK(reloaded_local_support_join != nullptr);
+  CHECK(reloaded_local_support_msg != nullptr);
   CHECK(!reloaded_receiver_event->sender.is_loaded());
+  CHECK(!reloaded_local_support_msg->sender.is_loaded());
 
   reloaded_support_chat->timeline[0].client.Load();
   reloaded_support_chat->timeline[1].client.Load();
   reloaded_receiver_event->sender.Load();
+  reloaded_support_chat->timeline[2].client.Load();
+  reloaded_support_chat->timeline[3].client.Load();
+  reloaded_local_support_msg->sender.Load();
   auto* reloaded_join =
       reloaded_support_chat->journal[0].event.Load().as<ClientJoinedEvent>();
   CHECK(reloaded_join != nullptr);
@@ -1207,35 +1811,46 @@ int main() {
         reloaded_remote_alice.Load().get());
   CHECK(reloaded_join->client.Load().get() ==
         reloaded_remote_alice.Load().get());
+  CHECK(reloaded_support_chat->timeline[2].client.Load().get() ==
+        reloaded_support.Load().get());
+  CHECK(reloaded_support_chat->timeline[3].client.Load().get() ==
+        reloaded_support.Load().get());
+  CHECK(reloaded_local_support_join->client.Load().get() ==
+        reloaded_support.Load().get());
+  CHECK(reloaded_local_support_msg->sender.Load().get() ==
+        reloaded_support.Load().get());
+  CHECK(reloaded_support_chat->presenter->client.Load().get() ==
+        reloaded_support.Load().get());
   CHECK(reloaded_support_chat->timeline[0].client->name == "Alice Cooper");
   CHECK(reloaded_support_chat->timeline[1].client->name == "Alice Cooper");
 
-  auto* reloaded_remote_base = reloaded_remote_alice->base.Load().as<Client>();
-  CHECK(reloaded_remote_base != nullptr);
-  CHECK(reloaded_remote_base->name == "Alice");
-  CHECK(reloaded_remote_base->journal.empty());
-  CHECK(reloaded_support.is_loaded());
-  CHECK(reloaded_support.id() == support_id);
-  CHECK(reloaded_support->name == "Support");
-  CHECK(reloaded_support->journal.empty());
-  CHECK(reloaded_support.Load().get() != reloaded_remote_alice.Load().get());
-  CHECK(reloaded_support_chat->presenter->client.Load().get() ==
-        reloaded_support.Load().get());
+  CHECK(!reloaded_support_chat->presenter->IsLocal(
+      reloaded_support_chat->timeline[0]));
   CHECK(!reloaded_support_chat->presenter->IsLocal(
       reloaded_support_chat->timeline[1]));
+  CHECK(reloaded_support_chat->presenter->IsLocal(
+      reloaded_support_chat->timeline[2]));
+  CHECK(reloaded_support_chat->presenter->IsLocal(
+      reloaded_support_chat->timeline[3]));
 
   CHECK(reloaded_remote_alice->presenter.is_valid());
   CHECK(reloaded_remote_alice->presenter.id() == alice_presenter_id);
   CHECK(!reloaded_remote_alice->presenter.is_loaded());
   CHECK(!ContainsObj(support_storage, alice_presenter_id));
+  CHECK(reloaded_support.Load().get() != reloaded_remote_alice.Load().get());
 
   CHECK(reloaded_alice.Load().get() != reloaded_remote_alice.Load().get());
   CHECK(reloaded_alice.id() == reloaded_remote_alice.id());
+  CHECK(reloaded_support.Load().get() != reloaded_remote_support.Load().get());
+  CHECK(reloaded_support.id() == reloaded_remote_support.id());
   CHECK(reloaded_alice_rename != reloaded_remote_rename);
   CHECK(reloaded_alice_rename->obj_id.id() == 202);
   CHECK(reloaded_remote_rename->obj_id.id() == 202);
   CHECK(reloaded_alice_base->obj_id == reloaded_remote_base->obj_id);
   CHECK(reloaded_alice_base != reloaded_remote_base);
+  CHECK(reloaded_support_msg != reloaded_local_support_msg);
+  CHECK(reloaded_support_msg->obj_id.id() == 204);
+  CHECK(reloaded_local_support_msg->obj_id.id() == 204);
   CHECK(reloaded_alice_chat.Load().get() != reloaded_support_chat.Load().get());
   CHECK(reloaded_alice_runtime.Load().get() !=
         reloaded_support_runtime.Load().get());
@@ -1244,6 +1859,7 @@ int main() {
   CHECK(reloaded_alice.id() == alice_id);
   CHECK(reloaded_remote_alice.id() == alice_id);
   CHECK(reloaded_support.id() == support_id);
+  CHECK(reloaded_remote_support.id() == support_id);
   CHECK(reloaded_alice_runtime.Load().get() != alice_runtime_address);
   CHECK(reloaded_support_runtime.Load().get() != support_runtime_address);
   CHECK(reloaded_alice_chat.Load().get() != alice_chat_address);
