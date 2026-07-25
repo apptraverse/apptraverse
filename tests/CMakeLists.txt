@@ -138,3 +138,16 @@ add_test(
   NAME apptraverse_journal_event_message_transfer_test
   COMMAND apptraverse_journal_event_message_transfer_test
 )
+
+add_executable(apptraverse_graph_synchronizer_test
+  graph_synchronizer_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_graph_synchronizer_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_graph_synchronizer_test
+  COMMAND apptraverse_graph_synchronizer_test
+)
