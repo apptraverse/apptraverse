@@ -324,7 +324,7 @@ int main() {
     auto event =
         AppendTitleEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(200));
     event->suffix = "!";
-    a.engine->CommitLocal(event);
+    a.engine->CommitLocal(a.root, event);
 
     CHECK(a.root->title == "Doc!");
     CHECK(b.root->title == "Doc!");

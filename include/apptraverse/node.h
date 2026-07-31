@@ -15,6 +15,10 @@
 
 namespace apptraverse {
 
+namespace detail {
+class ObjectGraphTraversal;
+}  // namespace detail
+
 class Node : public ae::Obj {
   AE_OBJECT(Node, Obj, 0)
 
@@ -59,6 +63,10 @@ class Node : public ae::Obj {
   }
 
   void ReloadFromStorage() { ReloadFromStorageImpl(); }
+
+  void TraverseSharedGraph(detail::ObjectGraphTraversal& traversal) {
+    TraverseSharedGraphImpl(traversal);
+  }
 
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
@@ -192,6 +200,12 @@ class Node : public ae::Obj {
   }
 
   virtual void ReloadFromStorageImpl() {
+    assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual void TraverseSharedGraphImpl(
+      detail::ObjectGraphTraversal& traversal) {
+    (void)traversal;
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 };

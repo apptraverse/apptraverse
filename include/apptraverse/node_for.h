@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "apptraverse/node.h"
+#include "apptraverse/object_graph_traversal.h"
 
 namespace apptraverse {
 
@@ -39,6 +40,11 @@ class NodeFor : public Node {
     assert(obj_id.IsValid());
     ae::DomainGraph graph{domain};
     graph.Load(static_cast<ConcreteNode&>(*this), obj_id);
+  }
+
+  void TraverseSharedGraphImpl(
+      detail::ObjectGraphTraversal& traversal) override {
+    traversal.Traverse(static_cast<ConcreteNode&>(*this));
   }
 };
 

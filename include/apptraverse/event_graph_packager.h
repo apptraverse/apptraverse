@@ -13,6 +13,7 @@
 #include "aether/obj/obj_ptr.h"
 
 #include "apptraverse/event.h"
+#include "apptraverse/node.h"
 #include "apptraverse/replication_state.h"
 
 namespace apptraverse {
@@ -98,9 +99,18 @@ void RegisterIntroducedOnConcrete(Concrete& concrete, ReplicationState& state) {
         if constexpr (!std::is_base_of_v<Event, Pointee>) {
           state.RegisterShared(current.id());
         }
+        if constexpr (std::is_base_of_v<Node, Pointee>) {
+          state.RegisterSharedNode(current.id());
+        }
         return true;
       }
       return false;
+    }
+    if constexpr (std::is_base_of_v<Node, Current>) {
+      if (current.obj_id.IsValid()) {
+        state.RegisterSharedNode(current.obj_id);
+      }
+      return true;
     }
     if constexpr (std::is_base_of_v<ae::Obj, Current> &&
                   !std::is_base_of_v<Event, Current>) {

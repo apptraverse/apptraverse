@@ -205,7 +205,7 @@ int main() {
     auto first =
         AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(200));
     first->text = "collapsed";
-    a.engine->CommitLocal(first);
+    a.engine->CommitLocal(a.root, first);
     CHECK(a.root->journal.empty());
     CHECK(b.root->journal.empty());
     CHECK(a.root->items.size() == 1);
@@ -219,7 +219,7 @@ int main() {
     auto second =
         AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(201));
     second->text = "remaining";
-    a.engine->CommitLocal(second);
+    a.engine->CommitLocal(a.root, second);
     CHECK(a.root->journal.size() == 1);
     CHECK(b.root->journal.size() == 1);
 
@@ -242,7 +242,7 @@ int main() {
     auto future =
         AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(202));
     future->text = "future";
-    a.engine->CommitLocal(future);
+    a.engine->CommitLocal(a.root, future);
     CHECK(c.root->items.size() == 3);
     CHECK(c.root->items.back() == "future");
     CHECK(a.state->FindOutgoing(a.root->journal.back().identity, id_c) !=
@@ -271,17 +271,17 @@ int main() {
     auto ea =
         AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(300));
     ea->text = "from-a";
-    a.engine->CommitLocal(ea);
+    a.engine->CommitLocal(a.root, ea);
 
     auto eb =
         AppendItemEvent::ptr::Create(ae::CreateWith{b.domain}.with_id(301));
     eb->text = "from-b";
-    b.engine->CommitLocal(eb);
+    b.engine->CommitLocal(b.root, eb);
 
     auto ec =
         AppendItemEvent::ptr::Create(ae::CreateWith{c.domain}.with_id(302));
     ec->text = "from-c";
-    c.engine->CommitLocal(ec);
+    c.engine->CommitLocal(c.root, ec);
 
     CHECK(a.root->journal.size() >= 1);
     CHECK(b.root->journal.size() >= 1);
@@ -295,12 +295,12 @@ int main() {
     CHECK(!c.root->journal.empty());
 
     c.online = true;
-    a.engine->FlushOutgoing();
-    b.engine->FlushOutgoing();
-    c.engine->FlushOutgoing();
-    a.engine->FlushOutgoing();
-    b.engine->FlushOutgoing();
-    c.engine->FlushOutgoing();
+    a.engine->FlushPending();
+    b.engine->FlushPending();
+    c.engine->FlushPending();
+    a.engine->FlushPending();
+    b.engine->FlushPending();
+    c.engine->FlushPending();
 
     CHECK(JournalsEqual(*a.root, *b.root));
     CHECK(JournalsEqual(*a.root, *c.root));

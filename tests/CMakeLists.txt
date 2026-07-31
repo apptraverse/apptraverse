@@ -34,3 +34,40 @@ add_test(
   NAME apptraverse_replication_presenters_prefab_test
   COMMAND apptraverse_replication_presenters_prefab_test
 )
+
+add_executable(apptraverse_replication_multi_node_test
+  replication_multi_node_test.cpp
+)
+
+target_link_libraries(apptraverse_replication_multi_node_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_replication_multi_node_test
+  COMMAND apptraverse_replication_multi_node_test
+)
+
+add_executable(apptraverse_replication_reentrant_transport_test
+  replication_reentrant_transport_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_replication_reentrant_transport_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_replication_reentrant_transport_test
+  COMMAND apptraverse_replication_reentrant_transport_test
+)
+
+add_executable(apptraverse_replication_confirmation_reliability_test
+  replication_confirmation_reliability_test.cpp
+)
+
+target_link_libraries(
+  apptraverse_replication_confirmation_reliability_test PRIVATE apptraverse
+)
+
+add_test(
+  NAME apptraverse_replication_confirmation_reliability_test
+  COMMAND apptraverse_replication_confirmation_reliability_test
+)

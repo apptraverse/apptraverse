@@ -23,11 +23,20 @@ struct OutgoingDelivery {
   AE_REFLECT_MEMBERS(event_identity, recipient, acknowledged)
 };
 
-struct OriginPackagingSnapshot {
+struct OriginEventState {
   EventIdentity identity;
+  ae::ObjId target_node;
   std::vector<ae::ObjId> known_shared_before;
 
-  AE_REFLECT_MEMBERS(identity, known_shared_before)
+  AE_REFLECT_MEMBERS(identity, target_node, known_shared_before)
+};
+
+struct ConfirmationDelivery {
+  EventIdentity identity;
+  ReplicaId recipient;
+  bool acknowledged{false};
+
+  AE_REFLECT_MEMBERS(identity, recipient, acknowledged)
 };
 
 class ReplicationState : public ae::Obj {
@@ -40,16 +49,19 @@ class ReplicationState : public ae::Obj {
   explicit ReplicationState(ae::ObjProp prop) : Obj{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(local_replica_id), AE_MMBR(known_peers),
-                    AE_MMBR(outgoing), AE_MMBR(origin_packaging),
-                    AE_MMBR(globally_confirmed), AE_MMBR(known_shared_ids),
+                    AE_MMBR(outgoing), AE_MMBR(origin_events),
+                    AE_MMBR(confirmation_outgoing), AE_MMBR(globally_confirmed),
+                    AE_MMBR(known_shared_ids), AE_MMBR(known_shared_node_ids),
                     AE_MMBR(lamport_clock), AE_MMBR(next_origin_sequence))
 
   ReplicaId local_replica_id;
   std::vector<ReplicaId> known_peers;
   std::vector<OutgoingDelivery> outgoing;
-  std::vector<OriginPackagingSnapshot> origin_packaging;
+  std::vector<OriginEventState> origin_events;
+  std::vector<ConfirmationDelivery> confirmation_outgoing;
   std::vector<EventIdentity> globally_confirmed;
   std::vector<ae::ObjId> known_shared_ids;
+  std::vector<ae::ObjId> known_shared_node_ids;
   std::uint64_t lamport_clock{0};
   std::uint32_t next_origin_sequence{1};
 
@@ -79,6 +91,19 @@ class ReplicationState : public ae::Obj {
     }
   }
 
+  bool IsKnownSharedNode(ae::ObjId id) const {
+    return std::find(known_shared_node_ids.begin(), known_shared_node_ids.end(),
+                     id) != known_shared_node_ids.end();
+  }
+
+  void RegisterSharedNode(ae::ObjId id) {
+    assert(id.IsValid());
+    RegisterShared(id);
+    if (!IsKnownSharedNode(id)) {
+      known_shared_node_ids.push_back(id);
+    }
+  }
+
   bool IsGloballyConfirmed(EventIdentity const& identity) const {
     return std::find(globally_confirmed.begin(), globally_confirmed.end(),
                      identity) != globally_confirmed.end();
@@ -102,11 +127,29 @@ class ReplicationState : public ae::Obj {
     return nullptr;
   }
 
-  OriginPackagingSnapshot const* FindOriginPackaging(
-      EventIdentity const& identity) const {
-    for (auto const& snapshot : origin_packaging) {
-      if (snapshot.identity == identity) {
-        return &snapshot;
+  OriginEventState* FindOriginEvent(EventIdentity const& identity) {
+    for (auto& entry : origin_events) {
+      if (entry.identity == identity) {
+        return &entry;
+      }
+    }
+    return nullptr;
+  }
+
+  OriginEventState const* FindOriginEvent(EventIdentity const& identity) const {
+    for (auto const& entry : origin_events) {
+      if (entry.identity == identity) {
+        return &entry;
+      }
+    }
+    return nullptr;
+  }
+
+  ConfirmationDelivery* FindConfirmation(EventIdentity const& identity,
+                                         ReplicaId recipient) {
+    for (auto& delivery : confirmation_outgoing) {
+      if (delivery.identity == identity && delivery.recipient == recipient) {
+        return &delivery;
       }
     }
     return nullptr;
@@ -124,6 +167,29 @@ class ReplicationState : public ae::Obj {
       }
     }
     return found;
+  }
+
+  bool AllConfirmationsAcknowledged(EventIdentity const& identity) const {
+    bool found = false;
+    for (auto const& delivery : confirmation_outgoing) {
+      if (delivery.identity != identity) {
+        continue;
+      }
+      found = true;
+      if (!delivery.acknowledged) {
+        return false;
+      }
+    }
+    return found;
+  }
+
+  bool HasPendingConfirmation(EventIdentity const& identity) const {
+    for (auto const& delivery : confirmation_outgoing) {
+      if (delivery.identity == identity) {
+        return true;
+      }
+    }
+    return false;
   }
 
   std::uint32_t AllocateOriginSequence() {

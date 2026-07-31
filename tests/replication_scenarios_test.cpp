@@ -406,7 +406,7 @@ int main() {
     auto event =
         AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(200));
     event->text = "hello";
-    a.engine->CommitLocal(event);
+    a.engine->CommitLocal(a.root, event);
 
     CHECK(a.root->items.size() == 1);
     CHECK(b.root->items.size() == 1);
@@ -456,7 +456,7 @@ int main() {
     introduce->member = member;
 
     mesh.CaptureNextEventTransfer(true);
-    a.engine->CommitLocal(introduce);
+    a.engine->CommitLocal(a.root, introduce);
     mesh.CaptureNextEventTransfer(false);
 
     CHECK(a.state->IsKnownShared(ae::ObjId{300}));
@@ -482,7 +482,7 @@ int main() {
     rename->name = "Ada Lovelace";
 
     mesh.CaptureNextEventTransfer(true);
-    a.engine->CommitLocal(rename);
+    a.engine->CommitLocal(a.root, rename);
     mesh.CaptureNextEventTransfer(false);
 
     CHECK(a.root->members[0]->name == "Ada Lovelace");
@@ -507,7 +507,7 @@ int main() {
     auto event =
         AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(210));
     event->text = "retry";
-    a.engine->CommitLocal(event);
+    a.engine->CommitLocal(a.root, event);
     CHECK(b.root->items.size() == 1);
     CHECK(a.state->outgoing.size() == 1);
     CHECK(!a.state->outgoing[0].acknowledged);
@@ -518,7 +518,7 @@ int main() {
     a.engine.reset();
     mesh.drop_acks = false;
     BindReplica(mesh, a);
-    a.engine->FlushOutgoing();
+    a.engine->FlushPending();
 
     CHECK(mesh.CountEventSends(id_b, identity) == 2);
     CHECK(b.root->items.size() == 1);
@@ -561,13 +561,13 @@ int main() {
         AppendItemEvent::ptr::Create(ae::CreateWith{c.domain}.with_id(222));
     ec->text = "C";
 
-    a.engine->CommitLocal(ea);
-    b.engine->CommitLocal(eb);
-    c.engine->CommitLocal(ec);
+    a.engine->CommitLocal(a.root, ea);
+    b.engine->CommitLocal(b.root, eb);
+    c.engine->CommitLocal(c.root, ec);
 
-    auto const identity_a = a.state->origin_packaging[0].identity;
-    auto const identity_b = b.state->origin_packaging[0].identity;
-    auto const identity_c = c.state->origin_packaging[0].identity;
+    auto const identity_a = a.state->origin_events[0].identity;
+    auto const identity_b = b.state->origin_events[0].identity;
+    auto const identity_c = c.state->origin_events[0].identity;
     CHECK(mesh.CountEventSendsFor(identity_a) == 3);
     CHECK(mesh.CountEventSendsFor(identity_b) == 3);
     CHECK(mesh.CountEventSendsFor(identity_c) == 3);
@@ -579,9 +579,9 @@ int main() {
     mesh.deliver = true;
     for (int round = 0; round < 8; ++round) {
       mesh.FlushDelayed();
-      a.engine->FlushOutgoing();
-      b.engine->FlushOutgoing();
-      c.engine->FlushOutgoing();
+      a.engine->FlushPending();
+      b.engine->FlushPending();
+      c.engine->FlushPending();
     }
 
     CHECK(a.root->journal.size() == 3);
