@@ -23,9 +23,22 @@ class NodeFor : public Node {
   }
 
  private:
-  bool AcceptRemoteEventImpl(Event::ptr event, ae::TimePoint time) override {
-    return Node::AcceptRemoteEvent(static_cast<ConcreteNode&>(*this),
-                                   std::move(event), time);
+  bool AcceptSharedEventImpl(EventRecord record) override {
+    return Node::InsertSharedEvent(static_cast<ConcreteNode&>(*this),
+                                   std::move(record));
+  }
+
+  void CaptureBaseStateImpl() override { CaptureBaseState(); }
+
+  void CollapseSharedPrefixImpl(std::size_t prefix_count) override {
+    Node::CollapsePrefix(static_cast<ConcreteNode&>(*this), prefix_count);
+  }
+
+  void ReloadFromStorageImpl() override {
+    assert(domain != nullptr);
+    assert(obj_id.IsValid());
+    ae::DomainGraph graph{domain};
+    graph.Load(static_cast<ConcreteNode&>(*this), obj_id);
   }
 };
 

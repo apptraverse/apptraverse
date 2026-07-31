@@ -1,18 +1,20 @@
 #ifndef APPTRAVERSE_EVENT_H_
 #define APPTRAVERSE_EVENT_H_
 
-#include <cassert>
-#include <cstdint>
+#include <vector>
 
 #include "aether/obj/obj.h"
+#include "aether/obj/obj_id.h"
 
 namespace apptraverse {
 
 class Node;
+class ReplicationState;
 
 namespace detail {
 class ObjectGraphTraversal;
-}
+struct PtrRestore;
+}  // namespace detail
 
 class Event : public ae::Obj {
   AE_OBJECT(Event, Obj, 0)
@@ -26,25 +28,24 @@ class Event : public ae::Obj {
  public:
   explicit Event(ae::ObjProp prop) : Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(sender), AE_MMBR(sequence))
+  AE_OBJECT_REFLECT()
 
-  ae::Obj::ptr sender;
-  std::uint32_t sequence{0};
-
-  bool HasValidIdentity() const {
-    return sender.is_valid() && sequence != 0;
+  void UnloadKnownSharedReferences(std::vector<ae::ObjId> const& known,
+                                   std::vector<detail::PtrRestore>& restores) {
+    UnloadKnownSharedReferencesImpl(known, restores);
   }
 
-  bool HasSameIdentity(Event const& other) const {
-    assert(HasValidIdentity());
-    assert(other.HasValidIdentity());
-
-    return sender.id() == other.sender.id() && sequence == other.sequence;
+  void RegisterIntroducedShared(ReplicationState& state) {
+    RegisterIntroducedSharedImpl(state);
   }
 
  private:
   virtual void ApplyTo(Node& target) const = 0;
   virtual void TraverseObjectGraph(detail::ObjectGraphTraversal& traversal) = 0;
+  virtual void UnloadKnownSharedReferencesImpl(
+      std::vector<ae::ObjId> const& known,
+      std::vector<detail::PtrRestore>& restores) = 0;
+  virtual void RegisterIntroducedSharedImpl(ReplicationState& state) = 0;
 };
 
 }  // namespace apptraverse

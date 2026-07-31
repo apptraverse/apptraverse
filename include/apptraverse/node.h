@@ -3,14 +3,14 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cstdint>
-#include <limits>
 #include <utility>
 #include <vector>
 
 #include "aether/obj/domain.h"
 #include "aether/obj/obj.h"
 
+#include "apptraverse/event_identity.h"
+#include "apptraverse/event_order.h"
 #include "apptraverse/event_record.h"
 
 namespace apptraverse {
@@ -24,39 +24,49 @@ class Node : public ae::Obj {
  public:
   explicit Node(ae::ObjProp prop) : Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal),
-                    AE_MMBR(next_local_sequence))
+  AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal))
 
   Node::ptr base;
   std::vector<EventRecord> journal;
-  std::uint32_t next_local_sequence{1};
 
-  bool AcceptRemoteEvent(Event::ptr event, ae::TimePoint time) {
-    return AcceptRemoteEventImpl(std::move(event), time);
-  }
-
-  bool ContainsEvent(Event const& event) const {
-    assert(event.HasValidIdentity());
-
+  bool ContainsEvent(EventIdentity const& identity) const {
+    assert(identity.IsValid());
     for (auto const& record : journal) {
-      assert(record.event.is_valid());
-
-      auto const& existing = record.event.Load();
-      assert(existing);
-
-      if (existing->HasSameIdentity(event)) {
+      if (record.identity == identity) {
         return true;
       }
     }
-
     return false;
   }
+
+  EventRecord const* FindRecord(EventIdentity const& identity) const {
+    for (auto const& record : journal) {
+      if (record.identity == identity) {
+        return &record;
+      }
+    }
+    return nullptr;
+  }
+
+  bool AcceptSharedEvent(EventRecord record) {
+    return AcceptSharedEventImpl(std::move(record));
+  }
+
+  void CaptureBaseStatePublic() { CaptureBaseStateImpl(); }
+
+  void CollapseSharedPrefix(std::size_t prefix_count) {
+    CollapseSharedPrefixImpl(prefix_count);
+  }
+
+  void ReloadFromStorage() { ReloadFromStorageImpl(); }
 
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 
   void ReplayJournal() {
     for (auto const& record : journal) {
+      assert(record.event.is_valid());
+      assert(record.event.is_loaded());
       ApplyEvent(*record.event);
     }
   }
@@ -66,13 +76,11 @@ class Node : public ae::Obj {
     auto owner_id = obj_id;
     auto saved_base = base;
     auto saved_journal = journal;
-    auto saved_next_local_sequence = next_local_sequence;
     ae::DomainGraph graph{domain};
     graph.Load(target, saved_base.id());
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
-    next_local_sequence = saved_next_local_sequence;
     ReplayJournal();
   }
 
@@ -87,7 +95,6 @@ class Node : public ae::Obj {
     auto owner_id = obj_id;
     auto saved_base = base;
     auto saved_journal = journal;
-    auto saved_next_local_sequence = next_local_sequence;
 
     base = {};
     journal.clear();
@@ -101,110 +108,37 @@ class Node : public ae::Obj {
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
-    next_local_sequence = saved_next_local_sequence;
 
     auto& concrete_base = static_cast<ConcreteNode&>(*base);
     ae::DomainGraph load_graph{domain};
     load_graph.Load(concrete_base, base.id());
   }
 
-  void CommitEvent(Event::ptr event, ae::TimePoint time) {
-    CommitEvent(std::move(event), time, {});
-  }
-
-  void CommitEvent(Event::ptr event, ae::TimePoint time,
-                   std::vector<ae::ObjId> recipients) {
-    assert(domain != nullptr);
-    assert(base.is_valid());
-    assert(base.is_loaded());
-    assert(event.is_valid());
-    assert(event.is_loaded());
-    assert(event.domain() == domain);
-    assert(journal.empty() || journal.back().time < time);
-
-    assert(event->sender.is_valid());
-    assert(event->sequence == 0);
-    assert(next_local_sequence != 0);
-    assert(next_local_sequence !=
-           std::numeric_limits<std::uint32_t>::max());
-
-    event->sender.Reset();
-    event->sender.SetFlags(ae::ObjFlags::kUnloadedByDefault);
-
-    assert(event->sender.is_valid());
-    assert(!event->sender.is_loaded());
-
-    event->sequence = next_local_sequence;
-    ++next_local_sequence;
-
-    assert(event->HasValidIdentity());
-    assert(!ContainsEvent(*event));
-
-    for (auto const& recipient : recipients) {
-      assert(recipient.IsValid());
-    }
-
-    std::sort(recipients.begin(), recipients.end());
-    assert(std::adjacent_find(recipients.begin(), recipients.end()) ==
-           recipients.end());
-
-    std::vector<EventRecipientState> recipient_states;
-    recipient_states.reserve(recipients.size());
-    for (auto const& recipient : recipients) {
-      recipient_states.push_back(EventRecipientState{
-          recipient,
-          DeliveryStatus::kPending,
-      });
-    }
-
-    journal.push_back(EventRecord{
-        std::move(event),
-        time,
-        std::move(recipient_states),
-    });
-
-    ApplyEvent(*journal.back().event);
-  }
-
   template <typename ConcreteNode>
-  bool AcceptRemoteEvent(ConcreteNode& target, Event::ptr event,
-                         ae::TimePoint time) {
+  bool InsertSharedEvent(ConcreteNode& target, EventRecord record) {
     assert(domain != nullptr);
     assert(base.is_valid());
     assert(base.is_loaded());
-    assert(event.is_valid());
-    assert(event.is_loaded());
-    assert(event.domain() == domain);
-    assert(event->HasValidIdentity());
+    assert(record.identity.IsValid());
+    assert(record.order.IsValid());
+    assert(record.event.is_valid());
+    assert(record.event.is_loaded());
+    assert(record.event.domain() == domain);
 
-    event->sender.Reset();
-    event->sender.SetFlags(ae::ObjFlags::kUnloadedByDefault);
-
-    assert(event->sender.is_valid());
-    assert(!event->sender.is_loaded());
-    assert(event->HasValidIdentity());
-
-    if (ContainsEvent(*event)) {
+    if (ContainsEvent(record.identity)) {
       return false;
     }
 
     auto position = std::lower_bound(
-        journal.begin(), journal.end(), time,
-        [](EventRecord const& record, ae::TimePoint value) {
-          return record.time < value;
+        journal.begin(), journal.end(), record.order,
+        [](EventRecord const& existing, EventOrder const& order) {
+          return existing.order < order;
         });
 
-    assert(position == journal.end() || position->time != time);
+    assert(position == journal.end() || !(position->order == record.order));
 
     bool const appended = position == journal.end();
-
-    auto inserted = journal.insert(
-        position,
-        EventRecord{
-            std::move(event),
-            time,
-            {},
-        });
+    auto inserted = journal.insert(position, std::move(record));
 
     if (appended) {
       ApplyEvent(*inserted->event);
@@ -215,12 +149,50 @@ class Node : public ae::Obj {
     return true;
   }
 
+  template <typename ConcreteNode>
+  void CollapsePrefix(ConcreteNode& target, std::size_t prefix_count) {
+    assert(prefix_count <= journal.size());
+    if (prefix_count == 0) {
+      return;
+    }
+
+    auto remaining = std::vector<EventRecord>(
+        journal.begin() + static_cast<std::ptrdiff_t>(prefix_count),
+        journal.end());
+
+    // Materialize old_base + prefix, capture that as the new base, then re-apply
+    // the unconfirmed suffix so the current state stays unchanged.
+    journal.erase(journal.begin() + static_cast<std::ptrdiff_t>(prefix_count),
+                  journal.end());
+    RebuildFromBaseAndReplay(target);
+    journal.clear();
+    CaptureBaseState(target);
+    journal = std::move(remaining);
+    for (auto const& record : journal) {
+      assert(record.event.is_valid());
+      assert(record.event.is_loaded());
+      ApplyEvent(*record.event);
+    }
+  }
+
  private:
-  virtual bool AcceptRemoteEventImpl(Event::ptr event, ae::TimePoint time) {
-    (void)event;
-    (void)time;
+  virtual bool AcceptSharedEventImpl(EventRecord record) {
+    (void)record;
     assert(false && "Concrete Node must inherit through NodeFor");
     return false;
+  }
+
+  virtual void CaptureBaseStateImpl() {
+    assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual void CollapseSharedPrefixImpl(std::size_t prefix_count) {
+    (void)prefix_count;
+    assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual void ReloadFromStorageImpl() {
+    assert(false && "Concrete Node must inherit through NodeFor");
   }
 };
 
