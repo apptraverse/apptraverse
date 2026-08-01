@@ -9,17 +9,15 @@ add_test(
   COMMAND apptraverse_replication_scenarios_test
 )
 
-add_executable(apptraverse_replication_bootstrap_collapse_test
-  replication_bootstrap_collapse_test.cpp
+add_executable(apptraverse_replication_bootstrap_test
+  replication_bootstrap_test.cpp
 )
 
-target_link_libraries(
-  apptraverse_replication_bootstrap_collapse_test PRIVATE apptraverse
-)
+target_link_libraries(apptraverse_replication_bootstrap_test PRIVATE apptraverse)
 
 add_test(
-  NAME apptraverse_replication_bootstrap_collapse_test
-  COMMAND apptraverse_replication_bootstrap_collapse_test
+  NAME apptraverse_replication_bootstrap_test
+  COMMAND apptraverse_replication_bootstrap_test
 )
 
 add_executable(apptraverse_replication_presenters_prefab_test
@@ -57,17 +55,4 @@ target_link_libraries(
 add_test(
   NAME apptraverse_replication_reentrant_transport_test
   COMMAND apptraverse_replication_reentrant_transport_test
-)
-
-add_executable(apptraverse_replication_confirmation_reliability_test
-  replication_confirmation_reliability_test.cpp
-)
-
-target_link_libraries(
-  apptraverse_replication_confirmation_reliability_test PRIVATE apptraverse
-)
-
-add_test(
-  NAME apptraverse_replication_confirmation_reliability_test
-  COMMAND apptraverse_replication_confirmation_reliability_test
 )

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <map>
@@ -14,12 +15,22 @@
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/replica_id.h"
+#include "apptraverse/replication_clock.h"
 #include "apptraverse/replication_engine.h"
 #include "apptraverse/replication_message.h"
 #include "apptraverse/replication_state.h"
 #include "apptraverse/replication_transport.h"
 
 namespace apptraverse::test {
+
+class ManualReplicationClock final : public apptraverse::IReplicationClock {
+ public:
+  std::uint64_t value{1};
+
+  void Set(std::uint64_t next) { value = next; }
+
+  std::uint64_t NowMicroseconds() override { return value; }
+};
 
 class SharedDocument;
 class SharedMember;
@@ -174,6 +185,7 @@ struct ReplicaBundle {
   ae::Domain message_domain;
   SharedDocument::ptr root;
   apptraverse::ReplicationState::ptr state;
+  ManualReplicationClock clock;
   std::unique_ptr<apptraverse::ReplicationEngine> engine;
   bool online{true};
 
@@ -209,12 +221,16 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
   std::map<apptraverse::ReplicaId, ae::Domain*> domains;
   std::map<apptraverse::ReplicaId, ae::RamDomainStorage*> message_storages;
   std::map<apptraverse::ReplicaId, bool*> online;
+  struct DelayedItem {
+    apptraverse::ReplicaId recipient;
+    ae::ObjId message_id;
+    ae::RamDomainStorage transfer;
+  };
+
   std::vector<SendRecord> sends;
   bool drop_acks{false};
   bool deliver{true};
-  std::vector<
-      std::pair<apptraverse::ReplicaId, apptraverse::ReplicationMessage::ptr>>
-      delayed;
+  std::vector<DelayedItem> delayed;
   ae::RamDomainStorage last_captured_transfer_;
   bool record_is_event_transfer_{false};
 
@@ -235,6 +251,26 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
     }
     sends.push_back(record);
 
+    ae::RamDomainStorage* source = nullptr;
+    for (auto const& [_, message_storage] : message_storages) {
+      if (message_storage->state.find(message.id()) !=
+          message_storage->state.end()) {
+        source = message_storage;
+        break;
+      }
+    }
+    assert(source != nullptr);
+
+    ae::RamDomainStorage transfer;
+    transfer.state = source->state;
+    source->state.clear();
+
+    if (record_is_event_transfer_ &&
+        message->GetClassId() ==
+            apptraverse::EventReplicationMessage::kClassId) {
+      last_captured_transfer_.state = transfer.state;
+    }
+
     if (online.count(recipient) != 0 && online[recipient] != nullptr &&
         !*online[recipient]) {
       return;
@@ -250,45 +286,27 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
     }
 
     if (!deliver) {
-      delayed.emplace_back(recipient, std::move(message));
+      delayed.push_back(
+          DelayedItem{recipient, message.id(), std::move(transfer)});
       return;
     }
 
-    DeliverNow(recipient, message);
+    DeliverTransfer(recipient, message.id(), transfer);
   }
 
-  void DeliverNow(apptraverse::ReplicaId recipient,
-                  apptraverse::ReplicationMessage::ptr message) {
+  void DeliverTransfer(apptraverse::ReplicaId recipient, ae::ObjId message_id,
+                       ae::RamDomainStorage& transfer) {
     auto* engine = engines.at(recipient);
     auto* storage = storages.at(recipient);
     auto* domain = domains.at(recipient);
 
-    message.Save();
-
-    ae::RamDomainStorage* source = nullptr;
-    for (auto const& [_, message_storage] : message_storages) {
-      if (message_storage->state.find(message.id()) !=
-          message_storage->state.end()) {
-        source = message_storage;
-        break;
-      }
-    }
-    assert(source != nullptr);
-
-    if (record_is_event_transfer_ &&
-        message->GetClassId() ==
-            apptraverse::EventReplicationMessage::kClassId) {
-      last_captured_transfer_.state = source->state;
-    }
-
-    for (auto const& entry : source->state) {
+    for (auto const& entry : transfer.state) {
       storage->state[entry.first] = entry.second;
     }
-    source->state.clear();
 
     apptraverse::ReplicationMessage::ptr incoming =
         apptraverse::ReplicationMessage::ptr::Declare(
-            ae::CreateWith{*domain}.with_id(message.id()));
+            ae::CreateWith{*domain}.with_id(message_id));
     incoming.Load();
     engine->Receive(incoming);
   }
@@ -297,7 +315,7 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
     auto pending = std::move(delayed);
     delayed.clear();
     for (auto& entry : pending) {
-      DeliverNow(entry.first, entry.second);
+      DeliverTransfer(entry.recipient, entry.message_id, entry.transfer);
     }
   }
 
@@ -335,7 +353,7 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
 
 void BindReplica(MeshTransport& mesh, ReplicaBundle& replica) {
   replica.engine = std::make_unique<apptraverse::ReplicationEngine>(
-      replica.root, replica.state, replica.message_domain, mesh);
+      replica.root, replica.state, replica.message_domain, mesh, replica.clock);
   mesh.engines[replica.id] = replica.engine.get();
   mesh.storages[replica.id] = &replica.storage;
   mesh.domains[replica.id] = &replica.domain;
@@ -386,6 +404,7 @@ int main() {
   using apptraverse::test::RenameMemberEvent;
   using apptraverse::test::ReplicaBundle;
   using apptraverse::test::SharedChild;
+  using apptraverse::test::SharedDocument;
   using apptraverse::test::SharedMember;
   using apptraverse::test::SharedResource;
 
@@ -393,37 +412,220 @@ int main() {
   ReplicaId const id_b{2};
   ReplicaId const id_c{3};
 
-  // A. Two replicas: deliver once, no forwarding by receiver.
+  // A. System timestamp ordering with out-of-order delivery.
+  {
+    MeshTransport mesh;
+    mesh.deliver = false;
+
+    ReplicaBundle a{id_a, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+    ReplicaBundle b{id_b, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+    ReplicaBundle c{id_c, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+    a.clock.Set(300);
+    b.clock.Set(100);
+    c.clock.Set(200);
+
+    BindReplica(mesh, a);
+    BindReplica(mesh, b);
+    BindReplica(mesh, c);
+    a.engine->AddPeer(id_b);
+    a.engine->AddPeer(id_c);
+    b.engine->AddPeer(id_a);
+    b.engine->AddPeer(id_c);
+    c.engine->AddPeer(id_a);
+    c.engine->AddPeer(id_b);
+
+    auto const base_id_a = a.root->base.id();
+    a.root->base.Load();
+    auto* const base_doc = a.root->base.Load().as<SharedDocument>();
+    CHECK(base_doc != nullptr);
+    auto const base_title = base_doc->title;
+
+    auto ea =
+        AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(220));
+    ea->text = "late";
+    auto eb =
+        AppendItemEvent::ptr::Create(ae::CreateWith{b.domain}.with_id(221));
+    eb->text = "early";
+    auto ec =
+        AppendItemEvent::ptr::Create(ae::CreateWith{c.domain}.with_id(222));
+    ec->text = "mid";
+
+    a.engine->CommitLocal(a.root, ea);
+    b.engine->CommitLocal(b.root, eb);
+    c.engine->CommitLocal(c.root, ec);
+
+    std::reverse(mesh.delayed.begin(), mesh.delayed.end());
+    mesh.deliver = true;
+    for (int round = 0; round < 12; ++round) {
+      mesh.FlushDelayed();
+      a.engine->FlushPending();
+      b.engine->FlushPending();
+      c.engine->FlushPending();
+    }
+
+    CHECK(a.root->journal.size() == 3);
+    CHECK(a.root->journal[0].order.timestamp_us == 100);
+    CHECK(a.root->journal[1].order.timestamp_us == 200);
+    CHECK(a.root->journal[2].order.timestamp_us == 300);
+    CHECK(JournalsEqual(*a.root, *b.root));
+    CHECK(JournalsEqual(*a.root, *c.root));
+    CHECK(a.root->items.size() == 3);
+    CHECK(a.root->items[0].text == "early");
+    CHECK(a.root->items[1].text == "mid");
+    CHECK(a.root->items[2].text == "late");
+    CHECK(b.root->items[0].text == a.root->items[0].text);
+    CHECK(c.root->items[0].text == a.root->items[0].text);
+    CHECK(a.root->base.id() == base_id_a);
+    a.root->base.Load();
+    auto* const base_doc_after = a.root->base.Load().as<SharedDocument>();
+    CHECK(base_doc_after != nullptr);
+    CHECK(base_doc_after->title == base_title);
+  }
+
+  // B. Journal never collapses after full acknowledgement.
   {
     MeshTransport mesh;
     ReplicaBundle a{id_a, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
     ReplicaBundle b{id_b, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+    a.clock.Set(1000);
+    BindReplica(mesh, a);
+    BindReplica(mesh, b);
+    a.engine->AddPeer(id_b);
+    b.engine->AddPeer(id_a);
+
+    auto const base_id = a.root->base.id();
+    auto event =
+        AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(200));
+    event->text = "keep";
+    a.engine->CommitLocal(a.root, event);
+
+    CHECK(a.root->journal.size() == 1);
+    CHECK(b.root->journal.size() == 1);
+    CHECK(a.state->outgoing.empty());
+    CHECK(a.state->origin_events.empty());
+    CHECK(a.root->base.id() == base_id);
+
+    auto const sends_before = mesh.sends.size();
+    a.engine->FlushPending();
+    CHECK(mesh.sends.size() == sends_before);
+  }
+
+  // C. Offline peer, restart origin, retry after reconnect.
+  {
+    MeshTransport mesh;
+    ReplicaBundle a{id_a, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+    ReplicaBundle b{id_b, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+    a.clock.Set(5000);
+    BindReplica(mesh, a);
+    BindReplica(mesh, b);
+    a.engine->AddPeer(id_b);
+    b.engine->AddPeer(id_a);
+
+    b.online = false;
+    auto event =
+        AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(230));
+    event->text = "offline";
+    a.engine->CommitLocal(a.root, event);
+    CHECK(b.root->items.empty());
+    CHECK(a.state->outgoing.size() == 1);
+    CHECK(a.root->journal.size() == 1);
+
+    auto const identity = a.state->outgoing[0].event_identity;
+    a.root.Save();
+    a.state.Save();
+
+    auto storage_copy = a.storage;
+    auto const root_id = a.root.id();
+    auto const state_id = a.state.id();
+    auto const clock_value = a.clock.value;
+
+    a.engine.reset();
+    mesh.engines.erase(id_a);
+    mesh.storages.erase(id_a);
+    mesh.domains.erase(id_a);
+    mesh.message_storages.erase(id_a);
+    mesh.online.erase(id_a);
+
+    {
+      ae::RamDomainStorage storage = storage_copy;
+      ae::Domain domain{ae::Now(), storage};
+      ae::RamDomainStorage message_storage;
+      ae::Domain message_domain{ae::Now(), message_storage};
+      apptraverse::test::ManualReplicationClock clock;
+      clock.Set(clock_value);
+
+      SharedDocument::ptr root = SharedDocument::ptr::Declare(
+          ae::CreateWith{domain}.with_id(root_id));
+      root.Load();
+      apptraverse::ReplicationState::ptr state =
+          apptraverse::ReplicationState::ptr::Declare(
+              ae::CreateWith{domain}.with_id(state_id));
+      state.Load();
+
+      CHECK(root->journal.size() == 1);
+      CHECK(state->outgoing.size() == 1);
+
+      auto engine = std::make_unique<apptraverse::ReplicationEngine>(
+          root, state, message_domain, mesh, clock);
+      mesh.engines[id_a] = engine.get();
+      mesh.storages[id_a] = &storage;
+      mesh.domains[id_a] = &domain;
+      mesh.message_storages[id_a] = &message_storage;
+      bool online = true;
+      mesh.online[id_a] = &online;
+
+      b.online = true;
+      engine->FlushPending();
+
+      CHECK(b.root->items.size() == 1);
+      CHECK(b.root->items[0].text == "offline");
+      CHECK(b.root->journal.size() == 1);
+      CHECK(state->FindOutgoing(identity, id_b) == nullptr);
+      CHECK(state->origin_events.empty());
+      CHECK(root->journal.size() == 1);
+    }
+  }
+
+  // D. Lost Ack: retry, dedupe, re-ack, journal retained.
+  {
+    MeshTransport mesh;
+    mesh.drop_acks = true;
+
+    ReplicaBundle a{id_a, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+    ReplicaBundle b{id_b, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+    a.clock.Set(7000);
     BindReplica(mesh, a);
     BindReplica(mesh, b);
     a.engine->AddPeer(id_b);
     b.engine->AddPeer(id_a);
 
     auto event =
-        AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(200));
-    event->text = "hello";
+        AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(210));
+    event->text = "retry";
     a.engine->CommitLocal(a.root, event);
-
-    CHECK(a.root->items.size() == 1);
     CHECK(b.root->items.size() == 1);
-    CHECK(b.root->items[0].text == "hello");
-    CHECK(JournalsEqual(*a.root, *b.root));
+    CHECK(a.state->outgoing.size() == 1);
+    CHECK(!a.state->outgoing[0].acknowledged);
 
-    auto const identity = a.root->journal.empty()
-                              ? apptraverse::EventIdentity{id_a, 1}
-                              : a.root->journal[0].identity;
+    auto const identity = a.state->outgoing[0].event_identity;
     CHECK(mesh.CountEventSends(id_b, identity) == 1);
-    CHECK(mesh.CountEventSends(id_a, identity) == 0);
-    CHECK(mesh.CountEventSendsFor(identity) == 1);
+
+    mesh.drop_acks = false;
+    a.engine->FlushPending();
+
+    CHECK(mesh.CountEventSends(id_b, identity) == 2);
+    CHECK(b.root->items.size() == 1);
+    CHECK(a.state->FindOutgoing(identity, id_b) == nullptr);
+    CHECK(a.state->origin_events.empty());
+    CHECK(a.root->journal.size() == 1);
+    CHECK(b.root->journal.size() == 1);
   }
 
-  // B + C. Introduce unknown subgraph, then reference-only follow-up.
+  // F. Introduce object subgraph, later reference; ordered per-recipient flush.
   {
     MeshTransport mesh;
+    mesh.deliver = false;
+
     ReplicaBundle a{id_a, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
     ReplicaBundle b{id_b, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
 
@@ -434,6 +636,7 @@ int main() {
         SharedResource::ptr::Create(ae::CreateWith{b.domain}.with_id(500));
     resource_b->label = "theme-b";
 
+    a.clock.Set(100);
     BindReplica(mesh, a);
     BindReplica(mesh, b);
     a.engine->AddPeer(id_b);
@@ -459,12 +662,33 @@ int main() {
     a.engine->CommitLocal(a.root, introduce);
     mesh.CaptureNextEventTransfer(false);
 
-    CHECK(a.state->IsKnownShared(ae::ObjId{300}));
-    CHECK(a.state->IsKnownShared(ae::ObjId{301}));
+    CHECK(mesh.delayed.size() == 1);
     CHECK(ContainsObj(mesh.LastCapturedTransfer(), 201));
     CHECK(ContainsObj(mesh.LastCapturedTransfer(), 300));
     CHECK(ContainsObj(mesh.LastCapturedTransfer(), 301));
     CHECK(!ContainsObj(mesh.LastCapturedTransfer(), 500));
+
+    auto const introduce_identity = a.root->journal[0].identity;
+
+    a.clock.Set(200);
+    auto rename =
+        RenameMemberEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(202));
+    rename->member = member;
+    rename->name = "Ada Lovelace";
+    a.engine->CommitLocal(a.root, rename);
+
+    // Second event must not be sent to B before Ack of the first.
+    CHECK(mesh.CountEventSends(id_b, introduce_identity) >= 1);
+    CHECK(a.root->journal.size() == 2);
+    auto const rename_identity = a.root->journal[1].identity;
+    CHECK(mesh.CountEventSends(id_b, rename_identity) == 0);
+
+    mesh.deliver = true;
+    mesh.FlushDelayed();
+    a.engine->FlushPending();
+    // Drain any follow-up event after introduce ack.
+    mesh.FlushDelayed();
+    a.engine->FlushPending();
 
     CHECK(a.root->members.size() == 1);
     CHECK(b.root->members.size() == 1);
@@ -475,126 +699,9 @@ int main() {
     b.root->members[0]->resource.Load();
     CHECK(b.root->members[0]->resource.Load().get() == resource_b.Load().get());
     CHECK(b.root->members[0]->resource->label == "theme-b");
-
-    auto rename =
-        RenameMemberEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(202));
-    rename->member = a.root->members[0];
-    rename->name = "Ada Lovelace";
-
-    mesh.CaptureNextEventTransfer(true);
-    a.engine->CommitLocal(a.root, rename);
-    mesh.CaptureNextEventTransfer(false);
-
     CHECK(a.root->members[0]->name == "Ada Lovelace");
     CHECK(b.root->members[0]->name == "Ada Lovelace");
-    CHECK(ContainsObj(mesh.LastCapturedTransfer(), 202));
-    CHECK(!ContainsObj(mesh.LastCapturedTransfer(), 300));
-    CHECK(!ContainsObj(mesh.LastCapturedTransfer(), 301));
-  }
-
-  // D. Lost ack, restart, retry, dedupe, re-ack.
-  {
-    MeshTransport mesh;
-    mesh.drop_acks = true;
-
-    ReplicaBundle a{id_a, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
-    ReplicaBundle b{id_b, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
-    BindReplica(mesh, a);
-    BindReplica(mesh, b);
-    a.engine->AddPeer(id_b);
-    b.engine->AddPeer(id_a);
-
-    auto event =
-        AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(210));
-    event->text = "retry";
-    a.engine->CommitLocal(a.root, event);
-    CHECK(b.root->items.size() == 1);
-    CHECK(a.state->outgoing.size() == 1);
-    CHECK(!a.state->outgoing[0].acknowledged);
-
-    auto const identity = a.state->outgoing[0].event_identity;
-    CHECK(mesh.CountEventSends(id_b, identity) == 1);
-
-    a.engine.reset();
-    mesh.drop_acks = false;
-    BindReplica(mesh, a);
-    a.engine->FlushPending();
-
-    CHECK(mesh.CountEventSends(id_b, identity) == 2);
-    CHECK(b.root->items.size() == 1);
-    CHECK(a.state->FindOutgoing(identity, id_b) == nullptr ||
-          a.state->FindOutgoing(identity, id_b)->acknowledged);
-    CHECK(!a.state->outgoing.empty() || a.root->journal.empty());
-  }
-
-  // E + F. Three replicas, origin-only fan-out, out-of-order delivery.
-  {
-    MeshTransport mesh;
-    mesh.deliver = false;
-
-    ReplicaBundle a{id_a, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
-    ReplicaBundle b{id_b, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
-    ReplicaBundle c{id_c, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
-    BindReplica(mesh, a);
-    BindReplica(mesh, b);
-    BindReplica(mesh, c);
-    a.engine->AddPeer(id_b);
-    a.engine->AddPeer(id_c);
-    b.engine->AddPeer(id_a);
-    b.engine->AddPeer(id_c);
-    c.engine->AddPeer(id_a);
-    c.engine->AddPeer(id_b);
-
-    // Block collapse while verifying canonical journal convergence.
-    ReplicaId const id_blocker{99};
-    a.engine->AddPeer(id_blocker);
-    b.engine->AddPeer(id_blocker);
-    c.engine->AddPeer(id_blocker);
-
-    auto ea =
-        AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(220));
-    ea->text = "A";
-    auto eb =
-        AppendItemEvent::ptr::Create(ae::CreateWith{b.domain}.with_id(221));
-    eb->text = "B";
-    auto ec =
-        AppendItemEvent::ptr::Create(ae::CreateWith{c.domain}.with_id(222));
-    ec->text = "C";
-
-    a.engine->CommitLocal(a.root, ea);
-    b.engine->CommitLocal(b.root, eb);
-    c.engine->CommitLocal(c.root, ec);
-
-    auto const identity_a = a.state->origin_events[0].identity;
-    auto const identity_b = b.state->origin_events[0].identity;
-    auto const identity_c = c.state->origin_events[0].identity;
-    CHECK(mesh.CountEventSendsFor(identity_a) == 3);
-    CHECK(mesh.CountEventSendsFor(identity_b) == 3);
-    CHECK(mesh.CountEventSendsFor(identity_c) == 3);
-    CHECK(mesh.CountEventSends(id_a, identity_a) == 0);
-    CHECK(mesh.CountEventSends(id_b, identity_b) == 0);
-    CHECK(mesh.CountEventSends(id_c, identity_c) == 0);
-
-    std::reverse(mesh.delayed.begin(), mesh.delayed.end());
-    mesh.deliver = true;
-    for (int round = 0; round < 8; ++round) {
-      mesh.FlushDelayed();
-      a.engine->FlushPending();
-      b.engine->FlushPending();
-      c.engine->FlushPending();
-    }
-
-    CHECK(a.root->journal.size() == 3);
-    CHECK(JournalsEqual(*a.root, *b.root));
-    CHECK(JournalsEqual(*a.root, *c.root));
-    CHECK(a.root->items.size() == 3);
-    CHECK(b.root->items.size() == 3);
-    CHECK(c.root->items.size() == 3);
-
-    for (std::size_t i = 0; i < a.root->items.size(); ++i) {
-      CHECK(a.root->items[i].text == b.root->items[i].text);
-      CHECK(a.root->items[i].text == c.root->items[i].text);
-    }
+    CHECK(mesh.CountEventSends(id_b, rename_identity) == 1);
   }
 
   return EXIT_SUCCESS;

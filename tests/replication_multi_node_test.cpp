@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <map>
@@ -13,12 +14,20 @@
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/replica_id.h"
+#include "apptraverse/replication_clock.h"
 #include "apptraverse/replication_engine.h"
 #include "apptraverse/replication_message.h"
 #include "apptraverse/replication_state.h"
 #include "apptraverse/replication_transport.h"
 
 namespace apptraverse::test {
+
+class ManualReplicationClock final : public apptraverse::IReplicationClock {
+ public:
+  std::uint64_t value{1};
+  void Set(std::uint64_t next) { value = next; }
+  std::uint64_t NowMicroseconds() override { return value; }
+};
 
 class SharedApplication;
 class SharedDocumentNode;
@@ -147,6 +156,7 @@ struct ReplicaBundle {
   SharedDocumentNode::ptr document;
   SharedMemberNode::ptr member;
   apptraverse::ReplicationState::ptr state;
+  ManualReplicationClock clock;
   std::unique_ptr<apptraverse::ReplicationEngine> engine;
 
   ReplicaBundle(apptraverse::ReplicaId replica_id, std::string title)
@@ -197,21 +207,16 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
   std::map<apptraverse::ReplicaId, ae::RamDomainStorage*> storages;
   std::map<apptraverse::ReplicaId, ae::Domain*> domains;
   std::map<apptraverse::ReplicaId, ae::RamDomainStorage*> message_storages;
+  bool deliver{true};
+  std::vector<std::tuple<apptraverse::ReplicaId, ae::ObjId, ae::RamDomainStorage>>
+      delayed;
   std::size_t event_send_count{0};
 
   void Send(apptraverse::ReplicaId recipient,
             apptraverse::ReplicationMessage::ptr message) override {
     assert(message.is_valid());
     assert(message.is_loaded());
-    if (engines.count(recipient) == 0) {
-      return;
-    }
-    if (message->GetClassId() ==
-        apptraverse::EventReplicationMessage::kClassId) {
-      ++event_send_count;
-    }
 
-    message.Save();
     ae::RamDomainStorage* source = nullptr;
     for (auto const& [_, message_storage] : message_storages) {
       if (message_storage->state.find(message.id()) !=
@@ -221,22 +226,52 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
       }
     }
     assert(source != nullptr);
-    for (auto const& entry : source->state) {
-      storages.at(recipient)->state[entry.first] = entry.second;
-    }
+
+    ae::RamDomainStorage transfer;
+    transfer.state = source->state;
     source->state.clear();
 
+    if (message->GetClassId() ==
+        apptraverse::EventReplicationMessage::kClassId) {
+      ++event_send_count;
+    }
+
+    if (engines.count(recipient) == 0) {
+      return;
+    }
+
+    if (!deliver) {
+      delayed.emplace_back(recipient, message.id(), std::move(transfer));
+      return;
+    }
+
+    Deliver(recipient, message.id(), transfer);
+  }
+
+  void Deliver(apptraverse::ReplicaId recipient, ae::ObjId message_id,
+               ae::RamDomainStorage& transfer) {
+    for (auto const& entry : transfer.state) {
+      storages.at(recipient)->state[entry.first] = entry.second;
+    }
     apptraverse::ReplicationMessage::ptr incoming =
         apptraverse::ReplicationMessage::ptr::Declare(
-            ae::CreateWith{*domains.at(recipient)}.with_id(message.id()));
+            ae::CreateWith{*domains.at(recipient)}.with_id(message_id));
     incoming.Load();
     engines.at(recipient)->Receive(incoming);
+  }
+
+  void FlushDelayed() {
+    auto pending = std::move(delayed);
+    delayed.clear();
+    for (auto& entry : pending) {
+      Deliver(std::get<0>(entry), std::get<1>(entry), std::get<2>(entry));
+    }
   }
 };
 
 void BindReplica(MeshTransport& mesh, ReplicaBundle& replica) {
   replica.engine = std::make_unique<apptraverse::ReplicationEngine>(
-      replica.root, replica.state, replica.message_domain, mesh);
+      replica.root, replica.state, replica.message_domain, mesh, replica.clock);
   mesh.engines[replica.id] = replica.engine.get();
   mesh.storages[replica.id] = &replica.storage;
   mesh.domains[replica.id] = &replica.domain;
@@ -274,31 +309,35 @@ int main() {
   MeshTransport mesh;
   ReplicaBundle a{id_a, "App"};
   ReplicaBundle b{id_b, "App"};
+  a.clock.Set(100);
+  b.clock.Set(100);
   BindReplica(mesh, a);
   BindReplica(mesh, b);
   a.engine->AddPeer(id_b);
   b.engine->AddPeer(id_a);
 
-  // Keep journals visible for placement checks.
-  ReplicaId const id_blocker{99};
-  a.engine->AddPeer(id_blocker);
-  b.engine->AddPeer(id_blocker);
+  auto const app_base_id = a.root->base.id();
+  auto const document_base_id = a.document->base.id();
+  auto const member_base_id = a.member->base.id();
 
   CHECK(a.state->IsKnownSharedNode(a.root.id()));
   CHECK(a.state->IsKnownSharedNode(a.document.id()));
   CHECK(a.state->IsKnownSharedNode(a.member.id()));
   CHECK(!a.state->IsKnownSharedNode(a.root->base.id()));
 
+  a.clock.Set(100);
   auto rename_app = RenameApplicationEvent::ptr::Create(
       ae::CreateWith{a.domain}.with_id(400));
   rename_app->title = "App-A";
   a.engine->CommitLocal(a.root, rename_app);
 
+  a.clock.Set(200);
   auto append_doc = AppendDocumentEvent::ptr::Create(
       ae::CreateWith{a.domain}.with_id(401));
   append_doc->suffix = "-X";
   a.engine->CommitLocal(a.document, append_doc);
 
+  a.clock.Set(300);
   auto rename_member = RenameMemberEvent::ptr::Create(
       ae::CreateWith{a.domain}.with_id(402));
   rename_member->name = "Member-A";
@@ -319,19 +358,46 @@ int main() {
   CHECK(b.document->body == "Body-X");
   CHECK(a.member->name == "Member-A");
   CHECK(b.member->name == "Member-A");
-  CHECK(b.state->outgoing.empty());
+  CHECK(a.root->base.id() == app_base_id);
+  CHECK(a.document->base.id() == document_base_id);
+  CHECK(a.member->base.id() == member_base_id);
 
-  auto rename_member_b = RenameMemberEvent::ptr::Create(
+  // Late mid-journal delivery rebuilds only the target Node.
+  mesh.deliver = false;
+  b.clock.Set(150);
+  auto rename_member_mid = RenameMemberEvent::ptr::Create(
       ae::CreateWith{b.domain}.with_id(403));
-  rename_member_b->name = "Member-B";
-  auto const sends_before = mesh.event_send_count;
-  b.engine->CommitLocal(b.member, rename_member_b);
-  CHECK(mesh.event_send_count > sends_before);
-  CHECK(a.member->name == "Member-B");
-  CHECK(b.member->name == "Member-B");
+  rename_member_mid->name = "Member-Mid";
+  b.engine->CommitLocal(b.member, rename_member_mid);
+  CHECK(b.member->journal.size() == 2);
+  CHECK(b.member->journal[0].order.timestamp_us == 150);
+  CHECK(b.member->journal[1].order.timestamp_us == 300);
+  // Later timestamp still wins after rebuild/replay.
+  CHECK(b.member->name == "Member-A");
+  CHECK(b.root->journal.size() == 1);
+  CHECK(b.document->journal.size() == 1);
+
+  mesh.deliver = true;
+  mesh.FlushDelayed();
+  a.engine->FlushPending();
+  b.engine->FlushPending();
+
   CHECK(a.member->journal.size() == 2);
+  CHECK(a.member->journal[0].order.timestamp_us == 150);
+  CHECK(a.member->journal[1].order.timestamp_us == 300);
+  CHECK(a.member->name == "Member-A");
   CHECK(a.root->journal.size() == 1);
   CHECK(a.document->journal.size() == 1);
+  CHECK(a.document->body == "Body-X");
+
+  b.clock.Set(350);
+  auto rename_member_b = RenameMemberEvent::ptr::Create(
+      ae::CreateWith{b.domain}.with_id(405));
+  rename_member_b->name = "Member-B";
+  b.engine->CommitLocal(b.member, rename_member_b);
+  CHECK(a.member->name == "Member-B");
+  CHECK(b.member->name == "Member-B");
+  CHECK(a.member->journal.size() == 3);
 
   // Persist shared graph + replication state, rebuild engines, continue.
   a.root.Save();
@@ -357,10 +423,16 @@ int main() {
 
   CHECK(a.member->name == "Member-B");
   CHECK(b.document->body == "Body-X");
+  CHECK(a.root->journal.size() == 1);
+  CHECK(a.document->journal.size() == 1);
+  CHECK(a.member->journal.size() == 3);
 
   ReplicaBundle c{id_c, "App"};
   BindReplica(mesh, c);
   a.engine->SendBootstrap(id_c);
+  // Bootstrap does not auto-add peer; application must AddPeer explicitly.
+  CHECK(!a.state->KnowsPeer(id_c));
+  a.engine->AddPeer(id_c);
   b.engine->AddPeer(id_c);
   c.engine->AddPeer(id_a);
   c.engine->AddPeer(id_b);
@@ -380,13 +452,17 @@ int main() {
   CHECK(c.document->journal.size() == a.document->journal.size());
   CHECK(c.member->journal.size() == a.member->journal.size());
 
+  a.clock.Set(400);
   auto future = AppendDocumentEvent::ptr::Create(
       ae::CreateWith{a.domain}.with_id(404));
   future->suffix = "-Y";
   a.engine->CommitLocal(a.document, future);
   CHECK(c.document->body == "Body-X-Y");
-  CHECK(a.state->FindOutgoing(a.document->journal.back().identity, id_c) !=
-        nullptr);
+  CHECK(a.document->journal.size() == 2);
+  CHECK(c.document->journal.size() == 2);
+  CHECK(a.root->journal.size() == 1);
+  CHECK(a.state->outgoing.empty());
+  CHECK(a.state->origin_events.empty());
 
   return EXIT_SUCCESS;
 }

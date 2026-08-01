@@ -31,14 +31,6 @@ struct OriginEventState {
   AE_REFLECT_MEMBERS(identity, target_node, known_shared_before)
 };
 
-struct ConfirmationDelivery {
-  EventIdentity identity;
-  ReplicaId recipient;
-  bool acknowledged{false};
-
-  AE_REFLECT_MEMBERS(identity, recipient, acknowledged)
-};
-
 class ReplicationState : public ae::Obj {
   AE_OBJECT(ReplicationState, Obj, 0)
 
@@ -50,19 +42,15 @@ class ReplicationState : public ae::Obj {
 
   AE_OBJECT_REFLECT(AE_MMBR(local_replica_id), AE_MMBR(known_peers),
                     AE_MMBR(outgoing), AE_MMBR(origin_events),
-                    AE_MMBR(confirmation_outgoing), AE_MMBR(globally_confirmed),
                     AE_MMBR(known_shared_ids), AE_MMBR(known_shared_node_ids),
-                    AE_MMBR(lamport_clock), AE_MMBR(next_origin_sequence))
+                    AE_MMBR(next_origin_sequence))
 
   ReplicaId local_replica_id;
   std::vector<ReplicaId> known_peers;
   std::vector<OutgoingDelivery> outgoing;
   std::vector<OriginEventState> origin_events;
-  std::vector<ConfirmationDelivery> confirmation_outgoing;
-  std::vector<EventIdentity> globally_confirmed;
   std::vector<ae::ObjId> known_shared_ids;
   std::vector<ae::ObjId> known_shared_node_ids;
-  std::uint64_t lamport_clock{0};
   std::uint32_t next_origin_sequence{1};
 
   bool KnowsPeer(ReplicaId peer) const {
@@ -104,18 +92,6 @@ class ReplicationState : public ae::Obj {
     }
   }
 
-  bool IsGloballyConfirmed(EventIdentity const& identity) const {
-    return std::find(globally_confirmed.begin(), globally_confirmed.end(),
-                     identity) != globally_confirmed.end();
-  }
-
-  void MarkGloballyConfirmed(EventIdentity const& identity) {
-    assert(identity.IsValid());
-    if (!IsGloballyConfirmed(identity)) {
-      globally_confirmed.push_back(identity);
-    }
-  }
-
   OutgoingDelivery* FindOutgoing(EventIdentity const& identity,
                                  ReplicaId recipient) {
     for (auto& delivery : outgoing) {
@@ -145,14 +121,13 @@ class ReplicationState : public ae::Obj {
     return nullptr;
   }
 
-  ConfirmationDelivery* FindConfirmation(EventIdentity const& identity,
-                                         ReplicaId recipient) {
-    for (auto& delivery : confirmation_outgoing) {
-      if (delivery.identity == identity && delivery.recipient == recipient) {
-        return &delivery;
+  bool HasOutgoing(EventIdentity const& identity) const {
+    for (auto const& delivery : outgoing) {
+      if (delivery.event_identity == identity) {
+        return true;
       }
     }
-    return nullptr;
+    return false;
   }
 
   bool AllRecipientsAcknowledged(EventIdentity const& identity) const {
@@ -169,39 +144,11 @@ class ReplicationState : public ae::Obj {
     return found;
   }
 
-  bool AllConfirmationsAcknowledged(EventIdentity const& identity) const {
-    bool found = false;
-    for (auto const& delivery : confirmation_outgoing) {
-      if (delivery.identity != identity) {
-        continue;
-      }
-      found = true;
-      if (!delivery.acknowledged) {
-        return false;
-      }
-    }
-    return found;
-  }
-
-  bool HasPendingConfirmation(EventIdentity const& identity) const {
-    for (auto const& delivery : confirmation_outgoing) {
-      if (delivery.identity == identity) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   std::uint32_t AllocateOriginSequence() {
     assert(next_origin_sequence != 0);
     assert(next_origin_sequence !=
            std::numeric_limits<std::uint32_t>::max());
     return next_origin_sequence++;
-  }
-
-  std::uint64_t TickLamport(std::uint64_t received = 0) {
-    lamport_clock = (received > lamport_clock ? received : lamport_clock) + 1;
-    return lamport_clock;
   }
 };
 

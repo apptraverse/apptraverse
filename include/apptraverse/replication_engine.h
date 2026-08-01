@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -14,6 +16,7 @@
 #include "apptraverse/event_record.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_graph_traversal.h"
+#include "apptraverse/replication_clock.h"
 #include "apptraverse/replication_message.h"
 #include "apptraverse/replication_state.h"
 #include "apptraverse/replication_transport.h"
@@ -24,17 +27,19 @@ class ReplicationEngine : public ReplicationMessageReceiver {
  public:
   ReplicationEngine(Node::ptr root, ReplicationState::ptr state,
                     ae::Domain& message_domain,
-                    IReplicationTransport& transport)
+                    IReplicationTransport& transport, IReplicationClock& clock)
       : root_{std::move(root)},
         state_{std::move(state)},
         message_domain_{&message_domain},
-        transport_{&transport} {
+        transport_{&transport},
+        clock_{&clock} {
     assert(root_.is_valid());
     assert(root_.is_loaded());
     assert(state_.is_valid());
     assert(state_.is_loaded());
     assert(message_domain_ != nullptr);
     assert(transport_ != nullptr);
+    assert(clock_ != nullptr);
     assert(state_->local_replica_id.IsValid());
     DiscoverSharedGraph();
   }
@@ -61,17 +66,17 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     assert(event.is_loaded());
     assert(event.domain() == root_.domain());
 
+    auto const timestamp_us = clock_->NowMicroseconds();
+    assert(timestamp_us != 0);
+
     auto const sequence = state_->AllocateOriginSequence();
-    auto const logical_time = state_->TickLamport();
 
     EventIdentity identity{
         state_->local_replica_id,
         sequence,
     };
     EventOrder order{
-        logical_time,
-        state_->local_replica_id,
-        sequence,
+        timestamp_us,
     };
 
     auto known_before = state_->known_shared_ids;
@@ -85,17 +90,13 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     bool const inserted = target->AcceptSharedEvent(std::move(record));
     assert(inserted);
 
-    state_->origin_events.push_back(OriginEventState{
-        identity,
-        target.id(),
-        known_before,
-    });
-
     auto const peers_snapshot = state_->known_peers;
-    if (peers_snapshot.empty()) {
-      state_->MarkGloballyConfirmed(identity);
-      TryCollapse();
-    } else {
+    if (!peers_snapshot.empty()) {
+      state_->origin_events.push_back(OriginEventState{
+          identity,
+          target.id(),
+          known_before,
+      });
       for (auto const peer : peers_snapshot) {
         assert(state_->FindOutgoing(identity, peer) == nullptr);
         state_->outgoing.push_back(OutgoingDelivery{
@@ -115,63 +116,27 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     assert(state_.is_loaded());
     assert(root_.is_loaded());
     FlushOutgoingEvents();
-    FlushOutgoingConfirmations();
   }
 
+  // Delivers a bootstrap snapshot. Does not add the recipient as a peer.
   void SendBootstrap(ReplicaId new_replica) {
     assert(state_.is_loaded());
     assert(root_.is_loaded());
     assert(new_replica.IsValid());
     assert(new_replica != state_->local_replica_id);
 
-    state_->AddPeer(new_replica);
-
     auto message = BootstrapReplicationMessage::ptr::Create(
         ae::CreateWith{*message_domain_});
     message->root = root_;
     message->root.SetFlags(ae::ObjFlags::kUnloadedByDefault);
-    message->globally_confirmed = state_->globally_confirmed;
     message->known_shared_ids = state_->known_shared_ids;
     message->known_shared_node_ids = state_->known_shared_node_ids;
-    message->lamport_clock = state_->lamport_clock;
 
     assert(message->root.is_valid());
     assert(message->root.is_loaded());
 
+    message.Save();
     transport_->Send(new_replica, message);
-  }
-
-  void TryCollapse() {
-    assert(root_.is_loaded());
-    assert(state_.is_loaded());
-
-    auto const node_ids = state_->known_shared_node_ids;
-    std::vector<EventIdentity> collapsed;
-    for (auto const node_id : node_ids) {
-      Node::ptr node = ResolveSharedNode(node_id);
-      if (!node.is_valid() || !node.is_loaded()) {
-        continue;
-      }
-
-      std::size_t prefix = 0;
-      for (auto const& record : node->journal) {
-        if (!state_->IsGloballyConfirmed(record.identity)) {
-          break;
-        }
-        ++prefix;
-      }
-
-      if (prefix == 0) {
-        continue;
-      }
-
-      for (std::size_t i = 0; i < prefix; ++i) {
-        collapsed.push_back(node->journal[i].identity);
-      }
-      node->CollapseSharedPrefix(prefix);
-    }
-
-    CleanupCollapsedMetadata(collapsed);
   }
 
   void ReceiveEvent(EventReplicationMessage& message) override {
@@ -190,8 +155,6 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     message.event.Load();
     assert(message.event.is_loaded());
 
-    state_->TickLamport(message.order.logical_time);
-
     bool const duplicate = target->ContainsEvent(message.identity);
     if (!duplicate) {
       EventRecord record{
@@ -207,7 +170,6 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     }
 
     SendAck(message.identity.origin_replica, message.identity);
-    TryCollapse();
   }
 
   void ReceiveAck(AckReplicationMessage& message) override {
@@ -222,37 +184,12 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     }
 
     if (message.identity.origin_replica == state_->local_replica_id &&
-        state_->AllRecipientsAcknowledged(message.identity) &&
-        !state_->IsGloballyConfirmed(message.identity)) {
-      PromoteToGlobalConfirmation(message.identity);
-      FlushPending();
-      TryCollapse();
-    }
-  }
-
-  void ReceiveConfirmed(ConfirmedReplicationMessage& message) override {
-    assert(state_.is_loaded());
-    assert(message.identity.IsValid());
-    state_->MarkGloballyConfirmed(message.identity);
-    TryCollapse();
-    SendConfirmedAck(message.identity.origin_replica, message.identity);
-  }
-
-  void ReceiveConfirmedAck(ConfirmedAckReplicationMessage& message) override {
-    assert(state_.is_loaded());
-    assert(message.identity.IsValid());
-    assert(message.from_replica.IsValid());
-
-    auto* delivery =
-        state_->FindConfirmation(message.identity, message.from_replica);
-    if (delivery != nullptr) {
-      delivery->acknowledged = true;
+        state_->AllRecipientsAcknowledged(message.identity)) {
+      RemoveOutgoing(message.identity);
+      RemoveOriginEvent(message.identity);
     }
 
-    if (state_->AllConfirmationsAcknowledged(message.identity)) {
-      RemoveConfirmationOutbox(message.identity);
-      RemoveOriginEventIfIdle(message.identity);
-    }
+    FlushPending();
   }
 
   void ReceiveBootstrap(BootstrapReplicationMessage& message) override {
@@ -262,12 +199,8 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     assert(root_.is_loaded());
     assert(root_.domain() != nullptr);
 
-    state_->globally_confirmed = message.globally_confirmed;
     state_->known_shared_ids = message.known_shared_ids;
     state_->known_shared_node_ids = message.known_shared_node_ids;
-    if (message.lamport_clock > state_->lamport_clock) {
-      state_->lamport_clock = message.lamport_clock;
-    }
 
     auto node_ids = state_->known_shared_node_ids;
     if (!state_->IsKnownSharedNode(root_.id())) {
@@ -347,9 +280,6 @@ class ReplicationEngine : public ReplicationMessageReceiver {
       void OnNode(Node& current) override {
         for (auto& record : current.journal) {
           assert(record.order.IsValid());
-          if (record.order.logical_time > state_->lamport_clock) {
-            state_->lamport_clock = record.order.logical_time;
-          }
           if (record.event.is_valid() && record.event.is_loaded()) {
             detail::EventGraphPackager::RegisterIntroducedObjects(*record.event,
                                                                   *state_);
@@ -385,6 +315,15 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     return node->FindRecord(identity);
   }
 
+  std::uint64_t LookupTimestamp(EventIdentity const& identity) const {
+    auto const* origin = state_->FindOriginEvent(identity);
+    assert(origin != nullptr);
+    auto const* record = FindLocalRecord(identity, origin->target_node);
+    assert(record != nullptr);
+    assert(record->order.timestamp_us != 0);
+    return record->order.timestamp_us;
+  }
+
   std::vector<ae::ObjId> PackagingKnownFor(
       EventIdentity const& identity) const {
     std::vector<ae::ObjId> known;
@@ -411,36 +350,49 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     snapshot.reserve(state_->outgoing.size());
     for (auto const& delivery : state_->outgoing) {
       if (!delivery.acknowledged) {
-        snapshot.push_back(DeliveryKey{delivery.event_identity,
-                                       delivery.recipient});
-      }
-    }
-
-    for (auto const& key : snapshot) {
-      auto* delivery = state_->FindOutgoing(key.identity, key.recipient);
-      if (delivery == nullptr || delivery->acknowledged) {
-        continue;
-      }
-      SendEventTo(key.recipient, key.identity);
-    }
-  }
-
-  void FlushOutgoingConfirmations() {
-    std::vector<DeliveryKey> snapshot;
-    snapshot.reserve(state_->confirmation_outgoing.size());
-    for (auto const& delivery : state_->confirmation_outgoing) {
-      if (!delivery.acknowledged) {
         snapshot.push_back(
-            DeliveryKey{delivery.identity, delivery.recipient});
+            DeliveryKey{delivery.event_identity, delivery.recipient});
       }
     }
 
+    std::vector<ReplicaId> recipients;
     for (auto const& key : snapshot) {
-      auto* delivery = state_->FindConfirmation(key.identity, key.recipient);
+      if (std::find(recipients.begin(), recipients.end(), key.recipient) ==
+          recipients.end()) {
+        recipients.push_back(key.recipient);
+      }
+    }
+
+    for (auto const recipient : recipients) {
+      EventIdentity earliest{};
+      std::uint64_t earliest_ts = std::numeric_limits<std::uint64_t>::max();
+      bool have = false;
+
+      for (auto const& key : snapshot) {
+        if (key.recipient != recipient) {
+          continue;
+        }
+        auto* delivery = state_->FindOutgoing(key.identity, key.recipient);
+        if (delivery == nullptr || delivery->acknowledged) {
+          continue;
+        }
+        auto const ts = LookupTimestamp(key.identity);
+        if (!have || ts < earliest_ts) {
+          earliest = key.identity;
+          earliest_ts = ts;
+          have = true;
+        }
+      }
+
+      if (!have) {
+        continue;
+      }
+
+      auto* delivery = state_->FindOutgoing(earliest, recipient);
       if (delivery == nullptr || delivery->acknowledged) {
         continue;
       }
-      SendConfirmationTo(key.recipient, key.identity);
+      SendEventTo(recipient, earliest);
     }
   }
 
@@ -469,8 +421,13 @@ class ReplicationEngine : public ReplicationMessageReceiver {
     auto packaging_known = PackagingKnownFor(identity);
     detail::EventGraphPackager packager{packaging_known};
     auto restores = packager.UnloadKnownReferences(*message->event);
-    transport_->Send(recipient, message);
+
+    // Fully serialize while live Event refs are in packaging shape, then
+    // restore the live Event graph before any reentrant transport work.
+    message.Save();
     detail::EventGraphPackager::Restore(restores);
+
+    transport_->Send(recipient, message);
   }
 
   void SendAck(ReplicaId origin, EventIdentity const& identity) {
@@ -478,71 +435,20 @@ class ReplicationEngine : public ReplicationMessageReceiver {
         AckReplicationMessage::ptr::Create(ae::CreateWith{*message_domain_});
     message->identity = identity;
     message->from_replica = state_->local_replica_id;
+    message.Save();
     transport_->Send(origin, message);
   }
 
-  void PromoteToGlobalConfirmation(EventIdentity const& identity) {
-    state_->MarkGloballyConfirmed(identity);
-
-    std::vector<ReplicaId> recipients;
-    for (auto const& delivery : state_->outgoing) {
-      if (delivery.event_identity == identity) {
-        recipients.push_back(delivery.recipient);
-      }
-    }
-
+  void RemoveOutgoing(EventIdentity const& identity) {
     state_->outgoing.erase(
         std::remove_if(state_->outgoing.begin(), state_->outgoing.end(),
                        [&](OutgoingDelivery const& delivery) {
                          return delivery.event_identity == identity;
                        }),
         state_->outgoing.end());
-
-    for (auto const recipient : recipients) {
-      assert(state_->FindConfirmation(identity, recipient) == nullptr);
-      state_->confirmation_outgoing.push_back(ConfirmationDelivery{
-          identity,
-          recipient,
-          false,
-      });
-    }
   }
 
-  void SendConfirmationTo(ReplicaId recipient, EventIdentity const& identity) {
-    auto message = ConfirmedReplicationMessage::ptr::Create(
-        ae::CreateWith{*message_domain_});
-    message->identity = identity;
-    transport_->Send(recipient, message);
-  }
-
-  void SendConfirmedAck(ReplicaId origin, EventIdentity const& identity) {
-    auto message = ConfirmedAckReplicationMessage::ptr::Create(
-        ae::CreateWith{*message_domain_});
-    message->identity = identity;
-    message->from_replica = state_->local_replica_id;
-    transport_->Send(origin, message);
-  }
-
-  void RemoveConfirmationOutbox(EventIdentity const& identity) {
-    state_->confirmation_outgoing.erase(
-        std::remove_if(state_->confirmation_outgoing.begin(),
-                       state_->confirmation_outgoing.end(),
-                       [&](ConfirmationDelivery const& delivery) {
-                         return delivery.identity == identity;
-                       }),
-        state_->confirmation_outgoing.end());
-  }
-
-  void RemoveOriginEventIfIdle(EventIdentity const& identity) {
-    if (state_->HasPendingConfirmation(identity)) {
-      return;
-    }
-    for (auto const& delivery : state_->outgoing) {
-      if (delivery.event_identity == identity) {
-        return;
-      }
-    }
-
+  void RemoveOriginEvent(EventIdentity const& identity) {
     state_->origin_events.erase(
         std::remove_if(state_->origin_events.begin(),
                        state_->origin_events.end(),
@@ -552,32 +458,11 @@ class ReplicationEngine : public ReplicationMessageReceiver {
         state_->origin_events.end());
   }
 
-  void CleanupCollapsedMetadata(std::vector<EventIdentity> const& collapsed) {
-    for (auto const& identity : collapsed) {
-      // Keep origin/confirmation metadata while reliable confirmations remain.
-      if (state_->HasPendingConfirmation(identity)) {
-        continue;
-      }
-
-      state_->origin_events.erase(
-          std::remove_if(state_->origin_events.begin(),
-                         state_->origin_events.end(),
-                         [&](OriginEventState const& entry) {
-                           return entry.identity == identity;
-                         }),
-          state_->origin_events.end());
-
-      state_->globally_confirmed.erase(
-          std::remove(state_->globally_confirmed.begin(),
-                      state_->globally_confirmed.end(), identity),
-          state_->globally_confirmed.end());
-    }
-  }
-
   Node::ptr root_;
   ReplicationState::ptr state_;
   ae::Domain* message_domain_;
   IReplicationTransport* transport_;
+  IReplicationClock* clock_;
 };
 
 }  // namespace apptraverse

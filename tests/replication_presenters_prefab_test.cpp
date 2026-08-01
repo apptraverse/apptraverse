@@ -14,12 +14,20 @@
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/replica_id.h"
+#include "apptraverse/replication_clock.h"
 #include "apptraverse/replication_engine.h"
 #include "apptraverse/replication_message.h"
 #include "apptraverse/replication_state.h"
 #include "apptraverse/replication_transport.h"
 
 namespace apptraverse::test {
+
+class ManualReplicationClock final : public apptraverse::IReplicationClock {
+ public:
+  std::uint64_t value{1};
+  void Set(std::uint64_t next) { value = next; }
+  std::uint64_t NowMicroseconds() override { return value; }
+};
 
 class SharedDocument;
 class SharedResource;
@@ -150,6 +158,7 @@ struct ReplicaBundle {
   ae::Domain message_domain;
   SharedDocument::ptr root;
   apptraverse::ReplicationState::ptr state;
+  ManualReplicationClock clock;
   std::unique_ptr<apptraverse::ReplicationEngine> engine;
 
   ReplicaBundle(apptraverse::ReplicaId replica_id, ae::ObjId root_id,
@@ -183,10 +192,6 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
             apptraverse::ReplicationMessage::ptr message) override {
     assert(message.is_valid());
     assert(message.is_loaded());
-    if (engines.count(recipient) == 0) {
-      return;
-    }
-    message.Save();
 
     ae::RamDomainStorage* source = nullptr;
     for (auto const& [_, message_storage] : message_storages) {
@@ -197,15 +202,22 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
       }
     }
     assert(source != nullptr);
-    last_transfer.state = source->state;
+
+    ae::RamDomainStorage transfer;
+    transfer.state = source->state;
+    source->state.clear();
+    last_transfer.state = transfer.state;
+
+    if (engines.count(recipient) == 0) {
+      return;
+    }
 
     auto* storage = storages.at(recipient);
     auto* domain = domains.at(recipient);
     auto* engine = engines.at(recipient);
-    for (auto const& entry : source->state) {
+    for (auto const& entry : transfer.state) {
       storage->state[entry.first] = entry.second;
     }
-    source->state.clear();
 
     apptraverse::ReplicationMessage::ptr incoming =
         apptraverse::ReplicationMessage::ptr::Declare(
@@ -217,7 +229,7 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
 
 void BindReplica(MeshTransport& mesh, ReplicaBundle& replica) {
   replica.engine = std::make_unique<apptraverse::ReplicationEngine>(
-      replica.root, replica.state, replica.message_domain, mesh);
+      replica.root, replica.state, replica.message_domain, mesh, replica.clock);
   mesh.engines[replica.id] = replica.engine.get();
   mesh.storages[replica.id] = &replica.storage;
   mesh.domains[replica.id] = &replica.domain;
@@ -288,7 +300,7 @@ int main() {
     CHECK(instance->resource.Load().get() == resource.Load().get());
   }
 
-  // I. Different local presenters for the same shared object.
+  // G. Different local presenters for the same shared object.
   {
     ReplicaId const id_a{1};
     ReplicaId const id_b{2};
@@ -296,6 +308,7 @@ int main() {
 
     ReplicaBundle a{id_a, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
     ReplicaBundle b{id_b, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+    a.clock.Set(11);
 
     auto resource_a =
         SharedResource::ptr::Create(ae::CreateWith{a.domain}.with_id(500));
@@ -337,6 +350,8 @@ int main() {
     CHECK(!ContainsObj(mesh.last_transfer, 900));
     CHECK(!ContainsObj(mesh.last_transfer, 901));
     CHECK(!ContainsObj(mesh.last_transfer, 500));
+    CHECK(a.root->journal.size() == 1);
+    CHECK(b.root->journal.size() == 1);
   }
 
   return EXIT_SUCCESS;

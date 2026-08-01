@@ -31,10 +31,6 @@ class NodeFor : public Node {
 
   void CaptureBaseStateImpl() override { CaptureBaseState(); }
 
-  void CollapseSharedPrefixImpl(std::size_t prefix_count) override {
-    Node::CollapsePrefix(static_cast<ConcreteNode&>(*this), prefix_count);
-  }
-
   void ReloadFromStorageImpl() override {
     assert(domain != nullptr);
     assert(obj_id.IsValid());

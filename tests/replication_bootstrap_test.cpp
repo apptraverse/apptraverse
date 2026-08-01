@@ -80,19 +80,21 @@ struct ReplicaBundle {
   ManualReplicationClock clock;
   std::unique_ptr<apptraverse::ReplicationEngine> engine;
 
-  ReplicaBundle(apptraverse::ReplicaId replica_id, std::string title)
+  ReplicaBundle(apptraverse::ReplicaId replica_id, ae::ObjId root_id,
+                ae::ObjId base_id, ae::ObjId state_id, std::string title)
       : id{replica_id},
         domain{ae::Now(), storage},
         message_domain{ae::Now(), message_storage} {
     auto base =
-        SharedDocument::ptr::Create(ae::CreateWith{domain}.with_id(101));
+        SharedDocument::ptr::Create(ae::CreateWith{domain}.with_id(base_id));
     base->title = "unset";
-    root = SharedDocument::ptr::Create(ae::CreateWith{domain}.with_id(100));
+    root = SharedDocument::ptr::Create(ae::CreateWith{domain}.with_id(root_id));
     root->title = std::move(title);
     root->base = base;
     root->CaptureBaseStateForTest();
+
     state = apptraverse::ReplicationState::ptr::Create(
-        ae::CreateWith{domain}.with_id(10));
+        ae::CreateWith{domain}.with_id(state_id));
     state->local_replica_id = id;
   }
 };
@@ -103,15 +105,12 @@ class MeshTransport final : public apptraverse::IReplicationTransport {
   std::map<apptraverse::ReplicaId, ae::RamDomainStorage*> storages;
   std::map<apptraverse::ReplicaId, ae::Domain*> domains;
   std::map<apptraverse::ReplicaId, ae::RamDomainStorage*> message_storages;
-  std::size_t send_count{0};
 
   void Send(apptraverse::ReplicaId recipient,
             apptraverse::ReplicationMessage::ptr message) override {
     assert(message.is_valid());
     assert(message.is_loaded());
-    ++send_count;
 
-    // Message must already be serialized by the engine before Send.
     ae::RamDomainStorage* source = nullptr;
     for (auto const& [_, message_storage] : message_storages) {
       if (message_storage->state.find(message.id()) !=
@@ -178,44 +177,64 @@ int main() {
   ReplicaId const id_c{3};
 
   MeshTransport mesh;
-  ReplicaBundle a{id_a, "Doc"};
-  ReplicaBundle b{id_b, "Doc"};
-  ReplicaBundle c{id_c, "Doc"};
-  a.clock.Set(42);
+  ReplicaBundle a{id_a, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+  ReplicaBundle b{id_b, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+  a.clock.Set(10);
   BindReplica(mesh, a);
   BindReplica(mesh, b);
-  BindReplica(mesh, c);
   a.engine->AddPeer(id_b);
-  a.engine->AddPeer(id_c);
   b.engine->AddPeer(id_a);
-  b.engine->AddPeer(id_c);
-  c.engine->AddPeer(id_a);
-  c.engine->AddPeer(id_b);
 
-  auto event =
+  auto const base_id = a.root->base.id();
+
+  a.clock.Set(10);
+  auto e1 =
       AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(200));
-  event->text = "once";
-  a.engine->CommitLocal(a.root, event);
+  e1->text = "one";
+  a.engine->CommitLocal(a.root, e1);
 
-  CHECK(a.root->items.size() == 1);
-  CHECK(b.root->items.size() == 1);
-  CHECK(c.root->items.size() == 1);
-  CHECK(a.root->items[0] == "once");
-  CHECK(b.root->items[0] == "once");
-  CHECK(c.root->items[0] == "once");
-  CHECK(a.root->journal.size() == 1);
-  CHECK(b.root->journal.size() == 1);
-  CHECK(c.root->journal.size() == 1);
-  CHECK(a.state->outgoing.empty());
-  CHECK(a.state->origin_events.empty());
-  CHECK(b.state->outgoing.empty());
-  CHECK(c.state->outgoing.empty());
+  a.clock.Set(20);
+  auto e2 =
+      AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(201));
+  e2->text = "two";
+  a.engine->CommitLocal(a.root, e2);
 
-  auto const sends_after_commit = mesh.send_count;
-  a.engine->FlushPending();
-  b.engine->FlushPending();
-  c.engine->FlushPending();
-  CHECK(mesh.send_count == sends_after_commit);
+  CHECK(a.root->journal.size() == 2);
+  CHECK(b.root->journal.size() == 2);
+  CHECK(a.root->base.id() == base_id);
+
+  ReplicaBundle c{id_c, ae::ObjId{100}, ae::ObjId{101}, ae::ObjId{10}, "Doc"};
+  BindReplica(mesh, c);
+
+  a.engine->SendBootstrap(id_c);
+  CHECK(!a.state->KnowsPeer(id_c));
+  CHECK(c.root->journal.size() == 2);
+  CHECK(c.root->items.size() == 2);
+  CHECK(c.root->items[0] == "one");
+  CHECK(c.root->items[1] == "two");
+  CHECK(c.root->base.id() == base_id);
+
+  // Without AddPeer, future events are not destined for C.
+  a.clock.Set(30);
+  auto e3 =
+      AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(202));
+  e3->text = "three";
+  a.engine->CommitLocal(a.root, e3);
+  CHECK(c.root->items.size() == 2);
+  CHECK(a.state->FindOutgoing(a.root->journal.back().identity, id_c) == nullptr);
+
+  a.engine->AddPeer(id_c);
+  c.engine->AddPeer(id_a);
+
+  a.clock.Set(40);
+  auto e4 =
+      AppendItemEvent::ptr::Create(ae::CreateWith{a.domain}.with_id(203));
+  e4->text = "four";
+  a.engine->CommitLocal(a.root, e4);
+  CHECK(c.root->items.size() == 3);
+  CHECK(c.root->items.back() == "four");
+  CHECK(c.root->journal.size() == 3);
+  CHECK(a.root->journal.size() == 4);
 
   return EXIT_SUCCESS;
 }

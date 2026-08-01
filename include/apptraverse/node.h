@@ -58,10 +58,6 @@ class Node : public ae::Obj {
 
   void CaptureBaseStatePublic() { CaptureBaseStateImpl(); }
 
-  void CollapseSharedPrefix(std::size_t prefix_count) {
-    CollapseSharedPrefixImpl(prefix_count);
-  }
-
   void ReloadFromStorage() { ReloadFromStorageImpl(); }
 
   void TraverseSharedGraph(detail::ObjectGraphTraversal& traversal) {
@@ -129,6 +125,7 @@ class Node : public ae::Obj {
     assert(base.is_loaded());
     assert(record.identity.IsValid());
     assert(record.order.IsValid());
+    assert(record.order.timestamp_us != 0);
     assert(record.event.is_valid());
     assert(record.event.is_loaded());
     assert(record.event.domain() == domain);
@@ -137,13 +134,16 @@ class Node : public ae::Obj {
       return false;
     }
 
+    for (auto const& existing : journal) {
+      assert(existing.order.timestamp_us != record.order.timestamp_us &&
+             "duplicate timestamp_us violates replication invariant");
+    }
+
     auto position = std::lower_bound(
         journal.begin(), journal.end(), record.order,
         [](EventRecord const& existing, EventOrder const& order) {
           return existing.order < order;
         });
-
-    assert(position == journal.end() || !(position->order == record.order));
 
     bool const appended = position == journal.end();
     auto inserted = journal.insert(position, std::move(record));
@@ -157,32 +157,6 @@ class Node : public ae::Obj {
     return true;
   }
 
-  template <typename ConcreteNode>
-  void CollapsePrefix(ConcreteNode& target, std::size_t prefix_count) {
-    assert(prefix_count <= journal.size());
-    if (prefix_count == 0) {
-      return;
-    }
-
-    auto remaining = std::vector<EventRecord>(
-        journal.begin() + static_cast<std::ptrdiff_t>(prefix_count),
-        journal.end());
-
-    // Materialize old_base + prefix, capture that as the new base, then re-apply
-    // the unconfirmed suffix so the current state stays unchanged.
-    journal.erase(journal.begin() + static_cast<std::ptrdiff_t>(prefix_count),
-                  journal.end());
-    RebuildFromBaseAndReplay(target);
-    journal.clear();
-    CaptureBaseState(target);
-    journal = std::move(remaining);
-    for (auto const& record : journal) {
-      assert(record.event.is_valid());
-      assert(record.event.is_loaded());
-      ApplyEvent(*record.event);
-    }
-  }
-
  private:
   virtual bool AcceptSharedEventImpl(EventRecord record) {
     (void)record;
@@ -191,11 +165,6 @@ class Node : public ae::Obj {
   }
 
   virtual void CaptureBaseStateImpl() {
-    assert(false && "Concrete Node must inherit through NodeFor");
-  }
-
-  virtual void CollapseSharedPrefixImpl(std::size_t prefix_count) {
-    (void)prefix_count;
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 

@@ -12,7 +12,6 @@ class Node;
 class ReplicationState;
 
 namespace detail {
-class ObjectGraphTraversal;
 struct PtrRestore;
 }  // namespace detail
 
@@ -20,7 +19,6 @@ class Event : public ae::Obj {
   AE_OBJECT(Event, Obj, 0)
 
   friend class Node;
-  friend class detail::ObjectGraphTraversal;
 
  protected:
   Event() = default;
@@ -41,7 +39,6 @@ class Event : public ae::Obj {
 
  private:
   virtual void ApplyTo(Node& target) const = 0;
-  virtual void TraverseObjectGraph(detail::ObjectGraphTraversal& traversal) = 0;
   virtual void UnloadKnownSharedReferencesImpl(
       std::vector<ae::ObjId> const& known,
       std::vector<detail::PtrRestore>& restores) = 0;

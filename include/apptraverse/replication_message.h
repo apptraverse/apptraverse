@@ -2,7 +2,6 @@
 #define APPTRAVERSE_REPLICATION_MESSAGE_H_
 
 #include <cassert>
-#include <cstdint>
 #include <vector>
 
 #include "aether/obj/obj.h"
@@ -80,43 +79,6 @@ class AckReplicationMessage : public ReplicationMessage {
   void DispatchImpl(ReplicationMessageReceiver& receiver) override;
 };
 
-class ConfirmedReplicationMessage : public ReplicationMessage {
-  AE_OBJECT(ConfirmedReplicationMessage, ReplicationMessage, 0)
-
- protected:
-  ConfirmedReplicationMessage() = default;
-
- public:
-  explicit ConfirmedReplicationMessage(ae::ObjProp prop)
-      : ReplicationMessage{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(identity))
-
-  EventIdentity identity;
-
- private:
-  void DispatchImpl(ReplicationMessageReceiver& receiver) override;
-};
-
-class ConfirmedAckReplicationMessage : public ReplicationMessage {
-  AE_OBJECT(ConfirmedAckReplicationMessage, ReplicationMessage, 0)
-
- protected:
-  ConfirmedAckReplicationMessage() = default;
-
- public:
-  explicit ConfirmedAckReplicationMessage(ae::ObjProp prop)
-      : ReplicationMessage{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(identity), AE_MMBR(from_replica))
-
-  EventIdentity identity;
-  ReplicaId from_replica;
-
- private:
-  void DispatchImpl(ReplicationMessageReceiver& receiver) override;
-};
-
 class BootstrapReplicationMessage : public ReplicationMessage {
   AE_OBJECT(BootstrapReplicationMessage, ReplicationMessage, 0)
 
@@ -127,15 +89,12 @@ class BootstrapReplicationMessage : public ReplicationMessage {
   explicit BootstrapReplicationMessage(ae::ObjProp prop)
       : ReplicationMessage{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(root), AE_MMBR(globally_confirmed),
-                    AE_MMBR(known_shared_ids), AE_MMBR(known_shared_node_ids),
-                    AE_MMBR(lamport_clock))
+  AE_OBJECT_REFLECT(AE_MMBR(root), AE_MMBR(known_shared_ids),
+                    AE_MMBR(known_shared_node_ids))
 
   Node::ptr root;
-  std::vector<EventIdentity> globally_confirmed;
   std::vector<ae::ObjId> known_shared_ids;
   std::vector<ae::ObjId> known_shared_node_ids;
-  std::uint64_t lamport_clock{0};
 
  private:
   void DispatchImpl(ReplicationMessageReceiver& receiver) override;
@@ -153,9 +112,6 @@ class ReplicationMessageReceiver {
 
   virtual void ReceiveEvent(EventReplicationMessage& message) = 0;
   virtual void ReceiveAck(AckReplicationMessage& message) = 0;
-  virtual void ReceiveConfirmed(ConfirmedReplicationMessage& message) = 0;
-  virtual void ReceiveConfirmedAck(
-      ConfirmedAckReplicationMessage& message) = 0;
   virtual void ReceiveBootstrap(BootstrapReplicationMessage& message) = 0;
 };
 
@@ -167,16 +123,6 @@ inline void EventReplicationMessage::DispatchImpl(
 inline void AckReplicationMessage::DispatchImpl(
     ReplicationMessageReceiver& receiver) {
   receiver.ReceiveAck(*this);
-}
-
-inline void ConfirmedReplicationMessage::DispatchImpl(
-    ReplicationMessageReceiver& receiver) {
-  receiver.ReceiveConfirmed(*this);
-}
-
-inline void ConfirmedAckReplicationMessage::DispatchImpl(
-    ReplicationMessageReceiver& receiver) {
-  receiver.ReceiveConfirmedAck(*this);
 }
 
 inline void BootstrapReplicationMessage::DispatchImpl(

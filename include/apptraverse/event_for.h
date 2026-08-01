@@ -7,7 +7,6 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/event_graph_packager.h"
-#include "apptraverse/object_graph_traversal.h"
 #include "apptraverse/replication_state.h"
 
 namespace apptraverse {
@@ -24,10 +23,6 @@ class EventFor : public Event {
   void ApplyTo(Node& target) const override {
     static_cast<Target&>(target).Apply(
         static_cast<ConcreteEvent const&>(*this));
-  }
-
-  void TraverseObjectGraph(detail::ObjectGraphTraversal& traversal) override {
-    traversal.TraverseConcrete(static_cast<ConcreteEvent&>(*this));
   }
 
   void UnloadKnownSharedReferencesImpl(
