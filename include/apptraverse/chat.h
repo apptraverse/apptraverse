@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_CHAT_H_
 #define APPTRAVERSE_CHAT_H_
 
+#include <cassert>
 #include <vector>
 
 #include "aether/obj/obj_ptr.h"

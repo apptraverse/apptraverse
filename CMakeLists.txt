@@ -36,3 +36,7 @@ include(CTest)
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()
+
+if(WIN32)
+  add_subdirectory(examples/win32_single_client_chat)
+endif()

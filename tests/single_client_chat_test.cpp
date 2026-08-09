@@ -97,7 +97,7 @@ void TestSingleClientChat() {
           alice.id());
 
     WaitForNextTimestamp(chat);
-    chat_presenter->SendMessage("hello");
+    chat_presenter->SubmitText("hello");
 
     CHECK(chat->journal.size() == 2);
     CHECK(chat->entries.size() == 2);

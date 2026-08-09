@@ -28,7 +28,7 @@ class ChatPresenter : public ae::Obj {
   Chat::ptr chat;
   ae::ObjPtr<WindowPresenter> window_presenter;
 
-  void SendMessage(std::string text) {
+  void SubmitText(std::string text) {
     assert(chat.is_valid());
     assert(chat.is_loaded());
     assert(chat.domain() != nullptr);
