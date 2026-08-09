@@ -27,16 +27,18 @@ namespace apptraverse::test {
 static_assert(!std::is_base_of_v<apptraverse::Node, apptraverse::WindowPresenter>);
 static_assert(!std::is_base_of_v<apptraverse::Node, apptraverse::ChatPresenter>);
 static_assert(!std::is_base_of_v<apptraverse::Node, apptraverse::Window>);
-static_assert(!std::is_base_of_v<apptraverse::Node, apptraverse::Chat>);
+static_assert(std::is_base_of_v<apptraverse::Node, apptraverse::Chat>);
 
 void DistillGraph(ae::Domain& domain, ae::ObjId::Type app_id) {
   auto app = App::ptr::Create(ae::CreateWith{domain}.with_id(app_id));
   auto window = Window::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 1));
   auto window_presenter =
       WindowPresenter::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 2));
-  auto chat = Chat::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 3));
+  auto chat_base =
+      Chat::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 3));
+  auto chat = Chat::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 4));
   auto chat_presenter =
-      ChatPresenter::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 4));
+      ChatPresenter::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 5));
 
   app->window = window;
 
@@ -46,6 +48,7 @@ void DistillGraph(ae::Domain& domain, ae::ObjId::Type app_id) {
   window_presenter->window = window;
   window_presenter->chat_presenter = chat_presenter;
 
+  chat->base = chat_base;
   chat->presenter = chat_presenter;
 
   chat_presenter->chat = chat;
