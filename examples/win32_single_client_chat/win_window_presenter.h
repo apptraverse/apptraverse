@@ -98,10 +98,12 @@ class WinWindowPresenter : public WindowPresenter {
       case WM_SIZE: {
         int const width = LOWORD(lparam);
         int const height = HIWORD(lparam);
-        ApplyResize(width, height);
-        if (chat_presenter.is_loaded()) {
-          static_cast<WinChatPresenter&>(*chat_presenter)
-              .Layout(width, height);
+        if (wparam != SIZE_MINIMIZED && width > 0 && height > 0) {
+          ApplyResize(width, height);
+          if (chat_presenter.is_loaded()) {
+            static_cast<WinChatPresenter&>(*chat_presenter)
+                .Layout(width, height);
+          }
         }
         return 0;
       }
@@ -124,6 +126,9 @@ class WinWindowPresenter : public WindowPresenter {
   }
 
   void ApplyResize(int width, int height) {
+    if (width <= 0 || height <= 0) {
+      return;
+    }
     assert(window.is_valid());
     window.Load();
     auto& model = static_cast<WindowsWindow&>(*window);

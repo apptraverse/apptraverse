@@ -72,10 +72,10 @@ class WinChatPresenter : public ChatPresenter {
       return;
     }
     int const len = GetWindowTextLengthW(edit_);
-    std::wstring wide(static_cast<std::size_t>(len), L'\0');
-    if (len > 0) {
-      GetWindowTextW(edit_, wide.data(), len + 1);
-    }
+    std::wstring wide;
+    wide.resize(static_cast<std::size_t>(len) + 1);
+    int const copied = GetWindowTextW(edit_, &wide[0], len + 1);
+    wide.resize(static_cast<std::size_t>(copied > 0 ? copied : 0));
     while (!wide.empty() &&
            (wide.back() == L'\r' || wide.back() == L'\n' || wide.back() == L' ')) {
       wide.pop_back();
