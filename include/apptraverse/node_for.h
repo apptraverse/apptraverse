@@ -4,7 +4,6 @@
 #include <utility>
 
 #include "apptraverse/node.h"
-#include "apptraverse/object_graph_traversal.h"
 
 namespace apptraverse {
 
@@ -23,12 +22,11 @@ class NodeFor : public Node {
     Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
   }
 
- private:
-  bool AcceptSharedEventImpl(EventRecord record) override {
-    return Node::InsertSharedEvent(static_cast<ConcreteNode&>(*this),
-                                   std::move(record));
+  void InsertEvent(EventRecord record) {
+    Node::InsertEvent(static_cast<ConcreteNode&>(*this), std::move(record));
   }
 
+ private:
   void CaptureBaseStateImpl() override { CaptureBaseState(); }
 
   void ReloadFromStorageImpl() override {
@@ -36,11 +34,6 @@ class NodeFor : public Node {
     assert(obj_id.IsValid());
     ae::DomainGraph graph{domain};
     graph.Load(static_cast<ConcreteNode&>(*this), obj_id);
-  }
-
-  void TraverseSharedGraphImpl(
-      detail::ObjectGraphTraversal& traversal) override {
-    traversal.Traverse(static_cast<ConcreteNode&>(*this));
   }
 };
 

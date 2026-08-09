@@ -1,13 +1,7 @@
 #ifndef APPTRAVERSE_EVENT_FOR_H_
 #define APPTRAVERSE_EVENT_FOR_H_
 
-#include <vector>
-
-#include "aether/obj/obj_id.h"
-
 #include "apptraverse/event.h"
-#include "apptraverse/event_graph_packager.h"
-#include "apptraverse/replication_state.h"
 
 namespace apptraverse {
 
@@ -23,18 +17,6 @@ class EventFor : public Event {
   void ApplyTo(Node& target) const override {
     static_cast<Target&>(target).Apply(
         static_cast<ConcreteEvent const&>(*this));
-  }
-
-  void UnloadKnownSharedReferencesImpl(
-      std::vector<ae::ObjId> const& known,
-      std::vector<detail::PtrRestore>& restores) override {
-    detail::UnloadKnownOnConcrete(static_cast<ConcreteEvent&>(*this), known,
-                                  restores);
-  }
-
-  void RegisterIntroducedSharedImpl(ReplicationState& state) override {
-    detail::RegisterIntroducedOnConcrete(static_cast<ConcreteEvent&>(*this),
-                                         state);
   }
 };
 

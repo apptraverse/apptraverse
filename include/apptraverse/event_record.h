@@ -1,20 +1,19 @@
 #ifndef APPTRAVERSE_EVENT_RECORD_H_
 #define APPTRAVERSE_EVENT_RECORD_H_
 
+#include <cstdint>
+
 #include "aether-miscpp/reflect/reflect.h"
 
 #include "apptraverse/event.h"
-#include "apptraverse/event_identity.h"
-#include "apptraverse/event_order.h"
 
 namespace apptraverse {
 
 struct EventRecord {
-  EventIdentity identity;
-  EventOrder order;
+  std::uint64_t timestamp_us{0};
   Event::ptr event;
 
-  AE_REFLECT_MEMBERS(identity, order, event)
+  AE_REFLECT_MEMBERS(timestamp_us, event)
 };
 
 }  // namespace apptraverse
