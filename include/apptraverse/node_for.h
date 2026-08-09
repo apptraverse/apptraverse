@@ -14,6 +14,10 @@ class NodeFor : public Node {
 
   explicit NodeFor(ae::ObjProp prop) : Node{prop} {}
 
+ public:
+  void Commit(Event::ptr event) { CommitImpl(std::move(event)); }
+
+ protected:
   void CaptureBaseState() {
     Node::CaptureBaseState(static_cast<ConcreteNode&>(*this));
   }
@@ -34,6 +38,10 @@ class NodeFor : public Node {
     assert(obj_id.IsValid());
     ae::DomainGraph graph{domain};
     graph.Load(static_cast<ConcreteNode&>(*this), obj_id);
+  }
+
+  void CommitImpl(Event::ptr event) override {
+    Node::Commit(static_cast<ConcreteNode&>(*this), std::move(event));
   }
 };
 

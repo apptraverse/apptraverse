@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -12,6 +14,13 @@
 #include "apptraverse/event_record.h"
 
 namespace apptraverse {
+
+inline std::uint64_t SystemUtcMicros() {
+  using clock = std::chrono::system_clock;
+  auto const now = clock::now().time_since_epoch();
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(now).count());
+}
 
 class Node : public ae::Obj {
   AE_OBJECT(Node, Obj, 0)
@@ -116,12 +125,29 @@ class Node : public ae::Obj {
     }
   }
 
+  template <typename ConcreteNode>
+  void Commit(ConcreteNode& target, Event::ptr event) {
+    assert(event.is_valid());
+    assert(event.is_loaded());
+
+    EventRecord record{
+        SystemUtcMicros(),
+        std::move(event),
+    };
+    InsertEvent(target, std::move(record));
+  }
+
  private:
   virtual void CaptureBaseStateImpl() {
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 
   virtual void ReloadFromStorageImpl() {
+    assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual void CommitImpl(Event::ptr event) {
+    (void)event;
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 };

@@ -5,8 +5,6 @@
 
 namespace apptraverse {
 
-class Node;
-
 template <typename Target, typename ConcreteEvent>
 class EventFor : public Event {
  protected:
@@ -14,7 +12,7 @@ class EventFor : public Event {
   explicit EventFor(ae::ObjProp prop) : Event{prop} {}
 
  private:
-  void ApplyTo(Node& target) const override {
+  void ApplyToImpl(ae::Obj& target) const override {
     static_cast<Target&>(target).Apply(
         static_cast<ConcreteEvent const&>(*this));
   }
