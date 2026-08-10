@@ -17,6 +17,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/app.h"
+#include "apptraverse/application_ids.h"
 #include "apptraverse/chat.h"
 #include "apptraverse/chat_events.h"
 #include "apptraverse/client.h"
@@ -27,8 +28,6 @@
 #include "windows_window.h"
 
 namespace {
-
-constexpr ae::ObjId::Type kAppId = 1;
 
 bool IsDistillMode(int argc, char** argv) {
   for (int i = 1; i < argc; ++i) {
@@ -45,19 +44,23 @@ void Distill() {
   ae::FileSystemStdStorage storage;
   ae::Domain domain{ae::Now(), storage};
 
-  auto app = apptraverse::App::ptr::Create(ae::CreateWith{domain}.with_id(kAppId));
+  auto app = apptraverse::App::ptr::Create(ae::CreateWith{domain}.with_id(
+      apptraverse::ToObjId(apptraverse::ApplicationObjId::Application)));
   auto window = apptraverse::WindowsWindow::ptr::Create(
-      ae::CreateWith{domain}.with_id(kAppId + 1));
+      ae::CreateWith{domain}.with_id(
+          apptraverse::ToObjId(apptraverse::ApplicationObjId::Window)));
   auto window_presenter = apptraverse::WinWindowPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(kAppId + 2));
-  auto chat_base = apptraverse::Chat::ptr::Create(
-      ae::CreateWith{domain}.with_id(kAppId + 3));
-  auto chat = apptraverse::Chat::ptr::Create(
-      ae::CreateWith{domain}.with_id(kAppId + 4));
+      ae::CreateWith{domain}.with_id(apptraverse::ToObjId(
+          apptraverse::ApplicationObjId::WindowPresenter)));
+  auto chat_base = apptraverse::Chat::ptr::Create(ae::CreateWith{domain}.with_id(
+      apptraverse::ToObjId(apptraverse::ApplicationObjId::ChatBase)));
+  auto chat = apptraverse::Chat::ptr::Create(ae::CreateWith{domain}.with_id(
+      apptraverse::ToObjId(apptraverse::ApplicationObjId::Chat)));
   auto chat_presenter = apptraverse::WinChatPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(kAppId + 5));
-  auto alice = apptraverse::Client::ptr::Create(
-      ae::CreateWith{domain}.with_id(kAppId + 6));
+      ae::CreateWith{domain}.with_id(apptraverse::ToObjId(
+          apptraverse::ApplicationObjId::ChatPresenter)));
+  auto alice = apptraverse::Client::ptr::Create(ae::CreateWith{domain}.with_id(
+      apptraverse::ToObjId(apptraverse::ApplicationObjId::Alice)));
 
   alice->name = "Alice";
   window->width = 720;
@@ -77,7 +80,8 @@ void Distill() {
   chat_presenter->window_presenter = window_presenter;
 
   auto join = apptraverse::JoinClientEvent::ptr::Create(
-      ae::CreateWith{domain}.with_id(kAppId + 7));
+      ae::CreateWith{domain}.with_id(apptraverse::ToObjId(
+          apptraverse::ApplicationObjId::JoinClientEvent)));
   join->client = alice;
   chat->Commit(join);
 
@@ -89,8 +93,8 @@ int Run() {
   ae::FileSystemStdStorage storage;
   ae::Domain domain{ae::Now(), storage};
 
-  auto app =
-      apptraverse::App::ptr::Declare(ae::CreateWith{domain}.with_id(kAppId));
+  auto app = apptraverse::App::ptr::Declare(ae::CreateWith{domain}.with_id(
+      apptraverse::ToObjId(apptraverse::ApplicationObjId::Application)));
   app.Load();
   if (!app.is_loaded()) {
     std::cerr << "Failed to load App. Run with --distill first.\n";
