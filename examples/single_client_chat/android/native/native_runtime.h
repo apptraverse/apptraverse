@@ -43,6 +43,7 @@ class NativeRuntime {
   void PublishStatus(std::string const& status);
   void PublishTranscript(std::string const& transcript);
   void PublishSnapshot();
+  void LogJournalSize();
   void SaveState();
   void WakeUp();
 

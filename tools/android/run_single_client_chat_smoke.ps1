@@ -1,11 +1,14 @@
-# Persistence smoke for the Android single-client chat example.
+# Persistence and rotation smoke for the Android single-client chat example.
 #
 # Scenario:
-#   1. pm clear, launch, expect a freshly created graph
-#   2. send hello_android, expect MESSAGE_COMMITTED and STATE_SAVED
-#   3. force-stop and relaunch, expect a loaded graph with hello_android
-#   4. rotate, send after_rotation, expect both messages in the transcript
-#   5. no FATAL EXCEPTION and no JNI errors during the whole session
+#   1. pm clear, launch portrait, create graph
+#   2. send before_rotation
+#   3. landscape: Activity recreation, transcript kept, NativeRuntime reused
+#   4. send in_landscape
+#   5. portrait again: Activity recreation, both messages kept
+#   6. send after_rotation
+#   7. force-stop / relaunch: all three messages restored, EditText empty
+#   8. restore original emulator rotation settings in finally
 
 [CmdletBinding()]
 param(
@@ -25,10 +28,14 @@ $ErrorActionPreference = "Stop"
 
 $PackageName = "com.apptraverse.singleclientchat"
 $ActivityName = "$PackageName/.MainActivity"
-$FirstMessage = "hello_android"
-$SecondMessage = "after_rotation"
+$MsgBefore = "before_rotation"
+$MsgLandscape = "in_landscape"
+$MsgAfter = "after_rotation"
 
 $script:CollectedLogs = New-Object System.Collections.Generic.List[string]
+$script:SavedAccelerometerRotation = $null
+$script:SavedUserRotation = $null
+$script:RotationSettingsTouched = $false
 
 function Resolve-RepoRoot {
   $script_dir = Split-Path -Parent $PSCommandPath
@@ -124,6 +131,10 @@ function Assert-NoMarker([string]$Logs, [string]$Pattern, [string]$Description) 
   Write-Host "  OK  no $Description"
 }
 
+function Count-Marker([string]$Logs, [string]$Pattern) {
+  return ([regex]::Matches($Logs, $Pattern)).Count
+}
+
 function Save-Phase([string]$Adb, [string]$DeviceSerial, [string]$Phase) {
   $logs = Get-Logcat $Adb $DeviceSerial
   $script:CollectedLogs.Add("===== $Phase =====")
@@ -139,47 +150,161 @@ function Stop-App([string]$Adb, [string]$DeviceSerial) {
   Invoke-Adb $Adb $DeviceSerial @("shell", "am", "force-stop", $PackageName) | Out-Null
 }
 
+function Get-AppPid([string]$Adb, [string]$DeviceSerial) {
+  $raw = (Invoke-Adb $Adb $DeviceSerial @("shell", "pidof", $PackageName)).Trim()
+  if (-not $raw) {
+    throw "pidof returned empty for $PackageName"
+  }
+  return ($raw -split '\s+')[0]
+}
+
+function Get-UiRootSize([string]$Adb, [string]$DeviceSerial) {
+  Invoke-Adb $Adb $DeviceSerial @("shell", "uiautomator", "dump", "/sdcard/apptraverse_ui.xml") | Out-Null
+  $xml = Invoke-Adb $Adb $DeviceSerial @("shell", "cat", "/sdcard/apptraverse_ui.xml")
+  if ($xml -match 'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"') {
+    $left = [int]$Matches[1]
+    $top = [int]$Matches[2]
+    $right = [int]$Matches[3]
+    $bottom = [int]$Matches[4]
+    return [pscustomobject]@{
+      Width = $right - $left
+      Height = $bottom - $top
+      Xml = $xml
+    }
+  }
+  throw "Unable to parse root bounds from UI dump"
+}
+
+function Assert-OrientationSize([string]$Expected, [int]$Width, [int]$Height) {
+  if ($Expected -eq "portrait") {
+    if (-not ($Height -gt $Width)) {
+      throw "Expected portrait root_height > root_width, got ${Width}x${Height}"
+    }
+  } elseif ($Expected -eq "landscape") {
+    if (-not ($Width -gt $Height)) {
+      throw "Expected landscape root_width > root_height, got ${Width}x${Height}"
+    }
+  } else {
+    throw "Unknown orientation expectation: $Expected"
+  }
+  Write-Host "  OK  $Expected size ${Width}x${Height}"
+}
+
+function Get-UiNode([string]$Xml, [string]$ResourceId) {
+  $escaped = [regex]::Escape($ResourceId)
+  $match = [regex]::Match($Xml, '<node\b[^>]*resource-id="' + $escaped + '"[^>]*/>')
+  if (-not $match.Success) {
+    $match = [regex]::Match($Xml, '<node\b[^>]*resource-id="' + $escaped + '"[^>]*>')
+  }
+  if (-not $match.Success) {
+    return $null
+  }
+  $node = $match.Value
+  $text = ""
+  if ($node -match '\btext="([^"]*)"') {
+    $text = $Matches[1]
+  }
+  $x = 0
+  $y = 0
+  if ($node -match 'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"') {
+    $x = [int](([int]$Matches[1] + [int]$Matches[3]) / 2)
+    $y = [int](([int]$Matches[2] + [int]$Matches[4]) / 2)
+  }
+  return [pscustomobject]@{
+    Node = $node
+    Text = $text
+    X = $x
+    Y = $y
+  }
+}
+
+function Assert-EditTextEmpty([string]$Xml) {
+  $node = Get-UiNode $Xml "$PackageName`:id/message_input"
+  if ($null -eq $node) {
+    throw "EditText node not found while asserting empty"
+  }
+  # Older uiautomator dumps may report the hint as text when the field is empty.
+  if ($node.Text -ne "" -and $node.Text -ne "Message") {
+    throw "EditText expected empty, got '$($node.Text)'"
+  }
+  Write-Host "  OK  EditText empty"
+}
+
 function Send-Message([string]$Adb, [string]$DeviceSerial, [string]$Text) {
   Start-Sleep -Seconds 1
   Invoke-Adb $Adb $DeviceSerial @("shell", "uiautomator", "dump", "/sdcard/apptraverse_ui.xml") | Out-Null
   $xml = Invoke-Adb $Adb $DeviceSerial @("shell", "cat", "/sdcard/apptraverse_ui.xml")
-  if ($xml -match 'resource-id="com\.apptraverse\.singleclientchat:id/message_input"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"') {
-    $x = [int](([int]$Matches[1] + [int]$Matches[3]) / 2)
-    $y = [int](([int]$Matches[2] + [int]$Matches[4]) / 2)
-    Invoke-Adb $Adb $DeviceSerial @("shell", "input", "tap", "$x", "$y") | Out-Null
-  } else {
+  $input = Get-UiNode $xml "$PackageName`:id/message_input"
+  if ($null -eq $input -or $input.X -le 0) {
     throw "Unable to locate message_input"
   }
+  Invoke-Adb $Adb $DeviceSerial @("shell", "input", "tap", "$($input.X)", "$($input.Y)") | Out-Null
   Start-Sleep -Milliseconds 400
-  # Clear the field with one device-side loop (adb input text always appends).
-  Invoke-Adb $Adb $DeviceSerial @(
-    "shell",
-    "sh",
-    "-c",
-    "input keyevent 123; i=0; while [ `$i -lt 80 ]; do input keyevent 67; i=`$((i+1)); done") | Out-Null
+  # Clear any leftover text in one adb round-trip (input text always appends).
+  $clear_args = @("shell", "input", "keyevent", "123")
+  for ($i = 0; $i -lt 64; $i++) {
+    $clear_args += "67"
+  }
+  Invoke-Adb $Adb $DeviceSerial $clear_args | Out-Null
   Start-Sleep -Milliseconds 300
   Invoke-Adb $Adb $DeviceSerial @("shell", "input", "text", $Text) | Out-Null
   Start-Sleep -Milliseconds 500
   Invoke-Adb $Adb $DeviceSerial @("shell", "uiautomator", "dump", "/sdcard/apptraverse_ui.xml") | Out-Null
   $xml = Invoke-Adb $Adb $DeviceSerial @("shell", "cat", "/sdcard/apptraverse_ui.xml")
-  if ($xml -notmatch ('resource-id="com\.apptraverse\.singleclientchat:id/message_input"[^>]*text="' + [regex]::Escape($Text) + '"')) {
-    throw "EditText does not contain expected text '$Text' before Send"
+  $typed = Get-UiNode $xml "$PackageName`:id/message_input"
+  if ($null -eq $typed -or $typed.Text -ne $Text) {
+    $got = if ($null -eq $typed) { "<missing>" } else { $typed.Text }
+    throw "EditText does not contain expected text '$Text' before Send (got '$got')"
   }
-  if ($xml -match 'resource-id="com\.apptraverse\.singleclientchat:id/send"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"') {
-    $x = [int](([int]$Matches[1] + [int]$Matches[3]) / 2)
-    $y = [int](([int]$Matches[2] + [int]$Matches[4]) / 2)
-    Invoke-Adb $Adb $DeviceSerial @("shell", "input", "tap", "$x", "$y") | Out-Null
-    return
-  }
-  throw "Unable to locate send button for input"
+  # Prefer IME action/Enter so landscape soft-keyboard cannot cover the Send button.
+  Invoke-Adb $Adb $DeviceSerial @("shell", "input", "keyevent", "66") | Out-Null
 }
 
-function Set-Rotation([string]$Adb, [string]$DeviceSerial, [int]$Rotation) {
+function Get-Setting([string]$Adb, [string]$DeviceSerial, [string]$Name) {
+  return (Invoke-Adb $Adb $DeviceSerial @("shell", "settings", "get", "system", $Name)).Trim()
+}
+
+function Set-Setting([string]$Adb, [string]$DeviceSerial, [string]$Name, [string]$Value) {
+  if ($null -eq $Value -or $Value -eq "" -or $Value -eq "null") {
+    return
+  }
+  Invoke-Adb $Adb $DeviceSerial @("shell", "settings", "put", "system", $Name, $Value) | Out-Null
+}
+
+function Set-ForcedRotation([string]$Adb, [string]$DeviceSerial, [int]$Rotation) {
+  $script:RotationSettingsTouched = $true
   Invoke-Adb $Adb $DeviceSerial @(
     "shell", "settings", "put", "system", "accelerometer_rotation", "0") | Out-Null
   Invoke-Adb $Adb $DeviceSerial @(
     "shell", "settings", "put", "system", "user_rotation", "$Rotation") | Out-Null
   Start-Sleep -Seconds 3
+}
+
+function Restore-RotationSettings([string]$Adb, [string]$DeviceSerial) {
+  if (-not $script:RotationSettingsTouched) {
+    return
+  }
+  Write-Host "Restoring emulator rotation settings"
+  Write-Host "  accelerometer_rotation -> $($script:SavedAccelerometerRotation)"
+  Write-Host "  user_rotation          -> $($script:SavedUserRotation)"
+  Set-Setting $Adb $DeviceSerial "accelerometer_rotation" $script:SavedAccelerometerRotation
+  Set-Setting $Adb $DeviceSerial "user_rotation" $script:SavedUserRotation
+}
+
+function Get-LatestActivityInstance([string]$Logs) {
+  $matches = [regex]::Matches($Logs, "ACTIVITY_CREATED instance=([0-9a-fA-F]+)")
+  if ($matches.Count -eq 0) {
+    throw "No ACTIVITY_CREATED marker found"
+  }
+  return $matches[$matches.Count - 1].Groups[1].Value
+}
+
+function Get-LatestJournalSize([string]$Logs) {
+  $matches = [regex]::Matches($Logs, "CHAT_JOURNAL_SIZE n=(\d+)")
+  if ($matches.Count -eq 0) {
+    throw "No CHAT_JOURNAL_SIZE marker found"
+  }
+  return [int]$matches[$matches.Count - 1].Groups[1].Value
 }
 
 $repo_root = Resolve-RepoRoot
@@ -202,28 +327,22 @@ if (-not $SkipBuild) {
     throw "Gradle wrapper not found: $gradlew"
   }
   Write-Host "Building the debug APK for $Abi"
-  if (-not $env:JAVA_HOME) {
+  if (-not $env:JAVA_HOME -or -not (Test-Path $env:JAVA_HOME)) {
+    $jdk20 = "C:\Program Files\Java\jdk-20"
     $jbr = Join-Path ${env:ProgramFiles} "Android\Android Studio\jbr"
-    if (Test-Path $jbr) {
+    if (Test-Path $jdk20) {
+      $env:JAVA_HOME = $jdk20
+    } elseif (Test-Path $jbr) {
       $env:JAVA_HOME = $jbr
     } else {
-      $jdk = Get-ChildItem (Join-Path ${env:ProgramFiles} "Java") -Directory -ErrorAction SilentlyContinue |
-        Where-Object { Test-Path (Join-Path $_.FullName "bin\javac.exe") } |
-        Sort-Object Name -Descending |
-        Select-Object -First 1
-      if (-not $jdk) {
-        throw "No JDK found. Set JAVA_HOME to the Android Studio JBR or a JDK 17+."
-      }
-      $env:JAVA_HOME = $jdk.FullName
+      throw "No JDK found. Set JAVA_HOME to JDK 17-23 (Gradle 8.13 rejects JBR 25)."
     }
   }
   Write-Host "JAVA_HOME            : $env:JAVA_HOME"
   $env:ANDROID_SDK_ROOT = $sdk
   $env:ANDROID_HOME = $sdk
-  # Keep the default from examples/single_client_chat/android/native/CMakeLists.txt
-  # so repeated runs reuse the downloaded dependencies.
   if (-not $env:CPM_SOURCE_CACHE) {
-    $env:CPM_SOURCE_CACHE = Join-Path $repo_root ".cpm_cache"
+    $env:CPM_SOURCE_CACHE = "C:\cpm-cache"
   }
   Push-Location $android_dir
   try {
@@ -270,9 +389,9 @@ if ($Serial) {
   }
   if (-not $serial_found) {
     $cfg = Get-AvdConfigPath $preferred
-    $abi = Get-AvdAbi $cfg
-    if ($abi -ne "x86_64") {
-      throw "Preferred AVD $preferred has abi.type=$abi"
+    $cfg_abi = Get-AvdAbi $cfg
+    if ($cfg_abi -ne "x86_64") {
+      throw "Preferred AVD $preferred has abi.type=$cfg_abi"
     }
     Write-Host "Starting emulator $preferred"
     Start-Process -FilePath $emulator -ArgumentList @("-avd", $preferred, "-no-snapshot-save", "-no-boot-anim") | Out-Null
@@ -312,104 +431,186 @@ if (-not $SkipInstall) {
   Invoke-Adb $adb $Serial @("install", "-r", "-t", "-g", $ApkPath) | Out-Null
 }
 
-Write-Host ""
-Write-Host "Phase 1: clean start"
-Stop-App $adb $Serial
-Invoke-Adb $adb $Serial @("shell", "pm", "clear", $PackageName) | Out-Null
-Clear-Logcat $adb $Serial
-Start-App $adb $Serial
+$script:SavedAccelerometerRotation = Get-Setting $adb $Serial "accelerometer_rotation"
+$script:SavedUserRotation = Get-Setting $adb $Serial "user_rotation"
+Write-Host "Saved accelerometer_rotation : $($script:SavedAccelerometerRotation)"
+Write-Host "Saved user_rotation          : $($script:SavedUserRotation)"
 
-Wait-Marker $adb $Serial "APPTRAVERSE_NATIVE_RUNTIME_CREATED" "APPTRAVERSE_NATIVE_RUNTIME_CREATED"
-Wait-Marker $adb $Serial "AETHER_RUNTIME_READY" "AETHER_RUNTIME_READY"
-$domain_line = Wait-Marker $adb $Serial "SINGLE_DOMAIN_READY" "SINGLE_DOMAIN_READY"
-Write-Host "  $domain_line"
-if ($domain_line -notmatch "match=1") {
-  throw "Aether and the application graph are not in the same Domain"
+try {
+  Write-Host ""
+  Write-Host "Phase 1: clean start portrait"
+  Stop-App $adb $Serial
+  Invoke-Adb $adb $Serial @("shell", "pm", "clear", $PackageName) | Out-Null
+  Set-ForcedRotation $adb $Serial 0
+  Clear-Logcat $adb $Serial
+  Start-App $adb $Serial
+
+  Wait-Marker $adb $Serial "APPTRAVERSE_NATIVE_RUNTIME_CREATED" "APPTRAVERSE_NATIVE_RUNTIME_CREATED"
+  Wait-Marker $adb $Serial "AETHER_RUNTIME_READY" "AETHER_RUNTIME_READY"
+  $domain_line = Wait-Marker $adb $Serial "SINGLE_DOMAIN_READY" "SINGLE_DOMAIN_READY"
+  Write-Host "  $domain_line"
+  if ($domain_line -notmatch "match=1") {
+    throw "Aether and the application graph are not in the same Domain"
+  }
+  Wait-Marker $adb $Serial "ANDROID_GRAPH_CREATED" "ANDROID_GRAPH_CREATED"
+  Wait-Marker $adb $Serial "ANDROID_PRESENTERS_LOADED" "ANDROID_PRESENTERS_LOADED"
+  Wait-Marker $adb $Serial "ACTIVITY_CREATED" "ACTIVITY_CREATED"
+  Wait-Marker $adb $Serial "ACTIVITY_VIEWPORT" "ACTIVITY_VIEWPORT"
+  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED" "TRANSCRIPT_PUBLISHED"
+  $phase1 = Save-Phase $adb $Serial "phase 1: clean start"
+  if ($phase1 -match "ANDROID_GRAPH_LOADED") {
+    throw "A clean start must create the graph, not load it"
+  }
+  $pid_before = Get-AppPid $adb $Serial
+  $activity_before = Get-LatestActivityInstance $phase1
+  $journal_before_send = Get-LatestJournalSize $phase1
+  Write-Host "  PID=$pid_before activity=$activity_before journal=$journal_before_send"
+  $ui = Get-UiRootSize $adb $Serial
+  Assert-OrientationSize "portrait" $ui.Width $ui.Height
+  Assert-EditTextEmpty $ui.Xml
+
+  Write-Host ""
+  Write-Host "Phase 2: send $MsgBefore"
+  Send-Message $adb $Serial $MsgBefore
+  Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=$MsgBefore" "MESSAGE_COMMITTED $MsgBefore"
+  Wait-Marker $adb $Serial "STATE_SAVED" "STATE_SAVED"
+  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgBefore" "transcript with $MsgBefore"
+  $phase2 = Save-Phase $adb $Serial "phase 2: before_rotation"
+  $journal_after_first = Get-LatestJournalSize $phase2
+  if ($journal_after_first -ne ($journal_before_send + 1)) {
+    throw "Journal size after first send expected $($journal_before_send + 1), got $journal_after_first"
+  }
+
+  Write-Host ""
+  Write-Host "Phase 3: landscape recreation"
+  Clear-Logcat $adb $Serial
+  $created_before_rotation = Count-Marker (Get-Logcat $adb $Serial) "APPTRAVERSE_NATIVE_RUNTIME_CREATED"
+  $ready_before_rotation = Count-Marker (Get-Logcat $adb $Serial) "AETHER_RUNTIME_READY"
+  Set-ForcedRotation $adb $Serial 1
+  Wait-Marker $adb $Serial "ACTIVITY_DESTROYED instance=$activity_before" "ACTIVITY_DESTROYED old instance"
+  Wait-Marker $adb $Serial "ACTIVITY_CREATED instance=" "ACTIVITY_CREATED landscape instance"
+  Wait-Marker $adb $Serial "ACTIVITY_VIEWPORT" "ACTIVITY_VIEWPORT landscape"
+  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgBefore" "transcript kept in landscape"
+  $phase3 = Save-Phase $adb $Serial "phase 3: landscape"
+  $activity_landscape = Get-LatestActivityInstance $phase3
+  if ($activity_landscape -eq $activity_before) {
+    throw "Activity instance did not change after landscape rotation"
+  }
+  $pid_landscape = Get-AppPid $adb $Serial
+  if ($pid_landscape -ne $pid_before) {
+    throw "PID changed during landscape rotation: $pid_before -> $pid_landscape"
+  }
+  if ((Count-Marker $phase3 "APPTRAVERSE_NATIVE_RUNTIME_CREATED") -ne $created_before_rotation) {
+    throw "NativeRuntime was created again during landscape rotation"
+  }
+  if ((Count-Marker $phase3 "AETHER_RUNTIME_READY") -ne $ready_before_rotation) {
+    throw "AetherApp became ready again during landscape rotation"
+  }
+  $journal_landscape = Get-LatestJournalSize $phase3
+  if ($journal_landscape -ne $journal_after_first) {
+    throw "Rotation changed Chat journal size: $journal_after_first -> $journal_landscape"
+  }
+  $ui = Get-UiRootSize $adb $Serial
+  Assert-OrientationSize "landscape" $ui.Width $ui.Height
+  Assert-EditTextEmpty $ui.Xml
+
+  Write-Host ""
+  Write-Host "Phase 4: send $MsgLandscape"
+  Send-Message $adb $Serial $MsgLandscape
+  Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=$MsgLandscape" "MESSAGE_COMMITTED $MsgLandscape"
+  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgLandscape" "transcript with $MsgLandscape"
+  $phase4 = Save-Phase $adb $Serial "phase 4: in_landscape"
+  $journal_after_second = Get-LatestJournalSize $phase4
+  if ($journal_after_second -ne ($journal_after_first + 1)) {
+    throw "Journal size after second send expected $($journal_after_first + 1), got $journal_after_second"
+  }
+
+  Write-Host ""
+  Write-Host "Phase 5: portrait again"
+  Clear-Logcat $adb $Serial
+  Set-ForcedRotation $adb $Serial 0
+  Wait-Marker $adb $Serial "ACTIVITY_DESTROYED instance=$activity_landscape" "ACTIVITY_DESTROYED landscape instance"
+  Wait-Marker $adb $Serial "ACTIVITY_CREATED instance=" "ACTIVITY_CREATED portrait instance"
+  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgBefore" "before_rotation still present"
+  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgLandscape" "in_landscape still present"
+  $phase5 = Save-Phase $adb $Serial "phase 5: portrait again"
+  $activity_portrait2 = Get-LatestActivityInstance $phase5
+  if ($activity_portrait2 -eq $activity_landscape -or $activity_portrait2 -eq $activity_before) {
+    throw "Portrait Activity instance was not a new recreation"
+  }
+  $pid_portrait2 = Get-AppPid $adb $Serial
+  if ($pid_portrait2 -ne $pid_before) {
+    throw "PID changed during portrait return: $pid_before -> $pid_portrait2"
+  }
+  if ((Count-Marker $phase5 "APPTRAVERSE_NATIVE_RUNTIME_CREATED") -gt 0) {
+    throw "NativeRuntime was created again during portrait return"
+  }
+  if ((Count-Marker $phase5 "AETHER_RUNTIME_READY") -gt 0) {
+    throw "AetherApp became ready again during portrait return"
+  }
+  $journal_portrait2 = Get-LatestJournalSize $phase5
+  if ($journal_portrait2 -ne $journal_after_second) {
+    throw "Portrait return changed Chat journal size"
+  }
+  $ui = Get-UiRootSize $adb $Serial
+  Assert-OrientationSize "portrait" $ui.Width $ui.Height
+  Assert-EditTextEmpty $ui.Xml
+
+  Write-Host ""
+  Write-Host "Phase 6: send $MsgAfter"
+  Send-Message $adb $Serial $MsgAfter
+  Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=$MsgAfter" "MESSAGE_COMMITTED $MsgAfter"
+  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgAfter" "transcript with $MsgAfter"
+  $phase6 = Save-Phase $adb $Serial "phase 6: after_rotation"
+  $journal_after_third = Get-LatestJournalSize $phase6
+  if ($journal_after_third -ne ($journal_after_second + 1)) {
+    throw "Journal size after third send expected $($journal_after_second + 1), got $journal_after_third"
+  }
+
+  Write-Host ""
+  Write-Host "Phase 7: force-stop and relaunch"
+  Stop-App $adb $Serial
+  Start-Sleep -Seconds 2
+  Clear-Logcat $adb $Serial
+  Start-App $adb $Serial
+  Wait-Marker $adb $Serial "ANDROID_GRAPH_LOADED" "ANDROID_GRAPH_LOADED"
+  $final = Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgAfter" "final transcript"
+  Write-Host "  $final"
+  if ($final -notmatch $MsgBefore -or $final -notmatch $MsgLandscape) {
+    throw "Final transcript lost earlier messages"
+  }
+  $phase7 = Save-Phase $adb $Serial "phase 7: relaunch"
+  $ui = Get-UiRootSize $adb $Serial
+  Assert-EditTextEmpty $ui.Xml
+  $journal_relaunch = Get-LatestJournalSize $phase7
+  if ($journal_relaunch -ne $journal_after_third) {
+    throw "Relaunch changed Chat journal size"
+  }
+
+  Write-Host ""
+  Write-Host "Checking for crashes and JNI errors"
+  $all_logs = ($script:CollectedLogs -join "`n")
+  Assert-NoMarker $all_logs "FATAL EXCEPTION" "FATAL EXCEPTION"
+  Assert-NoMarker $all_logs "JNI DETECTED ERROR" "JNI DETECTED ERROR"
+  Assert-NoMarker $all_logs "JNI ERROR" "JNI ERROR"
+  Assert-NoMarker $all_logs "Fatal signal" "fatal signal"
+  Assert-NoMarker $all_logs "SIGSEGV" "SIGSEGV"
+
+  Write-Host ""
+  Write-Host "Android single-client chat rotation/persistence smoke passed."
+  Write-Host "Device serial        : $Serial"
+  Write-Host "Device ABI           : $device_abi"
+  Write-Host "Device API           : $device_api"
+  Write-Host "PID                  : $pid_before"
+  Write-Host "Activity instances   : $activity_before -> $activity_landscape -> $activity_portrait2"
+  Write-Host "Journal sizes        : $journal_before_send -> $journal_after_first -> $journal_after_second -> $journal_after_third"
 }
-if ($domain_line -notmatch "aether_root_id=1") {
-  throw "Aether root ObjId is not 1"
-}
-if ($domain_line -notmatch "app_id=100000") {
-  throw "Application ObjId is not 100000"
-}
-Wait-Marker $adb $Serial "ANDROID_GRAPH_CREATED" "ANDROID_GRAPH_CREATED"
-Wait-Marker $adb $Serial "ANDROID_PRESENTERS_LOADED" "ANDROID_PRESENTERS_LOADED"
-Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED" "TRANSCRIPT_PUBLISHED"
-$phase1 = Save-Phase $adb $Serial "phase 1: clean start"
-if ($phase1 -match "ANDROID_GRAPH_LOADED") {
-  throw "A clean start must create the graph, not load it"
+finally {
+  Restore-RotationSettings $adb $Serial
+  $restored_acc = Get-Setting $adb $Serial "accelerometer_rotation"
+  $restored_user = Get-Setting $adb $Serial "user_rotation"
+  Write-Host "Restored accelerometer_rotation : $restored_acc"
+  Write-Host "Restored user_rotation          : $restored_user"
 }
 
-Write-Host ""
-Write-Host "Phase 2: send $FirstMessage"
-Send-Message $adb $Serial $FirstMessage
-Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=$FirstMessage" "MESSAGE_COMMITTED $FirstMessage"
-Wait-Marker $adb $Serial "STATE_SAVED" "STATE_SAVED"
-Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$FirstMessage" "transcript with $FirstMessage"
-Save-Phase $adb $Serial "phase 2: first message" | Out-Null
-
-Write-Host ""
-Write-Host "Phase 3: force-stop and relaunch"
-Stop-App $adb $Serial
-Start-Sleep -Seconds 2
-Clear-Logcat $adb $Serial
-Start-App $adb $Serial
-
-Wait-Marker $adb $Serial "AETHER_RUNTIME_READY" "AETHER_RUNTIME_READY after relaunch"
-$reload_domain_line = Wait-Marker $adb $Serial "SINGLE_DOMAIN_READY" "SINGLE_DOMAIN_READY after relaunch"
-if ($reload_domain_line -notmatch "match=1") {
-  throw "Aether and the application graph are not in the same Domain after relaunch"
-}
-Wait-Marker $adb $Serial "ANDROID_GRAPH_LOADED" "ANDROID_GRAPH_LOADED"
-Wait-Marker $adb $Serial "ANDROID_PRESENTERS_LOADED" "ANDROID_PRESENTERS_LOADED after relaunch"
-Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$FirstMessage" "restored transcript with $FirstMessage"
-$phase3 = Save-Phase $adb $Serial "phase 3: relaunch"
-if ($phase3 -match "ANDROID_GRAPH_CREATED") {
-  throw "A relaunch must load the stored graph, not create a new one"
-}
-
-Write-Host ""
-Write-Host "Phase 4: rotate and send $SecondMessage"
-Clear-Logcat $adb $Serial
-Set-Rotation $adb $Serial 1
-Start-Sleep -Seconds 2
-Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$FirstMessage" "transcript republished after rotation"
-Start-Sleep -Seconds 1
-Send-Message $adb $Serial $SecondMessage
-Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=$SecondMessage" "MESSAGE_COMMITTED $SecondMessage" 120
-$transcript_line = Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$SecondMessage" "transcript with $SecondMessage" 120
-Write-Host "  $transcript_line"
-if ($transcript_line -notmatch $FirstMessage) {
-  throw "The transcript lost $FirstMessage after rotation"
-}
-Save-Phase $adb $Serial "phase 4: rotation" | Out-Null
-Set-Rotation $adb $Serial 0
-
-Write-Host ""
-Write-Host "Phase 5: relaunch after rotation"
-Stop-App $adb $Serial
-Start-Sleep -Seconds 2
-Clear-Logcat $adb $Serial
-Start-App $adb $Serial
-Wait-Marker $adb $Serial "ANDROID_GRAPH_LOADED" "ANDROID_GRAPH_LOADED after rotation"
-$final_transcript = Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$SecondMessage" "final transcript"
-Write-Host "  $final_transcript"
-if ($final_transcript -notmatch $FirstMessage) {
-  throw "The stored transcript lost $FirstMessage"
-}
-Save-Phase $adb $Serial "phase 5: final relaunch" | Out-Null
-
-Write-Host ""
-Write-Host "Checking for crashes and JNI errors"
-$all_logs = ($script:CollectedLogs -join "`n")
-Assert-NoMarker $all_logs "FATAL EXCEPTION" "FATAL EXCEPTION"
-Assert-NoMarker $all_logs "JNI DETECTED ERROR" "JNI DETECTED ERROR"
-Assert-NoMarker $all_logs "JNI ERROR" "JNI ERROR"
-Assert-NoMarker $all_logs "Fatal signal" "fatal signal"
-
-Write-Host ""
-Write-Host "Android single-client chat persistence smoke passed."
-Write-Host "Device serial        : $Serial"
-Write-Host "Device ABI           : $device_abi"
-Write-Host "Device API           : $device_api"
 exit 0

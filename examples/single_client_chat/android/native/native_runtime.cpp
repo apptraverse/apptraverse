@@ -247,6 +247,7 @@ void NativeRuntime::DrainPendingSends() {
     WaitForUniqueTimestamp();
     chat_presenter_->SubmitText(text);
     LogMarker("MESSAGE_COMMITTED text=" + ToSingleLine(text));
+    LogJournalSize();
     SaveState();
     ui_bridge_.PostMessageCommitted(text);
   }
@@ -272,6 +273,19 @@ void NativeRuntime::PublishTranscript(std::string const& transcript) {
   ui_bridge_.PostTranscript(transcript);
   LogMarker("TRANSCRIPT_PUBLISHED bytes=" + std::to_string(transcript.size()) +
             " text=" + ToSingleLine(transcript));
+  LogJournalSize();
+}
+
+void NativeRuntime::LogJournalSize() {
+  if (chat_presenter_ == nullptr || !chat_presenter_->chat.is_valid()) {
+    return;
+  }
+  auto chat = chat_presenter_->chat;
+  chat.Load();
+  if (!chat.is_loaded()) {
+    return;
+  }
+  LogMarker("CHAT_JOURNAL_SIZE n=" + std::to_string(chat->journal.size()));
 }
 
 void NativeRuntime::PublishSnapshot() {

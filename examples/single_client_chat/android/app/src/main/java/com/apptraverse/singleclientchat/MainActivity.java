@@ -1,9 +1,12 @@
 package com.apptraverse.singleclientchat;
 
 import android.app.Activity;
+import android.content.res.Configuration;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ScrollView;
@@ -12,8 +15,12 @@ import android.widget.TextView;
 /**
  * Single Activity of the example. It holds no model state: the transcript and
  * the status come from the native runtime through {@link NativeUiBridge}.
+ * Orientation follows the system auto-rotate setting; the Activity is recreated
+ * on rotation and never owns the NativeRuntime.
  */
 public final class MainActivity extends Activity implements NativeUiBridge.Listener {
+
+  private static final String TAG = "AppTraverseChat";
 
   private TextView statusView;
   private ScrollView transcriptScroll;
@@ -23,6 +30,8 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
 
   // Text waiting for the native MESSAGE_COMMITTED confirmation.
   private String pendingText;
+
+  private boolean viewportLogged;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -45,15 +54,43 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     messageInput.setOnEditorActionListener(new TextView.OnEditorActionListener() {
       @Override
       public boolean onEditorAction(TextView view, int actionId, KeyEvent event) {
+        // IME_ACTION_SEND and physical Enter can both arrive; ignore key-up
+        // duplicates so one user action commits one message.
+        if (event != null && event.getAction() != KeyEvent.ACTION_DOWN) {
+          return true;
+        }
         submit();
         return true;
       }
     });
+
+    Log.i(TAG, "ACTIVITY_CREATED instance=" + identity()
+        + " orientation=" + orientationName());
+
+    final View root = findViewById(android.R.id.content);
+    root.getViewTreeObserver().addOnGlobalLayoutListener(
+        new ViewTreeObserver.OnGlobalLayoutListener() {
+          @Override
+          public void onGlobalLayout() {
+            if (viewportLogged) {
+              return;
+            }
+            int width = root.getWidth();
+            int height = root.getHeight();
+            if (width <= 0 || height <= 0) {
+              return;
+            }
+            viewportLogged = true;
+            Log.i(TAG, "ACTIVITY_VIEWPORT instance=" + identity()
+                + " width=" + width + " height=" + height);
+          }
+        });
   }
 
   @Override
   protected void onStart() {
     super.onStart();
+    Log.i(TAG, "ACTIVITY_STARTED instance=" + identity());
     // Keeps the input focused so adb shell input text reaches it.
     messageInput.requestFocus();
     application().uiBridge().attach(this);
@@ -62,8 +99,15 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
 
   @Override
   protected void onStop() {
+    Log.i(TAG, "ACTIVITY_STOPPED instance=" + identity());
     application().uiBridge().detach(this);
     super.onStop();
+  }
+
+  @Override
+  protected void onDestroy() {
+    Log.i(TAG, "ACTIVITY_DESTROYED instance=" + identity());
+    super.onDestroy();
   }
 
   @Override
@@ -91,6 +135,9 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   }
 
   private void submit() {
+    if (pendingText != null) {
+      return;
+    }
     String text = messageInput.getText().toString().trim();
     if (text.isEmpty()) {
       return;
@@ -98,6 +145,21 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
 
     pendingText = text;
     application().send(text);
+  }
+
+  private String identity() {
+    return Integer.toHexString(System.identityHashCode(this));
+  }
+
+  private String orientationName() {
+    int orientation = getResources().getConfiguration().orientation;
+    if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+      return "landscape";
+    }
+    if (orientation == Configuration.ORIENTATION_PORTRAIT) {
+      return "portrait";
+    }
+    return "undefined";
   }
 
   private SingleClientChatApplication application() {
