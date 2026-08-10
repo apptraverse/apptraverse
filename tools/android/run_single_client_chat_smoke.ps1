@@ -218,6 +218,15 @@ function Get-UiNode([string]$Xml, [string]$ResourceId) {
   }
 }
 
+function Assert-TranscriptContains([string]$Xml, [string]$Text) {
+  # uiautomator may put newlines as &#10; or keep plain text in the attribute.
+  $normalized = $Xml -replace '&#10;', ' ' -replace '\s+', ' '
+  if ($normalized -notmatch [regex]::Escape($Text)) {
+    throw "Transcript UI does not contain '$Text'"
+  }
+  Write-Host "  OK  transcript contains $Text"
+}
+
 function Assert-EditTextEmpty([string]$Xml) {
   $node = Get-UiNode $Xml "$PackageName`:id/message_input"
   if ($null -eq $node) {
@@ -299,10 +308,15 @@ function Get-LatestActivityInstance([string]$Logs) {
   return $matches[$matches.Count - 1].Groups[1].Value
 }
 
-function Get-LatestJournalSize([string]$Logs) {
-  $matches = [regex]::Matches($Logs, "CHAT_JOURNAL_SIZE n=(\d+)")
+function Get-LatestJournalSize([string]$Logs, [string]$Kind) {
+  $pattern = if ($Kind -eq "window") {
+    "WINDOW_JOURNAL_SIZE n=(\d+)"
+  } else {
+    "CHAT_JOURNAL_SIZE n=(\d+)"
+  }
+  $matches = [regex]::Matches($Logs, $pattern)
   if ($matches.Count -eq 0) {
-    throw "No CHAT_JOURNAL_SIZE marker found"
+    throw "No $Kind journal size marker found"
   }
   return [int]$matches[$matches.Count - 1].Groups[1].Value
 }
@@ -456,6 +470,7 @@ try {
   Wait-Marker $adb $Serial "ANDROID_PRESENTERS_LOADED" "ANDROID_PRESENTERS_LOADED"
   Wait-Marker $adb $Serial "ACTIVITY_CREATED" "ACTIVITY_CREATED"
   Wait-Marker $adb $Serial "ACTIVITY_VIEWPORT" "ACTIVITY_VIEWPORT"
+  Wait-Marker $adb $Serial "WINDOW_CHANGED" "WINDOW_CHANGED first viewport"
   Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED" "TRANSCRIPT_PUBLISHED"
   $phase1 = Save-Phase $adb $Serial "phase 1: clean start"
   if ($phase1 -match "ANDROID_GRAPH_LOADED") {
@@ -463,8 +478,15 @@ try {
   }
   $pid_before = Get-AppPid $adb $Serial
   $activity_before = Get-LatestActivityInstance $phase1
-  $journal_before_send = Get-LatestJournalSize $phase1
-  Write-Host "  PID=$pid_before activity=$activity_before journal=$journal_before_send"
+  $chat_before_send = Get-LatestJournalSize $phase1 "chat"
+  $window_after_first_viewport = Get-LatestJournalSize $phase1 "window"
+  if ($chat_before_send -ne 1) {
+    throw "Clean graph Chat journal expected 1 (Join), got $chat_before_send"
+  }
+  if ($window_after_first_viewport -lt 1) {
+    throw "First viewport must create at least one Window journal event"
+  }
+  Write-Host "  PID=$pid_before activity=$activity_before chat=$chat_before_send window=$window_after_first_viewport"
   $ui = Get-UiRootSize $adb $Serial
   Assert-OrientationSize "portrait" $ui.Width $ui.Height
   Assert-EditTextEmpty $ui.Xml
@@ -476,10 +498,11 @@ try {
   Wait-Marker $adb $Serial "STATE_SAVED" "STATE_SAVED"
   Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgBefore" "transcript with $MsgBefore"
   $phase2 = Save-Phase $adb $Serial "phase 2: before_rotation"
-  $journal_after_first = Get-LatestJournalSize $phase2
-  if ($journal_after_first -ne ($journal_before_send + 1)) {
-    throw "Journal size after first send expected $($journal_before_send + 1), got $journal_after_first"
+  $chat_after_first = Get-LatestJournalSize $phase2 "chat"
+  if ($chat_after_first -ne ($chat_before_send + 1)) {
+    throw "Chat journal after first send expected $($chat_before_send + 1), got $chat_after_first"
   }
+  $window_after_first_send = Get-LatestJournalSize $phase2 "window"
 
   Write-Host ""
   Write-Host "Phase 3: landscape recreation"
@@ -490,7 +513,10 @@ try {
   Wait-Marker $adb $Serial "ACTIVITY_DESTROYED instance=$activity_before" "ACTIVITY_DESTROYED old instance"
   Wait-Marker $adb $Serial "ACTIVITY_CREATED instance=" "ACTIVITY_CREATED landscape instance"
   Wait-Marker $adb $Serial "ACTIVITY_VIEWPORT" "ACTIVITY_VIEWPORT landscape"
-  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgBefore" "transcript kept in landscape"
+  Wait-Marker $adb $Serial "WINDOW_CHANGED" "WINDOW_CHANGED landscape"
+  Start-Sleep -Seconds 1
+  $ui = Get-UiRootSize $adb $Serial
+  Assert-TranscriptContains $ui.Xml $MsgBefore
   $phase3 = Save-Phase $adb $Serial "phase 3: landscape"
   $activity_landscape = Get-LatestActivityInstance $phase3
   if ($activity_landscape -eq $activity_before) {
@@ -506,11 +532,14 @@ try {
   if ((Count-Marker $phase3 "AETHER_RUNTIME_READY") -ne $ready_before_rotation) {
     throw "AetherApp became ready again during landscape rotation"
   }
-  $journal_landscape = Get-LatestJournalSize $phase3
-  if ($journal_landscape -ne $journal_after_first) {
-    throw "Rotation changed Chat journal size: $journal_after_first -> $journal_landscape"
+  $chat_landscape = Get-LatestJournalSize $phase3 "chat"
+  $window_landscape = Get-LatestJournalSize $phase3 "window"
+  if ($chat_landscape -ne $chat_after_first) {
+    throw "Rotation changed Chat journal size: $chat_after_first -> $chat_landscape"
   }
-  $ui = Get-UiRootSize $adb $Serial
+  if ($window_landscape -le $window_after_first_send) {
+    throw "Landscape rotation must increase Window journal"
+  }
   Assert-OrientationSize "landscape" $ui.Width $ui.Height
   Assert-EditTextEmpty $ui.Xml
 
@@ -520,9 +549,9 @@ try {
   Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=$MsgLandscape" "MESSAGE_COMMITTED $MsgLandscape"
   Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgLandscape" "transcript with $MsgLandscape"
   $phase4 = Save-Phase $adb $Serial "phase 4: in_landscape"
-  $journal_after_second = Get-LatestJournalSize $phase4
-  if ($journal_after_second -ne ($journal_after_first + 1)) {
-    throw "Journal size after second send expected $($journal_after_first + 1), got $journal_after_second"
+  $chat_after_second = Get-LatestJournalSize $phase4 "chat"
+  if ($chat_after_second -ne ($chat_after_first + 1)) {
+    throw "Chat journal after second send expected $($chat_after_first + 1), got $chat_after_second"
   }
 
   Write-Host ""
@@ -531,8 +560,11 @@ try {
   Set-ForcedRotation $adb $Serial 0
   Wait-Marker $adb $Serial "ACTIVITY_DESTROYED instance=$activity_landscape" "ACTIVITY_DESTROYED landscape instance"
   Wait-Marker $adb $Serial "ACTIVITY_CREATED instance=" "ACTIVITY_CREATED portrait instance"
-  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgBefore" "before_rotation still present"
-  Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgLandscape" "in_landscape still present"
+  Wait-Marker $adb $Serial "WINDOW_CHANGED" "WINDOW_CHANGED portrait return"
+  Start-Sleep -Seconds 1
+  $ui = Get-UiRootSize $adb $Serial
+  Assert-TranscriptContains $ui.Xml $MsgBefore
+  Assert-TranscriptContains $ui.Xml $MsgLandscape
   $phase5 = Save-Phase $adb $Serial "phase 5: portrait again"
   $activity_portrait2 = Get-LatestActivityInstance $phase5
   if ($activity_portrait2 -eq $activity_landscape -or $activity_portrait2 -eq $activity_before) {
@@ -548,11 +580,14 @@ try {
   if ((Count-Marker $phase5 "AETHER_RUNTIME_READY") -gt 0) {
     throw "AetherApp became ready again during portrait return"
   }
-  $journal_portrait2 = Get-LatestJournalSize $phase5
-  if ($journal_portrait2 -ne $journal_after_second) {
+  $chat_portrait2 = Get-LatestJournalSize $phase5 "chat"
+  $window_portrait2 = Get-LatestJournalSize $phase5 "window"
+  if ($chat_portrait2 -ne $chat_after_second) {
     throw "Portrait return changed Chat journal size"
   }
-  $ui = Get-UiRootSize $adb $Serial
+  if ($window_portrait2 -le $window_landscape) {
+    throw "Portrait return must increase Window journal"
+  }
   Assert-OrientationSize "portrait" $ui.Width $ui.Height
   Assert-EditTextEmpty $ui.Xml
 
@@ -562,9 +597,9 @@ try {
   Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=$MsgAfter" "MESSAGE_COMMITTED $MsgAfter"
   Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgAfter" "transcript with $MsgAfter"
   $phase6 = Save-Phase $adb $Serial "phase 6: after_rotation"
-  $journal_after_third = Get-LatestJournalSize $phase6
-  if ($journal_after_third -ne ($journal_after_second + 1)) {
-    throw "Journal size after third send expected $($journal_after_second + 1), got $journal_after_third"
+  $chat_after_third = Get-LatestJournalSize $phase6 "chat"
+  if ($chat_after_third -ne ($chat_after_second + 1)) {
+    throw "Chat journal after third send expected $($chat_after_second + 1), got $chat_after_third"
   }
 
   Write-Host ""
@@ -574,17 +609,21 @@ try {
   Clear-Logcat $adb $Serial
   Start-App $adb $Serial
   Wait-Marker $adb $Serial "ANDROID_GRAPH_LOADED" "ANDROID_GRAPH_LOADED"
-  $final = Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*$MsgAfter" "final transcript"
-  Write-Host "  $final"
-  if ($final -notmatch $MsgBefore -or $final -notmatch $MsgLandscape) {
-    throw "Final transcript lost earlier messages"
-  }
-  $phase7 = Save-Phase $adb $Serial "phase 7: relaunch"
+  Wait-Marker $adb $Serial "WINDOW_CHANGED" "WINDOW_CHANGED startup after relaunch"
+  Start-Sleep -Seconds 1
   $ui = Get-UiRootSize $adb $Serial
+  Assert-TranscriptContains $ui.Xml $MsgBefore
+  Assert-TranscriptContains $ui.Xml $MsgLandscape
+  Assert-TranscriptContains $ui.Xml $MsgAfter
+  $phase7 = Save-Phase $adb $Serial "phase 7: relaunch"
   Assert-EditTextEmpty $ui.Xml
-  $journal_relaunch = Get-LatestJournalSize $phase7
-  if ($journal_relaunch -ne $journal_after_third) {
+  $chat_relaunch = Get-LatestJournalSize $phase7 "chat"
+  $window_relaunch = Get-LatestJournalSize $phase7 "window"
+  if ($chat_relaunch -ne $chat_after_third) {
     throw "Relaunch changed Chat journal size"
+  }
+  if ($window_relaunch -le $window_portrait2) {
+    throw "Process relaunch must add a startup WindowChangedEvent"
   }
 
   Write-Host ""
@@ -597,13 +636,36 @@ try {
   Assert-NoMarker $all_logs "SIGSEGV" "SIGSEGV"
 
   Write-Host ""
+  Write-Host "Phase 8: smoke cleanup leaves a clean app"
+  Stop-App $adb $Serial
+  Invoke-Adb $adb $Serial @("shell", "pm", "clear", $PackageName) | Out-Null
+  Clear-Logcat $adb $Serial
+  Start-App $adb $Serial
+  Wait-Marker $adb $Serial "ANDROID_GRAPH_CREATED" "clean graph after pm clear"
+  $clean = Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED" "clean transcript"
+  Write-Host "  $clean"
+  if ($clean -match $MsgBefore -or $clean -match $MsgLandscape -or $clean -match $MsgAfter) {
+    throw "Cleanup left test messages in the transcript"
+  }
+  if ($clean -notmatch "Alice joined") {
+    throw "Clean transcript must contain Alice joined"
+  }
+  $phase8 = Save-Phase $adb $Serial "phase 8: cleanup"
+  $ui = Get-UiRootSize $adb $Serial
+  Assert-EditTextEmpty $ui.Xml
+  if ($ui.Xml -match 'resource-id="com\.apptraverse\.singleclientchat:id/status"') {
+    throw "status TextView must not exist in the cleaned UI"
+  }
+
+  Write-Host ""
   Write-Host "Android single-client chat rotation/persistence smoke passed."
   Write-Host "Device serial        : $Serial"
   Write-Host "Device ABI           : $device_abi"
   Write-Host "Device API           : $device_api"
   Write-Host "PID                  : $pid_before"
   Write-Host "Activity instances   : $activity_before -> $activity_landscape -> $activity_portrait2"
-  Write-Host "Journal sizes        : $journal_before_send -> $journal_after_first -> $journal_after_second -> $journal_after_third"
+  Write-Host "Chat journal sizes   : $chat_before_send -> $chat_after_first -> $chat_after_second -> $chat_after_third"
+  Write-Host "Window journal sizes : $window_after_first_viewport -> $window_landscape -> $window_portrait2 -> $window_relaunch"
 }
 finally {
   Restore-RotationSettings $adb $Serial

@@ -78,14 +78,6 @@ void NativeQueueWindowChanged(JNIEnv*, jclass, jlong handle, jint width,
   runtime->QueueWindowChanged(width, height, density_dpi);
 }
 
-void NativeRequestSnapshot(JNIEnv*, jclass, jlong handle) {
-  auto* runtime = FromHandle(handle);
-  if (runtime == nullptr) {
-    return;
-  }
-  runtime->RequestSnapshot();
-}
-
 void NativeStop(JNIEnv*, jclass, jlong handle) {
   auto* runtime = FromHandle(handle);
   if (runtime == nullptr) {
@@ -106,8 +98,6 @@ JNINativeMethod const kNativeMethods[] = {
      reinterpret_cast<void*>(&NativeQueueSend)},
     {"nativeQueueWindowChanged", "(JIII)V",
      reinterpret_cast<void*>(&NativeQueueWindowChanged)},
-    {"nativeRequestSnapshot", "(J)V",
-     reinterpret_cast<void*>(&NativeRequestSnapshot)},
     {"nativeStop", "(J)V", reinterpret_cast<void*>(&NativeStop)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
 };
@@ -115,7 +105,6 @@ JNINativeMethod const kNativeMethods[] = {
 }  // namespace
 }  // namespace apptraverse::android
 
-// Natives are bound explicitly, the library exports no Java_* symbols.
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
   JNIEnv* env = nullptr;
   if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK ||

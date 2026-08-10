@@ -27,7 +27,6 @@ APPTRAVERSE_REGISTER(AndroidWindow);
 APPTRAVERSE_REGISTER(AndroidWindowPresenter);
 APPTRAVERSE_REGISTER(AndroidChatPresenter);
 
-// The core loop wakes up at least this often so a stop request is never missed.
 constexpr std::chrono::milliseconds kMaxIdleWait{200};
 
 std::string Trim(std::string text) {
@@ -54,7 +53,7 @@ NativeRuntime::~NativeRuntime() = default;
 
 void NativeRuntime::Run() {
   if (!Setup()) {
-    PublishStatus("Native runtime failed to start");
+    LogError("Native runtime failed to start");
     return;
   }
 
@@ -99,18 +98,6 @@ void NativeRuntime::QueueWindowChanged(std::int32_t width, std::int32_t height,
   auto* scheduler = scheduler_.load(std::memory_order::acquire);
   if (scheduler != nullptr) {
     scheduler->Task([this]() { DrainPendingViewports(); });
-  }
-}
-
-void NativeRuntime::RequestSnapshot() {
-  snapshot_requested_.store(true, std::memory_order::release);
-  auto* scheduler = scheduler_.load(std::memory_order::acquire);
-  if (scheduler != nullptr) {
-    scheduler->Task([this]() {
-      if (snapshot_requested_.exchange(false, std::memory_order::acq_rel)) {
-        PublishSnapshot();
-      }
-    });
   }
 }
 
@@ -163,7 +150,9 @@ bool NativeRuntime::Setup() {
     return false;
   }
 
-  PublishSnapshot();
+  if (chat_presenter_ != nullptr) {
+    chat_presenter_->PublishTranscript();
+  }
   DrainPendingViewports();
   DrainPendingSends();
   return true;
@@ -235,7 +224,6 @@ void NativeRuntime::Teardown() {
     chat_presenter_ = nullptr;
   }
   window_presenter_ = nullptr;
-  PublishStatus("Native runtime stopped");
   scheduler_.store(nullptr, std::memory_order::release);
   app_.Reset();
   aether_app_.Reset();
@@ -252,7 +240,6 @@ void NativeRuntime::DrainPendingSends() {
   }
   if (chat_presenter_ == nullptr) {
     LogError("Dropping queued messages, the model is not loaded");
-    PublishStatus("Model is not loaded, message dropped");
     return;
   }
 
@@ -261,7 +248,6 @@ void NativeRuntime::DrainPendingSends() {
     LogMarker("MESSAGE_COMMITTED text=" + ToSingleLine(text));
     LogJournalSizes();
     SaveState();
-    ui_bridge_.PostMessageCommitted(text);
   }
   chat_presenter_->PublishTranscript();
 }
@@ -291,10 +277,6 @@ void NativeRuntime::DrainPendingViewports() {
   }
 }
 
-void NativeRuntime::PublishStatus(std::string const& status) {
-  ui_bridge_.PostStatus(status);
-}
-
 void NativeRuntime::PublishTranscript(std::string const& transcript) {
   ui_bridge_.PostTranscript(transcript);
   LogMarker("TRANSCRIPT_PUBLISHED bytes=" + std::to_string(transcript.size()) +
@@ -320,13 +302,6 @@ void NativeRuntime::LogJournalSizes() {
     return;
   }
   LogMarker("CHAT_JOURNAL_SIZE n=" + std::to_string(chat->journal.size()));
-}
-
-void NativeRuntime::PublishSnapshot() {
-  PublishStatus("Aether ready, state " + state_dir_);
-  if (chat_presenter_ != nullptr) {
-    chat_presenter_->PublishTranscript();
-  }
 }
 
 void NativeRuntime::SaveState() {

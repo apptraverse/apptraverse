@@ -29,7 +29,6 @@ public final class SingleClientChatApplication extends Application {
         getFilesDir().getAbsolutePath(), uiBridge);
     if (runtimeHandle == 0L) {
       Log.e(TAG, "Native runtime could not be created");
-      uiBridge.onNativeStatus("Native runtime could not be created");
       return;
     }
 
@@ -59,13 +58,6 @@ public final class SingleClientChatApplication extends Application {
     if (runtimeHandle != 0L) {
       NativeRuntime.nativeQueueWindowChanged(
           runtimeHandle, width, height, densityDpi);
-    }
-  }
-
-  /** Asks the core thread to publish the current status and transcript. */
-  void requestSnapshot() {
-    if (runtimeHandle != 0L) {
-      NativeRuntime.nativeRequestSnapshot(runtimeHandle);
     }
   }
 

@@ -17,14 +17,11 @@ void DeleteGlobalRef(JNIEnv* env, jobject* object) {
 }  // namespace
 
 UiBridge::UiBridge(JavaVM* vm, jobject global_object, jclass global_class,
-                   jmethodID on_status, jmethodID on_transcript,
-                   jmethodID on_message_committed)
+                   jmethodID on_transcript)
     : vm_{vm},
       object_{global_object},
       class_{global_class},
-      on_status_{on_status},
-      on_transcript_{on_transcript},
-      on_message_committed_{on_message_committed} {}
+      on_transcript_{on_transcript} {}
 
 UiBridge::~UiBridge() { Reset(); }
 
@@ -32,15 +29,11 @@ UiBridge::UiBridge(UiBridge&& other) noexcept
     : vm_{other.vm_},
       object_{other.object_},
       class_{other.class_},
-      on_status_{other.on_status_},
-      on_transcript_{other.on_transcript_},
-      on_message_committed_{other.on_message_committed_} {
+      on_transcript_{other.on_transcript_} {
   other.vm_ = nullptr;
   other.object_ = nullptr;
   other.class_ = nullptr;
-  other.on_status_ = nullptr;
   other.on_transcript_ = nullptr;
-  other.on_message_committed_ = nullptr;
 }
 
 UiBridge& UiBridge::operator=(UiBridge&& other) noexcept {
@@ -49,15 +42,11 @@ UiBridge& UiBridge::operator=(UiBridge&& other) noexcept {
     vm_ = other.vm_;
     object_ = other.object_;
     class_ = other.class_;
-    on_status_ = other.on_status_;
     on_transcript_ = other.on_transcript_;
-    on_message_committed_ = other.on_message_committed_;
     other.vm_ = nullptr;
     other.object_ = nullptr;
     other.class_ = nullptr;
-    other.on_status_ = nullptr;
     other.on_transcript_ = nullptr;
-    other.on_message_committed_ = nullptr;
   }
   return *this;
 }
@@ -75,9 +64,7 @@ void UiBridge::Reset() {
     class_ = nullptr;
   }
   vm_ = nullptr;
-  on_status_ = nullptr;
   on_transcript_ = nullptr;
-  on_message_committed_ = nullptr;
 }
 
 JNIEnv* UiBridge::AttachedEnv() const {
@@ -123,16 +110,8 @@ void UiBridge::CallStringMethod(jmethodID method,
   env->DeleteLocalRef(java_text);
 }
 
-void UiBridge::PostStatus(std::string const& status) const {
-  CallStringMethod(on_status_, status);
-}
-
 void UiBridge::PostTranscript(std::string const& transcript) const {
   CallStringMethod(on_transcript_, transcript);
-}
-
-void UiBridge::PostMessageCommitted(std::string const& text) const {
-  CallStringMethod(on_message_committed_, text);
 }
 
 UiBridge MakeUiBridge(JNIEnv* env, jobject ui_bridge) {
@@ -155,14 +134,9 @@ UiBridge MakeUiBridge(JNIEnv* env, jobject ui_bridge) {
     return {};
   }
 
-  jmethodID on_status =
-      env->GetMethodID(global_class, "onNativeStatus", "(Ljava/lang/String;)V");
   jmethodID on_transcript = env->GetMethodID(
       global_class, "onNativeTranscript", "(Ljava/lang/String;)V");
-  jmethodID on_message_committed = env->GetMethodID(
-      global_class, "onNativeMessageCommitted", "(Ljava/lang/String;)V");
-  if (on_status == nullptr || on_transcript == nullptr ||
-      on_message_committed == nullptr) {
+  if (on_transcript == nullptr) {
     env->DeleteGlobalRef(global_class);
     if (env->ExceptionCheck()) {
       env->ExceptionClear();
@@ -176,8 +150,7 @@ UiBridge MakeUiBridge(JNIEnv* env, jobject ui_bridge) {
     return {};
   }
 
-  return UiBridge{vm, global_object, global_class, on_status, on_transcript,
-                  on_message_committed};
+  return UiBridge{vm, global_object, global_class, on_transcript};
 }
 
 }  // namespace apptraverse::android

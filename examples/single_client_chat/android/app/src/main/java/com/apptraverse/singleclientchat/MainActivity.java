@@ -13,23 +13,19 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
- * Single Activity of the example. It holds no model state: the transcript and
- * the status come from the native runtime through {@link NativeUiBridge}.
- * Orientation follows the system auto-rotate setting; the Activity is recreated
- * on rotation and never owns the NativeRuntime.
+ * Single Activity of the example. It holds no model state: the transcript comes
+ * from the native runtime through {@link NativeUiBridge}. Orientation follows
+ * the system auto-rotate setting; the Activity is recreated on rotation and
+ * never owns the NativeRuntime.
  */
 public final class MainActivity extends Activity implements NativeUiBridge.Listener {
 
   private static final String TAG = "AppTraverseChat";
 
-  private TextView statusView;
   private ScrollView transcriptScroll;
   private TextView transcriptView;
   private EditText messageInput;
   private Button sendButton;
-
-  // Text waiting for the native MESSAGE_COMMITTED confirmation.
-  private String pendingText;
 
   private int lastViewportWidth;
   private int lastViewportHeight;
@@ -39,7 +35,6 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_main);
 
-    statusView = findViewById(R.id.status);
     transcriptScroll = findViewById(R.id.transcript_scroll);
     transcriptView = findViewById(R.id.transcript);
     messageInput = findViewById(R.id.message_input);
@@ -55,8 +50,6 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     messageInput.setOnEditorActionListener(new TextView.OnEditorActionListener() {
       @Override
       public boolean onEditorAction(TextView view, int actionId, KeyEvent event) {
-        // IME_ACTION_SEND and physical Enter can both arrive; ignore key-up
-        // duplicates so one user action commits one message.
         if (event != null && event.getAction() != KeyEvent.ACTION_DOWN) {
           return true;
         }
@@ -105,10 +98,8 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   protected void onStart() {
     super.onStart();
     Log.i(TAG, "ACTIVITY_STARTED instance=" + identity());
-    // Keeps the input focused so adb shell input text reaches it.
     messageInput.requestFocus();
     application().uiBridge().attach(this);
-    application().requestSnapshot();
   }
 
   @Override
@@ -125,11 +116,6 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   }
 
   @Override
-  public void onStatus(String status) {
-    statusView.setText(status);
-  }
-
-  @Override
   public void onTranscript(String transcript) {
     transcriptView.setText(transcript);
     transcriptScroll.post(new Runnable() {
@@ -140,25 +126,13 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     });
   }
 
-  @Override
-  public void onMessageCommitted(String text) {
-    if (pendingText != null && pendingText.equals(text)) {
-      messageInput.setText("");
-      pendingText = null;
-    }
-  }
-
   private void submit() {
-    if (pendingText != null) {
-      return;
-    }
     String text = messageInput.getText().toString().trim();
     if (text.isEmpty()) {
       return;
     }
-
-    pendingText = text;
     application().send(text);
+    messageInput.setText("");
   }
 
   private String identity() {

@@ -22,9 +22,6 @@ final class NativeRuntime {
   static native void nativeQueueWindowChanged(
       long handle, int width, int height, int densityDpi);
 
-  /** Asks the core thread to republish status and transcript. */
-  static native void nativeRequestSnapshot(long handle);
-
   /** Asks the core loop to finish. */
   static native void nativeStop(long handle);
 

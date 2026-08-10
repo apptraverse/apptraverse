@@ -5,20 +5,12 @@
     android:orientation="vertical"
     android:padding="12dp">
 
-  <TextView
-      android:id="@+id/status"
-      android:layout_width="match_parent"
-      android:layout_height="wrap_content"
-      android:paddingBottom="8dp"
-      android:textSize="14sp"
-      android:text="@string/status_starting" />
-
   <ScrollView
       android:id="@+id/transcript_scroll"
       android:layout_width="match_parent"
       android:layout_height="0dp"
       android:layout_weight="1"
-      android:background="#FFF3F3F3">
+      android:fillViewport="true">
 
     <TextView
         android:id="@+id/transcript"

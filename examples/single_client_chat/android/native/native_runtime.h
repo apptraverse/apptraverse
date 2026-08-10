@@ -35,7 +35,6 @@ class NativeRuntime {
   bool QueueSend(std::string text);
   void QueueWindowChanged(std::int32_t width, std::int32_t height,
                            std::int32_t density_dpi);
-  void RequestSnapshot();
 
  private:
   struct PendingViewport {
@@ -50,9 +49,7 @@ class NativeRuntime {
   void Teardown();
   void DrainPendingSends();
   void DrainPendingViewports();
-  void PublishStatus(std::string const& status);
   void PublishTranscript(std::string const& transcript);
-  void PublishSnapshot();
   void LogJournalSizes();
   void SaveState();
   void WakeUp();
@@ -69,7 +66,6 @@ class NativeRuntime {
   std::vector<PendingViewport> pending_viewports_;
   std::atomic<ae::TaskScheduler*> scheduler_{nullptr};
   std::atomic<bool> stop_requested_{false};
-  std::atomic<bool> snapshot_requested_{false};
 };
 
 }  // namespace apptraverse::android
