@@ -3,6 +3,7 @@
 
 #include "aether/obj/obj.h"
 
+#include "apptraverse/object_macros.h"
 #include "apptraverse/window.h"
 
 namespace apptraverse {
@@ -10,7 +11,7 @@ namespace apptraverse {
 class ChatPresenter;
 
 class WindowPresenter : public ae::Obj {
-  AE_OBJECT(WindowPresenter, Obj, 0)
+  APPTRAVERSE_OBJECT(WindowPresenter, ae::Obj, 0)
 
  protected:
   WindowPresenter() = default;

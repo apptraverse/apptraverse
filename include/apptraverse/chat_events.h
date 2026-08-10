@@ -5,13 +5,14 @@
 
 #include "apptraverse/client.h"
 #include "apptraverse/event_for.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
 class Chat;
 
 class JoinClientEvent : public EventFor<Chat, JoinClientEvent> {
-  AE_OBJECT(JoinClientEvent, Event, 0)
+  APPTRAVERSE_OBJECT(JoinClientEvent, Event, 0)
 
  protected:
   JoinClientEvent() = default;
@@ -25,7 +26,7 @@ class JoinClientEvent : public EventFor<Chat, JoinClientEvent> {
 };
 
 class AddMessageEvent : public EventFor<Chat, AddMessageEvent> {
-  AE_OBJECT(AddMessageEvent, Event, 0)
+  APPTRAVERSE_OBJECT(AddMessageEvent, Event, 0)
 
  protected:
   AddMessageEvent() = default;

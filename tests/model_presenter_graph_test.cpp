@@ -104,6 +104,7 @@ void TestDistillSaveLoadCycles() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestDistillSaveLoadCycles();
   std::cout << "model_presenter_graph_test OK\n";
   return 0;

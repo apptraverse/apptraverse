@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "apptraverse/event_for.h"
+#include "apptraverse/object_macros.h"
 
 #include "windows_window.h"
 
@@ -11,7 +12,7 @@ namespace apptraverse {
 
 class ResizeWindowEvent
     : public EventFor<WindowsWindow, ResizeWindowEvent> {
-  AE_OBJECT(ResizeWindowEvent, Event, 0)
+  APPTRAVERSE_OBJECT(ResizeWindowEvent, Event, 0)
 
  protected:
   ResizeWindowEvent() = default;

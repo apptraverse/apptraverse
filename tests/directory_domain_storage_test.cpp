@@ -9,7 +9,11 @@
 
 #include "apptraverse/app.h"
 #include "apptraverse/application_ids.h"
+#include "apptraverse/chat.h"
+#include "apptraverse/chat_presenter.h"
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/window.h"
+#include "apptraverse/window_presenter.h"
 
 namespace apptraverse::test {
 
@@ -22,15 +26,23 @@ namespace apptraverse::test {
     }                                                                        \
   } while (0)
 
+struct RootedStorageFactory {
+  std::shared_ptr<std::filesystem::path> root;
+
+  std::unique_ptr<ae::IDomainStorage> operator()() const {
+    return std::make_unique<DirectoryDomainStorage>(*root);
+  }
+};
+
 void TestDirectoryDomainStorageOneDomain() {
-  auto root = std::filesystem::temp_directory_path() /
-              "apptraverse_directory_domain_storage_test";
-  std::filesystem::remove_all(root);
+  auto root = std::make_shared<std::filesystem::path>(
+      std::filesystem::temp_directory_path() /
+      "apptraverse_directory_domain_storage_test");
+  std::filesystem::remove_all(*root);
 
   {
-    auto aether_app = ae::AetherApp::Construct(ae::AetherAppContext{[root]() {
-      return std::make_unique<DirectoryDomainStorage>(root);
-    }});
+    RootedStorageFactory factory{root};
+    auto aether_app = ae::AetherApp::Construct(ae::AetherAppContext{factory});
     CHECK(aether_app.get() != nullptr);
 
     ae::Domain& domain = aether_app->domain();
@@ -54,9 +66,8 @@ void TestDirectoryDomainStorageOneDomain() {
   }
 
   {
-    auto aether_app = ae::AetherApp::Construct(ae::AetherAppContext{[root]() {
-      return std::make_unique<DirectoryDomainStorage>(root);
-    }});
+    RootedStorageFactory factory{root};
+    auto aether_app = ae::AetherApp::Construct(ae::AetherAppContext{factory});
     ae::Domain& domain = aether_app->domain();
     CHECK(aether_app->aether().is_valid());
     CHECK(aether_app->aether().id().id() == 1);
@@ -68,12 +79,13 @@ void TestDirectoryDomainStorageOneDomain() {
     CHECK(app.domain() == &domain);
   }
 
-  std::filesystem::remove_all(root);
+  std::filesystem::remove_all(*root);
 }
 
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestDirectoryDomainStorageOneDomain();
   std::cout << "directory_domain_storage_test OK\n";
   return 0;

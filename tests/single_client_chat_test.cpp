@@ -3,11 +3,13 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <type_traits>
 
 #include "aether/clock.h"
 #include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/obj/obj.h"
 
+#include "apptraverse/object_macros.h"
 #include "apptraverse/app.h"
 #include "apptraverse/application_ids.h"
 #include "apptraverse/chat.h"
@@ -15,8 +17,12 @@
 #include "apptraverse/chat_events.h"
 #include "apptraverse/chat_presenter.h"
 #include "apptraverse/client.h"
+#include "apptraverse/node.h"
 #include "apptraverse/window.h"
 #include "apptraverse/window_presenter.h"
+
+#include "../examples/single_client_chat/common/chat_transcript.h"
+#include "../examples/single_client_chat/common/graph_builder.h"
 
 namespace apptraverse::test {
 
@@ -30,7 +36,7 @@ namespace apptraverse::test {
   } while (0)
 
 class FakeChatPresenter : public ChatPresenter {
-  AE_OBJECT(FakeChatPresenter, ChatPresenter, 0)
+  APPTRAVERSE_OBJECT(FakeChatPresenter, ChatPresenter, 0)
 
  protected:
   FakeChatPresenter() = default;
@@ -40,6 +46,34 @@ class FakeChatPresenter : public ChatPresenter {
 
   AE_OBJECT_REFLECT()
 };
+
+class FakeWindow : public Window {
+  APPTRAVERSE_OBJECT(FakeWindow, Window, 0)
+
+ protected:
+  FakeWindow() = default;
+
+ public:
+  explicit FakeWindow(ae::ObjProp prop) : Window{prop} {}
+
+  AE_OBJECT_REFLECT()
+};
+
+class FakeWindowPresenter : public WindowPresenter {
+  APPTRAVERSE_OBJECT(FakeWindowPresenter, WindowPresenter, 0)
+
+ protected:
+  FakeWindowPresenter() = default;
+
+ public:
+  explicit FakeWindowPresenter(ae::ObjProp prop) : WindowPresenter{prop} {}
+
+  AE_OBJECT_REFLECT()
+};
+
+APPTRAVERSE_REGISTER(FakeChatPresenter);
+APPTRAVERSE_REGISTER(FakeWindow);
+APPTRAVERSE_REGISTER(FakeWindowPresenter);
 
 void WaitForNextTimestamp(Chat::ptr const& chat) {
   if (chat->journal.empty()) {
@@ -76,6 +110,28 @@ void TestApplicationIds() {
       CHECK(ids[i] != ids[j]);
     }
   }
+}
+
+void TestCommonGraphAndTranscript() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+
+  auto graph = examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
+                                                    FakeChatPresenter>(domain);
+  CHECK(graph.app.id().id() == ToObjId(ApplicationObjId::Application));
+  CHECK(graph.alice->name == "Alice");
+  CHECK(graph.chat->entries.size() == 1);
+  CHECK(graph.chat_presenter->GetClassId() == FakeChatPresenter::kClassId);
+  static_assert(!std::is_base_of_v<Node, FakeChatPresenter>);
+  static_assert(!std::is_base_of_v<Node, ChatPresenter>);
+
+  auto const transcript = examples::FormatChatTranscriptUtf8(graph.chat);
+  CHECK(transcript.find("* Alice joined") != std::string::npos);
+
+  WaitForNextTimestamp(graph.chat);
+  graph.chat_presenter->SubmitText("hello");
+  auto const after = examples::FormatChatTranscriptUtf8(graph.chat);
+  CHECK(after.find("Alice: hello") != std::string::npos);
 }
 
 void TestSingleClientChat() {
@@ -174,13 +230,16 @@ void TestSingleClientChat() {
     auto presenter = chat->presenter;
     presenter.Load();
     CHECK(presenter->GetClassId() == FakeChatPresenter::kClassId);
+    static_assert(!std::is_base_of_v<Node, ChatPresenter>);
   }
 }
 
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestApplicationIds();
+  apptraverse::test::TestCommonGraphAndTranscript();
   apptraverse::test::TestSingleClientChat();
   std::cout << "single_client_chat_test OK\n";
   return 0;

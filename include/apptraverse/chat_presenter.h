@@ -9,13 +9,14 @@
 
 #include "apptraverse/chat.h"
 #include "apptraverse/chat_events.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
 class WindowPresenter;
 
 class ChatPresenter : public ae::Obj {
-  AE_OBJECT(ChatPresenter, Obj, 0)
+  APPTRAVERSE_OBJECT(ChatPresenter, ae::Obj, 0)
 
  protected:
   ChatPresenter() = default;

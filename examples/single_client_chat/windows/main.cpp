@@ -16,11 +16,24 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/application_ids.h"
+#include "apptraverse/app.h"
 
 #include "../common/graph_builder.h"
 #include "win_chat_presenter.h"
 #include "win_window_presenter.h"
 #include "windows_window.h"
+#include "resize_window_event.h"
+
+namespace apptraverse {
+namespace {
+
+APPTRAVERSE_REGISTER(WindowsWindow);
+APPTRAVERSE_REGISTER(WinWindowPresenter);
+APPTRAVERSE_REGISTER(WinChatPresenter);
+APPTRAVERSE_REGISTER(ResizeWindowEvent);
+
+}  // namespace
+}  // namespace apptraverse
 
 namespace {
 
@@ -91,6 +104,7 @@ int Run() {
 }  // namespace
 
 int main(int argc, char** argv) {
+  apptraverse::EnsureObjectRegistration();
   if (IsDistillMode(argc, argv)) {
     Distill();
     return 0;

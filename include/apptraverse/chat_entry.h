@@ -6,11 +6,12 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/client.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
 class ChatEntry : public ae::Obj {
-  AE_OBJECT(ChatEntry, Obj, 0)
+  APPTRAVERSE_OBJECT(ChatEntry, ae::Obj, 0)
 
  protected:
   ChatEntry() = default;
@@ -22,7 +23,7 @@ class ChatEntry : public ae::Obj {
 };
 
 class JoinClientEntry : public ChatEntry {
-  AE_OBJECT(JoinClientEntry, ChatEntry, 0)
+  APPTRAVERSE_OBJECT(JoinClientEntry, ChatEntry, 0)
 
  protected:
   JoinClientEntry() = default;
@@ -36,7 +37,7 @@ class JoinClientEntry : public ChatEntry {
 };
 
 class MessageEntry : public ChatEntry {
-  AE_OBJECT(MessageEntry, ChatEntry, 0)
+  APPTRAVERSE_OBJECT(MessageEntry, ChatEntry, 0)
 
  protected:
   MessageEntry() = default;

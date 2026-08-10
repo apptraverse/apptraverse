@@ -9,13 +9,14 @@
 #include "apptraverse/chat_entry.h"
 #include "apptraverse/chat_events.h"
 #include "apptraverse/node_for.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
 class ChatPresenter;
 
 class Chat : public NodeFor<Chat> {
-  AE_OBJECT(Chat, Node, 0)
+  APPTRAVERSE_OBJECT(Chat, Node, 0)
 
  protected:
   Chat() = default;

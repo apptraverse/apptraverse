@@ -10,6 +10,7 @@
 #include "apptraverse/application_ids.h"
 #include "apptraverse/chat.h"
 #include "apptraverse/chat_events.h"
+#include "apptraverse/chat_presenter.h"
 #include "apptraverse/client.h"
 #include "apptraverse/window.h"
 #include "apptraverse/window_presenter.h"

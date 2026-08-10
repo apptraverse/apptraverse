@@ -4,12 +4,14 @@
 #include "aether/obj/obj.h"
 #include "aether/obj/obj_ptr.h"
 
+#include "apptraverse/object_macros.h"
+
 namespace apptraverse {
 
 class Window;
 
 class App : public ae::Obj {
-  AE_OBJECT(App, Obj, 0)
+  APPTRAVERSE_OBJECT(App, ae::Obj, 0)
 
  protected:
   App() = default;

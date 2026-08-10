@@ -4,13 +4,15 @@
 #include "aether/obj/obj.h"
 #include "aether/obj/obj_ptr.h"
 
+#include "apptraverse/object_macros.h"
+
 namespace apptraverse {
 
 class WindowPresenter;
 class Chat;
 
 class Window : public ae::Obj {
-  AE_OBJECT(Window, Obj, 0)
+  APPTRAVERSE_OBJECT(Window, ae::Obj, 0)
 
  protected:
   Window() = default;

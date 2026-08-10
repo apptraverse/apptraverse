@@ -12,12 +12,13 @@
 #include <string>
 
 #include "apptraverse/chat_presenter.h"
+#include "apptraverse/object_macros.h"
 #include "../common/chat_transcript.h"
 
 namespace apptraverse {
 
 class WinChatPresenter : public ChatPresenter {
-  AE_OBJECT(WinChatPresenter, ChatPresenter, 0)
+  APPTRAVERSE_OBJECT(WinChatPresenter, ChatPresenter, 0)
 
  protected:
   WinChatPresenter() = default;

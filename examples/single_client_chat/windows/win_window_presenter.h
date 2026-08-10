@@ -11,6 +11,7 @@
 
 #include <cassert>
 
+#include "apptraverse/object_macros.h"
 #include "apptraverse/window_presenter.h"
 
 #include "resize_window_event.h"
@@ -20,7 +21,7 @@
 namespace apptraverse {
 
 class WinWindowPresenter : public WindowPresenter {
-  AE_OBJECT(WinWindowPresenter, WindowPresenter, 0)
+  APPTRAVERSE_OBJECT(WinWindowPresenter, WindowPresenter, 0)
 
  protected:
   WinWindowPresenter() = default;

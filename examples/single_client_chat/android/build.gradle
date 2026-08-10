@@ -1,0 +1,10 @@
+// Root Gradle build for the Android single-client chat example.
+// Stable Android Gradle Plugin only, no preview versions.
+
+plugins {
+  id "com.android.application" version "8.7.3" apply false
+}
+
+tasks.register("clean", Delete) {
+  delete rootProject.layout.buildDirectory
+}

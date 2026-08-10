@@ -15,6 +15,7 @@ out/
 
 # CPM / dependency caches
 .cpm/
+.cpm_cache/
 CPM_modules/
 
 # Compilers / linkers

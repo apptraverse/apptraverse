@@ -12,6 +12,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_record.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
@@ -23,7 +24,7 @@ inline std::uint64_t SystemUtcMicros() {
 }
 
 class Node : public ae::Obj {
-  AE_OBJECT(Node, Obj, 0)
+  APPTRAVERSE_OBJECT(Node, ae::Obj, 0)
 
  protected:
   Node() = default;

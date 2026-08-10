@@ -3,10 +3,12 @@
 
 #include "aether/obj/obj.h"
 
+#include "apptraverse/object_macros.h"
+
 namespace apptraverse {
 
 class Event : public ae::Obj {
-  AE_OBJECT(Event, Obj, 0)
+  APPTRAVERSE_OBJECT(Event, ae::Obj, 0)
 
  protected:
   Event() = default;

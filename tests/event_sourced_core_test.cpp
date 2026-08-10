@@ -12,6 +12,7 @@
 
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse::test {
 
@@ -19,7 +20,7 @@ class CounterDocument;
 class AddEvent;
 
 class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
-  AE_OBJECT(CounterDocument, Node, 0)
+  APPTRAVERSE_OBJECT(CounterDocument, Node, 0)
 
  protected:
   CounterDocument() = default;
@@ -42,7 +43,7 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
 };
 
 class AddEvent : public apptraverse::EventFor<CounterDocument, AddEvent> {
-  AE_OBJECT(AddEvent, Event, 0)
+  APPTRAVERSE_OBJECT(AddEvent, Event, 0)
 
  protected:
   AddEvent() = default;
@@ -55,6 +56,9 @@ class AddEvent : public apptraverse::EventFor<CounterDocument, AddEvent> {
   std::int32_t delta{0};
   std::string tag;
 };
+
+APPTRAVERSE_REGISTER(CounterDocument);
+APPTRAVERSE_REGISTER(AddEvent);
 
 void CounterDocument::Apply(AddEvent const& event) {
   value += event.delta;
@@ -179,6 +183,7 @@ void TestSaveLoad() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestEventApplication();
   apptraverse::test::TestJournalCommitAndReplay();
   apptraverse::test::TestSaveLoad();

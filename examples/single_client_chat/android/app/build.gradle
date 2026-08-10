@@ -1,0 +1,66 @@
+plugins {
+  id "com.android.application"
+}
+
+def compileSdkVersion = (project.findProperty("apptraverse.compileSdk") ?: "34") as Integer
+def cmakeVersion = project.findProperty("apptraverse.cmakeVersion") ?: "4.1.2"
+def abiFilterList = ((project.findProperty("apptraverse.abiFilters") ?: "x86_64,arm64-v8a") as String)
+    .split(",")
+    .collect { it.trim() }
+    .findAll { !it.isEmpty() }
+
+android {
+  namespace "com.apptraverse.singleclientchat"
+  compileSdk compileSdkVersion
+  buildToolsVersion = "36.0.0"
+  ndkVersion "29.0.14206865"
+
+  defaultConfig {
+    applicationId "com.apptraverse.singleclientchat"
+    minSdk 24
+    targetSdk compileSdkVersion
+    versionCode 1
+    versionName "0.1.0"
+
+    ndk {
+      abiFilters.addAll(abiFilterList)
+    }
+
+    externalNativeBuild {
+      cmake {
+        arguments "-DANDROID_STL=c++_static",
+                  "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+                  "-DCPM_SOURCE_CACHE=C:/cpm-cache"
+        targets "apptraverse_single_client_chat"
+      }
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path file("../native/CMakeLists.txt")
+      version cmakeVersion
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  buildTypes {
+    debug {
+      debuggable true
+      jniDebuggable true
+    }
+    release {
+      minifyEnabled false
+      proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
+    }
+  }
+
+  lint {
+    abortOnError false
+  }
+}

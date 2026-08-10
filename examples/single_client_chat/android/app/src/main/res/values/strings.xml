@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">AppTraverse Chat</string>
+  <string name="send">Send</string>
+  <string name="message_hint">Message</string>
+  <string name="status_starting">Starting the native runtime</string>
+  <string name="send_rejected">Message was not queued</string>
+</resources>

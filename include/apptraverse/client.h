@@ -4,11 +4,12 @@
 #include <string>
 
 #include "apptraverse/node_for.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
 class Client : public NodeFor<Client> {
-  AE_OBJECT(Client, Node, 0)
+  APPTRAVERSE_OBJECT(Client, Node, 0)
 
  protected:
   Client() = default;
