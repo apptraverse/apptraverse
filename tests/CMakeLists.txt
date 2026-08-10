@@ -41,3 +41,14 @@ add_test(
   NAME apptraverse_single_client_chat_test
   COMMAND apptraverse_single_client_chat_test
 )
+
+add_executable(apptraverse_windows_window_policy_test
+  windows_window_policy_test.cpp
+)
+
+target_link_libraries(apptraverse_windows_window_policy_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_windows_window_policy_test
+  COMMAND apptraverse_windows_window_policy_test
+)

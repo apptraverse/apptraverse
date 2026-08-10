@@ -1,3 +1,8 @@
+#include <cstring>
+#include <filesystem>
+#include <iostream>
+#include <string>
+
 #ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN
 #endif
@@ -5,11 +10,6 @@
 #ifdef RegisterClass
 #  undef RegisterClass
 #endif
-
-#include <cstring>
-#include <filesystem>
-#include <iostream>
-#include <string>
 
 #include "aether/clock.h"
 #include "aether/domain_storage/file_system_std_storage.h"
@@ -19,10 +19,11 @@
 #include "apptraverse/app.h"
 
 #include "../common/graph_builder.h"
+#include "display_environment_changed_event.h"
 #include "win_chat_presenter.h"
 #include "win_window_presenter.h"
+#include "window_bounds_changed_event.h"
 #include "windows_window.h"
-#include "resize_window_event.h"
 
 namespace apptraverse {
 namespace {
@@ -30,7 +31,8 @@ namespace {
 APPTRAVERSE_REGISTER(WindowsWindow);
 APPTRAVERSE_REGISTER(WinWindowPresenter);
 APPTRAVERSE_REGISTER(WinChatPresenter);
-APPTRAVERSE_REGISTER(ResizeWindowEvent);
+APPTRAVERSE_REGISTER(WindowBoundsChangedEvent);
+APPTRAVERSE_REGISTER(DisplayEnvironmentChangedEvent);
 
 }  // namespace
 }  // namespace apptraverse
@@ -60,6 +62,8 @@ void Distill() {
   auto window = graph.window;
   window.Load();
   auto& win = static_cast<apptraverse::WindowsWindow&>(*window);
+  win.x = 120;
+  win.y = 80;
   win.width = 720;
   win.height = 520;
 

@@ -8,8 +8,12 @@
 
 namespace apptraverse {
 
-class ResizeWindowEvent;
+class WindowBoundsChangedEvent;
+class DisplayEnvironmentChangedEvent;
 
+// Platform Window model for Win32. Fields describe the outer top-level
+// normal/restored rectangle in screen coordinates. Minimized/maximized show
+// state is not persisted.
 class WindowsWindow : public Window {
   APPTRAVERSE_OBJECT(WindowsWindow, Window, 0)
 
@@ -19,12 +23,15 @@ class WindowsWindow : public Window {
  public:
   explicit WindowsWindow(ae::ObjProp prop) : Window{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height))
+  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height))
 
+  std::int32_t x{100};
+  std::int32_t y{100};
   std::int32_t width{640};
   std::int32_t height{480};
 
-  void Apply(ResizeWindowEvent const& event);
+  void Apply(WindowBoundsChangedEvent const& event);
+  void Apply(DisplayEnvironmentChangedEvent const& event);
 };
 
 }  // namespace apptraverse
