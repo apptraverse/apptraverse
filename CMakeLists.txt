@@ -38,5 +38,5 @@ if(BUILD_TESTING)
 endif()
 
 if(WIN32)
-  add_subdirectory(examples/win32_single_client_chat)
+  add_subdirectory(examples/single_client_chat)
 endif()

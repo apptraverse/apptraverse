@@ -11,8 +11,8 @@
 
 #include <string>
 
-#include "apptraverse/chat_entry.h"
 #include "apptraverse/chat_presenter.h"
+#include "../common/chat_transcript.h"
 
 namespace apptraverse {
 
@@ -93,32 +93,21 @@ class WinChatPresenter : public ChatPresenter {
     if (transcript_ == nullptr || !chat.is_valid()) {
       return;
     }
-    chat.Load();
-    std::wstring text;
-    for (auto const& entry : chat->entries) {
-      auto loaded = entry;
-      loaded.Load();
-      if (!loaded.is_loaded()) {
-        continue;
-      }
-      if (loaded->GetClassId() == JoinClientEntry::kClassId) {
-        auto& join = static_cast<JoinClientEntry&>(*loaded);
-        join.client.Load();
-        text += L"* ";
-        text += Utf8ToWide(join.client->name);
-        text += L" joined\r\n";
-      } else if (loaded->GetClassId() == MessageEntry::kClassId) {
-        auto& message = static_cast<MessageEntry&>(*loaded);
-        message.author.Load();
-        text += Utf8ToWide(message.author->name);
-        text += L": ";
-        text += Utf8ToWide(message.text);
-        text += L"\r\n";
+    auto const utf8 = examples::FormatChatTranscriptUtf8(chat);
+    std::wstring text = Utf8ToWide(utf8);
+    // EDIT control expects CRLF line endings on Windows.
+    std::wstring crlf;
+    crlf.reserve(text.size() + 8);
+    for (wchar_t ch : text) {
+      if (ch == L'\n') {
+        crlf += L"\r\n";
+      } else if (ch != L'\r') {
+        crlf.push_back(ch);
       }
     }
-    SetWindowTextW(transcript_, text.c_str());
-    SendMessageW(transcript_, EM_SETSEL, static_cast<WPARAM>(text.size()),
-                 static_cast<LPARAM>(text.size()));
+    SetWindowTextW(transcript_, crlf.c_str());
+    SendMessageW(transcript_, EM_SETSEL, static_cast<WPARAM>(crlf.size()),
+                 static_cast<LPARAM>(crlf.size()));
     SendMessageW(transcript_, EM_SCROLLCARET, 0, 0);
   }
 
