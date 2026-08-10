@@ -7,6 +7,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/app.h"
+#include "apptraverse/application_ids.h"
 #include "apptraverse/chat.h"
 #include "apptraverse/chat_presenter.h"
 #include "apptraverse/node.h"
@@ -29,16 +30,19 @@ static_assert(!std::is_base_of_v<apptraverse::Node, apptraverse::ChatPresenter>)
 static_assert(!std::is_base_of_v<apptraverse::Node, apptraverse::Window>);
 static_assert(std::is_base_of_v<apptraverse::Node, apptraverse::Chat>);
 
-void DistillGraph(ae::Domain& domain, ae::ObjId::Type app_id) {
-  auto app = App::ptr::Create(ae::CreateWith{domain}.with_id(app_id));
-  auto window = Window::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 1));
-  auto window_presenter =
-      WindowPresenter::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 2));
-  auto chat_base =
-      Chat::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 3));
-  auto chat = Chat::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 4));
-  auto chat_presenter =
-      ChatPresenter::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 5));
+void DistillGraph(ae::Domain& domain) {
+  auto app = App::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Application)));
+  auto window = Window::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Window)));
+  auto window_presenter = WindowPresenter::ptr::Create(ae::CreateWith{domain}
+      .with_id(ToObjId(ApplicationObjId::WindowPresenter)));
+  auto chat_base = Chat::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::ChatBase)));
+  auto chat = Chat::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Chat)));
+  auto chat_presenter = ChatPresenter::ptr::Create(ae::CreateWith{domain}.with_id(
+      ToObjId(ApplicationObjId::ChatPresenter)));
 
   app->window = window;
 
@@ -82,16 +86,16 @@ void CheckLinks(App::ptr const& app) {
 
 void TestDistillSaveLoadCycles() {
   ae::RamDomainStorage storage;
-  ae::ObjId::Type const app_id = 100;
 
   {
     ae::Domain domain{ae::Now(), storage};
-    DistillGraph(domain, app_id);
+    DistillGraph(domain);
   }
 
   {
     ae::Domain domain{ae::Now(), storage};
-    auto app = App::ptr::Declare(ae::CreateWith{domain}.with_id(app_id));
+    auto app = App::ptr::Declare(ae::CreateWith{domain}.with_id(
+        ToObjId(ApplicationObjId::Application)));
     app.Load();
     CheckLinks(app);
   }

@@ -9,6 +9,7 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/app.h"
+#include "apptraverse/application_ids.h"
 #include "apptraverse/chat.h"
 #include "apptraverse/chat_entry.h"
 #include "apptraverse/chat_events.h"
@@ -50,25 +51,53 @@ void WaitForNextTimestamp(Chat::ptr const& chat) {
   }
 }
 
+void TestApplicationIds() {
+  CHECK(ToObjId(ApplicationObjId::Application) >= 100000);
+  CHECK(ToObjId(ApplicationObjId::Window) >= 100000);
+  CHECK(ToObjId(ApplicationObjId::WindowPresenter) >= 100000);
+  CHECK(ToObjId(ApplicationObjId::ChatBase) >= 100000);
+  CHECK(ToObjId(ApplicationObjId::Chat) >= 100000);
+  CHECK(ToObjId(ApplicationObjId::ChatPresenter) >= 100000);
+  CHECK(ToObjId(ApplicationObjId::Alice) >= 100000);
+  CHECK(ToObjId(ApplicationObjId::JoinClientEvent) >= 100000);
+
+  ae::ObjId::Type const ids[] = {
+      ToObjId(ApplicationObjId::Application),
+      ToObjId(ApplicationObjId::Window),
+      ToObjId(ApplicationObjId::WindowPresenter),
+      ToObjId(ApplicationObjId::ChatBase),
+      ToObjId(ApplicationObjId::Chat),
+      ToObjId(ApplicationObjId::ChatPresenter),
+      ToObjId(ApplicationObjId::Alice),
+      ToObjId(ApplicationObjId::JoinClientEvent),
+  };
+  for (std::size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); ++i) {
+    for (std::size_t j = i + 1; j < sizeof(ids) / sizeof(ids[0]); ++j) {
+      CHECK(ids[i] != ids[j]);
+    }
+  }
+}
+
 void TestSingleClientChat() {
   ae::RamDomainStorage storage;
-  ae::ObjId::Type const app_id = 200;
 
   {
     ae::Domain domain{ae::Now(), storage};
 
-    auto app = App::ptr::Create(ae::CreateWith{domain}.with_id(app_id));
-    auto window =
-        Window::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 1));
-    auto window_presenter = WindowPresenter::ptr::Create(
-        ae::CreateWith{domain}.with_id(app_id + 2));
-    auto chat_base =
-        Chat::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 3));
-    auto chat = Chat::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 4));
-    auto chat_presenter = FakeChatPresenter::ptr::Create(
-        ae::CreateWith{domain}.with_id(app_id + 5));
-    auto alice =
-        Client::ptr::Create(ae::CreateWith{domain}.with_id(app_id + 6));
+    auto app = App::ptr::Create(ae::CreateWith{domain}.with_id(
+        ToObjId(ApplicationObjId::Application)));
+    auto window = Window::ptr::Create(
+        ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Window)));
+    auto window_presenter = WindowPresenter::ptr::Create(ae::CreateWith{domain}
+        .with_id(ToObjId(ApplicationObjId::WindowPresenter)));
+    auto chat_base = Chat::ptr::Create(
+        ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::ChatBase)));
+    auto chat = Chat::ptr::Create(
+        ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Chat)));
+    auto chat_presenter = FakeChatPresenter::ptr::Create(ae::CreateWith{domain}
+        .with_id(ToObjId(ApplicationObjId::ChatPresenter)));
+    auto alice = Client::ptr::Create(
+        ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Alice)));
 
     alice->name = "Alice";
 
@@ -85,8 +114,8 @@ void TestSingleClientChat() {
     chat_presenter->chat = chat;
     chat_presenter->window_presenter = window_presenter;
 
-    auto join = JoinClientEvent::ptr::Create(
-        ae::CreateWith{domain}.with_id(app_id + 7));
+    auto join = JoinClientEvent::ptr::Create(ae::CreateWith{domain}.with_id(
+        ToObjId(ApplicationObjId::JoinClientEvent)));
     join->client = alice;
     chat->Commit(join);
 
@@ -120,7 +149,8 @@ void TestSingleClientChat() {
 
   {
     ae::Domain domain{ae::Now(), storage};
-    auto app = App::ptr::Declare(ae::CreateWith{domain}.with_id(app_id));
+    auto app = App::ptr::Declare(ae::CreateWith{domain}.with_id(
+        ToObjId(ApplicationObjId::Application)));
     app.Load();
     CHECK(app.is_loaded());
 
@@ -150,6 +180,7 @@ void TestSingleClientChat() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::test::TestApplicationIds();
   apptraverse::test::TestSingleClientChat();
   std::cout << "single_client_chat_test OK\n";
   return 0;
