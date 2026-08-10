@@ -36,8 +36,10 @@ endif()
 # aether includes this header through the USER_CONFIG define and resolves the
 # path against its own source root. STRING keeps the value relative, a PATH
 # cache entry would be rewritten into an absolute build directory path.
+# Force Hydrogen for real registration / cloud DNS / P2P (do not keep a stale
+# android_smoke CACHE value from earlier local builds).
 set(USER_CONFIG "config/user_config_hydrogen.h"
-  CACHE STRING "Path to the aether user configuration header")
+  CACHE STRING "Path to the aether user configuration header" FORCE)
 
 # The AppTraverse root project owns the aether pin and the apptraverse library.
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
