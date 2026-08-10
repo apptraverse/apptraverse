@@ -1,10 +1,8 @@
 #include <cassert>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
-#include <thread>
 
 #include "aether/clock.h"
 #include "aether/domain_storage/ram_domain_storage.h"
@@ -34,8 +32,6 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
   std::string label;
 
   void Apply(AddEvent const& event);
-
-  void CaptureBaseStateForTest() { CaptureBaseState(); }
 
   void InsertAtForTest(std::uint64_t timestamp_us, Event::ptr event) {
     InsertEvent(EventRecord{timestamp_us, std::move(event)});
@@ -74,21 +70,6 @@ void CounterDocument::Apply(AddEvent const& event) {
     }                                                                        \
   } while (0)
 
-void TestEventApplication() {
-  ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
-
-  auto doc = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(1));
-  auto event = AddEvent::ptr::Create(ae::CreateWith{domain}.with_id(2));
-  event->delta = 7;
-  event->tag = "a";
-
-  event->ApplyTo(*doc);
-  CHECK(doc->value == 7);
-  CHECK(doc->label == "a");
-  CHECK(doc->journal.empty());
-}
-
 void TestJournalCommitAndReplay() {
   ae::RamDomainStorage storage;
   ae::Domain domain{ae::Now(), storage};
@@ -101,16 +82,12 @@ void TestJournalCommitAndReplay() {
   doc->base = base;
   doc->value = 1;
   doc->label = "b";
-  doc->CaptureBaseStateForTest();
+  doc->CaptureBaseState();
 
   auto e1 = AddEvent::ptr::Create(ae::CreateWith{domain}.with_id(12));
   e1->delta = 2;
   e1->tag = "x";
   doc->Commit(e1);
-
-  while (apptraverse::SystemUtcMicros() <= doc->journal[0].timestamp_us) {
-    std::this_thread::sleep_for(std::chrono::microseconds(1));
-  }
 
   auto e2 = AddEvent::ptr::Create(ae::CreateWith{domain}.with_id(13));
   e2->delta = 3;
@@ -151,7 +128,7 @@ void TestSaveLoad() {
     doc->base = base;
     doc->value = 5;
     doc->label = "s";
-    doc->CaptureBaseStateForTest();
+    doc->CaptureBaseState();
 
     auto event = AddEvent::ptr::Create(ae::CreateWith{domain}.with_id(22));
     event->delta = 4;
@@ -180,13 +157,35 @@ void TestSaveLoad() {
   }
 }
 
+void TestMonotonicTimestampWithoutSleep() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+
+  auto base = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(30));
+  auto doc = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(31));
+  doc->base = base;
+  doc->CaptureBaseState();
+
+  for (int i = 0; i < 20; ++i) {
+    auto event = AddEvent::ptr::Create(ae::CreateWith{domain});
+    event->delta = 1;
+    event->tag = ".";
+    doc->Commit(event);
+  }
+  CHECK(doc->journal.size() == 20);
+  for (std::size_t i = 1; i < doc->journal.size(); ++i) {
+    CHECK(doc->journal[i - 1].timestamp_us < doc->journal[i].timestamp_us);
+  }
+  CHECK(doc->value == 20);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureObjectRegistration();
-  apptraverse::test::TestEventApplication();
   apptraverse::test::TestJournalCommitAndReplay();
   apptraverse::test::TestSaveLoad();
+  apptraverse::test::TestMonotonicTimestampWithoutSleep();
   std::cout << "event_sourced_core_test OK\n";
   return 0;
 }

@@ -17,12 +17,11 @@
 
 #include "apptraverse/application_ids.h"
 #include "apptraverse/app.h"
+#include "apptraverse/window_changed_event.h"
 
 #include "../common/graph_builder.h"
-#include "display_environment_changed_event.h"
 #include "win_chat_presenter.h"
 #include "win_window_presenter.h"
-#include "window_bounds_changed_event.h"
 #include "windows_window.h"
 
 namespace apptraverse {
@@ -31,8 +30,6 @@ namespace {
 APPTRAVERSE_REGISTER(WindowsWindow);
 APPTRAVERSE_REGISTER(WinWindowPresenter);
 APPTRAVERSE_REGISTER(WinChatPresenter);
-APPTRAVERSE_REGISTER(WindowBoundsChangedEvent);
-APPTRAVERSE_REGISTER(DisplayEnvironmentChangedEvent);
 
 }  // namespace
 }  // namespace apptraverse
@@ -58,14 +55,6 @@ void Distill() {
       apptraverse::examples::BuildSingleClientChatGraph<
           apptraverse::WindowsWindow, apptraverse::WinWindowPresenter,
           apptraverse::WinChatPresenter>(domain);
-
-  auto window = graph.window;
-  window.Load();
-  auto& win = static_cast<apptraverse::WindowsWindow&>(*window);
-  win.x = 120;
-  win.y = 80;
-  win.width = 720;
-  win.height = 520;
 
   graph.app.Save();
   std::cout << "Distilled single-client chat graph to ./state\n";

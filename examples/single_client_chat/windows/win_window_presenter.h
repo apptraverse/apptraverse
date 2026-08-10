@@ -13,11 +13,10 @@
 #include <cstdint>
 
 #include "apptraverse/object_macros.h"
+#include "apptraverse/window_changed_event.h"
 #include "apptraverse/window_presenter.h"
 
-#include "display_environment_changed_event.h"
 #include "win_chat_presenter.h"
-#include "window_bounds_changed_event.h"
 #include "windows_window.h"
 
 namespace apptraverse {
@@ -47,10 +46,8 @@ class WinWindowPresenter : public WindowPresenter {
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     RegisterClassW(&wc);
 
-    if (ApplyDisplayEnvironmentToModel(model, model.x, model.y, model.width,
-                                       model.height, CurrentSystemDpi())) {
-      window.Save();
-    }
+    CommitWindowChanged(model.x, model.y, model.x + model.width,
+                        model.y + model.height, CurrentSystemDpi());
 
     hwnd_ = CreateWindowExW(0, kClassName, L"AppTraverse Chat",
                             WS_OVERLAPPEDWINDOW, model.x, model.y, model.width,
@@ -111,24 +108,29 @@ class WinWindowPresenter : public WindowPresenter {
       }
       case WM_WINDOWPOSCHANGED: {
         if (!applying_model_bounds_) {
-          PersistNormalBoundsIfNeeded(hwnd);
+          CommitFromHwnd(hwnd, CurrentSystemDpi());
         }
         return DefWindowProcW(hwnd, msg, wparam, lparam);
       }
       case WM_DISPLAYCHANGE: {
-        HandleDisplayEnvironmentChange(hwnd);
+        CommitFromHwnd(hwnd, CurrentSystemDpi());
+        ApplyModelBoundsToHwnd(hwnd);
         return 0;
       }
       case WM_SETTINGCHANGE: {
         if (wparam == SPI_SETWORKAREA) {
-          HandleDisplayEnvironmentChange(hwnd);
+          CommitFromHwnd(hwnd, CurrentSystemDpi());
+          ApplyModelBoundsToHwnd(hwnd);
         }
         return 0;
       }
       case WM_DPICHANGED: {
         auto const* suggested = reinterpret_cast<RECT const*>(lparam);
         if (suggested != nullptr) {
-          HandleDpiChanged(hwnd, *suggested, HIWORD(wparam));
+          CommitWindowChanged(suggested->left, suggested->top, suggested->right,
+                              suggested->bottom,
+                              static_cast<std::int32_t>(HIWORD(wparam)));
+          ApplyModelBoundsToHwnd(hwnd);
         }
         return 0;
       }
@@ -201,118 +203,51 @@ class WinWindowPresenter : public WindowPresenter {
     return outer;
   }
 
-  bool ApplyDisplayEnvironmentToModel(WindowsWindow& model,
-                                      std::int32_t candidate_x,
-                                      std::int32_t candidate_y,
-                                      std::int32_t candidate_width,
-                                      std::int32_t candidate_height,
-                                      std::int32_t dpi) {
-    RECT candidate{candidate_x, candidate_y, candidate_x + candidate_width,
-                   candidate_y + candidate_height};
+  void CommitWindowChanged(std::int32_t window_left, std::int32_t window_top,
+                           std::int32_t window_right, std::int32_t window_bottom,
+                           std::int32_t dpi) {
+    assert(window.is_valid());
+    window.Load();
+    auto& model = static_cast<WindowsWindow&>(*window);
+
+    RECT candidate{window_left, window_top, window_right, window_bottom};
     RECT const work = WorkAreaForRect(candidate);
 
-    std::int32_t const before_x = model.x;
-    std::int32_t const before_y = model.y;
-    std::int32_t const before_w = model.width;
-    std::int32_t const before_h = model.height;
+    auto event =
+        WindowChangedEvent::ptr::Create(ae::CreateWith{*window.domain()});
+    event->available_left = work.left;
+    event->available_top = work.top;
+    event->available_right = work.right;
+    event->available_bottom = work.bottom;
+    event->window_left = window_left;
+    event->window_top = window_top;
+    event->window_right = window_right;
+    event->window_bottom = window_bottom;
+    event->density_dpi = dpi;
 
-    auto event = DisplayEnvironmentChangedEvent::ptr::Create(
-        ae::CreateWith{*window.domain()});
-    event->work_left = work.left;
-    event->work_top = work.top;
-    event->work_right = work.right;
-    event->work_bottom = work.bottom;
-    event->candidate_x = candidate_x;
-    event->candidate_y = candidate_y;
-    event->candidate_width = candidate_width;
-    event->candidate_height = candidate_height;
-    event->dpi = dpi;
-    event->ApplyTo(model);
-
-    return model.x != before_x || model.y != before_y ||
-           model.width != before_w || model.height != before_h;
+    window->Commit(event);
+    window.Save();
   }
 
-  void ApplyModelBoundsToHwnd(HWND hwnd, WindowsWindow const& model) {
+  void CommitFromHwnd(HWND hwnd, std::int32_t dpi) {
+    RECT outer = QueryNormalOuterRect(hwnd);
+    if (!IsIconic(hwnd) && !IsZoomed(hwnd)) {
+      GetWindowRect(hwnd, &outer);
+    }
+    CommitWindowChanged(outer.left, outer.top, outer.right, outer.bottom, dpi);
+  }
+
+  void ApplyModelBoundsToHwnd(HWND hwnd) {
+    assert(window.is_valid());
+    window.Load();
+    auto& model = static_cast<WindowsWindow&>(*window);
+    if (IsZoomed(hwnd) || IsIconic(hwnd)) {
+      return;
+    }
     applying_model_bounds_ = true;
     SetWindowPos(hwnd, nullptr, model.x, model.y, model.width, model.height,
                  SWP_NOZORDER | SWP_NOACTIVATE);
     applying_model_bounds_ = false;
-  }
-
-  void PersistNormalBoundsIfNeeded(HWND hwnd) {
-    if (IsIconic(hwnd)) {
-      return;
-    }
-
-    assert(window.is_valid());
-    window.Load();
-    auto& model = static_cast<WindowsWindow&>(*window);
-
-    RECT outer{};
-    if (IsZoomed(hwnd)) {
-      // Keep maximize; refresh the stored normal rectangle for a future restore.
-      outer = QueryNormalOuterRect(hwnd);
-    } else {
-      GetWindowRect(hwnd, &outer);
-    }
-
-    std::int32_t const next_x = outer.left;
-    std::int32_t const next_y = outer.top;
-    std::int32_t const next_w = outer.right - outer.left;
-    std::int32_t const next_h = outer.bottom - outer.top;
-    if (next_w <= 0 || next_h <= 0) {
-      return;
-    }
-    if (model.x == next_x && model.y == next_y && model.width == next_w &&
-        model.height == next_h) {
-      return;
-    }
-
-    auto event = WindowBoundsChangedEvent::ptr::Create(
-        ae::CreateWith{*window.domain()});
-    event->x = next_x;
-    event->y = next_y;
-    event->width = next_w;
-    event->height = next_h;
-    event->ApplyTo(model);
-    window.Save();
-  }
-
-  void HandleDisplayEnvironmentChange(HWND hwnd) {
-    assert(window.is_valid());
-    window.Load();
-    auto& model = static_cast<WindowsWindow&>(*window);
-
-    RECT candidate{model.x, model.y, model.x + model.width,
-                   model.y + model.height};
-    if (!IsIconic(hwnd) && !IsZoomed(hwnd)) {
-      GetWindowRect(hwnd, &candidate);
-    }
-
-    bool const changed = ApplyDisplayEnvironmentToModel(
-        model, candidate.left, candidate.top, candidate.right - candidate.left,
-        candidate.bottom - candidate.top, CurrentSystemDpi());
-    if (changed) {
-      window.Save();
-    }
-    if (!IsZoomed(hwnd) && !IsIconic(hwnd)) {
-      ApplyModelBoundsToHwnd(hwnd, model);
-    }
-  }
-
-  void HandleDpiChanged(HWND hwnd, RECT const& suggested, UINT dpi) {
-    assert(window.is_valid());
-    window.Load();
-    auto& model = static_cast<WindowsWindow&>(*window);
-
-    bool const changed = ApplyDisplayEnvironmentToModel(
-        model, suggested.left, suggested.top, suggested.right - suggested.left,
-        suggested.bottom - suggested.top, static_cast<std::int32_t>(dpi));
-    if (changed) {
-      window.Save();
-    }
-    ApplyModelBoundsToHwnd(hwnd, model);
   }
 
   HWND hwnd_{nullptr};

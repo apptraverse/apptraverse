@@ -46,8 +46,6 @@ class Chat : public NodeFor<Chat> {
     entries.push_back(entry);
   }
 
-  void CaptureBaseStateForDistill() { CaptureBaseState(); }
-
   Client::ptr FindJoinedClient() const {
     for (auto const& entry : entries) {
       if (!entry.is_valid()) {

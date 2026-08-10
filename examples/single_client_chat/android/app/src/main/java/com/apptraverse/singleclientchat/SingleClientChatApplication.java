@@ -54,6 +54,14 @@ public final class SingleClientChatApplication extends Application {
     }
   }
 
+  /** Queues the current Activity content viewport for the core thread. */
+  void queueWindowChanged(int width, int height, int densityDpi) {
+    if (runtimeHandle != 0L) {
+      NativeRuntime.nativeQueueWindowChanged(
+          runtimeHandle, width, height, densityDpi);
+    }
+  }
+
   /** Asks the core thread to publish the current status and transcript. */
   void requestSnapshot() {
     if (runtimeHandle != 0L) {

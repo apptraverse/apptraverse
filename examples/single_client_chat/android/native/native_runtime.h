@@ -2,6 +2,7 @@
 #define APPTRAVERSE_EXAMPLES_ANDROID_NATIVE_RUNTIME_H_
 
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -13,6 +14,7 @@
 #include "apptraverse/app.h"
 
 #include "android_chat_presenter.h"
+#include "android_window_presenter.h"
 #include "ui_bridge.h"
 
 namespace apptraverse::android {
@@ -31,19 +33,27 @@ class NativeRuntime {
 
   // Thread-safe. Returns false when the text is empty after trim.
   bool QueueSend(std::string text);
+  void QueueWindowChanged(std::int32_t width, std::int32_t height,
+                           std::int32_t density_dpi);
   void RequestSnapshot();
 
  private:
+  struct PendingViewport {
+    std::int32_t width{0};
+    std::int32_t height{0};
+    std::int32_t density_dpi{0};
+  };
+
   bool Setup();
   bool LoadOrBuildGraph();
   bool LoadPresenters();
   void Teardown();
   void DrainPendingSends();
-  void WaitForUniqueTimestamp();
+  void DrainPendingViewports();
   void PublishStatus(std::string const& status);
   void PublishTranscript(std::string const& transcript);
   void PublishSnapshot();
-  void LogJournalSize();
+  void LogJournalSizes();
   void SaveState();
   void WakeUp();
 
@@ -51,10 +61,12 @@ class NativeRuntime {
   UiBridge ui_bridge_;
   ae::RcPtr<ae::AetherApp> aether_app_;
   App::ptr app_;
+  AndroidWindowPresenter* window_presenter_{nullptr};
   AndroidChatPresenter* chat_presenter_{nullptr};
 
   std::mutex pending_lock_;
   std::vector<std::string> pending_sends_;
+  std::vector<PendingViewport> pending_viewports_;
   std::atomic<ae::TaskScheduler*> scheduler_{nullptr};
   std::atomic<bool> stop_requested_{false};
   std::atomic<bool> snapshot_requested_{false};

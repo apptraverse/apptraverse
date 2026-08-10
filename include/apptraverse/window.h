@@ -4,26 +4,32 @@
 #include "aether/obj/obj.h"
 #include "aether/obj/obj_ptr.h"
 
+#include "apptraverse/node.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
 class WindowPresenter;
 class Chat;
+class WindowChangedEvent;
 
-class Window : public ae::Obj {
-  APPTRAVERSE_OBJECT(Window, ae::Obj, 0)
+// Platform-neutral Window Node. Concrete platform windows inherit through
+// NodeFor<Concrete, Window> and implement Apply(WindowChangedEvent).
+class Window : public Node {
+  APPTRAVERSE_OBJECT(Window, Node, 0)
 
  protected:
   Window() = default;
 
  public:
-  explicit Window(ae::ObjProp prop) : Obj{prop} {}
+  explicit Window(ae::ObjProp prop) : Node{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(presenter), AE_MMBR(chat))
 
   ae::ObjPtr<WindowPresenter> presenter;
   ae::ObjPtr<Chat> chat;
+
+  virtual void Apply(WindowChangedEvent const& event);
 };
 
 }  // namespace apptraverse

@@ -27,7 +27,7 @@ namespace apptraverse::test {
 
 static_assert(!std::is_base_of_v<apptraverse::Node, apptraverse::WindowPresenter>);
 static_assert(!std::is_base_of_v<apptraverse::Node, apptraverse::ChatPresenter>);
-static_assert(!std::is_base_of_v<apptraverse::Node, apptraverse::Window>);
+static_assert(std::is_base_of_v<apptraverse::Node, apptraverse::Window>);
 static_assert(std::is_base_of_v<apptraverse::Node, apptraverse::Chat>);
 
 void DistillGraph(ae::Domain& domain) {

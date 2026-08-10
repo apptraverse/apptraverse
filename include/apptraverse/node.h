@@ -37,7 +37,9 @@ class Node : public ae::Obj {
   Node::ptr base;
   std::vector<EventRecord> journal;
 
-  void CaptureBaseStatePublic() { CaptureBaseStateImpl(); }
+  void CaptureBaseState() { CaptureBaseStateImpl(); }
+
+  void Commit(Event::ptr event) { CommitImpl(std::move(event)); }
 
   void ReloadFromStorage() { ReloadFromStorageImpl(); }
 
@@ -66,7 +68,7 @@ class Node : public ae::Obj {
   }
 
   template <typename ConcreteNode>
-  void CaptureBaseState(ConcreteNode& target) {
+  void CaptureBaseStateInto(ConcreteNode& target) {
     assert(domain != nullptr);
     assert(base.is_valid());
     assert(base.is_loaded());
@@ -127,12 +129,17 @@ class Node : public ae::Obj {
   }
 
   template <typename ConcreteNode>
-  void Commit(ConcreteNode& target, Event::ptr event) {
+  void CommitInto(ConcreteNode& target, Event::ptr event) {
     assert(event.is_valid());
     assert(event.is_loaded());
 
+    std::uint64_t timestamp_us = SystemUtcMicros();
+    if (!journal.empty() && timestamp_us <= journal.back().timestamp_us) {
+      timestamp_us = journal.back().timestamp_us + 1;
+    }
+
     EventRecord record{
-        SystemUtcMicros(),
+        timestamp_us,
         std::move(event),
     };
     InsertEvent(target, std::move(record));

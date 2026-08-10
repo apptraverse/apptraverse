@@ -9,6 +9,7 @@
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
 #include "apptraverse/window.h"
+#include "apptraverse/window_changed_event.h"
 #include "apptraverse/window_presenter.h"
 
 namespace apptraverse {
@@ -25,10 +26,16 @@ APPTRAVERSE_REGISTER(AddMessageEvent);
 APPTRAVERSE_REGISTER(Chat);
 APPTRAVERSE_REGISTER(ChatPresenter);
 APPTRAVERSE_REGISTER(Window);
+APPTRAVERSE_REGISTER(WindowChangedEvent);
 APPTRAVERSE_REGISTER(WindowPresenter);
 APPTRAVERSE_REGISTER(App);
 
 }  // namespace
+
+void Window::Apply(WindowChangedEvent const& event) {
+  (void)event;
+  assert(false && "Platform Window must implement Apply(WindowChangedEvent)");
+}
 
 // Forces the static library object file (and its Registrars) to be linked.
 void EnsureObjectRegistration() {}

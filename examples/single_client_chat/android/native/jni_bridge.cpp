@@ -69,6 +69,15 @@ void NativeQueueSend(JNIEnv* env, jclass, jlong handle, jstring text) {
   (void)runtime->QueueSend(ToStdString(env, text));
 }
 
+void NativeQueueWindowChanged(JNIEnv*, jclass, jlong handle, jint width,
+                              jint height, jint density_dpi) {
+  auto* runtime = FromHandle(handle);
+  if (runtime == nullptr) {
+    return;
+  }
+  runtime->QueueWindowChanged(width, height, density_dpi);
+}
+
 void NativeRequestSnapshot(JNIEnv*, jclass, jlong handle) {
   auto* runtime = FromHandle(handle);
   if (runtime == nullptr) {
@@ -95,6 +104,8 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeRun", "(J)V", reinterpret_cast<void*>(&NativeRun)},
     {"nativeQueueSend", "(JLjava/lang/String;)V",
      reinterpret_cast<void*>(&NativeQueueSend)},
+    {"nativeQueueWindowChanged", "(JIII)V",
+     reinterpret_cast<void*>(&NativeQueueWindowChanged)},
     {"nativeRequestSnapshot", "(J)V",
      reinterpret_cast<void*>(&NativeRequestSnapshot)},
     {"nativeStop", "(J)V", reinterpret_cast<void*>(&NativeStop)},

@@ -3,10 +3,10 @@ package com.apptraverse.singleclientchat;
 import android.app.Activity;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
-import android.view.ViewTreeObserver;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ScrollView;
@@ -31,7 +31,8 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   // Text waiting for the native MESSAGE_COMMITTED confirmation.
   private String pendingText;
 
-  private boolean viewportLogged;
+  private int lastViewportWidth;
+  private int lastViewportHeight;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -68,23 +69,36 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
         + " orientation=" + orientationName());
 
     final View root = findViewById(android.R.id.content);
-    root.getViewTreeObserver().addOnGlobalLayoutListener(
-        new ViewTreeObserver.OnGlobalLayoutListener() {
-          @Override
-          public void onGlobalLayout() {
-            if (viewportLogged) {
-              return;
-            }
-            int width = root.getWidth();
-            int height = root.getHeight();
-            if (width <= 0 || height <= 0) {
-              return;
-            }
-            viewportLogged = true;
-            Log.i(TAG, "ACTIVITY_VIEWPORT instance=" + identity()
-                + " width=" + width + " height=" + height);
-          }
-        });
+    root.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+      @Override
+      public void onLayoutChange(
+          View view,
+          int left,
+          int top,
+          int right,
+          int bottom,
+          int oldLeft,
+          int oldTop,
+          int oldRight,
+          int oldBottom) {
+        int width = right - left;
+        int height = bottom - top;
+        if (width <= 0 || height <= 0) {
+          return;
+        }
+        if (width == lastViewportWidth && height == lastViewportHeight) {
+          return;
+        }
+        lastViewportWidth = width;
+        lastViewportHeight = height;
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        int densityDpi = metrics.densityDpi;
+        Log.i(TAG, "ACTIVITY_VIEWPORT instance=" + identity()
+            + " width=" + width + " height=" + height
+            + " dpi=" + densityDpi);
+        application().queueWindowChanged(width, height, densityDpi);
+      }
+    });
   }
 
   @Override

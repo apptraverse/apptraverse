@@ -5,7 +5,6 @@
 #include <filesystem>
 #include <memory>
 #include <system_error>
-#include <thread>
 
 #include "aether/clock.h"
 #include "aether/obj/obj.h"
@@ -81,12 +80,26 @@ bool NativeRuntime::QueueSend(std::string text) {
     pending_sends_.push_back(std::move(trimmed));
   }
 
-  // The model is only touched on the core thread.
   auto* scheduler = scheduler_.load(std::memory_order::acquire);
   if (scheduler != nullptr) {
     scheduler->Task([this]() { DrainPendingSends(); });
   }
   return true;
+}
+
+void NativeRuntime::QueueWindowChanged(std::int32_t width, std::int32_t height,
+                                       std::int32_t density_dpi) {
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+  {
+    auto lock = std::scoped_lock{pending_lock_};
+    pending_viewports_.push_back(PendingViewport{width, height, density_dpi});
+  }
+  auto* scheduler = scheduler_.load(std::memory_order::acquire);
+  if (scheduler != nullptr) {
+    scheduler->Task([this]() { DrainPendingViewports(); });
+  }
 }
 
 void NativeRuntime::RequestSnapshot() {
@@ -151,6 +164,7 @@ bool NativeRuntime::Setup() {
   }
 
   PublishSnapshot();
+  DrainPendingViewports();
   DrainPendingSends();
   return true;
 }
@@ -195,9 +209,8 @@ bool NativeRuntime::LoadPresenters() {
     return false;
   }
 
-  auto& window_presenter =
-      static_cast<AndroidWindowPresenter&>(*presenter);
-  chat_presenter_ = window_presenter.LoadAndroidChatPresenter();
+  window_presenter_ = &static_cast<AndroidWindowPresenter&>(*presenter);
+  chat_presenter_ = window_presenter_->LoadAndroidChatPresenter();
   if (chat_presenter_ == nullptr) {
     LogError("Expected AndroidChatPresenter in the loaded graph");
     return false;
@@ -221,6 +234,7 @@ void NativeRuntime::Teardown() {
     SaveState();
     chat_presenter_ = nullptr;
   }
+  window_presenter_ = nullptr;
   PublishStatus("Native runtime stopped");
   scheduler_.store(nullptr, std::memory_order::release);
   app_.Reset();
@@ -243,25 +257,37 @@ void NativeRuntime::DrainPendingSends() {
   }
 
   for (auto const& text : texts) {
-    // Journal timestamps must stay unique and monotonic.
-    WaitForUniqueTimestamp();
     chat_presenter_->SubmitText(text);
     LogMarker("MESSAGE_COMMITTED text=" + ToSingleLine(text));
-    LogJournalSize();
+    LogJournalSizes();
     SaveState();
     ui_bridge_.PostMessageCommitted(text);
   }
   chat_presenter_->PublishTranscript();
 }
 
-void NativeRuntime::WaitForUniqueTimestamp() {
-  auto const& chat = chat_presenter_->chat;
-  if (!chat.is_loaded() || chat->journal.empty()) {
+void NativeRuntime::DrainPendingViewports() {
+  auto viewports = std::vector<PendingViewport>{};
+  {
+    auto lock = std::scoped_lock{pending_lock_};
+    viewports.swap(pending_viewports_);
+  }
+  if (viewports.empty()) {
     return;
   }
-  auto const last_timestamp_us = chat->journal.back().timestamp_us;
-  while (SystemUtcMicros() <= last_timestamp_us) {
-    std::this_thread::sleep_for(std::chrono::microseconds{1});
+  if (window_presenter_ == nullptr) {
+    LogError("Dropping viewport events, the window presenter is not loaded");
+    return;
+  }
+
+  for (auto const& viewport : viewports) {
+    window_presenter_->CommitViewport(viewport.width, viewport.height,
+                                      viewport.density_dpi);
+    LogMarker("WINDOW_CHANGED width=" + std::to_string(viewport.width) +
+              " height=" + std::to_string(viewport.height) +
+              " dpi=" + std::to_string(viewport.density_dpi));
+    LogJournalSizes();
+    SaveState();
   }
 }
 
@@ -273,10 +299,18 @@ void NativeRuntime::PublishTranscript(std::string const& transcript) {
   ui_bridge_.PostTranscript(transcript);
   LogMarker("TRANSCRIPT_PUBLISHED bytes=" + std::to_string(transcript.size()) +
             " text=" + ToSingleLine(transcript));
-  LogJournalSize();
+  LogJournalSizes();
 }
 
-void NativeRuntime::LogJournalSize() {
+void NativeRuntime::LogJournalSizes() {
+  if (app_.is_valid() && app_->window.is_valid()) {
+    auto window = app_->window;
+    window.Load();
+    if (window.is_loaded()) {
+      LogMarker("WINDOW_JOURNAL_SIZE n=" +
+                std::to_string(window->journal.size()));
+    }
+  }
   if (chat_presenter_ == nullptr || !chat_presenter_->chat.is_valid()) {
     return;
   }

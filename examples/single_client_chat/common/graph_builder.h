@@ -19,11 +19,13 @@ namespace apptraverse::examples {
 
 struct SingleClientChatGraph {
   App::ptr app;
+  Window::ptr window_base;
   Window::ptr window;
   WindowPresenter::ptr window_presenter;
   Chat::ptr chat_base;
   Chat::ptr chat;
   ChatPresenter::ptr chat_presenter;
+  Client::ptr client_base;
   Client::ptr alice;
 };
 
@@ -35,6 +37,8 @@ SingleClientChatGraph BuildSingleClientChatGraph(ae::Domain& domain) {
 
   graph.app = App::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Application)));
+  graph.window_base = WindowT::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::WindowBase)));
   graph.window = WindowT::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Window)));
   graph.window_presenter = WindowPresenterT::ptr::Create(ae::CreateWith{domain}
@@ -45,6 +49,8 @@ SingleClientChatGraph BuildSingleClientChatGraph(ae::Domain& domain) {
       ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Chat)));
   graph.chat_presenter = ChatPresenterT::ptr::Create(ae::CreateWith{domain}
       .with_id(ToObjId(ApplicationObjId::ChatPresenter)));
+  graph.client_base = Client::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::ClientBase)));
   graph.alice = Client::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Alice)));
 
@@ -56,9 +62,14 @@ SingleClientChatGraph BuildSingleClientChatGraph(ae::Domain& domain) {
   graph.window_presenter->window = graph.window;
   graph.window_presenter->chat_presenter = graph.chat_presenter;
 
+  graph.window->base = graph.window_base;
+  graph.alice->base = graph.client_base;
   graph.chat->base = graph.chat_base;
   graph.chat->presenter = graph.chat_presenter;
-  graph.chat->CaptureBaseStateForDistill();
+
+  graph.window->CaptureBaseState();
+  graph.alice->CaptureBaseState();
+  graph.chat->CaptureBaseState();
 
   graph.chat_presenter->chat = graph.chat;
   graph.chat_presenter->window_presenter = graph.window_presenter;

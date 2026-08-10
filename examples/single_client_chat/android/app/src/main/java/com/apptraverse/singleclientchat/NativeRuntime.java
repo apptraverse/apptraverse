@@ -18,6 +18,10 @@ final class NativeRuntime {
   /** Queues a message for the core thread. */
   static native void nativeQueueSend(long handle, String text);
 
+  /** Queues a WindowChangedEvent for the Activity content viewport. */
+  static native void nativeQueueWindowChanged(
+      long handle, int width, int height, int densityDpi);
+
   /** Asks the core thread to republish status and transcript. */
   static native void nativeRequestSnapshot(long handle);
 
