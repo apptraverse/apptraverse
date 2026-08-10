@@ -9,6 +9,7 @@
 
 #include "aether/aether_app.h"
 #include "aether/ae_context.h"
+#include "aether/client.h"
 #include "aether/ptr/rc_ptr.h"
 
 #include "apptraverse/app.h"
@@ -46,6 +47,7 @@ class NativeRuntime {
   bool Setup();
   bool LoadOrBuildGraph();
   bool LoadPresenters();
+  bool SelectAetherClient();
   void Teardown();
   void DrainPendingSends();
   void DrainPendingViewports();
@@ -58,6 +60,7 @@ class NativeRuntime {
   UiBridge ui_bridge_;
   ae::RcPtr<ae::AetherApp> aether_app_;
   App::ptr app_;
+  ae::Client::ptr aether_client_;
   AndroidWindowPresenter* window_presenter_{nullptr};
   AndroidChatPresenter* chat_presenter_{nullptr};
 

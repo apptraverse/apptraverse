@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -11,14 +13,14 @@
 #  undef RegisterClass
 #endif
 
-#include "aether/clock.h"
+#include "aether/all.h"
 #include "aether/domain_storage/file_system_std_storage.h"
-#include "aether/obj/obj.h"
 
 #include "apptraverse/application_ids.h"
 #include "apptraverse/app.h"
 #include "apptraverse/window_changed_event.h"
 
+#include "../common/aether_runtime.h"
 #include "../common/graph_builder.h"
 #include "win_chat_presenter.h"
 #include "win_window_presenter.h"
@@ -36,6 +38,8 @@ APPTRAVERSE_REGISTER(WinChatPresenter);
 
 namespace {
 
+constexpr auto kMaxAetherWait = std::chrono::milliseconds{20};
+
 bool IsDistillMode(int argc, char** argv) {
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--distill") == 0) {
@@ -45,27 +49,75 @@ bool IsDistillMode(int argc, char** argv) {
   return false;
 }
 
+ae::RcPtr<ae::AetherApp> ConstructWindowsAetherApp() {
+  return apptraverse::examples::ConstructAetherAppWithEthernet([]() {
+    return std::make_unique<ae::FileSystemStdStorage>();
+  });
+}
+
 void Distill() {
   std::filesystem::remove_all("state");
 
-  ae::FileSystemStdStorage storage;
-  ae::Domain domain{ae::Now(), storage};
-
+  auto aether_app = ConstructWindowsAetherApp();
   auto graph =
       apptraverse::examples::BuildSingleClientChatGraph<
           apptraverse::WindowsWindow, apptraverse::WinWindowPresenter,
-          apptraverse::WinChatPresenter>(domain);
+          apptraverse::WinChatPresenter>(aether_app->domain());
 
   graph.app.Save();
   std::cout << "Distilled single-client chat graph to ./state\n";
 }
 
-int Run() {
-  ae::FileSystemStdStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+int ProcessPendingWin32Messages() {
+  MSG msg{};
+  while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+    if (msg.message == WM_QUIT) {
+      return static_cast<int>(msg.wParam);
+    }
+    TranslateMessage(&msg);
+    DispatchMessageW(&msg);
+  }
+  return -1;
+}
 
-  auto app = apptraverse::App::ptr::Declare(ae::CreateWith{domain}.with_id(
-      apptraverse::ToObjId(apptraverse::ApplicationObjId::Application)));
+int RunCombinedLoop(ae::RcPtr<ae::AetherApp> const& aether_app) {
+  for (;;) {
+    int const quit_code = ProcessPendingWin32Messages();
+    if (quit_code >= 0) {
+      return quit_code;
+    }
+    if (aether_app->IsExited()) {
+      return aether_app->ExitCode();
+    }
+
+    auto const next_update = aether_app->Update(ae::Now());
+    auto wait_until = std::min(next_update, ae::Now() + kMaxAetherWait);
+    auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       wait_until - ae::Now())
+                       .count();
+    if (wait_ms < 0) {
+      wait_ms = 0;
+    }
+    if (wait_ms > kMaxAetherWait.count()) {
+      wait_ms = kMaxAetherWait.count();
+    }
+    MsgWaitForMultipleObjectsEx(0, nullptr, static_cast<DWORD>(wait_ms),
+                                QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+  }
+}
+
+int Run() {
+  auto aether_app = ConstructWindowsAetherApp();
+  if (aether_app.get() == nullptr) {
+    std::cerr << "Failed to construct AetherApp\n";
+    return 1;
+  }
+
+  auto app = apptraverse::App::ptr::Declare(ae::CreateWith{aether_app->domain()}
+                                                .with_id(apptraverse::ToObjId(
+                                                    apptraverse::
+                                                        ApplicationObjId::
+                                                            Application)));
   app.Load();
   if (!app.is_loaded()) {
     std::cerr << "Failed to load App. Run with --distill first.\n";
@@ -82,16 +134,22 @@ int Run() {
     return 1;
   }
 
+  auto aether_client = apptraverse::examples::SelectPersistentAetherClient(
+      aether_app, apptraverse::examples::kWindowsAetherClientName);
+  if (!aether_client) {
+    std::cerr << "Failed to select Aether client\n";
+    return 1;
+  }
+  std::cout << "AETHER_CLIENT_READY platform=windows uid="
+            << apptraverse::examples::FormatAetherUid(aether_client->uid())
+            << '\n';
+  std::fflush(stdout);
+
   auto& win_presenter =
       static_cast<apptraverse::WinWindowPresenter&>(*presenter);
   win_presenter.CreateNativeWindow();
 
-  MSG msg{};
-  while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
-    TranslateMessage(&msg);
-    DispatchMessageW(&msg);
-  }
-  return static_cast<int>(msg.wParam);
+  return RunCombinedLoop(aether_app);
 }
 
 }  // namespace

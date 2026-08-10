@@ -36,7 +36,7 @@ endif()
 # aether includes this header through the USER_CONFIG define and resolves the
 # path against its own source root. STRING keeps the value relative, a PATH
 # cache entry would be rewritten into an absolute build directory path.
-set(USER_CONFIG "config/user_config_android_smoke.h"
+set(USER_CONFIG "config/user_config_hydrogen.h"
   CACHE STRING "Path to the aether user configuration header")
 
 # The AppTraverse root project owns the aether pin and the apptraverse library.

@@ -15,6 +15,7 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/window.h"
 
+#include "../../common/aether_runtime.h"
 #include "../../common/graph_builder.h"
 #include "android_log.h"
 #include "android_window.h"
@@ -117,10 +118,10 @@ bool NativeRuntime::Setup() {
   }
 
   auto storage_root = state_dir_;
-  aether_app_ = ae::AetherApp::Construct(ae::AetherAppContext{[storage_root]() {
+  aether_app_ = examples::ConstructAetherAppWithEthernet([storage_root]() {
     return std::make_unique<DirectoryDomainStorage>(
         std::filesystem::path{storage_root});
-  }});
+  });
   if (aether_app_.get() == nullptr) {
     LogError("Failed to construct AetherApp");
     return false;
@@ -143,6 +144,10 @@ bool NativeRuntime::Setup() {
             " match=" + (aether_domain == app_domain ? "1" : "0"));
   if (aether_domain != app_domain) {
     LogError("Aether and the application graph are in different Domains");
+    return false;
+  }
+
+  if (!SelectAetherClient()) {
     return false;
   }
 
@@ -179,6 +184,18 @@ bool NativeRuntime::LoadOrBuildGraph() {
   }
   LogMarker("ANDROID_GRAPH_CREATED");
   SaveState();
+  return true;
+}
+
+bool NativeRuntime::SelectAetherClient() {
+  aether_client_ = examples::SelectPersistentAetherClient(
+      aether_app_, examples::kAndroidAetherClientName);
+  if (!aether_client_) {
+    LogError("Failed to select Aether client");
+    return false;
+  }
+  LogMarker("AETHER_CLIENT_READY platform=android uid=" +
+            examples::FormatAetherUid(aether_client_->uid()));
   return true;
 }
 
@@ -224,6 +241,7 @@ void NativeRuntime::Teardown() {
     chat_presenter_ = nullptr;
   }
   window_presenter_ = nullptr;
+  aether_client_.Reset();
   scheduler_.store(nullptr, std::memory_order::release);
   app_.Reset();
   aether_app_.Reset();
