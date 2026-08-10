@@ -3,7 +3,9 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
+#include <string_view>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN
@@ -20,6 +22,7 @@
 #include "apptraverse/app.h"
 #include "apptraverse/window_changed_event.h"
 
+#include "../common/aether_p2p_transport.h"
 #include "../common/aether_runtime.h"
 #include "../common/graph_builder.h"
 #include "win_chat_presenter.h"
@@ -39,6 +42,7 @@ APPTRAVERSE_REGISTER(WinChatPresenter);
 namespace {
 
 constexpr auto kMaxAetherWait = std::chrono::milliseconds{20};
+constexpr auto kP2pPingTimeout = std::chrono::seconds{90};
 
 bool IsDistillMode(int argc, char** argv) {
   for (int i = 1; i < argc; ++i) {
@@ -47,6 +51,20 @@ bool IsDistillMode(int argc, char** argv) {
     }
   }
   return false;
+}
+
+std::optional<ae::Uid> ParseP2pPingUid(int argc, char** argv) {
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (std::strcmp(argv[i], "--p2p-ping") == 0) {
+      auto const uid = ae::Uid::FromString(std::string_view{argv[i + 1]});
+      if (uid.empty()) {
+        std::cerr << "Invalid --p2p-ping UID\n";
+        return ae::Uid{};
+      }
+      return uid;
+    }
+  }
+  return std::nullopt;
 }
 
 ae::RcPtr<ae::AetherApp> ConstructWindowsAetherApp() {
@@ -80,7 +98,13 @@ int ProcessPendingWin32Messages() {
   return -1;
 }
 
-int RunCombinedLoop(ae::RcPtr<ae::AetherApp> const& aether_app) {
+void LogLine(std::string const& line) {
+  std::cout << line << '\n';
+  std::fflush(stdout);
+}
+
+int RunCombinedLoop(ae::RcPtr<ae::AetherApp> const& aether_app,
+                    ae::TimePoint const* deadline) {
   for (;;) {
     int const quit_code = ProcessPendingWin32Messages();
     if (quit_code >= 0) {
@@ -88,6 +112,10 @@ int RunCombinedLoop(ae::RcPtr<ae::AetherApp> const& aether_app) {
     }
     if (aether_app->IsExited()) {
       return aether_app->ExitCode();
+    }
+    if (deadline != nullptr && ae::Now() >= *deadline) {
+      std::cerr << "P2P ping timed out waiting for PONG\n";
+      return 1;
     }
 
     auto const next_update = aether_app->Update(ae::Now());
@@ -106,7 +134,11 @@ int RunCombinedLoop(ae::RcPtr<ae::AetherApp> const& aether_app) {
   }
 }
 
-int Run() {
+int Run(std::optional<ae::Uid> p2p_ping_uid) {
+  if (p2p_ping_uid.has_value() && p2p_ping_uid->empty()) {
+    return 1;
+  }
+
   auto aether_app = ConstructWindowsAetherApp();
   if (aether_app.get() == nullptr) {
     std::cerr << "Failed to construct AetherApp\n";
@@ -140,16 +172,29 @@ int Run() {
     std::cerr << "Failed to select Aether client\n";
     return 1;
   }
-  std::cout << "AETHER_CLIENT_READY platform=windows uid="
-            << apptraverse::examples::FormatAetherUid(aether_client->uid())
-            << '\n';
-  std::fflush(stdout);
+  LogLine("AETHER_CLIENT_READY platform=windows uid=" +
+          apptraverse::examples::FormatAetherUid(aether_client->uid()));
+
+  apptraverse::examples::AetherP2pTransport p2p_transport;
+  p2p_transport.Start(aether_app, aether_client);
+
+  ae::TimePoint ping_deadline{};
+  ae::TimePoint const* deadline_ptr = nullptr;
+  if (p2p_ping_uid.has_value()) {
+    apptraverse::examples::AttachPingPongProbe(
+        p2p_transport, LogLine, [aether_app]() { aether_app->Exit(0); });
+    apptraverse::examples::SendP2pPing(p2p_transport, *p2p_ping_uid, LogLine);
+    ping_deadline = ae::Now() + kP2pPingTimeout;
+    deadline_ptr = &ping_deadline;
+  } else {
+    apptraverse::examples::AttachPingPongProbe(p2p_transport, LogLine);
+  }
 
   auto& win_presenter =
       static_cast<apptraverse::WinWindowPresenter&>(*presenter);
   win_presenter.CreateNativeWindow();
 
-  return RunCombinedLoop(aether_app);
+  return RunCombinedLoop(aether_app, deadline_ptr);
 }
 
 }  // namespace
@@ -160,5 +205,5 @@ int main(int argc, char** argv) {
     Distill();
     return 0;
   }
-  return Run();
+  return Run(ParseP2pPingUid(argc, argv));
 }

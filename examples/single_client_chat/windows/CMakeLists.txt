@@ -1,5 +1,7 @@
 add_executable(win32_single_client_chat
   main.cpp
+  ../common/aether_p2p_framing.cpp
+  ../common/aether_p2p_transport.cpp
 )
 
 target_link_libraries(win32_single_client_chat PRIVATE apptraverse)

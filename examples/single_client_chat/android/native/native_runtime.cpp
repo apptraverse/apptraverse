@@ -15,6 +15,7 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/window.h"
 
+#include "../../common/aether_p2p_transport.h"
 #include "../../common/aether_runtime.h"
 #include "../../common/graph_builder.h"
 #include "android_log.h"
@@ -151,6 +152,8 @@ bool NativeRuntime::Setup() {
     return false;
   }
 
+  StartP2pTransport();
+
   if (!LoadPresenters()) {
     return false;
   }
@@ -199,6 +202,15 @@ bool NativeRuntime::SelectAetherClient() {
   return true;
 }
 
+void NativeRuntime::StartP2pTransport() {
+  p2p_transport_ = std::make_unique<examples::AetherP2pTransport>();
+  p2p_transport_->Start(aether_app_, aether_client_);
+  examples::AttachPingPongProbe(*p2p_transport_, [](std::string const& line) {
+    LogMarker(line);
+  });
+  LogMarker("AETHER_P2P_TRANSPORT_READY");
+}
+
 bool NativeRuntime::LoadPresenters() {
   auto window = app_->window;
   window.Load();
@@ -241,6 +253,7 @@ void NativeRuntime::Teardown() {
     chat_presenter_ = nullptr;
   }
   window_presenter_ = nullptr;
+  p2p_transport_.reset();
   aether_client_.Reset();
   scheduler_.store(nullptr, std::memory_order::release);
   app_.Reset();

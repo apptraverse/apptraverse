@@ -47,6 +47,8 @@ add_library(apptraverse_single_client_chat SHARED
   jni_bridge.cpp
   native_runtime.cpp
   ui_bridge.cpp
+  ${APPTRAVERSE_ROOT}/examples/single_client_chat/common/aether_p2p_framing.cpp
+  ${APPTRAVERSE_ROOT}/examples/single_client_chat/common/aether_p2p_transport.cpp
 )
 
 target_include_directories(apptraverse_single_client_chat PRIVATE

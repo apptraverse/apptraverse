@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -14,6 +15,7 @@
 
 #include "apptraverse/app.h"
 
+#include "../../common/aether_p2p_transport.h"
 #include "android_chat_presenter.h"
 #include "android_window_presenter.h"
 #include "ui_bridge.h"
@@ -48,6 +50,7 @@ class NativeRuntime {
   bool LoadOrBuildGraph();
   bool LoadPresenters();
   bool SelectAetherClient();
+  void StartP2pTransport();
   void Teardown();
   void DrainPendingSends();
   void DrainPendingViewports();
@@ -61,6 +64,7 @@ class NativeRuntime {
   ae::RcPtr<ae::AetherApp> aether_app_;
   App::ptr app_;
   ae::Client::ptr aether_client_;
+  std::unique_ptr<examples::AetherP2pTransport> p2p_transport_;
   AndroidWindowPresenter* window_presenter_{nullptr};
   AndroidChatPresenter* chat_presenter_{nullptr};
 

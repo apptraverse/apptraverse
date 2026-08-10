@@ -52,3 +52,17 @@ add_test(
   NAME apptraverse_windows_window_policy_test
   COMMAND apptraverse_windows_window_policy_test
 )
+
+add_executable(apptraverse_aether_p2p_framing_test
+  aether_p2p_framing_test.cpp
+  ../examples/single_client_chat/common/aether_p2p_framing.cpp
+)
+
+target_include_directories(apptraverse_aether_p2p_framing_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../examples/single_client_chat/common
+)
+
+add_test(
+  NAME apptraverse_aether_p2p_framing_test
+  COMMAND apptraverse_aether_p2p_framing_test
+)
