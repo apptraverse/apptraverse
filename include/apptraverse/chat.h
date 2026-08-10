@@ -27,39 +27,34 @@ class Chat : public NodeFor<Chat> {
   AE_OBJECT_REFLECT(AE_MMBR(presenter), AE_MMBR(entries))
 
   ae::ObjPtr<ChatPresenter> presenter;
-  std::vector<ChatEntry::ptr> entries;
+  std::vector<ChatEntry> entries;
 
   void Apply(JoinClientEvent const& event) {
-    assert(domain != nullptr);
     assert(event.client.is_valid());
-    auto entry = JoinClientEntry::ptr::Create(ae::CreateWith{*domain});
-    entry->client = event.client;
-    entries.push_back(entry);
+    ChatEntry entry{};
+    entry.kind = ChatEntryKind::kJoined;
+    entry.client = event.client;
+    entries.push_back(std::move(entry));
   }
 
   void Apply(AddMessageEvent const& event) {
-    assert(domain != nullptr);
     assert(event.author.is_valid());
-    auto entry = MessageEntry::ptr::Create(ae::CreateWith{*domain});
-    entry->author = event.author;
-    entry->text = event.text;
-    entries.push_back(entry);
+    ChatEntry entry{};
+    entry.kind = ChatEntryKind::kMessage;
+    entry.client = event.author;
+    entry.text = event.text;
+    entries.push_back(std::move(entry));
   }
 
   Client::ptr FindJoinedClient() const {
     for (auto const& entry : entries) {
-      if (!entry.is_valid()) {
+      if (entry.kind != ChatEntryKind::kJoined) {
         continue;
       }
-      auto loaded = entry;
-      loaded.Load();
-      if (!loaded.is_loaded()) {
+      if (!entry.client.is_valid()) {
         continue;
       }
-      if (loaded->GetClassId() != JoinClientEntry::kClassId) {
-        continue;
-      }
-      return static_cast<JoinClientEntry&>(*loaded).client;
+      return entry.client;
     }
     return {};
   }

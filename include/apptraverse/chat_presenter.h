@@ -13,8 +13,6 @@
 
 namespace apptraverse {
 
-class WindowPresenter;
-
 class ChatPresenter : public ae::Obj {
   APPTRAVERSE_OBJECT(ChatPresenter, ae::Obj, 0)
 
@@ -24,10 +22,9 @@ class ChatPresenter : public ae::Obj {
  public:
   explicit ChatPresenter(ae::ObjProp prop) : Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(chat), AE_MMBR(window_presenter))
+  AE_OBJECT_REFLECT(AE_MMBR(chat))
 
   Chat::ptr chat;
-  ae::ObjPtr<WindowPresenter> window_presenter;
 
   void SubmitText(std::string text) {
     assert(chat.is_valid());

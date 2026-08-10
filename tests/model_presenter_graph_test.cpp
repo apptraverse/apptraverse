@@ -56,7 +56,6 @@ void DistillGraph(ae::Domain& domain) {
   chat->presenter = chat_presenter;
 
   chat_presenter->chat = chat;
-  chat_presenter->window_presenter = window_presenter;
 
   app.Save();
 }
@@ -80,7 +79,6 @@ void CheckLinks(App::ptr const& app) {
 
   auto chat_presenter = chat->presenter;
   CHECK(chat_presenter->chat.id() == chat.id());
-  CHECK(chat_presenter->window_presenter.id() == window_presenter.id());
   CHECK(window_presenter->chat_presenter.id() == chat_presenter.id());
 }
 

@@ -72,7 +72,6 @@ SingleClientChatGraph BuildSingleClientChatGraph(ae::Domain& domain) {
   graph.chat->CaptureBaseState();
 
   graph.chat_presenter->chat = graph.chat;
-  graph.chat_presenter->window_presenter = graph.window_presenter;
 
   auto join = JoinClientEvent::ptr::Create(ae::CreateWith{domain}.with_id(
       ToObjId(ApplicationObjId::JoinClientEvent)));

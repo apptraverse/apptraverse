@@ -1,54 +1,27 @@
 #ifndef APPTRAVERSE_CHAT_ENTRY_H_
 #define APPTRAVERSE_CHAT_ENTRY_H_
 
+#include <cstdint>
 #include <string>
 
-#include "aether/obj/obj.h"
+#include "aether-miscpp/reflect/reflect.h"
 
 #include "apptraverse/client.h"
-#include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
-class ChatEntry : public ae::Obj {
-  APPTRAVERSE_OBJECT(ChatEntry, ae::Obj, 0)
-
- protected:
-  ChatEntry() = default;
-
- public:
-  explicit ChatEntry(ae::ObjProp prop) : Obj{prop} {}
-
-  AE_OBJECT_REFLECT()
+enum class ChatEntryKind : std::uint8_t {
+  kJoined = 0,
+  kMessage = 1,
 };
 
-class JoinClientEntry : public ChatEntry {
-  APPTRAVERSE_OBJECT(JoinClientEntry, ChatEntry, 0)
-
- protected:
-  JoinClientEntry() = default;
-
- public:
-  explicit JoinClientEntry(ae::ObjProp prop) : ChatEntry{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(client))
-
+// Materialized chat line. Value type — not an ae::Obj.
+struct ChatEntry {
+  ChatEntryKind kind{ChatEntryKind::kJoined};
   Client::ptr client;
-};
-
-class MessageEntry : public ChatEntry {
-  APPTRAVERSE_OBJECT(MessageEntry, ChatEntry, 0)
-
- protected:
-  MessageEntry() = default;
-
- public:
-  explicit MessageEntry(ae::ObjProp prop) : ChatEntry{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(author), AE_MMBR(text))
-
-  Client::ptr author;
   std::string text;
+
+  AE_REFLECT_MEMBERS(kind, client, text)
 };
 
 }  // namespace apptraverse

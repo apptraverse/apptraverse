@@ -21,23 +21,22 @@ inline std::string FormatChatTranscriptUtf8(Chat::ptr const& chat) {
 
   std::string text;
   for (auto const& entry : chat->entries) {
-    auto loaded = entry;
-    loaded.Load();
-    if (!loaded.is_loaded()) {
+    if (!entry.client.is_valid()) {
       continue;
     }
-    if (loaded->GetClassId() == JoinClientEntry::kClassId) {
-      auto& join = static_cast<JoinClientEntry&>(*loaded);
-      join.client.Load();
+    auto client = entry.client;
+    client.Load();
+    if (!client.is_loaded()) {
+      continue;
+    }
+    if (entry.kind == ChatEntryKind::kJoined) {
       text += "* ";
-      text += join.client->name;
+      text += client->name;
       text += " joined\n";
-    } else if (loaded->GetClassId() == MessageEntry::kClassId) {
-      auto& message = static_cast<MessageEntry&>(*loaded);
-      message.author.Load();
-      text += message.author->name;
+    } else if (entry.kind == ChatEntryKind::kMessage) {
+      text += client->name;
       text += ": ";
-      text += message.text;
+      text += entry.text;
       text += "\n";
     }
   }
