@@ -44,3 +44,5 @@ Thumbs.db
 # Clang / clangd
 .clangd/
 compile_flags.txt
+
+build-p2p-*/

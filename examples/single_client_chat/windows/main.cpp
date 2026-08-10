@@ -178,21 +178,39 @@ int Run(std::optional<ae::Uid> p2p_ping_uid) {
   apptraverse::examples::AetherP2pTransport p2p_transport;
   p2p_transport.Start(aether_app, aether_client);
 
+  auto& win_presenter =
+      static_cast<apptraverse::WinWindowPresenter&>(*presenter);
+
+  auto log_chat_journal = [&]() {
+    win_presenter.chat_presenter.Load();
+    if (!win_presenter.chat_presenter.is_loaded()) {
+      return;
+    }
+    auto chat = win_presenter.chat_presenter->chat;
+    chat.Load();
+    if (!chat.is_loaded()) {
+      return;
+    }
+    LogLine("CHAT_JOURNAL_SIZE n=" + std::to_string(chat->journal.size()));
+  };
+
+  win_presenter.CreateNativeWindow();
+  log_chat_journal();
+
   ae::TimePoint ping_deadline{};
   ae::TimePoint const* deadline_ptr = nullptr;
   if (p2p_ping_uid.has_value()) {
     apptraverse::examples::AttachPingPongProbe(
-        p2p_transport, LogLine, [aether_app]() { aether_app->Exit(0); });
+        p2p_transport, LogLine, [aether_app, log_chat_journal]() {
+          log_chat_journal();
+          aether_app->Exit(0);
+        });
     apptraverse::examples::SendP2pPing(p2p_transport, *p2p_ping_uid, LogLine);
     ping_deadline = ae::Now() + kP2pPingTimeout;
     deadline_ptr = &ping_deadline;
   } else {
     apptraverse::examples::AttachPingPongProbe(p2p_transport, LogLine);
   }
-
-  auto& win_presenter =
-      static_cast<apptraverse::WinWindowPresenter&>(*presenter);
-  win_presenter.CreateNativeWindow();
 
   return RunCombinedLoop(aether_app, deadline_ptr);
 }
