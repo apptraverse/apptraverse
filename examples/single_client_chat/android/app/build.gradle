@@ -30,7 +30,8 @@ android {
       cmake {
         arguments "-DANDROID_STL=c++_static",
                   "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
-                  "-DCPM_SOURCE_CACHE=C:/cpm-cache"
+                  "-DCPM_SOURCE_CACHE=C:/cpm-cache",
+                  "-DUSER_CONFIG=config/user_config_hydrogen.h"
         targets "apptraverse_single_client_chat"
       }
     }
