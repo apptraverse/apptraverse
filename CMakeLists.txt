@@ -9,6 +9,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Aether gates Winsock helpers on WIN32. MinGW defines _WIN32 but not WIN32 unless
+# a Windows header was already included, which breaks SocketInitializer ODR.
+if(MINGW)
+  add_compile_definitions(WIN32)
+endif()
+
 include(cmake/CPM.cmake)
 
 CPMAddPackage(
