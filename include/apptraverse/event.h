@@ -1,6 +1,8 @@
 #ifndef APPTRAVERSE_EVENT_H_
 #define APPTRAVERSE_EVENT_H_
 
+#include <cassert>
+
 #include "aether/obj/obj.h"
 
 #include "apptraverse/object_macros.h"
@@ -8,6 +10,10 @@
 namespace apptraverse {
 
 class Node;
+
+namespace detail {
+struct SharedDiscoveryContext;
+}
 
 class Event : public ae::Obj {
   APPTRAVERSE_OBJECT(Event, ae::Obj, 0)
@@ -22,10 +28,20 @@ class Event : public ae::Obj {
 
   AE_OBJECT_REFLECT()
 
+  void ReflectForSharedDiscovery(detail::SharedDiscoveryContext& ctx) {
+    ReflectForSharedDiscoveryImpl(ctx);
+  }
+
  private:
   void ApplyTo(ae::Obj& target) const { ApplyToImpl(target); }
 
   virtual void ApplyToImpl(ae::Obj& target) const = 0;
+
+  virtual void ReflectForSharedDiscoveryImpl(
+      detail::SharedDiscoveryContext& ctx) {
+    (void)ctx;
+    assert(false && "Concrete Event must inherit through EventFor");
+  }
 };
 
 }  // namespace apptraverse

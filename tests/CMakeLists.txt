@@ -20,6 +20,20 @@ add_test(
   COMMAND apptraverse_object_link_test
 )
 
+add_executable(apptraverse_shared_graph_discovery_test
+  shared_graph_discovery_test.cpp
+)
+
+target_link_libraries(apptraverse_shared_graph_discovery_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
+
+add_test(
+  NAME apptraverse_shared_graph_discovery_test
+  COMMAND apptraverse_shared_graph_discovery_test
+)
+
 add_executable(apptraverse_model_presenter_graph_test
   model_presenter_graph_test.cpp
 )

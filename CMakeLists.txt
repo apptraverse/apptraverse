@@ -35,6 +35,7 @@ CPMAddPackage(
 add_library(apptraverse STATIC
   src/apptraverse.cpp
   src/directory_domain_storage.cpp
+  src/shared_graph.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

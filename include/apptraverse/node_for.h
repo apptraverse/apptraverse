@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "apptraverse/node.h"
+#include "apptraverse/shared_discovery.h"
 
 namespace apptraverse {
 
@@ -32,6 +33,12 @@ class NodeFor : public BaseNode {
 
   void CommitImpl(Event::ptr event) override {
     Node::CommitInto(static_cast<ConcreteNode&>(*this), std::move(event));
+  }
+
+  void ReflectForSharedDiscoveryImpl(
+      detail::SharedDiscoveryContext& ctx) override {
+    detail::ReflectObjectForSharedDiscovery(static_cast<ConcreteNode&>(*this),
+                                            ctx);
   }
 
  protected:

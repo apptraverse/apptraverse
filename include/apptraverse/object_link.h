@@ -30,6 +30,7 @@ class ObjectLink {
       ae::omstream<ae::DomainBufferWriter>& os, ObjectLink<U, S> const& link);
 
  public:
+  using element_type = T;
   static constexpr LinkScope kScope = Scope;
 
   ObjectLink() = default;
@@ -102,6 +103,9 @@ class ObjectLink {
 
   ae::ObjPtr<T>& as_obj_ptr() { return ptr_; }
   ae::ObjPtr<T> const& as_obj_ptr() const { return ptr_; }
+
+  operator ae::ObjPtr<T>&() { return ptr_; }
+  operator ae::ObjPtr<T> const&() const { return ptr_; }
 
  private:
   ae::ObjPtr<T> ptr_;

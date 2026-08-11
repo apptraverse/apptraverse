@@ -2,6 +2,7 @@
 #define APPTRAVERSE_EVENT_FOR_H_
 
 #include "apptraverse/event.h"
+#include "apptraverse/shared_discovery.h"
 
 namespace apptraverse {
 
@@ -15,6 +16,12 @@ class EventFor : public Event {
   void ApplyToImpl(ae::Obj& target) const override {
     static_cast<Target&>(target).Apply(
         static_cast<ConcreteEvent const&>(*this));
+  }
+
+  void ReflectForSharedDiscoveryImpl(
+      detail::SharedDiscoveryContext& ctx) override {
+    detail::ReflectObjectForSharedDiscovery(
+        static_cast<ConcreteEvent&>(*this), ctx);
   }
 };
 

@@ -16,6 +16,10 @@
 
 namespace apptraverse {
 
+namespace detail {
+struct SharedDiscoveryContext;
+}
+
 inline std::uint64_t SystemUtcMicros() {
   using clock = std::chrono::system_clock;
   auto const now = clock::now().time_since_epoch();
@@ -42,6 +46,11 @@ class Node : public ae::Obj {
   void Commit(Event::ptr event) { CommitImpl(std::move(event)); }
 
   void ReloadFromStorage() { ReloadFromStorageImpl(); }
+
+  // Deep-reflect concrete Node state for shared-graph discovery.
+  void ReflectForSharedDiscovery(detail::SharedDiscoveryContext& ctx) {
+    ReflectForSharedDiscoveryImpl(ctx);
+  }
 
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
@@ -156,6 +165,12 @@ class Node : public ae::Obj {
 
   virtual void CommitImpl(Event::ptr event) {
     (void)event;
+    assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual void ReflectForSharedDiscoveryImpl(
+      detail::SharedDiscoveryContext& ctx) {
+    (void)ctx;
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 };
