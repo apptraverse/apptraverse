@@ -56,6 +56,20 @@ add_test(
   COMMAND apptraverse_remote_event_merge_test
 )
 
+add_executable(apptraverse_acknowledged_memory_session_test
+  acknowledged_memory_session_test.cpp
+)
+
+target_link_libraries(apptraverse_acknowledged_memory_session_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
+
+add_test(
+  NAME apptraverse_acknowledged_memory_session_test
+  COMMAND apptraverse_acknowledged_memory_session_test
+)
+
 add_executable(apptraverse_blockable_remote_event_test
   blockable_remote_event_test.cpp
 )
