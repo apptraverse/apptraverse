@@ -45,6 +45,14 @@ ObjectState CaptureEventState(Event::ptr event,
 void ImportObjectState(ObjectState const& state,
                        ae::RamDomainStorage& target_storage);
 
+// Ideal-memory Event transfer: capture → import → AcceptRemoteEvent → save.
+// Returns whether the Event was newly accepted (false on duplicate).
+bool TransferRemoteEvent(Event::ptr source_event,
+                         std::uint64_t original_timestamp_us,
+                         ae::RamDomainStorage const& source_storage,
+                         Node::ptr target_node,
+                         ae::RamDomainStorage& target_storage);
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_OBJECT_STATE_H_

@@ -45,6 +45,17 @@ add_test(
   COMMAND apptraverse_object_state_transfer_test
 )
 
+add_executable(apptraverse_remote_event_merge_test
+  remote_event_merge_test.cpp
+)
+
+target_link_libraries(apptraverse_remote_event_merge_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_remote_event_merge_test
+  COMMAND apptraverse_remote_event_merge_test
+)
+
 add_executable(apptraverse_model_presenter_graph_test
   model_presenter_graph_test.cpp
 )

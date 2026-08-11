@@ -48,6 +48,13 @@ class NodeFor : public BaseNode {
                                         owned);
   }
 
+  bool AcceptRemoteEventImpl(Event::ptr event,
+                             std::uint64_t original_timestamp_us) override {
+    return Node::AcceptRemoteEventInto(static_cast<ConcreteNode&>(*this),
+                                       std::move(event),
+                                       original_timestamp_us);
+  }
+
  protected:
   void RebuildFromBaseAndReplay() {
     Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));

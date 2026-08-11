@@ -58,6 +58,22 @@ class Node : public ae::Obj {
     PrepareScopedTransferImpl(owned);
   }
 
+  bool HasEvent(ae::ObjId event_id) const {
+    for (auto const& record : journal) {
+      if (record.event.id() == event_id) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Insert a remote Event with its original timestamp. Returns false if the
+  // Event ObjId is already present (duplicate).
+  bool AcceptRemoteEvent(Event::ptr event,
+                         std::uint64_t original_timestamp_us) {
+    return AcceptRemoteEventImpl(std::move(event), original_timestamp_us);
+  }
+
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 
@@ -160,6 +176,23 @@ class Node : public ae::Obj {
     InsertEvent(target, std::move(record));
   }
 
+  template <typename ConcreteNode>
+  bool AcceptRemoteEventInto(ConcreteNode& target, Event::ptr event,
+                             std::uint64_t original_timestamp_us) {
+    assert(event.is_valid());
+    assert(event.is_loaded());
+    assert(original_timestamp_us != 0);
+    if (HasEvent(event.id())) {
+      return false;
+    }
+    EventRecord record{
+        original_timestamp_us,
+        std::move(event),
+    };
+    InsertEvent(target, std::move(record));
+    return true;
+  }
+
  private:
   virtual void CaptureBaseStateImpl() {
     assert(false && "Concrete Node must inherit through NodeFor");
@@ -184,6 +217,14 @@ class Node : public ae::Obj {
       detail::OwnedObjectIdCollector& owned) {
     (void)owned;
     assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual bool AcceptRemoteEventImpl(Event::ptr event,
+                                     std::uint64_t original_timestamp_us) {
+    (void)event;
+    (void)original_timestamp_us;
+    assert(false && "Concrete Node must inherit through NodeFor");
+    return false;
   }
 };
 

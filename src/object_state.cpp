@@ -99,4 +99,33 @@ void ImportObjectState(ObjectState const& state,
   }
 }
 
+bool TransferRemoteEvent(Event::ptr source_event,
+                         std::uint64_t original_timestamp_us,
+                         ae::RamDomainStorage const& source_storage,
+                         Node::ptr target_node,
+                         ae::RamDomainStorage& target_storage) {
+  assert(source_event.is_valid());
+  assert(source_event.is_loaded());
+  assert(target_node.is_valid());
+  assert(target_node.is_loaded());
+  assert(target_node.domain() != nullptr);
+
+  auto const event_id = source_event.id();
+  auto state = CaptureEventState(source_event, source_storage);
+  ImportObjectState(state, target_storage);
+
+  auto imported = Event::ptr::Declare(
+      ae::CreateWith{*target_node.domain()}.with_id(event_id));
+  imported.Load();
+  assert(imported.is_loaded());
+  assert(imported.domain() == target_node.domain());
+
+  bool const accepted =
+      target_node->AcceptRemoteEvent(std::move(imported), original_timestamp_us);
+  if (accepted) {
+    target_node.Save();
+  }
+  return accepted;
+}
+
 }  // namespace apptraverse
