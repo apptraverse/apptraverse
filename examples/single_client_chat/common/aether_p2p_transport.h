@@ -1,7 +1,6 @@
 #ifndef APPTRAVERSE_EXAMPLES_AETHER_P2P_TRANSPORT_H_
 #define APPTRAVERSE_EXAMPLES_AETHER_P2P_TRANSPORT_H_
 
-#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -19,16 +18,10 @@ namespace apptraverse::examples {
 inline constexpr char kP2pPingPayload[] = "APPTRAVERSE_P2P_PING_V1";
 inline constexpr char kP2pPongPayload[] = "APPTRAVERSE_P2P_PONG_V1";
 
-inline constexpr ae::SafeStreamConfig kAetherP2pSafeStreamConfig{
-    .window_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
-    .max_packet_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
-    .max_repeat_count = 10,
-    .wait_ack_timeout = std::chrono::seconds{5},
-    .send_ack_timeout = std::chrono::seconds{0},
-    .send_repeat_timeout = std::chrono::seconds{2},
-};
-
-// Opaque byte transport over Aether P2pSafeStream. No AppTraverse model types.
+// Opaque framed byte transport over raw Aether P2pStream.
+// Reliability (ack / retry / duplicate suppression) belongs to the future
+// synchronization layer — this transport does not provide it.
+// Peer Aether UID is transport context only and is never placed in the payload.
 class AetherP2pTransport {
  public:
   using ReceiveHandler = std::function<void(
@@ -50,8 +43,7 @@ class AetherP2pTransport {
  private:
   struct PeerSession {
     ae::Uid peer{};
-    std::shared_ptr<ae::P2pStream> p2p_stream;
-    std::unique_ptr<ae::P2pSafeStream> safe_stream;
+    std::shared_ptr<ae::P2pStream> stream;
     ae::Subscription data_sub;
     AetherP2pFrameDecoder decoder;
   };

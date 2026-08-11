@@ -61,11 +61,11 @@ void AetherP2pTransport::SendText(ae::Uid const& remote_uid,
 void AetherP2pTransport::Send(ae::Uid const& remote_uid,
                               std::uint8_t const* bytes, std::size_t size) {
   auto* session = EnsureOutgoingSession(remote_uid);
-  if (session == nullptr || session->safe_stream == nullptr) {
+  if (session == nullptr || session->stream == nullptr) {
     return;
   }
   auto frame = EncodeAetherP2pFrame(bytes, size);
-  (void)session->safe_stream->Write(
+  (void)session->stream->Write(
       ae::DataBuffer{frame.begin(), frame.end()});
 }
 
@@ -91,12 +91,10 @@ AetherP2pTransport::EnsureOutgoingSession(ae::Uid const& remote_uid) {
       local_client_->message_stream_manager().CreatePort(remote_uid);
   auto session = std::make_unique<PeerSession>();
   session->peer = remote_uid;
-  session->p2p_stream = std::make_shared<ae::P2pStream>(
+  session->stream = std::make_shared<ae::P2pStream>(
       *aether_app_, local_client_.Load(), remote_uid, std::move(handle));
-  session->safe_stream = ae::make_unique<ae::P2pSafeStream>(
-      *aether_app_, kAetherP2pSafeStreamConfig, session->p2p_stream);
   auto* raw = session.get();
-  session->data_sub = session->safe_stream->out_data_event().Subscribe(
+  session->data_sub = session->stream->out_data_event().Subscribe(
       [this, raw](ae::DataBuffer const& data) { OnRawStreamData(raw, data); });
   auto* inserted = session.get();
   sessions_.emplace(remote_uid, std::move(session));
@@ -114,12 +112,10 @@ void AetherP2pTransport::AttachIncoming(ae::P2pPortHandle handle) {
 
   auto session = std::make_unique<PeerSession>();
   session->peer = peer;
-  session->p2p_stream = std::make_shared<ae::P2pStream>(
+  session->stream = std::make_shared<ae::P2pStream>(
       *aether_app_, local_client_.Load(), peer, std::move(handle));
-  session->safe_stream = ae::make_unique<ae::P2pSafeStream>(
-      *aether_app_, kAetherP2pSafeStreamConfig, session->p2p_stream);
   auto* raw = session.get();
-  session->data_sub = session->safe_stream->out_data_event().Subscribe(
+  session->data_sub = session->stream->out_data_event().Subscribe(
       [this, raw](ae::DataBuffer const& data) { OnRawStreamData(raw, data); });
   sessions_.emplace(peer, std::move(session));
 }
