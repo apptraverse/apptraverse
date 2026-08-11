@@ -4,6 +4,7 @@
 add_library(single_client_chat_common STATIC
   model/registration.cpp
   model/chat_peer_set.cpp
+  chat_sync_controller.cpp
 )
 
 target_include_directories(single_client_chat_common PUBLIC
