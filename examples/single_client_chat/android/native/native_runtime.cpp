@@ -9,11 +9,12 @@
 #include "aether/clock.h"
 #include "aether/obj/obj.h"
 
-#include "apptraverse/application_ids.h"
-#include "apptraverse/app.h"
-#include "apptraverse/chat.h"
+#include "model/application_ids.h"
+#include "model/app.h"
+#include "model/chat.h"
+#include "model/registration.h"
+#include "model/window.h"
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/window.h"
 
 #include "../../common/aether_p2p_transport.h"
 #include "../../common/aether_runtime.h"
@@ -114,6 +115,7 @@ void NativeRuntime::Stop() {
 
 bool NativeRuntime::Setup() {
   apptraverse::EnsureObjectRegistration();
+  apptraverse::EnsureSingleClientChatRegistration();
   InstallAetherTeleToLogcat();
 
   auto ec = std::error_code{};

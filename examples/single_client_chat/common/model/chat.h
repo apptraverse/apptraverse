@@ -6,8 +6,8 @@
 
 #include "aether/obj/obj_ptr.h"
 
-#include "apptraverse/chat_entry.h"
-#include "apptraverse/chat_events.h"
+#include "model/chat_entry.h"
+#include "model/chat_events.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 

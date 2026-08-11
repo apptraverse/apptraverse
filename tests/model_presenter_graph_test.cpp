@@ -6,13 +6,14 @@
 #include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/obj/obj.h"
 
-#include "apptraverse/app.h"
-#include "apptraverse/application_ids.h"
-#include "apptraverse/chat.h"
-#include "apptraverse/chat_presenter.h"
+#include "model/app.h"
+#include "model/application_ids.h"
+#include "model/chat.h"
+#include "model/chat_presenter.h"
+#include "model/registration.h"
 #include "apptraverse/node.h"
-#include "apptraverse/window.h"
-#include "apptraverse/window_presenter.h"
+#include "model/window.h"
+#include "model/window_presenter.h"
 
 namespace apptraverse::test {
 
@@ -103,6 +104,7 @@ void TestDistillSaveLoadCycles() {
 
 int main() {
   apptraverse::EnsureObjectRegistration();
+  apptraverse::EnsureSingleClientChatRegistration();
   apptraverse::test::TestDistillSaveLoadCycles();
   std::cout << "model_presenter_graph_test OK\n";
   return 0;

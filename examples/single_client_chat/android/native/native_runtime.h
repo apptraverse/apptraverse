@@ -13,7 +13,7 @@
 #include "aether/client.h"
 #include "aether/ptr/rc_ptr.h"
 
-#include "apptraverse/app.h"
+#include "model/app.h"
 
 #include "../../common/aether_p2p_transport.h"
 #include "android_chat_presenter.h"

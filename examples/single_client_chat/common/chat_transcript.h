@@ -3,8 +3,8 @@
 
 #include <string>
 
-#include "apptraverse/chat.h"
-#include "apptraverse/chat_entry.h"
+#include "model/chat.h"
+#include "model/chat_entry.h"
 
 namespace apptraverse::examples {
 

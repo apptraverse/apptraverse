@@ -6,14 +6,14 @@
 
 #include "aether/obj/obj.h"
 
-#include "apptraverse/app.h"
-#include "apptraverse/application_ids.h"
-#include "apptraverse/chat.h"
-#include "apptraverse/chat_events.h"
-#include "apptraverse/chat_presenter.h"
-#include "apptraverse/client.h"
-#include "apptraverse/window.h"
-#include "apptraverse/window_presenter.h"
+#include "model/app.h"
+#include "model/application_ids.h"
+#include "model/chat.h"
+#include "model/chat_events.h"
+#include "model/chat_presenter.h"
+#include "model/client.h"
+#include "model/window.h"
+#include "model/window_presenter.h"
 
 namespace apptraverse::examples {
 

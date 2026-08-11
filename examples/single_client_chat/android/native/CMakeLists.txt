@@ -60,6 +60,7 @@ target_include_directories(apptraverse_single_client_chat PRIVATE
 
 target_link_libraries(apptraverse_single_client_chat PRIVATE
   apptraverse
+  single_client_chat_common
   android
   log
 )

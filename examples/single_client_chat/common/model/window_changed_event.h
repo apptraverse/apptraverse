@@ -5,7 +5,7 @@
 
 #include "apptraverse/event_for.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/window.h"
+#include "model/window.h"
 
 namespace apptraverse {
 

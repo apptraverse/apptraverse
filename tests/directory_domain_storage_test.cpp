@@ -7,13 +7,9 @@
 #include "aether/clock.h"
 #include "aether/obj/obj.h"
 
-#include "apptraverse/app.h"
-#include "apptraverse/application_ids.h"
-#include "apptraverse/chat.h"
-#include "apptraverse/chat_presenter.h"
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/window.h"
-#include "apptraverse/window_presenter.h"
+#include "apptraverse/node.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse::test {
 
@@ -25,6 +21,8 @@ namespace apptraverse::test {
       std::exit(1);                                                          \
     }                                                                        \
   } while (0)
+
+constexpr ae::ObjId::Type kProbeNodeId = 100000;
 
 struct RootedStorageFactory {
   std::shared_ptr<std::filesystem::path> root;
@@ -49,16 +47,16 @@ void TestDirectoryDomainStorageOneDomain() {
     CHECK(aether_app->aether().is_valid());
     CHECK(aether_app->aether().id().id() == 1);
 
-    auto app = App::ptr::Create(
-        ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Application)));
-    CHECK(app.is_valid());
-    app.Save();
+    auto node =
+        Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
+    CHECK(node.is_valid());
+    node.Save();
 
-    CHECK(app.domain() == &domain);
+    CHECK(node.domain() == &domain);
     std::cout << "SINGLE_DOMAIN_READY aether_domain=" << &domain
-              << " app_domain=" << app.domain()
+              << " node_domain=" << node.domain()
               << " aether_root=" << aether_app->aether().id().id()
-              << " app=" << ToObjId(ApplicationObjId::Application) << '\n';
+              << " node=" << kProbeNodeId << '\n';
 
     for (int i = 0; i < 3; ++i) {
       (void)aether_app->Update(ae::Now());
@@ -72,11 +70,11 @@ void TestDirectoryDomainStorageOneDomain() {
     CHECK(aether_app->aether().is_valid());
     CHECK(aether_app->aether().id().id() == 1);
 
-    auto app = App::ptr::Declare(ae::CreateWith{domain}.with_id(
-        ToObjId(ApplicationObjId::Application)));
-    app.Load();
-    CHECK(app.is_loaded());
-    CHECK(app.domain() == &domain);
+    auto node =
+        Node::ptr::Declare(ae::CreateWith{domain}.with_id(kProbeNodeId));
+    node.Load();
+    CHECK(node.is_loaded());
+    CHECK(node.domain() == &domain);
   }
 
   std::filesystem::remove_all(*root);

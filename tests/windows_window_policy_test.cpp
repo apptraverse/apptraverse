@@ -6,12 +6,13 @@
 #include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/obj/obj.h"
 
-#include "apptraverse/chat.h"
-#include "apptraverse/chat_presenter.h"
+#include "model/chat.h"
+#include "model/chat_presenter.h"
+#include "model/registration.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/window_changed_event.h"
-#include "apptraverse/window_presenter.h"
+#include "model/window_changed_event.h"
+#include "model/window_presenter.h"
 
 #include "../examples/single_client_chat/windows/windows_window.h"
 
@@ -138,6 +139,7 @@ void TestRepeatedCommitKeepsBothJournalEntries() {
 
 int main() {
   apptraverse::EnsureObjectRegistration();
+  apptraverse::EnsureSingleClientChatRegistration();
   apptraverse::test::TestA_AlreadyInsideUnchangedMaterialized();
   apptraverse::test::TestB_PartialOverflowMovesInside();
   apptraverse::test::TestC_LargerThanWorkAreaShrinks();

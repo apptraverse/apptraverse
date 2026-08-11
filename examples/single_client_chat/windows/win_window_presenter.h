@@ -13,8 +13,8 @@
 #include <cstdint>
 
 #include "apptraverse/object_macros.h"
-#include "apptraverse/window_changed_event.h"
-#include "apptraverse/window_presenter.h"
+#include "model/window_changed_event.h"
+#include "model/window_presenter.h"
 
 #include "win_chat_presenter.h"
 #include "windows_window.h"

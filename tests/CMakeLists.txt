@@ -13,7 +13,10 @@ add_executable(apptraverse_model_presenter_graph_test
   model_presenter_graph_test.cpp
 )
 
-target_link_libraries(apptraverse_model_presenter_graph_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_model_presenter_graph_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
 
 add_test(
   NAME apptraverse_model_presenter_graph_test
@@ -35,7 +38,10 @@ add_executable(apptraverse_single_client_chat_test
   single_client_chat_test.cpp
 )
 
-target_link_libraries(apptraverse_single_client_chat_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_single_client_chat_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
 
 add_test(
   NAME apptraverse_single_client_chat_test
@@ -46,7 +52,14 @@ add_executable(apptraverse_windows_window_policy_test
   windows_window_policy_test.cpp
 )
 
-target_link_libraries(apptraverse_windows_window_policy_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_windows_window_policy_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
+
+target_include_directories(apptraverse_windows_window_policy_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../examples/single_client_chat/windows
+)
 
 add_test(
   NAME apptraverse_windows_window_policy_test

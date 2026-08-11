@@ -5,8 +5,8 @@
 #include <cstdint>
 
 #include "apptraverse/object_macros.h"
-#include "apptraverse/window_changed_event.h"
-#include "apptraverse/window_presenter.h"
+#include "model/window_changed_event.h"
+#include "model/window_presenter.h"
 
 #include "android_chat_presenter.h"
 #include "android_window.h"

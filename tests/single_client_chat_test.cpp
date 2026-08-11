@@ -9,18 +9,19 @@
 #include "aether/obj/obj.h"
 
 #include "apptraverse/object_macros.h"
-#include "apptraverse/app.h"
-#include "apptraverse/application_ids.h"
-#include "apptraverse/chat.h"
-#include "apptraverse/chat_entry.h"
-#include "apptraverse/chat_events.h"
-#include "apptraverse/chat_presenter.h"
-#include "apptraverse/client.h"
+#include "model/app.h"
+#include "model/application_ids.h"
+#include "model/chat.h"
+#include "model/chat_entry.h"
+#include "model/chat_events.h"
+#include "model/chat_presenter.h"
+#include "model/client.h"
+#include "model/registration.h"
 #include "apptraverse/node.h"
 #include "apptraverse/node_for.h"
-#include "apptraverse/window.h"
-#include "apptraverse/window_changed_event.h"
-#include "apptraverse/window_presenter.h"
+#include "model/window.h"
+#include "model/window_changed_event.h"
+#include "model/window_presenter.h"
 
 #include "../examples/single_client_chat/common/chat_transcript.h"
 #include "../examples/single_client_chat/common/graph_builder.h"
@@ -291,6 +292,7 @@ void TestPresenterCommitPath() {
 
 int main() {
   apptraverse::EnsureObjectRegistration();
+  apptraverse::EnsureSingleClientChatRegistration();
   apptraverse::test::TestApplicationIds();
   apptraverse::test::TestCommonGraphAndTranscript();
   apptraverse::test::TestWindowNodeJournal();

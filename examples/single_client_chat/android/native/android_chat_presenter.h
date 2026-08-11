@@ -6,7 +6,7 @@
 
 #include "aether-miscpp/types/small_function.h"
 
-#include "apptraverse/chat_presenter.h"
+#include "model/chat_presenter.h"
 #include "apptraverse/object_macros.h"
 
 #include "../../common/chat_transcript.h"

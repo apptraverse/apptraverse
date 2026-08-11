@@ -6,8 +6,8 @@
 
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/window.h"
-#include "apptraverse/window_changed_event.h"
+#include "model/window.h"
+#include "model/window_changed_event.h"
 
 namespace apptraverse {
 

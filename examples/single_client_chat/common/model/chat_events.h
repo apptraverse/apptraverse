@@ -3,7 +3,7 @@
 
 #include <string>
 
-#include "apptraverse/client.h"
+#include "model/client.h"
 #include "apptraverse/event_for.h"
 #include "apptraverse/object_macros.h"
 

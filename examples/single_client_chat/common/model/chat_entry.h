@@ -6,7 +6,7 @@
 
 #include "aether-miscpp/reflect/reflect.h"
 
-#include "apptraverse/client.h"
+#include "model/client.h"
 
 namespace apptraverse {
 

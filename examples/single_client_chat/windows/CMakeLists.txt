@@ -4,7 +4,10 @@ add_executable(win32_single_client_chat
   ../common/aether_p2p_transport.cpp
 )
 
-target_link_libraries(win32_single_client_chat PRIVATE apptraverse)
+target_link_libraries(win32_single_client_chat PRIVATE
+  apptraverse
+  single_client_chat_common
+)
 
 target_include_directories(win32_single_client_chat PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}

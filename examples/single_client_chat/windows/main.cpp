@@ -18,9 +18,10 @@
 #include "aether/all.h"
 #include "aether/domain_storage/file_system_std_storage.h"
 
-#include "apptraverse/application_ids.h"
-#include "apptraverse/app.h"
-#include "apptraverse/window_changed_event.h"
+#include "model/application_ids.h"
+#include "model/app.h"
+#include "model/registration.h"
+#include "model/window_changed_event.h"
 
 #include "../common/aether_p2p_transport.h"
 #include "../common/aether_runtime.h"
@@ -219,6 +220,7 @@ int Run(std::optional<ae::Uid> p2p_ping_uid) {
 
 int main(int argc, char** argv) {
   apptraverse::EnsureObjectRegistration();
+  apptraverse::EnsureSingleClientChatRegistration();
   if (IsDistillMode(argc, argv)) {
     Distill();
     return 0;

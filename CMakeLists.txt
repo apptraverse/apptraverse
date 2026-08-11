@@ -42,11 +42,9 @@ target_include_directories(apptraverse PUBLIC
 target_link_libraries(apptraverse PUBLIC aether)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
+add_subdirectory(examples/single_client_chat)
+
 include(CTest)
 if(BUILD_TESTING)
   add_subdirectory(tests)
-endif()
-
-if(WIN32)
-  add_subdirectory(examples/single_client_chat)
 endif()
