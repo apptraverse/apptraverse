@@ -48,10 +48,22 @@ std::vector<JournalEntry> CollectOrderedJournalEntries(
 }  // namespace
 
 SharedGraphSyncSession::SharedGraphSyncSession(SyncReplica local_replica,
+                                               SyncSessionState::ptr state,
                                                SendFunction send)
-    : local_{local_replica}, send_{std::move(send)} {
+    : local_{local_replica}, state_{std::move(state)}, send_{std::move(send)} {
   assert(send_);
+  assert(state_.is_valid());
+  assert(state_.is_loaded());
   assert(local_.shared_root_id.IsValid());
+  assert(state_->data.shared_root_id == local_.shared_root_id);
+}
+
+void SharedGraphSyncSession::CommitData(SyncSessionData data) {
+  auto event = SetSyncSessionDataEvent::ptr::Create(
+      ae::CreateWith{*state_.domain()});
+  event->data = std::move(data);
+  state_->Commit(std::move(event));
+  state_.Save();
 }
 
 bool SharedGraphSyncSession::ContainsId(std::vector<ae::ObjId> const& ids,
@@ -71,8 +83,19 @@ void SharedGraphSyncSession::AddId(std::vector<ae::ObjId>& ids, ae::ObjId id) {
 }
 
 bool SharedGraphSyncSession::HasPendingEvent(ae::ObjId event_id) const {
-  for (auto const& pending : pending_packets_) {
-    if (pending.kind == PendingKind::kEvent && pending.event_id == event_id) {
+  for (auto const& pending : state_->data.pending_packets) {
+    if (pending.kind == PendingSyncPacketKind::kEvent &&
+        pending.event_id == event_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool SharedGraphSyncSession::HasPendingInitialNodeState() const {
+  for (auto const& pending : state_->data.pending_packets) {
+    if (pending.kind == PendingSyncPacketKind::kNodeState &&
+        pending.is_initial_state) {
       return true;
     }
   }
@@ -81,8 +104,8 @@ bool SharedGraphSyncSession::HasPendingEvent(ae::ObjId event_id) const {
 
 bool SharedGraphSyncSession::IsEventCoveredByPendingNodeState(
     ae::ObjId event_id) const {
-  for (auto const& pending : pending_packets_) {
-    if (pending.kind != PendingKind::kNodeState) {
+  for (auto const& pending : state_->data.pending_packets) {
+    if (pending.kind != PendingSyncPacketKind::kNodeState) {
       continue;
     }
     if (ContainsId(pending.event_ids, event_id)) {
@@ -92,9 +115,9 @@ bool SharedGraphSyncSession::IsEventCoveredByPendingNodeState(
   return false;
 }
 
-SharedGraphSyncSession::PendingPacket* SharedGraphSyncSession::FindPending(
-    ae::ObjId packet_id) {
-  for (auto& pending : pending_packets_) {
+PendingSyncPacketState* SharedGraphSyncSession::FindPending(
+    SyncSessionData& data, ae::ObjId packet_id) {
+  for (auto& pending : data.pending_packets) {
     if (pending.packet_id == packet_id) {
       return &pending;
     }
@@ -136,14 +159,16 @@ void SharedGraphSyncSession::SendAck(ae::ObjId acknowledged_packet_id) {
 }
 
 void SharedGraphSyncSession::MarkReceivedAndAck(ae::ObjId packet_id) {
-  AddId(successfully_received_packet_ids_, packet_id);
+  auto data = state_->data;
+  AddId(data.successfully_received_packet_ids, packet_id);
+  CommitData(std::move(data));
   SendAck(packet_id);
 }
 
 void SharedGraphSyncSession::SendInitialNodeState(Node::ptr root) {
   assert(root.is_valid());
   assert(root.is_loaded());
-  assert(pending_packets_.empty());
+  assert(!HasPendingInitialNodeState());
 
   ae::RamDomainStorage build_storage;
   ae::Domain build_domain{ae::Now(), build_storage};
@@ -157,16 +182,19 @@ void SharedGraphSyncSession::SendInitialNodeState(Node::ptr root) {
   auto packet = NodeStatePacket::ptr::Create(ae::CreateWith{build_domain});
   packet->node = build_node;
 
-  PendingPacket pending;
+  PendingSyncPacketState pending;
   pending.packet_id = packet.id();
-  pending.bytes = SyncPacketCodec{}.Encode(packet);
-  pending.kind = PendingKind::kNodeState;
+  pending.serialized_bytes = SyncPacketCodec{}.Encode(packet);
+  pending.kind = PendingSyncPacketKind::kNodeState;
   pending.node_id = root.id();
   pending.event_ids = CollectSharedGraphEventIds(root);
   pending.is_initial_state = true;
 
-  send_(pending.bytes);
-  pending_packets_.push_back(std::move(pending));
+  auto bytes = pending.serialized_bytes;
+  auto data = state_->data;
+  data.pending_packets.push_back(std::move(pending));
+  CommitData(std::move(data));
+  send_(std::move(bytes));
 }
 
 void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
@@ -192,27 +220,50 @@ void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
   packet->timestamp_us = record.timestamp_us;
   packet->event = build_event;
 
-  PendingPacket pending;
+  PendingSyncPacketState pending;
   pending.packet_id = packet.id();
-  pending.bytes = SyncPacketCodec{}.Encode(packet);
-  pending.kind = PendingKind::kEvent;
+  pending.serialized_bytes = SyncPacketCodec{}.Encode(packet);
+  pending.kind = PendingSyncPacketKind::kEvent;
   pending.node_id = node.id();
   pending.event_id = event.id();
 
-  send_(pending.bytes);
-  pending_packets_.push_back(std::move(pending));
+  auto bytes = pending.serialized_bytes;
+  auto data = state_->data;
+  data.pending_packets.push_back(std::move(pending));
+  CommitData(std::move(data));
+  send_(std::move(bytes));
 }
 
-void SharedGraphSyncSession::StartInitialSynchronization() {
-  assert(!initial_sync_started_);
-  initial_sync_started_ = true;
+void SharedGraphSyncSession::StartOrResume() {
+  if (!state_->data.initial_sync_started) {
+    auto data = state_->data;
+    data.initial_sync_started = true;
+    CommitData(std::move(data));
+  }
 
-  auto root = LoadLocalNode(local_.shared_root_id);
-  SendInitialNodeState(root);
+  if (!state_->data.initial_sync_complete) {
+    std::vector<SerializedSyncPacket> prior_pending;
+    for (auto const& pending : state_->data.pending_packets) {
+      prior_pending.push_back(pending.serialized_bytes);
+    }
+
+    if (!HasPendingInitialNodeState()) {
+      auto root = LoadLocalNode(local_.shared_root_id);
+      SendInitialNodeState(root);
+    }
+
+    for (auto& bytes : prior_pending) {
+      send_(std::move(bytes));
+    }
+    return;
+  }
+
+  RetryPending();
+  Poll();
 }
 
 void SharedGraphSyncSession::Poll() {
-  if (!initial_sync_complete_) {
+  if (!state_->data.initial_sync_complete) {
     return;
   }
 
@@ -223,7 +274,7 @@ void SharedGraphSyncSession::Poll() {
     assert(node.is_loaded());
     for (auto const& record : node->journal) {
       auto const event_id = record.event.id();
-      if (ContainsId(delivered_event_ids_, event_id)) {
+      if (ContainsId(state_->data.delivered_event_ids, event_id)) {
         continue;
       }
       if (IsEventCoveredByPendingNodeState(event_id)) {
@@ -239,9 +290,9 @@ void SharedGraphSyncSession::Poll() {
 
 void SharedGraphSyncSession::RetryPending() {
   std::vector<SerializedSyncPacket> copies;
-  copies.reserve(pending_packets_.size());
-  for (auto const& pending : pending_packets_) {
-    copies.push_back(pending.bytes);
+  copies.reserve(state_->data.pending_packets.size());
+  for (auto const& pending : state_->data.pending_packets) {
+    copies.push_back(pending.serialized_bytes);
   }
   for (auto& bytes : copies) {
     send_(std::move(bytes));
@@ -260,7 +311,7 @@ void SharedGraphSyncSession::Receive(SerializedSyncPacket const& bytes) {
     return;
   }
 
-  if (ContainsId(successfully_received_packet_ids_, packet_id)) {
+  if (ContainsId(state_->data.successfully_received_packet_ids, packet_id)) {
     SendAck(packet_id);
     return;
   }
@@ -289,7 +340,6 @@ void SharedGraphSyncSession::MergeNodeStateGraph(
   assert(packet.node.is_loaded());
 
   auto decoded_nodes = DiscoverSharedGraph(packet.node);
-  // First pass: materialize missing shared Nodes (full graphs).
   for (auto const& decoded_node : decoded_nodes) {
     decoded_node.Load();
     assert(decoded_node.is_loaded());
@@ -299,27 +349,27 @@ void SharedGraphSyncSession::MergeNodeStateGraph(
     }
   }
 
-  // Second pass: apply missing Events in timestamp order.
   auto entries = CollectOrderedJournalEntries(decoded_nodes);
+  auto data = state_->data;
   for (auto const& entry : entries) {
     auto local_node = LoadLocalNode(entry.node.id());
     if (local_node->HasEvent(entry.record.event.id())) {
-      AddId(delivered_event_ids_, entry.record.event.id());
+      AddId(data.delivered_event_ids, entry.record.event.id());
       continue;
     }
     auto decoded_event = entry.record.event;
     decoded_event.Load();
     assert(decoded_event.is_loaded());
-    auto imported =
-        ImportEventForAccept(decoded_event, decoded_storage);
+    auto imported = ImportEventForAccept(decoded_event, decoded_storage);
     auto const result = local_node->TryAcceptRemoteEvent(
         std::move(imported), entry.record.timestamp_us);
     assert(result != RemoteEventResult::kBlocked);
     if (result == RemoteEventResult::kAccepted) {
       local_node.Save();
     }
-    AddId(delivered_event_ids_, entry.record.event.id());
+    AddId(data.delivered_event_ids, entry.record.event.id());
   }
+  CommitData(std::move(data));
 }
 
 void SharedGraphSyncSession::Handle(NodeStatePacket const& packet) {
@@ -336,11 +386,9 @@ void SharedGraphSyncSession::Handle(EventPacket const& packet) {
   assert(packet.event.is_loaded());
 
   if (!StorageHasNode(packet.target_node_id)) {
-    // Target root missing — wait for initial NodeState; no ACK.
     return;
   }
 
-  // Import missing shared Nodes referenced by the Event graph.
   ImportObjectGraph(packet.event, *receiving_decoded_->storage, local_,
                     SharedCopyMode::kReferenceExistingTargets);
 
@@ -360,34 +408,39 @@ void SharedGraphSyncSession::Handle(EventPacket const& packet) {
   if (result == RemoteEventResult::kAccepted) {
     target.Save();
   }
-  AddId(delivered_event_ids_, packet.event.id());
+
+  auto data = state_->data;
+  AddId(data.delivered_event_ids, packet.event.id());
+  CommitData(std::move(data));
   MarkReceivedAndAck(receiving_packet_id_);
 }
 
 void SharedGraphSyncSession::Handle(AckPacket const& packet) {
-  auto* pending = FindPending(packet.acknowledged_packet_id);
+  auto data = state_->data;
+  auto* pending = FindPending(data, packet.acknowledged_packet_id);
   if (pending == nullptr) {
     return;
   }
 
-  if (pending->kind == PendingKind::kNodeState) {
+  if (pending->kind == PendingSyncPacketKind::kNodeState) {
     for (auto const& event_id : pending->event_ids) {
-      AddId(delivered_event_ids_, event_id);
+      AddId(data.delivered_event_ids, event_id);
     }
     if (pending->is_initial_state) {
-      initial_sync_complete_ = true;
+      data.initial_sync_complete = true;
     }
-  } else if (pending->kind == PendingKind::kEvent) {
-    AddId(delivered_event_ids_, pending->event_id);
+  } else if (pending->kind == PendingSyncPacketKind::kEvent) {
+    AddId(data.delivered_event_ids, pending->event_id);
   }
 
   auto const packet_id = pending->packet_id;
-  pending_packets_.erase(
-      std::remove_if(pending_packets_.begin(), pending_packets_.end(),
-                     [&](PendingPacket const& item) {
+  data.pending_packets.erase(
+      std::remove_if(data.pending_packets.begin(), data.pending_packets.end(),
+                     [&](PendingSyncPacketState const& item) {
                        return item.packet_id == packet_id;
                      }),
-      pending_packets_.end());
+      data.pending_packets.end());
+  CommitData(std::move(data));
 }
 
 }  // namespace apptraverse

@@ -14,6 +14,7 @@
 #include "apptraverse/object_graph_copy.h"
 #include "apptraverse/shared_graph_sync_session.h"
 #include "apptraverse/sync_packet.h"
+#include "apptraverse/sync_session_state.h"
 #include "apptraverse/unreliable_memory_link.h"
 #include "model/chat.h"
 #include "model/chat_events.h"
@@ -75,6 +76,7 @@ struct SessionReplica {
   ae::Domain domain;
   SessionDoc::ptr doc;
   SessionDoc::ptr doc_base;
+  SyncSessionState::ptr sync_state;
 
   SessionReplica() : domain{ae::Now(), storage} {
     doc_base = SessionDoc::ptr::Create(ae::CreateWith{domain}.with_id(10));
@@ -82,6 +84,8 @@ struct SessionReplica {
     doc->base = doc_base;
     doc->CaptureBaseState();
     doc.Save();
+    sync_state = CreateSyncSessionState(domain, doc.id());
+    sync_state.Save();
   }
 
   SyncReplica AsSyncReplica() {
@@ -139,13 +143,13 @@ void TestReliableDelivery() {
   SessionReplica left;
   SessionReplica right;
   UnreliableMemoryLink link;
-  SharedGraphSyncSession left_session{left.AsSyncReplica(),
+  SharedGraphSyncSession left_session{left.AsSyncReplica(), left.sync_state,
                                       link.MakeSend(0)};
-  SharedGraphSyncSession right_session{right.AsSyncReplica(),
+  SharedGraphSyncSession right_session{right.AsSyncReplica(), right.sync_state,
                                        link.MakeSend(1)};
   link.Bind(left_session, right_session);
 
-  left_session.StartInitialSynchronization();
+  left_session.StartOrResume();
   CHECK(left_session.pending_packet_count() == 1);
   link.DeliverAllInOrder();
   CHECK(left_session.pending_packet_count() == 0);
@@ -158,13 +162,13 @@ void TestLostPacketRetry() {
   SessionReplica left;
   SessionReplica right;
   UnreliableMemoryLink link;
-  SharedGraphSyncSession left_session{left.AsSyncReplica(),
+  SharedGraphSyncSession left_session{left.AsSyncReplica(), left.sync_state,
                                       link.MakeSend(0)};
-  SharedGraphSyncSession right_session{right.AsSyncReplica(),
+  SharedGraphSyncSession right_session{right.AsSyncReplica(), right.sync_state,
                                        link.MakeSend(1)};
   link.Bind(left_session, right_session);
 
-  left_session.StartInitialSynchronization();
+  left_session.StartOrResume();
   CHECK(link.pending_count() == 1);
   link.Drop(0);
   CHECK(left_session.pending_packet_count() == 1);
@@ -182,13 +186,13 @@ void TestLostAckRetry() {
   left.CommitBump(1, 100);
   SessionReplica right;
   UnreliableMemoryLink link;
-  SharedGraphSyncSession left_session{left.AsSyncReplica(),
+  SharedGraphSyncSession left_session{left.AsSyncReplica(), left.sync_state,
                                       link.MakeSend(0)};
-  SharedGraphSyncSession right_session{right.AsSyncReplica(),
+  SharedGraphSyncSession right_session{right.AsSyncReplica(), right.sync_state,
                                        link.MakeSend(1)};
   link.Bind(left_session, right_session);
 
-  left_session.StartInitialSynchronization();
+  left_session.StartOrResume();
   link.Deliver(FindFirstNonAck(link));
   auto const ack_index = FindFirstAck(link);
   CHECK(ack_index < link.pending_count());
@@ -213,13 +217,13 @@ void TestDuplicatePacket() {
   left.CommitBump(2, 200);
   SessionReplica right;
   UnreliableMemoryLink link;
-  SharedGraphSyncSession left_session{left.AsSyncReplica(),
+  SharedGraphSyncSession left_session{left.AsSyncReplica(), left.sync_state,
                                       link.MakeSend(0)};
-  SharedGraphSyncSession right_session{right.AsSyncReplica(),
+  SharedGraphSyncSession right_session{right.AsSyncReplica(), right.sync_state,
                                        link.MakeSend(1)};
   link.Bind(left_session, right_session);
 
-  left_session.StartInitialSynchronization();
+  left_session.StartOrResume();
   link.Duplicate(0);
   CHECK(link.pending_count() == 2);
   link.DeliverAllInOrder();
@@ -264,11 +268,15 @@ void TestBlockedPacketNoAck() {
   UnreliableMemoryLink link;
   SyncReplica left_rep{left_domain, left_storage, left_chat.id()};
   SyncReplica right_rep{right_domain, right_storage, right_chat.id()};
-  SharedGraphSyncSession left_session{left_rep, link.MakeSend(0)};
-  SharedGraphSyncSession right_session{right_rep, link.MakeSend(1)};
+  auto left_state = CreateSyncSessionState(left_domain, left_chat.id());
+  left_state.Save();
+  auto right_state = CreateSyncSessionState(right_domain, right_chat.id());
+  right_state.Save();
+  SharedGraphSyncSession left_session{left_rep, left_state, link.MakeSend(0)};
+  SharedGraphSyncSession right_session{right_rep, right_state, link.MakeSend(1)};
   link.Bind(left_session, right_session);
 
-  left_session.StartInitialSynchronization();
+  left_session.StartOrResume();
   link.DeliverAllInOrder();
   CHECK(left_session.initial_sync_complete());
   CHECK(left_session.pending_packet_count() == 0);

@@ -45,6 +45,17 @@ add_test(
   COMMAND apptraverse_generic_storage_transfer_test
 )
 
+add_executable(apptraverse_persisted_session_state_test
+  persisted_session_state_test.cpp
+)
+
+target_link_libraries(apptraverse_persisted_session_state_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_persisted_session_state_test
+  COMMAND apptraverse_persisted_session_state_test
+)
+
 add_executable(apptraverse_remote_event_merge_test
   remote_event_merge_test.cpp
 )

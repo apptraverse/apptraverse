@@ -18,6 +18,7 @@
 #include "apptraverse/shared_graph.h"
 #include "apptraverse/shared_graph_sync_session.h"
 #include "apptraverse/sync_packet.h"
+#include "apptraverse/sync_session_state.h"
 #include "apptraverse/unreliable_memory_link.h"
 #include "model/app.h"
 #include "model/application_ids.h"
@@ -84,12 +85,15 @@ struct ChatReplica {
   ae::RamDomainStorage storage;
   ae::Domain domain;
   examples::SingleClientChatGraph graph;
+  SyncSessionState::ptr sync_state;
 
   explicit ChatReplica(std::string name) : domain{ae::Now(), storage} {
     graph = examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
                                                  FakeChatPresenter>(
         domain, name);
     graph.app.Save();
+    sync_state = CreateSyncSessionState(domain, graph.chat.id());
+    sync_state.Save();
   }
 
   SyncReplica AsSyncReplica() {
@@ -132,8 +136,10 @@ struct SessionPair {
   SessionPair()
       : windows{"Windows"},
         android{"Android"},
-        win_session{windows.AsSyncReplica(), link.MakeSend(0)},
-        and_session{android.AsSyncReplica(), link.MakeSend(1)} {
+        win_session{windows.AsSyncReplica(), windows.sync_state,
+                    link.MakeSend(0)},
+        and_session{android.AsSyncReplica(), android.sync_state,
+                    link.MakeSend(1)} {
     link.Bind(win_session, and_session);
   }
 };
@@ -232,8 +238,8 @@ void TestPerfectFirstSync() {
 
   pair.windows.Submit("W-before");
   pair.android.Submit("A-before");
-  pair.win_session.StartInitialSynchronization();
-  pair.and_session.StartInitialSynchronization();
+  pair.win_session.StartOrResume();
+  pair.and_session.StartOrResume();
   Converge(pair.link, pair.win_session, pair.and_session);
 
   CHECK(pair.win_session.initial_sync_complete());
@@ -249,8 +255,8 @@ void TestFirstSyncOnlyOnce() {
   SessionPair pair;
   pair.windows.Submit("W-before");
   pair.android.Submit("A-before");
-  pair.win_session.StartInitialSynchronization();
-  pair.and_session.StartInitialSynchronization();
+  pair.win_session.StartOrResume();
+  pair.and_session.StartOrResume();
   Converge(pair.link, pair.win_session, pair.and_session);
 
   pair.win_session.Poll();
@@ -270,8 +276,8 @@ void TestLostEventPacket() {
   SessionPair pair;
   pair.windows.Submit("W-before");
   pair.android.Submit("A-before");
-  pair.win_session.StartInitialSynchronization();
-  pair.and_session.StartInitialSynchronization();
+  pair.win_session.StartOrResume();
+  pair.and_session.StartOrResume();
   Converge(pair.link, pair.win_session, pair.and_session);
 
   auto const and_journal = pair.android.graph.chat->journal.size();
@@ -293,8 +299,8 @@ void TestLostAck() {
   SessionPair pair;
   pair.windows.Submit("W-before");
   pair.android.Submit("A-before");
-  pair.win_session.StartInitialSynchronization();
-  pair.and_session.StartInitialSynchronization();
+  pair.win_session.StartOrResume();
+  pair.and_session.StartOrResume();
   Converge(pair.link, pair.win_session, pair.and_session);
 
   pair.android.Submit("A-ack-lost");
@@ -324,8 +330,8 @@ void TestEventBeforeMissingClient() {
   SessionPair pair;
   pair.windows.Submit("W-before");
   pair.android.Submit("A-before");
-  pair.win_session.StartInitialSynchronization();
-  pair.and_session.StartInitialSynchronization();
+  pair.win_session.StartOrResume();
+  pair.and_session.StartOrResume();
   Converge(pair.link, pair.win_session, pair.and_session);
 
   SleepForDistinctTimestamp();
@@ -377,8 +383,8 @@ void TestAddMessageBeforeJoin() {
   SessionPair pair;
   pair.windows.Submit("W-before");
   pair.android.Submit("A-before");
-  pair.win_session.StartInitialSynchronization();
-  pair.and_session.StartInitialSynchronization();
+  pair.win_session.StartOrResume();
+  pair.and_session.StartOrResume();
   Converge(pair.link, pair.win_session, pair.and_session);
 
   SleepForDistinctTimestamp();
@@ -442,14 +448,12 @@ void TestInitialNodeStateCarriesClients() {
   ChatReplica windows{"Windows"};
   ChatReplica android{"Android"};
   UnreliableMemoryLink link;
-  SharedGraphSyncSession win_session{windows.AsSyncReplica(),
-                                     link.MakeSend(0)};
-  SharedGraphSyncSession and_session{android.AsSyncReplica(),
-                                     link.MakeSend(1)};
+  SharedGraphSyncSession win_session{windows.AsSyncReplica(), windows.sync_state, link.MakeSend(0)};
+  SharedGraphSyncSession and_session{android.AsSyncReplica(), android.sync_state, link.MakeSend(1)};
   link.Bind(win_session, and_session);
 
   windows.Submit("W-before");
-  win_session.StartInitialSynchronization();
+  win_session.StartOrResume();
   CHECK(win_session.pending_packet_count() == 1);
   CHECK(IsNodeStateEnvelope(link.envelopes()[0].bytes));
   link.DeliverAllInOrder();
@@ -466,13 +470,11 @@ void TestDuplicateNodeState() {
   ChatReplica windows{"Windows"};
   ChatReplica android{"Android"};
   UnreliableMemoryLink link;
-  SharedGraphSyncSession win_session{windows.AsSyncReplica(),
-                                     link.MakeSend(0)};
-  SharedGraphSyncSession and_session{android.AsSyncReplica(),
-                                     link.MakeSend(1)};
+  SharedGraphSyncSession win_session{windows.AsSyncReplica(), windows.sync_state, link.MakeSend(0)};
+  SharedGraphSyncSession and_session{android.AsSyncReplica(), android.sync_state, link.MakeSend(1)};
   link.Bind(win_session, and_session);
 
-  win_session.StartInitialSynchronization();
+  win_session.StartOrResume();
   CHECK(link.pending_count() == 1);
   CHECK(IsNodeStateEnvelope(link.envelopes()[0].bytes));
   CHECK(NodeStateRootId(link.envelopes()[0].bytes) ==
@@ -491,8 +493,8 @@ void TestBidirectionalOfflineLike() {
   SessionPair pair;
   pair.windows.Submit("W-before");
   pair.android.Submit("A-before");
-  pair.win_session.StartInitialSynchronization();
-  pair.and_session.StartInitialSynchronization();
+  pair.win_session.StartOrResume();
+  pair.and_session.StartOrResume();
   Converge(pair.link, pair.win_session, pair.and_session);
 
   pair.windows.Submit("W-offline-1");

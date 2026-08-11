@@ -38,6 +38,7 @@ add_library(apptraverse STATIC
   src/shared_graph.cpp
   src/object_graph_copy.cpp
   src/sync_packet.cpp
+  src/sync_session_state.cpp
   src/shared_graph_sync_session.cpp
 )
 target_include_directories(apptraverse PUBLIC
