@@ -336,6 +336,15 @@ int Run(CliOptions const& options) {
   if (options.peer.has_value()) {
     chat_sync.AddPeer(*options.peer);
     p2p_transport.Connect(*options.peer);
+  } else {
+    peer_set.Load();
+    if (peer_set.is_loaded()) {
+      for (auto const& peer : peer_set->peers) {
+        if (!peer.remote_uid.empty()) {
+          p2p_transport.Connect(peer.remote_uid);
+        }
+      }
+    }
   }
 
   win_presenter.CreateNativeWindow();

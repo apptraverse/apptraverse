@@ -5,11 +5,15 @@
 
 #include "aether-miscpp/format/format.h"
 
-#include "aether_runtime.h"
 #include "model/chat_peer_set.h"
 #include "model/chat_presenter.h"
 
 namespace apptraverse::examples {
+namespace {
+
+std::string FormatUid(ae::Uid const& uid) { return ae::Format("{}", uid); }
+
+}  // namespace
 
 ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
                                        ChatPeerSet::ptr peer_set,
@@ -67,7 +71,7 @@ void ChatSyncController::EmitInitialMarkers(RuntimeSession& runtime) {
   if (runtime.session->initial_sync_complete()) {
     runtime.last_initial_sync_complete = true;
     Log(ae::Format("CHAT_SYNC_RESUMED peer={} initial_complete=1 pending={}",
-                   FormatAetherUid(runtime.remote_uid),
+                   FormatUid(runtime.remote_uid),
                    runtime.session->pending_packet_count()));
   }
 }
@@ -113,7 +117,7 @@ void ChatSyncController::Start() {
         !runtime.last_initial_sync_complete) {
       runtime.last_initial_sync_complete = true;
       Log(ae::Format("CHAT_SYNC_INITIAL_COMPLETE peer={}",
-                     FormatAetherUid(runtime.remote_uid)));
+                     FormatUid(runtime.remote_uid)));
     }
   }
 }
@@ -129,7 +133,7 @@ SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
   auto const& peer = AddChatPeer(peer_set_, chat_.id(), remote_uid);
   assert(peer.session_state.is_valid());
   Log(ae::Format("CHAT_PEER_ADDED uid={} session_state_id={}",
-                 FormatAetherUid(remote_uid), peer.session_state.id().id()));
+                 FormatUid(remote_uid), peer.session_state.id().id()));
 
   auto& runtime =
       EnsureRuntimeSession(remote_uid, peer.session_state);
@@ -139,7 +143,7 @@ SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
       !runtime.last_initial_sync_complete) {
     runtime.last_initial_sync_complete = true;
     Log(ae::Format("CHAT_SYNC_INITIAL_COMPLETE peer={}",
-                   FormatAetherUid(runtime.remote_uid)));
+                   FormatUid(runtime.remote_uid)));
   }
   return *runtime.session;
 }
@@ -150,7 +154,7 @@ void ChatSyncController::Receive(ae::Uid const& remote_uid,
   auto* session = FindSession(remote_uid);
   if (session == nullptr) {
     if (!auto_accept_incoming_) {
-      Log(ae::Format("CHAT_PEER_REJECTED uid={}", FormatAetherUid(remote_uid)));
+      Log(ae::Format("CHAT_PEER_REJECTED uid={}", FormatUid(remote_uid)));
       return;
     }
     AddPeer(remote_uid);
@@ -168,7 +172,7 @@ void ChatSyncController::Receive(ae::Uid const& remote_uid,
         runtime.session->initial_sync_complete()) {
       runtime.last_initial_sync_complete = true;
       Log(ae::Format("CHAT_SYNC_INITIAL_COMPLETE peer={}",
-                     FormatAetherUid(runtime.remote_uid)));
+                     FormatUid(runtime.remote_uid)));
     }
   }
 
@@ -192,7 +196,7 @@ void ChatSyncController::Tick(ae::TimePoint now) {
         runtime.session->initial_sync_complete()) {
       runtime.last_initial_sync_complete = true;
       Log(ae::Format("CHAT_SYNC_INITIAL_COMPLETE peer={}",
-                     FormatAetherUid(runtime.remote_uid)));
+                     FormatUid(runtime.remote_uid)));
       NotifyChanged();
     }
   }
