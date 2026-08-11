@@ -37,6 +37,7 @@ add_library(apptraverse STATIC
   src/directory_domain_storage.cpp
   src/shared_graph.cpp
   src/object_state.cpp
+  src/ideal_memory_sync.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

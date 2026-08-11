@@ -56,6 +56,31 @@ add_test(
   COMMAND apptraverse_remote_event_merge_test
 )
 
+add_executable(apptraverse_ideal_memory_sync_test
+  ideal_memory_sync_test.cpp
+)
+
+target_link_libraries(apptraverse_ideal_memory_sync_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_ideal_memory_sync_test
+  COMMAND apptraverse_ideal_memory_sync_test
+)
+
+add_executable(apptraverse_single_client_chat_memory_sync_test
+  single_client_chat_memory_sync_test.cpp
+)
+
+target_link_libraries(apptraverse_single_client_chat_memory_sync_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
+
+add_test(
+  NAME apptraverse_single_client_chat_memory_sync_test
+  COMMAND apptraverse_single_client_chat_memory_sync_test
+)
+
 add_executable(apptraverse_model_presenter_graph_test
   model_presenter_graph_test.cpp
 )
