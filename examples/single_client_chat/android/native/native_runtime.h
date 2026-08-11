@@ -13,9 +13,12 @@
 #include "aether/client.h"
 #include "aether/ptr/rc_ptr.h"
 
+#include "aether/obj/idomain_storage.h"
+
 #include "model/app.h"
 
 #include "../../common/aether_p2p_transport.h"
+#include "../../common/chat_sync_controller.h"
 #include "android_chat_presenter.h"
 #include "android_window_presenter.h"
 #include "ui_bridge.h"
@@ -51,6 +54,7 @@ class NativeRuntime {
   bool LoadPresenters();
   bool SelectAetherClient();
   void StartP2pTransport();
+  bool StartChatSync();
   void Teardown();
   void DrainPendingSends();
   void DrainPendingViewports();
@@ -63,9 +67,11 @@ class NativeRuntime {
   std::string state_dir_;
   UiBridge ui_bridge_;
   ae::RcPtr<ae::AetherApp> aether_app_;
+  ae::IDomainStorage* domain_storage_{nullptr};
   App::ptr app_;
   ae::Client::ptr aether_client_;
   std::unique_ptr<examples::AetherP2pTransport> p2p_transport_;
+  std::unique_ptr<examples::ChatSyncController> chat_sync_;
   AndroidWindowPresenter* window_presenter_{nullptr};
   AndroidChatPresenter* chat_presenter_{nullptr};
 

@@ -60,7 +60,10 @@ void AetherP2pTransport::SendText(ae::Uid const& remote_uid,
 
 void AetherP2pTransport::Send(ae::Uid const& remote_uid,
                               std::uint8_t const* bytes, std::size_t size) {
-  auto* session = EnsureOutgoingSession(remote_uid);
+  auto* session = FindSession(remote_uid);
+  if (session == nullptr) {
+    session = EnsureOutgoingSession(remote_uid);
+  }
   if (session == nullptr || session->stream == nullptr) {
     return;
   }
@@ -71,11 +74,12 @@ void AetherP2pTransport::Send(ae::Uid const& remote_uid,
 
 AetherP2pTransport::PeerSession* AetherP2pTransport::FindSession(
     ae::Uid const& remote_uid) {
-  auto it = sessions_.find(remote_uid);
-  if (it == sessions_.end()) {
-    return nullptr;
+  for (auto& session : sessions_) {
+    if (session != nullptr && session->peer == remote_uid) {
+      return session.get();
+    }
   }
-  return it->second.get();
+  return nullptr;
 }
 
 AetherP2pTransport::PeerSession*
@@ -96,9 +100,8 @@ AetherP2pTransport::EnsureOutgoingSession(ae::Uid const& remote_uid) {
   auto* raw = session.get();
   session->data_sub = session->stream->out_data_event().Subscribe(
       [this, raw](ae::DataBuffer const& data) { OnRawStreamData(raw, data); });
-  auto* inserted = session.get();
-  sessions_.emplace(remote_uid, std::move(session));
-  return inserted;
+  sessions_.push_back(std::move(session));
+  return raw;
 }
 
 void AetherP2pTransport::AttachIncoming(ae::P2pPortHandle handle) {
@@ -106,9 +109,6 @@ void AetherP2pTransport::AttachIncoming(ae::P2pPortHandle handle) {
     return;
   }
   auto const peer = handle.destination();
-  if (FindSession(peer) != nullptr) {
-    return;
-  }
 
   auto session = std::make_unique<PeerSession>();
   session->peer = peer;
@@ -117,7 +117,7 @@ void AetherP2pTransport::AttachIncoming(ae::P2pPortHandle handle) {
   auto* raw = session.get();
   session->data_sub = session->stream->out_data_event().Subscribe(
       [this, raw](ae::DataBuffer const& data) { OnRawStreamData(raw, data); });
-  sessions_.emplace(peer, std::move(session));
+  sessions_.push_back(std::move(session));
 }
 
 void AetherP2pTransport::OnRawStreamData(PeerSession* session,
@@ -138,6 +138,34 @@ void AetherP2pTransport::EmitPayload(
   }
 }
 
+bool TryHandleP2pProbePayload(
+    AetherP2pTransport& transport, ae::Uid const& peer,
+    std::vector<std::uint8_t> const& payload,
+    std::function<void(std::string const&)> const& log_line,
+    std::function<void()> const& on_pong_received) {
+  auto const peer_text = FormatAetherUid(peer);
+  if (PayloadEquals(payload, kP2pPingPayload)) {
+    if (log_line) {
+      log_line("P2P_PING_RECEIVED peer=" + peer_text);
+    }
+    transport.SendText(peer, kP2pPongPayload);
+    if (log_line) {
+      log_line("P2P_PONG_SENT peer=" + peer_text);
+    }
+    return true;
+  }
+  if (PayloadEquals(payload, kP2pPongPayload)) {
+    if (log_line) {
+      log_line("P2P_PONG_RECEIVED peer=" + peer_text);
+    }
+    if (on_pong_received) {
+      on_pong_received();
+    }
+    return true;
+  }
+  return false;
+}
+
 void AttachPingPongProbe(AetherP2pTransport& transport,
                          std::function<void(std::string const&)> log_line,
                          std::function<void()> on_pong_received) {
@@ -145,25 +173,8 @@ void AttachPingPongProbe(AetherP2pTransport& transport,
       [&transport, log_line = std::move(log_line),
        on_pong_received = std::move(on_pong_received)](
           ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
-        auto const peer_text = FormatAetherUid(peer);
-        if (PayloadEquals(payload, kP2pPingPayload)) {
-          if (log_line) {
-            log_line("P2P_PING_RECEIVED peer=" + peer_text);
-          }
-          transport.SendText(peer, kP2pPongPayload);
-          if (log_line) {
-            log_line("P2P_PONG_SENT peer=" + peer_text);
-          }
-          return;
-        }
-        if (PayloadEquals(payload, kP2pPongPayload)) {
-          if (log_line) {
-            log_line("P2P_PONG_RECEIVED peer=" + peer_text);
-          }
-          if (on_pong_received) {
-            on_pong_received();
-          }
-        }
+        (void)TryHandleP2pProbePayload(transport, peer, payload, log_line,
+                                       on_pong_received);
       });
 }
 

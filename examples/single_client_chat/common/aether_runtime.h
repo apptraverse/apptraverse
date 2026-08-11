@@ -1,6 +1,8 @@
 #ifndef APPTRAVERSE_EXAMPLES_AETHER_RUNTIME_H_
 #define APPTRAVERSE_EXAMPLES_AETHER_RUNTIME_H_
 
+#include <cassert>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -20,13 +22,33 @@ inline constexpr auto kAetherParentUid =
 inline constexpr char kWindowsAetherClientName[] = "apptraverse-windows";
 inline constexpr char kAndroidAetherClientName[] = "apptraverse-android";
 
+// AetherApp owns storage; keep a non-owning pointer for SyncReplica.
+struct ConstructedAetherRuntime {
+  ae::RcPtr<ae::AetherApp> app;
+  ae::IDomainStorage* storage{nullptr};
+};
+
 // One AetherApp + Domain + storage, with EthernetAdapter when distilling.
+// Calls storage_factory once, keeps a non-owning pointer, then transfers that
+// same unique_ptr into AetherApp (no second storage instance).
 template <typename StorageFactory>
-ae::RcPtr<ae::AetherApp> ConstructAetherAppWithEthernet(
+ConstructedAetherRuntime ConstructAetherAppWithEthernet(
     StorageFactory&& storage_factory) {
+  ConstructedAetherRuntime out;
+  auto held = std::make_shared<std::unique_ptr<ae::IDomainStorage>>(
+      std::forward<StorageFactory>(storage_factory)());
+  out.storage = held->get();
+  assert(out.storage != nullptr);
+
+  // SmallFunction storage is tiny; capture only the shared_ptr and move once.
+  auto transfer = [held]() {
+    assert(held != nullptr && held->get() != nullptr);
+    return std::move(*held);
+  };
+
 #if AE_DISTILLATION && defined(__ANDROID__)
-  return ae::AetherApp::Construct(
-      ae::AetherAppContext{std::forward<StorageFactory>(storage_factory)}
+  out.app = ae::AetherApp::Construct(
+      ae::AetherAppContext{std::move(transfer)}
           .AddAdapterFactory([](ae::AetherAppContext const& ctx) {
             return ae::EthernetAdapter::ptr::Create(
                 ae::CreateWith{ctx.domain()}.with_id(
@@ -41,8 +63,8 @@ ae::RcPtr<ae::AetherApp> ConstructAetherAppWithEthernet(
                 ctx.aether());
           }));
 #elif AE_DISTILLATION
-  return ae::AetherApp::Construct(
-      ae::AetherAppContext{std::forward<StorageFactory>(storage_factory)}
+  out.app = ae::AetherApp::Construct(
+      ae::AetherAppContext{std::move(transfer)}
           .AddAdapterFactory([](ae::AetherAppContext const& ctx) {
             return ae::EthernetAdapter::ptr::Create(
                 ae::CreateWith{ctx.domain()}.with_id(
@@ -50,9 +72,11 @@ ae::RcPtr<ae::AetherApp> ConstructAetherAppWithEthernet(
                 ctx.aether(), ctx.poller(), ctx.dns_resolver());
           }));
 #else
-  return ae::AetherApp::Construct(
-      ae::AetherAppContext{std::forward<StorageFactory>(storage_factory)});
+  out.app = ae::AetherApp::Construct(
+      ae::AetherAppContext{std::move(transfer)});
 #endif
+  assert(out.storage != nullptr);
+  return out;
 }
 
 inline std::string FormatAetherUid(ae::Uid const& uid) {

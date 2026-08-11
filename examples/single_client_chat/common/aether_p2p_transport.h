@@ -3,7 +3,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -22,6 +21,7 @@ inline constexpr char kP2pPongPayload[] = "APPTRAVERSE_P2P_PONG_V1";
 // Reliability (ack / retry / duplicate suppression) belongs to the future
 // synchronization layer — this transport does not provide it.
 // Peer Aether UID is transport context only and is never placed in the payload.
+// Multiple streams may exist for the same remote UID (incoming + outgoing).
 class AetherP2pTransport {
  public:
   using ReceiveHandler = std::function<void(
@@ -59,8 +59,16 @@ class AetherP2pTransport {
   ae::Client::ptr local_client_;
   ReceiveHandler on_receive_;
   ae::Subscription new_port_sub_;
-  std::map<ae::Uid, std::unique_ptr<PeerSession>> sessions_;
+  std::vector<std::unique_ptr<PeerSession>> sessions_;
 };
+
+// Returns true when payload is PING or PONG (answers PONG for PING).
+// Returns false for application / sync bytes.
+bool TryHandleP2pProbePayload(
+    AetherP2pTransport& transport, ae::Uid const& peer,
+    std::vector<std::uint8_t> const& payload,
+    std::function<void(std::string const&)> const& log_line,
+    std::function<void()> const& on_pong_received = {});
 
 // Probe markers only — does not touch Chat / Event / journal.
 void AttachPingPongProbe(AetherP2pTransport& transport,

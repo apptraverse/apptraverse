@@ -18,11 +18,14 @@
 
 #include "../../common/aether_p2p_transport.h"
 #include "../../common/aether_runtime.h"
+#include "../../common/chat_sync_controller.h"
 #include "../../common/graph_builder.h"
 #include "android_log.h"
 #include "android_system_dns_resolver.h"
 #include "android_window.h"
 #include "android_window_presenter.h"
+
+#include "model/chat_presenter.h"
 
 namespace apptraverse::android {
 namespace {
@@ -65,7 +68,11 @@ void NativeRuntime::Run() {
   }
 
   while (!stop_requested_.load(std::memory_order::acquire)) {
-    auto const next_time = aether_app_->Update(ae::Now());
+    auto const now = ae::Now();
+    auto const next_time = aether_app_->Update(now);
+    if (chat_sync_ != nullptr) {
+      chat_sync_->Tick(now);
+    }
     if (stop_requested_.load(std::memory_order::acquire)) {
       break;
     }
@@ -126,11 +133,13 @@ bool NativeRuntime::Setup() {
   }
 
   auto storage_root = state_dir_;
-  aether_app_ = examples::ConstructAetherAppWithEthernet([storage_root]() {
+  auto runtime = examples::ConstructAetherAppWithEthernet([storage_root]() {
     return std::make_unique<DirectoryDomainStorage>(
         std::filesystem::path{storage_root});
   });
-  if (aether_app_.get() == nullptr) {
+  aether_app_ = std::move(runtime.app);
+  domain_storage_ = runtime.storage;
+  if (aether_app_.get() == nullptr || domain_storage_ == nullptr) {
     LogError("Failed to construct AetherApp");
     return false;
   }
@@ -162,6 +171,10 @@ bool NativeRuntime::Setup() {
   StartP2pTransport();
 
   if (!LoadPresenters()) {
+    return false;
+  }
+
+  if (!StartChatSync()) {
     return false;
   }
 
@@ -220,10 +233,59 @@ bool NativeRuntime::SelectAetherClient() {
 void NativeRuntime::StartP2pTransport() {
   p2p_transport_ = std::make_unique<examples::AetherP2pTransport>();
   p2p_transport_->Start(aether_app_, aether_client_);
-  examples::AttachPingPongProbe(*p2p_transport_, [](std::string const& line) {
-    LogMarker(line);
-  });
   LogMarker("AETHER_P2P_TRANSPORT_READY");
+}
+
+bool NativeRuntime::StartChatSync() {
+  if (chat_presenter_ == nullptr || domain_storage_ == nullptr ||
+      p2p_transport_ == nullptr) {
+    LogError("Chat sync prerequisites missing");
+    return false;
+  }
+
+  chat_presenter_->chat.Load();
+  if (!chat_presenter_->chat.is_loaded()) {
+    LogError("Failed to load Chat for sync");
+    return false;
+  }
+  auto chat = chat_presenter_->chat;
+  auto peer_set = chat->peer_set;
+  peer_set.Load();
+  if (!peer_set.is_loaded()) {
+    LogError("Failed to load ChatPeerSet for sync");
+    return false;
+  }
+
+  chat_sync_ = std::make_unique<examples::ChatSyncController>(
+      SyncReplica{aether_app_->domain(), *domain_storage_, chat.id()}, chat,
+      peer_set,
+      [this](ae::Uid const& peer, SerializedSyncPacket const& bytes) {
+        p2p_transport_->Send(peer, bytes);
+      },
+      true,
+      [this]() {
+        if (chat_presenter_ != nullptr) {
+          chat_presenter_->PublishTranscript();
+        }
+        SaveState();
+      },
+      [](std::string const& line) { LogMarker(line); });
+  chat_sync_->Start();
+
+  p2p_transport_->SetReceiveHandler(
+      [this](ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
+        if (examples::TryHandleP2pProbePayload(
+                *p2p_transport_, peer, payload,
+                [](std::string const& line) { LogMarker(line); })) {
+          return;
+        }
+        if (chat_sync_ != nullptr) {
+          chat_sync_->Receive(peer, payload);
+        }
+      });
+
+  LogMarker("CHAT_SYNC_CONTROLLER_READY");
+  return true;
 }
 
 bool NativeRuntime::LoadPresenters() {
@@ -268,8 +330,10 @@ void NativeRuntime::Teardown() {
     chat_presenter_ = nullptr;
   }
   window_presenter_ = nullptr;
+  chat_sync_.reset();
   p2p_transport_.reset();
   aether_client_.Reset();
+  domain_storage_ = nullptr;
   scheduler_.store(nullptr, std::memory_order::release);
   app_.Reset();
   aether_app_.Reset();
