@@ -4,6 +4,8 @@
 #include <android/log.h>
 
 #include <cstdio>
+#include <iostream>
+#include <streambuf>
 #include <string>
 
 namespace apptraverse::android {
@@ -24,6 +26,58 @@ inline void LogError(std::string const& line) {
   std::fputs(line.c_str(), stderr);
   std::fputc('\n', stderr);
   std::fflush(stderr);
+}
+
+// Route Aether IoStreamTrap (std::cout / std::cerr) into logcat.
+class AndroidLogStreambuf final : public std::streambuf {
+ public:
+  explicit AndroidLogStreambuf(int priority) : priority_{priority} {}
+
+ protected:
+  int overflow(int ch) override {
+    if (ch == traits_type::eof()) {
+      return traits_type::not_eof(ch);
+    }
+    char const c = static_cast<char>(ch);
+    if (c == '\n') {
+      FlushLine();
+    } else if (c != '\r') {
+      line_.push_back(c);
+      if (line_.size() > 1800) {
+        FlushLine();
+      }
+    }
+    return ch;
+  }
+
+  int sync() override {
+    FlushLine();
+    return 0;
+  }
+
+ private:
+  void FlushLine() {
+    if (line_.empty()) {
+      return;
+    }
+    __android_log_write(priority_, "AetherTele", line_.c_str());
+    line_.clear();
+  }
+
+  int priority_;
+  std::string line_;
+};
+
+inline void InstallAetherTeleToLogcat() {
+  static AndroidLogStreambuf out_buf{ANDROID_LOG_INFO};
+  static AndroidLogStreambuf err_buf{ANDROID_LOG_ERROR};
+  static bool installed = false;
+  if (installed) {
+    return;
+  }
+  std::cout.rdbuf(&out_buf);
+  std::cerr.rdbuf(&err_buf);
+  installed = true;
 }
 
 inline std::string PointerToHex(void const* pointer) {

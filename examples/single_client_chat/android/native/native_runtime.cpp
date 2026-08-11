@@ -19,6 +19,7 @@
 #include "../../common/aether_runtime.h"
 #include "../../common/graph_builder.h"
 #include "android_log.h"
+#include "android_system_dns_resolver.h"
 #include "android_window.h"
 #include "android_window_presenter.h"
 
@@ -28,6 +29,9 @@ namespace {
 APPTRAVERSE_REGISTER(AndroidWindow);
 APPTRAVERSE_REGISTER(AndroidWindowPresenter);
 APPTRAVERSE_REGISTER(AndroidChatPresenter);
+
+using AndroidSystemDnsResolver = ::apptraverse::examples::AndroidSystemDnsResolver;
+APPTRAVERSE_REGISTER(AndroidSystemDnsResolver);
 
 constexpr std::chrono::milliseconds kMaxIdleWait{200};
 
@@ -110,6 +114,7 @@ void NativeRuntime::Stop() {
 
 bool NativeRuntime::Setup() {
   apptraverse::EnsureObjectRegistration();
+  InstallAetherTeleToLogcat();
 
   auto ec = std::error_code{};
   std::filesystem::create_directories(std::filesystem::path{state_dir_}, ec);
@@ -191,10 +196,15 @@ bool NativeRuntime::LoadOrBuildGraph() {
 }
 
 bool NativeRuntime::SelectAetherClient() {
+  int select_error = 0;
+  LogMarker("AETHER_SELECT_CLIENT_START name=" +
+            std::string{examples::kAndroidAetherClientName});
   aether_client_ = examples::SelectPersistentAetherClient(
-      aether_app_, examples::kAndroidAetherClientName);
+      aether_app_, examples::kAndroidAetherClientName, &select_error);
   if (!aether_client_) {
-    LogError("Failed to select Aether client");
+    LogError("Failed to select Aether client error=" +
+             std::to_string(select_error) +
+             " exited=" + (aether_app_->IsExited() ? "1" : "0"));
     return false;
   }
   LogMarker("AETHER_CLIENT_READY platform=android uid=" +
