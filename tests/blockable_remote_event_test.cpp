@@ -12,7 +12,7 @@
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_state.h"
+#include "apptraverse/object_graph_copy.h"
 #include "model/chat.h"
 #include "model/chat_events.h"
 #include "model/chat_presenter.h"
@@ -260,10 +260,26 @@ void TestExistingNodeStateMergeKeepsLocalPtr() {
   target_doc->local_note = target_local;
   target_doc.Save();
 
-  ImportObjectState(CaptureNodeState(peer, source_storage), target_storage);
+  SyncReplica target{target_domain, target_storage, target_doc.id()};
+  ImportObjectGraph(peer, source_storage, target,
+                    SharedCopyMode::kCopyLoadedTargets);
 
-  MemoryReplica replica{target_domain, target_storage, target_doc.id()};
-  ApplyNodeState(CaptureNodeState(doc, source_storage), replica);
+  for (auto const& record : doc->journal) {
+    if (target_doc->HasEvent(record.event.id())) {
+      continue;
+    }
+    auto source_event = record.event;
+    source_event.Load();
+    ImportObjectGraph(source_event, source_storage, target,
+                      SharedCopyMode::kReferenceExistingTargets);
+    auto imported = Event::ptr::Declare(
+        ae::CreateWith{target_domain}.with_id(source_event.id()));
+    imported.Load();
+    auto const result = target_doc->TryAcceptRemoteEvent(
+        std::move(imported), record.timestamp_us);
+    CHECK(result == RemoteEventResult::kAccepted);
+  }
+  target_doc.Save();
 
   target_doc.Load();
   CHECK(target_doc->local_note.is_valid());

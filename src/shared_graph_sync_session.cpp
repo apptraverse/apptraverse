@@ -4,15 +4,12 @@
 #include <cassert>
 #include <utility>
 
+#include "aether/clock.h"
+
 #include "apptraverse/shared_graph.h"
 
 namespace apptraverse {
 namespace {
-
-bool StorageHasObject(ae::RamDomainStorage const& storage, ae::ObjId id) {
-  auto const it = storage.state.find(id);
-  return it != storage.state.end() && it->second.has_value();
-}
 
 std::vector<ae::ObjId> CollectJournalEventIds(Node::ptr node) {
   std::vector<ae::ObjId> ids;
@@ -23,9 +20,34 @@ std::vector<ae::ObjId> CollectJournalEventIds(Node::ptr node) {
   return ids;
 }
 
+struct JournalEntry {
+  Node::ptr node;
+  EventRecord record;
+};
+
+std::vector<JournalEntry> CollectOrderedJournalEntries(
+    std::vector<Node::ptr> const& nodes) {
+  std::vector<JournalEntry> entries;
+  for (auto const& node : nodes) {
+    node.Load();
+    assert(node.is_loaded());
+    for (auto const& record : node->journal) {
+      entries.push_back(JournalEntry{node, record});
+    }
+  }
+  std::sort(entries.begin(), entries.end(),
+            [](JournalEntry const& a, JournalEntry const& b) {
+              if (a.record.timestamp_us != b.record.timestamp_us) {
+                return a.record.timestamp_us < b.record.timestamp_us;
+              }
+              return a.record.event.id() < b.record.event.id();
+            });
+  return entries;
+}
+
 }  // namespace
 
-SharedGraphSyncSession::SharedGraphSyncSession(MemoryReplica local_replica,
+SharedGraphSyncSession::SharedGraphSyncSession(SyncReplica local_replica,
                                                SendFunction send)
     : local_{local_replica}, send_{std::move(send)} {
   assert(send_);
@@ -48,30 +70,9 @@ void SharedGraphSyncSession::AddId(std::vector<ae::ObjId>& ids, ae::ObjId id) {
   }
 }
 
-bool SharedGraphSyncSession::HasPendingNodeState(ae::ObjId node_id) const {
-  for (auto const& pending : pending_packets_) {
-    if (pending.kind == PendingKind::kNodeState &&
-        pending.node_id == node_id) {
-      return true;
-    }
-  }
-  return false;
-}
-
 bool SharedGraphSyncSession::HasPendingEvent(ae::ObjId event_id) const {
   for (auto const& pending : pending_packets_) {
     if (pending.kind == PendingKind::kEvent && pending.event_id == event_id) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool SharedGraphSyncSession::HasPendingNodeStateRequest(
-    ae::ObjId node_id) const {
-  for (auto const& pending : pending_packets_) {
-    if (pending.kind == PendingKind::kNodeStateRequest &&
-        pending.node_id == node_id) {
       return true;
     }
   }
@@ -113,11 +114,25 @@ Node::ptr SharedGraphSyncSession::LoadLocalNode(ae::ObjId node_id) {
   return node;
 }
 
+std::vector<ae::ObjId> SharedGraphSyncSession::CollectSharedGraphEventIds(
+    Node::ptr root) {
+  std::vector<ae::ObjId> ids;
+  for (auto const& node : DiscoverSharedGraph(root)) {
+    node.Load();
+    assert(node.is_loaded());
+    for (auto const& event_id : CollectJournalEventIds(node)) {
+      AddId(ids, event_id);
+    }
+  }
+  return ids;
+}
+
 void SharedGraphSyncSession::SendAck(ae::ObjId acknowledged_packet_id) {
-  auto ack = AckPacket::ptr::Create(ae::CreateWith{codec_.domain()});
+  ae::RamDomainStorage build_storage;
+  ae::Domain build_domain{ae::Now(), build_storage};
+  auto ack = AckPacket::ptr::Create(ae::CreateWith{build_domain});
   ack->acknowledged_packet_id = acknowledged_packet_id;
-  ack.Save();
-  send_(codec_.Encode(ack));
+  send_(SyncPacketCodec{}.Encode(ack));
 }
 
 void SharedGraphSyncSession::MarkReceivedAndAck(ae::ObjId packet_id) {
@@ -125,36 +140,30 @@ void SharedGraphSyncSession::MarkReceivedAndAck(ae::ObjId packet_id) {
   SendAck(packet_id);
 }
 
-void SharedGraphSyncSession::MaybeCompleteInitialSync() {
-  if (!initial_sync_started_ || initial_sync_complete_) {
-    return;
-  }
-  for (auto const& pending : pending_packets_) {
-    if (pending.is_initial_state) {
-      return;
-    }
-  }
-  initial_sync_complete_ = true;
-}
+void SharedGraphSyncSession::SendInitialNodeState(Node::ptr root) {
+  assert(root.is_valid());
+  assert(root.is_loaded());
+  assert(pending_packets_.empty());
 
-void SharedGraphSyncSession::SendNodeState(Node::ptr node, bool is_initial) {
-  assert(node.is_valid());
-  assert(node.is_loaded());
-  assert(!HasPendingNodeState(node.id()));
+  ae::RamDomainStorage build_storage;
+  ae::Domain build_domain{ae::Now(), build_storage};
+  CopyObjectGraph(root, local_.storage, build_domain, build_storage,
+                  SharedCopyMode::kCopyLoadedTargets);
+  auto build_node =
+      Node::ptr::Declare(ae::CreateWith{build_domain}.with_id(root.id()));
+  build_node.Load();
+  assert(build_node.is_loaded());
 
-  auto packet =
-      NodeStatePacket::ptr::Create(ae::CreateWith{codec_.domain()});
-  packet->state = CaptureNodeState(node, local_.storage);
-  packet->required_nodes = DiscoverSharedDependencies(node);
-  packet.Save();
+  auto packet = NodeStatePacket::ptr::Create(ae::CreateWith{build_domain});
+  packet->node = build_node;
 
   PendingPacket pending;
   pending.packet_id = packet.id();
-  pending.bytes = codec_.Encode(packet);
+  pending.bytes = SyncPacketCodec{}.Encode(packet);
   pending.kind = PendingKind::kNodeState;
-  pending.node_id = node.id();
-  pending.event_ids = CollectJournalEventIds(node);
-  pending.is_initial_state = is_initial;
+  pending.node_id = root.id();
+  pending.event_ids = CollectSharedGraphEventIds(root);
+  pending.is_initial_state = true;
 
   send_(pending.bytes);
   pending_packets_.push_back(std::move(pending));
@@ -169,16 +178,23 @@ void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
   assert(event.is_loaded());
   assert(!HasPendingEvent(event.id()));
 
-  auto packet = EventPacket::ptr::Create(ae::CreateWith{codec_.domain()});
+  ae::RamDomainStorage build_storage;
+  ae::Domain build_domain{ae::Now(), build_storage};
+  CopyObjectGraph(event, local_.storage, build_domain, build_storage,
+                  SharedCopyMode::kCopyLoadedTargets);
+  auto build_event =
+      Event::ptr::Declare(ae::CreateWith{build_domain}.with_id(event.id()));
+  build_event.Load();
+  assert(build_event.is_loaded());
+
+  auto packet = EventPacket::ptr::Create(ae::CreateWith{build_domain});
   packet->target_node_id = node.id();
   packet->timestamp_us = record.timestamp_us;
-  packet->state = CaptureEventState(event, local_.storage);
-  packet->required_nodes = DiscoverSharedDependencies(event);
-  packet.Save();
+  packet->event = build_event;
 
   PendingPacket pending;
   pending.packet_id = packet.id();
-  pending.bytes = codec_.Encode(packet);
+  pending.bytes = SyncPacketCodec{}.Encode(packet);
   pending.kind = PendingKind::kEvent;
   pending.node_id = node.id();
   pending.event_id = event.id();
@@ -187,68 +203,21 @@ void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
   pending_packets_.push_back(std::move(pending));
 }
 
-void SharedGraphSyncSession::EnsureNodeStateRequest(
-    ae::ObjId requested_node_id) {
-  assert(requested_node_id.IsValid());
-  if (HasPendingNodeStateRequest(requested_node_id)) {
-    return;
-  }
-
-  auto packet =
-      NodeStateRequestPacket::ptr::Create(ae::CreateWith{codec_.domain()});
-  packet->requested_node_id = requested_node_id;
-  packet.Save();
-
-  PendingPacket pending;
-  pending.packet_id = packet.id();
-  pending.bytes = codec_.Encode(packet);
-  pending.kind = PendingKind::kNodeStateRequest;
-  pending.node_id = requested_node_id;
-
-  send_(pending.bytes);
-  pending_packets_.push_back(std::move(pending));
-}
-
-void SharedGraphSyncSession::ResendPendingNodeState(ae::ObjId node_id) {
-  for (auto const& pending : pending_packets_) {
-    if (pending.kind == PendingKind::kNodeState &&
-        pending.node_id == node_id) {
-      send_(pending.bytes);
-      return;
-    }
-  }
-}
-
 void SharedGraphSyncSession::StartInitialSynchronization() {
   assert(!initial_sync_started_);
   initial_sync_started_ = true;
 
   auto root = LoadLocalNode(local_.shared_root_id);
-  auto const discovered = DiscoverSharedGraph(root);
-  assert(!discovered.empty());
-
-  for (auto const& node : discovered) {
-    node.Load();
-    assert(node.is_loaded());
-    SendNodeState(node, /*is_initial=*/true);
-  }
-
-  MaybeCompleteInitialSync();
+  SendInitialNodeState(root);
 }
 
 void SharedGraphSyncSession::Poll() {
-  auto root = LoadLocalNode(local_.shared_root_id);
-  auto const discovered = DiscoverSharedGraph(root);
-
-  for (auto const& node : discovered) {
-    node.Load();
-    assert(node.is_loaded());
-    if (!ContainsId(known_node_ids_, node.id()) &&
-        !HasPendingNodeState(node.id())) {
-      SendNodeState(node, /*is_initial=*/false);
-    }
+  if (!initial_sync_complete_) {
+    return;
   }
 
+  auto root = LoadLocalNode(local_.shared_root_id);
+  auto const discovered = DiscoverSharedGraph(root);
   for (auto const& node : discovered) {
     node.Load();
     assert(node.is_loaded());
@@ -269,18 +238,25 @@ void SharedGraphSyncSession::Poll() {
 }
 
 void SharedGraphSyncSession::RetryPending() {
+  std::vector<SerializedSyncPacket> copies;
+  copies.reserve(pending_packets_.size());
   for (auto const& pending : pending_packets_) {
-    send_(pending.bytes);
+    copies.push_back(pending.bytes);
+  }
+  for (auto& bytes : copies) {
+    send_(std::move(bytes));
   }
 }
 
 void SharedGraphSyncSession::Receive(SerializedSyncPacket const& bytes) {
-  auto packet = codec_.Decode(bytes);
-  assert(packet.is_loaded());
-  auto const packet_id = packet.id();
+  auto decoded = SyncPacketCodec{}.Decode(bytes);
+  assert(decoded.packet.is_loaded());
+  auto const packet_id = decoded.packet.id();
 
-  if (packet->GetClassId() == AckPacket::kClassId) {
-    packet->Dispatch(*this);
+  if (decoded.packet->GetClassId() == AckPacket::kClassId) {
+    receiving_decoded_ = &decoded;
+    decoded.packet->Dispatch(*this);
+    receiving_decoded_ = nullptr;
     return;
   }
 
@@ -290,45 +266,86 @@ void SharedGraphSyncSession::Receive(SerializedSyncPacket const& bytes) {
   }
 
   receiving_packet_id_ = packet_id;
-  packet->Dispatch(*this);
+  receiving_decoded_ = &decoded;
+  decoded.packet->Dispatch(*this);
+  receiving_decoded_ = nullptr;
   receiving_packet_id_ = {};
+}
+
+Event::ptr SharedGraphSyncSession::ImportEventForAccept(
+    Event::ptr decoded_event, ae::IDomainStorage& decoded_storage) {
+  auto imported = ImportObjectGraph(decoded_event, decoded_storage, local_,
+                                    SharedCopyMode::kReferenceExistingTargets);
+  auto event =
+      Event::ptr::Declare(ae::CreateWith{local_.domain}.with_id(imported.id()));
+  event.Load();
+  assert(event.is_loaded());
+  return event;
+}
+
+void SharedGraphSyncSession::MergeNodeStateGraph(
+    NodeStatePacket const& packet, ae::IDomainStorage& decoded_storage) {
+  assert(packet.node.is_valid());
+  assert(packet.node.is_loaded());
+
+  auto decoded_nodes = DiscoverSharedGraph(packet.node);
+  // First pass: materialize missing shared Nodes (full graphs).
+  for (auto const& decoded_node : decoded_nodes) {
+    decoded_node.Load();
+    assert(decoded_node.is_loaded());
+    if (!StorageHasNode(decoded_node.id())) {
+      ImportObjectGraph(decoded_node, decoded_storage, local_,
+                        SharedCopyMode::kCopyLoadedTargets);
+    }
+  }
+
+  // Second pass: apply missing Events in timestamp order.
+  auto entries = CollectOrderedJournalEntries(decoded_nodes);
+  for (auto const& entry : entries) {
+    auto local_node = LoadLocalNode(entry.node.id());
+    if (local_node->HasEvent(entry.record.event.id())) {
+      AddId(delivered_event_ids_, entry.record.event.id());
+      continue;
+    }
+    auto decoded_event = entry.record.event;
+    decoded_event.Load();
+    assert(decoded_event.is_loaded());
+    auto imported =
+        ImportEventForAccept(decoded_event, decoded_storage);
+    auto const result = local_node->TryAcceptRemoteEvent(
+        std::move(imported), entry.record.timestamp_us);
+    assert(result != RemoteEventResult::kBlocked);
+    if (result == RemoteEventResult::kAccepted) {
+      local_node.Save();
+    }
+    AddId(delivered_event_ids_, entry.record.event.id());
+  }
 }
 
 void SharedGraphSyncSession::Handle(NodeStatePacket const& packet) {
   assert(receiving_packet_id_.IsValid());
-  for (auto const& required : packet.required_nodes) {
-    if (!StorageHasNode(required)) {
-      EnsureNodeStateRequest(required);
-      return;
-    }
-  }
-
-  ApplyNodeState(packet.state, local_);
-  AddId(known_node_ids_, packet.state.root_id);
-  auto node = LoadLocalNode(packet.state.root_id);
-  for (auto const& record : node->journal) {
-    AddId(delivered_event_ids_, record.event.id());
-  }
+  assert(receiving_decoded_ != nullptr);
+  MergeNodeStateGraph(packet, *receiving_decoded_->storage);
   MarkReceivedAndAck(receiving_packet_id_);
 }
 
 void SharedGraphSyncSession::Handle(EventPacket const& packet) {
   assert(receiving_packet_id_.IsValid());
+  assert(receiving_decoded_ != nullptr);
+  assert(packet.event.is_valid());
+  assert(packet.event.is_loaded());
+
   if (!StorageHasNode(packet.target_node_id)) {
-    EnsureNodeStateRequest(packet.target_node_id);
+    // Target root missing — wait for initial NodeState; no ACK.
     return;
   }
 
-  for (auto const& required : packet.required_nodes) {
-    if (!StorageHasNode(required)) {
-      EnsureNodeStateRequest(required);
-      return;
-    }
-  }
+  // Import missing shared Nodes referenced by the Event graph.
+  ImportObjectGraph(packet.event, *receiving_decoded_->storage, local_,
+                    SharedCopyMode::kReferenceExistingTargets);
 
-  ImportObjectState(packet.state, local_.storage);
   auto event = Event::ptr::Declare(
-      ae::CreateWith{local_.domain}.with_id(packet.state.root_id));
+      ae::CreateWith{local_.domain}.with_id(packet.event.id()));
   event.Load();
   assert(event.is_loaded());
 
@@ -343,21 +360,7 @@ void SharedGraphSyncSession::Handle(EventPacket const& packet) {
   if (result == RemoteEventResult::kAccepted) {
     target.Save();
   }
-  AddId(delivered_event_ids_, packet.state.root_id);
-  MarkReceivedAndAck(receiving_packet_id_);
-}
-
-void SharedGraphSyncSession::Handle(NodeStateRequestPacket const& packet) {
-  assert(receiving_packet_id_.IsValid());
-  assert(StorageHasNode(packet.requested_node_id));
-
-  if (HasPendingNodeState(packet.requested_node_id)) {
-    ResendPendingNodeState(packet.requested_node_id);
-  } else {
-    auto node = LoadLocalNode(packet.requested_node_id);
-    SendNodeState(node, /*is_initial=*/false);
-  }
-
+  AddId(delivered_event_ids_, packet.event.id());
   MarkReceivedAndAck(receiving_packet_id_);
 }
 
@@ -368,9 +371,11 @@ void SharedGraphSyncSession::Handle(AckPacket const& packet) {
   }
 
   if (pending->kind == PendingKind::kNodeState) {
-    AddId(known_node_ids_, pending->node_id);
     for (auto const& event_id : pending->event_ids) {
       AddId(delivered_event_ids_, event_id);
+    }
+    if (pending->is_initial_state) {
+      initial_sync_complete_ = true;
     }
   } else if (pending->kind == PendingKind::kEvent) {
     AddId(delivered_event_ids_, pending->event_id);
@@ -383,8 +388,6 @@ void SharedGraphSyncSession::Handle(AckPacket const& packet) {
                        return item.packet_id == packet_id;
                      }),
       pending_packets_.end());
-
-  MaybeCompleteInitialSync();
 }
 
 }  // namespace apptraverse

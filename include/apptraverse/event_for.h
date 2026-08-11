@@ -4,7 +4,7 @@
 #include <type_traits>
 
 #include "apptraverse/event.h"
-#include "apptraverse/object_state_transfer.h"
+#include "apptraverse/object_graph_copy_detail.h"
 #include "apptraverse/shared_discovery.h"
 
 namespace apptraverse {
@@ -51,16 +51,8 @@ class EventFor : public Event {
         static_cast<ConcreteEvent&>(*this), ctx);
   }
 
-  void PrepareScopedTransferImpl(
-      detail::OwnedObjectIdCollector& owned) override {
-    detail::PrepareScopedTransferObject(static_cast<ConcreteEvent&>(*this),
-                                        owned);
-  }
-
-  void CollectSharedDependenciesImpl(
-      detail::SharedDependencyCollector& deps) override {
-    detail::CollectSharedDependenciesObject(
-        static_cast<ConcreteEvent&>(*this), deps);
+  void PrepareSyncGraphImpl(detail::PrepareSyncGraphContext& ctx) override {
+    detail::PrepareSyncGraphObject(static_cast<ConcreteEvent&>(*this), ctx);
   }
 };
 

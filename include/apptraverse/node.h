@@ -9,17 +9,17 @@
 #include <vector>
 
 #include "aether/obj/domain.h"
+#include "aether/obj/idomain_storage.h"
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_record.h"
+#include "apptraverse/object_graph_copy.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
 namespace detail {
 struct SharedDiscoveryContext;
-struct OwnedObjectIdCollector;
-struct SharedDependencyCollector;
 }
 
 enum class RemoteEventResult {
@@ -60,13 +60,19 @@ class Node : public ae::Obj {
     ReflectForSharedDiscoveryImpl(ctx);
   }
 
-  // Mask Local/Shared edges and collect ordinary owned ObjIds for transfer.
-  void PrepareScopedTransfer(detail::OwnedObjectIdCollector& owned) {
-    PrepareScopedTransferImpl(owned);
+  // Prepare a scratch graph for sync copy: clear LocalPtr; load or
+  // reference-only SharedPtr according to mode. Cycle-safe for SharedPtr.
+  void PrepareSyncGraph(ae::IDomainStorage* dest_for_refs,
+                        SharedCopyMode mode) {
+    detail::PrepareSyncGraphContext ctx{dest_for_refs, mode, {}};
+    PrepareSyncGraph(ctx);
   }
 
-  void CollectSharedDependencies(detail::SharedDependencyCollector& deps) {
-    CollectSharedDependenciesImpl(deps);
+  void PrepareSyncGraph(detail::PrepareSyncGraphContext& ctx) {
+    if (!ctx.visiting_nodes.insert(obj_id.id()).second) {
+      return;
+    }
+    PrepareSyncGraphImpl(ctx);
   }
 
   bool HasEvent(ae::ObjId event_id) const {
@@ -240,15 +246,8 @@ class Node : public ae::Obj {
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 
-  virtual void PrepareScopedTransferImpl(
-      detail::OwnedObjectIdCollector& owned) {
-    (void)owned;
-    assert(false && "Concrete Node must inherit through NodeFor");
-  }
-
-  virtual void CollectSharedDependenciesImpl(
-      detail::SharedDependencyCollector& deps) {
-    (void)deps;
+  virtual void PrepareSyncGraphImpl(detail::PrepareSyncGraphContext& ctx) {
+    (void)ctx;
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 

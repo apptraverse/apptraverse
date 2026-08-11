@@ -36,8 +36,7 @@ add_library(apptraverse STATIC
   src/apptraverse.cpp
   src/directory_domain_storage.cpp
   src/shared_graph.cpp
-  src/object_state.cpp
-  src/ideal_memory_sync.cpp
+  src/object_graph_copy.cpp
   src/sync_packet.cpp
   src/shared_graph_sync_session.cpp
 )

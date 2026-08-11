@@ -2,9 +2,10 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <utility>
 
-#include "apptraverse/object_state_transfer.h"
+#include "aether/clock.h"
 
 namespace apptraverse {
 namespace {
@@ -36,29 +37,28 @@ std::uint8_t ReadU8(SerializedSyncPacket const& bytes, std::size_t& offset) {
   return bytes[offset++];
 }
 
-ObjectState ExtractPacketObjectState(SyncPacket::ptr packet,
-                                     ae::RamDomainStorage const& storage) {
-  assert(packet.is_valid());
-  assert(packet.is_loaded());
-  packet.Save();
+struct EncodedRecord {
+  ae::ObjId obj_id;
+  std::uint32_t class_id{0};
+  std::uint8_t version{0};
+  ae::ObjectData data;
+};
 
-  ObjectState state;
-  state.root_id = packet.id();
-  auto const it = storage.state.find(packet.id());
-  assert(it != storage.state.end());
-  assert(it->second.has_value());
-  for (auto const& [class_id, versions] : *it->second) {
-    for (auto const& [version, data] : versions) {
-      state.objects.push_back(StoredObjectVersion{
-          packet.id(),
-          class_id,
-          version,
-          data,
-      });
+SerializedSyncPacket EncodeRamStorage(ae::ObjId root_id,
+                                      ae::RamDomainStorage const& storage) {
+  std::vector<EncodedRecord> records;
+  for (auto const& [obj_id, classes] : storage.state) {
+    if (!classes.has_value()) {
+      continue;
+    }
+    for (auto const& [class_id, versions] : *classes) {
+      for (auto const& [version, data] : versions) {
+        records.push_back(EncodedRecord{obj_id, class_id, version, data});
+      }
     }
   }
-  std::sort(state.objects.begin(), state.objects.end(),
-            [](StoredObjectVersion const& a, StoredObjectVersion const& b) {
+  std::sort(records.begin(), records.end(),
+            [](EncodedRecord const& a, EncodedRecord const& b) {
               if (a.obj_id != b.obj_id) {
                 return a.obj_id < b.obj_id;
               }
@@ -67,85 +67,86 @@ ObjectState ExtractPacketObjectState(SyncPacket::ptr packet,
               }
               return a.version < b.version;
             });
-  return state;
-}
 
-}  // namespace
-
-SyncPacketCodec::SyncPacketCodec() : domain_{ae::Now(), storage_} {}
-
-SerializedSyncPacket EncodeObjectState(ObjectState const& state) {
   SerializedSyncPacket out;
-  AppendU32(out, state.root_id.id());
-  AppendU32(out, static_cast<std::uint32_t>(state.objects.size()));
-  for (auto const& object : state.objects) {
-    AppendU32(out, object.obj_id.id());
-    AppendU32(out, object.class_id);
-    AppendU8(out, object.version);
-    AppendU32(out, static_cast<std::uint32_t>(object.data.size()));
-    out.insert(out.end(), object.data.begin(), object.data.end());
+  AppendU32(out, root_id.id());
+  AppendU32(out, static_cast<std::uint32_t>(records.size()));
+  for (auto const& record : records) {
+    AppendU32(out, record.obj_id.id());
+    AppendU32(out, record.class_id);
+    AppendU8(out, record.version);
+    AppendU32(out, static_cast<std::uint32_t>(record.data.size()));
+    out.insert(out.end(), record.data.begin(), record.data.end());
   }
   return out;
 }
 
-ObjectState DecodeObjectState(SerializedSyncPacket const& bytes) {
+void ImportEncodedRecords(SerializedSyncPacket const& bytes, ae::ObjId& root_id,
+                          ae::RamDomainStorage& storage) {
   std::size_t offset = 0;
-  ObjectState state;
-  state.root_id = ae::ObjId{ReadU32(bytes, offset)};
+  root_id = ae::ObjId{ReadU32(bytes, offset)};
   auto const count = ReadU32(bytes, offset);
-  state.objects.reserve(count);
   for (std::uint32_t i = 0; i < count; ++i) {
-    StoredObjectVersion object;
-    object.obj_id = ae::ObjId{ReadU32(bytes, offset)};
-    object.class_id = ReadU32(bytes, offset);
-    object.version = ReadU8(bytes, offset);
+    ae::ObjId const obj_id{ReadU32(bytes, offset)};
+    auto const class_id = ReadU32(bytes, offset);
+    auto const version = ReadU8(bytes, offset);
     auto const data_size = ReadU32(bytes, offset);
     assert(offset + data_size <= bytes.size());
-    object.data.assign(bytes.begin() + static_cast<std::ptrdiff_t>(offset),
-                       bytes.begin() + static_cast<std::ptrdiff_t>(offset +
-                                                                  data_size));
+    ae::ObjectData data(
+        bytes.begin() + static_cast<std::ptrdiff_t>(offset),
+        bytes.begin() + static_cast<std::ptrdiff_t>(offset + data_size));
     offset += data_size;
-    state.objects.push_back(std::move(object));
+    storage.SaveData(ae::DomainQuery{obj_id, class_id, version},
+                     std::move(data));
   }
   assert(offset == bytes.size());
-  return state;
 }
+
+void SaveRootToDomain(SyncPacket::ptr packet, ae::Domain& domain) {
+  ae::DomainGraph graph{&domain};
+  ae::Ptr<ae::Obj> const as_obj = packet.Load();
+  graph.SaveRootImpl(as_obj, packet.id());
+}
+
+}  // namespace
 
 SerializedSyncPacket SyncPacketCodec::Encode(SyncPacket::ptr packet) {
   assert(packet.is_valid());
   assert(packet.is_loaded());
-  assert(packet.domain() == &domain_);
-  auto const state = ExtractPacketObjectState(packet, storage_);
-  return EncodeObjectState(state);
+
+  // Temp domain #1: serialize the live (already-loaded) packet graph without
+  // mutating the source objects' Domain.
+  ae::RamDomainStorage temp1_storage;
+  ae::Domain temp1_domain{ae::Now(), temp1_storage};
+  SaveRootToDomain(packet, temp1_domain);
+
+  auto temp1_packet = SyncPacket::ptr::Declare(
+      ae::CreateWith{temp1_domain}.with_id(packet.id()));
+  temp1_packet.Load();
+  assert(temp1_packet.is_loaded());
+
+  // Sanitize copy: LocalPtr cleared; SharedPtr / ordinary ObjPtr loaded+kept.
+  temp1_packet->PrepareSyncGraph(nullptr, SharedCopyMode::kCopyLoadedTargets);
+
+  // Temp domain #2: save only the sanitized graph.
+  ae::RamDomainStorage temp2_storage;
+  ae::Domain temp2_domain{ae::Now(), temp2_storage};
+  SaveRootToDomain(temp1_packet, temp2_domain);
+
+  return EncodeRamStorage(packet.id(), temp2_storage);
 }
 
-SyncPacket::ptr SyncPacketCodec::Decode(SerializedSyncPacket const& bytes) {
-  auto const state = DecodeObjectState(bytes);
-  ImportObjectState(state, storage_);
-  auto packet =
-      SyncPacket::ptr::Declare(ae::CreateWith{domain_}.with_id(state.root_id));
-  packet.Load();
-  assert(packet.is_loaded());
-  assert(packet.domain() == &domain_);
-  return packet;
-}
-
-std::vector<ae::ObjId> DiscoverSharedDependencies(Node::ptr node) {
-  assert(node.is_valid());
-  assert(node.is_loaded());
-  detail::SharedDependencyCollector deps;
-  node->CollectSharedDependencies(deps);
-  deps.Sort();
-  return deps.ids;
-}
-
-std::vector<ae::ObjId> DiscoverSharedDependencies(Event::ptr event) {
-  assert(event.is_valid());
-  assert(event.is_loaded());
-  detail::SharedDependencyCollector deps;
-  event->CollectSharedDependencies(deps);
-  deps.Sort();
-  return deps.ids;
+DecodedSyncPacket SyncPacketCodec::Decode(SerializedSyncPacket const& bytes) {
+  DecodedSyncPacket decoded;
+  decoded.storage = std::make_unique<ae::RamDomainStorage>();
+  ae::ObjId root_id;
+  ImportEncodedRecords(bytes, root_id, *decoded.storage);
+  decoded.domain = std::make_unique<ae::Domain>(ae::Now(), *decoded.storage);
+  decoded.packet = SyncPacket::ptr::Declare(
+      ae::CreateWith{*decoded.domain}.with_id(root_id));
+  decoded.packet.Load();
+  assert(decoded.packet.is_loaded());
+  return decoded;
 }
 
 }  // namespace apptraverse

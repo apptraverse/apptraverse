@@ -8,7 +8,7 @@
 
 #include "aether/obj/obj_id.h"
 
-#include "apptraverse/object_state.h"
+#include "apptraverse/object_graph_copy.h"
 #include "apptraverse/sync_packet.h"
 
 namespace apptraverse {
@@ -19,7 +19,7 @@ class SharedGraphSyncSession : public SyncPacketHandler {
  public:
   using SendFunction = std::function<void(SerializedSyncPacket)>;
 
-  SharedGraphSyncSession(MemoryReplica local_replica, SendFunction send);
+  SharedGraphSyncSession(SyncReplica local_replica, SendFunction send);
 
   void StartInitialSynchronization();
   void Poll();
@@ -33,7 +33,6 @@ class SharedGraphSyncSession : public SyncPacketHandler {
   enum class PendingKind {
     kNodeState,
     kEvent,
-    kNodeStateRequest,
   };
 
   struct PendingPacket {
@@ -48,34 +47,34 @@ class SharedGraphSyncSession : public SyncPacketHandler {
 
   void Handle(NodeStatePacket const& packet) override;
   void Handle(EventPacket const& packet) override;
-  void Handle(NodeStateRequestPacket const& packet) override;
   void Handle(AckPacket const& packet) override;
 
-  void SendNodeState(Node::ptr node, bool is_initial);
+  void SendInitialNodeState(Node::ptr root);
   void SendEventPacket(Node::ptr node, EventRecord const& record);
-  void EnsureNodeStateRequest(ae::ObjId requested_node_id);
   void SendAck(ae::ObjId acknowledged_packet_id);
   void MarkReceivedAndAck(ae::ObjId packet_id);
-  void MaybeCompleteInitialSync();
 
   bool ContainsId(std::vector<ae::ObjId> const& ids, ae::ObjId id) const;
   void AddId(std::vector<ae::ObjId>& ids, ae::ObjId id);
-  bool HasPendingNodeState(ae::ObjId node_id) const;
   bool HasPendingEvent(ae::ObjId event_id) const;
-  bool HasPendingNodeStateRequest(ae::ObjId node_id) const;
   bool IsEventCoveredByPendingNodeState(ae::ObjId event_id) const;
   PendingPacket* FindPending(ae::ObjId packet_id);
-  void ResendPendingNodeState(ae::ObjId node_id);
 
   bool StorageHasNode(ae::ObjId node_id) const;
   Node::ptr LoadLocalNode(ae::ObjId node_id);
 
-  MemoryReplica local_;
-  SendFunction send_;
-  SyncPacketCodec codec_;
-  ae::ObjId receiving_packet_id_;
+  std::vector<ae::ObjId> CollectSharedGraphEventIds(Node::ptr root);
 
-  std::vector<ae::ObjId> known_node_ids_;
+  void MergeNodeStateGraph(NodeStatePacket const& packet,
+                           ae::IDomainStorage& decoded_storage);
+  Event::ptr ImportEventForAccept(Event::ptr decoded_event,
+                                  ae::IDomainStorage& decoded_storage);
+
+  SyncReplica local_;
+  SendFunction send_;
+  ae::ObjId receiving_packet_id_;
+  DecodedSyncPacket* receiving_decoded_{nullptr};
+
   std::vector<ae::ObjId> delivered_event_ids_;
   std::vector<ae::ObjId> successfully_received_packet_ids_;
   std::vector<PendingPacket> pending_packets_;

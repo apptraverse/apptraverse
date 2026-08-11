@@ -3,8 +3,10 @@
 
 #include <cassert>
 
+#include "aether/obj/idomain_storage.h"
 #include "aether/obj/obj.h"
 
+#include "apptraverse/object_graph_copy.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
@@ -13,8 +15,6 @@ class Node;
 
 namespace detail {
 struct SharedDiscoveryContext;
-struct OwnedObjectIdCollector;
-struct SharedDependencyCollector;
 }
 
 class Event : public ae::Obj {
@@ -34,12 +34,14 @@ class Event : public ae::Obj {
     ReflectForSharedDiscoveryImpl(ctx);
   }
 
-  void PrepareScopedTransfer(detail::OwnedObjectIdCollector& owned) {
-    PrepareScopedTransferImpl(owned);
+  void PrepareSyncGraph(ae::IDomainStorage* dest_for_refs,
+                        SharedCopyMode mode) {
+    detail::PrepareSyncGraphContext ctx{dest_for_refs, mode, {}};
+    PrepareSyncGraph(ctx);
   }
 
-  void CollectSharedDependencies(detail::SharedDependencyCollector& deps) {
-    CollectSharedDependenciesImpl(deps);
+  void PrepareSyncGraph(detail::PrepareSyncGraphContext& ctx) {
+    PrepareSyncGraphImpl(ctx);
   }
 
   bool CanApplyTo(Node const& target) const {
@@ -57,15 +59,8 @@ class Event : public ae::Obj {
     assert(false && "Concrete Event must inherit through EventFor");
   }
 
-  virtual void PrepareScopedTransferImpl(
-      detail::OwnedObjectIdCollector& owned) {
-    (void)owned;
-    assert(false && "Concrete Event must inherit through EventFor");
-  }
-
-  virtual void CollectSharedDependenciesImpl(
-      detail::SharedDependencyCollector& deps) {
-    (void)deps;
+  virtual void PrepareSyncGraphImpl(detail::PrepareSyncGraphContext& ctx) {
+    (void)ctx;
     assert(false && "Concrete Event must inherit through EventFor");
   }
 

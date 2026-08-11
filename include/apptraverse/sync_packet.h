@@ -2,21 +2,23 @@
 #define APPTRAVERSE_SYNC_PACKET_H_
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
-#include "aether/clock.h"
 #include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/obj/domain.h"
 #include "aether/obj/obj.h"
 
+#include "apptraverse/event.h"
+#include "apptraverse/node.h"
+#include "apptraverse/object_graph_copy.h"
+#include "apptraverse/object_graph_copy_detail.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_state.h"
 
 namespace apptraverse {
 
 class NodeStatePacket;
 class EventPacket;
-class NodeStateRequestPacket;
 class AckPacket;
 
 class SyncPacketHandler {
@@ -24,7 +26,6 @@ class SyncPacketHandler {
   virtual ~SyncPacketHandler() = default;
   virtual void Handle(NodeStatePacket const& packet) = 0;
   virtual void Handle(EventPacket const& packet) = 0;
-  virtual void Handle(NodeStateRequestPacket const& packet) = 0;
   virtual void Handle(AckPacket const& packet) = 0;
 };
 
@@ -41,108 +42,98 @@ class SyncPacket : public ae::Obj {
   AE_OBJECT_REFLECT()
 
   virtual void Dispatch(SyncPacketHandler& handler) const = 0;
+
+  void PrepareSyncGraph(ae::IDomainStorage* dest_for_refs,
+                        SharedCopyMode mode) {
+    detail::PrepareSyncGraphContext ctx{dest_for_refs, mode, {}};
+    PrepareSyncGraph(ctx);
+  }
+
+  void PrepareSyncGraph(detail::PrepareSyncGraphContext& ctx) {
+    PrepareSyncGraphImpl(ctx);
+  }
+
+ private:
+  virtual void PrepareSyncGraphImpl(detail::PrepareSyncGraphContext& ctx) = 0;
 };
 
-class NodeStatePacket : public SyncPacket {
+template <typename ConcretePacket>
+class SyncPacketFor : public SyncPacket {
+ protected:
+  SyncPacketFor() = default;
+  explicit SyncPacketFor(ae::ObjProp prop) : SyncPacket{prop} {}
+
+ public:
+  void Dispatch(SyncPacketHandler& handler) const override {
+    handler.Handle(static_cast<ConcretePacket const&>(*this));
+  }
+
+ private:
+  void PrepareSyncGraphImpl(detail::PrepareSyncGraphContext& ctx) override {
+    detail::PrepareSyncGraphObject(static_cast<ConcretePacket&>(*this), ctx);
+  }
+};
+
+class NodeStatePacket : public SyncPacketFor<NodeStatePacket> {
   APPTRAVERSE_OBJECT(NodeStatePacket, SyncPacket, 0)
 
  protected:
   NodeStatePacket() = default;
 
  public:
-  explicit NodeStatePacket(ae::ObjProp prop) : SyncPacket{prop} {}
+  explicit NodeStatePacket(ae::ObjProp prop) : SyncPacketFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(state), AE_MMBR(required_nodes))
+  AE_OBJECT_REFLECT(AE_MMBR(node))
 
-  ObjectState state;
-  std::vector<ae::ObjId> required_nodes;
-
-  void Dispatch(SyncPacketHandler& handler) const override {
-    handler.Handle(*this);
-  }
+  Node::ptr node;
 };
 
-class EventPacket : public SyncPacket {
+class EventPacket : public SyncPacketFor<EventPacket> {
   APPTRAVERSE_OBJECT(EventPacket, SyncPacket, 0)
 
  protected:
   EventPacket() = default;
 
  public:
-  explicit EventPacket(ae::ObjProp prop) : SyncPacket{prop} {}
+  explicit EventPacket(ae::ObjProp prop) : SyncPacketFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(target_node_id), AE_MMBR(timestamp_us),
-                    AE_MMBR(state), AE_MMBR(required_nodes))
+                    AE_MMBR(event))
 
   ae::ObjId target_node_id;
   std::uint64_t timestamp_us{0};
-  EventState state;
-  std::vector<ae::ObjId> required_nodes;
-
-  void Dispatch(SyncPacketHandler& handler) const override {
-    handler.Handle(*this);
-  }
+  Event::ptr event;
 };
 
-class NodeStateRequestPacket : public SyncPacket {
-  APPTRAVERSE_OBJECT(NodeStateRequestPacket, SyncPacket, 0)
-
- protected:
-  NodeStateRequestPacket() = default;
-
- public:
-  explicit NodeStateRequestPacket(ae::ObjProp prop) : SyncPacket{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(requested_node_id))
-
-  ae::ObjId requested_node_id;
-
-  void Dispatch(SyncPacketHandler& handler) const override {
-    handler.Handle(*this);
-  }
-};
-
-class AckPacket : public SyncPacket {
+class AckPacket : public SyncPacketFor<AckPacket> {
   APPTRAVERSE_OBJECT(AckPacket, SyncPacket, 0)
 
  protected:
   AckPacket() = default;
 
  public:
-  explicit AckPacket(ae::ObjProp prop) : SyncPacket{prop} {}
+  explicit AckPacket(ae::ObjProp prop) : SyncPacketFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(acknowledged_packet_id))
 
   ae::ObjId acknowledged_packet_id;
-
-  void Dispatch(SyncPacketHandler& handler) const override {
-    handler.Handle(*this);
-  }
 };
 
 using SerializedSyncPacket = std::vector<std::uint8_t>;
 
-// Separate Domain for packet objects; never shared with application Nodes.
-class SyncPacketCodec {
- public:
-  SyncPacketCodec();
-
-  ae::Domain& domain() { return domain_; }
-  ae::RamDomainStorage& storage() { return storage_; }
-
-  SerializedSyncPacket Encode(SyncPacket::ptr packet);
-  SyncPacket::ptr Decode(SerializedSyncPacket const& bytes);
-
- private:
-  ae::RamDomainStorage storage_;
-  ae::Domain domain_;
+// Owns the temporary Domain that holds a decoded packet graph.
+struct DecodedSyncPacket {
+  std::unique_ptr<ae::RamDomainStorage> storage;
+  std::unique_ptr<ae::Domain> domain;
+  SyncPacket::ptr packet;
 };
 
-SerializedSyncPacket EncodeObjectState(ObjectState const& state);
-ObjectState DecodeObjectState(SerializedSyncPacket const& bytes);
-
-std::vector<ae::ObjId> DiscoverSharedDependencies(Node::ptr node);
-std::vector<ae::ObjId> DiscoverSharedDependencies(Event::ptr event);
+// Stateless codec: Decode never keeps a long-lived packet Domain.
+class SyncPacketCodec {
+ public:
+  SerializedSyncPacket Encode(SyncPacket::ptr packet);
+  DecodedSyncPacket Decode(SerializedSyncPacket const& bytes);
+};
 
 }  // namespace apptraverse
 

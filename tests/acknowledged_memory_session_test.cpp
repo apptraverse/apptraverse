@@ -11,7 +11,7 @@
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_state.h"
+#include "apptraverse/object_graph_copy.h"
 #include "apptraverse/shared_graph_sync_session.h"
 #include "apptraverse/sync_packet.h"
 #include "apptraverse/unreliable_memory_link.h"
@@ -84,8 +84,8 @@ struct SessionReplica {
     doc.Save();
   }
 
-  MemoryReplica AsMemoryReplica() {
-    return MemoryReplica{domain, storage, doc.id()};
+  SyncReplica AsSyncReplica() {
+    return SyncReplica{domain, storage, doc.id()};
   }
 
   void CommitBump(std::int32_t delta, ae::ObjId::Type event_id) {
@@ -98,9 +98,8 @@ struct SessionReplica {
 };
 
 bool IsAckEnvelope(SerializedSyncPacket const& bytes) {
-  SyncPacketCodec probe;
-  auto packet = probe.Decode(bytes);
-  return packet->GetClassId() == AckPacket::kClassId;
+  auto decoded = SyncPacketCodec{}.Decode(bytes);
+  return decoded.packet->GetClassId() == AckPacket::kClassId;
 }
 
 std::size_t FindFirstAck(UnreliableMemoryLink const& link) {
@@ -123,15 +122,13 @@ std::size_t FindFirstNonAck(UnreliableMemoryLink const& link) {
 
 std::size_t FindEventPacketByRoot(UnreliableMemoryLink const& link,
                                   ae::ObjId::Type root_id) {
-  SyncPacketCodec probe;
   for (std::size_t i = 0; i < link.pending_count(); ++i) {
-    auto packet = probe.Decode(link.envelopes()[i].bytes);
-    if (packet->GetClassId() != EventPacket::kClassId) {
+    auto decoded = SyncPacketCodec{}.Decode(link.envelopes()[i].bytes);
+    if (decoded.packet->GetClassId() != EventPacket::kClassId) {
       continue;
     }
-    auto event_packet = EventPacket::ptr{packet};
-    event_packet.Load();
-    if (event_packet->state.root_id.id() == root_id) {
+    auto event_packet = EventPacket::ptr{decoded.packet};
+    if (event_packet->event.id().id() == root_id) {
       return i;
     }
   }
@@ -142,9 +139,9 @@ void TestReliableDelivery() {
   SessionReplica left;
   SessionReplica right;
   UnreliableMemoryLink link;
-  SharedGraphSyncSession left_session{left.AsMemoryReplica(),
+  SharedGraphSyncSession left_session{left.AsSyncReplica(),
                                       link.MakeSend(0)};
-  SharedGraphSyncSession right_session{right.AsMemoryReplica(),
+  SharedGraphSyncSession right_session{right.AsSyncReplica(),
                                        link.MakeSend(1)};
   link.Bind(left_session, right_session);
 
@@ -161,9 +158,9 @@ void TestLostPacketRetry() {
   SessionReplica left;
   SessionReplica right;
   UnreliableMemoryLink link;
-  SharedGraphSyncSession left_session{left.AsMemoryReplica(),
+  SharedGraphSyncSession left_session{left.AsSyncReplica(),
                                       link.MakeSend(0)};
-  SharedGraphSyncSession right_session{right.AsMemoryReplica(),
+  SharedGraphSyncSession right_session{right.AsSyncReplica(),
                                        link.MakeSend(1)};
   link.Bind(left_session, right_session);
 
@@ -185,9 +182,9 @@ void TestLostAckRetry() {
   left.CommitBump(1, 100);
   SessionReplica right;
   UnreliableMemoryLink link;
-  SharedGraphSyncSession left_session{left.AsMemoryReplica(),
+  SharedGraphSyncSession left_session{left.AsSyncReplica(),
                                       link.MakeSend(0)};
-  SharedGraphSyncSession right_session{right.AsMemoryReplica(),
+  SharedGraphSyncSession right_session{right.AsSyncReplica(),
                                        link.MakeSend(1)};
   link.Bind(left_session, right_session);
 
@@ -216,9 +213,9 @@ void TestDuplicatePacket() {
   left.CommitBump(2, 200);
   SessionReplica right;
   UnreliableMemoryLink link;
-  SharedGraphSyncSession left_session{left.AsMemoryReplica(),
+  SharedGraphSyncSession left_session{left.AsSyncReplica(),
                                       link.MakeSend(0)};
-  SharedGraphSyncSession right_session{right.AsMemoryReplica(),
+  SharedGraphSyncSession right_session{right.AsSyncReplica(),
                                        link.MakeSend(1)};
   link.Bind(left_session, right_session);
 
@@ -253,8 +250,9 @@ void TestBlockedPacketNoAck() {
 
   ae::RamDomainStorage right_storage;
   ae::Domain right_domain{ae::Now(), right_storage};
-  ImportObjectState(CaptureNodeState(left_client, left_storage),
-                    right_storage);
+  SyncReplica right_seed{right_domain, right_storage, ae::ObjId{102}};
+  ImportObjectGraph(left_client, left_storage, right_seed,
+                    SharedCopyMode::kCopyLoadedTargets);
   auto right_chat_base =
       Chat::ptr::Create(ae::CreateWith{right_domain}.with_id(101));
   auto right_chat =
@@ -264,8 +262,8 @@ void TestBlockedPacketNoAck() {
   right_chat.Save();
 
   UnreliableMemoryLink link;
-  MemoryReplica left_rep{left_domain, left_storage, left_chat.id()};
-  MemoryReplica right_rep{right_domain, right_storage, right_chat.id()};
+  SyncReplica left_rep{left_domain, left_storage, left_chat.id()};
+  SyncReplica right_rep{right_domain, right_storage, right_chat.id()};
   SharedGraphSyncSession left_session{left_rep, link.MakeSend(0)};
   SharedGraphSyncSession right_session{right_rep, link.MakeSend(1)};
   link.Bind(left_session, right_session);
@@ -287,8 +285,8 @@ void TestBlockedPacketNoAck() {
   left_chat.Save();
 
   left_session.Poll();
-  // Client NodeState + Join Event + Message Event
-  CHECK(left_session.pending_packet_count() == 3);
+  // Join Event + Message Event (Client travels inside Event graphs).
+  CHECK(left_session.pending_packet_count() == 2);
 
   auto message_index = FindEventPacketByRoot(link, 501);
   CHECK(message_index < link.pending_count());
@@ -296,7 +294,7 @@ void TestBlockedPacketNoAck() {
   CHECK(FindFirstAck(link) == link.pending_count());
   right_chat.Load();
   CHECK(right_chat->journal.empty());
-  CHECK(left_session.pending_packet_count() == 3);
+  CHECK(left_session.pending_packet_count() == 2);
 
   auto join_index = FindEventPacketByRoot(link, 301);
   CHECK(join_index < link.pending_count());

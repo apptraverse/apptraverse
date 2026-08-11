@@ -9,9 +9,9 @@
 
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
+#include "apptraverse/object_graph_copy.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_state.h"
 
 namespace apptraverse::test {
 
@@ -83,6 +83,22 @@ APPTRAVERSE_REGISTER(MergePeer);
 APPTRAVERSE_REGISTER(MergeDoc);
 APPTRAVERSE_REGISTER(AddValueEvent);
 
+bool TransferRemoteEventGraph(Event::ptr source_event,
+                              std::uint64_t original_timestamp_us,
+                              ae::IDomainStorage& source_storage,
+                              Node::ptr target_node,
+                              ae::IDomainStorage& target_storage) {
+  SyncReplica target{*target_node.domain(), target_storage, target_node.id()};
+  ImportObjectGraph(source_event, source_storage, target,
+                    SharedCopyMode::kReferenceExistingTargets);
+  auto imported = Event::ptr::Declare(
+      ae::CreateWith{*target_node.domain()}.with_id(source_event.id()));
+  imported.Load();
+  assert(imported.is_loaded());
+  return target_node->AcceptRemoteEvent(std::move(imported),
+                                        original_timestamp_us);
+}
+
 struct SourceReplica {
   ae::RamDomainStorage storage;
   ae::Domain domain;
@@ -133,9 +149,8 @@ void TestAcceptNewDuplicateEarlierRebindReload() {
   CHECK(target_doc->journal.empty());
   CHECK(target_doc->value == 0);
 
-  // A. Accept new remote event (late first).
-  CHECK(TransferRemoteEvent(late, late_ts, source.storage, target_doc,
-                            target_storage));
+  CHECK(TransferRemoteEventGraph(late, late_ts, source.storage, target_doc,
+                                 target_storage));
   CHECK(target_doc->journal.size() == 1);
   CHECK(target_doc->journal.front().timestamp_us == late_ts);
   CHECK(target_doc->journal.front().event.id().id() == 402);
@@ -144,25 +159,22 @@ void TestAcceptNewDuplicateEarlierRebindReload() {
   CHECK(target_doc->last_peer.domain() == &target_domain);
   CHECK(!target_doc->last_peer.is_loaded());
 
-  // B. Duplicate.
-  CHECK(!TransferRemoteEvent(late, late_ts, source.storage, target_doc,
-                             target_storage));
+  CHECK(!TransferRemoteEventGraph(late, late_ts, source.storage, target_doc,
+                                  target_storage));
   CHECK(target_doc->journal.size() == 1);
   CHECK(target_doc->value == 3);
 
-  // Peer must exist before rebuild Loads SharedPtr targets as needed.
-  ImportObjectState(CaptureNodeState(source.peer, source.storage),
-                    target_storage);
+  SyncReplica target{target_domain, target_storage, target_doc.id()};
+  ImportObjectGraph(source.peer, source.storage, target,
+                    SharedCopyMode::kCopyLoadedTargets);
 
-  // C. Earlier event triggers rebuild.
-  CHECK(TransferRemoteEvent(early, early_ts, source.storage, target_doc,
-                            target_storage));
+  CHECK(TransferRemoteEventGraph(early, early_ts, source.storage, target_doc,
+                                 target_storage));
   CHECK(target_doc->journal.size() == 2);
   CHECK(target_doc->journal[0].timestamp_us == early_ts);
   CHECK(target_doc->journal[1].timestamp_us == late_ts);
   CHECK(target_doc->value == 5);
 
-  // D. Domain rebinding.
   target_doc->last_peer.Load();
   CHECK(target_doc->last_peer.is_loaded());
   CHECK(target_doc->last_peer->name == "alice");
@@ -176,7 +188,6 @@ void TestAcceptNewDuplicateEarlierRebindReload() {
     CHECK(add->author.domain() == &target_domain);
   }
 
-  // E. Save/reload.
   target_doc.Save();
   ae::Domain reloaded_domain{ae::Now(), target_storage};
   auto reloaded =

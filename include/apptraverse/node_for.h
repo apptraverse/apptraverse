@@ -5,7 +5,7 @@
 #include <utility>
 
 #include "apptraverse/node.h"
-#include "apptraverse/object_state_transfer.h"
+#include "apptraverse/object_graph_copy_detail.h"
 #include "apptraverse/shared_discovery.h"
 
 namespace apptraverse {
@@ -42,16 +42,8 @@ class NodeFor : public BaseNode {
                                             ctx);
   }
 
-  void PrepareScopedTransferImpl(
-      detail::OwnedObjectIdCollector& owned) override {
-    detail::PrepareScopedTransferObject(static_cast<ConcreteNode&>(*this),
-                                        owned);
-  }
-
-  void CollectSharedDependenciesImpl(
-      detail::SharedDependencyCollector& deps) override {
-    detail::CollectSharedDependenciesObject(static_cast<ConcreteNode&>(*this),
-                                            deps);
+  void PrepareSyncGraphImpl(detail::PrepareSyncGraphContext& ctx) override {
+    detail::PrepareSyncGraphObject(static_cast<ConcreteNode&>(*this), ctx);
   }
 
   RemoteEventResult TryAcceptRemoteEventImpl(

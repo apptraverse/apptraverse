@@ -34,17 +34,6 @@ add_test(
   COMMAND apptraverse_shared_graph_discovery_test
 )
 
-add_executable(apptraverse_object_state_transfer_test
-  object_state_transfer_test.cpp
-)
-
-target_link_libraries(apptraverse_object_state_transfer_test PRIVATE apptraverse)
-
-add_test(
-  NAME apptraverse_object_state_transfer_test
-  COMMAND apptraverse_object_state_transfer_test
-)
-
 add_executable(apptraverse_remote_event_merge_test
   remote_event_merge_test.cpp
 )
@@ -88,22 +77,14 @@ add_executable(apptraverse_sync_packet_test
   sync_packet_test.cpp
 )
 
-target_link_libraries(apptraverse_sync_packet_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_sync_packet_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
 
 add_test(
   NAME apptraverse_sync_packet_test
   COMMAND apptraverse_sync_packet_test
-)
-
-add_executable(apptraverse_ideal_memory_sync_test
-  ideal_memory_sync_test.cpp
-)
-
-target_link_libraries(apptraverse_ideal_memory_sync_test PRIVATE apptraverse)
-
-add_test(
-  NAME apptraverse_ideal_memory_sync_test
-  COMMAND apptraverse_ideal_memory_sync_test
 )
 
 add_executable(apptraverse_single_client_chat_unreliable_sync_test
@@ -118,20 +99,6 @@ target_link_libraries(apptraverse_single_client_chat_unreliable_sync_test PRIVAT
 add_test(
   NAME apptraverse_single_client_chat_unreliable_sync_test
   COMMAND apptraverse_single_client_chat_unreliable_sync_test
-)
-
-add_executable(apptraverse_single_client_chat_memory_sync_test
-  single_client_chat_memory_sync_test.cpp
-)
-
-target_link_libraries(apptraverse_single_client_chat_memory_sync_test PRIVATE
-  apptraverse
-  single_client_chat_common
-)
-
-add_test(
-  NAME apptraverse_single_client_chat_memory_sync_test
-  COMMAND apptraverse_single_client_chat_memory_sync_test
 )
 
 add_executable(apptraverse_model_presenter_graph_test

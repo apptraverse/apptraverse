@@ -8,10 +8,15 @@
 
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
+#include "apptraverse/object_graph_copy.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_state.h"
 #include "apptraverse/sync_packet.h"
+#include "model/chat.h"
+#include "model/chat_events.h"
+#include "model/chat_presenter.h"
+#include "model/client.h"
+#include "model/registration.h"
 
 namespace apptraverse::test {
 
@@ -25,6 +30,7 @@ namespace apptraverse::test {
   } while (0)
 
 class PacketSharedNode;
+class PacketLocalNode;
 class PacketRootNode;
 class PacketProbeEvent;
 
@@ -36,6 +42,21 @@ class PacketSharedNode : public NodeFor<PacketSharedNode> {
 
  public:
   explicit PacketSharedNode(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(label), AE_MMBR(next))
+
+  std::string label;
+  SharedPtr<PacketSharedNode> next;
+};
+
+class PacketLocalNode : public NodeFor<PacketLocalNode> {
+  APPTRAVERSE_OBJECT(PacketLocalNode, Node, 0)
+
+ protected:
+  PacketLocalNode() = default;
+
+ public:
+  explicit PacketLocalNode(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(label))
 
@@ -51,10 +72,11 @@ class PacketRootNode : public NodeFor<PacketRootNode> {
  public:
   explicit PacketRootNode(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(label), AE_MMBR(shared_peer))
+  AE_OBJECT_REFLECT(AE_MMBR(label), AE_MMBR(shared_peer), AE_MMBR(local_peer))
 
   std::string label;
   SharedPtr<PacketSharedNode> shared_peer;
+  LocalPtr<PacketLocalNode> local_peer;
 
   void Apply(PacketProbeEvent const&) {}
 };
@@ -76,155 +98,55 @@ class PacketProbeEvent
 };
 
 APPTRAVERSE_REGISTER(PacketSharedNode);
+APPTRAVERSE_REGISTER(PacketLocalNode);
 APPTRAVERSE_REGISTER(PacketRootNode);
 APPTRAVERSE_REGISTER(PacketProbeEvent);
 
 struct RecordingHandler : SyncPacketHandler {
   int node_state = 0;
   int event = 0;
-  int request = 0;
   int ack = 0;
 
   void Handle(NodeStatePacket const&) override { ++node_state; }
   void Handle(EventPacket const&) override { ++event; }
-  void Handle(NodeStateRequestPacket const&) override { ++request; }
   void Handle(AckPacket const&) override { ++ack; }
 };
 
-void TestPacketClassVersionsAndDynamicLoad() {
+void TestPacketClassVersionsAndDispatch() {
   EnsureObjectRegistration();
   CHECK(SyncPacket::kVersion == 0);
   CHECK(NodeStatePacket::kVersion == 0);
   CHECK(EventPacket::kVersion == 0);
-  CHECK(NodeStateRequestPacket::kVersion == 0);
   CHECK(AckPacket::kVersion == 0);
 
-  SyncPacketCodec codec;
-  auto packet =
-      NodeStatePacket::ptr::Create(ae::CreateWith{codec.domain()});
-  packet->state.root_id = ae::ObjId{42};
-  packet->required_nodes = {ae::ObjId{7}, ae::ObjId{9}};
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto packet = NodeStatePacket::ptr::Create(ae::CreateWith{domain});
   packet.Save();
 
-  auto const bytes = codec.Encode(packet);
-  SyncPacketCodec receiver;
-  auto loaded = receiver.Decode(bytes);
-  CHECK(loaded.is_loaded());
-  CHECK(loaded.id() == packet.id());
-  CHECK(loaded->GetClassId() == NodeStatePacket::kClassId);
-  CHECK(loaded.domain() == &receiver.domain());
+  auto decoded = SyncPacketCodec{}.Decode(SyncPacketCodec{}.Encode(packet));
+  CHECK(decoded.packet.is_loaded());
+  CHECK(decoded.packet.id() == packet.id());
+  CHECK(decoded.packet->GetClassId() == NodeStatePacket::kClassId);
 
   RecordingHandler handler;
-  loaded->Dispatch(handler);
+  decoded.packet->Dispatch(handler);
   CHECK(handler.node_state == 1);
   CHECK(handler.event == 0);
-}
-
-void TestNodeStatePacketRoundtrip() {
-  SyncPacketCodec sender;
-  auto packet =
-      NodeStatePacket::ptr::Create(ae::CreateWith{sender.domain()});
-  auto const packet_id = packet.id();
-  packet->state.root_id = ae::ObjId{100};
-  packet->state.objects.push_back(StoredObjectVersion{
-      ae::ObjId{100},
-      11,
-      0,
-      ae::ObjectData{1, 2, 3, 4},
-  });
-  packet->required_nodes = {ae::ObjId{3}, ae::ObjId{5}};
-  packet.Save();
-
-  auto const bytes = sender.Encode(packet);
-  SyncPacketCodec receiver;
-  auto loaded = receiver.Decode(bytes);
-  CHECK(loaded.id() == packet_id);
-  CHECK(loaded->GetClassId() == NodeStatePacket::kClassId);
-  auto concrete = NodeStatePacket::ptr{loaded};
-  concrete.Load();
-  CHECK(concrete.is_loaded());
-  CHECK(concrete->state.root_id.id() == 100);
-  CHECK(concrete->state.objects.size() == 1);
-  CHECK(concrete->state.objects[0].obj_id.id() == 100);
-  CHECK(concrete->state.objects[0].class_id == 11);
-  CHECK(concrete->state.objects[0].version == 0);
-  CHECK(concrete->state.objects[0].data ==
-        (ae::ObjectData{1, 2, 3, 4}));
-  CHECK(concrete->required_nodes.size() == 2);
-  CHECK(concrete->required_nodes[0].id() == 3);
-  CHECK(concrete->required_nodes[1].id() == 5);
-  CHECK(concrete.domain() == &receiver.domain());
-  CHECK(packet.domain() == &sender.domain());
-}
-
-void TestEventPacketRoundtrip() {
-  SyncPacketCodec sender;
-  auto packet = EventPacket::ptr::Create(ae::CreateWith{sender.domain()});
-  auto const packet_id = packet.id();
-  packet->target_node_id = ae::ObjId{50};
-  packet->timestamp_us = 123456789ull;
-  packet->state.root_id = ae::ObjId{60};
-  packet->state.objects.push_back(StoredObjectVersion{
-      ae::ObjId{60},
-      22,
-      0,
-      ae::ObjectData{9, 8},
-  });
-  packet->required_nodes = {ae::ObjId{70}};
-  packet.Save();
-
-  auto const bytes = sender.Encode(packet);
-  SyncPacketCodec receiver;
-  auto loaded = receiver.Decode(bytes);
-  CHECK(loaded.id() == packet_id);
-  auto concrete = EventPacket::ptr{loaded};
-  concrete.Load();
-  CHECK(concrete->target_node_id.id() == 50);
-  CHECK(concrete->timestamp_us == 123456789ull);
-  CHECK(concrete->state.root_id.id() == 60);
-  CHECK(concrete->state.objects.size() == 1);
-  CHECK(concrete->state.objects[0].data == (ae::ObjectData{9, 8}));
-  CHECK(concrete->required_nodes.size() == 1);
-  CHECK(concrete->required_nodes[0].id() == 70);
-
-  RecordingHandler handler;
-  concrete->Dispatch(handler);
-  CHECK(handler.event == 1);
-}
-
-void TestNodeStateRequestPacketRoundtrip() {
-  SyncPacketCodec sender;
-  auto packet =
-      NodeStateRequestPacket::ptr::Create(ae::CreateWith{sender.domain()});
-  auto const packet_id = packet.id();
-  packet->requested_node_id = ae::ObjId{88};
-  packet.Save();
-
-  auto const bytes = sender.Encode(packet);
-  SyncPacketCodec receiver;
-  auto loaded = receiver.Decode(bytes);
-  CHECK(loaded.id() == packet_id);
-  auto concrete = NodeStateRequestPacket::ptr{loaded};
-  concrete.Load();
-  CHECK(concrete->requested_node_id.id() == 88);
-
-  RecordingHandler handler;
-  concrete->Dispatch(handler);
-  CHECK(handler.request == 1);
+  CHECK(handler.ack == 0);
 }
 
 void TestAckPacketRoundtrip() {
-  SyncPacketCodec sender;
-  auto packet = AckPacket::ptr::Create(ae::CreateWith{sender.domain()});
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto packet = AckPacket::ptr::Create(ae::CreateWith{domain});
   auto const packet_id = packet.id();
   packet->acknowledged_packet_id = ae::ObjId{99};
   packet.Save();
 
-  auto const bytes = sender.Encode(packet);
-  SyncPacketCodec receiver;
-  auto loaded = receiver.Decode(bytes);
-  CHECK(loaded.id() == packet_id);
-  auto concrete = AckPacket::ptr{loaded};
+  auto decoded = SyncPacketCodec{}.Decode(SyncPacketCodec{}.Encode(packet));
+  CHECK(decoded.packet.id() == packet_id);
+  auto concrete = AckPacket::ptr{decoded.packet};
   concrete.Load();
   CHECK(concrete->acknowledged_packet_id.id() == 99);
 
@@ -234,91 +156,221 @@ void TestAckPacketRoundtrip() {
 }
 
 void TestEncodeDeterministic() {
-  SyncPacketCodec codec;
-  auto packet =
-      NodeStateRequestPacket::ptr::Create(ae::CreateWith{codec.domain()});
-  packet->requested_node_id = ae::ObjId{123};
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto packet = AckPacket::ptr::Create(ae::CreateWith{domain});
+  packet->acknowledged_packet_id = ae::ObjId{123};
   packet.Save();
+  SyncPacketCodec codec;
   auto const a = codec.Encode(packet);
   auto const b = codec.Encode(packet);
   CHECK(a == b);
 }
 
-void TestDecodeIsolatesPacketDomain() {
-  SyncPacketCodec sender;
-  auto packet = AckPacket::ptr::Create(ae::CreateWith{sender.domain()});
+void TestDecodeOwnsFreshDomain() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto packet = AckPacket::ptr::Create(ae::CreateWith{domain});
   packet->acknowledged_packet_id = ae::ObjId{1};
   packet.Save();
-  auto const bytes = sender.Encode(packet);
+  auto const bytes = SyncPacketCodec{}.Encode(packet);
 
-  SyncPacketCodec receiver;
-  auto loaded = receiver.Decode(bytes);
-  CHECK(loaded.domain() == &receiver.domain());
-  CHECK(loaded.domain() != &sender.domain());
-  CHECK(receiver.storage().state.find(loaded.id()) !=
-        receiver.storage().state.end());
-  CHECK(sender.storage().state.find(loaded.id()) !=
-        sender.storage().state.end());
+  auto decoded_a = SyncPacketCodec{}.Decode(bytes);
+  auto decoded_b = SyncPacketCodec{}.Decode(bytes);
+  CHECK(decoded_a.domain.get() != decoded_b.domain.get());
+  CHECK(decoded_a.packet.domain() == decoded_a.domain.get());
+  CHECK(decoded_b.packet.domain() == decoded_b.domain.get());
+  CHECK(decoded_a.packet.domain() != &domain);
 }
 
-void TestNoSenderUidOrPacketIdField() {
-  // Identity is the packet ObjId; Ack references that ObjId.
-  SyncPacketCodec codec;
-  auto packet =
-      NodeStatePacket::ptr::Create(ae::CreateWith{codec.domain()});
-  auto const identity = packet.id();
-  CHECK(identity.IsValid());
-  packet->state.root_id = ae::ObjId{1};
-  packet.Save();
-
-  auto ack = AckPacket::ptr::Create(ae::CreateWith{codec.domain()});
-  ack->acknowledged_packet_id = identity;
-  ack.Save();
-
-  // Only the designed fields round-trip; no packet_id / sender fields exist
-  // on SyncPacket or derived types (verified by successful compile of this
-  // test against the public headers).
-  auto decoded = codec.Decode(codec.Encode(ack));
-  auto concrete = AckPacket::ptr{decoded};
-  concrete.Load();
-  CHECK(concrete->acknowledged_packet_id == identity);
-  CHECK(concrete.id() != identity);
-}
-
-void TestDiscoverSharedDependencies() {
+void TestLocalPtrFilteredFromEncodedGraph() {
   ae::RamDomainStorage storage;
   ae::Domain domain{ae::Now(), storage};
 
+  auto local =
+      PacketLocalNode::ptr::Create(ae::CreateWith{domain}.with_id(40));
+  local->label = "secret-local";
+  local.Save();
+
   auto shared =
-      PacketSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(31));
+      PacketSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(41));
   shared->label = "shared";
-  auto root =
-      PacketRootNode::ptr::Create(ae::CreateWith{domain}.with_id(32));
-  root->label = "root";
-  root->shared_peer = shared;
-  auto base =
-      PacketRootNode::ptr::Create(ae::CreateWith{domain}.with_id(30));
+  shared.Save();
+
+  auto root = PacketRootNode::ptr::Create(ae::CreateWith{domain}.with_id(42));
+  auto base = PacketRootNode::ptr::Create(ae::CreateWith{domain}.with_id(43));
   root->base = base;
   root->CaptureBaseState();
+  root->label = "root";
+  root->shared_peer = shared;
+  root->local_peer = local;
+  root.Save();
 
-  auto deps = DiscoverSharedDependencies(root);
-  CHECK(deps.size() == 1);
-  CHECK(deps[0].id() == 31);
+  ae::RamDomainStorage build_storage;
+  ae::Domain build_domain{ae::Now(), build_storage};
+  CopyObjectGraph(root, storage, build_domain, build_storage,
+                  SharedCopyMode::kCopyLoadedTargets);
+  auto build_root =
+      PacketRootNode::ptr::Declare(ae::CreateWith{build_domain}.with_id(42));
+  build_root.Load();
 
-  auto event =
-      PacketProbeEvent::ptr::Create(ae::CreateWith{domain}.with_id(33));
-  event->peer = shared;
-  event->note = "n";
-  event.Save();
-  auto event_deps = DiscoverSharedDependencies(event);
-  CHECK(event_deps.size() == 1);
-  CHECK(event_deps[0].id() == 31);
+  auto packet = NodeStatePacket::ptr::Create(ae::CreateWith{build_domain});
+  packet->node = build_root;
+  auto const bytes = SyncPacketCodec{}.Encode(packet);
 
-  auto leaf =
-      PacketSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(34));
-  leaf->label = "leaf";
-  auto leaf_deps = DiscoverSharedDependencies(leaf);
-  CHECK(leaf_deps.empty());
+  auto decoded = SyncPacketCodec{}.Decode(bytes);
+  auto node_packet = NodeStatePacket::ptr{decoded.packet};
+  node_packet.Load();
+  CHECK(node_packet->node.is_loaded());
+  auto decoded_root = PacketRootNode::ptr{node_packet->node};
+  decoded_root.Load();
+  CHECK(decoded_root->label == "root");
+  CHECK(decoded_root->shared_peer.is_valid());
+  decoded_root->shared_peer.Load();
+  CHECK(decoded_root->shared_peer->label == "shared");
+  CHECK(!decoded_root->local_peer.is_valid());
+  CHECK(!StorageHasObject(*decoded.storage, local.id()));
+}
+
+void TestSharedPtrCycleRoundtrip() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+
+  auto a = PacketSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(50));
+  auto b = PacketSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(51));
+  auto a_base =
+      PacketSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(52));
+  auto b_base =
+      PacketSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(53));
+  a->label = "a";
+  b->label = "b";
+  a->base = a_base;
+  b->base = b_base;
+  a->CaptureBaseState();
+  b->CaptureBaseState();
+  a->next = b;
+  b->next = a;
+  a.Save();
+  b.Save();
+
+  ae::RamDomainStorage build_storage;
+  ae::Domain build_domain{ae::Now(), build_storage};
+  CopyObjectGraph(a, storage, build_domain, build_storage,
+                  SharedCopyMode::kCopyLoadedTargets);
+  auto build_a =
+      PacketSharedNode::ptr::Declare(ae::CreateWith{build_domain}.with_id(50));
+  build_a.Load();
+
+  auto packet = NodeStatePacket::ptr::Create(ae::CreateWith{build_domain});
+  packet->node = build_a;
+  auto decoded =
+      SyncPacketCodec{}.Decode(SyncPacketCodec{}.Encode(packet));
+  auto node_packet = NodeStatePacket::ptr{decoded.packet};
+  node_packet.Load();
+  auto decoded_a = PacketSharedNode::ptr{node_packet->node};
+  decoded_a.Load();
+  CHECK(decoded_a->label == "a");
+  decoded_a->next.Load();
+  CHECK(decoded_a->next->label == "b");
+  decoded_a->next->next.Load();
+  CHECK(decoded_a->next->next.id() == decoded_a.id());
+}
+
+void TestChatNodeStateAndEventRoundtrips() {
+  EnsureSingleClientChatRegistration();
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+
+  auto client_base =
+      Client::ptr::Create(ae::CreateWith{domain}.with_id(201));
+  auto client = Client::ptr::Create(ae::CreateWith{domain}.with_id(202));
+  client->name = "Alice";
+  client->base = client_base;
+  client->CaptureBaseState();
+  client.Save();
+
+  auto chat_base = Chat::ptr::Create(ae::CreateWith{domain}.with_id(101));
+  auto chat = Chat::ptr::Create(ae::CreateWith{domain}.with_id(102));
+  chat->base = chat_base;
+  chat->CaptureBaseState();
+
+  auto join = JoinClientEvent::ptr::Create(ae::CreateWith{domain}.with_id(301));
+  join->client = client;
+  chat->Commit(join);
+
+  auto message =
+      AddMessageEvent::ptr::Create(ae::CreateWith{domain}.with_id(401));
+  message->author = client;
+  message->text = "hello";
+  chat->Commit(message);
+  chat.Save();
+
+  {
+    ae::RamDomainStorage build_storage;
+    ae::Domain build_domain{ae::Now(), build_storage};
+    CopyObjectGraph(chat, storage, build_domain, build_storage,
+                    SharedCopyMode::kCopyLoadedTargets);
+    auto build_chat =
+        Chat::ptr::Declare(ae::CreateWith{build_domain}.with_id(102));
+    build_chat.Load();
+    auto packet = NodeStatePacket::ptr::Create(ae::CreateWith{build_domain});
+    packet->node = build_chat;
+    auto decoded =
+        SyncPacketCodec{}.Decode(SyncPacketCodec{}.Encode(packet));
+    auto node_packet = NodeStatePacket::ptr{decoded.packet};
+    node_packet.Load();
+    auto decoded_chat = Chat::ptr{node_packet->node};
+    decoded_chat.Load();
+    CHECK(decoded_chat->journal.size() == 2);
+    CHECK(decoded_chat->entries.size() == 2);
+  }
+
+  {
+    auto source_event = message;
+    source_event.Load();
+    ae::RamDomainStorage build_storage;
+    ae::Domain build_domain{ae::Now(), build_storage};
+    CopyObjectGraph(source_event, storage, build_domain, build_storage,
+                    SharedCopyMode::kCopyLoadedTargets);
+    auto build_event =
+        AddMessageEvent::ptr::Declare(ae::CreateWith{build_domain}.with_id(401));
+    build_event.Load();
+    auto packet = EventPacket::ptr::Create(ae::CreateWith{build_domain});
+    packet->target_node_id = chat.id();
+    packet->timestamp_us = chat->journal.back().timestamp_us;
+    packet->event = build_event;
+    auto decoded =
+        SyncPacketCodec{}.Decode(SyncPacketCodec{}.Encode(packet));
+    auto event_packet = EventPacket::ptr{decoded.packet};
+    event_packet.Load();
+    CHECK(event_packet->target_node_id == chat.id());
+    CHECK(event_packet->event.is_loaded());
+    auto decoded_event = AddMessageEvent::ptr{event_packet->event};
+    decoded_event.Load();
+    CHECK(decoded_event->text == "hello");
+    decoded_event->author.Load();
+    CHECK(decoded_event->author->name == "Alice");
+  }
+}
+
+void TestNoSenderIdentityFields() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto packet = NodeStatePacket::ptr::Create(ae::CreateWith{domain});
+  auto const identity = packet.id();
+  CHECK(identity.IsValid());
+  packet.Save();
+
+  auto ack = AckPacket::ptr::Create(ae::CreateWith{domain});
+  ack->acknowledged_packet_id = identity;
+  ack.Save();
+
+  auto decoded = SyncPacketCodec{}.Decode(SyncPacketCodec{}.Encode(ack));
+  auto concrete = AckPacket::ptr{decoded.packet};
+  concrete.Load();
+  CHECK(concrete->acknowledged_packet_id == identity);
+  CHECK(concrete.id() != identity);
 }
 
 }  // namespace apptraverse::test
@@ -326,15 +378,14 @@ void TestDiscoverSharedDependencies() {
 int main() {
   using namespace apptraverse::test;
   apptraverse::EnsureObjectRegistration();
-  TestPacketClassVersionsAndDynamicLoad();
-  TestNodeStatePacketRoundtrip();
-  TestEventPacketRoundtrip();
-  TestNodeStateRequestPacketRoundtrip();
+  TestPacketClassVersionsAndDispatch();
   TestAckPacketRoundtrip();
   TestEncodeDeterministic();
-  TestDecodeIsolatesPacketDomain();
-  TestNoSenderUidOrPacketIdField();
-  TestDiscoverSharedDependencies();
+  TestDecodeOwnsFreshDomain();
+  TestLocalPtrFilteredFromEncodedGraph();
+  TestSharedPtrCycleRoundtrip();
+  TestChatNodeStateAndEventRoundtrips();
+  TestNoSenderIdentityFields();
   std::cout << "sync_packet_test OK\n";
   return 0;
 }
