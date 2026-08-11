@@ -45,19 +45,6 @@ class Chat : public NodeFor<Chat> {
     entry.text = event.text;
     entries.push_back(std::move(entry));
   }
-
-  Client::ptr FindJoinedClient() const {
-    for (auto const& entry : entries) {
-      if (entry.kind != ChatEntryKind::kJoined) {
-        continue;
-      }
-      if (!entry.client.is_valid()) {
-        continue;
-      }
-      return entry.client;
-    }
-    return {};
-  }
 };
 
 }  // namespace apptraverse

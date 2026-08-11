@@ -181,12 +181,14 @@ bool NativeRuntime::LoadOrBuildGraph() {
   app_.Load();
   if (app_.is_loaded() && app_->window.is_valid()) {
     LogMarker("ANDROID_GRAPH_LOADED");
+    LogAppClientReady();
     return true;
   }
 
   auto graph =
       examples::BuildSingleClientChatGraph<AndroidWindow, AndroidWindowPresenter,
-                                           AndroidChatPresenter>(domain);
+                                           AndroidChatPresenter>(domain,
+                                                                "Android");
   app_ = graph.app;
   if (!app_.is_valid()) {
     LogError("Failed to build the single client chat graph");
@@ -194,6 +196,7 @@ bool NativeRuntime::LoadOrBuildGraph() {
   }
   LogMarker("ANDROID_GRAPH_CREATED");
   SaveState();
+  LogAppClientReady();
   return true;
 }
 
@@ -345,6 +348,25 @@ void NativeRuntime::LogJournalSizes() {
     return;
   }
   LogMarker("CHAT_JOURNAL_SIZE n=" + std::to_string(chat->journal.size()));
+}
+
+void NativeRuntime::LogAppClientReady() {
+  if (!app_.is_valid() || !app_.is_loaded()) {
+    return;
+  }
+  auto local_client = app_->local_client;
+  if (!local_client.is_valid()) {
+    LogError("App.local_client missing");
+    return;
+  }
+  local_client.Load();
+  if (!local_client.is_loaded()) {
+    LogError("Failed to load App.local_client");
+    return;
+  }
+  LogMarker("APP_CLIENT_READY platform=android obj_id=" +
+            std::to_string(local_client.id().id()) +
+            " name=" + local_client->name);
 }
 
 void NativeRuntime::SaveState() {

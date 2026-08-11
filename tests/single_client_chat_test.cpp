@@ -1,6 +1,8 @@
 #include <cassert>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <type_traits>
 
@@ -8,6 +10,7 @@
 #include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/obj/obj.h"
 
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/object_macros.h"
 #include "model/app.h"
 #include "model/application_ids.h"
@@ -126,12 +129,43 @@ WindowChangedEvent::ptr MakeWindowEvent(ae::Domain& domain, std::int32_t width,
   return event;
 }
 
+AddMessageEvent::ptr FindLatestAddMessage(Chat::ptr const& chat) {
+  for (auto it = chat->journal.rbegin(); it != chat->journal.rend(); ++it) {
+    auto event = it->event;
+    event.Load();
+    if (!event.is_loaded()) {
+      continue;
+    }
+    if (event->GetClassId() != AddMessageEvent::kClassId) {
+      continue;
+    }
+    auto add = AddMessageEvent::ptr::Declare(
+        ae::CreateWith{*chat.domain()}.with_id(event.id()));
+    add.Load();
+    CHECK(add.is_loaded());
+    return add;
+  }
+  return {};
+}
+
+JoinClientEvent::ptr FindInitialJoin(Chat::ptr const& chat) {
+  CHECK(!chat->journal.empty());
+  auto event = chat->journal.front().event;
+  event.Load();
+  CHECK(event.is_loaded());
+  CHECK(event->GetClassId() == JoinClientEvent::kClassId);
+  auto join = JoinClientEvent::ptr::Declare(
+      ae::CreateWith{*chat.domain()}.with_id(event.id()));
+  join.Load();
+  CHECK(join.is_loaded());
+  return join;
+}
+
 void TestApplicationIds() {
-  CHECK(ToObjId(ApplicationObjId::Application) >= 100000);
-  CHECK(ToObjId(ApplicationObjId::WindowBase) >= 100000);
-  CHECK(ToObjId(ApplicationObjId::ClientBase) >= 100000);
-  CHECK(ToObjId(ApplicationObjId::WindowBase) !=
-        ToObjId(ApplicationObjId::ClientBase));
+  CHECK(ToObjId(ApplicationObjId::Application) == 100000);
+  CHECK(ToObjId(ApplicationObjId::Chat) == 100004);
+  CHECK(ToObjId(ApplicationObjId::ChatBase) == 100003);
+  CHECK(ToObjId(ApplicationObjId::WindowBase) == 100008);
 }
 
 void TestCommonGraphAndTranscript() {
@@ -139,11 +173,15 @@ void TestCommonGraphAndTranscript() {
   ae::Domain domain{ae::Now(), storage};
 
   auto graph = examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
-                                                    FakeChatPresenter>(domain);
+                                                    FakeChatPresenter>(
+      domain, "Alice");
   CHECK(graph.app.id().id() == ToObjId(ApplicationObjId::Application));
-  CHECK(graph.alice->name == "Alice");
-  CHECK(graph.alice->base.is_valid());
-  CHECK(graph.alice->journal.empty());
+  CHECK(graph.chat.id().id() == ToObjId(ApplicationObjId::Chat));
+  CHECK(graph.local_client->name == "Alice");
+  CHECK(graph.app->local_client.id() == graph.local_client.id());
+  CHECK(graph.chat_presenter->local_client.id() == graph.local_client.id());
+  CHECK(graph.local_client->base.is_valid());
+  CHECK(graph.local_client->journal.empty());
   CHECK(graph.window->base.is_valid());
   CHECK(graph.window->journal.empty());
   CHECK(graph.chat->entries.size() == 1);
@@ -159,6 +197,136 @@ void TestCommonGraphAndTranscript() {
   graph.chat_presenter->SubmitText("hello");
   auto const after = examples::FormatChatTranscriptUtf8(graph.chat);
   CHECK(after.find("Alice: hello") != std::string::npos);
+  auto add = FindLatestAddMessage(graph.chat);
+  CHECK(add.is_valid());
+  CHECK(add->author.id() == graph.local_client.id());
+}
+
+void TestIndependentInstallations() {
+  ae::RamDomainStorage storage_a;
+  ae::RamDomainStorage storage_b;
+  ae::Domain domain_a{ae::Now(), storage_a};
+  ae::Domain domain_b{ae::Now(), storage_b};
+
+  auto graph_a =
+      examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
+                                           FakeChatPresenter>(domain_a,
+                                                              "Windows");
+  auto graph_b =
+      examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
+                                           FakeChatPresenter>(domain_b,
+                                                              "Android");
+
+  CHECK(graph_a.chat.id().id() == ToObjId(ApplicationObjId::Chat));
+  CHECK(graph_b.chat.id().id() == ToObjId(ApplicationObjId::Chat));
+  CHECK(graph_a.chat_base.id().id() == ToObjId(ApplicationObjId::ChatBase));
+  CHECK(graph_b.chat_base.id().id() == ToObjId(ApplicationObjId::ChatBase));
+  CHECK(graph_a.local_client.id() != graph_b.local_client.id());
+  CHECK(graph_a.client_base.id() != graph_b.client_base.id());
+  CHECK(graph_a.local_client->name == "Windows");
+  CHECK(graph_b.local_client->name == "Android");
+
+  auto join_a = FindInitialJoin(graph_a.chat);
+  auto join_b = FindInitialJoin(graph_b.chat);
+  CHECK(join_a.id() != join_b.id());
+  CHECK(join_a->client.id() == graph_a.local_client.id());
+  CHECK(join_b->client.id() == graph_b.local_client.id());
+  CHECK(graph_a.chat->journal.size() == 1);
+  CHECK(graph_b.chat->journal.size() == 1);
+  CHECK(graph_a.chat->entries.size() == 1);
+  CHECK(graph_b.chat->entries.size() == 1);
+
+  graph_a.chat_presenter->SubmitText("from windows");
+  graph_b.chat_presenter->SubmitText("from android");
+  auto add_a = FindLatestAddMessage(graph_a.chat);
+  auto add_b = FindLatestAddMessage(graph_b.chat);
+  CHECK(add_a.is_valid());
+  CHECK(add_b.is_valid());
+  CHECK(add_a->author.id() == graph_a.local_client.id());
+  CHECK(add_b->author.id() == graph_b.local_client.id());
+  CHECK(add_a->text == "from windows");
+  CHECK(add_b->text == "from android");
+}
+
+void TestLocalClientReload() {
+  auto root = std::make_shared<std::filesystem::path>(
+      std::filesystem::temp_directory_path() /
+      "apptraverse_local_client_reload_test");
+  std::filesystem::remove_all(*root);
+
+  ae::ObjId::Type local_client_id = 0;
+  ae::ObjId::Type client_base_id = 0;
+  ae::ObjId::Type join_id = 0;
+
+  {
+    auto storage = std::make_unique<DirectoryDomainStorage>(*root);
+    ae::Domain domain{ae::Now(), *storage};
+    auto graph =
+        examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
+                                             FakeChatPresenter>(domain,
+                                                                "Alice");
+    local_client_id = graph.local_client.id().id();
+    client_base_id = graph.client_base.id().id();
+    join_id = FindInitialJoin(graph.chat).id().id();
+    CHECK(graph.local_client->base.is_valid());
+    CHECK(graph.local_client->journal.empty());
+    graph.app.Save();
+  }
+
+  {
+    auto storage = std::make_unique<DirectoryDomainStorage>(*root);
+    ae::Domain domain{ae::Now(), *storage};
+    auto app = App::ptr::Declare(ae::CreateWith{domain}.with_id(
+        ToObjId(ApplicationObjId::Application)));
+    app.Load();
+    CHECK(app.is_loaded());
+    CHECK(app->local_client.is_valid());
+    app->local_client.Load();
+    CHECK(app->local_client.is_loaded());
+    CHECK(app->local_client.id().id() == local_client_id);
+    CHECK(app->local_client->name == "Alice");
+    CHECK(app->local_client->base.id().id() == client_base_id);
+
+    auto chat = Chat::ptr::Declare(
+        ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Chat)));
+    chat.Load();
+    CHECK(chat.is_loaded());
+    CHECK(chat->journal.size() == 1);
+    auto join = FindInitialJoin(chat);
+    CHECK(join.id().id() == join_id);
+    CHECK(join->client.id().id() == local_client_id);
+
+    auto chat_presenter = ChatPresenter::ptr::Declare(ae::CreateWith{domain}
+        .with_id(ToObjId(ApplicationObjId::ChatPresenter)));
+    chat_presenter.Load();
+    CHECK(chat_presenter.is_loaded());
+    CHECK(chat_presenter->local_client.id().id() == local_client_id);
+    chat_presenter->SubmitText("after_reload");
+    auto add = FindLatestAddMessage(chat);
+    CHECK(add.is_valid());
+    CHECK(add->author.id().id() == local_client_id);
+    app.Save();
+  }
+
+  {
+    auto storage = std::make_unique<DirectoryDomainStorage>(*root);
+    ae::Domain domain{ae::Now(), *storage};
+    auto app = App::ptr::Declare(ae::CreateWith{domain}.with_id(
+        ToObjId(ApplicationObjId::Application)));
+    app.Load();
+    app->local_client.Load();
+    CHECK(app->local_client.id().id() == local_client_id);
+    auto chat = Chat::ptr::Declare(
+        ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Chat)));
+    chat.Load();
+    CHECK(chat->journal.size() == 2);
+    auto add = FindLatestAddMessage(chat);
+    CHECK(add.is_valid());
+    CHECK(add->author.id().id() == local_client_id);
+    CHECK(add->text == "after_reload");
+  }
+
+  std::filesystem::remove_all(*root);
 }
 
 void TestWindowNodeJournal() {
@@ -169,7 +337,8 @@ void TestWindowNodeJournal() {
     ae::Domain domain{ae::Now(), storage};
     auto graph =
         examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
-                                             FakeChatPresenter>(domain);
+                                             FakeChatPresenter>(domain,
+                                                                "Alice");
     CHECK(graph.window->journal.empty());
     auto& fake = static_cast<FakeWindow&>(*graph.window);
     graph.window->Commit(MakeWindowEvent(domain, 1080, 1920, 420));
@@ -198,7 +367,8 @@ void TestRepeatedWindowEvents() {
   ae::RamDomainStorage storage;
   ae::Domain domain{ae::Now(), storage};
   auto graph = examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
-                                                    FakeChatPresenter>(domain);
+                                                    FakeChatPresenter>(
+      domain, "Alice");
   graph.window->Commit(MakeWindowEvent(domain, 800, 600));
   graph.window->Commit(MakeWindowEvent(domain, 800, 600));
   CHECK(graph.window->journal.size() == 2);
@@ -211,7 +381,8 @@ void TestWindowAndChatJournalsIndependent() {
   ae::RamDomainStorage storage;
   ae::Domain domain{ae::Now(), storage};
   auto graph = examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
-                                                    FakeChatPresenter>(domain);
+                                                    FakeChatPresenter>(
+      domain, "Alice");
   auto const chat_before = graph.chat->journal.size();
   graph.window->Commit(MakeWindowEvent(domain, 640, 480));
   CHECK(graph.chat->journal.size() == chat_before);
@@ -221,35 +392,12 @@ void TestWindowAndChatJournalsIndependent() {
   CHECK(graph.chat->journal.size() == chat_before + 1);
 }
 
-void TestClientBaseReload() {
-  ae::RamDomainStorage storage;
-  ae::ObjId::Type const alice_id = ToObjId(ApplicationObjId::Alice);
-  {
-    ae::Domain domain{ae::Now(), storage};
-    auto graph =
-        examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
-                                             FakeChatPresenter>(domain);
-    CHECK(graph.alice->base.is_valid());
-    CHECK(graph.alice->journal.empty());
-    graph.app.Save();
-  }
-  {
-    ae::Domain domain{ae::Now(), storage};
-    auto alice =
-        Client::ptr::Declare(ae::CreateWith{domain}.with_id(alice_id));
-    alice.Load();
-    CHECK(alice.is_loaded());
-    CHECK(alice->name == "Alice");
-    CHECK(alice->base.is_valid());
-    CHECK(alice->journal.empty());
-  }
-}
-
 void TestWindowRebuildDoesNotReplaceChat() {
   ae::RamDomainStorage storage;
   ae::Domain domain{ae::Now(), storage};
   auto graph = examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
-                                                    FakeChatPresenter>(domain);
+                                                    FakeChatPresenter>(
+      domain, "Alice");
   graph.chat_presenter->SubmitText("kept");
   auto const chat_journal = graph.chat->journal.size();
   auto const chat_entries = graph.chat->entries.size();
@@ -275,7 +423,8 @@ void TestPresenterCommitPath() {
   ae::RamDomainStorage storage;
   ae::Domain domain{ae::Now(), storage};
   auto graph = examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
-                                                    FakeChatPresenter>(domain);
+                                                    FakeChatPresenter>(
+      domain, "Alice");
   auto& win_presenter =
       static_cast<FakeWindowPresenter&>(*graph.window_presenter);
   win_presenter.CommitViewport(1200, 800, 240);
@@ -286,6 +435,9 @@ void TestPresenterCommitPath() {
 
   graph.chat_presenter->SubmitText("from_presenter");
   CHECK(graph.chat->journal.size() == 2);
+  auto add = FindLatestAddMessage(graph.chat);
+  CHECK(add.is_valid());
+  CHECK(add->author.id() == graph.local_client.id());
 }
 
 }  // namespace apptraverse::test
@@ -295,10 +447,11 @@ int main() {
   apptraverse::EnsureSingleClientChatRegistration();
   apptraverse::test::TestApplicationIds();
   apptraverse::test::TestCommonGraphAndTranscript();
+  apptraverse::test::TestIndependentInstallations();
+  apptraverse::test::TestLocalClientReload();
   apptraverse::test::TestWindowNodeJournal();
   apptraverse::test::TestRepeatedWindowEvents();
   apptraverse::test::TestWindowAndChatJournalsIndependent();
-  apptraverse::test::TestClientBaseReload();
   apptraverse::test::TestWindowRebuildDoesNotReplaceChat();
   apptraverse::test::TestPresenterCommitPath();
   std::cout << "single_client_chat_test OK\n";

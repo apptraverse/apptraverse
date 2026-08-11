@@ -7,6 +7,8 @@ namespace apptraverse {
 
 // Fixed AppTraverse application ObjIds. Aether system objects use low IDs;
 // application graph IDs start at 100000 and must stay unique and named.
+// Local Client / ClientBase / JoinClientEvent use generated ObjIds and are
+// not listed here (former 100006 / 100007 / 100009 are unused gaps).
 enum class ApplicationObjId : ae::ObjId::Type {
   Application = 100000,
   Window = 100001,
@@ -14,10 +16,7 @@ enum class ApplicationObjId : ae::ObjId::Type {
   ChatBase = 100003,
   Chat = 100004,
   ChatPresenter = 100005,
-  Alice = 100006,
-  JoinClientEvent = 100007,
   WindowBase = 100008,
-  ClientBase = 100009,
 };
 
 constexpr ae::ObjId::Type ToObjId(ApplicationObjId id) {

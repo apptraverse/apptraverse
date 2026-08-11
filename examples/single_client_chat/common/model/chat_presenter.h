@@ -9,12 +9,13 @@
 
 #include "model/chat.h"
 #include "model/chat_events.h"
+#include "model/client.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
 class ChatPresenter : public ae::Obj {
-  APPTRAVERSE_OBJECT(ChatPresenter, ae::Obj, 0)
+  APPTRAVERSE_OBJECT(ChatPresenter, ae::Obj, 1)
 
  protected:
   ChatPresenter() = default;
@@ -22,22 +23,21 @@ class ChatPresenter : public ae::Obj {
  public:
   explicit ChatPresenter(ae::ObjProp prop) : Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(chat))
+  AE_OBJECT_REFLECT(AE_MMBR(chat), AE_MMBR(local_client))
 
   Chat::ptr chat;
+  Client::ptr local_client;
 
   void SubmitText(std::string text) {
     assert(chat.is_valid());
     assert(chat.is_loaded());
     assert(chat.domain() != nullptr);
-
-    auto author = chat->FindJoinedClient();
-    assert(author.is_valid());
-    author.Load();
-    assert(author.is_loaded());
+    assert(local_client.is_valid());
+    local_client.Load();
+    assert(local_client.is_loaded());
 
     auto event = AddMessageEvent::ptr::Create(ae::CreateWith{*chat.domain()});
-    event->author = author;
+    event->author = local_client;
     event->text = std::move(text);
     chat->Commit(event);
   }

@@ -56,6 +56,7 @@ class NativeRuntime {
   void DrainPendingViewports();
   void PublishTranscript(std::string const& transcript);
   void LogJournalSizes();
+  void LogAppClientReady();
   void SaveState();
   void WakeUp();
 

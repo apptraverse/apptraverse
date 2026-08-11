@@ -81,10 +81,13 @@ void Distill() {
   auto graph =
       apptraverse::examples::BuildSingleClientChatGraph<
           apptraverse::WindowsWindow, apptraverse::WinWindowPresenter,
-          apptraverse::WinChatPresenter>(aether_app->domain());
+          apptraverse::WinChatPresenter>(aether_app->domain(), "Windows");
 
   graph.app.Save();
   std::cout << "Distilled single-client chat graph to ./state\n";
+  std::cout << "APP_CLIENT_READY platform=windows obj_id="
+            << graph.local_client.id().id() << " name="
+            << graph.local_client->name << '\n';
 }
 
 int ProcessPendingWin32Messages() {
@@ -166,6 +169,16 @@ int Run(std::optional<ae::Uid> p2p_ping_uid) {
     std::cerr << "Expected WinWindowPresenter after load\n";
     return 1;
   }
+
+  auto local_client = app->local_client;
+  local_client.Load();
+  if (!local_client.is_loaded()) {
+    std::cerr << "Failed to load App.local_client\n";
+    return 1;
+  }
+  LogLine("APP_CLIENT_READY platform=windows obj_id=" +
+          std::to_string(local_client.id().id()) +
+          " name=" + local_client->name);
 
   auto aether_client = apptraverse::examples::SelectPersistentAetherClient(
       aether_app, apptraverse::examples::kWindowsAetherClientName);
