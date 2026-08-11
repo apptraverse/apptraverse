@@ -34,6 +34,17 @@ add_test(
   COMMAND apptraverse_shared_graph_discovery_test
 )
 
+add_executable(apptraverse_object_state_transfer_test
+  object_state_transfer_test.cpp
+)
+
+target_link_libraries(apptraverse_object_state_transfer_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_object_state_transfer_test
+  COMMAND apptraverse_object_state_transfer_test
+)
+
 add_executable(apptraverse_model_presenter_graph_test
   model_presenter_graph_test.cpp
 )

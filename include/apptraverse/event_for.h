@@ -2,6 +2,7 @@
 #define APPTRAVERSE_EVENT_FOR_H_
 
 #include "apptraverse/event.h"
+#include "apptraverse/object_state_transfer.h"
 #include "apptraverse/shared_discovery.h"
 
 namespace apptraverse {
@@ -22,6 +23,12 @@ class EventFor : public Event {
       detail::SharedDiscoveryContext& ctx) override {
     detail::ReflectObjectForSharedDiscovery(
         static_cast<ConcreteEvent&>(*this), ctx);
+  }
+
+  void PrepareScopedTransferImpl(
+      detail::OwnedObjectIdCollector& owned) override {
+    detail::PrepareScopedTransferObject(static_cast<ConcreteEvent&>(*this),
+                                        owned);
   }
 };
 

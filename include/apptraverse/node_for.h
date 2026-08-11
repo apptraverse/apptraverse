@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "apptraverse/node.h"
+#include "apptraverse/object_state_transfer.h"
 #include "apptraverse/shared_discovery.h"
 
 namespace apptraverse {
@@ -39,6 +40,12 @@ class NodeFor : public BaseNode {
       detail::SharedDiscoveryContext& ctx) override {
     detail::ReflectObjectForSharedDiscovery(static_cast<ConcreteNode&>(*this),
                                             ctx);
+  }
+
+  void PrepareScopedTransferImpl(
+      detail::OwnedObjectIdCollector& owned) override {
+    detail::PrepareScopedTransferObject(static_cast<ConcreteNode&>(*this),
+                                        owned);
   }
 
  protected:

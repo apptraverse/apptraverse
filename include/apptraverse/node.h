@@ -18,6 +18,7 @@ namespace apptraverse {
 
 namespace detail {
 struct SharedDiscoveryContext;
+struct OwnedObjectIdCollector;
 }
 
 inline std::uint64_t SystemUtcMicros() {
@@ -50,6 +51,11 @@ class Node : public ae::Obj {
   // Deep-reflect concrete Node state for shared-graph discovery.
   void ReflectForSharedDiscovery(detail::SharedDiscoveryContext& ctx) {
     ReflectForSharedDiscoveryImpl(ctx);
+  }
+
+  // Mask Local/Shared edges and collect ordinary owned ObjIds for transfer.
+  void PrepareScopedTransfer(detail::OwnedObjectIdCollector& owned) {
+    PrepareScopedTransferImpl(owned);
   }
 
  protected:
@@ -171,6 +177,12 @@ class Node : public ae::Obj {
   virtual void ReflectForSharedDiscoveryImpl(
       detail::SharedDiscoveryContext& ctx) {
     (void)ctx;
+    assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual void PrepareScopedTransferImpl(
+      detail::OwnedObjectIdCollector& owned) {
+    (void)owned;
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 };
