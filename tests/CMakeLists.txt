@@ -56,6 +56,20 @@ add_test(
   COMMAND apptraverse_persisted_session_state_test
 )
 
+add_executable(apptraverse_restart_safe_sync_test
+  restart_safe_sync_test.cpp
+)
+
+target_link_libraries(apptraverse_restart_safe_sync_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
+
+add_test(
+  NAME apptraverse_restart_safe_sync_test
+  COMMAND apptraverse_restart_safe_sync_test
+)
+
 add_executable(apptraverse_remote_event_merge_test
   remote_event_merge_test.cpp
 )
