@@ -14,6 +14,7 @@ class Node;
 namespace detail {
 struct SharedDiscoveryContext;
 struct OwnedObjectIdCollector;
+struct SharedDependencyCollector;
 }
 
 class Event : public ae::Obj {
@@ -37,6 +38,10 @@ class Event : public ae::Obj {
     PrepareScopedTransferImpl(owned);
   }
 
+  void CollectSharedDependencies(detail::SharedDependencyCollector& deps) {
+    CollectSharedDependenciesImpl(deps);
+  }
+
  private:
   void ApplyTo(ae::Obj& target) const { ApplyToImpl(target); }
 
@@ -51,6 +56,12 @@ class Event : public ae::Obj {
   virtual void PrepareScopedTransferImpl(
       detail::OwnedObjectIdCollector& owned) {
     (void)owned;
+    assert(false && "Concrete Event must inherit through EventFor");
+  }
+
+  virtual void CollectSharedDependenciesImpl(
+      detail::SharedDependencyCollector& deps) {
+    (void)deps;
     assert(false && "Concrete Event must inherit through EventFor");
   }
 };

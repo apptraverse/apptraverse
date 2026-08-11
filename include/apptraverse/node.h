@@ -19,6 +19,7 @@ namespace apptraverse {
 namespace detail {
 struct SharedDiscoveryContext;
 struct OwnedObjectIdCollector;
+struct SharedDependencyCollector;
 }
 
 inline std::uint64_t SystemUtcMicros() {
@@ -56,6 +57,10 @@ class Node : public ae::Obj {
   // Mask Local/Shared edges and collect ordinary owned ObjIds for transfer.
   void PrepareScopedTransfer(detail::OwnedObjectIdCollector& owned) {
     PrepareScopedTransferImpl(owned);
+  }
+
+  void CollectSharedDependencies(detail::SharedDependencyCollector& deps) {
+    CollectSharedDependenciesImpl(deps);
   }
 
   bool HasEvent(ae::ObjId event_id) const {
@@ -216,6 +221,12 @@ class Node : public ae::Obj {
   virtual void PrepareScopedTransferImpl(
       detail::OwnedObjectIdCollector& owned) {
     (void)owned;
+    assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual void CollectSharedDependenciesImpl(
+      detail::SharedDependencyCollector& deps) {
+    (void)deps;
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 

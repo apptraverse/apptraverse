@@ -30,6 +30,12 @@ class EventFor : public Event {
     detail::PrepareScopedTransferObject(static_cast<ConcreteEvent&>(*this),
                                         owned);
   }
+
+  void CollectSharedDependenciesImpl(
+      detail::SharedDependencyCollector& deps) override {
+    detail::CollectSharedDependenciesObject(
+        static_cast<ConcreteEvent&>(*this), deps);
+  }
 };
 
 }  // namespace apptraverse

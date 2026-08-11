@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "aether-miscpp/reflect/reflect.h"
 #include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/obj/domain.h"
 #include "aether/obj/obj_id.h"
@@ -18,6 +19,8 @@ struct StoredObjectVersion {
   std::uint32_t class_id{0};
   std::uint8_t version{0};
   ae::ObjectData data;
+
+  AE_REFLECT_MEMBERS(obj_id, class_id, version, data)
 };
 
 // In-memory transfer value for one transferable root (Node or Event).
@@ -25,6 +28,8 @@ struct StoredObjectVersion {
 struct ObjectState {
   ae::ObjId root_id;
   std::vector<StoredObjectVersion> objects;
+
+  AE_REFLECT_MEMBERS(root_id, objects)
 };
 
 using EventState = ObjectState;

@@ -48,6 +48,12 @@ class NodeFor : public BaseNode {
                                         owned);
   }
 
+  void CollectSharedDependenciesImpl(
+      detail::SharedDependencyCollector& deps) override {
+    detail::CollectSharedDependenciesObject(static_cast<ConcreteNode&>(*this),
+                                            deps);
+  }
+
   bool AcceptRemoteEventImpl(Event::ptr event,
                              std::uint64_t original_timestamp_us) override {
     return Node::AcceptRemoteEventInto(static_cast<ConcreteNode&>(*this),

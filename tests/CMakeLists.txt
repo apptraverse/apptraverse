@@ -56,6 +56,17 @@ add_test(
   COMMAND apptraverse_remote_event_merge_test
 )
 
+add_executable(apptraverse_sync_packet_test
+  sync_packet_test.cpp
+)
+
+target_link_libraries(apptraverse_sync_packet_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_sync_packet_test
+  COMMAND apptraverse_sync_packet_test
+)
+
 add_executable(apptraverse_ideal_memory_sync_test
   ideal_memory_sync_test.cpp
 )
