@@ -2,9 +2,9 @@
 #define APPTRAVERSE_APP_H_
 
 #include "aether/obj/obj.h"
-#include "aether/obj/obj_ptr.h"
 
 #include "model/client.h"
+#include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
@@ -22,8 +22,8 @@ class App : public ae::Obj {
 
   AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(local_client))
 
-  ae::ObjPtr<Window> window;
-  Client::ptr local_client;
+  LocalPtr<Window> window;
+  LocalPtr<Client> local_client;
 };
 
 }  // namespace apptraverse

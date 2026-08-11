@@ -4,11 +4,10 @@
 #include <cassert>
 #include <vector>
 
-#include "aether/obj/obj_ptr.h"
-
 #include "model/chat_entry.h"
 #include "model/chat_events.h"
 #include "apptraverse/node_for.h"
+#include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
@@ -26,7 +25,7 @@ class Chat : public NodeFor<Chat> {
 
   AE_OBJECT_REFLECT(AE_MMBR(presenter), AE_MMBR(entries))
 
-  ae::ObjPtr<ChatPresenter> presenter;
+  LocalPtr<ChatPresenter> presenter;
   std::vector<ChatEntry> entries;
 
   void Apply(JoinClientEvent const& event) {

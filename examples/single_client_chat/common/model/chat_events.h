@@ -5,6 +5,7 @@
 
 #include "model/client.h"
 #include "apptraverse/event_for.h"
+#include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
@@ -22,7 +23,7 @@ class JoinClientEvent : public EventFor<Chat, JoinClientEvent> {
 
   AE_OBJECT_REFLECT(AE_MMBR(client))
 
-  Client::ptr client;
+  SharedPtr<Client> client;
 };
 
 class AddMessageEvent : public EventFor<Chat, AddMessageEvent> {
@@ -36,7 +37,7 @@ class AddMessageEvent : public EventFor<Chat, AddMessageEvent> {
 
   AE_OBJECT_REFLECT(AE_MMBR(author), AE_MMBR(text))
 
-  Client::ptr author;
+  SharedPtr<Client> author;
   std::string text;
 };
 

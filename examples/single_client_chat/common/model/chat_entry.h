@@ -7,6 +7,7 @@
 #include "aether-miscpp/reflect/reflect.h"
 
 #include "model/client.h"
+#include "apptraverse/object_link.h"
 
 namespace apptraverse {
 
@@ -18,7 +19,7 @@ enum class ChatEntryKind : std::uint8_t {
 // Materialized chat line. Value type — not an ae::Obj.
 struct ChatEntry {
   ChatEntryKind kind{ChatEntryKind::kJoined};
-  Client::ptr client;
+  SharedPtr<Client> client;
   std::string text;
 
   AE_REFLECT_MEMBERS(kind, client, text)

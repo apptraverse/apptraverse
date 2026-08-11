@@ -3,6 +3,7 @@
 
 #include "aether/obj/obj.h"
 
+#include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 #include "model/window.h"
 
@@ -21,8 +22,8 @@ class WindowPresenter : public ae::Obj {
 
   AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(chat_presenter))
 
-  Window::ptr window;
-  ae::ObjPtr<ChatPresenter> chat_presenter;
+  LocalPtr<Window> window;
+  LocalPtr<ChatPresenter> chat_presenter;
 };
 
 }  // namespace apptraverse

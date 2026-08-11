@@ -9,6 +9,17 @@ add_test(
   COMMAND apptraverse_event_sourced_core_test
 )
 
+add_executable(apptraverse_object_link_test
+  object_link_test.cpp
+)
+
+target_link_libraries(apptraverse_object_link_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_object_link_test
+  COMMAND apptraverse_object_link_test
+)
+
 add_executable(apptraverse_model_presenter_graph_test
   model_presenter_graph_test.cpp
 )

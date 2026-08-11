@@ -2,9 +2,9 @@
 #define APPTRAVERSE_WINDOW_H_
 
 #include "aether/obj/obj.h"
-#include "aether/obj/obj_ptr.h"
 
 #include "apptraverse/node.h"
+#include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
@@ -26,8 +26,8 @@ class Window : public Node {
 
   AE_OBJECT_REFLECT(AE_MMBR(presenter), AE_MMBR(chat))
 
-  ae::ObjPtr<WindowPresenter> presenter;
-  ae::ObjPtr<Chat> chat;
+  LocalPtr<WindowPresenter> presenter;
+  SharedPtr<Chat> chat;
 
   virtual void Apply(WindowChangedEvent const& event);
 };

@@ -10,6 +10,7 @@
 #include "model/chat.h"
 #include "model/chat_events.h"
 #include "model/client.h"
+#include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
@@ -25,8 +26,8 @@ class ChatPresenter : public ae::Obj {
 
   AE_OBJECT_REFLECT(AE_MMBR(chat), AE_MMBR(local_client))
 
-  Chat::ptr chat;
-  Client::ptr local_client;
+  LocalPtr<Chat> chat;
+  LocalPtr<Client> local_client;
 
   void SubmitText(std::string text) {
     assert(chat.is_valid());
