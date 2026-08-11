@@ -304,6 +304,11 @@ void SharedGraphSyncSession::Handle(NodeStatePacket const& packet) {
   }
 
   ApplyNodeState(packet.state, local_);
+  AddId(known_node_ids_, packet.state.root_id);
+  auto node = LoadLocalNode(packet.state.root_id);
+  for (auto const& record : node->journal) {
+    AddId(delivered_event_ids_, record.event.id());
+  }
   MarkReceivedAndAck(receiving_packet_id_);
 }
 
@@ -338,6 +343,7 @@ void SharedGraphSyncSession::Handle(EventPacket const& packet) {
   if (result == RemoteEventResult::kAccepted) {
     target.Save();
   }
+  AddId(delivered_event_ids_, packet.state.root_id);
   MarkReceivedAndAck(receiving_packet_id_);
 }
 

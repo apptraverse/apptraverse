@@ -106,6 +106,20 @@ add_test(
   COMMAND apptraverse_ideal_memory_sync_test
 )
 
+add_executable(apptraverse_single_client_chat_unreliable_sync_test
+  single_client_chat_unreliable_sync_test.cpp
+)
+
+target_link_libraries(apptraverse_single_client_chat_unreliable_sync_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
+
+add_test(
+  NAME apptraverse_single_client_chat_unreliable_sync_test
+  COMMAND apptraverse_single_client_chat_unreliable_sync_test
+)
+
 add_executable(apptraverse_single_client_chat_memory_sync_test
   single_client_chat_memory_sync_test.cpp
 )
