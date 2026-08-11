@@ -11,6 +11,7 @@
 #include "model/application_ids.h"
 #include "model/chat.h"
 #include "model/chat_events.h"
+#include "model/chat_peer_set.h"
 #include "model/chat_presenter.h"
 #include "model/client.h"
 #include "model/window.h"
@@ -28,6 +29,8 @@ struct SingleClientChatGraph {
   ChatPresenter::ptr chat_presenter;
   Client::ptr client_base;
   Client::ptr local_client;
+  ChatPeerSet::ptr peer_set_base;
+  ChatPeerSet::ptr peer_set;
 };
 
 // Build the shared AppTraverse single-client chat graph using platform
@@ -55,6 +58,8 @@ SingleClientChatGraph BuildSingleClientChatGraph(
       .with_id(ToObjId(ApplicationObjId::ChatPresenter)));
   graph.client_base = Client::ptr::Create(ae::CreateWith{domain});
   graph.local_client = Client::ptr::Create(ae::CreateWith{domain});
+  graph.peer_set_base = ChatPeerSet::ptr::Create(ae::CreateWith{domain});
+  graph.peer_set = ChatPeerSet::ptr::Create(ae::CreateWith{domain});
 
   graph.local_client->name = std::string{local_client_name};
 
@@ -69,9 +74,12 @@ SingleClientChatGraph BuildSingleClientChatGraph(
   graph.local_client->base = graph.client_base;
   graph.chat->base = graph.chat_base;
   graph.chat->presenter = graph.chat_presenter;
+  graph.peer_set->base = graph.peer_set_base;
+  graph.chat->peer_set = graph.peer_set;
 
   graph.window->CaptureBaseState();
   graph.local_client->CaptureBaseState();
+  graph.peer_set->CaptureBaseState();
   graph.chat->CaptureBaseState();
 
   graph.chat_presenter->chat = graph.chat;

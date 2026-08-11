@@ -34,6 +34,20 @@ add_test(
   COMMAND apptraverse_shared_graph_discovery_test
 )
 
+add_executable(apptraverse_chat_peer_set_test
+  chat_peer_set_test.cpp
+)
+
+target_link_libraries(apptraverse_chat_peer_set_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
+
+add_test(
+  NAME apptraverse_chat_peer_set_test
+  COMMAND apptraverse_chat_peer_set_test
+)
+
 add_executable(apptraverse_generic_storage_transfer_test
   generic_storage_transfer_test.cpp
 )

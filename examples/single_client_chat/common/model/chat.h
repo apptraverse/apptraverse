@@ -6,6 +6,7 @@
 
 #include "model/chat_entry.h"
 #include "model/chat_events.h"
+#include "model/chat_peer_set.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
@@ -15,7 +16,7 @@ namespace apptraverse {
 class ChatPresenter;
 
 class Chat : public NodeFor<Chat> {
-  APPTRAVERSE_OBJECT(Chat, Node, 0)
+  APPTRAVERSE_OBJECT(Chat, Node, 1)
 
  protected:
   Chat() = default;
@@ -23,9 +24,10 @@ class Chat : public NodeFor<Chat> {
  public:
   explicit Chat(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(presenter), AE_MMBR(entries))
+  AE_OBJECT_REFLECT(AE_MMBR(presenter), AE_MMBR(peer_set), AE_MMBR(entries))
 
   LocalPtr<ChatPresenter> presenter;
+  LocalPtr<ChatPeerSet> peer_set;
   std::vector<ChatEntry> entries;
 
   void Apply(JoinClientEvent const& event) {
