@@ -44,6 +44,18 @@ class Chat : public NodeFor<Chat> {
     entry.text = event.text;
     entries.push_back(std::move(entry));
   }
+
+  bool CanApply(AddMessageEvent const& event) const {
+    assert(event.author.is_valid());
+    auto const author_id = event.author.id();
+    for (auto const& entry : entries) {
+      if (entry.kind == ChatEntryKind::kJoined && entry.client.is_valid() &&
+          entry.client.id() == author_id) {
+        return true;
+      }
+    }
+    return false;
+  }
 };
 
 }  // namespace apptraverse

@@ -77,6 +77,11 @@ ObjectState CaptureObjectStateFromPtr(Ptr root,
   return ExtractOwnedRecords(scratch_root.id(), scratch_storage, owned.ids);
 }
 
+bool StorageHasObject(ae::RamDomainStorage const& storage, ae::ObjId id) {
+  auto const it = storage.state.find(id);
+  return it != storage.state.end() && it->second.has_value();
+}
+
 }  // namespace
 
 ObjectState CaptureNodeState(Node::ptr node,
@@ -96,6 +101,61 @@ void ImportObjectState(ObjectState const& state,
     target_storage.SaveData(
         ae::DomainQuery{object.obj_id, object.class_id, object.version},
         std::move(data));
+  }
+}
+
+void ApplyNodeState(ObjectState const& state, MemoryReplica& target) {
+  assert(state.root_id.IsValid());
+
+  if (!StorageHasObject(target.storage, state.root_id)) {
+    ImportObjectState(state, target.storage);
+    auto node = Node::ptr::Declare(
+        ae::CreateWith{target.domain}.with_id(state.root_id));
+    node.Load();
+    assert(node.is_loaded());
+    return;
+  }
+
+  auto target_node = Node::ptr::Declare(
+      ae::CreateWith{target.domain}.with_id(state.root_id));
+  target_node.Load();
+  assert(target_node.is_loaded());
+
+  ae::RamDomainStorage scratch_storage;
+  ImportObjectState(state, scratch_storage);
+  ae::Domain scratch_domain{ae::Now(), scratch_storage};
+  auto source_node = Node::ptr::Declare(
+      ae::CreateWith{scratch_domain}.with_id(state.root_id));
+  source_node.Load();
+  assert(source_node.is_loaded());
+
+  bool changed = false;
+  for (auto const& record : source_node->journal) {
+    assert(record.event.is_valid());
+    if (target_node->HasEvent(record.event.id())) {
+      continue;
+    }
+    auto source_event = record.event;
+    source_event.Load();
+    assert(source_event.is_loaded());
+
+    auto event_state = CaptureEventState(source_event, scratch_storage);
+    ImportObjectState(event_state, target.storage);
+
+    auto imported = Event::ptr::Declare(
+        ae::CreateWith{target.domain}.with_id(source_event.id()));
+    imported.Load();
+    assert(imported.is_loaded());
+
+    auto const result = target_node->TryAcceptRemoteEvent(
+        std::move(imported), record.timestamp_us);
+    assert(result != RemoteEventResult::kBlocked);
+    if (result == RemoteEventResult::kAccepted) {
+      changed = true;
+    }
+  }
+  if (changed) {
+    target_node.Save();
   }
 }
 

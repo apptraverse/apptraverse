@@ -22,6 +22,12 @@ struct OwnedObjectIdCollector;
 struct SharedDependencyCollector;
 }
 
+enum class RemoteEventResult {
+  kAccepted,
+  kDuplicate,
+  kBlocked,
+};
+
 inline std::uint64_t SystemUtcMicros() {
   using clock = std::chrono::system_clock;
   auto const now = clock::now().time_since_epoch();
@@ -72,11 +78,21 @@ class Node : public ae::Obj {
     return false;
   }
 
-  // Insert a remote Event with its original timestamp. Returns false if the
-  // Event ObjId is already present (duplicate).
+  // Insert a remote Event with its original timestamp.
+  RemoteEventResult TryAcceptRemoteEvent(Event::ptr event,
+                                         std::uint64_t original_timestamp_us) {
+    return TryAcceptRemoteEventImpl(std::move(event), original_timestamp_us);
+  }
+
+  // Compatibility wrapper for the ideal synchronizer.
+  // kBlocked is not expected when Events arrive in a valid order.
   bool AcceptRemoteEvent(Event::ptr event,
                          std::uint64_t original_timestamp_us) {
-    return AcceptRemoteEventImpl(std::move(event), original_timestamp_us);
+    auto const result =
+        TryAcceptRemoteEvent(std::move(event), original_timestamp_us);
+    assert(result != RemoteEventResult::kBlocked &&
+           "ideal synchronizer must not deliver blocked Events");
+    return result == RemoteEventResult::kAccepted;
   }
 
  protected:
@@ -86,6 +102,7 @@ class Node : public ae::Obj {
     for (auto const& record : journal) {
       assert(record.event.is_valid());
       assert(record.event.is_loaded());
+      assert(record.event->CanApplyTo(*this));
       ApplyEvent(*record.event);
     }
   }
@@ -168,6 +185,7 @@ class Node : public ae::Obj {
   void CommitInto(ConcreteNode& target, Event::ptr event) {
     assert(event.is_valid());
     assert(event.is_loaded());
+    assert(event->CanApplyTo(target));
 
     std::uint64_t timestamp_us = SystemUtcMicros();
     if (!journal.empty() && timestamp_us <= journal.back().timestamp_us) {
@@ -182,20 +200,24 @@ class Node : public ae::Obj {
   }
 
   template <typename ConcreteNode>
-  bool AcceptRemoteEventInto(ConcreteNode& target, Event::ptr event,
-                             std::uint64_t original_timestamp_us) {
+  RemoteEventResult TryAcceptRemoteEventInto(
+      ConcreteNode& target, Event::ptr event,
+      std::uint64_t original_timestamp_us) {
     assert(event.is_valid());
     assert(event.is_loaded());
     assert(original_timestamp_us != 0);
     if (HasEvent(event.id())) {
-      return false;
+      return RemoteEventResult::kDuplicate;
+    }
+    if (!event->CanApplyTo(target)) {
+      return RemoteEventResult::kBlocked;
     }
     EventRecord record{
         original_timestamp_us,
         std::move(event),
     };
     InsertEvent(target, std::move(record));
-    return true;
+    return RemoteEventResult::kAccepted;
   }
 
  private:
@@ -230,12 +252,12 @@ class Node : public ae::Obj {
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 
-  virtual bool AcceptRemoteEventImpl(Event::ptr event,
-                                     std::uint64_t original_timestamp_us) {
+  virtual RemoteEventResult TryAcceptRemoteEventImpl(
+      Event::ptr event, std::uint64_t original_timestamp_us) {
     (void)event;
     (void)original_timestamp_us;
     assert(false && "Concrete Node must inherit through NodeFor");
-    return false;
+    return RemoteEventResult::kBlocked;
   }
 };
 

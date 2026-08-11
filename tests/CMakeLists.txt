@@ -56,6 +56,20 @@ add_test(
   COMMAND apptraverse_remote_event_merge_test
 )
 
+add_executable(apptraverse_blockable_remote_event_test
+  blockable_remote_event_test.cpp
+)
+
+target_link_libraries(apptraverse_blockable_remote_event_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
+
+add_test(
+  NAME apptraverse_blockable_remote_event_test
+  COMMAND apptraverse_blockable_remote_event_test
+)
+
 add_executable(apptraverse_sync_packet_test
   sync_packet_test.cpp
 )

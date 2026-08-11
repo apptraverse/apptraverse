@@ -54,11 +54,11 @@ class NodeFor : public BaseNode {
                                             deps);
   }
 
-  bool AcceptRemoteEventImpl(Event::ptr event,
-                             std::uint64_t original_timestamp_us) override {
-    return Node::AcceptRemoteEventInto(static_cast<ConcreteNode&>(*this),
-                                       std::move(event),
-                                       original_timestamp_us);
+  RemoteEventResult TryAcceptRemoteEventImpl(
+      Event::ptr event, std::uint64_t original_timestamp_us) override {
+    return Node::TryAcceptRemoteEventInto(static_cast<ConcreteNode&>(*this),
+                                          std::move(event),
+                                          original_timestamp_us);
   }
 
  protected:

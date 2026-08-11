@@ -50,6 +50,10 @@ ObjectState CaptureEventState(Event::ptr event,
 void ImportObjectState(ObjectState const& state,
                        ae::RamDomainStorage& target_storage);
 
+// Apply a NodeStatePacket payload to target. Caller must ensure required_nodes
+// already exist. Missing Node: full import. Existing Node: merge journals only.
+void ApplyNodeState(ObjectState const& state, MemoryReplica& target);
+
 // Ideal-memory Event transfer: capture → import → AcceptRemoteEvent → save.
 // Returns whether the Event was newly accepted (false on duplicate).
 bool TransferRemoteEvent(Event::ptr source_event,

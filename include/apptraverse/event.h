@@ -42,6 +42,10 @@ class Event : public ae::Obj {
     CollectSharedDependenciesImpl(deps);
   }
 
+  bool CanApplyTo(Node const& target) const {
+    return CanApplyToImpl(target);
+  }
+
  private:
   void ApplyTo(ae::Obj& target) const { ApplyToImpl(target); }
 
@@ -63,6 +67,12 @@ class Event : public ae::Obj {
       detail::SharedDependencyCollector& deps) {
     (void)deps;
     assert(false && "Concrete Event must inherit through EventFor");
+  }
+
+  virtual bool CanApplyToImpl(Node const& target) const {
+    (void)target;
+    assert(false && "Concrete Event must inherit through EventFor");
+    return false;
   }
 };
 
