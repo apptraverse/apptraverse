@@ -34,6 +34,17 @@ add_test(
   COMMAND apptraverse_shared_graph_discovery_test
 )
 
+add_executable(apptraverse_generic_storage_transfer_test
+  generic_storage_transfer_test.cpp
+)
+
+target_link_libraries(apptraverse_generic_storage_transfer_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_generic_storage_transfer_test
+  COMMAND apptraverse_generic_storage_transfer_test
+)
+
 add_executable(apptraverse_remote_event_merge_test
   remote_event_merge_test.cpp
 )
