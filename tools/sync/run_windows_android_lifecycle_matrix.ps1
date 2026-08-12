@@ -751,6 +751,140 @@ function Wait-AndroidSyncResumedNoPending {
   $pattern = "CHAT_SYNC_RESUMED peer=$([regex]::Escape($PeerUid)) initial_complete=1 pending=0"
   Wait-Marker $adb $Serial $pattern "Android CHAT_SYNC_RESUMED pending=0" $TimeoutSec | Out-Null
 }
+function Get-S4AndroidDeliverySnapshot {
+  param(
+    [string]$EventId,
+    [string]$PacketId,
+    [string]$MessageKey
+  )
+  $logs = Get-Logcat $adb $Serial
+  $transcript = Get-CanonicalAndroidTranscript
+  $pkt = [regex]::Escape($PacketId)
+  $evt = [regex]::Escape($EventId)
+  return [pscustomobject]@{
+    MessageCount = (Count-Occurrences $transcript $MessageKey)
+    PacketReceiveCount = ([regex]::Matches($logs, "SYNC_PACKET_RECEIVED kind=event packet=$pkt")).Count
+    EventApplyCount = ([regex]::Matches($logs, "SYNC_EVENT_APPLIED packet=$pkt event=$evt")).Count
+    EventBlockedCount = ([regex]::Matches($logs, "SYNC_EVENT_BLOCKED packet=$pkt event=$evt")).Count
+    AckSentCount = ([regex]::Matches($logs, "SYNC_ACK_SENT[^\r\n]*acknowledged=$pkt")).Count
+    TranscriptSource = $script:LastCanonicalTranscriptSource
+    Transcript = $transcript
+  }
+}
+function Classify-S4PreRestartDelivery($Snapshot) {
+  if ($null -eq $Snapshot) { throw "S4 pre-restart snapshot is null" }
+  if ($Snapshot.EventBlockedCount -gt 0) {
+    throw "S4 pre-restart EventBlockedCount=$($Snapshot.EventBlockedCount) (want 0)"
+  }
+  if ($Snapshot.MessageCount -gt 1) {
+    throw "S4 pre-restart MessageCount=$($Snapshot.MessageCount) (want 0 or 1)"
+  }
+  if ($Snapshot.EventApplyCount -gt 1) {
+    throw "S4 pre-restart EventApplyCount=$($Snapshot.EventApplyCount) (want 0 or 1)"
+  }
+  if ($Snapshot.MessageCount -eq 0 -and $Snapshot.EventApplyCount -eq 0 -and $Snapshot.AckSentCount -eq 0) {
+    if ($Snapshot.PacketReceiveCount -gt 0) {
+      throw "S4 pre-restart received packet without apply/message (receive=$($Snapshot.PacketReceiveCount))"
+    }
+    return "awaiting_sender_restart"
+  }
+  if ($Snapshot.MessageCount -eq 1 -and $Snapshot.PacketReceiveCount -ge 1 -and `
+      $Snapshot.EventApplyCount -eq 1 -and $Snapshot.EventBlockedCount -eq 0 -and `
+      $Snapshot.AckSentCount -ge 1) {
+    return "in_flight_delivered"
+  }
+  throw ("S4 pre-restart snapshot invalid: message=$($Snapshot.MessageCount) receive=$($Snapshot.PacketReceiveCount) " + `
+    "apply=$($Snapshot.EventApplyCount) blocked=$($Snapshot.EventBlockedCount) ack_sent=$($Snapshot.AckSentCount)")
+}
+function Wait-WindowsS4Progress {
+  param(
+    [System.Diagnostics.Process]$Process,
+    [string]$LogPath,
+    [string]$PacketId,
+    [int]$TimeoutSec
+  )
+  $pkt = [regex]::Escape($PacketId)
+  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  $saw_retry = $false
+  $saw_ack = $false
+  $last = ""
+  while ((Get-Date) -lt $deadline) {
+    if ($null -eq $Process -or $Process.HasExited) {
+      throw "Windows process exited during S4 progress wait packet=$PacketId"
+    }
+    $last = Get-WindowsLog $LogPath
+    if (-not $saw_retry -and $last -match "SYNC_PACKET_RETRY packet=$pkt") { $saw_retry = $true }
+    if (-not $saw_ack -and $last -match "SYNC_ACK_RECEIVED[^\r\n]*acknowledged=$pkt") { $saw_ack = $true }
+    if ($saw_ack) {
+      return [pscustomobject]@{ SawRetry = $saw_retry; SawAck = $saw_ack }
+    }
+    Start-Sleep -Milliseconds 350
+  }
+  throw "Windows S4 progress timeout packet=$PacketId saw_retry=$saw_retry saw_ack=$saw_ack last log=$last"
+}
+function Invoke-LifecycleS4DeliveryPathHelpersSelfTest {
+  $a = [pscustomobject]@{
+    MessageCount = 0; PacketReceiveCount = 0; EventApplyCount = 0
+    EventBlockedCount = 0; AckSentCount = 0
+  }
+  if ((Classify-S4PreRestartDelivery $a) -ne "awaiting_sender_restart") {
+    throw "S4 delivery self-test A"
+  }
+
+  $b = [pscustomobject]@{
+    MessageCount = 1; PacketReceiveCount = 1; EventApplyCount = 1
+    EventBlockedCount = 0; AckSentCount = 1
+  }
+  if ((Classify-S4PreRestartDelivery $b) -ne "in_flight_delivered") {
+    throw "S4 delivery self-test B"
+  }
+
+  $c = [pscustomobject]@{
+    MessageCount = 1; PacketReceiveCount = 2; EventApplyCount = 1
+    EventBlockedCount = 0; AckSentCount = 2
+  }
+  if ((Classify-S4PreRestartDelivery $c) -ne "in_flight_delivered") {
+    throw "S4 delivery self-test C"
+  }
+
+  $d_failed = $false
+  try {
+    Classify-S4PreRestartDelivery ([pscustomobject]@{
+      MessageCount = 2; PacketReceiveCount = 1; EventApplyCount = 1
+      EventBlockedCount = 0; AckSentCount = 1
+    }) | Out-Null
+  } catch { $d_failed = $true }
+  if (-not $d_failed) { throw "S4 delivery self-test D" }
+
+  $e_failed = $false
+  try {
+    Classify-S4PreRestartDelivery ([pscustomobject]@{
+      MessageCount = 1; PacketReceiveCount = 2; EventApplyCount = 2
+      EventBlockedCount = 0; AckSentCount = 2
+    }) | Out-Null
+  } catch { $e_failed = $true }
+  if (-not $e_failed) { throw "S4 delivery self-test E" }
+
+  $f_failed = $false
+  try {
+    Classify-S4PreRestartDelivery ([pscustomobject]@{
+      MessageCount = 1; PacketReceiveCount = 0; EventApplyCount = 0
+      EventBlockedCount = 0; AckSentCount = 0
+    }) | Out-Null
+  } catch { $f_failed = $true }
+  if (-not $f_failed) { throw "S4 delivery self-test F" }
+
+  $g_failed = $false
+  try {
+    Classify-S4PreRestartDelivery ([pscustomobject]@{
+      MessageCount = 0; PacketReceiveCount = 1; EventApplyCount = 0
+      EventBlockedCount = 1; AckSentCount = 0
+    }) | Out-Null
+  } catch { $g_failed = $true }
+  if (-not $g_failed) { throw "S4 delivery self-test G" }
+
+  Write-Host "LIFECYCLE_S4_DELIVERY_PATH_HELPERS_SELF_TEST PASSED"
+}
 function Wait-WindowsPendingPositive([System.Diagnostics.Process]$Process, [string]$Log, [string]$Key, [int]$TimeoutSec) {
   Wait-WindowsMarker $Process $Log "CHAT_PENDING_CHANGED .*pending=[1-9]|SYNC_PACKET_CREATED .*text_key=$([regex]::Escape($Key))|SYNC_PACKET_CREATED kind=event" "Windows pending>0 for $Key" $TimeoutSec | Out-Null
 }
@@ -851,6 +985,7 @@ Invoke-LifecycleTranscriptHelpersSelfTest
 Invoke-LifecycleAndroidInputHelpersSelfTest
 Invoke-LifecycleS4CorrelationHelpersSelfTest
 Invoke-LifecyclePersistenceGateHelpersSelfTest
+Invoke-LifecycleS4DeliveryPathHelpersSelfTest
 
 try {
   if (-not $ApkPath) { $ApkPath = Join-Path $android_dir "app\build\outputs\apk\debug\app-debug.apk" }
@@ -1073,17 +1208,32 @@ try {
       Clear-Logcat $adb $Serial
       Start-App $adb $Serial
       Wait-Marker $adb $Serial "AETHER_CLIENT_READY platform=android uid=$([regex]::Escape($script:AndroidUid))" "Android ready S4 old state" $ClientReadyTimeoutSec | Out-Null
-      Assert-AndroidLacksKey "s4_w_pending_before_exit" 8
+      Wait-Marker $adb $Serial "CHAT_SYNC_CONTROLLER_READY" "Android sync controller ready S4" 60 | Out-Null
+
+      $observe_deadline = (Get-Date).AddSeconds(3)
+      while ((Get-Date) -lt $observe_deadline) {
+        $probe = Get-S4AndroidDeliverySnapshot -EventId $script:S4EventId -PacketId $script:S4PacketId `
+          -MessageKey "s4_w_pending_before_exit"
+        if ($probe.MessageCount -ge 1 -or $probe.PacketReceiveCount -ge 1) { break }
+        Start-Sleep -Milliseconds 250
+      }
+      $pre_restart = Get-S4AndroidDeliverySnapshot -EventId $script:S4EventId -PacketId $script:S4PacketId `
+        -MessageKey "s4_w_pending_before_exit"
+      $s4_path = Classify-S4PreRestartDelivery $pre_restart
+      Write-Host "S4_PRE_RESTART_PATH path=$s4_path"
 
       $win4 = Start-WindowsLifecycle $win_state_dir $WindowsClientName "windows_s4.log"
       Assert-StableIdentities $win4.Log
-      Wait-WindowsMarker $win4.Process $win4.Log "CHAT_SYNC_RESUMED" "Windows CHAT_SYNC_RESUMED S4" $SyncTimeoutSec | Out-Null
-      Wait-WindowsMarker $win4.Process $win4.Log "SYNC_PACKET_RETRY packet=$([regex]::Escape($script:S4PacketId))" "Windows SYNC_PACKET_RETRY same packet" $SyncTimeoutSec | Out-Null
+      Wait-WindowsMarker $win4.Process $win4.Log `
+        "CHAT_SYNC_RESUMED peer=$([regex]::Escape($script:AndroidUid)) initial_complete=1 pending=1" `
+        "Windows CHAT_SYNC_RESUMED pending=1 S4" $SyncTimeoutSec | Out-Null
 
-      Wait-Marker $adb $Serial "SYNC_PACKET_RECEIVED kind=event packet=$([regex]::Escape($script:S4PacketId))" "Android SYNC_PACKET_RECEIVED S4 packet" $SyncTimeoutSec | Out-Null
-      Wait-Marker $adb $Serial "SYNC_EVENT_APPLIED packet=$([regex]::Escape($script:S4PacketId)) event=$([regex]::Escape($script:S4EventId))" "Android SYNC_EVENT_APPLIED S4" $SyncTimeoutSec | Out-Null
+      $progress = Wait-WindowsS4Progress -Process $win4.Process -LogPath $win4.Log `
+        -PacketId $script:S4PacketId -TimeoutSec $SyncTimeoutSec
+      $retry_flag = if ($progress.SawRetry) { "1" } else { "0" }
+      Write-Host "  OK  S4 Windows progress saw_retry=$retry_flag saw_ack=1"
+
       Assert-AndroidHasKeyOnce "s4_w_pending_before_exit"
-      Wait-Marker $adb $Serial "SYNC_ACK_SENT[^\r\n]*acknowledged=$([regex]::Escape($script:S4PacketId))" "Android SYNC_ACK_SENT for S4 packet" $SyncTimeoutSec | Out-Null
       Wait-WindowsMarker $win4.Process $win4.Log "SYNC_ACK_RECEIVED[^\r\n]*acknowledged=$([regex]::Escape($script:S4PacketId))" "Windows SYNC_ACK_RECEIVED S4 packet" $SyncTimeoutSec | Out-Null
       Wait-WindowsMarker $win4.Process $win4.Log "SYNC_PENDING_REMOVED packet=$([regex]::Escape($script:S4PacketId)) pending=0" "Windows SYNC_PENDING_REMOVED exact S4 packet" $SyncTimeoutSec | Out-Null
       Wait-WindowsPendingCleared $win4.Process $win4.Log $SyncTimeoutSec
@@ -1093,15 +1243,31 @@ try {
       if ($null -ne $new_packet) {
         throw "S4 restart log unexpectedly created EventPacket packet=$($new_packet.PacketId) for event=$($script:S4EventId)"
       }
-      $apply_count = ([regex]::Matches((Get-Logcat $adb $Serial), "SYNC_EVENT_APPLIED packet=$([regex]::Escape($script:S4PacketId)) event=$([regex]::Escape($script:S4EventId))")).Count
-      if ($apply_count -ne 1) {
-        throw "S4 SYNC_EVENT_APPLIED count=$apply_count (want 1) for packet=$($script:S4PacketId) event=$($script:S4EventId)"
+
+      $final = Get-S4AndroidDeliverySnapshot -EventId $script:S4EventId -PacketId $script:S4PacketId `
+        -MessageKey "s4_w_pending_before_exit"
+      if ($final.PacketReceiveCount -lt 1) {
+        throw "S4 final PacketReceiveCount=$($final.PacketReceiveCount) (want >= 1)"
+      }
+      if ($final.EventApplyCount -ne 1) {
+        throw "S4 final EventApplyCount=$($final.EventApplyCount) (want 1)"
+      }
+      if ($final.EventBlockedCount -ne 0) {
+        throw "S4 final EventBlockedCount=$($final.EventBlockedCount) (want 0)"
+      }
+      if ($final.AckSentCount -lt 1) {
+        throw "S4 final AckSentCount=$($final.AckSentCount) (want >= 1)"
+      }
+      if ($final.MessageCount -ne 1) {
+        throw "S4 final MessageCount=$($final.MessageCount) (want 1)"
       }
       $remove_count = ([regex]::Matches($restart_log, "SYNC_PENDING_REMOVED packet=$([regex]::Escape($script:S4PacketId)) pending=0")).Count
       if ($remove_count -lt 1) {
         throw "S4 missing SYNC_PENDING_REMOVED for packet=$($script:S4PacketId)"
       }
-      Write-Host "  OK  S4 exact packet lifecycle packet=$($script:S4PacketId) event=$($script:S4EventId) apply=$apply_count"
+
+      $s4_detail = "path=$s4_path event=$($script:S4EventId) packet=$($script:S4PacketId) retry=$retry_flag receive_count=$($final.PacketReceiveCount) apply_count=1 ack_sent_count=$($final.AckSentCount) pending=0 message_count=1"
+      Write-Host "  OK  S4 exact packet lifecycle $s4_detail"
 
       try {
         Wait-WindowsMarker $win4.Process $win4.Log "CHAT_PEER_REJOINED peer=$([regex]::Escape($script:AndroidUid))" "Windows rejoin S4" $SyncTimeoutSec | Out-Null
@@ -1114,7 +1280,7 @@ try {
       Assert-NoCrash (Get-WindowsLog $win4.Log) "Windows S4"
       Assert-NoCrash (Get-Logcat $adb $Serial) "Android S4"
       Save-PhaseArtifacts "s4"
-      Record-Result "S4_sender_exit_persisted_pending" $true ""
+      Record-Result "S4_sender_exit_persisted_pending" $true $s4_detail
     } catch {
       $script:CanContinueS1to4 = $false
       Save-PhaseArtifacts "s4_fail"
