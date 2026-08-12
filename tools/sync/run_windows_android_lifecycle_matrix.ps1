@@ -511,8 +511,139 @@ function Send-WindowsInboxMessage([System.Diagnostics.Process]$Process, [string]
   $tmp = "$Inbox.tmp"
   [System.IO.File]::WriteAllText($tmp, $Key)
   Move-Item -Force $tmp $Inbox
-  $commit = Wait-WindowsMarker $Process $Log "CHAT_MESSAGE_COMMITTED platform=windows .*text_key=$([regex]::Escape($Key))|MESSAGE_COMMITTED text=$([regex]::Escape($Key))" "Windows committed $Key" 90
-  return $commit
+  return Wait-WindowsMessageCommit -Process $Process -LogPath $Log -TextKey $Key -TimeoutSec 90
+}
+function Find-WindowsMessageCommit([string]$LogText, [string]$TextKey) {
+  if ([string]::IsNullOrEmpty($LogText) -or [string]::IsNullOrEmpty($TextKey)) { return $null }
+  $escaped = [regex]::Escape($TextKey)
+  $pattern = "^CHAT_MESSAGE_COMMITTED platform=windows event=(\d+) text_key=$escaped t_us=(\d+)\s*$"
+  $hits = @()
+  foreach ($raw in ($LogText -split "`r?`n")) {
+    $line = $raw.Trim()
+    if ([string]::IsNullOrEmpty($line)) { continue }
+    $m = [regex]::Match($line, $pattern)
+    if (-not $m.Success) { continue }
+    $hits += [pscustomobject]@{
+      Line = $line
+      EventId = $m.Groups[1].Value
+      TextKey = $TextKey
+      TimestampUs = $m.Groups[2].Value
+    }
+  }
+  if ($hits.Count -eq 0) { return $null }
+  if ($hits.Count -gt 1) {
+    throw "Duplicate CHAT_MESSAGE_COMMITTED for text_key=$TextKey count=$($hits.Count)"
+  }
+  return $hits[0]
+}
+function Wait-WindowsMessageCommit {
+  param(
+    [System.Diagnostics.Process]$Process,
+    [string]$LogPath,
+    [string]$TextKey,
+    [int]$TimeoutSec = 90
+  )
+  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  $last = ""
+  while ((Get-Date) -lt $deadline) {
+    if ($null -eq $Process -or $Process.HasExited) {
+      throw "Windows process exited before message commit text_key=$TextKey"
+    }
+    $last = Get-WindowsLog $LogPath
+    $found = Find-WindowsMessageCommit $last $TextKey
+    if ($null -ne $found) {
+      Write-Host "  OK  Windows committed $TextKey event=$($found.EventId)"
+      return $found
+    }
+    Start-Sleep -Milliseconds 350
+  }
+  throw "Windows message commit marker timeout text_key=$TextKey last log=$last"
+}
+function Find-WindowsEventPacketCreated([string]$LogText, [string]$EventId) {
+  if ([string]::IsNullOrEmpty($LogText) -or [string]::IsNullOrEmpty($EventId)) { return $null }
+  $escaped = [regex]::Escape($EventId)
+  $pattern = "^SYNC_PACKET_CREATED kind=event packet=(\d+) event=$escaped target=(\d+) t_us=(\d+)\s*$"
+  $hits = @()
+  foreach ($raw in ($LogText -split "`r?`n")) {
+    $line = $raw.Trim()
+    if ([string]::IsNullOrEmpty($line)) { continue }
+    $m = [regex]::Match($line, $pattern)
+    if (-not $m.Success) { continue }
+    $hits += [pscustomobject]@{
+      Line = $line
+      PacketId = $m.Groups[1].Value
+      EventId = $EventId
+      TargetNodeId = $m.Groups[2].Value
+      TimestampUs = $m.Groups[3].Value
+    }
+  }
+  if ($hits.Count -eq 0) { return $null }
+  if ($hits.Count -gt 1) {
+    $ids = ($hits | ForEach-Object { $_.PacketId }) -join ","
+    throw "Duplicate SYNC_PACKET_CREATED for event=$EventId count=$($hits.Count) packets=$ids"
+  }
+  return $hits[0]
+}
+function Wait-WindowsEventPacketCreated {
+  param(
+    [System.Diagnostics.Process]$Process,
+    [string]$LogPath,
+    [string]$EventId,
+    [int]$TimeoutSec = 90
+  )
+  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  $last = ""
+  while ((Get-Date) -lt $deadline) {
+    if ($null -eq $Process -or $Process.HasExited) {
+      throw "Windows process exited before EventPacket creation event=$EventId"
+    }
+    $last = Get-WindowsLog $LogPath
+    $found = Find-WindowsEventPacketCreated $last $EventId
+    if ($null -ne $found) {
+      Write-Host "  OK  Windows EventPacket packet=$($found.PacketId) event=$EventId"
+      return $found
+    }
+    Start-Sleep -Milliseconds 350
+  }
+  throw "EventPacket creation timeout event=$EventId"
+}
+function Invoke-LifecycleS4CorrelationHelpersSelfTest {
+  $sample = @"
+CHAT_MESSAGE_COMMITTED platform=windows event=111 text_key=other_message t_us=100
+MESSAGE_COMMITTED text=s4_w_pending_before_exit
+SYNC_PACKET_CREATED kind=event packet=900 event=999 target=100004 t_us=101
+CHAT_MESSAGE_COMMITTED platform=windows event=4247398207 text_key=s4_w_pending_before_exit t_us=102
+SYNC_PACKET_CREATED kind=event packet=4139965825 event=4247398207 target=100004 t_us=103
+"@
+  $commit = Find-WindowsMessageCommit $sample "s4_w_pending_before_exit"
+  if ($null -eq $commit) { throw "S4 self-test: commit not found" }
+  if ($commit.EventId -ne "4247398207") { throw "S4 self-test: EventId=$($commit.EventId)" }
+  $packet = Find-WindowsEventPacketCreated $sample "4247398207"
+  if ($null -eq $packet) { throw "S4 self-test: packet not found" }
+  if ($packet.PacketId -ne "4139965825") { throw "S4 self-test: PacketId=$($packet.PacketId)" }
+  if ($null -ne (Find-WindowsMessageCommit $sample "missing_key")) { throw "S4 self-test: unexpected commit" }
+  $pkt999 = Find-WindowsEventPacketCreated $sample "999"
+  if ($null -eq $pkt999 -or $pkt999.PacketId -ne "900") { throw "S4 self-test: unrelated event lookup" }
+  # Exact key must ignore MESSAGE_COMMITTED and unrelated packet 900/event 999.
+  if ($commit.EventId -eq "111" -or $packet.PacketId -eq "900") { throw "S4 self-test: correlated wrong markers" }
+
+  $dup_commit = @"
+CHAT_MESSAGE_COMMITTED platform=windows event=1 text_key=dup_key t_us=1
+CHAT_MESSAGE_COMMITTED platform=windows event=2 text_key=dup_key t_us=2
+"@
+  $dup_commit_failed = $false
+  try { Find-WindowsMessageCommit $dup_commit "dup_key" | Out-Null } catch { $dup_commit_failed = $true }
+  if (-not $dup_commit_failed) { throw "S4 self-test: expected duplicate commit error" }
+
+  $dup_packet = @"
+SYNC_PACKET_CREATED kind=event packet=10 event=55 target=100004 t_us=1
+SYNC_PACKET_CREATED kind=event packet=11 event=55 target=100004 t_us=2
+"@
+  $dup_packet_failed = $false
+  try { Find-WindowsEventPacketCreated $dup_packet "55" | Out-Null } catch { $dup_packet_failed = $true }
+  if (-not $dup_packet_failed) { throw "S4 self-test: expected duplicate packet error" }
+
+  Write-Host "LIFECYCLE_S4_CORRELATION_HELPERS_SELF_TEST PASSED"
 }
 function Add-PeerViaInbox([System.Diagnostics.Process]$Process, [string]$Log, [string]$Inbox, [string]$Uid) {
   if ($null -eq $Process -or $Process.HasExited) { throw "Windows process is not running for peer-inbox" }
@@ -646,6 +777,7 @@ Write-Utf8NoBom $summary_path "scenario,result,detail`r`n"
 
 Invoke-LifecycleTranscriptHelpersSelfTest
 Invoke-LifecycleAndroidInputHelpersSelfTest
+Invoke-LifecycleS4CorrelationHelpersSelfTest
 
 try {
   if (-not $ApkPath) { $ApkPath = Join-Path $android_dir "app\build\outputs\apk\debug\app-debug.apk" }
@@ -841,20 +973,26 @@ try {
       Stop-App $adb $Serial
       Wait-WindowsMarker $script:WinProc $script:WinLog "CHAT_PEER_OFFLINE peer=$([regex]::Escape($script:AndroidUid))" "Windows saw Android offline S4" $OfflineTimeoutSec | Out-Null
 
-      $before_log = Get-WindowsLog $script:WinLog
       $commit = Send-WindowsInboxMessage $script:WinProc $script:WinLog $commit_inbox "s4_w_pending_before_exit"
-      $script:S4EventId = Get-EventId $commit
-      Wait-WindowsPendingPositive $script:WinProc $script:WinLog "s4_w_pending_before_exit" 60
-      $after_log = Get-WindowsLog $script:WinLog
-      $created = ($after_log -split "`n" | Where-Object {
-        $_ -match "SYNC_PACKET_CREATED kind=event" -and $_ -match "event=$([regex]::Escape($script:S4EventId))"
-      } | Select-Object -Last 1)
-      if (-not $created) {
-        $created = ($after_log -split "`n" | Where-Object { $_ -match "SYNC_PACKET_CREATED kind=event" } | Select-Object -Last 1)
-      }
-      if (-not $created) { throw "Unable to find SYNC_PACKET_CREATED for s4" }
-      $script:S4PacketId = Get-PacketId $created.Trim()
+      $script:S4EventId = $commit.EventId
+      $packet = Wait-WindowsEventPacketCreated -Process $script:WinProc -LogPath $script:WinLog `
+        -EventId $script:S4EventId -TimeoutSec 60
+      $script:S4PacketId = $packet.PacketId
       Write-Utf8NoBom (Join-Path $out_dir "s4_packet_ids.txt") "event_id=$($script:S4EventId)`r`npacket_id=$($script:S4PacketId)`r`n"
+
+      Wait-WindowsPendingPositive $script:WinProc $script:WinLog "s4_w_pending_before_exit" 60
+      $pre_exit_log = Get-WindowsLog $script:WinLog
+      $created_exact = Find-WindowsEventPacketCreated $pre_exit_log $script:S4EventId
+      if ($null -eq $created_exact -or $created_exact.PacketId -ne $script:S4PacketId) {
+        throw "S4 pre-exit missing exact SYNC_PACKET_CREATED packet=$($script:S4PacketId) event=$($script:S4EventId)"
+      }
+      if ($pre_exit_log -match "SYNC_ACK_RECEIVED[^\r\n]*acknowledged=$([regex]::Escape($script:S4PacketId))") {
+        throw "S4 pre-exit unexpectedly already has SYNC_ACK_RECEIVED for packet=$($script:S4PacketId)"
+      }
+      if ($pre_exit_log -match "SYNC_PENDING_REMOVED packet=$([regex]::Escape($script:S4PacketId))") {
+        throw "S4 pre-exit unexpectedly already has SYNC_PENDING_REMOVED for packet=$($script:S4PacketId)"
+      }
+      Write-Host "  OK  S4 pending packet=$($script:S4PacketId) event=$($script:S4EventId) not ACKed before exit"
 
       # Stop Windows completely BEFORE starting Android.
       Stop-WindowsRun $script:WinProc
@@ -869,9 +1007,28 @@ try {
       Wait-WindowsMarker $win4.Process $win4.Log "CHAT_SYNC_RESUMED" "Windows CHAT_SYNC_RESUMED S4" $SyncTimeoutSec | Out-Null
       Wait-WindowsMarker $win4.Process $win4.Log "SYNC_PACKET_RETRY packet=$([regex]::Escape($script:S4PacketId))" "Windows SYNC_PACKET_RETRY same packet" $SyncTimeoutSec | Out-Null
 
+      Wait-Marker $adb $Serial "SYNC_PACKET_RECEIVED kind=event packet=$([regex]::Escape($script:S4PacketId))" "Android SYNC_PACKET_RECEIVED S4 packet" $SyncTimeoutSec | Out-Null
+      Wait-Marker $adb $Serial "SYNC_EVENT_APPLIED packet=$([regex]::Escape($script:S4PacketId)) event=$([regex]::Escape($script:S4EventId))" "Android SYNC_EVENT_APPLIED S4" $SyncTimeoutSec | Out-Null
       Assert-AndroidHasKeyOnce "s4_w_pending_before_exit"
-      Wait-WindowsMarker $win4.Process $win4.Log "SYNC_PENDING_REMOVED packet=$([regex]::Escape($script:S4PacketId))|CHAT_PENDING_CHANGED .*pending=0" "Windows pending removed for S4 packet" $SyncTimeoutSec | Out-Null
+      Wait-Marker $adb $Serial "SYNC_ACK_SENT[^\r\n]*acknowledged=$([regex]::Escape($script:S4PacketId))" "Android SYNC_ACK_SENT for S4 packet" $SyncTimeoutSec | Out-Null
+      Wait-WindowsMarker $win4.Process $win4.Log "SYNC_ACK_RECEIVED[^\r\n]*acknowledged=$([regex]::Escape($script:S4PacketId))" "Windows SYNC_ACK_RECEIVED S4 packet" $SyncTimeoutSec | Out-Null
+      Wait-WindowsMarker $win4.Process $win4.Log "SYNC_PENDING_REMOVED packet=$([regex]::Escape($script:S4PacketId)) pending=0" "Windows SYNC_PENDING_REMOVED exact S4 packet" $SyncTimeoutSec | Out-Null
       Wait-WindowsPendingCleared $win4.Process $win4.Log $SyncTimeoutSec
+
+      $restart_log = Get-WindowsLog $win4.Log
+      $new_packet = Find-WindowsEventPacketCreated $restart_log $script:S4EventId
+      if ($null -ne $new_packet) {
+        throw "S4 restart log unexpectedly created EventPacket packet=$($new_packet.PacketId) for event=$($script:S4EventId)"
+      }
+      $apply_count = ([regex]::Matches((Get-Logcat $adb $Serial), "SYNC_EVENT_APPLIED packet=$([regex]::Escape($script:S4PacketId)) event=$([regex]::Escape($script:S4EventId))")).Count
+      if ($apply_count -ne 1) {
+        throw "S4 SYNC_EVENT_APPLIED count=$apply_count (want 1) for packet=$($script:S4PacketId) event=$($script:S4EventId)"
+      }
+      $remove_count = ([regex]::Matches($restart_log, "SYNC_PENDING_REMOVED packet=$([regex]::Escape($script:S4PacketId)) pending=0")).Count
+      if ($remove_count -lt 1) {
+        throw "S4 missing SYNC_PENDING_REMOVED for packet=$($script:S4PacketId)"
+      }
+      Write-Host "  OK  S4 exact packet lifecycle packet=$($script:S4PacketId) event=$($script:S4EventId) apply=$apply_count"
 
       try {
         Wait-WindowsMarker $win4.Process $win4.Log "CHAT_PEER_REJOINED peer=$([regex]::Escape($script:AndroidUid))" "Windows rejoin S4" $SyncTimeoutSec | Out-Null
