@@ -1,16 +1,22 @@
 package com.apptraverse.singleclientchat;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+
+import java.util.UUID;
 
 /**
  * Single Activity of the example. It holds no model state: the transcript comes
@@ -26,6 +32,9 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   private TextView transcriptView;
   private EditText messageInput;
   private Button sendButton;
+  private Button addParticipantButton;
+
+  private String localAetherUid = "";
 
   private int lastViewportWidth;
   private int lastViewportHeight;
@@ -39,11 +48,20 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     transcriptView = findViewById(R.id.transcript);
     messageInput = findViewById(R.id.message_input);
     sendButton = findViewById(R.id.send);
+    addParticipantButton = findViewById(R.id.add_participant);
+    addParticipantButton.setEnabled(false);
 
     sendButton.setOnClickListener(new View.OnClickListener() {
       @Override
       public void onClick(View view) {
         submit();
+      }
+    });
+
+    addParticipantButton.setOnClickListener(new View.OnClickListener() {
+      @Override
+      public void onClick(View view) {
+        showAddParticipantDialog();
       }
     });
 
@@ -129,6 +147,91 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
         }
       }
     });
+  }
+
+  @Override
+  public void onAetherUid(String uid) {
+    localAetherUid = uid == null ? "" : uid.trim();
+    addParticipantButton.setEnabled(!localAetherUid.isEmpty());
+  }
+
+  private void showAddParticipantDialog() {
+    if (localAetherUid.isEmpty()) {
+      return;
+    }
+
+    final float density = getResources().getDisplayMetrics().density;
+    int pad = Math.round(16 * density);
+
+    LinearLayout content = new LinearLayout(this);
+    content.setOrientation(LinearLayout.VERTICAL);
+    content.setPadding(pad, pad, pad, 0);
+
+    TextView myLabel = new TextView(this);
+    myLabel.setText(R.string.my_aether_id);
+    content.addView(myLabel);
+
+    final EditText localUidView = new EditText(this);
+    localUidView.setText(localAetherUid);
+    localUidView.setInputType(InputType.TYPE_CLASS_TEXT);
+    localUidView.setSingleLine(true);
+    localUidView.setFocusable(true);
+    localUidView.setFocusableInTouchMode(true);
+    localUidView.setCursorVisible(false);
+    localUidView.setKeyListener(null);
+    localUidView.setTextIsSelectable(true);
+    content.addView(localUidView);
+
+    TextView remoteLabel = new TextView(this);
+    remoteLabel.setText(R.string.remote_aether_id);
+    remoteLabel.setPadding(0, pad, 0, 0);
+    content.addView(remoteLabel);
+
+    final EditText remoteUidView = new EditText(this);
+    remoteUidView.setHint(R.string.remote_aether_id);
+    remoteUidView.setInputType(InputType.TYPE_CLASS_TEXT);
+    remoteUidView.setSingleLine(true);
+    content.addView(remoteUidView);
+
+    final AlertDialog dialog = new AlertDialog.Builder(this)
+        .setTitle(R.string.add_participant_title)
+        .setView(content)
+        .setNegativeButton(R.string.cancel, null)
+        .setPositiveButton(R.string.add, null)
+        .create();
+
+    dialog.setOnShowListener(new DialogInterface.OnShowListener() {
+      @Override
+      public void onShow(DialogInterface dialogInterface) {
+        remoteUidView.requestFocus();
+        Button addButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        addButton.setOnClickListener(new View.OnClickListener() {
+          @Override
+          public void onClick(View view) {
+            String raw = remoteUidView.getText().toString().trim();
+            if (raw.isEmpty()) {
+              remoteUidView.setError(getString(R.string.invalid_aether_id));
+              return;
+            }
+            final String canonical;
+            try {
+              canonical = UUID.fromString(raw).toString();
+            } catch (IllegalArgumentException ex) {
+              remoteUidView.setError(getString(R.string.invalid_aether_id));
+              return;
+            }
+            if (canonical.equalsIgnoreCase(localAetherUid)) {
+              remoteUidView.setError(getString(R.string.cannot_add_self));
+              return;
+            }
+            application().addPeer(canonical);
+            dialog.dismiss();
+          }
+        });
+      }
+    });
+
+    dialog.show();
   }
 
   private void submit() {

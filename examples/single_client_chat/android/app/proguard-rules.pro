@@ -6,5 +6,6 @@
 -keepclassmembers class com.apptraverse.singleclientchat.NativeUiBridge {
   void onNativeStatus(java.lang.String);
   void onNativeTranscript(java.lang.String);
+  void onNativeAetherUid(java.lang.String);
   void onNativeMessageCommitted(java.lang.String);
 }

@@ -69,6 +69,14 @@ void NativeQueueSend(JNIEnv* env, jclass, jlong handle, jstring text) {
   (void)runtime->QueueSend(ToStdString(env, text));
 }
 
+void NativeQueueAddPeer(JNIEnv* env, jclass, jlong handle, jstring uid) {
+  auto* runtime = FromHandle(handle);
+  if (runtime == nullptr) {
+    return;
+  }
+  (void)runtime->QueueAddPeer(ToStdString(env, uid));
+}
+
 void NativeQueueWindowChanged(JNIEnv*, jclass, jlong handle, jint width,
                               jint height, jint density_dpi) {
   auto* runtime = FromHandle(handle);
@@ -96,6 +104,8 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeRun", "(J)V", reinterpret_cast<void*>(&NativeRun)},
     {"nativeQueueSend", "(JLjava/lang/String;)V",
      reinterpret_cast<void*>(&NativeQueueSend)},
+    {"nativeQueueAddPeer", "(JLjava/lang/String;)V",
+     reinterpret_cast<void*>(&NativeQueueAddPeer)},
     {"nativeQueueWindowChanged", "(JIII)V",
      reinterpret_cast<void*>(&NativeQueueWindowChanged)},
     {"nativeStop", "(J)V", reinterpret_cast<void*>(&NativeStop)},

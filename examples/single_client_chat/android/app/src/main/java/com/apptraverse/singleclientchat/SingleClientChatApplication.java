@@ -53,6 +53,13 @@ public final class SingleClientChatApplication extends Application {
     }
   }
 
+  /** Queues an AddPeer command for the core thread. */
+  void addPeer(String uid) {
+    if (runtimeHandle != 0L) {
+      NativeRuntime.nativeQueueAddPeer(runtimeHandle, uid);
+    }
+  }
+
   /** Queues the current Activity content viewport for the core thread. */
   void queueWindowChanged(int width, int height, int densityDpi) {
     if (runtimeHandle != 0L) {

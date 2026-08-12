@@ -40,6 +40,8 @@ class NativeRuntime {
 
   // Thread-safe. Returns false when the text is empty after trim.
   bool QueueSend(std::string text);
+  // Thread-safe. Returns false when the UID is empty after trim.
+  bool QueueAddPeer(std::string uid);
   void QueueWindowChanged(std::int32_t width, std::int32_t height,
                            std::int32_t density_dpi);
 
@@ -58,6 +60,7 @@ class NativeRuntime {
   bool StartChatSync();
   void Teardown();
   void DrainPendingSends();
+  void DrainPendingPeers();
   void DrainPendingViewports();
   void PublishTranscript(std::string const& transcript);
   void LogJournalSizes();
@@ -78,6 +81,7 @@ class NativeRuntime {
 
   std::mutex pending_lock_;
   std::vector<std::string> pending_sends_;
+  std::vector<std::string> pending_peers_;
   std::vector<PendingViewport> pending_viewports_;
   std::set<std::string> visible_message_keys_;
   std::atomic<ae::TaskScheduler*> scheduler_{nullptr};

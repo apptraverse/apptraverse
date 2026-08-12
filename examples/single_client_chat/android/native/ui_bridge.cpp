@@ -17,11 +17,12 @@ void DeleteGlobalRef(JNIEnv* env, jobject* object) {
 }  // namespace
 
 UiBridge::UiBridge(JavaVM* vm, jobject global_object, jclass global_class,
-                   jmethodID on_transcript)
+                   jmethodID on_transcript, jmethodID on_aether_uid)
     : vm_{vm},
       object_{global_object},
       class_{global_class},
-      on_transcript_{on_transcript} {}
+      on_transcript_{on_transcript},
+      on_aether_uid_{on_aether_uid} {}
 
 UiBridge::~UiBridge() { Reset(); }
 
@@ -29,11 +30,13 @@ UiBridge::UiBridge(UiBridge&& other) noexcept
     : vm_{other.vm_},
       object_{other.object_},
       class_{other.class_},
-      on_transcript_{other.on_transcript_} {
+      on_transcript_{other.on_transcript_},
+      on_aether_uid_{other.on_aether_uid_} {
   other.vm_ = nullptr;
   other.object_ = nullptr;
   other.class_ = nullptr;
   other.on_transcript_ = nullptr;
+  other.on_aether_uid_ = nullptr;
 }
 
 UiBridge& UiBridge::operator=(UiBridge&& other) noexcept {
@@ -43,10 +46,12 @@ UiBridge& UiBridge::operator=(UiBridge&& other) noexcept {
     object_ = other.object_;
     class_ = other.class_;
     on_transcript_ = other.on_transcript_;
+    on_aether_uid_ = other.on_aether_uid_;
     other.vm_ = nullptr;
     other.object_ = nullptr;
     other.class_ = nullptr;
     other.on_transcript_ = nullptr;
+    other.on_aether_uid_ = nullptr;
   }
   return *this;
 }
@@ -65,6 +70,7 @@ void UiBridge::Reset() {
   }
   vm_ = nullptr;
   on_transcript_ = nullptr;
+  on_aether_uid_ = nullptr;
 }
 
 JNIEnv* UiBridge::AttachedEnv() const {
@@ -114,6 +120,10 @@ void UiBridge::PostTranscript(std::string const& transcript) const {
   CallStringMethod(on_transcript_, transcript);
 }
 
+void UiBridge::PostAetherUid(std::string const& uid) const {
+  CallStringMethod(on_aether_uid_, uid);
+}
+
 UiBridge MakeUiBridge(JNIEnv* env, jobject ui_bridge) {
   if (env == nullptr || ui_bridge == nullptr) {
     return {};
@@ -144,13 +154,24 @@ UiBridge MakeUiBridge(JNIEnv* env, jobject ui_bridge) {
     return {};
   }
 
+  jmethodID on_aether_uid = env->GetMethodID(
+      global_class, "onNativeAetherUid", "(Ljava/lang/String;)V");
+  if (on_aether_uid == nullptr) {
+    env->DeleteGlobalRef(global_class);
+    if (env->ExceptionCheck()) {
+      env->ExceptionClear();
+    }
+    return {};
+  }
+
   jobject global_object = env->NewGlobalRef(ui_bridge);
   if (global_object == nullptr) {
     env->DeleteGlobalRef(global_class);
     return {};
   }
 
-  return UiBridge{vm, global_object, global_class, on_transcript};
+  return UiBridge{vm, global_object, global_class, on_transcript,
+                  on_aether_uid};
 }
 
 }  // namespace apptraverse::android

@@ -14,7 +14,7 @@ class UiBridge {
  public:
   UiBridge() = default;
   UiBridge(JavaVM* vm, jobject global_object, jclass global_class,
-           jmethodID on_transcript);
+           jmethodID on_transcript, jmethodID on_aether_uid);
   ~UiBridge();
 
   UiBridge(UiBridge const&) = delete;
@@ -25,6 +25,7 @@ class UiBridge {
   bool is_valid() const { return object_ != nullptr; }
 
   void PostTranscript(std::string const& transcript) const;
+  void PostAetherUid(std::string const& uid) const;
 
  private:
   void CallStringMethod(jmethodID method, std::string const& text) const;
@@ -35,6 +36,7 @@ class UiBridge {
   jobject object_{nullptr};
   jclass class_{nullptr};
   jmethodID on_transcript_{nullptr};
+  jmethodID on_aether_uid_{nullptr};
 };
 
 // Resolves the bridge methods and creates the global references.

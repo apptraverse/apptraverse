@@ -100,6 +100,24 @@ bool NativeRuntime::QueueSend(std::string text) {
   return true;
 }
 
+bool NativeRuntime::QueueAddPeer(std::string uid) {
+  auto trimmed = Trim(std::move(uid));
+  if (trimmed.empty()) {
+    return false;
+  }
+
+  {
+    auto lock = std::scoped_lock{pending_lock_};
+    pending_peers_.push_back(std::move(trimmed));
+  }
+
+  auto* scheduler = scheduler_.load(std::memory_order::acquire);
+  if (scheduler != nullptr) {
+    scheduler->Task([this]() { DrainPendingPeers(); });
+  }
+  return true;
+}
+
 void NativeRuntime::QueueWindowChanged(std::int32_t width, std::int32_t height,
                                        std::int32_t density_dpi) {
   if (width <= 0 || height <= 0) {
@@ -183,6 +201,7 @@ bool NativeRuntime::Setup() {
   }
   DrainPendingViewports();
   DrainPendingSends();
+  DrainPendingPeers();
   return true;
 }
 
@@ -227,6 +246,7 @@ bool NativeRuntime::SelectAetherClient() {
   }
   LogMarker("AETHER_CLIENT_READY platform=android uid=" +
             examples::FormatAetherUid(aether_client_->uid()));
+  ui_bridge_.PostAetherUid(examples::FormatAetherUid(aether_client_->uid()));
   return true;
 }
 
@@ -407,6 +427,41 @@ void NativeRuntime::DrainPendingSends() {
     SaveState();
   }
   chat_presenter_->PublishTranscript();
+}
+
+void NativeRuntime::DrainPendingPeers() {
+  auto peers = std::vector<std::string>{};
+  {
+    auto lock = std::scoped_lock{pending_lock_};
+    peers.swap(pending_peers_);
+  }
+  if (peers.empty()) {
+    return;
+  }
+  if (chat_sync_ == nullptr || p2p_transport_ == nullptr ||
+      !aether_client_) {
+    LogError("Dropping queued peers, sync is not ready");
+    return;
+  }
+
+  auto const local_uid = aether_client_->uid();
+  for (auto const& text : peers) {
+    auto const uid = ae::Uid::FromString(std::string_view{text});
+    if (uid.empty()) {
+      LogError("CHAT_PEER_UI_INVALID uid_text=" + text);
+      continue;
+    }
+    if (uid == local_uid) {
+      LogError("CHAT_PEER_UI_REJECTED_SELF uid=" +
+               examples::FormatAetherUid(uid));
+      continue;
+    }
+    chat_sync_->AddPeer(uid);
+    p2p_transport_->Connect(uid);
+    SaveState();
+    LogMarker("CHAT_PEER_UI_ADDED platform=android uid=" +
+              examples::FormatAetherUid(uid));
+  }
 }
 
 void NativeRuntime::DrainPendingViewports() {
