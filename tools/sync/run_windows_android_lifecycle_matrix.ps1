@@ -480,6 +480,60 @@ function Record-Result([string]$Name, [bool]$Passed, [string]$Detail) {
   Write-Host ("==== {0}: {1} ====" -f $Name, $status)
   if (-not $Passed -and $Detail) { Write-Host "  DETAIL: $Detail" }
 }
+function Get-ScenarioResult {
+  param(
+    $Results,
+    [string]$ScenarioName
+  )
+  $hits = @($Results | Where-Object { $_.Scenario -eq $ScenarioName })
+  if ($hits.Count -ne 1) {
+    throw "Get-ScenarioResult expected exactly one '$ScenarioName' entry, found $($hits.Count)"
+  }
+  return [string]$hits[0].Result
+}
+function Invoke-LifecyclePersistenceGateHelpersSelfTest {
+  $a = @(
+    [pscustomobject]@{ Scenario = "S4_sender_exit_persisted_pending"; Result = "PASS"; Detail = "" }
+  )
+  if ((Get-ScenarioResult -Results $a -ScenarioName "S4_sender_exit_persisted_pending") -ne "PASS") {
+    throw "persistence gate self-test A: expected PASS"
+  }
+  $persist_ok_a = ((Get-ScenarioResult -Results $a -ScenarioName "S4_sender_exit_persisted_pending") -eq "PASS")
+  if (-not $persist_ok_a) { throw "persistence gate self-test A: persist_ok_to_run" }
+
+  $b = @(
+    [pscustomobject]@{ Scenario = "S4_sender_exit_persisted_pending"; Result = "FAIL"; Detail = "x" }
+  )
+  $persist_ok_b = ((Get-ScenarioResult -Results $b -ScenarioName "S4_sender_exit_persisted_pending") -eq "PASS")
+  if ($persist_ok_b) { throw "persistence gate self-test B: persist_ok_to_run should be false" }
+
+  $c_failed = $false
+  try {
+    Get-ScenarioResult -Results @() -ScenarioName "S4_sender_exit_persisted_pending" | Out-Null
+  } catch { $c_failed = $true }
+  if (-not $c_failed) { throw "persistence gate self-test C: expected missing S4 error" }
+
+  $d = @(
+    [pscustomobject]@{ Scenario = "S4_sender_exit_persisted_pending"; Result = "PASS"; Detail = "" }
+    [pscustomobject]@{ Scenario = "S4_sender_exit_persisted_pending"; Result = "PASS"; Detail = "" }
+  )
+  $d_failed = $false
+  try {
+    Get-ScenarioResult -Results $d -ScenarioName "S4_sender_exit_persisted_pending" | Out-Null
+  } catch { $d_failed = $true }
+  if (-not $d_failed) { throw "persistence gate self-test D: expected duplicate S4 error" }
+
+  $e = @(
+    [pscustomobject]@{ Scenario = "S3_windows_offline_restart"; Result = "PASS"; Detail = "" }
+    [pscustomobject]@{ Scenario = "S4_sender_exit_persisted_pending"; Result = "PASS"; Detail = "" }
+    [pscustomobject]@{ Scenario = "S5_independent_histories"; Result = "PASS"; Detail = "" }
+  )
+  if ((Get-ScenarioResult -Results $e -ScenarioName "S4_sender_exit_persisted_pending") -ne "PASS") {
+    throw "persistence gate self-test E: expected exact S4 PASS"
+  }
+
+  Write-Host "LIFECYCLE_PERSISTENCE_GATE_HELPERS_SELF_TEST PASSED"
+}
 function Save-PhaseArtifacts([string]$PhaseName) {
   $safe = ($PhaseName -replace '[^\w\-]+', '_')
   $dir = Join-Path $out_dir "phase_$safe"
@@ -679,6 +733,24 @@ function Wait-AndroidPendingCleared([int]$TimeoutSec) {
 function Wait-WindowsPendingCleared([System.Diagnostics.Process]$Process, [string]$Log, [int]$TimeoutSec) {
   Wait-WindowsMarker $Process $Log "CHAT_PENDING_CHANGED .*pending=0|SYNC_PENDING_REMOVED .*pending=0" "Windows pending=0" $TimeoutSec | Out-Null
 }
+function Wait-WindowsSyncResumedNoPending {
+  param(
+    [System.Diagnostics.Process]$Process,
+    [string]$LogPath,
+    [string]$PeerUid,
+    [int]$TimeoutSec
+  )
+  $pattern = "CHAT_SYNC_RESUMED peer=$([regex]::Escape($PeerUid)) initial_complete=1 pending=0"
+  Wait-WindowsMarker $Process $LogPath $pattern "Windows CHAT_SYNC_RESUMED pending=0" $TimeoutSec | Out-Null
+}
+function Wait-AndroidSyncResumedNoPending {
+  param(
+    [string]$PeerUid,
+    [int]$TimeoutSec
+  )
+  $pattern = "CHAT_SYNC_RESUMED peer=$([regex]::Escape($PeerUid)) initial_complete=1 pending=0"
+  Wait-Marker $adb $Serial $pattern "Android CHAT_SYNC_RESUMED pending=0" $TimeoutSec | Out-Null
+}
 function Wait-WindowsPendingPositive([System.Diagnostics.Process]$Process, [string]$Log, [string]$Key, [int]$TimeoutSec) {
   Wait-WindowsMarker $Process $Log "CHAT_PENDING_CHANGED .*pending=[1-9]|SYNC_PACKET_CREATED .*text_key=$([regex]::Escape($Key))|SYNC_PACKET_CREATED kind=event" "Windows pending>0 for $Key" $TimeoutSec | Out-Null
 }
@@ -778,6 +850,7 @@ Write-Utf8NoBom $summary_path "scenario,result,detail`r`n"
 Invoke-LifecycleTranscriptHelpersSelfTest
 Invoke-LifecycleAndroidInputHelpersSelfTest
 Invoke-LifecycleS4CorrelationHelpersSelfTest
+Invoke-LifecyclePersistenceGateHelpersSelfTest
 
 try {
   if (-not $ApkPath) { $ApkPath = Join-Path $android_dir "app\build\outputs\apk\debug\app-debug.apk" }
@@ -1053,39 +1126,60 @@ try {
 
   # -------------------- Final persistence after S1-4 --------------------
   $script:Phase = "persist"
-  $persist_ok_to_run = ($script:Results | Where-Object { $_.Scenario -like 'S4*' -and $_.Result -eq 'PASS' }).Count -gt 0
-  if ($persist_ok_to_run -and ($null -ne $script:WinProc) -and (-not $script:WinProc.HasExited)) {
+  $s4_result = Get-ScenarioResult -Results $script:Results -ScenarioName "S4_sender_exit_persisted_pending"
+  $persist_ok_to_run = ($s4_result -eq "PASS")
+  if ($persist_ok_to_run) {
     try {
       Write-Host ""
       Write-Host "Final persistence -- restart both, no new messages"
+      $windows_was_running = ($null -ne $script:WinProc -and -not $script:WinProc.HasExited)
+      $running_flag = if ($windows_was_running) { "1" } else { "0" }
+      Write-Host "PERSISTENCE_PRECONDITION s4_result=PASS windows_was_running=$running_flag"
+
       $expected_keys = @(
         "s1_w_before_android", "s1_w_to_a", "s1_a_to_w",
         "s2_w_while_a_offline", "s2_a_after_rejoin",
         "s3_a_while_w_offline", "s3_w_after_rejoin",
         "s4_w_pending_before_exit"
       )
-      Stop-WindowsRun $script:WinProc
-      Stop-App $adb $Serial
+      try {
+        Stop-WindowsRun $script:WinProc
+      } catch {
+        Stop-WindowsChat
+      }
+      try {
+        Stop-App $adb $Serial
+      } catch {
+        Write-Host "  WARN Stop-App during persistence prep: $($_.Exception.Message)"
+      }
       Start-Sleep -Seconds 2
       Clear-Logcat $adb $Serial
       Start-App $adb $Serial
       Wait-Marker $adb $Serial "AETHER_CLIENT_READY platform=android uid=$([regex]::Escape($script:AndroidUid))" "Android persistence ready" $ClientReadyTimeoutSec | Out-Null
       $winp = Start-WindowsLifecycle $win_state_dir $WindowsClientName "windows_persist.log"
       Assert-StableIdentities $winp.Log
-      Wait-WindowsMarker $winp.Process $winp.Log "CHAT_SYNC_RESUMED|CHAT_PEER_ONLINE|CHAT_PEER_REJOINED" "Windows persistence sync/presence" $SyncTimeoutSec | Out-Null
-      try {
-        Wait-Marker $adb $Serial "CHAT_PEER_ONLINE peer=$([regex]::Escape($script:WindowsUid))|CHAT_PEER_REJOINED peer=$([regex]::Escape($script:WindowsUid))" "Android persistence presence" $SyncTimeoutSec | Out-Null
-      } catch { Write-Host "  WARN persistence presence: $($_.Exception.Message)" }
+      Wait-WindowsSyncResumedNoPending -Process $winp.Process -LogPath $winp.Log `
+        -PeerUid $script:AndroidUid -TimeoutSec $SyncTimeoutSec
+      Wait-AndroidSyncResumedNoPending -PeerUid $script:WindowsUid -TimeoutSec $SyncTimeoutSec
 
       $transcript = Get-AndroidJoinTranscript
       Assert-JoinCounts $transcript 1 1 "Persistence joins"
       foreach ($key in $expected_keys) {
         Assert-ContainsOnce $transcript $key "Persistence Android history"
       }
-      Wait-WindowsPendingCleared $winp.Process $winp.Log 60
-      try { Wait-AndroidPendingCleared 60 } catch { $null = $_ }
-      Assert-NoCrash (Get-WindowsLog $winp.Log) "Windows persistence"
-      Assert-NoCrash (Get-Logcat $adb $Serial) "Android persistence"
+
+      $win_persist_log = Get-WindowsLog $winp.Log
+      $android_persist_log = Get-Logcat $adb $Serial
+      if ($win_persist_log -match "SYNC_PACKET_CREATED kind=node_state") {
+        throw "Persistence Windows log unexpectedly created NodeStatePacket"
+      }
+      if ($android_persist_log -match "SYNC_PACKET_CREATED kind=node_state") {
+        throw "Persistence Android log unexpectedly created NodeStatePacket"
+      }
+      Write-Host "  OK  Persistence: no new SYNC_PACKET_CREATED kind=node_state"
+
+      Assert-NoCrash $win_persist_log "Windows persistence"
+      Assert-NoCrash $android_persist_log "Android persistence"
       Save-PhaseArtifacts "persist"
       Record-Result "Persistence_after_S1_S4" $true ""
       Stop-WindowsRun $winp.Process
@@ -1097,7 +1191,7 @@ try {
       try { Stop-App $adb $Serial } catch { $null = $_ }
     }
   } else {
-    Record-Result "Persistence_after_S1_S4" $false "Skipped because S4 did not pass / Windows not running"
+    Record-Result "Persistence_after_S1_S4" $false "Skipped because S4 did not pass"
     try { Stop-WindowsRun $script:WinProc } catch { $null = $_ }
     try { Stop-App $adb $Serial } catch { $null = $_ }
   }
