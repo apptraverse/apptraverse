@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -78,6 +79,7 @@ class NativeRuntime {
   std::mutex pending_lock_;
   std::vector<std::string> pending_sends_;
   std::vector<PendingViewport> pending_viewports_;
+  std::set<std::string> visible_message_keys_;
   std::atomic<ae::TaskScheduler*> scheduler_{nullptr};
   std::atomic<bool> stop_requested_{false};
 };

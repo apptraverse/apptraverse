@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "aether/obj/obj_id.h"
@@ -22,9 +23,12 @@ class SharedGraphSyncSession : public SyncPacketHandler {
   // packet_id is runtime tracing context only (also ObjId of the packet root).
   using SendFunction =
       std::function<void(ae::ObjId packet_id, SerializedSyncPacket)>;
+  using TraceFunction = std::function<void(std::string const& line)>;
 
   SharedGraphSyncSession(SyncReplica local_replica,
                          SyncSessionState::ptr state, SendFunction send);
+
+  void set_trace(TraceFunction trace) { trace_ = std::move(trace); }
 
   void StartOrResume();
   void Poll();
@@ -76,9 +80,12 @@ class SharedGraphSyncSession : public SyncPacketHandler {
   SyncReplica local_;
   SyncSessionState::ptr state_;
   SendFunction send_;
+  TraceFunction trace_;
   ae::ObjId receiving_packet_id_;
   DecodedSyncPacket* receiving_decoded_{nullptr};
   std::uint64_t ack_progress_revision_{0};
+
+  void Trace(std::string const& line) const;
 };
 
 }  // namespace apptraverse

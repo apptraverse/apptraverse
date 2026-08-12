@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <cassert>
+#include <string>
 #include <utility>
 
 #include "aether/clock.h"
 
+#include "apptraverse/node.h"
 #include "apptraverse/shared_graph.h"
 
 namespace apptraverse {
@@ -56,6 +58,12 @@ SharedGraphSyncSession::SharedGraphSyncSession(SyncReplica local_replica,
   assert(state_.is_loaded());
   assert(local_.shared_root_id.IsValid());
   assert(state_->data.shared_root_id == local_.shared_root_id);
+}
+
+void SharedGraphSyncSession::Trace(std::string const& line) const {
+  if (trace_) {
+    trace_(line);
+  }
 }
 
 void SharedGraphSyncSession::CommitData(SyncSessionData data) {
@@ -156,6 +164,9 @@ void SharedGraphSyncSession::SendAck(ae::ObjId acknowledged_packet_id) {
   auto ack = AckPacket::ptr::Create(ae::CreateWith{build_domain});
   ack->acknowledged_packet_id = acknowledged_packet_id;
   auto bytes = SyncPacketCodec{}.Encode(ack);
+  Trace("SYNC_ACK_SENT ack_packet=" + std::to_string(ack.id().id()) +
+        " acknowledged=" + std::to_string(acknowledged_packet_id.id()) +
+        " t_us=" + std::to_string(SystemUtcMicros()));
   send_(ack.id(), std::move(bytes));
 }
 
@@ -196,6 +207,10 @@ void SharedGraphSyncSession::SendInitialNodeState(Node::ptr root) {
   auto data = state_->data;
   data.pending_packets.push_back(std::move(pending));
   CommitData(std::move(data));
+  Trace("SYNC_PACKET_CREATED kind=node_state packet=" +
+        std::to_string(packet_id.id()) + " event=0 target=" +
+        std::to_string(root.id().id()) +
+        " t_us=" + std::to_string(SystemUtcMicros()));
   send_(packet_id, std::move(bytes));
 }
 
@@ -234,6 +249,11 @@ void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
   auto data = state_->data;
   data.pending_packets.push_back(std::move(pending));
   CommitData(std::move(data));
+  Trace("SYNC_PACKET_CREATED kind=event packet=" +
+        std::to_string(packet_id.id()) +
+        " event=" + std::to_string(event.id().id()) +
+        " target=" + std::to_string(node.id().id()) +
+        " t_us=" + std::to_string(SystemUtcMicros()));
   send_(packet_id, std::move(bytes));
 }
 
@@ -261,6 +281,8 @@ void SharedGraphSyncSession::StartOrResume() {
     }
 
     for (auto& item : prior_pending) {
+      Trace("SYNC_PACKET_RETRY packet=" + std::to_string(item.packet_id.id()) +
+            " t_us=" + std::to_string(SystemUtcMicros()));
       send_(item.packet_id, std::move(item.bytes));
     }
     return;
@@ -307,6 +329,8 @@ void SharedGraphSyncSession::RetryPending() {
     copies.push_back(PendingCopy{pending.packet_id, pending.serialized_bytes});
   }
   for (auto& item : copies) {
+    Trace("SYNC_PACKET_RETRY packet=" + std::to_string(item.packet_id.id()) +
+          " t_us=" + std::to_string(SystemUtcMicros()));
     send_(item.packet_id, std::move(item.bytes));
   }
 }
@@ -315,8 +339,20 @@ void SharedGraphSyncSession::Receive(SerializedSyncPacket const& bytes) {
   auto decoded = SyncPacketCodec{}.Decode(bytes);
   assert(decoded.packet.is_loaded());
   auto const packet_id = decoded.packet.id();
+  auto const class_id = decoded.packet->GetClassId();
+  char const* kind = "unknown";
+  if (class_id == AckPacket::kClassId) {
+    kind = "ack";
+  } else if (class_id == NodeStatePacket::kClassId) {
+    kind = "node_state";
+  } else if (class_id == EventPacket::kClassId) {
+    kind = "event";
+  }
+  Trace("SYNC_PACKET_RECEIVED kind=" + std::string{kind} +
+        " packet=" + std::to_string(packet_id.id()) +
+        " t_us=" + std::to_string(SystemUtcMicros()));
 
-  if (decoded.packet->GetClassId() == AckPacket::kClassId) {
+  if (class_id == AckPacket::kClassId) {
     receiving_decoded_ = &decoded;
     decoded.packet->Dispatch(*this);
     receiving_decoded_ = nullptr;
@@ -414,6 +450,11 @@ void SharedGraphSyncSession::Handle(EventPacket const& packet) {
       target->TryAcceptRemoteEvent(std::move(event), packet.timestamp_us);
 
   if (result == RemoteEventResult::kBlocked) {
+    Trace("SYNC_EVENT_BLOCKED packet=" +
+          std::to_string(receiving_packet_id_.id()) +
+          " event=" + std::to_string(packet.event.id().id()) +
+          " target=" + std::to_string(packet.target_node_id.id()) +
+          " t_us=" + std::to_string(SystemUtcMicros()));
     return;
   }
 
@@ -424,6 +465,11 @@ void SharedGraphSyncSession::Handle(EventPacket const& packet) {
   auto data = state_->data;
   AddId(data.delivered_event_ids, packet.event.id());
   CommitData(std::move(data));
+  Trace("SYNC_EVENT_APPLIED packet=" +
+        std::to_string(receiving_packet_id_.id()) +
+        " event=" + std::to_string(packet.event.id().id()) +
+        " target=" + std::to_string(packet.target_node_id.id()) +
+        " t_us=" + std::to_string(SystemUtcMicros()));
   MarkReceivedAndAck(receiving_packet_id_);
 }
 
@@ -433,6 +479,14 @@ void SharedGraphSyncSession::Handle(AckPacket const& packet) {
   if (pending == nullptr) {
     return;
   }
+
+  Trace("SYNC_ACK_RECEIVED ack_packet=" +
+        std::to_string(receiving_decoded_ != nullptr
+                           ? receiving_decoded_->packet.id().id()
+                           : 0) +
+        " acknowledged=" +
+        std::to_string(packet.acknowledged_packet_id.id()) +
+        " t_us=" + std::to_string(SystemUtcMicros()));
 
   if (pending->kind == PendingSyncPacketKind::kNodeState) {
     for (auto const& event_id : pending->event_ids) {
@@ -452,8 +506,12 @@ void SharedGraphSyncSession::Handle(AckPacket const& packet) {
                        return item.packet_id == packet_id;
                      }),
       data.pending_packets.end());
+  auto const pending_left = data.pending_packets.size();
   CommitData(std::move(data));
   ++ack_progress_revision_;
+  Trace("SYNC_PENDING_REMOVED packet=" + std::to_string(packet_id.id()) +
+        " pending=" + std::to_string(pending_left) +
+        " t_us=" + std::to_string(SystemUtcMicros()));
 }
 
 }  // namespace apptraverse

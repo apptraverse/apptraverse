@@ -151,7 +151,11 @@ void ChatSyncController::DriveRecovery(RuntimeSession& runtime,
     }
   }
 
-  // Error: restream promptly on the next Tick without waiting restream_after.
+  // Error: Restream promptly — the active outgoing cannot carry traffic.
+  // Connecting: do not Restream — tearing down an in-flight dial thrashs
+  // Android→Windows delivery. Writable: still request Restream once after
+  // restream_after; AetherP2pTransport soft-skips linked+writable streams so
+  // in-flight reverse ACKs are not raced. Replace recovers true stalls.
   if (state == P2pOutgoingState::kError &&
       !runtime.restream_done_for_current_stall) {
     ops_.restream_outgoing(runtime.remote_uid);
@@ -159,7 +163,7 @@ void ChatSyncController::DriveRecovery(RuntimeSession& runtime,
     runtime.last_restream_time = now;
     Log(ae::Format("CHAT_ACK_STALL_RESTREAM peer={} pending={}",
                    FormatUid(runtime.remote_uid), pending));
-  } else if (!runtime.restream_done_for_current_stall &&
+  } else if (writable && !runtime.restream_done_for_current_stall &&
              stalled_for >= policy_.restream_after) {
     ops_.restream_outgoing(runtime.remote_uid);
     runtime.restream_done_for_current_stall = true;
@@ -200,6 +204,9 @@ ChatSyncController::RuntimeSession& ChatSyncController::EnsureRuntimeSession(
       [this, remote_uid](ae::ObjId packet_id, SerializedSyncPacket bytes) {
         ops_.send(remote_uid, packet_id, bytes);
       });
+  if (log_) {
+    runtime.session->set_trace(log_);
+  }
   runtime.last_initial_sync_complete =
       runtime.session->initial_sync_complete();
   runtime.last_ack_progress_revision =

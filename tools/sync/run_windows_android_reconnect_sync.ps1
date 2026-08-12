@@ -3,7 +3,7 @@
 # Covers three reconnect scenarios on top of one paired state:
 #   16 simultaneous restart of both peers,
 #   17 message queued while the receiver is offline,
-#   18 reply that has to travel back on the incoming stream.
+#   18 Android ACK reply travels on dedicated outgoing path.
 #
 # Requires network access for Aether registration / cloud / P2P.
 # Does one fresh Android pm clear and a dedicated Windows state-dir, then keeps
@@ -501,7 +501,7 @@ Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*link_hello_windows" `
 Send-AndroidMessage $adb $Serial "link_hello_android"
 Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=link_hello_android" `
   "Android committed link_hello_android" 60
-Wait-WindowsMarker $win_link $win_link_log "CHAT_MESSAGE_VISIBLE text=link_hello_android" `
+Wait-WindowsMarker $win_link $win_link_log "CHAT_MESSAGE_VISIBLE platform=windows text_key=link_hello_android" `
   "Windows saw link_hello_android" $SyncTimeoutSec
 
 $link_deadline = (Get-Date).AddSeconds(60)
@@ -563,9 +563,9 @@ try {
   Wait-WindowsMarker $win_sim $win_sim_log "CHAT_SYNC_RESUMED .*initial_complete=1" `
     "Windows CHAT_SYNC_RESUMED" $SyncTimeoutSec
 
-  Wait-WindowsMarker $win_sim $win_sim_log "P2P_OUTGOING_STATE peer=\S+ state=writable" `
+  Wait-WindowsMarker $win_sim $win_sim_log "P2P_OUTGOING_STATE peer=\S+.*state=writable" `
     "Windows peer transport writable" $WritableTimeoutSec
-  Wait-Marker $adb $Serial "P2P_OUTGOING_STATE peer=\S+ state=writable" `
+  Wait-Marker $adb $Serial "P2P_OUTGOING_STATE peer=\S+.*state=writable" `
     "Android peer transport writable" $WritableTimeoutSec
 
   Wait-WindowsMarker $win_sim $win_sim_log "CHAT_SEND_AFTER_SYNC text=simultaneous_windows" `
@@ -576,7 +576,7 @@ try {
   Send-AndroidMessage $adb $Serial "simultaneous_android"
   Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=simultaneous_android" `
     "Android committed simultaneous_android" 60
-  Wait-WindowsMarker $win_sim $win_sim_log "CHAT_MESSAGE_VISIBLE text=simultaneous_android" `
+  Wait-WindowsMarker $win_sim $win_sim_log "CHAT_MESSAGE_VISIBLE platform=windows text_key=simultaneous_android" `
     "Windows saw simultaneous_android" $SyncTimeoutSec
 } catch {
   Stop-WindowsRun $win_sim
@@ -672,7 +672,7 @@ try {
     "Android ready after outage" $ClientReadyTimeoutSec
   Wait-Marker $adb $Serial "CHAT_SYNC_RESUMED .*initial_complete=1" `
     "Android CHAT_SYNC_RESUMED after outage" $SyncTimeoutSec
-  Wait-WindowsMarker $win_offline $win_offline_log "P2P_OUTGOING_STATE peer=\S+ state=writable" `
+  Wait-WindowsMarker $win_offline $win_offline_log "P2P_OUTGOING_STATE peer=\S+.*state=writable" `
     "Windows peer writable after outage" $WritableTimeoutSec
   Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*queued_while_android_stopped" `
     "Android received the queued message" $SyncTimeoutSec
@@ -697,13 +697,13 @@ Write-Host "Scenario 17 PASSED"
 
 # --- Scenario 18: reply travels back on the incoming stream ---
 Write-Host ""
-Write-Host "Scenario 18: Android replies on the incoming stream"
+Write-Host "Scenario 18: Android ACKs on dedicated outgoing path"
 Stop-WindowsChat
 Stop-App $adb $Serial
 Start-Sleep -Seconds 2
 Clear-Logcat $adb $Serial
-# Android comes up alone: it never dials out, so its only stream is the one
-# Windows creates below.
+# Android comes up alone. When Windows dials in, AttachIncoming also
+# EnsureOutgoing so the ACK uses Android's dedicated outgoing path.
 Start-App $adb $Serial
 Wait-Marker $adb $Serial "AETHER_CLIENT_READY platform=android uid=$android_uid" `
   "Android ready as passive listener" $ClientReadyTimeoutSec
@@ -723,17 +723,20 @@ $win_incoming = Start-WindowsRedirected $win_exe $repo_root $win_incoming_args $
 try {
   Wait-WindowsMarker $win_incoming $win_incoming_log "CHAT_SYNC_RESUMED .*initial_complete=1" `
     "Windows CHAT_SYNC_RESUMED for incoming reply" $ClientReadyTimeoutSec
-  Wait-WindowsMarker $win_incoming $win_incoming_log "P2P_OUTGOING_STATE peer=\S+ state=writable" `
+  Wait-WindowsMarker $win_incoming $win_incoming_log "P2P_OUTGOING_STATE peer=\S+.*state=writable" `
     "Windows peer writable for incoming reply" $WritableTimeoutSec
   Wait-WindowsMarker $win_incoming $win_incoming_log "CHAT_SEND_AFTER_SYNC text=reply_probe_windows" `
     "Windows sent reply_probe_windows" $SyncTimeoutSec
   Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*reply_probe_windows" `
     "Android received reply_probe_windows" $SyncTimeoutSec
-  # The ACK has to go out on the stream the packet arrived on.
-  Wait-Marker $adb $Serial "P2P_STREAM_SELECTED peer=\S+ direction=incoming reason=recent_receive" `
-    "Android replied on the incoming stream" $SyncTimeoutSec
+  # Dedicated outgoing paths: receiving creates an Android->Windows outgoing
+  # stream. ACKs must go on that active outgoing, never on the incoming handle.
+  Wait-Marker $adb $Serial "P2P_OUTGOING_STATE peer=\S+.*state=writable" `
+    "Android ensured outgoing for ACK reply" $WritableTimeoutSec
+  Wait-Marker $adb $Serial "SYNC_TRANSPORT_WRITE peer=\S+.*disposition=writable" `
+    "Android wrote ACK on active outgoing" $SyncTimeoutSec
   Wait-WindowsMarker $win_incoming $win_incoming_log "CHAT_PENDING_CLEARED" `
-    "Windows pending cleared by the incoming-stream ACK" $SyncTimeoutSec
+    "Windows pending cleared by Android outgoing ACK" $SyncTimeoutSec
 } catch {
   Stop-WindowsRun $win_incoming
   (Get-Logcat $adb $Serial) | Set-Content (Join-Path $out_dir "android_incoming_failure.logcat.txt")

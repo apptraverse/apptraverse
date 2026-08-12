@@ -417,7 +417,7 @@ void TestAckStallRecovery() {
   CHECK(session->pending_packet_count() == 1);
   auto const rev0 = session->ack_progress_revision();
 
-  // A. Not writable: no constant retries; restream then replace.
+  // A. Not writable: no constant retries; connecting skips restream; replace later.
   sent.clear();
   auto t0 = ae::Now();
   for (int i = 0; i < 5; ++i) {
@@ -428,9 +428,16 @@ void TestAckStallRecovery() {
   CHECK(replace_calls == 0);
 
   left_ctrl.Tick(t0 + std::chrono::milliseconds{70});
+  CHECK(restream_calls == 0);  // connecting: do not restream
+  CHECK(replace_calls == 0);
+
+  // Writable stall triggers restream once.
+  outgoing = examples::P2pOutgoingState::kWritable;
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{80});
   CHECK(restream_calls == 1);
   CHECK(replace_calls == 0);
 
+  outgoing = examples::P2pOutgoingState::kConnecting;
   left_ctrl.Tick(t0 + std::chrono::milliseconds{130});
   CHECK(restream_calls == 1);
   CHECK(replace_calls == 1);
@@ -485,7 +492,7 @@ void TestAckStallRecovery() {
   // E. New pending after ACK gets a fresh recovery cycle.
   restream_calls = 0;
   replace_calls = 0;
-  outgoing = examples::P2pOutgoingState::kConnecting;
+  outgoing = examples::P2pOutgoingState::kWritable;
   left.Submit("after-ack");
   sent.clear();
   auto t1 = ae::Now();
@@ -495,7 +502,6 @@ void TestAckStallRecovery() {
   CHECK(restream_calls == 1);
   left_ctrl.Tick(t1 + std::chrono::milliseconds{130});
   CHECK(replace_calls == 1);
-  CHECK(replace_calls >= 1);
   CHECK(replace_after_ack == 1);
 
   // F. Sender restart keeps packet identity; recovery timers restart.
@@ -533,6 +539,7 @@ void TestAckStallRecovery() {
   auto t2 = ae::Now();
   left2.Tick(t2 + std::chrono::milliseconds{10});
   CHECK(restream2 == 0);
+  outgoing2 = examples::P2pOutgoingState::kWritable;
   left2.Tick(t2 + std::chrono::milliseconds{70});
   CHECK(restream2 == 1);
 }

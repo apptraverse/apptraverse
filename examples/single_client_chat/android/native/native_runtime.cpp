@@ -395,6 +395,18 @@ void NativeRuntime::DrainPendingSends() {
 
   for (auto const& text : texts) {
     chat_presenter_->SubmitText(text);
+    std::uint32_t event_id = 0;
+    auto chat = chat_presenter_->chat;
+    chat.Load();
+    if (chat.is_loaded() && !chat->journal.empty()) {
+      event_id = chat->journal.back().event.id().id();
+    }
+    auto const t_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    LogMarker("CHAT_MESSAGE_COMMITTED platform=android event=" +
+              std::to_string(event_id) + " text_key=" + ToSingleLine(text) +
+              " t_us=" + std::to_string(t_us));
     LogMarker("MESSAGE_COMMITTED text=" + ToSingleLine(text));
     LogJournalSizes();
     SaveState();
@@ -429,6 +441,29 @@ void NativeRuntime::DrainPendingViewports() {
 
 void NativeRuntime::PublishTranscript(std::string const& transcript) {
   ui_bridge_.PostTranscript(transcript);
+  auto const t_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+  std::size_t start = 0;
+  while (start < transcript.size()) {
+    auto const end = transcript.find('\n', start);
+    auto const line = transcript.substr(
+        start, end == std::string::npos ? std::string::npos : end - start);
+    start = end == std::string::npos ? transcript.size() : end + 1;
+    auto const sep = line.rfind(": ");
+    if (sep == std::string::npos) {
+      continue;
+    }
+    auto const key = line.substr(sep + 2);
+    if (key.empty() || key.find(' ') != std::string::npos || key.size() > 64) {
+      continue;
+    }
+    if (!visible_message_keys_.insert(key).second) {
+      continue;
+    }
+    LogMarker("CHAT_MESSAGE_VISIBLE platform=android text_key=" + key +
+              " t_us=" + std::to_string(t_us));
+  }
   LogMarker("TRANSCRIPT_PUBLISHED bytes=" + std::to_string(transcript.size()) +
             " text=" + ToSingleLine(transcript));
   LogJournalSizes();

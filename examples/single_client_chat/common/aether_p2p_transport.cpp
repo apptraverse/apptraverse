@@ -213,6 +213,17 @@ void AetherP2pTransport::RestreamOutgoing(ae::Uid const& peer) {
   if (active == nullptr || active->stream == nullptr) {
     return;
   }
+  RefreshStreamInfo(*active);
+  // Soft-skip: Restream() on a linked+writable stream races reverse-path ACKs
+  // and has been observed to break Android→Windows delivery while the peer
+  // already applied the pending packet. Error/non-writable paths still Restream.
+  if (active->info.link_state == ae::LinkState::kLinked &&
+      active->info.is_writable) {
+    Log("P2P_OUTGOING_RESTREAM peer=" + FormatAetherUid(peer) +
+        " generation=" + std::to_string(active->generation) +
+        " skipped=writable");
+    return;
+  }
   active->stream->Restream();
   Log("P2P_OUTGOING_RESTREAM peer=" + FormatAetherUid(peer) +
       " generation=" + std::to_string(active->generation));

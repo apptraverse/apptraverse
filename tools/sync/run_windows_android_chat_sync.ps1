@@ -468,7 +468,7 @@ Assert-TranscriptContains $ui1 "hello_from_windows"
 Send-AndroidMessage $adb $Serial "hello_from_android"
 Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=hello_from_android" `
   "Android committed hello_from_android" 60
-Wait-WindowsMarker $win_sync1 $win_sync1_log "CHAT_MESSAGE_VISIBLE text=hello_from_android" `
+Wait-WindowsMarker $win_sync1 $win_sync1_log "CHAT_MESSAGE_VISIBLE platform=windows text_key=hello_from_android" `
   "Windows saw hello_from_android" $SyncTimeoutSec
 
 $deadline = (Get-Date).AddSeconds(60)
@@ -537,7 +537,7 @@ Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*after_restart_windows" `
   "Android saw after_restart_windows" $SyncTimeoutSec
 
 Send-AndroidMessage $adb $Serial "after_restart_android"
-Wait-WindowsMarker $win_sync2 $win_sync2_log "CHAT_MESSAGE_VISIBLE text=after_restart_android" `
+Wait-WindowsMarker $win_sync2 $win_sync2_log "CHAT_MESSAGE_VISIBLE platform=windows text_key=after_restart_android" `
   "Windows saw after_restart_android" $SyncTimeoutSec
 
 $deadline2 = (Get-Date).AddSeconds(60)
