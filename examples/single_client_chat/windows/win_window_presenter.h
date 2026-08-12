@@ -135,11 +135,16 @@ class WinWindowPresenter : public WindowPresenter {
         return 0;
       }
       case WM_COMMAND: {
-        if (LOWORD(wparam) == 3 && HIWORD(wparam) == BN_CLICKED) {
-          if (chat_presenter.is_loaded()) {
-            static_cast<WinChatPresenter&>(*chat_presenter).OnSendClicked();
+        int const id = LOWORD(wparam);
+        if (HIWORD(wparam) == BN_CLICKED && chat_presenter.is_loaded()) {
+          auto& chat_ui =
+              static_cast<WinChatPresenter&>(*chat_presenter);
+          if (id == 3) {
+            chat_ui.OnSendClicked();
             window.Save();
             chat_presenter->chat.Save();
+          } else if (id == 4) {
+            chat_ui.OnAddClicked();
           }
         }
         return 0;

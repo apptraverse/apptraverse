@@ -431,6 +431,37 @@ int Run(CliOptions const& options) {
     }
   }
 
+  auto const local_aether_uid =
+      apptraverse::examples::FormatAetherUid(aether_client->uid());
+  chat_ui.SetPeerUi(
+      local_aether_uid,
+      [&](std::string const& remote_text) -> apptraverse::AddPeerUiResult {
+        auto trimmed = remote_text;
+        while (!trimmed.empty() &&
+               (trimmed.front() == ' ' || trimmed.front() == '\t' ||
+                trimmed.front() == '\r' || trimmed.front() == '\n')) {
+          trimmed.erase(trimmed.begin());
+        }
+        while (!trimmed.empty() &&
+               (trimmed.back() == ' ' || trimmed.back() == '\t' ||
+                trimmed.back() == '\r' || trimmed.back() == '\n')) {
+          trimmed.pop_back();
+        }
+        auto const uid = ae::Uid::FromString(std::string_view{trimmed});
+        if (uid.empty()) {
+          return apptraverse::AddPeerUiResult::Invalid;
+        }
+        if (uid == aether_client->uid()) {
+          return apptraverse::AddPeerUiResult::Self;
+        }
+        chat_sync.AddPeer(uid);
+        p2p_transport.Connect(uid);
+        app.Save();
+        LogLine("CHAT_PEER_UI_ADDED platform=windows uid=" +
+                apptraverse::examples::FormatAetherUid(uid));
+        return apptraverse::AddPeerUiResult::Ok;
+      });
+
   win_presenter.CreateNativeWindow();
   log_chat_journal();
 

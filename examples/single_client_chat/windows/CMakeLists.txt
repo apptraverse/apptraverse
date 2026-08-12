@@ -1,5 +1,6 @@
 add_executable(win32_single_client_chat
   main.cpp
+  win_add_peer_dialog.cpp
   ../common/aether_p2p_framing.cpp
   ../common/aether_p2p_transport.cpp
 )

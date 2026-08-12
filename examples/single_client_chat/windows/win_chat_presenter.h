@@ -9,11 +9,13 @@
 #  undef RegisterClass
 #endif
 
+#include <functional>
 #include <string>
 
 #include "model/chat_presenter.h"
 #include "apptraverse/object_macros.h"
 #include "../common/chat_transcript.h"
+#include "win_add_peer_dialog.h"
 
 namespace apptraverse {
 
@@ -28,7 +30,15 @@ class WinChatPresenter : public ChatPresenter {
 
   AE_OBJECT_REFLECT()
 
+  // Runtime-only UI wiring. Not reflected / not serialized.
+  void SetPeerUi(std::string local_aether_uid,
+                 std::function<AddPeerUiResult(std::string const&)> add_peer) {
+    local_aether_uid_ = std::move(local_aether_uid);
+    add_peer_ = std::move(add_peer);
+  }
+
   void CreateControls(HWND parent) {
+    parent_ = parent;
     transcript_ = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY |
@@ -46,6 +56,11 @@ class WinChatPresenter : public ChatPresenter {
         0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(3)),
         GetModuleHandleW(nullptr), nullptr);
 
+    add_ = CreateWindowExW(
+        0, L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0,
+        parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(4)),
+        GetModuleHandleW(nullptr), nullptr);
+
     RefreshTranscript();
   }
 
@@ -53,18 +68,23 @@ class WinChatPresenter : public ChatPresenter {
     int const margin = 8;
     int const edit_h = 28;
     int const send_w = 80;
+    int const add_w = 36;
     int const bottom = height - margin - edit_h;
     int const transcript_h = bottom - margin;
     if (transcript_ != nullptr) {
       MoveWindow(transcript_, margin, margin, width - 2 * margin,
                  transcript_h > 0 ? transcript_h : 0, TRUE);
     }
+    int const edit_w = width - 4 * margin - send_w - add_w;
     if (edit_ != nullptr) {
-      MoveWindow(edit_, margin, bottom, width - 3 * margin - send_w, edit_h,
-                 TRUE);
+      MoveWindow(edit_, margin, bottom, edit_w > 0 ? edit_w : 0, edit_h, TRUE);
     }
     if (send_ != nullptr) {
-      MoveWindow(send_, width - margin - send_w, bottom, send_w, edit_h, TRUE);
+      MoveWindow(send_, width - 2 * margin - add_w - send_w, bottom, send_w,
+                 edit_h, TRUE);
+    }
+    if (add_ != nullptr) {
+      MoveWindow(add_, width - margin - add_w, bottom, add_w, edit_h, TRUE);
     }
   }
 
@@ -88,6 +108,13 @@ class WinChatPresenter : public ChatPresenter {
     SubmitText(WideToUtf8(wide));
     SetWindowTextW(edit_, L"");
     RefreshTranscript();
+  }
+
+  void OnAddClicked() {
+    if (local_aether_uid_.empty() || !add_peer_) {
+      return;
+    }
+    ShowAddPeerDialog(parent_, local_aether_uid_, add_peer_);
   }
 
   void RefreshTranscript() {
@@ -115,6 +142,7 @@ class WinChatPresenter : public ChatPresenter {
   HWND transcript() const { return transcript_; }
   HWND edit() const { return edit_; }
   HWND send() const { return send_; }
+  HWND add() const { return add_; }
 
  private:
   static std::string WideToUtf8(std::wstring const& wide) {
@@ -143,9 +171,13 @@ class WinChatPresenter : public ChatPresenter {
     return out;
   }
 
+  HWND parent_{nullptr};
   HWND transcript_{nullptr};
   HWND edit_{nullptr};
   HWND send_{nullptr};
+  HWND add_{nullptr};
+  std::string local_aether_uid_;
+  std::function<AddPeerUiResult(std::string const&)> add_peer_;
 };
 
 }  // namespace apptraverse
