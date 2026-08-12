@@ -117,11 +117,16 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
 
   @Override
   public void onTranscript(String transcript) {
+    final boolean inputHadFocus = messageInput.hasFocus();
     transcriptView.setText(transcript);
     transcriptScroll.post(new Runnable() {
       @Override
       public void run() {
-        transcriptScroll.fullScroll(View.FOCUS_DOWN);
+        // Scroll without focus navigation (fullScroll(FOCUS_DOWN) can steal keyboard focus).
+        transcriptScroll.scrollTo(0, transcriptView.getHeight());
+        if (inputHadFocus && !messageInput.hasFocus()) {
+          messageInput.requestFocus();
+        }
       }
     });
   }
