@@ -149,34 +149,193 @@ function Get-UiDump([string]$Adb, [string]$DeviceSerial) {
   return Invoke-Adb $Adb $DeviceSerial @("shell", "cat", "/sdcard/apptraverse_ui.xml")
 }
 function Get-UiNode([string]$Xml, [string]$ResourceId) {
+  if ([string]::IsNullOrEmpty($Xml)) { return $null }
   $match = [regex]::Match($Xml, '<node\b[^>]*resource-id="' + [regex]::Escape($ResourceId) + '"[^>]*>')
   if (-not $match.Success) { return $null }
-  $node = $match.Value; $text = ""; $x = 0; $y = 0
+  $node = $match.Value
+  $text = ""
+  $x = 0
+  $y = 0
+  $bounds = ""
+  $focused = $false
+  $enabled = $false
   if ($node -match '\btext="([^"]*)"') { $text = $Matches[1] }
-  if ($node -match 'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"') {
-    $x = [int](([int]$Matches[1] + [int]$Matches[3]) / 2)
-    $y = [int](([int]$Matches[2] + [int]$Matches[4]) / 2)
+  if ($node -match '\bfocused="(true|false)"') { $focused = ($Matches[1] -eq "true") }
+  if ($node -match '\benabled="(true|false)"') { $enabled = ($Matches[1] -eq "true") }
+  if ($node -match 'bounds="(\[(\d+),(\d+)\]\[(\d+),(\d+)\])"') {
+    $bounds = $Matches[1]
+    $x = [int](([int]$Matches[2] + [int]$Matches[4]) / 2)
+    $y = [int](([int]$Matches[3] + [int]$Matches[5]) / 2)
   }
-  return [pscustomobject]@{ Text = $text; X = $x; Y = $y }
+  return [pscustomobject]@{
+    Text = $text
+    X = $x
+    Y = $y
+    Focused = $focused
+    Enabled = $enabled
+    Bounds = $bounds
+  }
+}
+function Format-UiNodeState($Node) {
+  if ($null -eq $Node) { return "node=<null>" }
+  return ("text='{0}' focused={1} enabled={2} bounds={3} x={4} y={5}" -f `
+    $Node.Text, $Node.Focused, $Node.Enabled, $Node.Bounds, $Node.X, $Node.Y)
+}
+function Wait-AndroidUiNode {
+  param(
+    [string]$Adb,
+    [string]$DeviceSerial,
+    [string]$ResourceId,
+    [int]$TimeoutSec = 30,
+    [scriptblock]$Predicate = $null,
+    [string]$Description = "UI node"
+  )
+  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  $last_xml = ""
+  $last_node = $null
+  while ((Get-Date) -lt $deadline) {
+    try { $last_xml = Get-UiDump $Adb $DeviceSerial } catch { $last_xml = "" }
+    $last_node = Get-UiNode $last_xml $ResourceId
+    if ($null -ne $last_node) {
+      $ok = $true
+      if ($null -ne $Predicate) {
+        $ok = [bool](& $Predicate $last_node)
+      }
+      if ($ok) { return $last_node }
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  $state = Format-UiNodeState $last_node
+  throw ("$Description timeout for $ResourceId. last=$state`n--- last UI dump ---`n$last_xml")
+}
+function Wait-AndroidControlFocused {
+  param(
+    [string]$Adb,
+    [string]$DeviceSerial,
+    [string]$ResourceId,
+    [int]$TimeoutSec = 10,
+    [string]$Description = "control focused"
+  )
+  return Wait-AndroidUiNode -Adb $Adb -DeviceSerial $DeviceSerial -ResourceId $ResourceId `
+    -TimeoutSec $TimeoutSec -Description $Description -Predicate {
+      param($n) return ($n.Focused -eq $true -and $n.Enabled -eq $true)
+    }
+}
+function Test-AndroidInputCleared($Node) {
+  if ($null -eq $Node) { return $false }
+  $t = [string]$Node.Text
+  return ([string]::IsNullOrEmpty($t) -or $t -eq "Message")
 }
 function Send-AndroidMessage([string]$Adb, [string]$DeviceSerial, [string]$Text) {
-  Invoke-Adb $Adb $DeviceSerial @("shell", "am", "start", "-n", $ActivityName) | Out-Null
-  Start-Sleep -Seconds 1
+  $input_id = "$PackageName`:id/message_input"
+  $send_id = "$PackageName`:id/send"
+
+  # Step A: find input (start Activity only if missing).
+  $input = $null
+  try {
+    $input = Get-UiNode (Get-UiDump $Adb $DeviceSerial) $input_id
+  } catch { $input = $null }
+  if ($null -eq $input) {
+    Start-App $Adb $DeviceSerial
+    $input = Wait-AndroidUiNode -Adb $Adb -DeviceSerial $DeviceSerial -ResourceId $input_id `
+      -TimeoutSec 30 -Description "message_input not found" -Predicate {
+        param($n) return ($n.X -gt 0 -and $n.Y -gt 0)
+      }
+  }
+  if ($null -eq $input) { throw "message_input not found. $(Format-UiNodeState $input)" }
+  if (-not $input.Enabled) { throw "message_input disabled. $(Format-UiNodeState $input)" }
+  if ($input.X -le 0 -or $input.Y -le 0) { throw "message_input not found. $(Format-UiNodeState $input)" }
+
+  # Step B: obtain focus (retry tap+wait only; never type until focused).
+  $focused = $null
   for ($attempt = 1; $attempt -le 3; $attempt++) {
-    $input = Get-UiNode (Get-UiDump $Adb $DeviceSerial) "$PackageName`:id/message_input"
-    if ($null -eq $input -or $input.X -le 0) { throw "Unable to locate message_input" }
+    $input = Get-UiNode (Get-UiDump $Adb $DeviceSerial) $input_id
+    if ($null -eq $input -or -not $input.Enabled) {
+      throw "message_input disabled. $(Format-UiNodeState $input)"
+    }
     Invoke-Adb $Adb $DeviceSerial @("shell", "input", "tap", "$($input.X)", "$($input.Y)") | Out-Null
-    $clear = @("shell", "input", "keyevent", "123") + (1..64 | ForEach-Object { "67" })
-    Invoke-Adb $Adb $DeviceSerial $clear | Out-Null
-    Invoke-Adb $Adb $DeviceSerial @("shell", "input", "text", $Text) | Out-Null
-    Start-Sleep -Milliseconds 600
-    $typed = Get-UiNode (Get-UiDump $Adb $DeviceSerial) "$PackageName`:id/message_input"
-    if ($null -ne $typed -and $typed.Text -eq $Text) {
-      Invoke-Adb $Adb $DeviceSerial @("shell", "input", "keyevent", "66") | Out-Null
-      Write-Host "  OK  Android sent '$Text'"; return
+    try {
+      $focused = Wait-AndroidControlFocused -Adb $Adb -DeviceSerial $DeviceSerial `
+        -ResourceId $input_id -TimeoutSec 8 -Description "message_input focus attempt $attempt"
+      break
+    } catch {
+      if ($attempt -eq 3) {
+        $n = Get-UiNode (Get-UiDump $Adb $DeviceSerial) $input_id
+        throw "message_input did not receive focus. $(Format-UiNodeState $n)"
+      }
     }
   }
-  throw "EditText does not contain expected text '$Text' before Send"
+  if ($null -eq $focused -or -not $focused.Focused) {
+    throw "message_input did not receive focus. $(Format-UiNodeState $focused)"
+  }
+
+  # Step C: clear input after confirmed focus.
+  $clear = @("shell", "input", "keyevent", "123") + (1..64 | ForEach-Object { "67" })
+  Invoke-Adb $Adb $DeviceSerial $clear | Out-Null
+  $cleared = Wait-AndroidUiNode -Adb $Adb -DeviceSerial $DeviceSerial -ResourceId $input_id `
+    -TimeoutSec 8 -Description "message_input clear" -Predicate {
+      param($n) return (Test-AndroidInputCleared $n)
+    }
+
+  # Step D: type and wait for exact text while still focused.
+  Invoke-Adb $Adb $DeviceSerial @("shell", "input", "text", $Text) | Out-Null
+  $typed = $null
+  try {
+    $typed = Wait-AndroidUiNode -Adb $Adb -DeviceSerial $DeviceSerial -ResourceId $input_id `
+      -TimeoutSec 10 -Description "typed text" -Predicate {
+        param($n) return ($n.Text -eq $Text -and $n.Focused -eq $true)
+      }
+  } catch {
+    $n = Get-UiNode (Get-UiDump $Adb $DeviceSerial) $input_id
+    throw "typed text mismatch. expected='$Text' $(Format-UiNodeState $n)"
+  }
+  if ($null -eq $typed -or $typed.Text -ne $Text) {
+    throw "typed text mismatch. expected='$Text' $(Format-UiNodeState $typed)"
+  }
+
+  # Step E: tap Send button (never KEYCODE_ENTER).
+  $send = Get-UiNode (Get-UiDump $Adb $DeviceSerial) $send_id
+  if ($null -eq $send -or $send.X -le 0 -or $send.Y -le 0) {
+    throw "send button not found. $(Format-UiNodeState $send)"
+  }
+  if (-not $send.Enabled) {
+    throw "send button disabled. $(Format-UiNodeState $send)"
+  }
+  Invoke-Adb $Adb $DeviceSerial @("shell", "input", "tap", "$($send.X)", "$($send.Y)") | Out-Null
+
+  # Step F: wait for commit marker once; do not re-tap.
+  $escaped = [regex]::Escape($Text)
+  $pattern = "MESSAGE_COMMITTED text=$escaped|CHAT_MESSAGE_COMMITTED platform=android .*text_key=$escaped"
+  try {
+    Wait-Marker $Adb $DeviceSerial $pattern "Android committed $Text" 60 | Out-Null
+  } catch {
+    $n = Get-UiNode (Get-UiDump $Adb $DeviceSerial) $input_id
+    throw "commit marker timeout for '$Text'. $(Format-UiNodeState $n)"
+  }
+  Write-Host "  OK  Android sent '$Text'"
+}
+function Invoke-LifecycleAndroidInputHelpersSelfTest {
+  $rid = "com.apptraverse.singleclientchat:id/message_input"
+  $xml_a = @"
+<hierarchy rotation="0"><node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.apptraverse.singleclientchat" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,1920]"><node resource-id="$rid" text="hello" focused="true" enabled="true" bounds="[10,20][110,70]" /></node></hierarchy>
+"@
+  $a = Get-UiNode $xml_a $rid
+  if ($null -eq $a) { throw "input self-test A: node null" }
+  if ($a.Focused -ne $true) { throw "input self-test A: Focused" }
+  if ($a.Enabled -ne $true) { throw "input self-test A: Enabled" }
+  if ($a.Text -ne "hello") { throw "input self-test A: Text" }
+  if ($a.X -ne 60 -or $a.Y -ne 45) { throw "input self-test A: center X=$($a.X) Y=$($a.Y)" }
+
+  $xml_b = "<hierarchy><node resource-id=`"$rid`" text=`"Message`" focused=`"false`" enabled=`"true`" bounds=`"[10,20][110,70]`" /></hierarchy>"
+  $b = Get-UiNode $xml_b $rid
+  if ($b.Focused -ne $false) { throw "input self-test B: Focused" }
+
+  $xml_c = "<hierarchy><node resource-id=`"$rid`" text=`"`" bounds=`"[10,20][110,70]`" /></hierarchy>"
+  $c = Get-UiNode $xml_c $rid
+  if ($c.Focused -ne $false) { throw "input self-test C: Focused" }
+  if ($c.Enabled -ne $false) { throw "input self-test C: Enabled" }
+
+  Write-Host "LIFECYCLE_ANDROID_INPUT_HELPERS_SELF_TEST PASSED"
 }
 function Get-UidFromMarker([string]$Line, [string]$Platform) {
   if ($Line -notmatch "AETHER_CLIENT_READY platform=$Platform uid=([0-9a-fA-F-]+)") {
@@ -486,6 +645,7 @@ New-Item -ItemType Directory -Force -Path $out_dir | Out-Null
 Write-Utf8NoBom $summary_path "scenario,result,detail`r`n"
 
 Invoke-LifecycleTranscriptHelpersSelfTest
+Invoke-LifecycleAndroidInputHelpersSelfTest
 
 try {
   if (-not $ApkPath) { $ApkPath = Join-Path $android_dir "app\build\outputs\apk\debug\app-debug.apk" }
