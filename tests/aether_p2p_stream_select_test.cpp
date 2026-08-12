@@ -55,8 +55,9 @@ void TestWritableIncomingBeatsConnectingOutgoing() {
         P2pPeerTransportState::kWritable);
 }
 
-// B. Two writable streams — the one that received most recently wins even when
-// it is the older stream.
+// B. Two writable streams — recent receive wins when it is on the newest
+// stream (or tied). A newer silent writable beats a stale older receive so a
+// dead pre-reconnect stream cannot keep winning.
 void TestRecentReceiveWins() {
   std::vector<P2pSessionSelectCandidate> const candidates{
       Candidate(1, 7, true, false),
@@ -67,27 +68,28 @@ void TestRecentReceiveWins() {
   CHECK(best->index == 1);
   CHECK(best->reason == P2pStreamSelectReason::kRecentReceive);
 
-  std::vector<P2pSessionSelectCandidate> const older_received{
+  std::vector<P2pSessionSelectCandidate> const newer_also_received{
       Candidate(1, 9, true, false),
       Candidate(2, 7, true, false),
   };
-  auto const older_best = SelectBestP2pSession(older_received);
-  CHECK(older_best.has_value());
-  CHECK(older_best->index == 0);
-  CHECK(older_best->reason == P2pStreamSelectReason::kRecentReceive);
+  auto const newer_best = SelectBestP2pSession(newer_also_received);
+  CHECK(newer_best.has_value());
+  // Newer stream exists, so stale higher receive on the older one loses.
+  CHECK(newer_best->index == 1);
+  CHECK(newer_best->reason == P2pStreamSelectReason::kWritableNewest);
 }
 
-// A receiving stream is preferred over a newer writable stream that never
-// received anything.
-void TestRecentReceiveBeatsNewerSilentStream() {
+// After reconnect a fresh incoming writable must beat an older stream that
+// still looks "recent" from traffic before the outage.
+void TestNewerWritableBeatsStaleReceive() {
   std::vector<P2pSessionSelectCandidate> const candidates{
-      Candidate(1, 4, true, false),
+      Candidate(1, 40, true, false),
       Candidate(5, 0, true, false),
   };
   auto const best = SelectBestP2pSession(candidates);
   CHECK(best.has_value());
-  CHECK(best->index == 0);
-  CHECK(best->reason == P2pStreamSelectReason::kRecentReceive);
+  CHECK(best->index == 1);
+  CHECK(best->reason == P2pStreamSelectReason::kWritableNewest);
 }
 
 // C. Two writable streams, neither ever received — newest wins.
@@ -194,7 +196,7 @@ int main() {
   TestEmpty();
   TestWritableIncomingBeatsConnectingOutgoing();
   TestRecentReceiveWins();
-  TestRecentReceiveBeatsNewerSilentStream();
+  TestNewerWritableBeatsStaleReceive();
   TestWritableNewestWins();
   TestConnectingBeatsError();
   TestErrorFallback();

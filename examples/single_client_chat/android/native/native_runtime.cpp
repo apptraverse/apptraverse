@@ -288,6 +288,17 @@ bool NativeRuntime::StartChatSync() {
         }
       });
 
+  // Dial persisted peers (same as Windows). Without this, Android may keep
+  // retrying on a stale pre-outage stream that still reports writable.
+  peer_set.Load();
+  if (peer_set.is_loaded()) {
+    for (auto const& peer : peer_set->peers) {
+      if (!peer.remote_uid.empty()) {
+        p2p_transport_->Connect(peer.remote_uid);
+      }
+    }
+  }
+
   LogMarker("CHAT_SYNC_CONTROLLER_READY");
   return true;
 }

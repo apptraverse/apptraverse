@@ -28,7 +28,19 @@ std::optional<P2pSessionSelectResult> SelectBestP2pSession(
     }
   }
 
-  if (best_writable_recv.has_value()) {
+  // Prefer the stream that just received only when no newer writable stream
+  // exists. Otherwise a dead older stream that once received keeps winning
+  // after reconnect creates a fresh incoming path.
+  if (best_writable_recv.has_value() && best_writable_new.has_value()) {
+    auto const recv_creation =
+        candidates[*best_writable_recv].creation_order;
+    auto const newest_creation =
+        candidates[*best_writable_new].creation_order;
+    if (recv_creation >= newest_creation) {
+      return P2pSessionSelectResult{*best_writable_recv,
+                                    P2pStreamSelectReason::kRecentReceive};
+    }
+  } else if (best_writable_recv.has_value()) {
     return P2pSessionSelectResult{*best_writable_recv,
                                   P2pStreamSelectReason::kRecentReceive};
   }
