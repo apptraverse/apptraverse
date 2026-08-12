@@ -17,7 +17,6 @@
 #include "apptraverse/shared_graph.h"
 #include "apptraverse/sync_session_state.h"
 
-#include "aether_p2p_outgoing_routing.h"
 #include "chat_sync_controller.h"
 #include "graph_builder.h"
 #include "model/app.h"
@@ -147,17 +146,13 @@ struct Side {
   }
 };
 
-examples::SyncTransportOperations MakeDirectOps(
+examples::ChatSyncController::SendFunction MakeDirectSend(
     examples::ChatSyncController*& peer_ctrl, ae::Uid const& self_uid,
     ae::Uid const& peer_uid,
     std::function<void(ae::ObjId, SerializedSyncPacket const&)> on_send = {}) {
-  examples::SyncTransportOperations ops;
-  ops.outgoing_state = [](ae::Uid const&) {
-    return examples::P2pOutgoingState::kWritable;
-  };
-  ops.send = [&peer_ctrl, self_uid, peer_uid, on_send](
-                 ae::Uid const& peer, ae::ObjId packet_id,
-                 SerializedSyncPacket const& bytes) {
+  return [&peer_ctrl, self_uid, peer_uid, on_send](
+             ae::Uid const& peer, ae::ObjId packet_id,
+             SerializedSyncPacket const& bytes) {
     CHECK(peer == peer_uid);
     if (on_send) {
       on_send(packet_id, bytes);
@@ -165,7 +160,6 @@ examples::SyncTransportOperations MakeDirectOps(
     assert(peer_ctrl != nullptr);
     peer_ctrl->Receive(self_uid, bytes);
   };
-  return ops;
 }
 
 void TestControllerBidirectionalAndRestart() {
@@ -184,15 +178,16 @@ void TestControllerBidirectionalAndRestart() {
   examples::ChatSyncController* left_ptr = nullptr;
   examples::ChatSyncController* right_ptr = nullptr;
 
-  auto left_ops = MakeDirectOps(right_ptr, left_uid, right_uid);
-  auto right_ops = MakeDirectOps(left_ptr, right_uid, left_uid);
-
   examples::ChatSyncController left_ctrl(
-      left.Replica(), left.graph.chat, left.graph.peer_set, left_ops,
-      examples::SyncRecoveryPolicy{}, false, {}, make_log("L:"));
+      left.Replica(), left.graph.chat, left.graph.peer_set,
+      MakeDirectSend(right_ptr, left_uid, right_uid),
+      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, false, {},
+      make_log("L:"));
   examples::ChatSyncController right_ctrl(
-      right.Replica(), right.graph.chat, right.graph.peer_set, right_ops,
-      examples::SyncRecoveryPolicy{}, true, {}, make_log("R:"));
+      right.Replica(), right.graph.chat, right.graph.peer_set,
+      MakeDirectSend(left_ptr, right_uid, left_uid),
+      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, true, {},
+      make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
 
@@ -254,12 +249,14 @@ void TestControllerBidirectionalAndRestart() {
 
   examples::ChatSyncController left2(
       left.Replica(), left.graph.chat, left.graph.peer_set,
-      MakeDirectOps(right_ptr, left_uid, right_uid),
-      examples::SyncRecoveryPolicy{}, false, {}, make_log("L2:"));
+      MakeDirectSend(right_ptr, left_uid, right_uid),
+      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, false, {},
+      make_log("L2:"));
   examples::ChatSyncController right2(
       right.Replica(), right.graph.chat, right.graph.peer_set,
-      MakeDirectOps(left_ptr, right_uid, left_uid),
-      examples::SyncRecoveryPolicy{}, true, {}, make_log("R2:"));
+      MakeDirectSend(left_ptr, right_uid, left_uid),
+      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, true, {},
+      make_log("R2:"));
   left_ptr = &left2;
   right_ptr = &right2;
 
@@ -282,191 +279,93 @@ void TestControllerBidirectionalAndRestart() {
   CHECK(resumed);
 }
 
-void TestRetryGatedOnTransportState() {
+void TestRetryAndReconnectTiming() {
   auto left_uid = MakeUid(0xC3);
   auto right_uid = MakeUid(0xD4);
   Side left{"Windows", left_uid};
   Side right{"Android", right_uid};
 
-  std::vector<SerializedSyncPacket> sent;
+  std::vector<std::pair<ae::ObjId, SerializedSyncPacket>> sent;
+  int reconnect_calls = 0;
   bool deliver = false;
-  examples::P2pOutgoingState outgoing = examples::P2pOutgoingState::kWritable;
+
+  examples::ChatSyncTiming timing;
+  timing.retry_interval = std::chrono::milliseconds{20};
+  timing.reconnect_interval = std::chrono::milliseconds{100};
 
   examples::ChatSyncController* left_ptr = nullptr;
   examples::ChatSyncController* right_ptr = nullptr;
 
-  examples::SyncTransportOperations left_ops;
-  left_ops.outgoing_state = [&](ae::Uid const& peer) {
-    CHECK(peer == right_uid);
-    return outgoing;
-  };
-  left_ops.send = [&](ae::Uid const& peer, ae::ObjId /*packet_id*/,
-                      SerializedSyncPacket const& bytes) {
-    CHECK(peer == right_uid);
-    sent.push_back(bytes);
-    if (deliver) {
-      assert(right_ptr != nullptr);
-      right_ptr->Receive(left_uid, bytes);
-    }
-  };
-
-  examples::SyncTransportOperations right_ops;
-  right_ops.send = [&](ae::Uid const& peer, ae::ObjId /*packet_id*/,
-                       SerializedSyncPacket const& bytes) {
-    CHECK(peer == left_uid);
-    assert(left_ptr != nullptr);
-    left_ptr->Receive(right_uid, bytes);
-  };
-
   examples::ChatSyncController left_ctrl(
-      left.Replica(), left.graph.chat, left.graph.peer_set, left_ops,
-      examples::SyncRecoveryPolicy{}, false);
+      left.Replica(), left.graph.chat, left.graph.peer_set,
+      [&](ae::Uid const& peer, ae::ObjId packet_id,
+          SerializedSyncPacket const& bytes) {
+        CHECK(peer == right_uid);
+        sent.emplace_back(packet_id, bytes);
+        if (deliver) {
+          assert(right_ptr != nullptr);
+          right_ptr->Receive(left_uid, bytes);
+        }
+      },
+      [&](ae::Uid const& peer) {
+        CHECK(peer == right_uid);
+        ++reconnect_calls;
+      },
+      timing, false);
   examples::ChatSyncController right_ctrl(
-      right.Replica(), right.graph.chat, right.graph.peer_set, right_ops,
-      examples::SyncRecoveryPolicy{}, true);
+      right.Replica(), right.graph.chat, right.graph.peer_set,
+      [&](ae::Uid const& peer, ae::ObjId /*packet_id*/,
+          SerializedSyncPacket const& bytes) {
+        CHECK(peer == left_uid);
+        assert(left_ptr != nullptr);
+        left_ptr->Receive(right_uid, bytes);
+      },
+      [](ae::Uid const&) {}, timing, true);
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
 
   left_ctrl.Start();
   right_ctrl.Start();
 
+  // 1. First packet pending until send (AddPeer triggers initial NodeState).
   left_ctrl.AddPeer(right_uid);
-  auto pending_count = [&]() {
-    auto const* session = left_ctrl.FindSession(right_uid);
-    CHECK(session != nullptr);
-    return session->pending_packet_count();
-  };
-  auto pending_id = [&]() {
-    auto const* session = left_ctrl.FindSession(right_uid);
-    CHECK(session != nullptr);
-    CHECK(!session->state()->data.pending_packets.empty());
-    return session->state()->data.pending_packets.front().packet_id;
-  };
   CHECK(sent.size() == 1);
-  CHECK(pending_count() == 1);
-  auto const initial_bytes = sent.front();
-  auto const initial_id = pending_id();
-
-  sent.clear();
-  outgoing = examples::P2pOutgoingState::kConnecting;
-  for (int i = 0; i < 5; ++i) {
-    left_ctrl.Tick(ae::Now());
-    SleepMs(5);
-  }
-  CHECK(sent.empty());
-  CHECK(pending_count() == 1);
-  CHECK(pending_id() == initial_id);
-
-  outgoing = examples::P2pOutgoingState::kWritable;
-  left_ctrl.Tick(ae::Now());
-  CHECK(sent.size() == 1);
-  CHECK(sent.front() == initial_bytes);
-  CHECK(pending_count() == 1);
-  CHECK(pending_id() == initial_id);
-
-  deliver = true;
-  right_ctrl.Receive(left_uid, initial_bytes);
-  for (int i = 0; i < 200 && pending_count() > 0; ++i) {
-    left_ctrl.Tick(ae::Now());
-    right_ctrl.Tick(ae::Now());
-    SleepMs(5);
-  }
-  CHECK(pending_count() == 0);
-}
-
-void TestAckStallRecovery() {
-  auto left_uid = MakeUid(0xE5);
-  auto right_uid = MakeUid(0xF6);
-  Side left{"Windows", left_uid};
-  Side right{"Android", right_uid};
-
-  std::vector<std::pair<ae::ObjId, SerializedSyncPacket>> sent;
-  int restream_calls = 0;
-  int replace_calls = 0;
-  examples::P2pOutgoingState outgoing = examples::P2pOutgoingState::kConnecting;
-
-  examples::SyncRecoveryPolicy policy;
-  policy.retry_interval = std::chrono::milliseconds{20};
-  policy.restream_after = std::chrono::milliseconds{60};
-  policy.replace_after = std::chrono::milliseconds{120};
-
-  examples::SyncTransportOperations left_ops;
-  left_ops.outgoing_state = [&](ae::Uid const&) { return outgoing; };
-  left_ops.restream_outgoing = [&](ae::Uid const&) { ++restream_calls; };
-  left_ops.replace_outgoing = [&](ae::Uid const&) {
-    ++replace_calls;
-    outgoing = examples::P2pOutgoingState::kConnecting;
-  };
-  left_ops.send = [&](ae::Uid const& peer, ae::ObjId packet_id,
-                      SerializedSyncPacket const& bytes) {
-    CHECK(peer == right_uid);
-    sent.emplace_back(packet_id, bytes);
-  };
-
-  examples::ChatSyncController left_ctrl(
-      left.Replica(), left.graph.chat, left.graph.peer_set, left_ops, policy,
-      false);
-
-  left_ctrl.Start();
-  left_ctrl.AddPeer(right_uid);
-  CHECK(!sent.empty());
-  auto const initial_id = sent.front().first;
-  auto const initial_bytes = sent.front().second;
   auto* session = left_ctrl.FindSession(right_uid);
   CHECK(session != nullptr);
   CHECK(session->pending_packet_count() == 1);
-  auto const rev0 = session->ack_progress_revision();
+  auto const initial_id = sent.front().first;
+  auto const initial_bytes = sent.front().second;
+  CHECK(session->state()->data.pending_packets.front().packet_id ==
+        initial_id);
 
-  // A. Not writable: no constant retries; connecting skips restream; replace later.
+  // 2. Retry same packet ID and bytes; 3. reconnect not yet.
   sent.clear();
   auto t0 = ae::Now();
-  for (int i = 0; i < 5; ++i) {
-    left_ctrl.Tick(t0 + std::chrono::milliseconds{i * 10});
-  }
-  CHECK(sent.empty());
-  CHECK(restream_calls == 0);
-  CHECK(replace_calls == 0);
-
-  left_ctrl.Tick(t0 + std::chrono::milliseconds{70});
-  CHECK(restream_calls == 0);  // connecting: do not restream
-  CHECK(replace_calls == 0);
-
-  // Writable stall triggers restream once.
-  outgoing = examples::P2pOutgoingState::kWritable;
-  left_ctrl.Tick(t0 + std::chrono::milliseconds{80});
-  CHECK(restream_calls == 1);
-  CHECK(replace_calls == 0);
-
-  outgoing = examples::P2pOutgoingState::kConnecting;
-  left_ctrl.Tick(t0 + std::chrono::milliseconds{130});
-  CHECK(restream_calls == 1);
-  CHECK(replace_calls == 1);
-
-  // B. After replacement, same packet id/bytes on later writable retry.
-  outgoing = examples::P2pOutgoingState::kWritable;
-  sent.clear();
-  left_ctrl.Tick(t0 + std::chrono::milliseconds{160});
-  CHECK(!sent.empty());
+  left_ctrl.Tick(t0);
+  CHECK(sent.size() == 1);
   CHECK(sent.front().first == initial_id);
   CHECK(sent.front().second == initial_bytes);
+  CHECK(reconnect_calls == 0);
 
-  // C. ACK advances revision and resets recovery (no second replace).
-  examples::ChatSyncController* right_ptr = nullptr;
-  examples::SyncTransportOperations right_ops;
-  right_ops.send = [&](ae::Uid const& peer, ae::ObjId /*packet_id*/,
-                       SerializedSyncPacket const& bytes) {
-    CHECK(peer == left_uid);
-    left_ctrl.Receive(right_uid, bytes);
-  };
-  examples::ChatSyncController right_ctrl(
-      right.Replica(), right.graph.chat, right.graph.peer_set, right_ops,
-      examples::SyncRecoveryPolicy{}, true);
-  right_ptr = &right_ctrl;
-  (void)right_ptr;
-  right_ctrl.Start();
-  right_ctrl.AddPeer(left_uid);
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{50});
+  CHECK(reconnect_calls == 0);
+  CHECK(!sent.empty());
+  CHECK(sent.back().first == initial_id);
+  CHECK(sent.back().second == initial_bytes);
+
+  // 4. After reconnect interval: reconnect once, pending resent.
+  sent.clear();
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{110});
+  CHECK(reconnect_calls == 1);
+  CHECK(!sent.empty());
+  CHECK(sent.back().first == initial_id);
+  CHECK(sent.back().second == initial_bytes);
+
+  // 5. After ACK: pending 0, no more retry/reconnect.
+  deliver = true;
   right_ctrl.Receive(left_uid, initial_bytes);
-
+  auto const sent_before_ack_drain = sent.size();
+  auto const reconnect_before_clear = reconnect_calls;
   for (int i = 0; i < 50; ++i) {
     left_ctrl.Tick(t0 + std::chrono::milliseconds{200 + i * 5});
     right_ctrl.Tick(t0 + std::chrono::milliseconds{200 + i * 5});
@@ -475,73 +374,69 @@ void TestAckStallRecovery() {
     }
   }
   CHECK(session->pending_packet_count() == 0);
-  CHECK(session->ack_progress_revision() > rev0);
-  auto const rev_after_ack = session->ack_progress_revision();
-  int const replace_after_ack = replace_calls;
+  auto const sent_at_clear = sent.size();
+  auto const reconnect_at_clear = reconnect_calls;
 
-  // D. Duplicate ACK does not change revision.
-  {
-    ae::RamDomainStorage build_storage;
-    ae::Domain build_domain{ae::Now(), build_storage};
-    auto ack = AckPacket::ptr::Create(ae::CreateWith{build_domain});
-    ack->acknowledged_packet_id = initial_id;
-    left_ctrl.Receive(right_uid, SyncPacketCodec{}.Encode(ack));
-  }
-  CHECK(session->ack_progress_revision() == rev_after_ack);
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{500});
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{700});
+  CHECK(sent.size() == sent_at_clear);
+  CHECK(reconnect_calls == reconnect_at_clear);
+  CHECK(reconnect_at_clear == reconnect_before_clear);
+  (void)sent_before_ack_drain;
 
-  // E. New pending after ACK gets a fresh recovery cycle.
-  restream_calls = 0;
-  replace_calls = 0;
-  outgoing = examples::P2pOutgoingState::kWritable;
+  // 6. New Event creates new pending cycle.
+  // Keep using the synthetic timeline from t0 so retry/reconnect intervals
+  // stay monotonic relative to prior Tick() calls.
+  deliver = false;
   left.Submit("after-ack");
   sent.clear();
-  auto t1 = ae::Now();
+  reconnect_calls = 0;
+  auto const t1 = t0 + std::chrono::milliseconds{1000};
+  // Poll may pick up the new event and send immediately via session send.
   left_ctrl.Tick(t1);
   CHECK(session->pending_packet_count() >= 1);
-  left_ctrl.Tick(t1 + std::chrono::milliseconds{70});
-  CHECK(restream_calls == 1);
-  left_ctrl.Tick(t1 + std::chrono::milliseconds{130});
-  CHECK(replace_calls == 1);
-  CHECK(replace_after_ack == 1);
+  CHECK(!sent.empty());
+  auto const new_id = sent.front().first;
+  auto const new_bytes = sent.front().second;
+  CHECK(new_id != initial_id);
 
-  // F. Sender restart keeps packet identity; recovery timers restart.
-  auto const* pending = &session->state()->data.pending_packets.front();
-  auto const restart_id = pending->packet_id;
-  auto const restart_bytes = pending->serialized_bytes;
-  left.graph.chat.Save();
-  left.graph.peer_set.Save();
-  left.DestroyRuntime();
-  left.ReloadRuntime();
+  sent.clear();
+  left_ctrl.Tick(t1 + std::chrono::milliseconds{30});
+  CHECK(!sent.empty());
+  CHECK(sent.back().first == new_id);
+  CHECK(sent.back().second == new_bytes);
+  CHECK(reconnect_calls == 0);
 
-  int restream2 = 0;
-  int replace2 = 0;
-  examples::P2pOutgoingState outgoing2 =
-      examples::P2pOutgoingState::kConnecting;
-  examples::SyncTransportOperations left2_ops;
-  left2_ops.outgoing_state = [&](ae::Uid const&) { return outgoing2; };
-  left2_ops.restream_outgoing = [&](ae::Uid const&) { ++restream2; };
-  left2_ops.replace_outgoing = [&](ae::Uid const&) { ++replace2; };
-  left2_ops.send = [&](ae::Uid const&, ae::ObjId packet_id,
-                       SerializedSyncPacket const& bytes) {
-    sent.emplace_back(packet_id, bytes);
+  left_ctrl.Tick(t1 + std::chrono::milliseconds{110});
+  CHECK(reconnect_calls == 1);
+
+  // 7. Duplicate packet does not create a duplicate Event.
+  right.graph.chat.Load();
+  auto const transcript_before = right.Transcript();
+  auto count_occurrences = [](std::string const& hay, std::string const& needle) {
+    std::size_t count = 0;
+    std::size_t pos = 0;
+    while ((pos = hay.find(needle, pos)) != std::string::npos) {
+      ++count;
+      pos += needle.size();
+    }
+    return count;
   };
-  examples::ChatSyncController left2(
-      left.Replica(), left.graph.chat, left.graph.peer_set, left2_ops, policy,
-      false);
-  left2.Start();
-  auto* session2 = left2.FindSession(right_uid);
-  CHECK(session2 != nullptr);
-  CHECK(session2->pending_packet_count() >= 1);
-  CHECK(session2->state()->data.pending_packets.front().packet_id ==
-        restart_id);
-  CHECK(session2->state()->data.pending_packets.front().serialized_bytes ==
-        restart_bytes);
-  auto t2 = ae::Now();
-  left2.Tick(t2 + std::chrono::milliseconds{10});
-  CHECK(restream2 == 0);
-  outgoing2 = examples::P2pOutgoingState::kWritable;
-  left2.Tick(t2 + std::chrono::milliseconds{70});
-  CHECK(restream2 == 1);
+  CHECK(count_occurrences(transcript_before, "after-ack") == 0);
+
+  deliver = true;
+  right_ctrl.Receive(left_uid, new_bytes);
+  right_ctrl.Receive(left_uid, new_bytes);
+  for (int i = 0; i < 50; ++i) {
+    left_ctrl.Tick(t1 + std::chrono::milliseconds{200 + i * 5});
+    right_ctrl.Tick(t1 + std::chrono::milliseconds{200 + i * 5});
+    if (session->pending_packet_count() == 0) {
+      break;
+    }
+  }
+  right.graph.chat.Load();
+  auto const transcript_after = right.Transcript();
+  CHECK(count_occurrences(transcript_after, "after-ack") == 1);
 }
 
 }  // namespace apptraverse::test
@@ -550,8 +445,7 @@ int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSingleClientChatRegistration();
   apptraverse::test::TestControllerBidirectionalAndRestart();
-  apptraverse::test::TestRetryGatedOnTransportState();
-  apptraverse::test::TestAckStallRecovery();
+  apptraverse::test::TestRetryAndReconnectTiming();
   std::cout << "chat_sync_controller_test OK\n";
   return 0;
 }

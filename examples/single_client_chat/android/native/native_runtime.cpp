@@ -263,35 +263,22 @@ bool NativeRuntime::StartChatSync() {
         .count();
   };
 
-  examples::SyncTransportOperations sync_ops;
-  sync_ops.ensure_outgoing = [this](ae::Uid const& peer) {
-    p2p_transport_->EnsureOutgoing(peer);
-  };
-  sync_ops.outgoing_state = [this](ae::Uid const& peer) {
-    return p2p_transport_->OutgoingState(peer);
-  };
-  sync_ops.restream_outgoing = [this](ae::Uid const& peer) {
-    p2p_transport_->RestreamOutgoing(peer);
-  };
-  sync_ops.replace_outgoing = [this](ae::Uid const& peer) {
-    p2p_transport_->ReplaceOutgoing(peer);
-  };
-  sync_ops.send = [this, system_utc_micros](
-                      ae::Uid const& peer, ae::ObjId packet_id,
-                      SerializedSyncPacket const& bytes) {
-    auto const result = p2p_transport_->Send(peer, bytes);
+  auto sync_send = [this, system_utc_micros](
+                       ae::Uid const& peer, ae::ObjId packet_id,
+                       SerializedSyncPacket const& bytes) {
+    p2p_transport_->Send(peer, bytes);
     LogMarker(
         "SYNC_TRANSPORT_WRITE peer=" + examples::FormatAetherUid(peer) +
         " packet=" + std::to_string(packet_id.id()) +
-        " generation=" + std::to_string(result.outgoing_generation) +
-        " disposition=" +
-        std::string{examples::ToString(result.disposition)} +
         " t_us=" + std::to_string(system_utc_micros()));
+  };
+  auto sync_reconnect = [this](ae::Uid const& peer) {
+    p2p_transport_->Reconnect(peer);
   };
 
   chat_sync_ = std::make_unique<examples::ChatSyncController>(
       SyncReplica{aether_app_->domain(), *domain_storage_, chat.id()}, chat,
-      peer_set, sync_ops, examples::SyncRecoveryPolicy{}, true,
+      peer_set, sync_send, sync_reconnect, examples::ChatSyncTiming{}, true,
       [this]() {
         if (chat_presenter_ != nullptr) {
           chat_presenter_->PublishTranscript();

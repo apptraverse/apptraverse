@@ -42,10 +42,6 @@ class SharedGraphSyncSession : public SyncPacketHandler {
     return state_->data.pending_packets.size();
   }
 
-  // Runtime-only. Increases when Handle(AckPacket) removes a real pending
-  // packet. Unknown/duplicate ACKs do not change it. Never serialized.
-  std::uint64_t ack_progress_revision() const { return ack_progress_revision_; }
-
   SyncSessionState::ptr state() const { return state_; }
 
  private:
@@ -83,7 +79,6 @@ class SharedGraphSyncSession : public SyncPacketHandler {
   TraceFunction trace_;
   ae::ObjId receiving_packet_id_;
   DecodedSyncPacket* receiving_decoded_{nullptr};
-  std::uint64_t ack_progress_revision_{0};
 
   void Trace(std::string const& line) const;
 };

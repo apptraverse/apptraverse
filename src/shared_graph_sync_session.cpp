@@ -508,7 +508,6 @@ void SharedGraphSyncSession::Handle(AckPacket const& packet) {
       data.pending_packets.end());
   auto const pending_left = data.pending_packets.size();
   CommitData(std::move(data));
-  ++ack_progress_revision_;
   Trace("SYNC_PENDING_REMOVED packet=" + std::to_string(packet_id.id()) +
         " pending=" + std::to_string(pending_left) +
         " t_us=" + std::to_string(SystemUtcMicros()));

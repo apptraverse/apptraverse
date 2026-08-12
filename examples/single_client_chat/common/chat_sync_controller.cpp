@@ -17,33 +17,24 @@ std::string FormatUid(ae::Uid const& uid) { return ae::Format("{}", uid); }
 
 ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
                                        ChatPeerSet::ptr peer_set,
-                                       SyncTransportOperations ops,
-                                       SyncRecoveryPolicy policy,
+                                       SendFunction send,
+                                       ReconnectFunction reconnect,
+                                       ChatSyncTiming timing,
                                        bool auto_accept_incoming,
                                        ChangedFunction changed,
                                        LogFunction log)
     : replica_{replica},
       chat_{std::move(chat)},
       peer_set_{std::move(peer_set)},
-      ops_{std::move(ops)},
-      policy_{policy},
+      send_{std::move(send)},
+      reconnect_{std::move(reconnect)},
+      timing_{timing},
       auto_accept_incoming_{auto_accept_incoming},
       changed_{std::move(changed)},
       log_{std::move(log)} {
-  assert(ops_.send);
-  if (!ops_.ensure_outgoing) {
-    ops_.ensure_outgoing = [](ae::Uid const&) {};
-  }
-  if (!ops_.outgoing_state) {
-    ops_.outgoing_state = [](ae::Uid const&) {
-      return P2pOutgoingState::kWritable;
-    };
-  }
-  if (!ops_.restream_outgoing) {
-    ops_.restream_outgoing = [](ae::Uid const&) {};
-  }
-  if (!ops_.replace_outgoing) {
-    ops_.replace_outgoing = [](ae::Uid const&) {};
+  assert(send_);
+  if (!reconnect_) {
+    reconnect_ = [](ae::Uid const&) {};
   }
   assert(chat_.is_valid());
   assert(peer_set_.is_valid());
@@ -92,92 +83,45 @@ void ChatSyncController::EmitInitialMarkers(RuntimeSession& runtime) {
   }
 }
 
-void ChatSyncController::ResetRecoveryCycle(RuntimeSession& runtime,
-                                            ae::TimePoint now) {
-  (void)now;
-  runtime.pending_since.reset();
-  runtime.restream_done_for_current_stall = false;
-  runtime.replace_done_for_current_stall = false;
-  runtime.last_ack_progress_revision =
-      runtime.session->ack_progress_revision();
-}
-
-void ChatSyncController::DriveRecovery(RuntimeSession& runtime,
-                                       ae::TimePoint now) {
+void ChatSyncController::DrivePending(RuntimeSession& runtime,
+                                      ae::TimePoint now) {
   assert(runtime.session != nullptr);
   auto const pending = runtime.session->pending_packet_count();
-  auto const ack_rev = runtime.session->ack_progress_revision();
 
-  if (ack_rev != runtime.last_ack_progress_revision || pending == 0) {
-    if (runtime.last_pending_count > 0 && pending == 0) {
-      Log(ae::Format("CHAT_PENDING_CLEARED peer={}",
+  if (pending == 0) {
+    if (runtime.last_pending_count > 0) {
+      Log(ae::Format("CHAT_PENDING_CHANGED peer={} pending=0",
                      FormatUid(runtime.remote_uid)));
     }
-    ResetRecoveryCycle(runtime, now);
-    runtime.last_pending_count = pending;
-    if (pending == 0) {
-      return;
-    }
+    runtime.last_reconnect = {};
+    runtime.last_pending_count = 0;
+    return;
+  }
+
+  if (runtime.last_pending_count == 0) {
+    // Pending went 0 → N: start reconnect timer.
+    runtime.last_reconnect = now;
+    Log(ae::Format("CHAT_PENDING_CHANGED peer={} pending={}",
+                   FormatUid(runtime.remote_uid), pending));
   }
   runtime.last_pending_count = pending;
 
-  if (!runtime.pending_since.has_value()) {
-    runtime.pending_since = now;
-  }
-
-  ops_.ensure_outgoing(runtime.remote_uid);
-  auto const state = ops_.outgoing_state(runtime.remote_uid);
-  bool const writable = state == P2pOutgoingState::kWritable;
-  auto const stalled_for = now - *runtime.pending_since;
-
-  // Retry only while the active outgoing can accept bytes.
-  if (writable) {
-    bool const due = runtime.last_retry.time_since_epoch().count() == 0 ||
-                     now - runtime.last_retry >= policy_.retry_interval;
-    if (due) {
-      runtime.session->RetryPending();
-      runtime.last_retry = now;
-      Log(ae::Format("CHAT_RETRY_SENT peer={} pending={}",
-                     FormatUid(runtime.remote_uid), pending));
-    }
-  } else {
-    bool const due =
-        runtime.last_retry_gate_log.time_since_epoch().count() == 0 ||
-        now - runtime.last_retry_gate_log >= policy_.retry_interval;
-    if (due) {
-      runtime.last_retry_gate_log = now;
-      Log(ae::Format("CHAT_RETRY_GATED peer={} pending={}",
-                     FormatUid(runtime.remote_uid), pending));
-    }
-  }
-
-  // Error: Restream promptly — the active outgoing cannot carry traffic.
-  // Connecting: do not Restream — tearing down an in-flight dial thrashs
-  // Android→Windows delivery. Writable: still request Restream once after
-  // restream_after; AetherP2pTransport soft-skips linked+writable streams so
-  // in-flight reverse ACKs are not raced. Replace recovers true stalls.
-  if (state == P2pOutgoingState::kError &&
-      !runtime.restream_done_for_current_stall) {
-    ops_.restream_outgoing(runtime.remote_uid);
-    runtime.restream_done_for_current_stall = true;
-    runtime.last_restream_time = now;
-    Log(ae::Format("CHAT_ACK_STALL_RESTREAM peer={} pending={}",
-                   FormatUid(runtime.remote_uid), pending));
-  } else if (writable && !runtime.restream_done_for_current_stall &&
-             stalled_for >= policy_.restream_after) {
-    ops_.restream_outgoing(runtime.remote_uid);
-    runtime.restream_done_for_current_stall = true;
-    runtime.last_restream_time = now;
-    Log(ae::Format("CHAT_ACK_STALL_RESTREAM peer={} pending={}",
+  bool const retry_due = runtime.last_retry.time_since_epoch().count() == 0 ||
+                         now - runtime.last_retry >= timing_.retry_interval;
+  if (retry_due) {
+    runtime.session->RetryPending();
+    runtime.last_retry = now;
+    Log(ae::Format("CHAT_RETRY_SENT peer={} pending={}",
                    FormatUid(runtime.remote_uid), pending));
   }
 
-  if (!runtime.replace_done_for_current_stall &&
-      stalled_for >= policy_.replace_after) {
-    ops_.replace_outgoing(runtime.remote_uid);
-    runtime.replace_done_for_current_stall = true;
-    runtime.last_replace_time = now;
-    Log(ae::Format("CHAT_ACK_STALL_REPLACE peer={} pending={}",
+  if (runtime.last_reconnect.time_since_epoch().count() != 0 &&
+      now - runtime.last_reconnect >= timing_.reconnect_interval) {
+    reconnect_(runtime.remote_uid);
+    runtime.session->RetryPending();
+    runtime.last_retry = now;
+    runtime.last_reconnect = now;
+    Log(ae::Format("CHAT_RECONNECT peer={} pending={}",
                    FormatUid(runtime.remote_uid), pending));
   }
 }
@@ -202,15 +146,13 @@ ChatSyncController::RuntimeSession& ChatSyncController::EnsureRuntimeSession(
   runtime.session = std::make_unique<SharedGraphSyncSession>(
       replica_, state,
       [this, remote_uid](ae::ObjId packet_id, SerializedSyncPacket bytes) {
-        ops_.send(remote_uid, packet_id, bytes);
+        send_(remote_uid, packet_id, bytes);
       });
   if (log_) {
     runtime.session->set_trace(log_);
   }
   runtime.last_initial_sync_complete =
       runtime.session->initial_sync_complete();
-  runtime.last_ack_progress_revision =
-      runtime.session->ack_progress_revision();
   sessions_.push_back(std::move(runtime));
   return sessions_.back();
 }
@@ -250,7 +192,6 @@ SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
   auto& runtime =
       EnsureRuntimeSession(remote_uid, peer.session_state);
   EmitInitialMarkers(runtime);
-  ops_.ensure_outgoing(remote_uid);
   runtime.session->StartOrResume();
   if (runtime.session->initial_sync_complete() &&
       !runtime.last_initial_sync_complete) {
@@ -296,7 +237,7 @@ void ChatSyncController::Tick(ae::TimePoint now) {
   for (auto& runtime : sessions_) {
     assert(runtime.session != nullptr);
     runtime.session->Poll();
-    DriveRecovery(runtime, now);
+    DrivePending(runtime, now);
 
     if (!runtime.last_initial_sync_complete &&
         runtime.session->initial_sync_complete()) {

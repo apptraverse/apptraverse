@@ -50,7 +50,6 @@ add_library(apptraverse_single_client_chat SHARED
   native_runtime.cpp
   ui_bridge.cpp
   ${APPTRAVERSE_ROOT}/examples/single_client_chat/common/aether_p2p_framing.cpp
-  ${APPTRAVERSE_ROOT}/examples/single_client_chat/common/aether_p2p_outgoing_routing.cpp
   ${APPTRAVERSE_ROOT}/examples/single_client_chat/common/aether_p2p_transport.cpp
 )
 
