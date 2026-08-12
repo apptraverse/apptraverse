@@ -34,6 +34,8 @@ $script:WinLog = $null
 $script:S4EventId = $null
 $script:S4PacketId = $null
 $script:CanContinueS1to4 = $true
+$script:LastCanonicalTranscript = ""
+$script:LastCanonicalTranscriptSource = ""
 
 function Resolve-RepoRoot {
   $script_dir = Split-Path -Parent $PSCommandPath
@@ -206,9 +208,6 @@ function Get-PacketId([string]$Line) {
   }
   throw "Unable to parse packet id from: $Line"
 }
-function Normalize-UiText([string]$Xml) {
-  return ($Xml -replace '&#10;', "`n" -replace '&amp;', '&' -replace '&lt;', '<' -replace '&gt;', '>' -replace '&quot;', '"')
-}
 function Get-CrashPatterns {
   return @(
     "FATAL EXCEPTION", "JNI DETECTED ERROR", "SIGSEGV", "native crash",
@@ -223,6 +222,7 @@ function Assert-NoCrash([string]$Logs, [string]$Label) {
   }
 }
 function Count-Occurrences([string]$Text, [string]$Needle) {
+  if ([string]::IsNullOrEmpty($Text) -or [string]::IsNullOrEmpty($Needle)) { return 0 }
   return ([regex]::Matches($Text, [regex]::Escape($Needle))).Count
 }
 function Assert-ContainsOnce([string]$Text, [string]$Needle, [string]$Label) {
@@ -241,14 +241,79 @@ function Assert-JoinCounts([string]$Text, [int]$WindowsJoins, [int]$AndroidJoins
 function Get-LatestTranscriptPublished([string]$Logs) {
   $line = ($Logs -split "`n" | Where-Object { $_ -match "TRANSCRIPT_PUBLISHED" } | Select-Object -Last 1)
   if (-not $line) { return "" }
-  if ($line -match "text=(.*)$") { return $Matches[1] }
+  if ($line -match "text=(.*)$") { return $Matches[1].TrimEnd() }
   return $line
+}
+# Pure selection: UI wins whenever the transcript node was found (even if empty).
+function Select-CanonicalTranscript([bool]$UiFound, [string]$UiText, [string]$LogText) {
+  if ($UiFound) {
+    return [pscustomobject]@{ Source = "ui"; Text = $(if ($null -eq $UiText) { "" } else { $UiText }) }
+  }
+  return [pscustomobject]@{ Source = "logcat"; Text = $(if ($null -eq $LogText) { "" } else { $LogText }) }
+}
+function Get-AndroidUiTranscript {
+  # Returns Found=$true when the transcript TextView node exists (Text may be empty).
+  try {
+    $xml_text = Get-UiDump $adb $Serial
+  } catch {
+    return [pscustomobject]@{ Found = $false; Text = "" }
+  }
+  if ([string]::IsNullOrWhiteSpace($xml_text)) {
+    return [pscustomobject]@{ Found = $false; Text = "" }
+  }
+  try {
+    $doc = [xml]$xml_text
+  } catch {
+    return [pscustomobject]@{ Found = $false; Text = "" }
+  }
+  $rid = "$PackageName`:id/transcript"
+  $node = $doc.SelectSingleNode("//node[@resource-id='$rid']")
+  if ($null -eq $node) {
+    return [pscustomobject]@{ Found = $false; Text = "" }
+  }
+  $attr = $node.Attributes["text"]
+  $text = if ($null -eq $attr) { "" } else { [string]$attr.Value }
+  return [pscustomobject]@{ Found = $true; Text = $text }
+}
+function Get-CanonicalAndroidTranscript {
+  $ui = Get-AndroidUiTranscript
+  $log_text = ""
+  if (-not $ui.Found) {
+    $log_text = Get-LatestTranscriptPublished (Get-Logcat $adb $Serial)
+  }
+  $selected = Select-CanonicalTranscript ([bool]$ui.Found) $ui.Text $log_text
+  $script:LastCanonicalTranscript = $selected.Text
+  $script:LastCanonicalTranscriptSource = $selected.Source
+  Write-Host "LIFECYCLE_TRANSCRIPT_SOURCE source=$($selected.Source)"
+  return $selected.Text
+}
+function Get-AndroidJoinTranscript {
+  return (Get-CanonicalAndroidTranscript)
+}
+function Invoke-LifecycleTranscriptHelpersSelfTest {
+  $sample = "* Windows joined`n* Android joined`nWindows: sample_message"
+  $a = Select-CanonicalTranscript $true $sample $sample
+  if ((Count-Occurrences $a.Text "Windows joined") -ne 1) { throw "self-test A: Windows joined count" }
+  if ((Count-Occurrences $a.Text "Android joined") -ne 1) { throw "self-test A: Android joined count" }
+  if ($a.Source -ne "ui") { throw "self-test A: expected source=ui" }
+
+  $b = Select-CanonicalTranscript $false "" $sample
+  if ($b.Source -ne "logcat") { throw "self-test B: expected source=logcat" }
+  if ((Count-Occurrences $b.Text "Windows joined") -ne 1) { throw "self-test B: Windows joined count" }
+
+  $c = Select-CanonicalTranscript $true "" $sample
+  if ($c.Source -ne "ui") { throw "self-test C: expected source=ui" }
+  if ($c.Text -ne "") { throw "self-test C: expected empty transcript, got '$($c.Text)'" }
+
+  $d = Select-CanonicalTranscript $true $sample ""
+  if ((Count-Occurrences $d.Text "Windows joined") -ne 1) { throw "self-test D: Windows joined" }
+  if ((Count-Occurrences $d.Text "Android joined") -ne 1) { throw "self-test D: Android joined" }
+  if ((Count-Occurrences $d.Text "sample_message") -ne 1) { throw "self-test D: sample_message" }
+
+  Write-Host "LIFECYCLE_TRANSCRIPT_HELPERS_SELF_TEST PASSED"
 }
 function Count-WindowsMessageVisible([string]$LogText, [string]$Key) {
   return ([regex]::Matches($LogText, "CHAT_MESSAGE_VISIBLE platform=windows text_key=$([regex]::Escape($Key))")).Count
-}
-function Count-AndroidMessageVisible([string]$Logs, [string]$Key) {
-  return ([regex]::Matches($Logs, "CHAT_MESSAGE_VISIBLE platform=android text_key=$([regex]::Escape($Key))")).Count
 }
 function Record-Result([string]$Name, [bool]$Passed, [string]$Detail) {
   $status = if ($Passed) { "PASS" } else { "FAIL" }
@@ -266,6 +331,11 @@ function Save-PhaseArtifacts([string]$PhaseName) {
     try {
       $ui = Get-UiDump $adb $Serial
       Write-Utf8NoBom (Join-Path $dir "android_ui.xml") $ui
+    } catch { $null = $_ }
+    try {
+      $canonical = Get-CanonicalAndroidTranscript
+      Write-Utf8NoBom (Join-Path $dir "android_canonical_transcript.txt") $canonical
+      Write-Utf8NoBom (Join-Path $dir "android_canonical_transcript_source.txt") "$($script:LastCanonicalTranscriptSource)`r`n"
     } catch { $null = $_ }
   } catch { $null = $_ }
   if ($script:WinLog -and (Test-Path $script:WinLog)) {
@@ -326,42 +396,38 @@ function Wait-AndroidPendingPositive([string]$Key, [int]$TimeoutSec) {
   Wait-Marker $adb $Serial "CHAT_PENDING_CHANGED .*pending=[1-9]|SYNC_PACKET_CREATED kind=event|MESSAGE_COMMITTED text=$([regex]::Escape($Key))" "Android pending>0 for $Key" $TimeoutSec | Out-Null
 }
 function Assert-AndroidHasKeyOnce([string]$Key) {
+  # Wait for presenter update via marker (timing only), then count in canonical transcript.
   $deadline = (Get-Date).AddSeconds($SyncTimeoutSec)
   $last = ""
   while ((Get-Date) -lt $deadline) {
     $logs = Get-Logcat $adb $Serial
-    $vis = Count-AndroidMessageVisible $logs $Key
-    $ui = ""
-    try { $ui = Normalize-UiText (Get-UiDump $adb $Serial) } catch { $null = $_ }
-    $pub = Get-LatestTranscriptPublished $logs
-    $combined = "$ui`n$pub"
-    $ui_count = Count-Occurrences $combined $Key
-    if ($vis -ge 1 -or $ui_count -ge 1) {
-      if ($vis -gt 1) { throw "Android CHAT_MESSAGE_VISIBLE for $Key count=$vis" }
-      if ($ui_count -gt 1) { throw "Android transcript shows $Key $ui_count times" }
-      Write-Host "  OK  Android has $Key once"
+    $vis = ([regex]::Matches($logs, "CHAT_MESSAGE_VISIBLE platform=android text_key=$([regex]::Escape($Key))")).Count
+    $transcript = Get-CanonicalAndroidTranscript
+    $count = Count-Occurrences $transcript $Key
+    $last = $transcript
+    if ($vis -ge 1 -or $count -ge 1) {
+      if ($count -ne 1) {
+        throw "Android canonical transcript shows '$Key' $count times (want 1). source=$($script:LastCanonicalTranscriptSource) text=$transcript"
+      }
+      Write-Host "  OK  Android has $Key once (source=$($script:LastCanonicalTranscriptSource))"
       return
     }
-    $last = $combined
     Start-Sleep -Milliseconds 400
   }
-  throw "Android did not show $Key within timeout. last=$last"
+  throw "Android did not show $Key within timeout. last=$last source=$($script:LastCanonicalTranscriptSource)"
 }
 function Assert-WindowsHasKeyOnce([System.Diagnostics.Process]$Process, [string]$Log, [string]$Key) {
   Wait-WindowsMarker $Process $Log "CHAT_MESSAGE_VISIBLE platform=windows text_key=$([regex]::Escape($Key))" "Windows saw $Key" $SyncTimeoutSec | Out-Null
   $count = Count-WindowsMessageVisible (Get-WindowsLog $Log) $Key
   if ($count -ne 1) { throw "Windows CHAT_MESSAGE_VISIBLE for $Key count=$count (want 1)" }
 }
-function Assert-AndroidUiContains([string]$Needle) {
+function Assert-AndroidTranscriptContains([string]$Needle) {
   $deadline = (Get-Date).AddSeconds($SyncTimeoutSec)
   while ((Get-Date) -lt $deadline) {
-    $ui = Normalize-UiText (Get-UiDump $adb $Serial)
-    $logs = Get-Logcat $adb $Serial
-    $pub = Get-LatestTranscriptPublished $logs
-    $combined = "$ui`n$pub"
-    if ($combined -match [regex]::Escape($Needle)) {
-      Write-Host "  OK  Android transcript contains '$Needle'"
-      return $combined
+    $transcript = Get-CanonicalAndroidTranscript
+    if ($transcript -match [regex]::Escape($Needle)) {
+      Write-Host "  OK  Android transcript contains '$Needle' (source=$($script:LastCanonicalTranscriptSource))"
+      return $transcript
     }
     Start-Sleep -Milliseconds 400
   }
@@ -369,20 +435,11 @@ function Assert-AndroidUiContains([string]$Needle) {
 }
 function Assert-AndroidLacksKey([string]$Key, [int]$TimeoutSec = 8) {
   Start-Sleep -Seconds ([Math]::Min(3, $TimeoutSec))
-  $ui = Normalize-UiText (Get-UiDump $adb $Serial)
-  $logs = Get-Logcat $adb $Serial
-  $pub = Get-LatestTranscriptPublished $logs
-  $combined = "$ui`n$pub"
-  if ($combined -match [regex]::Escape($Key)) {
-    throw "Android unexpectedly already has '$Key'"
+  $transcript = Get-CanonicalAndroidTranscript
+  if ($transcript -match [regex]::Escape($Key)) {
+    throw "Android unexpectedly already has '$Key' (source=$($script:LastCanonicalTranscriptSource))"
   }
-  Write-Host "  OK  Android does not yet have $Key"
-}
-function Get-AndroidJoinTranscript {
-  $ui = Normalize-UiText (Get-UiDump $adb $Serial)
-  $logs = Get-Logcat $adb $Serial
-  $pub = Get-LatestTranscriptPublished $logs
-  return "$ui`n$pub"
+  Write-Host "  OK  Android does not yet have $Key (source=$($script:LastCanonicalTranscriptSource))"
 }
 function Assert-StableIdentities([string]$WinLogPath) {
   $wline = Wait-WindowsMarker $script:WinProc $WinLogPath "AETHER_CLIENT_READY platform=windows uid=" "Windows UID stable check" $ClientReadyTimeoutSec
@@ -427,6 +484,8 @@ $uids_path = Join-Path $out_dir "uids.txt"
 
 New-Item -ItemType Directory -Force -Path $out_dir | Out-Null
 Write-Utf8NoBom $summary_path "scenario,result,detail`r`n"
+
+Invoke-LifecycleTranscriptHelpersSelfTest
 
 try {
   if (-not $ApkPath) { $ApkPath = Join-Path $android_dir "app\build\outputs\apk\debug\app-debug.apk" }
@@ -494,9 +553,9 @@ try {
     Add-PeerViaInbox $win.Process $win.Log $peer_inbox $script:AndroidUid | Out-Null
     Wait-WindowsMarker $win.Process $win.Log "CHAT_PEER_ADDED|CHAT_SYNC_INITIAL_COMPLETE|CHAT_PEER_ONLINE" "Windows peer/session progress" $SyncTimeoutSec | Out-Null
 
-    Assert-AndroidUiContains "Windows joined" | Out-Null
-    Assert-AndroidUiContains "Windows: s1_w_before_android" | Out-Null
-    Assert-AndroidUiContains "Android joined" | Out-Null
+    Assert-AndroidTranscriptContains "Windows joined" | Out-Null
+    Assert-AndroidTranscriptContains "Windows: s1_w_before_android" | Out-Null
+    Assert-AndroidTranscriptContains "Android joined" | Out-Null
     # Shared journal: Android joined on Windows is implied by completed sync + Android UI.
     Wait-WindowsMarker $win.Process $win.Log "CHAT_SYNC_INITIAL_COMPLETE|SYNC_EVENT_APPLIED|CHAT_PEER_ONLINE" "Windows received Android membership/sync" $SyncTimeoutSec | Out-Null
     Assert-JoinCounts (Get-AndroidJoinTranscript) 1 1 "S1 after pair"
@@ -756,7 +815,7 @@ try {
     Wait-Marker $adb $Serial "CHAT_SYNC_CONTROLLER_READY" "Android sync controller ready S5" 60 | Out-Null
     Send-AndroidMessage $adb $Serial "s5_a_before_pair"
     Wait-Marker $adb $Serial "MESSAGE_COMMITTED text=s5_a_before_pair|CHAT_MESSAGE_COMMITTED platform=android .*text_key=s5_a_before_pair" "Android committed s5_a_before_pair" 60 | Out-Null
-    Assert-AndroidUiContains "Android: s5_a_before_pair" | Out-Null
+    Assert-AndroidTranscriptContains "Android: s5_a_before_pair" | Out-Null
 
     # Pair with --peer (and inboxes). Android auto-accepts.
     $win5b = Start-WindowsLifecycle $win_state_dir_indep $WindowsClientNameIndependent "windows_s5_pair.log" $android_uid_indep
@@ -764,10 +823,10 @@ try {
     Wait-WindowsMarker $win5b.Process $win5b.Log "CHAT_PEER_ADDED|CHAT_SYNC_INITIAL_COMPLETE" "Windows pair progress S5" $SyncTimeoutSec | Out-Null
     Wait-Marker $adb $Serial "CHAT_PEER_ADDED|CHAT_SYNC_INITIAL_COMPLETE|CHAT_SYNC_RESUMED" "Android pair progress S5" $SyncTimeoutSec | Out-Null
 
-    Assert-AndroidUiContains "Windows joined" | Out-Null
-    Assert-AndroidUiContains "Windows: s5_w_before_pair" | Out-Null
-    Assert-AndroidUiContains "Android joined" | Out-Null
-    Assert-AndroidUiContains "Android: s5_a_before_pair" | Out-Null
+    Assert-AndroidTranscriptContains "Windows joined" | Out-Null
+    Assert-AndroidTranscriptContains "Windows: s5_w_before_pair" | Out-Null
+    Assert-AndroidTranscriptContains "Android joined" | Out-Null
+    Assert-AndroidTranscriptContains "Android: s5_a_before_pair" | Out-Null
     Assert-WindowsHasKeyOnce $win5b.Process $win5b.Log "s5_a_before_pair"
     # s5_w_before_pair is local on Windows; confirm visible marker if emitted, else journal/commit already done.
     $wlog5 = Get-WindowsLog $win5b.Log
