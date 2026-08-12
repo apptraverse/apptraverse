@@ -5,6 +5,7 @@
 
 #include "aether-miscpp/format/format.h"
 
+#include "chat_presence.h"
 #include "model/chat_peer_set.h"
 #include "model/chat_presenter.h"
 
@@ -18,6 +19,7 @@ std::string FormatUid(ae::Uid const& uid) { return ae::Format("{}", uid); }
 ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
                                        ChatPeerSet::ptr peer_set,
                                        SendFunction send,
+                                       RawSendFunction raw_send,
                                        ReconnectFunction reconnect,
                                        ChatSyncTiming timing,
                                        bool auto_accept_incoming,
@@ -27,12 +29,14 @@ ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
       chat_{std::move(chat)},
       peer_set_{std::move(peer_set)},
       send_{std::move(send)},
+      raw_send_{std::move(raw_send)},
       reconnect_{std::move(reconnect)},
       timing_{timing},
       auto_accept_incoming_{auto_accept_incoming},
       changed_{std::move(changed)},
       log_{std::move(log)} {
   assert(send_);
+  assert(raw_send_);
   if (!reconnect_) {
     reconnect_ = [](ae::Uid const&) {};
   }
@@ -55,19 +59,35 @@ void ChatSyncController::NotifyChanged() {
 
 SharedGraphSyncSession* ChatSyncController::FindSession(
     ae::Uid const& remote_uid) {
-  for (auto& runtime : sessions_) {
-    if (runtime.remote_uid == remote_uid) {
-      return runtime.session.get();
-    }
+  if (auto* runtime = FindRuntime(remote_uid)) {
+    return runtime->session.get();
   }
   return nullptr;
 }
 
 SharedGraphSyncSession const* ChatSyncController::FindSession(
     ae::Uid const& remote_uid) const {
+  if (auto const* runtime = FindRuntime(remote_uid)) {
+    return runtime->session.get();
+  }
+  return nullptr;
+}
+
+ChatSyncController::RuntimeSession* ChatSyncController::FindRuntime(
+    ae::Uid const& remote_uid) {
+  for (auto& runtime : sessions_) {
+    if (runtime.remote_uid == remote_uid) {
+      return &runtime;
+    }
+  }
+  return nullptr;
+}
+
+ChatSyncController::RuntimeSession const* ChatSyncController::FindRuntime(
+    ae::Uid const& remote_uid) const {
   for (auto const& runtime : sessions_) {
     if (runtime.remote_uid == remote_uid) {
-      return runtime.session.get();
+      return &runtime;
     }
   }
   return nullptr;
@@ -80,6 +100,56 @@ void ChatSyncController::EmitInitialMarkers(RuntimeSession& runtime) {
     Log(ae::Format("CHAT_SYNC_RESUMED peer={} initial_complete=1 pending={}",
                    FormatUid(runtime.remote_uid),
                    runtime.session->pending_packet_count()));
+  }
+}
+
+void ChatSyncController::SendPresence(RuntimeSession& runtime,
+                                      ChatPresenceMessage message,
+                                      ae::TimePoint now) {
+  assert(raw_send_);
+  raw_send_(runtime.remote_uid, EncodeChatPresence(message));
+  if (message == ChatPresenceMessage::kOnline ||
+      message == ChatPresenceMessage::kHeartbeat) {
+    runtime.last_heartbeat_sent = now;
+  }
+}
+
+void ChatSyncController::ApplyOnlineTransition(RuntimeSession& runtime) {
+  if (!runtime.ever_seen_online) {
+    runtime.ever_seen_online = true;
+    runtime.currently_online = true;
+    Log(ae::Format("CHAT_PEER_ONLINE peer={}", FormatUid(runtime.remote_uid)));
+    return;
+  }
+  if (!runtime.currently_online) {
+    runtime.currently_online = true;
+    Log(ae::Format("CHAT_PEER_REJOINED peer={}",
+                   FormatUid(runtime.remote_uid)));
+  }
+}
+
+void ChatSyncController::ApplyOfflineTransition(RuntimeSession& runtime,
+                                                char const* reason) {
+  if (!runtime.currently_online) {
+    return;
+  }
+  runtime.currently_online = false;
+  Log(ae::Format("CHAT_PEER_OFFLINE peer={} reason={}",
+                 FormatUid(runtime.remote_uid), reason));
+}
+
+void ChatSyncController::DrivePresence(RuntimeSession& runtime,
+                                       ae::TimePoint now) {
+  if (runtime.currently_online && runtime.last_seen.has_value() &&
+      now - *runtime.last_seen >= timing_.offline_timeout) {
+    ApplyOfflineTransition(runtime, "timeout");
+  }
+
+  bool const heartbeat_due =
+      runtime.last_heartbeat_sent.time_since_epoch().count() == 0 ||
+      now - runtime.last_heartbeat_sent >= timing_.heartbeat_interval;
+  if (heartbeat_due) {
+    SendPresence(runtime, ChatPresenceMessage::kHeartbeat, now);
   }
 }
 
@@ -128,13 +198,8 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
 
 ChatSyncController::RuntimeSession& ChatSyncController::EnsureRuntimeSession(
     ae::Uid const& remote_uid, SyncSessionState::ptr state) {
-  if (auto* existing = FindSession(remote_uid)) {
-    for (auto& runtime : sessions_) {
-      if (runtime.remote_uid == remote_uid) {
-        return runtime;
-      }
-    }
-    (void)existing;
+  if (auto* existing = FindRuntime(remote_uid)) {
+    return *existing;
   }
 
   assert(state.is_valid());
@@ -160,11 +225,13 @@ ChatSyncController::RuntimeSession& ChatSyncController::EnsureRuntimeSession(
 void ChatSyncController::Start() {
   peer_set_.Load();
   assert(peer_set_.is_loaded());
+  auto const now = ae::Now();
   for (auto& peer : peer_set_->peers) {
     assert(!peer.remote_uid.empty());
     assert(peer.session_state.is_valid());
     auto& runtime =
         EnsureRuntimeSession(peer.remote_uid, peer.session_state);
+    SendPresence(runtime, ChatPresenceMessage::kOnline, now);
     EmitInitialMarkers(runtime);
     runtime.session->StartOrResume();
     if (runtime.session->initial_sync_complete() &&
@@ -173,6 +240,13 @@ void ChatSyncController::Start() {
       Log(ae::Format("CHAT_SYNC_INITIAL_COMPLETE peer={}",
                      FormatUid(runtime.remote_uid)));
     }
+  }
+}
+
+void ChatSyncController::Stop() {
+  auto const now = ae::Now();
+  for (auto& runtime : sessions_) {
+    SendPresence(runtime, ChatPresenceMessage::kOffline, now);
   }
 }
 
@@ -191,6 +265,7 @@ SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
 
   auto& runtime =
       EnsureRuntimeSession(remote_uid, peer.session_state);
+  SendPresence(runtime, ChatPresenceMessage::kOnline, ae::Now());
   EmitInitialMarkers(runtime);
   runtime.session->StartOrResume();
   if (runtime.session->initial_sync_complete() &&
@@ -203,31 +278,43 @@ SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
 }
 
 void ChatSyncController::Receive(ae::Uid const& remote_uid,
-                                 SerializedSyncPacket const& bytes) {
+                                 std::vector<std::uint8_t> const& bytes) {
   assert(!remote_uid.empty());
-  auto* session = FindSession(remote_uid);
-  if (session == nullptr) {
+  auto* runtime = FindRuntime(remote_uid);
+  if (runtime == nullptr) {
     if (!auto_accept_incoming_) {
       Log(ae::Format("CHAT_PEER_REJECTED uid={}", FormatUid(remote_uid)));
       return;
     }
     AddPeer(remote_uid);
-    session = FindSession(remote_uid);
-    assert(session != nullptr);
+    runtime = FindRuntime(remote_uid);
+    assert(runtime != nullptr);
   }
 
-  session->Receive(bytes);
+  auto const now = ae::Now();
+  auto const presence = TryDecodeChatPresence(bytes);
+  if (presence.has_value() &&
+      *presence == ChatPresenceMessage::kOffline) {
+    runtime->last_seen = now;
+    ApplyOfflineTransition(*runtime, "explicit");
+    return;
+  }
 
-  for (auto& runtime : sessions_) {
-    if (runtime.remote_uid != remote_uid) {
-      continue;
-    }
-    if (!runtime.last_initial_sync_complete &&
-        runtime.session->initial_sync_complete()) {
-      runtime.last_initial_sync_complete = true;
-      Log(ae::Format("CHAT_SYNC_INITIAL_COMPLETE peer={}",
-                     FormatUid(runtime.remote_uid)));
-    }
+  runtime->last_seen = now;
+  ApplyOnlineTransition(*runtime);
+
+  if (presence.has_value()) {
+    return;
+  }
+
+  assert(runtime->session != nullptr);
+  runtime->session->Receive(bytes);
+
+  if (!runtime->last_initial_sync_complete &&
+      runtime->session->initial_sync_complete()) {
+    runtime->last_initial_sync_complete = true;
+    Log(ae::Format("CHAT_SYNC_INITIAL_COMPLETE peer={}",
+                   FormatUid(runtime->remote_uid)));
   }
 
   NotifyChanged();
@@ -238,6 +325,7 @@ void ChatSyncController::Tick(ae::TimePoint now) {
     assert(runtime.session != nullptr);
     runtime.session->Poll();
     DrivePending(runtime, now);
+    DrivePresence(runtime, now);
 
     if (!runtime.last_initial_sync_complete &&
         runtime.session->initial_sync_complete()) {

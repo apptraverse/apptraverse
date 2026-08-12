@@ -378,6 +378,10 @@ int Run(CliOptions const& options) {
         " packet=" + std::to_string(packet_id.id()) +
         " t_us=" + std::to_string(system_utc_micros()));
   };
+  auto presence_send = [&](ae::Uid const& peer,
+                           std::vector<std::uint8_t> const& bytes) {
+    p2p_transport.Send(peer, bytes);
+  };
   auto sync_reconnect = [&](ae::Uid const& peer) {
     p2p_transport.Reconnect(peer);
   };
@@ -385,7 +389,7 @@ int Run(CliOptions const& options) {
   apptraverse::examples::ChatSyncController chat_sync(
       apptraverse::SyncReplica{aether_app->domain(), *domain_storage,
                                chat.id()},
-      chat, peer_set, sync_send, sync_reconnect,
+      chat, peer_set, sync_send, presence_send, sync_reconnect,
       apptraverse::examples::ChatSyncTiming{},
       options.auto_accept_peer,
       [&]() {
@@ -523,25 +527,30 @@ int Run(CliOptions const& options) {
     LogLine("CHAT_SEND_AFTER_SYNC text=" + *options.send_after_sync);
   };
 
+  auto finish = [&](int code) {
+    chat_sync.Stop();
+    return code;
+  };
+
   for (;;) {
     int const quit_code = ProcessPendingWin32Messages();
     if (quit_code >= 0) {
-      return quit_code;
+      return finish(quit_code);
     }
     if (aether_app->IsExited()) {
-      return aether_app->ExitCode();
+      return finish(aether_app->ExitCode());
     }
     if (deadline_ptr != nullptr && ae::Now() >= *deadline_ptr) {
       std::cerr << "P2P ping timed out waiting for PONG\n";
-      return 1;
+      return finish(1);
     }
     if (options.wait_for_message.has_value() && saw_wait_message &&
         options.exit_after_message) {
-      return 0;
+      return finish(0);
     }
     if (options.exit_after_pending_clear && pending_cleared_after_commit) {
       app.Save();
-      return 0;
+      return finish(0);
     }
 
     auto const now = ae::Now();

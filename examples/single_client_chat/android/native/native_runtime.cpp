@@ -272,13 +272,18 @@ bool NativeRuntime::StartChatSync() {
         " packet=" + std::to_string(packet_id.id()) +
         " t_us=" + std::to_string(system_utc_micros()));
   };
+  auto presence_send = [this](ae::Uid const& peer,
+                              std::vector<std::uint8_t> const& bytes) {
+    p2p_transport_->Send(peer, bytes);
+  };
   auto sync_reconnect = [this](ae::Uid const& peer) {
     p2p_transport_->Reconnect(peer);
   };
 
   chat_sync_ = std::make_unique<examples::ChatSyncController>(
       SyncReplica{aether_app_->domain(), *domain_storage_, chat.id()}, chat,
-      peer_set, sync_send, sync_reconnect, examples::ChatSyncTiming{}, true,
+      peer_set, sync_send, presence_send, sync_reconnect,
+      examples::ChatSyncTiming{}, true,
       [this]() {
         if (chat_presenter_ != nullptr) {
           chat_presenter_->PublishTranscript();
@@ -352,6 +357,9 @@ bool NativeRuntime::LoadPresenters() {
 }
 
 void NativeRuntime::Teardown() {
+  if (chat_sync_ != nullptr) {
+    chat_sync_->Stop();
+  }
   if (chat_presenter_ != nullptr) {
     SaveState();
     chat_presenter_ = nullptr;

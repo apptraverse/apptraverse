@@ -17,11 +17,13 @@
 #include "apptraverse/shared_graph.h"
 #include "apptraverse/sync_session_state.h"
 
+#include "chat_presence.h"
 #include "chat_sync_controller.h"
 #include "graph_builder.h"
 #include "model/app.h"
 #include "model/application_ids.h"
 #include "model/chat.h"
+#include "model/chat_events.h"
 #include "model/chat_peer_set.h"
 #include "model/chat_presenter.h"
 #include "model/client.h"
@@ -162,6 +164,41 @@ examples::ChatSyncController::SendFunction MakeDirectSend(
   };
 }
 
+examples::ChatSyncController::RawSendFunction MakeDirectRawSend(
+    examples::ChatSyncController*& peer_ctrl, ae::Uid const& self_uid,
+    ae::Uid const& peer_uid) {
+  return [&peer_ctrl, self_uid, peer_uid](
+             ae::Uid const& peer, std::vector<std::uint8_t> const& bytes) {
+    CHECK(peer == peer_uid);
+    assert(peer_ctrl != nullptr);
+    peer_ctrl->Receive(self_uid, bytes);
+  };
+}
+
+std::size_t CountLog(std::vector<std::string> const& logs,
+                     std::string const& needle) {
+  std::size_t count = 0;
+  for (auto const& line : logs) {
+    if (line.find(needle) != std::string::npos) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+std::size_t CountJoinEvents(Chat::ptr chat) {
+  chat.Load();
+  CHECK(chat.is_loaded());
+  std::size_t count = 0;
+  for (auto const& record : chat->journal) {
+    if (record.event.is_valid() &&
+        record.event->GetClassId() == JoinClientEvent::kClassId) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 void TestControllerBidirectionalAndRestart() {
   auto left_uid = MakeUid(0xA1);
   auto right_uid = MakeUid(0xB2);
@@ -181,11 +218,13 @@ void TestControllerBidirectionalAndRestart() {
   examples::ChatSyncController left_ctrl(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
+      MakeDirectRawSend(right_ptr, left_uid, right_uid),
       [](ae::Uid const&) {}, examples::ChatSyncTiming{}, false, {},
       make_log("L:"));
   examples::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
+      MakeDirectRawSend(left_ptr, right_uid, left_uid),
       [](ae::Uid const&) {}, examples::ChatSyncTiming{}, true, {},
       make_log("R:"));
   left_ptr = &left_ctrl;
@@ -250,11 +289,13 @@ void TestControllerBidirectionalAndRestart() {
   examples::ChatSyncController left2(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
+      MakeDirectRawSend(right_ptr, left_uid, right_uid),
       [](ae::Uid const&) {}, examples::ChatSyncTiming{}, false, {},
       make_log("L2:"));
   examples::ChatSyncController right2(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
+      MakeDirectRawSend(left_ptr, right_uid, left_uid),
       [](ae::Uid const&) {}, examples::ChatSyncTiming{}, true, {},
       make_log("R2:"));
   left_ptr = &left2;
@@ -307,6 +348,13 @@ void TestRetryAndReconnectTiming() {
           right_ptr->Receive(left_uid, bytes);
         }
       },
+      [&](ae::Uid const& peer, std::vector<std::uint8_t> const& bytes) {
+        CHECK(peer == right_uid);
+        if (deliver) {
+          assert(right_ptr != nullptr);
+          right_ptr->Receive(left_uid, bytes);
+        }
+      },
       [&](ae::Uid const& peer) {
         CHECK(peer == right_uid);
         ++reconnect_calls;
@@ -316,6 +364,11 @@ void TestRetryAndReconnectTiming() {
       right.Replica(), right.graph.chat, right.graph.peer_set,
       [&](ae::Uid const& peer, ae::ObjId /*packet_id*/,
           SerializedSyncPacket const& bytes) {
+        CHECK(peer == left_uid);
+        assert(left_ptr != nullptr);
+        left_ptr->Receive(right_uid, bytes);
+      },
+      [&](ae::Uid const& peer, std::vector<std::uint8_t> const& bytes) {
         CHECK(peer == left_uid);
         assert(left_ptr != nullptr);
         left_ptr->Receive(right_uid, bytes);
@@ -439,11 +492,222 @@ void TestRetryAndReconnectTiming() {
   CHECK(count_occurrences(transcript_after, "after-ack") == 1);
 }
 
+
+void TestChatPresenceCodec() {
+  auto online = examples::EncodeChatPresence(examples::ChatPresenceMessage::kOnline);
+  auto heartbeat =
+      examples::EncodeChatPresence(examples::ChatPresenceMessage::kHeartbeat);
+  auto offline =
+      examples::EncodeChatPresence(examples::ChatPresenceMessage::kOffline);
+  CHECK(std::string(online.begin(), online.end()) == "APPTRAVERSE_CHAT_ONLINE_V1");
+  CHECK(std::string(heartbeat.begin(), heartbeat.end()) ==
+        "APPTRAVERSE_CHAT_HEARTBEAT_V1");
+  CHECK(std::string(offline.begin(), offline.end()) ==
+        "APPTRAVERSE_CHAT_OFFLINE_V1");
+  CHECK(examples::TryDecodeChatPresence(online) ==
+        examples::ChatPresenceMessage::kOnline);
+  CHECK(examples::TryDecodeChatPresence(heartbeat) ==
+        examples::ChatPresenceMessage::kHeartbeat);
+  CHECK(examples::TryDecodeChatPresence(offline) ==
+        examples::ChatPresenceMessage::kOffline);
+  std::vector<std::uint8_t> junk{'x'};
+  CHECK(!examples::TryDecodeChatPresence(junk).has_value());
+}
+
+void TestPresenceTransitionsAndIsolation() {
+  auto left_uid = MakeUid(0xE5);
+  auto right_uid = MakeUid(0xF6);
+  Side left{"Windows", left_uid};
+  Side right{"Android", right_uid};
+
+  std::vector<std::string> logs;
+  auto make_log = [&](std::string prefix) {
+    return [&, prefix](std::string const& line) {
+      logs.push_back(prefix + line);
+    };
+  };
+
+  examples::ChatSyncTiming timing;
+  timing.heartbeat_interval = std::chrono::milliseconds{50};
+  timing.offline_timeout = std::chrono::milliseconds{200};
+  timing.retry_interval = std::chrono::milliseconds{50};
+  timing.reconnect_interval = std::chrono::milliseconds{1000};
+
+  examples::ChatSyncController* left_ptr = nullptr;
+  examples::ChatSyncController* right_ptr = nullptr;
+
+  std::vector<std::vector<std::uint8_t>> left_raw_sent;
+
+  examples::ChatSyncController left_ctrl(
+      left.Replica(), left.graph.chat, left.graph.peer_set,
+      // Sync packets are dropped so presence can be tested in isolation.
+      [&](ae::Uid const& peer, ae::ObjId, SerializedSyncPacket const&) {
+        CHECK(peer == right_uid);
+      },
+      [&](ae::Uid const& peer, std::vector<std::uint8_t> const& bytes) {
+        CHECK(peer == right_uid);
+        left_raw_sent.push_back(bytes);
+        assert(right_ptr != nullptr);
+        right_ptr->Receive(left_uid, bytes);
+      },
+      [](ae::Uid const&) {}, timing, false, {}, make_log("L:"));
+  examples::ChatSyncController right_ctrl(
+      right.Replica(), right.graph.chat, right.graph.peer_set,
+      [&](ae::Uid const& peer, ae::ObjId, SerializedSyncPacket const&) {
+        CHECK(peer == left_uid);
+      },
+      MakeDirectRawSend(left_ptr, right_uid, left_uid),
+      [](ae::Uid const&) {}, timing, true, {}, make_log("R:"));
+  left_ptr = &left_ctrl;
+  right_ptr = &right_ctrl;
+
+  left_ctrl.Start();
+  right_ctrl.Start();
+
+  auto const joins_before = CountJoinEvents(right.graph.chat);
+  right.graph.chat.Load();
+  auto const journal_before = right.graph.chat->journal.size();
+
+  // 1. First Online -> exactly one CHAT_PEER_ONLINE on right.
+  left_ctrl.AddPeer(right_uid);
+  CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 1);
+  CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 0);
+
+  auto* right_session = right_ctrl.FindSession(left_uid);
+  CHECK(right_session != nullptr);
+  right_session->state().Load();
+  auto const delivered_before =
+      right_session->state()->data.delivered_event_ids.size();
+  auto const pending_before =
+      right_session->state()->data.pending_packets.size();
+  right.graph.chat.Load();
+  CHECK(right.graph.chat->journal.size() == journal_before);
+  CHECK(CountJoinEvents(right.graph.chat) == joins_before);
+
+  // 2. Repeated heartbeat -> no second ONLINE marker.
+  auto t0 = ae::Now();
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{60});
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{120});
+  CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 1);
+  CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 0);
+  bool saw_heartbeat = false;
+  for (auto const& bytes : left_raw_sent) {
+    auto decoded = examples::TryDecodeChatPresence(bytes);
+    if (decoded == examples::ChatPresenceMessage::kHeartbeat) {
+      saw_heartbeat = true;
+    }
+  }
+  CHECK(saw_heartbeat);
+
+  // 8. Presence frames not in Chat journal / pending / delivered Event IDs.
+  right.graph.chat.Load();
+  CHECK(right.graph.chat->journal.size() == journal_before);
+  right_session->state().Load();
+  CHECK(right_session->state()->data.delivered_event_ids.size() ==
+        delivered_before);
+  CHECK(right_session->state()->data.pending_packets.size() == pending_before);
+
+  // 3. Timeout -> one CHAT_PEER_OFFLINE reason=timeout.
+  auto const after_hb = ae::Now();
+  right_ctrl.Tick(after_hb + std::chrono::milliseconds{250});
+  CHECK(CountLog(logs, "R:CHAT_PEER_OFFLINE") == 1);
+  CHECK(CountLog(logs, "reason=timeout") == 1);
+
+  // 4. Heartbeat after timeout -> CHAT_PEER_REJOINED.
+  right_ctrl.Receive(
+      left_uid,
+      examples::EncodeChatPresence(examples::ChatPresenceMessage::kHeartbeat));
+  CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 1);
+  CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 1);
+
+  // 5. Explicit Offline -> immediate offline.
+  right_ctrl.Receive(
+      left_uid,
+      examples::EncodeChatPresence(examples::ChatPresenceMessage::kOffline));
+  CHECK(CountLog(logs, "R:CHAT_PEER_OFFLINE") == 2);
+  CHECK(CountLog(logs, "reason=explicit") == 1);
+
+  // 6. Repeated offline -> no duplicate marker.
+  right_ctrl.Receive(
+      left_uid,
+      examples::EncodeChatPresence(examples::ChatPresenceMessage::kOffline));
+  CHECK(CountLog(logs, "R:CHAT_PEER_OFFLINE") == 2);
+
+  // 9. Restart/rejoin does not create new JoinClientEvent.
+  right_ctrl.Receive(
+      left_uid,
+      examples::EncodeChatPresence(examples::ChatPresenceMessage::kOnline));
+  CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 2);
+  CHECK(CountJoinEvents(right.graph.chat) == joins_before);
+  right.graph.chat.Load();
+  CHECK(right.graph.chat->journal.size() == journal_before);
+}
+
+void TestSyncPacketBringsPeerOnline() {
+  auto left_uid = MakeUid(0x17);
+  auto right_uid = MakeUid(0x18);
+  Side left{"Windows", left_uid};
+  Side right{"Android", right_uid};
+
+  std::vector<std::string> logs;
+  auto make_log = [&](std::string prefix) {
+    return [&, prefix](std::string const& line) {
+      logs.push_back(prefix + line);
+    };
+  };
+
+  examples::ChatSyncController* left_ptr = nullptr;
+  examples::ChatSyncController* right_ptr = nullptr;
+
+  // Raw send from left is a no-op so ONLINE presence does not reach right.
+  examples::ChatSyncController left_ctrl(
+      left.Replica(), left.graph.chat, left.graph.peer_set,
+      MakeDirectSend(right_ptr, left_uid, right_uid),
+      [](ae::Uid const&, std::vector<std::uint8_t> const&) {},
+      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, false, {},
+      make_log("L:"));
+  examples::ChatSyncController right_ctrl(
+      right.Replica(), right.graph.chat, right.graph.peer_set,
+      MakeDirectSend(left_ptr, right_uid, left_uid),
+      MakeDirectRawSend(left_ptr, right_uid, left_uid),
+      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, true, {},
+      make_log("R:"));
+  left_ptr = &left_ctrl;
+  right_ptr = &right_ctrl;
+
+  left_ctrl.Start();
+  right_ctrl.Start();
+
+  // 7. Sync packet without presence also brings peer online.
+  // Presence raw_send is a no-op; only SerializedSyncPacket reaches right.
+  left_ctrl.AddPeer(right_uid);
+  CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 1);
+  CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 0);
+
+  // A later EventPacket must not emit a second ONLINE marker.
+  left.Submit("sync-online-probe");
+  for (int i = 0; i < 200; ++i) {
+    left_ctrl.Tick(ae::Now());
+    right_ctrl.Tick(ae::Now());
+    SleepMs(5);
+    right.graph.chat.Load();
+    if (right.Transcript().find("sync-online-probe") != std::string::npos) {
+      break;
+    }
+  }
+  CHECK(right.Transcript().find("sync-online-probe") != std::string::npos);
+  CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 1);
+  CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 0);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSingleClientChatRegistration();
+  apptraverse::test::TestChatPresenceCodec();
+  apptraverse::test::TestPresenceTransitionsAndIsolation();
+  apptraverse::test::TestSyncPacketBringsPeerOnline();
   apptraverse::test::TestControllerBidirectionalAndRestart();
   apptraverse::test::TestRetryAndReconnectTiming();
   std::cout << "chat_sync_controller_test OK\n";

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,6 +20,7 @@
 #include "apptraverse/sync_packet.h"
 
 #include "model/chat.h"
+#include "chat_presence.h"
 #include "model/chat_peer_set.h"
 
 namespace apptraverse::examples {
@@ -26,6 +28,8 @@ namespace apptraverse::examples {
 struct ChatSyncTiming {
   std::chrono::milliseconds retry_interval{std::chrono::seconds{1}};
   std::chrono::milliseconds reconnect_interval{std::chrono::seconds{15}};
+  std::chrono::milliseconds heartbeat_interval{std::chrono::seconds{1}};
+  std::chrono::milliseconds offline_timeout{std::chrono::seconds{5}};
 };
 
 // Runtime manager for SharedGraphSyncSession instances of one Chat.
@@ -36,17 +40,22 @@ class ChatSyncController {
   using LogFunction = std::function<void(std::string const&)>;
   using SendFunction = std::function<void(ae::Uid const& peer, ae::ObjId packet_id,
                                           SerializedSyncPacket const& bytes)>;
+  using RawSendFunction =
+      std::function<void(ae::Uid const& peer,
+                         std::vector<std::uint8_t> const& bytes)>;
   using ReconnectFunction = std::function<void(ae::Uid const& peer)>;
 
   ChatSyncController(SyncReplica replica, Chat::ptr chat,
                      ChatPeerSet::ptr peer_set, SendFunction send,
-                     ReconnectFunction reconnect, ChatSyncTiming timing,
-                     bool auto_accept_incoming, ChangedFunction changed = {},
-                     LogFunction log = {});
+                     RawSendFunction raw_send, ReconnectFunction reconnect,
+                     ChatSyncTiming timing, bool auto_accept_incoming,
+                     ChangedFunction changed = {}, LogFunction log = {});
 
   void Start();
+  void Stop();
   SharedGraphSyncSession& AddPeer(ae::Uid const& remote_uid);
-  void Receive(ae::Uid const& remote_uid, SerializedSyncPacket const& bytes);
+  void Receive(ae::Uid const& remote_uid,
+               std::vector<std::uint8_t> const& bytes);
   void Tick(ae::TimePoint now);
 
   std::size_t runtime_session_count() const { return sessions_.size(); }
@@ -61,19 +70,31 @@ class ChatSyncController {
     ae::TimePoint last_retry{};
     ae::TimePoint last_reconnect{};
     std::size_t last_pending_count{0};
+    bool ever_seen_online{false};
+    bool currently_online{false};
+    std::optional<ae::TimePoint> last_seen;
+    ae::TimePoint last_heartbeat_sent{};
   };
 
   void Log(std::string const& line);
   void NotifyChanged();
+  RuntimeSession* FindRuntime(ae::Uid const& remote_uid);
+  RuntimeSession const* FindRuntime(ae::Uid const& remote_uid) const;
   RuntimeSession& EnsureRuntimeSession(ae::Uid const& remote_uid,
                                        SyncSessionState::ptr state);
   void EmitInitialMarkers(RuntimeSession& runtime);
   void DrivePending(RuntimeSession& runtime, ae::TimePoint now);
+  void SendPresence(RuntimeSession& runtime, ChatPresenceMessage message,
+                    ae::TimePoint now);
+  void ApplyOnlineTransition(RuntimeSession& runtime);
+  void ApplyOfflineTransition(RuntimeSession& runtime, char const* reason);
+  void DrivePresence(RuntimeSession& runtime, ae::TimePoint now);
 
   SyncReplica replica_;
   Chat::ptr chat_;
   ChatPeerSet::ptr peer_set_;
   SendFunction send_;
+  RawSendFunction raw_send_;
   ReconnectFunction reconnect_;
   ChatSyncTiming timing_;
   bool auto_accept_incoming_{false};
