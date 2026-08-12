@@ -235,3 +235,19 @@ add_test(
   NAME apptraverse_aether_p2p_framing_test
   COMMAND apptraverse_aether_p2p_framing_test
 )
+
+add_executable(apptraverse_aether_p2p_stream_select_test
+  aether_p2p_stream_select_test.cpp
+  ../examples/single_client_chat/common/aether_p2p_stream_select.cpp
+)
+
+target_include_directories(apptraverse_aether_p2p_stream_select_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../examples/single_client_chat/common
+)
+
+target_compile_features(apptraverse_aether_p2p_stream_select_test PRIVATE cxx_std_20)
+
+add_test(
+  NAME apptraverse_aether_p2p_stream_select_test
+  COMMAND apptraverse_aether_p2p_stream_select_test
+)
