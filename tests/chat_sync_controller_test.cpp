@@ -169,7 +169,7 @@ void TestControllerBidirectionalAndRestart() {
         assert(right_ptr != nullptr);
         right_ptr->Receive(left_uid, bytes);
       },
-      false, {}, make_log("L:"));
+      {}, false, {}, make_log("L:"));
   examples::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       [&](ae::Uid const& peer, SerializedSyncPacket const& bytes) {
@@ -177,7 +177,7 @@ void TestControllerBidirectionalAndRestart() {
         assert(left_ptr != nullptr);
         left_ptr->Receive(right_uid, bytes);
       },
-      true, {}, make_log("R:"));
+      {}, true, {}, make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
 
@@ -243,14 +243,14 @@ void TestControllerBidirectionalAndRestart() {
         CHECK(peer == right_uid);
         right_ptr->Receive(left_uid, bytes);
       },
-      false, {}, make_log("L2:"));
+      {}, false, {}, make_log("L2:"));
   examples::ChatSyncController right2(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       [&](ae::Uid const& peer, SerializedSyncPacket const& bytes) {
         CHECK(peer == left_uid);
         left_ptr->Receive(right_uid, bytes);
       },
-      true, {}, make_log("R2:"));
+      {}, true, {}, make_log("R2:"));
   left_ptr = &left2;
   right_ptr = &right2;
 
@@ -273,12 +273,100 @@ void TestControllerBidirectionalAndRestart() {
   CHECK(resumed);
 }
 
+void TestRetryGatedOnTransportState() {
+  auto left_uid = MakeUid(0xC3);
+  auto right_uid = MakeUid(0xD4);
+  Side left{"Windows", left_uid};
+  Side right{"Android", right_uid};
+
+  std::vector<SerializedSyncPacket> sent;
+  bool deliver = false;
+  bool allow_retry = true;
+
+  examples::ChatSyncController* left_ptr = nullptr;
+  examples::ChatSyncController* right_ptr = nullptr;
+
+  examples::ChatSyncController left_ctrl(
+      left.Replica(), left.graph.chat, left.graph.peer_set,
+      [&](ae::Uid const& peer, SerializedSyncPacket const& bytes) {
+        CHECK(peer == right_uid);
+        sent.push_back(bytes);
+        if (deliver) {
+          assert(right_ptr != nullptr);
+          right_ptr->Receive(left_uid, bytes);
+        }
+      },
+      [&](ae::Uid const& peer) {
+        CHECK(peer == right_uid);
+        return allow_retry;
+      },
+      false);
+  examples::ChatSyncController right_ctrl(
+      right.Replica(), right.graph.chat, right.graph.peer_set,
+      [&](ae::Uid const& peer, SerializedSyncPacket const& bytes) {
+        CHECK(peer == left_uid);
+        assert(left_ptr != nullptr);
+        left_ptr->Receive(right_uid, bytes);
+      },
+      {}, true);
+  left_ptr = &left_ctrl;
+  right_ptr = &right_ctrl;
+
+  left_ctrl.Start();
+  right_ctrl.Start();
+
+  // Nothing reaches the peer yet, so the initial packet stays pending.
+  left_ctrl.AddPeer(right_uid);
+  auto pending_count = [&]() {
+    auto const* session = left_ctrl.FindSession(right_uid);
+    CHECK(session != nullptr);
+    return session->pending_packet_count();
+  };
+  auto pending_id = [&]() {
+    auto const* session = left_ctrl.FindSession(right_uid);
+    CHECK(session != nullptr);
+    CHECK(!session->state()->data.pending_packets.empty());
+    return session->state()->data.pending_packets.front().packet_id;
+  };
+  CHECK(sent.size() == 1);
+  CHECK(pending_count() == 1);
+  auto const initial_bytes = sent.front();
+  auto const initial_id = pending_id();
+
+  sent.clear();
+  allow_retry = false;
+  for (int i = 0; i < 5; ++i) {
+    left_ctrl.Tick(ae::Now());
+    SleepMs(5);
+  }
+  CHECK(sent.empty());
+  CHECK(pending_count() == 1);
+  CHECK(pending_id() == initial_id);
+
+  allow_retry = true;
+  left_ctrl.Tick(ae::Now());
+  CHECK(sent.size() == 1);
+  CHECK(sent.front() == initial_bytes);
+  CHECK(pending_count() == 1);
+  CHECK(pending_id() == initial_id);
+
+  deliver = true;
+  right_ctrl.Receive(left_uid, initial_bytes);
+  for (int i = 0; i < 200 && pending_count() > 0; ++i) {
+    left_ctrl.Tick(ae::Now());
+    right_ctrl.Tick(ae::Now());
+    SleepMs(5);
+  }
+  CHECK(pending_count() == 0);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSingleClientChatRegistration();
   apptraverse::test::TestControllerBidirectionalAndRestart();
+  apptraverse::test::TestRetryGatedOnTransportState();
   std::cout << "chat_sync_controller_test OK\n";
   return 0;
 }

@@ -2,6 +2,7 @@
 #define APPTRAVERSE_EXAMPLES_CHAT_SYNC_CONTROLLER_H_
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -27,12 +28,14 @@ class ChatSyncController {
  public:
   using SendFunction = std::function<void(
       ae::Uid const& peer, SerializedSyncPacket const& bytes)>;
+  using CanRetryFunction = std::function<bool(ae::Uid const& peer)>;
   using ChangedFunction = std::function<void()>;
   using LogFunction = std::function<void(std::string const&)>;
 
+  // An empty can_retry means the transport is always considered writable.
   ChatSyncController(SyncReplica replica, Chat::ptr chat,
                      ChatPeerSet::ptr peer_set, SendFunction send,
-                     bool auto_accept_incoming,
+                     CanRetryFunction can_retry, bool auto_accept_incoming,
                      ChangedFunction changed = {}, LogFunction log = {});
 
   void Start();
@@ -50,6 +53,8 @@ class ChatSyncController {
     std::unique_ptr<SharedGraphSyncSession> session;
     bool last_initial_sync_complete{false};
     ae::TimePoint last_retry{};
+    ae::TimePoint last_retry_gate_log{};
+    std::size_t last_pending_count{0};
   };
 
   void Log(std::string const& line);
@@ -62,6 +67,7 @@ class ChatSyncController {
   Chat::ptr chat_;
   ChatPeerSet::ptr peer_set_;
   SendFunction send_;
+  CanRetryFunction can_retry_;
   bool auto_accept_incoming_{false};
   ChangedFunction changed_;
   LogFunction log_;

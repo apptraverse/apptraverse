@@ -18,6 +18,7 @@ std::string FormatUid(ae::Uid const& uid) { return ae::Format("{}", uid); }
 ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
                                        ChatPeerSet::ptr peer_set,
                                        SendFunction send,
+                                       CanRetryFunction can_retry,
                                        bool auto_accept_incoming,
                                        ChangedFunction changed,
                                        LogFunction log)
@@ -25,9 +26,13 @@ ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
       chat_{std::move(chat)},
       peer_set_{std::move(peer_set)},
       send_{std::move(send)},
+      can_retry_{std::move(can_retry)},
       auto_accept_incoming_{auto_accept_incoming},
       changed_{std::move(changed)},
       log_{std::move(log)} {
+  if (!can_retry_) {
+    can_retry_ = [](ae::Uid const&) { return true; };
+  }
   assert(send_);
   assert(chat_.is_valid());
   assert(peer_set_.is_valid());
@@ -184,13 +189,36 @@ void ChatSyncController::Tick(ae::TimePoint now) {
     assert(runtime.session != nullptr);
     runtime.session->Poll();
 
-    bool const due =
-        runtime.last_retry.time_since_epoch().count() == 0 ||
-        now - runtime.last_retry >= kRetryInterval;
-    if (due && runtime.session->pending_packet_count() > 0) {
-      runtime.session->RetryPending();
-      runtime.last_retry = now;
+    auto const pending = runtime.session->pending_packet_count();
+    // While the transport cannot accept bytes the retry clock stays untouched,
+    // so the first Tick after it becomes writable retries right away.
+    if (pending > 0 && can_retry_(runtime.remote_uid)) {
+      bool const due =
+          runtime.last_retry.time_since_epoch().count() == 0 ||
+          now - runtime.last_retry >= kRetryInterval;
+      if (due) {
+        runtime.session->RetryPending();
+        runtime.last_retry = now;
+        Log(ae::Format("CHAT_RETRY_SENT peer={} pending={}",
+                       FormatUid(runtime.remote_uid), pending));
+      }
+    } else if (pending > 0) {
+      // Rate limited to the retry interval so a long outage cannot flood.
+      bool const due =
+          runtime.last_retry_gate_log.time_since_epoch().count() == 0 ||
+          now - runtime.last_retry_gate_log >= kRetryInterval;
+      if (due) {
+        runtime.last_retry_gate_log = now;
+        Log(ae::Format("CHAT_RETRY_GATED peer={} pending={}",
+                       FormatUid(runtime.remote_uid), pending));
+      }
     }
+
+    if (runtime.last_pending_count > 0 && pending == 0) {
+      Log(ae::Format("CHAT_PENDING_CLEARED peer={}",
+                     FormatUid(runtime.remote_uid)));
+    }
+    runtime.last_pending_count = pending;
 
     if (!runtime.last_initial_sync_complete &&
         runtime.session->initial_sync_complete()) {

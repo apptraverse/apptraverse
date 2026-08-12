@@ -232,6 +232,7 @@ bool NativeRuntime::SelectAetherClient() {
 
 void NativeRuntime::StartP2pTransport() {
   p2p_transport_ = std::make_unique<examples::AetherP2pTransport>();
+  p2p_transport_->SetLogHandler([](std::string line) { LogMarker(line); });
   p2p_transport_->Start(aether_app_, aether_client_);
   LogMarker("AETHER_P2P_TRANSPORT_READY");
 }
@@ -261,6 +262,9 @@ bool NativeRuntime::StartChatSync() {
       peer_set,
       [this](ae::Uid const& peer, SerializedSyncPacket const& bytes) {
         p2p_transport_->Send(peer, bytes);
+      },
+      [this](ae::Uid const& peer) {
+        return p2p_transport_->IsPeerWritable(peer);
       },
       true,
       [this]() {

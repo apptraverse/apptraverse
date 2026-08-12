@@ -62,6 +62,9 @@ struct CliOptions {
   std::optional<ae::Uid> peer;
   bool auto_accept_peer{false};
   std::optional<std::string> send_after_sync;
+  // Commits a message right after startup, without waiting for a synchronized
+  // peer. Smoke automation only: the UI Send button uses the same path.
+  std::optional<std::string> commit_message;
   std::optional<std::string> wait_for_message;
   bool exit_after_message{false};
   std::optional<ae::Uid> p2p_ping;
@@ -114,6 +117,10 @@ CliOptions ParseCli(int argc, char** argv) {
     } else if (arg == "--send-after-sync") {
       if (auto const* value = need_value("--send-after-sync")) {
         options.send_after_sync = value;
+      }
+    } else if (arg == "--commit-message") {
+      if (auto const* value = need_value("--commit-message")) {
+        options.commit_message = value;
       }
     } else if (arg == "--wait-for-message") {
       if (auto const* value = need_value("--wait-for-message")) {
@@ -241,6 +248,7 @@ int Run(CliOptions const& options) {
   }
 
   apptraverse::examples::AetherP2pTransport p2p_transport;
+  p2p_transport.SetLogHandler([](std::string line) { LogLine(line); });
   p2p_transport.Start(aether_app, aether_client);
 
   auto& win_presenter =
@@ -315,6 +323,7 @@ int Run(CliOptions const& options) {
       [&](ae::Uid const& peer, apptraverse::SerializedSyncPacket const& bytes) {
         p2p_transport.Send(peer, bytes);
       },
+      [&](ae::Uid const& peer) { return p2p_transport.IsPeerWritable(peer); },
       options.auto_accept_peer,
       [&]() {
         chat_ui.RefreshTranscript();
@@ -349,6 +358,16 @@ int Run(CliOptions const& options) {
 
   win_presenter.CreateNativeWindow();
   log_chat_journal();
+
+  if (options.commit_message.has_value()) {
+    chat_ui.SubmitText(*options.commit_message);
+    chat.Save();
+    app.Save();
+    chat_ui.RefreshTranscript();
+    LogLine("MESSAGE_COMMITTED text=" + *options.commit_message);
+    log_chat_journal();
+  }
+
   check_wait_message();
 
   ae::TimePoint ping_deadline{};
