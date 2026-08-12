@@ -70,6 +70,9 @@ struct CliOptions {
   // Smoke automation: poll a one-line inbox file and commit each line without
   // restarting the process (keeps the outgoing P2P path stable).
   std::optional<std::filesystem::path> commit_inbox;
+  // Smoke automation: poll a one-line inbox file of peer UIDs and AddPeer without
+  // restarting (path is not stored in the model).
+  std::optional<std::filesystem::path> peer_inbox;
   std::optional<std::string> wait_for_message;
   bool exit_after_message{false};
   bool exit_after_pending_clear{false};
@@ -131,6 +134,10 @@ CliOptions ParseCli(int argc, char** argv) {
     } else if (arg == "--commit-inbox") {
       if (auto const* value = need_value("--commit-inbox")) {
         options.commit_inbox = value;
+      }
+    } else if (arg == "--peer-inbox") {
+      if (auto const* value = need_value("--peer-inbox")) {
+        options.peer_inbox = value;
       }
     } else if (arg == "--wait-for-message") {
       if (auto const* value = need_value("--wait-for-message")) {
@@ -466,13 +473,71 @@ int Run(CliOptions const& options) {
     }
     in.close();
     std::filesystem::remove(inbox, ec);
-    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+    while (!line.empty() && (line.back() == char(13) || line.back() == char(10))) {
       line.pop_back();
     }
     if (line.empty()) {
       return;
     }
     commit_chat_text(line);
+  };
+
+  auto peer_already_present = [&](ae::Uid const& uid) {
+    if (chat_sync.FindSession(uid) != nullptr) {
+      return true;
+    }
+    peer_set.Load();
+    if (!peer_set.is_loaded()) {
+      return false;
+    }
+    for (auto const& peer : peer_set->peers) {
+      if (peer.remote_uid == uid) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  auto maybe_peer_inbox = [&]() {
+    if (!options.peer_inbox.has_value()) {
+      return;
+    }
+    auto const& inbox = *options.peer_inbox;
+    std::error_code ec;
+    if (!std::filesystem::exists(inbox, ec) || ec) {
+      return;
+    }
+    std::ifstream in(inbox, std::ios::binary);
+    if (!in) {
+      return;
+    }
+    std::string line;
+    if (!std::getline(in, line)) {
+      in.close();
+      std::filesystem::remove(inbox, ec);
+      return;
+    }
+    in.close();
+    std::filesystem::remove(inbox, ec);
+    while (!line.empty() && (line.back() == char(13) || line.back() == char(10))) {
+      line.pop_back();
+    }
+    if (line.empty()) {
+      return;
+    }
+    auto const uid = ae::Uid::FromString(std::string_view{line});
+    if (uid.empty()) {
+      LogLine("CHAT_PEER_INBOX_INVALID uid_text=" + line);
+      return;
+    }
+    auto const uid_text = apptraverse::examples::FormatAetherUid(uid);
+    if (peer_already_present(uid)) {
+      LogLine("CHAT_PEER_ALREADY_PRESENT uid=" + uid_text);
+      return;
+    }
+    chat_sync.AddPeer(uid);
+    p2p_transport.Connect(uid);
+    LogLine("CHAT_PEER_INBOX_ADDED uid=" + uid_text);
   };
 
   if (options.commit_message.has_value()) {
@@ -557,6 +622,7 @@ int Run(CliOptions const& options) {
     auto const next_update = aether_app->Update(now);
     chat_sync.Tick(now);
     maybe_commit_inbox();
+    maybe_peer_inbox();
     maybe_send_after_sync();
     check_wait_message();
 
