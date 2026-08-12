@@ -11,7 +11,7 @@
 #include "aether/all.h"
 
 #include "aether_p2p_framing.h"
-#include "aether_p2p_stream_select.h"
+#include "aether_p2p_outgoing_routing.h"
 
 namespace apptraverse::examples {
 
@@ -19,17 +19,20 @@ inline constexpr char kP2pPingPayload[] = "APPTRAVERSE_P2P_PING_V1";
 inline constexpr char kP2pPongPayload[] = "APPTRAVERSE_P2P_PONG_V1";
 
 // Opaque framed byte transport over raw Aether P2pStream.
-// Reliability (ack / retry / duplicate suppression) belongs to the future
+// Reliability (ack / retry / duplicate suppression) belongs to the
 // synchronization layer — this transport does not provide it.
 // Peer Aether UID is transport context only and is never placed in the payload.
-// Multiple streams may exist for the same remote UID (incoming + outgoing);
-// each send picks the most promising one instead of the first one found.
+//
+// Directional model per remote UID:
+// - exactly one active outgoing P2pStream is used for all Send;
+// - any number of incoming (and retired outgoing) streams receive only;
+// - receive activity never influences outgoing selection.
 class AetherP2pTransport {
  public:
   using ReceiveHandler = std::function<void(
       ae::Uid const& peer, std::vector<std::uint8_t> const& payload)>;
-  using PeerStateHandler =
-      std::function<void(ae::Uid const& peer, P2pPeerTransportState state)>;
+  using OutgoingStateHandler =
+      std::function<void(ae::Uid const& peer, P2pOutgoingState state)>;
   using LogHandler = std::function<void(std::string line)>;
 
   AetherP2pTransport() = default;
@@ -38,24 +41,27 @@ class AetherP2pTransport {
 
   void Start(ae::RcPtr<ae::AetherApp> aether_app, ae::Client::ptr local_client);
 
-  // Creates an outgoing stream only when the peer has none. When streams exist
-  // but are only connecting, leaves them alone. When every stream is in link
-  // error, Restream()s the best one instead of opening another outgoing.
+  // Always ensures an active outgoing stream to peer. Presence of an incoming
+  // stream is never a reason to skip creating the outgoing path.
   void Connect(ae::Uid const& remote_uid);
+  void EnsureOutgoing(ae::Uid const& peer);
+
+  void RestreamOutgoing(ae::Uid const& peer);
+  void ReplaceOutgoing(ae::Uid const& peer);
 
   // A disposition is not an acknowledgement: kWritable only says the frame was
-  // handed to a linked+writable stream.
-  P2pSendDisposition Send(ae::Uid const& remote_uid, std::uint8_t const* bytes,
-                          std::size_t size);
-  P2pSendDisposition Send(ae::Uid const& remote_uid,
-                          std::vector<std::uint8_t> const& bytes);
-  P2pSendDisposition SendText(ae::Uid const& remote_uid, std::string_view text);
+  // handed to a linked+writable active outgoing stream.
+  P2pSendResult Send(ae::Uid const& remote_uid, std::uint8_t const* bytes,
+                     std::size_t size);
+  P2pSendResult Send(ae::Uid const& remote_uid,
+                     std::vector<std::uint8_t> const& bytes);
+  P2pSendResult SendText(ae::Uid const& remote_uid, std::string_view text);
 
-  P2pPeerTransportState PeerState(ae::Uid const& remote_uid) const;
-  bool IsPeerWritable(ae::Uid const& remote_uid) const;
+  P2pOutgoingState OutgoingState(ae::Uid const& remote_uid) const;
+  bool IsOutgoingWritable(ae::Uid const& remote_uid) const;
 
   void SetReceiveHandler(ReceiveHandler handler);
-  void SetPeerStateHandler(PeerStateHandler handler);
+  void SetOutgoingStateHandler(OutgoingStateHandler handler);
   void SetLogHandler(LogHandler handler);
 
  private:
@@ -66,34 +72,35 @@ class AetherP2pTransport {
     ae::Subscription data_sub;
     ae::Subscription stream_update_sub;
     AetherP2pFrameDecoder decoder;
-    std::uint64_t creation_order{0};
-    std::uint64_t last_receive_order{0};
     P2pStreamDirection direction{P2pStreamDirection::kOutgoing};
+    std::uint64_t generation{0};
+    bool active_for_send{false};
     ae::StreamInfo info{};
   };
 
-  struct PeerTracking {
-    ae::Uid peer{};
-    P2pPeerTransportState last_state{P2pPeerTransportState::kNoStream};
-    std::uint64_t last_selected_creation_order{0};
-    P2pStreamSelectReason last_select_reason{
-        P2pStreamSelectReason::kErrorFallback};
-    bool has_selected{false};
+  struct PeerTransport {
+    ae::Uid remote_uid{};
+    std::uint64_t active_outgoing_generation{0};
+    std::vector<std::unique_ptr<PeerSession>> sessions;
+    P2pOutgoingState last_published_outgoing_state{P2pOutgoingState::kMissing};
   };
 
-  PeerSession* CreateSession(ae::Uid const& peer, ae::P2pPortHandle handle,
-                             P2pStreamDirection direction);
-  PeerSession* CreateOutgoingSession(ae::Uid const& peer);
+  PeerTransport& EnsurePeerTransport(ae::Uid const& peer);
+  PeerTransport* FindPeerTransport(ae::Uid const& peer);
+  PeerTransport const* FindPeerTransport(ae::Uid const& peer) const;
+  PeerSession* FindActiveOutgoing(PeerTransport& peer);
+  PeerSession const* FindActiveOutgoing(PeerTransport const& peer) const;
+
+  PeerSession* CreateOutgoingSession(PeerTransport& peer);
+  PeerSession* CreateIncomingSession(PeerTransport& peer,
+                                     ae::P2pPortHandle handle);
   void AttachIncoming(ae::P2pPortHandle handle);
 
-  std::vector<PeerSession*> CollectPeerSessions(ae::Uid const& peer);
-  std::vector<P2pSessionSelectCandidate> BuildPeerCandidates(
-      std::vector<PeerSession*> const& sessions);
   void RefreshStreamInfo(PeerSession& session);
+  P2pOutgoingState ComputeState(PeerSession const* active) const;
 
   void OnStreamUpdate(PeerSession* session);
-  void PublishPeerState(ae::Uid const& peer);
-  PeerTracking& Tracking(ae::Uid const& peer);
+  void PublishOutgoingState(PeerTransport& peer);
 
   void OnRawStreamData(PeerSession* session, ae::DataBuffer const& data);
   void EmitPayload(ae::Uid const& peer,
@@ -103,13 +110,10 @@ class AetherP2pTransport {
   ae::RcPtr<ae::AetherApp> aether_app_;
   ae::Client::ptr local_client_;
   ReceiveHandler on_receive_;
-  PeerStateHandler on_peer_state_;
+  OutgoingStateHandler on_outgoing_state_;
   LogHandler on_log_;
   ae::Subscription new_port_sub_;
-  std::vector<std::unique_ptr<PeerSession>> sessions_;
-  std::vector<PeerTracking> peer_tracking_;
-  std::uint64_t next_creation_order_{1};
-  std::uint64_t next_receive_order_{1};
+  std::vector<std::unique_ptr<PeerTransport>> peers_;
 };
 
 // Returns true when payload is PING or PONG (answers PONG for PING).

@@ -323,7 +323,9 @@ int Run(CliOptions const& options) {
       [&](ae::Uid const& peer, apptraverse::SerializedSyncPacket const& bytes) {
         p2p_transport.Send(peer, bytes);
       },
-      [&](ae::Uid const& peer) { return p2p_transport.IsPeerWritable(peer); },
+      [&](ae::Uid const& peer) {
+        return p2p_transport.IsOutgoingWritable(peer);
+      },
       options.auto_accept_peer,
       [&]() {
         chat_ui.RefreshTranscript();

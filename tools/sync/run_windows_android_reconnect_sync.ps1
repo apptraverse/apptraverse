@@ -563,9 +563,9 @@ try {
   Wait-WindowsMarker $win_sim $win_sim_log "CHAT_SYNC_RESUMED .*initial_complete=1" `
     "Windows CHAT_SYNC_RESUMED" $SyncTimeoutSec
 
-  Wait-WindowsMarker $win_sim $win_sim_log "P2P_PEER_STATE peer=\S+ state=writable" `
+  Wait-WindowsMarker $win_sim $win_sim_log "P2P_OUTGOING_STATE peer=\S+ state=writable" `
     "Windows peer transport writable" $WritableTimeoutSec
-  Wait-Marker $adb $Serial "P2P_PEER_STATE peer=\S+ state=writable" `
+  Wait-Marker $adb $Serial "P2P_OUTGOING_STATE peer=\S+ state=writable" `
     "Android peer transport writable" $WritableTimeoutSec
 
   Wait-WindowsMarker $win_sim $win_sim_log "CHAT_SEND_AFTER_SYNC text=simultaneous_windows" `
@@ -672,7 +672,7 @@ try {
     "Android ready after outage" $ClientReadyTimeoutSec
   Wait-Marker $adb $Serial "CHAT_SYNC_RESUMED .*initial_complete=1" `
     "Android CHAT_SYNC_RESUMED after outage" $SyncTimeoutSec
-  Wait-WindowsMarker $win_offline $win_offline_log "P2P_PEER_STATE peer=\S+ state=writable" `
+  Wait-WindowsMarker $win_offline $win_offline_log "P2P_OUTGOING_STATE peer=\S+ state=writable" `
     "Windows peer writable after outage" $WritableTimeoutSec
   Wait-Marker $adb $Serial "TRANSCRIPT_PUBLISHED .*queued_while_android_stopped" `
     "Android received the queued message" $SyncTimeoutSec
@@ -723,7 +723,7 @@ $win_incoming = Start-WindowsRedirected $win_exe $repo_root $win_incoming_args $
 try {
   Wait-WindowsMarker $win_incoming $win_incoming_log "CHAT_SYNC_RESUMED .*initial_complete=1" `
     "Windows CHAT_SYNC_RESUMED for incoming reply" $ClientReadyTimeoutSec
-  Wait-WindowsMarker $win_incoming $win_incoming_log "P2P_PEER_STATE peer=\S+ state=writable" `
+  Wait-WindowsMarker $win_incoming $win_incoming_log "P2P_OUTGOING_STATE peer=\S+ state=writable" `
     "Windows peer writable for incoming reply" $WritableTimeoutSec
   Wait-WindowsMarker $win_incoming $win_incoming_log "CHAT_SEND_AFTER_SYNC text=reply_probe_windows" `
     "Windows sent reply_probe_windows" $SyncTimeoutSec

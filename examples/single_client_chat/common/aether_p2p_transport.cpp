@@ -24,18 +24,6 @@ bool PayloadEquals(std::vector<std::uint8_t> const& payload,
   return true;
 }
 
-P2pSessionSelectCandidate ToCandidate(std::uint64_t creation_order,
-                                      std::uint64_t last_receive_order,
-                                      ae::StreamInfo const& info) {
-  P2pSessionSelectCandidate candidate;
-  candidate.creation_order = creation_order;
-  candidate.last_receive_order = last_receive_order;
-  candidate.is_writable =
-      info.link_state == ae::LinkState::kLinked && info.is_writable;
-  candidate.is_link_error = info.link_state == ae::LinkState::kLinkError;
-  return candidate;
-}
-
 }  // namespace
 
 void AetherP2pTransport::Start(ae::RcPtr<ae::AetherApp> aether_app,
@@ -55,139 +43,67 @@ void AetherP2pTransport::SetReceiveHandler(ReceiveHandler handler) {
   on_receive_ = std::move(handler);
 }
 
-void AetherP2pTransport::SetPeerStateHandler(PeerStateHandler handler) {
-  on_peer_state_ = std::move(handler);
+void AetherP2pTransport::SetOutgoingStateHandler(OutgoingStateHandler handler) {
+  on_outgoing_state_ = std::move(handler);
 }
 
 void AetherP2pTransport::SetLogHandler(LogHandler handler) {
   on_log_ = std::move(handler);
 }
 
-void AetherP2pTransport::Connect(ae::Uid const& remote_uid) {
-  auto sessions = CollectPeerSessions(remote_uid);
-  if (sessions.empty()) {
-    (void)CreateOutgoingSession(remote_uid);
-    return;
+AetherP2pTransport::PeerTransport& AetherP2pTransport::EnsurePeerTransport(
+    ae::Uid const& peer) {
+  if (auto* existing = FindPeerTransport(peer)) {
+    return *existing;
   }
-
-  auto const candidates = BuildPeerCandidates(sessions);
-  auto const state = AggregatePeerTransportState(candidates);
-  if (state == P2pPeerTransportState::kWritable) {
-    return;
-  }
-  // A still-connecting stream is already negotiating — Restream() there can
-  // tear down an in-flight first Write (AddPeer/Send then Connect). Only
-  // revive streams that are in terminal link error; never open another
-  // outgoing for the same peer from Connect.
-  if (state != P2pPeerTransportState::kError) {
-    return;
-  }
-
-  auto const best = SelectBestP2pSession(candidates);
-  if (best.has_value() && sessions[best->index]->stream != nullptr) {
-    sessions[best->index]->stream->Restream();
-  }
+  auto transport = std::make_unique<PeerTransport>();
+  transport->remote_uid = peer;
+  peers_.push_back(std::move(transport));
+  return *peers_.back();
 }
 
-P2pSendDisposition AetherP2pTransport::Send(
-    ae::Uid const& remote_uid, std::vector<std::uint8_t> const& bytes) {
-  return Send(remote_uid, bytes.data(), bytes.size());
-}
-
-P2pSendDisposition AetherP2pTransport::SendText(ae::Uid const& remote_uid,
-                                                std::string_view text) {
-  auto const bytes = ToBytes(text);
-  return Send(remote_uid, bytes.data(), bytes.size());
-}
-
-P2pSendDisposition AetherP2pTransport::Send(ae::Uid const& remote_uid,
-                                            std::uint8_t const* bytes,
-                                            std::size_t size) {
-  auto sessions = CollectPeerSessions(remote_uid);
-  auto candidates = BuildPeerCandidates(sessions);
-  auto best = SelectBestP2pSession(candidates);
-
-  if (!best.has_value()) {
-    auto* created = CreateOutgoingSession(remote_uid);
-    if (created == nullptr) {
-      return P2pSendDisposition::kBufferedOrConnecting;
-    }
-    sessions = CollectPeerSessions(remote_uid);
-    candidates = BuildPeerCandidates(sessions);
-    best = SelectBestP2pSession(candidates);
-    if (!best.has_value()) {
-      return P2pSendDisposition::kBufferedOrConnecting;
+AetherP2pTransport::PeerTransport* AetherP2pTransport::FindPeerTransport(
+    ae::Uid const& peer) {
+  for (auto& transport : peers_) {
+    if (transport != nullptr && transport->remote_uid == peer) {
+      return transport.get();
     }
   }
-
-  auto* session = sessions[best->index];
-  if (session == nullptr || session->stream == nullptr) {
-    return P2pSendDisposition::kBufferedOrConnecting;
-  }
-
-  auto& tracking = Tracking(remote_uid);
-  bool const selection_changed =
-      !tracking.has_selected ||
-      tracking.last_selected_creation_order != session->creation_order ||
-      tracking.last_select_reason != best->reason;
-  if (selection_changed) {
-    tracking.has_selected = true;
-    tracking.last_selected_creation_order = session->creation_order;
-    tracking.last_select_reason = best->reason;
-    Log("P2P_STREAM_SELECTED peer=" + FormatAetherUid(remote_uid) +
-        " direction=" + std::string{ToString(session->direction)} +
-        " reason=" + std::string{ToString(best->reason)});
-  }
-
-  auto const frame = EncodeAetherP2pFrame(bytes, size);
-  (void)session->stream->Write(ae::DataBuffer{frame.begin(), frame.end()});
-
-  return candidates[best->index].is_writable
-             ? P2pSendDisposition::kWritable
-             : P2pSendDisposition::kBufferedOrConnecting;
+  return nullptr;
 }
 
-P2pPeerTransportState AetherP2pTransport::PeerState(
-    ae::Uid const& remote_uid) const {
-  std::vector<P2pSessionSelectCandidate> candidates;
-  for (auto const& session : sessions_) {
-    if (session == nullptr || !(session->peer == remote_uid)) {
-      continue;
-    }
-    auto const info =
-        session->stream != nullptr ? session->stream->stream_info() : session->info;
-    candidates.push_back(ToCandidate(session->creation_order,
-                                     session->last_receive_order, info));
-  }
-  return AggregatePeerTransportState(candidates);
-}
-
-bool AetherP2pTransport::IsPeerWritable(ae::Uid const& remote_uid) const {
-  return PeerState(remote_uid) == P2pPeerTransportState::kWritable;
-}
-
-std::vector<AetherP2pTransport::PeerSession*>
-AetherP2pTransport::CollectPeerSessions(ae::Uid const& peer) {
-  std::vector<PeerSession*> found;
-  for (auto& session : sessions_) {
-    if (session != nullptr && session->peer == peer) {
-      found.push_back(session.get());
+AetherP2pTransport::PeerTransport const*
+AetherP2pTransport::FindPeerTransport(ae::Uid const& peer) const {
+  for (auto const& transport : peers_) {
+    if (transport != nullptr && transport->remote_uid == peer) {
+      return transport.get();
     }
   }
-  return found;
+  return nullptr;
 }
 
-std::vector<P2pSessionSelectCandidate> AetherP2pTransport::BuildPeerCandidates(
-    std::vector<PeerSession*> const& sessions) {
-  std::vector<P2pSessionSelectCandidate> candidates;
-  candidates.reserve(sessions.size());
-  for (auto* session : sessions) {
-    RefreshStreamInfo(*session);
-    candidates.push_back(ToCandidate(session->creation_order,
-                                     session->last_receive_order,
-                                     session->info));
+AetherP2pTransport::PeerSession* AetherP2pTransport::FindActiveOutgoing(
+    PeerTransport& peer) {
+  for (auto& session : peer.sessions) {
+    if (session != nullptr &&
+        session->direction == P2pStreamDirection::kOutgoing &&
+        session->active_for_send) {
+      return session.get();
+    }
   }
-  return candidates;
+  return nullptr;
+}
+
+AetherP2pTransport::PeerSession const* AetherP2pTransport::FindActiveOutgoing(
+    PeerTransport const& peer) const {
+  for (auto const& session : peer.sessions) {
+    if (session != nullptr &&
+        session->direction == P2pStreamDirection::kOutgoing &&
+        session->active_for_send) {
+      return session.get();
+    }
+  }
+  return nullptr;
 }
 
 void AetherP2pTransport::RefreshStreamInfo(PeerSession& session) {
@@ -196,19 +112,40 @@ void AetherP2pTransport::RefreshStreamInfo(PeerSession& session) {
   }
 }
 
-AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
-    ae::Uid const& peer, ae::P2pPortHandle handle,
-    P2pStreamDirection direction) {
+P2pOutgoingState AetherP2pTransport::ComputeState(
+    PeerSession const* active) const {
+  if (active == nullptr) {
+    return P2pOutgoingState::kMissing;
+  }
+  if (active->info.link_state == ae::LinkState::kLinked &&
+      active->info.is_writable) {
+    return P2pOutgoingState::kWritable;
+  }
+  if (active->info.link_state == ae::LinkState::kLinkError) {
+    return P2pOutgoingState::kError;
+  }
+  return P2pOutgoingState::kConnecting;
+}
+
+AetherP2pTransport::PeerSession* AetherP2pTransport::CreateOutgoingSession(
+    PeerTransport& peer) {
   if (!aether_app_ || !local_client_) {
     return nullptr;
   }
 
+  auto handle =
+      local_client_->message_stream_manager().CreatePort(peer.remote_uid);
+
   auto session = std::make_unique<PeerSession>();
-  session->peer = peer;
-  session->direction = direction;
-  session->creation_order = next_creation_order_++;
+  session->peer = peer.remote_uid;
+  session->direction = P2pStreamDirection::kOutgoing;
+  session->generation = peer.active_outgoing_generation + 1;
+  if (session->generation == 0) {
+    session->generation = 1;
+  }
+  session->active_for_send = true;
   session->stream = std::make_shared<ae::P2pStream>(
-      *aether_app_, local_client_.Load(), peer, std::move(handle));
+      *aether_app_, local_client_.Load(), peer.remote_uid, std::move(handle));
 
   auto* raw = session.get();
   session->data_sub = session->stream->out_data_event().Subscribe(
@@ -218,25 +155,160 @@ AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
           [this, raw]() { OnStreamUpdate(raw); });
   RefreshStreamInfo(*raw);
 
-  sessions_.push_back(std::move(session));
-  PublishPeerState(peer);
+  peer.active_outgoing_generation = raw->generation;
+  peer.sessions.push_back(std::move(session));
+
+  if (raw->generation == 1) {
+    Log("P2P_OUTGOING_CREATED peer=" + FormatAetherUid(peer.remote_uid) +
+        " generation=1");
+  }
+  PublishOutgoingState(peer);
   return raw;
 }
 
-AetherP2pTransport::PeerSession* AetherP2pTransport::CreateOutgoingSession(
-    ae::Uid const& peer) {
+AetherP2pTransport::PeerSession* AetherP2pTransport::CreateIncomingSession(
+    PeerTransport& peer, ae::P2pPortHandle handle) {
   if (!aether_app_ || !local_client_) {
     return nullptr;
   }
-  auto handle = local_client_->message_stream_manager().CreatePort(peer);
-  return CreateSession(peer, std::move(handle), P2pStreamDirection::kOutgoing);
+
+  auto session = std::make_unique<PeerSession>();
+  session->peer = peer.remote_uid;
+  session->direction = P2pStreamDirection::kIncoming;
+  session->generation = 0;
+  session->active_for_send = false;
+  session->stream = std::make_shared<ae::P2pStream>(
+      *aether_app_, local_client_.Load(), peer.remote_uid, std::move(handle));
+
+  auto* raw = session.get();
+  session->data_sub = session->stream->out_data_event().Subscribe(
+      [this, raw](ae::DataBuffer const& data) { OnRawStreamData(raw, data); });
+  session->stream_update_sub =
+      session->stream->stream_update_event().Subscribe(
+          [this, raw]() { OnStreamUpdate(raw); });
+  RefreshStreamInfo(*raw);
+
+  peer.sessions.push_back(std::move(session));
+  return raw;
+}
+
+void AetherP2pTransport::EnsureOutgoing(ae::Uid const& peer) {
+  auto& transport = EnsurePeerTransport(peer);
+  if (FindActiveOutgoing(transport) != nullptr) {
+    return;
+  }
+  (void)CreateOutgoingSession(transport);
+}
+
+void AetherP2pTransport::Connect(ae::Uid const& remote_uid) {
+  EnsureOutgoing(remote_uid);
+}
+
+void AetherP2pTransport::RestreamOutgoing(ae::Uid const& peer) {
+  auto* transport = FindPeerTransport(peer);
+  if (transport == nullptr) {
+    return;
+  }
+  auto* active = FindActiveOutgoing(*transport);
+  if (active == nullptr || active->stream == nullptr) {
+    return;
+  }
+  active->stream->Restream();
+  Log("P2P_OUTGOING_RESTREAM peer=" + FormatAetherUid(peer) +
+      " generation=" + std::to_string(active->generation));
+  RefreshStreamInfo(*active);
+  PublishOutgoingState(*transport);
+}
+
+void AetherP2pTransport::ReplaceOutgoing(ae::Uid const& peer) {
+  auto& transport = EnsurePeerTransport(peer);
+  auto* old_active = FindActiveOutgoing(transport);
+  std::uint64_t old_generation = 0;
+  if (old_active != nullptr) {
+    old_generation = old_active->generation;
+    old_active->active_for_send = false;
+  }
+  auto* created = CreateOutgoingSession(transport);
+  if (created == nullptr) {
+    return;
+  }
+  Log("P2P_OUTGOING_REPLACED peer=" + FormatAetherUid(peer) +
+      " old_generation=" + std::to_string(old_generation) +
+      " new_generation=" + std::to_string(created->generation));
 }
 
 void AetherP2pTransport::AttachIncoming(ae::P2pPortHandle handle) {
   auto const peer = handle.destination();
-  // An incoming port is always accepted and appended: the remote side may have
-  // given up on the stream we hold, and selection decides which one we use.
-  (void)CreateSession(peer, std::move(handle), P2pStreamDirection::kIncoming);
+  auto& transport = EnsurePeerTransport(peer);
+  // Incoming streams are receive-only. Create the local outgoing path before
+  // any payload / ACK processing that may follow on this port.
+  (void)CreateIncomingSession(transport, std::move(handle));
+  EnsureOutgoing(peer);
+}
+
+P2pSendResult AetherP2pTransport::Send(ae::Uid const& remote_uid,
+                                       std::vector<std::uint8_t> const& bytes) {
+  return Send(remote_uid, bytes.data(), bytes.size());
+}
+
+P2pSendResult AetherP2pTransport::SendText(ae::Uid const& remote_uid,
+                                           std::string_view text) {
+  auto const bytes = ToBytes(text);
+  return Send(remote_uid, bytes.data(), bytes.size());
+}
+
+P2pSendResult AetherP2pTransport::Send(ae::Uid const& remote_uid,
+                                       std::uint8_t const* bytes,
+                                       std::size_t size) {
+  EnsureOutgoing(remote_uid);
+  auto* transport = FindPeerTransport(remote_uid);
+  P2pSendResult result;
+  if (transport == nullptr) {
+    return result;
+  }
+  auto* active = FindActiveOutgoing(*transport);
+  if (active == nullptr || active->stream == nullptr) {
+    return result;
+  }
+
+  RefreshStreamInfo(*active);
+  result.outgoing_generation = active->generation;
+  result.disposition =
+      (active->info.link_state == ae::LinkState::kLinked &&
+       active->info.is_writable)
+          ? P2pSendDisposition::kWritable
+          : P2pSendDisposition::kBufferedOrConnecting;
+
+  auto const frame = EncodeAetherP2pFrame(bytes, size);
+  (void)active->stream->Write(ae::DataBuffer{frame.begin(), frame.end()});
+  return result;
+}
+
+P2pOutgoingState AetherP2pTransport::OutgoingState(
+    ae::Uid const& remote_uid) const {
+  auto const* transport = FindPeerTransport(remote_uid);
+  if (transport == nullptr) {
+    return P2pOutgoingState::kMissing;
+  }
+  auto const* active = FindActiveOutgoing(*transport);
+  if (active == nullptr) {
+    return P2pOutgoingState::kMissing;
+  }
+  ae::StreamInfo info = active->info;
+  if (active->stream != nullptr) {
+    info = active->stream->stream_info();
+  }
+  if (info.link_state == ae::LinkState::kLinked && info.is_writable) {
+    return P2pOutgoingState::kWritable;
+  }
+  if (info.link_state == ae::LinkState::kLinkError) {
+    return P2pOutgoingState::kError;
+  }
+  return P2pOutgoingState::kConnecting;
+}
+
+bool AetherP2pTransport::IsOutgoingWritable(ae::Uid const& remote_uid) const {
+  return OutgoingState(remote_uid) == P2pOutgoingState::kWritable;
 }
 
 void AetherP2pTransport::OnStreamUpdate(PeerSession* session) {
@@ -244,43 +316,36 @@ void AetherP2pTransport::OnStreamUpdate(PeerSession* session) {
     return;
   }
   RefreshStreamInfo(*session);
-  PublishPeerState(session->peer);
-}
-
-void AetherP2pTransport::PublishPeerState(ae::Uid const& peer) {
-  auto const sessions = CollectPeerSessions(peer);
-  std::vector<P2pSessionSelectCandidate> candidates;
-  candidates.reserve(sessions.size());
-  for (auto const* session : sessions) {
-    candidates.push_back(ToCandidate(session->creation_order,
-                                     session->last_receive_order,
-                                     session->info));
-  }
-
-  auto const state = AggregatePeerTransportState(candidates);
-  auto& tracking = Tracking(peer);
-  if (tracking.last_state == state) {
+  auto* transport = FindPeerTransport(session->peer);
+  if (transport == nullptr) {
     return;
   }
-  tracking.last_state = state;
-  Log("P2P_PEER_STATE peer=" + FormatAetherUid(peer) +
-      " state=" + std::string{ToString(state)});
-  if (on_peer_state_) {
-    on_peer_state_(peer, state);
+  // Only active outgoing state is published. Incoming / retired updates are
+  // ignored for outgoing diagnostics.
+  if (session->direction == P2pStreamDirection::kOutgoing &&
+      session->active_for_send) {
+    PublishOutgoingState(*transport);
   }
 }
 
-AetherP2pTransport::PeerTracking& AetherP2pTransport::Tracking(
-    ae::Uid const& peer) {
-  for (auto& tracking : peer_tracking_) {
-    if (tracking.peer == peer) {
-      return tracking;
-    }
+void AetherP2pTransport::PublishOutgoingState(PeerTransport& peer) {
+  auto* active = FindActiveOutgoing(peer);
+  if (active != nullptr) {
+    RefreshStreamInfo(*active);
   }
-  PeerTracking tracking;
-  tracking.peer = peer;
-  peer_tracking_.push_back(tracking);
-  return peer_tracking_.back();
+  auto const state = ComputeState(active);
+  if (peer.last_published_outgoing_state == state) {
+    return;
+  }
+  peer.last_published_outgoing_state = state;
+  auto const generation =
+      active != nullptr ? active->generation : peer.active_outgoing_generation;
+  Log("P2P_OUTGOING_STATE peer=" + FormatAetherUid(peer.remote_uid) +
+      " generation=" + std::to_string(generation) +
+      " state=" + std::string{ToString(state)});
+  if (on_outgoing_state_) {
+    on_outgoing_state_(peer.remote_uid, state);
+  }
 }
 
 void AetherP2pTransport::OnRawStreamData(PeerSession* session,
@@ -288,27 +353,12 @@ void AetherP2pTransport::OnRawStreamData(PeerSession* session,
   if (session == nullptr) {
     return;
   }
-  // Recorded before decoding so a reply produced by the receive handler already
-  // prefers the stream the peer is actually talking on.
-  session->last_receive_order = next_receive_order_++;
-  auto& tracking = Tracking(session->peer);
-  bool const preference_changed =
-      !tracking.has_selected ||
-      tracking.last_selected_creation_order != session->creation_order ||
-      tracking.last_select_reason != P2pStreamSelectReason::kRecentReceive;
-  if (preference_changed) {
-    tracking.has_selected = true;
-    tracking.last_selected_creation_order = session->creation_order;
-    tracking.last_select_reason = P2pStreamSelectReason::kRecentReceive;
-    Log("P2P_STREAM_SELECTED peer=" + FormatAetherUid(session->peer) +
-        " direction=" + std::string(ToString(session->direction)) +
-        " reason=recent_receive");
-  }
-
+  // Receive activity never influences which stream is used for Send.
   session->decoder.Append(data.data(), data.size());
-  session->decoder.Drain([this, session](std::vector<std::uint8_t> const& payload) {
-    EmitPayload(session->peer, payload);
-  });
+  session->decoder.Drain(
+      [this, session](std::vector<std::uint8_t> const& payload) {
+        EmitPayload(session->peer, payload);
+      });
 }
 
 void AetherP2pTransport::EmitPayload(

@@ -264,7 +264,7 @@ bool NativeRuntime::StartChatSync() {
         p2p_transport_->Send(peer, bytes);
       },
       [this](ae::Uid const& peer) {
-        return p2p_transport_->IsPeerWritable(peer);
+        return p2p_transport_->IsOutgoingWritable(peer);
       },
       true,
       [this]() {
