@@ -155,7 +155,8 @@ void SharedGraphSyncSession::SendAck(ae::ObjId acknowledged_packet_id) {
   ae::Domain build_domain{ae::Now(), build_storage};
   auto ack = AckPacket::ptr::Create(ae::CreateWith{build_domain});
   ack->acknowledged_packet_id = acknowledged_packet_id;
-  send_(SyncPacketCodec{}.Encode(ack));
+  auto bytes = SyncPacketCodec{}.Encode(ack);
+  send_(ack.id(), std::move(bytes));
 }
 
 void SharedGraphSyncSession::MarkReceivedAndAck(ae::ObjId packet_id) {
@@ -191,10 +192,11 @@ void SharedGraphSyncSession::SendInitialNodeState(Node::ptr root) {
   pending.is_initial_state = true;
 
   auto bytes = pending.serialized_bytes;
+  auto const packet_id = pending.packet_id;
   auto data = state_->data;
   data.pending_packets.push_back(std::move(pending));
   CommitData(std::move(data));
-  send_(std::move(bytes));
+  send_(packet_id, std::move(bytes));
 }
 
 void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
@@ -228,10 +230,11 @@ void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
   pending.event_id = event.id();
 
   auto bytes = pending.serialized_bytes;
+  auto const packet_id = pending.packet_id;
   auto data = state_->data;
   data.pending_packets.push_back(std::move(pending));
   CommitData(std::move(data));
-  send_(std::move(bytes));
+  send_(packet_id, std::move(bytes));
 }
 
 void SharedGraphSyncSession::StartOrResume() {
@@ -242,9 +245,14 @@ void SharedGraphSyncSession::StartOrResume() {
   }
 
   if (!state_->data.initial_sync_complete) {
-    std::vector<SerializedSyncPacket> prior_pending;
+    struct PendingCopy {
+      ae::ObjId packet_id;
+      SerializedSyncPacket bytes;
+    };
+    std::vector<PendingCopy> prior_pending;
     for (auto const& pending : state_->data.pending_packets) {
-      prior_pending.push_back(pending.serialized_bytes);
+      prior_pending.push_back(
+          PendingCopy{pending.packet_id, pending.serialized_bytes});
     }
 
     if (!HasPendingInitialNodeState()) {
@@ -252,8 +260,8 @@ void SharedGraphSyncSession::StartOrResume() {
       SendInitialNodeState(root);
     }
 
-    for (auto& bytes : prior_pending) {
-      send_(std::move(bytes));
+    for (auto& item : prior_pending) {
+      send_(item.packet_id, std::move(item.bytes));
     }
     return;
   }
@@ -289,13 +297,17 @@ void SharedGraphSyncSession::Poll() {
 }
 
 void SharedGraphSyncSession::RetryPending() {
-  std::vector<SerializedSyncPacket> copies;
+  struct PendingCopy {
+    ae::ObjId packet_id;
+    SerializedSyncPacket bytes;
+  };
+  std::vector<PendingCopy> copies;
   copies.reserve(state_->data.pending_packets.size());
   for (auto const& pending : state_->data.pending_packets) {
-    copies.push_back(pending.serialized_bytes);
+    copies.push_back(PendingCopy{pending.packet_id, pending.serialized_bytes});
   }
-  for (auto& bytes : copies) {
-    send_(std::move(bytes));
+  for (auto& item : copies) {
+    send_(item.packet_id, std::move(item.bytes));
   }
 }
 
@@ -441,6 +453,7 @@ void SharedGraphSyncSession::Handle(AckPacket const& packet) {
                      }),
       data.pending_packets.end());
   CommitData(std::move(data));
+  ++ack_progress_revision_;
 }
 
 }  // namespace apptraverse

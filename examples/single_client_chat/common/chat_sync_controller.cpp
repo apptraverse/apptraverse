@@ -17,23 +17,34 @@ std::string FormatUid(ae::Uid const& uid) { return ae::Format("{}", uid); }
 
 ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
                                        ChatPeerSet::ptr peer_set,
-                                       SendFunction send,
-                                       CanRetryFunction can_retry,
+                                       SyncTransportOperations ops,
+                                       SyncRecoveryPolicy policy,
                                        bool auto_accept_incoming,
                                        ChangedFunction changed,
                                        LogFunction log)
     : replica_{replica},
       chat_{std::move(chat)},
       peer_set_{std::move(peer_set)},
-      send_{std::move(send)},
-      can_retry_{std::move(can_retry)},
+      ops_{std::move(ops)},
+      policy_{policy},
       auto_accept_incoming_{auto_accept_incoming},
       changed_{std::move(changed)},
       log_{std::move(log)} {
-  if (!can_retry_) {
-    can_retry_ = [](ae::Uid const&) { return true; };
+  assert(ops_.send);
+  if (!ops_.ensure_outgoing) {
+    ops_.ensure_outgoing = [](ae::Uid const&) {};
   }
-  assert(send_);
+  if (!ops_.outgoing_state) {
+    ops_.outgoing_state = [](ae::Uid const&) {
+      return P2pOutgoingState::kWritable;
+    };
+  }
+  if (!ops_.restream_outgoing) {
+    ops_.restream_outgoing = [](ae::Uid const&) {};
+  }
+  if (!ops_.replace_outgoing) {
+    ops_.replace_outgoing = [](ae::Uid const&) {};
+  }
   assert(chat_.is_valid());
   assert(peer_set_.is_valid());
   assert(replica_.shared_root_id == chat_.id());
@@ -81,6 +92,92 @@ void ChatSyncController::EmitInitialMarkers(RuntimeSession& runtime) {
   }
 }
 
+void ChatSyncController::ResetRecoveryCycle(RuntimeSession& runtime,
+                                            ae::TimePoint now) {
+  (void)now;
+  runtime.pending_since.reset();
+  runtime.restream_done_for_current_stall = false;
+  runtime.replace_done_for_current_stall = false;
+  runtime.last_ack_progress_revision =
+      runtime.session->ack_progress_revision();
+}
+
+void ChatSyncController::DriveRecovery(RuntimeSession& runtime,
+                                       ae::TimePoint now) {
+  assert(runtime.session != nullptr);
+  auto const pending = runtime.session->pending_packet_count();
+  auto const ack_rev = runtime.session->ack_progress_revision();
+
+  if (ack_rev != runtime.last_ack_progress_revision || pending == 0) {
+    if (runtime.last_pending_count > 0 && pending == 0) {
+      Log(ae::Format("CHAT_PENDING_CLEARED peer={}",
+                     FormatUid(runtime.remote_uid)));
+    }
+    ResetRecoveryCycle(runtime, now);
+    runtime.last_pending_count = pending;
+    if (pending == 0) {
+      return;
+    }
+  }
+  runtime.last_pending_count = pending;
+
+  if (!runtime.pending_since.has_value()) {
+    runtime.pending_since = now;
+  }
+
+  ops_.ensure_outgoing(runtime.remote_uid);
+  auto const state = ops_.outgoing_state(runtime.remote_uid);
+  bool const writable = state == P2pOutgoingState::kWritable;
+  auto const stalled_for = now - *runtime.pending_since;
+
+  // Retry only while the active outgoing can accept bytes.
+  if (writable) {
+    bool const due = runtime.last_retry.time_since_epoch().count() == 0 ||
+                     now - runtime.last_retry >= policy_.retry_interval;
+    if (due) {
+      runtime.session->RetryPending();
+      runtime.last_retry = now;
+      Log(ae::Format("CHAT_RETRY_SENT peer={} pending={}",
+                     FormatUid(runtime.remote_uid), pending));
+    }
+  } else {
+    bool const due =
+        runtime.last_retry_gate_log.time_since_epoch().count() == 0 ||
+        now - runtime.last_retry_gate_log >= policy_.retry_interval;
+    if (due) {
+      runtime.last_retry_gate_log = now;
+      Log(ae::Format("CHAT_RETRY_GATED peer={} pending={}",
+                     FormatUid(runtime.remote_uid), pending));
+    }
+  }
+
+  // Error: restream promptly on the next Tick without waiting restream_after.
+  if (state == P2pOutgoingState::kError &&
+      !runtime.restream_done_for_current_stall) {
+    ops_.restream_outgoing(runtime.remote_uid);
+    runtime.restream_done_for_current_stall = true;
+    runtime.last_restream_time = now;
+    Log(ae::Format("CHAT_ACK_STALL_RESTREAM peer={} pending={}",
+                   FormatUid(runtime.remote_uid), pending));
+  } else if (!runtime.restream_done_for_current_stall &&
+             stalled_for >= policy_.restream_after) {
+    ops_.restream_outgoing(runtime.remote_uid);
+    runtime.restream_done_for_current_stall = true;
+    runtime.last_restream_time = now;
+    Log(ae::Format("CHAT_ACK_STALL_RESTREAM peer={} pending={}",
+                   FormatUid(runtime.remote_uid), pending));
+  }
+
+  if (!runtime.replace_done_for_current_stall &&
+      stalled_for >= policy_.replace_after) {
+    ops_.replace_outgoing(runtime.remote_uid);
+    runtime.replace_done_for_current_stall = true;
+    runtime.last_replace_time = now;
+    Log(ae::Format("CHAT_ACK_STALL_REPLACE peer={} pending={}",
+                   FormatUid(runtime.remote_uid), pending));
+  }
+}
+
 ChatSyncController::RuntimeSession& ChatSyncController::EnsureRuntimeSession(
     ae::Uid const& remote_uid, SyncSessionState::ptr state) {
   if (auto* existing = FindSession(remote_uid)) {
@@ -89,6 +186,7 @@ ChatSyncController::RuntimeSession& ChatSyncController::EnsureRuntimeSession(
         return runtime;
       }
     }
+    (void)existing;
   }
 
   assert(state.is_valid());
@@ -99,11 +197,13 @@ ChatSyncController::RuntimeSession& ChatSyncController::EnsureRuntimeSession(
   runtime.remote_uid = remote_uid;
   runtime.session = std::make_unique<SharedGraphSyncSession>(
       replica_, state,
-      [this, remote_uid](SerializedSyncPacket bytes) {
-        send_(remote_uid, bytes);
+      [this, remote_uid](ae::ObjId packet_id, SerializedSyncPacket bytes) {
+        ops_.send(remote_uid, packet_id, bytes);
       });
   runtime.last_initial_sync_complete =
       runtime.session->initial_sync_complete();
+  runtime.last_ack_progress_revision =
+      runtime.session->ack_progress_revision();
   sessions_.push_back(std::move(runtime));
   return sessions_.back();
 }
@@ -143,6 +243,7 @@ SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
   auto& runtime =
       EnsureRuntimeSession(remote_uid, peer.session_state);
   EmitInitialMarkers(runtime);
+  ops_.ensure_outgoing(remote_uid);
   runtime.session->StartOrResume();
   if (runtime.session->initial_sync_complete() &&
       !runtime.last_initial_sync_complete) {
@@ -188,37 +289,7 @@ void ChatSyncController::Tick(ae::TimePoint now) {
   for (auto& runtime : sessions_) {
     assert(runtime.session != nullptr);
     runtime.session->Poll();
-
-    auto const pending = runtime.session->pending_packet_count();
-    // While the transport cannot accept bytes the retry clock stays untouched,
-    // so the first Tick after it becomes writable retries right away.
-    if (pending > 0 && can_retry_(runtime.remote_uid)) {
-      bool const due =
-          runtime.last_retry.time_since_epoch().count() == 0 ||
-          now - runtime.last_retry >= kRetryInterval;
-      if (due) {
-        runtime.session->RetryPending();
-        runtime.last_retry = now;
-        Log(ae::Format("CHAT_RETRY_SENT peer={} pending={}",
-                       FormatUid(runtime.remote_uid), pending));
-      }
-    } else if (pending > 0) {
-      // Rate limited to the retry interval so a long outage cannot flood.
-      bool const due =
-          runtime.last_retry_gate_log.time_since_epoch().count() == 0 ||
-          now - runtime.last_retry_gate_log >= kRetryInterval;
-      if (due) {
-        runtime.last_retry_gate_log = now;
-        Log(ae::Format("CHAT_RETRY_GATED peer={} pending={}",
-                       FormatUid(runtime.remote_uid), pending));
-      }
-    }
-
-    if (runtime.last_pending_count > 0 && pending == 0) {
-      Log(ae::Format("CHAT_PENDING_CLEARED peer={}",
-                     FormatUid(runtime.remote_uid)));
-    }
-    runtime.last_pending_count = pending;
+    DriveRecovery(runtime, now);
 
     if (!runtime.last_initial_sync_complete &&
         runtime.session->initial_sync_complete()) {

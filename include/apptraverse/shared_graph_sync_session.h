@@ -19,7 +19,9 @@ namespace apptraverse {
 // SyncSessionState.
 class SharedGraphSyncSession : public SyncPacketHandler {
  public:
-  using SendFunction = std::function<void(SerializedSyncPacket)>;
+  // packet_id is runtime tracing context only (also ObjId of the packet root).
+  using SendFunction =
+      std::function<void(ae::ObjId packet_id, SerializedSyncPacket)>;
 
   SharedGraphSyncSession(SyncReplica local_replica,
                          SyncSessionState::ptr state, SendFunction send);
@@ -35,6 +37,10 @@ class SharedGraphSyncSession : public SyncPacketHandler {
   std::size_t pending_packet_count() const {
     return state_->data.pending_packets.size();
   }
+
+  // Runtime-only. Increases when Handle(AckPacket) removes a real pending
+  // packet. Unknown/duplicate ACKs do not change it. Never serialized.
+  std::uint64_t ack_progress_revision() const { return ack_progress_revision_; }
 
   SyncSessionState::ptr state() const { return state_; }
 
@@ -72,6 +78,7 @@ class SharedGraphSyncSession : public SyncPacketHandler {
   SendFunction send_;
   ae::ObjId receiving_packet_id_;
   DecodedSyncPacket* receiving_decoded_{nullptr};
+  std::uint64_t ack_progress_revision_{0};
 };
 
 }  // namespace apptraverse

@@ -316,16 +316,42 @@ int Run(CliOptions const& options) {
     }
   };
 
+  auto system_utc_micros = []() -> std::int64_t {
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+  };
+
+  apptraverse::examples::SyncTransportOperations sync_ops;
+  sync_ops.ensure_outgoing = [&](ae::Uid const& peer) {
+    p2p_transport.EnsureOutgoing(peer);
+  };
+  sync_ops.outgoing_state = [&](ae::Uid const& peer) {
+    return p2p_transport.OutgoingState(peer);
+  };
+  sync_ops.restream_outgoing = [&](ae::Uid const& peer) {
+    p2p_transport.RestreamOutgoing(peer);
+  };
+  sync_ops.replace_outgoing = [&](ae::Uid const& peer) {
+    p2p_transport.ReplaceOutgoing(peer);
+  };
+  sync_ops.send = [&](ae::Uid const& peer, ae::ObjId packet_id,
+                      apptraverse::SerializedSyncPacket const& bytes) {
+    auto const result = p2p_transport.Send(peer, bytes);
+    LogLine(
+        "SYNC_TRANSPORT_WRITE peer=" +
+        apptraverse::examples::FormatAetherUid(peer) +
+        " packet=" + std::to_string(packet_id.id()) +
+        " generation=" + std::to_string(result.outgoing_generation) +
+        " disposition=" +
+        std::string{apptraverse::examples::ToString(result.disposition)} +
+        " t_us=" + std::to_string(system_utc_micros()));
+  };
+
   apptraverse::examples::ChatSyncController chat_sync(
       apptraverse::SyncReplica{aether_app->domain(), *domain_storage,
                                chat.id()},
-      chat, peer_set,
-      [&](ae::Uid const& peer, apptraverse::SerializedSyncPacket const& bytes) {
-        p2p_transport.Send(peer, bytes);
-      },
-      [&](ae::Uid const& peer) {
-        return p2p_transport.IsOutgoingWritable(peer);
-      },
+      chat, peer_set, sync_ops, apptraverse::examples::SyncRecoveryPolicy{},
       options.auto_accept_peer,
       [&]() {
         chat_ui.RefreshTranscript();

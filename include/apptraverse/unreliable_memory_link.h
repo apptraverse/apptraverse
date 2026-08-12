@@ -21,7 +21,8 @@ class UnreliableMemoryLink {
 
   SharedGraphSyncSession::SendFunction MakeSend(int direction) {
     assert(direction == 0 || direction == 1);
-    return [this, direction](SerializedSyncPacket bytes) {
+    return [this, direction](ae::ObjId /*packet_id*/,
+                             SerializedSyncPacket bytes) {
       envelopes_.push_back(Envelope{direction, std::move(bytes)});
     };
   }
