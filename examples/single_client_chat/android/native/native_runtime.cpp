@@ -7,6 +7,7 @@
 #include <system_error>
 
 #include "aether/clock.h"
+#include "aether/config.h"
 #include "aether/obj/obj.h"
 
 #include "model/application_ids.h"
@@ -29,6 +30,12 @@
 
 namespace apptraverse::android {
 namespace {
+#ifndef AE_GIT_VERSION
+#  define AE_GIT_VERSION "unknown"
+#endif
+#define APPTRAVERSE_AE_STRINGIFY_HELPER(x) #x
+#define APPTRAVERSE_AE_STRINGIFY(x) APPTRAVERSE_AE_STRINGIFY_HELPER(x)
+
 
 APPTRAVERSE_REGISTER(AndroidWindow);
 APPTRAVERSE_REGISTER(AndroidWindowPresenter);
@@ -246,6 +253,9 @@ bool NativeRuntime::SelectAetherClient() {
   }
   LogMarker("AETHER_CLIENT_READY platform=android uid=" +
             examples::FormatAetherUid(aether_client_->uid()));
+  LogMarker(std::string("AETHER_BUILD_INFO platform=android git=") + AE_GIT_VERSION +
+            " quarantine_ms=" + APPTRAVERSE_AE_STRINGIFY(AE_CLOUD_SERVER_QUARANTINE_TIME_MS) +
+            " task_max=" + APPTRAVERSE_AE_STRINGIFY(AE_TASK_MAX_COUNT));
   ui_bridge_.PostAetherUid(examples::FormatAetherUid(aether_client_->uid()));
   return true;
 }
@@ -307,7 +317,6 @@ bool NativeRuntime::StartChatSync() {
         SaveState();
       },
       [](std::string const& line) { LogMarker(line); });
-  chat_sync_->Start();
 
   p2p_transport_->SetReceiveHandler(
       [this](ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
@@ -320,6 +329,7 @@ bool NativeRuntime::StartChatSync() {
           chat_sync_->Receive(peer, payload);
         }
       });
+  chat_sync_->Start();
 
   // Dial persisted peers (same as Windows). Without this, Android may keep
   // retrying on a stale pre-outage stream that still reports writable.

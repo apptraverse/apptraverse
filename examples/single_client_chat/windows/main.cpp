@@ -20,6 +20,7 @@
 #endif
 
 #include "aether/all.h"
+#include "aether/config.h"
 
 #include "apptraverse/directory_domain_storage.h"
 
@@ -200,6 +201,12 @@ int ProcessPendingWin32Messages() {
   return -1;
 }
 
+
+#ifndef AE_GIT_VERSION
+#  define AE_GIT_VERSION "unknown"
+#endif
+#define APPTRAVERSE_AE_STRINGIFY_HELPER(x) #x
+#define APPTRAVERSE_AE_STRINGIFY(x) APPTRAVERSE_AE_STRINGIFY_HELPER(x)
 void LogLine(std::string const& line) {
   std::cout << line << '\n';
   std::fflush(stdout);
@@ -271,6 +278,9 @@ int Run(CliOptions const& options) {
   }
   LogLine("AETHER_CLIENT_READY platform=windows uid=" +
           apptraverse::examples::FormatAetherUid(aether_client->uid()));
+  LogLine(std::string("AETHER_BUILD_INFO platform=windows git=") + AE_GIT_VERSION +
+          " quarantine_ms=" + APPTRAVERSE_AE_STRINGIFY(AE_CLOUD_SERVER_QUARANTINE_TIME_MS) +
+          " task_max=" + APPTRAVERSE_AE_STRINGIFY(AE_TASK_MAX_COUNT));
   if (options.print_aether_uid) {
     LogLine("AETHER_UID=" +
             apptraverse::examples::FormatAetherUid(aether_client->uid()));
@@ -414,7 +424,6 @@ int Run(CliOptions const& options) {
         app.Save();
       },
       LogLine);
-  chat_sync.Start();
 
   p2p_transport.SetReceiveHandler(
       [&](ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
@@ -424,6 +433,7 @@ int Run(CliOptions const& options) {
         }
         chat_sync.Receive(peer, payload);
       });
+  chat_sync.Start();
 
   if (options.peer.has_value()) {
     chat_sync.AddPeer(*options.peer);
