@@ -296,14 +296,10 @@ bool NativeRuntime::StartChatSync() {
                               std::vector<std::uint8_t> const& bytes) {
     p2p_transport_->Send(peer, bytes);
   };
-  auto sync_reconnect = [this](ae::Uid const& peer) {
-    p2p_transport_->Reconnect(peer);
-  };
 
   chat_sync_ = std::make_unique<examples::ChatSyncController>(
       SyncReplica{aether_app_->domain(), *domain_storage_, chat.id()}, chat,
-      peer_set, sync_send, presence_send, sync_reconnect,
-      examples::ChatSyncTiming{}, true,
+      peer_set, sync_send, presence_send, examples::ChatSyncTiming{}, true,
       [this]() {
         if (chat_presenter_ != nullptr) {
           chat_presenter_->PublishTranscript();

@@ -26,8 +26,8 @@
 namespace apptraverse::examples {
 
 struct ChatSyncTiming {
-  std::chrono::milliseconds retry_interval{std::chrono::seconds{1}};
-  std::chrono::milliseconds reconnect_interval{std::chrono::seconds{15}};
+  // Packet ACK retry only — cloud/P2P link recovery stays inside Aether.
+  std::chrono::milliseconds retry_interval{std::chrono::milliseconds{100}};
   std::chrono::milliseconds heartbeat_interval{std::chrono::seconds{1}};
   std::chrono::milliseconds offline_timeout{std::chrono::seconds{5}};
 };
@@ -43,13 +43,12 @@ class ChatSyncController {
   using RawSendFunction =
       std::function<void(ae::Uid const& peer,
                          std::vector<std::uint8_t> const& bytes)>;
-  using ReconnectFunction = std::function<void(ae::Uid const& peer)>;
 
   ChatSyncController(SyncReplica replica, Chat::ptr chat,
                      ChatPeerSet::ptr peer_set, SendFunction send,
-                     RawSendFunction raw_send, ReconnectFunction reconnect,
-                     ChatSyncTiming timing, bool auto_accept_incoming,
-                     ChangedFunction changed = {}, LogFunction log = {});
+                     RawSendFunction raw_send, ChatSyncTiming timing,
+                     bool auto_accept_incoming, ChangedFunction changed = {},
+                     LogFunction log = {});
 
   void Start();
   void Stop();
@@ -68,7 +67,6 @@ class ChatSyncController {
     std::unique_ptr<SharedGraphSyncSession> session;
     bool last_initial_sync_complete{false};
     ae::TimePoint last_retry{};
-    ae::TimePoint last_reconnect{};
     std::size_t last_pending_count{0};
     bool ever_seen_online{false};
     bool currently_online{false};
@@ -95,7 +93,6 @@ class ChatSyncController {
   ChatPeerSet::ptr peer_set_;
   SendFunction send_;
   RawSendFunction raw_send_;
-  ReconnectFunction reconnect_;
   ChatSyncTiming timing_;
   bool auto_accept_incoming_{false};
   ChangedFunction changed_;

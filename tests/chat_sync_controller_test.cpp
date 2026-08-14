@@ -218,14 +218,12 @@ void TestControllerBidirectionalAndRestart() {
   examples::ChatSyncController left_ctrl(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
-      MakeDirectRawSend(right_ptr, left_uid, right_uid),
-      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, false, {},
+      MakeDirectRawSend(right_ptr, left_uid, right_uid), examples::ChatSyncTiming{}, false, {},
       make_log("L:"));
   examples::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
-      MakeDirectRawSend(left_ptr, right_uid, left_uid),
-      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, true, {},
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), examples::ChatSyncTiming{}, true, {},
       make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
@@ -289,14 +287,12 @@ void TestControllerBidirectionalAndRestart() {
   examples::ChatSyncController left2(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
-      MakeDirectRawSend(right_ptr, left_uid, right_uid),
-      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, false, {},
+      MakeDirectRawSend(right_ptr, left_uid, right_uid), examples::ChatSyncTiming{}, false, {},
       make_log("L2:"));
   examples::ChatSyncController right2(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
-      MakeDirectRawSend(left_ptr, right_uid, left_uid),
-      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, true, {},
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), examples::ChatSyncTiming{}, true, {},
       make_log("R2:"));
   left_ptr = &left2;
   right_ptr = &right2;
@@ -320,19 +316,17 @@ void TestControllerBidirectionalAndRestart() {
   CHECK(resumed);
 }
 
-void TestRetryAndReconnectTiming() {
+void TestRetryTiming() {
   auto left_uid = MakeUid(0xC3);
   auto right_uid = MakeUid(0xD4);
   Side left{"Windows", left_uid};
   Side right{"Android", right_uid};
 
   std::vector<std::pair<ae::ObjId, SerializedSyncPacket>> sent;
-  int reconnect_calls = 0;
   bool deliver = false;
 
   examples::ChatSyncTiming timing;
   timing.retry_interval = std::chrono::milliseconds{20};
-  timing.reconnect_interval = std::chrono::milliseconds{100};
 
   examples::ChatSyncController* left_ptr = nullptr;
   examples::ChatSyncController* right_ptr = nullptr;
@@ -355,10 +349,6 @@ void TestRetryAndReconnectTiming() {
           right_ptr->Receive(left_uid, bytes);
         }
       },
-      [&](ae::Uid const& peer) {
-        CHECK(peer == right_uid);
-        ++reconnect_calls;
-      },
       timing, false);
   examples::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
@@ -373,14 +363,13 @@ void TestRetryAndReconnectTiming() {
         assert(left_ptr != nullptr);
         left_ptr->Receive(right_uid, bytes);
       },
-      [](ae::Uid const&) {}, timing, true);
+      timing, true);
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
 
   left_ctrl.Start();
   right_ctrl.Start();
 
-  // 1. First packet pending until send (AddPeer triggers initial NodeState).
   left_ctrl.AddPeer(right_uid);
   CHECK(sent.size() == 1);
   auto* session = left_ctrl.FindSession(right_uid);
@@ -391,34 +380,20 @@ void TestRetryAndReconnectTiming() {
   CHECK(session->state()->data.pending_packets.front().packet_id ==
         initial_id);
 
-  // 2. Retry same packet ID and bytes; 3. reconnect not yet.
   sent.clear();
   auto t0 = ae::Now();
   left_ctrl.Tick(t0);
   CHECK(sent.size() == 1);
   CHECK(sent.front().first == initial_id);
   CHECK(sent.front().second == initial_bytes);
-  CHECK(reconnect_calls == 0);
 
   left_ctrl.Tick(t0 + std::chrono::milliseconds{50});
-  CHECK(reconnect_calls == 0);
   CHECK(!sent.empty());
   CHECK(sent.back().first == initial_id);
   CHECK(sent.back().second == initial_bytes);
 
-  // 4. After reconnect interval: reconnect once, pending resent.
-  sent.clear();
-  left_ctrl.Tick(t0 + std::chrono::milliseconds{110});
-  CHECK(reconnect_calls == 1);
-  CHECK(!sent.empty());
-  CHECK(sent.back().first == initial_id);
-  CHECK(sent.back().second == initial_bytes);
-
-  // 5. After ACK: pending 0, no more retry/reconnect.
   deliver = true;
   right_ctrl.Receive(left_uid, initial_bytes);
-  auto const sent_before_ack_drain = sent.size();
-  auto const reconnect_before_clear = reconnect_calls;
   for (int i = 0; i < 50; ++i) {
     left_ctrl.Tick(t0 + std::chrono::milliseconds{200 + i * 5});
     right_ctrl.Tick(t0 + std::chrono::milliseconds{200 + i * 5});
@@ -428,24 +403,14 @@ void TestRetryAndReconnectTiming() {
   }
   CHECK(session->pending_packet_count() == 0);
   auto const sent_at_clear = sent.size();
-  auto const reconnect_at_clear = reconnect_calls;
-
   left_ctrl.Tick(t0 + std::chrono::milliseconds{500});
   left_ctrl.Tick(t0 + std::chrono::milliseconds{700});
   CHECK(sent.size() == sent_at_clear);
-  CHECK(reconnect_calls == reconnect_at_clear);
-  CHECK(reconnect_at_clear == reconnect_before_clear);
-  (void)sent_before_ack_drain;
 
-  // 6. New Event creates new pending cycle.
-  // Keep using the synthetic timeline from t0 so retry/reconnect intervals
-  // stay monotonic relative to prior Tick() calls.
   deliver = false;
   left.Submit("after-ack");
   sent.clear();
-  reconnect_calls = 0;
   auto const t1 = t0 + std::chrono::milliseconds{1000};
-  // Poll may pick up the new event and send immediately via session send.
   left_ctrl.Tick(t1);
   CHECK(session->pending_packet_count() >= 1);
   CHECK(!sent.empty());
@@ -458,14 +423,8 @@ void TestRetryAndReconnectTiming() {
   CHECK(!sent.empty());
   CHECK(sent.back().first == new_id);
   CHECK(sent.back().second == new_bytes);
-  CHECK(reconnect_calls == 0);
 
-  left_ctrl.Tick(t1 + std::chrono::milliseconds{110});
-  CHECK(reconnect_calls == 1);
-
-  // 7. Duplicate packet does not create a duplicate Event.
   right.graph.chat.Load();
-  auto const transcript_before = right.Transcript();
   auto count_occurrences = [](std::string const& hay, std::string const& needle) {
     std::size_t count = 0;
     std::size_t pos = 0;
@@ -475,7 +434,7 @@ void TestRetryAndReconnectTiming() {
     }
     return count;
   };
-  CHECK(count_occurrences(transcript_before, "after-ack") == 0);
+  CHECK(count_occurrences(right.Transcript(), "after-ack") == 0);
 
   deliver = true;
   right_ctrl.Receive(left_uid, new_bytes);
@@ -488,8 +447,8 @@ void TestRetryAndReconnectTiming() {
     }
   }
   right.graph.chat.Load();
-  auto const transcript_after = right.Transcript();
-  CHECK(count_occurrences(transcript_after, "after-ack") == 1);
+  CHECK(session->pending_packet_count() == 0);
+  CHECK(count_occurrences(right.Transcript(), "after-ack") == 1);
 }
 
 
@@ -531,7 +490,6 @@ void TestPresenceTransitionsAndIsolation() {
   timing.heartbeat_interval = std::chrono::milliseconds{50};
   timing.offline_timeout = std::chrono::milliseconds{200};
   timing.retry_interval = std::chrono::milliseconds{50};
-  timing.reconnect_interval = std::chrono::milliseconds{1000};
 
   examples::ChatSyncController* left_ptr = nullptr;
   examples::ChatSyncController* right_ptr = nullptr;
@@ -549,15 +507,13 @@ void TestPresenceTransitionsAndIsolation() {
         left_raw_sent.push_back(bytes);
         assert(right_ptr != nullptr);
         right_ptr->Receive(left_uid, bytes);
-      },
-      [](ae::Uid const&) {}, timing, false, {}, make_log("L:"));
+      }, timing, false, {}, make_log("L:"));
   examples::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       [&](ae::Uid const& peer, ae::ObjId, SerializedSyncPacket const&) {
         CHECK(peer == left_uid);
       },
-      MakeDirectRawSend(left_ptr, right_uid, left_uid),
-      [](ae::Uid const&) {}, timing, true, {}, make_log("R:"));
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), timing, true, {}, make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
 
@@ -663,14 +619,12 @@ void TestSyncPacketBringsPeerOnline() {
   examples::ChatSyncController left_ctrl(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
-      [](ae::Uid const&, std::vector<std::uint8_t> const&) {},
-      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, false, {},
+      [](ae::Uid const&, std::vector<std::uint8_t> const&) {}, examples::ChatSyncTiming{}, false, {},
       make_log("L:"));
   examples::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
-      MakeDirectRawSend(left_ptr, right_uid, left_uid),
-      [](ae::Uid const&) {}, examples::ChatSyncTiming{}, true, {},
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), examples::ChatSyncTiming{}, true, {},
       make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
@@ -709,7 +663,7 @@ int main() {
   apptraverse::test::TestPresenceTransitionsAndIsolation();
   apptraverse::test::TestSyncPacketBringsPeerOnline();
   apptraverse::test::TestControllerBidirectionalAndRestart();
-  apptraverse::test::TestRetryAndReconnectTiming();
+  apptraverse::test::TestRetryTiming();
   std::cout << "chat_sync_controller_test OK\n";
   return 0;
 }

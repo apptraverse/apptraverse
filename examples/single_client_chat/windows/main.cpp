@@ -227,9 +227,20 @@ int Run(CliOptions const& options) {
                                                         ApplicationObjId::
                                                             Application)));
   app.Load();
-  if (!app.is_loaded()) {
-    std::cerr << "Failed to load App. Run with --distill first.\n";
-    return 1;
+  if (!app.is_loaded() || !app->window.is_valid()) {
+    auto graph =
+        apptraverse::examples::BuildSingleClientChatGraph<
+            apptraverse::WindowsWindow, apptraverse::WinWindowPresenter,
+            apptraverse::WinChatPresenter>(aether_app->domain(), "Windows");
+    app = graph.app;
+    if (!app.is_valid()) {
+      std::cerr << "Failed to build App graph\n";
+      return 1;
+    }
+    app.Save();
+    LogLine("WINDOWS_GRAPH_CREATED");
+  } else {
+    LogLine("WINDOWS_GRAPH_LOADED");
   }
 
   auto window = app->window;
@@ -389,14 +400,11 @@ int Run(CliOptions const& options) {
                            std::vector<std::uint8_t> const& bytes) {
     p2p_transport.Send(peer, bytes);
   };
-  auto sync_reconnect = [&](ae::Uid const& peer) {
-    p2p_transport.Reconnect(peer);
-  };
 
   apptraverse::examples::ChatSyncController chat_sync(
       apptraverse::SyncReplica{aether_app->domain(), *domain_storage,
                                chat.id()},
-      chat, peer_set, sync_send, presence_send, sync_reconnect,
+      chat, peer_set, sync_send, presence_send,
       apptraverse::examples::ChatSyncTiming{},
       options.auto_accept_peer,
       [&]() {

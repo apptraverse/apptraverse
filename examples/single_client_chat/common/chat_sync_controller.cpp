@@ -20,7 +20,6 @@ ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
                                        ChatPeerSet::ptr peer_set,
                                        SendFunction send,
                                        RawSendFunction raw_send,
-                                       ReconnectFunction reconnect,
                                        ChatSyncTiming timing,
                                        bool auto_accept_incoming,
                                        ChangedFunction changed,
@@ -30,16 +29,12 @@ ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
       peer_set_{std::move(peer_set)},
       send_{std::move(send)},
       raw_send_{std::move(raw_send)},
-      reconnect_{std::move(reconnect)},
       timing_{timing},
       auto_accept_incoming_{auto_accept_incoming},
       changed_{std::move(changed)},
       log_{std::move(log)} {
   assert(send_);
   assert(raw_send_);
-  if (!reconnect_) {
-    reconnect_ = [](ae::Uid const&) {};
-  }
   assert(chat_.is_valid());
   assert(peer_set_.is_valid());
   assert(replica_.shared_root_id == chat_.id());
@@ -163,14 +158,11 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
       Log(ae::Format("CHAT_PENDING_CHANGED peer={} pending=0",
                      FormatUid(runtime.remote_uid)));
     }
-    runtime.last_reconnect = {};
     runtime.last_pending_count = 0;
     return;
   }
 
   if (runtime.last_pending_count == 0) {
-    // Pending went 0 → N: start reconnect timer.
-    runtime.last_reconnect = now;
     Log(ae::Format("CHAT_PENDING_CHANGED peer={} pending={}",
                    FormatUid(runtime.remote_uid), pending));
   }
@@ -182,16 +174,6 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
     runtime.session->RetryPending();
     runtime.last_retry = now;
     Log(ae::Format("CHAT_RETRY_SENT peer={} pending={}",
-                   FormatUid(runtime.remote_uid), pending));
-  }
-
-  if (runtime.last_reconnect.time_since_epoch().count() != 0 &&
-      now - runtime.last_reconnect >= timing_.reconnect_interval) {
-    reconnect_(runtime.remote_uid);
-    runtime.session->RetryPending();
-    runtime.last_retry = now;
-    runtime.last_reconnect = now;
-    Log(ae::Format("CHAT_RECONNECT peer={} pending={}",
                    FormatUid(runtime.remote_uid), pending));
   }
 }

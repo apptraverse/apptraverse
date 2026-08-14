@@ -68,15 +68,6 @@ AetherP2pTransport::PeerSession const* AetherP2pTransport::FindSession(
   return nullptr;
 }
 
-void AetherP2pTransport::RemoveSession(ae::Uid const& peer) {
-  sessions_.erase(
-      std::remove_if(sessions_.begin(), sessions_.end(),
-                     [&](std::unique_ptr<PeerSession> const& session) {
-                       return session != nullptr && session->remote_uid == peer;
-                     }),
-      sessions_.end());
-}
-
 AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
     ae::Uid const& peer, ae::P2pPortHandle handle, char const* source) {
   if (!aether_app_ || !local_client_) {
@@ -117,12 +108,6 @@ void AetherP2pTransport::Connect(ae::Uid const& remote_uid) {
   auto handle =
       local_client_->message_stream_manager().CreatePort(remote_uid);
   (void)CreateSession(remote_uid, std::move(handle), "connect");
-}
-
-void AetherP2pTransport::Reconnect(ae::Uid const& remote_uid) {
-  RemoveSession(remote_uid);
-  Connect(remote_uid);
-  Log("P2P_SESSION_RECONNECTED peer=" + FormatAetherUid(remote_uid));
 }
 
 void AetherP2pTransport::AttachIncoming(ae::P2pPortHandle handle) {

@@ -39,9 +39,6 @@ class AetherP2pTransport {
   // P2pStream and subscribe.
   void Connect(ae::Uid const& remote_uid);
 
-  // Destroy any existing session for uid, then Connect(uid).
-  void Reconnect(ae::Uid const& remote_uid);
-
   void Send(ae::Uid const& remote_uid, std::uint8_t const* bytes,
             std::size_t size);
   void Send(ae::Uid const& remote_uid,
@@ -67,7 +64,6 @@ class AetherP2pTransport {
   PeerSession* GetOrCreateSession(ae::Uid const& peer);
 
   void AttachIncoming(ae::P2pPortHandle handle);
-  void RemoveSession(ae::Uid const& peer);
 
   void OnRawStreamData(PeerSession* session, ae::DataBuffer const& data);
   void EmitPayload(ae::Uid const& peer,
