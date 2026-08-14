@@ -143,6 +143,12 @@ struct Side {
     graph.app.Save();
   }
 
+  // Regression helper: only the presenter command path — no external Save.
+  void SubmitWithoutExternalSave(std::string text) {
+    SleepMs(2);
+    graph.chat_presenter->SubmitText(std::move(text));
+  }
+
   std::string Transcript() const {
     return examples::FormatChatTranscriptUtf8(graph.chat);
   }
@@ -197,6 +203,228 @@ std::size_t CountJoinEvents(Chat::ptr chat) {
     }
   }
   return count;
+}
+
+std::size_t CountJoinEventsNamed(Chat::ptr chat, std::string const& name) {
+  chat.Load();
+  CHECK(chat.is_loaded());
+  std::size_t count = 0;
+  for (auto const& record : chat->journal) {
+    if (!record.event.is_valid() ||
+        record.event->GetClassId() != JoinClientEvent::kClassId) {
+      continue;
+    }
+    auto join = JoinClientEvent::ptr{record.event};
+    join.Load();
+    CHECK(join.is_loaded());
+    join->client.Load();
+    CHECK(join->client.is_loaded());
+    if (join->client->name == name) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+std::size_t CountAddMessageEvents(Chat::ptr chat, std::string const& text) {
+  chat.Load();
+  CHECK(chat.is_loaded());
+  std::size_t count = 0;
+  for (auto const& record : chat->journal) {
+    if (!record.event.is_valid() ||
+        record.event->GetClassId() != AddMessageEvent::kClassId) {
+      continue;
+    }
+    auto msg = AddMessageEvent::ptr{record.event};
+    msg.Load();
+    CHECK(msg.is_loaded());
+    if (msg->text == text) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+std::size_t CountNeedle(std::string const& hay, std::string const& needle) {
+  std::size_t count = 0;
+  std::size_t pos = 0;
+  while ((pos = hay.find(needle, pos)) != std::string::npos) {
+    ++count;
+    pos += needle.size();
+  }
+  return count;
+}
+
+void TickUntilInitialSync(examples::ChatSyncController& left_ctrl,
+                          examples::ChatSyncController& right_ctrl,
+                          ae::Uid const& left_uid, ae::Uid const& right_uid) {
+  for (int i = 0; i < 400; ++i) {
+    left_ctrl.Tick(ae::Now());
+    right_ctrl.Tick(ae::Now());
+    SleepMs(5);
+    auto* ls = left_ctrl.FindSession(right_uid);
+    auto* rs = right_ctrl.FindSession(left_uid);
+    if (ls && rs && ls->initial_sync_complete() &&
+        rs->initial_sync_complete()) {
+      return;
+    }
+  }
+  CHECK(false && "initial sync did not complete");
+}
+
+void TestMessagesBeforePairingPersistAndMerge() {
+  auto windows_uid = MakeUid(0x11);
+  auto android_uid = MakeUid(0x22);
+
+  // Phase 1 — Windows history before any peer.
+  Side windows{"Windows", windows_uid};
+  windows.graph.peer_set.Load();
+  CHECK(windows.graph.peer_set->peers.empty());
+  auto const windows_client_id = windows.graph.local_client.id();
+  windows.SubmitWithoutExternalSave("w_before_pair_1");
+  windows.SubmitWithoutExternalSave("w_before_pair_2");
+  windows.DestroyRuntime();
+  windows.ReloadRuntime();
+  CHECK(windows.graph.local_client.id() == windows_client_id);
+  CHECK(CountNeedle(windows.Transcript(), "w_before_pair_1") == 1);
+  CHECK(CountNeedle(windows.Transcript(), "w_before_pair_2") == 1);
+  CHECK(CountAddMessageEvents(windows.graph.chat, "w_before_pair_1") == 1);
+  CHECK(CountAddMessageEvents(windows.graph.chat, "w_before_pair_2") == 1);
+  CHECK(windows.graph.peer_set->peers.empty());
+
+  // Phase 2 — Android history before any peer.
+  Side android{"Android", android_uid};
+  android.graph.peer_set.Load();
+  CHECK(android.graph.peer_set->peers.empty());
+  auto const android_client_id = android.graph.local_client.id();
+  android.SubmitWithoutExternalSave("a_before_pair_1");
+  android.SubmitWithoutExternalSave("a_before_pair_2");
+  android.DestroyRuntime();
+  android.ReloadRuntime();
+  CHECK(android.graph.local_client.id() == android_client_id);
+  CHECK(CountNeedle(android.Transcript(), "a_before_pair_1") == 1);
+  CHECK(CountNeedle(android.Transcript(), "a_before_pair_2") == 1);
+  CHECK(CountAddMessageEvents(android.graph.chat, "a_before_pair_1") == 1);
+  CHECK(CountAddMessageEvents(android.graph.chat, "a_before_pair_2") == 1);
+  CHECK(android.graph.peer_set->peers.empty());
+
+  // Phase 3 — pair only after history exists.
+  examples::ChatSyncController* windows_ptr = nullptr;
+  examples::ChatSyncController* android_ptr = nullptr;
+  examples::ChatSyncController windows_ctrl(
+      windows.Replica(), windows.graph.chat, windows.graph.peer_set,
+      MakeDirectSend(android_ptr, windows_uid, android_uid),
+      MakeDirectRawSend(android_ptr, windows_uid, android_uid),
+      examples::ChatSyncTiming{}, false);
+  examples::ChatSyncController android_ctrl(
+      android.Replica(), android.graph.chat, android.graph.peer_set,
+      MakeDirectSend(windows_ptr, android_uid, windows_uid),
+      MakeDirectRawSend(windows_ptr, android_uid, windows_uid),
+      examples::ChatSyncTiming{}, true);
+  windows_ptr = &windows_ctrl;
+  android_ptr = &android_ctrl;
+
+  windows_ctrl.Start();
+  android_ctrl.Start();
+  CHECK(windows_ctrl.runtime_session_count() == 0);
+  CHECK(android_ctrl.runtime_session_count() == 0);
+
+  windows_ctrl.AddPeer(android_uid);
+  TickUntilInitialSync(windows_ctrl, android_ctrl, windows_uid, android_uid);
+
+  auto check_merged = [&]() {
+    windows.graph.chat.Load();
+    android.graph.chat.Load();
+    windows.graph.peer_set.Load();
+    android.graph.peer_set.Load();
+    CHECK(CountNeedle(windows.Transcript(), "w_before_pair_1") == 1);
+    CHECK(CountNeedle(windows.Transcript(), "w_before_pair_2") == 1);
+    CHECK(CountNeedle(windows.Transcript(), "a_before_pair_1") == 1);
+    CHECK(CountNeedle(windows.Transcript(), "a_before_pair_2") == 1);
+    CHECK(CountNeedle(android.Transcript(), "w_before_pair_1") == 1);
+    CHECK(CountNeedle(android.Transcript(), "w_before_pair_2") == 1);
+    CHECK(CountNeedle(android.Transcript(), "a_before_pair_1") == 1);
+    CHECK(CountNeedle(android.Transcript(), "a_before_pair_2") == 1);
+    CHECK(windows.graph.peer_set->peers.size() == 1);
+    CHECK(android.graph.peer_set->peers.size() == 1);
+    CHECK(windows.graph.peer_set->peers[0].remote_uid == android_uid);
+    CHECK(android.graph.peer_set->peers[0].remote_uid == windows_uid);
+    CHECK(windows_ctrl.FindSession(android_uid)->pending_packet_count() == 0);
+    CHECK(android_ctrl.FindSession(windows_uid)->pending_packet_count() == 0);
+    CHECK(CountJoinEvents(windows.graph.chat) == 2);
+    CHECK(CountJoinEvents(android.graph.chat) == 2);
+    CHECK(CountJoinEventsNamed(windows.graph.chat, "Windows") == 1);
+    CHECK(CountJoinEventsNamed(windows.graph.chat, "Android") == 1);
+    CHECK(CountJoinEventsNamed(android.graph.chat, "Windows") == 1);
+    CHECK(CountJoinEventsNamed(android.graph.chat, "Android") == 1);
+  };
+  check_merged();
+
+  // Extra ticks: idempotent merge.
+  for (int i = 0; i < 50; ++i) {
+    windows_ctrl.Tick(ae::Now());
+    android_ctrl.Tick(ae::Now());
+    SleepMs(5);
+  }
+  check_merged();
+
+  // Persist + reload after merge.
+  windows.graph.chat.Save();
+  windows.graph.peer_set.Save();
+  android.graph.chat.Save();
+  android.graph.peer_set.Save();
+  windows.DestroyRuntime();
+  android.DestroyRuntime();
+  windows.ReloadRuntime();
+  android.ReloadRuntime();
+  CHECK(CountNeedle(windows.Transcript(), "w_before_pair_1") == 1);
+  CHECK(CountNeedle(windows.Transcript(), "w_before_pair_2") == 1);
+  CHECK(CountNeedle(windows.Transcript(), "a_before_pair_1") == 1);
+  CHECK(CountNeedle(windows.Transcript(), "a_before_pair_2") == 1);
+  CHECK(CountNeedle(android.Transcript(), "w_before_pair_1") == 1);
+  CHECK(CountNeedle(android.Transcript(), "w_before_pair_2") == 1);
+  CHECK(CountNeedle(android.Transcript(), "a_before_pair_1") == 1);
+  CHECK(CountNeedle(android.Transcript(), "a_before_pair_2") == 1);
+
+  // Post-pair sanity with new controllers on reloaded state.
+  examples::ChatSyncController windows2(
+      windows.Replica(), windows.graph.chat, windows.graph.peer_set,
+      MakeDirectSend(android_ptr, windows_uid, android_uid),
+      MakeDirectRawSend(android_ptr, windows_uid, android_uid),
+      examples::ChatSyncTiming{}, false);
+  examples::ChatSyncController android2(
+      android.Replica(), android.graph.chat, android.graph.peer_set,
+      MakeDirectSend(windows_ptr, android_uid, windows_uid),
+      MakeDirectRawSend(windows_ptr, android_uid, windows_uid),
+      examples::ChatSyncTiming{}, true);
+  windows_ptr = &windows2;
+  android_ptr = &android2;
+  windows2.Start();
+  android2.Start();
+  CHECK(windows2.runtime_session_count() == 1);
+  CHECK(android2.runtime_session_count() == 1);
+
+  windows.SubmitWithoutExternalSave("w_after_pair");
+  android.SubmitWithoutExternalSave("a_after_pair");
+  for (int i = 0; i < 200; ++i) {
+    windows2.Tick(ae::Now());
+    android2.Tick(ae::Now());
+    SleepMs(5);
+    windows.graph.chat.Load();
+    android.graph.chat.Load();
+    if (CountNeedle(windows.Transcript(), "a_after_pair") == 1 &&
+        CountNeedle(android.Transcript(), "w_after_pair") == 1 &&
+        windows2.FindSession(android_uid)->pending_packet_count() == 0 &&
+        android2.FindSession(windows_uid)->pending_packet_count() == 0) {
+      break;
+    }
+  }
+  CHECK(CountNeedle(windows.Transcript(), "w_after_pair") == 1);
+  CHECK(CountNeedle(windows.Transcript(), "a_after_pair") == 1);
+  CHECK(CountNeedle(android.Transcript(), "w_after_pair") == 1);
+  CHECK(CountNeedle(android.Transcript(), "a_after_pair") == 1);
+  CHECK(windows2.FindSession(android_uid)->pending_packet_count() == 0);
+  CHECK(android2.FindSession(windows_uid)->pending_packet_count() == 0);
 }
 
 void TestControllerBidirectionalAndRestart() {
@@ -662,6 +890,7 @@ int main() {
   apptraverse::test::TestChatPresenceCodec();
   apptraverse::test::TestPresenceTransitionsAndIsolation();
   apptraverse::test::TestSyncPacketBringsPeerOnline();
+  apptraverse::test::TestMessagesBeforePairingPersistAndMerge();
   apptraverse::test::TestControllerBidirectionalAndRestart();
   apptraverse::test::TestRetryTiming();
   std::cout << "chat_sync_controller_test OK\n";

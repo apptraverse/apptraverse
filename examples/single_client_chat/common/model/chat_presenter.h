@@ -41,6 +41,8 @@ class ChatPresenter : public ae::Obj {
     event->author = local_client;
     event->text = std::move(text);
     chat->Commit(event);
+    // A completed local chat command must be durable even before a peer exists.
+    chat.Save();
   }
 };
 
