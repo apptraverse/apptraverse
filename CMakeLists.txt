@@ -15,12 +15,15 @@ if(MINGW)
   add_compile_definitions(WIN32)
 endif()
 
+include(cmake/aether_version.cmake)
 include(cmake/CPM.cmake)
+
+apptraverse_prepare_aether_override()
 
 CPMAddPackage(
   NAME aether-client-cpp
   GITHUB_REPOSITORY aethernetio/aether-client-cpp
-  GIT_TAG 24ea60107c1f17673aeee5eeba3e125c87b8cdbd
+  GIT_TAG ${APPTRAVERSE_AETHER_GIT_TAG}
   EXCLUDE_FROM_ALL NO
   OPTIONS
     "AE_BUILD_TOOLS OFF"
@@ -31,6 +34,8 @@ CPMAddPackage(
     "AE_FILTRATION ON"
     "AE_BUILD_ANDROID_SMOKE OFF"
 )
+
+apptraverse_verify_aether_pin()
 
 add_library(apptraverse STATIC
   src/apptraverse.cpp

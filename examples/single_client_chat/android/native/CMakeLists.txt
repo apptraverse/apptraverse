@@ -33,13 +33,15 @@ if(NOT DEFINED CPM_SOURCE_CACHE AND NOT DEFINED ENV{CPM_SOURCE_CACHE})
   endif()
 endif()
 
-# aether includes this header through the USER_CONFIG define and resolves the
-# path against its own source root. STRING keeps the value relative, a PATH
-# cache entry would be rewritten into an absolute build directory path.
-# Force Hydrogen for real registration / cloud DNS / P2P (do not keep a stale
-# android_smoke CACHE value from earlier local builds).
-set(USER_CONFIG "config/user_config_hydrogen.h"
-  CACHE STRING "Path to the aether user configuration header" FORCE)
+# Prefer an explicit USER_CONFIG; otherwise use the AppTraverse-owned header.
+# Absolute path so aether's #include USER_CONFIG works regardless of its cwd.
+if(NOT DEFINED USER_CONFIG OR USER_CONFIG STREQUAL "")
+  get_filename_component(_apptraverse_aether_user_config
+    "${CMAKE_CURRENT_LIST_DIR}/../app/src/main/cpp/aether_user_config.h"
+    ABSOLUTE)
+  set(USER_CONFIG "${_apptraverse_aether_user_config}"
+    CACHE STRING "Path to the aether user configuration header")
+endif()
 
 # The AppTraverse root project owns the aether pin and the apptraverse library.
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)

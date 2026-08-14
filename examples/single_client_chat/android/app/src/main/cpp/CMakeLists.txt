@@ -11,35 +11,25 @@ if(NOT APPTRAVERSE_ROOT)
   message(FATAL_ERROR "APPTRAVERSE_ROOT must be set (absolute path to AppTraverse)")
 endif()
 
-# Prefer a sibling checkout of aether-client-cpp when present.
-set(_aether_local "${APPTRAVERSE_ROOT}/../aether-client-cpp")
-if(EXISTS "${_aether_local}/CMakeLists.txt")
-  set(CPM_aether-client-cpp_SOURCE "${_aether_local}" CACHE PATH "" FORCE)
-endif()
+include("${APPTRAVERSE_ROOT}/cmake/aether_version.cmake")
 
 # USER_CONFIG must be set before aether is added so the cache is visible to it.
+# Respect an explicit user/Gradle value; otherwise use the AppTraverse-owned header.
 if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "")
-  if(EXISTS "${_aether_local}/config/user_config_android_smoke.h")
-    set(USER_CONFIG "${_aether_local}/config/user_config_android_smoke.h"
-        CACHE PATH "Path to user provided configuration header file" FORCE)
-  elseif(DEFINED CPM_aether-client-cpp_SOURCE
-         AND EXISTS "${CPM_aether-client-cpp_SOURCE}/config/user_config_android_smoke.h")
-    set(USER_CONFIG "${CPM_aether-client-cpp_SOURCE}/config/user_config_android_smoke.h"
-        CACHE PATH "Path to user provided configuration header file" FORCE)
-  else()
-    message(FATAL_ERROR
-      "USER_CONFIG is unset and user_config_android_smoke.h was not found next to AppTraverse")
-  endif()
-else()
-  set(USER_CONFIG "${USER_CONFIG}" CACHE PATH "Path to user provided configuration header file" FORCE)
+  set(_apptraverse_aether_user_config
+      "${CMAKE_CURRENT_LIST_DIR}/aether_user_config.h")
+  set(USER_CONFIG "${_apptraverse_aether_user_config}"
+      CACHE PATH "Path to user provided configuration header file")
 endif()
+
+apptraverse_prepare_aether_override()
 
 include("${APPTRAVERSE_ROOT}/cmake/CPM.cmake")
 
 CPMAddPackage(
   NAME aether-client-cpp
   GITHUB_REPOSITORY aethernetio/aether-client-cpp
-  GIT_TAG 24ea60107c1f17673aeee5eeba3e125c87b8cdbd
+  GIT_TAG ${APPTRAVERSE_AETHER_GIT_TAG}
   OPTIONS
     "AE_BUILD_TOOLS OFF"
     "AE_BUILD_EXAMPLES OFF"
@@ -49,6 +39,8 @@ CPMAddPackage(
     "AE_FILTRATION ON"
     "AE_BUILD_ANDROID_SMOKE OFF"
 )
+
+apptraverse_verify_aether_pin()
 
 add_library(apptraverse STATIC
   "${APPTRAVERSE_ROOT}/src/apptraverse.cpp"
