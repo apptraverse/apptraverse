@@ -91,16 +91,17 @@ void ChatComponent::Start() {
   if (running_) {
     return;
   }
-  running_ = true;
-  sync_.Start();
   peer_set_.Load();
-  if (peer_set_.is_loaded() && connect_) {
+  assert(peer_set_.is_loaded());
+  running_ = true;
+  if (connect_) {
     for (auto const& peer : peer_set_->peers) {
       if (!peer.remote_uid.empty()) {
         connect_(peer.remote_uid);
       }
     }
   }
+  sync_.Start();
   NotifyPresentationChanged();
 }
 
@@ -128,10 +129,10 @@ AddPeerResult ChatComponent::AddPeer(ae::Uid const& remote_uid) {
       sync_.FindSession(remote_uid) != nullptr) {
     return AddPeerResult::kAlreadyPresent;
   }
-  sync_.AddPeer(remote_uid);
   if (connect_) {
     connect_(remote_uid);
   }
+  sync_.AddPeer(remote_uid);
   NotifyPresentationChanged();
   return AddPeerResult::kAdded;
 }

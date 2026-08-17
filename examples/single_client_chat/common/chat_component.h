@@ -35,6 +35,7 @@ class ChatComponent {
   using SubscriptionId = std::uint64_t;
   using SendFunction = ChatSyncController::SendFunction;
   using RawSendFunction = ChatSyncController::RawSendFunction;
+  // Ensures a host transport session exists; not a wait-for-connected handshake.
   using ConnectFunction = std::function<void(ae::Uid const& remote_uid)>;
   using LogFunction = ChatSyncController::LogFunction;
 

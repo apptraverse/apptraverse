@@ -131,12 +131,19 @@ ChatComponent::RawSendFunction MakeDirectRawSend(ChatComponent*& peer,
 std::unique_ptr<ChatComponent> MakeComponent(
     Side& side, ChatComponent*& peer_ptr, ae::Uid const& peer_uid,
     bool auto_accept, ChatComponent::ConnectFunction connect = {},
+    ChatComponent::SendFunction send = {},
+    ChatComponent::RawSendFunction raw_send = {},
     ChatSyncTiming timing = {}) {
+  if (!send) {
+    send = MakeDirectSend(peer_ptr, side.self_uid, peer_uid);
+  }
+  if (!raw_send) {
+    raw_send = MakeDirectRawSend(peer_ptr, side.self_uid, peer_uid);
+  }
   return std::make_unique<ChatComponent>(
       side.Replica(), side.graph.local_client, side.graph.chat,
-      MakeDirectSend(peer_ptr, side.self_uid, peer_uid),
-      MakeDirectRawSend(peer_ptr, side.self_uid, peer_uid),
-      std::move(connect), timing, auto_accept);
+      std::move(send), std::move(raw_send), std::move(connect), timing,
+      auto_accept);
 }
 
 bool TimelineHasMessage(ChatPresentationSnapshot const& snap,
@@ -370,7 +377,6 @@ void TestAddPeerPersistenceAndConnectOnStart() {
     CHECK(connect_calls == 0);
     CHECK(component->AddPeer(peer_uid) == AddPeerResult::kAdded);
     CHECK(connect_calls == 1);
-    side.graph.chat.Save();
     component->Stop();
   }
   side.DestroyRuntime();
@@ -568,16 +574,21 @@ void TestStopThenStartNewSubscription() {
   int first = 0;
   int second = 0;
   component->Start();
-  component->SubscribePresentationChanged([&]() { ++first; });
+  component->SubscribePresentationChanged([&]() {
+    ++first;
+  });
   CHECK(component->SubmitText("first").has_value());
   CHECK(first >= 1);
   component->Stop();
+  auto const first_after_stop = first;
   component->Start();
-  component->SubscribePresentationChanged([&]() { ++second; });
-  int const second_before = second;
+  component->SubscribePresentationChanged([&]() {
+    ++second;
+  });
+  auto const second_before = second;
   CHECK(component->SubmitText("second").has_value());
+  CHECK(first == first_after_stop);
   CHECK(second == second_before + 1);
-  CHECK(first == first);  // first subscribers cleared on Stop
   component->Stop();
 }
 
@@ -599,6 +610,65 @@ void TestDestructionStopsCallbacks() {
   }
 }
 
+void TestConnectBeforeSendOnStartAndAddPeer() {
+  // --- A persisted peer after restart ---
+  Side side{"ConnOrder", MakeUid(0xA1)};
+  auto peer_uid = MakeUid(0xA2);
+  ChatComponent* unused = nullptr;
+  std::vector<std::string> events;
+  auto connect = [&](ae::Uid const&) { events.push_back("connect"); };
+  auto send = [&](ae::Uid const&, ae::ObjId, SerializedSyncPacket const&) {
+    events.push_back("send");
+  };
+  auto raw_send = [&](ae::Uid const&, std::vector<std::uint8_t> const&) {
+    events.push_back("raw_send");
+  };
+
+  {
+    auto component =
+        MakeComponent(side, unused, peer_uid, false, connect, send, raw_send);
+    component->Start();
+    CHECK(component->AddPeer(peer_uid) == AddPeerResult::kAdded);
+    component->Stop();
+  }
+  side.DestroyRuntime();
+  side.ReloadRuntime();
+  events.clear();
+  {
+    auto component =
+        MakeComponent(side, unused, peer_uid, false, connect, send, raw_send);
+    component->Start();
+    CHECK(!events.empty());
+    CHECK(events.front() == "connect");
+    for (std::size_t i = 0; i < events.size(); ++i) {
+      if (events[i] == "send" || events[i] == "raw_send") {
+        CHECK(i > 0);
+      }
+    }
+    component->Stop();
+  }
+
+  // --- B new AddPeer ---
+  Side fresh{"ConnAdd", MakeUid(0xB1)};
+  auto new_peer = MakeUid(0xB2);
+  events.clear();
+  {
+    auto component =
+        MakeComponent(fresh, unused, new_peer, false, connect, send, raw_send);
+    component->Start();
+    events.clear();  // Start with no peer should not send to new_peer
+    CHECK(component->AddPeer(new_peer) == AddPeerResult::kAdded);
+    CHECK(!events.empty());
+    CHECK(events.front() == "connect");
+    for (std::size_t i = 0; i < events.size(); ++i) {
+      if (events[i] == "send" || events[i] == "raw_send") {
+        CHECK(i > 0);
+      }
+    }
+    component->Stop();
+  }
+}
+
 }  // namespace apptraverse::test
 
 int main() {
@@ -617,6 +687,7 @@ int main() {
   apptraverse::test::TestUnsubscribeReentrancy();
   apptraverse::test::TestStopThenStartNewSubscription();
   apptraverse::test::TestDestructionStopsCallbacks();
+  apptraverse::test::TestConnectBeforeSendOnStartAndAddPeer();
   std::cout << "chat_component_test OK\n";
   return 0;
 }
