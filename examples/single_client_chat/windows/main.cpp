@@ -338,23 +338,37 @@ int Run(CliOptions const& options) {
         .count();
   };
 
+  auto sync_send = [&](ae::Uid const& peer, ae::ObjId packet_id,
+                       apptraverse::SerializedSyncPacket const& bytes) {
+    p2p_transport.Send(peer, bytes);
+    LogLine(
+        "SYNC_TRANSPORT_WRITE peer=" +
+        apptraverse::examples::FormatAetherUid(peer) +
+        " packet=" + std::to_string(packet_id.id()) +
+        " t_us=" + std::to_string(system_utc_micros()));
+  };
+  auto presence_send = [&](ae::Uid const& peer,
+                           std::vector<std::uint8_t> const& bytes) {
+    p2p_transport.Send(peer, bytes);
+  };
+
+  apptraverse::examples::ChatComponent chat_component(
+      apptraverse::SyncReplica{aether_app->domain(), *domain_storage,
+                               chat.id()},
+      local_client, chat, sync_send, presence_send,
+      [&](ae::Uid const& remote_uid) { p2p_transport.Connect(remote_uid); },
+      apptraverse::examples::ChatSyncTiming{}, options.auto_accept_peer,
+      LogLine);
+
   auto transcript_contains = [&](std::string const& needle) {
-    chat.Load();
-    if (!chat.is_loaded()) {
-      return false;
-    }
-    auto const transcript =
-        apptraverse::examples::FormatChatTranscriptUtf8(chat);
+    auto const transcript = apptraverse::examples::FormatChatPresentationUtf8(
+        chat_component.CapturePresentation());
     return transcript.find(needle) != std::string::npos;
   };
 
   auto emit_visible_keys = [&]() {
-    chat.Load();
-    if (!chat.is_loaded()) {
-      return;
-    }
-    auto const transcript =
-        apptraverse::examples::FormatChatTranscriptUtf8(chat);
+    auto const transcript = apptraverse::examples::FormatChatPresentationUtf8(
+        chat_component.CapturePresentation());
     std::size_t start = 0;
     while (start < transcript.size()) {
       auto const end = transcript.find('\n', start);
@@ -397,31 +411,14 @@ int Run(CliOptions const& options) {
     }
   };
 
-  auto sync_send = [&](ae::Uid const& peer, ae::ObjId packet_id,
-                       apptraverse::SerializedSyncPacket const& bytes) {
-    p2p_transport.Send(peer, bytes);
-    LogLine(
-        "SYNC_TRANSPORT_WRITE peer=" +
-        apptraverse::examples::FormatAetherUid(peer) +
-        " packet=" + std::to_string(packet_id.id()) +
-        " t_us=" + std::to_string(system_utc_micros()));
-  };
-  auto presence_send = [&](ae::Uid const& peer,
-                           std::vector<std::uint8_t> const& bytes) {
-    p2p_transport.Send(peer, bytes);
-  };
-
-  apptraverse::examples::ChatComponent chat_component(
-      apptraverse::SyncReplica{aether_app->domain(), *domain_storage,
-                               chat.id()},
-      local_client, chat, win_presenter.chat_presenter, peer_set, sync_send,
-      presence_send, apptraverse::examples::ChatSyncTiming{},
-      options.auto_accept_peer, LogLine);
   chat_component.SubscribePresentationChanged([&]() {
-    chat_ui.RefreshTranscript();
+    chat_ui.RenderPresentation(chat_component.CapturePresentation());
     emit_visible_keys();
     check_wait_message();
     app.Save();
+  });
+  chat_ui.SetSubmitTextHandler([&](std::string text) {
+    return chat_component.SubmitText(std::move(text)).has_value();
   });
 
   p2p_transport.SetReceiveHandler(
@@ -436,16 +433,6 @@ int Run(CliOptions const& options) {
 
   if (options.peer.has_value()) {
     chat_component.AddPeer(*options.peer);
-    p2p_transport.Connect(*options.peer);
-  } else {
-    peer_set.Load();
-    if (peer_set.is_loaded()) {
-      for (auto const& peer : peer_set->peers) {
-        if (!peer.remote_uid.empty()) {
-          p2p_transport.Connect(peer.remote_uid);
-        }
-      }
-    }
   }
 
   auto const local_aether_uid =
@@ -472,7 +459,6 @@ int Run(CliOptions const& options) {
           return apptraverse::AddPeerUiResult::Self;
         }
         chat_component.AddPeer(uid);
-        p2p_transport.Connect(uid);
         app.Save();
         LogLine("CHAT_PEER_UI_ADDED platform=windows uid=" +
                 apptraverse::examples::FormatAetherUid(uid));
@@ -483,18 +469,13 @@ int Run(CliOptions const& options) {
   log_chat_journal();
 
   auto commit_chat_text = [&](std::string const& text) {
-    chat_ui.SubmitText(text);
-    chat.Save();
-    app.Save();
-    chat_ui.RefreshTranscript();
-    emit_visible_keys();
-    std::uint32_t event_id = 0;
-    chat.Load();
-    if (chat.is_loaded() && !chat->journal.empty()) {
-      event_id = chat->journal.back().event.id().id();
+    auto const event_id = chat_component.SubmitText(text);
+    if (!event_id.has_value()) {
+      return;
     }
+    app.Save();
     LogLine("CHAT_MESSAGE_COMMITTED platform=windows event=" +
-            std::to_string(event_id) + " text_key=" + text +
+            std::to_string(*event_id) + " text_key=" + text +
             " t_us=" + std::to_string(system_utc_micros()));
     LogLine("MESSAGE_COMMITTED text=" + text);
     log_chat_journal();
@@ -531,15 +512,10 @@ int Run(CliOptions const& options) {
   };
 
   auto peer_already_present = [&](ae::Uid const& uid) {
-    if (chat_component.FindSession(uid) != nullptr) {
-      return true;
-    }
-    peer_set.Load();
-    if (!peer_set.is_loaded()) {
-      return false;
-    }
-    for (auto const& peer : peer_set->peers) {
-      if (peer.remote_uid == uid) {
+    auto const uid_text = apptraverse::examples::FormatAetherUid(uid);
+    auto const snap = chat_component.CapturePresentation();
+    for (auto const& peer : snap.peers) {
+      if (peer.remote_uid == uid_text) {
         return true;
       }
     }
@@ -584,7 +560,6 @@ int Run(CliOptions const& options) {
       return;
     }
     chat_component.AddPeer(uid);
-    p2p_transport.Connect(uid);
     LogLine("CHAT_PEER_INBOX_ADDED uid=" + uid_text);
   };
 
@@ -611,30 +586,36 @@ int Run(CliOptions const& options) {
     if (!options.send_after_sync.has_value() || sent_after_sync) {
       return;
     }
-    apptraverse::SharedGraphSyncSession* session = nullptr;
+    auto const snap = chat_component.CapturePresentation();
+    bool sync_ready = false;
     if (options.peer.has_value()) {
-      session = chat_component.FindSession(*options.peer);
-    } else if (chat_component.runtime_session_count() > 0) {
-      peer_set.Load();
-      if (peer_set.is_loaded() && !peer_set->peers.empty()) {
-        session = chat_component.FindSession(peer_set->peers.front().remote_uid);
+      auto const peer_text =
+          apptraverse::examples::FormatAetherUid(*options.peer);
+      for (auto const& peer : snap.peers) {
+        if (peer.remote_uid == peer_text && peer.initial_sync_complete) {
+          sync_ready = true;
+          break;
+        }
+      }
+    } else {
+      for (auto const& peer : snap.peers) {
+        if (peer.initial_sync_complete) {
+          sync_ready = true;
+          break;
+        }
       }
     }
-    if (session == nullptr || !session->initial_sync_complete()) {
+    if (!sync_ready) {
       return;
     }
-    chat_ui.SubmitText(*options.send_after_sync);
-    chat.Save();
-    app.Save();
-    chat_ui.RefreshTranscript();
-    sent_after_sync = true;
-    std::uint32_t event_id = 0;
-    chat.Load();
-    if (chat.is_loaded() && !chat->journal.empty()) {
-      event_id = chat->journal.back().event.id().id();
+    auto const event_id = chat_component.SubmitText(*options.send_after_sync);
+    if (!event_id.has_value()) {
+      return;
     }
+    app.Save();
+    sent_after_sync = true;
     LogLine("CHAT_MESSAGE_COMMITTED platform=windows event=" +
-            std::to_string(event_id) +
+            std::to_string(*event_id) +
             " text_key=" + *options.send_after_sync +
             " t_us=" + std::to_string(system_utc_micros()));
     LogLine("CHAT_SEND_AFTER_SYNC text=" + *options.send_after_sync);
@@ -677,13 +658,9 @@ int Run(CliOptions const& options) {
     if (options.exit_after_pending_clear &&
         options.commit_message.has_value()) {
       std::size_t pending_total = 0;
-      peer_set.Load();
-      if (peer_set.is_loaded()) {
-        for (auto const& peer : peer_set->peers) {
-          if (auto* session = chat_component.FindSession(peer.remote_uid)) {
-            pending_total += session->pending_packet_count();
-          }
-        }
+      auto const snap = chat_component.CapturePresentation();
+      for (auto const& peer : snap.peers) {
+        pending_total += peer.pending_packets;
       }
       if (pending_total > 0) {
         saw_pending_after_commit = true;

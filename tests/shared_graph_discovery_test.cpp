@@ -1,3 +1,4 @@
+#include <cassert>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -33,6 +34,23 @@ namespace apptraverse::test {
       std::exit(1);                                                          \
     }                                                                        \
   } while (0)
+
+
+void SubmitViaChat(Chat::ptr chat, Client::ptr client, std::string text) {
+  assert(chat.is_valid());
+  chat.Load();
+  assert(chat.is_loaded());
+  assert(chat.domain() != nullptr);
+  assert(client.is_valid());
+  client.Load();
+  assert(client.is_loaded());
+  auto event = AddMessageEvent::ptr::Create(ae::CreateWith{*chat.domain()});
+  event->author = client;
+  event->text = std::move(text);
+  chat->Commit(event);
+  chat.Save();
+}
+
 
 class FakeChatPresenter : public ChatPresenter {
   APPTRAVERSE_OBJECT(FakeChatPresenter, ChatPresenter, 0)
@@ -218,7 +236,7 @@ void TestChatDiscoveryBeforeAndAfterMessage() {
   auto join_event = graph.chat->journal.front().event;
   CHECK(!ContainsId(before, join_event.id()));
 
-  graph.chat_presenter->SubmitText("hello");
+  SubmitViaChat(graph.chat, graph.local_client, "hello");
   auto after = DiscoverSharedGraph(graph.chat);
   ExpectExactIds(after, {graph.chat.id(), graph.local_client.id()});
 }

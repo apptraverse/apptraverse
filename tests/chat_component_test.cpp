@@ -13,6 +13,8 @@
 #include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/types/uid.h"
 
+#include "aether-miscpp/format/format.h"
+
 #include "apptraverse/object_macros.h"
 
 #include "chat_component.h"
@@ -160,9 +162,9 @@ std::unique_ptr<examples::ChatComponent> MakeComponent(
     bool auto_accept) {
   return std::make_unique<examples::ChatComponent>(
       side.Replica(), side.graph.local_client, side.graph.chat,
-      side.graph.chat_presenter, side.graph.peer_set,
       MakeDirectSend(peer_ptr, side.self_uid, peer_uid),
       MakeDirectRawSend(peer_ptr, side.self_uid, peer_uid),
+      examples::ChatComponent::ConnectFunction{},
       examples::ChatSyncTiming{}, auto_accept);
 }
 
@@ -189,6 +191,17 @@ bool TimelineHasText(examples::ChatPresentationSnapshot const& snap,
   return false;
 }
 
+bool PeerSyncComplete(examples::ChatPresentationSnapshot const& snap,
+                      ae::Uid const& peer_uid) {
+  auto const peer_text = ae::Format("{}", peer_uid);
+  for (auto const& peer : snap.peers) {
+    if (peer.remote_uid == peer_text && peer.initial_sync_complete) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void TickUntilInitialSync(examples::ChatComponent& left,
                           examples::ChatComponent& right,
                           ae::Uid const& left_uid, ae::Uid const& right_uid) {
@@ -196,10 +209,8 @@ void TickUntilInitialSync(examples::ChatComponent& left,
     left.Tick(ae::Now());
     right.Tick(ae::Now());
     SleepMs(5);
-    auto* ls = left.FindSession(right_uid);
-    auto* rs = right.FindSession(left_uid);
-    if (ls && rs && ls->initial_sync_complete() &&
-        rs->initial_sync_complete()) {
+    if (PeerSyncComplete(left.CapturePresentation(), right_uid) &&
+        PeerSyncComplete(right.CapturePresentation(), left_uid)) {
       return;
     }
   }
@@ -237,8 +248,8 @@ void TestTwoIndependentComponents() {
   right_c->Start();
   CHECK(left_c->is_running());
   CHECK(right_c->is_running());
-  CHECK(left_c->runtime_session_count() == 0);
-  CHECK(right_c->runtime_session_count() == 0);
+  CHECK(left_c->CapturePresentation().peers.empty());
+  CHECK(right_c->CapturePresentation().peers.empty());
   left_c->Stop();
   right_c->Stop();
 }
@@ -248,8 +259,8 @@ void TestSubmitTextUpdatesPresentation() {
   examples::ChatComponent* unused = nullptr;
   auto component = MakeComponent(side, unused, MakeUid(0x52), false);
   component->Start();
-  CHECK(component->SubmitText("  hello-local  "));
-  CHECK(!component->SubmitText("   "));
+  CHECK(component->SubmitText("  hello-local  ").has_value());
+  CHECK(!component->SubmitText("   ").has_value());
   auto snap = component->CapturePresentation();
   CHECK(TimelineHasMessage(snap, "hello-local",
                            examples::ChatMessageDirection::kLocal));
@@ -271,10 +282,10 @@ void TestRemoteSyncBetweenComponents() {
 
   left_c->Start();
   right_c->Start();
-  CHECK(left_c->AddPeer(right_uid).has_value());
+  CHECK(left_c->AddPeer(right_uid) == examples::AddPeerResult::kAdded);
   TickUntilInitialSync(*left_c, *right_c, left_uid, right_uid);
 
-  CHECK(left_c->SubmitText("from-left"));
+  CHECK(left_c->SubmitText("from-left").has_value());
   for (int i = 0; i < 200; ++i) {
     left_c->Tick(ae::Now());
     right_c->Tick(ae::Now());
@@ -301,13 +312,13 @@ void TestStopClearsSubscriptions() {
   component->Start();
   auto id = component->SubscribePresentationChanged([&]() { ++callbacks; });
   CHECK(id != 0);
-  CHECK(component->SubmitText("ping"));
+  CHECK(component->SubmitText("ping").has_value());
   CHECK(callbacks >= 1);
   int const after_submit = callbacks;
   component->Stop();
   int const after_stop = callbacks;
   // Further activity must not notify cleared subscribers.
-  CHECK(!component->SubmitText("should-fail"));
+  CHECK(!component->SubmitText("should-fail").has_value());
   component->Receive(MakeUid(0x99), {});
   CHECK(callbacks == after_stop);
   // Destroy safely.
@@ -322,7 +333,7 @@ void TestRestartRestoresPersistedChat() {
   {
     auto component = MakeComponent(side, unused, MakeUid(0x82), false);
     component->Start();
-    CHECK(component->SubmitText("persisted-msg"));
+    CHECK(component->SubmitText("persisted-msg").has_value());
     side.graph.chat.Save();
     side.graph.app.Save();
     component->Stop();

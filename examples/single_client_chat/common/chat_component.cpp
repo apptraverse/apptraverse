@@ -1,12 +1,14 @@
 #include "chat_component.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 #include <utility>
 
 #include "aether-miscpp/format/format.h"
 
-#include "model/chat_entry.h"
+#include "model/chat_events.h"
+#include "model/chat_presenter.h"
 
 namespace apptraverse::examples {
 namespace {
@@ -22,17 +24,51 @@ std::string TrimWhitespace(std::string text) {
   return text;
 }
 
+bool LocalClientHasJoinInJournal(Chat::ptr const& chat,
+                                 Client::ptr const& local_client) {
+  if (!chat.is_loaded() || !local_client.is_valid()) {
+    return false;
+  }
+  for (auto const& record : chat->journal) {
+    if (!record.event.is_valid() ||
+        record.event->GetClassId() != JoinClientEvent::kClassId) {
+      continue;
+    }
+    auto join = JoinClientEvent::ptr{record.event};
+    join.Load();
+    if (!join.is_loaded() || !join->client.is_valid()) {
+      continue;
+    }
+    if (join->client.id() == local_client.id()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 ChatComponent::ChatComponent(SyncReplica replica, Client::ptr local_client,
-                             Chat::ptr chat, ChatPresenter::ptr presenter,
-                             ChatPeerSet::ptr peer_set, SendFunction send,
-                             RawSendFunction raw_send, ChatSyncTiming timing,
-                             bool auto_accept_incoming, LogFunction log)
+                             Chat::ptr chat, SendFunction send,
+                             RawSendFunction raw_send, ConnectFunction connect,
+                             ChatSyncTiming timing, bool auto_accept_incoming,
+                             LogFunction log)
     : local_client_{std::move(local_client)},
-      chat_{std::move(chat)},
-      presenter_{std::move(presenter)},
-      peer_set_{std::move(peer_set)},
+      chat_{[&] {
+        auto c = std::move(chat);
+        assert(c.is_valid());
+        c.Load();
+        assert(c.is_loaded());
+        return c;
+      }()},
+      peer_set_{[&] {
+        auto ps = chat_->peer_set;
+        assert(ps.is_valid());
+        ps.Load();
+        assert(ps.is_loaded());
+        return ps;
+      }()},
+      connect_{std::move(connect)},
       sync_{replica,
             chat_,
             peer_set_,
@@ -41,113 +77,101 @@ ChatComponent::ChatComponent(SyncReplica replica, Client::ptr local_client,
             timing,
             auto_accept_incoming,
             [this]() { NotifyPresentationChanged(); },
-            std::move(log)} {}
+            std::move(log)} {
+  assert(local_client_.is_valid());
+  local_client_.Load();
+  assert(local_client_.is_loaded());
+  assert(replica.shared_root_id == chat_.id());
+  assert(LocalClientHasJoinInJournal(chat_, local_client_));
+}
 
 ChatComponent::~ChatComponent() { Stop(); }
 
 void ChatComponent::Start() {
-  {
-    std::lock_guard lock{mutex_};
-    if (running_) {
-      return;
-    }
-    running_ = true;
+  if (running_) {
+    return;
   }
+  running_ = true;
   sync_.Start();
+  peer_set_.Load();
+  if (peer_set_.is_loaded() && connect_) {
+    for (auto const& peer : peer_set_->peers) {
+      if (!peer.remote_uid.empty()) {
+        connect_(peer.remote_uid);
+      }
+    }
+  }
   NotifyPresentationChanged();
 }
 
 void ChatComponent::Stop() {
-  bool was_running = false;
-  {
-    std::lock_guard lock{mutex_};
-    generation_.fetch_add(1, std::memory_order_acq_rel);
-    subscribers_.clear();
-    was_running = running_;
-    running_ = false;
-  }
+  bool const was_running = running_;
+  running_ = false;
+  subscribers_.clear();
   if (was_running) {
     sync_.Stop();
   }
 }
 
-bool ChatComponent::is_running() const {
-  std::lock_guard lock{mutex_};
-  return running_;
-}
+bool ChatComponent::is_running() const { return running_; }
 
-std::optional<std::reference_wrapper<SharedGraphSyncSession>>
-ChatComponent::AddPeer(ae::Uid const& remote_uid) {
-  {
-    std::lock_guard lock{mutex_};
-    if (!running_) {
-      return std::nullopt;
-    }
+AddPeerResult ChatComponent::AddPeer(ae::Uid const& remote_uid) {
+  if (!running_) {
+    return AddPeerResult::kNotRunning;
   }
-  auto& session = sync_.AddPeer(remote_uid);
+  if (remote_uid.empty()) {
+    return AddPeerResult::kInvalidUid;
+  }
+  peer_set_.Load();
+  assert(peer_set_.is_loaded());
+  if (peer_set_->Find(remote_uid) != nullptr ||
+      sync_.FindSession(remote_uid) != nullptr) {
+    return AddPeerResult::kAlreadyPresent;
+  }
+  sync_.AddPeer(remote_uid);
+  if (connect_) {
+    connect_(remote_uid);
+  }
   NotifyPresentationChanged();
-  return session;
+  return AddPeerResult::kAdded;
 }
 
-SharedGraphSyncSession* ChatComponent::FindSession(ae::Uid const& remote_uid) {
-  return sync_.FindSession(remote_uid);
-}
+std::optional<std::uint32_t> ChatComponent::SubmitText(std::string text) {
+  text = TrimWhitespace(std::move(text));
+  if (text.empty() || !running_) {
+    return std::nullopt;
+  }
+  assert(chat_.is_valid());
+  chat_.Load();
+  assert(chat_.is_loaded());
+  assert(chat_.domain() != nullptr);
+  assert(local_client_.is_valid());
+  local_client_.Load();
+  assert(local_client_.is_loaded());
 
-SharedGraphSyncSession const* ChatComponent::FindSession(
-    ae::Uid const& remote_uid) const {
-  return sync_.FindSession(remote_uid);
-}
-
-std::size_t ChatComponent::runtime_session_count() const {
-  return sync_.runtime_session_count();
-}
-
-bool ChatComponent::IsPeerOnline(ae::Uid const& remote_uid) const {
-  return sync_.IsPeerOnline(remote_uid);
+  auto event = AddMessageEvent::ptr::Create(ae::CreateWith{*chat_.domain()});
+  event->author = local_client_;
+  event->text = std::move(text);
+  auto const event_id = event.id().id();
+  chat_->Commit(event);
+  chat_.Save();
+  NotifyPresentationChanged();
+  return event_id;
 }
 
 void ChatComponent::Receive(ae::Uid const& remote_uid,
                             std::vector<std::uint8_t> const& bytes) {
-  {
-    std::lock_guard lock{mutex_};
-    if (!running_) {
-      return;
-    }
+  if (!running_) {
+    return;
   }
   sync_.Receive(remote_uid, bytes);
 }
 
 void ChatComponent::Tick(ae::TimePoint now) {
-  {
-    std::lock_guard lock{mutex_};
-    if (!running_) {
-      return;
-    }
+  if (!running_) {
+    return;
   }
   sync_.Tick(now);
-}
-
-bool ChatComponent::SubmitText(std::string text) {
-  text = TrimWhitespace(std::move(text));
-  if (text.empty()) {
-    return false;
-  }
-  {
-    std::lock_guard lock{mutex_};
-    if (!running_) {
-      return false;
-    }
-  }
-  if (!presenter_.is_valid()) {
-    return false;
-  }
-  presenter_.Load();
-  if (!presenter_.is_loaded()) {
-    return false;
-  }
-  presenter_->SubmitText(std::move(text));
-  NotifyPresentationChanged();
-  return true;
 }
 
 ChatParticipantView ChatComponent::MakeParticipantView(
@@ -166,33 +190,47 @@ ChatParticipantView ChatComponent::MakeParticipantView(
 
 ChatPresentationSnapshot ChatComponent::CapturePresentation() const {
   ChatPresentationSnapshot snapshot{};
-  {
-    std::lock_guard lock{mutex_};
-    snapshot.running = running_;
-  }
-
+  snapshot.running = running_;
   snapshot.local_participant = MakeParticipantView(local_client_);
 
   if (chat_.is_valid()) {
     chat_.Load();
     if (chat_.is_loaded()) {
-      snapshot.timeline.reserve(chat_->entries.size());
-      for (std::size_t i = 0; i < chat_->entries.size(); ++i) {
-        auto const& entry = chat_->entries[i];
+      snapshot.timeline.reserve(chat_->journal.size());
+      for (auto const& record : chat_->journal) {
+        if (!record.event.is_valid()) {
+          continue;
+        }
+        auto const class_id = record.event->GetClassId();
         ChatTimelineItemView item{};
-        item.timeline_index = i;
-        item.author = MakeParticipantView(entry.client);
-        item.text = entry.text;
-        if (entry.kind == ChatEntryKind::kJoined) {
+        item.event_obj_id = record.event.id().id();
+        item.timestamp_us = record.timestamp_us;
+
+        if (class_id == JoinClientEvent::kClassId) {
+          auto join = JoinClientEvent::ptr{record.event};
+          join.Load();
+          if (!join.is_loaded()) {
+            continue;
+          }
           item.kind = ChatTimelineItemKind::kJoined;
-        } else {
+          item.author = MakeParticipantView(join->client);
+        } else if (class_id == AddMessageEvent::kClassId) {
+          auto msg = AddMessageEvent::ptr{record.event};
+          msg.Load();
+          if (!msg.is_loaded()) {
+            continue;
+          }
           item.kind = ChatTimelineItemKind::kMessage;
-          if (entry.client.is_valid() && local_client_.is_valid() &&
-              entry.client.id() == local_client_.id()) {
+          item.author = MakeParticipantView(msg->author);
+          item.text = msg->text;
+          if (msg->author.is_valid() && local_client_.is_valid() &&
+              msg->author.id() == local_client_.id()) {
             item.direction = ChatMessageDirection::kLocal;
-          } else if (entry.client.is_valid()) {
+          } else if (msg->author.is_valid()) {
             item.direction = ChatMessageDirection::kRemote;
           }
+        } else {
+          continue;
         }
         snapshot.timeline.push_back(std::move(item));
       }
@@ -221,14 +259,12 @@ ChatPresentationSnapshot ChatComponent::CapturePresentation() const {
 
 ChatComponent::SubscriptionId ChatComponent::SubscribePresentationChanged(
     PresentationChangedFunction callback) {
-  std::lock_guard lock{mutex_};
   auto const id = next_subscription_id_++;
   subscribers_.push_back(Subscriber{id, std::move(callback)});
   return id;
 }
 
 void ChatComponent::Unsubscribe(SubscriptionId id) {
-  std::lock_guard lock{mutex_};
   subscribers_.erase(
       std::remove_if(subscribers_.begin(), subscribers_.end(),
                      [id](Subscriber const& s) { return s.id == id; }),
@@ -236,25 +272,32 @@ void ChatComponent::Unsubscribe(SubscriptionId id) {
 }
 
 void ChatComponent::NotifyPresentationChanged() {
-  auto const gen = generation_.load(std::memory_order_acquire);
-  std::vector<PresentationChangedFunction> callbacks;
-  {
-    std::lock_guard lock{mutex_};
-    if (!running_) {
-      return;
-    }
-    callbacks.reserve(subscribers_.size());
-    for (auto const& sub : subscribers_) {
-      if (sub.callback) {
-        callbacks.push_back(sub.callback);
-      }
-    }
-  }
-  if (generation_.load(std::memory_order_acquire) != gen) {
+  if (!running_) {
     return;
   }
-  for (auto const& callback : callbacks) {
+  std::vector<SubscriptionId> ids;
+  ids.reserve(subscribers_.size());
+  for (auto const& sub : subscribers_) {
+    ids.push_back(sub.id);
+  }
+  for (auto const id : ids) {
+    if (!running_) {
+      break;
+    }
+    PresentationChangedFunction callback;
+    for (auto const& sub : subscribers_) {
+      if (sub.id == id) {
+        callback = sub.callback;
+        break;
+      }
+    }
+    if (!callback) {
+      continue;
+    }
     callback();
+    if (!running_) {
+      break;
+    }
   }
 }
 

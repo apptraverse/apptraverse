@@ -203,8 +203,9 @@ bool NativeRuntime::Setup() {
     return false;
   }
 
-  if (chat_presenter_ != nullptr) {
-    chat_presenter_->PublishTranscript();
+  if (chat_presenter_ != nullptr && chat_component_ != nullptr) {
+    chat_presenter_->PublishPresentation(
+        chat_component_->CapturePresentation());
   }
   DrainPendingViewports();
   DrainPendingSends();
@@ -280,12 +281,6 @@ bool NativeRuntime::StartChatSync() {
     return false;
   }
   auto chat = chat_presenter_->chat;
-  auto peer_set = chat->peer_set;
-  peer_set.Load();
-  if (!peer_set.is_loaded()) {
-    LogError("Failed to load ChatPeerSet for sync");
-    return false;
-  }
 
   auto system_utc_micros = []() -> std::int64_t {
     return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -313,21 +308,21 @@ bool NativeRuntime::StartChatSync() {
     LogError("Failed to load local Client for chat component");
     return false;
   }
-  auto presenter = chat->presenter;
-  presenter.Load();
-  if (!presenter.is_loaded()) {
-    LogError("Failed to load ChatPresenter for chat component");
-    return false;
-  }
 
   chat_component_ = std::make_unique<examples::ChatComponent>(
       SyncReplica{aether_app_->domain(), *domain_storage_, chat.id()},
-      local_client, chat, presenter, peer_set, sync_send, presence_send,
+      local_client, chat, sync_send, presence_send,
+      [this](ae::Uid const& remote_uid) {
+        if (p2p_transport_ != nullptr) {
+          p2p_transport_->Connect(remote_uid);
+        }
+      },
       examples::ChatSyncTiming{}, true,
       [](std::string const& line) { LogMarker(line); });
   chat_component_->SubscribePresentationChanged([this]() {
-    if (chat_presenter_ != nullptr) {
-      chat_presenter_->PublishTranscript();
+    if (chat_presenter_ != nullptr && chat_component_ != nullptr) {
+      chat_presenter_->PublishPresentation(
+          chat_component_->CapturePresentation());
     }
     SaveState();
   });
@@ -344,17 +339,6 @@ bool NativeRuntime::StartChatSync() {
         }
       });
   chat_component_->Start();
-
-  // Dial persisted peers (same as Windows). Without this, Android may keep
-  // retrying on a stale pre-outage stream that still reports writable.
-  peer_set.Load();
-  if (peer_set.is_loaded()) {
-    for (auto const& peer : peer_set->peers) {
-      if (!peer.remote_uid.empty()) {
-        p2p_transport_->Connect(peer.remote_uid);
-      }
-    }
-  }
 
   LogMarker("CHAT_COMPONENT_READY");
   return true;
@@ -423,30 +407,26 @@ void NativeRuntime::DrainPendingSends() {
   if (texts.empty()) {
     return;
   }
-  if (chat_presenter_ == nullptr) {
-    LogError("Dropping queued messages, the model is not loaded");
+  if (chat_component_ == nullptr) {
+    LogError("Dropping queued messages, the chat component is not ready");
     return;
   }
 
   for (auto const& text : texts) {
-    chat_presenter_->SubmitText(text);
-    std::uint32_t event_id = 0;
-    auto chat = chat_presenter_->chat;
-    chat.Load();
-    if (chat.is_loaded() && !chat->journal.empty()) {
-      event_id = chat->journal.back().event.id().id();
+    auto const event_id = chat_component_->SubmitText(text);
+    if (!event_id.has_value()) {
+      continue;
     }
     auto const t_us = std::chrono::duration_cast<std::chrono::microseconds>(
                           std::chrono::system_clock::now().time_since_epoch())
                           .count();
     LogMarker("CHAT_MESSAGE_COMMITTED platform=android event=" +
-              std::to_string(event_id) + " text_key=" + ToSingleLine(text) +
+              std::to_string(*event_id) + " text_key=" + ToSingleLine(text) +
               " t_us=" + std::to_string(t_us));
     LogMarker("MESSAGE_COMMITTED text=" + ToSingleLine(text));
     LogJournalSizes();
     SaveState();
   }
-  chat_presenter_->PublishTranscript();
 }
 
 void NativeRuntime::DrainPendingPeers() {
@@ -477,7 +457,6 @@ void NativeRuntime::DrainPendingPeers() {
       continue;
     }
     chat_component_->AddPeer(uid);
-    p2p_transport_->Connect(uid);
     SaveState();
     LogMarker("CHAT_PEER_UI_ADDED platform=android uid=" +
               examples::FormatAetherUid(uid));

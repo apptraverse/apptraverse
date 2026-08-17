@@ -8,7 +8,6 @@
 #include "chat_presence.h"
 #include "model/chat_peer_set.h"
 #include "model/chat_presenter.h"
-
 namespace apptraverse::examples {
 namespace {
 
@@ -120,12 +119,14 @@ void ChatSyncController::ApplyOnlineTransition(RuntimeSession& runtime) {
     runtime.ever_seen_online = true;
     runtime.currently_online = true;
     Log(ae::Format("CHAT_PEER_ONLINE peer={}", FormatUid(runtime.remote_uid)));
+    NotifyChanged();
     return;
   }
   if (!runtime.currently_online) {
     runtime.currently_online = true;
     Log(ae::Format("CHAT_PEER_REJOINED peer={}",
                    FormatUid(runtime.remote_uid)));
+    NotifyChanged();
   }
 }
 
@@ -137,6 +138,7 @@ void ChatSyncController::ApplyOfflineTransition(RuntimeSession& runtime,
   runtime.currently_online = false;
   Log(ae::Format("CHAT_PEER_OFFLINE peer={} reason={}",
                  FormatUid(runtime.remote_uid), reason));
+  NotifyChanged();
 }
 
 void ChatSyncController::DrivePresence(RuntimeSession& runtime,
@@ -163,6 +165,7 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
     if (runtime.last_pending_count > 0) {
       Log(ae::Format("CHAT_PENDING_CHANGED peer={} pending=0",
                      FormatUid(runtime.remote_uid)));
+      NotifyChanged();
     }
     runtime.last_pending_count = 0;
     return;
@@ -171,6 +174,11 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
   if (runtime.last_pending_count == 0) {
     Log(ae::Format("CHAT_PENDING_CHANGED peer={} pending={}",
                    FormatUid(runtime.remote_uid), pending));
+    NotifyChanged();
+  } else if (runtime.last_pending_count != pending) {
+    Log(ae::Format("CHAT_PENDING_CHANGED peer={} pending={}",
+                   FormatUid(runtime.remote_uid), pending));
+    NotifyChanged();
   }
   runtime.last_pending_count = pending;
 

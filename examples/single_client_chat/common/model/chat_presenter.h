@@ -1,14 +1,9 @@
 #ifndef APPTRAVERSE_CHAT_PRESENTER_H_
 #define APPTRAVERSE_CHAT_PRESENTER_H_
 
-#include <cassert>
-#include <string>
-#include <utility>
-
 #include "aether/obj/obj.h"
 
 #include "model/chat.h"
-#include "model/chat_events.h"
 #include "model/client.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
@@ -28,22 +23,6 @@ class ChatPresenter : public ae::Obj {
 
   LocalPtr<Chat> chat;
   LocalPtr<Client> local_client;
-
-  void SubmitText(std::string text) {
-    assert(chat.is_valid());
-    assert(chat.is_loaded());
-    assert(chat.domain() != nullptr);
-    assert(local_client.is_valid());
-    local_client.Load();
-    assert(local_client.is_loaded());
-
-    auto event = AddMessageEvent::ptr::Create(ae::CreateWith{*chat.domain()});
-    event->author = local_client;
-    event->text = std::move(text);
-    chat->Commit(event);
-    // A completed local chat command must be durable even before a peer exists.
-    chat.Save();
-  }
 };
 
 }  // namespace apptraverse

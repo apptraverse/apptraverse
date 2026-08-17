@@ -40,6 +40,23 @@ namespace apptraverse::test {
     }                                                                        \
   } while (0)
 
+
+void SubmitViaChat(Chat::ptr chat, Client::ptr client, std::string text) {
+  assert(chat.is_valid());
+  chat.Load();
+  assert(chat.is_loaded());
+  assert(chat.domain() != nullptr);
+  assert(client.is_valid());
+  client.Load();
+  assert(client.is_loaded());
+  auto event = AddMessageEvent::ptr::Create(ae::CreateWith{*chat.domain()});
+  event->author = client;
+  event->text = std::move(text);
+  chat->Commit(event);
+  chat.Save();
+}
+
+
 class FakeChatPresenter : public ChatPresenter {
   APPTRAVERSE_OBJECT(FakeChatPresenter, ChatPresenter, 0)
 
@@ -194,7 +211,7 @@ void TestCommonGraphAndTranscript() {
   auto const transcript = examples::FormatChatTranscriptUtf8(graph.chat);
   CHECK(transcript.find("* Alice joined") != std::string::npos);
 
-  graph.chat_presenter->SubmitText("hello");
+  SubmitViaChat(graph.chat, graph.local_client, "hello");
   auto const after = examples::FormatChatTranscriptUtf8(graph.chat);
   CHECK(after.find("Alice: hello") != std::string::npos);
   auto add = FindLatestAddMessage(graph.chat);
@@ -236,8 +253,8 @@ void TestIndependentInstallations() {
   CHECK(graph_a.chat->entries.size() == 1);
   CHECK(graph_b.chat->entries.size() == 1);
 
-  graph_a.chat_presenter->SubmitText("from windows");
-  graph_b.chat_presenter->SubmitText("from android");
+  SubmitViaChat(graph_a.chat, graph_a.local_client, "from windows");
+  SubmitViaChat(graph_b.chat, graph_b.local_client, "from android");
   auto add_a = FindLatestAddMessage(graph_a.chat);
   auto add_b = FindLatestAddMessage(graph_b.chat);
   CHECK(add_a.is_valid());
@@ -301,7 +318,7 @@ void TestLocalClientReload() {
     chat_presenter.Load();
     CHECK(chat_presenter.is_loaded());
     CHECK(chat_presenter->local_client.id().id() == local_client_id);
-    chat_presenter->SubmitText("after_reload");
+    SubmitViaChat(chat, chat_presenter->local_client, "after_reload");
     auto add = FindLatestAddMessage(chat);
     CHECK(add.is_valid());
     CHECK(add->author.id().id() == local_client_id);
@@ -387,7 +404,7 @@ void TestWindowAndChatJournalsIndependent() {
   graph.window->Commit(MakeWindowEvent(domain, 640, 480));
   CHECK(graph.chat->journal.size() == chat_before);
   auto const window_before = graph.window->journal.size();
-  graph.chat_presenter->SubmitText("ping");
+  SubmitViaChat(graph.chat, graph.local_client, "ping");
   CHECK(graph.window->journal.size() == window_before);
   CHECK(graph.chat->journal.size() == chat_before + 1);
 }
@@ -398,7 +415,7 @@ void TestWindowRebuildDoesNotReplaceChat() {
   auto graph = examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
                                                     FakeChatPresenter>(
       domain, "Alice");
-  graph.chat_presenter->SubmitText("kept");
+  SubmitViaChat(graph.chat, graph.local_client, "kept");
   auto const chat_journal = graph.chat->journal.size();
   auto const chat_entries = graph.chat->entries.size();
   auto const presenter_id = graph.window->presenter.id();
@@ -433,7 +450,7 @@ void TestPresenterCommitPath() {
   CHECK(fake.viewport_width == 1200);
   CHECK(fake.viewport_height == 800);
 
-  graph.chat_presenter->SubmitText("from_presenter");
+  SubmitViaChat(graph.chat, graph.local_client, "from_presenter");
   CHECK(graph.chat->journal.size() == 2);
   auto add = FindLatestAddMessage(graph.chat);
   CHECK(add.is_valid());

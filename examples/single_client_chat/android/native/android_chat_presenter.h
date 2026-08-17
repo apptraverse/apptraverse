@@ -9,6 +9,7 @@
 #include "model/chat_presenter.h"
 #include "apptraverse/object_macros.h"
 
+#include "../../common/chat_presentation.h"
 #include "../../common/chat_transcript.h"
 
 namespace apptraverse {
@@ -34,11 +35,15 @@ class AndroidChatPresenter : public ChatPresenter {
 
   bool has_transcript_publisher() const { return static_cast<bool>(publisher_); }
 
-  void PublishTranscript() {
+  void PublishTranscriptText(std::string const& utf8) {
     if (!publisher_) {
       return;
     }
-    publisher_(examples::FormatChatTranscriptUtf8(chat));
+    publisher_(utf8);
+  }
+
+  void PublishPresentation(examples::ChatPresentationSnapshot const& snapshot) {
+    PublishTranscriptText(examples::FormatChatPresentationUtf8(snapshot));
   }
 
  private:

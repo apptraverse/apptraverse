@@ -3,13 +3,36 @@
 
 #include <string>
 
+#include "chat_presentation.h"
 #include "model/chat.h"
 #include "model/chat_entry.h"
 
 namespace apptraverse::examples {
 
-// Platform-neutral UTF-8 transcript from the materialized Chat model.
-// Does not mutate the model or create events.
+// Platform-neutral UTF-8 transcript from a presentation snapshot.
+inline std::string FormatChatPresentationUtf8(
+    ChatPresentationSnapshot const& snapshot) {
+  std::string text;
+  for (auto const& item : snapshot.timeline) {
+    if (item.kind == ChatTimelineItemKind::kJoined) {
+      if (item.author.display_name.empty()) {
+        continue;
+      }
+      text += "* ";
+      text += item.author.display_name;
+      text += " joined\n";
+    } else if (item.kind == ChatTimelineItemKind::kMessage) {
+      text += item.author.display_name;
+      text += ": ";
+      text += item.text;
+      text += "\n";
+    }
+  }
+  return text;
+}
+
+// Temporary helper for sync tests that still hold a Chat::ptr.
+// Production Windows/Android paths should use FormatChatPresentationUtf8.
 inline std::string FormatChatTranscriptUtf8(Chat::ptr const& chat) {
   if (!chat.is_valid()) {
     return {};

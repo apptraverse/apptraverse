@@ -28,7 +28,8 @@ struct ChatTimelineItemView {
   ChatMessageDirection direction{ChatMessageDirection::kUnknown};
   ChatParticipantView author;
   std::string text;
-  std::size_t timeline_index{0};
+  std::uint32_t event_obj_id{};
+  std::uint64_t timestamp_us{};
 };
 
 struct ChatPeerStatusView {

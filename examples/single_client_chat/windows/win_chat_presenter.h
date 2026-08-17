@@ -14,6 +14,7 @@
 
 #include "model/chat_presenter.h"
 #include "apptraverse/object_macros.h"
+#include "../common/chat_presentation.h"
 #include "../common/chat_transcript.h"
 #include "win_add_peer_dialog.h"
 
@@ -35,6 +36,10 @@ class WinChatPresenter : public ChatPresenter {
                  std::function<AddPeerUiResult(std::string const&)> add_peer) {
     local_aether_uid_ = std::move(local_aether_uid);
     add_peer_ = std::move(add_peer);
+  }
+
+  void SetSubmitTextHandler(std::function<bool(std::string)> handler) {
+    submit_text_ = std::move(handler);
   }
 
   void CreateControls(HWND parent) {
@@ -60,8 +65,6 @@ class WinChatPresenter : public ChatPresenter {
         0, L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0,
         parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(4)),
         GetModuleHandleW(nullptr), nullptr);
-
-    RefreshTranscript();
   }
 
   void Layout(int width, int height) {
@@ -89,7 +92,7 @@ class WinChatPresenter : public ChatPresenter {
   }
 
   void OnSendClicked() {
-    if (edit_ == nullptr) {
+    if (edit_ == nullptr || !submit_text_) {
       return;
     }
     int const len = GetWindowTextLengthW(edit_);
@@ -105,9 +108,9 @@ class WinChatPresenter : public ChatPresenter {
       return;
     }
 
-    SubmitText(WideToUtf8(wide));
-    SetWindowTextW(edit_, L"");
-    RefreshTranscript();
+    if (submit_text_(WideToUtf8(wide))) {
+      SetWindowTextW(edit_, L"");
+    }
   }
 
   void OnAddClicked() {
@@ -117,11 +120,11 @@ class WinChatPresenter : public ChatPresenter {
     ShowAddPeerDialog(parent_, local_aether_uid_, add_peer_);
   }
 
-  void RefreshTranscript() {
-    if (transcript_ == nullptr || !chat.is_valid()) {
+  void RenderPresentation(examples::ChatPresentationSnapshot const& snapshot) {
+    if (transcript_ == nullptr) {
       return;
     }
-    auto const utf8 = examples::FormatChatTranscriptUtf8(chat);
+    auto const utf8 = examples::FormatChatPresentationUtf8(snapshot);
     std::wstring text = Utf8ToWide(utf8);
     // EDIT control expects CRLF line endings on Windows.
     std::wstring crlf;
@@ -138,6 +141,9 @@ class WinChatPresenter : public ChatPresenter {
                  static_cast<LPARAM>(crlf.size()));
     SendMessageW(transcript_, EM_SCROLLCARET, 0, 0);
   }
+
+  // Deprecated: production uses RenderPresentation only.
+  void RefreshTranscript() {}
 
   HWND transcript() const { return transcript_; }
   HWND edit() const { return edit_; }
@@ -178,6 +184,7 @@ class WinChatPresenter : public ChatPresenter {
   HWND add_{nullptr};
   std::string local_aether_uid_;
   std::function<AddPeerUiResult(std::string const&)> add_peer_;
+  std::function<bool(std::string)> submit_text_;
 };
 
 }  // namespace apptraverse

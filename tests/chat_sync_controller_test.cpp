@@ -45,6 +45,23 @@ namespace apptraverse::test {
     }                                                                        \
   } while (0)
 
+
+void SubmitViaChat(Chat::ptr chat, Client::ptr client, std::string text) {
+  assert(chat.is_valid());
+  chat.Load();
+  assert(chat.is_loaded());
+  assert(chat.domain() != nullptr);
+  assert(client.is_valid());
+  client.Load();
+  assert(client.is_loaded());
+  auto event = AddMessageEvent::ptr::Create(ae::CreateWith{*chat.domain()});
+  event->author = client;
+  event->text = std::move(text);
+  chat->Commit(event);
+  chat.Save();
+}
+
+
 class FakeChatPresenter : public ChatPresenter {
   APPTRAVERSE_OBJECT(FakeChatPresenter, ChatPresenter, 0)
  protected:
@@ -138,15 +155,14 @@ struct Side {
 
   void Submit(std::string text) {
     SleepMs(2);
-    graph.chat_presenter->SubmitText(std::move(text));
-    graph.chat.Save();
+    SubmitViaChat(graph.chat, graph.local_client, std::move(text));
     graph.app.Save();
   }
 
-  // Regression helper: only the presenter command path — no external Save.
+  // Regression helper: commit only — no external App Save.
   void SubmitWithoutExternalSave(std::string text) {
     SleepMs(2);
-    graph.chat_presenter->SubmitText(std::move(text));
+    SubmitViaChat(graph.chat, graph.local_client, std::move(text));
   }
 
   std::string Transcript() const {
