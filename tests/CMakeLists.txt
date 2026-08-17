@@ -248,3 +248,16 @@ add_test(
   COMMAND apptraverse_aether_p2p_framing_test
 )
 
+add_executable(apptraverse_aether_p2p_write_gating_test
+  aether_p2p_write_gating_test.cpp
+)
+
+target_include_directories(apptraverse_aether_p2p_write_gating_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../examples/single_client_chat/common
+)
+
+add_test(
+  NAME apptraverse_aether_p2p_write_gating_test
+  COMMAND apptraverse_aether_p2p_write_gating_test
+)
+
