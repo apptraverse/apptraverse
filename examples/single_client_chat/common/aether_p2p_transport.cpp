@@ -39,7 +39,26 @@ char const* ToLinkStateText(ae::LinkState state) {
   return "unknown";
 }
 
+char const* ToWriteStatusText(ae::WriteAction::Status status) {
+  switch (status) {
+    case ae::WriteAction::Status::kSuccess:
+      return "success";
+    case ae::WriteAction::Status::kFail:
+      return "fail";
+    case ae::WriteAction::Status::kStop:
+      return "stop";
+  }
+  return "unknown";
+}
+
+std::string FormatTimeFields() {
+  return " t_us=" + std::to_string(SystemUtcMicros()) +
+         " mono_us=" + std::to_string(SteadyMonoMicros());
+}
+
 }  // namespace
+
+AetherP2pTransport::~AetherP2pTransport() { Stop(); }
 
 void AetherP2pTransport::Start(ae::RcPtr<ae::AetherApp> aether_app,
                                ae::Client::ptr local_client) {
@@ -52,6 +71,21 @@ void AetherP2pTransport::Start(ae::RcPtr<ae::AetherApp> aether_app,
   new_port_sub_ =
       local_client_->message_stream_manager().new_port_event().Subscribe(
           [this](ae::P2pPortHandle handle) { AttachIncoming(std::move(handle)); });
+}
+
+void AetherP2pTransport::Stop() {
+  new_port_sub_.Reset();
+  for (auto& session : sessions_) {
+    ClearSyncWrites(session.get());
+    if (session == nullptr) {
+      continue;
+    }
+    session->data_sub.Reset();
+    session->stream_update_sub.Reset();
+    session->stream.reset();
+  }
+  sessions_.clear();
+  sync_write_gate_.Clear();
 }
 
 void AetherP2pTransport::SetReceiveHandler(ReceiveHandler handler) {
@@ -130,7 +164,7 @@ void AetherP2pTransport::Connect(ae::Uid const& remote_uid) {
 void AetherP2pTransport::AttachIncoming(ae::P2pPortHandle handle) {
   auto const peer = handle.destination();
   if (FindSession(peer) != nullptr) {
-    // Already have one stream for this peer — do not create a second.
+    // Already have one stream for this peer -- do not create a second.
     return;
   }
   (void)CreateSession(peer, std::move(handle), "incoming");
@@ -155,10 +189,87 @@ void AetherP2pTransport::Send(ae::Uid const& remote_uid,
   }
   Log("P2P_WRITE peer=" + FormatAetherUid(remote_uid) +
       " size=" + std::to_string(size) +
-      " " + FormatStreamState(*session) +
-      " t_us=" + std::to_string(SystemUtcMicros()));
+      " " + FormatStreamState(*session) + FormatTimeFields());
   auto const frame = EncodeAetherP2pFrame(bytes, size);
   (void)session->stream->Write(ae::DataBuffer{frame.begin(), frame.end()});
+}
+
+void AetherP2pTransport::SendSync(ae::Uid const& remote_uid, ae::ObjId packet_id,
+                                  std::vector<std::uint8_t> const& bytes) {
+  SendSync(remote_uid, packet_id, bytes.data(), bytes.size());
+}
+
+void AetherP2pTransport::SendSync(ae::Uid const& remote_uid, ae::ObjId packet_id,
+                                  std::uint8_t const* bytes, std::size_t size) {
+  auto* session = GetOrCreateSession(remote_uid);
+  if (session == nullptr || session->stream == nullptr) {
+    return;
+  }
+
+  std::uint32_t attempt = 0;
+  if (!sync_write_gate_.TryBegin(remote_uid, packet_id, attempt)) {
+    Log("P2P_SYNC_WRITE_SUPPRESSED peer=" + FormatAetherUid(remote_uid) +
+        " packet=" + std::to_string(packet_id.id()) +
+        " reason=in_flight active_attempt=" + std::to_string(attempt) +
+        FormatTimeFields());
+    return;
+  }
+
+  Log("P2P_SYNC_WRITE_ATTEMPT peer=" + FormatAetherUid(remote_uid) +
+      " packet=" + std::to_string(packet_id.id()) +
+      " attempt=" + std::to_string(attempt) +
+      " size=" + std::to_string(size) +
+      " " + FormatStreamState(*session) + FormatTimeFields());
+
+  auto const frame = EncodeAetherP2pFrame(bytes, size);
+  ae::WriteAction& action =
+      session->stream->Write(ae::DataBuffer{frame.begin(), frame.end()});
+
+  session->sync_writes.push_back(PeerSession::SyncWriteAttempt{});
+  auto& record = session->sync_writes.back();
+  record.packet_id = packet_id;
+  record.attempt = attempt;
+  record.status_sub = action.status_event().Subscribe(
+      [this, session, packet_id, attempt](ae::WriteAction::Status status) {
+        Log("P2P_SYNC_WRITE_STATUS peer=" +
+            FormatAetherUid(session->remote_uid) +
+            " packet=" + std::to_string(packet_id.id()) +
+            " attempt=" + std::to_string(attempt) +
+            " status=" + std::string{ToWriteStatusText(status)} +
+            FormatTimeFields());
+        CompleteSyncWrite(session, packet_id, attempt);
+      });
+}
+
+void AetherP2pTransport::ClearSyncWrites(PeerSession* session) {
+  if (session == nullptr) {
+    return;
+  }
+  for (auto& record : session->sync_writes) {
+    record.status_sub.Reset();
+  }
+  session->sync_writes.clear();
+  sync_write_gate_.ClearPeer(session->remote_uid);
+}
+
+void AetherP2pTransport::CompleteSyncWrite(PeerSession* session,
+                                           ae::ObjId packet_id,
+                                           std::uint32_t attempt) {
+  if (session == nullptr) {
+    return;
+  }
+  auto& writes = session->sync_writes;
+  writes.erase(std::remove_if(writes.begin(), writes.end(),
+                              [&](PeerSession::SyncWriteAttempt& record) {
+                                if (record.packet_id == packet_id &&
+                                    record.attempt == attempt) {
+                                  record.status_sub.Reset();
+                                  return true;
+                                }
+                                return false;
+                              }),
+               writes.end());
+  sync_write_gate_.Complete(session->remote_uid, packet_id, attempt);
 }
 
 void AetherP2pTransport::OnRawStreamData(PeerSession* session,
@@ -167,8 +278,7 @@ void AetherP2pTransport::OnRawStreamData(PeerSession* session,
     return;
   }
   Log("P2P_RAW_RECEIVED peer=" + FormatAetherUid(session->remote_uid) +
-      " size=" + std::to_string(data.size()) +
-      " t_us=" + std::to_string(SystemUtcMicros()));
+      " size=" + std::to_string(data.size()) + FormatTimeFields());
   session->decoder.Append(data.data(), data.size());
   session->decoder.Drain(
       [this, session](std::vector<std::uint8_t> const& payload) {
@@ -200,7 +310,7 @@ void AetherP2pTransport::LogStreamState(PeerSession* session,
   Log("P2P_STREAM_STATE peer=" + FormatAetherUid(session->remote_uid) +
       " link_state=" + std::string{ToLinkStateText(info.link_state)} +
       " writable=" + std::to_string(info.is_writable ? 1 : 0) +
-      " t_us=" + std::to_string(SystemUtcMicros()));
+      FormatTimeFields());
 }
 
 void AetherP2pTransport::EmitPayload(

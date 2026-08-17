@@ -290,14 +290,21 @@ bool NativeRuntime::StartChatSync() {
         .count();
   };
 
-  auto sync_send = [this, system_utc_micros](
+  auto steady_mono_micros = []() -> std::int64_t {
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+  };
+
+  auto sync_send = [this, system_utc_micros, steady_mono_micros](
                        ae::Uid const& peer, ae::ObjId packet_id,
                        SerializedSyncPacket const& bytes) {
-    p2p_transport_->Send(peer, bytes);
+    p2p_transport_->SendSync(peer, packet_id, bytes);
     LogMarker(
         "SYNC_TRANSPORT_WRITE peer=" + examples::FormatAetherUid(peer) +
         " packet=" + std::to_string(packet_id.id()) +
-        " t_us=" + std::to_string(system_utc_micros()));
+        " t_us=" + std::to_string(system_utc_micros()) +
+        " mono_us=" + std::to_string(steady_mono_micros()));
   };
   auto presence_send = [this](ae::Uid const& peer,
                               std::vector<std::uint8_t> const& bytes) {

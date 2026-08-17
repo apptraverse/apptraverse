@@ -2,6 +2,8 @@
 #define APPTRAVERSE_EXAMPLES_AETHER_RUNTIME_H_
 
 #include <cassert>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -12,6 +14,17 @@
 #if defined(__ANDROID__)
 #  include "android_system_dns_resolver.h"
 #endif
+
+namespace apptraverse {
+
+inline std::uint64_t SteadyMonoMicros() {
+  using clock = std::chrono::steady_clock;
+  auto const now = clock::now().time_since_epoch();
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(now).count());
+}
+
+}  // namespace apptraverse
 
 namespace apptraverse::examples {
 

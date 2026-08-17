@@ -11,6 +11,7 @@
 #include "aether/all.h"
 
 #include "aether_p2p_framing.h"
+#include "aether_p2p_write_gate.h"
 
 namespace apptraverse::examples {
 
@@ -19,7 +20,7 @@ inline constexpr char kP2pPongPayload[] = "APPTRAVERSE_P2P_PONG_V1";
 
 // Opaque framed byte transport over raw Aether P2pStream.
 // Reliability (ack / retry / duplicate suppression) belongs to the
-// synchronization layer — this transport does not provide it.
+// synchronization layer -- this transport does not provide it.
 // Peer Aether UID is transport context only and is never placed in the payload.
 //
 // One PeerSession (one P2pStream) per remote UID in a process.
@@ -32,8 +33,10 @@ class AetherP2pTransport {
   AetherP2pTransport() = default;
   AetherP2pTransport(AetherP2pTransport const&) = delete;
   AetherP2pTransport& operator=(AetherP2pTransport const&) = delete;
+  ~AetherP2pTransport();
 
   void Start(ae::RcPtr<ae::AetherApp> aether_app, ae::Client::ptr local_client);
+  void Stop();
 
   // If a session already exists for uid, do nothing. Otherwise CreatePort +
   // P2pStream and subscribe.
@@ -45,12 +48,25 @@ class AetherP2pTransport {
             std::vector<std::uint8_t> const& bytes);
   void SendText(ae::Uid const& remote_uid, std::string_view text);
 
+  // Packet-aware sync write: tracks attempts and WriteAction status.
+  // At most one in-flight WriteAction per (peer, packet_id).
+  void SendSync(ae::Uid const& peer, ae::ObjId packet_id,
+                std::uint8_t const* bytes, std::size_t size);
+  void SendSync(ae::Uid const& peer, ae::ObjId packet_id,
+                std::vector<std::uint8_t> const& bytes);
+
   void SetReceiveHandler(ReceiveHandler handler);
   void SetLogHandler(LogHandler handler);
 
  private:
-  // Runtime only — never serialized. At most one per remote_uid.
+  // Runtime only -- never serialized. At most one per remote_uid.
   struct PeerSession {
+    struct SyncWriteAttempt {
+      ae::ObjId packet_id{};
+      std::uint32_t attempt{0};
+      ae::Subscription status_sub;
+    };
+
     ae::Uid remote_uid{};
     std::shared_ptr<ae::P2pStream> stream;
     ae::Subscription data_sub;
@@ -58,6 +74,7 @@ class AetherP2pTransport {
     ae::StreamInfo last_stream_info{};
     bool has_last_stream_info{false};
     AetherP2pFrameDecoder decoder;
+    std::vector<SyncWriteAttempt> sync_writes;
   };
 
   PeerSession* FindSession(ae::Uid const& peer);
@@ -74,6 +91,9 @@ class AetherP2pTransport {
   void EmitPayload(ae::Uid const& peer,
                    std::vector<std::uint8_t> const& payload);
   void Log(std::string line) const;
+  void ClearSyncWrites(PeerSession* session);
+  void CompleteSyncWrite(PeerSession* session, ae::ObjId packet_id,
+                         std::uint32_t attempt);
 
   ae::RcPtr<ae::AetherApp> aether_app_;
   ae::Client::ptr local_client_;
@@ -81,6 +101,7 @@ class AetherP2pTransport {
   LogHandler on_log_;
   ae::Subscription new_port_sub_;
   std::vector<std::unique_ptr<PeerSession>> sessions_;
+  SyncWriteGate<ae::Uid, ae::ObjId> sync_write_gate_;
 };
 
 // Returns true when payload is PING or PONG (answers PONG for PING).
@@ -91,7 +112,7 @@ bool TryHandleP2pProbePayload(
     std::function<void(std::string const&)> const& log_line,
     std::function<void()> const& on_pong_received = {});
 
-// Probe markers only — does not touch Chat / Event / journal.
+// Probe markers only -- does not touch Chat / Event / journal.
 void AttachPingPongProbe(AetherP2pTransport& transport,
                          std::function<void(std::string const&)> log_line,
                          std::function<void()> on_pong_received = {});

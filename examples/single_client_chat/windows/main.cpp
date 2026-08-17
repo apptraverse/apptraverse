@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -34,6 +35,8 @@
 
 #include "../common/aether_p2p_transport.h"
 #include "../common/aether_runtime.h"
+#include "../common/aether_rx_policy.h"
+#include "apptraverse/node.h"
 #include "../common/chat_component.h"
 #include "../common/chat_transcript.h"
 #include "../common/graph_builder.h"
@@ -78,6 +81,8 @@ struct CliOptions {
   bool exit_after_message{false};
   bool exit_after_pending_clear{false};
   std::optional<ae::Uid> p2p_ping;
+  std::optional<int> rx_interval_ms;
+  std::optional<int> retry_interval_ms;
   bool parse_error{false};
 };
 
@@ -153,6 +158,28 @@ CliOptions ParseCli(int argc, char** argv) {
         options.p2p_ping = ParseUidArg(value, "--p2p-ping");
         if (options.p2p_ping.has_value() && options.p2p_ping->empty()) {
           options.parse_error = true;
+        }
+      }
+    } else if (arg == "--rx-interval-ms") {
+      if (auto const* value = need_value("--rx-interval-ms")) {
+        char* end = nullptr;
+        long const parsed = std::strtol(value, &end, 10);
+        if (end == value || *end != '\0' || parsed <= 0) {
+          std::cerr << "Invalid --rx-interval-ms\n";
+          options.parse_error = true;
+        } else {
+          options.rx_interval_ms = static_cast<int>(parsed);
+        }
+      }
+    } else if (arg == "--retry-interval-ms") {
+      if (auto const* value = need_value("--retry-interval-ms")) {
+        char* end = nullptr;
+        long const parsed = std::strtol(value, &end, 10);
+        if (end == value || *end != '\0' || parsed <= 0) {
+          std::cerr << "Invalid --retry-interval-ms\n";
+          options.parse_error = true;
+        } else {
+          options.retry_interval_ms = static_cast<int>(parsed);
         }
       }
     } else {
@@ -287,6 +314,19 @@ int Run(CliOptions const& options) {
     return 0;
   }
 
+  if (options.rx_interval_ms.has_value()) {
+    auto const interval =
+        std::chrono::milliseconds{*options.rx_interval_ms};
+    apptraverse::examples::ConfigureInteractiveAetherReceivePolicy(
+        aether_client, interval);
+    LogLine("AETHER_RX_POLICY platform=windows interval_ms=" +
+            std::to_string(*options.rx_interval_ms) +
+            " rx_window_ms=" + std::to_string(*options.rx_interval_ms) +
+            " applied_before_transport=1 t_us=" +
+            std::to_string(apptraverse::SystemUtcMicros()) +
+            " mono_us=" + std::to_string(apptraverse::SteadyMonoMicros()));
+  }
+
   apptraverse::examples::AetherP2pTransport p2p_transport;
   p2p_transport.SetLogHandler([](std::string line) { LogLine(line); });
   p2p_transport.Start(aether_app, aether_client);
@@ -340,24 +380,31 @@ int Run(CliOptions const& options) {
 
   auto sync_send = [&](ae::Uid const& peer, ae::ObjId packet_id,
                        apptraverse::SerializedSyncPacket const& bytes) {
-    p2p_transport.Send(peer, bytes);
+    p2p_transport.SendSync(peer, packet_id, bytes);
     LogLine(
         "SYNC_TRANSPORT_WRITE peer=" +
         apptraverse::examples::FormatAetherUid(peer) +
         " packet=" + std::to_string(packet_id.id()) +
-        " t_us=" + std::to_string(system_utc_micros()));
+        " t_us=" + std::to_string(system_utc_micros()) +
+        " mono_us=" + std::to_string(apptraverse::SteadyMonoMicros()));
   };
   auto presence_send = [&](ae::Uid const& peer,
                            std::vector<std::uint8_t> const& bytes) {
     p2p_transport.Send(peer, bytes);
   };
 
+  apptraverse::chat::ChatSyncTiming timing{};
+  if (options.retry_interval_ms.has_value()) {
+    timing.retry_interval =
+        std::chrono::milliseconds{*options.retry_interval_ms};
+  }
+
   apptraverse::chat::ChatComponent chat_component(
       apptraverse::SyncReplica{aether_app->domain(), *domain_storage,
                                chat.id()},
       local_client, chat, sync_send, presence_send,
       [&](ae::Uid const& remote_uid) { p2p_transport.Connect(remote_uid); },
-      apptraverse::chat::ChatSyncTiming{}, options.auto_accept_peer,
+      timing, options.auto_accept_peer,
       LogLine);
 
   auto transcript_contains = [&](std::string const& needle) {
@@ -643,6 +690,7 @@ int Run(CliOptions const& options) {
 
   auto finish = [&](int code) {
     chat_component.Stop();
+    p2p_transport.Stop();
     return code;
   };
 
