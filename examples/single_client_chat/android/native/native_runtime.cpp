@@ -340,7 +340,7 @@ bool NativeRuntime::StartChatSync() {
       });
   chat_component_->Start();
 
-  LogMarker("CHAT_COMPONENT_READY");
+  LogMarker("CHAT_SYNC_CONTROLLER_READY");
   return true;
 }
 
