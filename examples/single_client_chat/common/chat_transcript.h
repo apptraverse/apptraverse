@@ -11,17 +11,17 @@ namespace apptraverse::examples {
 
 // Platform-neutral UTF-8 transcript from a presentation snapshot.
 inline std::string FormatChatPresentationUtf8(
-    ChatPresentationSnapshot const& snapshot) {
+    chat::ChatPresentationSnapshot const& snapshot) {
   std::string text;
   for (auto const& item : snapshot.timeline) {
-    if (item.kind == ChatTimelineItemKind::kJoined) {
+    if (item.kind == chat::ChatTimelineItemKind::kJoined) {
       if (item.author.display_name.empty()) {
         continue;
       }
       text += "* ";
       text += item.author.display_name;
       text += " joined\n";
-    } else if (item.kind == ChatTimelineItemKind::kMessage) {
+    } else if (item.kind == chat::ChatTimelineItemKind::kMessage) {
       text += item.author.display_name;
       text += ": ";
       text += item.text;

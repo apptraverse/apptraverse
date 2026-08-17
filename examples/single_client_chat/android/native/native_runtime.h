@@ -75,7 +75,7 @@ class NativeRuntime {
   App::ptr app_;
   ae::Client::ptr aether_client_;
   std::unique_ptr<examples::AetherP2pTransport> p2p_transport_;
-  std::unique_ptr<examples::ChatComponent> chat_component_;
+  std::unique_ptr<chat::ChatComponent> chat_component_;
   AndroidWindowPresenter* window_presenter_{nullptr};
   AndroidChatPresenter* chat_presenter_{nullptr};
 

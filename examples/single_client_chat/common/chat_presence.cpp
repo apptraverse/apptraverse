@@ -3,7 +3,7 @@
 #include <cstring>
 #include <string_view>
 
-namespace apptraverse::examples {
+namespace apptraverse::chat {
 namespace {
 
 constexpr std::string_view kOnlinePayload = "APPTRAVERSE_CHAT_ONLINE_V1";
@@ -50,4 +50,4 @@ std::optional<ChatPresenceMessage> TryDecodeChatPresence(
   return std::nullopt;
 }
 
-}  // namespace apptraverse::examples
+}  // namespace apptraverse::chat

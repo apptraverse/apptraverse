@@ -120,7 +120,7 @@ class WinChatPresenter : public ChatPresenter {
     ShowAddPeerDialog(parent_, local_aether_uid_, add_peer_);
   }
 
-  void RenderPresentation(examples::ChatPresentationSnapshot const& snapshot) {
+  void RenderPresentation(chat::ChatPresentationSnapshot const& snapshot) {
     if (transcript_ == nullptr) {
       return;
     }

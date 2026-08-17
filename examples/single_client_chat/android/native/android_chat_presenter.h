@@ -42,7 +42,7 @@ class AndroidChatPresenter : public ChatPresenter {
     publisher_(utf8);
   }
 
-  void PublishPresentation(examples::ChatPresentationSnapshot const& snapshot) {
+  void PublishPresentation(chat::ChatPresentationSnapshot const& snapshot) {
     PublishTranscriptText(examples::FormatChatPresentationUtf8(snapshot));
   }
 

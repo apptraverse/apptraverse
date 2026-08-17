@@ -62,4 +62,9 @@ class Chat : public NodeFor<Chat> {
 
 }  // namespace apptraverse
 
+// ChatPresenter is part of Chat's reflected schema; complete the type for
+// Domain load/save instantiations. chat_presenter.h includes this header
+// under include guards.
+#include "model/chat_presenter.h"
+
 #endif  // APPTRAVERSE_CHAT_H_

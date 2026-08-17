@@ -66,8 +66,7 @@ add_executable(apptraverse_chat_component_test
 )
 
 target_link_libraries(apptraverse_chat_component_test PRIVATE
-  apptraverse
-  single_client_chat_common
+  apptraverse::chat_component
 )
 
 add_test(

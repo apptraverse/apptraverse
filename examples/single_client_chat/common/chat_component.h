@@ -1,5 +1,5 @@
-#ifndef APPTRAVERSE_EXAMPLES_CHAT_COMPONENT_H_
-#define APPTRAVERSE_EXAMPLES_CHAT_COMPONENT_H_
+#ifndef APPTRAVERSE_CHAT_COMPONENT_H_
+#define APPTRAVERSE_CHAT_COMPONENT_H_
 
 #include <cstdint>
 #include <functional>
@@ -18,7 +18,7 @@
 #include "model/chat_peer_set.h"
 #include "model/client.h"
 
-namespace apptraverse::examples {
+namespace apptraverse::chat {
 
 enum class AddPeerResult : std::uint8_t {
   kAdded = 0,
@@ -87,6 +87,6 @@ class ChatComponent {
   std::vector<Subscriber> subscribers_;
 };
 
-}  // namespace apptraverse::examples
+}  // namespace apptraverse::chat
 
-#endif  // APPTRAVERSE_EXAMPLES_CHAT_COMPONENT_H_
+#endif  // APPTRAVERSE_CHAT_COMPONENT_H_

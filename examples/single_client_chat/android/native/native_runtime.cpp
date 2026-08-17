@@ -309,7 +309,7 @@ bool NativeRuntime::StartChatSync() {
     return false;
   }
 
-  chat_component_ = std::make_unique<examples::ChatComponent>(
+  chat_component_ = std::make_unique<chat::ChatComponent>(
       SyncReplica{aether_app_->domain(), *domain_storage_, chat.id()},
       local_client, chat, sync_send, presence_send,
       [this](ae::Uid const& remote_uid) {
@@ -317,7 +317,7 @@ bool NativeRuntime::StartChatSync() {
           p2p_transport_->Connect(remote_uid);
         }
       },
-      examples::ChatSyncTiming{}, true,
+      chat::ChatSyncTiming{}, true,
       [](std::string const& line) { LogMarker(line); });
   chat_component_->SubscribePresentationChanged([this]() {
     if (chat_presenter_ != nullptr && chat_component_ != nullptr) {

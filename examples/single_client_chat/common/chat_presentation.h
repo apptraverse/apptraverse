@@ -1,11 +1,11 @@
-#ifndef APPTRAVERSE_EXAMPLES_CHAT_PRESENTATION_H_
-#define APPTRAVERSE_EXAMPLES_CHAT_PRESENTATION_H_
+#ifndef APPTRAVERSE_CHAT_PRESENTATION_H_
+#define APPTRAVERSE_CHAT_PRESENTATION_H_
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-namespace apptraverse::examples {
+namespace apptraverse::chat {
 
 enum class ChatTimelineItemKind : std::uint8_t {
   kJoined = 0,
@@ -46,6 +46,6 @@ struct ChatPresentationSnapshot {
   std::vector<ChatPeerStatusView> peers;
 };
 
-}  // namespace apptraverse::examples
+}  // namespace apptraverse::chat
 
 #endif

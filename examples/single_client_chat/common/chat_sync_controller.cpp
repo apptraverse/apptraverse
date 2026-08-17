@@ -8,7 +8,7 @@
 #include "chat_presence.h"
 #include "model/chat_peer_set.h"
 #include "model/chat_presenter.h"
-namespace apptraverse::examples {
+namespace apptraverse::chat {
 namespace {
 
 std::string FormatUid(ae::Uid const& uid) { return ae::Format("{}", uid); }
@@ -333,4 +333,4 @@ void ChatSyncController::Tick(ae::TimePoint now) {
   }
 }
 
-}  // namespace apptraverse::examples
+}  // namespace apptraverse::chat

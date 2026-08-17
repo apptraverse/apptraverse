@@ -1,11 +1,11 @@
-#ifndef APPTRAVERSE_EXAMPLES_CHAT_PRESENCE_H_
-#define APPTRAVERSE_EXAMPLES_CHAT_PRESENCE_H_
+#ifndef APPTRAVERSE_CHAT_PRESENCE_H_
+#define APPTRAVERSE_CHAT_PRESENCE_H_
 
 #include <cstdint>
 #include <optional>
 #include <vector>
 
-namespace apptraverse::examples {
+namespace apptraverse::chat {
 
 enum class ChatPresenceMessage { kOnline, kHeartbeat, kOffline };
 
@@ -19,6 +19,6 @@ inline std::optional<ChatPresenceMessage> TryDecodeChatPresence(
   return TryDecodeChatPresence(bytes.data(), bytes.size());
 }
 
-}  // namespace apptraverse::examples
+}  // namespace apptraverse::chat
 
-#endif  // APPTRAVERSE_EXAMPLES_CHAT_PRESENCE_H_
+#endif  // APPTRAVERSE_CHAT_PRESENCE_H_

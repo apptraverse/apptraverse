@@ -352,12 +352,12 @@ int Run(CliOptions const& options) {
     p2p_transport.Send(peer, bytes);
   };
 
-  apptraverse::examples::ChatComponent chat_component(
+  apptraverse::chat::ChatComponent chat_component(
       apptraverse::SyncReplica{aether_app->domain(), *domain_storage,
                                chat.id()},
       local_client, chat, sync_send, presence_send,
       [&](ae::Uid const& remote_uid) { p2p_transport.Connect(remote_uid); },
-      apptraverse::examples::ChatSyncTiming{}, options.auto_accept_peer,
+      apptraverse::chat::ChatSyncTiming{}, options.auto_accept_peer,
       LogLine);
 
   auto transcript_contains = [&](std::string const& needle) {

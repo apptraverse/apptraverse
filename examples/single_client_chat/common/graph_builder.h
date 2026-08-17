@@ -7,10 +7,10 @@
 
 #include "aether/obj/obj.h"
 
+#include "chat_component_graph.h"
 #include "model/app.h"
 #include "model/application_ids.h"
 #include "model/chat.h"
-#include "model/chat_events.h"
 #include "model/chat_peer_set.h"
 #include "model/chat_presenter.h"
 #include "model/client.h"
@@ -42,6 +42,14 @@ SingleClientChatGraph BuildSingleClientChatGraph(
     ae::Domain& domain, std::string_view local_client_name) {
   SingleClientChatGraph graph{};
 
+  auto core = chat::MakeChatComponentGraph(domain, local_client_name);
+  graph.chat_base = core.chat_base;
+  graph.chat = core.chat;
+  graph.client_base = core.client_base;
+  graph.local_client = core.local_client;
+  graph.peer_set_base = core.peer_set_base;
+  graph.peer_set = core.peer_set;
+
   graph.app = App::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Application)));
   graph.window_base = WindowT::ptr::Create(
@@ -50,18 +58,8 @@ SingleClientChatGraph BuildSingleClientChatGraph(
       ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Window)));
   graph.window_presenter = WindowPresenterT::ptr::Create(ae::CreateWith{domain}
       .with_id(ToObjId(ApplicationObjId::WindowPresenter)));
-  graph.chat_base = Chat::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::ChatBase)));
-  graph.chat = Chat::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ApplicationObjId::Chat)));
   graph.chat_presenter = ChatPresenterT::ptr::Create(ae::CreateWith{domain}
       .with_id(ToObjId(ApplicationObjId::ChatPresenter)));
-  graph.client_base = Client::ptr::Create(ae::CreateWith{domain});
-  graph.local_client = Client::ptr::Create(ae::CreateWith{domain});
-  graph.peer_set_base = ChatPeerSet::ptr::Create(ae::CreateWith{domain});
-  graph.peer_set = ChatPeerSet::ptr::Create(ae::CreateWith{domain});
-
-  graph.local_client->name = std::string{local_client_name};
 
   graph.app->window = graph.window;
   graph.app->local_client = graph.local_client;
@@ -71,23 +69,18 @@ SingleClientChatGraph BuildSingleClientChatGraph(
   graph.window_presenter->chat_presenter = graph.chat_presenter;
 
   graph.window->base = graph.window_base;
-  graph.local_client->base = graph.client_base;
-  graph.chat->base = graph.chat_base;
   graph.chat->presenter = graph.chat_presenter;
-  graph.peer_set->base = graph.peer_set_base;
-  graph.chat->peer_set = graph.peer_set;
 
   graph.window->CaptureBaseState();
-  graph.local_client->CaptureBaseState();
-  graph.peer_set->CaptureBaseState();
-  graph.chat->CaptureBaseState();
+
+  chat::ChatComponentGraph for_join{};
+  for_join.chat = graph.chat;
+  for_join.local_client = graph.local_client;
+  for_join.peer_set = graph.peer_set;
+  chat::CaptureAndJoinChatComponentGraph(for_join);
 
   graph.chat_presenter->chat = graph.chat;
   graph.chat_presenter->local_client = graph.local_client;
-
-  auto join = JoinClientEvent::ptr::Create(ae::CreateWith{domain});
-  join->client = graph.local_client;
-  graph.chat->Commit(join);
 
   return graph;
 }

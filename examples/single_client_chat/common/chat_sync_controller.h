@@ -1,5 +1,5 @@
-#ifndef APPTRAVERSE_EXAMPLES_CHAT_SYNC_CONTROLLER_H_
-#define APPTRAVERSE_EXAMPLES_CHAT_SYNC_CONTROLLER_H_
+#ifndef APPTRAVERSE_CHAT_SYNC_CONTROLLER_H_
+#define APPTRAVERSE_CHAT_SYNC_CONTROLLER_H_
 
 #include <chrono>
 #include <cstddef>
@@ -23,7 +23,7 @@
 #include "chat_presence.h"
 #include "model/chat_peer_set.h"
 
-namespace apptraverse::examples {
+namespace apptraverse::chat {
 
 struct ChatSyncTiming {
   // Packet ACK retry only — cloud/P2P link recovery stays inside Aether.
@@ -101,6 +101,6 @@ class ChatSyncController {
   std::vector<RuntimeSession> sessions_;
 };
 
-}  // namespace apptraverse::examples
+}  // namespace apptraverse::chat
 
-#endif  // APPTRAVERSE_EXAMPLES_CHAT_SYNC_CONTROLLER_H_
+#endif  // APPTRAVERSE_CHAT_SYNC_CONTROLLER_H_

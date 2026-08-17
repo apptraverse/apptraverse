@@ -10,7 +10,7 @@
 #include "model/chat_events.h"
 #include "model/chat_presenter.h"
 
-namespace apptraverse::examples {
+namespace apptraverse::chat {
 namespace {
 
 std::string TrimWhitespace(std::string text) {
@@ -301,4 +301,4 @@ void ChatComponent::NotifyPresentationChanged() {
   }
 }
 
-}  // namespace apptraverse::examples
+}  // namespace apptraverse::chat

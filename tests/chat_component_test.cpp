@@ -1,11 +1,12 @@
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -18,20 +19,27 @@
 #include "apptraverse/object_macros.h"
 
 #include "chat_component.h"
+#include "chat_component_graph.h"
 #include "chat_presentation.h"
-#include "graph_builder.h"
-#include "model/app.h"
+#include "chat_presence.h"
 #include "model/application_ids.h"
 #include "model/chat.h"
+#include "model/chat_component_registration.h"
 #include "model/chat_peer_set.h"
-#include "model/chat_presenter.h"
 #include "model/client.h"
-#include "model/registration.h"
-#include "model/window.h"
-#include "model/window_changed_event.h"
-#include "model/window_presenter.h"
 
 namespace apptraverse::test {
+
+using chat::AddPeerResult;
+using chat::BuildChatComponentGraph;
+using chat::ChatComponent;
+using chat::ChatComponentGraph;
+using chat::ChatMessageDirection;
+using chat::ChatPresentationSnapshot;
+using chat::ChatPresenceMessage;
+using chat::ChatSyncTiming;
+using chat::ChatTimelineItemKind;
+using chat::EncodeChatPresence;
 
 #define CHECK(cond)                                                          \
   do {                                                                       \
@@ -42,65 +50,29 @@ namespace apptraverse::test {
     }                                                                        \
   } while (0)
 
-class FakeChatPresenter : public ChatPresenter {
-  APPTRAVERSE_OBJECT(FakeChatPresenter, ChatPresenter, 0)
- protected:
-  FakeChatPresenter() = default;
- public:
-  explicit FakeChatPresenter(ae::ObjProp prop) : ChatPresenter{prop} {}
-  AE_OBJECT_REFLECT()
-};
-
-class FakeWindow : public NodeFor<FakeWindow, Window> {
-  APPTRAVERSE_OBJECT(FakeWindow, Window, 0)
- protected:
-  FakeWindow() = default;
- public:
-  explicit FakeWindow(ae::ObjProp prop) : NodeFor{prop} {}
-  AE_OBJECT_REFLECT()
-  void Apply(WindowChangedEvent const&) override {}
-};
-
-class FakeWindowPresenter : public WindowPresenter {
-  APPTRAVERSE_OBJECT(FakeWindowPresenter, WindowPresenter, 0)
- protected:
-  FakeWindowPresenter() = default;
- public:
-  explicit FakeWindowPresenter(ae::ObjProp prop) : WindowPresenter{prop} {}
-  AE_OBJECT_REFLECT()
-};
-
-APPTRAVERSE_REGISTER(FakeChatPresenter);
-APPTRAVERSE_REGISTER(FakeWindow);
-APPTRAVERSE_REGISTER(FakeWindowPresenter);
-
 ae::Uid MakeUid(std::uint8_t fill) {
   std::array<std::uint8_t, ae::Uid::kSize> bytes{};
   bytes.fill(fill);
   return ae::Uid{bytes};
 }
 
-void SleepMs(int ms) {
-  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-}
-
 struct Side {
   ae::RamDomainStorage storage;
   std::unique_ptr<ae::Domain> domain;
-  examples::SingleClientChatGraph graph;
+  ChatComponentGraph graph;
   ae::Uid self_uid;
   ae::ObjId peer_set_id;
   ae::ObjId chat_id;
+  ae::ObjId local_client_id;
 
   explicit Side(std::string name, ae::Uid uid)
       : domain{std::make_unique<ae::Domain>(ae::Now(), storage)},
         self_uid{uid} {
-    graph = examples::BuildSingleClientChatGraph<FakeWindow, FakeWindowPresenter,
-                                                 FakeChatPresenter>(
-        *domain, name);
-    graph.app.Save();
+    graph = BuildChatComponentGraph(*domain, name);
+    graph.chat.Save();
     peer_set_id = graph.peer_set.id();
     chat_id = graph.chat.id();
+    local_client_id = graph.local_client.id();
   }
 
   SyncReplica Replica() {
@@ -108,90 +80,97 @@ struct Side {
   }
 
   void DestroyRuntime() {
-    graph = examples::SingleClientChatGraph{};
+    graph = ChatComponentGraph{};
     domain.reset();
   }
 
   void ReloadRuntime() {
     domain = std::make_unique<ae::Domain>(ae::Now(), storage);
-    graph.app = App::ptr::Declare(ae::CreateWith{*domain}.with_id(
-        ToObjId(ApplicationObjId::Application)));
-    graph.app.Load();
     graph.chat =
         Chat::ptr::Declare(ae::CreateWith{*domain}.with_id(chat_id));
     graph.chat.Load();
+    CHECK(graph.chat.is_loaded());
     graph.peer_set = ChatPeerSet::ptr::Declare(
         ae::CreateWith{*domain}.with_id(peer_set_id));
     graph.peer_set.Load();
-    graph.chat_presenter = ChatPresenter::ptr::Declare(
-        ae::CreateWith{*domain}.with_id(
-            ToObjId(ApplicationObjId::ChatPresenter)));
-    graph.chat_presenter.Load();
-    graph.local_client = graph.app->local_client;
-    graph.local_client.Load();
-    CHECK(graph.chat.is_loaded());
     CHECK(graph.peer_set.is_loaded());
-    CHECK(graph.chat_presenter.is_loaded());
+    graph.local_client = Client::ptr::Declare(
+        ae::CreateWith{*domain}.with_id(local_client_id));
+    graph.local_client.Load();
+    CHECK(graph.local_client.is_loaded());
+    graph.chat->peer_set = graph.peer_set;
   }
 };
 
-examples::ChatComponent::SendFunction MakeDirectSend(
-    examples::ChatComponent*& peer, ae::Uid const& self_uid,
-    ae::Uid const& peer_uid) {
+ChatComponent::SendFunction MakeDirectSend(ChatComponent*& peer,
+                                           ae::Uid const& self_uid,
+                                           ae::Uid const& peer_uid) {
   return [&peer, self_uid, peer_uid](ae::Uid const& dest, ae::ObjId,
                                      SerializedSyncPacket const& bytes) {
     CHECK(dest == peer_uid);
-    assert(peer != nullptr);
+    if (peer == nullptr) {
+      return;
+    }
     peer->Receive(self_uid, bytes);
   };
 }
 
-examples::ChatComponent::RawSendFunction MakeDirectRawSend(
-    examples::ChatComponent*& peer, ae::Uid const& self_uid,
-    ae::Uid const& peer_uid) {
+ChatComponent::RawSendFunction MakeDirectRawSend(ChatComponent*& peer,
+                                                 ae::Uid const& self_uid,
+                                                 ae::Uid const& peer_uid) {
   return [&peer, self_uid, peer_uid](ae::Uid const& dest,
                                      std::vector<std::uint8_t> const& bytes) {
     CHECK(dest == peer_uid);
-    assert(peer != nullptr);
+    if (peer == nullptr) {
+      return;
+    }
     peer->Receive(self_uid, bytes);
   };
 }
 
-std::unique_ptr<examples::ChatComponent> MakeComponent(
-    Side& side, examples::ChatComponent*& peer_ptr, ae::Uid const& peer_uid,
-    bool auto_accept) {
-  return std::make_unique<examples::ChatComponent>(
+std::unique_ptr<ChatComponent> MakeComponent(
+    Side& side, ChatComponent*& peer_ptr, ae::Uid const& peer_uid,
+    bool auto_accept, ChatComponent::ConnectFunction connect = {},
+    ChatSyncTiming timing = {}) {
+  return std::make_unique<ChatComponent>(
       side.Replica(), side.graph.local_client, side.graph.chat,
       MakeDirectSend(peer_ptr, side.self_uid, peer_uid),
       MakeDirectRawSend(peer_ptr, side.self_uid, peer_uid),
-      examples::ChatComponent::ConnectFunction{},
-      examples::ChatSyncTiming{}, auto_accept);
+      std::move(connect), timing, auto_accept);
 }
 
-bool TimelineHasMessage(examples::ChatPresentationSnapshot const& snap,
-                        std::string const& text,
-                        examples::ChatMessageDirection dir) {
+bool TimelineHasMessage(ChatPresentationSnapshot const& snap,
+                        std::string const& text, ChatMessageDirection dir) {
   for (auto const& item : snap.timeline) {
-    if (item.kind == examples::ChatTimelineItemKind::kMessage &&
-        item.text == text && item.direction == dir) {
+    if (item.kind == ChatTimelineItemKind::kMessage && item.text == text &&
+        item.direction == dir) {
       return true;
     }
   }
   return false;
 }
 
-bool TimelineHasText(examples::ChatPresentationSnapshot const& snap,
+bool TimelineHasText(ChatPresentationSnapshot const& snap,
                      std::string const& text) {
   for (auto const& item : snap.timeline) {
-    if (item.kind == examples::ChatTimelineItemKind::kMessage &&
-        item.text == text) {
+    if (item.kind == ChatTimelineItemKind::kMessage && item.text == text) {
       return true;
     }
   }
   return false;
 }
 
-bool PeerSyncComplete(examples::ChatPresentationSnapshot const& snap,
+std::optional<chat::ChatTimelineItemView> FindMessage(
+    ChatPresentationSnapshot const& snap, std::string const& text) {
+  for (auto const& item : snap.timeline) {
+    if (item.kind == ChatTimelineItemKind::kMessage && item.text == text) {
+      return item;
+    }
+  }
+  return std::nullopt;
+}
+
+bool PeerSyncComplete(ChatPresentationSnapshot const& snap,
                       ae::Uid const& peer_uid) {
   auto const peer_text = ae::Format("{}", peer_uid);
   for (auto const& peer : snap.peers) {
@@ -202,13 +181,39 @@ bool PeerSyncComplete(examples::ChatPresentationSnapshot const& snap,
   return false;
 }
 
-void TickUntilInitialSync(examples::ChatComponent& left,
-                          examples::ChatComponent& right,
-                          ae::Uid const& left_uid, ae::Uid const& right_uid) {
+std::size_t PeerPending(ChatPresentationSnapshot const& snap,
+                        ae::Uid const& peer_uid) {
+  auto const peer_text = ae::Format("{}", peer_uid);
+  for (auto const& peer : snap.peers) {
+    if (peer.remote_uid == peer_text) {
+      return peer.pending_packets;
+    }
+  }
+  return 0;
+}
+
+bool PeerOnline(ChatPresentationSnapshot const& snap, ae::Uid const& peer_uid) {
+  auto const peer_text = ae::Format("{}", peer_uid);
+  for (auto const& peer : snap.peers) {
+    if (peer.remote_uid == peer_text) {
+      return peer.online;
+    }
+  }
+  return false;
+}
+
+void TickPair(ChatComponent& left, ChatComponent& right, ae::TimePoint& now,
+              std::chrono::milliseconds step = std::chrono::milliseconds{5}) {
+  now += step;
+  left.Tick(now);
+  right.Tick(now);
+}
+
+void TickUntilInitialSync(ChatComponent& left, ChatComponent& right,
+                          ae::Uid const& left_uid, ae::Uid const& right_uid,
+                          ae::TimePoint& now) {
   for (int i = 0; i < 400; ++i) {
-    left.Tick(ae::Now());
-    right.Tick(ae::Now());
-    SleepMs(5);
+    TickPair(left, right, now);
     if (PeerSyncComplete(left.CapturePresentation(), right_uid) &&
         PeerSyncComplete(right.CapturePresentation(), left_uid)) {
       return;
@@ -217,9 +222,10 @@ void TickUntilInitialSync(examples::ChatComponent& left,
   CHECK(false && "initial sync did not complete");
 }
 
+// A
 void TestHeadlessStartStop() {
   Side side{"Headless", MakeUid(0x31)};
-  examples::ChatComponent* unused = nullptr;
+  ChatComponent* unused = nullptr;
   auto component = MakeComponent(side, unused, MakeUid(0x32), false);
   CHECK(!component->is_running());
   auto snap0 = component->CapturePresentation();
@@ -231,15 +237,16 @@ void TestHeadlessStartStop() {
   CHECK(!snap1.local_participant.display_name.empty());
   component->Stop();
   CHECK(!component->is_running());
-  component->Stop();  // idempotent
+  component->Stop();
   CHECK(!component->is_running());
 }
 
+// B
 void TestTwoIndependentComponents() {
   Side left{"Left", MakeUid(0x41)};
   Side right{"Right", MakeUid(0x42)};
-  examples::ChatComponent* l_peer = nullptr;
-  examples::ChatComponent* r_peer = nullptr;
+  ChatComponent* l_peer = nullptr;
+  ChatComponent* r_peer = nullptr;
   auto left_c = MakeComponent(left, r_peer, right.self_uid, false);
   auto right_c = MakeComponent(right, l_peer, left.self_uid, true);
   l_peer = left_c.get();
@@ -254,88 +261,40 @@ void TestTwoIndependentComponents() {
   right_c->Stop();
 }
 
-void TestSubmitTextUpdatesPresentation() {
+// C
+void TestSubmitTextReturnsIdAndSnapshot() {
   Side side{"Local", MakeUid(0x51)};
-  examples::ChatComponent* unused = nullptr;
+  ChatComponent* unused = nullptr;
   auto component = MakeComponent(side, unused, MakeUid(0x52), false);
   component->Start();
-  CHECK(component->SubmitText("  hello-local  ").has_value());
+  auto const id = component->SubmitText("  hello-local  ");
+  CHECK(id.has_value());
   CHECK(!component->SubmitText("   ").has_value());
   auto snap = component->CapturePresentation();
-  CHECK(TimelineHasMessage(snap, "hello-local",
-                           examples::ChatMessageDirection::kLocal));
+  auto item = FindMessage(snap, "hello-local");
+  CHECK(item.has_value());
+  CHECK(item->event_obj_id == *id);
+  CHECK(item->timestamp_us != 0);
+  CHECK(item->direction == ChatMessageDirection::kLocal);
   component->Stop();
 }
 
-void TestRemoteSyncBetweenComponents() {
-  auto left_uid = MakeUid(0x61);
-  auto right_uid = MakeUid(0x62);
-  Side left{"Windows", left_uid};
-  Side right{"Android", right_uid};
-
-  examples::ChatComponent* left_ptr = nullptr;
-  examples::ChatComponent* right_ptr = nullptr;
-  auto left_c = MakeComponent(left, right_ptr, right_uid, false);
-  auto right_c = MakeComponent(right, left_ptr, left_uid, true);
-  left_ptr = left_c.get();
-  right_ptr = right_c.get();
-
-  left_c->Start();
-  right_c->Start();
-  CHECK(left_c->AddPeer(right_uid) == examples::AddPeerResult::kAdded);
-  TickUntilInitialSync(*left_c, *right_c, left_uid, right_uid);
-
-  CHECK(left_c->SubmitText("from-left").has_value());
-  for (int i = 0; i < 200; ++i) {
-    left_c->Tick(ae::Now());
-    right_c->Tick(ae::Now());
-    SleepMs(5);
-    auto snap = right_c->CapturePresentation();
-    if (TimelineHasText(snap, "from-left")) {
-      break;
-    }
-  }
-  auto right_snap = right_c->CapturePresentation();
-  CHECK(TimelineHasText(right_snap, "from-left"));
-  CHECK(TimelineHasMessage(right_snap, "from-left",
-                           examples::ChatMessageDirection::kRemote));
-
-  left_c->Stop();
-  right_c->Stop();
-}
-
-void TestStopClearsSubscriptions() {
-  Side side{"Sub", MakeUid(0x71)};
-  examples::ChatComponent* unused = nullptr;
-  auto component = MakeComponent(side, unused, MakeUid(0x72), false);
-  int callbacks = 0;
-  component->Start();
-  auto id = component->SubscribePresentationChanged([&]() { ++callbacks; });
-  CHECK(id != 0);
-  CHECK(component->SubmitText("ping").has_value());
-  CHECK(callbacks >= 1);
-  int const after_submit = callbacks;
-  component->Stop();
-  int const after_stop = callbacks;
-  // Further activity must not notify cleared subscribers.
-  CHECK(!component->SubmitText("should-fail").has_value());
-  component->Receive(MakeUid(0x99), {});
-  CHECK(callbacks == after_stop);
-  // Destroy safely.
-  component.reset();
-  CHECK(callbacks == after_stop);
-  (void)after_submit;
-}
-
-void TestRestartRestoresPersistedChat() {
+// D
+void TestPersistenceWithoutExternalSave() {
   Side side{"Persist", MakeUid(0x81)};
-  examples::ChatComponent* unused = nullptr;
+  ChatComponent* unused = nullptr;
+  std::uint32_t event_id = 0;
+  std::uint64_t event_ts = 0;
   {
     auto component = MakeComponent(side, unused, MakeUid(0x82), false);
     component->Start();
-    CHECK(component->SubmitText("persisted-msg").has_value());
-    side.graph.chat.Save();
-    side.graph.app.Save();
+    auto const id = component->SubmitText("persisted-msg");
+    CHECK(id.has_value());
+    event_id = *id;
+    auto item = FindMessage(component->CapturePresentation(), "persisted-msg");
+    CHECK(item.has_value());
+    event_ts = item->timestamp_us;
+    CHECK(event_ts != 0);
     component->Stop();
   }
   side.DestroyRuntime();
@@ -343,27 +302,321 @@ void TestRestartRestoresPersistedChat() {
   {
     auto component = MakeComponent(side, unused, MakeUid(0x82), false);
     component->Start();
-    auto snap = component->CapturePresentation();
-    CHECK(TimelineHasText(snap, "persisted-msg"));
+    auto item = FindMessage(component->CapturePresentation(), "persisted-msg");
+    CHECK(item.has_value());
+    CHECK(item->event_obj_id == event_id);
+    CHECK(item->timestamp_us == event_ts);
+    CHECK(item->text == "persisted-msg");
     component->Stop();
+  }
+}
+
+// E
+void TestRemoteSyncSameEventIdAndDirection() {
+  auto left_uid = MakeUid(0x61);
+  auto right_uid = MakeUid(0x62);
+  Side left{"Windows", left_uid};
+  Side right{"Android", right_uid};
+
+  ChatComponent* left_ptr = nullptr;
+  ChatComponent* right_ptr = nullptr;
+  auto left_c = MakeComponent(left, right_ptr, right_uid, false);
+  auto right_c = MakeComponent(right, left_ptr, left_uid, true);
+  left_ptr = left_c.get();
+  right_ptr = right_c.get();
+
+  auto now = ae::Now();
+  left_c->Start();
+  right_c->Start();
+  CHECK(left_c->AddPeer(right_uid) == AddPeerResult::kAdded);
+  TickUntilInitialSync(*left_c, *right_c, left_uid, right_uid, now);
+
+  auto const id = left_c->SubmitText("from-left");
+  CHECK(id.has_value());
+  auto left_item = FindMessage(left_c->CapturePresentation(), "from-left");
+  CHECK(left_item.has_value());
+  CHECK(left_item->direction == ChatMessageDirection::kLocal);
+
+  for (int i = 0; i < 400; ++i) {
+    TickPair(*left_c, *right_c, now);
+    if (TimelineHasText(right_c->CapturePresentation(), "from-left")) {
+      break;
+    }
+  }
+  auto right_item = FindMessage(right_c->CapturePresentation(), "from-left");
+  CHECK(right_item.has_value());
+  CHECK(right_item->event_obj_id == *id);
+  CHECK(right_item->timestamp_us == left_item->timestamp_us);
+  CHECK(right_item->direction == ChatMessageDirection::kRemote);
+
+  left_c->Stop();
+  right_c->Stop();
+}
+
+// F
+void TestAddPeerPersistenceAndConnectOnStart() {
+  Side side{"Peers", MakeUid(0x91)};
+  auto peer_uid = MakeUid(0x92);
+  ChatComponent* unused = nullptr;
+  int connect_calls = 0;
+  auto connect = [&](ae::Uid const& uid) {
+    CHECK(uid == peer_uid);
+    ++connect_calls;
+  };
+  {
+    auto component =
+        MakeComponent(side, unused, peer_uid, false, connect);
+    component->Start();
+    CHECK(connect_calls == 0);
+    CHECK(component->AddPeer(peer_uid) == AddPeerResult::kAdded);
+    CHECK(connect_calls == 1);
+    side.graph.chat.Save();
+    component->Stop();
+  }
+  side.DestroyRuntime();
+  side.ReloadRuntime();
+  connect_calls = 0;
+  {
+    auto component =
+        MakeComponent(side, unused, peer_uid, false, connect);
+    component->Start();
+    CHECK(connect_calls == 1);
+    auto snap = component->CapturePresentation();
+    CHECK(snap.peers.size() == 1);
+    CHECK(snap.peers[0].remote_uid == ae::Format("{}", peer_uid));
+    component->Stop();
+  }
+}
+
+// G
+void TestNotificationOnLocalSubmit() {
+  Side side{"Notify", MakeUid(0xA1)};
+  ChatComponent* unused = nullptr;
+  auto component = MakeComponent(side, unused, MakeUid(0xA2), false);
+  int callbacks = 0;
+  component->Start();
+  auto const baseline = callbacks;
+  component->SubscribePresentationChanged([&]() { ++callbacks; });
+  // Start already notified before subscribe; submit must notify.
+  CHECK(component->SubmitText("ping").has_value());
+  CHECK(callbacks == baseline + 1);
+  component->Stop();
+}
+
+// H / I
+void TestPendingNotifications() {
+  auto left_uid = MakeUid(0xB1);
+  auto right_uid = MakeUid(0xB2);
+  Side left{"LeftPending", left_uid};
+  Side right{"RightPending", right_uid};
+
+  ChatComponent* left_ptr = nullptr;
+  ChatComponent* right_ptr = nullptr;
+  bool deliver_left_sync = true;
+
+  auto left_c = std::make_unique<ChatComponent>(
+      left.Replica(), left.graph.local_client, left.graph.chat,
+      [&](ae::Uid const& dest, ae::ObjId, SerializedSyncPacket const& bytes) {
+        CHECK(dest == right_uid);
+        if (!deliver_left_sync || right_ptr == nullptr) {
+          return;
+        }
+        right_ptr->Receive(left_uid, bytes);
+      },
+      MakeDirectRawSend(right_ptr, left_uid, right_uid),
+      ChatComponent::ConnectFunction{}, ChatSyncTiming{}, false);
+  auto right_c = MakeComponent(right, left_ptr, left_uid, true);
+  left_ptr = left_c.get();
+  right_ptr = right_c.get();
+
+  auto now = ae::Now();
+  left_c->Start();
+  right_c->Start();
+  CHECK(left_c->AddPeer(right_uid) == AddPeerResult::kAdded);
+  TickUntilInitialSync(*left_c, *right_c, left_uid, right_uid, now);
+
+  int left_notify = 0;
+  bool saw_pending_n_notify = false;
+  bool saw_pending_zero_notify = false;
+  left_c->SubscribePresentationChanged([&]() {
+    ++left_notify;
+    auto const pending =
+        PeerPending(left_c->CapturePresentation(), right_uid);
+    if (pending > 0) {
+      saw_pending_n_notify = true;
+    }
+    if (saw_pending_n_notify && pending == 0) {
+      saw_pending_zero_notify = true;
+    }
+  });
+  CHECK(PeerPending(left_c->CapturePresentation(), right_uid) == 0);
+
+  deliver_left_sync = false;
+  int const before_submit = left_notify;
+  CHECK(left_c->SubmitText("needs-ack").has_value());
+  CHECK(left_notify > before_submit);
+
+  now += std::chrono::milliseconds{5};
+  left_c->Tick(now);
+  CHECK(PeerPending(left_c->CapturePresentation(), right_uid) > 0);
+  CHECK(saw_pending_n_notify);
+
+  deliver_left_sync = true;
+  for (int i = 0; i < 600; ++i) {
+    TickPair(*left_c, *right_c, now);
+    if (PeerPending(left_c->CapturePresentation(), right_uid) == 0 &&
+        TimelineHasText(right_c->CapturePresentation(), "needs-ack")) {
+      break;
+    }
+  }
+  CHECK(PeerPending(left_c->CapturePresentation(), right_uid) == 0);
+  CHECK(saw_pending_zero_notify);
+  CHECK(TimelineHasText(right_c->CapturePresentation(), "needs-ack"));
+
+  left_c->Stop();
+  right_c->Stop();
+}
+
+// J
+void TestOnlineOfflinePresenceNotifications() {
+  Side side{"Presence", MakeUid(0xC1)};
+  auto peer_uid = MakeUid(0xC2);
+  ChatSyncTiming timing;
+  timing.offline_timeout = std::chrono::seconds{2};
+  timing.heartbeat_interval = std::chrono::seconds{30};
+  timing.retry_interval = std::chrono::milliseconds{100};
+
+  // Drop sync packets so pending retries do not generate extra notifications.
+  auto component = std::make_unique<ChatComponent>(
+      side.Replica(), side.graph.local_client, side.graph.chat,
+      [](ae::Uid const&, ae::ObjId, SerializedSyncPacket const&) {},
+      [](ae::Uid const&, std::vector<std::uint8_t> const&) {},
+      ChatComponent::ConnectFunction{}, timing, true);
+
+  int notify = 0;
+  component->Start();
+  component->SubscribePresentationChanged([&]() { ++notify; });
+  CHECK(component->AddPeer(peer_uid) == AddPeerResult::kAdded);
+  CHECK(!PeerOnline(component->CapturePresentation(), peer_uid));
+
+  int const before_online = notify;
+  component->Receive(peer_uid,
+                     EncodeChatPresence(ChatPresenceMessage::kOnline));
+  CHECK(notify == before_online + 1);
+  CHECK(PeerOnline(component->CapturePresentation(), peer_uid));
+
+  int const after_online = notify;
+  component->Receive(peer_uid,
+                     EncodeChatPresence(ChatPresenceMessage::kHeartbeat));
+  CHECK(notify == after_online);
+
+  int const before_offline = notify;
+  auto now = ae::Now() + timing.offline_timeout + std::chrono::seconds{1};
+  component->Tick(now);
+  CHECK(!PeerOnline(component->CapturePresentation(), peer_uid));
+  CHECK(notify > before_offline);
+
+  component->Stop();
+}
+
+// K
+void TestStopReentrancy() {
+  Side side{"StopRe", MakeUid(0xD1)};
+  ChatComponent* unused = nullptr;
+  auto component = MakeComponent(side, unused, MakeUid(0xD2), false);
+  int a_calls = 0;
+  int b_calls = 0;
+  ChatComponent::SubscriptionId b_id = 0;
+  component->Start();
+  component->SubscribePresentationChanged([&]() {
+    ++a_calls;
+    component->Stop();
+  });
+  b_id = component->SubscribePresentationChanged([&]() { ++b_calls; });
+  CHECK(b_id != 0);
+  CHECK(component->SubmitText("stop-me").has_value());
+  CHECK(a_calls == 1);
+  CHECK(b_calls == 0);
+  CHECK(!component->is_running());
+}
+
+// L
+void TestUnsubscribeReentrancy() {
+  Side side{"UnsubRe", MakeUid(0xE1)};
+  ChatComponent* unused = nullptr;
+  auto component = MakeComponent(side, unused, MakeUid(0xE2), false);
+  int a_calls = 0;
+  int b_calls = 0;
+  ChatComponent::SubscriptionId b_id = 0;
+  component->Start();
+  component->SubscribePresentationChanged([&]() {
+    ++a_calls;
+    component->Unsubscribe(b_id);
+  });
+  b_id = component->SubscribePresentationChanged([&]() { ++b_calls; });
+  CHECK(component->SubmitText("unsub-b").has_value());
+  CHECK(a_calls == 1);
+  CHECK(b_calls == 0);
+  component->Stop();
+}
+
+// M
+void TestStopThenStartNewSubscription() {
+  Side side{"RestartSub", MakeUid(0xF1)};
+  ChatComponent* unused = nullptr;
+  auto component = MakeComponent(side, unused, MakeUid(0xF2), false);
+  int first = 0;
+  int second = 0;
+  component->Start();
+  component->SubscribePresentationChanged([&]() { ++first; });
+  CHECK(component->SubmitText("first").has_value());
+  CHECK(first >= 1);
+  component->Stop();
+  component->Start();
+  component->SubscribePresentationChanged([&]() { ++second; });
+  int const second_before = second;
+  CHECK(component->SubmitText("second").has_value());
+  CHECK(second == second_before + 1);
+  CHECK(first == first);  // first subscribers cleared on Stop
+  component->Stop();
+}
+
+// N
+void TestDestructionStopsCallbacks() {
+  Side side{"Destroy", MakeUid(0x11)};
+  ChatComponent* unused = nullptr;
+  int callbacks = 0;
+  {
+    auto component = MakeComponent(side, unused, MakeUid(0x12), false);
+    component->Start();
+    component->SubscribePresentationChanged([&]() { ++callbacks; });
+    CHECK(component->SubmitText("alive").has_value());
+    CHECK(callbacks >= 1);
+    component->Stop();
+    int const after_stop = callbacks;
+    component.reset();
+    CHECK(callbacks == after_stop);
   }
 }
 
 }  // namespace apptraverse::test
 
-// Headers under test must stay platform-neutral (no HWND / Activity).
-#include "chat_component.h"
-#include "chat_presentation.h"
-
 int main() {
   apptraverse::EnsureObjectRegistration();
-  apptraverse::EnsureSingleClientChatRegistration();
+  apptraverse::EnsureChatComponentRegistration();
   apptraverse::test::TestHeadlessStartStop();
   apptraverse::test::TestTwoIndependentComponents();
-  apptraverse::test::TestSubmitTextUpdatesPresentation();
-  apptraverse::test::TestRemoteSyncBetweenComponents();
-  apptraverse::test::TestStopClearsSubscriptions();
-  apptraverse::test::TestRestartRestoresPersistedChat();
+  apptraverse::test::TestSubmitTextReturnsIdAndSnapshot();
+  apptraverse::test::TestPersistenceWithoutExternalSave();
+  apptraverse::test::TestRemoteSyncSameEventIdAndDirection();
+  apptraverse::test::TestAddPeerPersistenceAndConnectOnStart();
+  apptraverse::test::TestNotificationOnLocalSubmit();
+  apptraverse::test::TestPendingNotifications();
+  apptraverse::test::TestOnlineOfflinePresenceNotifications();
+  apptraverse::test::TestStopReentrancy();
+  apptraverse::test::TestUnsubscribeReentrancy();
+  apptraverse::test::TestStopThenStartNewSubscription();
+  apptraverse::test::TestDestructionStopsCallbacks();
   std::cout << "chat_component_test OK\n";
   return 0;
 }

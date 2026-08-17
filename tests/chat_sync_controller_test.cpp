@@ -170,8 +170,8 @@ struct Side {
   }
 };
 
-examples::ChatSyncController::SendFunction MakeDirectSend(
-    examples::ChatSyncController*& peer_ctrl, ae::Uid const& self_uid,
+chat::ChatSyncController::SendFunction MakeDirectSend(
+    chat::ChatSyncController*& peer_ctrl, ae::Uid const& self_uid,
     ae::Uid const& peer_uid,
     std::function<void(ae::ObjId, SerializedSyncPacket const&)> on_send = {}) {
   return [&peer_ctrl, self_uid, peer_uid, on_send](
@@ -186,8 +186,8 @@ examples::ChatSyncController::SendFunction MakeDirectSend(
   };
 }
 
-examples::ChatSyncController::RawSendFunction MakeDirectRawSend(
-    examples::ChatSyncController*& peer_ctrl, ae::Uid const& self_uid,
+chat::ChatSyncController::RawSendFunction MakeDirectRawSend(
+    chat::ChatSyncController*& peer_ctrl, ae::Uid const& self_uid,
     ae::Uid const& peer_uid) {
   return [&peer_ctrl, self_uid, peer_uid](
              ae::Uid const& peer, std::vector<std::uint8_t> const& bytes) {
@@ -271,8 +271,8 @@ std::size_t CountNeedle(std::string const& hay, std::string const& needle) {
   return count;
 }
 
-void TickUntilInitialSync(examples::ChatSyncController& left_ctrl,
-                          examples::ChatSyncController& right_ctrl,
+void TickUntilInitialSync(chat::ChatSyncController& left_ctrl,
+                          chat::ChatSyncController& right_ctrl,
                           ae::Uid const& left_uid, ae::Uid const& right_uid) {
   for (int i = 0; i < 400; ++i) {
     left_ctrl.Tick(ae::Now());
@@ -325,18 +325,18 @@ void TestMessagesBeforePairingPersistAndMerge() {
   CHECK(android.graph.peer_set->peers.empty());
 
   // Phase 3 — pair only after history exists.
-  examples::ChatSyncController* windows_ptr = nullptr;
-  examples::ChatSyncController* android_ptr = nullptr;
-  examples::ChatSyncController windows_ctrl(
+  chat::ChatSyncController* windows_ptr = nullptr;
+  chat::ChatSyncController* android_ptr = nullptr;
+  chat::ChatSyncController windows_ctrl(
       windows.Replica(), windows.graph.chat, windows.graph.peer_set,
       MakeDirectSend(android_ptr, windows_uid, android_uid),
       MakeDirectRawSend(android_ptr, windows_uid, android_uid),
-      examples::ChatSyncTiming{}, false);
-  examples::ChatSyncController android_ctrl(
+      chat::ChatSyncTiming{}, false);
+  chat::ChatSyncController android_ctrl(
       android.Replica(), android.graph.chat, android.graph.peer_set,
       MakeDirectSend(windows_ptr, android_uid, windows_uid),
       MakeDirectRawSend(windows_ptr, android_uid, windows_uid),
-      examples::ChatSyncTiming{}, true);
+      chat::ChatSyncTiming{}, true);
   windows_ptr = &windows_ctrl;
   android_ptr = &android_ctrl;
 
@@ -403,16 +403,16 @@ void TestMessagesBeforePairingPersistAndMerge() {
   CHECK(CountNeedle(android.Transcript(), "a_before_pair_2") == 1);
 
   // Post-pair sanity with new controllers on reloaded state.
-  examples::ChatSyncController windows2(
+  chat::ChatSyncController windows2(
       windows.Replica(), windows.graph.chat, windows.graph.peer_set,
       MakeDirectSend(android_ptr, windows_uid, android_uid),
       MakeDirectRawSend(android_ptr, windows_uid, android_uid),
-      examples::ChatSyncTiming{}, false);
-  examples::ChatSyncController android2(
+      chat::ChatSyncTiming{}, false);
+  chat::ChatSyncController android2(
       android.Replica(), android.graph.chat, android.graph.peer_set,
       MakeDirectSend(windows_ptr, android_uid, windows_uid),
       MakeDirectRawSend(windows_ptr, android_uid, windows_uid),
-      examples::ChatSyncTiming{}, true);
+      chat::ChatSyncTiming{}, true);
   windows_ptr = &windows2;
   android_ptr = &android2;
   windows2.Start();
@@ -456,18 +456,18 @@ void TestControllerBidirectionalAndRestart() {
     };
   };
 
-  examples::ChatSyncController* left_ptr = nullptr;
-  examples::ChatSyncController* right_ptr = nullptr;
+  chat::ChatSyncController* left_ptr = nullptr;
+  chat::ChatSyncController* right_ptr = nullptr;
 
-  examples::ChatSyncController left_ctrl(
+  chat::ChatSyncController left_ctrl(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
-      MakeDirectRawSend(right_ptr, left_uid, right_uid), examples::ChatSyncTiming{}, false, {},
+      MakeDirectRawSend(right_ptr, left_uid, right_uid), chat::ChatSyncTiming{}, false, {},
       make_log("L:"));
-  examples::ChatSyncController right_ctrl(
+  chat::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
-      MakeDirectRawSend(left_ptr, right_uid, left_uid), examples::ChatSyncTiming{}, true, {},
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), chat::ChatSyncTiming{}, true, {},
       make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
@@ -528,15 +528,15 @@ void TestControllerBidirectionalAndRestart() {
   left.ReloadRuntime();
   right.ReloadRuntime();
 
-  examples::ChatSyncController left2(
+  chat::ChatSyncController left2(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
-      MakeDirectRawSend(right_ptr, left_uid, right_uid), examples::ChatSyncTiming{}, false, {},
+      MakeDirectRawSend(right_ptr, left_uid, right_uid), chat::ChatSyncTiming{}, false, {},
       make_log("L2:"));
-  examples::ChatSyncController right2(
+  chat::ChatSyncController right2(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
-      MakeDirectRawSend(left_ptr, right_uid, left_uid), examples::ChatSyncTiming{}, true, {},
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), chat::ChatSyncTiming{}, true, {},
       make_log("R2:"));
   left_ptr = &left2;
   right_ptr = &right2;
@@ -569,13 +569,13 @@ void TestRetryTiming() {
   std::vector<std::pair<ae::ObjId, SerializedSyncPacket>> sent;
   bool deliver = false;
 
-  examples::ChatSyncTiming timing;
+  chat::ChatSyncTiming timing;
   timing.retry_interval = std::chrono::milliseconds{20};
 
-  examples::ChatSyncController* left_ptr = nullptr;
-  examples::ChatSyncController* right_ptr = nullptr;
+  chat::ChatSyncController* left_ptr = nullptr;
+  chat::ChatSyncController* right_ptr = nullptr;
 
-  examples::ChatSyncController left_ctrl(
+  chat::ChatSyncController left_ctrl(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       [&](ae::Uid const& peer, ae::ObjId packet_id,
           SerializedSyncPacket const& bytes) {
@@ -594,7 +594,7 @@ void TestRetryTiming() {
         }
       },
       timing, false);
-  examples::ChatSyncController right_ctrl(
+  chat::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       [&](ae::Uid const& peer, ae::ObjId /*packet_id*/,
           SerializedSyncPacket const& bytes) {
@@ -697,24 +697,24 @@ void TestRetryTiming() {
 
 
 void TestChatPresenceCodec() {
-  auto online = examples::EncodeChatPresence(examples::ChatPresenceMessage::kOnline);
+  auto online = chat::EncodeChatPresence(chat::ChatPresenceMessage::kOnline);
   auto heartbeat =
-      examples::EncodeChatPresence(examples::ChatPresenceMessage::kHeartbeat);
+      chat::EncodeChatPresence(chat::ChatPresenceMessage::kHeartbeat);
   auto offline =
-      examples::EncodeChatPresence(examples::ChatPresenceMessage::kOffline);
+      chat::EncodeChatPresence(chat::ChatPresenceMessage::kOffline);
   CHECK(std::string(online.begin(), online.end()) == "APPTRAVERSE_CHAT_ONLINE_V1");
   CHECK(std::string(heartbeat.begin(), heartbeat.end()) ==
         "APPTRAVERSE_CHAT_HEARTBEAT_V1");
   CHECK(std::string(offline.begin(), offline.end()) ==
         "APPTRAVERSE_CHAT_OFFLINE_V1");
-  CHECK(examples::TryDecodeChatPresence(online) ==
-        examples::ChatPresenceMessage::kOnline);
-  CHECK(examples::TryDecodeChatPresence(heartbeat) ==
-        examples::ChatPresenceMessage::kHeartbeat);
-  CHECK(examples::TryDecodeChatPresence(offline) ==
-        examples::ChatPresenceMessage::kOffline);
+  CHECK(chat::TryDecodeChatPresence(online) ==
+        chat::ChatPresenceMessage::kOnline);
+  CHECK(chat::TryDecodeChatPresence(heartbeat) ==
+        chat::ChatPresenceMessage::kHeartbeat);
+  CHECK(chat::TryDecodeChatPresence(offline) ==
+        chat::ChatPresenceMessage::kOffline);
   std::vector<std::uint8_t> junk{'x'};
-  CHECK(!examples::TryDecodeChatPresence(junk).has_value());
+  CHECK(!chat::TryDecodeChatPresence(junk).has_value());
 }
 
 void TestPresenceTransitionsAndIsolation() {
@@ -730,17 +730,17 @@ void TestPresenceTransitionsAndIsolation() {
     };
   };
 
-  examples::ChatSyncTiming timing;
+  chat::ChatSyncTiming timing;
   timing.heartbeat_interval = std::chrono::milliseconds{50};
   timing.offline_timeout = std::chrono::milliseconds{200};
   timing.retry_interval = std::chrono::milliseconds{50};
 
-  examples::ChatSyncController* left_ptr = nullptr;
-  examples::ChatSyncController* right_ptr = nullptr;
+  chat::ChatSyncController* left_ptr = nullptr;
+  chat::ChatSyncController* right_ptr = nullptr;
 
   std::vector<std::vector<std::uint8_t>> left_raw_sent;
 
-  examples::ChatSyncController left_ctrl(
+  chat::ChatSyncController left_ctrl(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       // Sync packets are dropped so presence can be tested in isolation.
       [&](ae::Uid const& peer, ae::ObjId, SerializedSyncPacket const&) {
@@ -752,7 +752,7 @@ void TestPresenceTransitionsAndIsolation() {
         assert(right_ptr != nullptr);
         right_ptr->Receive(left_uid, bytes);
       }, timing, false, {}, make_log("L:"));
-  examples::ChatSyncController right_ctrl(
+  chat::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       [&](ae::Uid const& peer, ae::ObjId, SerializedSyncPacket const&) {
         CHECK(peer == left_uid);
@@ -792,8 +792,8 @@ void TestPresenceTransitionsAndIsolation() {
   CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 0);
   bool saw_heartbeat = false;
   for (auto const& bytes : left_raw_sent) {
-    auto decoded = examples::TryDecodeChatPresence(bytes);
-    if (decoded == examples::ChatPresenceMessage::kHeartbeat) {
+    auto decoded = chat::TryDecodeChatPresence(bytes);
+    if (decoded == chat::ChatPresenceMessage::kHeartbeat) {
       saw_heartbeat = true;
     }
   }
@@ -816,27 +816,27 @@ void TestPresenceTransitionsAndIsolation() {
   // 4. Heartbeat after timeout -> CHAT_PEER_REJOINED.
   right_ctrl.Receive(
       left_uid,
-      examples::EncodeChatPresence(examples::ChatPresenceMessage::kHeartbeat));
+      chat::EncodeChatPresence(chat::ChatPresenceMessage::kHeartbeat));
   CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 1);
   CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 1);
 
   // 5. Explicit Offline -> immediate offline.
   right_ctrl.Receive(
       left_uid,
-      examples::EncodeChatPresence(examples::ChatPresenceMessage::kOffline));
+      chat::EncodeChatPresence(chat::ChatPresenceMessage::kOffline));
   CHECK(CountLog(logs, "R:CHAT_PEER_OFFLINE") == 2);
   CHECK(CountLog(logs, "reason=explicit") == 1);
 
   // 6. Repeated offline -> no duplicate marker.
   right_ctrl.Receive(
       left_uid,
-      examples::EncodeChatPresence(examples::ChatPresenceMessage::kOffline));
+      chat::EncodeChatPresence(chat::ChatPresenceMessage::kOffline));
   CHECK(CountLog(logs, "R:CHAT_PEER_OFFLINE") == 2);
 
   // 9. Restart/rejoin does not create new JoinClientEvent.
   right_ctrl.Receive(
       left_uid,
-      examples::EncodeChatPresence(examples::ChatPresenceMessage::kOnline));
+      chat::EncodeChatPresence(chat::ChatPresenceMessage::kOnline));
   CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 2);
   CHECK(CountJoinEvents(right.graph.chat) == joins_before);
   right.graph.chat.Load();
@@ -856,19 +856,19 @@ void TestSyncPacketBringsPeerOnline() {
     };
   };
 
-  examples::ChatSyncController* left_ptr = nullptr;
-  examples::ChatSyncController* right_ptr = nullptr;
+  chat::ChatSyncController* left_ptr = nullptr;
+  chat::ChatSyncController* right_ptr = nullptr;
 
   // Raw send from left is a no-op so ONLINE presence does not reach right.
-  examples::ChatSyncController left_ctrl(
+  chat::ChatSyncController left_ctrl(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
-      [](ae::Uid const&, std::vector<std::uint8_t> const&) {}, examples::ChatSyncTiming{}, false, {},
+      [](ae::Uid const&, std::vector<std::uint8_t> const&) {}, chat::ChatSyncTiming{}, false, {},
       make_log("L:"));
-  examples::ChatSyncController right_ctrl(
+  chat::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
-      MakeDirectRawSend(left_ptr, right_uid, left_uid), examples::ChatSyncTiming{}, true, {},
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), chat::ChatSyncTiming{}, true, {},
       make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;

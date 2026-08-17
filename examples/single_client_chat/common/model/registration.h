@@ -3,8 +3,8 @@
 
 namespace apptraverse {
 
-// Registers platform-neutral single-client-chat model types. Call once from
-// each executable/shared library that uses the example graph.
+// Registers demo shell model types (App/Window/presenters) and ensures the
+// reusable chat-component types are registered first.
 void EnsureSingleClientChatRegistration();
 
 }  // namespace apptraverse
