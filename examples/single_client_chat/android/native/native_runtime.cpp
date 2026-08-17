@@ -204,8 +204,10 @@ bool NativeRuntime::Setup() {
   }
 
   if (chat_presenter_ != nullptr && chat_component_ != nullptr) {
-    chat_presenter_->PublishPresentation(
-        chat_component_->CapturePresentation());
+    auto const snapshot = chat_component_->CapturePresentation();
+    chat_presenter_->PublishPresentation(snapshot);
+    LogMarker("CHAT_INITIAL_PRESENTATION_RENDERED platform=android timeline=" +
+              std::to_string(snapshot.timeline.size()));
   }
   DrainPendingViewports();
   DrainPendingSends();
@@ -321,8 +323,15 @@ bool NativeRuntime::StartChatSync() {
       [](std::string const& line) { LogMarker(line); });
   chat_component_->SubscribePresentationChanged([this]() {
     if (chat_presenter_ != nullptr && chat_component_ != nullptr) {
-      chat_presenter_->PublishPresentation(
-          chat_component_->CapturePresentation());
+      auto const snapshot = chat_component_->CapturePresentation();
+      chat_presenter_->PublishPresentation(snapshot);
+      auto const t_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+      LogMarker("CHAT_PRESENTATION_CHANGED platform=android timeline=" +
+                std::to_string(snapshot.timeline.size()) +
+                " peers=" + std::to_string(snapshot.peers.size()) +
+                " t_us=" + std::to_string(t_us));
     }
     SaveState();
   });

@@ -366,9 +366,9 @@ int Run(CliOptions const& options) {
     return transcript.find(needle) != std::string::npos;
   };
 
-  auto emit_visible_keys = [&]() {
-    auto const transcript = apptraverse::examples::FormatChatPresentationUtf8(
-        chat_component.CapturePresentation());
+  auto emit_visible_keys = [&](apptraverse::chat::ChatPresentationSnapshot const& snapshot) {
+    auto const transcript =
+        apptraverse::examples::FormatChatPresentationUtf8(snapshot);
     std::size_t start = 0;
     while (start < transcript.size()) {
       auto const end = transcript.find('\n', start);
@@ -386,8 +386,17 @@ int Run(CliOptions const& options) {
       if (!visible_message_keys.insert(key).second) {
         continue;
       }
-      LogLine("CHAT_MESSAGE_VISIBLE platform=windows text_key=" + key +
-              " t_us=" + std::to_string(system_utc_micros()));
+      std::string visible_line = "CHAT_MESSAGE_VISIBLE platform=windows text_key=" + key;
+      for (auto it = snapshot.timeline.rbegin(); it != snapshot.timeline.rend();
+           ++it) {
+        if (it->kind == apptraverse::chat::ChatTimelineItemKind::kMessage &&
+            it->text == key) {
+          visible_line += " event=" + std::to_string(it->event_obj_id);
+          break;
+        }
+      }
+      visible_line += " t_us=" + std::to_string(system_utc_micros());
+      LogLine(visible_line);
     }
   };
 
@@ -412,8 +421,13 @@ int Run(CliOptions const& options) {
   };
 
   chat_component.SubscribePresentationChanged([&]() {
-    chat_ui.RenderPresentation(chat_component.CapturePresentation());
-    emit_visible_keys();
+    auto const snapshot = chat_component.CapturePresentation();
+    chat_ui.RenderPresentation(snapshot);
+    LogLine("CHAT_PRESENTATION_CHANGED platform=windows timeline=" +
+            std::to_string(snapshot.timeline.size()) +
+            " peers=" + std::to_string(snapshot.peers.size()) +
+            " t_us=" + std::to_string(system_utc_micros()));
+    emit_visible_keys(snapshot);
     check_wait_message();
     app.Save();
   });
@@ -467,6 +481,12 @@ int Run(CliOptions const& options) {
 
   win_presenter.CreateNativeWindow();
   log_chat_journal();
+  {
+    auto const snapshot = chat_component.CapturePresentation();
+    chat_ui.RenderPresentation(snapshot);
+    LogLine("CHAT_INITIAL_PRESENTATION_RENDERED platform=windows timeline=" +
+            std::to_string(snapshot.timeline.size()));
+  }
 
   auto commit_chat_text = [&](std::string const& text) {
     auto const event_id = chat_component.SubmitText(text);
