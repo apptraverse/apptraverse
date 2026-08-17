@@ -60,6 +60,7 @@ class ChatSyncController {
   std::size_t runtime_session_count() const { return sessions_.size(); }
   SharedGraphSyncSession* FindSession(ae::Uid const& remote_uid);
   SharedGraphSyncSession const* FindSession(ae::Uid const& remote_uid) const;
+  bool IsPeerOnline(ae::Uid const& remote_uid) const;
 
  private:
   struct RuntimeSession {

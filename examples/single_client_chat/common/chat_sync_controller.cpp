@@ -67,6 +67,12 @@ SharedGraphSyncSession const* ChatSyncController::FindSession(
   }
   return nullptr;
 }
+bool ChatSyncController::IsPeerOnline(ae::Uid const& remote_uid) const {
+  if (auto const* runtime = FindRuntime(remote_uid)) {
+    return runtime->currently_online;
+  }
+  return false;
+}
 
 ChatSyncController::RuntimeSession* ChatSyncController::FindRuntime(
     ae::Uid const& remote_uid) {

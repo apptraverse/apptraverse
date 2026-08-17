@@ -19,7 +19,7 @@
 
 #include "../../common/aether_p2p_transport.h"
 #include "../../common/aether_runtime.h"
-#include "../../common/chat_sync_controller.h"
+#include "../../common/chat_component.h"
 #include "../../common/graph_builder.h"
 #include "android_log.h"
 #include "android_system_dns_resolver.h"
@@ -77,8 +77,8 @@ void NativeRuntime::Run() {
   while (!stop_requested_.load(std::memory_order::acquire)) {
     auto const now = ae::Now();
     auto const next_time = aether_app_->Update(now);
-    if (chat_sync_ != nullptr) {
-      chat_sync_->Tick(now);
+    if (chat_component_ != nullptr) {
+      chat_component_->Tick(now);
     }
     if (stop_requested_.load(std::memory_order::acquire)) {
       break;
@@ -307,16 +307,30 @@ bool NativeRuntime::StartChatSync() {
     p2p_transport_->Send(peer, bytes);
   };
 
-  chat_sync_ = std::make_unique<examples::ChatSyncController>(
-      SyncReplica{aether_app_->domain(), *domain_storage_, chat.id()}, chat,
-      peer_set, sync_send, presence_send, examples::ChatSyncTiming{}, true,
-      [this]() {
-        if (chat_presenter_ != nullptr) {
-          chat_presenter_->PublishTranscript();
-        }
-        SaveState();
-      },
+  auto local_client = chat_presenter_->local_client;
+  local_client.Load();
+  if (!local_client.is_loaded()) {
+    LogError("Failed to load local Client for chat component");
+    return false;
+  }
+  auto presenter = chat->presenter;
+  presenter.Load();
+  if (!presenter.is_loaded()) {
+    LogError("Failed to load ChatPresenter for chat component");
+    return false;
+  }
+
+  chat_component_ = std::make_unique<examples::ChatComponent>(
+      SyncReplica{aether_app_->domain(), *domain_storage_, chat.id()},
+      local_client, chat, presenter, peer_set, sync_send, presence_send,
+      examples::ChatSyncTiming{}, true,
       [](std::string const& line) { LogMarker(line); });
+  chat_component_->SubscribePresentationChanged([this]() {
+    if (chat_presenter_ != nullptr) {
+      chat_presenter_->PublishTranscript();
+    }
+    SaveState();
+  });
 
   p2p_transport_->SetReceiveHandler(
       [this](ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
@@ -325,11 +339,11 @@ bool NativeRuntime::StartChatSync() {
                 [](std::string const& line) { LogMarker(line); })) {
           return;
         }
-        if (chat_sync_ != nullptr) {
-          chat_sync_->Receive(peer, payload);
+        if (chat_component_ != nullptr) {
+          chat_component_->Receive(peer, payload);
         }
       });
-  chat_sync_->Start();
+  chat_component_->Start();
 
   // Dial persisted peers (same as Windows). Without this, Android may keep
   // retrying on a stale pre-outage stream that still reports writable.
@@ -342,7 +356,7 @@ bool NativeRuntime::StartChatSync() {
     }
   }
 
-  LogMarker("CHAT_SYNC_CONTROLLER_READY");
+  LogMarker("CHAT_COMPONENT_READY");
   return true;
 }
 
@@ -383,15 +397,15 @@ bool NativeRuntime::LoadPresenters() {
 }
 
 void NativeRuntime::Teardown() {
-  if (chat_sync_ != nullptr) {
-    chat_sync_->Stop();
+  if (chat_component_ != nullptr) {
+    chat_component_->Stop();
   }
   if (chat_presenter_ != nullptr) {
     SaveState();
     chat_presenter_ = nullptr;
   }
   window_presenter_ = nullptr;
-  chat_sync_.reset();
+  chat_component_.reset();
   p2p_transport_.reset();
   aether_client_.Reset();
   domain_storage_ = nullptr;
@@ -444,7 +458,7 @@ void NativeRuntime::DrainPendingPeers() {
   if (peers.empty()) {
     return;
   }
-  if (chat_sync_ == nullptr || p2p_transport_ == nullptr ||
+  if (chat_component_ == nullptr || p2p_transport_ == nullptr ||
       !aether_client_) {
     LogError("Dropping queued peers, sync is not ready");
     return;
@@ -462,7 +476,7 @@ void NativeRuntime::DrainPendingPeers() {
                examples::FormatAetherUid(uid));
       continue;
     }
-    chat_sync_->AddPeer(uid);
+    chat_component_->AddPeer(uid);
     p2p_transport_->Connect(uid);
     SaveState();
     LogMarker("CHAT_PEER_UI_ADDED platform=android uid=" +

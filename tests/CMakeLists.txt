@@ -61,6 +61,19 @@ add_test(
   NAME apptraverse_chat_sync_controller_test
   COMMAND apptraverse_chat_sync_controller_test
 )
+add_executable(apptraverse_chat_component_test
+  chat_component_test.cpp
+)
+
+target_link_libraries(apptraverse_chat_component_test PRIVATE
+  apptraverse
+  single_client_chat_common
+)
+
+add_test(
+  NAME apptraverse_chat_component_test
+  COMMAND apptraverse_chat_component_test
+)
 
 add_executable(apptraverse_generic_storage_transfer_test
   generic_storage_transfer_test.cpp

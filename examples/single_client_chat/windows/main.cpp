@@ -34,7 +34,7 @@
 
 #include "../common/aether_p2p_transport.h"
 #include "../common/aether_runtime.h"
-#include "../common/chat_sync_controller.h"
+#include "../common/chat_component.h"
 #include "../common/chat_transcript.h"
 #include "../common/graph_builder.h"
 #include "win_chat_presenter.h"
@@ -411,19 +411,18 @@ int Run(CliOptions const& options) {
     p2p_transport.Send(peer, bytes);
   };
 
-  apptraverse::examples::ChatSyncController chat_sync(
+  apptraverse::examples::ChatComponent chat_component(
       apptraverse::SyncReplica{aether_app->domain(), *domain_storage,
                                chat.id()},
-      chat, peer_set, sync_send, presence_send,
-      apptraverse::examples::ChatSyncTiming{},
-      options.auto_accept_peer,
-      [&]() {
-        chat_ui.RefreshTranscript();
-        emit_visible_keys();
-        check_wait_message();
-        app.Save();
-      },
-      LogLine);
+      local_client, chat, win_presenter.chat_presenter, peer_set, sync_send,
+      presence_send, apptraverse::examples::ChatSyncTiming{},
+      options.auto_accept_peer, LogLine);
+  chat_component.SubscribePresentationChanged([&]() {
+    chat_ui.RefreshTranscript();
+    emit_visible_keys();
+    check_wait_message();
+    app.Save();
+  });
 
   p2p_transport.SetReceiveHandler(
       [&](ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
@@ -431,12 +430,12 @@ int Run(CliOptions const& options) {
                 p2p_transport, peer, payload, LogLine, on_pong_received)) {
           return;
         }
-        chat_sync.Receive(peer, payload);
+        chat_component.Receive(peer, payload);
       });
-  chat_sync.Start();
+  chat_component.Start();
 
   if (options.peer.has_value()) {
-    chat_sync.AddPeer(*options.peer);
+    chat_component.AddPeer(*options.peer);
     p2p_transport.Connect(*options.peer);
   } else {
     peer_set.Load();
@@ -472,7 +471,7 @@ int Run(CliOptions const& options) {
         if (uid == aether_client->uid()) {
           return apptraverse::AddPeerUiResult::Self;
         }
-        chat_sync.AddPeer(uid);
+        chat_component.AddPeer(uid);
         p2p_transport.Connect(uid);
         app.Save();
         LogLine("CHAT_PEER_UI_ADDED platform=windows uid=" +
@@ -532,7 +531,7 @@ int Run(CliOptions const& options) {
   };
 
   auto peer_already_present = [&](ae::Uid const& uid) {
-    if (chat_sync.FindSession(uid) != nullptr) {
+    if (chat_component.FindSession(uid) != nullptr) {
       return true;
     }
     peer_set.Load();
@@ -584,7 +583,7 @@ int Run(CliOptions const& options) {
       LogLine("CHAT_PEER_ALREADY_PRESENT uid=" + uid_text);
       return;
     }
-    chat_sync.AddPeer(uid);
+    chat_component.AddPeer(uid);
     p2p_transport.Connect(uid);
     LogLine("CHAT_PEER_INBOX_ADDED uid=" + uid_text);
   };
@@ -614,11 +613,11 @@ int Run(CliOptions const& options) {
     }
     apptraverse::SharedGraphSyncSession* session = nullptr;
     if (options.peer.has_value()) {
-      session = chat_sync.FindSession(*options.peer);
-    } else if (chat_sync.runtime_session_count() > 0) {
+      session = chat_component.FindSession(*options.peer);
+    } else if (chat_component.runtime_session_count() > 0) {
       peer_set.Load();
       if (peer_set.is_loaded() && !peer_set->peers.empty()) {
-        session = chat_sync.FindSession(peer_set->peers.front().remote_uid);
+        session = chat_component.FindSession(peer_set->peers.front().remote_uid);
       }
     }
     if (session == nullptr || !session->initial_sync_complete()) {
@@ -642,7 +641,7 @@ int Run(CliOptions const& options) {
   };
 
   auto finish = [&](int code) {
-    chat_sync.Stop();
+    chat_component.Stop();
     return code;
   };
 
@@ -669,7 +668,7 @@ int Run(CliOptions const& options) {
 
     auto const now = ae::Now();
     auto const next_update = aether_app->Update(now);
-    chat_sync.Tick(now);
+    chat_component.Tick(now);
     maybe_commit_inbox();
     maybe_peer_inbox();
     maybe_send_after_sync();
@@ -681,7 +680,7 @@ int Run(CliOptions const& options) {
       peer_set.Load();
       if (peer_set.is_loaded()) {
         for (auto const& peer : peer_set->peers) {
-          if (auto* session = chat_sync.FindSession(peer.remote_uid)) {
+          if (auto* session = chat_component.FindSession(peer.remote_uid)) {
             pending_total += session->pending_packet_count();
           }
         }
