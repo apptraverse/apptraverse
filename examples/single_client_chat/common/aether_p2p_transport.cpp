@@ -1,9 +1,11 @@
 #include "aether_p2p_transport.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 
 #include "aether_runtime.h"
+#include "apptraverse/node.h"
 
 namespace apptraverse::examples {
 namespace {
@@ -23,6 +25,18 @@ bool PayloadEquals(std::vector<std::uint8_t> const& payload,
     }
   }
   return true;
+}
+
+char const* ToLinkStateText(ae::LinkState state) {
+  switch (state) {
+    case ae::LinkState::kUnlinked:
+      return "unlinked";
+    case ae::LinkState::kLinked:
+      return "linked";
+    case ae::LinkState::kLinkError:
+      return "link_error";
+  }
+  return "unknown";
 }
 
 }  // namespace
@@ -82,10 +96,13 @@ AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
   auto* raw = session.get();
   session->data_sub = session->stream->out_data_event().Subscribe(
       [this, raw](ae::DataBuffer const& data) { OnRawStreamData(raw, data); });
+  session->stream_update_sub = session->stream->stream_update_event().Subscribe(
+      [this, raw]() { LogStreamState(raw, true); });
 
   sessions_.push_back(std::move(session));
   Log("P2P_SESSION_CREATED peer=" + FormatAetherUid(peer) +
       " source=" + std::string{source != nullptr ? source : "unknown"});
+  LogStreamState(raw, false);
   return raw;
 }
 
@@ -136,6 +153,10 @@ void AetherP2pTransport::Send(ae::Uid const& remote_uid,
   if (session == nullptr || session->stream == nullptr) {
     return;
   }
+  Log("P2P_WRITE peer=" + FormatAetherUid(remote_uid) +
+      " size=" + std::to_string(size) +
+      " " + FormatStreamState(*session) +
+      " t_us=" + std::to_string(SystemUtcMicros()));
   auto const frame = EncodeAetherP2pFrame(bytes, size);
   (void)session->stream->Write(ae::DataBuffer{frame.begin(), frame.end()});
 }
@@ -145,11 +166,41 @@ void AetherP2pTransport::OnRawStreamData(PeerSession* session,
   if (session == nullptr) {
     return;
   }
+  Log("P2P_RAW_RECEIVED peer=" + FormatAetherUid(session->remote_uid) +
+      " size=" + std::to_string(data.size()) +
+      " t_us=" + std::to_string(SystemUtcMicros()));
   session->decoder.Append(data.data(), data.size());
   session->decoder.Drain(
       [this, session](std::vector<std::uint8_t> const& payload) {
         EmitPayload(session->remote_uid, payload);
       });
+}
+
+std::string AetherP2pTransport::FormatStreamState(PeerSession const& session) const {
+  if (session.stream == nullptr) {
+    return "link_state=unknown writable=0";
+  }
+  auto const info = session.stream->stream_info();
+  return "link_state=" + std::string{ToLinkStateText(info.link_state)} +
+         " writable=" + std::to_string(info.is_writable ? 1 : 0);
+}
+
+void AetherP2pTransport::LogStreamState(PeerSession* session,
+                                        bool transitions_only) {
+  if (session == nullptr || session->stream == nullptr) {
+    return;
+  }
+  auto const info = session->stream->stream_info();
+  if (transitions_only && session->has_last_stream_info &&
+      session->last_stream_info == info) {
+    return;
+  }
+  session->last_stream_info = info;
+  session->has_last_stream_info = true;
+  Log("P2P_STREAM_STATE peer=" + FormatAetherUid(session->remote_uid) +
+      " link_state=" + std::string{ToLinkStateText(info.link_state)} +
+      " writable=" + std::to_string(info.is_writable ? 1 : 0) +
+      " t_us=" + std::to_string(SystemUtcMicros()));
 }
 
 void AetherP2pTransport::EmitPayload(
