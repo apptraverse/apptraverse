@@ -25,6 +25,13 @@ from tools.runners.run_apptraverse_job import (  # noqa: E402
     start_job,
     status_job,
 )
+from tools.runtime.runtime_jsonl import (  # noqa: E402
+    MAX_LIMIT,
+    RuntimeJsonlError,
+    parse_runtime_artifact_id,
+    query_records,
+    resolve_runtime_log_path,
+)
 
 LOG = logging.getLogger("apptraverse_mcp")
 TOOL_NAMES = (
@@ -32,10 +39,14 @@ TOOL_NAMES = (
     "apptraverse_build_status",
     "apptraverse_build_cancel",
     "apptraverse_build_failure_excerpt",
+    "apptraverse_runtime_log_query",
 )
 BUILD_ARTIFACT_PREFIX = "apptraverse-build/"
+RUNTIME_ARTIFACT_PREFIX = "apptraverse-runtime/"
 MAX_EXCERPT_LINES = 40
 MAX_EXCERPT_CHARS = 4000
+DEFAULT_RUNTIME_QUERY_LIMIT = 50
+MAX_RUNTIME_QUERY_LIMIT = 100
 ALLOWED_RUN_ID = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
 
@@ -145,6 +156,57 @@ def apptraverse_build_failure_excerpt(artifact_id: str) -> dict:
     }
 
 
+def _invalid_runtime_query(artifact_id: str, failure_kind: str) -> dict:
+    return {
+        "artifact_id": artifact_id,
+        "records": [],
+        "returned_count": 0,
+        "has_more": False,
+        "failure_kind": failure_kind,
+    }
+
+
+def apptraverse_runtime_log_query(
+    artifact_id: str,
+    event: str | None = None,
+    after_seq: int | None = None,
+    limit: int = DEFAULT_RUNTIME_QUERY_LIMIT,
+) -> dict:
+    """Return bounded runtime JSONL records for an apptraverse-runtime artifact id."""
+    if not isinstance(limit, int) or limit < 1 or limit > MAX_RUNTIME_QUERY_LIMIT:
+        return _invalid_runtime_query(artifact_id, "invalid_limit")
+    if parse_runtime_artifact_id(artifact_id) is None:
+        return _invalid_runtime_query(artifact_id, "invalid_artifact_id")
+    log_path = resolve_runtime_log_path(repo_root(), artifact_id)
+    if log_path is None:
+        return _invalid_runtime_query(artifact_id, "invalid_artifact_id")
+    if not log_path.is_file():
+        return _invalid_runtime_query(artifact_id, "artifact_not_found")
+    try:
+        records, has_more = query_records(
+            log_path,
+            event=event,
+            after_seq=after_seq,
+            limit=limit,
+        )
+    except RuntimeJsonlError as exc:
+        return {
+            "artifact_id": artifact_id,
+            "records": [],
+            "returned_count": 0,
+            "has_more": False,
+            "failure_kind": "invalid_runtime_log",
+            "first_error": str(exc),
+        }
+    return {
+        "artifact_id": artifact_id,
+        "records": records,
+        "returned_count": len(records),
+        "has_more": has_more,
+        "failure_kind": None,
+    }
+
+
 def create_mcp_server():
     from mcp.server import MCPServer
 
@@ -153,6 +215,7 @@ def create_mcp_server():
     server.tool()(apptraverse_build_status)
     server.tool()(apptraverse_build_cancel)
     server.tool()(apptraverse_build_failure_excerpt)
+    server.tool()(apptraverse_runtime_log_query)
     return server
 
 

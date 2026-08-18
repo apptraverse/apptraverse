@@ -6,13 +6,13 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S025
+ACT-S026
 
 Status:
 ready
 
 Goal:
-structured runtime JSONL logging with one JSON object per line and bounded artifact/query access for automation. Do not change application logging until this slice.
+GoogleTest multi-instance integration harness with Python-owned environment/process/emulator orchestration; prove real JSONL output and use it for deterministic assertions.
 
 # Status vocabulary
 
@@ -36,8 +36,8 @@ structured runtime JSONL logging with one JSON object per line and bounded artif
 | ACT-S023 | thin MCP wrapper over canonical runner | done | tooling-level; wraps job controller; four stdio tools |
 | ACT-S024 | live Cursor MCP Auto-run proof | done | MCP workflow validated; see ACT-T001/ACT-T002 |
 | ACT-S024R | user-level Cursor MCP for worktrees | done | canonical setup in User ~/.cursor/mcp.json |
-| ACT-S025 | structured runtime JSONL logging | ready | one JSON object per line; bounded artifact/query access |
-| ACT-S026 | GoogleTest multi-instance harness | blocked | documentation only |
+| ACT-S025 | structured runtime JSONL logging | done | JSONL writer, Windows host events, bounded MCP query |
+| ACT-S026 | GoogleTest multi-instance harness | ready | Python-owned process orchestration; JSONL assertions |
 | ACT-S027 | debugger inspection adapter | blocked | documentation only |
 | ACT-S030 | read-only architecture audit | blocked | blocked by tooling baseline |
 | ACT-S040 | transport simplification slices | blocked | blocked by audit and user decisions |
@@ -155,6 +155,19 @@ Worktree ownership:
 - switching Cursor to another worktree does not reuse configured CMake directories from a different worktree
 - canonical MCP checkout should be the primary Windows development worktree until tooling supports explicit repo/worktree routing
 
+## ACT-S025 details
+
+Structured runtime JSONL logging for Windows single-client chat host.
+
+- schema `apptraverse.runtime_event/1`
+- writer: `examples/single_client_chat/common/runtime_jsonl.{h,cpp}`
+- enablement: `APPTRAVERSE_RUNTIME_JSONL`, `APPTRAVERSE_RUN_ID`, `APPTRAVERSE_INSTANCE`
+- artifact convention: `.artifacts/apptraverse-runtime/<run-id>/<instance>.jsonl`
+- parser: `tools/runtime/runtime_jsonl.py`
+- MCP tool: `apptraverse_runtime_log_query` (max 100 records)
+- Windows events: `runtime_started`, `peer_add`, `text_submit`, `presentation`, `runtime_stopped`
+- build validation: `win32_single_client_chat` status=ok
+
 ## ACT-S024R details
 
 User-level MCP setup for worktrees. `setup_apptraverse_mcp.py` writes/updates only the `apptraverse` entry in User MCP config; preserves unrelated servers; idempotent; does not generate project-local `.cursor/mcp.json`.
@@ -164,7 +177,7 @@ User-level MCP setup for worktrees. `setup_apptraverse_mcp.py` writes/updates on
 | Acceptance ID | Status | Evidence / notes |
 | --- | --- | --- |
 | ACT-A001 | done | three canonical files created and linked |
-| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S025 |
+| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S026 |
 | ACT-A003 | done at documentation and preset level | Ninja preferred; explicit `win64-vs2022-msvc-debug` fallback |
 | ACT-A004 | done at runner-contract level | staged execution + JSON/artifacts; ACT-B001 dependency drift resolved |
 | ACT-A005 | done | ACT-S023 MCP wrapper; ACT-S024 live Cursor MCP workflow proof |
@@ -495,3 +508,38 @@ Typed blockers: none for ACT-B001
 Known limits:
 - Æther upstream still declares floating aether-miscpp main; App Traverse pins miscpp before add
 Next ready slice: ACT-S025
+
+Session ACT-S025:
+
+- branch `review/chat-runtime-jsonl-v1` from `25026a5584c5b19f25152e08f1e61af86ecad083`
+- runtime JSONL writer and Windows host instrumentation
+- parser/query module and fifth MCP tool `apptraverse_runtime_log_query`
+- unit tests PASS (35: 15 runtime + 20 MCP)
+- configure job `20260818-072105-11b647` status=ok (already_configured)
+- build job `20260818-072620-f4e870` target `win32_single_client_chat` status=ok (41s)
+- ACT-S025 done; next ready slice ACT-S026 only
+
+Completion packet:
+
+Slice: ACT-S025
+Acceptance IDs: ACT-A004 runtime observability level
+Artifacts:
+- examples/single_client_chat/common/runtime_jsonl.h
+- examples/single_client_chat/common/runtime_jsonl.cpp
+- examples/single_client_chat/windows/main.cpp
+- examples/single_client_chat/windows/CMakeLists.txt
+- tools/runtime/runtime_jsonl.py
+- tools/runtime/test_runtime_jsonl.py
+- tools/mcp/apptraverse_mcp.py
+- tools/mcp/test_apptraverse_mcp.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- apptraverse_chat_iterate_prompt.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: configure ok; win32_single_client_chat build ok
+Runtime proof: parser/MCP bounded query unit tests PASS
+Typed blockers: none
+Known limits:
+- no multi-instance process harness yet (ACT-S026)
+- no end-to-end runtime JSONL generation test until S026
+Next ready slice: ACT-S026

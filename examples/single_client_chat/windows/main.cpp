@@ -37,6 +37,7 @@
 #include "../common/chat_component.h"
 #include "../common/chat_transcript.h"
 #include "../common/graph_builder.h"
+#include "../common/runtime_jsonl.h"
 #include "win_chat_presenter.h"
 #include "win_window_presenter.h"
 #include "windows_window.h"
@@ -212,7 +213,83 @@ void LogLine(std::string const& line) {
   std::fflush(stdout);
 }
 
+using RuntimeField = apptraverse::examples::RuntimeJsonlLogger::Field;
+
+char const* TimelineKindName(apptraverse::chat::ChatTimelineItemKind kind) {
+  switch (kind) {
+    case apptraverse::chat::ChatTimelineItemKind::kJoined:
+      return "joined";
+    case apptraverse::chat::ChatTimelineItemKind::kMessage:
+      return "message";
+  }
+  return "unknown";
+}
+
+void EmitPresentationEvent(
+    apptraverse::examples::RuntimeJsonlLogger* runtime_log,
+    apptraverse::chat::ChatComponent const& chat_component) {
+  if (runtime_log == nullptr) {
+    return;
+  }
+  auto const snap = chat_component.CapturePresentation();
+  if (snap.timeline.empty()) {
+    runtime_log->Emit(
+        "presentation",
+        {RuntimeField::UInt("timeline_count", snap.timeline.size()),
+         RuntimeField::UInt("peer_count", snap.peers.size()),
+         RuntimeField::Null("last_entry_kind"),
+         RuntimeField::Null("last_entry_author"),
+         RuntimeField::Null("last_entry_text"),
+         RuntimeField::Null("last_event_obj_id")});
+    return;
+  }
+  auto const& last = snap.timeline.back();
+  runtime_log->Emit(
+      "presentation",
+      {RuntimeField::UInt("timeline_count", snap.timeline.size()),
+       RuntimeField::UInt("peer_count", snap.peers.size()),
+       RuntimeField::String("last_entry_kind", TimelineKindName(last.kind)),
+       RuntimeField::String("last_entry_author", last.author.display_name),
+       RuntimeField::String("last_entry_text", last.text),
+       RuntimeField::UInt("last_event_obj_id", last.event_obj_id)});
+}
+
+void EmitTextSubmitEvent(
+    apptraverse::examples::RuntimeJsonlLogger* runtime_log,
+    std::string const& text,
+    std::optional<std::uint32_t> const& event_id) {
+  if (runtime_log == nullptr) {
+    return;
+  }
+  if (event_id.has_value()) {
+    runtime_log->Emit(
+        "text_submit",
+        {RuntimeField::String("text", text),
+         RuntimeField::Bool("accepted", true),
+         RuntimeField::UInt("event_obj_id", *event_id)});
+  } else {
+    runtime_log->Emit(
+        "text_submit",
+        {RuntimeField::String("text", text),
+         RuntimeField::Bool("accepted", false),
+         RuntimeField::Null("event_obj_id")});
+  }
+}
+
+void EmitPeerAddEvent(apptraverse::examples::RuntimeJsonlLogger* runtime_log,
+                      std::string const& peer, bool accepted) {
+  if (runtime_log == nullptr) {
+    return;
+  }
+  runtime_log->Emit("peer_add",
+                    {RuntimeField::String("peer", peer),
+                     RuntimeField::Bool("accepted", accepted)});
+}
+
 int Run(CliOptions const& options) {
+  auto runtime_log = apptraverse::examples::RuntimeJsonlLogger::TryOpenFromEnvironment();
+  apptraverse::examples::RuntimeJsonlLogger* runtime_log_ptr = runtime_log.get();
+
   if (options.p2p_ping.has_value() && options.p2p_ping->empty()) {
     return 1;
   }
@@ -278,6 +355,12 @@ int Run(CliOptions const& options) {
   }
   LogLine("AETHER_CLIENT_READY platform=windows uid=" +
           apptraverse::examples::FormatAetherUid(aether_client->uid()));
+  auto const local_aether_uid =
+      apptraverse::examples::FormatAetherUid(aether_client->uid());
+  if (runtime_log_ptr != nullptr) {
+    runtime_log_ptr->Emit("runtime_started",
+                          {RuntimeField::String("local_uid", local_aether_uid)});
+  }
   LogLine(std::string("AETHER_BUILD_INFO platform=windows git=") + AE_GIT_VERSION +
           " quarantine_ms=" + APPTRAVERSE_AE_STRINGIFY(AE_CLOUD_SERVER_QUARANTINE_TIME_MS) +
           " task_max=" + APPTRAVERSE_AE_STRINGIFY(AE_TASK_MAX_COUNT));
@@ -415,10 +498,14 @@ int Run(CliOptions const& options) {
     chat_ui.RenderPresentation(chat_component.CapturePresentation());
     emit_visible_keys();
     check_wait_message();
+    EmitPresentationEvent(runtime_log_ptr, chat_component);
     app.Save();
   });
   chat_ui.SetSubmitTextHandler([&](std::string text) {
-    return chat_component.SubmitText(std::move(text)).has_value();
+    auto const submitted = text;
+    auto event_id = chat_component.SubmitText(std::move(text));
+    EmitTextSubmitEvent(runtime_log_ptr, submitted, event_id);
+    return event_id.has_value();
   });
 
   p2p_transport.SetReceiveHandler(
@@ -432,13 +519,16 @@ int Run(CliOptions const& options) {
   chat_component.Start();
 
   if (options.peer.has_value()) {
-    chat_component.AddPeer(*options.peer);
+    auto const peer_result = chat_component.AddPeer(*options.peer);
+    EmitPeerAddEvent(
+        runtime_log_ptr,
+        apptraverse::examples::FormatAetherUid(*options.peer),
+        peer_result == apptraverse::chat::AddPeerResult::kAdded);
   }
 
-  auto const local_aether_uid =
-      apptraverse::examples::FormatAetherUid(aether_client->uid());
+  auto const local_aether_uid_for_ui = local_aether_uid;
   chat_ui.SetPeerUi(
-      local_aether_uid,
+      local_aether_uid_for_ui,
       [&](std::string const& remote_text) -> apptraverse::AddPeerUiResult {
         auto trimmed = remote_text;
         while (!trimmed.empty() &&
@@ -456,9 +546,15 @@ int Run(CliOptions const& options) {
           return apptraverse::AddPeerUiResult::Invalid;
         }
         if (uid == aether_client->uid()) {
+          EmitPeerAddEvent(runtime_log_ptr,
+                           apptraverse::examples::FormatAetherUid(uid), false);
           return apptraverse::AddPeerUiResult::Self;
         }
-        chat_component.AddPeer(uid);
+        auto const peer_result = chat_component.AddPeer(uid);
+        auto const accepted =
+            peer_result == apptraverse::chat::AddPeerResult::kAdded;
+        EmitPeerAddEvent(runtime_log_ptr,
+                         apptraverse::examples::FormatAetherUid(uid), accepted);
         app.Save();
         LogLine("CHAT_PEER_UI_ADDED platform=windows uid=" +
                 apptraverse::examples::FormatAetherUid(uid));
@@ -470,6 +566,7 @@ int Run(CliOptions const& options) {
 
   auto commit_chat_text = [&](std::string const& text) {
     auto const event_id = chat_component.SubmitText(text);
+    EmitTextSubmitEvent(runtime_log_ptr, text, event_id);
     if (!event_id.has_value()) {
       return;
     }
@@ -609,6 +706,7 @@ int Run(CliOptions const& options) {
       return;
     }
     auto const event_id = chat_component.SubmitText(*options.send_after_sync);
+    EmitTextSubmitEvent(runtime_log_ptr, *options.send_after_sync, event_id);
     if (!event_id.has_value()) {
       return;
     }
@@ -622,6 +720,9 @@ int Run(CliOptions const& options) {
   };
 
   auto finish = [&](int code) {
+    if (runtime_log_ptr != nullptr) {
+      runtime_log_ptr->Emit("runtime_stopped");
+    }
     chat_component.Stop();
     return code;
   };

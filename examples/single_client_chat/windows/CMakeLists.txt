@@ -3,6 +3,7 @@ add_executable(win32_single_client_chat
   win_add_peer_dialog.cpp
   ../common/aether_p2p_framing.cpp
   ../common/aether_p2p_transport.cpp
+  ../common/runtime_jsonl.cpp
 )
 
 target_link_libraries(win32_single_client_chat PRIVATE

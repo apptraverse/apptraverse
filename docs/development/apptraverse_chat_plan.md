@@ -462,17 +462,19 @@ Evidence: server identifier `user-apptraverse`; preflight completed status=ok; b
 ## ACT-S025
 
 - structured runtime JSONL logging
-- status: ready after S024R
-- one JSON object per line
-- fields such as schema_version, run_id, event, platform, pid, t_us, mono_us
-- automation parses JSONL, not human text
-- full runtime logs remain artifacts
-- Cursor receives filtered/aggregated records only
-- do not change application logging until this slice
+- status: done
+- schema `apptraverse.runtime_event/1`; one JSON object per line
+- writer under `examples/single_client_chat/common/runtime_jsonl.{h,cpp}`
+- enablement via `APPTRAVERSE_RUNTIME_JSONL`, `APPTRAVERSE_RUN_ID`, `APPTRAVERSE_INSTANCE`
+- artifact convention `.artifacts/apptraverse-runtime/<run-id>/<instance>.jsonl`
+- parser `tools/runtime/runtime_jsonl.py`; MCP `apptraverse_runtime_log_query` (max 100 records)
+- Windows host events only: `runtime_started`, `peer_add`, `text_submit`, `presentation`, `runtime_stopped`
+- do not instrument ChatComponent internals; human logs remain
 
 ## ACT-S026
 
 - GoogleTest multi-instance integration harness
+- status: ready after S025
 - Python owns environment/emulator/process setup
 - GoogleTest owns deterministic assertions where practical
 

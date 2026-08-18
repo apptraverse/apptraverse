@@ -34,7 +34,7 @@ Drive configure/build through `tools/runners/run_apptraverse_build.py`.
 Long builds use `tools/runners/run_apptraverse_job.py` start/status/cancel; do not wait on MSBuild in the parent process.
 Cursor-facing invocations use the apptraverse MCP tools wrapping that job controller:
 `apptraverse_build_start`, `apptraverse_build_status`, `apptraverse_build_cancel`,
-`apptraverse_build_failure_excerpt`. Register MCP once per checkout with
+`apptraverse_build_failure_excerpt`, `apptraverse_runtime_log_query`. Register MCP once per checkout with
 `python tools/mcp/setup_apptraverse_mcp.py` (User-level `~/.cursor/mcp.json`;
 see `.cursor/mcp.json.example`). Project-local `.cursor/mcp.json` is not canonical
 because project-scoped MCP proved unreliable from worktrees (ACT-T001).
@@ -80,6 +80,7 @@ APPTRAVERSE_CHAT_BASELINE_COMPLETE
 - External configure/build commands time out at 15 minutes (`command_timeout`).
 - Use `--json` for Cursor-facing invocations. Full CMake/MSBuild output stays in `.artifacts/apptraverse-build/` behind `artifact_id`.
 - MCP tools return compact job objects and bounded excerpts only; never dump `stdout.log`/`stderr.log`.
+- Runtime JSONL logs live under `.artifacts/apptraverse-runtime/<run-id>/<instance>.jsonl`; query via `apptraverse_runtime_log_query` (max 100 records).
 - Do not print full compiler logs into chat context.
 - A documentation/configuration-only slice performs no configure, build, or tests.
 
