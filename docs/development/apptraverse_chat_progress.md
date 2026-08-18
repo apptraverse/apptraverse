@@ -6,19 +6,20 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S026A
+ACT-S100A
 
 Status:
-blocked
+awaiting_manual_validation
 
 Goal:
-two-Windows Python process harness and real JSONL proof. Do not add GoogleTest, Android, or ChatComponent changes.
+canonical Windows chat GUI ready for manual no-argument launch. Do not mark done before user feedback.
 
 # Status vocabulary
 
 - ready
 - in_progress
 - blocked
+- awaiting_manual_validation
 - done
 - optional
 
@@ -44,6 +45,8 @@ two-Windows Python process harness and real JSONL proof. Do not add GoogleTest, 
 | ACT-S027 | debugger inspection adapter | blocked | documentation only |
 | ACT-S030 | read-only architecture audit | blocked | blocked by tooling baseline |
 | ACT-S040 | transport simplification slices | blocked | blocked by audit and user decisions |
+| ACT-S100A | canonical Windows chat GUI for manual validation | awaiting_manual_validation | initial presentation replay; user launches without arguments |
+| ACT-S100B | canonical Android x86_64 emulator GUI | blocked | after ACT-S100A manual PASS |
 
 ## ACT-S001 details
 
@@ -91,6 +94,17 @@ Product compile success is not required to prove runner orchestration.
 - aether-miscpp: `eabf068d369ec98e4d541ea229f1c8401e186b66` (parent of `54aaaff`, which moved `reflect/domain_visitor.h`)
 - `setup` adds pinned aether-miscpp before Æther so Æther's floating `GIT_TAG main` is not used
 - Windows `apptraverse_chat_component_test` configure+build `status=ok`; old C1083 gone
+
+
+## ACT-B002
+
+- kind: print_uid_teardown_heap_corruption
+- status: deferred
+- special --print-aether-uid emits a valid UID; process later exits 0xC0000005
+- debug heap reported a modified free block; first corrupting write was not captured
+- Full Page Heap requires elevated GFlags and was not enabled
+- automation-only early-exit path; does not currently block ordinary GUI validation
+- do not mark fixed
 
 ## ACT-S022A details
 
@@ -169,6 +183,11 @@ Corrected classification: `asymmetric_delivery_during_test_shutdown`.
 Alice submitted `message_from_alice`, saw `message_from_bob` in the rendered transcript, exited, and still had `pending=1`. Bob submitted `message_from_bob`, never saw `message_from_alice`, remained running, `pending=1`. Most likely test-induced: Alice `--exit-after-message` exited before Alice's pending outbound packet cleared. Do not declare an App Traverse transport bug.
 
 Repair slice ACT-S026A-R1: emit `message_visible`; harness owns completion; no `--exit-after-message`.
+
+
+## ACT-S100A details
+
+Initial Windows presentation replay after CreateNativeWindow. Ordinary no-argument launch for manual GUI validation. ACT-B002 deferred and does not block this slice. Status awaiting_manual_validation.
 
 ## ACT-S025 details
 
@@ -624,4 +643,29 @@ Typed blockers: uid_setup_failed
 Known limits:
 - setup process non-zero exit is treated as failure even when JSONL already has local_uid
 Next ready slice: diagnostic for alice UID setup exit 3221225477 / setup teardown after AETHER_UID
+
+
+Session ACT-S100A:
+
+- branch review/chat-windows-gui-v1 from 00a2259a054e659febc966040f2efa824712caab
+- recorded ACT-B002 print_uid_teardown_heap_corruption as deferred
+- ordinary no-argument Windows host already uses Run(...), default state, no --print-aether-uid
+- added explicit CapturePresentation/RenderPresentation after CreateNativeWindow
+- ACT-S100A awaiting_manual_validation; Android not ready
+
+Completion packet:
+
+Slice: ACT-S100A
+Acceptance IDs: n/a
+Artifacts:
+- examples/single_client_chat/windows/main.cpp
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: win32_single_client_chat status=ok duration_ms=13054 job 20260818-200932-85fe6e (no configure)
+Runtime proof: manual_windows_gui_validation_required
+Typed blockers: ACT-B002 deferred; does not block GUI validation
+Known limits:
+- do not mark ACT-S100A done before user feedback
+Next ready slice: ACT-S100B after manual PASS
 

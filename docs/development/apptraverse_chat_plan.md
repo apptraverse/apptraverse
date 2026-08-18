@@ -503,6 +503,19 @@ Split after S025:
 - Windows first; breakpoints and bounded variable/memory reads
 - do not name or require a specific debugger product until the exact tool/API is identified
 
+## ACT-S100A
+
+- prepare canonical Windows chat GUI for manual validation
+- status: awaiting_manual_validation
+- restore explicit initial presentation replay after CreateNativeWindow()
+- ordinary no-argument launch uses Run(...); not --print-aether-uid
+- ACT-B002 does not block this slice
+
+## ACT-S100B
+
+- canonical Android x86_64 emulator GUI
+- status: not ready until ACT-S100A manual PASS
+
 ## ACT-S030
 
 - read-only architecture audit
@@ -523,6 +536,17 @@ Split after S025:
 - that miscpp revision still ships `aether-miscpp/reflect/domain_visitor.h`; later `main` moved it
 - do not treat historical C1083 as a runner failure
 - do not float `main` for aether-miscpp while Æther remains at `7294f92a`
+
+
+## ACT-B002
+
+- kind: print_uid_teardown_heap_corruption
+- status: deferred
+- special --print-aether-uid mode emits a valid UID; process later exits 0xC0000005
+- debug heap reported a modified free block; first corrupting write was not captured
+- Full Page Heap requires elevated GFlags and was not enabled
+- automation-only early-exit path; does not currently block ordinary GUI validation
+- do not mark fixed
 
 # Acceptance IDs
 

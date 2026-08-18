@@ -602,6 +602,8 @@ int Run(CliOptions const& options) {
       });
 
   win_presenter.CreateNativeWindow();
+  auto const initial_snapshot = chat_component.CapturePresentation();
+  chat_ui.RenderPresentation(initial_snapshot);
   log_chat_journal();
 
   auto commit_chat_text = [&](std::string const& text) {
