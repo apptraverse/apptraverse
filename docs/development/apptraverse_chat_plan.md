@@ -15,6 +15,16 @@ Create a reusable Chat component that can be embedded in:
 - AeroAdmin iOS
 - standalone demo applications
 
+The near-term product goal is architecture validation, not product polish:
+build the same minimal chat functionality that already exists in the current
+Windows and Android demo applications on all five current-baseline platforms.
+Do not add product features. The five-platform work exists to:
+
+- expose bad platform assumptions
+- simplify ChatComponent / host / transport boundaries
+- validate persistence and synchronization architecture
+- establish a clean reusable foundation before integration into aeroadmin-x
+
 # Architecture boundaries
 
 ## ChatComponent
@@ -75,47 +85,179 @@ The following branches are sources of diagnostics and evidence. They must not be
 
 Separately: v5 contains packet-aware transport diagnostics and SyncWriteGate that require a separate architectural decision.
 
-# Development methodology
+## Cross-platform product target
 
-- exactly one ready slice per Cursor session
-- one slice must correspond to one coherent commit
-- no adjacent cleanup
-- no future features
-- progress is updated in the same session
-- after one slice Cursor stops
-- a blocked slice is not fixed by a workaround
-- tooling repair is a separate slice
+User-approved current baseline (x86_64 only):
+
+1. Windows x86_64
+2. Linux x86_64
+3. Android x86_64 emulator
+4. macOS x86_64
+5. iOS x86_64 Simulator
+
+ARM64 is out of the current baseline. Do not add Android arm64-v8a or Apple
+arm64 acceptance/build requirements yet. The reason is not lack of expected
+Æther ARM support. ARM builds are outside the current architecture-validation
+baseline.
+
+# UI host strategy
+
+## Windows
+
+- existing Win32 host
+- no new Windows UI framework
+
+## Android
+
+- existing Android UI/JNI/native runtime
+- x86_64 emulator only for the current baseline
+
+## Linux
+
+- GTK4
+- GTK4 is a Linux host implementation, not the common cross-platform UI layer
+- target ordinary modern Linux desktop environments
+- packaging/distribution compatibility is a later concern
+- do not introduce Qt or another cross-platform GUI abstraction
+
+## Apple
+
+Maximize macOS/iOS code sharing.
+
+Target architecture:
+
+```
+shared SwiftUI presentation code
+        ↓
+shared Apple bridge API
+        ↓
+Objective-C++ implementation
+        ↓
+C++ ChatComponent / runtime
+```
+
+macOS and iOS should share as much SwiftUI/view-model/bridge code as practical.
+Platform-specific code should be limited to actual lifecycle/platform
+differences.
+
+Future Æther Apple networking may use native Apple transports such as
+NSURLSession / Network.framework behind the same transport boundary.
+Do not implement Apple networking until a slice owns it.
+
+# Minimal five-platform feature parity
+
+The five apps need only the functionality represented by the current
+Windows/Android chat baseline:
+
+- create/load persistent local chat state
+- show current transcript including Join entries
+- show local Æther UID
+- add remote peer by UID
+- text input
+- Send
+- synchronize chat state/history through the existing Æther transport
+- recover persisted chat state after application restart
+
+Do not add:
+
+- attachments
+- address book
+- file transfer
+- voice
+- notifications
+- group-management UI beyond what the current model requires
+- background push
+- AeroAdmin branding
+- settings UI
+- a common cross-platform widget framework
 
 # Canonical build environment
 
-Ninja is the only C++ generator.
+Ninja is the only generator for direct C++ CMake builds.
 
-Planned profiles:
+Checked-in desktop CMake presets (`CMakePresets.json`):
 
-- `win64-ninja-msvc-debug`
-- `linux-ninja-clang-debug`
-- `android-x86_64-ninja-debug`
-- `android-arm64-v8a-ninja-debug`
+- `win64-ninja-msvc-debug` — Ninja, MSVC `cl`, `build/win64-ninja-msvc-debug`
+- `linux-x64-ninja-clang-debug` — Ninja, `clang++`, `build/linux-x64-ninja-clang-debug`
+- `macos-x64-ninja-appleclang-debug` — Ninja, `clang++`, `CMAKE_OSX_ARCHITECTURES=x86_64`, `build/macos-x64-ninja-appleclang-debug`
 
-The Android application is launched via the Gradle wrapper, but the native CMake build uses Ninja.
+No Release profiles yet. No ARM64 canonical profiles.
+
+Windows must not fall back to MinGW/GCC. The future runner must preflight a
+valid MSVC environment before invoking `win64-ninja-msvc-debug`.
+
+## Android / iOS profile policy
+
+Do not invent fake top-level CMake presets for the final Android/iOS apps.
+
+Android x86_64: the canonical application entry point remains the Gradle
+wrapper. The runner will invoke the existing Android build while ensuring the
+native externalNativeBuild/CMake path uses Ninja and ABI=`x86_64`. No
+arm64-v8a in the current baseline.
+
+iOS: the final application build uses xcodebuild. Shared C++ remains
+platform-neutral. Do not replace the Apple application toolchain with Ninja.
+
+Ninja remains the canonical direct C++ build generator where CMake owns the
+build. Android/iOS runner stages are not part of ACT-S020.
 
 Forbid:
 
 - Visual Studio CMake generator
 - MinGW for the Windows production profile
 - accidental compiler selection from PATH
-- random build directory names
-- switching compiler inside an existing build directory
+- random / ad-hoc build directory names
+- switching compiler or generator inside an existing build directory
+- ARM64 profiles in the current baseline
 
 # Build policy
 
-- incremental build by default
-- do not clean/rebuild without a direct requirement of the selected slice
-- configure only when the profile build directory is missing or CMake inputs changed
+Incremental build is the default.
+
+Never run clean or rebuild merely to verify a normal source change.
+Never delete a valid canonical build directory between ordinary slices.
+
+Use:
+
+```
+cmake --build <canonical-dir> --target <small-target>
+```
+
+for normal iteration once configured.
+
+Configure only when:
+
+- the canonical build directory does not exist
+- CMake configuration inputs changed
+- the selected slice explicitly requires configure
+
+Clean/rebuild only when:
+
+- explicitly requested by the user
+- the selected slice specifically owns clean-build verification
+- a canonical release gate requires it
+
+A failure does not automatically authorize:
+
+- clean
+- rebuild
+- a new build directory
+- another compiler
+- another generator
+
+One retry maximum.
+
+If a build directory was configured with the wrong compiler/generator, return
+typed blocker `build_profile_conflict`. Do not create `build2`, `build-final`,
+`build-new`, `build-msvc2`, or similar.
+
+Additional rules:
+
 - narrow target first
 - full release gate only as a separate slice
 - missing tool/SDK is returned as a typed blocker
 - Cursor does not install the toolchain automatically
+- a documentation/configuration-only slice performs no configure, build, or tests
 
 # Planned phases and slices
 
@@ -124,34 +266,76 @@ Minimal backlog:
 ## ACT-S001
 
 - initial Windows presentation replay
-- status: blocked
+- status: blocked until the tooling baseline is usable
 - reason: previous local build environment/worktree failure
 - expected change: two-line state replay after native controls creation
 
 ## ACT-S010
 
 - canonical plan/progress/iterate trio
-- status: in_progress in this session (done when this documentation slice is committed)
+- status: done
 
 ## ACT-S020
 
-- checked-in Ninja CMake presets
-- status: ready after S010
+- checked-in Ninja CMake presets and cross-platform target
+- status: done in this session
 
 ## ACT-S021
 
 - canonical staged build runner
-- status: blocked by S020
+- status: ready after S020
+- first implementation owns one profile only: `win64-ninja-msvc-debug`
+- do not initially implement Linux/macOS/Android/iOS adapters
+- other platform adapters come after runner behavior is stable
+
+One repo-owned runner will own:
+
+- environment preflight
+- canonical profile selection
+- configure when necessary
+- incremental target build
+- test invocation
+- timeouts
+- process termination
+- artifact locations
 
 ## ACT-S022
 
 - JSON result/artifact/timeout contract
 - status: blocked by S021
 
+The runner returns a compact machine-readable result. Full stdout/stderr goes
+to artifacts. Cursor should normally receive only:
+
+- status
+- stage
+- profile
+- target
+- duration
+- failure_kind
+- first_error
+- artifact_id
+
+Absolute local paths should not be returned unless required for a specific
+diagnostic.
+
 ## ACT-S023
 
 - thin MCP wrapper over canonical runner
 - status: blocked by S022
+
+MCP wraps the runner. MCP must not independently implement build logic.
+
+Planned operations:
+
+- `build_preflight(profile)`
+- `build_start(profile, targets)`
+- `build_status(job_id)`
+- `build_cancel(job_id)`
+- `test_run(profile, filter)`
+- `artifact_failure_read(artifact_id, index)`
+
+Long builds must run as background jobs. MCP output must remain bounded.
 
 ## ACT-S030
 
@@ -194,8 +378,6 @@ Windows/Android chat functional baseline passes
 ## ACT-A007
 
 transport/component architecture approved after read-only audit
-
-This session closes only ACT-A001, ACT-A002, and ACT-A003.
 
 # Definition of Done
 

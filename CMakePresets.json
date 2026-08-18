@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "ninja-debug-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "win64-ninja-msvc-debug",
+      "inherits": "ninja-debug-base",
+      "binaryDir": "${sourceDir}/build/win64-ninja-msvc-debug",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl"
+      }
+    },
+    {
+      "name": "linux-x64-ninja-clang-debug",
+      "inherits": "ninja-debug-base",
+      "binaryDir": "${sourceDir}/build/linux-x64-ninja-clang-debug",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "macos-x64-ninja-appleclang-debug",
+      "inherits": "ninja-debug-base",
+      "binaryDir": "${sourceDir}/build/macos-x64-ninja-appleclang-debug",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_OSX_ARCHITECTURES": "x86_64"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "win64-ninja-msvc-debug",
+      "configurePreset": "win64-ninja-msvc-debug"
+    },
+    {
+      "name": "linux-x64-ninja-clang-debug",
+      "configurePreset": "linux-x64-ninja-clang-debug"
+    },
+    {
+      "name": "macos-x64-ninja-appleclang-debug",
+      "configurePreset": "macos-x64-ninja-appleclang-debug"
+    }
+  ]
+}

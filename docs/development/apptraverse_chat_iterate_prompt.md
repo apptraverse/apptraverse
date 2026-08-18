@@ -31,7 +31,8 @@ Execute only that slice:
 
 Use only the canonical Ninja profile named by the slice.
 Never run clean or rebuild unless the selected slice explicitly requires it.
-Prefer incremental target builds.
+Prefer incremental narrow-target builds.
+Do not invent ad-hoc build directories or compiler/generator fallbacks.
 Update progress, evidence and the next ready slice in the same session.
 Stop after one completed or typed-blocked slice.
 Stop immediately if progress contains:
@@ -52,17 +53,20 @@ APPTRAVERSE_CHAT_BASELINE_COMPLETE
 
 # Build policy
 
-- Ninja only for C++.
-- Never use Visual Studio generator.
-- Windows compiler must be MSVC `cl.exe`.
-- Never reuse a build directory configured for another compiler/generator.
-- No clean/rebuild unless explicitly owned by the slice.
+- Execute one slice only.
+- Ninja is canonical for direct C++ CMake builds. Never use the Visual Studio generator.
+- Windows compiler must be MSVC `cl.exe`. No MinGW/GCC fallback.
+- Never reuse a build directory configured for another compiler/generator; return `build_profile_conflict`.
+- No ad-hoc build directories (`build2`, `build-new`, and similar).
+- Incremental narrow target builds: `cmake --build <canonical-dir> --target <small-target>`.
+- Configure only when the canonical directory is missing, CMake inputs changed, or the slice owns configure.
+- No clean/rebuild unless explicitly owned by the selected slice or requested by the user.
 - No full CTest unless explicitly owned by the slice.
-- No Android arm64 build during ordinary Windows-only slice.
+- No automatic compiler/generator fallback.
 - No automatic SDK/tool installation.
-- One retry maximum.
-- Hard timeout should be supplied by canonical runner when implemented.
-- A documentation-only slice performs no build or tests.
+- One retry maximum. A failure does not authorize clean, rebuild, a new directory, or another toolchain.
+- Full logs remain artifacts once the runner/MCP exists; Cursor should receive compact results.
+- A documentation/configuration-only slice performs no configure, build, or tests.
 
 # Git policy
 
