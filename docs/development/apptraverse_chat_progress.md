@@ -6,13 +6,13 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S100A
+ACT-S100A-Q
 
 Status:
 awaiting_manual_validation
 
 Goal:
-canonical Windows chat GUI ready for manual no-argument launch. Do not mark done before user feedback.
+quiet-by-default Windows chat diagnostics. Next product slice after manual PASS is ACT-S100B Android x86_64 GUI.
 
 # Status vocabulary
 
@@ -45,8 +45,9 @@ canonical Windows chat GUI ready for manual no-argument launch. Do not mark done
 | ACT-S027 | debugger inspection adapter | blocked | documentation only |
 | ACT-S030 | read-only architecture audit | blocked | blocked by tooling baseline |
 | ACT-S040 | transport simplification slices | blocked | blocked by audit and user decisions |
-| ACT-S100A | canonical Windows chat GUI for manual validation | awaiting_manual_validation | initial presentation replay; user launches without arguments |
-| ACT-S100B | canonical Android x86_64 emulator GUI | blocked | after ACT-S100A manual PASS |
+| ACT-S100A | canonical Windows chat GUI for manual validation | done | two Windows instances; mutual AddPeer; bidirectional chat |
+| ACT-S100A-Q | quiet-by-default Windows GUI diagnostics | awaiting_manual_validation | APPTRAVERSE_VERBOSE_LOG=1 opt-in |
+| ACT-S100B | canonical Android x86_64 emulator GUI | blocked | after ACT-S100A-Q manual PASS |
 
 ## ACT-S001 details
 
@@ -187,7 +188,21 @@ Repair slice ACT-S026A-R1: emit `message_visible`; harness owns completion; no `
 
 ## ACT-S100A details
 
-Initial Windows presentation replay after CreateNativeWindow. Ordinary no-argument launch for manual GUI validation. ACT-B002 deferred and does not block this slice. Status awaiting_manual_validation.
+Done. Manual Windows GUI validation:
+
+- two independent Windows instances with separate state directories
+- local messages appear immediately
+- mutual AddPeer establishes working bidirectional chat (expected peer-authorization; not a network failure)
+- messages delivered in both directions
+- local history survives restart
+- window position survives restart
+- excessive synchronous console logging materially hurts perceived runtime responsiveness
+
+Do not redesign peer authorization here. ACT-B002 remains deferred.
+
+## ACT-S100A-Q details
+
+Quiet-by-default human diagnostics on the Windows host. Opt-in APPTRAVERSE_VERBOSE_LOG=1. JSONL unchanged. Status awaiting_manual_validation.
 
 ## ACT-S025 details
 
@@ -668,4 +683,32 @@ Typed blockers: ACT-B002 deferred; does not block GUI validation
 Known limits:
 - do not mark ACT-S100A done before user feedback
 Next ready slice: ACT-S100B after manual PASS
+
+
+Session ACT-S100A-Q:
+
+- branch review/chat-windows-quiet-v1 from ba8c782bb0f51bd9834432b21a9174d00ac61c56
+- ACT-S100A recorded done from manual two-instance validation
+- mutual AddPeer is expected authorization, not a network failure
+- Windows host quiet unless APPTRAVERSE_VERBOSE_LOG=1
+- JSONL enablement independent
+- ACT-B002 remains deferred; Android not started
+
+Completion packet:
+
+Slice: ACT-S100A-Q
+Acceptance IDs: n/a
+Artifacts:
+- examples/single_client_chat/windows/main.cpp
+- tools/runtime/verbose_log.py
+- tools/runtime/test_verbose_log.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: win32_single_client_chat status=ok duration_ms=18795 job 20260818-204223-2b1074 (no configure)
+Runtime proof: python unittest tools.runtime.test_verbose_log; manual_quiet_gui_validation_required
+Typed blockers: none for this slice; ACT-B002 deferred
+Known limits:
+- short Aether startup config dump may still print; not high-frequency heartbeat spam
+Next ready slice: ACT-S100B after ACT-S100A-Q manual PASS
 

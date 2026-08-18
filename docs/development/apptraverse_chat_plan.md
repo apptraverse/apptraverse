@@ -506,15 +506,23 @@ Split after S025:
 ## ACT-S100A
 
 - prepare canonical Windows chat GUI for manual validation
-- status: awaiting_manual_validation
+- status: done
 - restore explicit initial presentation replay after CreateNativeWindow()
 - ordinary no-argument launch uses Run(...); not --print-aether-uid
+- mutual AddPeer is the current expected peer-authorization behavior
 - ACT-B002 does not block this slice
+
+## ACT-S100A-Q
+
+- quiet-by-default Windows human diagnostics
+- status: awaiting_manual_validation
+- opt-in APPTRAVERSE_VERBOSE_LOG=1
+- do not change JSONL, sync, transport, or Aether
 
 ## ACT-S100B
 
 - canonical Android x86_64 emulator GUI
-- status: not ready until ACT-S100A manual PASS
+- status: not ready until ACT-S100A-Q manual PASS
 
 ## ACT-S030
 

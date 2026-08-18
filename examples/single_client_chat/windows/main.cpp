@@ -1,6 +1,8 @@
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -209,7 +211,35 @@ int ProcessPendingWin32Messages() {
 #endif
 #define APPTRAVERSE_AE_STRINGIFY_HELPER(x) #x
 #define APPTRAVERSE_AE_STRINGIFY(x) APPTRAVERSE_AE_STRINGIFY_HELPER(x)
+bool VerboseLogEnabled() {
+  static bool const enabled = [] {
+    char const* raw = std::getenv("APPTRAVERSE_VERBOSE_LOG");
+    if (raw == nullptr || raw[0] == '\0') {
+      return false;
+    }
+    std::string value{raw};
+    while (!value.empty() &&
+           (value.front() == ' ' || value.front() == '\t')) {
+      value.erase(value.begin());
+    }
+    while (!value.empty() &&
+           (value.back() == ' ' || value.back() == '\t' ||
+            value.back() == '\r' || value.back() == '\n')) {
+      value.pop_back();
+    }
+    for (char& ch : value) {
+      ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return value == "1" || value == "true" || value == "yes" ||
+           value == "on";
+  }();
+  return enabled;
+}
+
 void LogLine(std::string const& line) {
+  if (!VerboseLogEnabled()) {
+    return;
+  }
   std::cout << line << '\n';
   std::fflush(stdout);
 }
@@ -402,13 +432,17 @@ int Run(CliOptions const& options) {
           " quarantine_ms=" + APPTRAVERSE_AE_STRINGIFY(AE_CLOUD_SERVER_QUARANTINE_TIME_MS) +
           " task_max=" + APPTRAVERSE_AE_STRINGIFY(AE_TASK_MAX_COUNT));
   if (options.print_aether_uid) {
-    LogLine("AETHER_UID=" +
-            apptraverse::examples::FormatAetherUid(aether_client->uid()));
+    std::cout << "AETHER_UID="
+              << apptraverse::examples::FormatAetherUid(aether_client->uid())
+              << '\n';
+    std::fflush(stdout);
     return 0;
   }
 
   apptraverse::examples::AetherP2pTransport p2p_transport;
-  p2p_transport.SetLogHandler([](std::string line) { LogLine(line); });
+  if (VerboseLogEnabled()) {
+    p2p_transport.SetLogHandler([](std::string line) { LogLine(line); });
+  }
   p2p_transport.Start(aether_app, aether_client);
 
   auto& win_presenter =
@@ -462,24 +496,30 @@ int Run(CliOptions const& options) {
   auto sync_send = [&](ae::Uid const& peer, ae::ObjId packet_id,
                        apptraverse::SerializedSyncPacket const& bytes) {
     p2p_transport.Send(peer, bytes);
-    LogLine(
-        "SYNC_TRANSPORT_WRITE peer=" +
-        apptraverse::examples::FormatAetherUid(peer) +
-        " packet=" + std::to_string(packet_id.id()) +
-        " t_us=" + std::to_string(system_utc_micros()));
+    if (VerboseLogEnabled()) {
+      LogLine(
+          "SYNC_TRANSPORT_WRITE peer=" +
+          apptraverse::examples::FormatAetherUid(peer) +
+          " packet=" + std::to_string(packet_id.id()) +
+          " t_us=" + std::to_string(system_utc_micros()));
+    }
   };
   auto presence_send = [&](ae::Uid const& peer,
                            std::vector<std::uint8_t> const& bytes) {
     p2p_transport.Send(peer, bytes);
   };
 
+  apptraverse::chat::ChatComponent::LogFunction chat_log;
+  if (VerboseLogEnabled()) {
+    chat_log = LogLine;
+  }
   apptraverse::chat::ChatComponent chat_component(
       apptraverse::SyncReplica{aether_app->domain(), *domain_storage,
                                chat.id()},
       local_client, chat, sync_send, presence_send,
       [&](ae::Uid const& remote_uid) { p2p_transport.Connect(remote_uid); },
       apptraverse::chat::ChatSyncTiming{}, options.auto_accept_peer,
-      LogLine);
+      std::move(chat_log));
 
   auto transcript_contains = [&](std::string const& needle) {
     auto const transcript = apptraverse::examples::FormatChatPresentationUtf8(
