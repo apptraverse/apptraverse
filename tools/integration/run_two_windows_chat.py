@@ -197,42 +197,88 @@ def startup_gate_ready(records: list[dict[str, Any]], peer_uid: str) -> bool:
     return has_runtime_started(records) and has_accepted_peer_add(records, peer_uid)
 
 
+PROCESS_RUNNING = "running"
+PROCESS_EXITED = "exited"
+PROCESS_HARNESS_TERMINATED = "harness_terminated"
+COMPLETION_HARNESS_TERMINATED = "harness_terminated_after_success"
+COMPLETION_NATURAL_EXIT = "natural_exit"
+
+
+def accepted_text_submit_id(records: list[dict[str, Any]], text: str) -> Any:
+    for record in records:
+        if record.get("event") != "text_submit":
+            continue
+        data = record.get("data") or {}
+        if data.get("text") == text and data.get("accepted") is True:
+            return data.get("event_obj_id")
+    return None
+
+
 def text_submit_event_id(records: list[dict[str, Any]], text: str) -> Any:
-    matches = [
-        record
-        for record in records
-        if record.get("event") == "text_submit"
-        and (record.get("data") or {}).get("text") == text
-        and (record.get("data") or {}).get("accepted") is True
-    ]
-    if not matches:
+    event_id = accepted_text_submit_id(records, text)
+    if event_id is None:
         raise IntegrationFailure(
             "assertion_failed", f"missing accepted text_submit for {text!r}"
         )
-    return matches[0].get("data", {}).get("event_obj_id")
+    return event_id
 
 
-def remote_event_obj_id(records: list[dict[str, Any]], text: str) -> Any:
-    ids: list[Any] = []
-    for record in records:
+def presentation_last_entry_event_id(records: list[dict[str, Any]], text: str) -> Any:
+    """Last-entry helper kept only to prove it is insufficient for delivery."""
+    for record in reversed(records):
         if record.get("event") != "presentation":
             continue
         data = record.get("data") or {}
-        if data.get("last_entry_kind") != "message":
+        if data.get("last_entry_kind") == "message" and data.get("last_entry_text") == text:
+            return data.get("last_event_obj_id")
+    return None
+
+
+def message_visible_event_ids(records: list[dict[str, Any]], text: str) -> list[Any]:
+    ids: list[Any] = []
+    for record in records:
+        if record.get("event") != "message_visible":
             continue
-        if data.get("last_entry_text") != text:
+        data = record.get("data") or {}
+        if data.get("text") != text:
             continue
-        event_id = data.get("last_event_obj_id")
+        event_id = data.get("event_obj_id")
         if event_id is None:
             continue
         ids.append(event_id)
-    unique = {json.dumps(item, sort_keys=True) if isinstance(item, dict) else item for item in ids}
+    return ids
+
+
+def unique_message_visible_id(records: list[dict[str, Any]], text: str) -> tuple[str, Any]:
+    ids = message_visible_event_ids(records, text)
+    unique: list[Any] = []
+    seen: set[str] = set()
+    for event_id in ids:
+        key = json.dumps(event_id, sort_keys=True) if isinstance(event_id, dict) else str(event_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(event_id)
+    if not unique:
+        return "missing", None
     if len(unique) != 1:
+        return "duplicate", unique
+    return "ok", unique[0]
+
+
+def remote_event_obj_id(records: list[dict[str, Any]], text: str) -> Any:
+    status, event_id = unique_message_visible_id(records, text)
+    if status == "duplicate":
+        raise IntegrationFailure(
+            "duplicate_remote_event",
+            f"duplicate Event ObjIds for remote text {text!r}: {event_id!r}",
+        )
+    if status != "ok" or event_id is None:
         raise IntegrationFailure(
             "assertion_failed",
-            f"expected exactly one unique Event ObjId for remote text {text!r}, got {sorted(unique)!r}",
+            f"missing message_visible for remote text {text!r}",
         )
-    return ids[0]
+    return event_id
 
 
 def require_one_runtime_started(records: list[dict[str, Any]]) -> None:
@@ -242,12 +288,6 @@ def require_one_runtime_started(records: list[dict[str, Any]]) -> None:
             "assertion_failed",
             f"expected one runtime_started, got {len(started)}",
         )
-
-
-def require_runtime_stopped(records: list[dict[str, Any]]) -> None:
-    stopped = [record for record in records if record.get("event") == "runtime_stopped"]
-    if not stopped:
-        raise IntegrationFailure("assertion_failed", "missing runtime_stopped")
 
 
 def assert_instance_jsonl(
@@ -264,8 +304,25 @@ def assert_instance_jsonl(
         )
     submitted_id = text_submit_event_id(records, submitted_text)
     remote_id = remote_event_obj_id(records, remote_text)
-    require_runtime_stopped(records)
     return submitted_id, remote_id
+
+
+def inspect_instance_jsonl(
+    records: list[dict[str, Any]],
+    *,
+    submitted_text: str,
+    remote_text: str,
+) -> dict[str, Any]:
+    submitted_id = accepted_text_submit_id(records, submitted_text)
+    status, remote_id = unique_message_visible_id(records, remote_text)
+    return {
+        "local_text_submit_found": submitted_id is not None,
+        "submitted_event_obj_id": submitted_id,
+        "remote_message_visible": status == "ok",
+        "remote_event_obj_id": remote_id if status == "ok" else None,
+        "duplicate_remote": status == "duplicate",
+        "runtime_record_count": len(records),
+    }
 
 
 def compact_instance(
@@ -275,24 +332,80 @@ def compact_instance(
     exit_code: int | None,
     local_uid: str | None,
     peer_uid: str | None,
-    submitted_text: str,
+    local_text_submit_found: bool,
     submitted_event_obj_id: Any,
-    remote_text: str,
+    remote_message_visible: bool,
     remote_event_obj_id: Any,
-    runtime_record_count: int,
+    process_state: str | None,
+    process_completion: str | None = None,
+    runtime_record_count: int | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "instance": instance,
         "pid": pid,
-        "exit_code": exit_code,
         "local_uid": local_uid,
         "peer_uid": peer_uid,
-        "submitted_text": submitted_text,
+        "local_text_submit_found": local_text_submit_found,
         "submitted_event_obj_id": submitted_event_obj_id,
-        "remote_text": remote_text,
+        "remote_message_visible": remote_message_visible,
         "remote_event_obj_id": remote_event_obj_id,
-        "runtime_record_count": runtime_record_count,
+        "process_state": process_state,
+        "exit_code": exit_code,
     }
+    if process_completion is not None:
+        payload["process_completion"] = process_completion
+    if runtime_record_count is not None:
+        payload["runtime_record_count"] = runtime_record_count
+    return payload
+
+
+def process_state_for(managed: "ManagedProcess | None", *, harness_terminated: bool) -> str | None:
+    if managed is None:
+        return None
+    if harness_terminated:
+        return PROCESS_HARNESS_TERMINATED
+    if managed.poll() is None:
+        return PROCESS_RUNNING
+    return PROCESS_EXITED
+
+
+def summarize_managed(
+    managed: "ManagedProcess | None",
+    *,
+    instance: str,
+    local_uid: str | None,
+    peer_uid: str | None,
+    submitted_text: str,
+    remote_text: str,
+    harness_terminated: bool = False,
+    process_completion: str | None = None,
+) -> dict[str, Any] | None:
+    if managed is None and local_uid is None:
+        return None
+    records: list[dict[str, Any]] = []
+    if managed is not None and managed.jsonl_path is not None:
+        try:
+            records = iter_complete_records(managed.jsonl_path)
+        except RuntimeJsonlError:
+            records = []
+    inspected = inspect_instance_jsonl(
+        records, submitted_text=submitted_text, remote_text=remote_text
+    )
+    exit_code = managed.poll() if managed is not None else None
+    return compact_instance(
+        instance=instance,
+        pid=managed.pid if managed is not None else None,
+        exit_code=exit_code,
+        local_uid=local_uid,
+        peer_uid=peer_uid,
+        local_text_submit_found=bool(inspected["local_text_submit_found"]),
+        submitted_event_obj_id=inspected["submitted_event_obj_id"],
+        remote_message_visible=bool(inspected["remote_message_visible"]),
+        remote_event_obj_id=inspected["remote_event_obj_id"],
+        process_state=process_state_for(managed, harness_terminated=harness_terminated),
+        process_completion=process_completion,
+        runtime_record_count=inspected["runtime_record_count"],
+    )
 
 
 def compact_result(
@@ -459,27 +572,48 @@ def wait_startup_gate(
     raise IntegrationFailure("startup_timeout", "startup gate not reached")
 
 
-def wait_both_exit(
-    processes: list[ManagedProcess],
+def wait_delivery_gate(
+    alice: ManagedProcess,
+    bob: ManagedProcess,
     *,
     timeout_s: float,
     sleep=time.sleep,
-) -> dict[str, int]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     deadline = time.monotonic() + timeout_s
-    codes: dict[str, int] = {}
     while time.monotonic() < deadline:
-        for managed in processes:
-            if managed.name in codes:
-                continue
-            code = managed.poll()
-            if code is not None:
-                managed.close_logs()
-                codes[managed.name] = int(code)
-        if len(codes) == len(processes):
-            return codes
+        for managed in (alice, bob):
+            if managed.poll() is not None:
+                raise IntegrationFailure(
+                    "process_exited_before_delivery",
+                    f"{managed.name} exited before delivery",
+                )
+        try:
+            alice_records = iter_complete_records(alice.jsonl_path) if alice.jsonl_path else []
+            bob_records = iter_complete_records(bob.jsonl_path) if bob.jsonl_path else []
+        except RuntimeJsonlError as exc:
+            raise IntegrationFailure("invalid_runtime_jsonl", str(exc)) from exc
+        alice_inspect = inspect_instance_jsonl(
+            alice_records, submitted_text=ALICE_TEXT, remote_text=BOB_TEXT
+        )
+        bob_inspect = inspect_instance_jsonl(
+            bob_records, submitted_text=BOB_TEXT, remote_text=ALICE_TEXT
+        )
+        if alice_inspect["duplicate_remote"] or bob_inspect["duplicate_remote"]:
+            raise IntegrationFailure(
+                "duplicate_remote_event",
+                "duplicate Event ObjIds for an expected remote message",
+            )
+        if (
+            alice_inspect["local_text_submit_found"]
+            and bob_inspect["local_text_submit_found"]
+            and alice_inspect["remote_message_visible"]
+            and bob_inspect["remote_message_visible"]
+        ):
+            return alice_records, bob_records
         sleep(POLL_INTERVAL_S)
     raise IntegrationFailure(
-        "message_delivery_timeout", "processes did not exit after message injection"
+        "message_delivery_timeout",
+        "delivery gate not reached: both sides need local text_submit and remote message_visible",
     )
 
 
@@ -504,11 +638,41 @@ def run_two_windows_chat(
     bob_uid = None
     alice: ManagedProcess | None = None
     bob: ManagedProcess | None = None
+    harness_terminated = False
 
     def duration_ms() -> int:
         return int((time.monotonic() - started) * 1000)
 
+    def snapshot_instances(*, process_completion: str | None = None) -> list[dict[str, Any]]:
+        summaries: list[dict[str, Any]] = []
+        alice_summary = summarize_managed(
+            alice,
+            instance=ALICE_INSTANCE,
+            local_uid=alice_uid,
+            peer_uid=bob_uid,
+            submitted_text=ALICE_TEXT,
+            remote_text=BOB_TEXT,
+            harness_terminated=harness_terminated,
+            process_completion=process_completion,
+        )
+        bob_summary = summarize_managed(
+            bob,
+            instance=BOB_INSTANCE,
+            local_uid=bob_uid,
+            peer_uid=alice_uid,
+            submitted_text=BOB_TEXT,
+            remote_text=ALICE_TEXT,
+            harness_terminated=harness_terminated,
+            process_completion=process_completion,
+        )
+        if alice_summary is not None:
+            summaries.append(alice_summary)
+        if bob_summary is not None:
+            summaries.append(bob_summary)
+        return summaries
+
     def fail(kind: str, message: str) -> dict[str, Any]:
+        summaries = snapshot_instances()
         terminate_managed([item for item in (alice, bob) if item is not None], terminate)
         result = compact_result(
             run_id=run_id,
@@ -516,7 +680,7 @@ def run_two_windows_chat(
             duration_ms=duration_ms(),
             failure_kind=kind,
             first_error=message,
-            instances=instances,
+            instances=summaries,
         )
         atomic_write_json(artifact_dir / "result.json", result)
         return result
@@ -619,9 +783,6 @@ def run_two_windows_chat(
                 "--auto-accept-peer",
                 "--commit-inbox",
                 str(alice_inbox),
-                "--wait-for-message",
-                BOB_TEXT,
-                "--exit-after-message",
             ],
             env=jsonl_env(
                 base=base_env,
@@ -648,9 +809,6 @@ def run_two_windows_chat(
                 "--auto-accept-peer",
                 "--commit-inbox",
                 str(bob_inbox),
-                "--wait-for-message",
-                ALICE_TEXT,
-                "--exit-after-message",
             ],
             env=jsonl_env(
                 base=base_env,
@@ -673,9 +831,9 @@ def run_two_windows_chat(
         )
         atomic_write_inbox(alice_inbox, ALICE_TEXT)
         atomic_write_inbox(bob_inbox, BOB_TEXT)
-        codes = wait_both_exit([alice, bob], timeout_s=delivery_timeout_s, sleep=sleep)
-        alice_records = iter_complete_records(alice_jsonl)
-        bob_records = iter_complete_records(bob_jsonl)
+        alice_records, bob_records = wait_delivery_gate(
+            alice, bob, timeout_s=delivery_timeout_s, sleep=sleep
+        )
         alice_submitted, alice_remote = assert_instance_jsonl(
             alice_records,
             peer_uid=bob_uid,
@@ -688,37 +846,11 @@ def run_two_windows_chat(
             submitted_text=BOB_TEXT,
             remote_text=ALICE_TEXT,
         )
-        if codes.get(ALICE_INSTANCE) != 0 or codes.get(BOB_INSTANCE) != 0:
-            raise IntegrationFailure(
-                "assertion_failed",
-                f"non-zero exit alice={codes.get(ALICE_INSTANCE)} bob={codes.get(BOB_INSTANCE)}",
-            )
-        instances = [
-            compact_instance(
-                instance=ALICE_INSTANCE,
-                pid=alice.pid,
-                exit_code=codes.get(ALICE_INSTANCE),
-                local_uid=alice_uid,
-                peer_uid=bob_uid,
-                submitted_text=ALICE_TEXT,
-                submitted_event_obj_id=alice_submitted,
-                remote_text=BOB_TEXT,
-                remote_event_obj_id=alice_remote,
-                runtime_record_count=len(alice_records),
-            ),
-            compact_instance(
-                instance=BOB_INSTANCE,
-                pid=bob.pid,
-                exit_code=codes.get(BOB_INSTANCE),
-                local_uid=bob_uid,
-                peer_uid=alice_uid,
-                submitted_text=BOB_TEXT,
-                submitted_event_obj_id=bob_submitted,
-                remote_text=ALICE_TEXT,
-                remote_event_obj_id=bob_remote,
-                runtime_record_count=len(bob_records),
-            ),
-        ]
+        terminate_managed([alice, bob], terminate)
+        harness_terminated = True
+        instances = snapshot_instances(
+            process_completion=COMPLETION_HARNESS_TERMINATED
+        )
         result = compact_result(
             run_id=run_id,
             status="ok",

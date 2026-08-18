@@ -76,7 +76,7 @@ class HarnessHelperTest(unittest.TestCase):
             self.assertEqual(path.read_text(encoding="utf-8"), "message_from_alice\n")
             self.assertFalse(path.with_name("commit.inbox.tmp").exists())
 
-    def test_matching_remote_presentation(self) -> None:
+    def test_matching_remote_message_visible(self) -> None:
         records = [
             _record(1, "runtime_started", {"local_uid": "A"}),
             _record(
@@ -84,32 +84,66 @@ class HarnessHelperTest(unittest.TestCase):
                 "presentation",
                 {
                     "last_entry_kind": "message",
-                    "last_entry_text": "message_from_bob",
-                    "last_event_obj_id": 42,
+                    "last_entry_text": "message_from_alice",
+                    "last_event_obj_id": 1,
+                },
+            ),
+            _record(
+                3,
+                "message_visible",
+                {
+                    "event_obj_id": 42,
+                    "author": "Bob",
+                    "text": "message_from_bob",
+                    "direction": "remote",
                 },
             ),
         ]
         self.assertEqual(harness.remote_event_obj_id(records, "message_from_bob"), 42)
+        self.assertEqual(
+            harness.presentation_last_entry_event_id(records, "message_from_alice"), 1
+        )
+        self.assertIsNone(
+            harness.presentation_last_entry_event_id(records, "message_from_bob")
+        )
 
-    def test_repeated_presentation_same_event_id_accepted(self) -> None:
+    def test_last_entry_is_not_used_for_remote_delivery(self) -> None:
         records = [
             _record(
                 1,
                 "presentation",
                 {
                     "last_entry_kind": "message",
-                    "last_entry_text": "message_from_bob",
-                    "last_event_obj_id": 7,
+                    "last_entry_text": "message_from_alice",
+                    "last_event_obj_id": 3090208674,
                 },
             ),
             _record(
                 2,
-                "presentation",
+                "message_visible",
                 {
-                    "last_entry_kind": "message",
-                    "last_entry_text": "message_from_bob",
-                    "last_event_obj_id": 7,
+                    "event_obj_id": 264338121,
+                    "author": "Bob",
+                    "text": "message_from_bob",
+                    "direction": "remote",
                 },
+            ),
+        ]
+        self.assertEqual(harness.remote_event_obj_id(records, "message_from_bob"), 264338121)
+        source = Path(harness.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("last_entry_text", source.split("def remote_event_obj_id")[1].split("def ")[0])
+
+    def test_repeated_message_visible_same_event_id_accepted(self) -> None:
+        records = [
+            _record(
+                1,
+                "message_visible",
+                {"event_obj_id": 7, "author": "Bob", "text": "message_from_bob"},
+            ),
+            _record(
+                2,
+                "message_visible",
+                {"event_obj_id": 7, "author": "Bob", "text": "message_from_bob"},
             ),
         ]
         self.assertEqual(harness.remote_event_obj_id(records, "message_from_bob"), 7)
@@ -118,26 +152,18 @@ class HarnessHelperTest(unittest.TestCase):
         records = [
             _record(
                 1,
-                "presentation",
-                {
-                    "last_entry_kind": "message",
-                    "last_entry_text": "message_from_bob",
-                    "last_event_obj_id": 1,
-                },
+                "message_visible",
+                {"event_obj_id": 1, "author": "Bob", "text": "message_from_bob"},
             ),
             _record(
                 2,
-                "presentation",
-                {
-                    "last_entry_kind": "message",
-                    "last_entry_text": "message_from_bob",
-                    "last_event_obj_id": 2,
-                },
+                "message_visible",
+                {"event_obj_id": 2, "author": "Bob", "text": "message_from_bob"},
             ),
         ]
         with self.assertRaises(harness.IntegrationFailure) as ctx:
             harness.remote_event_obj_id(records, "message_from_bob")
-        self.assertEqual(ctx.exception.failure_kind, "assertion_failed")
+        self.assertEqual(ctx.exception.failure_kind, "duplicate_remote_event")
 
     def test_compact_result_has_no_absolute_path(self) -> None:
         payload = harness.compact_result(
@@ -231,64 +257,77 @@ class FakeChatPopen:
         if shell:
             raise AssertionError("shell must be False")
 
-    def complete_live(self) -> None:
+    def complete_live(self, *, include_alice_remote: bool = True, include_bob_remote: bool = True) -> None:
         mapping = {
-            "alice": ("message_from_alice", "message_from_bob", "UID-BOB"),
-            "bob": ("message_from_bob", "message_from_alice", "UID-ALICE"),
+            "alice": ("message_from_alice", "message_from_bob", "UID-BOB", 10, 99, include_alice_remote),
+            "bob": ("message_from_bob", "message_from_alice", "UID-ALICE", 11, 88, include_bob_remote),
         }
         for instance, proc in self.live.items():
-            submitted, remote, peer = mapping[instance]
+            submitted, remote, peer, local_id, remote_id, include_remote = mapping[instance]
             jsonl = self._jsonl[instance]
-            _write_jsonl(
-                jsonl,
-                [
-                    _record(1, "runtime_started", {"local_uid": instance}, instance),
-                    _record(2, "peer_add", {"peer": peer, "accepted": True}, instance),
+            records = [
+                _record(1, "runtime_started", {"local_uid": instance}, instance),
+                _record(2, "peer_add", {"peer": peer, "accepted": True}, instance),
+                _record(
+                    3,
+                    "text_submit",
+                    {"text": submitted, "accepted": True, "event_obj_id": local_id},
+                    instance,
+                ),
+                _record(
+                    4,
+                    "presentation",
+                    {
+                        "last_entry_kind": "message",
+                        "last_entry_text": submitted,
+                        "last_event_obj_id": local_id,
+                    },
+                    instance,
+                ),
+            ]
+            if include_remote:
+                records.append(
                     _record(
-                        3,
-                        "text_submit",
-                        {"text": submitted, "accepted": True, "event_obj_id": 10},
-                        instance,
-                    ),
-                    _record(
-                        4,
-                        "presentation",
+                        5,
+                        "message_visible",
                         {
-                            "last_entry_kind": "message",
-                            "last_entry_text": remote,
-                            "last_event_obj_id": 99,
+                            "event_obj_id": remote_id,
+                            "author": "peer",
+                            "text": remote,
+                            "direction": "remote",
                         },
                         instance,
-                    ),
-                    _record(5, "runtime_stopped", {}, instance),
-                ],
-            )
-            proc.exit(0)
+                    )
+                )
+            _write_jsonl(jsonl, records)
 
 
 class FakeScenarioTest(unittest.TestCase):
+    def _exe(self, root: Path) -> Path:
+        exe = (
+            root
+            / "build"
+            / "win64-vs2022-msvc-debug"
+            / "Debug"
+            / "win32_single_client_chat.exe"
+        )
+        exe.parent.mkdir(parents=True)
+        exe.write_text("fake", encoding="utf-8")
+        return exe
+
     def test_fake_scenario_ok_and_mcp_compact(self) -> None:
         popen = FakeChatPopen()
-        original_wait_exit = harness.wait_both_exit
+        original_wait = harness.wait_delivery_gate
+        terminated: list[int] = []
 
-        def wait_ok(processes, *, timeout_s, sleep):
+        def wait_ok(alice, bob, *, timeout_s, sleep):
             popen.complete_live()
-            return original_wait_exit(
-                processes, timeout_s=timeout_s, sleep=lambda _dt: None
-            )
+            return original_wait(alice, bob, timeout_s=timeout_s, sleep=lambda _dt: None)
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            exe = (
-                root
-                / "build"
-                / "win64-vs2022-msvc-debug"
-                / "Debug"
-                / "win32_single_client_chat.exe"
-            )
-            exe.parent.mkdir(parents=True)
-            exe.write_text("fake", encoding="utf-8")
-            with mock.patch.object(harness, "wait_both_exit", wait_ok):
+            exe = self._exe(root)
+            with mock.patch.object(harness, "wait_delivery_gate", wait_ok):
                 result = harness.run_two_windows_chat(
                     source_dir=root,
                     exe=exe,
@@ -296,7 +335,7 @@ class FakeScenarioTest(unittest.TestCase):
                     startup_timeout_s=1.0,
                     delivery_timeout_s=1.0,
                     popen=popen,
-                    terminate=lambda _pid: None,
+                    terminate=terminated.append,
                     sleep=lambda _dt: None,
                     run_id="unit-ok",
                 )
@@ -305,8 +344,221 @@ class FakeScenarioTest(unittest.TestCase):
             dumped = json.dumps(result)
             self.assertNotIn("stdout.log", dumped)
             self.assertNotIn("C:\\", dumped)
-            self.assertEqual(result["instances"][0]["exit_code"], 0)
-            self.assertEqual(result["instances"][1]["exit_code"], 0)
+            self.assertEqual(sorted(terminated), [302, 303])
+            self.assertEqual(
+                result["instances"][0]["process_completion"],
+                harness.COMPLETION_HARNESS_TERMINATED,
+            )
+            self.assertEqual(
+                result["instances"][1]["process_completion"],
+                harness.COMPLETION_HARNESS_TERMINATED,
+            )
+            self.assertTrue(result["instances"][0]["remote_message_visible"])
+            self.assertTrue(result["instances"][1]["remote_message_visible"])
+            for argv in popen.calls:
+                if "--peer" in argv:
+                    self.assertNotIn("--exit-after-message", argv)
+                    self.assertNotIn("--wait-for-message", argv)
+            for proc in popen.live.values():
+                self.assertIsNone(proc.poll())
+
+    def test_live_argv_omits_exit_after_message(self) -> None:
+        popen = FakeChatPopen()
+        original_wait = harness.wait_delivery_gate
+
+        def wait_ok(alice, bob, *, timeout_s, sleep):
+            popen.complete_live()
+            return original_wait(alice, bob, timeout_s=timeout_s, sleep=lambda _dt: None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(harness, "wait_delivery_gate", wait_ok):
+                harness.run_two_windows_chat(
+                    source_dir=root,
+                    exe=self._exe(root),
+                    timeout_seconds=30,
+                    startup_timeout_s=1.0,
+                    delivery_timeout_s=1.0,
+                    popen=popen,
+                    terminate=lambda _pid: None,
+                    sleep=lambda _dt: None,
+                    run_id="unit-argv",
+                )
+        live = [argv for argv in popen.calls if "--peer" in argv]
+        self.assertEqual(len(live), 2)
+        for argv in live:
+            self.assertNotIn("--exit-after-message", argv)
+            self.assertNotIn("--wait-for-message", argv)
+            self.assertIn("--commit-inbox", argv)
+
+    def test_one_sided_visibility_does_not_pass(self) -> None:
+        popen = FakeChatPopen()
+        original_wait = harness.wait_delivery_gate
+
+        def wait_one_sided(alice, bob, *, timeout_s, sleep):
+            popen.complete_live(include_alice_remote=True, include_bob_remote=False)
+            return original_wait(alice, bob, timeout_s=timeout_s, sleep=lambda _dt: None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(harness, "wait_delivery_gate", wait_one_sided):
+                result = harness.run_two_windows_chat(
+                    source_dir=root,
+                    exe=self._exe(root),
+                    timeout_seconds=30,
+                    startup_timeout_s=1.0,
+                    delivery_timeout_s=1.0,
+                    popen=popen,
+                    terminate=lambda _pid: None,
+                    sleep=lambda _dt: None,
+                    run_id="unit-one-sided",
+                )
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["failure_kind"], "message_delivery_timeout")
+            by_name = {item["instance"]: item for item in result["instances"]}
+            self.assertTrue(by_name["alice"]["remote_message_visible"])
+            self.assertFalse(by_name["bob"]["remote_message_visible"])
+            self.assertEqual(len(result["instances"]), 2)
+
+    def test_process_exit_before_delivery_fails(self) -> None:
+        popen = FakeChatPopen()
+        original_wait = harness.wait_delivery_gate
+
+        def wait_exit(alice, bob, *, timeout_s, sleep):
+            popen.live["alice"].exit(1)
+            return original_wait(alice, bob, timeout_s=timeout_s, sleep=lambda _dt: None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(harness, "wait_delivery_gate", wait_exit):
+                result = harness.run_two_windows_chat(
+                    source_dir=root,
+                    exe=self._exe(root),
+                    timeout_seconds=30,
+                    startup_timeout_s=1.0,
+                    delivery_timeout_s=1.0,
+                    popen=popen,
+                    terminate=lambda _pid: None,
+                    sleep=lambda _dt: None,
+                    run_id="unit-early-exit",
+                )
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["failure_kind"], "process_exited_before_delivery")
+            by_name = {item["instance"]: item for item in result["instances"]}
+            self.assertEqual(by_name["alice"]["process_state"], "exited")
+            self.assertEqual(by_name["alice"]["exit_code"], 1)
+            self.assertEqual(len(result["instances"]), 2)
+
+    def test_partial_summaries_survive_timeout(self) -> None:
+        popen = FakeChatPopen()
+        original_wait = harness.wait_delivery_gate
+
+        def wait_timeout(alice, bob, *, timeout_s, sleep):
+            return original_wait(alice, bob, timeout_s=timeout_s, sleep=lambda _dt: None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(harness, "wait_delivery_gate", wait_timeout):
+                result = harness.run_two_windows_chat(
+                    source_dir=root,
+                    exe=self._exe(root),
+                    timeout_seconds=30,
+                    startup_timeout_s=1.0,
+                    delivery_timeout_s=1.0,
+                    popen=popen,
+                    terminate=lambda _pid: None,
+                    sleep=lambda _dt: None,
+                    run_id="unit-timeout",
+                )
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["failure_kind"], "message_delivery_timeout")
+            self.assertEqual(len(result["instances"]), 2)
+            by_name = {item["instance"]: item for item in result["instances"]}
+            self.assertEqual(by_name["alice"]["local_uid"], "UID-ALICE")
+            self.assertEqual(by_name["bob"]["local_uid"], "UID-BOB")
+            self.assertFalse(by_name["alice"]["remote_message_visible"])
+            self.assertEqual(by_name["alice"]["process_state"], "running")
+
+    def test_duplicate_remote_event_fails_during_gate(self) -> None:
+        popen = FakeChatPopen()
+        original_wait = harness.wait_delivery_gate
+
+        def wait_dup(alice, bob, *, timeout_s, sleep):
+            popen.complete_live(include_alice_remote=True, include_bob_remote=True)
+            _write_jsonl(
+                popen._jsonl["alice"],
+                [
+                    _record(1, "runtime_started", {"local_uid": "alice"}, "alice"),
+                    _record(2, "peer_add", {"peer": "UID-BOB", "accepted": True}, "alice"),
+                    _record(
+                        3,
+                        "text_submit",
+                        {"text": "message_from_alice", "accepted": True, "event_obj_id": 10},
+                        "alice",
+                    ),
+                    _record(
+                        4,
+                        "message_visible",
+                        {"event_obj_id": 1, "text": "message_from_bob"},
+                        "alice",
+                    ),
+                    _record(
+                        5,
+                        "message_visible",
+                        {"event_obj_id": 2, "text": "message_from_bob"},
+                        "alice",
+                    ),
+                ],
+            )
+            return original_wait(alice, bob, timeout_s=timeout_s, sleep=lambda _dt: None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(harness, "wait_delivery_gate", wait_dup):
+                result = harness.run_two_windows_chat(
+                    source_dir=root,
+                    exe=self._exe(root),
+                    timeout_seconds=30,
+                    startup_timeout_s=1.0,
+                    delivery_timeout_s=1.0,
+                    popen=popen,
+                    terminate=lambda _pid: None,
+                    sleep=lambda _dt: None,
+                    run_id="unit-dup",
+                )
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["failure_kind"], "duplicate_remote_event")
+            self.assertEqual(len(result["instances"]), 2)
+
+    def test_alice_stays_alive_until_bob_delivery(self) -> None:
+        popen = FakeChatPopen()
+        original_wait = harness.wait_delivery_gate
+        alice_alive_after_alice_visible = []
+
+        def wait_staggered(alice, bob, *, timeout_s, sleep):
+            popen.complete_live(include_alice_remote=True, include_bob_remote=False)
+            alice_alive_after_alice_visible.append(alice.poll() is None and bob.poll() is None)
+            popen.complete_live(include_alice_remote=True, include_bob_remote=True)
+            return original_wait(alice, bob, timeout_s=timeout_s, sleep=lambda _dt: None)
+
+        terminated: list[int] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(harness, "wait_delivery_gate", wait_staggered):
+                result = harness.run_two_windows_chat(
+                    source_dir=root,
+                    exe=self._exe(root),
+                    timeout_seconds=30,
+                    startup_timeout_s=1.0,
+                    delivery_timeout_s=1.0,
+                    popen=popen,
+                    terminate=terminated.append,
+                    sleep=lambda _dt: None,
+                    run_id="unit-stagger",
+                )
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(alice_alive_after_alice_visible, [True])
+            self.assertTrue(set(terminated) >= {popen.live["alice"].pid, popen.live["bob"].pid})
 
 
 class ExeAndMcpTest(unittest.TestCase):

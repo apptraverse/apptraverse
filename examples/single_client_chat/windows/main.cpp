@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -225,6 +226,18 @@ char const* TimelineKindName(apptraverse::chat::ChatTimelineItemKind kind) {
   return "unknown";
 }
 
+char const* DirectionName(apptraverse::chat::ChatMessageDirection direction) {
+  switch (direction) {
+    case apptraverse::chat::ChatMessageDirection::kLocal:
+      return "local";
+    case apptraverse::chat::ChatMessageDirection::kRemote:
+      return "remote";
+    case apptraverse::chat::ChatMessageDirection::kUnknown:
+      return "unknown";
+  }
+  return "unknown";
+}
+
 void EmitPresentationEvent(
     apptraverse::examples::RuntimeJsonlLogger* runtime_log,
     apptraverse::chat::ChatComponent const& chat_component) {
@@ -252,6 +265,30 @@ void EmitPresentationEvent(
        RuntimeField::String("last_entry_author", last.author.display_name),
        RuntimeField::String("last_entry_text", last.text),
        RuntimeField::UInt("last_event_obj_id", last.event_obj_id)});
+}
+
+void EmitMessageVisibleEvents(
+    apptraverse::examples::RuntimeJsonlLogger* runtime_log,
+    apptraverse::chat::ChatComponent const& chat_component,
+    std::set<std::uint32_t>& emitted_event_obj_ids) {
+  if (runtime_log == nullptr) {
+    return;
+  }
+  auto const snap = chat_component.CapturePresentation();
+  for (auto const& item : snap.timeline) {
+    if (item.kind != apptraverse::chat::ChatTimelineItemKind::kMessage) {
+      continue;
+    }
+    if (!emitted_event_obj_ids.insert(item.event_obj_id).second) {
+      continue;
+    }
+    runtime_log->Emit(
+        "message_visible",
+        {RuntimeField::UInt("event_obj_id", item.event_obj_id),
+         RuntimeField::String("author", item.author.display_name),
+         RuntimeField::String("text", item.text),
+         RuntimeField::String("direction", DirectionName(item.direction))});
+  }
 }
 
 void EmitTextSubmitEvent(
@@ -414,6 +451,7 @@ int Run(CliOptions const& options) {
   bool pending_cleared_after_commit = false;
   std::function<void()> on_pong_received;
   std::set<std::string> visible_message_keys;
+  std::set<std::uint32_t> emitted_visible_event_ids;
 
   auto system_utc_micros = []() -> std::int64_t {
     return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -498,6 +536,8 @@ int Run(CliOptions const& options) {
     chat_ui.RenderPresentation(chat_component.CapturePresentation());
     emit_visible_keys();
     check_wait_message();
+    EmitMessageVisibleEvents(runtime_log_ptr, chat_component,
+                             emitted_visible_event_ids);
     EmitPresentationEvent(runtime_log_ptr, chat_component);
     app.Save();
   });
@@ -755,6 +795,8 @@ int Run(CliOptions const& options) {
     maybe_peer_inbox();
     maybe_send_after_sync();
     check_wait_message();
+    EmitMessageVisibleEvents(runtime_log_ptr, chat_component,
+                             emitted_visible_event_ids);
 
     if (options.exit_after_pending_clear &&
         options.commit_message.has_value()) {

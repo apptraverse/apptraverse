@@ -68,10 +68,11 @@ class RuntimeJsonlParserTest(unittest.TestCase):
             [
                 _sample_record(1, "runtime_started"),
                 _sample_record(2, "text_submit"),
+                _sample_record(3, "message_visible"),
             ]
         )
-        records, _ = runtime_mod.query_records(path, event="text_submit")
-        self.assertEqual([record["event"] for record in records], ["text_submit"])
+        records, _ = runtime_mod.query_records(path, event="message_visible")
+        self.assertEqual([record["event"] for record in records], ["message_visible"])
 
     def test_after_seq_filter(self) -> None:
         path = self._write_lines(
@@ -195,9 +196,10 @@ class RuntimeMcpQueryTest(unittest.TestCase):
 
 
 class RuntimeMcpToolRegistryTest(unittest.TestCase):
-    def test_server_exposes_five_tools(self) -> None:
-        self.assertEqual(len(mcp_mod.TOOL_NAMES), 5)
+    def test_server_exposes_six_tools(self) -> None:
+        self.assertEqual(len(mcp_mod.TOOL_NAMES), 6)
         self.assertIn("apptraverse_runtime_log_query", mcp_mod.TOOL_NAMES)
+        self.assertIn("apptraverse_two_windows_chat_run", mcp_mod.TOOL_NAMES)
 
 
 if __name__ == "__main__":

@@ -37,8 +37,8 @@ two-Windows Python process harness and real JSONL proof. Do not add GoogleTest, 
 | ACT-S024 | live Cursor MCP Auto-run proof | done | MCP workflow validated; see ACT-T001/ACT-T002 |
 | ACT-S024R | user-level Cursor MCP for worktrees | done | canonical setup in User ~/.cursor/mcp.json |
 | ACT-S025 | structured runtime JSONL logging | done | JSONL writer, Windows host events, bounded MCP query |
-| ACT-S026A | two-Windows Python process harness | blocked | unit tests PASS; live MCP server still 5 tools |
-| ACT-S026B | GoogleTest/CTest wrapper | blocked | wraps proven Windows scenario |
+| ACT-S026A | two-Windows Python process harness | blocked | R1 landed; live run uid_setup_failed |
+| ACT-S026B | GoogleTest/CTest wrapper | blocked | ready after S026A proof |
 | ACT-S026C | Windows ↔ Android x86_64 emulator | blocked | after S026B |
 | ACT-S026 | GoogleTest multi-instance harness | split | S026A/S026B/S026C |
 | ACT-S027 | debugger inspection adapter | blocked | documentation only |
@@ -162,9 +162,13 @@ Worktree ownership:
 
 Python two-Windows harness implemented. Unit tests PASS.
 
-Typed blocker: `mcp_tool_unavailable`
+Previous live run `20260818-173714-db55c2` was NOT proven `bidirectional_delivery_missing`.
 
-Live Cursor server identifier `user-apptraverse` still exposes the pre-S026A five tools. `apptraverse_two_windows_chat_run` is in source but not loaded in the current MCP process. The one real scenario was not started via terminal.
+Corrected classification: `asymmetric_delivery_during_test_shutdown`.
+
+Alice submitted `message_from_alice`, saw `message_from_bob` in the rendered transcript, exited, and still had `pending=1`. Bob submitted `message_from_bob`, never saw `message_from_alice`, remained running, `pending=1`. Most likely test-induced: Alice `--exit-after-message` exited before Alice's pending outbound packet cleared. Do not declare an App Traverse transport bug.
+
+Repair slice ACT-S026A-R1: emit `message_visible`; harness owns completion; no `--exit-after-message`.
 
 ## ACT-S025 details
 
@@ -176,7 +180,7 @@ Structured runtime JSONL logging for Windows single-client chat host.
 - artifact convention: `.artifacts/apptraverse-runtime/<run-id>/<instance>.jsonl`
 - parser: `tools/runtime/runtime_jsonl.py`
 - MCP tool: `apptraverse_runtime_log_query` (max 100 records)
-- Windows events: `runtime_started`, `peer_add`, `text_submit`, `presentation`, `runtime_stopped`
+- Windows events: `runtime_started`, `peer_add`, `text_submit`, `presentation`, `message_visible`, `runtime_stopped`
 - build validation: `win32_single_client_chat` status=ok
 
 ## ACT-S024R details
@@ -585,3 +589,39 @@ Typed blockers: mcp_tool_unavailable
 Known limits:
 - Cursor user-level MCP process must reload to expose the sixth tool
 Next ready slice: ACT-S026A
+
+Session ACT-S026A-R1:
+
+- branch `review/chat-two-windows-harness-r1` from `92fecb10270280f9a086c1b685700bba33c369ab`
+- corrected previous-run classification: `asymmetric_delivery_during_test_shutdown` (not bidirectional_delivery_missing)
+- Windows host emits `message_visible` once per Event ObjId from CapturePresentation
+- live argv omits `--exit-after-message` and `--wait-for-message`; harness owns completion
+- delivery gate: both `message_visible` remote texts plus local `text_submit`; timeout 90s
+- unit tests PASS (58: harness + runtime JSONL + MCP)
+- build `win32_single_client_chat` status=ok duration_ms=15770 (job `20260818-180524-1aa0ba`)
+- one real MCP run `20260818-181731-1836aa` status=failed failure_kind=`uid_setup_failed`
+- first_error: `alice UID setup exit 3221225477`
+- setup JSONL did contain `runtime_started.local_uid`; stdout printed `AETHER_UID=`; process then exited non-zero during teardown
+- compact result `instances=[]` because harness requires setup exit 0 before recording UIDs
+- ChatComponent/sync/Æther/transport unchanged
+- ACT-S026A remains blocked; do not rerun in this slice
+
+Completion packet:
+
+Slice: ACT-S026A-R1
+Acceptance IDs: n/a
+Artifacts:
+- examples/single_client_chat/windows/main.cpp
+- tools/integration/run_two_windows_chat.py
+- tools/integration/test_run_two_windows_chat.py
+- tools/runtime/test_runtime_jsonl.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: win32_single_client_chat status=ok duration_ms=15770
+Runtime proof: unit tests PASS 58; one real scenario failed uid_setup_failed
+Typed blockers: uid_setup_failed
+Known limits:
+- setup process non-zero exit is treated as failure even when JSONL already has local_uid
+Next ready slice: diagnostic for alice UID setup exit 3221225477 / setup teardown after AETHER_UID
+

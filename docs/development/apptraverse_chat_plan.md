@@ -468,7 +468,7 @@ Evidence: server identifier `user-apptraverse`; preflight completed status=ok; b
 - enablement via `APPTRAVERSE_RUNTIME_JSONL`, `APPTRAVERSE_RUN_ID`, `APPTRAVERSE_INSTANCE`
 - artifact convention `.artifacts/apptraverse-runtime/<run-id>/<instance>.jsonl`
 - parser `tools/runtime/runtime_jsonl.py`; MCP `apptraverse_runtime_log_query` (max 100 records)
-- Windows host events only: `runtime_started`, `peer_add`, `text_submit`, `presentation`, `runtime_stopped`
+- Windows host events only: `runtime_started`, `peer_add`, `text_submit`, `presentation`, `message_visible`, `runtime_stopped`
 - do not instrument ChatComponent internals; human logs remain
 
 ## ACT-S026
@@ -478,7 +478,9 @@ Split after S025:
 ## ACT-S026A
 
 - two-Windows Python process harness and real JSONL proof
-- status: blocked (`mcp_tool_unavailable`) until the live user-apptraverse MCP process reloads the sixth tool
+- repair slice ACT-S026A-R1: harness owns completion; do not use `--exit-after-message`
+- delivery gate: both sides `message_visible` for the remote text plus local `text_submit`
+- `presentation.last_entry_*` is insufficient for remote delivery
 - runner: `tools/integration/run_two_windows_chat.py`
 - MCP: `apptraverse_two_windows_chat_run` (sixth tool)
 - assertions use `apptraverse.runtime_event/1` only
