@@ -497,10 +497,11 @@ Evidence: server identifier `user-apptraverse`; preflight completed status=ok; b
 ## ACT-B001
 
 - kind: `transitive_dependency_drift`
-- status: blocked
-- summary: pinned Æther SHA `7294f92a` includes `aether-miscpp/reflect/domain_visitor.h`, but Æther fetches aether-miscpp using floating `GIT_TAG main`, whose current header path is `aether-miscpp/domain_visitor/domain_visitor.h`
-- do not treat this as a runner failure
-- do not fix in ACT-S022A, ACT-S023, or ACT-S024
+- status: done
+- strategy A: App Traverse pins aether-miscpp to `eabf068d369ec98e4d541ea229f1c8401e186b66` before fetching pinned Æther `7294f92a0cf749c5d56eedc28673d8089d1f5cb2`
+- that miscpp revision still ships `aether-miscpp/reflect/domain_visitor.h`; later `main` moved it
+- do not treat historical C1083 as a runner failure
+- do not float `main` for aether-miscpp while Æther remains at `7294f92a`
 
 # Acceptance IDs
 

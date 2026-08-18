@@ -19,6 +19,7 @@ include(cmake/aether_version.cmake)
 include(cmake/CPM.cmake)
 
 apptraverse_prepare_aether_override()
+apptraverse_add_pinned_aether_miscpp()
 
 CPMAddPackage(
   NAME aether-client-cpp

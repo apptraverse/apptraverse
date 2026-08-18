@@ -26,6 +26,8 @@ apptraverse_prepare_aether_override()
 
 include("${APPTRAVERSE_ROOT}/cmake/CPM.cmake")
 
+apptraverse_add_pinned_aether_miscpp()
+
 CPMAddPackage(
   NAME aether-client-cpp
   GITHUB_REPOSITORY aethernetio/aether-client-cpp

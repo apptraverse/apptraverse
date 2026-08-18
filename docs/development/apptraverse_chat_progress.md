@@ -82,11 +82,12 @@ Product compile success is not required to prove runner orchestration.
 ## ACT-B001
 
 - kind: `transitive_dependency_drift`
-- status: blocked
-- pinned Æther SHA `7294f92a` includes `aether-miscpp/reflect/domain_visitor.h`
-- Æther fetches aether-miscpp using floating `GIT_TAG main`
-- current header path: `aether-miscpp/domain_visitor/domain_visitor.h`
-- not fixed in this slice; not a runner or MCP defect
+- status: done
+- strategy A: pin aether-miscpp to the last revision compatible with pinned Æther
+- Æther: `7294f92a0cf749c5d56eedc28673d8089d1f5cb2`
+- aether-miscpp: `eabf068d369ec98e4d541ea229f1c8401e186b66` (parent of `54aaaff`, which moved `reflect/domain_visitor.h`)
+- `setup` adds pinned aether-miscpp before Æther so Æther's floating `GIT_TAG main` is not used
+- Windows `apptraverse_chat_component_test` configure+build `status=ok`; old C1083 gone
 
 ## ACT-S022A details
 
@@ -165,7 +166,7 @@ User-level MCP setup for worktrees. `setup_apptraverse_mcp.py` writes/updates on
 | ACT-A001 | done | three canonical files created and linked |
 | ACT-A002 | done | progress identifies exactly one ready slice: ACT-S025 |
 | ACT-A003 | done at documentation and preset level | Ninja preferred; explicit `win64-vs2022-msvc-debug` fallback |
-| ACT-A004 | done at runner-contract level | staged execution + JSON/artifacts; product build remains ACT-B001 |
+| ACT-A004 | done at runner-contract level | staged execution + JSON/artifacts; ACT-B001 dependency drift resolved |
 | ACT-A005 | done | ACT-S023 MCP wrapper; ACT-S024 live Cursor MCP workflow proof |
 | ACT-A006 | blocked | Windows/Android chat functional baseline not yet executed |
 | ACT-A007 | blocked | requires ACT-S030 read-only architecture audit |
@@ -466,4 +467,31 @@ Typed blockers: ACT-B001 transitive_dependency_drift (product)
 Known limits:
 - multi-worktree MCP routing not implemented
 - canonical MCP checkout must match active Windows dev worktree
+Next ready slice: ACT-S025
+
+Session ACT-B001:
+
+- branch `review/chat-aether-deps-v1` from `40ba7416b89bbe32e3703bb0b04d831004548796`
+- strategy A: pin aether-miscpp `eabf068d369ec98e4d541ea229f1c8401e186b66` before pinned Æther `7294f92a0cf749c5d56eedc28673d8089d1f5cb2`
+- configure job `20260818-064449-09cdaa` completed status=ok (237s)
+- build job `20260818-065001-793c11` completed status=ok for `apptraverse_chat_component_test` (427s)
+- configure log confirms pinned SHAs; old C1083 `reflect/domain_visitor.h` not observed
+- ACT-B001 done; next ready slice ACT-S025 only
+
+Completion packet:
+
+Slice: ACT-B001
+Acceptance IDs: ACT-A004 product-build level for Windows chat component test
+Artifacts:
+- cmake/aether_version.cmake
+- CMakeLists.txt
+- examples/single_client_chat/android/app/src/main/cpp/CMakeLists.txt
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: configure ok; build apptraverse_chat_component_test ok
+Runtime proof: n/a
+Typed blockers: none for ACT-B001
+Known limits:
+- Æther upstream still declares floating aether-miscpp main; App Traverse pins miscpp before add
 Next ready slice: ACT-S025
