@@ -413,21 +413,30 @@ Absolute local paths are not returned in the public result.
 
 ## ACT-S023
 
-- thin MCP wrapper over canonical runner
-- status: ready after S022B
+- thin MCP wrapper over canonical runner and background job controller
+- status: done at the tooling level
+- files: `tools/mcp/apptraverse_mcp.py`, `tools/mcp/setup_apptraverse_mcp.py`
+- SDK pin: `mcp==2.0.0`
+- stdio server only; repo root from `__file__`, never cwd
 
-MCP wraps the runner. MCP must not independently implement build logic.
+MCP wraps `start_job` / `status_job` / `cancel_job`. MCP must not independently implement build logic.
 
-Planned operations:
+Tools:
 
-- `build_preflight(profile)`
-- `build_start(profile, targets)`
-- `build_status(job_id)`
-- `build_cancel(job_id)`
-- `test_run(profile, filter)`
-- `artifact_failure_read(artifact_id, index)`
+- `apptraverse_build_start(profile, stage, targets)`
+- `apptraverse_build_status(job_id)`
+- `apptraverse_build_cancel(job_id)`
+- `apptraverse_build_failure_excerpt(artifact_id)` — bounded `apptraverse-build/<run-id>` excerpt only
 
 Long builds must run as background jobs. MCP output must remain bounded.
+
+## ACT-S024
+
+- live Cursor MCP proof of the S023 wrapper
+- status: ready after S023
+- goal: prove Cursor MCP tool → background job → compact status → bounded failure excerpt → no terminal/build-log pollution → no repeated command approvals when Auto-run is enabled
+- do not add tools or build logic
+- do not fix ACT-B001
 
 ## ACT-S025
 
@@ -469,7 +478,7 @@ Long builds must run as background jobs. MCP output must remain bounded.
 - status: blocked
 - summary: pinned Æther SHA `7294f92a` includes `aether-miscpp/reflect/domain_visitor.h`, but Æther fetches aether-miscpp using floating `GIT_TAG main`, whose current header path is `aether-miscpp/domain_visitor/domain_visitor.h`
 - do not treat this as a runner failure
-- do not fix in ACT-S022A
+- do not fix in ACT-S022A, ACT-S023, or ACT-S024
 
 # Acceptance IDs
 
@@ -494,6 +503,7 @@ canonical runner supports bounded staged execution
 ## ACT-A005
 
 MCP returns compact structured results and artifact references
+status: done at tooling level (ACT-S023); live Cursor Auto-run proof is ACT-S024
 
 ## ACT-A006
 

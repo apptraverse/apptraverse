@@ -49,3 +49,7 @@ build-p2p-*/
 
 # Runner artifacts (full logs stay out of git / Cursor context)
 .artifacts/
+
+# App Traverse Cursor MCP local venv and generated config
+.venv-apptraverse-mcp/
+.cursor/mcp.json

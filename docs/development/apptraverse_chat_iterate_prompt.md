@@ -32,6 +32,10 @@ Execute only that slice:
 Use only the canonical profile named by the slice.
 Drive configure/build through `tools/runners/run_apptraverse_build.py`.
 Long builds use `tools/runners/run_apptraverse_job.py` start/status/cancel; do not wait on MSBuild in the parent process.
+Cursor-facing invocations use the apptraverse MCP tools wrapping that job controller:
+`apptraverse_build_start`, `apptraverse_build_status`, `apptraverse_build_cancel`,
+`apptraverse_build_failure_excerpt`. ACT-S024 proves that path in Cursor with Auto-run;
+do not add tools or fix ACT-B001 there.
 Do not construct long PowerShell or bash build command sequences.
 Never run clean or rebuild unless the selected slice explicitly requires it.
 Prefer incremental narrow-target builds.
@@ -72,6 +76,7 @@ APPTRAVERSE_CHAT_BASELINE_COMPLETE
 - One retry maximum. A failure does not authorize clean, rebuild, a new directory, or another toolchain.
 - External configure/build commands time out at 15 minutes (`command_timeout`).
 - Use `--json` for Cursor-facing invocations. Full CMake/MSBuild output stays in `.artifacts/apptraverse-build/` behind `artifact_id`.
+- MCP tools return compact job objects and bounded excerpts only; never dump `stdout.log`/`stderr.log`.
 - Do not print full compiler logs into chat context.
 - A documentation/configuration-only slice performs no configure, build, or tests.
 

@@ -6,14 +6,13 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S023
+ACT-S024
 
 Status:
 ready
 
 Goal:
-thin MCP wrapper over the canonical runner and background job controller.
-Must not independently implement build logic.
+prove Cursor MCP tool → background job → compact status → bounded failure excerpt → no terminal/build-log pollution → no repeated command approvals when Auto-run is enabled. Do not add MCP tools or build logic. Do not fix ACT-B001.
 
 # Status vocabulary
 
@@ -34,7 +33,8 @@ Must not independently implement build logic.
 | ACT-S022A | bounded artifacts and compact JSON results | done | this session |
 | ACT-S022B | background jobs start/status/cancel | done | this session; must not implement MCP |
 | ACT-S022 | JSON result/artifact/timeout contract | done | S022A + S022B |
-| ACT-S023 | thin MCP wrapper over canonical runner | ready | wraps job controller; must not reimplement build |
+| ACT-S023 | thin MCP wrapper over canonical runner | done | tooling-level; wraps job controller; four stdio tools |
+| ACT-S024 | live Cursor MCP Auto-run proof | ready | no new tools; no product build; no ACT-B001 fix |
 | ACT-S025 | structured runtime JSONL logging | blocked | documentation only |
 | ACT-S026 | GoogleTest multi-instance harness | blocked | documentation only |
 | ACT-S027 | debugger inspection adapter | blocked | documentation only |
@@ -85,7 +85,7 @@ Product compile success is not required to prove runner orchestration.
 - pinned Æther SHA `7294f92a` includes `aether-miscpp/reflect/domain_visitor.h`
 - Æther fetches aether-miscpp using floating `GIT_TAG main`
 - current header path: `aether-miscpp/domain_visitor/domain_visitor.h`
-- not fixed in this slice; not a runner defect
+- not fixed in this slice; not a runner or MCP defect
 
 ## ACT-S022A details
 
@@ -118,15 +118,23 @@ Real validation: `start` returned in 0.545s. Job
 `20260818-042808-d03598` completed; wrapped build `compile_failed` C1083
 `domain_visitor.h`. Product ACT-B001 remains blocked.
 
+## ACT-S023 details
+
+Windows MCP path: `tools/mcp/apptraverse_mcp.py`. Setup: `tools/mcp/setup_apptraverse_mcp.py`.
+
+Pinned SDK `mcp==2.0.0`. Local venv `.venv-apptraverse-mcp/`. Generated `.cursor/mcp.json` is gitignored.
+
+Tools wrap `start_job` / `status_job` / `cancel_job` and a bounded `apptraverse-build/<run-id>` excerpt reader. MCP does not construct CMake/MSBuild commands.
+
 # Acceptance registry
 
 | Acceptance ID | Status | Evidence / notes |
 | --- | --- | --- |
 | ACT-A001 | done | three canonical files created and linked |
-| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S023 |
+| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S024 |
 | ACT-A003 | done at documentation and preset level | Ninja preferred; explicit `win64-vs2022-msvc-debug` fallback |
 | ACT-A004 | done at runner-contract level | staged execution + JSON/artifacts; product build remains ACT-B001 |
-| ACT-A005 | blocked | requires ACT-S023 MCP wrapper |
+| ACT-A005 | done at tooling level | ACT-S023 MCP wrapper; live Cursor Auto-run proof is ACT-S024 |
 | ACT-A006 | blocked | Windows/Android chat functional baseline not yet executed |
 | ACT-A007 | blocked | requires ACT-S030 read-only architecture audit |
 
@@ -209,6 +217,21 @@ Session ACT-S022B:
 - no clean/rebuild/configure/product/dependency fix; no CTest; no MCP
 - ACT-B001 remains blocked
 - next ready slice: ACT-S023 only
+
+Session ACT-S023:
+
+- checkout `review/chat-runner-jobs-v1` at `71efd55856542088c2a783be8b10924fd5223b85`
+- branch `review/chat-mcp-v1`
+- thin MCP wrapper `tools/mcp/apptraverse_mcp.py` over `start_job`/`status_job`/`cancel_job`
+- SDK pin `mcp==2.0.0`; setup writes ignored `.cursor/mcp.json` with absolute stdio paths
+- `python tools/mcp/setup_apptraverse_mcp.py` PASS
+- unit tests PASS (58: 29 build + 18 job + 11 MCP)
+- stdio initialize/list-tools PASS (exactly four tools)
+- preflight tool call `win64-vs2022-msvc-debug` job `20260818-051858-1bcf03` state=completed duration_ms=222 build status=ok
+- compact `apptraverse.build_job/1` only; no stdout.log/stderr.log dump
+- no configure; no product compile; no CTest; no ACT-B001 fix
+- ACT-A005 closed at tooling level
+- next ready slice: ACT-S024 only
 
 # Session log
 
@@ -333,3 +356,27 @@ Known limits:
 - MCP not implemented
 - S025/S026/S027 documented, not implemented
 Next ready slice: ACT-S023
+
+Completion packet:
+
+Slice: ACT-S023
+Acceptance IDs: ACT-A005 tooling level
+Artifacts:
+- tools/mcp/requirements.txt
+- tools/mcp/setup_apptraverse_mcp.py
+- tools/mcp/apptraverse_mcp.py
+- tools/mcp/test_apptraverse_mcp.py
+- .cursor/mcp.json.example
+- .gitignore
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- apptraverse_chat_iterate_prompt.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: unit tests PASS (58); MCP stdio preflight job completed status=ok; no product compile
+Runtime proof: n/a
+Typed blockers: ACT-B001 transitive_dependency_drift (product)
+Known limits:
+- product still does not compile
+- live Cursor Auto-run proof is ACT-S024
+- S025/S026/S027 documented, not implemented
+Next ready slice: ACT-S024
