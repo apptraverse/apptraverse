@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 from tools.mcp import apptraverse_mcp as mcp_mod
+from tools.mcp import setup_apptraverse_mcp as setup_mod
 from tools.runners.run_apptraverse_job import JOB_SCHEMA_VERSION, JobResult
 
 
@@ -295,6 +296,185 @@ def run_stdio_smoke() -> dict:
             tmp.cleanup()
 
     return asyncio.run(_run())
+
+
+class McpSetupTest(unittest.TestCase):
+    def _temp_home(self) -> tempfile.TemporaryDirectory:
+        return tempfile.TemporaryDirectory()
+
+    def test_user_mcp_config_path_windows(self) -> None:
+        home = Path("C:/Users/test-user")
+        path = setup_mod.user_mcp_config_path(home)
+        self.assertEqual(path, Path("C:/Users/test-user/.cursor/mcp.json"))
+
+    def test_user_mcp_config_path_posix(self) -> None:
+        home = Path("/home/test-user")
+        path = setup_mod.user_mcp_config_path(home)
+        self.assertEqual(path, home / ".cursor" / "mcp.json")
+
+    def test_merge_empty_user_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            config_path = home / ".cursor" / "mcp.json"
+            root = Path(tmp) / "checkout"
+            root.mkdir()
+            command = root / ".venv-apptraverse-mcp" / "Scripts" / "python.exe"
+            command.parent.mkdir(parents=True)
+            command.write_text("", encoding="utf-8")
+            server = root / "tools" / "mcp" / "apptraverse_mcp.py"
+            server.parent.mkdir(parents=True)
+            server.write_text("# stub\n", encoding="utf-8")
+            written = setup_mod.merge_user_mcp_config(
+                root, command, server, config_path=config_path
+            )
+            payload = json.loads(written.read_text(encoding="utf-8"))
+            self.assertEqual(set(payload), {"mcpServers"})
+            self.assertEqual(set(payload["mcpServers"]), {setup_mod.SERVER_KEY})
+
+    def test_merge_preserves_unrelated_servers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            config_path = home / ".cursor" / "mcp.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "other-server": {
+                                "type": "stdio",
+                                "command": "other",
+                                "args": [],
+                            }
+                        }
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            root = Path(tmp) / "checkout"
+            root.mkdir()
+            command = root / "python"
+            command.write_text("", encoding="utf-8")
+            server = root / "tools" / "mcp" / "apptraverse_mcp.py"
+            server.parent.mkdir(parents=True)
+            server.write_text("# stub\n", encoding="utf-8")
+            setup_mod.merge_user_mcp_config(
+                root, command, server, config_path=config_path
+            )
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                payload["mcpServers"]["other-server"],
+                {"type": "stdio", "command": "other", "args": []},
+            )
+            self.assertIn(setup_mod.SERVER_KEY, payload["mcpServers"])
+
+    def test_merge_updates_apptraverse_entry_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            config_path = home / ".cursor" / "mcp.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "other-server": {
+                                "type": "stdio",
+                                "command": "other",
+                                "args": [],
+                            },
+                            setup_mod.SERVER_KEY: {
+                                "type": "stdio",
+                                "command": "old-python",
+                                "args": ["old-server.py"],
+                            },
+                        }
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            root = Path(tmp) / "checkout"
+            root.mkdir()
+            command = root / "python"
+            command.write_text("", encoding="utf-8")
+            server = root / "tools" / "mcp" / "apptraverse_mcp.py"
+            server.parent.mkdir(parents=True)
+            server.write_text("# stub\n", encoding="utf-8")
+            setup_mod.merge_user_mcp_config(
+                root, command, server, config_path=config_path
+            )
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                payload["mcpServers"]["other-server"],
+                {"type": "stdio", "command": "other", "args": []},
+            )
+            entry = payload["mcpServers"][setup_mod.SERVER_KEY]
+            self.assertEqual(entry["command"], str(command.resolve()))
+            self.assertEqual(entry["args"], [str(server.resolve())])
+            self.assertNotEqual(entry["command"], "old-python")
+
+    def test_merge_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / ".cursor" / "mcp.json"
+            root = Path(tmp) / "checkout"
+            root.mkdir()
+            command = root / "python"
+            command.write_text("", encoding="utf-8")
+            server = root / "tools" / "mcp" / "apptraverse_mcp.py"
+            server.parent.mkdir(parents=True)
+            server.write_text("# stub\n", encoding="utf-8")
+            first = setup_mod.merge_user_mcp_config(
+                root, command, server, config_path=config_path
+            )
+            first_text = first.read_text(encoding="utf-8")
+            second = setup_mod.merge_user_mcp_config(
+                root, command, server, config_path=config_path
+            )
+            self.assertEqual(first_text, second.read_text(encoding="utf-8"))
+
+    def test_generated_paths_point_to_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / ".cursor" / "mcp.json"
+            root = Path(tmp) / "checkout"
+            root.mkdir()
+            command = root / ".venv-apptraverse-mcp" / "bin" / "python"
+            command.parent.mkdir(parents=True)
+            command.write_text("", encoding="utf-8")
+            server = root / "tools" / "mcp" / "apptraverse_mcp.py"
+            server.parent.mkdir(parents=True)
+            server.write_text("# stub\n", encoding="utf-8")
+            setup_mod.merge_user_mcp_config(
+                root, command, server, config_path=config_path
+            )
+            entry = json.loads(config_path.read_text(encoding="utf-8"))["mcpServers"][
+                setup_mod.SERVER_KEY
+            ]
+            self.assertTrue(entry["command"].startswith(str(root.resolve())))
+            self.assertTrue(entry["args"][0].startswith(str(root.resolve())))
+
+    def test_does_not_write_project_local_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "home" / ".cursor" / "mcp.json"
+            root = Path(tmp) / "checkout"
+            root.mkdir()
+            command = root / "python"
+            command.write_text("", encoding="utf-8")
+            server = root / "tools" / "mcp" / "apptraverse_mcp.py"
+            server.parent.mkdir(parents=True)
+            server.write_text("# stub\n", encoding="utf-8")
+            setup_mod.merge_user_mcp_config(
+                root, command, server, config_path=config_path
+            )
+            self.assertFalse((root / ".cursor" / "mcp.json").exists())
+
+    def test_setup_subprocess_never_uses_shell(self) -> None:
+        with mock.patch.object(setup_mod.subprocess, "run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0)
+            setup_mod.pip_install(Path("python"), Path("requirements.txt"))
+            setup_mod.verify_mcp_sdk(Path("python"))
+        self.assertEqual(run.call_count, 2)
+        for call in run.call_args_list:
+            self.assertFalse(call.kwargs.get("shell", False))
 
 
 class McpStdioSmokeTest(unittest.TestCase):

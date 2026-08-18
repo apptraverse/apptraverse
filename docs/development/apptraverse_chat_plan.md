@@ -418,8 +418,17 @@ Absolute local paths are not returned in the public result.
 - files: `tools/mcp/apptraverse_mcp.py`, `tools/mcp/setup_apptraverse_mcp.py`
 - SDK pin: `mcp==2.0.0`
 - stdio server only; repo root from `__file__`, never cwd
+- canonical setup: User-level `~/.cursor/mcp.json` via `python tools/mcp/setup_apptraverse_mcp.py`
+- `.cursor/mcp.json.example` is documentation only; project-local `.cursor/mcp.json` is not canonical (ACT-T001)
 
 MCP wraps `start_job` / `status_job` / `cancel_job`. MCP must not independently implement build logic.
+
+Worktree ownership (ACT-T002):
+
+- MCP server process binds to checkout path in User MCP config
+- build artifacts/directories belong to that checkout
+- another worktree does not reuse configured CMake directories from a different checkout
+- canonical MCP checkout should be the primary Windows development worktree until explicit repo/worktree routing exists
 
 Tools:
 
@@ -433,14 +442,27 @@ Long builds must run as background jobs. MCP output must remain bounded.
 ## ACT-S024
 
 - live Cursor MCP proof of the S023 wrapper
-- status: ready after S023
-- goal: prove Cursor MCP tool → background job → compact status → bounded failure excerpt → no terminal/build-log pollution → no repeated command approvals when Auto-run is enabled
+- status: done
+- goal: prove Cursor MCP tool → background job → compact status → bounded failure excerpt → no terminal/build-log pollution
 - do not add tools or build logic
 - do not fix ACT-B001
+
+Evidence: server identifier `user-apptraverse`; preflight completed status=ok; background start/status/excerpt without terminal or full logs. Tooling findings ACT-T001 (project MCP/worktree routing) and ACT-T002 (worktree-local build directories).
+
+## ACT-S024R
+
+- canonical User-level Cursor MCP setup for worktrees
+- status: done after S024
+- `setup_apptraverse_mcp.py` registers/updates `apptraverse` in User `~/.cursor/mcp.json` only
+- preserves unrelated User MCP entries; idempotent; no project-local `.cursor/mcp.json`
+- documents worktree ownership: MCP and build directories bind to the checkout path in User config
+- do not implement multi-worktree routing, arbitrary repo paths, or build-directory symlinks
+- build stage on unconfigured worktree may fail (valid); configure remains explicit; no implicit configure fallback
 
 ## ACT-S025
 
 - structured runtime JSONL logging
+- status: ready after S024R
 - one JSON object per line
 - fields such as schema_version, run_id, event, platform, pid, t_us, mono_us
 - automation parses JSONL, not human text
@@ -503,7 +525,17 @@ canonical runner supports bounded staged execution
 ## ACT-A005
 
 MCP returns compact structured results and artifact references
-status: done at tooling level (ACT-S023); live Cursor Auto-run proof is ACT-S024
+status: done (ACT-S023 tooling; ACT-S024 live Cursor MCP workflow proof)
+
+# Tooling findings
+
+## ACT-T001
+
+Cursor project-scoped MCP server was discoverable but not invokable from a worktree because its project-prefixed server identifier could not be resolved. User-level registration is canonical.
+
+## ACT-T002
+
+CMake build directories are worktree-local. A new worktree cannot reuse another worktree's configured build directory. Build on an unconfigured worktree may fail until configure runs explicitly.
 
 ## ACT-A006
 

@@ -34,8 +34,10 @@ Drive configure/build through `tools/runners/run_apptraverse_build.py`.
 Long builds use `tools/runners/run_apptraverse_job.py` start/status/cancel; do not wait on MSBuild in the parent process.
 Cursor-facing invocations use the apptraverse MCP tools wrapping that job controller:
 `apptraverse_build_start`, `apptraverse_build_status`, `apptraverse_build_cancel`,
-`apptraverse_build_failure_excerpt`. ACT-S024 proves that path in Cursor with Auto-run;
-do not add tools or fix ACT-B001 there.
+`apptraverse_build_failure_excerpt`. Register MCP once per checkout with
+`python tools/mcp/setup_apptraverse_mcp.py` (User-level `~/.cursor/mcp.json`;
+see `.cursor/mcp.json.example`). Project-local `.cursor/mcp.json` is not canonical
+because project-scoped MCP proved unreliable from worktrees (ACT-T001).
 Do not construct long PowerShell or bash build command sequences.
 Never run clean or rebuild unless the selected slice explicitly requires it.
 Prefer incremental narrow-target builds.
@@ -69,6 +71,7 @@ APPTRAVERSE_CHAT_BASELINE_COMPLETE
 - No ad-hoc build directories (`build2`, `build-new`, and similar).
 - Incremental narrow target builds via the runner.
 - Configure only when the canonical directory is missing, CMake inputs changed, or the slice owns configure.
+- Build stage on an unconfigured worktree may fail because CMake directories are worktree-local (ACT-T002); that is valid. Do not add implicit configure fallback.
 - No clean/rebuild unless explicitly owned by the selected slice or requested by the user.
 - No full CTest unless explicitly owned by the slice.
 - No automatic compiler/generator fallback inside one invocation.

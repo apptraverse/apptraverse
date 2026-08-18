@@ -1,4 +1,6 @@
 {
+  "_comment": "Documentation only. Do NOT copy this file to .cursor/mcp.json in the repo.",
+  "_canonical_setup": "Run python tools/mcp/setup_apptraverse_mcp.py once per checkout. It registers App Traverse in the User-level Cursor MCP config (~/.cursor/mcp.json on POSIX, %USERPROFILE%/.cursor/mcp.json on Windows). Project-local .cursor/mcp.json is NOT canonical because Cursor project-scoped MCP server identifiers proved unreliable from git worktrees (ACT-T001).",
   "mcpServers": {
     "apptraverse": {
       "type": "stdio",

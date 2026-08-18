@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the App Traverse MCP venv and merge the local Cursor MCP config."""
+"""Create the App Traverse MCP venv and register the User-level Cursor MCP config."""
 
 from __future__ import annotations
 
@@ -18,6 +18,11 @@ SERVER_REL = Path("tools") / "mcp" / "apptraverse_mcp.py"
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def user_mcp_config_path(home: Path | None = None) -> Path:
+    base = home if home is not None else Path.home()
+    return base / ".cursor" / "mcp.json"
 
 
 def venv_python(root: Path) -> Path:
@@ -67,22 +72,30 @@ def load_json_object(path: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
-def merge_mcp_config(root: Path, command: Path, server_script: Path) -> Path:
-    cursor_dir = root / ".cursor"
-    cursor_dir.mkdir(parents=True, exist_ok=True)
-    config_path = cursor_dir / "mcp.json"
-    data = load_json_object(config_path)
+def apptraverse_server_entry(command: Path, server_script: Path) -> dict:
+    return {
+        "type": "stdio",
+        "command": str(command.resolve()),
+        "args": [str(server_script.resolve())],
+    }
+
+
+def merge_user_mcp_config(
+    root: Path,
+    command: Path,
+    server_script: Path,
+    config_path: Path | None = None,
+) -> Path:
+    path = config_path or user_mcp_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = load_json_object(path)
     servers = data.get("mcpServers")
     if not isinstance(servers, dict):
         servers = {}
         data["mcpServers"] = servers
-    servers[SERVER_KEY] = {
-        "type": "stdio",
-        "command": str(command),
-        "args": [str(server_script)],
-    }
-    config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return config_path
+    servers[SERVER_KEY] = apptraverse_server_entry(command, server_script)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def main() -> int:
@@ -94,9 +107,9 @@ def main() -> int:
     python = ensure_venv(root)
     pip_install(python, requirements)
     verify_mcp_sdk(python)
-    config_path = merge_mcp_config(root, python, server_script)
+    config_path = merge_user_mcp_config(root, python, server_script)
     sys.stderr.write(f"venv_python={python}\n")
-    sys.stderr.write(f"mcp_config={config_path}\n")
+    sys.stderr.write(f"user_mcp_config={config_path}\n")
     return 0
 
 
