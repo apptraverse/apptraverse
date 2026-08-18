@@ -46,3 +46,6 @@ Thumbs.db
 compile_flags.txt
 
 build-p2p-*/
+
+# Runner artifacts (full logs stay out of git / Cursor context)
+.artifacts/

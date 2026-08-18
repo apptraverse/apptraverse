@@ -364,7 +364,8 @@ Minimal backlog:
 - stages: `preflight`, `configure`, `build`
 - Ninja preferred; Visual Studio 2022 is an explicit second profile
 - do not initially implement Linux/macOS/Android/iOS adapters
-- other platform adapters come after runner behavior is stable
+- status: done at the tooling level
+- product compile success is not required to prove runner orchestration
 
 One repo-owned runner will own:
 
@@ -377,25 +378,33 @@ One repo-owned runner will own:
 - process termination
 - artifact locations
 
+## ACT-S022A
+
+- bounded synchronous build artifacts and compact JSON results
+- status: in progress in this session
+- `--json` emits one compact object; full child logs stay in `.artifacts/apptraverse-build/`
+- status: done
+
+## ACT-S022B
+
+- background build jobs with start/status/cancel
+- status: ready after S022A
+- must not implement MCP
+
 ## ACT-S022
 
-- JSON result/artifact/timeout contract
-- status: blocked by S021
-
-The runner returns a compact machine-readable result. Full stdout/stderr goes
-to artifacts. Cursor should normally receive only:
+Historical name for the result/artifact/timeout contract. Split into S022A (this slice) and S022B (background jobs). Compact public fields:
 
 - status
 - stage
 - profile
-- target
-- duration
+- targets
+- duration_ms
 - failure_kind
 - first_error
 - artifact_id
 
-Absolute local paths should not be returned unless required for a specific
-diagnostic.
+Absolute local paths are not returned in the public result.
 
 ## ACT-S023
 
@@ -415,6 +424,28 @@ Planned operations:
 
 Long builds must run as background jobs. MCP output must remain bounded.
 
+## ACT-S025
+
+- structured runtime JSONL logging
+- one JSON object per line
+- fields such as schema_version, run_id, event, platform, pid, t_us, mono_us
+- automation parses JSONL, not human text
+- full runtime logs remain artifacts
+- Cursor receives filtered/aggregated records only
+- do not change application logging until this slice
+
+## ACT-S026
+
+- GoogleTest multi-instance integration harness
+- Python owns environment/emulator/process setup
+- GoogleTest owns deterministic assertions where practical
+
+## ACT-S027
+
+- debugger inspection adapter
+- Windows first; breakpoints and bounded variable/memory reads
+- do not name or require a specific debugger product until the exact tool/API is identified
+
 ## ACT-S030
 
 - read-only architecture audit
@@ -424,6 +455,16 @@ Long builds must run as background jobs. MCP output must remain bounded.
 
 - transport simplification slices
 - status: blocked by audit and user decisions
+
+# Product blockers
+
+## ACT-B001
+
+- kind: `transitive_dependency_drift`
+- status: blocked
+- summary: pinned Æther SHA `7294f92a` includes `aether-miscpp/reflect/domain_visitor.h`, but Æther fetches aether-miscpp using floating `GIT_TAG main`, whose current header path is `aether-miscpp/domain_visitor/domain_visitor.h`
+- do not treat this as a runner failure
+- do not fix in ACT-S022A
 
 # Acceptance IDs
 

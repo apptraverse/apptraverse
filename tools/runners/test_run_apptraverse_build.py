@@ -3,7 +3,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -221,13 +225,179 @@ class TimeoutTest(unittest.TestCase):
     def test_timeout_is_command_timeout(self) -> None:
         fake_proc = mock.Mock()
         fake_proc.pid = 4242
-        fake_proc.communicate.side_effect = subprocess.TimeoutExpired(
+        fake_proc.wait.side_effect = subprocess.TimeoutExpired(
             cmd=["cmake"], timeout=1
         )
-        with mock.patch("subprocess.Popen", return_value=fake_proc):
-            with mock.patch.object(runner, "terminate_process_tree"):
-                with self.assertRaises(runner.CommandTimeout):
-                    runner.run_command(["cmake", "--version"], Path("."))
+        with tempfile.TemporaryDirectory() as tmp:
+            stdout_path = Path(tmp) / "stdout.log"
+            stderr_path = Path(tmp) / "stderr.log"
+            with mock.patch("subprocess.Popen", return_value=fake_proc):
+                with mock.patch.object(runner, "terminate_process_tree"):
+                    with self.assertRaises(runner.CommandTimeout):
+                        runner.execute_external(
+                            ["cmake", "--version"],
+                            Path("."),
+                            stdout_path,
+                            stderr_path,
+                            timeout_sec=1,
+                        )
+            self.assertTrue(stdout_path.exists())
+            self.assertTrue(stderr_path.exists())
+
+
+C1083_LOG = """\
+warning C4100: unreferenced formal parameter
+C:\\src\\mstream.h(49,1): error C1083: Cannot open include file: 'aether-miscpp/reflect/domain_visitor.h': No such file or directory [aether.vcxproj]
+"""
+
+LNK_LOG = """\
+creating library
+error LNK2019: unresolved external symbol foo referenced in function bar
+"""
+
+CMAKE_LOG = """\
+-- Configuring incomplete, errors occurred!
+CMake Error at CMakeLists.txt:10 (message):
+  missing dependency
+"""
+
+
+class ResultContractTest(unittest.TestCase):
+    def test_success_result_serialization(self) -> None:
+        result = runner.BuildResult(
+            status=runner.STATUS_OK,
+            stage="configure",
+            profile=runner.VS2022_PROFILE,
+            action="already_configured",
+            duration_ms=12,
+            exit_code=0,
+        )
+        payload = result.to_public_dict()
+        self.assertEqual(payload["schema_version"], runner.RESULT_SCHEMA_VERSION)
+        self.assertEqual(payload["status"], "ok")
+        self.assertIsNone(payload["failure_kind"])
+        self.assertEqual(payload["targets"], [])
+
+    def test_blocked_result_serialization(self) -> None:
+        result = runner.BuildResult(
+            status=runner.STATUS_BLOCKED,
+            stage="preflight",
+            profile=runner.NINJA_PROFILE,
+            failure_kind="ninja_missing",
+            first_error="ninja not on PATH",
+            exit_code=2,
+        )
+        payload = result.to_public_dict()
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["failure_kind"], "ninja_missing")
+
+    def test_failed_compile_result_serialization(self) -> None:
+        result = runner.BuildResult(
+            run_id="20260818-000000-abc",
+            artifact_id="apptraverse-build/20260818-000000-abc",
+            status=runner.STATUS_FAILED,
+            stage="build",
+            profile=runner.VS2022_PROFILE,
+            targets=["apptraverse_chat_component_test"],
+            duration_ms=251000,
+            exit_code=1,
+            failure_kind="compile_failed",
+            first_error="error C1083: Cannot open include file: 'aether-miscpp/reflect/domain_visitor.h'",
+        )
+        payload = result.to_public_dict()
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["failure_kind"], "compile_failed")
+        self.assertIn("C1083", payload["first_error"])
+        self.assertTrue(payload["artifact_id"].startswith("apptraverse-build/"))
+        self.assertNotIn(":\\", json.dumps(payload))
+
+    def test_json_emits_one_object(self) -> None:
+        result = runner.BuildResult(
+            status=runner.STATUS_FAILED,
+            stage="build",
+            profile=runner.VS2022_PROFILE,
+            failure_kind="compile_failed",
+            artifact_id="apptraverse-build/run1",
+            first_error="error C1083: missing",
+        )
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            runner.emit_result(result, json_mode=True)
+        text = buf.getvalue()
+        self.assertEqual(text.count("\n"), 1)
+        obj = json.loads(text)
+        self.assertEqual(obj["artifact_id"], "apptraverse-build/run1")
+        self.assertNotIn("C:\\", text)
+
+    def test_stdout_stderr_stored_in_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            stdout_path = Path(tmp) / "stdout.log"
+            stderr_path = Path(tmp) / "stderr.log"
+            execution = runner.execute_external(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.stdout.write('OUT_LINE\\n'); sys.stderr.write('ERR_LINE\\n')",
+                ],
+                Path(tmp),
+                stdout_path,
+                stderr_path,
+            )
+            self.assertEqual(execution.returncode, 0)
+            self.assertIn("OUT_LINE", stdout_path.read_text(encoding="utf-8"))
+            self.assertIn("ERR_LINE", stderr_path.read_text(encoding="utf-8"))
+
+    def test_public_result_has_artifact_id_not_path(self) -> None:
+        result = runner.BuildResult(
+            artifact_id="apptraverse-build/xyz",
+            status="failed",
+            stage="build",
+            profile=runner.VS2022_PROFILE,
+        )
+        dumped = json.dumps(result.to_public_dict())
+        self.assertIn("apptraverse-build/xyz", dumped)
+        self.assertNotRegex(dumped, r"[A-Za-z]:\\\\")
+        self.assertNotIn(str(Path.cwd()), dumped)
+
+    def test_msvc_c1083_first_error(self) -> None:
+        first, excerpt = runner.extract_first_error(C1083_LOG)
+        self.assertIn("C1083", first)
+        self.assertIn("aether-miscpp/reflect/domain_visitor.h", first)
+        self.assertLessEqual(len(excerpt), runner.MAX_EXCERPT_LINES)
+
+    def test_lnk_error_extraction(self) -> None:
+        first, _excerpt = runner.extract_first_error(LNK_LOG)
+        self.assertIn("LNK2019", first)
+
+    def test_cmake_error_extraction(self) -> None:
+        first, _excerpt = runner.extract_first_error(CMAKE_LOG)
+        self.assertIn("CMake Error", first)
+
+    def test_excerpt_bounded_to_40_lines(self) -> None:
+        lines = [f"warn {i}" for i in range(30)]
+        lines.append("error C1083: missing header")
+        lines.extend(f"after {i}" for i in range(30))
+        _first, excerpt = runner.extract_first_error("\n".join(lines))
+        self.assertLessEqual(len(excerpt), 40)
+
+    def test_first_error_bounded_to_1000_chars(self) -> None:
+        huge = "error C1083: " + ("x" * 5000)
+        first, _excerpt = runner.extract_first_error(huge)
+        self.assertLessEqual(len(first), 1000)
+
+    def test_timeout_classified_command_timeout(self) -> None:
+        exc = runner.CommandTimeout(
+            ["cmake"], 1, artifact_id="apptraverse-build/t", first_error="command_timeout"
+        )
+        result = runner.BuildResult(
+            status=runner.STATUS_BLOCKED,
+            stage="build",
+            failure_kind="command_timeout",
+            artifact_id=exc.artifact_id,
+            first_error=exc.first_error,
+        )
+        self.assertEqual(result.failure_kind, "command_timeout")
+        self.assertTrue(result.artifact_id.startswith("apptraverse-build/"))
 
 
 if __name__ == "__main__":

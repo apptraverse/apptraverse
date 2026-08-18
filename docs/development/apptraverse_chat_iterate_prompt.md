@@ -70,7 +70,8 @@ APPTRAVERSE_CHAT_BASELINE_COMPLETE
 - No automatic SDK/tool installation.
 - One retry maximum. A failure does not authorize clean, rebuild, a new directory, or another toolchain.
 - External configure/build commands time out at 15 minutes (`command_timeout`).
-- Full logs remain artifacts once ACT-S022 exists; Cursor should receive compact results.
+- Use `--json` for Cursor-facing invocations. Full CMake/MSBuild output stays in `.artifacts/apptraverse-build/` behind `artifact_id`.
+- Do not print full compiler logs into chat context.
 - A documentation/configuration-only slice performs no configure, build, or tests.
 
 # Git policy

@@ -5,28 +5,15 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 
 # Current ready slice
 
-None. ACT-S021 is blocked. ACT-S022 is not ready.
-
 Slice:
-ACT-S021
+ACT-S022B
 
 Status:
-blocked
-
-Typed blocker:
-compile_failed
+ready
 
 Goal:
-Finish the canonical Windows build runner without requiring Ninja, using
-explicit `win64-vs2022-msvc-debug` as the Visual Studio fallback profile.
-
-Acceptance:
-ACT-A004 prerequisite
-
-Stop after:
-unit tests, VS preflight and configure passed; narrow VS incremental build
-failed compiling Æther (`C1083` missing `aether-miscpp/reflect/domain_visitor.h`).
-Do not fix product/dependency compile errors in this tooling slice.
+background build jobs with start/status/cancel, using the existing result and
+artifact contract. Must not implement MCP.
 
 # Status vocabulary
 
@@ -43,9 +30,14 @@ Do not fix product/dependency compile errors in this tooling slice.
 | ACT-S001 | initial Windows presentation replay | blocked | blocked until tooling baseline is usable; previous environment/worktree failure, not a product-code failure |
 | ACT-S010 | canonical plan/progress/iterate trio | done | documentation-only |
 | ACT-S020 | checked-in Ninja CMake presets | done | this session; x86_64 desktop presets; no configure/build |
-| ACT-S021 | canonical staged build runner | blocked | Ninja + VS2022 profiles; unit tests PASS; VS preflight/configure PASS; VS narrow build compile_failed |
-| ACT-S022 | JSON result/artifact/timeout contract | blocked | blocked by S021 |
-| ACT-S023 | thin MCP wrapper over canonical runner | blocked | blocked by S022 |
+| ACT-S021 | canonical staged build runner | done | tooling-level: unit tests, VS preflight, configure, classified compile_failed |
+| ACT-S022A | bounded artifacts and compact JSON results | done | this session |
+| ACT-S022B | background jobs start/status/cancel | ready | must not implement MCP |
+| ACT-S022 | JSON result/artifact/timeout contract | split | S022A done; S022B ready |
+| ACT-S023 | thin MCP wrapper over canonical runner | blocked | blocked by S022B |
+| ACT-S025 | structured runtime JSONL logging | blocked | documentation only |
+| ACT-S026 | GoogleTest multi-instance harness | blocked | documentation only |
+| ACT-S027 | debugger inspection adapter | blocked | documentation only |
 | ACT-S030 | read-only architecture audit | blocked | blocked by tooling baseline |
 | ACT-S040 | transport simplification slices | blocked | blocked by audit and user decisions |
 
@@ -75,36 +67,46 @@ Evidence:
 
 ## ACT-S021 details
 
+Done at the tooling level. Evidence:
+
+- runner unit tests passed
+- Windows preflight passed
+- configure executed successfully
+- build invoked through the canonical profile
+- compile failure correctly classified as `compile_failed`
+- no clean/rebuild/fallback
+
+Product compile success is not required to prove runner orchestration.
+
+## ACT-B001
+
+- kind: `transitive_dependency_drift`
+- status: blocked
+- pinned Æther SHA `7294f92a` includes `aether-miscpp/reflect/domain_visitor.h`
+- Æther fetches aether-miscpp using floating `GIT_TAG main`
+- current header path: `aether-miscpp/domain_visitor/domain_visitor.h`
+- not fixed in this slice; not a runner defect
+
+## ACT-S022A details
+
 Windows runner path: `tools/runners/run_apptraverse_build.py`.
 
-Supported profiles:
+`--json` emits schema `apptraverse.build_result/1`. Artifacts under
+`.artifacts/apptraverse-build/<run-id>/` with public `artifact_id`
+`apptraverse-build/<run-id>`.
 
-- `win64-ninja-msvc-debug` (Ninja preferred; still requires Ninja + `cl` on PATH)
-- `win64-vs2022-msvc-debug` (explicit Visual Studio 17 2022 fallback; Ninja not required)
-
-Supported stages: `preflight`, `configure`, `build`.
-
-Hard timeout: 15 minutes per external command (`command_timeout`).
-
-This session:
-
-- unit tests PASS
-- VS preflight PASS
-- VS configure `configured` (~347s)
-- VS incremental build of `apptraverse_chat_component_test` FAIL `compile_failed`
-  (`C1083` missing `aether-miscpp/reflect/domain_visitor.h` in Æther)
-- no Ninja retry; no product C++ fix in this tooling slice
-
-Do not mark ACT-S022 ready.
+Real validation: known-failing VS narrow build captured as compact JSON
+`status=failed failure_kind=compile_failed` with C1083 in `first_error`.
+Full MSBuild output stayed in artifacts.
 
 # Acceptance registry
 
 | Acceptance ID | Status | Evidence / notes |
 | --- | --- | --- |
 | ACT-A001 | done | three canonical files created and linked |
-| ACT-A002 | done | no ready slice while ACT-S021 is blocked |
+| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S022B |
 | ACT-A003 | done at documentation and preset level | Ninja preferred; explicit `win64-vs2022-msvc-debug` fallback |
-| ACT-A004 | blocked | runner stages work; VS narrow build `compile_failed` on Æther include |
+| ACT-A004 | done at runner-contract level | staged execution + JSON/artifacts; product build remains ACT-B001 |
 | ACT-A005 | blocked | requires ACT-S023 MCP wrapper |
 | ACT-A006 | blocked | Windows/Android chat functional baseline not yet executed |
 | ACT-A007 | blocked | requires ACT-S030 read-only architecture audit |
@@ -159,6 +161,20 @@ Session ACT-S021 (runner-v2):
 - no Ninja retry; no clean/rebuild; no C++ product fix
 - documented Python-first orchestration, GoogleTest policy, ChatTransport, console/Emscripten, `ae::Uid` audit
 - ACT-S022 not marked ready
+
+Session ACT-S022A:
+
+- checkout `review/chat-runner-v2` at `03bc24478948c690f7ddf985f1bab2f177e6effd`
+- ACT-S021 reclassified done at tooling level
+- ACT-B001 recorded as `transitive_dependency_drift` (not fixed)
+- `--json` compact result + `.artifacts/apptraverse-build/` logs
+- unit tests PASS (29)
+- real VS narrow build once: `status=failed failure_kind=compile_failed`
+- `first_error` contains C1083 and `aether-miscpp/reflect/domain_visitor.h`
+- `artifact_id=apptraverse-build/20260818-033329-e7c5bd`
+- duration_ms=121425; timeout 15 minutes not hit
+- full MSBuild not printed to terminal
+- no clean/rebuild/product/dependency fix; no MCP; no background jobs
 
 # Session log
 
@@ -242,3 +258,24 @@ Known limits:
 - MCP/JSON not implemented
 - ACT-S001 still blocked
 Next ready slice: none (ACT-S021 blocked; ACT-S022 not ready)
+
+Completion packet:
+
+Slice: ACT-S022A
+Acceptance IDs: ACT-A004 runner-contract level
+Artifacts:
+- tools/runners/run_apptraverse_build.py
+- tools/runners/test_run_apptraverse_build.py
+- .gitignore
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- apptraverse_chat_iterate_prompt.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: unit tests PASS; JSON failed result compile_failed; artifacts written
+Runtime proof: n/a
+Typed blockers: ACT-B001 transitive_dependency_drift (product)
+Known limits:
+- product still does not compile
+- background jobs not implemented
+- MCP not implemented
+Next ready slice: ACT-S022B

@@ -6,16 +6,26 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import secrets
 import shutil
 import subprocess
 import sys
+import time
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 
 NINJA_PROFILE = "win64-ninja-msvc-debug"
 VS2022_PROFILE = "win64-vs2022-msvc-debug"
 VS2022_GENERATOR = "Visual Studio 17 2022"
 DEFAULT_COMMAND_TIMEOUT_SEC = 15 * 60
+RESULT_SCHEMA_VERSION = "apptraverse.build_result/1"
+COMMAND_SCHEMA_VERSION = "apptraverse.build_command/1"
+ARTIFACT_ROOT_REL = Path(".artifacts") / "apptraverse-build"
+MAX_FIRST_ERROR_CHARS = 1000
+MAX_EXCERPT_LINES = 40
+EXCERPT_CONTEXT = 20
 
 PROFILES = {
     NINJA_PROFILE: {
@@ -40,20 +50,79 @@ STATUS_BLOCKED = "blocked"
 STATUS_FAILED = "failed"
 SUPPORTED_PROFILE = NINJA_PROFILE
 
+_RE_MSVC_FATAL = re.compile(r"fatal error C\d+", re.IGNORECASE)
+_RE_MSVC_ERROR = re.compile(r"error C\d+", re.IGNORECASE)
+_RE_LNK_ERROR = re.compile(r"error LNK\d+", re.IGNORECASE)
+_RE_CMAKE_ERROR = re.compile(r"CMake Error")
+_RE_GENERIC_FATAL = re.compile(r"fatal error", re.IGNORECASE)
+_RE_GENERIC_ERROR = re.compile(r"error:", re.IGNORECASE)
+
 
 class CommandTimeout(Exception):
-    def __init__(self, argv: list[str], timeout_sec: int) -> None:
+    def __init__(
+        self,
+        argv: list[str],
+        timeout_sec: int,
+        *,
+        run_id: str | None = None,
+        artifact_id: str | None = None,
+        first_error: str | None = None,
+        duration_ms: int | None = None,
+    ) -> None:
         super().__init__(f"timed out after {timeout_sec}s: {argv}")
         self.argv = argv
         self.timeout_sec = timeout_sec
+        self.run_id = run_id
+        self.artifact_id = artifact_id
+        self.first_error = first_error
+        self.duration_ms = duration_ms
+
+
+@dataclass
+class BuildResult:
+    schema_version: str = RESULT_SCHEMA_VERSION
+    run_id: str | None = None
+    artifact_id: str | None = None
+    status: str = STATUS_OK
+    stage: str = ""
+    profile: str = ""
+    targets: list[str] = field(default_factory=list)
+    action: str | None = None
+    duration_ms: int | None = None
+    exit_code: int | None = None
+    failure_kind: str | None = None
+    first_error: str | None = None
+
+    def to_public_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class CommandExecution:
+    returncode: int
+    duration_ms: int
+    timed_out: bool
+    stdout_text: str
+    stderr_text: str
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def emit(**fields: str) -> None:
-    print(" ".join(f"{key}={value}" for key, value in fields.items()))
+def new_run_id() -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{stamp}-{secrets.token_hex(3)}"
+
+
+def artifact_id_for(run_id: str) -> str:
+    return f"apptraverse-build/{run_id}"
+
+
+def prepare_run_dir(source_dir: Path, run_id: str) -> Path:
+    run_dir = source_dir / ARTIFACT_ROOT_REL / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir
 
 
 def cmake_configure_argv(profile: str) -> list[str]:
@@ -121,7 +190,6 @@ def compiler_is_msvc_cl(compiler: str) -> bool:
 
 
 def inspect_cache(cache_text: str, expected_generator: str) -> tuple[str, str]:
-    """Return (status, detail). status is ok or conflict."""
     generator = parse_cache_generator(cache_text)
     if generator is None:
         return "conflict", "CMAKE_GENERATOR missing from CMakeCache.txt"
@@ -243,85 +311,286 @@ def terminate_process_tree(pid: int) -> None:
         pass
 
 
+def bound_first_error(text: str) -> str:
+    if len(text) <= MAX_FIRST_ERROR_CHARS:
+        return text
+    return text[: MAX_FIRST_ERROR_CHARS - 3] + "..."
+
+
+def extract_first_error(text: str) -> tuple[str, list[str]]:
+    lines = text.splitlines()
+    if not lines:
+        return "", []
+    patterns = (
+        _RE_MSVC_FATAL,
+        _RE_MSVC_ERROR,
+        _RE_LNK_ERROR,
+        _RE_CMAKE_ERROR,
+        _RE_GENERIC_FATAL,
+        _RE_GENERIC_ERROR,
+    )
+    index = None
+    for pattern in patterns:
+        for i, line in enumerate(lines):
+            if pattern.search(line):
+                index = i
+                break
+        if index is not None:
+            break
+    if index is None:
+        nonempty = [i for i, line in enumerate(lines) if line.strip()]
+        index = nonempty[-1] if nonempty else len(lines) - 1
+    start = max(0, index - EXCERPT_CONTEXT)
+    end = min(len(lines), index + EXCERPT_CONTEXT + 1)
+    excerpt = lines[start:end]
+    if len(excerpt) > MAX_EXCERPT_LINES:
+        excerpt = excerpt[:MAX_EXCERPT_LINES]
+    return bound_first_error(lines[index].strip()), excerpt
+
+
+def write_command_json(
+    path: Path,
+    *,
+    profile: str,
+    stage: str,
+    targets: list[str],
+    argv: list[str],
+    started_at_utc: str,
+) -> None:
+    payload = {
+        "schema_version": COMMAND_SCHEMA_VERSION,
+        "profile": profile,
+        "stage": stage,
+        "targets": targets,
+        "argv": argv,
+        "started_at_utc": started_at_utc,
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def execute_external(
+    argv: list[str],
+    cwd: Path,
+    stdout_path: Path,
+    stderr_path: Path,
+    timeout_sec: int = DEFAULT_COMMAND_TIMEOUT_SEC,
+) -> CommandExecution:
+    if command_is_destructive(argv):
+        raise ValueError(f"refusing destructive command: {argv}")
+    started = time.perf_counter()
+    stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    with stdout_path.open("w", encoding="utf-8", errors="replace") as out_file:
+        with stderr_path.open("w", encoding="utf-8", errors="replace") as err_file:
+            proc = subprocess.Popen(
+                argv,
+                cwd=cwd,
+                stdout=out_file,
+                stderr=err_file,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                shell=False,
+            )
+            timed_out = False
+            try:
+                proc.wait(timeout=timeout_sec)
+            except subprocess.TimeoutExpired as exc:
+                timed_out = True
+                terminate_process_tree(proc.pid)
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=5)
+                    except Exception:
+                        pass
+                duration_ms = int((time.perf_counter() - started) * 1000)
+                raise CommandTimeout(
+                    argv, timeout_sec, duration_ms=duration_ms
+                ) from exc
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    stdout_text = stdout_path.read_text(encoding="utf-8", errors="replace")
+    stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace")
+    return CommandExecution(
+        returncode=proc.returncode if proc.returncode is not None else 1,
+        duration_ms=duration_ms,
+        timed_out=timed_out,
+        stdout_text=stdout_text,
+        stderr_text=stderr_text,
+    )
+
+
 def run_command(
     argv: list[str],
     cwd: Path,
     timeout_sec: int = DEFAULT_COMMAND_TIMEOUT_SEC,
-) -> subprocess.CompletedProcess[str] | SimpleNamespace:
-    if command_is_destructive(argv):
-        raise ValueError(f"refusing destructive command: {argv}")
-    proc = subprocess.Popen(
-        argv,
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        shell=False,
-    )
-    try:
-        out, _err = proc.communicate(timeout=timeout_sec)
-    except subprocess.TimeoutExpired as exc:
-        terminate_process_tree(proc.pid)
-        try:
-            proc.communicate(timeout=5)
-        except Exception:
-            try:
-                proc.kill()
-                proc.communicate()
-            except Exception:
-                pass
-        raise CommandTimeout(argv, timeout_sec) from exc
-    return SimpleNamespace(returncode=proc.returncode, stdout=out or "", stderr="")
+):
+    """Back-compat wrapper used by older unit tests."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        stdout_path = Path(tmp) / "stdout.log"
+        stderr_path = Path(tmp) / "stderr.log"
+        execution = execute_external(
+            argv, cwd, stdout_path, stderr_path, timeout_sec=timeout_sec
+        )
+        return execution
 
 
-def first_error_tail(proc: subprocess.CompletedProcess[str] | SimpleNamespace) -> str:
-    combined = (getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or "")
-    lines = combined.splitlines()
-    useful = [
-        line
-        for line in lines
-        if "error" in line.lower() or "fatal" in line.lower()
-    ]
-    chosen = useful[-12:] if useful else lines[-12:]
-    return "\n".join(chosen)
-
-
-def build_reported_idle(proc: subprocess.CompletedProcess[str] | SimpleNamespace) -> bool:
-    combined = ((getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or "")).lower()
+def build_reported_idle(text: str) -> bool:
+    lowered = text.lower()
     return (
-        "ninja: no work to do" in combined
-        or "up-to-date" in combined
-        or "up to date" in combined
+        "ninja: no work to do" in lowered
+        or "up-to-date" in lowered
+        or "up to date" in lowered
     )
 
 
-def emit_preflight_failure(kind: str | None, reason: str | None) -> int:
-    fields = {
-        "status": STATUS_BLOCKED,
-        "stage": "preflight",
-        "failure_kind": kind or "preflight_failed",
-    }
-    if reason:
-        fields["reason"] = reason.replace(" ", "_")
-    emit(**fields)
-    return 2
+def emit_result(result: BuildResult, json_mode: bool) -> None:
+    if json_mode:
+        sys.stdout.write(json.dumps(result.to_public_dict(), separators=(",", ":")) + "\n")
+        sys.stdout.flush()
+        return
+    if result.status != STATUS_OK:
+        first = (result.first_error or "").replace("\n", " ")
+        parts = [
+            f"failure_kind={result.failure_kind or 'unknown'}",
+            f"first_error={first}",
+            f"artifact_id={result.artifact_id or ''}",
+        ]
+        print(" ".join(parts))
+        return
+    fields = [
+        f"status={result.status}",
+        f"stage={result.stage}",
+        f"profile={result.profile}",
+    ]
+    if result.action:
+        fields.append(f"action={result.action}")
+    if result.targets:
+        fields.append("target=" + ",".join(result.targets))
+    if result.artifact_id:
+        fields.append(f"artifact_id={result.artifact_id}")
+    print(" ".join(fields))
 
 
-def stage_preflight(source_dir: Path, profile: str) -> int:
+def exit_code_for(result: BuildResult) -> int:
+    if result.status == STATUS_OK:
+        return 0
+    if result.status == STATUS_BLOCKED:
+        return 2
+    return 1
+
+
+def persist_result_files(
+    run_dir: Path,
+    result: BuildResult,
+    excerpt_lines: list[str] | None,
+) -> None:
+    (run_dir / "result.json").write_text(
+        json.dumps(result.to_public_dict(), indent=2) + "\n",
+        encoding="utf-8",
+    )
+    if excerpt_lines:
+        (run_dir / "failure_excerpt.txt").write_text(
+            "\n".join(excerpt_lines) + "\n",
+            encoding="utf-8",
+        )
+
+
+def run_logged_command(
+    source_dir: Path,
+    argv: list[str],
+    *,
+    profile: str,
+    stage: str,
+    targets: list[str],
+) -> tuple[str, str, CommandExecution | None, str, list[str]]:
+    run_id = new_run_id()
+    artifact_id = artifact_id_for(run_id)
+    run_dir = prepare_run_dir(source_dir, run_id)
+    started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    write_command_json(
+        run_dir / "command.json",
+        profile=profile,
+        stage=stage,
+        targets=targets,
+        argv=argv,
+        started_at_utc=started_at,
+    )
+    stdout_path = run_dir / "stdout.log"
+    stderr_path = run_dir / "stderr.log"
+    try:
+        execution = execute_external(argv, source_dir, stdout_path, stderr_path)
+    except CommandTimeout as exc:
+        stdout_text = (
+            stdout_path.read_text(encoding="utf-8", errors="replace")
+            if stdout_path.exists()
+            else ""
+        )
+        stderr_text = (
+            stderr_path.read_text(encoding="utf-8", errors="replace")
+            if stderr_path.exists()
+            else ""
+        )
+        first_error, excerpt = extract_first_error(stdout_text + "\n" + stderr_text)
+        timeout_result = BuildResult(
+            run_id=run_id,
+            artifact_id=artifact_id,
+            status=STATUS_BLOCKED,
+            stage=stage,
+            profile=profile,
+            targets=targets,
+            duration_ms=exc.duration_ms or DEFAULT_COMMAND_TIMEOUT_SEC * 1000,
+            exit_code=None,
+            failure_kind="command_timeout",
+            first_error=first_error or "command_timeout",
+        )
+        persist_result_files(run_dir, timeout_result, excerpt or None)
+        raise CommandTimeout(
+            argv,
+            exc.timeout_sec,
+            run_id=run_id,
+            artifact_id=artifact_id,
+            first_error=timeout_result.first_error,
+            duration_ms=timeout_result.duration_ms,
+        ) from exc
+    combined = execution.stdout_text + "\n" + execution.stderr_text
+    first_error, excerpt = extract_first_error(combined)
+    return run_id, artifact_id, execution, first_error, excerpt
+
+
+def stage_preflight(source_dir: Path, profile: str) -> BuildResult:
     status, kind, reason = preflight(profile, source_dir)
     if status == STATUS_OK:
-        emit(status=STATUS_OK, stage="preflight", profile=profile)
-        return 0
-    return emit_preflight_failure(kind, reason)
+        return BuildResult(
+            status=STATUS_OK,
+            stage="preflight",
+            profile=profile,
+            exit_code=0,
+        )
+    return BuildResult(
+        status=STATUS_BLOCKED,
+        stage="preflight",
+        profile=profile,
+        failure_kind=kind or "preflight_failed",
+        first_error=reason,
+        exit_code=2,
+    )
 
 
-def stage_configure(source_dir: Path, profile: str) -> int:
+def stage_configure(source_dir: Path, profile: str) -> BuildResult:
     pre_status, kind, reason = preflight(profile, source_dir)
     if pre_status != STATUS_OK:
-        return emit_preflight_failure(kind, reason)
-
+        return BuildResult(
+            status=STATUS_BLOCKED,
+            stage="preflight",
+            profile=profile,
+            failure_kind=kind or "preflight_failed",
+            first_error=reason,
+            exit_code=2,
+        )
     spec = PROFILES[profile]
     build_dir = source_dir / spec["build_dir"]
     cache_path = build_dir / "CMakeCache.txt"
@@ -334,44 +603,80 @@ def stage_configure(source_dir: Path, profile: str) -> int:
         build_dir, cache_text, spec["generator"]
     )
     if status == STATUS_BLOCKED:
-        emit(
+        return BuildResult(
             status=STATUS_BLOCKED,
             stage="configure",
+            profile=profile,
             failure_kind=action,
-            reason=(conflict_reason or "profile_mismatch").replace(" ", "_"),
+            first_error=conflict_reason,
+            exit_code=2,
         )
-        return 2
     if action == "already_configured":
-        emit(status=STATUS_OK, stage="configure", action="already_configured")
-        return 0
-
+        return BuildResult(
+            status=STATUS_OK,
+            stage="configure",
+            profile=profile,
+            action="already_configured",
+            exit_code=0,
+        )
     argv = cmake_configure_argv(profile)
     try:
-        proc = run_command(argv, source_dir)
-    except CommandTimeout:
-        emit(
+        run_id, artifact_id, execution, first_error, excerpt = run_logged_command(
+            source_dir, argv, profile=profile, stage="configure", targets=[]
+        )
+    except CommandTimeout as exc:
+        return BuildResult(
+            run_id=exc.run_id,
+            artifact_id=exc.artifact_id,
             status=STATUS_BLOCKED,
             stage="configure",
+            profile=profile,
             failure_kind="command_timeout",
+            first_error=exc.first_error or "command_timeout",
+            duration_ms=exc.duration_ms,
+            exit_code=None,
         )
-        return 2
-    if proc.returncode != 0:
-        emit(status=STATUS_FAILED, stage="configure", failure_kind="configure_failed")
-        print("command=" + " ".join(argv))
-        print(first_error_tail(proc))
-        return proc.returncode
-    emit(status=STATUS_OK, stage="configure", action="configured")
-    return 0
+    assert execution is not None
+    result = BuildResult(
+        run_id=run_id,
+        artifact_id=artifact_id,
+        status=STATUS_OK if execution.returncode == 0 else STATUS_FAILED,
+        stage="configure",
+        profile=profile,
+        action="configured" if execution.returncode == 0 else None,
+        duration_ms=execution.duration_ms,
+        exit_code=execution.returncode,
+        failure_kind=None if execution.returncode == 0 else "configure_failed",
+        first_error=None if execution.returncode == 0 else first_error,
+    )
+    persist_result_files(
+        source_dir / ARTIFACT_ROOT_REL / run_id,
+        result,
+        None if execution.returncode == 0 else excerpt,
+    )
+    return result
 
 
-def stage_build(source_dir: Path, profile: str, targets: list[str]) -> int:
+def stage_build(source_dir: Path, profile: str, targets: list[str]) -> BuildResult:
     if not targets:
-        emit(status=STATUS_BLOCKED, stage="build", failure_kind="missing_target")
-        return 2
+        return BuildResult(
+            status=STATUS_BLOCKED,
+            stage="build",
+            profile=profile,
+            failure_kind="missing_target",
+            exit_code=2,
+        )
     pre_status, kind, reason = preflight(profile, source_dir)
     if pre_status != STATUS_OK:
-        return emit_preflight_failure(kind, reason)
-
+        return BuildResult(
+            status=STATUS_BLOCKED,
+            stage="preflight",
+            profile=profile,
+            targets=targets,
+            failure_kind=kind or "preflight_failed",
+            first_error=reason,
+            exit_code=2,
+        )
     spec = PROFILES[profile]
     build_dir = source_dir / spec["build_dir"]
     cache_path = build_dir / "CMakeCache.txt"
@@ -381,45 +686,54 @@ def stage_build(source_dir: Path, profile: str, targets: list[str]) -> int:
             build_dir, cache_text, spec["generator"]
         )
         if status == STATUS_BLOCKED:
-            emit(
+            return BuildResult(
                 status=STATUS_BLOCKED,
                 stage="build",
+                profile=profile,
+                targets=targets,
                 failure_kind=action,
-                reason=(conflict_reason or "profile_mismatch").replace(" ", "_"),
+                first_error=conflict_reason,
+                exit_code=2,
             )
-            return 2
-
     argv = cmake_build_argv(profile, targets)
-    target_text = ",".join(targets)
     try:
-        proc = run_command(argv, source_dir)
-    except CommandTimeout:
-        emit(
+        run_id, artifact_id, execution, first_error, excerpt = run_logged_command(
+            source_dir, argv, profile=profile, stage="build", targets=targets
+        )
+    except CommandTimeout as exc:
+        return BuildResult(
+            run_id=exc.run_id,
+            artifact_id=exc.artifact_id,
             status=STATUS_BLOCKED,
             stage="build",
+            profile=profile,
+            targets=targets,
             failure_kind="command_timeout",
-            target=target_text,
+            first_error=exc.first_error or "command_timeout",
+            duration_ms=exc.duration_ms,
+            exit_code=None,
         )
-        return 2
-    if proc.returncode != 0:
-        emit(
-            status=STATUS_FAILED,
-            stage="build",
-            failure_kind="compile_failed",
-            target=target_text,
-        )
-        print("command=" + " ".join(argv))
-        print(first_error_tail(proc))
-        return proc.returncode
-    fields = {
-        "status": STATUS_OK,
-        "stage": "build",
-        "target": target_text,
-    }
-    if build_reported_idle(proc):
-        fields["up_to_date"] = "yes"
-    emit(**fields)
-    return 0
+    assert execution is not None
+    idle = build_reported_idle(execution.stdout_text + execution.stderr_text)
+    result = BuildResult(
+        run_id=run_id,
+        artifact_id=artifact_id,
+        status=STATUS_OK if execution.returncode == 0 else STATUS_FAILED,
+        stage="build",
+        profile=profile,
+        targets=targets,
+        action="up_to_date" if execution.returncode == 0 and idle else None,
+        duration_ms=execution.duration_ms,
+        exit_code=execution.returncode,
+        failure_kind=None if execution.returncode == 0 else "compile_failed",
+        first_error=None if execution.returncode == 0 else first_error,
+    )
+    persist_result_files(
+        source_dir / ARTIFACT_ROOT_REL / run_id,
+        result,
+        None if execution.returncode == 0 else excerpt,
+    )
+    return result
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -433,6 +747,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=("preflight", "configure", "build"),
     )
     parser.add_argument("--target", action="append", default=[])
+    parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -440,11 +755,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     source_dir = repo_root()
     os.chdir(source_dir)
-    if args.stage == "preflight":
-        return stage_preflight(source_dir, args.profile)
-    if args.stage == "configure":
-        return stage_configure(source_dir, args.profile)
-    return stage_build(source_dir, args.profile, args.target)
+    try:
+        if args.stage == "preflight":
+            result = stage_preflight(source_dir, args.profile)
+        elif args.stage == "configure":
+            result = stage_configure(source_dir, args.profile)
+        else:
+            result = stage_build(source_dir, args.profile, args.target)
+    except CommandTimeout as exc:
+        result = BuildResult(
+            status=STATUS_BLOCKED,
+            stage=args.stage,
+            profile=args.profile,
+            targets=args.target,
+            failure_kind="command_timeout",
+            first_error="command_timeout",
+            duration_ms=exc.timeout_sec * 1000,
+        )
+    emit_result(result, json_mode=args.json)
+    return exit_code_for(result)
 
 
 if __name__ == "__main__":
