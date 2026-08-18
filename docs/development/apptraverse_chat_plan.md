@@ -515,14 +515,21 @@ Split after S025:
 ## ACT-S100A-Q
 
 - quiet-by-default Windows human diagnostics
-- status: awaiting_manual_validation
+- status: done
 - opt-in APPTRAVERSE_VERBOSE_LOG=1
 - do not change JSONL, sync, transport, or Aether
 
 ## ACT-S100B
 
 - canonical Android x86_64 emulator GUI
-- status: not ready until ACT-S100A-Q manual PASS
+- status: blocked
+- typed blocker: android_emulator_unavailable
+- do not start/create an AVD in this slice
+
+## ACT-S100C
+
+- live Windows <-> Android x86_64 chat
+- status: not ready until ACT-S100B manual PASS
 
 ## ACT-S030
 
