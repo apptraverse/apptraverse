@@ -31,6 +31,7 @@ Execute only that slice:
 
 Use only the canonical profile named by the slice.
 Drive configure/build through `tools/runners/run_apptraverse_build.py`.
+Long builds use `tools/runners/run_apptraverse_job.py` start/status/cancel; do not wait on MSBuild in the parent process.
 Do not construct long PowerShell or bash build command sequences.
 Never run clean or rebuild unless the selected slice explicitly requires it.
 Prefer incremental narrow-target builds.

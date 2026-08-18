@@ -388,7 +388,12 @@ One repo-owned runner will own:
 ## ACT-S022B
 
 - background build jobs with start/status/cancel
-- status: ready after S022A
+- status: done
+- schema `apptraverse.build_job/1`
+- artifacts `.artifacts/apptraverse-jobs/<job-id>/`, public `artifact_id` `apptraverse-jobs/<job-id>`
+- operations: start, status, cancel, `_worker`
+- job states: starting, running, completed, cancelled, failed, not_found
+- product `compile_failed` is job state `completed`
 - must not implement MCP
 
 ## ACT-S022
@@ -409,7 +414,7 @@ Absolute local paths are not returned in the public result.
 ## ACT-S023
 
 - thin MCP wrapper over canonical runner
-- status: blocked by S022
+- status: ready after S022B
 
 MCP wraps the runner. MCP must not independently implement build logic.
 

@@ -6,14 +6,14 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S022B
+ACT-S023
 
 Status:
 ready
 
 Goal:
-background build jobs with start/status/cancel, using the existing result and
-artifact contract. Must not implement MCP.
+thin MCP wrapper over the canonical runner and background job controller.
+Must not independently implement build logic.
 
 # Status vocabulary
 
@@ -32,9 +32,9 @@ artifact contract. Must not implement MCP.
 | ACT-S020 | checked-in Ninja CMake presets | done | this session; x86_64 desktop presets; no configure/build |
 | ACT-S021 | canonical staged build runner | done | tooling-level: unit tests, VS preflight, configure, classified compile_failed |
 | ACT-S022A | bounded artifacts and compact JSON results | done | this session |
-| ACT-S022B | background jobs start/status/cancel | ready | must not implement MCP |
-| ACT-S022 | JSON result/artifact/timeout contract | split | S022A done; S022B ready |
-| ACT-S023 | thin MCP wrapper over canonical runner | blocked | blocked by S022B |
+| ACT-S022B | background jobs start/status/cancel | done | this session; must not implement MCP |
+| ACT-S022 | JSON result/artifact/timeout contract | done | S022A + S022B |
+| ACT-S023 | thin MCP wrapper over canonical runner | ready | wraps job controller; must not reimplement build |
 | ACT-S025 | structured runtime JSONL logging | blocked | documentation only |
 | ACT-S026 | GoogleTest multi-instance harness | blocked | documentation only |
 | ACT-S027 | debugger inspection adapter | blocked | documentation only |
@@ -99,12 +99,31 @@ Real validation: known-failing VS narrow build captured as compact JSON
 `status=failed failure_kind=compile_failed` with C1083 in `first_error`.
 Full MSBuild output stayed in artifacts.
 
+## ACT-S022B details
+
+Windows job controller: `tools/runners/run_apptraverse_job.py`.
+
+Schema `apptraverse.build_job/1`. Job artifacts under
+`.artifacts/apptraverse-jobs/<job-id>/` with public `artifact_id`
+`apptraverse-jobs/<job-id>`. Operations: `start`, `status`, `cancel`,
+`_worker`. Job states: starting, running, completed, cancelled, failed,
+not_found.
+
+Windows detach: `cmd.exe /c start "" /b` without redirected stdio; worker
+writes PID first; `start` polls up to 2s. Windows liveness uses
+`OpenProcess`/`GetExitCodeProcess` (not `os.kill(pid, 0)`). Cancel uses
+`taskkill.exe /PID /T /F` with `shell=False`.
+
+Real validation: `start` returned in 0.545s. Job
+`20260818-042808-d03598` completed; wrapped build `compile_failed` C1083
+`domain_visitor.h`. Product ACT-B001 remains blocked.
+
 # Acceptance registry
 
 | Acceptance ID | Status | Evidence / notes |
 | --- | --- | --- |
 | ACT-A001 | done | three canonical files created and linked |
-| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S022B |
+| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S023 |
 | ACT-A003 | done at documentation and preset level | Ninja preferred; explicit `win64-vs2022-msvc-debug` fallback |
 | ACT-A004 | done at runner-contract level | staged execution + JSON/artifacts; product build remains ACT-B001 |
 | ACT-A005 | blocked | requires ACT-S023 MCP wrapper |
@@ -175,6 +194,21 @@ Session ACT-S022A:
 - duration_ms=121425; timeout 15 minutes not hit
 - full MSBuild not printed to terminal
 - no clean/rebuild/product/dependency fix; no MCP; no background jobs
+
+Session ACT-S022B:
+
+- checkout `review/chat-runner-jobs-v1` at `d7689a76a88b35373dc9b0e4c49ad498f089c911`
+- background job controller wrapping `run_apptraverse_build.py`
+- unit tests PASS (47: 29 build + 18 job)
+- Windows `start` detached in 0.545s (`job_id=20260818-042808-d03598`)
+- status running then completed; build `status=failed failure_kind=compile_failed`
+- `first_error` contains C1083 and `aether-miscpp/reflect/domain_visitor.h`
+- job `artifact_id=apptraverse-jobs/20260818-042808-d03598`
+- build `artifact_id=apptraverse-build/20260818-042808-d914e8`
+- job `duration_ms=152619`; full MSBuild not printed
+- no clean/rebuild/configure/product/dependency fix; no CTest; no MCP
+- ACT-B001 remains blocked
+- next ready slice: ACT-S023 only
 
 # Session log
 
@@ -279,3 +313,23 @@ Known limits:
 - background jobs not implemented
 - MCP not implemented
 Next ready slice: ACT-S022B
+
+Completion packet:
+
+Slice: ACT-S022B
+Acceptance IDs: ACT-A004 runner-contract level (jobs); ACT-A005 still blocked
+Artifacts:
+- tools/runners/run_apptraverse_job.py
+- tools/runners/test_run_apptraverse_job.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- apptraverse_chat_iterate_prompt.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: unit tests PASS (47); start 0.545s; job completed; build compile_failed
+Runtime proof: n/a
+Typed blockers: ACT-B001 transitive_dependency_drift (product)
+Known limits:
+- product still does not compile
+- MCP not implemented
+- S025/S026/S027 documented, not implemented
+Next ready slice: ACT-S023
