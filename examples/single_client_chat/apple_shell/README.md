@@ -1,8 +1,8 @@
 # Apple SwiftUI chat shell
 
-Isolated exploration slice: one shared SwiftUI chat UI for macOS and iOS, plus a
-minimal macOS demo host. No C++, Objective-C++, networking, persistence, Æther,
-or ChatComponent bridge.
+Isolated exploration slice: one shared SwiftUI chat UI hosted by a macOS demo
+and a runnable iOS Simulator app. No C++, Objective-C++, networking, persistence,
+Æther, or ChatComponent bridge.
 
 ## Layout
 
@@ -10,24 +10,22 @@ or ChatComponent bridge.
 | --- | --- |
 | `Sources/AppTraverseChatAppleUI/` | Shared library (macOS + iOS) |
 | `Sources/AppTraverseChatMacDemo/` | macOS-only executable |
+| `Sources/AppTraverseChatIosDemo/` | iOS-only SwiftUI app glue |
+| `ios/AppTraverseChatIosDemo.xcodeproj` | Minimal iOS Simulator app project |
 
-Shared Swift sources (3 files):
+Shared Swift sources (3 files, not copied):
 
-- `ChatView.swift` — the only chat UI; compiled for both platforms
+- `ChatView.swift` — the only chat UI
 - `ChatViewModel.swift` — observable model over `ChatBackend`
 - `ChatBackend.swift` — `ChatBackend` protocol + `FakeChatBackend`
 
-macOS-only entry (1 file):
+## Sharing
 
-- `AppTraverseChatMacDemo.swift` — SwiftUI `App` host, AppKit activation, optional `--smoke`
+Chat UI/model/backend stays in `AppTraverseChatAppleUI`. Hosts only provide
+lifecycle:
 
-## Shared amount
-
-- **75% of Swift files** (3 of 4) are shared.
-- **76% of Swift LOC** (191 of 250) are in `AppTraverseChatAppleUI`.
-- **100% of chat UI** lives in `ChatView.swift`. There is no forked iOS copy.
-- Platform conditionals are only used for iOS text-input traits
-  (`textInputAutocapitalization` / `autocorrectionDisabled`).
+- macOS: AppKit activation + optional `--smoke`
+- iOS: SwiftUI `App` + `WindowGroup` wrapping `ChatView(model:)`
 
 ## Backend protocol required by the UI
 
@@ -39,7 +37,7 @@ macOS-only entry (1 file):
 - `submitText(_:)`
 - `onChange` callback
 
-This slice implements only `FakeChatBackend`:
+`FakeChatBackend` only:
 
 - initial row: `* Apple joined`
 - Add: `* Peer added: <uid>`
@@ -56,44 +54,41 @@ SwiftUI
 
 That bridge is not implemented here.
 
-## Build
+## macOS build
 
-From this directory, macOS 13 / Swift 5.9:
+From this directory:
 
 ```sh
 swift build
 swift run AppTraverseChatMacDemo
-```
-
-CLI check of Fake Add/Send (no WindowServer required):
-
-```sh
 swift run AppTraverseChatMacDemo -- --smoke
 ```
 
-iOS Simulator x86_64 compile of the shared library (Xcode 15.2 / iOS 17.2 SDK),
-without a `.pbxproj`:
+## iOS Simulator app build
+
+x86_64, iOS 16 / SDK 17.2, no arm64:
 
 ```sh
-SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
-xcrun --sdk iphonesimulator swiftc \
-  -sdk "$SDK" \
-  -target x86_64-apple-ios16.0-simulator \
-  -parse-as-library \
-  -module-name AppTraverseChatAppleUI \
-  -emit-module-path /tmp/AppTraverseChatAppleUI.swiftmodule \
-  -emit-library \
-  -o /tmp/libAppTraverseChatAppleUI.dylib \
-  Sources/AppTraverseChatAppleUI/ChatBackend.swift \
-  Sources/AppTraverseChatAppleUI/ChatViewModel.swift \
-  Sources/AppTraverseChatAppleUI/ChatView.swift
+xcodebuild \
+  -project ios/AppTraverseChatIosDemo.xcodeproj \
+  -scheme AppTraverseChatIosDemo \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  -arch x86_64 \
+  -derivedDataPath .derivedData \
+  CODE_SIGNING_ALLOWED=NO \
+  CODE_SIGNING_REQUIRED=NO \
+  ONLY_ACTIVE_ARCH=YES \
+  EXCLUDED_ARCHS=arm64 \
+  build
 ```
 
-`xcodebuild -list` in this environment did not treat the Swift package as an
-Xcode package/workspace (and CoreSimulatorService was unavailable to the
-agent). A runnable iOS app bundle is out of scope for this slice.
+The project references the existing shared Swift files. It does not copy them.
+
+Install/launch needs CoreSimulatorService (`simctl`). If that service is
+unavailable to the agent, the `.app` bundle can still be produced.
 
 ## Platforms
 
 - macOS 13
-- iOS 16 (APIs available in Xcode 15.2)
+- iOS 16 (Xcode 15.2 / iPhoneSimulator 17.2 SDK)
