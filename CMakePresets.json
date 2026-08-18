@@ -24,6 +24,14 @@
       }
     },
     {
+      "name": "win64-vs2022-msvc-debug",
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64"
+      },
+      "binaryDir": "${sourceDir}/build/win64-vs2022-msvc-debug"
+    },
+    {
       "name": "linux-x64-ninja-clang-debug",
       "inherits": "ninja-debug-base",
       "binaryDir": "${sourceDir}/build/linux-x64-ninja-clang-debug",
@@ -45,6 +53,11 @@
     {
       "name": "win64-ninja-msvc-debug",
       "configurePreset": "win64-ninja-msvc-debug"
+    },
+    {
+      "name": "win64-vs2022-msvc-debug",
+      "configurePreset": "win64-vs2022-msvc-debug",
+      "configuration": "Debug"
     },
     {
       "name": "linux-x64-ninja-clang-debug",

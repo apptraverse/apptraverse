@@ -29,10 +29,12 @@ Execute only that slice:
 - no toolchain installation
 - no branch changes outside the selected slice
 
-Use only the canonical Ninja profile named by the slice.
+Use only the canonical profile named by the slice.
+Drive configure/build through `tools/runners/run_apptraverse_build.py`.
+Do not construct long PowerShell or bash build command sequences.
 Never run clean or rebuild unless the selected slice explicitly requires it.
 Prefer incremental narrow-target builds.
-Do not invent ad-hoc build directories or compiler/generator fallbacks.
+Do not invent ad-hoc build directories or implicit compiler/generator fallbacks.
 Update progress, evidence and the next ready slice in the same session.
 Stop after one completed or typed-blocked slice.
 Stop immediately if progress contains:
@@ -54,18 +56,21 @@ APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Build policy
 
 - Execute one slice only.
-- Ninja is canonical for direct C++ CMake builds. Never use the Visual Studio generator.
-- Windows compiler must be MSVC `cl.exe`. No MinGW/GCC fallback.
+- Python runner is the canonical orchestration entry point.
+- Ninja is preferred for incremental C++ builds but is not mandatory.
+- Windows Visual Studio 17 2022 is an explicit profile, not an implicit fallback.
+- Windows compiler must be MSVC. No MinGW/GCC fallback.
 - Never reuse a build directory configured for another compiler/generator; return `build_profile_conflict`.
 - No ad-hoc build directories (`build2`, `build-new`, and similar).
-- Incremental narrow target builds: `cmake --build <canonical-dir> --target <small-target>`.
+- Incremental narrow target builds via the runner.
 - Configure only when the canonical directory is missing, CMake inputs changed, or the slice owns configure.
 - No clean/rebuild unless explicitly owned by the selected slice or requested by the user.
 - No full CTest unless explicitly owned by the slice.
-- No automatic compiler/generator fallback.
+- No automatic compiler/generator fallback inside one invocation.
 - No automatic SDK/tool installation.
 - One retry maximum. A failure does not authorize clean, rebuild, a new directory, or another toolchain.
-- Full logs remain artifacts once the runner/MCP exists; Cursor should receive compact results.
+- External configure/build commands time out at 15 minutes (`command_timeout`).
+- Full logs remain artifacts once ACT-S022 exists; Cursor should receive compact results.
 - A documentation/configuration-only slice performs no configure, build, or tests.
 
 # Git policy

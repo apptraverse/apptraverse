@@ -5,7 +5,7 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 
 # Current ready slice
 
-None. ACT-S021 is blocked on the host environment. ACT-S022 is not ready.
+None. ACT-S021 is blocked. ACT-S022 is not ready.
 
 Slice:
 ACT-S021
@@ -14,18 +14,19 @@ Status:
 blocked
 
 Typed blocker:
-ninja_missing
+compile_failed
 
 Goal:
-Implement the minimal canonical staged build runner for ONE profile first:
-`win64-ninja-msvc-debug`.
+Finish the canonical Windows build runner without requiring Ninja, using
+explicit `win64-vs2022-msvc-debug` as the Visual Studio fallback profile.
 
 Acceptance:
 ACT-A004 prerequisite
 
 Stop after:
-runner contract is unit-tested; runtime preflight/configure/build require a
-developer environment with `cmake`, `ninja`, and MSVC `cl` on PATH.
+unit tests, VS preflight and configure passed; narrow VS incremental build
+failed compiling Æther (`C1083` missing `aether-miscpp/reflect/domain_visitor.h`).
+Do not fix product/dependency compile errors in this tooling slice.
 
 # Status vocabulary
 
@@ -42,7 +43,7 @@ developer environment with `cmake`, `ninja`, and MSVC `cl` on PATH.
 | ACT-S001 | initial Windows presentation replay | blocked | blocked until tooling baseline is usable; previous environment/worktree failure, not a product-code failure |
 | ACT-S010 | canonical plan/progress/iterate trio | done | documentation-only |
 | ACT-S020 | checked-in Ninja CMake presets | done | this session; x86_64 desktop presets; no configure/build |
-| ACT-S021 | canonical staged build runner | blocked | Windows runner implemented and unit-tested; runtime preflight blocked: ninja_missing |
+| ACT-S021 | canonical staged build runner | blocked | Ninja + VS2022 profiles; unit tests PASS; VS preflight/configure PASS; VS narrow build compile_failed |
 | ACT-S022 | JSON result/artifact/timeout contract | blocked | blocked by S021 |
 | ACT-S023 | thin MCP wrapper over canonical runner | blocked | blocked by S022 |
 | ACT-S030 | read-only architecture audit | blocked | blocked by tooling baseline |
@@ -76,25 +77,34 @@ Evidence:
 
 Windows runner path: `tools/runners/run_apptraverse_build.py`.
 
-Supported profile: `win64-ninja-msvc-debug`.
+Supported profiles:
+
+- `win64-ninja-msvc-debug` (Ninja preferred; still requires Ninja + `cl` on PATH)
+- `win64-vs2022-msvc-debug` (explicit Visual Studio 17 2022 fallback; Ninja not required)
 
 Supported stages: `preflight`, `configure`, `build`.
 
-ACT-S021 must not initially implement Linux/macOS/Android/iOS. Runtime
-validation on this host stopped at preflight:
+Hard timeout: 15 minutes per external command (`command_timeout`).
 
-`status=blocked stage=preflight failure_kind=ninja_missing`
+This session:
 
-Do not repair the environment in this slice. Do not mark ACT-S022 ready.
+- unit tests PASS
+- VS preflight PASS
+- VS configure `configured` (~347s)
+- VS incremental build of `apptraverse_chat_component_test` FAIL `compile_failed`
+  (`C1083` missing `aether-miscpp/reflect/domain_visitor.h` in Æther)
+- no Ninja retry; no product C++ fix in this tooling slice
+
+Do not mark ACT-S022 ready.
 
 # Acceptance registry
 
 | Acceptance ID | Status | Evidence / notes |
 | --- | --- | --- |
 | ACT-A001 | done | three canonical files created and linked |
-| ACT-A002 | done | no ready slice while ACT-S021 is environment-blocked |
-| ACT-A003 | done at documentation and preset level | Ninja-only desktop presets and no-clean/rebuild policy documented |
-| ACT-A004 | blocked | runner exists; runtime configure/build not proven (`ninja_missing`) |
+| ACT-A002 | done | no ready slice while ACT-S021 is blocked |
+| ACT-A003 | done at documentation and preset level | Ninja preferred; explicit `win64-vs2022-msvc-debug` fallback |
+| ACT-A004 | blocked | runner stages work; VS narrow build `compile_failed` on Æther include |
 | ACT-A005 | blocked | requires ACT-S023 MCP wrapper |
 | ACT-A006 | blocked | Windows/Android chat functional baseline not yet executed |
 | ACT-A007 | blocked | requires ACT-S030 read-only architecture audit |
@@ -134,6 +144,20 @@ Session ACT-S021:
 - no compiler/generator fallback
 - no Android/Linux/macOS/Gradle/xcodebuild/CTest/MCP/JSON artifacts
 - no product source changes
+- ACT-S022 not marked ready
+
+Session ACT-S021 (runner-v2):
+
+- clean checkout of `review/chat-runner-v1` at `21b9861cf4d6403c98c5c197db75583459c5ac5f`
+- added explicit `win64-vs2022-msvc-debug` preset and runner support
+- Ninja preferred, not required; no implicit generator fallback
+- Python unit tests PASS (17)
+- VS preflight PASS
+- VS configure `configured` (~347s)
+- VS incremental build `apptraverse_chat_component_test` FAIL `compile_failed` (~251s)
+- timeout 15 minutes; not hit
+- no Ninja retry; no clean/rebuild; no C++ product fix
+- documented Python-first orchestration, GoogleTest policy, ChatTransport, console/Emscripten, `ae::Uid` audit
 - ACT-S022 not marked ready
 
 # Session log
@@ -195,4 +219,26 @@ Known limits:
 - MCP not implemented
 - JSON/artifact contract not implemented
 - ACT-S001 Windows render fix still blocked
+Next ready slice: none (ACT-S021 blocked; ACT-S022 not ready)
+
+Completion packet:
+
+Slice: ACT-S021 (runner-v2)
+Acceptance IDs: ACT-A004 still blocked
+Artifacts:
+- CMakePresets.json
+- tools/runners/run_apptraverse_build.py
+- tools/runners/test_run_apptraverse_build.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- apptraverse_chat_iterate_prompt.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: unit tests PASS; VS preflight PASS; configure configured; build compile_failed
+Runtime proof: n/a
+Typed blockers: compile_failed
+Known limits:
+- Æther include `aether-miscpp/reflect/domain_visitor.h` missing under VS 2022 generator
+- Ninja profile still unused on this host
+- MCP/JSON not implemented
+- ACT-S001 still blocked
 Next ready slice: none (ACT-S021 blocked; ACT-S022 not ready)

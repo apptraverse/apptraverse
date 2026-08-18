@@ -49,9 +49,42 @@ Application host:
 - forwards transport callbacks
 - manages foreground/background policy
 
-## AetherP2pTransport target boundary
+## ChatTransport (target conceptual boundary)
 
-AetherP2pTransport target boundary:
+ChatComponent must depend on a transport-neutral boundary. Æther is one
+transport implementation, not the permanent ChatComponent API.
+
+Target `ChatTransport`:
+
+- connect(remote endpoint)
+- send(remote endpoint, bytes)
+- receive callback
+- optional connection/status callback
+
+Transport must not own:
+
+- Chat events
+- SyncPacket lifecycle
+- application ACK
+- persistence
+- UI
+- delivery semantics above raw byte transport
+
+Future adapters to keep in mind:
+
+- Aether transport
+- in-memory transport for tests
+- console/headless transport host
+- Emscripten/web transport
+- future AeroAdmin/offline-service transport
+
+Audit item: current use of `ae::Uid` in reusable chat APIs may leak Æther
+identity into the generic component and must be reviewed before architecture
+freeze. Do not change the C++ API until a slice owns that review.
+
+## AetherP2pTransport (current implementation)
+
+Current Æther adapter surface:
 
 - Connect(peer)
 - Send(peer, bytes)
@@ -171,20 +204,62 @@ Do not add:
 - settings UI
 - a common cross-platform widget framework
 
+# Additional validation hosts
+
+These are not extra GUI platforms. The product baseline remains the five GUI
+platforms above.
+
+## Console application
+
+- canonical minimal headless host
+- useful for interoperability, persistence and transport tests
+- should compile on desktop platforms
+- not implemented in this slice
+
+## Emscripten
+
+- future architecture-validation target
+- must expose blocking/thread/filesystem/platform assumptions
+- transport may later use WebSocket/WebTransport/HTTP
+- no browser UI or Emscripten build in this slice
+
 # Canonical build environment
 
-Ninja is the only generator for direct C++ CMake builds.
+Ninja is preferred for fast incremental C++ builds. Ninja is not mandatory.
+
+Windows requires MSVC. `Visual Studio 17 2022` is the canonical explicit
+fallback generator. Backend selection is by profile name, never by implicit
+fallback inside one build directory.
 
 Checked-in desktop CMake presets (`CMakePresets.json`):
 
 - `win64-ninja-msvc-debug` — Ninja, MSVC `cl`, `build/win64-ninja-msvc-debug`
+- `win64-vs2022-msvc-debug` — Visual Studio 17 2022, x64, `build/win64-vs2022-msvc-debug`, build configuration Debug
 - `linux-x64-ninja-clang-debug` — Ninja, `clang++`, `build/linux-x64-ninja-clang-debug`
 - `macos-x64-ninja-appleclang-debug` — Ninja, `clang++`, `CMAKE_OSX_ARCHITECTURES=x86_64`, `build/macos-x64-ninja-appleclang-debug`
 
 No Release profiles yet. No ARM64 canonical profiles.
 
-Windows must not fall back to MinGW/GCC. The future runner must preflight a
-valid MSVC environment before invoking `win64-ninja-msvc-debug`.
+Windows must not fall back to MinGW/GCC. The Ninja Windows profile still
+requires `cl.exe` on PATH. The Visual Studio Windows profile does not require
+Ninja or `cl` on PATH; CMake/VS locates the toolchain.
+
+Canonical orchestration entry point:
+
+`tools/runners/run_apptraverse_build.py`
+
+Cursor must not construct long PowerShell/bash build command sequences. Python
+may invoke cmake, the selected build backend, ctest, Gradle and xcodebuild.
+PowerShell/bash is reserved for cases that cannot reasonably be expressed in
+the shared Python runner. `shell=True` is forbidden unless strictly necessary.
+
+# C++ testing policy
+
+- new C++ unit/component tests should use GoogleTest where practical
+- CTest remains the umbrella test runner
+- existing custom CHECK executables are not migrated in this slice
+- Python runner tests continue using stdlib unittest
+- do not add GoogleTest or rewrite C++ tests until a slice owns that work
 
 ## Android / iOS profile policy
 
@@ -198,13 +273,13 @@ arm64-v8a in the current baseline.
 iOS: the final application build uses xcodebuild. Shared C++ remains
 platform-neutral. Do not replace the Apple application toolchain with Ninja.
 
-Ninja remains the canonical direct C++ build generator where CMake owns the
-build. Android/iOS runner stages are not part of ACT-S020.
+Where CMake owns a direct C++ build, use a checked-in preset. Android/iOS
+application toolchains remain Gradle and xcodebuild.
 
 Forbid:
 
-- Visual Studio CMake generator
-- MinGW for the Windows production profile
+- implicit generator fallback inside one profile or one build directory
+- MinGW for Windows production profiles
 - accidental compiler selection from PATH
 - random / ad-hoc build directory names
 - switching compiler or generator inside an existing build directory
@@ -258,6 +333,7 @@ Additional rules:
 - missing tool/SDK is returned as a typed blocker
 - Cursor does not install the toolchain automatically
 - a documentation/configuration-only slice performs no configure, build, or tests
+- every external configure/build command has a 15-minute hard wall timeout (`command_timeout`)
 
 # Planned phases and slices
 
@@ -284,8 +360,9 @@ Minimal backlog:
 
 - canonical staged build runner
 - Windows entry point: `tools/runners/run_apptraverse_build.py`
-- first implementation owns one profile only: `win64-ninja-msvc-debug`
+- supported profiles: `win64-ninja-msvc-debug`, `win64-vs2022-msvc-debug`
 - stages: `preflight`, `configure`, `build`
+- Ninja preferred; Visual Studio 2022 is an explicit second profile
 - do not initially implement Linux/macOS/Android/iOS adapters
 - other platform adapters come after runner behavior is stable
 
@@ -362,7 +439,7 @@ exactly one ready slice can be identified mechanically from progress
 
 ## ACT-A003
 
-Ninja-only build policy is documented
+Ninja-preferred Windows MSVC policy is documented, with explicit VS 2022 fallback profile
 
 ## ACT-A004
 
