@@ -283,8 +283,9 @@ Minimal backlog:
 ## ACT-S021
 
 - canonical staged build runner
-- status: ready after S020
+- Windows entry point: `tools/runners/run_apptraverse_build.py`
 - first implementation owns one profile only: `win64-ninja-msvc-debug`
+- stages: `preflight`, `configure`, `build`
 - do not initially implement Linux/macOS/Android/iOS adapters
 - other platform adapters come after runner behavior is stable
 

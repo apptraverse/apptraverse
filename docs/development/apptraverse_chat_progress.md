@@ -5,11 +5,16 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 
 # Current ready slice
 
+None. ACT-S021 is blocked on the host environment. ACT-S022 is not ready.
+
 Slice:
 ACT-S021
 
 Status:
-ready
+blocked
+
+Typed blocker:
+ninja_missing
 
 Goal:
 Implement the minimal canonical staged build runner for ONE profile first:
@@ -19,8 +24,8 @@ Acceptance:
 ACT-A004 prerequisite
 
 Stop after:
-runner contract is correct on Windows Ninja/MSVC; no Linux/macOS/Android/iOS
-adapters yet
+runner contract is unit-tested; runtime preflight/configure/build require a
+developer environment with `cmake`, `ninja`, and MSVC `cl` on PATH.
 
 # Status vocabulary
 
@@ -37,7 +42,7 @@ adapters yet
 | ACT-S001 | initial Windows presentation replay | blocked | blocked until tooling baseline is usable; previous environment/worktree failure, not a product-code failure |
 | ACT-S010 | canonical plan/progress/iterate trio | done | documentation-only |
 | ACT-S020 | checked-in Ninja CMake presets | done | this session; x86_64 desktop presets; no configure/build |
-| ACT-S021 | canonical staged build runner | ready | first ready slice after S020; Windows profile only |
+| ACT-S021 | canonical staged build runner | blocked | Windows runner implemented and unit-tested; runtime preflight blocked: ninja_missing |
 | ACT-S022 | JSON result/artifact/timeout contract | blocked | blocked by S021 |
 | ACT-S023 | thin MCP wrapper over canonical runner | blocked | blocked by S022 |
 | ACT-S030 | read-only architecture audit | blocked | blocked by tooling baseline |
@@ -69,18 +74,27 @@ Evidence:
 
 ## ACT-S021 details
 
-ACT-S021 must not initially implement Linux/macOS/Android/iOS. First make the
-runner contract correct on one platform. Other platform adapters come after
-runner behavior is stable.
+Windows runner path: `tools/runners/run_apptraverse_build.py`.
+
+Supported profile: `win64-ninja-msvc-debug`.
+
+Supported stages: `preflight`, `configure`, `build`.
+
+ACT-S021 must not initially implement Linux/macOS/Android/iOS. Runtime
+validation on this host stopped at preflight:
+
+`status=blocked stage=preflight failure_kind=ninja_missing`
+
+Do not repair the environment in this slice. Do not mark ACT-S022 ready.
 
 # Acceptance registry
 
 | Acceptance ID | Status | Evidence / notes |
 | --- | --- | --- |
 | ACT-A001 | done | three canonical files created and linked |
-| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S021 |
+| ACT-A002 | done | no ready slice while ACT-S021 is environment-blocked |
 | ACT-A003 | done at documentation and preset level | Ninja-only desktop presets and no-clean/rebuild policy documented |
-| ACT-A004 | blocked | requires ACT-S021 staged runner |
+| ACT-A004 | blocked | runner exists; runtime configure/build not proven (`ninja_missing`) |
 | ACT-A005 | blocked | requires ACT-S023 MCP wrapper |
 | ACT-A006 | blocked | Windows/Android chat functional baseline not yet executed |
 | ACT-A007 | blocked | requires ACT-S030 read-only architecture audit |
@@ -107,6 +121,20 @@ Session ACT-S020:
 - no source code or product-feature work
 - no v4/v5 cherry-picks
 - ARM64 not added to the baseline
+
+Session ACT-S021:
+
+- clean checkout of `review/chat-tooling-v1` at `7a0c1e4fe7c876be81ab92449d6d9d1c5f473c8b`
+- Windows runner and unit tests added
+- `python -m unittest tools.runners.test_run_apptraverse_build -q` PASS
+- preflight BLOCKED: `ninja_missing`
+- configure not_run
+- incremental build not_run
+- no clean/rebuild/directory deletion
+- no compiler/generator fallback
+- no Android/Linux/macOS/Gradle/xcodebuild/CTest/MCP/JSON artifacts
+- no product source changes
+- ACT-S022 not marked ready
 
 # Session log
 
@@ -146,3 +174,25 @@ Known limits:
 - Linux/macOS/Android/iOS adapters not implemented
 - ACT-S001 Windows render fix still blocked
 Next ready slice: ACT-S021
+
+Completion packet:
+
+Slice: ACT-S021
+Acceptance IDs: ACT-A004 still blocked
+Artifacts:
+- tools/runners/run_apptraverse_build.py
+- tools/runners/test_run_apptraverse_build.py
+- tools/runners/__init__.py
+- apptraverse_chat_progress.md
+- apptraverse_chat_plan.md (runner path only)
+Build identity: n/a
+Build proof: unit tests PASS; runtime preflight blocked ninja_missing
+Runtime proof: n/a
+Typed blockers: ninja_missing
+Known limits:
+- ninja not on PATH in this environment
+- configure/build not executed
+- MCP not implemented
+- JSON/artifact contract not implemented
+- ACT-S001 Windows render fix still blocked
+Next ready slice: none (ACT-S021 blocked; ACT-S022 not ready)
