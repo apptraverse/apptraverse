@@ -6,13 +6,13 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S026
+ACT-S026A
 
 Status:
-ready
+blocked
 
 Goal:
-GoogleTest multi-instance integration harness with Python-owned environment/process/emulator orchestration; prove real JSONL output and use it for deterministic assertions.
+two-Windows Python process harness and real JSONL proof. Do not add GoogleTest, Android, or ChatComponent changes.
 
 # Status vocabulary
 
@@ -37,7 +37,10 @@ GoogleTest multi-instance integration harness with Python-owned environment/proc
 | ACT-S024 | live Cursor MCP Auto-run proof | done | MCP workflow validated; see ACT-T001/ACT-T002 |
 | ACT-S024R | user-level Cursor MCP for worktrees | done | canonical setup in User ~/.cursor/mcp.json |
 | ACT-S025 | structured runtime JSONL logging | done | JSONL writer, Windows host events, bounded MCP query |
-| ACT-S026 | GoogleTest multi-instance harness | ready | Python-owned process orchestration; JSONL assertions |
+| ACT-S026A | two-Windows Python process harness | blocked | unit tests PASS; live MCP server still 5 tools |
+| ACT-S026B | GoogleTest/CTest wrapper | blocked | wraps proven Windows scenario |
+| ACT-S026C | Windows ↔ Android x86_64 emulator | blocked | after S026B |
+| ACT-S026 | GoogleTest multi-instance harness | split | S026A/S026B/S026C |
 | ACT-S027 | debugger inspection adapter | blocked | documentation only |
 | ACT-S030 | read-only architecture audit | blocked | blocked by tooling baseline |
 | ACT-S040 | transport simplification slices | blocked | blocked by audit and user decisions |
@@ -155,6 +158,14 @@ Worktree ownership:
 - switching Cursor to another worktree does not reuse configured CMake directories from a different worktree
 - canonical MCP checkout should be the primary Windows development worktree until tooling supports explicit repo/worktree routing
 
+## ACT-S026A details
+
+Python two-Windows harness implemented. Unit tests PASS.
+
+Typed blocker: `mcp_tool_unavailable`
+
+Live Cursor server identifier `user-apptraverse` still exposes the pre-S026A five tools. `apptraverse_two_windows_chat_run` is in source but not loaded in the current MCP process. The one real scenario was not started via terminal.
+
 ## ACT-S025 details
 
 Structured runtime JSONL logging for Windows single-client chat host.
@@ -177,7 +188,7 @@ User-level MCP setup for worktrees. `setup_apptraverse_mcp.py` writes/updates on
 | Acceptance ID | Status | Evidence / notes |
 | --- | --- | --- |
 | ACT-A001 | done | three canonical files created and linked |
-| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S026 |
+| ACT-A002 | done | progress identifies exactly one ready slice: ACT-S026A |
 | ACT-A003 | done at documentation and preset level | Ninja preferred; explicit `win64-vs2022-msvc-debug` fallback |
 | ACT-A004 | done at runner-contract level | staged execution + JSON/artifacts; ACT-B001 dependency drift resolved |
 | ACT-A005 | done | ACT-S023 MCP wrapper; ACT-S024 live Cursor MCP workflow proof |
@@ -543,3 +554,34 @@ Known limits:
 - no multi-instance process harness yet (ACT-S026)
 - no end-to-end runtime JSONL generation test until S026
 Next ready slice: ACT-S026
+
+Session ACT-S026A:
+
+- branch `review/chat-two-windows-harness-v1` from `a91904cbb3ebb1f0570854cc8ee4240132ed9d53`
+- Python harness `tools/integration/run_two_windows_chat.py`
+- MCP tool `apptraverse_two_windows_chat_run` added in source (tool count 6)
+- unit tests PASS (36: 16 harness + 20 MCP)
+- existing `win32_single_client_chat.exe` present; no rebuild
+- real MCP scenario not executed: live `user-apptraverse` process still lists 5 tools
+- typed blocker: `mcp_tool_unavailable`
+- ACT-S026B not marked ready
+
+Completion packet:
+
+Slice: ACT-S026A
+Acceptance IDs: n/a
+Artifacts:
+- tools/integration/run_two_windows_chat.py
+- tools/integration/test_run_two_windows_chat.py
+- tools/mcp/apptraverse_mcp.py
+- tools/mcp/test_apptraverse_mcp.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- apptraverse_chat_iterate_prompt.md
+Build identity: win64-vs2022-msvc-debug
+Build proof: existing win32_single_client_chat.exe; no rebuild
+Runtime proof: unit tests PASS; live MCP scenario not run
+Typed blockers: mcp_tool_unavailable
+Known limits:
+- Cursor user-level MCP process must reload to expose the sixth tool
+Next ready slice: ACT-S026A

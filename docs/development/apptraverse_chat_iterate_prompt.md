@@ -34,7 +34,8 @@ Drive configure/build through `tools/runners/run_apptraverse_build.py`.
 Long builds use `tools/runners/run_apptraverse_job.py` start/status/cancel; do not wait on MSBuild in the parent process.
 Cursor-facing invocations use the apptraverse MCP tools wrapping that job controller:
 `apptraverse_build_start`, `apptraverse_build_status`, `apptraverse_build_cancel`,
-`apptraverse_build_failure_excerpt`, `apptraverse_runtime_log_query`. Register MCP once per checkout with
+`apptraverse_build_failure_excerpt`, `apptraverse_runtime_log_query`,
+`apptraverse_two_windows_chat_run`. Register MCP once per checkout with
 `python tools/mcp/setup_apptraverse_mcp.py` (User-level `~/.cursor/mcp.json`;
 see `.cursor/mcp.json.example`). Project-local `.cursor/mcp.json` is not canonical
 because project-scoped MCP proved unreliable from worktrees (ACT-T001).

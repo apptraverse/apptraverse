@@ -473,10 +473,27 @@ Evidence: server identifier `user-apptraverse`; preflight completed status=ok; b
 
 ## ACT-S026
 
-- GoogleTest multi-instance integration harness
-- status: ready after S025
-- Python owns environment/emulator/process setup
-- GoogleTest owns deterministic assertions where practical
+Split after S025:
+
+## ACT-S026A
+
+- two-Windows Python process harness and real JSONL proof
+- status: blocked (`mcp_tool_unavailable`) until the live user-apptraverse MCP process reloads the sixth tool
+- runner: `tools/integration/run_two_windows_chat.py`
+- MCP: `apptraverse_two_windows_chat_run` (sixth tool)
+- assertions use `apptraverse.runtime_event/1` only
+- scenario `two_windows_bidirectional_chat`
+- artifacts `.artifacts/apptraverse-integration/<run-id>/`
+
+## ACT-S026B
+
+- GoogleTest/CTest wrapper over the proven Windows scenario
+- status: blocked until S026A
+
+## ACT-S026C
+
+- Windows ↔ Android x86_64 emulator orchestration
+- status: blocked until S026B
 
 ## ACT-S027
 

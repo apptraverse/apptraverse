@@ -224,8 +224,8 @@ class McpWrapperTest(unittest.TestCase):
                         mcp_mod.apptraverse_build_failure_excerpt("nope")
         self.assertEqual(buf.getvalue(), "")
 
-    def test_server_exposes_exactly_five_tools(self) -> None:
-        self.assertEqual(len(mcp_mod.TOOL_NAMES), 5)
+    def test_server_exposes_exactly_six_tools(self) -> None:
+        self.assertEqual(len(mcp_mod.TOOL_NAMES), 6)
         self.assertEqual(
             list(mcp_mod.TOOL_NAMES),
             [
@@ -234,6 +234,7 @@ class McpWrapperTest(unittest.TestCase):
                 "apptraverse_build_cancel",
                 "apptraverse_build_failure_excerpt",
                 "apptraverse_runtime_log_query",
+                "apptraverse_two_windows_chat_run",
             ],
         )
         probe = (
@@ -248,7 +249,7 @@ class McpWrapperTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         payload = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertEqual(sorted(payload["names"]), sorted(payload["expected"]))
-        self.assertEqual(len(payload["names"]), 5)
+        self.assertEqual(len(payload["names"]), 6)
 
 
 def run_stdio_smoke() -> dict:
