@@ -6,13 +6,13 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S100C2
+none
 
 Status:
 blocked
 
 Goal:
-validate Windows and Android restart, persisted identity/history, automatic reconnection, and post-restart bidirectional messaging. Do not test Wi-Fi outage.
+ACT-S100C2 remains blocked until a repaired persistence scenario PASSes. ACT-S100C3 is not ready.
 
 # Status vocabulary
 
@@ -52,7 +52,8 @@ validate Windows and Android restart, persisted identity/history, automatic reco
 | ACT-S100C | live Windows <-> Android x86_64 chat | split | C1 live exchange; C2 restart/persistence; C3 network loss |
 | ACT-S100C1 | basic live Windows ↔ Android bidirectional exchange | done | live bidirectional exchange on emulator-5554 after C1-R1 dump repair |
 | ACT-S100C1-R1 | harden Android UI hierarchy acquisition | done | exec_out_compressed_tty; one preflight; one live PASS |
-| ACT-S100C2 | Windows/Android restart and persistence | blocked | one live run phase1_delivery_failed; C3 not ready |
+| ACT-S100C2 | Windows/Android restart and persistence | blocked | R1 proved W→A via CHAT_MESSAGE_VISIBLE; live still android_ui_dump_failed on Android input/Send; C3 not ready |
+| ACT-S100C2-R1 | Android presentation markers for persistence assertions | done | harness-repair; W→A marker exact-once proved; UI dump only for Send still idle-failed |
 | ACT-S100C3 | temporary network loss and recovery | blocked | after ACT-S100C2 PASS |
 
 ## ACT-S001 details
@@ -237,7 +238,15 @@ Harness-only repair. Distinct dump failure kinds, foreground gate, bounded three
 
 ## ACT-S100C2 details
 
-One live restart/persistence run `windows-android-persistence/20260819-031722-9ff594` failed `phase1_delivery_failed` after Windows accepted `text_submit` (`event_obj_id=908004890`). Android UI dumps during the wait returned `ERROR: could not get idle state` (no valid hierarchy XML). Phase 2 was not reached. Verbose property restored to 0. App data preserved. ACT-S100C3 is not ready.
+Previous live run `windows-android-persistence/20260819-031722-9ff594` was recorded as `phase1_delivery_failed`. Technical classification is `delivery_succeeded_ui_dump_failed`, not `phase1_delivery_failed`.
+
+Windows accepted `text_submit` (`event_obj_id=908004890`). Android then emitted `SYNC_PACKET_RECEIVED`, `SYNC_EVENT_APPLIED event=908004890`, exactly one `CHAT_MESSAGE_VISIBLE platform=android text_key=pre_w_to_a_9ff594`, and `TRANSCRIPT_PUBLISHED` containing that message. Delivery to Android presentation succeeded. The harness then called uiautomator, which failed with `ERROR: could not get idle state`. Phase 2 was not reached. Verbose property restored to 0. App data preserved. ACT-S100C2 remains blocked until the repaired scenario passes. ACT-S100C3 is not ready.
+
+## ACT-S100C2-R1 details
+
+Harness-only repair. Android delivery/history assertions use native `CHAT_MESSAGE_VISIBLE platform=android text_key=<message>` exact-once markers. `TRANSCRIPT_PUBLISHED` is diagnostic only. UI hierarchy remains only for genuine Android input/Send. Dump failures during Send keep `android_ui_dump_failed` and are not converted to `phase1_delivery_failed`. No product C++/Java/JNI changes. No build/install/pm clear.
+
+One live run `windows-android-persistence/20260819-040220-de2a37` failed `android_ui_dump_failed` while acquiring hierarchy for `message_input` (uiautomator `ERROR: could not get idle state`, 3 attempts, no XML). Phase-1 Windows→Android delivery had already passed: Windows `text_submit` Event ObjId `633861473`, Android `SYNC_EVENT_APPLIED event=633861473`, exactly one `CHAT_MESSAGE_VISIBLE platform=android text_key=pre_w_to_a_de2a37`. Verbose restored to 0. App data preserved. ACT-S100C2 stays blocked. ACT-S100C3 is not ready.
 
 ## ACT-S025 details
 
@@ -875,7 +884,7 @@ Session ACT-S100C2:
 - branch review/chat-windows-android-persistence-v1 from 902c3825fa2c987fd24875e059f93b848fc9bac1
 - reused C1 dump/foreground/JSONL helpers; limited windows_env instance= default windows
 - unit tests PASS 39 (13 persistence + 26 C1)
-- one live run 20260819-031722-9ff594 status=failed failure_kind=phase1_delivery_failed
+- one live run 20260819-031722-9ff594 status=failed; recorded failure_kind=phase1_delivery_failed; technical classification=delivery_succeeded_ui_dump_failed
 - Windows text_submit accepted; Android uiautomator idle-state dump failed during wait
 - verbose restored to 0; Android data preserved; Windows state preserved
 - no build/install/pm clear; no phase-2 re-pairing attempted
@@ -894,10 +903,42 @@ Artifacts:
 - .artifacts/windows-android-persistence/20260819-031722-9ff594
 Build identity: n/a
 Build proof: not_run
-Runtime proof: one live run status=failed failure_kind=phase1_delivery_failed duration_ms=78265
-Typed blockers: phase1_delivery_failed
+Runtime proof: one live run status=failed recorded_failure_kind=phase1_delivery_failed technical_classification=delivery_succeeded_ui_dump_failed duration_ms=78265
+Typed blockers: delivery_succeeded_ui_dump_failed
 Known limits:
 - Android manual GUI validation remains pending; non-blocking
-- uiautomator reported ERROR: could not get idle state during phase-1 transcript wait
+- uiautomator reported ERROR: could not get idle state after Android presentation already showed the Windows message; compact result recorded phase1_delivery_failed
+Next ready slice: none (ACT-S100C3 stays blocked until C2 PASS)
+
+
+Session ACT-S100C2-R1:
+
+- branch review/chat-windows-android-persistence-r1 from c427d8fb133959d666d353511555078d3b2e139e
+- Android delivery/history uses CHAT_MESSAGE_VISIBLE exact-once; UI hierarchy only for input/Send
+- previous C2 run reclassified delivery_succeeded_ui_dump_failed, not phase1_delivery_failed
+- unit tests PASS 43 (17 persistence + 26 C1)
+- one live run 20260819-040220-de2a37 status=failed failure_kind=android_ui_dump_failed
+- W→A already accepted: Event ObjId 633861473, SYNC_EVENT_APPLIED, CHAT_MESSAGE_VISIBLE count=1 for pre_w_to_a_de2a37
+- Android Send dump: 3 attempts, ERROR: could not get idle state, no XML; not converted to phase1_delivery_failed
+- verbose restored to 0; Android data preserved; no build/install/pm clear
+- ACT-S100C2 remains blocked; ACT-S100C3 not marked ready
+
+Completion packet:
+
+Slice: ACT-S100C2-R1
+Acceptance IDs: n/a
+Artifacts:
+- tools/integration/run_windows_android_persistence.py
+- tools/integration/test_run_windows_android_persistence.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- .artifacts/windows-android-persistence/20260819-040220-de2a37
+Build identity: n/a
+Build proof: not_run
+Runtime proof: one live run status=failed failure_kind=android_ui_dump_failed duration_ms=44985
+Typed blockers: android_ui_dump_failed
+Known limits:
+- Android manual GUI validation remains pending; non-blocking
+- uiautomator still cannot dump hierarchy for Android input/Send while TRANSCRIPT_PUBLISHED keeps the UI busy
 Next ready slice: none (ACT-S100C3 stays blocked until C2 PASS)
 

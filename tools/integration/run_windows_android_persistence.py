@@ -27,7 +27,6 @@ RESULT_SCHEMA_VERSION = "apptraverse.windows_android_persistence_result/1"
 ARTIFACT_PREFIX = "windows-android-persistence"
 PACKAGE = live.PACKAGE
 MAIN_ACTIVITY = live.MAIN_ACTIVITY
-TRANSCRIPT_ID = live.TRANSCRIPT_ID
 MESSAGE_INPUT_ID = live.MESSAGE_INPUT_ID
 SEND_ID = live.SEND_ID
 VERBOSE_PROPERTY = live.VERBOSE_PROPERTY
@@ -37,6 +36,7 @@ ANDROID_COMMIT_RE = re.compile(
     r"CHAT_MESSAGE_COMMITTED\s+platform=android\s+event=(\S+).*?text_key=(\S+)"
 )
 ANDROID_MESSAGE_COMMITTED_RE = re.compile(r"MESSAGE_COMMITTED\s+text=(\S+)")
+ANDROID_VISIBLE_MARKER_PREFIX = "CHAT_MESSAGE_VISIBLE platform=android text_key="
 
 
 def artifact_id_for(run_id: str) -> str:
@@ -91,10 +91,20 @@ def require_pid_changed(phase1: int | None, phase2: int | None, *, side: str) ->
         )
 
 
-def classify_android_history(transcript: str, messages: list[str]) -> dict[str, int]:
+def android_visible_marker(message: str) -> str:
+    return f"{ANDROID_VISIBLE_MARKER_PREFIX}{message}"
+
+
+def count_android_visible_markers(log_text: str, message: str) -> int:
+    if not message:
+        return 0
+    return log_text.count(android_visible_marker(message))
+
+
+def classify_android_history(log_text: str, messages: list[str]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for message in messages:
-        count = live.count_transcript_message(transcript, message)
+        count = count_android_visible_markers(log_text, message)
         counts[message] = count
         if count == 0:
             raise PersistenceFailure(
@@ -107,6 +117,16 @@ def classify_android_history(transcript: str, messages: list[str]) -> dict[str, 
                 f"persisted Android message appeared {count} times: {message!r}",
             )
     return counts
+
+
+def sync_event_applied_present(log_text: str, event_id: Any) -> bool:
+    if event_id is None:
+        return False
+    token = f"event={event_id}"
+    for line in log_text.splitlines():
+        if "SYNC_EVENT_APPLIED" in line and token in line:
+            return True
+    return False
 
 
 def persisted_windows_event_ids(records: list[dict[str, Any]], messages: list[str]) -> dict[str, Any]:
@@ -291,33 +311,6 @@ def snapshot(state: PersistenceState) -> tuple[dict[str, Any], dict[str, Any], d
         "android_phase1_stopped": state.android_phase1_stopped,
     }
     return android, windows, cleanup
-
-
-def dump_transcript(
-    adb: live.AdbClient,
-    *,
-    run_id: str,
-    android_root: Path,
-    logical_name: str,
-    sleep: Callable[[float], None],
-    monotonic: Callable[[], float],
-    state: PersistenceState,
-) -> str:
-    live.ensure_main_activity_foreground(
-        adb, state.dump_state, sleep=sleep, monotonic=monotonic
-    )
-    xml_text = live.dump_ui_hierarchy(
-        adb,
-        run_id=run_id,
-        logical_name=logical_name,
-        android_dir=android_root,
-        focused_window=state.dump_state.focused_window or "",
-        sleep=sleep,
-        state=state.dump_state,
-    )
-    return live.extract_control_text(
-        xml_text, TRANSCRIPT_ID, focused_window=state.dump_state.focused_window or ""
-    )
 
 
 def send_android_message(
@@ -669,41 +662,48 @@ def run_windows_android_persistence(
             monotonic=monotonic,
         )
 
-        def android_has_message(logical: str, message: str) -> bool:
-            windows_alive()
-            try:
-                transcript = dump_transcript(
-                    adb,
-                    run_id=run_id,
-                    android_root=android_root,
-                    logical_name=logical,
-                    sleep=sleep,
-                    monotonic=monotonic,
-                    state=state,
+        def android_visible_once(path: Path, message: str, *, require_windows: bool = True) -> bool:
+            if require_windows:
+                windows_alive()
+            text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+            if live.has_fatal_android_error(text):
+                raise PersistenceFailure(
+                    "fatal_android_error",
+                    "fatal Android error while waiting for visible marker",
                 )
-            except live.LiveChatFailure as exc:
-                if exc.failure_kind in {"android_ui_dump_failed", "android_ui_xml_invalid"}:
-                    return False
-                raise
-            count = live.count_transcript_message(transcript, message)
+            count = count_android_visible_markers(text, message)
             if count > 1:
-                raise PersistenceFailure("duplicate_persisted_message", f"{message!r} appeared {count} times")
+                raise PersistenceFailure(
+                    "duplicate_persisted_message",
+                    f"{message!r} CHAT_MESSAGE_VISIBLE count={count}",
+                )
             return count == 1
 
         live.wait_until(
-            lambda: android_has_message("phase1/transcript.xml", state.pre_w_to_a),
+            lambda: android_visible_once(phase1_and / "logcat.txt", state.pre_w_to_a),
             timeout_s=timeout_s,
             failure_kind="phase1_delivery_failed",
             message="phase-1 Windows message not visible on Android",
             sleep=sleep,
             monotonic=monotonic,
         )
+        phase1_log = (
+            (phase1_and / "logcat.txt").read_text(encoding="utf-8", errors="replace")
+            if (phase1_and / "logcat.txt").exists()
+            else ""
+        )
+        submitted_id = (state.phase1.get("submitted_event_obj_ids") or {}).get(state.pre_w_to_a)
+        if sync_event_applied_present(phase1_log, submitted_id):
+            state.phase1["sync_event_applied"] = {"event": submitted_id}
+        state.phase1.setdefault("android_visible_counts", {})[state.pre_w_to_a] = (
+            count_android_visible_markers(phase1_log, state.pre_w_to_a)
+        )
 
         send_android_message(
             adb,
             run_id=run_id,
             android_root=android_root,
-            logical_name="phase1/transcript.xml",
+            logical_name="phase1/message_input.xml",
             message=state.pre_a_to_w,
             sleep=sleep,
             monotonic=monotonic,
@@ -753,19 +753,17 @@ def run_windows_android_persistence(
             sleep=sleep,
             monotonic=monotonic,
         )
-        transcript = dump_transcript(
-            adb,
-            run_id=run_id,
-            android_root=android_root,
-            logical_name="phase1/transcript.xml",
-            sleep=sleep,
-            monotonic=monotonic,
-            state=state,
+        phase1_log = (
+            (phase1_and / "logcat.txt").read_text(encoding="utf-8", errors="replace")
+            if (phase1_and / "logcat.txt").exists()
+            else ""
         )
-        state.phase1["history_count"] = sum(
-            live.count_transcript_message(transcript, item)
+        phase1_counts = {
+            item: count_android_visible_markers(phase1_log, item)
             for item in (state.pre_w_to_a, state.pre_a_to_w)
-        )
+        }
+        state.phase1["android_visible_counts"] = phase1_counts
+        state.phase1["history_count"] = sum(phase1_counts.values())
         state.phase1["messages"] = {
             "windows_to_android": state.pre_w_to_a,
             "android_to_windows": state.pre_a_to_w,
@@ -812,16 +810,36 @@ def run_windows_android_persistence(
         require_uid_stable(str(state.android_uid_phase1), str(state.android_uid_phase2), side="android")
         require_pid_changed(state.android_pid_phase1, state.android_pid_phase2, side="android")
 
-        restart_transcript = dump_transcript(
-            adb,
-            run_id=run_id,
-            android_root=android_root,
-            logical_name="phase2/transcript_after_restart.xml",
+        def android_history_visible() -> bool:
+            path = phase2_and / "logcat.txt"
+            text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+            if live.has_fatal_android_error(text):
+                raise PersistenceFailure("fatal_android_error", "fatal Android error after restart")
+            for message in (state.pre_w_to_a, state.pre_a_to_w):
+                count = count_android_visible_markers(text, message)
+                if count > 1:
+                    raise PersistenceFailure(
+                        "duplicate_persisted_message",
+                        f"{message!r} CHAT_MESSAGE_VISIBLE count={count} after restart",
+                    )
+                if count == 0:
+                    return False
+            return True
+
+        live.wait_until(
+            android_history_visible,
+            timeout_s=timeout_s,
+            failure_kind="android_history_missing_after_restart",
+            message="Android persisted phase-1 messages not visible after restart",
             sleep=sleep,
             monotonic=monotonic,
-            state=state,
         )
-        classify_android_history(restart_transcript, [state.pre_w_to_a, state.pre_a_to_w])
+        phase2_restart_log = (
+            (phase2_and / "logcat.txt").read_text(encoding="utf-8", errors="replace")
+            if (phase2_and / "logcat.txt").exists()
+            else ""
+        )
+        classify_android_history(phase2_restart_log, [state.pre_w_to_a, state.pre_a_to_w])
 
         phase2_jsonl = phase2_win / "runtime.jsonl"
         phase2_inbox = phase2_win / "commit.inbox"
@@ -904,7 +922,7 @@ def run_windows_android_persistence(
             monotonic=monotonic,
         )
         live.wait_until(
-            lambda: android_has_message("phase2/transcript_after_messages.xml", state.post_w_to_a),
+            lambda: android_visible_once(phase2_and / "logcat.txt", state.post_w_to_a),
             timeout_s=timeout_s,
             failure_kind="phase2_delivery_failed",
             message="phase-2 Windows message not visible on Android",
@@ -915,7 +933,7 @@ def run_windows_android_persistence(
             adb,
             run_id=run_id,
             android_root=android_root,
-            logical_name="phase2/transcript_after_messages.xml",
+            logical_name="phase2/message_input.xml",
             message=state.post_a_to_w,
             sleep=sleep,
             monotonic=monotonic,
@@ -938,17 +956,14 @@ def run_windows_android_persistence(
             monotonic=monotonic,
         )
 
-        final_transcript = dump_transcript(
-            adb,
-            run_id=run_id,
-            android_root=android_root,
-            logical_name="phase2/transcript_after_messages.xml",
-            sleep=sleep,
-            monotonic=monotonic,
-            state=state,
+        phase2_log = (
+            (phase2_and / "logcat.txt").read_text(encoding="utf-8", errors="replace")
+            if (phase2_and / "logcat.txt").exists()
+            else ""
         )
         four = [state.pre_w_to_a, state.pre_a_to_w, state.post_w_to_a, state.post_a_to_w]
-        counts = classify_android_history(final_transcript, four)
+        counts = classify_android_history(phase2_log, four)
+        state.phase2["android_visible_counts"] = counts
         state.phase2["history_count"] = sum(counts.values())
         state.phase2["messages"] = {
             "windows_to_android": state.post_w_to_a,

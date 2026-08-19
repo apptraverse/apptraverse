@@ -101,9 +101,21 @@ class PersistenceHelperTest(unittest.TestCase):
         self.assertEqual(windows.exception.failure_kind, "windows_pid_not_changed")
 
     def test_android_history_exact_once(self) -> None:
-        transcript = "pre_w_to_a_1\npre_a_to_w_1"
-        counts = harness.classify_android_history(transcript, ["pre_w_to_a_1", "pre_a_to_w_1"])
+        log_text = (
+            "CHAT_MESSAGE_VISIBLE platform=android text_key=pre_w_to_a_1 t_us=1\n"
+            "CHAT_MESSAGE_VISIBLE platform=android text_key=pre_a_to_w_1 t_us=2\n"
+            "TRANSCRIPT_PUBLISHED bytes=9 text=Windows: pre_w_to_a_1\n"
+        )
+        counts = harness.classify_android_history(log_text, ["pre_w_to_a_1", "pre_a_to_w_1"])
         self.assertEqual(counts["pre_w_to_a_1"], 1)
+        self.assertEqual(counts["pre_a_to_w_1"], 1)
+
+    def test_visible_marker_count_ignores_transcript_published(self) -> None:
+        log_text = "TRANSCRIPT_PUBLISHED bytes=9 text=Windows: pre_w_to_a_1\n"
+        self.assertEqual(harness.count_android_visible_markers(log_text, "pre_w_to_a_1"), 0)
+
+    def test_visible_marker_zero_is_not_duplicate(self) -> None:
+        self.assertEqual(harness.count_android_visible_markers("", "pre_w_to_a_1"), 0)
 
     def test_missing_history_classification(self) -> None:
         with self.assertRaises(harness.PersistenceFailure) as ctx:
@@ -111,9 +123,19 @@ class PersistenceHelperTest(unittest.TestCase):
         self.assertEqual(ctx.exception.failure_kind, "android_history_missing_after_restart")
 
     def test_duplicate_persisted_message_classification(self) -> None:
+        log_text = (
+            "CHAT_MESSAGE_VISIBLE platform=android text_key=pre_w_to_a_1 t_us=1\n"
+            "CHAT_MESSAGE_VISIBLE platform=android text_key=pre_w_to_a_1 t_us=2\n"
+        )
         with self.assertRaises(harness.PersistenceFailure) as ctx:
-            harness.classify_android_history("pre_w_to_a_1\npre_w_to_a_1", ["pre_w_to_a_1"])
+            harness.classify_android_history(log_text, ["pre_w_to_a_1"])
         self.assertEqual(ctx.exception.failure_kind, "duplicate_persisted_message")
+
+    def test_sync_event_applied_is_diagnostic_only(self) -> None:
+        log_text = "SYNC_EVENT_APPLIED packet=3006427504 event=908004890\n"
+        self.assertTrue(harness.sync_event_applied_present(log_text, 908004890))
+        self.assertTrue(harness.sync_event_applied_present(log_text, "908004890"))
+        self.assertFalse(harness.sync_event_applied_present(log_text, 1))
 
     def test_windows_persisted_event_obj_id_check(self) -> None:
         records = [
@@ -243,7 +265,12 @@ class FakePersistWorld:
             return Completed()
         if argv_has(argv, "am", "start"):
             self.android_launches += 1
+            was_stopped = self.android_pid is None
             self.android_pid = 1001 if self.android_launches == 1 else 2002
+            if was_stopped and self.android_launches >= 2:
+                short = live.short_run_id(self.run_id)
+                self._append_visible(f"pre_w_to_a_{short}")
+                self._append_visible(f"pre_a_to_w_{short}")
             return Completed("Starting: Intent\n")
         if argv_has(argv, "pidof"):
             return Completed("" if self.android_pid is None else f"{self.android_pid}\n")
@@ -325,6 +352,8 @@ class FakePersistWorld:
                 if "pre_w" in text or "post_w" in text:
                     records.append(_record(11, "message_visible", {"text": text, "event_obj_id": 101 if "pre_w" in text else 303}))
                     self.transcript = (self.transcript + "\n" + text).strip()
+                    event_id = 101 if "pre_w" in text else 303
+                    self._append_visible(text, event_id=event_id)
                 self._write_jsonl(jsonl, records)
 
     def terminate(self, pid: int) -> None:
@@ -337,16 +366,33 @@ class FakePersistWorld:
     def pid_is_running(self, pid: int | None) -> bool:
         return pid is not None and pid not in self.dead_pids
 
+    def _current_logcat(self) -> Path | None:
+        existing = [path for path in self.logcat_paths if path.exists()]
+        return existing[-1] if existing else None
+
+    def _append_logcat(self, line: str) -> None:
+        path = self._current_logcat()
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+
+    def _append_visible(self, message: str, event_id: object | None = None) -> None:
+        self._append_logcat(f"CHAT_MESSAGE_VISIBLE platform=android text_key={message} t_us=1")
+        if event_id is not None:
+            self._append_logcat(f"SYNC_EVENT_APPLIED packet=1 event={event_id}")
+
     def _commit_android(self) -> None:
         short = live.short_run_id(self.run_id)
         message = self.input_text if self.input_text else f"pre_a_to_w_{short}"
         self.transcript = (self.transcript + "\n" + message).strip()
-        for path in self.logcat_paths:
-            if path.exists() or path.parent.exists():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with path.open("a", encoding="utf-8") as handle:
-                    handle.write(f"CHAT_MESSAGE_COMMITTED platform=android event=9 text_key={message}\n")
-                    handle.write(f"MESSAGE_COMMITTED text={message}\n")
+        path = self._current_logcat()
+        if path is not None:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(f"CHAT_MESSAGE_COMMITTED platform=android event=9 text_key={message}\n")
+                handle.write(f"MESSAGE_COMMITTED text={message}\n")
+        self._append_visible(message)
         instance = "windows-phase2" if f"post_" in message else "windows-phase1"
         jsonl = self.jsonl_by_instance.get(instance)
         if jsonl is not None:
@@ -417,6 +463,59 @@ class PersistenceRunnerTest(unittest.TestCase):
             blob = json.dumps(result)
             self.assertNotIn("<hierarchy", blob)
             self.assertNotIn("add_participant", joined)
+            dump_calls = [call for call in world.calls if "uiautomator" in call and "dump" in call]
+            self.assertEqual(len(dump_calls), 4)
+            self.assertEqual(result["phase1"].get("sync_event_applied"), {"event": 101})
+            self.assertEqual(result["phase2"]["history_count"], 4)
+
+    def test_android_send_dump_failure_keeps_dump_kind(self) -> None:
+        class DumpFailWorld(FakePersistWorld):
+            def run(self, argv, capture_output=True, text=True, encoding=None, errors=None, shell=False, timeout=None):
+                if "uiautomator" in argv and "dump" in argv:
+                    self.shell_flags.append(shell)
+                    self.calls.append(list(argv))
+                    return Completed("ERROR: could not get idle state\n")
+                return super().run(
+                    argv,
+                    capture_output=capture_output,
+                    text=text,
+                    encoding=encoding,
+                    errors=errors,
+                    shell=shell,
+                    timeout=timeout,
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exe = root / "win32_single_client_chat.exe"
+            exe.write_bytes(b"dummy")
+            adb = root / "adb.exe"
+            adb.write_bytes(b"dummy")
+            run_id = "20260819-000000-dump01"
+            world = DumpFailWorld(run_id)
+            artifact = root / ".artifacts" / "windows-android-persistence" / run_id
+            world.logcat_paths = [
+                artifact / "android" / "phase1" / "logcat.txt",
+                artifact / "android" / "phase2" / "logcat.txt",
+            ]
+            result = harness.run_windows_android_persistence(
+                source_dir=root,
+                windows_exe=exe,
+                serial="emulator-5554",
+                timeout_s=5.0,
+                run_id=run_id,
+                adb_path=adb,
+                popen=world.popen,
+                run=world.run,
+                sleep=world.sleep,
+                monotonic=lambda: 0.0,
+                terminate=world.terminate,
+                pid_is_running=world.pid_is_running,
+                env={"PATH": "x"},
+            )
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["failure_kind"], "android_ui_dump_failed")
+            self.assertNotEqual(result["failure_kind"], "phase1_delivery_failed")
 
     def test_missing_windows_exe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
