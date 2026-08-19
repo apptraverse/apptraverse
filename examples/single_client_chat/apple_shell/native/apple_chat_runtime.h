@@ -10,7 +10,6 @@
 
 #include "aether/aether_app.h"
 #include "aether/client.h"
-#include "aether/ptr/rc_ptr.h"
 
 #include "aether/obj/idomain_storage.h"
 
@@ -61,7 +60,7 @@ class AppleChatRuntime {
   std::string aether_client_name_;
   std::string local_client_name_;
   UiCallbacks callbacks_;
-  ae::RcPtr<ae::AetherApp> aether_app_;
+  std::unique_ptr<ae::AetherApp> aether_app_;
   ae::IDomainStorage* domain_storage_{nullptr};
   App::ptr app_;
   ae::Client::ptr aether_client_;

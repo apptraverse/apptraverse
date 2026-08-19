@@ -215,7 +215,7 @@ bool AppleChatRuntime::SelectAetherClient() {
   int select_error = 0;
   LogMarker("AETHER_SELECT_CLIENT_START name=" + aether_client_name_);
   aether_client_ = examples::SelectPersistentAetherClient(
-      aether_app_, aether_client_name_, &select_error);
+      *aether_app_, aether_client_name_, &select_error);
   if (!aether_client_) {
     LogError("Failed to select Aether client error=" +
              std::to_string(select_error) +
@@ -233,7 +233,7 @@ bool AppleChatRuntime::SelectAetherClient() {
 void AppleChatRuntime::StartP2pTransport() {
   p2p_transport_ = std::make_unique<examples::AetherP2pTransport>();
   p2p_transport_->SetLogHandler([](std::string line) { LogMarker(line); });
-  p2p_transport_->Start(aether_app_, aether_client_);
+  p2p_transport_->Start(*aether_app_, aether_client_);
   LogMarker("AETHER_P2P_TRANSPORT_READY");
 }
 
@@ -354,7 +354,7 @@ void AppleChatRuntime::Teardown() {
   domain_storage_ = nullptr;
   scheduler_.store(nullptr, std::memory_order::release);
   app_.Reset();
-  aether_app_.Reset();
+  aether_app_.reset();
 }
 
 void AppleChatRuntime::DrainPendingSends() {
