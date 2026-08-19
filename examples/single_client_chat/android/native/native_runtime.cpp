@@ -246,7 +246,7 @@ bool NativeRuntime::SelectAetherClient() {
   LogMarker("AETHER_SELECT_CLIENT_START name=" +
             std::string{examples::kAndroidAetherClientName});
   aether_client_ = examples::SelectPersistentAetherClient(
-      aether_app_, examples::kAndroidAetherClientName, &select_error);
+      *aether_app_, examples::kAndroidAetherClientName, &select_error);
   if (!aether_client_) {
     LogError("Failed to select Aether client error=" +
              std::to_string(select_error) +
@@ -267,7 +267,7 @@ void NativeRuntime::StartP2pTransport() {
   if (VerboseLogEnabled()) {
     p2p_transport_->SetLogHandler([](std::string line) { LogMarker(line); });
   }
-  p2p_transport_->Start(aether_app_, aether_client_);
+  p2p_transport_->Start(*aether_app_, aether_client_);
   LogMarker("AETHER_P2P_TRANSPORT_READY");
 }
 
@@ -406,7 +406,7 @@ void NativeRuntime::Teardown() {
   domain_storage_ = nullptr;
   scheduler_.store(nullptr, std::memory_order::release);
   app_.Reset();
-  aether_app_.Reset();
+  aether_app_.reset();
 }
 
 void NativeRuntime::DrainPendingSends() {

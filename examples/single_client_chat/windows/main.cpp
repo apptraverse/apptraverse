@@ -365,7 +365,7 @@ int Run(CliOptions const& options) {
   }
 
   auto runtime = ConstructWindowsAetherApp(options.state_dir);
-  auto aether_app = runtime.app;
+  auto aether_app = std::move(runtime.app);
   auto* domain_storage = runtime.storage;
   if (aether_app.get() == nullptr || domain_storage == nullptr) {
     std::cerr << "Failed to construct AetherApp\n";
@@ -415,7 +415,7 @@ int Run(CliOptions const& options) {
           " name=" + local_client->name);
 
   auto aether_client = apptraverse::examples::SelectPersistentAetherClient(
-      aether_app, options.aether_client_name);
+      *aether_app, options.aether_client_name);
   if (!aether_client) {
     std::cerr << "Failed to select Aether client\n";
     return 1;
@@ -443,7 +443,7 @@ int Run(CliOptions const& options) {
   if (VerboseLogEnabled()) {
     p2p_transport.SetLogHandler([](std::string line) { LogLine(line); });
   }
-  p2p_transport.Start(aether_app, aether_client);
+  p2p_transport.Start(*aether_app, aether_client);
 
   auto& win_presenter =
       static_cast<apptraverse::WinWindowPresenter&>(*presenter);
@@ -751,9 +751,9 @@ int Run(CliOptions const& options) {
   ae::TimePoint ping_deadline{};
   ae::TimePoint const* deadline_ptr = nullptr;
   if (options.p2p_ping.has_value()) {
-    on_pong_received = [aether_app, log_chat_journal]() {
+    on_pong_received = [app_ptr = aether_app.get(), log_chat_journal]() {
       log_chat_journal();
-      aether_app->Exit(0);
+      app_ptr->Exit(0);
     };
     apptraverse::examples::SendP2pPing(p2p_transport, *options.p2p_ping,
                                        LogLine);
