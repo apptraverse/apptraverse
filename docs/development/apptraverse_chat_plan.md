@@ -540,14 +540,20 @@ Split after S025:
 ## ACT-S100C1
 
 - basic live Windows <-> Android bidirectional exchange
-- status: blocked (android_ui_control_missing on the one live run)
+- status: done
 - enable Android verbose markers only for the test
 - do not test restart/persistence or Wi-Fi outage
+
+## ACT-S100C1-R1
+
+- harness-repair: resilient Android UI hierarchy acquisition
+- status: done
+- do not change product C++/Java/JNI/ChatComponent/sync/transport/Æther
 
 ## ACT-S100C2
 
 - Windows/Android restart and persistence
-- status: blocked until ACT-S100C1 PASS
+- status: ready after ACT-S100C1 PASS
 
 ## ACT-S100C3
 

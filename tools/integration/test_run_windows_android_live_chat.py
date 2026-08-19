@@ -260,9 +260,21 @@ class FakeAdbWorld:
             return Completed(
                 "topResumedActivity=ActivityRecord{0 u0 com.apptraverse.singleclientchat/.MainActivity t1}\n"
             )
+        if argv_has(argv, "dumpsys", "window", "windows"):
+            return Completed(
+                "mCurrentFocus=Window{0 u0 com.apptraverse.singleclientchat/com.apptraverse.singleclientchat.MainActivity}\n"
+            )
+        if argv_has(argv, "exec-out", "uiautomator", "dump"):
+            return Completed(
+                _xml_hierarchy(transcript=self.xml_transcript, input_text=self.input_text)
+            )
+        if argv_has(argv, "rm", "-f"):
+            return Completed()
         if argv_has(argv, "uiautomator", "dump"):
-            return Completed("UI hierchary dumped to: /data/local/tmp/apptraverse_uidump.xml\n")
-        if argv_has(argv, "cat", harness.UIDUMP_REMOTE) or argv_has(argv, "cat", "/sdcard/window_dump.xml"):
+            return Completed("UI hierchary dumped to: /data/local/tmp/unused.xml\n")
+        if argv_has(argv, "cat", "/sdcard/window_dump.xml"):
+            return Completed(_xml_hierarchy(transcript="STALE_SHOULD_NOT_BE_USED"))
+        if any(part.startswith("/data/local/tmp/apptraverse_uidump_") for part in argv) and argv_has(argv, "cat"):
             return Completed(
                 _xml_hierarchy(transcript=self.xml_transcript, input_text=self.input_text)
             )
@@ -452,6 +464,320 @@ class LiveChatRunnerTest(unittest.TestCase):
         client = harness.AdbClient(Path("adb"), "emulator-5554", run=fake_run)
         client.shell(["getprop", "ro.product.cpu.abi"])
         self.assertEqual(recorded, [False])
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, dt: float) -> None:
+        self.now += dt
+
+
+class ScriptedDump:
+    def __init__(self, handler) -> None:
+        self.handler = handler
+        self.calls: list[list[str]] = []
+        self.shell_flags: list[bool] = []
+
+    def __call__(self, argv, capture_output=True, text=True, encoding=None, errors=None, shell=False, timeout=None):
+        self.shell_flags.append(shell)
+        if shell:
+            raise AssertionError("shell must be False")
+        self.calls.append(list(argv))
+        joined = " ".join(argv)
+        if "pm clear" in joined or "uninstall" in joined or "gradle" in joined.lower():
+            raise AssertionError(f"forbidden command: {joined}")
+        return self.handler(argv)
+
+
+def _dump_state() -> harness.ScenarioState:
+    return harness.ScenarioState()
+
+
+def _run_dump(tmp: str, handler, sleep=lambda _dt: None) -> tuple[str, harness.ScenarioState, ScriptedDump]:
+    android_dir = Path(tmp) / "android"
+    android_dir.mkdir(parents=True, exist_ok=True)
+    scripted = ScriptedDump(handler)
+    adb = harness.AdbClient(Path("adb"), "emulator-5554", run=scripted)
+    state = _dump_state()
+    xml_text = harness.dump_ui_hierarchy(
+        adb,
+        run_id="run1",
+        logical_name="ui_after_windows_message.xml",
+        android_dir=android_dir,
+        focused_window="mCurrentFocus=Window{app}",
+        sleep=sleep,
+        state=state,
+    )
+    return xml_text, state, scripted
+
+
+class UiDumpHelperTest(unittest.TestCase):
+    def test_direct_dev_tty_xml_succeeds(self) -> None:
+        xml_body = _xml_hierarchy(transcript="hello")
+
+        def handler(argv):
+            if argv_has(argv, "rm", "-f"):
+                return Completed()
+            if argv_has(argv, "exec-out", "uiautomator", "dump"):
+                return Completed(xml_body)
+            raise AssertionError(argv)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            xml_text, state, scripted = _run_dump(tmp, handler)
+            self.assertIn("hello", xml_text)
+            self.assertEqual(state.last_ui_dump_method, "exec_out_compressed_tty")
+            self.assertEqual(state.ui_dump_attempt_count, 1)
+            self.assertTrue(all(flag is False for flag in scripted.shell_flags))
+            saved = Path(tmp) / "android" / "ui_after_windows_message.xml"
+            self.assertEqual(saved.read_text(encoding="utf-8"), xml_text)
+
+    def test_status_prefix_before_xml_is_stripped(self) -> None:
+        xml_body = _xml_hierarchy(transcript="prefixed")
+
+        def handler(argv):
+            if argv_has(argv, "rm", "-f"):
+                return Completed()
+            if argv_has(argv, "exec-out"):
+                return Completed("UI hierchary dumped to: /dev/tty\n" + xml_body)
+            raise AssertionError(argv)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            xml_text, _state, _scripted = _run_dump(tmp, handler)
+            self.assertTrue(xml_text.startswith("<?xml") or xml_text.startswith("<hierarchy"))
+            self.assertNotIn("UI hierchary", xml_text)
+            self.assertIn("prefixed", xml_text)
+
+    def test_trailing_status_after_hierarchy_is_stripped(self) -> None:
+        xml_body = _xml_hierarchy(transcript="trailing")
+
+        def handler(argv):
+            if argv_has(argv, "rm", "-f"):
+                return Completed()
+            if argv_has(argv, "exec-out"):
+                return Completed(xml_body + "\nUI hierchary dumped to: /dev/tty\n")
+            raise AssertionError(argv)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            xml_text, _state, _scripted = _run_dump(tmp, handler)
+            self.assertTrue(xml_text.endswith("</hierarchy>"))
+            self.assertNotIn("dumped to", xml_text)
+
+    def test_attempt1_failure_attempt2_success(self) -> None:
+        xml_body = _xml_hierarchy(transcript="second")
+
+        def handler(argv):
+            if argv_has(argv, "rm", "-f"):
+                return Completed()
+            if argv_has(argv, "exec-out"):
+                return Completed("UI hierchary dumped to: /dev/tty\n", returncode=1)
+            if argv_has(argv, "dump", "--compressed") and argv_has(argv, "uiautomator"):
+                return Completed("UI hierchary dumped to: /data/local/tmp/x.xml\n")
+            if argv_has(argv, "cat") and any("attempt_2" in part or "_2.xml" in part for part in argv):
+                return Completed(xml_body)
+            raise AssertionError(argv)
+
+        sleeps: list[float] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            xml_text, state, scripted = _run_dump(tmp, handler, sleep=sleeps.append)
+            self.assertIn("second", xml_text)
+            self.assertEqual(state.last_ui_dump_method, "shell_compressed_file")
+            self.assertEqual(state.ui_dump_attempt_count, 2)
+            self.assertEqual(sleeps, [0.5])
+            dump_calls = [call for call in scripted.calls if "uiautomator" in call]
+            self.assertEqual(len(dump_calls), 2)
+
+    def test_stale_remote_xml_is_never_accepted(self) -> None:
+        fresh = _xml_hierarchy(transcript="fresh_ok")
+        stale = _xml_hierarchy(transcript="STALE_SHOULD_NOT_BE_USED")
+
+        def handler(argv):
+            if argv_has(argv, "rm", "-f"):
+                return Completed()
+            if argv_has(argv, "exec-out"):
+                return Completed("no xml here")
+            if argv_has(argv, "uiautomator", "dump"):
+                return Completed("UI hierchary dumped to: /sdcard/window_dump.xml\n")
+            if argv_has(argv, "cat", "/sdcard/window_dump.xml"):
+                return Completed(stale)
+            if argv_has(argv, "cat"):
+                return Completed(fresh)
+            raise AssertionError(argv)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            xml_text, _state, scripted = _run_dump(tmp, handler)
+            self.assertIn("fresh_ok", xml_text)
+            self.assertNotIn("STALE_SHOULD_NOT_BE_USED", xml_text)
+            cat_calls = [call for call in scripted.calls if "cat" in call]
+            self.assertTrue(cat_calls)
+            self.assertFalse(any("/sdcard/window_dump.xml" in call for call in cat_calls))
+
+    def test_all_three_attempts_fail_dump_failed(self) -> None:
+        def handler(argv):
+            if argv_has(argv, "rm", "-f"):
+                return Completed()
+            if argv_has(argv, "exec-out") or argv_has(argv, "uiautomator", "dump"):
+                return Completed("UI hierchary dumped to: /data/local/tmp/missing.xml\n", returncode=1)
+            if argv_has(argv, "cat"):
+                return Completed("")
+            return Completed()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            android_dir = Path(tmp) / "android"
+            android_dir.mkdir()
+            scripted = ScriptedDump(handler)
+            adb = harness.AdbClient(Path("adb"), "emulator-5554", run=scripted)
+            state = _dump_state()
+            with self.assertRaises(harness.LiveChatFailure) as ctx:
+                harness.dump_ui_hierarchy(
+                    adb,
+                    run_id="run1",
+                    logical_name="ui_after_windows_message.xml",
+                    android_dir=android_dir,
+                    focused_window="mCurrentFocus=Window{app}",
+                    sleep=lambda _dt: None,
+                    state=state,
+                )
+            self.assertEqual(ctx.exception.failure_kind, "android_ui_dump_failed")
+            self.assertEqual(state.ui_dump_attempt_count, 3)
+            dump_calls = [call for call in scripted.calls if "uiautomator" in call]
+            self.assertEqual(len(dump_calls), 3)
+            artifacts = list((android_dir / "ui-dump").glob("*.json"))
+            self.assertEqual(len(artifacts), 3)
+            payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
+            self.assertLessEqual(len(payload["stdout_excerpt"]), 1000)
+            result = harness.compact_result(
+                run_id="run1",
+                status="failed",
+                duration_ms=1,
+                failure_kind=ctx.exception.failure_kind,
+                first_error=ctx.exception.first_error,
+                android={
+                    "ui_dump_attempt_count": state.ui_dump_attempt_count,
+                    "last_ui_dump_failure": state.last_ui_dump_failure,
+                    "focused_window": "mCurrentFocus=Window{app}",
+                },
+                windows=None,
+                messages=None,
+            )
+            blob = json.dumps(result)
+            self.assertNotIn("<hierarchy", blob)
+            self.assertIn("ui_dump_attempt_count", blob)
+            self.assertEqual(result["android"]["last_ui_dump_failure"], "android_ui_dump_failed")
+
+    def test_malformed_xml_is_xml_invalid(self) -> None:
+        def handler(argv):
+            if argv_has(argv, "rm", "-f"):
+                return Completed()
+            if argv_has(argv, "exec-out") or argv_has(argv, "uiautomator") or argv_has(argv, "cat"):
+                return Completed("<?xml version='1.0'?><hierarchy><<<<</hierarchy>")
+            return Completed()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            android_dir = Path(tmp) / "android"
+            android_dir.mkdir()
+            adb = harness.AdbClient(Path("adb"), "emulator-5554", run=ScriptedDump(handler))
+            state = _dump_state()
+            with self.assertRaises(harness.LiveChatFailure) as ctx:
+                harness.dump_ui_hierarchy(
+                    adb,
+                    run_id="run1",
+                    logical_name="preflight_ui.xml",
+                    android_dir=android_dir,
+                    focused_window="",
+                    sleep=lambda _dt: None,
+                    state=state,
+                )
+            self.assertEqual(ctx.exception.failure_kind, "android_ui_xml_invalid")
+
+    def test_valid_xml_without_resource_id_is_control_missing(self) -> None:
+        xml_body = """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node text="dialog" resource-id="android:id/message" bounds="[0,0][10,10]" />
+</hierarchy>
+"""
+        with self.assertRaises(harness.LiveChatFailure) as ctx:
+            harness.extract_control_text(xml_body, harness.TRANSCRIPT_ID, focused_window="mCurrentFocus=Popup")
+        self.assertEqual(ctx.exception.failure_kind, "android_ui_control_missing")
+        self.assertEqual(ctx.exception.extras["requested_resource_id"], harness.TRANSCRIPT_ID)
+        self.assertIn("android:id/message", ctx.exception.extras["observed_resource_ids"])
+        self.assertEqual(ctx.exception.extras["focused_window"], "mCurrentFocus=Popup")
+        result = harness.compact_result(
+            run_id="r",
+            status="failed",
+            duration_ms=1,
+            failure_kind=ctx.exception.failure_kind,
+            first_error=ctx.exception.first_error,
+            android={
+                "requested_resource_id": ctx.exception.extras["requested_resource_id"],
+                "observed_resource_ids": ctx.exception.extras["observed_resource_ids"],
+                "focused_window": ctx.exception.extras["focused_window"],
+                "ui_dump_attempt_count": 1,
+                "last_ui_dump_failure": None,
+            },
+            windows=None,
+            messages=None,
+        )
+        blob = json.dumps(result)
+        self.assertNotIn("<hierarchy", blob)
+        self.assertNotIn("logcat", blob)
+
+    def test_foreground_obstruction(self) -> None:
+        def handler(argv):
+            if argv_has(argv, "am", "start"):
+                return Completed("Starting: Intent\n")
+            if argv_has(argv, "dumpsys", "activity", "activities"):
+                return Completed(
+                    "topResumedActivity=ActivityRecord{a u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t1}\n"
+                )
+            if argv_has(argv, "dumpsys", "window", "windows"):
+                return Completed("mCurrentFocus=Window{0 u0 com.android.systemui}\n")
+            return Completed()
+
+        clock = Clock()
+        adb = harness.AdbClient(Path("adb"), "emulator-5554", run=ScriptedDump(handler))
+        state = _dump_state()
+        with self.assertRaises(harness.LiveChatFailure) as ctx:
+            harness.ensure_main_activity_foreground(
+                adb, state, sleep=clock.sleep, monotonic=clock.monotonic
+            )
+        self.assertEqual(ctx.exception.failure_kind, "android_foreground_obstructed")
+        self.assertIn("systemui", ctx.exception.extras["focused_window"])
+
+    def test_maximum_three_attempts_and_shell_false(self) -> None:
+        def handler(argv):
+            if argv_has(argv, "rm", "-f"):
+                return Completed()
+            if "uiautomator" in argv:
+                return Completed("nope")
+            if argv_has(argv, "cat"):
+                return Completed("")
+            return Completed()
+
+        scripted = ScriptedDump(handler)
+        with tempfile.TemporaryDirectory() as tmp:
+            android_dir = Path(tmp) / "android"
+            android_dir.mkdir()
+            adb = harness.AdbClient(Path("adb"), "emulator-5554", run=scripted)
+            state = _dump_state()
+            with self.assertRaises(harness.LiveChatFailure):
+                harness.dump_ui_hierarchy(
+                    adb,
+                    run_id="run1",
+                    logical_name="x.xml",
+                    android_dir=android_dir,
+                    focused_window="",
+                    sleep=lambda _dt: None,
+                    state=state,
+                )
+            self.assertEqual(state.ui_dump_attempt_count, 3)
+            self.assertTrue(all(flag is False for flag in scripted.shell_flags))
+            uiauto = [call for call in scripted.calls if "uiautomator" in call]
+            self.assertEqual(len(uiauto), 3)
 
 
 if __name__ == "__main__":

@@ -6,13 +6,13 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S100C1
+ACT-S100C2
 
 Status:
-blocked
+ready
 
 Goal:
-automatically validate one live Windows ↔ Android x86_64 chat exchange in both directions. Do not test restart, persistence, or Wi-Fi outage.
+Windows/Android restart and persistence. Do not start this slice in the C1-R1 session.
 
 # Status vocabulary
 
@@ -50,8 +50,9 @@ automatically validate one live Windows ↔ Android x86_64 chat exchange in both
 | ACT-S100B | canonical Android x86_64 emulator GUI | done | build/install/launch done; manual Android GUI validation pending, not blocking |
 | ACT-S100B-Q | quiet-by-default Android native diagnostics | done | debug.apptraverse.verbose_log; automatic quiet/verbose proof |
 | ACT-S100C | live Windows <-> Android x86_64 chat | split | C1 live exchange; C2 restart/persistence; C3 network loss |
-| ACT-S100C1 | basic live Windows ↔ Android bidirectional exchange | blocked | android_ui_control_missing; compact result retained; C2 not ready |
-| ACT-S100C2 | Windows/Android restart and persistence | blocked | ready after ACT-S100C1 PASS |
+| ACT-S100C1 | basic live Windows ↔ Android bidirectional exchange | done | live bidirectional exchange on emulator-5554 after C1-R1 dump repair |
+| ACT-S100C1-R1 | harden Android UI hierarchy acquisition | done | exec_out_compressed_tty; one preflight; one live PASS |
+| ACT-S100C2 | Windows/Android restart and persistence | ready | next ready slice |
 | ACT-S100C3 | temporary network loss and recovery | blocked | after ACT-S100C2 |
 
 ## ACT-S001 details
@@ -226,7 +227,13 @@ Quiet-by-default Android native diagnostics. Property debug.apptraverse.verbose_
 
 ## ACT-S100C1 details
 
-One live Windows ↔ Android run on emulator-5554. Unit tests PASS (16). Real scenario failed `android_ui_control_missing` / `uiautomator dump failed` after Windows `text_submit` was accepted. Artifacts retained at `windows-android-live/20260819-012617-4a5619`. Android verbose property restored to 0. App data not cleared. ACT-S100C2 is not ready.
+Previous live run `windows-android-live/20260819-012617-4a5619` failed after Windows `text_submit` was accepted. The harness reported `android_ui_control_missing`, but that classification was wrong: no valid hierarchy XML was acquired. Correct failure kind: `android_ui_dump_failed`.
+
+ACT-S100C1-R1 repaired hierarchy acquisition. One UI-dump preflight and one live scenario then PASS. Artifact `windows-android-live/20260819-022348-279d41`. Android verbose property restored to 0. App data not cleared. Manual Android GUI validation remains pending and non-blocking.
+
+## ACT-S100C1-R1 details
+
+Harness-only repair. Distinct dump failure kinds, foreground gate, bounded three-attempt UI dump helper, XML extraction from mixed uiautomator output. No product C++/Java changes. No build/install.
 
 ## ACT-S025 details
 
@@ -824,4 +831,37 @@ Known limits:
 - Android manual GUI validation remains pending; non-blocking
 - uiautomator dump did not produce hierarchy XML on emulator-5554
 Next ready slice: none (ACT-S100C2 stays blocked until C1 PASS)
+
+
+Session ACT-S100C1-R1:
+
+- branch review/chat-windows-android-live-r1 from a00353cfda52f61c89f8a86ca416eca9ee05435e
+- reclassified previous failure as android_ui_dump_failed
+- bounded 3-attempt UI dump helper; XML extraction; foreground gate
+- unit tests PASS 26
+- one preflight hierarchy acquisition PASS method=exec_out_compressed_tty
+- one live scenario PASS run_id=20260819-022348-279d41 duration_ms=42858
+- verbose property restored to 0; app data preserved
+- no product source changes; no build; no install; no pm clear
+- ACT-S100C1 done; ACT-S100C2 ready; ACT-S100C3 blocked
+
+Completion packet:
+
+Slice: ACT-S100C1-R1
+Acceptance IDs: n/a
+Artifacts:
+- tools/integration/run_windows_android_live_chat.py
+- tools/integration/test_run_windows_android_live_chat.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- apptraverse_chat_iterate_prompt.md
+- .artifacts/windows-android-live/20260819-022348-279d41
+Build identity: n/a
+Build proof: not_run
+Runtime proof: preflight status=ok; live status=ok duration_ms=42858
+Typed blockers: none
+Known limits:
+- Android manual GUI validation remains pending; non-blocking
+- dumpsys window windows did not populate focused_window in compact result
+Next ready slice: ACT-S100C2
 

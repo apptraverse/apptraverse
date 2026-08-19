@@ -36,7 +36,11 @@ EXPECTED_EXE_NAME = "win32_single_client_chat.exe"
 ARTIFACT_PREFIX = "windows-android-live"
 READY_TIMEOUT_S = 60.0
 POLL_INTERVAL_S = 0.25
-UIDUMP_REMOTE = "/data/local/tmp/apptraverse_uidump.xml"
+DUMP_ATTEMPT_LIMIT = 3
+DUMP_RETRY_DELAY_S = 0.5
+FOREGROUND_TIMEOUT_S = 10.0
+EXCERPT_LIMIT = 1000
+MAX_OBSERVED_RESOURCE_IDS = 20
 FORBIDDEN_TOKENS = (
     "pm clear",
     "uninstall",
@@ -68,10 +72,16 @@ BOUNDS_RE = re.compile(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]")
 
 
 class LiveChatFailure(Exception):
-    def __init__(self, failure_kind: str, first_error: str) -> None:
+    def __init__(
+        self,
+        failure_kind: str,
+        first_error: str,
+        extras: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(first_error)
         self.failure_kind = failure_kind
         self.first_error = first_error
+        self.extras = extras or {}
 
 
 def repo_root() -> Path:
@@ -279,11 +289,39 @@ def bounds_center(bounds: tuple[int, int, int, int]) -> tuple[int, int]:
     return (left + right) // 2, (top + bottom) // 2
 
 
+def excerpt_text(text: str | None, limit: int = EXCERPT_LIMIT) -> str:
+    return (text or "")[:limit]
+
+
+def remote_dump_path(run_id: str, logical_name: str, attempt: int) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", logical_name)
+    return f"/data/local/tmp/apptraverse_uidump_{run_id}_{safe}_{attempt}.xml"
+
+
+def attempt_artifact_name(logical_name: str, attempt: int) -> str:
+    stem = logical_name[:-4] if logical_name.endswith(".xml") else logical_name
+    return f"{stem}.attempt{attempt}.json"
+
+
+def extract_hierarchy_xml(raw: str) -> str | None:
+    if not raw:
+        return None
+    start = raw.find("<?xml")
+    if start < 0:
+        start = raw.find("<hierarchy")
+    if start < 0:
+        return None
+    end = raw.find("</hierarchy>", start)
+    if end < 0:
+        return None
+    return raw[start : end + len("</hierarchy>")]
+
+
 def parse_hierarchy_xml(xml_text: str) -> ET.Element:
     try:
         return ET.fromstring(xml_text)
     except ET.ParseError as exc:
-        raise LiveChatFailure("android_ui_control_missing", f"invalid UI XML: {exc}") from exc
+        raise LiveChatFailure("android_ui_xml_invalid", f"invalid UI XML: {exc}") from exc
 
 
 def find_nodes_by_resource(root: ET.Element, resource_id: str) -> list[ET.Element]:
@@ -294,26 +332,68 @@ def find_nodes_by_resource(root: ET.Element, resource_id: str) -> list[ET.Elemen
     return found
 
 
+def observed_resource_ids(root: ET.Element, limit: int = MAX_OBSERVED_RESOURCE_IDS) -> list[str]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for node in root.iter():
+        resource_id = node.get("resource-id")
+        if not resource_id or resource_id in seen:
+            continue
+        seen.add(resource_id)
+        ids.append(resource_id)
+        if len(ids) >= limit:
+            break
+    return ids
+
+
+def apptraverse_resource_ids(root: ET.Element) -> list[str]:
+    prefix = f"{PACKAGE}:id/"
+    return [item for item in observed_resource_ids(root, limit=100) if item.startswith(prefix)]
+
+
 def node_text(node: ET.Element) -> str:
     return node.get("text") or ""
 
 
-def extract_control_text(xml_text: str, resource_id: str) -> str:
+def missing_control_failure(
+    xml_text: str,
+    resource_id: str,
+    focused_window: str = "",
+) -> LiveChatFailure:
+    root = parse_hierarchy_xml(xml_text)
+    return LiveChatFailure(
+        "android_ui_control_missing",
+        f"missing UI control {resource_id}",
+        extras={
+            "requested_resource_id": resource_id,
+            "observed_resource_ids": observed_resource_ids(root),
+            "focused_window": focused_window,
+        },
+    )
+
+
+def extract_control_text(xml_text: str, resource_id: str, focused_window: str = "") -> str:
     nodes = find_nodes_by_resource(parse_hierarchy_xml(xml_text), resource_id)
     if not nodes:
-        raise LiveChatFailure(
-            "android_ui_control_missing", f"missing UI control {resource_id}"
-        )
+        raise missing_control_failure(xml_text, resource_id, focused_window)
     return node_text(nodes[0])
 
 
-def extract_control_center(xml_text: str, resource_id: str) -> tuple[int, int]:
+def extract_control_center(
+    xml_text: str, resource_id: str, focused_window: str = ""
+) -> tuple[int, int]:
     nodes = find_nodes_by_resource(parse_hierarchy_xml(xml_text), resource_id)
     if not nodes:
-        raise LiveChatFailure(
-            "android_ui_control_missing", f"missing UI control {resource_id}"
-        )
+        raise missing_control_failure(xml_text, resource_id, focused_window)
     return bounds_center(parse_bounds(nodes[0].get("bounds") or ""))
+
+
+def parse_focused_window(dumpsys_windows: str) -> str:
+    for key in ("mCurrentFocus=", "mFocusedApp=", "mObscuringWindow="):
+        for raw_line in dumpsys_windows.splitlines():
+            if key in raw_line:
+                return raw_line.strip()[:240]
+    return ""
 
 
 def count_transcript_message(transcript: str, message: str) -> int:
@@ -508,6 +588,150 @@ class AdbClient:
         return proc
 
 
+def write_dump_attempt_artifact(dump_dir: Path, logical_name: str, record: dict[str, Any]) -> None:
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(dump_dir / attempt_artifact_name(logical_name, int(record["attempt"])), record)
+
+
+def dump_ui_hierarchy(
+    adb: AdbClient,
+    *,
+    run_id: str,
+    logical_name: str,
+    android_dir: Path,
+    focused_window: str,
+    sleep: Callable[[float], None],
+    state: "ScenarioState",
+) -> str:
+    dump_dir = android_dir / "ui-dump"
+    last_kind = "android_ui_dump_failed"
+    last_error = "no valid XML hierarchy could be acquired"
+    methods = (
+        ("exec_out_compressed_tty", 1),
+        ("shell_compressed_file", 2),
+        ("shell_file", 3),
+    )
+    for method, attempt in methods:
+        state.ui_dump_attempt_count += 1
+        remote = remote_dump_path(run_id, logical_name, attempt)
+        adb.shell(["rm", "-f", remote], timeout=15.0)
+        stdout = ""
+        stderr = ""
+        return_code: int | None = None
+        xml_found = False
+        xml_valid = False
+        failure: str | None = None
+        fragment: str | None = None
+        try:
+            if method == "exec_out_compressed_tty":
+                completed = adb.run(
+                    ["exec-out", "uiautomator", "dump", "--compressed", "/dev/tty"],
+                    timeout=30.0,
+                )
+            elif method == "shell_compressed_file":
+                completed = adb.shell(
+                    ["uiautomator", "dump", "--compressed", remote],
+                    timeout=30.0,
+                )
+            else:
+                completed = adb.shell(["uiautomator", "dump", remote], timeout=30.0)
+            return_code = completed.returncode
+            stdout = completed.stdout or ""
+            stderr = completed.stderr or ""
+        except subprocess.TimeoutExpired as exc:
+            failure = "android_ui_dump_failed"
+            last_kind = failure
+            last_error = str(exc)
+            stdout = getattr(exc, "stdout", "") or ""
+            stderr = getattr(exc, "stderr", "") or ""
+        except OSError as exc:
+            failure = "android_ui_dump_failed"
+            last_kind = failure
+            last_error = str(exc)
+
+        combined = stdout + "\n" + stderr
+        fragment = extract_hierarchy_xml(combined)
+        if fragment is None and method != "exec_out_compressed_tty":
+            cat = adb.shell(["cat", remote], timeout=15.0)
+            fragment = extract_hierarchy_xml((cat.stdout or "") + "\n" + (cat.stderr or ""))
+            if not stdout:
+                stdout = cat.stdout or ""
+            if not stderr:
+                stderr = cat.stderr or ""
+
+        xml_found = fragment is not None
+        if fragment is not None:
+            try:
+                parse_hierarchy_xml(fragment)
+                xml_valid = True
+            except LiveChatFailure as exc:
+                xml_valid = False
+                failure = "android_ui_xml_invalid"
+                last_kind = "android_ui_xml_invalid"
+                last_error = exc.first_error
+        elif failure is None:
+            failure = "android_ui_dump_failed"
+            last_kind = "android_ui_dump_failed"
+            last_error = "uiautomator dump produced no hierarchy XML"
+
+        record = {
+            "logical_name": logical_name,
+            "attempt": attempt,
+            "method": method,
+            "return_code": return_code,
+            "stdout_excerpt": excerpt_text(stdout),
+            "stderr_excerpt": excerpt_text(stderr),
+            "focused_window": focused_window,
+            "xml_found": xml_found,
+            "xml_valid": xml_valid,
+            "failure": None if xml_valid else failure,
+        }
+        if xml_valid and fragment is not None:
+            state.last_ui_dump_failure = None
+            state.last_ui_dump_method = method
+            atomic_write_text(android_dir / logical_name, fragment)
+            return fragment
+        write_dump_attempt_artifact(dump_dir, logical_name, record)
+        state.last_ui_dump_failure = last_kind
+        if attempt < DUMP_ATTEMPT_LIMIT:
+            sleep(DUMP_RETRY_DELAY_S)
+
+    raise LiveChatFailure(last_kind, last_error)
+
+
+def ensure_main_activity_foreground(
+    adb: AdbClient,
+    state: "ScenarioState",
+    *,
+    sleep: Callable[[float], None],
+    monotonic: Callable[[], float],
+) -> None:
+    adb.shell(["am", "start", "-W", "-n", MAIN_ACTIVITY], timeout=30.0)
+
+    def ready() -> bool:
+        activities = adb.shell_text(["dumpsys", "activity", "activities"], timeout=20.0)
+        state.activity_resumed = activity_resumed(activities)
+        windows = adb.shell_text(["dumpsys", "window", "windows"], timeout=20.0)
+        state.focused_window = parse_focused_window(windows)
+        return state.activity_resumed
+
+    try:
+        wait_until(
+            ready,
+            timeout_s=FOREGROUND_TIMEOUT_S,
+            failure_kind="android_foreground_obstructed",
+            message="MainActivity did not become the resumed foreground activity",
+            sleep=sleep,
+            monotonic=monotonic,
+        )
+    except LiveChatFailure as exc:
+        raise LiveChatFailure(
+            "android_foreground_obstructed",
+            f"{exc.first_error}; focused_window={state.focused_window or '<unknown>'}",
+            extras={"focused_window": state.focused_window},
+        ) from exc
+
+
 @dataclass
 class ScenarioState:
     android_pid: int | None = None
@@ -526,10 +750,16 @@ class ScenarioState:
     verbose_previous: str = ""
     verbose_restored: bool = False
     command_log: list[list[str]] = field(default_factory=list)
+    focused_window: str | None = None
+    ui_dump_attempt_count: int = 0
+    last_ui_dump_failure: str | None = None
+    last_ui_dump_method: str | None = None
+    requested_resource_id: str | None = None
+    observed_resource_ids: list[str] | None = None
 
 
 def snapshot_android(state: ScenarioState, serial: str) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "serial": serial,
         "pid": state.android_pid,
         "uid": state.android_uid,
@@ -538,7 +768,15 @@ def snapshot_android(state: ScenarioState, serial: str) -> dict[str, Any]:
         "activity_resumed": state.activity_resumed,
         "windows_message_visible_count": state.windows_message_visible_count,
         "android_message_committed": state.android_message_committed,
+        "ui_dump_attempt_count": state.ui_dump_attempt_count,
+        "last_ui_dump_failure": state.last_ui_dump_failure,
+        "focused_window": state.focused_window,
     }
+    if state.requested_resource_id is not None:
+        payload["requested_resource_id"] = state.requested_resource_id
+    if state.observed_resource_ids is not None:
+        payload["observed_resource_ids"] = state.observed_resource_ids
+    return payload
 
 
 def snapshot_windows(state: ScenarioState) -> dict[str, Any]:
@@ -848,28 +1086,53 @@ def run_windows_android_live_chat(
             monotonic=monotonic,
         )
 
+        def apply_failure_extras(exc: LiveChatFailure) -> None:
+            extras = exc.extras or {}
+            if "focused_window" in extras and extras["focused_window"]:
+                state.focused_window = extras["focused_window"]
+            if "requested_resource_id" in extras:
+                state.requested_resource_id = extras["requested_resource_id"]
+            if "observed_resource_ids" in extras:
+                state.observed_resource_ids = extras["observed_resource_ids"]
+
         def dump_ui(name: str) -> str:
             if adb is None:
                 raise LiveChatFailure("android_device_unavailable", "adb client missing")
-            dump = adb.shell(["uiautomator", "dump", UIDUMP_REMOTE], timeout=30.0)
-            combined = ((dump.stdout or "") + "\n" + (dump.stderr or "")).lower()
-            xml_text = adb.shell_text(["cat", UIDUMP_REMOTE], timeout=30.0)
-            if "<" not in xml_text:
-                xml_text = adb.shell_text(["cat", "/sdcard/window_dump.xml"], timeout=30.0)
-            if "<" not in xml_text and "dumped" not in combined:
-                raise LiveChatFailure("android_ui_control_missing", "uiautomator dump failed")
-            atomic_write_text(android_dir / name, xml_text)
-            return xml_text
+            return dump_ui_hierarchy(
+                adb,
+                run_id=run_id,
+                logical_name=name,
+                android_dir=android_dir,
+                focused_window=state.focused_window or "",
+                sleep=sleep,
+                state=state,
+            )
 
+        def require_foreground() -> None:
+            if adb is None:
+                raise LiveChatFailure("android_device_unavailable", "adb client missing")
+            ensure_main_activity_foreground(adb, state, sleep=sleep, monotonic=monotonic)
+
+        require_foreground()
         dump_ui("ui_before.xml")
 
         def windows_message_visible() -> bool:
             windows_alive()
-            xml_text = dump_ui("ui_after_windows_message.xml")
             try:
-                transcript = extract_control_text(xml_text, TRANSCRIPT_ID)
-            except LiveChatFailure:
-                return False
+                require_foreground()
+                xml_text = dump_ui("ui_after_windows_message.xml")
+            except LiveChatFailure as exc:
+                apply_failure_extras(exc)
+                if exc.failure_kind in {"android_ui_dump_failed", "android_ui_xml_invalid"}:
+                    return False
+                raise
+            try:
+                transcript = extract_control_text(
+                    xml_text, TRANSCRIPT_ID, focused_window=state.focused_window or ""
+                )
+            except LiveChatFailure as exc:
+                apply_failure_extras(exc)
+                raise
             count = count_transcript_message(transcript, windows_to_android)
             state.windows_message_visible_count = count
             if count > 1:
@@ -879,31 +1142,49 @@ def run_windows_android_live_chat(
                 )
             return count == 1
 
-        wait_until(
-            windows_message_visible,
-            timeout_s=timeout_s,
-            failure_kind="android_message_not_visible",
-            message="Android UI transcript did not show the Windows message",
-            sleep=sleep,
-            monotonic=monotonic,
-        )
+        try:
+            wait_until(
+                windows_message_visible,
+                timeout_s=timeout_s,
+                failure_kind="android_message_not_visible",
+                message="Android UI transcript did not show the Windows message",
+                sleep=sleep,
+                monotonic=monotonic,
+            )
+        except LiveChatFailure as exc:
+            if (
+                exc.failure_kind == "android_message_not_visible"
+                and state.windows_message_visible_count is None
+                and state.last_ui_dump_failure
+            ):
+                raise LiveChatFailure(
+                    state.last_ui_dump_failure,
+                    "Android UI hierarchy was not acquired while waiting for the Windows message",
+                ) from exc
+            raise
 
-        adb.shell(["am", "start", "-n", MAIN_ACTIVITY])
+        require_foreground()
         input_xml = dump_ui("ui_after_windows_message.xml")
-        tap_x, tap_y = extract_control_center(input_xml, MESSAGE_INPUT_ID)
+        tap_x, tap_y = extract_control_center(
+            input_xml, MESSAGE_INPUT_ID, focused_window=state.focused_window or ""
+        )
         adb.shell(["input", "tap", str(tap_x), str(tap_y)])
         adb.shell(["input", "keyevent", "123"])
         for _ in range(24):
             adb.shell(["input", "keyevent", "67"])
         adb.shell(["input", "text", encode_adb_input_text(android_to_windows)])
         typed_xml = dump_ui("ui_after_android_message.xml")
-        typed = extract_control_text(typed_xml, MESSAGE_INPUT_ID)
+        typed = extract_control_text(
+            typed_xml, MESSAGE_INPUT_ID, focused_window=state.focused_window or ""
+        )
         if typed != android_to_windows:
             raise LiveChatFailure(
                 "android_input_failed",
                 f"message_input text {typed!r} != {android_to_windows!r}",
             )
-        send_x, send_y = extract_control_center(typed_xml, SEND_ID)
+        send_x, send_y = extract_control_center(
+            typed_xml, SEND_ID, focused_window=state.focused_window or ""
+        )
         adb.shell(["input", "tap", str(send_x), str(send_y)])
 
         def android_committed() -> bool:
@@ -925,6 +1206,7 @@ def run_windows_android_live_chat(
             sleep=sleep,
             monotonic=monotonic,
         )
+        require_foreground()
         dump_ui("ui_after_android_message.xml")
 
         def windows_saw_android() -> bool:
@@ -965,6 +1247,13 @@ def run_windows_android_live_chat(
         atomic_write_json(artifact_dir / "result.json", result)
         return result
     except LiveChatFailure as exc:
+        extras = exc.extras or {}
+        if extras.get("focused_window"):
+            state.focused_window = extras["focused_window"]
+        if "requested_resource_id" in extras:
+            state.requested_resource_id = extras["requested_resource_id"]
+        if "observed_resource_ids" in extras:
+            state.observed_resource_ids = extras["observed_resource_ids"]
         cleanup()
         kind = exc.failure_kind
         if not state.verbose_restored and kind != "windows_executable_missing":
@@ -991,6 +1280,115 @@ def run_windows_android_live_chat(
         return fail("scenario_timeout", str(exc))
 
 
+def run_ui_dump_preflight(
+    *,
+    source_dir: Path,
+    windows_exe: Path,
+    serial: str,
+    adb_path: Path | None = None,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    del env
+    started = monotonic()
+    run_id = new_run_id()
+    artifact_dir = source_dir / ".artifacts" / ARTIFACT_PREFIX / f"{run_id}-preflight"
+    android_dir = artifact_dir / "android"
+    android_dir.mkdir(parents=True, exist_ok=True)
+    state = ScenarioState()
+
+    def duration_ms() -> int:
+        return int((monotonic() - started) * 1000)
+
+    def fail(kind: str, message: str) -> dict[str, Any]:
+        extras = {
+            "preflight": True,
+            "method": state.last_ui_dump_method,
+            "apptraverse_resource_id_found": False,
+        }
+        android = snapshot_android(state, serial)
+        android.update(extras)
+        result = compact_result(
+            run_id=run_id,
+            status="failed",
+            duration_ms=duration_ms(),
+            failure_kind=kind,
+            first_error=message,
+            android=android,
+            windows=None,
+            messages=None,
+        )
+        atomic_write_json(artifact_dir / "result.json", result)
+        return result
+
+    try:
+        exe_path = Path(windows_exe)
+        if not exe_path.is_absolute():
+            exe_path = source_dir / exe_path
+        validate_windows_exe(exe_path)
+        adb_exe = adb_path or find_adb()
+        adb = AdbClient(adb_exe, serial, run=run, command_log=state.command_log)
+        devices_out = adb.run(["devices"]).stdout
+        select_android_device(parse_adb_devices(devices_out), serial)
+        abi = adb.shell_text(["getprop", "ro.product.cpu.abi"])
+        state.android_abi = abi
+        require_abi(abi)
+        state.android_api = adb.shell_text(["getprop", "ro.build.version.sdk"])
+        pkg = adb.shell_text(["pm", "path", PACKAGE])
+        if "package:" not in pkg:
+            raise LiveChatFailure("android_package_missing", f"{PACKAGE} is not installed")
+        ensure_main_activity_foreground(adb, state, sleep=sleep, monotonic=monotonic)
+        xml_text = dump_ui_hierarchy(
+            adb,
+            run_id=run_id,
+            logical_name="preflight_ui.xml",
+            android_dir=android_dir,
+            focused_window=state.focused_window or "",
+            sleep=sleep,
+            state=state,
+        )
+        root = parse_hierarchy_xml(xml_text)
+        found_ids = apptraverse_resource_ids(root)
+        if not found_ids:
+            raise LiveChatFailure(
+                "android_ui_control_missing",
+                "preflight XML contained no App Traverse resource IDs",
+                extras={
+                    "requested_resource_id": f"{PACKAGE}:id/*",
+                    "observed_resource_ids": observed_resource_ids(root),
+                    "focused_window": state.focused_window or "",
+                },
+            )
+        android = snapshot_android(state, serial)
+        android["preflight"] = True
+        android["method"] = state.last_ui_dump_method
+        android["apptraverse_resource_id_found"] = True
+        result = compact_result(
+            run_id=run_id,
+            status="ok",
+            duration_ms=duration_ms(),
+            failure_kind=None,
+            first_error=None,
+            android=android,
+            windows=None,
+            messages=None,
+        )
+        reject_absolute_paths(result)
+        atomic_write_json(artifact_dir / "result.json", result)
+        return result
+    except LiveChatFailure as exc:
+        extras = exc.extras or {}
+        if extras.get("focused_window"):
+            state.focused_window = extras["focused_window"]
+        if "requested_resource_id" in extras:
+            state.requested_resource_id = extras["requested_resource_id"]
+        if "observed_resource_ids" in extras:
+            state.observed_resource_ids = extras["observed_resource_ids"]
+        return fail(exc.failure_kind, exc.first_error)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate one live Windows <-> Android chat")
     parser.add_argument("--serial", required=True)
@@ -998,18 +1396,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--source-dir", default=str(repo_root()))
     parser.add_argument("--timeout-seconds", type=float, default=READY_TIMEOUT_S)
     parser.add_argument("--adb", default="")
+    parser.add_argument("--preflight", action="store_true")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    result = run_windows_android_live_chat(
-        source_dir=Path(args.source_dir),
-        windows_exe=Path(args.windows_exe),
-        serial=args.serial,
-        timeout_s=float(args.timeout_seconds),
-        adb_path=Path(args.adb) if args.adb else None,
-    )
+    if args.preflight:
+        result = run_ui_dump_preflight(
+            source_dir=Path(args.source_dir),
+            windows_exe=Path(args.windows_exe),
+            serial=args.serial,
+            adb_path=Path(args.adb) if args.adb else None,
+        )
+    else:
+        result = run_windows_android_live_chat(
+            source_dir=Path(args.source_dir),
+            windows_exe=Path(args.windows_exe),
+            serial=args.serial,
+            timeout_s=float(args.timeout_seconds),
+            adb_path=Path(args.adb) if args.adb else None,
+        )
     sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
     return 0 if result.get("status") == "ok" else 1
 

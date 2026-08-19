@@ -84,6 +84,7 @@ APPTRAVERSE_CHAT_BASELINE_COMPLETE
 - Runtime JSONL logs live under `.artifacts/apptraverse-runtime/<run-id>/<instance>.jsonl`; query via `apptraverse_runtime_log_query` (max 100 records).
 - Do not print full compiler logs into chat context.
 - A documentation/configuration-only slice performs no configure, build, or tests.
+- A harness-repair slice may change Python orchestration and tests only. It must not change product C++/Java/JNI.
 
 # Git policy
 
