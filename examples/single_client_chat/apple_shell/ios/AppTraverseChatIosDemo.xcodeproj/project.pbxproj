@@ -34,7 +34,7 @@
 		1A1000000000000000000023 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatViewModel.swift; path = ../Sources/AppTraverseChatAppleUI/ChatViewModel.swift; sourceTree = "<group>"; };
 		1A1000000000000000000024 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatView.swift; path = ../Sources/AppTraverseChatAppleUI/ChatView.swift; sourceTree = "<group>"; };
 		1A1000000000000000000040 /* AppleChatBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppleChatBackend.swift; path = ../Sources/AppTraverseChatAppleUI/AppleChatBackend.swift; sourceTree = "<group>"; };
-		1A1000000000000000000042 /* AppTraverseAppleChat.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppTraverseAppleChat.framework; path = ../.build-ios-sim/AppTraverseAppleChat.framework; sourceTree = "<group>"; };
+		1A1000000000000000000042 /* AppTraverseAppleChat.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppTraverseAppleChat.framework; path = ../.build-ios-current-aether/AppTraverseAppleChat.framework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -202,11 +202,11 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(PROJECT_DIR)/../.build-ios-sim/AppTraverseAppleChat.framework/AppTraverseAppleChat",
+				"$(PROJECT_DIR)/../.build-ios-current-aether/AppTraverseAppleChat.framework/AppTraverseAppleChat",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nROOT=\"${PROJECT_DIR}/..\"\nBUILD=\"${ROOT}/.build-ios-sim\"\nSDKROOT_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)\nif [ ! -f \"${BUILD}/CMakeCache.txt\" ]; then\n  cmake -G Ninja -S \"${ROOT}\" -B \"${BUILD}\" \\\n    -DCMAKE_SYSTEM_NAME=iOS \\\n    -DCMAKE_OSX_SYSROOT=\"${SDKROOT_PATH}\" \\\n    -DCMAKE_OSX_ARCHITECTURES=x86_64 \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \\\n    -DCMAKE_C_COMPILER=/opt/local/bin/clang-mp-20 \\\n    -DCMAKE_CXX_COMPILER=/opt/local/bin/clang++-mp-20 \\\n    -DCMAKE_OBJCXX_COMPILER=/opt/local/bin/clang++-mp-20 \\\n    -DCMAKE_C_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_CXX_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_OBJCXX_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \\\n    -DCMAKE_BUILD_TYPE=Debug \\\n    -DBUILD_TESTING=OFF\nfi\ncmake --build \"${BUILD}\" --target AppTraverseAppleChat\n";
+			shellScript = "set -e\nROOT=\"${PROJECT_DIR}/..\"\nBUILD=\"${ROOT}/.build-ios-current-aether\"\nSDKROOT_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)\nif [ ! -f \"${BUILD}/CMakeCache.txt\" ]; then\n  cmake -G Ninja -S \"${ROOT}\" -B \"${BUILD}\" \\\n    -DCMAKE_SYSTEM_NAME=iOS \\\n    -DCMAKE_OSX_SYSROOT=\"${SDKROOT_PATH}\" \\\n    -DCMAKE_OSX_ARCHITECTURES=x86_64 \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \\\n    -DCMAKE_C_COMPILER=/opt/local/bin/clang-mp-20 \\\n    -DCMAKE_CXX_COMPILER=/opt/local/bin/clang++-mp-20 \\\n    -DCMAKE_OBJCXX_COMPILER=/opt/local/bin/clang++-mp-20 \\\n    -DCMAKE_C_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_CXX_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_OBJCXX_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \\\n    -DCMAKE_BUILD_TYPE=Debug \\\n    -DBUILD_TESTING=OFF\nfi\ncmake --build \"${BUILD}\" --target AppTraverseAppleChat\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -291,7 +291,7 @@
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../.build-ios-sim",
+					"$(PROJECT_DIR)/../.build-ios-current-aether",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "AppTraverse Chat";
@@ -325,7 +325,7 @@
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../.build-ios-sim",
+					"$(PROJECT_DIR)/../.build-ios-current-aether",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "AppTraverse Chat";
@@ -359,7 +359,7 @@
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../.build-ios-sim",
+					"$(PROJECT_DIR)/../.build-ios-current-aether",
 				);
 				MACH_O_TYPE = staticlib;
 				ONLY_ACTIVE_ARCH = YES;
@@ -385,7 +385,7 @@
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/../.build-ios-sim",
+					"$(PROJECT_DIR)/../.build-ios-current-aether",
 				);
 				MACH_O_TYPE = staticlib;
 				ONLY_ACTIVE_ARCH = YES;
