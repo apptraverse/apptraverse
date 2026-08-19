@@ -1,0 +1,8 @@
+.build/
+.build-macos/
+.build-ios-sim/
+.swiftpm/
+xcuserdata/
+DerivedData/
+.derivedData/
+*.xcuserstate
