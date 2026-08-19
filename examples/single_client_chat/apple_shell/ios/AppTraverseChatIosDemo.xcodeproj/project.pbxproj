@@ -206,7 +206,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nROOT=\"${PROJECT_DIR}/..\"\nBUILD=\"${ROOT}/.build-ios-sim\"\nSDKROOT_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)\nif [ ! -f \"${BUILD}/CMakeCache.txt\" ]; then\n  cmake -S \"${ROOT}\" -B \"${BUILD}\" \\\n    -DCMAKE_SYSTEM_NAME=iOS \\\n    -DCMAKE_OSX_SYSROOT=\"${SDKROOT_PATH}\" \\\n    -DCMAKE_OSX_ARCHITECTURES=x86_64 \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \\\n    -DCMAKE_BUILD_TYPE=Debug \\\n    -DBUILD_TESTING=OFF\nfi\ncmake --build \"${BUILD}\" --target AppTraverseAppleChat\n";
+			shellScript = "set -e\nROOT=\"${PROJECT_DIR}/..\"\nBUILD=\"${ROOT}/.build-ios-sim\"\nSDKROOT_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)\nif [ ! -f \"${BUILD}/CMakeCache.txt\" ]; then\n  cmake -G Ninja -S \"${ROOT}\" -B \"${BUILD}\" \\\n    -DCMAKE_SYSTEM_NAME=iOS \\\n    -DCMAKE_OSX_SYSROOT=\"${SDKROOT_PATH}\" \\\n    -DCMAKE_OSX_ARCHITECTURES=x86_64 \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \\\n    -DCMAKE_C_COMPILER=/opt/local/bin/clang-mp-20 \\\n    -DCMAKE_CXX_COMPILER=/opt/local/bin/clang++-mp-20 \\\n    -DCMAKE_OBJCXX_COMPILER=/opt/local/bin/clang++-mp-20 \\\n    -DCMAKE_C_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_CXX_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_OBJCXX_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \\\n    -DCMAKE_BUILD_TYPE=Debug \\\n    -DBUILD_TESTING=OFF\nfi\ncmake --build \"${BUILD}\" --target AppTraverseAppleChat\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -251,7 +251,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.3;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG APPTRAVERSE_APPLE_NATIVE";
@@ -270,7 +270,7 @@
 				COPY_PHASE_STRIP = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				GCC_NO_COMMON_BLOCKS = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.3;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = APPTRAVERSE_APPLE_NATIVE;
 				SWIFT_COMPILATION_MODE = wholemodule;

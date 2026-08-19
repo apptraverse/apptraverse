@@ -27,10 +27,6 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    public convenience init() {
-        self.init(backend: FakeChatBackend())
-    }
-
     public func addPeer() {
         backend.addPeer(uid: remoteUID)
         remoteUID = ""

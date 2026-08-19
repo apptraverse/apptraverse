@@ -2,6 +2,10 @@
 
 import PackageDescription
 
+// UI-only Swift sources. This package is not the product application.
+// The real macOS/iOS apps are built by CMake/xcodebuild and always use
+// AppleChatBackend → Objective-C++ → AppleChatRuntime.
+
 let package = Package(
     name: "AppTraverseChatAppleShell",
     platforms: [
@@ -13,19 +17,11 @@ let package = Package(
             name: "AppTraverseChatAppleUI",
             targets: ["AppTraverseChatAppleUI"]
         ),
-        .executable(
-            name: "AppTraverseChatMacDemo",
-            targets: ["AppTraverseChatMacDemo"]
-        ),
     ],
     targets: [
         .target(
             name: "AppTraverseChatAppleUI",
             exclude: ["AppleChatBackend.swift"]
-        ),
-        .executableTarget(
-            name: "AppTraverseChatMacDemo",
-            dependencies: ["AppTraverseChatAppleUI"]
         ),
     ]
 )

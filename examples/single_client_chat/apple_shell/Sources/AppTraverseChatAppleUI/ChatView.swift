@@ -4,7 +4,7 @@ import SwiftUI
 public struct ChatView: View {
     @StateObject private var model: ChatViewModel
 
-    public init(model: ChatViewModel = ChatViewModel()) {
+    public init(model: ChatViewModel) {
         _model = StateObject(wrappedValue: model)
     }
 
@@ -17,10 +17,11 @@ public struct ChatView: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Local UID")
                     .foregroundStyle(.secondary)
-                Text(model.localUID)
+                Text(model.localUID.isEmpty ? "waiting…" : model.localUID)
+                    .font(.system(.body, design: .monospaced))
                     .textSelection(.enabled)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             HStack(spacing: 8) {

@@ -1,5 +1,6 @@
 .build/
 .build-macos/
+.build-macos-mp20/
 .build-ios-sim/
 .swiftpm/
 xcuserdata/
