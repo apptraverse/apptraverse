@@ -21,6 +21,7 @@ inline constexpr auto kAetherParentUid =
 
 inline constexpr char kWindowsAetherClientName[] = "apptraverse-windows";
 inline constexpr char kAndroidAetherClientName[] = "apptraverse-android";
+inline constexpr char kLinuxAetherClientName[] = "apptraverse-linux";
 
 // AetherApp owns storage; keep a non-owning pointer for SyncReplica.
 struct ConstructedAetherRuntime {

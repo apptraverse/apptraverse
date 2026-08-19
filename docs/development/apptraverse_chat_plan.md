@@ -124,13 +124,13 @@ User-approved current baseline (x86_64 only):
 
 1. Windows x86_64 — done
 2. Android x86_64 emulator — done
-3. Linux x86_64 — next
-4. macOS x86_64 — after Linux
+3. Linux x86_64 — done
+4. macOS x86_64 — next after Linux
 5. iOS x86_64 Simulator — after macOS
 
 Current milestone: `MULTIPLATFORM_CHAT_BASELINE`.
 Windows and Android product code is frozen at tag `chat-win-android-v1`.
-Do not start Linux implementation on Windows.
+Linux x86_64 GTK3 chat is on `feature/chat-linux-v1`.
 
 ARM64 is out of the current baseline. Do not add Android arm64-v8a or Apple
 arm64 acceptance/build requirements yet. The reason is not lack of expected
@@ -155,8 +155,8 @@ restart/persistence.
 
 ## Linux
 
-- GTK4
-- GTK4 is a Linux host implementation, not the common cross-platform UI layer
+- GTK3
+- GTK3 is a Linux host implementation, not the common cross-platform UI layer
 - target ordinary modern Linux desktop environments
 - packaging/distribution compatibility is a later concern
 - do not introduce Qt or another cross-platform GUI abstraction

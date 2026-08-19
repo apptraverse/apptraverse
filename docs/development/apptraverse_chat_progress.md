@@ -7,13 +7,13 @@ Milestone: MULTIPLATFORM_CHAT_BASELINE
 # Current ready slice
 
 Slice:
-none on this Windows freeze
+Linux x86_64 GTK3 chat
 
 Status:
-frozen
+done
 
 Goal:
-Windows x86_64 and Android x86_64 product baseline is frozen. Next platform is Linux x86_64 on `feature/chat-linux-v1`. Do not start Linux implementation on Windows.
+Linux x86_64 single-client chat builds and links. Next platform is macOS x86_64. Do not start macOS in this session. ACT-S100C2 and ACT-S100C3 remain deferred.
 
 # Milestone
 
@@ -25,8 +25,8 @@ Targets:
 
 1. Windows x86_64 — done
 2. Android x86_64 — done
-3. Linux x86_64 — next
-4. macOS x86_64 — after Linux
+3. Linux x86_64 — done
+4. macOS x86_64 — next after Linux
 5. iOS x86_64 Simulator — after macOS
 
 Live Windows ↔ Android (`ACT-S100C1`) is done. Restart/persistence automation (`ACT-S100C2`) and network recovery automation (`ACT-S100C3`) are deferred. Android manual GUI validation remains pending and non-blocking.
@@ -1034,4 +1034,33 @@ Known limits:
 - Android manual GUI validation remains pending; non-blocking
 - ACT-S100C2 and ACT-S100C3 deferred
 Next ready slice: Linux x86_64 on feature/chat-linux-v1 (not on Windows)
+
+Session Linux x86_64:
+
+- branch feature/chat-linux-v1 from tag chat-win-android-v1
+- imported GTK3 shell files from explore/linux-gtk3-shell-v1 without merging that branch
+- Linux host uses ChatComponent, Aether, AetherP2pTransport, peer authorization, persistence
+- GTK3 widgets on the GTK thread; core on one background thread via g_idle_add
+- ACT-S100C2 and ACT-S100C3 remain deferred
+- configure PASS; linux_single_client_chat compile/link PASS; launch survived several seconds
+
+Completion packet:
+
+Slice: Linux x86_64 GTK3 chat
+Acceptance IDs: n/a
+Artifacts:
+- examples/single_client_chat/linux_shell/
+- examples/single_client_chat/CMakeLists.txt
+- examples/single_client_chat/common/aether_runtime.h
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- apptraverse_chat_iterate_prompt.md
+Build identity: build-linux Ninja GNU 13.3.0 Debug
+Build proof: configure PASS; linux_single_client_chat status=ok duration_s=1716
+Runtime proof: launch attempted; process alive several seconds; no immediate fatal error
+Typed blockers: none
+Known limits:
+- manual GTK GUI checklist remains for the user
+- ACT-S100C2 and ACT-S100C3 deferred
+Next ready slice: macOS x86_64
 
