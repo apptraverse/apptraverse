@@ -7,13 +7,13 @@ Milestone: MULTIPLATFORM_CHAT_BASELINE
 # Current ready slice
 
 Slice:
-Linux x86_64 GTK3 chat
+none on this integration branch
 
 Status:
-done
+waiting for Apple checkpoint
 
 Goal:
-Linux x86_64 single-client chat builds and links. Next platform is macOS x86_64. Do not start macOS in this session. ACT-S100C2 and ACT-S100C3 remain deferred.
+Windows, Android, and Linux x86_64 are done. Wait for the Apple agent checkpoint before merging macOS/iOS. Do not start Apple work from this Windows integration checkout. ACT-S100C2 and ACT-S100C3 remain deferred.
 
 # Milestone
 
@@ -26,9 +26,11 @@ Targets:
 1. Windows x86_64 — done
 2. Android x86_64 — done
 3. Linux x86_64 — done
-4. macOS x86_64 — next after Linux
-5. iOS x86_64 Simulator — after macOS
+4. macOS x86_64 — in_progress
+5. iOS x86_64 Simulator — in_progress / pending behind macOS
 
+Linux validation: manual Windows ↔ Linux bidirectional chat PASS.
+Linux UI parity is not required for this milestone.
 Live Windows ↔ Android (`ACT-S100C1`) is done. Restart/persistence automation (`ACT-S100C2`) and network recovery automation (`ACT-S100C3`) are deferred. Android manual GUI validation remains pending and non-blocking.
 
 Independent Android scenarios may start from clean application state. State preservation is required only inside scenarios explicitly testing restart/persistence.

@@ -4,9 +4,11 @@ Progress: apptraverse_chat_progress.md
 Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 Milestone: MULTIPLATFORM_CHAT_BASELINE
 
-Windows x86_64, Android x86_64, and Linux x86_64 chat are done on `feature/chat-linux-v1`.
-Next platform is macOS x86_64.
-Do not continue ACT-S100C2 or ACT-S100C3 from this freeze.
+Windows x86_64, Android x86_64, and Linux x86_64 chat are done on `integration/multiplatform-chat-v1`.
+Linux validation: manual Windows ↔ Linux bidirectional chat PASS. Linux UI parity is not required.
+macOS x86_64 is in_progress. iOS x86_64 Simulator is in_progress / pending behind macOS.
+Do not merge Apple until the Apple agent reports its checkpoint complete.
+Do not continue ACT-S100C2 or ACT-S100C3.
 
 # Purpose
 

@@ -125,12 +125,14 @@ User-approved current baseline (x86_64 only):
 1. Windows x86_64 — done
 2. Android x86_64 emulator — done
 3. Linux x86_64 — done
-4. macOS x86_64 — next after Linux
-5. iOS x86_64 Simulator — after macOS
+4. macOS x86_64 — in_progress
+5. iOS x86_64 Simulator — in_progress / pending behind macOS
 
 Current milestone: `MULTIPLATFORM_CHAT_BASELINE`.
 Windows and Android product code is frozen at tag `chat-win-android-v1`.
-Linux x86_64 GTK3 chat is on `feature/chat-linux-v1`.
+Linux x86_64 GTK3 chat is merged on `integration/multiplatform-chat-v1`.
+Linux validation: manual Windows ↔ Linux bidirectional chat PASS.
+Linux UI parity is not required for this milestone.
 
 ARM64 is out of the current baseline. Do not add Android arm64-v8a or Apple
 arm64 acceptance/build requirements yet. The reason is not lack of expected
