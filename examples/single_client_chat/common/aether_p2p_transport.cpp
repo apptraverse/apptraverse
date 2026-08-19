@@ -27,9 +27,9 @@ bool PayloadEquals(std::vector<std::uint8_t> const& payload,
 
 }  // namespace
 
-void AetherP2pTransport::Start(ae::RcPtr<ae::AetherApp> aether_app,
+void AetherP2pTransport::Start(ae::AetherApp& aether_app,
                                ae::Client::ptr local_client) {
-  aether_app_ = std::move(aether_app);
+  aether_app_ = &aether_app;
   local_client_ = std::move(local_client);
   if (!aether_app_ || !local_client_) {
     return;

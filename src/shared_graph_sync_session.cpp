@@ -56,7 +56,7 @@ SharedGraphSyncSession::SharedGraphSyncSession(SyncReplica local_replica,
   assert(send_);
   assert(state_.is_valid());
   assert(state_.is_loaded());
-  assert(local_.shared_root_id.IsValid());
+  assert(local_.shared_root_id.is_valid());
   assert(state_->data.shared_root_id == local_.shared_root_id);
 }
 
@@ -421,14 +421,14 @@ void SharedGraphSyncSession::MergeNodeStateGraph(
 }
 
 void SharedGraphSyncSession::Handle(NodeStatePacket const& packet) {
-  assert(receiving_packet_id_.IsValid());
+  assert(receiving_packet_id_.is_valid());
   assert(receiving_decoded_ != nullptr);
   MergeNodeStateGraph(packet, *receiving_decoded_->storage);
   MarkReceivedAndAck(receiving_packet_id_);
 }
 
 void SharedGraphSyncSession::Handle(EventPacket const& packet) {
-  assert(receiving_packet_id_.IsValid());
+  assert(receiving_packet_id_.is_valid());
   assert(receiving_decoded_ != nullptr);
   assert(packet.event.is_valid());
   assert(packet.event.is_loaded());

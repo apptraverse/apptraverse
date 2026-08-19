@@ -1,21 +1,39 @@
 # Single source of truth for the aether-client-cpp pin used by desktop and Android.
-set(APPTRAVERSE_AETHER_GIT_TAG "7294f92a0cf749c5d56eedc28673d8089d1f5cb2")
+set(APPTRAVERSE_AETHER_GIT_TAG "a3e99fd8ed2f6b057e0d1e9e4abe38009d99323f")
 
-# Last aether-miscpp revision compatible with the pinned Æther source.
-# Æther 7294f92a includes aether-miscpp/reflect/domain_visitor.h.
-# aether-miscpp 54aaaff ("new reflect and new separated domain visitor")
-# moved that header to aether-miscpp/domain_visitor/. Æther still fetches
-# aether-miscpp with floating GIT_TAG main; pin the parent of that move.
-set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "eabf068d369ec98e4d541ea229f1c8401e186b66")
+# Exact Aether-owned dependency revisions recorded from two independent
+# configures of the candidate (CPM GIT_TAG main/master, then reused).
+# Add these before Æther so its floating GIT_TAG main/master calls reuse
+# the pinned sources instead of moving branch heads.
+set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "0e467d9dc53e9f82c8e23fbdd238fceb97e5d504")
+set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "9e9758a4b57f446caaf387fe268b06b19ab24dcb")
+set(APPTRAVERSE_AETHER_TELE_GIT_TAG "79c42274dc2ffce91347a108eec7e0bb392cc83c")
+set(APPTRAVERSE_STDEXEC_GIT_TAG "e8c349f3f3425b9341306bc56615fc5279a15cf4")
+set(APPTRAVERSE_GCEM_GIT_TAG "f182c6f3d6e0742eb9eef4fff506a3928d4c5107")
 
 # Capture any explicit -DCPM_aether-client-cpp_SOURCE=... before CPMAddPackage.
 macro(apptraverse_prepare_aether_override)
   set(_apptraverse_aether_override "${CPM_aether-client-cpp_SOURCE}")
 endmacro()
 
-# Add aether-miscpp first so Æther's later CPMAddPackage(GIT_TAG main) reuses
-# this pinned revision instead of floating main.
-function(apptraverse_add_pinned_aether_miscpp)
+# Add Aether-owned packages first so Æther's later CPMAddPackage(GIT_TAG main)
+# reuses these pinned revisions.
+function(apptraverse_add_pinned_aether_owned_deps)
+  CPMAddPackage(
+    NAME gcem
+    GITHUB_REPOSITORY aethernetio/gcem
+    GIT_TAG ${APPTRAVERSE_GCEM_GIT_TAG}
+    EXCLUDE_FROM_ALL NO
+  )
+  CPMAddPackage(
+    NAME numeric
+    GITHUB_REPOSITORY aethernetio/aethernet-numeric
+    GIT_TAG ${APPTRAVERSE_AETHER_NUMERIC_GIT_TAG}
+    EXCLUDE_FROM_ALL NO
+    OPTIONS
+      "AE_NUMERIC_INSTALL OFF"
+      "AE_BUILD_TESTS OFF"
+  )
   CPMAddPackage(
     NAME aether-miscpp
     GITHUB_REPOSITORY aethernetio/aether-miscpp
@@ -25,6 +43,28 @@ function(apptraverse_add_pinned_aether_miscpp)
       "AE_INSTALL OFF"
       "AE_BUILD_TESTS OFF"
   )
+  CPMAddPackage(
+    NAME aether-tele
+    GITHUB_REPOSITORY aethernetio/aether-tele
+    GIT_TAG ${APPTRAVERSE_AETHER_TELE_GIT_TAG}
+    EXCLUDE_FROM_ALL NO
+    OPTIONS
+      "AE_TELE_INSTALL OFF"
+      "AE_TELE_BUILD_TESTS OFF"
+  )
+  CPMAddPackage(
+    NAME stdexec
+    GITHUB_REPOSITORY aethernetio/stdexec
+    GIT_TAG ${APPTRAVERSE_STDEXEC_GIT_TAG}
+    EXCLUDE_FROM_ALL NO
+    OPTIONS
+      "STDEXEC_BUILD_EXAMPLES OFF"
+      "STDEXEC_INSTALL OFF"
+  )
+endfunction()
+
+function(apptraverse_add_pinned_aether_miscpp)
+  apptraverse_add_pinned_aether_owned_deps()
 endfunction()
 
 function(_apptraverse_cpm_source_dir package_name out_var)
@@ -57,6 +97,22 @@ function(_apptraverse_git_head source_dir out_var)
   set(${out_var} "${_sha}" PARENT_SCOPE)
 endfunction()
 
+function(_apptraverse_verify_pinned_package package_name expected_sha)
+  _apptraverse_cpm_source_dir("${package_name}" _src)
+  if(_src STREQUAL "")
+    message(FATAL_ERROR
+      "Could not resolve ${package_name} source directory after CPMAddPackage")
+  endif()
+  _apptraverse_git_head("${_src}" _sha)
+  message(STATUS "APPTRAVERSE_${package_name}_SOURCE=${_src}")
+  message(STATUS "APPTRAVERSE_${package_name}_EXPECTED_SHA=${expected_sha}")
+  message(STATUS "APPTRAVERSE_${package_name}_SHA=${_sha}")
+  if(NOT _sha STREQUAL expected_sha)
+    message(FATAL_ERROR
+      "${package_name} SHA mismatch: got ${_sha}, expected ${expected_sha} at ${_src}")
+  endif()
+endfunction()
+
 # After CPMAddPackage: print resolved source and verify SHA unless user overrode.
 function(apptraverse_verify_aether_pin)
   if(DEFINED aether_SOURCE_DIR AND NOT aether_SOURCE_DIR STREQUAL "")
@@ -84,17 +140,9 @@ function(apptraverse_verify_aether_pin)
     endif()
   endif()
 
-  _apptraverse_cpm_source_dir("aether-miscpp" _apptraverse_miscpp_source)
-  if(_apptraverse_miscpp_source STREQUAL "")
-    message(FATAL_ERROR
-      "Could not resolve aether-miscpp source directory after CPMAddPackage")
-  endif()
-  _apptraverse_git_head("${_apptraverse_miscpp_source}" _apptraverse_miscpp_sha)
-  message(STATUS "APPTRAVERSE_AETHER_MISCPP_SOURCE=${_apptraverse_miscpp_source}")
-  message(STATUS "APPTRAVERSE_AETHER_MISCPP_EXPECTED_SHA=${APPTRAVERSE_AETHER_MISCPP_GIT_TAG}")
-  message(STATUS "APPTRAVERSE_AETHER_MISCPP_SHA=${_apptraverse_miscpp_sha}")
-  if(NOT _apptraverse_miscpp_sha STREQUAL APPTRAVERSE_AETHER_MISCPP_GIT_TAG)
-    message(FATAL_ERROR
-      "aether-miscpp SHA mismatch: got ${_apptraverse_miscpp_sha}, expected ${APPTRAVERSE_AETHER_MISCPP_GIT_TAG} at ${_apptraverse_miscpp_source}")
-  endif()
+  _apptraverse_verify_pinned_package("gcem" "${APPTRAVERSE_GCEM_GIT_TAG}")
+  _apptraverse_verify_pinned_package("numeric" "${APPTRAVERSE_AETHER_NUMERIC_GIT_TAG}")
+  _apptraverse_verify_pinned_package("aether-miscpp" "${APPTRAVERSE_AETHER_MISCPP_GIT_TAG}")
+  _apptraverse_verify_pinned_package("aether-tele" "${APPTRAVERSE_AETHER_TELE_GIT_TAG}")
+  _apptraverse_verify_pinned_package("stdexec" "${APPTRAVERSE_STDEXEC_GIT_TAG}")
 endfunction()

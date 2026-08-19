@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "aether-miscpp/reflect/domain_visitor.h"
+#include "aether-miscpp/domain_visitor/domain_visitor.h"
 #include "aether/obj/obj_ptr.h"
 
 #include "apptraverse/event.h"
@@ -48,7 +48,7 @@ struct ObjPtrTarget<ae::ObjPtr<T>> {
 
 template <typename T>
 void ReflectObjectForSharedDiscovery(T& object, SharedDiscoveryContext& ctx) {
-  auto visitor = ae::reflect::OverrideFunc{[&](auto& value) -> bool {
+  auto visitor = [&](auto& value) -> bool {
     using V = std::decay_t<decltype(value)>;
     if constexpr (IsLocalPtr<V>::value) {
       return false;
@@ -86,11 +86,11 @@ void ReflectObjectForSharedDiscovery(T& object, SharedDiscoveryContext& ctx) {
     } else {
       return true;
     }
-  }};
-  ae::reflect::DomainVisit(
+  };
+  ae::domain_visitor::DomainVisit(
       object,
-      ae::reflect::DomainNodeVisitor<decltype(visitor),
-                                     ae::reflect::VisitPolicy::kDeep>{
+      ae::domain_visitor::DomainNodeVisitor<
+          decltype(visitor), ae::domain_visitor::VisitPolicy::kDeep>{
           std::move(visitor)});
 }
 
