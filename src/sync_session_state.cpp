@@ -6,7 +6,7 @@ namespace apptraverse {
 
 SyncSessionState::ptr CreateSyncSessionState(ae::Domain& domain,
                                              ae::ObjId shared_root_id) {
-  assert(shared_root_id.IsValid());
+  assert(shared_root_id.is_valid());
   auto base = SyncSessionState::ptr::Create(ae::CreateWith{domain});
   auto live = SyncSessionState::ptr::Create(ae::CreateWith{domain});
   live->base = base;

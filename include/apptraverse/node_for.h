@@ -27,7 +27,7 @@ class NodeFor : public BaseNode {
 
   void ReloadFromStorageImpl() override {
     assert(this->domain != nullptr);
-    assert(this->obj_id.IsValid());
+    assert(this->obj_id.is_valid());
     ae::DomainGraph graph{this->domain};
     graph.Load(static_cast<ConcreteNode&>(*this), this->obj_id);
   }

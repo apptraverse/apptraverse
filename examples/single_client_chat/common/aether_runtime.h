@@ -25,7 +25,7 @@ inline constexpr char kLinuxAetherClientName[] = "apptraverse-linux";
 
 // AetherApp owns storage; keep a non-owning pointer for SyncReplica.
 struct ConstructedAetherRuntime {
-  ae::RcPtr<ae::AetherApp> app;
+  std::unique_ptr<ae::AetherApp> app;
   ae::IDomainStorage* storage{nullptr};
 };
 
@@ -88,12 +88,12 @@ inline std::string FormatAetherUid(ae::Uid const& uid) {
 // Returns an empty Client::ptr on failure. When out_error is set, writes the
 // SelectClient error code (or -1 if the action finished without a result).
 inline ae::Client::ptr SelectPersistentAetherClient(
-    ae::RcPtr<ae::AetherApp> const& aether_app, std::string_view client_name,
+    ae::AetherApp& aether_app, std::string_view client_name,
     int* out_error = nullptr) {
   ae::Client::ptr client;
   int error_code = 0;
   bool got_result = false;
-  auto& action = aether_app->aether()->SelectClient(
+  auto& action = aether_app.aether()->SelectClient(
       kAetherParentUid, std::string{client_name});
   action.result_event().Subscribe([&](auto const& result) {
     got_result = true;
@@ -104,7 +104,7 @@ inline ae::Client::ptr SelectPersistentAetherClient(
       error_code = result.error();
     }
   });
-  aether_app->WaitActions(action);
+  aether_app.WaitActions(action);
   if (!client) {
     if (out_error != nullptr) {
       *out_error = got_result ? error_code : -1;
@@ -113,7 +113,7 @@ inline ae::Client::ptr SelectPersistentAetherClient(
   }
   // Persist clients_ immediately. Force-stop / kill skips ~AetherApp, which
   // would otherwise be the only place that saves the updated Aether object.
-  aether_app->aether().Save();
+  aether_app.aether().Save();
   return client;
 }
 

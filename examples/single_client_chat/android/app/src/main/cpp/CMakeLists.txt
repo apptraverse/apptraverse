@@ -26,7 +26,7 @@ apptraverse_prepare_aether_override()
 
 include("${APPTRAVERSE_ROOT}/cmake/CPM.cmake")
 
-apptraverse_add_pinned_aether_miscpp()
+apptraverse_add_pinned_aether_owned_deps()
 
 CPMAddPackage(
   NAME aether-client-cpp

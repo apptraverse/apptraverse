@@ -21,7 +21,7 @@ ChatPeer const& AddChatPeer(ChatPeerSet::ptr peer_set, ae::ObjId chat_id,
   assert(peer_set.is_valid());
   assert(peer_set.is_loaded());
   assert(!remote_uid.empty());
-  assert(chat_id.IsValid());
+  assert(chat_id.is_valid());
   assert(peer_set.domain() != nullptr);
 
   if (auto* existing = peer_set->Find(remote_uid)) {

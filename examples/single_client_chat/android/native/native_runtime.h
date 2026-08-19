@@ -12,7 +12,6 @@
 #include "aether/aether_app.h"
 #include "aether/ae_context.h"
 #include "aether/client.h"
-#include "aether/ptr/rc_ptr.h"
 
 #include "aether/obj/idomain_storage.h"
 
@@ -70,7 +69,7 @@ class NativeRuntime {
 
   std::string state_dir_;
   UiBridge ui_bridge_;
-  ae::RcPtr<ae::AetherApp> aether_app_;
+  std::unique_ptr<ae::AetherApp> aether_app_;
   ae::IDomainStorage* domain_storage_{nullptr};
   App::ptr app_;
   ae::Client::ptr aether_client_;

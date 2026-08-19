@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "aether-miscpp/reflect/domain_visitor.h"
+#include "aether-miscpp/domain_visitor/domain_visitor.h"
 #include "aether/obj/idomain_storage.h"
 #include "aether/obj/obj_ptr.h"
 
@@ -23,7 +23,7 @@ void PrepareSyncGraphObject(T& object, PrepareSyncGraphContext& ctx);
 
 template <typename T>
 void PrepareSyncGraphObject(T& object, PrepareSyncGraphContext& ctx) {
-  auto visitor = ae::reflect::OverrideFunc{[&](auto& value) -> bool {
+  auto visitor = [&](auto& value) -> bool {
     using V = std::decay_t<decltype(value)>;
     if constexpr (IsLocalPtr<V>::value) {
       value = V{};
@@ -74,11 +74,11 @@ void PrepareSyncGraphObject(T& object, PrepareSyncGraphContext& ctx) {
     } else {
       return true;
     }
-  }};
-  ae::reflect::DomainVisit(
+  };
+  ae::domain_visitor::DomainVisit(
       object,
-      ae::reflect::DomainNodeVisitor<decltype(visitor),
-                                     ae::reflect::VisitPolicy::kDeep>{
+      ae::domain_visitor::DomainNodeVisitor<
+          decltype(visitor), ae::domain_visitor::VisitPolicy::kDeep>{
           std::move(visitor)});
 }
 

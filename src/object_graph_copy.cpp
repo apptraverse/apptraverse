@@ -72,7 +72,8 @@ void TransferRamObject(ae::RamDomainStorage const& src, ae::ObjId obj_id,
       auto writer = dst.Store(ae::DomainQuery{obj_id, class_id, version});
       assert(writer != nullptr);
       if (!data.empty()) {
-        writer->write(data.data(), data.size());
+        writer->Write(ae::seri::DataTag{static_cast<void const*>(data.data()),
+                                        data.size()});
       }
     }
   }
