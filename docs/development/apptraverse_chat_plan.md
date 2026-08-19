@@ -522,14 +522,20 @@ Split after S025:
 ## ACT-S100B
 
 - canonical Android x86_64 emulator GUI
-- status: blocked
-- typed blocker: android_emulator_unavailable
-- do not start/create an AVD in this slice
+- status: done (build/install/launch)
+- manual GUI validation pending; does not block ACT-S100C
+
+## ACT-S100B-Q
+
+- quiet-by-default Android native diagnostics
+- property debug.apptraverse.verbose_log
+- do not change ChatComponent, sync, transport, or Aether
 
 ## ACT-S100C
 
-- live Windows <-> Android x86_64 chat
-- status: not ready until ACT-S100B manual PASS
+- automated live Windows <-> Android x86_64 chat
+- status: ready after ACT-S100B-Q
+- enable Android verbose markers only for the test
 
 ## ACT-S030
 

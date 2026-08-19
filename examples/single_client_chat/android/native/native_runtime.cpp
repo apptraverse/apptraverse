@@ -1,6 +1,7 @@
 #include "native_runtime.h"
 
 #include <algorithm>
+#include <functional>
 #include <chrono>
 #include <filesystem>
 #include <memory>
@@ -148,7 +149,7 @@ void NativeRuntime::Stop() {
 bool NativeRuntime::Setup() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSingleClientChatRegistration();
-  InstallAetherTeleToLogcat();
+  ConfigureAetherTeleOutput();
 
   auto ec = std::error_code{};
   std::filesystem::create_directories(std::filesystem::path{state_dir_}, ec);
@@ -263,7 +264,9 @@ bool NativeRuntime::SelectAetherClient() {
 
 void NativeRuntime::StartP2pTransport() {
   p2p_transport_ = std::make_unique<examples::AetherP2pTransport>();
-  p2p_transport_->SetLogHandler([](std::string line) { LogMarker(line); });
+  if (VerboseLogEnabled()) {
+    p2p_transport_->SetLogHandler([](std::string line) { LogMarker(line); });
+  }
   p2p_transport_->Start(aether_app_, aether_client_);
   LogMarker("AETHER_P2P_TRANSPORT_READY");
 }
@@ -292,10 +295,12 @@ bool NativeRuntime::StartChatSync() {
                        ae::Uid const& peer, ae::ObjId packet_id,
                        SerializedSyncPacket const& bytes) {
     p2p_transport_->Send(peer, bytes);
-    LogMarker(
-        "SYNC_TRANSPORT_WRITE peer=" + examples::FormatAetherUid(peer) +
-        " packet=" + std::to_string(packet_id.id()) +
-        " t_us=" + std::to_string(system_utc_micros()));
+    if (VerboseLogEnabled()) {
+      LogMarker(
+          "SYNC_TRANSPORT_WRITE peer=" + examples::FormatAetherUid(peer) +
+          " packet=" + std::to_string(packet_id.id()) +
+          " t_us=" + std::to_string(system_utc_micros()));
+    }
   };
   auto presence_send = [this](ae::Uid const& peer,
                               std::vector<std::uint8_t> const& bytes) {
@@ -318,7 +323,10 @@ bool NativeRuntime::StartChatSync() {
         }
       },
       chat::ChatSyncTiming{}, true,
-      [](std::string const& line) { LogMarker(line); });
+      VerboseLogEnabled()
+          ? chat::ChatComponent::LogFunction{
+                [](std::string const& line) { LogMarker(line); }}
+          : chat::ChatComponent::LogFunction{});
   chat_component_->SubscribePresentationChanged([this]() {
     if (chat_presenter_ != nullptr && chat_component_ != nullptr) {
       chat_presenter_->PublishPresentation(
@@ -331,7 +339,10 @@ bool NativeRuntime::StartChatSync() {
       [this](ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
         if (examples::TryHandleP2pProbePayload(
                 *p2p_transport_, peer, payload,
-                [](std::string const& line) { LogMarker(line); })) {
+                VerboseLogEnabled()
+                    ? std::function<void(std::string const&)>(
+                          [](std::string const& line) { LogMarker(line); })
+                    : std::function<void(std::string const&)>{})) {
           return;
         }
         if (chat_component_ != nullptr) {
@@ -490,6 +501,9 @@ void NativeRuntime::DrainPendingViewports() {
 
 void NativeRuntime::PublishTranscript(std::string const& transcript) {
   ui_bridge_.PostTranscript(transcript);
+  if (!VerboseLogEnabled()) {
+    return;
+  }
   auto const t_us = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::system_clock::now().time_since_epoch())
                         .count();
@@ -519,6 +533,9 @@ void NativeRuntime::PublishTranscript(std::string const& transcript) {
 }
 
 void NativeRuntime::LogJournalSizes() {
+  if (!VerboseLogEnabled()) {
+    return;
+  }
   if (app_.is_valid() && app_->window.is_valid()) {
     auto window = app_->window;
     window.Load();

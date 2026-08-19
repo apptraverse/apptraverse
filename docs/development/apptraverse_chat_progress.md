@@ -6,13 +6,13 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S100B
+ACT-S100C
 
 Status:
-blocked
+ready
 
 Goal:
-build/install/launch existing Android x86_64 chat GUI on one running Windows-hosted emulator. Typed blocker: android_emulator_unavailable.
+automated live Windows <-> Android x86_64 chat. Android verbose markers only for the test. Do not depend on manual GUI inspection.
 
 # Status vocabulary
 
@@ -47,8 +47,9 @@ build/install/launch existing Android x86_64 chat GUI on one running Windows-hos
 | ACT-S040 | transport simplification slices | blocked | blocked by audit and user decisions |
 | ACT-S100A | canonical Windows chat GUI for manual validation | done | two Windows instances; mutual AddPeer; bidirectional chat |
 | ACT-S100A-Q | quiet-by-default Windows GUI diagnostics | done | quiet GUI; mutual AddPeer; bidirectional; persist |
-| ACT-S100B | canonical Android x86_64 emulator GUI | blocked | android_emulator_unavailable |
-| ACT-S100C | live Windows <-> Android x86_64 chat | blocked | after ACT-S100B manual PASS |
+| ACT-S100B | canonical Android x86_64 emulator GUI | done | build/install/launch on emulator-5554; manual GUI pending |
+| ACT-S100B-Q | quiet-by-default Android native diagnostics | done | debug.apptraverse.verbose_log; automatic quiet/verbose proof |
+| ACT-S100C | live Windows <-> Android x86_64 chat | ready | after ACT-S100B-Q; not blocked by manual GUI |
 
 ## ACT-S001 details
 
@@ -214,7 +215,11 @@ Done. Manual Windows quiet-GUI validation:
 
 ## ACT-S100B details
 
-Blocked. Precheck found Android SDK and adb, Gradle wrapper present, AVD Aether_NDK_Smoke_x86_64 exists on disk, but adb devices listed no running emulator- serial. Do not create/start an AVD in this slice. Typed blocker: android_emulator_unavailable. ACT-S100C not started. ACT-B002 remains deferred.
+Build/install/launch done on emulator-5554 (x86_64, API 34). APK installed over existing application. MainActivity resumed. No Java/native fatal error. Manual GUI validation remains pending and does not block ACT-S100C.
+
+## ACT-S100B-Q details
+
+Quiet-by-default Android native diagnostics. Property debug.apptraverse.verbose_log (1/true/yes/on). Default off: LogMarker silent, no AetherTele logcat routing, cout discarded, high-frequency handlers not installed. LogError remains. Automatic quiet/verbose validation required in this slice.
 
 ## ACT-S025 details
 
@@ -747,4 +752,35 @@ Known limits:
 - AVD Aether_NDK_Smoke_x86_64 exists but was not started
 - default PATH Java is 20; Android Studio JBR is 25; dedicated JDK 17 not found
 Next ready slice: ACT-S100B after a running x86_64 emulator- serial is available
+
+
+Session ACT-S100B-Q:
+
+- branch review/chat-android-quiet-v1 from d95b59875d493a6f7fd390d1cdbbdddefb525243
+- ACT-S100B build/install/launch recorded done; manual GUI still pending
+- debug.apptraverse.verbose_log default off; LogMarker silent; AetherTele not routed; cout discarded
+- high-frequency handlers not installed when quiet
+- incremental installDebug x86_64 BUILD SUCCESSFUL duration_s=23.681
+- quiet validation: PID 5428 resumed; AetherTele=0 SYNC_TRANSPORT_WRITE=0 CHAT_RETRY_SENT=0 fatals=0
+- verbose validation: AETHER_CLIENT_READY, AETHER_P2P_TRANSPORT_READY, CHAT_SYNC_CONTROLLER_READY
+- property restored to 0
+- ACT-S100C is the next ready slice; not started
+
+Completion packet:
+
+Slice: ACT-S100B-Q
+Acceptance IDs: n/a
+Artifacts:
+- examples/single_client_chat/android/native/android_log.h
+- examples/single_client_chat/android/native/native_runtime.cpp
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- .artifacts/android-quiet/20260818-174800-s100bq
+Build identity: Gradle :app:installDebug x86_64
+Build proof: status=ok duration_s=23.681
+Runtime proof: automatic quiet/verbose property validation PASS
+Typed blockers: none
+Known limits:
+- Android manual GUI validation remains pending; does not block ACT-S100C
+Next ready slice: ACT-S100C
 
