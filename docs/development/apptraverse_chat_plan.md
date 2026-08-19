@@ -553,7 +553,7 @@ Split after S025:
 ## ACT-S100C2
 
 - Windows/Android restart and persistence
-- status: ready after ACT-S100C1 PASS
+- status: blocked (one live run phase1_delivery_failed)
 
 ## ACT-S100C3
 

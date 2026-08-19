@@ -9,10 +9,10 @@ Slice:
 ACT-S100C2
 
 Status:
-ready
+blocked
 
 Goal:
-Windows/Android restart and persistence. Do not start this slice in the C1-R1 session.
+validate Windows and Android restart, persisted identity/history, automatic reconnection, and post-restart bidirectional messaging. Do not test Wi-Fi outage.
 
 # Status vocabulary
 
@@ -52,8 +52,8 @@ Windows/Android restart and persistence. Do not start this slice in the C1-R1 se
 | ACT-S100C | live Windows <-> Android x86_64 chat | split | C1 live exchange; C2 restart/persistence; C3 network loss |
 | ACT-S100C1 | basic live Windows ↔ Android bidirectional exchange | done | live bidirectional exchange on emulator-5554 after C1-R1 dump repair |
 | ACT-S100C1-R1 | harden Android UI hierarchy acquisition | done | exec_out_compressed_tty; one preflight; one live PASS |
-| ACT-S100C2 | Windows/Android restart and persistence | ready | next ready slice |
-| ACT-S100C3 | temporary network loss and recovery | blocked | after ACT-S100C2 |
+| ACT-S100C2 | Windows/Android restart and persistence | blocked | one live run phase1_delivery_failed; C3 not ready |
+| ACT-S100C3 | temporary network loss and recovery | blocked | after ACT-S100C2 PASS |
 
 ## ACT-S001 details
 
@@ -234,6 +234,10 @@ ACT-S100C1-R1 repaired hierarchy acquisition. One UI-dump preflight and one live
 ## ACT-S100C1-R1 details
 
 Harness-only repair. Distinct dump failure kinds, foreground gate, bounded three-attempt UI dump helper, XML extraction from mixed uiautomator output. No product C++/Java changes. No build/install.
+
+## ACT-S100C2 details
+
+One live restart/persistence run `windows-android-persistence/20260819-031722-9ff594` failed `phase1_delivery_failed` after Windows accepted `text_submit` (`event_obj_id=908004890`). Android UI dumps during the wait returned `ERROR: could not get idle state` (no valid hierarchy XML). Phase 2 was not reached. Verbose property restored to 0. App data preserved. ACT-S100C3 is not ready.
 
 ## ACT-S025 details
 
@@ -864,4 +868,36 @@ Known limits:
 - Android manual GUI validation remains pending; non-blocking
 - dumpsys window windows did not populate focused_window in compact result
 Next ready slice: ACT-S100C2
+
+
+Session ACT-S100C2:
+
+- branch review/chat-windows-android-persistence-v1 from 902c3825fa2c987fd24875e059f93b848fc9bac1
+- reused C1 dump/foreground/JSONL helpers; limited windows_env instance= default windows
+- unit tests PASS 39 (13 persistence + 26 C1)
+- one live run 20260819-031722-9ff594 status=failed failure_kind=phase1_delivery_failed
+- Windows text_submit accepted; Android uiautomator idle-state dump failed during wait
+- verbose restored to 0; Android data preserved; Windows state preserved
+- no build/install/pm clear; no phase-2 re-pairing attempted
+- ACT-S100C3 not marked ready
+
+Completion packet:
+
+Slice: ACT-S100C2
+Acceptance IDs: n/a
+Artifacts:
+- tools/integration/run_windows_android_persistence.py
+- tools/integration/test_run_windows_android_persistence.py
+- tools/integration/run_windows_android_live_chat.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- .artifacts/windows-android-persistence/20260819-031722-9ff594
+Build identity: n/a
+Build proof: not_run
+Runtime proof: one live run status=failed failure_kind=phase1_delivery_failed duration_ms=78265
+Typed blockers: phase1_delivery_failed
+Known limits:
+- Android manual GUI validation remains pending; non-blocking
+- uiautomator reported ERROR: could not get idle state during phase-1 transcript wait
+Next ready slice: none (ACT-S100C3 stays blocked until C2 PASS)
 

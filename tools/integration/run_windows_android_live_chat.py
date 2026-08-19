@@ -406,12 +406,18 @@ def encode_adb_input_text(message: str) -> str:
     return message.replace(" ", "%s")
 
 
-def windows_env(base: dict[str, str], *, run_id: str, jsonl_path: Path) -> dict[str, str]:
+def windows_env(
+    base: dict[str, str],
+    *,
+    run_id: str,
+    jsonl_path: Path,
+    instance: str = "windows",
+) -> dict[str, str]:
     env = dict(base)
     env.pop("APPTRAVERSE_VERBOSE_LOG", None)
     env["APPTRAVERSE_RUNTIME_JSONL"] = str(jsonl_path)
     env["APPTRAVERSE_RUN_ID"] = run_id
-    env["APPTRAVERSE_INSTANCE"] = "windows"
+    env["APPTRAVERSE_INSTANCE"] = instance
     return env
 
 
