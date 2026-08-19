@@ -137,6 +137,49 @@ class PersistenceHelperTest(unittest.TestCase):
         self.assertTrue(harness.sync_event_applied_present(log_text, "908004890"))
         self.assertFalse(harness.sync_event_applied_present(log_text, 1))
 
+    def test_debug_send_argv_is_explicit_and_single_action(self) -> None:
+        argv = harness.debug_send_shell_args("pre_a_to_w_abc")
+        self.assertEqual(argv[0], "am")
+        self.assertEqual(argv[1], "broadcast")
+        self.assertIn("--receiver-foreground", argv)
+        self.assertEqual(argv[argv.index("-n") + 1], harness.DEBUG_SEND_RECEIVER)
+        self.assertEqual(argv[argv.index("-a") + 1], harness.DEBUG_SEND_ACTION)
+        self.assertEqual(argv.count("-a"), 1)
+        self.assertNotIn("DEBUG_ADD_PEER", " ".join(argv))
+        self.assertEqual(argv[argv.index("--es") + 1], "text")
+        self.assertEqual(argv[argv.index("--es") + 2], "pre_a_to_w_abc")
+
+    def test_debug_send_queued_marker_is_not_native_commit(self) -> None:
+        queued = "DEBUG_COMMAND_SEND_QUEUED text=pre_a_to_w_1\n"
+        self.assertTrue(harness.android_debug_send_queued(queued, "pre_a_to_w_1"))
+        self.assertFalse(harness.android_message_committed(queued, "pre_a_to_w_1"))
+        committed = "MESSAGE_COMMITTED text=pre_a_to_w_1\n"
+        self.assertTrue(harness.android_message_committed(committed, "pre_a_to_w_1"))
+
+    def test_classify_broadcast_result_codes(self) -> None:
+        harness.classify_debug_send_broadcast(Completed("Broadcast completed: result=-1\n"))
+        with self.assertRaises(harness.PersistenceFailure) as rejected:
+            harness.classify_debug_send_broadcast(Completed("Broadcast completed: result=0\n"))
+        self.assertEqual(rejected.exception.failure_kind, "android_debug_send_rejected")
+        with self.assertRaises(harness.PersistenceFailure) as missing:
+            harness.classify_debug_send_broadcast(Completed("Error: unknown component\n"))
+        self.assertEqual(missing.exception.failure_kind, "android_debug_send_receiver_missing")
+        with self.assertRaises(harness.PersistenceFailure) as failed:
+            harness.classify_debug_send_broadcast(Completed("Broadcast completed: result=2\n"))
+        self.assertEqual(failed.exception.failure_kind, "android_debug_send_failed")
+
+    def test_empty_and_oversized_debug_send_rejected(self) -> None:
+        class DummyAdb:
+            def shell(self, args, timeout=30.0):
+                raise AssertionError("broadcast must not run for rejected text")
+
+        with self.assertRaises(harness.PersistenceFailure) as empty:
+            harness.invoke_android_debug_send(DummyAdb(), "")
+        self.assertEqual(empty.exception.failure_kind, "android_debug_send_rejected")
+        with self.assertRaises(harness.PersistenceFailure) as oversized:
+            harness.invoke_android_debug_send(DummyAdb(), "x" * (harness.DEBUG_SEND_MAX_CHARS + 1))
+        self.assertEqual(oversized.exception.failure_kind, "android_debug_send_rejected")
+
     def test_windows_persisted_event_obj_id_check(self) -> None:
         records = [
             _record(1, "message_visible", {"text": "pre_a_to_w_1", "event_obj_id": 77}),
@@ -192,6 +235,9 @@ class PersistenceHelperTest(unittest.TestCase):
         self.assertNotIn("logcat.txt", blob)
         self.assertFalse(live.result_contains_forbidden_payload(result))
         live.reject_absolute_paths(result)
+        self.assertEqual(result["android_send_method"], "debug_broadcast_receiver")
+        self.assertEqual(result["uiautomator_command_count"], 0)
+        self.assertEqual(result["adb_input_command_count"], 0)
 
 
 class FakeProc:
@@ -280,21 +326,24 @@ class FakePersistWorld:
             )
         if argv_has(argv, "dumpsys", "window", "windows"):
             return Completed("mCurrentFocus=Window{0 u0 com.apptraverse.singleclientchat/.MainActivity}\n")
-        if argv_has(argv, "exec-out", "uiautomator", "dump"):
-            return Completed(_xml(transcript=self.transcript, input_text=self.input_text))
-        if argv_has(argv, "rm", "-f"):
-            return Completed()
-        if argv_has(argv, "input", "text"):
-            self.input_text = argv[-1]
-            return Completed()
-        if argv_has(argv, "input", "tap"):
-            if argv[-2] == "91" and argv[-1] == "100":
-                self._commit_android()
-            return Completed()
-        if argv_has(argv, "input", "keyevent"):
-            if argv[-1] == "66":
-                raise AssertionError("KEYCODE_ENTER forbidden")
-            return Completed()
+        if "uiautomator" in argv:
+            raise AssertionError("uiautomator is forbidden in C2")
+        if argv_has(argv, "input", "tap") or argv_has(argv, "input", "text") or argv_has(argv, "input", "keyevent"):
+            raise AssertionError("adb input is forbidden in C2")
+        if argv_has(argv, "am", "broadcast"):
+            joined = " ".join(argv)
+            if harness.DEBUG_SEND_RECEIVER not in argv:
+                return Completed("Broadcast completed: result=0\n")
+            if harness.DEBUG_SEND_ACTION not in argv:
+                return Completed("Broadcast completed: result=0\n")
+            if "--es" not in argv:
+                return Completed("Broadcast completed: result=0\n")
+            text = argv[argv.index("--es") + 2]
+            if not text or not text.strip() or len(text) > harness.DEBUG_SEND_MAX_CHARS:
+                return Completed("Broadcast completed: result=0\n")
+            self.input_text = text
+            self._commit_android()
+            return Completed("Broadcast completed: result=-1\n")
         return Completed()
 
     def popen(self, argv, stdout=None, stderr=None, env=None, cwd=None, shell=False):
@@ -390,6 +439,7 @@ class FakePersistWorld:
         path = self._current_logcat()
         if path is not None:
             with path.open("a", encoding="utf-8") as handle:
+                handle.write(f"DEBUG_COMMAND_SEND_QUEUED text={message}\n")
                 handle.write(f"CHAT_MESSAGE_COMMITTED platform=android event=9 text_key={message}\n")
                 handle.write(f"MESSAGE_COMMITTED text={message}\n")
         self._append_visible(message)
@@ -463,18 +513,31 @@ class PersistenceRunnerTest(unittest.TestCase):
             blob = json.dumps(result)
             self.assertNotIn("<hierarchy", blob)
             self.assertNotIn("add_participant", joined)
-            dump_calls = [call for call in world.calls if "uiautomator" in call and "dump" in call]
-            self.assertEqual(len(dump_calls), 4)
+            self.assertNotIn("uiautomator", joined)
+            self.assertNotIn("input tap", joined)
+            self.assertNotIn("input text", joined)
+            self.assertNotIn("input keyevent", joined)
+            self.assertEqual(result["android_send_method"], "debug_broadcast_receiver")
+            self.assertTrue(result["debug_receiver_phase1_accepted"])
+            self.assertTrue(result["debug_receiver_phase2_accepted"])
+            self.assertEqual(result["uiautomator_command_count"], 0)
+            self.assertEqual(result["adb_input_command_count"], 0)
+            broadcasts = [call for call in world.calls if "broadcast" in call]
+            self.assertEqual(len(broadcasts), 2)
+            for call in broadcasts:
+                self.assertIn(harness.DEBUG_SEND_ACTION, call)
+                self.assertIn(harness.DEBUG_SEND_RECEIVER, call)
+                self.assertIn("--receiver-foreground", call)
             self.assertEqual(result["phase1"].get("sync_event_applied"), {"event": 101})
             self.assertEqual(result["phase2"]["history_count"], 4)
 
-    def test_android_send_dump_failure_keeps_dump_kind(self) -> None:
-        class DumpFailWorld(FakePersistWorld):
+    def test_missing_debug_receiver_is_classified(self) -> None:
+        class MissingReceiverWorld(FakePersistWorld):
             def run(self, argv, capture_output=True, text=True, encoding=None, errors=None, shell=False, timeout=None):
-                if "uiautomator" in argv and "dump" in argv:
+                if argv_has(argv, "am", "broadcast"):
                     self.shell_flags.append(shell)
                     self.calls.append(list(argv))
-                    return Completed("ERROR: could not get idle state\n")
+                    return Completed("Error: unknown component: DebugCommandReceiver\n")
                 return super().run(
                     argv,
                     capture_output=capture_output,
@@ -491,8 +554,8 @@ class PersistenceRunnerTest(unittest.TestCase):
             exe.write_bytes(b"dummy")
             adb = root / "adb.exe"
             adb.write_bytes(b"dummy")
-            run_id = "20260819-000000-dump01"
-            world = DumpFailWorld(run_id)
+            run_id = "20260819-000000-recv01"
+            world = MissingReceiverWorld(run_id)
             artifact = root / ".artifacts" / "windows-android-persistence" / run_id
             world.logcat_paths = [
                 artifact / "android" / "phase1" / "logcat.txt",
@@ -514,7 +577,8 @@ class PersistenceRunnerTest(unittest.TestCase):
                 env={"PATH": "x"},
             )
             self.assertEqual(result["status"], "failed")
-            self.assertEqual(result["failure_kind"], "android_ui_dump_failed")
+            self.assertEqual(result["failure_kind"], "android_debug_send_receiver_missing")
+            self.assertNotEqual(result["failure_kind"], "android_ui_dump_failed")
             self.assertNotEqual(result["failure_kind"], "phase1_delivery_failed")
 
     def test_missing_windows_exe(self) -> None:
@@ -528,6 +592,84 @@ class PersistenceRunnerTest(unittest.TestCase):
             )
             self.assertEqual(result["status"], "failed")
             self.assertEqual(result["failure_kind"], "windows_executable_missing")
+
+
+class DebugReceiverSourceTest(unittest.TestCase):
+    _repo = Path(__file__).resolve().parents[2]
+    _debug_java = (
+        _repo
+        / "examples"
+        / "single_client_chat"
+        / "android"
+        / "app"
+        / "src"
+        / "debug"
+        / "java"
+        / "com"
+        / "apptraverse"
+        / "singleclientchat"
+        / "DebugCommandReceiver.java"
+    )
+    _debug_manifest = (
+        _repo
+        / "examples"
+        / "single_client_chat"
+        / "android"
+        / "app"
+        / "src"
+        / "debug"
+        / "AndroidManifest.xml"
+    )
+    _main_manifest = (
+        _repo
+        / "examples"
+        / "single_client_chat"
+        / "android"
+        / "app"
+        / "src"
+        / "main"
+        / "AndroidManifest.xml"
+    )
+    _main_java_dir = (
+        _repo
+        / "examples"
+        / "single_client_chat"
+        / "android"
+        / "app"
+        / "src"
+        / "main"
+        / "java"
+        / "com"
+        / "apptraverse"
+        / "singleclientchat"
+    )
+
+    def test_receiver_exists_only_under_debug(self) -> None:
+        self.assertTrue(self._debug_java.is_file())
+        self.assertFalse((self._main_java_dir / "DebugCommandReceiver.java").exists())
+
+    def test_main_manifest_unchanged(self) -> None:
+        main_text = self._main_manifest.read_text(encoding="utf-8")
+        self.assertNotIn("DebugCommandReceiver", main_text)
+        self.assertNotIn("DEBUG_SEND", main_text)
+        debug_text = self._debug_manifest.read_text(encoding="utf-8")
+        self.assertIn("DebugCommandReceiver", debug_text)
+        self.assertIn("com.apptraverse.singleclientchat.DEBUG_SEND", debug_text)
+        self.assertIn('android:exported="true"', debug_text)
+
+    def test_receiver_calls_application_send_only(self) -> None:
+        source = self._debug_java.read_text(encoding="utf-8")
+        self.assertIn("ACTION.equals(intent.getAction())", source)
+        self.assertIn("getStringExtra(EXTRA_TEXT)", source)
+        self.assertIn("text.trim()", source)
+        self.assertIn("MAX_TEXT_CHARS", source)
+        self.assertIn("((SingleClientChatApplication) appContext).send(text)", source)
+        self.assertIn("DEBUG_COMMAND_SEND_QUEUED text=", source)
+        self.assertNotIn("nativeQueueSend", source)
+        self.assertNotIn("addPeer", source)
+        self.assertNotIn("Runtime.getRuntime", source)
+        self.assertNotIn("ProcessBuilder", source)
+        self.assertNotIn("exec(", source)
 
 
 if __name__ == "__main__":

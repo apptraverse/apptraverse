@@ -52,8 +52,9 @@ ACT-S100C2 remains blocked until a repaired persistence scenario PASSes. ACT-S10
 | ACT-S100C | live Windows <-> Android x86_64 chat | split | C1 live exchange; C2 restart/persistence; C3 network loss |
 | ACT-S100C1 | basic live Windows ↔ Android bidirectional exchange | done | live bidirectional exchange on emulator-5554 after C1-R1 dump repair |
 | ACT-S100C1-R1 | harden Android UI hierarchy acquisition | done | exec_out_compressed_tty; one preflight; one live PASS |
-| ACT-S100C2 | Windows/Android restart and persistence | blocked | R1 proved W→A via CHAT_MESSAGE_VISIBLE; live still android_ui_dump_failed on Android input/Send; C3 not ready |
-| ACT-S100C2-R1 | Android presentation markers for persistence assertions | done | harness-repair; W→A marker exact-once proved; UI dump only for Send still idle-failed |
+| ACT-S100C2 | Windows/Android restart and persistence | blocked | R2 live run fatal_android_error during pairing; not a UI-dump failure; C3 not ready |
+| ACT-S100C2-R1 | Android presentation markers for persistence assertions | done | W→A marker exact-once proved; failure=android_ui_dump_failed during automated Send |
+| ACT-S100C2-R2 | debug-only Android send receiver for persistence tests | done | harness/receiver landed; one live run fatal_android_error in native core during pairing |
 | ACT-S100C3 | temporary network loss and recovery | blocked | after ACT-S100C2 PASS |
 
 ## ACT-S001 details
@@ -246,7 +247,13 @@ Windows accepted `text_submit` (`event_obj_id=908004890`). Android then emitted 
 
 Harness-only repair. Android delivery/history assertions use native `CHAT_MESSAGE_VISIBLE platform=android text_key=<message>` exact-once markers. `TRANSCRIPT_PUBLISHED` is diagnostic only. UI hierarchy remains only for genuine Android input/Send. Dump failures during Send keep `android_ui_dump_failed` and are not converted to `phase1_delivery_failed`. No product C++/Java/JNI changes. No build/install/pm clear.
 
-One live run `windows-android-persistence/20260819-040220-de2a37` failed `android_ui_dump_failed` while acquiring hierarchy for `message_input` (uiautomator `ERROR: could not get idle state`, 3 attempts, no XML). Phase-1 Windows→Android delivery had already passed: Windows `text_submit` Event ObjId `633861473`, Android `SYNC_EVENT_APPLIED event=633861473`, exactly one `CHAT_MESSAGE_VISIBLE platform=android text_key=pre_w_to_a_de2a37`. Verbose restored to 0. App data preserved. ACT-S100C2 stays blocked. ACT-S100C3 is not ready.
+One live run `windows-android-persistence/20260819-040220-de2a37` failed `android_ui_dump_failed` while acquiring hierarchy for `message_input` (uiautomator `ERROR: could not get idle state`, 3 attempts, no XML). Phase-1 Windows→Android delivery had already passed: Windows `text_submit` Event ObjId `633861473`, Android `SYNC_EVENT_APPLIED event=633861473`, exactly one `CHAT_MESSAGE_VISIBLE platform=android text_key=pre_w_to_a_de2a37`. Product delivery to Android presentation PASSed. The remaining failure was automated Android Send interaction, not a chat or persistence failure. C1 already proved the real Android message field and Send button. Verbose restored to 0. App data preserved. ACT-S100C2 stays blocked. ACT-S100C3 is not ready.
+
+## ACT-S100C2-R2 details
+
+Debug-build-only `DebugCommandReceiver` under `src/debug`. Persistence harness sends Android messages through `am broadcast` `DEBUG_SEND` → `SingleClientChatApplication.send()` → `nativeQueueSend`. C1 remains the physical UI proof. C2 issues zero `uiautomator dump` and zero `adb input` commands.
+
+One live run `windows-android-persistence/20260819-041800-8756f1` failed `fatal_android_error` during pairing (8953 ms). Android PID 7461 aborted in `apptraverse-core` with `etl::ipool::allocate_item()` assertion before `DEBUG_SEND` was invoked. `uiautomator_command_count=0`, `adb_input_command_count=0`. Verbose restored to 0. App data preserved. ACT-S100C2 stays blocked. ACT-S100C3 is not ready.
 
 ## ACT-S025 details
 
@@ -940,5 +947,40 @@ Typed blockers: android_ui_dump_failed
 Known limits:
 - Android manual GUI validation remains pending; non-blocking
 - uiautomator still cannot dump hierarchy for Android input/Send while TRANSCRIPT_PUBLISHED keeps the UI busy
+Next ready slice: none (ACT-S100C3 stays blocked until C2 PASS)
+
+
+Session ACT-S100C2-R2:
+
+- branch review/chat-windows-android-persistence-r2 from 0d33fcbd9e1553c116f7b5b13eaabffca4a9fe03
+- debug-only DebugCommandReceiver + DEBUG_SEND; C2 no longer uses uiautomator or adb input
+- unit tests PASS 50 (24 persistence + 26 C1)
+- incremental :app:installDebug x86_64 status=ok duration_ms=22093; no clean, no ARM, no pm clear, no Windows build
+- one live run 20260819-041800-8756f1 status=failed failure_kind=fatal_android_error duration_ms=8953
+- native abort in apptraverse-core during pairing (etl::ipool::allocate_item assertion); DEBUG_SEND never invoked
+- uiautomator_command_count=0; adb_input_command_count=0
+- verbose restored to 0; app data preserved
+- ACT-S100C2 remains blocked; ACT-S100C3 not marked ready
+
+Completion packet:
+
+Slice: ACT-S100C2-R2
+Acceptance IDs: n/a
+Artifacts:
+- examples/single_client_chat/android/app/src/debug/AndroidManifest.xml
+- examples/single_client_chat/android/app/src/debug/java/com/apptraverse/singleclientchat/DebugCommandReceiver.java
+- tools/integration/run_windows_android_persistence.py
+- tools/integration/test_run_windows_android_persistence.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- .artifacts/apptraverse-android-install/20260819-041725-install
+- .artifacts/windows-android-persistence/20260819-041800-8756f1
+Build identity: Gradle :app:installDebug x86_64
+Build proof: status=ok duration_ms=22093
+Runtime proof: one live run status=failed failure_kind=fatal_android_error duration_ms=8953
+Typed blockers: fatal_android_error
+Known limits:
+- Android manual GUI validation remains pending; non-blocking
+- native core aborted during pairing before debug send was exercised
 Next ready slice: none (ACT-S100C3 stays blocked until C2 PASS)
 

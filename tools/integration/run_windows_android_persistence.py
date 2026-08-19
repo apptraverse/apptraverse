@@ -27,16 +27,20 @@ RESULT_SCHEMA_VERSION = "apptraverse.windows_android_persistence_result/1"
 ARTIFACT_PREFIX = "windows-android-persistence"
 PACKAGE = live.PACKAGE
 MAIN_ACTIVITY = live.MAIN_ACTIVITY
-MESSAGE_INPUT_ID = live.MESSAGE_INPUT_ID
-SEND_ID = live.SEND_ID
 VERBOSE_PROPERTY = live.VERBOSE_PROPERTY
 READY_TIMEOUT_S = live.READY_TIMEOUT_S
 STOP_TIMEOUT_S = 20.0
+DEBUG_SEND_ACTION = "com.apptraverse.singleclientchat.DEBUG_SEND"
+DEBUG_SEND_RECEIVER = f"{PACKAGE}/.DebugCommandReceiver"
+DEBUG_SEND_EXTRA = "text"
+DEBUG_SEND_MAX_CHARS = 1024
+DEBUG_COMMAND_QUEUED_PREFIX = "DEBUG_COMMAND_SEND_QUEUED text="
 ANDROID_COMMIT_RE = re.compile(
     r"CHAT_MESSAGE_COMMITTED\s+platform=android\s+event=(\S+).*?text_key=(\S+)"
 )
 ANDROID_MESSAGE_COMMITTED_RE = re.compile(r"MESSAGE_COMMITTED\s+text=(\S+)")
 ANDROID_VISIBLE_MARKER_PREFIX = "CHAT_MESSAGE_VISIBLE platform=android text_key="
+BROADCAST_RESULT_RE = re.compile(r"Broadcast completed:\s*result=(-?\d+)", re.IGNORECASE)
 
 
 def artifact_id_for(run_id: str) -> str:
@@ -176,6 +180,87 @@ def android_message_committed(log_text: str, message: str) -> bool:
     return marker in log_text
 
 
+def android_debug_send_queued(log_text: str, message: str) -> bool:
+    if not message:
+        return False
+    return f"{DEBUG_COMMAND_QUEUED_PREFIX}{message}" in log_text
+
+
+def debug_send_shell_args(message: str) -> list[str]:
+    return [
+        "am",
+        "broadcast",
+        "--receiver-foreground",
+        "-n",
+        DEBUG_SEND_RECEIVER,
+        "-a",
+        DEBUG_SEND_ACTION,
+        "--es",
+        DEBUG_SEND_EXTRA,
+        message,
+    ]
+
+
+def classify_debug_send_broadcast(completed: subprocess.CompletedProcess[str]) -> None:
+    combined = f"{completed.stdout or ''}\n{completed.stderr or ''}"
+    lowered = combined.lower()
+    missing_needles = (
+        "unable to find",
+        "unknown component",
+        "does not exist",
+        "not found",
+        "receiver class does not exist",
+        "has no receiver",
+        "unable to resolve",
+    )
+    if any(needle in lowered for needle in missing_needles):
+        raise PersistenceFailure(
+            "android_debug_send_receiver_missing",
+            "DebugCommandReceiver is not installed on the debug APK",
+        )
+    if completed.returncode not in (0, None):
+        raise PersistenceFailure(
+            "android_debug_send_failed",
+            f"adb broadcast failed rc={completed.returncode}",
+        )
+    match = BROADCAST_RESULT_RE.search(combined)
+    if match is None:
+        raise PersistenceFailure("android_debug_send_failed", "broadcast result missing")
+    code = int(match.group(1))
+    if code == -1:
+        return
+    if code == 0:
+        raise PersistenceFailure("android_debug_send_rejected", "debug send broadcast rejected")
+    raise PersistenceFailure(
+        "android_debug_send_failed",
+        f"debug send broadcast result={code}",
+    )
+
+
+def invoke_android_debug_send(adb: live.AdbClient, message: str) -> None:
+    if not message or not message.strip() or len(message) > DEBUG_SEND_MAX_CHARS:
+        raise PersistenceFailure("android_debug_send_rejected", "debug send text rejected")
+    args = debug_send_shell_args(message)
+    if any(part.startswith("--eza") or part in {"-e", "--ez", "--ei", "--el"} for part in args):
+        raise PersistenceFailure("android_debug_send_failed", "debug send argv used a non-text extra")
+    if args.count("-a") != 1 or DEBUG_SEND_ACTION not in args:
+        raise PersistenceFailure("android_debug_send_failed", "debug send argv action is not exact")
+    completed = adb.shell(args, timeout=30.0)
+    classify_debug_send_broadcast(completed)
+
+
+def count_uiautomator_commands(command_log: list[list[str]]) -> int:
+    return sum(1 for argv in command_log if "uiautomator" in argv)
+
+
+def count_adb_input_commands(command_log: list[list[str]]) -> int:
+    total = 0
+    for argv in command_log:
+        if "input" in argv and "shell" in argv:
+            total += 1
+    return total
+
+
 def compact_persistence_result(
     *,
     run_id: str,
@@ -188,6 +273,11 @@ def compact_persistence_result(
     phase1: dict[str, Any] | None,
     phase2: dict[str, Any] | None,
     cleanup: dict[str, Any] | None,
+    android_send_method: str = "debug_broadcast_receiver",
+    debug_receiver_phase1_accepted: bool = False,
+    debug_receiver_phase2_accepted: bool = False,
+    uiautomator_command_count: int = 0,
+    adb_input_command_count: int = 0,
 ) -> dict[str, Any]:
     payload = {
         "schema_version": RESULT_SCHEMA_VERSION,
@@ -202,6 +292,11 @@ def compact_persistence_result(
         "phase1": phase1,
         "phase2": phase2,
         "cleanup": cleanup,
+        "android_send_method": android_send_method,
+        "debug_receiver_phase1_accepted": debug_receiver_phase1_accepted,
+        "debug_receiver_phase2_accepted": debug_receiver_phase2_accepted,
+        "uiautomator_command_count": uiautomator_command_count,
+        "adb_input_command_count": adb_input_command_count,
     }
     if live.result_contains_forbidden_payload(payload):
         raise PersistenceFailure("scenario_timeout", "compact result contained logs")
@@ -267,6 +362,8 @@ class PersistenceState:
     post_w_to_a: str = ""
     post_a_to_w: str = ""
     client_name: str = ""
+    debug_receiver_phase1_accepted: bool = False
+    debug_receiver_phase2_accepted: bool = False
 
 
 def snapshot(state: PersistenceState) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -313,59 +410,14 @@ def snapshot(state: PersistenceState) -> tuple[dict[str, Any], dict[str, Any], d
     return android, windows, cleanup
 
 
-def send_android_message(
-    adb: live.AdbClient,
-    *,
-    run_id: str,
-    android_root: Path,
-    logical_name: str,
-    message: str,
-    sleep: Callable[[float], None],
-    monotonic: Callable[[], float],
-    state: PersistenceState,
-) -> str:
-    live.ensure_main_activity_foreground(
-        adb, state.dump_state, sleep=sleep, monotonic=monotonic
-    )
-    xml_text = live.dump_ui_hierarchy(
-        adb,
-        run_id=run_id,
-        logical_name=logical_name,
-        android_dir=android_root,
-        focused_window=state.dump_state.focused_window or "",
-        sleep=sleep,
-        state=state.dump_state,
-    )
-    tap_x, tap_y = live.extract_control_center(
-        xml_text, MESSAGE_INPUT_ID, focused_window=state.dump_state.focused_window or ""
-    )
-    adb.shell(["input", "tap", str(tap_x), str(tap_y)])
-    adb.shell(["input", "keyevent", "123"])
-    for _ in range(24):
-        adb.shell(["input", "keyevent", "67"])
-    adb.shell(["input", "text", live.encode_adb_input_text(message)])
-    typed_xml = live.dump_ui_hierarchy(
-        adb,
-        run_id=run_id,
-        logical_name=logical_name,
-        android_dir=android_root,
-        focused_window=state.dump_state.focused_window or "",
-        sleep=sleep,
-        state=state.dump_state,
-    )
-    typed = live.extract_control_text(
-        typed_xml, MESSAGE_INPUT_ID, focused_window=state.dump_state.focused_window or ""
-    )
-    if typed != message:
-        raise PersistenceFailure(
-            "phase2_delivery_failed" if "post_" in message else "phase1_delivery_failed",
-            f"message_input text {typed!r} != {message!r}",
-        )
-    send_x, send_y = live.extract_control_center(
-        typed_xml, SEND_ID, focused_window=state.dump_state.focused_window or ""
-    )
-    adb.shell(["input", "tap", str(send_x), str(send_y)])
-    return typed_xml
+def result_automation_fields(state: PersistenceState) -> dict[str, Any]:
+    return {
+        "android_send_method": "debug_broadcast_receiver",
+        "debug_receiver_phase1_accepted": state.debug_receiver_phase1_accepted,
+        "debug_receiver_phase2_accepted": state.debug_receiver_phase2_accepted,
+        "uiautomator_command_count": count_uiautomator_commands(state.command_log),
+        "adb_input_command_count": count_adb_input_commands(state.command_log),
+    }
 
 
 def start_windows(
@@ -459,6 +511,7 @@ def run_windows_android_persistence(
             phase1=state.phase1 or None,
             phase2=state.phase2 or None,
             cleanup=cleanup,
+            **result_automation_fields(state),
         )
         live.atomic_write_json(artifact_dir / "result.json", result)
         return result
@@ -699,15 +752,21 @@ def run_windows_android_persistence(
             count_android_visible_markers(phase1_log, state.pre_w_to_a)
         )
 
-        send_android_message(
-            adb,
-            run_id=run_id,
-            android_root=android_root,
-            logical_name="phase1/message_input.xml",
-            message=state.pre_a_to_w,
+        invoke_android_debug_send(adb, state.pre_a_to_w)
+        state.debug_receiver_phase1_accepted = True
+
+        def android_queued(path: Path, message: str) -> bool:
+            windows_alive()
+            text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+            return android_debug_send_queued(text, message)
+
+        live.wait_until(
+            lambda: android_queued(phase1_and / "logcat.txt", state.pre_a_to_w),
+            timeout_s=timeout_s,
+            failure_kind="android_debug_send_failed",
+            message="phase-1 DEBUG_COMMAND_SEND_QUEUED not observed",
             sleep=sleep,
             monotonic=monotonic,
-            state=state,
         )
 
         def android_committed(path: Path, message: str, bucket: dict[str, Any]) -> bool:
@@ -929,15 +988,15 @@ def run_windows_android_persistence(
             sleep=sleep,
             monotonic=monotonic,
         )
-        send_android_message(
-            adb,
-            run_id=run_id,
-            android_root=android_root,
-            logical_name="phase2/message_input.xml",
-            message=state.post_a_to_w,
+        invoke_android_debug_send(adb, state.post_a_to_w)
+        state.debug_receiver_phase2_accepted = True
+        live.wait_until(
+            lambda: android_queued(phase2_and / "logcat.txt", state.post_a_to_w),
+            timeout_s=timeout_s,
+            failure_kind="android_debug_send_failed",
+            message="phase-2 DEBUG_COMMAND_SEND_QUEUED not observed",
             sleep=sleep,
             monotonic=monotonic,
-            state=state,
         )
         live.wait_until(
             lambda: android_committed(phase2_and / "logcat.txt", state.post_a_to_w, state.phase2),
@@ -1002,6 +1061,12 @@ def run_windows_android_persistence(
                 "debug.apptraverse.verbose_log was not restored to 0",
             )
         android, windows, cleanup_summary = snapshot(state)
+        automation = result_automation_fields(state)
+        if automation["uiautomator_command_count"] != 0 or automation["adb_input_command_count"] != 0:
+            return fail(
+                "android_debug_send_failed",
+                "persistence scenario issued uiautomator or adb input commands",
+            )
         result = compact_persistence_result(
             run_id=run_id,
             status="ok",
@@ -1013,6 +1078,7 @@ def run_windows_android_persistence(
             phase1=state.phase1,
             phase2=state.phase2,
             cleanup=cleanup_summary,
+            **automation,
         )
         live.reject_absolute_paths(result)
         live.atomic_write_json(artifact_dir / "result.json", result)

@@ -553,7 +553,7 @@ Split after S025:
 ## ACT-S100C2
 
 - Windows/Android restart and persistence
-- status: blocked (R1 live run android_ui_dump_failed on Android input/Send; C3 not ready)
+- status: blocked (R2 live run fatal_android_error during pairing; C3 not ready)
 
 ## ACT-S100C2-R1
 
@@ -561,6 +561,12 @@ Split after S025:
 - status: done
 - do not change product C++/Java/JNI/ChatComponent/sync/transport/Æther
 - UI hierarchy only for Android input/Send
+
+## ACT-S100C2-R2
+
+- debug-build-only Android send receiver for persistence tests
+- status: done
+- do not change release behavior, ChatComponent, sync, transport, Æther, persistence schema, or GUI behavior
 
 ## ACT-S100C3
 
