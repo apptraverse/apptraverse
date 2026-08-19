@@ -9,10 +9,10 @@ Slice:
 ACT-S100B
 
 Status:
-blocked
+awaiting_manual_validation
 
 Goal:
-build/install/launch existing Android x86_64 chat GUI on one running Windows-hosted emulator. Typed blocker: android_emulator_unavailable.
+existing Android x86_64 chat GUI installed on the running emulator. Do not mark done before user feedback.
 
 # Status vocabulary
 
@@ -47,7 +47,7 @@ build/install/launch existing Android x86_64 chat GUI on one running Windows-hos
 | ACT-S040 | transport simplification slices | blocked | blocked by audit and user decisions |
 | ACT-S100A | canonical Windows chat GUI for manual validation | done | two Windows instances; mutual AddPeer; bidirectional chat |
 | ACT-S100A-Q | quiet-by-default Windows GUI diagnostics | done | quiet GUI; mutual AddPeer; bidirectional; persist |
-| ACT-S100B | canonical Android x86_64 emulator GUI | blocked | android_emulator_unavailable |
+| ACT-S100B | canonical Android x86_64 emulator GUI | awaiting_manual_validation | installed on emulator-5554; user checklist pending |
 | ACT-S100C | live Windows <-> Android x86_64 chat | blocked | after ACT-S100B manual PASS |
 
 ## ACT-S001 details
@@ -214,7 +214,7 @@ Done. Manual Windows quiet-GUI validation:
 
 ## ACT-S100B details
 
-Blocked. Precheck found Android SDK and adb, Gradle wrapper present, AVD Aether_NDK_Smoke_x86_64 exists on disk, but adb devices listed no running emulator- serial. Do not create/start an AVD in this slice. Typed blocker: android_emulator_unavailable. ACT-S100C not started. ACT-B002 remains deferred.
+Build/install/launch passed on emulator-5554 (x86_64, API 34). Package com.apptraverse.singleclientchat, MainActivity resumed, PID observed, no FATAL EXCEPTION / UnsatisfiedLinkError / native fatal signal. Continuous AetherTele/sync retry logcat spam recorded as android_log_spam_observed; not fixed in this slice. Status awaiting_manual_validation. ACT-S100C not started. ACT-B002 remains deferred.
 
 ## ACT-S025 details
 
@@ -746,5 +746,31 @@ Typed blockers: android_emulator_unavailable
 Known limits:
 - AVD Aether_NDK_Smoke_x86_64 exists but was not started
 - default PATH Java is 20; Android Studio JBR is 25; dedicated JDK 17 not found
-Next ready slice: ACT-S100B after a running x86_64 emulator- serial is available
+Next ready slice: ACT-S100B (this session continued)
+
+
+Session ACT-S100B continue:
+
+- emulator-5554 device ABI x86_64 API 34
+- one incremental :app:installDebug -Papptraverse.abiFilters=x86_64 BUILD SUCCESSFUL 4m 50s
+- Java 20.0.1 accepted by Gradle 8.9 / AGP 8.7.3
+- NDK 29.0.14206865 CMake 4.1.2
+- APK app-debug.apk 10283100 bytes lib/x86_64/libapptraverse_single_client_chat.so present
+- install over existing package; no pm clear / uninstall
+- launch MainActivity PID 4876 resumed
+- android_log_spam_observed (AetherTele + CHAT_RETRY/SYNC_TRANSPORT_WRITE)
+- ACT-S100C not started
+
+Completion packet:
+
+Slice: ACT-S100B
+Acceptance IDs: n/a
+Artifacts: .artifacts/android-gui/20260818-165604-e5aa0c
+Build identity: Gradle :app:installDebug x86_64
+Build proof: BUILD SUCCESSFUL duration_s=290.928
+Runtime proof: MainActivity resumed; manual_android_gui_validation_required
+Typed blockers: none; android_log_spam_observed not blocking launch
+Known limits:
+- do not mark ACT-S100B done before user checklist
+Next ready slice: ACT-S100C after ACT-S100B manual PASS
 

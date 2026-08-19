@@ -522,9 +522,9 @@ Split after S025:
 ## ACT-S100B
 
 - canonical Android x86_64 emulator GUI
-- status: blocked
-- typed blocker: android_emulator_unavailable
-- do not start/create an AVD in this slice
+- status: awaiting_manual_validation
+- installed on running emulator-5554
+- android_log_spam_observed; not fixed here
 
 ## ACT-S100C
 
