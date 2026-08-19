@@ -33,7 +33,7 @@ class AetherP2pTransport {
   AetherP2pTransport(AetherP2pTransport const&) = delete;
   AetherP2pTransport& operator=(AetherP2pTransport const&) = delete;
 
-  void Start(ae::RcPtr<ae::AetherApp> aether_app, ae::Client::ptr local_client);
+  void Start(ae::AetherApp& aether_app, ae::Client::ptr local_client);
 
   // If a session already exists for uid, do nothing. Otherwise CreatePort +
   // P2pStream and subscribe.
@@ -70,7 +70,7 @@ class AetherP2pTransport {
                    std::vector<std::uint8_t> const& payload);
   void Log(std::string line) const;
 
-  ae::RcPtr<ae::AetherApp> aether_app_;
+  ae::AetherApp* aether_app_{nullptr};
   ae::Client::ptr local_client_;
   ReceiveHandler on_receive_;
   LogHandler on_log_;

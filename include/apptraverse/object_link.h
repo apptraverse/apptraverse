@@ -4,6 +4,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "aether-miscpp/serialization/binary_archive.h"
+#include "aether/obj/domain.h"
 #include "aether/obj/obj_ptr.h"
 
 namespace apptraverse {
@@ -13,6 +15,13 @@ enum class LinkScope {
   kLocal,
 };
 
+template <typename T, LinkScope Scope>
+class ObjectLink;
+
+}  // namespace apptraverse
+
+namespace apptraverse {
+
 // Thin compile-time-scoped wrapper around ae::ObjPtr<T>.
 // Scope is schema metadata on the field type and is never serialized.
 // Wire/storage representation is identical to ae::ObjPtr (ObjId + ObjFlags).
@@ -20,14 +29,6 @@ template <typename T, LinkScope Scope>
 class ObjectLink {
   template <typename U, LinkScope S>
   friend class ObjectLink;
-
-  template <typename U, LinkScope S>
-  friend ae::imstream<ae::DomainBufferReader>& operator>>(
-      ae::imstream<ae::DomainBufferReader>& is, ObjectLink<U, S>& link);
-
-  template <typename U, LinkScope S>
-  friend ae::omstream<ae::DomainBufferWriter>& operator<<(
-      ae::omstream<ae::DomainBufferWriter>& os, ObjectLink<U, S> const& link);
 
  public:
   using element_type = T;
@@ -129,23 +130,27 @@ struct IsLocalPtr : std::false_type {};
 template <typename T>
 struct IsLocalPtr<LocalPtr<T>> : std::true_type {};
 
-template <typename T, LinkScope Scope>
-ae::imstream<ae::DomainBufferReader>& operator>>(
-    ae::imstream<ae::DomainBufferReader>& is, ObjectLink<T, Scope>& link) {
-  is >> link.ptr_;
-  return is;
-}
-
-template <typename T, LinkScope Scope>
-ae::omstream<ae::DomainBufferWriter>& operator<<(
-    ae::omstream<ae::DomainBufferWriter>& os, ObjectLink<T, Scope> const& link) {
-  os << link.ptr_;
-  return os;
-}
-
 }  // namespace apptraverse
 
-namespace ae::reflect {
+namespace ae::seri {
+template <typename T, apptraverse::LinkScope Scope>
+struct Serializer<BinaryArchive<DomainBuffer>,
+                  apptraverse::ObjectLink<T, Scope>> {
+  using Archive = BinaryArchive<DomainBuffer>;
+
+  SeriResult Seri(Archive& archive,
+                  Meta<apptraverse::ObjectLink<T, Scope> const> meta) const {
+    return archive.Save(meta.value.as_obj_ptr());
+  }
+
+  SeriResult Deseri(Archive& archive,
+                    Meta<apptraverse::ObjectLink<T, Scope>> meta) const {
+    return archive.Load(meta.value.as_obj_ptr());
+  }
+};
+}  // namespace ae::seri
+
+namespace ae::domain_visitor {
 
 // Local edges are never followed by deep reflection traversal.
 template <typename T>
@@ -160,8 +165,8 @@ struct NodeVisitor<apptraverse::LocalPtr<T>> {
              Visitor&&) const {}
 };
 
-// Shared edges are separate Nodes: discovery enqueues them via OverrideFunc
-// and must not traverse them inline as owned state.
+// Shared edges are separate Nodes: discovery enqueues them via the visitor
+// callback and must not traverse them inline as owned state.
 template <typename T>
 struct NodeVisitor<apptraverse::SharedPtr<T>> {
   using Policy = AnyPolicyMatch;
@@ -174,6 +179,6 @@ struct NodeVisitor<apptraverse::SharedPtr<T>> {
              Visitor&&) const {}
 };
 
-}  // namespace ae::reflect
+}  // namespace ae::domain_visitor
 
 #endif  // APPTRAVERSE_OBJECT_LINK_H_
