@@ -19,7 +19,7 @@ include(cmake/aether_version.cmake)
 include(cmake/CPM.cmake)
 
 apptraverse_prepare_aether_override()
-apptraverse_add_pinned_aether_miscpp()
+apptraverse_add_pinned_aether_owned_deps()
 
 CPMAddPackage(
   NAME aether-client-cpp
@@ -37,6 +37,11 @@ CPMAddPackage(
 )
 
 apptraverse_verify_aether_pin()
+
+# Candidate Aether/miscpp headers trip MSVC C4702 (if constexpr) under Æther's /WX.
+if(MSVC)
+  target_compile_options(aether PRIVATE /wd4702)
+endif()
 
 add_library(apptraverse STATIC
   src/apptraverse.cpp
