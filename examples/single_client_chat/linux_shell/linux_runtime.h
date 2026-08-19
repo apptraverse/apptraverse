@@ -12,7 +12,6 @@
 #include "aether/aether_app.h"
 #include "aether/client.h"
 #include "aether/obj/idomain_storage.h"
-#include "aether/ptr/rc_ptr.h"
 
 #include "aether_p2p_transport.h"
 #include "chat_component.h"
@@ -59,7 +58,7 @@ class LinuxRuntime {
 
   std::string state_dir_;
   UiSink ui_;
-  ae::RcPtr<ae::AetherApp> aether_app_;
+  std::unique_ptr<ae::AetherApp> aether_app_;
   ae::IDomainStorage* domain_storage_{nullptr};
   App::ptr app_;
   ae::Client::ptr aether_client_;

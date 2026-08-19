@@ -193,7 +193,7 @@ bool LinuxRuntime::LoadOrBuildGraph() {
 bool LinuxRuntime::SelectAetherClient() {
   int select_error = 0;
   aether_client_ = examples::SelectPersistentAetherClient(
-      aether_app_, examples::kLinuxAetherClientName, &select_error);
+      *aether_app_, examples::kLinuxAetherClientName, &select_error);
   if (!aether_client_) {
     LogError("Failed to select Aether client error=" +
              std::to_string(select_error));
@@ -207,7 +207,7 @@ bool LinuxRuntime::SelectAetherClient() {
 
 void LinuxRuntime::StartP2pTransport() {
   p2p_transport_ = std::make_unique<examples::AetherP2pTransport>();
-  p2p_transport_->Start(aether_app_, aether_client_);
+  p2p_transport_->Start(*aether_app_, aether_client_);
 }
 
 bool LinuxRuntime::StartChatSync() {
@@ -322,7 +322,7 @@ void LinuxRuntime::Teardown() {
   domain_storage_ = nullptr;
   scheduler_.store(nullptr, std::memory_order::release);
   app_.Reset();
-  aether_app_.Reset();
+  aether_app_.reset();
 }
 
 void LinuxRuntime::DrainPendingSends() {
