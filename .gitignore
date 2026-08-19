@@ -1,5 +1,6 @@
 # Build
 build/
+build-linux/
 build-gnu/
 cmake-build-*/
 out/
