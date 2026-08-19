@@ -8,18 +8,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if(NOT APPTRAVERSE_ROOT)
-  message(FATAL_ERROR "APPTRAVERSE_ROOT must be set (absolute path to AppTraverse)")
+  message(FATAL_ERROR "APPTRAVERSE_ROOT must be set (absolute path to App Traverse)")
 endif()
 
 include("${APPTRAVERSE_ROOT}/cmake/aether_version.cmake")
 
 # USER_CONFIG must be set before aether is added so the cache is visible to it.
-# Respect an explicit user/Gradle value; otherwise use the AppTraverse-owned header.
-if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "")
-  set(_apptraverse_aether_user_config
-      "${CMAKE_CURRENT_LIST_DIR}/aether_user_config.h")
+# Respect an explicit user/Gradle value; otherwise use the shared chat header.
+get_filename_component(_apptraverse_aether_user_config
+  "${APPTRAVERSE_ROOT}/examples/single_client_chat/common/aether_user_config.h"
+  ABSOLUTE)
+if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "" OR NOT EXISTS "${USER_CONFIG}")
   set(USER_CONFIG "${_apptraverse_aether_user_config}"
-      CACHE PATH "Path to user provided configuration header file")
+      CACHE PATH "Path to user provided configuration header file" FORCE)
 endif()
 
 apptraverse_prepare_aether_override()

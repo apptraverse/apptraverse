@@ -33,17 +33,18 @@ if(NOT DEFINED CPM_SOURCE_CACHE AND NOT DEFINED ENV{CPM_SOURCE_CACHE})
   endif()
 endif()
 
-# Prefer an explicit USER_CONFIG; otherwise use the AppTraverse-owned header.
+# Prefer an explicit USER_CONFIG; otherwise use the shared chat product header.
 # Absolute path so aether's #include USER_CONFIG works regardless of its cwd.
-if(NOT DEFINED USER_CONFIG OR USER_CONFIG STREQUAL "")
-  get_filename_component(_apptraverse_aether_user_config
-    "${CMAKE_CURRENT_LIST_DIR}/../app/src/main/cpp/aether_user_config.h"
-    ABSOLUTE)
+# Replace a stale cache entry if it still points at the removed Android-local header.
+get_filename_component(_apptraverse_aether_user_config
+  "${APPTRAVERSE_ROOT}/examples/single_client_chat/common/aether_user_config.h"
+  ABSOLUTE)
+if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "" OR NOT EXISTS "${USER_CONFIG}")
   set(USER_CONFIG "${_apptraverse_aether_user_config}"
-    CACHE STRING "Path to the aether user configuration header")
+    CACHE PATH "Path to user provided configuration header file" FORCE)
 endif()
 
-# The AppTraverse root project owns the aether pin and the apptraverse library.
+# The App Traverse root project owns the aether pin and the apptraverse library.
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 add_subdirectory(${APPTRAVERSE_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/apptraverse)
 

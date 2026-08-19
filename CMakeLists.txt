@@ -18,6 +18,15 @@ endif()
 include(cmake/aether_version.cmake)
 include(cmake/CPM.cmake)
 
+# Quiet Aether telemetry for chat products unless the caller passes USER_CONFIG.
+if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "")
+  get_filename_component(_apptraverse_chat_aether_user_config
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/single_client_chat/common/aether_user_config.h"
+    ABSOLUTE)
+  set(USER_CONFIG "${_apptraverse_chat_aether_user_config}"
+      CACHE PATH "Path to user provided configuration header file" FORCE)
+endif()
+
 apptraverse_prepare_aether_override()
 apptraverse_add_pinned_aether_owned_deps()
 
