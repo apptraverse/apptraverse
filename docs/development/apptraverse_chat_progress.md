@@ -2,17 +2,36 @@ Status: active
 Plan: apptraverse_chat_plan.md
 Iterate prompt: apptraverse_chat_iterate_prompt.md
 Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
+Milestone: MULTIPLATFORM_CHAT_BASELINE
 
 # Current ready slice
 
 Slice:
-none
+none on this Windows freeze
 
 Status:
-blocked
+frozen
 
 Goal:
-ACT-S100C2 remains blocked until a repaired persistence scenario PASSes. ACT-S100C3 is not ready.
+Windows x86_64 and Android x86_64 product baseline is frozen. Next platform is Linux x86_64 on `feature/chat-linux-v1`. Do not start Linux implementation on Windows.
+
+# Milestone
+
+Name: MULTIPLATFORM_CHAT_BASELINE
+
+Frozen tag: `chat-win-android-v1`
+
+Targets:
+
+1. Windows x86_64 — done
+2. Android x86_64 — done
+3. Linux x86_64 — next
+4. macOS x86_64 — after Linux
+5. iOS x86_64 Simulator — after macOS
+
+Live Windows ↔ Android (`ACT-S100C1`) is done. Restart/persistence automation (`ACT-S100C2`) and network recovery automation (`ACT-S100C3`) are deferred. Android manual GUI validation remains pending and non-blocking.
+
+Independent Android scenarios may start from clean application state. State preservation is required only inside scenarios explicitly testing restart/persistence.
 
 # Status vocabulary
 
@@ -47,15 +66,15 @@ ACT-S100C2 remains blocked until a repaired persistence scenario PASSes. ACT-S10
 | ACT-S040 | transport simplification slices | blocked | blocked by audit and user decisions |
 | ACT-S100A | canonical Windows chat GUI for manual validation | done | two Windows instances; mutual AddPeer; bidirectional chat |
 | ACT-S100A-Q | quiet-by-default Windows GUI diagnostics | done | quiet GUI; mutual AddPeer; bidirectional; persist |
-| ACT-S100B | canonical Android x86_64 emulator GUI | done | build/install/launch done; manual Android GUI validation pending, not blocking |
+| ACT-S100B | canonical Android x86_64 emulator GUI | done | current multiplatform baseline; manual Android GUI validation pending, non-blocking |
 | ACT-S100B-Q | quiet-by-default Android native diagnostics | done | debug.apptraverse.verbose_log; automatic quiet/verbose proof |
-| ACT-S100C | live Windows <-> Android x86_64 chat | split | C1 live exchange; C2 restart/persistence; C3 network loss |
+| ACT-S100C | live Windows <-> Android x86_64 chat | split | C1 done; C2/C3 deferred |
 | ACT-S100C1 | basic live Windows ↔ Android bidirectional exchange | done | live bidirectional exchange on emulator-5554 after C1-R1 dump repair |
 | ACT-S100C1-R1 | harden Android UI hierarchy acquisition | done | exec_out_compressed_tty; one preflight; one live PASS |
-| ACT-S100C2 | Windows/Android restart and persistence | blocked | R2 live run fatal_android_error during pairing; not a UI-dump failure; C3 not ready |
+| ACT-S100C2 | Windows/Android restart and persistence | deferred | restart/persistence automation deferred; not part of the frozen Windows/Android baseline |
 | ACT-S100C2-R1 | Android presentation markers for persistence assertions | done | W→A marker exact-once proved; failure=android_ui_dump_failed during automated Send |
-| ACT-S100C2-R2 | debug-only Android send receiver for persistence tests | done | harness/receiver landed; one live run fatal_android_error in native core during pairing |
-| ACT-S100C3 | temporary network loss and recovery | blocked | after ACT-S100C2 PASS |
+| ACT-S100C2-R2 | debug-only Android send receiver for persistence tests | done | harness/receiver landed; freeze does not continue C2 |
+| ACT-S100C3 | temporary network loss and recovery | deferred | network recovery automation deferred |
 
 ## ACT-S001 details
 
@@ -253,7 +272,7 @@ One live run `windows-android-persistence/20260819-040220-de2a37` failed `androi
 
 Debug-build-only `DebugCommandReceiver` under `src/debug`. Persistence harness sends Android messages through `am broadcast` `DEBUG_SEND` → `SingleClientChatApplication.send()` → `nativeQueueSend`. C1 remains the physical UI proof. C2 issues zero `uiautomator dump` and zero `adb input` commands.
 
-One live run `windows-android-persistence/20260819-041800-8756f1` failed `fatal_android_error` during pairing (8953 ms). Android PID 7461 aborted in `apptraverse-core` with `etl::ipool::allocate_item()` assertion before `DEBUG_SEND` was invoked. `uiautomator_command_count=0`, `adb_input_command_count=0`. Verbose restored to 0. App data preserved. ACT-S100C2 stays blocked. ACT-S100C3 is not ready.
+One live run `windows-android-persistence/20260819-041800-8756f1` failed `fatal_android_error` during pairing (8953 ms). Android PID 7461 aborted in `apptraverse-core` with `etl::ipool::allocate_item()` assertion before `DEBUG_SEND` was invoked. `uiautomator_command_count=0`, `adb_input_command_count=0`. Verbose restored to 0. App data preserved. ACT-S100C2 and ACT-S100C3 are deferred at the Windows/Android freeze. Do not continue C2 from this baseline.
 
 ## ACT-S025 details
 
@@ -281,7 +300,7 @@ User-level MCP setup for worktrees. `setup_apptraverse_mcp.py` writes/updates on
 | ACT-A003 | done at documentation and preset level | Ninja preferred; explicit `win64-vs2022-msvc-debug` fallback |
 | ACT-A004 | done at runner-contract level | staged execution + JSON/artifacts; ACT-B001 dependency drift resolved |
 | ACT-A005 | done | ACT-S023 MCP wrapper; ACT-S024 live Cursor MCP workflow proof |
-| ACT-A006 | blocked | Windows/Android chat functional baseline not yet executed |
+| ACT-A006 | done | Windows x86_64 and Android x86_64 chat product baseline frozen; live C1 PASS |
 | ACT-A007 | blocked | requires ACT-S030 read-only architecture audit |
 
 # Evidence log
@@ -983,4 +1002,36 @@ Known limits:
 - Android manual GUI validation remains pending; non-blocking
 - native core aborted during pairing before debug send was exercised
 Next ready slice: none (ACT-S100C3 stays blocked until C2 PASS)
+
+
+Session freeze:
+
+- Windows x86_64 product baseline done
+- Android x86_64 product baseline done for current multiplatform baseline
+- ACT-S100C1 live Windows ↔ Android done
+- ACT-S100C2 restart/persistence automation deferred
+- ACT-S100C3 network recovery automation deferred
+- Android manual GUI validation pending, non-blocking
+- Independent Android scenarios may start from clean application state
+- State preservation required only inside explicit restart/persistence scenarios
+- milestone MULTIPLATFORM_CHAT_BASELINE; next platform Linux x86_64
+- tag chat-win-android-v1; next branch feature/chat-linux-v1
+- do not start Linux implementation on Windows
+
+Completion packet:
+
+Slice: freeze Windows/Android chat baseline
+Acceptance IDs: ACT-A006
+Artifacts:
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- apptraverse_chat_iterate_prompt.md
+Build identity: n/a
+Build proof: not_run
+Runtime proof: not_run
+Typed blockers: none
+Known limits:
+- Android manual GUI validation remains pending; non-blocking
+- ACT-S100C2 and ACT-S100C3 deferred
+Next ready slice: Linux x86_64 on feature/chat-linux-v1 (not on Windows)
 

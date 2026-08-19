@@ -2,6 +2,12 @@ Status: active
 Plan: apptraverse_chat_plan.md
 Progress: apptraverse_chat_progress.md
 Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
+Milestone: MULTIPLATFORM_CHAT_BASELINE
+
+Windows x86_64 and Android x86_64 product baseline is frozen at tag `chat-win-android-v1`.
+Next platform is Linux x86_64 on `feature/chat-linux-v1`.
+Do not start Linux implementation on Windows.
+Do not continue ACT-S100C2 or ACT-S100C3 from this freeze.
 
 # Purpose
 

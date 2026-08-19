@@ -122,16 +122,24 @@ Separately: v5 contains packet-aware transport diagnostics and SyncWriteGate tha
 
 User-approved current baseline (x86_64 only):
 
-1. Windows x86_64
-2. Linux x86_64
-3. Android x86_64 emulator
-4. macOS x86_64
-5. iOS x86_64 Simulator
+1. Windows x86_64 — done
+2. Android x86_64 emulator — done
+3. Linux x86_64 — next
+4. macOS x86_64 — after Linux
+5. iOS x86_64 Simulator — after macOS
+
+Current milestone: `MULTIPLATFORM_CHAT_BASELINE`.
+Windows and Android product code is frozen at tag `chat-win-android-v1`.
+Do not start Linux implementation on Windows.
 
 ARM64 is out of the current baseline. Do not add Android arm64-v8a or Apple
 arm64 acceptance/build requirements yet. The reason is not lack of expected
 Æther ARM support. ARM builds are outside the current architecture-validation
 baseline.
+
+Independent Android scenarios may start from clean application state.
+State preservation is required only inside scenarios explicitly testing
+restart/persistence.
 
 # UI host strategy
 
@@ -553,7 +561,7 @@ Split after S025:
 ## ACT-S100C2
 
 - Windows/Android restart and persistence
-- status: blocked (R2 live run fatal_android_error during pairing; C3 not ready)
+- status: deferred
 
 ## ACT-S100C2-R1
 
@@ -571,7 +579,7 @@ Split after S025:
 ## ACT-S100C3
 
 - temporary network loss and recovery
-- status: blocked until ACT-S100C2
+- status: deferred
 
 ## ACT-S030
 
