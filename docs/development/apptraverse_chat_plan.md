@@ -523,19 +523,36 @@ Split after S025:
 
 - canonical Android x86_64 emulator GUI
 - status: done (build/install/launch)
-- manual GUI validation pending; does not block ACT-S100C
+- manual GUI validation pending; does not block ACT-S100C1
 
 ## ACT-S100B-Q
 
 - quiet-by-default Android native diagnostics
+- status: done
 - property debug.apptraverse.verbose_log
 - do not change ChatComponent, sync, transport, or Aether
 
 ## ACT-S100C
 
 - automated live Windows <-> Android x86_64 chat
-- status: ready after ACT-S100B-Q
+- split into C1/C2/C3
+
+## ACT-S100C1
+
+- basic live Windows <-> Android bidirectional exchange
+- status: blocked (android_ui_control_missing on the one live run)
 - enable Android verbose markers only for the test
+- do not test restart/persistence or Wi-Fi outage
+
+## ACT-S100C2
+
+- Windows/Android restart and persistence
+- status: blocked until ACT-S100C1 PASS
+
+## ACT-S100C3
+
+- temporary network loss and recovery
+- status: blocked until ACT-S100C2
 
 ## ACT-S030
 

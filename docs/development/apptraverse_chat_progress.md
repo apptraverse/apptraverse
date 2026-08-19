@@ -6,13 +6,13 @@ Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 # Current ready slice
 
 Slice:
-ACT-S100C
+ACT-S100C1
 
 Status:
-ready
+blocked
 
 Goal:
-automated live Windows <-> Android x86_64 chat. Android verbose markers only for the test. Do not depend on manual GUI inspection.
+automatically validate one live Windows ↔ Android x86_64 chat exchange in both directions. Do not test restart, persistence, or Wi-Fi outage.
 
 # Status vocabulary
 
@@ -47,9 +47,12 @@ automated live Windows <-> Android x86_64 chat. Android verbose markers only for
 | ACT-S040 | transport simplification slices | blocked | blocked by audit and user decisions |
 | ACT-S100A | canonical Windows chat GUI for manual validation | done | two Windows instances; mutual AddPeer; bidirectional chat |
 | ACT-S100A-Q | quiet-by-default Windows GUI diagnostics | done | quiet GUI; mutual AddPeer; bidirectional; persist |
-| ACT-S100B | canonical Android x86_64 emulator GUI | done | build/install/launch on emulator-5554; manual GUI pending |
+| ACT-S100B | canonical Android x86_64 emulator GUI | done | build/install/launch done; manual Android GUI validation pending, not blocking |
 | ACT-S100B-Q | quiet-by-default Android native diagnostics | done | debug.apptraverse.verbose_log; automatic quiet/verbose proof |
-| ACT-S100C | live Windows <-> Android x86_64 chat | ready | after ACT-S100B-Q; not blocked by manual GUI |
+| ACT-S100C | live Windows <-> Android x86_64 chat | split | C1 live exchange; C2 restart/persistence; C3 network loss |
+| ACT-S100C1 | basic live Windows ↔ Android bidirectional exchange | blocked | android_ui_control_missing; compact result retained; C2 not ready |
+| ACT-S100C2 | Windows/Android restart and persistence | blocked | ready after ACT-S100C1 PASS |
+| ACT-S100C3 | temporary network loss and recovery | blocked | after ACT-S100C2 |
 
 ## ACT-S001 details
 
@@ -215,11 +218,15 @@ Done. Manual Windows quiet-GUI validation:
 
 ## ACT-S100B details
 
-Build/install/launch done on emulator-5554 (x86_64, API 34). APK installed over existing application. MainActivity resumed. No Java/native fatal error. Manual GUI validation remains pending and does not block ACT-S100C.
+Build/install/launch done on emulator-5554 (x86_64, API 34). APK installed over existing application. MainActivity resumed. No Java/native fatal error. Manual GUI validation remains pending and does not block ACT-S100C1.
 
 ## ACT-S100B-Q details
 
 Quiet-by-default Android native diagnostics. Property debug.apptraverse.verbose_log (1/true/yes/on). Default off: LogMarker silent, no AetherTele logcat routing, cout discarded, high-frequency handlers not installed. LogError remains. Automatic quiet/verbose validation required in this slice.
+
+## ACT-S100C1 details
+
+One live Windows ↔ Android run on emulator-5554. Unit tests PASS (16). Real scenario failed `android_ui_control_missing` / `uiautomator dump failed` after Windows `text_submit` was accepted. Artifacts retained at `windows-android-live/20260819-012617-4a5619`. Android verbose property restored to 0. App data not cleared. ACT-S100C2 is not ready.
 
 ## ACT-S025 details
 
@@ -783,4 +790,38 @@ Typed blockers: none
 Known limits:
 - Android manual GUI validation remains pending; does not block ACT-S100C
 Next ready slice: ACT-S100C
+
+
+Session ACT-S100C1:
+
+- branch review/chat-windows-android-live-v1 from 4d379faf5d94995cdf0b2c282f35bdfebef4af10
+- ACT-S100B build/install/launch done; manual Android GUI pending, not blocking
+- ACT-S100B-Q done
+- ACT-S100C split into C1 live exchange, C2 restart/persistence, C3 network loss
+- Python runner tools/integration/run_windows_android_live_chat.py
+- unit tests PASS 16
+- one real run 20260819-012617-4a5619 status=failed failure_kind=android_ui_control_missing
+- Windows text_submit accepted; Android UI dump failed
+- debug.apptraverse.verbose_log restored to 0; app data preserved
+- no clean, no build, no install, no pm clear
+- ACT-S100C2 not marked ready
+
+Completion packet:
+
+Slice: ACT-S100C1
+Acceptance IDs: n/a
+Artifacts:
+- tools/integration/run_windows_android_live_chat.py
+- tools/integration/test_run_windows_android_live_chat.py
+- apptraverse_chat_plan.md
+- apptraverse_chat_progress.md
+- .artifacts/windows-android-live/20260819-012617-4a5619
+Build identity: n/a
+Build proof: not_run
+Runtime proof: one live run status=failed failure_kind=android_ui_control_missing duration_ms=17500
+Typed blockers: android_ui_control_missing
+Known limits:
+- Android manual GUI validation remains pending; non-blocking
+- uiautomator dump did not produce hierarchy XML on emulator-5554
+Next ready slice: none (ACT-S100C2 stays blocked until C1 PASS)
 
