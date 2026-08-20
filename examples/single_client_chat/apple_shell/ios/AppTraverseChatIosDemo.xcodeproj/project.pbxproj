@@ -1,0 +1,436 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1A1000000000000000000006 /* AppTraverseChatIosDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1000000000000000000004 /* AppTraverseChatIosDemo.swift */; };
+		1A100000000000000000002C /* libAppTraverseChatAppleUI.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A1000000000000000000021 /* libAppTraverseChatAppleUI.a */; };
+		1A1000000000000000000030 /* ChatBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1000000000000000000022 /* ChatBackend.swift */; };
+		1A1000000000000000000031 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1000000000000000000023 /* ChatViewModel.swift */; };
+		1A1000000000000000000032 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1000000000000000000024 /* ChatView.swift */; };
+		1A1000000000000000000041 /* AppleChatBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1000000000000000000040 /* AppleChatBackend.swift */; };
+		1A1000000000000000000043 /* AppTraverseAppleChat.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A1000000000000000000042 /* AppTraverseAppleChat.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1A100000000000000000002B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1A1000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1A1000000000000000000020;
+			remoteInfo = AppTraverseChatAppleUI;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		1A1000000000000000000004 /* AppTraverseChatIosDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppTraverseChatIosDemo.swift; path = ../Sources/AppTraverseChatIosDemo/AppTraverseChatIosDemo.swift; sourceTree = "<group>"; };
+		1A1000000000000000000005 /* AppTraverseChatIosDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AppTraverseChatIosDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A1000000000000000000021 /* libAppTraverseChatAppleUI.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libAppTraverseChatAppleUI.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A1000000000000000000022 /* ChatBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatBackend.swift; path = ../Sources/AppTraverseChatAppleUI/ChatBackend.swift; sourceTree = "<group>"; };
+		1A1000000000000000000023 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatViewModel.swift; path = ../Sources/AppTraverseChatAppleUI/ChatViewModel.swift; sourceTree = "<group>"; };
+		1A1000000000000000000024 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatView.swift; path = ../Sources/AppTraverseChatAppleUI/ChatView.swift; sourceTree = "<group>"; };
+		1A1000000000000000000040 /* AppleChatBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppleChatBackend.swift; path = ../Sources/AppTraverseChatAppleUI/AppleChatBackend.swift; sourceTree = "<group>"; };
+		1A1000000000000000000042 /* AppTraverseAppleChat.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppTraverseAppleChat.framework; path = ../.build-ios-current-aether/AppTraverseAppleChat.framework; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1A1000000000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A100000000000000000002C /* libAppTraverseChatAppleUI.a in Frameworks */,
+				1A1000000000000000000043 /* AppTraverseAppleChat.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A1000000000000000000026 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1A1000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				1A1000000000000000000033 /* AppTraverseChatAppleUI */,
+				1A1000000000000000000004 /* AppTraverseChatIosDemo.swift */,
+				1A1000000000000000000042 /* AppTraverseAppleChat.framework */,
+				1A1000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1A1000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1A1000000000000000000005 /* AppTraverseChatIosDemo.app */,
+				1A1000000000000000000021 /* libAppTraverseChatAppleUI.a */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		1A1000000000000000000033 /* AppTraverseChatAppleUI */ = {
+			isa = PBXGroup;
+			children = (
+				1A1000000000000000000022 /* ChatBackend.swift */,
+				1A1000000000000000000040 /* AppleChatBackend.swift */,
+				1A1000000000000000000023 /* ChatViewModel.swift */,
+				1A1000000000000000000024 /* ChatView.swift */,
+			);
+			name = AppTraverseChatAppleUI;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1A100000000000000000000A /* AppTraverseChatIosDemo */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A100000000000000000000C /* Build configuration list for PBXNativeTarget "AppTraverseChatIosDemo" */;
+			buildPhases = (
+				1A1000000000000000000045 /* Build Apple Native Framework */,
+				1A1000000000000000000008 /* Sources */,
+				1A1000000000000000000007 /* Frameworks */,
+				1A1000000000000000000044 /* Embed Frameworks */,
+				1A1000000000000000000009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1A100000000000000000002A /* PBXTargetDependency */,
+			);
+			name = AppTraverseChatIosDemo;
+			productName = AppTraverseChatIosDemo;
+			productReference = 1A1000000000000000000005 /* AppTraverseChatIosDemo.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1A1000000000000000000020 /* AppTraverseChatAppleUI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A1000000000000000000027 /* Build configuration list for PBXNativeTarget "AppTraverseChatAppleUI" */;
+			buildPhases = (
+				1A1000000000000000000025 /* Sources */,
+				1A1000000000000000000026 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AppTraverseChatAppleUI;
+			productName = AppTraverseChatAppleUI;
+			productReference = 1A1000000000000000000021 /* libAppTraverseChatAppleUI.a */;
+			productType = "com.apple.product-type.library.static";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1A1000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1520;
+				LastUpgradeCheck = 1520;
+				TargetAttributes = {
+					1A100000000000000000000A = {
+						CreatedOnToolsVersion = 15.2;
+					};
+					1A1000000000000000000020 = {
+						CreatedOnToolsVersion = 15.2;
+					};
+				};
+			};
+			buildConfigurationList = 1A100000000000000000000B /* Build configuration list for PBXProject "AppTraverseChatIosDemo" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 1A1000000000000000000002;
+			productRefGroup = 1A1000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1A1000000000000000000020 /* AppTraverseChatAppleUI */,
+				1A100000000000000000000A /* AppTraverseChatIosDemo */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1A1000000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		1A1000000000000000000044 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				1A1000000000000000000043 /* AppTraverseAppleChat.framework in Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		1A1000000000000000000045 /* Build Apple Native Framework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Apple Native Framework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(PROJECT_DIR)/../.build-ios-current-aether/AppTraverseAppleChat.framework/AppTraverseAppleChat",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nROOT=\"${PROJECT_DIR}/..\"\nBUILD=\"${ROOT}/.build-ios-current-aether\"\nSDKROOT_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)\nif [ ! -f \"${BUILD}/CMakeCache.txt\" ]; then\n  cmake -G Ninja -S \"${ROOT}\" -B \"${BUILD}\" \\\n    -DCMAKE_SYSTEM_NAME=iOS \\\n    -DCMAKE_OSX_SYSROOT=\"${SDKROOT_PATH}\" \\\n    -DCMAKE_OSX_ARCHITECTURES=x86_64 \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \\\n    -DCMAKE_C_COMPILER=/opt/local/bin/clang-mp-20 \\\n    -DCMAKE_CXX_COMPILER=/opt/local/bin/clang++-mp-20 \\\n    -DCMAKE_OBJCXX_COMPILER=/opt/local/bin/clang++-mp-20 \\\n    -DCMAKE_C_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_CXX_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_OBJCXX_COMPILER_TARGET=x86_64-apple-ios16.3-simulator \\\n    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \\\n    -DCMAKE_BUILD_TYPE=Debug \\\n    -DBUILD_TESTING=OFF\nfi\ncmake --build \"${BUILD}\" --target AppTraverseAppleChat\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1A1000000000000000000008 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A1000000000000000000006 /* AppTraverseChatIosDemo.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A1000000000000000000025 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A1000000000000000000030 /* ChatBackend.swift in Sources */,
+				1A1000000000000000000041 /* AppleChatBackend.swift in Sources */,
+				1A1000000000000000000031 /* ChatViewModel.swift in Sources */,
+				1A1000000000000000000032 /* ChatView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1A100000000000000000002A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1A1000000000000000000020 /* AppTraverseChatAppleUI */;
+			targetProxy = 1A100000000000000000002B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1A100000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.3;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG APPTRAVERSE_APPLE_NATIVE";
+				SWIFT_OBJC_BRIDGING_HEADER = ../native/apple_chat_bridge.h;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		1A100000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.3;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = APPTRAVERSE_APPLE_NATIVE;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = ../native/apple_chat_bridge.h;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		1A100000000000000000000F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = x86_64;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CURRENT_PROJECT_VERSION = 1;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../.build-ios-current-aether",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "AppTraverse Chat";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "AppTraverse Chat uses the local network for peer connections.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.apptraverse.chat.iosdemo;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		1A1000000000000000000010 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = x86_64;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CURRENT_PROJECT_VERSION = 1;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../.build-ios-current-aether",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "AppTraverse Chat";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "AppTraverse Chat uses the local network for peer connections.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.apptraverse.chat.iosdemo;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		1A1000000000000000000028 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = x86_64;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				DEFINES_MODULE = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../.build-ios-current-aether",
+				);
+				MACH_O_TYPE = staticlib;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_MODULE_NAME = AppTraverseChatAppleUI;
+				PRODUCT_NAME = AppTraverseChatAppleUI;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = ../native/apple_chat_bridge.h;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		1A1000000000000000000029 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = x86_64;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				DEFINES_MODULE = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../.build-ios-current-aether",
+				);
+				MACH_O_TYPE = staticlib;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_MODULE_NAME = AppTraverseChatAppleUI;
+				PRODUCT_NAME = AppTraverseChatAppleUI;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = ../native/apple_chat_bridge.h;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1A100000000000000000000B /* Build configuration list for PBXProject "AppTraverseChatIosDemo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A100000000000000000000D /* Debug */,
+				1A100000000000000000000E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		1A100000000000000000000C /* Build configuration list for PBXNativeTarget "AppTraverseChatIosDemo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A100000000000000000000F /* Debug */,
+				1A1000000000000000000010 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		1A1000000000000000000027 /* Build configuration list for PBXNativeTarget "AppTraverseChatAppleUI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A1000000000000000000028 /* Debug */,
+				1A1000000000000000000029 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 1A1000000000000000000001 /* Project object */;
+}

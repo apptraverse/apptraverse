@@ -1,0 +1,11 @@
+.build/
+.build-macos/
+.build-macos-mp20/
+.build-macos-current-aether/
+.build-ios-sim/
+.build-ios-current-aether/
+.swiftpm/
+xcuserdata/
+DerivedData/
+.derivedData/
+*.xcuserstate
