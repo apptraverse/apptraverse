@@ -54,6 +54,8 @@ class AetherP2pTransport {
     ae::Uid remote_uid{};
     std::shared_ptr<ae::P2pStream> stream;
     ae::Subscription data_sub;
+    ae::Subscription stream_update_sub;
+    std::vector<ae::Subscription> write_status_subs;
     AetherP2pFrameDecoder decoder;
   };
 
@@ -68,6 +70,8 @@ class AetherP2pTransport {
   void OnRawStreamData(PeerSession* session, ae::DataBuffer const& data);
   void EmitPayload(ae::Uid const& peer,
                    std::vector<std::uint8_t> const& payload);
+  bool VerboseDiag() const;
+  void LogStreamState(PeerSession* session) const;
   void Log(std::string line) const;
 
   ae::AetherApp* aether_app_{nullptr};

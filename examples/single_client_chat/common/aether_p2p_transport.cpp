@@ -1,6 +1,8 @@
 #include "aether_p2p_transport.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <utility>
 
 #include "aether_runtime.h"
@@ -23,6 +25,36 @@ bool PayloadEquals(std::vector<std::uint8_t> const& payload,
     }
   }
   return true;
+}
+
+std::int64_t DiagUtcMicros() {
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
+
+char const* LinkStateName(ae::LinkState state) {
+  switch (state) {
+    case ae::LinkState::kUnlinked:
+      return "unlinked";
+    case ae::LinkState::kLinked:
+      return "linked";
+    case ae::LinkState::kLinkError:
+      return "link_error";
+  }
+  return "unknown";
+}
+
+char const* WriteStatusName(ae::WriteAction::Status status) {
+  switch (status) {
+    case ae::WriteAction::Status::kSuccess:
+      return "success";
+    case ae::WriteAction::Status::kFail:
+      return "fail";
+    case ae::WriteAction::Status::kStop:
+      return "stop";
+  }
+  return "unknown";
 }
 
 }  // namespace
@@ -82,6 +114,11 @@ AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
   auto* raw = session.get();
   session->data_sub = session->stream->out_data_event().Subscribe(
       [this, raw](ae::DataBuffer const& data) { OnRawStreamData(raw, data); });
+  if (VerboseDiag()) {
+    session->stream_update_sub = session->stream->stream_update_event().Subscribe(
+        [this, raw]() { LogStreamState(raw); });
+    LogStreamState(raw);
+  }
 
   sessions_.push_back(std::move(session));
   Log("P2P_SESSION_CREATED peer=" + FormatAetherUid(peer) +
@@ -137,7 +174,25 @@ void AetherP2pTransport::Send(ae::Uid const& remote_uid,
     return;
   }
   auto const frame = EncodeAetherP2pFrame(bytes, size);
-  (void)session->stream->Write(ae::DataBuffer{frame.begin(), frame.end()});
+  if (VerboseDiag()) {
+    auto const info = session->stream->stream_info();
+    Log("P2P_WRITE_ATTEMPT peer=" + FormatAetherUid(remote_uid) +
+        " size=" + std::to_string(frame.size()) +
+        " link_state=" + std::string{LinkStateName(info.link_state)} +
+        " writable=" + (info.is_writable ? "1" : "0") +
+        " t_us=" + std::to_string(DiagUtcMicros()));
+  }
+  ae::WriteAction& write_action =
+      session->stream->Write(ae::DataBuffer{frame.begin(), frame.end()});
+  if (VerboseDiag()) {
+    auto const peer = remote_uid;
+    session->write_status_subs.push_back(write_action.status_event().Subscribe(
+        [this, peer](ae::WriteAction::Status status) {
+          Log("P2P_WRITE_STATUS peer=" + FormatAetherUid(peer) +
+              " status=" + std::string{WriteStatusName(status)} +
+              " t_us=" + std::to_string(DiagUtcMicros()));
+        }));
+  }
 }
 
 void AetherP2pTransport::OnRawStreamData(PeerSession* session,
@@ -148,6 +203,12 @@ void AetherP2pTransport::OnRawStreamData(PeerSession* session,
   session->decoder.Append(data.data(), data.size());
   session->decoder.Drain(
       [this, session](std::vector<std::uint8_t> const& payload) {
+        if (VerboseDiag()) {
+          Log("P2P_PAYLOAD_RECEIVED peer=" +
+              FormatAetherUid(session->remote_uid) +
+              " size=" + std::to_string(payload.size()) +
+              " t_us=" + std::to_string(DiagUtcMicros()));
+        }
         EmitPayload(session->remote_uid, payload);
       });
 }
@@ -157,6 +218,21 @@ void AetherP2pTransport::EmitPayload(
   if (on_receive_) {
     on_receive_(peer, payload);
   }
+}
+
+bool AetherP2pTransport::VerboseDiag() const {
+  return static_cast<bool>(on_log_);
+}
+
+void AetherP2pTransport::LogStreamState(PeerSession* session) const {
+  if (session == nullptr || session->stream == nullptr || !VerboseDiag()) {
+    return;
+  }
+  auto const info = session->stream->stream_info();
+  Log("P2P_STREAM_STATE peer=" + FormatAetherUid(session->remote_uid) +
+      " link_state=" + std::string{LinkStateName(info.link_state)} +
+      " writable=" + (info.is_writable ? "1" : "0") +
+      " t_us=" + std::to_string(DiagUtcMicros()));
 }
 
 void AetherP2pTransport::Log(std::string line) const {
