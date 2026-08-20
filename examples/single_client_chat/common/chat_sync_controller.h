@@ -75,6 +75,14 @@ class ChatSyncController {
     ae::TimePoint last_heartbeat_sent{};
   };
 
+  struct PendingAutoAccept {
+    ae::Uid remote_uid{};
+    std::vector<std::vector<std::uint8_t>> packets;
+    // First Tick only arms; AddPeer runs on a later Tick so it cannot
+    // re-enter Aether while the receive/Update that queued us is unwinding.
+    bool armed{false};
+  };
+
   void Log(std::string const& line);
   void NotifyChanged();
   RuntimeSession* FindRuntime(ae::Uid const& remote_uid);
@@ -88,6 +96,12 @@ class ChatSyncController {
   void ApplyOnlineTransition(RuntimeSession& runtime);
   void ApplyOfflineTransition(RuntimeSession& runtime, char const* reason);
   void DrivePresence(RuntimeSession& runtime, ae::TimePoint now);
+  void QueueAutoAccept(ae::Uid const& remote_uid,
+                       std::vector<std::uint8_t> const& bytes);
+  void DrainPendingAutoAccept();
+  // Known-peer receive path; never creates peers or re-enters auto-accept.
+  void ReceiveKnown(ae::Uid const& remote_uid,
+                    std::vector<std::uint8_t> const& bytes);
 
   SyncReplica replica_;
   Chat::ptr chat_;
@@ -99,6 +113,8 @@ class ChatSyncController {
   ChangedFunction changed_;
   LogFunction log_;
   std::vector<RuntimeSession> sessions_;
+  // Runtime-only; packets arriving for unknown peers while auto-accept is on.
+  std::vector<PendingAutoAccept> pending_auto_accept_;
 };
 
 }  // namespace apptraverse::chat
