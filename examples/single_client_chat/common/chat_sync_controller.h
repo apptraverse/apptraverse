@@ -22,12 +22,17 @@
 #include "model/chat.h"
 #include "chat_presence.h"
 #include "model/chat_peer_set.h"
+#include "sync_packet_write_gate.h"
 
 namespace apptraverse::chat {
 
 struct ChatSyncTiming {
-  // Packet ACK retry only — cloud/P2P link recovery stays inside Aether.
+  // How often DrivePending re-offers pending packets to the write gate.
+  // Physical send limits are enforced by SyncPacketWriteGate, not this poll.
   std::chrono::milliseconds retry_interval{std::chrono::milliseconds{100}};
+  // Minimum time between physical sends of the same pending packet_id.
+  std::chrono::milliseconds packet_retry_interval{
+      std::chrono::milliseconds{2000}};
   std::chrono::milliseconds heartbeat_interval{std::chrono::seconds{1}};
   std::chrono::milliseconds offline_timeout{std::chrono::seconds{5}};
 };
@@ -38,8 +43,9 @@ class ChatSyncController {
  public:
   using ChangedFunction = std::function<void()>;
   using LogFunction = std::function<void(std::string const&)>;
-  using SendFunction = std::function<void(ae::Uid const& peer, ae::ObjId packet_id,
-                                          SerializedSyncPacket const& bytes)>;
+  using SendFunction = std::function<void(
+      ae::Uid const& peer, ae::ObjId packet_id,
+      SerializedSyncPacket const& bytes)>;
   using RawSendFunction =
       std::function<void(ae::Uid const& peer,
                          std::vector<std::uint8_t> const& bytes)>;
@@ -61,10 +67,17 @@ class ChatSyncController {
   SharedGraphSyncSession const* FindSession(ae::Uid const& remote_uid) const;
   bool IsPeerOnline(ae::Uid const& remote_uid) const;
 
+  // Diagnostics / unit tests: runtime gate state (not persisted).
+  std::size_t write_gate_size(ae::Uid const& remote_uid) const;
+  std::uint64_t physical_attempt_count(ae::Uid const& remote_uid,
+                                       ae::ObjId packet_id) const;
+  bool write_gate_has(ae::Uid const& remote_uid, ae::ObjId packet_id) const;
+
  private:
   struct RuntimeSession {
     ae::Uid remote_uid{};
     std::unique_ptr<SharedGraphSyncSession> session;
+    SyncPacketWriteGate write_gate;
     bool last_initial_sync_complete{false};
     ae::TimePoint last_retry{};
     std::size_t last_pending_count{0};
@@ -90,6 +103,11 @@ class ChatSyncController {
                                        SyncSessionState::ptr state);
   void EmitInitialMarkers(RuntimeSession& runtime);
   void DrivePending(RuntimeSession& runtime, ae::TimePoint now);
+  void OfferPhysicalSend(RuntimeSession& runtime, ae::ObjId packet_id,
+                         SerializedSyncPacket bytes, ae::TimePoint now);
+  bool IsPersistentPending(RuntimeSession const& runtime,
+                           ae::ObjId packet_id) const;
+  void PruneWriteGate(RuntimeSession& runtime);
   void SendPresence(RuntimeSession& runtime, ChatPresenceMessage message,
                     ae::TimePoint now);
   void ApplyOnlineTransition(RuntimeSession& runtime);
@@ -113,6 +131,7 @@ class ChatSyncController {
   std::vector<RuntimeSession> sessions_;
   // Runtime-only; packets arriving for unknown peers before AddPeer completes.
   std::vector<PendingAutoAccept> pending_auto_accept_;
+  std::optional<ae::TimePoint> last_tick_now_;
 };
 
 }  // namespace apptraverse::chat

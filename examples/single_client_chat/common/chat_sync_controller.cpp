@@ -72,6 +72,30 @@ bool ChatSyncController::IsPeerOnline(ae::Uid const& remote_uid) const {
   return false;
 }
 
+std::size_t ChatSyncController::write_gate_size(
+    ae::Uid const& remote_uid) const {
+  if (auto const* runtime = FindRuntime(remote_uid)) {
+    return runtime->write_gate.size();
+  }
+  return 0;
+}
+
+std::uint64_t ChatSyncController::physical_attempt_count(
+    ae::Uid const& remote_uid, ae::ObjId packet_id) const {
+  if (auto const* runtime = FindRuntime(remote_uid)) {
+    return runtime->write_gate.attempt_count(packet_id);
+  }
+  return 0;
+}
+
+bool ChatSyncController::write_gate_has(ae::Uid const& remote_uid,
+                                        ae::ObjId packet_id) const {
+  if (auto const* runtime = FindRuntime(remote_uid)) {
+    return runtime->write_gate.Has(packet_id);
+  }
+  return false;
+}
+
 ChatSyncController::RuntimeSession* ChatSyncController::FindRuntime(
     ae::Uid const& remote_uid) {
   for (auto& runtime : sessions_) {
@@ -167,6 +191,7 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
       NotifyChanged();
     }
     runtime.last_pending_count = 0;
+    runtime.write_gate.Clear();
     return;
   }
 
@@ -180,15 +205,66 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
     NotifyChanged();
   }
   runtime.last_pending_count = pending;
+  PruneWriteGate(runtime);
 
   bool const retry_due = runtime.last_retry.time_since_epoch().count() == 0 ||
                          now - runtime.last_retry >= timing_.retry_interval;
   if (retry_due) {
+    // Re-offer every pending packet; SyncPacketWriteGate enforces the
+    // per-packet physical send cooldown (packet_retry_interval).
     runtime.session->RetryPending();
     runtime.last_retry = now;
-    Log(ae::Format("CHAT_RETRY_SENT peer={} pending={}",
-                   FormatUid(runtime.remote_uid), pending));
   }
+}
+
+void ChatSyncController::PruneWriteGate(RuntimeSession& runtime) {
+  assert(runtime.session != nullptr);
+  std::vector<ae::ObjId> keep;
+  keep.reserve(runtime.session->pending_packet_count());
+  for (auto const& pending :
+       runtime.session->state()->data.pending_packets) {
+    keep.push_back(pending.packet_id);
+  }
+  runtime.write_gate.RetainOnly(keep);
+}
+
+bool ChatSyncController::IsPersistentPending(RuntimeSession const& runtime,
+                                             ae::ObjId packet_id) const {
+  assert(runtime.session != nullptr);
+  for (auto const& pending :
+       runtime.session->state()->data.pending_packets) {
+    if (pending.packet_id == packet_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void ChatSyncController::OfferPhysicalSend(RuntimeSession& runtime,
+                                           ae::ObjId packet_id,
+                                           SerializedSyncPacket bytes,
+                                           ae::TimePoint now) {
+  // One-shot packets (application ACKs) are not in persistent pending —
+  // send once with no gate slot.
+  if (!IsPersistentPending(runtime, packet_id)) {
+    Log(ae::Format("SYNC_TRANSPORT_WRITE peer={} packet={} oneshot=1",
+                   FormatUid(runtime.remote_uid), packet_id.id()));
+    send_(runtime.remote_uid, packet_id, bytes);
+    return;
+  }
+
+  if (!runtime.write_gate.TryBegin(packet_id, now)) {
+    Log(ae::Format(
+        "SYNC_WRITE_SUPPRESSED peer={} packet={} attempts={}",
+        FormatUid(runtime.remote_uid), packet_id.id(),
+        runtime.write_gate.attempt_count(packet_id)));
+    return;
+  }
+
+  Log(ae::Format("SYNC_TRANSPORT_WRITE peer={} packet={} attempt={}",
+                 FormatUid(runtime.remote_uid), packet_id.id(),
+                 runtime.write_gate.attempt_count(packet_id)));
+  send_(runtime.remote_uid, packet_id, bytes);
 }
 
 ChatSyncController::RuntimeSession& ChatSyncController::EnsureRuntimeSession(
@@ -203,10 +279,15 @@ ChatSyncController::RuntimeSession& ChatSyncController::EnsureRuntimeSession(
 
   RuntimeSession runtime;
   runtime.remote_uid = remote_uid;
+  runtime.write_gate = SyncPacketWriteGate{timing_.packet_retry_interval};
   runtime.session = std::make_unique<SharedGraphSyncSession>(
       replica_, state,
       [this, remote_uid](ae::ObjId packet_id, SerializedSyncPacket bytes) {
-        send_(remote_uid, packet_id, bytes);
+        auto* runtime = FindRuntime(remote_uid);
+        assert(runtime != nullptr);
+        auto const now =
+            last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
+        OfferPhysicalSend(*runtime, packet_id, std::move(bytes), now);
       });
   if (log_) {
     runtime.session->set_trace(log_);
@@ -242,6 +323,7 @@ void ChatSyncController::Stop() {
   auto const now = ae::Now();
   for (auto& runtime : sessions_) {
     SendPresence(runtime, ChatPresenceMessage::kOffline, now);
+    runtime.write_gate.Clear();
   }
 }
 
@@ -310,6 +392,14 @@ void ChatSyncController::ReceiveKnown(ae::Uid const& remote_uid,
 
   assert(runtime->session != nullptr);
   runtime->session->Receive(bytes);
+  // Application ACK may have removed pending packets — drop gate slots now.
+  if (runtime->session->pending_packet_count() == 0) {
+    runtime->write_gate.Clear();
+    runtime->last_pending_count = 0;
+  } else {
+    PruneWriteGate(*runtime);
+    runtime->last_pending_count = runtime->session->pending_packet_count();
+  }
 
   if (!runtime->last_initial_sync_complete &&
       runtime->session->initial_sync_complete()) {
@@ -360,6 +450,7 @@ void ChatSyncController::Receive(ae::Uid const& remote_uid,
 }
 
 void ChatSyncController::Tick(ae::TimePoint now) {
+  last_tick_now_ = now;
   DrainPendingAutoAccept();
 
   for (auto& runtime : sessions_) {

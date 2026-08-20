@@ -561,31 +561,34 @@ void TestControllerBidirectionalAndRestart() {
 }
 
 void TestRetryTiming() {
+  // A–H: time-based physical send cooldown (no WriteAction completion).
   auto left_uid = MakeUid(0xC3);
   auto right_uid = MakeUid(0xD4);
   Side left{"Windows", left_uid};
   Side right{"Android", right_uid};
 
-  std::vector<std::pair<ae::ObjId, SerializedSyncPacket>> sent;
+  std::vector<ae::ObjId> sent_ids;
   bool deliver = false;
 
   chat::ChatSyncTiming timing;
-  timing.retry_interval = std::chrono::milliseconds{20};
+  timing.retry_interval = std::chrono::milliseconds{10};
+  timing.packet_retry_interval = std::chrono::milliseconds{2000};
 
   chat::ChatSyncController* left_ptr = nullptr;
   chat::ChatSyncController* right_ptr = nullptr;
 
+  auto left_send = [&](ae::Uid const& peer, ae::ObjId packet_id,
+                       SerializedSyncPacket const& bytes) {
+    CHECK(peer == right_uid);
+    sent_ids.push_back(packet_id);
+    if (deliver) {
+      assert(right_ptr != nullptr);
+      right_ptr->Receive(left_uid, bytes);
+    }
+  };
+
   chat::ChatSyncController left_ctrl(
-      left.Replica(), left.graph.chat, left.graph.peer_set,
-      [&](ae::Uid const& peer, ae::ObjId packet_id,
-          SerializedSyncPacket const& bytes) {
-        CHECK(peer == right_uid);
-        sent.emplace_back(packet_id, bytes);
-        if (deliver) {
-          assert(right_ptr != nullptr);
-          right_ptr->Receive(left_uid, bytes);
-        }
-      },
+      left.Replica(), left.graph.chat, left.graph.peer_set, left_send,
       [&](ae::Uid const& peer, std::vector<std::uint8_t> const& bytes) {
         CHECK(peer == right_uid);
         if (deliver) {
@@ -614,87 +617,252 @@ void TestRetryTiming() {
   left_ctrl.Start();
   right_ctrl.Start();
 
+  auto FindPendingBytes = [](SharedGraphSyncSession* session,
+                             ae::ObjId packet_id) {
+    for (auto const& pending : session->state()->data.pending_packets) {
+      if (pending.packet_id == packet_id) {
+        return pending.serialized_bytes;
+      }
+    }
+    CHECK(false && "pending packet missing");
+    return SerializedSyncPacket{};
+  };
+
+  auto DrainPendingViaAck = [&](chat::ChatSyncController& left_c,
+                                SharedGraphSyncSession* session,
+                                ae::TimePoint base) {
+    deliver = true;
+    for (int i = 0; i < 80; ++i) {
+      if (session->pending_packet_count() == 0) {
+        break;
+      }
+      auto const id = session->state()->data.pending_packets.front().packet_id;
+      right_ctrl.Receive(left_uid, FindPendingBytes(session, id));
+      left_c.Tick(base + std::chrono::milliseconds{i * 10});
+      right_ctrl.Tick(base + std::chrono::milliseconds{i * 10});
+    }
+    CHECK(session->pending_packet_count() == 0);
+    deliver = false;
+  };
+
+  // --- A: AddPeer — one physical send; immediate Ticks do not duplicate ---
+  deliver = false;
+  sent_ids.clear();
   left_ctrl.AddPeer(right_uid);
-  CHECK(sent.size() == 1);
+  CHECK(sent_ids.size() == 1);
   auto* session = left_ctrl.FindSession(right_uid);
   CHECK(session != nullptr);
   CHECK(session->pending_packet_count() == 1);
-  auto const initial_id = sent.front().first;
-  auto const initial_bytes = sent.front().second;
+  auto const initial_id = sent_ids.front();
   CHECK(session->state()->data.pending_packets.front().packet_id ==
         initial_id);
+  CHECK(left_ctrl.physical_attempt_count(right_uid, initial_id) == 1);
 
-  sent.clear();
   auto t0 = ae::Now();
+  sent_ids.clear();
   left_ctrl.Tick(t0);
-  CHECK(sent.size() == 1);
-  CHECK(sent.front().first == initial_id);
-  CHECK(sent.front().second == initial_bytes);
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{5});
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{15});
+  CHECK(sent_ids.empty());
+  CHECK(left_ctrl.physical_attempt_count(right_uid, initial_id) == 1);
 
-  left_ctrl.Tick(t0 + std::chrono::milliseconds{50});
-  CHECK(!sent.empty());
-  CHECK(sent.back().first == initial_id);
-  CHECK(sent.back().second == initial_bytes);
+  // --- B: Retry deadline — no second send before 2000ms; one after ---
+  sent_ids.clear();
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{1990});
+  CHECK(sent_ids.empty());
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{2000});
+  CHECK(sent_ids.size() == 1);
+  CHECK(sent_ids.front() == initial_id);
+  CHECK(left_ctrl.physical_attempt_count(right_uid, initial_id) == 2);
+  sent_ids.clear();
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{2010});
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{2100});
+  left_ctrl.Tick(t0 + std::chrono::milliseconds{2500});
+  CHECK(sent_ids.empty());
 
-  deliver = true;
-  right_ctrl.Receive(left_uid, initial_bytes);
-  right_ctrl.Tick(t0 + std::chrono::milliseconds{10});
-  right_ctrl.Tick(t0 + std::chrono::milliseconds{15});
-  for (int i = 0; i < 50; ++i) {
-    left_ctrl.Tick(t0 + std::chrono::milliseconds{200 + i * 5});
-    right_ctrl.Tick(t0 + std::chrono::milliseconds{200 + i * 5});
-    if (session->pending_packet_count() == 0) {
-      break;
-    }
+  // --- C: Sustained no-ACK over 10s from first send ---
+  // Expected sends at t0+0 (already done), +2000 (done in B), +4000..+10000.
+  sent_ids.clear();
+  auto const attempts_at_b =
+      left_ctrl.physical_attempt_count(right_uid, initial_id);
+  CHECK(attempts_at_b == 2);
+  for (int ms = 2010; ms <= 10000; ms += 10) {
+    left_ctrl.Tick(t0 + std::chrono::milliseconds{ms});
   }
-  CHECK(session->pending_packet_count() == 0);
-  auto const sent_at_clear = sent.size();
-  left_ctrl.Tick(t0 + std::chrono::milliseconds{500});
-  left_ctrl.Tick(t0 + std::chrono::milliseconds{700});
-  CHECK(sent.size() == sent_at_clear);
+  // Additional sends at 4000,6000,8000,10000 = 4 → total attempts 6 over 10s.
+  CHECK(left_ctrl.physical_attempt_count(right_uid, initial_id) == 6);
+  CHECK(sent_ids.size() == 4);
+  for (auto const& id : sent_ids) {
+    CHECK(id == initial_id);
+  }
 
+  DrainPendingViaAck(left_ctrl, session,
+                     t0 + std::chrono::milliseconds{11000});
+  CHECK(left_ctrl.write_gate_size(right_uid) == 0);
+
+  // --- D: Application ACK removes pending + gate slot immediately ---
   deliver = false;
-  left.Submit("after-ack");
-  sent.clear();
-  auto const t1 = t0 + std::chrono::milliseconds{1000};
-  left_ctrl.Tick(t1);
-  CHECK(session->pending_packet_count() >= 1);
-  CHECK(!sent.empty());
-  auto const new_id = sent.front().first;
-  auto const new_bytes = sent.front().second;
-  CHECK(new_id != initial_id);
-
-  sent.clear();
-  left_ctrl.Tick(t1 + std::chrono::milliseconds{30});
-  CHECK(!sent.empty());
-  CHECK(sent.back().first == new_id);
-  CHECK(sent.back().second == new_bytes);
-
-  right.graph.chat.Load();
-  auto count_occurrences = [](std::string const& hay, std::string const& needle) {
-    std::size_t count = 0;
-    std::size_t pos = 0;
-    while ((pos = hay.find(needle, pos)) != std::string::npos) {
-      ++count;
-      pos += needle.size();
-    }
-    return count;
-  };
-  CHECK(count_occurrences(right.Transcript(), "after-ack") == 0);
-
+  left.Submit("ack-me");
+  sent_ids.clear();
+  auto const t_d = t0 + std::chrono::milliseconds{14000};
+  left_ctrl.Tick(t_d);
+  CHECK(sent_ids.size() == 1);
+  auto const ack_target_id = sent_ids.front();
+  CHECK(left_ctrl.write_gate_has(right_uid, ack_target_id));
+  auto const ack_bytes = FindPendingBytes(session, ack_target_id);
   deliver = true;
-  right_ctrl.Receive(left_uid, new_bytes);
-  right_ctrl.Receive(left_uid, new_bytes);
-  for (int i = 0; i < 50; ++i) {
-    left_ctrl.Tick(t1 + std::chrono::milliseconds{200 + i * 5});
-    right_ctrl.Tick(t1 + std::chrono::milliseconds{200 + i * 5});
+  right_ctrl.Receive(left_uid, ack_bytes);
+  // Receive path on left after right's ACK exchange:
+  for (int i = 0; i < 40; ++i) {
+    left_ctrl.Tick(t_d + std::chrono::milliseconds{10 + i * 10});
+    right_ctrl.Tick(t_d + std::chrono::milliseconds{10 + i * 10});
     if (session->pending_packet_count() == 0) {
       break;
     }
   }
-  right.graph.chat.Load();
   CHECK(session->pending_packet_count() == 0);
-  CHECK(count_occurrences(right.Transcript(), "after-ack") == 1);
+  CHECK(!left_ctrl.write_gate_has(right_uid, ack_target_id));
+  CHECK(left_ctrl.write_gate_size(right_uid) == 0);
+  auto const sent_after_ack = sent_ids.size();
+  left_ctrl.Tick(t_d + std::chrono::milliseconds{5000});
+  left_ctrl.Tick(t_d + std::chrono::milliseconds{7000});
+  CHECK(sent_ids.size() == sent_after_ack);
+  deliver = false;
+
+  // --- E: One-shot ACK packets bypass the gate ---
+  right_ctrl.AddPeer(left_uid);
+  right.Submit("trigger-ack");
+  sent_ids.clear();
+  right_ctrl.Tick(ae::Now());
+  CHECK(!sent_ids.empty());
+  auto is_left_pending = [&](ae::ObjId id) {
+    for (auto const& pending : session->state()->data.pending_packets) {
+      if (pending.packet_id == id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  std::size_t oneshot_acks = 0;
+  for (auto const& id : sent_ids) {
+    if (!is_left_pending(id)) {
+      ++oneshot_acks;
+      CHECK(!left_ctrl.write_gate_has(right_uid, id));
+    }
+  }
+  CHECK(oneshot_acks >= 1);
+
+  auto const first_wave = sent_ids.size();
+  right.Submit("trigger-ack-2");
+  right_ctrl.Tick(ae::Now());
+  CHECK(sent_ids.size() > first_wave);
+  for (std::size_t i = first_wave; i < sent_ids.size(); ++i) {
+    if (!is_left_pending(sent_ids[i])) {
+      CHECK(!left_ctrl.write_gate_has(right_uid, sent_ids[i]));
+    }
+  }
+
+  DrainPendingViaAck(left_ctrl, session, ae::Now());
+
+  // --- F: Restart — persisted pending sends once; next Tick does not ---
+  deliver = false;
+  left.Submit("persist-me");
+  left_ctrl.Tick(ae::Now());
+  CHECK(session->pending_packet_count() >= 1);
+  auto const persist_id =
+      session->state()->data.pending_packets.front().packet_id;
+  left.graph.app.Save();
+  left_ctrl.Stop();
+  CHECK(left_ctrl.write_gate_size(right_uid) == 0);
+
+  left.DestroyRuntime();
+  left.ReloadRuntime();
+  sent_ids.clear();
+  chat::ChatSyncController left2(
+      left.Replica(), left.graph.chat, left.graph.peer_set, left_send,
+      [&](ae::Uid const& peer, std::vector<std::uint8_t> const& bytes) {
+        CHECK(peer == right_uid);
+        if (deliver) {
+          assert(right_ptr != nullptr);
+          right_ptr->Receive(left_uid, bytes);
+        }
+      },
+      timing);
+  left_ptr = &left2;
+  left2.Start();
+  CHECK(sent_ids.size() == 1);
+  CHECK(sent_ids.front() == persist_id);
+  auto* session2 = left2.FindSession(right_uid);
+  CHECK(session2 != nullptr);
+  CHECK(session2->pending_packet_count() >= 1);
+  CHECK(left2.physical_attempt_count(right_uid, persist_id) == 1);
+  sent_ids.clear();
+  auto const t_f = ae::Now();
+  left2.Tick(t_f);
+  left2.Tick(t_f + std::chrono::milliseconds{20});
+  CHECK(sent_ids.empty());
+
+  DrainPendingViaAck(left2, session2, t_f + std::chrono::milliseconds{100});
+
+  // --- G: Two pending packets — independent deadlines ---
+  deliver = false;
+  left2.Stop();
+  chat::ChatSyncController left3(
+      left.Replica(), left.graph.chat, left.graph.peer_set, left_send,
+      [&](ae::Uid const&, std::vector<std::uint8_t> const&) {}, timing);
+  left_ptr = &left3;
+  left3.Start();
+  auto* session3 = left3.FindSession(right_uid);
+  CHECK(session3 != nullptr);
+  CHECK(session3->pending_packet_count() == 0);
+
+  left.Submit("old-pkt");
+  sent_ids.clear();
+  auto t_g = ae::Now();
+  left3.Tick(t_g);
+  CHECK(sent_ids.size() == 1);
+  auto const old_id = sent_ids.front();
+  sent_ids.clear();
+  left3.Tick(t_g + std::chrono::milliseconds{10});
+  CHECK(sent_ids.empty());
+
+  left.Submit("new-pkt");
+  left3.Tick(t_g + std::chrono::milliseconds{50});
+  CHECK(sent_ids.size() == 1);
+  auto const new_id = sent_ids.front();
+  CHECK(new_id != old_id);
+  sent_ids.clear();
+  left3.Tick(t_g + std::chrono::milliseconds{60});
+  CHECK(sent_ids.empty());
+
+  left3.Tick(t_g + std::chrono::milliseconds{1990});
+  CHECK(sent_ids.empty());
+  left3.Tick(t_g + std::chrono::milliseconds{2000});
+  CHECK(sent_ids.size() == 1);
+  CHECK(sent_ids.front() == old_id);
+  sent_ids.clear();
+  left3.Tick(t_g + std::chrono::milliseconds{2040});
+  CHECK(sent_ids.empty());
+  left3.Tick(t_g + std::chrono::milliseconds{2050});
+  CHECK(sent_ids.size() == 1);
+  CHECK(sent_ids.front() == new_id);
+  CHECK(session3->pending_packet_count() >= 2);
+
+  // --- H: Stop clears runtime gate; Start sends pending once ---
+  left3.Stop();
+  CHECK(left3.write_gate_size(right_uid) == 0);
+  sent_ids.clear();
+  left3.Start();
+  // StartOrResume re-offers pending; gate was cleared so each pending may send
+  // once.
+  CHECK(!sent_ids.empty());
+  auto const sent_on_restart = sent_ids.size();
+  CHECK(sent_on_restart >= 1);
+  sent_ids.clear();
+  auto const t_h = ae::Now();
+  left3.Tick(t_h);
+  left3.Tick(t_h + std::chrono::milliseconds{20});
+  CHECK(sent_ids.empty());
 }
 
 
