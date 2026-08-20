@@ -62,6 +62,7 @@ class ProfileSchemaTest(unittest.TestCase):
         self.assertNotIn("--clean-first", argv)
         self.assertNotIn("clean", argv)
         self.assertNotIn("rebuild", argv)
+        self.assertNotIn("--parallel", argv)
         self.assertFalse(runner.command_is_destructive(argv))
 
     def test_macos_build_argv_is_defined(self) -> None:

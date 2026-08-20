@@ -44,7 +44,7 @@ PROFILES = {
         "require_ninja": True,
         "require_cxx": True,
         "require_gtk3": True,
-        "build_parallel": 1,
+        "build_parallel": None,
         "cache_variables": {},
         "cxx_names": ("g++", "c++"),
     },
