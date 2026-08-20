@@ -19,6 +19,12 @@ from unittest import mock
 from tools.mcp import apptraverse_mcp as mcp_mod
 from tools.mcp import setup_apptraverse_mcp as setup_mod
 from tools.runners.run_apptraverse_job import JOB_SCHEMA_VERSION, JobResult
+from tools.runners.run_apptraverse_platform_job import (
+    JOB_SCHEMA_VERSION as PLATFORM_JOB_SCHEMA_VERSION,
+    JobResult as PlatformJobResult,
+    PROCESS_SCHEMA_VERSION,
+    ProcessResult,
+)
 
 
 def _venv_python() -> Path:
@@ -224,8 +230,79 @@ class McpWrapperTest(unittest.TestCase):
                         mcp_mod.apptraverse_build_failure_excerpt("nope")
         self.assertEqual(buf.getvalue(), "")
 
-    def test_server_exposes_exactly_six_tools(self) -> None:
-        self.assertEqual(len(mcp_mod.TOOL_NAMES), 6)
+    def test_platform_start_delegates_to_platform_job(self) -> None:
+        fake = PlatformJobResult(
+            schema_version=PLATFORM_JOB_SCHEMA_VERSION,
+            operation="start",
+            job_id="j-platform",
+            state="running",
+            profile="linux-x64-debug",
+            stage="preflight",
+        )
+        with mock.patch.object(mcp_mod, "start_platform_job", return_value=fake) as start:
+            dumped = mcp_mod.apptraverse_platform_start("linux-x64-debug", "preflight")
+        start.assert_called_once_with(
+            mcp_mod.repo_root(), "linux-x64-debug", "preflight", []
+        )
+        self.assertEqual(dumped["job_id"], "j-platform")
+        self.assertNotIn("stdout", dumped)
+
+    def test_process_start_delegates(self) -> None:
+        fake = ProcessResult(
+            schema_version=PROCESS_SCHEMA_VERSION,
+            operation="start",
+            process_id="p-1",
+            state="running",
+        )
+        with mock.patch.object(mcp_mod, "start_process", return_value=fake) as start:
+            dumped = mcp_mod.apptraverse_process_start("linux-x64-debug", "/tmp/state")
+        start.assert_called_once_with(
+            mcp_mod.repo_root(), "linux-x64-debug", "/tmp/state"
+        )
+        self.assertEqual(dumped["process_id"], "p-1")
+
+    def test_platform_failure_excerpt_is_bounded(self) -> None:
+        run_id = "r-mcp-platform-excerpt"
+        run_dir = (
+            mcp_mod.repo_root() / ".artifacts" / "apptraverse-platform" / run_id
+        )
+        run_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            (run_dir / "result.json").write_text(
+                json.dumps(
+                    {
+                        "failure_kind": "compile_failed",
+                        "first_error": "error: missing header",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "failure_excerpt.txt").write_text(
+                "\n".join(f"line-{i}" for i in range(80)) + "\n",
+                encoding="utf-8",
+            )
+            dumped = mcp_mod.apptraverse_platform_failure_excerpt(
+                f"apptraverse-platform/{run_id}"
+            )
+        finally:
+            shutil.rmtree(run_dir, ignore_errors=True)
+        self.assertEqual(dumped["failure_kind"], "compile_failed")
+        self.assertLessEqual(len(dumped["excerpt"].splitlines()), 40)
+        self.assertLessEqual(len(dumped["excerpt"]), 4000)
+
+    def test_platform_excerpt_rejects_traversal(self) -> None:
+        dumped = mcp_mod.apptraverse_platform_failure_excerpt(
+            "apptraverse-platform/../secret"
+        )
+        self.assertEqual(dumped["failure_kind"], "invalid_artifact_id")
+
+    def test_windows_build_tools_remain(self) -> None:
+        self.assertIn("apptraverse_build_start", mcp_mod.TOOL_NAMES)
+        self.assertIn("apptraverse_two_windows_chat_run", mcp_mod.TOOL_NAMES)
+
+    def test_server_exposes_exactly_thirteen_tools(self) -> None:
+        self.assertEqual(len(mcp_mod.TOOL_NAMES), 13)
         self.assertEqual(
             list(mcp_mod.TOOL_NAMES),
             [
@@ -235,6 +312,13 @@ class McpWrapperTest(unittest.TestCase):
                 "apptraverse_build_failure_excerpt",
                 "apptraverse_runtime_log_query",
                 "apptraverse_two_windows_chat_run",
+                "apptraverse_platform_start",
+                "apptraverse_platform_status",
+                "apptraverse_platform_cancel",
+                "apptraverse_platform_failure_excerpt",
+                "apptraverse_process_start",
+                "apptraverse_process_status",
+                "apptraverse_process_stop",
             ],
         )
         probe = (
@@ -249,7 +333,7 @@ class McpWrapperTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         payload = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertEqual(sorted(payload["names"]), sorted(payload["expected"]))
-        self.assertEqual(len(payload["names"]), 6)
+        self.assertEqual(len(payload["names"]), 13)
 
 
 def run_stdio_smoke() -> dict:

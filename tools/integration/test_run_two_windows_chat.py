@@ -620,8 +620,9 @@ class ExeAndMcpTest(unittest.TestCase):
             self.assertNotIn("stderr.log", json.dumps(dumped))
 
     def test_mcp_registers_six_tools(self) -> None:
-        self.assertEqual(len(mcp_mod.TOOL_NAMES), 6)
+        self.assertEqual(len(mcp_mod.TOOL_NAMES), 13)
         self.assertIn("apptraverse_two_windows_chat_run", mcp_mod.TOOL_NAMES)
+        self.assertIn("apptraverse_platform_start", mcp_mod.TOOL_NAMES)
 
 
 if __name__ == "__main__":

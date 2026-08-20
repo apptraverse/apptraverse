@@ -25,6 +25,14 @@ from tools.runners.run_apptraverse_job import (  # noqa: E402
     start_job,
     status_job,
 )
+from tools.runners.run_apptraverse_platform_job import (  # noqa: E402
+    cancel_job as cancel_platform_job,
+    start_job as start_platform_job,
+    start_process,
+    status_job as status_platform_job,
+    status_process,
+    stop_process,
+)
 from tools.runtime.runtime_jsonl import (  # noqa: E402
     MAX_LIMIT,
     RuntimeJsonlError,
@@ -49,8 +57,16 @@ TOOL_NAMES = (
     "apptraverse_build_failure_excerpt",
     "apptraverse_runtime_log_query",
     "apptraverse_two_windows_chat_run",
+    "apptraverse_platform_start",
+    "apptraverse_platform_status",
+    "apptraverse_platform_cancel",
+    "apptraverse_platform_failure_excerpt",
+    "apptraverse_process_start",
+    "apptraverse_process_status",
+    "apptraverse_process_stop",
 )
 BUILD_ARTIFACT_PREFIX = "apptraverse-build/"
+PLATFORM_ARTIFACT_PREFIX = "apptraverse-platform/"
 RUNTIME_ARTIFACT_PREFIX = "apptraverse-runtime/"
 MAX_EXCERPT_LINES = 40
 MAX_EXCERPT_CHARS = 4000
@@ -83,6 +99,41 @@ def apptraverse_build_cancel(job_id: str) -> dict:
     return cancel_job(repo_root(), job_id).to_public_dict()
 
 
+def apptraverse_platform_start(
+    profile: str,
+    stage: str,
+    targets: list[str] | None = None,
+) -> dict:
+    """Start a background POSIX platform job. Returns a compact job object."""
+    result = start_platform_job(repo_root(), profile, stage, list(targets or []))
+    return result.to_public_dict()
+
+
+def apptraverse_platform_status(job_id: str) -> dict:
+    """Return compact status for a POSIX platform background job."""
+    return status_platform_job(repo_root(), job_id).to_public_dict()
+
+
+def apptraverse_platform_cancel(job_id: str) -> dict:
+    """Cancel a POSIX platform background job."""
+    return cancel_platform_job(repo_root(), job_id).to_public_dict()
+
+
+def apptraverse_process_start(profile: str, state_dir: str) -> dict:
+    """Start the known-profile product process with an explicit state dir."""
+    return start_process(repo_root(), profile, state_dir).to_public_dict()
+
+
+def apptraverse_process_status(process_id: str) -> dict:
+    """Return compact status for a known-profile product process."""
+    return status_process(repo_root(), process_id).to_public_dict()
+
+
+def apptraverse_process_stop(process_id: str) -> dict:
+    """Stop a known-profile product process."""
+    return stop_process(repo_root(), process_id).to_public_dict()
+
+
 def _invalid_artifact(artifact_id: str, kind: str) -> dict:
     return {
         "artifact_id": artifact_id,
@@ -92,7 +143,7 @@ def _invalid_artifact(artifact_id: str, kind: str) -> dict:
     }
 
 
-def parse_build_run_id(artifact_id: str) -> str | None:
+def _parse_prefixed_id(artifact_id: str, prefix: str) -> str | None:
     if not isinstance(artifact_id, str) or not artifact_id:
         return None
     if artifact_id.strip() != artifact_id:
@@ -102,9 +153,9 @@ def parse_build_run_id(artifact_id: str) -> str | None:
         return None
     if ".." in artifact_id or "\\" in artifact_id:
         return None
-    if not artifact_id.startswith(BUILD_ARTIFACT_PREFIX):
+    if not artifact_id.startswith(prefix):
         return None
-    run_id = artifact_id[len(BUILD_ARTIFACT_PREFIX) :]
+    run_id = artifact_id[len(prefix) :]
     if not run_id or "/" in run_id:
         return None
     if run_id in {".", ".."} or run_id.startswith("."):
@@ -112,6 +163,14 @@ def parse_build_run_id(artifact_id: str) -> str | None:
     if any(ch not in ALLOWED_RUN_ID for ch in run_id):
         return None
     return run_id
+
+
+def parse_build_run_id(artifact_id: str) -> str | None:
+    return _parse_prefixed_id(artifact_id, BUILD_ARTIFACT_PREFIX)
+
+
+def parse_platform_artifact_id(artifact_id: str) -> str | None:
+    return _parse_prefixed_id(artifact_id, PLATFORM_ARTIFACT_PREFIX)
 
 
 def bound_excerpt(text: str) -> str:
@@ -150,6 +209,52 @@ def apptraverse_build_failure_excerpt(artifact_id: str) -> dict:
         if isinstance(payload, dict):
             failure_kind = payload.get("failure_kind")
             first_error = payload.get("first_error")
+
+    excerpt = ""
+    excerpt_path = run_dir / "failure_excerpt.txt"
+    if excerpt_path.is_file():
+        excerpt = excerpt_path.read_text(encoding="utf-8", errors="replace")
+    elif isinstance(first_error, str):
+        excerpt = first_error
+    return {
+        "artifact_id": artifact_id,
+        "failure_kind": failure_kind,
+        "first_error": first_error,
+        "excerpt": bound_excerpt(excerpt),
+    }
+
+
+def apptraverse_platform_failure_excerpt(artifact_id: str) -> dict:
+    """Return a bounded failure excerpt for an apptraverse-platform artifact id."""
+    run_id = parse_platform_artifact_id(artifact_id)
+    if run_id is None:
+        return _invalid_artifact(artifact_id, "invalid_artifact_id")
+    root = repo_root()
+    base = (root / ".artifacts" / "apptraverse-platform").resolve()
+    run_dir = (base / run_id).resolve()
+    try:
+        run_dir.relative_to(base)
+    except ValueError:
+        return _invalid_artifact(artifact_id, "invalid_artifact_id")
+    if not run_dir.is_dir():
+        return _invalid_artifact(artifact_id, "artifact_not_found")
+
+    failure_kind = None
+    first_error = None
+    result_path = run_dir / "result.json"
+    if result_path.is_file():
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            payload = {}
+        if isinstance(payload, dict):
+            nested = payload.get("platform_result")
+            if isinstance(nested, dict):
+                failure_kind = nested.get("failure_kind") or payload.get("failure_kind")
+                first_error = nested.get("first_error") or payload.get("first_error")
+            else:
+                failure_kind = payload.get("failure_kind")
+                first_error = payload.get("first_error")
 
     excerpt = ""
     excerpt_path = run_dir / "failure_excerpt.txt"
@@ -267,6 +372,13 @@ def create_mcp_server():
     server.tool()(apptraverse_build_failure_excerpt)
     server.tool()(apptraverse_runtime_log_query)
     server.tool()(apptraverse_two_windows_chat_run)
+    server.tool()(apptraverse_platform_start)
+    server.tool()(apptraverse_platform_status)
+    server.tool()(apptraverse_platform_cancel)
+    server.tool()(apptraverse_platform_failure_excerpt)
+    server.tool()(apptraverse_process_start)
+    server.tool()(apptraverse_process_status)
+    server.tool()(apptraverse_process_stop)
     return server
 
 
