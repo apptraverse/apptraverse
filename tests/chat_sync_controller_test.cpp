@@ -638,6 +638,8 @@ void TestRetryTiming() {
 
   deliver = true;
   right_ctrl.Receive(left_uid, initial_bytes);
+  right_ctrl.Tick(t0 + std::chrono::milliseconds{10});
+  right_ctrl.Tick(t0 + std::chrono::milliseconds{15});
   for (int i = 0; i < 50; ++i) {
     left_ctrl.Tick(t0 + std::chrono::milliseconds{200 + i * 5});
     right_ctrl.Tick(t0 + std::chrono::milliseconds{200 + i * 5});
@@ -768,8 +770,15 @@ void TestPresenceTransitionsAndIsolation() {
   right.graph.chat.Load();
   auto const journal_before = right.graph.chat->journal.size();
 
-  // 1. First Online -> exactly one CHAT_PEER_ONLINE on right.
+  // 1. First Online -> exactly one CHAT_PEER_ONLINE on right (after Tick drains
+  // deferred auto-accept; Receive must not create the peer synchronously).
   left_ctrl.AddPeer(right_uid);
+  CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+  CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 0);
+  right_ctrl.Tick(ae::Now());
+  CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+  CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 0);
+  right_ctrl.Tick(ae::Now());
   CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 1);
   CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 0);
 
@@ -878,7 +887,12 @@ void TestSyncPacketBringsPeerOnline() {
 
   // 7. Sync packet without presence also brings peer online.
   // Presence raw_send is a no-op; only SerializedSyncPacket reaches right.
+  // Auto-accept is deferred until Tick.
   left_ctrl.AddPeer(right_uid);
+  CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+  right_ctrl.Tick(ae::Now());
+  CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+  right_ctrl.Tick(ae::Now());
   CHECK(CountLog(logs, "R:CHAT_PEER_ONLINE") == 1);
   CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 0);
 
@@ -898,12 +912,235 @@ void TestSyncPacketBringsPeerOnline() {
   CHECK(CountLog(logs, "R:CHAT_PEER_REJOINED") == 0);
 }
 
+void TestDeferredAutoAcceptCases() {
+  auto left_uid = MakeUid(0x2A);
+  auto right_uid = MakeUid(0x2B);
+
+  // A. unknown peer + auto_accept=false → no peer/session created.
+  {
+    Side left{"Windows", left_uid};
+    Side right{"Android", right_uid};
+    chat::ChatSyncController* left_ptr = nullptr;
+    chat::ChatSyncController* right_ptr = nullptr;
+    chat::ChatSyncController left_ctrl(
+        left.Replica(), left.graph.chat, left.graph.peer_set,
+        MakeDirectSend(right_ptr, left_uid, right_uid),
+        MakeDirectRawSend(right_ptr, left_uid, right_uid),
+        chat::ChatSyncTiming{}, false);
+    chat::ChatSyncController right_ctrl(
+        right.Replica(), right.graph.chat, right.graph.peer_set,
+        MakeDirectSend(left_ptr, right_uid, left_uid),
+        MakeDirectRawSend(left_ptr, right_uid, left_uid),
+        chat::ChatSyncTiming{}, false);
+    left_ptr = &left_ctrl;
+    right_ptr = &right_ctrl;
+    left_ctrl.Start();
+    right_ctrl.Start();
+
+    right_ctrl.Receive(
+        left_uid,
+        chat::EncodeChatPresence(chat::ChatPresenceMessage::kOnline));
+    right_ctrl.Tick(ae::Now());
+    CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+    CHECK(right_ctrl.runtime_session_count() == 0);
+    right.graph.peer_set.Load();
+    CHECK(right.graph.peer_set->peers.empty());
+  }
+
+  // B. unknown peer + auto_accept=true → Receive does not create synchronously;
+  // after Tick one peer/session exists and queued packet is processed.
+  {
+    Side left{"Windows", left_uid};
+    Side right{"Android", right_uid};
+    std::vector<std::string> logs;
+    chat::ChatSyncController* left_ptr = nullptr;
+    chat::ChatSyncController* right_ptr = nullptr;
+    chat::ChatSyncController left_ctrl(
+        left.Replica(), left.graph.chat, left.graph.peer_set,
+        MakeDirectSend(right_ptr, left_uid, right_uid),
+        MakeDirectRawSend(right_ptr, left_uid, right_uid),
+        chat::ChatSyncTiming{}, false);
+    chat::ChatSyncController right_ctrl(
+        right.Replica(), right.graph.chat, right.graph.peer_set,
+        MakeDirectSend(left_ptr, right_uid, left_uid),
+        MakeDirectRawSend(left_ptr, right_uid, left_uid),
+        chat::ChatSyncTiming{}, true, {},
+        [&](std::string const& line) { logs.push_back(line); });
+    left_ptr = &left_ctrl;
+    right_ptr = &right_ctrl;
+    left_ctrl.Start();
+    right_ctrl.Start();
+
+    right_ctrl.Receive(
+        left_uid,
+        chat::EncodeChatPresence(chat::ChatPresenceMessage::kOnline));
+    CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+    CHECK(right_ctrl.runtime_session_count() == 0);
+    CHECK(CountLog(logs, "CHAT_PEER_ADDED") == 0);
+    CHECK(CountLog(logs, "CHAT_PEER_AUTO_ACCEPT_QUEUED") == 1);
+
+    right_ctrl.Tick(ae::Now());
+    CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+    CHECK(CountLog(logs, "CHAT_PEER_ADDED") == 0);
+
+    right_ctrl.Tick(ae::Now());
+    CHECK(right_ctrl.FindSession(left_uid) != nullptr);
+    CHECK(right_ctrl.runtime_session_count() == 1);
+    CHECK(CountLog(logs, "CHAT_PEER_ADDED") == 1);
+    CHECK(CountLog(logs, "CHAT_PEER_ONLINE") == 1);
+    right.graph.peer_set.Load();
+    CHECK(right.graph.peer_set->peers.size() == 1);
+    CHECK(right.graph.peer_set->peers[0].remote_uid == left_uid);
+  }
+
+  // C. two packets from same unknown UID before Tick → one peer/session;
+  // both processed in original order.
+  {
+    Side left{"Windows", left_uid};
+    Side right{"Android", right_uid};
+    std::vector<std::string> logs;
+    chat::ChatSyncController* left_ptr = nullptr;
+    chat::ChatSyncController* right_ptr = nullptr;
+    chat::ChatSyncController left_ctrl(
+        left.Replica(), left.graph.chat, left.graph.peer_set,
+        MakeDirectSend(right_ptr, left_uid, right_uid),
+        MakeDirectRawSend(right_ptr, left_uid, right_uid),
+        chat::ChatSyncTiming{}, false);
+    chat::ChatSyncController right_ctrl(
+        right.Replica(), right.graph.chat, right.graph.peer_set,
+        MakeDirectSend(left_ptr, right_uid, left_uid),
+        MakeDirectRawSend(left_ptr, right_uid, left_uid),
+        chat::ChatSyncTiming{}, true, {},
+        [&](std::string const& line) { logs.push_back(line); });
+    left_ptr = &left_ctrl;
+    right_ptr = &right_ctrl;
+    left_ctrl.Start();
+    right_ctrl.Start();
+
+    right_ctrl.Receive(
+        left_uid,
+        chat::EncodeChatPresence(chat::ChatPresenceMessage::kOnline));
+    right_ctrl.Receive(
+        left_uid,
+        chat::EncodeChatPresence(chat::ChatPresenceMessage::kHeartbeat));
+    CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+    CHECK(CountLog(logs, "CHAT_PEER_AUTO_ACCEPT_QUEUED") == 1);
+
+    right_ctrl.Tick(ae::Now());
+    CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+    right_ctrl.Tick(ae::Now());
+    CHECK(right_ctrl.runtime_session_count() == 1);
+    CHECK(CountLog(logs, "CHAT_PEER_ADDED") == 1);
+    CHECK(CountLog(logs, "CHAT_PEER_ONLINE") == 1);
+    // Heartbeat after ONLINE must not emit REJOINED (same connection).
+    CHECK(CountLog(logs, "CHAT_PEER_REJOINED") == 0);
+    right.graph.peer_set.Load();
+    CHECK(right.graph.peer_set->peers.size() == 1);
+  }
+
+  // D. explicit AddPeer before deferred queue drains → still one peer/session;
+  // queued packet is processed.
+  {
+    Side left{"Windows", left_uid};
+    Side right{"Android", right_uid};
+    std::vector<std::string> logs;
+    chat::ChatSyncController* left_ptr = nullptr;
+    chat::ChatSyncController* right_ptr = nullptr;
+    chat::ChatSyncController left_ctrl(
+        left.Replica(), left.graph.chat, left.graph.peer_set,
+        MakeDirectSend(right_ptr, left_uid, right_uid),
+        MakeDirectRawSend(right_ptr, left_uid, right_uid),
+        chat::ChatSyncTiming{}, false);
+    chat::ChatSyncController right_ctrl(
+        right.Replica(), right.graph.chat, right.graph.peer_set,
+        MakeDirectSend(left_ptr, right_uid, left_uid),
+        MakeDirectRawSend(left_ptr, right_uid, left_uid),
+        chat::ChatSyncTiming{}, true, {},
+        [&](std::string const& line) { logs.push_back(line); });
+    left_ptr = &left_ctrl;
+    right_ptr = &right_ctrl;
+    left_ctrl.Start();
+    right_ctrl.Start();
+
+    right_ctrl.Receive(
+        left_uid,
+        chat::EncodeChatPresence(chat::ChatPresenceMessage::kOnline));
+    CHECK(right_ctrl.FindSession(left_uid) == nullptr);
+    right_ctrl.AddPeer(left_uid);
+    CHECK(right_ctrl.runtime_session_count() == 1);
+    CHECK(CountLog(logs, "CHAT_PEER_ADDED") == 1);
+    // Queued Online still pending until Tick.
+    CHECK(CountLog(logs, "CHAT_PEER_ONLINE") == 0);
+
+    right_ctrl.Tick(ae::Now());
+    CHECK(CountLog(logs, "CHAT_PEER_ONLINE") == 0);
+    right_ctrl.Tick(ae::Now());
+    CHECK(right_ctrl.runtime_session_count() == 1);
+    CHECK(CountLog(logs, "CHAT_PEER_ADDED") == 1);
+    CHECK(CountLog(logs, "CHAT_PEER_ONLINE") == 1);
+    right.graph.peer_set.Load();
+    CHECK(right.graph.peer_set->peers.size() == 1);
+  }
+
+  // E. auto-accepted peer persisted → restart discovers it without UI AddPeer.
+  {
+    Side left{"Windows", left_uid};
+    Side right{"Android", right_uid};
+    chat::ChatSyncController* left_ptr = nullptr;
+    chat::ChatSyncController* right_ptr = nullptr;
+    chat::ChatSyncController left_ctrl(
+        left.Replica(), left.graph.chat, left.graph.peer_set,
+        MakeDirectSend(right_ptr, left_uid, right_uid),
+        MakeDirectRawSend(right_ptr, left_uid, right_uid),
+        chat::ChatSyncTiming{}, false);
+    chat::ChatSyncController right_ctrl(
+        right.Replica(), right.graph.chat, right.graph.peer_set,
+        MakeDirectSend(left_ptr, right_uid, left_uid),
+        MakeDirectRawSend(left_ptr, right_uid, left_uid),
+        chat::ChatSyncTiming{}, true);
+    left_ptr = &left_ctrl;
+    right_ptr = &right_ctrl;
+    left_ctrl.Start();
+    right_ctrl.Start();
+
+    right_ctrl.Receive(
+        left_uid,
+        chat::EncodeChatPresence(chat::ChatPresenceMessage::kOnline));
+    right_ctrl.Tick(ae::Now());
+    right_ctrl.Tick(ae::Now());
+    CHECK(right_ctrl.runtime_session_count() == 1);
+    right.graph.peer_set.Save();
+    right.graph.chat.Save();
+    right.DestroyRuntime();
+    right.ReloadRuntime();
+
+    std::vector<ae::Uid> connect_attempts;
+    chat::ChatSyncController right2(
+        right.Replica(), right.graph.chat, right.graph.peer_set,
+        MakeDirectSend(left_ptr, right_uid, left_uid),
+        MakeDirectRawSend(left_ptr, right_uid, left_uid),
+        chat::ChatSyncTiming{}, true);
+    right_ptr = &right2;
+    // Simulate ChatComponent::Start connect loop for persisted peers.
+    right.graph.peer_set.Load();
+    for (auto const& peer : right.graph.peer_set->peers) {
+      connect_attempts.push_back(peer.remote_uid);
+    }
+    right2.Start();
+    CHECK(connect_attempts.size() == 1);
+    CHECK(connect_attempts[0] == left_uid);
+    CHECK(right2.runtime_session_count() == 1);
+    CHECK(right2.FindSession(left_uid) != nullptr);
+  }
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSingleClientChatRegistration();
   apptraverse::test::TestChatPresenceCodec();
+  apptraverse::test::TestDeferredAutoAcceptCases();
   apptraverse::test::TestPresenceTransitionsAndIsolation();
   apptraverse::test::TestSyncPacketBringsPeerOnline();
   apptraverse::test::TestMessagesBeforePairingPersistAndMerge();

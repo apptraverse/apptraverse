@@ -1,5 +1,6 @@
 #include "chat_sync_controller.h"
 
+#include <algorithm>
 #include <cassert>
 #include <utility>
 
@@ -273,19 +274,25 @@ SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
   return *runtime.session;
 }
 
-void ChatSyncController::Receive(ae::Uid const& remote_uid,
-                                 std::vector<std::uint8_t> const& bytes) {
-  assert(!remote_uid.empty());
-  auto* runtime = FindRuntime(remote_uid);
-  if (runtime == nullptr) {
-    if (!auto_accept_incoming_) {
-      Log(ae::Format("CHAT_PEER_REJECTED uid={}", FormatUid(remote_uid)));
+void ChatSyncController::QueueAutoAccept(
+    ae::Uid const& remote_uid, std::vector<std::uint8_t> const& bytes) {
+  for (auto& pending : pending_auto_accept_) {
+    if (pending.remote_uid == remote_uid) {
+      pending.packets.push_back(bytes);
       return;
     }
-    AddPeer(remote_uid);
-    runtime = FindRuntime(remote_uid);
-    assert(runtime != nullptr);
   }
+  PendingAutoAccept pending;
+  pending.remote_uid = remote_uid;
+  pending.packets.push_back(bytes);
+  pending_auto_accept_.push_back(std::move(pending));
+  Log(ae::Format("CHAT_PEER_AUTO_ACCEPT_QUEUED uid={}", FormatUid(remote_uid)));
+}
+
+void ChatSyncController::ReceiveKnown(ae::Uid const& remote_uid,
+                                      std::vector<std::uint8_t> const& bytes) {
+  auto* runtime = FindRuntime(remote_uid);
+  assert(runtime != nullptr);
 
   auto const now = ae::Now();
   auto const presence = TryDecodeChatPresence(bytes);
@@ -316,7 +323,51 @@ void ChatSyncController::Receive(ae::Uid const& remote_uid,
   NotifyChanged();
 }
 
+void ChatSyncController::DrainPendingAutoAccept() {
+  std::vector<PendingAutoAccept> ready;
+  for (auto& pending : pending_auto_accept_) {
+    if (!pending.armed) {
+      pending.armed = true;
+      continue;
+    }
+    ready.push_back(std::move(pending));
+    pending.remote_uid = ae::Uid{};
+  }
+  pending_auto_accept_.erase(
+      std::remove_if(pending_auto_accept_.begin(), pending_auto_accept_.end(),
+                     [](PendingAutoAccept const& pending) {
+                       return pending.remote_uid.empty();
+                     }),
+      pending_auto_accept_.end());
+
+  for (auto& pending : ready) {
+    assert(!pending.remote_uid.empty());
+    AddPeer(pending.remote_uid);
+    for (auto const& packet : pending.packets) {
+      ReceiveKnown(pending.remote_uid, packet);
+    }
+  }
+}
+
+void ChatSyncController::Receive(ae::Uid const& remote_uid,
+                                 std::vector<std::uint8_t> const& bytes) {
+  assert(!remote_uid.empty());
+  if (FindRuntime(remote_uid) == nullptr) {
+    if (!auto_accept_incoming_) {
+      Log(ae::Format("CHAT_PEER_REJECTED uid={}", FormatUid(remote_uid)));
+      return;
+    }
+    // Defer AddPeer/session creation out of the transport receive callback.
+    QueueAutoAccept(remote_uid, bytes);
+    return;
+  }
+
+  ReceiveKnown(remote_uid, bytes);
+}
+
 void ChatSyncController::Tick(ae::TimePoint now) {
+  DrainPendingAutoAccept();
+
   for (auto& runtime : sessions_) {
     assert(runtime.session != nullptr);
     runtime.session->Poll();
