@@ -38,17 +38,15 @@ def _xml(transcript: str = "", input_text: str = "") -> str:
 
 
 class PersistenceHelperTest(unittest.TestCase):
-    def test_phase2_argv_omits_peer_and_auto_accept(self) -> None:
+    def test_phase2_argv_omits_peer(self) -> None:
         argv = harness.windows_launch_argv(
             Path("win32_single_client_chat.exe"),
             state_dir=Path("state"),
             client_name="windows-android-persist-abc",
             inbox=Path("phase2/commit.inbox"),
             peer=None,
-            auto_accept=False,
         )
         self.assertNotIn("--peer", argv)
-        self.assertNotIn("--auto-accept-peer", argv)
         self.assertIn("--state-dir", argv)
         self.assertIn("windows-android-persist-abc", argv)
 
@@ -61,7 +59,6 @@ class PersistenceHelperTest(unittest.TestCase):
             client_name=client,
             inbox=Path("phase1/commit.inbox"),
             peer="AND",
-            auto_accept=True,
         )
         phase2 = harness.windows_launch_argv(
             Path("win32_single_client_chat.exe"),
@@ -69,7 +66,6 @@ class PersistenceHelperTest(unittest.TestCase):
             client_name=client,
             inbox=Path("phase2/commit.inbox"),
             peer=None,
-            auto_accept=False,
         )
         self.assertEqual(phase1[phase1.index("--state-dir") + 1], str(shared))
         self.assertEqual(phase2[phase2.index("--state-dir") + 1], str(shared))
@@ -491,7 +487,6 @@ class PersistenceRunnerTest(unittest.TestCase):
             self.assertEqual(len(world.windows_argvs), 2)
             self.assertIn("--peer", world.windows_argvs[0])
             self.assertNotIn("--peer", world.windows_argvs[1])
-            self.assertNotIn("--auto-accept-peer", world.windows_argvs[1])
             state1 = world.windows_argvs[0][world.windows_argvs[0].index("--state-dir") + 1]
             state2 = world.windows_argvs[1][world.windows_argvs[1].index("--state-dir") + 1]
             self.assertEqual(state1, state2)

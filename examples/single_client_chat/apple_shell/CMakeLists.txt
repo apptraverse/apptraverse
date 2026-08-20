@@ -52,7 +52,7 @@ endif()
 
 if(NOT DEFINED USER_CONFIG OR USER_CONFIG STREQUAL "")
   get_filename_component(_apptraverse_aether_user_config
-    "${CMAKE_CURRENT_LIST_DIR}/native/aether_user_config.h" ABSOLUTE)
+    "${CMAKE_CURRENT_LIST_DIR}/../common/aether_user_config.h" ABSOLUTE)
   set(USER_CONFIG "${_apptraverse_aether_user_config}"
     CACHE STRING "Path to the aether user configuration header")
 endif()

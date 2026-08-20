@@ -20,8 +20,10 @@ def _which_linux(name: str):
 
 
 def _which_macos(name: str):
-    if name in {"cmake", "ninja", "clang++", "c++"}:
+    if name in {"cmake", "ninja"}:
         return f"/usr/bin/{name}"
+    if name == "/opt/local/bin/clang++-mp-20":
+        return name
     return None
 
 
@@ -45,10 +47,15 @@ class ProfileSchemaTest(unittest.TestCase):
     def test_macos_configure_argv_is_defined_without_running(self) -> None:
         argv = runner.cmake_configure_argv(runner.MACOS_PROFILE, Path("/repo"))
         self.assertEqual(argv[0], "cmake")
-        self.assertIn("build/macos-x64-debug", argv)
+        self.assertIn("examples/single_client_chat/apple_shell", argv)
+        self.assertTrue(
+            any(".build-macos-current-aether" in part for part in argv)
+        )
         self.assertIn("Ninja", argv)
-        self.assertIn("-DCMAKE_CXX_COMPILER=clang++", argv)
+        self.assertIn("-DCMAKE_C_COMPILER=/opt/local/bin/clang-mp-20", argv)
+        self.assertIn("-DCMAKE_CXX_COMPILER=/opt/local/bin/clang++-mp-20", argv)
         self.assertIn("-DCMAKE_OSX_ARCHITECTURES=x86_64", argv)
+        self.assertIn("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3", argv)
         self.assertFalse(runner.command_is_destructive(argv))
 
     def test_linux_build_argv_targets_chat_without_clean(self) -> None:
@@ -67,19 +74,26 @@ class ProfileSchemaTest(unittest.TestCase):
 
     def test_macos_build_argv_is_defined(self) -> None:
         argv = runner.cmake_build_argv(
-            runner.MACOS_PROFILE, ["macos_single_client_chat"]
+            runner.MACOS_PROFILE, ["AppTraverseChatMacDemo"]
         )
-        self.assertIn("build/macos-x64-debug", argv)
-        self.assertIn("macos_single_client_chat", argv)
+        self.assertTrue(
+            any(".build-macos-current-aether" in part for part in argv)
+        )
+        self.assertIn("AppTraverseChatMacDemo", argv)
         self.assertFalse(runner.command_is_destructive(argv))
 
-    def test_process_argv_requires_explicit_state_dir(self) -> None:
+    def test_process_argv_linux_requires_state_dir(self) -> None:
         argv = runner.process_argv(
             Path("/repo"), runner.LINUX_PROFILE, "/tmp/chat-state"
         )
         self.assertEqual(argv[1], "--state-dir")
         self.assertEqual(argv[2], "/tmp/chat-state")
         self.assertTrue(argv[0].endswith("linux_single_client_chat"))
+
+    def test_process_argv_macos_omits_state_dir(self) -> None:
+        argv = runner.process_argv(Path("/repo"), runner.MACOS_PROFILE, "/tmp/ignored")
+        self.assertEqual(len(argv), 1)
+        self.assertTrue(argv[0].endswith("AppTraverseChatMacDemo"))
 
     def test_user_config_flag_when_header_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,9 +147,22 @@ class PreflightTest(unittest.TestCase):
             Path("."),
             platform="darwin",
             which=_which_macos,
+            macports_clang20_ok=True,
         )
         self.assertEqual(status, runner.STATUS_OK)
         self.assertIsNone(kind)
+
+    def test_macos_preflight_blocks_without_macports_clang20(self) -> None:
+        status, kind, reason = runner.preflight(
+            runner.MACOS_PROFILE,
+            Path("."),
+            platform="darwin",
+            which=_which_macos,
+            macports_clang20_ok=False,
+        )
+        self.assertEqual(status, runner.STATUS_BLOCKED)
+        self.assertEqual(kind, "macports_clang20_missing")
+        self.assertIn("clang-mp-20", reason or "")
 
     def test_unknown_profile_rejected(self) -> None:
         status, kind, reason = runner.preflight(
@@ -225,6 +252,12 @@ class ExcerptAndJsonTest(unittest.TestCase):
         self.assertEqual(
             runner.default_targets(runner.LINUX_PROFILE, []),
             ["linux_single_client_chat"],
+        )
+
+    def test_default_macos_target(self) -> None:
+        self.assertEqual(
+            runner.default_targets(runner.MACOS_PROFILE, []),
+            ["AppTraverseChatMacDemo"],
         )
 
     def test_destructive_commands_refused(self) -> None:

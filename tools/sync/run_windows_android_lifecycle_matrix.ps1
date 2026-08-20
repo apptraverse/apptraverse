@@ -711,7 +711,6 @@ function Get-WindowsArgs([string]$StateDir, [string]$ClientName, [string]$Commit
   $args = @(
     "--state-dir `"$StateDir`"",
     "--aether-client-name $ClientName",
-    "--auto-accept-peer",
     "--commit-inbox `"$CommitInbox`"",
     "--peer-inbox `"$PeerInbox`""
   )

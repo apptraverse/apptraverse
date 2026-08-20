@@ -331,12 +331,12 @@ void TestMessagesBeforePairingPersistAndMerge() {
       windows.Replica(), windows.graph.chat, windows.graph.peer_set,
       MakeDirectSend(android_ptr, windows_uid, android_uid),
       MakeDirectRawSend(android_ptr, windows_uid, android_uid),
-      chat::ChatSyncTiming{}, false);
+      chat::ChatSyncTiming{});
   chat::ChatSyncController android_ctrl(
       android.Replica(), android.graph.chat, android.graph.peer_set,
       MakeDirectSend(windows_ptr, android_uid, windows_uid),
       MakeDirectRawSend(windows_ptr, android_uid, windows_uid),
-      chat::ChatSyncTiming{}, true);
+      chat::ChatSyncTiming{});
   windows_ptr = &windows_ctrl;
   android_ptr = &android_ctrl;
 
@@ -407,12 +407,12 @@ void TestMessagesBeforePairingPersistAndMerge() {
       windows.Replica(), windows.graph.chat, windows.graph.peer_set,
       MakeDirectSend(android_ptr, windows_uid, android_uid),
       MakeDirectRawSend(android_ptr, windows_uid, android_uid),
-      chat::ChatSyncTiming{}, false);
+      chat::ChatSyncTiming{});
   chat::ChatSyncController android2(
       android.Replica(), android.graph.chat, android.graph.peer_set,
       MakeDirectSend(windows_ptr, android_uid, windows_uid),
       MakeDirectRawSend(windows_ptr, android_uid, windows_uid),
-      chat::ChatSyncTiming{}, true);
+      chat::ChatSyncTiming{});
   windows_ptr = &windows2;
   android_ptr = &android2;
   windows2.Start();
@@ -462,12 +462,12 @@ void TestControllerBidirectionalAndRestart() {
   chat::ChatSyncController left_ctrl(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
-      MakeDirectRawSend(right_ptr, left_uid, right_uid), chat::ChatSyncTiming{}, false, {},
+      MakeDirectRawSend(right_ptr, left_uid, right_uid), chat::ChatSyncTiming{}, {},
       make_log("L:"));
   chat::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
-      MakeDirectRawSend(left_ptr, right_uid, left_uid), chat::ChatSyncTiming{}, true, {},
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), chat::ChatSyncTiming{}, {},
       make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
@@ -531,12 +531,12 @@ void TestControllerBidirectionalAndRestart() {
   chat::ChatSyncController left2(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
-      MakeDirectRawSend(right_ptr, left_uid, right_uid), chat::ChatSyncTiming{}, false, {},
+      MakeDirectRawSend(right_ptr, left_uid, right_uid), chat::ChatSyncTiming{}, {},
       make_log("L2:"));
   chat::ChatSyncController right2(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
-      MakeDirectRawSend(left_ptr, right_uid, left_uid), chat::ChatSyncTiming{}, true, {},
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), chat::ChatSyncTiming{}, {},
       make_log("R2:"));
   left_ptr = &left2;
   right_ptr = &right2;
@@ -593,7 +593,7 @@ void TestRetryTiming() {
           right_ptr->Receive(left_uid, bytes);
         }
       },
-      timing, false);
+      timing);
   chat::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       [&](ae::Uid const& peer, ae::ObjId /*packet_id*/,
@@ -607,7 +607,7 @@ void TestRetryTiming() {
         assert(left_ptr != nullptr);
         left_ptr->Receive(right_uid, bytes);
       },
-      timing, true);
+      timing);
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
 
@@ -753,13 +753,13 @@ void TestPresenceTransitionsAndIsolation() {
         left_raw_sent.push_back(bytes);
         assert(right_ptr != nullptr);
         right_ptr->Receive(left_uid, bytes);
-      }, timing, false, {}, make_log("L:"));
+      }, timing, {}, make_log("L:"));
   chat::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       [&](ae::Uid const& peer, ae::ObjId, SerializedSyncPacket const&) {
         CHECK(peer == left_uid);
       },
-      MakeDirectRawSend(left_ptr, right_uid, left_uid), timing, true, {}, make_log("R:"));
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), timing, {}, make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
 
@@ -872,12 +872,12 @@ void TestSyncPacketBringsPeerOnline() {
   chat::ChatSyncController left_ctrl(
       left.Replica(), left.graph.chat, left.graph.peer_set,
       MakeDirectSend(right_ptr, left_uid, right_uid),
-      [](ae::Uid const&, std::vector<std::uint8_t> const&) {}, chat::ChatSyncTiming{}, false, {},
+      [](ae::Uid const&, std::vector<std::uint8_t> const&) {}, chat::ChatSyncTiming{}, {},
       make_log("L:"));
   chat::ChatSyncController right_ctrl(
       right.Replica(), right.graph.chat, right.graph.peer_set,
       MakeDirectSend(left_ptr, right_uid, left_uid),
-      MakeDirectRawSend(left_ptr, right_uid, left_uid), chat::ChatSyncTiming{}, true, {},
+      MakeDirectRawSend(left_ptr, right_uid, left_uid), chat::ChatSyncTiming{}, {},
       make_log("R:"));
   left_ptr = &left_ctrl;
   right_ptr = &right_ctrl;
@@ -916,38 +916,7 @@ void TestDeferredAutoAcceptCases() {
   auto left_uid = MakeUid(0x2A);
   auto right_uid = MakeUid(0x2B);
 
-  // A. unknown peer + auto_accept=false → no peer/session created.
-  {
-    Side left{"Windows", left_uid};
-    Side right{"Android", right_uid};
-    chat::ChatSyncController* left_ptr = nullptr;
-    chat::ChatSyncController* right_ptr = nullptr;
-    chat::ChatSyncController left_ctrl(
-        left.Replica(), left.graph.chat, left.graph.peer_set,
-        MakeDirectSend(right_ptr, left_uid, right_uid),
-        MakeDirectRawSend(right_ptr, left_uid, right_uid),
-        chat::ChatSyncTiming{}, false);
-    chat::ChatSyncController right_ctrl(
-        right.Replica(), right.graph.chat, right.graph.peer_set,
-        MakeDirectSend(left_ptr, right_uid, left_uid),
-        MakeDirectRawSend(left_ptr, right_uid, left_uid),
-        chat::ChatSyncTiming{}, false);
-    left_ptr = &left_ctrl;
-    right_ptr = &right_ctrl;
-    left_ctrl.Start();
-    right_ctrl.Start();
-
-    right_ctrl.Receive(
-        left_uid,
-        chat::EncodeChatPresence(chat::ChatPresenceMessage::kOnline));
-    right_ctrl.Tick(ae::Now());
-    CHECK(right_ctrl.FindSession(left_uid) == nullptr);
-    CHECK(right_ctrl.runtime_session_count() == 0);
-    right.graph.peer_set.Load();
-    CHECK(right.graph.peer_set->peers.empty());
-  }
-
-  // B. unknown peer + auto_accept=true → Receive does not create synchronously;
+  // B. unknown peer → Receive does not create synchronously;
   // after Tick one peer/session exists and queued packet is processed.
   {
     Side left{"Windows", left_uid};
@@ -959,12 +928,12 @@ void TestDeferredAutoAcceptCases() {
         left.Replica(), left.graph.chat, left.graph.peer_set,
         MakeDirectSend(right_ptr, left_uid, right_uid),
         MakeDirectRawSend(right_ptr, left_uid, right_uid),
-        chat::ChatSyncTiming{}, false);
+        chat::ChatSyncTiming{});
     chat::ChatSyncController right_ctrl(
         right.Replica(), right.graph.chat, right.graph.peer_set,
         MakeDirectSend(left_ptr, right_uid, left_uid),
         MakeDirectRawSend(left_ptr, right_uid, left_uid),
-        chat::ChatSyncTiming{}, true, {},
+        chat::ChatSyncTiming{}, {},
         [&](std::string const& line) { logs.push_back(line); });
     left_ptr = &left_ctrl;
     right_ptr = &right_ctrl;
@@ -1005,12 +974,12 @@ void TestDeferredAutoAcceptCases() {
         left.Replica(), left.graph.chat, left.graph.peer_set,
         MakeDirectSend(right_ptr, left_uid, right_uid),
         MakeDirectRawSend(right_ptr, left_uid, right_uid),
-        chat::ChatSyncTiming{}, false);
+        chat::ChatSyncTiming{});
     chat::ChatSyncController right_ctrl(
         right.Replica(), right.graph.chat, right.graph.peer_set,
         MakeDirectSend(left_ptr, right_uid, left_uid),
         MakeDirectRawSend(left_ptr, right_uid, left_uid),
-        chat::ChatSyncTiming{}, true, {},
+        chat::ChatSyncTiming{}, {},
         [&](std::string const& line) { logs.push_back(line); });
     left_ptr = &left_ctrl;
     right_ptr = &right_ctrl;
@@ -1050,12 +1019,12 @@ void TestDeferredAutoAcceptCases() {
         left.Replica(), left.graph.chat, left.graph.peer_set,
         MakeDirectSend(right_ptr, left_uid, right_uid),
         MakeDirectRawSend(right_ptr, left_uid, right_uid),
-        chat::ChatSyncTiming{}, false);
+        chat::ChatSyncTiming{});
     chat::ChatSyncController right_ctrl(
         right.Replica(), right.graph.chat, right.graph.peer_set,
         MakeDirectSend(left_ptr, right_uid, left_uid),
         MakeDirectRawSend(left_ptr, right_uid, left_uid),
-        chat::ChatSyncTiming{}, true, {},
+        chat::ChatSyncTiming{}, {},
         [&](std::string const& line) { logs.push_back(line); });
     left_ptr = &left_ctrl;
     right_ptr = &right_ctrl;
@@ -1092,12 +1061,12 @@ void TestDeferredAutoAcceptCases() {
         left.Replica(), left.graph.chat, left.graph.peer_set,
         MakeDirectSend(right_ptr, left_uid, right_uid),
         MakeDirectRawSend(right_ptr, left_uid, right_uid),
-        chat::ChatSyncTiming{}, false);
+        chat::ChatSyncTiming{});
     chat::ChatSyncController right_ctrl(
         right.Replica(), right.graph.chat, right.graph.peer_set,
         MakeDirectSend(left_ptr, right_uid, left_uid),
         MakeDirectRawSend(left_ptr, right_uid, left_uid),
-        chat::ChatSyncTiming{}, true);
+        chat::ChatSyncTiming{});
     left_ptr = &left_ctrl;
     right_ptr = &right_ctrl;
     left_ctrl.Start();
@@ -1119,7 +1088,7 @@ void TestDeferredAutoAcceptCases() {
         right.Replica(), right.graph.chat, right.graph.peer_set,
         MakeDirectSend(left_ptr, right_uid, left_uid),
         MakeDirectRawSend(left_ptr, right_uid, left_uid),
-        chat::ChatSyncTiming{}, true);
+        chat::ChatSyncTiming{});
     right_ptr = &right2;
     // Simulate ChatComponent::Start connect loop for persisted peers.
     right.graph.peer_set.Load();

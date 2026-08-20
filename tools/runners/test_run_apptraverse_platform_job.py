@@ -181,6 +181,8 @@ class ProcessControlTest(unittest.TestCase):
         return exe
 
     def test_missing_state_dir_is_typed_failure(self) -> None:
+        if not sys.platform.startswith("linux"):
+            self.skipTest("linux-only process start")
         result = jobs.start_process(
             self.source, platform_runner.LINUX_PROFILE, "  "
         )

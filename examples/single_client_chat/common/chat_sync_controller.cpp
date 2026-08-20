@@ -21,7 +21,6 @@ ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
                                        SendFunction send,
                                        RawSendFunction raw_send,
                                        ChatSyncTiming timing,
-                                       bool auto_accept_incoming,
                                        ChangedFunction changed,
                                        LogFunction log)
     : replica_{replica},
@@ -30,7 +29,6 @@ ChatSyncController::ChatSyncController(SyncReplica replica, Chat::ptr chat,
       send_{std::move(send)},
       raw_send_{std::move(raw_send)},
       timing_{timing},
-      auto_accept_incoming_{auto_accept_incoming},
       changed_{std::move(changed)},
       log_{std::move(log)} {
   assert(send_);
@@ -353,10 +351,6 @@ void ChatSyncController::Receive(ae::Uid const& remote_uid,
                                  std::vector<std::uint8_t> const& bytes) {
   assert(!remote_uid.empty());
   if (FindRuntime(remote_uid) == nullptr) {
-    if (!auto_accept_incoming_) {
-      Log(ae::Format("CHAT_PEER_REJECTED uid={}", FormatUid(remote_uid)));
-      return;
-    }
     // Defer AddPeer/session creation out of the transport receive callback.
     QueueAutoAccept(remote_uid, bytes);
     return;

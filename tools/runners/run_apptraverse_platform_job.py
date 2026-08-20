@@ -646,7 +646,7 @@ def start_process(
     state_path = Path(state_dir)
     if not state_path.is_absolute():
         state_path = (source_dir / state_path).resolve()
-    argv = [str(exe.resolve()), "--state-dir", str(state_path)]
+    argv = platform_runner.process_argv(source_dir, profile, str(state_path))
     started = utc_now()
     started_mono = time.perf_counter()
     request = {

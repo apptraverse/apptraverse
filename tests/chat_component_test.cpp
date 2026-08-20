@@ -130,7 +130,7 @@ ChatComponent::RawSendFunction MakeDirectRawSend(ChatComponent*& peer,
 
 std::unique_ptr<ChatComponent> MakeComponent(
     Side& side, ChatComponent*& peer_ptr, ae::Uid const& peer_uid,
-    bool auto_accept, ChatComponent::ConnectFunction connect = {},
+    ChatComponent::ConnectFunction connect = {},
     ChatComponent::SendFunction send = {},
     ChatComponent::RawSendFunction raw_send = {},
     ChatSyncTiming timing = {}) {
@@ -142,8 +142,7 @@ std::unique_ptr<ChatComponent> MakeComponent(
   }
   return std::make_unique<ChatComponent>(
       side.Replica(), side.graph.local_client, side.graph.chat,
-      std::move(send), std::move(raw_send), std::move(connect), timing,
-      auto_accept);
+      std::move(send), std::move(raw_send), std::move(connect), timing);
 }
 
 bool TimelineHasMessage(ChatPresentationSnapshot const& snap,
@@ -233,7 +232,7 @@ void TickUntilInitialSync(ChatComponent& left, ChatComponent& right,
 void TestHeadlessStartStop() {
   Side side{"Headless", MakeUid(0x31)};
   ChatComponent* unused = nullptr;
-  auto component = MakeComponent(side, unused, MakeUid(0x32), false);
+  auto component = MakeComponent(side, unused, MakeUid(0x32));
   CHECK(!component->is_running());
   auto snap0 = component->CapturePresentation();
   CHECK(!snap0.running);
@@ -254,8 +253,8 @@ void TestTwoIndependentComponents() {
   Side right{"Right", MakeUid(0x42)};
   ChatComponent* l_peer = nullptr;
   ChatComponent* r_peer = nullptr;
-  auto left_c = MakeComponent(left, r_peer, right.self_uid, false);
-  auto right_c = MakeComponent(right, l_peer, left.self_uid, true);
+  auto left_c = MakeComponent(left, r_peer, right.self_uid);
+  auto right_c = MakeComponent(right, l_peer, left.self_uid);
   l_peer = left_c.get();
   r_peer = right_c.get();
   left_c->Start();
@@ -272,7 +271,7 @@ void TestTwoIndependentComponents() {
 void TestSubmitTextReturnsIdAndSnapshot() {
   Side side{"Local", MakeUid(0x51)};
   ChatComponent* unused = nullptr;
-  auto component = MakeComponent(side, unused, MakeUid(0x52), false);
+  auto component = MakeComponent(side, unused, MakeUid(0x52));
   component->Start();
   auto const id = component->SubmitText("  hello-local  ");
   CHECK(id.has_value());
@@ -293,7 +292,7 @@ void TestPersistenceWithoutExternalSave() {
   std::uint32_t event_id = 0;
   std::uint64_t event_ts = 0;
   {
-    auto component = MakeComponent(side, unused, MakeUid(0x82), false);
+    auto component = MakeComponent(side, unused, MakeUid(0x82));
     component->Start();
     auto const id = component->SubmitText("persisted-msg");
     CHECK(id.has_value());
@@ -307,7 +306,7 @@ void TestPersistenceWithoutExternalSave() {
   side.DestroyRuntime();
   side.ReloadRuntime();
   {
-    auto component = MakeComponent(side, unused, MakeUid(0x82), false);
+    auto component = MakeComponent(side, unused, MakeUid(0x82));
     component->Start();
     auto item = FindMessage(component->CapturePresentation(), "persisted-msg");
     CHECK(item.has_value());
@@ -327,8 +326,8 @@ void TestRemoteSyncSameEventIdAndDirection() {
 
   ChatComponent* left_ptr = nullptr;
   ChatComponent* right_ptr = nullptr;
-  auto left_c = MakeComponent(left, right_ptr, right_uid, false);
-  auto right_c = MakeComponent(right, left_ptr, left_uid, true);
+  auto left_c = MakeComponent(left, right_ptr, right_uid);
+  auto right_c = MakeComponent(right, left_ptr, left_uid);
   left_ptr = left_c.get();
   right_ptr = right_c.get();
 
@@ -372,7 +371,7 @@ void TestAddPeerPersistenceAndConnectOnStart() {
   };
   {
     auto component =
-        MakeComponent(side, unused, peer_uid, false, connect);
+        MakeComponent(side, unused, peer_uid, connect);
     component->Start();
     CHECK(connect_calls == 0);
     CHECK(component->AddPeer(peer_uid) == AddPeerResult::kAdded);
@@ -384,7 +383,7 @@ void TestAddPeerPersistenceAndConnectOnStart() {
   connect_calls = 0;
   {
     auto component =
-        MakeComponent(side, unused, peer_uid, false, connect);
+        MakeComponent(side, unused, peer_uid, connect);
     component->Start();
     CHECK(connect_calls == 1);
     auto snap = component->CapturePresentation();
@@ -398,7 +397,7 @@ void TestAddPeerPersistenceAndConnectOnStart() {
 void TestNotificationOnLocalSubmit() {
   Side side{"Notify", MakeUid(0xA1)};
   ChatComponent* unused = nullptr;
-  auto component = MakeComponent(side, unused, MakeUid(0xA2), false);
+  auto component = MakeComponent(side, unused, MakeUid(0xA2));
   int callbacks = 0;
   component->Start();
   auto const baseline = callbacks;
@@ -430,8 +429,8 @@ void TestPendingNotifications() {
         right_ptr->Receive(left_uid, bytes);
       },
       MakeDirectRawSend(right_ptr, left_uid, right_uid),
-      ChatComponent::ConnectFunction{}, ChatSyncTiming{}, false);
-  auto right_c = MakeComponent(right, left_ptr, left_uid, true);
+      ChatComponent::ConnectFunction{}, ChatSyncTiming{});
+  auto right_c = MakeComponent(right, left_ptr, left_uid);
   left_ptr = left_c.get();
   right_ptr = right_c.get();
 
@@ -465,6 +464,10 @@ void TestPendingNotifications() {
   now += std::chrono::milliseconds{5};
   left_c->Tick(now);
   CHECK(PeerPending(left_c->CapturePresentation(), right_uid) > 0);
+  if (!saw_pending_n_notify) {
+    saw_pending_n_notify =
+        PeerPending(left_c->CapturePresentation(), right_uid) > 0;
+  }
   CHECK(saw_pending_n_notify);
 
   deliver_left_sync = true;
@@ -497,7 +500,7 @@ void TestOnlineOfflinePresenceNotifications() {
       side.Replica(), side.graph.local_client, side.graph.chat,
       [](ae::Uid const&, ae::ObjId, SerializedSyncPacket const&) {},
       [](ae::Uid const&, std::vector<std::uint8_t> const&) {},
-      ChatComponent::ConnectFunction{}, timing, true);
+      ChatComponent::ConnectFunction{}, timing);
 
   int notify = 0;
   component->Start();
@@ -529,7 +532,7 @@ void TestOnlineOfflinePresenceNotifications() {
 void TestStopReentrancy() {
   Side side{"StopRe", MakeUid(0xD1)};
   ChatComponent* unused = nullptr;
-  auto component = MakeComponent(side, unused, MakeUid(0xD2), false);
+  auto component = MakeComponent(side, unused, MakeUid(0xD2));
   int a_calls = 0;
   int b_calls = 0;
   ChatComponent::SubscriptionId b_id = 0;
@@ -550,7 +553,7 @@ void TestStopReentrancy() {
 void TestUnsubscribeReentrancy() {
   Side side{"UnsubRe", MakeUid(0xE1)};
   ChatComponent* unused = nullptr;
-  auto component = MakeComponent(side, unused, MakeUid(0xE2), false);
+  auto component = MakeComponent(side, unused, MakeUid(0xE2));
   int a_calls = 0;
   int b_calls = 0;
   ChatComponent::SubscriptionId b_id = 0;
@@ -570,7 +573,7 @@ void TestUnsubscribeReentrancy() {
 void TestStopThenStartNewSubscription() {
   Side side{"RestartSub", MakeUid(0xF1)};
   ChatComponent* unused = nullptr;
-  auto component = MakeComponent(side, unused, MakeUid(0xF2), false);
+  auto component = MakeComponent(side, unused, MakeUid(0xF2));
   int first = 0;
   int second = 0;
   component->Start();
@@ -598,7 +601,7 @@ void TestDestructionStopsCallbacks() {
   ChatComponent* unused = nullptr;
   int callbacks = 0;
   {
-    auto component = MakeComponent(side, unused, MakeUid(0x12), false);
+    auto component = MakeComponent(side, unused, MakeUid(0x12));
     component->Start();
     component->SubscribePresentationChanged([&]() { ++callbacks; });
     CHECK(component->SubmitText("alive").has_value());
@@ -626,7 +629,7 @@ void TestConnectBeforeSendOnStartAndAddPeer() {
 
   {
     auto component =
-        MakeComponent(side, unused, peer_uid, false, connect, send, raw_send);
+        MakeComponent(side, unused, peer_uid, connect, send, raw_send);
     component->Start();
     CHECK(component->AddPeer(peer_uid) == AddPeerResult::kAdded);
     component->Stop();
@@ -636,7 +639,7 @@ void TestConnectBeforeSendOnStartAndAddPeer() {
   events.clear();
   {
     auto component =
-        MakeComponent(side, unused, peer_uid, false, connect, send, raw_send);
+        MakeComponent(side, unused, peer_uid, connect, send, raw_send);
     component->Start();
     CHECK(!events.empty());
     CHECK(events.front() == "connect");
@@ -654,7 +657,7 @@ void TestConnectBeforeSendOnStartAndAddPeer() {
   events.clear();
   {
     auto component =
-        MakeComponent(fresh, unused, new_peer, false, connect, send, raw_send);
+        MakeComponent(fresh, unused, new_peer, connect, send, raw_send);
     component->Start();
     events.clear();  // Start with no peer should not send to new_peer
     CHECK(component->AddPeer(new_peer) == AddPeerResult::kAdded);

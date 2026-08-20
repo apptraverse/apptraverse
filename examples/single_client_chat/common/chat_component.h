@@ -46,7 +46,6 @@ class ChatComponent {
                 RawSendFunction raw_send,
                 ConnectFunction connect,
                 ChatSyncTiming timing,
-                bool auto_accept_incoming,
                 LogFunction log = {});
 
   ChatComponent(ChatComponent const&) = delete;

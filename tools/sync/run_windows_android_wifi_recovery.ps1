@@ -435,7 +435,6 @@ try {
   $win_args = @(
     "--state-dir", $win_state_dir,
     "--aether-client-name", $WindowsClientName,
-    "--auto-accept-peer",
     "--commit-inbox", $commit_inbox,
     "--peer-inbox", $peer_inbox
   )

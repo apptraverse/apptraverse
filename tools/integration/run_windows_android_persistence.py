@@ -54,7 +54,6 @@ def windows_launch_argv(
     client_name: str,
     inbox: Path,
     peer: str | None = None,
-    auto_accept: bool = False,
 ) -> list[str]:
     argv = [
         str(exe),
@@ -67,8 +66,6 @@ def windows_launch_argv(
     ]
     if peer is not None:
         argv.extend(["--peer", peer])
-    if auto_accept:
-        argv.append("--auto-accept-peer")
     return argv
 
 
@@ -636,7 +633,6 @@ def run_windows_android_persistence(
             client_name=state.client_name,
             inbox=phase1_inbox,
             peer=state.android_uid_phase1,
-            auto_accept=True,
         )
         state.command_log.append(phase1_argv)
         child_env = live.windows_env(
@@ -908,9 +904,8 @@ def run_windows_android_persistence(
             client_name=state.client_name,
             inbox=phase2_inbox,
             peer=None,
-            auto_accept=False,
         )
-        state.phase2_peer_argument_used = "--peer" in phase2_argv or "--auto-accept-peer" in phase2_argv
+        state.phase2_peer_argument_used = "--peer" in phase2_argv
         if state.phase2_peer_argument_used:
             raise PersistenceFailure("phase2_reconnect_timeout", "phase-2 Windows argv re-authorized the peer")
         state.command_log.append(phase2_argv)

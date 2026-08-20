@@ -322,7 +322,7 @@ bool NativeRuntime::StartChatSync() {
           p2p_transport_->Connect(remote_uid);
         }
       },
-      chat::ChatSyncTiming{}, true,
+      chat::ChatSyncTiming{},
       VerboseLogEnabled()
           ? chat::ChatComponent::LogFunction{
                 [](std::string const& line) { LogMarker(line); }}

@@ -4,16 +4,32 @@ Iterate prompt: apptraverse_chat_iterate_prompt.md
 Stop signal: APPTRAVERSE_CHAT_BASELINE_COMPLETE
 Milestone: MULTIPLATFORM_CHAT_BASELINE
 
+# Canonical product branch
+
+Active product branch: `integration/multiplatform-chat-v1`
+
+All machines must checkout this branch for subsequent product work.
+
+Historical input branches (do not add new product work):
+
+- `tooling/posix-platform-jobs-v1`
+- `fix/windows-android-autoaccept-v1`
+- `feature/chat-apple-current-aether-v1`
+- `feature/chat-linux-current-aether-v1` (Linux adaptation already in integration)
+
 # Current ready slice
 
 Slice:
-none on this integration branch
+none — five-platform consolidation complete on integration
 
 Status:
-waiting for Apple checkpoint
+integration/multiplatform-chat-v1 is the single active product branch
 
 Goal:
-Windows, Android, and Linux x86_64 are done. Wait for the Apple agent checkpoint before merging macOS/iOS. Do not start Apple work from this Windows integration checkout. ACT-S100C2 and ACT-S100C3 remain deferred.
+Windows, Android, Linux, macOS, and iOS Simulator share one branch with
+current Aether, POSIX MCP/tooling, quiet USER_CONFIG, and unconditional
+deferred incoming-peer acceptance. Do not start new product work on the
+historical input branches listed above.
 
 # Milestone
 

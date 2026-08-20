@@ -67,8 +67,6 @@ struct CliOptions {
       apptraverse::examples::kWindowsAetherClientName};
   bool print_aether_uid{false};
   std::optional<ae::Uid> peer;
-  // Ordinary Windows chat auto-accepts the first valid incoming peer.
-  bool auto_accept_peer{true};
   std::optional<std::string> send_after_sync;
   // Commits a message right after startup, without waiting for a synchronized
   // peer. Smoke automation only: the UI Send button uses the same path.
@@ -127,10 +125,6 @@ CliOptions ParseCli(int argc, char** argv) {
           options.parse_error = true;
         }
       }
-    } else if (arg == "--auto-accept-peer") {
-      options.auto_accept_peer = true;
-    } else if (arg == "--no-auto-accept-peer") {
-      options.auto_accept_peer = false;
     } else if (arg == "--send-after-sync") {
       if (auto const* value = need_value("--send-after-sync")) {
         options.send_after_sync = value;
@@ -521,7 +515,7 @@ int Run(CliOptions const& options) {
                                chat.id()},
       local_client, chat, sync_send, presence_send,
       [&](ae::Uid const& remote_uid) { p2p_transport.Connect(remote_uid); },
-      apptraverse::chat::ChatSyncTiming{}, options.auto_accept_peer,
+      apptraverse::chat::ChatSyncTiming{},
       std::move(chat_log));
 
   auto transcript_contains = [&](std::string const& needle) {

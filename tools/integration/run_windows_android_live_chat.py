@@ -1017,7 +1017,6 @@ def run_windows_android_live_chat(
             f"windows-android-live-{short_id}",
             "--peer",
             str(state.android_uid),
-            "--auto-accept-peer",
             "--commit-inbox",
             str(windows_inbox),
         ]

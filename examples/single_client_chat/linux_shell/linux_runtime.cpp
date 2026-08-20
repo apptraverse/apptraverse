@@ -248,7 +248,7 @@ bool LinuxRuntime::StartChatSync() {
           p2p_transport_->Connect(remote_uid);
         }
       },
-      chat::ChatSyncTiming{}, false);
+      chat::ChatSyncTiming{});
 
   chat_component_->SubscribePresentationChanged([this]() {
     if (chat_presenter_ != nullptr && chat_component_ != nullptr) {

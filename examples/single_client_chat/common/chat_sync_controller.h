@@ -47,8 +47,7 @@ class ChatSyncController {
   ChatSyncController(SyncReplica replica, Chat::ptr chat,
                      ChatPeerSet::ptr peer_set, SendFunction send,
                      RawSendFunction raw_send, ChatSyncTiming timing,
-                     bool auto_accept_incoming, ChangedFunction changed = {},
-                     LogFunction log = {});
+                     ChangedFunction changed = {}, LogFunction log = {});
 
   void Start();
   void Stop();
@@ -109,11 +108,10 @@ class ChatSyncController {
   SendFunction send_;
   RawSendFunction raw_send_;
   ChatSyncTiming timing_;
-  bool auto_accept_incoming_{false};
   ChangedFunction changed_;
   LogFunction log_;
   std::vector<RuntimeSession> sessions_;
-  // Runtime-only; packets arriving for unknown peers while auto-accept is on.
+  // Runtime-only; packets arriving for unknown peers before AddPeer completes.
   std::vector<PendingAutoAccept> pending_auto_accept_;
 };
 

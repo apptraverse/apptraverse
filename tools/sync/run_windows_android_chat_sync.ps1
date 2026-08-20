@@ -442,7 +442,6 @@ $win_args1 = @(
   "--state-dir `"$win_state_dir`"",
   "--aether-client-name $WindowsClientName",
   "--peer $android_uid",
-  "--auto-accept-peer",
   "--send-after-sync hello_from_windows",
   "--wait-for-message hello_from_android",
   "--exit-after-message"

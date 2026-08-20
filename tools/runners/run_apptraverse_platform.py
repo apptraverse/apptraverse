@@ -51,23 +51,34 @@ PROFILES = {
     MACOS_PROFILE: {
         "host_prefix": "darwin",
         "generator": "Ninja",
-        "build_dir": Path("build") / "macos-x64-debug",
-        "default_target": "macos_single_client_chat",
-        "exe_rel": Path("build")
-        / "macos-x64-debug"
-        / "examples"
+        "cmake_source_dir": Path("examples")
         / "single_client_chat"
-        / "macos_shell"
-        / "macos_single_client_chat",
+        / "apple_shell",
+        "build_dir": Path("examples")
+        / "single_client_chat"
+        / "apple_shell"
+        / ".build-macos-current-aether",
+        "default_target": "AppTraverseChatMacDemo",
+        "exe_rel": Path("examples")
+        / "single_client_chat"
+        / "apple_shell"
+        / ".build-macos-current-aether"
+        / "AppTraverseChatMacDemo",
         "require_ninja": True,
         "require_cxx": True,
         "require_gtk3": False,
+        "require_macports_clang20": True,
         "build_parallel": None,
         "cache_variables": {
-            "CMAKE_CXX_COMPILER": "clang++",
+            "CMAKE_C_COMPILER": "/opt/local/bin/clang-mp-20",
+            "CMAKE_CXX_COMPILER": "/opt/local/bin/clang++-mp-20",
+            "CMAKE_OBJCXX_COMPILER": "/opt/local/bin/clang++-mp-20",
             "CMAKE_OSX_ARCHITECTURES": "x86_64",
+            "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
+            "CMAKE_BUILD_TYPE": "Debug",
+            "BUILD_TESTING": "OFF",
         },
-        "cxx_names": ("clang++", "c++"),
+        "cxx_names": ("/opt/local/bin/clang++-mp-20",),
     },
 }
 
@@ -161,10 +172,11 @@ def default_targets(profile: str, targets: list[str]) -> list[str]:
 
 def cmake_configure_argv(profile: str, source_dir: Path) -> list[str]:
     spec = PROFILES[profile]
+    cmake_source = spec.get("cmake_source_dir", Path("."))
     argv = [
         "cmake",
         "-S",
-        ".",
+        cmake_source.as_posix(),
         "-B",
         spec["build_dir"].as_posix(),
         "-G",
@@ -190,9 +202,14 @@ def cmake_build_argv(profile: str, targets: list[str]) -> list[str]:
     return argv
 
 
-def process_argv(source_dir: Path, profile: str, state_dir: str) -> list[str]:
+def process_argv(source_dir: Path, profile: str, state_dir: str | None = None) -> list[str]:
     exe = source_dir / PROFILES[profile]["exe_rel"]
-    return [str(exe), "--state-dir", state_dir]
+    argv = [str(exe)]
+    if profile == LINUX_PROFILE:
+        if not state_dir or not state_dir.strip():
+            raise ValueError("state_dir is required for linux-x64-debug")
+        argv.extend(["--state-dir", state_dir])
+    return argv
 
 
 def exe_path_for(source_dir: Path, profile: str) -> Path:
@@ -268,6 +285,7 @@ def preflight(
     platform: str | None = None,
     which=shutil.which,
     gtk3_ok: bool | None = None,
+    macports_clang20_ok: bool | None = None,
 ) -> tuple[str, str | None, str | None]:
     if profile not in PROFILES:
         return STATUS_BLOCKED, "unsupported_profile", profile
@@ -281,6 +299,23 @@ def preflight(
         return STATUS_BLOCKED, "ninja_missing", "ninja not on PATH"
     if spec["require_cxx"] and not any(which(name) for name in spec["cxx_names"]):
         return STATUS_BLOCKED, "cxx_missing", "C++ compiler not on PATH"
+    if spec.get("require_macports_clang20"):
+        if macports_clang20_ok is None:
+            missing: list[str] = []
+            for path in (
+                "/opt/local/bin/clang-mp-20",
+                "/opt/local/bin/clang++-mp-20",
+            ):
+                if not Path(path).is_file():
+                    missing.append(path)
+            macports_clang20_ok = not missing
+        if not macports_clang20_ok:
+            return (
+                STATUS_BLOCKED,
+                "macports_clang20_missing",
+                "missing MacPorts LLVM 20 toolchain: "
+                "/opt/local/bin/clang-mp-20, /opt/local/bin/clang++-mp-20",
+            )
     if spec["require_gtk3"]:
         if which("pkg-config") is None:
             return STATUS_BLOCKED, "pkg_config_missing", "pkg-config not on PATH"

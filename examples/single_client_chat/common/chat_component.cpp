@@ -51,8 +51,7 @@ bool LocalClientHasJoinInJournal(Chat::ptr const& chat,
 ChatComponent::ChatComponent(SyncReplica replica, Client::ptr local_client,
                              Chat::ptr chat, SendFunction send,
                              RawSendFunction raw_send, ConnectFunction connect,
-                             ChatSyncTiming timing, bool auto_accept_incoming,
-                             LogFunction log)
+                             ChatSyncTiming timing, LogFunction log)
     : local_client_{std::move(local_client)},
       chat_{[&] {
         auto c = std::move(chat);
@@ -75,7 +74,6 @@ ChatComponent::ChatComponent(SyncReplica replica, Client::ptr local_client,
             std::move(send),
             std::move(raw_send),
             timing,
-            auto_accept_incoming,
             [this]() { NotifyPresentationChanged(); },
             std::move(log)} {
   assert(local_client_.is_valid());

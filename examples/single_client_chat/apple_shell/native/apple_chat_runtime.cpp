@@ -277,7 +277,7 @@ bool AppleChatRuntime::StartChatSync() {
           p2p_transport_->Connect(remote_uid);
         }
       },
-      chat::ChatSyncTiming{}, true,
+      chat::ChatSyncTiming{},
       [](std::string const& line) { LogMarker(line); });
   chat_component_->SubscribePresentationChanged([this]() {
     if (chat_presenter_ != nullptr && chat_component_ != nullptr) {
