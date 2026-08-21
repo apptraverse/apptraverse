@@ -6,6 +6,8 @@ add_library(apptraverse_chat_component STATIC
   chat_presence.cpp
   chat_sync_controller.cpp
   chat_component.cpp
+  room_control.cpp
+  room_membership_controller.cpp
 )
 
 target_include_directories(apptraverse_chat_component PUBLIC

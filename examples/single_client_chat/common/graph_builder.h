@@ -39,7 +39,8 @@ struct SingleClientChatGraph {
 // use generated ObjIds unique to this installation.
 template <typename WindowT, typename WindowPresenterT, typename ChatPresenterT>
 SingleClientChatGraph BuildSingleClientChatGraph(
-    ae::Domain& domain, std::string_view local_client_name) {
+    ae::Domain& domain, std::string_view local_client_name,
+    chat::LocalJoinPolicy join_policy = chat::LocalJoinPolicy::kJoinLocal) {
   SingleClientChatGraph graph{};
 
   auto core = chat::MakeChatComponentGraph(domain, local_client_name);
@@ -77,7 +78,7 @@ SingleClientChatGraph BuildSingleClientChatGraph(
   for_join.chat = graph.chat;
   for_join.local_client = graph.local_client;
   for_join.peer_set = graph.peer_set;
-  chat::CaptureAndJoinChatComponentGraph(for_join);
+  chat::FinalizeChatComponentGraph(for_join, join_policy);
 
   graph.chat_presenter->chat = graph.chat;
   graph.chat_presenter->local_client = graph.local_client;

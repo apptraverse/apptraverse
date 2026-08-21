@@ -88,6 +88,65 @@ add_test(
   COMMAND apptraverse_chat_component_test
 )
 
+add_executable(apptraverse_room_control_codec_test
+  room_control_codec_test.cpp
+)
+target_link_libraries(apptraverse_room_control_codec_test PRIVATE
+  apptraverse::chat_component
+)
+add_test(
+  NAME apptraverse_room_control_codec_test
+  COMMAND apptraverse_room_control_codec_test
+)
+
+add_executable(apptraverse_room_graph_join_test
+  room_graph_join_test.cpp
+)
+target_link_libraries(apptraverse_room_graph_join_test PRIVATE
+  apptraverse::chat_component
+)
+add_test(
+  NAME apptraverse_room_graph_join_test
+  COMMAND apptraverse_room_graph_join_test
+)
+
+add_executable(apptraverse_room_membership_test
+  room_membership_test.cpp
+)
+target_link_libraries(apptraverse_room_membership_test PRIVATE
+  apptraverse::chat_component
+)
+add_test(
+  NAME apptraverse_room_membership_test
+  COMMAND apptraverse_room_membership_test
+)
+
+# Late-join oversized NodeState is a separately tracked Aether P2P transport
+# limitation. This Host+one-Client milestone validates only states whose initial
+# sync fits the current transport envelope.
+
+add_executable(apptraverse_room_inbound_demux_test
+  room_inbound_demux_test.cpp
+)
+target_link_libraries(apptraverse_room_inbound_demux_test PRIVATE
+  apptraverse::chat_component
+)
+add_test(
+  NAME apptraverse_room_inbound_demux_test
+  COMMAND apptraverse_room_inbound_demux_test
+)
+
+add_executable(apptraverse_room_auth_bootstrap_test
+  room_auth_bootstrap_test.cpp
+)
+target_link_libraries(apptraverse_room_auth_bootstrap_test PRIVATE
+  apptraverse::chat_component
+)
+add_test(
+  NAME apptraverse_room_auth_bootstrap_test
+  COMMAND apptraverse_room_auth_bootstrap_test
+)
+
 add_executable(apptraverse_generic_storage_transfer_test
   generic_storage_transfer_test.cpp
 )

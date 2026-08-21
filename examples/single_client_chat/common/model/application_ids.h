@@ -17,6 +17,7 @@ enum class ApplicationObjId : ae::ObjId::Type {
   Chat = 100004,
   ChatPresenter = 100005,
   WindowBase = 100008,
+  ChatRoomLocalState = 100010,
 };
 
 constexpr ae::ObjId::Type ToObjId(ApplicationObjId id) {

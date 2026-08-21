@@ -49,6 +49,10 @@ class ChatSyncController {
   using RawSendFunction =
       std::function<void(ae::Uid const& peer,
                          std::vector<std::uint8_t> const& bytes)>;
+  // When set: unknown peers are auto-accepted only if this returns true.
+  // When unset: legacy unconditional auto-accept.
+  using IncomingPeerAuthorizeFunction =
+      std::function<bool(ae::Uid const& remote_uid)>;
 
   ChatSyncController(SyncReplica replica, Chat::ptr chat,
                      ChatPeerSet::ptr peer_set, SendFunction send,
@@ -57,6 +61,7 @@ class ChatSyncController {
 
   void Start();
   void Stop();
+  void SetIncomingPeerAuthorize(IncomingPeerAuthorizeFunction fn);
   SharedGraphSyncSession& AddPeer(ae::Uid const& remote_uid);
   // Notify sessions that a local Event was committed so they can publish
   // immediately without waiting for Tick/Poll.
@@ -131,6 +136,7 @@ class ChatSyncController {
   ChatSyncTiming timing_;
   ChangedFunction changed_;
   LogFunction log_;
+  IncomingPeerAuthorizeFunction incoming_peer_authorize_;
   std::vector<RuntimeSession> sessions_;
   // Runtime-only; packets arriving for unknown peers before AddPeer completes.
   std::vector<PendingAutoAccept> pending_auto_accept_;

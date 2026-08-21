@@ -32,6 +32,7 @@
 #include "model/chat.h"
 #include "model/chat_peer_set.h"
 #include "model/chat_presenter.h"
+#include "model/chat_room_local_state.h"
 #include "model/registration.h"
 #include "model/window_changed_event.h"
 
@@ -84,6 +85,11 @@ struct CliOptions {
   std::optional<ae::Uid> p2p_ping;
   bool event_driven_runtime{false};
   std::optional<std::filesystem::path> latency_trace;
+  std::optional<apptraverse::ChatRoomRole> room_role;
+  std::string window_title;
+  std::string participant_name;
+  std::optional<ae::Uid> host_uid;
+  std::optional<std::filesystem::path> room_trace;
   bool parse_error{false};
 };
 
@@ -161,12 +167,63 @@ CliOptions ParseCli(int argc, char** argv) {
       }
     } else if (arg == "--event-driven-runtime") {
       options.event_driven_runtime = true;
+    } else if (arg == "--role") {
+      if (auto const* value = need_value("--role")) {
+        std::string_view role{value};
+        if (role == "host") {
+          options.room_role = apptraverse::ChatRoomRole::kHost;
+        } else if (role == "client") {
+          options.room_role = apptraverse::ChatRoomRole::kClient;
+        } else {
+          std::cerr << "--role must be host or client\n";
+          options.parse_error = true;
+        }
+      }
+    } else if (arg == "--title") {
+      if (auto const* value = need_value("--title")) {
+        options.window_title = value;
+      }
+    } else if (arg == "--name") {
+      if (auto const* value = need_value("--name")) {
+        options.participant_name = value;
+      }
+    } else if (arg == "--host-uid") {
+      if (auto const* value = need_value("--host-uid")) {
+        options.host_uid = ParseUidArg(value, "--host-uid");
+        if (options.host_uid.has_value() && options.host_uid->empty()) {
+          options.parse_error = true;
+        }
+      }
     } else if (arg == "--latency-trace") {
       if (auto const* value = need_value("--latency-trace")) {
         options.latency_trace = value;
       }
+    } else if (arg == "--room-trace") {
+      if (auto const* value = need_value("--room-trace")) {
+        options.room_trace = value;
+      }
     } else {
       std::cerr << "Unknown argument: " << arg << '\n';
+      options.parse_error = true;
+    }
+  }
+
+  if (options.event_driven_runtime && !options.parse_error) {
+    if (!options.room_role.has_value()) {
+      std::cerr << "--event-driven-runtime requires --role host|client\n";
+      options.parse_error = true;
+    }
+    if (options.window_title.empty()) {
+      std::cerr << "--event-driven-runtime requires --title\n";
+      options.parse_error = true;
+    }
+    if (options.participant_name.empty()) {
+      std::cerr << "--event-driven-runtime requires --name\n";
+      options.parse_error = true;
+    }
+    if (options.host_uid.has_value() &&
+        options.room_role == apptraverse::ChatRoomRole::kHost) {
+      std::cerr << "--host-uid is only valid with --role client\n";
       options.parse_error = true;
     }
   }
@@ -891,10 +948,12 @@ int main(int argc, char** argv) {
     ed.aether_client_name = options.aether_client_name;
     ed.distill = options.distill;
     ed.print_aether_uid = options.print_aether_uid;
-    ed.peer = options.peer;
-    ed.peer_inbox = options.peer_inbox;
-    if (char const* inst = std::getenv("APPTRAVERSE_INSTANCE")) {
-      ed.window_title_suffix = inst;
+    ed.role = options.room_role;
+    ed.title = options.window_title;
+    ed.participant_name = options.participant_name;
+    ed.host_uid = options.host_uid;
+    if (options.room_trace.has_value()) {
+      ed.room_trace = *options.room_trace;
     }
     if (options.latency_trace.has_value()) {
       ed.latency_trace = *options.latency_trace;

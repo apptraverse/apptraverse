@@ -49,16 +49,26 @@
 #include "../common/chat_presentation.h"
 #include "../common/graph_builder.h"
 #include "latency_trace.h"
+#include "room_trace.h"
 #include "win_chat_transcript.h"
 #include "win_add_peer_dialog.h"
 #include "win_chat_presenter.h"
 #include "win_window_presenter.h"
 #include "windows_window.h"
 
+#include "model/chat_events.h"
+#include "model/chat_room_local_state.h"
+#include "model/client.h"
+#include "room_control.h"
+#include "room_inbound_demux.h"
+#include "room_membership_controller.h"
+#include "chat_component_graph.h"
+
 namespace apptraverse::examples {
 namespace {
 
 constexpr UINT kWmPresentation = WM_APP + 61;
+constexpr UINT kWmSendEnabled = WM_APP + 62;
 constexpr auto kBusinessIdleCap = std::chrono::milliseconds{100};
 constexpr auto kNetworkIdleCap = std::chrono::seconds{1};
 
@@ -69,6 +79,52 @@ std::int64_t UtcMicros() {
   return std::chrono::duration_cast<std::chrono::microseconds>(
              std::chrono::system_clock::now().time_since_epoch())
       .count();
+}
+
+char const* RoomControlTypeName(chat::RoomControlType type) {
+  using chat::RoomControlType;
+  switch (type) {
+    case RoomControlType::kClientHello:
+      return "ClientHello";
+    case RoomControlType::kMembershipPrepare:
+      return "MembershipPrepare";
+    case RoomControlType::kMembershipPrepared:
+      return "MembershipPrepared";
+    case RoomControlType::kMembershipSnapshot:
+      return "MembershipSnapshot";
+    case RoomControlType::kMembershipApplied:
+      return "MembershipApplied";
+    case RoomControlType::kMembershipActivate:
+      return "MembershipActivate";
+    case RoomControlType::kMembershipActivated:
+      return "MembershipActivated";
+    case RoomControlType::kMembershipReject:
+      return "MembershipReject";
+  }
+  return "Unknown";
+}
+
+char const* RoomUiStatusName(chat::RoomUiStatus status) {
+  using chat::RoomUiStatus;
+  switch (status) {
+    case RoomUiStatus::kDisconnected:
+      return "Disconnected";
+    case RoomUiStatus::kConnecting:
+      return "Connecting";
+    case RoomUiStatus::kWaitingForPrepare:
+      return "WaitingForPrepare";
+    case RoomUiStatus::kWaitingForSnapshot:
+      return "WaitingForSnapshot";
+    case RoomUiStatus::kWaitingForActivate:
+      return "WaitingForActivate";
+    case RoomUiStatus::kWaitingForOwnJoin:
+      return "WaitingForOwnJoin";
+    case RoomUiStatus::kActive:
+      return "Active";
+    case RoomUiStatus::kError:
+      return "Error";
+  }
+  return "Unknown";
 }
 
 std::string WideToUtf8(std::wstring const& wide) {
@@ -143,11 +199,19 @@ struct SendRawCommand {
   std::vector<std::uint8_t> bytes;
 };
 
+// Room membership control only — never SyncPacketWriteGate / packet_id.
+struct SendRoomControlCommand {
+  ae::Uid peer;
+  std::vector<std::uint8_t> bytes;
+  std::string type_name;
+  std::uint64_t revision{0};
+};
+
 struct StopNetworkCommand {};
 
 using NetworkItem =
     std::variant<ConnectPeerCommand, SendSyncCommand, SendRawCommand,
-                 StopNetworkCommand>;
+                 SendRoomControlCommand, StopNetworkCommand>;
 
 template <typename T>
 class WakeQueue {
@@ -201,7 +265,17 @@ class EventDrivenUi {
  public:
   using SubmitFn = std::function<void(std::string text)>;
   using AddPeerFn = std::function<AddPeerUiResult(std::string const&)>;
+  using ConnectHostFn = std::function<void(std::string const& host_uid)>;
   using PresentationFn = std::function<void(ChatPresentationSnapshot const&)>;
+
+  struct RoomUiMode {
+    bool is_host{true};
+    bool show_own_uid{true};
+    bool show_host_uid_field{false};
+    bool send_enabled{true};
+  };
+
+  void ConfigureRoom(RoomUiMode mode) { room_mode_ = mode; }
 
   void SetHandlers(SubmitFn submit, AddPeerFn add_peer,
                    std::string local_uid, LatencyTrace* trace) {
@@ -209,6 +283,18 @@ class EventDrivenUi {
     add_peer_ = std::move(add_peer);
     local_uid_ = std::move(local_uid);
     trace_ = trace;
+  }
+
+  void SetConnectHost(ConnectHostFn fn) { connect_host_ = std::move(fn); }
+
+  void SetSendEnabled(bool enabled) {
+    room_mode_.send_enabled = enabled;
+    if (send_ != nullptr) {
+      EnableWindow(send_, enabled ? TRUE : FALSE);
+    }
+    if (edit_ != nullptr) {
+      EnableWindow(edit_, enabled ? TRUE : FALSE);
+    }
   }
 
   void SetOnApplied(PresentationFn on_applied) {
@@ -244,6 +330,13 @@ class EventDrivenUi {
                       reinterpret_cast<LPARAM>(heap))) {
       delete heap;
     }
+  }
+
+  void PostSendEnabled(bool enabled) {
+    if (hwnd_ == nullptr) {
+      return;
+    }
+    PostMessageW(hwnd_, kWmSendEnabled, enabled ? 1 : 0, 0);
   }
 
  private:
@@ -288,6 +381,10 @@ class EventDrivenUi {
             OnAdd();
             return 0;
           }
+          if (reinterpret_cast<HWND>(lparam) == connect_) {
+            OnConnectHost();
+            return 0;
+          }
         }
         return 0;
       case kWmPresentation: {
@@ -296,6 +393,9 @@ class EventDrivenUi {
         ApplySnapshot(*snap);
         return 0;
       }
+      case kWmSendEnabled:
+        SetSendEnabled(wparam != 0);
+        return 0;
       case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -305,6 +405,28 @@ class EventDrivenUi {
   }
 
   void CreateControls(HWND parent) {
+    int top = 0;
+    if (room_mode_.show_own_uid && !local_uid_.empty()) {
+      uid_ = CreateWindowExW(
+          WS_EX_CLIENTEDGE, L"EDIT", Utf8ToWide(local_uid_).c_str(),
+          WS_CHILD | WS_VISIBLE | ES_READONLY | ES_AUTOHSCROLL, 0, 0, 0, 0,
+          parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(10)),
+          GetModuleHandleW(nullptr), nullptr);
+      top = 36;
+    }
+    if (room_mode_.show_host_uid_field) {
+      host_uid_ = CreateWindowExW(
+          WS_EX_CLIENTEDGE, L"EDIT", L"",
+          WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, parent,
+          reinterpret_cast<HMENU>(static_cast<INT_PTR>(11)),
+          GetModuleHandleW(nullptr), nullptr);
+      connect_ = CreateWindowExW(
+          0, L"BUTTON", L"Connect", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0,
+          0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(12)),
+          GetModuleHandleW(nullptr), nullptr);
+      top = 36;
+    }
+    transcript_top_ = top;
     transcript_ = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY |
@@ -319,37 +441,49 @@ class EventDrivenUi {
         0, L"BUTTON", L"Send", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0,
         0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(3)),
         GetModuleHandleW(nullptr), nullptr);
-    add_ = CreateWindowExW(
-        0, L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0,
-        parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(4)),
-        GetModuleHandleW(nullptr), nullptr);
+    // Host/client room mode: never show free-form Add Peer "+".
+    add_ = nullptr;
+    SetSendEnabled(room_mode_.send_enabled);
   }
 
   void Layout(int width, int height) {
     int const margin = 8;
     int const edit_h = 28;
     int const send_w = 80;
-    int const add_w = 36;
+    int y = margin;
+    if (uid_ != nullptr) {
+      MoveWindow(uid_, margin, y, width - 2 * margin, edit_h, TRUE);
+      y += edit_h + margin;
+    }
+    if (host_uid_ != nullptr) {
+      int const connect_w = 90;
+      MoveWindow(host_uid_, margin, y, width - 3 * margin - connect_w, edit_h,
+                 TRUE);
+      if (connect_ != nullptr) {
+        MoveWindow(connect_, width - margin - connect_w, y, connect_w, edit_h,
+                   TRUE);
+      }
+      y += edit_h + margin;
+    }
     int const bottom = height - margin - edit_h;
-    int const transcript_h = bottom - margin;
+    int const transcript_h = bottom - y;
     if (transcript_ != nullptr) {
-      MoveWindow(transcript_, margin, margin, width - 2 * margin,
+      MoveWindow(transcript_, margin, y, width - 2 * margin,
                  transcript_h > 0 ? transcript_h : 0, TRUE);
     }
-    int const edit_w = width - 4 * margin - send_w - add_w;
+    int const edit_w = width - 3 * margin - send_w;
     if (edit_ != nullptr) {
       MoveWindow(edit_, margin, bottom, edit_w > 0 ? edit_w : 0, edit_h, TRUE);
     }
     if (send_ != nullptr) {
-      MoveWindow(send_, width - 2 * margin - add_w - send_w, bottom, send_w,
-                 edit_h, TRUE);
-    }
-    if (add_ != nullptr) {
-      MoveWindow(add_, width - margin - add_w, bottom, add_w, edit_h, TRUE);
+      MoveWindow(send_, width - margin - send_w, bottom, send_w, edit_h, TRUE);
     }
   }
 
   void OnSend() {
+    if (!room_mode_.send_enabled) {
+      return;
+    }
     if (edit_ == nullptr || !submit_) {
       return;
     }
@@ -376,10 +510,25 @@ class EventDrivenUi {
   }
 
   void OnAdd() {
-    if (local_uid_.empty() || !add_peer_) {
+    // Room mode disables free-form Add Peer.
+  }
+
+  void OnConnectHost() {
+    if (host_uid_ == nullptr || !connect_host_) {
       return;
     }
-    ShowAddPeerDialog(hwnd_, local_uid_, add_peer_);
+    int const len = GetWindowTextLengthW(host_uid_);
+    std::wstring wide;
+    wide.resize(static_cast<std::size_t>(len) + 1);
+    int const copied = GetWindowTextW(host_uid_, &wide[0], len + 1);
+    wide.resize(static_cast<std::size_t>(copied > 0 ? copied : 0));
+    auto text = WideToUtf8(wide);
+    if (text.empty()) {
+      return;
+    }
+    EnableWindow(host_uid_, FALSE);
+    EnableWindow(connect_, FALSE);
+    connect_host_(text);
   }
 
   void ApplySnapshot(ChatPresentationSnapshot const& snapshot) {
@@ -440,9 +589,15 @@ class EventDrivenUi {
   HWND edit_{nullptr};
   HWND send_{nullptr};
   HWND add_{nullptr};
+  HWND uid_{nullptr};
+  HWND host_uid_{nullptr};
+  HWND connect_{nullptr};
+  int transcript_top_{0};
+  RoomUiMode room_mode_{};
   std::string local_uid_;
   SubmitFn submit_;
   AddPeerFn add_peer_;
+  ConnectHostFn connect_host_;
   PresentationFn on_applied_;
   LatencyTrace* trace_{nullptr};
 };
@@ -462,6 +617,16 @@ std::filesystem::path ModelRoot(std::filesystem::path const& state_dir) {
 }  // namespace
 
 int DistillEventDriven(EventDrivenCliOptions const& options) {
+  if (!options.role.has_value() || options.participant_name.empty() ||
+      options.title.empty()) {
+    std::cerr << "distill requires --role, --title, and --name\n";
+    return 1;
+  }
+  if (options.role == ChatRoomRole::kHost && options.host_uid.has_value()) {
+    std::cerr << "--host-uid is only valid with --role client\n";
+    return 1;
+  }
+
   std::filesystem::remove_all(options.state_dir);
   auto const model_root = ModelRoot(options.state_dir);
   auto const aether_root = AetherRoot(options.state_dir);
@@ -470,9 +635,30 @@ int DistillEventDriven(EventDrivenCliOptions const& options) {
 
   ae::RamDomainStorage model_ram;
   ae::Domain model_domain{ae::Now(), model_ram};
+  auto const join_policy = *options.role == ChatRoomRole::kHost
+                               ? chat::LocalJoinPolicy::kJoinLocal
+                               : chat::LocalJoinPolicy::kDoNotJoinLocal;
   auto graph = BuildSingleClientChatGraph<WindowsWindow, WinWindowPresenter,
-                                          WinChatPresenter>(model_domain,
-                                                            "Windows");
+                                          WinChatPresenter>(
+      model_domain, options.participant_name, join_policy);
+
+  auto room = ChatRoomLocalState::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(
+          ToObjId(ApplicationObjId::ChatRoomLocalState)));
+  room->role = *options.role;
+  room->local_client_obj_id = graph.local_client.id().id();
+  room->local_display_name = options.participant_name;
+  if (options.host_uid.has_value()) {
+    room->host_uid = FormatAetherUid(*options.host_uid);
+  }
+  if (*options.role == ChatRoomRole::kHost) {
+    room->active_membership_revision = 0;
+    // HostBootstrap fills revision=1 + self UID at first Run.
+  } else {
+    room->active_membership_revision = 0;
+  }
+  room.Save();
+
   graph.app.Save();
   graph.chat.Save();
   graph.peer_set.Save();
@@ -482,7 +668,6 @@ int DistillEventDriven(EventDrivenCliOptions const& options) {
   }
   SaveDirectorySnapshot(model_ram, model_root);
 
-  // Touch Aether storage so the empty root exists for the first SelectClient.
   {
     auto runtime = ConstructAetherAppWithEthernet([aether_root]() {
       return std::make_unique<DirectoryDomainStorage>(aether_root);
@@ -496,7 +681,9 @@ int DistillEventDriven(EventDrivenCliOptions const& options) {
             << options.state_dir.string() << " (model snapshot+aether)\n";
   std::cout << "APP_CLIENT_READY platform=windows obj_id="
             << graph.local_client.id().id()
-            << " name=" << graph.local_client->name << '\n';
+            << " name=" << graph.local_client->name << " role="
+            << (*options.role == ChatRoomRole::kHost ? "host" : "client")
+            << '\n';
   return 0;
 }
 
@@ -547,8 +734,13 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
   if (options.print_aether_uid) {
     std::cout << "AETHER_UID=" << local_uid << '\n';
     std::fflush(stdout);
-    SetDomainSnapshotMarkerSink({});
-    return 0;
+  }
+
+  RoomTrace room_trace;
+  if (options.room_trace.has_value()) {
+    room_trace.Open(*options.room_trace,
+                    *options.role == ChatRoomRole::kHost ? "host" : "client",
+                    aether_client->uid());
   }
 
   // Model is fully RAM-resident after one-shot directory import.
@@ -586,6 +778,41 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
       static_cast<WinChatPresenter&>(*win_presenter.chat_presenter);
   chat_presenter_obj.chat.Load();
   auto chat = chat_presenter_obj.chat;
+
+  if (!options.role.has_value() || options.participant_name.empty() ||
+      options.title.empty()) {
+    std::cerr << "event-driven runtime requires --role, --title, and --name\n";
+    return 1;
+  }
+
+  auto room_state = LoadChatRoomLocalState(*model_domain);
+  if (!room_state.is_loaded()) {
+    std::cerr << "room_state_migration_required\n";
+    return 1;
+  }
+  if (room_state->role != *options.role) {
+    std::cerr << "persisted room role mismatch CLI\n";
+    return 1;
+  }
+  if (room_state->local_display_name != options.participant_name) {
+    std::cerr << "persisted participant name mismatch CLI (no silent rename)\n";
+    return 1;
+  }
+  if (options.host_uid.has_value()) {
+    if (*options.role == ChatRoomRole::kHost) {
+      std::cerr << "--host-uid is only valid with --role client\n";
+      return 1;
+    }
+    auto const cli_host = FormatAetherUid(*options.host_uid);
+    if (!room_state->host_uid.empty() && room_state->host_uid != cli_host) {
+      std::cerr << "persisted host UID mismatch CLI --host-uid\n";
+      return 1;
+    }
+    if (room_state->host_uid.empty()) {
+      room_state->host_uid = cli_host;
+      room_state.Save();
+    }
+  }
 
   WakeQueue<BusinessItem> business_q;
   WakeQueue<NetworkItem> network_q;
@@ -700,11 +927,28 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
       },
       local_uid, &trace);
 
-  std::wstring title = L"AppTraverse Chat";
-  if (!options.window_title_suffix.empty()) {
-    title += L" [";
-    title += Utf8ToWide(options.window_title_suffix);
-    title += L"]";
+  EventDrivenUi::RoomUiMode room_ui{};
+  room_ui.is_host = (*options.role == ChatRoomRole::kHost);
+  room_ui.show_own_uid = room_ui.is_host;
+  room_ui.show_host_uid_field =
+      !room_ui.is_host && !options.host_uid.has_value() &&
+      room_state->host_uid.empty();
+  room_ui.send_enabled = room_ui.is_host;
+  ui.ConfigureRoom(room_ui);
+  ui.SetConnectHost([&](std::string const& host_text) {
+    if (!ui_accepting.load(std::memory_order::acquire)) {
+      return;
+    }
+    auto const uid = ae::Uid::FromString(std::string_view{host_text});
+    if (uid.empty()) {
+      return;
+    }
+    business_q.Push(AddPeerCommand{uid, FormatAetherUid(uid)});
+  });
+
+  std::wstring title = Utf8ToWide(options.title);
+  if (title.empty()) {
+    title = L"AppTraverse Chat";
   }
   ui.Create(title);
   assert(ui.hwnd() != nullptr);
@@ -717,7 +961,11 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                     std::memory_order::release);
 
     transport.SetPreWriteHandler(
-        [&](ae::Uid const& /*peer*/, std::size_t /*frame_bytes*/) {
+        [&](ae::Uid const& peer, std::size_t frame_bytes) {
+          if (room_trace.enabled()) {
+            room_trace.Event("P2P_WRITE_CALLED", FormatAetherUid(peer), "out",
+                             {}, {}, {}, std::to_string(frame_bytes), "ok");
+          }
           trace.Mark(TraceThreadRole::kNetwork,
                      LatencyTrace::Marker::kP2pWriteCalled,
                      pending_write.text_key.empty()
@@ -726,8 +974,56 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                      pending_write.event_id, pending_write.packet_id);
         });
 
+    if (room_trace.enabled()) {
+      transport.SetLogHandler([&](std::string line) {
+        // Existing transport markers: P2P_SESSION_CREATED peer=... source=...
+        room_trace.Line("layer=P2P_TRANSPORT_LOG result=" + line);
+        if (line.find("P2P_SESSION_CREATED") != std::string::npos) {
+          room_trace.Event("P2P_SESSION_CREATED", {}, {}, {}, {}, {}, {}, line);
+        }
+      });
+    }
+
     transport.SetReceiveHandler(
         [&](ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
+          if (room_trace.enabled()) {
+            room_trace.Event("P2P_PAYLOAD_RECEIVED", FormatAetherUid(peer), "in",
+                             {}, {}, {}, std::to_string(payload.size()), {});
+          }
+          std::optional<chat::RoomControlMessage> room_msg;
+          auto const room_kind =
+              chat::ClassifyRoomControlInbound(payload, &room_msg);
+          if (room_kind == chat::RoomInboundKind::kRoomControlOk) {
+            if (room_trace.enabled()) {
+              room_trace.Event("CONTROL_MAGIC_MATCH", FormatAetherUid(peer),
+                               "in", RoomControlTypeName(room_msg->type),
+                               std::to_string(room_msg->revision), {},
+                               std::to_string(payload.size()), "ok");
+              room_trace.Event("CONTROL_DECODE_OK", FormatAetherUid(peer), "in",
+                               RoomControlTypeName(room_msg->type),
+                               std::to_string(room_msg->revision), {},
+                               std::to_string(payload.size()), "ok");
+              room_trace.Event("BUSINESS_CONTROL_ENQUEUED",
+                               FormatAetherUid(peer), "in",
+                               RoomControlTypeName(room_msg->type),
+                               std::to_string(room_msg->revision), {},
+                               std::to_string(payload.size()), "ok");
+            }
+            business_q.Push(InboundNetworkPacket{peer, payload});
+            return;
+          }
+          if (room_kind == chat::RoomInboundKind::kRoomControlDecodeFail) {
+            if (room_trace.enabled()) {
+              room_trace.Event("CONTROL_MAGIC_MATCH", FormatAetherUid(peer),
+                               "in", {}, {}, {},
+                               std::to_string(payload.size()), "magic");
+              room_trace.Event("CONTROL_DECODE_FAIL", FormatAetherUid(peer),
+                               "in", {}, {}, {},
+                               std::to_string(payload.size()), "drop");
+            }
+            // Never treat ATRM magic payloads as Chat sync.
+            return;
+          }
           if (TryHandleP2pProbePayload(transport, peer, payload, {}, {})) {
             return;
           }
@@ -747,6 +1043,11 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
             [&](auto&& cmd) {
               using T = std::decay_t<decltype(cmd)>;
               if constexpr (std::is_same_v<T, ConnectPeerCommand>) {
+                if (room_trace.enabled()) {
+                  room_trace.Event("NETWORK_COMMAND_DEQUEUED",
+                                   FormatAetherUid(cmd.uid), "out", "Connect",
+                                   {}, {}, {}, "ok");
+                }
                 transport.Connect(cmd.uid);
               } else if constexpr (std::is_same_v<T, SendSyncCommand>) {
                 pending_write.text_key = cmd.text_key;
@@ -755,6 +1056,16 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                 transport.Send(cmd.peer, cmd.bytes);
                 pending_write = {};
               } else if constexpr (std::is_same_v<T, SendRawCommand>) {
+                transport.Send(cmd.peer, cmd.bytes);
+              } else if constexpr (std::is_same_v<T, SendRoomControlCommand>) {
+                if (room_trace.enabled()) {
+                  room_trace.Event(
+                      "NETWORK_COMMAND_DEQUEUED", FormatAetherUid(cmd.peer),
+                      "out", cmd.type_name, std::to_string(cmd.revision), {},
+                      std::to_string(cmd.bytes.size()), "ok");
+                }
+                // If session/stream is not ready, transport.Send returns
+                // without PreWrite — trace will show DEQUEUED without WRITE.
                 transport.Send(cmd.peer, cmd.bytes);
               } else if constexpr (std::is_same_v<T, StopNetworkCommand>) {
                 // Do not set business `stop` here — Finalize still needs the
@@ -875,6 +1186,9 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
           std::cout << line << " t_us=" << UtcMicros() << '\n';
           std::fflush(stdout);
           trace.MarkFromProductLine(TraceThreadRole::kBusiness, line);
+          if (room_trace.enabled()) {
+            room_trace.Line("layer=SYNC_LOG result=" + line);
+          }
           if (line.find("SYNC_PENDING_REMOVED") != std::string::npos) {
             auto pos = line.find("packet=");
             if (pos != std::string::npos) {
@@ -889,52 +1203,202 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
           }
         });
 
+    // Host/client membership (business-thread only).
+    // Product scope: Host + one Client (membership revision 1→2). Second
+    // distinct client behavior is undefined here. Current Aether P2P transport
+    // has a separately tracked large single-write limitation; this milestone
+    // validates only states whose initial sync fits the current transport
+    // envelope.
+    chat::RoomMembershipHooks room_hooks{};
+    room_hooks.send_control =
+        [&](ae::Uid const& peer, std::vector<std::uint8_t> const& bytes) {
+          std::string type_name = "Unknown";
+          std::uint64_t revision = 0;
+          if (auto decoded = chat::TryDecodeRoomControl(bytes)) {
+            type_name = RoomControlTypeName(decoded->type);
+            revision = decoded->revision;
+          }
+          if (room_trace.enabled()) {
+            room_trace.Event("CONTROL_ENCODE", FormatAetherUid(peer), "out",
+                             type_name, std::to_string(revision), {},
+                             std::to_string(bytes.size()),
+                             bytes.empty() ? "empty" : "ok");
+            room_trace.Event("CONTROL_SEND_REQUEST", FormatAetherUid(peer),
+                             "out", type_name, std::to_string(revision), {},
+                             std::to_string(bytes.size()), "ok");
+            room_trace.Event("NETWORK_COMMAND_ENQUEUED", FormatAetherUid(peer),
+                             "out", type_name, std::to_string(revision), {},
+                             std::to_string(bytes.size()), "SendRoomControl");
+          }
+          network_q.Push(SendRoomControlCommand{peer, bytes, type_name, revision});
+          wake_network();
+        };
+    room_hooks.connect_peer = [&](ae::Uid const& peer) {
+      if (room_trace.enabled()) {
+        room_trace.Event("BUSINESS_CONNECT_REQUEST", FormatAetherUid(peer),
+                         "out", "Connect", {}, {}, {}, "ok");
+        room_trace.Event("NETWORK_COMMAND_ENQUEUED", FormatAetherUid(peer),
+                         "out", "Connect", {}, {}, {}, "ok");
+      }
+      network_q.Push(ConnectPeerCommand{peer});
+      wake_network();
+    };
+    room_hooks.add_chat_peer = [&](ae::Uid const& peer) {
+      if (room_trace.enabled()) {
+        room_trace.Event("ADD_PEER_REQUESTED", FormatAetherUid(peer), "out",
+                         {}, {}, {}, {}, "ok");
+        room_trace.Event("CHAT_ADD_PEER_REQUEST", FormatAetherUid(peer), "out",
+                         {}, {}, {}, {}, "ok");
+      }
+      auto const result = component.AddPeer(peer);
+      if (room_trace.enabled()) {
+        char const* r = "unknown";
+        switch (result) {
+          case chat::AddPeerResult::kAdded:
+            r = "added";
+            break;
+          case chat::AddPeerResult::kAlreadyPresent:
+            r = "already_present";
+            break;
+          case chat::AddPeerResult::kInvalidUid:
+            r = "invalid_uid";
+            break;
+          case chat::AddPeerResult::kNotRunning:
+            r = "not_running";
+            break;
+        }
+        room_trace.Event("CHAT_ADD_PEER_RESULT", FormatAetherUid(peer), "out",
+                         {}, {}, {}, {}, r);
+      }
+    };
+    room_hooks.ensure_host_join =
+        [&](ae::Uid const& uid, std::uint32_t client_obj_id,
+            std::string const& name) -> bool {
+          chat.Load();
+          for (auto const& record : chat->journal) {
+            if (!record.event.is_valid() ||
+                record.event->GetClassId() != JoinClientEvent::kClassId) {
+              continue;
+            }
+            auto join = JoinClientEvent::ptr{record.event};
+            join.Load();
+            if (join.is_loaded() && join->client.is_valid() &&
+                join->client.id().id() == client_obj_id) {
+              return false;
+            }
+          }
+          auto client_base = Client::ptr::Create(ae::CreateWith{*model_domain});
+          auto client = Client::ptr::Create(
+              ae::CreateWith{*model_domain}.with_id(client_obj_id));
+          client->name = name;
+          client->base = client_base;
+          client->CaptureBaseState();
+          client.Save();
+          auto join =
+              JoinClientEvent::ptr::Create(ae::CreateWith{*model_domain});
+          join->client = client;
+          chat->Commit(join);
+          chat.Save();
+          EventRecord const* committed = nullptr;
+          for (auto const& record : chat->journal) {
+            if (record.event.is_valid() && record.event.id() == join.id()) {
+              committed = &record;
+              break;
+            }
+          }
+          if (committed != nullptr) {
+            component.PublishCommittedJournalEvent(*committed);
+          }
+          // CRITICAL ordering: Join is in host journal BEFORE Chat AddPeer /
+          // SYNC_INITIAL_BUILD so the late participant’s initial NodeState
+          // includes their own Join Event ObjId.
+          auto const add_result = component.AddPeer(uid);
+          if (room_trace.enabled()) {
+            room_trace.Event("JOIN_CREATED", {}, {}, "JoinClientEvent",
+                             std::to_string(join.id().id()), {},
+                             std::to_string(client_obj_id), name);
+            room_trace.Line(
+                "layer=JOIN_IDENTITY result=host_client_obj_id=" +
+                std::to_string(client_obj_id) +
+                " join_event_obj_id=" + std::to_string(join.id().id()) +
+                " name=" + name);
+            room_trace.Event("CHAT_ADD_PEER_REQUEST", FormatAetherUid(uid),
+                             "out", {}, {}, {}, {}, "after_join");
+            room_trace.Event(
+                "CHAT_ADD_PEER_RESULT", FormatAetherUid(uid), "out", {}, {}, {},
+                {},
+                add_result == chat::AddPeerResult::kAdded ? "added"
+                : add_result == chat::AddPeerResult::kAlreadyPresent
+                    ? "already_present"
+                    : "other");
+            room_trace.Event("MEMBERSHIP_REVISION_COMMITTED", {}, {}, {}, {},
+                             {}, {}, "ok");
+          }
+          return true;
+        };
+    room_hooks.has_local_join = [&] { return component.HasLocalJoin(); };
+    chat::RoomMembershipController* room_ptr = nullptr;
+    room_hooks.on_ui_changed = [&] {
+      if (room_ptr != nullptr) {
+        if (room_trace.enabled()) {
+          room_trace.Event("CONTROLLER_STATE", {}, {}, {}, {},
+                           std::string("status=") +
+                               RoomUiStatusName(room_ptr->ui_status()),
+                           {}, room_ptr->CanSendChat() ? "send_ok" : "send_off");
+          if (room_ptr->CanSendChat()) {
+            room_trace.Event("ROOM_ACTIVE", {}, {}, {},
+                             std::to_string(room_ptr->applied_revision()), {},
+                             {}, "ok");
+          }
+        }
+        ui.PostSendEnabled(room_ptr->CanSendChat());
+      }
+    };
+    room_hooks.on_model_changed = [&] { publish_presentation(component); };
+    room_hooks.log = [&](std::string const& line) {
+      std::cout << line << " t_us=" << UtcMicros() << '\n';
+      std::fflush(stdout);
+      if (room_trace.enabled()) {
+        room_trace.Line("layer=CONTROLLER_LOG result=" + line);
+      }
+    };
+
+    chat::RoomMembershipController room{
+        *options.role, aether_client->uid(), local_client.id().id(),
+        options.participant_name, room_state, room_hooks};
+    room_ptr = &room;
+    if (room_trace.enabled()) {
+      room_trace.Line("layer=LOCAL_CLIENT_IDENTITY result=obj_id=" +
+                      std::to_string(local_client.id().id()) + " name=" +
+                      options.participant_name);
+    }
+
+    component.SetIncomingPeerAuthorize(
+        [&](ae::Uid const& peer) { return room.IsAuthorizedSyncPeer(peer); });
+
+    if (*options.role == ChatRoomRole::kHost) {
+      room.HostBootstrap();
+    } else {
+      ae::Uid host{};
+      if (options.host_uid.has_value()) {
+        host = *options.host_uid;
+      } else if (!room_state->host_uid.empty()) {
+        host = ae::Uid::FromString(std::string_view{room_state->host_uid});
+      }
+      if (!host.empty()) {
+        if (room_trace.enabled()) {
+          room_trace.Event("UI_CONNECT", FormatAetherUid(host), "out",
+                           "ClientHello", {}, "Disconnected->Connecting", {},
+                           "auto");
+        }
+        room.ClientConnect(host);
+      }
+    }
+
     component.Start();
     publish_presentation(component);
 
-    if (options.peer.has_value()) {
-      component.AddPeer(*options.peer);
-      publish_presentation(component);
-    }
-
-    auto maybe_peer_inbox = [&]() {
-      if (!options.peer_inbox.has_value()) {
-        return;
-      }
-      auto const& inbox = *options.peer_inbox;
-      std::error_code ec;
-      if (!std::filesystem::exists(inbox, ec) || ec) {
-        return;
-      }
-      std::ifstream in(inbox, std::ios::binary);
-      if (!in) {
-        return;
-      }
-      std::string line;
-      if (!std::getline(in, line)) {
-        in.close();
-        std::filesystem::remove(inbox, ec);
-        return;
-      }
-      in.close();
-      std::filesystem::remove(inbox, ec);
-      while (!line.empty() &&
-             (line.back() == char(13) || line.back() == char(10))) {
-        line.pop_back();
-      }
-      if (line.empty()) {
-        return;
-      }
-      auto const uid = ae::Uid::FromString(std::string_view{line});
-      if (uid.empty()) {
-        return;
-      }
-      component.AddPeer(uid);
-      publish_presentation(component);
-      std::cout << "CHAT_PEER_INBOX_ADDED uid=" << FormatAetherUid(uid)
-                << " t_us=" << UtcMicros() << '\n';
-      std::fflush(stdout);
-    };
+    auto maybe_peer_inbox = [&]() {};
 
     while (!stop.load(std::memory_order::acquire)) {
       BusinessItem item;
@@ -947,6 +1411,9 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
             [&](auto&& cmd) {
               using T = std::decay_t<decltype(cmd)>;
               if constexpr (std::is_same_v<T, SubmitTextCommand>) {
+                if (!room.CanSendChat()) {
+                  return;
+                }
                 std::optional<std::uint32_t> event_id;
                 {
                   SubmitTraceScope scope{submit_trace, next_message_index++,
@@ -972,10 +1439,90 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                 }
                 publish_presentation(component);
               } else if constexpr (std::is_same_v<T, AddPeerCommand>) {
-                component.AddPeer(cmd.uid);
+                // Room mode: no free-form Add Peer UI for host/client.
+                if (*options.role == ChatRoomRole::kClient &&
+                    room.ui_status() == chat::RoomUiStatus::kDisconnected) {
+                  room.ClientConnect(cmd.uid);
+                }
                 publish_presentation(component);
               } else if constexpr (std::is_same_v<T, InboundNetworkPacket>) {
-                component.Receive(cmd.peer, cmd.bytes);
+                std::optional<chat::RoomControlMessage> room_msg;
+                auto const room_kind =
+                    chat::ClassifyRoomControlInbound(cmd.bytes, &room_msg);
+                if (room_kind == chat::RoomInboundKind::kRoomControlOk) {
+                  if (room_trace.enabled()) {
+                    room_trace.Event(
+                        "BUSINESS_CONTROL_DEQUEUED", FormatAetherUid(cmd.peer),
+                        "in", RoomControlTypeName(room_msg->type),
+                        std::to_string(room_msg->revision), {},
+                        std::to_string(cmd.bytes.size()), "ok");
+                    room_trace.Event(
+                        "CONTROLLER_HANDLE_BEGIN", FormatAetherUid(cmd.peer),
+                        "in", RoomControlTypeName(room_msg->type),
+                        std::to_string(room_msg->revision),
+                        RoomUiStatusName(room.ui_status()), {}, "ok");
+                  }
+                  auto const before = room.ui_status();
+                  room.OnControl(cmd.peer, *room_msg);
+                  if (room_trace.enabled()) {
+                    room_trace.Event(
+                        "CONTROLLER_HANDLE_END", FormatAetherUid(cmd.peer),
+                        "in", RoomControlTypeName(room_msg->type),
+                        std::to_string(room_msg->revision),
+                        std::string(RoomUiStatusName(before)) + "->" +
+                            RoomUiStatusName(room.ui_status()),
+                        {}, "ok");
+                  }
+                } else if (room_kind ==
+                           chat::RoomInboundKind::kRoomControlDecodeFail) {
+                  if (room_trace.enabled()) {
+                    room_trace.Event("CONTROL_DECODE_FAIL",
+                                     FormatAetherUid(cmd.peer), "in", {}, {},
+                                     {}, std::to_string(cmd.bytes.size()),
+                                     "business_drop");
+                  }
+                } else {
+                  component.Receive(cmd.peer, cmd.bytes);
+                }
+                if (component.HasLocalJoin()) {
+                  if (room.ui_status() ==
+                          chat::RoomUiStatus::kWaitingForOwnJoin &&
+                      room_trace.enabled()) {
+                    room_trace.Event("ROOM_OWN_JOIN_DETECTED", {}, {}, {},
+                                     std::to_string(room.applied_revision()),
+                                     {}, {}, "inbound");
+                  }
+                  room.NotifyLocalJoinAppeared();
+                }
+                if (room_trace.enabled()) {
+                  chat.Load();
+                  std::uint32_t joins = 0;
+                  std::uint32_t msgs = 0;
+                  std::string eids;
+                  for (auto const& record : chat->journal) {
+                    if (!record.event.is_valid()) {
+                      continue;
+                    }
+                    if (!eids.empty()) {
+                      eids += ',';
+                    }
+                    eids += std::to_string(record.event.id().id());
+                    auto const cid = record.event->GetClassId();
+                    if (cid == JoinClientEvent::kClassId) {
+                      ++joins;
+                    } else if (cid == AddMessageEvent::kClassId) {
+                      ++msgs;
+                    }
+                  }
+                  room_trace.Line(
+                      "layer=CHAT_JOURNAL_STATE peer=" +
+                      FormatAetherUid(cmd.peer) +
+                      " join_count=" + std::to_string(joins) +
+                      " message_count=" + std::to_string(msgs) +
+                      " has_local_join=" +
+                      (component.HasLocalJoin() ? "true" : "false") +
+                      " event_ids=" + eids);
+                }
                 publish_presentation(component);
               } else if constexpr (std::is_same_v<T, NetworkReadyEvent>) {
                 // already handled at boot
@@ -985,6 +1532,7 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                 component_stopped.store(true, std::memory_order::release);
                 phase_cv.notify_all();
               } else if constexpr (std::is_same_v<T, FinalizeShutdownCommand>) {
+                room_state.Save();
                 finalize_model_to_ram(component, app, chat);
                 finalize_done.store(true, std::memory_order::release);
                 phase_cv.notify_all();
@@ -997,6 +1545,25 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
       }
 
       component.Tick(now);
+      room.Tick(now);
+      // Event-driven: Tick may apply auto-accepted sync without an inbound
+      // packet handler. Re-evaluate own Join while WaitingForOwnJoin.
+      if (room.ui_status() == chat::RoomUiStatus::kWaitingForOwnJoin) {
+        if (room_trace.enabled()) {
+          room_trace.Event("ROOM_WAITING_FOR_OWN_JOIN", {}, {}, {},
+                           std::to_string(room.applied_revision()), {}, {},
+                           component.HasLocalJoin() ? "has_join" : "no_join");
+        }
+        if (component.HasLocalJoin()) {
+          if (room_trace.enabled()) {
+            room_trace.Event("ROOM_OWN_JOIN_DETECTED", {}, {}, {},
+                             std::to_string(room.applied_revision()), {}, {},
+                             "tick");
+          }
+          room.NotifyLocalJoinAppeared();
+          publish_presentation(component);
+        }
+      }
       maybe_peer_inbox();
 
       // Detect newly visible message keys for harness (stdout).
