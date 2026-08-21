@@ -449,6 +449,17 @@ void ChatSyncController::Receive(ae::Uid const& remote_uid,
   ReceiveKnown(remote_uid, bytes);
 }
 
+void ChatSyncController::LocalEventCommitted(Node::ptr node,
+                                             EventRecord const& record) {
+  assert(node.is_valid());
+  assert(record.event.is_valid());
+  last_tick_now_ = ae::Now();
+  for (auto& runtime : sessions_) {
+    assert(runtime.session != nullptr);
+    runtime.session->PublishCommittedEvent(node, record);
+  }
+}
+
 void ChatSyncController::Tick(ae::TimePoint now) {
   last_tick_now_ = now;
   DrainPendingAutoAccept();

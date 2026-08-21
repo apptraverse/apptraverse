@@ -10,6 +10,8 @@
 #include "aether/obj/obj_id.h"
 
 #include "apptraverse/object_graph_copy.h"
+#include "apptraverse/event_record.h"
+#include "apptraverse/node.h"
 #include "apptraverse/sync_packet.h"
 #include "apptraverse/sync_session_state.h"
 
@@ -32,6 +34,10 @@ class SharedGraphSyncSession : public SyncPacketHandler {
 
   void StartOrResume();
   void Poll();
+  // Immediate publish of a locally committed Event (no DiscoverSharedGraph).
+  // Skips when already delivered/pending, covered by pending node-state, or
+  // initial sync is incomplete. Poll remains the recovery fallback.
+  void PublishCommittedEvent(Node::ptr node, EventRecord const& record);
   void RetryPending();
   void Receive(SerializedSyncPacket const& bytes);
 

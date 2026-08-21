@@ -52,7 +52,8 @@ ChatComponent::ChatComponent(SyncReplica replica, Client::ptr local_client,
                              Chat::ptr chat, SendFunction send,
                              RawSendFunction raw_send, ConnectFunction connect,
                              ChatSyncTiming timing, LogFunction log)
-    : local_client_{std::move(local_client)},
+    : storage_{&replica.storage},
+      local_client_{std::move(local_client)},
       chat_{[&] {
         auto c = std::move(chat);
         assert(c.is_valid());
@@ -81,6 +82,7 @@ ChatComponent::ChatComponent(SyncReplica replica, Client::ptr local_client,
   assert(local_client_.is_loaded());
   assert(replica.shared_root_id == chat_.id());
   assert(LocalClientHasJoinInJournal(chat_, local_client_));
+  assert(storage_ != nullptr);
 }
 
 ChatComponent::~ChatComponent() { Stop(); }
@@ -152,8 +154,21 @@ std::optional<std::uint32_t> ChatComponent::SubmitText(std::string text) {
   event->author = local_client_;
   event->text = std::move(text);
   auto const event_id = event.id().id();
+
   chat_->Commit(event);
   chat_.Save();
+
+  EventRecord const* committed = nullptr;
+  for (auto const& record : chat_->journal) {
+    if (record.event.is_valid() && record.event.id().id() == event_id) {
+      committed = &record;
+      break;
+    }
+  }
+  assert(committed != nullptr);
+  // Immediate sync publish before presentation (outbound enqueue first).
+  sync_.LocalEventCommitted(chat_, *committed);
+
   NotifyPresentationChanged();
   return event_id;
 }

@@ -48,6 +48,10 @@ void AetherP2pTransport::SetLogHandler(LogHandler handler) {
   on_log_ = std::move(handler);
 }
 
+void AetherP2pTransport::SetPreWriteHandler(PreWriteHandler handler) {
+  on_pre_write_ = std::move(handler);
+}
+
 AetherP2pTransport::PeerSession* AetherP2pTransport::FindSession(
     ae::Uid const& peer) {
   for (auto& session : sessions_) {
@@ -137,6 +141,9 @@ void AetherP2pTransport::Send(ae::Uid const& remote_uid,
     return;
   }
   auto const frame = EncodeAetherP2pFrame(bytes, size);
+  if (on_pre_write_) {
+    on_pre_write_(remote_uid, frame.size());
+  }
   (void)session->stream->Write(ae::DataBuffer{frame.begin(), frame.end()});
 }
 

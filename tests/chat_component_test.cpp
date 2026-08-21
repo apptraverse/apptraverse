@@ -672,6 +672,48 @@ void TestConnectBeforeSendOnStartAndAddPeer() {
   }
 }
 
+void TestSubmitTextImmediateSyncSend() {
+  auto left_uid = MakeUid(0x71);
+  auto right_uid = MakeUid(0x72);
+  Side left{"WinImm", left_uid};
+  Side right{"AndImm", right_uid};
+
+  int sync_sends = 0;
+  ChatComponent* left_ptr = nullptr;
+  ChatComponent* right_ptr = nullptr;
+  auto left_c = std::make_unique<ChatComponent>(
+      left.Replica(), left.graph.local_client, left.graph.chat,
+      [&](ae::Uid const& dest, ae::ObjId, SerializedSyncPacket const& bytes) {
+        CHECK(dest == right_uid);
+        ++sync_sends;
+        if (right_ptr != nullptr) {
+          right_ptr->Receive(left_uid, bytes);
+        }
+      },
+      MakeDirectRawSend(right_ptr, left_uid, right_uid),
+      ChatComponent::ConnectFunction{}, ChatSyncTiming{});
+  auto right_c = MakeComponent(right, left_ptr, left_uid);
+  left_ptr = left_c.get();
+  right_ptr = right_c.get();
+
+  auto now = ae::Now();
+  left_c->Start();
+  right_c->Start();
+  CHECK(left_c->AddPeer(right_uid) == AddPeerResult::kAdded);
+  TickUntilInitialSync(*left_c, *right_c, left_uid, right_uid, now);
+
+  sync_sends = 0;
+  CHECK(left_c->SubmitText("imm-send").has_value());
+  CHECK(sync_sends >= 1);
+  auto const sends_after_submit = sync_sends;
+  left_c->Tick(now);
+  // Gate suppresses immediate same-packet retry within one Tick.
+  CHECK(sync_sends == sends_after_submit);
+
+  left_c->Stop();
+  right_c->Stop();
+}
+
 }  // namespace apptraverse::test
 
 int main() {
@@ -691,6 +733,7 @@ int main() {
   apptraverse::test::TestStopThenStartNewSubscription();
   apptraverse::test::TestDestructionStopsCallbacks();
   apptraverse::test::TestConnectBeforeSendOnStartAndAddPeer();
+  apptraverse::test::TestSubmitTextImmediateSyncSend();
   std::cout << "chat_component_test OK\n";
   return 0;
 }

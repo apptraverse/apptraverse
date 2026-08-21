@@ -237,9 +237,11 @@ void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
   packet->timestamp_us = record.timestamp_us;
   packet->event = build_event;
 
+  auto encoded = SyncPacketCodec{}.Encode(packet);
+
   PendingSyncPacketState pending;
   pending.packet_id = packet.id();
-  pending.serialized_bytes = SyncPacketCodec{}.Encode(packet);
+  pending.serialized_bytes = std::move(encoded);
   pending.kind = PendingSyncPacketKind::kEvent;
   pending.node_id = node.id();
   pending.event_id = event.id();
@@ -290,6 +292,28 @@ void SharedGraphSyncSession::StartOrResume() {
 
   RetryPending();
   Poll();
+}
+
+void SharedGraphSyncSession::PublishCommittedEvent(Node::ptr node,
+                                                   EventRecord const& record) {
+  assert(node.is_valid());
+  assert(record.event.is_valid());
+  auto const event_id = record.event.id();
+  if (ContainsId(state_->data.delivered_event_ids, event_id)) {
+    return;
+  }
+  if (IsEventCoveredByPendingNodeState(event_id)) {
+    return;
+  }
+  if (HasPendingEvent(event_id)) {
+    return;
+  }
+  // Mirror Poll: EventPackets are only created after initial sync completes.
+  // Pre-completion Events ride in the pending node-state packet.
+  if (!state_->data.initial_sync_complete) {
+    return;
+  }
+  SendEventPacket(node, record);
 }
 
 void SharedGraphSyncSession::Poll() {

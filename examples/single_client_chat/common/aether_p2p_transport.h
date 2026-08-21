@@ -28,6 +28,9 @@ class AetherP2pTransport {
   using ReceiveHandler = std::function<void(
       ae::Uid const& peer, std::vector<std::uint8_t> const& payload)>;
   using LogHandler = std::function<void(std::string line)>;
+  // Invoked on the calling thread immediately before stream->Write.
+  using PreWriteHandler = std::function<void(
+      ae::Uid const& peer, std::size_t frame_bytes)>;
 
   AetherP2pTransport() = default;
   AetherP2pTransport(AetherP2pTransport const&) = delete;
@@ -47,6 +50,7 @@ class AetherP2pTransport {
 
   void SetReceiveHandler(ReceiveHandler handler);
   void SetLogHandler(LogHandler handler);
+  void SetPreWriteHandler(PreWriteHandler handler);
 
  private:
   // Runtime only — never serialized. At most one per remote_uid.
@@ -74,6 +78,7 @@ class AetherP2pTransport {
   ae::Client::ptr local_client_;
   ReceiveHandler on_receive_;
   LogHandler on_log_;
+  PreWriteHandler on_pre_write_;
   ae::Subscription new_port_sub_;
   std::vector<std::unique_ptr<PeerSession>> sessions_;
 };

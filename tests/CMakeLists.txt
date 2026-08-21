@@ -48,6 +48,20 @@ add_test(
   COMMAND apptraverse_chat_peer_set_test
 )
 
+add_executable(apptraverse_domain_snapshot_io_test
+  domain_snapshot_io_test.cpp
+)
+
+target_link_libraries(apptraverse_domain_snapshot_io_test PRIVATE
+  apptraverse
+  apptraverse::chat_component
+)
+
+add_test(
+  NAME apptraverse_domain_snapshot_io_test
+  COMMAND apptraverse_domain_snapshot_io_test
+)
+
 add_executable(apptraverse_chat_sync_controller_test
   chat_sync_controller_test.cpp
 )

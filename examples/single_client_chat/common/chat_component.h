@@ -10,6 +10,8 @@
 #include "aether/clock.h"
 #include "aether/types/uid.h"
 
+#include "aether/obj/idomain_storage.h"
+
 #include "apptraverse/object_graph_copy.h"
 
 #include "chat_presentation.h"
@@ -76,6 +78,7 @@ class ChatComponent {
   void NotifyPresentationChanged();
   ChatParticipantView MakeParticipantView(Client::ptr client) const;
 
+  ae::IDomainStorage* storage_{nullptr};
   Client::ptr local_client_;
   Chat::ptr chat_;
   ChatPeerSet::ptr peer_set_;

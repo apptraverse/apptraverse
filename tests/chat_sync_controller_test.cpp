@@ -560,6 +560,169 @@ void TestControllerBidirectionalAndRestart() {
   CHECK(resumed);
 }
 
+void TestImmediateEventPublishAndPollFallback() {
+  auto left_uid = MakeUid(0xE1);
+  auto right_uid = MakeUid(0xE2);
+  Side left{"Windows", left_uid};
+  Side right{"Android", right_uid};
+
+  std::vector<ae::ObjId> left_event_packets;
+  chat::ChatSyncController* left_ptr = nullptr;
+  chat::ChatSyncController* right_ptr = nullptr;
+
+  auto left_send = [&](ae::Uid const& peer, ae::ObjId packet_id,
+                       SerializedSyncPacket const& bytes) {
+    CHECK(peer == right_uid);
+    // Classify by decoding would be heavy; count via session pending kinds.
+    left_event_packets.push_back(packet_id);
+    assert(right_ptr != nullptr);
+    right_ptr->Receive(left_uid, bytes);
+  };
+
+  chat::ChatSyncController left_ctrl(
+      left.Replica(), left.graph.chat, left.graph.peer_set, left_send,
+      MakeDirectRawSend(right_ptr, left_uid, right_uid),
+      chat::ChatSyncTiming{});
+  chat::ChatSyncController right_ctrl(
+      right.Replica(), right.graph.chat, right.graph.peer_set,
+      MakeDirectSend(left_ptr, right_uid, left_uid),
+      MakeDirectRawSend(left_ptr, right_uid, left_uid),
+      chat::ChatSyncTiming{});
+  left_ptr = &left_ctrl;
+  right_ptr = &right_ctrl;
+  left_ctrl.Start();
+  right_ctrl.Start();
+  left_ctrl.AddPeer(right_uid);
+  TickUntilInitialSync(left_ctrl, right_ctrl, left_uid, right_uid);
+
+  // 1. LocalEventCommitted publishes without Tick.
+  left_event_packets.clear();
+  auto before = left_event_packets.size();
+  {
+    auto event =
+        AddMessageEvent::ptr::Create(ae::CreateWith{*left.graph.chat.domain()});
+    event->author = left.graph.local_client;
+    event->text = "immediate-no-tick";
+    left.graph.chat->Commit(event);
+    left.graph.chat.Save();
+    EventRecord const* rec = nullptr;
+    for (auto const& r : left.graph.chat->journal) {
+      if (r.event.id() == event.id()) {
+        rec = &r;
+        break;
+      }
+    }
+    CHECK(rec != nullptr);
+    left_ctrl.LocalEventCommitted(left.graph.chat, *rec);
+  }
+  CHECK(left_event_packets.size() > before);
+
+  auto* session = left_ctrl.FindSession(right_uid);
+  CHECK(session != nullptr);
+  auto const pending_after_immediate = session->pending_packet_count();
+
+  // 2. First Tick must not create a duplicate EventPacket for same Event.
+  left_event_packets.clear();
+  left_ctrl.Tick(ae::Now());
+  CHECK(session->pending_packet_count() == pending_after_immediate);
+  // No new pending packet ids beyond retries of the same pending set.
+  for (int i = 0; i < 5; ++i) {
+    right_ctrl.Tick(ae::Now());
+    left_ctrl.Tick(ae::Now());
+    SleepMs(5);
+  }
+  CHECK(CountNeedle(right.Transcript(), "immediate-no-tick") == 1);
+
+  // 3. During incomplete initial sync, covered Event is not published again.
+  {
+    Side early_l{"EarlyL", MakeUid(0xE3)};
+    Side early_r{"EarlyR", MakeUid(0xE4)};
+    auto e_l_uid = MakeUid(0xE3);
+    auto e_r_uid = MakeUid(0xE4);
+    int event_kind_sends = 0;
+    chat::ChatSyncController* e_l_ptr = nullptr;
+    chat::ChatSyncController* e_r_ptr = nullptr;
+    chat::ChatSyncController e_l(
+        early_l.Replica(), early_l.graph.chat, early_l.graph.peer_set,
+        [&](ae::Uid const&, ae::ObjId, SerializedSyncPacket const& bytes) {
+          auto decoded = SyncPacketCodec{}.Decode(bytes);
+          if (decoded.packet->GetClassId() == EventPacket::kClassId) {
+            ++event_kind_sends;
+          }
+          e_r_ptr->Receive(e_l_uid, bytes);
+        },
+        MakeDirectRawSend(e_r_ptr, e_l_uid, e_r_uid), chat::ChatSyncTiming{});
+    chat::ChatSyncController e_r(
+        early_r.Replica(), early_r.graph.chat, early_r.graph.peer_set,
+        MakeDirectSend(e_l_ptr, e_r_uid, e_l_uid),
+        MakeDirectRawSend(e_l_ptr, e_r_uid, e_l_uid), chat::ChatSyncTiming{});
+    e_l_ptr = &e_l;
+    e_r_ptr = &e_r;
+    e_l.Start();
+    e_r.Start();
+    // Commit local event BEFORE pairing so it is folded into node-state.
+    SubmitViaChat(early_l.graph.chat, early_l.graph.local_client,
+                  "covered-by-node-state");
+    e_l.AddPeer(e_r_uid);
+    auto* early_session = e_l.FindSession(e_r_uid);
+    CHECK(early_session != nullptr);
+    CHECK(!early_session->initial_sync_complete());
+    EventRecord const* covered = nullptr;
+    early_l.graph.chat.Load();
+    for (auto const& r : early_l.graph.chat->journal) {
+      if (!r.event.is_valid()) {
+        continue;
+      }
+      auto msg = AddMessageEvent::ptr{r.event};
+      msg.Load();
+      if (msg.is_loaded() && msg->text == "covered-by-node-state") {
+        covered = &r;
+        break;
+      }
+    }
+    CHECK(covered != nullptr);
+    auto const sends_before = event_kind_sends;
+    e_l.LocalEventCommitted(early_l.graph.chat, *covered);
+    CHECK(event_kind_sends == sends_before);
+  }
+
+  // 4. Poll recovery: Event committed without LocalEventCommitted is found.
+  {
+    Side rec_l{"RecL", MakeUid(0xE5)};
+    Side rec_r{"RecR", MakeUid(0xE6)};
+    auto r_l_uid = MakeUid(0xE5);
+    auto r_r_uid = MakeUid(0xE6);
+    chat::ChatSyncController* r_l_ptr = nullptr;
+    chat::ChatSyncController* r_r_ptr = nullptr;
+    chat::ChatSyncController r_l(
+        rec_l.Replica(), rec_l.graph.chat, rec_l.graph.peer_set,
+        MakeDirectSend(r_r_ptr, r_l_uid, r_r_uid),
+        MakeDirectRawSend(r_r_ptr, r_l_uid, r_r_uid), chat::ChatSyncTiming{});
+    chat::ChatSyncController r_r(
+        rec_r.Replica(), rec_r.graph.chat, rec_r.graph.peer_set,
+        MakeDirectSend(r_l_ptr, r_r_uid, r_l_uid),
+        MakeDirectRawSend(r_l_ptr, r_r_uid, r_l_uid), chat::ChatSyncTiming{});
+    r_l_ptr = &r_l;
+    r_r_ptr = &r_r;
+    r_l.Start();
+    r_r.Start();
+    r_l.AddPeer(r_r_uid);
+    TickUntilInitialSync(r_l, r_r, r_l_uid, r_r_uid);
+
+    SubmitViaChat(rec_l.graph.chat, rec_l.graph.local_client, "poll-recovery");
+    // No LocalEventCommitted — Poll on Tick must discover it.
+    for (int i = 0; i < 200; ++i) {
+      r_l.Tick(ae::Now());
+      r_r.Tick(ae::Now());
+      SleepMs(5);
+      if (CountNeedle(rec_r.Transcript(), "poll-recovery") == 1) {
+        break;
+      }
+    }
+    CHECK(CountNeedle(rec_r.Transcript(), "poll-recovery") == 1);
+  }
+}
+
 void TestRetryTiming() {
   // A–H: time-based physical send cooldown (no WriteAction completion).
   auto left_uid = MakeUid(0xC3);
@@ -1282,6 +1445,7 @@ int main() {
   apptraverse::test::TestSyncPacketBringsPeerOnline();
   apptraverse::test::TestMessagesBeforePairingPersistAndMerge();
   apptraverse::test::TestControllerBidirectionalAndRestart();
+  apptraverse::test::TestImmediateEventPublishAndPollFallback();
   apptraverse::test::TestRetryTiming();
   std::cout << "chat_sync_controller_test OK\n";
   return 0;

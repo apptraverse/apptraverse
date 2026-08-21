@@ -11,6 +11,11 @@ target_link_libraries(win32_single_client_chat PRIVATE
   single_client_chat_common
 )
 
+# Event-driven Windows path (UI / business / network threads).
+target_sources(win32_single_client_chat PRIVATE
+  event_driven_runtime.cpp
+)
+
 target_include_directories(win32_single_client_chat PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../common

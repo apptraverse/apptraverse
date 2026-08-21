@@ -44,6 +44,7 @@
 #include "win_chat_presenter.h"
 #include "win_window_presenter.h"
 #include "windows_window.h"
+#include "event_driven_runtime.h"
 
 namespace apptraverse {
 namespace {
@@ -81,6 +82,8 @@ struct CliOptions {
   bool exit_after_message{false};
   bool exit_after_pending_clear{false};
   std::optional<ae::Uid> p2p_ping;
+  bool event_driven_runtime{false};
+  std::optional<std::filesystem::path> latency_trace;
   bool parse_error{false};
 };
 
@@ -155,6 +158,12 @@ CliOptions ParseCli(int argc, char** argv) {
         if (options.p2p_ping.has_value() && options.p2p_ping->empty()) {
           options.parse_error = true;
         }
+      }
+    } else if (arg == "--event-driven-runtime") {
+      options.event_driven_runtime = true;
+    } else if (arg == "--latency-trace") {
+      if (auto const* value = need_value("--latency-trace")) {
+        options.latency_trace = value;
       }
     } else {
       std::cerr << "Unknown argument: " << arg << '\n';
@@ -875,6 +884,29 @@ int main(int argc, char** argv) {
   auto options = ParseCli(argc, argv);
   if (options.parse_error) {
     return 1;
+  }
+  if (options.event_driven_runtime) {
+    apptraverse::examples::EventDrivenCliOptions ed;
+    ed.state_dir = options.state_dir;
+    ed.aether_client_name = options.aether_client_name;
+    ed.distill = options.distill;
+    ed.print_aether_uid = options.print_aether_uid;
+    ed.peer = options.peer;
+    ed.peer_inbox = options.peer_inbox;
+    if (char const* inst = std::getenv("APPTRAVERSE_INSTANCE")) {
+      ed.window_title_suffix = inst;
+    }
+    if (options.latency_trace.has_value()) {
+      ed.latency_trace = *options.latency_trace;
+    } else if (char const* lat = std::getenv("APPTRAVERSE_LATENCY_TRACE")) {
+      if (lat[0] != '\0') {
+        ed.latency_trace = lat;
+      }
+    }
+    if (options.distill) {
+      return apptraverse::examples::DistillEventDriven(ed);
+    }
+    return apptraverse::examples::RunEventDriven(ed);
   }
   if (options.distill) {
     Distill(options.state_dir);

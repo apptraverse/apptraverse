@@ -60,6 +60,7 @@ add_library(apptraverse STATIC
   src/sync_packet.cpp
   src/sync_session_state.cpp
   src/shared_graph_sync_session.cpp
+  src/domain_snapshot_io.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

@@ -58,6 +58,9 @@ class ChatSyncController {
   void Start();
   void Stop();
   SharedGraphSyncSession& AddPeer(ae::Uid const& remote_uid);
+  // Notify sessions that a local Event was committed so they can publish
+  // immediately without waiting for Tick/Poll.
+  void LocalEventCommitted(Node::ptr node, EventRecord const& record);
   void Receive(ae::Uid const& remote_uid,
                std::vector<std::uint8_t> const& bytes);
   void Tick(ae::TimePoint now);
