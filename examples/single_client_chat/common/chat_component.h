@@ -60,6 +60,12 @@ class ChatComponent {
 
   AddPeerResult AddPeer(ae::Uid const& remote_uid);
   std::optional<std::uint32_t> SubmitText(std::string text);
+  bool HasLocalJoin() const;
+  // Publish a journal event committed outside SubmitText (e.g. host room Join).
+  void PublishCommittedJournalEvent(EventRecord const& record);
+
+  void SetIncomingPeerAuthorize(
+      ChatSyncController::IncomingPeerAuthorizeFunction fn);
 
   void Receive(ae::Uid const&, std::vector<std::uint8_t> const&);
   void Tick(ae::TimePoint);

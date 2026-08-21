@@ -2,6 +2,7 @@
 #define APPTRAVERSE_CHAT_COMPONENT_GRAPH_H_
 
 #include <cassert>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -15,6 +16,11 @@
 
 namespace apptraverse::chat {
 
+enum class LocalJoinPolicy : std::uint8_t {
+  kJoinLocal = 0,
+  kDoNotJoinLocal = 1,
+};
+
 struct ChatComponentGraph {
   Chat::ptr chat_base;
   Chat::ptr chat;
@@ -25,8 +31,7 @@ struct ChatComponentGraph {
 };
 
 // Create Chat / Client / ChatPeerSet and wire links. Does not CaptureBaseState
-// or Commit JoinClientEvent — call CaptureAndJoinChatComponentGraph after any
-// optional demo wiring (e.g. chat->presenter).
+// or Commit JoinClientEvent — call FinalizeChatComponentGraph afterwards.
 inline ChatComponentGraph MakeChatComponentGraph(ae::Domain& domain,
                                                  std::string_view local_name) {
   ChatComponentGraph graph{};
@@ -50,7 +55,7 @@ inline ChatComponentGraph MakeChatComponentGraph(ae::Domain& domain,
   return graph;
 }
 
-inline void CaptureAndJoinChatComponentGraph(ChatComponentGraph& graph) {
+inline void CaptureChatComponentGraph(ChatComponentGraph& graph) {
   assert(graph.local_client.is_valid());
   assert(graph.peer_set.is_valid());
   assert(graph.chat.is_valid());
@@ -59,18 +64,37 @@ inline void CaptureAndJoinChatComponentGraph(ChatComponentGraph& graph) {
   graph.local_client->CaptureBaseState();
   graph.peer_set->CaptureBaseState();
   graph.chat->CaptureBaseState();
+}
 
+inline void CommitLocalJoinChatComponentGraph(ChatComponentGraph& graph) {
+  assert(graph.local_client.is_valid());
+  assert(graph.chat.is_valid());
+  assert(graph.chat.domain() != nullptr);
   auto join = JoinClientEvent::ptr::Create(ae::CreateWith{*graph.chat.domain()});
   join->client = graph.local_client;
   graph.chat->Commit(join);
 }
 
+inline void FinalizeChatComponentGraph(ChatComponentGraph& graph,
+                                       LocalJoinPolicy policy) {
+  CaptureChatComponentGraph(graph);
+  if (policy == LocalJoinPolicy::kJoinLocal) {
+    CommitLocalJoinChatComponentGraph(graph);
+  }
+}
+
+// Legacy helper: capture + join local participant.
+inline void CaptureAndJoinChatComponentGraph(ChatComponentGraph& graph) {
+  FinalizeChatComponentGraph(graph, LocalJoinPolicy::kJoinLocal);
+}
+
 // Headless Chat / Client / ChatPeerSet graph with fixed Chat IDs.
-// No App / Window / Presenter objects.
+// Default preserves historical join-local behavior for Linux/Android/Apple.
 inline ChatComponentGraph BuildChatComponentGraph(
-    ae::Domain& domain, std::string_view local_name) {
+    ae::Domain& domain, std::string_view local_name,
+    LocalJoinPolicy policy = LocalJoinPolicy::kJoinLocal) {
   auto graph = MakeChatComponentGraph(domain, local_name);
-  CaptureAndJoinChatComponentGraph(graph);
+  FinalizeChatComponentGraph(graph, policy);
   return graph;
 }
 

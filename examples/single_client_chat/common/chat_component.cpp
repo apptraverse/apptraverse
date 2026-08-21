@@ -81,7 +81,7 @@ ChatComponent::ChatComponent(SyncReplica replica, Client::ptr local_client,
   local_client_.Load();
   assert(local_client_.is_loaded());
   assert(replica.shared_root_id == chat_.id());
-  assert(LocalClientHasJoinInJournal(chat_, local_client_));
+  // Room client mode may construct before host-created Join exists.
   assert(storage_ != nullptr);
 }
 
@@ -116,6 +116,15 @@ void ChatComponent::Stop() {
 
 bool ChatComponent::is_running() const { return running_; }
 
+bool ChatComponent::HasLocalJoin() const {
+  return LocalClientHasJoinInJournal(chat_, local_client_);
+}
+
+void ChatComponent::SetIncomingPeerAuthorize(
+    ChatSyncController::IncomingPeerAuthorizeFunction fn) {
+  sync_.SetIncomingPeerAuthorize(std::move(fn));
+}
+
 AddPeerResult ChatComponent::AddPeer(ae::Uid const& remote_uid) {
   if (!running_) {
     return AddPeerResult::kNotRunning;
@@ -137,9 +146,19 @@ AddPeerResult ChatComponent::AddPeer(ae::Uid const& remote_uid) {
   return AddPeerResult::kAdded;
 }
 
+void ChatComponent::PublishCommittedJournalEvent(EventRecord const& record) {
+  if (!running_) {
+    return;
+  }
+  sync_.LocalEventCommitted(chat_, record);
+}
+
 std::optional<std::uint32_t> ChatComponent::SubmitText(std::string text) {
   text = TrimWhitespace(std::move(text));
   if (text.empty() || !running_) {
+    return std::nullopt;
+  }
+  if (!LocalClientHasJoinInJournal(chat_, local_client_)) {
     return std::nullopt;
   }
   assert(chat_.is_valid());

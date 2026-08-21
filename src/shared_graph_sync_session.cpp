@@ -182,6 +182,8 @@ void SharedGraphSyncSession::SendInitialNodeState(Node::ptr root) {
   assert(root.is_loaded());
   assert(!HasPendingInitialNodeState());
 
+  Trace("SYNC_INITIAL_BUILD_BEGIN target=" + std::to_string(root.id().id()));
+
   ae::RamDomainStorage build_storage;
   ae::Domain build_domain{ae::Now(), build_storage};
   CopyObjectGraph(root, local_.storage, build_domain, build_storage,
@@ -201,6 +203,23 @@ void SharedGraphSyncSession::SendInitialNodeState(Node::ptr root) {
   pending.node_id = root.id();
   pending.event_ids = CollectSharedGraphEventIds(root);
   pending.is_initial_state = true;
+
+  std::string event_list;
+  for (auto const& eid : pending.event_ids) {
+    if (!event_list.empty()) {
+      event_list += ',';
+    }
+    event_list += std::to_string(eid.id());
+  }
+  Trace("SYNC_INITIAL_PACKET_CREATED packet=" +
+        std::to_string(pending.packet_id.id()) +
+        " event_ids=" + event_list +
+        " bytes=" + std::to_string(pending.serialized_bytes.size()));
+  Trace("SYNC_INITIAL_PACKET_EVENT_IDS packet=" +
+        std::to_string(pending.packet_id.id()) + " ids=" + event_list);
+  Trace("SYNC_INITIAL_BUILD_END packet=" +
+        std::to_string(pending.packet_id.id()) +
+        " events=" + std::to_string(pending.event_ids.size()));
 
   auto bytes = pending.serialized_bytes;
   auto const packet_id = pending.packet_id;
@@ -260,6 +279,10 @@ void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
 }
 
 void SharedGraphSyncSession::StartOrResume() {
+  Trace("SYNC_SESSION_START_OR_RESUME initial_complete=" +
+        std::string{state_->data.initial_sync_complete ? "1" : "0"} +
+        " initial_started=" +
+        std::string{state_->data.initial_sync_started ? "1" : "0"});
   if (!state_->data.initial_sync_started) {
     auto data = state_->data;
     data.initial_sync_started = true;
@@ -423,15 +446,17 @@ void SharedGraphSyncSession::MergeNodeStateGraph(
 
   auto entries = CollectOrderedJournalEntries(decoded_nodes);
   auto data = state_->data;
+  Trace("SYNC_NODE_STATE_RECEIVED events=" +
+        std::to_string(entries.size()));
   for (auto const& entry : entries) {
     auto local_node = LoadLocalNode(entry.node.id());
-    if (local_node->HasEvent(entry.record.event.id())) {
-      AddId(data.delivered_event_ids, entry.record.event.id());
-      continue;
-    }
     auto decoded_event = entry.record.event;
     decoded_event.Load();
     assert(decoded_event.is_loaded());
+    if (local_node->HasEvent(decoded_event.id())) {
+      AddId(data.delivered_event_ids, decoded_event.id());
+      continue;
+    }
     auto imported = ImportEventForAccept(decoded_event, decoded_storage);
     auto const result = local_node->TryAcceptRemoteEvent(
         std::move(imported), entry.record.timestamp_us);
@@ -439,7 +464,7 @@ void SharedGraphSyncSession::MergeNodeStateGraph(
     if (result == RemoteEventResult::kAccepted) {
       local_node.Save();
     }
-    AddId(data.delivered_event_ids, entry.record.event.id());
+    AddId(data.delivered_event_ids, decoded_event.id());
   }
   CommitData(std::move(data));
 }

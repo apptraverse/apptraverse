@@ -7,6 +7,7 @@
 #include "model/chat_events.h"
 #include "model/chat_peer_events.h"
 #include "model/chat_peer_set.h"
+#include "model/chat_room_local_state.h"
 #include "model/client.h"
 
 namespace apptraverse {
@@ -18,6 +19,7 @@ APPTRAVERSE_REGISTER(AddMessageEvent);
 APPTRAVERSE_REGISTER(Chat);
 APPTRAVERSE_REGISTER(ChatPeerSet);
 APPTRAVERSE_REGISTER(AddChatPeerEvent);
+APPTRAVERSE_REGISTER(ChatRoomLocalState);
 
 }  // namespace
 

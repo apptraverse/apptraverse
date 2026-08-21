@@ -7,6 +7,8 @@
 
 #include "aether/types/uid.h"
 
+#include "model/chat_room_local_state.h"
+
 namespace apptraverse::examples {
 
 struct EventDrivenCliOptions {
@@ -14,10 +16,16 @@ struct EventDrivenCliOptions {
   std::string aether_client_name;
   bool distill{false};
   bool print_aether_uid{false};
-  std::optional<ae::Uid> peer;
-  std::optional<std::filesystem::path> peer_inbox;
   std::optional<std::filesystem::path> latency_trace;
-  std::string window_title_suffix;
+
+  // Required for --event-driven-runtime (role / exact title / display name).
+  std::optional<ChatRoomRole> role;
+  std::string title;
+  std::string participant_name;
+  // Client-only optional host seed; invalid for host.
+  std::optional<ae::Uid> host_uid;
+  // Opt-in room control diagnostic trace (runtime-only; not persisted).
+  std::optional<std::filesystem::path> room_trace;
 };
 
 // Distill model into <state>/model and prepare empty <state>/aether.

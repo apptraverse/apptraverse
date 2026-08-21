@@ -249,6 +249,8 @@ void ChatSyncController::OfferPhysicalSend(RuntimeSession& runtime,
   if (!IsPersistentPending(runtime, packet_id)) {
     Log(ae::Format("SYNC_TRANSPORT_WRITE peer={} packet={} oneshot=1",
                    FormatUid(runtime.remote_uid), packet_id.id()));
+    Log(ae::Format("SYNC_TRANSPORT_SEND peer={} packet={}",
+                   FormatUid(runtime.remote_uid), packet_id.id()));
     send_(runtime.remote_uid, packet_id, bytes);
     return;
   }
@@ -264,6 +266,8 @@ void ChatSyncController::OfferPhysicalSend(RuntimeSession& runtime,
   Log(ae::Format("SYNC_TRANSPORT_WRITE peer={} packet={} attempt={}",
                  FormatUid(runtime.remote_uid), packet_id.id(),
                  runtime.write_gate.attempt_count(packet_id)));
+  Log(ae::Format("SYNC_TRANSPORT_SEND peer={} packet={}",
+                 FormatUid(runtime.remote_uid), packet_id.id()));
   send_(runtime.remote_uid, packet_id, bytes);
 }
 
@@ -327,9 +331,17 @@ void ChatSyncController::Stop() {
   }
 }
 
+void ChatSyncController::SetIncomingPeerAuthorize(
+    IncomingPeerAuthorizeFunction fn) {
+  incoming_peer_authorize_ = std::move(fn);
+}
+
 SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
   assert(!remote_uid.empty());
+  Log(ae::Format("CHAT_ADD_PEER_REQUEST peer={}", FormatUid(remote_uid)));
   if (auto* existing = FindSession(remote_uid)) {
+    Log(ae::Format("CHAT_ADD_PEER_RESULT peer={} result=already_present",
+                   FormatUid(remote_uid)));
     return *existing;
   }
 
@@ -339,16 +351,21 @@ SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
   assert(peer.session_state.is_valid());
   Log(ae::Format("CHAT_PEER_ADDED uid={} session_state_id={}",
                  FormatUid(remote_uid), peer.session_state.id().id()));
+  Log(ae::Format("SYNC_SESSION_CREATE peer={}", FormatUid(remote_uid)));
 
   auto& runtime =
       EnsureRuntimeSession(remote_uid, peer.session_state);
   SendPresence(runtime, ChatPresenceMessage::kOnline, ae::Now());
   EmitInitialMarkers(runtime);
   runtime.session->StartOrResume();
+  Log(ae::Format("CHAT_ADD_PEER_RESULT peer={} result=added",
+                 FormatUid(remote_uid)));
   if (runtime.session->initial_sync_complete() &&
       !runtime.last_initial_sync_complete) {
     runtime.last_initial_sync_complete = true;
     Log(ae::Format("CHAT_SYNC_INITIAL_COMPLETE peer={}",
+                   FormatUid(runtime.remote_uid)));
+    Log(ae::Format("SYNC_INITIAL_COMPLETE peer={}",
                    FormatUid(runtime.remote_uid)));
   }
   return *runtime.session;
@@ -440,12 +457,24 @@ void ChatSyncController::DrainPendingAutoAccept() {
 void ChatSyncController::Receive(ae::Uid const& remote_uid,
                                  std::vector<std::uint8_t> const& bytes) {
   assert(!remote_uid.empty());
+  Log(ae::Format("SYNC_TRANSPORT_RECEIVE peer={} bytes={}",
+                 FormatUid(remote_uid), bytes.size()));
   if (FindRuntime(remote_uid) == nullptr) {
+    if (incoming_peer_authorize_ && !incoming_peer_authorize_(remote_uid)) {
+      Log(ae::Format("CHAT_PEER_UNAUTHORIZED_DROP uid={}", FormatUid(remote_uid)));
+      Log(ae::Format("CHAT_SYNC_AUTH peer={} result=deny reason=unauthorized",
+                     FormatUid(remote_uid)));
+      return;
+    }
+    Log(ae::Format("CHAT_SYNC_AUTH peer={} result=allow reason=auto_accept",
+                   FormatUid(remote_uid)));
     // Defer AddPeer/session creation out of the transport receive callback.
     QueueAutoAccept(remote_uid, bytes);
     return;
   }
 
+  Log(ae::Format("CHAT_SYNC_AUTH peer={} result=allow reason=known_session",
+                 FormatUid(remote_uid)));
   ReceiveKnown(remote_uid, bytes);
 }
 
