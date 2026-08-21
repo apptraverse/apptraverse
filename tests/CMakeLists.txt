@@ -239,6 +239,20 @@ target_link_libraries(apptraverse_windows_window_policy_test PRIVATE
   single_client_chat_common
 )
 
+if(WIN32)
+  add_executable(apptraverse_win_chat_transcript_test
+    win_chat_transcript_test.cpp
+  )
+  target_include_directories(apptraverse_win_chat_transcript_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../examples/single_client_chat/windows
+    ${CMAKE_CURRENT_SOURCE_DIR}/../examples/single_client_chat/common
+  )
+  add_test(
+    NAME apptraverse_win_chat_transcript_test
+    COMMAND apptraverse_win_chat_transcript_test
+  )
+endif()
+
 target_include_directories(apptraverse_windows_window_policy_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../examples/single_client_chat/windows
 )

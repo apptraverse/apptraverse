@@ -15,8 +15,8 @@
 #include "model/chat_presenter.h"
 #include "apptraverse/object_macros.h"
 #include "../common/chat_presentation.h"
-#include "../common/chat_transcript.h"
 #include "win_add_peer_dialog.h"
+#include "win_chat_transcript.h"
 
 namespace apptraverse {
 
@@ -124,7 +124,7 @@ class WinChatPresenter : public ChatPresenter {
     if (transcript_ == nullptr) {
       return;
     }
-    auto const utf8 = examples::FormatChatPresentationUtf8(snapshot);
+    auto const utf8 = examples::FormatWindowsChatPresentationUtf8(snapshot);
     std::wstring text = Utf8ToWide(utf8);
     // EDIT control expects CRLF line endings on Windows.
     std::wstring crlf;

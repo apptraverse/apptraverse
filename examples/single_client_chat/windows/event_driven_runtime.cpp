@@ -48,9 +48,9 @@
 #include "../common/aether_runtime.h"
 #include "../common/chat_component.h"
 #include "../common/chat_presentation.h"
-#include "../common/chat_transcript.h"
 #include "../common/graph_builder.h"
 #include "latency_trace.h"
+#include "win_chat_transcript.h"
 #include "win_add_peer_dialog.h"
 #include "win_chat_presenter.h"
 #include "win_window_presenter.h"
@@ -387,7 +387,7 @@ class EventDrivenUi {
     if (transcript_ == nullptr) {
       return;
     }
-    auto const utf8 = FormatChatPresentationUtf8(snapshot);
+    auto const utf8 = FormatWindowsChatPresentationUtf8(snapshot);
     std::wstring text = Utf8ToWide(utf8);
     std::wstring crlf;
     crlf.reserve(text.size() + 8);
