@@ -77,13 +77,19 @@ int main() {
   };
 
   int host_joins = 0;
+  int host_add_peer = 0;
+  int client_add_peer = 0;
+  std::vector<RoomControlType> host_out_types;
   std::vector<std::string> rejects;
   RoomMembershipHooks host_hooks{};
   host_hooks.send_control = [&](ae::Uid const& peer,
                                 std::vector<std::uint8_t> const& bytes) {
     auto decoded = TryDecodeRoomControl(bytes);
-    if (decoded && decoded->type == RoomControlType::kMembershipReject) {
-      rejects.push_back(decoded->display_name);
+    if (decoded) {
+      host_out_types.push_back(decoded->type);
+      if (decoded->type == RoomControlType::kMembershipReject) {
+        rejects.push_back(decoded->display_name);
+      }
     }
     put(peer, host_uid, bytes);
   };
@@ -93,7 +99,7 @@ int main() {
     return true;
   };
   host_hooks.has_local_join = [] { return true; };
-  host_hooks.add_chat_peer = [](ae::Uid const&) {};
+  host_hooks.add_chat_peer = [&](ae::Uid const&) { ++host_add_peer; };
 
   RoomMembershipController host{ChatRoomRole::kHost, host_uid, 100, "HostUser",
                                 host_state, host_hooks};
@@ -109,7 +115,7 @@ int main() {
     put(peer, c1_uid, bytes);
   };
   c1_hooks.has_local_join = [&] { return c1_has_join; };
-  c1_hooks.add_chat_peer = [](ae::Uid const&) {};
+  c1_hooks.add_chat_peer = [&](ae::Uid const&) { ++client_add_peer; };
   RoomMembershipController c1{ChatRoomRole::kClient, c1_uid, 201, "ClientOne",
                               c1_state, c1_hooks};
 
@@ -132,6 +138,7 @@ int main() {
         } else if (key == ae::Format("{}", c1_uid)) {
           c1.OnControl(from, *decoded);
           if (decoded->type == RoomControlType::kMembershipSnapshot) {
+            // Simulate own Join appearing via Chat sync after Snapshot/AddPeer.
             c1_has_join = true;
             c1.NotifyLocalJoinAppeared();
           }
@@ -140,8 +147,12 @@ int main() {
     }
   };
 
-  // Host + one Client → revision 2, two participants, one Join.
+  // Fresh Host+1 = Hello → Snapshot → Applied → Chat AddPeer → Join once.
+  // Join is created on HostFinishActivation (after Applied/AddPeer), not before
+  // Snapshot, so initial NodeState stays transport-safe.
+  host_out_types.clear();
   c1.ClientConnect(host_uid);
+  CHECK(c1.IsAuthorizedSyncPeer(host_uid));  // Host UID known after Connect.
   for (int i = 0; i < 40; ++i) {
     deliver_all();
     host.Tick(ae::Now());
@@ -155,10 +166,26 @@ int main() {
   CHECK(c1.applied_revision() == 2);
   CHECK(host.ActiveParticipants().size() == 2);
   CHECK(c1.CanSendChat());
+  CHECK(client_add_peer >= 1);
+  CHECK(host_add_peer >= 1);  // Host AddPeer at Snapshot (accepted identity)
 
-  // Duplicate ClientHello → reconnect, no Join/revision bump.
+  // Prepare/Activate must not appear on Host+1 critical outbound path.
+  for (auto t : host_out_types) {
+    CHECK(t != RoomControlType::kMembershipPrepare);
+    CHECK(t != RoomControlType::kMembershipActivate);
+  }
+  bool saw_snapshot = false;
+  for (auto t : host_out_types) {
+    if (t == RoomControlType::kMembershipSnapshot) {
+      saw_snapshot = true;
+    }
+  }
+  CHECK(saw_snapshot);
+
+  // 5: Duplicate ClientHello → reconnect, no Join/revision bump.
   auto const rev = host.applied_revision();
   auto const joins_before = host_joins;
+  auto const host_add_before = host_add_peer;
   {
     RoomControlMessage hello{};
     hello.type = RoomControlType::kClientHello;
@@ -175,6 +202,19 @@ int main() {
   CHECK(host.applied_revision() == rev);
   CHECK(host_joins == joins_before);
   CHECK(c1.ui_status() == RoomUiStatus::kActive);
+  CHECK(host_add_peer >= host_add_before);  // idempotent AddPeer allowed
+
+  // 6: Duplicate Snapshot/Applied idempotent.
+  {
+    RoomControlMessage snap{};
+    snap.type = RoomControlType::kMembershipSnapshot;
+    snap.revision = 2;
+    snap.participants = host.ActiveParticipants();
+    auto const status_before = c1.ui_status();
+    c1.OnControl(host_uid, snap);
+    CHECK(c1.ui_status() == status_before);
+    CHECK(c1.applied_revision() == 2);
+  }
 
   // Same UID, different ObjId → identity_mismatch.
   rejects.clear();
@@ -201,6 +241,9 @@ int main() {
   deliver_all();
   CHECK(!rejects.empty());
   CHECK(rejects.back() == "client_id_conflict");
+
+  // 12: Unknown UID still not authorized for Chat sync on Host.
+  CHECK(!host.IsAuthorizedSyncPeer(MakeUid(9)));
 
   std::cout << "room_membership_test OK\n";
   return 0;

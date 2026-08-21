@@ -200,6 +200,14 @@ void ChatComponent::Receive(ae::Uid const& remote_uid,
   sync_.Receive(remote_uid, bytes);
 }
 
+void ChatComponent::NotifyTransportSessionReady(
+    ae::Uid const& remote_uid, std::uint64_t transport_generation) {
+  if (!running_) {
+    return;
+  }
+  sync_.NotifyTransportSessionReady(remote_uid, transport_generation);
+}
+
 void ChatComponent::Tick(ae::TimePoint now) {
   if (!running_) {
     return;

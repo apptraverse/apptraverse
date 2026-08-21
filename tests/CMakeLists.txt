@@ -311,6 +311,83 @@ if(WIN32)
     COMMAND apptraverse_win_chat_transcript_test
   )
 
+  add_executable(apptraverse_win_room_connect_latency_test
+    win_room_connect_latency_test.cpp
+  )
+  target_link_libraries(apptraverse_win_room_connect_latency_test PRIVATE
+    user32
+  )
+  add_dependencies(apptraverse_win_room_connect_latency_test
+    win32_single_client_chat
+  )
+  add_test(
+    NAME apptraverse_win_room_connect_latency_test
+    COMMAND apptraverse_win_room_connect_latency_test
+      --exe $<TARGET_FILE:win32_single_client_chat>
+  )
+  set_tests_properties(apptraverse_win_room_connect_latency_test PROPERTIES
+    TIMEOUT 600
+    RUN_SERIAL TRUE
+  )
+
+  add_executable(apptraverse_win_room_asymmetric_restart_test
+    win_room_asymmetric_restart_test.cpp
+  )
+  target_link_libraries(apptraverse_win_room_asymmetric_restart_test PRIVATE
+    user32
+  )
+  add_dependencies(apptraverse_win_room_asymmetric_restart_test
+    win32_single_client_chat
+  )
+  add_test(
+    NAME apptraverse_win_room_asymmetric_restart_test
+    COMMAND apptraverse_win_room_asymmetric_restart_test
+      --exe $<TARGET_FILE:win32_single_client_chat>
+  )
+  set_tests_properties(apptraverse_win_room_asymmetric_restart_test PROPERTIES
+    TIMEOUT 600
+    RUN_SERIAL TRUE
+  )
+
+  add_executable(apptraverse_win_room_restart_latency_bench_test
+    win_room_restart_latency_bench_test.cpp
+  )
+  target_link_libraries(apptraverse_win_room_restart_latency_bench_test PRIVATE
+    user32
+  )
+  add_dependencies(apptraverse_win_room_restart_latency_bench_test
+    win32_single_client_chat
+  )
+  add_test(
+    NAME apptraverse_win_room_restart_latency_bench_test
+    COMMAND apptraverse_win_room_restart_latency_bench_test
+      --exe $<TARGET_FILE:win32_single_client_chat>
+      --cycles 10
+  )
+  set_tests_properties(apptraverse_win_room_restart_latency_bench_test PROPERTIES
+    TIMEOUT 900
+    RUN_SERIAL TRUE
+  )
+
+  add_executable(apptraverse_win_room_repeated_restart_test
+    win_room_repeated_restart_test.cpp
+  )
+  target_link_libraries(apptraverse_win_room_repeated_restart_test PRIVATE
+    user32
+  )
+  add_dependencies(apptraverse_win_room_repeated_restart_test
+    win32_single_client_chat
+  )
+  add_test(
+    NAME apptraverse_win_room_repeated_restart_test
+    COMMAND apptraverse_win_room_repeated_restart_test
+      --exe $<TARGET_FILE:win32_single_client_chat>
+  )
+  set_tests_properties(apptraverse_win_room_repeated_restart_test PROPERTIES
+    TIMEOUT 900
+    RUN_SERIAL TRUE
+  )
+
   add_executable(apptraverse_win_initial_presentation_test
     win_initial_presentation_test.cpp
   )

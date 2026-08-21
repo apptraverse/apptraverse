@@ -70,6 +70,12 @@ class ChatSyncController {
                std::vector<std::uint8_t> const& bytes);
   void Tick(ae::TimePoint now);
 
+  // Transport replaced a stale P2P session (peer process restart). Clear the
+  // write-gate cooldown and re-offer pending packets at most once per
+  // transport generation.
+  void NotifyTransportSessionReady(ae::Uid const& remote_uid,
+                                   std::uint64_t transport_generation);
+
   std::size_t runtime_session_count() const { return sessions_.size(); }
   SharedGraphSyncSession* FindSession(ae::Uid const& remote_uid);
   SharedGraphSyncSession const* FindSession(ae::Uid const& remote_uid) const;
@@ -93,6 +99,16 @@ class ChatSyncController {
     bool currently_online{false};
     std::optional<ae::TimePoint> last_seen;
     ae::TimePoint last_heartbeat_sent{};
+    // Last transport generation that received SYNC_RECONNECT_FLUSH.
+    std::uint64_t last_flushed_transport_generation{0};
+    // One presence-rejoin flush per offline→online epoch.
+    bool flushed_for_current_online_epoch{false};
+    // One peer-activity flush while the same pending set is gated (covers the
+    // case where the remote process restarts without a new P2P session
+    // generation on this side).
+    bool flushed_for_peer_activity_{false};
+    // One flush after the peer missed a heartbeat window while pending is gated.
+    bool flushed_for_stale_peer_{false};
   };
 
   struct PendingAutoAccept {
@@ -120,6 +136,11 @@ class ChatSyncController {
                     ae::TimePoint now);
   void ApplyOnlineTransition(RuntimeSession& runtime);
   void ApplyOfflineTransition(RuntimeSession& runtime, char const* reason);
+  void FlushPendingImmediate(RuntimeSession& runtime,
+                             std::uint64_t transport_generation,
+                             char const* reason);
+  void FlushPendingOnPresenceRejoin(RuntimeSession& runtime);
+  void FlushPendingOnPeerActivity(RuntimeSession& runtime);
   void DrivePresence(RuntimeSession& runtime, ae::TimePoint now);
   void QueueAutoAccept(ae::Uid const& remote_uid,
                        std::vector<std::uint8_t> const& bytes);

@@ -55,6 +55,7 @@ class RoomMembershipController {
 
   RoomUiStatus ui_status() const { return ui_status_; }
   std::string const& error() const { return error_; }
+  ae::Uid const& host_uid() const { return host_uid_; }
   std::uint64_t applied_revision() const { return applied_revision_; }
   bool CanSendChat() const { return ui_status_ == RoomUiStatus::kActive; }
   bool IsAuthorizedSyncPeer(ae::Uid const& uid) const;
@@ -65,6 +66,8 @@ class RoomMembershipController {
 
   // Client: begin connection to host.
   void ClientConnect(ae::Uid host_uid);
+  // Active Client: idempotent Hello + transport connect after Host restart.
+  void ClientNudgeReconnect();
 
   void OnControl(ae::Uid const& from, RoomControlMessage const& msg);
   void Tick(ae::TimePoint now);

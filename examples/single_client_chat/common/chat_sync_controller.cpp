@@ -141,6 +141,7 @@ void ChatSyncController::ApplyOnlineTransition(RuntimeSession& runtime) {
   if (!runtime.ever_seen_online) {
     runtime.ever_seen_online = true;
     runtime.currently_online = true;
+    runtime.flushed_for_current_online_epoch = false;
     Log(ae::Format("CHAT_PEER_ONLINE peer={}", FormatUid(runtime.remote_uid)));
     NotifyChanged();
     return;
@@ -149,6 +150,9 @@ void ChatSyncController::ApplyOnlineTransition(RuntimeSession& runtime) {
     runtime.currently_online = true;
     Log(ae::Format("CHAT_PEER_REJOINED peer={}",
                    FormatUid(runtime.remote_uid)));
+    // SessionReady may have flushed while the remote process was still
+    // binding; allow exactly one additional flush on offline→online.
+    FlushPendingOnPresenceRejoin(runtime);
     NotifyChanged();
   }
 }
@@ -159,9 +163,157 @@ void ChatSyncController::ApplyOfflineTransition(RuntimeSession& runtime,
     return;
   }
   runtime.currently_online = false;
+  runtime.flushed_for_current_online_epoch = false;
+  runtime.flushed_for_peer_activity_ = false;
+  runtime.flushed_for_stale_peer_ = false;
   Log(ae::Format("CHAT_PEER_OFFLINE peer={} reason={}",
                  FormatUid(runtime.remote_uid), reason));
   NotifyChanged();
+}
+
+void ChatSyncController::FlushPendingImmediate(
+    RuntimeSession& runtime, std::uint64_t transport_generation,
+    char const* reason) {
+  assert(runtime.session != nullptr);
+  if (transport_generation == 0) {
+    Log(ae::Format(
+        "SYNC_RECONNECT_FLUSH_SUPPRESSED peer={} reason=invalid_generation",
+        FormatUid(runtime.remote_uid)));
+    return;
+  }
+  if (transport_generation <= runtime.last_flushed_transport_generation) {
+    Log(ae::Format(
+        "SYNC_RECONNECT_FLUSH_SUPPRESSED peer={} generation={} "
+        "reason=already_flushed_generation",
+        FormatUid(runtime.remote_uid), transport_generation));
+    return;
+  }
+  auto const pending = runtime.session->pending_packet_count();
+  runtime.last_flushed_transport_generation = transport_generation;
+  Log(ae::Format(
+      "CHAT_SYNC_RECONNECT_BEGIN peer={} generation={} pending_count={} "
+      "reason={}",
+      FormatUid(runtime.remote_uid), transport_generation, pending,
+      reason != nullptr ? reason : "transport"));
+  Log(ae::Format(
+      "SYNC_RECONNECT_FLUSH peer={} generation={} pending_count={} reason={}",
+      FormatUid(runtime.remote_uid), transport_generation, pending,
+      reason != nullptr ? reason : "transport"));
+  Log(ae::Format(
+      "CHAT_PENDING_FLUSH_BEGIN peer={} generation={} pending_count={}",
+      FormatUid(runtime.remote_uid), transport_generation, pending));
+  // Reset gate so the first physical attempt after reconnect is immediate;
+  // subsequent retries stay under SyncPacketWriteGate (2000 ms).
+  runtime.write_gate.Clear();
+  runtime.last_retry = {};
+  runtime.flushed_for_peer_activity_ = true;
+  auto const now = last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
+  // DrivePending (not only RetryPending) so reconnect does not wait for Tick.
+  DrivePending(runtime, now);
+  Log(ae::Format(
+      "CHAT_SYNC_RECONNECT_END peer={} generation={} pending_count={}",
+      FormatUid(runtime.remote_uid), transport_generation,
+      runtime.session->pending_packet_count()));
+}
+
+void ChatSyncController::FlushPendingOnPresenceRejoin(RuntimeSession& runtime) {
+  assert(runtime.session != nullptr);
+  if (runtime.flushed_for_current_online_epoch) {
+    Log(ae::Format(
+        "SYNC_RECONNECT_FLUSH_SUPPRESSED peer={} "
+        "reason=already_flushed_presence_epoch",
+        FormatUid(runtime.remote_uid)));
+    return;
+  }
+  runtime.flushed_for_current_online_epoch = true;
+  auto const pending = runtime.session->pending_packet_count();
+  Log(ae::Format(
+      "CHAT_SYNC_RECONNECT_BEGIN peer={} generation={} pending_count={} "
+      "reason=presence_rejoin",
+      FormatUid(runtime.remote_uid),
+      runtime.last_flushed_transport_generation, pending));
+  Log(ae::Format(
+      "SYNC_RECONNECT_FLUSH peer={} generation={} pending_count={} "
+      "reason=presence_rejoin",
+      FormatUid(runtime.remote_uid),
+      runtime.last_flushed_transport_generation, pending));
+  Log(ae::Format(
+      "CHAT_PENDING_FLUSH_BEGIN peer={} generation={} pending_count={} "
+      "reason=presence_rejoin",
+      FormatUid(runtime.remote_uid),
+      runtime.last_flushed_transport_generation, pending));
+  if (pending == 0) {
+    Log(ae::Format(
+        "CHAT_SYNC_RECONNECT_END peer={} generation={} pending_count=0",
+        FormatUid(runtime.remote_uid),
+        runtime.last_flushed_transport_generation));
+    return;
+  }
+  runtime.write_gate.Clear();
+  runtime.last_retry = {};
+  runtime.flushed_for_peer_activity_ = true;
+  auto const now = last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
+  DrivePending(runtime, now);
+  Log(ae::Format(
+      "CHAT_SYNC_RECONNECT_END peer={} generation={} pending_count={}",
+      FormatUid(runtime.remote_uid),
+      runtime.last_flushed_transport_generation,
+      runtime.session->pending_packet_count()));
+}
+
+void ChatSyncController::FlushPendingOnPeerActivity(RuntimeSession& runtime) {
+  assert(runtime.session != nullptr);
+  auto const pending = runtime.session->pending_packet_count();
+  if (pending == 0) {
+    runtime.flushed_for_peer_activity_ = false;
+    return;
+  }
+  if (runtime.flushed_for_peer_activity_) {
+    return;
+  }
+  if (runtime.write_gate.size() == 0) {
+    return;
+  }
+  // Remote is delivering on the wire again while our write-gate still holds
+  // a cooldown from a pre-restart attempt. Clear once and DrivePending now.
+  runtime.flushed_for_peer_activity_ = true;
+  Log(ae::Format(
+      "CHAT_SYNC_RECONNECT_BEGIN peer={} generation={} pending_count={} "
+      "reason=peer_activity",
+      FormatUid(runtime.remote_uid),
+      runtime.last_flushed_transport_generation, pending));
+  Log(ae::Format(
+      "SYNC_RECONNECT_FLUSH peer={} generation={} pending_count={} "
+      "reason=peer_activity",
+      FormatUid(runtime.remote_uid),
+      runtime.last_flushed_transport_generation, pending));
+  Log(ae::Format(
+      "CHAT_PENDING_FLUSH_BEGIN peer={} generation={} pending_count={} "
+      "reason=peer_activity",
+      FormatUid(runtime.remote_uid),
+      runtime.last_flushed_transport_generation, pending));
+  runtime.write_gate.Clear();
+  runtime.last_retry = {};
+  auto const now = last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
+  DrivePending(runtime, now);
+  Log(ae::Format(
+      "CHAT_SYNC_RECONNECT_END peer={} generation={} pending_count={} "
+      "reason=peer_activity",
+      FormatUid(runtime.remote_uid),
+      runtime.last_flushed_transport_generation,
+      runtime.session->pending_packet_count()));
+}
+
+void ChatSyncController::NotifyTransportSessionReady(
+    ae::Uid const& remote_uid, std::uint64_t transport_generation) {
+  auto* runtime = FindRuntime(remote_uid);
+  if (runtime == nullptr || runtime->session == nullptr) {
+    return;
+  }
+  Log(ae::Format("CHAT_TRANSPORT_SESSION_READY peer={} generation={}",
+                 FormatUid(remote_uid), transport_generation));
+  runtime->flushed_for_peer_activity_ = true;
+  FlushPendingImmediate(*runtime, transport_generation, "transport_generation");
 }
 
 void ChatSyncController::DrivePresence(RuntimeSession& runtime,
@@ -192,6 +344,8 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
     }
     runtime.last_pending_count = 0;
     runtime.write_gate.Clear();
+    runtime.flushed_for_peer_activity_ = false;
+    runtime.flushed_for_stale_peer_ = false;
     return;
   }
 
@@ -207,11 +361,31 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
   runtime.last_pending_count = pending;
   PruneWriteGate(runtime);
 
+  // Host may restart without a new Client session generation and without an
+  // immediate inbound packet. If the peer has been silent for a heartbeat
+  // window while the write-gate is holding a cooldown, allow one immediate
+  // re-offer (still at most once until last_seen moves again).
+  if (!runtime.flushed_for_stale_peer_ && runtime.write_gate.size() > 0 &&
+      runtime.last_seen.has_value() &&
+      now - *runtime.last_seen >= timing_.heartbeat_interval) {
+    runtime.flushed_for_stale_peer_ = true;
+    Log(ae::Format(
+        "CHAT_SYNC_RECONNECT_BEGIN peer={} generation={} pending_count={} "
+        "reason=stale_peer",
+        FormatUid(runtime.remote_uid),
+        runtime.last_flushed_transport_generation, pending));
+    Log(ae::Format(
+        "CHAT_PENDING_FLUSH_BEGIN peer={} generation={} pending_count={} "
+        "reason=stale_peer",
+        FormatUid(runtime.remote_uid),
+        runtime.last_flushed_transport_generation, pending));
+    runtime.write_gate.Clear();
+    runtime.last_retry = {};
+  }
+
   bool const retry_due = runtime.last_retry.time_since_epoch().count() == 0 ||
                          now - runtime.last_retry >= timing_.retry_interval;
   if (retry_due) {
-    // Re-offer every pending packet; SyncPacketWriteGate enforces the
-    // per-packet physical send cooldown (packet_retry_interval).
     runtime.session->RetryPending();
     runtime.last_retry = now;
   }
@@ -256,6 +430,10 @@ void ChatSyncController::OfferPhysicalSend(RuntimeSession& runtime,
   }
 
   if (!runtime.write_gate.TryBegin(packet_id, now)) {
+    // Gate still cooling down after a possibly-lost physical send. Allow a
+    // later peer-activity flush to clear the cooldown once the remote is
+    // delivering again.
+    runtime.flushed_for_peer_activity_ = false;
     Log(ae::Format(
         "SYNC_WRITE_SUPPRESSED peer={} packet={} attempts={}",
         FormatUid(runtime.remote_uid), packet_id.id(),
@@ -401,9 +579,11 @@ void ChatSyncController::ReceiveKnown(ae::Uid const& remote_uid,
   }
 
   runtime->last_seen = now;
+  runtime->flushed_for_stale_peer_ = false;
   ApplyOnlineTransition(*runtime);
 
   if (presence.has_value()) {
+    FlushPendingOnPeerActivity(*runtime);
     return;
   }
 
@@ -413,9 +593,12 @@ void ChatSyncController::ReceiveKnown(ae::Uid const& remote_uid,
   if (runtime->session->pending_packet_count() == 0) {
     runtime->write_gate.Clear();
     runtime->last_pending_count = 0;
+    runtime->flushed_for_peer_activity_ = false;
   } else {
     PruneWriteGate(*runtime);
     runtime->last_pending_count = runtime->session->pending_packet_count();
+    // After inbound sync on a live path, re-offer gated pending immediately.
+    FlushPendingOnPeerActivity(*runtime);
   }
 
   if (!runtime->last_initial_sync_complete &&
@@ -483,6 +666,8 @@ void ChatSyncController::LocalEventCommitted(Node::ptr node,
   assert(node.is_valid());
   assert(record.event.is_valid());
   last_tick_now_ = ae::Now();
+  Log(ae::Format("CHAT_EVENT_COMMITTED event={} target={}",
+                 record.event.id().id(), node.id().id()));
   for (auto& runtime : sessions_) {
     assert(runtime.session != nullptr);
     runtime.session->PublishCommittedEvent(node, record);

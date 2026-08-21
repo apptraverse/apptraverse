@@ -120,6 +120,13 @@ bool RoomMembershipController::IsAuthorizedSyncPeer(ae::Uid const& uid) const {
   if (uid.empty() || uid == local_uid_) {
     return false;
   }
+  // Host+1 Client: after Connect, accept Chat sync only from configured Host.
+  if (role_ == ChatRoomRole::kClient && !host_uid_.empty() && uid == host_uid_) {
+    if (ui_status_ != RoomUiStatus::kDisconnected &&
+        ui_status_ != RoomUiStatus::kError) {
+      return true;
+    }
+  }
   for (auto const& p : authorized_) {
     if (p.uid == uid) {
       return true;
@@ -209,6 +216,29 @@ void RoomMembershipController::ClientConnect(ae::Uid host_uid) {
   SetStatus(RoomUiStatus::kConnecting);
 }
 
+void RoomMembershipController::ClientNudgeReconnect() {
+  if (role_ != ChatRoomRole::kClient || host_uid_.empty()) {
+    return;
+  }
+  if (ui_status_ != RoomUiStatus::kActive &&
+      ui_status_ != RoomUiStatus::kWaitingForOwnJoin) {
+    return;
+  }
+  Log(ae::Format("ROOM_CLIENT_RECONNECT_NUDGE host={}", FormatUid(host_uid_)));
+  // Transport drop+connect is triggered by the runtime on CHAT_PEER_OFFLINE
+  // (ReconnectPeerCommand). Here only send an idempotent Hello so Host can
+  // answer Snapshot rev=2 without a new Join.
+  RoomControlMessage hello{};
+  hello.type = RoomControlType::kClientHello;
+  hello.revision = 0;
+  hello.client_obj_id = local_client_obj_id_;
+  hello.display_name = local_name_;
+  auto bytes = EncodeRoomControl(hello);
+  if (hooks_.send_control) {
+    hooks_.send_control(host_uid_, bytes);
+  }
+}
+
 void RoomMembershipController::HostSend(
     RoomControlType type, std::uint64_t revision,
     std::vector<RoomParticipantDesc> const& parts, ae::Uid const& to) {
@@ -246,13 +276,11 @@ void RoomMembershipController::HostBroadcast(
     }
     hooks_.send_control(p.uid, bytes);
   }
-  // New candidate may not be in authorized_ yet during Prepare.
-  if (type == RoomControlType::kMembershipPrepare ||
-      (!current_hello_.uid.empty() &&
-       std::none_of(authorized_.begin(), authorized_.end(), [&](auto const& p) {
-         return p.uid == current_hello_.uid;
-       }))) {
-    if (!current_hello_.uid.empty() && current_hello_.uid != local_uid_) {
+  if (!current_hello_.uid.empty() &&
+      std::none_of(authorized_.begin(), authorized_.end(), [&](auto const& p) {
+        return p.uid == current_hello_.uid;
+      })) {
+    if (current_hello_.uid != local_uid_) {
       hooks_.send_control(current_hello_.uid, bytes);
     }
   }
@@ -265,6 +293,9 @@ void RoomMembershipController::HostHandleReconnect(PendingHello const& hello) {
   candidate_list_ = authorized_;
   waiting_acks_.clear();
   waiting_acks_.insert(UidKey(hello.uid));
+  if (hooks_.connect_peer) {
+    hooks_.connect_peer(hello.uid);
+  }
   HostSend(RoomControlType::kMembershipSnapshot, applied_revision_, authorized_,
            hello.uid);
   host_phase_ = HostPhase::kWaitApplied;
@@ -281,8 +312,6 @@ void RoomMembershipController::HostHandleHello(ae::Uid const& from,
     return;
   }
 
-  // ClientHello is retried while Connecting. Deduplicate so one peer cannot
-  // enqueue N activations / reconnects after the first succeeds.
   auto const already_pending = [&](ae::Uid const& uid) {
     if (current_hello_.uid == uid) {
       return true;
@@ -321,6 +350,14 @@ void RoomMembershipController::HostHandleHello(ae::Uid const& from,
     }
   }
 
+  // Host+1: only one remote Client. Extra distinct UIDs are rejected.
+  for (auto const& p : authorized_) {
+    if (p.uid != local_uid_) {
+      HostReject(from, "unsupported");
+      return;
+    }
+  }
+
   PendingHello hello{from, msg.client_obj_id, msg.display_name};
   hello_queue_.push_back(hello);
   HostStartNext();
@@ -345,6 +382,10 @@ void RoomMembershipController::HostStartNext() {
     return;
   }
 
+  // Host+1 critical path: Hello → rev2 + Snapshot (no Prepare/Activate).
+  // Client Chat Join is created in HostFinishActivation after AddPeer so the
+  // initial NodeState stays under the known unreliable large-P2P threshold;
+  // Join is then delivered as a follow-up EventPacket.
   activation_is_reconnect_ = false;
   candidate_revision_ = applied_revision_ + 1;
   candidate_list_ = CandidateWith(current_hello_);
@@ -353,43 +394,23 @@ void RoomMembershipController::HostStartNext() {
   if (hooks_.connect_peer) {
     hooks_.connect_peer(current_hello_.uid);
   }
-  HostSend(RoomControlType::kMembershipPrepare, candidate_revision_,
-           candidate_list_, current_hello_.uid);
-  host_phase_ = HostPhase::kWaitPrepared;
-  activation_started_ = ae::Now();
-  Log(ae::Format("ROOM_ACTIVATION_BEGIN rev={} uid={}", candidate_revision_,
-                 FormatUid(current_hello_.uid)));
-}
-
-void RoomMembershipController::HostOnPrepared(ae::Uid const& from,
-                                              std::uint64_t revision) {
-  if (host_phase_ != HostPhase::kWaitPrepared ||
-      revision != candidate_revision_ || from != current_hello_.uid) {
-    return;
+  authorized_ = candidate_list_;
+  applied_revision_ = candidate_revision_;
+  PersistState();
+  if (hooks_.on_model_changed) {
+    hooks_.on_model_changed();
   }
-  // Commit participant + Join, then Snapshot.
-  if (!activation_is_reconnect_) {
-    if (hooks_.ensure_host_join) {
-      hooks_.ensure_host_join(current_hello_.uid, current_hello_.client_obj_id,
-                              current_hello_.name);
-    }
-    authorized_ = candidate_list_;
-    applied_revision_ = candidate_revision_;
-    PersistState();
-    if (hooks_.on_model_changed) {
-      hooks_.on_model_changed();
-    }
-  }
-  waiting_acks_.clear();
-  for (auto const& p : authorized_) {
-    if (p.uid != local_uid_) {
-      waiting_acks_.insert(UidKey(p.uid));
-    }
-  }
-  HostBroadcast(RoomControlType::kMembershipSnapshot, applied_revision_,
-                authorized_);
+  HostSend(RoomControlType::kMembershipSnapshot, applied_revision_, authorized_,
+           current_hello_.uid);
   host_phase_ = HostPhase::kWaitApplied;
   activation_started_ = ae::Now();
+  Log(ae::Format("ROOM_ACTIVATION_BEGIN rev={} uid={} path=hello_snapshot",
+                 applied_revision_, FormatUid(current_hello_.uid)));
+}
+
+void RoomMembershipController::HostOnPrepared(ae::Uid const& /*from*/,
+                                              std::uint64_t /*revision*/) {
+  // Prepare/Prepared are not part of the Host+1 critical path. Ignore.
 }
 
 void RoomMembershipController::HostOnApplied(ae::Uid const& from,
@@ -408,44 +429,31 @@ void RoomMembershipController::HostOnApplied(ae::Uid const& from,
   if (!waiting_acks_.empty()) {
     return;
   }
-  waiting_acks_.clear();
-  if (activation_is_reconnect_) {
-    waiting_acks_.insert(UidKey(current_hello_.uid));
-    HostSend(RoomControlType::kMembershipActivate, applied_revision_, {},
-             current_hello_.uid);
-  } else {
-    for (auto const& p : authorized_) {
-      if (p.uid != local_uid_) {
-        waiting_acks_.insert(UidKey(p.uid));
-      }
-    }
-    HostBroadcast(RoomControlType::kMembershipActivate, applied_revision_, {});
-  }
-  host_phase_ = HostPhase::kWaitActivated;
-  activation_started_ = ae::Now();
-}
-
-void RoomMembershipController::HostOnActivated(ae::Uid const& from,
-                                               std::uint64_t revision) {
-  if (host_phase_ != HostPhase::kWaitActivated ||
-      revision != applied_revision_) {
-    return;
-  }
-  waiting_acks_.erase(UidKey(from));
-  if (!waiting_acks_.empty()) {
-    return;
-  }
+  // Host+1: start Chat mesh immediately after Applied (no Activate round-trip).
   HostFinishActivation();
 }
 
+void RoomMembershipController::HostOnActivated(ae::Uid const& /*from*/,
+                                               std::uint64_t /*revision*/) {
+  // Optional informational ACK from Client — Host+1 does not wait on it.
+}
+
 void RoomMembershipController::HostFinishActivation() {
-  // Ensure AddPeer for all authorized peers on host.
+  PendingHello const hello = current_hello_;
+  bool const create_join =
+      !activation_is_reconnect_ && !hello.uid.empty() && hooks_.ensure_host_join;
+
+  // AddPeer first (NodeState = Host Join + pre-link msgs), then Client Join as
+  // EventPacket so initial NodeState stays under the large-P2P failure size.
   if (hooks_.add_chat_peer) {
     for (auto const& p : authorized_) {
       if (p.uid != local_uid_) {
         hooks_.add_chat_peer(p.uid);
       }
     }
+  }
+  if (create_join) {
+    hooks_.ensure_host_join(hello.uid, hello.client_obj_id, hello.name);
   }
   host_phase_ = HostPhase::kIdle;
   current_hello_ = {};
@@ -471,28 +479,30 @@ void RoomMembershipController::ClientSend(RoomControlType type,
 
 void RoomMembershipController::ClientApplySnapshot(
     RoomControlMessage const& msg) {
-  if (msg.revision <= applied_revision_ && applied_revision_ != 0 &&
-      msg.revision != applied_revision_) {
-    // stale
-    if (msg.revision < applied_revision_) {
-      return;
-    }
-  }
   if (msg.revision < applied_revision_) {
     return;
   }
   authorized_ = msg.participants;
   applied_revision_ = msg.revision;
   PersistState();
+  // ACK first so Host can AddPeer+Join while Client starts its own mesh.
   ClientSend(RoomControlType::kMembershipApplied, applied_revision_);
-  SetStatus(RoomUiStatus::kWaitingForActivate);
+  if (hooks_.add_chat_peer && !host_uid_.empty()) {
+    hooks_.add_chat_peer(host_uid_);
+  }
+  if (hooks_.has_local_join && hooks_.has_local_join()) {
+    last_control_payload_.clear();
+    SetStatus(RoomUiStatus::kActive);
+  } else {
+    SetStatus(RoomUiStatus::kWaitingForOwnJoin);
+  }
 }
 
 void RoomMembershipController::ClientActivate(std::uint64_t revision) {
+  // Legacy Activate is not required for Host+1. Treat as idempotent ACK path.
   if (revision != applied_revision_) {
     return;
   }
-  // Host+1: only mesh with Host. No Client↔Client peer fanout.
   if (hooks_.add_chat_peer && !host_uid_.empty()) {
     hooks_.add_chat_peer(host_uid_);
   }
@@ -500,7 +510,7 @@ void RoomMembershipController::ClientActivate(std::uint64_t revision) {
   if (hooks_.has_local_join && hooks_.has_local_join()) {
     last_control_payload_.clear();
     SetStatus(RoomUiStatus::kActive);
-  } else {
+  } else if (ui_status_ != RoomUiStatus::kActive) {
     SetStatus(RoomUiStatus::kWaitingForOwnJoin);
   }
 }
@@ -510,16 +520,20 @@ void RoomMembershipController::NotifyLocalJoinAppeared() {
       ui_status_ == RoomUiStatus::kWaitingForOwnJoin) {
     last_control_payload_.clear();
     SetStatus(RoomUiStatus::kActive);
+    // Informational ACK only — Host does not gate sync on this.
+    if (!host_uid_.empty() && applied_revision_ != 0) {
+      ClientSend(RoomControlType::kMembershipActivated, applied_revision_);
+      last_control_payload_.clear();
+    }
   }
 }
 
 void RoomMembershipController::OnControl(ae::Uid const& from,
                                          RoomControlMessage const& msg) {
   if (role_ == ChatRoomRole::kHost) {
-    // Bootstrap: ClientHello is accepted before the peer is authorized for
-    // Chat sync. Other control messages require an active or in-flight peer.
     if (msg.type != RoomControlType::kClientHello) {
-      bool allowed = (from == current_hello_.uid) || FindActive(from, nullptr, nullptr);
+      bool allowed =
+          (from == current_hello_.uid) || FindActive(from, nullptr, nullptr);
       if (!allowed) {
         Log(ae::Format("ROOM_CONTROL_REJECT_UNKNOWN from={} type={}",
                        FormatUid(from), static_cast<int>(msg.type)));
@@ -545,29 +559,15 @@ void RoomMembershipController::OnControl(ae::Uid const& from,
     return;
   }
 
-  // Client: only accept from configured host.
   if (host_uid_.empty() || from != host_uid_) {
     Log(ae::Format("ROOM_CONTROL_REJECT_NON_HOST from={}", FormatUid(from)));
     return;
   }
   switch (msg.type) {
     case RoomControlType::kMembershipPrepare:
-      if (msg.revision == 0) {
-        return;
-      }
-      if (ui_status_ == RoomUiStatus::kActive ||
-          ui_status_ == RoomUiStatus::kWaitingForOwnJoin) {
-        // Duplicate Hello-queue / reconnect noise: ACK without demoting.
-        ClientSend(RoomControlType::kMembershipPrepared, msg.revision);
-        break;
-      }
-      authorized_ = msg.participants;  // pre-authorized candidate
-      ClientSend(RoomControlType::kMembershipPrepared, msg.revision);
-      SetStatus(RoomUiStatus::kWaitingForSnapshot);
+      // Not required for Host+1. Ignore (compat).
       break;
     case RoomControlType::kMembershipSnapshot:
-      // Ignore snapshot while already active/waiting-join for this revision
-      // (duplicate reconnect / Hello-queue noise must not demote Active).
       if ((ui_status_ == RoomUiStatus::kActive ||
            ui_status_ == RoomUiStatus::kWaitingForOwnJoin) &&
           msg.revision == applied_revision_) {
@@ -577,15 +577,13 @@ void RoomMembershipController::OnControl(ae::Uid const& from,
       ClientApplySnapshot(msg);
       break;
     case RoomControlType::kMembershipActivate:
-      if (ui_status_ == RoomUiStatus::kWaitingForActivate ||
-          ui_status_ == RoomUiStatus::kWaitingForSnapshot) {
+      // Optional/legacy — idempotent.
+      if (ui_status_ == RoomUiStatus::kWaitingForOwnJoin ||
+          ui_status_ == RoomUiStatus::kActive ||
+          ui_status_ == RoomUiStatus::kWaitingForActivate ||
+          ui_status_ == RoomUiStatus::kWaitingForSnapshot ||
+          ui_status_ == RoomUiStatus::kConnecting) {
         ClientActivate(msg.revision);
-      } else if (ui_status_ == RoomUiStatus::kWaitingForOwnJoin ||
-                 ui_status_ == RoomUiStatus::kActive) {
-        // Idempotent ACK while host retries Activate until HostFinishActivation.
-        if (msg.revision == applied_revision_) {
-          ClientSend(RoomControlType::kMembershipActivated, applied_revision_);
-        }
       }
       break;
     case RoomControlType::kMembershipReject:
@@ -608,8 +606,6 @@ void RoomMembershipController::Tick(ae::TimePoint now) {
     if (now - activation_started_ > kAckTimeout) {
       Log(ae::Format("ROOM_ACTIVATION_TIMEOUT phase={} rev={}",
                      static_cast<int>(host_phase_), applied_revision_));
-      // Host stays Active for chat; abort only the in-flight activation so a
-      // late Hello can restart. Do not demote host UI to Error.
       host_phase_ = HostPhase::kIdle;
       last_control_payload_.clear();
       current_hello_ = {};

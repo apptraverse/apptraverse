@@ -69,6 +69,8 @@ class ChatComponent {
 
   void Receive(ae::Uid const&, std::vector<std::uint8_t> const&);
   void Tick(ae::TimePoint);
+  void NotifyTransportSessionReady(ae::Uid const& remote_uid,
+                                   std::uint64_t transport_generation);
 
   ChatPresentationSnapshot CapturePresentation() const;
 
