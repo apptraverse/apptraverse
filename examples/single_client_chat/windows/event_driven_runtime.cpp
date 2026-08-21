@@ -669,6 +669,46 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
   };
   PendingWriteCtx pending_write{};
 
+  // UI must exist before business publishes the first presentation (Join).
+  // PostSnapshot silently drops when hwnd_ is null.
+  ui.SetHandlers(
+      [&](std::string text) {
+        if (!ui_accepting.load(std::memory_order::acquire)) {
+          return;
+        }
+        auto key = text;
+        business_q.Push(SubmitTextCommand{std::move(text), std::move(key)});
+      },
+      [&](std::string const& remote_text) -> AddPeerUiResult {
+        if (!ui_accepting.load(std::memory_order::acquire)) {
+          return AddPeerUiResult::Invalid;
+        }
+        auto trimmed = remote_text;
+        while (!trimmed.empty() &&
+               (trimmed.front() == ' ' || trimmed.front() == '\t')) {
+          trimmed.erase(trimmed.begin());
+        }
+        auto const uid = ae::Uid::FromString(std::string_view{trimmed});
+        if (uid.empty()) {
+          return AddPeerUiResult::Invalid;
+        }
+        if (uid == aether_client->uid()) {
+          return AddPeerUiResult::Self;
+        }
+        business_q.Push(AddPeerCommand{uid, FormatAetherUid(uid)});
+        return AddPeerUiResult::Ok;
+      },
+      local_uid, &trace);
+
+  std::wstring title = L"AppTraverse Chat";
+  if (!options.window_title_suffix.empty()) {
+    title += L" [";
+    title += Utf8ToWide(options.window_title_suffix);
+    title += L"]";
+  }
+  ui.Create(title);
+  assert(ui.hwnd() != nullptr);
+
   // ---- Network thread ----
   std::thread network_thread([&]() {
     AetherP2pTransport transport;
@@ -982,44 +1022,7 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
     }
   });
 
-  // ---- UI thread (this thread) ----
-  ui.SetHandlers(
-      [&](std::string text) {
-        if (!ui_accepting.load(std::memory_order::acquire)) {
-          return;
-        }
-        auto key = text;
-        business_q.Push(SubmitTextCommand{std::move(text), std::move(key)});
-      },
-      [&](std::string const& remote_text) -> AddPeerUiResult {
-        if (!ui_accepting.load(std::memory_order::acquire)) {
-          return AddPeerUiResult::Invalid;
-        }
-        auto trimmed = remote_text;
-        while (!trimmed.empty() &&
-               (trimmed.front() == ' ' || trimmed.front() == '\t')) {
-          trimmed.erase(trimmed.begin());
-        }
-        auto const uid = ae::Uid::FromString(std::string_view{trimmed});
-        if (uid.empty()) {
-          return AddPeerUiResult::Invalid;
-        }
-        if (uid == aether_client->uid()) {
-          return AddPeerUiResult::Self;
-        }
-        business_q.Push(AddPeerCommand{uid, FormatAetherUid(uid)});
-        return AddPeerUiResult::Ok;
-      },
-      local_uid, &trace);
-
-  std::wstring title = L"AppTraverse Chat";
-  if (!options.window_title_suffix.empty()) {
-    title += L" [";
-    title += Utf8ToWide(options.window_title_suffix);
-    title += L"]";
-  }
-  ui.Create(title);
-
+  // ---- UI thread message loop (HWND already created) ----
   MSG msg{};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
     TranslateMessage(&msg);

@@ -251,6 +251,24 @@ if(WIN32)
     NAME apptraverse_win_chat_transcript_test
     COMMAND apptraverse_win_chat_transcript_test
   )
+
+  add_executable(apptraverse_win_initial_presentation_test
+    win_initial_presentation_test.cpp
+  )
+  target_link_libraries(apptraverse_win_initial_presentation_test PRIVATE
+    user32
+  )
+  add_dependencies(apptraverse_win_initial_presentation_test
+    win32_single_client_chat
+  )
+  add_test(
+    NAME apptraverse_win_initial_presentation_test
+    COMMAND apptraverse_win_initial_presentation_test
+      --exe $<TARGET_FILE:win32_single_client_chat>
+  )
+  set_tests_properties(apptraverse_win_initial_presentation_test PROPERTIES
+    TIMEOUT 180
+  )
 endif()
 
 target_include_directories(apptraverse_windows_window_policy_test PRIVATE
