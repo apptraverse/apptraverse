@@ -50,9 +50,11 @@ gboolean DispatchIdle(gpointer data) {
       gtk_widget_destroy(dialog);
     }
   }
-  delete job;
+  // Ownership: GDestroyNotify (IdleDestroy) frees the payload exactly once.
   return G_SOURCE_REMOVE;
 }
+
+void IdleDestroy(gpointer data) { delete static_cast<IdleJob*>(data); }
 
 std::string Trim(std::string_view text) {
   auto const first = text.find_first_not_of(" \t\r\n");
@@ -110,6 +112,9 @@ struct ShellWidgets {
 };
 
 void PostIdle(ShellWidgets* widgets, IdleJob::Kind kind, std::string text) {
+  if (!widgets->alive.load(std::memory_order::acquire)) {
+    return;
+  }
   auto* job = new IdleJob{};
   job->window = widgets->window;
   job->local_uid = widgets->local_uid;
@@ -118,12 +123,14 @@ void PostIdle(ShellWidgets* widgets, IdleJob::Kind kind, std::string text) {
   job->alive = &widgets->alive;
   job->kind = kind;
   job->text = std::move(text);
-  g_idle_add(DispatchIdle, job);
+  // Destroy notify owns the payload exactly once (callback must not delete).
+  g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, DispatchIdle, job, IdleDestroy);
 }
 
 void OnAddClicked(GtkButton*, gpointer user_data) {
   auto* widgets = static_cast<ShellWidgets*>(user_data);
-  if (widgets->runtime == nullptr) {
+  if (widgets->runtime == nullptr ||
+      !widgets->alive.load(std::memory_order::acquire)) {
     return;
   }
   auto const uid =
@@ -143,7 +150,8 @@ void OnAddClicked(GtkButton*, gpointer user_data) {
 
 void OnSendClicked(GtkButton*, gpointer user_data) {
   auto* widgets = static_cast<ShellWidgets*>(user_data);
-  if (widgets->runtime == nullptr) {
+  if (widgets->runtime == nullptr ||
+      !widgets->alive.load(std::memory_order::acquire)) {
     return;
   }
   auto const message =
