@@ -1043,13 +1043,11 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
 
     if (room_trace.enabled()) {
       transport.SetLogHandler([&](std::string line) {
-        room_trace.Line("layer=P2P_TRANSPORT_LOG result=" + line);
         if (line.find("P2P_SESSION_CREATE") != std::string::npos ||
             line.find("P2P_SESSION_REPLACE") != std::string::npos ||
             line.find("P2P_SESSION_DESTROY") != std::string::npos ||
-            line.find("P2P_SESSION_CALLBACK") != std::string::npos ||
             line.find("P2P_RECONNECT_SUPPRESSED") != std::string::npos) {
-          room_trace.Event("P2P_LIFETIME", {}, {}, {}, {}, {}, {}, line);
+          room_trace.Event("CHAT_PEER_READY", {}, {}, {}, {}, {}, {}, line);
         }
       });
     }
@@ -1062,45 +1060,14 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
 
     transport.SetReceiveHandler(
         [&](ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
-          if (room_trace.enabled()) {
-            room_trace.Event("P2P_PAYLOAD_RECEIVED", FormatAetherUid(peer), "in",
-                             {}, {}, {}, std::to_string(payload.size()), {});
-            if (*options.role == ChatRoomRole::kHost) {
-              room_trace.Event("HOST_P2P_RECEIVED", FormatAetherUid(peer), "in",
-                               {}, {}, {}, std::to_string(payload.size()), "ok");
-            }
-          }
           std::optional<chat::RoomControlMessage> room_msg;
           auto const room_kind =
               chat::ClassifyRoomControlInbound(payload, &room_msg);
           if (room_kind == chat::RoomInboundKind::kRoomControlOk) {
-            if (room_trace.enabled()) {
-              room_trace.Event("CONTROL_MAGIC_MATCH", FormatAetherUid(peer),
-                               "in", RoomControlTypeName(room_msg->type),
-                               std::to_string(room_msg->revision), {},
-                               std::to_string(payload.size()), "ok");
-              room_trace.Event("CONTROL_DECODE_OK", FormatAetherUid(peer), "in",
-                               RoomControlTypeName(room_msg->type),
-                               std::to_string(room_msg->revision), {},
-                               std::to_string(payload.size()), "ok");
-              room_trace.Event("BUSINESS_CONTROL_ENQUEUED",
-                               FormatAetherUid(peer), "in",
-                               RoomControlTypeName(room_msg->type),
-                               std::to_string(room_msg->revision), {},
-                               std::to_string(payload.size()), "ok");
-            }
             business_q.Push(InboundNetworkPacket{peer, payload});
             return;
           }
           if (room_kind == chat::RoomInboundKind::kRoomControlDecodeFail) {
-            if (room_trace.enabled()) {
-              room_trace.Event("CONTROL_MAGIC_MATCH", FormatAetherUid(peer),
-                               "in", {}, {}, {},
-                               std::to_string(payload.size()), "magic");
-              room_trace.Event("CONTROL_DECODE_FAIL", FormatAetherUid(peer),
-                               "in", {}, {}, {},
-                               std::to_string(payload.size()), "drop");
-            }
             // Never treat ATRM magic payloads as Chat sync.
             return;
           }
@@ -1345,74 +1312,41 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
           if (trace.enabled()) {
             trace.MarkFromProductLine(TraceThreadRole::kBusiness, line);
           } else if (room_trace.enabled()) {
-            room_trace.Line("layer=SYNC_LOG result=" + line);
-            auto const is_client = *options.role == ChatRoomRole::kClient;
-            auto const is_host = *options.role == ChatRoomRole::kHost;
-            if (is_client) {
-              if (line.find("CHAT_EVENT_COMMITTED") != std::string::npos) {
-                room_trace.Event("CLIENT_EVENT_COMMITTED", {}, {}, {}, {}, {},
-                                 {}, line);
-              }
-              if (line.find("SYNC_PACKET_CREATED kind=event") !=
-                  std::string::npos) {
-                room_trace.Event("CLIENT_PENDING_ADDED", {}, {}, {}, {}, {}, {},
-                                 line);
-              }
-              if (line.find("CHAT_PEER_REJOINED") != std::string::npos) {
-                room_trace.Event("CLIENT_HOST_RECONNECTED", {}, {}, {}, {}, {},
-                                 {}, line);
-              }
-              if (line.find("CHAT_TRANSPORT_SESSION_READY") !=
-                  std::string::npos) {
-                room_trace.Event("CLIENT_SESSION_READY", {}, {}, {}, {}, {}, {},
-                                 line);
-              }
-              if (line.find("CHAT_SYNC_RECONNECT_BEGIN") != std::string::npos) {
-                room_trace.Event("CLIENT_SYNC_RECONNECT_BEGIN", {}, {}, {}, {},
-                                 {}, {}, line);
-              }
-              if (line.find("CHAT_SYNC_RECONNECT_END") != std::string::npos) {
-                room_trace.Event("CLIENT_SYNC_RECONNECT_END", {}, {}, {}, {}, {},
-                                 {}, line);
-              }
-              if (line.find("CHAT_PENDING_FLUSH_BEGIN") != std::string::npos) {
-                room_trace.Event("CLIENT_PENDING_FLUSH_BEGIN", {}, {}, {}, {},
-                                 {}, {}, line);
-              }
-              if (line.find("SYNC_TRANSPORT_WRITE") != std::string::npos) {
-                room_trace.Event("CLIENT_SYNC_TRANSPORT_WRITE", {}, {}, {}, {},
-                                 {}, {}, line);
-              }
-              if (line.find("SYNC_ACK_RECEIVED") != std::string::npos) {
-                room_trace.Event("CLIENT_ACK_RECEIVED", {}, {}, {}, {}, {}, {},
-                                 line);
-              }
-              if (line.find("SYNC_PENDING_REMOVED") != std::string::npos) {
-                room_trace.Event("CLIENT_PENDING_REMOVED", {}, {}, {}, {}, {},
-                                 {}, line);
-              }
+            // Transition / acceptance markers only (no per-packet SYNC_LOG dump).
+            if (line.find("CHAT_EVENT_COMMITTED") != std::string::npos) {
+              room_trace.Event("CLIENT_EVENT_COMMITTED", {}, {}, {}, {}, {}, {},
+                               line);
             }
-            if (is_host) {
-              if (line.find("CHAT_TRANSPORT_SESSION_READY") !=
-                  std::string::npos) {
-                room_trace.Event("HOST_SESSION_READY", {}, {}, {}, {}, {}, {},
-                                 line);
-              }
-              if (line.find("SYNC_PACKET_RECEIVED") != std::string::npos) {
-                room_trace.Event("HOST_SYNC_PACKET_RECEIVED", {}, {}, {}, {}, {},
-                                 {}, line);
-              }
-              if (line.find("SYNC_EVENT_APPLIED") != std::string::npos) {
-                room_trace.Event("HOST_SYNC_EVENT_APPLIED", {}, {}, {}, {}, {},
-                                 {}, line);
-              }
+            if (line.find("SYNC_TRANSPORT_WRITE") != std::string::npos) {
+              room_trace.Event("CLIENT_SYNC_TRANSPORT_WRITE", {}, {}, {}, {}, {},
+                               {}, line);
+            }
+            if (line.find("CHAT_SYNC_RECONNECT_BEGIN") != std::string::npos) {
+              room_trace.Event("CLIENT_SYNC_RECONNECT_BEGIN", {}, {}, {}, {}, {},
+                               {}, line);
+            }
+            if (line.find("CHAT_TRANSPORT_SESSION_READY") != std::string::npos ||
+                line.find("CHAT_PEER_ONLINE") != std::string::npos ||
+                line.find("CHAT_PEER_REJOINED") != std::string::npos) {
+              room_trace.Event("CLIENT_SESSION_READY", {}, {}, {}, {}, {}, {},
+                               line);
+              room_trace.Event("CHAT_PEER_READY", {}, {}, {}, {}, {}, {}, line);
+            }
+            if (line.find("SYNC_INITIAL_COMPLETE") != std::string::npos ||
+                line.find("CHAT_SYNC_INITIAL_COMPLETE") != std::string::npos) {
+              room_trace.Event("SYNC_INITIAL_COMPLETE", {}, {}, {}, {}, {}, {},
+                               line);
+            }
+            if (line.find("CHAT_PENDING_CHANGED") != std::string::npos) {
+              room_trace.Event("PENDING_COUNT_CHANGED", {}, {}, {}, {}, {}, {},
+                               line);
+            }
+            if (line.find("SYNC_EVENT_APPLIED") != std::string::npos) {
+              room_trace.Event("HOST_SYNC_EVENT_APPLIED", {}, {}, {}, {}, {}, {},
+                               line);
             }
           }
           if (line.find("CHAT_PEER_OFFLINE") != std::string::npos) {
-            if (room_trace.enabled()) {
-              room_trace.Event("CLIENT_PEER_OFFLINE", {}, {}, {}, {}, {}, {},
-                               line);
-            }
             if (*options.role == ChatRoomRole::kClient && room_ptr != nullptr) {
               room_ptr->ClientNudgeReconnect();
               if (!room_ptr->host_uid().empty()) {
@@ -1587,29 +1521,39 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
           return true;
         };
     room_hooks.has_local_join = [&] { return component.HasLocalJoin(); };
+    room_hooks.probe_local_join = [&] {
+      chat::RoomLocalJoinIdentity id{};
+      auto const probe = component.ProbeLocalJoin();
+      id.local_client_obj_id = probe.local_client_obj_id;
+      id.join_client_obj_id = probe.join_client_obj_id;
+      id.obj_id_match =
+          probe.kind == chat::ChatComponent::LocalJoinMatchKind::kObjId;
+      id.name_fallback =
+          probe.kind == chat::ChatComponent::LocalJoinMatchKind::kNameFallback;
+      return id;
+    };
+    bool last_send_enabled = *options.role == ChatRoomRole::kHost;
     room_hooks.on_ui_changed = [&] {
       if (room_ptr != nullptr) {
-        if (room_trace.enabled()) {
-          room_trace.Event("CONTROLLER_STATE", {}, {}, {}, {},
-                           std::string("status=") +
-                               RoomUiStatusName(room_ptr->ui_status()),
-                           {}, room_ptr->CanSendChat() ? "send_ok" : "send_off");
-          if (room_ptr->CanSendChat()) {
-            room_trace.Event("ROOM_ACTIVE", {}, {}, {},
-                             std::to_string(room_ptr->applied_revision()), {},
-                             {}, "ok");
+        bool const send_ok = room_ptr->CanSendChat();
+        if (send_ok != last_send_enabled) {
+          if (room_trace.enabled()) {
+            room_trace.Event(
+                "UI_SEND_ENABLED_CHANGED", {}, {}, {}, {},
+                std::string(last_send_enabled ? "true" : "false") + "->" +
+                    (send_ok ? "true" : "false"),
+                {}, send_ok ? "1" : "0");
           }
+          last_send_enabled = send_ok;
         }
-        ui.PostSendEnabled(room_ptr->CanSendChat());
+        ui.PostSendEnabled(send_ok);
       }
     };
     room_hooks.on_model_changed = [&] { publish_presentation(component); };
     room_hooks.log = [&](std::string const& line) {
-      if (!trace.enabled()) {
-        std::cout << line << " t_us=" << UtcMicros() << '\n';
-      }
+      // Transition markers only; never dump controller logs to stdout/stderr.
       if (room_trace.enabled()) {
-        room_trace.Line("layer=CONTROLLER_LOG result=" + line);
+        room_trace.Line("layer=ROOM_TRANSITION result=" + line);
       }
     };
 
@@ -1639,7 +1583,7 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
         room_trace.Event("HOST_CHAT_COMPONENT_START", {}, {}, {}, {}, {}, {},
                          "pending");
       }
-      // Proactive transport connect to persisted accepted Client (rev>=2).
+      // Transport connect can run before ChatComponent::Start; AddPeer cannot.
       for (auto const& p : room.ActiveParticipants()) {
         if (p.uid == aether_client->uid()) {
           continue;
@@ -1670,6 +1614,18 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
     }
 
     component.Start();
+    if (*options.role == ChatRoomRole::kHost) {
+      // Restore Chat mesh for persisted accepted Client after Start so AddPeer
+      // is running. Complements connect_peer above (transport-only pre-Start).
+      for (auto const& p : room.ActiveParticipants()) {
+        if (p.uid == aether_client->uid()) {
+          continue;
+        }
+        if (room_hooks.add_chat_peer) {
+          room_hooks.add_chat_peer(p.uid);
+        }
+      }
+    }
     publish_presentation(component);
 
     auto maybe_peer_inbox = [&]() {};
@@ -1761,135 +1717,15 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                 auto const room_kind =
                     chat::ClassifyRoomControlInbound(cmd.bytes, &room_msg);
                 if (room_kind == chat::RoomInboundKind::kRoomControlOk) {
-                  if (room_trace.enabled()) {
-                    room_trace.Event(
-                        "BUSINESS_CONTROL_DEQUEUED", FormatAetherUid(cmd.peer),
-                        "in", RoomControlTypeName(room_msg->type),
-                        std::to_string(room_msg->revision), {},
-                        std::to_string(cmd.bytes.size()), "ok");
-                    if (room_msg->type ==
-                        chat::RoomControlType::kClientHello) {
-                      room_trace.Event("HOST_CLIENT_HELLO_RECEIVED",
-                                       FormatAetherUid(cmd.peer), "in",
-                                       "ClientHello",
-                                       std::to_string(room_msg->revision), {},
-                                       std::to_string(cmd.bytes.size()), "ok");
-                    } else if (room_msg->type ==
-                               chat::RoomControlType::kMembershipPrepare) {
-                      room_trace.Event("CLIENT_PREPARE_RECEIVED",
-                                       FormatAetherUid(cmd.peer), "in",
-                                       "MembershipPrepare",
-                                       std::to_string(room_msg->revision), {},
-                                       {}, "ok");
-                    } else if (room_msg->type ==
-                               chat::RoomControlType::kMembershipPrepared) {
-                      room_trace.Event("HOST_PREPARED_RECEIVED",
-                                       FormatAetherUid(cmd.peer), "in",
-                                       "MembershipPrepared",
-                                       std::to_string(room_msg->revision), {},
-                                       {}, "ok");
-                    } else if (room_msg->type ==
-                               chat::RoomControlType::kMembershipSnapshot) {
-                      room_trace.Event("CLIENT_SNAPSHOT_RECEIVED",
-                                       FormatAetherUid(cmd.peer), "in",
-                                       "MembershipSnapshot",
-                                       std::to_string(room_msg->revision), {},
-                                       {}, "ok");
-                    } else if (room_msg->type ==
-                               chat::RoomControlType::kMembershipApplied) {
-                      room_trace.Event("HOST_APPLIED_RECEIVED",
-                                       FormatAetherUid(cmd.peer), "in",
-                                       "MembershipApplied",
-                                       std::to_string(room_msg->revision), {},
-                                       {}, "ok");
-                    } else if (room_msg->type ==
-                               chat::RoomControlType::kMembershipActivate) {
-                      room_trace.Event("CLIENT_ACTIVATE_RECEIVED",
-                                       FormatAetherUid(cmd.peer), "in",
-                                       "MembershipActivate",
-                                       std::to_string(room_msg->revision), {},
-                                       {}, "ok");
-                    } else if (room_msg->type ==
-                               chat::RoomControlType::kMembershipActivated) {
-                      room_trace.Event("HOST_ACTIVATED_RECEIVED",
-                                       FormatAetherUid(cmd.peer), "in",
-                                       "MembershipActivated",
-                                       std::to_string(room_msg->revision), {},
-                                       {}, "ok");
-                    }
-                    room_trace.Event(
-                        "CONTROLLER_HANDLE_BEGIN", FormatAetherUid(cmd.peer),
-                        "in", RoomControlTypeName(room_msg->type),
-                        std::to_string(room_msg->revision),
-                        RoomUiStatusName(room.ui_status()), {}, "ok");
-                  }
-                  auto const before = room.ui_status();
                   room.OnControl(cmd.peer, *room_msg);
-                  if (room_trace.enabled()) {
-                    room_trace.Event(
-                        "CONTROLLER_HANDLE_END", FormatAetherUid(cmd.peer),
-                        "in", RoomControlTypeName(room_msg->type),
-                        std::to_string(room_msg->revision),
-                        std::string(RoomUiStatusName(before)) + "->" +
-                            RoomUiStatusName(room.ui_status()),
-                        {}, "ok");
-                  }
                 } else if (room_kind ==
                            chat::RoomInboundKind::kRoomControlDecodeFail) {
-                  if (room_trace.enabled()) {
-                    room_trace.Event("CONTROL_DECODE_FAIL",
-                                     FormatAetherUid(cmd.peer), "in", {}, {},
-                                     {}, std::to_string(cmd.bytes.size()),
-                                     "business_drop");
-                  }
+                  // Drop corrupt ATRM control; never treat as Chat sync.
                 } else {
                   component.Receive(cmd.peer, cmd.bytes);
                 }
                 if (component.HasLocalJoin()) {
-                  if (room.ui_status() ==
-                          chat::RoomUiStatus::kWaitingForOwnJoin &&
-                      room_trace.enabled()) {
-                    room_trace.Event("CLIENT_OWN_JOIN_DETECTED", {}, {}, {},
-                                     std::to_string(room.applied_revision()),
-                                     {}, {}, "inbound");
-                    room_trace.Event("ROOM_OWN_JOIN_DETECTED", {}, {}, {},
-                                     std::to_string(room.applied_revision()),
-                                     {}, {}, "inbound");
-                    room_trace.Event("CLIENT_INITIAL_SYNC_APPLIED", {}, {}, {},
-                                     {}, {}, {}, "ok");
-                    room_trace.Event("CLIENT_PRESENTATION_ENQUEUED", {}, {}, {},
-                                     {}, {}, {}, "ok");
-                  }
                   room.NotifyLocalJoinAppeared();
-                }
-                if (room_trace.enabled()) {
-                  chat.Load();
-                  std::uint32_t joins = 0;
-                  std::uint32_t msgs = 0;
-                  std::string eids;
-                  for (auto const& record : chat->journal) {
-                    if (!record.event.is_valid()) {
-                      continue;
-                    }
-                    if (!eids.empty()) {
-                      eids += ',';
-                    }
-                    eids += std::to_string(record.event.id().id());
-                    auto const cid = record.event->GetClassId();
-                    if (cid == JoinClientEvent::kClassId) {
-                      ++joins;
-                    } else if (cid == AddMessageEvent::kClassId) {
-                      ++msgs;
-                    }
-                  }
-                  room_trace.Line(
-                      "layer=CHAT_JOURNAL_STATE peer=" +
-                      FormatAetherUid(cmd.peer) +
-                      " join_count=" + std::to_string(joins) +
-                      " message_count=" + std::to_string(msgs) +
-                      " has_local_join=" +
-                      (component.HasLocalJoin() ? "true" : "false") +
-                      " event_ids=" + eids);
                 }
                 publish_presentation(component);
               } else if constexpr (std::is_same_v<T, NetworkReadyEvent>) {
@@ -1915,22 +1751,11 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
       component.Tick(now);
       room.Tick(now);
       // Event-driven: Tick may apply auto-accepted sync without an inbound
-      // packet handler. Re-evaluate own Join while WaitingForOwnJoin.
-      if (room.ui_status() == chat::RoomUiStatus::kWaitingForOwnJoin) {
-        if (room_trace.enabled()) {
-          room_trace.Event("ROOM_WAITING_FOR_OWN_JOIN", {}, {}, {},
-                           std::to_string(room.applied_revision()), {}, {},
-                           component.HasLocalJoin() ? "has_join" : "no_join");
-        }
-        if (component.HasLocalJoin()) {
-          if (room_trace.enabled()) {
-            room_trace.Event("ROOM_OWN_JOIN_DETECTED", {}, {}, {},
-                             std::to_string(room.applied_revision()), {}, {},
-                             "tick");
-          }
-          room.NotifyLocalJoinAppeared();
-          publish_presentation(component);
-        }
+      // packet handler. Re-evaluate own Join while WaitingForOwnJoin (silent).
+      if (room.ui_status() == chat::RoomUiStatus::kWaitingForOwnJoin &&
+          component.HasLocalJoin()) {
+        room.NotifyLocalJoinAppeared();
+        publish_presentation(component);
       }
       maybe_peer_inbox();
 

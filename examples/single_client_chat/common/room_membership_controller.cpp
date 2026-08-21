@@ -1,6 +1,7 @@
 #include "room_membership_controller.h"
 
 #include <algorithm>
+#include <string_view>
 
 #include "aether-miscpp/format/format.h"
 
@@ -14,6 +15,28 @@ std::string FormatUid(ae::Uid const& uid) { return ae::Format("{}", uid); }
 
 ae::Uid ParseUid(std::string const& text) {
   return ae::Uid::FromString(std::string_view{text});
+}
+
+char const* RoomUiStatusLabel(RoomUiStatus status) {
+  switch (status) {
+    case RoomUiStatus::kDisconnected:
+      return "Disconnected";
+    case RoomUiStatus::kConnecting:
+      return "Connecting";
+    case RoomUiStatus::kWaitingForPrepare:
+      return "WaitingForPrepare";
+    case RoomUiStatus::kWaitingForSnapshot:
+      return "WaitingForSnapshot";
+    case RoomUiStatus::kWaitingForActivate:
+      return "WaitingForActivate";
+    case RoomUiStatus::kWaitingForOwnJoin:
+      return "WaitingForOwnJoin";
+    case RoomUiStatus::kActive:
+      return "Active";
+    case RoomUiStatus::kError:
+      return "Error";
+  }
+  return "Unknown";
 }
 
 }  // namespace
@@ -64,11 +87,79 @@ void RoomMembershipController::SetStatus(RoomUiStatus status) {
     return;
   }
   auto const before = ui_status_;
+  bool const was_active = before == RoomUiStatus::kActive;
   ui_status_ = status;
-  Log(ae::Format("ROOM_UI_STATUS {}->{}", static_cast<int>(before),
-                 static_cast<int>(status)));
+  bool const now_active = status == RoomUiStatus::kActive;
+  Log(ae::Format("ROOM_STATE_CHANGED old={} new={}", RoomUiStatusLabel(before),
+                 RoomUiStatusLabel(status)));
+  if (was_active != now_active) {
+    Log(ae::Format("ROOM_ACTIVE_CHANGED {}->{}", was_active ? "true" : "false",
+                   now_active ? "true" : "false"));
+  }
   if (hooks_.on_ui_changed) {
     hooks_.on_ui_changed();
+  }
+}
+
+void RoomMembershipController::EnsureClientActiveIfJoined(
+    char const* reason, bool refresh_active_ui) {
+  if (role_ != ChatRoomRole::kClient) {
+    return;
+  }
+  bool const waiting =
+      ui_status_ == RoomUiStatus::kWaitingForOwnJoin ||
+      ui_status_ == RoomUiStatus::kConnecting ||
+      ui_status_ == RoomUiStatus::kWaitingForSnapshot ||
+      ui_status_ == RoomUiStatus::kWaitingForActivate;
+
+  RoomLocalJoinIdentity identity{};
+  if (hooks_.probe_local_join) {
+    identity = hooks_.probe_local_join();
+  } else if (hooks_.has_local_join && hooks_.has_local_join()) {
+    identity.obj_id_match = true;
+    identity.local_client_obj_id = local_client_obj_id_;
+    identity.join_client_obj_id = local_client_obj_id_;
+  }
+
+  if (identity.name_fallback && !identity.obj_id_match) {
+    Log(ae::Format(
+        "JOIN_IDENTITY_FALLBACK_USED local_client_obj_id={} "
+        "join_client_obj_id={}",
+        identity.local_client_obj_id, identity.join_client_obj_id));
+    return;
+  }
+  if (!identity.obj_id_match) {
+    return;
+  }
+
+  if (waiting) {
+    Log(ae::Format(
+        "JOIN_IDENTITY_MATCH local_client_obj_id={} join_client_obj_id={}",
+        identity.local_client_obj_id != 0 ? identity.local_client_obj_id
+                                          : local_client_obj_id_,
+        identity.join_client_obj_id != 0 ? identity.join_client_obj_id
+                                         : local_client_obj_id_));
+    Log("ROOM_OWN_JOIN_DETECTED");
+    last_control_payload_.clear();
+    SetStatus(RoomUiStatus::kActive);
+    if (!host_uid_.empty() && applied_revision_ != 0) {
+      ClientSend(RoomControlType::kMembershipActivated, applied_revision_);
+      last_control_payload_.clear();
+    }
+    if (reason != nullptr &&
+        std::string_view{reason} == "reconnect_snapshot_ack") {
+      Log("ROOM_RECONNECT_COMPLETED");
+    }
+    return;
+  }
+  if (refresh_active_ui && ui_status_ == RoomUiStatus::kActive) {
+    if (reason != nullptr &&
+        std::string_view{reason} == "reconnect_snapshot_ack") {
+      Log("ROOM_RECONNECT_COMPLETED");
+    }
+    if (hooks_.on_ui_changed) {
+      hooks_.on_ui_changed();
+    }
   }
 }
 
@@ -225,6 +316,7 @@ void RoomMembershipController::ClientNudgeReconnect() {
     return;
   }
   Log(ae::Format("ROOM_CLIENT_RECONNECT_NUDGE host={}", FormatUid(host_uid_)));
+  Log("ROOM_RECONNECT_STARTED");
   // Transport drop+connect is triggered by the runtime on CHAT_PEER_OFFLINE
   // (ReconnectPeerCommand). Here only send an idempotent Hello so Host can
   // answer Snapshot rev=2 without a new Join.
@@ -300,7 +392,7 @@ void RoomMembershipController::HostHandleReconnect(PendingHello const& hello) {
            hello.uid);
   host_phase_ = HostPhase::kWaitApplied;
   activation_started_ = ae::Now();
-  Log(ae::Format("ROOM_RECONNECT uid={}", FormatUid(hello.uid)));
+  Log(ae::Format("ROOM_RECONNECT_STARTED uid={}", FormatUid(hello.uid)));
 }
 
 void RoomMembershipController::HostHandleHello(ae::Uid const& from,
@@ -456,9 +548,15 @@ void RoomMembershipController::HostFinishActivation() {
     hooks_.ensure_host_join(hello.uid, hello.client_obj_id, hello.name);
   }
   host_phase_ = HostPhase::kIdle;
+  bool const was_reconnect = activation_is_reconnect_;
   current_hello_ = {};
   last_control_payload_.clear();
-  Log(ae::Format("ROOM_ACTIVATION_DONE rev={}", applied_revision_));
+  activation_is_reconnect_ = false;
+  if (was_reconnect) {
+    Log(ae::Format("ROOM_RECONNECT_COMPLETED rev={}", applied_revision_));
+  } else {
+    Log(ae::Format("ROOM_ACTIVATION_DONE rev={}", applied_revision_));
+  }
   HostStartNext();
 }
 
@@ -496,6 +594,7 @@ void RoomMembershipController::ClientApplySnapshot(
   } else {
     SetStatus(RoomUiStatus::kWaitingForOwnJoin);
   }
+  EnsureClientActiveIfJoined("apply_snapshot", true);
 }
 
 void RoomMembershipController::ClientActivate(std::uint64_t revision) {
@@ -507,25 +606,15 @@ void RoomMembershipController::ClientActivate(std::uint64_t revision) {
     hooks_.add_chat_peer(host_uid_);
   }
   ClientSend(RoomControlType::kMembershipActivated, applied_revision_);
-  if (hooks_.has_local_join && hooks_.has_local_join()) {
-    last_control_payload_.clear();
-    SetStatus(RoomUiStatus::kActive);
-  } else if (ui_status_ != RoomUiStatus::kActive) {
+  EnsureClientActiveIfJoined("activate", true);
+  if (ui_status_ != RoomUiStatus::kActive &&
+      ui_status_ != RoomUiStatus::kWaitingForOwnJoin) {
     SetStatus(RoomUiStatus::kWaitingForOwnJoin);
   }
 }
 
 void RoomMembershipController::NotifyLocalJoinAppeared() {
-  if (role_ == ChatRoomRole::kClient &&
-      ui_status_ == RoomUiStatus::kWaitingForOwnJoin) {
-    last_control_payload_.clear();
-    SetStatus(RoomUiStatus::kActive);
-    // Informational ACK only — Host does not gate sync on this.
-    if (!host_uid_.empty() && applied_revision_ != 0) {
-      ClientSend(RoomControlType::kMembershipActivated, applied_revision_);
-      last_control_payload_.clear();
-    }
-  }
+  EnsureClientActiveIfJoined("notify_local_join", false);
 }
 
 void RoomMembershipController::OnControl(ae::Uid const& from,
@@ -571,7 +660,13 @@ void RoomMembershipController::OnControl(ae::Uid const& from,
       if ((ui_status_ == RoomUiStatus::kActive ||
            ui_status_ == RoomUiStatus::kWaitingForOwnJoin) &&
           msg.revision == applied_revision_) {
+        // Reconnect / idempotent Snapshot: ACK Applied, ensure Chat mesh, and
+        // promote WaitingForOwnJoin→Active when Join is already local.
         ClientSend(RoomControlType::kMembershipApplied, applied_revision_);
+        if (hooks_.add_chat_peer && !host_uid_.empty()) {
+          hooks_.add_chat_peer(host_uid_);
+        }
+        EnsureClientActiveIfJoined("reconnect_snapshot_ack", true);
         break;
       }
       ClientApplySnapshot(msg);
@@ -596,6 +691,9 @@ void RoomMembershipController::OnControl(ae::Uid const& from,
 }
 
 void RoomMembershipController::Tick(ae::TimePoint now) {
+  if (role_ == ChatRoomRole::kClient) {
+    EnsureClientActiveIfJoined("tick", false);
+  }
   if (last_control_payload_.empty()) {
     if (role_ == ChatRoomRole::kHost) {
       HostStartNext();

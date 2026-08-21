@@ -45,6 +45,11 @@ class LatencyTrace {
     kModelSnapshotLoadEnd,
     kModelSnapshotSaveBegin,
     kModelSnapshotSaveEnd,
+    // Reconnect / presence transitions (opt-in CSV only).
+    kPeerOffline,
+    kPeerOnline,
+    kReconnectStarted,
+    kReconnectCompleted,
   };
 
   struct Record {
@@ -112,11 +117,24 @@ class LatencyTrace {
     } else if (line.find("SYNC_PACKET_CREATED kind=event") != std::string::npos) {
       Mark(role, Marker::kPendingAdded, nullptr, ParseU32(line, "event="),
            ParseU32(line, "packet="), peer);
+    } else if (line.find("CHAT_PEER_OFFLINE") != std::string::npos) {
+      Mark(role, Marker::kPeerOffline, nullptr, std::nullopt, std::nullopt,
+           peer);
+    } else if (line.find("CHAT_PEER_ONLINE") != std::string::npos ||
+               line.find("CHAT_PEER_REJOINED") != std::string::npos) {
+      Mark(role, Marker::kPeerOnline, nullptr, std::nullopt, std::nullopt,
+           peer);
     } else if (line.find("CHAT_TRANSPORT_SESSION_READY") != std::string::npos) {
       Mark(role, Marker::kSessionGenerationChanged, nullptr, std::nullopt,
            ParseU32(line, "generation="), peer);
+    } else if (line.find("CHAT_SYNC_RECONNECT_BEGIN") != std::string::npos) {
+      Mark(role, Marker::kReconnectStarted, nullptr, std::nullopt,
+           ParseU32(line, "generation="), peer);
     } else if (line.find("CHAT_PENDING_FLUSH_BEGIN") != std::string::npos) {
       Mark(role, Marker::kFlushPendingBegin, nullptr, std::nullopt,
+           ParseU32(line, "generation="), peer);
+    } else if (line.find("CHAT_SYNC_RECONNECT_END") != std::string::npos) {
+      Mark(role, Marker::kReconnectCompleted, nullptr, std::nullopt,
            ParseU32(line, "generation="), peer);
     } else if (line.find("SYNC_TRANSPORT_WRITE") != std::string::npos) {
       Mark(role, Marker::kSyncTransportWrite, nullptr, std::nullopt,
@@ -234,6 +252,14 @@ class LatencyTrace {
         return "MODEL_SNAPSHOT_SAVE_BEGIN";
       case Marker::kModelSnapshotSaveEnd:
         return "MODEL_SNAPSHOT_SAVE_END";
+      case Marker::kPeerOffline:
+        return "PEER_OFFLINE";
+      case Marker::kPeerOnline:
+        return "PEER_ONLINE";
+      case Marker::kReconnectStarted:
+        return "RECONNECT_STARTED";
+      case Marker::kReconnectCompleted:
+        return "RECONNECT_COMPLETED";
     }
     return "UNKNOWN";
   }

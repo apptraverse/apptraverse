@@ -216,6 +216,33 @@ int main() {
     CHECK(c1.applied_revision() == 2);
   }
 
+  // 6b: Host restart reconnect — Join already local but Client stuck in
+  // WaitingForOwnJoin (no new Join event). Same-rev Snapshot must re-AddPeer
+  // and promote to Active so Send is enabled.
+  {
+    // Force the stuck UI state that Host restart can leave behind.
+    c1_has_join = true;
+    RoomControlMessage snap_force{};
+    snap_force.type = RoomControlType::kMembershipSnapshot;
+    snap_force.revision = 3;  // bump so ClientApplySnapshot runs
+    snap_force.participants = host.ActiveParticipants();
+    // Temporarily pretend Join is missing so Apply lands in WaitingForOwnJoin.
+    c1_has_join = false;
+    c1.OnControl(host_uid, snap_force);
+    CHECK(c1.ui_status() == RoomUiStatus::kWaitingForOwnJoin);
+    CHECK(!c1.CanSendChat());
+    c1_has_join = true;
+    auto const add_before = client_add_peer;
+    RoomControlMessage snap_reconnect{};
+    snap_reconnect.type = RoomControlType::kMembershipSnapshot;
+    snap_reconnect.revision = 3;
+    snap_reconnect.participants = host.ActiveParticipants();
+    c1.OnControl(host_uid, snap_reconnect);
+    CHECK(c1.ui_status() == RoomUiStatus::kActive);
+    CHECK(c1.CanSendChat());
+    CHECK(client_add_peer > add_before);
+  }
+
   // Same UID, different ObjId → identity_mismatch.
   rejects.clear();
   {

@@ -680,6 +680,23 @@ RunResult RunOnce(std::wstring const& exe) {
   CHECK(count_occ(host_tx, offline_msg) == 1);
   CHECK(!TraceContains(host_trace2_path, "HOST_LOCAL_SEND_CLICK"));
 
+  // Client must re-enter Active (Send enabled) after Host restart without UI.
+  client_c = CollectControls(client.hwnd);
+  client_send = FindButton(client_c, L"Send");
+  CHECK(client_send != nullptr);
+  {
+    auto const deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (IsWindowEnabled(client_send)) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    }
+    CHECK(IsWindowEnabled(client_send));
+  }
+  CHECK(!TraceContains(client_trace_path, "JOIN_IDENTITY_FALLBACK_USED"));
+
   // Scheduling budgets relative to reconnect flush (session ready or peer
   // activity on an existing stream), not Host process boot.
   auto const commit_us =

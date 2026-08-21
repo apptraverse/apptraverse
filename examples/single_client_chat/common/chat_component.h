@@ -60,7 +60,20 @@ class ChatComponent {
 
   AddPeerResult AddPeer(ae::Uid const& remote_uid);
   std::optional<std::uint32_t> SubmitText(std::string text);
+  // True only when journal Join matches local Client by ObjId (activation path).
   bool HasLocalJoin() const;
+  // Probe Join identity: ObjId (normal) vs name fallback (migration/debug only).
+  enum class LocalJoinMatchKind : std::uint8_t {
+    kNone = 0,
+    kObjId = 1,
+    kNameFallback = 2,
+  };
+  struct LocalJoinProbe {
+    LocalJoinMatchKind kind{LocalJoinMatchKind::kNone};
+    std::uint32_t local_client_obj_id{0};
+    std::uint32_t join_client_obj_id{0};
+  };
+  LocalJoinProbe ProbeLocalJoin() const;
   // Publish a journal event committed outside SubmitText (e.g. host room Join).
   void PublishCommittedJournalEvent(EventRecord const& record);
 

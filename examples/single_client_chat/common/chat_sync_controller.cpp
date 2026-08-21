@@ -206,10 +206,13 @@ void ChatSyncController::FlushPendingImmediate(
   // subsequent retries stay under SyncPacketWriteGate (2000 ms).
   runtime.write_gate.Clear();
   runtime.last_retry = {};
-  runtime.flushed_for_peer_activity_ = true;
   auto const now = last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
   // DrivePending (not only RetryPending) so reconnect does not wait for Tick.
   DrivePending(runtime, now);
+  // If pending remains (remote not yet ready to ACK), allow a later
+  // peer-activity flush to clear a write-gate cooldown once inbound resumes.
+  runtime.flushed_for_peer_activity_ =
+      runtime.session->pending_packet_count() == 0;
   Log(ae::Format(
       "CHAT_SYNC_RECONNECT_END peer={} generation={} pending_count={}",
       FormatUid(runtime.remote_uid), transport_generation,
@@ -251,9 +254,10 @@ void ChatSyncController::FlushPendingOnPresenceRejoin(RuntimeSession& runtime) {
   }
   runtime.write_gate.Clear();
   runtime.last_retry = {};
-  runtime.flushed_for_peer_activity_ = true;
   auto const now = last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
   DrivePending(runtime, now);
+  runtime.flushed_for_peer_activity_ =
+      runtime.session->pending_packet_count() == 0;
   Log(ae::Format(
       "CHAT_SYNC_RECONNECT_END peer={} generation={} pending_count={}",
       FormatUid(runtime.remote_uid),
@@ -296,6 +300,8 @@ void ChatSyncController::FlushPendingOnPeerActivity(RuntimeSession& runtime) {
   runtime.last_retry = {};
   auto const now = last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
   DrivePending(runtime, now);
+  runtime.flushed_for_peer_activity_ =
+      runtime.session->pending_packet_count() == 0;
   Log(ae::Format(
       "CHAT_SYNC_RECONNECT_END peer={} generation={} pending_count={} "
       "reason=peer_activity",
@@ -312,7 +318,9 @@ void ChatSyncController::NotifyTransportSessionReady(
   }
   Log(ae::Format("CHAT_TRANSPORT_SESSION_READY peer={} generation={}",
                  FormatUid(remote_uid), transport_generation));
-  runtime->flushed_for_peer_activity_ = true;
+  // Do not pre-arm flushed_for_peer_activity_: if FlushPendingImmediate is
+  // suppressed (same generation), peer-activity must still be able to clear
+  // a write-gate cooldown after the remote recovers.
   FlushPendingImmediate(*runtime, transport_generation, "transport_generation");
 }
 

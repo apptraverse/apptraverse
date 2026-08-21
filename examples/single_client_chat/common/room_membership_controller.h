@@ -30,6 +30,13 @@ enum class RoomUiStatus : std::uint8_t {
   kError,
 };
 
+struct RoomLocalJoinIdentity {
+  bool obj_id_match{false};
+  bool name_fallback{false};
+  std::uint32_t local_client_obj_id{0};
+  std::uint32_t join_client_obj_id{0};
+};
+
 struct RoomMembershipHooks {
   std::function<void(ae::Uid const&, std::vector<std::uint8_t> const&)>
       send_control;
@@ -40,7 +47,10 @@ struct RoomMembershipHooks {
   std::function<bool(ae::Uid const& uid, std::uint32_t client_obj_id,
                      std::string const& name)>
       ensure_host_join;
+  // ObjId-only Join match (activation). Name fallback must not return true.
   std::function<bool()> has_local_join;
+  // Optional identity probe for JOIN_IDENTITY_* transition traces.
+  std::function<RoomLocalJoinIdentity()> probe_local_join;
   std::function<void()> on_ui_changed;
   std::function<void()> on_model_changed;
   std::function<void(std::string const&)> log;
@@ -88,6 +98,10 @@ class RoomMembershipController {
   };
 
   void SetStatus(RoomUiStatus status);
+  // If the local Join is already in the Chat journal, promote Client to Active
+  // (or re-assert Send enabled after reconnect without a status change).
+  void EnsureClientActiveIfJoined(char const* reason,
+                                  bool refresh_active_ui = false);
   void SetError(std::string code);
   void PersistState();
   void Log(std::string const& line);
