@@ -6,7 +6,6 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <deque>
 #include <fstream>
 #include <functional>
@@ -591,10 +590,12 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
   WakeQueue<BusinessItem> business_q;
   WakeQueue<NetworkItem> network_q;
   std::atomic<bool> stop{false};
+  std::atomic<bool> network_stop{false};
   std::atomic<bool> ui_accepting{true};
   std::atomic<bool> network_ready{false};
   std::atomic<bool> component_stopped{false};
   std::atomic<bool> finalize_done{false};
+  std::atomic<bool> shutdown_started{false};
   std::atomic<ae::TaskScheduler*> scheduler{nullptr};
   std::mutex phase_mu;
   std::condition_variable phase_cv;
@@ -604,6 +605,7 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
     if (sch != nullptr) {
       sch->Task([]() {});
     }
+    network_q.Notify();
   };
 
   auto wait_flag = [&](std::atomic<bool> const& flag) {
@@ -697,7 +699,8 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
     network_ready.store(true, std::memory_order::release);
     business_q.Push(NetworkReadyEvent{});
 
-    while (!stop.load(std::memory_order::acquire) && !aether_app->IsExited()) {
+    while (!network_stop.load(std::memory_order::acquire) &&
+           !aether_app->IsExited()) {
       NetworkItem item;
       while (network_q.TryPop(item)) {
         std::visit(
@@ -714,15 +717,24 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
               } else if constexpr (std::is_same_v<T, SendRawCommand>) {
                 transport.Send(cmd.peer, cmd.bytes);
               } else if constexpr (std::is_same_v<T, StopNetworkCommand>) {
-                stop.store(true, std::memory_order::release);
+                // Do not set business `stop` here — Finalize still needs the
+                // business thread to drain inbound and finalize the model.
+                network_stop.store(true, std::memory_order::release);
+                aether_app->Exit(0);
               }
             },
             item);
       }
 
+      if (network_stop.load(std::memory_order::acquire) ||
+          aether_app->IsExited()) {
+        break;
+      }
+
       auto const now = ae::Now();
       auto const next = aether_app->Update(now);
-      if (stop.load(std::memory_order::acquire) || aether_app->IsExited()) {
+      if (network_stop.load(std::memory_order::acquire) ||
+          aether_app->IsExited()) {
         break;
       }
       aether_app->WaitUntil(std::min(next, ae::Now() + kNetworkIdleCap));
@@ -928,15 +940,11 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
               } else if constexpr (std::is_same_v<T, NetworkReadyEvent>) {
                 // already handled at boot
               } else if constexpr (std::is_same_v<T, BeginShutdownCommand>) {
-                // Drain already-accepted UI/network commands already in queue by
-                // continuing the loop; Stop chat so presence/offline can enqueue.
                 packet_trace_by_id.clear();
                 component.Stop();
                 component_stopped.store(true, std::memory_order::release);
                 phase_cv.notify_all();
               } else if constexpr (std::is_same_v<T, FinalizeShutdownCommand>) {
-                // Inbound packets queued before network join are drained by
-                // continuing WaitPop until this command; then finalize RAM.
                 finalize_model_to_ram(component, app, chat);
                 finalize_done.store(true, std::memory_order::release);
                 phase_cv.notify_all();
@@ -1019,17 +1027,23 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
   }
 
   // Ordered shutdown: UI closed → stop component → network join → drain →
-  // final RAM serialize → one directory snapshot → destroy model.
+  // final RAM serialize → one directory snapshot. Idempotent on duplicate close.
+  bool expected = false;
+  if (!shutdown_started.compare_exchange_strong(expected, true)) {
+    return static_cast<int>(msg.wParam);
+  }
+
   ui_accepting.store(false, std::memory_order::release);
   business_q.Push(BeginShutdownCommand{});
   wait_flag(component_stopped);
 
   network_q.Push(StopNetworkCommand{});
   wake_network();
-  aether_app->Exit(0);
+  // Do not call AetherApp::Exit on the UI thread — network owns Exit.
   if (network_thread.joinable()) {
     network_thread.join();
   }
+  scheduler.store(nullptr, std::memory_order::release);
 
   business_q.Push(FinalizeShutdownCommand{});
   wait_flag(finalize_done);
@@ -1039,9 +1053,8 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
 
   SaveDirectorySnapshot(*model_storage, model_root);
 
-  model_domain.reset();
-  model_storage.reset();
-
+  // Do not reset model_domain / aether_app while App/Chat Ptrs remain in
+  // scope — let reverse-declaration destructors run after return.
   SetDomainSnapshotMarkerSink({});
   trace.Flush();
   return static_cast<int>(msg.wParam);
