@@ -122,8 +122,8 @@ add_test(
 )
 
 # Late-join oversized NodeState is a separately tracked Aether P2P transport
-# limitation. This Host+1 milestone validates only states whose initial sync
-# fits the current transport envelope (no Host+2 / multi-client late join).
+# limitation. This Host+one-Client milestone validates only states whose initial
+# sync fits the current transport envelope.
 
 add_executable(apptraverse_room_inbound_demux_test
   room_inbound_demux_test.cpp

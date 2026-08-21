@@ -145,15 +145,6 @@ bool RoomMembershipController::FindActive(ae::Uid const& uid,
   return false;
 }
 
-bool RoomMembershipController::HasAcceptedRemoteClient() const {
-  for (auto const& p : authorized_) {
-    if (p.uid != local_uid_) {
-      return true;
-    }
-  }
-  return false;
-}
-
 void RoomMembershipController::HostReject(ae::Uid const& to,
                                           std::string reason) {
   RoomControlMessage rej{};
@@ -328,16 +319,6 @@ void RoomMembershipController::HostHandleHello(ae::Uid const& from,
       HostReject(from, "client_id_conflict");
       return;
     }
-  }
-
-  // Product scope: Host + one Client. Reject additional distinct UIDs.
-  if (HasAcceptedRemoteClient() ||
-      (!current_hello_.uid.empty() && current_hello_.uid != from) ||
-      std::any_of(hello_queue_.begin(), hello_queue_.end(),
-                  [&](PendingHello const& h) { return h.uid != from; })) {
-    HostReject(from, "room_full");
-    Log(ae::Format("ROOM_REJECT room_full from={}", FormatUid(from)));
-    return;
   }
 
   PendingHello hello{from, msg.client_obj_id, msg.display_name};

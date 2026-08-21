@@ -1204,10 +1204,11 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
         });
 
     // Host/client membership (business-thread only).
-    // Product scope: Host + at most one Client (membership revision 1→2).
-    // Current Aether P2P transport has a separately tracked large single-write
-    // limitation; this Host+1 milestone validates only states whose initial sync
-    // fits the current transport envelope.
+    // Product scope: Host + one Client (membership revision 1→2). Second
+    // distinct client behavior is undefined here. Current Aether P2P transport
+    // has a separately tracked large single-write limitation; this milestone
+    // validates only states whose initial sync fits the current transport
+    // envelope.
     chat::RoomMembershipHooks room_hooks{};
     room_hooks.send_control =
         [&](ae::Uid const& peer, std::vector<std::uint8_t> const& bytes) {

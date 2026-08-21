@@ -93,7 +93,6 @@ class RoomMembershipController {
       PendingHello const& hello) const;
   bool FindActive(ae::Uid const& uid, std::uint32_t* client_obj_id,
                   std::string* name) const;
-  bool HasAcceptedRemoteClient() const;
   void HostReject(ae::Uid const& to, std::string reason);
   void HostStartNext();
   void HostSend(RoomControlType type, std::uint64_t revision,
@@ -111,8 +110,9 @@ class RoomMembershipController {
   void ClientApplySnapshot(RoomControlMessage const& msg);
   void ClientActivate(std::uint64_t revision);
 
-  // Product scope: Host + at most one Client (revision 1 → 2).
-  // hello_queue_ holds at most the accepted Client (e.g. reconnect while busy).
+  // Product scope: Host + one Client (revision 1 → 2). Second distinct client
+  // behavior is undefined in this version. hello_queue_ supports reconnect of
+  // the accepted Client while an activation is in flight.
   ChatRoomRole role_;
   ae::Uid local_uid_{};
   std::uint32_t local_client_obj_id_{0};

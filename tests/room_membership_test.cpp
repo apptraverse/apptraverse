@@ -176,23 +176,6 @@ int main() {
   CHECK(host_joins == joins_before);
   CHECK(c1.ui_status() == RoomUiStatus::kActive);
 
-  // Second distinct UID → room_full; existing membership unchanged.
-  rejects.clear();
-  {
-    RoomControlMessage hello{};
-    hello.type = RoomControlType::kClientHello;
-    hello.client_obj_id = 202;
-    hello.display_name = "ClientTwo";
-    host.OnControl(c2_uid, hello);
-  }
-  deliver_all();
-  CHECK(!rejects.empty());
-  CHECK(rejects.back() == "room_full");
-  CHECK(host.applied_revision() == 2);
-  CHECK(host_joins == joins_before);
-  CHECK(host.ActiveParticipants().size() == 2);
-  CHECK(c1.ui_status() == RoomUiStatus::kActive);
-
   // Same UID, different ObjId → identity_mismatch.
   rejects.clear();
   {
