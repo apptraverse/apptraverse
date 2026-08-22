@@ -18,6 +18,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -38,7 +39,10 @@
 
 #include "chat_component.h"
 #include "chat_component_graph.h"
+#include "chat_peer_schedule.h"
+#include "chat_presence.h"
 #include "chat_presentation.h"
+#include "chat_transcript.h"
 #include "model/application_ids.h"
 #include "model/chat.h"
 #include "model/chat_component_registration.h"
@@ -138,7 +142,12 @@ class HeadlessChatPresenter {
       if (item.kind == ChatTimelineItemKind::kJoined) {
         out.push_back("* " + item.author.display_name + " joined");
       } else {
-        out.push_back(item.author.display_name + ": " + item.text);
+        std::string line = item.author.display_name + ": " + item.text;
+        if (item.show_offline_marker) {
+          line += " ";
+          line += apptraverse::chat::kOfflinePingMarker;
+        }
+        out.push_back(std::move(line));
       }
     }
     return out;
@@ -229,18 +238,35 @@ class HeadlessChatPresenter {
 
 class HeadlessRoomRuntime;
 
-class HeadlessMemoryTransport {
+// The four calls the business stack needs from any transport. Implemented by
+// HeadlessMemoryTransport (deterministic, in-process) and by the Aether-backed
+// bridge used to run the same scenarios over the real cloud.
+class IHeadlessTransport {
+ public:
+  virtual ~IHeadlessTransport() = default;
+
+  virtual void Register(HeadlessRoomRuntime* runtime) = 0;
+  virtual void Unregister(HeadlessRoomRuntime* runtime) = 0;
+  virtual void Send(ae::Uid const& from, ae::Uid const& to,
+                    std::vector<std::uint8_t> bytes) = 0;
+  virtual void Connect(ae::Uid const& from, ae::Uid const& to) = 0;
+  // Drop the outbound session and build a new one (new generation).
+  virtual void ReconnectSession(ae::Uid const& from, ae::Uid const& to) = 0;
+};
+
+class HeadlessMemoryTransport : public IHeadlessTransport {
  public:
   explicit HeadlessMemoryTransport(HeadlessTrace& trace) : trace_{trace} {}
 
   // Process attach / detach (a stopped process has no endpoint at all).
-  void Register(HeadlessRoomRuntime* runtime);
-  void Unregister(HeadlessRoomRuntime* runtime);
+  void Register(HeadlessRoomRuntime* runtime) override;
+  void Unregister(HeadlessRoomRuntime* runtime) override;
 
   void Send(ae::Uid const& from, ae::Uid const& to,
-            std::vector<std::uint8_t> bytes);
+            std::vector<std::uint8_t> bytes) override;
   // Creates or reuses a session and reports readiness once reachable.
-  void Connect(ae::Uid const& from, ae::Uid const& to);
+  void Connect(ae::Uid const& from, ae::Uid const& to) override;
+  void ReconnectSession(ae::Uid const& from, ae::Uid const& to) override;
 
   // Endpoint stays in the process but its link is down: frames to and from it
   // are dropped and its sessions are lost.
@@ -308,7 +334,8 @@ class HeadlessMemoryTransport {
 
 class HeadlessRoomRuntime {
  public:
-  HeadlessRoomRuntime(std::filesystem::path state_dir, HeadlessMemoryTransport& transport,
+  HeadlessRoomRuntime(std::filesystem::path state_dir,
+                      IHeadlessTransport& transport,
                       HeadlessTrace& trace, std::string role_label)
       : state_dir_{std::move(state_dir)},
         transport_{transport},
@@ -452,6 +479,13 @@ class HeadlessRoomRuntime {
     component_->SetIncomingPeerAuthorize([this](ae::Uid const& peer) {
       return room_ != nullptr && room_->IsAuthorizedSyncPeer(peer);
     });
+    component_->SetReconnectPeer([this](ae::Uid const& peer) {
+      trace_.Event(role_label_, "STALE_PATH_RECONNECT", ae::Format("{}", peer));
+      transport_.ReconnectSession(uid_, peer);
+    });
+    if (schedule_query_) {
+      component_->SetQueryPeerSchedule(schedule_query_);
+    }
     // The controller can reach Active inside its own constructor (host role),
     // before room_ is assigned, so publish the initial UI state explicitly.
     SyncUiFromRoom();
@@ -495,10 +529,18 @@ class HeadlessRoomRuntime {
     Start();
   }
 
+  void AnnounceNextPingUnknown() {
+    if (announce_next_ping_unknown_) {
+      announce_next_ping_unknown_();
+    }
+    trace_.Event(role_label_, "AETHER_NEXT_PING_UNKNOWN_SENT");
+  }
+
   void Stop() {
     if (component_ == nullptr) {
       return;
     }
+    AnnounceNextPingUnknown();
     trace_.Event(role_label_, "PROCESS_STOP");
     transport_.Unregister(this);
     component_->Stop();
@@ -519,6 +561,28 @@ class HeadlessRoomRuntime {
   HeadlessChatPresenter& Presenter() { return presenter_; }
   RoomMembershipController* Room() { return room_.get(); }
   ChatComponent* Component() { return component_.get(); }
+
+  void SetQueryPeerSchedule(chat::QueryPeerScheduleFunction fn) {
+    schedule_query_ = std::move(fn);
+    if (component_ != nullptr) {
+      component_->SetQueryPeerSchedule(schedule_query_);
+    }
+  }
+  void SetQueryPeerOnlineSchedule(chat::QueryPeerScheduleFunction fn) {
+    SetQueryPeerSchedule(std::move(fn));
+  }
+  void SetAnnounceNextPingUnknown(std::function<void()> fn) {
+    announce_next_ping_unknown_ = std::move(fn);
+  }
+
+  void InjectPeerOnline(ae::Uid const& from) {
+    if (component_ == nullptr) {
+      return;
+    }
+    component_->Receive(from, chat::EncodeChatPresence(
+                                  chat::ChatPresenceMessage::kOnline));
+    PublishPresentation();
+  }
   std::filesystem::path const& StateDir() const { return state_dir_; }
 
   std::string LocalName() const {
@@ -672,6 +736,10 @@ class HeadlessRoomRuntime {
       trace_.Event(role_label_, "SYNC_APPLY", line);
     } else if (line.rfind("SYNC_RECONNECT_FLUSH", 0) == 0) {
       trace_.Event(role_label_, "FLUSH", line);
+    } else if (line.rfind("SYNC_STALE_PATH_RECONNECT", 0) == 0) {
+      trace_.Event(role_label_, "STALE_PATH_DECIDED", line);
+    } else if (line.rfind("SYNC_STALE_PATH_SKIPPED", 0) == 0) {
+      trace_.Event(role_label_, "STALE_PATH_SKIPPED", line);
     } else if (line.rfind("SYNC_ACK_RECEIVED", 0) == 0) {
       trace_.Event(role_label_, "ACK", line);
     } else if (line.rfind("CHAT_PEER_OFFLINE", 0) == 0) {
@@ -679,6 +747,60 @@ class HeadlessRoomRuntime {
       if (room_ != nullptr && Role() == ChatRoomRole::kClient) {
         room_->ClientNudgeReconnect();
       }
+    } else if (line.rfind("CHAT_SYNC_PAYLOAD_WRITE", 0) == 0) {
+      trace_.Event(role_label_, "CHAT_SYNC_PAYLOAD_WRITE", line);
+    } else if (line.rfind("SYNC_PAYLOAD_RETRY_HELD", 0) == 0) {
+      trace_.Event(role_label_, "SYNC_PAYLOAD_RETRY_HELD", line);
+    } else if (line.rfind("SYNC_PAYLOAD_RETRY_ALLOWED", 0) == 0) {
+      trace_.Event(role_label_, "SYNC_PAYLOAD_RETRY_ALLOWED", line);
+    } else if (line.rfind("SYNC_RETRY_HELD_SCHEDULE", 0) == 0) {
+      trace_.Event(role_label_, "SYNC_RETRY_HELD_SCHEDULE", line);
+    } else if (line.rfind("SYNC_RETRY_ALLOWED", 0) == 0) {
+      trace_.Event(role_label_, "SYNC_RETRY_ALLOWED", line);
+    } else if (line.rfind("SYNC_RETRY_HELD", 0) == 0) {
+      trace_.Event(role_label_, "RETRY_HELD", line);
+    } else if (line.rfind("PEER_UAP_QUERY_BEGIN", 0) == 0) {
+      trace_.Event(role_label_, "PEER_UAP_QUERY_BEGIN", line);
+    } else if (line.rfind("PEER_UAP_QUERY_RESULT", 0) == 0) {
+      trace_.Event(role_label_, "PEER_UAP_QUERY_RESULT", line);
+    } else if (line.rfind("PEER_PING_DEADLINE", 0) == 0) {
+      trace_.Event(role_label_, "PEER_PING_DEADLINE", line);
+    } else if (line.rfind("PEER_PING_ADVANCED", 0) == 0) {
+      trace_.Event(role_label_, "PEER_PING_ADVANCED", line);
+    } else if (line.rfind("PEER_PING_MISSED", 0) == 0) {
+      trace_.Event(role_label_, "PEER_PING_MISSED", line);
+    } else if (line.rfind("PEER_NO_FUTURE_PING", 0) == 0) {
+      trace_.Event(role_label_, "PEER_NO_FUTURE_PING", line);
+    } else if (line.rfind("PEER_ONLINE_REARMED", 0) == 0) {
+      trace_.Event(role_label_, "PEER_ONLINE_REARMED", line);
+    } else if (line.rfind("OFFLINE_PING_MARKER_ON", 0) == 0) {
+      trace_.Event(role_label_, "OFFLINE_PING_MARKER_ON", line);
+    } else if (line.rfind("OFFLINE_PING_MARKER_OFF", 0) == 0) {
+      trace_.Event(role_label_, "OFFLINE_PING_MARKER_OFF", line);
+    } else if (line.rfind("PEER_SCHEDULE_QUERY", 0) == 0) {
+      trace_.Event(role_label_, "PEER_SCHEDULE_QUERY", line);
+    } else if (line.rfind("PEER_SCHEDULE_RESULT", 0) == 0) {
+      trace_.Event(role_label_, "PEER_SCHEDULE_RESULT", line);
+    } else if (line.rfind("PEER_SCHEDULE_DEADLINE", 0) == 0) {
+      trace_.Event(role_label_, "PEER_SCHEDULE_DEADLINE", line);
+    } else if (line.rfind("PEER_SCHEDULE_ADVANCED", 0) == 0) {
+      trace_.Event(role_label_, "PEER_SCHEDULE_ADVANCED", line);
+    } else if (line.rfind("PEER_SCHEDULE_MISSED", 0) == 0) {
+      trace_.Event(role_label_, "PEER_SCHEDULE_MISSED", line);
+    } else if (line.rfind("PEER_OFFLINE_MISSED_VISIT", 0) == 0) {
+      trace_.Event(role_label_, "PEER_OFFLINE_MISSED_VISIT", line);
+    } else if (line.rfind("PEER_ONLINE_NOTIFY", 0) == 0) {
+      trace_.Event(role_label_, "PEER_ONLINE_NOTIFY", line);
+    } else if (line.rfind("PEER_RETRY_REARMED", 0) == 0) {
+      trace_.Event(role_label_, "PEER_RETRY_REARMED", line);
+    } else if (line.rfind("OFFLINE_MARKER_ON", 0) == 0) {
+      trace_.Event(role_label_, "OFFLINE_MARKER_ON", line);
+    } else if (line.rfind("OFFLINE_MARKER_OFF", 0) == 0) {
+      trace_.Event(role_label_, "OFFLINE_MARKER_OFF", line);
+    } else if (line.rfind("CHAT_STARTUP_NOTIFY", 0) == 0) {
+      trace_.Event(role_label_, "STARTUP_NOTIFY", line);
+    } else if (line.rfind("CHAT_PEER_REJOINED", 0) == 0) {
+      trace_.Event(role_label_, "PEER_REJOINED", line);
     }
   }
 
@@ -720,7 +842,7 @@ class HeadlessRoomRuntime {
   }
 
   std::filesystem::path state_dir_;
-  HeadlessMemoryTransport& transport_;
+  IHeadlessTransport& transport_;
   HeadlessTrace& trace_;
   std::string role_label_;
 
@@ -733,6 +855,8 @@ class HeadlessRoomRuntime {
   ChatRoomLocalState::ptr room_state_;
   std::unique_ptr<ChatComponent> component_;
   std::unique_ptr<RoomMembershipController> room_;
+  chat::QueryPeerScheduleFunction schedule_query_;
+  std::function<void()> announce_next_ping_unknown_;
   HeadlessChatPresenter presenter_;
 };
 
@@ -862,6 +986,17 @@ inline void HeadlessMemoryTransport::Connect(ae::Uid const& from,
   announced = true;
   auto const generation = ++generations_[key];
   src->OnSessionReady(to, generation);
+}
+
+inline void HeadlessMemoryTransport::ReconnectSession(ae::Uid const& from,
+                                                     ae::Uid const& to) {
+  auto const key = SessionKey(from, to);
+  auto it = announced_.find(key);
+  if (it != announced_.end() && it->second) {
+    it->second = false;
+    trace_.Event("transport", "SESSION_LOST", key);
+  }
+  Connect(from, to);
 }
 
 inline bool HeadlessMemoryTransport::PumpOnce() {

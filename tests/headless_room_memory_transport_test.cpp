@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -314,9 +315,354 @@ void TestOfflineClientMessageRecovery() {
 
 }  // namespace
 
+std::size_t CountMarker(HeadlessTrace const& trace, std::string_view side,
+                        std::string_view marker) {
+  std::size_t n = 0;
+  for (auto const& e : trace.entries()) {
+    if (e.side == side && e.marker == marker) {
+      ++n;
+    }
+  }
+  return n;
+}
+
+struct FakeUap {
+  std::int64_t last_ping_server_ms{1'000};
+  std::int64_t delta_ms{5'500};
+  std::int64_t server_now_ms{1'000};
+  bool fail{false};
+};
+
+void BindFakeUap(HeadlessRoomRuntime& runtime, std::shared_ptr<FakeUap> uap) {
+  runtime.SetQueryPeerSchedule(
+      [uap](ae::Uid const&, apptraverse::chat::PeerScheduleQueryCallback cb) {
+        if (uap->fail) {
+          cb(std::nullopt);
+          return;
+        }
+        cb(apptraverse::chat::MakePeerScheduleSnapshot(
+            uap->last_ping_server_ms, uap->delta_ms, uap->server_now_ms));
+      });
+}
+
+std::size_t PayloadWrites(HeadlessTrace const& trace, std::string_view side) {
+  return CountMarker(trace, side, "CHAT_SYNC_PAYLOAD_WRITE");
+}
+
+void TestRetriesUntilDeadline() {
+  Fixture fx{"sched-retries", 0x51, 0x52};
+  fx.StartActive();
+  fx.transport.Disconnect(fx.host_uid);
+  auto uap = std::make_shared<FakeUap>();
+  BindFakeUap(*fx.client, uap);
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(fx.client->Send("until-deadline"));
+  auto const writes_before = PayloadWrites(fx.trace, "client");
+  PumpFor(fx.transport, fx.All(), std::chrono::milliseconds{5500});
+  auto const writes = PayloadWrites(fx.trace, "client") - writes_before;
+  CHECK(writes >= 2);
+  CHECK(writes <= 4);
+  CHECK(fx.client->Component()->GetPeerReachability(fx.host_uid) ==
+        apptraverse::chat::PeerReachability::kWaitingForScheduledPing);
+  std::cout << "HeadlessRoom.RetriesUntilDeadline writes=" << writes
+            << " OK\n";
+}
+
+void TestMissedPingStopsRetries() {
+  Fixture fx{"sched-missed", 0x53, 0x54};
+  fx.StartActive();
+  fx.transport.Disconnect(fx.host_uid);
+  auto uap = std::make_shared<FakeUap>();
+  BindFakeUap(*fx.client, uap);
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(fx.client->Send("missed-ping"));
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] {
+        return fx.client->Component()->IsPeerOfflineMissedVisit(fx.host_uid);
+      },
+      std::chrono::seconds{10}));
+  auto const writes_at_hold = PayloadWrites(fx.trace, "client");
+  PumpFor(fx.transport, fx.All(), std::chrono::seconds{20});
+  CHECK(PayloadWrites(fx.trace, "client") == writes_at_hold);
+  CHECK(fx.client->Presenter().PendingCount() > 0);
+  CHECK(fx.client->Component()->GetPeerReachability(fx.host_uid) ==
+        apptraverse::chat::PeerReachability::kOfflineMissedPing);
+  std::cout << "HeadlessRoom.MissedPingStopsRetries writes_frozen="
+            << writes_at_hold << " OK\n";
+}
+
+void TestZeroDeltaStopsRetries() {
+  Fixture fx{"sched-zero", 0x55, 0x56};
+  fx.StartActive();
+  fx.transport.Disconnect(fx.host_uid);
+  auto uap = std::make_shared<FakeUap>();
+  BindFakeUap(*fx.client, uap);
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(fx.client->Send("zero-delta"));
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] {
+        return fx.client->Component()->GetPeerReachability(fx.host_uid) ==
+               apptraverse::chat::PeerReachability::kWaitingForScheduledPing;
+      },
+      std::chrono::seconds{2}));
+  uap->delta_ms = 0;
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] {
+        return fx.client->Component()->IsPeerOfflineNoFuturePing(fx.host_uid);
+      },
+      std::chrono::seconds{10}));
+  auto const writes_at_hold = PayloadWrites(fx.trace, "client");
+  PumpFor(fx.transport, fx.All(), std::chrono::seconds{4});
+  CHECK(PayloadWrites(fx.trace, "client") == writes_at_hold);
+  std::cout << "HeadlessRoom.ZeroDeltaStopsRetries OK\n";
+}
+
+void TestOnlineRearms() {
+  Fixture fx{"sched-rearm", 0x57, 0x58};
+  fx.StartActive();
+  fx.transport.Disconnect(fx.host_uid);
+  auto uap = std::make_shared<FakeUap>();
+  BindFakeUap(*fx.client, uap);
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(fx.client->Send("resume-me"));
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] {
+        return fx.client->Component()->IsPeerOfflineMissedVisit(fx.host_uid);
+      },
+      std::chrono::seconds{10}));
+  fx.transport.Reconnect(fx.host_uid);
+  uap->last_ping_server_ms += 10'000;
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] { return fx.host->Presenter().CountMessage("resume-me") == 1; },
+      kDeliveryTimeout));
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] { return fx.client->Presenter().PendingCount() == 0; },
+      kDeliveryTimeout));
+  CHECK(fx.host->Presenter().CountMessage("resume-me") == 1);
+  CHECK(!fx.client->Component()->IsPeerOfflineMissedVisit(fx.host_uid));
+  bool marker_gone = true;
+  for (auto const& line : fx.client->Presenter().Lines()) {
+    if (line.find(apptraverse::chat::kOfflinePingMarker) !=
+        std::string::npos) {
+      marker_gone = false;
+    }
+  }
+  CHECK(marker_gone);
+  std::cout << "HeadlessRoom.OnlineRearms OK\n";
+}
+
+void TestPingAdvanced() {
+  Fixture fx{"sched-advance", 0x59, 0x5a};
+  fx.StartActive();
+  fx.transport.Disconnect(fx.host_uid);
+  auto uap = std::make_shared<FakeUap>();
+  BindFakeUap(*fx.client, uap);
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(fx.client->Send("advanced-ping"));
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] {
+        return fx.client->Component()->GetPeerReachability(fx.host_uid) ==
+               apptraverse::chat::PeerReachability::kWaitingForScheduledPing;
+      },
+      std::chrono::seconds{2}));
+  uap->last_ping_server_ms += 10'000;
+  uap->server_now_ms = uap->last_ping_server_ms;
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] { return CountMarker(fx.trace, "client", "PEER_PING_ADVANCED") > 0; },
+      std::chrono::seconds{10}));
+  CHECK(!fx.client->Component()->IsPeerOfflineMissedVisit(fx.host_uid));
+  CHECK(fx.client->Component()->GetPeerReachability(fx.host_uid) ==
+        apptraverse::chat::PeerReachability::kWaitingForScheduledPing);
+  auto const writes_at_advance = PayloadWrites(fx.trace, "client");
+  PumpFor(fx.transport, fx.All(), std::chrono::seconds{4});
+  CHECK(PayloadWrites(fx.trace, "client") > writes_at_advance);
+  std::cout << "HeadlessRoom.PingAdvanced OK\n";
+}
+
+void TestQueryFailure() {
+  Fixture fx{"sched-fail", 0x5b, 0x5c};
+  fx.StartActive();
+  fx.transport.Disconnect(fx.host_uid);
+  auto uap = std::make_shared<FakeUap>();
+  BindFakeUap(*fx.client, uap);
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(fx.client->Send("query-fail"));
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] {
+        return fx.client->Component()->GetPeerReachability(fx.host_uid) ==
+               apptraverse::chat::PeerReachability::kWaitingForScheduledPing;
+      },
+      std::chrono::seconds{2}));
+  uap->fail = true;
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] {
+        return fx.client->Component()->GetPeerReachability(fx.host_uid) ==
+               apptraverse::chat::PeerReachability::kScheduleCheckPending;
+      },
+      std::chrono::seconds{10}));
+  CHECK(!fx.client->Component()->IsPeerOfflineMissedVisit(fx.host_uid));
+  bool saw_marker = false;
+  for (auto const& line : fx.client->Presenter().Lines()) {
+    if (line.find(apptraverse::chat::kOfflinePingMarker) !=
+        std::string::npos) {
+      saw_marker = true;
+    }
+  }
+  CHECK(!saw_marker);
+  auto const writes_held = PayloadWrites(fx.trace, "client");
+  PumpFor(fx.transport, fx.All(), std::chrono::seconds{3});
+  CHECK(PayloadWrites(fx.trace, "client") == writes_held);
+  uap->fail = false;
+  uap->last_ping_server_ms += 10'000;
+  uap->server_now_ms = uap->last_ping_server_ms;
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] { return CountMarker(fx.trace, "client", "PEER_PING_ADVANCED") > 0; },
+      std::chrono::seconds{6}));
+  CHECK(!fx.client->Component()->IsPeerOfflineMissedVisit(fx.host_uid));
+  std::cout << "HeadlessRoom.QueryFailure OK\n";
+}
+
+void TestClockSkew() {
+  auto const last = std::int64_t{2'000'000};
+  auto const delta = std::int64_t{10'000};
+  auto const server_now = std::int64_t{2'002'000};
+  auto const now = std::chrono::steady_clock::now();
+  (void)(std::chrono::system_clock::now() + std::chrono::minutes{10});
+  (void)(std::chrono::system_clock::now() - std::chrono::minutes{10});
+  auto const a = apptraverse::chat::MakePeerScheduleSnapshot(
+      last, delta, server_now, now);
+  auto const b = apptraverse::chat::MakePeerScheduleSnapshot(
+      last, delta, server_now, now);
+  CHECK(a.local_deadline.has_value());
+  CHECK(b.local_deadline.has_value());
+  CHECK(*a.local_deadline == *b.local_deadline);
+  std::cout << "HeadlessRoom.ClockSkew OK\n";
+}
+
+void TestGracefulShutdownZero() {
+  Fixture fx{"sched-shutdown", 0x5f, 0x60};
+  fx.StartActive();
+  auto host_uap = std::make_shared<FakeUap>();
+  auto client_view = std::make_shared<FakeUap>(*host_uap);
+  BindFakeUap(*fx.client, client_view);
+  fx.host->SetAnnounceNextPingUnknown([host_uap, client_view]() {
+    host_uap->delta_ms = 0;
+    client_view->delta_ms = 0;
+  });
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(fx.client->Send("after-shutdown"));
+  fx.transport.Disconnect(fx.host_uid);
+  fx.host->Stop();
+  CHECK(CountMarker(fx.trace, "host", "AETHER_NEXT_PING_UNKNOWN_SENT") > 0);
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] {
+        return fx.client->Component()->IsPeerOfflineNoFuturePing(fx.host_uid);
+      },
+      std::chrono::seconds{10}));
+  auto const writes_at_hold = PayloadWrites(fx.trace, "client");
+  PumpFor(fx.transport, fx.All(), std::chrono::seconds{4});
+  CHECK(PayloadWrites(fx.trace, "client") == writes_at_hold);
+  std::cout << "HeadlessRoom.GracefulShutdownZero OK\n";
+}
+
+void TestMarkerPresentationOnly() {
+  Fixture fx{"sched-marker", 0x61, 0x62};
+  fx.StartActive();
+  fx.transport.Disconnect(fx.host_uid);
+  auto uap = std::make_shared<FakeUap>();
+  BindFakeUap(*fx.client, uap);
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(fx.client->Send("hello"));
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] {
+        return fx.client->Component()->ShowOfflinePingMarker(fx.host_uid);
+      },
+      std::chrono::seconds{10}));
+  auto const snap = fx.client->Component()->CapturePresentation();
+  bool saw_marker_line = false;
+  bool event_text_clean = false;
+  for (auto const& item : snap.timeline) {
+    if (item.kind == apptraverse::chat::ChatTimelineItemKind::kMessage &&
+        item.text == "hello") {
+      event_text_clean =
+          item.text.find(apptraverse::chat::kOfflinePingMarker) ==
+          std::string::npos;
+      CHECK(item.show_offline_marker);
+    }
+  }
+  auto const formatted =
+      apptraverse::examples::FormatChatPresentationUtf8(snap);
+  if (formatted.find("hello") != std::string::npos &&
+      formatted.find(apptraverse::chat::kOfflinePingMarker) !=
+          std::string::npos) {
+    saw_marker_line = true;
+  }
+  CHECK(event_text_clean);
+  CHECK(saw_marker_line);
+  fx.transport.Reconnect(fx.host_uid);
+  uap->last_ping_server_ms += 10'000;
+  fx.client->InjectPeerOnline(fx.host_uid);
+  CHECK(PumpUntil(
+      fx.transport, fx.All(),
+      [&] { return fx.client->Presenter().PendingCount() == 0; },
+      kDeliveryTimeout));
+  bool marker_gone = true;
+  for (auto const& line : fx.client->Presenter().Lines()) {
+    if (line.find(apptraverse::chat::kOfflinePingMarker) !=
+        std::string::npos) {
+      marker_gone = false;
+    }
+  }
+  CHECK(marker_gone);
+  std::cout << "HeadlessRoom.MarkerPresentationOnly OK\n";
+}
+
+void TestFirstContactUnaffected() {
+  Fixture fx{"sched-first", 0x5d, 0x5e};
+  fx.StartActive();
+  CHECK(fx.host->Room()->applied_revision() == 2);
+  CHECK(fx.client->Room()->applied_revision() == 2);
+  CHECK(fx.host->Presenter().JoinCount() == 2);
+  CHECK(fx.client->Presenter().JoinCount() == 2);
+  CHECK(fx.client->Presenter().SendEnabled());
+  CHECK(fx.host->Room()->ui_status() == RoomUiStatus::kActive);
+  CHECK(fx.client->Room()->ui_status() == RoomUiStatus::kActive);
+  CHECK(!fx.client->Component()->IsPeerOfflineMissedVisit(fx.host_uid));
+  CHECK(!fx.host->Component()->IsPeerOfflineMissedVisit(fx.client_uid));
+  CHECK(fx.client->Component()->GetPeerReachability(fx.host_uid) !=
+        apptraverse::chat::PeerReachability::kOfflineMissedPing);
+  CHECK(fx.client->Component()->GetPeerReachability(fx.host_uid) !=
+        apptraverse::chat::PeerReachability::kOfflineNoFuturePing);
+  std::cout << "HeadlessRoom.FirstContactUnaffected OK\n";
+}
+
 int main() {
   TestOfflineHostMessageRecovery();
   TestOfflineClientMessageRecovery();
+  TestRetriesUntilDeadline();
+  TestMissedPingStopsRetries();
+  TestZeroDeltaStopsRetries();
+  TestOnlineRearms();
+  TestPingAdvanced();
+  TestQueryFailure();
+  TestClockSkew();
+  TestGracefulShutdownZero();
+  TestMarkerPresentationOnly();
+  TestFirstContactUnaffected();
   std::cout << "headless_room_memory_transport_test OK\n";
   return 0;
 }

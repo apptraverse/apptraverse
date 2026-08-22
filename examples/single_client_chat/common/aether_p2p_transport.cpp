@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <utility>
 
+#include "aether/ae_actions/query_peer_ping_schedule.h"
+#include "aether-miscpp/format/format.h"
+
 #include "aether_runtime.h"
 
 namespace apptraverse::examples {
@@ -10,6 +13,18 @@ namespace {
 
 std::vector<std::uint8_t> ToBytes(std::string_view text) {
   return std::vector<std::uint8_t>(text.begin(), text.end());
+}
+
+std::string_view LinkStateName(ae::LinkState state) {
+  switch (state) {
+    case ae::LinkState::kUnlinked:
+      return "unlinked";
+    case ae::LinkState::kLinked:
+      return "linked";
+    case ae::LinkState::kLinkError:
+      return "link_error";
+  }
+  return "unknown";
 }
 
 bool PayloadEquals(std::vector<std::uint8_t> const& payload,
@@ -43,6 +58,7 @@ void AetherP2pTransport::Stop() {
     }
   }
   reconnect_in_flight_.clear();
+  schedule_queries_.clear();
   aether_app_ = nullptr;
   local_client_ = {};
 }
@@ -75,6 +91,56 @@ void AetherP2pTransport::SetPreWriteHandler(PreWriteHandler handler) {
 
 void AetherP2pTransport::SetSessionReadyHandler(SessionReadyHandler handler) {
   on_session_ready_ = std::move(handler);
+}
+
+void AetherP2pTransport::QueryPeerPingSchedule(
+    ae::Uid const& peer, chat::PeerScheduleQueryCallback cb) {
+  if (aether_app_ == nullptr || !local_client_.is_valid() || !cb) {
+    if (cb) {
+      cb(std::nullopt);
+    }
+    return;
+  }
+  local_client_.Load();
+  if (!local_client_.is_loaded()) {
+    cb(std::nullopt);
+    return;
+  }
+  Log(ae::Format("PEER_UAP_QUERY_BEGIN peer={}", peer));
+  auto query = std::make_unique<ScheduleQuery>();
+  query->cb = std::move(cb);
+  query->action = std::make_unique<ae::QueryPeerPingSchedule>(
+      ae::AeContext{*aether_app_}, *local_client_, peer);
+  auto* raw = query.get();
+  query->result_sub = query->action->result_event().Subscribe(
+      [raw](ae::Result<ae::PeerPingSchedule, int> const& res) {
+        if (!raw->cb) {
+          return;
+        }
+        if (!res) {
+          raw->cb(std::nullopt);
+          return;
+        }
+        auto const& in = res.value();
+        chat::PeerScheduleSnapshot out{};
+        out.last_ping_server_ms = in.last_ping_server_ms;
+        out.next_ping_delta_ms = in.next_ping_delta_ms;
+        out.local_deadline = in.local_deadline;
+        raw->cb(out);
+      });
+  schedule_queries_.push_back(std::move(query));
+}
+
+void AetherP2pTransport::AnnounceNextPingUnknown() {
+  if (aether_app_ == nullptr || !local_client_.is_valid()) {
+    return;
+  }
+  local_client_.Load();
+  if (!local_client_.is_loaded()) {
+    return;
+  }
+  (void)local_client_->AnnounceNextPingUnknown();
+  Log("AETHER_NEXT_PING_UNKNOWN_SENT");
 }
 
 std::uint64_t AetherP2pTransport::session_generation(ae::Uid const& peer) const {
@@ -131,13 +197,20 @@ void AetherP2pTransport::NotifySessionReadyWhenWritable(PeerSession& session) {
     return;
   }
   auto const info = session.stream->stream_info();
+  Log("P2P_STREAM_STATE peer=" + FormatAetherUid(session.remote_uid) +
+      " generation=" + std::to_string(session.generation) +
+      " link_state=" + std::string{LinkStateName(info.link_state)} +
+      " writable=" + std::string{info.is_writable ? "1" : "0"});
   if (info.link_state != ae::LinkState::kLinked) {
     Log("P2P_SESSION_LINK_WAIT peer=" + FormatAetherUid(session.remote_uid) +
-        " generation=" + std::to_string(session.generation));
+        " generation=" + std::to_string(session.generation) +
+        " link_state=" + std::string{LinkStateName(info.link_state)});
     return;
   }
   session.announced_ready = true;
   session.link_sub = ae::Subscription{};
+  Log("P2P_STREAM_WRITABLE peer=" + FormatAetherUid(session.remote_uid) +
+      " generation=" + std::to_string(session.generation));
   Log("P2P_SESSION_WRITABLE peer=" + FormatAetherUid(session.remote_uid) +
       " generation=" + std::to_string(session.generation));
   if (on_session_ready_) {
@@ -155,6 +228,10 @@ AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
   auto const key = UidKey(peer);
   auto& next_gen = next_generation_[key];
   ++next_gen;
+
+  Log("P2P_SESSION_CREATE_BEGIN peer=" + FormatAetherUid(peer) +
+      " generation=" + std::to_string(next_gen) +
+      " source=" + std::string{source != nullptr ? source : "unknown"});
 
   auto session = std::make_unique<PeerSession>();
   session->remote_uid = peer;
@@ -179,6 +256,8 @@ AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
   // subscription is owned by the session and released before destruction.
   raw->link_sub = raw->stream->stream_update_event().Subscribe(
       [this, raw]() { NotifySessionReadyWhenWritable(*raw); });
+  Log("P2P_SESSION_CREATE_END peer=" + FormatAetherUid(peer) +
+      " generation=" + std::to_string(generation));
   NotifySessionReadyWhenWritable(*raw);
   return raw;
 }
@@ -229,6 +308,8 @@ void AetherP2pTransport::Reconnect(ae::Uid const& remote_uid) {
 
 void AetherP2pTransport::AttachIncoming(ae::P2pPortHandle handle) {
   auto const peer = handle.destination();
+  Log("P2P_ATTACH_INCOMING_BEGIN peer=" + FormatAetherUid(peer) +
+      " generation=" + std::to_string(session_generation(peer)));
   if (FindSession(peer) != nullptr) {
     Log("P2P_SESSION_REPLACE_BEGIN peer=" + FormatAetherUid(peer) +
         " source=incoming");
@@ -237,6 +318,8 @@ void AetherP2pTransport::AttachIncoming(ae::P2pPortHandle handle) {
         " source=incoming");
   }
   (void)CreateSession(peer, std::move(handle), "incoming");
+  Log("P2P_ATTACH_INCOMING_END peer=" + FormatAetherUid(peer) +
+      " generation=" + std::to_string(session_generation(peer)));
 }
 
 void AetherP2pTransport::Send(ae::Uid const& remote_uid,
@@ -265,6 +348,9 @@ void AetherP2pTransport::Send(ae::Uid const& remote_uid,
 
 void AetherP2pTransport::OnRawStreamData(ae::Uid peer, std::uint64_t generation,
                                          ae::DataBuffer const& data) {
+  Log("P2P_STREAM_DATA peer=" + FormatAetherUid(peer) +
+      " generation=" + std::to_string(generation) +
+      " bytes=" + std::to_string(data.size()));
   auto* session = FindSession(peer);
   if (session == nullptr || session->generation != generation) {
     Log("P2P_SESSION_CALLBACK_STALE_DROPPED peer=" + FormatAetherUid(peer) +
@@ -287,6 +373,8 @@ void AetherP2pTransport::OnRawStreamData(ae::Uid peer, std::uint64_t generation,
 
 void AetherP2pTransport::EmitPayload(
     ae::Uid const& peer, std::vector<std::uint8_t> const& payload) {
+  Log("P2P_PAYLOAD_RECEIVED peer=" + FormatAetherUid(peer) +
+      " bytes=" + std::to_string(payload.size()));
   if (on_receive_) {
     on_receive_(peer, payload);
   }

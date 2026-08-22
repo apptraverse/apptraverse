@@ -72,6 +72,36 @@ bool ChatSyncController::IsPeerOnline(ae::Uid const& remote_uid) const {
   return false;
 }
 
+PeerReachability ChatSyncController::GetPeerReachability(
+    ae::Uid const& remote_uid) const {
+  if (auto const* runtime = FindRuntime(remote_uid)) {
+    return runtime->reachability;
+  }
+  return PeerReachability::kUnknown;
+}
+
+bool ChatSyncController::IsPeerOfflineMissedVisit(
+    ae::Uid const& remote_uid) const {
+  return GetPeerReachability(remote_uid) ==
+         PeerReachability::kOfflineMissedPing;
+}
+
+bool ChatSyncController::IsPeerOfflineNoFuturePing(
+    ae::Uid const& remote_uid) const {
+  return GetPeerReachability(remote_uid) ==
+         PeerReachability::kOfflineNoFuturePing;
+}
+
+bool ChatSyncController::ShowOfflinePingMarker(
+    ae::Uid const& remote_uid) const {
+  return apptraverse::chat::ShowOfflinePingMarker(
+      GetPeerReachability(remote_uid));
+}
+
+void ChatSyncController::SetQueryPeerSchedule(QueryPeerScheduleFunction fn) {
+  query_peer_schedule_ = std::move(fn);
+}
+
 std::size_t ChatSyncController::write_gate_size(
     ae::Uid const& remote_uid) const {
   if (auto const* runtime = FindRuntime(remote_uid)) {
@@ -142,6 +172,7 @@ void ChatSyncController::ApplyOnlineTransition(RuntimeSession& runtime) {
     runtime.ever_seen_online = true;
     runtime.currently_online = true;
     Log(ae::Format("CHAT_PEER_ONLINE peer={}", FormatUid(runtime.remote_uid)));
+    RequestPeerSchedule(runtime);
     NotifyChanged();
     return;
   }
@@ -151,7 +182,9 @@ void ChatSyncController::ApplyOnlineTransition(RuntimeSession& runtime) {
                    FormatUid(runtime.remote_uid)));
     // SessionReady may have flushed while the remote process was still
     // binding; allow exactly one additional flush on offline→online.
-    FlushPendingOnPresenceRejoin(runtime);
+    if (!ConfirmedOfflineHold(runtime.reachability)) {
+      FlushPendingOnPresenceRejoin(runtime);
+    }
     NotifyChanged();
   }
 }
@@ -163,8 +196,19 @@ void ChatSyncController::ApplyOfflineTransition(RuntimeSession& runtime,
   }
   runtime.currently_online = false;
   runtime.recovery_flush_done = false;
+  runtime.stale_path_reconnect_requested = false;
+  runtime.rebuild_after_offline = true;
   Log(ae::Format("CHAT_PEER_OFFLINE peer={} reason={}",
                  FormatUid(runtime.remote_uid), reason));
+  // Aether has no "did the other UID miss its server ping?" query. The local
+  // equivalent is this presence miss: hold unconfirmed packets until the
+  // returning side announces on session start.
+  if (runtime.session != nullptr &&
+      runtime.session->pending_packet_count() > 0) {
+    Log(ae::Format(
+        "SYNC_RETRY_HELD peer={} reason=peer_missed_presence pending_count={}",
+        FormatUid(runtime.remote_uid), runtime.session->pending_packet_count()));
+  }
   NotifyChanged();
 }
 
@@ -174,6 +218,12 @@ bool ChatSyncController::TryRecoveryFlush(RuntimeSession& runtime,
   assert(runtime.session != nullptr);
   auto const pending = runtime.session->pending_packet_count();
   char const* const reason_text = reason != nullptr ? reason : "transport";
+  if (!PayloadRetriesAllowed(runtime)) {
+    Log(ae::Format(
+        "SYNC_RETRY_HELD_SCHEDULE peer={} reason={} pending_count={}",
+        FormatUid(runtime.remote_uid), reason_text, pending));
+    return false;
+  }
   if (pending == 0) {
     runtime.recovery_flush_done = false;
     return false;
@@ -237,10 +287,38 @@ void ChatSyncController::FlushPendingImmediate(
   // A brand new transport session is fresh evidence of reachability: it may
   // re-arm the shared recovery token spent while the old session was dead.
   runtime.recovery_flush_done = false;
+  // This generation is the outbound path rebuild we may have asked for.
+  runtime.stale_path_reconnect_requested = false;
+  runtime.rebuild_after_offline = false;
   TryRecoveryFlush(runtime, reason, transport_generation);
 }
 
+bool ChatSyncController::RequestStalePathReconnect(RuntimeSession& runtime,
+                                                   char const* reason) {
+  assert(runtime.session != nullptr);
+  if (!runtime.rebuild_after_offline || !reconnect_peer_ ||
+      runtime.session->pending_packet_count() == 0 ||
+      runtime.stale_path_reconnect_requested) {
+    return false;
+  }
+  // Inbound frames prove the remote is up, but our outbound session was built
+  // against its previous process. Re-offering pending packets on that path only
+  // buys another wait for the cloud to notice; a fresh session routes at once.
+  runtime.stale_path_reconnect_requested = true;
+  Log(ae::Format("SYNC_STALE_PATH_RECONNECT peer={} pending_count={} reason={}",
+                 FormatUid(runtime.remote_uid),
+                 runtime.session->pending_packet_count(),
+                 reason != nullptr ? reason : "unknown"));
+  reconnect_peer_(runtime.remote_uid);
+  return true;
+}
+
 void ChatSyncController::FlushPendingOnPresenceRejoin(RuntimeSession& runtime) {
+  if (RequestStalePathReconnect(runtime, "presence_rejoin")) {
+    // The new transport generation drives the flush; nothing to gain from
+    // writing to the path we just replaced.
+    return;
+  }
   TryRecoveryFlush(runtime, "presence_rejoin",
                    runtime.last_flushed_transport_generation);
 }
@@ -249,6 +327,13 @@ void ChatSyncController::FlushPendingOnPeerActivity(RuntimeSession& runtime) {
   assert(runtime.session != nullptr);
   if (runtime.session->pending_packet_count() == 0) {
     runtime.recovery_flush_done = false;
+    runtime.stale_path_reconnect_requested = false;
+    runtime.rebuild_after_offline = false;
+    return;
+  }
+  // Checked before the recovery token: a spent token means we already re-offered
+  // packets on the old path, which is exactly the case a rebuild has to escape.
+  if (RequestStalePathReconnect(runtime, "peer_activity")) {
     return;
   }
   if (runtime.recovery_flush_done) {
@@ -269,7 +354,20 @@ void ChatSyncController::NotifyTransportSessionReady(
   }
   Log(ae::Format("CHAT_TRANSPORT_SESSION_READY peer={} generation={}",
                  FormatUid(remote_uid), transport_generation));
-  FlushPendingImmediate(*runtime, transport_generation, "transport_generation");
+  // Returning side announces immediately so the waiting side does not have to
+  // keep offering pending packets into a dead outbound path.
+  Log(ae::Format("CHAT_STARTUP_NOTIFY peer={} generation={}",
+                 FormatUid(remote_uid), transport_generation));
+  SendPresence(*runtime, ChatPresenceMessage::kOnline, ae::Now());
+  // Session-ready / generation change must not lift an OfflineMissedVisit hold.
+  if (PayloadRetriesAllowed(*runtime)) {
+    FlushPendingImmediate(*runtime, transport_generation,
+                          "transport_generation");
+  } else {
+    Log(ae::Format(
+        "SYNC_PAYLOAD_RETRY_HELD peer={} reason=session_ready pending_count={}",
+        FormatUid(remote_uid), runtime->session->pending_packet_count()));
+  }
 }
 
 void ChatSyncController::DrivePresence(RuntimeSession& runtime,
@@ -277,6 +375,11 @@ void ChatSyncController::DrivePresence(RuntimeSession& runtime,
   if (runtime.currently_online && runtime.last_seen.has_value() &&
       now - *runtime.last_seen >= timing_.offline_timeout) {
     ApplyOfflineTransition(runtime, "timeout");
+  }
+
+  if (runtime.ever_seen_online && !runtime.currently_online) {
+    // Peer missed its presence window: do not probe a path that cannot ACK.
+    return;
   }
 
   bool const heartbeat_due =
@@ -298,9 +401,14 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
                      FormatUid(runtime.remote_uid)));
       NotifyChanged();
     }
+    if (runtime.offline_marker_on) {
+      ClearOfflinePingMarker(runtime);
+    }
     runtime.last_pending_count = 0;
     runtime.write_gate.Clear();
     runtime.recovery_flush_done = false;
+    runtime.stale_path_reconnect_requested = false;
+    runtime.rebuild_after_offline = false;
     return;
   }
 
@@ -315,6 +423,13 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
   }
   runtime.last_pending_count = pending;
   PruneWriteGate(runtime);
+
+  if (!PayloadRetriesAllowed(runtime)) {
+    Log(ae::Format("SYNC_PAYLOAD_RETRY_HELD peer={}",
+                   FormatUid(runtime.remote_uid)));
+    MaybeRetryScheduleQuery(runtime, now);
+    return;
+  }
 
   bool const retry_due = runtime.last_retry.time_since_epoch().count() == 0 ||
                          now - runtime.last_retry >= timing_.retry_interval;
@@ -362,6 +477,12 @@ void ChatSyncController::OfferPhysicalSend(RuntimeSession& runtime,
     return;
   }
 
+  if (!PayloadRetriesAllowed(runtime)) {
+    Log(ae::Format("SYNC_PAYLOAD_RETRY_HELD peer={} packet={}",
+                   FormatUid(runtime.remote_uid), packet_id.id()));
+    return;
+  }
+
   if (!runtime.write_gate.TryBegin(packet_id, now)) {
     Log(ae::Format(
         "SYNC_WRITE_SUPPRESSED peer={} packet={} attempts={}",
@@ -370,6 +491,9 @@ void ChatSyncController::OfferPhysicalSend(RuntimeSession& runtime,
     return;
   }
 
+  Log(ae::Format("CHAT_SYNC_PAYLOAD_WRITE peer={} packet={} attempt={}",
+                 FormatUid(runtime.remote_uid), packet_id.id(),
+                 runtime.write_gate.attempt_count(packet_id)));
   Log(ae::Format("SYNC_TRANSPORT_WRITE peer={} packet={} attempt={}",
                  FormatUid(runtime.remote_uid), packet_id.id(),
                  runtime.write_gate.attempt_count(packet_id)));
@@ -441,6 +565,10 @@ void ChatSyncController::Stop() {
 void ChatSyncController::SetIncomingPeerAuthorize(
     IncomingPeerAuthorizeFunction fn) {
   incoming_peer_authorize_ = std::move(fn);
+}
+
+void ChatSyncController::SetReconnectPeer(ReconnectPeerFunction fn) {
+  reconnect_peer_ = std::move(fn);
 }
 
 SharedGraphSyncSession& ChatSyncController::AddPeer(ae::Uid const& remote_uid) {
@@ -518,10 +646,18 @@ void ChatSyncController::ReceiveKnown(ae::Uid const& remote_uid,
     runtime->recovery_flush_done = false;
   }
   runtime->last_seen = now;
+  bool const explicit_online =
+      presence.has_value() && *presence == ChatPresenceMessage::kOnline;
+  if (explicit_online) {
+    RearmFromPeerOnlineNotify(*runtime);
+    return;
+  }
   ApplyOnlineTransition(*runtime);
 
   if (presence.has_value()) {
-    FlushPendingOnPeerActivity(*runtime);
+    if (!ConfirmedOfflineHold(runtime->reachability)) {
+      FlushPendingOnPeerActivity(*runtime);
+    }
     return;
   }
 
@@ -618,6 +754,202 @@ void ChatSyncController::LocalEventCommitted(Node::ptr node,
   }
 }
 
+bool ChatSyncController::PayloadRetriesAllowed(
+    RuntimeSession const& runtime) const {
+  return runtime.reachability != PeerReachability::kScheduleCheckPending &&
+         !ConfirmedOfflineHold(runtime.reachability);
+}
+
+void ChatSyncController::RequestPeerSchedule(RuntimeSession& runtime) {
+  if (!query_peer_schedule_ || runtime.schedule_query_in_flight) {
+    return;
+  }
+  runtime.schedule_query_in_flight = true;
+  runtime.last_schedule_query =
+      last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
+  Log(ae::Format("PEER_UAP_QUERY_BEGIN peer={}", FormatUid(runtime.remote_uid)));
+  auto const uid = runtime.remote_uid;
+  query_peer_schedule_(uid, [this, uid](std::optional<PeerScheduleSnapshot> result) {
+    if (auto* rt = FindRuntime(uid)) {
+      rt->schedule_query_in_flight = false;
+      OnPeerScheduleResult(*rt, std::move(result));
+    }
+  });
+}
+
+void ChatSyncController::ApplyTickDeadline(RuntimeSession& runtime,
+                                           PeerScheduleSnapshot const& snap,
+                                           ae::TimePoint now) {
+  runtime.local_deadline = snap.local_deadline;
+  if (!snap.local_deadline.has_value()) {
+    runtime.tick_deadline.reset();
+    return;
+  }
+  auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      *snap.local_deadline - std::chrono::steady_clock::now());
+  if (remaining_ms.count() < 0) {
+    remaining_ms = std::chrono::milliseconds{0};
+  }
+  runtime.tick_deadline = now + remaining_ms;
+}
+
+void ChatSyncController::ImmediatePayloadRetry(RuntimeSession& runtime,
+                                               ae::TimePoint now) {
+  if (runtime.session == nullptr ||
+      runtime.session->pending_packet_count() == 0) {
+    return;
+  }
+  runtime.write_gate.Clear();
+  runtime.session->RetryPending();
+  runtime.last_retry = now;
+}
+
+void ChatSyncController::OnPeerScheduleResult(
+    RuntimeSession& runtime, std::optional<PeerScheduleSnapshot> result) {
+  if (!result.has_value()) {
+    Log(ae::Format(
+        "PEER_UAP_QUERY_RESULT peer={} error=1 last_read_ms=0 delta_ms=0",
+        FormatUid(runtime.remote_uid)));
+    return;
+  }
+
+  auto const previous_last = runtime.last_ping_server_ms;
+  auto const had_uap = runtime.had_valid_uap;
+  auto const now = last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
+  bool const advanced =
+      had_uap && result->last_ping_server_ms > previous_last;
+
+  runtime.last_ping_server_ms = result->last_ping_server_ms;
+  runtime.next_ping_delta_ms = result->next_ping_delta_ms;
+  runtime.had_valid_uap = true;
+  ApplyTickDeadline(runtime, *result, now);
+
+  Log(ae::Format(
+      "PEER_UAP_QUERY_RESULT peer={} last_read_ms={} delta_ms={}",
+      FormatUid(runtime.remote_uid), runtime.last_ping_server_ms,
+      runtime.next_ping_delta_ms));
+
+  if (ConfirmedOfflineHold(runtime.reachability) && !advanced) {
+    return;
+  }
+
+  if (advanced) {
+    Log(ae::Format("PEER_PING_ADVANCED peer={}",
+                   FormatUid(runtime.remote_uid)));
+    ImmediatePayloadRetry(runtime, now);
+    if (runtime.next_ping_delta_ms > 0) {
+      runtime.reachability = PeerReachability::kWaitingForScheduledPing;
+      Log(ae::Format("SYNC_PAYLOAD_RETRY_ALLOWED peer={}",
+                     FormatUid(runtime.remote_uid)));
+    } else {
+      EnterOfflineNoFuturePing(runtime);
+    }
+    NotifyChanged();
+    return;
+  }
+
+  if (runtime.reachability == PeerReachability::kScheduleCheckPending) {
+    if (runtime.next_ping_delta_ms <= 0) {
+      EnterOfflineNoFuturePing(runtime);
+      return;
+    }
+    EnterOfflineMissedPing(runtime);
+    return;
+  }
+
+  if (runtime.next_ping_delta_ms > 0) {
+    runtime.reachability = PeerReachability::kWaitingForScheduledPing;
+    Log(ae::Format("SYNC_PAYLOAD_RETRY_ALLOWED peer={}",
+                   FormatUid(runtime.remote_uid)));
+  }
+  NotifyChanged();
+}
+
+void ChatSyncController::MaybeHandleScheduleDeadline(RuntimeSession& runtime,
+                                                     ae::TimePoint now) {
+  if (runtime.reachability != PeerReachability::kWaitingForScheduledPing ||
+      !runtime.tick_deadline.has_value() || now < *runtime.tick_deadline) {
+    return;
+  }
+  Log(ae::Format("PEER_PING_DEADLINE peer={}", FormatUid(runtime.remote_uid)));
+  runtime.reachability = PeerReachability::kScheduleCheckPending;
+  Log(ae::Format("SYNC_PAYLOAD_RETRY_HELD peer={} reason=deadline",
+                 FormatUid(runtime.remote_uid)));
+  RequestPeerSchedule(runtime);
+}
+
+void ChatSyncController::MaybeRetryScheduleQuery(RuntimeSession& runtime,
+                                                 ae::TimePoint now) {
+  if (runtime.reachability != PeerReachability::kScheduleCheckPending ||
+      runtime.schedule_query_in_flight) {
+    return;
+  }
+  if (runtime.last_schedule_query.time_since_epoch().count() != 0 &&
+      now - runtime.last_schedule_query < timing_.packet_retry_interval) {
+    return;
+  }
+  RequestPeerSchedule(runtime);
+}
+
+void ChatSyncController::RearmFromPeerOnlineNotify(RuntimeSession& runtime) {
+  bool const was_hold = ConfirmedOfflineHold(runtime.reachability);
+  bool const first_online = !runtime.ever_seen_online;
+  bool const was_offline = runtime.ever_seen_online && !runtime.currently_online;
+  Log(ae::Format("PEER_ONLINE_NOTIFY peer={}", FormatUid(runtime.remote_uid)));
+  runtime.ever_seen_online = true;
+  runtime.currently_online = true;
+  runtime.reachability = PeerReachability::kOnline;
+  if (first_online) {
+    Log(ae::Format("CHAT_PEER_ONLINE peer={}", FormatUid(runtime.remote_uid)));
+  } else if (was_offline) {
+    Log(ae::Format("CHAT_PEER_REJOINED peer={}",
+                   FormatUid(runtime.remote_uid)));
+  }
+  if (was_hold) {
+    ClearOfflinePingMarker(runtime);
+  }
+  Log(ae::Format("PEER_ONLINE_REARMED peer={}", FormatUid(runtime.remote_uid)));
+  Log(ae::Format("SYNC_PAYLOAD_RETRY_ALLOWED peer={}",
+                 FormatUid(runtime.remote_uid)));
+  runtime.recovery_flush_done = false;
+  ImmediatePayloadRetry(
+      runtime, last_tick_now_.has_value() ? *last_tick_now_ : ae::Now());
+  RequestPeerSchedule(runtime);
+  NotifyChanged();
+}
+
+void ChatSyncController::EnterOfflineMissedPing(RuntimeSession& runtime) {
+  runtime.reachability = PeerReachability::kOfflineMissedPing;
+  Log(ae::Format("PEER_PING_MISSED peer={}", FormatUid(runtime.remote_uid)));
+  if (!runtime.offline_marker_on && runtime.session != nullptr &&
+      runtime.session->pending_packet_count() > 0) {
+    runtime.offline_marker_on = true;
+    Log(ae::Format("OFFLINE_PING_MARKER_ON peer={}",
+                   FormatUid(runtime.remote_uid)));
+  }
+  NotifyChanged();
+}
+
+void ChatSyncController::EnterOfflineNoFuturePing(RuntimeSession& runtime) {
+  runtime.reachability = PeerReachability::kOfflineNoFuturePing;
+  Log(ae::Format("PEER_NO_FUTURE_PING peer={}", FormatUid(runtime.remote_uid)));
+  if (!runtime.offline_marker_on && runtime.session != nullptr &&
+      runtime.session->pending_packet_count() > 0) {
+    runtime.offline_marker_on = true;
+    Log(ae::Format("OFFLINE_PING_MARKER_ON peer={}",
+                   FormatUid(runtime.remote_uid)));
+  }
+  NotifyChanged();
+}
+
+void ChatSyncController::ClearOfflinePingMarker(RuntimeSession& runtime) {
+  if (runtime.offline_marker_on) {
+    runtime.offline_marker_on = false;
+    Log(ae::Format("OFFLINE_PING_MARKER_OFF peer={}",
+                   FormatUid(runtime.remote_uid)));
+  }
+}
+
 void ChatSyncController::Tick(ae::TimePoint now) {
   last_tick_now_ = now;
   DrainPendingAutoAccept();
@@ -625,6 +957,7 @@ void ChatSyncController::Tick(ae::TimePoint now) {
   for (auto& runtime : sessions_) {
     assert(runtime.session != nullptr);
     runtime.session->Poll();
+    MaybeHandleScheduleDeadline(runtime, now);
     DrivePending(runtime, now);
     DrivePresence(runtime, now);
 

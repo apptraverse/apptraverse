@@ -113,8 +113,23 @@ add_test(
   COMMAND apptraverse_headless_room_memory_transport_test
 )
 set_tests_properties(apptraverse_headless_room_memory_transport_test PROPERTIES
-  TIMEOUT 180
+  TIMEOUT 300
 )
+
+# Headless Host + Client over the real Aether cloud (no UI, no subprocesses).
+# Requires network access, so it is a manual target and not registered with
+# CTest alongside the deterministic in-memory harness.
+add_executable(apptraverse_headless_aether_room_test
+  headless_aether_room_test.cpp
+  ${CMAKE_SOURCE_DIR}/examples/single_client_chat/common/aether_p2p_framing.cpp
+  ${CMAKE_SOURCE_DIR}/examples/single_client_chat/common/aether_p2p_transport.cpp
+)
+target_link_libraries(apptraverse_headless_aether_room_test PRIVATE
+  single_client_chat_common
+)
+if(MSVC)
+  target_compile_options(apptraverse_headless_aether_room_test PRIVATE /utf-8)
+endif()
 
 add_executable(apptraverse_room_control_codec_test
   room_control_codec_test.cpp

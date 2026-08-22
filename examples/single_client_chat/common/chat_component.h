@@ -14,6 +14,7 @@
 
 #include "apptraverse/object_graph_copy.h"
 
+#include "chat_peer_schedule.h"
 #include "chat_presentation.h"
 #include "chat_sync_controller.h"
 #include "model/chat.h"
@@ -79,6 +80,15 @@ class ChatComponent {
 
   void SetIncomingPeerAuthorize(
       ChatSyncController::IncomingPeerAuthorizeFunction fn);
+  void SetReconnectPeer(ChatSyncController::ReconnectPeerFunction fn);
+  void SetQueryPeerSchedule(QueryPeerScheduleFunction fn);
+  void SetQueryPeerOnlineSchedule(QueryPeerScheduleFunction fn) {
+    SetQueryPeerSchedule(std::move(fn));
+  }
+  PeerReachability GetPeerReachability(ae::Uid const& remote_uid) const;
+  bool IsPeerOfflineMissedVisit(ae::Uid const& remote_uid) const;
+  bool IsPeerOfflineNoFuturePing(ae::Uid const& remote_uid) const;
+  bool ShowOfflinePingMarker(ae::Uid const& remote_uid) const;
 
   void Receive(ae::Uid const&, std::vector<std::uint8_t> const&);
   void Tick(ae::TimePoint);

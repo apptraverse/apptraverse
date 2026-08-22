@@ -3,6 +3,7 @@
 
 #include <string>
 
+#include "chat_peer_schedule.h"
 #include "chat_presentation.h"
 #include "model/chat.h"
 #include "model/chat_entry.h"
@@ -25,6 +26,10 @@ inline std::string FormatChatPresentationUtf8(
       text += item.author.display_name;
       text += ": ";
       text += item.text;
+      if (item.show_offline_marker) {
+        text += " ";
+        text += chat::kOfflinePingMarker;
+      }
       text += "\n";
     }
   }

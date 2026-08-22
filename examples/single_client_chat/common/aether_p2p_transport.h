@@ -11,8 +11,10 @@
 #include <vector>
 
 #include "aether/all.h"
+#include "aether/ae_actions/query_peer_ping_schedule.h"
 
 #include "aether_p2p_framing.h"
+#include "chat_peer_schedule.h"
 
 namespace apptraverse::examples {
 
@@ -60,6 +62,13 @@ class AetherP2pTransport {
   void SetLogHandler(LogHandler handler);
   void SetPreWriteHandler(PreWriteHandler handler);
   void SetSessionReadyHandler(SessionReadyHandler handler);
+  void QueryPeerPingSchedule(ae::Uid const& peer,
+                             chat::PeerScheduleQueryCallback cb);
+  void QueryPeerOnlineSchedule(ae::Uid const& peer,
+                               chat::PeerScheduleQueryCallback cb) {
+    QueryPeerPingSchedule(peer, std::move(cb));
+  }
+  void AnnounceNextPingUnknown();
 
   std::uint64_t session_generation(ae::Uid const& peer) const;
   std::size_t live_session_count(ae::Uid const& peer) const;
@@ -97,6 +106,12 @@ class AetherP2pTransport {
 
   static std::string UidKey(ae::Uid const& uid);
 
+  struct ScheduleQuery {
+    std::unique_ptr<ae::QueryPeerPingSchedule> action;
+    ae::Subscription result_sub;
+    chat::PeerScheduleQueryCallback cb;
+  };
+
   ae::AetherApp* aether_app_{nullptr};
   ae::Client::ptr local_client_;
   ReceiveHandler on_receive_;
@@ -109,6 +124,7 @@ class AetherP2pTransport {
   std::unordered_map<std::string, std::uint64_t> next_generation_;
   // Prevents overlapping Reconnect creating duplicate Connect races.
   std::unordered_set<std::string> reconnect_in_flight_;
+  std::vector<std::unique_ptr<ScheduleQuery>> schedule_queries_;
 };
 
 bool TryHandleP2pProbePayload(

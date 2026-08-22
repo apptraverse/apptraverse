@@ -186,11 +186,16 @@ struct StopBusinessCommand {};
 struct BeginShutdownCommand {};
 struct FinalizeShutdownCommand {};
 
+struct PeerScheduleResultCommand {
+  chat::PeerScheduleQueryCallback cb;
+  std::optional<chat::PeerScheduleSnapshot> result;
+};
+
 using BusinessItem =
     std::variant<SubmitTextCommand, AddPeerCommand, InboundNetworkPacket,
                  NetworkReadyEvent, TransportSessionReadyCommand,
                  StopBusinessCommand, BeginShutdownCommand,
-                 FinalizeShutdownCommand>;
+                 FinalizeShutdownCommand, PeerScheduleResultCommand>;
 
 struct ConnectPeerCommand {
   ae::Uid uid;
@@ -223,9 +228,15 @@ struct SendRoomControlCommand {
 
 struct StopNetworkCommand {};
 
+struct QueryPeerScheduleCommand {
+  ae::Uid peer;
+  chat::PeerScheduleQueryCallback cb;
+};
+
 using NetworkItem =
     std::variant<ConnectPeerCommand, ReconnectPeerCommand, SendSyncCommand,
-                 SendRawCommand, SendRoomControlCommand, StopNetworkCommand>;
+                 SendRawCommand, SendRoomControlCommand, StopNetworkCommand,
+                 QueryPeerScheduleCommand>;
 
 template <typename T>
 class WakeQueue {
@@ -746,6 +757,15 @@ int DistillEventDriven(EventDrivenCliOptions const& options) {
 }
 
 int RunEventDriven(EventDrivenCliOptions const& options) {
+  // Diagnostic anchors for "process start -> aether usable" measured before the
+  // room trace file exists; emitted as offsets once the trace is open.
+  auto const runtime_entry_tp = std::chrono::steady_clock::now();
+  auto const micros_since_entry = [runtime_entry_tp]() {
+    return std::to_string(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - runtime_entry_tp)
+            .count());
+  };
   LatencyTrace trace;
   if (options.latency_trace.has_value()) {
     trace.Open(*options.latency_trace);
@@ -774,6 +794,7 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
     return 1;
   }
 
+  auto const aether_app_start_us = micros_since_entry();
   auto aether_runtime = ConstructAetherAppWithEthernet([aether_root]() {
     return std::make_unique<DirectoryDomainStorage>(aether_root);
   });
@@ -782,12 +803,22 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
     std::cerr << "Failed to construct AetherApp\n";
     return 1;
   }
+  auto const aether_app_ready_us = micros_since_entry();
 
   auto aether_client =
       SelectPersistentAetherClient(*aether_app, options.aether_client_name);
   if (!aether_client) {
     std::cerr << "Failed to select Aether client\n";
     return 1;
+  }
+  {
+    auto policy = aether_client->connectivity_policy();
+    policy.Load();
+    if (policy.is_loaded()) {
+      // Drop the previous process lifetime's ping appointment so this start
+      // opens a fresh RX window instead of waiting out a missed slot.
+      policy->ResetRxTimings();
+    }
   }
   auto const local_uid = FormatAetherUid(aether_client->uid());
   std::cout << "AETHER_CLIENT_READY platform=windows uid=" << local_uid << '\n';
@@ -802,6 +833,12 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
     room_trace.Open(*options.room_trace,
                     *options.role == ChatRoomRole::kHost ? "host" : "client",
                     aether_client->uid());
+    room_trace.Event("AETHER_APP_START", {}, {}, {}, {}, {}, {},
+                     "entry_offset_us=" + aether_app_start_us);
+    room_trace.Event("AETHER_APP_READY", {}, {}, {}, {}, {}, {},
+                     "entry_offset_us=" + aether_app_ready_us);
+    room_trace.Event("AETHER_CLIENT_SELECTED", {}, {}, {}, {}, {}, {},
+                     "entry_offset_us=" + micros_since_entry());
   }
 
   // Model is fully RAM-resident after one-shot directory import.
@@ -1022,6 +1059,40 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
     scheduler.store(aether_app->aether()->task_scheduler.get(),
                     std::memory_order::release);
 
+    // Diagnostic only: when does this process' own cloud uplink become linked?
+    // Everything P2P (GetCloud, port creation, inbound push) is gated on it.
+    bool cloud_ready_logged = false;
+    ae::Subscription cloud_link_sub;
+    if (room_trace.enabled()) {
+      auto& cloud_conn = aether_client->cloud_connection();
+      auto const report_cloud_state = [&room_trace, &cloud_ready_logged,
+                                       &cloud_conn]() {
+        std::size_t linked = 0;
+        for (auto* server : cloud_conn.selected_servers()) {
+          if (server == nullptr) {
+            continue;
+          }
+          auto* conn = server->client_connection();
+          if (conn != nullptr &&
+              conn->stream_info().link_state == ae::LinkState::kLinked) {
+            ++linked;
+          }
+        }
+        room_trace.Event("AETHER_CLOUD_SERVERS", {}, {}, {}, {}, {}, {},
+                         "selected=" +
+                             std::to_string(cloud_conn.selected_servers().size()) +
+                             " linked=" + std::to_string(linked));
+        if (linked > 0 && !cloud_ready_logged) {
+          cloud_ready_logged = true;
+          room_trace.Event("AETHER_CLOUD_READY", {}, {}, {}, {}, {}, {},
+                           "linked=" + std::to_string(linked));
+        }
+      };
+      cloud_link_sub =
+          cloud_conn.servers_update_event().Subscribe(report_cloud_state);
+      report_cloud_state();
+    }
+
     transport.SetPreWriteHandler(
         [&](ae::Uid const& peer, std::size_t frame_bytes) {
           if (room_trace.enabled()) {
@@ -1048,6 +1119,13 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                 line.find("P2P_SESSION_DESTROY") != std::string::npos ||
                 line.find("P2P_SESSION_WRITABLE") != std::string::npos ||
                 line.find("P2P_SESSION_LINK_WAIT") != std::string::npos ||
+                line.find("P2P_ATTACH_INCOMING") != std::string::npos ||
+                line.find("P2P_STREAM_STATE") != std::string::npos ||
+                line.find("P2P_STREAM_WRITABLE") != std::string::npos ||
+                line.find("P2P_STREAM_DATA") != std::string::npos ||
+                line.find("P2P_PAYLOAD_RECEIVED") != std::string::npos ||
+                line.find("P2P_SESSION_CALLBACK_STALE_DROPPED") !=
+                    std::string::npos ||
                 line.find("P2P_RECONNECT_SUPPRESSED") != std::string::npos) {
           room_trace.Event("P2P_TRANSPORT", {}, {}, {}, {}, {}, {}, line);
           room_trace.Event("CHAT_PEER_READY", {}, {}, {}, {}, {}, {}, line);
@@ -1072,6 +1150,11 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
           }
           if (room_kind == chat::RoomInboundKind::kRoomControlDecodeFail) {
             // Never treat ATRM magic payloads as Chat sync.
+            if (room_trace.enabled()) {
+              room_trace.Event("ROOM_INBOUND_DECODE_FAIL",
+                               FormatAetherUid(peer), "in", {}, {}, {},
+                               std::to_string(payload.size()), "dropped");
+            }
             return;
           }
           if (TryHandleP2pProbePayload(transport, peer, payload, {}, {})) {
@@ -1187,7 +1270,19 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                                      {}, {}, "ok");
                   }
                 }
+              } else if constexpr (std::is_same_v<T, QueryPeerScheduleCommand>) {
+                transport.QueryPeerPingSchedule(
+                    cmd.peer,
+                    [&, cb = std::move(cmd.cb)](
+                        std::optional<chat::PeerScheduleSnapshot> result) {
+                      business_q.Push(PeerScheduleResultCommand{
+                          cb, std::move(result)});
+                    });
               } else if constexpr (std::is_same_v<T, StopNetworkCommand>) {
+                // Announce delta=0 while the network thread and Aether are
+                // still running, then drain in-flight writes once.
+                transport.AnnounceNextPingUnknown();
+                (void)aether_app->Update(ae::Now());
                 // Tear down PeerSession subscriptions before AetherApp Exit so
                 // stream callbacks cannot touch destroyed sessions.
                 transport.Stop();
@@ -1577,6 +1672,19 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
 
     component.SetIncomingPeerAuthorize(
         [&](ae::Uid const& peer) { return room.IsAuthorizedSyncPeer(peer); });
+    component.SetReconnectPeer([&](ae::Uid const& peer) {
+      if (room_trace.enabled()) {
+        room_trace.Event("STALE_PATH_RECONNECT", FormatAetherUid(peer), "out",
+                         {}, {}, {}, {}, "ok");
+      }
+      network_q.Push(ReconnectPeerCommand{peer});
+      wake_network();
+    });
+    component.SetQueryPeerSchedule(
+        [&](ae::Uid const& peer, chat::PeerScheduleQueryCallback cb) {
+          network_q.Push(QueryPeerScheduleCommand{peer, std::move(cb)});
+          wake_network();
+        });
 
     if (*options.role == ChatRoomRole::kHost) {
       if (room_trace.enabled()) {
@@ -1734,6 +1842,11 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                 }
                 if (component.HasLocalJoin()) {
                   room.NotifyLocalJoinAppeared();
+                }
+                publish_presentation(component);
+              } else if constexpr (std::is_same_v<T, PeerScheduleResultCommand>) {
+                if (cmd.cb) {
+                  cmd.cb(std::move(cmd.result));
                 }
                 publish_presentation(component);
               } else if constexpr (std::is_same_v<T, NetworkReadyEvent>) {

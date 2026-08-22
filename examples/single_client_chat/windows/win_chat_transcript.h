@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "../common/chat_peer_schedule.h"
 #include "../common/chat_presentation.h"
 
 namespace apptraverse::examples {
@@ -127,6 +128,10 @@ inline std::string FormatWindowsChatPresentationUtf8(
           text += std::to_string(*ms);
           text += " ms]";
         }
+      }
+      if (item.show_offline_marker) {
+        text += " ";
+        text += chat::kOfflinePingMarker;
       }
       text += "\n";
     }

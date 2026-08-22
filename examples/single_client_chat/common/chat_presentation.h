@@ -30,6 +30,8 @@ struct ChatTimelineItemView {
   std::string text;
   std::uint32_t event_obj_id{};
   std::uint64_t timestamp_us{};
+  // Presentation-only: local pending while the peer missed its next visit.
+  bool show_offline_marker{false};
 };
 
 struct ChatPeerStatusView {
@@ -37,6 +39,7 @@ struct ChatPeerStatusView {
   bool online{false};
   bool initial_sync_complete{false};
   std::size_t pending_packets{0};
+  bool offline_missed_visit{false};
 };
 
 struct ChatPresentationSnapshot {

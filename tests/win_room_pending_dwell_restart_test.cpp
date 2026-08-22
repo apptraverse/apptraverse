@@ -397,6 +397,11 @@ std::size_t CountOcc(std::string const& hay, std::string const& needle) {
 
 char const* const kTimelineMarkers[] = {
     "layer=P2P_TRANSPORT",
+    "layer=AETHER_APP_START",
+    "layer=AETHER_APP_READY",
+    "layer=AETHER_CLIENT_SELECTED",
+    "layer=AETHER_CLOUD_SERVERS",
+    "layer=AETHER_CLOUD_READY",
     "layer=CHAT_TRANSPORT_SESSION_READY",
     "layer=CHAT_PEER_OFFLINE",
     "layer=CHAT_PEER_ONLINE",

@@ -158,6 +158,34 @@ void ChatComponent::SetIncomingPeerAuthorize(
   sync_.SetIncomingPeerAuthorize(std::move(fn));
 }
 
+void ChatComponent::SetReconnectPeer(
+    ChatSyncController::ReconnectPeerFunction fn) {
+  sync_.SetReconnectPeer(std::move(fn));
+}
+
+void ChatComponent::SetQueryPeerSchedule(QueryPeerScheduleFunction fn) {
+  sync_.SetQueryPeerSchedule(std::move(fn));
+}
+
+PeerReachability ChatComponent::GetPeerReachability(
+    ae::Uid const& remote_uid) const {
+  return sync_.GetPeerReachability(remote_uid);
+}
+
+bool ChatComponent::IsPeerOfflineMissedVisit(
+    ae::Uid const& remote_uid) const {
+  return sync_.IsPeerOfflineMissedVisit(remote_uid);
+}
+
+bool ChatComponent::IsPeerOfflineNoFuturePing(
+    ae::Uid const& remote_uid) const {
+  return sync_.IsPeerOfflineNoFuturePing(remote_uid);
+}
+
+bool ChatComponent::ShowOfflinePingMarker(ae::Uid const& remote_uid) const {
+  return sync_.ShowOfflinePingMarker(remote_uid);
+}
+
 AddPeerResult ChatComponent::AddPeer(ae::Uid const& remote_uid) {
   if (!running_) {
     return AddPeerResult::kNotRunning;
@@ -319,11 +347,29 @@ ChatPresentationSnapshot ChatComponent::CapturePresentation() const {
         ChatPeerStatusView status{};
         status.remote_uid = ae::Format("{}", peer.remote_uid);
         status.online = sync_.IsPeerOnline(peer.remote_uid);
+        status.offline_missed_visit =
+            sync_.ShowOfflinePingMarker(peer.remote_uid);
         if (auto const* session = sync_.FindSession(peer.remote_uid)) {
           status.initial_sync_complete = session->initial_sync_complete();
           status.pending_packets = session->pending_packet_count();
         }
         snapshot.peers.push_back(std::move(status));
+      }
+    }
+  }
+
+  bool show_marker = false;
+  for (auto const& peer : snapshot.peers) {
+    if (peer.offline_missed_visit && peer.pending_packets > 0) {
+      show_marker = true;
+      break;
+    }
+  }
+  if (show_marker) {
+    for (auto& item : snapshot.timeline) {
+      if (item.kind == ChatTimelineItemKind::kMessage &&
+          item.direction == ChatMessageDirection::kLocal) {
+        item.show_offline_marker = true;
       }
     }
   }
