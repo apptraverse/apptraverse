@@ -70,8 +70,15 @@ class AetherP2pTransport {
     std::uint64_t generation{0};
     std::shared_ptr<ae::P2pStream> stream;
     ae::Subscription data_sub;
+    ae::Subscription link_sub;
+    std::string source;
     AetherP2pFrameDecoder decoder;
+    // A freshly constructed P2pStream buffers writes until its cloud send path
+    // is linked. Session-ready is announced only once it can actually write.
+    bool announced_ready{false};
   };
+
+  void NotifySessionReadyWhenWritable(PeerSession& session);
 
   PeerSession* FindSession(ae::Uid const& peer);
   PeerSession const* FindSession(ae::Uid const& peer) const;

@@ -122,7 +122,28 @@ void AetherP2pTransport::DestroySessionLocked(PeerSession& session,
   // Unsubscribe before releasing the stream so late deliveries cannot touch
   // this PeerSession object after erase.
   session.data_sub = ae::Subscription{};
+  session.link_sub = ae::Subscription{};
   session.stream.reset();
+}
+
+void AetherP2pTransport::NotifySessionReadyWhenWritable(PeerSession& session) {
+  if (session.announced_ready || session.stream == nullptr) {
+    return;
+  }
+  auto const info = session.stream->stream_info();
+  if (info.link_state != ae::LinkState::kLinked) {
+    Log("P2P_SESSION_LINK_WAIT peer=" + FormatAetherUid(session.remote_uid) +
+        " generation=" + std::to_string(session.generation));
+    return;
+  }
+  session.announced_ready = true;
+  session.link_sub = ae::Subscription{};
+  Log("P2P_SESSION_WRITABLE peer=" + FormatAetherUid(session.remote_uid) +
+      " generation=" + std::to_string(session.generation));
+  if (on_session_ready_) {
+    on_session_ready_(session.remote_uid, session.source.c_str(),
+                      session.generation);
+  }
 }
 
 AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
@@ -138,6 +159,7 @@ AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
   auto session = std::make_unique<PeerSession>();
   session->remote_uid = peer;
   session->generation = next_gen;
+  session->source = source != nullptr ? source : "unknown";
   session->stream = std::make_shared<ae::P2pStream>(
       *aether_app_, local_client_.Load(), peer, std::move(handle));
 
@@ -153,9 +175,11 @@ AetherP2pTransport::PeerSession* AetherP2pTransport::CreateSession(
 
   sessions_.push_back(std::move(session));
   auto* raw = sessions_.back().get();
-  if (on_session_ready_) {
-    on_session_ready_(peer, source != nullptr ? source : "unknown", generation);
-  }
+  // PeerSession lives in a unique_ptr, so its address is stable; the
+  // subscription is owned by the session and released before destruction.
+  raw->link_sub = raw->stream->stream_update_event().Subscribe(
+      [this, raw]() { NotifySessionReadyWhenWritable(*raw); });
+  NotifySessionReadyWhenWritable(*raw);
   return raw;
 }
 

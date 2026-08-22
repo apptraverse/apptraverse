@@ -101,14 +101,11 @@ class ChatSyncController {
     ae::TimePoint last_heartbeat_sent{};
     // Last transport generation that received SYNC_RECONNECT_FLUSH.
     std::uint64_t last_flushed_transport_generation{0};
-    // One presence-rejoin flush per offline→online epoch.
-    bool flushed_for_current_online_epoch{false};
-    // One peer-activity flush while the same pending set is gated (covers the
-    // case where the remote process restarts without a new P2P session
-    // generation on this side).
-    bool flushed_for_peer_activity_{false};
-    // One flush after the peer missed a heartbeat window while pending is gated.
-    bool flushed_for_stale_peer_{false};
+    // New transport generation, presence rejoin, peer activity and stale peer
+    // are alternative detectors of one event: "the remote is reachable again".
+    // They share a single immediate re-offer; afterwards the write gate owns
+    // the retry cadence. Reset on peer offline and on pending progress.
+    bool recovery_flush_done{false};
   };
 
   struct PendingAutoAccept {
@@ -136,6 +133,10 @@ class ChatSyncController {
                     ae::TimePoint now);
   void ApplyOnlineTransition(RuntimeSession& runtime);
   void ApplyOfflineTransition(RuntimeSession& runtime, char const* reason);
+  // Single immediate re-offer of gated pending packets after the remote became
+  // reachable again. Returns false when the token was already spent.
+  bool TryRecoveryFlush(RuntimeSession& runtime, char const* reason,
+                        std::uint64_t transport_generation);
   void FlushPendingImmediate(RuntimeSession& runtime,
                              std::uint64_t transport_generation,
                              char const* reason);

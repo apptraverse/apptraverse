@@ -1043,10 +1043,13 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
 
     if (room_trace.enabled()) {
       transport.SetLogHandler([&](std::string line) {
-        if (line.find("P2P_SESSION_CREATE") != std::string::npos ||
-            line.find("P2P_SESSION_REPLACE") != std::string::npos ||
-            line.find("P2P_SESSION_DESTROY") != std::string::npos ||
-            line.find("P2P_RECONNECT_SUPPRESSED") != std::string::npos) {
+            if (line.find("P2P_SESSION_CREATE") != std::string::npos ||
+                line.find("P2P_SESSION_REPLACE") != std::string::npos ||
+                line.find("P2P_SESSION_DESTROY") != std::string::npos ||
+                line.find("P2P_SESSION_WRITABLE") != std::string::npos ||
+                line.find("P2P_SESSION_LINK_WAIT") != std::string::npos ||
+                line.find("P2P_RECONNECT_SUPPRESSED") != std::string::npos) {
+          room_trace.Event("P2P_TRANSPORT", {}, {}, {}, {}, {}, {}, line);
           room_trace.Event("CHAT_PEER_READY", {}, {}, {}, {}, {}, {}, line);
         }
       });
@@ -1312,18 +1315,36 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
           if (trace.enabled()) {
             trace.MarkFromProductLine(TraceThreadRole::kBusiness, line);
           } else if (room_trace.enabled()) {
-            // Transition / acceptance markers only (no per-packet SYNC_LOG dump).
-            if (line.find("CHAT_EVENT_COMMITTED") != std::string::npos) {
-              room_trace.Event("CLIENT_EVENT_COMMITTED", {}, {}, {}, {}, {}, {},
-                               line);
-            }
-            if (line.find("SYNC_TRANSPORT_WRITE") != std::string::npos) {
-              room_trace.Event("CLIENT_SYNC_TRANSPORT_WRITE", {}, {}, {}, {}, {},
-                               {}, line);
-            }
-            if (line.find("CHAT_SYNC_RECONNECT_BEGIN") != std::string::npos) {
-              room_trace.Event("CLIENT_SYNC_RECONNECT_BEGIN", {}, {}, {}, {}, {},
-                               {}, line);
+            // Transition / delivery-edge markers only (no per-tick, retry-poll,
+            // auth or duplicate-check dump).
+            static constexpr struct {
+              char const* needle;
+              char const* layer;
+            } kSyncTraceMarkers[] = {
+                {"CHAT_EVENT_COMMITTED", "CLIENT_EVENT_COMMITTED"},
+                {"SYNC_TRANSPORT_WRITE", "CLIENT_SYNC_TRANSPORT_WRITE"},
+                {"SYNC_WRITE_SUPPRESSED", "SYNC_WRITE_SUPPRESSED"},
+                {"CHAT_SYNC_RECONNECT_BEGIN", "CLIENT_SYNC_RECONNECT_BEGIN"},
+                {"SYNC_RECONNECT_FLUSH", "SYNC_RECONNECT_FLUSH"},
+                {"CHAT_PENDING_FLUSH_BEGIN", "CHAT_PENDING_FLUSH_BEGIN"},
+                {"CHAT_TRANSPORT_SESSION_READY", "CHAT_TRANSPORT_SESSION_READY"},
+                {"CHAT_PEER_OFFLINE", "CHAT_PEER_OFFLINE"},
+                {"CHAT_PEER_REJOINED", "CHAT_PEER_REJOINED"},
+                {"CHAT_PEER_ONLINE", "CHAT_PEER_ONLINE"},
+                {"SYNC_TRANSPORT_RECEIVE", "SYNC_TRANSPORT_RECEIVE"},
+                {"SYNC_PACKET_RECEIVED", "SYNC_PACKET_RECEIVED"},
+                {"SYNC_PACKET_RETRY", "SYNC_PACKET_RETRY"},
+                {"SYNC_ACK_RECEIVED", "SYNC_ACK_RECEIVED"},
+                {"SYNC_PENDING_REMOVED", "SYNC_PENDING_REMOVED"},
+                {"SYNC_EVENT_BLOCKED", "SYNC_EVENT_BLOCKED"},
+                {"SYNC_EVENT_APPLIED", "HOST_SYNC_EVENT_APPLIED"},
+                {"SYNC_INITIAL_COMPLETE", "SYNC_INITIAL_COMPLETE"},
+                {"CHAT_PENDING_CHANGED", "PENDING_COUNT_CHANGED"},
+            };
+            for (auto const& marker : kSyncTraceMarkers) {
+              if (line.find(marker.needle) != std::string::npos) {
+                room_trace.Event(marker.layer, {}, {}, {}, {}, {}, {}, line);
+              }
             }
             if (line.find("CHAT_TRANSPORT_SESSION_READY") != std::string::npos ||
                 line.find("CHAT_PEER_ONLINE") != std::string::npos ||
@@ -1331,19 +1352,6 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
               room_trace.Event("CLIENT_SESSION_READY", {}, {}, {}, {}, {}, {},
                                line);
               room_trace.Event("CHAT_PEER_READY", {}, {}, {}, {}, {}, {}, line);
-            }
-            if (line.find("SYNC_INITIAL_COMPLETE") != std::string::npos ||
-                line.find("CHAT_SYNC_INITIAL_COMPLETE") != std::string::npos) {
-              room_trace.Event("SYNC_INITIAL_COMPLETE", {}, {}, {}, {}, {}, {},
-                               line);
-            }
-            if (line.find("CHAT_PENDING_CHANGED") != std::string::npos) {
-              room_trace.Event("PENDING_COUNT_CHANGED", {}, {}, {}, {}, {}, {},
-                               line);
-            }
-            if (line.find("SYNC_EVENT_APPLIED") != std::string::npos) {
-              room_trace.Event("HOST_SYNC_EVENT_APPLIED", {}, {}, {}, {}, {}, {},
-                               line);
             }
           }
           if (line.find("CHAT_PEER_OFFLINE") != std::string::npos) {
