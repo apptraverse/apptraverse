@@ -75,7 +75,7 @@ int main() {
   // Chat sync auth still rejects unknown UID before activation.
   CHECK(!host.IsAuthorizedSyncPeer(stranger_uid));
 
-  // Room-control bootstrap: ClientHello accepted before peer is authorized.
+  // Room-control bootstrap: ClientHello accepted and identity committed.
   RoomControlMessage hello{};
   hello.type = RoomControlType::kClientHello;
   hello.client_obj_id = 201;
@@ -83,9 +83,11 @@ int main() {
   host.OnControl(client_uid, hello);
   saw_hello = true;
   CHECK(saw_hello);
+  // After Hello, Host+1 commits accepted Client into authorized_ for Chat sync.
+  CHECK(host.IsAuthorizedSyncPeer(client_uid));
+  CHECK(host.applied_revision() == 2);
 
-  // Non-hello room control from unknown UID is rejected (no Prepare reply
-  // path without hello); Applied from stranger must not advance revision.
+  // Non-hello room control from unknown UID is rejected.
   auto const rev_before = host.applied_revision();
   RoomControlMessage applied{};
   applied.type = RoomControlType::kMembershipApplied;

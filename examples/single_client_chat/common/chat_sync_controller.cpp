@@ -149,6 +149,9 @@ void ChatSyncController::ApplyOnlineTransition(RuntimeSession& runtime) {
     runtime.currently_online = true;
     Log(ae::Format("CHAT_PEER_REJOINED peer={}",
                    FormatUid(runtime.remote_uid)));
+    // SessionReady may have flushed while the remote process was still
+    // binding; allow exactly one additional flush on offline→online.
+    FlushPendingOnPresenceRejoin(runtime);
     NotifyChanged();
   }
 }
@@ -159,9 +162,114 @@ void ChatSyncController::ApplyOfflineTransition(RuntimeSession& runtime,
     return;
   }
   runtime.currently_online = false;
+  runtime.recovery_flush_done = false;
   Log(ae::Format("CHAT_PEER_OFFLINE peer={} reason={}",
                  FormatUid(runtime.remote_uid), reason));
   NotifyChanged();
+}
+
+bool ChatSyncController::TryRecoveryFlush(RuntimeSession& runtime,
+                                          char const* reason,
+                                          std::uint64_t transport_generation) {
+  assert(runtime.session != nullptr);
+  auto const pending = runtime.session->pending_packet_count();
+  char const* const reason_text = reason != nullptr ? reason : "transport";
+  if (pending == 0) {
+    runtime.recovery_flush_done = false;
+    return false;
+  }
+  if (runtime.recovery_flush_done) {
+    Log(ae::Format(
+        "SYNC_RECONNECT_FLUSH_SUPPRESSED peer={} generation={} "
+        "reason=already_flushed_recovery requested={}",
+        FormatUid(runtime.remote_uid), transport_generation, reason_text));
+    return false;
+  }
+  runtime.recovery_flush_done = true;
+  Log(ae::Format(
+      "CHAT_SYNC_RECONNECT_BEGIN peer={} generation={} pending_count={} "
+      "reason={}",
+      FormatUid(runtime.remote_uid), transport_generation, pending,
+      reason_text));
+  Log(ae::Format(
+      "SYNC_RECONNECT_FLUSH peer={} generation={} pending_count={} reason={}",
+      FormatUid(runtime.remote_uid), transport_generation, pending,
+      reason_text));
+  Log(ae::Format(
+      "CHAT_PENDING_FLUSH_BEGIN peer={} generation={} pending_count={} "
+      "reason={}",
+      FormatUid(runtime.remote_uid), transport_generation, pending,
+      reason_text));
+  // Reset gate so the first physical attempt after recovery is immediate;
+  // subsequent retries stay under SyncPacketWriteGate (2000 ms).
+  runtime.write_gate.Clear();
+  auto const now = last_tick_now_.has_value() ? *last_tick_now_ : ae::Now();
+  runtime.last_retry = now;
+  // Re-offer here rather than via DrivePending: this is the sanctioned write
+  // moment, so it must not be filtered by the retry cadence.
+  runtime.session->RetryPending();
+  Log(ae::Format(
+      "CHAT_SYNC_RECONNECT_END peer={} generation={} pending_count={} "
+      "reason={}",
+      FormatUid(runtime.remote_uid), transport_generation,
+      runtime.session->pending_packet_count(), reason_text));
+  return true;
+}
+
+void ChatSyncController::FlushPendingImmediate(
+    RuntimeSession& runtime, std::uint64_t transport_generation,
+    char const* reason) {
+  assert(runtime.session != nullptr);
+  if (transport_generation == 0) {
+    Log(ae::Format(
+        "SYNC_RECONNECT_FLUSH_SUPPRESSED peer={} reason=invalid_generation",
+        FormatUid(runtime.remote_uid)));
+    return;
+  }
+  if (transport_generation <= runtime.last_flushed_transport_generation) {
+    Log(ae::Format(
+        "SYNC_RECONNECT_FLUSH_SUPPRESSED peer={} generation={} "
+        "reason=already_flushed_generation",
+        FormatUid(runtime.remote_uid), transport_generation));
+    return;
+  }
+  runtime.last_flushed_transport_generation = transport_generation;
+  // A brand new transport session is fresh evidence of reachability: it may
+  // re-arm the shared recovery token spent while the old session was dead.
+  runtime.recovery_flush_done = false;
+  TryRecoveryFlush(runtime, reason, transport_generation);
+}
+
+void ChatSyncController::FlushPendingOnPresenceRejoin(RuntimeSession& runtime) {
+  TryRecoveryFlush(runtime, "presence_rejoin",
+                   runtime.last_flushed_transport_generation);
+}
+
+void ChatSyncController::FlushPendingOnPeerActivity(RuntimeSession& runtime) {
+  assert(runtime.session != nullptr);
+  if (runtime.session->pending_packet_count() == 0) {
+    runtime.recovery_flush_done = false;
+    return;
+  }
+  if (runtime.recovery_flush_done) {
+    // Steady-state inbound on a live path: retry cadence owns the writes.
+    return;
+  }
+  // Remote is delivering on the wire again after silence: this is the first
+  // moment a pending write can actually reach it.
+  TryRecoveryFlush(runtime, "peer_activity",
+                   runtime.last_flushed_transport_generation);
+}
+
+void ChatSyncController::NotifyTransportSessionReady(
+    ae::Uid const& remote_uid, std::uint64_t transport_generation) {
+  auto* runtime = FindRuntime(remote_uid);
+  if (runtime == nullptr || runtime->session == nullptr) {
+    return;
+  }
+  Log(ae::Format("CHAT_TRANSPORT_SESSION_READY peer={} generation={}",
+                 FormatUid(remote_uid), transport_generation));
+  FlushPendingImmediate(*runtime, transport_generation, "transport_generation");
 }
 
 void ChatSyncController::DrivePresence(RuntimeSession& runtime,
@@ -192,6 +300,7 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
     }
     runtime.last_pending_count = 0;
     runtime.write_gate.Clear();
+    runtime.recovery_flush_done = false;
     return;
   }
 
@@ -210,8 +319,6 @@ void ChatSyncController::DrivePending(RuntimeSession& runtime,
   bool const retry_due = runtime.last_retry.time_since_epoch().count() == 0 ||
                          now - runtime.last_retry >= timing_.retry_interval;
   if (retry_due) {
-    // Re-offer every pending packet; SyncPacketWriteGate enforces the
-    // per-packet physical send cooldown (packet_retry_interval).
     runtime.session->RetryPending();
     runtime.last_retry = now;
   }
@@ -400,22 +507,42 @@ void ChatSyncController::ReceiveKnown(ae::Uid const& remote_uid,
     return;
   }
 
+  // Inbound traffic after a silence gap is the only hard evidence that the
+  // remote is reachable again. Timer-based detectors (stale peer) may have
+  // spent the recovery token while the remote was still absent, so re-arm it
+  // here; otherwise the first pending re-offer waits out the write gate.
+  bool const was_silent =
+      !runtime->currently_online || !runtime->last_seen.has_value() ||
+      now - *runtime->last_seen >= timing_.heartbeat_interval;
+  if (was_silent) {
+    runtime->recovery_flush_done = false;
+  }
   runtime->last_seen = now;
   ApplyOnlineTransition(*runtime);
 
   if (presence.has_value()) {
+    FlushPendingOnPeerActivity(*runtime);
     return;
   }
 
   assert(runtime->session != nullptr);
+  auto const pending_before = runtime->session->pending_packet_count();
   runtime->session->Receive(bytes);
+  auto const pending_after = runtime->session->pending_packet_count();
   // Application ACK may have removed pending packets — drop gate slots now.
-  if (runtime->session->pending_packet_count() == 0) {
+  if (pending_after == 0) {
     runtime->write_gate.Clear();
     runtime->last_pending_count = 0;
+    runtime->recovery_flush_done = false;
   } else {
     PruneWriteGate(*runtime);
-    runtime->last_pending_count = runtime->session->pending_packet_count();
+    runtime->last_pending_count = pending_after;
+    if (pending_after < pending_before) {
+      // Real progress: the next packet in the backlog earns an immediate slot.
+      runtime->recovery_flush_done = false;
+    }
+    // After inbound sync on a live path, re-offer gated pending immediately.
+    FlushPendingOnPeerActivity(*runtime);
   }
 
   if (!runtime->last_initial_sync_complete &&
@@ -483,6 +610,8 @@ void ChatSyncController::LocalEventCommitted(Node::ptr node,
   assert(node.is_valid());
   assert(record.event.is_valid());
   last_tick_now_ = ae::Now();
+  Log(ae::Format("CHAT_EVENT_COMMITTED event={} target={}",
+                 record.event.id().id(), node.id().id()));
   for (auto& runtime : sessions_) {
     assert(runtime.session != nullptr);
     runtime.session->PublishCommittedEvent(node, record);

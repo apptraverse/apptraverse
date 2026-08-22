@@ -70,6 +70,12 @@ class ChatSyncController {
                std::vector<std::uint8_t> const& bytes);
   void Tick(ae::TimePoint now);
 
+  // Transport replaced a stale P2P session (peer process restart). Clear the
+  // write-gate cooldown and re-offer pending packets at most once per
+  // transport generation.
+  void NotifyTransportSessionReady(ae::Uid const& remote_uid,
+                                   std::uint64_t transport_generation);
+
   std::size_t runtime_session_count() const { return sessions_.size(); }
   SharedGraphSyncSession* FindSession(ae::Uid const& remote_uid);
   SharedGraphSyncSession const* FindSession(ae::Uid const& remote_uid) const;
@@ -93,6 +99,13 @@ class ChatSyncController {
     bool currently_online{false};
     std::optional<ae::TimePoint> last_seen;
     ae::TimePoint last_heartbeat_sent{};
+    // Last transport generation that received SYNC_RECONNECT_FLUSH.
+    std::uint64_t last_flushed_transport_generation{0};
+    // New transport generation, presence rejoin, peer activity and stale peer
+    // are alternative detectors of one event: "the remote is reachable again".
+    // They share a single immediate re-offer; afterwards the write gate owns
+    // the retry cadence. Reset on peer offline and on pending progress.
+    bool recovery_flush_done{false};
   };
 
   struct PendingAutoAccept {
@@ -120,6 +133,15 @@ class ChatSyncController {
                     ae::TimePoint now);
   void ApplyOnlineTransition(RuntimeSession& runtime);
   void ApplyOfflineTransition(RuntimeSession& runtime, char const* reason);
+  // Single immediate re-offer of gated pending packets after the remote became
+  // reachable again. Returns false when the token was already spent.
+  bool TryRecoveryFlush(RuntimeSession& runtime, char const* reason,
+                        std::uint64_t transport_generation);
+  void FlushPendingImmediate(RuntimeSession& runtime,
+                             std::uint64_t transport_generation,
+                             char const* reason);
+  void FlushPendingOnPresenceRejoin(RuntimeSession& runtime);
+  void FlushPendingOnPeerActivity(RuntimeSession& runtime);
   void DrivePresence(RuntimeSession& runtime, ae::TimePoint now);
   void QueueAutoAccept(ae::Uid const& remote_uid,
                        std::vector<std::uint8_t> const& bytes);

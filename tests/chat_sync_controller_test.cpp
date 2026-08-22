@@ -865,9 +865,13 @@ void TestRetryTiming() {
 
   // --- D: Application ACK removes pending + gate slot immediately ---
   deliver = false;
+  // Align Tick clock with last_seen from Receive so stale-peer flush does not
+  // fire (test time jumps of +14s would otherwise look like a dead peer).
+  auto const t_d = ae::Now();
+  left_ctrl.Receive(right_uid,
+                    chat::EncodeChatPresence(chat::ChatPresenceMessage::kOnline));
   left.Submit("ack-me");
   sent_ids.clear();
-  auto const t_d = t0 + std::chrono::milliseconds{14000};
   left_ctrl.Tick(t_d);
   CHECK(sent_ids.size() == 1);
   auto const ack_target_id = sent_ids.front();

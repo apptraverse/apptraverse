@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cctype>
+#include <optional>
 #include <utility>
 
 #include "aether-miscpp/format/format.h"
@@ -24,11 +25,20 @@ std::string TrimWhitespace(std::string text) {
   return text;
 }
 
-bool LocalClientHasJoinInJournal(Chat::ptr const& chat,
-                                 Client::ptr const& local_client) {
+ChatComponent::LocalJoinProbe ProbeLocalJoinInJournal(
+    Chat::ptr const& chat, Client::ptr const& local_client) {
+  ChatComponent::LocalJoinProbe out{};
   if (!chat.is_loaded() || !local_client.is_valid()) {
-    return false;
+    return out;
   }
+  local_client.Load();
+  if (!local_client.is_loaded()) {
+    return out;
+  }
+  auto const local_id = local_client.id();
+  out.local_client_obj_id = local_id.id();
+  auto const& local_name = local_client->name;
+  std::optional<ChatComponent::LocalJoinProbe> name_fallback;
   for (auto const& record : chat->journal) {
     if (!record.event.is_valid() ||
         record.event->GetClassId() != JoinClientEvent::kClassId) {
@@ -39,11 +49,30 @@ bool LocalClientHasJoinInJournal(Chat::ptr const& chat,
     if (!join.is_loaded() || !join->client.is_valid()) {
       continue;
     }
-    if (join->client.id() == local_client.id()) {
-      return true;
+    if (join->client.id() == local_id) {
+      out.kind = ChatComponent::LocalJoinMatchKind::kObjId;
+      out.join_client_obj_id = join->client.id().id();
+      return out;
+    }
+    // Name match is migration/debug only — never used for activation.
+    if (!name_fallback.has_value()) {
+      join->client.Load();
+      if (join->client.is_loaded() && !local_name.empty() &&
+          join->client->name == local_name) {
+        ChatComponent::LocalJoinProbe fb = out;
+        fb.kind = ChatComponent::LocalJoinMatchKind::kNameFallback;
+        fb.join_client_obj_id = join->client.id().id();
+        name_fallback = fb;
+      }
     }
   }
-  return false;
+  return name_fallback.has_value() ? *name_fallback : out;
+}
+
+bool LocalClientHasJoinInJournal(Chat::ptr const& chat,
+                                 Client::ptr const& local_client) {
+  return ProbeLocalJoinInJournal(chat, local_client).kind ==
+         ChatComponent::LocalJoinMatchKind::kObjId;
 }
 
 }  // namespace
@@ -118,6 +147,10 @@ bool ChatComponent::is_running() const { return running_; }
 
 bool ChatComponent::HasLocalJoin() const {
   return LocalClientHasJoinInJournal(chat_, local_client_);
+}
+
+ChatComponent::LocalJoinProbe ChatComponent::ProbeLocalJoin() const {
+  return ProbeLocalJoinInJournal(chat_, local_client_);
 }
 
 void ChatComponent::SetIncomingPeerAuthorize(
@@ -198,6 +231,14 @@ void ChatComponent::Receive(ae::Uid const& remote_uid,
     return;
   }
   sync_.Receive(remote_uid, bytes);
+}
+
+void ChatComponent::NotifyTransportSessionReady(
+    ae::Uid const& remote_uid, std::uint64_t transport_generation) {
+  if (!running_) {
+    return;
+  }
+  sync_.NotifyTransportSessionReady(remote_uid, transport_generation);
 }
 
 void ChatComponent::Tick(ae::TimePoint now) {

@@ -20,37 +20,48 @@ namespace apptraverse::examples {
 
 enum class TraceThreadRole : std::uint8_t { kUi, kBusiness, kNetwork };
 
-// Opt-in, off by default. Critical path only appends POD records into
-// preallocated per-role buffers. JSON/file I/O happens only in Flush().
+// Opt-in latency path: POD append only. No console I/O. CSV dump in Flush().
 class LatencyTrace {
  public:
-  static constexpr std::size_t kMaxRecordsPerRole = 4096;
+  static constexpr std::size_t kMaxRecordsPerRole = 8192;
   static constexpr std::size_t kTextKeyCap = 64;
 
   enum class Marker : std::uint8_t {
-    kUiSendClick = 0,
-    kEventCommitted,
+    kEventCommitted = 0,
+    kPendingAdded,
+    kSessionGenerationChanged,
+    kFlushPendingBegin,
+    kSyncTransportWrite,
     kP2pWriteCalled,
+    kSyncPacketReceived,
+    kSyncAckReceived,
+    kPendingRemoved,
+    // Kept for existing UI / snapshot callers; not required by reconnect bench.
+    kUiSendClick,
     kRemoteP2pReceived,
     kSyncEventApplied,
     kUiTranscriptApplied,
-    kSyncPendingRemoved,
     kModelSnapshotLoadBegin,
     kModelSnapshotLoadEnd,
     kModelSnapshotSaveBegin,
     kModelSnapshotSaveEnd,
+    // Reconnect / presence transitions (opt-in CSV only).
+    kPeerOffline,
+    kPeerOnline,
+    kReconnectStarted,
+    kReconnectCompleted,
   };
 
   struct Record {
-    std::int64_t mono_us{0};
-    std::int64_t utc_us{0};
+    std::int64_t timestamp_us{0};
     TraceThreadRole role{TraceThreadRole::kUi};
-    Marker marker{Marker::kUiSendClick};
-    char text_key[kTextKeyCap]{};
+    Marker marker{Marker::kEventCommitted};
     std::uint32_t event_id{0};
     std::uint32_t packet_id{0};
+    std::uint32_t peer_id_hash{0};
     bool has_event_id{false};
     bool has_packet_id{false};
+    bool has_peer_hash{false};
   };
 
   void Open(std::filesystem::path path) {
@@ -64,9 +75,10 @@ class LatencyTrace {
 
   bool enabled() const { return enabled_; }
 
-  void Mark(TraceThreadRole role, Marker marker, char const* text_key = nullptr,
+  void Mark(TraceThreadRole role, Marker marker, char const* /*text_key*/ = nullptr,
             std::optional<std::uint32_t> event_id = std::nullopt,
-            std::optional<std::uint32_t> packet_id = std::nullopt) {
+            std::optional<std::uint32_t> packet_id = std::nullopt,
+            std::optional<std::uint32_t> peer_hash = std::nullopt) {
     if (!enabled_) {
       return;
     }
@@ -75,14 +87,9 @@ class LatencyTrace {
       return;
     }
     Record rec;
-    rec.mono_us = MonoMicros();
-    rec.utc_us = UtcMicros();
+    rec.timestamp_us = MonoMicros();
     rec.role = role;
     rec.marker = marker;
-    if (text_key != nullptr && text_key[0] != '\0') {
-      std::strncpy(rec.text_key, text_key, kTextKeyCap - 1);
-      rec.text_key[kTextKeyCap - 1] = '\0';
-    }
     if (event_id.has_value()) {
       rec.has_event_id = true;
       rec.event_id = *event_id;
@@ -91,20 +98,60 @@ class LatencyTrace {
       rec.has_packet_id = true;
       rec.packet_id = *packet_id;
     }
+    if (peer_hash.has_value()) {
+      rec.has_peer_hash = true;
+      rec.peer_id_hash = *peer_hash;
+    }
     buf.push_back(rec);
   }
 
-  // Convert optional product Trace line markers into latency records.
+  // Map product sync lines → key markers only (no RETRY / SUPPRESS / AUTH).
   void MarkFromProductLine(TraceThreadRole role, std::string const& line) {
     if (!enabled_) {
       return;
     }
-    if (line.find("SYNC_EVENT_APPLIED") != std::string::npos) {
-      Mark(role, Marker::kSyncEventApplied, nullptr, ParseU32(line, "event="),
-           ParseU32(line, "packet="));
+    auto const peer = PeerHashFromLine(line);
+    if (line.find("CHAT_EVENT_COMMITTED") != std::string::npos) {
+      Mark(role, Marker::kEventCommitted, nullptr, ParseU32(line, "event="),
+           std::nullopt, peer);
+    } else if (line.find("SYNC_PACKET_CREATED kind=event") != std::string::npos) {
+      Mark(role, Marker::kPendingAdded, nullptr, ParseU32(line, "event="),
+           ParseU32(line, "packet="), peer);
+    } else if (line.find("CHAT_PEER_OFFLINE") != std::string::npos) {
+      Mark(role, Marker::kPeerOffline, nullptr, std::nullopt, std::nullopt,
+           peer);
+    } else if (line.find("CHAT_PEER_ONLINE") != std::string::npos ||
+               line.find("CHAT_PEER_REJOINED") != std::string::npos) {
+      Mark(role, Marker::kPeerOnline, nullptr, std::nullopt, std::nullopt,
+           peer);
+    } else if (line.find("CHAT_TRANSPORT_SESSION_READY") != std::string::npos) {
+      Mark(role, Marker::kSessionGenerationChanged, nullptr, std::nullopt,
+           ParseU32(line, "generation="), peer);
+    } else if (line.find("CHAT_SYNC_RECONNECT_BEGIN") != std::string::npos) {
+      Mark(role, Marker::kReconnectStarted, nullptr, std::nullopt,
+           ParseU32(line, "generation="), peer);
+    } else if (line.find("CHAT_PENDING_FLUSH_BEGIN") != std::string::npos) {
+      Mark(role, Marker::kFlushPendingBegin, nullptr, std::nullopt,
+           ParseU32(line, "generation="), peer);
+    } else if (line.find("CHAT_SYNC_RECONNECT_END") != std::string::npos) {
+      Mark(role, Marker::kReconnectCompleted, nullptr, std::nullopt,
+           ParseU32(line, "generation="), peer);
+    } else if (line.find("SYNC_TRANSPORT_WRITE") != std::string::npos) {
+      Mark(role, Marker::kSyncTransportWrite, nullptr, std::nullopt,
+           ParseU32(line, "packet="), peer);
+    } else if (line.find("SYNC_PACKET_RECEIVED kind=event") !=
+               std::string::npos) {
+      Mark(role, Marker::kSyncPacketReceived, nullptr, std::nullopt,
+           ParseU32(line, "packet="), peer);
+    } else if (line.find("SYNC_ACK_RECEIVED") != std::string::npos) {
+      Mark(role, Marker::kSyncAckReceived, nullptr, std::nullopt,
+           ParseU32(line, "acknowledged="), peer);
     } else if (line.find("SYNC_PENDING_REMOVED") != std::string::npos) {
-      Mark(role, Marker::kSyncPendingRemoved, nullptr, std::nullopt,
-           ParseU32(line, "packet="));
+      Mark(role, Marker::kPendingRemoved, nullptr, std::nullopt,
+           ParseU32(line, "packet="), peer);
+    } else if (line.find("SYNC_EVENT_APPLIED") != std::string::npos) {
+      Mark(role, Marker::kSyncEventApplied, nullptr, ParseU32(line, "event="),
+           ParseU32(line, "packet="), peer);
     }
   }
 
@@ -123,30 +170,31 @@ class LatencyTrace {
     }
   }
 
+  // One-shot CSV dump after the measured run. Not on the hot path.
   void Flush() {
     if (!enabled_ || path_.empty()) {
       return;
     }
-    std::ofstream out(path_, std::ios::binary | std::ios::trunc);
+    std::ofstream out(path_, std::ios::out | std::ios::trunc);
     if (!out) {
       return;
     }
-    auto const pid = static_cast<std::uint32_t>(::GetCurrentProcessId());
+    out << "timestamp_us,marker,event_id,packet_id,peer_id_hash,thread\n";
     for (auto const& buf : buffers_) {
       for (auto const& r : buf) {
-        out << "{\"mono_us\":" << r.mono_us << ",\"utc_us\":" << r.utc_us
-            << ",\"pid\":" << pid << ",\"thread\":\"" << RoleName(r.role)
-            << "\",\"marker\":\"" << MarkerName(r.marker) << "\"";
-        if (r.text_key[0] != '\0') {
-          out << ",\"text_key\":\"" << Escape(r.text_key) << "\"";
-        }
+        out << r.timestamp_us << ',' << MarkerName(r.marker) << ',';
         if (r.has_event_id) {
-          out << ",\"event_id\":" << r.event_id;
+          out << r.event_id;
         }
+        out << ',';
         if (r.has_packet_id) {
-          out << ",\"packet_id\":" << r.packet_id;
+          out << r.packet_id;
         }
-        out << "}\n";
+        out << ',';
+        if (r.has_peer_hash) {
+          out << r.peer_id_hash;
+        }
+        out << ',' << RoleName(r.role) << '\n';
       }
     }
     out.flush();
@@ -170,20 +218,32 @@ class LatencyTrace {
 
   static char const* MarkerName(Marker m) {
     switch (m) {
-      case Marker::kUiSendClick:
-        return "UI_SEND_CLICK";
       case Marker::kEventCommitted:
         return "EVENT_COMMITTED";
+      case Marker::kPendingAdded:
+        return "PENDING_ADDED";
+      case Marker::kSessionGenerationChanged:
+        return "SESSION_GENERATION_CHANGED";
+      case Marker::kFlushPendingBegin:
+        return "FLUSH_PENDING_BEGIN";
+      case Marker::kSyncTransportWrite:
+        return "SYNC_TRANSPORT_WRITE";
       case Marker::kP2pWriteCalled:
         return "P2P_WRITE_CALLED";
+      case Marker::kSyncPacketReceived:
+        return "SYNC_PACKET_RECEIVED";
+      case Marker::kSyncAckReceived:
+        return "SYNC_ACK_RECEIVED";
+      case Marker::kPendingRemoved:
+        return "PENDING_REMOVED";
+      case Marker::kUiSendClick:
+        return "UI_SEND_CLICK";
       case Marker::kRemoteP2pReceived:
         return "REMOTE_P2P_RECEIVED";
       case Marker::kSyncEventApplied:
         return "SYNC_EVENT_APPLIED";
       case Marker::kUiTranscriptApplied:
         return "UI_TRANSCRIPT_APPLIED";
-      case Marker::kSyncPendingRemoved:
-        return "SYNC_PENDING_REMOVED";
       case Marker::kModelSnapshotLoadBegin:
         return "MODEL_SNAPSHOT_LOAD_BEGIN";
       case Marker::kModelSnapshotLoadEnd:
@@ -192,6 +252,14 @@ class LatencyTrace {
         return "MODEL_SNAPSHOT_SAVE_BEGIN";
       case Marker::kModelSnapshotSaveEnd:
         return "MODEL_SNAPSHOT_SAVE_END";
+      case Marker::kPeerOffline:
+        return "PEER_OFFLINE";
+      case Marker::kPeerOnline:
+        return "PEER_ONLINE";
+      case Marker::kReconnectStarted:
+        return "RECONNECT_STARTED";
+      case Marker::kReconnectCompleted:
+        return "RECONNECT_COMPLETED";
     }
     return "UNKNOWN";
   }
@@ -200,12 +268,6 @@ class LatencyTrace {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration_cast<std::chrono::microseconds>(
                clock::now().time_since_epoch())
-        .count();
-  }
-
-  static std::int64_t UtcMicros() {
-    return std::chrono::duration_cast<std::chrono::microseconds>(
-               std::chrono::system_clock::now().time_since_epoch())
         .count();
   }
 
@@ -223,24 +285,32 @@ class LatencyTrace {
     }
   }
 
-  static std::string Escape(char const* s) {
-    std::string out;
-    for (; *s; ++s) {
-      if (*s == '\\' || *s == '"') {
-        out.push_back('\\');
+  static std::optional<std::uint32_t> PeerHashFromLine(std::string const& line) {
+    auto pos = line.find("peer=");
+    if (pos == std::string::npos) {
+      pos = line.find("peer_uid=");
+      if (pos == std::string::npos) {
+        return std::nullopt;
       }
-      if (static_cast<unsigned char>(*s) < 0x20) {
-        continue;
-      }
-      out.push_back(*s);
+      pos += 9;
+    } else {
+      pos += 5;
     }
-    return out;
+    std::uint32_t h = 2166136261u;
+    for (; pos < line.size(); ++pos) {
+      char const c = line[pos];
+      if (c == ' ' || c == '\t') {
+        break;
+      }
+      h ^= static_cast<std::uint8_t>(c);
+      h *= 16777619u;
+    }
+    return h;
   }
 
   bool enabled_{false};
   std::filesystem::path path_;
-  // One buffer per role — writers only touch their own role from that thread.
-  std::array<std::vector<Record>, 3> buffers_{};
+  std::array<std::vector<Record>, 3> buffers_;
 };
 
 }  // namespace apptraverse::examples
