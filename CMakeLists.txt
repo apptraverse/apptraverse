@@ -61,6 +61,9 @@ add_library(apptraverse STATIC
   src/sync_session_state.cpp
   src/shared_graph_sync_session.cpp
   src/ui_subgraph.cpp
+  src/ui_materialized.cpp
+  src/ui_mirror.cpp
+  src/model_runtime.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

@@ -3,10 +3,11 @@
 
 #include <memory>
 
+#include "apptraverse/model_runtime.h"
+#include "apptraverse/ui_mirror.h"
+
 #include "demo_bootstrap.h"
-#include "model_executor.h"
-#include "ui_runtime_registry.h"
-#include "win_window_presenter.h"
+#include "win_presenters.h"
 
 namespace apptraverse {
 
@@ -18,17 +19,14 @@ class WinApp {
 
  private:
   void ApplyPublication(std::uint32_t root_id, PublicationChannel<3>* channel);
-  void CreateWindowsIfNeeded();
   void RequestExit();
 
   DemoRuntime runtime_;
-  std::unique_ptr<ModelExecutor> executor_;
-  UiRuntimeRegistry registry_;
-  WinWindowPresenter window_a_;
-  WinWindowPresenter window_b_;
+  std::unique_ptr<UiMirror> ui_mirror_;
+  std::unique_ptr<ModelRuntime> model_runtime_;
+  WinPresentationApplication::ptr presentation_;
   HWND dispatcher_{nullptr};
   DWORD ui_thread_{0};
-  bool windows_created_{false};
   bool exiting_{false};
 };
 

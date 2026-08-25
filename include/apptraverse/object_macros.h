@@ -3,7 +3,7 @@
 
 #include "aether/obj/obj.h"
 
-// Qualify AppTraverse class names in the CRC so they never collide with
+// Qualify App Traverse class names in the CRC so they never collide with
 // identically named ae:: types (e.g. Client) when both are linked.
 //
 // Registrar is NOT created inline: Clang instantiates Create/Load/Save during
@@ -32,6 +32,11 @@
 #define APPTRAVERSE_REGISTER(DERIVED)                                    \
   static ::ae::Registrar<DERIVED> g_apptraverse_registrar_##DERIVED{     \
       DERIVED::kClassId, DERIVED::kBaseClassId}
+
+#define APPTRAVERSE_REGISTER_MATERIALIZED(DERIVED)                       \
+  APPTRAVERSE_REGISTER(DERIVED);                                         \
+  static ::apptraverse::MaterializedOpsRegistrar<DERIVED>                \
+      g_apptraverse_materialized_##DERIVED{}
 
 namespace apptraverse {
 

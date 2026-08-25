@@ -4,9 +4,6 @@ add_library(model_ui_runtime_demo_common STATIC
   common/demo_model.cpp
   common/demo_registration.cpp
   common/demo_bootstrap.cpp
-  common/model_executor.cpp
-  common/ui_publication.cpp
-  common/ui_runtime_registry.cpp
 )
 
 target_include_directories(model_ui_runtime_demo_common PUBLIC

@@ -1,8 +1,12 @@
 #include "win_app.h"
 
 #include <cassert>
+#include <chrono>
 #include <string>
 
+#include "apptraverse/distill.h"
+
+#include "demo_commands.h"
 #include "demo_ids.h"
 #include "demo_log.h"
 #include "win_util.h"
@@ -36,59 +40,29 @@ void WinApp::OnPublished(std::uint32_t root_id,
 
 void WinApp::ApplyPublication(std::uint32_t root_id,
                               PublicationChannel<3>* channel) {
-  (void)root_id;
-  auto* buffer = channel->TakePublished();
-  if (buffer == nullptr) {
-    return;
-  }
   if (exiting_) {
-    channel->ReleaseConsumer();
+    if (channel->TakePublished() != nullptr) {
+      channel->ReleaseConsumer();
+    }
     return;
   }
-  auto applied = DeserializeUiSubgraphIntoExisting(buffer->sink, registry_,
-                                                   runtime_.immutable_store);
-  channel->ReleaseConsumer();
-
-  CreateWindowsIfNeeded();
-
-  auto const window_a_id = demo::ToObjId(demo::DemoObjId::WindowA);
-  auto const window_b_id = demo::ToObjId(demo::DemoObjId::WindowB);
-  if (applied.root_id == window_a_id) {
-    window_a_.Present(*registry_.Must<RuntimeWindow>(window_a_id));
-  } else if (applied.root_id == window_b_id) {
-    window_b_.Present(*registry_.Must<RuntimeWindow>(window_b_id));
+  auto applied = ui_mirror_->ApplyPublished(*channel);
+  if (applied.root_id == 0) {
+    return;
   }
-
+  auto const paint_id = demo::ToObjId(demo::DemoObjId::PaintWindow);
+  auto const layout_id = demo::ToObjId(demo::DemoObjId::LayoutWindow);
+  if (presentation_) {
+    if (applied.root_id == paint_id) {
+      presentation_->PresentPaintWindow();
+    } else if (applied.root_id == layout_id) {
+      presentation_->PresentLayoutWindow();
+    }
+  }
   demo::DemoLog("ui apply root=" + std::to_string(applied.root_id) +
                 " state=" + std::to_string(applied.changed_obj_ids.size()) +
-                " reuse=" + std::to_string(applied.reused_obj_ids.size()) +
-                " const=" + std::to_string(applied.const_ref_ids.size()));
-}
-
-void WinApp::CreateWindowsIfNeeded() {
-  if (windows_created_) {
-    return;
-  }
-  auto const window_a_id = demo::ToObjId(demo::DemoObjId::WindowA);
-  auto const window_b_id = demo::ToObjId(demo::DemoObjId::WindowB);
-  auto* ra = registry_.Find(window_a_id);
-  auto* rb = registry_.Find(window_b_id);
-  if (ra == nullptr || rb == nullptr) {
-    return;
-  }
-  windows_created_ = true;
-  auto commands = [this](ModelCommand command) {
-    executor_->PostCommand(std::move(command));
-  };
-  auto on_close = [this] { RequestExit(); };
-  window_a_.Create(*registry_.Must<RuntimeWindow>(window_a_id), L"Window A",
-                   false, window_a_id, commands, nullptr, nullptr, 0, 0, 0,
-                   on_close);
-  window_b_.Create(*registry_.Must<RuntimeWindow>(window_b_id), L"Window B",
-                   true, window_b_id, commands, &runtime_.immutable_store,
-                   &registry_, demo::ToObjId(demo::DemoObjId::TextToolbar),
-                   demo::ToObjId(demo::DemoObjId::ColorToolbar),
-                   demo::ToObjId(demo::DemoObjId::Chat), on_close);
+                " reuse=" + std::to_string(applied.reused_obj_ids.size()));
+  (void)root_id;
 }
 
 void WinApp::RequestExit() {
@@ -96,17 +70,19 @@ void WinApp::RequestExit() {
     return;
   }
   exiting_ = true;
-  if (executor_) {
-    executor_->RequestStop();
+  if (model_runtime_) {
+    model_runtime_->RequestStop();
   }
-  window_a_.Destroy();
-  window_b_.Destroy();
+  if (presentation_) {
+    presentation_->Destroy();
+  }
   PostQuitMessage(0);
 }
 
 int WinApp::Run(std::filesystem::path const& state_dir) {
   EnsureDemoRegistration();
-  runtime_ = LoadDemo(state_dir);
+  EnsureWindowsPresenterRegistration();
+  runtime_ = LoadDemoModel(state_dir);
   ui_thread_ = GetCurrentThreadId();
 
   WNDCLASSW wc{};
@@ -129,10 +105,26 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
                  reinterpret_cast<LPARAM>(channel));
   };
 
-  executor_ = std::make_unique<ModelExecutor>(*runtime_.graph.application,
-                                              runtime_.immutable_store, notify);
-  executor_->PumpOnce(std::chrono::steady_clock::now());
-  executor_->Start();
+  ui_mirror_ = std::make_unique<UiMirror>(*runtime_.ui_domain, notify);
+  model_runtime_ =
+      std::make_unique<ModelRuntime>(*runtime_.application, *ui_mirror_);
+  model_runtime_->AddPresentationRoot(*runtime_.application->window_a);
+  model_runtime_->AddPresentationRoot(*runtime_.application->window_b);
+  model_runtime_->PumpOnce(std::chrono::steady_clock::now());
+
+  presentation_ = LoadApplication<WinPresentationApplication>(
+      *runtime_.ui_domain,
+      ae::ObjId{demo::ToObjId(demo::DemoObjId::WinPresentationApplication)});
+  presentation_->commands = [this](WindowBoundsCommand command) {
+    model_runtime_->Post([app = &*runtime_.application,
+                          command = std::move(command)] {
+      CommitWindowBounds(*WindowById(*app, command.window_id), command);
+    });
+  };
+  presentation_->on_close = [this] { RequestExit(); };
+  presentation_->OnLoad();
+
+  model_runtime_->Start();
 
   MSG msg{};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
@@ -145,11 +137,11 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     DestroyWindow(dispatcher_);
     dispatcher_ = nullptr;
   }
-  if (executor_) {
-    executor_->RequestStop();
-    executor_->Join();
-    executor_->SaveShutdown();
+  if (model_runtime_) {
+    model_runtime_->RequestStop();
+    model_runtime_->Join();
   }
+  SaveDistilledRoot(*runtime_.application);  // runtime-save-ok: shutdown
   return static_cast<int>(msg.wParam);
 }
 

@@ -1,19 +1,42 @@
-#ifndef APPTRAVERSE_UI_PUBLICATION_H_
-#define APPTRAVERSE_UI_PUBLICATION_H_
+#ifndef APPTRAVERSE_PUBLICATION_CHANNEL_H_
+#define APPTRAVERSE_PUBLICATION_CHANNEL_H_
 
 #include <array>
 #include <atomic>
 #include <cassert>
 #include <cstdint>
-#include <unordered_map>
+#include <cstring>
 #include <vector>
 
-#include "apptraverse/ui_subgraph.h"
-#include "demo_model.h"
-#include "immutable_object_store.h"
-#include "ui_runtime_registry.h"
-
 namespace apptraverse {
+
+struct ByteSink {
+  std::vector<std::uint8_t> bytes;
+
+  void write(void const* data, std::size_t size) {
+    auto const* src = static_cast<std::uint8_t const*>(data);
+    bytes.insert(bytes.end(), src, src + size);
+  }
+
+  void clear_keep_capacity() { bytes.clear(); }
+};
+
+struct ByteSource {
+  std::uint8_t const* data{nullptr};
+  std::size_t size{0};
+  std::size_t pos{0};
+  bool ok{true};
+
+  void read(void* out, std::size_t n) {
+    if (!ok || pos + n > size) {
+      ok = false;
+      std::memset(out, 0, n);
+      return;
+    }
+    std::memcpy(out, data + pos, n);
+    pos += n;
+  }
+};
 
 struct PublicationBuffer {
   ByteSink sink;
@@ -75,22 +98,6 @@ class PublicationChannel {
   int producer_{0};
 };
 
-struct UiApplyResult {
-  std::uint32_t root_id{0};
-  std::vector<std::uint32_t> changed_obj_ids;
-  std::vector<std::uint32_t> reused_obj_ids;
-  std::vector<std::uint32_t> const_ref_ids;
-};
-
-void SerializeWindowRoot(Window& root, ImmutableObjectStore const& store,
-                         std::unordered_map<std::uint32_t, std::uint64_t>&
-                             last_published_generation,
-                         ByteSink& out);
-
-UiApplyResult DeserializeUiSubgraphIntoExisting(
-    ByteSink const& buffer, UiRuntimeRegistry& registry,
-    ImmutableObjectStore const& store);
-
 }  // namespace apptraverse
 
-#endif  // APPTRAVERSE_UI_PUBLICATION_H_
+#endif  // APPTRAVERSE_PUBLICATION_CHANNEL_H_

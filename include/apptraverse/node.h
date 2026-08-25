@@ -57,6 +57,17 @@ class Node : public ae::Obj {
   // re-applying the same journal prefix, and skip UI serialize/deserialize.
   std::uint64_t Generation() const { return generation_; }
 
+  // UI Domain materialization only. Model thread never calls this.
+  void AdoptPublishedGeneration(std::uint64_t generation) {
+    generation_ = generation;
+  }
+
+  virtual void OnLoad() {}
+
+  virtual void Update(std::chrono::steady_clock::time_point now) {
+    (void)now;
+  }
+
   // Apply any journal Events not yet materialized. Commit calls this before
   // returning. Call it before reading another object. Re-entry of the same
   // already-applied prefix is a no-op (cursor already advanced).
@@ -73,10 +84,6 @@ class Node : public ae::Obj {
       assert(record.event->CanApplyTo(*this));
       ApplyEvent(*record.event);
     }
-  }
-
-  virtual void Update(std::chrono::steady_clock::time_point now) {
-    (void)now;
   }
 
   void CaptureBaseState() { CaptureBaseStateImpl(); }
