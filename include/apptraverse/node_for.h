@@ -20,6 +20,11 @@ class NodeFor : public BaseNode {
 
   explicit NodeFor(ae::ObjProp prop) : BaseNode{prop} {}
 
+ public:
+  void ReplayFromBase() {
+    Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
+  }
+
  private:
   void CaptureBaseStateImpl() override {
     Node::CaptureBaseStateInto(static_cast<ConcreteNode&>(*this));

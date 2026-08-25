@@ -5,6 +5,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -48,6 +49,35 @@ class Node : public ae::Obj {
 
   Node::ptr base;
   std::vector<EventRecord> journal;
+
+  // Object-state Generation: the only change signal for materialized state.
+  // Not Aether Registry::GenerationDistance (class-hierarchy distance).
+  // Increments only when Apply / derived UpdateFromParent actually changes
+  // fields. Used to: apply committed Events, refresh before a read, skip
+  // re-applying the same journal prefix, and skip UI serialize/deserialize.
+  std::uint64_t Generation() const { return generation_; }
+
+  // Apply any journal Events not yet materialized. Commit calls this before
+  // returning. Call it before reading another object. Re-entry of the same
+  // already-applied prefix is a no-op (cursor already advanced).
+  void EnsureCurrentGeneration() {
+    if (applied_journal_size_ == kJournalFullyMaterialized) {
+      applied_journal_size_ = journal.size();
+      return;
+    }
+    while (applied_journal_size_ < journal.size()) {
+      auto const index = applied_journal_size_++;
+      auto const& record = journal[index];
+      assert(record.event.is_valid());
+      assert(record.event.is_loaded());
+      assert(record.event->CanApplyTo(*this));
+      ApplyEvent(*record.event);
+    }
+  }
+
+  virtual void Update(std::chrono::steady_clock::time_point now) {
+    (void)now;
+  }
 
   void CaptureBaseState() { CaptureBaseStateImpl(); }
 
@@ -104,13 +134,11 @@ class Node : public ae::Obj {
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 
+  void NoteMaterializedChange() { ++generation_; }
+
   void ReplayJournal() {
-    for (auto const& record : journal) {
-      assert(record.event.is_valid());
-      assert(record.event.is_loaded());
-      assert(record.event->CanApplyTo(*this));
-      ApplyEvent(*record.event);
-    }
+    applied_journal_size_ = 0;
+    EnsureCurrentGeneration();
   }
 
   template <typename ConcreteNode>
@@ -123,6 +151,7 @@ class Node : public ae::Obj {
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
+    generation_ = 1;
     ReplayJournal();
   }
 
@@ -178,10 +207,13 @@ class Node : public ae::Obj {
         });
 
     bool const appended = position == journal.end();
-    auto inserted = journal.insert(position, std::move(record));
+    journal.insert(position, std::move(record));
 
     if (appended) {
-      ApplyEvent(*inserted->event);
+      if (applied_journal_size_ == kJournalFullyMaterialized) {
+        applied_journal_size_ = journal.size() - 1;
+      }
+      EnsureCurrentGeneration();
     } else {
       RebuildFromBaseAndReplay(target);
     }
@@ -258,6 +290,12 @@ class Node : public ae::Obj {
     assert(false && "Concrete Node must inherit through NodeFor");
     return RemoteEventResult::kBlocked;
   }
+
+  static constexpr std::size_t kJournalFullyMaterialized =
+      (std::numeric_limits<std::size_t>::max)();
+
+  std::uint64_t generation_{1};
+  std::size_t applied_journal_size_{kJournalFullyMaterialized};
 };
 
 }  // namespace apptraverse

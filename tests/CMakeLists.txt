@@ -248,3 +248,20 @@ add_test(
   COMMAND apptraverse_aether_p2p_framing_test
 )
 
+add_executable(apptraverse_model_ui_runtime_test
+  model_ui_runtime_test.cpp
+)
+
+target_link_libraries(apptraverse_model_ui_runtime_test PRIVATE
+  model_ui_runtime_demo_common
+)
+
+target_compile_definitions(apptraverse_model_ui_runtime_test PRIVATE
+  "MODEL_UI_RUNTIME_DEMO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/examples/model_ui_runtime_demo\""
+)
+
+add_test(
+  NAME apptraverse_model_ui_runtime_test
+  COMMAND apptraverse_model_ui_runtime_test
+)
+

@@ -60,6 +60,7 @@ add_library(apptraverse STATIC
   src/sync_packet.cpp
   src/sync_session_state.cpp
   src/shared_graph_sync_session.cpp
+  src/ui_subgraph.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -68,6 +69,7 @@ target_link_libraries(apptraverse PUBLIC aether)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
 add_subdirectory(examples/single_client_chat)
+add_subdirectory(examples/model_ui_runtime_demo)
 
 include(CTest)
 if(BUILD_TESTING)
