@@ -22,7 +22,7 @@ class WinWindowPresenter {
               std::uint32_t window_id, CommandFn commands,
               ImmutableObjectStore const* store, UiRuntimeRegistry* registry,
               std::uint32_t text_id, std::uint32_t color_id,
-              std::uint32_t chat_id) {
+              std::uint32_t chat_id, std::function<void()> on_close) {
     runtime_ = &runtime;
     window_b_ = window_b;
     window_id_ = window_id;
@@ -32,6 +32,7 @@ class WinWindowPresenter {
     text_id_ = text_id;
     color_id_ = color_id;
     chat_id_ = chat_id;
+    on_close_ = std::move(on_close);
 
     WNDCLASSW wc{};
     wc.lpfnWndProc = &WinWindowPresenter::WndProc;
@@ -41,6 +42,7 @@ class WinWindowPresenter {
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     RegisterClassW(&wc);
 
+    creating_ = true;
     hwnd_ = CreateWindowExW(
         0, kClassName, title, WS_OVERLAPPEDWINDOW, runtime.left, runtime.top,
         runtime.right - runtime.left, runtime.bottom - runtime.top, nullptr,
@@ -48,6 +50,11 @@ class WinWindowPresenter {
     assert(hwnd_ != nullptr);
     ShowWindow(hwnd_, SW_SHOW);
     UpdateWindow(hwnd_);
+    creating_ = false;
+    last_generation_ = runtime.generation;
+    if (commands_) {
+      commands_(MakeBoundsCommand(hwnd_, window_id_));
+    }
   }
 
   void Present(RuntimeWindow const& runtime) {
@@ -71,6 +78,19 @@ class WinWindowPresenter {
       auto* chat = registry_->Must<RuntimeChat>(chat_id_);
       chat_->Present(*chat);
     }
+  }
+
+  void Destroy() {
+    HWND h = hwnd_;
+    hwnd_ = nullptr;
+    if (h == nullptr) {
+      return;
+    }
+    if (paint_child_ != nullptr) {
+      KillTimer(h, kPaintTimer);
+      paint_child_ = nullptr;
+    }
+    DestroyWindow(h);
   }
 
   HWND hwnd() const { return hwnd_; }
@@ -129,21 +149,24 @@ class WinWindowPresenter {
             wp != nullptr &&
             (wp->flags & (SWP_NOMOVE | SWP_NOSIZE)) !=
                 (SWP_NOMOVE | SWP_NOSIZE);
-        if (!applying_model_bounds_ && commands_ && geometry_changed) {
-          commands_(MakeBoundsCommand(hwnd, window_id_));
+        if (!creating_ && !applying_model_bounds_ && commands_ &&
+            geometry_changed) {
+          auto command = MakeBoundsCommand(hwnd, window_id_);
+          if (!BoundsMatchRuntime(command)) {
+            commands_(std::move(command));
+          }
         }
         return DefWindowProcW(hwnd, msg, wparam, lparam);
       }
-      case WM_COMMAND:
-        if (window_b_ && chat_ && LOWORD(wparam) == 3 &&
-            HIWORD(wparam) == BN_CLICKED) {
-          chat_->OnSendClicked();
+      case WM_CLOSE:
+        if (on_close_) {
+          on_close_();
+          return 0;
         }
+        DestroyWindow(hwnd);
         return 0;
       case WM_DESTROY:
-        if (hwnd == hwnd_) {
-          PostQuitMessage(0);
-        }
+        hwnd_ = nullptr;
         return 0;
       default:
         return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -177,15 +200,7 @@ class WinWindowPresenter {
     auto* chat = registry_->Must<RuntimeChat>(chat_id_);
     text_->Create(hwnd, *bar, *store_);
     color_->Create(hwnd, *color);
-    chat_->Create(hwnd, *chat, [this](std::string text) {
-      if (!commands_) {
-        return;
-      }
-      AddMessageCommand command;
-      command.chat_id = chat_id_;
-      command.text = std::move(text);
-      commands_(std::move(command));
-    });
+    chat_->Create(hwnd, *chat);
   }
 
   void PaintChild(HWND hwnd) {
@@ -206,6 +221,17 @@ class WinWindowPresenter {
     demo::DemoLog("paint WindowA count=" + std::to_string(paint_count_) +
                   " gen=" + std::to_string(gen));
     EndPaint(hwnd, &ps);
+  }
+
+  bool BoundsMatchRuntime(WindowBoundsCommand const& command) const {
+    if (runtime_ == nullptr) {
+      return false;
+    }
+    return command.left == runtime_->left && command.top == runtime_->top &&
+           command.right == runtime_->right &&
+           command.bottom == runtime_->bottom && command.dpi == runtime_->dpi &&
+           command.client_width == runtime_->client_width &&
+           command.client_height == runtime_->client_height;
   }
 
   void ApplyModelBounds() {
@@ -243,6 +269,8 @@ class WinWindowPresenter {
   std::uint64_t last_generation_{0};
   std::uint64_t paint_count_{0};
   bool applying_model_bounds_{false};
+  bool creating_{false};
+  std::function<void()> on_close_;
 };
 
 }  // namespace apptraverse

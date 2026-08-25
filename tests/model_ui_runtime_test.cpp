@@ -306,6 +306,58 @@ void TestConsistencyMessageThenResize() {
   CHECK(h.graph.chat->messages.back() == "hello-consistency");
 }
 
+void TestUnreadPublicationIsNotOverwritten() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  EnsureDemoRegistration();
+  auto graph = BuildDemoGraph(domain);
+  CaptureDemoBases(graph);
+  ImmutableObjectStore store;
+  ResolveDemoConstRefs(graph, store);
+  UiRuntimeRegistry registry;
+  std::vector<std::uint32_t> notified_roots;
+  auto exec = std::make_unique<ModelExecutor>(
+      *graph.application, store,
+      [&](std::uint32_t root_id, PublicationChannel<3>*) {
+        notified_roots.push_back(root_id);
+      });
+
+  auto now = std::chrono::steady_clock::now();
+  exec->PumpOnce(now);
+  auto const window_b = demo::ToObjId(demo::DemoObjId::WindowB);
+  auto const first_b = static_cast<int>(
+      std::count(notified_roots.begin(), notified_roots.end(), window_b));
+  CHECK(first_b == 1);
+  CHECK(exec->channel_b().has_unread_published());
+  CHECK(registry.Find(demo::ToObjId(demo::DemoObjId::TextToolbar)) == nullptr);
+
+  exec->PostCommand(BoundsOf(*graph.window_b, 80, 0));
+  exec->PumpOnce(now + std::chrono::milliseconds{20});
+  auto const second_b = static_cast<int>(
+      std::count(notified_roots.begin(), notified_roots.end(), window_b));
+  CHECK(second_b == 1);
+
+  auto* buffer = exec->channel_b().TakePublished();
+  CHECK(buffer != nullptr);
+  auto applied =
+      DeserializeUiSubgraphIntoExisting(buffer->sink, registry, store);
+  exec->channel_b().ReleaseConsumer();
+  CHECK(applied.root_id == window_b);
+  CHECK(applied.reused_obj_ids.empty());
+  CHECK(HasId(applied.changed_obj_ids, demo::ToObjId(demo::DemoObjId::TextToolbar)));
+
+  exec->PumpOnce(now + std::chrono::milliseconds{40});
+  auto const third_b = static_cast<int>(
+      std::count(notified_roots.begin(), notified_roots.end(), window_b));
+  CHECK(third_b == 2);
+  buffer = exec->channel_b().TakePublished();
+  CHECK(buffer != nullptr);
+  applied = DeserializeUiSubgraphIntoExisting(buffer->sink, registry, store);
+  exec->channel_b().ReleaseConsumer();
+  CHECK(HasId(applied.changed_obj_ids, window_b));
+  CHECK(HasId(applied.changed_obj_ids, demo::ToObjId(demo::DemoObjId::TextToolbar)));
+}
+
 void TestNoRuntimeSaveInDemoSources() {
 #ifdef MODEL_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{MODEL_UI_RUNTIME_DEMO_SOURCE_DIR};
@@ -345,6 +397,7 @@ int main() {
   apptraverse::test::TestImmutableConstants();
   apptraverse::test::TestRepaintDoesNotTouchModel();
   apptraverse::test::TestConsistencyMessageThenResize();
+  apptraverse::test::TestUnreadPublicationIsNotOverwritten();
   apptraverse::test::TestNoRuntimeSaveInDemoSources();
   std::cout << "model_ui_runtime_test OK\n";
   return 0;

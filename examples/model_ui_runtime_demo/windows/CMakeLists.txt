@@ -16,6 +16,12 @@ target_include_directories(win32_model_ui_runtime_demo PRIVATE
 
 if(MSVC)
   target_compile_options(win32_model_ui_runtime_demo PRIVATE /utf-8)
+  set_target_properties(win32_model_ui_runtime_demo PROPERTIES
+    WIN32_EXECUTABLE TRUE
+  )
+  target_link_options(win32_model_ui_runtime_demo PRIVATE
+    /ENTRY:mainCRTStartup
+  )
 endif()
 
 if(MINGW)

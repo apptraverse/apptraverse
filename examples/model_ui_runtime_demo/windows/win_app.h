@@ -19,6 +19,7 @@ class WinApp {
  private:
   void ApplyPublication(std::uint32_t root_id, PublicationChannel<3>* channel);
   void CreateWindowsIfNeeded();
+  void RequestExit();
 
   DemoRuntime runtime_;
   std::unique_ptr<ModelExecutor> executor_;
@@ -28,6 +29,7 @@ class WinApp {
   HWND dispatcher_{nullptr};
   DWORD ui_thread_{0};
   bool windows_created_{false};
+  bool exiting_{false};
 };
 
 }  // namespace apptraverse

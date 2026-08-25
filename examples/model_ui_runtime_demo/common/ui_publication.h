@@ -36,8 +36,16 @@ class PublicationChannel {
     return nullptr;
   }
 
+  bool has_unread_published() const {
+    return published_.load(std::memory_order_acquire) >= 0;
+  }
+
   void PublishProducer() {
-    published_.store(producer_, std::memory_order_release);
+    int expected = -1;
+    bool const stored = published_.compare_exchange_strong(
+        expected, producer_, std::memory_order_release,
+        std::memory_order_acquire);
+    assert(stored && "unread publication must not be overwritten");
   }
 
   PublicationBuffer* TakePublished() {

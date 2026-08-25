@@ -1,9 +1,6 @@
 #ifndef APPTRAVERSE_WIN_CHAT_PRESENTER_H_
 #define APPTRAVERSE_WIN_CHAT_PRESENTER_H_
 
-#include <functional>
-#include <string>
-
 #include "win_util.h"
 #include "ui_runtime_registry.h"
 
@@ -11,28 +8,18 @@ namespace apptraverse {
 
 class WinChatPresenter {
  public:
-  using SendFn = std::function<void(std::string)>;
-
-  void Create(HWND parent, RuntimeChat const& runtime, SendFn send) {
+  void Create(HWND parent, RuntimeChat const& runtime) {
     runtime_ = &runtime;
-    send_ = std::move(send);
-    parent_ = parent;
-    transcript_ = CreateWindowExW(
-        WS_EX_CLIENTEDGE, L"EDIT", L"",
-        WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY |
-            ES_AUTOVSCROLL,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(1)),
-        GetModuleHandleW(nullptr), nullptr);
-    edit_ = CreateWindowExW(
-        WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(2)),
-        GetModuleHandleW(nullptr), nullptr);
-    send_btn_ = CreateWindowExW(
-        0, L"BUTTON", L"Send", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0,
-        0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(3)),
-        GetModuleHandleW(nullptr), nullptr);
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = &WinChatPresenter::WndProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = kClassName;
+    wc.hbrBackground = nullptr;
+    RegisterClassW(&wc);
+    hwnd_ = CreateWindowExW(0, kClassName, L"", WS_CHILD | WS_VISIBLE, 0, 0, 0,
+                            0, parent, nullptr, GetModuleHandleW(nullptr),
+                            this);
     ApplyBounds();
-    ApplyMessages();
   }
 
   void Present(RuntimeChat const& runtime) {
@@ -42,80 +29,61 @@ class WinChatPresenter {
     }
     last_generation_ = runtime.generation;
     ApplyBounds();
-    ApplyMessages();
   }
 
-  void OnSendClicked() {
-    if (edit_ == nullptr || !send_) {
-      return;
-    }
-    int const len = GetWindowTextLengthW(edit_);
-    std::wstring wide(static_cast<std::size_t>(len) + 1, L'\0');
-    int const copied = GetWindowTextW(edit_, wide.data(), len + 1);
-    wide.resize(static_cast<std::size_t>(copied > 0 ? copied : 0));
-    auto text = WideToUtf8(wide);
-    if (text.empty()) {
-      return;
-    }
-    send_(std::move(text));
-    SetWindowTextW(edit_, L"");
-  }
+  HWND hwnd() const { return hwnd_; }
 
  private:
+  static constexpr wchar_t const* kClassName = L"AppTraverseChatCanvas";
+  static constexpr COLORREF kCanvasColor = RGB(196, 168, 112);
+
+  static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
+                                  LPARAM lparam) {
+    if (msg == WM_NCCREATE) {
+      auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
+      auto* self = static_cast<WinChatPresenter*>(cs->lpCreateParams);
+      SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+      self->hwnd_ = hwnd;
+      return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+    auto* self = reinterpret_cast<WinChatPresenter*>(
+        GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (self == nullptr) {
+      return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+    if (msg == WM_PAINT) {
+      PAINTSTRUCT ps;
+      HDC hdc = BeginPaint(hwnd, &ps);
+      HBRUSH brush = CreateSolidBrush(kCanvasColor);
+      FillRect(hdc, &ps.rcPaint, brush);
+      DeleteObject(brush);
+      EndPaint(hwnd, &ps);
+      return 0;
+    }
+    if (msg == WM_ERASEBKGND) {
+      return 1;
+    }
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+  }
+
   void ApplyBounds() {
-    if (runtime_ == nullptr) {
+    if (runtime_ == nullptr || hwnd_ == nullptr) {
       return;
     }
-    int const x = runtime_->x;
-    int const y = runtime_->y;
-    int const w = runtime_->width;
-    int const h = runtime_->height;
-    int const edit_h = 28;
-    int const send_w = 72;
-    int const transcript_h = h - edit_h - 8;
-    if (x != last_x_ || y != last_y_ || w != last_w_ || h != last_h_) {
-      last_x_ = x;
-      last_y_ = y;
-      last_w_ = w;
-      last_h_ = h;
-      if (transcript_ != nullptr) {
-        MoveWindow(transcript_, x, y, w, transcript_h > 0 ? transcript_h : 1,
-                   TRUE);
-      }
-      if (edit_ != nullptr) {
-        MoveWindow(edit_, x, y + h - edit_h, w - send_w - 8, edit_h, TRUE);
-      }
-      if (send_btn_ != nullptr) {
-        MoveWindow(send_btn_, x + w - send_w, y + h - edit_h, send_w, edit_h,
-                   TRUE);
-      }
+    if (runtime_->x == last_x_ && runtime_->y == last_y_ &&
+        runtime_->width == last_w_ && runtime_->height == last_h_) {
+      return;
     }
+    last_x_ = runtime_->x;
+    last_y_ = runtime_->y;
+    last_w_ = runtime_->width;
+    last_h_ = runtime_->height;
+    MoveWindow(hwnd_, last_x_, last_y_, last_w_, last_h_, TRUE);
   }
 
-  void ApplyMessages() {
-    if (runtime_ == nullptr || transcript_ == nullptr) {
-      return;
-    }
-    if (runtime_->messages.size() == last_message_count_) {
-      return;
-    }
-    last_message_count_ = runtime_->messages.size();
-    std::string joined;
-    for (auto const& line : runtime_->messages) {
-      joined += line;
-      joined += "\r\n";
-    }
-    SetWindowTextW(transcript_, Utf8ToWide(joined).c_str());
-  }
-
-  HWND parent_{nullptr};
-  HWND transcript_{nullptr};
-  HWND edit_{nullptr};
-  HWND send_btn_{nullptr};
+  HWND hwnd_{nullptr};
   RuntimeChat const* runtime_{nullptr};
-  SendFn send_;
   std::uint64_t last_generation_{0};
-  std::size_t last_message_count_{0};
   std::int32_t last_x_{0};
   std::int32_t last_y_{0};
   std::int32_t last_w_{0};

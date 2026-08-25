@@ -41,6 +41,10 @@ void WinApp::ApplyPublication(std::uint32_t root_id,
   if (buffer == nullptr) {
     return;
   }
+  if (exiting_) {
+    channel->ReleaseConsumer();
+    return;
+  }
   auto applied = DeserializeUiSubgraphIntoExisting(buffer->sink, registry_,
                                                    runtime_.immutable_store);
   channel->ReleaseConsumer();
@@ -76,13 +80,28 @@ void WinApp::CreateWindowsIfNeeded() {
   auto commands = [this](ModelCommand command) {
     executor_->PostCommand(std::move(command));
   };
+  auto on_close = [this] { RequestExit(); };
   window_a_.Create(*registry_.Must<RuntimeWindow>(window_a_id), L"Window A",
-                   false, window_a_id, commands, nullptr, nullptr, 0, 0, 0);
+                   false, window_a_id, commands, nullptr, nullptr, 0, 0, 0,
+                   on_close);
   window_b_.Create(*registry_.Must<RuntimeWindow>(window_b_id), L"Window B",
                    true, window_b_id, commands, &runtime_.immutable_store,
                    &registry_, demo::ToObjId(demo::DemoObjId::TextToolbar),
                    demo::ToObjId(demo::DemoObjId::ColorToolbar),
-                   demo::ToObjId(demo::DemoObjId::Chat));
+                   demo::ToObjId(demo::DemoObjId::Chat), on_close);
+}
+
+void WinApp::RequestExit() {
+  if (exiting_) {
+    return;
+  }
+  exiting_ = true;
+  if (executor_) {
+    executor_->RequestStop();
+  }
+  window_a_.Destroy();
+  window_b_.Destroy();
+  PostQuitMessage(0);
 }
 
 int WinApp::Run(std::filesystem::path const& state_dir) {
@@ -121,9 +140,16 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     DispatchMessageW(&msg);
   }
 
-  executor_->RequestStop();
-  executor_->Join();
-  executor_->SaveShutdown();
+  RequestExit();
+  if (dispatcher_ != nullptr) {
+    DestroyWindow(dispatcher_);
+    dispatcher_ = nullptr;
+  }
+  if (executor_) {
+    executor_->RequestStop();
+    executor_->Join();
+    executor_->SaveShutdown();
+  }
   return static_cast<int>(msg.wParam);
 }
 

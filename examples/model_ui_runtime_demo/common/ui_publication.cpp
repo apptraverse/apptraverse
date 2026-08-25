@@ -104,8 +104,12 @@ UiApplyResult DeserializeUiSubgraphIntoExisting(
     }
     if (record.kind == UiRecordKind::kReuseObject) {
       auto* existing = registry.Find(record.obj_id);
-      assert(existing != nullptr);
-      assert(existing->generation == record.generation);
+      if (existing == nullptr || existing->generation != record.generation) {
+        demo::DemoLog("reuse miss id=" + std::to_string(record.obj_id) +
+                      " expected_gen=" + std::to_string(record.generation));
+        assert(false && "ReuseObjectRecord without matching UI runtime");
+        return result;
+      }
       result.reused_obj_ids.push_back(record.obj_id);
       continue;
     }

@@ -90,9 +90,6 @@ void ModelExecutor::ThreadMain() {
       return stop_.load() || !commands_.empty();
     });
   }
-  DrainCommands();
-  UpdateAll(std::chrono::steady_clock::now());
-  PublishAllRoots();
 }
 
 void ModelExecutor::PumpOnce(std::chrono::steady_clock::time_point now) {
@@ -119,6 +116,13 @@ void ModelExecutor::DrainCommands() {
 void ModelExecutor::Handle(WindowBoundsCommand const& command) {
   auto* window = FindWindow(app_, command.window_id);
   assert(window != nullptr);
+  if (window->left == command.left && window->top == command.top &&
+      window->right == command.right && window->bottom == command.bottom &&
+      window->dpi == command.dpi &&
+      window->client_width == command.client_width &&
+      window->client_height == command.client_height) {
+    return;
+  }
   auto event =
       WindowBoundsChangedEvent::ptr::Create(ae::CreateWith{*window->domain});
   event->left = command.left;
@@ -180,6 +184,9 @@ bool ModelExecutor::RootNeedsPublish(Window& root) const {
 
 void ModelExecutor::PublishRoot(Window& root, PublicationChannel<3>& channel) {
   if (!RootNeedsPublish(root)) {
+    return;
+  }
+  if (channel.has_unread_published()) {
     return;
   }
   auto* buffer = channel.AcquireProducer();
