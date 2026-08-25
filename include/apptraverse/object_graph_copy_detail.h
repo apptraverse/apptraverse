@@ -2,6 +2,7 @@
 #define APPTRAVERSE_OBJECT_GRAPH_COPY_DETAIL_H_
 
 #include <cassert>
+#include <cstdio>
 #include <type_traits>
 #include <utility>
 
@@ -32,13 +33,43 @@ void PrepareSyncGraphObject(T& object, PrepareSyncGraphContext& ctx) {
       if (!value.is_valid()) {
         return false;
       }
-      bool const exists =
-          ctx.dest_for_refs != nullptr &&
-          StorageHasObject(*ctx.dest_for_refs, value.id());
-      if (ctx.mode == SharedCopyMode::kReferenceExistingTargets && exists) {
-        value.Reset();
-        value.SetFlags(ae::ObjFlags::kUnloaded);
-        return false;
+      if (ctx.mode == SharedCopyMode::kReferenceExistingTargets &&
+          ctx.dest_for_refs != nullptr) {
+        if (!value.is_loaded()) {
+          value.Load();
+        }
+        assert(value.is_loaded());
+        auto const id = value.id();
+        auto const class_id = value->GetClassId();
+        bool const exists_compatible =
+            StorageHasClass(*ctx.dest_for_refs, id, class_id);
+        if (exists_compatible) {
+          value.Reset();
+          value.SetFlags(ae::ObjFlags::kUnloaded);
+          return false;
+        }
+        if (StorageHasObject(*ctx.dest_for_refs, id)) {
+          // ObjId collision: dest has this id under a different class.
+          // Clone to a fresh identity and materialize the clone.
+          auto const old_id = id.id();
+          auto cloned = value.as_obj_ptr().Clone();
+          value = V{std::move(cloned)};
+          auto const new_id = value.id().id();
+          std::fprintf(stderr,
+                       "OBJID_CLASS_CONFLICT old_id=%u new_id=%u "
+                       "expected_class=%u\n",
+                       static_cast<unsigned>(old_id),
+                       static_cast<unsigned>(new_id),
+                       static_cast<unsigned>(class_id));
+          assert(value.is_loaded());
+          static_assert(std::is_base_of_v<Node, typename V::element_type>,
+                        "SharedPtr target must derive from Node");
+          static_cast<Node&>(*value).PrepareSyncGraph(ctx);
+          value.Save();
+          value.Reset();
+          value.SetFlags(ae::ObjFlags::kUnloaded);
+          return false;
+        }
       }
       if (!value.is_loaded()) {
         value.Load();

@@ -1,6 +1,8 @@
 #include "apptraverse/object_graph_copy.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <utility>
 
 #include "aether/clock.h"
@@ -60,14 +62,14 @@ class ReadThroughDomainStorage final : public ae::IDomainStorage {
 
 void TransferRamObject(ae::RamDomainStorage const& src, ae::ObjId obj_id,
                        ae::IDomainStorage& dst, bool skip_existing) {
-  if (skip_existing && StorageHasObject(dst, obj_id)) {
-    return;
-  }
   auto const it = src.state.find(obj_id);
   if (it == src.state.end() || !it->second.has_value()) {
     return;
   }
   for (auto const& [class_id, versions] : *it->second) {
+    if (skip_existing && StorageHasClass(dst, obj_id, class_id)) {
+      continue;
+    }
     for (auto const& [version, data] : versions) {
       auto writer = dst.Store(ae::DomainQuery{obj_id, class_id, version});
       assert(writer != nullptr);
@@ -93,6 +95,12 @@ void PrepareLoadedRoot(ae::Obj& root, detail::PrepareSyncGraphContext& ctx) {
 
 bool StorageHasObject(ae::IDomainStorage& storage, ae::ObjId id) {
   return !storage.Enumerate(id).empty();
+}
+
+bool StorageHasClass(ae::IDomainStorage& storage, ae::ObjId id,
+                     std::uint32_t class_id) {
+  auto const classes = storage.Enumerate(id);
+  return std::find(classes.begin(), classes.end(), class_id) != classes.end();
 }
 
 void CopyObjectGraph(ae::Obj::ptr source, ae::IDomainStorage& source_storage,
@@ -141,6 +149,15 @@ ae::Obj::ptr ImportObjectGraph(ae::Obj::ptr source,
   auto loaded =
       ae::Obj::ptr::Declare(ae::CreateWith{target.domain}.with_id(root_id));
   loaded.Load();
+  if (!loaded.is_loaded()) {
+    auto const classes = target.storage.Enumerate(root_id);
+    std::fprintf(stderr, "IMPORT_LOAD_FAILED root_id=%u class_count=%zu",
+                 static_cast<unsigned>(root_id.id()), classes.size());
+    for (auto const class_id : classes) {
+      std::fprintf(stderr, " class=%u", static_cast<unsigned>(class_id));
+    }
+    std::fprintf(stderr, "\n");
+  }
   assert(loaded.is_loaded());
   return loaded;
 }

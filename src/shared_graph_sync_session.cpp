@@ -8,6 +8,7 @@
 #include "aether/clock.h"
 
 #include "apptraverse/node.h"
+#include "apptraverse/runtime_trace.h"
 #include "apptraverse/shared_graph.h"
 
 namespace apptraverse {
@@ -164,6 +165,22 @@ void SharedGraphSyncSession::SendAck(ae::ObjId acknowledged_packet_id) {
   auto ack = AckPacket::ptr::Create(ae::CreateWith{build_domain});
   ack->acknowledged_packet_id = acknowledged_packet_id;
   auto bytes = SyncPacketCodec{}.Encode(ack);
+  auto const remembered = TraceLookupPacketKind(acknowledged_packet_id.id());
+  bool const initial =
+      !state_->data.initial_sync_complete || remembered == "sync_initial";
+  if (initial) {
+    ::apptraverse::Trace(
+        "SYNC_INITIAL_ACK_CREATED",
+        "packet=" + std::to_string(ack.id().id()) +
+            " acknowledged=" + std::to_string(acknowledged_packet_id.id()));
+    TraceRememberPacketKind(ack.id().id(), "sync_initial_ack");
+  } else {
+    ::apptraverse::Trace(
+        "MESSAGE_ACK_CREATED",
+        "packet=" + std::to_string(ack.id().id()) +
+            " acknowledged=" + std::to_string(acknowledged_packet_id.id()));
+    TraceRememberPacketKind(ack.id().id(), "message_ack");
+  }
   Trace("SYNC_ACK_SENT ack_packet=" + std::to_string(ack.id().id()) +
         " acknowledged=" + std::to_string(acknowledged_packet_id.id()) +
         " t_us=" + std::to_string(SystemUtcMicros()));
@@ -182,6 +199,8 @@ void SharedGraphSyncSession::SendInitialNodeState(Node::ptr root) {
   assert(root.is_loaded());
   assert(!HasPendingInitialNodeState());
 
+  ::apptraverse::Trace("SYNC_INITIAL_BUILD_BEGIN",
+                       "node=" + std::to_string(root.id().id()));
   ae::RamDomainStorage build_storage;
   ae::Domain build_domain{ae::Now(), build_storage};
   CopyObjectGraph(root, local_.storage, build_domain, build_storage,
@@ -207,6 +226,11 @@ void SharedGraphSyncSession::SendInitialNodeState(Node::ptr root) {
   auto data = state_->data;
   data.pending_packets.push_back(std::move(pending));
   CommitData(std::move(data));
+  ::apptraverse::Trace("SYNC_INITIAL_BUILD_END",
+                       "packet=" + std::to_string(packet_id.id()));
+  ::apptraverse::Trace("SYNC_INITIAL_PACKET_CREATED",
+                       "packet=" + std::to_string(packet_id.id()));
+  TraceRememberPacketKind(packet_id.id(), "sync_initial");
   Trace("SYNC_PACKET_CREATED kind=node_state packet=" +
         std::to_string(packet_id.id()) + " event=0 target=" +
         std::to_string(root.id().id()) +
@@ -249,6 +273,11 @@ void SharedGraphSyncSession::SendEventPacket(Node::ptr node,
   auto data = state_->data;
   data.pending_packets.push_back(std::move(pending));
   CommitData(std::move(data));
+  ::apptraverse::Trace(
+      "MESSAGE_PACKET_CREATED",
+      "packet=" + std::to_string(packet_id.id()) +
+          " event_id=" + std::to_string(event.id().id()));
+  TraceRememberPacketKind(packet_id.id(), "message");
   Trace("SYNC_PACKET_CREATED kind=event packet=" +
         std::to_string(packet_id.id()) +
         " event=" + std::to_string(event.id().id()) +
@@ -277,7 +306,11 @@ void SharedGraphSyncSession::StartOrResume() {
 
     if (!HasPendingInitialNodeState()) {
       auto root = LoadLocalNode(local_.shared_root_id);
+      ::apptraverse::Trace("SYNC_INITIAL_BUILD_BEGIN",
+                           "node=" + std::to_string(root.id().id()));
       SendInitialNodeState(root);
+      ::apptraverse::Trace("SYNC_INITIAL_BUILD_END",
+                           "node=" + std::to_string(root.id().id()));
     }
 
     for (auto& item : prior_pending) {
@@ -292,7 +325,30 @@ void SharedGraphSyncSession::StartOrResume() {
   Poll();
 }
 
+void SharedGraphSyncSession::PublishCommittedEvent(Node::ptr node,
+                                                   EventRecord const& record) {
+  assert(node.is_valid());
+  assert(record.event.is_valid());
+  auto const event_id = record.event.id();
+  if (ContainsId(state_->data.delivered_event_ids, event_id)) {
+    return;
+  }
+  if (IsEventCoveredByPendingNodeState(event_id)) {
+    return;
+  }
+  if (HasPendingEvent(event_id)) {
+    return;
+  }
+  // Mirror Poll: EventPackets are only created after initial sync completes.
+  // Pre-completion Events ride in the pending node-state packet.
+  if (!state_->data.initial_sync_complete) {
+    return;
+  }
+  SendEventPacket(node, record);
+}
+
 void SharedGraphSyncSession::Poll() {
+  ::apptraverse::Trace("SYNC_POLL");
   if (!state_->data.initial_sync_complete) {
     return;
   }
@@ -313,6 +369,10 @@ void SharedGraphSyncSession::Poll() {
       if (HasPendingEvent(event_id)) {
         continue;
       }
+      ::apptraverse::Trace(
+          "SYNC_PACKET_CREATED_FROM_TICK",
+          "event_id=" + std::to_string(event_id.id()) +
+              " node=" + std::to_string(node.id().id()));
       SendEventPacket(node, record);
     }
   }
@@ -345,8 +405,14 @@ void SharedGraphSyncSession::Receive(SerializedSyncPacket const& bytes) {
     kind = "ack";
   } else if (class_id == NodeStatePacket::kClassId) {
     kind = "node_state";
+    ::apptraverse::Trace("SYNC_INITIAL_DECODE_BEGIN",
+                         "packet=" + std::to_string(packet_id.id()));
+    TraceRememberPacketKind(packet_id.id(), "sync_initial");
   } else if (class_id == EventPacket::kClassId) {
     kind = "event";
+    ::apptraverse::Trace("MESSAGE_DECODE",
+                         "packet=" + std::to_string(packet_id.id()));
+    TraceRememberPacketKind(packet_id.id(), "message");
   }
   Trace("SYNC_PACKET_RECEIVED kind=" + std::string{kind} +
         " packet=" + std::to_string(packet_id.id()) +
@@ -361,6 +427,11 @@ void SharedGraphSyncSession::Receive(SerializedSyncPacket const& bytes) {
 
   if (ContainsId(state_->data.successfully_received_packet_ids, packet_id)) {
     SendAck(packet_id);
+    if (class_id == NodeStatePacket::kClassId) {
+      ::apptraverse::Trace("SYNC_INITIAL_DECODE_END",
+                           "packet=" + std::to_string(packet_id.id()) +
+                               " duplicate=1");
+    }
     return;
   }
 
@@ -369,6 +440,10 @@ void SharedGraphSyncSession::Receive(SerializedSyncPacket const& bytes) {
   decoded.packet->Dispatch(*this);
   receiving_decoded_ = nullptr;
   receiving_packet_id_ = {};
+  if (class_id == NodeStatePacket::kClassId) {
+    ::apptraverse::Trace("SYNC_INITIAL_DECODE_END",
+                         "packet=" + std::to_string(packet_id.id()));
+  }
 }
 
 Event::ptr SharedGraphSyncSession::ImportEventForAccept(
@@ -423,7 +498,13 @@ void SharedGraphSyncSession::MergeNodeStateGraph(
 void SharedGraphSyncSession::Handle(NodeStatePacket const& packet) {
   assert(receiving_packet_id_.is_valid());
   assert(receiving_decoded_ != nullptr);
+  ::apptraverse::Trace(
+      "APPLY_BEGIN",
+      "packet=" + std::to_string(receiving_packet_id_.id()) + " kind=node_state");
   MergeNodeStateGraph(packet, *receiving_decoded_->storage);
+  ::apptraverse::Trace(
+      "APPLY_END",
+      "packet=" + std::to_string(receiving_packet_id_.id()) + " kind=node_state");
   MarkReceivedAndAck(receiving_packet_id_);
 }
 
@@ -437,6 +518,11 @@ void SharedGraphSyncSession::Handle(EventPacket const& packet) {
     return;
   }
 
+  ::apptraverse::Trace(
+      "APPLY_BEGIN",
+      "packet=" + std::to_string(receiving_packet_id_.id()) +
+          " event_id=" + std::to_string(packet.event.id().id()) +
+          " kind=event");
   ImportObjectGraph(packet.event, *receiving_decoded_->storage, local_,
                     SharedCopyMode::kReferenceExistingTargets);
 
@@ -455,6 +541,10 @@ void SharedGraphSyncSession::Handle(EventPacket const& packet) {
           " event=" + std::to_string(packet.event.id().id()) +
           " target=" + std::to_string(packet.target_node_id.id()) +
           " t_us=" + std::to_string(SystemUtcMicros()));
+    ::apptraverse::Trace(
+        "APPLY_END",
+        "packet=" + std::to_string(receiving_packet_id_.id()) +
+            " result=blocked");
     return;
   }
 
@@ -470,6 +560,10 @@ void SharedGraphSyncSession::Handle(EventPacket const& packet) {
         " event=" + std::to_string(packet.event.id().id()) +
         " target=" + std::to_string(packet.target_node_id.id()) +
         " t_us=" + std::to_string(SystemUtcMicros()));
+  ::apptraverse::Trace(
+      "APPLY_END",
+      "packet=" + std::to_string(receiving_packet_id_.id()) +
+          " event_id=" + std::to_string(packet.event.id().id()));
   MarkReceivedAndAck(receiving_packet_id_);
 }
 
@@ -478,6 +572,19 @@ void SharedGraphSyncSession::Handle(AckPacket const& packet) {
   auto* pending = FindPending(data, packet.acknowledged_packet_id);
   if (pending == nullptr) {
     return;
+  }
+
+  bool const was_initial =
+      pending->kind == PendingSyncPacketKind::kNodeState &&
+      pending->is_initial_state;
+  if (was_initial) {
+    ::apptraverse::Trace(
+        "SYNC_INITIAL_ACK_RECEIVED",
+        "packet=" + std::to_string(packet.acknowledged_packet_id.id()));
+  } else {
+    ::apptraverse::Trace(
+        "MESSAGE_ACK_RECEIVED",
+        "packet=" + std::to_string(packet.acknowledged_packet_id.id()));
   }
 
   Trace("SYNC_ACK_RECEIVED ack_packet=" +
@@ -508,6 +615,17 @@ void SharedGraphSyncSession::Handle(AckPacket const& packet) {
       data.pending_packets.end());
   auto const pending_left = data.pending_packets.size();
   CommitData(std::move(data));
+  if (was_initial) {
+    ::apptraverse::Trace(
+        "SYNC_INITIAL_PENDING_REMOVED",
+        "packet=" + std::to_string(packet_id.id()) +
+            " pending=" + std::to_string(pending_left));
+  } else {
+    ::apptraverse::Trace(
+        "MESSAGE_PENDING_REMOVED",
+        "packet=" + std::to_string(packet_id.id()) +
+            " pending=" + std::to_string(pending_left));
+  }
   Trace("SYNC_PENDING_REMOVED packet=" + std::to_string(packet_id.id()) +
         " pending=" + std::to_string(pending_left) +
         " t_us=" + std::to_string(SystemUtcMicros()));

@@ -33,6 +33,9 @@ class SharedGraphSyncSession : public SyncPacketHandler {
   void StartOrResume();
   void Poll();
   void RetryPending();
+  // Immediate publish of a locally committed journal Event (after StartOrResume
+  // initial sync). No-op when initial sync is incomplete or already pending.
+  void PublishCommittedEvent(Node::ptr node, EventRecord const& record);
   void Receive(SerializedSyncPacket const& bytes);
 
   bool initial_sync_complete() const {

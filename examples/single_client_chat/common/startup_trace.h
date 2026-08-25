@@ -1,0 +1,6 @@
+#ifndef APPTRAVERSE_EXAMPLES_STARTUP_TRACE_H_
+#define APPTRAVERSE_EXAMPLES_STARTUP_TRACE_H_
+
+#include "apptraverse/runtime_trace.h"
+
+#endif  // APPTRAVERSE_EXAMPLES_STARTUP_TRACE_H_

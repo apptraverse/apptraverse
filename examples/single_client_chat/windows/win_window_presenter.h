@@ -11,6 +11,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <functional>
 
 #include "apptraverse/object_macros.h"
 #include "model/window_changed_event.h"
@@ -32,6 +33,23 @@ class WinWindowPresenter : public WindowPresenter {
 
   AE_OBJECT_REFLECT()
 
+  using ModelRefreshFn = std::function<void()>;
+  using WindowChangedFn = std::function<void(
+      std::int32_t left, std::int32_t top, std::int32_t right,
+      std::int32_t bottom, std::int32_t dpi)>;
+
+  void SetModelChangedMessage(UINT msg) { model_changed_msg_ = msg; }
+  void SetModelRefreshHandler(ModelRefreshFn fn) {
+    model_refresh_ = std::move(fn);
+  }
+  void SetWindowChangedHandler(WindowChangedFn fn) {
+    window_changed_ = std::move(fn);
+  }
+  // Legacy single-thread Save-on-Send; threaded runtime keeps this false.
+  void SetCommandSideEffectsEnabled(bool enabled) {
+    command_side_effects_ = enabled;
+  }
+
   void CreateNativeWindow() {
     assert(window.is_valid());
     window.Load();
@@ -46,6 +64,7 @@ class WinWindowPresenter : public WindowPresenter {
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     RegisterClassW(&wc);
 
+    // Initial bounds into RAM model before HWND exists (single-threaded setup).
     CommitWindowChanged(model.x, model.y, model.x + model.width,
                         model.y + model.height, CurrentSystemDpi());
 
@@ -86,7 +105,25 @@ class WinWindowPresenter : public WindowPresenter {
     return self->HandleMessage(hwnd, msg, wparam, lparam);
   }
 
+  void EnqueueWindowFromHwnd(HWND hwnd, std::int32_t dpi) {
+    if (!window_changed_) {
+      return;
+    }
+    RECT outer = QueryNormalOuterRect(hwnd);
+    if (!IsIconic(hwnd) && !IsZoomed(hwnd)) {
+      GetWindowRect(hwnd, &outer);
+    }
+    window_changed_(outer.left, outer.top, outer.right, outer.bottom, dpi);
+  }
+
   LRESULT HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    if (model_changed_msg_ != 0 && msg == model_changed_msg_) {
+      if (model_refresh_) {
+        model_refresh_();
+      }
+      return 0;
+    }
+
     switch (msg) {
       case WM_CREATE: {
         assert(chat_presenter.is_valid());
@@ -101,36 +138,43 @@ class WinWindowPresenter : public WindowPresenter {
         int const height = HIWORD(lparam);
         if (wparam != SIZE_MINIMIZED && width > 0 && height > 0 &&
             chat_presenter.is_loaded()) {
+          // Immediate native layout — no Commit/Save in WndProc.
           static_cast<WinChatPresenter&>(*chat_presenter)
               .Layout(width, height);
+        }
+        if (wparam != SIZE_MINIMIZED) {
+          EnqueueWindowFromHwnd(hwnd, CurrentSystemDpi());
         }
         return 0;
       }
       case WM_WINDOWPOSCHANGED: {
-        if (!applying_model_bounds_) {
-          CommitFromHwnd(hwnd, CurrentSystemDpi());
-        }
+        // Coalesce model update on business thread; no Commit here.
+        EnqueueWindowFromHwnd(hwnd, CurrentSystemDpi());
         return DefWindowProcW(hwnd, msg, wparam, lparam);
       }
       case WM_DISPLAYCHANGE: {
-        CommitFromHwnd(hwnd, CurrentSystemDpi());
-        ApplyModelBoundsToHwnd(hwnd);
+        EnqueueWindowFromHwnd(hwnd, CurrentSystemDpi());
         return 0;
       }
       case WM_SETTINGCHANGE: {
         if (wparam == SPI_SETWORKAREA) {
-          CommitFromHwnd(hwnd, CurrentSystemDpi());
-          ApplyModelBoundsToHwnd(hwnd);
+          EnqueueWindowFromHwnd(hwnd, CurrentSystemDpi());
         }
         return 0;
       }
       case WM_DPICHANGED: {
         auto const* suggested = reinterpret_cast<RECT const*>(lparam);
         if (suggested != nullptr) {
-          CommitWindowChanged(suggested->left, suggested->top, suggested->right,
-                              suggested->bottom,
-                              static_cast<std::int32_t>(HIWORD(wparam)));
-          ApplyModelBoundsToHwnd(hwnd);
+          // OS-suggested outer rect — not a model→HWND feedback loop.
+          SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
+                       suggested->right - suggested->left,
+                       suggested->bottom - suggested->top,
+                       SWP_NOZORDER | SWP_NOACTIVATE);
+          if (window_changed_) {
+            window_changed_(suggested->left, suggested->top, suggested->right,
+                            suggested->bottom,
+                            static_cast<std::int32_t>(HIWORD(wparam)));
+          }
         }
         return 0;
       }
@@ -141,10 +185,15 @@ class WinWindowPresenter : public WindowPresenter {
               static_cast<WinChatPresenter&>(*chat_presenter);
           if (id == 3) {
             chat_ui.OnSendClicked();
-            window.Save();
-            chat_presenter->chat.Save();
-          } else if (id == 4) {
-            chat_ui.OnAddClicked();
+            if (command_side_effects_) {
+              window.Save();
+              chat_presenter->chat.Save();
+            }
+          } else if (id == 5) {
+            chat_ui.OnJoinClicked();
+          } else if (id == 6) {
+            // Copy is UI-only (clipboard).
+            chat_ui.OnCopyClicked();
           }
         }
         return 0;
@@ -232,31 +281,14 @@ class WinWindowPresenter : public WindowPresenter {
 
     window->Commit(event);
     window.Save();
-  }
-
-  void CommitFromHwnd(HWND hwnd, std::int32_t dpi) {
-    RECT outer = QueryNormalOuterRect(hwnd);
-    if (!IsIconic(hwnd) && !IsZoomed(hwnd)) {
-      GetWindowRect(hwnd, &outer);
-    }
-    CommitWindowChanged(outer.left, outer.top, outer.right, outer.bottom, dpi);
-  }
-
-  void ApplyModelBoundsToHwnd(HWND hwnd) {
-    assert(window.is_valid());
-    window.Load();
-    auto& model = static_cast<WindowsWindow&>(*window);
-    if (IsZoomed(hwnd) || IsIconic(hwnd)) {
-      return;
-    }
-    applying_model_bounds_ = true;
-    SetWindowPos(hwnd, nullptr, model.x, model.y, model.width, model.height,
-                 SWP_NOZORDER | SWP_NOACTIVATE);
-    applying_model_bounds_ = false;
+    (void)model;
   }
 
   HWND hwnd_{nullptr};
-  bool applying_model_bounds_{false};
+  UINT model_changed_msg_{0};
+  bool command_side_effects_{false};
+  ModelRefreshFn model_refresh_;
+  WindowChangedFn window_changed_;
 };
 
 }  // namespace apptraverse

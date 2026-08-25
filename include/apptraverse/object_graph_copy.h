@@ -19,6 +19,8 @@ struct SyncReplica {
 };
 
 bool StorageHasObject(ae::IDomainStorage& storage, ae::ObjId id);
+bool StorageHasClass(ae::IDomainStorage& storage, ae::ObjId id,
+                     std::uint32_t class_id);
 
 // How SharedPtr targets are treated when copying into a destination storage.
 enum class SharedCopyMode {
