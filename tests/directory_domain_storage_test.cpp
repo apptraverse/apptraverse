@@ -3,8 +3,8 @@
 #include <iostream>
 #include <memory>
 
-#include "aether/aether_app.h"
 #include "aether/clock.h"
+#include "aether/obj/domain.h"
 #include "aether/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
@@ -24,52 +24,24 @@ namespace apptraverse::test {
 
 constexpr ae::ObjId::Type kProbeNodeId = 100000;
 
-struct RootedStorageFactory {
-  std::shared_ptr<std::filesystem::path> root;
-
-  std::unique_ptr<ae::IDomainStorage> operator()() const {
-    return std::make_unique<DirectoryDomainStorage>(*root);
-  }
-};
-
-void TestDirectoryDomainStorageOneDomain() {
-  auto root = std::make_shared<std::filesystem::path>(
-      std::filesystem::temp_directory_path() /
-      "apptraverse_directory_domain_storage_test");
-  std::filesystem::remove_all(*root);
+void TestDirectoryDomainStorageRoundtrip() {
+  auto root = std::filesystem::temp_directory_path() /
+              "apptraverse_directory_domain_storage_test";
+  std::filesystem::remove_all(root);
 
   {
-    RootedStorageFactory factory{root};
-    auto aether_app = ae::AetherApp::Construct(ae::AetherAppContext{factory});
-    CHECK(aether_app.get() != nullptr);
-
-    ae::Domain& domain = aether_app->domain();
-    CHECK(aether_app->aether().is_valid());
-    CHECK(aether_app->aether().id().id() == 1);
-
+    DirectoryDomainStorage storage{root};
+    ae::Domain domain{ae::Now(), storage};
     auto node =
         Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
     CHECK(node.is_valid());
     node.Save();
-
     CHECK(node.domain() == &domain);
-    std::cout << "SINGLE_DOMAIN_READY aether_domain=" << &domain
-              << " node_domain=" << node.domain()
-              << " aether_root=" << aether_app->aether().id().id()
-              << " node=" << kProbeNodeId << '\n';
-
-    for (int i = 0; i < 3; ++i) {
-      (void)aether_app->Update(ae::Now());
-    }
   }
 
   {
-    RootedStorageFactory factory{root};
-    auto aether_app = ae::AetherApp::Construct(ae::AetherAppContext{factory});
-    ae::Domain& domain = aether_app->domain();
-    CHECK(aether_app->aether().is_valid());
-    CHECK(aether_app->aether().id().id() == 1);
-
+    DirectoryDomainStorage storage{root};
+    ae::Domain domain{ae::Now(), storage};
     auto node =
         Node::ptr::Declare(ae::CreateWith{domain}.with_id(kProbeNodeId));
     node.Load();
@@ -77,14 +49,14 @@ void TestDirectoryDomainStorageOneDomain() {
     CHECK(node.domain() == &domain);
   }
 
-  std::filesystem::remove_all(*root);
+  std::filesystem::remove_all(root);
 }
 
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureObjectRegistration();
-  apptraverse::test::TestDirectoryDomainStorageOneDomain();
+  apptraverse::test::TestDirectoryDomainStorageRoundtrip();
   std::cout << "directory_domain_storage_test OK\n";
   return 0;
 }

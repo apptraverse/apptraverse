@@ -39,7 +39,7 @@ class JobControllerTest(unittest.TestCase):
             self.source,
             build_runner.VS2022_PROFILE,
             "build",
-            ["apptraverse_chat_component_test"],
+            ["apptraverse_event_sourced_core_test"],
             popen=lambda *a, **k: FakeProc(),
         )
         job_dir = jobs.job_dir_for(self.source, result.job_id)
@@ -47,7 +47,7 @@ class JobControllerTest(unittest.TestCase):
         request = json.loads((job_dir / "request.json").read_text(encoding="utf-8"))
         self.assertEqual(request["profile"], build_runner.VS2022_PROFILE)
         self.assertEqual(request["stage"], "build")
-        self.assertEqual(request["targets"], ["apptraverse_chat_component_test"])
+        self.assertEqual(request["targets"], ["apptraverse_event_sourced_core_test"])
 
     def test_start_returns_quickly_running(self) -> None:
         started = jobs.time.perf_counter()
@@ -55,7 +55,7 @@ class JobControllerTest(unittest.TestCase):
             self.source,
             build_runner.VS2022_PROFILE,
             "build",
-            ["apptraverse_chat_component_test"],
+            ["apptraverse_event_sourced_core_test"],
             popen=lambda *a, **k: FakeProc(99),
         )
         elapsed = jobs.time.perf_counter() - started
@@ -68,7 +68,7 @@ class JobControllerTest(unittest.TestCase):
             self.source,
             build_runner.VS2022_PROFILE,
             "build",
-            ["apptraverse_chat_component_test"],
+            ["apptraverse_event_sourced_core_test"],
         )
         joined = " ".join(argv)
         self.assertIn("run_apptraverse_build.py", joined)
@@ -126,7 +126,7 @@ class JobControllerTest(unittest.TestCase):
             self.source,
             build_runner.VS2022_PROFILE,
             "build",
-            ["apptraverse_chat_component_test"],
+            ["apptraverse_event_sourced_core_test"],
             popen=lambda *a, **k: FakeProc(),
         )
         jobs.atomic_write_json(
@@ -136,7 +136,7 @@ class JobControllerTest(unittest.TestCase):
                 "state": "completed",
                 "profile": build_runner.VS2022_PROFILE,
                 "stage": "build",
-                "targets": ["apptraverse_chat_component_test"],
+                "targets": ["apptraverse_event_sourced_core_test"],
                 "build_result": {
                     "schema_version": build_runner.RESULT_SCHEMA_VERSION,
                     "status": "ok",
@@ -156,7 +156,7 @@ class JobControllerTest(unittest.TestCase):
             self.source,
             build_runner.VS2022_PROFILE,
             "build",
-            ["apptraverse_chat_component_test"],
+            ["apptraverse_event_sourced_core_test"],
             popen=lambda *a, **k: FakeProc(),
         )
         jobs.atomic_write_json(
@@ -170,7 +170,7 @@ class JobControllerTest(unittest.TestCase):
                 },
                 "profile": build_runner.VS2022_PROFILE,
                 "stage": "build",
-                "targets": ["apptraverse_chat_component_test"],
+                "targets": ["apptraverse_event_sourced_core_test"],
             },
         )
         status = jobs.status_job(self.source, started.job_id)

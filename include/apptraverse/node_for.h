@@ -5,8 +5,6 @@
 #include <utility>
 
 #include "apptraverse/node.h"
-#include "apptraverse/object_graph_copy_detail.h"
-#include "apptraverse/shared_discovery.h"
 
 namespace apptraverse {
 
@@ -30,32 +28,8 @@ class NodeFor : public BaseNode {
     Node::CaptureBaseStateInto(static_cast<ConcreteNode&>(*this));
   }
 
-  void ReloadFromStorageImpl() override {
-    assert(this->domain != nullptr);
-    assert(this->obj_id.is_valid());
-    ae::DomainGraph graph{this->domain};
-    graph.Load(static_cast<ConcreteNode&>(*this), this->obj_id);
-  }
-
   void CommitImpl(Event::ptr event) override {
     Node::CommitInto(static_cast<ConcreteNode&>(*this), std::move(event));
-  }
-
-  void ReflectForSharedDiscoveryImpl(
-      detail::SharedDiscoveryContext& ctx) override {
-    detail::ReflectObjectForSharedDiscovery(static_cast<ConcreteNode&>(*this),
-                                            ctx);
-  }
-
-  void PrepareSyncGraphImpl(detail::PrepareSyncGraphContext& ctx) override {
-    detail::PrepareSyncGraphObject(static_cast<ConcreteNode&>(*this), ctx);
-  }
-
-  RemoteEventResult TryAcceptRemoteEventImpl(
-      Event::ptr event, std::uint64_t original_timestamp_us) override {
-    return Node::TryAcceptRemoteEventInto(static_cast<ConcreteNode&>(*this),
-                                          std::move(event),
-                                          original_timestamp_us);
   }
 
  protected:

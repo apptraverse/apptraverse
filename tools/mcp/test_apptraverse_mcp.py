@@ -299,10 +299,10 @@ class McpWrapperTest(unittest.TestCase):
 
     def test_windows_build_tools_remain(self) -> None:
         self.assertIn("apptraverse_build_start", mcp_mod.TOOL_NAMES)
-        self.assertIn("apptraverse_two_windows_chat_run", mcp_mod.TOOL_NAMES)
+        self.assertNotIn("apptraverse_two_windows_chat_run", mcp_mod.TOOL_NAMES)
 
-    def test_server_exposes_exactly_thirteen_tools(self) -> None:
-        self.assertEqual(len(mcp_mod.TOOL_NAMES), 13)
+    def test_server_exposes_exactly_twelve_tools(self) -> None:
+        self.assertEqual(len(mcp_mod.TOOL_NAMES), 12)
         self.assertEqual(
             list(mcp_mod.TOOL_NAMES),
             [
@@ -311,7 +311,6 @@ class McpWrapperTest(unittest.TestCase):
                 "apptraverse_build_cancel",
                 "apptraverse_build_failure_excerpt",
                 "apptraverse_runtime_log_query",
-                "apptraverse_two_windows_chat_run",
                 "apptraverse_platform_start",
                 "apptraverse_platform_status",
                 "apptraverse_platform_cancel",
@@ -333,7 +332,7 @@ class McpWrapperTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         payload = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertEqual(sorted(payload["names"]), sorted(payload["expected"]))
-        self.assertEqual(len(payload["names"]), 13)
+        self.assertEqual(len(payload["names"]), 12)
 
 
 def run_stdio_smoke() -> dict:

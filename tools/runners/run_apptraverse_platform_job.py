@@ -630,8 +630,8 @@ def start_process(
             failure_kind="wrong_host_os",
             first_error=sys.platform,
         )
-    if not isinstance(state_dir, str) or not state_dir.strip():
-        return _failed_process("start", profile=profile, failure_kind="missing_state_dir")
+    if not isinstance(state_dir, str):
+        state_dir = ""
     exe = platform_runner.exe_path_for(source_dir, profile)
     if not exe.is_file():
         return _failed_process(

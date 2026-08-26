@@ -10,7 +10,6 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
-#include "apptraverse/object_link.h"
 
 namespace apptraverse {
 namespace detail {
@@ -31,16 +30,6 @@ void CallIfObjPtr(ae::ObjPtr<T> const& pointer, Fn&& fn) {
   if constexpr (!IsExecutionTarget<T>) {
     fn(pointer);
   }
-}
-
-template <typename T, LinkScope Scope, typename Fn>
-void CallIfObjPtr(ObjectLink<T, Scope>& pointer, Fn&& fn) {
-  CallIfObjPtr(pointer.as_obj_ptr(), std::forward<Fn>(fn));
-}
-
-template <typename T, LinkScope Scope, typename Fn>
-void CallIfObjPtr(ObjectLink<T, Scope> const& pointer, Fn&& fn) {
-  CallIfObjPtr(pointer.as_obj_ptr(), std::forward<Fn>(fn));
 }
 
 template <typename Fn>

@@ -3,8 +3,6 @@
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
 #include "apptraverse/presenter.h"
-#include "apptraverse/sync_packet.h"
-#include "apptraverse/sync_session_state.h"
 
 namespace apptraverse {
 namespace {
@@ -12,12 +10,6 @@ namespace {
 APPTRAVERSE_REGISTER(Event);
 APPTRAVERSE_REGISTER(Node);
 APPTRAVERSE_REGISTER(Presenter);
-APPTRAVERSE_REGISTER(SyncPacket);
-APPTRAVERSE_REGISTER(NodeStatePacket);
-APPTRAVERSE_REGISTER(EventPacket);
-APPTRAVERSE_REGISTER(AckPacket);
-APPTRAVERSE_REGISTER(SyncSessionState);
-APPTRAVERSE_REGISTER(SetSyncSessionDataEvent);
 
 }  // namespace
 

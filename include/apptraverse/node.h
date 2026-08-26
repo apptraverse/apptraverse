@@ -10,28 +10,16 @@
 #include <vector>
 
 #include "aether/obj/domain.h"
-#include "aether/obj/idomain_storage.h"
 #include "aether/obj/obj.h"
 
 #include "apptraverse/event_record.h"
-#include "apptraverse/object_graph_copy.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 
-namespace detail {
-struct SharedDiscoveryContext;
-}
-
-enum class RemoteEventResult {
-  kAccepted,
-  kDuplicate,
-  kBlocked,
-};
-
 inline std::uint64_t SystemUtcMicros() {
-  using clock = std::chrono::system_clock;
-  auto const now = clock::now().time_since_epoch();
+  using Clock = std::chrono::system_clock;
+  auto const now = Clock::now().time_since_epoch();
   return static_cast<std::uint64_t>(
       std::chrono::duration_cast<std::chrono::microseconds>(now).count());
 }
@@ -89,54 +77,6 @@ class Node : public ae::Obj {
   void CaptureBaseState() { CaptureBaseStateImpl(); }
 
   void Commit(Event::ptr event) { CommitImpl(std::move(event)); }
-
-  void ReloadFromStorage() { ReloadFromStorageImpl(); }
-
-  // Deep-reflect concrete Node state for shared-graph discovery.
-  void ReflectForSharedDiscovery(detail::SharedDiscoveryContext& ctx) {
-    ReflectForSharedDiscoveryImpl(ctx);
-  }
-
-  // Prepare a scratch graph for sync copy: clear LocalPtr; load or
-  // reference-only SharedPtr according to mode. Cycle-safe for SharedPtr.
-  void PrepareSyncGraph(ae::IDomainStorage* dest_for_refs,
-                        SharedCopyMode mode) {
-    detail::PrepareSyncGraphContext ctx{dest_for_refs, mode, {}};
-    PrepareSyncGraph(ctx);
-  }
-
-  void PrepareSyncGraph(detail::PrepareSyncGraphContext& ctx) {
-    if (!ctx.visiting_nodes.insert(obj_id.id()).second) {
-      return;
-    }
-    PrepareSyncGraphImpl(ctx);
-  }
-
-  bool HasEvent(ae::ObjId event_id) const {
-    for (auto const& record : journal) {
-      if (record.event.id() == event_id) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // Insert a remote Event with its original timestamp.
-  RemoteEventResult TryAcceptRemoteEvent(Event::ptr event,
-                                         std::uint64_t original_timestamp_us) {
-    return TryAcceptRemoteEventImpl(std::move(event), original_timestamp_us);
-  }
-
-  // Compatibility wrapper for the ideal synchronizer.
-  // kBlocked is not expected when Events arrive in a valid order.
-  bool AcceptRemoteEvent(Event::ptr event,
-                         std::uint64_t original_timestamp_us) {
-    auto const result =
-        TryAcceptRemoteEvent(std::move(event), original_timestamp_us);
-    assert(result != RemoteEventResult::kBlocked &&
-           "ideal synchronizer must not deliver blocked Events");
-    return result == RemoteEventResult::kAccepted;
-  }
 
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
@@ -244,58 +184,14 @@ class Node : public ae::Obj {
     InsertEvent(target, std::move(record));
   }
 
-  template <typename ConcreteNode>
-  RemoteEventResult TryAcceptRemoteEventInto(
-      ConcreteNode& target, Event::ptr event,
-      std::uint64_t original_timestamp_us) {
-    assert(event.is_valid());
-    assert(event.is_loaded());
-    assert(original_timestamp_us != 0);
-    if (HasEvent(event.id())) {
-      return RemoteEventResult::kDuplicate;
-    }
-    if (!event->CanApplyTo(target)) {
-      return RemoteEventResult::kBlocked;
-    }
-    EventRecord record{
-        original_timestamp_us,
-        std::move(event),
-    };
-    InsertEvent(target, std::move(record));
-    return RemoteEventResult::kAccepted;
-  }
-
  private:
   virtual void CaptureBaseStateImpl() {
-    assert(false && "Concrete Node must inherit through NodeFor");
-  }
-
-  virtual void ReloadFromStorageImpl() {
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 
   virtual void CommitImpl(Event::ptr event) {
     (void)event;
     assert(false && "Concrete Node must inherit through NodeFor");
-  }
-
-  virtual void ReflectForSharedDiscoveryImpl(
-      detail::SharedDiscoveryContext& ctx) {
-    (void)ctx;
-    assert(false && "Concrete Node must inherit through NodeFor");
-  }
-
-  virtual void PrepareSyncGraphImpl(detail::PrepareSyncGraphContext& ctx) {
-    (void)ctx;
-    assert(false && "Concrete Node must inherit through NodeFor");
-  }
-
-  virtual RemoteEventResult TryAcceptRemoteEventImpl(
-      Event::ptr event, std::uint64_t original_timestamp_us) {
-    (void)event;
-    (void)original_timestamp_us;
-    assert(false && "Concrete Node must inherit through NodeFor");
-    return RemoteEventResult::kBlocked;
   }
 
   static constexpr std::size_t kJournalFullyMaterialized =

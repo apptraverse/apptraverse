@@ -18,7 +18,6 @@
 #include "apptraverse/event_record.h"
 #include "apptraverse/graph_walk.h"
 #include "apptraverse/node.h"
-#include "apptraverse/object_link.h"
 #include "apptraverse/publication_channel.h"
 
 namespace apptraverse {
@@ -66,12 +65,6 @@ struct ObjPtrTraits<ae::ObjPtr<T>> {
 template <typename T>
 constexpr bool IsObjPtr<ae::ObjPtr<T>> = true;
 
-template <typename T>
-constexpr bool IsObjectLink = false;
-
-template <typename T, LinkScope Scope>
-constexpr bool IsObjectLink<ObjectLink<T, Scope>> = true;
-
 template <typename Visitor, typename T>
 void VisitConcrete(T&& object, Visitor& visitor) {
   ae::domain_visitor::DomainVisit(
@@ -92,8 +85,6 @@ struct SaveMaterializedField {
       }
       std::uint32_t const id = value.is_valid() ? value.id().id() : 0;
       archive->Save(id);
-    } else if constexpr (IsObjectLink<U>) {
-      (*this)(value.as_obj_ptr());
     } else if constexpr (std::is_same_v<U, std::vector<EventRecord>>) {
       return;
     } else if constexpr (std::is_pointer_v<U>) {
@@ -130,8 +121,6 @@ struct LoadMaterializedField {
       value = ae::ObjPtr<Target>::Declare(
           ae::CreateWith{*ui_domain}.with_id(ae::ObjId{id}));
       value.Load();
-    } else if constexpr (IsObjectLink<U>) {
-      (*this)(value.as_obj_ptr());
     } else if constexpr (std::is_same_v<U, std::vector<EventRecord>>) {
       value.clear();
     } else if constexpr (std::is_pointer_v<U>) {

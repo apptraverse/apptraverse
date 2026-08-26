@@ -4,8 +4,7 @@
 #include <type_traits>
 
 #include "apptraverse/event.h"
-#include "apptraverse/object_graph_copy_detail.h"
-#include "apptraverse/shared_discovery.h"
+#include "apptraverse/node.h"
 
 namespace apptraverse {
 namespace detail {
@@ -43,16 +42,6 @@ class EventFor : public Event {
     return detail::CanApplyEventTo(
         static_cast<Target const&>(target),
         static_cast<ConcreteEvent const&>(*this));
-  }
-
-  void ReflectForSharedDiscoveryImpl(
-      detail::SharedDiscoveryContext& ctx) override {
-    detail::ReflectObjectForSharedDiscovery(
-        static_cast<ConcreteEvent&>(*this), ctx);
-  }
-
-  void PrepareSyncGraphImpl(detail::PrepareSyncGraphContext& ctx) override {
-    detail::PrepareSyncGraphObject(static_cast<ConcreteEvent&>(*this), ctx);
   }
 };
 

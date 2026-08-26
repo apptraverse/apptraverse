@@ -23,7 +23,7 @@ DEFAULT_COMMAND_TIMEOUT_SEC = 15 * 60
 RESULT_SCHEMA_VERSION = "apptraverse.platform_result/1"
 COMMAND_SCHEMA_VERSION = "apptraverse.platform_command/1"
 ARTIFACT_ROOT_REL = Path(".artifacts") / "apptraverse-platform"
-USER_CONFIG_REL = Path("examples") / "single_client_chat" / "common" / "aether_user_config.h"
+USER_CONFIG_REL = Path("cmake") / "aether_user_config.h"
 MAX_FIRST_ERROR_CHARS = 1000
 MAX_EXCERPT_LINES = 40
 MAX_EXCERPT_CHARS = 4000
@@ -34,16 +34,14 @@ PROFILES = {
         "host_prefix": "linux",
         "generator": "Ninja",
         "build_dir": Path("build") / "linux-x64-debug",
-        "default_target": "linux_single_client_chat",
+        "default_target": "apptraverse_event_sourced_core_test",
         "exe_rel": Path("build")
         / "linux-x64-debug"
-        / "examples"
-        / "single_client_chat"
-        / "linux_shell"
-        / "linux_single_client_chat",
+        / "tests"
+        / "apptraverse_event_sourced_core_test",
         "require_ninja": True,
         "require_cxx": True,
-        "require_gtk3": True,
+        "require_gtk3": False,
         "build_parallel": None,
         "cache_variables": {},
         "cxx_names": ("g++", "c++"),
@@ -51,34 +49,21 @@ PROFILES = {
     MACOS_PROFILE: {
         "host_prefix": "darwin",
         "generator": "Ninja",
-        "cmake_source_dir": Path("examples")
-        / "single_client_chat"
-        / "apple_shell",
-        "build_dir": Path("examples")
-        / "single_client_chat"
-        / "apple_shell"
-        / ".build-macos-current-aether",
-        "default_target": "AppTraverseChatMacDemo",
-        "exe_rel": Path("examples")
-        / "single_client_chat"
-        / "apple_shell"
-        / ".build-macos-current-aether"
-        / "AppTraverseChatMacDemo",
+        "build_dir": Path("build") / "macos-x64-debug",
+        "default_target": "apptraverse_event_sourced_core_test",
+        "exe_rel": Path("build")
+        / "macos-x64-debug"
+        / "tests"
+        / "apptraverse_event_sourced_core_test",
         "require_ninja": True,
         "require_cxx": True,
         "require_gtk3": False,
-        "require_macports_clang20": True,
+        "require_macports_clang20": False,
         "build_parallel": None,
         "cache_variables": {
-            "CMAKE_C_COMPILER": "/opt/local/bin/clang-mp-20",
-            "CMAKE_CXX_COMPILER": "/opt/local/bin/clang++-mp-20",
-            "CMAKE_OBJCXX_COMPILER": "/opt/local/bin/clang++-mp-20",
             "CMAKE_OSX_ARCHITECTURES": "x86_64",
-            "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
-            "CMAKE_BUILD_TYPE": "Debug",
-            "BUILD_TESTING": "OFF",
         },
-        "cxx_names": ("/opt/local/bin/clang++-mp-20",),
+        "cxx_names": ("clang++", "c++"),
     },
 }
 
@@ -203,13 +188,9 @@ def cmake_build_argv(profile: str, targets: list[str]) -> list[str]:
 
 
 def process_argv(source_dir: Path, profile: str, state_dir: str | None = None) -> list[str]:
+    del state_dir
     exe = source_dir / PROFILES[profile]["exe_rel"]
-    argv = [str(exe)]
-    if profile == LINUX_PROFILE:
-        if not state_dir or not state_dir.strip():
-            raise ValueError("state_dir is required for linux-x64-debug")
-        argv.extend(["--state-dir", state_dir])
-    return argv
+    return [str(exe)]
 
 
 def exe_path_for(source_dir: Path, profile: str) -> Path:

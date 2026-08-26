@@ -1,7 +1,7 @@
 /*
- * App Traverse-owned Aether user configuration for single-client-chat products.
- * Functional settings follow the hydrogen configs used by Android/Apple chat
- * (crypto, Wi-Fi, registration/cloud DNS). Telemetry is compiled out.
+ * App Traverse-owned Aether user configuration for the object-system build.
+ * Telemetry is compiled out. Registration/cloud DNS stay available because
+ * Æther's Domain/Obj stack is still built with distillation enabled.
  */
 #ifndef APPTRAVERSE_AETHER_USER_CONFIG_H_
 #define APPTRAVERSE_AETHER_USER_CONFIG_H_

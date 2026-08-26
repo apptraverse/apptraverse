@@ -199,7 +199,7 @@ class RuntimeMcpToolRegistryTest(unittest.TestCase):
     def test_server_exposes_six_tools(self) -> None:
         self.assertEqual(len(mcp_mod.TOOL_NAMES), 13)
         self.assertIn("apptraverse_runtime_log_query", mcp_mod.TOOL_NAMES)
-        self.assertIn("apptraverse_two_windows_chat_run", mcp_mod.TOOL_NAMES)
+        self.assertNotIn("apptraverse_two_windows_chat_run", mcp_mod.TOOL_NAMES)
         self.assertIn("apptraverse_platform_start", mcp_mod.TOOL_NAMES)
         self.assertIn("apptraverse_process_start", mcp_mod.TOOL_NAMES)
 

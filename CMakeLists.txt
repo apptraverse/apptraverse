@@ -18,12 +18,12 @@ endif()
 include(cmake/aether_version.cmake)
 include(cmake/CPM.cmake)
 
-# Quiet Aether telemetry for chat products unless the caller passes USER_CONFIG.
+# Quiet Aether telemetry unless the caller passes USER_CONFIG.
 if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "")
-  get_filename_component(_apptraverse_chat_aether_user_config
-    "${CMAKE_CURRENT_SOURCE_DIR}/examples/single_client_chat/common/aether_user_config.h"
+  get_filename_component(_apptraverse_aether_user_config
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/aether_user_config.h"
     ABSOLUTE)
-  set(USER_CONFIG "${_apptraverse_chat_aether_user_config}"
+  set(USER_CONFIG "${_apptraverse_aether_user_config}"
       CACHE PATH "Path to user provided configuration header file" FORCE)
 endif()
 
@@ -55,12 +55,6 @@ endif()
 add_library(apptraverse STATIC
   src/apptraverse.cpp
   src/directory_domain_storage.cpp
-  src/shared_graph.cpp
-  src/object_graph_copy.cpp
-  src/sync_packet.cpp
-  src/sync_session_state.cpp
-  src/shared_graph_sync_session.cpp
-  src/ui_subgraph.cpp
   src/ui_materialized.cpp
   src/ui_mirror.cpp
   src/model_runtime.cpp
@@ -71,7 +65,6 @@ target_include_directories(apptraverse PUBLIC
 target_link_libraries(apptraverse PUBLIC aether)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
-add_subdirectory(examples/single_client_chat)
 add_subdirectory(examples/model_ui_runtime_demo)
 
 include(CTest)

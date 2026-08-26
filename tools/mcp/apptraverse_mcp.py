@@ -40,14 +40,6 @@ from tools.runtime.runtime_jsonl import (  # noqa: E402
     query_records,
     resolve_runtime_log_path,
 )
-from tools.integration.run_two_windows_chat import (  # noqa: E402
-    DEFAULT_TIMEOUT_SECONDS,
-    MAX_TIMEOUT_SECONDS,
-    IntegrationFailure,
-    compact_result,
-    run_two_windows_chat,
-    validate_mcp_exe,
-)
 
 LOG = logging.getLogger("apptraverse_mcp")
 TOOL_NAMES = (
@@ -56,7 +48,6 @@ TOOL_NAMES = (
     "apptraverse_build_cancel",
     "apptraverse_build_failure_excerpt",
     "apptraverse_runtime_log_query",
-    "apptraverse_two_windows_chat_run",
     "apptraverse_platform_start",
     "apptraverse_platform_status",
     "apptraverse_platform_cancel",
@@ -321,47 +312,6 @@ def apptraverse_runtime_log_query(
     }
 
 
-def apptraverse_two_windows_chat_run(
-    exe: str,
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
-) -> dict:
-    """Run the two-Windows chat scenario and return a compact integration result."""
-    if not isinstance(timeout_seconds, int) or timeout_seconds < 1:
-        return compact_result(
-            run_id="invalid",
-            status="failed",
-            duration_ms=0,
-            failure_kind="invalid_timeout",
-            first_error="timeout_seconds must be a positive int",
-            instances=[],
-        )
-    if timeout_seconds > MAX_TIMEOUT_SECONDS:
-        return compact_result(
-            run_id="invalid",
-            status="failed",
-            duration_ms=0,
-            failure_kind="invalid_timeout",
-            first_error="timeout_seconds exceeds 180",
-            instances=[],
-        )
-    try:
-        exe_path = validate_mcp_exe(repo_root(), exe)
-    except IntegrationFailure as exc:
-        return compact_result(
-            run_id="invalid",
-            status="failed",
-            duration_ms=0,
-            failure_kind=exc.failure_kind,
-            first_error=exc.first_error,
-            instances=[],
-        )
-    return run_two_windows_chat(
-        source_dir=repo_root(),
-        exe=exe_path,
-        timeout_seconds=timeout_seconds,
-    )
-
-
 def create_mcp_server():
     from mcp.server import MCPServer
 
@@ -371,7 +321,6 @@ def create_mcp_server():
     server.tool()(apptraverse_build_cancel)
     server.tool()(apptraverse_build_failure_excerpt)
     server.tool()(apptraverse_runtime_log_query)
-    server.tool()(apptraverse_two_windows_chat_run)
     server.tool()(apptraverse_platform_start)
     server.tool()(apptraverse_platform_status)
     server.tool()(apptraverse_platform_cancel)

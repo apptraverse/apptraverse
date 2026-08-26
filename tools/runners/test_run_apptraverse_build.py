@@ -177,7 +177,7 @@ class ConfigureDecisionTest(unittest.TestCase):
 class CommandGenerationTest(unittest.TestCase):
     def test_vs_build_uses_debug_configuration(self) -> None:
         argv = runner.cmake_build_argv(
-            runner.VS2022_PROFILE, ["apptraverse_chat_component_test"]
+            runner.VS2022_PROFILE, ["apptraverse_event_sourced_core_test"]
         )
         self.assertEqual(
             argv,
@@ -189,7 +189,7 @@ class CommandGenerationTest(unittest.TestCase):
                 "--config",
                 "Debug",
                 "--target",
-                "apptraverse_chat_component_test",
+                "apptraverse_event_sourced_core_test",
             ],
         )
         self.assertFalse(runner.command_is_destructive(argv))
@@ -199,10 +199,10 @@ class CommandGenerationTest(unittest.TestCase):
             runner.cmake_configure_argv(runner.NINJA_PROFILE),
             runner.cmake_configure_argv(runner.VS2022_PROFILE),
             runner.cmake_build_argv(
-                runner.NINJA_PROFILE, ["apptraverse_chat_component_test"]
+                runner.NINJA_PROFILE, ["apptraverse_event_sourced_core_test"]
             ),
             runner.cmake_build_argv(
-                runner.VS2022_PROFILE, ["apptraverse_chat_component_test"]
+                runner.VS2022_PROFILE, ["apptraverse_event_sourced_core_test"]
             ),
         ]
         for argv in commands:
@@ -298,7 +298,7 @@ class ResultContractTest(unittest.TestCase):
             status=runner.STATUS_FAILED,
             stage="build",
             profile=runner.VS2022_PROFILE,
-            targets=["apptraverse_chat_component_test"],
+            targets=["apptraverse_event_sourced_core_test"],
             duration_ms=251000,
             exit_code=1,
             failure_kind="compile_failed",

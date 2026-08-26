@@ -62,7 +62,7 @@ class PlatformJobTest(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(request["targets"], ["linux_single_client_chat"])
+        self.assertEqual(request["targets"], ["apptraverse_event_sourced_core_test"])
 
     def test_unknown_profile_fails_without_spawn(self) -> None:
         called = []
@@ -82,7 +82,7 @@ class PlatformJobTest(unittest.TestCase):
             self.source,
             platform_runner.LINUX_PROFILE,
             "build",
-            ["linux_single_client_chat"],
+            ["apptraverse_event_sourced_core_test"],
         )
         self.assertIn("run_apptraverse_platform.py", " ".join(argv))
         self.assertIn("--json", argv)
@@ -112,7 +112,7 @@ class PlatformJobTest(unittest.TestCase):
             self.source,
             platform_runner.LINUX_PROFILE,
             "build",
-            ["linux_single_client_chat"],
+            ["apptraverse_event_sourced_core_test"],
             popen=lambda *a, **k: FakeProc(),
         )
         jobs.atomic_write_json(
@@ -122,7 +122,7 @@ class PlatformJobTest(unittest.TestCase):
                 "state": "completed",
                 "profile": platform_runner.LINUX_PROFILE,
                 "stage": "build",
-                "targets": ["linux_single_client_chat"],
+                "targets": ["apptraverse_event_sourced_core_test"],
                 "platform_result": {
                     "schema_version": platform_runner.RESULT_SCHEMA_VERSION,
                     "status": "ok",
@@ -172,22 +172,12 @@ class ProcessControlTest(unittest.TestCase):
         exe = platform_runner.exe_path_for(self.source, platform_runner.LINUX_PROFILE)
         exe.parent.mkdir(parents=True, exist_ok=True)
         exe.write_text(
-            "#!/usr/bin/env python3\nimport sys, time\n"
-            "assert sys.argv[1] == '--state-dir'\n"
+            "#!/usr/bin/env python3\nimport time\n"
             "time.sleep(30)\n",
             encoding="utf-8",
         )
         exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
         return exe
-
-    def test_missing_state_dir_is_typed_failure(self) -> None:
-        if not sys.platform.startswith("linux"):
-            self.skipTest("linux-only process start")
-        result = jobs.start_process(
-            self.source, platform_runner.LINUX_PROFILE, "  "
-        )
-        self.assertEqual(result.failure_kind, "missing_state_dir")
-        self.assertEqual(result.state, jobs.STATE_FAILED)
 
     def test_macos_process_on_linux_is_wrong_host_os(self) -> None:
         if not sys.platform.startswith("linux"):
