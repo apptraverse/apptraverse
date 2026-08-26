@@ -23,7 +23,7 @@ cmake -S . -B build
 cmake --build build
 ```
 
-This configures the project and builds the `aether` dependency from [aethernetio/aether-client-cpp](https://github.com/aethernetio/aether-client-cpp).
+This configures the project and builds `model_ui_runtime_demo` plus the object/domain subset used by App Traverse. The Aether client, sockets, crypto, and P2P stack are not built.
 
 ## Namespace
 

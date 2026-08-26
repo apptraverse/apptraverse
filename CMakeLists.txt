@@ -9,13 +9,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Aether gates Winsock helpers on WIN32. MinGW defines _WIN32 but not WIN32 unless
-# a Windows header was already included, which breaks SocketInitializer ODR.
-if(MINGW)
-  add_compile_definitions(WIN32)
-endif()
-
 include(cmake/aether_version.cmake)
+include(cmake/aether_object.cmake)
 include(cmake/CPM.cmake)
 
 # Quiet Aether telemetry unless the caller passes USER_CONFIG.
@@ -30,27 +25,17 @@ endif()
 apptraverse_prepare_aether_override()
 apptraverse_add_pinned_aether_owned_deps()
 
+# Fetch object/domain sources only. Do not add_subdirectory aether-client-cpp:
+# that project compiles the full client, sockets, crypto, and P2P stack.
 CPMAddPackage(
   NAME aether-client-cpp
   GITHUB_REPOSITORY aethernetio/aether-client-cpp
   GIT_TAG ${APPTRAVERSE_AETHER_GIT_TAG}
-  EXCLUDE_FROM_ALL NO
-  OPTIONS
-    "AE_BUILD_TOOLS OFF"
-    "AE_BUILD_EXAMPLES OFF"
-    "AE_BUILD_TESTS OFF"
-    "AE_INSTALL OFF"
-    "AE_DISTILLATION ON"
-    "AE_FILTRATION ON"
-    "AE_BUILD_ANDROID_SMOKE OFF"
+  DOWNLOAD_ONLY YES
 )
 
 apptraverse_verify_aether_pin()
-
-# Candidate Aether/miscpp headers trip MSVC C4702 (if constexpr) under Æther's /WX.
-if(MSVC)
-  target_compile_options(aether PRIVATE /wd4702)
-endif()
+apptraverse_add_object_aether()
 
 add_library(apptraverse STATIC
   src/apptraverse.cpp

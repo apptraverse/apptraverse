@@ -1,14 +1,11 @@
-# Single source of truth for the aether-client-cpp pin used by desktop and Android.
+# Pin for the Aether object/domain sources (fetched DOWNLOAD_ONLY).
 set(APPTRAVERSE_AETHER_GIT_TAG "941744cdccb364134da5cc61f4edc613465e843a")
 
-# Exact Aether-owned dependency revisions recorded from two independent
-# configures of the candidate (CPM GIT_TAG main/master, then reused).
-# Add these before Æther so its floating GIT_TAG main/master calls reuse
-# the pinned sources instead of moving branch heads.
+# Pins for aether-tele / numeric / miscpp so their CPM GIT_TAG main/master
+# calls reuse these revisions.
 set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "0e467d9dc53e9f82c8e23fbdd238fceb97e5d504")
 set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "9e9758a4b57f446caaf387fe268b06b19ab24dcb")
 set(APPTRAVERSE_AETHER_TELE_GIT_TAG "79c42274dc2ffce91347a108eec7e0bb392cc83c")
-set(APPTRAVERSE_STDEXEC_GIT_TAG "e8c349f3f3425b9341306bc56615fc5279a15cf4")
 set(APPTRAVERSE_GCEM_GIT_TAG "f182c6f3d6e0742eb9eef4fff506a3928d4c5107")
 
 # Capture any explicit -DCPM_aether-client-cpp_SOURCE=... before CPMAddPackage.
@@ -16,8 +13,6 @@ macro(apptraverse_prepare_aether_override)
   set(_apptraverse_aether_override "${CPM_aether-client-cpp_SOURCE}")
 endmacro()
 
-# Add Aether-owned packages first so Æther's later CPMAddPackage(GIT_TAG main)
-# reuses these pinned revisions.
 function(apptraverse_add_pinned_aether_owned_deps)
   CPMAddPackage(
     NAME gcem
@@ -51,15 +46,6 @@ function(apptraverse_add_pinned_aether_owned_deps)
     OPTIONS
       "AE_TELE_INSTALL OFF"
       "AE_TELE_BUILD_TESTS OFF"
-  )
-  CPMAddPackage(
-    NAME stdexec
-    GITHUB_REPOSITORY aethernetio/stdexec
-    GIT_TAG ${APPTRAVERSE_STDEXEC_GIT_TAG}
-    EXCLUDE_FROM_ALL NO
-    OPTIONS
-      "STDEXEC_BUILD_EXAMPLES OFF"
-      "STDEXEC_INSTALL OFF"
   )
 endfunction()
 
@@ -113,16 +99,15 @@ function(_apptraverse_verify_pinned_package package_name expected_sha)
   endif()
 endfunction()
 
-# After CPMAddPackage: print resolved source and verify SHA unless user overrode.
 function(apptraverse_verify_aether_pin)
-  if(DEFINED aether_SOURCE_DIR AND NOT aether_SOURCE_DIR STREQUAL "")
-    set(_apptraverse_aether_source "${aether_SOURCE_DIR}")
+  if(DEFINED aether-client-cpp_SOURCE_DIR AND NOT aether-client-cpp_SOURCE_DIR STREQUAL "")
+    set(_apptraverse_aether_source "${aether-client-cpp_SOURCE_DIR}")
   elseif(DEFINED CPM_PACKAGE_aether-client-cpp_SOURCE_DIR
          AND NOT CPM_PACKAGE_aether-client-cpp_SOURCE_DIR STREQUAL "")
     set(_apptraverse_aether_source "${CPM_PACKAGE_aether-client-cpp_SOURCE_DIR}")
   else()
     message(FATAL_ERROR
-      "Could not resolve aether source directory after CPMAddPackage")
+      "Could not resolve aether-client-cpp source directory after DOWNLOAD_ONLY fetch")
   endif()
 
   message(STATUS "APPTRAVERSE_AETHER_SOURCE=${_apptraverse_aether_source}")
@@ -144,5 +129,4 @@ function(apptraverse_verify_aether_pin)
   _apptraverse_verify_pinned_package("numeric" "${APPTRAVERSE_AETHER_NUMERIC_GIT_TAG}")
   _apptraverse_verify_pinned_package("aether-miscpp" "${APPTRAVERSE_AETHER_MISCPP_GIT_TAG}")
   _apptraverse_verify_pinned_package("aether-tele" "${APPTRAVERSE_AETHER_TELE_GIT_TAG}")
-  _apptraverse_verify_pinned_package("stdexec" "${APPTRAVERSE_STDEXEC_GIT_TAG}")
 endfunction()
