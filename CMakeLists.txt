@@ -25,8 +25,9 @@ endif()
 apptraverse_prepare_aether_override()
 apptraverse_add_pinned_aether_owned_deps()
 
-# Fetch object/domain sources only. Do not add_subdirectory aether-client-cpp:
-# that project compiles the full client, sockets, crypto, and P2P stack.
+# Object system lives in aethernetio/aether-client-cpp (aether/obj, aether/ptr,
+# aether/domain_storage). Fetch pinned sources unless a local checkout is set.
+# Do not add_subdirectory the full client: that builds sockets, crypto, and P2P.
 CPMAddPackage(
   NAME aether-client-cpp
   GITHUB_REPOSITORY aethernetio/aether-client-cpp

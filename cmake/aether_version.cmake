@@ -1,5 +1,11 @@
-# Pin for the Aether object/domain sources (fetched DOWNLOAD_ONLY).
+# Pin for the Aether object/domain sources in aethernetio/aether-client-cpp.
+# AppTraverse does not vendor the object system; it builds a subset from that repo.
 set(APPTRAVERSE_AETHER_GIT_TAG "941744cdccb364134da5cc61f4edc613465e843a")
+
+# Optional local checkout of aether-client-cpp. When set (or when a sibling
+# ../aether-client-cpp exists), CPM uses that tree instead of fetching GitHub.
+set(APPTRAVERSE_AETHER_REPO ""
+    CACHE PATH "Local aether-client-cpp checkout for the object system")
 
 # Pins for aether-tele / numeric / miscpp so their CPM GIT_TAG main/master
 # calls reuse these revisions.
@@ -8,8 +14,26 @@ set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "9e9758a4b57f446caaf387fe268b06b19ab24dcb
 set(APPTRAVERSE_AETHER_TELE_GIT_TAG "79c42274dc2ffce91347a108eec7e0bb392cc83c")
 set(APPTRAVERSE_GCEM_GIT_TAG "f182c6f3d6e0742eb9eef4fff506a3928d4c5107")
 
-# Capture any explicit -DCPM_aether-client-cpp_SOURCE=... before CPMAddPackage.
+# Resolve the aether-client-cpp tree: APPTRAVERSE_AETHER_REPO, CPM override,
+# or sibling ../aether-client-cpp next to this repository.
 macro(apptraverse_prepare_aether_override)
+  if(APPTRAVERSE_AETHER_REPO AND NOT APPTRAVERSE_AETHER_REPO STREQUAL "")
+    set(_apptraverse_aether_repo "${APPTRAVERSE_AETHER_REPO}")
+  elseif(CPM_aether-client-cpp_SOURCE AND NOT CPM_aether-client-cpp_SOURCE STREQUAL "")
+    set(_apptraverse_aether_repo "${CPM_aether-client-cpp_SOURCE}")
+  else()
+    get_filename_component(_apptraverse_aether_repo
+      "${CMAKE_CURRENT_SOURCE_DIR}/../aether-client-cpp" ABSOLUTE)
+    if(NOT EXISTS "${_apptraverse_aether_repo}/aether/obj/obj.h")
+      set(_apptraverse_aether_repo "")
+    endif()
+  endif()
+
+  if(_apptraverse_aether_repo AND NOT _apptraverse_aether_repo STREQUAL "")
+    set(CPM_aether-client-cpp_SOURCE "${_apptraverse_aether_repo}"
+        CACHE PATH "Local aether-client-cpp checkout (object system)" FORCE)
+  endif()
+
   set(_apptraverse_aether_override "${CPM_aether-client-cpp_SOURCE}")
 endmacro()
 
