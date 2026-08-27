@@ -20,17 +20,29 @@ struct NativeRect {
   }
 };
 
-inline NativeRect TextToolbarNativeRect(LayoutWindow const& window) {
-  return NativeRect{0, 0, window.client_width, window.text_toolbar->height};
+inline NativeRect TextToolbarNativeRect(LayoutWindow const& window,
+                                       std::int32_t client_width) {
+  return NativeRect{0, 0, client_width, window.text_toolbar->height};
 }
 
-inline NativeRect ColorToolbarNativeRect(LayoutWindow const& window) {
-  return NativeRect{0, window.text_toolbar->height, window.client_width,
+inline NativeRect TextToolbarNativeRect(LayoutWindow const& window) {
+  return TextToolbarNativeRect(window, window.client_width);
+}
+
+inline NativeRect ColorToolbarNativeRect(LayoutWindow const& window,
+                                         std::int32_t client_width) {
+  return NativeRect{0, window.text_toolbar->height, client_width,
                     window.color_toolbar->height};
 }
 
+inline NativeRect ColorToolbarNativeRect(LayoutWindow const& window) {
+  return ColorToolbarNativeRect(window, window.client_width);
+}
+
 inline NativeRect CenterStripNativeRect(LayoutWindow const& window,
-                                        std::size_t index) {
+                                        std::size_t index,
+                                        std::int32_t client_width,
+                                        std::int32_t client_height) {
   assert(!window.center_strips.empty());
   assert(index < window.center_strips.size());
   auto const& strip = window.center_strips[index];
@@ -39,7 +51,7 @@ inline NativeRect CenterStripNativeRect(LayoutWindow const& window,
 
   std::int32_t const content_top =
       window.text_toolbar->height + window.color_toolbar->height;
-  std::int32_t content_height = window.client_height - content_top;
+  std::int32_t content_height = client_height - content_top;
   if (content_height < 1) {
     content_height = 1;
   }
@@ -57,17 +69,22 @@ inline NativeRect CenterStripNativeRect(LayoutWindow const& window,
       content_top + base_height * static_cast<std::int32_t>(index);
 
   std::int32_t width = static_cast<std::int32_t>(
-      (static_cast<std::uint32_t>(window.client_width) *
-       strip->width_numerator) /
+      (static_cast<std::uint32_t>(client_width) * strip->width_numerator) /
       strip->width_denominator);
   if (width < 1) {
     width = 1;
   }
-  std::int32_t x = (window.client_width - width) / 2;
+  std::int32_t x = (client_width - width) / 2;
   if (x < 0) {
     x = 0;
   }
   return NativeRect{x, y, width, height};
+}
+
+inline NativeRect CenterStripNativeRect(LayoutWindow const& window,
+                                        std::size_t index) {
+  return CenterStripNativeRect(window, index, window.client_width,
+                               window.client_height);
 }
 
 }  // namespace apptraverse

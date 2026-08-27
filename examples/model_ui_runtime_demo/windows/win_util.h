@@ -53,7 +53,9 @@ inline void MoveIfChanged(HWND hwnd, NativeRect const& rect,
     return;
   }
   last = rect;
-  MoveWindow(hwnd, rect.x, rect.y, rect.width, rect.height, TRUE);
+  // No immediate repaint: parent batches child moves and lets WM_PAINT catch up.
+  SetWindowPos(hwnd, nullptr, rect.x, rect.y, rect.width, rect.height,
+               SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
 }
 
 }  // namespace apptraverse
