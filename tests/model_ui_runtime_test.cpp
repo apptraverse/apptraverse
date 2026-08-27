@@ -15,6 +15,7 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/graph_mirror.h"
 #include "apptraverse/model_runtime.h"
+#include "apptraverse/object_serialization.h"
 #include "apptraverse/ui_mirror.h"
 
 #include "demo_bootstrap.h"
@@ -75,13 +76,14 @@ struct Harness {
     application = BuildDemoGraph(model_domain);
     FinalizeDistilledGraph(*application);
     application->window_b->color_toolbar->opacity = 77;
-    auto ui_root = CopyModelGraphToUiDomain(*application, ui_domain);
-    ui_application = Application::ptr::Declare(
-        ae::CreateWith{ui_domain}.with_id(application->obj_id));
-    ui_application.Load();
-    (void)ui_root;
+    application->window_b->color_toolbar->arbitrary_value = 4242;
+    auto ui_root =
+        CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+    ui_application = Application::ptr::MakeFromThis(
+        static_cast<Application*>(ui_root.get()));
     mirror = std::make_unique<UiMirror>(
-        ui_domain, [this](std::uint32_t root_id, PublicationChannel<3>* channel) {
+        ui_domain, ui_storage,
+        [this](std::uint32_t root_id, PublicationChannel<3>* channel) {
           applies.push_back(mirror->ApplyPublished(*channel, root_id));
         });
     runtime =
@@ -156,6 +158,7 @@ void TestInitialGraphCopy() {
   auto& ui_layout = h.UiObj<LayoutWindow>(model_layout.obj_id);
   CHECK(&model_layout != &ui_layout);
   CHECK(model_layout.obj_id.id() == ui_layout.obj_id.id());
+  CHECK(ui_layout.client_width == model_layout.client_width);
 
   auto& model_toolbar = *h.application->window_b->text_toolbar;
   auto& ui_toolbar = h.UiObj<TextToolbar>(model_toolbar.obj_id);
@@ -172,6 +175,7 @@ void TestInitialGraphCopy() {
 
   auto& ui_color = h.UiObj<ColorToolbar>(model_layout.color_toolbar->obj_id);
   CHECK(ui_color.opacity == 77);
+  CHECK(ui_color.arbitrary_value == 4242);
 }
 
 void TestTwoDomainsAndUiNodeState() {
@@ -386,15 +390,15 @@ void TestUnreadPublicationIsNotOverwritten() {
   EnsureDemoRegistration();
   auto application = BuildDemoGraph(model_domain);
   FinalizeDistilledGraph(*application);
-  auto ui_root = CopyModelGraphToUiDomain(*application, ui_domain);
-  Application::ptr ui_application = Application::ptr::Declare(
-      ae::CreateWith{ui_domain}.with_id(application->obj_id));
-  ui_application.Load();
-  (void)ui_root;
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  Application::ptr ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
   std::vector<std::uint32_t> notified_roots;
-  UiMirror mirror(ui_domain, [&](std::uint32_t root_id, PublicationChannel<3>*) {
-    notified_roots.push_back(root_id);
-  });
+  UiMirror mirror(ui_domain, ui_storage,
+                  [&](std::uint32_t root_id, PublicationChannel<3>*) {
+                    notified_roots.push_back(root_id);
+                  });
   ModelRuntime runtime(*application, mirror);
   runtime.AddPresentationRoot(*application->window_a);
   runtime.AddPresentationRoot(*application->window_b);
@@ -471,6 +475,71 @@ void TestPersistence() {
   CHECK(app->window_b->client_width == 480);
 }
 
+void TestOrdinaryReflectionField() {
+  Harness h;
+  auto& model_color = *h.application->window_b->color_toolbar;
+  model_color.arbitrary_value = 9002;
+  auto& ui_color = h.UiObj<ColorToolbar>(model_color.obj_id);
+  ui_color.arbitrary_value = 0;
+  ByteSink scratch;
+  SerializeObjectToBuffer(model_color, scratch);
+  ByteSource payload;
+  payload.data = scratch.bytes.data();
+  payload.size = scratch.bytes.size();
+  DeserializeObjectFromBuffer(ui_color, payload, h.ui_domain, h.ui_storage);
+  FinalizeUiNodeState(ui_color, model_color.Generation());
+  CHECK(ui_color.arbitrary_value == 9002);
+}
+
+void TestBaseJournalCopyAndCleanup() {
+  ae::RamDomainStorage model_storage;
+  ae::RamDomainStorage ui_storage;
+  ae::Domain model_domain{ae::Now(), model_storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  EnsureDemoRegistration();
+  auto application = BuildDemoGraph(model_domain);
+  FinalizeDistilledGraph(*application);
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  Application::ptr ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+
+  auto& model_window = *application->window_b;
+  CHECK(model_window.base.is_valid());
+  model_window.base.Load();
+
+  auto event =
+      WindowBoundsChangedEvent::ptr::Create(ae::CreateWith{*model_window.domain});
+  event->left = model_window.left;
+  event->top = model_window.top;
+  event->right = model_window.right + 50;
+  event->bottom = model_window.bottom;
+  event->client_width = model_window.client_width + 50;
+  event->client_height = model_window.client_height;
+  model_window.Commit(event);
+  CHECK(!model_window.journal.empty());
+
+  auto const generation = model_window.Generation();
+  auto ui_object = ui_domain.Find(model_window.obj_id);
+  CHECK(ui_object);
+
+  ByteSink scratch;
+  SerializeObjectToBuffer(model_window, scratch);
+  CHECK(!scratch.bytes.empty());
+
+  ByteSource payload;
+  payload.data = scratch.bytes.data();
+  payload.size = scratch.bytes.size();
+  DeserializeObjectFromBuffer(*ui_object, payload, ui_domain, ui_storage);
+  FinalizeUiNodeState(*ui_object, generation);
+
+  auto& ui_window = static_cast<LayoutWindow&>(*ui_object);
+  CHECK(ui_window.client_width == model_window.client_width);
+  CHECK(!ui_window.base);
+  CHECK(ui_window.journal.empty());
+  CHECK(ui_window.Generation() == generation);
+}
+
 void TestNoManualSerializersOrRuntimeClasses() {
 #ifdef MODEL_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{MODEL_UI_RUNTIME_DEMO_SOURCE_DIR};
@@ -484,7 +553,12 @@ void TestNoManualSerializersOrRuntimeClasses() {
       "window_b_",          "CaptureBaseState(",   "text_id",
       "kUiSubgraphMagic",   "0x41545549",          "kReuseObject",
       "ReuseObjectRecord",  "reused_obj_ids",      "EnsureUiObject",
-      "UiRecordKind"};
+      "UiRecordKind",       "MaterializedOps",     "MaterializedOpsRegistrar",
+      "SaveMaterializedField", "LoadMaterializedField",
+      "RegisterMaterializedOps", "FindMaterializedOps",
+      "APPTRAVERSE_REGISTER_MATERIALIZED", "materialized_ops.h",
+      "ui_materialized.h",  "SerializeMaterializedObject",
+      "DeserializeMaterializedObject"};
   for (auto const& entry :
        std::filesystem::recursive_directory_iterator(root)) {
     if (!entry.is_regular_file()) {
@@ -520,17 +594,33 @@ void TestNoManualSerializersOrRuntimeClasses() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::test::TestStandardPointer();
-  apptraverse::test::TestInitialGraphCopy();
-  apptraverse::test::TestTwoDomainsAndUiNodeState();
-  apptraverse::test::TestJournalCommitDoesNotChangeChildren();
-  apptraverse::test::TestGenerationResizeAndNativeLayout();
-  apptraverse::test::TestPeriodicUpdate();
-  apptraverse::test::TestStableUiAddressesAndStringReuse();
-  apptraverse::test::TestRepaintDoesNotTouchModel();
-  apptraverse::test::TestUnreadPublicationIsNotOverwritten();
-  apptraverse::test::TestPersistence();
-  apptraverse::test::TestNoManualSerializersOrRuntimeClasses();
+  using apptraverse::test::TestBaseJournalCopyAndCleanup;
+  using apptraverse::test::TestGenerationResizeAndNativeLayout;
+  using apptraverse::test::TestInitialGraphCopy;
+  using apptraverse::test::TestJournalCommitDoesNotChangeChildren;
+  using apptraverse::test::TestNoManualSerializersOrRuntimeClasses;
+  using apptraverse::test::TestOrdinaryReflectionField;
+  using apptraverse::test::TestPeriodicUpdate;
+  using apptraverse::test::TestPersistence;
+  using apptraverse::test::TestRepaintDoesNotTouchModel;
+  using apptraverse::test::TestStableUiAddressesAndStringReuse;
+  using apptraverse::test::TestStandardPointer;
+  using apptraverse::test::TestTwoDomainsAndUiNodeState;
+  using apptraverse::test::TestUnreadPublicationIsNotOverwritten;
+
+  TestStandardPointer();
+  TestInitialGraphCopy();
+  TestTwoDomainsAndUiNodeState();
+  TestJournalCommitDoesNotChangeChildren();
+  TestGenerationResizeAndNativeLayout();
+  TestPeriodicUpdate();
+  TestStableUiAddressesAndStringReuse();
+  TestRepaintDoesNotTouchModel();
+  TestUnreadPublicationIsNotOverwritten();
+  TestPersistence();
+  TestOrdinaryReflectionField();
+  TestBaseJournalCopyAndCleanup();
+  TestNoManualSerializersOrRuntimeClasses();
   std::cout << "model_ui_runtime_test OK\n";
   return 0;
 }

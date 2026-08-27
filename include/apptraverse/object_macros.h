@@ -33,11 +33,6 @@
   static ::ae::Registrar<DERIVED> g_apptraverse_registrar_##DERIVED{     \
       DERIVED::kClassId, DERIVED::kBaseClassId}
 
-#define APPTRAVERSE_REGISTER_MATERIALIZED(DERIVED)                       \
-  APPTRAVERSE_REGISTER(DERIVED);                                         \
-  static ::apptraverse::MaterializedOpsRegistrar<DERIVED>                \
-      g_apptraverse_materialized_##DERIVED{}
-
 namespace apptraverse {
 
 // Call once from each executable/shared library that links apptraverse so the

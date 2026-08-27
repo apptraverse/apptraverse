@@ -3,7 +3,7 @@
 #include <cassert>
 #include <cstring>
 
-#include "apptraverse/ui_materialized.h"
+#include "apptraverse/object_serialization.h"
 
 namespace apptraverse {
 namespace {
@@ -24,8 +24,11 @@ void ReadU64(ByteSource& in, std::uint64_t* value) {
 
 }  // namespace
 
-UiMirror::UiMirror(ae::Domain& ui_domain, PublishNotify notify)
-    : ui_domain_{ui_domain}, notify_{std::move(notify)} {}
+UiMirror::UiMirror(ae::Domain& ui_domain, ae::IDomainStorage& ui_storage,
+                   PublishNotify notify)
+    : ui_domain_{ui_domain},
+      ui_storage_{ui_storage},
+      notify_{std::move(notify)} {}
 
 PublicationChannel<3>& UiMirror::ChannelFor(std::uint32_t root_id) {
   auto& channel = channels_[root_id];
@@ -64,7 +67,7 @@ void UiMirror::Publish(std::uint32_t root_id,
     auto const size_at = out.bytes.size();
     WriteU32(out, 0);
     auto const payload_at = out.bytes.size();
-    SerializeMaterializedObject(*node, out);
+    SerializeObjectToBuffer(*node, out);
     auto const payload_size =
         static_cast<std::uint32_t>(out.bytes.size() - payload_at);
     std::memcpy(out.bytes.data() + size_at, &payload_size, sizeof(payload_size));
@@ -110,12 +113,9 @@ UiApplyResult UiMirror::ApplyPublished(PublicationChannel<3>& channel,
     ByteSource payload;
     payload.data = in.data + in.pos;
     payload.size = payload_size;
-    DeserializeMaterializedObject(*object, payload, ui_domain_);
+    DeserializeObjectFromBuffer(*object, payload, ui_domain_, ui_storage_);
     in.pos += payload_size;
-
-    if (auto* node = dynamic_cast<Node*>(object.get())) {
-      node->AdoptPublishedGeneration(generation);
-    }
+    FinalizeUiNodeState(*object, generation);
     result.changed_obj_ids.push_back(obj_id);
   }
 

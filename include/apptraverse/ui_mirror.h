@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "aether/obj/domain.h"
+#include "aether/obj/idomain_storage.h"
 
 #include "apptraverse/node.h"
 #include "apptraverse/publication_channel.h"
@@ -24,7 +25,8 @@ class UiMirror {
   using PublishNotify =
       std::function<void(std::uint32_t root_id, PublicationChannel<3>*)>;
 
-  UiMirror(ae::Domain& ui_domain, PublishNotify notify);
+  UiMirror(ae::Domain& ui_domain, ae::IDomainStorage& ui_storage,
+           PublishNotify notify);
 
   ae::Domain& ui_domain() { return ui_domain_; }
 
@@ -37,6 +39,7 @@ class UiMirror {
 
  private:
   ae::Domain& ui_domain_;
+  ae::IDomainStorage& ui_storage_;
   PublishNotify notify_;
   std::unordered_map<std::uint32_t, std::unique_ptr<PublicationChannel<3>>>
       channels_;

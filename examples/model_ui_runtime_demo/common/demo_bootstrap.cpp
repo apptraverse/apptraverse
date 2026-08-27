@@ -84,10 +84,11 @@ DemoRuntime LoadDemoModel(std::filesystem::path const& dir) {
   }
   DemoRuntime runtime;
   runtime.storage = std::make_unique<DirectoryDomainStorage>(dir);
+  runtime.ui_storage = std::make_unique<ae::RamDomainStorage>();
   runtime.model_domain =
       std::make_unique<ae::Domain>(ae::Now(), *runtime.storage);
   runtime.ui_domain =
-      std::make_unique<ae::Domain>(ae::Now(), *runtime.storage);
+      std::make_unique<ae::Domain>(ae::Now(), *runtime.ui_storage);
   runtime.application = LoadApplication<Application>(
       *runtime.model_domain, ae::ObjId{ToObjId(DemoObjId::Application)});
   return runtime;

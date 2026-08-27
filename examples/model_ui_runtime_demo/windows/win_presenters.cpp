@@ -1,16 +1,16 @@
 #include "win_presenters.h"
 
-#include "apptraverse/materialized_ops.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse {
 namespace {
 
-APPTRAVERSE_REGISTER_MATERIALIZED(WinTextToolbarPresenter);
-APPTRAVERSE_REGISTER_MATERIALIZED(WinColorToolbarPresenter);
-APPTRAVERSE_REGISTER_MATERIALIZED(WinCenterStripPresenter);
-APPTRAVERSE_REGISTER_MATERIALIZED(WinPaintWindowPresenter);
-APPTRAVERSE_REGISTER_MATERIALIZED(WinLayoutWindowPresenter);
-APPTRAVERSE_REGISTER_MATERIALIZED(WinPresentationApplication);
+APPTRAVERSE_REGISTER(WinTextToolbarPresenter);
+APPTRAVERSE_REGISTER(WinColorToolbarPresenter);
+APPTRAVERSE_REGISTER(WinCenterStripPresenter);
+APPTRAVERSE_REGISTER(WinPaintWindowPresenter);
+APPTRAVERSE_REGISTER(WinLayoutWindowPresenter);
+APPTRAVERSE_REGISTER(WinPresentationApplication);
 
 }  // namespace
 

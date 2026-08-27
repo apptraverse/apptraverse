@@ -4,7 +4,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "aether-miscpp/domain_visitor/domain_visitor.h"
+#include "aether-miscpp/reflect/reflect.h"
 #include "aether/obj/obj.h"
 #include "aether/obj/obj_ptr.h"
 
@@ -19,30 +19,36 @@ constexpr bool IsExecutionTarget =
     std::is_same_v<T, Node> || std::is_same_v<T, Event>;
 
 template <typename T, typename Fn>
-void CallIfObjPtr(ae::ObjPtr<T>& pointer, Fn&& fn) {
+void CallIfGraphEdgeObjPtr(ae::ObjPtr<T>& pointer, Fn&& fn) {
   if constexpr (!IsExecutionTarget<T>) {
     fn(pointer);
   }
 }
 
 template <typename T, typename Fn>
-void CallIfObjPtr(ae::ObjPtr<T> const& pointer, Fn&& fn) {
+void CallIfGraphEdgeObjPtr(ae::ObjPtr<T> const& pointer, Fn&& fn) {
   if constexpr (!IsExecutionTarget<T>) {
     fn(pointer);
   }
 }
 
 template <typename Fn>
-void CallIfObjPtr(auto&, Fn&&) {}
+void CallIfGraphEdgeObjPtr(auto&, Fn&&) {}
+
+template <typename T, typename Fn>
+  requires(ae::reflect::Reflectable<T>)
+void ForEachReflectedGraphEdgeObjPtr(T& obj, Fn&& fn) {
+  auto reflection = ae::reflect::make_reflection(obj);
+  reflection.Apply([&](auto&&... fields) {
+    (CallIfGraphEdgeObjPtr(fields, fn), ...);
+  });
+}
 
 }  // namespace detail
 
 template <typename T, typename Fn>
-void ForEachMaterializedPtrFieldOn(T& obj, Fn&& fn) {
-  ae::domain_visitor::DomainVisit(
-      obj, [&](auto& field) { detail::CallIfObjPtr(field, fn); },
-      ae::domain_visitor::PolicyConst<
-          ae::domain_visitor::VisitPolicy::kShallow>{});
+void ForEachGraphEdgeObjPtrOn(T& obj, Fn&& fn) {
+  detail::ForEachReflectedGraphEdgeObjPtr(obj, std::forward<Fn>(fn));
 }
 
 }  // namespace apptraverse

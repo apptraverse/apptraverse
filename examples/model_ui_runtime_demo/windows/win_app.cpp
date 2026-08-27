@@ -82,11 +82,10 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   EnsureDemoRegistration();
   EnsureWindowsPresenterRegistration();
   runtime_ = LoadDemoModel(state_dir);
-  auto ui_root = CopyModelGraphToUiDomain(*runtime_.application, *runtime_.ui_domain);
-  runtime_.ui_application = Application::ptr::Declare(
-      ae::CreateWith{*runtime_.ui_domain}.with_id(runtime_.application->obj_id));
-  runtime_.ui_application.Load();
-  (void)ui_root;
+  auto ui_root = CopyModelGraphToUiDomain(*runtime_.application, *runtime_.ui_domain,
+                                          *runtime_.ui_storage);
+  runtime_.ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
   ui_thread_ = GetCurrentThreadId();
 
   WNDCLASSW wc{};
@@ -109,7 +108,8 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
                  reinterpret_cast<LPARAM>(channel));
   };
 
-  ui_mirror_ = std::make_unique<UiMirror>(*runtime_.ui_domain, notify);
+  ui_mirror_ = std::make_unique<UiMirror>(*runtime_.ui_domain, *runtime_.ui_storage,
+                                          notify);
   model_runtime_ =
       std::make_unique<ModelRuntime>(*runtime_.application, *ui_mirror_);
   model_runtime_->AddPresentationRoot(*runtime_.application->window_a);

@@ -62,11 +62,13 @@ class ColorToolbar : public NodeFor<ColorToolbar> {
  public:
   explicit ColorToolbar(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(height), AE_MMBR(color), AE_MMBR(opacity))
+  AE_OBJECT_REFLECT(AE_MMBR(height), AE_MMBR(color), AE_MMBR(opacity),
+                    AE_MMBR(arbitrary_value))
 
   std::int32_t height{demo::kColorToolbarHeight};
   std::uint32_t color{0x00C04040};
   std::int32_t opacity{255};
+  std::uint32_t arbitrary_value{0};
 
   void Apply(ColorChangedEvent const& event);
   void Update(std::chrono::steady_clock::time_point now) override;

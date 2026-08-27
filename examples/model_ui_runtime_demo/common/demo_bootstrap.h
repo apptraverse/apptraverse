@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "aether/clock.h"
+#include "aether/domain_storage/ram_domain_storage.h"
 #include "aether/obj/domain.h"
 
 #include "apptraverse/directory_domain_storage.h"
@@ -15,6 +16,7 @@ namespace apptraverse {
 
 struct DemoRuntime {
   std::unique_ptr<DirectoryDomainStorage> storage;
+  std::unique_ptr<ae::RamDomainStorage> ui_storage;
   std::unique_ptr<ae::Domain> model_domain;
   std::unique_ptr<ae::Domain> ui_domain;
   Application::ptr application;

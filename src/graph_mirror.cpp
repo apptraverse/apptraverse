@@ -5,10 +5,8 @@
 #include "aether/obj/registry.h"
 
 #include "apptraverse/graph_walk.h"
-#include "apptraverse/materialized_ops.h"
 #include "apptraverse/node.h"
-#include "apptraverse/publication_channel.h"
-#include "apptraverse/ui_materialized.h"
+#include "apptraverse/object_serialization.h"
 
 namespace apptraverse {
 namespace {
@@ -38,7 +36,8 @@ std::uint64_t ObjectGeneration(ae::Obj const& object) {
 }  // namespace
 
 ae::Ptr<ae::Obj> CopyModelGraphToUiDomain(ae::Obj& model_root,
-                                          ae::Domain& ui_domain) {
+                                          ae::Domain& ui_domain,
+                                          ae::IDomainStorage& ui_storage) {
   std::vector<Node*> model_nodes;
   CollectReachableNodes(model_root, model_nodes);
   for (Node* node : model_nodes) {
@@ -59,22 +58,23 @@ ae::Ptr<ae::Obj> CopyModelGraphToUiDomain(ae::Obj& model_root,
     assert(ui_object);
 
     ByteSink scratch;
-    SerializeMaterializedObject(*object, scratch);
+    SerializeObjectToBuffer(*object, scratch);
 
     ByteSource payload;
     payload.data = scratch.bytes.data();
     payload.size = scratch.bytes.size();
-    DeserializeMaterializedObject(*ui_object, payload, ui_domain);
-
-    if (auto* ui_node = dynamic_cast<Node*>(ui_object.get())) {
-      ui_node->AdoptPublishedGeneration(ObjectGeneration(*object));
-      ui_node->base = {};
-      ui_node->journal.clear();
-    }
+    DeserializeObjectFromBuffer(*ui_object, payload, ui_domain, ui_storage);
+    FinalizeUiNodeState(*ui_object, ObjectGeneration(*object));
   }
 
   auto ui_root = ui_domain.Find(model_root.obj_id);
   assert(ui_root);
+  EagerLoadReachable(*ui_root);
+  // Domain holds weak refs only; the mirrored ObjPtr graph must keep nodes alive
+  // once keepalive is released. The returned root Ptr is the caller's anchor.
+  keepalive.clear();
+  ui_root = ui_domain.Find(model_root.obj_id);
+  assert(ui_root && "UI mirror graph must stay reachable via ObjPtr refs");
   return ui_root;
 }
 
