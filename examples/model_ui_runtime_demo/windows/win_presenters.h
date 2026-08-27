@@ -316,10 +316,7 @@ class WinPaintWindowPresenter : public Presenter {
   void Present() {
     if (window->Generation() != last_generation_) {
       last_generation_ = window->Generation();
-      // Do not fight the live drag: model bounds catch up on EXITSIZEMOVE.
-      if (!interactive_size_move_) {
-        ApplyModelBounds();
-      }
+      ApplyModelBounds();
     }
   }
 
@@ -394,25 +391,13 @@ class WinPaintWindowPresenter : public Presenter {
                        SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
         }
         return 0;
-      case WM_ENTERSIZEMOVE:
-        interactive_size_move_ = true;
-        return 0;
-      case WM_EXITSIZEMOVE:
-        interactive_size_move_ = false;
-        if (!creating_ && !applying_model_bounds_) {
-          MaybePostBoundsCommand(wnd);
-        }
-        return 0;
       case WM_WINDOWPOSCHANGED: {
         auto const* wp = reinterpret_cast<WINDOWPOS*>(lparam);
         bool const geometry_changed =
             wp != nullptr &&
             (wp->flags & (SWP_NOMOVE | SWP_NOSIZE)) !=
                 (SWP_NOMOVE | SWP_NOSIZE);
-        // Interactive drag: keep layout local. Commit to Model only when the
-        // size-move loop ends (or for non-interactive geometry changes).
-        if (!creating_ && !applying_model_bounds_ && geometry_changed &&
-            !interactive_size_move_) {
+        if (!creating_ && !applying_model_bounds_ && geometry_changed) {
           MaybePostBoundsCommand(wnd);
         }
         return DefWindowProcW(wnd, msg, wparam, lparam);
@@ -484,7 +469,6 @@ class WinPaintWindowPresenter : public Presenter {
   std::uint64_t last_generation_{0};
   std::uint64_t paint_count_{0};
   bool applying_model_bounds_{false};
-  bool interactive_size_move_{false};
   bool creating_{false};
 };
 
@@ -542,17 +526,10 @@ class WinLayoutWindowPresenter : public Presenter {
   void Present() {
     if (window->Generation() != last_generation_) {
       last_generation_ = window->Generation();
-      if (!interactive_size_move_) {
-        ApplyModelBounds();
-      }
+      ApplyModelBounds();
       ReconcileCenterStrips();
     }
-    // During live drag, native client size is ahead of the Model publication.
-    if (interactive_size_move_) {
-      LayoutChildrenFromNativeClient();
-    } else {
-      LayoutChildren();
-    }
+    LayoutChildren();
     text_toolbar->Present();
     color_toolbar->Present();
     for (auto& [id, presenter] : center_strips_) {
@@ -612,29 +589,14 @@ class WinLayoutWindowPresenter : public Presenter {
         }
         return DefWindowProcW(wnd, msg, wparam, lparam);
       }
-      case WM_ENTERSIZEMOVE:
-        interactive_size_move_ = true;
-        return 0;
-      case WM_EXITSIZEMOVE:
-        interactive_size_move_ = false;
-        LayoutChildrenFromNativeClient();
-        if (!creating_ && !applying_model_bounds_) {
-          MaybePostBoundsCommand(wnd);
-        }
-        return 0;
       case WM_WINDOWPOSCHANGED: {
         auto const* wp = reinterpret_cast<WINDOWPOS*>(lparam);
         bool const geometry_changed =
             wp != nullptr &&
             (wp->flags & (SWP_NOMOVE | SWP_NOSIZE)) !=
                 (SWP_NOMOVE | SWP_NOSIZE);
-        if (!creating_ && geometry_changed) {
-          // Relayout immediately from the native client size so children track
-          // live resize without waiting for the Model→UI publication round-trip.
-          LayoutChildrenFromNativeClient();
-          if (!applying_model_bounds_ && !interactive_size_move_) {
-            MaybePostBoundsCommand(wnd);
-          }
+        if (!creating_ && !applying_model_bounds_ && geometry_changed) {
+          MaybePostBoundsCommand(wnd);
         }
         return DefWindowProcW(wnd, msg, wparam, lparam);
       }
@@ -655,34 +617,19 @@ class WinLayoutWindowPresenter : public Presenter {
         center_strips_);
   }
 
-  void LayoutChildrenFromClient(std::int32_t client_width,
-                                std::int32_t client_height) {
-    MoveIfChanged(text_toolbar->hwnd,
-                  TextToolbarNativeRect(*window, client_width), last_text_rect_);
-    MoveIfChanged(color_toolbar->hwnd,
-                  ColorToolbarNativeRect(*window, client_width),
+  void LayoutChildren() {
+    MoveIfChanged(text_toolbar->hwnd, TextToolbarNativeRect(*window),
+                  last_text_rect_);
+    MoveIfChanged(color_toolbar->hwnd, ColorToolbarNativeRect(*window),
                   last_color_rect_);
     last_strip_rects_.resize(window->center_strips.size());
     for (std::size_t i = 0; i < window->center_strips.size(); ++i) {
       auto const id = window->center_strips[i].id().id();
       auto it = center_strips_.find(id);
       assert(it != center_strips_.end());
-      MoveIfChanged(it->second->hwnd,
-                    CenterStripNativeRect(*window, i, client_width,
-                                          client_height),
+      MoveIfChanged(it->second->hwnd, CenterStripNativeRect(*window, i),
                     last_strip_rects_[i]);
     }
-  }
-
-  void LayoutChildrenFromNativeClient() {
-    RECT client{};
-    GetClientRect(hwnd, &client);
-    LayoutChildrenFromClient(client.right - client.left,
-                             client.bottom - client.top);
-  }
-
-  void LayoutChildren() {
-    LayoutChildrenFromClient(window->client_width, window->client_height);
   }
 
   void ApplyModelBounds() {
@@ -708,7 +655,6 @@ class WinLayoutWindowPresenter : public Presenter {
   std::vector<NativeRect> last_strip_rects_;
   std::uint64_t last_generation_{0};
   bool applying_model_bounds_{false};
-  bool interactive_size_move_{false};
   bool creating_{false};
 };
 
