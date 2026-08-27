@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <unordered_set>
 
 #include "aether/domain_storage/ram_domain_storage.h"
@@ -87,6 +88,16 @@ void RemoveDistilledBaseObjects(std::vector<ae::Obj*>& objects) {
       objects.end());
 }
 
+void LoadExistingObject(ae::Obj& object, ae::Domain& domain) {
+  ae::DomainGraph graph{&domain};
+  auto ptr = domain.Find(object.obj_id);
+  assert(ptr);
+  auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
+  assert(factory != nullptr);
+  assert(factory->load != nullptr);
+  factory->load(&graph, ptr, object.obj_id);
+}
+
 }  // namespace
 
 void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out) {
@@ -100,14 +111,60 @@ void DeserializeObjectFromBuffer(ae::Obj& object, ByteSource& in,
                                  ae::IDomainStorage& domain_storage) {
   std::size_t const payload_size = in.size - in.pos;
   InjectSavedObjectLayers(in, object.obj_id, domain_storage, payload_size);
+  LoadExistingObject(object, domain);
+}
 
-  ae::DomainGraph graph{&domain};
-  auto ptr = domain.Find(object.obj_id);
-  assert(ptr);
-  auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
-  assert(factory != nullptr);
-  assert(factory->load != nullptr);
-  factory->load(&graph, ptr, object.obj_id);
+void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
+  ae::RamDomainStorage scratch;
+  SaveObjectGraphToScratch(root, scratch);
+
+  auto const count_at = out.bytes.size();
+  std::uint32_t layer_count = 0;
+  out.write(&layer_count, sizeof(layer_count));
+
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    for (auto const& [class_id, versions] : *class_map_opt) {
+      for (auto const& [version, data] : versions) {
+        auto const oid = obj_id.id();
+        out.write(&oid, sizeof(oid));
+        out.write(&class_id, sizeof(class_id));
+        out.write(&version, sizeof(version));
+        auto const size = static_cast<std::uint32_t>(data.size());
+        out.write(&size, sizeof(size));
+        out.write(data.data(), data.size());
+        ++layer_count;
+      }
+    }
+  }
+  std::memcpy(out.bytes.data() + count_at, &layer_count, sizeof(layer_count));
+}
+
+void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
+                                      ae::Domain& domain,
+                                      ae::IDomainStorage& domain_storage) {
+  std::uint32_t layer_count = 0;
+  in.read(&layer_count, sizeof(layer_count));
+  assert(in.ok);
+
+  for (std::uint32_t i = 0; i < layer_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint32_t class_id = 0;
+    std::uint8_t version = 0;
+    std::uint32_t size = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&class_id, sizeof(class_id));
+    in.read(&version, sizeof(version));
+    in.read(&size, sizeof(size));
+    assert(in.ok && in.pos + size <= in.size);
+    InjectObjectBytes(domain_storage, {ae::ObjId{obj_id}, class_id, version},
+                      in.data + in.pos, size);
+    in.pos += size;
+  }
+
+  LoadExistingObject(existing_root, domain);
 }
 
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {

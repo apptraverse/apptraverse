@@ -125,6 +125,15 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     });
   };
   presentation_->on_close = [this] { RequestExit(); };
+  presentation_->on_text_toolbar_activate = [this] {
+    AdvanceToolbarTextCommand command;
+    command.toolbar_id = demo::ToObjId(demo::DemoObjId::TextToolbar);
+    model_runtime_->Post([app = &*runtime_.application, command] {
+      auto* toolbar = TextToolbarById(*app, command.toolbar_id);
+      assert(toolbar != nullptr);
+      CommitAdvanceToolbarText(*toolbar);
+    });
+  };
   presentation_->OnLoad();
 
   model_runtime_->Start();

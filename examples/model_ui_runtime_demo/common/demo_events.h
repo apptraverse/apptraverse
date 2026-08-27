@@ -45,6 +45,20 @@ class ColorChangedEvent : public EventFor<ColorToolbar, ColorChangedEvent> {
   std::uint32_t color{0};
 };
 
+class TextReplacedEvent : public EventFor<TextToolbar, TextReplacedEvent> {
+  APPTRAVERSE_OBJECT(TextReplacedEvent, Event, 0)
+
+ protected:
+  TextReplacedEvent() = default;
+
+ public:
+  explicit TextReplacedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(text))
+
+  ImmutableString::ptr text;
+};
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_DEMO_EVENTS_H_

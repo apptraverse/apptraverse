@@ -30,6 +30,15 @@ void ColorToolbar::Apply(ColorChangedEvent const& event) {
   NoteMaterializedChange();
 }
 
+void TextToolbar::Apply(TextReplacedEvent const& event) {
+  assert(event.text.is_valid());
+  if (text.is_valid() && text.id().id() == event.text.id().id()) {
+    return;
+  }
+  text = event.text;
+  NoteMaterializedChange();
+}
+
 void ColorToolbar::Update(std::chrono::steady_clock::time_point now) {
   if (last_color_tick_.time_since_epoch().count() == 0) {
     last_color_tick_ = now;

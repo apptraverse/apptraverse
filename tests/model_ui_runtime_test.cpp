@@ -693,6 +693,212 @@ void TestCleanDistillPresenterGraphLoadsInUiDomain() {
 }
 #endif
 
+void TestAdvanceToolbarTextEvent() {
+  Harness h;
+  auto& toolbar = *h.application->window_b->text_toolbar;
+  toolbar.text.Load();
+  auto const initial_id = toolbar.text.id().id();
+  auto const initial_bytes = toolbar.text->bytes;
+  ImmutableString* const initial_string = &*toolbar.text;
+  auto const initial_gen = toolbar.Generation();
+  auto const journal_size = toolbar.journal.size();
+
+  CommitAdvanceToolbarText(toolbar);
+
+  CHECK(toolbar.text.id().id() != initial_id);
+  CHECK(initial_string->bytes == initial_bytes);
+  CHECK(toolbar.text->bytes == initial_bytes + " *");
+  CHECK(toolbar.journal.size() == journal_size + 1);
+  CHECK(toolbar.Generation() == initial_gen + 1);
+  auto& record = toolbar.journal.back();
+  CHECK(record.event.is_valid());
+  CHECK(record.event.is_loaded());
+  CHECK(record.event->GetClassId() == TextReplacedEvent::kClassId);
+  auto& replaced = static_cast<TextReplacedEvent&>(*record.event);
+  CHECK(replaced.text.id().id() == toolbar.text.id().id());
+  CHECK(&*replaced.text == &*toolbar.text);
+}
+
+void TestDynamicStringInUiDomain() {
+  Harness h;
+  auto now = std::chrono::steady_clock::now();
+  auto& model_toolbar = *h.application->window_b->text_toolbar;
+  model_toolbar.text.Load();
+  auto const initial_id = model_toolbar.text.id().id();
+  auto const initial_bytes = model_toolbar.text->bytes;
+  auto const window_b = demo::ToObjId(demo::DemoObjId::LayoutWindow);
+  auto const toolbar_id = demo::ToObjId(demo::DemoObjId::TextToolbar);
+
+  h.runtime->Post([app = &*h.application] {
+    CommitAdvanceToolbarText(*app->window_b->text_toolbar);
+  });
+  h.Pump(now);
+
+  CHECK(model_toolbar.text.id().id() != initial_id);
+  CHECK(model_toolbar.text->bytes == initial_bytes + " *");
+  ImmutableString* const model_string = &*model_toolbar.text;
+  CHECK(model_string->domain == &h.model_domain);
+  CHECK(h.model_domain.Find(model_toolbar.text.id()) != nullptr);
+
+  auto const& applied = h.LastFor(window_b);
+  CHECK(HasId(applied.changed_obj_ids, toolbar_id));
+  CHECK(!HasId(applied.changed_obj_ids, model_toolbar.text.id().id()));
+
+  auto& ui_toolbar = h.UiObj<TextToolbar>(ae::ObjId{toolbar_id});
+  CHECK(ui_toolbar.text.id().id() == model_toolbar.text.id().id());
+  CHECK(ui_toolbar.text->bytes == model_toolbar.text->bytes);
+  CHECK(&*ui_toolbar.text != model_string);
+  CHECK(ui_toolbar.text->domain == &h.ui_domain);
+  CHECK(h.ui_domain.Find(model_toolbar.text.id()) != nullptr);
+  CHECK(h.ui_domain.Find(model_toolbar.text.id()).get() == &*ui_toolbar.text);
+  CHECK(!ui_toolbar.base.is_valid());
+  CHECK(ui_toolbar.journal.empty());
+  CHECK(ui_toolbar.Generation() == model_toolbar.Generation());
+}
+
+void TestTwoTextClicksWhileBusy() {
+  ae::RamDomainStorage model_storage;
+  OverlayDomainStorage ui_storage{model_storage};
+  ae::Domain model_domain{ae::Now(), model_storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  EnsureDemoRegistration();
+  auto application = BuildDemoGraph(model_domain);
+  FinalizeDistilledGraph(*application);
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  Application::ptr ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+  std::vector<std::uint32_t> notified_roots;
+  UiMirror mirror(ui_domain, ui_storage,
+                  [&](std::uint32_t root_id, PublicationChannel<3>*) {
+                    notified_roots.push_back(root_id);
+                  });
+  ModelRuntime runtime(*application, mirror);
+  runtime.AddPresentationRoot(*application->window_a);
+  runtime.AddPresentationRoot(*application->window_b);
+
+  auto now = std::chrono::steady_clock::now();
+  auto const window_b = demo::ToObjId(demo::DemoObjId::LayoutWindow);
+  auto& model_toolbar = *application->window_b->text_toolbar;
+  model_toolbar.text.Load();
+  auto const initial_bytes = model_toolbar.text->bytes;
+
+  runtime.Post([app = &*application] {
+    CommitAdvanceToolbarText(*app->window_b->text_toolbar);
+  });
+  runtime.PumpOnce(now);
+  CHECK(static_cast<int>(std::count(notified_roots.begin(), notified_roots.end(),
+                                    window_b)) == 1);
+  CHECK(mirror.ChannelFor(window_b).has_unread_published());
+  auto const first_id = model_toolbar.text.id().id();
+  CHECK(model_toolbar.text->bytes == initial_bytes + " *");
+
+  runtime.Post([app = &*application] {
+    CommitAdvanceToolbarText(*app->window_b->text_toolbar);
+  });
+  runtime.PumpOnce(now + std::chrono::milliseconds{20});
+  CHECK(static_cast<int>(std::count(notified_roots.begin(), notified_roots.end(),
+                                    window_b)) == 1);
+  CHECK(runtime.HasPending(window_b));
+  auto const latest_id = model_toolbar.text.id().id();
+  auto const latest_bytes = model_toolbar.text->bytes;
+  auto const latest_gen = model_toolbar.Generation();
+  CHECK(latest_id != first_id);
+  CHECK(latest_bytes == initial_bytes + " * *");
+
+  auto applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
+  CHECK(applied.root_id == window_b);
+  CHECK(HasId(applied.changed_obj_ids,
+              demo::ToObjId(demo::DemoObjId::TextToolbar)));
+  auto& ui_toolbar = As<TextToolbar>(
+      ui_domain.Find(ae::ObjId{demo::ToObjId(demo::DemoObjId::TextToolbar)}));
+  CHECK(ui_toolbar.text.id().id() == first_id);
+  CHECK(ui_toolbar.text->bytes == initial_bytes + " *");
+  CHECK(runtime.HasPending(window_b));
+
+  runtime.PumpOnce(now + std::chrono::milliseconds{40});
+  CHECK(static_cast<int>(std::count(notified_roots.begin(), notified_roots.end(),
+                                    window_b)) == 2);
+  CHECK(!runtime.HasPending(window_b));
+  applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
+  CHECK(HasId(applied.changed_obj_ids,
+              demo::ToObjId(demo::DemoObjId::TextToolbar)));
+  CHECK(ui_toolbar.text.id().id() == latest_id);
+  CHECK(ui_toolbar.text->bytes == latest_bytes);
+  CHECK(ui_toolbar.Generation() == latest_gen);
+  CHECK(&*ui_toolbar.text != &*model_toolbar.text);
+  CHECK(ui_toolbar.text->domain == &ui_domain);
+  CHECK(!ui_toolbar.base.is_valid());
+  CHECK(ui_toolbar.journal.empty());
+  (void)ui_application;
+}
+
+void TestTextAdvanceRestartPersistence() {
+  auto root = std::filesystem::temp_directory_path() /
+              "apptraverse_model_ui_text_advance_restart_test";
+  std::filesystem::remove_all(root);
+
+  std::uint32_t expected_string_id = 0;
+  std::string expected_bytes;
+  {
+    DirectoryDomainStorage storage{root};
+    ae::Domain domain{ae::Now(), storage};
+    EnsureDemoRegistration();
+#if defined(_WIN32)
+    EnsureWindowsPresenterRegistration();
+#endif
+    auto application = BuildDemoGraph(domain);
+    FinalizeDistilledGraph(*application);
+#if defined(_WIN32)
+    auto presentation = BuildPresentationGraph(domain, *application);
+    SaveDistilledRoot(*presentation);  // runtime-save-ok: distill presenters
+#endif
+    CommitAdvanceToolbarText(*application->window_b->text_toolbar);
+    CommitAdvanceToolbarText(*application->window_b->text_toolbar);
+    expected_string_id = application->window_b->text_toolbar->text.id().id();
+    expected_bytes = application->window_b->text_toolbar->text->bytes;
+    CHECK(expected_bytes == std::string(demo::kToolbarTextBytes) + " * *");
+    SaveDistilledRoot(*application);  // runtime-save-ok: test persistence
+  }
+
+  DirectoryDomainStorage storage{root};
+  OverlayDomainStorage ui_storage{storage};
+  ae::Domain model_domain{ae::Now(), storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  EnsureDemoRegistration();
+#if defined(_WIN32)
+  EnsureWindowsPresenterRegistration();
+#endif
+  auto application = LoadApplication<Application>(
+      model_domain, ae::ObjId{demo::ToObjId(demo::DemoObjId::Application)});
+  application->window_b->text_toolbar->text.Load();
+  CHECK(application->window_b->text_toolbar->text.id().id() ==
+        expected_string_id);
+  CHECK(application->window_b->text_toolbar->text->bytes == expected_bytes);
+
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  Application::ptr ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+  auto& ui_toolbar = As<TextToolbar>(
+      ui_domain.Find(ae::ObjId{demo::ToObjId(demo::DemoObjId::TextToolbar)}));
+  CHECK(ui_toolbar.text.id().id() == expected_string_id);
+  CHECK(ui_toolbar.text->bytes == expected_bytes);
+  CHECK(&*ui_toolbar.text != &*application->window_b->text_toolbar->text);
+  CHECK(ui_toolbar.text->domain == &ui_domain);
+
+#if defined(_WIN32)
+  auto presentation = LoadApplication<WinPresentationApplication>(
+      ui_domain,
+      ae::ObjId{demo::ToObjId(demo::DemoObjId::WinPresentationApplication)});
+  CHECK(&*presentation->layout_window->text_toolbar->toolbar == &ui_toolbar);
+  CHECK(&*presentation->layout_window->text_toolbar->toolbar->text ==
+        &*ui_toolbar.text);
+#endif
+  (void)ui_application;
+  std::filesystem::remove_all(root);
+}
+
 void TestNoManualSerializersOrRuntimeClasses() {
 #ifdef MODEL_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{MODEL_UI_RUNTIME_DEMO_SOURCE_DIR};
@@ -747,7 +953,9 @@ void TestNoManualSerializersOrRuntimeClasses() {
 }  // namespace apptraverse::test
 
 int main() {
+  using apptraverse::test::TestAdvanceToolbarTextEvent;
   using apptraverse::test::TestBaseJournalCopyAndCleanup;
+  using apptraverse::test::TestDynamicStringInUiDomain;
   using apptraverse::test::TestGenerationResizeAndNativeLayout;
   using apptraverse::test::TestInitialGraphCopy;
   using apptraverse::test::TestJournalCommitDoesNotChangeChildren;
@@ -759,7 +967,9 @@ int main() {
   using apptraverse::test::TestRepaintDoesNotTouchModel;
   using apptraverse::test::TestStableUiAddressesAndStringReuse;
   using apptraverse::test::TestStandardPointer;
+  using apptraverse::test::TestTextAdvanceRestartPersistence;
   using apptraverse::test::TestTwoDomainsAndUiNodeState;
+  using apptraverse::test::TestTwoTextClicksWhileBusy;
   using apptraverse::test::TestUnreadPublicationIsNotOverwritten;
 
   TestStandardPointer();
@@ -775,6 +985,10 @@ int main() {
   TestOrdinaryReflectionField();
   TestBaseJournalCopyAndCleanup();
   TestJournalDoesNotReturnAfterReloadAndMirror();
+  TestAdvanceToolbarTextEvent();
+  TestDynamicStringInUiDomain();
+  TestTwoTextClicksWhileBusy();
+  TestTextAdvanceRestartPersistence();
 #if defined(_WIN32)
   apptraverse::test::TestCleanDistillPresenterGraphLoadsInUiDomain();
 #endif

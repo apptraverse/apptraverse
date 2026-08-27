@@ -16,6 +16,7 @@ APPTRAVERSE_REGISTER(LayoutWindow);
 APPTRAVERSE_REGISTER(Application);
 APPTRAVERSE_REGISTER(WindowBoundsChangedEvent);
 APPTRAVERSE_REGISTER(ColorChangedEvent);
+APPTRAVERSE_REGISTER(TextReplacedEvent);
 
 }  // namespace
 

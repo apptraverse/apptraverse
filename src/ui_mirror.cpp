@@ -67,7 +67,7 @@ bool UiMirror::Publish(std::uint32_t root_id,
     auto const size_at = out.bytes.size();
     WriteU32(out, 0);
     auto const payload_at = out.bytes.size();
-    SerializeObjectToBuffer(*node, out);
+    SerializeObjectGraphToBuffer(*node, out);
     auto const payload_size =
         static_cast<std::uint32_t>(out.bytes.size() - payload_at);
     std::memcpy(out.bytes.data() + size_at, &payload_size, sizeof(payload_size));
@@ -114,7 +114,7 @@ UiApplyResult UiMirror::ApplyPublished(PublicationChannel<3>& channel,
     ByteSource payload;
     payload.data = in.data + in.pos;
     payload.size = payload_size;
-    DeserializeObjectFromBuffer(*object, payload, ui_domain_, ui_storage_);
+    DeserializeObjectGraphFromBuffer(*object, payload, ui_domain_, ui_storage_);
     in.pos += payload_size;
     FinalizeUiNodeState(*object, generation);
     result.changed_obj_ids.push_back(obj_id);

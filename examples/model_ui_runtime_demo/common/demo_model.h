@@ -16,6 +16,7 @@ namespace apptraverse {
 
 class WindowBoundsChangedEvent;
 class ColorChangedEvent;
+class TextReplacedEvent;
 
 class ImmutableString : public ae::Obj {
   APPTRAVERSE_OBJECT(ImmutableString, ae::Obj, 0)
@@ -51,6 +52,8 @@ class TextToolbar : public NodeFor<TextToolbar> {
 
   std::int32_t height{demo::kTextToolbarHeight};
   ImmutableString::ptr text;
+
+  void Apply(TextReplacedEvent const& event);
 };
 
 class ColorToolbar : public NodeFor<ColorToolbar> {

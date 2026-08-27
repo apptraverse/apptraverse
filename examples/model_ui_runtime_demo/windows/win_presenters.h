@@ -28,14 +28,16 @@ class WinTextToolbarPresenter : public Presenter {
   AE_OBJECT_REFLECT(AE_MMBR(toolbar))
 
   TextToolbar::ptr toolbar;
+  std::function<void()> on_activate;
   HWND parent_hwnd{nullptr};
   HWND hwnd{nullptr};
 
   void OnLoad() override {
-    hwnd = CreateWindowExW(0, L"STATIC", L"",
-                           WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE, 0,
-                           0, 0, 0, parent_hwnd, nullptr,
-                           GetModuleHandleW(nullptr), nullptr);
+    hwnd = CreateWindowExW(
+        0, L"STATIC", L"",
+        WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOTIFY, 0, 0, 0, 0,
+        parent_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlId)),
+        GetModuleHandleW(nullptr), nullptr);
     ApplyText();
   }
 
@@ -49,6 +51,8 @@ class WinTextToolbarPresenter : public Presenter {
   void Destroy() {
     hwnd = nullptr;
   }
+
+  static constexpr int kControlId = 401;
 
  private:
   void ApplyText() {
@@ -488,6 +492,17 @@ class WinLayoutWindowPresenter : public Presenter {
 
   LRESULT Handle(HWND wnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+      case WM_COMMAND: {
+        HWND const source = reinterpret_cast<HWND>(lparam);
+        if (text_toolbar && text_toolbar->hwnd == source &&
+            HIWORD(wparam) == STN_CLICKED) {
+          if (text_toolbar->on_activate) {
+            text_toolbar->on_activate();
+          }
+          return 0;
+        }
+        return DefWindowProcW(wnd, msg, wparam, lparam);
+      }
       case WM_WINDOWPOSCHANGED: {
         auto const* wp = reinterpret_cast<WINDOWPOS*>(lparam);
         bool const geometry_changed =
@@ -560,12 +575,14 @@ class WinPresentationApplication : public Presenter {
   WinLayoutWindowPresenter::ptr layout_window;
   BoundsCommandFn commands;
   std::function<void()> on_close;
+  std::function<void()> on_text_toolbar_activate;
 
   void OnLoad() override {
     paint_window->commands = commands;
     paint_window->on_close = on_close;
     layout_window->commands = commands;
     layout_window->on_close = on_close;
+    layout_window->text_toolbar->on_activate = on_text_toolbar_activate;
     paint_window->OnLoad();
     layout_window->OnLoad();
   }
