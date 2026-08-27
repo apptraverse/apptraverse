@@ -20,7 +20,6 @@ enum class DemoObjId : ae::ObjId::Type {
   WinLayoutWindowPresenter = 200002,
   WinTextToolbarPresenter = 200003,
   WinColorToolbarPresenter = 200004,
-  WinCenterStripPresenter = 200005,
 };
 
 constexpr ae::ObjId::Type ToObjId(DemoObjId id) {

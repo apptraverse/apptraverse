@@ -2,6 +2,9 @@
 #define APPTRAVERSE_WIN_PRESENTERS_H_
 
 #include <functional>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "apptraverse/object_macros.h"
 #include "apptraverse/presenter.h"
@@ -139,37 +142,48 @@ class WinColorToolbarPresenter : public Presenter {
   std::uint32_t last_color_{0};
 };
 
-class WinCenterStripPresenter : public Presenter {
-  APPTRAVERSE_OBJECT(WinCenterStripPresenter, Presenter, 0)
-
- protected:
-  WinCenterStripPresenter() = default;
-
+// Runtime-only child presenter. Not an ae::Obj; created by WinLayoutWindowPresenter.
+class WinRuntimeCenterStripPresenter {
  public:
-  explicit WinCenterStripPresenter(ae::ObjProp prop) : Presenter{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(strip))
-
   CenterStrip::ptr strip;
+  std::function<void()> on_activate;
   HWND parent_hwnd{nullptr};
   HWND hwnd{nullptr};
 
-  void OnLoad() override {
+  void Create() {
     WNDCLASSW wc{};
-    wc.lpfnWndProc = &WinCenterStripPresenter::WndProc;
+    wc.lpfnWndProc = &WinRuntimeCenterStripPresenter::WndProc;
     wc.hInstance = GetModuleHandleW(nullptr);
     wc.lpszClassName = kClassName;
     wc.hbrBackground = nullptr;
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     RegisterClassW(&wc);
     hwnd = CreateWindowExW(0, kClassName, L"", WS_CHILD | WS_VISIBLE, 0, 0, 0,
                            0, parent_hwnd, nullptr, GetModuleHandleW(nullptr),
                            this);
     last_generation_ = strip->Generation();
+    last_color_ = strip->fill_color;
   }
 
-  void Present() { last_generation_ = strip->Generation(); }
+  void Present() {
+    if (strip->Generation() == last_generation_) {
+      return;
+    }
+    last_generation_ = strip->Generation();
+    if (strip->fill_color != last_color_) {
+      last_color_ = strip->fill_color;
+      InvalidateRect(hwnd, nullptr, FALSE);
+    }
+  }
 
-  void Destroy() { hwnd = nullptr; }
+  void Destroy() {
+    if (hwnd != nullptr) {
+      DestroyWindow(hwnd);
+      hwnd = nullptr;
+    }
+  }
+
+  ~WinRuntimeCenterStripPresenter() { Destroy(); }
 
  private:
   static constexpr wchar_t const* kClassName = L"AppTraverseCenterStrip";
@@ -179,12 +193,12 @@ class WinCenterStripPresenter : public Presenter {
     if (msg == WM_NCCREATE) {
       auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
       auto* self =
-          static_cast<WinCenterStripPresenter*>(cs->lpCreateParams);
+          static_cast<WinRuntimeCenterStripPresenter*>(cs->lpCreateParams);
       SetWindowLongPtrW(wnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
       self->hwnd = wnd;
       return DefWindowProcW(wnd, msg, wparam, lparam);
     }
-    auto* self = reinterpret_cast<WinCenterStripPresenter*>(
+    auto* self = reinterpret_cast<WinRuntimeCenterStripPresenter*>(
         GetWindowLongPtrW(wnd, GWLP_USERDATA));
     if (self == nullptr) {
       return DefWindowProcW(wnd, msg, wparam, lparam);
@@ -201,10 +215,17 @@ class WinCenterStripPresenter : public Presenter {
     if (msg == WM_ERASEBKGND) {
       return 1;
     }
+    if (msg == WM_LBUTTONUP) {
+      if (self->on_activate) {
+        self->on_activate();
+      }
+      return 0;
+    }
     return DefWindowProcW(wnd, msg, wparam, lparam);
   }
 
   std::uint64_t last_generation_{0};
+  std::uint32_t last_color_{0};
 };
 
 class WinPaintWindowPresenter : public Presenter {
@@ -409,14 +430,14 @@ class WinLayoutWindowPresenter : public Presenter {
   explicit WinLayoutWindowPresenter(ae::ObjProp prop) : Presenter{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(text_toolbar),
-                    AE_MMBR(color_toolbar), AE_MMBR(center_strip))
+                    AE_MMBR(color_toolbar))
 
   LayoutWindow::ptr window;
   WinTextToolbarPresenter::ptr text_toolbar;
   WinColorToolbarPresenter::ptr color_toolbar;
-  WinCenterStripPresenter::ptr center_strip;
   BoundsCommandFn commands;
   std::function<void()> on_close;
+  std::function<void()> on_add_center_strip;
   HWND hwnd{nullptr};
 
   void OnLoad() override {
@@ -441,10 +462,9 @@ class WinLayoutWindowPresenter : public Presenter {
 
     text_toolbar->parent_hwnd = hwnd;
     color_toolbar->parent_hwnd = hwnd;
-    center_strip->parent_hwnd = hwnd;
     text_toolbar->OnLoad();
     color_toolbar->OnLoad();
-    center_strip->OnLoad();
+    ReconcileCenterStrips();
     LayoutChildren();
     commands(MakeBoundsCommand(hwnd, window->obj_id.id()));
   }
@@ -453,14 +473,19 @@ class WinLayoutWindowPresenter : public Presenter {
     if (window->Generation() != last_generation_) {
       last_generation_ = window->Generation();
       ApplyModelBounds();
+      ReconcileCenterStrips();
     }
     LayoutChildren();
     text_toolbar->Present();
     color_toolbar->Present();
-    center_strip->Present();
+    for (auto& [id, presenter] : center_strips_) {
+      (void)id;
+      presenter->Present();
+    }
   }
 
   void Destroy() {
+    center_strips_.clear();
     HWND h = hwnd;
     hwnd = nullptr;
     if (h == nullptr) {
@@ -528,13 +553,36 @@ class WinLayoutWindowPresenter : public Presenter {
     }
   }
 
+  void ReconcileCenterStrips() {
+    for (auto& strip_ptr : window->center_strips) {
+      assert(strip_ptr.is_valid());
+      strip_ptr.Load();
+      auto const id = strip_ptr.id().id();
+      if (center_strips_.count(id) > 0) {
+        continue;
+      }
+      auto presenter = std::make_unique<WinRuntimeCenterStripPresenter>();
+      presenter->strip = strip_ptr;
+      presenter->parent_hwnd = hwnd;
+      presenter->on_activate = on_add_center_strip;
+      presenter->Create();
+      center_strips_.emplace(id, std::move(presenter));
+    }
+  }
+
   void LayoutChildren() {
     MoveIfChanged(text_toolbar->hwnd, TextToolbarNativeRect(*window),
                   last_text_rect_);
     MoveIfChanged(color_toolbar->hwnd, ColorToolbarNativeRect(*window),
                   last_color_rect_);
-    MoveIfChanged(center_strip->hwnd, CenterStripNativeRect(*window),
-                  last_strip_rect_);
+    last_strip_rects_.resize(window->center_strips.size());
+    for (std::size_t i = 0; i < window->center_strips.size(); ++i) {
+      auto const id = window->center_strips[i].id().id();
+      auto it = center_strips_.find(id);
+      assert(it != center_strips_.end());
+      MoveIfChanged(it->second->hwnd, CenterStripNativeRect(*window, i),
+                    last_strip_rects_[i]);
+    }
   }
 
   void ApplyModelBounds() {
@@ -552,9 +600,12 @@ class WinLayoutWindowPresenter : public Presenter {
     applying_model_bounds_ = false;
   }
 
+  std::unordered_map<std::uint32_t,
+                     std::unique_ptr<WinRuntimeCenterStripPresenter>>
+      center_strips_;
   NativeRect last_text_rect_{};
   NativeRect last_color_rect_{};
-  NativeRect last_strip_rect_{};
+  std::vector<NativeRect> last_strip_rects_;
   std::uint64_t last_generation_{0};
   bool applying_model_bounds_{false};
   bool creating_{false};
@@ -576,12 +627,14 @@ class WinPresentationApplication : public Presenter {
   BoundsCommandFn commands;
   std::function<void()> on_close;
   std::function<void()> on_text_toolbar_activate;
+  std::function<void()> on_add_center_strip;
 
   void OnLoad() override {
     paint_window->commands = commands;
     paint_window->on_close = on_close;
     layout_window->commands = commands;
     layout_window->on_close = on_close;
+    layout_window->on_add_center_strip = on_add_center_strip;
     layout_window->text_toolbar->on_activate = on_text_toolbar_activate;
     paint_window->OnLoad();
     layout_window->OnLoad();

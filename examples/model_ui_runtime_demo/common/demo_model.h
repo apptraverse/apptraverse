@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "aether/obj/obj.h"
 
@@ -17,6 +18,7 @@ namespace apptraverse {
 class WindowBoundsChangedEvent;
 class ColorChangedEvent;
 class TextReplacedEvent;
+class CenterStripAddedEvent;
 
 class ImmutableString : public ae::Obj {
   APPTRAVERSE_OBJECT(ImmutableString, ae::Obj, 0)
@@ -142,11 +144,13 @@ class LayoutWindow : public NodeFor<LayoutWindow, Window> {
   explicit LayoutWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(text_toolbar), AE_MMBR(color_toolbar),
-                    AE_MMBR(center_strip))
+                    AE_MMBR(center_strips))
 
   TextToolbar::ptr text_toolbar;
   ColorToolbar::ptr color_toolbar;
-  CenterStrip::ptr center_strip;
+  std::vector<CenterStrip::ptr> center_strips;
+
+  void Apply(CenterStripAddedEvent const& event);
 };
 
 class Application : public ae::Obj {

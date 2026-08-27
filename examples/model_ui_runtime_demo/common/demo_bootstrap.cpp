@@ -62,7 +62,7 @@ Application::ptr BuildDemoGraph(ae::Domain& domain) {
 
   window_b->text_toolbar = text_toolbar;
   window_b->color_toolbar = color_toolbar;
-  window_b->center_strip = center_strip;
+  window_b->center_strips.push_back(center_strip);
   application->window_a = window_a;
   application->window_b = window_b;
   return application;

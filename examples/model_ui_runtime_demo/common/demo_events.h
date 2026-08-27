@@ -59,6 +59,21 @@ class TextReplacedEvent : public EventFor<TextToolbar, TextReplacedEvent> {
   ImmutableString::ptr text;
 };
 
+class CenterStripAddedEvent
+    : public EventFor<LayoutWindow, CenterStripAddedEvent> {
+  APPTRAVERSE_OBJECT(CenterStripAddedEvent, Event, 0)
+
+ protected:
+  CenterStripAddedEvent() = default;
+
+ public:
+  explicit CenterStripAddedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(strip))
+
+  CenterStrip::ptr strip;
+};
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_DEMO_EVENTS_H_

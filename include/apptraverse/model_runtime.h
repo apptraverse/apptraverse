@@ -24,11 +24,17 @@ inline constexpr auto kDefaultModelUpdatePeriod = std::chrono::milliseconds{16};
 class ModelRuntime {
  public:
   using Work = std::function<void()>;
+  using UpdateObserver = std::function<void(Node&)>;
 
   explicit ModelRuntime(ae::Obj& application_root, UiMirror& ui_mirror);
   ~ModelRuntime();
 
   void AddPresentationRoot(ae::Obj& root);
+
+  // Initialize Node base, register for UpdateAll, and map Node → presentation
+  // root for publication. Call before committing an Event that links the Node.
+  void AttachNode(Node& node, ae::Obj& presentation_root);
+
   void Start();
   void RequestStop();
   void Join();
@@ -38,6 +44,10 @@ class ModelRuntime {
   ae::Obj& application() { return application_root_; }
 
   bool HasPending(std::uint32_t root_id) const;
+  bool IsInExecutionList(Node const& node) const;
+  bool IsMappedToPresentationRoot(Node const& node,
+                                   std::uint32_t root_id) const;
+  void SetUpdateObserver(UpdateObserver observer);
 
  private:
   void ThreadMain();
@@ -53,6 +63,7 @@ class ModelRuntime {
   std::vector<Node*> model_nodes_;
   std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> object_to_roots_;
   std::unordered_map<std::uint32_t, std::unordered_set<Node*>> pending_by_root_;
+  UpdateObserver update_observer_;
 
   std::mutex mu_;
   std::condition_variable cv_;

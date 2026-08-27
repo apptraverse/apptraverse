@@ -39,6 +39,12 @@ void TextToolbar::Apply(TextReplacedEvent const& event) {
   NoteMaterializedChange();
 }
 
+void LayoutWindow::Apply(CenterStripAddedEvent const& event) {
+  assert(event.strip.is_valid());
+  center_strips.push_back(event.strip);
+  NoteMaterializedChange();
+}
+
 void ColorToolbar::Update(std::chrono::steady_clock::time_point now) {
   if (last_color_tick_.time_since_epoch().count() == 0) {
     last_color_tick_ = now;

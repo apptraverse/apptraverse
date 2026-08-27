@@ -134,6 +134,16 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
       CommitAdvanceToolbarText(*toolbar);
     });
   };
+  presentation_->on_add_center_strip = [this] {
+    AddCenterStripCommand command;
+    command.layout_window_id = demo::ToObjId(demo::DemoObjId::LayoutWindow);
+    model_runtime_->Post([app = &*runtime_.application, runtime = model_runtime_.get(),
+                          command] {
+      auto* layout = LayoutWindowById(*app, command.layout_window_id);
+      assert(layout != nullptr);
+      CommitAddCenterStrip(*layout, *runtime);
+    });
+  };
   presentation_->OnLoad();
 
   model_runtime_->Start();

@@ -140,6 +140,30 @@ void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
     }
   }
   std::memcpy(out.bytes.data() + count_at, &layer_count, sizeof(layer_count));
+
+  auto const gen_count_at = out.bytes.size();
+  std::uint32_t node_generation_count = 0;
+  out.write(&node_generation_count, sizeof(node_generation_count));
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj) {
+      continue;
+    }
+    auto* node = dynamic_cast<Node*>(obj.get());
+    if (node == nullptr) {
+      continue;
+    }
+    auto const oid = obj_id.id();
+    auto const generation = node->Generation();
+    out.write(&oid, sizeof(oid));
+    out.write(&generation, sizeof(generation));
+    ++node_generation_count;
+  }
+  std::memcpy(out.bytes.data() + gen_count_at, &node_generation_count,
+              sizeof(node_generation_count));
 }
 
 void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
@@ -165,6 +189,22 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
   }
 
   LoadExistingObject(existing_root, domain);
+
+  std::uint32_t node_generation_count = 0;
+  in.read(&node_generation_count, sizeof(node_generation_count));
+  assert(in.ok);
+  for (std::uint32_t i = 0; i < node_generation_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint64_t generation = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&generation, sizeof(generation));
+    assert(in.ok);
+    auto object = domain.Find(ae::ObjId{obj_id});
+    if (!object) {
+      continue;
+    }
+    FinalizeUiNodeState(*object, generation);
+  }
 }
 
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {

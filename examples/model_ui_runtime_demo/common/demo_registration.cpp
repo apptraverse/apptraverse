@@ -17,6 +17,7 @@ APPTRAVERSE_REGISTER(Application);
 APPTRAVERSE_REGISTER(WindowBoundsChangedEvent);
 APPTRAVERSE_REGISTER(ColorChangedEvent);
 APPTRAVERSE_REGISTER(TextReplacedEvent);
+APPTRAVERSE_REGISTER(CenterStripAddedEvent);
 
 }  // namespace
 

@@ -1,6 +1,9 @@
 #include "apptraverse/model_runtime.h"
 
+#include <algorithm>
+
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
 
@@ -25,6 +28,19 @@ void ModelRuntime::AddPresentationRoot(ae::Obj& root) {
   }
 }
 
+void ModelRuntime::AttachNode(Node& node, ae::Obj& presentation_root) {
+  InitializeRuntimeNode(node);
+  if (std::find(model_nodes_.begin(), model_nodes_.end(), &node) ==
+      model_nodes_.end()) {
+    model_nodes_.push_back(&node);
+  }
+  auto const root_id = presentation_root.obj_id.id();
+  auto& roots = object_to_roots_[node.obj_id.id()];
+  if (std::find(roots.begin(), roots.end(), root_id) == roots.end()) {
+    roots.push_back(root_id);
+  }
+}
+
 void ModelRuntime::BuildExecutionLists() {
   CollectReachableNodes(application_root_, model_nodes_);
 }
@@ -42,6 +58,25 @@ void ModelRuntime::OnMaterializedChange(Node& node) {
 bool ModelRuntime::HasPending(std::uint32_t root_id) const {
   auto it = pending_by_root_.find(root_id);
   return it != pending_by_root_.end() && !it->second.empty();
+}
+
+bool ModelRuntime::IsInExecutionList(Node const& node) const {
+  return std::find(model_nodes_.begin(), model_nodes_.end(), &node) !=
+         model_nodes_.end();
+}
+
+bool ModelRuntime::IsMappedToPresentationRoot(Node const& node,
+                                              std::uint32_t root_id) const {
+  auto it = object_to_roots_.find(node.obj_id.id());
+  if (it == object_to_roots_.end()) {
+    return false;
+  }
+  return std::find(it->second.begin(), it->second.end(), root_id) !=
+         it->second.end();
+}
+
+void ModelRuntime::SetUpdateObserver(UpdateObserver observer) {
+  update_observer_ = std::move(observer);
 }
 
 void ModelRuntime::Start() {
@@ -122,6 +157,9 @@ void ModelRuntime::UpdateAll(std::chrono::steady_clock::time_point now) {
   for (Node* node : model_nodes_) {
     node->EnsureCurrentGeneration();
     node->Update(now);
+    if (update_observer_) {
+      update_observer_(*node);
+    }
   }
 }
 

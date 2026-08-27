@@ -23,7 +23,8 @@ void DeserializeObjectFromBuffer(ae::Obj& object, ByteSource& in,
                                  ae::IDomainStorage& domain_storage);
 
 // Full standard-save graph fragment for incremental publication (includes newly
-// referenced objects such as dynamic ImmutableString).
+// referenced objects). Appends a Node Generation table so UI can finalize every
+// Node created or updated by the fragment (not only the outer changed root).
 void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out);
 void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
                                       ae::Domain& domain,

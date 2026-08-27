@@ -6,15 +6,14 @@
 
 #include "aether/obj/domain.h"
 #include "aether/obj/obj.h"
-#include "aether/obj/obj_ptr.h"
-#include "aether/obj/registry.h"
 
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
 
-// Walk every Node reachable from root, create a same-class base object, assign
-// Node::base, and capture base state. Application code does not choose base ids.
+// Walk every Node reachable from root and InitializeRuntimeNode each one that
+// still lacks a base. Application code does not choose base ids.
 inline void FinalizeDistilledGraph(ae::Obj& application_root) {
   std::vector<Node*> nodes;
   CollectReachableNodes(application_root, nodes);
@@ -22,17 +21,7 @@ inline void FinalizeDistilledGraph(ae::Obj& application_root) {
     if (node->base) {
       continue;
     }
-    auto* factory =
-        ae::Registry::GetRegistry().FindFactory(node->GetClassId());
-    assert(factory != nullptr);
-    assert(factory->create != nullptr);
-    ae::Ptr<ae::Obj> raw = factory->create();
-    ae::ObjId const id = ae::ObjId::GenerateUnique();
-    raw->domain = node->domain;
-    raw->obj_id = id;
-    node->domain->AddObject(id, raw);
-    node->base = Node::ptr::MakeFromThis(static_cast<Node*>(raw.get()));
-    node->CaptureBaseState();
+    InitializeRuntimeNode(*node);
   }
 }
 

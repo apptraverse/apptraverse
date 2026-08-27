@@ -7,7 +7,6 @@ namespace {
 
 APPTRAVERSE_REGISTER(WinTextToolbarPresenter);
 APPTRAVERSE_REGISTER(WinColorToolbarPresenter);
-APPTRAVERSE_REGISTER(WinCenterStripPresenter);
 APPTRAVERSE_REGISTER(WinPaintWindowPresenter);
 APPTRAVERSE_REGISTER(WinLayoutWindowPresenter);
 APPTRAVERSE_REGISTER(WinPresentationApplication);
@@ -36,18 +35,13 @@ WinPresentationApplication::ptr BuildPresentationGraph(
   auto color = WinColorToolbarPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(
           ToObjId(DemoObjId::WinColorToolbarPresenter)));
-  auto strip = WinCenterStripPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(
-          ToObjId(DemoObjId::WinCenterStripPresenter)));
 
   paint->window = application.window_a;
   layout->window = application.window_b;
   text->toolbar = application.window_b->text_toolbar;
   color->toolbar = application.window_b->color_toolbar;
-  strip->strip = application.window_b->center_strip;
   layout->text_toolbar = text;
   layout->color_toolbar = color;
-  layout->center_strip = strip;
   root->paint_window = paint;
   root->layout_window = layout;
   return root;

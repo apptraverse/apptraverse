@@ -18,6 +18,7 @@
 #include "apptraverse/model_runtime.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/overlay_domain_storage.h"
+#include "apptraverse/runtime_node.h"
 #include "apptraverse/ui_mirror.h"
 
 #include "demo_bootstrap.h"
@@ -202,7 +203,8 @@ void TestTwoDomainsAndUiNodeState() {
   check_pair(*h.application->window_b);
   check_pair(*h.application->window_b->text_toolbar);
   check_pair(*h.application->window_b->color_toolbar);
-  check_pair(*h.application->window_b->center_strip);
+  CHECK(h.application->window_b->center_strips.size() == 1);
+  check_pair(*h.application->window_b->center_strips[0]);
   check_pair(*h.application->window_b->text_toolbar->text);
 
   auto& model_s = *h.application->window_b->text_toolbar->text;
@@ -225,7 +227,7 @@ void TestJournalCommitDoesNotChangeChildren() {
   Harness h;
   auto& window = *h.application->window_b;
   auto& toolbar = *h.application->window_b->text_toolbar;
-  auto& strip = *h.application->window_b->center_strip;
+  auto& strip = *h.application->window_b->center_strips[0];
   CHECK(window.journal.empty());
   CHECK(toolbar.journal.empty());
   CHECK(strip.journal.empty());
@@ -271,7 +273,7 @@ void TestGenerationResizeAndNativeLayout() {
   auto& window = *h.application->window_b;
   auto& text = *h.application->window_b->text_toolbar;
   auto& color = *h.application->window_b->color_toolbar;
-  auto& strip = *h.application->window_b->center_strip;
+  auto& strip = *h.application->window_b->center_strips[0];
 
   auto const w0 = window.Generation();
   auto const t0 = text.Generation();
@@ -288,7 +290,7 @@ void TestGenerationResizeAndNativeLayout() {
   auto& ui_w = h.UiObj<LayoutWindow>(window.obj_id);
   CHECK(ui_w.client_width == window.client_width);
   CHECK(TextToolbarNativeRect(ui_w).width == window.client_width);
-  CHECK(CenterStripNativeRect(ui_w).width ==
+  CHECK(CenterStripNativeRect(ui_w, 0).width ==
         (window.client_width * 2) / 3);
   auto const horiz = h.LastFor(window.obj_id.id());
   CHECK(HasId(horiz.changed_obj_ids, window.obj_id.id()));
@@ -307,11 +309,11 @@ void TestGenerationResizeAndNativeLayout() {
   CHECK(strip.Generation() == s0);
   CHECK(TextToolbarNativeRect(window) == text_rect_after_h);
   CHECK(ColorToolbarNativeRect(window) == color_rect_after_h);
-  CHECK(CenterStripNativeRect(window).height ==
+  CHECK(CenterStripNativeRect(window, 0).height ==
         window.client_height - text.height - color.height);
   auto& ui_w2 = h.UiObj<LayoutWindow>(window.obj_id);
-  CHECK(CenterStripNativeRect(ui_w2).height ==
-        CenterStripNativeRect(window).height);
+  CHECK(CenterStripNativeRect(ui_w2, 0).height ==
+        CenterStripNativeRect(window, 0).height);
 }
 
 void TestPeriodicUpdate() {
@@ -681,8 +683,10 @@ void TestCleanDistillPresenterGraphLoadsInUiDomain() {
         &*ui_layout.text_toolbar);
   CHECK(&*presentation->layout_window->color_toolbar->toolbar ==
         &*ui_layout.color_toolbar);
-  CHECK(&*presentation->layout_window->center_strip->strip ==
-        &*ui_layout.center_strip);
+  CHECK(ui_layout.center_strips.size() == 1);
+  CHECK(model_layout.center_strips.size() == 1);
+  CHECK(ui_layout.center_strips[0].id().id() ==
+        model_layout.center_strips[0].id().id());
 
   CHECK(!ui_layout.base.is_valid());
   CHECK(ui_layout.journal.empty());
@@ -899,6 +903,248 @@ void TestTextAdvanceRestartPersistence() {
   std::filesystem::remove_all(root);
 }
 
+void TestRuntimeNodeInit() {
+  Harness h;
+  auto& layout = *h.application->window_b;
+  auto strip = CenterStrip::ptr::Create(ae::CreateWith{*layout.domain});
+  strip->width_numerator = 2;
+  strip->width_denominator = 3;
+  strip->fill_color = 0x004080C0;
+  h.runtime->AttachNode(*strip, layout);
+
+  CHECK(strip->base.is_valid());
+  strip->base.Load();
+  CHECK(strip->base->GetClassId() == CenterStrip::kClassId);
+  CHECK(strip->journal.empty());
+  CHECK(h.runtime->IsInExecutionList(*strip));
+  CHECK(h.runtime->IsMappedToPresentationRoot(*strip, layout.obj_id.id()));
+}
+
+void TestAddCenterStripEvent() {
+  Harness h;
+  auto& layout = *h.application->window_b;
+  CHECK(layout.center_strips.size() == 1);
+  auto const initial_id = layout.center_strips[0].id().id();
+  auto const journal_size = layout.journal.size();
+  auto const gen0 = layout.Generation();
+
+  CommitAddCenterStrip(layout, *h.runtime);
+
+  CHECK(layout.center_strips.size() == 2);
+  CHECK(layout.center_strips[1].id().id() != initial_id);
+  CHECK(layout.journal.size() == journal_size + 1);
+  CHECK(layout.Generation() == gen0 + 1);
+  auto& record = layout.journal.back();
+  CHECK(record.event->GetClassId() == CenterStripAddedEvent::kClassId);
+  auto& added = static_cast<CenterStripAddedEvent&>(*record.event);
+  CHECK(added.strip.id().id() == layout.center_strips[1].id().id());
+  CHECK(&*added.strip == &*layout.center_strips[1]);
+  CHECK(layout.center_strips[1]->base.is_valid());
+  CHECK(layout.center_strips[1]->journal.empty());
+}
+
+void TestUiDynamicCenterStripNode() {
+  Harness h;
+  auto now = std::chrono::steady_clock::now();
+  auto& layout = *h.application->window_b;
+  auto const window_b = layout.obj_id.id();
+  CHECK(layout.center_strips.size() == 1);
+
+  h.runtime->Post([app = &*h.application, runtime = h.runtime.get()] {
+    CommitAddCenterStrip(*app->window_b, *runtime);
+  });
+  h.Pump(now);
+
+  CHECK(layout.center_strips.size() == 2);
+  auto& model_strip = *layout.center_strips[1];
+  auto const& applied = h.LastFor(window_b);
+  CHECK(HasId(applied.changed_obj_ids, window_b));
+
+  auto& ui_layout = h.UiObj<LayoutWindow>(layout.obj_id);
+  CHECK(ui_layout.center_strips.size() == 2);
+  CHECK(ui_layout.center_strips[1].id().id() == model_strip.obj_id.id());
+  auto& ui_strip = *ui_layout.center_strips[1];
+  CHECK(&ui_strip != &model_strip);
+  CHECK(ui_strip.domain == &h.ui_domain);
+  CHECK(model_strip.domain == &h.model_domain);
+  CHECK(ui_strip.fill_color == model_strip.fill_color);
+  CHECK(ui_strip.width_numerator == model_strip.width_numerator);
+  CHECK(!ui_strip.base.is_valid());
+  CHECK(ui_strip.journal.empty());
+  CHECK(ui_strip.Generation() == model_strip.Generation());
+}
+
+void TestNewNodeParticipatesInUpdate() {
+  Harness h;
+  auto& layout = *h.application->window_b;
+  auto strip = CenterStrip::ptr::Create(ae::CreateWith{*layout.domain});
+  strip->width_numerator = 2;
+  strip->width_denominator = 3;
+  strip->fill_color = 0x0040A060;
+  h.runtime->AttachNode(*strip, layout);
+
+  std::size_t hits = 0;
+  auto* watched = &*strip;
+  h.runtime->SetUpdateObserver([&](Node& node) {
+    if (&node == watched) {
+      ++hits;
+    }
+  });
+  h.Pump(std::chrono::steady_clock::now());
+  CHECK(hits == 1);
+  h.runtime->SetUpdateObserver({});
+}
+
+void TestTwoStripAddsWhileBusy() {
+  ae::RamDomainStorage model_storage;
+  OverlayDomainStorage ui_storage{model_storage};
+  ae::Domain model_domain{ae::Now(), model_storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  EnsureDemoRegistration();
+  auto application = BuildDemoGraph(model_domain);
+  FinalizeDistilledGraph(*application);
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  Application::ptr ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+  std::vector<std::uint32_t> notified_roots;
+  UiMirror mirror(ui_domain, ui_storage,
+                  [&](std::uint32_t root_id, PublicationChannel<3>*) {
+                    notified_roots.push_back(root_id);
+                  });
+  ModelRuntime runtime(*application, mirror);
+  runtime.AddPresentationRoot(*application->window_a);
+  runtime.AddPresentationRoot(*application->window_b);
+
+  auto now = std::chrono::steady_clock::now();
+  auto const window_b = demo::ToObjId(demo::DemoObjId::LayoutWindow);
+  auto& layout = *application->window_b;
+  CHECK(layout.center_strips.size() == 1);
+
+  runtime.Post([app = &*application, &runtime] {
+    CommitAddCenterStrip(*app->window_b, runtime);
+  });
+  runtime.PumpOnce(now);
+  CHECK(static_cast<int>(std::count(notified_roots.begin(), notified_roots.end(),
+                                    window_b)) == 1);
+  CHECK(mirror.ChannelFor(window_b).has_unread_published());
+  CHECK(layout.center_strips.size() == 2);
+  auto const after_first = layout.center_strips.size();
+
+  runtime.Post([app = &*application, &runtime] {
+    CommitAddCenterStrip(*app->window_b, runtime);
+  });
+  runtime.PumpOnce(now + std::chrono::milliseconds{20});
+  CHECK(static_cast<int>(std::count(notified_roots.begin(), notified_roots.end(),
+                                    window_b)) == 1);
+  CHECK(runtime.HasPending(window_b));
+  CHECK(layout.center_strips.size() == 3);
+  auto const latest_size = layout.center_strips.size();
+  auto const latest_ids = std::vector<std::uint32_t>{
+      layout.center_strips[0].id().id(), layout.center_strips[1].id().id(),
+      layout.center_strips[2].id().id()};
+
+  auto applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
+  CHECK(applied.root_id == window_b);
+  auto& ui_layout = As<LayoutWindow>(ui_domain.Find(ae::ObjId{window_b}));
+  CHECK(ui_layout.center_strips.size() == after_first);
+  CHECK(runtime.HasPending(window_b));
+
+  runtime.PumpOnce(now + std::chrono::milliseconds{40});
+  CHECK(static_cast<int>(std::count(notified_roots.begin(), notified_roots.end(),
+                                    window_b)) == 2);
+  CHECK(!runtime.HasPending(window_b));
+  applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
+  CHECK(ui_layout.center_strips.size() == latest_size);
+  for (std::size_t i = 0; i < latest_ids.size(); ++i) {
+    CHECK(ui_layout.center_strips[i].id().id() == latest_ids[i]);
+    CHECK(&*ui_layout.center_strips[i] != &*layout.center_strips[i]);
+    CHECK(!ui_layout.center_strips[i]->base.is_valid());
+    CHECK(ui_layout.center_strips[i]->journal.empty());
+  }
+  (void)ui_application;
+}
+
+void TestCenterStripRestartPersistence() {
+  auto root = std::filesystem::temp_directory_path() /
+              "apptraverse_model_ui_center_strip_restart_test";
+  std::filesystem::remove_all(root);
+
+  std::vector<std::uint32_t> expected_ids;
+  std::vector<std::uint32_t> expected_colors;
+  {
+    DirectoryDomainStorage storage{root};
+    ae::Domain domain{ae::Now(), storage};
+    EnsureDemoRegistration();
+#if defined(_WIN32)
+    EnsureWindowsPresenterRegistration();
+#endif
+    auto application = BuildDemoGraph(domain);
+    FinalizeDistilledGraph(*application);
+#if defined(_WIN32)
+    auto presentation = BuildPresentationGraph(domain, *application);
+    SaveDistilledRoot(*presentation);  // runtime-save-ok: distill presenters
+#endif
+    UiMirror mirror(domain, storage, {});
+    ModelRuntime runtime(*application, mirror);
+    runtime.AddPresentationRoot(*application->window_a);
+    runtime.AddPresentationRoot(*application->window_b);
+    CommitAddCenterStrip(*application->window_b, runtime);
+    CommitAddCenterStrip(*application->window_b, runtime);
+    CHECK(application->window_b->center_strips.size() == 3);
+    for (auto& strip : application->window_b->center_strips) {
+      strip.Load();
+      expected_ids.push_back(strip.id().id());
+      expected_colors.push_back(strip->fill_color);
+      CHECK(strip->base.is_valid());
+    }
+    SaveDistilledRoot(*application);  // runtime-save-ok: test persistence
+  }
+
+  DirectoryDomainStorage storage{root};
+  OverlayDomainStorage ui_storage{storage};
+  ae::Domain model_domain{ae::Now(), storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  EnsureDemoRegistration();
+#if defined(_WIN32)
+  EnsureWindowsPresenterRegistration();
+#endif
+  auto application = LoadApplication<Application>(
+      model_domain, ae::ObjId{demo::ToObjId(demo::DemoObjId::Application)});
+  CHECK(application->window_b->center_strips.size() == 3);
+  for (std::size_t i = 0; i < expected_ids.size(); ++i) {
+    application->window_b->center_strips[i].Load();
+    CHECK(application->window_b->center_strips[i].id().id() == expected_ids[i]);
+    CHECK(application->window_b->center_strips[i]->fill_color ==
+          expected_colors[i]);
+    CHECK(application->window_b->center_strips[i]->base.is_valid());
+  }
+
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  Application::ptr ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+  auto& ui_layout = As<LayoutWindow>(
+      ui_domain.Find(ae::ObjId{demo::ToObjId(demo::DemoObjId::LayoutWindow)}));
+  CHECK(ui_layout.center_strips.size() == 3);
+  for (std::size_t i = 0; i < expected_ids.size(); ++i) {
+    CHECK(ui_layout.center_strips[i].id().id() == expected_ids[i]);
+    CHECK(&*ui_layout.center_strips[i] !=
+          &*application->window_b->center_strips[i]);
+    CHECK(!ui_layout.center_strips[i]->base.is_valid());
+    CHECK(ui_layout.center_strips[i]->journal.empty());
+  }
+
+#if defined(_WIN32)
+  auto presentation = LoadApplication<WinPresentationApplication>(
+      ui_domain,
+      ae::ObjId{demo::ToObjId(demo::DemoObjId::WinPresentationApplication)});
+  CHECK(&*presentation->layout_window->window == &ui_layout);
+#endif
+  (void)ui_application;
+  std::filesystem::remove_all(root);
+}
+
 void TestNoManualSerializersOrRuntimeClasses() {
 #ifdef MODEL_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{MODEL_UI_RUNTIME_DEMO_SOURCE_DIR};
@@ -917,7 +1163,8 @@ void TestNoManualSerializersOrRuntimeClasses() {
       "RegisterMaterializedOps", "FindMaterializedOps",
       "APPTRAVERSE_REGISTER_MATERIALIZED", "materialized_ops.h",
       "ui_materialized.h",  "SerializeMaterializedObject",
-      "DeserializeMaterializedObject", "EagerLoadReachable"};
+      "DeserializeMaterializedObject", "EagerLoadReachable",
+      "WinCenterStripPresenter"};
   for (auto const& entry :
        std::filesystem::recursive_directory_iterator(root)) {
     if (!entry.is_regular_file()) {
@@ -953,23 +1200,29 @@ void TestNoManualSerializersOrRuntimeClasses() {
 }  // namespace apptraverse::test
 
 int main() {
+  using apptraverse::test::TestAddCenterStripEvent;
   using apptraverse::test::TestAdvanceToolbarTextEvent;
   using apptraverse::test::TestBaseJournalCopyAndCleanup;
+  using apptraverse::test::TestCenterStripRestartPersistence;
   using apptraverse::test::TestDynamicStringInUiDomain;
   using apptraverse::test::TestGenerationResizeAndNativeLayout;
   using apptraverse::test::TestInitialGraphCopy;
   using apptraverse::test::TestJournalCommitDoesNotChangeChildren;
   using apptraverse::test::TestJournalDoesNotReturnAfterReloadAndMirror;
+  using apptraverse::test::TestNewNodeParticipatesInUpdate;
   using apptraverse::test::TestNoManualSerializersOrRuntimeClasses;
   using apptraverse::test::TestOrdinaryReflectionField;
   using apptraverse::test::TestPeriodicUpdate;
   using apptraverse::test::TestPersistence;
   using apptraverse::test::TestRepaintDoesNotTouchModel;
+  using apptraverse::test::TestRuntimeNodeInit;
   using apptraverse::test::TestStableUiAddressesAndStringReuse;
   using apptraverse::test::TestStandardPointer;
   using apptraverse::test::TestTextAdvanceRestartPersistence;
   using apptraverse::test::TestTwoDomainsAndUiNodeState;
+  using apptraverse::test::TestTwoStripAddsWhileBusy;
   using apptraverse::test::TestTwoTextClicksWhileBusy;
+  using apptraverse::test::TestUiDynamicCenterStripNode;
   using apptraverse::test::TestUnreadPublicationIsNotOverwritten;
 
   TestStandardPointer();
@@ -989,6 +1242,12 @@ int main() {
   TestDynamicStringInUiDomain();
   TestTwoTextClicksWhileBusy();
   TestTextAdvanceRestartPersistence();
+  TestRuntimeNodeInit();
+  TestAddCenterStripEvent();
+  TestUiDynamicCenterStripNode();
+  TestNewNodeParticipatesInUpdate();
+  TestTwoStripAddsWhileBusy();
+  TestCenterStripRestartPersistence();
 #if defined(_WIN32)
   apptraverse::test::TestCleanDistillPresenterGraphLoadsInUiDomain();
 #endif
