@@ -731,9 +731,9 @@ void TestNoManualSerializersOrRuntimeClasses() {
       if (pos != std::string::npos) {
         CHECK(line.find("runtime-save-ok") != std::string::npos);
       }
-      if (line.find("dpi") != std::string::npos &&
-          line.find("DpiAwareness") == std::string::npos &&
-          line.find("DPI_AWARENESS") == std::string::npos) {
+      if (line.find("dpi") != std::string::npos ||
+          line.find("DPI") != std::string::npos ||
+          line.find("Dpi") != std::string::npos) {
         CHECK(false && "dpi remains in demo sources");
       }
     }

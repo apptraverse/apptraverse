@@ -40,8 +40,6 @@ void DistillDemo(std::filesystem::path const& dir) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-
   bool distill = false;
   std::filesystem::path state_dir{"model_ui_runtime_state"};
   for (int i = 1; i < argc; ++i) {
