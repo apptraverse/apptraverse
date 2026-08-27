@@ -19,6 +19,7 @@ class WindowBoundsChangedEvent;
 class ColorChangedEvent;
 class TextReplacedEvent;
 class CenterStripAddedEvent;
+class CenterStripRemovedEvent;
 
 class ImmutableString : public ae::Obj {
   APPTRAVERSE_OBJECT(ImmutableString, ae::Obj, 0)
@@ -151,6 +152,7 @@ class LayoutWindow : public NodeFor<LayoutWindow, Window> {
   std::vector<CenterStrip::ptr> center_strips;
 
   void Apply(CenterStripAddedEvent const& event);
+  void Apply(CenterStripRemovedEvent const& event);
 };
 
 class Application : public ae::Obj {

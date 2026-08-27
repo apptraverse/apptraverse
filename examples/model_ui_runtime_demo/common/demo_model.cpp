@@ -1,5 +1,6 @@
 #include "demo_model.h"
 
+#include <algorithm>
 #include <cassert>
 
 #include "demo_events.h"
@@ -42,6 +43,17 @@ void TextToolbar::Apply(TextReplacedEvent const& event) {
 void LayoutWindow::Apply(CenterStripAddedEvent const& event) {
   assert(event.strip.is_valid());
   center_strips.push_back(event.strip);
+  NoteMaterializedChange();
+}
+
+void LayoutWindow::Apply(CenterStripRemovedEvent const& event) {
+  auto it = std::find_if(
+      center_strips.begin(), center_strips.end(),
+      [&](CenterStrip::ptr const& strip) {
+        return strip.is_valid() && strip.id().id() == event.strip_id;
+      });
+  assert(it != center_strips.end());
+  center_strips.erase(it);
   NoteMaterializedChange();
 }
 

@@ -35,6 +35,10 @@ class ModelRuntime {
   // root for publication. Call before committing an Event that links the Node.
   void AttachNode(Node& node, ae::Obj& presentation_root);
 
+  // Stop UpdateAll / publication mapping for a Node that was removed from the
+  // presentation root graph. Does not delete the object from Domain/storage.
+  void DetachNode(Node& node, ae::Obj& presentation_root);
+
   void Start();
   void RequestStop();
   void Join();

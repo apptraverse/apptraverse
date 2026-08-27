@@ -74,6 +74,21 @@ class CenterStripAddedEvent
   CenterStrip::ptr strip;
 };
 
+class CenterStripRemovedEvent
+    : public EventFor<LayoutWindow, CenterStripRemovedEvent> {
+  APPTRAVERSE_OBJECT(CenterStripRemovedEvent, Event, 0)
+
+ protected:
+  CenterStripRemovedEvent() = default;
+
+ public:
+  explicit CenterStripRemovedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(strip_id))
+
+  std::uint32_t strip_id{0};
+};
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_DEMO_EVENTS_H_

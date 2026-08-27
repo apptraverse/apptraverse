@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "apptraverse/object_macros.h"
@@ -147,6 +148,7 @@ class WinRuntimeCenterStripPresenter {
  public:
   CenterStrip::ptr strip;
   std::function<void()> on_activate;
+  std::function<void(std::uint32_t)> on_remove;
   HWND parent_hwnd{nullptr};
   HWND hwnd{nullptr};
 
@@ -221,12 +223,55 @@ class WinRuntimeCenterStripPresenter {
       }
       return 0;
     }
+    if (msg == WM_RBUTTONUP) {
+      if (self->on_remove) {
+        self->on_remove(self->strip->obj_id.id());
+      }
+      return 0;
+    }
     return DefWindowProcW(wnd, msg, wparam, lparam);
   }
 
   std::uint64_t last_generation_{0};
   std::uint32_t last_color_{0};
 };
+
+// Reconcile runtime strip presenters to match LayoutWindow.center_strips.
+// Creates missing presenters and Destroys entries whose ObjId left the vector.
+inline void ReconcileRuntimeCenterStripPresenters(
+    LayoutWindow& window, HWND parent_hwnd,
+    std::function<void()> const& on_add,
+    std::function<void(std::uint32_t)> const& on_remove,
+    std::unordered_map<std::uint32_t,
+                       std::unique_ptr<WinRuntimeCenterStripPresenter>>&
+        presenters) {
+  std::unordered_set<std::uint32_t> current;
+  current.reserve(window.center_strips.size());
+  for (auto& strip_ptr : window.center_strips) {
+    assert(strip_ptr.is_valid());
+    strip_ptr.Load();
+    auto const id = strip_ptr.id().id();
+    current.insert(id);
+    if (presenters.count(id) > 0) {
+      continue;
+    }
+    auto presenter = std::make_unique<WinRuntimeCenterStripPresenter>();
+    presenter->strip = strip_ptr;
+    presenter->parent_hwnd = parent_hwnd;
+    presenter->on_activate = on_add;
+    presenter->on_remove = on_remove;
+    presenter->Create();
+    presenters.emplace(id, std::move(presenter));
+  }
+  for (auto it = presenters.begin(); it != presenters.end();) {
+    if (current.count(it->first) == 0) {
+      it->second->Destroy();
+      it = presenters.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
 
 class WinPaintWindowPresenter : public Presenter {
   APPTRAVERSE_OBJECT(WinPaintWindowPresenter, Presenter, 0)
@@ -438,6 +483,7 @@ class WinLayoutWindowPresenter : public Presenter {
   BoundsCommandFn commands;
   std::function<void()> on_close;
   std::function<void()> on_add_center_strip;
+  std::function<void(std::uint32_t)> on_remove_center_strip;
   HWND hwnd{nullptr};
 
   void OnLoad() override {
@@ -554,20 +600,9 @@ class WinLayoutWindowPresenter : public Presenter {
   }
 
   void ReconcileCenterStrips() {
-    for (auto& strip_ptr : window->center_strips) {
-      assert(strip_ptr.is_valid());
-      strip_ptr.Load();
-      auto const id = strip_ptr.id().id();
-      if (center_strips_.count(id) > 0) {
-        continue;
-      }
-      auto presenter = std::make_unique<WinRuntimeCenterStripPresenter>();
-      presenter->strip = strip_ptr;
-      presenter->parent_hwnd = hwnd;
-      presenter->on_activate = on_add_center_strip;
-      presenter->Create();
-      center_strips_.emplace(id, std::move(presenter));
-    }
+    ReconcileRuntimeCenterStripPresenters(
+        *window, hwnd, on_add_center_strip, on_remove_center_strip,
+        center_strips_);
   }
 
   void LayoutChildren() {
@@ -628,6 +663,7 @@ class WinPresentationApplication : public Presenter {
   std::function<void()> on_close;
   std::function<void()> on_text_toolbar_activate;
   std::function<void()> on_add_center_strip;
+  std::function<void(std::uint32_t)> on_remove_center_strip;
 
   void OnLoad() override {
     paint_window->commands = commands;
@@ -635,6 +671,7 @@ class WinPresentationApplication : public Presenter {
     layout_window->commands = commands;
     layout_window->on_close = on_close;
     layout_window->on_add_center_strip = on_add_center_strip;
+    layout_window->on_remove_center_strip = on_remove_center_strip;
     layout_window->text_toolbar->on_activate = on_text_toolbar_activate;
     paint_window->OnLoad();
     layout_window->OnLoad();

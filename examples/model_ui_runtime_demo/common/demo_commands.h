@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <algorithm>
 
 #include "apptraverse/model_runtime.h"
 
@@ -28,6 +29,11 @@ struct AdvanceToolbarTextCommand {
 
 struct AddCenterStripCommand {
   std::uint32_t layout_window_id{0};
+};
+
+struct RemoveCenterStripCommand {
+  std::uint32_t layout_window_id{0};
+  std::uint32_t strip_id{0};
 };
 
 inline bool BoundsMatchWindow(Window const& window,
@@ -87,6 +93,25 @@ inline void CommitAddCenterStrip(LayoutWindow& layout, ModelRuntime& runtime) {
       CenterStripAddedEvent::ptr::Create(ae::CreateWith{*layout.domain});
   event->strip = strip;
   layout.Commit(event);
+}
+
+inline void CommitRemoveCenterStrip(LayoutWindow& layout, ModelRuntime& runtime,
+                                    std::uint32_t strip_id) {
+  if (layout.center_strips.size() <= 1) {
+    return;
+  }
+  auto it = std::find_if(
+      layout.center_strips.begin(), layout.center_strips.end(),
+      [&](CenterStrip::ptr const& strip) {
+        return strip.is_valid() && strip.id().id() == strip_id;
+      });
+  assert(it != layout.center_strips.end());
+  CenterStrip& removed = **it;
+  auto event =
+      CenterStripRemovedEvent::ptr::Create(ae::CreateWith{*layout.domain});
+  event->strip_id = strip_id;
+  layout.Commit(event);
+  runtime.DetachNode(removed, layout);
 }
 
 inline Window* WindowById(Application& app, std::uint32_t id) {

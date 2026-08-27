@@ -1145,6 +1145,282 @@ void TestCenterStripRestartPersistence() {
   std::filesystem::remove_all(root);
 }
 
+void TestRemoveCenterStripEvent() {
+  Harness h;
+  auto& layout = *h.application->window_b;
+  CommitAddCenterStrip(layout, *h.runtime);
+  CommitAddCenterStrip(layout, *h.runtime);
+  CHECK(layout.center_strips.size() == 3);
+  auto const id_a = layout.center_strips[0].id().id();
+  auto const id_b = layout.center_strips[1].id().id();
+  auto const id_c = layout.center_strips[2].id().id();
+  auto& strip_b = *layout.center_strips[1];
+  auto const journal_size = layout.journal.size();
+  auto const gen0 = layout.Generation();
+  CHECK(h.runtime->IsInExecutionList(strip_b));
+
+  CommitRemoveCenterStrip(layout, *h.runtime, id_b);
+
+  CHECK(layout.center_strips.size() == 2);
+  CHECK(layout.center_strips[0].id().id() == id_a);
+  CHECK(layout.center_strips[1].id().id() == id_c);
+  CHECK(layout.journal.size() == journal_size + 1);
+  CHECK(layout.Generation() == gen0 + 1);
+  CHECK(layout.journal.back().event->GetClassId() ==
+        CenterStripRemovedEvent::kClassId);
+  auto& removed_event =
+      static_cast<CenterStripRemovedEvent&>(*layout.journal.back().event);
+  CHECK(removed_event.strip_id == id_b);
+  CHECK(h.model_domain.Find(ae::ObjId{id_b}) != nullptr);
+  CHECK(strip_b.base.is_valid());
+  CHECK(strip_b.journal.empty());
+  CHECK(!h.runtime->IsInExecutionList(strip_b));
+  CHECK(!h.runtime->IsMappedToPresentationRoot(strip_b, layout.obj_id.id()));
+}
+
+void TestDetachNodeStopsUpdate() {
+  Harness h;
+  auto& layout = *h.application->window_b;
+  auto strip = CenterStrip::ptr::Create(ae::CreateWith{*layout.domain});
+  strip->width_numerator = 2;
+  strip->width_denominator = 3;
+  strip->fill_color = 0x0040A060;
+  h.runtime->AttachNode(*strip, layout);
+
+  std::size_t hits = 0;
+  auto* watched = &*strip;
+  h.runtime->SetUpdateObserver([&](Node& node) {
+    if (&node == watched) {
+      ++hits;
+    }
+  });
+  h.Pump(std::chrono::steady_clock::now());
+  CHECK(hits == 1);
+
+  h.runtime->DetachNode(*strip, layout);
+  CHECK(!h.runtime->IsInExecutionList(*strip));
+  CHECK(!h.runtime->IsMappedToPresentationRoot(*strip, layout.obj_id.id()));
+  h.Pump(std::chrono::steady_clock::now() + std::chrono::milliseconds{20});
+  CHECK(hits == 1);
+  h.runtime->SetUpdateObserver({});
+}
+
+void TestUiVectorAutoReplaceOnRemove() {
+  Harness h;
+  auto now = std::chrono::steady_clock::now();
+  auto& layout = *h.application->window_b;
+  h.runtime->Post([app = &*h.application, runtime = h.runtime.get()] {
+    CommitAddCenterStrip(*app->window_b, *runtime);
+    CommitAddCenterStrip(*app->window_b, *runtime);
+  });
+  h.Pump(now);
+  CHECK(layout.center_strips.size() == 3);
+  auto& ui_layout = h.UiObj<LayoutWindow>(layout.obj_id);
+  CHECK(ui_layout.center_strips.size() == 3);
+  auto const id_a = layout.center_strips[0].id().id();
+  auto const id_b = layout.center_strips[1].id().id();
+  auto const id_c = layout.center_strips[2].id().id();
+
+  h.runtime->Post([app = &*h.application, runtime = h.runtime.get(), id_b] {
+    CommitRemoveCenterStrip(*app->window_b, *runtime, id_b);
+  });
+  h.Pump(now + std::chrono::milliseconds{20});
+
+  auto const& applied = h.LastFor(layout.obj_id.id());
+  CHECK(HasId(applied.changed_obj_ids, layout.obj_id.id()));
+  CHECK(!HasId(applied.changed_obj_ids, id_b));
+  CHECK(ui_layout.center_strips.size() == 2);
+  CHECK(ui_layout.center_strips[0].id().id() == id_a);
+  CHECK(ui_layout.center_strips[1].id().id() == id_c);
+  CHECK(ui_layout.center_strips[0]->domain == &h.ui_domain);
+  CHECK(ui_layout.center_strips[1]->domain == &h.ui_domain);
+  (void)h.ui_domain.Find(ae::ObjId{id_b});
+}
+
+#if defined(_WIN32)
+void TestPresenterReconcileAfterRemove() {
+  Harness h;
+  auto now = std::chrono::steady_clock::now();
+  auto& layout = *h.application->window_b;
+  h.runtime->Post([app = &*h.application, runtime = h.runtime.get()] {
+    CommitAddCenterStrip(*app->window_b, *runtime);
+    CommitAddCenterStrip(*app->window_b, *runtime);
+  });
+  h.Pump(now);
+  auto& ui_layout = h.UiObj<LayoutWindow>(layout.obj_id);
+  CHECK(ui_layout.center_strips.size() == 3);
+  auto const id_b = layout.center_strips[1].id().id();
+
+  HWND parent = CreateWindowExW(0, L"STATIC", L"", 0, 0, 0, 0, 0, HWND_MESSAGE,
+                                nullptr, GetModuleHandleW(nullptr), nullptr);
+  CHECK(parent != nullptr);
+  std::unordered_map<std::uint32_t,
+                     std::unique_ptr<WinRuntimeCenterStripPresenter>>
+      presenters;
+  ReconcileRuntimeCenterStripPresenters(ui_layout, parent, {}, {}, presenters);
+  CHECK(presenters.size() == 3);
+  auto original_b = presenters.find(id_b);
+  CHECK(original_b != presenters.end());
+  HWND const hwnd_b = original_b->second->hwnd;
+  CHECK(hwnd_b != nullptr);
+
+  h.runtime->Post([app = &*h.application, runtime = h.runtime.get(), id_b] {
+    CommitRemoveCenterStrip(*app->window_b, *runtime, id_b);
+  });
+  h.Pump(now + std::chrono::milliseconds{20});
+  CHECK(ui_layout.center_strips.size() == 2);
+
+  ReconcileRuntimeCenterStripPresenters(ui_layout, parent, {}, {}, presenters);
+  CHECK(presenters.size() == 2);
+  CHECK(presenters.count(id_b) == 0);
+  CHECK(presenters.count(ui_layout.center_strips[0].id().id()) == 1);
+  CHECK(presenters.count(ui_layout.center_strips[1].id().id()) == 1);
+  CHECK(!IsWindow(hwnd_b));
+  DestroyWindow(parent);
+}
+#endif
+
+void TestBusyAddRemoveTopology() {
+  ae::RamDomainStorage model_storage;
+  OverlayDomainStorage ui_storage{model_storage};
+  ae::Domain model_domain{ae::Now(), model_storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  EnsureDemoRegistration();
+  auto application = BuildDemoGraph(model_domain);
+  FinalizeDistilledGraph(*application);
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  Application::ptr ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+  std::vector<std::uint32_t> notified_roots;
+  UiMirror mirror(ui_domain, ui_storage,
+                  [&](std::uint32_t root_id, PublicationChannel<3>*) {
+                    notified_roots.push_back(root_id);
+                  });
+  ModelRuntime runtime(*application, mirror);
+  runtime.AddPresentationRoot(*application->window_a);
+  runtime.AddPresentationRoot(*application->window_b);
+
+  auto now = std::chrono::steady_clock::now();
+  auto const window_b = demo::ToObjId(demo::DemoObjId::LayoutWindow);
+  auto& layout = *application->window_b;
+  auto const id_a = layout.center_strips[0].id().id();
+
+  runtime.Post([app = &*application, &runtime] {
+    CommitAddCenterStrip(*app->window_b, runtime);
+  });
+  runtime.PumpOnce(now);
+  CHECK(mirror.ChannelFor(window_b).has_unread_published());
+  CHECK(layout.center_strips.size() == 2);
+  auto const id_b = layout.center_strips[1].id().id();
+
+  runtime.Post([app = &*application, &runtime] {
+    CommitAddCenterStrip(*app->window_b, runtime);
+  });
+  runtime.Post([app = &*application, &runtime, id_b] {
+    CommitRemoveCenterStrip(*app->window_b, runtime, id_b);
+  });
+  runtime.PumpOnce(now + std::chrono::milliseconds{20});
+  CHECK(runtime.HasPending(window_b));
+  CHECK(layout.center_strips.size() == 2);
+  CHECK(layout.center_strips[0].id().id() == id_a);
+  auto const id_c = layout.center_strips[1].id().id();
+  CHECK(id_c != id_b);
+
+  auto applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
+  auto& ui_layout = As<LayoutWindow>(ui_domain.Find(ae::ObjId{window_b}));
+  CHECK(ui_layout.center_strips.size() == 2);
+  CHECK(ui_layout.center_strips[1].id().id() == id_b);
+
+  runtime.PumpOnce(now + std::chrono::milliseconds{40});
+  applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
+  CHECK(ui_layout.center_strips.size() == 2);
+  CHECK(ui_layout.center_strips[0].id().id() == id_a);
+  CHECK(ui_layout.center_strips[1].id().id() == id_c);
+  (void)ui_application;
+  (void)applied;
+  (void)notified_roots;
+}
+
+void TestReplayAddAddRemove() {
+  Harness h;
+  auto& layout = *h.application->window_b;
+  auto const id_a = layout.center_strips[0].id().id();
+  CommitAddCenterStrip(layout, *h.runtime);
+  CommitAddCenterStrip(layout, *h.runtime);
+  auto const id_b = layout.center_strips[1].id().id();
+  auto const id_c = layout.center_strips[2].id().id();
+  CommitRemoveCenterStrip(layout, *h.runtime, id_b);
+  CHECK(layout.center_strips.size() == 2);
+  CHECK(layout.center_strips[0].id().id() == id_a);
+  CHECK(layout.center_strips[1].id().id() == id_c);
+
+  layout.ReplayFromBase();
+  CHECK(layout.center_strips.size() == 2);
+  CHECK(layout.center_strips[0].id().id() == id_a);
+  CHECK(layout.center_strips[1].id().id() == id_c);
+}
+
+void TestRemoveCenterStripRestartPersistence() {
+  auto root = std::filesystem::temp_directory_path() /
+              "apptraverse_model_ui_center_strip_remove_restart_test";
+  std::filesystem::remove_all(root);
+
+  std::uint32_t expected_a = 0;
+  std::uint32_t expected_c = 0;
+  std::uint32_t removed_b = 0;
+  {
+    DirectoryDomainStorage storage{root};
+    ae::Domain domain{ae::Now(), storage};
+    EnsureDemoRegistration();
+#if defined(_WIN32)
+    EnsureWindowsPresenterRegistration();
+#endif
+    auto application = BuildDemoGraph(domain);
+    FinalizeDistilledGraph(*application);
+#if defined(_WIN32)
+    auto presentation = BuildPresentationGraph(domain, *application);
+    SaveDistilledRoot(*presentation);  // runtime-save-ok: distill presenters
+#endif
+    UiMirror mirror(domain, storage, {});
+    ModelRuntime runtime(*application, mirror);
+    runtime.AddPresentationRoot(*application->window_a);
+    runtime.AddPresentationRoot(*application->window_b);
+    expected_a = application->window_b->center_strips[0].id().id();
+    CommitAddCenterStrip(*application->window_b, runtime);
+    CommitAddCenterStrip(*application->window_b, runtime);
+    removed_b = application->window_b->center_strips[1].id().id();
+    expected_c = application->window_b->center_strips[2].id().id();
+    CommitRemoveCenterStrip(*application->window_b, runtime, removed_b);
+    CHECK(application->window_b->center_strips.size() == 2);
+    SaveDistilledRoot(*application);  // runtime-save-ok: test persistence
+  }
+
+  DirectoryDomainStorage storage{root};
+  OverlayDomainStorage ui_storage{storage};
+  ae::Domain model_domain{ae::Now(), storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  EnsureDemoRegistration();
+#if defined(_WIN32)
+  EnsureWindowsPresenterRegistration();
+#endif
+  auto application = LoadApplication<Application>(
+      model_domain, ae::ObjId{demo::ToObjId(demo::DemoObjId::Application)});
+  CHECK(application->window_b->center_strips.size() == 2);
+  CHECK(application->window_b->center_strips[0].id().id() == expected_a);
+  CHECK(application->window_b->center_strips[1].id().id() == expected_c);
+
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  auto& ui_layout = As<LayoutWindow>(
+      ui_domain.Find(ae::ObjId{demo::ToObjId(demo::DemoObjId::LayoutWindow)}));
+  CHECK(ui_layout.center_strips.size() == 2);
+  CHECK(ui_layout.center_strips[0].id().id() == expected_a);
+  CHECK(ui_layout.center_strips[1].id().id() == expected_c);
+  (void)removed_b;
+  std::filesystem::remove_all(root);
+}
+
 void TestNoManualSerializersOrRuntimeClasses() {
 #ifdef MODEL_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{MODEL_UI_RUNTIME_DEMO_SOURCE_DIR};
@@ -1203,7 +1479,9 @@ int main() {
   using apptraverse::test::TestAddCenterStripEvent;
   using apptraverse::test::TestAdvanceToolbarTextEvent;
   using apptraverse::test::TestBaseJournalCopyAndCleanup;
+  using apptraverse::test::TestBusyAddRemoveTopology;
   using apptraverse::test::TestCenterStripRestartPersistence;
+  using apptraverse::test::TestDetachNodeStopsUpdate;
   using apptraverse::test::TestDynamicStringInUiDomain;
   using apptraverse::test::TestGenerationResizeAndNativeLayout;
   using apptraverse::test::TestInitialGraphCopy;
@@ -1214,7 +1492,10 @@ int main() {
   using apptraverse::test::TestOrdinaryReflectionField;
   using apptraverse::test::TestPeriodicUpdate;
   using apptraverse::test::TestPersistence;
+  using apptraverse::test::TestRemoveCenterStripEvent;
+  using apptraverse::test::TestRemoveCenterStripRestartPersistence;
   using apptraverse::test::TestRepaintDoesNotTouchModel;
+  using apptraverse::test::TestReplayAddAddRemove;
   using apptraverse::test::TestRuntimeNodeInit;
   using apptraverse::test::TestStableUiAddressesAndStringReuse;
   using apptraverse::test::TestStandardPointer;
@@ -1223,6 +1504,7 @@ int main() {
   using apptraverse::test::TestTwoStripAddsWhileBusy;
   using apptraverse::test::TestTwoTextClicksWhileBusy;
   using apptraverse::test::TestUiDynamicCenterStripNode;
+  using apptraverse::test::TestUiVectorAutoReplaceOnRemove;
   using apptraverse::test::TestUnreadPublicationIsNotOverwritten;
 
   TestStandardPointer();
@@ -1248,8 +1530,15 @@ int main() {
   TestNewNodeParticipatesInUpdate();
   TestTwoStripAddsWhileBusy();
   TestCenterStripRestartPersistence();
+  TestRemoveCenterStripEvent();
+  TestDetachNodeStopsUpdate();
+  TestUiVectorAutoReplaceOnRemove();
+  TestBusyAddRemoveTopology();
+  TestReplayAddAddRemove();
+  TestRemoveCenterStripRestartPersistence();
 #if defined(_WIN32)
   apptraverse::test::TestCleanDistillPresenterGraphLoadsInUiDomain();
+  apptraverse::test::TestPresenterReconcileAfterRemove();
 #endif
   TestNoManualSerializersOrRuntimeClasses();
   std::cout << "model_ui_runtime_test OK\n";

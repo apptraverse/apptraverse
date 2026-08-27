@@ -41,6 +41,32 @@ void ModelRuntime::AttachNode(Node& node, ae::Obj& presentation_root) {
   }
 }
 
+void ModelRuntime::DetachNode(Node& node, ae::Obj& presentation_root) {
+  auto const node_id = node.obj_id.id();
+  auto const root_id = presentation_root.obj_id.id();
+
+  model_nodes_.erase(
+      std::remove(model_nodes_.begin(), model_nodes_.end(), &node),
+      model_nodes_.end());
+
+  auto roots_it = object_to_roots_.find(node_id);
+  if (roots_it != object_to_roots_.end()) {
+    auto& roots = roots_it->second;
+    roots.erase(std::remove(roots.begin(), roots.end(), root_id), roots.end());
+    if (roots.empty()) {
+      object_to_roots_.erase(roots_it);
+    }
+  }
+
+  auto pending_it = pending_by_root_.find(root_id);
+  if (pending_it != pending_by_root_.end()) {
+    pending_it->second.erase(&node);
+    if (pending_it->second.empty()) {
+      pending_by_root_.erase(pending_it);
+    }
+  }
+}
+
 void ModelRuntime::BuildExecutionLists() {
   CollectReachableNodes(application_root_, model_nodes_);
 }

@@ -144,6 +144,17 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
       CommitAddCenterStrip(*layout, *runtime);
     });
   };
+  presentation_->on_remove_center_strip = [this](std::uint32_t strip_id) {
+    RemoveCenterStripCommand command;
+    command.layout_window_id = demo::ToObjId(demo::DemoObjId::LayoutWindow);
+    command.strip_id = strip_id;
+    model_runtime_->Post([app = &*runtime_.application, runtime = model_runtime_.get(),
+                          command] {
+      auto* layout = LayoutWindowById(*app, command.layout_window_id);
+      assert(layout != nullptr);
+      CommitRemoveCenterStrip(*layout, *runtime, command.strip_id);
+    });
+  };
   presentation_->OnLoad();
 
   model_runtime_->Start();
