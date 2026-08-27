@@ -46,14 +46,14 @@ std::uint64_t UiMirror::publication_count(std::uint32_t root_id) const {
   return it->second->publish_count();
 }
 
-void UiMirror::Publish(std::uint32_t root_id,
+bool UiMirror::Publish(std::uint32_t root_id,
                        std::vector<Node*> const& changed) {
   if (changed.empty()) {
-    return;
+    return true;
   }
   auto& channel = ChannelFor(root_id);
   if (channel.has_unread_published()) {
-    return;
+    return false;
   }
 
   auto* buffer = channel.AcquireProducer();
@@ -78,6 +78,7 @@ void UiMirror::Publish(std::uint32_t root_id,
   if (notify_) {
     notify_(root_id, &channel);
   }
+  return true;
 }
 
 UiApplyResult UiMirror::ApplyPublished(PublicationChannel<3>& channel,

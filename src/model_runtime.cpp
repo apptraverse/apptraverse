@@ -30,10 +30,18 @@ void ModelRuntime::BuildExecutionLists() {
 }
 
 void ModelRuntime::OnMaterializedChange(Node& node) {
-  if (!changed_set_.insert(&node).second) {
+  auto it = object_to_roots_.find(node.obj_id.id());
+  if (it == object_to_roots_.end()) {
     return;
   }
-  changed_nodes_.push_back(&node);
+  for (std::uint32_t root_id : it->second) {
+    pending_by_root_[root_id].insert(&node);
+  }
+}
+
+bool ModelRuntime::HasPending(std::uint32_t root_id) const {
+  auto it = pending_by_root_.find(root_id);
+  return it != pending_by_root_.end() && !it->second.empty();
 }
 
 void ModelRuntime::Start() {
@@ -118,25 +126,17 @@ void ModelRuntime::UpdateAll(std::chrono::steady_clock::time_point now) {
 }
 
 void ModelRuntime::PublishChanged() {
-  if (changed_nodes_.empty()) {
-    return;
-  }
-
-  std::unordered_map<std::uint32_t, std::vector<Node*>> by_root;
-  for (Node* node : changed_nodes_) {
-    auto it = object_to_roots_.find(node->obj_id.id());
-    if (it == object_to_roots_.end()) {
+  for (auto it = pending_by_root_.begin(); it != pending_by_root_.end();) {
+    if (it->second.empty()) {
+      it = pending_by_root_.erase(it);
       continue;
     }
-    for (std::uint32_t root_id : it->second) {
-      by_root[root_id].push_back(node);
+    std::vector<Node*> changed(it->second.begin(), it->second.end());
+    if (ui_mirror_.Publish(it->first, changed)) {
+      it = pending_by_root_.erase(it);
+    } else {
+      ++it;
     }
-  }
-  changed_nodes_.clear();
-  changed_set_.clear();
-
-  for (auto& entry : by_root) {
-    ui_mirror_.Publish(entry.first, entry.second);
   }
 }
 

@@ -24,7 +24,6 @@ void DeserializeObjectFromBuffer(ae::Obj& object, ByteSource& in,
 
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
-void EagerLoadReachable(ae::Obj& root);
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 

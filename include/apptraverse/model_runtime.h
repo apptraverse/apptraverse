@@ -37,6 +37,8 @@ class ModelRuntime {
 
   ae::Obj& application() { return application_root_; }
 
+  bool HasPending(std::uint32_t root_id) const;
+
  private:
   void ThreadMain();
   void DrainWork();
@@ -50,9 +52,7 @@ class ModelRuntime {
   std::vector<ae::Obj*> presentation_roots_;
   std::vector<Node*> model_nodes_;
   std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> object_to_roots_;
-
-  std::vector<Node*> changed_nodes_;
-  std::unordered_set<Node*> changed_set_;
+  std::unordered_map<std::uint32_t, std::unordered_set<Node*>> pending_by_root_;
 
   std::mutex mu_;
   std::condition_variable cv_;

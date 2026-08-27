@@ -46,7 +46,6 @@ typename T::ptr LoadApplication(ae::Domain& domain, ae::ObjId id) {
   auto root = T::ptr::Declare(ae::CreateWith{domain}.with_id(id));
   root.Load();
   assert(root);
-  EagerLoadReachable(*root);
   return root;
 }
 

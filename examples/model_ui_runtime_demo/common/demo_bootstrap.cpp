@@ -84,7 +84,7 @@ DemoRuntime LoadDemoModel(std::filesystem::path const& dir) {
   }
   DemoRuntime runtime;
   runtime.storage = std::make_unique<DirectoryDomainStorage>(dir);
-  runtime.ui_storage = std::make_unique<ae::RamDomainStorage>();
+  runtime.ui_storage = std::make_unique<OverlayDomainStorage>(*runtime.storage);
   runtime.model_domain =
       std::make_unique<ae::Domain>(ae::Now(), *runtime.storage);
   runtime.ui_domain =

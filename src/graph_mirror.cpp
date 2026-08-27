@@ -4,7 +4,6 @@
 
 #include "aether/obj/registry.h"
 
-#include "apptraverse/graph_walk.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_serialization.h"
 
@@ -69,7 +68,6 @@ ae::Ptr<ae::Obj> CopyModelGraphToUiDomain(ae::Obj& model_root,
 
   auto ui_root = ui_domain.Find(model_root.obj_id);
   assert(ui_root);
-  EagerLoadReachable(*ui_root);
   // Domain holds weak refs only; the mirrored ObjPtr graph must keep nodes alive
   // once keepalive is released. The returned root Ptr is the caller's anchor.
   keepalive.clear();

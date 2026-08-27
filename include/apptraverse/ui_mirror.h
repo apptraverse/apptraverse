@@ -30,7 +30,8 @@ class UiMirror {
 
   ae::Domain& ui_domain() { return ui_domain_; }
 
-  void Publish(std::uint32_t root_id, std::vector<Node*> const& changed);
+  // Returns false when the channel still has an unread publication.
+  bool Publish(std::uint32_t root_id, std::vector<Node*> const& changed);
   UiApplyResult ApplyPublished(PublicationChannel<3>& channel,
                                std::uint32_t root_id);
 

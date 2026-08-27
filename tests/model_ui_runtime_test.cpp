@@ -12,10 +12,12 @@
 #include "aether/clock.h"
 #include "aether/domain_storage/ram_domain_storage.h"
 
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/graph_mirror.h"
 #include "apptraverse/model_runtime.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/ui_mirror.h"
 
 #include "demo_bootstrap.h"
@@ -24,6 +26,10 @@
 #include "demo_ids.h"
 #include "demo_layout.h"
 #include "demo_model.h"
+
+#if defined(_WIN32)
+#  include "win_presenters.h"
+#endif
 
 namespace apptraverse::test {
 namespace {
@@ -60,7 +66,7 @@ WindowBoundsCommand BoundsOf(Window const& window, std::int32_t extra_w,
 
 struct Harness {
   ae::RamDomainStorage model_storage;
-  ae::RamDomainStorage ui_storage;
+  OverlayDomainStorage ui_storage;
   ae::Domain model_domain;
   ae::Domain ui_domain;
   Application::ptr application;
@@ -70,7 +76,8 @@ struct Harness {
   std::vector<UiApplyResult> applies;
 
   Harness()
-      : model_domain{ae::Now(), model_storage},
+      : ui_storage{model_storage},
+        model_domain{ae::Now(), model_storage},
         ui_domain{ae::Now(), ui_storage} {
     EnsureDemoRegistration();
     application = BuildDemoGraph(model_domain);
@@ -169,7 +176,7 @@ void TestInitialGraphCopy() {
 
   CHECK(ui_layout.text_toolbar->text.operator->() ==
         ui_toolbar.text.operator->());
-  CHECK(!ui_layout.base);
+  CHECK(!ui_layout.base.is_valid());
   CHECK(ui_layout.journal.empty());
   CHECK(ui_layout.Generation() == model_layout.Generation());
 
@@ -180,7 +187,6 @@ void TestInitialGraphCopy() {
 
 void TestTwoDomainsAndUiNodeState() {
   Harness h;
-  auto now = std::chrono::steady_clock::now();
   CHECK(h.applies.empty());
 
   auto check_pair = [&](ae::Obj& model) {
@@ -206,10 +212,10 @@ void TestTwoDomainsAndUiNodeState() {
 
   auto& model_w = *h.application->window_b;
   auto& ui_w = h.UiObj<LayoutWindow>(model_w.obj_id);
-  CHECK(!ui_w.base);
+  CHECK(!ui_w.base.is_valid());
   CHECK(ui_w.journal.empty());
   CHECK(ui_w.Generation() == model_w.Generation());
-  CHECK(!ui_w.text_toolbar->base);
+  CHECK(!ui_w.text_toolbar->base.is_valid());
   CHECK(ui_w.text_toolbar->journal.empty());
   CHECK(ui_w.text_toolbar->Generation() ==
         h.application->window_b->text_toolbar->Generation());
@@ -384,7 +390,7 @@ void TestRepaintDoesNotTouchModel() {
 
 void TestUnreadPublicationIsNotOverwritten() {
   ae::RamDomainStorage model_storage;
-  ae::RamDomainStorage ui_storage;
+  OverlayDomainStorage ui_storage{model_storage};
   ae::Domain model_domain{ae::Now(), model_storage};
   ae::Domain ui_domain{ae::Now(), ui_storage};
   EnsureDemoRegistration();
@@ -403,41 +409,48 @@ void TestUnreadPublicationIsNotOverwritten() {
   runtime.AddPresentationRoot(*application->window_a);
   runtime.AddPresentationRoot(*application->window_b);
 
-  CHECK(ui_domain.Find(ae::ObjId{
-            demo::ToObjId(demo::DemoObjId::TextToolbar)}) != nullptr);
-
   auto now = std::chrono::steady_clock::now();
+  auto const window_b = demo::ToObjId(demo::DemoObjId::LayoutWindow);
+
   runtime.Post([app = &*application] {
     CommitWindowBounds(*app->window_b, BoundsOf(*app->window_b, 80, 0));
   });
   runtime.PumpOnce(now);
-  auto const window_b = demo::ToObjId(demo::DemoObjId::LayoutWindow);
-  auto const first_b = static_cast<int>(
-      std::count(notified_roots.begin(), notified_roots.end(), window_b));
-  CHECK(first_b == 1);
+  CHECK(static_cast<int>(std::count(notified_roots.begin(), notified_roots.end(),
+                                    window_b)) == 1);
   CHECK(mirror.ChannelFor(window_b).has_unread_published());
+  auto const first_width = application->window_b->client_width;
 
   runtime.Post([app = &*application] {
     CommitWindowBounds(*app->window_b, BoundsOf(*app->window_b, 160, 0));
   });
   runtime.PumpOnce(now + std::chrono::milliseconds{20});
-  auto const second_b = static_cast<int>(
-      std::count(notified_roots.begin(), notified_roots.end(), window_b));
-  CHECK(second_b == 1);
+  CHECK(static_cast<int>(std::count(notified_roots.begin(), notified_roots.end(),
+                                    window_b)) == 1);
+  CHECK(mirror.ChannelFor(window_b).has_unread_published());
+  CHECK(runtime.HasPending(window_b));
+  auto const latest_width = application->window_b->client_width;
+  auto const latest_gen = application->window_b->Generation();
+  CHECK(latest_width > first_width);
 
   auto applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
   CHECK(applied.root_id == window_b);
   CHECK(HasId(applied.changed_obj_ids, window_b));
+  auto& ui_window = As<LayoutWindow>(ui_domain.Find(ae::ObjId{window_b}));
+  CHECK(ui_window.client_width == first_width);
+  CHECK(runtime.HasPending(window_b));
 
-  runtime.Post([app = &*application] {
-    CommitWindowBounds(*app->window_b, BoundsOf(*app->window_b, 240, 0));
-  });
   runtime.PumpOnce(now + std::chrono::milliseconds{40});
-  auto const third_b = static_cast<int>(
-      std::count(notified_roots.begin(), notified_roots.end(), window_b));
-  CHECK(third_b == 2);
+  CHECK(static_cast<int>(std::count(notified_roots.begin(), notified_roots.end(),
+                                    window_b)) == 2);
+  CHECK(!runtime.HasPending(window_b));
   applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
   CHECK(HasId(applied.changed_obj_ids, window_b));
+  CHECK(ui_window.client_width == latest_width);
+  CHECK(ui_window.Generation() == latest_gen);
+  CHECK(!ui_window.base.is_valid());
+  CHECK(ui_window.journal.empty());
+  (void)ui_application;
 }
 
 void TestPersistence() {
@@ -493,7 +506,7 @@ void TestOrdinaryReflectionField() {
 
 void TestBaseJournalCopyAndCleanup() {
   ae::RamDomainStorage model_storage;
-  ae::RamDomainStorage ui_storage;
+  OverlayDomainStorage ui_storage{model_storage};
   ae::Domain model_domain{ae::Now(), model_storage};
   ae::Domain ui_domain{ae::Now(), ui_storage};
   EnsureDemoRegistration();
@@ -535,10 +548,150 @@ void TestBaseJournalCopyAndCleanup() {
 
   auto& ui_window = static_cast<LayoutWindow&>(*ui_object);
   CHECK(ui_window.client_width == model_window.client_width);
-  CHECK(!ui_window.base);
+  CHECK(!ui_window.base.is_valid());
   CHECK(ui_window.journal.empty());
   CHECK(ui_window.Generation() == generation);
+  (void)ui_application;
 }
+
+void TestJournalDoesNotReturnAfterReloadAndMirror() {
+  auto root = std::filesystem::temp_directory_path() /
+              "apptraverse_model_ui_journal_reload_test";
+  std::filesystem::remove_all(root);
+
+  std::int32_t expected_width = 0;
+  {
+    DirectoryDomainStorage storage{root};
+    ae::Domain domain{ae::Now(), storage};
+    EnsureDemoRegistration();
+#if defined(_WIN32)
+    EnsureWindowsPresenterRegistration();
+#endif
+    auto application = BuildDemoGraph(domain);
+    FinalizeDistilledGraph(*application);
+    auto& window = *application->window_b;
+    auto event =
+        WindowBoundsChangedEvent::ptr::Create(ae::CreateWith{*window.domain});
+    event->left = window.left;
+    event->top = window.top;
+    event->right = window.right + 70;
+    event->bottom = window.bottom;
+    event->client_width = window.client_width + 70;
+    event->client_height = window.client_height;
+    window.Commit(event);
+    expected_width = window.client_width;
+    CHECK(!window.journal.empty());
+    SaveDistilledRoot(*application);  // runtime-save-ok: test persistence
+#if defined(_WIN32)
+    auto presentation = BuildPresentationGraph(domain, *application);
+    SaveDistilledRoot(*presentation);  // runtime-save-ok: distill presenters
+#endif
+  }
+
+  DirectoryDomainStorage storage{root};
+  OverlayDomainStorage ui_storage{storage};
+  ae::Domain model_domain{ae::Now(), storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  EnsureDemoRegistration();
+#if defined(_WIN32)
+  EnsureWindowsPresenterRegistration();
+#endif
+  auto application = LoadApplication<Application>(
+      model_domain, ae::ObjId{demo::ToObjId(demo::DemoObjId::Application)});
+  CHECK(!application->window_b->journal.empty());
+  CHECK(application->window_b->client_width == expected_width);
+  CHECK(model_domain.Find(ae::ObjId{demo::ToObjId(
+            demo::DemoObjId::WinPresentationApplication)}) == nullptr);
+
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  Application::ptr ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+  auto& ui_window = As<LayoutWindow>(
+      ui_domain.Find(ae::ObjId{demo::ToObjId(demo::DemoObjId::LayoutWindow)}));
+  CHECK(ui_window.client_width == expected_width);
+  CHECK(!ui_window.base.is_valid());
+  CHECK(ui_window.journal.empty());
+
+#if defined(_WIN32)
+  auto presentation = LoadApplication<WinPresentationApplication>(
+      ui_domain,
+      ae::ObjId{demo::ToObjId(demo::DemoObjId::WinPresentationApplication)});
+  CHECK(presentation);
+  CHECK(model_domain.Find(ae::ObjId{demo::ToObjId(
+            demo::DemoObjId::WinPresentationApplication)}) == nullptr);
+  CHECK(!ui_window.base.is_valid());
+  CHECK(ui_window.journal.empty());
+#endif
+  (void)ui_application;
+  std::filesystem::remove_all(root);
+}
+
+#if defined(_WIN32)
+void TestCleanDistillPresenterGraphLoadsInUiDomain() {
+  auto root = std::filesystem::temp_directory_path() /
+              "apptraverse_model_ui_presenter_overlay_test";
+  std::filesystem::remove_all(root);
+
+  {
+    EnsureDemoRegistration();
+    EnsureWindowsPresenterRegistration();
+    DirectoryDomainStorage storage{root};
+    ae::Domain domain{ae::Now(), storage};
+    auto application = BuildDemoGraph(domain);
+    FinalizeDistilledGraph(*application);
+    SaveDistilledRoot(*application);  // runtime-save-ok: distill
+    auto presentation = BuildPresentationGraph(domain, *application);
+    SaveDistilledRoot(*presentation);  // runtime-save-ok: distill
+  }
+
+  DirectoryDomainStorage storage{root};
+  OverlayDomainStorage ui_storage{storage};
+  ae::Domain model_domain{ae::Now(), storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  EnsureDemoRegistration();
+  EnsureWindowsPresenterRegistration();
+
+  auto application = LoadApplication<Application>(
+      model_domain, ae::ObjId{demo::ToObjId(demo::DemoObjId::Application)});
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  Application::ptr ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+
+  auto const presenter_id =
+      demo::ToObjId(demo::DemoObjId::WinPresentationApplication);
+  CHECK(model_domain.Find(ae::ObjId{presenter_id}) == nullptr);
+
+  auto presentation = LoadApplication<WinPresentationApplication>(
+      ui_domain, ae::ObjId{presenter_id});
+  CHECK(ui_domain.Find(ae::ObjId{presenter_id}) != nullptr);
+  CHECK(model_domain.Find(ae::ObjId{presenter_id}) == nullptr);
+
+  auto& ui_layout = As<LayoutWindow>(
+      ui_domain.Find(ae::ObjId{demo::ToObjId(demo::DemoObjId::LayoutWindow)}));
+  auto& model_layout = *application->window_b;
+  CHECK(presentation->layout_window->window.domain() == &ui_domain);
+  CHECK(&*presentation->layout_window->window == &ui_layout);
+  CHECK(&*presentation->layout_window->window != &model_layout);
+  CHECK(presentation->layout_window->window->obj_id.id() ==
+        model_layout.obj_id.id());
+
+  CHECK(&*presentation->layout_window->text_toolbar->toolbar ==
+        &*ui_layout.text_toolbar);
+  CHECK(&*presentation->layout_window->color_toolbar->toolbar ==
+        &*ui_layout.color_toolbar);
+  CHECK(&*presentation->layout_window->center_strip->strip ==
+        &*ui_layout.center_strip);
+
+  CHECK(!ui_layout.base.is_valid());
+  CHECK(ui_layout.journal.empty());
+  CHECK(!ui_layout.text_toolbar->base.is_valid());
+  CHECK(ui_layout.text_toolbar->journal.empty());
+  (void)ui_application;
+  std::filesystem::remove_all(root);
+}
+#endif
 
 void TestNoManualSerializersOrRuntimeClasses() {
 #ifdef MODEL_UI_RUNTIME_DEMO_SOURCE_DIR
@@ -558,7 +711,7 @@ void TestNoManualSerializersOrRuntimeClasses() {
       "RegisterMaterializedOps", "FindMaterializedOps",
       "APPTRAVERSE_REGISTER_MATERIALIZED", "materialized_ops.h",
       "ui_materialized.h",  "SerializeMaterializedObject",
-      "DeserializeMaterializedObject"};
+      "DeserializeMaterializedObject", "EagerLoadReachable"};
   for (auto const& entry :
        std::filesystem::recursive_directory_iterator(root)) {
     if (!entry.is_regular_file()) {
@@ -598,6 +751,7 @@ int main() {
   using apptraverse::test::TestGenerationResizeAndNativeLayout;
   using apptraverse::test::TestInitialGraphCopy;
   using apptraverse::test::TestJournalCommitDoesNotChangeChildren;
+  using apptraverse::test::TestJournalDoesNotReturnAfterReloadAndMirror;
   using apptraverse::test::TestNoManualSerializersOrRuntimeClasses;
   using apptraverse::test::TestOrdinaryReflectionField;
   using apptraverse::test::TestPeriodicUpdate;
@@ -620,6 +774,10 @@ int main() {
   TestPersistence();
   TestOrdinaryReflectionField();
   TestBaseJournalCopyAndCleanup();
+  TestJournalDoesNotReturnAfterReloadAndMirror();
+#if defined(_WIN32)
+  apptraverse::test::TestCleanDistillPresenterGraphLoadsInUiDomain();
+#endif
   TestNoManualSerializersOrRuntimeClasses();
   std::cout << "model_ui_runtime_test OK\n";
   return 0;
