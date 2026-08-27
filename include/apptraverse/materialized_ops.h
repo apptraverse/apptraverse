@@ -3,14 +3,17 @@
 
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "aether-miscpp/types/result.h"
 #include "aether-miscpp/domain_visitor/domain_visitor.h"
 #include "aether-miscpp/serialization/binary_archive.h"
+#include "aether-miscpp/serialization/details/tags.h"
 #include "aether/obj/domain.h"
 #include "aether/obj/obj.h"
 #include "aether/obj/obj_ptr.h"
@@ -50,6 +53,49 @@ inline MaterializedOps const* FindMaterializedOps(std::uint32_t class_id) {
 namespace detail {
 
 using UiBin = ae::seri::BinaryArchive<ae::seri::BinaryVectorBuffer<>>;
+
+template <typename SizeType = std::uint32_t>
+class BinaryConstSpanBuffer {
+ public:
+  BinaryConstSpanBuffer(std::uint8_t const* data, std::size_t size) noexcept
+      : data_{data}, size_{size} {}
+
+  ae::seri::SeriResult Write(ae::seri::SizeWriteTag) {
+    return ae::Error<ae::seri::SeriError>{ae::seri::write_eof};
+  }
+  ae::seri::SeriResult Write(ae::seri::DataWriteTag) {
+    return ae::Error<ae::seri::SeriError>{ae::seri::write_eof};
+  }
+
+  ae::seri::SeriResult Read(ae::seri::SizeReadTag tag) {
+    SizeType size{};
+    auto const data_result =
+        Read(ae::seri::DataReadTag{&size, sizeof(size)});
+    if (!data_result) {
+      return data_result;
+    }
+    tag.size = static_cast<std::size_t>(size);
+    return ae::Ok{ae::seri::good};
+  }
+
+  ae::seri::SeriResult Read(ae::seri::DataReadTag tag) {
+    if (read_position_ + tag.size > size_) {
+      return ae::Error<ae::seri::SeriError>{ae::seri::read_eof};
+    }
+    std::memcpy(tag.data, data_ + read_position_, tag.size);
+    read_position_ += tag.size;
+    return ae::Ok{ae::seri::good};
+  }
+
+  std::size_t read_position() const noexcept { return read_position_; }
+
+ private:
+  std::uint8_t const* data_;
+  std::size_t size_;
+  std::size_t read_position_{0};
+};
+
+using UiReadBin = ae::seri::BinaryArchive<BinaryConstSpanBuffer<>>;
 
 template <typename T>
 constexpr bool IsObjPtr = false;
@@ -100,8 +146,9 @@ struct SaveMaterializedField {
   }
 };
 
+template <typename Archive>
 struct LoadMaterializedField {
-  UiBin* archive;
+  Archive* archive;
   ae::Domain* ui_domain;
 
   void operator()(auto& value) {
@@ -118,9 +165,10 @@ struct LoadMaterializedField {
         value = {};
         return;
       }
-      value = ae::ObjPtr<Target>::Declare(
-          ae::CreateWith{*ui_domain}.with_id(ae::ObjId{id}));
-      value.Load();
+      auto existing = ui_domain->Find(ae::ObjId{id});
+      assert(existing);
+      value = ae::ObjPtr<Target>::MakeFromThis(
+          static_cast<Target*>(existing.get()));
     } else if constexpr (std::is_same_v<U, std::vector<EventRecord>>) {
       value.clear();
     } else if constexpr (std::is_pointer_v<U>) {
@@ -164,10 +212,11 @@ struct MaterializedOpsRegistrar {
   }
 
   static void Deserialize(ae::Obj& obj, ByteSource& in, ae::Domain& ui_domain) {
-    std::vector<std::uint8_t> bytes(in.data + in.pos, in.data + in.size);
-    auto archive = detail::UiBin{ae::seri::BinaryVectorBuffer<>{bytes}};
-    detail::LoadMaterializedField visitor{&archive, &ui_domain};
+    detail::BinaryConstSpanBuffer buffer{in.data + in.pos, in.size - in.pos};
+    auto archive = detail::UiReadBin{buffer};
+    detail::LoadMaterializedField<detail::UiReadBin> visitor{&archive, &ui_domain};
     detail::VisitConcrete(static_cast<T&>(obj), visitor);
+    in.pos += buffer.read_position();
   }
 };
 

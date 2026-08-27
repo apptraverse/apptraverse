@@ -5,6 +5,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -50,6 +51,12 @@ class Node : public ae::Obj {
     generation_ = generation;
   }
 
+  // Runtime-only hook: ModelRuntime registers to collect changed Nodes.
+  static void SetMaterializedChangeNotifier(
+      std::function<void(Node&)> notifier) {
+    materialized_change_notifier_ = std::move(notifier);
+  }
+
   virtual void OnLoad() {}
 
   virtual void Update(std::chrono::steady_clock::time_point now) {
@@ -81,7 +88,12 @@ class Node : public ae::Obj {
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 
-  void NoteMaterializedChange() { ++generation_; }
+  void NoteMaterializedChange() {
+    ++generation_;
+    if (materialized_change_notifier_) {
+      materialized_change_notifier_(*this);
+    }
+  }
 
   void ReplayJournal() {
     applied_journal_size_ = 0;
@@ -196,6 +208,8 @@ class Node : public ae::Obj {
 
   static constexpr std::size_t kJournalFullyMaterialized =
       (std::numeric_limits<std::size_t>::max)();
+
+  static inline std::function<void(Node&)> materialized_change_notifier_{};
 
   std::uint64_t generation_{1};
   std::size_t applied_journal_size_{kJournalFullyMaterialized};

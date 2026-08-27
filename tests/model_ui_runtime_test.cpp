@@ -13,6 +13,7 @@
 #include "aether/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/distill.h"
+#include "apptraverse/graph_mirror.h"
 #include "apptraverse/model_runtime.h"
 #include "apptraverse/ui_mirror.h"
 
@@ -62,6 +63,7 @@ struct Harness {
   ae::Domain model_domain;
   ae::Domain ui_domain;
   Application::ptr application;
+  Application::ptr ui_application;
   std::unique_ptr<UiMirror> mirror;
   std::unique_ptr<ModelRuntime> runtime;
   std::vector<UiApplyResult> applies;
@@ -72,9 +74,15 @@ struct Harness {
     EnsureDemoRegistration();
     application = BuildDemoGraph(model_domain);
     FinalizeDistilledGraph(*application);
+    application->window_b->color_toolbar->opacity = 77;
+    auto ui_root = CopyModelGraphToUiDomain(*application, ui_domain);
+    ui_application = Application::ptr::Declare(
+        ae::CreateWith{ui_domain}.with_id(application->obj_id));
+    ui_application.Load();
+    (void)ui_root;
     mirror = std::make_unique<UiMirror>(
-        ui_domain, [this](std::uint32_t, PublicationChannel<3>* channel) {
-          applies.push_back(mirror->ApplyPublished(*channel));
+        ui_domain, [this](std::uint32_t root_id, PublicationChannel<3>* channel) {
+          applies.push_back(mirror->ApplyPublished(*channel, root_id));
         });
     runtime =
         std::make_unique<ModelRuntime>(*application, *mirror);
@@ -137,11 +145,39 @@ void TestStandardPointer() {
 #endif
 }
 
+void TestInitialGraphCopy() {
+  Harness h;
+  CHECK(&*h.application != h.ui_domain.Find(h.application->obj_id).get());
+  auto ui_app = h.ui_domain.Find(h.application->obj_id);
+  CHECK(ui_app);
+  CHECK(h.application->obj_id.id() == ui_app->obj_id.id());
+
+  auto& model_layout = *h.application->window_b;
+  auto& ui_layout = h.UiObj<LayoutWindow>(model_layout.obj_id);
+  CHECK(&model_layout != &ui_layout);
+  CHECK(model_layout.obj_id.id() == ui_layout.obj_id.id());
+
+  auto& model_toolbar = *h.application->window_b->text_toolbar;
+  auto& ui_toolbar = h.UiObj<TextToolbar>(model_toolbar.obj_id);
+  CHECK(&model_toolbar != &ui_toolbar);
+  CHECK(model_toolbar.text.operator->() != ui_toolbar.text.operator->());
+  CHECK(ui_toolbar.text->bytes == model_toolbar.text->bytes);
+  CHECK(ui_toolbar.text->obj_id.id() == model_toolbar.text->obj_id.id());
+
+  CHECK(ui_layout.text_toolbar->text.operator->() ==
+        ui_toolbar.text.operator->());
+  CHECK(!ui_layout.base);
+  CHECK(ui_layout.journal.empty());
+  CHECK(ui_layout.Generation() == model_layout.Generation());
+
+  auto& ui_color = h.UiObj<ColorToolbar>(model_layout.color_toolbar->obj_id);
+  CHECK(ui_color.opacity == 77);
+}
+
 void TestTwoDomainsAndUiNodeState() {
   Harness h;
   auto now = std::chrono::steady_clock::now();
-  h.Pump(now);
-  CHECK(h.applies.size() >= 2);
+  CHECK(h.applies.empty());
 
   auto check_pair = [&](ae::Obj& model) {
     auto ui = h.ui_domain.Find(model.obj_id);
@@ -247,9 +283,8 @@ void TestGenerationResizeAndNativeLayout() {
   auto const horiz = h.LastFor(window.obj_id.id());
   CHECK(HasId(horiz.changed_obj_ids, window.obj_id.id()));
   CHECK(!HasId(horiz.changed_obj_ids, text.obj_id.id()));
-  CHECK(HasId(horiz.reused_obj_ids, text.obj_id.id()));
-  CHECK(HasId(horiz.reused_obj_ids, color.obj_id.id()));
-  CHECK(HasId(horiz.reused_obj_ids, strip.obj_id.id()));
+  CHECK(!HasId(horiz.changed_obj_ids, color.obj_id.id()));
+  CHECK(!HasId(horiz.changed_obj_ids, strip.obj_id.id()));
 
   auto const w1 = window.Generation();
   auto const text_rect_after_h = TextToolbarNativeRect(window);
@@ -292,18 +327,9 @@ void TestPeriodicUpdate() {
 void TestStableUiAddressesAndStringReuse() {
   Harness h;
   auto now = std::chrono::steady_clock::now();
-  h.Pump(now);
-  auto const window_b = demo::ToObjId(demo::DemoObjId::LayoutWindow);
-  auto const first = h.LastFor(window_b);
-  CHECK(HasId(first.changed_obj_ids, window_b));
-  CHECK(HasId(first.changed_obj_ids,
-              demo::ToObjId(demo::DemoObjId::TextToolbar)));
-  CHECK(HasId(first.changed_obj_ids,
-              demo::ToObjId(demo::DemoObjId::CenterStrip)));
-  CHECK(HasId(first.changed_obj_ids,
-              demo::ToObjId(demo::DemoObjId::ToolbarText)));
-  CHECK(first.reused_obj_ids.empty());
+  CHECK(h.applies.empty());
 
+  auto const window_b = demo::ToObjId(demo::DemoObjId::LayoutWindow);
   auto* strip_addr =
       &h.UiObj<CenterStrip>(ae::ObjId{demo::ToObjId(demo::DemoObjId::CenterStrip)});
   auto* text_addr =
@@ -318,10 +344,6 @@ void TestStableUiAddressesAndStringReuse() {
   CHECK(HasId(second.changed_obj_ids, window_b));
   CHECK(!HasId(second.changed_obj_ids,
                demo::ToObjId(demo::DemoObjId::TextToolbar)));
-  CHECK(HasId(second.reused_obj_ids,
-              demo::ToObjId(demo::DemoObjId::TextToolbar)));
-  CHECK(HasId(second.reused_obj_ids,
-              demo::ToObjId(demo::DemoObjId::ToolbarText)));
   CHECK(&h.UiObj<CenterStrip>(ae::ObjId{
             demo::ToObjId(demo::DemoObjId::CenterStrip)}) == strip_addr);
   CHECK(&h.UiObj<TextToolbar>(ae::ObjId{
@@ -329,6 +351,14 @@ void TestStableUiAddressesAndStringReuse() {
   CHECK(&h.UiObj<ImmutableString>(ae::ObjId{
             demo::ToObjId(demo::DemoObjId::ToolbarText)}) == string_addr);
   CHECK(text_addr->Generation() == text_gen);
+
+  for (int i = 0; i < 100; ++i) {
+    h.Pump(now + std::chrono::milliseconds{20LL * (i + 2)});
+  }
+  CHECK(&h.UiObj<CenterStrip>(ae::ObjId{
+            demo::ToObjId(demo::DemoObjId::CenterStrip)}) == strip_addr);
+  CHECK(&h.UiObj<TextToolbar>(ae::ObjId{
+            demo::ToObjId(demo::DemoObjId::TextToolbar)}) == text_addr);
 }
 
 void TestRepaintDoesNotTouchModel() {
@@ -356,6 +386,11 @@ void TestUnreadPublicationIsNotOverwritten() {
   EnsureDemoRegistration();
   auto application = BuildDemoGraph(model_domain);
   FinalizeDistilledGraph(*application);
+  auto ui_root = CopyModelGraphToUiDomain(*application, ui_domain);
+  Application::ptr ui_application = Application::ptr::Declare(
+      ae::CreateWith{ui_domain}.with_id(application->obj_id));
+  ui_application.Load();
+  (void)ui_root;
   std::vector<std::uint32_t> notified_roots;
   UiMirror mirror(ui_domain, [&](std::uint32_t root_id, PublicationChannel<3>*) {
     notified_roots.push_back(root_id);
@@ -364,38 +399,41 @@ void TestUnreadPublicationIsNotOverwritten() {
   runtime.AddPresentationRoot(*application->window_a);
   runtime.AddPresentationRoot(*application->window_b);
 
+  CHECK(ui_domain.Find(ae::ObjId{
+            demo::ToObjId(demo::DemoObjId::TextToolbar)}) != nullptr);
+
   auto now = std::chrono::steady_clock::now();
+  runtime.Post([app = &*application] {
+    CommitWindowBounds(*app->window_b, BoundsOf(*app->window_b, 80, 0));
+  });
   runtime.PumpOnce(now);
   auto const window_b = demo::ToObjId(demo::DemoObjId::LayoutWindow);
   auto const first_b = static_cast<int>(
       std::count(notified_roots.begin(), notified_roots.end(), window_b));
   CHECK(first_b == 1);
   CHECK(mirror.ChannelFor(window_b).has_unread_published());
-  CHECK(ui_domain.Find(ae::ObjId{
-            demo::ToObjId(demo::DemoObjId::TextToolbar)}) == nullptr);
 
   runtime.Post([app = &*application] {
-    CommitWindowBounds(*app->window_b, BoundsOf(*app->window_b, 80, 0));
+    CommitWindowBounds(*app->window_b, BoundsOf(*app->window_b, 160, 0));
   });
   runtime.PumpOnce(now + std::chrono::milliseconds{20});
   auto const second_b = static_cast<int>(
       std::count(notified_roots.begin(), notified_roots.end(), window_b));
   CHECK(second_b == 1);
 
-  auto applied = mirror.ApplyPublished(mirror.ChannelFor(window_b));
+  auto applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
   CHECK(applied.root_id == window_b);
-  CHECK(applied.reused_obj_ids.empty());
-  CHECK(HasId(applied.changed_obj_ids,
-              demo::ToObjId(demo::DemoObjId::TextToolbar)));
+  CHECK(HasId(applied.changed_obj_ids, window_b));
 
+  runtime.Post([app = &*application] {
+    CommitWindowBounds(*app->window_b, BoundsOf(*app->window_b, 240, 0));
+  });
   runtime.PumpOnce(now + std::chrono::milliseconds{40});
   auto const third_b = static_cast<int>(
       std::count(notified_roots.begin(), notified_roots.end(), window_b));
   CHECK(third_b == 2);
-  applied = mirror.ApplyPublished(mirror.ChannelFor(window_b));
+  applied = mirror.ApplyPublished(mirror.ChannelFor(window_b), window_b);
   CHECK(HasId(applied.changed_obj_ids, window_b));
-  CHECK(HasId(applied.reused_obj_ids,
-              demo::ToObjId(demo::DemoObjId::TextToolbar)));
 }
 
 void TestPersistence() {
@@ -443,7 +481,10 @@ void TestNoManualSerializersOrRuntimeClasses() {
       "RuntimeObject",      "UiRuntimeRegistry",   "PayloadArchive",
       "ImmutableObjectStore", "ConstRef",          "AddMessageEvent",
       "AddMessageCommand",  "last_pub_a_",         "last_pub_b_",
-      "window_b_",          "CaptureBaseState(",   "text_id"};
+      "window_b_",          "CaptureBaseState(",   "text_id",
+      "kUiSubgraphMagic",   "0x41545549",          "kReuseObject",
+      "ReuseObjectRecord",  "reused_obj_ids",      "EnsureUiObject",
+      "UiRecordKind"};
   for (auto const& entry :
        std::filesystem::recursive_directory_iterator(root)) {
     if (!entry.is_regular_file()) {
@@ -480,6 +521,7 @@ void TestNoManualSerializersOrRuntimeClasses() {
 
 int main() {
   apptraverse::test::TestStandardPointer();
+  apptraverse::test::TestInitialGraphCopy();
   apptraverse::test::TestTwoDomainsAndUiNodeState();
   apptraverse::test::TestJournalCommitDoesNotChangeChildren();
   apptraverse::test::TestGenerationResizeAndNativeLayout();

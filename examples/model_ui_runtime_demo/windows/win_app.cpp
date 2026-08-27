@@ -5,6 +5,7 @@
 #include <string>
 
 #include "apptraverse/distill.h"
+#include "apptraverse/graph_mirror.h"
 
 #include "demo_commands.h"
 #include "demo_ids.h"
@@ -46,7 +47,7 @@ void WinApp::ApplyPublication(std::uint32_t root_id,
     }
     return;
   }
-  auto applied = ui_mirror_->ApplyPublished(*channel);
+  auto applied = ui_mirror_->ApplyPublished(*channel, root_id);
   if (applied.root_id == 0) {
     return;
   }
@@ -60,9 +61,7 @@ void WinApp::ApplyPublication(std::uint32_t root_id,
     }
   }
   demo::DemoLog("ui apply root=" + std::to_string(applied.root_id) +
-                " state=" + std::to_string(applied.changed_obj_ids.size()) +
-                " reuse=" + std::to_string(applied.reused_obj_ids.size()));
-  (void)root_id;
+                " changed=" + std::to_string(applied.changed_obj_ids.size()));
 }
 
 void WinApp::RequestExit() {
@@ -83,6 +82,11 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   EnsureDemoRegistration();
   EnsureWindowsPresenterRegistration();
   runtime_ = LoadDemoModel(state_dir);
+  auto ui_root = CopyModelGraphToUiDomain(*runtime_.application, *runtime_.ui_domain);
+  runtime_.ui_application = Application::ptr::Declare(
+      ae::CreateWith{*runtime_.ui_domain}.with_id(runtime_.application->obj_id));
+  runtime_.ui_application.Load();
+  (void)ui_root;
   ui_thread_ = GetCurrentThreadId();
 
   WNDCLASSW wc{};
@@ -110,7 +114,6 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
       std::make_unique<ModelRuntime>(*runtime_.application, *ui_mirror_);
   model_runtime_->AddPresentationRoot(*runtime_.application->window_a);
   model_runtime_->AddPresentationRoot(*runtime_.application->window_b);
-  model_runtime_->PumpOnce(std::chrono::steady_clock::now());
 
   presentation_ = LoadApplication<WinPresentationApplication>(
       *runtime_.ui_domain,

@@ -8,6 +8,8 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "aether/obj/obj.h"
@@ -24,6 +26,7 @@ class ModelRuntime {
   using Work = std::function<void()>;
 
   explicit ModelRuntime(ae::Obj& application_root, UiMirror& ui_mirror);
+  ~ModelRuntime();
 
   void AddPresentationRoot(ae::Obj& root);
   void Start();
@@ -38,11 +41,18 @@ class ModelRuntime {
   void ThreadMain();
   void DrainWork();
   void UpdateAll(std::chrono::steady_clock::time_point now);
-  void PublishRoots();
+  void PublishChanged();
+  void OnMaterializedChange(Node& node);
+  void BuildExecutionLists();
 
   ae::Obj& application_root_;
   UiMirror& ui_mirror_;
   std::vector<ae::Obj*> presentation_roots_;
+  std::vector<Node*> model_nodes_;
+  std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> object_to_roots_;
+
+  std::vector<Node*> changed_nodes_;
+  std::unordered_set<Node*> changed_set_;
 
   std::mutex mu_;
   std::condition_variable cv_;

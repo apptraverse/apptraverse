@@ -18,6 +18,7 @@ struct DemoRuntime {
   std::unique_ptr<ae::Domain> model_domain;
   std::unique_ptr<ae::Domain> ui_domain;
   Application::ptr application;
+  Application::ptr ui_application;
 };
 
 Application::ptr BuildDemoGraph(ae::Domain& domain);

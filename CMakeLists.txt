@@ -44,6 +44,7 @@ add_library(apptraverse STATIC
   src/ui_materialized.cpp
   src/ui_mirror.cpp
   src/model_runtime.cpp
+  src/graph_mirror.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

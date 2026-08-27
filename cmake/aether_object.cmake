@@ -21,7 +21,7 @@ function(apptraverse_add_object_aether)
 
   target_include_directories(aether PUBLIC "${_src}")
   target_compile_features(aether PUBLIC cxx_std_20)
-  target_link_libraries(aether PUBLIC aether-tele aether::miscpp)
+  target_link_libraries(aether PUBLIC aether-tele aether::miscpp numeric)
   target_compile_definitions(aether PUBLIC
     AE_DISTILLATION=1
     NOMINMAX
