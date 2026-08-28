@@ -186,6 +186,25 @@ void TestAetherPinMatchesExpectedSha() {
 #endif
 }
 
+void TestAetherRxScheduleConfiguredInRuntime() {
+#ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
+  std::filesystem::path const runtime_cpp =
+      std::filesystem::path{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR} / "windows" /
+      "aether_runtime.cpp";
+  CHECK(std::filesystem::exists(runtime_cpp));
+  std::ifstream in{runtime_cpp};
+  std::string text((std::istreambuf_iterator<char>(in)),
+                   std::istreambuf_iterator<char>());
+  CHECK(text.find("SetReceiveSchedule") != std::string::npos);
+  CHECK(text.find("AETHER_RX_SCHEDULE_SET ping_ms=3000 window_ms=3000") !=
+        std::string::npos);
+  CHECK(text.find("std::chrono::seconds{3}") != std::string::npos);
+  CHECK(text.find("QueryPeerReceiveSchedule") == std::string::npos);
+#else
+  CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
+#endif
+}
+
 void TestNoManualSerializersOrRuntimeClasses() {
 #ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR};
@@ -238,6 +257,7 @@ void TestNoManualSerializersOrRuntimeClasses() {
 
 int main() {
   using apptraverse::test::TestAetherPinMatchesExpectedSha;
+  using apptraverse::test::TestAetherRxScheduleConfiguredInRuntime;
   using apptraverse::test::TestLocalAetherUidModelToUiProjection;
   using apptraverse::test::TestLocalChatHostJoinAndMessages;
   using apptraverse::test::TestLocalChatUiProjectionFromDomain;
@@ -247,6 +267,7 @@ int main() {
   TestLocalChatUiProjectionFromDomain();
   TestLocalAetherUidModelToUiProjection();
   TestAetherPinMatchesExpectedSha();
+  TestAetherRxScheduleConfiguredInRuntime();
   TestNoManualSerializersOrRuntimeClasses();
   std::cout << "chat_ui_runtime_test OK\n";
   return 0;

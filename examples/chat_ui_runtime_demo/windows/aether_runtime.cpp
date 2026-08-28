@@ -76,9 +76,26 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
       return;
     }
 
+    std::string const uid_text = ae::Format("{}", client->uid());
+    chat::ChatLog("AETHER_CLIENT_READY uid=" + uid_text);
+
+    auto constexpr kPingInterval = std::chrono::seconds{3};
+    auto constexpr kReceiveWindow = std::chrono::seconds{3};
+    auto const schedule_result = client->SetReceiveSchedule(ae::ReceiveSchedule{
+        .ping_interval =
+            std::chrono::duration_cast<ae::Duration>(kPingInterval),
+        .receive_window =
+            std::chrono::duration_cast<ae::Duration>(kReceiveWindow),
+    });
+    if (!schedule_result) {
+      chat::ChatLog("aether SetReceiveSchedule failed code=" +
+                    std::to_string(schedule_result.error()));
+    } else {
+      chat::ChatLog("AETHER_RX_SCHEDULE_SET ping_ms=3000 window_ms=3000");
+    }
+
     aether_app->aether().Save();  // runtime-save-ok
 
-    std::string const uid_text = ae::Format("{}", client->uid());
     chat::ChatLog("aether client uid=" + uid_text);
     {
       auto uid_path = *state_dir_holder / "last_uid.txt";
