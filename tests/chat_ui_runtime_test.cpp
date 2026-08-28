@@ -297,9 +297,10 @@ void TestAetherRxScheduleConfiguredInRuntime() {
   CHECK(text.find("AETHER_RX_SCHEDULE_SET ping_ms=3000 window_ms=3000") !=
         std::string::npos);
   CHECK(text.find("std::chrono::seconds{3}") != std::string::npos);
-  CHECK(text.find("QueryPeerReceiveSchedule") != std::string::npos);
+  CHECK(text.find("IsLocallyOnline") != std::string::npos);
   CHECK(text.find("LOCAL_PRESENCE state=online") != std::string::npos);
   CHECK(text.find("cloud_connection()") != std::string::npos);
+  CHECK(text.find("QueryPeerReceiveSchedule") == std::string::npos);
 #else
   CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
 #endif

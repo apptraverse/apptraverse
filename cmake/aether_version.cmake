@@ -1,6 +1,6 @@
 # Pin for the Aether object/domain sources in aethernetio/aether-client-cpp.
 # AppTraverse does not vendor the object system; it builds a subset from that repo.
-set(APPTRAVERSE_AETHER_GIT_TAG "941744cdccb364134da5cc61f4edc613465e843a")
+set(APPTRAVERSE_AETHER_GIT_TAG "41e00350da4bc08777223fd2c4d3e6f770c50e64")
 
 # Optional local checkout of aether-client-cpp. When set (or when a sibling
 # ../aether-client-cpp exists), CPM uses that tree instead of fetching GitHub.
