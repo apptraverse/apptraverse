@@ -1,10 +1,12 @@
 #ifndef APPTRAVERSE_CHAT_SHARED_H_
 #define APPTRAVERSE_CHAT_SHARED_H_
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
 
+#include "apptraverse/shared_event_id.h"
 #include "apptraverse/shared_instance.h"
 #include "apptraverse/shared_runtime.h"
 #include "apptraverse/shared_transport.h"
@@ -18,18 +20,27 @@ struct ChatSharedBinding {
   SharedRuntime runtime;
 };
 
+struct LocalChatCommitResult {
+  SharedEventId shared_event_id{};
+  std::uint32_t local_event_obj_id{0};
+  bool committed{false};
+};
+
+using OnNewChatClientFn = std::function<void(ChatClient& client)>;
+
 void InitializeChatSharedBinding(ChatSharedBinding& binding, Application& app,
                                  std::string local_aether_uid);
 
 void CommitLocalJoin(ChatSharedBinding& binding, ChatClient& client);
-void CommitLocalMessage(ChatSharedBinding& binding, ChatClient& author,
-                        std::string text);
+LocalChatCommitResult CommitLocalMessage(ChatSharedBinding& binding,
+                                         ChatClient& author, std::string text,
+                                         std::int64_t sent_at_unix_ms = 0);
 
-bool ApplyIncomingSharedEvent(ChatSharedBinding& binding,
-                              std::string const& source_peer_uid,
-                              SharedEventFrame const& frame,
-                              std::function<void(std::string const& client_uid)>
-                                  on_join_client = {});
+bool ApplyIncomingSharedEvent(
+    ChatSharedBinding& binding, std::string const& source_peer_uid,
+    SharedEventFrame const& frame,
+    std::function<void(std::string const& client_uid)> on_join_client = {},
+    OnNewChatClientFn on_new_client = {});
 
 // Creates/ensures Peer, seeds pending from journal. Does NOT open Aether
 // streams and does NOT set channel_ready / online.
@@ -43,6 +54,9 @@ void ConnectToHostCommand(ChatSharedBinding& binding, std::string host_uid,
 
 void SetSharedPeerChannelReady(ChatSharedBinding& binding,
                                std::string const& remote_uid, bool ready);
+
+void SetSharedPeerOnline(ChatSharedBinding& binding,
+                         std::string const& remote_uid, bool online);
 
 void HandleSharedAck(ChatSharedBinding& binding,
                      std::string const& from_peer_uid,
@@ -59,12 +73,14 @@ std::vector<std::uint8_t> SerializeSharedEventPayload(Event const& event);
 
 // Deserializes payload into a remapped Event for `room` (cross-process safe).
 bool DeserializeSharedEventPayload(ChatRoom& room, Event::ptr& out_event,
-                                   std::vector<std::uint8_t> const& payload);
+                                   std::vector<std::uint8_t> const& payload,
+                                   OnNewChatClientFn on_new_client = {});
 
 void StripRuntimeFieldsFromEventGraph(Event& event);
 
 Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
-                              std::vector<std::uint8_t> const& payload);
+                              std::vector<std::uint8_t> const& payload,
+                              OnNewChatClientFn on_new_client = {});
 
 }  // namespace apptraverse
 

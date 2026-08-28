@@ -1,6 +1,10 @@
 #ifndef APPTRAVERSE_CHAT_EVENTS_H_
 #define APPTRAVERSE_CHAT_EVENTS_H_
 
+#include <cstdint>
+
+#include "aether/obj/obj.h"
+
 #include "apptraverse/event_for.h"
 #include "apptraverse/object_macros.h"
 #include "chat_model.h"
@@ -22,7 +26,7 @@ class JoinEvent : public EventFor<ChatRoom, JoinEvent> {
 };
 
 class ChatMessageEvent : public EventFor<ChatRoom, ChatMessageEvent> {
-  APPTRAVERSE_OBJECT(ChatMessageEvent, Event, 0)
+  APPTRAVERSE_OBJECT(ChatMessageEvent, Event, 1)
 
  protected:
   ChatMessageEvent() = default;
@@ -30,10 +34,32 @@ class ChatMessageEvent : public EventFor<ChatRoom, ChatMessageEvent> {
  public:
   explicit ChatMessageEvent(ae::ObjProp prop) : EventFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(author), AE_MMBR(text))
+  AE_OBJECT_REFLECT(AE_MMBR(author), AE_MMBR(text), AE_MMBR(sent_at_unix_ms))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, author, text);
+    sent_at_unix_ms = 0;
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, author, text, sent_at_unix_ms);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, author, text);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, author, text, sent_at_unix_ms);
+  }
 
   ChatClient::ptr author;
   ImmutableString::ptr text;
+  std::int64_t sent_at_unix_ms{0};
 };
 
 }  // namespace apptraverse

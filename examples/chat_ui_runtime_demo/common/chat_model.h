@@ -95,7 +95,7 @@ class ChatClient : public NodeFor<ChatClient> {
 };
 
 class ChatFeedItem : public ae::Obj {
-  APPTRAVERSE_OBJECT(ChatFeedItem, ae::Obj, 0)
+  APPTRAVERSE_OBJECT(ChatFeedItem, ae::Obj, 1)
 
  protected:
   ChatFeedItem() = default;
@@ -103,11 +103,36 @@ class ChatFeedItem : public ae::Obj {
  public:
   explicit ChatFeedItem(ae::ObjProp prop) : Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(kind), AE_MMBR(client), AE_MMBR(body))
+  AE_OBJECT_REFLECT(AE_MMBR(kind), AE_MMBR(client), AE_MMBR(body),
+                    AE_MMBR(sent_at_unix_ms), AE_MMBR(source_event_obj_id))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, kind, client, body);
+    sent_at_unix_ms = 0;
+    source_event_obj_id = 0;
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, kind, client, body, sent_at_unix_ms, source_event_obj_id);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, kind, client, body);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, kind, client, body, sent_at_unix_ms, source_event_obj_id);
+  }
 
   std::uint32_t kind{0};
   ChatClient::ptr client;
   ImmutableString::ptr body;
+  std::int64_t sent_at_unix_ms{0};
+  std::uint32_t source_event_obj_id{0};
 };
 
 class ChatRoom : public NodeFor<ChatRoom> {

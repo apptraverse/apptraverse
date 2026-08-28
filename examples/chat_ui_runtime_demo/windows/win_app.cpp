@@ -89,6 +89,7 @@ void WinChatApp::OnPeerReady(std::string remote_uid) {
   }
   model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
     SetSharedPeerChannelReady(shared_, remote_uid, true);
+    MonitorRemote(remote_uid);
     TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
                        shared_transport_.get());
   });
@@ -114,6 +115,30 @@ void WinChatApp::OnPeerFrame(std::string remote_uid,
   });
 }
 
+void WinChatApp::OnPeerPresence(std::string remote_uid, bool online) {
+  if (!model_runtime_) {
+    return;
+  }
+  model_runtime_->Post([this, remote_uid = std::move(remote_uid), online] {
+    auto* peer = shared_.instance.FindPeer(remote_uid);
+    bool const was_online = peer != nullptr && peer->online;
+    SetSharedPeerOnline(shared_, remote_uid, online);
+    if (!was_online && online) {
+      TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
+                         shared_transport_.get());
+    }
+  });
+}
+
+void WinChatApp::MonitorRemote(std::string const& remote_uid) {
+  if (remote_uid.empty() ||
+      remote_uid == shared_.instance.local_aether_uid) {
+    return;
+  }
+  EnsureSharedPeer(shared_, remote_uid);
+  aether_runtime_.MonitorPeerPresence(remote_uid);
+}
+
 void WinChatApp::HandlePeerFrameOnModelThread(
     std::string remote_uid, std::vector<std::uint8_t> bytes) {
   SharedEventFrame event_frame;
@@ -126,7 +151,11 @@ void WinChatApp::HandlePeerFrameOnModelThread(
             return;
           }
           EnsureSharedPeer(shared_, client_uid);
-          // channel_ready comes from Aether stream_update via OnPeerReady.
+          MonitorRemote(client_uid);
+        },
+        [this](ChatClient& client) {
+          model_runtime_->AttachNode(client,
+                                     *runtime_.application->chat_room);
         });
     if (ok) {
       SendSharedAck(shared_, shared_transport_.get(), remote_uid,
@@ -221,11 +250,19 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
   presentation_->chat_window->application = runtime_.ui_application;
   presentation_->chat_window->room = runtime_.ui_application->chat_room;
   presentation_->chat_window->identity = runtime_.ui_application->local_aether;
+  presentation_->latency_tracker = &latency_tracker_;
   presentation_->on_close = [this] { RequestExit(); };
-  presentation_->on_chat_send = [this](std::string text) {
-    model_runtime_->Post([this, text = std::move(text)] {
-      CommitLocalMessage(shared_, *runtime_.application->host_client,
-                         std::move(text));
+  presentation_->on_chat_send = [this](ChatSendUiRequest request) {
+    model_runtime_->Post([this, request = std::move(request)]() mutable {
+      auto result = CommitLocalMessage(shared_, *runtime_.application->host_client,
+                                       std::move(request.text),
+                                       request.sent_at_unix_ms);
+      if (result.committed && request.ui_trace_id != 0) {
+        latency_tracker_.BindEvent(request.ui_trace_id,
+                                   result.local_event_obj_id);
+      } else if (!result.committed && request.ui_trace_id != 0) {
+        latency_tracker_.Cancel(request.ui_trace_id);
+      }
       TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
                          shared_transport_.get());
     });
@@ -234,6 +271,7 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
     model_runtime_->Post([this, host_uid = std::move(host_uid)] {
       ConnectToHostCommand(shared_, std::move(host_uid),
                            [this](std::string const& peer_uid) {
+                             MonitorRemote(peer_uid);
                              aether_runtime_.OpenPeer(peer_uid);
                            });
     });
@@ -249,6 +287,10 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
       [this](std::string remote_uid, std::vector<std::uint8_t> bytes) {
         OnPeerFrame(std::move(remote_uid), std::move(bytes));
       });
+  aether_runtime_.SetPeerPresenceCallback(
+      [this](std::string remote_uid, bool online) {
+        OnPeerPresence(std::move(remote_uid), online);
+      });
 
   auto aether_dir = state_dir / "aether";
   aether_runtime_.Start(
@@ -262,6 +304,18 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
                                           ->UidTextBytes());
           if (runtime_.application->chat_room->journal.empty()) {
             CommitLocalJoin(shared_, *runtime_.application->host_client);
+          }
+          for (auto const& peer : shared_.instance.peers) {
+            MonitorRemote(peer.remote_aether_uid);
+          }
+          for (auto const& client : runtime_.application->chat_room->clients) {
+            if (!client.is_valid()) {
+              continue;
+            }
+            auto const uid = client->AetherUidText();
+            if (!uid.empty() && uid != shared_.instance.local_aether_uid) {
+              MonitorRemote(uid);
+            }
           }
         });
       },

@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 
+#if defined(_MSC_VER)
+#include <cstdlib>
+#endif
+
 #include "aether/clock.h"
 #include "aether/domain_storage/ram_domain_storage.h"
 
@@ -257,6 +261,7 @@ void TestResetRuntimePresenceStateOnLoad() {
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{ae::Now(), model_storage};
   auto application = BuildChatGraph(model_domain, "Nikolay");
+  FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);
   application->host_client->SetOnline(true);
   ResetRuntimePresenceState(*application);
@@ -301,7 +306,9 @@ void TestAetherRxScheduleConfiguredInRuntime() {
   CHECK(text.find("IsLocallyOnline") != std::string::npos);
   CHECK(text.find("LOCAL_PRESENCE state=online") != std::string::npos);
   CHECK(text.find("cloud_connection()") != std::string::npos);
-  CHECK(text.find("QueryPeerReceiveSchedule") == std::string::npos);
+  CHECK(text.find("QueryPeerReceiveSchedule") != std::string::npos);
+  CHECK(text.find("MonitorPeerPresence") != std::string::npos);
+  CHECK(text.find("RemotePresencePoller") != std::string::npos);
 #else
   CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
 #endif
@@ -465,6 +472,9 @@ void TestNoManualSerializersOrRuntimeClasses() {
 }  // namespace apptraverse::test
 
 int main() {
+#if defined(_MSC_VER)
+  _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
   using apptraverse::test::TestApplicationRoleModelToUiProjection;
   using apptraverse::test::TestAetherPinMatchesExpectedSha;
   using apptraverse::test::TestAetherPresenceQueryOnlyOnAetherThread;

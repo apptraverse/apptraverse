@@ -68,6 +68,8 @@ void ChatRoom::Apply(ChatMessageEvent const& event) {
   item->kind = kChatFeedKindMessage;
   item->client = event.author;
   item->body = event.text;
+  item->sent_at_unix_ms = event.sent_at_unix_ms;
+  item->source_event_obj_id = event.obj_id.id();
   feed.push_back(item);
   NoteMaterializedChange();
 }

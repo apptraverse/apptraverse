@@ -131,14 +131,18 @@ void CommitLocalJoin(ChatSharedBinding& binding, ChatClient& client) {
       });
 }
 
-void CommitLocalMessage(ChatSharedBinding& binding, ChatClient& author,
-                        std::string text) {
+LocalChatCommitResult CommitLocalMessage(ChatSharedBinding& binding,
+                                         ChatClient& author, std::string text,
+                                         std::int64_t sent_at_unix_ms) {
+  LocalChatCommitResult result;
   auto const id = binding.runtime.AssignLocalIdentity(binding.instance);
   auto const order = binding.runtime.MakeLocalOrder(binding.instance, id);
   auto const size_before = binding.instance.node->journal.size();
-  CommitSendChatMessage(*binding.instance.node, author, std::move(text));
-  if (binding.instance.node->journal.size() == size_before) {
-    return;
+  auto event = CommitSendChatMessage(*binding.instance.node, author,
+                                     std::move(text), sent_at_unix_ms);
+  if (!event.is_valid() ||
+      binding.instance.node->journal.size() == size_before) {
+    return result;
   }
   auto const& record = binding.instance.node->journal.back();
   record.event.Load();
@@ -152,6 +156,10 @@ void CommitLocalMessage(ChatSharedBinding& binding, ChatClient& author,
                       " event=" + event_id.origin_uid + ":" +
                       std::to_string(event_id.origin_sequence));
       });
+  result.shared_event_id = id;
+  result.local_event_obj_id = event.id().id();
+  result.committed = true;
+  return result;
 }
 
 std::vector<std::uint8_t> SerializeSharedEventPayload(Event const& event) {
@@ -175,7 +183,8 @@ void StripRuntimeFieldsFromEventGraph(Event& event) {
 }
 
 Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
-                              std::vector<std::uint8_t> const& payload) {
+                              std::vector<std::uint8_t> const& payload,
+                              OnNewChatClientFn on_new_client) {
   if (payload.size() < sizeof(std::uint32_t)) {
     return {};
   }
@@ -244,6 +253,9 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
           ImmutableString::ptr::Create(ae::CreateWith{model_domain});
       name_obj->bytes = name;
       client->display_name = name_obj;
+      if (on_new_client) {
+        on_new_client(*client);
+      }
       event->client = client;
     }
     return event;
@@ -264,21 +276,25 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
         ImmutableString::ptr::Create(ae::CreateWith{model_domain});
     body->bytes = message->text->bytes;
     event->text = body;
+    event->sent_at_unix_ms = message->sent_at_unix_ms;
     return event;
   }
   return {};
 }
 
 bool DeserializeSharedEventPayload(ChatRoom& room, Event::ptr& out_event,
-                                   std::vector<std::uint8_t> const& payload) {
-  out_event = RemapIncomingEvent(room, *room.domain, payload);
+                                   std::vector<std::uint8_t> const& payload,
+                                   OnNewChatClientFn on_new_client) {
+  out_event = RemapIncomingEvent(room, *room.domain, payload,
+                                 std::move(on_new_client));
   return out_event.is_valid();
 }
 
 bool ApplyIncomingSharedEvent(
     ChatSharedBinding& binding, std::string const& source_peer_uid,
     SharedEventFrame const& frame,
-    std::function<void(std::string const& client_uid)> on_join_client) {
+    std::function<void(std::string const& client_uid)> on_join_client,
+    OnNewChatClientFn on_new_client) {
   chat::ChatLog("SHARED_EVENT_RECEIVED peer=" + source_peer_uid + " event=" +
                 frame.event_id.origin_uid + ":" +
                 std::to_string(frame.event_id.origin_sequence));
@@ -294,8 +310,17 @@ bool ApplyIncomingSharedEvent(
     return true;
   }
   Event::ptr event;
-  if (!DeserializeSharedEventPayload(*binding.instance.node, event,
-                                     frame.payload) ||
+  if (!DeserializeSharedEventPayload(
+          *binding.instance.node, event, frame.payload,
+          [&](ChatClient& client) {
+            auto const uid = client.AetherUidText();
+            if (auto* peer = binding.instance.FindPeer(uid)) {
+              client.online = peer->online;
+            }
+            if (on_new_client) {
+              on_new_client(client);
+            }
+          }) ||
       !event.is_valid()) {
     return false;
   }
@@ -402,6 +427,24 @@ void SetSharedPeerChannelReady(ChatSharedBinding& binding,
     chat::ChatLog("SHARED_STREAM_READY peer=" + remote_uid);
   } else {
     chat::ChatLog("SHARED_STREAM_CLOSED peer=" + remote_uid);
+  }
+}
+
+void SetSharedPeerOnline(ChatSharedBinding& binding,
+                         std::string const& remote_uid, bool online) {
+  EnsureSharedPeer(binding, remote_uid);
+  auto* peer = binding.instance.FindPeer(remote_uid);
+  if (peer == nullptr) {
+    return;
+  }
+  binding.runtime.SetPeerOnline(*peer, online);
+  chat::ChatLog(std::string{"REMOTE_PRESENCE peer="} + remote_uid +
+                " online=" + (online ? "1" : "0"));
+  if (binding.instance.node.is_valid()) {
+    auto client = binding.instance.node->FindClientByAetherUid(remote_uid);
+    if (client.is_valid()) {
+      client->SetOnline(online);
+    }
   }
 }
 

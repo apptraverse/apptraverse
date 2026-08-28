@@ -12,6 +12,7 @@
 #include "chat_bootstrap.h"
 #include "chat_model.h"
 #include "chat_shared.h"
+#include "ui_send_latency_tracker.h"
 #include "win_presenters.h"
 
 namespace apptraverse {
@@ -28,9 +29,11 @@ class WinChatApp {
   void OnPeerReady(std::string remote_uid);
   void OnPeerClosed(std::string remote_uid);
   void OnPeerFrame(std::string remote_uid, std::vector<std::uint8_t> bytes);
+  void OnPeerPresence(std::string remote_uid, bool online);
   void HandlePeerFrameOnModelThread(std::string remote_uid,
                                     std::vector<std::uint8_t> bytes);
   void TickDelivery();
+  void MonitorRemote(std::string const& remote_uid);
 
   ChatRuntime runtime_;
   std::unique_ptr<UiMirror> ui_mirror_;
@@ -39,6 +42,7 @@ class WinChatApp {
   ChatAetherRuntime aether_runtime_;
   std::unique_ptr<AetherSharedTransport> shared_transport_;
   ChatSharedBinding shared_;
+  UiSendLatencyTracker latency_tracker_;
   HWND dispatcher_{nullptr};
   DWORD ui_thread_{0};
   bool exiting_{false};
