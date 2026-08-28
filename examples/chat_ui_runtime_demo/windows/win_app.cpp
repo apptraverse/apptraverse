@@ -136,10 +136,15 @@ int WinChatApp::Run(std::filesystem::path const& state_dir) {
       ae::ObjId{chat::ToObjId(chat::ChatObjId::WinPresentationApplication)});
   presentation_->on_close = [this] { RequestExit(); };
   presentation_->on_chat_send = [this](std::string text) {
-    model_runtime_->Post([app = &*runtime_.application,
-                          text = std::move(text)] {
-      CommitSendChatMessage(*app->chat_room, *app->host_client,
-                            std::move(text));
+    model_runtime_->Post([this, text = std::move(text)] {
+      CommitLocalMessage(shared_, *runtime_.application->host_client,
+                         std::move(text));
+    });
+  };
+  presentation_->on_connect_host = [this](std::string host_uid) {
+    model_runtime_->Post([this, host_uid = std::move(host_uid)] {
+      shared_.instance.shared_room_id = host_uid;
+      EnsureSharedPeer(shared_, host_uid, nullptr);
     });
   };
   presentation_->OnLoad();
@@ -151,9 +156,15 @@ int WinChatApp::Run(std::filesystem::path const& state_dir) {
   aether_runtime_.Start(
       aether_dir,
       [this](std::string uid_text) {
-        model_runtime_->Post([app = &*runtime_.application,
-                              uid_text = std::move(uid_text)] {
-          SetLocalAetherUidText(*app->local_aether, std::move(uid_text));
+        model_runtime_->Post([this, uid_text = std::move(uid_text)] {
+          SetLocalAetherUidText(*runtime_.application->local_aether,
+                                std::move(uid_text));
+          InitializeChatSharedBinding(shared_, *runtime_.application,
+                                      runtime_.application->local_aether
+                                          ->UidTextBytes());
+          if (runtime_.application->chat_room->journal.empty()) {
+            CommitLocalJoin(shared_, *runtime_.application->host_client);
+          }
         });
       },
       [this](bool online) {

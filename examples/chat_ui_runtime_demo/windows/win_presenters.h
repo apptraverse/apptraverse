@@ -30,6 +30,7 @@ class WinChatWindowPresenter : public Presenter {
   ChatRoom::ptr room;
   LocalAetherIdentity::ptr identity;
   std::function<void(std::string)> on_send;
+  std::function<void(std::string)> on_connect_host;
   std::function<void()> on_close;
   HWND hwnd{nullptr};
   HWND feed_hwnd{nullptr};
@@ -38,6 +39,9 @@ class WinChatWindowPresenter : public Presenter {
   HWND send_hwnd{nullptr};
   HWND aether_label_hwnd{nullptr};
   HWND aether_uid_hwnd{nullptr};
+  HWND host_label_hwnd{nullptr};
+  HWND host_uid_hwnd{nullptr};
+  HWND connect_hwnd{nullptr};
 
   void OnLoad() override {
     WNDCLASSW wc{};
@@ -93,6 +97,9 @@ class WinChatWindowPresenter : public Presenter {
     send_hwnd = nullptr;
     aether_label_hwnd = nullptr;
     aether_uid_hwnd = nullptr;
+    host_label_hwnd = nullptr;
+    host_uid_hwnd = nullptr;
+    connect_hwnd = nullptr;
     if (h != nullptr) {
       DestroyWindow(h);
     }
@@ -105,6 +112,8 @@ class WinChatWindowPresenter : public Presenter {
   static constexpr int kIdContacts = 103;
   static constexpr int kIdSend = 104;
   static constexpr int kIdAetherUid = 105;
+  static constexpr int kIdHostUid = 106;
+  static constexpr int kIdConnect = 107;
 
   static HINSTANCE GetModuleModuleHandleSafe() {
     return GetModuleHandleW(nullptr);
@@ -141,6 +150,11 @@ class WinChatWindowPresenter : public Presenter {
         if (HIWORD(wparam) == BN_CLICKED &&
             LOWORD(wparam) == static_cast<WORD>(kIdSend)) {
           TrySend();
+          return 0;
+        }
+        if (HIWORD(wparam) == BN_CLICKED &&
+            LOWORD(wparam) == static_cast<WORD>(kIdConnect)) {
+          TryConnectHost();
           return 0;
         }
         return DefWindowProcW(wnd, msg, wparam, lparam);
@@ -194,6 +208,17 @@ class WinChatWindowPresenter : public Presenter {
         WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_LEFT | ES_READONLY, 0, 0, 0,
         0, wnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdAetherUid)),
         inst, nullptr);
+    host_label_hwnd = CreateWindowExW(
+        0, L"STATIC", L"Host Aether ID:", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0,
+        0, 0, wnd, nullptr, inst, nullptr);
+    host_uid_hwnd = CreateWindowExW(
+        WS_EX_CLIENTEDGE, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_LEFT, 0, 0, 0, 0, wnd,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdHostUid)), inst, nullptr);
+    connect_hwnd = CreateWindowExW(
+        0, L"BUTTON", L"Connect", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0,
+        0, wnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdConnect)), inst,
+        nullptr);
     contacts_hwnd = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"LISTBOX", L"",
         WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOINTEGRALHEIGHT, 0, 0, 0, 0,
@@ -226,8 +251,13 @@ class WinChatWindowPresenter : public Presenter {
     int const side_x = gap * 2 + main_w;
     int const label_h = 18;
     int const uid_h = 24;
+    int const host_y = gap + label_h + uid_h + gap;
     MoveWindow(aether_label_hwnd, side_x, gap, side, label_h, TRUE);
     MoveWindow(aether_uid_hwnd, side_x, gap + label_h, side, uid_h, TRUE);
+    MoveWindow(host_label_hwnd, side_x, host_y, side, label_h, TRUE);
+    MoveWindow(host_uid_hwnd, side_x, host_y + label_h, side, uid_h, TRUE);
+    MoveWindow(connect_hwnd, side_x, host_y + label_h + uid_h + 4, side, 24,
+                TRUE);
     int const contacts_top = gap + aether_h;
     int const send_y = client_h - input_h - gap;
     int const contacts_h = send_y - contacts_top - gap;
@@ -235,6 +265,31 @@ class WinChatWindowPresenter : public Presenter {
       MoveWindow(contacts_hwnd, side_x, contacts_top, side, contacts_h, TRUE);
     }
     MoveWindow(send_hwnd, side_x, send_y, side, input_h, TRUE);
+  }
+
+  void TryConnectHost() {
+    if (!on_connect_host || host_uid_hwnd == nullptr) {
+      return;
+    }
+    int const n = GetWindowTextLengthW(host_uid_hwnd);
+    std::wstring wide(static_cast<std::size_t>(n), L'\0');
+    if (n > 0) {
+      GetWindowTextW(host_uid_hwnd, wide.data(), n + 1);
+    }
+    std::string text;
+    if (!wide.empty()) {
+      int const bytes = WideCharToMultiByte(CP_UTF8, 0, wide.data(),
+                                            static_cast<int>(wide.size()),
+                                            nullptr, 0, nullptr, nullptr);
+      text.resize(static_cast<std::size_t>(bytes));
+      WideCharToMultiByte(CP_UTF8, 0, wide.data(),
+                          static_cast<int>(wide.size()), text.data(), bytes,
+                          nullptr, nullptr);
+    }
+    if (text.empty()) {
+      return;
+    }
+    on_connect_host(std::move(text));
   }
 
   void TrySend() {
@@ -344,10 +399,12 @@ class WinChatPresentationApplication : public Presenter {
   WinChatWindowPresenter::ptr chat_window;
   std::function<void()> on_close;
   std::function<void(std::string)> on_chat_send;
+  std::function<void(std::string)> on_connect_host;
 
   void OnLoad() override {
     chat_window->on_close = on_close;
     chat_window->on_send = on_chat_send;
+    chat_window->on_connect_host = on_connect_host;
     chat_window->OnLoad();
   }
 

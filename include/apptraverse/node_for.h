@@ -23,6 +23,12 @@ class NodeFor : public BaseNode {
     Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
   }
 
+  // Insert an event at a specific journal position (shared replication path).
+  void InsertOrderedEvent(Event::ptr event, std::uint64_t timestamp_us) {
+    EventRecord record{timestamp_us, std::move(event)};
+    InsertEvent(std::move(record));
+  }
+
  private:
   void CaptureBaseStateImpl() override {
     Node::CaptureBaseStateInto(static_cast<ConcreteNode&>(*this));

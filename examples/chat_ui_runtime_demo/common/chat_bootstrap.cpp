@@ -55,7 +55,6 @@ void DistillChatModel(std::filesystem::path const& dir, std::string host_name) {
   ae::Domain domain{ae::Now(), storage};
   auto application = BuildChatGraph(domain, std::move(host_name));
   FinalizeDistilledGraph(*application);
-  CommitHostJoin(*application);
   SaveDistilledRoot(*application);  // runtime-save-ok: distill
   chat::ChatLog("distilled chat_ui_runtime_demo model to " + dir.string());
 }

@@ -49,9 +49,10 @@ class ChatClient : public NodeFor<ChatClient> {
  public:
   explicit ChatClient(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(display_name), AE_MMBR(online))
+  AE_OBJECT_REFLECT(AE_MMBR(display_name), AE_MMBR(aether_uid), AE_MMBR(online))
 
   ImmutableString::ptr display_name;
+  ImmutableString::ptr aether_uid;
   bool online{false};
 
   std::string DisplayNameBytes() const {
@@ -61,6 +62,22 @@ class ChatClient : public NodeFor<ChatClient> {
     display_name.Load();
     assert(display_name.is_loaded());
     return display_name->bytes;
+  }
+
+  std::string AetherUidText() const {
+    if (!aether_uid.is_valid()) {
+      return {};
+    }
+    aether_uid.Load();
+    assert(aether_uid.is_loaded());
+    return aether_uid->bytes;
+  }
+
+  void SetAetherUidText(std::string uid) {
+    auto next = ImmutableString::ptr::Create(ae::CreateWith{*domain});
+    next->bytes = std::move(uid);
+    aether_uid = next;
+    NoteMaterializedChange();
   }
 
   void SetOnline(bool value) {
@@ -108,6 +125,8 @@ class ChatRoom : public NodeFor<ChatRoom> {
   void Apply(ChatMessageEvent const& event);
 
   bool HasClient(std::uint32_t client_id) const;
+  bool HasClientByAetherUid(std::string const& uid) const;
+  ChatClient::ptr FindClientByAetherUid(std::string const& uid) const;
 };
 
 class LocalAetherIdentity : public NodeFor<LocalAetherIdentity> {

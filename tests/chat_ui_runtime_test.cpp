@@ -266,7 +266,7 @@ void TestResetRuntimePresenceStateOnLoad() {
 
 void TestAetherPinMatchesExpectedSha() {
   CHECK(std::string{APPTRAVERSE_AETHER_EXPECTED_SHA} ==
-        "941744cdccb364134da5cc61f4edc613465e843a");
+        "41e00350da4bc08777223fd2c4d3e6f770c50e64");
 #ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const version_cmake =
       std::filesystem::path{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR}
@@ -277,7 +277,7 @@ void TestAetherPinMatchesExpectedSha() {
   std::ifstream in{version_cmake};
   std::string text((std::istreambuf_iterator<char>(in)),
                    std::istreambuf_iterator<char>());
-  CHECK(text.find("941744cdccb364134da5cc61f4edc613465e843a") !=
+  CHECK(text.find("41e00350da4bc08777223fd2c4d3e6f770c50e64") !=
         std::string::npos);
 #else
   CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
@@ -294,8 +294,9 @@ void TestAetherRxScheduleConfiguredInRuntime() {
   std::string text((std::istreambuf_iterator<char>(in)),
                    std::istreambuf_iterator<char>());
   CHECK(text.find("SetReceiveSchedule") != std::string::npos);
-  CHECK(text.find("AETHER_RX_SCHEDULE_SET ping_ms=3000 window_ms=3000") !=
+  CHECK(text.find("AETHER_RX_SCHEDULE_SET ping_ms=1000 window_ms=3000") !=
         std::string::npos);
+  CHECK(text.find("std::chrono::seconds{1}") != std::string::npos);
   CHECK(text.find("std::chrono::seconds{3}") != std::string::npos);
   CHECK(text.find("IsLocallyOnline") != std::string::npos);
   CHECK(text.find("LOCAL_PRESENCE state=online") != std::string::npos);

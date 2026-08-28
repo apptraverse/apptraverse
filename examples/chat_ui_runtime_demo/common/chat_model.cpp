@@ -15,8 +15,36 @@ bool ChatRoom::HasClient(std::uint32_t client_id) const {
   return false;
 }
 
+bool ChatRoom::HasClientByAetherUid(std::string const& uid) const {
+  if (uid.empty()) {
+    return false;
+  }
+  for (auto const& client : clients) {
+    if (client.is_valid() && client->AetherUidText() == uid) {
+      return true;
+    }
+  }
+  return false;
+}
+
+ChatClient::ptr ChatRoom::FindClientByAetherUid(std::string const& uid) const {
+  for (auto const& client : clients) {
+    if (client.is_valid() && client->AetherUidText() == uid) {
+      return client;
+    }
+  }
+  return {};
+}
+
 bool ChatRoom::CanApply(JoinEvent const& event) const {
-  return event.client.is_valid() && !HasClient(event.client.id().id());
+  if (!event.client.is_valid()) {
+    return false;
+  }
+  auto const uid = event.client->AetherUidText();
+  if (!uid.empty() && HasClientByAetherUid(uid)) {
+    return false;
+  }
+  return !HasClient(event.client.id().id());
 }
 
 bool ChatRoom::CanApply(ChatMessageEvent const& event) const {

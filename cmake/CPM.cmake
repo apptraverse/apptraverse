@@ -593,8 +593,12 @@ function(cpm_add_patches)
     else()
       list(APPEND temp_list "&&")
     endif()
-    # Add the patch command to the list
-    list(APPEND temp_list "${PATCH_EXECUTABLE}" "-p1" "<" "${PATCH_FILE}")
+    # Add the patch command to the list. --forward tolerates already-applied patches on rebuild.
+    if(CMAKE_HOST_WIN32)
+      list(APPEND temp_list cmd /c "\"${PATCH_EXECUTABLE}\" -p1 --forward < \"${PATCH_FILE}\" || cd .")
+    else()
+      list(APPEND temp_list "${PATCH_EXECUTABLE}" "-p1" "--forward" "<" "${PATCH_FILE}")
+    endif()
   endforeach()
 
   # Move temp out into parent scope.

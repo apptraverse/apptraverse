@@ -76,3 +76,16 @@ add_test(
   NAME apptraverse_chat_ui_runtime_test
   COMMAND apptraverse_chat_ui_runtime_test
 )
+
+add_executable(apptraverse_shared_journal_test
+  shared_journal_test.cpp
+)
+
+target_link_libraries(apptraverse_shared_journal_test PRIVATE
+  chat_ui_runtime_demo_common
+)
+
+add_test(
+  NAME apptraverse_shared_journal_test
+  COMMAND apptraverse_shared_journal_test
+)

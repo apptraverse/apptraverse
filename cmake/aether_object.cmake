@@ -78,6 +78,11 @@ function(apptraverse_add_full_aether)
   target_include_directories(aether PUBLIC
     $<BUILD_INTERFACE:${_src}>
   )
+  if(libbcrypt_SOURCE_DIR)
+    target_include_directories(aether PUBLIC
+      $<BUILD_INTERFACE:${libbcrypt_SOURCE_DIR}>
+    )
+  endif()
   target_compile_features(aether PUBLIC cxx_std_20)
   target_link_libraries(aether PUBLIC
     aether-tele

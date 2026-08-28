@@ -8,6 +8,7 @@
 
 #include "aether_runtime.h"
 #include "chat_bootstrap.h"
+#include "chat_shared.h"
 #include "win_presenters.h"
 
 namespace apptraverse {
@@ -27,6 +28,7 @@ class WinChatApp {
   std::unique_ptr<ModelRuntime> model_runtime_;
   WinChatPresentationApplication::ptr presentation_;
   ChatAetherRuntime aether_runtime_;
+  ChatSharedBinding shared_;
   HWND dispatcher_{nullptr};
   DWORD ui_thread_{0};
   bool exiting_{false};
