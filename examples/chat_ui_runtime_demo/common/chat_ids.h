@@ -30,7 +30,9 @@ inline constexpr std::int32_t kChatWindowRight = 960;
 inline constexpr std::int32_t kChatWindowBottom = 720;
 inline constexpr std::int32_t kChatSidebarWidth = 180;
 inline constexpr std::int32_t kChatInputHeight = 36;
-inline constexpr std::int32_t kChatAetherIdBlockHeight = 88;
+inline constexpr std::int32_t kChatConnectionBarHeight = 40;
+inline constexpr std::int32_t kChatConnectionBarButtonWidth = 72;
+inline constexpr std::int32_t kChatConnectionBarLabelWidth = 120;
 
 // Stable SelectClient name so restart reloads the same registered client.
 inline constexpr char const* kAetherClientName = "chat-host";

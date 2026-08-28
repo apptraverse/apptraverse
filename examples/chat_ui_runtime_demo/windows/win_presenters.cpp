@@ -26,6 +26,7 @@ WinChatPresentationApplication::ptr BuildPresentationGraph(
 
   chat->room = application.chat_room;
   chat->identity = application.local_aether;
+  chat->application = Application::ptr::MakeFromThis(&application);
   root->chat_window = chat;
   return root;
 }

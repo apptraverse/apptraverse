@@ -65,6 +65,13 @@ inline std::string FormatChatFeedLine(ChatFeedItem const& item) {
   return name + ": " + body;
 }
 
+inline void SetApplicationRole(Application& application, ChatRole role) {
+  if (application.GetRole() == role) {
+    return;
+  }
+  application.SetRole(role);
+}
+
 inline void SetLocalAetherUidText(LocalAetherIdentity& identity,
                                  std::string uid_text) {
   if (identity.UidTextBytes() == uid_text) {

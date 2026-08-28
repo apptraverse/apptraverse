@@ -21,6 +21,7 @@
 #include "chat_ids.h"
 #include "chat_model.h"
 #include "chat_presence.h"
+#include "chat_shared.h"
 
 namespace apptraverse::test {
 namespace {
@@ -324,6 +325,87 @@ void TestAetherPresenceQueryOnlyOnAetherThread() {
 #endif
 }
 
+void TestApplicationRoleModelToUiProjection() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage model_storage;
+  OverlayDomainStorage ui_storage{model_storage};
+  ae::Domain model_domain{ae::Now(), model_storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  auto application = BuildChatGraph(model_domain, "Nikolay");
+  FinalizeDistilledGraph(*application);
+  CHECK(application->GetRole() == ChatRole::Host);
+
+  SetApplicationRole(*application, ChatRole::Client);
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  auto ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+  CHECK(ui_application->GetRole() == ChatRole::Client);
+  CHECK(application->GetRole() == ChatRole::Client);
+}
+
+void TestConnectToHostCommandRegistersPeer() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto application = BuildChatGraph(domain, "Nikolay");
+  FinalizeDistilledGraph(*application);
+  CommitHostJoin(*application);
+
+  ChatSharedBinding binding;
+  InitializeChatSharedBinding(binding, *application, "local-client-uid");
+  std::string const host_uid = "83df0bb1-08ac-45f8-8003-8eeb7fa8f425";
+  ConnectToHostCommand(binding, host_uid);
+  CHECK(binding.instance.shared_room_id == host_uid);
+  CHECK(binding.instance.peers.size() == 1);
+  CHECK(binding.instance.peers[0].remote_aether_uid == host_uid);
+}
+
+void TestConnectionBarPresenterStructure() {
+#ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
+  std::filesystem::path const root{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR};
+  {
+    std::ifstream in{root / "windows/win_connection_bar_presenter.h"};
+    std::string text((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    CHECK(text.find("WinConnectionBarPresenter") != std::string::npos);
+    CHECK(text.find("Your Aether ID:") != std::string::npos);
+    CHECK(text.find("Host Aether ID:") != std::string::npos);
+    CHECK(text.find("L\"Copy\"") != std::string::npos);
+    CHECK(text.find("L\"Connect\"") != std::string::npos);
+    CHECK(text.find("ES_READONLY") != std::string::npos);
+    CHECK(text.find("CopyWideTextToClipboard") != std::string::npos);
+  }
+  {
+    std::ifstream in{root / "windows/win_presenters.h"};
+    std::string text((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    CHECK(text.find("WinConnectionBarPresenter connection_bar") !=
+          std::string::npos);
+    CHECK(text.find("kChatConnectionBarHeight") != std::string::npos);
+    CHECK(text.find("aether_label_hwnd") == std::string::npos);
+    CHECK(text.find("connect_hwnd") == std::string::npos);
+  }
+  {
+    std::ifstream in{root / "windows/main.cpp"};
+    std::string text((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    CHECK(text.find("--host") != std::string::npos);
+    CHECK(text.find("--client") != std::string::npos);
+    CHECK(text.find("cannot be used together") != std::string::npos);
+  }
+  {
+    std::ifstream in{root / "windows/win_app.cpp"};
+    std::string text((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    CHECK(text.find("ConnectToHostCommand") != std::string::npos);
+    CHECK(text.find("SetApplicationRole") != std::string::npos);
+  }
+#else
+  CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
+#endif
+}
+
 void TestNoManualSerializersOrRuntimeClasses() {
 #ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR};
@@ -375,9 +457,12 @@ void TestNoManualSerializersOrRuntimeClasses() {
 }  // namespace apptraverse::test
 
 int main() {
+  using apptraverse::test::TestApplicationRoleModelToUiProjection;
   using apptraverse::test::TestAetherPinMatchesExpectedSha;
   using apptraverse::test::TestAetherPresenceQueryOnlyOnAetherThread;
   using apptraverse::test::TestAetherRxScheduleConfiguredInRuntime;
+  using apptraverse::test::TestConnectToHostCommandRegistersPeer;
+  using apptraverse::test::TestConnectionBarPresenterStructure;
   using apptraverse::test::TestContactPresencePresentationGlyphs;
   using apptraverse::test::TestHostOnlineModelToUiProjection;
   using apptraverse::test::TestLocalAetherUidModelToUiProjection;
@@ -391,10 +476,13 @@ int main() {
   TestLocalChatHostJoinAndMessages();
   TestLocalChatUiProjectionFromDomain();
   TestLocalAetherUidModelToUiProjection();
+  TestApplicationRoleModelToUiProjection();
+  TestConnectToHostCommandRegistersPeer();
   TestLocalPresenceScheduleStateMapping();
   TestContactPresencePresentationGlyphs();
   TestHostOnlineModelToUiProjection();
   TestPresenterTracksNestedClientGeneration();
+  TestConnectionBarPresenterStructure();
   TestResetRuntimePresenceStateOnLoad();
   TestAetherPinMatchesExpectedSha();
   TestAetherRxScheduleConfiguredInRuntime();

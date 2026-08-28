@@ -36,6 +36,12 @@ bool ApplyIncomingSharedEvent(ChatSharedBinding& binding,
 void EnsureSharedPeer(ChatSharedBinding& binding, std::string const& remote_uid,
                       ISharedTransport* transport);
 
+inline void ConnectToHostCommand(ChatSharedBinding& binding,
+                                 std::string host_uid) {
+  binding.instance.shared_room_id = host_uid;
+  EnsureSharedPeer(binding, host_uid, nullptr);
+}
+
 void HandleSharedAck(ChatSharedBinding& binding,
                      std::string const& from_peer_uid,
                      SharedAckFrame const& frame);

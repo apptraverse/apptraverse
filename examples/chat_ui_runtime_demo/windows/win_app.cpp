@@ -85,10 +85,11 @@ void WinChatApp::RequestExit() {
   PostQuitMessage(0);
 }
 
-int WinChatApp::Run(std::filesystem::path const& state_dir) {
+int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
   EnsureChatRegistration();
   EnsureChatPresenterRegistration();
   runtime_ = LoadChatModel(state_dir);
+  SetApplicationRole(*runtime_.application, role);
   chat::ChatLog(
       "HOST_OBJ host_client=" +
       std::to_string(runtime_.application->host_client.id().id()) +
@@ -134,6 +135,9 @@ int WinChatApp::Run(std::filesystem::path const& state_dir) {
   presentation_ = LoadApplication<WinChatPresentationApplication>(
       *runtime_.ui_domain,
       ae::ObjId{chat::ToObjId(chat::ChatObjId::WinPresentationApplication)});
+  presentation_->chat_window->application = runtime_.ui_application;
+  presentation_->chat_window->room = runtime_.ui_application->chat_room;
+  presentation_->chat_window->identity = runtime_.ui_application->local_aether;
   presentation_->on_close = [this] { RequestExit(); };
   presentation_->on_chat_send = [this](std::string text) {
     model_runtime_->Post([this, text = std::move(text)] {
@@ -143,8 +147,7 @@ int WinChatApp::Run(std::filesystem::path const& state_dir) {
   };
   presentation_->on_connect_host = [this](std::string host_uid) {
     model_runtime_->Post([this, host_uid = std::move(host_uid)] {
-      shared_.instance.shared_room_id = host_uid;
-      EnsureSharedPeer(shared_, host_uid, nullptr);
+      ConnectToHostCommand(shared_, std::move(host_uid));
     });
   };
   presentation_->OnLoad();

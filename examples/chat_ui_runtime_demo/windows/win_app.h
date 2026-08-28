@@ -15,7 +15,7 @@ namespace apptraverse {
 
 class WinChatApp {
  public:
-  int Run(std::filesystem::path const& state_dir);
+  int Run(std::filesystem::path const& state_dir, ChatRole role);
 
   void OnPublished(std::uint32_t root_id, PublicationChannel<3>* channel);
 

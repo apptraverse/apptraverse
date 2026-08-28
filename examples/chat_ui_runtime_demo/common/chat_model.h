@@ -16,6 +16,11 @@
 
 namespace apptraverse {
 
+enum class ChatRole : std::uint32_t {
+  Host = 0,
+  Client = 1,
+};
+
 class JoinEvent;
 class ChatMessageEvent;
 
@@ -169,11 +174,16 @@ class Application : public ae::Obj {
   explicit Application(ae::ObjProp prop) : Obj{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(chat_room), AE_MMBR(host_client),
-                    AE_MMBR(local_aether))
+                    AE_MMBR(local_aether), AE_MMBR(role))
 
   ChatRoom::ptr chat_room;
   ChatClient::ptr host_client;
   LocalAetherIdentity::ptr local_aether;
+  std::uint32_t role{static_cast<std::uint32_t>(ChatRole::Host)};
+
+  ChatRole GetRole() const { return static_cast<ChatRole>(role); }
+
+  void SetRole(ChatRole value) { role = static_cast<std::uint32_t>(value); }
 };
 
 void EnsureChatRegistration();

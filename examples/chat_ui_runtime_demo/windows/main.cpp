@@ -42,6 +42,14 @@ std::string DefaultHostName() {
   return apptraverse::chat::kDefaultHostName;
 }
 
+void PrintUsage() {
+  std::cerr
+      << "usage:\n"
+      << "  win32_chat_ui_runtime_demo.exe --distill [dir] [--name NAME]\n"
+      << "  win32_chat_ui_runtime_demo.exe --host --state-dir <dir>\n"
+      << "  win32_chat_ui_runtime_demo.exe --client --state-dir <dir>\n";
+}
+
 void DistillChat(std::filesystem::path const& dir, std::string host_name) {
   apptraverse::EnsureChatRegistration();
   apptraverse::EnsureChatPresenterRegistration();
@@ -62,6 +70,8 @@ void DistillChat(std::filesystem::path const& dir, std::string host_name) {
 
 int main(int argc, char** argv) {
   bool distill = false;
+  bool host = false;
+  bool client = false;
   std::filesystem::path state_dir{"chat_ui_runtime_state"};
   std::string host_name = DefaultHostName();
   for (int i = 1; i < argc; ++i) {
@@ -75,6 +85,10 @@ int main(int argc, char** argv) {
       state_dir = argv[++i];
     } else if (arg == "--name" && i + 1 < argc) {
       host_name = argv[++i];
+    } else if (arg == "--host") {
+      host = true;
+    } else if (arg == "--client") {
+      client = true;
     }
   }
 
@@ -84,11 +98,21 @@ int main(int argc, char** argv) {
     DistillChat(state_dir, std::move(host_name));
     return 0;
   }
+  if (host && client) {
+    std::cerr << "error: --host and --client cannot be used together\n";
+    return 1;
+  }
+  if (!host && !client) {
+    PrintUsage();
+    return 1;
+  }
   if (!std::filesystem::exists(state_dir)) {
     std::cerr << "distilled state missing: " << state_dir.string()
               << "\nrun with --distill <dir>\n";
     return 1;
   }
+  apptraverse::ChatRole const role =
+      host ? apptraverse::ChatRole::Host : apptraverse::ChatRole::Client;
   apptraverse::WinChatApp app;
-  return app.Run(state_dir);
+  return app.Run(state_dir, role);
 }
