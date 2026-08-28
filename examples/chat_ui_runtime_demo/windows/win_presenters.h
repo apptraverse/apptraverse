@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <string>
+#include <unordered_map>
 
 #include "apptraverse/object_macros.h"
 #include "apptraverse/presenter.h"
@@ -60,6 +61,7 @@ class WinChatWindowPresenter : public Presenter {
     last_room_generation_ = room->Generation();
     last_identity_generation_ =
         identity.is_valid() ? identity->Generation() : 0;
+    SyncClientGenerations();
     RebuildFromDomain();
   }
 
@@ -72,6 +74,9 @@ class WinChatWindowPresenter : public Presenter {
     if (identity.is_valid() &&
         identity->Generation() != last_identity_generation_) {
       last_identity_generation_ = identity->Generation();
+      changed = true;
+    }
+    if (SyncClientGenerations()) {
       changed = true;
     }
     if (changed) {
@@ -299,7 +304,30 @@ class WinChatWindowPresenter : public Presenter {
   WNDPROC input_prev_proc_{nullptr};
   std::uint64_t last_room_generation_{0};
   std::uint64_t last_identity_generation_{0};
+  std::unordered_map<std::uint32_t, std::uint64_t> last_client_generations_;
   bool creating_{false};
+
+  bool SyncClientGenerations() {
+    if (!room.is_valid()) {
+      return false;
+    }
+    bool changed = false;
+    for (auto const& client : room->clients) {
+      if (!client.is_valid()) {
+        continue;
+      }
+      client.Load();
+      auto const id = client.id().id();
+      auto const generation = client->Generation();
+      auto const tracked = last_client_generations_.find(id);
+      if (tracked == last_client_generations_.end() ||
+          tracked->second != generation) {
+        last_client_generations_[id] = generation;
+        changed = true;
+      }
+    }
+    return changed;
+  }
 };
 
 class WinChatPresentationApplication : public Presenter {

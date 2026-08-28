@@ -76,6 +76,7 @@ ChatRuntime LoadChatModel(std::filesystem::path const& dir) {
       std::make_unique<ae::Domain>(ae::Now(), *runtime.ui_storage);
   runtime.application = LoadApplication<Application>(
       *runtime.model_domain, ae::ObjId{ToObjId(ChatObjId::Application)});
+  ResetRuntimePresenceState(*runtime.application);
   return runtime;
 }
 

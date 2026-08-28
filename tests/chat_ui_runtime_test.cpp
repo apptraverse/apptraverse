@@ -238,6 +238,32 @@ void TestHostOnlineModelToUiProjection() {
   CHECK(ui_application->chat_room->clients[0]->online);
 }
 
+void TestPresenterTracksNestedClientGeneration() {
+#ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
+  std::ifstream in{std::filesystem::path{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR} /
+                   "windows/win_presenters.h"};
+  std::string text((std::istreambuf_iterator<char>(in)),
+                   std::istreambuf_iterator<char>());
+  CHECK(text.find("last_client_generations_") != std::string::npos);
+  CHECK(text.find("SyncClientGenerations") != std::string::npos);
+#else
+  CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
+#endif
+}
+
+void TestResetRuntimePresenceStateOnLoad() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{ae::Now(), model_storage};
+  auto application = BuildChatGraph(model_domain, "Nikolay");
+  CommitHostJoin(*application);
+  application->host_client->SetOnline(true);
+  ResetRuntimePresenceState(*application);
+  CHECK(!application->host_client->online);
+  CHECK(application->chat_room->clients.size() == 1);
+  CHECK(!application->chat_room->clients[0]->online);
+}
+
 void TestAetherPinMatchesExpectedSha() {
   CHECK(std::string{APPTRAVERSE_AETHER_EXPECTED_SHA} ==
         "941744cdccb364134da5cc61f4edc613465e843a");
@@ -357,6 +383,8 @@ int main() {
   using apptraverse::test::TestLocalChatHostJoinAndMessages;
   using apptraverse::test::TestLocalChatUiProjectionFromDomain;
   using apptraverse::test::TestLocalPresenceScheduleStateMapping;
+  using apptraverse::test::TestPresenterTracksNestedClientGeneration;
+  using apptraverse::test::TestResetRuntimePresenceStateOnLoad;
   using apptraverse::test::TestNoManualSerializersOrRuntimeClasses;
 
   TestLocalChatHostJoinAndMessages();
@@ -365,6 +393,8 @@ int main() {
   TestLocalPresenceScheduleStateMapping();
   TestContactPresencePresentationGlyphs();
   TestHostOnlineModelToUiProjection();
+  TestPresenterTracksNestedClientGeneration();
+  TestResetRuntimePresenceStateOnLoad();
   TestAetherPinMatchesExpectedSha();
   TestAetherRxScheduleConfiguredInRuntime();
   TestAetherPresenceQueryOnlyOnAetherThread();

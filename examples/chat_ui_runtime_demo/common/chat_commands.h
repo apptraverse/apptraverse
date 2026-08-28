@@ -77,6 +77,19 @@ inline void SetHostClientOnline(ChatClient& client, bool online) {
   client.SetOnline(online);
 }
 
+inline void ResetRuntimePresenceState(Application& application) {
+  if (application.host_client.is_valid()) {
+    application.host_client->online = false;
+  }
+  if (application.chat_room.is_valid()) {
+    for (auto const& client : application.chat_room->clients) {
+      if (client.is_valid()) {
+        client->online = false;
+      }
+    }
+  }
+}
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_CHAT_COMMANDS_H_

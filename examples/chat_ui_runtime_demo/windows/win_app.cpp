@@ -55,6 +55,15 @@ void WinChatApp::ApplyPublication(std::uint32_t root_id,
   auto const aether_id = chat::ToObjId(chat::ChatObjId::LocalAetherIdentity);
   if (presentation_ && (applied.root_id == chat_id ||
                         applied.root_id == aether_id)) {
+    if (applied.root_id == chat_id &&
+        runtime_.ui_application->chat_room->clients.size() > 0) {
+      auto const& ui_client = runtime_.ui_application->chat_room->clients[0];
+      if (ui_client.is_valid()) {
+        ui_client.Load();
+        chat::ChatLog("UI_PRESENCE room_client0_online=" +
+                      std::to_string(ui_client->online ? 1 : 0));
+      }
+    }
     presentation_->PresentChatWindow();
   }
   chat::ChatLog("ui apply root=" + std::to_string(applied.root_id) +
@@ -80,6 +89,14 @@ int WinChatApp::Run(std::filesystem::path const& state_dir) {
   EnsureChatRegistration();
   EnsureChatPresenterRegistration();
   runtime_ = LoadChatModel(state_dir);
+  chat::ChatLog(
+      "HOST_OBJ host_client=" +
+      std::to_string(runtime_.application->host_client.id().id()) +
+      " room_client0=" +
+      (runtime_.application->chat_room->clients.empty()
+           ? std::string{"none"}
+           : std::to_string(
+                 runtime_.application->chat_room->clients[0].id().id())));
   auto ui_root = CopyModelGraphToUiDomain(*runtime_.application,
                                           *runtime_.ui_domain,
                                           *runtime_.ui_storage);
@@ -142,6 +159,8 @@ int WinChatApp::Run(std::filesystem::path const& state_dir) {
       [this](bool online) {
         model_runtime_->Post([app = &*runtime_.application, online] {
           SetHostClientOnline(*app->host_client, online);
+          chat::ChatLog("MODEL_PRESENCE host_online=" +
+                        std::to_string(app->host_client->online ? 1 : 0));
         });
       });
 
@@ -161,6 +180,7 @@ int WinChatApp::Run(std::filesystem::path const& state_dir) {
     model_runtime_->RequestStop();
     model_runtime_->Join();
   }
+  ResetRuntimePresenceState(*runtime_.application);
   SaveDistilledRoot(*runtime_.application);  // runtime-save-ok: shutdown
   return static_cast<int>(msg.wParam);
 }

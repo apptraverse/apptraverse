@@ -18,6 +18,46 @@ namespace {
 
 auto constexpr kPresenceQueryPeriod = std::chrono::seconds{3};
 
+char const* PeerScheduleStateName(ae::PeerScheduleState state) {
+  switch (state) {
+    case ae::PeerScheduleState::kExpected:
+      return "Expected";
+    case ae::PeerScheduleState::kMissedDeadline:
+      return "MissedDeadline";
+    case ae::PeerScheduleState::kUnknown:
+      return "Unknown";
+  }
+  return "Unknown";
+}
+
+std::int64_t MsSince(ae::TimePoint earlier, ae::TimePoint later) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(later - earlier)
+      .count();
+}
+
+void LogPresenceQuery(ae::Uid const& uid,
+                      ae::Result<ae::PeerReceiveSchedule, int> const& res) {
+  auto const now = ae::Now();
+  if (!res) {
+    chat::ChatLog("PRESENCE_QUERY uid=" + ae::Format("{}", uid) +
+                  " success=0 state=error last_online_delta_ms=0 " +
+                  "next_ping_delta_ms=0 error=" +
+                  std::to_string(res.error()));
+    return;
+  }
+  auto const& schedule = res.value();
+  auto const last_online_delta_ms = MsSince(schedule.last_online, now);
+  auto const next_ping_delta_ms =
+      schedule.next_ping_deadline.has_value()
+          ? MsSince(now, *schedule.next_ping_deadline)
+          : 0;
+  chat::ChatLog(
+      "PRESENCE_QUERY uid=" + ae::Format("{}", uid) + " success=1 state=" +
+      PeerScheduleStateName(schedule.state) +
+      " last_online_delta_ms=" + std::to_string(last_online_delta_ms) +
+      " next_ping_delta_ms=" + std::to_string(next_ping_delta_ms));
+}
+
 class LocalPresencePoller {
  public:
   void Configure(ae::Client::ptr client, ae::Uid local_uid,
@@ -54,6 +94,8 @@ class LocalPresencePoller {
   void OnQueryResult(ae::Result<ae::PeerReceiveSchedule, int> const& res) {
     query_inflight_ = false;
     next_query_at_ = ae::Now() + kPresenceQueryPeriod;
+
+    LogPresenceQuery(local_uid_, res);
 
     bool const online =
         res ? OnlineFromPeerScheduleState(
