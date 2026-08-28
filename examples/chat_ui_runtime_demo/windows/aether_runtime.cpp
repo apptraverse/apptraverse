@@ -1,16 +1,87 @@
 #include "aether_runtime.h"
 
 #include <fstream>
+#include <optional>
 #include <utility>
 
 #include "aether/all.h"
+#include "aether/ae_actions/query_peer_receive_schedule.h"
 
 #include "apptraverse/directory_domain_storage.h"
 
 #include "chat_ids.h"
 #include "chat_log.h"
+#include "chat_presence.h"
 
 namespace apptraverse {
+namespace {
+
+auto constexpr kPresenceQueryPeriod = std::chrono::seconds{3};
+
+class LocalPresencePoller {
+ public:
+  void Configure(ae::Client::ptr client, ae::Uid local_uid,
+                 ChatAetherRuntime::PresenceCallback on_presence) {
+    client_ = std::move(client);
+    local_uid_ = local_uid;
+    on_presence_ = std::move(on_presence);
+    query_inflight_ = false;
+    last_reported_online_.reset();
+    next_query_at_ = ae::Now();
+  }
+
+  void Tick(ae::TimePoint now) {
+    if (!client_ || query_inflight_ || now < next_query_at_) {
+      return;
+    }
+    BeginQuery();
+  }
+
+ private:
+  void BeginQuery() {
+    if (!client_ || query_inflight_) {
+      return;
+    }
+    query_inflight_ = true;
+    query_sub_.Reset();
+    auto& action = client_->QueryPeerReceiveSchedule(local_uid_);
+    query_sub_ = action.result_event().Subscribe(
+        [this](ae::Result<ae::PeerReceiveSchedule, int> const& res) {
+          OnQueryResult(res);
+        });
+  }
+
+  void OnQueryResult(ae::Result<ae::PeerReceiveSchedule, int> const& res) {
+    query_inflight_ = false;
+    next_query_at_ = ae::Now() + kPresenceQueryPeriod;
+
+    bool const online =
+        res ? OnlineFromPeerScheduleState(
+                  static_cast<std::uint32_t>(res.value().state))
+            : false;
+
+    if (last_reported_online_.has_value() &&
+        *last_reported_online_ == online) {
+      return;
+    }
+    last_reported_online_ = online;
+    chat::ChatLog(online ? "LOCAL_PRESENCE state=online"
+                         : "LOCAL_PRESENCE state=offline");
+    if (on_presence_) {
+      on_presence_(online);
+    }
+  }
+
+  ae::Client::ptr client_;
+  ae::Uid local_uid_{};
+  ChatAetherRuntime::PresenceCallback on_presence_;
+  ae::Subscription query_sub_;
+  bool query_inflight_{false};
+  std::optional<bool> last_reported_online_;
+  ae::TimePoint next_query_at_{};
+};
+
+}  // namespace
 
 ChatAetherRuntime::~ChatAetherRuntime() {
   RequestStop();
@@ -18,12 +89,14 @@ ChatAetherRuntime::~ChatAetherRuntime() {
 }
 
 void ChatAetherRuntime::Start(std::filesystem::path aether_state_dir,
-                              UidCallback on_uid) {
+                              UidCallback on_uid,
+                              PresenceCallback on_presence) {
   RequestStop();
   Join();
   stop_ = false;
   thread_ = std::thread(&ChatAetherRuntime::ThreadMain, this,
-                        std::move(aether_state_dir), std::move(on_uid));
+                        std::move(aether_state_dir), std::move(on_uid),
+                        std::move(on_presence));
 }
 
 void ChatAetherRuntime::RequestStop() { stop_ = true; }
@@ -35,7 +108,8 @@ void ChatAetherRuntime::Join() {
 }
 
 void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
-                                   UidCallback on_uid) {
+                                   UidCallback on_uid,
+                                   PresenceCallback on_presence) {
   try {
     std::filesystem::create_directories(aether_state_dir);
     auto state_dir_holder =
@@ -94,6 +168,8 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
       chat::ChatLog("AETHER_RX_SCHEDULE_SET ping_ms=3000 window_ms=3000");
     }
 
+    static_cast<void>(client->cloud_connection());
+
     aether_app->aether().Save();  // runtime-save-ok
 
     chat::ChatLog("aether client uid=" + uid_text);
@@ -106,12 +182,19 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
       on_uid(uid_text);
     }
 
+    LocalPresencePoller presence;
+    if (on_presence) {
+      presence.Configure(client, client->uid(), std::move(on_presence));
+    }
+
     while (!stop_ && !aether_app->IsExited()) {
-      auto next = aether_app->Update(ae::Now());
+      auto const now = ae::Now();
+      auto next = aether_app->Update(now);
+      presence.Tick(now);
       if (stop_) {
         break;
       }
-      auto const wake_cap = ae::Now() + std::chrono::milliseconds{100};
+      auto const wake_cap = now + std::chrono::milliseconds{100};
       if (next > wake_cap) {
         next = wake_cap;
       }

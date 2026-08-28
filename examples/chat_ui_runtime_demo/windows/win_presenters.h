@@ -10,6 +10,7 @@
 #include "chat_commands.h"
 #include "chat_ids.h"
 #include "chat_model.h"
+#include "chat_presence.h"
 #include "win_util.h"
 
 namespace apptraverse {
@@ -288,7 +289,8 @@ class WinChatWindowPresenter : public Presenter {
         continue;
       }
       client.Load();
-      auto wide = Utf8ToWide(client->DisplayNameBytes());
+      auto wide = FormatContactPresenceLabel(client->online,
+                                            Utf8ToWide(client->DisplayNameBytes()));
       SendMessageW(contacts_hwnd, LB_ADDSTRING, 0,
                    reinterpret_cast<LPARAM>(wide.c_str()));
     }

@@ -49,9 +49,10 @@ class ChatClient : public NodeFor<ChatClient> {
  public:
   explicit ChatClient(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(display_name))
+  AE_OBJECT_REFLECT(AE_MMBR(display_name), AE_MMBR(online))
 
   ImmutableString::ptr display_name;
+  bool online{false};
 
   std::string DisplayNameBytes() const {
     if (!display_name.is_valid()) {
@@ -60,6 +61,14 @@ class ChatClient : public NodeFor<ChatClient> {
     display_name.Load();
     assert(display_name.is_loaded());
     return display_name->bytes;
+  }
+
+  void SetOnline(bool value) {
+    if (online == value) {
+      return;
+    }
+    online = value;
+    NoteMaterializedChange();
   }
 };
 

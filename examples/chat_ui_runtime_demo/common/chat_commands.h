@@ -73,6 +73,10 @@ inline void SetLocalAetherUidText(LocalAetherIdentity& identity,
   identity.SetUidTextBytes(std::move(uid_text));
 }
 
+inline void SetHostClientOnline(ChatClient& client, bool online) {
+  client.SetOnline(online);
+}
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_CHAT_COMMANDS_H_

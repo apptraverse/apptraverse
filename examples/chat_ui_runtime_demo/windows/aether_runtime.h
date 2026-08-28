@@ -16,6 +16,7 @@ namespace apptraverse {
 class ChatAetherRuntime {
  public:
   using UidCallback = std::function<void(std::string uid_text)>;
+  using PresenceCallback = std::function<void(bool online)>;
 
   ChatAetherRuntime() = default;
   ~ChatAetherRuntime();
@@ -23,12 +24,14 @@ class ChatAetherRuntime {
   ChatAetherRuntime(ChatAetherRuntime const&) = delete;
   ChatAetherRuntime& operator=(ChatAetherRuntime const&) = delete;
 
-  void Start(std::filesystem::path aether_state_dir, UidCallback on_uid);
+  void Start(std::filesystem::path aether_state_dir, UidCallback on_uid,
+             PresenceCallback on_presence = {});
   void RequestStop();
   void Join();
 
  private:
-  void ThreadMain(std::filesystem::path aether_state_dir, UidCallback on_uid);
+  void ThreadMain(std::filesystem::path aether_state_dir, UidCallback on_uid,
+                  PresenceCallback on_presence);
 
   std::atomic<bool> stop_{false};
   std::thread thread_;

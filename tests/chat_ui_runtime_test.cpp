@@ -20,6 +20,7 @@
 #include "chat_commands.h"
 #include "chat_ids.h"
 #include "chat_model.h"
+#include "chat_presence.h"
 
 namespace apptraverse::test {
 namespace {
@@ -166,6 +167,77 @@ void TestLocalAetherUidModelToUiProjection() {
   CHECK(application->local_aether->UidTextBytes() == uid);
 }
 
+void TestLocalPresenceScheduleStateMapping() {
+  CHECK(OnlineFromPeerScheduleState(kPeerScheduleStateExpected));
+  CHECK(!OnlineFromPeerScheduleState(kPeerScheduleStateMissedDeadline));
+  CHECK(!OnlineFromPeerScheduleState(kPeerScheduleStateUnknown));
+  CHECK(OnlineFromQuerySuccess(true, kPeerScheduleStateExpected));
+  CHECK(!OnlineFromQuerySuccess(true, kPeerScheduleStateMissedDeadline));
+  CHECK(!OnlineFromQuerySuccess(true, kPeerScheduleStateUnknown));
+  CHECK(!OnlineFromQuerySuccess(false, kPeerScheduleStateExpected));
+}
+
+void TestContactPresencePresentationGlyphs() {
+  CHECK(ContactPresencePrefix(true) == L"\u25CF ");
+  CHECK(ContactPresencePrefix(false) == L"\u25CB ");
+  CHECK(FormatContactPresenceLabel(true, L"Nikolay") == L"\u25CF Nikolay");
+  CHECK(FormatContactPresenceLabel(false, L"Nikolay") == L"\u25CB Nikolay");
+}
+
+void TestHostOnlineModelToUiProjection() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage model_storage;
+  OverlayDomainStorage ui_storage{model_storage};
+  ae::Domain model_domain{ae::Now(), model_storage};
+  ae::Domain ui_domain{ae::Now(), ui_storage};
+  auto application = BuildChatGraph(model_domain, "Nikolay");
+  FinalizeDistilledGraph(*application);
+  CommitHostJoin(*application);
+  CHECK(!application->host_client->online);
+
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  auto ui_application = Application::ptr::MakeFromThis(
+      static_cast<Application*>(ui_root.get()));
+
+  std::vector<UiApplyResult> applies;
+  UiMirror* mirror_ptr = nullptr;
+  UiMirror mirror{
+      ui_domain, ui_storage,
+      [&](std::uint32_t root_id, PublicationChannel<3>* channel) {
+        applies.push_back(mirror_ptr->ApplyPublished(*channel, root_id));
+      }};
+  mirror_ptr = &mirror;
+  ModelRuntime runtime{*application, mirror};
+  runtime.AddPresentationRoot(*application->chat_room);
+
+  runtime.Post([&] { SetHostClientOnline(*application->host_client, true); });
+  runtime.PumpOnce(std::chrono::steady_clock::now());
+  CHECK(!applies.empty());
+  CHECK(applies.back().root_id == chat::ToObjId(chat::ChatObjId::ChatRoom));
+  auto const generation_online = application->host_client->Generation();
+  CHECK(application->host_client->online);
+  CHECK(ui_application->chat_room->clients[0]->online);
+
+  applies.clear();
+  runtime.Post([&] { SetHostClientOnline(*application->host_client, true); });
+  runtime.PumpOnce(std::chrono::steady_clock::now());
+  CHECK(application->host_client->Generation() == generation_online);
+  CHECK(applies.empty());
+
+  runtime.Post([&] { SetHostClientOnline(*application->host_client, false); });
+  runtime.PumpOnce(std::chrono::steady_clock::now());
+  CHECK(!applies.empty());
+  CHECK(application->host_client->Generation() > generation_online);
+  CHECK(!application->host_client->online);
+  CHECK(!ui_application->chat_room->clients[0]->online);
+
+  runtime.Post([&] { SetHostClientOnline(*application->host_client, true); });
+  runtime.PumpOnce(std::chrono::steady_clock::now());
+  CHECK(application->host_client->online);
+  CHECK(ui_application->chat_room->clients[0]->online);
+}
+
 void TestAetherPinMatchesExpectedSha() {
   CHECK(std::string{APPTRAVERSE_AETHER_EXPECTED_SHA} ==
         "941744cdccb364134da5cc61f4edc613465e843a");
@@ -199,7 +271,27 @@ void TestAetherRxScheduleConfiguredInRuntime() {
   CHECK(text.find("AETHER_RX_SCHEDULE_SET ping_ms=3000 window_ms=3000") !=
         std::string::npos);
   CHECK(text.find("std::chrono::seconds{3}") != std::string::npos);
-  CHECK(text.find("QueryPeerReceiveSchedule") == std::string::npos);
+  CHECK(text.find("QueryPeerReceiveSchedule") != std::string::npos);
+  CHECK(text.find("LOCAL_PRESENCE state=online") != std::string::npos);
+  CHECK(text.find("cloud_connection()") != std::string::npos);
+#else
+  CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
+#endif
+}
+
+void TestAetherPresenceQueryOnlyOnAetherThread() {
+#ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
+  std::filesystem::path const root{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR};
+  for (auto const& rel :
+       {std::filesystem::path{"windows/win_app.cpp"},
+        std::filesystem::path{"windows/win_presenters.h"},
+        std::filesystem::path{"common/chat_commands.h"},
+        std::filesystem::path{"common/chat_model.h"}}) {
+    std::ifstream in{root / rel};
+    std::string text((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    CHECK(text.find("QueryPeerReceiveSchedule") == std::string::npos);
+  }
 #else
   CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
 #endif
@@ -257,17 +349,25 @@ void TestNoManualSerializersOrRuntimeClasses() {
 
 int main() {
   using apptraverse::test::TestAetherPinMatchesExpectedSha;
+  using apptraverse::test::TestAetherPresenceQueryOnlyOnAetherThread;
   using apptraverse::test::TestAetherRxScheduleConfiguredInRuntime;
+  using apptraverse::test::TestContactPresencePresentationGlyphs;
+  using apptraverse::test::TestHostOnlineModelToUiProjection;
   using apptraverse::test::TestLocalAetherUidModelToUiProjection;
   using apptraverse::test::TestLocalChatHostJoinAndMessages;
   using apptraverse::test::TestLocalChatUiProjectionFromDomain;
+  using apptraverse::test::TestLocalPresenceScheduleStateMapping;
   using apptraverse::test::TestNoManualSerializersOrRuntimeClasses;
 
   TestLocalChatHostJoinAndMessages();
   TestLocalChatUiProjectionFromDomain();
   TestLocalAetherUidModelToUiProjection();
+  TestLocalPresenceScheduleStateMapping();
+  TestContactPresencePresentationGlyphs();
+  TestHostOnlineModelToUiProjection();
   TestAetherPinMatchesExpectedSha();
   TestAetherRxScheduleConfiguredInRuntime();
+  TestAetherPresenceQueryOnlyOnAetherThread();
   TestNoManualSerializersOrRuntimeClasses();
   std::cout << "chat_ui_runtime_test OK\n";
   return 0;

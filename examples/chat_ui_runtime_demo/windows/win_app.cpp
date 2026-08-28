@@ -131,12 +131,19 @@ int WinChatApp::Run(std::filesystem::path const& state_dir) {
   model_runtime_->Start();
 
   auto aether_dir = state_dir / "aether";
-  aether_runtime_.Start(aether_dir, [this](std::string uid_text) {
-    model_runtime_->Post([app = &*runtime_.application,
-                          uid_text = std::move(uid_text)] {
-      SetLocalAetherUidText(*app->local_aether, std::move(uid_text));
-    });
-  });
+  aether_runtime_.Start(
+      aether_dir,
+      [this](std::string uid_text) {
+        model_runtime_->Post([app = &*runtime_.application,
+                              uid_text = std::move(uid_text)] {
+          SetLocalAetherUidText(*app->local_aether, std::move(uid_text));
+        });
+      },
+      [this](bool online) {
+        model_runtime_->Post([app = &*runtime_.application, online] {
+          SetHostClientOnline(*app->host_client, online);
+        });
+      });
 
   MSG msg{};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
