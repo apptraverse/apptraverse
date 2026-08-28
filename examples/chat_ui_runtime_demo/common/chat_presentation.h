@@ -27,6 +27,7 @@ struct ChatContactPresentationItem {
   std::string display_name;
   std::string aether_uid;
   bool online{false};
+  bool is_local{false};
 };
 
 struct ChatPresentationSnapshot {

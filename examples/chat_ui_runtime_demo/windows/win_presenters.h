@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "apptraverse/object_macros.h"
 #include "apptraverse/presenter.h"
@@ -160,7 +161,24 @@ class WinChatWindowPresenter : public Presenter {
           on_close();
         }
         return 0;
+      case WM_MEASUREITEM:
+        if (reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->CtlID ==
+            static_cast<UINT>(kIdContacts)) {
+          reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight =
+              contact_row_height_;
+          return TRUE;
+        }
+        return DefWindowProcW(wnd, msg, wparam, lparam);
+      case WM_DRAWITEM: {
+        auto* draw = reinterpret_cast<DRAWITEMSTRUCT*>(lparam);
+        if (draw->CtlID == static_cast<UINT>(kIdContacts)) {
+          DrawContactRow(*draw);
+          return TRUE;
+        }
+        return DefWindowProcW(wnd, msg, wparam, lparam);
+      }
       case WM_DESTROY:
+        ReleaseContactFonts();
         hwnd = nullptr;
         return 0;
       default:
@@ -202,9 +220,12 @@ class WinChatWindowPresenter : public Presenter {
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdInput)), inst, nullptr);
     contacts_hwnd = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"LISTBOX", L"",
-        WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOINTEGRALHEIGHT, 0, 0, 0, 0,
-        wnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdContacts)), inst,
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOINTEGRALHEIGHT |
+            LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
+        0, 0, 0, 0, wnd,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdContacts)), inst,
         nullptr);
+    EnsureContactFonts();
     send_hwnd = CreateWindowExW(
         0, L"BUTTON", L"Send", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0,
         0, wnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdSend)), inst,
@@ -307,11 +328,87 @@ class WinChatWindowPresenter : public Presenter {
     }
 
     SendMessageW(contacts_hwnd, LB_RESETCONTENT, 0, 0);
+    contact_rows_.clear();
     for (auto const& contact : snapshot.contacts) {
-      auto wide = FormatContactPresenceLabel(
+      ContactRow row;
+      row.text = FormatContactPresenceLabel(
           contact.online, Utf8ToWide(contact.display_name));
+      row.is_local = contact.is_local;
+      contact_rows_.push_back(std::move(row));
       SendMessageW(contacts_hwnd, LB_ADDSTRING, 0,
-                   reinterpret_cast<LPARAM>(wide.c_str()));
+                   reinterpret_cast<LPARAM>(contact_rows_.back().text.c_str()));
+    }
+  }
+
+  struct ContactRow {
+    std::wstring text;
+    bool is_local{false};
+  };
+
+  void EnsureContactFonts() {
+    if (contact_normal_font_ != nullptr) {
+      return;
+    }
+    NONCLIENTMETRICSW metrics{};
+    metrics.cbSize = sizeof(metrics);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics,
+                          0);
+    LOGFONTW lf = metrics.lfMessageFont;
+    contact_normal_font_ = CreateFontIndirectW(&lf);
+    lf.lfWeight = FW_BOLD;
+    contact_bold_font_ = CreateFontIndirectW(&lf);
+    HDC dc = GetDC(hwnd);
+    if (dc != nullptr) {
+      HFONT old = static_cast<HFONT>(SelectObject(dc, contact_normal_font_));
+      TEXTMETRICW tm{};
+      GetTextMetricsW(dc, &tm);
+      contact_row_height_ = tm.tmHeight + tm.tmExternalLeading + 4;
+      SelectObject(dc, old);
+      ReleaseDC(hwnd, dc);
+    } else {
+      contact_row_height_ = 18;
+    }
+  }
+
+  void ReleaseContactFonts() {
+    if (contact_normal_font_ != nullptr) {
+      DeleteObject(contact_normal_font_);
+      contact_normal_font_ = nullptr;
+    }
+    if (contact_bold_font_ != nullptr) {
+      DeleteObject(contact_bold_font_);
+      contact_bold_font_ = nullptr;
+    }
+  }
+
+  void DrawContactRow(DRAWITEMSTRUCT const& draw) {
+    if (draw.itemID == static_cast<UINT>(-1) ||
+        draw.itemID >= contact_rows_.size()) {
+      return;
+    }
+    EnsureContactFonts();
+    auto const& row = contact_rows_[draw.itemID];
+    COLORREF bg = (draw.itemState & ODS_SELECTED) != 0
+                      ? GetSysColor(COLOR_HIGHLIGHT)
+                      : GetSysColor(COLOR_WINDOW);
+    COLORREF fg = (draw.itemState & ODS_SELECTED) != 0
+                      ? GetSysColor(COLOR_HIGHLIGHTTEXT)
+                      : GetSysColor(COLOR_WINDOWTEXT);
+    HBRUSH brush = CreateSolidBrush(bg);
+    FillRect(draw.hDC, &draw.rcItem, brush);
+    DeleteObject(brush);
+    SetBkMode(draw.hDC, TRANSPARENT);
+    SetTextColor(draw.hDC, fg);
+    HFONT font =
+        row.is_local ? contact_bold_font_ : contact_normal_font_;
+    HFONT old = static_cast<HFONT>(SelectObject(draw.hDC, font));
+    RECT text_rect = draw.rcItem;
+    text_rect.left += 4;
+    DrawTextW(draw.hDC, row.text.c_str(), -1, &text_rect,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(draw.hDC, old);
+    if ((draw.itemState & ODS_FOCUS) != 0) {
+      DrawFocusRect(draw.hDC, &draw.rcItem);
     }
   }
 
@@ -319,6 +416,10 @@ class WinChatWindowPresenter : public Presenter {
   std::uint64_t last_room_generation_{0};
   std::uint64_t last_identity_generation_{0};
   std::unordered_map<std::uint32_t, std::uint64_t> last_client_generations_;
+  std::vector<ContactRow> contact_rows_;
+  HFONT contact_normal_font_{nullptr};
+  HFONT contact_bold_font_{nullptr};
+  int contact_row_height_{18};
   bool creating_{false};
 
   bool SyncClientGenerations() {

@@ -88,10 +88,14 @@ void WinChatApp::OnPeerReady(std::string remote_uid) {
     return;
   }
   model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
+    auto* peer = shared_.instance.FindPeer(remote_uid);
+    bool const was_ready = peer != nullptr && peer->channel_ready;
     SetSharedPeerChannelReady(shared_, remote_uid, true);
-    MonitorRemote(remote_uid);
-    TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
-                       shared_transport_.get());
+    MonitorRemoteOnce(remote_uid);
+    if (!was_ready) {
+      TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
+                         shared_transport_.get());
+    }
   });
 }
 
@@ -101,6 +105,15 @@ void WinChatApp::OnPeerClosed(std::string remote_uid) {
   }
   model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
     SetSharedPeerChannelReady(shared_, remote_uid, false);
+  });
+}
+
+void WinChatApp::OnPeerWriteFailed(std::string remote_uid) {
+  if (!model_runtime_) {
+    return;
+  }
+  model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
+    (void)remote_uid;
   });
 }
 
@@ -120,8 +133,8 @@ void WinChatApp::OnPeerPresence(std::string remote_uid, bool online) {
     return;
   }
   model_runtime_->Post([this, remote_uid = std::move(remote_uid), online] {
-    auto* peer = shared_.instance.FindPeer(remote_uid);
-    bool const was_online = peer != nullptr && peer->online;
+    auto const was_online =
+        shared_.presence.RemoteOnline(remote_uid).value_or(false);
     SetSharedPeerOnline(shared_, remote_uid, online);
     if (!was_online && online) {
       TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
@@ -130,9 +143,12 @@ void WinChatApp::OnPeerPresence(std::string remote_uid, bool online) {
   });
 }
 
-void WinChatApp::MonitorRemote(std::string const& remote_uid) {
+void WinChatApp::MonitorRemoteOnce(std::string const& remote_uid) {
   if (remote_uid.empty() ||
       remote_uid == shared_.instance.local_aether_uid) {
+    return;
+  }
+  if (!monitored_remote_uids_.insert(remote_uid).second) {
     return;
   }
   EnsureSharedPeer(shared_, remote_uid);
@@ -151,7 +167,6 @@ void WinChatApp::HandlePeerFrameOnModelThread(
             return;
           }
           EnsureSharedPeer(shared_, client_uid);
-          MonitorRemote(client_uid);
         },
         [this](ChatClient& client) {
           model_runtime_->AttachNode(client,
@@ -272,7 +287,6 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
     model_runtime_->Post([this, host_uid = std::move(host_uid)] {
       ConnectToHostCommand(shared_, std::move(host_uid),
                            [this](std::string const& peer_uid) {
-                             MonitorRemote(peer_uid);
                              aether_runtime_.OpenPeer(peer_uid);
                            });
     });
@@ -287,6 +301,10 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
       [this](std::string remote_uid) { OnPeerClosed(std::move(remote_uid)); },
       [this](std::string remote_uid, std::vector<std::uint8_t> bytes) {
         OnPeerFrame(std::move(remote_uid), std::move(bytes));
+      });
+  aether_runtime_.SetPeerWriteFailedCallback(
+      [this](std::string remote_uid) {
+        OnPeerWriteFailed(std::move(remote_uid));
       });
   aether_runtime_.SetPeerPresenceCallback(
       [this](std::string remote_uid, bool online) {
@@ -307,7 +325,7 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
             CommitLocalJoin(shared_, *runtime_.application->host_client);
           }
           for (auto const& peer : shared_.instance.peers) {
-            MonitorRemote(peer.remote_aether_uid);
+            MonitorRemoteOnce(peer.remote_aether_uid);
           }
           for (auto const& client : runtime_.application->chat_room->clients) {
             if (!client.is_valid()) {
@@ -315,14 +333,16 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
             }
             auto const uid = client->AetherUidText();
             if (!uid.empty() && uid != shared_.instance.local_aether_uid) {
-              MonitorRemote(uid);
+              MonitorRemoteOnce(uid);
             }
           }
         });
       },
       [this](bool online) {
-        model_runtime_->Post([app = &*runtime_.application, online] {
+        model_runtime_->Post([app = &*runtime_.application, online, this] {
           SetHostClientOnline(*app->host_client, online);
+          shared_.presence.SetLocalSelfOnline(online);
+          ApplyPresenceOverlay(shared_);
           chat::ChatLog("MODEL_PRESENCE host_online=" +
                         std::to_string(app->host_client->online ? 1 : 0));
         });

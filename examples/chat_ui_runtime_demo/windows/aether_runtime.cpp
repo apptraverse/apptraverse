@@ -1,5 +1,6 @@
 #include "aether_runtime.h"
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <functional>
@@ -233,6 +234,7 @@ class PeerStreamHub {
       return;
     }
     it->second.stream.reset();
+    it->second.write_subs.clear();
     peers_.erase(it);
     chat::ChatLog("SHARED_STREAM_CLOSED peer=" + remote_uid);
     if (on_closed_) {
@@ -265,6 +267,11 @@ class PeerStreamHub {
             }
           }
         }));
+    if (state.write_subs.size() > 128) {
+      state.write_subs.erase(state.write_subs.begin(),
+                             state.write_subs.begin() +
+                                 static_cast<std::ptrdiff_t>(64));
+    }
   }
 
   void FlushPending(std::string const& remote_uid, PeerStreamState& state) {
@@ -377,6 +384,12 @@ void ChatAetherRuntime::SetPeerPresenceCallback(
   on_peer_presence_ = std::move(on_peer_presence);
 }
 
+void ChatAetherRuntime::SetPeerWriteFailedCallback(
+    PeerWriteFailedCallback on_write_failed) {
+  std::lock_guard<std::mutex> lock{callback_mu_};
+  on_peer_write_failed_ = std::move(on_write_failed);
+}
+
 void ChatAetherRuntime::Enqueue(Command command) {
   {
     std::lock_guard<std::mutex> lock{command_mu_};
@@ -484,12 +497,14 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
     ChatAetherRuntime::PeerReadyCallback on_ready;
     ChatAetherRuntime::PeerClosedCallback on_closed;
     ChatAetherRuntime::PeerFrameCallback on_frame;
+    ChatAetherRuntime::PeerWriteFailedCallback on_write_failed;
     ChatAetherRuntime::PeerPresenceCallback on_peer_presence;
     {
       std::lock_guard<std::mutex> lock{callback_mu_};
       on_ready = on_peer_ready_;
       on_closed = on_peer_closed_;
       on_frame = on_peer_frame_;
+      on_write_failed = on_peer_write_failed_;
       on_peer_presence = on_peer_presence_;
     }
 
@@ -499,8 +514,9 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
     PeerStreamHub hub{aether_app->aether(), client, std::move(on_ready),
                       std::move(on_closed), std::move(on_frame),
                       [&](std::string const& remote_uid) {
-                        remote_presence.Monitor(remote_uid);
-                      }};
+                        (void)remote_uid;
+                      },
+                      std::move(on_write_failed)};
 
     LocalConnectivityMonitor presence;
     if (on_presence) {

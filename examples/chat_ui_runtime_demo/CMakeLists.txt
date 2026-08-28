@@ -6,6 +6,7 @@ add_library(chat_ui_runtime_demo_common STATIC
   common/chat_bootstrap.cpp
   common/chat_shared.cpp
   common/chat_presentation.cpp
+  common/chat_presence_overlay.cpp
 )
 
 target_include_directories(chat_ui_runtime_demo_common PUBLIC

@@ -26,6 +26,7 @@ class ChatAetherRuntime {
   using PeerFrameCallback =
       std::function<void(std::string remote_uid,
                          std::vector<std::uint8_t> bytes)>;
+  using PeerWriteFailedCallback = std::function<void(std::string remote_uid)>;
 
   ChatAetherRuntime() = default;
   ~ChatAetherRuntime();
@@ -38,6 +39,7 @@ class ChatAetherRuntime {
   void SetPeerCallbacks(PeerReadyCallback on_ready,
                         PeerClosedCallback on_closed,
                         PeerFrameCallback on_frame);
+  void SetPeerWriteFailedCallback(PeerWriteFailedCallback on_write_failed);
   void SetPeerPresenceCallback(PeerPresenceCallback on_peer_presence);
 
   // Thread-safe: enqueue work for the Aether thread.
@@ -78,6 +80,7 @@ class ChatAetherRuntime {
   PeerReadyCallback on_peer_ready_;
   PeerClosedCallback on_peer_closed_;
   PeerFrameCallback on_peer_frame_;
+  PeerWriteFailedCallback on_peer_write_failed_;
   PeerPresenceCallback on_peer_presence_;
 };
 

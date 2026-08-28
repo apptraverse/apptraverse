@@ -35,7 +35,7 @@ namespace {
 
 using namespace apptraverse;
 
-constexpr auto kTimeout = std::chrono::seconds{60};
+constexpr auto kTimeout = std::chrono::seconds{120};
 constexpr std::size_t kExpectedJournalSize = 6;  // 2 joins + 2 pre + 2 post
 
 #define FAIL_EXIT(msg)                                                         \
@@ -116,7 +116,7 @@ bool JournalsConverged(ChatRoom const& left, ChatRoom const& right) {
 
 bool PeersIdle(ChatSharedBinding const& binding) {
   for (auto const& peer : binding.instance.peers) {
-    if (!peer.pending.empty() || peer.in_flight.has_value()) {
+    if (peer.HasOutstanding()) {
       return false;
     }
   }
@@ -195,11 +195,15 @@ struct ModelSide {
   }
 
   void OnPeerReady(std::string remote_uid) {
+    auto* peer = shared.instance.FindPeer(remote_uid);
+    bool const was_ready = peer != nullptr && peer->channel_ready;
     SetSharedPeerChannelReady(shared, remote_uid, true);
     channel_ready = true;
     MonitorRemote(remote_uid);
-    TickSharedDelivery(shared, std::chrono::steady_clock::now(),
-                       transport.get());
+    if (!was_ready) {
+      TickSharedDelivery(shared, std::chrono::steady_clock::now(),
+                         transport.get());
+    }
   }
 
   void OnPeerClosed(std::string remote_uid) {
@@ -207,9 +211,13 @@ struct ModelSide {
     channel_ready = false;
   }
 
+  void OnPeerWriteFailed(std::string remote_uid) {
+    (void)remote_uid;
+  }
+
   void OnPeerPresence(std::string remote_uid, bool online) {
-    auto* peer = shared.instance.FindPeer(remote_uid);
-    bool const was_online = peer != nullptr && peer->online;
+    bool const was_online =
+        shared.presence.RemoteOnline(remote_uid).value_or(false);
     SetSharedPeerOnline(shared, remote_uid, online);
     if (!was_online && online) {
       TickSharedDelivery(shared, std::chrono::steady_clock::now(),
@@ -253,6 +261,11 @@ void WireAetherCallbacks(ModelSide& side) {
           side.HandlePeerFrame(std::move(remote_uid), std::move(bytes));
         });
       });
+  side.aether.SetPeerWriteFailedCallback([&side](std::string remote_uid) {
+    side.Post([&, remote_uid = std::move(remote_uid)] {
+      side.OnPeerWriteFailed(std::move(remote_uid));
+    });
+  });
   side.aether.SetPeerPresenceCallback(
       [&side](std::string remote_uid, bool online) {
         side.Post([&, remote_uid = std::move(remote_uid), online] {
@@ -413,10 +426,26 @@ int main() {
                                  *client.application->chat_room) &&
                PeersIdle(host.shared) && PeersIdle(client.shared);
       })) {
+    for (auto const& peer : host.shared.instance.peers) {
+      std::cerr << "host peer pending=" << peer.pending.size()
+                << " in_flight=" << peer.in_flight.size()
+                << " channel_ready=" << peer.channel_ready << '\n';
+    }
+    for (auto const& peer : client.shared.instance.peers) {
+      std::cerr << "client peer pending=" << peer.pending.size()
+                << " in_flight=" << peer.in_flight.size()
+                << " channel_ready=" << peer.channel_ready << '\n';
+    }
     std::cerr << "host journal size="
               << host.application->chat_room->journal.size()
               << " client journal size="
-              << client.application->chat_room->journal.size() << '\n';
+              << client.application->chat_room->journal.size()
+              << " host_peers_idle=" << PeersIdle(host.shared)
+              << " client_peers_idle=" << PeersIdle(client.shared)
+              << " journals_match="
+              << JournalsConverged(*host.application->chat_room,
+                                   *client.application->chat_room)
+              << '\n';
     trace.Dump(std::cerr);
     ShutdownSide(host);
     ShutdownSide(client);

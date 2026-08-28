@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <stdexcept>
 #include <utility>
 
@@ -125,8 +126,12 @@ SharedApplyResult TryApplyFrame(
           *binding.instance.node, event, frame.payload,
           [&](ChatClient& client) {
             auto const uid = client.AetherUidText();
-            if (auto* peer = binding.instance.FindPeer(uid)) {
-              client.online = peer->online;
+            if (auto remote = binding.presence.RemoteOnline(uid)) {
+              client.online = *remote;
+            } else if (uid == binding.instance.local_aether_uid) {
+              if (auto local = binding.presence.LocalSelfOnline()) {
+                client.online = *local;
+              }
             }
             if (on_new_client) {
               on_new_client(client);
@@ -409,6 +414,7 @@ SharedApplyResult ApplyIncomingSharedEvent(
   }
   if (result == SharedApplyResult::Applied) {
     DrainDeferred(binding, on_join_client, on_new_client);
+    ApplyPresenceOverlay(binding);
   }
   return result;
 }
@@ -464,6 +470,20 @@ void SetSharedPeerChannelReady(ChatSharedBinding& binding,
   }
 }
 
+void RequeueInFlightAfterWriteFailed(ChatSharedBinding& binding,
+                                     std::string const& remote_uid) {
+  auto* peer = binding.instance.FindPeer(remote_uid);
+  if (peer == nullptr) {
+    return;
+  }
+  for (auto const& entry : peer->in_flight) {
+    EnqueuePending(*peer, entry.id);
+  }
+  peer->in_flight.clear();
+  chat::ChatLog("SHARED_WRITE_FAILED peer=" + remote_uid +
+                " requeued_pending=" + std::to_string(peer->pending.size()));
+}
+
 void SetSharedPeerOnline(ChatSharedBinding& binding,
                          std::string const& remote_uid, bool online) {
   EnsureSharedPeer(binding, remote_uid);
@@ -471,15 +491,22 @@ void SetSharedPeerOnline(ChatSharedBinding& binding,
   if (peer == nullptr) {
     return;
   }
-  binding.runtime.SetPeerOnline(*peer, online);
   chat::ChatLog(std::string{"REMOTE_PRESENCE peer="} + remote_uid +
                 " online=" + (online ? "1" : "0"));
-  if (binding.instance.node.is_valid()) {
-    auto client = binding.instance.node->FindClientByAetherUid(remote_uid);
-    if (client.is_valid()) {
-      client->SetOnline(online);
-    }
+  if (remote_uid == binding.instance.local_aether_uid) {
+    binding.presence.SetLocalSelfOnline(online);
+  } else {
+    binding.presence.SetRemoteOnline(remote_uid, online);
   }
+  ApplyPresenceOverlay(binding);
+}
+
+void ApplyPresenceOverlay(ChatSharedBinding& binding) {
+  if (!binding.instance.node.is_valid()) {
+    return;
+  }
+  binding.presence.ApplyToRoom(*binding.instance.node,
+                               binding.instance.local_aether_uid);
 }
 
 void HandleSharedAck(ChatSharedBinding& binding,

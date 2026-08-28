@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <memory>
+#include <unordered_set>
 
 #include "apptraverse/model_runtime.h"
 #include "apptraverse/ui_mirror.h"
@@ -28,12 +29,13 @@ class WinChatApp {
   void RequestExit();
   void OnPeerReady(std::string remote_uid);
   void OnPeerClosed(std::string remote_uid);
+  void OnPeerWriteFailed(std::string remote_uid);
   void OnPeerFrame(std::string remote_uid, std::vector<std::uint8_t> bytes);
   void OnPeerPresence(std::string remote_uid, bool online);
   void HandlePeerFrameOnModelThread(std::string remote_uid,
                                     std::vector<std::uint8_t> bytes);
   void TickDelivery();
-  void MonitorRemote(std::string const& remote_uid);
+  void MonitorRemoteOnce(std::string const& remote_uid);
 
   ChatRuntime runtime_;
   std::unique_ptr<UiMirror> ui_mirror_;
@@ -46,6 +48,7 @@ class WinChatApp {
   HWND dispatcher_{nullptr};
   DWORD ui_thread_{0};
   bool exiting_{false};
+  std::unordered_set<std::string> monitored_remote_uids_;
   std::chrono::steady_clock::time_point last_delivery_tick_{};
 };
 

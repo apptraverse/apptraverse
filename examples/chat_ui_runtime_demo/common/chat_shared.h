@@ -12,12 +12,14 @@
 #include "apptraverse/shared_transport.h"
 
 #include "chat_model.h"
+#include "chat_presence_overlay.h"
 
 namespace apptraverse {
 
 struct ChatSharedBinding {
   SharedInstance<ChatRoom> instance;
   SharedRuntime runtime;
+  ChatPresenceOverlay presence;
 };
 
 struct LocalChatCommitResult {
@@ -68,6 +70,11 @@ void SetSharedPeerChannelReady(ChatSharedBinding& binding,
 
 void SetSharedPeerOnline(ChatSharedBinding& binding,
                          std::string const& remote_uid, bool online);
+
+void RequeueInFlightAfterWriteFailed(ChatSharedBinding& binding,
+                                     std::string const& remote_uid);
+
+void ApplyPresenceOverlay(ChatSharedBinding& binding);
 
 void HandleSharedAck(ChatSharedBinding& binding,
                      std::string const& from_peer_uid,
