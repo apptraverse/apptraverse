@@ -355,10 +355,18 @@ void TestConnectToHostCommandRegistersPeer() {
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "local-client-uid");
   std::string const host_uid = "83df0bb1-08ac-45f8-8003-8eeb7fa8f425";
-  ConnectToHostCommand(binding, host_uid);
+  int open_count = 0;
+  ConnectToHostCommand(binding, host_uid,
+                       [&](std::string const& uid) {
+                         CHECK(uid == host_uid);
+                         ++open_count;
+                       });
+  CHECK(open_count == 1);
   CHECK(binding.instance.shared_room_id == host_uid);
   CHECK(binding.instance.peers.size() == 1);
   CHECK(binding.instance.peers[0].remote_aether_uid == host_uid);
+  CHECK(!binding.instance.peers[0].channel_ready);
+  CHECK(!binding.instance.peers[0].online);
 }
 
 void TestConnectionBarPresenterStructure() {

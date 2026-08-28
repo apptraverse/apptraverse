@@ -164,7 +164,17 @@ void SharedRuntime::OnIncomingEventApplied(
     return;
   }
   instance.RememberSharedEvent(id);
-  instance.shared_journal.push_back(SharedJournalEntry{.id = id, .order = order});
+  bool already_in_journal = false;
+  for (auto const& entry : instance.shared_journal) {
+    if (entry.id == id) {
+      already_in_journal = true;
+      break;
+    }
+  }
+  if (!already_in_journal) {
+    instance.shared_journal.push_back(
+        SharedJournalEntry{.id = id, .order = order});
+  }
   if (order.lamport > instance.lamport_clock) {
     instance.lamport_clock = order.lamport;
   }
@@ -215,7 +225,7 @@ void SharedRuntime::Tick(
     std::function<bool(PeerDeliveryState&, SharedEventId const&)> const&
         try_send) {
   for (auto& peer : instance.peers) {
-    if (!peer.online) {
+    if (!peer.channel_ready) {
       continue;
     }
     if (!peer.in_flight.has_value() && !peer.pending.empty()) {

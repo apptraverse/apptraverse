@@ -1,7 +1,9 @@
 #ifndef APPTRAVERSE_CHAT_LOG_H_
 #define APPTRAVERSE_CHAT_LOG_H_
 
+#include <fstream>
 #include <iostream>
+#include <mutex>
 #include <string>
 
 #ifdef _WIN32
@@ -15,10 +17,37 @@
 #endif
 
 namespace apptraverse::chat {
+namespace detail {
+
+inline std::mutex& LogMutex() {
+  static std::mutex mu;
+  return mu;
+}
+
+inline std::string& LogPath() {
+  static std::string path;
+  return path;
+}
+
+}  // namespace detail
+
+inline void SetChatLogPath(std::string path) {
+  std::lock_guard<std::mutex> lock{detail::LogMutex()};
+  detail::LogPath() = std::move(path);
+}
 
 inline void ChatLog(std::string const& line) {
-  std::cout << line << '\n';
-  std::fflush(stdout);
+  {
+    std::lock_guard<std::mutex> lock{detail::LogMutex()};
+    std::cout << line << '\n';
+    std::fflush(stdout);
+    if (!detail::LogPath().empty()) {
+      std::ofstream out{detail::LogPath(), std::ios::out | std::ios::app};
+      if (out) {
+        out << line << '\n';
+      }
+    }
+  }
 #ifdef _WIN32
   OutputDebugStringA((line + "\n").c_str());
 #endif

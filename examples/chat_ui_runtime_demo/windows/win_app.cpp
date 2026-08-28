@@ -2,9 +2,12 @@
 
 #include <cassert>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "apptraverse/distill.h"
 #include "apptraverse/graph_mirror.h"
+#include "apptraverse/shared_frame_codec.h"
 
 #include "chat_commands.h"
 #include "chat_ids.h"
@@ -70,6 +73,77 @@ void WinChatApp::ApplyPublication(std::uint32_t root_id,
                 " changed=" + std::to_string(applied.changed_obj_ids.size()));
 }
 
+void WinChatApp::TickDelivery() {
+  auto const now = std::chrono::steady_clock::now();
+  if (last_delivery_tick_.time_since_epoch().count() != 0 &&
+      now - last_delivery_tick_ < std::chrono::milliseconds{50}) {
+    return;
+  }
+  last_delivery_tick_ = now;
+  TickSharedDelivery(shared_, now, shared_transport_.get());
+}
+
+void WinChatApp::OnPeerReady(std::string remote_uid) {
+  if (!model_runtime_) {
+    return;
+  }
+  model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
+    SetSharedPeerChannelReady(shared_, remote_uid, true);
+    TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
+                       shared_transport_.get());
+  });
+}
+
+void WinChatApp::OnPeerClosed(std::string remote_uid) {
+  if (!model_runtime_) {
+    return;
+  }
+  model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
+    SetSharedPeerChannelReady(shared_, remote_uid, false);
+  });
+}
+
+void WinChatApp::OnPeerFrame(std::string remote_uid,
+                             std::vector<std::uint8_t> bytes) {
+  if (!model_runtime_) {
+    return;
+  }
+  model_runtime_->Post([this, remote_uid = std::move(remote_uid),
+                        bytes = std::move(bytes)]() mutable {
+    HandlePeerFrameOnModelThread(std::move(remote_uid), std::move(bytes));
+  });
+}
+
+void WinChatApp::HandlePeerFrameOnModelThread(
+    std::string remote_uid, std::vector<std::uint8_t> bytes) {
+  SharedEventFrame event_frame;
+  if (DecodeSharedEventFrame(bytes, event_frame)) {
+    bool const ok = ApplyIncomingSharedEvent(
+        shared_, remote_uid, event_frame,
+        [this](std::string const& client_uid) {
+          if (client_uid.empty() ||
+              client_uid == shared_.instance.local_aether_uid) {
+            return;
+          }
+          EnsureSharedPeer(shared_, client_uid);
+          // channel_ready comes from Aether stream_update via OnPeerReady.
+        });
+    if (ok) {
+      SendSharedAck(shared_, shared_transport_.get(), remote_uid,
+                    event_frame.event_id);
+    }
+    TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
+                       shared_transport_.get());
+    return;
+  }
+  SharedAckFrame ack_frame;
+  if (DecodeSharedAckFrame(bytes, ack_frame)) {
+    HandleSharedAck(shared_, remote_uid, ack_frame);
+    TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
+                       shared_transport_.get());
+  }
+}
+
 void WinChatApp::RequestExit() {
   if (exiting_) {
     return;
@@ -88,6 +162,7 @@ void WinChatApp::RequestExit() {
 int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
   EnsureChatRegistration();
   EnsureChatPresenterRegistration();
+  chat::SetChatLogPath((state_dir / "chat_runtime.log").string());
   runtime_ = LoadChatModel(state_dir);
   SetApplicationRole(*runtime_.application, role);
   chat::ChatLog(
@@ -131,6 +206,14 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
       std::make_unique<ModelRuntime>(*runtime_.application, *ui_mirror_);
   model_runtime_->AddPresentationRoot(*runtime_.application->chat_room);
   model_runtime_->AddPresentationRoot(*runtime_.application->local_aether);
+  shared_transport_ = std::make_unique<AetherSharedTransport>(aether_runtime_);
+
+  auto const chat_room_id = chat::ToObjId(chat::ChatObjId::ChatRoom);
+  model_runtime_->SetUpdateObserver([this, chat_room_id](Node& node) {
+    if (node.obj_id.id() == chat_room_id) {
+      TickDelivery();
+    }
+  });
 
   presentation_ = LoadApplication<WinChatPresentationApplication>(
       *runtime_.ui_domain,
@@ -143,17 +226,29 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
     model_runtime_->Post([this, text = std::move(text)] {
       CommitLocalMessage(shared_, *runtime_.application->host_client,
                          std::move(text));
+      TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
+                         shared_transport_.get());
     });
   };
   presentation_->on_connect_host = [this](std::string host_uid) {
     model_runtime_->Post([this, host_uid = std::move(host_uid)] {
-      ConnectToHostCommand(shared_, std::move(host_uid));
+      ConnectToHostCommand(shared_, std::move(host_uid),
+                           [this](std::string const& peer_uid) {
+                             aether_runtime_.OpenPeer(peer_uid);
+                           });
     });
   };
   presentation_->OnLoad();
   presentation_->PresentChatWindow();
 
   model_runtime_->Start();
+
+  aether_runtime_.SetPeerCallbacks(
+      [this](std::string remote_uid) { OnPeerReady(std::move(remote_uid)); },
+      [this](std::string remote_uid) { OnPeerClosed(std::move(remote_uid)); },
+      [this](std::string remote_uid, std::vector<std::uint8_t> bytes) {
+        OnPeerFrame(std::move(remote_uid), std::move(bytes));
+      });
 
   auto aether_dir = state_dir / "aether";
   aether_runtime_.Start(

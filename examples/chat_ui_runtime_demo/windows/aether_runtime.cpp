@@ -2,7 +2,9 @@
 
 #include <chrono>
 #include <fstream>
+#include <memory>
 #include <optional>
+#include <unordered_map>
 #include <utility>
 
 #include "aether/all.h"
@@ -84,6 +86,145 @@ ae::AetherAppContext MakeAetherAppContext(
   return context;
 }
 
+struct PeerStreamState {
+  std::shared_ptr<ae::P2pStream> stream;
+  ae::Subscription data_sub;
+  ae::Subscription update_sub;
+  bool ready{false};
+  bool inbound{false};
+  std::vector<std::vector<std::uint8_t>> pending_out;
+};
+
+class PeerStreamHub {
+ public:
+  PeerStreamHub(ae::Aether::ptr aether, ae::Client::ptr client,
+                ChatAetherRuntime::PeerReadyCallback on_ready,
+                ChatAetherRuntime::PeerClosedCallback on_closed,
+                ChatAetherRuntime::PeerFrameCallback on_frame)
+      : aether_{std::move(aether)},
+        client_{std::move(client)},
+        on_ready_{std::move(on_ready)},
+        on_closed_{std::move(on_closed)},
+        on_frame_{std::move(on_frame)} {
+    inbound_sub_ = client_->message_stream_manager().new_port_event().Subscribe(
+        [this](ae::P2pPortHandle handle) {
+          auto const uid_text = ae::Format("{}", handle.destination());
+          chat::ChatLog("SHARED_STREAM_INBOUND peer=" + uid_text);
+          AcceptInbound(std::move(handle));
+        });
+  }
+
+  void OpenPeer(std::string const& remote_uid) {
+    if (remote_uid.empty()) {
+      return;
+    }
+    auto it = peers_.find(remote_uid);
+    if (it != peers_.end() && it->second.stream) {
+      if (it->second.ready && on_ready_) {
+        on_ready_(remote_uid);
+      }
+      return;
+    }
+    auto uid = ae::Uid::FromString(remote_uid);
+    chat::ChatLog("SHARED_STREAM_OPENING peer=" + remote_uid);
+    auto handle = client_->message_stream_manager().CreatePort(uid);
+    auto stream = std::make_shared<ae::P2pStream>(*aether_, client_.Load(), uid,
+                                                  std::move(handle));
+    BindStream(remote_uid, std::move(stream), /*inbound=*/false);
+  }
+
+  void SendFrame(std::string const& remote_uid,
+                 std::vector<std::uint8_t> bytes) {
+    auto it = peers_.find(remote_uid);
+    if (it == peers_.end() || !it->second.stream) {
+      return;
+    }
+    if (!it->second.ready) {
+      it->second.pending_out.push_back(std::move(bytes));
+      return;
+    }
+    WriteNow(*it->second.stream, std::move(bytes));
+  }
+
+  void ClosePeer(std::string const& remote_uid) {
+    auto it = peers_.find(remote_uid);
+    if (it == peers_.end()) {
+      return;
+    }
+    it->second.stream.reset();
+    peers_.erase(it);
+    chat::ChatLog("SHARED_STREAM_CLOSED peer=" + remote_uid);
+    if (on_closed_) {
+      on_closed_(remote_uid);
+    }
+  }
+
+ private:
+  static void WriteNow(ae::P2pStream& stream, std::vector<std::uint8_t> bytes) {
+    ae::DataBuffer buffer{bytes.begin(), bytes.end()};
+    stream.Write(std::move(buffer)).status_event().Subscribe([](auto status) {
+      if (status == ae::WriteAction::Status::kFail) {
+        chat::ChatLog("SHARED_EVENT_SEND_FAIL");
+      }
+    });
+  }
+
+  void FlushPending(PeerStreamState& state) {
+    for (auto& bytes : state.pending_out) {
+      WriteNow(*state.stream, std::move(bytes));
+    }
+    state.pending_out.clear();
+  }
+
+  void AcceptInbound(ae::P2pPortHandle handle) {
+    auto const uid_text = ae::Format("{}", handle.destination());
+    auto it = peers_.find(uid_text);
+    if (it != peers_.end() && it->second.stream && !it->second.inbound) {
+      chat::ChatLog("SHARED_STREAM_DUPLICATE_IGNORED peer=" + uid_text);
+      return;
+    }
+    auto stream = std::make_shared<ae::P2pStream>(
+        *aether_, client_.Load(), handle.destination(), std::move(handle));
+    BindStream(uid_text, std::move(stream), /*inbound=*/true);
+  }
+
+  void BindStream(std::string const& remote_uid,
+                  std::shared_ptr<ae::P2pStream> stream, bool inbound) {
+    PeerStreamState state;
+    state.inbound = inbound;
+    state.stream = std::move(stream);
+    state.data_sub = state.stream->out_data_event().Subscribe(
+        [this, remote_uid](ae::DataBuffer const& data) {
+          if (!on_frame_) {
+            return;
+          }
+          std::vector<std::uint8_t> bytes{data.begin(), data.end()};
+          on_frame_(remote_uid, std::move(bytes));
+        });
+    state.update_sub = state.stream->stream_update_event().Subscribe(
+        [this, remote_uid]() {
+          auto it = peers_.find(remote_uid);
+          if (it == peers_.end() || it->second.ready) {
+            return;
+          }
+          it->second.ready = true;
+          FlushPending(it->second);
+          if (on_ready_) {
+            on_ready_(remote_uid);
+          }
+        });
+    peers_[remote_uid] = std::move(state);
+  }
+
+  ae::Aether::ptr aether_;
+  ae::Client::ptr client_;
+  ChatAetherRuntime::PeerReadyCallback on_ready_;
+  ChatAetherRuntime::PeerClosedCallback on_closed_;
+  ChatAetherRuntime::PeerFrameCallback on_frame_;
+  ae::Subscription inbound_sub_;
+  std::unordered_map<std::string, PeerStreamState> peers_;
+};
+
 }  // namespace
 
 ChatAetherRuntime::~ChatAetherRuntime() {
@@ -100,6 +241,39 @@ void ChatAetherRuntime::Start(std::filesystem::path aether_state_dir,
   thread_ = std::thread(&ChatAetherRuntime::ThreadMain, this,
                         std::move(aether_state_dir), std::move(on_uid),
                         std::move(on_presence));
+}
+
+void ChatAetherRuntime::SetPeerCallbacks(PeerReadyCallback on_ready,
+                                         PeerClosedCallback on_closed,
+                                         PeerFrameCallback on_frame) {
+  std::lock_guard<std::mutex> lock{callback_mu_};
+  on_peer_ready_ = std::move(on_ready);
+  on_peer_closed_ = std::move(on_closed);
+  on_peer_frame_ = std::move(on_frame);
+}
+
+void ChatAetherRuntime::Enqueue(Command command) {
+  {
+    std::lock_guard<std::mutex> lock{command_mu_};
+    commands_.push(std::move(command));
+  }
+}
+
+void ChatAetherRuntime::OpenPeer(std::string remote_uid) {
+  Enqueue(Command{.type = CommandType::kOpenPeer,
+                  .remote_uid = std::move(remote_uid)});
+}
+
+void ChatAetherRuntime::SendPeerFrame(std::string remote_uid,
+                                      std::vector<std::uint8_t> bytes) {
+  Enqueue(Command{.type = CommandType::kSendFrame,
+                  .remote_uid = std::move(remote_uid),
+                  .bytes = std::move(bytes)});
+}
+
+void ChatAetherRuntime::ClosePeer(std::string remote_uid) {
+  Enqueue(Command{.type = CommandType::kClosePeer,
+                  .remote_uid = std::move(remote_uid)});
 }
 
 void ChatAetherRuntime::RequestStop() { stop_ = true; }
@@ -177,19 +351,55 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
       on_uid(uid_text);
     }
 
+    ChatAetherRuntime::PeerReadyCallback on_ready;
+    ChatAetherRuntime::PeerClosedCallback on_closed;
+    ChatAetherRuntime::PeerFrameCallback on_frame;
+    {
+      std::lock_guard<std::mutex> lock{callback_mu_};
+      on_ready = on_peer_ready_;
+      on_closed = on_peer_closed_;
+      on_frame = on_peer_frame_;
+    }
+
+    PeerStreamHub hub{aether_app->aether(), client, std::move(on_ready),
+                      std::move(on_closed), std::move(on_frame)};
+
     LocalConnectivityMonitor presence;
     if (on_presence) {
       presence.Configure(client, std::move(on_presence));
     }
 
     while (!stop_ && !aether_app->IsExited()) {
+      {
+        std::queue<Command> local;
+        {
+          std::lock_guard<std::mutex> lock{command_mu_};
+          local.swap(commands_);
+        }
+        while (!local.empty()) {
+          auto cmd = std::move(local.front());
+          local.pop();
+          switch (cmd.type) {
+            case CommandType::kOpenPeer:
+              hub.OpenPeer(cmd.remote_uid);
+              break;
+            case CommandType::kSendFrame:
+              hub.SendFrame(cmd.remote_uid, std::move(cmd.bytes));
+              break;
+            case CommandType::kClosePeer:
+              hub.ClosePeer(cmd.remote_uid);
+              break;
+          }
+        }
+      }
+
       auto const now = ae::Now();
       auto next = aether_app->Update(now);
       presence.Tick(ae::Now());
       if (stop_) {
         break;
       }
-      auto const wake_cap = now + std::chrono::milliseconds{100};
+      auto const wake_cap = now + std::chrono::milliseconds{50};
       if (next > wake_cap) {
         next = wake_cap;
       }

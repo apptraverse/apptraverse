@@ -1,13 +1,16 @@
 #ifndef APPTRAVERSE_CHAT_WIN_APP_H_
 #define APPTRAVERSE_CHAT_WIN_APP_H_
 
+#include <chrono>
 #include <memory>
 
 #include "apptraverse/model_runtime.h"
 #include "apptraverse/ui_mirror.h"
 
 #include "aether_runtime.h"
+#include "aether_shared_transport.h"
 #include "chat_bootstrap.h"
+#include "chat_model.h"
 #include "chat_shared.h"
 #include "win_presenters.h"
 
@@ -22,16 +25,24 @@ class WinChatApp {
  private:
   void ApplyPublication(std::uint32_t root_id, PublicationChannel<3>* channel);
   void RequestExit();
+  void OnPeerReady(std::string remote_uid);
+  void OnPeerClosed(std::string remote_uid);
+  void OnPeerFrame(std::string remote_uid, std::vector<std::uint8_t> bytes);
+  void HandlePeerFrameOnModelThread(std::string remote_uid,
+                                    std::vector<std::uint8_t> bytes);
+  void TickDelivery();
 
   ChatRuntime runtime_;
   std::unique_ptr<UiMirror> ui_mirror_;
   std::unique_ptr<ModelRuntime> model_runtime_;
   WinChatPresentationApplication::ptr presentation_;
   ChatAetherRuntime aether_runtime_;
+  std::unique_ptr<AetherSharedTransport> shared_transport_;
   ChatSharedBinding shared_;
   HWND dispatcher_{nullptr};
   DWORD ui_thread_{0};
   bool exiting_{false};
+  std::chrono::steady_clock::time_point last_delivery_tick_{};
 };
 
 }  // namespace apptraverse

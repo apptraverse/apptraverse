@@ -18,6 +18,7 @@ namespace apptraverse {
 struct SharedJournalEntry {
   SharedEventId id;
   SharedEventOrder order;
+  std::vector<std::uint8_t> payload;
 };
 
 struct PeerDeliveryState {
@@ -26,6 +27,7 @@ struct PeerDeliveryState {
   std::optional<SharedEventId> in_flight;
   std::chrono::steady_clock::time_point in_flight_sent_at{};
   bool online{false};
+  bool channel_ready{false};
 };
 
 template <typename TNode>
