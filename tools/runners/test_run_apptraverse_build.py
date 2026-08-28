@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -398,6 +399,82 @@ class ResultContractTest(unittest.TestCase):
         )
         self.assertEqual(result.failure_kind, "command_timeout")
         self.assertTrue(result.artifact_id.startswith("apptraverse-build/"))
+
+
+class MsvcEnvironmentImportTest(unittest.TestCase):
+    def test_parse_cmd_set_output(self) -> None:
+        env = runner.parse_cmd_set_output("PATH=C:\\x\r\nINCLUDE=C:\\i\r\n")
+        self.assertEqual(env["PATH"], "C:\\x")
+        self.assertEqual(env["INCLUDE"], "C:\\i")
+
+    def test_ensure_msvc_skips_when_cl_present(self) -> None:
+        with mock.patch.object(runner, "load_msvc_environment") as load:
+            ok = runner.ensure_msvc_on_path(
+                which=lambda name: "C:/fake/cl.exe" if name == "cl" else None
+            )
+            self.assertTrue(ok)
+            load.assert_not_called()
+
+    def test_ensure_msvc_imports_when_cl_missing(self) -> None:
+        fake_env = {"PATH": "C:\\MSVC\\bin;C:\\other", "INCLUDE": "C:\\MSVC\\include"}
+
+        def which(name: str):
+            if name != "cl":
+                return None
+            path = os.environ.get("PATH", "")
+            return "C:/MSVC/bin/cl.exe" if "MSVC" in path else None
+
+        with mock.patch.object(runner, "load_msvc_environment", return_value=fake_env):
+            with mock.patch.dict(os.environ, {"PATH": "C:\\other"}, clear=False):
+                self.assertIsNone(which("cl"))
+                ok = runner.ensure_msvc_on_path(which=which)
+                self.assertTrue(ok)
+                self.assertIn("MSVC", os.environ["PATH"])
+
+    def test_preflight_imports_msvc_when_cl_missing(self) -> None:
+        fake_env = {"PATH": "C:\\MSVC\\bin"}
+
+        def which(name: str):
+            if name == "cmake":
+                return "C:/fake/cmake.exe"
+            if name == "ninja":
+                return "C:/fake/ninja.exe"
+            if name == "cl":
+                return (
+                    "C:/fake/cl.exe"
+                    if "MSVC" in os.environ.get("PATH", "")
+                    else None
+                )
+            return None
+
+        with mock.patch.object(
+            runner, "load_msvc_environment", return_value=fake_env
+        ):
+            with mock.patch.dict(os.environ, {"PATH": "C:\\other"}, clear=False):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / "CMakePresets.json").write_text(
+                        json.dumps(
+                            {
+                                "version": 6,
+                                "configurePresets": [
+                                    {
+                                        "name": runner.NINJA_PROFILE,
+                                        "generator": "Ninja",
+                                    }
+                                ],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    status, kind, _reason = runner.preflight(
+                        runner.NINJA_PROFILE,
+                        root,
+                        platform="win32",
+                        which=which,
+                    )
+        self.assertEqual(status, runner.STATUS_OK)
+        self.assertIsNone(kind)
 
 
 if __name__ == "__main__":

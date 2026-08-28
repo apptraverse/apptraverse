@@ -131,3 +131,31 @@ add_custom_target(apptraverse_chat_headless_check
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Canonical headless chat/shared/presentation checks"
 )
+
+if(WIN32)
+  add_executable(apptraverse_chat_p2p_headless_test
+    chat_p2p_headless_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows/aether_runtime.cpp
+  )
+
+  target_link_libraries(apptraverse_chat_p2p_headless_test PRIVATE
+    chat_ui_runtime_demo_common
+    user32
+    gdi32
+    advapi32
+  )
+
+  target_include_directories(apptraverse_chat_p2p_headless_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows
+    ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/common
+  )
+
+  if(MSVC)
+    target_compile_options(apptraverse_chat_p2p_headless_test PRIVATE /utf-8)
+  endif()
+
+  add_test(
+    NAME apptraverse_chat_p2p_headless_test
+    COMMAND apptraverse_chat_p2p_headless_test
+  )
+endif()

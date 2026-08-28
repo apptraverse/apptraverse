@@ -56,6 +56,7 @@ TOOL_NAMES = (
     "apptraverse_process_status",
     "apptraverse_process_stop",
     "apptraverse_chat_headless_test_start",
+    "apptraverse_chat_p2p_headless_test_start",
 )
 BUILD_ARTIFACT_PREFIX = "apptraverse-build/"
 PLATFORM_ARTIFACT_PREFIX = "apptraverse-platform/"
@@ -138,6 +139,21 @@ def apptraverse_chat_headless_test_start(
         profile,
         "build",
         ["apptraverse_chat_headless_check"],
+    )
+    return result.to_public_dict()
+
+
+def apptraverse_chat_p2p_headless_test_start(
+    profile: str = "win64-ninja-msvc-debug",
+) -> dict:
+    """Real Aether P2P headless chat journal convergence test.
+    Model Domain + ChatAetherRuntime + SharedRuntime only — no UiMirror,
+    UI Domain, presenters, HWND, or product process."""
+    result = start_job(
+        repo_root(),
+        profile,
+        "build",
+        ["apptraverse_chat_p2p_headless_test"],
     )
     return result.to_public_dict()
 
@@ -346,6 +362,7 @@ def create_mcp_server():
     server.tool()(apptraverse_process_status)
     server.tool()(apptraverse_process_stop)
     server.tool()(apptraverse_chat_headless_test_start)
+    server.tool()(apptraverse_chat_p2p_headless_test_start)
     return server
 
 

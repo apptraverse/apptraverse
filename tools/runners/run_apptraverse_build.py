@@ -264,6 +264,80 @@ def decide_configure_action(
     return STATUS_BLOCKED, "build_profile_conflict", detail
 
 
+def find_vcvars64_bat() -> Path | None:
+    program_files_x86 = os.environ.get("ProgramFiles(x86)") or r"C:\Program Files (x86)"
+    vswhere = Path(program_files_x86) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    if not vswhere.is_file():
+        return None
+    proc = subprocess.run(
+        [
+            str(vswhere),
+            "-latest",
+            "-products",
+            "*",
+            "-requires",
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-property",
+            "installationPath",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        shell=False,
+        check=False,
+    )
+    install = (proc.stdout or "").strip()
+    if not install:
+        return None
+    candidate = Path(install) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
+    return candidate if candidate.is_file() else None
+
+
+def parse_cmd_set_output(text: str) -> dict[str, str]:
+    env: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key:
+            env[key] = value
+    return env
+
+
+def load_msvc_environment(*, vcvars: Path | None = None) -> dict[str, str] | None:
+    bat = vcvars if vcvars is not None else find_vcvars64_bat()
+    if bat is None:
+        return None
+    # Import Developer Command Prompt variables into this process.
+    # shell=True is required so cmd.exe parses quoting for paths with spaces;
+    # argv-list form ends up passing literal \" which breaks vcvars64.bat.
+    command = f'call "{bat}" >nul && set'
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        shell=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    env = parse_cmd_set_output(proc.stdout or "")
+    return env or None
+
+
+def ensure_msvc_on_path(*, which=shutil.which) -> bool:
+    if which("cl") is not None:
+        return True
+    env = load_msvc_environment()
+    if not env:
+        return False
+    os.environ.update(env)
+    return which("cl") is not None
+
+
 def preflight(
     profile: str,
     source_dir: Path,
@@ -289,7 +363,8 @@ def preflight(
     if spec["require_ninja"] and which("ninja") is None:
         return STATUS_BLOCKED, "ninja_missing", "ninja not on PATH"
     if spec["require_cl"] and which("cl") is None:
-        return STATUS_BLOCKED, "msvc_environment_missing", "cl.exe not on PATH"
+        if not ensure_msvc_on_path(which=which):
+            return STATUS_BLOCKED, "msvc_environment_missing", "cl.exe not on PATH"
     if profile == VS2022_PROFILE:
         known = generators if generators is not None else list_cmake_generators(which=which)
         if VS2022_GENERATOR not in known:
@@ -390,6 +465,7 @@ def execute_external(
                 encoding="utf-8",
                 errors="replace",
                 shell=False,
+                env=os.environ.copy(),
             )
             timed_out = False
             try:

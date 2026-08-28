@@ -7,7 +7,8 @@ alwaysApply: true
 
 For chat model, shared journal, events, ordering, contacts, feed formatting, timestamps, and UI projection, always start with:
 
-`apptraverse_chat_headless_test_start`
+1. `apptraverse_chat_headless_test_start`
+2. For real Aether P2P journal convergence (no UI): `apptraverse_chat_p2p_headless_test_start`
 
 Default rules:
 
@@ -20,3 +21,6 @@ Default rules:
 
 Canonical CMake target: `apptraverse_chat_headless_check`
 (builds and runs `apptraverse_event_sourced_core_test`, `apptraverse_shared_journal_test`, `apptraverse_chat_presentation_headless_test`).
+
+P2P CMake target: `apptraverse_chat_p2p_headless_test`
+(WIN32; Model Domain + ChatAetherRuntime + SharedRuntime; no UiMirror/UI Domain/HWND).

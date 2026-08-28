@@ -146,8 +146,30 @@ class McpWrapperTest(unittest.TestCase):
         self.assertEqual(dumped["targets"], ["apptraverse_chat_headless_check"])
         self.assertNotIn("stdout", dumped)
 
-    def test_server_exposes_exactly_thirteen_tools(self) -> None:
-        self.assertEqual(len(mcp_mod.TOOL_NAMES), 13)
+    def test_chat_p2p_headless_start_delegates_to_start_job(self) -> None:
+        fake = JobResult(
+            schema_version=JOB_SCHEMA_VERSION,
+            operation="start",
+            job_id="job-p2p-headless",
+            state="running",
+            profile="win64-ninja-msvc-debug",
+            stage="build",
+            targets=["apptraverse_chat_p2p_headless_test"],
+        )
+        with mock.patch.object(mcp_mod, "start_job", return_value=fake) as start:
+            dumped = mcp_mod.apptraverse_chat_p2p_headless_test_start()
+        start.assert_called_once_with(
+            mcp_mod.repo_root(),
+            "win64-ninja-msvc-debug",
+            "build",
+            ["apptraverse_chat_p2p_headless_test"],
+        )
+        self.assertEqual(dumped["job_id"], "job-p2p-headless")
+        self.assertEqual(dumped["targets"], ["apptraverse_chat_p2p_headless_test"])
+        self.assertNotIn("stdout", dumped)
+
+    def test_server_exposes_exactly_fourteen_tools(self) -> None:
+        self.assertEqual(len(mcp_mod.TOOL_NAMES), 14)
         self.assertEqual(
             list(mcp_mod.TOOL_NAMES),
             [
@@ -164,6 +186,7 @@ class McpWrapperTest(unittest.TestCase):
                 "apptraverse_process_status",
                 "apptraverse_process_stop",
                 "apptraverse_chat_headless_test_start",
+                "apptraverse_chat_p2p_headless_test_start",
             ],
         )
         probe = (
@@ -178,7 +201,7 @@ class McpWrapperTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         payload = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertEqual(sorted(payload["names"]), sorted(payload["expected"]))
-        self.assertEqual(len(payload["names"]), 13)
+        self.assertEqual(len(payload["names"]), 14)
 
     def test_compact_result_preserved(self) -> None:
         fake = JobResult(
