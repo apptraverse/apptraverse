@@ -243,6 +243,9 @@ void SharedRuntime::Tick(
     }
     if (peer.in_flight.has_value() &&
         now - peer.in_flight_sent_at >= kSharedEventRetryInterval) {
+      if (!peer.online) {
+        continue;
+      }
       peer.in_flight_sent_at = now;
       if (try_send(peer, *peer.in_flight)) {
         if (config_.log) {

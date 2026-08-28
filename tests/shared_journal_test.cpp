@@ -346,6 +346,7 @@ void test_retry_after_one_second() {
   CommitLocalJoin(binding, *application->host_client);
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
   SetSharedPeerChannelReady(binding, "host-uid", true);
+  SetSharedPeerOnline(binding, "host-uid", true);
   RecordingTransport transport;
   auto now = std::chrono::steady_clock::now();
   TickSharedDelivery(binding, now, &transport);
@@ -357,6 +358,27 @@ void test_retry_after_one_second() {
   REQUIRE(transport.events.size() == 2);
   REQUIRE(transport.events[0].frame.event_id ==
          transport.events[1].frame.event_id);
+}
+
+void test_retry_skipped_while_offline() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto application = BuildChatGraph(domain, "Client");
+  FinalizeDistilledGraph(*application);
+  application->host_client->SetAetherUidText("client-uid");
+  ChatSharedBinding binding;
+  InitializeChatSharedBinding(binding, *application, "client-uid");
+  CommitLocalJoin(binding, *application->host_client);
+  ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
+  SetSharedPeerChannelReady(binding, "host-uid", true);
+  RecordingTransport transport;
+  auto now = std::chrono::steady_clock::now();
+  TickSharedDelivery(binding, now, &transport);
+  REQUIRE(transport.events.size() == 1);
+  TickSharedDelivery(binding, now + std::chrono::milliseconds{1000},
+                     &transport);
+  REQUIRE(transport.events.size() == 1);
 }
 
 void test_objid_collision_remaps() {
@@ -532,6 +554,7 @@ int main() {
   test_incoming_join_applies_and_acks();
   test_ack_clears_and_sends_next();
   test_retry_after_one_second();
+  test_retry_skipped_while_offline();
   test_objid_collision_remaps();
   test_fake_bridge_converges();
   std::cout << "shared_journal_test ok\n";
