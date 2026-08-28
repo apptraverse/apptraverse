@@ -26,6 +26,18 @@ struct LocalChatCommitResult {
   bool committed{false};
 };
 
+enum class SharedApplyResult : std::uint8_t {
+  Applied = 1,
+  DuplicateAlreadyApplied = 2,
+  Deferred = 3,
+  Rejected = 4,
+};
+
+inline bool SharedApplyResultAllowsAck(SharedApplyResult result) noexcept {
+  return result == SharedApplyResult::Applied ||
+         result == SharedApplyResult::DuplicateAlreadyApplied;
+}
+
 using OnNewChatClientFn = std::function<void(ChatClient& client)>;
 
 void InitializeChatSharedBinding(ChatSharedBinding& binding, Application& app,
@@ -36,17 +48,16 @@ LocalChatCommitResult CommitLocalMessage(ChatSharedBinding& binding,
                                          ChatClient& author, std::string text,
                                          std::int64_t sent_at_unix_ms = 0);
 
-bool ApplyIncomingSharedEvent(
+SharedApplyResult ApplyIncomingSharedEvent(
     ChatSharedBinding& binding, std::string const& source_peer_uid,
     SharedEventFrame const& frame,
     std::function<void(std::string const& client_uid)> on_join_client = {},
     OnNewChatClientFn on_new_client = {});
 
-// Creates/ensures Peer, seeds pending from journal. Does NOT open Aether
+// Creates/ensures Peer, seeds pending from Node journal. Does NOT open Aether
 // streams and does NOT set channel_ready / online.
 void EnsureSharedPeer(ChatSharedBinding& binding, std::string const& remote_uid);
 
-// Model-thread Connect: validate, set room id, EnsurePeer+seed, request open.
 using OpenPeerRequestFn = std::function<void(std::string const& remote_uid)>;
 
 void ConnectToHostCommand(ChatSharedBinding& binding, std::string host_uid,
@@ -71,7 +82,6 @@ void SendSharedAck(ChatSharedBinding& binding, ISharedTransport* transport,
 
 std::vector<std::uint8_t> SerializeSharedEventPayload(Event const& event);
 
-// Deserializes payload into a remapped Event for `room` (cross-process safe).
 bool DeserializeSharedEventPayload(ChatRoom& room, Event::ptr& out_event,
                                    std::vector<std::uint8_t> const& payload,
                                    OnNewChatClientFn on_new_client = {});

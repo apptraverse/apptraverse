@@ -5,6 +5,8 @@
 #include <utility>
 
 #include "apptraverse/node.h"
+#include "apptraverse/shared_event_id.h"
+#include "apptraverse/shared_event_order.h"
 
 namespace apptraverse {
 
@@ -23,10 +25,20 @@ class NodeFor : public BaseNode {
     Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
   }
 
-  // Insert an event at a specific journal position (shared replication path).
-  void InsertOrderedEvent(Event::ptr event, std::uint64_t timestamp_us) {
-    EventRecord record{timestamp_us, std::move(event)};
+  // Shared replication insert with canonical SharedEventOrder (may mid-insert).
+  void InsertSharedOrderedEvent(Event::ptr event, SharedEventId identity,
+                                SharedEventOrder order) {
+    EventRecord record{.event = std::move(event),
+                       .identity = std::move(identity),
+                       .order = std::move(order)};
     InsertEvent(std::move(record));
+  }
+
+  // Shared local commit: identity/order known before journal insertion.
+  void CommitShared(Event::ptr event, SharedEventId identity,
+                    SharedEventOrder order) {
+    Node::CommitSharedInto(static_cast<ConcreteNode&>(*this), std::move(event),
+                           std::move(identity), std::move(order));
   }
 
  private:

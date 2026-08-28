@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 
 #include "aether/clock.h"
@@ -11,6 +12,7 @@
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/shared_event_order.h"
 
 namespace apptraverse::test {
 
@@ -18,7 +20,9 @@ class CounterDocument;
 class AddEvent;
 
 class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
-  APPTRAVERSE_OBJECT(CounterDocument, Node, 0)
+  // Version 1: own Load/Save so CaptureBaseState/Rebuild keep value/label.
+  // (Inheriting only Node's versioned Save would drop derived fields.)
+  APPTRAVERSE_OBJECT(CounterDocument, Node, 1)
 
  protected:
   CounterDocument() = default;
@@ -28,13 +32,36 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
 
   AE_OBJECT_REFLECT(AE_MMBR(value), AE_MMBR(label))
 
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error("CounterDocument v0 is not supported");
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    Node::Load(ae::Version<1>{}, dnv);
+    dnv(value, label);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    Node::Save(ae::Version<1>{}, dnv);
+    dnv(value, label);
+  }
+
   std::int32_t value{0};
   std::string label;
 
   void Apply(AddEvent const& event);
 
-  void InsertAtForTest(std::uint64_t timestamp_us, Event::ptr event) {
-    InsertEvent(EventRecord{timestamp_us, std::move(event)});
+  void InsertAtForTest(SharedEventOrder order, Event::ptr event) {
+    InsertEvent(EventRecord{.event = std::move(event),
+                            .identity = {},
+                            .order = std::move(order)});
+  }
+
+  void InsertAtForTest(std::uint64_t lamport, Event::ptr event) {
+    InsertAtForTest(SharedEventOrder{.lamport = lamport}, std::move(event));
   }
 };
 
@@ -95,16 +122,16 @@ void TestJournalCommitAndReplay() {
   doc->Commit(e2);
 
   CHECK(doc->journal.size() == 2);
-  CHECK(doc->journal[0].timestamp_us != 0);
-  CHECK(doc->journal[1].timestamp_us != 0);
-  CHECK(doc->journal[0].timestamp_us < doc->journal[1].timestamp_us);
+  CHECK(doc->journal[0].order.lamport != 0);
+  CHECK(doc->journal[1].order.lamport != 0);
+  CHECK(doc->journal[0].order.lamport < doc->journal[1].order.lamport);
   CHECK(doc->value == 6);
   CHECK(doc->label == "bxy");
 
   auto early = AddEvent::ptr::Create(ae::CreateWith{domain}.with_id(14));
   early->delta = 10;
   early->tag = "z";
-  doc->InsertAtForTest(doc->journal[0].timestamp_us - 1, early);
+  doc->InsertAtForTest(doc->journal[0].order.lamport - 1, early);
 
   CHECK(doc->journal.size() == 3);
   CHECK(doc->journal[0].event.id().id() == 14);
@@ -174,7 +201,7 @@ void TestMonotonicTimestampWithoutSleep() {
   }
   CHECK(doc->journal.size() == 20);
   for (std::size_t i = 1; i < doc->journal.size(); ++i) {
-    CHECK(doc->journal[i - 1].timestamp_us < doc->journal[i].timestamp_us);
+    CHECK(doc->journal[i - 1].order.lamport < doc->journal[i].order.lamport);
   }
   CHECK(doc->value == 20);
 }

@@ -2,16 +2,29 @@
 #define APPTRAVERSE_SHARED_EVENT_ORDER_H_
 
 #include <cstdint>
-#include <functional>
 #include <string>
+
+#include "aether-miscpp/reflect/reflect.h"
 
 namespace apptraverse {
 
 // Canonical sort key for shared journal entries on every replica.
+// Compared as full (lamport, origin_uid, origin_sequence) — never packed.
 struct SharedEventOrder {
   std::uint64_t lamport{0};
   std::string origin_uid;
   std::uint64_t origin_sequence{0};
+
+  bool operator==(SharedEventOrder const& other) const noexcept {
+    return lamport == other.lamport && origin_uid == other.origin_uid &&
+           origin_sequence == other.origin_sequence;
+  }
+
+  bool operator!=(SharedEventOrder const& other) const noexcept {
+    return !(*this == other);
+  }
+
+  AE_REFLECT_MEMBERS(lamport, origin_uid, origin_sequence)
 };
 
 inline bool SharedEventOrderLess(SharedEventOrder const& a,
@@ -23,13 +36,6 @@ inline bool SharedEventOrderLess(SharedEventOrder const& a,
     return a.origin_uid < b.origin_uid;
   }
   return a.origin_sequence < b.origin_sequence;
-}
-
-inline std::uint64_t EncodeOrderTimestamp(SharedEventOrder const& order) {
-  std::uint64_t const uid_hash =
-      static_cast<std::uint64_t>(std::hash<std::string>{}(order.origin_uid));
-  return (order.lamport << 24U) | ((uid_hash & 0xFFFFU) << 8U) |
-         (order.origin_sequence & 0xFFU);
 }
 
 }  // namespace apptraverse

@@ -2,6 +2,7 @@
 #define APPTRAVERSE_CHAT_MODEL_H_
 
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -46,7 +47,8 @@ inline constexpr std::uint32_t kChatFeedKindJoin = 1;
 inline constexpr std::uint32_t kChatFeedKindMessage = 2;
 
 class ChatClient : public NodeFor<ChatClient> {
-  APPTRAVERSE_OBJECT(ChatClient, Node, 0)
+  // Version 1: own Load/Save so object-graph payloads keep uid/name/online.
+  APPTRAVERSE_OBJECT(ChatClient, Node, 1)
 
  protected:
   ChatClient() = default;
@@ -55,6 +57,24 @@ class ChatClient : public NodeFor<ChatClient> {
   explicit ChatClient(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(display_name), AE_MMBR(aether_uid), AE_MMBR(online))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error(
+        "ChatClient v0 is not supported; re-distill with a fresh state dir");
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    Node::Load(ae::Version<1>{}, dnv);
+    dnv(display_name, aether_uid, online);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    Node::Save(ae::Version<1>{}, dnv);
+    dnv(display_name, aether_uid, online);
+  }
 
   ImmutableString::ptr display_name;
   ImmutableString::ptr aether_uid;
@@ -136,7 +156,9 @@ class ChatFeedItem : public ae::Obj {
 };
 
 class ChatRoom : public NodeFor<ChatRoom> {
-  APPTRAVERSE_OBJECT(ChatRoom, Node, 0)
+  // Version 1: own Load/Save so CaptureBaseState/Rebuild keep clients/feed.
+  // (Inheriting only Node's versioned Save would drop derived fields.)
+  APPTRAVERSE_OBJECT(ChatRoom, Node, 1)
 
  protected:
   ChatRoom() = default;
@@ -145,6 +167,24 @@ class ChatRoom : public NodeFor<ChatRoom> {
   explicit ChatRoom(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(clients), AE_MMBR(feed))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error(
+        "ChatRoom v0 is not supported; re-distill with a fresh state dir");
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    Node::Load(ae::Version<1>{}, dnv);
+    dnv(clients, feed);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    Node::Save(ae::Version<1>{}, dnv);
+    dnv(clients, feed);
+  }
 
   std::vector<ChatClient::ptr> clients;
   std::vector<ChatFeedItem::ptr> feed;
@@ -160,7 +200,7 @@ class ChatRoom : public NodeFor<ChatRoom> {
 };
 
 class LocalAetherIdentity : public NodeFor<LocalAetherIdentity> {
-  APPTRAVERSE_OBJECT(LocalAetherIdentity, Node, 0)
+  APPTRAVERSE_OBJECT(LocalAetherIdentity, Node, 1)
 
  protected:
   LocalAetherIdentity() = default;
@@ -169,6 +209,25 @@ class LocalAetherIdentity : public NodeFor<LocalAetherIdentity> {
   explicit LocalAetherIdentity(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(uid_text))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error(
+        "LocalAetherIdentity v0 is not supported; re-distill with a fresh "
+        "state dir");
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    Node::Load(ae::Version<1>{}, dnv);
+    dnv(uid_text);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    Node::Save(ae::Version<1>{}, dnv);
+    dnv(uid_text);
+  }
 
   ImmutableString::ptr uid_text;
 

@@ -59,7 +59,7 @@ void DistillChat(std::filesystem::path const& dir, std::string host_name) {
   auto application =
       apptraverse::BuildChatGraph(domain, std::move(host_name));
   apptraverse::FinalizeDistilledGraph(*application);
-  apptraverse::CommitHostJoin(*application);
+  // JoinEvent is committed only after runtime Aether UID is known.
   apptraverse::SaveDistilledRoot(*application);  // runtime-save-ok: distill
   auto presentation =
       apptraverse::BuildPresentationGraph(domain, *application);

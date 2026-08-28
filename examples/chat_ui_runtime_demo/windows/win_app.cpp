@@ -143,7 +143,7 @@ void WinChatApp::HandlePeerFrameOnModelThread(
     std::string remote_uid, std::vector<std::uint8_t> bytes) {
   SharedEventFrame event_frame;
   if (DecodeSharedEventFrame(bytes, event_frame)) {
-    bool const ok = ApplyIncomingSharedEvent(
+    auto const apply = ApplyIncomingSharedEvent(
         shared_, remote_uid, event_frame,
         [this](std::string const& client_uid) {
           if (client_uid.empty() ||
@@ -157,7 +157,7 @@ void WinChatApp::HandlePeerFrameOnModelThread(
           model_runtime_->AttachNode(client,
                                      *runtime_.application->chat_room);
         });
-    if (ok) {
+    if (SharedApplyResultAllowsAck(apply)) {
       SendSharedAck(shared_, shared_transport_.get(), remote_uid,
                     event_frame.event_id);
     }
@@ -168,6 +168,7 @@ void WinChatApp::HandlePeerFrameOnModelThread(
   SharedAckFrame ack_frame;
   if (DecodeSharedAckFrame(bytes, ack_frame)) {
     HandleSharedAck(shared_, remote_uid, ack_frame);
+    // Immediately continue journal transfer in the same Model turn.
     TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
                        shared_transport_.get());
   }

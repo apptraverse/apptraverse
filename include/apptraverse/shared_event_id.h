@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 
+#include "aether-miscpp/reflect/reflect.h"
+
 namespace apptraverse {
 
 // Stable global identity for a shared journal Event across replicas.
@@ -19,6 +21,8 @@ struct SharedEventId {
   bool operator!=(SharedEventId const& other) const noexcept {
     return !(*this == other);
   }
+
+  AE_REFLECT_MEMBERS(origin_uid, origin_sequence)
 };
 
 inline bool SharedEventIdLess(SharedEventId const& a,

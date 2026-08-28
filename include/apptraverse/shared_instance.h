@@ -6,20 +6,14 @@
 #include <deque>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include "apptraverse/event_record.h"
 #include "apptraverse/shared_event_id.h"
 #include "apptraverse/shared_event_order.h"
 
 namespace apptraverse {
-
-struct SharedJournalEntry {
-  SharedEventId id;
-  SharedEventOrder order;
-  std::vector<std::uint8_t> payload;
-};
 
 struct PeerDeliveryState {
   std::string remote_aether_uid;
@@ -30,6 +24,14 @@ struct PeerDeliveryState {
   bool channel_ready{false};
 };
 
+// Held until CanApply succeeds. Not in known/applied set; not ACK'd.
+struct DeferredIncomingEvent {
+  SharedEventId id;
+  SharedEventOrder order;
+  std::vector<std::uint8_t> payload;
+  std::string source_peer_uid;
+};
+
 template <typename TNode>
 struct SharedInstance {
   typename TNode::ptr node;
@@ -37,8 +39,8 @@ struct SharedInstance {
   std::string local_aether_uid;
   std::uint64_t next_origin_sequence{1};
   std::uint64_t lamport_clock{0};
-  std::vector<SharedJournalEntry> shared_journal;
   std::vector<PeerDeliveryState> peers;
+  std::vector<DeferredIncomingEvent> deferred;
 
   bool HasSharedEvent(SharedEventId const& id) const noexcept {
     return known_events_.count(MakeKey(id)) > 0;
@@ -46,6 +48,18 @@ struct SharedInstance {
 
   void RememberSharedEvent(SharedEventId const& id) {
     known_events_.insert(MakeKey(id));
+  }
+
+  EventRecord const* FindJournalRecord(SharedEventId const& id) const {
+    if (!node.is_valid()) {
+      return nullptr;
+    }
+    for (auto const& record : node->journal) {
+      if (record.HasSharedIdentity() && record.identity == id) {
+        return &record;
+      }
+    }
+    return nullptr;
   }
 
   PeerDeliveryState* FindPeer(std::string const& remote_uid) noexcept {

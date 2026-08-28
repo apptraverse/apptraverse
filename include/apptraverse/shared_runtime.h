@@ -49,16 +49,13 @@ class SharedRuntime {
 
   template <typename TNode>
   void RememberLocalCommit(SharedInstance<TNode>& instance,
-                           SharedEventId const& id,
-                           SharedEventOrder const& order) {
+                           SharedEventId const& id) {
     instance.RememberSharedEvent(id);
-    instance.shared_journal.push_back(SharedJournalEntry{.id = id, .order = order});
   }
 
   template <typename TNode>
   void OnLocalEventCommitted(
-      SharedInstance<TNode>& instance,
-      SharedEventId const& id,
+      SharedInstance<TNode>& instance, SharedEventId const& id,
       std::function<void(PeerDeliveryState&, SharedEventId const&)> const&
           enqueue_for_peer);
 
@@ -71,12 +68,11 @@ class SharedRuntime {
                               PeerDeliveryState& peer);
 
   template <typename TNode>
-  void OnIncomingEventApplied(SharedInstance<TNode>& instance,
-                              SharedEventId const& id,
-                              SharedEventOrder const& order,
-                              std::string const& source_peer_uid,
-                              std::function<void(PeerDeliveryState&, SharedEventId const&)>
-                                  const& enqueue_for_peer);
+  void OnIncomingEventApplied(
+      SharedInstance<TNode>& instance, SharedEventId const& id,
+      SharedEventOrder const& order, std::string const& source_peer_uid,
+      std::function<void(PeerDeliveryState&, SharedEventId const&)> const&
+          enqueue_for_peer);
 
   template <typename TNode>
   void OnAckReceived(SharedInstance<TNode>& instance,
@@ -95,7 +91,6 @@ class SharedRuntime {
   SharedRuntimeConfig config_;
 };
 
-// Generic pending enqueue: all journal events except peer-origin.
 template <typename TNode>
 void SharedRuntime::OnLocalEventCommitted(
     SharedInstance<TNode>& instance, SharedEventId const& id,
@@ -132,19 +127,25 @@ PeerDeliveryState& SharedRuntime::EnsurePeer(SharedInstance<TNode>& instance,
 template <typename TNode>
 void SharedRuntime::SeedPendingFromJournal(SharedInstance<TNode>& instance,
                                            PeerDeliveryState& peer) {
-  for (auto const& entry : instance.shared_journal) {
-    if (entry.id.origin_uid == peer.remote_aether_uid) {
+  if (!instance.node.is_valid()) {
+    return;
+  }
+  for (auto const& record : instance.node->journal) {
+    if (!record.HasSharedIdentity()) {
+      continue;
+    }
+    if (record.identity.origin_uid == peer.remote_aether_uid) {
       continue;
     }
     bool already = false;
     for (auto const& pending : peer.pending) {
-      if (pending == entry.id) {
+      if (pending == record.identity) {
         already = true;
         break;
       }
     }
     if (!already) {
-      peer.pending.push_back(entry.id);
+      peer.pending.push_back(record.identity);
     }
   }
 }
@@ -164,17 +165,6 @@ void SharedRuntime::OnIncomingEventApplied(
     return;
   }
   instance.RememberSharedEvent(id);
-  bool already_in_journal = false;
-  for (auto const& entry : instance.shared_journal) {
-    if (entry.id == id) {
-      already_in_journal = true;
-      break;
-    }
-  }
-  if (!already_in_journal) {
-    instance.shared_journal.push_back(
-        SharedJournalEntry{.id = id, .order = order});
-  }
   if (order.lamport > instance.lamport_clock) {
     instance.lamport_clock = order.lamport;
   }
@@ -243,7 +233,9 @@ void SharedRuntime::Tick(
     }
     if (peer.in_flight.has_value() &&
         now - peer.in_flight_sent_at >= kSharedEventRetryInterval) {
-      if (!peer.online) {
+      // Presence query must not block retry when the stream is already ready
+      // (transport evidence). Require online only when the channel is down.
+      if (!peer.online && !peer.channel_ready) {
         continue;
       }
       peer.in_flight_sent_at = now;

@@ -2,12 +2,12 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cstring>
+#include <stdexcept>
+#include <utility>
 
 #include "aether/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/object_serialization.h"
-#include "apptraverse/publication_channel.h"
 #include "apptraverse/shared_event_order.h"
 #include "apptraverse/shared_frame_codec.h"
 
@@ -27,47 +27,24 @@ void EnqueuePending(PeerDeliveryState& peer, SharedEventId const& id) {
   peer.pending.push_back(id);
 }
 
-std::size_t FindInsertIndex(std::vector<SharedJournalEntry> const& journal,
-                            SharedEventOrder const& order) {
-  auto it = std::lower_bound(
-      journal.begin(), journal.end(), order,
-      [](SharedJournalEntry const& entry, SharedEventOrder const& value) {
-        return SharedEventOrderLess(entry.order, value);
-      });
-  return static_cast<std::size_t>(it - journal.begin());
-}
-
-void StorePayloadOnLatestEntry(ChatSharedBinding& binding,
-                               std::vector<std::uint8_t> payload) {
-  if (binding.instance.shared_journal.empty()) {
-    return;
-  }
-  binding.instance.shared_journal.back().payload = std::move(payload);
-}
-
 bool SendEventToPeer(ChatSharedBinding& binding, PeerDeliveryState& peer,
                      SharedEventId const& id, ISharedTransport* transport) {
   if (transport == nullptr) {
     return false;
   }
-  SharedJournalEntry const* entry = nullptr;
-  for (auto const& candidate : binding.instance.shared_journal) {
-    if (candidate.id == id) {
-      entry = &candidate;
-      break;
-    }
-  }
-  if (entry == nullptr) {
+  auto const* record = binding.instance.FindJournalRecord(id);
+  if (record == nullptr || !record->event.is_valid()) {
     return false;
   }
-  std::vector<std::uint8_t> payload = entry->payload;
+  record->event.Load();
+  auto payload = SerializeSharedEventPayload(*record->event);
   if (payload.empty()) {
     return false;
   }
   SharedEventFrame frame{
       .shared_room_id = binding.instance.shared_room_id,
-      .event_id = entry->id,
-      .order = entry->order,
+      .event_id = record->identity,
+      .order = record->order,
       .payload = std::move(payload),
   };
   transport->SendEvent(peer.remote_aether_uid, frame);
@@ -77,10 +54,124 @@ bool SendEventToPeer(ChatSharedBinding& binding, PeerDeliveryState& peer,
   return true;
 }
 
+void StoreDeferred(ChatSharedBinding& binding, std::string const& source_peer_uid,
+                   SharedEventFrame const& frame) {
+  for (auto const& existing : binding.instance.deferred) {
+    if (existing.id == frame.event_id) {
+      return;
+    }
+  }
+  binding.instance.deferred.push_back(DeferredIncomingEvent{
+      .id = frame.event_id,
+      .order = frame.order,
+      .payload = frame.payload,
+      .source_peer_uid = source_peer_uid,
+  });
+  chat::ChatLog("SHARED_EVENT_DEFERRED peer=" + source_peer_uid + " event=" +
+                frame.event_id.origin_uid + ":" +
+                std::to_string(frame.event_id.origin_sequence));
+}
+
+SharedApplyResult TryApplyFrame(
+    ChatSharedBinding& binding, std::string const& source_peer_uid,
+    SharedEventFrame const& frame,
+    std::function<void(std::string const& client_uid)> const& on_join_client,
+    OnNewChatClientFn const& on_new_client);
+
+void DrainDeferred(
+    ChatSharedBinding& binding,
+    std::function<void(std::string const& client_uid)> const& on_join_client,
+    OnNewChatClientFn const& on_new_client) {
+  bool progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (std::size_t i = 0; i < binding.instance.deferred.size();) {
+      auto frame = SharedEventFrame{
+          .shared_room_id = binding.instance.shared_room_id,
+          .event_id = binding.instance.deferred[i].id,
+          .order = binding.instance.deferred[i].order,
+          .payload = binding.instance.deferred[i].payload,
+      };
+      auto const source = binding.instance.deferred[i].source_peer_uid;
+      auto const result =
+          TryApplyFrame(binding, source, frame, on_join_client, on_new_client);
+      if (result == SharedApplyResult::Applied ||
+          result == SharedApplyResult::DuplicateAlreadyApplied) {
+        binding.instance.deferred.erase(binding.instance.deferred.begin() +
+                                        static_cast<std::ptrdiff_t>(i));
+        progressed = true;
+        continue;
+      }
+      if (result == SharedApplyResult::Rejected) {
+        binding.instance.deferred.erase(binding.instance.deferred.begin() +
+                                        static_cast<std::ptrdiff_t>(i));
+        continue;
+      }
+      ++i;
+    }
+  }
+}
+
+SharedApplyResult TryApplyFrame(
+    ChatSharedBinding& binding, std::string const& source_peer_uid,
+    SharedEventFrame const& frame,
+    std::function<void(std::string const& client_uid)> const& on_join_client,
+    OnNewChatClientFn const& on_new_client) {
+  if (binding.instance.HasSharedEvent(frame.event_id)) {
+    return SharedApplyResult::DuplicateAlreadyApplied;
+  }
+  Event::ptr event;
+  if (!DeserializeSharedEventPayload(
+          *binding.instance.node, event, frame.payload,
+          [&](ChatClient& client) {
+            auto const uid = client.AetherUidText();
+            if (auto* peer = binding.instance.FindPeer(uid)) {
+              client.online = peer->online;
+            }
+            if (on_new_client) {
+              on_new_client(client);
+            }
+          }) ||
+      !event.is_valid()) {
+    return SharedApplyResult::Rejected;
+  }
+  event.Load();
+  auto* join = dynamic_cast<JoinEvent*>(&*event);
+  if (join != nullptr) {
+    if (join->client.is_valid()) {
+      auto const client_uid = join->client->AetherUidText();
+      if (!client_uid.empty() && client_uid != frame.event_id.origin_uid) {
+        chat::ChatLog("SHARED_JOIN_UID_MISMATCH sender=" + source_peer_uid +
+                      " event_uid=" + client_uid);
+        return SharedApplyResult::Rejected;
+      }
+      if (client_uid.empty()) {
+        join->client->SetAetherUidText(frame.event_id.origin_uid);
+      }
+    }
+  }
+  if (!event->CanApplyTo(*binding.instance.node)) {
+    return SharedApplyResult::Deferred;
+  }
+  binding.instance.node->InsertSharedOrderedEvent(std::move(event),
+                                                  frame.event_id, frame.order);
+  binding.runtime.OnIncomingEventApplied(
+      binding.instance, frame.event_id, frame.order, source_peer_uid,
+      [](PeerDeliveryState& peer, SharedEventId const& event_id) {
+        EnqueuePending(peer, event_id);
+      });
+  chat::ChatLog("SHARED_EVENT_APPLIED peer=" + source_peer_uid + " event=" +
+                frame.event_id.origin_uid + ":" +
+                std::to_string(frame.event_id.origin_sequence));
+  if (join != nullptr && join->client.is_valid() && on_join_client) {
+    on_join_client(join->client->AetherUidText());
+  }
+  return SharedApplyResult::Applied;
+}
+
 }  // namespace
 
-void InitializeChatSharedBinding(ChatSharedBinding& binding,
-                                 Application& app,
+void InitializeChatSharedBinding(ChatSharedBinding& binding, Application& app,
                                  std::string local_aether_uid) {
   binding.instance.node = app.chat_room;
   binding.instance.local_aether_uid = std::move(local_aether_uid);
@@ -89,38 +180,34 @@ void InitializeChatSharedBinding(ChatSharedBinding& binding,
       app.host_client->AetherUidText().empty()) {
     app.host_client->SetAetherUidText(binding.instance.local_aether_uid);
   }
-  if (binding.instance.shared_journal.empty() &&
-      binding.instance.node.is_valid()) {
-    std::uint64_t seq = 1;
+  if (binding.instance.node.is_valid()) {
     for (auto const& record : binding.instance.node->journal) {
-      assert(record.event.is_valid());
-      record.event.Load();
-      SharedEventId id{.origin_uid = binding.instance.local_aether_uid,
-                       .origin_sequence = seq};
-      SharedEventOrder order{.lamport = seq,
-                             .origin_uid = binding.instance.local_aether_uid,
-                             .origin_sequence = seq};
-      binding.instance.RememberSharedEvent(id);
-      binding.instance.shared_journal.push_back(SharedJournalEntry{
-          .id = id,
-          .order = order,
-          .payload = SerializeSharedEventPayload(*record.event),
-      });
-      ++seq;
+      if (!record.HasSharedIdentity()) {
+        throw std::runtime_error(
+            "ChatRoom journal contains pre-shared EventRecords without "
+            "SharedEventId; re-distill with a fresh state dir");
+      }
+      binding.instance.RememberSharedEvent(record.identity);
+      if (record.order.lamport > binding.instance.lamport_clock) {
+        binding.instance.lamport_clock = record.order.lamport;
+      }
+      if (record.identity.origin_uid == binding.instance.local_aether_uid &&
+          record.identity.origin_sequence >=
+              binding.instance.next_origin_sequence) {
+        binding.instance.next_origin_sequence =
+            record.identity.origin_sequence + 1;
+      }
     }
-    binding.instance.next_origin_sequence = seq;
-    binding.instance.lamport_clock = seq > 1 ? seq - 1 : 0;
   }
 }
 
 void CommitLocalJoin(ChatSharedBinding& binding, ChatClient& client) {
   auto const id = binding.runtime.AssignLocalIdentity(binding.instance);
   auto const order = binding.runtime.MakeLocalOrder(binding.instance, id);
-  CommitJoinChat(*binding.instance.node, client);
-  auto const& record = binding.instance.node->journal.back();
-  record.event.Load();
-  binding.runtime.RememberLocalCommit(binding.instance, id, order);
-  StorePayloadOnLatestEntry(binding, SerializeSharedEventPayload(*record.event));
+  auto event = MakeJoinEvent(*binding.instance.node, client);
+  assert(binding.instance.node->CanApply(*event));
+  binding.instance.node->CommitShared(event, id, order);
+  binding.runtime.RememberLocalCommit(binding.instance, id);
   binding.runtime.OnLocalEventCommitted(
       binding.instance, id,
       [](PeerDeliveryState& peer, SharedEventId const& event_id) {
@@ -135,19 +222,16 @@ LocalChatCommitResult CommitLocalMessage(ChatSharedBinding& binding,
                                          ChatClient& author, std::string text,
                                          std::int64_t sent_at_unix_ms) {
   LocalChatCommitResult result;
-  auto const id = binding.runtime.AssignLocalIdentity(binding.instance);
-  auto const order = binding.runtime.MakeLocalOrder(binding.instance, id);
-  auto const size_before = binding.instance.node->journal.size();
-  auto event = CommitSendChatMessage(*binding.instance.node, author,
-                                     std::move(text), sent_at_unix_ms);
-  if (!event.is_valid() ||
-      binding.instance.node->journal.size() == size_before) {
+  auto event = MakeChatMessageEvent(*binding.instance.node, author,
+                                    std::move(text), sent_at_unix_ms);
+  if (!event.is_valid()) {
     return result;
   }
-  auto const& record = binding.instance.node->journal.back();
-  record.event.Load();
-  binding.runtime.RememberLocalCommit(binding.instance, id, order);
-  StorePayloadOnLatestEntry(binding, SerializeSharedEventPayload(*record.event));
+  auto const id = binding.runtime.AssignLocalIdentity(binding.instance);
+  auto const order = binding.runtime.MakeLocalOrder(binding.instance, id);
+  assert(binding.instance.node->CanApply(*event));
+  binding.instance.node->CommitShared(event, id, order);
+  binding.runtime.RememberLocalCommit(binding.instance, id);
   binding.runtime.OnLocalEventCommitted(
       binding.instance, id,
       [](PeerDeliveryState& peer, SharedEventId const& event_id) {
@@ -270,10 +354,17 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
     auto const author_uid = message->author->AetherUidText();
     event->author = room.FindClientByAetherUid(author_uid);
     if (!event->author.is_valid()) {
-      return {};
+      // Author not in room yet (Message before Join): build a temporary
+      // client so CanApply fails and ApplyIncomingSharedEvent Defers.
+      auto client = ChatClient::ptr::Create(ae::CreateWith{model_domain});
+      client->SetAetherUidText(author_uid);
+      auto name_obj =
+          ImmutableString::ptr::Create(ae::CreateWith{model_domain});
+      name_obj->bytes = message->author->DisplayNameBytes();
+      client->display_name = name_obj;
+      event->author = client;
     }
-    auto body =
-        ImmutableString::ptr::Create(ae::CreateWith{model_domain});
+    auto body = ImmutableString::ptr::Create(ae::CreateWith{model_domain});
     body->bytes = message->text->bytes;
     event->text = body;
     event->sent_at_unix_ms = message->sent_at_unix_ms;
@@ -290,7 +381,7 @@ bool DeserializeSharedEventPayload(ChatRoom& room, Event::ptr& out_event,
   return out_event.is_valid();
 }
 
-bool ApplyIncomingSharedEvent(
+SharedApplyResult ApplyIncomingSharedEvent(
     ChatSharedBinding& binding, std::string const& source_peer_uid,
     SharedEventFrame const& frame,
     std::function<void(std::string const& client_uid)> on_join_client,
@@ -307,76 +398,19 @@ bool ApplyIncomingSharedEvent(
     chat::ChatLog("SHARED_EVENT_DUPLICATE peer=" + source_peer_uid +
                   " event=" + frame.event_id.origin_uid + ":" +
                   std::to_string(frame.event_id.origin_sequence));
-    return true;
+    return SharedApplyResult::DuplicateAlreadyApplied;
   }
-  Event::ptr event;
-  if (!DeserializeSharedEventPayload(
-          *binding.instance.node, event, frame.payload,
-          [&](ChatClient& client) {
-            auto const uid = client.AetherUidText();
-            if (auto* peer = binding.instance.FindPeer(uid)) {
-              client.online = peer->online;
-            }
-            if (on_new_client) {
-              on_new_client(client);
-            }
-          }) ||
-      !event.is_valid()) {
-    return false;
+  auto const result =
+      TryApplyFrame(binding, source_peer_uid, frame, on_join_client,
+                    on_new_client);
+  if (result == SharedApplyResult::Deferred) {
+    StoreDeferred(binding, source_peer_uid, frame);
+    return SharedApplyResult::Deferred;
   }
-  event.Load();
-  auto* join = dynamic_cast<JoinEvent*>(&*event);
-  if (join != nullptr) {
-    if (join->client.is_valid()) {
-      auto const client_uid = join->client->AetherUidText();
-      if (!client_uid.empty() && client_uid != frame.event_id.origin_uid) {
-        chat::ChatLog("SHARED_JOIN_UID_MISMATCH sender=" + source_peer_uid +
-                      " event_uid=" + client_uid);
-        return false;
-      }
-      if (client_uid.empty()) {
-        join->client->SetAetherUidText(frame.event_id.origin_uid);
-      }
-    }
+  if (result == SharedApplyResult::Applied) {
+    DrainDeferred(binding, on_join_client, on_new_client);
   }
-  if (!event->CanApplyTo(*binding.instance.node)) {
-    auto const insert_index =
-        FindInsertIndex(binding.instance.shared_journal, frame.order);
-    binding.instance.shared_journal.insert(
-        binding.instance.shared_journal.begin() +
-            static_cast<std::ptrdiff_t>(insert_index),
-        SharedJournalEntry{.id = frame.event_id,
-                           .order = frame.order,
-                           .payload = frame.payload});
-    binding.runtime.OnIncomingEventApplied(
-        binding.instance, frame.event_id, frame.order, source_peer_uid,
-        [](PeerDeliveryState& peer, SharedEventId const& event_id) {
-          EnqueuePending(peer, event_id);
-        });
-    return true;
-  }
-  auto const insert_index =
-      FindInsertIndex(binding.instance.shared_journal, frame.order);
-  auto const timestamp = EncodeOrderTimestamp(frame.order);
-  binding.instance.node->InsertOrderedEvent(std::move(event), timestamp);
-  binding.instance.shared_journal.insert(
-      binding.instance.shared_journal.begin() +
-          static_cast<std::ptrdiff_t>(insert_index),
-      SharedJournalEntry{.id = frame.event_id,
-                         .order = frame.order,
-                         .payload = frame.payload});
-  binding.runtime.OnIncomingEventApplied(
-      binding.instance, frame.event_id, frame.order, source_peer_uid,
-      [](PeerDeliveryState& peer, SharedEventId const& event_id) {
-        EnqueuePending(peer, event_id);
-      });
-  chat::ChatLog("SHARED_EVENT_APPLIED peer=" + source_peer_uid + " event=" +
-                frame.event_id.origin_uid + ":" +
-                std::to_string(frame.event_id.origin_sequence));
-  if (join != nullptr && join->client.is_valid() && on_join_client) {
-    on_join_client(join->client->AetherUidText());
-  }
-  return true;
+  return result;
 }
 
 void EnsureSharedPeer(ChatSharedBinding& binding,

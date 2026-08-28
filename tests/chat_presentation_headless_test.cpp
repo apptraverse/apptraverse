@@ -233,10 +233,10 @@ void TestPeerOnlineAppliedBeforeJoin() {
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("host-uid");
-  CommitHostJoin(*application);
 
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "host-uid");
+  CommitLocalJoin(binding, *application->host_client);
   EnsureSharedPeer(binding, "client-uid");
   SetSharedPeerOnline(binding, "client-uid", true);
   CHECK(binding.instance.FindPeer("client-uid")->online);
@@ -247,7 +247,16 @@ void TestPeerOnlineAppliedBeforeJoin() {
   name->bytes = "Client";
   client->display_name = name;
   client->online = binding.instance.FindPeer("client-uid")->online;
-  CommitJoinChat(*application->chat_room, *client);
+  SharedEventId const client_join_id{.origin_uid = "client-uid",
+                                     .origin_sequence = 1};
+  SharedEventOrder const client_join_order{
+      .lamport = ++binding.instance.lamport_clock,
+      .origin_uid = client_join_id.origin_uid,
+      .origin_sequence = client_join_id.origin_sequence,
+  };
+  auto join = MakeJoinEvent(*application->chat_room, *client);
+  application->chat_room->CommitShared(join, client_join_id, client_join_order);
+  binding.runtime.RememberLocalCommit(binding.instance, client_join_id);
   CHECK(application->chat_room->FindClientByAetherUid("client-uid")->online);
 }
 
@@ -258,10 +267,10 @@ void TestOfflineRetrySkippedOnlineTriggersSend() {
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("host-uid");
-  CommitHostJoin(*application);
 
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "host-uid");
+  CommitLocalJoin(binding, *application->host_client);
   EnsureSharedPeer(binding, "client-uid");
   auto* peer = binding.instance.FindPeer("client-uid");
   peer->channel_ready = true;
@@ -279,20 +288,31 @@ void TestOfflineRetrySkippedOnlineTriggersSend() {
   CHECK(sends == 1);
   CHECK(peer->in_flight.has_value());
 
-  binding.runtime.Tick(binding.instance, now + std::chrono::seconds{2},
-                       [&](PeerDeliveryState&, SharedEventId const&) {
-                         ++sends;
-                         return true;
-                       });
-  CHECK(sends == 1);
-
-  SetSharedPeerOnline(binding, "client-uid", true);
+  // channel_ready is transport evidence: retry proceeds even while offline.
   binding.runtime.Tick(binding.instance, now + std::chrono::seconds{2},
                        [&](PeerDeliveryState&, SharedEventId const&) {
                          ++sends;
                          return true;
                        });
   CHECK(sends == 2);
+
+  peer->channel_ready = false;
+  peer->online = false;
+  binding.runtime.Tick(binding.instance, now + std::chrono::seconds{4},
+                       [&](PeerDeliveryState&, SharedEventId const&) {
+                         ++sends;
+                         return true;
+                       });
+  CHECK(sends == 2);
+
+  SetSharedPeerOnline(binding, "client-uid", true);
+  peer->channel_ready = true;
+  binding.runtime.Tick(binding.instance, now + std::chrono::seconds{4},
+                       [&](PeerDeliveryState&, SharedEventId const&) {
+                         ++sends;
+                         return true;
+                       });
+  CHECK(sends == 3);
 }
 
 void TestPresenceScheduleMapping() {
@@ -309,16 +329,25 @@ void TestSameStatusDoesNotBumpGeneration() {
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("host-uid");
-  CommitHostJoin(*application);
 
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "host-uid");
+  CommitLocalJoin(binding, *application->host_client);
   auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
   client->SetAetherUidText("client-uid");
   auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
   name->bytes = "Client";
   client->display_name = name;
-  CommitJoinChat(*application->chat_room, *client);
+  SharedEventId const client_join_id{.origin_uid = "client-uid",
+                                     .origin_sequence = 1};
+  SharedEventOrder const client_join_order{
+      .lamport = ++binding.instance.lamport_clock,
+      .origin_uid = client_join_id.origin_uid,
+      .origin_sequence = client_join_id.origin_sequence,
+  };
+  auto join = MakeJoinEvent(*application->chat_room, *client);
+  application->chat_room->CommitShared(join, client_join_id, client_join_order);
+  binding.runtime.RememberLocalCommit(binding.instance, client_join_id);
 
   SetSharedPeerOnline(binding, "client-uid", true);
   auto const gen = client->Generation();
@@ -331,17 +360,25 @@ void TestSameStatusDoesNotBumpGeneration() {
 
 int main() {
   using namespace apptraverse::test;
-  TestSourceGuardNoMirrorOrHwnd();
-  TestLocalChatHostJoinAndMessages();
-  TestPresentationSnapshotFromModelGraph();
-  TestTimestampCommitAndRemap();
-  TestLegacyZeroTimestampHasNoFakeTime();
-  TestUiSendLatencyTracker();
-  TestRemotePresencePollerNoOverlap();
-  TestPeerOnlineAppliedBeforeJoin();
-  TestOfflineRetrySkippedOnlineTriggersSend();
-  TestPresenceScheduleMapping();
-  TestSameStatusDoesNotBumpGeneration();
-  std::cout << "chat_presentation_headless_test OK\n";
-  return 0;
+  try {
+    TestSourceGuardNoMirrorOrHwnd();
+    TestLocalChatHostJoinAndMessages();
+    TestPresentationSnapshotFromModelGraph();
+    TestTimestampCommitAndRemap();
+    TestLegacyZeroTimestampHasNoFakeTime();
+    TestUiSendLatencyTracker();
+    TestRemotePresencePollerNoOverlap();
+    TestPeerOnlineAppliedBeforeJoin();
+    TestOfflineRetrySkippedOnlineTriggersSend();
+    TestPresenceScheduleMapping();
+    TestSameStatusDoesNotBumpGeneration();
+    std::cout << "chat_presentation_headless_test OK\n";
+    return 0;
+  } catch (std::exception const& ex) {
+    std::cerr << "exception: " << ex.what() << '\n';
+    return 2;
+  } catch (...) {
+    std::cerr << "unknown exception\n";
+    return 3;
+  }
 }

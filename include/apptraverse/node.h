@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -26,7 +27,8 @@ inline std::uint64_t SystemUtcMicros() {
 }
 
 class Node : public ae::Obj {
-  APPTRAVERSE_OBJECT(Node, ae::Obj, 0)
+  // Version 1: EventRecord uses SharedEventId/Order (no timestamp_us packing).
+  APPTRAVERSE_OBJECT(Node, ae::Obj, 1)
 
  protected:
   Node() = default;
@@ -36,22 +38,32 @@ class Node : public ae::Obj {
 
   AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal))
 
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error(
+        "AppTraverse Node journal v0 (timestamp_us) is not supported; "
+        "re-distill with a fresh state dir");
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, base, journal);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, base, journal);
+  }
+
   Node::ptr base;
   std::vector<EventRecord> journal;
 
-  // Object-state Generation: the only change signal for materialized state.
-  // Not Aether Registry::GenerationDistance (class-hierarchy distance).
-  // Increments only when Apply / derived UpdateFromParent actually changes
-  // fields. Used to: apply committed Events, refresh before a read, skip
-  // re-applying the same journal prefix, and skip UI serialize/deserialize.
   std::uint64_t Generation() const { return generation_; }
 
-  // UI Domain materialization only. Model thread never calls this.
   void AdoptPublishedGeneration(std::uint64_t generation) {
     generation_ = generation;
   }
 
-  // Runtime-only hook: ModelRuntime registers to collect changed Nodes.
   static void SetMaterializedChangeNotifier(
       std::function<void(Node&)> notifier) {
     materialized_change_notifier_ = std::move(notifier);
@@ -63,9 +75,6 @@ class Node : public ae::Obj {
     (void)now;
   }
 
-  // Apply any journal Events not yet materialized. Commit calls this before
-  // returning. Call it before reading another object. Re-entry of the same
-  // already-applied prefix is a no-op (cursor already advanced).
   void EnsureCurrentGeneration() {
     if (applied_journal_size_ == kJournalFullyMaterialized) {
       applied_journal_size_ = journal.size();
@@ -149,21 +158,22 @@ class Node : public ae::Obj {
     assert(domain != nullptr);
     assert(base.is_valid());
     assert(base.is_loaded());
-    assert(record.timestamp_us != 0);
     assert(record.event.is_valid());
     assert(record.event.is_loaded());
     assert(record.event.domain() == domain);
+    assert(record.order.lamport != 0 || !record.order.origin_uid.empty() ||
+           record.order.origin_sequence != 0);
 
     for (auto const& existing : journal) {
-      assert(existing.timestamp_us != record.timestamp_us &&
-             "duplicate timestamp_us");
+      assert(!(existing.order == record.order) && "duplicate EventRecord order");
+      if (record.HasSharedIdentity() && existing.HasSharedIdentity()) {
+        assert(!(existing.identity == record.identity) &&
+               "duplicate SharedEventId");
+      }
     }
 
-    auto position = std::lower_bound(
-        journal.begin(), journal.end(), record.timestamp_us,
-        [](EventRecord const& existing, std::uint64_t timestamp_us) {
-          return existing.timestamp_us < timestamp_us;
-        });
+    auto position = std::lower_bound(journal.begin(), journal.end(), record,
+                                     EventRecordOrderLess);
 
     bool const appended = position == journal.end();
     journal.insert(position, std::move(record));
@@ -178,20 +188,49 @@ class Node : public ae::Obj {
     }
   }
 
+  // Non-shared local commit: monotonic local order (empty identity).
   template <typename ConcreteNode>
   void CommitInto(ConcreteNode& target, Event::ptr event) {
     assert(event.is_valid());
     assert(event.is_loaded());
     assert(event->CanApplyTo(target));
 
-    std::uint64_t timestamp_us = SystemUtcMicros();
-    if (!journal.empty() && timestamp_us <= journal.back().timestamp_us) {
-      timestamp_us = journal.back().timestamp_us + 1;
+    std::uint64_t lamport = SystemUtcMicros();
+    if (!journal.empty()) {
+      auto const& last = journal.back().order;
+      if (lamport <= last.lamport) {
+        lamport = last.lamport + 1;
+      }
     }
 
     EventRecord record{
-        timestamp_us,
-        std::move(event),
+        .event = std::move(event),
+        .identity = {},
+        .order =
+            SharedEventOrder{
+                .lamport = lamport,
+                .origin_uid = {},
+                .origin_sequence = 0,
+            },
+    };
+    InsertEvent(target, std::move(record));
+  }
+
+  // Shared commit: EventRecord is inserted with the canonical SharedEventOrder.
+  template <typename ConcreteNode>
+  void CommitSharedInto(ConcreteNode& target, Event::ptr event,
+                        SharedEventId identity, SharedEventOrder order) {
+    assert(event.is_valid());
+    assert(event.is_loaded());
+    assert(event->CanApplyTo(target));
+    assert(!identity.origin_uid.empty());
+    assert(order.origin_uid == identity.origin_uid);
+    assert(order.origin_sequence == identity.origin_sequence);
+
+    EventRecord record{
+        .event = std::move(event),
+        .identity = std::move(identity),
+        .order = std::move(order),
     };
     InsertEvent(target, std::move(record));
   }

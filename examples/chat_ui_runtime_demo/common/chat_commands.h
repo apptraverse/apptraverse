@@ -17,16 +17,19 @@ struct ChatSendUiRequest {
   std::uint64_t ui_trace_id{0};
 };
 
-inline void CommitJoinChat(ChatRoom& room, ChatClient& client) {
+inline JoinEvent::ptr MakeJoinEvent(ChatRoom& room, ChatClient& client) {
   auto event = JoinEvent::ptr::Create(ae::CreateWith{*room.domain});
   event->client = ChatClient::ptr::MakeFromThis(&client);
+  return event;
+}
+
+inline void CommitJoinChat(ChatRoom& room, ChatClient& client) {
+  auto event = MakeJoinEvent(room, client);
   assert(room.CanApply(*event));
   room.Commit(event);
 }
 
-inline ChatMessageEvent::ptr CommitSendChatMessage(
-    ChatRoom& room, ChatClient& author, std::string text,
-    std::int64_t sent_at_unix_ms = 0) {
+inline std::string TrimChatMessageText(std::string text) {
   while (!text.empty() &&
          (text.back() == '\n' || text.back() == '\r' || text.back() == ' ' ||
           text.back() == '\t')) {
@@ -41,6 +44,13 @@ inline ChatMessageEvent::ptr CommitSendChatMessage(
   if (start > 0) {
     text.erase(0, start);
   }
+  return text;
+}
+
+inline ChatMessageEvent::ptr MakeChatMessageEvent(
+    ChatRoom& room, ChatClient& author, std::string text,
+    std::int64_t sent_at_unix_ms = 0) {
+  text = TrimChatMessageText(std::move(text));
   if (text.empty()) {
     return {};
   }
@@ -50,6 +60,17 @@ inline ChatMessageEvent::ptr CommitSendChatMessage(
   event->author = ChatClient::ptr::MakeFromThis(&author);
   event->text = body;
   event->sent_at_unix_ms = sent_at_unix_ms;
+  return event;
+}
+
+inline ChatMessageEvent::ptr CommitSendChatMessage(
+    ChatRoom& room, ChatClient& author, std::string text,
+    std::int64_t sent_at_unix_ms = 0) {
+  auto event =
+      MakeChatMessageEvent(room, author, std::move(text), sent_at_unix_ms);
+  if (!event.is_valid()) {
+    return {};
+  }
   assert(room.CanApply(*event));
   room.Commit(event);
   return event;
