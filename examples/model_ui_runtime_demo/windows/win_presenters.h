@@ -10,6 +10,7 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/presenter.h"
 
+#include "demo_commands.h"
 #include "demo_ids.h"
 #include "demo_layout.h"
 #include "demo_log.h"

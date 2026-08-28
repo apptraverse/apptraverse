@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 #include <algorithm>
+#include <string>
 
 #include "apptraverse/model_runtime.h"
 

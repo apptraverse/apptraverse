@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(AppTraverse
   VERSION 0.1.0
-  LANGUAGES CXX
+  LANGUAGES CXX C
 )
 
 set(CMAKE_CXX_STANDARD 20)
@@ -25,9 +25,8 @@ endif()
 apptraverse_prepare_aether_override()
 apptraverse_add_pinned_aether_owned_deps()
 
-# Object system lives in aethernetio/aether-client-cpp (aether/obj, aether/ptr,
-# aether/domain_storage). Fetch pinned sources unless a local checkout is set.
-# Do not add_subdirectory the full client: that builds sockets, crypto, and P2P.
+# Object system + full Aether client live in aethernetio/aether-client-cpp.
+# Fetch pinned sources unless a local checkout is set.
 CPMAddPackage(
   NAME aether-client-cpp
   GITHUB_REPOSITORY aethernetio/aether-client-cpp
@@ -36,7 +35,7 @@ CPMAddPackage(
 )
 
 apptraverse_verify_aether_pin()
-apptraverse_add_object_aether()
+apptraverse_add_full_aether()
 
 add_library(apptraverse STATIC
   src/apptraverse.cpp
@@ -54,6 +53,7 @@ target_link_libraries(apptraverse PUBLIC aether)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
 add_subdirectory(examples/model_ui_runtime_demo)
+add_subdirectory(examples/chat_ui_runtime_demo)
 
 include(CTest)
 if(BUILD_TESTING)

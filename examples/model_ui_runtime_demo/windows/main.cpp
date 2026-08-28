@@ -3,14 +3,6 @@
 #include <string>
 #include <string_view>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#  define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#ifdef RegisterClass
-#  undef RegisterClass
-#endif
-
 #include "aether/clock.h"
 
 #include "apptraverse/directory_domain_storage.h"
@@ -46,7 +38,7 @@ int main(int argc, char** argv) {
     std::string_view arg{argv[i]};
     if (arg == "--distill") {
       distill = true;
-      if (i + 1 < argc) {
+      if (i + 1 < argc && argv[i + 1][0] != '-') {
         state_dir = argv[++i];
       }
     } else if (arg == "--state-dir" && i + 1 < argc) {

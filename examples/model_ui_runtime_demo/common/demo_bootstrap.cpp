@@ -1,8 +1,8 @@
 #include "demo_bootstrap.h"
 
-#include <cassert>
 #include <filesystem>
 #include <stdexcept>
+#include <string>
 
 #include "demo_ids.h"
 #include "demo_log.h"

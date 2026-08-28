@@ -58,3 +58,21 @@ add_test(
   NAME apptraverse_model_ui_runtime_test
   COMMAND apptraverse_model_ui_runtime_test
 )
+
+add_executable(apptraverse_chat_ui_runtime_test
+  chat_ui_runtime_test.cpp
+)
+
+target_link_libraries(apptraverse_chat_ui_runtime_test PRIVATE
+  chat_ui_runtime_demo_common
+)
+
+target_compile_definitions(apptraverse_chat_ui_runtime_test PRIVATE
+  "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo\""
+  "APPTRAVERSE_AETHER_EXPECTED_SHA=\"${APPTRAVERSE_AETHER_GIT_TAG}\""
+)
+
+add_test(
+  NAME apptraverse_chat_ui_runtime_test
+  COMMAND apptraverse_chat_ui_runtime_test
+)

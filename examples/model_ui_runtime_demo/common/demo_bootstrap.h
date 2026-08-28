@@ -10,6 +10,7 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/overlay_domain_storage.h"
+#include "demo_ids.h"
 #include "demo_model.h"
 
 namespace apptraverse {
