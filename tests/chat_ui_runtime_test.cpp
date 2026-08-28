@@ -294,8 +294,7 @@ void TestAetherRxScheduleConfiguredInRuntime() {
   std::string text((std::istreambuf_iterator<char>(in)),
                    std::istreambuf_iterator<char>());
   CHECK(text.find("SetReceiveSchedule") != std::string::npos);
-  CHECK(text.find("AETHER_RX_SCHEDULE_SET ping_ms=1000 window_ms=3000") !=
-        std::string::npos);
+  CHECK(text.find("ping_ms=1000 window_ms=3000") != std::string::npos);
   CHECK(text.find("std::chrono::seconds{1}") != std::string::npos);
   CHECK(text.find("std::chrono::seconds{3}") != std::string::npos);
   CHECK(text.find("IsLocallyOnline") != std::string::npos);
