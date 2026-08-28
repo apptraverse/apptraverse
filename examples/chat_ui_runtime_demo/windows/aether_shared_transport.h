@@ -18,14 +18,16 @@ class AetherSharedTransport final : public ISharedTransport {
   explicit AetherSharedTransport(ChatAetherRuntime& runtime)
       : runtime_{runtime} {}
 
-  void SendEvent(std::string const& peer_uid,
-                 SharedEventFrame const& frame) override {
+  SharedTransportEnqueueResult SendEvent(std::string const& peer_uid,
+                                         SharedEventFrame const& frame) override {
     runtime_.SendPeerFrame(peer_uid, EncodeSharedEventFrame(frame));
+    return SharedTransportEnqueueResult::Queued;
   }
 
-  void SendAck(std::string const& peer_uid,
-               SharedAckFrame const& frame) override {
+  SharedTransportEnqueueResult SendAck(std::string const& peer_uid,
+                                       SharedAckFrame const& frame) override {
     runtime_.SendPeerFrame(peer_uid, EncodeSharedAckFrame(frame));
+    return SharedTransportEnqueueResult::Queued;
   }
 
  private:

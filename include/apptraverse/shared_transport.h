@@ -28,17 +28,24 @@ struct SharedAckFrame {
   SharedEventId event_id;
 };
 
+enum class SharedTransportEnqueueResult : std::uint8_t {
+  Queued = 0,
+  Failed = 1,
+};
+
 // Application-level transport for shared journal replication.
 // Implementations must not call Aether APIs on the Model thread; they queue
 // outbound bytes for the Aether thread (or a fake bridge in tests).
+// Send* must not silently drop frames: return Failed or keep Queued until
+// a peer stream exists.
 class ISharedTransport {
  public:
   virtual ~ISharedTransport() = default;
 
-  virtual void SendEvent(std::string const& peer_uid,
-                         SharedEventFrame const& frame) = 0;
-  virtual void SendAck(std::string const& peer_uid,
-                       SharedAckFrame const& frame) = 0;
+  virtual SharedTransportEnqueueResult SendEvent(
+      std::string const& peer_uid, SharedEventFrame const& frame) = 0;
+  virtual SharedTransportEnqueueResult SendAck(
+      std::string const& peer_uid, SharedAckFrame const& frame) = 0;
 };
 
 using SharedEventReceivedCallback =

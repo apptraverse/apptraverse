@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -159,6 +160,7 @@ struct PeerStreamState {
   std::shared_ptr<ae::P2pStream> stream;
   ae::Subscription data_sub;
   ae::Subscription update_sub;
+  std::vector<ae::Subscription> write_subs;
   bool ready{false};
   bool inbound{false};
   std::vector<std::vector<std::uint8_t>> pending_out;
@@ -166,17 +168,21 @@ struct PeerStreamState {
 
 class PeerStreamHub {
  public:
+  using WriteFailedCallback = std::function<void(std::string const& remote_uid)>;
+
   PeerStreamHub(ae::Aether::ptr aether, ae::Client::ptr client,
                 ChatAetherRuntime::PeerReadyCallback on_ready,
                 ChatAetherRuntime::PeerClosedCallback on_closed,
                 ChatAetherRuntime::PeerFrameCallback on_frame,
-                std::function<void(std::string const&)> on_peer_seen)
+                std::function<void(std::string const&)> on_peer_seen,
+                WriteFailedCallback on_write_failed = {})
       : aether_{std::move(aether)},
         client_{std::move(client)},
         on_ready_{std::move(on_ready)},
         on_closed_{std::move(on_closed)},
         on_frame_{std::move(on_frame)},
-        on_peer_seen_{std::move(on_peer_seen)} {
+        on_peer_seen_{std::move(on_peer_seen)},
+        on_write_failed_{std::move(on_write_failed)} {
     inbound_sub_ = client_->message_stream_manager().new_port_event().Subscribe(
         [this](ae::P2pPortHandle handle) {
           auto const uid_text = ae::Format("{}", handle.destination());
@@ -207,17 +213,18 @@ class PeerStreamHub {
     BindStream(remote_uid, std::move(stream), /*inbound=*/false);
   }
 
+  // Never silently drop: queue until a stream exists, then Write.
+  // P2pStream BufferWrite accepts early Write before stream_update_event.
   void SendFrame(std::string const& remote_uid,
                  std::vector<std::uint8_t> bytes) {
-    auto it = peers_.find(remote_uid);
-    if (it == peers_.end() || !it->second.stream) {
+    auto& state = peers_[remote_uid];
+    if (!state.stream) {
+      state.pending_out.push_back(std::move(bytes));
+      chat::ChatLog("SHARED_FRAME_QUEUED_NO_STREAM peer=" + remote_uid +
+                    " queued=" + std::to_string(state.pending_out.size()));
       return;
     }
-    if (!it->second.ready) {
-      it->second.pending_out.push_back(std::move(bytes));
-      return;
-    }
-    WriteNow(*it->second.stream, std::move(bytes));
+    WriteNow(remote_uid, state, std::move(bytes));
   }
 
   void ClosePeer(std::string const& remote_uid) {
@@ -234,18 +241,35 @@ class PeerStreamHub {
   }
 
  private:
-  static void WriteNow(ae::P2pStream& stream, std::vector<std::uint8_t> bytes) {
+  void WriteNow(std::string const& remote_uid, PeerStreamState& state,
+                std::vector<std::uint8_t> bytes) {
+    assert(state.stream);
+    chat::ChatLog("SHARED_P2P_WRITE peer=" + remote_uid +
+                  " bytes=" + std::to_string(bytes.size()));
     ae::DataBuffer buffer{bytes.begin(), bytes.end()};
-    stream.Write(std::move(buffer)).status_event().Subscribe([](auto status) {
-      if (status == ae::WriteAction::Status::kFail) {
-        chat::ChatLog("SHARED_EVENT_SEND_FAIL");
-      }
-    });
+    auto& action = state.stream->Write(std::move(buffer));
+    state.write_subs.push_back(action.status_event().Subscribe(
+        [this, remote_uid](ae::WriteAction::Status status) {
+          if (status == ae::WriteAction::Status::kSuccess) {
+            chat::ChatLog("SHARED_P2P_WRITE_OK peer=" + remote_uid);
+            return;
+          }
+          if (status == ae::WriteAction::Status::kFail) {
+            chat::ChatLog("SHARED_P2P_WRITE_FAIL peer=" + remote_uid);
+            auto it = peers_.find(remote_uid);
+            if (it != peers_.end()) {
+              it->second.ready = false;
+            }
+            if (on_write_failed_) {
+              on_write_failed_(remote_uid);
+            }
+          }
+        }));
   }
 
-  void FlushPending(PeerStreamState& state) {
+  void FlushPending(std::string const& remote_uid, PeerStreamState& state) {
     for (auto& bytes : state.pending_out) {
-      WriteNow(*state.stream, std::move(bytes));
+      WriteNow(remote_uid, state, std::move(bytes));
     }
     state.pending_out.clear();
   }
@@ -268,6 +292,10 @@ class PeerStreamHub {
   void BindStream(std::string const& remote_uid,
                   std::shared_ptr<ae::P2pStream> stream, bool inbound) {
     PeerStreamState state;
+    auto existing = peers_.find(remote_uid);
+    if (existing != peers_.end()) {
+      state.pending_out = std::move(existing->second.pending_out);
+    }
     state.inbound = inbound;
     state.stream = std::move(stream);
     state.data_sub = state.stream->out_data_event().Subscribe(
@@ -278,19 +306,31 @@ class PeerStreamHub {
           std::vector<std::uint8_t> bytes{data.begin(), data.end()};
           on_frame_(remote_uid, std::move(bytes));
         });
+    // P2pStream buffers early Write via BufferWrite until GetCloud succeeds.
+    // Mark send-capable immediately so journal delivery is not delayed until
+    // the first stream_update_event (which fires after cloud connect).
+    state.ready = true;
     state.update_sub = state.stream->stream_update_event().Subscribe(
         [this, remote_uid]() {
           auto it = peers_.find(remote_uid);
-          if (it == peers_.end() || it->second.ready) {
+          if (it == peers_.end()) {
             return;
           }
-          it->second.ready = true;
-          FlushPending(it->second);
-          if (on_ready_) {
-            on_ready_(remote_uid);
+          if (!it->second.ready) {
+            it->second.ready = true;
+            FlushPending(remote_uid, it->second);
+            if (on_ready_) {
+              on_ready_(remote_uid);
+            }
           }
+          chat::ChatLog("SHARED_STREAM_UPDATE peer=" + remote_uid);
         });
     peers_[remote_uid] = std::move(state);
+    FlushPending(remote_uid, peers_[remote_uid]);
+    chat::ChatLog("SHARED_STREAM_READY peer=" + remote_uid);
+    if (on_ready_) {
+      on_ready_(remote_uid);
+    }
   }
 
   ae::Aether::ptr aether_;
@@ -299,6 +339,7 @@ class PeerStreamHub {
   ChatAetherRuntime::PeerClosedCallback on_closed_;
   ChatAetherRuntime::PeerFrameCallback on_frame_;
   std::function<void(std::string const&)> on_peer_seen_;
+  WriteFailedCallback on_write_failed_;
   ae::Subscription inbound_sub_;
   std::unordered_map<std::string, PeerStreamState> peers_;
 };
