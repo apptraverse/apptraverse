@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -128,6 +129,23 @@ std::int64_t JournalSentAt(EventRecord const& record) {
   return message->sent_at_unix_ms;
 }
 
+std::vector<std::string> SortedClientUids(ChatRoom const& room) {
+  std::vector<std::string> uids;
+  for (auto const& client : room.clients) {
+    if (!client.is_valid()) {
+      continue;
+    }
+    client.Load();
+    uids.push_back(client->AetherUidText());
+  }
+  std::sort(uids.begin(), uids.end());
+  return uids;
+}
+
+void RequireMembershipConverged(ChatRoom const& left, ChatRoom const& right) {
+  REQUIRE(SortedClientUids(left) == SortedClientUids(right));
+}
+
 void RequireJournalsConverged(ChatRoom const& left, ChatRoom const& right) {
   REQUIRE(left.journal.size() == right.journal.size());
   for (std::size_t i = 0; i < left.journal.size(); ++i) {
@@ -166,6 +184,32 @@ ChatSharedBinding BindChat(Application& application, std::string uid) {
   return binding;
 }
 
+void test_pipeline_sends_multiple_without_ack() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto application = MakeChatApp(domain, "Client", "client-uid");
+  auto binding = BindChat(*application, "client-uid");
+  CommitLocalJoin(binding, *application->host_client);
+  ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
+  auto* peer = binding.instance.FindPeer("host-uid");
+  peer->channel_ready = true;
+  peer->pending.push_back(
+      SharedEventId{.origin_uid = "client-uid", .origin_sequence = 1});
+  peer->pending.push_back(
+      SharedEventId{.origin_uid = "client-uid", .origin_sequence = 2});
+  peer->pending.push_back(
+      SharedEventId{.origin_uid = "client-uid", .origin_sequence = 3});
+  int sends = 0;
+  binding.runtime.Tick(
+      binding.instance, std::chrono::steady_clock::now(),
+      [&](PeerDeliveryState&, SharedEventId const&) {
+        ++sends;
+        return true;
+      });
+  REQUIRE(sends == 3);
+  REQUIRE(peer->in_flight.size() == 3);
+}
+
 void test_ack_clears_pending() {
   SharedRuntime runtime;
   SharedInstance<ChatRoom> instance;
@@ -176,9 +220,9 @@ void test_ack_clears_pending() {
   SharedEventId e2{.origin_uid = "alice", .origin_sequence = 2};
   peer.pending.push_back(e1);
   peer.pending.push_back(e2);
-  peer.in_flight = e1;
+  peer.in_flight.push_back(PeerInFlightEntry{.id = e1});
   runtime.OnAckReceived(instance, "bob", e1);
-  REQUIRE(!peer.in_flight.has_value());
+  REQUIRE(peer.in_flight.empty());
   REQUIRE(peer.pending.size() == 1);
   REQUIRE(peer.pending.front() == e2);
 }
@@ -312,7 +356,7 @@ void test_no_send_before_channel_ready() {
   REQUIRE(transport.events.empty());
 }
 
-void test_stream_ready_sends_first_pending() {
+void test_stream_ready_sends_all_pending() {
   ae::RamDomainStorage storage;
   ae::Domain domain{ae::Now(), storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
@@ -323,11 +367,12 @@ void test_stream_ready_sends_first_pending() {
   SetSharedPeerChannelReady(binding, "host-uid", true);
   RecordingTransport transport;
   TickSharedDelivery(binding, std::chrono::steady_clock::now(), &transport);
-  REQUIRE(transport.events.size() == 1);
+  REQUIRE(transport.events.size() == 2);
   REQUIRE(transport.events[0].peer_uid == "host-uid");
   REQUIRE(transport.events[0].frame.event_id.origin_sequence == 1);
   REQUIRE(transport.events[0].frame.order ==
           binding.instance.node->journal[0].order);
+  REQUIRE(transport.events[1].frame.event_id.origin_sequence == 2);
 }
 
 void test_event_codec_roundtrip_join_and_message() {
@@ -454,7 +499,7 @@ void test_message_before_join_is_deferred_then_drained() {
   REQUIRE(JournalMessageText(host_app->chat_room->journal.back()) == "early");
 }
 
-void test_ack_clears_and_sends_next() {
+void test_ack_clears_in_flight_without_blocking_pipeline() {
   ae::RamDomainStorage storage;
   ae::Domain domain{ae::Now(), storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
@@ -467,14 +512,16 @@ void test_ack_clears_and_sends_next() {
   RecordingTransport transport;
   auto now = std::chrono::steady_clock::now();
   TickSharedDelivery(binding, now, &transport);
-  REQUIRE((transport.events.size()) == (1u));
+  REQUIRE(transport.events.size() == 3);
+  auto* peer = binding.instance.FindPeer("host-uid");
+  REQUIRE(peer->in_flight.size() == 3);
   auto const first = transport.events[0].frame.event_id;
   HandleSharedAck(binding, "host-uid",
                   SharedAckFrame{.shared_room_id = "host-uid",
                                  .event_id = first});
+  REQUIRE(peer->in_flight.size() == 2);
   TickSharedDelivery(binding, now, &transport);
-  REQUIRE((transport.events.size()) == (2u));
-  REQUIRE((transport.events[1].frame.event_id.origin_sequence) == (2u));
+  REQUIRE(transport.events.size() == 3);
 }
 
 void test_retry_after_one_second() {
@@ -510,13 +557,15 @@ void test_retry_skipped_while_offline() {
   SetSharedPeerChannelReady(binding, "host-uid", false);
   auto* peer = binding.instance.FindPeer("host-uid");
   peer->channel_ready = false;
-  peer->online = false;
   peer->pending.push_back(
       SharedEventId{.origin_uid = "client-uid", .origin_sequence = 1});
-  peer->in_flight = peer->pending.front();
-  peer->in_flight_sent_at = std::chrono::steady_clock::now();
+  peer->in_flight.push_back(PeerInFlightEntry{
+      .id = peer->pending.front(),
+      .first_sent_at = std::chrono::steady_clock::now(),
+      .last_sent_at = std::chrono::steady_clock::now(),
+  });
   RecordingTransport transport;
-  auto now = peer->in_flight_sent_at;
+  auto now = peer->in_flight.front().last_sent_at;
   TickSharedDelivery(binding, now + std::chrono::milliseconds{1000},
                      &transport);
   REQUIRE(transport.events.empty());
@@ -632,10 +681,8 @@ void RunFakeBridgeUntilIdle(ChatSharedBinding& host, ChatSharedBinding& client,
       HandleQueuedFrame(client, &client_transport, item, false);
     }
 
-    if (host.instance.peers[0].pending.empty() &&
-        client.instance.peers[0].pending.empty() &&
-        !host.instance.peers[0].in_flight.has_value() &&
-        !client.instance.peers[0].in_flight.has_value() &&
+    if (!host.instance.peers[0].HasOutstanding() &&
+        !client.instance.peers[0].HasOutstanding() &&
         host_app.chat_room->feed.size() == expected_feed_size &&
         client_app.chat_room->feed.size() == expected_feed_size &&
         host.instance.deferred.empty() && client.instance.deferred.empty()) {
@@ -679,9 +726,10 @@ void test_fake_bridge_converges() {
   REQUIRE(client_app->chat_room->feed.size() == 4);
   REQUIRE(host.instance.peers[0].pending.empty());
   REQUIRE(client.instance.peers[0].pending.empty());
-  REQUIRE(!host.instance.peers[0].in_flight.has_value());
-  REQUIRE(!client.instance.peers[0].in_flight.has_value());
+  REQUIRE(!host.instance.peers[0].HasOutstanding());
+  REQUIRE(!client.instance.peers[0].HasOutstanding());
   RequireJournalsConverged(*host_app->chat_room, *client_app->chat_room);
+  RequireMembershipConverged(*host_app->chat_room, *client_app->chat_room);
 }
 
 void test_exact_journal_convergence_host_vs_client() {
@@ -714,6 +762,7 @@ void test_exact_journal_convergence_host_vs_client() {
                          to_client, host_transport, client_transport, 4);
 
   RequireJournalsConverged(*host_app->chat_room, *client_app->chat_room);
+  RequireMembershipConverged(*host_app->chat_room, *client_app->chat_room);
   RequireJournalSortedBySharedOrder(*host_app->chat_room);
   RequireJournalSortedBySharedOrder(*client_app->chat_room);
   REQUIRE(host_app->chat_room->journal.size() == 4);
@@ -768,6 +817,7 @@ void test_interleaved_sent_at_converges_by_shared_order() {
                          to_client, host_transport, client_transport, 5);
 
   RequireJournalsConverged(*host_app->chat_room, *client_app->chat_room);
+  RequireMembershipConverged(*host_app->chat_room, *client_app->chat_room);
   RequireJournalSortedBySharedOrder(*host_app->chat_room);
   RequireJournalSortedBySharedOrder(*client_app->chat_room);
 
@@ -834,6 +884,7 @@ void test_simultaneous_local_messages_converge() {
   RunFakeBridgeUntilIdle(host, client, *host_app, *client_app, to_host,
                          to_client, host_transport, client_transport, 4);
   RequireJournalsConverged(*host_app->chat_room, *client_app->chat_room);
+  RequireMembershipConverged(*host_app->chat_room, *client_app->chat_room);
   auto const& hj = host_app->chat_room->journal;
   auto const& cj = client_app->chat_room->journal;
   REQUIRE(hj.size() == 4);
@@ -848,6 +899,7 @@ void test_simultaneous_local_messages_converge() {
 }  // namespace
 
 int main() {
+  test_pipeline_sends_multiple_without_ack();
   test_ack_clears_pending();
   test_duplicate_event_id();
   test_seed_pending_excludes_peer_origin();
@@ -855,11 +907,11 @@ int main() {
   test_preconnect_local_journal();
   test_connect_creates_peer_seeds_opens_once();
   test_no_send_before_channel_ready();
-  test_stream_ready_sends_first_pending();
+  test_stream_ready_sends_all_pending();
   test_event_codec_roundtrip_join_and_message();
   test_incoming_join_applies_and_acks();
   test_message_before_join_is_deferred_then_drained();
-  test_ack_clears_and_sends_next();
+  test_ack_clears_in_flight_without_blocking_pipeline();
   test_retry_after_one_second();
   test_retry_skipped_while_offline();
   test_objid_collision_remaps();

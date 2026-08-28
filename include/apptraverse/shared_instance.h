@@ -15,13 +15,52 @@
 
 namespace apptraverse {
 
+inline constexpr std::size_t kSharedEventPipelineWindow = 32;
+
+enum class SharedWriteState : std::uint8_t {
+  Queued = 0,
+  WriteStarted = 1,
+  WriteSucceeded = 2,
+  WriteFailed = 3,
+};
+
+struct PeerInFlightEntry {
+  SharedEventId id;
+  std::chrono::steady_clock::time_point first_sent_at{};
+  std::chrono::steady_clock::time_point last_sent_at{};
+  std::uint32_t attempt_count{0};
+  SharedWriteState write_state{SharedWriteState::Queued};
+};
+
 struct PeerDeliveryState {
   std::string remote_aether_uid;
-  std::deque<SharedEventId> pending;
-  std::optional<SharedEventId> in_flight;
-  std::chrono::steady_clock::time_point in_flight_sent_at{};
-  bool online{false};
   bool channel_ready{false};
+  std::deque<SharedEventId> pending;
+  std::vector<PeerInFlightEntry> in_flight;
+
+  bool HasOutstanding() const noexcept {
+    return !pending.empty() || !in_flight.empty();
+  }
+
+  bool IsInFlight(SharedEventId const& id) const noexcept {
+    for (auto const& entry : in_flight) {
+      if (entry.id == id) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void RemoveInFlight(SharedEventId const& id) {
+    auto it = in_flight.begin();
+    while (it != in_flight.end()) {
+      if (it->id == id) {
+        it = in_flight.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
 };
 
 // Held until CanApply succeeds. Not in known/applied set; not ACK'd.

@@ -85,8 +85,6 @@ class SharedRuntime {
             std::function<bool(PeerDeliveryState&, SharedEventId const&)> const&
                 try_send);
 
-  void SetPeerOnline(PeerDeliveryState& peer, bool online);
-
  private:
   SharedRuntimeConfig config_;
 };
@@ -144,7 +142,7 @@ void SharedRuntime::SeedPendingFromJournal(SharedInstance<TNode>& instance,
         break;
       }
     }
-    if (!already) {
+    if (!already && !peer.IsInFlight(record.identity)) {
       peer.pending.push_back(record.identity);
     }
   }
@@ -190,9 +188,7 @@ void SharedRuntime::OnAckReceived(SharedInstance<TNode>& instance,
   if (peer == nullptr) {
     return;
   }
-  if (peer->in_flight.has_value() && *(peer->in_flight) == event_id) {
-    peer->in_flight.reset();
-  }
+  peer->RemoveInFlight(event_id);
   auto it = peer->pending.begin();
   while (it != peer->pending.end()) {
     if (*it == event_id) {
@@ -218,35 +214,49 @@ void SharedRuntime::Tick(
     if (!peer.channel_ready) {
       continue;
     }
-    if (!peer.in_flight.has_value() && !peer.pending.empty()) {
-      peer.in_flight = peer.pending.front();
-      peer.in_flight_sent_at = now;
-      if (try_send(peer, *peer.in_flight)) {
-        if (config_.log) {
-          config_.log("SHARED_EVENT_SEND room_id=" + instance.shared_room_id +
-                      " peer_uid=" + peer.remote_aether_uid + " event_id=" +
-                      peer.in_flight->origin_uid + ":" +
-                      std::to_string(peer.in_flight->origin_sequence));
-        }
-      }
-      continue;
-    }
-    if (peer.in_flight.has_value() &&
-        now - peer.in_flight_sent_at >= kSharedEventRetryInterval) {
-      // Presence query must not block retry when the stream is already ready
-      // (transport evidence). Require online only when the channel is down.
-      if (!peer.online && !peer.channel_ready) {
+
+    for (auto& entry : peer.in_flight) {
+      if (now - entry.last_sent_at < kSharedEventRetryInterval) {
         continue;
       }
-      peer.in_flight_sent_at = now;
-      if (try_send(peer, *peer.in_flight)) {
+      entry.last_sent_at = now;
+      ++entry.attempt_count;
+      entry.write_state = SharedWriteState::WriteStarted;
+      if (try_send(peer, entry.id)) {
         if (config_.log) {
           config_.log("SHARED_EVENT_SEND room_id=" + instance.shared_room_id +
                       " peer_uid=" + peer.remote_aether_uid + " event_id=" +
-                      peer.in_flight->origin_uid + ":" +
-                      std::to_string(peer.in_flight->origin_sequence) +
-                      " retry=1");
+                      entry.id.origin_uid + ":" +
+                      std::to_string(entry.id.origin_sequence) + " retry=1");
         }
+      }
+    }
+
+    while (!peer.pending.empty() &&
+           peer.in_flight.size() < kSharedEventPipelineWindow) {
+      SharedEventId const id = peer.pending.front();
+      if (peer.IsInFlight(id)) {
+        peer.pending.pop_front();
+        continue;
+      }
+      PeerInFlightEntry entry{
+          .id = id,
+          .first_sent_at = now,
+          .last_sent_at = now,
+          .attempt_count = 1,
+          .write_state = SharedWriteState::WriteStarted,
+      };
+      if (try_send(peer, id)) {
+        peer.in_flight.push_back(entry);
+        peer.pending.pop_front();
+        if (config_.log) {
+          config_.log("SHARED_EVENT_SEND room_id=" + instance.shared_room_id +
+                      " peer_uid=" + peer.remote_aether_uid + " event_id=" +
+                      id.origin_uid + ":" +
+                      std::to_string(id.origin_sequence));
+        }
+      } else {
+        break;
       }
     }
   }

@@ -239,14 +239,16 @@ void TestPeerOnlineAppliedBeforeJoin() {
   CommitLocalJoin(binding, *application->host_client);
   EnsureSharedPeer(binding, "client-uid");
   SetSharedPeerOnline(binding, "client-uid", true);
-  CHECK(binding.instance.FindPeer("client-uid")->online);
+  CHECK(binding.presence.RemoteOnline("client-uid").value_or(false));
 
   auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
   client->SetAetherUidText("client-uid");
   auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
   name->bytes = "Client";
   client->display_name = name;
-  client->online = binding.instance.FindPeer("client-uid")->online;
+  if (auto remote = binding.presence.RemoteOnline("client-uid")) {
+    client->online = *remote;
+  }
   SharedEventId const client_join_id{.origin_uid = "client-uid",
                                      .origin_sequence = 1};
   SharedEventOrder const client_join_order{
@@ -274,7 +276,6 @@ void TestOfflineRetrySkippedOnlineTriggersSend() {
   EnsureSharedPeer(binding, "client-uid");
   auto* peer = binding.instance.FindPeer("client-uid");
   peer->channel_ready = true;
-  peer->online = false;
   peer->pending.push_back(
       SharedEventId{.origin_uid = "host-uid", .origin_sequence = 1});
 
@@ -286,7 +287,7 @@ void TestOfflineRetrySkippedOnlineTriggersSend() {
                          return true;
                        });
   CHECK(sends == 1);
-  CHECK(peer->in_flight.has_value());
+  CHECK(!peer->in_flight.empty());
 
   // channel_ready is transport evidence: retry proceeds even while offline.
   binding.runtime.Tick(binding.instance, now + std::chrono::seconds{2},
@@ -297,7 +298,6 @@ void TestOfflineRetrySkippedOnlineTriggersSend() {
   CHECK(sends == 2);
 
   peer->channel_ready = false;
-  peer->online = false;
   binding.runtime.Tick(binding.instance, now + std::chrono::seconds{4},
                        [&](PeerDeliveryState&, SharedEventId const&) {
                          ++sends;
