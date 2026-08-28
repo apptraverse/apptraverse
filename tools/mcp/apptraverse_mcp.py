@@ -55,6 +55,7 @@ TOOL_NAMES = (
     "apptraverse_process_start",
     "apptraverse_process_status",
     "apptraverse_process_stop",
+    "apptraverse_chat_headless_test_start",
 )
 BUILD_ARTIFACT_PREFIX = "apptraverse-build/"
 PLATFORM_ARTIFACT_PREFIX = "apptraverse-platform/"
@@ -123,6 +124,22 @@ def apptraverse_process_status(process_id: str) -> dict:
 def apptraverse_process_stop(process_id: str) -> dict:
     """Stop a known-profile product process."""
     return stop_process(repo_root(), process_id).to_public_dict()
+
+
+def apptraverse_chat_headless_test_start(
+    profile: str = "win64-ninja-msvc-debug",
+) -> dict:
+    """Canonical first test for AppTraverse chat/shared/presentation behavior.
+    Runs headlessly without a product process and without Model→UI mirror.
+    Use mirror/native tests only when the task explicitly changes mirror
+    serialization or native rendering."""
+    result = start_job(
+        repo_root(),
+        profile,
+        "build",
+        ["apptraverse_chat_headless_check"],
+    )
+    return result.to_public_dict()
 
 
 def _invalid_artifact(artifact_id: str, kind: str) -> dict:
@@ -328,6 +345,7 @@ def create_mcp_server():
     server.tool()(apptraverse_process_start)
     server.tool()(apptraverse_process_status)
     server.tool()(apptraverse_process_stop)
+    server.tool()(apptraverse_chat_headless_test_start)
     return server
 
 

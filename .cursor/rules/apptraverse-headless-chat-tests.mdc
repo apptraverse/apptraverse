@@ -1,0 +1,22 @@
+﻿---
+description: Prefer canonical headless chat tests before mirror or GUI
+alwaysApply: true
+---
+
+# AppTraverse headless chat tests
+
+For chat model, shared journal, events, ordering, contacts, feed formatting, timestamps, and UI projection, always start with:
+
+`apptraverse_chat_headless_test_start`
+
+Default rules:
+
+- Do not launch a product process for functional chat/UI checks.
+- Do not create UiMirror / UI Domain in functional UI tests by default.
+- Presentation logic must live in common pure projection and be tested directly against the Model graph.
+- Run mirror integration tests only when changing serializer, publication channel, graph copy, or UiMirror.
+- Run native Win32 tests only for HWND layout, clipboard, focus, keyboard handling, font/glyph, and real rendering.
+- Screenshot / manual GUI smoke is not a substitute for headless assertions.
+
+Canonical CMake target: `apptraverse_chat_headless_check`
+(builds and runs `apptraverse_event_sourced_core_test`, `apptraverse_shared_journal_test`, `apptraverse_chat_presentation_headless_test`).

@@ -77,6 +77,36 @@ add_test(
   COMMAND apptraverse_chat_ui_runtime_test
 )
 
+add_executable(apptraverse_chat_ui_mirror_integration_test
+  chat_ui_mirror_integration_test.cpp
+)
+
+target_link_libraries(apptraverse_chat_ui_mirror_integration_test PRIVATE
+  chat_ui_runtime_demo_common
+)
+
+add_test(
+  NAME apptraverse_chat_ui_mirror_integration_test
+  COMMAND apptraverse_chat_ui_mirror_integration_test
+)
+
+add_executable(apptraverse_chat_presentation_headless_test
+  chat_presentation_headless_test.cpp
+)
+
+target_link_libraries(apptraverse_chat_presentation_headless_test PRIVATE
+  chat_ui_runtime_demo_common
+)
+
+target_compile_definitions(apptraverse_chat_presentation_headless_test PRIVATE
+  "CHAT_PRESENTATION_HEADLESS_SOURCE=\"${CMAKE_SOURCE_DIR}/tests/chat_presentation_headless_test.cpp\""
+)
+
+add_test(
+  NAME apptraverse_chat_presentation_headless_test
+  COMMAND apptraverse_chat_presentation_headless_test
+)
+
 add_executable(apptraverse_shared_journal_test
   shared_journal_test.cpp
 )
@@ -88,4 +118,16 @@ target_link_libraries(apptraverse_shared_journal_test PRIVATE
 add_test(
   NAME apptraverse_shared_journal_test
   COMMAND apptraverse_shared_journal_test
+)
+
+add_custom_target(apptraverse_chat_headless_check
+  COMMAND $<TARGET_FILE:apptraverse_event_sourced_core_test>
+  COMMAND $<TARGET_FILE:apptraverse_shared_journal_test>
+  COMMAND $<TARGET_FILE:apptraverse_chat_presentation_headless_test>
+  DEPENDS
+    apptraverse_event_sourced_core_test
+    apptraverse_shared_journal_test
+    apptraverse_chat_presentation_headless_test
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMENT "Canonical headless chat/shared/presentation checks"
 )

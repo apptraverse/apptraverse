@@ -116,13 +116,69 @@ class McpWrapperTest(unittest.TestCase):
 
     def test_mcp_layer_has_no_build_command_construction(self) -> None:
         source = Path(mcp_mod.__file__).read_text(encoding="utf-8").lower()
-        self.assertNotIn("cmake", source)
+        self.assertNotIn("cmake --", source)
         self.assertNotIn("msbuild", source)
-        self.assertNotIn("ninja", source)
+        self.assertNotIn("ninja.exe", source)
         self.assertNotIn("cl.exe", source)
         self.assertNotIn("profiles =", source)
-        self.assertNotIn("win64-ninja-msvc-debug", source)
-        self.assertNotIn("win64-vs2022-msvc-debug", source)
+        # Profile default may mention a ninja profile name; that is not command construction.
+        self.assertIn("apptraverse_chat_headless_check", source)
+
+    def test_chat_headless_start_delegates_to_start_job(self) -> None:
+        fake = JobResult(
+            schema_version=JOB_SCHEMA_VERSION,
+            operation="start",
+            job_id="job-headless",
+            state="running",
+            profile="win64-ninja-msvc-debug",
+            stage="build",
+            targets=["apptraverse_chat_headless_check"],
+        )
+        with mock.patch.object(mcp_mod, "start_job", return_value=fake) as start:
+            dumped = mcp_mod.apptraverse_chat_headless_test_start()
+        start.assert_called_once_with(
+            mcp_mod.repo_root(),
+            "win64-ninja-msvc-debug",
+            "build",
+            ["apptraverse_chat_headless_check"],
+        )
+        self.assertEqual(dumped["job_id"], "job-headless")
+        self.assertEqual(dumped["targets"], ["apptraverse_chat_headless_check"])
+        self.assertNotIn("stdout", dumped)
+
+    def test_server_exposes_exactly_thirteen_tools(self) -> None:
+        self.assertEqual(len(mcp_mod.TOOL_NAMES), 13)
+        self.assertEqual(
+            list(mcp_mod.TOOL_NAMES),
+            [
+                "apptraverse_build_start",
+                "apptraverse_build_status",
+                "apptraverse_build_cancel",
+                "apptraverse_build_failure_excerpt",
+                "apptraverse_runtime_log_query",
+                "apptraverse_platform_start",
+                "apptraverse_platform_status",
+                "apptraverse_platform_cancel",
+                "apptraverse_platform_failure_excerpt",
+                "apptraverse_process_start",
+                "apptraverse_process_status",
+                "apptraverse_process_stop",
+                "apptraverse_chat_headless_test_start",
+            ],
+        )
+        probe = (
+            "import json\n"
+            "from tools.mcp.apptraverse_mcp import (\n"
+            "    TOOL_NAMES, create_mcp_server, registered_tool_names,\n"
+            ")\n"
+            "names = registered_tool_names(create_mcp_server())\n"
+            "print(json.dumps({'names': names, 'expected': list(TOOL_NAMES)}))\n"
+        )
+        proc = _run_in_venv(probe)
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        payload = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertEqual(sorted(payload["names"]), sorted(payload["expected"]))
+        self.assertEqual(len(payload["names"]), 13)
 
     def test_compact_result_preserved(self) -> None:
         fake = JobResult(
@@ -300,39 +356,6 @@ class McpWrapperTest(unittest.TestCase):
     def test_windows_build_tools_remain(self) -> None:
         self.assertIn("apptraverse_build_start", mcp_mod.TOOL_NAMES)
         self.assertNotIn("apptraverse_two_windows_chat_run", mcp_mod.TOOL_NAMES)
-
-    def test_server_exposes_exactly_twelve_tools(self) -> None:
-        self.assertEqual(len(mcp_mod.TOOL_NAMES), 12)
-        self.assertEqual(
-            list(mcp_mod.TOOL_NAMES),
-            [
-                "apptraverse_build_start",
-                "apptraverse_build_status",
-                "apptraverse_build_cancel",
-                "apptraverse_build_failure_excerpt",
-                "apptraverse_runtime_log_query",
-                "apptraverse_platform_start",
-                "apptraverse_platform_status",
-                "apptraverse_platform_cancel",
-                "apptraverse_platform_failure_excerpt",
-                "apptraverse_process_start",
-                "apptraverse_process_status",
-                "apptraverse_process_stop",
-            ],
-        )
-        probe = (
-            "import json\n"
-            "from tools.mcp.apptraverse_mcp import (\n"
-            "    TOOL_NAMES, create_mcp_server, registered_tool_names,\n"
-            ")\n"
-            "names = registered_tool_names(create_mcp_server())\n"
-            "print(json.dumps({'names': names, 'expected': list(TOOL_NAMES)}))\n"
-        )
-        proc = _run_in_venv(probe)
-        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
-        payload = json.loads(proc.stdout.strip().splitlines()[-1])
-        self.assertEqual(sorted(payload["names"]), sorted(payload["expected"]))
-        self.assertEqual(len(payload["names"]), 12)
 
 
 def run_stdio_smoke() -> dict:

@@ -1,7 +1,10 @@
 #ifndef APPTRAVERSE_CHAT_WIN_PRESENTERS_H_
 #define APPTRAVERSE_CHAT_WIN_PRESENTERS_H_
 
+#include <chrono>
+#include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -10,8 +13,11 @@
 
 #include "chat_commands.h"
 #include "chat_ids.h"
+#include "chat_log.h"
 #include "chat_model.h"
+#include "chat_presentation.h"
 #include "chat_presence.h"
+#include "ui_send_latency_tracker.h"
 #include "win_connection_bar_presenter.h"
 #include "win_util.h"
 
@@ -31,9 +37,10 @@ class WinChatWindowPresenter : public Presenter {
   ChatRoom::ptr room;
   LocalAetherIdentity::ptr identity;
   Application::ptr application;
-  std::function<void(std::string)> on_send;
+  std::function<void(ChatSendUiRequest)> on_send;
   std::function<void(std::string)> on_connect_host;
   std::function<void()> on_close;
+  UiSendLatencyTracker* latency_tracker{nullptr};
   HWND hwnd{nullptr};
   HWND feed_hwnd{nullptr};
   HWND input_hwnd{nullptr};
@@ -244,7 +251,17 @@ class WinChatWindowPresenter : public Presenter {
     if (text.find_first_not_of(" \t\r\n") == std::string::npos) {
       return;
     }
-    on_send(std::move(text));
+    auto const sent_at = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    ChatSendUiRequest request;
+    request.text = std::move(text);
+    request.sent_at_unix_ms = sent_at;
+    if (latency_tracker != nullptr) {
+      request.ui_trace_id =
+          latency_tracker->Begin(std::chrono::steady_clock::now());
+    }
+    on_send(std::move(request));
     SetWindowTextW(input_hwnd, L"");
   }
 
@@ -255,14 +272,31 @@ class WinChatWindowPresenter : public Presenter {
     if (feed_hwnd == nullptr || contacts_hwnd == nullptr || !room.is_valid()) {
       return;
     }
+    ChatPresentationOptions options;
+    if (identity.is_valid()) {
+      options.local_aether_uid = identity->UidTextBytes();
+    }
+    if (latency_tracker != nullptr) {
+      options.latency_ms_for_event =
+          [this](std::uint32_t event_obj_id) -> std::optional<double> {
+        if (auto cached = latency_tracker->CachedLatencyMs(event_obj_id)) {
+          return cached;
+        }
+        auto resolved = latency_tracker->ResolveForPresentation(
+            event_obj_id, std::chrono::steady_clock::now());
+        if (resolved) {
+          chat::ChatLog("UI_MESSAGE_PRESENTED event_obj_id=" +
+                        std::to_string(event_obj_id) + " latency_us=" +
+                        std::to_string(static_cast<std::int64_t>(
+                            (*resolved) * 1000.0)));
+        }
+        return resolved;
+      };
+    }
+    auto snapshot = BuildChatPresentationSnapshot(*room, options);
     SendMessageW(feed_hwnd, LB_RESETCONTENT, 0, 0);
-    for (auto const& item : room->feed) {
-      if (!item.is_valid()) {
-        continue;
-      }
-      item.Load();
-      auto line = FormatChatFeedLine(*item);
-      auto wide = Utf8ToWide(line);
+    for (auto const& item : snapshot.feed) {
+      auto wide = Utf8ToWide(item.display_line);
       SendMessageW(feed_hwnd, LB_ADDSTRING, 0,
                    reinterpret_cast<LPARAM>(wide.c_str()));
     }
@@ -273,13 +307,9 @@ class WinChatWindowPresenter : public Presenter {
     }
 
     SendMessageW(contacts_hwnd, LB_RESETCONTENT, 0, 0);
-    for (auto const& client : room->clients) {
-      if (!client.is_valid()) {
-        continue;
-      }
-      client.Load();
-      auto wide = FormatContactPresenceLabel(client->online,
-                                            Utf8ToWide(client->DisplayNameBytes()));
+    for (auto const& contact : snapshot.contacts) {
+      auto wide = FormatContactPresenceLabel(
+          contact.online, Utf8ToWide(contact.display_name));
       SendMessageW(contacts_hwnd, LB_ADDSTRING, 0,
                    reinterpret_cast<LPARAM>(wide.c_str()));
     }
@@ -327,13 +357,15 @@ class WinChatPresentationApplication : public Presenter {
 
   WinChatWindowPresenter::ptr chat_window;
   std::function<void()> on_close;
-  std::function<void(std::string)> on_chat_send;
+  std::function<void(ChatSendUiRequest)> on_chat_send;
   std::function<void(std::string)> on_connect_host;
+  UiSendLatencyTracker* latency_tracker{nullptr};
 
   void OnLoad() override {
     chat_window->on_close = on_close;
     chat_window->on_send = on_chat_send;
     chat_window->on_connect_host = on_connect_host;
+    chat_window->latency_tracker = latency_tracker;
     chat_window->OnLoad();
   }
 

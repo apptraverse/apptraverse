@@ -2,12 +2,20 @@
 #define APPTRAVERSE_CHAT_COMMANDS_H_
 
 #include <cassert>
+#include <cstdint>
 #include <string>
 
 #include "chat_events.h"
 #include "chat_model.h"
+#include "chat_presentation.h"
 
 namespace apptraverse {
+
+struct ChatSendUiRequest {
+  std::string text;
+  std::int64_t sent_at_unix_ms{0};
+  std::uint64_t ui_trace_id{0};
+};
 
 inline void CommitJoinChat(ChatRoom& room, ChatClient& client) {
   auto event = JoinEvent::ptr::Create(ae::CreateWith{*room.domain});
@@ -16,8 +24,9 @@ inline void CommitJoinChat(ChatRoom& room, ChatClient& client) {
   room.Commit(event);
 }
 
-inline void CommitSendChatMessage(ChatRoom& room, ChatClient& author,
-                                  std::string text) {
+inline ChatMessageEvent::ptr CommitSendChatMessage(
+    ChatRoom& room, ChatClient& author, std::string text,
+    std::int64_t sent_at_unix_ms = 0) {
   while (!text.empty() &&
          (text.back() == '\n' || text.back() == '\r' || text.back() == ' ' ||
           text.back() == '\t')) {
@@ -33,15 +42,17 @@ inline void CommitSendChatMessage(ChatRoom& room, ChatClient& author,
     text.erase(0, start);
   }
   if (text.empty()) {
-    return;
+    return {};
   }
   auto body = ImmutableString::ptr::Create(ae::CreateWith{*room.domain});
   body->bytes = std::move(text);
   auto event = ChatMessageEvent::ptr::Create(ae::CreateWith{*room.domain});
   event->author = ChatClient::ptr::MakeFromThis(&author);
   event->text = body;
+  event->sent_at_unix_ms = sent_at_unix_ms;
   assert(room.CanApply(*event));
   room.Commit(event);
+  return event;
 }
 
 inline std::string FormatChatFeedLine(ChatFeedItem const& item) {
@@ -50,11 +61,8 @@ inline std::string FormatChatFeedLine(ChatFeedItem const& item) {
     item.client.Load();
     name = item.client->DisplayNameBytes();
   }
-  if (name.empty()) {
-    name = "Unknown";
-  }
   if (item.kind == kChatFeedKindJoin) {
-    return name + " joined the chat";
+    return FormatChatJoinDisplayLine(name);
   }
   std::string body;
   if (item.body.is_valid()) {
@@ -62,7 +70,7 @@ inline std::string FormatChatFeedLine(ChatFeedItem const& item) {
     assert(item.body.is_loaded());
     body = item.body->bytes;
   }
-  return name + ": " + body;
+  return FormatChatMessageDisplayLine(name, body, item.sent_at_unix_ms);
 }
 
 inline void SetApplicationRole(Application& application, ChatRole role) {
