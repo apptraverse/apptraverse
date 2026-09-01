@@ -6,13 +6,23 @@
 
 namespace apptraverse {
 
-// Mirrors ae::PeerScheduleState numeric order for unit tests without cloud.
-inline constexpr std::uint32_t kPeerScheduleStateExpected = 0;
-inline constexpr std::uint32_t kPeerScheduleStateMissedDeadline = 1;
-inline constexpr std::uint32_t kPeerScheduleStateUnknown = 2;
+// Mirrors ae::PeerPresenceState / legacy PeerScheduleState numeric order
+// (Online~Expected=0, Offline~MissedDeadline=1, Unknown=2).
+inline constexpr std::uint32_t kPeerPresenceStateOnline = 0;
+inline constexpr std::uint32_t kPeerPresenceStateOffline = 1;
+inline constexpr std::uint32_t kPeerPresenceStateUnknown = 2;
+inline constexpr std::uint32_t kPeerScheduleStateExpected = kPeerPresenceStateOnline;
+inline constexpr std::uint32_t kPeerScheduleStateMissedDeadline =
+    kPeerPresenceStateOffline;
+inline constexpr std::uint32_t kPeerScheduleStateUnknown =
+    kPeerPresenceStateUnknown;
+
+inline bool OnlineFromPeerPresenceState(std::uint32_t state) noexcept {
+  return state == kPeerPresenceStateOnline;
+}
 
 inline bool OnlineFromPeerScheduleState(std::uint32_t state) noexcept {
-  return state == kPeerScheduleStateExpected;
+  return OnlineFromPeerPresenceState(state);
 }
 
 inline bool OnlineFromQuerySuccess(bool query_success,
@@ -20,7 +30,7 @@ inline bool OnlineFromQuerySuccess(bool query_success,
   if (!query_success) {
     return false;
   }
-  return OnlineFromPeerScheduleState(schedule_state);
+  return OnlineFromPeerPresenceState(schedule_state);
 }
 
 inline std::wstring ContactPresencePrefix(bool online) {

@@ -509,6 +509,15 @@ void ApplyPresenceOverlay(ChatSharedBinding& binding) {
                                binding.instance.local_aether_uid);
 }
 
+std::size_t CountSharedPendingAndInFlight(ChatSharedBinding const& binding) {
+  std::size_t total = 0;
+  for (auto const& peer : binding.instance.peers) {
+    total += peer.pending.size();
+    total += peer.in_flight.size();
+  }
+  return total;
+}
+
 void HandleSharedAck(ChatSharedBinding& binding,
                      std::string const& from_peer_uid,
                      SharedAckFrame const& frame) {

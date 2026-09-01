@@ -11,6 +11,7 @@
 #include "aether_runtime.h"
 #include "aether_shared_transport.h"
 #include "chat_bootstrap.h"
+#include "chat_connection_ui_state.h"
 #include "chat_model.h"
 #include "chat_shared.h"
 #include "ui_send_latency_tracker.h"
@@ -24,6 +25,11 @@ class WinChatApp {
 
   void OnPublished(std::uint32_t root_id, PublicationChannel<3>* channel);
 
+  // UI-thread handlers posted via the message-only dispatcher.
+  void OnUiConnectionReady();
+  void OnUiConnectionDisconnected();
+  void OnUiRuntimeDiag();
+
  private:
   void ApplyPublication(std::uint32_t root_id, PublicationChannel<3>* channel);
   void RequestExit();
@@ -36,6 +42,9 @@ class WinChatApp {
                                     std::vector<std::uint8_t> bytes);
   void TickDelivery();
   void MonitorRemoteOnce(std::string const& remote_uid);
+  void PostConnectionUiReady();
+  void PostConnectionUiDisconnected();
+  void PostRuntimeDiagFromModelThread();
 
   ChatRuntime runtime_;
   std::unique_ptr<UiMirror> ui_mirror_;
@@ -50,6 +59,8 @@ class WinChatApp {
   bool exiting_{false};
   std::unordered_set<std::string> monitored_remote_uids_;
   std::chrono::steady_clock::time_point last_delivery_tick_{};
+  ChatRuntimeDiagUiState pending_diag_{};
+  bool pending_diag_valid_{false};
 };
 
 }  // namespace apptraverse

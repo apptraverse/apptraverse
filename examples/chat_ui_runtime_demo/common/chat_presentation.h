@@ -51,6 +51,18 @@ std::string AppendUiLatencySuffix(std::string const& line, double latency_ms);
 ChatPresentationSnapshot BuildChatPresentationSnapshot(
     ChatRoom const& room, ChatPresentationOptions const& options);
 
+// Feed list scroll policy for RebuildFromDomain.
+inline bool FeedListWasAtBottom(int top_index, int visible_items,
+                                int count) noexcept {
+  if (count <= 0) {
+    return true;
+  }
+  if (visible_items < 1) {
+    visible_items = 1;
+  }
+  return top_index + visible_items >= count - 1;
+}
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_CHAT_PRESENTATION_H_

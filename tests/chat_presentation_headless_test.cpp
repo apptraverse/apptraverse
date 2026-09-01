@@ -14,6 +14,7 @@
 
 #include "chat_bootstrap.h"
 #include "chat_commands.h"
+#include "chat_connection_ui_state.h"
 #include "chat_events.h"
 #include "chat_model.h"
 #include "chat_presentation.h"
@@ -107,6 +108,8 @@ void TestPresentationSnapshotFromModelGraph() {
   CHECK(snap.feed[1].is_local_message);
   CHECK(snap.contacts.size() == 1);
   CHECK(snap.contacts[0].display_name == "Host");
+  CHECK(snap.contacts[0].is_local);
+  CHECK(snap.contacts[0].aether_uid == "host-uid");
 }
 
 void TestTimestampCommitAndRemap() {
@@ -355,6 +358,92 @@ void TestSameStatusDoesNotBumpGeneration() {
   CHECK(client->Generation() == gen);
 }
 
+void TestContactsLocalFirstFromClientsOnly() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto application = BuildChatGraph(domain, "Host");
+  FinalizeDistilledGraph(*application);
+  application->host_client->SetAetherUidText(
+      "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  CommitHostJoin(*application);
+
+  auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
+  client->SetAetherUidText("11111111-2222-3333-4444-555555555555");
+  auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
+  name->bytes = "Client";
+  client->display_name = name;
+  CommitJoinChat(*application->chat_room, *client);
+  application->host_client->SetOnline(true);
+  client->SetOnline(false);
+
+  ChatPresentationOptions host_opts;
+  host_opts.local_aether_uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  auto host_snap =
+      BuildChatPresentationSnapshot(*application->chat_room, host_opts);
+  CHECK(host_snap.contacts.size() == 2);
+  CHECK(host_snap.contacts[0].is_local);
+  CHECK(host_snap.contacts[0].display_name == "Host");
+  CHECK(host_snap.contacts[0].aether_uid == host_opts.local_aether_uid);
+  CHECK(host_snap.contacts[1].is_local == false);
+  CHECK(host_snap.contacts[1].display_name == "Client");
+  CHECK(FormatContactPresenceLabel(true, L"Host").find(L"\u25CF") == 0);
+  CHECK(FormatContactPresenceLabel(false, L"Client").find(L"\u25CB") == 0);
+
+  ChatPresentationOptions client_opts;
+  client_opts.local_aether_uid = "11111111-2222-3333-4444-555555555555";
+  auto client_snap =
+      BuildChatPresentationSnapshot(*application->chat_room, client_opts);
+  CHECK(client_snap.contacts.size() == 2);
+  CHECK(client_snap.contacts[0].is_local);
+  CHECK(client_snap.contacts[0].display_name == "Client");
+  CHECK(client_snap.contacts[1].is_local == false);
+  CHECK(client_snap.contacts[1].display_name == "Host");
+}
+
+void TestPresenceOverlaySurvivesOnlineClear() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{ae::Now(), storage};
+  auto application = BuildChatGraph(domain, "Host");
+  FinalizeDistilledGraph(*application);
+  application->host_client->SetAetherUidText("host-uid");
+
+  ChatSharedBinding binding;
+  InitializeChatSharedBinding(binding, *application, "host-uid");
+  CommitLocalJoin(binding, *application->host_client);
+  binding.presence.SetLocalSelfOnline(true);
+  ApplyPresenceOverlay(binding);
+  CHECK(application->host_client->online);
+
+  // Simulate journal rebuild wiping online flags.
+  application->host_client->online = false;
+  ApplyPresenceOverlay(binding);
+  CHECK(application->host_client->online);
+}
+
+void TestConnectionUiStatusFormatting() {
+  CHECK(LooksLikeAetherUid("3ac93165-3d37-4970-87a6-fa4ee27744e4"));
+  CHECK(!LooksLikeAetherUid(""));
+  CHECK(!LooksLikeAetherUid("not-a-uid"));
+  ChatConnectionUiState state;
+  state.status = ChatConnectionUiStatus::NotConnected;
+  CHECK(FormatConnectionStatusText(state) == "Not connected");
+  state.status = ChatConnectionUiStatus::Connecting;
+  state.elapsed_sec = 3.2;
+  CHECK(FormatConnectionStatusText(state) == "Connecting... 3.2 s");
+  state.status = ChatConnectionUiStatus::Connected;
+  state.elapsed_sec = 4.7;
+  CHECK(FormatConnectionStatusText(state) == "Connected in 4.7 s");
+  state.status = ChatConnectionUiStatus::Disconnected;
+  CHECK(FormatConnectionStatusText(state) == "Disconnected");
+  state.status = ChatConnectionUiStatus::InvalidId;
+  CHECK(FormatConnectionStatusText(state) == "Invalid Aether ID");
+  CHECK(FeedListWasAtBottom(0, 10, 5));
+  CHECK(FeedListWasAtBottom(4, 1, 5));
+  CHECK(!FeedListWasAtBottom(0, 2, 10));
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -372,6 +461,9 @@ int main() {
     TestOfflineRetrySkippedOnlineTriggersSend();
     TestPresenceScheduleMapping();
     TestSameStatusDoesNotBumpGeneration();
+    TestContactsLocalFirstFromClientsOnly();
+    TestPresenceOverlaySurvivesOnlineClear();
+    TestConnectionUiStatusFormatting();
     std::cout << "chat_presentation_headless_test OK\n";
     return 0;
   } catch (std::exception const& ex) {

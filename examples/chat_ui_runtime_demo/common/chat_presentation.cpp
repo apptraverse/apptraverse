@@ -1,16 +1,10 @@
 #include "chat_presentation.h"
 
-#include <algorithm>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
-#include "apptraverse/event_record.h"
-
-#include "chat_events.h"
 #include "chat_model.h"
 
 namespace apptraverse {
@@ -31,21 +25,6 @@ std::tm LocalTimeTm(std::time_t sec) {
 #endif
 
 }  // namespace
-
-std::string JournalAuthorUidForPresentation(EventRecord const& record) {
-  if (!record.event.is_valid()) {
-    return {};
-  }
-  record.event.Load();
-  if (auto const* join = dynamic_cast<JoinEvent const*>(&*record.event)) {
-    if (!join->client.is_valid()) {
-      return {};
-    }
-    join->client.Load();
-    return join->client->AetherUidText();
-  }
-  return {};
-}
 
 std::string FormatUnixMsLocalTime(std::int64_t unix_ms) {
   if (unix_ms <= 0) {
@@ -125,28 +104,9 @@ ChatPresentationSnapshot BuildChatPresentationSnapshot(
     snapshot.feed.push_back(std::move(row));
   }
 
-  std::vector<std::string> join_order;
-  std::unordered_set<std::string> seen;
-  for (auto const& record : room.journal) {
-    if (!record.HasSharedIdentity()) {
-      continue;
-    }
-    auto const uid = JournalAuthorUidForPresentation(record);
-    if (uid.empty()) {
-      continue;
-    }
-    if (seen.insert(uid).second) {
-      join_order.push_back(uid);
-    }
-  }
-  std::unordered_map<std::string, ChatClient::ptr> clients_by_uid;
-  for (auto const& client : room.clients) {
-    if (!client.is_valid()) {
-      continue;
-    }
-    client.Load();
-    clients_by_uid.emplace(client->AetherUidText(), client);
-  }
+  // Contacts come only from ChatRoom.clients (JoinEvent membership).
+  // Presentation order: local client first, then remaining clients in vector
+  // order. Do not reorder the authoritative clients vector.
   auto push_contact = [&](ChatClient::ptr const& client) {
     if (!client.is_valid()) {
       return;
@@ -161,26 +121,31 @@ ChatPresentationSnapshot BuildChatPresentationSnapshot(
                    row.aether_uid == options.local_aether_uid;
     snapshot.contacts.push_back(std::move(row));
   };
-  if (!options.local_aether_uid.empty()) {
-    if (auto it = clients_by_uid.find(options.local_aether_uid);
-        it != clients_by_uid.end()) {
-      push_contact(it->second);
-    }
-  }
-  for (auto const& uid : join_order) {
-    if (!options.local_aether_uid.empty() && uid == options.local_aether_uid) {
+  ChatClient::ptr local_client;
+  for (auto const& client : room.clients) {
+    if (!client.is_valid()) {
       continue;
     }
-    if (auto it = clients_by_uid.find(uid); it != clients_by_uid.end()) {
-      push_contact(it->second);
+    client.Load();
+    if (!options.local_aether_uid.empty() &&
+        client->AetherUidText() == options.local_aether_uid) {
+      local_client = client;
+      break;
     }
   }
-  for (auto const& [uid, client] : clients_by_uid) {
-    if (!options.local_aether_uid.empty() && uid == options.local_aether_uid) {
+  if (local_client.is_valid()) {
+    push_contact(local_client);
+  }
+  for (auto const& client : room.clients) {
+    if (!client.is_valid()) {
       continue;
     }
-    if (std::find(join_order.begin(), join_order.end(), uid) !=
-        join_order.end()) {
+    client.Load();
+    if (local_client.is_valid() && client.id() == local_client.id()) {
+      continue;
+    }
+    if (!options.local_aether_uid.empty() &&
+        client->AetherUidText() == options.local_aether_uid) {
       continue;
     }
     push_contact(client);

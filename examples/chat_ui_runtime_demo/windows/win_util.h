@@ -16,6 +16,8 @@
 namespace apptraverse {
 
 inline constexpr UINT WM_APPTRAVERSE_PUBLISHED = WM_APP + 1;
+inline constexpr UINT WM_APPTRAVERSE_CONNECTION_UI = WM_APP + 2;
+inline constexpr UINT WM_APPTRAVERSE_RUNTIME_DIAG = WM_APP + 3;
 
 inline std::wstring Utf8ToWide(std::string const& text) {
   if (text.empty()) {

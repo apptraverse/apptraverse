@@ -11,6 +11,7 @@
 
 #include "aether/all.h"
 #include "aether/ae_actions/query_peer_receive_schedule.h"
+#include "aether/receive_schedule.h"
 
 #include "apptraverse/directory_domain_storage.h"
 

@@ -158,4 +158,27 @@ if(WIN32)
     NAME apptraverse_chat_p2p_headless_test
     COMMAND apptraverse_chat_p2p_headless_test
   )
+
+  add_executable(apptraverse_chat_win32_ui_smoke_test
+    chat_win32_ui_smoke_test.cpp
+  )
+
+  target_link_libraries(apptraverse_chat_win32_ui_smoke_test PRIVATE
+    chat_ui_runtime_demo_common
+    user32
+    gdi32
+  )
+
+  target_include_directories(apptraverse_chat_win32_ui_smoke_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/common
+  )
+
+  if(MSVC)
+    target_compile_options(apptraverse_chat_win32_ui_smoke_test PRIVATE /utf-8)
+  endif()
+
+  add_test(
+    NAME apptraverse_chat_win32_ui_smoke_test
+    COMMAND apptraverse_chat_win32_ui_smoke_test
+  )
 endif()

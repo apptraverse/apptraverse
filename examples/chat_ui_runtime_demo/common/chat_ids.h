@@ -30,7 +30,7 @@ inline constexpr std::int32_t kChatWindowRight = 960;
 inline constexpr std::int32_t kChatWindowBottom = 720;
 inline constexpr std::int32_t kChatSidebarWidth = 180;
 inline constexpr std::int32_t kChatInputHeight = 36;
-inline constexpr std::int32_t kChatConnectionBarHeight = 40;
+inline constexpr std::int32_t kChatConnectionBarHeight = 44;
 inline constexpr std::int32_t kChatConnectionBarButtonWidth = 72;
 inline constexpr std::int32_t kChatConnectionBarLabelWidth = 120;
 

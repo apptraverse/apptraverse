@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -13,6 +14,7 @@
 #include "apptraverse/presenter.h"
 
 #include "chat_commands.h"
+#include "chat_connection_ui_state.h"
 #include "chat_ids.h"
 #include "chat_log.h"
 #include "chat_model.h"
@@ -47,6 +49,7 @@ class WinChatWindowPresenter : public Presenter {
   HWND input_hwnd{nullptr};
   HWND contacts_hwnd{nullptr};
   HWND send_hwnd{nullptr};
+  HWND diag_hwnd_{nullptr};
   WinConnectionBarPresenter connection_bar;
 
   void OnLoad() override {
@@ -58,9 +61,15 @@ class WinChatWindowPresenter : public Presenter {
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     RegisterClassW(&wc);
 
+    ChatRole const role =
+        application.is_valid() ? application->GetRole() : ChatRole::Host;
+    wchar_t const* title = role == ChatRole::Host
+                               ? L"AppTraverse Chat — Host"
+                               : L"AppTraverse Chat — Client";
+
     creating_ = true;
     hwnd = CreateWindowExW(
-        0, kClassName, L"Chat", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+        0, kClassName, title, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         chat::kChatWindowLeft, chat::kChatWindowTop,
         chat::kChatWindowRight - chat::kChatWindowLeft,
         chat::kChatWindowBottom - chat::kChatWindowTop, nullptr, nullptr,
@@ -73,6 +82,19 @@ class WinChatWindowPresenter : public Presenter {
         identity.is_valid() ? identity->Generation() : 0;
     SyncClientGenerations();
     RebuildFromDomain();
+  }
+
+  void NotifyPeerReady() { connection_bar.NotifyPeerReady(); }
+
+  void NotifyPeerDisconnected() { connection_bar.NotifyPeerDisconnected(); }
+
+  void ApplyRuntimeDiag(ChatRuntimeDiagUiState const& diag) {
+#ifndef NDEBUG
+    runtime_diag_ = diag;
+    RefreshDiagLabel();
+#else
+    (void)diag;
+#endif
   }
 
   void Present() {
@@ -101,6 +123,7 @@ class WinChatWindowPresenter : public Presenter {
     input_hwnd = nullptr;
     contacts_hwnd = nullptr;
     send_hwnd = nullptr;
+    diag_hwnd_ = nullptr;
     connection_bar.Destroy();
     if (h != nullptr) {
       DestroyWindow(h);
@@ -156,6 +179,12 @@ class WinChatWindowPresenter : public Presenter {
         }
         return DefWindowProcW(wnd, msg, wparam, lparam);
       }
+      case WM_TIMER:
+        if (wparam == WinConnectionBarPresenter::kConnectElapsedTimerId) {
+          connection_bar.OnConnectTimer();
+          return 0;
+        }
+        return DefWindowProcW(wnd, msg, wparam, lparam);
       case WM_CLOSE:
         if (on_close) {
           on_close();
@@ -230,6 +259,11 @@ class WinChatWindowPresenter : public Presenter {
         0, L"BUTTON", L"Send", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0,
         0, wnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdSend)), inst,
         nullptr);
+#ifndef NDEBUG
+    diag_hwnd_ = CreateWindowExW(
+        0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, wnd,
+        nullptr, inst, nullptr);
+#endif
     SetWindowLongPtrW(input_hwnd, GWLP_USERDATA,
                       reinterpret_cast<LONG_PTR>(this));
     input_prev_proc_ = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
@@ -241,10 +275,15 @@ class WinChatWindowPresenter : public Presenter {
   void LayoutNative(int client_w, int client_h) {
     int const gap = 8;
     int const bar_h = chat::kChatConnectionBarHeight;
+#ifndef NDEBUG
+    int const diag_h = 18;
+#else
+    int const diag_h = 0;
+#endif
     int const side = chat::kChatSidebarWidth;
     int const input_h = chat::kChatInputHeight;
     int const body_top = bar_h + gap;
-    int const body_h = client_h - body_top;
+    int const body_h = client_h - body_top - diag_h;
     int const main_w = client_w - side - gap * 3;
     if (main_w < 40 || body_h < input_h + gap * 2) {
       return;
@@ -255,13 +294,19 @@ class WinChatWindowPresenter : public Presenter {
     MoveWindow(input_hwnd, gap, body_top + gap + feed_h + gap, main_w, input_h,
                TRUE);
     int const side_x = gap * 2 + main_w;
-    int const send_y = client_h - input_h - gap;
+    int const send_y = body_top + body_h - input_h - gap;
     int const contacts_h = send_y - body_top - gap * 2;
     if (contacts_h > 20) {
       MoveWindow(contacts_hwnd, side_x, body_top + gap, side, contacts_h,
                  TRUE);
     }
     MoveWindow(send_hwnd, side_x, send_y, side, input_h, TRUE);
+#ifndef NDEBUG
+    if (diag_hwnd_ != nullptr && diag_h > 0) {
+      MoveWindow(diag_hwnd_, gap, client_h - diag_h, client_w - gap * 2,
+                 diag_h, TRUE);
+    }
+#endif
   }
 
   void TrySend() {
@@ -315,6 +360,28 @@ class WinChatWindowPresenter : public Presenter {
       };
     }
     auto snapshot = BuildChatPresentationSnapshot(*room, options);
+
+    int const prev_count =
+        static_cast<int>(SendMessageW(feed_hwnd, LB_GETCOUNT, 0, 0));
+    int const prev_top =
+        static_cast<int>(SendMessageW(feed_hwnd, LB_GETTOPINDEX, 0, 0));
+    int visible_items = 1;
+    if (prev_count > 0) {
+      RECT feed_rect{};
+      GetClientRect(feed_hwnd, &feed_rect);
+      int const item_h = static_cast<int>(
+          SendMessageW(feed_hwnd, LB_GETITEMHEIGHT, 0, 0));
+      if (item_h > 0) {
+        visible_items =
+            (feed_rect.bottom - feed_rect.top) / item_h;
+        if (visible_items < 1) {
+          visible_items = 1;
+        }
+      }
+    }
+    bool const was_at_bottom =
+        FeedListWasAtBottom(prev_top, visible_items, prev_count);
+
     SendMessageW(feed_hwnd, LB_RESETCONTENT, 0, 0);
     for (auto const& item : snapshot.feed) {
       auto wide = Utf8ToWide(item.display_line);
@@ -324,7 +391,18 @@ class WinChatWindowPresenter : public Presenter {
     int const count =
         static_cast<int>(SendMessageW(feed_hwnd, LB_GETCOUNT, 0, 0));
     if (count > 0) {
-      SendMessageW(feed_hwnd, LB_SETTOPINDEX, count - 1, 0);
+      if (was_at_bottom) {
+        SendMessageW(feed_hwnd, LB_SETTOPINDEX, count - 1, 0);
+      } else {
+        int top = prev_top;
+        if (top < 0) {
+          top = 0;
+        }
+        if (top > count - 1) {
+          top = count - 1;
+        }
+        SendMessageW(feed_hwnd, LB_SETTOPINDEX, top, 0);
+      }
     }
 
     SendMessageW(contacts_hwnd, LB_RESETCONTENT, 0, 0);
@@ -338,6 +416,28 @@ class WinChatWindowPresenter : public Presenter {
       SendMessageW(contacts_hwnd, LB_ADDSTRING, 0,
                    reinterpret_cast<LPARAM>(contact_rows_.back().text.c_str()));
     }
+#ifndef NDEBUG
+    runtime_diag_.journal_count = room->journal.size();
+    RefreshDiagLabel();
+#endif
+  }
+
+  void RefreshDiagLabel() {
+#ifndef NDEBUG
+    if (diag_hwnd_ == nullptr) {
+      return;
+    }
+    std::ostringstream out;
+    out << "Journal: " << runtime_diag_.journal_count
+        << "  Pending: " << runtime_diag_.pending_count;
+    if (connection_bar.role() == ChatRole::Client) {
+      out << "  Peer: "
+          << (runtime_diag_.peer_connected ? "connected" : "disconnected");
+    }
+    auto wide = Utf8ToWide(out.str());
+    SetWindowTextW(diag_hwnd_, wide.c_str());
+#else
+#endif
   }
 
   struct ContactRow {
@@ -346,14 +446,22 @@ class WinChatWindowPresenter : public Presenter {
   };
 
   void EnsureContactFonts() {
-    if (contact_normal_font_ != nullptr) {
+    if (contact_normal_font_ != nullptr || contacts_hwnd == nullptr) {
       return;
     }
-    NONCLIENTMETRICSW metrics{};
-    metrics.cbSize = sizeof(metrics);
-    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics,
-                          0);
-    LOGFONTW lf = metrics.lfMessageFont;
+    LOGFONTW lf{};
+    HFONT control_font =
+        reinterpret_cast<HFONT>(SendMessageW(contacts_hwnd, WM_GETFONT, 0, 0));
+    if (control_font != nullptr &&
+        GetObjectW(control_font, sizeof(lf), &lf) != 0) {
+      // Use the control font as the normal face.
+    } else {
+      NONCLIENTMETRICSW metrics{};
+      metrics.cbSize = sizeof(metrics);
+      SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics,
+                            0);
+      lf = metrics.lfMessageFont;
+    }
     contact_normal_font_ = CreateFontIndirectW(&lf);
     lf.lfWeight = FW_BOLD;
     contact_bold_font_ = CreateFontIndirectW(&lf);
@@ -421,6 +529,7 @@ class WinChatWindowPresenter : public Presenter {
   HFONT contact_bold_font_{nullptr};
   int contact_row_height_{18};
   bool creating_{false};
+  ChatRuntimeDiagUiState runtime_diag_{};
 
   bool SyncClientGenerations() {
     if (!room.is_valid()) {
@@ -471,6 +580,24 @@ class WinChatPresentationApplication : public Presenter {
   }
 
   void PresentChatWindow() { chat_window->Present(); }
+
+  void NotifyPeerReady() {
+    if (chat_window.is_valid()) {
+      chat_window->NotifyPeerReady();
+    }
+  }
+
+  void NotifyPeerDisconnected() {
+    if (chat_window.is_valid()) {
+      chat_window->NotifyPeerDisconnected();
+    }
+  }
+
+  void ApplyRuntimeDiag(ChatRuntimeDiagUiState const& diag) {
+    if (chat_window.is_valid()) {
+      chat_window->ApplyRuntimeDiag(diag);
+    }
+  }
 
   void Destroy() { chat_window->Destroy(); }
 };

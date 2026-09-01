@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_CHAT_SHARED_H_
 #define APPTRAVERSE_CHAT_SHARED_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -75,6 +76,9 @@ void RequeueInFlightAfterWriteFailed(ChatSharedBinding& binding,
                                      std::string const& remote_uid);
 
 void ApplyPresenceOverlay(ChatSharedBinding& binding);
+
+// Total pending + in-flight shared delivery events across peers (runtime only).
+std::size_t CountSharedPendingAndInFlight(ChatSharedBinding const& binding);
 
 void HandleSharedAck(ChatSharedBinding& binding,
                      std::string const& from_peer_uid,

@@ -10,12 +10,19 @@
 #include "apptraverse/shared_frame_codec.h"
 
 #include "chat_commands.h"
+#include "chat_connection_ui_state.h"
 #include "chat_ids.h"
 #include "chat_log.h"
 #include "win_util.h"
 
 namespace apptraverse {
 namespace {
+
+enum class UiNotifyKind : WPARAM {
+  ConnectionReady = 1,
+  ConnectionDisconnected = 2,
+  RuntimeDiag = 3,
+};
 
 LRESULT CALLBACK DispatcherProc(HWND hwnd, UINT msg, WPARAM wparam,
                                 LPARAM lparam) {
@@ -27,9 +34,25 @@ LRESULT CALLBACK DispatcherProc(HWND hwnd, UINT msg, WPARAM wparam,
   }
   auto* app =
       reinterpret_cast<WinChatApp*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-  if (app != nullptr && msg == WM_APPTRAVERSE_PUBLISHED) {
+  if (app == nullptr) {
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+  }
+  if (msg == WM_APPTRAVERSE_PUBLISHED) {
     app->OnPublished(static_cast<std::uint32_t>(wparam),
                      reinterpret_cast<PublicationChannel<3>*>(lparam));
+    return 0;
+  }
+  if (msg == WM_APPTRAVERSE_CONNECTION_UI) {
+    if (wparam == static_cast<WPARAM>(UiNotifyKind::ConnectionReady)) {
+      app->OnUiConnectionReady();
+    } else if (wparam ==
+               static_cast<WPARAM>(UiNotifyKind::ConnectionDisconnected)) {
+      app->OnUiConnectionDisconnected();
+    }
+    return 0;
+  }
+  if (msg == WM_APPTRAVERSE_RUNTIME_DIAG) {
+    app->OnUiRuntimeDiag();
     return 0;
   }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -37,6 +60,60 @@ LRESULT CALLBACK DispatcherProc(HWND hwnd, UINT msg, WPARAM wparam,
 
 }  // namespace
 
+void WinChatApp::OnUiConnectionReady() {
+  if (presentation_) {
+    presentation_->NotifyPeerReady();
+  }
+}
+
+void WinChatApp::OnUiConnectionDisconnected() {
+  if (presentation_) {
+    presentation_->NotifyPeerDisconnected();
+  }
+}
+
+void WinChatApp::OnUiRuntimeDiag() {
+  if (!presentation_ || !pending_diag_valid_) {
+    return;
+  }
+  presentation_->ApplyRuntimeDiag(pending_diag_);
+}
+
+void WinChatApp::PostConnectionUiReady() {
+  if (dispatcher_ != nullptr) {
+    PostMessageW(dispatcher_, WM_APPTRAVERSE_CONNECTION_UI,
+                 static_cast<WPARAM>(UiNotifyKind::ConnectionReady), 0);
+  }
+}
+
+void WinChatApp::PostConnectionUiDisconnected() {
+  if (dispatcher_ != nullptr) {
+    PostMessageW(dispatcher_, WM_APPTRAVERSE_CONNECTION_UI,
+                 static_cast<WPARAM>(UiNotifyKind::ConnectionDisconnected), 0);
+  }
+}
+
+void WinChatApp::PostRuntimeDiagFromModelThread() {
+#ifndef NDEBUG
+  ChatRuntimeDiagUiState diag;
+  if (runtime_.application && runtime_.application->chat_room.is_valid()) {
+    diag.journal_count = runtime_.application->chat_room->journal.size();
+  }
+  diag.pending_count = CountSharedPendingAndInFlight(shared_);
+  diag.peer_connected = false;
+  for (auto const& peer : shared_.instance.peers) {
+    if (peer.channel_ready) {
+      diag.peer_connected = true;
+      break;
+    }
+  }
+  pending_diag_ = diag;
+  pending_diag_valid_ = true;
+  if (dispatcher_ != nullptr) {
+    PostMessageW(dispatcher_, WM_APPTRAVERSE_RUNTIME_DIAG, 0, 0);
+  }
+#endif
+}
 void WinChatApp::OnPublished(std::uint32_t root_id,
                              PublicationChannel<3>* channel) {
   ApplyPublication(root_id, channel);
@@ -81,6 +158,7 @@ void WinChatApp::TickDelivery() {
   }
   last_delivery_tick_ = now;
   TickSharedDelivery(shared_, now, shared_transport_.get());
+  PostRuntimeDiagFromModelThread();
 }
 
 void WinChatApp::OnPeerReady(std::string remote_uid) {
@@ -96,6 +174,8 @@ void WinChatApp::OnPeerReady(std::string remote_uid) {
       TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
                          shared_transport_.get());
     }
+    PostConnectionUiReady();
+    PostRuntimeDiagFromModelThread();
   });
 }
 
@@ -105,6 +185,8 @@ void WinChatApp::OnPeerClosed(std::string remote_uid) {
   }
   model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
     SetSharedPeerChannelReady(shared_, remote_uid, false);
+    PostConnectionUiDisconnected();
+    PostRuntimeDiagFromModelThread();
   });
 }
 
