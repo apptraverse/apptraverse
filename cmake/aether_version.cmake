@@ -1,6 +1,6 @@
 # Pin for the Aether object/domain sources in aethernetio/aether-client-cpp.
 # AppTraverse does not vendor the object system; it builds a subset from that repo.
-set(APPTRAVERSE_AETHER_GIT_TAG "41e00350da4bc08777223fd2c4d3e6f770c50e64")
+set(APPTRAVERSE_AETHER_GIT_TAG "f3c060dc260a1b58ff3f14fddce38ec71a7712f6")
 
 # Optional local checkout of aether-client-cpp. When set (or when a sibling
 # ../aether-client-cpp exists), CPM uses that tree instead of fetching GitHub.
@@ -148,11 +148,11 @@ function(apptraverse_verify_aether_pin)
   if(_apptraverse_aether_override AND NOT _apptraverse_aether_override STREQUAL "")
     message(STATUS
       "APPTRAVERSE_AETHER_OVERRIDE=1 local_sha=${_apptraverse_aether_sha}")
-  else()
-    if(NOT _apptraverse_aether_sha STREQUAL APPTRAVERSE_AETHER_GIT_TAG)
-      message(FATAL_ERROR
-        "Aether SHA mismatch: got ${_apptraverse_aether_sha}, expected ${APPTRAVERSE_AETHER_GIT_TAG} at ${_apptraverse_aether_source}")
-    endif()
+  endif()
+
+  if(NOT _apptraverse_aether_sha STREQUAL APPTRAVERSE_AETHER_GIT_TAG)
+    message(FATAL_ERROR
+      "Aether SHA mismatch: got ${_apptraverse_aether_sha}, expected ${APPTRAVERSE_AETHER_GIT_TAG} at ${_apptraverse_aether_source}")
   endif()
 
   _apptraverse_verify_pinned_package("gcem" "${APPTRAVERSE_GCEM_GIT_TAG}")

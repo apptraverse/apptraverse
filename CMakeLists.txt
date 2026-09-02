@@ -56,6 +56,7 @@ target_compile_features(apptraverse PUBLIC cxx_std_20)
 
 add_subdirectory(examples/model_ui_runtime_demo)
 add_subdirectory(examples/chat_ui_runtime_demo)
+add_subdirectory(examples/aether_presence_monitor)
 
 include(CTest)
 if(BUILD_TESTING)
