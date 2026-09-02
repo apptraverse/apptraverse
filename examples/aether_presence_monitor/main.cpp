@@ -390,6 +390,17 @@ struct MonitorState {
   std::uint32_t remote_online_transitions{0};
 
   bool remote_inflight{false};
+  std::uint32_t active_underlying_query_count{0};
+  std::uint32_t max_active_underlying_queries{0};
+  std::uint32_t next_remote_query_id{0};
+  std::uint32_t active_remote_query_id{0};
+  bool remote_watchdog_logged{false};
+  struct RemoteQueryMetrics {
+    std::uint32_t started{0};
+    std::uint32_t completed{0};
+    std::uint32_t errors{0};
+    std::uint32_t watchdog_stuck{0};
+  } remote_query_metrics;
   std::string remote_last_error;
   std::string remote_last_state;
   SteadyClock::time_point remote_query_started{};
@@ -423,6 +434,41 @@ void RemoteConsoleLog(std::string const& label, char const* message) {
   EnsureConsoleAttached();
   std::fprintf(stderr, "[%s] %s\n", label.c_str(), message);
   std::fflush(stderr);
+}
+
+void RemoteConsoleLogQuery(std::string const& label, std::uint32_t query_id,
+                           char const* message) {
+  EnsureConsoleAttached();
+  std::fprintf(stderr, "[%s] %s id=%u\n", label.c_str(), message, query_id);
+  std::fflush(stderr);
+}
+
+void WriteRemoteQueryMetrics(MonitorState* state, char const* event) {
+  if (!state || !state->log) {
+    return;
+  }
+  state->log->Write(
+      event, state->args.label,
+      {{"aether_sha", kAetherShaFull},
+       {"query_started", std::to_string(state->remote_query_metrics.started)},
+       {"query_completed", std::to_string(state->remote_query_metrics.completed)},
+       {"query_errors", std::to_string(state->remote_query_metrics.errors)},
+       {"query_watchdog_stuck", std::to_string(state->remote_query_metrics.watchdog_stuck)},
+       {"max_active_underlying_queries",
+        std::to_string(state->max_active_underlying_queries)},
+       {"active_underlying_query_count",
+        std::to_string(state->active_underlying_query_count)}});
+}
+
+void FinishRemoteQuery(MonitorState* state, std::uint32_t query_id) {
+  if (!state || query_id != state->active_remote_query_id) {
+    return;
+  }
+  if (state->active_underlying_query_count > 0) {
+    --state->active_underlying_query_count;
+  }
+  state->remote_inflight = state->active_underlying_query_count > 0;
+  state->remote_watchdog_logged = false;
 }
 
 bool LocalReadyForRemoteQuery(ae::LocalConnectivitySnapshot const& snap) {
@@ -591,23 +637,35 @@ void PollLocal(MonitorState* state) {
 
 void StartRemoteQuery(MonitorState* state) {
   if (!state->args.remote_queries_enabled || !state->session.client ||
-      state->remote_inflight || state->peer_uid_text.empty()) {
+      state->peer_uid_text.empty()) {
     return;
   }
+  if (state->active_underlying_query_count > 0) {
+    return;
+  }
+  std::uint32_t const query_id = ++state->next_remote_query_id;
+  state->active_remote_query_id = query_id;
+  ++state->active_underlying_query_count;
+  if (state->active_underlying_query_count > state->max_active_underlying_queries) {
+    state->max_active_underlying_queries = state->active_underlying_query_count;
+  }
   state->remote_inflight = true;
+  state->remote_watchdog_logged = false;
   state->remote_last_error.clear();
   state->remote_query_started = SteadyClock::now();
-  {
-    std::string line = "REMOTE_QUERY_START peer=" + state->peer_uid_text;
-    RemoteConsoleLog(state->args.label, line.c_str());
-  }
+  ++state->remote_query_metrics.started;
+  RemoteConsoleLogQuery(state->args.label, query_id, "REMOTE_QUERY_START");
   state->log->Write("REMOTE_QUERY_SEND", state->args.label,
                     {{"peer_uid", state->peer_uid_text},
-                     {"aether_sha", kAetherShaFull}});
+                     {"aether_sha", kAetherShaFull},
+                     {"query_id", std::to_string(query_id)}});
   auto& action = state->session.client->QueryPeerReceiveSchedule(state->peer_uid);
   state->remote_query_sub = action.result_event().Subscribe(
-      [state](ae::Result<ae::PeerReceiveSchedule, int> const& res) {
-        state->remote_inflight = false;
+      [state, query_id](ae::Result<ae::PeerReceiveSchedule, int> const& res) {
+        if (query_id != state->active_remote_query_id) {
+          return;
+        }
+        FinishRemoteQuery(state, query_id);
         state->remote_last_completed = SteadyClock::now();
         auto const duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                      state->remote_last_completed -
@@ -617,6 +675,7 @@ void StartRemoteQuery(MonitorState* state) {
             state->remote_last_completed +
             std::chrono::milliseconds{state->args.query_period_ms};
         if (res) {
+          ++state->remote_query_metrics.completed;
           auto const& schedule = res.value();
           auto const schedule_state = schedule.state;
           state->remote_last_state = ScheduleStateName(schedule_state);
@@ -639,7 +698,7 @@ void StartRemoteQuery(MonitorState* state) {
           {
             std::string line = std::string{"REMOTE_QUERY_COMPLETE state="} +
                                state->remote_last_state;
-            RemoteConsoleLog(state->args.label, line.c_str());
+            RemoteConsoleLogQuery(state->args.label, query_id, line.c_str());
           }
           state->log->Write(
               "REMOTE_QUERY_RESULT", state->args.label,
@@ -647,6 +706,7 @@ void StartRemoteQuery(MonitorState* state) {
                {"success", "true"},
                {"state", state->remote_last_state},
                {"peer_uid", state->peer_uid_text},
+               {"query_id", std::to_string(query_id)},
                {"query_duration_ms", std::to_string(duration_ms)},
                {"remote_state", state->remote_last_state},
                {"remote_last_online_age_ms",
@@ -662,11 +722,12 @@ void StartRemoteQuery(MonitorState* state) {
                            online ? "REMOTE_GUI_STATUS ONLINE"
                                   : "REMOTE_GUI_STATUS OFFLINE");
         } else {
+          ++state->remote_query_metrics.errors;
           state->remote_last_error = std::to_string(res.error());
           {
             std::string line =
                 std::string{"REMOTE_QUERY_ERROR error="} + state->remote_last_error;
-            RemoteConsoleLog(state->args.label, line.c_str());
+            RemoteConsoleLogQuery(state->args.label, query_id, line.c_str());
           }
           state->log->Write(
               "REMOTE_QUERY_RESULT", state->args.label,
@@ -674,6 +735,7 @@ void StartRemoteQuery(MonitorState* state) {
                {"success", "false"},
                {"error", state->remote_last_error},
                {"peer_uid", state->peer_uid_text},
+               {"query_id", std::to_string(query_id)},
                {"query_duration_ms", std::to_string(duration_ms)}});
         }
         RefreshUi(state);
@@ -694,16 +756,20 @@ void MaybeStartRemoteQuery(MonitorState* state) {
   if (!LocalReadyForRemoteQuery(snap)) {
     return;
   }
-  if (state->remote_inflight) {
+  if (state->active_underlying_query_count > 0) {
     if (state->remote_query_started.time_since_epoch().count() != 0 &&
-        SteadyClock::now() - state->remote_query_started > kRemoteQueryTimeout) {
-      RemoteConsoleLog(state->args.label, "REMOTE_QUERY_TIMEOUT resetting in-flight query");
-      state->remote_inflight = false;
-      state->remote_query_sub = ae::Subscription{};
-      state->next_remote_query_at = SteadyClock::now();
-    } else {
-      return;
+        SteadyClock::now() - state->remote_query_started > kRemoteQueryTimeout &&
+        !state->remote_watchdog_logged) {
+      ++state->remote_query_metrics.watchdog_stuck;
+      state->remote_watchdog_logged = true;
+      RemoteConsoleLogQuery(state->args.label, state->active_remote_query_id,
+                            "REMOTE_QUERY_STUCK");
+      state->log->Write("REMOTE_QUERY_STUCK", state->args.label,
+                        {{"aether_sha", kAetherShaFull},
+                         {"query_id", std::to_string(state->active_remote_query_id)},
+                         {"peer_uid", state->peer_uid_text}});
     }
+    return;
   }
   if (state->remote_display_online.has_value()) {
     if (state->next_remote_query_at.time_since_epoch().count() != 0 &&
@@ -792,6 +858,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         RefreshUi(state);
       } else if (wparam == kTimerAutoExit && state) {
         if (state->log) {
+          WriteRemoteQueryMetrics(state, "AUTO_EXIT");
           state->log->Write("AUTO_EXIT", state->args.label,
                             {{"aether_sha", kAetherShaFull},
                              {"auto_exit_sec",
@@ -806,6 +873,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         KillTimer(hwnd, kTimerUiRefresh);
         KillTimer(hwnd, kTimerAutoExit);
         if (state->log) {
+          WriteRemoteQueryMetrics(state, "APP_STOPPED");
           state->log->Write("APP_STOPPED", state->args.label,
                             {{"exit_code", "0"}});
         }
