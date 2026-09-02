@@ -32,6 +32,7 @@
 #include "aether/all.h"
 #include "aether/ae_actions/query_peer_receive_schedule.h"
 #include "aether/receive_schedule.h"
+#include "examples/aether_presence_monitor/presence_remote_state.h"
 
 #include "apptraverse/directory_domain_storage.h"
 
@@ -163,6 +164,7 @@ struct Args {
   int window_y{100};
   int ping_ms{1000};
   int window_ms{1000};
+  int peer_ping_ms{1000};
   int query_period_ms{1000};
   int auto_exit_sec{0};
 };
@@ -233,6 +235,8 @@ Args ParseArgs(int argc, wchar_t** argv) {
       args.ping_ms = _wtoi(next().c_str());
     } else if (key == L"--window-ms") {
       args.window_ms = _wtoi(next().c_str());
+    } else if (key == L"--peer-ping-ms") {
+      args.peer_ping_ms = _wtoi(next().c_str());
     } else if (key == L"--query-period-ms") {
       args.query_period_ms = _wtoi(next().c_str());
     } else if (key == L"--no-remote-queries") {
@@ -243,6 +247,9 @@ Args ParseArgs(int argc, wchar_t** argv) {
   }
   if (args.client_name.empty() && !args.label.empty()) {
     args.client_name = "presence-monitor-" + args.label;
+  }
+  if (args.peer_ping_ms <= 0) {
+    args.peer_ping_ms = args.ping_ms;
   }
   return args;
 }
@@ -287,6 +294,38 @@ char const* ScheduleStateName(ae::PeerScheduleState state) {
 
 bool RemoteOnlineFromSchedule(ae::PeerScheduleState state) {
   return state == ae::PeerScheduleState::kExpected;
+}
+
+char const* LocalStateName(ae::LocalConnectivityState state) {
+  switch (state) {
+    case ae::LocalConnectivityState::kWaitingFirstResponse:
+      return "WAITING_FIRST_RESPONSE";
+    case ae::LocalConnectivityState::kOnline:
+      return "ONLINE";
+    case ae::LocalConnectivityState::kSuspect:
+      return "SUSPECT";
+    case ae::LocalConnectivityState::kOffline:
+      return "OFFLINE";
+  }
+  return "WAITING_FIRST_RESPONSE";
+}
+
+char const* LocalReasonName(ae::LocalConnectivityReason reason) {
+  switch (reason) {
+    case ae::LocalConnectivityReason::kNoAuthenticatedResponse:
+      return "NO_AUTHENTICATED_RESPONSE";
+    case ae::LocalConnectivityReason::kRecentCloudResponse:
+      return "RECENT_CLOUD_RESPONSE";
+    case ae::LocalConnectivityReason::kSuspectAge:
+      return "SUSPECT_AGE";
+    case ae::LocalConnectivityReason::kOfflineAge:
+      return "OFFLINE_AGE";
+    case ae::LocalConnectivityReason::kPlannedPingGrace:
+      return "PLANNED_PING_GRACE";
+    case ae::LocalConnectivityReason::kInFlightPingGrace:
+      return "IN_FLIGHT_PING_GRACE";
+  }
+  return "NO_AUTHENTICATED_RESPONSE";
 }
 
 struct AetherSession {
@@ -391,27 +430,24 @@ struct MonitorState {
   ae::Uid peer_uid;
   std::string peer_uid_text;
 
-  std::optional<bool> local_online;
+  std::optional<ae::LocalConnectivityState> local_state;
   std::string local_reason;
   std::int64_t local_last_transition_qpc{0};
   std::uint32_t local_offline_transitions{0};
   std::uint32_t local_online_transitions{0};
+  std::uint64_t false_local_offline_ms{0};
+  std::uint64_t false_remote_offline_ms{0};
+  std::uint64_t suspect_total_ms{0};
+  ae::TimePoint suspect_started{};
 
-  std::optional<bool> remote_result_online;
-  std::optional<bool> remote_display_online;
+  presence_monitor::RemotePresenceTracker remote_tracker{ae::Duration{}};
+  std::optional<presence_monitor::RemoteConnectivityState> remote_derived;
   std::int64_t remote_last_transition_qpc{0};
   std::uint32_t remote_offline_transitions{0};
   std::uint32_t remote_online_transitions{0};
 
-  bool remote_inflight{false};
   std::string remote_last_error;
-  std::string remote_last_state;
-  SteadyClock::time_point remote_query_started{};
-  SteadyClock::time_point remote_last_completed{};
-  SteadyClock::time_point remote_last_successful_query{};
-  std::optional<std::int64_t> remote_last_online_age_ms;
-  std::optional<std::int64_t> remote_next_deadline_delta_ms;
-  SteadyClock::time_point next_remote_query_at{};
+  ae::TimePoint next_remote_query_at{};
   ae::Subscription remote_query_sub;
 
   HWND hwnd{nullptr};
@@ -428,25 +464,18 @@ std::int64_t ChronoToMs(std::chrono::duration<Rep, Period> d) {
 }
 
 std::string LocalReason(ae::LocalConnectivitySnapshot const& snap) {
-  if (!snap.has_success) {
-    return "NO_SUCCESSFUL_RESPONSE";
-  }
-  if (snap.online) {
-    if (snap.in_flight_grace_active &&
-        snap.ping_interval.count() > 0 &&
-        snap.age_since_last_success >= snap.ping_interval) {
-      return "IN_FLIGHT_PING_GRACE";
-    }
-    return "RECENT_CLOUD_RESPONSE";
-  }
-  return "LAST_RESPONSE_TOO_OLD";
+  return LocalReasonName(snap.reason);
 }
 
 std::wstring LocalStatusText(ae::LocalConnectivitySnapshot const& snap) {
-  if (!snap.has_success) {
-    return L"WAITING_FIRST_RESPONSE";
+  return Utf8ToWide(LocalStateName(snap.state));
+}
+
+ae::Duration AgeDuration(ae::TimePoint now, ae::TimePoint then) {
+  if (then == ae::TimePoint{} || now <= then) {
+    return ae::Duration{};
   }
-  return snap.online ? L"ONLINE" : L"OFFLINE";
+  return std::chrono::duration_cast<ae::Duration>(now - then);
 }
 
 void SetStaticText(HWND parent, int id, std::wstring const& text) {
@@ -475,6 +504,14 @@ std::wstring FormatQpcAge(std::int64_t since_qpc) {
   return std::to_wstring(elapsed_ms) + L" ms ago";
 }
 
+std::wstring FormatAeAge(ae::TimePoint then) {
+  if (then == ae::TimePoint{}) {
+    return L"-";
+  }
+  auto const age = AgeDuration(ae::Now(), then);
+  return std::to_wstring(DurationToMs(age)) + L" ms ago";
+}
+
 void RefreshUi(MonitorState* state) {
   if (!state || !state->hwnd || !state->session.client ||
       !state->session.client->connectivity_policy().is_valid()) {
@@ -492,27 +529,36 @@ void RefreshUi(MonitorState* state) {
                 L"Status: " + LocalStatusText(snap));
   SetStaticText(
       state->hwnd, kStaticLocalResponseAge,
-      L"Last cloud response: " +
-          (snap.has_success ? std::to_wstring(DurationToMs(snap.age_since_last_success)) +
-                                  L" ms ago"
-                            : L"-"));
+      L"Any cloud response: " +
+          (snap.has_any_cloud_response
+               ? std::to_wstring(
+                     DurationToMs(snap.age_since_last_any_cloud_response)) +
+                     L" ms ago"
+               : L"-"));
   SetStaticText(state->hwnd, kStaticLocalPingInterval,
-                L"Ping interval: " + std::to_wstring(DurationToMs(snap.ping_interval)) +
-                    L" ms");
-  std::wstring threshold = L"Recent threshold remaining: -";
-  if (snap.has_success && snap.recent_success_until != ae::TimePoint{}) {
-    auto const remaining = snap.recent_success_until - snap.now;
-    threshold = L"Recent threshold remaining: " +
-                std::to_wstring(ChronoToMs(remaining)) + L" ms";
+                L"Ping interval: " +
+                    std::to_wstring(DurationToMs(snap.ping_interval)) + L" ms");
+  std::wstring threshold = L"Until ONLINE threshold: -";
+  if (snap.has_any_cloud_response && snap.online_until != ae::TimePoint{} &&
+      snap.now < snap.online_until) {
+    threshold = L"Until ONLINE threshold: " +
+                std::to_wstring(ChronoToMs(snap.online_until - snap.now)) +
+                L" ms";
   }
   SetStaticText(state->hwnd, kStaticLocalThreshold, threshold);
-  SetStaticText(state->hwnd, kStaticLocalInFlight,
-                L"Pings in flight: " + std::to_wstring(snap.pings_in_flight));
-  std::wstring grace = L"Ping grace remaining: -";
-  if (snap.in_flight_grace_active && snap.pending_ping_deadline != ae::TimePoint{}) {
-    auto const remaining = snap.pending_ping_deadline - snap.now;
-    grace = L"Ping grace remaining: " + std::to_wstring(ChronoToMs(remaining)) +
-            L" ms";
+  SetStaticText(
+      state->hwnd, kStaticLocalInFlight,
+      L"Planned/in-flight Ping: " +
+          std::to_wstring(snap.planned_ping_count) + L"/" +
+          std::to_wstring(snap.pings_in_flight));
+  std::wstring grace = L"Grace deadline remaining: -";
+  ae::TimePoint grace_deadline = snap.nearest_response_deadline;
+  if (grace_deadline == ae::TimePoint{}) {
+    grace_deadline = snap.nearest_dispatch_deadline;
+  }
+  if (grace_deadline != ae::TimePoint{} && snap.now < grace_deadline) {
+    grace = L"Grace deadline remaining: " +
+            std::to_wstring(ChronoToMs(grace_deadline - snap.now)) + L" ms";
   }
   SetStaticText(state->hwnd, kStaticLocalGrace, grace);
   SetStaticText(state->hwnd, kStaticLocalReason,
@@ -522,48 +568,44 @@ void RefreshUi(MonitorState* state) {
 
   SetStaticText(state->hwnd, kStaticRemoteUid,
                 Utf8ToWide("UID: " + state->peer_uid_text));
-  std::wstring remote_status = L"Remote status: ";
-  if (state->remote_inflight) {
-    remote_status += state->remote_result_online.has_value()
-                         ? (state->remote_result_online.value() ? L"ONLINE (LAST RESULT)"
-                                                                : L"OFFLINE (LAST RESULT)")
-                         : L"UNKNOWN (LAST RESULT)";
-  } else if (state->remote_result_online.has_value()) {
-    remote_status += state->remote_result_online.value() ? L"ONLINE" : L"OFFLINE";
-  } else {
-    remote_status += L"UNKNOWN";
-  }
-  SetStaticText(state->hwnd, kStaticRemoteStatus, remote_status);
+  auto const& remote = state->remote_tracker.snapshot();
+  auto const now_tp = ae::Now();
+  SetStaticText(state->hwnd, kStaticRemoteStatus,
+                Utf8ToWide(std::string{"Remote derived: "} +
+                           presence_monitor::RemoteStateName(remote.derived)));
   SetStaticText(state->hwnd, kStaticRemoteQuery,
-                state->remote_inflight ? L"Query: IN_FLIGHT" : L"Query: IDLE");
+                remote.query_phase == presence_monitor::QueryPhase::kInFlight
+                    ? L"Query: IN_FLIGHT"
+                    : L"Query: IDLE");
   SetStaticText(state->hwnd, kStaticRemoteLastQuery,
-                L"Last query completed: " + FormatMsAgo(state->remote_last_completed));
+                L"Last query completed: " + FormatAeAge(remote.query_completed_at));
   SetStaticText(state->hwnd, kStaticRemoteLastSuccessQuery,
                 L"Last successful query: " +
-                    FormatMsAgo(state->remote_last_successful_query));
-  std::wstring last_online = L"Remote last_online: -";
-  if (state->remote_last_online_age_ms.has_value()) {
-    last_online = L"Remote last_online: " +
-                  std::to_wstring(*state->remote_last_online_age_ms) + L" ms ago";
-  }
-  SetStaticText(state->hwnd, kStaticRemoteLastOnline, last_online);
-  std::wstring deadline = L"Remote next ping deadline: -";
-  if (state->remote_next_deadline_delta_ms.has_value()) {
-    deadline = L"Remote next ping deadline: " +
-               std::to_wstring(*state->remote_next_deadline_delta_ms) + L" ms";
+                    FormatAeAge(remote.last_successful_query_at));
+  SetStaticText(state->hwnd, kStaticRemoteLastOnline,
+                L"Remote last_online: " + FormatAeAge(remote.last_online));
+  std::wstring deadline = L"Remote next deadline: -";
+  if (remote.next_ping_deadline != ae::TimePoint{}) {
+    auto const delta = remote.next_ping_deadline - now_tp;
+    deadline = L"Remote next deadline: " +
+               std::to_wstring(ChronoToMs(delta)) + L" ms";
   }
   SetStaticText(state->hwnd, kStaticRemoteDeadline, deadline);
   SetStaticText(state->hwnd, kStaticRemoteLastError,
                 Utf8ToWide("Last query error: " +
-                           (state->remote_last_error.empty() ? "-"
-                                                             : state->remote_last_error)));
+                           (remote.last_query_error.has_value()
+                                ? std::to_string(*remote.last_query_error)
+                                : "-")));
   SetStaticText(state->hwnd, kStaticRemoteLastTransition,
                 L"Last transition: " + FormatQpcAge(state->remote_last_transition_qpc));
 
   SetStaticText(state->hwnd, kStaticSchedule,
                 Utf8ToWide("Ping interval: " + std::to_string(state->args.ping_ms) +
                            " ms\r\nReceive window: " +
-                           std::to_string(state->args.window_ms) + " ms\r\nQuery period: " +
+                           std::to_string(state->args.window_ms) +
+                           " ms\r\nPeer ping (configured): " +
+                           std::to_string(state->args.peer_ping_ms) +
+                           " ms\r\nQuery period: " +
                            std::to_string(state->args.query_period_ms) + " ms"));
 
   std::wstring counters =
@@ -579,58 +621,161 @@ void RefreshUi(MonitorState* state) {
 }
 
 void UpdateLocalOnline(MonitorState* state, ae::LocalConnectivitySnapshot const& snap) {
-  bool const online = snap.online;
+  auto const current = snap.state;
   std::string const reason = LocalReason(snap);
-  if (state->local_online.has_value() && *state->local_online == online) {
+  if (state->local_state.has_value() && *state->local_state == current) {
     state->local_reason = reason;
     return;
   }
   auto const qpc = MonotonicClock::NowTicks();
-  if (state->local_online.has_value() && *state->local_online != online) {
+  if (state->local_state.has_value() && *state->local_state != current) {
     state->local_last_transition_qpc = qpc;
-    if (online) {
-      ++state->local_online_transitions;
-    } else {
+    if (current == ae::LocalConnectivityState::kOffline &&
+        *state->local_state != ae::LocalConnectivityState::kOffline) {
       ++state->local_offline_transitions;
     }
+    if ((current == ae::LocalConnectivityState::kOnline ||
+         current == ae::LocalConnectivityState::kSuspect) &&
+        *state->local_state == ae::LocalConnectivityState::kOffline) {
+      ++state->local_online_transitions;
+    }
   }
-  state->local_online = online;
+  state->local_state = current;
   state->local_reason = reason;
-  std::int64_t grace_ms = 0;
-  if (snap.in_flight_grace_active && snap.pending_ping_deadline != ae::TimePoint{}) {
-    grace_ms = ChronoToMs(snap.pending_ping_deadline - snap.now);
-  }
   state->log->Write(
       "LOCAL_STATE", state->args.label,
       {{"aether_sha", kAetherShaFull},
-       {"online", online ? "true" : "false"},
+       {"state", LocalStateName(current)},
        {"reason", reason},
-       {"has_success", snap.has_success ? "true" : "false"},
-       {"last_success_age_ms", std::to_string(DurationToMs(snap.age_since_last_success))},
+       {"has_any_cloud_response", snap.has_any_cloud_response ? "true" : "false"},
+       {"any_cloud_age_ms",
+        std::to_string(DurationToMs(snap.age_since_last_any_cloud_response))},
+       {"ping_age_ms",
+        std::to_string(DurationToMs(snap.age_since_last_ping_response))},
        {"ping_interval_ms", std::to_string(DurationToMs(snap.ping_interval))},
+       {"planned_ping_count", std::to_string(snap.planned_ping_count)},
        {"pings_in_flight", std::to_string(snap.pings_in_flight)},
-       {"grace_remaining_ms", std::to_string(grace_ms)}});
+       {"peer_ping_ms", std::to_string(state->args.peer_ping_ms)}});
 }
 
-void UpdateRemoteResult(MonitorState* state, bool online) {
-  if (!state->remote_result_online.has_value() ||
-      *state->remote_result_online != online) {
-    auto const qpc = MonotonicClock::NowTicks();
-    if (state->remote_result_online.has_value()) {
-      state->remote_last_transition_qpc = qpc;
-      if (online) {
-        ++state->remote_online_transitions;
-      } else {
-        ++state->remote_offline_transitions;
-      }
-    }
-    state->log->Write("REMOTE_STATE", state->args.label,
-                      {{"aether_sha", kAetherShaFull},
-                       {"online", online ? "true" : "false"},
-                       {"peer_uid", state->peer_uid_text}});
+void UpdateRemoteDerived(MonitorState* state) {
+  auto const derived = state->remote_tracker.snapshot().derived;
+  if (state->remote_derived.has_value() && *state->remote_derived == derived) {
+    return;
   }
-  state->remote_result_online = online;
-  state->remote_display_online = online;
+  auto const qpc = MonotonicClock::NowTicks();
+  if (state->remote_derived.has_value()) {
+    state->remote_last_transition_qpc = qpc;
+    if (derived == presence_monitor::RemoteConnectivityState::kOffline) {
+      ++state->remote_offline_transitions;
+    }
+    if (derived == presence_monitor::RemoteConnectivityState::kOnline) {
+      ++state->remote_online_transitions;
+    }
+  }
+  state->remote_derived = derived;
+  auto const& remote = state->remote_tracker.snapshot();
+  state->log->Write(
+      "REMOTE_STATE", state->args.label,
+      {{"aether_sha", kAetherShaFull},
+       {"derived", presence_monitor::RemoteStateName(derived)},
+       {"raw", ScheduleStateName(remote.raw)},
+       {"peer_uid", state->peer_uid_text},
+       {"peer_ping_ms", std::to_string(state->args.peer_ping_ms)}});
+}
+
+bool CanStartRemoteQuery(MonitorState* state,
+                         ae::LocalConnectivitySnapshot const& snap) {
+  if (!state->args.remote_queries_enabled) {
+    return false;
+  }
+  if (state->remote_tracker.snapshot().query_phase ==
+      presence_monitor::QueryPhase::kInFlight) {
+    return false;
+  }
+  if (snap.state == ae::LocalConnectivityState::kWaitingFirstResponse) {
+    return false;
+  }
+  if (snap.planned_ping_count > 0 || snap.pings_in_flight > 0) {
+    return false;
+  }
+  if (snap.nearest_dispatch_deadline != ae::TimePoint{} &&
+      snap.now < snap.nearest_dispatch_deadline) {
+    return false;
+  }
+  if (snap.has_any_cloud_response &&
+      snap.age_since_last_any_cloud_response <
+          std::chrono::duration_cast<ae::Duration>(std::chrono::milliseconds{50})) {
+    return false;
+  }
+  return true;
+}
+
+void StartRemoteQuery(MonitorState* state) {
+  if (!state->session.client || state->peer_uid_text.empty()) {
+    return;
+  }
+  auto const query_started = ae::Now();
+  state->remote_tracker.BeginQuery(query_started);
+  state->log->Write("REMOTE_QUERY_SEND", state->args.label,
+                    {{"peer_uid", state->peer_uid_text},
+                     {"aether_sha", kAetherShaFull}});
+  auto& action = state->session.client->QueryPeerReceiveSchedule(state->peer_uid);
+  state->remote_query_sub = action.result_event().Subscribe(
+      [state, query_started](ae::Result<ae::PeerReceiveSchedule, int> const& res) {
+        auto const completed = ae::Now();
+        state->next_remote_query_at =
+            completed + std::chrono::milliseconds{state->args.query_period_ms};
+        if (res) {
+          auto const& schedule = res.value();
+          presence_monitor::RemoteTimingSnapshot timing{};
+          timing.last_online = schedule.last_online;
+          timing.raw_state = schedule.state;
+          if (schedule.next_ping_deadline.has_value()) {
+            timing.next_ping_deadline = *schedule.next_ping_deadline;
+          }
+          state->remote_tracker.CompleteQuerySuccess(completed, timing);
+          UpdateRemoteDerived(state);
+          state->log->Write(
+              "REMOTE_QUERY_RESULT", state->args.label,
+              {{"aether_sha", kAetherShaFull},
+               {"success", "true"},
+               {"raw", ScheduleStateName(schedule.state)},
+               {"derived",
+                presence_monitor::RemoteStateName(
+                    state->remote_tracker.snapshot().derived)},
+               {"peer_uid", state->peer_uid_text},
+               {"peer_ping_ms", std::to_string(state->args.peer_ping_ms)}});
+        } else {
+          state->remote_tracker.CompleteQueryError(completed, res.error());
+          UpdateRemoteDerived(state);
+          state->log->Write(
+              "REMOTE_QUERY_RESULT", state->args.label,
+              {{"aether_sha", kAetherShaFull},
+               {"success", "false"},
+               {"error", std::to_string(res.error())},
+               {"derived", "UNKNOWN"},
+               {"peer_uid", state->peer_uid_text}});
+        }
+      });
+}
+
+void MaybeStartRemoteQuery(MonitorState* state) {
+  if (!state->session.client ||
+      !state->session.client->connectivity_policy().is_valid()) {
+    return;
+  }
+  auto const snap =
+      state->session.client->connectivity_policy().Load()->InspectLocalConnectivity(
+          ae::Now());
+  if (state->next_remote_query_at != ae::TimePoint{} &&
+      ae::Now() < state->next_remote_query_at) {
+    return;
+  }
+  if (!CanStartRemoteQuery(state, snap)) {
+    return;
+  }
+  StartRemoteQuery(state);
 }
 
 void PollLocal(MonitorState* state) {
@@ -642,90 +787,6 @@ void PollLocal(MonitorState* state) {
       state->session.client->connectivity_policy().Load()->InspectLocalConnectivity(
           ae::Now());
   UpdateLocalOnline(state, snap);
-}
-
-void StartRemoteQuery(MonitorState* state) {
-  if (!state->args.remote_queries_enabled || !state->session.client ||
-      state->remote_inflight || state->peer_uid_text.empty()) {
-    return;
-  }
-  state->remote_inflight = true;
-  state->remote_last_error.clear();
-  state->remote_query_started = SteadyClock::now();
-  state->log->Write("REMOTE_QUERY_SEND", state->args.label,
-                    {{"peer_uid", state->peer_uid_text},
-                     {"aether_sha", kAetherShaFull}});
-  auto& action = state->session.client->QueryPeerReceiveSchedule(state->peer_uid);
-  state->remote_query_sub = action.result_event().Subscribe(
-      [state](ae::Result<ae::PeerReceiveSchedule, int> const& res) {
-        state->remote_inflight = false;
-        state->remote_last_completed = SteadyClock::now();
-        auto const duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                     state->remote_last_completed -
-                                     state->remote_query_started)
-                                     .count();
-        state->next_remote_query_at =
-            state->remote_last_completed +
-            std::chrono::milliseconds{state->args.query_period_ms};
-        if (res) {
-          auto const& schedule = res.value();
-          auto const schedule_state = schedule.state;
-          state->remote_last_state = ScheduleStateName(schedule_state);
-          state->remote_last_error.clear();
-          state->remote_last_successful_query = state->remote_last_completed;
-          auto const now_tp = ae::Now();
-          if (schedule.last_online != ae::TimePoint{}) {
-            state->remote_last_online_age_ms =
-                ChronoToMs(now_tp - schedule.last_online);
-          } else {
-            state->remote_last_online_age_ms.reset();
-          }
-          if (schedule.next_ping_deadline.has_value()) {
-            state->remote_next_deadline_delta_ms =
-                ChronoToMs(*schedule.next_ping_deadline - now_tp);
-          } else {
-            state->remote_next_deadline_delta_ms.reset();
-          }
-          bool const online = RemoteOnlineFromSchedule(schedule_state);
-          state->log->Write(
-              "REMOTE_QUERY_RESULT", state->args.label,
-              {{"aether_sha", kAetherShaFull},
-               {"success", "true"},
-               {"state", state->remote_last_state},
-               {"peer_uid", state->peer_uid_text},
-               {"query_duration_ms", std::to_string(duration_ms)},
-               {"remote_state", state->remote_last_state},
-               {"remote_last_online_age_ms",
-                state->remote_last_online_age_ms.has_value()
-                    ? std::to_string(*state->remote_last_online_age_ms)
-                    : "-1"},
-               {"next_deadline_delta_ms",
-                state->remote_next_deadline_delta_ms.has_value()
-                    ? std::to_string(*state->remote_next_deadline_delta_ms)
-                    : "-1"}});
-          UpdateRemoteResult(state, online);
-        } else {
-          state->remote_last_error = std::to_string(res.error());
-          state->log->Write(
-              "REMOTE_QUERY_RESULT", state->args.label,
-              {{"aether_sha", kAetherShaFull},
-               {"success", "false"},
-               {"error", state->remote_last_error},
-               {"peer_uid", state->peer_uid_text},
-               {"query_duration_ms", std::to_string(duration_ms)}});
-        }
-      });
-}
-
-void MaybeStartRemoteQuery(MonitorState* state) {
-  if (!state->args.remote_queries_enabled || state->remote_inflight) {
-    return;
-  }
-  if (state->next_remote_query_at.time_since_epoch().count() != 0 &&
-      SteadyClock::now() < state->next_remote_query_at) {
-    return;
-  }
-  StartRemoteQuery(state);
 }
 
 void PumpAether(MonitorState* state) {
@@ -903,6 +964,9 @@ int RunMonitor(Args const& args) {
                      args.remote_queries_enabled ? "true" : "false"}});
   state.peer_uid_text = args.peer_id;
   state.peer_uid = ae::Uid::FromString(args.peer_id);
+  state.remote_tracker.SetPeerPingInterval(
+      std::chrono::duration_cast<ae::Duration>(
+          std::chrono::milliseconds{args.peer_ping_ms}));
 
   state.session.app = MakeApp(args.state_dir);
   if (!BootstrapClient(state.session, args, state.log.get())) {
@@ -935,7 +999,7 @@ int RunMonitor(Args const& args) {
   ShowWindow(hwnd, SW_SHOW);
   UpdateWindow(hwnd);
 
-  state.next_remote_query_at = SteadyClock::time_point{};
+  state.next_remote_query_at = ae::TimePoint{};
 
   MSG msg{};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

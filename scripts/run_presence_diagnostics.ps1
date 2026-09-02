@@ -43,6 +43,11 @@ $ExpectedA = "a2c9729e-7870-4039-bd59-5d722279b685"
 $ExpectedB = "42e7d356-23b5-43ae-b32c-b3bc120fb5ac"
 
 New-Item -ItemType Directory -Force -Path (Split-Path $BinA), (Split-Path $BinB), $IdsDir, $LogsDir, $StateA, $StateB | Out-Null
+
+Get-Process aether_presence_monitor_A, aether_presence_monitor_B -ErrorAction SilentlyContinue |
+  Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+
 Copy-Item -Force $BuiltExe $BinA
 Copy-Item -Force $BuiltExe $BinB
 
@@ -57,9 +62,6 @@ $AUid = (Get-Content $UidA -Raw).Trim()
 $BUid = (Get-Content $UidB -Raw).Trim()
 Write-Host "A UID: $AUid"
 Write-Host "B UID: $BUid"
-
-Get-Process aether_presence_monitor_A, aether_presence_monitor_B -ErrorAction SilentlyContinue |
-  Stop-Process -Force -ErrorAction SilentlyContinue
 
 function Get-LocalSummary([string]$LogPath) {
   if (-not (Test-Path $LogPath)) { return $null }
@@ -94,7 +96,7 @@ function Count-LocalTransitions([string]$LogPath, [datetime]$Since) {
   return [Math]::Max(0, $count - 1)
 }
 
-$commonArgs = @("--ping-ms", "1000", "--window-ms", "1000")
+$commonArgs = @("--ping-ms", "1000", "--window-ms", "1000", "--peer-ping-ms", "1000")
 
 if ($Phase -eq "test1") {
   $TestStart = Get-Date

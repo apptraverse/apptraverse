@@ -181,4 +181,19 @@ if(WIN32)
     NAME apptraverse_chat_win32_ui_smoke_test
     COMMAND apptraverse_chat_win32_ui_smoke_test
   )
+
+  add_executable(apptraverse_presence_remote_state_test
+    presence_remote_state/test_presence_remote_state.cpp
+  )
+
+  target_link_libraries(apptraverse_presence_remote_state_test PRIVATE aether)
+
+  target_include_directories(apptraverse_presence_remote_state_test PRIVATE
+    ${CMAKE_SOURCE_DIR}
+  )
+
+  add_test(
+    NAME apptraverse_presence_remote_state_test
+    COMMAND apptraverse_presence_remote_state_test
+  )
 endif()
