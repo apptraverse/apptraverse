@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -50,33 +51,18 @@ std::string const kAetherShaShort =
 constexpr char const* kAetherParentUid =
     "3ac93165-3d37-4970-87a6-fa4ee27744e4";
 constexpr auto kLocalPollInterval = std::chrono::milliseconds{30};
+constexpr auto kRemoteQueryTimeout = std::chrono::seconds{15};
 
 constexpr UINT kTimerPump = 1;
 constexpr UINT kTimerUiRefresh = 2;
 constexpr UINT kTimerAutoExit = 3;
 
 enum ControlId : int {
-  kStaticAetherSha = 1000,
-  kStaticLocalUid,
+  kStaticTitle = 1000,
+  kStaticLocalLabel,
   kStaticLocalStatus,
-  kStaticLocalResponseAge,
-  kStaticLocalPingInterval,
-  kStaticLocalThreshold,
-  kStaticLocalInFlight,
-  kStaticLocalGrace,
-  kStaticLocalReason,
-  kStaticLocalLastTransition,
-  kStaticRemoteUid,
+  kStaticRemoteLabel,
   kStaticRemoteStatus,
-  kStaticRemoteQuery,
-  kStaticRemoteLastQuery,
-  kStaticRemoteLastSuccessQuery,
-  kStaticRemoteLastOnline,
-  kStaticRemoteDeadline,
-  kStaticRemoteLastError,
-  kStaticRemoteLastTransition,
-  kStaticSchedule,
-  kStaticCounters,
 };
 
 struct MonotonicClock {
@@ -415,8 +401,36 @@ struct MonitorState {
   ae::Subscription remote_query_sub;
 
   HWND hwnd{nullptr};
-  HFONT ui_font{nullptr};
+  HFONT label_font{nullptr};
+  HFONT status_font{nullptr};
 };
+
+void EnsureConsoleAttached() {
+  static bool attached = [] {
+    if (AttachConsole(ATTACH_PARENT_PROCESS) || AllocConsole()) {
+      FILE* stdout_file = stdout;
+      FILE* stderr_file = stderr;
+      freopen_s(&stdout_file, "CONOUT$", "w", stdout);
+      freopen_s(&stderr_file, "CONOUT$", "w", stderr);
+      return true;
+    }
+    return false;
+  }();
+  static_cast<void>(attached);
+}
+
+void RemoteConsoleLog(std::string const& label, char const* message) {
+  EnsureConsoleAttached();
+  std::fprintf(stderr, "[%s] %s\n", label.c_str(), message);
+  std::fflush(stderr);
+}
+
+bool LocalReadyForRemoteQuery(ae::LocalConnectivitySnapshot const& snap) {
+  return snap.has_success && snap.online;
+}
+
+void RefreshUi(MonitorState* state);
+void MaybeStartRemoteQuery(MonitorState* state);
 
 std::int64_t DurationToMs(ae::Duration d) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
@@ -442,11 +456,25 @@ std::string LocalReason(ae::LocalConnectivitySnapshot const& snap) {
   return "LAST_RESPONSE_TOO_OLD";
 }
 
-std::wstring LocalStatusText(ae::LocalConnectivitySnapshot const& snap) {
-  if (!snap.has_success) {
-    return L"WAITING_FIRST_RESPONSE";
+std::wstring UserPresenceText(bool known, bool online) {
+  if (!known) {
+    return L"...";
   }
-  return snap.online ? L"ONLINE" : L"OFFLINE";
+  return online ? L"ONLINE" : L"OFFLINE";
+}
+
+std::wstring LocalUserStatusText(ae::LocalConnectivitySnapshot const& snap) {
+  if (!snap.has_success) {
+    return L"...";
+  }
+  return UserPresenceText(true, snap.online);
+}
+
+std::wstring RemoteUserStatusText(MonitorState const* state) {
+  if (!state || !state->remote_display_online.has_value()) {
+    return L"...";
+  }
+  return UserPresenceText(true, *state->remote_display_online);
 }
 
 void SetStaticText(HWND parent, int id, std::wstring const& text) {
@@ -484,105 +512,19 @@ void RefreshUi(MonitorState* state) {
       state->session.client->connectivity_policy().Load()->InspectLocalConnectivity(
           ae::Now());
 
-  SetStaticText(state->hwnd, kStaticAetherSha,
-                Utf8ToWide("Aether SHA: " + kAetherShaShort));
-  SetStaticText(state->hwnd, kStaticLocalUid,
-                Utf8ToWide("UID: " + state->session.local_uid));
-  SetStaticText(state->hwnd, kStaticLocalStatus,
-                L"Status: " + LocalStatusText(snap));
-  SetStaticText(
-      state->hwnd, kStaticLocalResponseAge,
-      L"Last cloud response: " +
-          (snap.has_success ? std::to_wstring(DurationToMs(snap.age_since_last_success)) +
-                                  L" ms ago"
-                            : L"-"));
-  SetStaticText(state->hwnd, kStaticLocalPingInterval,
-                L"Ping interval: " + std::to_wstring(DurationToMs(snap.ping_interval)) +
-                    L" ms");
-  std::wstring threshold = L"Recent threshold remaining: -";
-  if (snap.has_success && snap.recent_success_until != ae::TimePoint{}) {
-    auto const remaining = snap.recent_success_until - snap.now;
-    threshold = L"Recent threshold remaining: " +
-                std::to_wstring(ChronoToMs(remaining)) + L" ms";
-  }
-  SetStaticText(state->hwnd, kStaticLocalThreshold, threshold);
-  SetStaticText(state->hwnd, kStaticLocalInFlight,
-                L"Pings in flight: " + std::to_wstring(snap.pings_in_flight));
-  std::wstring grace = L"Ping grace remaining: -";
-  if (snap.in_flight_grace_active && snap.pending_ping_deadline != ae::TimePoint{}) {
-    auto const remaining = snap.pending_ping_deadline - snap.now;
-    grace = L"Ping grace remaining: " + std::to_wstring(ChronoToMs(remaining)) +
-            L" ms";
-  }
-  SetStaticText(state->hwnd, kStaticLocalGrace, grace);
-  SetStaticText(state->hwnd, kStaticLocalReason,
-                Utf8ToWide("Reason: " + LocalReason(snap)));
-  SetStaticText(state->hwnd, kStaticLocalLastTransition,
-                L"Last transition: " + FormatQpcAge(state->local_last_transition_qpc));
-
-  SetStaticText(state->hwnd, kStaticRemoteUid,
-                Utf8ToWide("UID: " + state->peer_uid_text));
-  std::wstring remote_status = L"Remote status: ";
-  if (state->remote_inflight) {
-    remote_status += state->remote_result_online.has_value()
-                         ? (state->remote_result_online.value() ? L"ONLINE (LAST RESULT)"
-                                                                : L"OFFLINE (LAST RESULT)")
-                         : L"UNKNOWN (LAST RESULT)";
-  } else if (state->remote_result_online.has_value()) {
-    remote_status += state->remote_result_online.value() ? L"ONLINE" : L"OFFLINE";
-  } else {
-    remote_status += L"UNKNOWN";
-  }
-  SetStaticText(state->hwnd, kStaticRemoteStatus, remote_status);
-  SetStaticText(state->hwnd, kStaticRemoteQuery,
-                state->remote_inflight ? L"Query: IN_FLIGHT" : L"Query: IDLE");
-  SetStaticText(state->hwnd, kStaticRemoteLastQuery,
-                L"Last query completed: " + FormatMsAgo(state->remote_last_completed));
-  SetStaticText(state->hwnd, kStaticRemoteLastSuccessQuery,
-                L"Last successful query: " +
-                    FormatMsAgo(state->remote_last_successful_query));
-  std::wstring last_online = L"Remote last_online: -";
-  if (state->remote_last_online_age_ms.has_value()) {
-    last_online = L"Remote last_online: " +
-                  std::to_wstring(*state->remote_last_online_age_ms) + L" ms ago";
-  }
-  SetStaticText(state->hwnd, kStaticRemoteLastOnline, last_online);
-  std::wstring deadline = L"Remote next ping deadline: -";
-  if (state->remote_next_deadline_delta_ms.has_value()) {
-    deadline = L"Remote next ping deadline: " +
-               std::to_wstring(*state->remote_next_deadline_delta_ms) + L" ms";
-  }
-  SetStaticText(state->hwnd, kStaticRemoteDeadline, deadline);
-  SetStaticText(state->hwnd, kStaticRemoteLastError,
-                Utf8ToWide("Last query error: " +
-                           (state->remote_last_error.empty() ? "-"
-                                                             : state->remote_last_error)));
-  SetStaticText(state->hwnd, kStaticRemoteLastTransition,
-                L"Last transition: " + FormatQpcAge(state->remote_last_transition_qpc));
-
-  SetStaticText(state->hwnd, kStaticSchedule,
-                Utf8ToWide("Ping interval: " + std::to_string(state->args.ping_ms) +
-                           " ms\r\nReceive window: " +
-                           std::to_string(state->args.window_ms) + " ms\r\nQuery period: " +
-                           std::to_string(state->args.query_period_ms) + " ms"));
-
-  std::wstring counters =
-      L"Local Offline transitions: " +
-      std::to_wstring(state->local_offline_transitions) +
-      L"\r\nLocal Online transitions: " +
-      std::to_wstring(state->local_online_transitions) +
-      L"\r\nRemote Offline transitions: " +
-      std::to_wstring(state->remote_offline_transitions) +
-      L"\r\nRemote Online transitions: " +
-      std::to_wstring(state->remote_online_transitions);
-  SetStaticText(state->hwnd, kStaticCounters, counters);
+  SetStaticText(state->hwnd, kStaticLocalStatus, LocalUserStatusText(snap));
+  SetStaticText(state->hwnd, kStaticRemoteStatus, RemoteUserStatusText(state));
 }
 
 void UpdateLocalOnline(MonitorState* state, ae::LocalConnectivitySnapshot const& snap) {
+  bool const was_ready = state->local_online.has_value() && *state->local_online;
   bool const online = snap.online;
   std::string const reason = LocalReason(snap);
   if (state->local_online.has_value() && *state->local_online == online) {
     state->local_reason = reason;
+    if (!was_ready && LocalReadyForRemoteQuery(snap)) {
+      MaybeStartRemoteQuery(state);
+    }
     return;
   }
   auto const qpc = MonotonicClock::NowTicks();
@@ -610,6 +552,9 @@ void UpdateLocalOnline(MonitorState* state, ae::LocalConnectivitySnapshot const&
        {"ping_interval_ms", std::to_string(DurationToMs(snap.ping_interval))},
        {"pings_in_flight", std::to_string(snap.pings_in_flight)},
        {"grace_remaining_ms", std::to_string(grace_ms)}});
+  if (!was_ready && LocalReadyForRemoteQuery(snap)) {
+    MaybeStartRemoteQuery(state);
+  }
 }
 
 void UpdateRemoteResult(MonitorState* state, bool online) {
@@ -652,6 +597,10 @@ void StartRemoteQuery(MonitorState* state) {
   state->remote_inflight = true;
   state->remote_last_error.clear();
   state->remote_query_started = SteadyClock::now();
+  {
+    std::string line = "REMOTE_QUERY_START peer=" + state->peer_uid_text;
+    RemoteConsoleLog(state->args.label, line.c_str());
+  }
   state->log->Write("REMOTE_QUERY_SEND", state->args.label,
                     {{"peer_uid", state->peer_uid_text},
                      {"aether_sha", kAetherShaFull}});
@@ -687,6 +636,11 @@ void StartRemoteQuery(MonitorState* state) {
             state->remote_next_deadline_delta_ms.reset();
           }
           bool const online = RemoteOnlineFromSchedule(schedule_state);
+          {
+            std::string line = std::string{"REMOTE_QUERY_COMPLETE state="} +
+                               state->remote_last_state;
+            RemoteConsoleLog(state->args.label, line.c_str());
+          }
           state->log->Write(
               "REMOTE_QUERY_RESULT", state->args.label,
               {{"aether_sha", kAetherShaFull},
@@ -704,8 +658,16 @@ void StartRemoteQuery(MonitorState* state) {
                     ? std::to_string(*state->remote_next_deadline_delta_ms)
                     : "-1"}});
           UpdateRemoteResult(state, online);
+          RemoteConsoleLog(state->args.label,
+                           online ? "REMOTE_GUI_STATUS ONLINE"
+                                  : "REMOTE_GUI_STATUS OFFLINE");
         } else {
           state->remote_last_error = std::to_string(res.error());
+          {
+            std::string line =
+                std::string{"REMOTE_QUERY_ERROR error="} + state->remote_last_error;
+            RemoteConsoleLog(state->args.label, line.c_str());
+          }
           state->log->Write(
               "REMOTE_QUERY_RESULT", state->args.label,
               {{"aether_sha", kAetherShaFull},
@@ -714,16 +676,40 @@ void StartRemoteQuery(MonitorState* state) {
                {"peer_uid", state->peer_uid_text},
                {"query_duration_ms", std::to_string(duration_ms)}});
         }
+        RefreshUi(state);
       });
 }
 
 void MaybeStartRemoteQuery(MonitorState* state) {
-  if (!state->args.remote_queries_enabled || state->remote_inflight) {
+  if (!state->args.remote_queries_enabled) {
     return;
   }
-  if (state->next_remote_query_at.time_since_epoch().count() != 0 &&
-      SteadyClock::now() < state->next_remote_query_at) {
+  if (!state->session.client ||
+      !state->session.client->connectivity_policy().is_valid()) {
     return;
+  }
+  auto const snap =
+      state->session.client->connectivity_policy().Load()->InspectLocalConnectivity(
+          ae::Now());
+  if (!LocalReadyForRemoteQuery(snap)) {
+    return;
+  }
+  if (state->remote_inflight) {
+    if (state->remote_query_started.time_since_epoch().count() != 0 &&
+        SteadyClock::now() - state->remote_query_started > kRemoteQueryTimeout) {
+      RemoteConsoleLog(state->args.label, "REMOTE_QUERY_TIMEOUT resetting in-flight query");
+      state->remote_inflight = false;
+      state->remote_query_sub = ae::Subscription{};
+      state->next_remote_query_at = SteadyClock::now();
+    } else {
+      return;
+    }
+  }
+  if (state->remote_display_online.has_value()) {
+    if (state->next_remote_query_at.time_since_epoch().count() != 0 &&
+        SteadyClock::now() < state->next_remote_query_at) {
+      return;
+    }
   }
   StartRemoteQuery(state);
 }
@@ -741,9 +727,10 @@ void PumpAether(MonitorState* state) {
 }
 
 HWND CreateLabel(HWND parent, int id, int x, int y, int w, int h,
-                 std::wstring const& text, HFONT font) {
+                 std::wstring const& text, HFONT font, DWORD style = 0) {
   HWND ctrl = CreateWindowExW(
-      0, L"STATIC", text.c_str(), WS_CHILD | WS_VISIBLE, x, y, w, h, parent,
+      0, L"STATIC", text.c_str(),
+      WS_CHILD | WS_VISIBLE | style, x, y, w, h, parent,
       reinterpret_cast<HMENU>(static_cast<intptr_t>(id)), GetModuleHandleW(nullptr),
       nullptr);
   SendMessageW(ctrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -763,74 +750,30 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
       SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
       state->hwnd = hwnd;
 
-      state->ui_font = CreateFontW(
-          16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+      state->label_font = CreateFontW(
+          14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+          OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+          DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+      state->status_font = CreateFontW(
+          28, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
           OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
           DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
 
-      int y = 8;
-      CreateLabel(hwnd, kStaticAetherSha, 12, y, 460, 20, L"Aether SHA:", state->ui_font);
+      int y = 16;
+      CreateLabel(hwnd, kStaticTitle, 20, y, 260, 24,
+                  L"\u00C6ther Presence", state->label_font);
+      y += 36;
+      CreateLabel(hwnd, kStaticLocalLabel, 20, y, 260, 20, L"This client",
+                  state->label_font);
       y += 22;
-      CreateLabel(hwnd, 0, 12, y, 460, 22, L"Local client", state->ui_font);
-      y += 24;
-      CreateLabel(hwnd, kStaticLocalUid, 24, y, 460, 20, L"UID:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticLocalStatus, 24, y, 460, 20, L"Status:",
-                  state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticLocalResponseAge, 24, y, 460, 20,
-                  L"Last cloud response:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticLocalPingInterval, 24, y, 460, 20,
-                  L"Ping interval:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticLocalThreshold, 24, y, 460, 20,
-                  L"Recent threshold remaining:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticLocalInFlight, 24, y, 460, 20,
-                  L"Pings in flight:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticLocalGrace, 24, y, 460, 20,
-                  L"Ping grace remaining:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticLocalReason, 24, y, 460, 20, L"Reason:",
-                  state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticLocalLastTransition, 24, y, 460, 20,
-                  L"Last transition:", state->ui_font);
-      y += 28;
-      CreateLabel(hwnd, 0, 12, y, 460, 22, L"Remote client", state->ui_font);
-      y += 24;
-      CreateLabel(hwnd, kStaticRemoteUid, 24, y, 460, 20, L"UID:",
-                  state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticRemoteStatus, 24, y, 460, 20, L"Remote status:",
-                  state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticRemoteQuery, 24, y, 460, 20, L"Query:",
-                  state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticRemoteLastQuery, 24, y, 460, 20,
-                  L"Last query completed:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticRemoteLastSuccessQuery, 24, y, 460, 20,
-                  L"Last successful query:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticRemoteLastOnline, 24, y, 460, 20,
-                  L"Remote last_online:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticRemoteDeadline, 24, y, 460, 20,
-                  L"Remote next ping deadline:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticRemoteLastError, 24, y, 460, 20,
-                  L"Last query error:", state->ui_font);
-      y += 20;
-      CreateLabel(hwnd, kStaticRemoteLastTransition, 24, y, 460, 20,
-                  L"Last transition:", state->ui_font);
-      y += 28;
-      CreateLabel(hwnd, kStaticSchedule, 12, y, 460, 56, L"", state->ui_font);
-      y += 60;
-      CreateLabel(hwnd, kStaticCounters, 12, y, 460, 80, L"", state->ui_font);
+      CreateLabel(hwnd, kStaticLocalStatus, 20, y, 260, 36, L"...",
+                  state->status_font);
+      y += 52;
+      CreateLabel(hwnd, kStaticRemoteLabel, 20, y, 260, 20, L"Other client",
+                  state->label_font);
+      y += 22;
+      CreateLabel(hwnd, kStaticRemoteStatus, 20, y, 260, 36, L"...",
+                  state->status_font);
 
       SetTimer(hwnd, kTimerPump,
                static_cast<UINT>(kLocalPollInterval.count()), nullptr);
@@ -869,8 +812,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         if (state->session.app) {
           state->session.app->aether().Save();
         }
-        if (state->ui_font) {
-          DeleteObject(state->ui_font);
+        if (state->label_font) {
+          DeleteObject(state->label_font);
+        }
+        if (state->status_font) {
+          DeleteObject(state->status_font);
         }
       }
       PostQuitMessage(0);
@@ -920,13 +866,11 @@ int RunMonitor(Args const& args) {
   wc.lpszClassName = class_name.c_str();
   RegisterClassExW(&wc);
 
-  std::wstring title = L"\u00C6ther Presence Monitor \u2014 " +
-                       Utf8ToWide(args.label) + L" [" +
-                       Utf8ToWide(kAetherShaShort) + L"]";
+  std::wstring title = L"\u00C6ther Presence \u2014 " + Utf8ToWide(args.label);
   HWND hwnd = CreateWindowExW(
       0, class_name.c_str(), title.c_str(), WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU |
                                             WS_MINIMIZEBOX,
-      args.window_x, args.window_y, 520, 720, nullptr, nullptr,
+      args.window_x, args.window_y, 320, 240, nullptr, nullptr,
       GetModuleHandleW(nullptr), &state);
   if (!hwnd) {
     state.log->Write("APP_STOPPED", args.label, {{"exit_code", "4"}});
