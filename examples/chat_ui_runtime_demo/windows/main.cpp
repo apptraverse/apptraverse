@@ -55,7 +55,7 @@ void DistillChat(std::filesystem::path const& dir, std::string host_name) {
   apptraverse::EnsureChatPresenterRegistration();
   std::filesystem::remove_all(dir);
   apptraverse::DirectoryDomainStorage storage{dir};
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application =
       apptraverse::BuildChatGraph(domain, std::move(host_name));
   apptraverse::FinalizeDistilledGraph(*application);

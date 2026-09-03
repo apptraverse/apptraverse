@@ -7,8 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "aether/obj/domain.h"
-#include "aether/obj/idomain_storage.h"
+#include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/idomain_storage.h"
 
 #include "apptraverse/node.h"
 #include "apptraverse/publication_channel.h"

@@ -4,8 +4,8 @@
 #include <memory>
 
 #include "aether/clock.h"
-#include "aether/obj/domain.h"
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/node.h"
@@ -31,7 +31,7 @@ void TestDirectoryDomainStorageRoundtrip() {
 
   {
     DirectoryDomainStorage storage{root};
-    ae::Domain domain{ae::Now(), storage};
+    ae::Domain domain{storage};
     auto node =
         Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
     CHECK(node.is_valid());
@@ -41,7 +41,7 @@ void TestDirectoryDomainStorageRoundtrip() {
 
   {
     DirectoryDomainStorage storage{root};
-    ae::Domain domain{ae::Now(), storage};
+    ae::Domain domain{storage};
     auto node =
         Node::ptr::Declare(ae::CreateWith{domain}.with_id(kProbeNodeId));
     node.Load();

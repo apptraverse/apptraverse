@@ -71,7 +71,7 @@ Application::ptr BuildDemoGraph(ae::Domain& domain) {
 void DistillModel(std::filesystem::path const& dir) {
   std::filesystem::remove_all(dir);
   DirectoryDomainStorage storage{dir};
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildDemoGraph(domain);
   FinalizeDistilledGraph(*application);
   SaveDistilledRoot(*application);  // runtime-save-ok: distill
@@ -86,9 +86,9 @@ DemoRuntime LoadDemoModel(std::filesystem::path const& dir) {
   runtime.storage = std::make_unique<DirectoryDomainStorage>(dir);
   runtime.ui_storage = std::make_unique<OverlayDomainStorage>(*runtime.storage);
   runtime.model_domain =
-      std::make_unique<ae::Domain>(ae::Now(), *runtime.storage);
+      std::make_unique<ae::Domain>(*runtime.storage);
   runtime.ui_domain =
-      std::make_unique<ae::Domain>(ae::Now(), *runtime.ui_storage);
+      std::make_unique<ae::Domain>(*runtime.ui_storage);
   runtime.application = LoadApplication<Application>(
       *runtime.model_domain, ae::ObjId{ToObjId(DemoObjId::Application)});
   return runtime;

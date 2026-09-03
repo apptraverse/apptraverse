@@ -10,7 +10,7 @@
 #include <string>
 
 #include "aether/clock.h"
-#include "aether/domain_storage/ram_domain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "chat_bootstrap.h"
 #include "chat_commands.h"
@@ -62,7 +62,7 @@ void TestSourceGuardNoMirrorOrHwnd() {
 void TestLocalChatHostJoinAndMessages() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);
@@ -84,7 +84,7 @@ void TestLocalChatHostJoinAndMessages() {
 void TestPresentationSnapshotFromModelGraph() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("host-uid");
@@ -115,7 +115,7 @@ void TestPresentationSnapshotFromModelGraph() {
 void TestTimestampCommitAndRemap() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Client");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("client-uid");
@@ -133,7 +133,7 @@ void TestTimestampCommitAndRemap() {
   auto payload = SerializeSharedEventPayload(*event);
 
   ae::RamDomainStorage remote_storage;
-  ae::Domain remote_domain{ae::Now(), remote_storage};
+  ae::Domain remote_domain{remote_storage};
   auto remote_app = BuildChatGraph(remote_domain, "Host");
   FinalizeDistilledGraph(*remote_app);
   remote_app->host_client->SetAetherUidText("host-uid");
@@ -146,11 +146,15 @@ void TestTimestampCommitAndRemap() {
   CommitJoinChat(*remote_app->chat_room, *remote_client);
 
   auto remapped =
-      RemapIncomingEvent(*remote_app->chat_room, remote_domain, payload);
+      RemapIncomingEvent(*remote_app->chat_room, remote_domain, payload, {},
+                         "client-uid");
   CHECK(remapped.is_valid());
   auto* message = dynamic_cast<ChatMessageEvent*>(&*remapped);
   CHECK(message != nullptr);
   CHECK(message->sent_at_unix_ms == sent_at);
+  CHECK(message->text.is_valid());
+  message->text.Load();
+  CHECK(message->text->bytes == "ping");
 
   CHECK(remote_app->chat_room->CanApply(*message));
   remote_app->chat_room->Commit(remapped);
@@ -232,7 +236,7 @@ void TestRemotePresencePollerNoOverlap() {
 void TestPeerOnlineAppliedBeforeJoin() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("host-uid");
@@ -268,7 +272,7 @@ void TestPeerOnlineAppliedBeforeJoin() {
 void TestOfflineRetrySkippedOnlineTriggersSend() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("host-uid");
@@ -328,7 +332,7 @@ void TestPresenceScheduleMapping() {
 void TestSameStatusDoesNotBumpGeneration() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("host-uid");
@@ -361,7 +365,7 @@ void TestSameStatusDoesNotBumpGeneration() {
 void TestContactsLocalFirstFromClientsOnly() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText(
@@ -404,7 +408,7 @@ void TestContactsLocalFirstFromClientsOnly() {
 void TestPresenceOverlaySurvivesOnlineClear() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("host-uid");

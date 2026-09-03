@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"

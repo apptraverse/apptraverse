@@ -236,7 +236,7 @@ void LoadModelOnly(ModelSide& side, std::filesystem::path const& dir) {
   using chat::ToObjId;
   side.storage = std::make_unique<DirectoryDomainStorage>(dir);
   side.model_domain =
-      std::make_unique<ae::Domain>(ae::Now(), *side.storage);
+      std::make_unique<ae::Domain>(*side.storage);
   side.application = LoadApplication<Application>(
       *side.model_domain, ae::ObjId{ToObjId(ChatObjId::Application)});
   ResetRuntimePresenceState(*side.application);

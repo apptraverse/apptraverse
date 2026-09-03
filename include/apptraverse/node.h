@@ -11,8 +11,8 @@
 #include <utility>
 #include <vector>
 
-#include "aether/obj/domain.h"
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/event_record.h"
 #include "apptraverse/object_macros.h"

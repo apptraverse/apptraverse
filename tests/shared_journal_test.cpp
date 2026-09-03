@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "aether/clock.h"
-#include "aether/domain_storage/ram_domain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/shared_event_id.h"
 #include "apptraverse/shared_event_order.h"
@@ -186,7 +186,7 @@ ChatSharedBinding BindChat(Application& application, std::string uid) {
 
 void test_pipeline_sends_multiple_without_ack() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
   CommitLocalJoin(binding, *application->host_client);
@@ -248,7 +248,7 @@ void test_duplicate_event_id() {
 void test_seed_pending_excludes_peer_origin() {
   SharedRuntime runtime;
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto room = ChatRoom::ptr::Create(ae::CreateWith{domain});
   SharedInstance<ChatRoom> instance;
   instance.local_aether_uid = "alice";
@@ -315,7 +315,7 @@ void test_preconnect_local_journal() {
 
 void test_connect_creates_peer_seeds_opens_once() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
   CommitLocalJoin(binding, *application->host_client);
@@ -346,7 +346,7 @@ void test_connect_creates_peer_seeds_opens_once() {
 
 void test_no_send_before_channel_ready() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
   CommitLocalJoin(binding, *application->host_client);
@@ -358,7 +358,7 @@ void test_no_send_before_channel_ready() {
 
 void test_stream_ready_sends_all_pending() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
   CommitLocalJoin(binding, *application->host_client);
@@ -377,7 +377,7 @@ void test_stream_ready_sends_all_pending() {
 
 void test_event_codec_roundtrip_join_and_message() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Alice", "alice-uid");
   auto binding = BindChat(*application, "alice-uid");
   CommitLocalJoin(binding, *application->host_client);
@@ -404,7 +404,7 @@ void test_event_codec_roundtrip_join_and_message() {
   REQUIRE(decoded.payload == join_payload);
 
   ae::RamDomainStorage storage2;
-  ae::Domain domain2{ae::Now(), storage2};
+  ae::Domain domain2{storage2};
   auto application2 = MakeChatApp(domain2, "Bob", "bob-uid");
   Event::ptr remapped;
   REQUIRE(DeserializeSharedEventPayload(*application2->chat_room, remapped,
@@ -418,13 +418,13 @@ void test_event_codec_roundtrip_join_and_message() {
 
 void test_incoming_join_applies_and_acks() {
   ae::RamDomainStorage host_storage;
-  ae::Domain host_domain{ae::Now(), host_storage};
+  ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
   CommitLocalJoin(host, *host_app->host_client);
 
   ae::RamDomainStorage client_storage;
-  ae::Domain client_domain{ae::Now(), client_storage};
+  ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
   CommitLocalJoin(client, *client_app->host_client);
@@ -457,13 +457,13 @@ void test_incoming_join_applies_and_acks() {
 
 void test_message_before_join_is_deferred_then_drained() {
   ae::RamDomainStorage host_storage;
-  ae::Domain host_domain{ae::Now(), host_storage};
+  ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
   CommitLocalJoin(host, *host_app->host_client);
 
   ae::RamDomainStorage client_storage;
-  ae::Domain client_domain{ae::Now(), client_storage};
+  ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
   CommitLocalJoin(client, *client_app->host_client);
@@ -501,7 +501,7 @@ void test_message_before_join_is_deferred_then_drained() {
 
 void test_ack_clears_in_flight_without_blocking_pipeline() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
   CommitLocalJoin(binding, *application->host_client);
@@ -526,7 +526,7 @@ void test_ack_clears_in_flight_without_blocking_pipeline() {
 
 void test_retry_after_one_second() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
   CommitLocalJoin(binding, *application->host_client);
@@ -548,7 +548,7 @@ void test_retry_after_one_second() {
 
 void test_retry_skipped_while_offline() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
   CommitLocalJoin(binding, *application->host_client);
@@ -579,14 +579,14 @@ void test_retry_skipped_while_offline() {
 
 void test_objid_collision_remaps() {
   ae::RamDomainStorage host_storage;
-  ae::Domain host_domain{ae::Now(), host_storage};
+  ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   // Host already has HostClient at fixed ObjId 100021.
   auto host = BindChat(*host_app, "host-uid");
   CommitLocalJoin(host, *host_app->host_client);
 
   ae::RamDomainStorage client_storage;
-  ae::Domain client_domain{ae::Now(), client_storage};
+  ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
   CommitLocalJoin(client, *client_app->host_client);
@@ -694,14 +694,14 @@ void RunFakeBridgeUntilIdle(ChatSharedBinding& host, ChatSharedBinding& client,
 
 void test_fake_bridge_converges() {
   ae::RamDomainStorage host_storage;
-  ae::Domain host_domain{ae::Now(), host_storage};
+  ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
   CommitLocalJoin(host, *host_app->host_client);
   CommitLocalMessage(host, *host_app->host_client, "host before");
 
   ae::RamDomainStorage client_storage;
-  ae::Domain client_domain{ae::Now(), client_storage};
+  ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
   CommitLocalJoin(client, *client_app->host_client);
@@ -734,14 +734,14 @@ void test_fake_bridge_converges() {
 
 void test_exact_journal_convergence_host_vs_client() {
   ae::RamDomainStorage host_storage;
-  ae::Domain host_domain{ae::Now(), host_storage};
+  ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
   CommitLocalJoin(host, *host_app->host_client);
   CommitLocalMessage(host, *host_app->host_client, "from-host", 1'700'000'000'001LL);
 
   ae::RamDomainStorage client_storage;
-  ae::Domain client_domain{ae::Now(), client_storage};
+  ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
   CommitLocalJoin(client, *client_app->host_client);
@@ -784,7 +784,7 @@ void test_interleaved_sent_at_converges_by_shared_order() {
   // Screenshot-style regression: local commits with intentionally scrambled
   // sent_at must still converge to SharedEventOrder on both replicas.
   ae::RamDomainStorage host_storage;
-  ae::Domain host_domain{ae::Now(), host_storage};
+  ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
   CommitLocalJoin(host, *host_app->host_client);
@@ -796,7 +796,7 @@ void test_interleaved_sent_at_converges_by_shared_order() {
                      1'000'000'000'000LL);
 
   ae::RamDomainStorage client_storage;
-  ae::Domain client_domain{ae::Now(), client_storage};
+  ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
   CommitLocalJoin(client, *client_app->host_client);
@@ -853,13 +853,13 @@ void test_interleaved_sent_at_converges_by_shared_order() {
 // one SharedEventOrder (lamport, origin_uid, origin_sequence) on both sides.
 void test_simultaneous_local_messages_converge() {
   ae::RamDomainStorage host_storage;
-  ae::Domain host_domain{ae::Now(), host_storage};
+  ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
   CommitLocalJoin(host, *host_app->host_client);
 
   ae::RamDomainStorage client_storage;
-  ae::Domain client_domain{ae::Now(), client_storage};
+  ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
   CommitLocalJoin(client, *client_app->host_client);

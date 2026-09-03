@@ -1,17 +1,16 @@
-# Pin for the Aether object/domain sources in aethernetio/aether-client-cpp.
-# AppTraverse does not vendor the object system; it builds a subset from that repo.
-set(APPTRAVERSE_AETHER_GIT_TAG "dfcbff8484e294dfb45f4e20c76382f96b2becc5")
+# Pin for aether-client-cpp (network/client) and aether-objects (Obj/Domain).
+set(APPTRAVERSE_AETHER_GIT_TAG "0b0e3b54b9ffa730c41597c8b18f6a75255bded3")
 
 # Optional local checkout of aether-client-cpp. When set (or when a sibling
 # ../aether-client-cpp exists), CPM uses that tree instead of fetching GitHub.
 set(APPTRAVERSE_AETHER_REPO ""
-    CACHE PATH "Local aether-client-cpp checkout for the object system")
+    CACHE PATH "Local aether-client-cpp checkout")
 
-# Pins for aether-tele / numeric / miscpp so their CPM GIT_TAG main/master
-# calls reuse these revisions.
-set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "0e467d9dc53e9f82c8e23fbdd238fceb97e5d504")
-set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "9e9758a4b57f446caaf387fe268b06b19ab24dcb")
-set(APPTRAVERSE_AETHER_TELE_GIT_TAG "79c42274dc2ffce91347a108eec7e0bb392cc83c")
+# Pins for owned deps (matched to aether-client-cpp @ APPTRAVERSE_AETHER_GIT_TAG).
+set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG "68df7973014fdd366875b3af725a69750a847e8b")
+set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "f8b2e1c60d12fa04fdb63ca46722e111b912d8b4")
+set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "3ab9e7310a2f8e6240931261c07c3a0c39771ec2")
+set(APPTRAVERSE_AETHER_TELE_GIT_TAG "d46529cdc5159d5b9b091023130d202e83e94fb1")
 set(APPTRAVERSE_GCEM_GIT_TAG "f182c6f3d6e0742eb9eef4fff506a3928d4c5107")
 
 # Resolve the aether-client-cpp tree: APPTRAVERSE_AETHER_REPO, CPM override,
@@ -22,22 +21,22 @@ macro(apptraverse_prepare_aether_override)
   else()
     get_filename_component(_apptraverse_aether_pin
       "${CMAKE_CURRENT_SOURCE_DIR}/.artifacts/aether-pin-941744cd" ABSOLUTE)
-    if(EXISTS "${_apptraverse_aether_pin}/aether/obj/obj.h")
+    get_filename_component(_apptraverse_aether_sibling
+      "${CMAKE_CURRENT_SOURCE_DIR}/../aether-client-cpp" ABSOLUTE)
+    if(EXISTS "${_apptraverse_aether_sibling}/aether/aether.h")
+      set(_apptraverse_aether_repo "${_apptraverse_aether_sibling}")
+    elseif(EXISTS "${_apptraverse_aether_pin}/aether/aether.h")
       set(_apptraverse_aether_repo "${_apptraverse_aether_pin}")
     elseif(CPM_aether-client-cpp_SOURCE AND NOT CPM_aether-client-cpp_SOURCE STREQUAL "")
       set(_apptraverse_aether_repo "${CPM_aether-client-cpp_SOURCE}")
     else()
-      get_filename_component(_apptraverse_aether_repo
-        "${CMAKE_CURRENT_SOURCE_DIR}/../aether-client-cpp" ABSOLUTE)
-      if(NOT EXISTS "${_apptraverse_aether_repo}/aether/obj/obj.h")
-        set(_apptraverse_aether_repo "")
-      endif()
+      set(_apptraverse_aether_repo "")
     endif()
   endif()
 
   if(_apptraverse_aether_repo AND NOT _apptraverse_aether_repo STREQUAL "")
     set(CPM_aether-client-cpp_SOURCE "${_apptraverse_aether_repo}"
-        CACHE PATH "Local aether-client-cpp checkout (object system)" FORCE)
+        CACHE PATH "Local aether-client-cpp checkout" FORCE)
   endif()
 
   set(_apptraverse_aether_override "${CPM_aether-client-cpp_SOURCE}")
@@ -51,7 +50,7 @@ function(apptraverse_add_pinned_aether_owned_deps)
     EXCLUDE_FROM_ALL NO
   )
   CPMAddPackage(
-    NAME numeric
+    NAME ae-numeric
     GITHUB_REPOSITORY aethernetio/aethernet-numeric
     GIT_TAG ${APPTRAVERSE_AETHER_NUMERIC_GIT_TAG}
     EXCLUDE_FROM_ALL NO
@@ -77,6 +76,18 @@ function(apptraverse_add_pinned_aether_owned_deps)
       "AE_TELE_INSTALL OFF"
       "AE_TELE_BUILD_TESTS OFF"
   )
+  CPMAddPackage(
+    NAME aether-objects
+    GITHUB_REPOSITORY aethernetio/aether-objects
+    GIT_TAG ${APPTRAVERSE_AETHER_OBJECTS_GIT_TAG}
+    EXCLUDE_FROM_ALL NO
+    OPTIONS
+      "AE_INSTALL OFF"
+      "AE_BUILD_TESTS OFF"
+  )
+  if(MSVC AND TARGET aether-objects)
+    target_compile_options(aether-objects PUBLIC /Zc:preprocessor)
+  endif()
 endfunction()
 
 function(apptraverse_add_pinned_aether_miscpp)
@@ -156,7 +167,8 @@ function(apptraverse_verify_aether_pin)
   endif()
 
   _apptraverse_verify_pinned_package("gcem" "${APPTRAVERSE_GCEM_GIT_TAG}")
-  _apptraverse_verify_pinned_package("numeric" "${APPTRAVERSE_AETHER_NUMERIC_GIT_TAG}")
+  _apptraverse_verify_pinned_package("ae-numeric" "${APPTRAVERSE_AETHER_NUMERIC_GIT_TAG}")
   _apptraverse_verify_pinned_package("aether-miscpp" "${APPTRAVERSE_AETHER_MISCPP_GIT_TAG}")
   _apptraverse_verify_pinned_package("aether-tele" "${APPTRAVERSE_AETHER_TELE_GIT_TAG}")
+  _apptraverse_verify_pinned_package("aether-objects" "${APPTRAVERSE_AETHER_OBJECTS_GIT_TAG}")
 endfunction()

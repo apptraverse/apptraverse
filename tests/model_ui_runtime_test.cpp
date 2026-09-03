@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "aether/clock.h"
-#include "aether/domain_storage/ram_domain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
@@ -78,8 +78,8 @@ struct Harness {
 
   Harness()
       : ui_storage{model_storage},
-        model_domain{ae::Now(), model_storage},
-        ui_domain{ae::Now(), ui_storage} {
+        model_domain{model_storage},
+        ui_domain{ui_storage} {
     EnsureDemoRegistration();
     application = BuildDemoGraph(model_domain);
     FinalizeDistilledGraph(*application);
@@ -257,7 +257,7 @@ void TestJournalCommitDoesNotChangeChildren() {
   CHECK(strip.Generation() == s0);
 
   SaveDistilledRoot(*h.application);  // runtime-save-ok: test persistence
-  ae::Domain loaded{ae::Now(), h.model_storage};
+  ae::Domain loaded{h.model_storage};
   auto app = LoadApplication<Application>(
       loaded, ae::ObjId{demo::ToObjId(demo::DemoObjId::Application)});
   CHECK(app->window_b->journal.size() == 1);
@@ -393,8 +393,8 @@ void TestRepaintDoesNotTouchModel() {
 void TestUnreadPublicationIsNotOverwritten() {
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
   auto application = BuildDemoGraph(model_domain);
   FinalizeDistilledGraph(*application);
@@ -479,7 +479,7 @@ void TestPersistence() {
   CommitWindowBounds(b, b_cmd);
   SaveDistilledRoot(*h.application);  // runtime-save-ok: test persistence
 
-  ae::Domain loaded{ae::Now(), h.model_storage};
+  ae::Domain loaded{h.model_storage};
   auto app = LoadApplication<Application>(
       loaded, ae::ObjId{demo::ToObjId(demo::DemoObjId::Application)});
   CHECK(app->window_a->left == 111);
@@ -509,8 +509,8 @@ void TestOrdinaryReflectionField() {
 void TestBaseJournalCopyAndCleanup() {
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
   auto application = BuildDemoGraph(model_domain);
   FinalizeDistilledGraph(*application);
@@ -564,7 +564,7 @@ void TestJournalDoesNotReturnAfterReloadAndMirror() {
   std::int32_t expected_width = 0;
   {
     DirectoryDomainStorage storage{root};
-    ae::Domain domain{ae::Now(), storage};
+    ae::Domain domain{storage};
     EnsureDemoRegistration();
 #if defined(_WIN32)
     EnsureWindowsPresenterRegistration();
@@ -592,8 +592,8 @@ void TestJournalDoesNotReturnAfterReloadAndMirror() {
 
   DirectoryDomainStorage storage{root};
   OverlayDomainStorage ui_storage{storage};
-  ae::Domain model_domain{ae::Now(), storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
 #if defined(_WIN32)
   EnsureWindowsPresenterRegistration();
@@ -639,7 +639,7 @@ void TestCleanDistillPresenterGraphLoadsInUiDomain() {
     EnsureDemoRegistration();
     EnsureWindowsPresenterRegistration();
     DirectoryDomainStorage storage{root};
-    ae::Domain domain{ae::Now(), storage};
+    ae::Domain domain{storage};
     auto application = BuildDemoGraph(domain);
     FinalizeDistilledGraph(*application);
     SaveDistilledRoot(*application);  // runtime-save-ok: distill
@@ -649,8 +649,8 @@ void TestCleanDistillPresenterGraphLoadsInUiDomain() {
 
   DirectoryDomainStorage storage{root};
   OverlayDomainStorage ui_storage{storage};
-  ae::Domain model_domain{ae::Now(), storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
   EnsureWindowsPresenterRegistration();
 
@@ -763,8 +763,8 @@ void TestDynamicStringInUiDomain() {
 void TestTwoTextClicksWhileBusy() {
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
   auto application = BuildDemoGraph(model_domain);
   FinalizeDistilledGraph(*application);
@@ -846,7 +846,7 @@ void TestTextAdvanceRestartPersistence() {
   std::string expected_bytes;
   {
     DirectoryDomainStorage storage{root};
-    ae::Domain domain{ae::Now(), storage};
+    ae::Domain domain{storage};
     EnsureDemoRegistration();
 #if defined(_WIN32)
     EnsureWindowsPresenterRegistration();
@@ -867,8 +867,8 @@ void TestTextAdvanceRestartPersistence() {
 
   DirectoryDomainStorage storage{root};
   OverlayDomainStorage ui_storage{storage};
-  ae::Domain model_domain{ae::Now(), storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
 #if defined(_WIN32)
   EnsureWindowsPresenterRegistration();
@@ -998,8 +998,8 @@ void TestNewNodeParticipatesInUpdate() {
 void TestTwoStripAddsWhileBusy() {
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
   auto application = BuildDemoGraph(model_domain);
   FinalizeDistilledGraph(*application);
@@ -1074,7 +1074,7 @@ void TestCenterStripRestartPersistence() {
   std::vector<std::uint32_t> expected_colors;
   {
     DirectoryDomainStorage storage{root};
-    ae::Domain domain{ae::Now(), storage};
+    ae::Domain domain{storage};
     EnsureDemoRegistration();
 #if defined(_WIN32)
     EnsureWindowsPresenterRegistration();
@@ -1103,8 +1103,8 @@ void TestCenterStripRestartPersistence() {
 
   DirectoryDomainStorage storage{root};
   OverlayDomainStorage ui_storage{storage};
-  ae::Domain model_domain{ae::Now(), storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
 #if defined(_WIN32)
   EnsureWindowsPresenterRegistration();
@@ -1283,8 +1283,8 @@ void TestPresenterReconcileAfterRemove() {
 void TestBusyAddRemoveTopology() {
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
   auto application = BuildDemoGraph(model_domain);
   FinalizeDistilledGraph(*application);
@@ -1371,7 +1371,7 @@ void TestRemoveCenterStripRestartPersistence() {
   std::uint32_t removed_b = 0;
   {
     DirectoryDomainStorage storage{root};
-    ae::Domain domain{ae::Now(), storage};
+    ae::Domain domain{storage};
     EnsureDemoRegistration();
 #if defined(_WIN32)
     EnsureWindowsPresenterRegistration();
@@ -1398,8 +1398,8 @@ void TestRemoveCenterStripRestartPersistence() {
 
   DirectoryDomainStorage storage{root};
   OverlayDomainStorage ui_storage{storage};
-  ae::Domain model_domain{ae::Now(), storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{storage};
+  ae::Domain ui_domain{ui_storage};
   EnsureDemoRegistration();
 #if defined(_WIN32)
   EnsureWindowsPresenterRegistration();

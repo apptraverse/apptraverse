@@ -5,8 +5,8 @@
 #include <cstring>
 #include <unordered_set>
 
-#include "aether/domain_storage/ram_domain_storage.h"
-#include "aether/obj/registry.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "aether-objects/obj/registry.h"
 
 #include "apptraverse/graph_walk.h"
 
@@ -15,7 +15,7 @@ namespace {
 
 void SaveObjectGraphToScratch(ae::Obj const& object,
                               ae::RamDomainStorage& scratch) {
-  ae::Domain scratch_domain{ae::Now(), scratch};
+  ae::Domain scratch_domain{scratch};
   ae::DomainGraph graph{&scratch_domain};
   auto ptr = object.domain->Find(object.obj_id);
   assert(ptr);

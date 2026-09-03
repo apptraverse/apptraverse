@@ -92,8 +92,9 @@ function(apptraverse_add_full_aether)
     gcem
     etl
     stdexec
-    numeric
+    ae-numeric
     aether::miscpp
+    aether::objects
   )
   target_link_libraries(aether PRIVATE c-ares)
 
@@ -113,7 +114,7 @@ function(apptraverse_add_full_aether)
   endif()
 
   if(MSVC)
-    target_compile_options(aether PRIVATE /wd4702 /wd4996)
+    target_compile_options(aether PRIVATE /wd4702 /wd4996 /Zc:preprocessor)
   endif()
 endfunction()
 

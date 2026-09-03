@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "aether/clock.h"
-#include "aether/domain_storage/ram_domain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/distill.h"
 #include "apptraverse/graph_mirror.h"
@@ -38,8 +38,8 @@ void TestMessageFieldsModelToUi() {
   EnsureChatRegistration();
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   application->host_client->SetAetherUidText("local-uid");
@@ -80,8 +80,8 @@ void TestHostOnlineModelToUiProjection() {
   EnsureChatRegistration();
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);
@@ -111,8 +111,8 @@ void TestDynamicClientAttachMapping() {
   EnsureChatRegistration();
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   auto application = BuildChatGraph(model_domain, "Host");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);

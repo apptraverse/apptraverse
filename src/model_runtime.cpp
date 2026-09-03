@@ -29,7 +29,11 @@ void ModelRuntime::AddPresentationRoot(ae::Obj& root) {
 }
 
 void ModelRuntime::AttachNode(Node& node, ae::Obj& presentation_root) {
-  InitializeRuntimeNode(node);
+  // Distilled / already-journaled Nodes already have base+journal; only new
+  // Nodes need InitializeRuntimeNode. Always (re)map for publication.
+  if (!node.base.is_valid()) {
+    InitializeRuntimeNode(node);
+  }
   if (std::find(model_nodes_.begin(), model_nodes_.end(), &node) ==
       model_nodes_.end()) {
     model_nodes_.push_back(&node);

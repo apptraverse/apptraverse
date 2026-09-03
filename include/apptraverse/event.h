@@ -3,7 +3,7 @@
 
 #include <cassert>
 
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/object_macros.h"
 

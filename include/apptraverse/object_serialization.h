@@ -4,9 +4,9 @@
 #include <cstdint>
 #include <vector>
 
-#include "aether/obj/domain.h"
-#include "aether/obj/idomain_storage.h"
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/idomain_storage.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/node.h"
 #include "apptraverse/publication_channel.h"

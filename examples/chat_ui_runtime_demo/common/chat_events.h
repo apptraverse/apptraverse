@@ -3,7 +3,7 @@
 
 #include <cstdint>
 
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/event_for.h"
 #include "apptraverse/object_macros.h"

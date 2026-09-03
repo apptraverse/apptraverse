@@ -6,8 +6,8 @@
 #include <string>
 
 #include "aether/clock.h"
-#include "aether/domain_storage/ram_domain_storage.h"
-#include "aether/obj/obj.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
@@ -99,7 +99,7 @@ void CounterDocument::Apply(AddEvent const& event) {
 
 void TestJournalCommitAndReplay() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
 
   auto base = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(10));
   base->value = 1;
@@ -144,7 +144,7 @@ void TestSaveLoad() {
   ae::ObjId::Type const doc_id = 21;
 
   {
-    ae::Domain domain{ae::Now(), storage};
+    ae::Domain domain{storage};
     auto base =
         CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(20));
     base->value = 5;
@@ -168,7 +168,7 @@ void TestSaveLoad() {
   }
 
   {
-    ae::Domain domain{ae::Now(), storage};
+    ae::Domain domain{storage};
     auto doc =
         CounterDocument::ptr::Declare(ae::CreateWith{domain}.with_id(doc_id));
     doc.Load();
@@ -186,7 +186,7 @@ void TestSaveLoad() {
 
 void TestMonotonicTimestampWithoutSleep() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
 
   auto base = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(30));
   auto doc = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(31));

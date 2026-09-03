@@ -8,7 +8,7 @@
 
 #include <cassert>
 
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
@@ -197,6 +197,10 @@ class ChatRoom : public NodeFor<ChatRoom> {
   bool HasClient(std::uint32_t client_id) const;
   bool HasClientByAetherUid(std::string const& uid) const;
   ChatClient::ptr FindClientByAetherUid(std::string const& uid) const;
+
+  // Force ChatRoom republication (e.g. after overlay presence updates that
+  // may no-op SetOnline when the value was already applied off-graph).
+  void NotifyPresentationChanged() { NoteMaterializedChange(); }
 };
 
 class LocalAetherIdentity : public NodeFor<LocalAetherIdentity> {

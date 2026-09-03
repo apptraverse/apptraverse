@@ -3,9 +3,9 @@
 
 #include <cassert>
 
-#include "aether/obj/obj.h"
-#include "aether/obj/obj_ptr.h"
-#include "aether/obj/registry.h"
+#include "aether-objects/obj/obj.h"
+#include "aether-objects/obj/obj_ptr.h"
+#include "aether-objects/obj/registry.h"
 
 #include "apptraverse/node.h"
 

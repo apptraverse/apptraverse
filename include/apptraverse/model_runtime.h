@@ -12,7 +12,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/node.h"
 #include "apptraverse/ui_mirror.h"
@@ -31,8 +31,9 @@ class ModelRuntime {
 
   void AddPresentationRoot(ae::Obj& root);
 
-  // Initialize Node base, register for UpdateAll, and map Node → presentation
-  // root for publication. Call before committing an Event that links the Node.
+  // Register for UpdateAll and map Node → presentation root for publication.
+  // Initializes Node base only when the Node is not already initialized
+  // (fresh Create); safe to call on distilled / already-journaled Nodes.
   void AttachNode(Node& node, ae::Obj& presentation_root);
 
   // Stop UpdateAll / publication mapping for a Node that was removed from the

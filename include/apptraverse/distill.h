@@ -4,8 +4,8 @@
 #include <cassert>
 #include <vector>
 
-#include "aether/obj/domain.h"
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"

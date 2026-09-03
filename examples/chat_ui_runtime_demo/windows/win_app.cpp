@@ -406,6 +406,16 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
           if (runtime_.application->chat_room->journal.empty()) {
             CommitLocalJoin(shared_, *runtime_.application->host_client);
           }
+          // Map room members onto the ChatRoom presentation root so presence
+          // SetOnline / overlay updates publish to the contacts list.
+          for (auto const& client : runtime_.application->chat_room->clients) {
+            if (!client.is_valid()) {
+              continue;
+            }
+            model_runtime_->AttachNode(*client,
+                                       *runtime_.application->chat_room);
+          }
+          ApplyPresenceOverlay(shared_);
           for (auto const& peer : shared_.instance.peers) {
             MonitorRemoteOnce(peer.remote_aether_uid);
           }
@@ -424,9 +434,14 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role) {
         model_runtime_->Post([app = &*runtime_.application, online, this] {
           SetHostClientOnline(*app->host_client, online);
           shared_.presence.SetLocalSelfOnline(online);
+          if (app->host_client.is_valid()) {
+            model_runtime_->AttachNode(*app->host_client, *app->chat_room);
+          }
           ApplyPresenceOverlay(shared_);
           chat::ChatLog("MODEL_PRESENCE host_online=" +
-                        std::to_string(app->host_client->online ? 1 : 0));
+                        std::to_string(app->host_client->online ? 1 : 0) +
+                        " room_clients=" +
+                        std::to_string(app->chat_room->clients.size()));
         });
       });
 

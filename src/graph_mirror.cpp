@@ -2,7 +2,7 @@
 
 #include <cassert>
 
-#include "aether/obj/registry.h"
+#include "aether-objects/obj/registry.h"
 
 #include "apptraverse/node.h"
 #include "apptraverse/object_serialization.h"

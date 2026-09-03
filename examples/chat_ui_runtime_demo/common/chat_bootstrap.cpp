@@ -52,7 +52,7 @@ void CommitHostJoin(Application& application) {
 void DistillChatModel(std::filesystem::path const& dir, std::string host_name) {
   std::filesystem::remove_all(dir);
   DirectoryDomainStorage storage{dir};
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, std::move(host_name));
   FinalizeDistilledGraph(*application);
   SaveDistilledRoot(*application);  // runtime-save-ok: distill
@@ -70,9 +70,9 @@ ChatRuntime LoadChatModel(std::filesystem::path const& dir) {
   runtime.storage = std::make_unique<DirectoryDomainStorage>(dir);
   runtime.ui_storage = std::make_unique<OverlayDomainStorage>(*runtime.storage);
   runtime.model_domain =
-      std::make_unique<ae::Domain>(ae::Now(), *runtime.storage);
+      std::make_unique<ae::Domain>(*runtime.storage);
   runtime.ui_domain =
-      std::make_unique<ae::Domain>(ae::Now(), *runtime.ui_storage);
+      std::make_unique<ae::Domain>(*runtime.ui_storage);
   runtime.application = LoadApplication<Application>(
       *runtime.model_domain, ae::ObjId{ToObjId(ChatObjId::Application)});
   ResetRuntimePresenceState(*runtime.application);

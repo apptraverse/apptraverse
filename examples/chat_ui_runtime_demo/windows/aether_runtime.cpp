@@ -10,8 +10,10 @@
 #include <utility>
 
 #include "aether/all.h"
-#include "aether/ae_actions/query_peer_receive_schedule.h"
-#include "aether/receive_schedule.h"
+#include "aether/ae_actions/query_peer_presence.h"
+#include "aether/cloud_connections/cloud_request_execution_policy.h"
+#include "aether/remote_presence.h"
+#include "ae-numeric/percentile.h"
 
 #include "apptraverse/directory_domain_storage.h"
 
@@ -109,17 +111,23 @@ class AetherRemotePresenceMonitor {
     }
     auto peer = ae::Uid::FromString(remote_uid);
     active_uid_ = remote_uid;
-    auto& action = client_->QueryPeerReceiveSchedule(peer);
+    auto& action = client_->QueryPeerPresence(peer);
     result_sub_ = action.result_event().Subscribe(
-        [this, remote_uid](ae::Result<ae::PeerReceiveSchedule, int> const& res) {
+        [this, remote_uid](ae::Result<ae::PeerPresence, int> const& res) {
           bool online = false;
           if (res) {
-            online = OnlineFromPeerScheduleState(
+            online = OnlineFromPeerPresenceState(
                 static_cast<std::uint32_t>(res.value().state));
           } else {
-            online = OnlineFromQuerySuccess(false, kPeerScheduleStateUnknown);
+            online = OnlineFromQuerySuccess(false, kPeerPresenceStateUnknown);
           }
           chat::ChatLog(std::string{"REMOTE_PRESENCE_QUERY peer="} + remote_uid +
+                        " ok=" + (res ? "1" : "0") +
+                        " state=" +
+                        (res ? std::to_string(static_cast<unsigned>(
+                                   res.value().state))
+                             : std::string{"err="} +
+                                   std::to_string(res.error())) +
                         " online=" + (online ? "1" : "0"));
           if (on_presence_) {
             on_presence_(remote_uid, online);
@@ -462,26 +470,41 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
     chat::ChatLog("AETHER_CLIENT_READY t_ms=" +
                   std::to_string(ElapsedSinceStartupMs()) + " uid=" + uid_text);
 
-    auto constexpr kPingInterval = std::chrono::seconds{1};
-    auto constexpr kReceiveWindow = std::chrono::seconds{3};
-    auto const schedule_result = client->SetReceiveSchedule(ae::ReceiveSchedule{
-        .ping_interval =
-            std::chrono::duration_cast<ae::Duration>(kPingInterval),
-        .receive_window =
-            std::chrono::duration_cast<ae::Duration>(kReceiveWindow),
-    });
-    if (!schedule_result) {
-      chat::ChatLog("aether SetReceiveSchedule failed code=" +
-                    std::to_string(schedule_result.error()));
-    } else {
-      chat::ChatLog("AETHER_RX_SCHEDULE_SET t_ms=" +
-                    std::to_string(ElapsedSinceStartupMs()) +
-                    " ping_ms=1000 window_ms=3000");
-    }
-
     static_cast<void>(client->cloud_connection());
     chat::ChatLog("AETHER_CLOUD_CONNECTION t_ms=" +
                   std::to_string(ElapsedSinceStartupMs()));
+
+    auto constexpr kPingInterval = std::chrono::seconds{1};
+    auto constexpr kReceiveWindow = std::chrono::seconds{1};
+    auto constexpr kOfflineTimeout = std::chrono::seconds{1};
+    auto const conf =
+        ae::RxTimingConf::Every(
+            std::chrono::duration_cast<ae::Duration>(kPingInterval))
+            .WithWindow(std::chrono::duration_cast<ae::Duration>(kReceiveWindow));
+    if (auto policy = client->connectivity_policy()) {
+      policy->ResetRxTimings();
+      policy->SetOfflineDetectionTimeout(
+          std::chrono::duration_cast<ae::Duration>(kOfflineTimeout));
+      policy->SetCloudRequestExecutionPolicy(
+          ae::CloudRequestExecutionPolicy::FromFactor(
+              ae::Percentile::FromPercent(99.99),
+              ae::TimeoutFactor8::FromDouble(1.2), /*retries=*/2,
+              /*hedge=*/2));
+      policy->ConfigureRxTimings(ae::RequestPolicy::All{})
+          .ForAllPriorities(conf);
+      for (auto* server : client->cloud_connection().selected_servers()) {
+        if (server == nullptr) {
+          continue;
+        }
+        policy->ConfigureServerRxTiming(
+            server->server_id(), conf, ae::Percentile::FromPercent(99.0));
+      }
+      chat::ChatLog("AETHER_RX_SCHEDULE_SET t_ms=" +
+                    std::to_string(ElapsedSinceStartupMs()) +
+                    " ping_ms=1000 window_ms=1000 offline_ms=1000");
+    } else {
+      chat::ChatLog("aether connectivity_policy missing; presence timings not set");
+    }
 
     aether_app->aether().Save();  // runtime-save-ok
 

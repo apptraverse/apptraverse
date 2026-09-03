@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <utility>
 
-#include "aether/domain_storage/ram_domain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/shared_event_order.h"
@@ -18,6 +18,32 @@
 
 namespace apptraverse {
 namespace {
+
+ChatClient::ptr FindRoomClientForIncomingAuthor(
+    ChatRoom const& room, ChatClient const& scratch_author,
+    std::string const& fallback_author_uid) {
+  auto const author_uid = scratch_author.AetherUidText();
+  if (!author_uid.empty()) {
+    if (auto by_uid = room.FindClientByAetherUid(author_uid); by_uid.is_valid()) {
+      return by_uid;
+    }
+  }
+  if (!fallback_author_uid.empty()) {
+    if (auto by_uid = room.FindClientByAetherUid(fallback_author_uid);
+        by_uid.is_valid()) {
+      return by_uid;
+    }
+  }
+  auto const display_name = scratch_author.DisplayNameBytes();
+  if (!display_name.empty()) {
+    for (auto const& client : room.clients) {
+      if (client.is_valid() && client->DisplayNameBytes() == display_name) {
+        return client;
+      }
+    }
+  }
+  return {};
+}
 
 void EnqueuePending(PeerDeliveryState& peer, SharedEventId const& id) {
   for (auto const& existing : peer.pending) {
@@ -136,7 +162,8 @@ SharedApplyResult TryApplyFrame(
             if (on_new_client) {
               on_new_client(client);
             }
-          }) ||
+          },
+          frame.event_id.origin_uid) ||
       !event.is_valid()) {
     return SharedApplyResult::Rejected;
   }
@@ -221,6 +248,7 @@ void CommitLocalJoin(ChatSharedBinding& binding, ChatClient& client) {
                       " event=" + event_id.origin_uid + ":" +
                       std::to_string(event_id.origin_sequence));
       });
+  ApplyPresenceOverlay(binding);
 }
 
 LocalChatCommitResult CommitLocalMessage(ChatSharedBinding& binding,
@@ -273,7 +301,8 @@ void StripRuntimeFieldsFromEventGraph(Event& event) {
 
 Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
                               std::vector<std::uint8_t> const& payload,
-                              OnNewChatClientFn on_new_client) {
+                              OnNewChatClientFn on_new_client,
+                              std::string fallback_author_uid) {
   if (payload.size() < sizeof(std::uint32_t)) {
     return {};
   }
@@ -310,7 +339,7 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
     return {};
   }
   ae::RamDomainStorage scratch_storage;
-  ae::Domain scratch_domain{ae::Now(), scratch_storage};
+  ae::Domain scratch_domain{scratch_storage};
   Event::ptr scratch_event;
   if (class_id == JoinEvent::kClassId) {
     scratch_event = JoinEvent::ptr::Create(
@@ -353,16 +382,57 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
     if (!message->author.is_valid() || !message->text.is_valid()) {
       return {};
     }
+    ae::DomainGraph scratch_graph{&scratch_domain};
+    if (message->author.is_valid()) {
+      scratch_graph.LoadRoot(message->author.id());
+    }
+    if (message->text.is_valid()) {
+      scratch_graph.LoadRoot(message->text.id());
+    }
     message->author.Load();
     message->text.Load();
+    std::string text_bytes;
+    if (message->text.is_valid()) {
+      if (auto copy = scratch_graph.LoadCopy<ImmutableString>(
+              message->text.id(), ae::ObjId::GenerateUnique())) {
+        text_bytes = copy->bytes;
+      }
+      if (text_bytes.empty()) {
+        text_bytes = message->text->bytes;
+      }
+    }
+    if (text_bytes.empty()) {
+      auto const author_display = message->author->DisplayNameBytes();
+      auto const scratch_author_uid = message->author->AetherUidText();
+      for (auto const& [obj_id, class_map_opt] : scratch_storage.state) {
+        if (!class_map_opt) {
+          continue;
+        }
+        if (class_map_opt->find(ImmutableString::kClassId) ==
+            class_map_opt->end()) {
+          continue;
+        }
+        if (auto copy = scratch_graph.LoadCopy<ImmutableString>(
+                obj_id, ae::ObjId::GenerateUnique())) {
+          if (copy->bytes.empty() || copy->bytes == author_display ||
+              copy->bytes == scratch_author_uid) {
+            continue;
+          }
+          text_bytes = copy->bytes;
+          break;
+        }
+      }
+    }
     auto event = ChatMessageEvent::ptr::Create(ae::CreateWith{model_domain});
     auto const author_uid = message->author->AetherUidText();
-    event->author = room.FindClientByAetherUid(author_uid);
+    event->author = FindRoomClientForIncomingAuthor(
+        room, *message->author, fallback_author_uid);
     if (!event->author.is_valid()) {
       // Author not in room yet (Message before Join): build a temporary
       // client so CanApply fails and ApplyIncomingSharedEvent Defers.
       auto client = ChatClient::ptr::Create(ae::CreateWith{model_domain});
-      client->SetAetherUidText(author_uid);
+      client->SetAetherUidText(
+          author_uid.empty() ? fallback_author_uid : author_uid);
       auto name_obj =
           ImmutableString::ptr::Create(ae::CreateWith{model_domain});
       name_obj->bytes = message->author->DisplayNameBytes();
@@ -370,7 +440,7 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
       event->author = client;
     }
     auto body = ImmutableString::ptr::Create(ae::CreateWith{model_domain});
-    body->bytes = message->text->bytes;
+    body->bytes = std::move(text_bytes);
     event->text = body;
     event->sent_at_unix_ms = message->sent_at_unix_ms;
     return event;
@@ -380,9 +450,11 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
 
 bool DeserializeSharedEventPayload(ChatRoom& room, Event::ptr& out_event,
                                    std::vector<std::uint8_t> const& payload,
-                                   OnNewChatClientFn on_new_client) {
+                                   OnNewChatClientFn on_new_client,
+                                   std::string fallback_author_uid) {
   out_event = RemapIncomingEvent(room, *room.domain, payload,
-                                 std::move(on_new_client));
+                                 std::move(on_new_client),
+                                 std::move(fallback_author_uid));
   return out_event.is_valid();
 }
 
@@ -507,6 +579,9 @@ void ApplyPresenceOverlay(ChatSharedBinding& binding) {
   }
   binding.presence.ApplyToRoom(*binding.instance.node,
                                binding.instance.local_aether_uid);
+  // Ensure contacts list refreshes even when SetOnline was a no-op (value
+  // already matched) or when ChatClient was not yet mapped for publication.
+  binding.instance.node->NotifyPresentationChanged();
 }
 
 std::size_t CountSharedPendingAndInFlight(ChatSharedBinding const& binding) {

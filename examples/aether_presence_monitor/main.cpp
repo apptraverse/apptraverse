@@ -1,6 +1,6 @@
 // Windows UI presence monitor for Æther cloud connectivity characterization.
-// LOCAL: ClientConnectivityPolicy::IsLocallyOnline
-// REMOTE: Client::QueryPeerReceiveSchedule (no P2P / chat / streams).
+// LOCAL: Client::IsLocallyOnline / DiagnoseLocalPresence
+// REMOTE: Client::QueryPeerPresence (no P2P / chat / streams).
 
 #include <chrono>
 #include <cstdint>
@@ -31,8 +31,10 @@
 
 #define AE_EXAMPLE_ETHERNET 1
 #include "aether/all.h"
-#include "aether/ae_actions/query_peer_receive_schedule.h"
-#include "aether/receive_schedule.h"
+#include "aether/ae_actions/query_peer_presence.h"
+#include "aether/cloud_connections/request_policy.h"
+#include "aether/remote_presence.h"
+#include "ae-numeric/percentile.h"
 
 #include "apptraverse/directory_domain_storage.h"
 
@@ -259,20 +261,42 @@ std::unique_ptr<ae::AetherApp> MakeApp(std::filesystem::path const& state_dir) {
   return ae::AetherApp::Construct(MakeAetherAppContext(state_dir_holder));
 }
 
-char const* ScheduleStateName(ae::PeerScheduleState state) {
+char const* PresenceStateName(ae::PeerPresenceState state) {
   switch (state) {
-    case ae::PeerScheduleState::kExpected:
-      return "Expected";
-    case ae::PeerScheduleState::kMissedDeadline:
-      return "MissedDeadline";
-    case ae::PeerScheduleState::kUnknown:
+    case ae::PeerPresenceState::kOnline:
+      return "Online";
+    case ae::PeerPresenceState::kOffline:
+      return "Offline";
+    case ae::PeerPresenceState::kUnknown:
       return "Unknown";
   }
   return "Unknown";
 }
 
-bool RemoteOnlineFromSchedule(ae::PeerScheduleState state) {
-  return state == ae::PeerScheduleState::kExpected;
+bool RemoteOnlineFromPresence(ae::PeerPresenceState state) {
+  return state == ae::PeerPresenceState::kOnline;
+}
+
+void ApplyRxTimings(ae::Client& client, int ping_ms, int window_ms) {
+  auto policy = client.connectivity_policy();
+  if (!policy) {
+    return;
+  }
+  auto const interval = std::chrono::milliseconds{ping_ms};
+  auto const window = std::chrono::milliseconds{window_ms};
+  auto const conf =
+      ae::RxTimingConf::Every(std::chrono::duration_cast<ae::Duration>(interval))
+          .WithWindow(std::chrono::duration_cast<ae::Duration>(window));
+  policy->ResetRxTimings();
+  policy->SetOfflineDetectionTimeout(std::chrono::milliseconds{1000});
+  policy->ConfigureRxTimings(ae::RequestPolicy::All{}).ForAllPriorities(conf);
+  for (auto* server : client.cloud_connection().selected_servers()) {
+    if (server == nullptr) {
+      continue;
+    }
+    policy->ConfigureServerRxTiming(
+        server->server_id(), conf, ae::Percentile::FromPercent(99.0));
+  }
 }
 
 struct AetherSession {
@@ -307,20 +331,8 @@ bool BootstrapClient(AetherSession& session, Args const& args, JsonlLog* log) {
     return false;
   }
 
-  auto const ping = std::chrono::milliseconds{args.ping_ms};
-  auto const window = std::chrono::milliseconds{args.window_ms};
-  auto const schedule_ok = session.client->SetReceiveSchedule(ae::ReceiveSchedule{
-      .ping_interval = std::chrono::duration_cast<ae::Duration>(ping),
-      .receive_window = std::chrono::duration_cast<ae::Duration>(window),
-  });
-  if (!schedule_ok) {
-    if (log) {
-      log->Write("SET_RECEIVE_SCHEDULE_FAILED", label,
-                 {{"error", std::to_string(schedule_ok.error())}});
-    }
-    return false;
-  }
   static_cast<void>(session.client->cloud_connection());
+  ApplyRxTimings(*session.client, args.ping_ms, args.window_ms);
   session.app->aether().Save();
 
   session.local_uid = ae::Format("{}", session.client->uid());
@@ -471,8 +483,8 @@ void FinishRemoteQuery(MonitorState* state, std::uint32_t query_id) {
   state->remote_watchdog_logged = false;
 }
 
-bool LocalReadyForRemoteQuery(ae::LocalConnectivitySnapshot const& snap) {
-  return snap.has_success && snap.online;
+bool LocalReadyForRemoteQuery(ae::ClientConnectivityPolicy::LocalPresenceDiag const& diag) {
+  return diag.any_online;
 }
 
 void RefreshUi(MonitorState* state);
@@ -487,19 +499,14 @@ std::int64_t ChronoToMs(std::chrono::duration<Rep, Period> d) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
 }
 
-std::string LocalReason(ae::LocalConnectivitySnapshot const& snap) {
-  if (!snap.has_success) {
-    return "NO_SUCCESSFUL_RESPONSE";
+std::string LocalReason(ae::ClientConnectivityPolicy::LocalPresenceDiag const& diag) {
+  if (!diag.has_schedule) {
+    return "NO_CONFIRMED_SCHEDULE";
   }
-  if (snap.online) {
-    if (snap.in_flight_grace_active &&
-        snap.ping_interval.count() > 0 &&
-        snap.age_since_last_success >= snap.ping_interval) {
-      return "IN_FLIGHT_PING_GRACE";
-    }
-    return "RECENT_CLOUD_RESPONSE";
+  if (diag.any_online) {
+    return "CONFIRMED_SCHEDULE_ONLINE";
   }
-  return "LAST_RESPONSE_TOO_OLD";
+  return "OFFLINE_DETECTION_TIMEOUT";
 }
 
 std::wstring UserPresenceText(bool known, bool online) {
@@ -509,11 +516,12 @@ std::wstring UserPresenceText(bool known, bool online) {
   return online ? L"ONLINE" : L"OFFLINE";
 }
 
-std::wstring LocalUserStatusText(ae::LocalConnectivitySnapshot const& snap) {
-  if (!snap.has_success) {
+std::wstring LocalUserStatusText(
+    ae::ClientConnectivityPolicy::LocalPresenceDiag const& diag) {
+  if (!diag.has_schedule) {
     return L"...";
   }
-  return UserPresenceText(true, snap.online);
+  return UserPresenceText(true, diag.any_online);
 }
 
 std::wstring RemoteUserStatusText(MonitorState const* state) {
@@ -554,21 +562,23 @@ void RefreshUi(MonitorState* state) {
       !state->session.client->connectivity_policy().is_valid()) {
     return;
   }
-  auto const snap =
-      state->session.client->connectivity_policy().Load()->InspectLocalConnectivity(
+  auto const diag =
+      state->session.client->connectivity_policy().Load()->DiagnoseLocalPresence(
           ae::Now());
 
-  SetStaticText(state->hwnd, kStaticLocalStatus, LocalUserStatusText(snap));
+  SetStaticText(state->hwnd, kStaticLocalStatus, LocalUserStatusText(diag));
   SetStaticText(state->hwnd, kStaticRemoteStatus, RemoteUserStatusText(state));
 }
 
-void UpdateLocalOnline(MonitorState* state, ae::LocalConnectivitySnapshot const& snap) {
+void UpdateLocalOnline(
+    MonitorState* state,
+    ae::ClientConnectivityPolicy::LocalPresenceDiag const& diag) {
   bool const was_ready = state->local_online.has_value() && *state->local_online;
-  bool const online = snap.online;
-  std::string const reason = LocalReason(snap);
+  bool const online = diag.any_online;
+  std::string const reason = LocalReason(diag);
   if (state->local_online.has_value() && *state->local_online == online) {
     state->local_reason = reason;
-    if (!was_ready && LocalReadyForRemoteQuery(snap)) {
+    if (!was_ready && LocalReadyForRemoteQuery(diag)) {
       MaybeStartRemoteQuery(state);
     }
     return;
@@ -584,21 +594,25 @@ void UpdateLocalOnline(MonitorState* state, ae::LocalConnectivitySnapshot const&
   }
   state->local_online = online;
   state->local_reason = reason;
-  std::int64_t grace_ms = 0;
-  if (snap.in_flight_grace_active && snap.pending_ping_deadline != ae::TimePoint{}) {
-    grace_ms = ChronoToMs(snap.pending_ping_deadline - snap.now);
+  std::int64_t last_pong_age_ms = -1;
+  std::int64_t deadline_delta_ms = -1;
+  auto const now_tp = ae::Now();
+  if (diag.last_pong != ae::TimePoint{}) {
+    last_pong_age_ms = ChronoToMs(now_tp - diag.last_pong);
+  }
+  if (diag.offline_deadline != ae::TimePoint{}) {
+    deadline_delta_ms = ChronoToMs(diag.offline_deadline - now_tp);
   }
   state->log->Write(
       "LOCAL_STATE", state->args.label,
       {{"aether_sha", kAetherShaFull},
        {"online", online ? "true" : "false"},
        {"reason", reason},
-       {"has_success", snap.has_success ? "true" : "false"},
-       {"last_success_age_ms", std::to_string(DurationToMs(snap.age_since_last_success))},
-       {"ping_interval_ms", std::to_string(DurationToMs(snap.ping_interval))},
-       {"pings_in_flight", std::to_string(snap.pings_in_flight)},
-       {"grace_remaining_ms", std::to_string(grace_ms)}});
-  if (!was_ready && LocalReadyForRemoteQuery(snap)) {
+       {"has_schedule", diag.has_schedule ? "true" : "false"},
+       {"server_id", std::to_string(diag.server_id)},
+       {"last_pong_age_ms", std::to_string(last_pong_age_ms)},
+       {"offline_deadline_delta_ms", std::to_string(deadline_delta_ms)}});
+  if (!was_ready && LocalReadyForRemoteQuery(diag)) {
     MaybeStartRemoteQuery(state);
   }
 }
@@ -629,10 +643,10 @@ void PollLocal(MonitorState* state) {
       !state->session.client->connectivity_policy().is_valid()) {
     return;
   }
-  auto const snap =
-      state->session.client->connectivity_policy().Load()->InspectLocalConnectivity(
+  auto const diag =
+      state->session.client->connectivity_policy().Load()->DiagnoseLocalPresence(
           ae::Now());
-  UpdateLocalOnline(state, snap);
+  UpdateLocalOnline(state, diag);
 }
 
 void StartRemoteQuery(MonitorState* state) {
@@ -659,9 +673,10 @@ void StartRemoteQuery(MonitorState* state) {
                     {{"peer_uid", state->peer_uid_text},
                      {"aether_sha", kAetherShaFull},
                      {"query_id", std::to_string(query_id)}});
-  auto& action = state->session.client->QueryPeerReceiveSchedule(state->peer_uid);
+  auto& action = state->session.client->QueryPeerPresence(state->peer_uid);
+  ae::QueryPeerPresence* const action_ptr = &action;
   state->remote_query_sub = action.result_event().Subscribe(
-      [state, query_id](ae::Result<ae::PeerReceiveSchedule, int> const& res) {
+      [state, query_id, action_ptr](ae::Result<ae::PeerPresence, int> const& res) {
         if (query_id != state->active_remote_query_id) {
           return;
         }
@@ -676,25 +691,23 @@ void StartRemoteQuery(MonitorState* state) {
             std::chrono::milliseconds{state->args.query_period_ms};
         if (res) {
           ++state->remote_query_metrics.completed;
-          auto const& schedule = res.value();
-          auto const schedule_state = schedule.state;
-          state->remote_last_state = ScheduleStateName(schedule_state);
+          auto const& presence = res.value();
+          auto const presence_state = presence.state;
+          state->remote_last_state = PresenceStateName(presence_state);
           state->remote_last_error.clear();
           state->remote_last_successful_query = state->remote_last_completed;
-          auto const now_tp = ae::Now();
-          if (schedule.last_online != ae::TimePoint{}) {
-            state->remote_last_online_age_ms =
-                ChronoToMs(now_tp - schedule.last_online);
-          } else {
-            state->remote_last_online_age_ms.reset();
+          state->remote_last_online_age_ms.reset();
+          state->remote_next_deadline_delta_ms.reset();
+          if (action_ptr != nullptr) {
+            for (auto const& sample : action_ptr->samples()) {
+              if (sample.status != ae::RemoteServerPresence::kOnline) {
+                continue;
+              }
+              state->remote_next_deadline_delta_ms = sample.next_ping_delta_ms;
+              break;
+            }
           }
-          if (schedule.next_ping_deadline.has_value()) {
-            state->remote_next_deadline_delta_ms =
-                ChronoToMs(*schedule.next_ping_deadline - now_tp);
-          } else {
-            state->remote_next_deadline_delta_ms.reset();
-          }
-          bool const online = RemoteOnlineFromSchedule(schedule_state);
+          bool const online = RemoteOnlineFromPresence(presence_state);
           {
             std::string line = std::string{"REMOTE_QUERY_COMPLETE state="} +
                                state->remote_last_state;
@@ -750,10 +763,10 @@ void MaybeStartRemoteQuery(MonitorState* state) {
       !state->session.client->connectivity_policy().is_valid()) {
     return;
   }
-  auto const snap =
-      state->session.client->connectivity_policy().Load()->InspectLocalConnectivity(
+  auto const diag =
+      state->session.client->connectivity_policy().Load()->DiagnoseLocalPresence(
           ae::Now());
-  if (!LocalReadyForRemoteQuery(snap)) {
+  if (!LocalReadyForRemoteQuery(diag)) {
     return;
   }
   if (state->active_underlying_query_count > 0) {

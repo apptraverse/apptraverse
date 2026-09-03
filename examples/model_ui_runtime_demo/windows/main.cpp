@@ -20,7 +20,7 @@ void DistillDemo(std::filesystem::path const& dir) {
   apptraverse::EnsureWindowsPresenterRegistration();
   std::filesystem::remove_all(dir);
   apptraverse::DirectoryDomainStorage storage{dir};
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = apptraverse::BuildDemoGraph(domain);
   apptraverse::FinalizeDistilledGraph(*application);
   apptraverse::SaveDistilledRoot(*application);  // runtime-save-ok: distill

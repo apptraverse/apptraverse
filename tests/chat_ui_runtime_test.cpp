@@ -12,7 +12,7 @@
 #endif
 
 #include "aether/clock.h"
-#include "aether/domain_storage/ram_domain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/distill.h"
 #include "apptraverse/graph_mirror.h"
@@ -42,7 +42,7 @@ namespace {
 void TestLocalChatHostJoinAndMessages() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CHECK(application->chat_room.is_valid());
@@ -90,8 +90,8 @@ void TestLocalChatUiProjectionFromDomain() {
   EnsureChatRegistration();
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);
@@ -136,8 +136,8 @@ void TestLocalAetherUidModelToUiProjection() {
   EnsureChatRegistration();
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);
@@ -193,8 +193,8 @@ void TestHostOnlineModelToUiProjection() {
   EnsureChatRegistration();
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);
@@ -259,7 +259,7 @@ void TestPresenterTracksNestedClientGeneration() {
 void TestResetRuntimePresenceStateOnLoad() {
   EnsureChatRegistration();
   ae::RamDomainStorage model_storage;
-  ae::Domain model_domain{ae::Now(), model_storage};
+  ae::Domain model_domain{model_storage};
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);
@@ -336,8 +336,8 @@ void TestApplicationRoleModelToUiProjection() {
   EnsureChatRegistration();
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{ae::Now(), model_storage};
-  ae::Domain ui_domain{ae::Now(), ui_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CHECK(application->GetRole() == ChatRole::Host);
@@ -354,7 +354,7 @@ void TestApplicationRoleModelToUiProjection() {
 void TestConnectToHostCommandRegistersPeer() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
-  ae::Domain domain{ae::Now(), storage};
+  ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);

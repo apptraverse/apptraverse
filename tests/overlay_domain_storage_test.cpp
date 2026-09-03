@@ -3,8 +3,8 @@
 #include <set>
 #include <vector>
 
-#include "aether/domain_storage/ram_domain_storage.h"
-#include "aether/obj/idomain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "aether-objects/obj/idomain_storage.h"
 
 #include "apptraverse/overlay_domain_storage.h"
 

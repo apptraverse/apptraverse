@@ -95,13 +95,15 @@ std::vector<std::uint8_t> SerializeSharedEventPayload(Event const& event);
 
 bool DeserializeSharedEventPayload(ChatRoom& room, Event::ptr& out_event,
                                    std::vector<std::uint8_t> const& payload,
-                                   OnNewChatClientFn on_new_client = {});
+                                   OnNewChatClientFn on_new_client = {},
+                                   std::string fallback_author_uid = {});
 
 void StripRuntimeFieldsFromEventGraph(Event& event);
 
 Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
                               std::vector<std::uint8_t> const& payload,
-                              OnNewChatClientFn on_new_client = {});
+                              OnNewChatClientFn on_new_client = {},
+                              std::string fallback_author_uid = {});
 
 }  // namespace apptraverse
 

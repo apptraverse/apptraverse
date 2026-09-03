@@ -1,7 +1,7 @@
 #ifndef APPTRAVERSE_OBJECT_MACROS_H_
 #define APPTRAVERSE_OBJECT_MACROS_H_
 
-#include "aether/obj/obj.h"
+#include "aether-objects/obj/obj.h"
 
 // Qualify App Traverse class names in the CRC so they never collide with
 // identically named ae:: types (e.g. Client) when both are linked.

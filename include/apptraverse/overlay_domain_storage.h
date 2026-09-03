@@ -1,8 +1,8 @@
 #ifndef APPTRAVERSE_OVERLAY_DOMAIN_STORAGE_H_
 #define APPTRAVERSE_OVERLAY_DOMAIN_STORAGE_H_
 
-#include "aether/domain_storage/ram_domain_storage.h"
-#include "aether/obj/idomain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "aether-objects/obj/idomain_storage.h"
 
 namespace apptraverse {
 
