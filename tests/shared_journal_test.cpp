@@ -22,6 +22,7 @@
 #include "chat_commands.h"
 #include "chat_events.h"
 #include "chat_model.h"
+#include "chat_presence.h"
 #include "chat_shared.h"
 
 namespace {
@@ -532,7 +533,7 @@ void test_retry_after_one_second() {
   CommitLocalJoin(binding, *application->host_client);
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
   SetSharedPeerChannelReady(binding, "host-uid", true);
-  SetSharedPeerOnline(binding, "host-uid", true);
+  SetSharedPeerPresence(binding, "host-uid", PresenceState::kOnline);
   RecordingTransport transport;
   auto now = std::chrono::steady_clock::now();
   TickSharedDelivery(binding, now, &transport);

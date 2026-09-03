@@ -45,7 +45,11 @@ class LocalConnectivityMonitor {
                  ChatAetherRuntime::PresenceCallback on_presence) {
     client_ = std::move(client);
     on_presence_ = std::move(on_presence);
-    last_reported_online_.reset();
+    last_reported_.reset();
+  }
+
+  PresenceState LastReported() const {
+    return last_reported_.value_or(PresenceState::kUnknown);
   }
 
   void Tick(ae::TimePoint now) {
@@ -53,35 +57,51 @@ class LocalConnectivityMonitor {
       return;
     }
     auto const& policy = client_->connectivity_policy().Load();
-    bool const online = policy->IsLocallyOnline(now);
-    if (last_reported_online_.has_value() &&
-        *last_reported_online_ == online) {
+    auto const diag = policy->DiagnoseLocalPresence(now);
+    auto const state =
+        PresenceFromLocalDiag(diag.has_schedule, diag.any_online);
+    if (last_reported_.has_value() && *last_reported_ == state) {
       return;
     }
-    last_reported_online_ = online;
+    last_reported_ = state;
     chat::ChatLog(std::string{"LOCAL_CONNECTIVITY t_ms="} +
-                  std::to_string(ElapsedSinceStartupMs()) + " online=" +
-                  (online ? "1" : "0"));
-    chat::ChatLog(online ? "LOCAL_PRESENCE state=online"
-                         : "LOCAL_PRESENCE state=offline");
+                  std::to_string(ElapsedSinceStartupMs()) +
+                  " has_schedule=" + (diag.has_schedule ? "1" : "0") +
+                  " any_online=" + (diag.any_online ? "1" : "0"));
+    chat::ChatLog(std::string{"LOCAL_PRESENCE state="} +
+                  PresenceStateName(state));
     if (on_presence_) {
-      on_presence_(online);
+      on_presence_(state);
     }
   }
 
  private:
   ae::Client::ptr client_;
   ChatAetherRuntime::PresenceCallback on_presence_;
-  std::optional<bool> last_reported_online_;
+  std::optional<PresenceState> last_reported_;
 };
+
+PresenceState MapAePeerPresence(ae::PeerPresenceState state) {
+  switch (state) {
+    case ae::PeerPresenceState::kOnline:
+      return PresenceFromPeerCase(PeerPresenceCase::kOnline);
+    case ae::PeerPresenceState::kOffline:
+      return PresenceFromPeerCase(PeerPresenceCase::kOffline);
+    case ae::PeerPresenceState::kUnknown:
+      return PresenceFromPeerCase(PeerPresenceCase::kUnknown);
+  }
+  return PresenceFromPeerCase(PeerPresenceCase::kUnknown);
+}
 
 class AetherRemotePresenceMonitor {
  public:
   void Configure(ae::Client::ptr client, std::string local_uid,
-                 ChatAetherRuntime::PeerPresenceCallback on_presence) {
+                 ChatAetherRuntime::PeerPresenceCallback on_presence,
+                 LocalConnectivityMonitor const* local_monitor) {
     client_ = std::move(client);
     local_uid_ = std::move(local_uid);
     on_presence_ = std::move(on_presence);
+    local_monitor_ = local_monitor;
   }
 
   void Monitor(std::string remote_uid) {
@@ -114,23 +134,27 @@ class AetherRemotePresenceMonitor {
     auto& action = client_->QueryPeerPresence(peer);
     result_sub_ = action.result_event().Subscribe(
         [this, remote_uid](ae::Result<ae::PeerPresence, int> const& res) {
-          bool online = false;
+          PresenceState mapped = PresenceFromPeerCase(PeerPresenceCase::kQueryError);
           if (res) {
-            online = OnlineFromPeerPresenceState(
-                static_cast<std::uint32_t>(res.value().state));
-          } else {
-            online = OnlineFromQuerySuccess(false, kPeerPresenceStateUnknown);
+            mapped = MapAePeerPresence(res.value().state);
           }
-          chat::ChatLog(std::string{"REMOTE_PRESENCE_QUERY peer="} + remote_uid +
-                        " ok=" + (res ? "1" : "0") +
-                        " state=" +
-                        (res ? std::to_string(static_cast<unsigned>(
-                                   res.value().state))
-                             : std::string{"err="} +
-                                   std::to_string(res.error())) +
-                        " online=" + (online ? "1" : "0"));
+          // Without local ONLINE, remote evidence is not actionable.
+          auto const local_state = local_monitor_ != nullptr
+                                       ? local_monitor_->LastReported()
+                                       : PresenceState::kUnknown;
+          auto const reported =
+              local_state == PresenceState::kOnline
+                  ? mapped
+                  : PresenceState::kUnknown;
+          chat::ChatLog(
+              std::string{"REMOTE_PRESENCE_QUERY peer="} + remote_uid +
+              " ok=" + (res ? "1" : "0") + " mapped=" +
+              PresenceStateName(mapped) + " reported=" +
+              PresenceStateName(reported) +
+              (res ? std::string{}
+                   : std::string{" err="} + std::to_string(res.error())));
           if (on_presence_) {
-            on_presence_(remote_uid, online);
+            on_presence_(remote_uid, reported);
           }
           active_uid_.clear();
           poller_.OnQueryFinished(remote_uid,
@@ -142,6 +166,7 @@ class AetherRemotePresenceMonitor {
   ae::Client::ptr client_;
   std::string local_uid_;
   ChatAetherRuntime::PeerPresenceCallback on_presence_;
+  LocalConnectivityMonitor const* local_monitor_{nullptr};
   RemotePresencePoller poller_;
   ae::Subscription result_sub_;
   std::string active_uid_;
@@ -533,7 +558,12 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
     }
 
     AetherRemotePresenceMonitor remote_presence;
-    remote_presence.Configure(client, uid_text, std::move(on_peer_presence));
+    LocalConnectivityMonitor presence;
+    if (on_presence) {
+      presence.Configure(client, std::move(on_presence));
+    }
+    remote_presence.Configure(client, uid_text, std::move(on_peer_presence),
+                              &presence);
 
     PeerStreamHub hub{aether_app->aether(), client, std::move(on_ready),
                       std::move(on_closed), std::move(on_frame),
@@ -541,11 +571,6 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
                         (void)remote_uid;
                       },
                       std::move(on_write_failed)};
-
-    LocalConnectivityMonitor presence;
-    if (on_presence) {
-      presence.Configure(client, std::move(on_presence));
-    }
 
     while (!stop_ && !aether_app->IsExited()) {
       {

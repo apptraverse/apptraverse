@@ -116,7 +116,7 @@ ChatPresentationSnapshot BuildChatPresentationSnapshot(
     row.client_obj_id = client.id().id();
     row.display_name = client->DisplayNameBytes();
     row.aether_uid = client->AetherUidText();
-    row.online = client->online;
+    row.presence = client->GetPresence();
     row.is_local = !options.local_aether_uid.empty() &&
                    row.aether_uid == options.local_aether_uid;
     snapshot.contacts.push_back(std::move(row));

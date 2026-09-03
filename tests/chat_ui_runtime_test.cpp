@@ -127,6 +127,24 @@ void TestLocalChatUiProjectionFromDomain() {
   CHECK(ui_application->chat_room->feed.size() == 2);
   CHECK(FormatChatFeedLine(*ui_application->chat_room->feed[0]) ==
         "Nikolay joined the chat");
+  {
+    auto const model_line =
+        FormatChatFeedLine(*application->chat_room->feed[1]);
+    auto const ui_line =
+        FormatChatFeedLine(*ui_application->chat_room->feed[1]);
+    if (ui_line != "Nikolay: hello") {
+      std::cerr << "model=[" << model_line << "] ui=[" << ui_line << "]\n";
+      auto ui_item = ui_application->chat_room->feed[1];
+      ui_item.Load();
+      std::cerr << "ui kind=" << ui_item->kind
+                << " body_valid=" << ui_item->body.is_valid() << "\n";
+      if (ui_item->body.is_valid()) {
+        ui_item->body.Load();
+        std::cerr << "body=[" << ui_item->body->bytes << "] len="
+                  << ui_item->body->bytes.size() << "\n";
+      }
+    }
+  }
   CHECK(FormatChatFeedLine(*ui_application->chat_room->feed[1]) ==
         "Nikolay: hello");
   CHECK(ui_application->chat_room->clients.size() == 1);
@@ -173,20 +191,29 @@ void TestLocalAetherUidModelToUiProjection() {
 }
 
 void TestLocalPresenceScheduleStateMapping() {
-  CHECK(OnlineFromPeerScheduleState(kPeerScheduleStateExpected));
-  CHECK(!OnlineFromPeerScheduleState(kPeerScheduleStateMissedDeadline));
-  CHECK(!OnlineFromPeerScheduleState(kPeerScheduleStateUnknown));
-  CHECK(OnlineFromQuerySuccess(true, kPeerScheduleStateExpected));
-  CHECK(!OnlineFromQuerySuccess(true, kPeerScheduleStateMissedDeadline));
-  CHECK(!OnlineFromQuerySuccess(true, kPeerScheduleStateUnknown));
-  CHECK(!OnlineFromQuerySuccess(false, kPeerScheduleStateExpected));
+  CHECK(PresenceFromLocalDiag(false, false) == PresenceState::kUnknown);
+  CHECK(PresenceFromLocalDiag(true, true) == PresenceState::kOnline);
+  CHECK(PresenceFromLocalDiag(true, false) == PresenceState::kOffline);
+  CHECK(PresenceFromPeerCase(PeerPresenceCase::kOnline) ==
+        PresenceState::kOnline);
+  CHECK(PresenceFromPeerCase(PeerPresenceCase::kOffline) ==
+        PresenceState::kOffline);
+  CHECK(PresenceFromPeerCase(PeerPresenceCase::kUnknown) ==
+        PresenceState::kUnknown);
+  CHECK(PresenceFromPeerCase(PeerPresenceCase::kQueryError) ==
+        PresenceState::kUnknown);
 }
 
 void TestContactPresencePresentationGlyphs() {
-  CHECK(ContactPresencePrefix(true) == L"\u25CF ");
-  CHECK(ContactPresencePrefix(false) == L"\u25CB ");
-  CHECK(FormatContactPresenceLabel(true, L"Nikolay") == L"\u25CF Nikolay");
-  CHECK(FormatContactPresenceLabel(false, L"Nikolay") == L"\u25CB Nikolay");
+  CHECK(ContactPresencePrefix(PresenceState::kOnline) == L"\u25CF ");
+  CHECK(ContactPresencePrefix(PresenceState::kOffline) == L"\u25CB ");
+  CHECK(ContactPresencePrefix(PresenceState::kUnknown) == L"? ");
+  CHECK(FormatContactPresenceLabel(PresenceState::kOnline, L"Nikolay") ==
+        L"\u25CF Nikolay");
+  CHECK(FormatContactPresenceLabel(PresenceState::kOffline, L"Nikolay") ==
+        L"\u25CB Nikolay");
+  CHECK(FormatContactPresenceLabel(PresenceState::kUnknown, L"Nikolay") ==
+        L"? Nikolay");
 }
 
 void TestHostOnlineModelToUiProjection() {
@@ -198,7 +225,7 @@ void TestHostOnlineModelToUiProjection() {
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);
-  CHECK(!application->host_client->online);
+  CHECK(application->host_client->GetPresence() == PresenceState::kUnknown);
 
   auto ui_root =
       CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
@@ -215,32 +242,53 @@ void TestHostOnlineModelToUiProjection() {
   mirror_ptr = &mirror;
   ModelRuntime runtime{*application, mirror};
   runtime.AddPresentationRoot(*application->chat_room);
+  runtime.AttachNode(*application->host_client, *application->chat_room);
 
-  runtime.Post([&] { SetHostClientOnline(*application->host_client, true); });
+  runtime.Post([&] {
+    SetHostClientPresence(*application->host_client, PresenceState::kOnline);
+  });
   runtime.PumpOnce(std::chrono::steady_clock::now());
   CHECK(!applies.empty());
   CHECK(applies.back().root_id == chat::ToObjId(chat::ChatObjId::ChatRoom));
   auto const generation_online = application->host_client->Generation();
-  CHECK(application->host_client->online);
-  CHECK(ui_application->chat_room->clients[0]->online);
+  CHECK(application->host_client->GetPresence() == PresenceState::kOnline);
+  CHECK(ui_application->chat_room->clients[0]->GetPresence() ==
+        PresenceState::kOnline);
 
   applies.clear();
-  runtime.Post([&] { SetHostClientOnline(*application->host_client, true); });
+  runtime.Post([&] {
+    SetHostClientPresence(*application->host_client, PresenceState::kOnline);
+  });
   runtime.PumpOnce(std::chrono::steady_clock::now());
   CHECK(application->host_client->Generation() == generation_online);
   CHECK(applies.empty());
 
-  runtime.Post([&] { SetHostClientOnline(*application->host_client, false); });
+  runtime.Post([&] {
+    SetHostClientPresence(*application->host_client, PresenceState::kOffline);
+  });
   runtime.PumpOnce(std::chrono::steady_clock::now());
   CHECK(!applies.empty());
   CHECK(application->host_client->Generation() > generation_online);
-  CHECK(!application->host_client->online);
-  CHECK(!ui_application->chat_room->clients[0]->online);
+  CHECK(application->host_client->GetPresence() == PresenceState::kOffline);
+  CHECK(ui_application->chat_room->clients[0]->GetPresence() ==
+        PresenceState::kOffline);
 
-  runtime.Post([&] { SetHostClientOnline(*application->host_client, true); });
+  auto const generation_offline = application->host_client->Generation();
+  runtime.Post([&] {
+    SetHostClientPresence(*application->host_client, PresenceState::kUnknown);
+  });
   runtime.PumpOnce(std::chrono::steady_clock::now());
-  CHECK(application->host_client->online);
-  CHECK(ui_application->chat_room->clients[0]->online);
+  CHECK(application->host_client->Generation() > generation_offline);
+  CHECK(ui_application->chat_room->clients[0]->GetPresence() ==
+        PresenceState::kUnknown);
+
+  runtime.Post([&] {
+    SetHostClientPresence(*application->host_client, PresenceState::kOnline);
+  });
+  runtime.PumpOnce(std::chrono::steady_clock::now());
+  CHECK(application->host_client->GetPresence() == PresenceState::kOnline);
+  CHECK(ui_application->chat_room->clients[0]->GetPresence() ==
+        PresenceState::kOnline);
 }
 
 void TestPresenterTracksNestedClientGeneration() {
@@ -263,16 +311,17 @@ void TestResetRuntimePresenceStateOnLoad() {
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
   CommitHostJoin(*application);
-  application->host_client->SetOnline(true);
+  application->host_client->SetPresence(PresenceState::kOnline);
   ResetRuntimePresenceState(*application);
-  CHECK(!application->host_client->online);
+  CHECK(application->host_client->GetPresence() == PresenceState::kUnknown);
   CHECK(application->chat_room->clients.size() == 1);
-  CHECK(!application->chat_room->clients[0]->online);
+  CHECK(application->chat_room->clients[0]->GetPresence() ==
+        PresenceState::kUnknown);
 }
 
 void TestAetherPinMatchesExpectedSha() {
   CHECK(std::string{APPTRAVERSE_AETHER_EXPECTED_SHA} ==
-        "41e00350da4bc08777223fd2c4d3e6f770c50e64");
+        "0b0e3b54b9ffa730c41597c8b18f6a75255bded3");
 #ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const version_cmake =
       std::filesystem::path{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR}
@@ -283,7 +332,7 @@ void TestAetherPinMatchesExpectedSha() {
   std::ifstream in{version_cmake};
   std::string text((std::istreambuf_iterator<char>(in)),
                    std::istreambuf_iterator<char>());
-  CHECK(text.find("41e00350da4bc08777223fd2c4d3e6f770c50e64") !=
+  CHECK(text.find("0b0e3b54b9ffa730c41597c8b18f6a75255bded3") !=
         std::string::npos);
 #else
   CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
@@ -299,16 +348,15 @@ void TestAetherRxScheduleConfiguredInRuntime() {
   std::ifstream in{runtime_cpp};
   std::string text((std::istreambuf_iterator<char>(in)),
                    std::istreambuf_iterator<char>());
-  CHECK(text.find("SetReceiveSchedule") != std::string::npos);
-  CHECK(text.find("ping_ms=1000 window_ms=3000") != std::string::npos);
-  CHECK(text.find("std::chrono::seconds{1}") != std::string::npos);
-  CHECK(text.find("std::chrono::seconds{3}") != std::string::npos);
-  CHECK(text.find("IsLocallyOnline") != std::string::npos);
-  CHECK(text.find("LOCAL_PRESENCE state=online") != std::string::npos);
-  CHECK(text.find("cloud_connection()") != std::string::npos);
-  CHECK(text.find("QueryPeerReceiveSchedule") != std::string::npos);
+  CHECK(text.find("DiagnoseLocalPresence") != std::string::npos);
+  CHECK(text.find("ConfigureRxTimings") != std::string::npos);
+  CHECK(text.find("QueryPeerPresence") != std::string::npos);
+  CHECK(text.find("LOCAL_PRESENCE state=") != std::string::npos);
+  CHECK(text.find("IsLocallyOnline") == std::string::npos);
   CHECK(text.find("MonitorPeerPresence") != std::string::npos);
   CHECK(text.find("RemotePresencePoller") != std::string::npos);
+  CHECK(text.find("SetReceiveSchedule") == std::string::npos);
+  CHECK(text.find("QueryPeerReceiveSchedule") == std::string::npos);
 #else
   CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
 #endif
@@ -325,7 +373,8 @@ void TestAetherPresenceQueryOnlyOnAetherThread() {
     std::ifstream in{root / rel};
     std::string text((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
-    CHECK(text.find("QueryPeerReceiveSchedule") == std::string::npos);
+    CHECK(text.find("QueryPeerPresence") == std::string::npos);
+    CHECK(text.find("DiagnoseLocalPresence") == std::string::npos);
   }
 #else
   CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
@@ -357,8 +406,6 @@ void TestConnectToHostCommandRegistersPeer() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Nikolay");
   FinalizeDistilledGraph(*application);
-  CommitHostJoin(*application);
-
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "local-client-uid");
   std::string const host_uid = "83df0bb1-08ac-45f8-8003-8eeb7fa8f425";
@@ -373,7 +420,6 @@ void TestConnectToHostCommandRegistersPeer() {
   CHECK(binding.instance.peers.size() == 1);
   CHECK(binding.instance.peers[0].remote_aether_uid == host_uid);
   CHECK(!binding.instance.peers[0].channel_ready);
-  CHECK(!binding.instance.peers[0].online);
 }
 
 void TestConnectionBarPresenterStructure() {

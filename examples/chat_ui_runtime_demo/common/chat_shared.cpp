@@ -15,6 +15,7 @@
 #include "chat_commands.h"
 #include "chat_events.h"
 #include "chat_log.h"
+#include "chat_presence.h"
 
 namespace apptraverse {
 namespace {
@@ -152,12 +153,14 @@ SharedApplyResult TryApplyFrame(
           *binding.instance.node, event, frame.payload,
           [&](ChatClient& client) {
             auto const uid = client.AetherUidText();
-            if (auto remote = binding.presence.RemoteOnline(uid)) {
-              client.online = *remote;
-            } else if (uid == binding.instance.local_aether_uid) {
-              if (auto local = binding.presence.LocalSelfOnline()) {
-                client.online = *local;
-              }
+            // Seed presentation cache from runtime overlay only — never from
+            // the imported shared payload Presence field.
+            if (uid == binding.instance.local_aether_uid) {
+              client.SetPresence(binding.presence.LocalSelf());
+            } else if (!uid.empty()) {
+              client.SetPresence(binding.presence.Remote(uid));
+            } else {
+              client.SetPresence(PresenceState::kUnknown);
             }
             if (on_new_client) {
               on_new_client(client);
@@ -248,7 +251,6 @@ void CommitLocalJoin(ChatSharedBinding& binding, ChatClient& client) {
                       " event=" + event_id.origin_uid + ":" +
                       std::to_string(event_id.origin_sequence));
       });
-  ApplyPresenceOverlay(binding);
 }
 
 LocalChatCommitResult CommitLocalMessage(ChatSharedBinding& binding,
@@ -288,13 +290,13 @@ std::vector<std::uint8_t> SerializeSharedEventPayload(Event const& event) {
 void StripRuntimeFieldsFromEventGraph(Event& event) {
   if (auto* join = dynamic_cast<JoinEvent*>(&event)) {
     if (join->client.is_valid()) {
-      join->client->online = false;
+      join->client->SetPresence(PresenceState::kUnknown);
     }
     return;
   }
   if (auto* message = dynamic_cast<ChatMessageEvent*>(&event)) {
     if (message->author.is_valid()) {
-      message->author->online = false;
+      message->author->SetPresence(PresenceState::kUnknown);
     }
   }
 }
@@ -500,6 +502,29 @@ void EnsureSharedPeer(ChatSharedBinding& binding,
   binding.runtime.SeedPendingFromJournal(binding.instance, peer);
 }
 
+ChatClient::ptr EnsurePresenceContact(ChatRoom& room,
+                                      std::string const& remote_uid) {
+  if (remote_uid.empty()) {
+    return {};
+  }
+  if (auto existing = room.FindClientByAetherUid(remote_uid);
+      existing.is_valid()) {
+    return existing;
+  }
+  auto& domain = *room.domain;
+  auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
+  client->SetAetherUidText(remote_uid);
+  auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
+  name->bytes =
+      remote_uid.size() > 8 ? remote_uid.substr(0, 8) : remote_uid;
+  client->display_name = name;
+  client->SetPresence(PresenceState::kUnknown);
+  room.clients.push_back(client);
+  room.NotifyPresentationChanged();
+  chat::ChatLog("PRESENCE_CONTACT_ENSURED uid=" + remote_uid);
+  return client;
+}
+
 void ConnectToHostCommand(ChatSharedBinding& binding, std::string host_uid,
                           OpenPeerRequestFn request_open_peer) {
   while (!host_uid.empty() &&
@@ -556,19 +581,15 @@ void RequeueInFlightAfterWriteFailed(ChatSharedBinding& binding,
                 " requeued_pending=" + std::to_string(peer->pending.size()));
 }
 
-void SetSharedPeerOnline(ChatSharedBinding& binding,
-                         std::string const& remote_uid, bool online) {
+void SetSharedPeerPresence(ChatSharedBinding& binding,
+                           std::string const& remote_uid, PresenceState state) {
   EnsureSharedPeer(binding, remote_uid);
-  auto* peer = binding.instance.FindPeer(remote_uid);
-  if (peer == nullptr) {
-    return;
-  }
   chat::ChatLog(std::string{"REMOTE_PRESENCE peer="} + remote_uid +
-                " online=" + (online ? "1" : "0"));
+                " state=" + PresenceStateName(state));
   if (remote_uid == binding.instance.local_aether_uid) {
-    binding.presence.SetLocalSelfOnline(online);
+    binding.presence.SetLocalSelf(state);
   } else {
-    binding.presence.SetRemoteOnline(remote_uid, online);
+    binding.presence.SetRemote(remote_uid, state);
   }
   ApplyPresenceOverlay(binding);
 }
@@ -579,7 +600,7 @@ void ApplyPresenceOverlay(ChatSharedBinding& binding) {
   }
   binding.presence.ApplyToRoom(*binding.instance.node,
                                binding.instance.local_aether_uid);
-  // Ensure contacts list refreshes even when SetOnline was a no-op (value
+  // Ensure contacts list refreshes even when SetPresence was a no-op (value
   // already matched) or when ChatClient was not yet mapped for publication.
   binding.instance.node->NotifyPresentationChanged();
 }

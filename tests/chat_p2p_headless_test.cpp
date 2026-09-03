@@ -215,11 +215,11 @@ struct ModelSide {
     (void)remote_uid;
   }
 
-  void OnPeerPresence(std::string remote_uid, bool online) {
+  void OnPeerPresence(std::string remote_uid, PresenceState state) {
     bool const was_online =
-        shared.presence.RemoteOnline(remote_uid).value_or(false);
-    SetSharedPeerOnline(shared, remote_uid, online);
-    if (!was_online && online) {
+        PresenceIsOnline(shared.presence.Remote(remote_uid));
+    SetSharedPeerPresence(shared, remote_uid, state);
+    if (!was_online && PresenceIsOnline(state)) {
       TickSharedDelivery(shared, std::chrono::steady_clock::now(),
                          transport.get());
     }
@@ -267,9 +267,9 @@ void WireAetherCallbacks(ModelSide& side) {
     });
   });
   side.aether.SetPeerPresenceCallback(
-      [&side](std::string remote_uid, bool online) {
-        side.Post([&, remote_uid = std::move(remote_uid), online] {
-          side.OnPeerPresence(std::move(remote_uid), online);
+      [&side](std::string remote_uid, PresenceState state) {
+        side.Post([&, remote_uid = std::move(remote_uid), state] {
+          side.OnPeerPresence(std::move(remote_uid), state);
         });
       });
 }
@@ -287,9 +287,11 @@ void StartAether(ModelSide& side, std::filesystem::path const& aether_dir) {
           std::cout << "UID ready: " << side.uid << '\n';
         });
       },
-      [&side](bool online) {
-        side.Post([&, online] {
-          SetHostClientOnline(*side.application->host_client, online);
+      [&side](PresenceState state) {
+        side.Post([&, state] {
+          SetHostClientPresence(*side.application->host_client, state);
+          side.shared.presence.SetLocalSelf(state);
+          ApplyPresenceOverlay(side.shared);
         });
       });
 }

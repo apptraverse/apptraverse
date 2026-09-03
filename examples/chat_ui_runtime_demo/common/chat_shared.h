@@ -13,6 +13,7 @@
 #include "apptraverse/shared_transport.h"
 
 #include "chat_model.h"
+#include "chat_presence.h"
 #include "chat_presence_overlay.h"
 
 namespace apptraverse {
@@ -61,6 +62,12 @@ SharedApplyResult ApplyIncomingSharedEvent(
 // streams and does NOT set channel_ready / online.
 void EnsureSharedPeer(ChatSharedBinding& binding, std::string const& remote_uid);
 
+// Ensures a ChatRoom.clients entry for a known remote UID so contacts can show
+// locally-observed Presence without waiting on journal Join delivery. Does not
+// commit journal events and does not open P2P.
+ChatClient::ptr EnsurePresenceContact(ChatRoom& room,
+                                      std::string const& remote_uid);
+
 using OpenPeerRequestFn = std::function<void(std::string const& remote_uid)>;
 
 void ConnectToHostCommand(ChatSharedBinding& binding, std::string host_uid,
@@ -69,8 +76,8 @@ void ConnectToHostCommand(ChatSharedBinding& binding, std::string host_uid,
 void SetSharedPeerChannelReady(ChatSharedBinding& binding,
                                std::string const& remote_uid, bool ready);
 
-void SetSharedPeerOnline(ChatSharedBinding& binding,
-                         std::string const& remote_uid, bool online);
+void SetSharedPeerPresence(ChatSharedBinding& binding,
+                           std::string const& remote_uid, PresenceState state);
 
 void RequeueInFlightAfterWriteFailed(ChatSharedBinding& binding,
                                      std::string const& remote_uid);

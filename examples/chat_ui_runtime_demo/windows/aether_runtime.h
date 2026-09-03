@@ -11,6 +11,8 @@
 #include <thread>
 #include <vector>
 
+#include "chat_presence.h"
+
 namespace apptraverse {
 
 // Runs AetherApp on its own thread. Owns all P2pStream objects.
@@ -18,9 +20,9 @@ namespace apptraverse {
 class ChatAetherRuntime {
  public:
   using UidCallback = std::function<void(std::string uid_text)>;
-  using PresenceCallback = std::function<void(bool online)>;
+  using PresenceCallback = std::function<void(PresenceState state)>;
   using PeerPresenceCallback =
-      std::function<void(std::string remote_uid, bool online)>;
+      std::function<void(std::string remote_uid, PresenceState state)>;
   using PeerReadyCallback = std::function<void(std::string remote_uid)>;
   using PeerClosedCallback = std::function<void(std::string remote_uid)>;
   using PeerFrameCallback =

@@ -173,6 +173,12 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
   in.read(&layer_count, sizeof(layer_count));
   assert(in.ok);
 
+  // Load each published object with its own DomainGraph (same pattern as
+  // CopyModelGraphToUiDomain). Nested LoadRoot alone can return an empty UI
+  // shell that was ConstructObj'd earlier in the shared graph walk without
+  // reloading bytes from storage — which left ImmutableString bodies empty.
+  std::vector<ae::ObjId> object_ids;
+  object_ids.reserve(layer_count);
   for (std::uint32_t i = 0; i < layer_count; ++i) {
     std::uint32_t obj_id = 0;
     std::uint32_t class_id = 0;
@@ -186,9 +192,23 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
     InjectObjectBytes(domain_storage, {ae::ObjId{obj_id}, class_id, version},
                       in.data + in.pos, size);
     in.pos += size;
+    ae::ObjId const id{obj_id};
+    if (std::find(object_ids.begin(), object_ids.end(), id) ==
+        object_ids.end()) {
+      object_ids.push_back(id);
+    }
   }
 
+  // First load the published root (may ConstructObj empty shells for newly
+  // referenced objects when nested LoadRoot short-circuits). Then refresh every
+  // injected object with a fresh DomainGraph so storage bytes (e.g. message
+  // bodies) actually populate those shells — matching CopyModelGraphToUiDomain.
   LoadExistingObject(existing_root, domain);
+  for (ae::ObjId const id : object_ids) {
+    if (auto object = domain.Find(id); object) {
+      LoadExistingObject(*object, domain);
+    }
+  }
 
   std::uint32_t node_generation_count = 0;
   in.read(&node_generation_count, sizeof(node_generation_count));

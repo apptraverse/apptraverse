@@ -14,6 +14,7 @@
 #include "apptraverse/object_macros.h"
 
 #include "chat_ids.h"
+#include "chat_presence.h"
 
 namespace apptraverse {
 
@@ -47,7 +48,9 @@ inline constexpr std::uint32_t kChatFeedKindJoin = 1;
 inline constexpr std::uint32_t kChatFeedKindMessage = 2;
 
 class ChatClient : public NodeFor<ChatClient> {
-  // Version 1: own Load/Save so object-graph payloads keep uid/name/online.
+  // Version 1: presence presentation cache stored in `online` as PresenceState
+  // (uint8). Legacy bool false/true maps to Unknown/Online; runtime reset
+  // forces Unknown after load/replay.
   APPTRAVERSE_OBJECT(ChatClient, Node, 1)
 
  protected:
@@ -78,7 +81,12 @@ class ChatClient : public NodeFor<ChatClient> {
 
   ImmutableString::ptr display_name;
   ImmutableString::ptr aether_uid;
-  bool online{false};
+  // Presentation cache only (PresenceState). Not journal/shared authority.
+  std::uint8_t online{static_cast<std::uint8_t>(PresenceState::kUnknown)};
+
+  PresenceState GetPresence() const {
+    return static_cast<PresenceState>(online);
+  }
 
   std::string DisplayNameBytes() const {
     if (!display_name.is_valid()) {
@@ -105,11 +113,12 @@ class ChatClient : public NodeFor<ChatClient> {
     NoteMaterializedChange();
   }
 
-  void SetOnline(bool value) {
-    if (online == value) {
+  void SetPresence(PresenceState value) {
+    auto const raw = static_cast<std::uint8_t>(value);
+    if (online == raw) {
       return;
     }
-    online = value;
+    online = raw;
     NoteMaterializedChange();
   }
 };
@@ -199,7 +208,7 @@ class ChatRoom : public NodeFor<ChatRoom> {
   ChatClient::ptr FindClientByAetherUid(std::string const& uid) const;
 
   // Force ChatRoom republication (e.g. after overlay presence updates that
-  // may no-op SetOnline when the value was already applied off-graph).
+  // may no-op SetPresence when the value was already applied off-graph).
   void NotifyPresentationChanged() { NoteMaterializedChange(); }
 };
 

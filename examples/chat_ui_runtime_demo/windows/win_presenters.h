@@ -410,7 +410,7 @@ class WinChatWindowPresenter : public Presenter {
     for (auto const& contact : snapshot.contacts) {
       ContactRow row;
       row.text = FormatContactPresenceLabel(
-          contact.online, Utf8ToWide(contact.display_name));
+          contact.presence, Utf8ToWide(contact.display_name));
       row.is_local = contact.is_local;
       contact_rows_.push_back(std::move(row));
       SendMessageW(contacts_hwnd, LB_ADDSTRING, 0,

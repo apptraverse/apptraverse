@@ -101,10 +101,14 @@ void TestHostOnlineModelToUiProjection() {
   mirror_ptr = &mirror;
   ModelRuntime runtime{*application, mirror};
   runtime.AddPresentationRoot(*application->chat_room);
+  runtime.AttachNode(*application->host_client, *application->chat_room);
 
-  runtime.Post([&] { SetHostClientOnline(*application->host_client, true); });
+  runtime.Post([&] {
+    SetHostClientPresence(*application->host_client, PresenceState::kOnline);
+  });
   runtime.PumpOnce(std::chrono::steady_clock::now());
-  CHECK(ui_application->chat_room->clients[0]->online);
+  CHECK(ui_application->chat_room->clients[0]->GetPresence() ==
+        PresenceState::kOnline);
 }
 
 void TestDynamicClientAttachMapping() {

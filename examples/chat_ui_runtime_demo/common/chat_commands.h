@@ -7,6 +7,7 @@
 
 #include "chat_events.h"
 #include "chat_model.h"
+#include "chat_presence.h"
 #include "chat_presentation.h"
 
 namespace apptraverse {
@@ -109,18 +110,18 @@ inline void SetLocalAetherUidText(LocalAetherIdentity& identity,
   identity.SetUidTextBytes(std::move(uid_text));
 }
 
-inline void SetHostClientOnline(ChatClient& client, bool online) {
-  client.SetOnline(online);
+inline void SetHostClientPresence(ChatClient& client, PresenceState state) {
+  client.SetPresence(state);
 }
 
 inline void ResetRuntimePresenceState(Application& application) {
   if (application.host_client.is_valid()) {
-    application.host_client->online = false;
+    application.host_client->SetPresence(PresenceState::kUnknown);
   }
   if (application.chat_room.is_valid()) {
     for (auto const& client : application.chat_room->clients) {
       if (client.is_valid()) {
-        client->online = false;
+        client->SetPresence(PresenceState::kUnknown);
       }
     }
   }

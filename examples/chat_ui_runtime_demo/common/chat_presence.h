@@ -3,43 +3,93 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace apptraverse {
 
-// Mirrors ae::PeerPresenceState / legacy PeerScheduleState numeric order
-// (Online~Expected=0, Offline~MissedDeadline=1, Unknown=2).
-inline constexpr std::uint32_t kPeerPresenceStateOnline = 0;
-inline constexpr std::uint32_t kPeerPresenceStateOffline = 1;
-inline constexpr std::uint32_t kPeerPresenceStateUnknown = 2;
-inline constexpr std::uint32_t kPeerScheduleStateExpected = kPeerPresenceStateOnline;
-inline constexpr std::uint32_t kPeerScheduleStateMissedDeadline =
-    kPeerPresenceStateOffline;
-inline constexpr std::uint32_t kPeerScheduleStateUnknown =
-    kPeerPresenceStateUnknown;
+// Platform-neutral Presence for chat contacts. Authoritative runtime value is
+// produced on the Aether thread and applied via ChatPresenceOverlay.
+enum class PresenceState : std::uint8_t {
+  kUnknown = 0,
+  kOnline = 1,
+  kOffline = 2,
+};
 
-inline bool OnlineFromPeerPresenceState(std::uint32_t state) noexcept {
-  return state == kPeerPresenceStateOnline;
-}
-
-inline bool OnlineFromPeerScheduleState(std::uint32_t state) noexcept {
-  return OnlineFromPeerPresenceState(state);
-}
-
-inline bool OnlineFromQuerySuccess(bool query_success,
-                                   std::uint32_t schedule_state) noexcept {
-  if (!query_success) {
-    return false;
+inline char const* PresenceStateName(PresenceState state) noexcept {
+  switch (state) {
+    case PresenceState::kOnline:
+      return "online";
+    case PresenceState::kOffline:
+      return "offline";
+    case PresenceState::kUnknown:
+      return "unknown";
   }
-  return OnlineFromPeerPresenceState(schedule_state);
+  return "unknown";
 }
 
-inline std::wstring ContactPresencePrefix(bool online) {
-  return online ? L"\u25CF " : L"\u25CB ";
+inline PresenceState PresenceStateFromName(std::string_view name) noexcept {
+  if (name == "online") {
+    return PresenceState::kOnline;
+  }
+  if (name == "offline") {
+    return PresenceState::kOffline;
+  }
+  return PresenceState::kUnknown;
 }
 
-inline std::wstring FormatContactPresenceLabel(bool online,
-                                             std::wstring const& name) {
-  return ContactPresencePrefix(online) + name;
+// Local connectivity diagnostic classification (has_schedule / any_online).
+inline PresenceState PresenceFromLocalDiag(bool has_schedule,
+                                           bool any_online) noexcept {
+  if (!has_schedule) {
+    return PresenceState::kUnknown;
+  }
+  if (any_online) {
+    return PresenceState::kOnline;
+  }
+  return PresenceState::kOffline;
+}
+
+// Remote PeerPresenceState mapping by named cases only — callers pass the
+// already-discriminated Aether enumerator; do not rely on numeric values.
+enum class PeerPresenceCase : std::uint8_t {
+  kOnline,
+  kOffline,
+  kUnknown,
+  kQueryError,
+};
+
+inline PresenceState PresenceFromPeerCase(PeerPresenceCase value) noexcept {
+  switch (value) {
+    case PeerPresenceCase::kOnline:
+      return PresenceState::kOnline;
+    case PeerPresenceCase::kOffline:
+      return PresenceState::kOffline;
+    case PeerPresenceCase::kUnknown:
+    case PeerPresenceCase::kQueryError:
+      return PresenceState::kUnknown;
+  }
+  return PresenceState::kUnknown;
+}
+
+inline bool PresenceIsOnline(PresenceState state) noexcept {
+  return state == PresenceState::kOnline;
+}
+
+inline std::wstring ContactPresencePrefix(PresenceState state) {
+  switch (state) {
+    case PresenceState::kOnline:
+      return L"\u25CF ";
+    case PresenceState::kOffline:
+      return L"\u25CB ";
+    case PresenceState::kUnknown:
+      return L"? ";
+  }
+  return L"? ";
+}
+
+inline std::wstring FormatContactPresenceLabel(PresenceState state,
+                                               std::wstring const& name) {
+  return ContactPresencePrefix(state) + name;
 }
 
 }  // namespace apptraverse

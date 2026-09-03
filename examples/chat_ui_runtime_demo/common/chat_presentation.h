@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "chat_model.h"
+#include "chat_presence.h"
 
 namespace apptraverse {
 
@@ -26,7 +27,7 @@ struct ChatContactPresentationItem {
   std::uint32_t client_obj_id{0};
   std::string display_name;
   std::string aether_uid;
-  bool online{false};
+  PresenceState presence{PresenceState::kUnknown};
   bool is_local{false};
 };
 
