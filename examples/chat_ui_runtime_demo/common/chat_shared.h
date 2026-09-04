@@ -76,13 +76,25 @@ void ConnectToHostCommand(ChatSharedBinding& binding, std::string host_uid,
 void SetSharedPeerChannelReady(ChatSharedBinding& binding,
                                std::string const& remote_uid, bool ready);
 
+// Pure Presence overlay update. Must not touch SharedRuntime peers, pending,
+// in-flight, journal delivery, or transport.
+bool SetRemotePresenceObservation(ChatSharedBinding& binding,
+                                  std::string const& remote_uid,
+                                  PresenceState state);
+
+bool SetLocalPresenceObservation(ChatSharedBinding& binding,
+                                 PresenceState state);
+
+// Deprecated alias: forwards to SetRemotePresenceObservation (no peer seed).
 void SetSharedPeerPresence(ChatSharedBinding& binding,
                            std::string const& remote_uid, PresenceState state);
 
 void RequeueInFlightAfterWriteFailed(ChatSharedBinding& binding,
                                      std::string const& remote_uid);
 
-void ApplyPresenceOverlay(ChatSharedBinding& binding);
+// Returns number of ChatClient presentation values that changed. Does not
+// unconditionally notify the ChatRoom.
+std::size_t ApplyPresenceOverlay(ChatSharedBinding& binding);
 
 // Total pending + in-flight shared delivery events across peers (runtime only).
 std::size_t CountSharedPendingAndInFlight(ChatSharedBinding const& binding);

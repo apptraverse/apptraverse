@@ -581,28 +581,42 @@ void RequeueInFlightAfterWriteFailed(ChatSharedBinding& binding,
                 " requeued_pending=" + std::to_string(peer->pending.size()));
 }
 
-void SetSharedPeerPresence(ChatSharedBinding& binding,
-                           std::string const& remote_uid, PresenceState state) {
-  EnsureSharedPeer(binding, remote_uid);
-  chat::ChatLog(std::string{"REMOTE_PRESENCE peer="} + remote_uid +
-                " state=" + PresenceStateName(state));
-  if (remote_uid == binding.instance.local_aether_uid) {
-    binding.presence.SetLocalSelf(state);
-  } else {
-    binding.presence.SetRemote(remote_uid, state);
+std::size_t ApplyPresenceOverlay(ChatSharedBinding& binding) {
+  if (!binding.instance.node.is_valid()) {
+    return 0;
   }
-  ApplyPresenceOverlay(binding);
+  return binding.presence.ApplyToRoom(*binding.instance.node,
+                                      binding.instance.local_aether_uid);
 }
 
-void ApplyPresenceOverlay(ChatSharedBinding& binding) {
-  if (!binding.instance.node.is_valid()) {
-    return;
+bool SetRemotePresenceObservation(ChatSharedBinding& binding,
+                                  std::string const& remote_uid,
+                                  PresenceState state) {
+  chat::ChatLog(std::string{"REMOTE_PRESENCE peer="} + remote_uid +
+                " state=" + PresenceStateName(state));
+  bool overlay_changed = false;
+  if (remote_uid == binding.instance.local_aether_uid) {
+    overlay_changed = binding.presence.SetLocalSelf(state);
+  } else {
+    overlay_changed = binding.presence.SetRemote(remote_uid, state);
   }
-  binding.presence.ApplyToRoom(*binding.instance.node,
-                               binding.instance.local_aether_uid);
-  // Ensure contacts list refreshes even when SetPresence was a no-op (value
-  // already matched) or when ChatClient was not yet mapped for publication.
-  binding.instance.node->NotifyPresentationChanged();
+  auto const applied = ApplyPresenceOverlay(binding);
+  return overlay_changed || applied > 0;
+}
+
+bool SetLocalPresenceObservation(ChatSharedBinding& binding,
+                                 PresenceState state) {
+  chat::ChatLog(std::string{"LOCAL_PRESENCE_APPLY state="} +
+                PresenceStateName(state));
+  bool const overlay_changed = binding.presence.SetLocalSelf(state);
+  auto const applied = ApplyPresenceOverlay(binding);
+  return overlay_changed || applied > 0;
+}
+
+void SetSharedPeerPresence(ChatSharedBinding& binding,
+                           std::string const& remote_uid, PresenceState state) {
+  // Legacy name retained for older call sites; Presence must not seed peers.
+  static_cast<void>(SetRemotePresenceObservation(binding, remote_uid, state));
 }
 
 std::size_t CountSharedPendingAndInFlight(ChatSharedBinding const& binding) {

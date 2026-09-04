@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_CHAT_PRESENCE_OVERLAY_H_
 #define APPTRAVERSE_CHAT_PRESENCE_OVERLAY_H_
 
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 
@@ -19,13 +20,26 @@ class ChatPresenceOverlay {
     remotes_.clear();
   }
 
-  void SetLocalSelf(PresenceState state) { local_self_ = state; }
+  // Returns true only when the stored value changes.
+  bool SetLocalSelf(PresenceState state) {
+    if (local_self_ == state) {
+      return false;
+    }
+    local_self_ = state;
+    return true;
+  }
 
-  void SetRemote(std::string uid, PresenceState state) {
+  // Returns true only when the stored value for uid changes.
+  bool SetRemote(std::string uid, PresenceState state) {
     if (uid.empty()) {
-      return;
+      return false;
+    }
+    auto it = remotes_.find(uid);
+    if (it != remotes_.end() && it->second == state) {
+      return false;
     }
     remotes_[std::move(uid)] = state;
+    return true;
   }
 
   PresenceState LocalSelf() const { return local_self_; }
@@ -40,7 +54,9 @@ class ChatPresenceOverlay {
 
   // Projects overlay onto ChatClient presentation caches.
   // When local self is not ONLINE, every remote contact is UNKNOWN.
-  void ApplyToRoom(ChatRoom& room, std::string const& local_aether_uid) const;
+  // Returns the number of ChatClient values that actually changed.
+  std::size_t ApplyToRoom(ChatRoom& room,
+                          std::string const& local_aether_uid) const;
 
  private:
   PresenceState local_self_{PresenceState::kUnknown};

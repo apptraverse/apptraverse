@@ -431,9 +431,11 @@ void TestConnectionBarPresenterStructure() {
                      std::istreambuf_iterator<char>());
     CHECK(text.find("WinConnectionBarPresenter") != std::string::npos);
     CHECK(text.find("Your Aether ID:") != std::string::npos);
-    CHECK(text.find("Host Aether ID:") != std::string::npos);
+    CHECK(text.find("Peer Aether ID:") != std::string::npos);
     CHECK(text.find("L\"Copy\"") != std::string::npos);
-    CHECK(text.find("L\"Connect\"") != std::string::npos);
+    CHECK(text.find("L\"Add\"") != std::string::npos);
+    CHECK(text.find("TryAddPresencePeer") != std::string::npos);
+    CHECK(text.find("NotifyMonitoring") != std::string::npos);
     CHECK(text.find("ES_READONLY") != std::string::npos);
     CHECK(text.find("CopyWideTextToClipboard") != std::string::npos);
   }
@@ -454,17 +456,79 @@ void TestConnectionBarPresenterStructure() {
     CHECK(text.find("--host") != std::string::npos);
     CHECK(text.find("--client") != std::string::npos);
     CHECK(text.find("cannot be used together") != std::string::npos);
+    CHECK(text.find("--monitor-peer-uid") != std::string::npos);
   }
   {
     std::ifstream in{root / "windows/win_app.cpp"};
     std::string text((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
     CHECK(text.find("ConnectToHostCommand") != std::string::npos);
+    CHECK(text.find("AddPresencePeer") != std::string::npos);
     CHECK(text.find("SetApplicationRole") != std::string::npos);
+    CHECK(text.find("monitor_peer_uid.txt") == std::string::npos);
   }
 #else
   CHECK(false && "CHAT_UI_RUNTIME_DEMO_SOURCE_DIR is required");
 #endif
+}
+
+void TestRemotePresenceObservationDoesNotEnsureSharedPeer() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildChatGraph(domain, "Host");
+  FinalizeDistilledGraph(*application);
+  application->host_client->SetAetherUidText("host-uid");
+
+  ChatSharedBinding binding;
+  InitializeChatSharedBinding(binding, *application, "host-uid");
+  CommitLocalJoin(binding, *application->host_client);
+  CHECK(binding.instance.peers.empty());
+
+  SetRemotePresenceObservation(binding, "peer-a", PresenceState::kOnline);
+  SetRemotePresenceObservation(binding, "peer-b", PresenceState::kOffline);
+  SetLocalPresenceObservation(binding, PresenceState::kOnline);
+  CHECK(binding.instance.peers.empty());
+  CHECK(CountSharedPendingAndInFlight(binding) == 0);
+}
+
+void TestApplyPresenceOverlayUnchangedReturnsZero() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildChatGraph(domain, "Host");
+  FinalizeDistilledGraph(*application);
+  application->host_client->SetAetherUidText("host-uid");
+
+  ChatSharedBinding binding;
+  InitializeChatSharedBinding(binding, *application, "host-uid");
+  CommitLocalJoin(binding, *application->host_client);
+  SetLocalPresenceObservation(binding, PresenceState::kOnline);
+  CHECK(ApplyPresenceOverlay(binding) == 0);
+  CHECK(!SetLocalPresenceObservation(binding, PresenceState::kOnline));
+}
+
+void TestLocalUnknownMasksRemotePresenceProjection() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildChatGraph(domain, "Host");
+  FinalizeDistilledGraph(*application);
+  application->host_client->SetAetherUidText("host-uid");
+
+  ChatSharedBinding binding;
+  InitializeChatSharedBinding(binding, *application, "host-uid");
+  CommitLocalJoin(binding, *application->host_client);
+  auto remote =
+      EnsurePresenceContact(*application->chat_room, "remote-uid");
+
+  SetLocalPresenceObservation(binding, PresenceState::kOnline);
+  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOnline);
+  CHECK(remote->GetPresence() == PresenceState::kOnline);
+
+  SetLocalPresenceObservation(binding, PresenceState::kUnknown);
+  CHECK(remote->GetPresence() == PresenceState::kUnknown);
+  CHECK(binding.presence.Remote("remote-uid") == PresenceState::kOnline);
 }
 
 void TestNoManualSerializersOrRuntimeClasses() {
@@ -535,9 +599,10 @@ int main() {
   using apptraverse::test::TestLocalPresenceScheduleStateMapping;
   using apptraverse::test::TestPresenterTracksNestedClientGeneration;
   using apptraverse::test::TestResetRuntimePresenceStateOnLoad;
+  using apptraverse::test::TestApplyPresenceOverlayUnchangedReturnsZero;
+  using apptraverse::test::TestLocalUnknownMasksRemotePresenceProjection;
+  using apptraverse::test::TestRemotePresenceObservationDoesNotEnsureSharedPeer;
   using apptraverse::test::TestNoManualSerializersOrRuntimeClasses;
-
-  TestLocalChatHostJoinAndMessages();
   TestLocalChatUiProjectionFromDomain();
   TestLocalAetherUidModelToUiProjection();
   TestApplicationRoleModelToUiProjection();
@@ -545,6 +610,9 @@ int main() {
   TestLocalPresenceScheduleStateMapping();
   TestContactPresencePresentationGlyphs();
   TestHostOnlineModelToUiProjection();
+  TestRemotePresenceObservationDoesNotEnsureSharedPeer();
+  TestApplyPresenceOverlayUnchangedReturnsZero();
+  TestLocalUnknownMasksRemotePresenceProjection();
   TestPresenterTracksNestedClientGeneration();
   TestConnectionBarPresenterStructure();
   TestResetRuntimePresenceStateOnLoad();

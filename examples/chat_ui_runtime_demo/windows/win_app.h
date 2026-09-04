@@ -22,7 +22,8 @@ namespace apptraverse {
 class WinChatApp {
  public:
   int Run(std::filesystem::path const& state_dir, ChatRole role,
-          std::string connect_host_uid = {});
+          std::string connect_host_uid = {},
+          std::string monitor_peer_uid = {});
 
   void OnPublished(std::uint32_t root_id, PublicationChannel<3>* channel);
 
@@ -30,7 +31,7 @@ class WinChatApp {
   void OnUiConnectionReady();
   void OnUiConnectionDisconnected();
   void OnUiRuntimeDiag();
-  void PollPresenceTestHooks();
+  void OnUiPresenceMonitoring();
 
  private:
   void ApplyPublication(std::uint32_t root_id, PublicationChannel<3>* channel);
@@ -43,9 +44,12 @@ class WinChatApp {
   void HandlePeerFrameOnModelThread(std::string remote_uid,
                                     std::vector<std::uint8_t> bytes);
   void TickDelivery();
-  void MonitorRemoteOnce(std::string const& remote_uid);
+  // Presence-only contact registration. Must not OpenPeer / EnsureSharedPeer /
+  // SeedPending / TickSharedDelivery.
+  void AddPresencePeer(std::string remote_uid);
   void PostConnectionUiReady();
   void PostConnectionUiDisconnected();
+  void PostPresenceMonitoringUi();
   void PostRuntimeDiagFromModelThread();
 
   ChatRuntime runtime_;
@@ -60,6 +64,7 @@ class WinChatApp {
   DWORD ui_thread_{0};
   bool exiting_{false};
   std::string pending_connect_host_uid_;
+  std::string pending_monitor_peer_uid_;
   std::filesystem::path state_dir_;
   std::unordered_set<std::string> monitored_remote_uids_;
   std::chrono::steady_clock::time_point last_delivery_tick_{};

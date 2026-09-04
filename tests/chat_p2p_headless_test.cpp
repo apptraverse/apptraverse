@@ -216,13 +216,7 @@ struct ModelSide {
   }
 
   void OnPeerPresence(std::string remote_uid, PresenceState state) {
-    bool const was_online =
-        PresenceIsOnline(shared.presence.Remote(remote_uid));
-    SetSharedPeerPresence(shared, remote_uid, state);
-    if (!was_online && PresenceIsOnline(state)) {
-      TickSharedDelivery(shared, std::chrono::steady_clock::now(),
-                         transport.get());
-    }
+    SetRemotePresenceObservation(shared, remote_uid, state);
   }
 
   void Tick() {

@@ -20,15 +20,31 @@ class RemotePresencePoller {
   static constexpr auto kPeriod = std::chrono::seconds{1};
 
   // Idempotent. Self UID is ignored when local_uid is set.
-  void Monitor(std::string remote_uid, std::string const& local_uid = {}) {
+  // When force_due is true, the next Tick may start a query immediately.
+  void Monitor(std::string remote_uid, std::string const& local_uid = {},
+               bool force_due = false) {
     if (remote_uid.empty() || remote_uid == local_uid) {
       return;
     }
     auto& slot = slots_[remote_uid];
     slot.uid = remote_uid;
-    if (!slot.armed) {
+    if (!slot.armed || force_due) {
       slot.armed = true;
       slot.next_due = Clock::time_point{};  // immediate
+    }
+  }
+
+  void ForceDue(std::string const& remote_uid) {
+    auto it = slots_.find(remote_uid);
+    if (it == slots_.end()) {
+      return;
+    }
+    it->second.next_due = Clock::time_point{};
+  }
+
+  void ForceDueAll() {
+    for (auto& [_, slot] : slots_) {
+      slot.next_due = Clock::time_point{};
     }
   }
 

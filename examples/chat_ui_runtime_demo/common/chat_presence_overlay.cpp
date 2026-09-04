@@ -3,14 +3,28 @@
 #include "chat_model.h"
 
 namespace apptraverse {
+namespace {
 
-void ChatPresenceOverlay::ApplyToRoom(ChatRoom& room,
-                                      std::string const& local_aether_uid) const {
+bool ApplyPresenceIfChanged(ChatClient& client, PresenceState state) {
+  if (client.GetPresence() == state) {
+    return false;
+  }
+  client.SetPresence(state);
+  return true;
+}
+
+}  // namespace
+
+std::size_t ChatPresenceOverlay::ApplyToRoom(
+    ChatRoom& room, std::string const& local_aether_uid) const {
+  std::size_t changed = 0;
   bool const remotes_known = local_self_ == PresenceState::kOnline;
   if (!local_aether_uid.empty()) {
     if (auto self = room.FindClientByAetherUid(local_aether_uid);
         self.is_valid()) {
-      self->SetPresence(local_self_);
+      if (ApplyPresenceIfChanged(*self, local_self_)) {
+        ++changed;
+      }
     }
   }
   for (auto const& client : room.clients) {
@@ -21,12 +35,13 @@ void ChatPresenceOverlay::ApplyToRoom(ChatRoom& room,
     if (uid.empty() || uid == local_aether_uid) {
       continue;
     }
-    if (!remotes_known) {
-      client->SetPresence(PresenceState::kUnknown);
-      continue;
+    auto const next =
+        remotes_known ? Remote(uid) : PresenceState::kUnknown;
+    if (ApplyPresenceIfChanged(*client, next)) {
+      ++changed;
     }
-    client->SetPresence(Remote(uid));
   }
+  return changed;
 }
 
 }  // namespace apptraverse

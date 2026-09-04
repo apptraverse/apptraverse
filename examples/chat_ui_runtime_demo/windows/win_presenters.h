@@ -88,6 +88,8 @@ class WinChatWindowPresenter : public Presenter {
 
   void NotifyPeerDisconnected() { connection_bar.NotifyPeerDisconnected(); }
 
+  void NotifyMonitoring() { connection_bar.NotifyMonitoring(); }
+
   void ApplyRuntimeDiag(ChatRuntimeDiagUiState const& diag) {
 #ifndef NDEBUG
     runtime_diag_ = diag;
@@ -590,6 +592,12 @@ class WinChatPresentationApplication : public Presenter {
   void NotifyPeerDisconnected() {
     if (chat_window.is_valid()) {
       chat_window->NotifyPeerDisconnected();
+    }
+  }
+
+  void NotifyMonitoring() {
+    if (chat_window.is_valid()) {
+      chat_window->NotifyMonitoring();
     }
   }
 

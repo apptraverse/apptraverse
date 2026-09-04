@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -11,7 +12,6 @@
 
 #include "aether/all.h"
 #include "aether/ae_actions/query_peer_presence.h"
-#include "aether/cloud_connections/cloud_request_execution_policy.h"
 #include "aether/remote_presence.h"
 #include "ae-numeric/percentile.h"
 
@@ -97,7 +97,7 @@ class AetherRemotePresenceMonitor {
  public:
   void Configure(ae::Client::ptr client, std::string local_uid,
                  ChatAetherRuntime::PeerPresenceCallback on_presence,
-                 LocalConnectivityMonitor const* local_monitor) {
+                 LocalConnectivityMonitor* local_monitor) {
     client_ = std::move(client);
     local_uid_ = std::move(local_uid);
     on_presence_ = std::move(on_presence);
@@ -105,28 +105,58 @@ class AetherRemotePresenceMonitor {
   }
 
   void Monitor(std::string remote_uid) {
-    poller_.Monitor(std::move(remote_uid), local_uid_);
+    poller_.Monitor(std::move(remote_uid), local_uid_, /*force_due=*/true);
+  }
+
+  void OnLocalPresenceChanged(PresenceState local_state) {
+    if (local_state == PresenceState::kOnline) {
+      poller_.ForceDueAll();
+      return;
+    }
+    // Local UNKNOWN/OFFLINE: remotes become UNKNOWN once; no new queries.
+    for (auto const& uid : poller_.MonitoredUids()) {
+      PublishIfChanged(uid, PresenceState::kUnknown, /*query_id=*/0);
+    }
   }
 
   void Stop() {
     result_sub_.Reset();
     poller_.Stop();
     active_uid_.clear();
-    offline_streak_.clear();
+    active_query_id_ = 0;
+    active_started_at_ = {};
+    stuck_published_ = false;
+    last_reported_.clear();
   }
 
   void Tick(std::chrono::steady_clock::time_point now) {
     if (!client_) {
       return;
     }
+    if (!active_uid_.empty() && active_started_at_.time_since_epoch().count() != 0 &&
+        now - active_started_at_ > kQueryStuck) {
+      // Keep the action slot occupied until the stale callback arrives so we
+      // never start an overlapping QueryPeerPresence.
+      if (!stuck_published_) {
+        stuck_published_ = true;
+        chat::ChatLog(std::string{"REMOTE_QUERY_STUCK peer="} + active_uid_ +
+                      " query_id=" + std::to_string(active_query_id_));
+        PublishIfChanged(active_uid_, PresenceState::kUnknown,
+                         active_query_id_);
+      }
+      return;
+    }
+    auto const local_state = local_monitor_ != nullptr
+                                 ? local_monitor_->LastReported()
+                                 : PresenceState::kUnknown;
+    if (local_state != PresenceState::kOnline) {
+      return;
+    }
     poller_.Tick(now, [this](std::string const& uid) { return StartQuery(uid); });
   }
 
  private:
-  // Cloud QueryPeerPresence can flap a live peer offline between schedule
-  // edges. Require consecutive OFFLINE samples before publishing OFFLINE;
-  // ONLINE/UNKNOWN still apply immediately.
-  static constexpr int kOfflineConfirmCount = 3;
+  static constexpr auto kQueryStuck = std::chrono::seconds{15};
 
   bool StartQuery(std::string const& remote_uid) {
     if (!active_uid_.empty()) {
@@ -135,71 +165,97 @@ class AetherRemotePresenceMonitor {
     if (remote_uid.empty() || remote_uid == local_uid_) {
       return false;
     }
+    auto const local_state = local_monitor_ != nullptr
+                                 ? local_monitor_->LastReported()
+                                 : PresenceState::kUnknown;
+    if (local_state != PresenceState::kOnline) {
+      PublishIfChanged(remote_uid, PresenceState::kUnknown, /*query_id=*/0);
+      return false;
+    }
     auto peer = ae::Uid::FromString(remote_uid);
     active_uid_ = remote_uid;
+    active_query_id_ = ++next_query_id_;
+    active_started_at_ = std::chrono::steady_clock::now();
+    stuck_published_ = false;
+    chat::ChatLog(std::string{"REMOTE_PRESENCE_QUERY_START peer="} + remote_uid +
+                  " query_id=" + std::to_string(active_query_id_) + " t_ms=" +
+                  std::to_string(ElapsedSinceStartupMs()));
     auto& action = client_->QueryPeerPresence(peer);
+    // Capture only `this` — Aether result_event uses SmallFunction storage.
     result_sub_ = action.result_event().Subscribe(
-        [this, remote_uid](ae::Result<ae::PeerPresence, int> const& res) {
-          PresenceState mapped = PresenceFromPeerCase(PeerPresenceCase::kQueryError);
-          if (res) {
-            mapped = MapAePeerPresence(res.value().state);
-          }
-          // Without local ONLINE, remote evidence is not actionable.
-          auto const local_state = local_monitor_ != nullptr
-                                       ? local_monitor_->LastReported()
-                                       : PresenceState::kUnknown;
-          PresenceState reported = PresenceState::kUnknown;
-          if (local_state == PresenceState::kOnline) {
-            if (mapped == PresenceState::kOffline) {
-              auto& streak = offline_streak_[remote_uid];
-              ++streak;
-              if (streak < kOfflineConfirmCount) {
-                // Keep last published Presence (typically ONLINE); do not flap
-                // the contacts list on a single cloud OFFLINE sample.
-                chat::ChatLog(
-                    std::string{"REMOTE_PRESENCE_QUERY peer="} + remote_uid +
-                    " ok=" + (res ? "1" : "0") + " mapped=offline" +
-                    " hold streak=" + std::to_string(streak) + "/" +
-                    std::to_string(kOfflineConfirmCount));
-                active_uid_.clear();
-                poller_.OnQueryFinished(remote_uid,
-                                        std::chrono::steady_clock::now());
-                return;
-              }
-              reported = PresenceState::kOffline;
-            } else {
-              offline_streak_[remote_uid] = 0;
-              reported = mapped;
-            }
-          } else {
-            offline_streak_[remote_uid] = 0;
-            reported = PresenceState::kUnknown;
-          }
-          chat::ChatLog(
-              std::string{"REMOTE_PRESENCE_QUERY peer="} + remote_uid +
-              " ok=" + (res ? "1" : "0") + " mapped=" +
-              PresenceStateName(mapped) + " reported=" +
-              PresenceStateName(reported) +
-              (res ? std::string{}
-                   : std::string{" err="} + std::to_string(res.error())));
-          if (on_presence_) {
-            on_presence_(remote_uid, reported);
-          }
-          active_uid_.clear();
-          poller_.OnQueryFinished(remote_uid,
-                                  std::chrono::steady_clock::now());
+        [this](ae::Result<ae::PeerPresence, int> const& res) {
+          OnQueryResult(res);
         });
     return true;
+  }
+
+  void OnQueryResult(ae::Result<ae::PeerPresence, int> const& res) {
+    if (active_uid_.empty() || active_query_id_ == 0) {
+      chat::ChatLog("REMOTE_PRESENCE_QUERY_STALE empty_active");
+      return;
+    }
+    auto const remote_uid = active_uid_;
+    auto const query_id = active_query_id_;
+    auto const latency_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - active_started_at_)
+            .count();
+    PresenceState mapped =
+        PresenceFromPeerCase(PeerPresenceCase::kQueryError);
+    if (res) {
+      mapped = MapAePeerPresence(res.value().state);
+    }
+    auto const local_state = local_monitor_ != nullptr
+                                 ? local_monitor_->LastReported()
+                                 : PresenceState::kUnknown;
+    // Errors/timeouts/local-off stay UNKNOWN. Only kOffline is OFFLINE.
+    auto reported = PresenceState::kUnknown;
+    if (local_state == PresenceState::kOnline) {
+      reported = mapped;
+    }
+    chat::ChatLog(std::string{"REMOTE_PRESENCE_QUERY peer="} + remote_uid +
+                  " query_id=" + std::to_string(query_id) +
+                  " latency_ms=" + std::to_string(latency_ms) +
+                  " ok=" + (res ? "1" : "0") + " mapped=" +
+                  PresenceStateName(mapped) + " reported=" +
+                  PresenceStateName(reported) +
+                  (res ? std::string{}
+                       : std::string{" err="} + std::to_string(res.error())));
+    active_uid_.clear();
+    active_query_id_ = 0;
+    active_started_at_ = {};
+    stuck_published_ = false;
+    poller_.OnQueryFinished(remote_uid, std::chrono::steady_clock::now());
+    PublishIfChanged(remote_uid, reported, query_id);
+  }
+
+  void PublishIfChanged(std::string const& remote_uid, PresenceState state,
+                        std::uint64_t query_id) {
+    auto it = last_reported_.find(remote_uid);
+    if (it != last_reported_.end() && it->second == state) {
+      return;
+    }
+    last_reported_[remote_uid] = state;
+    chat::ChatLog(std::string{"REMOTE_PRESENCE_DEDUP_PASS peer="} + remote_uid +
+                  " state=" + PresenceStateName(state) +
+                  " query_id=" + std::to_string(query_id));
+    if (on_presence_) {
+      on_presence_(remote_uid, state);
+    }
   }
 
   ae::Client::ptr client_;
   std::string local_uid_;
   ChatAetherRuntime::PeerPresenceCallback on_presence_;
-  LocalConnectivityMonitor const* local_monitor_{nullptr};
+  LocalConnectivityMonitor* local_monitor_{nullptr};
   RemotePresencePoller poller_;
   ae::Subscription result_sub_;
   std::string active_uid_;
-  std::unordered_map<std::string, int> offline_streak_;
+  std::uint64_t next_query_id_{0};
+  std::uint64_t active_query_id_{0};
+  std::chrono::steady_clock::time_point active_started_at_{};
+  bool stuck_published_{false};
+  std::unordered_map<std::string, PresenceState> last_reported_;
 };
 
 ae::AetherAppContext MakeAetherAppContext(
@@ -529,12 +585,10 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
     chat::ChatLog("AETHER_CLOUD_CONNECTION t_ms=" +
                   std::to_string(ElapsedSinceStartupMs()));
 
-    // Advertise a receive window wider than the poll period so cloud-backed
-    // QueryPeerPresence does not flap live peers to OFFLINE between pings.
-    // Local DiagnoseLocalPresence still uses the same schedule.
+    // Match examples/aether_presence_monitor: 1s ping / 1s window / 1s offline.
     auto constexpr kPingInterval = std::chrono::seconds{1};
-    auto constexpr kReceiveWindow = std::chrono::seconds{5};
-    auto constexpr kOfflineTimeout = std::chrono::seconds{5};
+    auto constexpr kReceiveWindow = std::chrono::seconds{1};
+    auto constexpr kOfflineTimeout = std::chrono::seconds{1};
     auto const conf =
         ae::RxTimingConf::Every(
             std::chrono::duration_cast<ae::Duration>(kPingInterval))
@@ -543,11 +597,6 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
       policy->ResetRxTimings();
       policy->SetOfflineDetectionTimeout(
           std::chrono::duration_cast<ae::Duration>(kOfflineTimeout));
-      policy->SetCloudRequestExecutionPolicy(
-          ae::CloudRequestExecutionPolicy::FromFactor(
-              ae::Percentile::FromPercent(99.99),
-              ae::TimeoutFactor8::FromDouble(1.2), /*retries=*/2,
-              /*hedge=*/2));
       policy->ConfigureRxTimings(ae::RequestPolicy::All{})
           .ForAllPriorities(conf);
       for (auto* server : client->cloud_connection().selected_servers()) {
@@ -559,7 +608,7 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
       }
       chat::ChatLog("AETHER_RX_SCHEDULE_SET t_ms=" +
                     std::to_string(ElapsedSinceStartupMs()) +
-                    " ping_ms=1000 window_ms=5000 offline_ms=5000");
+                    " ping_ms=1000 window_ms=1000 offline_ms=1000");
     } else {
       chat::ChatLog("aether connectivity_policy missing; presence timings not set");
     }
@@ -592,11 +641,16 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
 
     AetherRemotePresenceMonitor remote_presence;
     LocalConnectivityMonitor presence;
-    if (on_presence) {
-      presence.Configure(client, std::move(on_presence));
-    }
     remote_presence.Configure(client, uid_text, std::move(on_peer_presence),
                               &presence);
+    presence.Configure(
+        client, [on_presence = std::move(on_presence), &remote_presence](
+                    PresenceState state) {
+          remote_presence.OnLocalPresenceChanged(state);
+          if (on_presence) {
+            on_presence(state);
+          }
+        });
 
     PeerStreamHub hub{aether_app->aether(), client, std::move(on_ready),
                       std::move(on_closed), std::move(on_frame),
