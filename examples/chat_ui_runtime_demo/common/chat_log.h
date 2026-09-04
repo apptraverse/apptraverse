@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_CHAT_LOG_H_
 #define APPTRAVERSE_CHAT_LOG_H_
 
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -29,7 +30,28 @@ inline std::string& LogPath() {
   return path;
 }
 
+inline std::string& SessionId() {
+  static std::string id;
+  return id;
+}
+
+inline std::string MakeSessionId() {
+  auto const now = std::chrono::steady_clock::now().time_since_epoch();
+  auto const us =
+      std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+#ifdef _WIN32
+  auto const pid = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+  auto const pid = 0ul;
+#endif
+  return std::to_string(pid) + "-" + std::to_string(us);
+}
+
 }  // namespace detail
+
+inline std::string const& CurrentSessionId() {
+  return detail::SessionId();
+}
 
 inline void SetChatLogPath(std::string path) {
   std::lock_guard<std::mutex> lock{detail::LogMutex()};
@@ -37,20 +59,34 @@ inline void SetChatLogPath(std::string path) {
 }
 
 inline void ChatLog(std::string const& line) {
+  std::string out = line;
   {
     std::lock_guard<std::mutex> lock{detail::LogMutex()};
-    std::cout << line << '\n';
+    if (!detail::SessionId().empty() &&
+        line.find("session_id=") == std::string::npos) {
+      out += " session_id=";
+      out += detail::SessionId();
+    }
+    std::cout << out << '\n';
     std::fflush(stdout);
     if (!detail::LogPath().empty()) {
-      std::ofstream out{detail::LogPath(), std::ios::out | std::ios::app};
-      if (out) {
-        out << line << '\n';
+      std::ofstream file{detail::LogPath(), std::ios::out | std::ios::app};
+      if (file) {
+        file << out << '\n';
       }
     }
   }
 #ifdef _WIN32
-  OutputDebugStringA((line + "\n").c_str());
+  OutputDebugStringA((out + "\n").c_str());
 #endif
+}
+
+inline void BeginChatSession() {
+  {
+    std::lock_guard<std::mutex> lock{detail::LogMutex()};
+    detail::SessionId() = detail::MakeSessionId();
+  }
+  ChatLog("APP_SESSION_START session_id=" + detail::SessionId());
 }
 
 }  // namespace apptraverse::chat
