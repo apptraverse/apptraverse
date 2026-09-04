@@ -365,12 +365,20 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
   wc.lpfnWndProc = &DispatcherProc;
   wc.hInstance = GetModuleHandleW(nullptr);
   wc.lpszClassName = L"AppTraverseChatUiDispatcher";
-  RegisterClassW(&wc);
+  if (RegisterClassW(&wc) == 0) {
+    auto const err = GetLastError();
+    if (err != ERROR_CLASS_ALREADY_EXISTS) {
+      chat::ChatLog("DISPATCHER_REGISTER_FAILED err=" + std::to_string(err));
+    }
+  }
   dispatcher_ = CreateWindowExW(0, L"AppTraverseChatUiDispatcher", L"", 0, 0, 0,
                                 0, 0, HWND_MESSAGE, nullptr,
                                 GetModuleHandleW(nullptr), this);
-  assert(dispatcher_ != nullptr);
-  SetTimer(dispatcher_, /*nIDEvent=*/1, /*uElapse=*/250, nullptr);
+  if (dispatcher_ == nullptr) {
+    chat::ChatLog("DISPATCHER_CREATE_FAILED err=" +
+                  std::to_string(GetLastError()));
+    return 3;
+  }
 
   auto notify = [this](std::uint32_t root_id, PublicationChannel<3>* channel) {
     if (GetCurrentThreadId() == ui_thread_) {
@@ -519,6 +527,8 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
                         " contacts=" + contacts);
         });
       });
+
+  SetTimer(dispatcher_, /*nIDEvent=*/1, /*uElapse=*/250, nullptr);
 
   MSG msg{};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

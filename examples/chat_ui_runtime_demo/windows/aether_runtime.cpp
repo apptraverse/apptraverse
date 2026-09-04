@@ -112,6 +112,7 @@ class AetherRemotePresenceMonitor {
     result_sub_.Reset();
     poller_.Stop();
     active_uid_.clear();
+    offline_streak_.clear();
   }
 
   void Tick(std::chrono::steady_clock::time_point now) {
@@ -122,6 +123,11 @@ class AetherRemotePresenceMonitor {
   }
 
  private:
+  // Cloud QueryPeerPresence can flap a live peer offline between schedule
+  // edges. Require consecutive OFFLINE samples before publishing OFFLINE;
+  // ONLINE/UNKNOWN still apply immediately.
+  static constexpr int kOfflineConfirmCount = 3;
+
   bool StartQuery(std::string const& remote_uid) {
     if (!active_uid_.empty()) {
       return false;
@@ -142,10 +148,33 @@ class AetherRemotePresenceMonitor {
           auto const local_state = local_monitor_ != nullptr
                                        ? local_monitor_->LastReported()
                                        : PresenceState::kUnknown;
-          auto const reported =
-              local_state == PresenceState::kOnline
-                  ? mapped
-                  : PresenceState::kUnknown;
+          PresenceState reported = PresenceState::kUnknown;
+          if (local_state == PresenceState::kOnline) {
+            if (mapped == PresenceState::kOffline) {
+              auto& streak = offline_streak_[remote_uid];
+              ++streak;
+              if (streak < kOfflineConfirmCount) {
+                // Keep last published Presence (typically ONLINE); do not flap
+                // the contacts list on a single cloud OFFLINE sample.
+                chat::ChatLog(
+                    std::string{"REMOTE_PRESENCE_QUERY peer="} + remote_uid +
+                    " ok=" + (res ? "1" : "0") + " mapped=offline" +
+                    " hold streak=" + std::to_string(streak) + "/" +
+                    std::to_string(kOfflineConfirmCount));
+                active_uid_.clear();
+                poller_.OnQueryFinished(remote_uid,
+                                        std::chrono::steady_clock::now());
+                return;
+              }
+              reported = PresenceState::kOffline;
+            } else {
+              offline_streak_[remote_uid] = 0;
+              reported = mapped;
+            }
+          } else {
+            offline_streak_[remote_uid] = 0;
+            reported = PresenceState::kUnknown;
+          }
           chat::ChatLog(
               std::string{"REMOTE_PRESENCE_QUERY peer="} + remote_uid +
               " ok=" + (res ? "1" : "0") + " mapped=" +
@@ -170,6 +199,7 @@ class AetherRemotePresenceMonitor {
   RemotePresencePoller poller_;
   ae::Subscription result_sub_;
   std::string active_uid_;
+  std::unordered_map<std::string, int> offline_streak_;
 };
 
 ae::AetherAppContext MakeAetherAppContext(
@@ -499,9 +529,12 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
     chat::ChatLog("AETHER_CLOUD_CONNECTION t_ms=" +
                   std::to_string(ElapsedSinceStartupMs()));
 
+    // Advertise a receive window wider than the poll period so cloud-backed
+    // QueryPeerPresence does not flap live peers to OFFLINE between pings.
+    // Local DiagnoseLocalPresence still uses the same schedule.
     auto constexpr kPingInterval = std::chrono::seconds{1};
-    auto constexpr kReceiveWindow = std::chrono::seconds{1};
-    auto constexpr kOfflineTimeout = std::chrono::seconds{1};
+    auto constexpr kReceiveWindow = std::chrono::seconds{5};
+    auto constexpr kOfflineTimeout = std::chrono::seconds{5};
     auto const conf =
         ae::RxTimingConf::Every(
             std::chrono::duration_cast<ae::Duration>(kPingInterval))
@@ -526,7 +559,7 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
       }
       chat::ChatLog("AETHER_RX_SCHEDULE_SET t_ms=" +
                     std::to_string(ElapsedSinceStartupMs()) +
-                    " ping_ms=1000 window_ms=1000 offline_ms=1000");
+                    " ping_ms=1000 window_ms=5000 offline_ms=5000");
     } else {
       chat::ChatLog("aether connectivity_policy missing; presence timings not set");
     }
