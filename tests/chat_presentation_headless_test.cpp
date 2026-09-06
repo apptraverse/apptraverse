@@ -12,12 +12,13 @@
 #include "aether/clock.h"
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 
+#include "apptraverse/runtime_node.h"
 #include "apptraverse/shared_transport.h"
 
 #include "chat_bootstrap.h"
 #include "chat_commands.h"
-#include "chat_connection_ui_state.h"
 #include "chat_events.h"
+#include "chat_identity_bar.h"
 #include "chat_model.h"
 #include "chat_presentation.h"
 #include "chat_presence.h"
@@ -25,7 +26,8 @@
 #include "ui_send_latency_tracker.h"
 
 namespace apptraverse::test {
-namespace {
+using namespace apptraverse;
+using namespace chat;
 
 #define CHECK(cond)                                                          \
   do {                                                                       \
@@ -66,20 +68,20 @@ void TestLocalChatHostJoinAndMessages() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Nikolay");
   FinalizeDistilledGraph(*application);
-  CommitHostJoin(*application);
-  CHECK(FormatChatFeedLine(*application->chat_room->feed[0]) ==
+  CompleteLocalRegistration(*application, "test-uid");
+  CHECK(FormatChatFeedLine(*application->room->feed[0]) ==
         "Nikolay joined the chat");
 
-  CommitSendChatMessage(*application->chat_room, *application->host_client,
+  CommitSendChatMessage(*application->room, *application->local_client,
                         "hello");
-  CHECK(FormatChatFeedLine(*application->chat_room->feed[1]) ==
+  CHECK(FormatChatFeedLine(*application->room->feed[1]) ==
         "Nikolay: hello");
 
-  auto const gen_before = application->chat_room->Generation();
-  CHECK(!CommitSendChatMessage(*application->chat_room,
-                               *application->host_client, "")
+  auto const gen_before = application->room->Generation();
+  CHECK(!CommitSendChatMessage(*application->room,
+                               *application->local_client, "")
              .is_valid());
-  CHECK(application->chat_room->Generation() == gen_before);
+  CHECK(application->room->Generation() == gen_before);
 }
 
 void TestPresentationSnapshotFromModelGraph() {
@@ -88,9 +90,8 @@ void TestPresentationSnapshotFromModelGraph() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-  CommitHostJoin(*application);
-  CommitSendChatMessage(*application->chat_room, *application->host_client,
+  CompleteLocalRegistration(*application, "host-uid");
+  CommitSendChatMessage(*application->room, *application->local_client,
                         "ff", 1'720'000'000'057LL);
 
   ChatPresentationOptions options;
@@ -99,7 +100,7 @@ void TestPresentationSnapshotFromModelGraph() {
     return std::optional<double>{4.3};
   };
   auto snap =
-      BuildChatPresentationSnapshot(*application->chat_room, options);
+      BuildChatPresentationSnapshot(*application->room, options);
   CHECK(snap.feed.size() == 2);
   CHECK(snap.feed[0].display_line == "Host joined the chat");
   CHECK(snap.feed[1].sent_at_unix_ms == 1'720'000'000'057LL);
@@ -119,16 +120,15 @@ void TestTimestampCommitAndRemap() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Client");
   FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("client-uid");
-  CommitHostJoin(*application);
+  CompleteLocalRegistration(*application, "client-uid");
 
   std::int64_t const sent_at = 1'700'000'123'456LL;
-  auto event = CommitSendChatMessage(*application->chat_room,
-                                     *application->host_client, "ping", sent_at);
+  auto event = CommitSendChatMessage(*application->room,
+                                     *application->local_client, "ping", sent_at);
   CHECK(event.is_valid());
   CHECK(event->sent_at_unix_ms == sent_at);
-  CHECK(application->chat_room->feed.back()->sent_at_unix_ms == sent_at);
-  CHECK(application->chat_room->feed.back()->source_event_obj_id ==
+  CHECK(application->room->feed.back()->sent_at_unix_ms == sent_at);
+  CHECK(application->room->feed.back()->source_event_obj_id ==
         event.id().id());
 
   auto payload = SerializeSharedEventPayload(*event);
@@ -137,17 +137,17 @@ void TestTimestampCommitAndRemap() {
   ae::Domain remote_domain{remote_storage};
   auto remote_app = BuildChatGraph(remote_domain, "Host");
   FinalizeDistilledGraph(*remote_app);
-  remote_app->host_client->SetAetherUidText("host-uid");
-  CommitHostJoin(*remote_app);
+  CompleteLocalRegistration(*remote_app, "host-uid");
   auto remote_client = ChatClient::ptr::Create(ae::CreateWith{remote_domain});
   remote_client->SetAetherUidText("client-uid");
   auto name = ImmutableString::ptr::Create(ae::CreateWith{remote_domain});
   name->bytes = "Client";
   remote_client->display_name = name;
-  CommitJoinChat(*remote_app->chat_room, *remote_client);
+  apptraverse::InitializeRuntimeNode(*remote_client);
+  CommitClientAdded(*remote_app->room, *remote_client);
 
   auto remapped =
-      RemapIncomingEvent(*remote_app->chat_room, remote_domain, payload, {},
+      RemapIncomingEvent(*remote_app->room, remote_domain, payload, {},
                          "client-uid");
   CHECK(remapped.is_valid());
   auto* message = dynamic_cast<ChatMessageEvent*>(&*remapped);
@@ -157,9 +157,9 @@ void TestTimestampCommitAndRemap() {
   message->text.Load();
   CHECK(message->text->bytes == "ping");
 
-  CHECK(remote_app->chat_room->CanApply(*message));
-  remote_app->chat_room->Commit(remapped);
-  CHECK(remote_app->chat_room->feed.back()->sent_at_unix_ms == sent_at);
+  CHECK(remote_app->room->CanApply(*message));
+  remote_app->room->Commit(remapped);
+  CHECK(remote_app->room->feed.back()->sent_at_unix_ms == sent_at);
 }
 
 void TestLegacyZeroTimestampHasNoFakeTime() {
@@ -205,11 +205,11 @@ void TestOfflineRetrySkippedWhileChannelDown() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
+  CreateUnjoinedLocalClient(*application, "host-uid");
 
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
+  CommitLocalJoin(binding, *application->local_client);
   EnsureSharedPeer(binding, "client-uid");
   auto* peer = binding.instance.FindPeer("client-uid");
   peer->channel_ready = true;
@@ -266,26 +266,26 @@ void TestLocalSelfSameStatusDoesNotBumpGeneration() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
+  CreateUnjoinedLocalClient(*application, "host-uid");
 
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
+  CommitLocalJoin(binding, *application->local_client);
   SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  auto const gen = application->host_client->Generation();
+  auto const gen = application->local_client->Generation();
   SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  CHECK(application->host_client->Generation() == gen);
+  CHECK(application->local_client->Generation() == gen);
 
-  auto const gen_online = application->host_client->Generation();
+  auto const gen_online = application->local_client->Generation();
   SetLocalPresenceObservation(binding, PresenceState::kOffline);
-  CHECK(application->host_client->Generation() > gen_online);
+  CHECK(application->local_client->Generation() > gen_online);
 
-  auto const gen_offline = application->host_client->Generation();
+  auto const gen_offline = application->local_client->Generation();
   SetLocalPresenceObservation(binding, PresenceState::kUnknown);
-  CHECK(application->host_client->Generation() > gen_offline);
-  auto const gen_unknown = application->host_client->Generation();
+  CHECK(application->local_client->Generation() > gen_offline);
+  auto const gen_unknown = application->local_client->Generation();
   SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  CHECK(application->host_client->Generation() > gen_unknown);
+  CHECK(application->local_client->Generation() > gen_unknown);
 }
 
 void TestContactsLocalFirstFromClientsOnly() {
@@ -294,24 +294,23 @@ void TestContactsLocalFirstFromClientsOnly() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText(
-      "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-  CommitHostJoin(*application);
+  CompleteLocalRegistration(*application, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
 
   auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
   client->SetAetherUidText("11111111-2222-3333-4444-555555555555");
   auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
   name->bytes = "Client";
   client->display_name = name;
-  CommitJoinChat(*application->chat_room, *client);
+  apptraverse::InitializeRuntimeNode(*client);
+  CommitClientAdded(*application->room, *client);
   static_cast<void>(
-      ApplyLocalPresenceEvent(*application->host_client, PresenceState::kOnline));
+      CommitPresenceChanged(*application->local_client, PresenceState::kOnline));
   client->SetPresence(PresenceState::kOffline);
 
   ChatPresentationOptions host_opts;
   host_opts.local_aether_uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
   auto host_snap =
-      BuildChatPresentationSnapshot(*application->chat_room, host_opts);
+      BuildChatPresentationSnapshot(*application->room, host_opts);
   CHECK(host_snap.contacts.size() == 2);
   CHECK(host_snap.contacts[0].is_local);
   CHECK(host_snap.contacts[0].display_name == "Host");
@@ -330,7 +329,7 @@ void TestContactsLocalFirstFromClientsOnly() {
   ChatPresentationOptions client_opts;
   client_opts.local_aether_uid = "11111111-2222-3333-4444-555555555555";
   auto client_snap =
-      BuildChatPresentationSnapshot(*application->chat_room, client_opts);
+      BuildChatPresentationSnapshot(*application->room, client_opts);
   CHECK(client_snap.contacts.size() == 2);
   CHECK(client_snap.contacts[0].is_local);
   CHECK(client_snap.contacts[0].display_name == "Client");
@@ -344,19 +343,19 @@ void TestPresenceOverlaySurvivesOnlineClear() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
+  CreateUnjoinedLocalClient(*application, "host-uid");
 
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
+  CommitLocalJoin(binding, *application->local_client);
   binding.presence.SetLocalSelf(PresenceState::kOnline);
   ApplyPresenceOverlay(binding);
-  CHECK(application->host_client->GetPresence() == PresenceState::kOnline);
+  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
 
   // Simulate journal rebuild wiping presence presentation cache.
-  application->host_client->SetPresence(PresenceState::kUnknown);
+  application->local_client->SetPresence(PresenceState::kUnknown);
   ApplyPresenceOverlay(binding);
-  CHECK(application->host_client->GetPresence() == PresenceState::kOnline);
+  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
 }
 
 void TestNewChatClientStartsUnknown() {
@@ -373,10 +372,10 @@ void TestIncomingSharedCannotImportPresence() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
+  CreateUnjoinedLocalClient(*application, "host-uid");
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
+  CommitLocalJoin(binding, *application->local_client);
   binding.presence.SetLocalSelf(PresenceState::kOnline);
 
   auto foreign = ChatClient::ptr::Create(ae::CreateWith{domain});
@@ -385,23 +384,25 @@ void TestIncomingSharedCannotImportPresence() {
   auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
   name->bytes = "Client";
   foreign->display_name = name;
-  auto join = MakeJoinEvent(*application->chat_room, *foreign);
+  auto join = MakeClientAddedEvent(*application->room, *foreign);
   StripRuntimeFieldsFromEventGraph(*join);
   CHECK(join->client->GetPresence() == PresenceState::kUnknown);
 }
 
-void TestReplayResetsRuntimePresenceUnknown() {
+void TestReplayKeepsJournaledPresence() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  CommitHostJoin(*application);
-  application->host_client->SetPresence(PresenceState::kOnline);
-  ResetRuntimePresenceState(*application);
-  CHECK(application->host_client->GetPresence() == PresenceState::kUnknown);
-  CHECK(application->chat_room->clients[0]->GetPresence() ==
-        PresenceState::kUnknown);
+  CompleteLocalRegistration(*application, "test-uid");
+  CHECK(application->local_client->GetPresence() == PresenceState::kConnecting);
+  CHECK(CommitPresenceChanged(*application->local_client,
+                              PresenceState::kOnline));
+  application->local_client->ReplayFromBase();
+  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
+  CHECK(application->room->clients[0]->GetPresence() ==
+        PresenceState::kOnline);
 }
 
 void TestPresenceOverlayApplyUnchangedReturnsZero() {
@@ -410,11 +411,11 @@ void TestPresenceOverlayApplyUnchangedReturnsZero() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
+  CreateUnjoinedLocalClient(*application, "host-uid");
 
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
+  CommitLocalJoin(binding, *application->local_client);
   CHECK(binding.presence.SetLocalSelf(PresenceState::kOnline));
   CHECK(ApplyPresenceOverlay(binding) == 1);
   CHECK(ApplyPresenceOverlay(binding) == 0);
@@ -422,28 +423,33 @@ void TestPresenceOverlayApplyUnchangedReturnsZero() {
   CHECK(ApplyPresenceOverlay(binding) == 0);
 }
 
-void TestConnectionUiStatusFormatting() {
+void TestIdentityBarProjectionHeadless() {
   CHECK(LooksLikeAetherUid("3ac93165-3d37-4970-87a6-fa4ee27744e4"));
   CHECK(!LooksLikeAetherUid(""));
   CHECK(!LooksLikeAetherUid("not-a-uid"));
-  ChatConnectionUiState state;
-  state.status = ChatConnectionUiStatus::NotConnected;
-  CHECK(FormatConnectionStatusText(state) == "Not connected");
-  state.status = ChatConnectionUiStatus::Connecting;
-  state.elapsed_sec = 3.2;
-  CHECK(FormatConnectionStatusText(state) == "Connecting... 3.2 s");
-  state.status = ChatConnectionUiStatus::Connected;
-  CHECK(FormatConnectionStatusText(state) == "Connected");
-  state.status = ChatConnectionUiStatus::Disconnected;
-  CHECK(FormatConnectionStatusText(state) == "Disconnected");
-  state.status = ChatConnectionUiStatus::InvalidId;
-  CHECK(FormatConnectionStatusText(state) == "Invalid Aether ID");
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildChatGraph(domain, "Host");
+  FinalizeDistilledGraph(*application);
+  BeginCurrentRun(*application);
+  auto view = ProjectIdentityBar(ChatRole::Host, *application->network,
+                                 *application->aether);
+  CHECK(view.field_text == kIdentityBarRegistering);
+  CHECK(view.copy_visible);
+  CHECK(!view.copy_enabled);
+  CHECK(!view.join_visible);
+  view = ProjectIdentityBar(ChatRole::Client, *application->network,
+                            *application->aether);
+  CHECK(view.field_text == kIdentityBarRegistering);
+  CHECK(!view.copy_visible);
+  CHECK(view.join_visible);
+  CHECK(!view.join_enabled);
   CHECK(FeedListWasAtBottom(0, 10, 5));
   CHECK(FeedListWasAtBottom(4, 1, 5));
   CHECK(!FeedListWasAtBottom(0, 2, 10));
 }
 
-}  // namespace
 }  // namespace apptraverse::test
 
 int main() {
@@ -462,9 +468,9 @@ int main() {
     TestPresenceOverlaySurvivesOnlineClear();
     TestNewChatClientStartsUnknown();
     TestIncomingSharedCannotImportPresence();
-    TestReplayResetsRuntimePresenceUnknown();
+    TestReplayKeepsJournaledPresence();
     TestPresenceOverlayApplyUnchangedReturnsZero();
-    TestConnectionUiStatusFormatting();
+    TestIdentityBarProjectionHeadless();
     std::cout << "chat_presentation_headless_test OK\n";
     return 0;
   } catch (std::exception const& ex) {

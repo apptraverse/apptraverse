@@ -6,77 +6,125 @@
 #include <string>
 #include <utility>
 
-#include "chat_commands.h"
+#include "apptraverse/runtime_lifecycle.h"
 #include "chat_ids.h"
 #include "chat_log.h"
 
-namespace apptraverse {
+namespace chat {
+namespace {
 
-Application::ptr BuildChatGraph(ae::Domain& domain, std::string host_name) {
-  if (host_name.empty()) {
-    host_name = chat::kDefaultHostName;
+bool DirectoryHasEntries(std::filesystem::path const& dir) {
+  if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
+    return false;
   }
-  using chat::ChatObjId;
-  using chat::ToObjId;
+  return std::filesystem::directory_iterator{dir} !=
+         std::filesystem::directory_iterator{};
+}
 
-  auto application = Application::ptr::Create(
+}  // namespace
+
+ChatApplication::ptr BuildChatGraph(ae::Domain& domain,
+                                    ChatCreateOptions options) {
+  if (options.display_name.empty()) {
+    options.display_name = kDefaultHostName;
+  }
+
+  auto application = ChatApplication::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::Application)));
-  auto chat_room = ChatRoom::ptr::Create(
+  auto room = ChatRoom::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::ChatRoom)));
-  auto host_client = ChatClient::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::HostClient)));
-  auto host_name_obj = ImmutableString::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::HostDisplayName)));
-  host_name_obj->bytes = std::move(host_name);
-  host_client->display_name = host_name_obj;
+  auto runtime = ApplicationRuntimeState::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::ApplicationRuntime)));
+  auto network = NetworkState::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::NetworkState)));
+  auto aether = AetherRegistrationState::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::AetherRegistration)));
+  auto display_name = ImmutableString::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::LocalDisplayName)));
+  display_name->bytes = std::move(options.display_name);
 
-  auto local_aether = LocalAetherIdentity::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::LocalAetherIdentity)));
-  auto uid_placeholder = ImmutableString::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ChatObjId::LocalAetherUidText)));
-  uid_placeholder->bytes = "...";
-  local_aether->uid_text = uid_placeholder;
-
-  application->chat_room = chat_room;
-  application->host_client = host_client;
-  application->local_aether = local_aether;
+  application->room = room;
+  application->runtime = runtime;
+  application->network = network;
+  application->aether = aether;
+  application->local_display_name = display_name;
+  application->SetRole(options.role);
   return application;
 }
 
-void CommitHostJoin(Application& application) {
-  assert(application.chat_room.is_valid());
-  assert(application.host_client.is_valid());
-  CommitJoinChat(*application.chat_room, *application.host_client);
+ChatApplication::ptr BuildChatGraph(ae::Domain& domain,
+                                    std::string display_name) {
+  ChatCreateOptions options;
+  options.display_name = std::move(display_name);
+  return BuildChatGraph(domain, std::move(options));
 }
 
-void DistillChatModel(std::filesystem::path const& dir, std::string host_name) {
+bool HasChatApplicationState(std::filesystem::path const& dir) {
+  if (!std::filesystem::exists(dir)) {
+    return false;
+  }
+  auto const app_dir =
+      dir / std::to_string(ToObjId(ChatObjId::Application));
+  return std::filesystem::exists(app_dir);
+}
+
+void DistillChatModel(std::filesystem::path const& dir,
+                      std::string display_name) {
   std::filesystem::remove_all(dir);
-  DirectoryDomainStorage storage{dir};
+  apptraverse::DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, std::move(host_name));
-  FinalizeDistilledGraph(*application);
-  SaveDistilledRoot(*application);  // runtime-save-ok: distill
-  chat::ChatLog("distilled chat_ui_runtime_demo model to " + dir.string());
+  auto application = BuildChatGraph(domain, std::move(display_name));
+  apptraverse::FinalizeDistilledGraph(*application);
+  apptraverse::SaveDistilledRoot(*application);  // runtime-save-ok: distill
+  ChatLog("distilled chat model to " + dir.string());
 }
 
 ChatRuntime LoadChatModel(std::filesystem::path const& dir) {
-  if (!std::filesystem::exists(dir)) {
-    throw std::runtime_error("distilled state missing: " + dir.string());
+  if (!HasChatApplicationState(dir)) {
+    throw std::runtime_error("application state missing: " + dir.string());
   }
-  using chat::ChatObjId;
-  using chat::ToObjId;
 
   ChatRuntime runtime;
-  runtime.storage = std::make_unique<DirectoryDomainStorage>(dir);
-  runtime.ui_storage = std::make_unique<OverlayDomainStorage>(*runtime.storage);
-  runtime.model_domain =
-      std::make_unique<ae::Domain>(*runtime.storage);
-  runtime.ui_domain =
-      std::make_unique<ae::Domain>(*runtime.ui_storage);
-  runtime.application = LoadApplication<Application>(
+  runtime.storage =
+      std::make_unique<apptraverse::DirectoryDomainStorage>(dir);
+  runtime.ui_storage =
+      std::make_unique<apptraverse::OverlayDomainStorage>(*runtime.storage);
+  runtime.model_domain = std::make_unique<ae::Domain>(*runtime.storage);
+  runtime.ui_domain = std::make_unique<ae::Domain>(*runtime.ui_storage);
+  runtime.application = apptraverse::LoadApplication<ChatApplication>(
       *runtime.model_domain, ae::ObjId{ToObjId(ChatObjId::Application)});
-  ResetRuntimePresenceState(*runtime.application);
   return runtime;
 }
 
-}  // namespace apptraverse
+ChatRuntime CreateOrLoadChatModel(std::filesystem::path const& dir,
+                                  ChatCreateOptions options) {
+  if (HasChatApplicationState(dir)) {
+    ChatLog("LOAD_EXISTING_STATE dir=" + dir.string() +
+            " (CLI role/name ignored)");
+    return LoadChatModel(dir);
+  }
+  if (DirectoryHasEntries(dir) && !HasChatApplicationState(dir)) {
+    ChatLog("CREATE_GRAPH_IN_EXISTING_DIR dir=" + dir.string());
+  } else {
+    ChatLog("CREATE_NEW_STATE dir=" + dir.string());
+  }
+  std::filesystem::create_directories(dir);
+  {
+    apptraverse::DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = BuildChatGraph(domain, std::move(options));
+    apptraverse::FinalizeDistilledGraph(*application);
+    apptraverse::SaveDistilledRoot(*application);  // runtime-save-ok: first start
+    assert(application->room.is_valid());
+    assert(application->runtime.is_valid());
+    assert(application->network.is_valid());
+    assert(application->aether.is_valid());
+    assert(!application->local_client.is_valid());
+    assert(application->room->clients.empty());
+    assert(application->aether->GetPhase() ==
+           apptraverse::AetherRegistrationPhase::kRegistering);
+  }
+  return LoadChatModel(dir);
+}
+
+}  // namespace chat

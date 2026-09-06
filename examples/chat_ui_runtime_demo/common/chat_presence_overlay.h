@@ -1,22 +1,21 @@
-#ifndef APPTRAVERSE_CHAT_PRESENCE_OVERLAY_H_
-#define APPTRAVERSE_CHAT_PRESENCE_OVERLAY_H_
+#ifndef CHAT_PRESENCE_OVERLAY_H_
+#define CHAT_PRESENCE_OVERLAY_H_
 
 #include <cstddef>
 #include <string>
 
 #include "chat_presence.h"
 
-namespace apptraverse {
+namespace chat {
 
 class ChatRoom;
 
-// Local-only runtime Presence registry for the local Aether identity.
-// Shared journal replay must not become the source of Presence.
+// Local-only runtime Presence cache for the local Aether identity. Journaled
+// PresenceChangedEvent remains the source of truth.
 class ChatPresenceOverlay {
  public:
   void Clear() { local_self_ = PresenceState::kUnknown; }
 
-  // Returns true only when the stored value changes.
   bool SetLocalSelf(PresenceState state) {
     if (local_self_ == state) {
       return false;
@@ -27,8 +26,7 @@ class ChatPresenceOverlay {
 
   PresenceState LocalSelf() const { return local_self_; }
 
-  // Reseeds local ChatClient via LocalPresenceEvent (cache → Event apply).
-  // Returns 1 when Presence changed, else 0.
+  // Reseeds local ChatClient via PresenceChangedEvent Commit.
   std::size_t ApplyToRoom(ChatRoom& room,
                           std::string const& local_aether_uid) const;
 
@@ -36,6 +34,6 @@ class ChatPresenceOverlay {
   PresenceState local_self_{PresenceState::kUnknown};
 };
 
-}  // namespace apptraverse
+}  // namespace chat
 
-#endif  // APPTRAVERSE_CHAT_PRESENCE_OVERLAY_H_
+#endif  // CHAT_PRESENCE_OVERLAY_H_

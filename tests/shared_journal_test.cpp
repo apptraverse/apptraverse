@@ -28,6 +28,7 @@
 namespace {
 
 using namespace apptraverse;
+using namespace chat;
 
 #define REQUIRE(cond)                                                        \
   do {                                                                       \
@@ -85,7 +86,7 @@ SharedEventFrame FrameFromJournalRecord(ChatSharedBinding const& binding,
 std::string JournalEventTypeName(EventRecord const& record) {
   REQUIRE(record.event.is_valid());
   record.event.Load();
-  if (dynamic_cast<JoinEvent const*>(&*record.event) != nullptr) {
+  if (dynamic_cast<ClientAddedEvent const*>(&*record.event) != nullptr) {
     return "join";
   }
   if (dynamic_cast<ChatMessageEvent const*>(&*record.event) != nullptr) {
@@ -97,7 +98,7 @@ std::string JournalEventTypeName(EventRecord const& record) {
 std::string JournalAuthorUid(EventRecord const& record) {
   REQUIRE(record.event.is_valid());
   record.event.Load();
-  if (auto const* join = dynamic_cast<JoinEvent const*>(&*record.event)) {
+  if (auto const* join = dynamic_cast<ClientAddedEvent const*>(&*record.event)) {
     REQUIRE(join->client.is_valid());
     return join->client->AetherUidText();
   }
@@ -170,16 +171,16 @@ void RequireJournalSortedBySharedOrder(ChatRoom const& room) {
   }
 }
 
-Application::ptr MakeChatApp(ae::Domain& domain, std::string name,
+ChatApplication::ptr MakeChatApp(ae::Domain& domain, std::string name,
                              std::string uid) {
   EnsureChatRegistration();
   auto application = BuildChatGraph(domain, std::move(name));
   FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText(uid);
+  CreateUnjoinedLocalClient(*application, uid);
   return application;
 }
 
-ChatSharedBinding BindChat(Application& application, std::string uid) {
+ChatSharedBinding BindChat(ChatApplication& application, std::string uid) {
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, application, std::move(uid));
   return binding;
@@ -190,7 +191,7 @@ void test_pipeline_sends_multiple_without_ack() {
   ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
-  CommitLocalJoin(binding, *application->host_client);
+  CommitLocalJoin(binding, *application->local_client);
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
   auto* peer = binding.instance.FindPeer("host-uid");
   peer->channel_ready = true;
@@ -287,23 +288,26 @@ void test_local_commit_enqueues_other_peers() {
   REQUIRE(instance.peers.front().pending.size() == 1);
 }
 
-ChatRuntime MakeRuntime(std::filesystem::path const& dir, std::string name) {
+ChatRuntime MakeRuntime(std::filesystem::path const& dir, std::string name,
+                       std::string uid) {
   EnsureChatRegistration();
   std::filesystem::remove_all(dir);
   DistillChatModel(dir, std::move(name));
-  return LoadChatModel(dir);
+  auto runtime = LoadChatModel(dir);
+  CreateUnjoinedLocalClient(*runtime.application, std::move(uid));
+  return runtime;
 }
 
 void test_preconnect_local_journal() {
   auto const dir =
       std::filesystem::temp_directory_path() / "apptraverse-shared-journal-a";
-  auto runtime = MakeRuntime(dir, "Peer");
+  auto runtime = MakeRuntime(dir, "Peer", "alice-uid");
   ChatSharedBinding binding;
   binding.runtime = SharedRuntime{};
   InitializeChatSharedBinding(binding, *runtime.application, "alice-uid");
-  CommitLocalJoin(binding, *runtime.application->host_client);
-  CommitLocalMessage(binding, *runtime.application->host_client, "before");
-  REQUIRE(runtime.application->chat_room->feed.size() == 2);
+  CommitLocalJoin(binding, *runtime.application->local_client);
+  CommitLocalMessage(binding, *runtime.application->local_client, "before");
+  REQUIRE(runtime.application->room->feed.size() == 2);
   REQUIRE(binding.instance.node->journal.size() == 2);
   REQUIRE(binding.instance.node->journal[0].HasSharedIdentity());
   REQUIRE(binding.instance.node->journal[1].HasSharedIdentity());
@@ -319,8 +323,8 @@ void test_connect_creates_peer_seeds_opens_once() {
   ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  CommitLocalMessage(binding, *application->host_client, "client before");
+  CommitLocalJoin(binding, *application->local_client);
+  CommitLocalMessage(binding, *application->local_client, "client before");
 
   int open_count = 0;
   std::string opened;
@@ -350,7 +354,7 @@ void test_no_send_before_channel_ready() {
   ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
-  CommitLocalJoin(binding, *application->host_client);
+  CommitLocalJoin(binding, *application->local_client);
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
   RecordingTransport transport;
   TickSharedDelivery(binding, std::chrono::steady_clock::now(), &transport);
@@ -362,8 +366,8 @@ void test_stream_ready_sends_all_pending() {
   ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  CommitLocalMessage(binding, *application->host_client, "hello");
+  CommitLocalJoin(binding, *application->local_client);
+  CommitLocalMessage(binding, *application->local_client, "hello");
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
   SetSharedPeerChannelReady(binding, "host-uid", true);
   RecordingTransport transport;
@@ -381,8 +385,8 @@ void test_event_codec_roundtrip_join_and_message() {
   ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Alice", "alice-uid");
   auto binding = BindChat(*application, "alice-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  CommitLocalMessage(binding, *application->host_client, "hi");
+  CommitLocalJoin(binding, *application->local_client);
+  CommitLocalMessage(binding, *application->local_client, "hi");
 
   auto const& join_record = binding.instance.node->journal[0];
   auto const& msg_record = binding.instance.node->journal[1];
@@ -408,10 +412,10 @@ void test_event_codec_roundtrip_join_and_message() {
   ae::Domain domain2{storage2};
   auto application2 = MakeChatApp(domain2, "Bob", "bob-uid");
   Event::ptr remapped;
-  REQUIRE(DeserializeSharedEventPayload(*application2->chat_room, remapped,
+  REQUIRE(DeserializeSharedEventPayload(*application2->room, remapped,
                                        join_payload));
   remapped.Load();
-  auto* join = dynamic_cast<JoinEvent*>(&*remapped);
+  auto* join = dynamic_cast<ClientAddedEvent*>(&*remapped);
   REQUIRE(join != nullptr);
   REQUIRE(join->client->AetherUidText() == "alice-uid");
   REQUIRE(join->client->DisplayNameBytes() == "Alice");
@@ -422,13 +426,13 @@ void test_incoming_join_applies_and_acks() {
   ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
-  CommitLocalJoin(host, *host_app->host_client);
+  CommitLocalJoin(host, *host_app->local_client);
 
   ae::RamDomainStorage client_storage;
   ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
-  CommitLocalJoin(client, *client_app->host_client);
+  CommitLocalJoin(client, *client_app->local_client);
 
   SharedEventFrame frame = FrameFromJournalRecord(client, 0);
   std::string joined;
@@ -440,8 +444,8 @@ void test_incoming_join_applies_and_acks() {
   REQUIRE(applied == SharedApplyResult::Applied);
   REQUIRE(SharedApplyResultAllowsAck(applied));
   REQUIRE(joined == "client-uid");
-  REQUIRE(host_app->chat_room->clients.size() == 2);
-  REQUIRE(host_app->chat_room->feed.size() == 2);
+  REQUIRE(host_app->room->clients.size() == 2);
+  REQUIRE(host_app->room->feed.size() == 2);
 
   RecordingTransport transport;
   SendSharedAck(host, &transport, "client-uid", frame.event_id);
@@ -453,7 +457,7 @@ void test_incoming_join_applies_and_acks() {
   REQUIRE(SharedApplyResultAllowsAck(duplicate));
   SendSharedAck(host, &transport, "client-uid", frame.event_id);
   REQUIRE(transport.acks.size() == 2);
-  REQUIRE(host_app->chat_room->feed.size() == 2);
+  REQUIRE(host_app->room->feed.size() == 2);
 }
 
 void test_message_before_join_is_deferred_then_drained() {
@@ -461,14 +465,14 @@ void test_message_before_join_is_deferred_then_drained() {
   ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
-  CommitLocalJoin(host, *host_app->host_client);
+  CommitLocalJoin(host, *host_app->local_client);
 
   ae::RamDomainStorage client_storage;
   ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
-  CommitLocalJoin(client, *client_app->host_client);
-  CommitLocalMessage(client, *client_app->host_client, "early");
+  CommitLocalJoin(client, *client_app->local_client);
+  CommitLocalMessage(client, *client_app->local_client, "early");
 
   SharedEventFrame message_frame = FrameFromJournalRecord(client, 1);
   SharedEventFrame join_frame = FrameFromJournalRecord(client, 0);
@@ -479,7 +483,7 @@ void test_message_before_join_is_deferred_then_drained() {
   REQUIRE(!SharedApplyResultAllowsAck(deferred));
   REQUIRE(!host.instance.HasSharedEvent(message_frame.event_id));
   REQUIRE(host.instance.deferred.size() == 1);
-  REQUIRE(host_app->chat_room->feed.size() == 1);
+  REQUIRE(host_app->room->feed.size() == 1);
 
   RecordingTransport transport;
   // Deferred must not take the ACK path.
@@ -495,9 +499,9 @@ void test_message_before_join_is_deferred_then_drained() {
   REQUIRE(host.instance.HasSharedEvent(join_frame.event_id));
   REQUIRE(host.instance.HasSharedEvent(message_frame.event_id));
   REQUIRE(host.instance.deferred.empty());
-  REQUIRE(host_app->chat_room->clients.size() == 2);
-  REQUIRE(host_app->chat_room->feed.size() == 3);
-  REQUIRE(JournalMessageText(host_app->chat_room->journal.back()) == "early");
+  REQUIRE(host_app->room->clients.size() == 2);
+  REQUIRE(host_app->room->feed.size() == 3);
+  REQUIRE(JournalMessageText(host_app->room->journal.back()) == "early");
 }
 
 void test_ack_clears_in_flight_without_blocking_pipeline() {
@@ -505,9 +509,9 @@ void test_ack_clears_in_flight_without_blocking_pipeline() {
   ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  CommitLocalMessage(binding, *application->host_client, "a");
-  CommitLocalMessage(binding, *application->host_client, "b");
+  CommitLocalJoin(binding, *application->local_client);
+  CommitLocalMessage(binding, *application->local_client, "a");
+  CommitLocalMessage(binding, *application->local_client, "b");
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
   SetSharedPeerChannelReady(binding, "host-uid", true);
   RecordingTransport transport;
@@ -530,7 +534,7 @@ void test_retry_after_one_second() {
   ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
-  CommitLocalJoin(binding, *application->host_client);
+  CommitLocalJoin(binding, *application->local_client);
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
   SetSharedPeerChannelReady(binding, "host-uid", true);
   RecordingTransport transport;
@@ -551,7 +555,7 @@ void test_retry_skipped_while_offline() {
   ae::Domain domain{storage};
   auto application = MakeChatApp(domain, "Client", "client-uid");
   auto binding = BindChat(*application, "client-uid");
-  CommitLocalJoin(binding, *application->host_client);
+  CommitLocalJoin(binding, *application->local_client);
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
   // Channel down: retry must wait for transport reopen evidence.
   SetSharedPeerChannelReady(binding, "host-uid", false);
@@ -583,26 +587,23 @@ void test_objid_collision_remaps() {
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   // Host already has HostClient at fixed ObjId 100021.
   auto host = BindChat(*host_app, "host-uid");
-  CommitLocalJoin(host, *host_app->host_client);
+  CommitLocalJoin(host, *host_app->local_client);
 
   ae::RamDomainStorage client_storage;
   ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
-  CommitLocalJoin(client, *client_app->host_client);
-
-  // Both sides used the same distilled HostClient ObjId for their local user.
-  REQUIRE(host_app->host_client.id().id() == client_app->host_client.id().id());
+  CommitLocalJoin(client, *client_app->local_client);
 
   SharedEventFrame frame = FrameFromJournalRecord(client, 0);
   REQUIRE(ApplyIncomingSharedEvent(host, "client-uid", frame, {}) ==
           SharedApplyResult::Applied);
-  auto remote = host_app->chat_room->FindClientByAetherUid("client-uid");
+  auto remote = host_app->room->FindClientByAetherUid("client-uid");
   REQUIRE(remote.is_valid());
-  REQUIRE(remote.id().id() != host_app->host_client.id().id() ||
+  REQUIRE(remote.id().id() != host_app->local_client.id().id() ||
          remote->AetherUidText() == "client-uid");
   REQUIRE(remote->DisplayNameBytes() == "Client");
-  REQUIRE(host_app->host_client->DisplayNameBytes() == "Host");
+  REQUIRE(host_app->local_client->DisplayNameBytes() == "Host");
 }
 
 struct QueuedFrame {
@@ -659,7 +660,7 @@ void HandleQueuedFrame(ChatSharedBinding& binding, ISharedTransport* tx,
 }
 
 void RunFakeBridgeUntilIdle(ChatSharedBinding& host, ChatSharedBinding& client,
-                            Application& host_app, Application& client_app,
+                            ChatApplication& host_app, ChatApplication& client_app,
                             std::vector<QueuedFrame>& to_host,
                             std::vector<QueuedFrame>& to_client,
                             QueueTransport& host_transport,
@@ -683,8 +684,8 @@ void RunFakeBridgeUntilIdle(ChatSharedBinding& host, ChatSharedBinding& client,
 
     if (!host.instance.peers[0].HasOutstanding() &&
         !client.instance.peers[0].HasOutstanding() &&
-        host_app.chat_room->feed.size() == expected_feed_size &&
-        client_app.chat_room->feed.size() == expected_feed_size &&
+        host_app.room->feed.size() == expected_feed_size &&
+        client_app.room->feed.size() == expected_feed_size &&
         host.instance.deferred.empty() && client.instance.deferred.empty()) {
       return;
     }
@@ -697,15 +698,15 @@ void test_fake_bridge_converges() {
   ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
-  CommitLocalJoin(host, *host_app->host_client);
-  CommitLocalMessage(host, *host_app->host_client, "host before");
+  CommitLocalJoin(host, *host_app->local_client);
+  CommitLocalMessage(host, *host_app->local_client, "host before");
 
   ae::RamDomainStorage client_storage;
   ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
-  CommitLocalJoin(client, *client_app->host_client);
-  CommitLocalMessage(client, *client_app->host_client, "client before");
+  CommitLocalJoin(client, *client_app->local_client);
+  CommitLocalMessage(client, *client_app->local_client, "client before");
 
   std::vector<QueuedFrame> to_host;
   std::vector<QueuedFrame> to_client;
@@ -720,16 +721,16 @@ void test_fake_bridge_converges() {
   RunFakeBridgeUntilIdle(host, client, *host_app, *client_app, to_host,
                          to_client, host_transport, client_transport, 4);
 
-  REQUIRE(host_app->chat_room->clients.size() == 2);
-  REQUIRE(client_app->chat_room->clients.size() == 2);
-  REQUIRE(host_app->chat_room->feed.size() == 4);
-  REQUIRE(client_app->chat_room->feed.size() == 4);
+  REQUIRE(host_app->room->clients.size() == 2);
+  REQUIRE(client_app->room->clients.size() == 2);
+  REQUIRE(host_app->room->feed.size() == 4);
+  REQUIRE(client_app->room->feed.size() == 4);
   REQUIRE(host.instance.peers[0].pending.empty());
   REQUIRE(client.instance.peers[0].pending.empty());
   REQUIRE(!host.instance.peers[0].HasOutstanding());
   REQUIRE(!client.instance.peers[0].HasOutstanding());
-  RequireJournalsConverged(*host_app->chat_room, *client_app->chat_room);
-  RequireMembershipConverged(*host_app->chat_room, *client_app->chat_room);
+  RequireJournalsConverged(*host_app->room, *client_app->room);
+  RequireMembershipConverged(*host_app->room, *client_app->room);
 }
 
 void test_exact_journal_convergence_host_vs_client() {
@@ -737,15 +738,15 @@ void test_exact_journal_convergence_host_vs_client() {
   ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
-  CommitLocalJoin(host, *host_app->host_client);
-  CommitLocalMessage(host, *host_app->host_client, "from-host", 1'700'000'000'001LL);
+  CommitLocalJoin(host, *host_app->local_client);
+  CommitLocalMessage(host, *host_app->local_client, "from-host", 1'700'000'000'001LL);
 
   ae::RamDomainStorage client_storage;
   ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
-  CommitLocalJoin(client, *client_app->host_client);
-  CommitLocalMessage(client, *client_app->host_client, "from-client",
+  CommitLocalJoin(client, *client_app->local_client);
+  CommitLocalMessage(client, *client_app->local_client, "from-client",
                      1'700'000'000'002LL);
 
   std::vector<QueuedFrame> to_host;
@@ -761,14 +762,14 @@ void test_exact_journal_convergence_host_vs_client() {
   RunFakeBridgeUntilIdle(host, client, *host_app, *client_app, to_host,
                          to_client, host_transport, client_transport, 4);
 
-  RequireJournalsConverged(*host_app->chat_room, *client_app->chat_room);
-  RequireMembershipConverged(*host_app->chat_room, *client_app->chat_room);
-  RequireJournalSortedBySharedOrder(*host_app->chat_room);
-  RequireJournalSortedBySharedOrder(*client_app->chat_room);
-  REQUIRE(host_app->chat_room->journal.size() == 4);
+  RequireJournalsConverged(*host_app->room, *client_app->room);
+  RequireMembershipConverged(*host_app->room, *client_app->room);
+  RequireJournalSortedBySharedOrder(*host_app->room);
+  RequireJournalSortedBySharedOrder(*client_app->room);
+  REQUIRE(host_app->room->journal.size() == 4);
   std::size_t join_count = 0;
   std::size_t message_count = 0;
-  for (auto const& record : host_app->chat_room->journal) {
+  for (auto const& record : host_app->room->journal) {
     auto const type = JournalEventTypeName(record);
     if (type == "join") {
       ++join_count;
@@ -787,20 +788,20 @@ void test_interleaved_sent_at_converges_by_shared_order() {
   ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
-  CommitLocalJoin(host, *host_app->host_client);
+  CommitLocalJoin(host, *host_app->local_client);
   // Higher wall-clock first, then earlier wall-clock — SharedEventOrder uses
   // lamport, not sent_at.
-  CommitLocalMessage(host, *host_app->host_client, "host-late-wall",
+  CommitLocalMessage(host, *host_app->local_client, "host-late-wall",
                      9'000'000'000'000LL);
-  CommitLocalMessage(host, *host_app->host_client, "host-early-wall",
+  CommitLocalMessage(host, *host_app->local_client, "host-early-wall",
                      1'000'000'000'000LL);
 
   ae::RamDomainStorage client_storage;
   ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
-  CommitLocalJoin(client, *client_app->host_client);
-  CommitLocalMessage(client, *client_app->host_client, "client-mid-wall",
+  CommitLocalJoin(client, *client_app->local_client);
+  CommitLocalMessage(client, *client_app->local_client, "client-mid-wall",
                      5'000'000'000'000LL);
 
   std::vector<QueuedFrame> to_host;
@@ -816,13 +817,13 @@ void test_interleaved_sent_at_converges_by_shared_order() {
   RunFakeBridgeUntilIdle(host, client, *host_app, *client_app, to_host,
                          to_client, host_transport, client_transport, 5);
 
-  RequireJournalsConverged(*host_app->chat_room, *client_app->chat_room);
-  RequireMembershipConverged(*host_app->chat_room, *client_app->chat_room);
-  RequireJournalSortedBySharedOrder(*host_app->chat_room);
-  RequireJournalSortedBySharedOrder(*client_app->chat_room);
+  RequireJournalsConverged(*host_app->room, *client_app->room);
+  RequireMembershipConverged(*host_app->room, *client_app->room);
+  RequireJournalSortedBySharedOrder(*host_app->room);
+  RequireJournalSortedBySharedOrder(*client_app->room);
 
   // Local host commits stay in SharedEventOrder (lamport), not sent_at order.
-  auto const& host_journal = host_app->chat_room->journal;
+  auto const& host_journal = host_app->room->journal;
   std::vector<std::string> host_origin_texts;
   for (auto const& record : host_journal) {
     if (JournalAuthorUid(record) == "host-uid" &&
@@ -856,13 +857,13 @@ void test_simultaneous_local_messages_converge() {
   ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
-  CommitLocalJoin(host, *host_app->host_client);
+  CommitLocalJoin(host, *host_app->local_client);
 
   ae::RamDomainStorage client_storage;
   ae::Domain client_domain{client_storage};
   auto client_app = MakeChatApp(client_domain, "Client", "client-uid");
   auto client = BindChat(*client_app, "client-uid");
-  CommitLocalJoin(client, *client_app->host_client);
+  CommitLocalJoin(client, *client_app->local_client);
 
   ConnectToHostCommand(client, "host-uid", [](std::string const&) {});
   EnsureSharedPeer(host, "client-uid");
@@ -872,8 +873,8 @@ void test_simultaneous_local_messages_converge() {
   // Force identical lamport clocks so origin_uid breaks the tie.
   host.instance.lamport_clock = 100;
   client.instance.lamport_clock = 100;
-  CommitLocalMessage(host, *host_app->host_client, "H-simul", 50);
-  CommitLocalMessage(client, *client_app->host_client, "C-simul", 50);
+  CommitLocalMessage(host, *host_app->local_client, "H-simul", 50);
+  CommitLocalMessage(client, *client_app->local_client, "C-simul", 50);
   REQUIRE(host.instance.node->journal.back().order.lamport ==
           client.instance.node->journal.back().order.lamport);
 
@@ -883,10 +884,10 @@ void test_simultaneous_local_messages_converge() {
   QueueTransport client_transport{"client-uid", &to_host};
   RunFakeBridgeUntilIdle(host, client, *host_app, *client_app, to_host,
                          to_client, host_transport, client_transport, 4);
-  RequireJournalsConverged(*host_app->chat_room, *client_app->chat_room);
-  RequireMembershipConverged(*host_app->chat_room, *client_app->chat_room);
-  auto const& hj = host_app->chat_room->journal;
-  auto const& cj = client_app->chat_room->journal;
+  RequireJournalsConverged(*host_app->room, *client_app->room);
+  RequireMembershipConverged(*host_app->room, *client_app->room);
+  auto const& hj = host_app->room->journal;
+  auto const& cj = client_app->room->journal;
   REQUIRE(hj.size() == 4);
   REQUIRE(cj.size() == 4);
   // With equal lamport, lexicographic origin_uid: "client-uid" < "host-uid".

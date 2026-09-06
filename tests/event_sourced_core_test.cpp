@@ -9,9 +9,14 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 
+#include "apptraverse/event.h"
 #include "apptraverse/event_for.h"
+#include "apptraverse/node.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/presenter.h"
+#include "apptraverse/runtime_lifecycle.h"
+#include "apptraverse/runtime_node.h"
 #include "apptraverse/shared_event_order.h"
 
 namespace apptraverse::test {
@@ -206,12 +211,109 @@ void TestMonotonicTimestampWithoutSleep() {
   CHECK(doc->value == 20);
 }
 
+void TestStableClassIdsAreUnique() {
+  using apptraverse::Event;
+  using apptraverse::Node;
+  using apptraverse::Presenter;
+  using apptraverse::ApplicationRuntimeState;
+  using apptraverse::NetworkState;
+  using apptraverse::AetherRegistrationState;
+  using apptraverse::ApplicationStartedEvent;
+  using apptraverse::AetherRegistrationCompletedEvent;
+
+  CHECK(Node::kClassId == crc32::from_literal("apptraverse::Node").value);
+  CHECK(Event::kClassId == crc32::from_literal("apptraverse::Event").value);
+  CHECK(Presenter::kClassId ==
+        crc32::from_literal("apptraverse::Presenter").value);
+  CHECK(CounterDocument::kClassId ==
+        crc32::from_literal("apptraverse::CounterDocument").value);
+  CHECK(AddEvent::kClassId ==
+        crc32::from_literal("apptraverse::AddEvent").value);
+
+  CHECK(Node::kClassId != Event::kClassId);
+  CHECK(Node::kClassId != Presenter::kClassId);
+  CHECK(Event::kClassId != Presenter::kClassId);
+  CHECK(CounterDocument::kClassId != Node::kClassId);
+  CHECK(AddEvent::kClassId != Event::kClassId);
+
+  auto const named = crc32::from_literal("chat::ChatClient").value;
+  CHECK(named != Node::kClassId);
+  CHECK(named != Event::kClassId);
+  CHECK(named != CounterDocument::kClassId);
+
+  CHECK(ApplicationRuntimeState::kClassId ==
+        crc32::from_literal("apptraverse::ApplicationRuntimeState").value);
+  CHECK(NetworkState::kClassId ==
+        crc32::from_literal("apptraverse::NetworkState").value);
+  CHECK(AetherRegistrationState::kClassId ==
+        crc32::from_literal("apptraverse::AetherRegistrationState").value);
+  CHECK(ApplicationStartedEvent::kClassId ==
+        crc32::from_literal("apptraverse::ApplicationStartedEvent").value);
+  CHECK(AetherRegistrationCompletedEvent::kClassId ==
+        crc32::from_literal("apptraverse::AetherRegistrationCompletedEvent")
+            .value);
+  CHECK(ApplicationRuntimeState::kClassId != Node::kClassId);
+  CHECK(NetworkState::kClassId != ApplicationRuntimeState::kClassId);
+  CHECK(AetherRegistrationState::kClassId != NetworkState::kClassId);
+}
+
+void TestRuntimeSessionResetsObservations() {
+  using apptraverse::AetherRegistrationPhase;
+  using apptraverse::AetherRegistrationState;
+  using apptraverse::ApplicationRuntimeState;
+  using apptraverse::BeginRuntimeSession;
+  using apptraverse::CommitAetherRegistrationCompleted;
+  using apptraverse::CommitNetworkAvailable;
+  using apptraverse::CommitNetworkInterfaceUnavailable;
+  using apptraverse::InitializeRuntimeNode;
+  using apptraverse::NetworkAvailability;
+  using apptraverse::NetworkState;
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto runtime = ApplicationRuntimeState::ptr::Create(ae::CreateWith{domain});
+  auto network = NetworkState::ptr::Create(ae::CreateWith{domain});
+  auto aether = AetherRegistrationState::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*runtime);
+  InitializeRuntimeNode(*network);
+  InitializeRuntimeNode(*aether);
+
+  BeginRuntimeSession(*runtime, *network, *aether);
+  CHECK(runtime->run_id == 1);
+  CHECK(network->GetAvailability() == NetworkAvailability::kInitializing);
+  CHECK(aether->GetPhase() == AetherRegistrationPhase::kRegistering);
+  CHECK(!aether->IsRegisteredForCurrentRun());
+  CHECK(runtime->journal.size() == 1);
+  CHECK(network->journal.size() == 1);
+  CHECK(aether->journal.size() == 1);
+
+  CHECK(CommitNetworkAvailable(*network, runtime->run_id));
+  CHECK(CommitAetherRegistrationCompleted(*aether, "abc-uid"));
+  CHECK(aether->IsRegisteredForCurrentRun());
+  CHECK(aether->CurrentUid() == "abc-uid");
+  CHECK(network->GetAvailability() == NetworkAvailability::kAvailable);
+
+  BeginRuntimeSession(*runtime, *network, *aether);
+  CHECK(runtime->run_id == 2);
+  CHECK(network->GetAvailability() == NetworkAvailability::kInitializing);
+  CHECK(aether->GetPhase() == AetherRegistrationPhase::kRegistering);
+  CHECK(!aether->IsRegisteredForCurrentRun());
+  CHECK(aether->CurrentUid().empty());
+  CHECK(aether->uid == "abc-uid");
+
+  CHECK(CommitNetworkInterfaceUnavailable(*network, runtime->run_id));
+  CHECK(network->GetAvailability() ==
+        NetworkAvailability::kInterfaceUnavailable);
+  CHECK(!CommitNetworkInterfaceUnavailable(*network, runtime->run_id));
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestJournalCommitAndReplay();
   apptraverse::test::TestSaveLoad();
+  apptraverse::test::TestStableClassIdsAreUnique();
+  apptraverse::test::TestRuntimeSessionResetsObservations();
   apptraverse::test::TestMonotonicTimestampWithoutSleep();
   std::cout << "event_sourced_core_test OK\n";
   return 0;

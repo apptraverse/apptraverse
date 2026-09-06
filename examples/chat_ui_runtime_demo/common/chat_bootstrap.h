@@ -1,5 +1,5 @@
-#ifndef APPTRAVERSE_CHAT_BOOTSTRAP_H_
-#define APPTRAVERSE_CHAT_BOOTSTRAP_H_
+#ifndef CHAT_BOOTSTRAP_H_
+#define CHAT_BOOTSTRAP_H_
 
 #include <filesystem>
 #include <memory>
@@ -14,26 +14,39 @@
 #include "chat_ids.h"
 #include "chat_model.h"
 
-namespace apptraverse {
+namespace chat {
 
-struct ChatRuntime {
-  std::unique_ptr<DirectoryDomainStorage> storage;
-  std::unique_ptr<OverlayDomainStorage> ui_storage;
-  std::unique_ptr<ae::Domain> model_domain;
-  std::unique_ptr<ae::Domain> ui_domain;
-  Application::ptr application;
-  Application::ptr ui_application;
+struct ChatCreateOptions {
+  ChatRole role{ChatRole::Host};
+  std::string display_name;
 };
 
-Application::ptr BuildChatGraph(
-    ae::Domain& domain,
-    std::string host_name = std::string{chat::kDefaultHostName});
-void CommitHostJoin(Application& application);
-void DistillChatModel(
-    std::filesystem::path const& dir,
-    std::string host_name = std::string{chat::kDefaultHostName});
+struct ChatRuntime {
+  std::unique_ptr<apptraverse::DirectoryDomainStorage> storage;
+  std::unique_ptr<apptraverse::OverlayDomainStorage> ui_storage;
+  std::unique_ptr<ae::Domain> model_domain;
+  std::unique_ptr<ae::Domain> ui_domain;
+  ChatApplication::ptr application;
+  ChatApplication::ptr ui_application;
+};
+
+ChatApplication::ptr BuildChatGraph(
+    ae::Domain& domain, ChatCreateOptions options = {});
+ChatApplication::ptr BuildChatGraph(ae::Domain& domain, std::string display_name);
+
+bool HasChatApplicationState(std::filesystem::path const& dir);
+
+// Test helper: wipe dir and write a fresh unregistered graph.
+void DistillChatModel(std::filesystem::path const& dir,
+                      std::string display_name = std::string{kDefaultHostName});
+
 ChatRuntime LoadChatModel(std::filesystem::path const& dir);
 
-}  // namespace apptraverse
+// Ordinary startup: load existing application state, or create it. Never
+// deletes a non-empty directory.
+ChatRuntime CreateOrLoadChatModel(std::filesystem::path const& dir,
+                                  ChatCreateOptions options);
 
-#endif  // APPTRAVERSE_CHAT_BOOTSTRAP_H_
+}  // namespace chat
+
+#endif  // CHAT_BOOTSTRAP_H_

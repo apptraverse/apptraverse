@@ -1,5 +1,5 @@
-#ifndef APPTRAVERSE_CHAT_AETHER_RUNTIME_H_
-#define APPTRAVERSE_CHAT_AETHER_RUNTIME_H_
+#ifndef CHAT_AETHER_RUNTIME_H_
+#define CHAT_AETHER_RUNTIME_H_
 
 #include <atomic>
 #include <cstdint>
@@ -11,18 +11,22 @@
 #include <thread>
 #include <vector>
 
+#include "apptraverse/runtime_lifecycle.h"
 #include "chat_presence.h"
 
-namespace apptraverse {
+namespace chat {
 
 // Runs AetherApp on its own thread. Owns all P2pStream objects.
 // Model/UI threads only enqueue commands and receive UID-based callbacks.
-// Local Presence only: DiagnoseLocalPresence on this thread; no remote
-// QueryPeerPresence.
+// Local Presence diagnosis stays on this thread; PresenceChangedEvent is
+// committed on the Model thread after monitoring is enabled.
 class ChatAetherRuntime {
  public:
   using UidCallback = std::function<void(std::string uid_text)>;
+  using FailedCallback = std::function<void(std::string error)>;
   using PresenceCallback = std::function<void(PresenceState state)>;
+  using NetworkCallback =
+      std::function<void(apptraverse::NetworkAvailability availability)>;
   using PeerReadyCallback = std::function<void(std::string remote_uid)>;
   using PeerClosedCallback = std::function<void(std::string remote_uid)>;
   using PeerFrameCallback =
@@ -37,13 +41,14 @@ class ChatAetherRuntime {
   ChatAetherRuntime& operator=(ChatAetherRuntime const&) = delete;
 
   void Start(std::filesystem::path aether_state_dir, UidCallback on_uid,
-             PresenceCallback on_presence = {});
+             PresenceCallback on_presence = {}, FailedCallback on_failed = {},
+             NetworkCallback on_network = {});
+  void EnableLocalPresenceMonitoring();
   void SetPeerCallbacks(PeerReadyCallback on_ready,
                         PeerClosedCallback on_closed,
                         PeerFrameCallback on_frame);
   void SetPeerWriteFailedCallback(PeerWriteFailedCallback on_write_failed);
 
-  // Thread-safe: enqueue work for the Aether thread.
   void OpenPeer(std::string remote_uid);
   void SendPeerFrame(std::string remote_uid, std::vector<std::uint8_t> bytes);
   void ClosePeer(std::string remote_uid);
@@ -56,6 +61,7 @@ class ChatAetherRuntime {
     kOpenPeer = 1,
     kSendFrame = 2,
     kClosePeer = 3,
+    kEnablePresence = 4,
   };
 
   struct Command {
@@ -65,10 +71,12 @@ class ChatAetherRuntime {
   };
 
   void ThreadMain(std::filesystem::path aether_state_dir, UidCallback on_uid,
-                  PresenceCallback on_presence);
+                  PresenceCallback on_presence, FailedCallback on_failed,
+                  NetworkCallback on_network);
   void Enqueue(Command command);
 
   std::atomic<bool> stop_{false};
+  std::atomic<bool> presence_enabled_{false};
   std::thread thread_;
 
   std::mutex command_mu_;
@@ -81,6 +89,6 @@ class ChatAetherRuntime {
   PeerWriteFailedCallback on_peer_write_failed_;
 };
 
-}  // namespace apptraverse
+}  // namespace chat
 
-#endif  // APPTRAVERSE_CHAT_AETHER_RUNTIME_H_
+#endif  // CHAT_AETHER_RUNTIME_H_

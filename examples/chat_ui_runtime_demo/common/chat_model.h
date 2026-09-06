@@ -1,5 +1,5 @@
-#ifndef APPTRAVERSE_CHAT_MODEL_H_
-#define APPTRAVERSE_CHAT_MODEL_H_
+#ifndef CHAT_MODEL_H_
+#define CHAT_MODEL_H_
 
 #include <cstdint>
 #include <stdexcept>
@@ -12,23 +12,31 @@
 
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/runtime_lifecycle.h"
 
 #include "chat_ids.h"
 #include "chat_presence.h"
 
-namespace apptraverse {
+namespace chat {
+
+using apptraverse::AetherRegistrationState;
+using apptraverse::ApplicationRuntimeState;
+using apptraverse::NetworkState;
+using apptraverse::Node;
+using apptraverse::NodeFor;
 
 enum class ChatRole : std::uint32_t {
   Host = 0,
   Client = 1,
 };
 
-class JoinEvent;
+class ClientAddedEvent;
 class ChatMessageEvent;
-class LocalPresenceEvent;
+class PresenceChangedEvent;
+class PresenceMonitoringStartedEvent;
 
 class ImmutableString : public ae::Obj {
-  APPTRAVERSE_OBJECT(ImmutableString, ae::Obj, 0)
+  APPTRAVERSE_NAMED_OBJECT("chat::ImmutableString", ImmutableString, ae::Obj, 0)
 
  protected:
   ImmutableString() = default;
@@ -44,15 +52,13 @@ class ImmutableString : public ae::Obj {
 class ChatClient;
 class ChatFeedItem;
 class ChatRoom;
+class ChatApplication;
 
 inline constexpr std::uint32_t kChatFeedKindJoin = 1;
 inline constexpr std::uint32_t kChatFeedKindMessage = 2;
 
 class ChatClient : public NodeFor<ChatClient> {
-  // Version 1: presence presentation cache stored in `online` as PresenceState
-  // (uint8). Legacy bool false/true maps to Unknown/Online; runtime reset
-  // forces Unknown after load/replay.
-  APPTRAVERSE_OBJECT(ChatClient, Node, 1)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatClient", ChatClient, Node, 1)
 
  protected:
   ChatClient() = default;
@@ -60,33 +66,33 @@ class ChatClient : public NodeFor<ChatClient> {
  public:
   explicit ChatClient(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(display_name), AE_MMBR(aether_uid), AE_MMBR(online))
+  AE_OBJECT_REFLECT(AE_MMBR(display_name), AE_MMBR(aether_uid),
+                    AE_MMBR(presence))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv&) {
     throw std::runtime_error(
-        "ChatClient v0 is not supported; re-distill with a fresh state dir");
+        "ChatClient v0 is not supported; start with a fresh state dir");
   }
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
     Node::Load(ae::Version<1>{}, dnv);
-    dnv(display_name, aether_uid, online);
+    dnv(display_name, aether_uid, presence);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
     Node::Save(ae::Version<1>{}, dnv);
-    dnv(display_name, aether_uid, online);
+    dnv(display_name, aether_uid, presence);
   }
 
   ImmutableString::ptr display_name;
   ImmutableString::ptr aether_uid;
-  // Presentation cache only (PresenceState). Not journal/shared authority.
-  std::uint8_t online{static_cast<std::uint8_t>(PresenceState::kUnknown)};
+  std::uint8_t presence{static_cast<std::uint8_t>(PresenceState::kUnknown)};
 
   PresenceState GetPresence() const {
-    return static_cast<PresenceState>(online);
+    return static_cast<PresenceState>(presence);
   }
 
   std::string DisplayNameBytes() const {
@@ -114,21 +120,25 @@ class ChatClient : public NodeFor<ChatClient> {
     NoteMaterializedChange();
   }
 
+  // Not the authoritative Presence path. Use CommitPresenceChanged /
+  // CommitPresenceMonitoringStarted.
   void SetPresence(PresenceState value) {
     auto const raw = static_cast<std::uint8_t>(value);
-    if (online == raw) {
+    if (presence == raw) {
       return;
     }
-    online = raw;
+    presence = raw;
     NoteMaterializedChange();
   }
 
-  bool CanApply(LocalPresenceEvent const& event) const;
-  void Apply(LocalPresenceEvent const& event);
+  bool CanApply(PresenceChangedEvent const& event) const;
+  bool CanApply(PresenceMonitoringStartedEvent const& event) const;
+  void Apply(PresenceChangedEvent const& event);
+  void Apply(PresenceMonitoringStartedEvent const& event);
 };
 
 class ChatFeedItem : public ae::Obj {
-  APPTRAVERSE_OBJECT(ChatFeedItem, ae::Obj, 1)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatFeedItem", ChatFeedItem, ae::Obj, 1)
 
  protected:
   ChatFeedItem() = default;
@@ -169,9 +179,7 @@ class ChatFeedItem : public ae::Obj {
 };
 
 class ChatRoom : public NodeFor<ChatRoom> {
-  // Version 1: own Load/Save so CaptureBaseState/Rebuild keep clients/feed.
-  // (Inheriting only Node's versioned Save would drop derived fields.)
-  APPTRAVERSE_OBJECT(ChatRoom, Node, 1)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatRoom", ChatRoom, Node, 1)
 
  protected:
   ChatRoom() = default;
@@ -184,7 +192,7 @@ class ChatRoom : public NodeFor<ChatRoom> {
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv&) {
     throw std::runtime_error(
-        "ChatRoom v0 is not supported; re-distill with a fresh state dir");
+        "ChatRoom v0 is not supported; start with a fresh state dir");
   }
 
   template <typename Dnv>
@@ -202,93 +210,53 @@ class ChatRoom : public NodeFor<ChatRoom> {
   std::vector<ChatClient::ptr> clients;
   std::vector<ChatFeedItem::ptr> feed;
 
-  bool CanApply(JoinEvent const& event) const;
+  bool CanApply(ClientAddedEvent const& event) const;
   bool CanApply(ChatMessageEvent const& event) const;
-  void Apply(JoinEvent const& event);
+  void Apply(ClientAddedEvent const& event);
   void Apply(ChatMessageEvent const& event);
 
   bool HasClient(std::uint32_t client_id) const;
   bool HasClientByAetherUid(std::string const& uid) const;
   ChatClient::ptr FindClientByAetherUid(std::string const& uid) const;
-
-  // Force ChatRoom republication (e.g. after overlay presence updates that
-  // may no-op SetPresence when the value was already applied off-graph).
-  void NotifyPresentationChanged() { NoteMaterializedChange(); }
 };
 
-class LocalAetherIdentity : public NodeFor<LocalAetherIdentity> {
-  APPTRAVERSE_OBJECT(LocalAetherIdentity, Node, 1)
+class ChatApplication : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatApplication", ChatApplication, ae::Obj, 0)
 
  protected:
-  LocalAetherIdentity() = default;
+  ChatApplication() = default;
 
  public:
-  explicit LocalAetherIdentity(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit ChatApplication(ae::ObjProp prop) : Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(uid_text))
+  AE_OBJECT_REFLECT(AE_MMBR(room), AE_MMBR(local_client), AE_MMBR(runtime),
+                    AE_MMBR(network), AE_MMBR(aether),
+                    AE_MMBR(local_display_name), AE_MMBR(role))
 
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "LocalAetherIdentity v0 is not supported; re-distill with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
-    dnv(uid_text);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<1>{}, dnv);
-    dnv(uid_text);
-  }
-
-  ImmutableString::ptr uid_text;
-
-  std::string UidTextBytes() const {
-    if (!uid_text.is_valid()) {
-      return {};
-    }
-    uid_text.Load();
-    assert(uid_text.is_loaded());
-    return uid_text->bytes;
-  }
-
-  void SetUidTextBytes(std::string bytes) {
-    auto next = ImmutableString::ptr::Create(ae::CreateWith{*domain});
-    next->bytes = std::move(bytes);
-    uid_text = next;
-    NoteMaterializedChange();
-  }
-};
-
-class Application : public ae::Obj {
-  APPTRAVERSE_OBJECT(Application, ae::Obj, 0)
-
- protected:
-  Application() = default;
-
- public:
-  explicit Application(ae::ObjProp prop) : Obj{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(chat_room), AE_MMBR(host_client),
-                    AE_MMBR(local_aether), AE_MMBR(role))
-
-  ChatRoom::ptr chat_room;
-  ChatClient::ptr host_client;
-  LocalAetherIdentity::ptr local_aether;
+  ChatRoom::ptr room;
+  ChatClient::ptr local_client;
+  ApplicationRuntimeState::ptr runtime;
+  NetworkState::ptr network;
+  AetherRegistrationState::ptr aether;
+  ImmutableString::ptr local_display_name;
   std::uint32_t role{static_cast<std::uint32_t>(ChatRole::Host)};
 
   ChatRole GetRole() const { return static_cast<ChatRole>(role); }
 
   void SetRole(ChatRole value) { role = static_cast<std::uint32_t>(value); }
+
+  std::string LocalDisplayNameBytes() const {
+    if (!local_display_name.is_valid()) {
+      return {};
+    }
+    local_display_name.Load();
+    assert(local_display_name.is_loaded());
+    return local_display_name->bytes;
+  }
 };
 
 void EnsureChatRegistration();
 
-}  // namespace apptraverse
+}  // namespace chat
 
-#endif  // APPTRAVERSE_CHAT_MODEL_H_
+#endif  // CHAT_MODEL_H_

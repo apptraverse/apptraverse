@@ -1,67 +1,49 @@
-#ifndef APPTRAVERSE_CHAT_WIN_APP_H_
-#define APPTRAVERSE_CHAT_WIN_APP_H_
+#ifndef CHAT_WIN_APP_H_
+#define CHAT_WIN_APP_H_
 
-#include <chrono>
+#include <filesystem>
 #include <memory>
 
-#include "apptraverse/model_runtime.h"
+#include "apptraverse/runtime_lifecycle.h"
 #include "apptraverse/ui_mirror.h"
 
 #include "aether_runtime.h"
-#include "aether_shared_transport.h"
 #include "chat_bootstrap.h"
-#include "chat_connection_ui_state.h"
 #include "chat_model.h"
-#include "chat_shared.h"
 #include "ui_send_latency_tracker.h"
 #include "win_presenters.h"
 
-namespace apptraverse {
+namespace chat::win32 {
 
 class WinChatApp {
  public:
-  int Run(std::filesystem::path const& state_dir, ChatRole role,
-          std::string connect_host_uid = {});
+  int Run(std::filesystem::path const& state_dir, ChatCreateOptions create);
 
-  void OnPublished(std::uint32_t root_id, PublicationChannel<3>* channel);
-
-  // UI-thread handlers posted via the message-only dispatcher.
-  void OnUiConnectionReady();
-  void OnUiConnectionDisconnected();
-  void OnUiRuntimeDiag();
+  void OnPublished(std::uint32_t root_id,
+                   apptraverse::PublicationChannel<3>* channel);
 
  private:
-  void ApplyPublication(std::uint32_t root_id, PublicationChannel<3>* channel);
+  void ApplyPublication(std::uint32_t root_id,
+                        apptraverse::PublicationChannel<3>* channel);
   void RequestExit();
-  void OnPeerReady(std::string remote_uid);
-  void OnPeerClosed(std::string remote_uid);
-  void OnPeerWriteFailed(std::string remote_uid);
-  void OnPeerFrame(std::string remote_uid, std::vector<std::uint8_t> bytes);
-  void HandlePeerFrameOnModelThread(std::string remote_uid,
-                                    std::vector<std::uint8_t> bytes);
-  void TickDelivery();
-  void PostConnectionUiReady();
-  void PostConnectionUiDisconnected();
-  void PostRuntimeDiagFromModelThread();
+  void HandleAetherUidOnModelThread(std::string uid_text);
+  void HandleAetherFailedOnModelThread(std::string error);
+  void HandlePresenceOnModelThread(PresenceState state);
+  void HandleNetworkObservationOnModelThread(
+      apptraverse::NetworkAvailability availability);
 
   ChatRuntime runtime_;
-  std::unique_ptr<UiMirror> ui_mirror_;
-  std::unique_ptr<ModelRuntime> model_runtime_;
+  std::unique_ptr<apptraverse::UiMirror> ui_mirror_;
+  std::unique_ptr<apptraverse::ModelRuntime> model_runtime_;
   WinChatPresentationApplication::ptr presentation_;
   ChatAetherRuntime aether_runtime_;
-  std::unique_ptr<AetherSharedTransport> shared_transport_;
-  ChatSharedBinding shared_;
   UiSendLatencyTracker latency_tracker_;
   HWND dispatcher_{nullptr};
   DWORD ui_thread_{0};
   bool exiting_{false};
-  std::string pending_connect_host_uid_;
   std::filesystem::path state_dir_;
-  std::chrono::steady_clock::time_point last_delivery_tick_{};
-  ChatRuntimeDiagUiState pending_diag_{};
-  bool pending_diag_valid_{false};
 };
 
-}  // namespace apptraverse
+}  // namespace chat::win32
 
-#endif  // APPTRAVERSE_CHAT_WIN_APP_H_
+#endif  // CHAT_WIN_APP_H_

@@ -7,7 +7,7 @@
 
 #include "chat_model.h"
 
-namespace apptraverse {
+namespace chat {
 namespace {
 
 #if defined(_WIN32)
@@ -153,4 +153,4 @@ ChatPresentationSnapshot BuildChatPresentationSnapshot(
   return snapshot;
 }
 
-}  // namespace apptraverse
+}  // namespace chat

@@ -1,18 +1,20 @@
-#ifndef APPTRAVERSE_CHAT_PRESENCE_H_
-#define APPTRAVERSE_CHAT_PRESENCE_H_
+#ifndef CHAT_PRESENCE_H_
+#define CHAT_PRESENCE_H_
 
 #include <cstdint>
 #include <string>
 #include <string_view>
 
-namespace apptraverse {
+namespace chat {
 
-// Platform-neutral Presence for chat contacts. Local connectivity Presence is
-// diagnosed on the Aether thread and applied to ChatClient via LocalPresenceEvent.
+// Local connectivity Presence is diagnosed on the Aether thread and committed
+// to ChatClient as PresenceMonitoringStartedEvent / PresenceChangedEvent on
+// the Model thread.
 enum class PresenceState : std::uint8_t {
   kUnknown = 0,
   kOnline = 1,
   kOffline = 2,
+  kConnecting = 3,
 };
 
 inline char const* PresenceStateName(PresenceState state) noexcept {
@@ -21,6 +23,8 @@ inline char const* PresenceStateName(PresenceState state) noexcept {
       return "online";
     case PresenceState::kOffline:
       return "offline";
+    case PresenceState::kConnecting:
+      return "connecting";
     case PresenceState::kUnknown:
       return "unknown";
   }
@@ -33,6 +37,9 @@ inline PresenceState PresenceStateFromName(std::string_view name) noexcept {
   }
   if (name == "offline") {
     return PresenceState::kOffline;
+  }
+  if (name == "connecting") {
+    return PresenceState::kConnecting;
   }
   return PresenceState::kUnknown;
 }
@@ -59,6 +66,8 @@ inline std::wstring ContactPresencePrefix(PresenceState state) {
       return L"\u25CF ";
     case PresenceState::kOffline:
       return L"\u25CB ";
+    case PresenceState::kConnecting:
+      return L"\u25CC ";
     case PresenceState::kUnknown:
       return L"? ";
   }
@@ -70,6 +79,6 @@ inline std::wstring FormatContactPresenceLabel(PresenceState state,
   return ContactPresencePrefix(state) + name;
 }
 
-}  // namespace apptraverse
+}  // namespace chat
 
-#endif  // APPTRAVERSE_CHAT_PRESENCE_H_
+#endif  // CHAT_PRESENCE_H_

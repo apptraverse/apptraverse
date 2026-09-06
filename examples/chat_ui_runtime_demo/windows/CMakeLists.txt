@@ -10,6 +10,8 @@ target_link_libraries(win32_chat_ui_runtime_demo PRIVATE
   user32
   gdi32
   advapi32
+  wininet
+  comctl32
 )
 
 target_include_directories(win32_chat_ui_runtime_demo PRIVATE

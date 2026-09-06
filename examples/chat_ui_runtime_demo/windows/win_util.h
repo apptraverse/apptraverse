@@ -13,7 +13,7 @@
 
 #include <string>
 
-namespace apptraverse {
+namespace chat::win32 {
 
 inline constexpr UINT WM_APPTRAVERSE_PUBLISHED = WM_APP + 1;
 inline constexpr UINT WM_APPTRAVERSE_CONNECTION_UI = WM_APP + 2;
@@ -81,6 +81,6 @@ inline bool CopyWideTextToClipboard(HWND owner, std::wstring const& text) {
   return true;
 }
 
-}  // namespace apptraverse
+}  // namespace chat::win32
 
 #endif  // APPTRAVERSE_CHAT_WIN_UTIL_H_

@@ -1,5 +1,5 @@
-#ifndef APPTRAVERSE_CHAT_PRESENTATION_H_
-#define APPTRAVERSE_CHAT_PRESENTATION_H_
+#ifndef CHAT_PRESENTATION_H_
+#define CHAT_PRESENTATION_H_
 
 #include <cstdint>
 #include <functional>
@@ -10,7 +10,7 @@
 #include "chat_model.h"
 #include "chat_presence.h"
 
-namespace apptraverse {
+namespace chat {
 
 struct ChatFeedPresentationItem {
   std::uint32_t source_event_obj_id{0};
@@ -64,6 +64,6 @@ inline bool FeedListWasAtBottom(int top_index, int visible_items,
   return top_index + visible_items >= count - 1;
 }
 
-}  // namespace apptraverse
+}  // namespace chat
 
-#endif  // APPTRAVERSE_CHAT_PRESENTATION_H_
+#endif  // CHAT_PRESENTATION_H_

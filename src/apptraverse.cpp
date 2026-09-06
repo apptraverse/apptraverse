@@ -13,7 +13,9 @@ APPTRAVERSE_REGISTER(Presenter);
 
 }  // namespace
 
+void ForceLifecycleRegistration();
+
 // Forces the static library object file (and its Registrars) to be linked.
-void EnsureObjectRegistration() {}
+void EnsureObjectRegistration() { ForceLifecycleRegistration(); }
 
 }  // namespace apptraverse

@@ -1,7 +1,8 @@
-#ifndef APPTRAVERSE_CHAT_EVENTS_H_
-#define APPTRAVERSE_CHAT_EVENTS_H_
+#ifndef CHAT_EVENTS_H_
+#define CHAT_EVENTS_H_
 
 #include <cstdint>
+#include <string>
 
 #include "aether-objects/obj/obj.h"
 
@@ -9,16 +10,19 @@
 #include "apptraverse/object_macros.h"
 #include "chat_model.h"
 
-namespace apptraverse {
+namespace chat {
 
-class JoinEvent : public EventFor<ChatRoom, JoinEvent> {
-  APPTRAVERSE_OBJECT(JoinEvent, Event, 0)
+using apptraverse::Event;
+using apptraverse::EventFor;
+
+class ClientAddedEvent : public EventFor<ChatRoom, ClientAddedEvent> {
+  APPTRAVERSE_NAMED_OBJECT("chat::ClientAddedEvent", ClientAddedEvent, Event, 0)
 
  protected:
-  JoinEvent() = default;
+  ClientAddedEvent() = default;
 
  public:
-  explicit JoinEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit ClientAddedEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(client))
 
@@ -26,7 +30,7 @@ class JoinEvent : public EventFor<ChatRoom, JoinEvent> {
 };
 
 class ChatMessageEvent : public EventFor<ChatRoom, ChatMessageEvent> {
-  APPTRAVERSE_OBJECT(ChatMessageEvent, Event, 1)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatMessageEvent", ChatMessageEvent, Event, 1)
 
  protected:
   ChatMessageEvent() = default;
@@ -62,16 +66,15 @@ class ChatMessageEvent : public EventFor<ChatRoom, ChatMessageEvent> {
   std::int64_t sent_at_unix_ms{0};
 };
 
-// Runtime-only local connectivity Presence. Applied to ChatClient; not part of
-// the shared ChatRoom journal / P2P replication.
-class LocalPresenceEvent : public EventFor<ChatClient, LocalPresenceEvent> {
-  APPTRAVERSE_OBJECT(LocalPresenceEvent, Event, 0)
+class PresenceChangedEvent : public EventFor<ChatClient, PresenceChangedEvent> {
+  APPTRAVERSE_NAMED_OBJECT("chat::PresenceChangedEvent", PresenceChangedEvent,
+                           Event, 0)
 
  protected:
-  LocalPresenceEvent() = default;
+  PresenceChangedEvent() = default;
 
  public:
-  explicit LocalPresenceEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit PresenceChangedEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(presence))
 
@@ -86,6 +89,20 @@ class LocalPresenceEvent : public EventFor<ChatClient, LocalPresenceEvent> {
   }
 };
 
-}  // namespace apptraverse
+class PresenceMonitoringStartedEvent
+    : public EventFor<ChatClient, PresenceMonitoringStartedEvent> {
+  APPTRAVERSE_NAMED_OBJECT("chat::PresenceMonitoringStartedEvent",
+                           PresenceMonitoringStartedEvent, Event, 0)
 
-#endif  // APPTRAVERSE_CHAT_EVENTS_H_
+ protected:
+  PresenceMonitoringStartedEvent() = default;
+
+ public:
+  explicit PresenceMonitoringStartedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT()
+};
+
+}  // namespace chat
+
+#endif  // CHAT_EVENTS_H_

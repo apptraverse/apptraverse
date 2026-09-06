@@ -34,6 +34,7 @@
 namespace {
 
 using namespace apptraverse;
+using namespace chat;
 
 constexpr auto kTimeout = std::chrono::seconds{120};
 constexpr std::size_t kExpectedJournalSize = 6;  // 2 joins + 2 pre + 2 post
@@ -49,7 +50,7 @@ std::string JournalEventTypeName(EventRecord const& record) {
     return "unknown";
   }
   record.event.Load();
-  if (dynamic_cast<JoinEvent const*>(&*record.event) != nullptr) {
+  if (dynamic_cast<ClientAddedEvent const*>(&*record.event) != nullptr) {
     return "join";
   }
   if (dynamic_cast<ChatMessageEvent const*>(&*record.event) != nullptr) {
@@ -63,7 +64,7 @@ std::string JournalAuthorUid(EventRecord const& record) {
     return {};
   }
   record.event.Load();
-  if (auto const* join = dynamic_cast<JoinEvent const*>(&*record.event)) {
+  if (auto const* join = dynamic_cast<ClientAddedEvent const*>(&*record.event)) {
     if (!join->client.is_valid()) {
       return {};
     }
@@ -126,7 +127,7 @@ bool PeersIdle(ChatSharedBinding const& binding) {
 struct ModelSide {
   std::unique_ptr<DirectoryDomainStorage> storage;
   std::unique_ptr<ae::Domain> model_domain;
-  Application::ptr application;
+  ChatApplication::ptr application;
   ChatSharedBinding shared;
   ChatAetherRuntime aether;
   std::unique_ptr<AetherSharedTransport> transport;
@@ -226,9 +227,8 @@ void LoadModelOnly(ModelSide& side, std::filesystem::path const& dir) {
   side.storage = std::make_unique<DirectoryDomainStorage>(dir);
   side.model_domain =
       std::make_unique<ae::Domain>(*side.storage);
-  side.application = LoadApplication<Application>(
+  side.application = LoadApplication<ChatApplication>(
       *side.model_domain, ae::ObjId{ToObjId(ChatObjId::Application)});
-  ResetRuntimePresenceState(*side.application);
   side.transport = std::make_unique<AetherSharedTransport>(side.aether);
 }
 
@@ -263,7 +263,7 @@ void StartAether(ModelSide& side, std::filesystem::path const& aether_dir) {
       aether_dir,
       [&side](std::string uid_text) {
         side.Post([&, uid_text = std::move(uid_text)] {
-          SetLocalAetherUidText(*side.application->local_aether, uid_text);
+          CreateUnjoinedLocalClient(*side.application, uid_text);
           side.uid = std::move(uid_text);
           InitializeChatSharedBinding(side.shared, *side.application,
                                       side.uid);
@@ -274,7 +274,7 @@ void StartAether(ModelSide& side, std::filesystem::path const& aether_dir) {
         // Diagnose on Aether thread; apply LocalPresenceEvent on Model thread.
         side.Post([&, state] {
           static_cast<void>(
-              ApplyLocalPresenceEvent(*side.application->host_client, state));
+              CommitPresenceChanged(*side.application->local_client, state));
           static_cast<void>(side.shared.presence.SetLocalSelf(state));
         });
       });
@@ -304,7 +304,7 @@ void ShutdownSide(ModelSide& side) {
   side.aether.Join();
   side.Drain();
   if (side.application.is_valid()) {
-    ResetRuntimePresenceState(*side.application);
+    (void)side.application;
   }
 }
 
@@ -334,7 +334,7 @@ int main() {
   SetApplicationRole(*host.application, ChatRole::Host);
   SetApplicationRole(*client.application, ChatRole::Client);
 
-  chat::SetChatLogPath((root / "p2p_headless.log").string());
+  SetChatLogPath((root / "p2p_headless.log").string());
 
   ConnectionTrace trace;
   trace.Mark("start");
@@ -356,12 +356,14 @@ int main() {
   std::cout << "client_uid=" << client.uid << '\n';
 
   // Joins + optional pre-connect local messages (while still disconnected).
-  CommitLocalJoin(host.shared, *host.application->host_client);
-  CommitLocalMessage(host.shared, *host.application->host_client,
+  CommitLocalJoin(host.shared, *host.application->local_client);
+  CommitLocalMessage(host.shared, *host.application->local_client,
                      "host-pre-connect");
-  CommitLocalJoin(client.shared, *client.application->host_client);
-  CommitLocalMessage(client.shared, *client.application->host_client,
+  CommitLocalJoin(client.shared, *client.application->local_client);
+  CommitLocalMessage(client.shared, *client.application->local_client,
                      "client-pre-connect");
+  host.aether.EnableLocalPresenceMonitoring();
+  client.aether.EnableLocalPresenceMonitoring();
   trace.Mark("local_joins_and_pre_messages");
 
   ConnectToHostCommand(client.shared, host.uid,
@@ -383,10 +385,10 @@ int main() {
 
   // Wait until pre-connect journals converge (4 events: 2 joins + 2 msgs).
   if (!WaitUntil(deadline, host, client, [&] {
-        return host.application->chat_room->journal.size() >= 4 &&
-               client.application->chat_room->journal.size() >= 4 &&
-               JournalsConverged(*host.application->chat_room,
-                                 *client.application->chat_room);
+        return host.application->room->journal.size() >= 4 &&
+               client.application->room->journal.size() >= 4 &&
+               JournalsConverged(*host.application->room,
+                                 *client.application->room);
       })) {
     trace.Dump(std::cerr);
     ShutdownSide(host);
@@ -395,21 +397,21 @@ int main() {
   }
   trace.Mark("pre_converge");
 
-  CommitLocalMessage(host.shared, *host.application->host_client,
+  CommitLocalMessage(host.shared, *host.application->local_client,
                      "host-post-connect");
-  CommitLocalMessage(client.shared, *client.application->host_client,
+  CommitLocalMessage(client.shared, *client.application->local_client,
                      "client-post-connect");
   host.Tick();
   client.Tick();
   trace.Mark("post_messages");
 
   if (!WaitUntil(deadline, host, client, [&] {
-        return host.application->chat_room->journal.size() ==
+        return host.application->room->journal.size() ==
                    kExpectedJournalSize &&
-               client.application->chat_room->journal.size() ==
+               client.application->room->journal.size() ==
                    kExpectedJournalSize &&
-               JournalsConverged(*host.application->chat_room,
-                                 *client.application->chat_room) &&
+               JournalsConverged(*host.application->room,
+                                 *client.application->room) &&
                PeersIdle(host.shared) && PeersIdle(client.shared);
       })) {
     for (auto const& peer : host.shared.instance.peers) {
@@ -423,14 +425,14 @@ int main() {
                 << " channel_ready=" << peer.channel_ready << '\n';
     }
     std::cerr << "host journal size="
-              << host.application->chat_room->journal.size()
+              << host.application->room->journal.size()
               << " client journal size="
-              << client.application->chat_room->journal.size()
+              << client.application->room->journal.size()
               << " host_peers_idle=" << PeersIdle(host.shared)
               << " client_peers_idle=" << PeersIdle(client.shared)
               << " journals_match="
-              << JournalsConverged(*host.application->chat_room,
-                                   *client.application->chat_room)
+              << JournalsConverged(*host.application->room,
+                                   *client.application->room)
               << '\n';
     trace.Dump(std::cerr);
     ShutdownSide(host);

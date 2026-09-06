@@ -1,5 +1,5 @@
-#ifndef APPTRAVERSE_AETHER_SHARED_TRANSPORT_H_
-#define APPTRAVERSE_AETHER_SHARED_TRANSPORT_H_
+#ifndef CHAT_AETHER_SHARED_TRANSPORT_H_
+#define CHAT_AETHER_SHARED_TRANSPORT_H_
 
 #include <string>
 #include <vector>
@@ -9,10 +9,13 @@
 
 #include "aether_runtime.h"
 
-namespace apptraverse {
+namespace chat {
 
-// Model-thread transport: encode frames and queue them onto ChatAetherRuntime.
-// Never touches Aether objects directly.
+using apptraverse::ISharedTransport;
+using apptraverse::SharedAckFrame;
+using apptraverse::SharedEventFrame;
+using apptraverse::SharedTransportEnqueueResult;
+
 class AetherSharedTransport final : public ISharedTransport {
  public:
   explicit AetherSharedTransport(ChatAetherRuntime& runtime)
@@ -34,6 +37,6 @@ class AetherSharedTransport final : public ISharedTransport {
   ChatAetherRuntime& runtime_;
 };
 
-}  // namespace apptraverse
+}  // namespace chat
 
-#endif  // APPTRAVERSE_AETHER_SHARED_TRANSPORT_H_
+#endif  // CHAT_AETHER_SHARED_TRANSPORT_H_

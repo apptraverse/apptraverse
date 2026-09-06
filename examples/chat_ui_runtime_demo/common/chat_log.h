@@ -1,5 +1,5 @@
-#ifndef APPTRAVERSE_CHAT_LOG_H_
-#define APPTRAVERSE_CHAT_LOG_H_
+#ifndef CHAT_LOG_H_
+#define CHAT_LOG_H_
 
 #include <chrono>
 #include <fstream>
@@ -17,7 +17,7 @@
 #endif
 #endif
 
-namespace apptraverse::chat {
+namespace chat {
 namespace detail {
 
 inline std::mutex& LogMutex() {
@@ -89,6 +89,6 @@ inline void BeginChatSession() {
   ChatLog("APP_SESSION_START session_id=" + detail::SessionId());
 }
 
-}  // namespace apptraverse::chat
+}  // namespace chat
 
-#endif  // APPTRAVERSE_CHAT_LOG_H_
+#endif  // CHAT_LOG_H_

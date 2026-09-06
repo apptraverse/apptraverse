@@ -4,44 +4,21 @@
 #include <filesystem>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "apptraverse/distill.h"
 #include "apptraverse/graph_mirror.h"
-#include "apptraverse/shared_frame_codec.h"
 
 #include "chat_commands.h"
-#include "chat_connection_ui_state.h"
 #include "chat_ids.h"
 #include "chat_log.h"
 #include "chat_presence.h"
+#include "apptraverse/runtime_lifecycle.h"
 #include "win_util.h"
 
-namespace apptraverse {
+namespace chat::win32 {
 namespace {
 
-enum class UiNotifyKind : WPARAM {
-  ConnectionReady = 1,
-  ConnectionDisconnected = 2,
-  RuntimeDiag = 3,
-};
-
-std::string TrimAetherUid(std::string uid) {
-  while (!uid.empty() &&
-         (uid.back() == '\n' || uid.back() == '\r' || uid.back() == ' ' ||
-          uid.back() == '\t')) {
-    uid.pop_back();
-  }
-  std::size_t start = 0;
-  while (start < uid.size() &&
-         (uid[start] == ' ' || uid[start] == '\t')) {
-    ++start;
-  }
-  if (start > 0) {
-    uid.erase(0, start);
-  }
-  return uid;
-}
+using apptraverse::PublicationChannel;
 
 LRESULT CALLBACK DispatcherProc(HWND hwnd, UINT msg, WPARAM wparam,
                                 LPARAM lparam) {
@@ -61,81 +38,16 @@ LRESULT CALLBACK DispatcherProc(HWND hwnd, UINT msg, WPARAM wparam,
                      reinterpret_cast<PublicationChannel<3>*>(lparam));
     return 0;
   }
-  if (msg == WM_APPTRAVERSE_CONNECTION_UI) {
-    if (wparam == static_cast<WPARAM>(UiNotifyKind::ConnectionReady)) {
-      app->OnUiConnectionReady();
-    } else if (wparam ==
-               static_cast<WPARAM>(UiNotifyKind::ConnectionDisconnected)) {
-      app->OnUiConnectionDisconnected();
-    }
-    return 0;
-  }
-  if (msg == WM_APPTRAVERSE_RUNTIME_DIAG) {
-    app->OnUiRuntimeDiag();
-    return 0;
-  }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+bool HasPresentationState(std::filesystem::path const& dir) {
+  auto const pres_dir =
+      dir / std::to_string(ToObjId(ChatObjId::WinPresentationApplication));
+  return std::filesystem::exists(pres_dir);
+}
+
 }  // namespace
-
-void WinChatApp::OnUiConnectionReady() {
-  if (presentation_) {
-    presentation_->NotifyPeerReady();
-  }
-}
-
-void WinChatApp::OnUiConnectionDisconnected() {
-  if (presentation_) {
-    presentation_->NotifyPeerDisconnected();
-  }
-}
-
-
-void WinChatApp::OnUiRuntimeDiag() {
-  if (!presentation_ || !pending_diag_valid_) {
-    return;
-  }
-  presentation_->ApplyRuntimeDiag(pending_diag_);
-}
-
-void WinChatApp::PostConnectionUiReady() {
-  if (dispatcher_ != nullptr) {
-    PostMessageW(dispatcher_, WM_APPTRAVERSE_CONNECTION_UI,
-                 static_cast<WPARAM>(UiNotifyKind::ConnectionReady), 0);
-  }
-}
-
-void WinChatApp::PostConnectionUiDisconnected() {
-  if (dispatcher_ != nullptr) {
-    PostMessageW(dispatcher_, WM_APPTRAVERSE_CONNECTION_UI,
-                 static_cast<WPARAM>(UiNotifyKind::ConnectionDisconnected), 0);
-  }
-}
-
-
-void WinChatApp::PostRuntimeDiagFromModelThread() {
-#ifndef NDEBUG
-  ChatRuntimeDiagUiState diag;
-  if (runtime_.application && runtime_.application->chat_room.is_valid()) {
-    diag.journal_count = runtime_.application->chat_room->journal.size();
-  }
-  diag.pending_count = CountSharedPendingAndInFlight(shared_);
-  diag.peer_connected = false;
-  for (auto const& peer : shared_.instance.peers) {
-    if (peer.channel_ready) {
-      diag.peer_connected = true;
-      break;
-    }
-  }
-  pending_diag_ = diag;
-  pending_diag_valid_ = true;
-  if (dispatcher_ != nullptr) {
-    PostMessageW(dispatcher_, WM_APPTRAVERSE_RUNTIME_DIAG, 0, 0);
-  }
-#endif
-}
-
 
 void WinChatApp::OnPublished(std::uint32_t root_id,
                              PublicationChannel<3>* channel) {
@@ -154,14 +66,16 @@ void WinChatApp::ApplyPublication(std::uint32_t root_id,
   if (applied.root_id == 0) {
     return;
   }
-  auto const chat_id = chat::ToObjId(chat::ChatObjId::ChatRoom);
-  auto const aether_id = chat::ToObjId(chat::ChatObjId::LocalAetherIdentity);
-  if (presentation_ && (applied.root_id == chat_id ||
-                        applied.root_id == aether_id)) {
+  auto const chat_id = ToObjId(ChatObjId::ChatRoom);
+  auto const net_id = ToObjId(ChatObjId::NetworkState);
+  auto const aether_id = ToObjId(ChatObjId::AetherRegistration);
+  if (presentation_ &&
+      (applied.root_id == chat_id || applied.root_id == net_id ||
+       applied.root_id == aether_id)) {
     if (applied.root_id == chat_id &&
-        runtime_.ui_application->chat_room->clients.size() > 0) {
+        runtime_.ui_application->room->clients.size() > 0) {
       std::string contacts;
-      for (auto const& ui_client : runtime_.ui_application->chat_room->clients) {
+      for (auto const& ui_client : runtime_.ui_application->room->clients) {
         if (!ui_client.is_valid()) {
           continue;
         }
@@ -175,107 +89,76 @@ void WinChatApp::ApplyPublication(std::uint32_t root_id,
         contacts += '@';
         contacts += std::to_string(ui_client->Generation());
       }
-      chat::ChatLog("UI_PRESENCE contacts=" + contacts + " room_gen=" +
-                    std::to_string(runtime_.ui_application->chat_room->Generation()));
+      ChatLog("UI_PRESENCE contacts=" + contacts + " room_gen=" +
+              std::to_string(runtime_.ui_application->room->Generation()));
     }
     presentation_->PresentChatWindow();
   }
-  chat::ChatLog("ui apply root=" + std::to_string(applied.root_id) +
-                " changed=" + std::to_string(applied.changed_obj_ids.size()));
+  ChatLog("ui apply root=" + std::to_string(applied.root_id) +
+          " changed=" + std::to_string(applied.changed_obj_ids.size()));
 }
 
-void WinChatApp::TickDelivery() {
-  auto const now = std::chrono::steady_clock::now();
-  if (last_delivery_tick_.time_since_epoch().count() != 0 &&
-      now - last_delivery_tick_ < std::chrono::milliseconds{50}) {
-    return;
-  }
-  last_delivery_tick_ = now;
-  TickSharedDelivery(shared_, now, shared_transport_.get());
-  PostRuntimeDiagFromModelThread();
+void WinChatApp::HandleAetherUidOnModelThread(std::string uid_text) {
+  auto& app = *runtime_.application;
+  bool const created =
+      CompleteLocalRegistration(app, uid_text, model_runtime_.get());
+  ChatLog(std::string{"MODEL_REGISTRATION uid="} + uid_text +
+          " created=" + (created ? "1" : "0") + " phase=" +
+          std::to_string(static_cast<int>(app.aether->GetPhase())) +
+          " room_clients=" + std::to_string(app.room->clients.size()));
+  aether_runtime_.EnableLocalPresenceMonitoring();
 }
 
-void WinChatApp::OnPeerReady(std::string remote_uid) {
-  if (!model_runtime_) {
+void WinChatApp::HandleNetworkObservationOnModelThread(
+    apptraverse::NetworkAvailability availability) {
+  auto& app = *runtime_.application;
+  if (!app.network.is_valid() || !app.runtime.is_valid()) {
     return;
   }
-  model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
-    auto* peer = shared_.instance.FindPeer(remote_uid);
-    bool const was_ready = peer != nullptr && peer->channel_ready;
-    SetSharedPeerChannelReady(shared_, remote_uid, true);
-    if (!was_ready) {
-      TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
-                         shared_transport_.get());
-    }
-    PostConnectionUiReady();
-    PostRuntimeDiagFromModelThread();
-  });
+  auto const run = app.runtime->run_id;
+  bool committed = false;
+  switch (availability) {
+    case apptraverse::NetworkAvailability::kInterfaceUnavailable:
+      committed = apptraverse::CommitNetworkInterfaceUnavailable(*app.network,
+                                                                 run);
+      break;
+    case apptraverse::NetworkAvailability::kInternetUnavailable:
+      committed = apptraverse::CommitInternetUnavailable(*app.network, run);
+      break;
+    case apptraverse::NetworkAvailability::kAvailable:
+      committed = apptraverse::CommitNetworkAvailable(*app.network, run);
+      break;
+    case apptraverse::NetworkAvailability::kInitializing:
+      committed = apptraverse::CommitNetworkInitializing(*app.network, run);
+      break;
+  }
+  ChatLog(std::string{"MODEL_NETWORK availability="} +
+          std::to_string(static_cast<int>(availability)) +
+          " committed=" + (committed ? "1" : "0"));
 }
 
-void WinChatApp::OnPeerClosed(std::string remote_uid) {
-  if (!model_runtime_) {
-    return;
-  }
-  model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
-    SetSharedPeerChannelReady(shared_, remote_uid, false);
-    PostConnectionUiDisconnected();
-    PostRuntimeDiagFromModelThread();
-  });
+void WinChatApp::HandleAetherFailedOnModelThread(std::string error) {
+  ChatLog("MODEL_REGISTRATION_FAILED " + error);
+  HandleNetworkObservationOnModelThread(
+      apptraverse::NetworkAvailability::kInternetUnavailable);
 }
 
-void WinChatApp::OnPeerWriteFailed(std::string remote_uid) {
-  if (!model_runtime_) {
+void WinChatApp::HandlePresenceOnModelThread(PresenceState state) {
+  auto& app = *runtime_.application;
+  if (!app.local_client.is_valid()) {
     return;
   }
-  model_runtime_->Post([this, remote_uid = std::move(remote_uid)] {
-    (void)remote_uid;
-  });
-}
-
-void WinChatApp::OnPeerFrame(std::string remote_uid,
-                             std::vector<std::uint8_t> bytes) {
-  if (!model_runtime_) {
+  if (state != PresenceState::kOnline && state != PresenceState::kOffline) {
     return;
   }
-  model_runtime_->Post([this, remote_uid = std::move(remote_uid),
-                        bytes = std::move(bytes)]() mutable {
-    HandlePeerFrameOnModelThread(std::move(remote_uid), std::move(bytes));
-  });
-}
-
-
-void WinChatApp::HandlePeerFrameOnModelThread(
-    std::string remote_uid, std::vector<std::uint8_t> bytes) {
-  SharedEventFrame event_frame;
-  if (DecodeSharedEventFrame(bytes, event_frame)) {
-    auto const apply = ApplyIncomingSharedEvent(
-        shared_, remote_uid, event_frame,
-        [this](std::string const& client_uid) {
-          if (client_uid.empty() ||
-              client_uid == shared_.instance.local_aether_uid) {
-            return;
-          }
-          EnsureSharedPeer(shared_, client_uid);
-        },
-        [this](ChatClient& client) {
-          model_runtime_->AttachNode(client,
-                                     *runtime_.application->chat_room);
-        });
-    if (SharedApplyResultAllowsAck(apply)) {
-      SendSharedAck(shared_, shared_transport_.get(), remote_uid,
-                    event_frame.event_id);
-    }
-    TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
-                       shared_transport_.get());
-    return;
-  }
-  SharedAckFrame ack_frame;
-  if (DecodeSharedAckFrame(bytes, ack_frame)) {
-    HandleSharedAck(shared_, remote_uid, ack_frame);
-    // Immediately continue journal transfer in the same Model turn.
-    TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
-                       shared_transport_.get());
-  }
+  PresenceState const old_state = app.local_client->GetPresence();
+  bool const materialized = CommitPresenceChanged(*app.local_client, state);
+  ChatLog(std::string{"MODEL_PRESENCE local="} + PresenceStateName(state) +
+          " old=" + PresenceStateName(old_state) +
+          " materialized=" + (materialized ? "1" : "0") +
+          " via=PresenceChangedEvent client_gen=" +
+          std::to_string(app.local_client->Generation()) + " room_gen=" +
+          std::to_string(app.room->Generation()));
 }
 
 void WinChatApp::RequestExit() {
@@ -293,29 +176,33 @@ void WinChatApp::RequestExit() {
   PostQuitMessage(0);
 }
 
-int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
-                    std::string connect_host_uid) {
-  pending_connect_host_uid_ = std::move(connect_host_uid);
+int WinChatApp::Run(std::filesystem::path const& state_dir,
+                    ChatCreateOptions create) {
   state_dir_ = state_dir;
   EnsureChatRegistration();
   EnsureChatPresenterRegistration();
-  chat::SetChatLogPath((state_dir / "chat_runtime.log").string());
-  chat::BeginChatSession();
-  runtime_ = LoadChatModel(state_dir);
-  SetApplicationRole(*runtime_.application, role);
-  chat::ChatLog(
-      "HOST_OBJ host_client=" +
-      std::to_string(runtime_.application->host_client.id().id()) +
-      " room_client0=" +
-      (runtime_.application->chat_room->clients.empty()
-           ? std::string{"none"}
-           : std::to_string(
-                 runtime_.application->chat_room->clients[0].id().id())));
-  auto ui_root = CopyModelGraphToUiDomain(*runtime_.application,
-                                          *runtime_.ui_domain,
-                                          *runtime_.ui_storage);
-  runtime_.ui_application = Application::ptr::MakeFromThis(
-      static_cast<Application*>(ui_root.get()));
+  ChatLog("CHAT_RUNTIME_LOG " + (state_dir / "chat_runtime.log").string());
+  SetChatLogPath((state_dir / "chat_runtime.log").string());
+  BeginChatSession();
+  runtime_ = CreateOrLoadChatModel(state_dir, std::move(create));
+  BeginCurrentRun(*runtime_.application);
+  ChatLog(std::string{"APP_OBJ role="} +
+          (runtime_.application->GetRole() == ChatRole::Host ? "host"
+                                                             : "client") +
+          " name=" + runtime_.application->LocalDisplayNameBytes() +
+          " net=" +
+          std::to_string(static_cast<int>(
+              runtime_.application->network->GetAvailability())) +
+          " aether=" +
+          std::to_string(static_cast<int>(
+              runtime_.application->aether->GetPhase())) +
+          " room_clients=" +
+          std::to_string(runtime_.application->room->clients.size()));
+
+  auto ui_root = apptraverse::CopyModelGraphToUiDomain(
+      *runtime_.application, *runtime_.ui_domain, *runtime_.ui_storage);
+  runtime_.ui_application = ChatApplication::ptr::MakeFromThis(
+      static_cast<ChatApplication*>(ui_root.get()));
   ui_thread_ = GetCurrentThreadId();
 
   WNDCLASSW wc{};
@@ -325,15 +212,14 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
   if (RegisterClassW(&wc) == 0) {
     auto const err = GetLastError();
     if (err != ERROR_CLASS_ALREADY_EXISTS) {
-      chat::ChatLog("DISPATCHER_REGISTER_FAILED err=" + std::to_string(err));
+      ChatLog("DISPATCHER_REGISTER_FAILED err=" + std::to_string(err));
     }
   }
-  dispatcher_ = CreateWindowExW(0, L"AppTraverseChatUiDispatcher", L"", 0, 0, 0,
-                                0, 0, HWND_MESSAGE, nullptr,
+  dispatcher_ = CreateWindowExW(0, L"AppTraverseChatUiDispatcher", L"", 0, 0, 0, 0,
+                                0, HWND_MESSAGE, nullptr,
                                 GetModuleHandleW(nullptr), this);
   if (dispatcher_ == nullptr) {
-    chat::ChatLog("DISPATCHER_CREATE_FAILED err=" +
-                  std::to_string(GetLastError()));
+    ChatLog("DISPATCHER_CREATE_FAILED err=" + std::to_string(GetLastError()));
     return 3;
   }
 
@@ -347,121 +233,68 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
                  reinterpret_cast<LPARAM>(channel));
   };
 
-  ui_mirror_ = std::make_unique<UiMirror>(*runtime_.ui_domain,
-                                          *runtime_.ui_storage, notify);
-  model_runtime_ =
-      std::make_unique<ModelRuntime>(*runtime_.application, *ui_mirror_);
-  model_runtime_->AddPresentationRoot(*runtime_.application->chat_room);
-  model_runtime_->AddPresentationRoot(*runtime_.application->local_aether);
-  shared_transport_ = std::make_unique<AetherSharedTransport>(aether_runtime_);
+  ui_mirror_ = std::make_unique<apptraverse::UiMirror>(
+      *runtime_.ui_domain, *runtime_.ui_storage, notify);
+  model_runtime_ = std::make_unique<apptraverse::ModelRuntime>(
+      *runtime_.application, *ui_mirror_);
+  model_runtime_->AddPresentationRoot(*runtime_.application->room);
+  model_runtime_->AddPresentationRoot(*runtime_.application->network);
+  model_runtime_->AddPresentationRoot(*runtime_.application->aether);
 
-  auto const chat_room_id = chat::ToObjId(chat::ChatObjId::ChatRoom);
-  model_runtime_->SetUpdateObserver([this, chat_room_id](Node& node) {
-    if (node.obj_id.id() == chat_room_id) {
-      TickDelivery();
-    }
-  });
-
-  presentation_ = LoadApplication<WinChatPresentationApplication>(
-      *runtime_.ui_domain,
-      ae::ObjId{chat::ToObjId(chat::ChatObjId::WinPresentationApplication)});
+  if (HasPresentationState(state_dir)) {
+    presentation_ = apptraverse::LoadApplication<WinChatPresentationApplication>(
+        *runtime_.ui_domain,
+        ae::ObjId{ToObjId(ChatObjId::WinPresentationApplication)});
+  } else {
+    presentation_ =
+        BuildPresentationGraph(*runtime_.ui_domain, *runtime_.ui_application);
+    apptraverse::SaveDistilledRoot(*presentation_);  // runtime-save-ok: first start
+  }
   presentation_->chat_window->application = runtime_.ui_application;
-  presentation_->chat_window->room = runtime_.ui_application->chat_room;
-  presentation_->chat_window->identity = runtime_.ui_application->local_aether;
+  presentation_->chat_window->room = runtime_.ui_application->room;
+  presentation_->chat_window->network = runtime_.ui_application->network;
+  presentation_->chat_window->aether = runtime_.ui_application->aether;
   presentation_->latency_tracker = &latency_tracker_;
   presentation_->on_close = [this] { RequestExit(); };
   presentation_->on_chat_send = [this](ChatSendUiRequest request) {
     model_runtime_->Post([this, request = std::move(request)]() mutable {
-      auto result = CommitLocalMessage(shared_, *runtime_.application->host_client,
-                                       std::move(request.text),
-                                       request.sent_at_unix_ms);
-      if (result.committed && request.ui_trace_id != 0) {
-        latency_tracker_.BindEvent(request.ui_trace_id,
-                                   result.local_event_obj_id);
-      } else if (!result.committed && request.ui_trace_id != 0) {
-        latency_tracker_.Cancel(request.ui_trace_id);
+      if (!runtime_.application->local_client.is_valid()) {
+        return;
       }
-      TickSharedDelivery(shared_, std::chrono::steady_clock::now(),
-                         shared_transport_.get());
+      static_cast<void>(CommitSendChatMessage(
+          *runtime_.application->room, *runtime_.application->local_client,
+          std::move(request.text), request.sent_at_unix_ms));
     });
   };
-  presentation_->on_connect_host = [this](std::string host_uid) {
-    model_runtime_->Post([this, host_uid = std::move(host_uid)] {
-      ConnectToHostCommand(shared_, std::move(host_uid),
-                           [this](std::string const& peer_uid) {
-                             aether_runtime_.OpenPeer(peer_uid);
-                           });
-    });
+  presentation_->on_join_room = [] {
+    ChatLog("JOIN_ROOM action unimplemented");
   };
   presentation_->OnLoad();
   presentation_->PresentChatWindow();
 
   model_runtime_->Start();
 
-  aether_runtime_.SetPeerCallbacks(
-      [this](std::string remote_uid) { OnPeerReady(std::move(remote_uid)); },
-      [this](std::string remote_uid) { OnPeerClosed(std::move(remote_uid)); },
-      [this](std::string remote_uid, std::vector<std::uint8_t> bytes) {
-        OnPeerFrame(std::move(remote_uid), std::move(bytes));
-      });
-  aether_runtime_.SetPeerWriteFailedCallback(
-      [this](std::string remote_uid) {
-        OnPeerWriteFailed(std::move(remote_uid));
-      });
-
   auto aether_dir = state_dir / "aether";
   aether_runtime_.Start(
       aether_dir,
       [this](std::string uid_text) {
         model_runtime_->Post([this, uid_text = std::move(uid_text)] {
-          SetLocalAetherUidText(*runtime_.application->local_aether,
-                                std::move(uid_text));
-          InitializeChatSharedBinding(shared_, *runtime_.application,
-                                      runtime_.application->local_aether
-                                          ->UidTextBytes());
-          if (runtime_.application->chat_room->journal.empty()) {
-            CommitLocalJoin(shared_, *runtime_.application->host_client);
-          }
-          // Map room members onto the ChatRoom presentation root so presence
-          // SetPresence / overlay updates publish to the contacts list.
-          for (auto const& client : runtime_.application->chat_room->clients) {
-            if (!client.is_valid()) {
-              continue;
-            }
-            model_runtime_->AttachNode(*client,
-                                       *runtime_.application->chat_room);
-          }
-          if (!pending_connect_host_uid_.empty()) {
-            auto host_uid = std::move(pending_connect_host_uid_);
-            pending_connect_host_uid_.clear();
-            ConnectToHostCommand(shared_, std::move(host_uid),
-                                 [this](std::string const& peer_uid) {
-                                   aether_runtime_.OpenPeer(peer_uid);
-                                 });
-          }
+          HandleAetherUidOnModelThread(std::move(uid_text));
         });
       },
       [this](PresenceState state) {
-        // Presence is diagnosed on the Aether (network) thread; the Event is
-        // applied to ChatClient on the Model thread (domain ownership).
-        model_runtime_->Post([app = &*runtime_.application, state, this] {
-          PresenceState const old_state = app->host_client->GetPresence();
-          bool const materialized =
-              ApplyLocalPresenceEvent(*app->host_client, state);
-          static_cast<void>(shared_.presence.SetLocalSelf(state));
-          if (app->host_client.is_valid()) {
-            model_runtime_->AttachNode(*app->host_client, *app->chat_room);
-          }
-          chat::ChatLog(std::string{"MODEL_PRESENCE local="} +
-                        PresenceStateName(state) + " old=" +
-                        PresenceStateName(old_state) + " materialized=" +
-                        (materialized ? "1" : "0") +
-                        " via=LocalPresenceEvent host_gen=" +
-                        std::to_string(app->host_client->Generation()) +
-                        " room_gen=" +
-                        std::to_string(app->chat_room->Generation()) +
-                        " room_clients=" +
-                        std::to_string(app->chat_room->clients.size()));
+        model_runtime_->Post([this, state] {
+          HandlePresenceOnModelThread(state);
+        });
+      },
+      [this](std::string error) {
+        model_runtime_->Post([this, error = std::move(error)] {
+          HandleAetherFailedOnModelThread(std::move(error));
+        });
+      },
+      [this](apptraverse::NetworkAvailability availability) {
+        model_runtime_->Post([this, availability] {
+          HandleNetworkObservationOnModelThread(availability);
         });
       });
 
@@ -481,9 +314,8 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
     model_runtime_->RequestStop();
     model_runtime_->Join();
   }
-  ResetRuntimePresenceState(*runtime_.application);
-  SaveDistilledRoot(*runtime_.application);  // runtime-save-ok: shutdown
+  apptraverse::SaveDistilledRoot(*runtime_.application);  // runtime-save-ok: shutdown
   return static_cast<int>(msg.wParam);
 }
 
-}  // namespace apptraverse
+}  // namespace chat::win32

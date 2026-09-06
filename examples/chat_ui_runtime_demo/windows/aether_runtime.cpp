@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "aether/all.h"
 #include "ae-numeric/percentile.h"
@@ -17,9 +18,31 @@
 #include "chat_ids.h"
 #include "chat_log.h"
 #include "chat_presence.h"
+#include "apptraverse/runtime_lifecycle.h"
 
-namespace apptraverse {
+#ifdef _WIN32
+#include <wininet.h>
+#endif
+
+namespace chat {
 namespace {
+
+using apptraverse::NetworkAvailability;
+
+NetworkAvailability ObserveLocalNetwork() {
+#ifdef _WIN32
+  if ((GetSystemMetrics(SM_NETWORK) & 0x1) == 0) {
+    return NetworkAvailability::kInterfaceUnavailable;
+  }
+  DWORD inet_flags = 0;
+  if (InternetGetConnectedState(&inet_flags, 0) != TRUE) {
+    return NetworkAvailability::kInternetUnavailable;
+  }
+  return NetworkAvailability::kAvailable;
+#else
+  return NetworkAvailability::kAvailable;
+#endif
+}
 
 std::int64_t StartupEpochMs() {
   static auto const epoch = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -56,11 +79,11 @@ class LocalConnectivityMonitor {
       return;
     }
     last_reported_ = state;
-    chat::ChatLog(std::string{"LOCAL_CONNECTIVITY t_ms="} +
+    ChatLog(std::string{"LOCAL_CONNECTIVITY t_ms="} +
                   std::to_string(ElapsedSinceStartupMs()) +
                   " has_schedule=" + (diag.has_schedule ? "1" : "0") +
                   " any_online=" + (diag.any_online ? "1" : "0"));
-    chat::ChatLog(std::string{"LOCAL_PRESENCE state="} +
+    ChatLog(std::string{"LOCAL_PRESENCE state="} +
                   PresenceStateName(state));
     if (on_presence_) {
       on_presence_(state);
@@ -77,7 +100,7 @@ ae::AetherAppContext MakeAetherAppContext(
     std::shared_ptr<std::filesystem::path> const& state_dir_holder) {
   ae::AetherAppContext context{[state_dir_holder] {
     return std::unique_ptr<ae::IDomainStorage>{
-        std::make_unique<DirectoryDomainStorage>(*state_dir_holder)};
+        std::make_unique<apptraverse::DirectoryDomainStorage>(*state_dir_holder)};
   }};
 #if AE_DISTILLATION
   context = std::move(context).AddAdapterFactory(
@@ -122,7 +145,7 @@ class PeerStreamHub {
     inbound_sub_ = client_->message_stream_manager().new_port_event().Subscribe(
         [this](ae::P2pPortHandle handle) {
           auto const uid_text = ae::Format("{}", handle.destination());
-          chat::ChatLog("SHARED_STREAM_INBOUND peer=" + uid_text);
+          ChatLog("SHARED_STREAM_INBOUND peer=" + uid_text);
           AcceptInbound(std::move(handle));
         });
   }
@@ -142,7 +165,7 @@ class PeerStreamHub {
       return;
     }
     auto uid = ae::Uid::FromString(remote_uid);
-    chat::ChatLog("SHARED_STREAM_OPENING peer=" + remote_uid);
+    ChatLog("SHARED_STREAM_OPENING peer=" + remote_uid);
     auto handle = client_->message_stream_manager().CreatePort(uid);
     auto stream = std::make_shared<ae::P2pStream>(*aether_, client_.Load(), uid,
                                                   std::move(handle));
@@ -156,7 +179,7 @@ class PeerStreamHub {
     auto& state = peers_[remote_uid];
     if (!state.stream) {
       state.pending_out.push_back(std::move(bytes));
-      chat::ChatLog("SHARED_FRAME_QUEUED_NO_STREAM peer=" + remote_uid +
+      ChatLog("SHARED_FRAME_QUEUED_NO_STREAM peer=" + remote_uid +
                     " queued=" + std::to_string(state.pending_out.size()));
       return;
     }
@@ -171,7 +194,7 @@ class PeerStreamHub {
     it->second.stream.reset();
     it->second.write_subs.clear();
     peers_.erase(it);
-    chat::ChatLog("SHARED_STREAM_CLOSED peer=" + remote_uid);
+    ChatLog("SHARED_STREAM_CLOSED peer=" + remote_uid);
     if (on_closed_) {
       on_closed_(remote_uid);
     }
@@ -181,18 +204,18 @@ class PeerStreamHub {
   void WriteNow(std::string const& remote_uid, PeerStreamState& state,
                 std::vector<std::uint8_t> bytes) {
     assert(state.stream);
-    chat::ChatLog("SHARED_P2P_WRITE peer=" + remote_uid +
+    ChatLog("SHARED_P2P_WRITE peer=" + remote_uid +
                   " bytes=" + std::to_string(bytes.size()));
     ae::DataBuffer buffer{bytes.begin(), bytes.end()};
     auto& action = state.stream->Write(std::move(buffer));
     state.write_subs.push_back(action.status_event().Subscribe(
         [this, remote_uid](ae::WriteAction::Status status) {
           if (status == ae::WriteAction::Status::kSuccess) {
-            chat::ChatLog("SHARED_P2P_WRITE_OK peer=" + remote_uid);
+            ChatLog("SHARED_P2P_WRITE_OK peer=" + remote_uid);
             return;
           }
           if (status == ae::WriteAction::Status::kFail) {
-            chat::ChatLog("SHARED_P2P_WRITE_FAIL peer=" + remote_uid);
+            ChatLog("SHARED_P2P_WRITE_FAIL peer=" + remote_uid);
             auto it = peers_.find(remote_uid);
             if (it != peers_.end()) {
               it->second.ready = false;
@@ -223,7 +246,7 @@ class PeerStreamHub {
     }
     auto it = peers_.find(uid_text);
     if (it != peers_.end() && it->second.stream && !it->second.inbound) {
-      chat::ChatLog("SHARED_STREAM_DUPLICATE_IGNORED peer=" + uid_text);
+      ChatLog("SHARED_STREAM_DUPLICATE_IGNORED peer=" + uid_text);
       return;
     }
     auto stream = std::make_shared<ae::P2pStream>(
@@ -265,11 +288,11 @@ class PeerStreamHub {
               on_ready_(remote_uid);
             }
           }
-          chat::ChatLog("SHARED_STREAM_UPDATE peer=" + remote_uid);
+          ChatLog("SHARED_STREAM_UPDATE peer=" + remote_uid);
         });
     peers_[remote_uid] = std::move(state);
     FlushPending(remote_uid, peers_[remote_uid]);
-    chat::ChatLog("SHARED_STREAM_READY peer=" + remote_uid);
+    ChatLog("SHARED_STREAM_READY peer=" + remote_uid);
     if (on_ready_) {
       on_ready_(remote_uid);
     }
@@ -295,13 +318,21 @@ ChatAetherRuntime::~ChatAetherRuntime() {
 
 void ChatAetherRuntime::Start(std::filesystem::path aether_state_dir,
                               UidCallback on_uid,
-                              PresenceCallback on_presence) {
+                              PresenceCallback on_presence,
+                              FailedCallback on_failed,
+                              NetworkCallback on_network) {
   RequestStop();
   Join();
   stop_ = false;
+  presence_enabled_ = false;
   thread_ = std::thread(&ChatAetherRuntime::ThreadMain, this,
                         std::move(aether_state_dir), std::move(on_uid),
-                        std::move(on_presence));
+                        std::move(on_presence), std::move(on_failed),
+                        std::move(on_network));
+}
+
+void ChatAetherRuntime::EnableLocalPresenceMonitoring() {
+  Enqueue(Command{.type = CommandType::kEnablePresence});
 }
 
 void ChatAetherRuntime::SetPeerCallbacks(PeerReadyCallback on_ready,
@@ -355,23 +386,36 @@ void ChatAetherRuntime::Join() {
 
 void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
                                    UidCallback on_uid,
-                                   PresenceCallback on_presence) {
+                                   PresenceCallback on_presence,
+                                   FailedCallback on_failed,
+                                   NetworkCallback on_network) {
   try {
     std::filesystem::create_directories(aether_state_dir);
     auto state_dir_holder =
         std::make_shared<std::filesystem::path>(std::move(aether_state_dir));
     auto aether_app = ae::AetherApp::Construct(MakeAetherAppContext(state_dir_holder));
 
+    auto const observed = ObserveLocalNetwork();
+    ChatLog(std::string{"NETWORK_OBSERVED availability="} +
+            std::to_string(static_cast<int>(observed)));
+    if (on_network && observed != NetworkAvailability::kAvailable) {
+      on_network(observed);
+    }
+
     auto const parent =
-        ae::Uid::FromString(std::string{chat::kAetherParentUid});
+        ae::Uid::FromString(std::string{kAetherParentUid});
     ae::Client::ptr client;
     auto& select =
-        aether_app->aether()->SelectClient(parent, chat::kAetherClientName);
+        aether_app->aether()->SelectClient(parent, kAetherClientName);
     select.result_event().Subscribe(
         [&](ae::Result<ae::Client::ptr, int> const& res) {
           if (!res) {
-            chat::ChatLog("aether SelectClient failed code=" +
-                          std::to_string(res.error()));
+            ChatLog("aether SelectClient failed code=" +
+                    std::to_string(res.error()));
+            if (on_failed) {
+              on_failed("SelectClient failed code=" +
+                        std::to_string(res.error()));
+            }
             aether_app->Exit(1);
             return;
           }
@@ -379,16 +423,23 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
         });
     aether_app->WaitActions(select);
     if (!client) {
-      chat::ChatLog("aether client missing after SelectClient");
+      ChatLog("aether client missing after SelectClient");
+      if (on_failed) {
+        on_failed("aether client missing after SelectClient");
+      }
       return;
     }
 
+    if (on_network) {
+      on_network(NetworkAvailability::kAvailable);
+    }
+
     std::string const uid_text = ae::Format("{}", client->uid());
-    chat::ChatLog("AETHER_CLIENT_READY t_ms=" +
+    ChatLog("AETHER_CLIENT_READY t_ms=" +
                   std::to_string(ElapsedSinceStartupMs()) + " uid=" + uid_text);
 
     static_cast<void>(client->cloud_connection());
-    chat::ChatLog("AETHER_CLOUD_CONNECTION t_ms=" +
+    ChatLog("AETHER_CLOUD_CONNECTION t_ms=" +
                   std::to_string(ElapsedSinceStartupMs()));
 
     // Match examples/aether_presence_monitor: 1s ping / 1s window / 1s offline.
@@ -412,16 +463,16 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
         policy->ConfigureServerRxTiming(
             server->server_id(), conf, ae::Percentile::FromPercent(99.0));
       }
-      chat::ChatLog("AETHER_RX_SCHEDULE_SET t_ms=" +
+      ChatLog("AETHER_RX_SCHEDULE_SET t_ms=" +
                     std::to_string(ElapsedSinceStartupMs()) +
                     " ping_ms=1000 window_ms=1000 offline_ms=1000");
     } else {
-      chat::ChatLog("aether connectivity_policy missing; presence timings not set");
+      ChatLog("aether connectivity_policy missing; presence timings not set");
     }
 
     aether_app->aether().Save();  // runtime-save-ok
 
-    chat::ChatLog("aether client uid=" + uid_text);
+    ChatLog("aether client uid=" + uid_text);
     {
       auto uid_path = *state_dir_holder / "last_uid.txt";
       std::ofstream out{uid_path, std::ios::out | std::ios::trunc};
@@ -475,13 +526,18 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
             case CommandType::kClosePeer:
               hub.ClosePeer(cmd.remote_uid);
               break;
+            case CommandType::kEnablePresence:
+              presence_enabled_ = true;
+              break;
           }
         }
       }
 
       auto const now = ae::Now();
       auto next = aether_app->Update(now);
-      presence.Tick(ae::Now());
+      if (presence_enabled_) {
+        presence.Tick(ae::Now());
+      }
       if (stop_) {
         break;
       }
@@ -494,10 +550,10 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
     aether_app->aether().Save();  // runtime-save-ok
     aether_app->Exit(0);
   } catch (std::exception const& ex) {
-    chat::ChatLog(std::string{"aether runtime exception: "} + ex.what());
+    ChatLog(std::string{"aether runtime exception: "} + ex.what());
   } catch (...) {
-    chat::ChatLog("aether runtime unknown exception");
+    ChatLog("aether runtime unknown exception");
   }
 }
 
-}  // namespace apptraverse
+}  // namespace chat

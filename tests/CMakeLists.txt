@@ -143,6 +143,7 @@ if(WIN32)
     user32
     gdi32
     advapi32
+    wininet
   )
 
   target_include_directories(apptraverse_chat_p2p_headless_test PRIVATE
@@ -161,16 +162,19 @@ if(WIN32)
 
   add_executable(apptraverse_chat_win32_ui_smoke_test
     chat_win32_ui_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows/win_presenters.cpp
   )
 
   target_link_libraries(apptraverse_chat_win32_ui_smoke_test PRIVATE
     chat_ui_runtime_demo_common
     user32
     gdi32
+    comctl32
   )
 
   target_include_directories(apptraverse_chat_win32_ui_smoke_test PRIVATE
     ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows
   )
 
   if(MSVC)

@@ -4,7 +4,7 @@
 
 #include "chat_events.h"
 
-namespace apptraverse {
+namespace chat {
 
 bool ChatRoom::HasClient(std::uint32_t client_id) const {
   for (auto const& client : clients) {
@@ -36,7 +36,7 @@ ChatClient::ptr ChatRoom::FindClientByAetherUid(std::string const& uid) const {
   return {};
 }
 
-bool ChatRoom::CanApply(JoinEvent const& event) const {
+bool ChatRoom::CanApply(ClientAddedEvent const& event) const {
   if (!event.client.is_valid()) {
     return false;
   }
@@ -52,7 +52,7 @@ bool ChatRoom::CanApply(ChatMessageEvent const& event) const {
          HasClient(event.author.id().id());
 }
 
-void ChatRoom::Apply(JoinEvent const& event) {
+void ChatRoom::Apply(ClientAddedEvent const& event) {
   assert(CanApply(event));
   clients.push_back(event.client);
   auto item = ChatFeedItem::ptr::Create(ae::CreateWith{*domain});
@@ -74,13 +74,25 @@ void ChatRoom::Apply(ChatMessageEvent const& event) {
   NoteMaterializedChange();
 }
 
-bool ChatClient::CanApply(LocalPresenceEvent const& event) const {
+bool ChatClient::CanApply(PresenceChangedEvent const& event) const {
   return GetPresence() != event.GetPresence();
 }
 
-void ChatClient::Apply(LocalPresenceEvent const& event) {
-  assert(CanApply(event));
-  SetPresence(event.GetPresence());
+bool ChatClient::CanApply(PresenceMonitoringStartedEvent const&) const {
+  return GetPresence() != PresenceState::kConnecting;
 }
 
-}  // namespace apptraverse
+void ChatClient::Apply(PresenceChangedEvent const& event) {
+  assert(CanApply(event));
+  presence = static_cast<std::uint8_t>(event.GetPresence());
+  NoteMaterializedChange();
+}
+
+void ChatClient::Apply(PresenceMonitoringStartedEvent const& event) {
+  assert(CanApply(event));
+  (void)event;
+  presence = static_cast<std::uint8_t>(PresenceState::kConnecting);
+  NoteMaterializedChange();
+}
+
+}  // namespace chat

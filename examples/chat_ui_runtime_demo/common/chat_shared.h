@@ -1,13 +1,16 @@
-#ifndef APPTRAVERSE_CHAT_SHARED_H_
-#define APPTRAVERSE_CHAT_SHARED_H_
+#ifndef CHAT_SHARED_H_
+#define CHAT_SHARED_H_
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
 
+#include "apptraverse/event.h"
 #include "apptraverse/shared_event_id.h"
+#include "apptraverse/shared_frame_codec.h"
 #include "apptraverse/shared_instance.h"
 #include "apptraverse/shared_runtime.h"
 #include "apptraverse/shared_transport.h"
@@ -16,7 +19,15 @@
 #include "chat_presence.h"
 #include "chat_presence_overlay.h"
 
-namespace apptraverse {
+namespace chat {
+
+using apptraverse::Event;
+using apptraverse::ISharedTransport;
+using apptraverse::SharedAckFrame;
+using apptraverse::SharedEventFrame;
+using apptraverse::SharedEventId;
+using apptraverse::SharedInstance;
+using apptraverse::SharedRuntime;
 
 struct ChatSharedBinding {
   SharedInstance<ChatRoom> instance;
@@ -44,7 +55,8 @@ inline bool SharedApplyResultAllowsAck(SharedApplyResult result) noexcept {
 
 using OnNewChatClientFn = std::function<void(ChatClient& client)>;
 
-void InitializeChatSharedBinding(ChatSharedBinding& binding, Application& app,
+void InitializeChatSharedBinding(ChatSharedBinding& binding,
+                                 ChatApplication& app,
                                  std::string local_aether_uid);
 
 void CommitLocalJoin(ChatSharedBinding& binding, ChatClient& client);
@@ -58,9 +70,8 @@ SharedApplyResult ApplyIncomingSharedEvent(
     std::function<void(std::string const& client_uid)> on_join_client = {},
     OnNewChatClientFn on_new_client = {});
 
-// Creates/ensures Peer, seeds pending from Node journal. Does NOT open Aether
-// streams and does NOT set channel_ready / online.
-void EnsureSharedPeer(ChatSharedBinding& binding, std::string const& remote_uid);
+void EnsureSharedPeer(ChatSharedBinding& binding,
+                      std::string const& remote_uid);
 
 using OpenPeerRequestFn = std::function<void(std::string const& remote_uid)>;
 
@@ -76,11 +87,8 @@ bool SetLocalPresenceObservation(ChatSharedBinding& binding,
 void RequeueInFlightAfterWriteFailed(ChatSharedBinding& binding,
                                      std::string const& remote_uid);
 
-// Returns number of ChatClient presentation values that changed. Does not
-// unconditionally notify the ChatRoom.
 std::size_t ApplyPresenceOverlay(ChatSharedBinding& binding);
 
-// Total pending + in-flight shared delivery events across peers (runtime only).
 std::size_t CountSharedPendingAndInFlight(ChatSharedBinding const& binding);
 
 void HandleSharedAck(ChatSharedBinding& binding,
@@ -108,6 +116,6 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
                               OnNewChatClientFn on_new_client = {},
                               std::string fallback_author_uid = {});
 
-}  // namespace apptraverse
+}  // namespace chat
 
-#endif  // APPTRAVERSE_CHAT_SHARED_H_
+#endif  // CHAT_SHARED_H_

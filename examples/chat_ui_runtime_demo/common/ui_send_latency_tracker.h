@@ -7,7 +7,7 @@
 #include <optional>
 #include <unordered_map>
 
-namespace apptraverse {
+namespace chat {
 
 // Runtime-only click→LISTBOX latency. Not persisted or shared.
 class UiSendLatencyTracker {
@@ -75,6 +75,6 @@ class UiSendLatencyTracker {
   std::unordered_map<std::uint32_t, double> resolved_;
 };
 
-}  // namespace apptraverse
+}  // namespace chat
 
 #endif  // APPTRAVERSE_UI_SEND_LATENCY_TRACKER_H_

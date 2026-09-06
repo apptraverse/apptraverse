@@ -39,6 +39,7 @@ apptraverse_add_full_aether()
 
 add_library(apptraverse STATIC
   src/apptraverse.cpp
+  src/runtime_lifecycle.cpp
   src/directory_domain_storage.cpp
   src/overlay_domain_storage.cpp
   src/object_serialization.cpp

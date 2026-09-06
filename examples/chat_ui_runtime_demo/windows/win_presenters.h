@@ -14,20 +14,21 @@
 #include "apptraverse/presenter.h"
 
 #include "chat_commands.h"
-#include "chat_connection_ui_state.h"
 #include "chat_ids.h"
 #include "chat_log.h"
 #include "chat_model.h"
 #include "chat_presentation.h"
 #include "chat_presence.h"
+#include "chat_runtime_diag_ui_state.h"
 #include "ui_send_latency_tracker.h"
-#include "win_connection_bar_presenter.h"
+#include "win_identity_bar_presenter.h"
 #include "win_util.h"
 
-namespace apptraverse {
+namespace chat::win32 {
+using apptraverse::Presenter;
 
 class WinChatWindowPresenter : public Presenter {
-  APPTRAVERSE_OBJECT(WinChatWindowPresenter, Presenter, 0)
+  APPTRAVERSE_NAMED_OBJECT("chat::win32::WinChatWindowPresenter", WinChatWindowPresenter, Presenter, 0)
 
  protected:
   WinChatWindowPresenter() = default;
@@ -35,13 +36,15 @@ class WinChatWindowPresenter : public Presenter {
  public:
   explicit WinChatWindowPresenter(ae::ObjProp prop) : Presenter{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(room), AE_MMBR(identity), AE_MMBR(application))
+  AE_OBJECT_REFLECT(AE_MMBR(room), AE_MMBR(network), AE_MMBR(aether),
+                    AE_MMBR(application))
 
   ChatRoom::ptr room;
-  LocalAetherIdentity::ptr identity;
-  Application::ptr application;
+  NetworkState::ptr network;
+  AetherRegistrationState::ptr aether;
+  ChatApplication::ptr application;
   std::function<void(ChatSendUiRequest)> on_send;
-  std::function<void(std::string)> on_connect_host;
+  std::function<void()> on_join_room;
   std::function<void()> on_close;
   UiSendLatencyTracker* latency_tracker{nullptr};
   HWND hwnd{nullptr};
@@ -50,7 +53,7 @@ class WinChatWindowPresenter : public Presenter {
   HWND contacts_hwnd{nullptr};
   HWND send_hwnd{nullptr};
   HWND diag_hwnd_{nullptr};
-  WinConnectionBarPresenter connection_bar;
+  WinIdentityBarPresenter identity_bar;
 
   void OnLoad() override {
     WNDCLASSW wc{};
@@ -70,23 +73,24 @@ class WinChatWindowPresenter : public Presenter {
     creating_ = true;
     hwnd = CreateWindowExW(
         0, kClassName, title, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-        chat::kChatWindowLeft, chat::kChatWindowTop,
-        chat::kChatWindowRight - chat::kChatWindowLeft,
-        chat::kChatWindowBottom - chat::kChatWindowTop, nullptr, nullptr,
+        kChatWindowLeft, kChatWindowTop,
+        kChatWindowRight - kChatWindowLeft,
+        kChatWindowBottom - kChatWindowTop, nullptr, nullptr,
         GetModuleModuleHandleSafe(), this);
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
     creating_ = false;
     last_room_generation_ = room->Generation();
-    last_identity_generation_ =
-        identity.is_valid() ? identity->Generation() : 0;
+    last_network_generation_ =
+        network.is_valid() ? network->Generation() : 0;
+    last_aether_generation_ = aether.is_valid() ? aether->Generation() : 0;
     SyncClientGenerations();
     RebuildFromDomain();
   }
 
-  void NotifyPeerReady() { connection_bar.NotifyPeerReady(); }
+  void NotifyPeerReady() {}
 
-  void NotifyPeerDisconnected() { connection_bar.NotifyPeerDisconnected(); }
+  void NotifyPeerDisconnected() {}
 
   void ApplyRuntimeDiag(ChatRuntimeDiagUiState const& diag) {
 #ifndef NDEBUG
@@ -103,9 +107,14 @@ class WinChatWindowPresenter : public Presenter {
       last_room_generation_ = room->Generation();
       changed = true;
     }
-    if (identity.is_valid() &&
-        identity->Generation() != last_identity_generation_) {
-      last_identity_generation_ = identity->Generation();
+    if (network.is_valid() &&
+        network->Generation() != last_network_generation_) {
+      last_network_generation_ = network->Generation();
+      changed = true;
+    }
+    if (aether.is_valid() &&
+        aether->Generation() != last_aether_generation_) {
+      last_aether_generation_ = aether->Generation();
       changed = true;
     }
     if (SyncClientGenerations()) {
@@ -124,7 +133,7 @@ class WinChatWindowPresenter : public Presenter {
     contacts_hwnd = nullptr;
     send_hwnd = nullptr;
     diag_hwnd_ = nullptr;
-    connection_bar.Destroy();
+    identity_bar.Destroy();
     if (h != nullptr) {
       DestroyWindow(h);
     }
@@ -174,17 +183,11 @@ class WinChatWindowPresenter : public Presenter {
           TrySend();
           return 0;
         }
-        if (connection_bar.HandleCommand(wparam)) {
+        if (identity_bar.HandleCommand(wparam)) {
           return 0;
         }
         return DefWindowProcW(wnd, msg, wparam, lparam);
       }
-      case WM_TIMER:
-        if (wparam == WinConnectionBarPresenter::kConnectElapsedTimerId) {
-          connection_bar.OnConnectTimer();
-          return 0;
-        }
-        return DefWindowProcW(wnd, msg, wparam, lparam);
       case WM_CLOSE:
         if (on_close) {
           on_close();
@@ -236,8 +239,8 @@ class WinChatWindowPresenter : public Presenter {
     HINSTANCE inst = GetModuleModuleHandleSafe();
     ChatRole const role = application.is_valid() ? application->GetRole()
                                                  : ChatRole::Host;
-    connection_bar.on_connect_host = on_connect_host;
-    connection_bar.Create(wnd, role, inst);
+    identity_bar.on_join_room = on_join_room;
+    identity_bar.Create(wnd, inst, role);
     feed_hwnd = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"LISTBOX", L"",
         WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOINTEGRALHEIGHT | LBS_NOTIFY,
@@ -274,21 +277,21 @@ class WinChatWindowPresenter : public Presenter {
 
   void LayoutNative(int client_w, int client_h) {
     int const gap = 8;
-    int const bar_h = chat::kChatConnectionBarHeight;
+    int const bar_h = kChatConnectionBarHeight;
 #ifndef NDEBUG
     int const diag_h = 18;
 #else
     int const diag_h = 0;
 #endif
-    int const side = chat::kChatSidebarWidth;
-    int const input_h = chat::kChatInputHeight;
+    int const side = kChatSidebarWidth;
+    int const input_h = kChatInputHeight;
     int const body_top = bar_h + gap;
     int const body_h = client_h - body_top - diag_h;
     int const main_w = client_w - side - gap * 3;
     if (main_w < 40 || body_h < input_h + gap * 2) {
       return;
     }
-    connection_bar.Layout(client_w, 0, bar_h);
+    identity_bar.Layout(client_w, 0, bar_h);
     int const feed_h = body_h - input_h - gap * 2;
     MoveWindow(feed_hwnd, gap, body_top + gap, main_w, feed_h, TRUE);
     MoveWindow(input_hwnd, gap, body_top + gap + feed_h + gap, main_w, input_h,
@@ -332,15 +335,15 @@ class WinChatWindowPresenter : public Presenter {
   }
 
   void RebuildFromDomain() {
-    if (connection_bar.role() == ChatRole::Host) {
-      connection_bar.UpdateFromDomain(identity);
-    }
+    ChatRole const role =
+        application.is_valid() ? application->GetRole() : ChatRole::Host;
+    identity_bar.UpdateFromDomain(network, aether, role);
     if (feed_hwnd == nullptr || contacts_hwnd == nullptr || !room.is_valid()) {
       return;
     }
     ChatPresentationOptions options;
-    if (identity.is_valid()) {
-      options.local_aether_uid = identity->UidTextBytes();
+    if (aether.is_valid()) {
+      options.local_aether_uid = aether->CurrentUid();
     }
     if (latency_tracker != nullptr) {
       options.latency_ms_for_event =
@@ -351,7 +354,7 @@ class WinChatWindowPresenter : public Presenter {
         auto resolved = latency_tracker->ResolveForPresentation(
             event_obj_id, std::chrono::steady_clock::now());
         if (resolved) {
-          chat::ChatLog("UI_MESSAGE_PRESENTED event_obj_id=" +
+          ChatLog("UI_MESSAGE_PRESENTED event_obj_id=" +
                         std::to_string(event_obj_id) + " latency_us=" +
                         std::to_string(static_cast<std::int64_t>(
                             (*resolved) * 1000.0)));
@@ -417,7 +420,13 @@ class WinChatWindowPresenter : public Presenter {
                    reinterpret_cast<LPARAM>(contact_rows_.back().text.c_str()));
     }
 #ifndef NDEBUG
-    runtime_diag_.journal_count = room->journal.size();
+    runtime_diag_.room_journal_count = room->journal.size();
+    runtime_diag_.client_journal_count = 0;
+    if (application.is_valid() && application->local_client.is_valid()) {
+      application->local_client.Load();
+      runtime_diag_.client_journal_count =
+          application->local_client->journal.size();
+    }
     RefreshDiagLabel();
 #endif
   }
@@ -428,12 +437,8 @@ class WinChatWindowPresenter : public Presenter {
       return;
     }
     std::ostringstream out;
-    out << "Journal: " << runtime_diag_.journal_count
-        << "  Pending: " << runtime_diag_.pending_count;
-    if (connection_bar.role() == ChatRole::Client) {
-      out << "  Peer: "
-          << (runtime_diag_.peer_connected ? "connected" : "disconnected");
-    }
+    out << "Room journal: " << runtime_diag_.room_journal_count
+        << "  Client journal: " << runtime_diag_.client_journal_count;
     auto wide = Utf8ToWide(out.str());
     SetWindowTextW(diag_hwnd_, wide.c_str());
 #else
@@ -522,7 +527,8 @@ class WinChatWindowPresenter : public Presenter {
 
   WNDPROC input_prev_proc_{nullptr};
   std::uint64_t last_room_generation_{0};
-  std::uint64_t last_identity_generation_{0};
+  std::uint64_t last_network_generation_{0};
+  std::uint64_t last_aether_generation_{0};
   std::unordered_map<std::uint32_t, std::uint64_t> last_client_generations_;
   std::vector<ContactRow> contact_rows_;
   HFONT contact_normal_font_{nullptr};
@@ -555,7 +561,7 @@ class WinChatWindowPresenter : public Presenter {
 };
 
 class WinChatPresentationApplication : public Presenter {
-  APPTRAVERSE_OBJECT(WinChatPresentationApplication, Presenter, 0)
+  APPTRAVERSE_NAMED_OBJECT("chat::win32::WinChatPresentationApplication", WinChatPresentationApplication, Presenter, 0)
 
  protected:
   WinChatPresentationApplication() = default;
@@ -568,13 +574,13 @@ class WinChatPresentationApplication : public Presenter {
   WinChatWindowPresenter::ptr chat_window;
   std::function<void()> on_close;
   std::function<void(ChatSendUiRequest)> on_chat_send;
-  std::function<void(std::string)> on_connect_host;
+  std::function<void()> on_join_room;
   UiSendLatencyTracker* latency_tracker{nullptr};
 
   void OnLoad() override {
     chat_window->on_close = on_close;
     chat_window->on_send = on_chat_send;
-    chat_window->on_connect_host = on_connect_host;
+    chat_window->on_join_room = on_join_room;
     chat_window->latency_tracker = latency_tracker;
     chat_window->OnLoad();
   }
@@ -603,10 +609,10 @@ class WinChatPresentationApplication : public Presenter {
 };
 
 WinChatPresentationApplication::ptr BuildPresentationGraph(
-    ae::Domain& domain, Application& application);
+    ae::Domain& domain, ChatApplication& application);
 
 void EnsureChatPresenterRegistration();
 
-}  // namespace apptraverse
+}  // namespace chat::win32
 
 #endif  // APPTRAVERSE_CHAT_WIN_PRESENTERS_H_
