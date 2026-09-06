@@ -110,8 +110,21 @@ inline void SetLocalAetherUidText(LocalAetherIdentity& identity,
   identity.SetUidTextBytes(std::move(uid_text));
 }
 
+// Applies local connectivity Presence as a ChatClient Event (not shared
+// journal). Returns false when the value is unchanged (no Event applied).
+inline bool ApplyLocalPresenceEvent(ChatClient& client, PresenceState state) {
+  if (client.GetPresence() == state) {
+    return false;
+  }
+  auto event = LocalPresenceEvent::ptr::Create(ae::CreateWith{*client.domain});
+  event->SetPresence(state);
+  assert(client.CanApply(*event));
+  client.Apply(*event);
+  return true;
+}
+
 inline void SetHostClientPresence(ChatClient& client, PresenceState state) {
-  client.SetPresence(state);
+  static_cast<void>(ApplyLocalPresenceEvent(client, state));
 }
 
 inline void ResetRuntimePresenceState(Application& application) {

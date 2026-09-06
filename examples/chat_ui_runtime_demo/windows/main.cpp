@@ -47,10 +47,8 @@ void PrintUsage() {
       << "usage:\n"
       << "  win32_chat_ui_runtime_demo.exe --distill [dir] [--name NAME]\n"
       << "  win32_chat_ui_runtime_demo.exe --host --state-dir <dir>\n"
-      << "  win32_chat_ui_runtime_demo.exe --host --state-dir <dir>\n"
-      << "      [--monitor-peer-uid <uid>]\n"
       << "  win32_chat_ui_runtime_demo.exe --client --state-dir <dir>\n"
-      << "      [--connect-host-uid <uid>] [--monitor-peer-uid <uid>]\n";
+      << "      [--connect-host-uid <uid>]\n";
 }
 
 void DistillChat(std::filesystem::path const& dir, std::string host_name) {
@@ -78,7 +76,6 @@ int main(int argc, char** argv) {
   std::filesystem::path state_dir{"chat_ui_runtime_state"};
   std::string host_name = DefaultHostName();
   std::string connect_host_uid;
-  std::string monitor_peer_uid;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
     if (arg == "--distill") {
@@ -92,8 +89,6 @@ int main(int argc, char** argv) {
       host_name = argv[++i];
     } else if (arg == "--connect-host-uid" && i + 1 < argc) {
       connect_host_uid = argv[++i];
-    } else if (arg == "--monitor-peer-uid" && i + 1 < argc) {
-      monitor_peer_uid = argv[++i];
     } else if (arg == "--host") {
       host = true;
     } else if (arg == "--client") {
@@ -127,6 +122,5 @@ int main(int argc, char** argv) {
   apptraverse::ChatRole const role =
       host ? apptraverse::ChatRole::Host : apptraverse::ChatRole::Client;
   apptraverse::WinChatApp app;
-  return app.Run(state_dir, role, std::move(connect_host_uid),
-                 std::move(monitor_peer_uid));
+  return app.Run(state_dir, role, std::move(connect_host_uid));
 }

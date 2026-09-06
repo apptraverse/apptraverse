@@ -139,121 +139,6 @@ void TestDynamicClientAttachMapping() {
       *client, chat::ToObjId(chat::ChatObjId::ChatRoom)));
 }
 
-void TestRemoteClientTriStateModelToUiProjection() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage model_storage;
-  OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{model_storage};
-  ae::Domain ui_domain{ui_storage};
-  auto application = BuildChatGraph(model_domain, "Host");
-  FinalizeDistilledGraph(*application);
-  CommitHostJoin(*application);
-
-  auto client = ChatClient::ptr::Create(ae::CreateWith{model_domain});
-  client->SetAetherUidText("remote-uid");
-  auto name = ImmutableString::ptr::Create(ae::CreateWith{model_domain});
-  name->bytes = "Remote";
-  client->display_name = name;
-  application->chat_room->clients.push_back(client);
-
-  auto ui_root =
-      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
-  auto ui_application = Application::ptr::MakeFromThis(
-      static_cast<Application*>(ui_root.get()));
-
-  std::vector<UiApplyResult> applies;
-  UiMirror* mirror_ptr = nullptr;
-  UiMirror mirror{
-      ui_domain, ui_storage,
-      [&](std::uint32_t root_id, PublicationChannel<3>* channel) {
-        applies.push_back(mirror_ptr->ApplyPublished(*channel, root_id));
-      }};
-  mirror_ptr = &mirror;
-  ModelRuntime runtime{*application, mirror};
-  runtime.AddPresentationRoot(*application->chat_room);
-  runtime.AttachNode(*client, *application->chat_room);
-
-  auto const expect_state = [&](PresenceState state) {
-    applies.clear();
-    runtime.Post([&] { client->SetPresence(state); });
-    runtime.PumpOnce(std::chrono::steady_clock::now());
-    CHECK(!applies.empty());
-    CHECK(client->GetPresence() == state);
-    auto const ui_client =
-        ui_application->chat_room->FindClientByAetherUid("remote-uid");
-    CHECK(ui_client.is_valid());
-    CHECK(ui_client->GetPresence() == state);
-  };
-
-  expect_state(PresenceState::kOnline);
-  expect_state(PresenceState::kOffline);
-  expect_state(PresenceState::kUnknown);
-  expect_state(PresenceState::kOnline);
-}
-
-void TestLocalUnknownMasksRemoteModelToUiProjection() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage model_storage;
-  OverlayDomainStorage ui_storage{model_storage};
-  ae::Domain model_domain{model_storage};
-  ae::Domain ui_domain{ui_storage};
-  auto application = BuildChatGraph(model_domain, "Host");
-  FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-  CommitHostJoin(*application);
-
-  auto remote = ChatClient::ptr::Create(ae::CreateWith{model_domain});
-  remote->SetAetherUidText("remote-uid");
-  auto name = ImmutableString::ptr::Create(ae::CreateWith{model_domain});
-  name->bytes = "Remote";
-  remote->display_name = name;
-  remote->SetPresence(PresenceState::kUnknown);
-  application->chat_room->clients.push_back(remote);
-
-  auto ui_root =
-      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
-  auto ui_application = Application::ptr::MakeFromThis(
-      static_cast<Application*>(ui_root.get()));
-
-  std::vector<UiApplyResult> applies;
-  UiMirror* mirror_ptr = nullptr;
-  UiMirror mirror{
-      ui_domain, ui_storage,
-      [&](std::uint32_t root_id, PublicationChannel<3>* channel) {
-        applies.push_back(mirror_ptr->ApplyPublished(*channel, root_id));
-      }};
-  mirror_ptr = &mirror;
-  ModelRuntime runtime{*application, mirror};
-  runtime.AddPresentationRoot(*application->chat_room);
-  runtime.AttachNode(*application->host_client, *application->chat_room);
-  runtime.AttachNode(*remote, *application->chat_room);
-
-  ChatPresenceOverlay overlay;
-  overlay.SetLocalSelf(PresenceState::kOnline);
-  overlay.SetRemote("remote-uid", PresenceState::kOnline);
-  applies.clear();
-  runtime.Post([&] {
-    overlay.ApplyToRoom(*application->chat_room, "host-uid");
-  });
-  runtime.PumpOnce(std::chrono::steady_clock::now());
-  CHECK(!applies.empty());
-  CHECK(remote->GetPresence() == PresenceState::kOnline);
-  CHECK(ui_application->chat_room->FindClientByAetherUid("remote-uid")
-            ->GetPresence() == PresenceState::kOnline);
-
-  applies.clear();
-  runtime.Post([&] {
-    overlay.SetLocalSelf(PresenceState::kUnknown);
-    overlay.ApplyToRoom(*application->chat_room, "host-uid");
-  });
-  runtime.PumpOnce(std::chrono::steady_clock::now());
-  CHECK(!applies.empty());
-  CHECK(remote->GetPresence() == PresenceState::kUnknown);
-  CHECK(ui_application->chat_room->FindClientByAetherUid("remote-uid")
-            ->GetPresence() == PresenceState::kUnknown);
-  CHECK(overlay.Remote("remote-uid") == PresenceState::kOnline);
-}
-
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -262,8 +147,6 @@ int main() {
   TestMessageFieldsModelToUi();
   TestHostOnlineModelToUiProjection();
   TestDynamicClientAttachMapping();
-  TestRemoteClientTriStateModelToUiProjection();
-  TestLocalUnknownMasksRemoteModelToUiProjection();
   std::cout << "chat_ui_mirror_integration_test OK\n";
   return 0;
 }

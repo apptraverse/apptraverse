@@ -17,12 +17,12 @@ namespace apptraverse {
 
 // Runs AetherApp on its own thread. Owns all P2pStream objects.
 // Model/UI threads only enqueue commands and receive UID-based callbacks.
+// Local Presence only: DiagnoseLocalPresence on this thread; no remote
+// QueryPeerPresence.
 class ChatAetherRuntime {
  public:
   using UidCallback = std::function<void(std::string uid_text)>;
   using PresenceCallback = std::function<void(PresenceState state)>;
-  using PeerPresenceCallback =
-      std::function<void(std::string remote_uid, PresenceState state)>;
   using PeerReadyCallback = std::function<void(std::string remote_uid)>;
   using PeerClosedCallback = std::function<void(std::string remote_uid)>;
   using PeerFrameCallback =
@@ -42,14 +42,11 @@ class ChatAetherRuntime {
                         PeerClosedCallback on_closed,
                         PeerFrameCallback on_frame);
   void SetPeerWriteFailedCallback(PeerWriteFailedCallback on_write_failed);
-  void SetPeerPresenceCallback(PeerPresenceCallback on_peer_presence);
 
   // Thread-safe: enqueue work for the Aether thread.
   void OpenPeer(std::string remote_uid);
   void SendPeerFrame(std::string remote_uid, std::vector<std::uint8_t> bytes);
   void ClosePeer(std::string remote_uid);
-  // Idempotent remote presence monitor (never self UID).
-  void MonitorPeerPresence(std::string remote_uid);
 
   void RequestStop();
   void Join();
@@ -59,7 +56,6 @@ class ChatAetherRuntime {
     kOpenPeer = 1,
     kSendFrame = 2,
     kClosePeer = 3,
-    kMonitorPresence = 4,
   };
 
   struct Command {
@@ -83,7 +79,6 @@ class ChatAetherRuntime {
   PeerClosedCallback on_peer_closed_;
   PeerFrameCallback on_peer_frame_;
   PeerWriteFailedCallback on_peer_write_failed_;
-  PeerPresenceCallback on_peer_presence_;
 };
 
 }  // namespace apptraverse

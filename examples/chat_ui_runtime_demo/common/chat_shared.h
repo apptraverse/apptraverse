@@ -62,12 +62,6 @@ SharedApplyResult ApplyIncomingSharedEvent(
 // streams and does NOT set channel_ready / online.
 void EnsureSharedPeer(ChatSharedBinding& binding, std::string const& remote_uid);
 
-// Ensures a ChatRoom.clients entry for a known remote UID so contacts can show
-// locally-observed Presence without waiting on journal Join delivery. Does not
-// commit journal events and does not open P2P.
-ChatClient::ptr EnsurePresenceContact(ChatRoom& room,
-                                      std::string const& remote_uid);
-
 using OpenPeerRequestFn = std::function<void(std::string const& remote_uid)>;
 
 void ConnectToHostCommand(ChatSharedBinding& binding, std::string host_uid,
@@ -76,18 +70,8 @@ void ConnectToHostCommand(ChatSharedBinding& binding, std::string host_uid,
 void SetSharedPeerChannelReady(ChatSharedBinding& binding,
                                std::string const& remote_uid, bool ready);
 
-// Pure Presence overlay update. Must not touch SharedRuntime peers, pending,
-// in-flight, journal delivery, or transport.
-bool SetRemotePresenceObservation(ChatSharedBinding& binding,
-                                  std::string const& remote_uid,
-                                  PresenceState state);
-
 bool SetLocalPresenceObservation(ChatSharedBinding& binding,
                                  PresenceState state);
-
-// Deprecated alias: forwards to SetRemotePresenceObservation (no peer seed).
-void SetSharedPeerPresence(ChatSharedBinding& binding,
-                           std::string const& remote_uid, PresenceState state);
 
 void RequeueInFlightAfterWriteFailed(ChatSharedBinding& binding,
                                      std::string const& remote_uid);

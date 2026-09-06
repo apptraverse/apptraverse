@@ -533,7 +533,6 @@ void test_retry_after_one_second() {
   CommitLocalJoin(binding, *application->host_client);
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
   SetSharedPeerChannelReady(binding, "host-uid", true);
-  SetSharedPeerPresence(binding, "host-uid", PresenceState::kOnline);
   RecordingTransport transport;
   auto now = std::chrono::steady_clock::now();
   TickSharedDelivery(binding, now, &transport);
@@ -554,7 +553,7 @@ void test_retry_skipped_while_offline() {
   auto binding = BindChat(*application, "client-uid");
   CommitLocalJoin(binding, *application->host_client);
   ConnectToHostCommand(binding, "host-uid", [](std::string const&) {});
-  // Channel down + offline: retry must wait for presence/reopen evidence.
+  // Channel down: retry must wait for transport reopen evidence.
   SetSharedPeerChannelReady(binding, "host-uid", false);
   auto* peer = binding.instance.FindPeer("host-uid");
   peer->channel_ready = false;
@@ -571,7 +570,7 @@ void test_retry_skipped_while_offline() {
                      &transport);
   REQUIRE(transport.events.empty());
 
-  // Ready stream is transport evidence: retry even while presence is false.
+  // Ready stream is transport evidence: retry without Presence gating.
   peer->channel_ready = true;
   TickSharedDelivery(binding, now + std::chrono::milliseconds{1000},
                      &transport);

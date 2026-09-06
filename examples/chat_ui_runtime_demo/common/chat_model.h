@@ -25,6 +25,7 @@ enum class ChatRole : std::uint32_t {
 
 class JoinEvent;
 class ChatMessageEvent;
+class LocalPresenceEvent;
 
 class ImmutableString : public ae::Obj {
   APPTRAVERSE_OBJECT(ImmutableString, ae::Obj, 0)
@@ -121,6 +122,9 @@ class ChatClient : public NodeFor<ChatClient> {
     online = raw;
     NoteMaterializedChange();
   }
+
+  bool CanApply(LocalPresenceEvent const& event) const;
+  void Apply(LocalPresenceEvent const& event);
 };
 
 class ChatFeedItem : public ae::Obj {

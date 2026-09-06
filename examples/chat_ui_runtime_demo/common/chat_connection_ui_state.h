@@ -10,16 +10,16 @@
 namespace apptraverse {
 
 enum class ChatConnectionUiStatus : std::uint8_t {
-  NotMonitoring = 0,
+  NotConnected = 0,
   Connecting = 1,
-  Monitoring = 2,
+  Connected = 2,
   Disconnected = 3,
   InvalidId = 4,
 };
 
 struct ChatConnectionUiState {
-  ChatConnectionUiStatus status{ChatConnectionUiStatus::NotMonitoring};
-  // While Connecting: seconds since P2P OpenPeer click. Unused for Presence Add.
+  ChatConnectionUiStatus status{ChatConnectionUiStatus::NotConnected};
+  // While Connecting: seconds since P2P OpenPeer click.
   double elapsed_sec{0.0};
   bool connect_enabled{true};
 };
@@ -54,22 +54,22 @@ inline bool LooksLikeAetherUid(std::string_view text) {
 inline std::string FormatConnectionStatusText(
     ChatConnectionUiState const& state) {
   switch (state.status) {
-    case ChatConnectionUiStatus::NotMonitoring:
-      return "Not monitoring";
+    case ChatConnectionUiStatus::NotConnected:
+      return "Not connected";
     case ChatConnectionUiStatus::Connecting: {
       char buf[64];
       std::snprintf(buf, sizeof(buf), "Connecting... %.1f s",
                     state.elapsed_sec);
       return buf;
     }
-    case ChatConnectionUiStatus::Monitoring:
-      return "Monitoring";
+    case ChatConnectionUiStatus::Connected:
+      return "Connected";
     case ChatConnectionUiStatus::Disconnected:
-      return "Not monitoring";
+      return "Disconnected";
     case ChatConnectionUiStatus::InvalidId:
       return "Invalid Aether ID";
   }
-  return "Not monitoring";
+  return "Not connected";
 }
 
 }  // namespace apptraverse

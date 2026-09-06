@@ -22,7 +22,6 @@
 #include "chat_presentation.h"
 #include "chat_presence.h"
 #include "chat_shared.h"
-#include "remote_presence_poller.h"
 #include "ui_send_latency_tracker.h"
 
 namespace apptraverse::test {
@@ -200,78 +199,7 @@ void TestUiSendLatencyTracker() {
   CHECK(!tracker.ResolveForPresentation(999, t1).has_value());
 }
 
-void TestRemotePresencePollerNoOverlap() {
-  RemotePresencePoller poller;
-  poller.Monitor("peer-a", "self");
-  poller.Monitor("self", "self");
-  CHECK(poller.MonitoredCount() == 1);
-  int starts = 0;
-  auto now = RemotePresencePoller::Clock::time_point{};
-  poller.Tick(now, [&](std::string const& uid) {
-    CHECK(uid == "peer-a");
-    ++starts;
-    return true;
-  });
-  CHECK(starts == 1);
-  CHECK(poller.HasOutstanding("peer-a"));
-  poller.Tick(now + std::chrono::milliseconds{10},
-              [&](std::string const&) {
-                ++starts;
-                return true;
-              });
-  CHECK(starts == 1);
-  poller.OnQueryFinished("peer-a", now + std::chrono::milliseconds{20});
-  poller.Tick(now + std::chrono::milliseconds{30},
-              [&](std::string const&) {
-                ++starts;
-                return true;
-              });
-  CHECK(starts == 1);
-  poller.Tick(now + std::chrono::seconds{1} + std::chrono::milliseconds{21},
-              [&](std::string const&) {
-                ++starts;
-                return true;
-              });
-  CHECK(starts == 2);
-}
-
-void TestPeerOnlineAppliedBeforeJoin() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  binding.presence.SetLocalSelf(PresenceState::kOnline);
-  EnsureSharedPeer(binding, "client-uid");
-  SetSharedPeerPresence(binding, "client-uid", PresenceState::kOnline);
-  CHECK(binding.presence.Remote("client-uid") == PresenceState::kOnline);
-
-  auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
-  client->SetAetherUidText("client-uid");
-  auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
-  name->bytes = "Client";
-  client->display_name = name;
-  client->SetPresence(binding.presence.Remote("client-uid"));
-  SharedEventId const client_join_id{.origin_uid = "client-uid",
-                                     .origin_sequence = 1};
-  SharedEventOrder const client_join_order{
-      .lamport = ++binding.instance.lamport_clock,
-      .origin_uid = client_join_id.origin_uid,
-      .origin_sequence = client_join_id.origin_sequence,
-  };
-  auto join = MakeJoinEvent(*application->chat_room, *client);
-  application->chat_room->CommitShared(join, client_join_id, client_join_order);
-  binding.runtime.RememberLocalCommit(binding.instance, client_join_id);
-  CHECK(application->chat_room->FindClientByAetherUid("client-uid")
-            ->GetPresence() == PresenceState::kOnline);
-}
-
-void TestOfflineRetrySkippedOnlineTriggersSend() {
+void TestOfflineRetrySkippedWhileChannelDown() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -314,7 +242,6 @@ void TestOfflineRetrySkippedOnlineTriggersSend() {
                        });
   CHECK(sends == 2);
 
-  SetSharedPeerPresence(binding, "client-uid", PresenceState::kOnline);
   peer->channel_ready = true;
   binding.runtime.Tick(binding.instance, now + std::chrono::seconds{4},
                        [&](PeerDeliveryState&, SharedEventId const&) {
@@ -328,17 +255,12 @@ void TestPresenceTriStateMapping() {
   CHECK(PresenceFromLocalDiag(false, false) == PresenceState::kUnknown);
   CHECK(PresenceFromLocalDiag(true, true) == PresenceState::kOnline);
   CHECK(PresenceFromLocalDiag(true, false) == PresenceState::kOffline);
-  CHECK(PresenceFromPeerCase(PeerPresenceCase::kOnline) ==
-        PresenceState::kOnline);
-  CHECK(PresenceFromPeerCase(PeerPresenceCase::kOffline) ==
-        PresenceState::kOffline);
-  CHECK(PresenceFromPeerCase(PeerPresenceCase::kUnknown) ==
-        PresenceState::kUnknown);
-  CHECK(PresenceFromPeerCase(PeerPresenceCase::kQueryError) ==
-        PresenceState::kUnknown);
+  CHECK(PresenceIsOnline(PresenceState::kOnline));
+  CHECK(!PresenceIsOnline(PresenceState::kOffline));
+  CHECK(!PresenceIsOnline(PresenceState::kUnknown));
 }
 
-void TestSameStatusDoesNotBumpGeneration() {
+void TestLocalSelfSameStatusDoesNotBumpGeneration() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -349,38 +271,21 @@ void TestSameStatusDoesNotBumpGeneration() {
   ChatSharedBinding binding;
   InitializeChatSharedBinding(binding, *application, "host-uid");
   CommitLocalJoin(binding, *application->host_client);
-  binding.presence.SetLocalSelf(PresenceState::kOnline);
-  auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
-  client->SetAetherUidText("client-uid");
-  auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
-  name->bytes = "Client";
-  client->display_name = name;
-  SharedEventId const client_join_id{.origin_uid = "client-uid",
-                                     .origin_sequence = 1};
-  SharedEventOrder const client_join_order{
-      .lamport = ++binding.instance.lamport_clock,
-      .origin_uid = client_join_id.origin_uid,
-      .origin_sequence = client_join_id.origin_sequence,
-  };
-  auto join = MakeJoinEvent(*application->chat_room, *client);
-  application->chat_room->CommitShared(join, client_join_id, client_join_order);
-  binding.runtime.RememberLocalCommit(binding.instance, client_join_id);
+  SetLocalPresenceObservation(binding, PresenceState::kOnline);
+  auto const gen = application->host_client->Generation();
+  SetLocalPresenceObservation(binding, PresenceState::kOnline);
+  CHECK(application->host_client->Generation() == gen);
 
-  SetSharedPeerPresence(binding, "client-uid", PresenceState::kOnline);
-  auto const gen = client->Generation();
-  SetSharedPeerPresence(binding, "client-uid", PresenceState::kOnline);
-  CHECK(client->Generation() == gen);
+  auto const gen_online = application->host_client->Generation();
+  SetLocalPresenceObservation(binding, PresenceState::kOffline);
+  CHECK(application->host_client->Generation() > gen_online);
 
-  auto const gen_online = client->Generation();
-  SetSharedPeerPresence(binding, "client-uid", PresenceState::kOffline);
-  CHECK(client->Generation() > gen_online);
-
-  auto const gen_offline = client->Generation();
-  SetSharedPeerPresence(binding, "client-uid", PresenceState::kUnknown);
-  CHECK(client->Generation() > gen_offline);
-  auto const gen_unknown = client->Generation();
-  SetSharedPeerPresence(binding, "client-uid", PresenceState::kOnline);
-  CHECK(client->Generation() > gen_unknown);
+  auto const gen_offline = application->host_client->Generation();
+  SetLocalPresenceObservation(binding, PresenceState::kUnknown);
+  CHECK(application->host_client->Generation() > gen_offline);
+  auto const gen_unknown = application->host_client->Generation();
+  SetLocalPresenceObservation(binding, PresenceState::kOnline);
+  CHECK(application->host_client->Generation() > gen_unknown);
 }
 
 void TestContactsLocalFirstFromClientsOnly() {
@@ -399,7 +304,8 @@ void TestContactsLocalFirstFromClientsOnly() {
   name->bytes = "Client";
   client->display_name = name;
   CommitJoinChat(*application->chat_room, *client);
-  application->host_client->SetPresence(PresenceState::kOnline);
+  static_cast<void>(
+      ApplyLocalPresenceEvent(*application->host_client, PresenceState::kOnline));
   client->SetPresence(PresenceState::kOffline);
 
   ChatPresentationOptions host_opts;
@@ -461,46 +367,6 @@ void TestNewChatClientStartsUnknown() {
   CHECK(client->GetPresence() == PresenceState::kUnknown);
 }
 
-void TestPresenceOverlayIsolatesClients() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  binding.presence.SetLocalSelf(PresenceState::kOnline);
-
-  auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
-  client->SetAetherUidText("client-uid");
-  auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
-  name->bytes = "Client";
-  client->display_name = name;
-  SharedEventId const client_join_id{.origin_uid = "client-uid",
-                                     .origin_sequence = 1};
-  SharedEventOrder const client_join_order{
-      .lamport = ++binding.instance.lamport_clock,
-      .origin_uid = client_join_id.origin_uid,
-      .origin_sequence = client_join_id.origin_sequence,
-  };
-  auto join = MakeJoinEvent(*application->chat_room, *client);
-  application->chat_room->CommitShared(join, client_join_id, client_join_order);
-  binding.runtime.RememberLocalCommit(binding.instance, client_join_id);
-
-  binding.presence.SetRemote("client-uid", PresenceState::kOnline);
-  ApplyPresenceOverlay(binding);
-  auto const host_gen = application->host_client->Generation();
-  auto const client_gen = client->Generation();
-  binding.presence.SetRemote("client-uid", PresenceState::kOffline);
-  ApplyPresenceOverlay(binding);
-  CHECK(application->host_client->Generation() == host_gen);
-  CHECK(client->Generation() > client_gen);
-  CHECK(client->GetPresence() == PresenceState::kOffline);
-}
-
 void TestIncomingSharedCannotImportPresence() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
@@ -538,167 +404,6 @@ void TestReplayResetsRuntimePresenceUnknown() {
         PresenceState::kUnknown);
 }
 
-class FailOnSharedTransport final : public ISharedTransport {
- public:
-  SharedTransportEnqueueResult SendEvent(std::string const&,
-                                         SharedEventFrame const&) override {
-    std::cerr << "unexpected SendEvent during presence observation test\n";
-    std::exit(1);
-  }
-
-  SharedTransportEnqueueResult SendAck(std::string const&,
-                                       SharedAckFrame const&) override {
-    std::cerr << "unexpected SendAck during presence observation test\n";
-    std::exit(1);
-  }
-};
-
-void TestEnsurePresenceContactIdempotent() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  std::string const remote_uid = "remote-presence-uid";
-  auto const first =
-      EnsurePresenceContact(*application->chat_room, remote_uid);
-  CHECK(first.is_valid());
-  CHECK(application->chat_room->clients.size() == 1);
-  CHECK(first->GetPresence() == PresenceState::kUnknown);
-  CHECK(first->AetherUidText() == remote_uid);
-
-  auto const second =
-      EnsurePresenceContact(*application->chat_room, remote_uid);
-  CHECK(second.is_valid());
-  CHECK(second.id().id() == first.id().id());
-  CHECK(application->chat_room->clients.size() == 1);
-}
-
-void TestRemotePresenceObservationDoesNotCreateSharedPeers() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  CHECK(binding.instance.peers.empty());
-
-  SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOnline);
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOffline);
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kUnknown);
-  CHECK(binding.instance.peers.empty());
-}
-
-void TestRemotePresenceObservationDoesNotSeedPending() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  CHECK(CountSharedPendingAndInFlight(binding) == 0);
-
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOnline);
-  SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOffline);
-  CHECK(CountSharedPendingAndInFlight(binding) == 0);
-  CHECK(binding.instance.peers.empty());
-}
-
-void TestPresenceObservationTransitionsNoSharedDelivery() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  static_cast<void>(EnsurePresenceContact(*application->chat_room,
-                                          "remote-uid"));
-
-  FailOnSharedTransport transport;
-  auto now = std::chrono::steady_clock::now();
-  PresenceState const cycle[] = {PresenceState::kOnline, PresenceState::kOffline,
-                                 PresenceState::kUnknown};
-  for (int i = 0; i < 30; ++i) {
-    auto const remote = cycle[i % 3];
-    auto const local = cycle[(i + 1) % 3];
-    SetRemotePresenceObservation(binding, "remote-uid", remote);
-    SetLocalPresenceObservation(binding, local);
-    TickSharedDelivery(binding, now + std::chrono::seconds{i}, &transport);
-    CHECK(CountSharedPendingAndInFlight(binding) == 0);
-    CHECK(binding.instance.peers.empty());
-  }
-}
-
-void TestRemotePresenceObservationSameStateNoGenerationBump() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  auto remote =
-      EnsurePresenceContact(*application->chat_room, "remote-uid");
-  SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOnline);
-  auto const gen = remote->Generation();
-
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOnline);
-  CHECK(remote->Generation() == gen);
-}
-
-void TestRemotePresenceObservationGenerationBumpRules() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  auto remote =
-      EnsurePresenceContact(*application->chat_room, "remote-uid");
-  SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  CHECK(remote->GetPresence() == PresenceState::kUnknown);
-
-  auto const gen_unknown = remote->Generation();
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOnline);
-  CHECK(remote->Generation() > gen_unknown);
-  auto const gen_online = remote->Generation();
-
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOnline);
-  CHECK(remote->Generation() == gen_online);
-
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOffline);
-  CHECK(remote->Generation() > gen_online);
-  auto const gen_offline = remote->Generation();
-
-  for (int i = 0; i < 100; ++i) {
-    SetRemotePresenceObservation(binding, "remote-uid",
-                                 PresenceState::kOffline);
-  }
-  CHECK(remote->Generation() == gen_offline);
-}
-
 void TestPresenceOverlayApplyUnchangedReturnsZero() {
   EnsureChatRegistration();
   ae::RamDomainStorage storage;
@@ -715,93 +420,6 @@ void TestPresenceOverlayApplyUnchangedReturnsZero() {
   CHECK(ApplyPresenceOverlay(binding) == 0);
   CHECK(!binding.presence.SetLocalSelf(PresenceState::kOnline));
   CHECK(ApplyPresenceOverlay(binding) == 0);
-
-  auto remote =
-      EnsurePresenceContact(*application->chat_room, "remote-uid");
-  SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  SetRemotePresenceObservation(binding, "remote-uid", PresenceState::kOnline);
-  auto const gen = remote->Generation();
-  CHECK(ApplyPresenceOverlay(binding) == 0);
-  CHECK(remote->Generation() == gen);
-}
-
-void TestLocalUnknownMasksRemoteOnlineProjection() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  application->host_client->SetAetherUidText("host-uid");
-
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->host_client);
-  auto remote =
-      EnsurePresenceContact(*application->chat_room, "remote-uid");
-
-  binding.presence.SetLocalSelf(PresenceState::kOnline);
-  binding.presence.SetRemote("remote-uid", PresenceState::kOnline);
-  CHECK(ApplyPresenceOverlay(binding) == 2);
-  CHECK(remote->GetPresence() == PresenceState::kOnline);
-
-  binding.presence.SetLocalSelf(PresenceState::kUnknown);
-  // Host Online→Unknown and remote Online→masked Unknown.
-  CHECK(ApplyPresenceOverlay(binding) == 2);
-  CHECK(application->host_client->GetPresence() == PresenceState::kUnknown);
-  CHECK(remote->GetPresence() == PresenceState::kUnknown);
-  CHECK(binding.presence.Remote("remote-uid") == PresenceState::kOnline);
-}
-
-void TestRemotePresencePollerForceDue() {
-  RemotePresencePoller poller;
-  poller.Monitor("peer-a", "self");
-  int starts = 0;
-  auto now = RemotePresencePoller::Clock::time_point{};
-  poller.Tick(now, [&](std::string const& uid) {
-    CHECK(uid == "peer-a");
-    ++starts;
-    return true;
-  });
-  CHECK(starts == 1);
-  poller.OnQueryFinished("peer-a", now);
-  auto const mid_period = now + std::chrono::milliseconds{500};
-  poller.Tick(mid_period, [&](std::string const&) {
-    ++starts;
-    return true;
-  });
-  CHECK(starts == 1);
-  poller.ForceDue("peer-a");
-  poller.Tick(mid_period, [&](std::string const&) {
-    ++starts;
-    return true;
-  });
-  CHECK(starts == 2);
-}
-
-void TestRemotePresencePollerMonitorForceDue() {
-  RemotePresencePoller poller;
-  poller.Monitor("peer-b", "self");
-  int starts = 0;
-  auto now = RemotePresencePoller::Clock::time_point{};
-  poller.Tick(now, [&](std::string const& uid) {
-    CHECK(uid == "peer-b");
-    ++starts;
-    return true;
-  });
-  CHECK(starts == 1);
-  poller.OnQueryFinished("peer-b", now);
-  auto const mid_period = now + std::chrono::milliseconds{500};
-  poller.Tick(mid_period, [&](std::string const&) {
-    ++starts;
-    return true;
-  });
-  CHECK(starts == 1);
-  poller.Monitor("peer-b", "self", /*force_due=*/true);
-  poller.Tick(mid_period, [&](std::string const&) {
-    ++starts;
-    return true;
-  });
-  CHECK(starts == 2);
 }
 
 void TestConnectionUiStatusFormatting() {
@@ -809,15 +427,15 @@ void TestConnectionUiStatusFormatting() {
   CHECK(!LooksLikeAetherUid(""));
   CHECK(!LooksLikeAetherUid("not-a-uid"));
   ChatConnectionUiState state;
-  state.status = ChatConnectionUiStatus::NotMonitoring;
-  CHECK(FormatConnectionStatusText(state) == "Not monitoring");
+  state.status = ChatConnectionUiStatus::NotConnected;
+  CHECK(FormatConnectionStatusText(state) == "Not connected");
   state.status = ChatConnectionUiStatus::Connecting;
   state.elapsed_sec = 3.2;
   CHECK(FormatConnectionStatusText(state) == "Connecting... 3.2 s");
-  state.status = ChatConnectionUiStatus::Monitoring;
-  CHECK(FormatConnectionStatusText(state) == "Monitoring");
+  state.status = ChatConnectionUiStatus::Connected;
+  CHECK(FormatConnectionStatusText(state) == "Connected");
   state.status = ChatConnectionUiStatus::Disconnected;
-  CHECK(FormatConnectionStatusText(state) == "Not monitoring");
+  CHECK(FormatConnectionStatusText(state) == "Disconnected");
   state.status = ChatConnectionUiStatus::InvalidId;
   CHECK(FormatConnectionStatusText(state) == "Invalid Aether ID");
   CHECK(FeedListWasAtBottom(0, 10, 5));
@@ -837,27 +455,15 @@ int main() {
     TestTimestampCommitAndRemap();
     TestLegacyZeroTimestampHasNoFakeTime();
     TestUiSendLatencyTracker();
-    TestRemotePresencePollerNoOverlap();
-    TestPeerOnlineAppliedBeforeJoin();
-    TestOfflineRetrySkippedOnlineTriggersSend();
+    TestOfflineRetrySkippedWhileChannelDown();
     TestPresenceTriStateMapping();
-    TestSameStatusDoesNotBumpGeneration();
+    TestLocalSelfSameStatusDoesNotBumpGeneration();
     TestContactsLocalFirstFromClientsOnly();
     TestPresenceOverlaySurvivesOnlineClear();
     TestNewChatClientStartsUnknown();
-    TestPresenceOverlayIsolatesClients();
     TestIncomingSharedCannotImportPresence();
     TestReplayResetsRuntimePresenceUnknown();
-    TestEnsurePresenceContactIdempotent();
-    TestRemotePresenceObservationDoesNotCreateSharedPeers();
-    TestRemotePresenceObservationDoesNotSeedPending();
-    TestPresenceObservationTransitionsNoSharedDelivery();
-    TestRemotePresenceObservationSameStateNoGenerationBump();
-    TestRemotePresenceObservationGenerationBumpRules();
     TestPresenceOverlayApplyUnchangedReturnsZero();
-    TestLocalUnknownMasksRemoteOnlineProjection();
-    TestRemotePresencePollerForceDue();
-    TestRemotePresencePollerMonitorForceDue();
     TestConnectionUiStatusFormatting();
     std::cout << "chat_presentation_headless_test OK\n";
     return 0;

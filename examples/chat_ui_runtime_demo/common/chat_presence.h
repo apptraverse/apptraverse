@@ -7,8 +7,8 @@
 
 namespace apptraverse {
 
-// Platform-neutral Presence for chat contacts. Authoritative runtime value is
-// produced on the Aether thread and applied via ChatPresenceOverlay.
+// Platform-neutral Presence for chat contacts. Local connectivity Presence is
+// diagnosed on the Aether thread and applied to ChatClient via LocalPresenceEvent.
 enum class PresenceState : std::uint8_t {
   kUnknown = 0,
   kOnline = 1,
@@ -47,28 +47,6 @@ inline PresenceState PresenceFromLocalDiag(bool has_schedule,
     return PresenceState::kOnline;
   }
   return PresenceState::kOffline;
-}
-
-// Remote PeerPresenceState mapping by named cases only — callers pass the
-// already-discriminated Aether enumerator; do not rely on numeric values.
-enum class PeerPresenceCase : std::uint8_t {
-  kOnline,
-  kOffline,
-  kUnknown,
-  kQueryError,
-};
-
-inline PresenceState PresenceFromPeerCase(PeerPresenceCase value) noexcept {
-  switch (value) {
-    case PeerPresenceCase::kOnline:
-      return PresenceState::kOnline;
-    case PeerPresenceCase::kOffline:
-      return PresenceState::kOffline;
-    case PeerPresenceCase::kUnknown:
-    case PeerPresenceCase::kQueryError:
-      return PresenceState::kUnknown;
-  }
-  return PresenceState::kUnknown;
 }
 
 inline bool PresenceIsOnline(PresenceState state) noexcept {

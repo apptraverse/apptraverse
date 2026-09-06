@@ -74,4 +74,13 @@ void ChatRoom::Apply(ChatMessageEvent const& event) {
   NoteMaterializedChange();
 }
 
+bool ChatClient::CanApply(LocalPresenceEvent const& event) const {
+  return GetPresence() != event.GetPresence();
+}
+
+void ChatClient::Apply(LocalPresenceEvent const& event) {
+  assert(CanApply(event));
+  SetPresence(event.GetPresence());
+}
+
 }  // namespace apptraverse

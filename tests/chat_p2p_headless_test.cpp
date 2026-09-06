@@ -160,12 +160,11 @@ struct ModelSide {
     }
   }
 
-  void MonitorRemote(std::string const& remote_uid) {
+  void EnsureRemotePeer(std::string const& remote_uid) {
     if (remote_uid.empty() || remote_uid == shared.instance.local_aether_uid) {
       return;
     }
     EnsureSharedPeer(shared, remote_uid);
-    aether.MonitorPeerPresence(remote_uid);
   }
 
   void HandlePeerFrame(std::string remote_uid,
@@ -175,7 +174,7 @@ struct ModelSide {
       auto const apply = ApplyIncomingSharedEvent(
           shared, remote_uid, event_frame,
           [this](std::string const& client_uid) {
-            MonitorRemote(client_uid);
+            EnsureRemotePeer(client_uid);
           },
           [](ChatClient&) {});
       if (SharedApplyResultAllowsAck(apply)) {
@@ -199,7 +198,7 @@ struct ModelSide {
     bool const was_ready = peer != nullptr && peer->channel_ready;
     SetSharedPeerChannelReady(shared, remote_uid, true);
     channel_ready = true;
-    MonitorRemote(remote_uid);
+    EnsureRemotePeer(remote_uid);
     if (!was_ready) {
       TickSharedDelivery(shared, std::chrono::steady_clock::now(),
                          transport.get());
@@ -213,10 +212,6 @@ struct ModelSide {
 
   void OnPeerWriteFailed(std::string remote_uid) {
     (void)remote_uid;
-  }
-
-  void OnPeerPresence(std::string remote_uid, PresenceState state) {
-    SetRemotePresenceObservation(shared, remote_uid, state);
   }
 
   void Tick() {
@@ -260,12 +255,6 @@ void WireAetherCallbacks(ModelSide& side) {
       side.OnPeerWriteFailed(std::move(remote_uid));
     });
   });
-  side.aether.SetPeerPresenceCallback(
-      [&side](std::string remote_uid, PresenceState state) {
-        side.Post([&, remote_uid = std::move(remote_uid), state] {
-          side.OnPeerPresence(std::move(remote_uid), state);
-        });
-      });
 }
 
 void StartAether(ModelSide& side, std::filesystem::path const& aether_dir) {
@@ -282,10 +271,11 @@ void StartAether(ModelSide& side, std::filesystem::path const& aether_dir) {
         });
       },
       [&side](PresenceState state) {
+        // Diagnose on Aether thread; apply LocalPresenceEvent on Model thread.
         side.Post([&, state] {
-          SetHostClientPresence(*side.application->host_client, state);
-          side.shared.presence.SetLocalSelf(state);
-          ApplyPresenceOverlay(side.shared);
+          static_cast<void>(
+              ApplyLocalPresenceEvent(*side.application->host_client, state));
+          static_cast<void>(side.shared.presence.SetLocalSelf(state));
         });
       });
 }
@@ -376,7 +366,7 @@ int main() {
 
   ConnectToHostCommand(client.shared, host.uid,
                        [&](std::string const& peer_uid) {
-                         client.MonitorRemote(peer_uid);
+                         client.EnsureRemotePeer(peer_uid);
                          client.aether.OpenPeer(peer_uid);
                        });
   trace.Mark("connect");

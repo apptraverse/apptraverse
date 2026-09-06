@@ -42,21 +42,21 @@ class WinConnectionBarPresenter {
           nullptr);
     } else {
       label_hwnd_ = CreateWindowExW(
-          0, L"STATIC", L"Peer Aether ID:", WS_CHILD | WS_VISIBLE | SS_LEFT, 0,
+          0, L"STATIC", L"Host Aether ID:", WS_CHILD | WS_VISIBLE | SS_LEFT, 0,
           0, label_w, 20, parent, nullptr, inst, nullptr);
       uid_hwnd_ = CreateWindowExW(
           WS_EX_CLIENTEDGE, L"EDIT", L"",
           WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_LEFT, 0, 0, 0, 0, parent,
           reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdUid)), inst, nullptr);
       action_hwnd_ = CreateWindowExW(
-          0, L"BUTTON", L"Add", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0,
+          0, L"BUTTON", L"Connect", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0,
           btn_w, 24, parent,
           reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdAction)), inst,
           nullptr);
       status_hwnd_ = CreateWindowExW(
-          0, L"STATIC", L"Not monitoring", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0,
+          0, L"STATIC", L"Not connected", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0,
           0, 0, parent, nullptr, inst, nullptr);
-      connection_ui_.status = ChatConnectionUiStatus::NotMonitoring;
+      connection_ui_.status = ChatConnectionUiStatus::NotConnected;
       connection_ui_.connect_enabled = true;
     }
   }
@@ -120,7 +120,7 @@ class WinConnectionBarPresenter {
     if (role_ == ChatRole::Host) {
       CopyUidToClipboard();
     } else {
-      TryAddPresencePeer();
+      TryConnectHost();
     }
     return true;
   }
@@ -133,14 +133,13 @@ class WinConnectionBarPresenter {
     RefreshConnectingElapsed();
   }
 
-  // P2P sync (--connect-host-uid): channel ready after OpenPeer.
   void NotifyPeerReady() {
     if (role_ != ChatRole::Client) {
       return;
     }
     StopConnectTimer();
-    connection_ui_.status = ChatConnectionUiStatus::Monitoring;
-    connection_ui_.connect_enabled = true;
+    connection_ui_.status = ChatConnectionUiStatus::Connected;
+    connection_ui_.connect_enabled = false;
     ApplyConnectionUi();
   }
 
@@ -149,18 +148,8 @@ class WinConnectionBarPresenter {
       return;
     }
     StopConnectTimer();
-    connection_ui_.status = ChatConnectionUiStatus::NotMonitoring;
+    connection_ui_.status = ChatConnectionUiStatus::Disconnected;
     connection_ui_.elapsed_sec = 0.0;
-    connection_ui_.connect_enabled = true;
-    ApplyConnectionUi();
-  }
-
-  // Presence Add path: immediate Monitoring feedback.
-  void NotifyMonitoring() {
-    if (role_ != ChatRole::Client) {
-      return;
-    }
-    connection_ui_.status = ChatConnectionUiStatus::Monitoring;
     connection_ui_.connect_enabled = true;
     ApplyConnectionUi();
   }
@@ -198,7 +187,7 @@ class WinConnectionBarPresenter {
     return text;
   }
 
-  void TryAddPresencePeer() {
+  void TryConnectHost() {
     if (!on_connect_host || uid_hwnd_ == nullptr) {
       return;
     }
@@ -210,10 +199,11 @@ class WinConnectionBarPresenter {
       ApplyConnectionUi();
       return;
     }
-    last_add_uid_ = text;
-    connection_ui_.status = ChatConnectionUiStatus::Monitoring;
+    connection_ui_.status = ChatConnectionUiStatus::Connecting;
     connection_ui_.elapsed_sec = 0.0;
-    connection_ui_.connect_enabled = true;
+    connection_ui_.connect_enabled = false;
+    connect_t0_ = std::chrono::steady_clock::now();
+    StartConnectTimer();
     ApplyConnectionUi();
     on_connect_host(std::move(text));
   }
@@ -251,6 +241,7 @@ class WinConnectionBarPresenter {
     if (parent_ != nullptr) {
       KillTimer(parent_, kConnectElapsedTimerId);
     }
+    connect_t0_.reset();
   }
 
   ChatRole role_{ChatRole::Host};
@@ -262,7 +253,6 @@ class WinConnectionBarPresenter {
   LocalAetherIdentity::ptr identity_;
   ChatConnectionUiState connection_ui_{};
   std::optional<std::chrono::steady_clock::time_point> connect_t0_;
-  std::string last_add_uid_;
 };
 
 }  // namespace apptraverse

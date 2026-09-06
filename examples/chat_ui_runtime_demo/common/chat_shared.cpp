@@ -152,16 +152,10 @@ SharedApplyResult TryApplyFrame(
   if (!DeserializeSharedEventPayload(
           *binding.instance.node, event, frame.payload,
           [&](ChatClient& client) {
-            auto const uid = client.AetherUidText();
-            // Seed presentation cache from runtime overlay only — never from
-            // the imported shared payload Presence field.
-            if (uid == binding.instance.local_aether_uid) {
-              client.SetPresence(binding.presence.LocalSelf());
-            } else if (!uid.empty()) {
-              client.SetPresence(binding.presence.Remote(uid));
-            } else {
-              client.SetPresence(PresenceState::kUnknown);
-            }
+            // Never import Presence from the shared payload. LocalSelf is
+            // reapplied via ApplyPresenceOverlay (LocalPresenceEvent) after
+            // the frame is Applied; remotes stay Unknown.
+            client.SetPresence(PresenceState::kUnknown);
             if (on_new_client) {
               on_new_client(client);
             }
@@ -502,29 +496,6 @@ void EnsureSharedPeer(ChatSharedBinding& binding,
   binding.runtime.SeedPendingFromJournal(binding.instance, peer);
 }
 
-ChatClient::ptr EnsurePresenceContact(ChatRoom& room,
-                                      std::string const& remote_uid) {
-  if (remote_uid.empty()) {
-    return {};
-  }
-  if (auto existing = room.FindClientByAetherUid(remote_uid);
-      existing.is_valid()) {
-    return existing;
-  }
-  auto& domain = *room.domain;
-  auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
-  client->SetAetherUidText(remote_uid);
-  auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
-  name->bytes =
-      remote_uid.size() > 8 ? remote_uid.substr(0, 8) : remote_uid;
-  client->display_name = name;
-  client->SetPresence(PresenceState::kUnknown);
-  room.clients.push_back(client);
-  room.NotifyPresentationChanged();
-  chat::ChatLog("PRESENCE_CONTACT_ENSURED uid=" + remote_uid);
-  return client;
-}
-
 void ConnectToHostCommand(ChatSharedBinding& binding, std::string host_uid,
                           OpenPeerRequestFn request_open_peer) {
   while (!host_uid.empty() &&
@@ -589,34 +560,22 @@ std::size_t ApplyPresenceOverlay(ChatSharedBinding& binding) {
                                       binding.instance.local_aether_uid);
 }
 
-bool SetRemotePresenceObservation(ChatSharedBinding& binding,
-                                  std::string const& remote_uid,
-                                  PresenceState state) {
-  chat::ChatLog(std::string{"REMOTE_PRESENCE peer="} + remote_uid +
-                " state=" + PresenceStateName(state));
-  bool overlay_changed = false;
-  if (remote_uid == binding.instance.local_aether_uid) {
-    overlay_changed = binding.presence.SetLocalSelf(state);
-  } else {
-    overlay_changed = binding.presence.SetRemote(remote_uid, state);
-  }
-  auto const applied = ApplyPresenceOverlay(binding);
-  return overlay_changed || applied > 0;
-}
-
 bool SetLocalPresenceObservation(ChatSharedBinding& binding,
                                  PresenceState state) {
   chat::ChatLog(std::string{"LOCAL_PRESENCE_APPLY state="} +
                 PresenceStateName(state));
+  // Keep overlay cache for shared Join import seeding of the local client.
   bool const overlay_changed = binding.presence.SetLocalSelf(state);
-  auto const applied = ApplyPresenceOverlay(binding);
-  return overlay_changed || applied > 0;
-}
-
-void SetSharedPeerPresence(ChatSharedBinding& binding,
-                           std::string const& remote_uid, PresenceState state) {
-  // Legacy name retained for older call sites; Presence must not seed peers.
-  static_cast<void>(SetRemotePresenceObservation(binding, remote_uid, state));
+  if (!binding.instance.node.is_valid()) {
+    return overlay_changed;
+  }
+  auto client = binding.instance.node->FindClientByAetherUid(
+      binding.instance.local_aether_uid);
+  if (!client.is_valid()) {
+    return overlay_changed;
+  }
+  bool const applied = ApplyLocalPresenceEvent(*client, state);
+  return overlay_changed || applied;
 }
 
 std::size_t CountSharedPendingAndInFlight(ChatSharedBinding const& binding) {

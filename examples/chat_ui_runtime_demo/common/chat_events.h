@@ -62,6 +62,30 @@ class ChatMessageEvent : public EventFor<ChatRoom, ChatMessageEvent> {
   std::int64_t sent_at_unix_ms{0};
 };
 
+// Runtime-only local connectivity Presence. Applied to ChatClient; not part of
+// the shared ChatRoom journal / P2P replication.
+class LocalPresenceEvent : public EventFor<ChatClient, LocalPresenceEvent> {
+  APPTRAVERSE_OBJECT(LocalPresenceEvent, Event, 0)
+
+ protected:
+  LocalPresenceEvent() = default;
+
+ public:
+  explicit LocalPresenceEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(presence))
+
+  std::uint8_t presence{static_cast<std::uint8_t>(PresenceState::kUnknown)};
+
+  PresenceState GetPresence() const {
+    return static_cast<PresenceState>(presence);
+  }
+
+  void SetPresence(PresenceState state) {
+    presence = static_cast<std::uint8_t>(state);
+  }
+};
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_CHAT_EVENTS_H_

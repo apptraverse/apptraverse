@@ -24,7 +24,6 @@ enum class UiNotifyKind : WPARAM {
   ConnectionReady = 1,
   ConnectionDisconnected = 2,
   RuntimeDiag = 3,
-  PresenceMonitoring = 4,
 };
 
 std::string TrimAetherUid(std::string uid) {
@@ -68,9 +67,6 @@ LRESULT CALLBACK DispatcherProc(HWND hwnd, UINT msg, WPARAM wparam,
     } else if (wparam ==
                static_cast<WPARAM>(UiNotifyKind::ConnectionDisconnected)) {
       app->OnUiConnectionDisconnected();
-    } else if (wparam ==
-               static_cast<WPARAM>(UiNotifyKind::PresenceMonitoring)) {
-      app->OnUiPresenceMonitoring();
     }
     return 0;
   }
@@ -95,11 +91,6 @@ void WinChatApp::OnUiConnectionDisconnected() {
   }
 }
 
-void WinChatApp::OnUiPresenceMonitoring() {
-  if (presentation_) {
-    presentation_->NotifyMonitoring();
-  }
-}
 
 void WinChatApp::OnUiRuntimeDiag() {
   if (!presentation_ || !pending_diag_valid_) {
@@ -122,12 +113,6 @@ void WinChatApp::PostConnectionUiDisconnected() {
   }
 }
 
-void WinChatApp::PostPresenceMonitoringUi() {
-  if (dispatcher_ != nullptr) {
-    PostMessageW(dispatcher_, WM_APPTRAVERSE_CONNECTION_UI,
-                 static_cast<WPARAM>(UiNotifyKind::PresenceMonitoring), 0);
-  }
-}
 
 void WinChatApp::PostRuntimeDiagFromModelThread() {
 #ifndef NDEBUG
@@ -151,35 +136,6 @@ void WinChatApp::PostRuntimeDiagFromModelThread() {
 #endif
 }
 
-void WinChatApp::AddPresencePeer(std::string remote_uid) {
-  remote_uid = TrimAetherUid(std::move(remote_uid));
-  if (remote_uid.empty() ||
-      remote_uid == shared_.instance.local_aether_uid) {
-    return;
-  }
-  if (!runtime_.application || !runtime_.application->chat_room.is_valid()) {
-    return;
-  }
-  auto& room = *runtime_.application->chat_room;
-  bool const had_contact = room.FindClientByAetherUid(remote_uid).is_valid();
-  auto contact = EnsurePresenceContact(room, remote_uid);
-  bool const new_contact = !had_contact && contact.is_valid();
-  if (contact.is_valid() && model_runtime_) {
-    model_runtime_->AttachNode(*contact, room);
-  }
-  SetRemotePresenceObservation(shared_, remote_uid, PresenceState::kUnknown);
-  monitored_remote_uids_.insert(remote_uid);
-  aether_runtime_.MonitorPeerPresence(remote_uid);
-  std::uint64_t client_gen = 0;
-  if (contact.is_valid()) {
-    client_gen = contact->Generation();
-  }
-  chat::ChatLog("ADD_PRESENCE_PEER uid=" + remote_uid +
-                " new_contact=" + (new_contact ? "1" : "0") +
-                " client_gen=" + std::to_string(client_gen) +
-                " room_gen=" + std::to_string(room.Generation()));
-  PostPresenceMonitoringUi();
-}
 
 void WinChatApp::OnPublished(std::uint32_t root_id,
                              PublicationChannel<3>* channel) {
@@ -287,29 +243,6 @@ void WinChatApp::OnPeerFrame(std::string remote_uid,
   });
 }
 
-void WinChatApp::OnPeerPresence(std::string remote_uid, PresenceState state) {
-  if (!model_runtime_) {
-    return;
-  }
-  model_runtime_->Post([this, remote_uid = std::move(remote_uid), state] {
-    PresenceState const old_state = shared_.presence.Remote(remote_uid);
-    bool const materialized =
-        SetRemotePresenceObservation(shared_, remote_uid, state);
-    std::uint64_t client_gen = 0;
-    if (runtime_.application && runtime_.application->chat_room.is_valid()) {
-      auto client =
-          runtime_.application->chat_room->FindClientByAetherUid(remote_uid);
-      if (client.is_valid()) {
-        client_gen = client->Generation();
-      }
-    }
-    chat::ChatLog("MODEL_PRESENCE_APPLY uid=" + remote_uid + " old=" +
-                  PresenceStateName(old_state) + " new=" +
-                  PresenceStateName(state) + " materialized=" +
-                  (materialized ? "1" : "0") +
-                  " client_gen=" + std::to_string(client_gen));
-  });
-}
 
 void WinChatApp::HandlePeerFrameOnModelThread(
     std::string remote_uid, std::vector<std::uint8_t> bytes) {
@@ -361,10 +294,8 @@ void WinChatApp::RequestExit() {
 }
 
 int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
-                    std::string connect_host_uid,
-                    std::string monitor_peer_uid) {
+                    std::string connect_host_uid) {
   pending_connect_host_uid_ = std::move(connect_host_uid);
-  pending_monitor_peer_uid_ = std::move(monitor_peer_uid);
   state_dir_ = state_dir;
   EnsureChatRegistration();
   EnsureChatPresenterRegistration();
@@ -454,9 +385,12 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
                          shared_transport_.get());
     });
   };
-  presentation_->on_connect_host = [this](std::string peer_uid) {
-    model_runtime_->Post([this, peer_uid = std::move(peer_uid)] {
-      AddPresencePeer(std::move(peer_uid));
+  presentation_->on_connect_host = [this](std::string host_uid) {
+    model_runtime_->Post([this, host_uid = std::move(host_uid)] {
+      ConnectToHostCommand(shared_, std::move(host_uid),
+                           [this](std::string const& peer_uid) {
+                             aether_runtime_.OpenPeer(peer_uid);
+                           });
     });
   };
   presentation_->OnLoad();
@@ -473,10 +407,6 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
   aether_runtime_.SetPeerWriteFailedCallback(
       [this](std::string remote_uid) {
         OnPeerWriteFailed(std::move(remote_uid));
-      });
-  aether_runtime_.SetPeerPresenceCallback(
-      [this](std::string remote_uid, PresenceState state) {
-        OnPeerPresence(std::move(remote_uid), state);
       });
 
   auto aether_dir = state_dir / "aether";
@@ -509,34 +439,24 @@ int WinChatApp::Run(std::filesystem::path const& state_dir, ChatRole role,
                                    aether_runtime_.OpenPeer(peer_uid);
                                  });
           }
-          if (!pending_monitor_peer_uid_.empty()) {
-            auto peer_uid = std::move(pending_monitor_peer_uid_);
-            pending_monitor_peer_uid_.clear();
-            AddPresencePeer(std::move(peer_uid));
-          }
-          for (auto const& client : runtime_.application->chat_room->clients) {
-            if (!client.is_valid()) {
-              continue;
-            }
-            auto const uid = client->AetherUidText();
-            if (!uid.empty() && uid != shared_.instance.local_aether_uid) {
-              AddPresencePeer(uid);
-            }
-          }
         });
       },
       [this](PresenceState state) {
+        // Presence is diagnosed on the Aether (network) thread; the Event is
+        // applied to ChatClient on the Model thread (domain ownership).
         model_runtime_->Post([app = &*runtime_.application, state, this] {
-          PresenceState const old_state = shared_.presence.LocalSelf();
-          bool const materialized = SetLocalPresenceObservation(shared_, state);
-          SetHostClientPresence(*app->host_client, state);
+          PresenceState const old_state = app->host_client->GetPresence();
+          bool const materialized =
+              ApplyLocalPresenceEvent(*app->host_client, state);
+          static_cast<void>(shared_.presence.SetLocalSelf(state));
           if (app->host_client.is_valid()) {
             model_runtime_->AttachNode(*app->host_client, *app->chat_room);
           }
           chat::ChatLog(std::string{"MODEL_PRESENCE local="} +
                         PresenceStateName(state) + " old=" +
                         PresenceStateName(old_state) + " materialized=" +
-                        (materialized ? "1" : "0") + " host_gen=" +
+                        (materialized ? "1" : "0") +
+                        " via=LocalPresenceEvent host_gen=" +
                         std::to_string(app->host_client->Generation()) +
                         " room_gen=" +
                         std::to_string(app->chat_room->Generation()) +

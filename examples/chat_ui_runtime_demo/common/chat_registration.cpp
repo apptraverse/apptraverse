@@ -14,6 +14,7 @@ APPTRAVERSE_REGISTER(LocalAetherIdentity);
 APPTRAVERSE_REGISTER(Application);
 APPTRAVERSE_REGISTER(JoinEvent);
 APPTRAVERSE_REGISTER(ChatMessageEvent);
+APPTRAVERSE_REGISTER(LocalPresenceEvent);
 
 }  // namespace
 
