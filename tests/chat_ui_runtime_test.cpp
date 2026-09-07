@@ -24,6 +24,7 @@
 #include "chat_commands.h"
 #include "chat_events.h"
 #include "chat_identity_bar.h"
+#include "chat_aether_client_init.h"
 #include "chat_model.h"
 #include "chat_presence.h"
 #include "chat_shared.h"
@@ -583,7 +584,8 @@ void TestIdentityBarProjection() {
   CHECK(client.join_enabled);
   CHECK(client.show_edit_cue);
   CHECK(application->room->journal.size() == 1);
-  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
+  CHECK(application->local_client->GetPresence() ==
+        PresenceState::kConnecting);
 }
 
 void TestNetworkOutageUpdatesIdentityAndPresence() {
@@ -599,7 +601,11 @@ void TestNetworkOutageUpdatesIdentityAndPresence() {
       *application, NetworkAvailability::kAvailable));
   CHECK(application->network->GetAvailability() ==
         NetworkAvailability::kAvailable);
-  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
+  // NetworkAvailable must not fabricate Presence Online.
+  CHECK(application->local_client->GetPresence() ==
+        PresenceState::kConnecting);
+  CHECK(CommitPresenceChanged(*application->local_client,
+                              PresenceState::kOnline));
   auto host = ProjectIdentityBar(ChatRole::Host, *application->network,
                                  *application->aether);
   CHECK(host.field_text == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
@@ -609,7 +615,8 @@ void TestNetworkOutageUpdatesIdentityAndPresence() {
       *application, NetworkAvailability::kInternetUnavailable));
   CHECK(application->network->GetAvailability() ==
         NetworkAvailability::kInternetUnavailable);
-  CHECK(application->local_client->GetPresence() == PresenceState::kOffline);
+  CHECK(application->local_client->GetPresence() ==
+        PresenceState::kConnecting);
   host = ProjectIdentityBar(ChatRole::Host, *application->network,
                             *application->aether);
   CHECK(host.field_text == kIdentityBarNoInternet);
@@ -619,11 +626,15 @@ void TestNetworkOutageUpdatesIdentityAndPresence() {
       *application, NetworkAvailability::kAvailable));
   CHECK(application->network->GetAvailability() ==
         NetworkAvailability::kAvailable);
-  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
+  CHECK(application->local_client->GetPresence() ==
+        PresenceState::kConnecting);
   host = ProjectIdentityBar(ChatRole::Host, *application->network,
                             *application->aether);
   CHECK(host.field_text == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
   CHECK(host.copy_enabled);
+  CHECK(CommitPresenceChanged(*application->local_client,
+                              PresenceState::kOnline));
+  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
 
   ae::RamDomainStorage client_storage;
   ae::Domain client_domain{client_storage};
@@ -641,20 +652,96 @@ void TestNetworkOutageUpdatesIdentityAndPresence() {
                                    *client_app->aether);
   CHECK(client.field_text.empty());
   CHECK(client.join_enabled);
+  CHECK(client_app->local_client->GetPresence() ==
+        PresenceState::kConnecting);
   CHECK(ApplyNetworkObservation(
       *client_app, NetworkAvailability::kInterfaceUnavailable));
   client = ProjectIdentityBar(ChatRole::Client, *client_app->network,
                               *client_app->aether);
   CHECK(client.field_text == kIdentityBarNoInterface);
   CHECK(!client.join_enabled);
-  CHECK(client_app->local_client->GetPresence() == PresenceState::kOffline);
+  CHECK(client_app->local_client->GetPresence() ==
+        PresenceState::kConnecting);
   CHECK(ApplyNetworkObservation(*client_app,
                                 NetworkAvailability::kAvailable));
   client = ProjectIdentityBar(ChatRole::Client, *client_app->network,
                               *client_app->aether);
   CHECK(client.field_text.empty());
   CHECK(client.join_enabled);
-  CHECK(client_app->local_client->GetPresence() == PresenceState::kOnline);
+  CHECK(client_app->local_client->GetPresence() ==
+        PresenceState::kConnecting);
+}
+
+void TestAetherClientInitControllerLifecycle() {
+  using Clock = AetherClientInitController::Clock;
+  AetherClientInitController c;
+  auto t0 = Clock::now();
+  CHECK(c.state() == AetherClientInitState::kWaitingForNetwork);
+  CHECK(!c.OnNetworkObservation(NetworkAvailability::kInternetUnavailable, t0));
+  CHECK(c.state() == AetherClientInitState::kWaitingForNetwork);
+
+  CHECK(c.OnNetworkObservation(NetworkAvailability::kAvailable, t0));
+  c.OnSelectClientStarted();
+  CHECK(c.is_selecting());
+  CHECK(!c.OnNetworkObservation(NetworkAvailability::kAvailable, t0));
+
+  CHECK(!c.OnSelectClientFailed(t0));
+  CHECK(c.state() == AetherClientInitState::kRetryDelay);
+  CHECK(c.failure_count() == 1);
+  CHECK(c.retry_at().has_value());
+  auto const first_due = *c.retry_at();
+  CHECK(!c.Tick(t0));
+  CHECK(!c.Tick(first_due - std::chrono::milliseconds{1}));
+
+  // Network disappears during retry: no start; retry_at is cleared.
+  CHECK(!c.OnNetworkObservation(NetworkAvailability::kInternetUnavailable,
+                                first_due));
+  CHECK(c.state() == AetherClientInitState::kWaitingForNetwork);
+  CHECK(!c.retry_at().has_value());
+  CHECK(!c.Tick(first_due + std::chrono::seconds{10}));
+
+  // Network returns: immediate start, backoff reset.
+  CHECK(c.OnNetworkObservation(NetworkAvailability::kAvailable, t0));
+  c.OnSelectClientStarted();
+  CHECK(!c.OnSelectClientFailed(t0));
+  CHECK(c.failure_count() == 1);
+  CHECK(c.retry_at().has_value());
+  auto due = *c.retry_at();
+  CHECK(c.Tick(due));
+  c.OnSelectClientStarted();
+  c.OnSelectClientSucceeded();
+  CHECK(c.is_ready());
+  CHECK(!c.OnNetworkObservation(NetworkAvailability::kAvailable, due));
+  CHECK(!c.Tick(due + std::chrono::seconds{60}));
+}
+
+void TestAetherClientInitDuplicateSuccessIgnored() {
+  AetherClientInitController c;
+  auto t0 = AetherClientInitController::Clock::now();
+  CHECK(c.OnNetworkObservation(NetworkAvailability::kAvailable, t0));
+  c.OnSelectClientStarted();
+  c.OnSelectClientSucceeded();
+  CHECK(c.is_ready());
+  c.OnSelectClientSucceeded();
+  CHECK(c.is_ready());
+  CHECK(!c.OnSelectClientFailed(t0));
+}
+
+void TestCompleteLocalRegistrationIdempotent() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildChatGraph(domain, "Host");
+  FinalizeDistilledGraph(*application);
+  BeginCurrentRun(*application);
+  CHECK(CompleteLocalRegistration(*application, "uid-1"));
+  CHECK(application->room->journal.size() == 1);
+  CHECK(application->room->clients.size() == 1);
+  CHECK(!CompleteLocalRegistration(*application, "uid-1"));
+  CHECK(!CompleteLocalRegistration(*application, "uid-2"));
+  CHECK(application->room->journal.size() == 1);
+  CHECK(application->room->clients.size() == 1);
+  CHECK(application->aether->CurrentUid() == "uid-1");
 }
 
 void TestSecondLaunchStartsRegistering() {
@@ -727,7 +814,8 @@ void TestNoManualSerializersOrRuntimeClasses() {
       "ui_materialized.h",  "SerializeMaterializedObject",
       "DeserializeMaterializedObject", "EagerLoadReachable",
       "WinCenterStripPresenter", "PaintWindow", "LayoutWindow",
-      "CenterStrip", "ColorToolbar"};
+      "CenterStrip", "ColorToolbar", "WaitActions(select)",
+      "aether_app->Exit(1)"};
   for (auto const& entry :
        std::filesystem::recursive_directory_iterator(root)) {
     if (!entry.is_regular_file()) {
@@ -768,6 +856,9 @@ int main() {
   using apptraverse::test::TestIdentityBarPresenterStructure;
   using apptraverse::test::TestIdentityBarProjection;
   using apptraverse::test::TestNetworkOutageUpdatesIdentityAndPresence;
+  using apptraverse::test::TestAetherClientInitControllerLifecycle;
+  using apptraverse::test::TestAetherClientInitDuplicateSuccessIgnored;
+  using apptraverse::test::TestCompleteLocalRegistrationIdempotent;
   using apptraverse::test::TestSecondLaunchStartsRegistering;
   using apptraverse::test::TestChatNamedObjectClassIds;
   using apptraverse::test::TestCreateOrLoadIgnoresCliWhenStateExists;
@@ -794,6 +885,9 @@ int main() {
   TestApplyPresenceOverlayUnchangedReturnsZero();
   TestIdentityBarProjection();
   TestNetworkOutageUpdatesIdentityAndPresence();
+  TestAetherClientInitControllerLifecycle();
+  TestAetherClientInitDuplicateSuccessIgnored();
+  TestCompleteLocalRegistrationIdempotent();
   TestSecondLaunchStartsRegistering();
   TestPresenterTracksNestedClientGeneration();
   TestIdentityBarPresenterStructure();

@@ -8,8 +8,11 @@
 #  undef RegisterClass
 #endif
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
@@ -21,6 +24,8 @@
 #include "chat_commands.h"
 #include "chat_identity_bar.h"
 #include "chat_model.h"
+#include "chat_presence.h"
+#include "aether_runtime.h"
 #include "win_presenters.h"
 
 namespace {
@@ -242,7 +247,7 @@ void TestHostIdentityBarRegisteringAndReady() {
   CHECK(EditIsReadonly(uid));
   CHECK(!ChildHasExactText(hwnd, L"Registered"));
   CHECK(h.app->room->journal.size() == 1);
-  CHECK(h.app->local_client->GetPresence() == chat::PresenceState::kOnline);
+  CHECK(h.app->local_client->GetPresence() == chat::PresenceState::kConnecting);
 
   CHECK(chat::ApplyNetworkObservation(
       *h.app, apptraverse::NetworkAvailability::kInternetUnavailable));
@@ -251,7 +256,7 @@ void TestHostIdentityBarRegisteringAndReady() {
   CHECK(WindowText(uid) ==
         chat::win32::Utf8ToWide(std::string{kIdentityBarNoInternet}));
   CHECK(IsWindowEnabled(copy) == FALSE);
-  CHECK(h.app->local_client->GetPresence() == chat::PresenceState::kOffline);
+  CHECK(h.app->local_client->GetPresence() == chat::PresenceState::kConnecting);
 
   CHECK(chat::ApplyNetworkObservation(
       *h.app, apptraverse::NetworkAvailability::kAvailable));
@@ -259,6 +264,11 @@ void TestHostIdentityBarRegisteringAndReady() {
   Pump();
   CHECK(WindowText(uid) == chat::win32::Utf8ToWide(local_uid));
   CHECK(IsWindowEnabled(copy) == TRUE);
+  CHECK(h.app->local_client->GetPresence() == chat::PresenceState::kConnecting);
+  CHECK(chat::CommitPresenceChanged(*h.app->local_client,
+                                    chat::PresenceState::kOnline));
+  h.presentation->PresentChatWindow();
+  Pump();
   CHECK(h.app->local_client->GetPresence() == chat::PresenceState::kOnline);
   DestroyHarness(h);
 }
@@ -291,6 +301,55 @@ void TestClientIdentityBarRegisteringAndReady() {
   DestroyHarness(h);
 }
 
+void TestAetherRuntimeStopWhileWaitingForNetwork() {
+  using apptraverse::NetworkAvailability;
+  std::atomic<int> network_reports{0};
+  chat::ChatAetherRuntime runtime;
+  runtime.SetNetworkProbe(
+      [] { return NetworkAvailability::kInternetUnavailable; });
+  auto dir = std::filesystem::temp_directory_path() /
+             ("chat_aether_stop_wait_" +
+              std::to_string(
+                  std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(dir);
+  runtime.Start(
+      dir, [](std::string) {}, {},
+      [](std::string) {},
+      [&](NetworkAvailability) { network_reports.fetch_add(1); });
+  auto const started = std::chrono::steady_clock::now();
+  while (network_reports.load() == 0 &&
+         std::chrono::steady_clock::now() - started <
+             std::chrono::seconds{5}) {
+    Sleep(20);
+  }
+  CHECK(network_reports.load() >= 1);
+  runtime.RequestStop();
+  runtime.Join();
+  auto const elapsed = std::chrono::steady_clock::now() - started;
+  CHECK(elapsed < std::chrono::seconds{8});
+  std::filesystem::remove_all(dir);
+}
+
+void TestAetherRuntimeStopWhileNetworkAvailable() {
+  using apptraverse::NetworkAvailability;
+  chat::ChatAetherRuntime runtime;
+  // Available probe may start SelectClient; stop must still finish promptly.
+  runtime.SetNetworkProbe([] { return NetworkAvailability::kAvailable; });
+  auto dir = std::filesystem::temp_directory_path() /
+             ("chat_aether_stop_sel_" +
+              std::to_string(
+                  std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(dir);
+  auto const started = std::chrono::steady_clock::now();
+  runtime.Start(dir, [](std::string) {}, {}, [](std::string) {}, {});
+  Sleep(100);
+  runtime.RequestStop();
+  runtime.Join();
+  auto const elapsed = std::chrono::steady_clock::now() - started;
+  CHECK(elapsed < std::chrono::seconds{10});
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace
 
 int main() {
@@ -301,6 +360,8 @@ int main() {
     TestConnectUidValidationHelpers();
     TestHostIdentityBarRegisteringAndReady();
     TestClientIdentityBarRegisteringAndReady();
+    TestAetherRuntimeStopWhileWaitingForNetwork();
+    TestAetherRuntimeStopWhileNetworkAvailable();
     std::cout << "chat_win32_ui_smoke_test OK\n";
     return 0;
   } catch (...) {

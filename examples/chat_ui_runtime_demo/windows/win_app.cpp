@@ -122,9 +122,11 @@ void WinChatApp::HandleNetworkObservationOnModelThread(
 }
 
 void WinChatApp::HandleAetherFailedOnModelThread(std::string error) {
-  ChatLog("MODEL_REGISTRATION_FAILED " + error);
-  HandleNetworkObservationOnModelThread(
-      apptraverse::NetworkAvailability::kInternetUnavailable);
+  // SelectClient / Aether errors are not Windows network observations.
+  // Keep NetworkState and AetherRegistrationState separate; the Aether
+  // thread stays alive and retries while network is Available.
+  ChatLog("MODEL_AETHER_ERROR " + error +
+          " (network unchanged; registration remains Registering)");
 }
 
 void WinChatApp::HandlePresenceOnModelThread(PresenceState state) {

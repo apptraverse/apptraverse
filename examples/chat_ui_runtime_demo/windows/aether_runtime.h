@@ -18,6 +18,8 @@ namespace chat {
 
 // Runs AetherApp on its own thread. Owns all P2pStream objects.
 // Model/UI threads only enqueue commands and receive UID-based callbacks.
+// First-run SelectClient is driven by the long-lived Update/WaitUntil loop —
+// never a blocking WaitActions that can Exit() the runtime permanently.
 // Local Presence diagnosis stays on this thread; PresenceChangedEvent is
 // committed on the Model thread after monitoring is enabled.
 class ChatAetherRuntime {
@@ -27,6 +29,8 @@ class ChatAetherRuntime {
   using PresenceCallback = std::function<void(PresenceState state)>;
   using NetworkCallback =
       std::function<void(apptraverse::NetworkAvailability availability)>;
+  using NetworkProbe =
+      std::function<apptraverse::NetworkAvailability()>;
   using PeerReadyCallback = std::function<void(std::string remote_uid)>;
   using PeerClosedCallback = std::function<void(std::string remote_uid)>;
   using PeerFrameCallback =
@@ -39,6 +43,9 @@ class ChatAetherRuntime {
 
   ChatAetherRuntime(ChatAetherRuntime const&) = delete;
   ChatAetherRuntime& operator=(ChatAetherRuntime const&) = delete;
+
+  // Optional probe for deterministic tests. Must be set before Start().
+  void SetNetworkProbe(NetworkProbe probe);
 
   void Start(std::filesystem::path aether_state_dir, UidCallback on_uid,
              PresenceCallback on_presence = {}, FailedCallback on_failed = {},
@@ -74,6 +81,7 @@ class ChatAetherRuntime {
                   PresenceCallback on_presence, FailedCallback on_failed,
                   NetworkCallback on_network);
   void Enqueue(Command command);
+  apptraverse::NetworkAvailability ProbeNetwork();
 
   std::atomic<bool> stop_{false};
   std::atomic<bool> presence_enabled_{false};
@@ -87,6 +95,7 @@ class ChatAetherRuntime {
   PeerClosedCallback on_peer_closed_;
   PeerFrameCallback on_peer_frame_;
   PeerWriteFailedCallback on_peer_write_failed_;
+  NetworkProbe network_probe_;
 };
 
 }  // namespace chat

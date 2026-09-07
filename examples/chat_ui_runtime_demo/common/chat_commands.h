@@ -175,8 +175,11 @@ inline bool CommitNetworkObservation(apptraverse::NetworkState& network,
   return false;
 }
 
-// Network observation Event, then local Presence Event when the ChatClient
-// exists. Identical repeats are not committed.
+// Network observation Event only. NetworkAvailable must NOT fabricate
+// Presence Online — that comes only from the Aether-thread local Presence
+// diagnosis callback.
+// On outage after a local ChatClient exists, restart Presence monitoring
+// (Connecting) so stale Online is not shown as current truth.
 inline bool ApplyNetworkObservation(
     ChatApplication& application,
     apptraverse::NetworkAvailability availability) {
@@ -187,13 +190,9 @@ inline bool ApplyNetworkObservation(
       *application.network, application.runtime->run_id, availability);
   bool presence_committed = false;
   if (application.local_client.is_valid() &&
-      availability != apptraverse::NetworkAvailability::kInitializing) {
-    PresenceState const presence =
-        availability == apptraverse::NetworkAvailability::kAvailable
-            ? PresenceState::kOnline
-            : PresenceState::kOffline;
+      apptraverse::NetworkIsOutage(availability)) {
     presence_committed =
-        CommitPresenceChanged(*application.local_client, presence);
+        CommitPresenceMonitoringStarted(*application.local_client);
   }
   return network_committed || presence_committed;
 }
