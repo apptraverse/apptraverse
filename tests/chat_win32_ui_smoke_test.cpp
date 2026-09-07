@@ -233,6 +233,8 @@ void TestHostIdentityBarRegisteringAndReady() {
 
   std::string const local_uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
   chat::CompleteLocalRegistration(*h.app, local_uid);
+  CHECK(chat::ApplyNetworkObservation(
+      *h.app, apptraverse::NetworkAvailability::kAvailable));
   h.presentation->PresentChatWindow();
   Pump();
   CHECK(WindowText(uid) == chat::win32::Utf8ToWide(local_uid));
@@ -240,6 +242,24 @@ void TestHostIdentityBarRegisteringAndReady() {
   CHECK(EditIsReadonly(uid));
   CHECK(!ChildHasExactText(hwnd, L"Registered"));
   CHECK(h.app->room->journal.size() == 1);
+  CHECK(h.app->local_client->GetPresence() == chat::PresenceState::kOnline);
+
+  CHECK(chat::ApplyNetworkObservation(
+      *h.app, apptraverse::NetworkAvailability::kInternetUnavailable));
+  h.presentation->PresentChatWindow();
+  Pump();
+  CHECK(WindowText(uid) ==
+        chat::win32::Utf8ToWide(std::string{kIdentityBarNoInternet}));
+  CHECK(IsWindowEnabled(copy) == FALSE);
+  CHECK(h.app->local_client->GetPresence() == chat::PresenceState::kOffline);
+
+  CHECK(chat::ApplyNetworkObservation(
+      *h.app, apptraverse::NetworkAvailability::kAvailable));
+  h.presentation->PresentChatWindow();
+  Pump();
+  CHECK(WindowText(uid) == chat::win32::Utf8ToWide(local_uid));
+  CHECK(IsWindowEnabled(copy) == TRUE);
+  CHECK(h.app->local_client->GetPresence() == chat::PresenceState::kOnline);
   DestroyHarness(h);
 }
 

@@ -114,6 +114,82 @@ void TestHostOnlineModelToUiProjection() {
         PresenceState::kOnline);
 }
 
+void TestPublishedClientAppliedBeforeUiShell() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage model_storage;
+  OverlayDomainStorage ui_storage{model_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
+  auto application = BuildChatGraph(model_domain, "Host");
+  FinalizeDistilledGraph(*application);
+
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  auto ui_application = ChatApplication::ptr::MakeFromThis(
+      static_cast<ChatApplication*>(ui_root.get()));
+  CHECK(ui_application->room->clients.empty());
+
+  UiApplyResult applied;
+  UiMirror* mirror_ptr = nullptr;
+  UiMirror mirror{
+      ui_domain, ui_storage,
+      [&](std::uint32_t root_id, PublicationChannel<3>* channel) {
+        applied = mirror_ptr->ApplyPublished(*channel, root_id);
+      }};
+  mirror_ptr = &mirror;
+
+  CompleteLocalRegistration(*application, "after-copy-uid");
+  CHECK(application->local_client.is_valid());
+  CHECK(!ui_domain.Find(application->local_client.id()));
+
+  // Client record first, as unordered_set publication order can do on startup.
+  bool const published = mirror.Publish(
+      ToObjId(ChatObjId::ChatRoom),
+      {&*application->local_client, &*application->room});
+  CHECK(published);
+  CHECK(ui_application->room->clients.size() == 1);
+  CHECK(ui_application->room->clients[0]->AetherUidText() == "after-copy-uid");
+  CHECK(applied.root_id == ToObjId(ChatObjId::ChatRoom));
+}
+
+void TestCopyThenCompleteLocalRegistration() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage model_storage;
+  OverlayDomainStorage ui_storage{model_storage};
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
+  auto application = BuildChatGraph(model_domain, "Host");
+  FinalizeDistilledGraph(*application);
+  BeginCurrentRun(*application);
+
+  auto ui_root =
+      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  auto ui_application = ChatApplication::ptr::MakeFromThis(
+      static_cast<ChatApplication*>(ui_root.get()));
+  CHECK(ui_application->room->clients.empty());
+
+  std::vector<UiApplyResult> applies;
+  UiMirror* mirror_ptr = nullptr;
+  UiMirror mirror{
+      ui_domain, ui_storage,
+      [&](std::uint32_t root_id, PublicationChannel<3>* channel) {
+        applies.push_back(mirror_ptr->ApplyPublished(*channel, root_id));
+      }};
+  mirror_ptr = &mirror;
+  ModelRuntime runtime{*application, mirror};
+  runtime.AddPresentationRoot(*application->room);
+  runtime.AddPresentationRoot(*application->network);
+  runtime.AddPresentationRoot(*application->aether);
+
+  runtime.Post([&] {
+    CompleteLocalRegistration(*application, "after-copy-uid", &runtime);
+  });
+  runtime.PumpOnce(std::chrono::steady_clock::now());
+  CHECK(application->room->clients.size() == 1);
+  CHECK(ui_application->room->clients.size() == 1);
+  CHECK(ui_application->room->clients[0]->AetherUidText() == "after-copy-uid");
+}
+
 void TestDynamicClientAttachMapping() {
   EnsureChatRegistration();
   ae::RamDomainStorage model_storage;
@@ -147,6 +223,8 @@ int main() {
   using namespace apptraverse::test;
   TestMessageFieldsModelToUi();
   TestHostOnlineModelToUiProjection();
+  TestPublishedClientAppliedBeforeUiShell();
+  TestCopyThenCompleteLocalRegistration();
   TestDynamicClientAttachMapping();
   std::cout << "chat_ui_mirror_integration_test OK\n";
   return 0;

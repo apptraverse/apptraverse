@@ -25,6 +25,11 @@ enum class AetherRegistrationPhase : std::uint8_t {
   kRegistered = 1,
 };
 
+inline bool NetworkIsOutage(NetworkAvailability availability) {
+  return availability == NetworkAvailability::kInterfaceUnavailable ||
+         availability == NetworkAvailability::kInternetUnavailable;
+}
+
 class ApplicationStartedEvent;
 class NetworkInitializingEvent;
 class NetworkInterfaceUnavailableEvent;

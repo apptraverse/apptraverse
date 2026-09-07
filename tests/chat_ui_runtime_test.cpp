@@ -569,6 +569,8 @@ void TestIdentityBarProjection() {
   CHECK(host.field_text == kIdentityBarNoInternet);
 
   CompleteLocalRegistration(*application, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  CHECK(ApplyNetworkObservation(*application,
+                                NetworkAvailability::kAvailable));
   host = ProjectIdentityBar(ChatRole::Host, *application->network,
                             *application->aether);
   CHECK(host.field_text == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
@@ -581,8 +583,78 @@ void TestIdentityBarProjection() {
   CHECK(client.join_enabled);
   CHECK(client.show_edit_cue);
   CHECK(application->room->journal.size() == 1);
-  CHECK(application->local_client->GetPresence() ==
-        PresenceState::kConnecting);
+  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
+}
+
+void TestNetworkOutageUpdatesIdentityAndPresence() {
+  EnsureChatRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildChatGraph(domain, "Host");
+  FinalizeDistilledGraph(*application);
+  BeginCurrentRun(*application);
+  CompleteLocalRegistration(*application,
+                             "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  CHECK(ApplyNetworkObservation(
+      *application, NetworkAvailability::kAvailable));
+  CHECK(application->network->GetAvailability() ==
+        NetworkAvailability::kAvailable);
+  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
+  auto host = ProjectIdentityBar(ChatRole::Host, *application->network,
+                                 *application->aether);
+  CHECK(host.field_text == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  CHECK(host.copy_enabled);
+
+  CHECK(ApplyNetworkObservation(
+      *application, NetworkAvailability::kInternetUnavailable));
+  CHECK(application->network->GetAvailability() ==
+        NetworkAvailability::kInternetUnavailable);
+  CHECK(application->local_client->GetPresence() == PresenceState::kOffline);
+  host = ProjectIdentityBar(ChatRole::Host, *application->network,
+                            *application->aether);
+  CHECK(host.field_text == kIdentityBarNoInternet);
+  CHECK(!host.copy_enabled);
+
+  CHECK(ApplyNetworkObservation(
+      *application, NetworkAvailability::kAvailable));
+  CHECK(application->network->GetAvailability() ==
+        NetworkAvailability::kAvailable);
+  CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
+  host = ProjectIdentityBar(ChatRole::Host, *application->network,
+                            *application->aether);
+  CHECK(host.field_text == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  CHECK(host.copy_enabled);
+
+  ae::RamDomainStorage client_storage;
+  ae::Domain client_domain{client_storage};
+  ChatCreateOptions client_options;
+  client_options.role = ChatRole::Client;
+  client_options.display_name = "Client";
+  auto client_app = BuildChatGraph(client_domain, client_options);
+  FinalizeDistilledGraph(*client_app);
+  BeginCurrentRun(*client_app);
+  CompleteLocalRegistration(*client_app,
+                            "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+  CHECK(ApplyNetworkObservation(*client_app,
+                                NetworkAvailability::kAvailable));
+  auto client = ProjectIdentityBar(ChatRole::Client, *client_app->network,
+                                   *client_app->aether);
+  CHECK(client.field_text.empty());
+  CHECK(client.join_enabled);
+  CHECK(ApplyNetworkObservation(
+      *client_app, NetworkAvailability::kInterfaceUnavailable));
+  client = ProjectIdentityBar(ChatRole::Client, *client_app->network,
+                              *client_app->aether);
+  CHECK(client.field_text == kIdentityBarNoInterface);
+  CHECK(!client.join_enabled);
+  CHECK(client_app->local_client->GetPresence() == PresenceState::kOffline);
+  CHECK(ApplyNetworkObservation(*client_app,
+                                NetworkAvailability::kAvailable));
+  client = ProjectIdentityBar(ChatRole::Client, *client_app->network,
+                              *client_app->aether);
+  CHECK(client.field_text.empty());
+  CHECK(client.join_enabled);
+  CHECK(client_app->local_client->GetPresence() == PresenceState::kOnline);
 }
 
 void TestSecondLaunchStartsRegistering() {
@@ -695,6 +767,7 @@ int main() {
   using apptraverse::test::TestConnectToHostCommandRegistersPeer;
   using apptraverse::test::TestIdentityBarPresenterStructure;
   using apptraverse::test::TestIdentityBarProjection;
+  using apptraverse::test::TestNetworkOutageUpdatesIdentityAndPresence;
   using apptraverse::test::TestSecondLaunchStartsRegistering;
   using apptraverse::test::TestChatNamedObjectClassIds;
   using apptraverse::test::TestCreateOrLoadIgnoresCliWhenStateExists;
@@ -720,6 +793,7 @@ int main() {
   TestHostOnlineModelToUiProjection();
   TestApplyPresenceOverlayUnchangedReturnsZero();
   TestIdentityBarProjection();
+  TestNetworkOutageUpdatesIdentityAndPresence();
   TestSecondLaunchStartsRegistering();
   TestPresenterTracksNestedClientGeneration();
   TestIdentityBarPresenterStructure();

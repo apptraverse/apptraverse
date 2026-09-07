@@ -395,11 +395,24 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
         std::make_shared<std::filesystem::path>(std::move(aether_state_dir));
     auto aether_app = ae::AetherApp::Construct(MakeAetherAppContext(state_dir_holder));
 
+    std::optional<NetworkAvailability> last_network;
+    auto report_network = [&](NetworkAvailability observed) {
+      if (last_network.has_value() && *last_network == observed) {
+        return;
+      }
+      last_network = observed;
+      ChatLog(std::string{"NETWORK_OBSERVED availability="} +
+              std::to_string(static_cast<int>(observed)));
+      if (on_network) {
+        on_network(observed);
+      }
+    };
+
     auto const observed = ObserveLocalNetwork();
-    ChatLog(std::string{"NETWORK_OBSERVED availability="} +
-            std::to_string(static_cast<int>(observed)));
-    if (on_network && observed != NetworkAvailability::kAvailable) {
-      on_network(observed);
+    if (observed != NetworkAvailability::kAvailable) {
+      report_network(observed);
+    } else {
+      last_network = observed;
     }
 
     auto const parent =
@@ -430,9 +443,8 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
       return;
     }
 
-    if (on_network) {
-      on_network(NetworkAvailability::kAvailable);
-    }
+    last_network.reset();
+    report_network(NetworkAvailability::kAvailable);
 
     std::string const uid_text = ae::Format("{}", client->uid());
     ChatLog("AETHER_CLIENT_READY t_ms=" +
@@ -535,7 +547,10 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
 
       auto const now = ae::Now();
       auto next = aether_app->Update(now);
-      if (presence_enabled_) {
+      auto const net = ObserveLocalNetwork();
+      report_network(net);
+      if (presence_enabled_ &&
+          net == NetworkAvailability::kAvailable) {
         presence.Tick(ae::Now());
       }
       if (stop_) {

@@ -60,6 +60,7 @@ class WinIdentityBarPresenter {
     parent_ = nullptr;
     network_ = {};
     aether_ = {};
+    remote_uid_draft_.clear();
   }
 
   HWND UidHwnd() const { return uid_hwnd_; }
@@ -144,8 +145,22 @@ class WinIdentityBarPresenter {
       GetWindowTextW(uid_hwnd_, current.data(), len + 1);
     }
     current.resize(static_cast<std::size_t>(len));
-    if (current != wide) {
-      SetWindowTextW(uid_hwnd_, wide.c_str());
+
+    if (view.field_readonly) {
+      if (!IsStatusFieldText(current) && !current.empty()) {
+        remote_uid_draft_ = current;
+      }
+      if (current != wide) {
+        SetWindowTextW(uid_hwnd_, wide.c_str());
+      }
+    } else {
+      if (IsStatusFieldText(current) || current.empty()) {
+        auto const restore =
+            remote_uid_draft_.empty() ? wide : remote_uid_draft_;
+        if (current != restore) {
+          SetWindowTextW(uid_hwnd_, restore.c_str());
+        }
+      }
     }
 
     wchar_t const* cue =
@@ -161,8 +176,18 @@ class WinIdentityBarPresenter {
     }
   }
 
+  static bool IsStatusFieldText(std::wstring const& text) {
+    return text == Utf8ToWide(std::string{kIdentityBarRegistering}) ||
+           text == Utf8ToWide(std::string{kIdentityBarNoInterface}) ||
+           text == Utf8ToWide(std::string{kIdentityBarNoInternet});
+  }
+
   void CopyUidToClipboard() {
     if (!aether_.is_valid() || !aether_->IsRegisteredForCurrentRun()) {
+      return;
+    }
+    if (network_.is_valid() &&
+        apptraverse::NetworkIsOutage(network_->GetAvailability())) {
       return;
     }
     auto wide = Utf8ToWide(aether_->CurrentUid());
@@ -180,6 +205,7 @@ class WinIdentityBarPresenter {
   ChatRole role_{ChatRole::Host};
   NetworkState::ptr network_;
   AetherRegistrationState::ptr aether_;
+  std::wstring remote_uid_draft_;
 };
 
 }  // namespace chat::win32

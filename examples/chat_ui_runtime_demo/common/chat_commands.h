@@ -159,6 +159,45 @@ inline bool CommitPresenceMonitoringStarted(ChatClient& client) {
   return true;
 }
 
+inline bool CommitNetworkObservation(apptraverse::NetworkState& network,
+                                     std::uint64_t run_id,
+                                     apptraverse::NetworkAvailability availability) {
+  switch (availability) {
+    case apptraverse::NetworkAvailability::kInterfaceUnavailable:
+      return apptraverse::CommitNetworkInterfaceUnavailable(network, run_id);
+    case apptraverse::NetworkAvailability::kInternetUnavailable:
+      return apptraverse::CommitInternetUnavailable(network, run_id);
+    case apptraverse::NetworkAvailability::kAvailable:
+      return apptraverse::CommitNetworkAvailable(network, run_id);
+    case apptraverse::NetworkAvailability::kInitializing:
+      return apptraverse::CommitNetworkInitializing(network, run_id);
+  }
+  return false;
+}
+
+// Network observation Event, then local Presence Event when the ChatClient
+// exists. Identical repeats are not committed.
+inline bool ApplyNetworkObservation(
+    ChatApplication& application,
+    apptraverse::NetworkAvailability availability) {
+  if (!application.network.is_valid() || !application.runtime.is_valid()) {
+    return false;
+  }
+  bool const network_committed = CommitNetworkObservation(
+      *application.network, application.runtime->run_id, availability);
+  bool presence_committed = false;
+  if (application.local_client.is_valid() &&
+      availability != apptraverse::NetworkAvailability::kInitializing) {
+    PresenceState const presence =
+        availability == apptraverse::NetworkAvailability::kAvailable
+            ? PresenceState::kOnline
+            : PresenceState::kOffline;
+    presence_committed =
+        CommitPresenceChanged(*application.local_client, presence);
+  }
+  return network_committed || presence_committed;
+}
+
 inline void BeginCurrentRun(ChatApplication& application) {
   assert(application.runtime.is_valid());
   assert(application.network.is_valid());
@@ -189,18 +228,14 @@ inline bool CompleteLocalRegistration(
   }
   static_cast<void>(
       apptraverse::CommitAetherRegistrationCompleted(*application.aether, uid));
-  if (application.network.is_valid() && application.runtime.is_valid()) {
-    static_cast<void>(apptraverse::CommitNetworkAvailable(
-        *application.network, application.runtime->run_id));
-  }
   auto client = CreateUnjoinedLocalClient(application, uid);
-  if (runtime != nullptr) {
-    runtime->AttachNode(*client, *application.room);
-  }
   if (!application.room->HasClient(client.id().id())) {
     CommitClientAdded(*application.room, *client);
   }
   static_cast<void>(CommitPresenceMonitoringStarted(*client));
+  if (runtime != nullptr) {
+    runtime->AttachNode(*client, *application.room);
+  }
   return true;
 }
 

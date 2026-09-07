@@ -34,6 +34,19 @@ inline IdentityBarView ProjectIdentityBar(
   view.copy_visible = host;
   view.join_visible = !host;
 
+  view.field_readonly = true;
+  view.copy_enabled = false;
+  view.join_enabled = false;
+
+  auto const availability = network.GetAvailability();
+  if (apptraverse::NetworkIsOutage(availability)) {
+    view.field_text =
+        availability == apptraverse::NetworkAvailability::kInterfaceUnavailable
+            ? kIdentityBarNoInterface
+            : kIdentityBarNoInternet;
+    return view;
+  }
+
   if (aether.IsRegisteredForCurrentRun()) {
     if (host) {
       view.field_text = aether.CurrentUid();
@@ -48,21 +61,7 @@ inline IdentityBarView ProjectIdentityBar(
     return view;
   }
 
-  view.field_readonly = true;
-  view.copy_enabled = false;
-  view.join_enabled = false;
-  switch (network.GetAvailability()) {
-    case apptraverse::NetworkAvailability::kInterfaceUnavailable:
-      view.field_text = kIdentityBarNoInterface;
-      break;
-    case apptraverse::NetworkAvailability::kInternetUnavailable:
-      view.field_text = kIdentityBarNoInternet;
-      break;
-    case apptraverse::NetworkAvailability::kInitializing:
-    case apptraverse::NetworkAvailability::kAvailable:
-      view.field_text = kIdentityBarRegistering;
-      break;
-  }
+  view.field_text = kIdentityBarRegistering;
   return view;
 }
 

@@ -112,29 +112,13 @@ void WinChatApp::HandleAetherUidOnModelThread(std::string uid_text) {
 void WinChatApp::HandleNetworkObservationOnModelThread(
     apptraverse::NetworkAvailability availability) {
   auto& app = *runtime_.application;
-  if (!app.network.is_valid() || !app.runtime.is_valid()) {
-    return;
-  }
-  auto const run = app.runtime->run_id;
-  bool committed = false;
-  switch (availability) {
-    case apptraverse::NetworkAvailability::kInterfaceUnavailable:
-      committed = apptraverse::CommitNetworkInterfaceUnavailable(*app.network,
-                                                                 run);
-      break;
-    case apptraverse::NetworkAvailability::kInternetUnavailable:
-      committed = apptraverse::CommitInternetUnavailable(*app.network, run);
-      break;
-    case apptraverse::NetworkAvailability::kAvailable:
-      committed = apptraverse::CommitNetworkAvailable(*app.network, run);
-      break;
-    case apptraverse::NetworkAvailability::kInitializing:
-      committed = apptraverse::CommitNetworkInitializing(*app.network, run);
-      break;
-  }
+  bool const committed = ApplyNetworkObservation(app, availability);
   ChatLog(std::string{"MODEL_NETWORK availability="} +
           std::to_string(static_cast<int>(availability)) +
-          " committed=" + (committed ? "1" : "0"));
+          " committed=" + (committed ? "1" : "0") + " presence=" +
+          (app.local_client.is_valid()
+               ? PresenceStateName(app.local_client->GetPresence())
+               : "none"));
 }
 
 void WinChatApp::HandleAetherFailedOnModelThread(std::string error) {
