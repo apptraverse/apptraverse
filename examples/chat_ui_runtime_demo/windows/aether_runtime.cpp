@@ -602,9 +602,11 @@ void ChatAetherRuntime::ThreadMain(std::filesystem::path aether_state_dir,
         break;
       }
       auto const wake_cap = now + std::chrono::milliseconds{50};
-      if (init.retry_at().has_value()) {
+      // Copy before use: network loss clears retry_at, and operator* on an
+      // empty optional asserts in the MSVC debug CRT.
+      if (auto const retry_at = init.retry_at(); retry_at.has_value()) {
         auto const retry_left = std::chrono::duration_cast<std::chrono::milliseconds>(
-            *init.retry_at() - AetherClientInitController::Clock::now());
+            *retry_at - AetherClientInitController::Clock::now());
         if (retry_left.count() > 0) {
           auto const retry_wake =
               now + std::chrono::milliseconds{
