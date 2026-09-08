@@ -71,13 +71,39 @@ class PublicationChannel {
     assert(stored && "unread publication must not be overwritten");
   }
 
+  // Mark the published slot as in-UI *before* clearing published_. Otherwise a
+  // concurrent AcquireProducer can see both indices as -1 and clear the buffer
+  // the consumer is about to read.
   PublicationBuffer* TakePublished() {
-    int const idx = published_.exchange(-1, std::memory_order_acq_rel);
+    int const idx = published_.load(std::memory_order_acquire);
     if (idx < 0) {
       return nullptr;
     }
-    in_ui_.store(idx, std::memory_order_release);
+    int expected_in_ui = -1;
+    if (!in_ui_.compare_exchange_strong(expected_in_ui, idx,
+                                        std::memory_order_acq_rel,
+                                        std::memory_order_acquire)) {
+      return nullptr;
+    }
+    int expected_published = idx;
+    if (!published_.compare_exchange_strong(expected_published, -1,
+                                            std::memory_order_acq_rel,
+                                            std::memory_order_acquire)) {
+      in_ui_.store(-1, std::memory_order_release);
+      return nullptr;
+    }
     return &buffers_[static_cast<std::size_t>(idx)];
+  }
+
+  // Copy bytes and release the slot so the producer may reuse it immediately.
+  std::vector<std::uint8_t> TakePublishedCopy() {
+    PublicationBuffer* buffer = TakePublished();
+    if (buffer == nullptr) {
+      return {};
+    }
+    std::vector<std::uint8_t> copy = buffer->sink.bytes;
+    ReleaseConsumer();
+    return copy;
   }
 
   void ReleaseConsumer() { in_ui_.store(-1, std::memory_order_release); }
