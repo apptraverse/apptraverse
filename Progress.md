@@ -1,6 +1,77 @@
 Status: implemented, verified. Not accepted.
 
+# Main-window startup registration cleanup — progress
+
+## Identity
+
+- Branch: `prep/deps-objects-assert-mcp-v1`
+- Worktree: `C:\Users\nickc\Projects\apptraverse-prep-deps-assert`
+- Status: implemented, verified. Not accepted.
+
+## Registration before / after
+
+Before:
+
+- `main.cpp`: `EnsureMainWindowRegistration()` then `EnsureWin32MainWindowPresenterRegistration()`
+- tests: `EnableNoninteractiveCrt()` then those wrappers
+- both wrappers only called `EnsureObjectRegistration()`
+
+After:
+
+- one process-startup call: `EnsureObjectRegistration()` (enables CRT, then pulls library registrars)
+- `EnsureMainWindowRegistration` / `EnsureWin32MainWindowPresenterRegistration` deleted
+- model thread and `WinApp::Run` do not register
+- `APPTRAVERSE_REGISTER(Application/MainWindow/MainWindowPresenter)` moved into `main_window_lifecycle.cpp` so both distill and load-only executables link them without a second Ensure* (that TU is a direct source of every consumer)
+- `Win32MainWindowPresenter` registrar stays in `win_presenters.cpp` (direct exe/smoke source)
+- `lifecycle.h` `#undef RegisterClass` after `windows.h` so `ae::Registry::RegisterClass` is not rewritten to `RegisterClassA`
+
+## Helpers removed / inlined
+
+- deleted the two Ensure* wrappers (decls + defs)
+- inlined smoke `PreparePersistedState` into the load-only child-process test
+- not inlined: `RequestStop` (WM_CLOSE after Main, WM_QUIT after Main, headless/smoke tests)
+- not inlined: `WaitPublished` / `TestDir` / `LoadUiFromSession` / `PersistFixture` / `PersistedApplicationExists` (reused in tests)
+- not inlined: `RegisterWindowClasses`, `PaintLoading`, `WndProc`, `OnPublished`
+
+## ModelSession (kept)
+
+Still the shared Win32 + headless model-thread path:
+
+- `state_dir`, `PublicationChannel`, `mu`/`cv`, `stop`, `RequestStop`, `Run`
+- `notify_hwnd` / `done_event` (WinApp vs headless that never sets them)
+
+No stage, getters, or test instrumentation added.
+
+## WM_QUIT
+
+While `loading_ != nullptr`, `WM_QUIT` is dropped (startup is not cancelable). After `OnPublished` sets `loading_ = nullptr`, `WM_QUIT` may `RequestStop()`. `WM_CLOSE` on Loading is still ignored. No deferred-quit queue.
+
+## Distill / load-only
+
+Unchanged architecture. Distill bootstrap remains `#ifdef APPTRAVERSE_ENABLE_DISTILLATION`. Load-only lifecycle has no missing-state branch, no `BuildMainWindowGraph` / `FinalizeDistilledGraph` / `SaveDistilledRoot`. Missing Application is fatal (`LoadApplication` assert).
+
+## Remaining exceptions (not this slice)
+
+- `LoadStoredAncestorLayers` / `LoadStoredAncestorLayersFromRoot` after LoadRoot — TODO in `plan.md` (aether-objects)
+- `if (notify hwnd)` / `if (done_event)` — real WinApp vs headless branch
+- WndProc `app == nullptr` before `WM_NCCREATE`
+- `loading_ == nullptr` as the “Main exists” flag for close/quit
+- Cursor `user-apptraverse` MCP schema still has no `source_dir` (**BLOCKED**). Local runner is not attached MCP success.
+
+## Tests / artifacts
+
+Worktree runner, incremental, no clean/rebuild:
+
+| target | run_id / artifact | status |
+| --- | --- | --- |
+| demos + headless + Win32 smoke | `apptraverse-build/20260908-220020-c095cc` | ok (`publication_channel_test`, `main_window_lifecycle_test`, `main_window_lifecycle_load_only_test`, `main_window_win32_smoke_test`) |
+
+## Commits / push
+
+- pending commit SHA after `git commit`
+
 # Coding-agent rules — progress
+
 
 ## Identity
 

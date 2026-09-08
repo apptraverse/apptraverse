@@ -1,9 +1,7 @@
 #include <filesystem>
 #include <string_view>
 
-#include "main_window_model.h"
 #include "win_app.h"
-#include "win_presenters.h"
 
 int main(int argc, char** argv) {
   std::filesystem::path state_dir{"main_window_runtime_state"};
@@ -13,8 +11,7 @@ int main(int argc, char** argv) {
       state_dir = argv[++i];
     }
   }
-  apptraverse::EnsureMainWindowRegistration();
-  apptraverse::EnsureWin32MainWindowPresenterRegistration();
+  apptraverse::EnsureObjectRegistration();
   apptraverse::WinApp app;
   return app.Run(state_dir);
 }

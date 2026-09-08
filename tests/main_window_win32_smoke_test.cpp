@@ -17,11 +17,9 @@
 #include <vector>
 
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/noninteractive_crt.h"
 
 #include "main_window_ids.h"
 #include "main_window_lifecycle.h"
-#include "main_window_model.h"
 #include "win_app.h"
 #include "win_presenters.h"
 
@@ -125,19 +123,6 @@ void TestInProcessLoadingThenMain() {
 
 #ifdef WIN32_MAIN_WINDOW_DEMO_EXE
 
-void PreparePersistedState(std::filesystem::path const& dir) {
-  ModelSession session;
-  session.state_dir = dir;
-  std::thread model{[&] { session.Run(); }};
-  {
-    std::unique_lock<std::mutex> lock{session.mu};
-    session.cv.wait(lock,
-                    [&] { return session.channel.has_unread_published(); });
-  }
-  session.RequestStop();
-  model.join();
-}
-
 HANDLE StartDemo(std::filesystem::path const& exe,
                   std::filesystem::path const& state_dir) {
   std::wstring cmd = L"\"" + exe.wstring() + L"\" --state-dir \"" +
@@ -181,7 +166,19 @@ void TestChildProcessLoadOnlyThenClose() {
   auto dir = std::filesystem::temp_directory_path() /
              "apptraverse_main_window_child_load_only";
   std::filesystem::remove_all(dir);
-  PreparePersistedState(dir);
+  // Distill-enabled ModelSession creates the fixture; load-only exe only loads.
+  {
+    ModelSession session;
+    session.state_dir = dir;
+    std::thread model{[&] { session.Run(); }};
+    {
+      std::unique_lock<std::mutex> lock{session.mu};
+      session.cv.wait(lock,
+                      [&] { return session.channel.has_unread_published(); });
+    }
+    session.RequestStop();
+    model.join();
+  }
   std::filesystem::path exe{WIN32_MAIN_WINDOW_LOAD_ONLY_EXE};
   HANDLE process = StartDemo(exe, dir);
   HWND loading = nullptr;
@@ -227,9 +224,7 @@ void TestChildProcessLoadOnlyEmptyState() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnableNoninteractiveCrt();
-  apptraverse::EnsureMainWindowRegistration();
-  apptraverse::EnsureWin32MainWindowPresenterRegistration();
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestInProcessLoadingThenMain();
 #ifdef WIN32_MAIN_WINDOW_DEMO_EXE
   apptraverse::test::TestChildProcessFreshThenClose();

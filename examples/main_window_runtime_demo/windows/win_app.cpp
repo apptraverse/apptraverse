@@ -126,8 +126,12 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     }
     MSG msg{};
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE) != 0) {
+      // Startup is not cancelable. Ignore WM_QUIT while Loading is still up.
+      // After OnPublished, loading_ is null and Main exists; then stop is allowed.
       if (msg.message == WM_QUIT) {
-        session_.RequestStop();
+        if (loading_ == nullptr) {
+          session_.RequestStop();
+        }
         continue;
       }
       TranslateMessage(&msg);

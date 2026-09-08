@@ -51,8 +51,6 @@ class Win32MainWindowPresenter : public MainWindowPresenter {
   HWND hwnd{nullptr};
 };
 
-void EnsureWin32MainWindowPresenterRegistration();
-
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_MAIN_WINDOW_WIN_PRESENTERS_H_

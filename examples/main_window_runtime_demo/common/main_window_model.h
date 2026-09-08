@@ -103,8 +103,6 @@ class Application : public ae::Obj {
   MainWindow::ptr main_window;
 };
 
-void EnsureMainWindowRegistration();
-
 Application::ptr BuildMainWindowGraph(ae::Domain& domain);
 
 }  // namespace apptraverse

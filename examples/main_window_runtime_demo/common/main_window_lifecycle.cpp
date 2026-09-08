@@ -10,12 +10,22 @@
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 
 #include "main_window_ids.h"
 #include "main_window_model.h"
 
 namespace apptraverse {
+namespace {
+
+// Registrars live in this always-linked TU so both distill and load-only
+// executables register the graph classes without a second Ensure* wrapper.
+APPTRAVERSE_REGISTER(MainWindow);
+APPTRAVERSE_REGISTER(MainWindowPresenter);
+APPTRAVERSE_REGISTER(Application);
+
+}  // namespace
 
 void ModelSession::RequestStop() {
   stop.store(true, std::memory_order_release);

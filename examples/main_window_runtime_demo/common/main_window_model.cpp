@@ -2,18 +2,7 @@
 
 #include "aether-objects/obj/domain.h"
 
-#include "apptraverse/object_macros.h"
-
 namespace apptraverse {
-namespace {
-
-APPTRAVERSE_REGISTER(MainWindow);
-APPTRAVERSE_REGISTER(MainWindowPresenter);
-APPTRAVERSE_REGISTER(Application);
-
-}  // namespace
-
-void EnsureMainWindowRegistration() { EnsureObjectRegistration(); }
 
 Application::ptr BuildMainWindowGraph(ae::Domain& domain) {
   auto application = Application::ptr::Create(ae::CreateWith{domain}.with_id(

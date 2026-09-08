@@ -11,7 +11,6 @@
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
-#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/presenter.h"
 
@@ -154,8 +153,7 @@ void TestLoadOnlyPresenterHooks() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnableNoninteractiveCrt();
-  apptraverse::EnsureMainWindowRegistration();
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestLoadOnlyExistingState();
   apptraverse::test::TestLoadOnlyPresenterHooks();
   std::cout << "main_window_lifecycle_load_only_test OK\n";

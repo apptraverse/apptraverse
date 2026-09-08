@@ -10,7 +10,6 @@
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/presenter.h"
 
@@ -247,8 +246,7 @@ void TestShutdownAfterPublish() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnableNoninteractiveCrt();
-  apptraverse::EnsureMainWindowRegistration();
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestDevStartup();
   apptraverse::test::TestDevReloadSameIds();
   apptraverse::test::TestMostDerivedFromNeutralPresenter();

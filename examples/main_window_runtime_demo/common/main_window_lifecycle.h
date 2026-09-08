@@ -12,6 +12,9 @@
 #    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
+#  ifdef RegisterClass
+#    undef RegisterClass
+#  endif
 #endif
 
 #include "apptraverse/publication_channel.h"
