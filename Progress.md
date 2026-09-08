@@ -53,7 +53,7 @@ Missing-state fatal is the load-only child-process smoke (non-zero, no Main, no 
 ## Commits / push
 
 - `628174df8a5b006b9d783a331751a829034e671f` — Simplify main-window startup and remove test state machine
-- `2f79001ddf06283daf96c4199dcc70cd4fc99438` — Split development distillation and load-only targets
+- `1e91b0e15c484ed4fa2584d694dcfc26a06ea415` — Split development distillation and load-only targets
 
 Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
