@@ -228,6 +228,7 @@ if(WIN32)
   add_executable(apptraverse_main_window_win32_smoke_test
     main_window_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_app.cpp
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_presenters.cpp
   )
 
   target_link_libraries(apptraverse_main_window_win32_smoke_test PRIVATE

@@ -1,6 +1,8 @@
 #ifndef APPTRAVERSE_MAIN_WINDOW_WIN_APP_H_
 #define APPTRAVERSE_MAIN_WINDOW_WIN_APP_H_
 
+#include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <thread>
@@ -10,7 +12,6 @@
 
 #include "main_window_lifecycle.h"
 #include "main_window_model.h"
-#include "win_presenters.h"
 
 namespace apptraverse {
 
@@ -22,6 +23,9 @@ class WinApp {
  public:
   int Run(std::filesystem::path const& state_dir);
   void SetHoldStage(ModelStartupStage stage);
+  std::uint32_t GuiPresenterClassId() const {
+    return gui_presenter_class_id_.load(std::memory_order_acquire);
+  }
 
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
@@ -40,7 +44,7 @@ class WinApp {
   ae::RamDomainStorage ui_storage_;
   std::unique_ptr<ae::Domain> ui_domain_;
   Application::ptr ui_application_;
-  MainWindowPresenter presenter_;
+  std::atomic<std::uint32_t> gui_presenter_class_id_{0};
 };
 
 }  // namespace apptraverse

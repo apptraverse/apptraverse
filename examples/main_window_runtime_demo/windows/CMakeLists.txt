@@ -1,6 +1,7 @@
 add_executable(win32_main_window_runtime_demo
   main.cpp
   win_app.cpp
+  win_presenters.cpp
 )
 
 target_link_libraries(win32_main_window_runtime_demo PRIVATE

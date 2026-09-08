@@ -106,6 +106,7 @@ void ModelSession::Run() {
   domain = std::make_unique<ae::Domain>(*storage);
   application = LoadApplication<Application>(
       *domain, ae::ObjId{main_window::ToObjId(main_window::ObjId::Application)});
+  LoadStoredAncestorLayersFromRoot(*application, *storage);
 
   if (!EnterStage(*this, ModelStartupStage::Serializing)) {
     cleanup();
@@ -134,6 +135,19 @@ void ModelSession::Run() {
                            std::memory_order_release);
   model_window_height.store(application->main_window->height,
                             std::memory_order_release);
+  if (application->main_window->presenter) {
+    model_presenter_addr.store(
+        reinterpret_cast<std::uintptr_t>(&*application->main_window->presenter),
+        std::memory_order_release);
+    model_presenter_id.store(application->main_window->presenter->obj_id.id(),
+                             std::memory_order_release);
+    model_presenter_class_id.store(
+        application->main_window->presenter->GetClassId(),
+        std::memory_order_release);
+    model_presenter_initialized.store(
+        application->main_window->presenter->presentation_initialized,
+        std::memory_order_release);
+  }
   channel.NotePublished();
   channel.PublishProducer();
   published.store(true, std::memory_order_release);

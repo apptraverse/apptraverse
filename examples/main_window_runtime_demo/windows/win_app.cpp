@@ -6,6 +6,7 @@
 #include "apptraverse/object_serialization.h"
 
 #include "main_window_ids.h"
+#include "win_presenters.h"
 
 namespace apptraverse {
 namespace {
@@ -94,10 +95,15 @@ void WinApp::OnPublished() {
       static_cast<Application*>(ui_root.get()));
   assert(ui_application_);
   assert(ui_application_->main_window);
-  presenter_.Create(*ui_application_->main_window, this);
-  assert(presenter_.hwnd != nullptr);
-  ShowWindow(presenter_.hwnd, SW_SHOW);
-  UpdateWindow(presenter_.hwnd);
+  assert(ui_application_->main_window->presenter);
+  if (stop_requested_) {
+    return;
+  }
+  InitializePresenters(*ui_application_, this);
+  assert(ui_application_->main_window->presenter->presentation_initialized);
+  gui_presenter_class_id_.store(
+      ui_application_->main_window->presenter->GetClassId(),
+      std::memory_order_release);
   if (loading_ != nullptr) {
     DestroyWindow(loading_);
     loading_ = nullptr;
@@ -114,7 +120,6 @@ void WinApp::RequestStop() {
 }
 
 void WinApp::DestroyGuiMirror() {
-  presenter_.Destroy();
   ui_application_ = {};
   ui_domain_.reset();
 }
@@ -125,7 +130,7 @@ void WinApp::SetHoldStage(ModelStartupStage stage) {
 
 int WinApp::Run(std::filesystem::path const& state_dir) {
   EnableNoninteractiveCrt();
-  EnsureMainWindowRegistration();
+  EnsureWin32MainWindowPresenterRegistration();
   RegisterWindowClasses();
 
   session_.state_dir = state_dir;

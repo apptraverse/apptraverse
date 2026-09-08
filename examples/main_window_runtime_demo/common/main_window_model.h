@@ -8,14 +8,17 @@
 
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/presenter.h"
 
 #include "main_window_ids.h"
 
 namespace apptraverse {
 
+class MainWindowPresenter;
+
 class MainWindow : public NodeFor<MainWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::MainWindow", MainWindow, Node,
-                           2)
+                           3)
 
  protected:
   MainWindow() = default;
@@ -23,7 +26,8 @@ class MainWindow : public NodeFor<MainWindow> {
  public:
   explicit MainWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height))
+  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height),
+                    AE_MMBR(presenter))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv&) {
@@ -36,21 +40,52 @@ class MainWindow : public NodeFor<MainWindow> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
-    dnv(x, y, width, height);
+  void Load(ae::Version<2>, Dnv&) {
+    throw std::runtime_error("MainWindow v2 is not supported");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Load(ae::Version<3>, Dnv& dnv) {
+    Node::Load(ae::Version<1>{}, dnv);
+    dnv(x, y, width, height, presenter);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<3>, Dnv& dnv) const {
     Node::Save(ae::Version<1>{}, dnv);
-    dnv(x, y, width, height);
+    dnv(x, y, width, height, presenter);
   }
 
   std::int32_t x{main_window::kDefaultX};
   std::int32_t y{main_window::kDefaultY};
   std::int32_t width{main_window::kDefaultWidth};
   std::int32_t height{main_window::kDefaultHeight};
+  ae::ObjPtr<MainWindowPresenter> presenter;
+};
+
+class MainWindowPresenter : public Presenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::MainWindowPresenter",
+                           MainWindowPresenter, Presenter, 0)
+
+ protected:
+  MainWindowPresenter() = default;
+
+ public:
+  explicit MainWindowPresenter(ae::ObjProp prop) : Presenter{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, window);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, window);
+  }
+
+  MainWindow::ptr window;
 };
 
 class Application : public ae::Obj {

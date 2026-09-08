@@ -12,28 +12,51 @@ Do not mark accepted.
 
 ## Current slice
 
-Infra (this iteration): one user-level App Traverse MCP server accepts an
-explicit `source_dir` so build/test/process tools can target a git worktree.
-Later application stages below are unchanged.
+Object-graph presenter: MainWindow owns a `MainWindowPresenter` in the
+aether-objects graph; the Windows executable registers
+`Win32MainWindowPresenter` as the most-derived descendant. Load uses
+aether-objects `DomainGraph::LoadRoot` (no App Traverse class-mapping
+registry). Native HWND is created only in a GUI presentation-initialization
+pass, not during object Load.
 
-**Loading window, model thread, distilled Application/MainWindow, serialized
-initial GUI mirror, shutdown.**
+```
+Application
+ └── MainWindow          (Node; x, y, width, height; no DPI)
+      └── presenter → MainWindowPresenter   (not a Node; no journal)
+           └── window → MainWindow          (same Domain object)
+                      └── Win32MainWindowPresenter  (most-derived on Windows)
+```
 
-Constraints for this slice:
+Phases (not the same thing):
+
+1. Object Load / GUI deserialize — construct objects, restore state, resolve
+   ObjPtrs. No `Presenter::OnLoad()`, no HWND.
+2. GUI presentation initialization — `InitializePresenters` walks
+   reachable live objects and calls `Presenter::OnLoad()` once.
+   `Win32MainWindowPresenter::OnLoad()` is where `CreateWindowExW` happens.
+
+Presenter local state (not implemented in this slice): not journaled; not
+model-owned; GUI may mutate it later; it may be persisted later. Incremental
+model publication must not overwrite newer GUI presenter state without an
+explicit rule. DPI / monitor / screen events are the next system-event stage,
+not this one.
+
+Constraints:
 
 - exactly two threads: Windows GUI thread and model thread
 - GUI never creates, loads, or touches model Domain objects
 - first launch: create → distill → destroy graph/Domain → new Domain → load
 - subsequent launch: load existing state, no second distillation
-- initial GUI mirror via serialized publication buffer (same path as later
-  incremental updates), not `CopyModelGraphToUiDomain` from the GUI thread
-- presenter (GUI thread only) creates one empty native main window from the
-  mirrored MainWindow bounds
+- initial GUI mirror via serialized publication buffer, not
+  `CopyModelGraphToUiDomain` from the GUI thread
+- shared class registry: model Domain may also materialize
+  `Win32MainWindowPresenter`; construction/Load must not create HWND
+- if initial publication arrives after `RequestStop`, skip presentation init
 - correct stop during Loading and after Ready; no TerminateThread
 
 Out of scope for this slice: chat, contacts, Aether, presence, resize events,
 node periodic execution, hierarchical redraw, shared-sync, network,
-DPI/screen system events.
+DPI/screen system events, WindowChangedEvent, periodic model tick.
 
 ## Later stages (deferred; architecture unchanged)
 

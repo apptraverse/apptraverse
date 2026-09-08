@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -12,12 +13,41 @@
 
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/presenter.h"
 
 #include "main_window_ids.h"
 #include "main_window_lifecycle.h"
 #include "main_window_model.h"
 
 namespace apptraverse::test {
+
+class TestMainWindowPresenter : public MainWindowPresenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::TestMainWindowPresenter",
+                           TestMainWindowPresenter, MainWindowPresenter, 0)
+
+ protected:
+  TestMainWindowPresenter() = default;
+
+ public:
+  explicit TestMainWindowPresenter(ae::ObjProp prop)
+      : MainWindowPresenter{prop} {}
+
+  AE_OBJECT_REFLECT()
+
+  void OnLoad() override {
+    ++on_load_calls;
+    last_window_id = window ? window->obj_id.id() : 0;
+  }
+
+  static inline std::atomic<int> on_load_calls{0};
+  static inline std::atomic<std::uint32_t> last_window_id{0};
+};
+
+namespace {
+
+APPTRAVERSE_REGISTER(TestMainWindowPresenter);
+
+}  // namespace
 
 #define CHECK(cond)                                                          \
   do {                                                                       \
@@ -138,10 +168,125 @@ void TestInitialMirror() {
   CHECK(ui_app->main_window->height == session.model_window_height.load());
   CHECK(!ui_app->main_window->base.is_valid());
   CHECK(ui_app->main_window->journal.empty());
+  CHECK(ui_app->main_window->presenter);
+  CHECK(ui_app->main_window->presenter->obj_id.id() ==
+        session.model_presenter_id.load());
+  CHECK(ui_app->main_window->presenter->GetClassId() ==
+        TestMainWindowPresenter::kClassId);
+  CHECK(session.model_presenter_class_id.load() ==
+        TestMainWindowPresenter::kClassId);
+  CHECK(ui_app->main_window->presenter->window);
+  CHECK(ui_app->main_window->presenter->window.id() ==
+        ui_app->main_window->obj_id);
+  CHECK(&*ui_app->main_window->presenter->window == &*ui_app->main_window);
+  CHECK(&*ui_app->main_window->presenter !=
+        reinterpret_cast<MainWindowPresenter*>(
+            session.model_presenter_addr.load()));
+  CHECK(!ui_app->main_window->presenter->presentation_initialized);
+  CHECK(!session.model_presenter_initialized.load());
 
   session.RequestStop();
   WaitFinished(session);
   model.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestMostDerivedFromNeutralPresenter() {
+  TestMainWindowPresenter::on_load_calls.store(0);
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto model_app = BuildMainWindowGraph(model_domain);
+  CHECK(model_app->main_window->presenter->GetClassId() ==
+        MainWindowPresenter::kClassId);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
+
+  ByteSink sink;
+  SerializeInitialPublication(*model_app, sink);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
+
+  ByteSource in;
+  in.data = sink.bytes.data();
+  in.size = sink.bytes.size();
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_root = LoadInitialPublication(in, ui_domain, ui_storage);
+  auto ui_app =
+      Application::ptr::MakeFromThis(static_cast<Application*>(ui_root.get()));
+  CHECK(ui_app);
+  CHECK(ui_app->main_window->presenter);
+  CHECK(ui_app->main_window->presenter->GetClassId() ==
+        TestMainWindowPresenter::kClassId);
+  CHECK(ui_app->obj_id == model_app->obj_id);
+  CHECK(ui_app->main_window->obj_id == model_app->main_window->obj_id);
+  CHECK(&*ui_app != &*model_app);
+  CHECK(&*ui_app->main_window != &*model_app->main_window);
+  CHECK(ui_app->domain != model_app->domain);
+  CHECK(!ui_app->main_window->presenter->presentation_initialized);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
+  CHECK(ui_app->main_window->presenter->window);
+  CHECK(&*ui_app->main_window->presenter->window == &*ui_app->main_window);
+  CHECK(&*ui_app->main_window->presenter->window->presenter ==
+        &*ui_app->main_window->presenter);
+
+  InitializePresenters(*ui_app);
+  CHECK(ui_app->main_window->presenter->presentation_initialized);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+  CHECK(TestMainWindowPresenter::last_window_id.load() ==
+        ui_app->main_window->obj_id.id());
+  CHECK(!model_app->main_window->presenter->presentation_initialized);
+
+  InitializePresenters(*ui_app);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+
+  auto const app_id = ui_app->obj_id;
+  ui_app = {};
+  ui_root = {};
+  CHECK(!ui_domain.Find(app_id));
+}
+
+void TestPresenterMostDerivedAndInit() {
+  TestMainWindowPresenter::on_load_calls.store(0);
+  auto dir = TestDir("apptraverse_main_window_presenter");
+  ModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] { session.Run(); }};
+  WaitPublished(session);
+
+  CHECK(session.model_presenter_id.load() != 0);
+  CHECK(session.model_presenter_class_id.load() ==
+        TestMainWindowPresenter::kClassId);
+  CHECK(!session.model_presenter_initialized.load());
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadUiFromSession(session, ui_domain, ui_storage);
+  CHECK(ui_app->main_window->presenter->GetClassId() ==
+        TestMainWindowPresenter::kClassId);
+  CHECK(!ui_app->main_window->presenter->presentation_initialized);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
+  CHECK(ui_app->main_window->presenter->window);
+  CHECK(&*ui_app->main_window->presenter->window == &*ui_app->main_window);
+  CHECK(&*ui_app->main_window->presenter->window->presenter ==
+        &*ui_app->main_window->presenter);
+
+  InitializePresenters(*ui_app);
+  CHECK(ui_app->main_window->presenter->presentation_initialized);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+  CHECK(TestMainWindowPresenter::last_window_id.load() ==
+        ui_app->main_window->obj_id.id());
+  CHECK(!session.model_presenter_initialized.load());
+
+  InitializePresenters(*ui_app);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+
+  session.RequestStop();
+  WaitFinished(session);
+  model.join();
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+
+  ui_app = {};
+  CHECK(!ui_domain.Find(ae::ObjId{session.model_application_id.load()}));
   std::filesystem::remove_all(dir);
 }
 
@@ -210,6 +355,8 @@ int main() {
   apptraverse::test::TestFreshStartup();
   apptraverse::test::TestExistingStartup();
   apptraverse::test::TestInitialMirror();
+  apptraverse::test::TestMostDerivedFromNeutralPresenter();
+  apptraverse::test::TestPresenterMostDerivedAndInit();
   apptraverse::test::TestThreadOwnership();
   apptraverse::test::TestStopWhileLoading();
   apptraverse::test::TestStopAfterReady();

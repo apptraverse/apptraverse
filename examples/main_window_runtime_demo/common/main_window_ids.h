@@ -10,6 +10,7 @@ namespace apptraverse::main_window {
 enum class ObjId : ae::ObjId::Type {
   Application = 1,
   MainWindow = 2,
+  MainWindowPresenter = 3,
 };
 
 inline constexpr ae::ObjId::Type ToObjId(ObjId id) {

@@ -6,6 +6,8 @@
 #  undef RegisterClass
 #endif
 
+#include <cstdint>
+#include <cwchar>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -34,6 +36,25 @@ namespace apptraverse::test {
 
 HWND FindExact(wchar_t const* class_name, wchar_t const* title) {
   return FindWindowW(class_name, title);
+}
+
+int CountClassWindows(wchar_t const* class_name) {
+  struct Ctx {
+    wchar_t const* class_name;
+    int count;
+  } ctx{class_name, 0};
+  EnumWindows(
+      [](HWND hwnd, LPARAM lparam) -> BOOL {
+        auto* c = reinterpret_cast<Ctx*>(lparam);
+        wchar_t name[256]{};
+        if (GetClassNameW(hwnd, name, 256) > 0 &&
+            wcscmp(name, c->class_name) == 0 && IsWindowVisible(hwnd)) {
+          ++c->count;
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&ctx));
+  return ctx.count;
 }
 
 bool WaitForWindow(wchar_t const* class_name, wchar_t const* title, HWND* out,
@@ -93,6 +114,8 @@ void TestInProcessLoadingThenMain() {
   CHECK(WaitGone(kLoadingWindowClass, kLoadingWindowTitle,
                  std::chrono::seconds{10}));
   CHECK(FindExact(kMainWindowClass, kMainWindowTitle) != nullptr);
+  CHECK(CountClassWindows(kMainWindowClass) == 1);
+  CHECK(app.GuiPresenterClassId() == Win32MainWindowPresenter::kClassId);
   PostMessageW(main, WM_CLOSE, 0, 0);
   gui.join();
   CHECK(FindExact(kMainWindowClass, kMainWindowTitle) == nullptr);
