@@ -1,0 +1,82 @@
+---
+description: App Traverse coding-agent rules — incremental build, fail-fast, no extra entities, commit/push
+alwaysApply: true
+---
+
+# App Traverse coding-agent rules
+
+## Incremental build only
+
+Never, unless the user explicitly asks:
+
+- rebuild, clean, `--clean-first`
+- deleting the build directory
+- clearing the CMake cache or dependency cache
+- re-downloading / rebuilding all dependencies
+- `git clean` for the sake of a build
+
+Use only incremental builds of the existing build tree. If the tree is broken, explain the concrete cause. Do not destroy it automatically.
+
+## Fail fast on global invariants
+
+If a global invariant is broken and the app cannot work, fail immediately at the origin (`assert` / `abort`). Do not continue.
+
+Examples: required model/Domain/root failed to load; main native window was not created; required graph reference or class registration is missing.
+
+- Real state-machine alternative → ordinary `if`
+- Globally impossible / fatal state → fail at the origin, then treat the invariant as true
+- Do not re-check it in every later function
+- Do not write `if (!x) return` / `if (hwnd)` when the previous stage already guaranteed `x`
+
+Before each defensive check: can this state actually be reached after earlier stages succeeded? If not, remove the check. Do not duplicate `if (!x)` then `assert(x)`.
+
+## Do not invent entities
+
+Do not add Manager, Service, Coordinator, Context, Runtime wrapper, a registry on top of the existing registry, Lifecycle abstraction, Controller, Repository, helper object, or extra state machine without a real need.
+
+Use App Traverse primitives, aether-objects, platform APIs, locals, RAII, and straight-line control flow. A new type is allowed only if it is a real domain concept, is actually reused, or ownership/lifetime is worse without it. No abstractions “for later”.
+
+## Inline small single-use functions
+
+If a function is small, called from one place, is not a callback/API boundary, and does not hide a genuinely complex operation: inline it and put a short intent comment on the block.
+
+Leave callbacks, WndProc, real algorithms, and reused functions separate. This is not code golf.
+
+## Registration and init once
+
+If classes/subsystems must be registered before worker threads: once, at one obvious startup point, before those threads start. Do not call `Ensure...Registration()` on several layers “just in case”. If a call is already guaranteed earlier, do not repeat it below.
+
+## Tests must not shape production
+
+Do not add fields, stage enums, `hold_stage`, raw object addresses, extra atomics, `WasLoaded`/`WasDistilled` getters, test-only hooks, or artificial barriers to production classes for the convenience of tests. Tests check observable production behavior. Keep test infrastructure in test code.
+
+## Distillation is development-only
+
+Distillation / initial-state creation is not production. A load-only/production build only loads persisted state; it does not create state or fall back to distillation. A dev build may, if state is missing: build the initial graph, distill, save, then load via the normal production load path. Dev-only code must be behind a compile-time macro/target and must not appear in the load-only lifecycle path.
+
+## Main-window example startup / shutdown
+
+Startup (not cancelable; user cannot close the app before Main): GUI thread creates Loading → start model thread → model fully loads → initial mirror published → GUI mirror → presenters init → Main created → Loading destroyed.
+
+Shutdown only after full startup: close Main → wake model thread → model frees graph/Domain/storage on that thread → signals done → GUI join → GUI frees presentation and GUI Domain → exit.
+
+Do not restore close-during-Loading without an explicit assignment.
+
+## Always commit and push
+
+After every finished iteration: commit and push the current working branch. Do not leave finished work local-only. If some tests are blocked, MCP is down, or an external service is unavailable: still commit, push, and say what was not verified.
+
+Do not change `main`, merge, or rewrite published history without an explicit request.
+
+## No hidden refactors
+
+Keep each iteration small and reviewable. Do not “fix” neighboring architecture in passing. If you find a separate problem: record it in `plan.md` / `Progress.md` as TODO and leave it for a later iteration.
+
+## plan.md / Progress.md
+
+Before each task, read `plan.md`, `Progress.md`, and these repository instructions.
+
+- `plan.md`: architecture decisions, next-stage order, deferred work
+- `Progress.md`: what was done, commit SHA, test/MCP results, known limitations, push status
+
+Do not mark accepted-by-user yourself.

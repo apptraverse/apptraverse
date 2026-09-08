@@ -1,5 +1,47 @@
 Status: implemented, verified. Not accepted.
 
+# Coding-agent rules — progress
+
+## Identity
+
+- Branch: `prep/deps-objects-assert-mcp-v1`
+- Status: implemented, verified. Not accepted.
+
+## Where the rules live
+
+Existing format: `.cursor/rules/*.mdc` (same as `apptraverse-headless-chat-tests.mdc`).
+No `AGENTS.md` in this repo; none was added.
+
+Added always-apply:
+
+- `.cursor/rules/apptraverse-coding-agent.mdc`
+
+Left unchanged: `.cursor/rules/apptraverse-headless-chat-tests.mdc`.
+
+No application rebuild (instructions/docs only). No clean/rebuild.
+
+## Current skeleton review (next iterations; not fixed here)
+
+Not treated as violations:
+
+- `EnsureMainWindowRegistration` + `EnsureWin32MainWindowPresenterRegistration` in `main()` — one startup point, two TUs
+- `if (notify hwnd)` / `if (done_event)` — WinApp vs headless
+- `if (app == nullptr)` in WndProc before `WM_NCCREATE`
+- `RegisterWindowClasses` / `PaintLoading` — allowed Win32 groups / WndProc
+- Distill bootstrap is behind `APPTRAVERSE_ENABLE_DISTILLATION`
+- Close-during-Loading tests/API are gone; Loading has no system Close
+
+Recorded for later:
+
+- `WM_QUIT` in the GUI loop still calls `RequestStop()` even before Main exists, so startup is not fully non-cancelable
+- Tests (and smoke) still call `EnableNoninteractiveCrt()` and then `Ensure*`, which also enables CRT via `EnsureObjectRegistration`
+- Ancestor-layer reload remains an App Traverse pass after LoadRoot (already TODO in `plan.md`)
+- Cursor `user-apptraverse` MCP still has no `source_dir` (**BLOCKED**)
+
+## Commits / push
+
+Push `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
+
 # Main-window startup simplify and distill/load-only split — progress
 
 ## Identity

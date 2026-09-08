@@ -10,6 +10,9 @@ in a slice that does not own that stage.
 Status vocabulary: implemented / verified / accepted-by-user are distinct.
 Do not mark accepted.
 
+Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push):
+`.cursor/rules/apptraverse-coding-agent.mdc`.
+
 ## Current slice
 
 Object-graph presenter: MainWindow owns a `MainWindowPresenter` in the
