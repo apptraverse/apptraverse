@@ -2,6 +2,7 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
 
 namespace apptraverse {
@@ -16,6 +17,9 @@ APPTRAVERSE_REGISTER(Presenter);
 void ForceLifecycleRegistration();
 
 // Forces the static library object file (and its Registrars) to be linked.
-void EnsureObjectRegistration() { ForceLifecycleRegistration(); }
+void EnsureObjectRegistration() {
+  EnableNoninteractiveCrt();
+  ForceLifecycleRegistration();
+}
 
 }  // namespace apptraverse

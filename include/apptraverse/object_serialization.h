@@ -30,6 +30,12 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
                                       ae::Domain& domain,
                                       ae::IDomainStorage& domain_storage);
 
+// Full-graph initial publication: root ObjId then SerializeObjectGraphToBuffer.
+// Load creates UI shells from the buffer (no model Domain / model Obj*).
+void SerializeInitialPublication(ae::Obj const& root, ByteSink& out);
+ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
+                                        ae::IDomainStorage& ui_storage);
+
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 

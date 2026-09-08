@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
@@ -260,6 +261,106 @@ void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
     node->base = {};
     node->journal.clear();
   }
+}
+
+void SerializeInitialPublication(ae::Obj const& root, ByteSink& out) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(const_cast<ae::Obj&>(root), nodes);
+  for (Node* node : nodes) {
+    node->EnsureCurrentGeneration();
+  }
+  auto const root_id = root.obj_id.id();
+  out.write(&root_id, sizeof(root_id));
+  SerializeObjectGraphToBuffer(root, out);
+}
+
+ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
+                                      ae::IDomainStorage& ui_storage) {
+  std::uint32_t root_id = 0;
+  in.read(&root_id, sizeof(root_id));
+  assert(in.ok);
+
+  std::uint32_t layer_count = 0;
+  in.read(&layer_count, sizeof(layer_count));
+  assert(in.ok);
+
+  std::vector<ae::ObjId> object_ids;
+  std::unordered_map<std::uint32_t, std::uint32_t> preferred_class;
+  object_ids.reserve(layer_count);
+  for (std::uint32_t i = 0; i < layer_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint32_t class_id = 0;
+    std::uint8_t version = 0;
+    std::uint32_t size = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&class_id, sizeof(class_id));
+    in.read(&version, sizeof(version));
+    in.read(&size, sizeof(size));
+    assert(in.ok && in.pos + size <= in.size);
+    InjectObjectBytes(ui_storage, {ae::ObjId{obj_id}, class_id, version},
+                      in.data + in.pos, size);
+    in.pos += size;
+    ae::ObjId const id{obj_id};
+    if (std::find(object_ids.begin(), object_ids.end(), id) ==
+        object_ids.end()) {
+      object_ids.push_back(id);
+    }
+    auto* factory = ae::Registry::GetRegistry().FindFactory(class_id);
+    if (factory == nullptr || factory->create == nullptr) {
+      continue;
+    }
+    auto& preferred = preferred_class[obj_id];
+    if (preferred == 0 || class_id != Node::kClassId) {
+      preferred = class_id;
+    }
+  }
+
+  std::vector<ae::Ptr<ae::Obj>> keepalive;
+  keepalive.reserve(object_ids.size());
+  for (ae::ObjId const id : object_ids) {
+    std::uint32_t const class_id = preferred_class[id.id()];
+    if (auto existing = ui_domain.Find(id)) {
+      keepalive.push_back(existing);
+      continue;
+    }
+    auto* factory = ae::Registry::GetRegistry().FindFactory(class_id);
+    assert(factory != nullptr);
+    assert(factory->create != nullptr);
+    ae::Ptr<ae::Obj> raw = factory->create();
+    raw->domain = &ui_domain;
+    raw->obj_id = id;
+    ui_domain.AddObject(id, raw);
+    keepalive.push_back(raw);
+  }
+
+  for (ae::ObjId const id : object_ids) {
+    auto object = ui_domain.Find(id);
+    assert(object);
+    LoadExistingObject(*object, ui_domain);
+  }
+
+  std::uint32_t node_generation_count = 0;
+  in.read(&node_generation_count, sizeof(node_generation_count));
+  assert(in.ok);
+  for (std::uint32_t i = 0; i < node_generation_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint64_t generation = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&generation, sizeof(generation));
+    assert(in.ok);
+    auto object = ui_domain.Find(ae::ObjId{obj_id});
+    if (!object) {
+      continue;
+    }
+    FinalizeUiNodeState(*object, generation);
+  }
+
+  auto ui_root = ui_domain.Find(ae::ObjId{root_id});
+  assert(ui_root);
+  keepalive.clear();
+  ui_root = ui_domain.Find(ae::ObjId{root_id});
+  assert(ui_root && "UI mirror graph must stay reachable via ObjPtr refs");
+  return ui_root;
 }
 
 }  // namespace apptraverse
