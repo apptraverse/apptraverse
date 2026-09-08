@@ -68,7 +68,9 @@ Worktree runner, incremental, no clean/rebuild:
 
 ## Commits / push
 
-- pending commit SHA after `git commit`
+- `cedf9fa7e193e3fcc5a01d71f73e9e68c31a3aab` — Simplify main-window startup and registration
+
+Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
 # Coding-agent rules — progress
 
