@@ -2,6 +2,7 @@ add_executable(aether_presence_monitor main.cpp)
 
 target_link_libraries(aether_presence_monitor PRIVATE
   apptraverse
+  aether
   user32
   gdi32
 )

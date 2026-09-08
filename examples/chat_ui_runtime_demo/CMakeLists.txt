@@ -13,7 +13,7 @@ target_include_directories(chat_ui_runtime_demo_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common
 )
 
-target_link_libraries(chat_ui_runtime_demo_common PUBLIC apptraverse)
+target_link_libraries(chat_ui_runtime_demo_common PUBLIC apptraverse aether)
 target_compile_features(chat_ui_runtime_demo_common PUBLIC cxx_std_20)
 
 if(WIN32)

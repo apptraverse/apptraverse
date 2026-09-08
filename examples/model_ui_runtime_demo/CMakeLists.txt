@@ -10,7 +10,7 @@ target_include_directories(model_ui_runtime_demo_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common
 )
 
-target_link_libraries(model_ui_runtime_demo_common PUBLIC apptraverse)
+target_link_libraries(model_ui_runtime_demo_common PUBLIC apptraverse aether)
 target_compile_features(model_ui_runtime_demo_common PUBLIC cxx_std_20)
 
 if(WIN32)

@@ -39,6 +39,7 @@ apptraverse_add_full_aether()
 
 add_library(apptraverse STATIC
   src/apptraverse.cpp
+  src/noninteractive_crt.cpp
   src/runtime_lifecycle.cpp
   src/directory_domain_storage.cpp
   src/overlay_domain_storage.cpp
@@ -52,12 +53,20 @@ add_library(apptraverse STATIC
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_link_libraries(apptraverse PUBLIC aether)
+# Object graph only. Full Aether client is linked by chat/presence targets.
+target_link_libraries(apptraverse PUBLIC aether::objects aether::miscpp)
+target_compile_definitions(apptraverse PUBLIC
+  AE_DISTILLATION=1
+  AE_FILTRATION=1
+  NOMINMAX
+  WIN32_LEAN_AND_MEAN
+)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
 add_subdirectory(examples/model_ui_runtime_demo)
 add_subdirectory(examples/chat_ui_runtime_demo)
 add_subdirectory(examples/aether_presence_monitor)
+add_subdirectory(examples/main_window_runtime_demo)
 
 include(CTest)
 if(BUILD_TESTING)
