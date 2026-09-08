@@ -2,7 +2,7 @@ add_executable(apptraverse_event_sourced_core_test
   event_sourced_core_test.cpp
 )
 
-target_link_libraries(apptraverse_event_sourced_core_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_event_sourced_core_test PRIVATE apptraverse aether)
 
 add_test(
   NAME apptraverse_event_sourced_core_test
@@ -13,7 +13,7 @@ add_executable(apptraverse_directory_domain_storage_test
   directory_domain_storage_test.cpp
 )
 
-target_link_libraries(apptraverse_directory_domain_storage_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_directory_domain_storage_test PRIVATE apptraverse aether)
 
 add_test(
   NAME apptraverse_directory_domain_storage_test
@@ -24,7 +24,7 @@ add_executable(apptraverse_overlay_domain_storage_test
   overlay_domain_storage_test.cpp
 )
 
-target_link_libraries(apptraverse_overlay_domain_storage_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_overlay_domain_storage_test PRIVATE apptraverse aether)
 
 add_test(
   NAME apptraverse_overlay_domain_storage_test
@@ -132,6 +132,42 @@ add_custom_target(apptraverse_chat_headless_check
   COMMENT "Canonical headless chat/shared/presentation checks"
 )
 
+add_executable(apptraverse_publication_channel_test
+  publication_channel_test.cpp
+)
+
+target_include_directories(apptraverse_publication_channel_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/include
+)
+
+add_test(
+  NAME apptraverse_publication_channel_test
+  COMMAND apptraverse_publication_channel_test
+)
+
+add_executable(apptraverse_main_window_lifecycle_test
+  main_window_lifecycle_test.cpp
+)
+
+target_link_libraries(apptraverse_main_window_lifecycle_test PRIVATE
+  main_window_runtime_demo_common
+)
+
+add_test(
+  NAME apptraverse_main_window_lifecycle_test
+  COMMAND apptraverse_main_window_lifecycle_test
+)
+
+add_custom_target(apptraverse_main_window_headless_check
+  COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
+  COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_test>
+  DEPENDS
+    apptraverse_publication_channel_test
+    apptraverse_main_window_lifecycle_test
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMENT "Main-window lifecycle and publication-channel headless checks"
+)
+
 if(WIN32)
   add_executable(apptraverse_chat_p2p_headless_test
     chat_p2p_headless_test.cpp
@@ -188,4 +224,45 @@ if(WIN32)
     NAME apptraverse_chat_win32_ui_smoke_test
     COMMAND apptraverse_chat_win32_ui_smoke_test
   )
+
+  add_executable(apptraverse_main_window_win32_smoke_test
+    main_window_win32_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_app.cpp
+  )
+
+  target_link_libraries(apptraverse_main_window_win32_smoke_test PRIVATE
+    main_window_runtime_demo_common
+    user32
+    gdi32
+  )
+
+  target_include_directories(apptraverse_main_window_win32_smoke_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+  )
+
+  target_compile_definitions(apptraverse_main_window_win32_smoke_test PRIVATE
+    "WIN32_MAIN_WINDOW_DEMO_EXE=R\"($<TARGET_FILE:win32_main_window_runtime_demo>)\""
+  )
+
+  add_dependencies(apptraverse_main_window_win32_smoke_test
+    win32_main_window_runtime_demo
+  )
+
+  if(MSVC)
+    target_compile_options(apptraverse_main_window_win32_smoke_test PRIVATE /utf-8)
+  endif()
+
+  add_test(
+    NAME apptraverse_main_window_win32_smoke_test
+    COMMAND apptraverse_main_window_win32_smoke_test
+  )
+
+  add_custom_target(apptraverse_main_window_win32_smoke_check
+    COMMAND $<TARGET_FILE:apptraverse_main_window_win32_smoke_test>
+    DEPENDS apptraverse_main_window_win32_smoke_test
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Main-window Loading/main HWND smoke"
+  )
 endif()
+
