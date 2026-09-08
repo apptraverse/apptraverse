@@ -16,7 +16,7 @@ Status: implemented, verified. Not accepted.
 4. `57f4fc30db7b75354d82085e81924f3ef3b520fc` — Add headless lifecycle and Win32 smoke tests for the main window.
 5. `1a078f9f9a6b1f907749d1a8d5f6fbca7da3c0da` — Record the main-window skeleton plan and progress.
 6. `75a1af396b86237bf6c6b770a8db50e4ef2a159f` — Name the documentation commit in Progress.md.
-7. `Remove premature DPI state from main window skeleton` — SHA is this commit on `prep/deps-objects-assert-mcp-v1` (immediately after 75a1af3).
+7. `4135ca5afa46b7f731afa3ba295ff1baf63aab27` — Remove premature DPI state from main window skeleton.
 
 ## DPI cleanup
 
