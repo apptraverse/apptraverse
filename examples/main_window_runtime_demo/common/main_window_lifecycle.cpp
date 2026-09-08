@@ -134,7 +134,6 @@ void ModelSession::Run() {
                            std::memory_order_release);
   model_window_height.store(application->main_window->height,
                             std::memory_order_release);
-  model_window_dpi.store(application->main_window->dpi, std::memory_order_release);
   channel.NotePublished();
   channel.PublishProducer();
   published.store(true, std::memory_order_release);

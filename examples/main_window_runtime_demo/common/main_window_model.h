@@ -15,7 +15,7 @@ namespace apptraverse {
 
 class MainWindow : public NodeFor<MainWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::MainWindow", MainWindow, Node,
-                           1)
+                           2)
 
  protected:
   MainWindow() = default;
@@ -23,8 +23,7 @@ class MainWindow : public NodeFor<MainWindow> {
  public:
   explicit MainWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height),
-                    AE_MMBR(dpi))
+  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv&) {
@@ -32,22 +31,26 @@ class MainWindow : public NodeFor<MainWindow> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
-    dnv(x, y, width, height, dpi);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error("MainWindow v1 is not supported");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Load(ae::Version<2>, Dnv& dnv) {
+    Node::Load(ae::Version<1>{}, dnv);
+    dnv(x, y, width, height);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
     Node::Save(ae::Version<1>{}, dnv);
-    dnv(x, y, width, height, dpi);
+    dnv(x, y, width, height);
   }
 
   std::int32_t x{main_window::kDefaultX};
   std::int32_t y{main_window::kDefaultY};
   std::int32_t width{main_window::kDefaultWidth};
   std::int32_t height{main_window::kDefaultHeight};
-  std::int32_t dpi{main_window::kDefaultDpi};
 };
 
 class Application : public ae::Obj {

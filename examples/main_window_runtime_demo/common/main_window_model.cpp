@@ -23,7 +23,6 @@ Application::ptr BuildMainWindowGraph(ae::Domain& domain) {
   window->y = main_window::kDefaultY;
   window->width = main_window::kDefaultWidth;
   window->height = main_window::kDefaultHeight;
-  window->dpi = main_window::kDefaultDpi;
   application->main_window = window;
   return application;
 }

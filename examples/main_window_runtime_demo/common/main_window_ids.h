@@ -20,7 +20,6 @@ inline constexpr std::int32_t kDefaultX = 80;
 inline constexpr std::int32_t kDefaultY = 80;
 inline constexpr std::int32_t kDefaultWidth = 800;
 inline constexpr std::int32_t kDefaultHeight = 600;
-inline constexpr std::int32_t kDefaultDpi = 96;
 
 }  // namespace apptraverse::main_window
 

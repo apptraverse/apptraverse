@@ -136,7 +136,6 @@ void TestInitialMirror() {
   CHECK(ui_app->main_window->y == session.model_window_y.load());
   CHECK(ui_app->main_window->width == session.model_window_width.load());
   CHECK(ui_app->main_window->height == session.model_window_height.load());
-  CHECK(ui_app->main_window->dpi == session.model_window_dpi.load());
   CHECK(!ui_app->main_window->base.is_valid());
   CHECK(ui_app->main_window->journal.empty());
 

@@ -59,7 +59,6 @@ struct ModelSession {
   std::atomic<std::int32_t> model_window_y{0};
   std::atomic<std::int32_t> model_window_width{0};
   std::atomic<std::int32_t> model_window_height{0};
-  std::atomic<std::int32_t> model_window_dpi{0};
 #ifdef _WIN32
   HANDLE done_event{nullptr};
 #endif
