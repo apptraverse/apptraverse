@@ -40,7 +40,9 @@ Recorded for later:
 
 ## Commits / push
 
-Push `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
+- `dcc14902fb6828582d1d7d123faa30ac45fd6c64` — Add App Traverse coding-agent rules
+
+Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
 # Main-window startup simplify and distill/load-only split — progress
 
