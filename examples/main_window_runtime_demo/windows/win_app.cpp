@@ -119,8 +119,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
                  err);
     std::abort();
   }
-  session_.notify_hwnd.store(reinterpret_cast<std::uintptr_t>(notify_),
-                              std::memory_order_release);
+  session_.notify_hwnd = notify_;
 
   loading_ = CreateWindowExW(
       0, kLoadingWindowClass, kLoadingWindowTitle,

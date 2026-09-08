@@ -1,4 +1,5 @@
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -31,6 +32,8 @@ class TestMainWindowPresenter : public MainWindowPresenter {
   explicit TestMainWindowPresenter(ae::ObjProp prop)
       : MainWindowPresenter{prop} {}
 
+  ~TestMainWindowPresenter() override { ++dtor_calls; }
+
   AE_OBJECT_REFLECT()
 
   void OnLoad() override { ++on_load_calls; }
@@ -38,6 +41,7 @@ class TestMainWindowPresenter : public MainWindowPresenter {
 
   static inline std::atomic<int> on_load_calls{0};
   static inline std::atomic<int> on_unload_calls{0};
+  static inline std::atomic<int> dtor_calls{0};
 };
 
 namespace {
@@ -63,7 +67,9 @@ std::filesystem::path TestDir(char const* name) {
 
 void WaitPublished(ModelSession& session) {
   std::unique_lock<std::mutex> lock{session.mu};
-  session.cv.wait(lock, [&] { return session.channel.has_unread_published(); });
+  CHECK(session.cv.wait_for(lock, std::chrono::seconds{30}, [&] {
+    return session.channel.has_unread_published();
+  }));
 }
 
 void PersistFixture(std::filesystem::path const& dir) {
@@ -99,6 +105,7 @@ bool PersistedApplicationExists(std::filesystem::path const& dir) {
 
 void TestLoadOnlyExistingState() {
   TestMainWindowPresenter::on_load_calls.store(0);
+  TestMainWindowPresenter::dtor_calls.store(0);
   auto dir = TestDir("apptraverse_main_window_load_only");
   PersistFixture(dir);
 
@@ -122,12 +129,15 @@ void TestLoadOnlyExistingState() {
 
   session.RequestStop();
   model.join();
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
   std::filesystem::remove_all(dir);
 }
 
 void TestLoadOnlyPresenterHooks() {
   TestMainWindowPresenter::on_load_calls.store(0);
   TestMainWindowPresenter::on_unload_calls.store(0);
+  TestMainWindowPresenter::dtor_calls.store(0);
   auto dir = TestDir("apptraverse_main_window_load_only_presenter");
   PersistFixture(dir);
 
@@ -145,8 +155,17 @@ void TestLoadOnlyPresenterHooks() {
 
   session.RequestStop();
   model.join();
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
   UnloadPresenters(*ui_app);
   CHECK(TestMainWindowPresenter::on_unload_calls.load() == 1);
+  auto const app_id = ui_app->obj_id;
+  auto const window_id = ui_app->main_window->obj_id;
+  auto const presenter_id = ui_app->main_window->presenter->obj_id;
+  ui_app = {};
+  CHECK(!ui_domain.Find(app_id));
+  CHECK(!ui_domain.Find(window_id));
+  CHECK(!ui_domain.Find(presenter_id));
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 2);
   std::filesystem::remove_all(dir);
 }
 

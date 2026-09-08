@@ -1,10 +1,21 @@
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
 #include <thread>
+
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#  ifdef RegisterClass
+#    undef RegisterClass
+#  endif
+#endif
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -30,6 +41,8 @@ class TestMainWindowPresenter : public MainWindowPresenter {
   explicit TestMainWindowPresenter(ae::ObjProp prop)
       : MainWindowPresenter{prop} {}
 
+  ~TestMainWindowPresenter() override { ++dtor_calls; }
+
   AE_OBJECT_REFLECT()
 
   void OnLoad() override {
@@ -41,7 +54,15 @@ class TestMainWindowPresenter : public MainWindowPresenter {
 
   static inline std::atomic<int> on_load_calls{0};
   static inline std::atomic<int> on_unload_calls{0};
+  static inline std::atomic<int> dtor_calls{0};
   static inline std::atomic<std::uint32_t> last_window_id{0};
+
+  static void ResetCounts() {
+    on_load_calls.store(0);
+    on_unload_calls.store(0);
+    dtor_calls.store(0);
+    last_window_id.store(0);
+  }
 };
 
 namespace {
@@ -67,7 +88,9 @@ std::filesystem::path TestDir(char const* name) {
 
 void WaitPublished(ModelSession& session) {
   std::unique_lock<std::mutex> lock{session.mu};
-  session.cv.wait(lock, [&] { return session.channel.has_unread_published(); });
+  CHECK(session.cv.wait_for(lock, std::chrono::seconds{30}, [&] {
+    return session.channel.has_unread_published();
+  }));
 }
 
 Application::ptr LoadUiFromSession(ModelSession& session, ae::Domain& ui_domain,
@@ -96,13 +119,15 @@ bool PersistedApplicationExists(std::filesystem::path const& dir) {
 }
 
 void TestDevStartup() {
-  TestMainWindowPresenter::on_load_calls.store(0);
+  TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_dev");
   ModelSession session;
   session.state_dir = dir;
   std::thread model{[&] { session.Run(); }};
   WaitPublished(session);
   CHECK(PersistedApplicationExists(dir));
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 0);
 
   ae::RamDomainStorage ui_storage;
   ae::Domain ui_domain{ui_storage};
@@ -124,6 +149,9 @@ void TestDevStartup() {
 
   session.RequestStop();
   model.join();
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
+  CHECK(TestMainWindowPresenter::on_unload_calls.load() == 0);
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
   std::filesystem::remove_all(dir);
 }
 
@@ -156,9 +184,50 @@ void TestDevReloadSameIds() {
   std::filesystem::remove_all(dir);
 }
 
+void TestWaitBeforePublish() {
+  TestMainWindowPresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_main_window_wait_before");
+  ModelSession session;
+  session.state_dir = dir;
+  std::atomic<bool> waiter_holds_lock{false};
+  std::thread waiter{[&] {
+    std::unique_lock<std::mutex> lock{session.mu};
+    waiter_holds_lock.store(true);
+    CHECK(session.cv.wait_for(lock, std::chrono::seconds{30}, [&] {
+      return session.channel.has_unread_published();
+    }));
+  }};
+  while (!waiter_holds_lock.load()) {
+    std::this_thread::yield();
+  }
+  std::thread model{[&] { session.Run(); }};
+  waiter.join();
+  session.RequestStop();
+  model.join();
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
+  std::filesystem::remove_all(dir);
+}
+
+void TestPublishBeforeWait() {
+  TestMainWindowPresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_main_window_publish_before");
+  ModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] { session.Run(); }};
+  auto const deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  while (!session.channel.has_unread_published()) {
+    CHECK(std::chrono::steady_clock::now() < deadline);
+    std::this_thread::yield();
+  }
+  WaitPublished(session);
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestMostDerivedFromNeutralPresenter() {
-  TestMainWindowPresenter::on_load_calls.store(0);
-  TestMainWindowPresenter::on_unload_calls.store(0);
+  TestMainWindowPresenter::ResetCounts();
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
   auto model_app = BuildMainWindowGraph(model_domain);
@@ -193,15 +262,18 @@ void TestMostDerivedFromNeutralPresenter() {
   CHECK(TestMainWindowPresenter::on_unload_calls.load() == 1);
 
   auto const app_id = ui_app->obj_id;
+  auto const window_id = ui_app->main_window->obj_id;
+  auto const presenter_id = ui_app->main_window->presenter->obj_id;
   ui_app = {};
   ui_root = {};
   CHECK(!ui_domain.Find(app_id));
+  CHECK(!ui_domain.Find(window_id));
+  CHECK(!ui_domain.Find(presenter_id));
   CHECK(TestMainWindowPresenter::on_unload_calls.load() == 1);
 }
 
 void TestPresenterInitFromPublishedGraph() {
-  TestMainWindowPresenter::on_load_calls.store(0);
-  TestMainWindowPresenter::on_unload_calls.store(0);
+  TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_presenter");
   ModelSession session;
   session.state_dir = dir;
@@ -223,23 +295,41 @@ void TestPresenterInitFromPublishedGraph() {
   model.join();
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
   CHECK(TestMainWindowPresenter::on_unload_calls.load() == 0);
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
 
   UnloadPresenters(*ui_app);
   CHECK(TestMainWindowPresenter::on_unload_calls.load() == 1);
+  auto const app_id = ui_app->obj_id;
+  auto const window_id = ui_app->main_window->obj_id;
+  auto const presenter_id = ui_app->main_window->presenter->obj_id;
   ui_app = {};
-  CHECK(!ui_domain.Find(
-      ae::ObjId{main_window::ToObjId(main_window::ObjId::Application)}));
+  CHECK(!ui_domain.Find(app_id));
+  CHECK(!ui_domain.Find(window_id));
+  CHECK(!ui_domain.Find(presenter_id));
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 2);
   std::filesystem::remove_all(dir);
 }
 
 void TestShutdownAfterPublish() {
+  TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_shutdown");
   ModelSession session;
   session.state_dir = dir;
+#ifdef _WIN32
+  session.done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  CHECK(session.done_event != nullptr);
+#endif
   std::thread model{[&] { session.Run(); }};
   WaitPublished(session);
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 0);
   session.RequestStop();
+#ifdef _WIN32
+  CHECK(WaitForSingleObject(session.done_event, 30000) == WAIT_OBJECT_0);
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
+  CloseHandle(session.done_event);
+#endif
   model.join();
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
   std::filesystem::remove_all(dir);
 }
 
@@ -249,6 +339,8 @@ int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestDevStartup();
   apptraverse::test::TestDevReloadSameIds();
+  apptraverse::test::TestWaitBeforePublish();
+  apptraverse::test::TestPublishBeforeWait();
   apptraverse::test::TestMostDerivedFromNeutralPresenter();
   apptraverse::test::TestPresenterInitFromPublishedGraph();
   apptraverse::test::TestShutdownAfterPublish();

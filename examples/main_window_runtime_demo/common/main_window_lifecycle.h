@@ -1,7 +1,6 @@
 #ifndef APPTRAVERSE_MAIN_WINDOW_LIFECYCLE_H_
 #define APPTRAVERSE_MAIN_WINDOW_LIFECYCLE_H_
 
-#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
@@ -31,9 +30,9 @@ struct ModelSession {
   PublicationChannel<3> channel;
   std::mutex mu;
   std::condition_variable cv;
-  std::atomic<bool> stop{false};
-  std::atomic<std::uintptr_t> notify_hwnd{0};
+  bool stop{false};
 #ifdef _WIN32
+  HWND notify_hwnd{nullptr};
   HANDLE done_event{nullptr};
 #endif
 

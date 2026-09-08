@@ -1,5 +1,7 @@
 #include "main_window_lifecycle.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <mutex>
 
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
@@ -28,7 +30,10 @@ APPTRAVERSE_REGISTER(Application);
 }  // namespace
 
 void ModelSession::RequestStop() {
-  stop.store(true, std::memory_order_release);
+  {
+    std::lock_guard<std::mutex> lock{mu};
+    stop = true;
+  }
   cv.notify_all();
 }
 
@@ -53,36 +58,51 @@ void ModelSession::Run() {
   }
 #endif
 
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  auto application = LoadApplication<Application>(
-      domain, ae::ObjId{main_window::ToObjId(main_window::ObjId::Application)});
-  LoadStoredAncestorLayersFromRoot(*application, storage);
-
-  auto* buffer = channel.AcquireProducer();
-  SerializeInitialPublication(*application, buffer->sink);
-  channel.NotePublished();
-  channel.PublishProducer();
-#ifdef _WIN32
-  auto const hwnd =
-      reinterpret_cast<HWND>(notify_hwnd.load(std::memory_order_acquire));
-  if (hwnd != nullptr) {
-    PostMessageW(hwnd, WM_APPTRAVERSE_PUBLISHED, 0, 0);
-  }
-#endif
-  cv.notify_all();
-
   {
-    std::unique_lock<std::mutex> lock{mu};
-    cv.wait(lock, [&] { return stop.load(std::memory_order_acquire); });
+    DirectoryDomainStorage storage{state_dir};
+    ae::Domain domain{storage};
+    auto application = LoadApplication<Application>(
+        domain,
+        ae::ObjId{main_window::ToObjId(main_window::ObjId::Application)});
+    LoadStoredAncestorLayersFromRoot(*application, storage);
+
+    auto* buffer = channel.AcquireProducer();
+    SerializeInitialPublication(*application, buffer->sink);
+    {
+      std::lock_guard<std::mutex> lock{mu};
+      channel.NotePublished();
+      channel.PublishProducer();
+    }
+#ifdef _WIN32
+    if (notify_hwnd != nullptr) {
+      if (PostMessageW(notify_hwnd, WM_APPTRAVERSE_PUBLISHED, 0, 0) == 0) {
+        DWORD const err = GetLastError();
+        std::fprintf(
+            stderr,
+            "fatal: PostMessageW WM_APPTRAVERSE_PUBLISHED GetLastError=%lu\n",
+            err);
+        std::abort();
+      }
+    }
+#endif
+    cv.notify_all();
+
+    {
+      std::unique_lock<std::mutex> lock{mu};
+      cv.wait(lock, [&] { return stop; });
+    }
   }
 
 #ifdef _WIN32
   if (done_event != nullptr) {
-    SetEvent(done_event);
+    if (SetEvent(done_event) == 0) {
+      DWORD const err = GetLastError();
+      std::fprintf(stderr, "fatal: SetEvent done_event GetLastError=%lu\n",
+                   err);
+      std::abort();
+    }
   }
 #endif
-  cv.notify_all();
 }
 
 }  // namespace apptraverse
