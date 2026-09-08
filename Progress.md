@@ -42,7 +42,7 @@ Tools with `source_dir`:
 
 ## Commit SHA
 
-Recorded after the implementation commit.
+`5699c613e55f66ccea6eece1f2009f28d8dd6f26` — Make App Traverse MCP worktree-aware
 
 ## Unit tests
 
@@ -194,4 +194,11 @@ Search after cleanup: `dpi`, `DPI`, `WM_DPICHANGED`, `GetDpiForWindow` are absen
 
 ## git status --short
 
-Recorded after the MCP worktree-aware work. Untracked: `.artifacts/`, `build/`, `__pycache__/`. `.venv-apptraverse-mcp/` is gitignored.
+After recording the implementation SHA (documentation-only follow-up):
+
+```
+ M Progress.md
+?? tools/mcp/__pycache__/
+?? tools/runners/__pycache__/
+?? tools/runtime/__pycache__/
+```
