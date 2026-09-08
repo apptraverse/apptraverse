@@ -60,6 +60,11 @@ DPI/screen system events, WindowChangedEvent, periodic model tick.
 
 ## Later stages (deferred; architecture unchanged)
 
+TODO: move `LoadStoredAncestorLayers` into aether-objects. App Traverse
+still reloads stored ancestor class layers after LoadRoot when the
+persisted graph has only a base class and the registry created a descendant.
+Do not redesign that pass in a main-window lifecycle slice.
+
 1. Resize events (native resize → serialized command → model)
 2. Node execution / model update loop
 3. Minimal redraw / dirty regions

@@ -62,7 +62,6 @@ struct ModelSession {
   std::atomic<std::uintptr_t> model_presenter_addr{0};
   std::atomic<std::uint32_t> model_presenter_id{0};
   std::atomic<std::uint32_t> model_presenter_class_id{0};
-  std::atomic<bool> model_presenter_initialized{false};
 #ifdef _WIN32
   HANDLE done_event{nullptr};
 #endif

@@ -403,12 +403,23 @@ void InitializePresenters(ae::Obj& gui_root, void* host) {
   CollectReachableObjects(gui_root, objects);
   for (ae::Obj* obj : objects) {
     auto* presenter = dynamic_cast<Presenter*>(obj);
-    if (presenter == nullptr || presenter->presentation_initialized) {
+    if (presenter == nullptr) {
       continue;
     }
     presenter->presentation_host = host;
-    presenter->presentation_initialized = true;
     presenter->OnLoad();
+  }
+}
+
+void UnloadPresenters(ae::Obj& gui_root) {
+  std::vector<ae::Obj*> objects;
+  CollectReachableObjects(gui_root, objects);
+  for (ae::Obj* obj : objects) {
+    auto* presenter = dynamic_cast<Presenter*>(obj);
+    if (presenter == nullptr) {
+      continue;
+    }
+    presenter->OnUnload();
   }
 }
 

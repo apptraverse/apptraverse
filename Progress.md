@@ -1,5 +1,90 @@
 Status: implemented, verified. Not accepted.
 
+# Main-window lifecycle defensive-check cleanup — progress
+
+## Identity
+
+- Branch: `prep/deps-objects-assert-mcp-v1`
+- Worktree: `C:\Users\nickc\Projects\apptraverse-prep-deps-assert`
+- Status: implemented, verified. Not accepted.
+
+## Removed checks (unreachable or already guaranteed)
+
+- `Win32MainWindowPresenter::OnLoad`: no `hwnd != nullptr` early return, no
+  `!window` check, no `assert(hwnd == nullptr)` / `assert(window)`, no
+  bool-return recovery if `CreateWindowExW` fails.
+- `DestroyNative` / destructor `DestroyWindow`: gone. Native teardown is
+  `OnUnload` only, called from `UnloadPresenters` after successful GUI init.
+  Model-side Win32 objects never run that pass, so the destructor does not
+  guess whether an HWND exists.
+- `presentation_initialized` and per-presenter "already initialized" / second
+  `OnLoad` protection.
+- `InitializePresenters` bool return and "OnLoad failed" recovery.
+- `OnPublished`: empty-bytes return, stacked graph asserts, init-failure
+  abort-to-Loading, `assert(loading_)` before destroying Loading.
+- Startup recovery (`AbandonStartup`, `exit_code_`, `joinable()`, repeated
+  `assert(notify_)` / `assert(done_event)` at shutdown).
+- WndProc `assert(msg == WM_GETMINMAXINFO)` when `app == nullptr`.
+- ModelSession duplicate `assert(buffer)` / `assert(presenter)` after the
+  stage that already produced them.
+- Tests: idempotent second `InitializePresenters`; `TestPresenterInitFailure`
+  (recoverable OnLoad failure is not a supported state).
+
+## Kept `if`s (real state-machine branches)
+
+- `InitializePresenters` / `UnloadPresenters`: `dynamic_cast` skip of
+  non-Presenter objects on the reachable walk.
+- `OnPublished`: `stop_requested_` — publication can arrive after close during
+  Loading; skip presentation init.
+- `RequestStop`: already requested (Loading and Main can both send WM_CLOSE).
+- `loading_ != nullptr` at shutdown: close during Loading vs after Main replaced
+  it. Success path destroys Loading then sets `loading_ = nullptr` because
+  that nullable handle is the two-stage machine.
+- `ui_application_` before `UnloadPresenters`: graph exists only after a
+  completed presentation pass; close during Loading never loaded it.
+- WndProc: `WM_NCCREATE` binds userdata; `app == nullptr` is legal before that
+  (`WM_GETMINMAXINFO`); after bind, dispatch to `Handle`.
+- Message loop: `WAIT_OBJECT_0` vs queued input; `WM_QUIT`.
+- ModelSession: `EnterStage` / `stop`; first launch vs existing state;
+  `done_event` / notify HWND (WinApp vs headless tests that never set them).
+
+## Fatal (unrecoverable) conditions
+
+- `CreateEventW` for `done_event` returns null.
+- `CreateWindowExW` for notify or Loading returns null.
+- `CreateWindowExW` for Main returns null (`OnLoad`).
+- `std::thread` construction throws (uncaught; never enters the loop).
+
+No recovery, no keep-Loading, no presenter-without-HWND, no bool `OnLoad`.
+
+## Tests
+
+Headless: startup, existing-state, mirror identity, most-derived Test
+presenter, `InitializePresenters` once then `UnloadPresenters` once,
+model-side OnLoad/OnUnload not called, object destructor does not `OnUnload`,
+thread ownership, stop during Loading, stop after Ready.
+
+Win32 smoke: Loading then Main; GUI class `Win32MainWindowPresenter`; close
+during Loading does not create Main; GUI teardown destroys Main HWND.
+
+## MCP / artifacts
+
+Cursor `user-apptraverse` still has no `source_dir`. **BLOCKED**.
+Worktree runner (incremental, no clean/rebuild):
+
+| target | run_id / artifact | status |
+| --- | --- | --- |
+| `apptraverse_main_window_headless_check` + `apptraverse_main_window_win32_smoke_check` | `apptraverse-build/20260908-211920-2b7853` | ok (`publication_channel_test OK`, `main_window_lifecycle_test OK`, `main_window_win32_smoke_test OK`) |
+
+Did not rebuild `apptraverse_event_sourced_core_test`: it pulls the full Aether
+client (sodium) and is outside this slice. `presenter.h` there is only a
+class-id check.
+
+## Commits / push
+
+SHA filled after this commit. Push `origin/prep/deps-objects-assert-mcp-v1`.
+`main` not changed.
+
 # Object-graph presenter — progress
 
 ## Identity
@@ -21,8 +106,9 @@ Status: implemented, verified. Not accepted.
   `TestMainWindowPresenter` / `Win32MainWindowPresenter`).
 - `InitializePresenters` walks reachable live objects from the GUI root and
   calls `Presenter::OnLoad()` once. Object Load does not call it.
-- `Presenter` documents OnLoad as GUI presentation init; runtime-only
-  `presentation_host` / `presentation_initialized` are not serialized.
+- `Presenter` documents OnLoad/OnUnload as GUI presentation hooks; runtime-only
+  `presentation_host` is not serialized. `presentation_initialized` was removed
+  in the defensive-check cleanup (init runs once per GUI mirror).
 
 ## Example changes
 

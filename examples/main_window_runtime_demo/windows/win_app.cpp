@@ -56,10 +56,11 @@ LRESULT CALLBACK WinApp::WndProc(HWND hwnd, UINT msg, WPARAM wparam,
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
   auto* app = reinterpret_cast<WinApp*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-  if (app != nullptr) {
-    return app->Handle(hwnd, msg, wparam, lparam);
+  if (app == nullptr) {
+    // WM_GETMINMAXINFO is sent before WM_NCCREATE for overlapped windows.
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
-  return DefWindowProcW(hwnd, msg, wparam, lparam);
+  return app->Handle(hwnd, msg, wparam, lparam);
 }
 
 LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -79,13 +80,10 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 }
 
 void WinApp::OnPublished() {
-  if (stop_requested_ || ui_application_) {
+  if (stop_requested_) {
     return;
   }
   auto bytes = session_.channel.TakePublishedCopy();
-  if (bytes.empty()) {
-    return;
-  }
   ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
   ByteSource in;
   in.data = bytes.data();
@@ -93,21 +91,12 @@ void WinApp::OnPublished() {
   auto ui_root = LoadInitialPublication(in, *ui_domain_, ui_storage_);
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
-  assert(ui_application_);
-  assert(ui_application_->main_window);
-  assert(ui_application_->main_window->presenter);
-  if (stop_requested_) {
-    return;
-  }
   InitializePresenters(*ui_application_, this);
-  assert(ui_application_->main_window->presenter->presentation_initialized);
   gui_presenter_class_id_.store(
       ui_application_->main_window->presenter->GetClassId(),
       std::memory_order_release);
-  if (loading_ != nullptr) {
-    DestroyWindow(loading_);
-    loading_ = nullptr;
-  }
+  DestroyWindow(loading_);
+  loading_ = nullptr;
 }
 
 void WinApp::RequestStop() {
@@ -120,6 +109,9 @@ void WinApp::RequestStop() {
 }
 
 void WinApp::DestroyGuiMirror() {
+  if (ui_application_) {
+    UnloadPresenters(*ui_application_);
+  }
   ui_application_ = {};
   ui_domain_.reset();
 }
@@ -135,12 +127,12 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
 
   session_.state_dir = state_dir;
   session_.done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  assert(session_.done_event != nullptr);
+  assert(session_.done_event != nullptr && "CreateEventW done_event failed");
 
   notify_ = CreateWindowExW(0, kNotifyWindowClass, L"", 0, 0, 0, 0, 0,
                             HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr),
                             this);
-  assert(notify_ != nullptr);
+  assert(notify_ != nullptr && "CreateWindowExW notify failed");
   session_.notify_hwnd.store(reinterpret_cast<std::uintptr_t>(notify_),
                               std::memory_order_release);
 
@@ -148,7 +140,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
       0, kLoadingWindowClass, kLoadingWindowTitle, WS_OVERLAPPED | WS_CAPTION |
                                                      WS_SYSMENU | WS_VISIBLE,
       200, 200, 280, 120, nullptr, nullptr, GetModuleHandleW(nullptr), this);
-  assert(loading_ != nullptr);
+  assert(loading_ != nullptr && "CreateWindowExW Loading failed");
 
   model_thread_ = std::thread([this] { session_.Run(); });
 
@@ -170,22 +162,14 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     }
   }
 
-  if (model_thread_.joinable()) {
-    model_thread_.join();
-  }
+  model_thread_.join();
   if (loading_ != nullptr) {
     DestroyWindow(loading_);
     loading_ = nullptr;
   }
-  if (notify_ != nullptr) {
-    DestroyWindow(notify_);
-    notify_ = nullptr;
-  }
+  DestroyWindow(notify_);
   DestroyGuiMirror();
-  if (session_.done_event != nullptr) {
-    CloseHandle(session_.done_event);
-    session_.done_event = nullptr;
-  }
+  CloseHandle(session_.done_event);
   return 0;
 }
 

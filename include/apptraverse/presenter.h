@@ -10,10 +10,12 @@ namespace apptraverse {
 // Platform-neutral presenter base. Not a Node: no journal. Local presenter
 // state is not model-journaled; GUI may mutate it directly later.
 //
-// OnLoad is a GUI presentation-initialization hook, not an object-system
-// deserialization callback. Ordinary Load/Create/Save must not create native
-// resources. Call OnLoad only from InitializePresenters after the GUI mirror
-// graph is fully loaded and references are resolved.
+// OnLoad / OnUnload are GUI presentation hooks, not object-system
+// deserialization callbacks. Ordinary Load/Create/Save must not create or
+// destroy native resources. Call OnLoad only from InitializePresenters after
+// the GUI mirror graph is fully loaded and references are resolved. Call
+// OnUnload only from UnloadPresenters for a graph that completed that pass.
+// The object destructor does not tear down native presentation.
 class Presenter : public ae::Obj {
   APPTRAVERSE_OBJECT(Presenter, ae::Obj, 0)
 
@@ -26,10 +28,10 @@ class Presenter : public ae::Obj {
   AE_OBJECT_REFLECT()
 
   virtual void OnLoad() {}
+  virtual void OnUnload() {}
 
   // Runtime-only. Not serialized. Win32 uses this as CreateWindow lpParam.
   void* presentation_host{nullptr};
-  bool presentation_initialized{false};
 };
 
 }  // namespace apptraverse

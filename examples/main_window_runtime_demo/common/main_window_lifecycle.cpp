@@ -1,6 +1,5 @@
 #include "main_window_lifecycle.h"
 
-#include <cassert>
 #include <memory>
 #include <thread>
 
@@ -113,7 +112,6 @@ void ModelSession::Run() {
     return;
   }
   auto* buffer = channel.AcquireProducer();
-  assert(buffer != nullptr);
   SerializeInitialPublication(*application, buffer->sink);
   if (stop.load(std::memory_order_acquire)) {
     cleanup();
@@ -135,19 +133,14 @@ void ModelSession::Run() {
                            std::memory_order_release);
   model_window_height.store(application->main_window->height,
                             std::memory_order_release);
-  if (application->main_window->presenter) {
-    model_presenter_addr.store(
-        reinterpret_cast<std::uintptr_t>(&*application->main_window->presenter),
-        std::memory_order_release);
-    model_presenter_id.store(application->main_window->presenter->obj_id.id(),
-                             std::memory_order_release);
-    model_presenter_class_id.store(
-        application->main_window->presenter->GetClassId(),
-        std::memory_order_release);
-    model_presenter_initialized.store(
-        application->main_window->presenter->presentation_initialized,
-        std::memory_order_release);
-  }
+  model_presenter_addr.store(
+      reinterpret_cast<std::uintptr_t>(&*application->main_window->presenter),
+      std::memory_order_release);
+  model_presenter_id.store(application->main_window->presenter->obj_id.id(),
+                           std::memory_order_release);
+  model_presenter_class_id.store(
+      application->main_window->presenter->GetClassId(),
+      std::memory_order_release);
   channel.NotePublished();
   channel.PublishProducer();
   published.store(true, std::memory_order_release);

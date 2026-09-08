@@ -36,10 +36,13 @@ class TestMainWindowPresenter : public MainWindowPresenter {
 
   void OnLoad() override {
     ++on_load_calls;
-    last_window_id = window ? window->obj_id.id() : 0;
+    last_window_id = window->obj_id.id();
   }
 
+  void OnUnload() override { ++on_unload_calls; }
+
   static inline std::atomic<int> on_load_calls{0};
+  static inline std::atomic<int> on_unload_calls{0};
   static inline std::atomic<std::uint32_t> last_window_id{0};
 };
 
@@ -144,6 +147,8 @@ void TestExistingStartup() {
 }
 
 void TestInitialMirror() {
+  TestMainWindowPresenter::on_load_calls.store(0);
+  TestMainWindowPresenter::on_unload_calls.store(0);
   auto dir = TestDir("apptraverse_main_window_mirror");
   ModelSession session;
   session.state_dir = dir;
@@ -182,8 +187,8 @@ void TestInitialMirror() {
   CHECK(&*ui_app->main_window->presenter !=
         reinterpret_cast<MainWindowPresenter*>(
             session.model_presenter_addr.load()));
-  CHECK(!ui_app->main_window->presenter->presentation_initialized);
-  CHECK(!session.model_presenter_initialized.load());
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
+  CHECK(TestMainWindowPresenter::on_unload_calls.load() == 0);
 
   session.RequestStop();
   WaitFinished(session);
@@ -193,6 +198,7 @@ void TestInitialMirror() {
 
 void TestMostDerivedFromNeutralPresenter() {
   TestMainWindowPresenter::on_load_calls.store(0);
+  TestMainWindowPresenter::on_unload_calls.store(0);
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
   auto model_app = BuildMainWindowGraph(model_domain);
@@ -221,7 +227,6 @@ void TestMostDerivedFromNeutralPresenter() {
   CHECK(&*ui_app != &*model_app);
   CHECK(&*ui_app->main_window != &*model_app->main_window);
   CHECK(ui_app->domain != model_app->domain);
-  CHECK(!ui_app->main_window->presenter->presentation_initialized);
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
   CHECK(ui_app->main_window->presenter->window);
   CHECK(&*ui_app->main_window->presenter->window == &*ui_app->main_window);
@@ -229,23 +234,25 @@ void TestMostDerivedFromNeutralPresenter() {
         &*ui_app->main_window->presenter);
 
   InitializePresenters(*ui_app);
-  CHECK(ui_app->main_window->presenter->presentation_initialized);
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
   CHECK(TestMainWindowPresenter::last_window_id.load() ==
         ui_app->main_window->obj_id.id());
-  CHECK(!model_app->main_window->presenter->presentation_initialized);
+  CHECK(TestMainWindowPresenter::on_unload_calls.load() == 0);
 
-  InitializePresenters(*ui_app);
+  UnloadPresenters(*ui_app);
+  CHECK(TestMainWindowPresenter::on_unload_calls.load() == 1);
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
 
   auto const app_id = ui_app->obj_id;
   ui_app = {};
   ui_root = {};
   CHECK(!ui_domain.Find(app_id));
+  CHECK(TestMainWindowPresenter::on_unload_calls.load() == 1);
 }
 
 void TestPresenterMostDerivedAndInit() {
   TestMainWindowPresenter::on_load_calls.store(0);
+  TestMainWindowPresenter::on_unload_calls.store(0);
   auto dir = TestDir("apptraverse_main_window_presenter");
   ModelSession session;
   session.state_dir = dir;
@@ -255,7 +262,6 @@ void TestPresenterMostDerivedAndInit() {
   CHECK(session.model_presenter_id.load() != 0);
   CHECK(session.model_presenter_class_id.load() ==
         TestMainWindowPresenter::kClassId);
-  CHECK(!session.model_presenter_initialized.load());
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
 
   ae::RamDomainStorage ui_storage;
@@ -263,7 +269,6 @@ void TestPresenterMostDerivedAndInit() {
   auto ui_app = LoadUiFromSession(session, ui_domain, ui_storage);
   CHECK(ui_app->main_window->presenter->GetClassId() ==
         TestMainWindowPresenter::kClassId);
-  CHECK(!ui_app->main_window->presenter->presentation_initialized);
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
   CHECK(ui_app->main_window->presenter->window);
   CHECK(&*ui_app->main_window->presenter->window == &*ui_app->main_window);
@@ -271,22 +276,19 @@ void TestPresenterMostDerivedAndInit() {
         &*ui_app->main_window->presenter);
 
   InitializePresenters(*ui_app);
-  CHECK(ui_app->main_window->presenter->presentation_initialized);
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
   CHECK(TestMainWindowPresenter::last_window_id.load() ==
         ui_app->main_window->obj_id.id());
-  CHECK(!session.model_presenter_initialized.load());
-
-  InitializePresenters(*ui_app);
-  CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
 
   session.RequestStop();
   WaitFinished(session);
   model.join();
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+  CHECK(TestMainWindowPresenter::on_unload_calls.load() == 0);
 
   ui_app = {};
   CHECK(!ui_domain.Find(ae::ObjId{session.model_application_id.load()}));
+  CHECK(TestMainWindowPresenter::on_unload_calls.load() == 0);
   std::filesystem::remove_all(dir);
 }
 

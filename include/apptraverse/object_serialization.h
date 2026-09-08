@@ -40,9 +40,13 @@ void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 
 // GUI-thread presentation phase. Walks reachable live objects from the GUI
-// root, skips distilled Node base objects, and calls Presenter::OnLoad once
-// per presenter. Object Load must not call this.
+// root and calls Presenter::OnLoad for each Presenter. Object Load must not
+// call this. The pass is invoked once per GUI mirror.
 void InitializePresenters(ae::Obj& gui_root, void* host = nullptr);
+
+// Inverse of InitializePresenters. Call only for a GUI graph that completed
+// that pass. Object destruction does not call this.
+void UnloadPresenters(ae::Obj& gui_root);
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 
