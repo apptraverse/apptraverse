@@ -1,7 +1,10 @@
 #include "main_window_lifecycle.h"
 
-#include <filesystem>
 #include <mutex>
+
+#ifdef APPTRAVERSE_ENABLE_DISTILLATION
+#include <filesystem>
+#endif
 
 #include "aether-objects/obj/domain.h"
 
@@ -20,6 +23,7 @@ void ModelSession::RequestStop() {
 }
 
 void ModelSession::Run() {
+#ifdef APPTRAVERSE_ENABLE_DISTILLATION
   // Development bootstrap: create persisted state only when it does not exist.
   bool state_missing = true;
   if (std::filesystem::exists(state_dir)) {
@@ -37,6 +41,7 @@ void ModelSession::Run() {
     FinalizeDistilledGraph(*bootstrap_app);
     SaveDistilledRoot(*bootstrap_app);
   }
+#endif
 
   DirectoryDomainStorage storage{state_dir};
   ae::Domain domain{storage};

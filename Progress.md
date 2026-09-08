@@ -1,5 +1,62 @@
 Status: implemented, verified. Not accepted.
 
+# Main-window startup simplify and distill/load-only split — progress
+
+## Identity
+
+- Branch: `prep/deps-objects-assert-mcp-v1`
+- Worktree: `C:\Users\nickc\Projects\apptraverse-prep-deps-assert`
+- Status: implemented, verified. Not accepted.
+
+## Removed
+
+- `ModelStartupStage`, `EnterStage`, `hold_stage`, `SetHoldStage`, `--hold-stage`
+- Cancelable startup and close-during-Loading (tests and production)
+- Test instrumentation on `ModelSession`: `published`, `finished`,
+  `distilled_this_run`, `stage`, thread ids, model object addresses/ids/geometry
+- `ApplicationStateExists` helper; `accept_input_`; `stop_requested_`;
+  `GuiPresenterClassId`; `DestroyGuiMirror` wrapper
+- Duplicate registration / `EnableNoninteractiveCrt` inside `WinApp::Run` and
+  the model thread
+
+## ModelSession (kept)
+
+Shared production model-thread path for Win32 and headless tests:
+
+- `state_dir`, `PublicationChannel`, `mu`/`cv`, `stop`, `RequestStop`, `Run`
+- `notify_hwnd` / `done_event` (WinApp vs headless that never sets them)
+
+## Dev / load-only
+
+- Compile definition: `APPTRAVERSE_ENABLE_DISTILLATION`
+- `win32_main_window_runtime_demo` — distill-enabled; bootstrap if state missing
+- `win32_main_window_runtime_demo_load_only` — no definition; load only; missing
+  Application is fatal
+- Lifecycle `.cpp` is compiled per target (not one STATIC lib), so the ifdef is
+  real. Load-only lifecycle obj has `LoadApplication` and no
+  `FinalizeDistilledGraph` / `SaveDistilledRoot` / `BuildMainWindowGraph`.
+
+Registration: `main()` registers model + Win32 presenter once, then `WinApp::Run`.
+
+## Tests / artifacts
+
+Cursor `user-apptraverse` still has no `source_dir`. **BLOCKED**.
+Worktree runner (incremental, cmake regenerated ninja; no clean/rebuild):
+
+| target | run_id / artifact | status |
+| --- | --- | --- |
+| simplify startup | `apptraverse-build/20260908-213039-bcd573` | ok |
+| distill + load-only + smokes | `apptraverse-build/20260908-213326-84d24d` | ok (`publication_channel_test`, `main_window_lifecycle_test`, `main_window_lifecycle_load_only_test`, `main_window_win32_smoke_test`) |
+
+Missing-state fatal is the load-only child-process smoke (non-zero, no Main, no Application object).
+
+## Commits / push
+
+- `628174df8a5b006b9d783a331751a829034e671f` — Simplify main-window startup and remove test state machine
+- `2f79001ddf06283daf96c4199dcc70cd4fc99438` — Split development distillation and load-only targets
+
+Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
+
 # Main-window lifecycle defensive-check cleanup — progress
 
 ## Identity

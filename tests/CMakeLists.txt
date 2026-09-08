@@ -147,10 +147,15 @@ add_test(
 
 add_executable(apptraverse_main_window_lifecycle_test
   main_window_lifecycle_test.cpp
+  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
+)
+
+target_compile_definitions(apptraverse_main_window_lifecycle_test PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
 )
 
 target_link_libraries(apptraverse_main_window_lifecycle_test PRIVATE
-  main_window_runtime_demo_common
+  main_window_runtime_demo_model
 )
 
 add_test(
@@ -158,12 +163,28 @@ add_test(
   COMMAND apptraverse_main_window_lifecycle_test
 )
 
+add_executable(apptraverse_main_window_lifecycle_load_only_test
+  main_window_lifecycle_load_only_test.cpp
+  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
+)
+
+target_link_libraries(apptraverse_main_window_lifecycle_load_only_test PRIVATE
+  main_window_runtime_demo_model
+)
+
+add_test(
+  NAME apptraverse_main_window_lifecycle_load_only_test
+  COMMAND apptraverse_main_window_lifecycle_load_only_test
+)
+
 add_custom_target(apptraverse_main_window_headless_check
   COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
   COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_test>
+  COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_load_only_test>
   DEPENDS
     apptraverse_publication_channel_test
     apptraverse_main_window_lifecycle_test
+    apptraverse_main_window_lifecycle_load_only_test
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Main-window lifecycle and publication-channel headless checks"
 )
@@ -229,10 +250,17 @@ if(WIN32)
     main_window_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_app.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_presenters.cpp
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
+  )
+
+  target_compile_definitions(apptraverse_main_window_win32_smoke_test PRIVATE
+    APPTRAVERSE_ENABLE_DISTILLATION
+    "WIN32_MAIN_WINDOW_DEMO_EXE=R\"($<TARGET_FILE:win32_main_window_runtime_demo>)\""
+    "WIN32_MAIN_WINDOW_LOAD_ONLY_EXE=R\"($<TARGET_FILE:win32_main_window_runtime_demo_load_only>)\""
   )
 
   target_link_libraries(apptraverse_main_window_win32_smoke_test PRIVATE
-    main_window_runtime_demo_common
+    main_window_runtime_demo_model
     user32
     gdi32
   )
@@ -242,12 +270,9 @@ if(WIN32)
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
   )
 
-  target_compile_definitions(apptraverse_main_window_win32_smoke_test PRIVATE
-    "WIN32_MAIN_WINDOW_DEMO_EXE=R\"($<TARGET_FILE:win32_main_window_runtime_demo>)\""
-  )
-
   add_dependencies(apptraverse_main_window_win32_smoke_test
     win32_main_window_runtime_demo
+    win32_main_window_runtime_demo_load_only
   )
 
   if(MSVC)

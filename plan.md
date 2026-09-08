@@ -45,8 +45,10 @@ Constraints:
 
 - exactly two threads: Windows GUI thread and model thread
 - GUI never creates, loads, or touches model Domain objects
-- first launch: create → distill → destroy graph/Domain → new Domain → load
-- subsequent launch: load existing state, no second distillation
+- first launch (development build with `APPTRAVERSE_ENABLE_DISTILLATION`):
+  create → distill → destroy graph/Domain → new Domain → load
+- load-only / production executable: load existing persisted state only;
+  missing or broken state is fatal
 - initial GUI mirror via serialized publication buffer, not
   `CopyModelGraphToUiDomain` from the GUI thread
 - shared class registry: model Domain may also materialize

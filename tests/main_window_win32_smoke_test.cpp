@@ -11,12 +11,15 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/noninteractive_crt.h"
 
+#include "main_window_ids.h"
 #include "main_window_lifecycle.h"
 #include "main_window_model.h"
 #include "win_app.h"
@@ -122,6 +125,19 @@ void TestInProcessLoadingThenMain() {
 
 #ifdef WIN32_MAIN_WINDOW_DEMO_EXE
 
+void PreparePersistedState(std::filesystem::path const& dir) {
+  ModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] { session.Run(); }};
+  {
+    std::unique_lock<std::mutex> lock{session.mu};
+    session.cv.wait(lock,
+                    [&] { return session.channel.has_unread_published(); });
+  }
+  session.RequestStop();
+  model.join();
+}
+
 HANDLE StartDemo(std::filesystem::path const& exe,
                   std::filesystem::path const& state_dir) {
   std::wstring cmd = L"\"" + exe.wstring() + L"\" --state-dir \"" +
@@ -161,6 +177,51 @@ void TestChildProcessFreshThenClose() {
   std::filesystem::remove_all(dir);
 }
 
+void TestChildProcessLoadOnlyThenClose() {
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_main_window_child_load_only";
+  std::filesystem::remove_all(dir);
+  PreparePersistedState(dir);
+  std::filesystem::path exe{WIN32_MAIN_WINDOW_LOAD_ONLY_EXE};
+  HANDLE process = StartDemo(exe, dir);
+  HWND loading = nullptr;
+  CHECK(WaitForWindow(kLoadingWindowClass, kLoadingWindowTitle, &loading,
+                        std::chrono::seconds{30}));
+  HWND main = nullptr;
+  CHECK(WaitForWindow(kMainWindowClass, kMainWindowTitle, &main,
+                      std::chrono::seconds{30}));
+  CHECK(WaitGone(kLoadingWindowClass, kLoadingWindowTitle,
+                 std::chrono::seconds{10}));
+  PostMessageW(main, WM_CLOSE, 0, 0);
+  CHECK(WaitForSingleObject(process, 30000) == WAIT_OBJECT_0);
+  DWORD code = 1;
+  GetExitCodeProcess(process, &code);
+  CHECK(code == 0);
+  CloseHandle(process);
+  std::filesystem::remove_all(dir);
+}
+
+void TestChildProcessLoadOnlyEmptyState() {
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_main_window_child_load_only_empty";
+  std::filesystem::remove_all(dir);
+  std::filesystem::create_directories(dir);
+  std::filesystem::path exe{WIN32_MAIN_WINDOW_LOAD_ONLY_EXE};
+  HANDLE process = StartDemo(exe, dir);
+  CHECK(WaitForSingleObject(process, 30000) == WAIT_OBJECT_0);
+  DWORD code = 0;
+  GetExitCodeProcess(process, &code);
+  CHECK(code != 0);
+  CHECK(FindExact(kMainWindowClass, kMainWindowTitle) == nullptr);
+  DirectoryDomainStorage storage{dir};
+  CHECK(storage
+            .Enumerate(ae::ObjId{main_window::ToObjId(
+                main_window::ObjId::Application)})
+            .empty());
+  CloseHandle(process);
+  std::filesystem::remove_all(dir);
+}
+
 #endif
 
 }  // namespace apptraverse::test
@@ -172,6 +233,8 @@ int main() {
   apptraverse::test::TestInProcessLoadingThenMain();
 #ifdef WIN32_MAIN_WINDOW_DEMO_EXE
   apptraverse::test::TestChildProcessFreshThenClose();
+  apptraverse::test::TestChildProcessLoadOnlyThenClose();
+  apptraverse::test::TestChildProcessLoadOnlyEmptyState();
 #endif
   std::cout << "main_window_win32_smoke_test OK\n";
   return 0;
