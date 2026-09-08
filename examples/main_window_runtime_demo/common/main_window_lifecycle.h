@@ -22,6 +22,7 @@
 namespace apptraverse {
 
 inline constexpr unsigned WM_APPTRAVERSE_PUBLISHED = 0x8001;  // WM_APP + 1
+inline constexpr unsigned WM_APPTRAVERSE_STOP = 0x8002;       // WM_APP + 2
 
 // Model-thread path shared by the Win32 app and headless tests. GUI may only
 // touch the publication channel, RequestStop, notify_hwnd, and done_event.

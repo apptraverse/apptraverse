@@ -30,7 +30,8 @@ class Presenter : public ae::Obj {
   virtual void OnLoad() {}
   virtual void OnUnload() {}
 
-  // Runtime-only. Not serialized. Win32 uses this as CreateWindow lpParam.
+  // Runtime-only. Not serialized. Win32 Main uses this as the notify HWND
+  // for shutdown, not as CreateWindow lpParam.
   void* presentation_host{nullptr};
 };
 

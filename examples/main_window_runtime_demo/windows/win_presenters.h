@@ -11,8 +11,6 @@
 
 #include "apptraverse/object_macros.h"
 
-#include <cassert>
-
 #include "main_window_model.h"
 
 namespace apptraverse {
@@ -21,8 +19,8 @@ inline wchar_t const kMainWindowClass[] = L"AppTraverseExampleMainWindow";
 inline wchar_t const kMainWindowTitle[] = L"Main";
 
 // Most-derived Windows presenter. Construction, Load, and Save do not create
-// HWND. HWND is created only in OnLoad during GUI presentation initialization
-// and destroyed only in OnUnload.
+// HWND. OnLoad registers the native Main class, creates the HWND, and owns
+// WndProc. OnUnload destroys the HWND and unregisters the class.
 class Win32MainWindowPresenter : public MainWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::Win32MainWindowPresenter",
                            Win32MainWindowPresenter, MainWindowPresenter, 0)
@@ -36,19 +34,14 @@ class Win32MainWindowPresenter : public MainWindowPresenter {
 
   AE_OBJECT_REFLECT()
 
-  void OnLoad() override {
-    hwnd = CreateWindowExW(
-        0, kMainWindowClass, kMainWindowTitle, WS_OVERLAPPEDWINDOW, window->x,
-        window->y, window->width, window->height, nullptr, nullptr,
-        GetModuleHandleW(nullptr), presentation_host);
-    assert(hwnd != nullptr && "CreateWindowExW Main failed");
-    ShowWindow(hwnd, SW_SHOW);
-    UpdateWindow(hwnd);
-  }
-
-  void OnUnload() override { DestroyWindow(hwnd); }
+  void OnLoad() override;
+  void OnUnload() override;
 
   HWND hwnd{nullptr};
+
+ private:
+  static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
+                                   LPARAM lparam);
 };
 
 }  // namespace apptraverse

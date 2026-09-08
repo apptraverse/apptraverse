@@ -1,37 +1,12 @@
 #include "win_app.h"
 
-#include <cassert>
+#include <cstdio>
+#include <cstdlib>
 
 #include "apptraverse/object_serialization.h"
 
-#include "win_presenters.h"
-
 namespace apptraverse {
 namespace {
-
-void RegisterWindowClasses() {
-  WNDCLASSW notify{};
-  notify.lpfnWndProc = &WinApp::WndProc;
-  notify.hInstance = GetModuleHandleW(nullptr);
-  notify.lpszClassName = kNotifyWindowClass;
-  RegisterClassW(&notify);
-
-  WNDCLASSW loading{};
-  loading.lpfnWndProc = &WinApp::WndProc;
-  loading.hInstance = GetModuleHandleW(nullptr);
-  loading.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-  loading.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-  loading.lpszClassName = kLoadingWindowClass;
-  RegisterClassW(&loading);
-
-  WNDCLASSW main{};
-  main.lpfnWndProc = &WinApp::WndProc;
-  main.hInstance = GetModuleHandleW(nullptr);
-  main.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-  main.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-  main.lpszClassName = kMainWindowClass;
-  RegisterClassW(&main);
-}
 
 void PaintLoading(HWND hwnd) {
   PAINTSTRUCT ps{};
@@ -66,6 +41,10 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     OnPublished();
     return 0;
   }
+  if (msg == WM_APPTRAVERSE_STOP) {
+    session_.RequestStop();
+    return 0;
+  }
   if (msg == WM_PAINT && hwnd == loading_) {
     PaintLoading(hwnd);
     return 0;
@@ -89,31 +68,70 @@ void WinApp::OnPublished() {
   auto ui_root = LoadInitialPublication(in, *ui_domain_, ui_storage_);
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
-  InitializePresenters(*ui_application_, this);
+  InitializePresenters(*ui_application_, notify_);
   DestroyWindow(loading_);
   loading_ = nullptr;
 }
 
 int WinApp::Run(std::filesystem::path const& state_dir) {
-  RegisterWindowClasses();
+  HINSTANCE const instance = GetModuleHandleW(nullptr);
+
+  // Notify: message-only window for model publication and Main shutdown.
+  WNDCLASSW notify_wc{};
+  notify_wc.lpfnWndProc = &WinApp::WndProc;
+  notify_wc.hInstance = instance;
+  notify_wc.lpszClassName = kNotifyWindowClass;
+  if (RegisterClassW(&notify_wc) == 0) {
+    DWORD const err = GetLastError();
+    std::fprintf(stderr, "fatal: RegisterClassW notify GetLastError=%lu\n",
+                 err);
+    std::abort();
+  }
+
+  // Loading: not a user window. WM_CLOSE is ignored. Unregistered in this Run.
+  WNDCLASSW loading_wc{};
+  loading_wc.lpfnWndProc = &WinApp::WndProc;
+  loading_wc.hInstance = instance;
+  loading_wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+  loading_wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+  loading_wc.lpszClassName = kLoadingWindowClass;
+  if (RegisterClassW(&loading_wc) == 0) {
+    DWORD const err = GetLastError();
+    std::fprintf(stderr, "fatal: RegisterClassW Loading GetLastError=%lu\n",
+                 err);
+    std::abort();
+  }
 
   session_.state_dir = state_dir;
   session_.done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  assert(session_.done_event != nullptr && "CreateEventW done_event failed");
+  if (session_.done_event == nullptr) {
+    DWORD const err = GetLastError();
+    std::fprintf(stderr, "fatal: CreateEventW done_event GetLastError=%lu\n",
+                 err);
+    std::abort();
+  }
 
   notify_ = CreateWindowExW(0, kNotifyWindowClass, L"", 0, 0, 0, 0, 0,
-                            HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr),
-                            this);
-  assert(notify_ != nullptr && "CreateWindowExW notify failed");
+                            HWND_MESSAGE, nullptr, instance, this);
+  if (notify_ == nullptr) {
+    DWORD const err = GetLastError();
+    std::fprintf(stderr, "fatal: CreateWindowExW notify GetLastError=%lu\n",
+                 err);
+    std::abort();
+  }
   session_.notify_hwnd.store(reinterpret_cast<std::uintptr_t>(notify_),
                               std::memory_order_release);
 
-  // Loading is not a user window: no system Close. WM_CLOSE is ignored.
   loading_ = CreateWindowExW(
       0, kLoadingWindowClass, kLoadingWindowTitle,
       WS_OVERLAPPED | WS_CAPTION | WS_VISIBLE, 200, 200, 280, 120, nullptr,
-      nullptr, GetModuleHandleW(nullptr), this);
-  assert(loading_ != nullptr && "CreateWindowExW Loading failed");
+      nullptr, instance, this);
+  if (loading_ == nullptr) {
+    DWORD const err = GetLastError();
+    std::fprintf(stderr, "fatal: CreateWindowExW Loading GetLastError=%lu\n",
+                 err);
+    std::abort();
+  }
 
   model_thread_ = std::thread([this] { session_.Run(); });
 
@@ -121,6 +139,12 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     HANDLE handles[] = {session_.done_event};
     DWORD const wait = MsgWaitForMultipleObjects(1, handles, FALSE, INFINITE,
                                                 QS_ALLINPUT | QS_ALLPOSTMESSAGE);
+    if (wait == WAIT_FAILED) {
+      DWORD const err = GetLastError();
+      std::fprintf(stderr,
+                   "fatal: MsgWaitForMultipleObjects GetLastError=%lu\n", err);
+      std::abort();
+    }
     if (wait == WAIT_OBJECT_0) {
       break;
     }
@@ -140,11 +164,22 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   }
 
   model_thread_.join();
-  // Tear down GUI presentation before destroying the UI Domain.
   UnloadPresenters(*ui_application_);
   ui_application_ = {};
   ui_domain_.reset();
   DestroyWindow(notify_);
+  if (UnregisterClassW(kNotifyWindowClass, instance) == 0) {
+    DWORD const err = GetLastError();
+    std::fprintf(stderr, "fatal: UnregisterClassW notify GetLastError=%lu\n",
+                 err);
+    std::abort();
+  }
+  if (UnregisterClassW(kLoadingWindowClass, instance) == 0) {
+    DWORD const err = GetLastError();
+    std::fprintf(stderr, "fatal: UnregisterClassW Loading GetLastError=%lu\n",
+                 err);
+    std::abort();
+  }
   CloseHandle(session_.done_event);
   return 0;
 }
