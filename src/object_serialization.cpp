@@ -3,13 +3,14 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
-#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/graph_walk.h"
+#include "apptraverse/presenter.h"
 
 namespace apptraverse {
 namespace {
@@ -119,12 +120,31 @@ void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(root, scratch);
 
+  std::unordered_set<std::uint32_t> distilled_base_ids;
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj) {
+      continue;
+    }
+    if (auto* node = dynamic_cast<Node*>(obj.get())) {
+      if (node->base.is_valid()) {
+        distilled_base_ids.insert(node->base.id().id());
+      }
+    }
+  }
+
   auto const count_at = out.bytes.size();
   std::uint32_t layer_count = 0;
   out.write(&layer_count, sizeof(layer_count));
 
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
+      continue;
+    }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
       continue;
     }
     for (auto const& [class_id, versions] : *class_map_opt) {
@@ -147,6 +167,9 @@ void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
   out.write(&node_generation_count, sizeof(node_generation_count));
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
+      continue;
+    }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
       continue;
     }
     auto obj = root.domain->Find(obj_id);
@@ -255,6 +278,34 @@ void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
   }
 }
 
+void LoadStoredAncestorLayers(ae::Obj& object, ae::IDomainStorage& storage) {
+  auto* domain = object.domain;
+  assert(domain != nullptr);
+  auto ptr = domain->Find(object.obj_id);
+  assert(ptr);
+  auto const most_derived = object.GetClassId();
+  for (auto const class_id : storage.Enumerate(object.obj_id)) {
+    if (class_id == most_derived) {
+      continue;
+    }
+    auto* factory = ae::Registry::GetRegistry().FindFactory(class_id);
+    if (factory == nullptr || factory->load == nullptr) {
+      continue;
+    }
+    ae::DomainGraph graph{domain};
+    factory->load(&graph, ptr, object.obj_id);
+  }
+}
+
+void LoadStoredAncestorLayersFromRoot(ae::Obj& root,
+                                         ae::IDomainStorage& storage) {
+  std::vector<ae::Obj*> objects;
+  CollectReachableObjects(root, objects);
+  for (ae::Obj* obj : objects) {
+    LoadStoredAncestorLayers(*obj, storage);
+  }
+}
+
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
   if (auto* node = dynamic_cast<Node*>(&object)) {
     node->AdoptPublishedGeneration(generation);
@@ -285,7 +336,6 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
   assert(in.ok);
 
   std::vector<ae::ObjId> object_ids;
-  std::unordered_map<std::uint32_t, std::uint32_t> preferred_class;
   object_ids.reserve(layer_count);
   for (std::uint32_t i = 0; i < layer_count; ++i) {
     std::uint32_t obj_id = 0;
@@ -305,38 +355,26 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
         object_ids.end()) {
       object_ids.push_back(id);
     }
-    auto* factory = ae::Registry::GetRegistry().FindFactory(class_id);
-    if (factory == nullptr || factory->create == nullptr) {
-      continue;
-    }
-    auto& preferred = preferred_class[obj_id];
-    if (preferred == 0 || class_id != Node::kClassId) {
-      preferred = class_id;
-    }
   }
 
+  // Create objects through DomainGraph::LoadRoot so aether-objects can pick
+  // the most-derived registered factory for the stored class layers. Do not
+  // select a factory in App Traverse.
+  ae::DomainGraph graph{&ui_domain};
+  auto ui_root = graph.LoadRoot(ae::ObjId{root_id});
+  assert(ui_root);
+
+  // Keepalive + load stored ancestor class layers. LoadRoot constructs the
+  // most-derived registered type; if that class has no stored layer, its
+  // Load is a no-op and ancestor fields (e.g. MainWindowPresenter::window)
+  // would otherwise stay default. Do not copy GetMostRelatedFactory here.
   std::vector<ae::Ptr<ae::Obj>> keepalive;
   keepalive.reserve(object_ids.size());
   for (ae::ObjId const id : object_ids) {
-    std::uint32_t const class_id = preferred_class[id.id()];
-    if (auto existing = ui_domain.Find(id)) {
-      keepalive.push_back(existing);
-      continue;
+    if (auto object = ui_domain.Find(id)) {
+      keepalive.push_back(object);
+      LoadStoredAncestorLayers(*object, ui_storage);
     }
-    auto* factory = ae::Registry::GetRegistry().FindFactory(class_id);
-    assert(factory != nullptr);
-    assert(factory->create != nullptr);
-    ae::Ptr<ae::Obj> raw = factory->create();
-    raw->domain = &ui_domain;
-    raw->obj_id = id;
-    ui_domain.AddObject(id, raw);
-    keepalive.push_back(raw);
-  }
-
-  for (ae::ObjId const id : object_ids) {
-    auto object = ui_domain.Find(id);
-    assert(object);
-    LoadExistingObject(*object, ui_domain);
   }
 
   std::uint32_t node_generation_count = 0;
@@ -355,12 +393,23 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
     FinalizeUiNodeState(*object, generation);
   }
 
-  auto ui_root = ui_domain.Find(ae::ObjId{root_id});
-  assert(ui_root);
-  keepalive.clear();
   ui_root = ui_domain.Find(ae::ObjId{root_id});
   assert(ui_root && "UI mirror graph must stay reachable via ObjPtr refs");
   return ui_root;
+}
+
+void InitializePresenters(ae::Obj& gui_root, void* host) {
+  std::vector<ae::Obj*> objects;
+  CollectReachableObjects(gui_root, objects);
+  for (ae::Obj* obj : objects) {
+    auto* presenter = dynamic_cast<Presenter*>(obj);
+    if (presenter == nullptr || presenter->presentation_initialized) {
+      continue;
+    }
+    presenter->presentation_host = host;
+    presenter->presentation_initialized = true;
+    presenter->OnLoad();
+  }
 }
 
 }  // namespace apptraverse

@@ -39,7 +39,19 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 
+// GUI-thread presentation phase. Walks reachable live objects from the GUI
+// root, skips distilled Node base objects, and calls Presenter::OnLoad once
+// per presenter. Object Load must not call this.
+void InitializePresenters(ae::Obj& gui_root, void* host = nullptr);
+
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
+
+// After LoadRoot, load stored ancestor class layers onto already-constructed
+// most-derived objects. Needed when the persisted graph has only a base class
+// (e.g. MainWindowPresenter) and the registry created a descendant.
+void LoadStoredAncestorLayers(ae::Obj& object, ae::IDomainStorage& storage);
+void LoadStoredAncestorLayersFromRoot(ae::Obj& root,
+                                       ae::IDomainStorage& storage);
 
 }  // namespace apptraverse
 
