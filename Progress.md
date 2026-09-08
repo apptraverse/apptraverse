@@ -82,8 +82,9 @@ class-id check.
 
 ## Commits / push
 
-SHA filled after this commit. Push `origin/prep/deps-objects-assert-mcp-v1`.
-`main` not changed.
+- `c0008de19a234eda79b63bb7c08e316f5bcf763b` — Remove defensive state checks from main-window lifecycle
+
+Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
 # Object-graph presenter — progress
 
