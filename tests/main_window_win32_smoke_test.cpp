@@ -6,7 +6,6 @@
 #  undef RegisterClass
 #endif
 
-#include <cstdint>
 #include <cwchar>
 #include <chrono>
 #include <cstdlib>
@@ -115,29 +114,8 @@ void TestInProcessLoadingThenMain() {
                  std::chrono::seconds{10}));
   CHECK(FindExact(kMainWindowClass, kMainWindowTitle) != nullptr);
   CHECK(CountClassWindows(kMainWindowClass) == 1);
-  CHECK(app.GuiPresenterClassId() == Win32MainWindowPresenter::kClassId);
   PostMessageW(main, WM_CLOSE, 0, 0);
   gui.join();
-  CHECK(FindExact(kMainWindowClass, kMainWindowTitle) == nullptr);
-  std::filesystem::remove_all(dir);
-}
-
-void TestInProcessCloseDuringLoading() {
-  auto dir = std::filesystem::temp_directory_path() /
-             "apptraverse_main_window_close_loading";
-  std::filesystem::remove_all(dir);
-
-  WinApp app;
-  app.SetHoldStage(ModelStartupStage::Distilling);
-  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
-
-  HWND loading = nullptr;
-  CHECK(WaitForWindow(kLoadingWindowClass, kLoadingWindowTitle, &loading,
-                        std::chrono::seconds{30}));
-  CHECK(FindExact(kMainWindowClass, kMainWindowTitle) == nullptr);
-  PostMessageW(loading, WM_CLOSE, 0, 0);
-  gui.join();
-  CHECK(FindExact(kLoadingWindowClass, kLoadingWindowTitle) == nullptr);
   CHECK(FindExact(kMainWindowClass, kMainWindowTitle) == nullptr);
   std::filesystem::remove_all(dir);
 }
@@ -145,14 +123,9 @@ void TestInProcessCloseDuringLoading() {
 #ifdef WIN32_MAIN_WINDOW_DEMO_EXE
 
 HANDLE StartDemo(std::filesystem::path const& exe,
-                  std::filesystem::path const& state_dir,
-                  std::wstring extra_args = {}) {
+                  std::filesystem::path const& state_dir) {
   std::wstring cmd = L"\"" + exe.wstring() + L"\" --state-dir \"" +
                      state_dir.wstring() + L"\"";
-  if (!extra_args.empty()) {
-    cmd += L" ";
-    cmd += extra_args;
-  }
   std::vector<wchar_t> buf(cmd.begin(), cmd.end());
   buf.push_back(L'\0');
   STARTUPINFOW si{};
@@ -188,25 +161,6 @@ void TestChildProcessFreshThenClose() {
   std::filesystem::remove_all(dir);
 }
 
-void TestChildProcessCloseDuringLoading() {
-  auto dir = std::filesystem::temp_directory_path() /
-             "apptraverse_main_window_child_loading";
-  std::filesystem::remove_all(dir);
-  std::filesystem::path exe{WIN32_MAIN_WINDOW_DEMO_EXE};
-  HANDLE process = StartDemo(exe, dir, L"--hold-stage 2");
-  HWND loading = nullptr;
-  CHECK(WaitForWindow(kLoadingWindowClass, kLoadingWindowTitle, &loading,
-                        std::chrono::seconds{30}));
-  CHECK(FindExact(kMainWindowClass, kMainWindowTitle) == nullptr);
-  PostMessageW(loading, WM_CLOSE, 0, 0);
-  CHECK(WaitForSingleObject(process, 30000) == WAIT_OBJECT_0);
-  DWORD code = 1;
-  GetExitCodeProcess(process, &code);
-  CHECK(code == 0);
-  CloseHandle(process);
-  std::filesystem::remove_all(dir);
-}
-
 #endif
 
 }  // namespace apptraverse::test
@@ -214,11 +168,10 @@ void TestChildProcessCloseDuringLoading() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureMainWindowRegistration();
+  apptraverse::EnsureWin32MainWindowPresenterRegistration();
   apptraverse::test::TestInProcessLoadingThenMain();
-  apptraverse::test::TestInProcessCloseDuringLoading();
 #ifdef WIN32_MAIN_WINDOW_DEMO_EXE
   apptraverse::test::TestChildProcessFreshThenClose();
-  apptraverse::test::TestChildProcessCloseDuringLoading();
 #endif
   std::cout << "main_window_win32_smoke_test OK\n";
   return 0;

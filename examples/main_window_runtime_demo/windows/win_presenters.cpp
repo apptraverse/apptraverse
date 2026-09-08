@@ -10,7 +10,7 @@ APPTRAVERSE_REGISTER(Win32MainWindowPresenter);
 }  // namespace
 
 void EnsureWin32MainWindowPresenterRegistration() {
-  EnsureMainWindowRegistration();
+  EnsureObjectRegistration();
 }
 
 }  // namespace apptraverse

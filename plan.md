@@ -51,8 +51,8 @@ Constraints:
   `CopyModelGraphToUiDomain` from the GUI thread
 - shared class registry: model Domain may also materialize
   `Win32MainWindowPresenter`; construction/Load must not create HWND
-- if initial publication arrives after `RequestStop`, skip presentation init
-- correct stop during Loading and after Ready; no TerminateThread
+- startup is not cancelable; Loading is not a user window
+- shutdown only after the model is loaded and Main exists; no TerminateThread
 
 Out of scope for this slice: chat, contacts, Aether, presence, resize events,
 node periodic execution, hierarchical redraw, shared-sync, network,

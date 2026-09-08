@@ -2,10 +2,8 @@
 
 #include <cassert>
 
-#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
 
-#include "main_window_ids.h"
 #include "win_presenters.h"
 
 namespace apptraverse {
@@ -73,16 +71,16 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     return 0;
   }
   if (msg == WM_CLOSE) {
-    RequestStop();
+    if (hwnd == loading_) {
+      return 0;
+    }
+    session_.RequestStop();
     return 0;
   }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 void WinApp::OnPublished() {
-  if (stop_requested_) {
-    return;
-  }
   auto bytes = session_.channel.TakePublishedCopy();
   ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
   ByteSource in;
@@ -92,37 +90,11 @@ void WinApp::OnPublished() {
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
   InitializePresenters(*ui_application_, this);
-  gui_presenter_class_id_.store(
-      ui_application_->main_window->presenter->GetClassId(),
-      std::memory_order_release);
   DestroyWindow(loading_);
   loading_ = nullptr;
 }
 
-void WinApp::RequestStop() {
-  if (stop_requested_) {
-    return;
-  }
-  stop_requested_ = true;
-  accept_input_ = false;
-  session_.RequestStop();
-}
-
-void WinApp::DestroyGuiMirror() {
-  if (ui_application_) {
-    UnloadPresenters(*ui_application_);
-  }
-  ui_application_ = {};
-  ui_domain_.reset();
-}
-
-void WinApp::SetHoldStage(ModelStartupStage stage) {
-  session_.hold_stage.store(static_cast<int>(stage), std::memory_order_release);
-}
-
 int WinApp::Run(std::filesystem::path const& state_dir) {
-  EnableNoninteractiveCrt();
-  EnsureWin32MainWindowPresenterRegistration();
   RegisterWindowClasses();
 
   session_.state_dir = state_dir;
@@ -136,10 +108,11 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   session_.notify_hwnd.store(reinterpret_cast<std::uintptr_t>(notify_),
                               std::memory_order_release);
 
+  // Loading is not a user window: no system Close. WM_CLOSE is ignored.
   loading_ = CreateWindowExW(
-      0, kLoadingWindowClass, kLoadingWindowTitle, WS_OVERLAPPED | WS_CAPTION |
-                                                     WS_SYSMENU | WS_VISIBLE,
-      200, 200, 280, 120, nullptr, nullptr, GetModuleHandleW(nullptr), this);
+      0, kLoadingWindowClass, kLoadingWindowTitle,
+      WS_OVERLAPPED | WS_CAPTION | WS_VISIBLE, 200, 200, 280, 120, nullptr,
+      nullptr, GetModuleHandleW(nullptr), this);
   assert(loading_ != nullptr && "CreateWindowExW Loading failed");
 
   model_thread_ = std::thread([this] { session_.Run(); });
@@ -154,7 +127,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     MSG msg{};
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE) != 0) {
       if (msg.message == WM_QUIT) {
-        RequestStop();
+        session_.RequestStop();
         continue;
       }
       TranslateMessage(&msg);
@@ -163,12 +136,11 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   }
 
   model_thread_.join();
-  if (loading_ != nullptr) {
-    DestroyWindow(loading_);
-    loading_ = nullptr;
-  }
+  // Tear down GUI presentation before destroying the UI Domain.
+  UnloadPresenters(*ui_application_);
+  ui_application_ = {};
+  ui_domain_.reset();
   DestroyWindow(notify_);
-  DestroyGuiMirror();
   CloseHandle(session_.done_event);
   return 0;
 }
