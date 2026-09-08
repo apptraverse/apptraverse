@@ -1,5 +1,97 @@
 Status: implemented, verified. Not accepted.
 
+# Object-graph presenter — progress
+
+## Identity
+
+- Base SHA: `9bae06bd881e043b4f67ded7a3d731e68726dfa5`
+- Branch: `prep/deps-objects-assert-mcp-v1`
+- Worktree: `C:\Users\nickc\Projects\apptraverse-prep-deps-assert`
+- Status: implemented, verified. Not accepted.
+
+## App Traverse library changes
+
+- `LoadInitialPublication` injects serialized layers then calls
+  `DomainGraph::LoadRoot` so aether-objects picks the most-derived registered
+  factory. No App Traverse preferred-class map.
+- Distilled `Node::base` object layers are omitted from UI publication buffers.
+- After LoadRoot, `LoadStoredAncestorLayers` loads stored ancestor class
+  layers onto the already-constructed most-derived object (needed when
+  persisted data has only `MainWindowPresenter` and the registry created
+  `TestMainWindowPresenter` / `Win32MainWindowPresenter`).
+- `InitializePresenters` walks reachable live objects from the GUI root and
+  calls `Presenter::OnLoad()` once. Object Load does not call it.
+- `Presenter` documents OnLoad as GUI presentation init; runtime-only
+  `presentation_host` / `presentation_initialized` are not serialized.
+
+## Example changes
+
+- Graph: `Application` → `MainWindow` (Node, schema v3: x,y,width,height,presenter)
+  → `MainWindowPresenter` (not Node) → `Win32MainWindowPresenter` (HWND runtime-only).
+- Cycle: `presenter->window` is the same MainWindow in that Domain.
+- `WinApp` no longer owns a presenter member or calls `Create`. It loads the
+  GUI graph, runs `InitializePresenters`, then destroys Loading. No
+  `dynamic_cast` to Win32. If `RequestStop` already happened, skip init.
+- Model-side most-derived Win32 presenter exists after Load and does not create HWND.
+
+## Tests
+
+Headless `apptraverse_main_window_lifecycle_test` (no Win32):
+
+- A. Neutral `MainWindowPresenter` in the buffer + registered
+  `TestMainWindowPresenter` → LoadRoot materializes Test
+- B. OnLoad not called after model load / serialize / GUI deserialize
+- C. `InitializePresenters` once; `presenter.window` resolved; back-pointer
+- D. Model vs GUI: same ObjIds, different addresses/Domains
+- E. Cycle walk terminates; dropping root+keepalive does not leak the GUI graph
+- F. Model-side Test exists after LoadApplication; OnLoad not called there
+
+Windows smoke (existing checks plus):
+
+- GUI presenter class is `Win32MainWindowPresenter`
+- exactly one Main window
+- close during Loading does not create Main
+
+## MCP jobs / artifacts
+
+Cursor `user-apptraverse` schema still has no `source_dir` argument.
+**BLOCKED** for that attached MCP process. Local incremental runner is not
+claimed as MCP success.
+
+Worktree runner `tools/runners/run_apptraverse_build.py` (MSVC env, stage=build,
+no clean/rebuild):
+
+| target | run_id / artifact | status |
+| --- | --- | --- |
+| `apptraverse_main_window_lifecycle_test` | `apptraverse-build/20260908-203315-e7a483` | ok (test exe OK) |
+| `apptraverse_main_window_headless_check` + `apptraverse_main_window_win32_smoke_check` | `apptraverse-build/20260908-203339-eb1692` | ok |
+
+## Known limitations
+
+- Cursor user-level MCP is still the original checkout binary (no `source_dir`).
+- Ancestor-layer reload is an App Traverse pass after LoadRoot; aether-objects
+  `Load(Derived)` does not itself load ancestor class layers when the derived
+  class has no stored version.
+- Presenter local state (DPI, monitor, scroll) is not implemented.
+- `main` was not changed.
+
+## Commits / push
+
+1. `86f5d38019c88a5397cb8dc19d3efcf8971bbca4` — Use aether-object descendant resolution for GUI mirror loading
+2. `63a6eff6080d883819855ce28c9459af065c8e52` — Move main window presentation into object graph
+
+Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed. History not rewritten.
+
+## git status --short
+
+Untracked caches only (not committed):
+
+```
+?? tools/mcp/__pycache__/
+?? tools/runners/__pycache__/
+?? tools/runtime/__pycache__/
+```
+
 # MCP worktree-aware — progress
 
 ## Problem
