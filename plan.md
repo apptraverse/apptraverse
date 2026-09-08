@@ -12,6 +12,10 @@ Do not mark accepted.
 
 ## Current slice
 
+Infra (this iteration): one user-level App Traverse MCP server accepts an
+explicit `source_dir` so build/test/process tools can target a git worktree.
+Later application stages below are unchanged.
+
 **Loading window, model thread, distilled Application/MainWindow, serialized
 initial GUI mirror, shutdown.**
 

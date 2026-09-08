@@ -308,6 +308,7 @@ def start_job(
     job_dir = job_dir_for(source_dir, job_id)
     job_dir.mkdir(parents=True, exist_ok=True)
     argv = canonical_runner_argv(source_dir, profile, stage, targets)
+    canonical_source = str(source_dir.resolve())
     request = {
         "job_id": job_id,
         "profile": profile,
@@ -315,6 +316,7 @@ def start_job(
         "targets": targets,
         "runner_argv": argv,
         "started_at_utc": started,
+        "source_dir": canonical_source,
     }
     atomic_write_json(job_dir / "request.json", request)
     job_meta = {
@@ -326,6 +328,7 @@ def start_job(
         "stage": stage,
         "targets": targets,
         "started_at_utc": started,
+        "source_dir": canonical_source,
     }
     atomic_write_json(job_dir / "job.json", job_meta)
     worker_argv = worker_launch_argv(
@@ -649,11 +652,13 @@ def start_process(
     argv = platform_runner.process_argv(source_dir, profile, str(state_path))
     started = utc_now()
     started_mono = time.perf_counter()
+    canonical_source = str(source_dir.resolve())
     request = {
         "process_id": process_id,
         "profile": profile,
         "argv": argv,
         "started_at_utc": started,
+        "source_dir": canonical_source,
     }
     atomic_write_json(proc_dir / "request.json", request)
     stdout_path = proc_dir / "stdout.log"
@@ -691,6 +696,7 @@ def start_process(
         "profile": profile,
         "started_at_utc": started,
         "started_mono": started_mono,
+        "source_dir": canonical_source,
     }
     atomic_write_json(proc_dir / "process.json", meta)
     return ProcessResult(

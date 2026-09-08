@@ -77,6 +77,21 @@ def _payload_from_call(result) -> dict:
 
 
 class McpWrapperTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.addCleanup(
+            lambda: _cleanup_index_ids(
+                [
+                    "job-start",
+                    "job-headless",
+                    "job-p2p-headless",
+                    "compact-1",
+                    "quiet",
+                    "j-platform",
+                    "p-1",
+                ]
+            )
+        )
+
     def test_start_delegates_to_start_job(self) -> None:
         fake = JobResult(
             schema_version=JOB_SCHEMA_VERSION,
@@ -99,6 +114,7 @@ class McpWrapperTest(unittest.TestCase):
         )
         self.assertEqual(dumped["job_id"], "job-start")
         self.assertEqual(dumped["operation"], "start")
+        self.assertEqual(dumped["source_dir"], str(mcp_mod.repo_root()))
 
     def test_status_delegates_to_status_job(self) -> None:
         fake = JobResult(operation="status", job_id="job-status", state="running")
@@ -189,6 +205,8 @@ class McpWrapperTest(unittest.TestCase):
                 "apptraverse_chat_p2p_headless_test_start",
             ],
         )
+        if not _venv_python().is_file():
+            self.skipTest(f"missing venv python: {_venv_python()}")
         probe = (
             "import json\n"
             "from tools.mcp.apptraverse_mcp import (\n"
@@ -218,7 +236,9 @@ class McpWrapperTest(unittest.TestCase):
             dumped = mcp_mod.apptraverse_build_start(
                 "win64-vs2022-msvc-debug", "preflight"
             )
-        self.assertEqual(dumped, fake.to_public_dict())
+        expected = fake.to_public_dict()
+        expected["source_dir"] = str(mcp_mod.repo_root())
+        self.assertEqual(dumped, expected)
         self.assertEqual(dumped["schema_version"], JOB_SCHEMA_VERSION)
         self.assertNotIn("stdout", dumped)
         self.assertNotIn("stderr", dumped)
@@ -270,8 +290,9 @@ class McpWrapperTest(unittest.TestCase):
             shutil.rmtree(run_dir, ignore_errors=True)
         self.assertEqual(
             set(dumped),
-            {"artifact_id", "failure_kind", "first_error", "excerpt"},
+            {"artifact_id", "failure_kind", "first_error", "excerpt", "source_dir"},
         )
+        self.assertEqual(dumped["source_dir"], str(mcp_mod.repo_root()))
         self.assertEqual(dumped["failure_kind"], "compile_failed")
         self.assertEqual(dumped["first_error"], "error C1083: domain_visitor.h")
         excerpt_lines = dumped["excerpt"].splitlines()
@@ -379,6 +400,247 @@ class McpWrapperTest(unittest.TestCase):
     def test_windows_build_tools_remain(self) -> None:
         self.assertIn("apptraverse_build_start", mcp_mod.TOOL_NAMES)
         self.assertNotIn("apptraverse_two_windows_chat_run", mcp_mod.TOOL_NAMES)
+
+
+def _write_apptraverse_layout(root: Path) -> Path:
+    runner_dir = root / "tools" / "runners"
+    runner_dir.mkdir(parents=True)
+    (root / "CMakeLists.txt").write_text(
+        'cmake_minimum_required(VERSION 3.20)\nproject("App Traverse")\n',
+        encoding="utf-8",
+    )
+    (root / "tools" / "runners" / "run_apptraverse_build.py").write_text(
+        "# fixture runner\n",
+        encoding="utf-8",
+    )
+    return root.resolve()
+
+
+def _index_path(kind: str, job_id: str) -> Path:
+    return (
+        mcp_mod.repo_root()
+        / ".artifacts"
+        / "mcp-source-index"
+        / kind
+        / f"{job_id}.json"
+    )
+
+
+def _cleanup_index_ids(job_ids: list[str]) -> None:
+    for job_id in job_ids:
+        for kind in ("build", "platform", "process"):
+            path = _index_path(kind, job_id)
+            if path.is_file():
+                path.unlink()
+
+
+class McpSourceDirTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._index_ids: list[str] = []
+        self.addCleanup(lambda: self._cleanup_index(self._index_ids))
+
+    def _track(self, *job_ids: str) -> None:
+        self._index_ids.extend(job_ids)
+
+    def _cleanup_index(self, job_ids: list[str]) -> None:
+        _cleanup_index_ids(job_ids)
+
+    def test_current_checkout_matches_source_dir_markers(self) -> None:
+        from tools.mcp.source_dir import looks_like_apptraverse
+
+        self.assertIsNone(looks_like_apptraverse(mcp_mod.repo_root()))
+
+    def test_omitted_source_dir_uses_mcp_repo_root(self) -> None:
+        fake = JobResult(
+            operation="start",
+            job_id="job-default-root",
+            state="running",
+            profile="win64-ninja-msvc-debug",
+            stage="build",
+            targets=["t"],
+        )
+        with mock.patch.object(mcp_mod, "start_job", return_value=fake) as start:
+            dumped = mcp_mod.apptraverse_build_start(
+                "win64-ninja-msvc-debug", "build", ["t"]
+            )
+        start.assert_called_once_with(
+            mcp_mod.repo_root(),
+            "win64-ninja-msvc-debug",
+            "build",
+            ["t"],
+        )
+        self.assertEqual(dumped["source_dir"], str(mcp_mod.repo_root()))
+        self._track("job-default-root")
+
+    def test_explicit_source_dir_is_passed_to_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = _write_apptraverse_layout(Path(tmp) / "worktree")
+            fake = JobResult(
+                operation="start",
+                job_id="job-explicit-root",
+                state="running",
+                profile="win64-ninja-msvc-debug",
+                stage="build",
+                targets=["apptraverse_main_window_headless_check"],
+            )
+            with mock.patch.object(mcp_mod, "start_job", return_value=fake) as start:
+                dumped = mcp_mod.apptraverse_build_start(
+                    "win64-ninja-msvc-debug",
+                    "build",
+                    ["apptraverse_main_window_headless_check"],
+                    source_dir=str(fixture),
+                )
+            start.assert_called_once_with(
+                fixture,
+                "win64-ninja-msvc-debug",
+                "build",
+                ["apptraverse_main_window_headless_check"],
+            )
+            self.assertNotEqual(fixture, mcp_mod.repo_root())
+            self.assertEqual(dumped["source_dir"], str(fixture))
+            self._track("job-explicit-root")
+
+    def test_two_source_roots_do_not_mix_jobs_or_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root_a = _write_apptraverse_layout(Path(tmp) / "tree-a")
+            root_b = _write_apptraverse_layout(Path(tmp) / "tree-b")
+            run_id = "shared-run-id"
+            for root, excerpt in ((root_a, "error-from-a"), (root_b, "error-from-b")):
+                run_dir = root / ".artifacts" / "apptraverse-build" / run_id
+                run_dir.mkdir(parents=True)
+                (run_dir / "result.json").write_text(
+                    json.dumps(
+                        {
+                            "failure_kind": "compile_failed",
+                            "first_error": excerpt,
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                (run_dir / "failure_excerpt.txt").write_text(
+                    excerpt + "\n", encoding="utf-8"
+                )
+
+            def start_side_effect(source, profile, stage, targets):
+                job_id = "job-a" if source == root_a else "job-b"
+                return JobResult(
+                    operation="start",
+                    job_id=job_id,
+                    artifact_id=f"apptraverse-jobs/{job_id}",
+                    state="running",
+                    profile=profile,
+                    stage=stage,
+                    targets=targets,
+                )
+
+            with mock.patch.object(
+                mcp_mod, "start_job", side_effect=start_side_effect
+            ):
+                started_a = mcp_mod.apptraverse_build_start(
+                    "win64-ninja-msvc-debug",
+                    "build",
+                    ["t-a"],
+                    source_dir=str(root_a),
+                )
+                started_b = mcp_mod.apptraverse_build_start(
+                    "win64-ninja-msvc-debug",
+                    "build",
+                    ["t-b"],
+                    source_dir=str(root_b),
+                )
+            self.assertEqual(started_a["source_dir"], str(root_a))
+            self.assertEqual(started_b["source_dir"], str(root_b))
+            self.assertNotEqual(started_a["job_id"], started_b["job_id"])
+
+            with mock.patch.object(
+                mcp_mod,
+                "status_job",
+                side_effect=lambda source, job_id: JobResult(
+                    operation="status",
+                    job_id=job_id,
+                    state="running",
+                    profile="win64-ninja-msvc-debug",
+                ),
+            ) as status:
+                mcp_mod.apptraverse_build_status("job-a")
+                mcp_mod.apptraverse_build_status("job-b")
+            self.assertEqual(
+                [call.args[0] for call in status.call_args_list],
+                [root_a, root_b],
+            )
+
+            excerpt_a = mcp_mod.apptraverse_build_failure_excerpt(
+                f"apptraverse-build/{run_id}", source_dir=str(root_a)
+            )
+            excerpt_b = mcp_mod.apptraverse_build_failure_excerpt(
+                f"apptraverse-build/{run_id}", source_dir=str(root_b)
+            )
+            self.assertEqual(excerpt_a["first_error"], "error-from-a")
+            self.assertEqual(excerpt_b["first_error"], "error-from-b")
+            self.assertEqual(excerpt_a["source_dir"], str(root_a))
+            self.assertEqual(excerpt_b["source_dir"], str(root_b))
+            self._track("job-a", "job-b")
+
+    def test_invalid_source_dir_returns_blocked_payload(self) -> None:
+        missing = mcp_mod.apptraverse_build_start(
+            "win64-ninja-msvc-debug",
+            "build",
+            ["t"],
+            source_dir=r"C:\this-apptraverse-source-does-not-exist",
+        )
+        self.assertEqual(missing["failure_kind"], "invalid_source_dir")
+        self.assertEqual(missing["state"], "failed")
+        self.assertIsNone(missing["job_id"])
+        self.assertIn("does not exist", missing["first_error"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "not-apptraverse"
+            empty.mkdir()
+            dumped = mcp_mod.apptraverse_build_start(
+                "win64-ninja-msvc-debug",
+                "build",
+                ["t"],
+                source_dir=str(empty.resolve()),
+            )
+        self.assertEqual(dumped["failure_kind"], "invalid_source_dir")
+        self.assertEqual(dumped["state"], "failed")
+        self.assertIsNone(dumped["job_id"])
+        self.assertIn("CMakeLists.txt", dumped["first_error"])
+
+        relative = mcp_mod.apptraverse_build_start(
+            "win64-ninja-msvc-debug",
+            "build",
+            ["t"],
+            source_dir="relative/not/absolute",
+        )
+        self.assertEqual(relative["failure_kind"], "invalid_source_dir")
+        self.assertIn("absolute", relative["first_error"])
+
+    def test_status_without_source_dir_uses_remembered_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = _write_apptraverse_layout(Path(tmp) / "remembered")
+            fake = JobResult(
+                operation="start",
+                job_id="job-remembered",
+                state="running",
+            )
+            with mock.patch.object(mcp_mod, "start_job", return_value=fake):
+                mcp_mod.apptraverse_build_start(
+                    "win64-ninja-msvc-debug",
+                    "build",
+                    ["t"],
+                    source_dir=str(fixture),
+                )
+            with mock.patch.object(
+                mcp_mod,
+                "status_job",
+                return_value=JobResult(operation="status", job_id="job-remembered"),
+            ) as status:
+                dumped = mcp_mod.apptraverse_build_status("job-remembered")
+            status.assert_called_once_with(fixture, "job-remembered")
+            self.assertEqual(dumped["source_dir"], str(fixture))
+            self._track("job-remembered")
 
 
 def run_stdio_smoke() -> dict:
@@ -612,7 +874,8 @@ class McpStdioSmokeTest(unittest.TestCase):
     def test_stdio_preflight_job(self) -> None:
         python = _venv_python()
         server = mcp_mod.repo_root() / "tools" / "mcp" / "apptraverse_mcp.py"
-        self.assertTrue(python.is_file(), f"missing venv python: {python}")
+        if not python.is_file():
+            self.skipTest(f"missing venv python: {python}")
         self.assertTrue(server.is_file(), f"missing server: {server}")
         if _is_venv_python():
             status = run_stdio_smoke()

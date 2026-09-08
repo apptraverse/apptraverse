@@ -48,6 +48,9 @@ class JobControllerTest(unittest.TestCase):
         self.assertEqual(request["profile"], build_runner.VS2022_PROFILE)
         self.assertEqual(request["stage"], "build")
         self.assertEqual(request["targets"], ["apptraverse_event_sourced_core_test"])
+        self.assertEqual(request["source_dir"], str(self.source.resolve()))
+        meta = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+        self.assertEqual(meta["source_dir"], str(self.source.resolve()))
 
     def test_start_returns_quickly_running(self) -> None:
         started = jobs.time.perf_counter()

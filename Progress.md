@@ -1,5 +1,84 @@
 Status: implemented, verified. Not accepted.
 
+# MCP worktree-aware — progress
+
+## Problem
+
+User-level MCP (`user-apptraverse`) launches `tools/mcp/apptraverse_mcp.py` from the
+checkout that contains that file. `repo_root()` was `Path(__file__).resolve().parents[2]`.
+Build/test tools therefore always used that original tree, even when Cursor was
+opened on another git worktree.
+
+Observed against this worktree, from the still-running original MCP process:
+
+- job `20260908-195143-ed5b76` / artifact `apptraverse-jobs/20260908-195143-ed5b76`
+- nested `apptraverse-build/20260908-195145-6ee81a`
+- `ninja: error: unknown target 'apptraverse_main_window_headless_check'`
+- response had no `source_dir` (stale server schema)
+
+Cursor MCP config was not rewritten. No per-worktree MCP server was registered.
+
+## API
+
+Optional `source_dir` on START (and on excerpt/log query, which read artifacts).
+STATUS/CANCEL/STOP take `job_id` / `process_id` only; the server remembers the
+canonical checkout in `.artifacts/mcp-source-index/` under the MCP server tree
+and in `job.json` / `request.json` / `process.json` of the selected checkout.
+
+Omitted `source_dir` keeps the previous default: the checkout that launched the
+server. Never cwd.
+
+Invalid / missing / non-App-Traverse paths return `failure_kind=invalid_source_dir`
+and `state=failed` (no Python exception). Relative paths are rejected.
+
+Tools with `source_dir`:
+
+- `apptraverse_build_start` / `status` / `cancel` / `failure_excerpt`
+- `apptraverse_platform_start` / `status` / `cancel` / `failure_excerpt`
+- `apptraverse_process_start` / `status` / `stop`
+- `apptraverse_chat_headless_test_start`
+- `apptraverse_chat_p2p_headless_test_start`
+- `apptraverse_runtime_log_query`
+
+## Commit SHA
+
+Recorded after the implementation commit.
+
+## Unit tests
+
+`python -m unittest tools.mcp.test_apptraverse_mcp tools.runners.test_run_apptraverse_job tools.runners.test_run_apptraverse_platform_job`
+
+- omitted `source_dir` → `start_job(repo_root(), …)`
+- explicit fixture `source_dir` → runner receives that path, not MCP `repo_root()`
+- two roots: status/excerpt do not mix jobs or same-run-id artifacts
+- missing path / non-App-Traverse dir / relative path → `invalid_source_dir`
+- existing MCP tests remain green
+
+## Real MCP jobs against this worktree
+
+`source_dir=C:\Users\nickc\Projects\apptraverse-prep-deps-assert`
+profile `win64-ninja-msvc-debug`
+
+The attached Cursor `user-apptraverse` process is still the original checkout
+binary and ignores `source_dir`. Proof of the new server used this worktree's
+`apptraverse_mcp.py` over MCP stdio (cwd `C:\Temp`) and the same tool functions.
+
+| target | job ID | artifact ID | nested build artifact | status |
+| --- | --- | --- | --- | --- |
+| `apptraverse_main_window_headless_check` | `20260908-195713-0fef9b` | `apptraverse-jobs/20260908-195713-0fef9b` | `apptraverse-build/20260908-195714-45078a` | ok |
+| `apptraverse_main_window_lifecycle_test` | `20260908-195737-53326d` | `apptraverse-jobs/20260908-195737-53326d` | `apptraverse-build/20260908-195739-d8ba7b` | ok |
+| `apptraverse_main_window_win32_smoke_check` | `20260908-195739-1c8eb3` | `apptraverse-jobs/20260908-195739-1c8eb3` | `apptraverse-build/20260908-195741-ce8814` | ok |
+| stdio preflight (cwd Temp) | `20260908-195928-053c6d` | `apptraverse-jobs/20260908-195928-053c6d` | — | ok |
+
+Canonical `source_dir` in job metadata and public payloads:
+`C:\Users\nickc\Projects\apptraverse-prep-deps-assert`
+
+The headless-check target exists only in this worktree; the stale original MCP
+job failed with unknown target. After `source_dir`, ninja found the target here.
+
+Assert/crash path was not regressed: these jobs completed `ok` through the
+existing noninteractive worker (no assert dialog).
+
 # Main-window skeleton — progress
 
 ## Identity
@@ -115,4 +194,4 @@ Search after cleanup: `dpi`, `DPI`, `WM_DPICHANGED`, `GetDpiForWindow` are absen
 
 ## git status --short
 
-Recorded after the DPI-cleanup commit; `__pycache__` under `tools/runners/` remains untracked and is not committed.
+Recorded after the MCP worktree-aware work. Untracked: `.artifacts/`, `build/`, `__pycache__/`. `.venv-apptraverse-mcp/` is gitignored.

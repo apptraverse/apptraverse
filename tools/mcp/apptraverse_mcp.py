@@ -2,7 +2,8 @@
 """Thin Cursor MCP wrapper over the App Traverse job controller.
 
 Stdout is reserved for the MCP protocol. Diagnostics go to stderr/logging.
-Repo root is derived from this file, never from cwd.
+The default checkout is the tree that launched this server, never cwd.
+Optional source_dir selects another App Traverse git worktree.
 """
 
 from __future__ import annotations
@@ -20,13 +21,26 @@ while _script_dir_str in sys.path:
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from tools.mcp.source_dir import (  # noqa: E402
+    SourceDirError,
+    error_payload,
+    remember_source,
+    resolve_existing_job_source,
+    resolve_source_dir,
+)
 from tools.runners.run_apptraverse_job import (  # noqa: E402
+    JOB_SCHEMA_VERSION,
     cancel_job,
+    job_dir_for as build_job_dir_for,
     start_job,
     status_job,
 )
 from tools.runners.run_apptraverse_platform_job import (  # noqa: E402
+    JOB_SCHEMA_VERSION as PLATFORM_JOB_SCHEMA_VERSION,
+    PROCESS_SCHEMA_VERSION,
     cancel_job as cancel_platform_job,
+    job_dir_for as platform_job_dir_for,
+    process_dir_for,
     start_job as start_platform_job,
     start_process,
     status_job as status_platform_job,
@@ -72,90 +86,243 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _checkout(source_dir: str | None) -> Path:
+    return resolve_source_dir(source_dir, default_root=repo_root())
+
+
+def _start_error(operation: str, exc: SourceDirError, *, platform: bool = False) -> dict:
+    schema = PLATFORM_JOB_SCHEMA_VERSION if platform else JOB_SCHEMA_VERSION
+    payload = error_payload(operation, exc.message, schema_version=schema)
+    if not platform:
+        payload.pop("platform_result", None)
+    else:
+        payload.pop("build_result", None)
+    return payload
+
+
+def _public(result, source: Path) -> dict:
+    dumped = result.to_public_dict()
+    dumped["source_dir"] = str(source)
+    return dumped
+
+
+def _job_exists_build(root: Path, job_id: str) -> bool:
+    return build_job_dir_for(root, job_id).is_dir()
+
+
+def _job_exists_platform(root: Path, job_id: str) -> bool:
+    return platform_job_dir_for(root, job_id).is_dir()
+
+
+def _process_exists(root: Path, process_id: str) -> bool:
+    return process_dir_for(root, process_id).is_dir()
+
+
 def apptraverse_build_start(
     profile: str,
     stage: str,
     targets: list[str] | None = None,
+    source_dir: str | None = None,
 ) -> dict:
     """Start a background App Traverse build job. Returns a compact job object."""
-    result = start_job(repo_root(), profile, stage, list(targets or []))
-    return result.to_public_dict()
+    try:
+        root = _checkout(source_dir)
+    except SourceDirError as exc:
+        return _start_error("start", exc)
+    result = start_job(root, profile, stage, list(targets or []))
+    if result.job_id:
+        remember_source(repo_root(), "build", result.job_id, root)
+    return _public(result, root)
 
 
-def apptraverse_build_status(job_id: str) -> dict:
+def apptraverse_build_status(job_id: str, source_dir: str | None = None) -> dict:
     """Return compact status for an App Traverse background build job."""
-    return status_job(repo_root(), job_id).to_public_dict()
+    try:
+        root = resolve_existing_job_source(
+            source_dir,
+            job_id,
+            "build",
+            default_root=repo_root(),
+            job_exists=_job_exists_build,
+        )
+    except SourceDirError as exc:
+        return _start_error("status", exc)
+    return _public(status_job(root, job_id), root)
 
 
-def apptraverse_build_cancel(job_id: str) -> dict:
+def apptraverse_build_cancel(job_id: str, source_dir: str | None = None) -> dict:
     """Cancel an App Traverse background build job."""
-    return cancel_job(repo_root(), job_id).to_public_dict()
+    try:
+        root = resolve_existing_job_source(
+            source_dir,
+            job_id,
+            "build",
+            default_root=repo_root(),
+            job_exists=_job_exists_build,
+        )
+    except SourceDirError as exc:
+        return _start_error("cancel", exc)
+    return _public(cancel_job(root, job_id), root)
 
 
 def apptraverse_platform_start(
     profile: str,
     stage: str,
     targets: list[str] | None = None,
+    source_dir: str | None = None,
 ) -> dict:
     """Start a background POSIX platform job. Returns a compact job object."""
-    result = start_platform_job(repo_root(), profile, stage, list(targets or []))
-    return result.to_public_dict()
+    try:
+        root = _checkout(source_dir)
+    except SourceDirError as exc:
+        return _start_error("start", exc, platform=True)
+    result = start_platform_job(root, profile, stage, list(targets or []))
+    if result.job_id:
+        remember_source(repo_root(), "platform", result.job_id, root)
+    return _public(result, root)
 
 
-def apptraverse_platform_status(job_id: str) -> dict:
+def apptraverse_platform_status(job_id: str, source_dir: str | None = None) -> dict:
     """Return compact status for a POSIX platform background job."""
-    return status_platform_job(repo_root(), job_id).to_public_dict()
+    try:
+        root = resolve_existing_job_source(
+            source_dir,
+            job_id,
+            "platform",
+            default_root=repo_root(),
+            job_exists=_job_exists_platform,
+        )
+    except SourceDirError as exc:
+        return _start_error("status", exc, platform=True)
+    return _public(status_platform_job(root, job_id), root)
 
 
-def apptraverse_platform_cancel(job_id: str) -> dict:
+def apptraverse_platform_cancel(job_id: str, source_dir: str | None = None) -> dict:
     """Cancel a POSIX platform background job."""
-    return cancel_platform_job(repo_root(), job_id).to_public_dict()
+    try:
+        root = resolve_existing_job_source(
+            source_dir,
+            job_id,
+            "platform",
+            default_root=repo_root(),
+            job_exists=_job_exists_platform,
+        )
+    except SourceDirError as exc:
+        return _start_error("cancel", exc, platform=True)
+    return _public(cancel_platform_job(root, job_id), root)
 
 
-def apptraverse_process_start(profile: str, state_dir: str) -> dict:
+def apptraverse_process_start(
+    profile: str, state_dir: str, source_dir: str | None = None
+) -> dict:
     """Start the known-profile product process with an explicit state dir."""
-    return start_process(repo_root(), profile, state_dir).to_public_dict()
+    try:
+        root = _checkout(source_dir)
+    except SourceDirError as exc:
+        payload = error_payload(
+            "start", exc.message, schema_version=PROCESS_SCHEMA_VERSION
+        )
+        payload.pop("build_result", None)
+        payload.pop("platform_result", None)
+        payload.pop("targets", None)
+        payload.pop("stage", None)
+        payload["process_id"] = None
+        return payload
+    result = start_process(root, profile, state_dir)
+    if result.process_id:
+        remember_source(repo_root(), "process", result.process_id, root)
+    return _public(result, root)
 
 
-def apptraverse_process_status(process_id: str) -> dict:
+def apptraverse_process_status(
+    process_id: str, source_dir: str | None = None
+) -> dict:
     """Return compact status for a known-profile product process."""
-    return status_process(repo_root(), process_id).to_public_dict()
+    try:
+        root = resolve_existing_job_source(
+            source_dir,
+            process_id,
+            "process",
+            default_root=repo_root(),
+            job_exists=_process_exists,
+        )
+    except SourceDirError as exc:
+        payload = error_payload(
+            "status", exc.message, schema_version=PROCESS_SCHEMA_VERSION
+        )
+        payload.pop("build_result", None)
+        payload.pop("platform_result", None)
+        payload["process_id"] = process_id
+        return payload
+    return _public(status_process(root, process_id), root)
 
 
-def apptraverse_process_stop(process_id: str) -> dict:
+def apptraverse_process_stop(
+    process_id: str, source_dir: str | None = None
+) -> dict:
     """Stop a known-profile product process."""
-    return stop_process(repo_root(), process_id).to_public_dict()
+    try:
+        root = resolve_existing_job_source(
+            source_dir,
+            process_id,
+            "process",
+            default_root=repo_root(),
+            job_exists=_process_exists,
+        )
+    except SourceDirError as exc:
+        payload = error_payload(
+            "stop", exc.message, schema_version=PROCESS_SCHEMA_VERSION
+        )
+        payload.pop("build_result", None)
+        payload.pop("platform_result", None)
+        payload["process_id"] = process_id
+        return payload
+    return _public(stop_process(root, process_id), root)
 
 
 def apptraverse_chat_headless_test_start(
     profile: str = "win64-ninja-msvc-debug",
+    source_dir: str | None = None,
 ) -> dict:
-    """Canonical first test for AppTraverse chat/shared/presentation behavior.
+    """Canonical first test for App Traverse chat/shared/presentation behavior.
     Runs headlessly without a product process and without Model→UI mirror.
     Use mirror/native tests only when the task explicitly changes mirror
     serialization or native rendering."""
+    try:
+        root = _checkout(source_dir)
+    except SourceDirError as exc:
+        return _start_error("start", exc)
     result = start_job(
-        repo_root(),
+        root,
         profile,
         "build",
         ["apptraverse_chat_headless_check"],
     )
-    return result.to_public_dict()
+    if result.job_id:
+        remember_source(repo_root(), "build", result.job_id, root)
+    return _public(result, root)
 
 
 def apptraverse_chat_p2p_headless_test_start(
     profile: str = "win64-ninja-msvc-debug",
+    source_dir: str | None = None,
 ) -> dict:
     """Real Aether P2P headless chat journal convergence test.
     Model Domain + ChatAetherRuntime + SharedRuntime only — no UiMirror,
     UI Domain, presenters, HWND, or product process."""
+    try:
+        root = _checkout(source_dir)
+    except SourceDirError as exc:
+        return _start_error("start", exc)
     result = start_job(
-        repo_root(),
+        root,
         profile,
         "build",
         ["apptraverse_chat_p2p_headless_test"],
     )
-    return result.to_public_dict()
+    if result.job_id:
+        remember_source(repo_root(), "build", result.job_id, root)
+    return _public(result, root)
 
 
 def _invalid_artifact(artifact_id: str, kind: str) -> dict:
@@ -207,12 +374,20 @@ def bound_excerpt(text: str) -> str:
     return clipped
 
 
-def apptraverse_build_failure_excerpt(artifact_id: str) -> dict:
+def apptraverse_build_failure_excerpt(
+    artifact_id: str, source_dir: str | None = None
+) -> dict:
     """Return a bounded failure excerpt for an apptraverse-build artifact id."""
     run_id = parse_build_run_id(artifact_id)
     if run_id is None:
         return _invalid_artifact(artifact_id, "invalid_artifact_id")
-    root = repo_root()
+    try:
+        root = _checkout(source_dir)
+    except SourceDirError as exc:
+        payload = _invalid_artifact(artifact_id, "invalid_source_dir")
+        payload["first_error"] = exc.message
+        payload["source_dir"] = None
+        return payload
     base = (root / ".artifacts" / "apptraverse-build").resolve()
     run_dir = (base / run_id).resolve()
     try:
@@ -245,15 +420,24 @@ def apptraverse_build_failure_excerpt(artifact_id: str) -> dict:
         "failure_kind": failure_kind,
         "first_error": first_error,
         "excerpt": bound_excerpt(excerpt),
+        "source_dir": str(root),
     }
 
 
-def apptraverse_platform_failure_excerpt(artifact_id: str) -> dict:
+def apptraverse_platform_failure_excerpt(
+    artifact_id: str, source_dir: str | None = None
+) -> dict:
     """Return a bounded failure excerpt for an apptraverse-platform artifact id."""
     run_id = parse_platform_artifact_id(artifact_id)
     if run_id is None:
         return _invalid_artifact(artifact_id, "invalid_artifact_id")
-    root = repo_root()
+    try:
+        root = _checkout(source_dir)
+    except SourceDirError as exc:
+        payload = _invalid_artifact(artifact_id, "invalid_source_dir")
+        payload["first_error"] = exc.message
+        payload["source_dir"] = None
+        return payload
     base = (root / ".artifacts" / "apptraverse-platform").resolve()
     run_dir = (base / run_id).resolve()
     try:
@@ -291,6 +475,7 @@ def apptraverse_platform_failure_excerpt(artifact_id: str) -> dict:
         "failure_kind": failure_kind,
         "first_error": first_error,
         "excerpt": bound_excerpt(excerpt),
+        "source_dir": str(root),
     }
 
 
@@ -309,13 +494,20 @@ def apptraverse_runtime_log_query(
     event: str | None = None,
     after_seq: int | None = None,
     limit: int = DEFAULT_RUNTIME_QUERY_LIMIT,
+    source_dir: str | None = None,
 ) -> dict:
     """Return bounded runtime JSONL records for an apptraverse-runtime artifact id."""
     if not isinstance(limit, int) or limit < 1 or limit > MAX_RUNTIME_QUERY_LIMIT:
         return _invalid_runtime_query(artifact_id, "invalid_limit")
     if parse_runtime_artifact_id(artifact_id) is None:
         return _invalid_runtime_query(artifact_id, "invalid_artifact_id")
-    log_path = resolve_runtime_log_path(repo_root(), artifact_id)
+    try:
+        root = _checkout(source_dir)
+    except SourceDirError as exc:
+        payload = _invalid_runtime_query(artifact_id, "invalid_source_dir")
+        payload["first_error"] = exc.message
+        return payload
+    log_path = resolve_runtime_log_path(root, artifact_id)
     if log_path is None:
         return _invalid_runtime_query(artifact_id, "invalid_artifact_id")
     if not log_path.is_file():
@@ -342,6 +534,7 @@ def apptraverse_runtime_log_query(
         "returned_count": len(records),
         "has_more": has_more,
         "failure_kind": None,
+        "source_dir": str(root),
     }
 
 
