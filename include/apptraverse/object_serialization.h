@@ -13,6 +13,8 @@
 
 namespace apptraverse {
 
+class Presenter;
+
 // Future optimization: serialize reflected concrete state without reflected base
 // class for UI publication, so Node::base/journal do not enter the buffer.
 
@@ -39,8 +41,12 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 
-// GUI-thread presentation phase. Walks reachable live objects from the GUI
-// root and calls Presenter::OnLoad for each Presenter that is not yet
+// Reachability for presentation: omits Node::base and Node::journal so
+// historical Event-held objects are not treated as live UI topology.
+void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
+
+// GUI-thread presentation phase. Walks live topology from the GUI root and
+// calls Presenter::OnLoad for each Presenter that is not yet
 // presentation_loaded and reports ReadyForPresentation(). Object Load must
 // not call this. Safe to call again after structural publication so only
 // newly introduced presenters activate.
@@ -53,6 +59,14 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host = nullptr);
 // Inverse of InitializePresenters. Call only for a GUI graph that completed
 // that pass. Object destruction does not call this.
 void UnloadPresenters(ae::Obj& gui_root);
+
+// After a structural publication is fully applied: OnUnload presenters that
+// were active but are no longer in live topology, then OnLoad any new live
+// presenters. previously_active must be captured before apply and kept alive
+// (e.g. via ObjPtr) until this returns.
+void UpdatePresentersAfterStructuralPublication(
+    ae::Obj& gui_root, std::vector<Presenter*> const& previously_active,
+    void* host = nullptr);
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 
@@ -82,7 +96,8 @@ void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
 
 // Apply a structural envelope into an already-mirrored GUI Node. Nested
 // LoadRoot materializes new shells for newly referenced ObjIds. Does not
-// call presenter hooks — caller runs InitializeNewPresenters after apply.
+// call presenter hooks — caller runs UpdatePresentersAfterStructuralPublication
+// (or InitializeNewPresenters when nothing was previously active).
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
                                     ae::IDomainStorage& storage);
 

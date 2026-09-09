@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <utility>
 #include <unordered_set>
 #include <vector>
 
@@ -278,6 +279,34 @@ void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
   }
 }
 
+void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
+  // Clear Node bookkeeping temporarily so Save-based reachability follows
+  // live fields only (e.g. ItemList::items), not journal/base history.
+  std::vector<ae::Obj*> with_history;
+  CollectReachableObjects(root, with_history);
+  struct SavedBookkeeping {
+    Node* node;
+    Node::ptr base;
+    std::vector<EventRecord> journal;
+  };
+  std::vector<SavedBookkeeping> saved;
+  saved.reserve(with_history.size());
+  for (ae::Obj* obj : with_history) {
+    auto* node = dynamic_cast<Node*>(obj);
+    if (node == nullptr) {
+      continue;
+    }
+    saved.push_back(SavedBookkeeping{node, node->base, std::move(node->journal)});
+    node->base = {};
+    node->journal.clear();
+  }
+  CollectReachableObjects(root, out);
+  for (SavedBookkeeping& entry : saved) {
+    entry.node->base = std::move(entry.base);
+    entry.node->journal = std::move(entry.journal);
+  }
+}
+
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
   if (auto* node = dynamic_cast<Node*>(&object)) {
     node->AdoptPublishedGeneration(generation);
@@ -421,7 +450,7 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host) {
   for (;;) {
     bool progress = false;
     std::vector<ae::Obj*> objects;
-    CollectReachableObjects(gui_root, objects);
+    CollectLiveReachableObjects(gui_root, objects);
     for (ae::Obj* obj : objects) {
       auto* presenter = dynamic_cast<Presenter*>(obj);
       if (presenter == nullptr || presenter->presentation_loaded) {
@@ -447,18 +476,41 @@ void InitializePresenters(ae::Obj& gui_root, void* host) {
 
 void UnloadPresenters(ae::Obj& gui_root) {
   std::vector<ae::Obj*> objects;
-  CollectReachableObjects(gui_root, objects);
-  for (ae::Obj* obj : objects) {
-    auto* presenter = dynamic_cast<Presenter*>(obj);
-    if (presenter == nullptr) {
-      continue;
-    }
-    if (!presenter->presentation_loaded) {
+  CollectLiveReachableObjects(gui_root, objects);
+  // Reverse of typical root-first Save/ObjId collect order so child HWNDs are
+  // destroyed before parents (DestroyWindow on a parent destroys children).
+  for (auto it = objects.rbegin(); it != objects.rend(); ++it) {
+    auto* presenter = dynamic_cast<Presenter*>(*it);
+    if (presenter == nullptr || !presenter->presentation_loaded) {
       continue;
     }
     presenter->OnUnload();
     presenter->presentation_loaded = false;
   }
+}
+
+void UpdatePresentersAfterStructuralPublication(
+    ae::Obj& gui_root, std::vector<Presenter*> const& previously_active,
+    void* host) {
+  std::vector<ae::Obj*> live_objects;
+  CollectLiveReachableObjects(gui_root, live_objects);
+  std::unordered_set<Presenter*> live_presenters;
+  for (ae::Obj* obj : live_objects) {
+    if (auto* presenter = dynamic_cast<Presenter*>(obj)) {
+      live_presenters.insert(presenter);
+    }
+  }
+  for (Presenter* presenter : previously_active) {
+    if (presenter == nullptr || !presenter->presentation_loaded) {
+      continue;
+    }
+    if (live_presenters.count(presenter) != 0) {
+      continue;
+    }
+    presenter->OnUnload();
+    presenter->presentation_loaded = false;
+  }
+  InitializeNewPresenters(gui_root, host);
 }
 
 }  // namespace apptraverse
