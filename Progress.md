@@ -23,6 +23,7 @@ PublicationChannel remains single-unread. The model cannot publish the next buff
 ## Tests actually run (local runner, not attached MCP)
 
 Verified tree before this fix: `84c23688319bf5425e5f51ad983f68066a0d0c3c`.
+Commit / push: `f3a74c53bc3531920bb3a0937615da676272db83` on `origin/prep/deps-objects-assert-mcp-v1`.
 
 Cursor `user-apptraverse` MCP is not bound to this checkout (`source_dir` missing). This turn's MCP `apptraverse_build_start` (`20260909-044756-5b4ff3`) failed immediately with `unknown target 'apptraverse_main_window_headless_check'` and did not write an artifact here. Local incremental `cmake --build --preset win64-ninja-msvc-debug` (same targets, MSVC env) is the verification.
 
