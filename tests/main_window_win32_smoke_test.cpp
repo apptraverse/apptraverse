@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -230,6 +231,26 @@ ChildProcess StartDemo(std::filesystem::path const& exe,
   return ChildProcess{pi.hProcess, pi.dwProcessId};
 }
 
+using StateSnapshot = std::map<std::string, std::vector<char>>;
+
+StateSnapshot SnapshotState(std::filesystem::path const& dir) {
+  StateSnapshot files;
+  if (!std::filesystem::exists(dir)) {
+    return files;
+  }
+  for (auto const& entry :
+       std::filesystem::recursive_directory_iterator{dir}) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    std::ifstream in{entry.path(), std::ios::binary};
+    files.emplace(std::filesystem::relative(entry.path(), dir).generic_string(),
+                  std::vector<char>{std::istreambuf_iterator<char>{in},
+                                    std::istreambuf_iterator<char>{}});
+  }
+  return files;
+}
+
 std::size_t CountStateEntries(std::filesystem::path const& dir) {
   std::size_t count = 0;
   if (!std::filesystem::exists(dir)) {
@@ -278,25 +299,22 @@ void TestChildProcessResizePersists() {
                      SWP_NOZORDER | SWP_NOACTIVATE) != 0);
   RECT settled{};
   CHECK(WaitRect(main, desired, &settled, std::chrono::seconds{10}));
+  auto const before_files = SnapshotState(dir);
   auto const persist_deadline = std::chrono::steady_clock::now() +
-                                std::chrono::seconds{10};
-  while (std::chrono::steady_clock::now() < persist_deadline &&
-         CountStateEntries(dir) <= before) {
+                                std::chrono::seconds{2};
+  while (std::chrono::steady_clock::now() < persist_deadline) {
     if (WaitForSingleObject(child.process, 0) == WAIT_OBJECT_0) {
-      break;
+      DWORD code = 1;
+      GetExitCodeProcess(child.process, &code);
+      std::cerr << "resize child exited early code=" << code << " entries="
+                << CountStateEntries(dir) << " before=" << before << '\n';
+      std::ifstream err{err_path};
+      std::cerr << err.rdbuf();
+      std::exit(1);
     }
+    CHECK(SnapshotState(dir) == before_files);
     PumpGui(std::chrono::milliseconds{20});
   }
-  if (WaitForSingleObject(child.process, 0) == WAIT_OBJECT_0) {
-    DWORD code = 1;
-    GetExitCodeProcess(child.process, &code);
-    std::cerr << "resize child exited early code=" << code << " entries="
-              << CountStateEntries(dir) << " before=" << before << '\n';
-    std::ifstream err{err_path};
-    std::cerr << err.rdbuf();
-    std::exit(1);
-  }
-  CHECK(CountStateEntries(dir) > before);
   PostMessageW(main, WM_CLOSE, 0, 0);
   CHECK(WaitForSingleObject(child.process, 30000) == WAIT_OBJECT_0);
   DWORD code = 1;
@@ -335,7 +353,6 @@ void TestChildProcessResizeBurstDoesNotEchoStale() {
   HWND main = nullptr;
   CHECK(WaitOwned(child.pid, kMainWindowClass, kMainWindowTitle, &main,
                   std::chrono::seconds{30}));
-  auto const before = CountStateEntries(dir);
 
   RECT request_a{200, 100, 200 + 600, 100 + 400};
   RECT request_b{160, 120, 160 + 640, 120 + 420};
@@ -354,9 +371,8 @@ void TestChildProcessResizeBurstDoesNotEchoStale() {
   CHECK(GetWindowRect(main, &actual_c) != 0);
   CHECK(actual_c.left != actual_a.left);
 
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
-  auto const ready_after = std::chrono::steady_clock::now() + std::chrono::seconds{2};
-  bool persisted = false;
+  auto const before_files = SnapshotState(dir);
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
   while (std::chrono::steady_clock::now() < deadline) {
     if (WaitForSingleObject(child.process, 0) == WAIT_OBJECT_0) {
       DWORD code = 1;
@@ -373,14 +389,9 @@ void TestChildProcessResizeBurstDoesNotEchoStale() {
       std::exit(1);
     }
     CHECK(RectEqual(actual, actual_c));
-    if (CountStateEntries(dir) > before &&
-        std::chrono::steady_clock::now() >= ready_after) {
-      persisted = true;
-      break;
-    }
+    CHECK(SnapshotState(dir) == before_files);
     PumpGui(std::chrono::milliseconds{20});
   }
-  CHECK(persisted);
   RECT final_rect{};
   CHECK(GetWindowRect(main, &final_rect) != 0);
   CHECK(RectEqual(final_rect, actual_c));

@@ -87,6 +87,13 @@ presentation only if it acknowledges every native command that presenter
 has already submitted. An older publication must not roll the native
 control back to a stale model snapshot.
 
+Runtime model changes live in memory. GUI mirror synchronization is
+memory-only (`RamDomainStorage` scratch and publication buffers). Files are
+written only during graceful model shutdown, after `RequestStop`, before
+`Run` returns. Disk state may be older than the live model during resize.
+A crash before that shutdown save may lose runtime changes since the last
+graceful shutdown. Distillation remains dev-only bootstrap.
+
 Out of scope for this slice: chat, contacts, Aether, presence,
 node periodic execution, hierarchical redraw, shared-sync, network,
 DPI/screen system events, periodic model tick.

@@ -50,6 +50,8 @@ void UnloadPresenters(ae::Obj& gui_root);
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 
+// PUBLISH uses SerializeObjectToBuffer, which writes a temporary
+// RamDomainStorage scratch, not DirectoryDomainStorage.
 // One changed Node for an incremental GUI publication. Envelope:
 // object id, generation, payload length, SerializeObjectToBuffer payload.
 //

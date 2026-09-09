@@ -44,6 +44,8 @@ void ModelSession::SubmitWindowChanged(WindowChangedCommand command) {
   cv.notify_all();
 }
 
+// PUBLISH: in-memory model → RamDomainStorage scratch → publication buffer.
+// Does not touch DirectoryDomainStorage.
 void PublishWindowChange(ModelSession& session, MainWindow const& window,
                          std::uint64_t processed_sequence) {
   auto* buffer = session.channel.AcquireProducer();
@@ -142,7 +144,6 @@ void ModelSession::Run(std::function<void(PublicationKind)> on_published) {
         event->width = command.width;
         event->height = command.height;
         window.Commit(event);
-        application->main_window.Save();
       }
 
       // Acknowledge every taken command, including a geometry no-op, so the
@@ -150,6 +151,11 @@ void ModelSession::Run(std::function<void(PublicationKind)> on_published) {
       PublishWindowChange(*this, window, command.sequence);
       on_published(PublicationKind::Incremental);
     }
+
+    // PERSIST: one graph save of the live model after stop. Runtime commits
+    // stay in memory until here. A crash before this loses those commits.
+    // Not distillation.
+    application.Save();
   }
 }
 

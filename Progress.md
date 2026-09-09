@@ -1,5 +1,38 @@
 Status: implemented, verified locally. Not accepted.
 
+# Persist model state only on shutdown
+
+Runtime resize no longer calls `main_window.Save()`. `WindowChangedEvent` / `Commit` / journal / generation stay in memory. Incremental publication still uses `SerializeObjectToBuffer` (`RamDomainStorage` scratch) and does not touch `DirectoryDomainStorage`.
+
+After `RequestStop`, before the model `Application` / Domain / storage leave scope, `Application::ptr::Save()` writes the live graph once (`DomainGraph::SaveRoot`). Not distillation. `Run` returns only after that save, so Windows `SetEvent` still means persistence shutdown finished.
+
+Disk geometry stays the loaded snapshot until that save. A crash before graceful model shutdown may lose runtime commits. Sequence/ack fields stay unserialized.
+
+## Proof
+
+- Coalesce A/B/C: disk remains default until `RequestStop`; after join, geometry C, journal size 1.
+- Three consumed publications A then B then C: filesystem snapshot unchanged between commits; after join, geometry C, journal size 3.
+- No-op seq 7: snapshot unchanged before stop; after join, journal size 0.
+
+## Manual
+
+Sequence/ack interactive resize: successful user verification (right/left drag no longer rolls back). Not marked accepted.
+
+MANUAL interactive drag after removing runtime Save — not re-run by the agent. Disk writes during drag: none by test, not a measured latency number.
+
+## Tests actually run
+
+Cursor `user-apptraverse` MCP is not bound to this checkout. Local incremental `cmake --build --preset win64-ninja-msvc-debug`.
+
+| target | artifact | status |
+| --- | --- | --- |
+| headless + Win32 smoke + demos | local `cmake --build --preset win64-ninja-msvc-debug` (no MCP artifact) | ok (`publication_channel_test`, `main_window_lifecycle_test`, `main_window_lifecycle_load_only_test`, `main_window_window_changed_test`, `main_window_missing_load_test`, `main_window_win32_smoke_test`) |
+
+`CMAKE_HOME_DIRECTORY`: `C:/Users/nickc/Projects/apptraverse-prep-deps-assert`
+Build dir: `build/win64-ninja-msvc-debug` (incremental; no clean)
+
+Not accepted-by-user.
+
 # Stale model feedback during live resize
 
 ## Failing interleaving
