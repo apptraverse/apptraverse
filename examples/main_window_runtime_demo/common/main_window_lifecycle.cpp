@@ -109,6 +109,10 @@ void ModelSession::Run(std::function<void(PublicationKind)> on_published) {
         domain,
         ae::ObjId{main_window::ToObjId(main_window::ObjId::Application)});
 
+    // MainWindow resize history is not needed for sync or debug replay.
+    application->main_window->SetJournalRetentionPolicy(
+        JournalRetentionPolicy{.max_events = 0});
+
     auto* buffer = channel.AcquireProducer();
     SerializeInitialPublication(*application, buffer->sink);
     {
@@ -152,9 +156,9 @@ void ModelSession::Run(std::function<void(PublicationKind)> on_published) {
       on_published(PublicationKind::Incremental);
     }
 
-    // PERSIST: one graph save of the live model after stop. Runtime commits
-    // stay in memory until here. A crash before this loses those commits.
-    // Not distillation.
+    // PERSIST: compact then one graph save. Runtime commits stay in memory
+    // until here. Compaction is housekeeping before disk write.
+    application->main_window->CompactJournal(SystemUtcMicros());
     application.Save();
   }
 }

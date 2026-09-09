@@ -147,6 +147,18 @@ void CheckPersisted(std::filesystem::path const& dir, std::int32_t x,
   CHECK(application->main_window->journal.size() == journal_size);
 }
 
+std::size_t CountReachableWindowChangedEvents(ae::Obj& root) {
+  std::vector<ae::Obj*> objects;
+  CollectReachableObjects(root, objects);
+  std::size_t count = 0;
+  for (ae::Obj* obj : objects) {
+    if (dynamic_cast<WindowChangedEvent*>(obj) != nullptr) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 void TestCommandUpdatesExistingMirror() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_window_changed_command");
@@ -190,7 +202,7 @@ void TestCommandUpdatesExistingMirror() {
 
   session.RequestStop();
   model.join();
-  CheckPersisted(dir, 10, 20, 800, 600, 1);
+  CheckPersisted(dir, 10, 20, 800, 600, 0);
   std::filesystem::remove_all(dir);
 }
 
@@ -225,7 +237,7 @@ void TestCoalescePendingCommands() {
 
   session.RequestStop();
   model.join();
-  CheckPersisted(dir, 3, 3, 1000, 800, 1);
+  CheckPersisted(dir, 3, 3, 1000, 800, 0);
   std::filesystem::remove_all(dir);
 }
 
@@ -410,7 +422,7 @@ void TestStalePublicationDoesNotRollBackNative() {
 
   session.RequestStop();
   model.join();
-  CheckPersisted(dir, 30, 40, 900, 500, 2);
+  CheckPersisted(dir, 30, 40, 900, 500, 0);
   std::filesystem::remove_all(dir);
 }
 
@@ -446,8 +458,100 @@ void TestMultipleCommitsFlushOnceOnShutdown() {
 
   session.RequestStop();
   model.join();
-  CheckPersisted(dir, 13, 23, 720, 520, 3);
+  CheckPersisted(dir, 13, 23, 720, 520, 0);
   std::filesystem::remove_all(dir);
+}
+
+void TestLargeJournalCompactsOnShutdown() {
+  auto dir = TestDir("apptraverse_window_changed_large_compact");
+  ModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run([&session](PublicationKind) { session.cv.notify_all(); });
+  }};
+  WaitPublished(session);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+
+  for (std::uint64_t i = 1; i <= 50; ++i) {
+    session.SubmitWindowChanged(WindowChangedCommand{
+        i, static_cast<std::int32_t>(100 + i), 80, 800, 600});
+    WaitPublished(session);
+    ApplyMainWindowIncremental(TakeAndWake(session), *ui_app, ui_storage);
+  }
+  CHECK(ui_app->main_window->x == 100 + 50);
+
+  session.RequestStop();
+  model.join();
+  CheckPersisted(dir, 100 + 50, 80, 800, 600, 0);
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{main_window::ToObjId(
+                    main_window::ObjId::Application)});
+    CHECK(application->main_window->journal.empty());
+    CHECK(CountReachableWindowChangedEvents(*application) == 0);
+  }
+
+  {
+    ModelSession again;
+    again.state_dir = dir;
+    std::thread model2{[&] {
+      again.Run([&again](PublicationKind) { again.cv.notify_all(); });
+    }};
+    WaitPublished(again);
+    ae::RamDomainStorage ui2;
+    ae::Domain domain2{ui2};
+    auto loaded = LoadInitialUi(TakeAndWake(again), domain2, ui2);
+    CHECK(loaded->main_window->x == 100 + 50);
+    CHECK(loaded->main_window->journal.empty());
+    again.RequestStop();
+    model2.join();
+  }
+  std::filesystem::remove_all(dir);
+}
+
+void TestDirectFiveHundredWindowChangedCompacts() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildMainWindowGraph(domain);
+  FinalizeDistilledGraph(*application);
+  MainWindow& window = *application->main_window;
+  window.SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+  for (int i = 0; i < 500; ++i) {
+    auto event = WindowChangedEvent::ptr::Create(ae::CreateWith{domain});
+    event->x = i;
+    event->y = 40;
+    event->width = 800;
+    event->height = 600;
+    window.Commit(event);
+  }
+  CHECK(window.journal.size() == 500);
+  CHECK(CountReachableWindowChangedEvents(*application) == 500);
+  auto const generation = window.Generation();
+  window.CompactJournal(SystemUtcMicros());
+  CHECK(window.journal.empty());
+  CHECK(window.x == 499);
+  CHECK(window.Generation() == generation);
+  CHECK(CountReachableWindowChangedEvents(*application) == 0);
+
+  window.SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 10});
+  for (int i = 0; i < 30; ++i) {
+    auto event = WindowChangedEvent::ptr::Create(ae::CreateWith{domain});
+    event->x = 1000 + i;
+    event->y = 40;
+    event->width = 800;
+    event->height = 600;
+    window.Commit(event);
+  }
+  window.CompactJournal(SystemUtcMicros());
+  CHECK(window.journal.size() == 10);
+  CHECK(CountReachableWindowChangedEvents(*application) == 10);
+  CHECK(window.x == 1000 + 29);
 }
 
 }  // namespace
@@ -462,6 +566,8 @@ int main() {
   apptraverse::test::TestRestartRestoresGeometry();
   apptraverse::test::TestStalePublicationDoesNotRollBackNative();
   apptraverse::test::TestMultipleCommitsFlushOnceOnShutdown();
+  apptraverse::test::TestLargeJournalCompactsOnShutdown();
+  apptraverse::test::TestDirectFiveHundredWindowChangedCompacts();
   std::cout << "main_window_window_changed_test OK\n";
   return 0;
 }

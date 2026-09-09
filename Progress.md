@@ -1,5 +1,59 @@
 Status: implemented, verified locally. Not accepted.
 
+# Dynamic Node journal retention / compaction
+
+## Problem
+
+Live MainWindow state accumulated 533 `WindowChangedEvent` objects. Startup replayed all of them; shutdown rewrote the whole graph. Resize itself was already RAM-only; the journal was unbounded.
+
+## Policy API
+
+- `JournalRetentionPolicy`: `max_events` (`0` = retain none; `kUnlimitedEvents` = unlimited count) and optional `max_age` (inclusive `now_us - retained_since_us <= max_age`).
+- Default policy: unlimited (Chat/Shared unchanged).
+- `SetJournalCompactionBlocked` / `IsJournalCompactionBlocked`: synchronization hold, independent of retention.
+- `EventRecord::retained_since_us`: local replica acceptance time; not order/id. `Commit` / shared insert stamps `SystemUtcMicros()`. Lamport is not used as age.
+- Schema: Node journal wire v2 includes `retained_since_us`. Node `Load(Version<1>)` migrates by stamping load time (conservative). MainWindow bumped to v4 (`Node` Save/Load v2); v3 Load still migrates old resize states.
+
+## Compaction
+
+`CompactJournal(now_us)` collapses only a contiguous unsafe prefix into `base` via existing `RebuildFromBaseAndReplay` + `CaptureBaseStateInto`, keeps retained suffix, restores Generation, suppresses materialized-change notifications.
+
+When the retained suffix is empty (MainWindow `max_events=0`), compaction clears the journal and snapshots already-materialized live fields into `base` without reloading the old base into the live object.
+
+MainWindow sets `max_events=0` after load; shutdown: `CompactJournal` then `Application::Save()`.
+
+## Proof
+
+- Count 100→10; age boundary inclusive; count+age union (3+age→7, 10+age→10); blocked then unblock; dynamic policy; shared order preserved; mid-insert while blocked; 500→0 reachable events; retention=10 reachable=10.
+- Node journal v1 (`LegacyRetentionDoc`) save → load stamps `retained_since_us` → compact → reload.
+- Unreferenced event dirs may remain after SaveRoot; reload does not load them.
+- MainWindow 50 session commits → journal 0 / reachable WindowChangedEvent 0; direct 500 WindowChangedEvent compact → 0, then retention=10 → 10.
+
+## Filesystem orphans
+
+`DirectoryDomainStorage` SaveRoot does not delete previously stored event directories. Startup does not load unreferenced events. Safe GC of orphan event dirs is a separate TODO.
+
+## Manual
+
+Prior interactive resize verification still stands. Compaction-on-shutdown of a large existing temp state: next graceful close will compact; not re-measured by the agent. Not marked accepted.
+
+## Tests actually run
+
+Cursor `user-apptraverse` MCP is not bound to this checkout (`source_dir` missing). Local incremental `cmake --build --preset win64-ninja-msvc-debug`.
+
+| target | artifact | status |
+| --- | --- | --- |
+| journal retention + core + shared | local cmake | ok (`journal_retention_test`, `event_sourced_core_test`, `shared_journal_test`) |
+| main-window headless | local cmake | ok (`publication_channel_test`, `main_window_lifecycle_test`, `main_window_lifecycle_load_only_test`, `main_window_window_changed_test`, `main_window_missing_load_test`) |
+| Win32 smoke | local cmake | ok (`main_window_win32_smoke_test`) |
+
+`CMAKE_HOME_DIRECTORY`: `C:/Users/nickc/Projects/apptraverse-prep-deps-assert`
+Build dir: `build/win64-ninja-msvc-debug` (incremental; no clean)
+
+Incidental: `cmake/aether_object.cmake` falls back to `CPM_PACKAGE_libbcrypt_SOURCE_DIR` when `libbcrypt_SOURCE_DIR` is unset.
+
+Not accepted-by-user.
+
 # Persist model state only on shutdown
 
 Runtime resize no longer calls `main_window.Save()`. `WindowChangedEvent` / `Commit` / journal / generation stay in memory. Incremental publication still uses `SerializeObjectToBuffer` (`RamDomainStorage` scratch) and does not touch `DirectoryDomainStorage`.
@@ -10,8 +64,8 @@ Disk geometry stays the loaded snapshot until that save. A crash before graceful
 
 ## Proof
 
-- Coalesce A/B/C: disk remains default until `RequestStop`; after join, geometry C, journal size 1.
-- Three consumed publications A then B then C: filesystem snapshot unchanged between commits; after join, geometry C, journal size 3.
+- Coalesce A/B/C: disk remains default until `RequestStop`; after join, geometry C, journal size 0 (post-compaction).
+- Three consumed publications A then B then C: filesystem snapshot unchanged between commits; after join, geometry C, journal size 0.
 - No-op seq 7: snapshot unchanged before stop; after join, journal size 0.
 
 ## Manual

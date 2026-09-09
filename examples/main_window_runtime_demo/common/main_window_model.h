@@ -20,7 +20,7 @@ class WindowChangedEvent;
 
 class MainWindow : public NodeFor<MainWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::MainWindow", MainWindow, Node,
-                           3)
+                           4)
 
  protected:
   MainWindow() = default;
@@ -53,8 +53,14 @@ class MainWindow : public NodeFor<MainWindow> {
   }
 
   template <typename Dnv>
-  void Save(ae::Version<3>, Dnv& dnv) const {
-    Node::Save(ae::Version<1>{}, dnv);
+  void Load(ae::Version<4>, Dnv& dnv) {
+    Node::Load(ae::Version<2>{}, dnv);
+    dnv(x, y, width, height, presenter);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<4>, Dnv& dnv) const {
+    Node::Save(ae::Version<2>{}, dnv);
     dnv(x, y, width, height, presenter);
   }
 
