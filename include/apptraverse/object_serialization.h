@@ -7,16 +7,18 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/idomain_storage.h"
 #include "aether-objects/obj/obj.h"
+#include "aether-objects/ptr/ptr.h"
 
 #include "apptraverse/node.h"
+#include "apptraverse/presenter.h"
 #include "apptraverse/publication_channel.h"
 
 namespace apptraverse {
 
-class Presenter;
-
 // Future optimization: serialize reflected concrete state without reflected base
 // class for UI publication, so Node::base/journal do not enter the buffer.
+// TODO(surfaces): structural publication bandwidth / delta protocol — not this
+// slice; live presentation correctness does not require a smaller payload yet.
 
 // Single-object layers for initial UI shells that already exist.
 void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out);
@@ -56,17 +58,34 @@ void InitializePresenters(ae::Obj& gui_root, void* host = nullptr);
 // incremental-apply sites; both may be used interchangeably.
 void InitializeNewPresenters(ae::Obj& gui_root, void* host = nullptr);
 
-// Inverse of InitializePresenters. Call only for a GUI graph that completed
-// that pass. Object destruction does not call this.
+// Inverse of InitializePresenters. Unloads by descending presentation_load_order
+// (children before parents). Object destruction does not call this.
 void UnloadPresenters(ae::Obj& gui_root);
 
 // After a structural publication is fully applied: OnUnload presenters that
-// were active but are no longer in live topology, then OnLoad any new live
-// presenters. previously_active must be captured before apply and kept alive
-// (e.g. via ObjPtr) until this returns.
+// were active but are no longer in live topology (descending load order), then
+// OnLoad any new live presenters. previously_active owns Presenter::ptr so
+// OnUnload runs while the objects still exist.
 void UpdatePresentersAfterStructuralPublication(
-    ae::Obj& gui_root, std::vector<Presenter*> const& previously_active,
+    ae::Obj& gui_root, std::vector<Presenter::ptr> const& previously_active,
     void* host = nullptr);
+
+// Capture live ObjPtr anchors and active Presenter::ptr before a structural
+// apply. Keeps survivor C++ identity and removed presenters alive across apply.
+struct StructuralPresentationKeepalive {
+  std::vector<ae::Ptr<ae::Obj>> live_objects;
+  std::vector<Presenter::ptr> active_presenters;
+};
+
+StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
+    ae::Obj& gui_root);
+
+// Apply structural envelope under generic live keepalive, then update
+// presenters (unload removed by load-order, OnLoad new). Prefer this over
+// calling ApplyStructuralPublication + UpdatePresenters separately.
+ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
+    ByteSource& in, ae::Domain& domain, ae::IDomainStorage& storage,
+    ae::Obj& gui_root, void* host = nullptr);
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 
@@ -96,8 +115,8 @@ void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
 
 // Apply a structural envelope into an already-mirrored GUI Node. Nested
 // LoadRoot materializes new shells for newly referenced ObjIds. Does not
-// call presenter hooks — caller runs UpdatePresentersAfterStructuralPublication
-// (or InitializeNewPresenters when nothing was previously active).
+// call presenter hooks — prefer ApplyStructuralPublicationAndUpdatePresenters
+// when presentation must stay in sync.
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
                                     ae::IDomainStorage& storage);
 

@@ -1,6 +1,7 @@
 #include "apptraverse/object_serialization.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <utility>
@@ -445,6 +446,36 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
   return ui_root;
 }
 
+namespace {
+
+std::uint64_t NextPresentationLoadOrder() {
+  static std::atomic<std::uint64_t> next{1};
+  return next.fetch_add(1, std::memory_order_relaxed);
+}
+
+void UnloadPresenter(Presenter& presenter) {
+  assert(presenter.presentation_loaded);
+  presenter.OnUnload();
+  presenter.presentation_loaded = false;
+  presenter.presentation_load_order = 0;
+}
+
+void UnloadPresentersDescending(
+    std::vector<Presenter*> presenters) {
+  std::sort(presenters.begin(), presenters.end(),
+            [](Presenter* a, Presenter* b) {
+              return a->presentation_load_order > b->presentation_load_order;
+            });
+  for (Presenter* presenter : presenters) {
+    if (presenter == nullptr || !presenter->presentation_loaded) {
+      continue;
+    }
+    UnloadPresenter(*presenter);
+  }
+}
+
+}  // namespace
+
 void InitializeNewPresenters(ae::Obj& gui_root, void* host) {
   // Multipass: child presenters may wait until a parent HWND exists.
   for (;;) {
@@ -462,6 +493,7 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host) {
       presenter->presentation_host = host;
       presenter->OnLoad();
       presenter->presentation_loaded = true;
+      presenter->presentation_load_order = NextPresentationLoadOrder();
       progress = true;
     }
     if (!progress) {
@@ -477,20 +509,18 @@ void InitializePresenters(ae::Obj& gui_root, void* host) {
 void UnloadPresenters(ae::Obj& gui_root) {
   std::vector<ae::Obj*> objects;
   CollectLiveReachableObjects(gui_root, objects);
-  // Reverse of typical root-first Save/ObjId collect order so child HWNDs are
-  // destroyed before parents (DestroyWindow on a parent destroys children).
-  for (auto it = objects.rbegin(); it != objects.rend(); ++it) {
-    auto* presenter = dynamic_cast<Presenter*>(*it);
-    if (presenter == nullptr || !presenter->presentation_loaded) {
-      continue;
+  std::vector<Presenter*> loaded;
+  for (ae::Obj* obj : objects) {
+    auto* presenter = dynamic_cast<Presenter*>(obj);
+    if (presenter != nullptr && presenter->presentation_loaded) {
+      loaded.push_back(presenter);
     }
-    presenter->OnUnload();
-    presenter->presentation_loaded = false;
   }
+  UnloadPresentersDescending(std::move(loaded));
 }
 
 void UpdatePresentersAfterStructuralPublication(
-    ae::Obj& gui_root, std::vector<Presenter*> const& previously_active,
+    ae::Obj& gui_root, std::vector<Presenter::ptr> const& previously_active,
     void* host) {
   std::vector<ae::Obj*> live_objects;
   CollectLiveReachableObjects(gui_root, live_objects);
@@ -500,17 +530,52 @@ void UpdatePresentersAfterStructuralPublication(
       live_presenters.insert(presenter);
     }
   }
-  for (Presenter* presenter : previously_active) {
-    if (presenter == nullptr || !presenter->presentation_loaded) {
+  std::vector<Presenter*> removed;
+  for (Presenter::ptr const& held : previously_active) {
+    if (!held.is_valid() || !held.is_loaded()) {
+      continue;
+    }
+    Presenter* presenter = &*held;
+    if (!presenter->presentation_loaded) {
       continue;
     }
     if (live_presenters.count(presenter) != 0) {
       continue;
     }
-    presenter->OnUnload();
-    presenter->presentation_loaded = false;
+    removed.push_back(presenter);
   }
+  UnloadPresentersDescending(std::move(removed));
   InitializeNewPresenters(gui_root, host);
+}
+
+StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
+    ae::Obj& gui_root) {
+  StructuralPresentationKeepalive keepalive;
+  std::vector<ae::Obj*> objects;
+  CollectLiveReachableObjects(gui_root, objects);
+  keepalive.live_objects.reserve(objects.size());
+  keepalive.active_presenters.reserve(objects.size());
+  for (ae::Obj* obj : objects) {
+    keepalive.live_objects.push_back(ae::MakePtrFromThis(obj));
+    auto* presenter = dynamic_cast<Presenter*>(obj);
+    if (presenter != nullptr && presenter->presentation_loaded) {
+      keepalive.active_presenters.push_back(
+          Presenter::ptr::MakeFromThis(presenter));
+    }
+  }
+  return keepalive;
+}
+
+ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
+    ByteSource& in, ae::Domain& domain, ae::IDomainStorage& storage,
+    ae::Obj& gui_root, void* host) {
+  StructuralPresentationKeepalive const keepalive =
+      CaptureStructuralPresentationKeepalive(gui_root);
+  ae::Obj& changed =
+      ApplyStructuralPublication(in, domain, storage);
+  UpdatePresentersAfterStructuralPublication(gui_root,
+                                             keepalive.active_presenters, host);
+  return changed;
 }
 
 }  // namespace apptraverse

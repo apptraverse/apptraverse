@@ -2,7 +2,7 @@ add_executable(apptraverse_event_sourced_core_test
   event_sourced_core_test.cpp
 )
 
-target_link_libraries(apptraverse_event_sourced_core_test PRIVATE apptraverse aether)
+target_link_libraries(apptraverse_event_sourced_core_test PRIVATE apptraverse)
 
 add_test(
   NAME apptraverse_event_sourced_core_test
@@ -13,7 +13,7 @@ add_executable(apptraverse_journal_retention_test
   journal_retention_test.cpp
 )
 
-target_link_libraries(apptraverse_journal_retention_test PRIVATE apptraverse aether)
+target_link_libraries(apptraverse_journal_retention_test PRIVATE apptraverse)
 
 add_test(
   NAME apptraverse_journal_retention_test
@@ -24,7 +24,7 @@ add_executable(apptraverse_directory_domain_storage_test
   directory_domain_storage_test.cpp
 )
 
-target_link_libraries(apptraverse_directory_domain_storage_test PRIVATE apptraverse aether)
+target_link_libraries(apptraverse_directory_domain_storage_test PRIVATE apptraverse)
 
 add_test(
   NAME apptraverse_directory_domain_storage_test
@@ -35,13 +35,14 @@ add_executable(apptraverse_overlay_domain_storage_test
   overlay_domain_storage_test.cpp
 )
 
-target_link_libraries(apptraverse_overlay_domain_storage_test PRIVATE apptraverse aether)
+target_link_libraries(apptraverse_overlay_domain_storage_test PRIVATE apptraverse)
 
 add_test(
   NAME apptraverse_overlay_domain_storage_test
   COMMAND apptraverse_overlay_domain_storage_test
 )
 
+if(APPTRAVERSE_BUILD_AETHER_DEMOS)
 add_executable(apptraverse_model_ui_runtime_test
   model_ui_runtime_test.cpp
 )
@@ -144,6 +145,7 @@ add_custom_target(apptraverse_chat_headless_check
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Canonical headless chat/shared/presentation checks"
 )
+endif() # APPTRAVERSE_BUILD_AETHER_DEMOS
 
 add_executable(apptraverse_publication_channel_test
   publication_channel_test.cpp
@@ -232,7 +234,7 @@ target_compile_definitions(apptraverse_dynamic_objects_add_test PRIVATE
 )
 
 target_link_libraries(apptraverse_dynamic_objects_add_test PRIVATE
-  dynamic_objects_demo_model
+  dynamic_objects_demo_distill
 )
 
 target_include_directories(apptraverse_dynamic_objects_add_test PRIVATE
@@ -244,12 +246,25 @@ add_test(
   COMMAND apptraverse_dynamic_objects_add_test
 )
 
+add_executable(apptraverse_presenter_load_order_test
+  presenter_load_order_test.cpp
+)
+
+target_link_libraries(apptraverse_presenter_load_order_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_presenter_load_order_test
+  COMMAND apptraverse_presenter_load_order_test
+)
+
 add_custom_target(apptraverse_dynamic_objects_headless_check
   COMMAND $<TARGET_FILE:apptraverse_dynamic_objects_add_test>
   COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
+  COMMAND $<TARGET_FILE:apptraverse_presenter_load_order_test>
   DEPENDS
     apptraverse_dynamic_objects_add_test
     apptraverse_publication_channel_test
+    apptraverse_presenter_load_order_test
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Dynamic objects Add Item headless checks"
 )
@@ -312,6 +327,7 @@ if(WIN32)
     COMMENT "Isolated FatalWin32 NDEBUG helper check"
   )
 
+  if(APPTRAVERSE_BUILD_AETHER_DEMOS)
   add_executable(apptraverse_chat_p2p_headless_test
     chat_p2p_headless_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows/aether_runtime.cpp
@@ -367,6 +383,7 @@ if(WIN32)
     NAME apptraverse_chat_win32_ui_smoke_test
     COMMAND apptraverse_chat_win32_ui_smoke_test
   )
+  endif() # APPTRAVERSE_BUILD_AETHER_DEMOS
 
   add_executable(apptraverse_main_window_win32_smoke_test
     main_window_win32_smoke_test.cpp
@@ -429,7 +446,7 @@ if(WIN32)
   )
 
   target_link_libraries(apptraverse_dynamic_objects_win32_smoke_test PRIVATE
-    dynamic_objects_demo_model
+    dynamic_objects_demo_distill
     user32
     gdi32
   )
@@ -459,6 +476,29 @@ if(WIN32)
     DEPENDS apptraverse_dynamic_objects_win32_smoke_test
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Dynamic objects Add Item Win32 smoke"
+  )
+
+  add_executable(apptraverse_dynamic_two_main_win32_test
+    dynamic_two_main_win32_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows/win_presenters.cpp
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
+  )
+  target_link_libraries(apptraverse_dynamic_two_main_win32_test PRIVATE
+    dynamic_objects_demo_model
+    user32
+    gdi32
+  )
+  target_include_directories(apptraverse_dynamic_two_main_win32_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+  )
+  if(MSVC)
+    target_compile_options(apptraverse_dynamic_two_main_win32_test PRIVATE /utf-8)
+  endif()
+  add_test(
+    NAME apptraverse_dynamic_two_main_win32_test
+    COMMAND apptraverse_dynamic_two_main_win32_test
   )
 endif()
 

@@ -1,6 +1,8 @@
 #ifndef APPTRAVERSE_PRESENTER_H_
 #define APPTRAVERSE_PRESENTER_H_
 
+#include <cstdint>
+
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/object_macros.h"
@@ -48,6 +50,11 @@ class Presenter : public ae::Obj {
   // Runtime-only. Set by InitializePresenters / InitializeNewPresenters after
   // OnLoad. Used so incremental graph growth activates only new presenters.
   bool presentation_loaded{false};
+
+  // Runtime-only. Monotonic OnLoad sequence for this process. Unload uses
+  // descending order so children tear down before parents, independent of
+  // ObjId / Save collect order. Not serialized.
+  std::uint64_t presentation_load_order{0};
 };
 
 }  // namespace apptraverse
