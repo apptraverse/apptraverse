@@ -25,7 +25,11 @@ endif()
 apptraverse_prepare_aether_override()
 apptraverse_add_pinned_aether_owned_deps()
 
-# Object system + full Aether client live in aethernetio/aether-client-cpp.
+option(APPTRAVERSE_BUILD_AETHER_DEMOS
+  "Build demos/tests that require the full Aether networking client"
+  ON)
+
+# Object system + optional full Aether client live in aethernetio/aether-client-cpp.
 # Fetch pinned sources unless a local checkout is set.
 CPMAddPackage(
   NAME aether-client-cpp
@@ -35,7 +39,9 @@ CPMAddPackage(
 )
 
 apptraverse_verify_aether_pin()
-apptraverse_add_full_aether()
+if(APPTRAVERSE_BUILD_AETHER_DEMOS)
+  apptraverse_add_full_aether()
+endif()
 
 add_library(apptraverse STATIC
   src/apptraverse.cpp
@@ -58,14 +64,20 @@ target_link_libraries(apptraverse PUBLIC aether::objects aether::miscpp)
 target_compile_definitions(apptraverse PUBLIC
   AE_DISTILLATION=1
   AE_FILTRATION=1
-  NOMINMAX
-  WIN32_LEAN_AND_MEAN
 )
+if(WIN32)
+  target_compile_definitions(apptraverse PUBLIC
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+  )
+endif()
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
-add_subdirectory(examples/model_ui_runtime_demo)
-add_subdirectory(examples/chat_ui_runtime_demo)
-add_subdirectory(examples/aether_presence_monitor)
+if(APPTRAVERSE_BUILD_AETHER_DEMOS)
+  add_subdirectory(examples/model_ui_runtime_demo)
+  add_subdirectory(examples/chat_ui_runtime_demo)
+  add_subdirectory(examples/aether_presence_monitor)
+endif()
 add_subdirectory(examples/main_window_runtime_demo)
 add_subdirectory(examples/dynamic_objects_demo)
 

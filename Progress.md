@@ -1,5 +1,70 @@
 Status: implemented, verified locally. Not accepted.
 
+# Foundation hardening for surfaces_demo
+
+## Starting point
+
+Branch `prep/deps-objects-assert-mcp-v1` at `6a63fd6` (Remove Item Progress SHA).
+
+## Explicitly NOT in scope
+
+Storage Save/Load / DirectoryDomainStorage / filesystem failures are assumed
+impossible in this architecture. No error propagation work.
+
+SharedNode, transport, presence, chat, surfaces_demo implementation, structural
+delta/bandwidth optimization — not started. TODO recorded for structural payload
+size only.
+
+## Issues fixed
+
+1. **Presenter load order** — runtime `presentation_load_order` set on successful
+   OnLoad; UnloadPresenters / structural unload sort descending (child before parent),
+   independent of ObjId / Save collect order. Win32 no longer uses IsWindow
+   “parent already destroyed child” branches.
+
+2. **Explicit parent** — `ItemList::window` (`ae::ObjPtr<MainWindow>`); graph sets
+   both directions. Win32 ItemList uses `list->window`, not fixed MainWindow ObjId.
+   v0 saves migrate via `EnsureItemListWindowLink`.
+
+3. **Native class lifetime** — `RegisterDynamicWin32Classes` /
+   `UnregisterDynamicWin32Classes` around WinApp; per-HWND OnLoad/OnUnload only
+   create/destroy windows.
+
+4. **WM_CLOSE** — presenter posts `WM_APPTRAVERSE_CLOSE_WINDOW(window ObjId)`;
+   WinApp stops only when that id is the single MainWindow.
+
+5. **Generic structural keepalive** —
+   `CaptureStructuralPresentationKeepalive` / `ApplyStructuralPublicationAndUpdatePresenters`
+   hold `ae::Ptr<ae::Obj>` + `Presenter::ptr`. `ApplyItemListStructural` no longer
+   enumerates concrete Item/presenter vectors for lifetime.
+
+6. **Shutdown drain** — after `RequestStop`, accepted deque commands Commit in order
+   without requiring GUI publication consumption; then Save. Submit after stop is no-op.
+
+7. **Distill separation** — `dynamic_distill.cpp` / `BuildDynamicObjectsGraph` linked
+   only by distill demo + fixture tests; load-only does not link it.
+
+8. **CMake** — `APPTRAVERSE_BUILD_AETHER_DEMOS` (default ON) gates full `aether` client
+   + chat/model_ui/presence. Core + dynamic_objects + main_window build without it.
+   `NOMINMAX` / `WIN32_LEAN_AND_MEAN` only `if(WIN32)`.
+
+## Tests (rebuilt/relinked/run locally)
+
+| check | result |
+| --- | --- |
+| `apptraverse_presenter_load_order_test` | PASS |
+| `apptraverse_dynamic_objects_add_test` (incl. shutdown drain) | PASS |
+| `apptraverse_dynamic_two_main_win32_test` | PASS |
+| `apptraverse_dynamic_objects_win32_smoke_test` | PASS |
+| `publication_channel_test`, `main_window_*` lifecycle/window/smoke | PASS |
+
+MCP used only for an early configure probe (`already_configured`); proof is local
+incremental `build/win64-ninja-msvc-debug` with MSVC env.
+
+Not implemented: surfaces_demo.
+
+Not accepted-by-user.
+
 # Dynamic objects demo — Remove Item
 
 ## Starting point

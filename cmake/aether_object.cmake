@@ -104,9 +104,13 @@ function(apptraverse_add_full_aether)
   target_compile_definitions(aether PUBLIC
     AE_DISTILLATION=1
     AE_FILTRATION=1
-    NOMINMAX
-    WIN32_LEAN_AND_MEAN
   )
+  if(WIN32)
+    target_compile_definitions(aether PUBLIC
+      NOMINMAX
+      WIN32_LEAN_AND_MEAN
+    )
+  endif()
 
   if(USER_CONFIG AND NOT USER_CONFIG STREQUAL "")
     target_compile_definitions(aether PUBLIC "USER_CONFIG=\"${USER_CONFIG}\"")
