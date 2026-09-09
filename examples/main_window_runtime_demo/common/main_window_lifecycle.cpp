@@ -44,6 +44,19 @@ void ModelSession::SubmitWindowChanged(WindowChangedCommand command) {
   cv.notify_all();
 }
 
+void PublishWindowChange(ModelSession& session, MainWindow const& window,
+                         std::uint64_t processed_sequence) {
+  auto* buffer = session.channel.AcquireProducer();
+  buffer->sink.write(&processed_sequence, sizeof(processed_sequence));
+  SerializeIncrementalNodePublication(window, buffer->sink);
+  {
+    std::lock_guard<std::mutex> lock{session.mu};
+    session.channel.NotePublished();
+    session.channel.PublishProducer();
+  }
+  session.cv.notify_all();
+}
+
 void ApplyMainWindowIncremental(std::vector<std::uint8_t> const& bytes,
                                  Application& ui_application,
                                  ae::IDomainStorage& ui_storage) {
@@ -55,10 +68,14 @@ void ApplyMainWindowIncremental(std::vector<std::uint8_t> const& bytes,
   ByteSource in;
   in.data = bytes.data();
   in.size = bytes.size();
+  std::uint64_t processed_sequence = 0;
+  in.read(&processed_sequence, sizeof(processed_sequence));
+  assert(in.ok);
   ae::Obj& updated =
       ApplyIncrementalPublication(in, *ui_application.domain, ui_storage);
   assert(&updated == &*window);
   assert(&*window->presenter == &*presenter);
+  presenter->last_acknowledged_window_change_sequence = processed_sequence;
   presenter->OnModelChanged();
 }
 
@@ -116,28 +133,21 @@ void ModelSession::Run(std::function<void(PublicationKind)> on_published) {
       }
 
       MainWindow& window = *application->main_window;
-      if (window.x == command.x && window.y == command.y &&
-          window.width == command.width && window.height == command.height) {
-        continue;
+      if (window.x != command.x || window.y != command.y ||
+          window.width != command.width || window.height != command.height) {
+        auto event =
+            WindowChangedEvent::ptr::Create(ae::CreateWith{*window.domain});
+        event->x = command.x;
+        event->y = command.y;
+        event->width = command.width;
+        event->height = command.height;
+        window.Commit(event);
+        application->main_window.Save();
       }
 
-      auto event =
-          WindowChangedEvent::ptr::Create(ae::CreateWith{*window.domain});
-      event->x = command.x;
-      event->y = command.y;
-      event->width = command.width;
-      event->height = command.height;
-      window.Commit(event);
-      application->main_window.Save();
-
-      auto* buffer = channel.AcquireProducer();
-      SerializeIncrementalNodePublication(window, buffer->sink);
-      {
-        std::lock_guard<std::mutex> lock{mu};
-        channel.NotePublished();
-        channel.PublishProducer();
-      }
-      cv.notify_all();
+      // Acknowledge every taken command, including a geometry no-op, so the
+      // GUI can tell that this native input has been considered.
+      PublishWindowChange(*this, window, command.sequence);
       on_published(PublicationKind::Incremental);
     }
   }

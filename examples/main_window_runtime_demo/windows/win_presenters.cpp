@@ -9,15 +9,25 @@ namespace {
 
 APPTRAVERSE_REGISTER(Win32MainWindowPresenter);
 
+void SetPresenterUserData(HWND hwnd, Win32MainWindowPresenter* presenter) {
+  SetLastError(0);
+  LONG_PTR const previous = SetWindowLongPtrW(
+      hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(presenter));
+  if (previous == 0 && GetLastError() != 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowLongPtrW GWLP_USERDATA", err);
+  }
+}
+
 }  // namespace
 
 LRESULT CALLBACK Win32MainWindowPresenter::WndProc(HWND hwnd, UINT msg,
                                                     WPARAM wparam,
                                                     LPARAM lparam) {
   if (msg == WM_NCCREATE) {
-    auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA,
-                      reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+    // Do not attach the presenter yet. CreateWindow/ShowWindow emit
+    // WM_WINDOWPOSCHANGED before Main exists as a user window; those are not
+    // user input. Userdata is attached after ShowWindow/UpdateWindow return.
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
   auto* presenter = reinterpret_cast<Win32MainWindowPresenter*>(
@@ -34,13 +44,15 @@ LRESULT CALLBACK Win32MainWindowPresenter::WndProc(HWND hwnd, UINT msg,
     }
     return 0;
   }
-  if (msg == WM_WINDOWPOSCHANGED && presenter->hwnd != nullptr) {
+  if (msg == WM_WINDOWPOSCHANGED) {
     RECT rect{};
     if (GetWindowRect(hwnd, &rect) == 0) {
       DWORD const err = GetLastError();
       FatalWin32("GetWindowRect WM_WINDOWPOSCHANGED", err);
     }
+    ++presenter->last_submitted_window_change_sequence;
     WindowChangedCommand command;
+    command.sequence = presenter->last_submitted_window_change_sequence;
     command.x = static_cast<std::int32_t>(rect.left);
     command.y = static_cast<std::int32_t>(rect.top);
     command.width = static_cast<std::int32_t>(rect.right - rect.left);
@@ -55,6 +67,9 @@ LRESULT CALLBACK Win32MainWindowPresenter::WndProc(HWND hwnd, UINT msg,
 }
 
 void Win32MainWindowPresenter::OnModelChanged() {
+  if (!WindowChangePublicationIsCurrent()) {
+    return;
+  }
   RECT actual{};
   if (GetWindowRect(hwnd, &actual) == 0) {
     DWORD const err = GetLastError();
@@ -97,14 +112,14 @@ void Win32MainWindowPresenter::OnLoad() {
   }
   ShowWindow(hwnd, SW_SHOW);
   UpdateWindow(hwnd);
+  SetPresenterUserData(hwnd, this);
 }
 
 void Win32MainWindowPresenter::OnUnload() {
-  HWND const dying = hwnd;
-  // DestroyWindow sends WM_WINDOWPOSCHANGED. Clear hwnd first so that
-  // teardown notification is not treated as a live geometry command.
-  hwnd = nullptr;
-  if (DestroyWindow(dying) == 0) {
+  // Detach before DestroyWindow so teardown WM_WINDOWPOSCHANGED sees no
+  // presenter and does not submit a geometry command.
+  SetPresenterUserData(hwnd, nullptr);
+  if (DestroyWindow(hwnd) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("DestroyWindow Main", err);
   }

@@ -1,5 +1,42 @@
 Status: implemented, verified locally. Not accepted.
 
+# Stale model feedback during live resize
+
+## Failing interleaving
+
+Publication of geometry A can arrive after the user has already moved the HWND to B. `OnModelChanged` compared actual B with desired A and `SetWindowPos(A)`, which echoed A back as a native command and replaced the newer pending B. Left-edge drags jumped because the stale publication also restored x.
+
+## Fix
+
+`WindowChangedCommand` carries a GUI-side monotonic `sequence`. Latest-state coalescing keeps the newest sequence. Every taken command, including a geometry no-op, publishes `processed_window_change_sequence` ahead of the existing MainWindow incremental payload. The GUI mirror always applies the model state. `OnModelChanged` drives the HWND only when `ack >= last_submitted`. No suppression flag.
+
+Creation-time `WM_WINDOWPOSCHANGED` is not user input: presenter userdata is attached only after `ShowWindow`/`UpdateWindow`. Teardown clears userdata before `DestroyWindow` instead of nulling `hwnd`.
+
+PublicationChannel remains single-unread. The model cannot publish the next buffer until `TakePublishedCopy` releases the slot, so one notify message still matches one buffer. Sequence is application protocol, not a channel field.
+
+## Counts from tests
+
+- Coalesce seq 1/2/3 before processing: 3 commands, 1 committed `WindowChangedEvent`, 1 incremental publication, journal size 1, ack=3.
+- No-op seq 7: journal unchanged, generation unchanged, no Save, ACK publication received, `publish_count` 1 → 2.
+- Stale A then B: mirror becomes A while native-emulation stays B; then ack 2 applies B. Same Application/MainWindow/Presenter. `OnLoad` once. Journal size 2.
+
+## Tests actually run (local runner, not attached MCP)
+
+Verified tree before this fix: `84c23688319bf5425e5f51ad983f68066a0d0c3c`.
+
+Cursor `user-apptraverse` MCP is not bound to this checkout (`source_dir` missing). This turn's MCP `apptraverse_build_start` (`20260909-044756-5b4ff3`) failed immediately with `unknown target 'apptraverse_main_window_headless_check'` and did not write an artifact here. Local incremental `cmake --build --preset win64-ninja-msvc-debug` (same targets, MSVC env) is the verification.
+
+MANUAL INTERACTIVE DRAG — BLOCKED / requires user verification. Automated `SetWindowPos` burst (including left+width) is not a mouse-drag proof. Do not treat jitter as fixed from unit tests alone.
+
+| target | artifact | status |
+| --- | --- | --- |
+| headless + Win32 smoke + demos | local `cmake --build --preset win64-ninja-msvc-debug` (no MCP artifact) | ok (`publication_channel_test`, `main_window_lifecycle_test`, `main_window_lifecycle_load_only_test`, `main_window_window_changed_test`, `main_window_missing_load_test`, `main_window_win32_smoke_test` including left-edge burst then load-only C) |
+
+`CMAKE_HOME_DIRECTORY`: `C:/Users/nickc/Projects/apptraverse-prep-deps-assert`
+Build dir: `build/win64-ninja-msvc-debug` (incremental; no clean)
+
+Not accepted-by-user.
+
 # WindowChanged round-trip
 
 ## Finding
@@ -12,7 +49,7 @@ Derived `load` still does not replace App Traverse command/event semantics. Nati
 
 - `WindowChangedCommand` (`main_window_lifecycle.h`): four `int32_t`, latest-state under `ModelSession::mu`. Newer geometry replaces an older pending command.
 - Model waits on `stop` or (pending command and publication slot free). Stop wins if both are ready.
-- Unchanged geometry is a no-op: no event, no publication, generation unchanged.
+- Unchanged geometry does not commit an event or change generation. Later resize-ack iteration still publishes the processed sequence (see above).
 - `WindowChangedEvent` (`main_window_model.h`) is committed on `MainWindow`. Journal gets one event per applied command. `MainWindow::Save()` persists it.
 - Incremental envelope: object id, generation, payload length, `SerializeObjectToBuffer` payload. GUI mirror journal/base stay empty. Generation is adopted.
 - Existing presenter is held across deserialize so the native instance is not replaced.

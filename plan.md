@@ -73,13 +73,19 @@ Window change path (implemented / verified, not accepted):
 
 ```
 native geometry
-→ latest-state WindowChangedCommand
+→ latest-state WindowChangedCommand (GUI sequence)
 → WindowChangedEvent
 → Commit
-→ incremental node publication
+→ incremental node publication + processed sequence
 → existing GUI mirror
 → OnModelChanged
 ```
+
+During active native input, the GUI may be ahead of the model.
+A model publication always updates the GUI mirror. It drives native
+presentation only if it acknowledges every native command that presenter
+has already submitted. An older publication must not roll the native
+control back to a stale model snapshot.
 
 Out of scope for this slice: chat, contacts, Aether, presence,
 node periodic execution, hierarchical redraw, shared-sync, network,

@@ -318,6 +318,94 @@ void TestChildProcessResizePersists() {
   std::filesystem::remove_all(dir);
 }
 
+bool RectEqual(RECT const& a, RECT const& b) {
+  return a.left == b.left && a.top == b.top && a.right == b.right &&
+         a.bottom == b.bottom;
+}
+
+void TestChildProcessResizeBurstDoesNotEchoStale() {
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_main_window_child_resize_burst";
+  auto err_path = dir;
+  err_path += ".stderr.txt";
+  std::filesystem::remove_all(dir);
+  std::filesystem::remove(err_path);
+  std::filesystem::path exe{WIN32_MAIN_WINDOW_DEMO_EXE};
+  ChildProcess child = StartDemo(exe, dir, err_path);
+  HWND main = nullptr;
+  CHECK(WaitOwned(child.pid, kMainWindowClass, kMainWindowTitle, &main,
+                  std::chrono::seconds{30}));
+  auto const before = CountStateEntries(dir);
+
+  RECT request_a{200, 100, 200 + 600, 100 + 400};
+  RECT request_b{160, 120, 160 + 640, 120 + 420};
+  RECT request_c{140, 140, 140 + 700, 140 + 480};
+  CHECK(SetWindowPos(main, nullptr, request_a.left, request_a.top, 600, 400,
+                     SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+  RECT actual_a{};
+  CHECK(GetWindowRect(main, &actual_a) != 0);
+  CHECK(SetWindowPos(main, nullptr, request_b.left, request_b.top, 640, 420,
+                     SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+  RECT actual_b{};
+  CHECK(GetWindowRect(main, &actual_b) != 0);
+  CHECK(SetWindowPos(main, nullptr, request_c.left, request_c.top, 700, 480,
+                     SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+  RECT actual_c{};
+  CHECK(GetWindowRect(main, &actual_c) != 0);
+  CHECK(actual_c.left != actual_a.left);
+
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  auto const ready_after = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  bool persisted = false;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (WaitForSingleObject(child.process, 0) == WAIT_OBJECT_0) {
+      DWORD code = 1;
+      GetExitCodeProcess(child.process, &code);
+      std::cerr << "resize burst child exited code=" << code << '\n';
+      std::ifstream err{err_path};
+      std::cerr << err.rdbuf();
+      std::exit(1);
+    }
+    RECT actual{};
+    CHECK(GetWindowRect(main, &actual) != 0);
+    if (RectEqual(actual, actual_a) || RectEqual(actual, actual_b)) {
+      std::cerr << "stale window rect rolled back to an earlier resize\n";
+      std::exit(1);
+    }
+    CHECK(RectEqual(actual, actual_c));
+    if (CountStateEntries(dir) > before &&
+        std::chrono::steady_clock::now() >= ready_after) {
+      persisted = true;
+      break;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  CHECK(persisted);
+  RECT final_rect{};
+  CHECK(GetWindowRect(main, &final_rect) != 0);
+  CHECK(RectEqual(final_rect, actual_c));
+
+  PostMessageW(main, WM_CLOSE, 0, 0);
+  CHECK(WaitForSingleObject(child.process, 30000) == WAIT_OBJECT_0);
+  DWORD code = 1;
+  GetExitCodeProcess(child.process, &code);
+  CHECK(code == 0);
+  CloseHandle(child.process);
+
+  std::filesystem::path load_only{WIN32_MAIN_WINDOW_LOAD_ONLY_EXE};
+  ChildProcess restarted = StartDemo(load_only, dir);
+  HWND restored = nullptr;
+  CHECK(WaitOwned(restarted.pid, kMainWindowClass, kMainWindowTitle, &restored,
+                  std::chrono::seconds{30}));
+  CHECK(WaitRect(restored, actual_c, nullptr, std::chrono::seconds{10}));
+  PostMessageW(restored, WM_CLOSE, 0, 0);
+  CHECK(WaitForSingleObject(restarted.process, 30000) == WAIT_OBJECT_0);
+  GetExitCodeProcess(restarted.process, &code);
+  CHECK(code == 0);
+  CloseHandle(restarted.process);
+  std::filesystem::remove_all(dir);
+}
+
 void TestChildProcessFreshThenClose() {
   auto dir = std::filesystem::temp_directory_path() /
              "apptraverse_main_window_child";
@@ -441,6 +529,7 @@ int main() {
   apptraverse::test::TestInProcessTwice();
 #ifdef WIN32_MAIN_WINDOW_DEMO_EXE
   apptraverse::test::TestChildProcessResizePersists();
+  apptraverse::test::TestChildProcessResizeBurstDoesNotEchoStale();
   apptraverse::test::TestChildProcessFreshThenClose();
   apptraverse::test::TestChildProcessLoadOnlyThenClose();
   apptraverse::test::TestChildProcessLoadOnlyEmptyState();

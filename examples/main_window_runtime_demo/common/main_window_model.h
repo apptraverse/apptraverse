@@ -90,6 +90,19 @@ class MainWindowPresenter : public Presenter {
   }
 
   MainWindow::ptr window;
+
+  // GUI-thread correlation. Not serialized, not journaled. Model-side
+  // presenters leave these at 0.
+  std::uint64_t last_submitted_window_change_sequence{0};
+  std::uint64_t last_acknowledged_window_change_sequence{0};
+
+  // A publication may update the mirror and still be stale relative to newer
+  // native input. Only an acknowledgement of every submitted command may
+  // drive native presentation.
+  bool WindowChangePublicationIsCurrent() const {
+    return last_acknowledged_window_change_sequence >=
+           last_submitted_window_change_sequence;
+  }
 };
 
 // Position and size as one outer-window rectangle. Model Domain only.

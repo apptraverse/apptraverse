@@ -52,8 +52,12 @@ void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 
 // One changed Node for an incremental GUI publication. Envelope:
 // object id, generation, payload length, SerializeObjectToBuffer payload.
-// Does not include referenced object layers (presenter stays the existing
-// instance; journal events are not copied into the GUI Domain).
+//
+// The MainWindow layer written here is an ordinary object Save, so it still
+// contains Node base/journal references. Referenced Event object layers are
+// not copied into this publication. After deserialize, FinalizeUiNodeState
+// clears the GUI node's base and journal. A future optimization may omit
+// Node bookkeeping entirely; that is not done here.
 void SerializeIncrementalNodePublication(Node const& node, ByteSink& out);
 
 // Apply that envelope into the already-materialized GUI object. Does not

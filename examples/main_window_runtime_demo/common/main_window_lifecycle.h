@@ -20,6 +20,8 @@ class Application;
 // Copied outer-window geometry. Not an Event, not an ae::Obj, not a Windows
 // type. Exists only to cross GUI thread → model thread.
 struct WindowChangedCommand {
+  // GUI input correlation. Not a Node generation and not a timestamp.
+  std::uint64_t sequence{0};
   std::int32_t x{0};
   std::int32_t y{0};
   std::int32_t width{0};

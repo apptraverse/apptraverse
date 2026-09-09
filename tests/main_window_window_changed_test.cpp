@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <condition_variable>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -36,7 +37,21 @@ class TestMainWindowPresenter : public MainWindowPresenter {
 
   void OnLoad() override { ++on_load_calls; }
 
-  void OnModelChanged() override { ++on_model_changed_calls; }
+  void OnModelChanged() override {
+    ++on_model_changed_calls;
+    if (!WindowChangePublicationIsCurrent()) {
+      return;
+    }
+    actual_x = window->x;
+    actual_y = window->y;
+    actual_width = window->width;
+    actual_height = window->height;
+  }
+
+  std::int32_t actual_x{main_window::kDefaultX};
+  std::int32_t actual_y{main_window::kDefaultY};
+  std::int32_t actual_width{main_window::kDefaultWidth};
+  std::int32_t actual_height{main_window::kDefaultHeight};
 
   static inline std::atomic<int> on_load_calls{0};
   static inline std::atomic<int> on_model_changed_calls{0};
@@ -128,7 +143,7 @@ void TestCommandUpdatesExistingMirror() {
   auto const generation = ui_app->main_window->Generation();
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
 
-  session.SubmitWindowChanged(WindowChangedCommand{10, 20, 800, 600});
+  session.SubmitWindowChanged(WindowChangedCommand{1, 10, 20, 800, 600});
   WaitPublished(session);
   ApplyMainWindowIncremental(TakeAndWake(session), *ui_app, ui_storage);
 
@@ -144,6 +159,8 @@ void TestCommandUpdatesExistingMirror() {
   CHECK(ui_app->main_window->Generation() == generation + 1);
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
   CHECK(TestMainWindowPresenter::on_model_changed_calls.load() == 1);
+  CHECK(ui_app->main_window->presenter
+            ->last_acknowledged_window_change_sequence == 1);
 
   session.RequestStop();
   model.join();
@@ -160,9 +177,10 @@ void TestCoalescePendingCommands() {
   }};
   WaitPublished(session);
 
-  session.SubmitWindowChanged(WindowChangedCommand{1, 1, 800, 600});
-  session.SubmitWindowChanged(WindowChangedCommand{2, 2, 900, 700});
-  session.SubmitWindowChanged(WindowChangedCommand{3, 3, 1000, 800});
+  session.SubmitWindowChanged(WindowChangedCommand{1, 1, 1, 800, 600});
+  session.SubmitWindowChanged(WindowChangedCommand{2, 2, 2, 900, 700});
+  session.SubmitWindowChanged(WindowChangedCommand{3, 3, 3, 1000, 800});
+  CHECK(session.channel.publish_count() == 1);
 
   ae::RamDomainStorage ui_storage;
   ae::Domain ui_domain{ui_storage};
@@ -173,6 +191,8 @@ void TestCoalescePendingCommands() {
   CHECK(ui_app->main_window->y == 3);
   CHECK(ui_app->main_window->width == 1000);
   CHECK(ui_app->main_window->height == 800);
+  CHECK(ui_app->main_window->presenter
+            ->last_acknowledged_window_change_sequence == 3);
   CHECK(session.channel.publish_count() == 2);
 
   session.RequestStop();
@@ -196,17 +216,14 @@ void TestNoOpCommand() {
   auto const generation = ui_app->main_window->Generation();
 
   session.SubmitWindowChanged(WindowChangedCommand{
-      main_window::kDefaultX, main_window::kDefaultY,
+      7, main_window::kDefaultX, main_window::kDefaultY,
       main_window::kDefaultWidth, main_window::kDefaultHeight});
-  {
-    std::unique_lock<std::mutex> lock{session.mu};
-    CHECK(session.cv.wait_for(lock, std::chrono::seconds{30}, [&] {
-      return !session.pending_window_change.has_value() &&
-             !session.channel.has_unread_published();
-    }));
-  }
-  CHECK(session.channel.publish_count() == 1);
+  WaitPublished(session);
+  ApplyMainWindowIncremental(TakeAndWake(session), *ui_app, ui_storage);
+  CHECK(session.channel.publish_count() == 2);
   CHECK(ui_app->main_window->Generation() == generation);
+  CHECK(ui_app->main_window->presenter
+            ->last_acknowledged_window_change_sequence == 7);
 
   session.RequestStop();
   model.join();
@@ -219,18 +236,35 @@ void TestStopBeatsPendingChange() {
   auto dir = TestDir("apptraverse_window_changed_stop");
   ModelSession session;
   session.state_dir = dir;
+  std::mutex gate_mu;
+  std::condition_variable gate_cv;
+  bool in_callback = false;
+  bool release_callback = false;
   std::thread model{[&] {
-    session.Run([&session](PublicationKind) { session.cv.notify_all(); });
+    session.Run([&](PublicationKind) {
+      {
+        std::lock_guard<std::mutex> lock{gate_mu};
+        in_callback = true;
+      }
+      gate_cv.notify_all();
+      std::unique_lock<std::mutex> lock{gate_mu};
+      CHECK(gate_cv.wait_for(lock, std::chrono::seconds{30},
+                             [&] { return release_callback; }));
+    });
   }};
-  WaitPublished(session);
-  (void)TakeAndWake(session);
-
   {
-    std::lock_guard<std::mutex> lock{session.mu};
-    session.pending_window_change = WindowChangedCommand{9, 9, 500, 400};
-    session.stop = true;
+    std::unique_lock<std::mutex> lock{gate_mu};
+    CHECK(gate_cv.wait_for(lock, std::chrono::seconds{30},
+                            [&] { return in_callback; }));
   }
-  session.cv.notify_all();
+  (void)TakeAndWake(session);
+  session.SubmitWindowChanged(WindowChangedCommand{1, 9, 9, 500, 400});
+  session.RequestStop();
+  {
+    std::lock_guard<std::mutex> lock{gate_mu};
+    release_callback = true;
+  }
+  gate_cv.notify_all();
   model.join();
   CHECK(session.channel.publish_count() == 1);
   CheckPersisted(dir, main_window::kDefaultX, main_window::kDefaultY,
@@ -250,7 +284,7 @@ void TestRestartRestoresGeometry() {
     ae::RamDomainStorage ui_storage;
     ae::Domain ui_domain{ui_storage};
     auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
-    session.SubmitWindowChanged(WindowChangedCommand{40, 50, 700, 500});
+    session.SubmitWindowChanged(WindowChangedCommand{1, 40, 50, 700, 500});
     WaitPublished(session);
     ApplyMainWindowIncremental(TakeAndWake(session), *ui_app, ui_storage);
     CHECK(ui_app->main_window->width == 700);
@@ -278,6 +312,76 @@ void TestRestartRestoresGeometry() {
   std::filesystem::remove_all(dir);
 }
 
+void TestStalePublicationDoesNotRollBackNative() {
+  TestMainWindowPresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_window_changed_stale");
+  ModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run([&session](PublicationKind) { session.cv.notify_all(); });
+  }};
+  WaitPublished(session);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  InitializePresenters(*ui_app);
+  auto* app = &*ui_app;
+  auto* window = &*ui_app->main_window;
+  auto* presenter = static_cast<TestMainWindowPresenter*>(
+      &*ui_app->main_window->presenter);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+
+  presenter->last_submitted_window_change_sequence = 1;
+  session.SubmitWindowChanged(WindowChangedCommand{1, 10, 20, 800, 600});
+  WaitPublished(session);
+  CHECK(session.channel.publish_count() == 2);
+
+  presenter->last_submitted_window_change_sequence = 2;
+  presenter->actual_x = 30;
+  presenter->actual_y = 40;
+  presenter->actual_width = 900;
+  presenter->actual_height = 500;
+  session.SubmitWindowChanged(WindowChangedCommand{2, 30, 40, 900, 500});
+
+  ApplyMainWindowIncremental(TakeAndWake(session), *ui_app, ui_storage);
+  CHECK(&*ui_app == app);
+  CHECK(&*ui_app->main_window == window);
+  CHECK(&*ui_app->main_window->presenter == presenter);
+  CHECK(ui_app->main_window->x == 10);
+  CHECK(ui_app->main_window->y == 20);
+  CHECK(ui_app->main_window->width == 800);
+  CHECK(ui_app->main_window->height == 600);
+  CHECK(presenter->last_acknowledged_window_change_sequence == 1);
+  CHECK(presenter->actual_x == 30);
+  CHECK(presenter->actual_y == 40);
+  CHECK(presenter->actual_width == 900);
+  CHECK(presenter->actual_height == 500);
+  CHECK(TestMainWindowPresenter::on_model_changed_calls.load() == 1);
+  CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+
+  WaitPublished(session);
+  ApplyMainWindowIncremental(TakeAndWake(session), *ui_app, ui_storage);
+  CHECK(&*ui_app == app);
+  CHECK(&*ui_app->main_window == window);
+  CHECK(&*ui_app->main_window->presenter == presenter);
+  CHECK(ui_app->main_window->x == 30);
+  CHECK(ui_app->main_window->y == 40);
+  CHECK(ui_app->main_window->width == 900);
+  CHECK(ui_app->main_window->height == 500);
+  CHECK(presenter->last_acknowledged_window_change_sequence == 2);
+  CHECK(presenter->actual_x == 30);
+  CHECK(presenter->actual_y == 40);
+  CHECK(presenter->actual_width == 900);
+  CHECK(presenter->actual_height == 500);
+  CHECK(TestMainWindowPresenter::on_model_changed_calls.load() == 2);
+
+  session.RequestStop();
+  model.join();
+  CheckPersisted(dir, 30, 40, 900, 500, 2);
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -288,6 +392,7 @@ int main() {
   apptraverse::test::TestNoOpCommand();
   apptraverse::test::TestStopBeatsPendingChange();
   apptraverse::test::TestRestartRestoresGeometry();
+  apptraverse::test::TestStalePublicationDoesNotRollBackNative();
   std::cout << "main_window_window_changed_test OK\n";
   return 0;
 }
