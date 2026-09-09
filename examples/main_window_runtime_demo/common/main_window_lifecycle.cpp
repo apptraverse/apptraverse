@@ -4,6 +4,8 @@
 #include <filesystem>
 #endif
 
+#include <cassert>
+
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/directory_domain_storage.h"
@@ -22,6 +24,7 @@ namespace {
 APPTRAVERSE_REGISTER(MainWindow);
 APPTRAVERSE_REGISTER(MainWindowPresenter);
 APPTRAVERSE_REGISTER(Application);
+APPTRAVERSE_REGISTER(WindowChangedEvent);
 
 }  // namespace
 
@@ -33,7 +36,33 @@ void ModelSession::RequestStop() {
   cv.notify_all();
 }
 
-void ModelSession::Run(std::function<void()> on_published) {
+void ModelSession::SubmitWindowChanged(WindowChangedCommand command) {
+  {
+    std::lock_guard<std::mutex> lock{mu};
+    pending_window_change = command;
+  }
+  cv.notify_all();
+}
+
+void ApplyMainWindowIncremental(std::vector<std::uint8_t> const& bytes,
+                                 Application& ui_application,
+                                 ae::IDomainStorage& ui_storage) {
+  // Keep the live presenter across deserialize. Loading the MainWindow
+  // presenter ref drops its cache; without this hold the instance (and its
+  // native HWND) would be released and replaced.
+  auto window = ui_application.main_window;
+  auto presenter = window->presenter;
+  ByteSource in;
+  in.data = bytes.data();
+  in.size = bytes.size();
+  ae::Obj& updated =
+      ApplyIncrementalPublication(in, *ui_application.domain, ui_storage);
+  assert(&updated == &*window);
+  assert(&*window->presenter == &*presenter);
+  presenter->OnModelChanged();
+}
+
+void ModelSession::Run(std::function<void(PublicationKind)> on_published) {
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
   // Development bootstrap: create persisted state only when it does not exist.
   bool state_missing = true;
@@ -69,11 +98,47 @@ void ModelSession::Run(std::function<void()> on_published) {
       channel.PublishProducer();
     }
     cv.notify_all();
-    on_published();
+    on_published(PublicationKind::Initial);
 
-    {
-      std::unique_lock<std::mutex> lock{mu};
-      cv.wait(lock, [&] { return stop; });
+    for (;;) {
+      WindowChangedCommand command;
+      {
+        std::unique_lock<std::mutex> lock{mu};
+        cv.wait(lock, [&] {
+          return stop || (pending_window_change.has_value() &&
+                          !channel.has_unread_published());
+        });
+        if (stop) {
+          break;
+        }
+        command = *pending_window_change;
+        pending_window_change.reset();
+      }
+
+      MainWindow& window = *application->main_window;
+      if (window.x == command.x && window.y == command.y &&
+          window.width == command.width && window.height == command.height) {
+        continue;
+      }
+
+      auto event =
+          WindowChangedEvent::ptr::Create(ae::CreateWith{*window.domain});
+      event->x = command.x;
+      event->y = command.y;
+      event->width = command.width;
+      event->height = command.height;
+      window.Commit(event);
+      application->main_window.Save();
+
+      auto* buffer = channel.AcquireProducer();
+      SerializeIncrementalNodePublication(window, buffer->sink);
+      {
+        std::lock_guard<std::mutex> lock{mu};
+        channel.NotePublished();
+        channel.PublishProducer();
+      }
+      cv.notify_all();
+      on_published(PublicationKind::Incremental);
     }
   }
 }

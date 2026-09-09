@@ -286,6 +286,39 @@ void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
   }
 }
 
+void SerializeIncrementalNodePublication(Node const& node, ByteSink& out) {
+  auto const object_id = node.obj_id.id();
+  auto const generation = node.Generation();
+  ByteSink payload;
+  SerializeObjectToBuffer(node, payload);
+  auto const payload_size = static_cast<std::uint32_t>(payload.bytes.size());
+  out.write(&object_id, sizeof(object_id));
+  out.write(&generation, sizeof(generation));
+  out.write(&payload_size, sizeof(payload_size));
+  out.write(payload.bytes.data(), payload.bytes.size());
+}
+
+ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
+                                     ae::IDomainStorage& storage) {
+  std::uint32_t object_id = 0;
+  std::uint64_t generation = 0;
+  std::uint32_t payload_size = 0;
+  in.read(&object_id, sizeof(object_id));
+  in.read(&generation, sizeof(generation));
+  in.read(&payload_size, sizeof(payload_size));
+  assert(in.ok);
+  assert(in.pos + payload_size <= in.size);
+  ByteSource payload;
+  payload.data = in.data + in.pos;
+  payload.size = payload_size;
+  in.pos += payload_size;
+  auto object = domain.Find(ae::ObjId{object_id});
+  assert(object && "incremental publication object must already exist");
+  DeserializeObjectFromBuffer(*object, payload, domain, storage);
+  FinalizeUiNodeState(*object, generation);
+  return *object;
+}
+
 void SerializeInitialPublication(ae::Obj const& root, ByteSink& out) {
   std::vector<Node*> nodes;
   CollectReachableNodes(const_cast<ae::Obj&>(root), nodes);

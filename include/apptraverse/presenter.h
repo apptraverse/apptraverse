@@ -27,7 +27,12 @@ class Presenter : public ae::Obj {
 
   AE_OBJECT_REFLECT()
 
+  // Native presentation initialization. Called once from InitializePresenters.
   virtual void OnLoad() {}
+  // Existing GUI mirror was updated by a model publication. Sync native
+  // presentation with the mirror. Not a second OnLoad.
+  virtual void OnModelChanged() {}
+  // Native teardown. Called once from UnloadPresenters.
   virtual void OnUnload() {}
 
   // Runtime-only. Not serialized. Win32 Main uses this as the notify HWND

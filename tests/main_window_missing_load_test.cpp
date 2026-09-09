@@ -30,7 +30,7 @@ int RunMissingLoad(char const* dir) {
   apptraverse::EnsureObjectRegistration();
   apptraverse::ModelSession session;
   session.state_dir = dir;
-  session.Run([] {
+  session.Run([](apptraverse::PublicationKind) {
     std::fputs("unexpected publication after missing load\n", stderr);
     std::fflush(stderr);
     std::abort();

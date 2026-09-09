@@ -50,6 +50,17 @@ void UnloadPresenters(ae::Obj& gui_root);
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 
+// One changed Node for an incremental GUI publication. Envelope:
+// object id, generation, payload length, SerializeObjectToBuffer payload.
+// Does not include referenced object layers (presenter stays the existing
+// instance; journal events are not copied into the GUI Domain).
+void SerializeIncrementalNodePublication(Node const& node, ByteSink& out);
+
+// Apply that envelope into the already-materialized GUI object. Does not
+// create a Domain, does not call presenter hooks.
+ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
+                                     ae::IDomainStorage& storage);
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_OBJECT_SERIALIZATION_H_

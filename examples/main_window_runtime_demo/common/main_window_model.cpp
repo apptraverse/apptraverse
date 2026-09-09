@@ -4,6 +4,14 @@
 
 namespace apptraverse {
 
+void MainWindow::Apply(WindowChangedEvent const& event) {
+  x = event.x;
+  y = event.y;
+  width = event.width;
+  height = event.height;
+  NoteMaterializedChange();
+}
+
 Application::ptr BuildMainWindowGraph(ae::Domain& domain) {
   auto application = Application::ptr::Create(ae::CreateWith{domain}.with_id(
       main_window::ToObjId(main_window::ObjId::Application)));

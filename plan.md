@@ -48,9 +48,10 @@ Constraints:
 
 - exactly two threads: Windows GUI thread and model thread
 - shared `ModelSession` has no platform handles (`HWND`/`HANDLE`/`void*` stand-ins)
-- `Run(std::function<void()> on_published)` is a required production boundary:
-  called on the model thread after the serialized buffer is published, without
-  holding `mu`; Windows posts to the notify HWND; tests signal their waiter
+- `Run(std::function<void(PublicationKind)> on_published)` is a required
+  production boundary: called on the model thread after the serialized buffer
+  is published, without holding `mu`; Windows posts initial or incremental
+  notify messages; tests signal their waiter
 - return from `Run` means Application, reachable graph, Domain, and storage
   have already been destroyed on the model thread; Windows `SetEvent` is after
   that return, in the thread lambda, not in `ModelSession`
@@ -68,13 +69,25 @@ Constraints:
 - startup is not cancelable; Loading is not a user window
 - shutdown only after the model is loaded and Main exists; no TerminateThread
 
-Out of scope for this slice: chat, contacts, Aether, presence, resize events,
+Window change path (implemented / verified, not accepted):
+
+```
+native geometry
+→ latest-state WindowChangedCommand
+→ WindowChangedEvent
+→ Commit
+→ incremental node publication
+→ existing GUI mirror
+→ OnModelChanged
+```
+
+Out of scope for this slice: chat, contacts, Aether, presence,
 node periodic execution, hierarchical redraw, shared-sync, network,
-DPI/screen system events, WindowChangedEvent, periodic model tick.
+DPI/screen system events, periodic model tick.
 
 ## Later stages (deferred; architecture unchanged)
 
-1. Resize events (native resize → serialized command → model)
+1. Resize events — implemented/verified, not accepted
 2. Node execution / model update loop
 3. Minimal redraw / dirty regions
 4. State restoration beyond the initial Application/MainWindow load

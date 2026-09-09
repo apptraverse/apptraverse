@@ -41,15 +41,19 @@ class TestMainWindowPresenter : public MainWindowPresenter {
     last_window_id = window->obj_id.id();
   }
 
+  void OnModelChanged() override { ++on_model_changed_calls; }
+
   void OnUnload() override { ++on_unload_calls; }
 
   static inline std::atomic<int> on_load_calls{0};
+  static inline std::atomic<int> on_model_changed_calls{0};
   static inline std::atomic<int> on_unload_calls{0};
   static inline std::atomic<int> dtor_calls{0};
   static inline std::atomic<std::uint32_t> last_window_id{0};
 
   static void ResetCounts() {
     on_load_calls.store(0);
+    on_model_changed_calls.store(0);
     on_unload_calls.store(0);
     dtor_calls.store(0);
     last_window_id.store(0);
@@ -134,7 +138,9 @@ void TestDevStartup() {
   ModelSession session;
   session.state_dir = dir;
   TestPublishGate published;
-  std::thread model{[&] { session.Run([&] { published.Notify(); }); }};
+  std::thread model{[&] {
+    session.Run([&](PublicationKind) { published.Notify(); });
+  }};
   published.Wait();
   CHECK(PersistedApplicationExists(dir));
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
@@ -172,7 +178,9 @@ void TestDevReloadSameIds() {
     ModelSession first;
     first.state_dir = dir;
     TestPublishGate published;
-    std::thread model{[&] { first.Run([&] { published.Notify(); }); }};
+    std::thread model{[&] {
+      first.Run([&](PublicationKind) { published.Notify(); });
+    }};
     published.Wait();
     CHECK(PersistedApplicationExists(dir));
     first.RequestStop();
@@ -182,7 +190,9 @@ void TestDevReloadSameIds() {
     ModelSession second;
     second.state_dir = dir;
     TestPublishGate published;
-    std::thread model{[&] { second.Run([&] { published.Notify(); }); }};
+    std::thread model{[&] {
+      second.Run([&](PublicationKind) { published.Notify(); });
+    }};
     published.Wait();
     ae::RamDomainStorage ui_storage;
     ae::Domain ui_domain{ui_storage};
@@ -221,7 +231,9 @@ void TestWaitBeforePublish() {
     CHECK(start_cv.wait_for(lock, std::chrono::seconds{30},
                             [&] { return waiter_ready; }));
   }
-  std::thread model{[&] { session.Run([&session] { session.cv.notify_all(); }); }};
+  std::thread model{[&] {
+    session.Run([&session](PublicationKind) { session.cv.notify_all(); });
+  }};
   waiter.join();
   WaitPublished(session);
   session.RequestStop();
@@ -236,7 +248,9 @@ void TestPublishBeforeWait() {
   ModelSession session;
   session.state_dir = dir;
   TestPublishGate published;
-  std::thread model{[&] { session.Run([&] { published.Notify(); }); }};
+  std::thread model{[&] {
+    session.Run([&](PublicationKind) { published.Notify(); });
+  }};
   published.Wait();
   WaitPublished(session);
   session.RequestStop();
@@ -254,7 +268,7 @@ void TestStopBeforeWait() {
   bool in_callback = false;
   bool release_callback = false;
   std::thread model{[&] {
-    session.Run([&] {
+    session.Run([&](PublicationKind) {
       {
         std::lock_guard<std::mutex> lock{gate_mu};
         in_callback = true;
@@ -289,7 +303,7 @@ void TestStopAfterWait() {
   TestPublishGate published;
   TestPublishGate finished;
   std::thread model{[&] {
-    session.Run([&] { published.Notify(); });
+    session.Run([&](PublicationKind) { published.Notify(); });
     finished.Notify();
   }};
   published.Wait();
@@ -353,7 +367,9 @@ void TestPresenterInitFromPublishedGraph() {
   ModelSession session;
   session.state_dir = dir;
   TestPublishGate published;
-  std::thread model{[&] { session.Run([&] { published.Notify(); }); }};
+  std::thread model{[&] {
+    session.Run([&](PublicationKind) { published.Notify(); });
+  }};
   published.Wait();
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
 
@@ -397,7 +413,7 @@ void TestShutdownAfterPublish() {
   bool run_returned = false;
   int dtor_at_return = 0;
   std::thread model{[&] {
-    session.Run([&] { published.Notify(); });
+    session.Run([&](PublicationKind) { published.Notify(); });
     dtor_at_return = TestMainWindowPresenter::dtor_calls.load();
     {
       std::lock_guard<std::mutex> lock{done_mu};

@@ -6,6 +6,7 @@
 
 #include "aether-objects/obj/obj.h"
 
+#include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/presenter.h"
@@ -15,6 +16,7 @@
 namespace apptraverse {
 
 class MainWindowPresenter;
+class WindowChangedEvent;
 
 class MainWindow : public NodeFor<MainWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::MainWindow", MainWindow, Node,
@@ -61,6 +63,8 @@ class MainWindow : public NodeFor<MainWindow> {
   std::int32_t width{main_window::kDefaultWidth};
   std::int32_t height{main_window::kDefaultHeight};
   ae::ObjPtr<MainWindowPresenter> presenter;
+
+  void Apply(WindowChangedEvent const& event);
 };
 
 class MainWindowPresenter : public Presenter {
@@ -86,6 +90,25 @@ class MainWindowPresenter : public Presenter {
   }
 
   MainWindow::ptr window;
+};
+
+// Position and size as one outer-window rectangle. Model Domain only.
+class WindowChangedEvent : public EventFor<MainWindow, WindowChangedEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::WindowChangedEvent",
+                           WindowChangedEvent, Event, 0)
+
+ protected:
+  WindowChangedEvent() = default;
+
+ public:
+  explicit WindowChangedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height))
+
+  std::int32_t x{0};
+  std::int32_t y{0};
+  std::int32_t width{0};
+  std::int32_t height{0};
 };
 
 class Application : public ae::Obj {

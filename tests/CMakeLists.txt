@@ -177,14 +177,34 @@ add_test(
   COMMAND apptraverse_main_window_lifecycle_load_only_test
 )
 
+add_executable(apptraverse_main_window_window_changed_test
+  main_window_window_changed_test.cpp
+  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
+)
+
+target_compile_definitions(apptraverse_main_window_window_changed_test PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+
+target_link_libraries(apptraverse_main_window_window_changed_test PRIVATE
+  main_window_runtime_demo_model
+)
+
+add_test(
+  NAME apptraverse_main_window_window_changed_test
+  COMMAND apptraverse_main_window_window_changed_test
+)
+
 add_custom_target(apptraverse_main_window_headless_check
   COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
   COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_test>
   COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_load_only_test>
+  COMMAND $<TARGET_FILE:apptraverse_main_window_window_changed_test>
   DEPENDS
     apptraverse_publication_channel_test
     apptraverse_main_window_lifecycle_test
     apptraverse_main_window_lifecycle_load_only_test
+    apptraverse_main_window_window_changed_test
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Main-window lifecycle and publication-channel headless checks"
 )
