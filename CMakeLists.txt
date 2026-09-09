@@ -86,6 +86,7 @@ if(APPTRAVERSE_BUILD_AETHER_DEMOS)
 endif()
 add_subdirectory(examples/main_window_runtime_demo)
 add_subdirectory(examples/dynamic_objects_demo)
+add_subdirectory(examples/surfaces_demo)
 
 include(CTest)
 if(BUILD_TESTING)

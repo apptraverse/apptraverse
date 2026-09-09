@@ -251,6 +251,35 @@ add_test(
   COMMAND apptraverse_dynamic_objects_add_test
 )
 
+add_executable(apptraverse_surfaces_model_test
+  surfaces_model_test.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+)
+
+target_compile_definitions(apptraverse_surfaces_model_test PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+
+target_link_libraries(apptraverse_surfaces_model_test PRIVATE
+  surfaces_demo_distill
+)
+
+target_include_directories(apptraverse_surfaces_model_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+)
+
+add_test(
+  NAME apptraverse_surfaces_model_test
+  COMMAND apptraverse_surfaces_model_test
+)
+
+add_custom_target(apptraverse_surfaces_headless_check
+  COMMAND $<TARGET_FILE:apptraverse_surfaces_model_test>
+  DEPENDS apptraverse_surfaces_model_test
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMENT "Surfaces common model headless checks"
+)
+
 add_executable(apptraverse_presenter_load_order_test
   presenter_load_order_test.cpp
 )

@@ -20,9 +20,9 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 3. dynamic_objects_demo — Add / Remove Item [done]
 4. foundation hardening + UI ownership / ObjId proxy [done]
 5. dynamic_objects cleanup (invariants / Win32 routing) [done]
-6. Disable RTTI + invariant-driven coding policy [done — THIS]
-7. surfaces_demo — common model + headless **[NEXT]**
-8. surfaces_demo — Windows minimal multi-window
+6. Disable RTTI + invariant-driven coding policy [done]
+7. surfaces_demo — common model + headless [done — THIS]
+8. surfaces_demo — Windows minimal multi-window **[NEXT]**
 9. surfaces_demo — macOS desktop port
 10. surfaces_demo — Linux desktop port
 11. surfaces_demo — iOS
@@ -41,41 +41,45 @@ Deferred relative to surfaces/chat:
 
 ## Current slice (just completed)
 
-RTTI off + invariant policy:
-
-- `/GR-` (MSVC) / `-fno-rtti` (GCC/Clang) via `apptraverse_compile_policy`
-- compile-time `no_rtti.h` guard
-- no `dynamic_cast` / compiler RTTI in AppTraverse-owned code
-- Session no longer repairs `ItemList::window` (pre-v1 state → re-distill)
-- permanent rules in `.cursor/rules/apptraverse-coding-agent.mdc`
-
-## Next slice
-
-`surfaces_demo` common model + headless only (separate prompt).
+`surfaces_demo` common model + headless:
 
 ```
 Application
- └─ Surfaces : Node
-      └─ surfaces[]
-           ├─ Surface → SurfacePresenter
-           ├─ Surface → SurfacePresenter
-           └─ ...
+ └── surfaces → Surfaces : Node
+      └── Surface : Node → SurfacePresenter
 ```
 
-**Desktop (later Windows slice):** one Surface = one top-level native window;
-Add button creates another Surface/window; native close removes that Surface.
-No resize persistence, no Z-order, no DPI in the minimal demo.
+- Add / Remove via `Surface::AddSurface` / `Surface::Remove` and Events only
+- `SurfacePresenter::AddClick` / `RemoveClick` → `ModelObjectProxy` (no `current_surface` in model)
+- Dynamic `Surface : Node` structural publication proven headless
+- No platform GUI
 
-**Mobile (later):** same Surface objects as pager pages; UI `[ Add ] [ Remove current ]`.
-Swipe/pager may come in the mobile port slice.
+## Next slice
+
+**Windows minimal multi-window** (separate prompt):
+
+Each Surface = one identical top-level window:
+
+```
++------------------+
+| Surface N         |
+| [ Add ]           |
++------------------+
+```
+
+- Add → new Surface → new identical window
+- Native close (X) → `RemoveClick` of that SurfacePresenter
+- No resize persistence, no Z-order, no DPI
+
+**Mobile later:** pager pages; UI `[ Add ] [ Remove current ]`.
+"Remove current" is presentation-side: pager picks the current page's
+`SurfacePresenter` and calls `RemoveClick()`. Model has no `current_surface`.
 
 ## Known follow-ups (not this slice)
 
 - `Node::SetMaterializedChangeNotifier` is still a process-global static. Must
   become per-Domain / per-Application before two independent sessions in
   `shared_node_demo`.
-- Multi-dirty / dynamic Node publication protocol belongs to the first
-  headless `surfaces_demo` slice (first dynamically created `Surface : Node`).
 
 ## Cross-platform invariant (foundation)
 

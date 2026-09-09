@@ -1,5 +1,61 @@
 Status: implemented, verified locally. Not accepted.
 
+# surfaces_demo slice 1 — common model + headless
+
+## Starting / final
+
+- Starting HEAD: `f6bbdc8`.
+- Branch: `prep/deps-objects-assert-mcp-v1`.
+- Final SHA: *(filled after commit)*.
+- Push: pending.
+
+## Object graph
+
+```
+Application
+ └── surfaces → Surfaces : Node
+      └── Surface : Node
+           └── presenter → SurfacePresenter
+```
+
+Initial distill: Application → Surfaces → Surface #1 → SurfacePresenter.
+
+## Event paths
+
+- `Surface::AddSurface()` → create Surface + Presenter → `InitializeRuntimeNode` → `AddSurfaceEvent` → `Surfaces::Commit`
+- `Surface::Remove()` → live-membership check → `RemoveSurfaceEvent` → `Surfaces::Commit` (stale = no-op)
+- Topology vector mutates only in `Surfaces::Apply(Add|Remove)`
+
+## Dynamic Node init
+
+Runtime Surface uses canonical `InitializeRuntimeNode` (same as distill `FinalizeDistilledGraph`) before Commit. No second Node-init mechanism.
+
+## Remove current (no model current)
+
+`SurfacePresenter::RemoveClick()` proxies that Surface ObjId. Presentation (future pager / window X) selects which presenter; model has no `current_surface`.
+
+## Proven headless
+
+- initial graph; Add from Surface1 and from Surface2; Remove; replay [1,3]; restart + Add→4
+- dynamic Node structural publication (GUI Surface2 new ObjId match, different C++ instance, OnLoad once)
+- GUI proxy AddClick / RemoveClick
+- presenter lifecycle (no reload of survivors; historical not reactivated)
+- shutdown drain of accepted Adds
+- `/GR-` on `surfaces_model.cpp` and `surfaces_model_test.cpp`
+
+## Tests
+
+PASS: `apptraverse_surfaces_model_test`
+Regressions PASS: dynamic_objects_add, presenter_load_order, publication_channel, event_sourced_core, journal_retention, main_window lifecycle/window.
+
+Windows UI not started.
+
+Not accepted-by-user.
+
+---
+
+Status: implemented, verified locally. Not accepted.
+
 # Disable RTTI and enforce AppTraverse invariants (before surfaces_demo)
 
 ## Starting / final
