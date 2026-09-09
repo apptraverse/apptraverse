@@ -3,11 +3,28 @@
 #include <algorithm>
 #include <cassert>
 
-#include "aether-objects/obj/domain.h"
-
-#include "apptraverse/runtime_node.h"
+#include "apptraverse/object_macros.h"
 
 namespace apptraverse {
+namespace {
+
+APPTRAVERSE_REGISTER(Item);
+APPTRAVERSE_REGISTER(ItemPresenter);
+APPTRAVERSE_REGISTER(ItemList);
+APPTRAVERSE_REGISTER(ItemListPresenter);
+APPTRAVERSE_REGISTER(AddItemEvent);
+APPTRAVERSE_REGISTER(RemoveItemEvent);
+APPTRAVERSE_REGISTER(MainWindow);
+APPTRAVERSE_REGISTER(MainWindowPresenter);
+APPTRAVERSE_REGISTER(Application);
+
+}  // namespace
+
+void EnsureDynamicModelRegistration() {
+  // Reference registrar storage so MSVC/lld keep this TU when linking the
+  // static model library into tests/demos that do not pull lifecycle.cpp.
+  (void)&g_apptraverse_registrar_Application;
+}
 
 void ItemList::Apply(AddItemEvent const& event) {
   assert(event.item.is_valid());
@@ -28,46 +45,6 @@ void ItemList::Apply(RemoveItemEvent const& event) {
   assert(it != items.end() && "RemoveItemEvent item must be live on Apply");
   items.erase(it);
   NoteMaterializedChange();
-}
-
-Application::ptr BuildDynamicObjectsGraph(ae::Domain& domain) {
-  using dynamic_objects::ObjId;
-  using dynamic_objects::ToObjId;
-
-  auto application = Application::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::Application)));
-  auto window = MainWindow::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
-  auto window_presenter = MainWindowPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindowPresenter)));
-  auto list = ItemList::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::ItemList)));
-  auto list_presenter = ItemListPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::ItemListPresenter)));
-  auto item1 = Item::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::Item1)));
-  auto item1_presenter = ItemPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::Item1Presenter)));
-
-  window->x = dynamic_objects::kDefaultX;
-  window->y = dynamic_objects::kDefaultY;
-  window->width = dynamic_objects::kDefaultWidth;
-  window->height = dynamic_objects::kDefaultHeight;
-  window->presenter = window_presenter;
-  window->item_list = list;
-  window_presenter->window = window;
-
-  list->presenter = list_presenter;
-  list_presenter->list = list;
-
-  item1->number = 1;
-  item1->list = list;
-  item1->presenter = item1_presenter;
-  item1_presenter->item = item1;
-  list->items.push_back(item1);
-
-  application->main_window = window;
-  return application;
 }
 
 Item::ptr CommitAddItem(ItemList& list) {

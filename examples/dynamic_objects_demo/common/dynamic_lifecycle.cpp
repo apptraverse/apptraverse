@@ -2,12 +2,13 @@
 
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
 #include <filesystem>
+
+#include "dynamic_distill.h"
 #endif
 
-#include <algorithm>
 #include <cassert>
-#include <unordered_set>
-#include <vector>
+#include <optional>
+#include <variant>
 
 #include "aether-objects/obj/domain.h"
 
@@ -23,27 +24,24 @@
 namespace apptraverse {
 namespace {
 
-APPTRAVERSE_REGISTER(Item);
-APPTRAVERSE_REGISTER(ItemPresenter);
-APPTRAVERSE_REGISTER(ItemList);
-APPTRAVERSE_REGISTER(ItemListPresenter);
-APPTRAVERSE_REGISTER(AddItemEvent);
-APPTRAVERSE_REGISTER(RemoveItemEvent);
-APPTRAVERSE_REGISTER(MainWindow);
-APPTRAVERSE_REGISTER(MainWindowPresenter);
-APPTRAVERSE_REGISTER(Application);
-
-std::vector<Presenter*> CaptureActivePresenters(Application& ui_application) {
-  std::vector<ae::Obj*> objects;
-  CollectLiveReachableObjects(ui_application, objects);
-  std::vector<Presenter*> active;
-  for (ae::Obj* obj : objects) {
-    auto* presenter = dynamic_cast<Presenter*>(obj);
-    if (presenter != nullptr && presenter->presentation_loaded) {
-      active.push_back(presenter);
-    }
+void EnsureItemListWindowLink(Application& application) {
+  auto& window = *application.main_window;
+  auto& list = *window.item_list;
+  if (!list.window.is_valid()) {
+    // Migrate ItemList v0 saves that predate the explicit parent link.
+    list.window = application.main_window;
   }
-  return active;
+}
+
+bool ApplyItemListCommand(ItemList& list, ItemListCommand const& command) {
+  if (std::get_if<AddItemCommand>(&command) != nullptr) {
+    CommitAddItem(list);
+    return true;
+  }
+  if (auto const* remove = std::get_if<RemoveItemCommand>(&command)) {
+    return CommitRemoveItem(list, remove->item_id);
+  }
+  return false;
 }
 
 }  // namespace
@@ -59,6 +57,9 @@ void DynamicModelSession::RequestStop() {
 void DynamicModelSession::SubmitAddItem(AddItemCommand command) {
   {
     std::lock_guard<std::mutex> lock{mu};
+    if (stop) {
+      return;
+    }
     pending_commands.push_back(command);
   }
   cv.notify_all();
@@ -67,6 +68,9 @@ void DynamicModelSession::SubmitAddItem(AddItemCommand command) {
 void DynamicModelSession::SubmitRemoveItem(RemoveItemCommand command) {
   {
     std::lock_guard<std::mutex> lock{mu};
+    if (stop) {
+      return;
+    }
     pending_commands.push_back(command);
   }
   cv.notify_all();
@@ -75,54 +79,12 @@ void DynamicModelSession::SubmitRemoveItem(RemoveItemCommand command) {
 void ApplyItemListStructural(std::vector<std::uint8_t> const& bytes,
                              Application& ui_application,
                              ae::IDomainStorage& ui_storage, void* host) {
-  // Hold live mirror objects and previously-active presenters across apply so
-  // identity is preserved and OnUnload can run while presenters still exist.
-  auto window = ui_application.main_window;
-  auto list = window->item_list;
-  auto list_presenter = list->presenter;
-  auto window_presenter = window->presenter;
-  std::vector<Item::ptr> existing_items = list->items;
-  std::vector<ItemPresenter::ptr> existing_item_presenters;
-  existing_item_presenters.reserve(existing_items.size());
-  for (auto const& item : existing_items) {
-    existing_item_presenters.push_back(item->presenter);
-  }
-  std::vector<Presenter::ptr> held_active;
-  auto const previously_active = CaptureActivePresenters(ui_application);
-  held_active.reserve(previously_active.size());
-  for (Presenter* presenter : previously_active) {
-    held_active.push_back(Presenter::ptr::MakeFromThis(presenter));
-  }
-
+  auto list = ui_application.main_window->item_list;
   ByteSource in;
   in.data = bytes.data();
   in.size = bytes.size();
-  ApplyStructuralPublication(in, *ui_application.domain, ui_storage);
-  assert(&*ui_application.main_window == &*window);
-  assert(&*ui_application.main_window->item_list == &*list);
-  assert(&*list->presenter == &*list_presenter);
-  assert(&*window->presenter == &*window_presenter);
-
-  std::unordered_set<std::uint32_t> live_ids;
-  for (auto const& item : list->items) {
-    assert(item.is_valid());
-    live_ids.insert(item->obj_id.id());
-  }
-  for (std::size_t i = 0; i < existing_items.size(); ++i) {
-    auto const id = existing_items[i]->obj_id.id();
-    if (live_ids.count(id) == 0) {
-      continue;
-    }
-    auto const it = std::find_if(
-        list->items.begin(), list->items.end(),
-        [&](Item::ptr const& item) { return item->obj_id.id() == id; });
-    assert(it != list->items.end());
-    assert(&**it == &*existing_items[i]);
-    assert(&*(*it)->presenter == &*existing_item_presenters[i]);
-  }
-
-  UpdatePresentersAfterStructuralPublication(ui_application, previously_active,
-                                             host);
+  ApplyStructuralPublicationAndUpdatePresenters(
+      in, *ui_application.domain, ui_storage, ui_application, host);
 
   for (auto const& item : list->items) {
     if (item->presenter.is_valid() && item->presenter.is_loaded() &&
@@ -130,13 +92,14 @@ void ApplyItemListStructural(std::vector<std::uint8_t> const& bytes,
       item->presenter->OnModelChanged();
     }
   }
-  if (list_presenter.is_valid() && list_presenter.is_loaded() &&
-      list_presenter->presentation_loaded) {
-    list_presenter->OnModelChanged();
+  if (list->presenter.is_valid() && list->presenter.is_loaded() &&
+      list->presenter->presentation_loaded) {
+    list->presenter->OnModelChanged();
   }
-  if (window_presenter.is_valid() && window_presenter.is_loaded() &&
-      window_presenter->presentation_loaded) {
-    window_presenter->OnModelChanged();
+  if (ui_application.main_window->presenter.is_valid() &&
+      ui_application.main_window->presenter.is_loaded() &&
+      ui_application.main_window->presenter->presentation_loaded) {
+    ui_application.main_window->presenter->OnModelChanged();
   }
 }
 
@@ -167,6 +130,7 @@ void DynamicModelSession::Run(
     auto application = LoadApplication<Application>(
         domain, ae::ObjId{dynamic_objects::ToObjId(
                     dynamic_objects::ObjId::Application)});
+    EnsureItemListWindowLink(*application);
 
     auto* buffer = channel.AcquireProducer();
     SerializeInitialPublication(*application, buffer->sink);
@@ -179,30 +143,34 @@ void DynamicModelSession::Run(
     on_published(PublicationKind::Initial);
 
     for (;;) {
-      ItemListCommand command;
+      std::optional<ItemListCommand> command;
+      bool draining = false;
       {
         std::unique_lock<std::mutex> lock{mu};
         cv.wait(lock, [&] {
-          return stop ||
-                 (!pending_commands.empty() && !channel.has_unread_published());
+          if (stop) {
+            return true;
+          }
+          return !pending_commands.empty() && !channel.has_unread_published();
         });
         if (stop) {
-          break;
+          if (pending_commands.empty()) {
+            break;
+          }
+          // Accepted before RequestStop: commit for Save without waiting on
+          // GUI publication consumption.
+          command = pending_commands.front();
+          pending_commands.pop_front();
+          draining = true;
+        } else {
+          command = pending_commands.front();
+          pending_commands.pop_front();
         }
-        command = pending_commands.front();
-        pending_commands.pop_front();
       }
 
       ItemList& list = *application->main_window->item_list;
-      bool mutated = false;
-      if (auto const* add = std::get_if<AddItemCommand>(&command)) {
-        (void)add;
-        CommitAddItem(list);
-        mutated = true;
-      } else if (auto const* remove = std::get_if<RemoveItemCommand>(&command)) {
-        mutated = CommitRemoveItem(list, remove->item_id);
-      }
-      if (!mutated) {
+      bool const mutated = ApplyItemListCommand(list, *command);
+      if (!mutated || draining) {
         continue;
       }
 

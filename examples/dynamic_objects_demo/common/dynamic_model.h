@@ -79,7 +79,7 @@ class ItemPresenter : public Presenter {
 
 class ItemList : public NodeFor<ItemList> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::dynamic::ItemList", ItemList,
-                           Node, 0)
+                           Node, 1)
 
  protected:
   ItemList() = default;
@@ -87,7 +87,7 @@ class ItemList : public NodeFor<ItemList> {
  public:
   explicit ItemList(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(items), AE_MMBR(presenter))
+  AE_OBJECT_REFLECT(AE_MMBR(items), AE_MMBR(presenter), AE_MMBR(window))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -96,13 +96,21 @@ class ItemList : public NodeFor<ItemList> {
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
+  void Load(ae::Version<1>, Dnv& dnv) {
+    Node::Load(ae::Version<2>{}, dnv);
+    dnv(items, presenter, window);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
     Node::Save(ae::Version<2>{}, dnv);
-    dnv(items, presenter);
+    dnv(items, presenter, window);
   }
 
   std::vector<Item::ptr> items;
   ae::ObjPtr<ItemListPresenter> presenter;
+  // Explicit parent. Prefer this over domain.Find(fixed MainWindow ObjId).
+  ae::ObjPtr<MainWindow> window;
 
   void Apply(AddItemEvent const& event);
   void Apply(RemoveItemEvent const& event);
@@ -270,7 +278,8 @@ class Application : public ae::Obj {
   MainWindow::ptr main_window;
 };
 
-Application::ptr BuildDynamicObjectsGraph(ae::Domain& domain);
+// Forces model Registrar statics from the model static library to be linked.
+void EnsureDynamicModelRegistration();
 
 // Create Item + presenter with a new ObjId, wire list back-ref, commit.
 // number = max(existing numbers) + 1 (stable after removals; not size+1).

@@ -45,13 +45,13 @@ struct DynamicModelSession {
   std::deque<ItemListCommand> pending_commands;
 
   void RequestStop();
+  // Rejected after RequestStop. Commands already queued are accepted and drained.
   void SubmitAddItem(AddItemCommand command);
   void SubmitRemoveItem(RemoveItemCommand command);
   void Run(std::function<void(PublicationKind)> on_published);
 };
 
-// Apply structural ItemList publication, unload removed presenters, activate
-// newly live ones.
+// Apply structural ItemList publication with generic keepalive + presenter update.
 void ApplyItemListStructural(std::vector<std::uint8_t> const& bytes,
                              Application& ui_application,
                              ae::IDomainStorage& ui_storage, void* host);

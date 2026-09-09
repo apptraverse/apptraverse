@@ -10,8 +10,12 @@ add_executable(win32_dynamic_objects_demo ${_dynamic_win_sources})
 target_compile_definitions(win32_dynamic_objects_demo PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION
 )
+target_link_libraries(win32_dynamic_objects_demo PRIVATE
+  dynamic_objects_demo_distill
+)
 
 add_executable(win32_dynamic_objects_demo_load_only ${_dynamic_win_sources})
+# Load-only: model library only — no dynamic_distill / BuildDynamicObjectsGraph.
 
 foreach(_dyn_demo win32_dynamic_objects_demo win32_dynamic_objects_demo_load_only)
   target_link_libraries(${_dyn_demo} PRIVATE

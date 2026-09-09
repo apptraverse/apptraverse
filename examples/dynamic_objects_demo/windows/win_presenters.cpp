@@ -2,8 +2,6 @@
 
 #include <cstdio>
 
-#include "dynamic_ids.h"
-#include "dynamic_lifecycle.h"
 #include "dynamic_win32_messages.h"
 #include "win32_fatal.h"
 
@@ -26,6 +24,43 @@ void SetPresenterUserData(HWND hwnd, void* presenter) {
 
 }  // namespace
 
+void RegisterDynamicWin32Classes() {
+  HINSTANCE const instance = GetModuleHandleW(nullptr);
+  WNDCLASSW main_wc{};
+  main_wc.lpfnWndProc = &Win32MainWindowPresenter::WndProc;
+  main_wc.hInstance = instance;
+  main_wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+  main_wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+  main_wc.lpszClassName = kDynamicMainClass;
+  if (RegisterClassW(&main_wc) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("RegisterClassW DynamicMain", err);
+  }
+
+  WNDCLASSW list_wc{};
+  list_wc.lpfnWndProc = &Win32ItemListPresenter::WndProc;
+  list_wc.hInstance = instance;
+  list_wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+  list_wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+  list_wc.lpszClassName = kDynamicItemListClass;
+  if (RegisterClassW(&list_wc) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("RegisterClassW DynamicItemList", err);
+  }
+}
+
+void UnregisterDynamicWin32Classes() {
+  HINSTANCE const instance = GetModuleHandleW(nullptr);
+  if (UnregisterClassW(kDynamicItemListClass, instance) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("UnregisterClassW DynamicItemList", err);
+  }
+  if (UnregisterClassW(kDynamicMainClass, instance) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("UnregisterClassW DynamicMain", err);
+  }
+}
+
 LRESULT CALLBACK Win32MainWindowPresenter::WndProc(HWND hwnd, UINT msg,
                                                    WPARAM wparam,
                                                    LPARAM lparam) {
@@ -44,26 +79,14 @@ LRESULT CALLBACK Win32MainWindowPresenter::WndProc(HWND hwnd, UINT msg,
   }
   if (msg == WM_CLOSE) {
     HWND const notify = reinterpret_cast<HWND>(presenter->presentation_host);
-    if (PostMessageW(notify, WM_APPTRAVERSE_STOP, 0, 0) == 0) {
-      DWORD const err = GetLastError();
-      FatalWin32("PostMessageW WM_APPTRAVERSE_STOP", err);
-    }
+    PostMessageW(notify, WM_APPTRAVERSE_CLOSE_WINDOW,
+                 static_cast<WPARAM>(presenter->window->obj_id.id()), 0);
     return 0;
   }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 void Win32MainWindowPresenter::OnLoad() {
-  WNDCLASSW wc{};
-  wc.lpfnWndProc = &Win32MainWindowPresenter::WndProc;
-  wc.hInstance = GetModuleHandleW(nullptr);
-  wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-  wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-  wc.lpszClassName = kDynamicMainClass;
-  if (RegisterClassW(&wc) == 0) {
-    DWORD const err = GetLastError();
-    FatalWin32("RegisterClassW DynamicMain", err);
-  }
   hwnd = CreateWindowExW(0, kDynamicMainClass, kDynamicMainTitle,
                          WS_OVERLAPPEDWINDOW, window->x, window->y,
                          window->width, window->height, nullptr, nullptr,
@@ -96,10 +119,6 @@ void Win32MainWindowPresenter::OnUnload() {
   }
   hwnd = nullptr;
   add_button = nullptr;
-  if (UnregisterClassW(kDynamicMainClass, GetModuleHandleW(nullptr)) == 0) {
-    DWORD const err = GetLastError();
-    FatalWin32("UnregisterClassW DynamicMain", err);
-  }
 }
 
 LRESULT CALLBACK Win32ItemListPresenter::WndProc(HWND hwnd, UINT msg,
@@ -120,9 +139,7 @@ LRESULT CALLBACK Win32ItemListPresenter::WndProc(HWND hwnd, UINT msg,
     HWND const button = reinterpret_cast<HWND>(lparam);
     auto const item_id =
         static_cast<ae::ObjId::Type>(GetWindowLongPtrW(button, GWLP_USERDATA));
-    auto window = list_p->list->domain->Find(ae::ObjId{
-        dynamic_objects::ToObjId(dynamic_objects::ObjId::MainWindow)});
-    auto* main = dynamic_cast<MainWindow*>(&*window);
+    auto* main = &*list_p->list->window;
     auto* main_p =
         dynamic_cast<Win32MainWindowPresenter*>(&*main->presenter);
     HWND const notify = reinterpret_cast<HWND>(main_p->presentation_host);
@@ -134,42 +151,23 @@ LRESULT CALLBACK Win32ItemListPresenter::WndProc(HWND hwnd, UINT msg,
 }
 
 bool Win32ItemListPresenter::ReadyForPresentation() const {
-  if (!list.is_valid() || !list.is_loaded() || !list->domain) {
+  if (!list.is_valid() || !list.is_loaded() || !list->window.is_valid() ||
+      !list->window.is_loaded()) {
     return false;
   }
-  auto window = list->domain->Find(
-      ae::ObjId{dynamic_objects::ToObjId(dynamic_objects::ObjId::MainWindow)});
-  if (!window) {
-    return false;
-  }
-  auto* main = dynamic_cast<MainWindow*>(&*window);
-  if (main == nullptr || !main->presenter.is_valid() ||
-      !main->presenter.is_loaded()) {
+  auto* main = &*list->window;
+  if (!main->presenter.is_valid() || !main->presenter.is_loaded()) {
     return false;
   }
   return main->presenter->presentation_loaded;
 }
 
 void Win32ItemListPresenter::OnLoad() {
-  auto window = list->domain->Find(
-      ae::ObjId{dynamic_objects::ToObjId(dynamic_objects::ObjId::MainWindow)});
-  auto* main = dynamic_cast<MainWindow*>(&*window);
+  auto* main = &*list->window;
   auto* main_p =
       dynamic_cast<Win32MainWindowPresenter*>(&*main->presenter);
   assert(main_p != nullptr && main_p->hwnd != nullptr);
 
-  WNDCLASSW wc{};
-  wc.lpfnWndProc = &Win32ItemListPresenter::WndProc;
-  wc.hInstance = GetModuleHandleW(nullptr);
-  wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-  wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-  wc.lpszClassName = kDynamicItemListClass;
-  if (RegisterClassW(&wc) == 0) {
-    DWORD const err = GetLastError();
-    if (err != ERROR_CLASS_ALREADY_EXISTS) {
-      FatalWin32("RegisterClassW DynamicItemList", err);
-    }
-  }
   hwnd = CreateWindowExW(0, kDynamicItemListClass, L"", WS_CHILD | WS_VISIBLE,
                          12, 52, main->width - 40, main->height - 100,
                          main_p->hwnd, nullptr, GetModuleHandleW(nullptr),
@@ -183,16 +181,10 @@ void Win32ItemListPresenter::OnLoad() {
 void Win32ItemListPresenter::OnModelChanged() {}
 
 void Win32ItemListPresenter::OnUnload() {
-  if (hwnd == nullptr) {
-    return;
-  }
-  // Parent Main may already have DestroyWindow'd this child during its OnUnload.
-  if (IsWindow(hwnd) != 0) {
-    SetPresenterUserData(hwnd, nullptr);
-    if (DestroyWindow(hwnd) == 0) {
-      DWORD const err = GetLastError();
-      FatalWin32("DestroyWindow ItemList", err);
-    }
+  SetPresenterUserData(hwnd, nullptr);
+  if (DestroyWindow(hwnd) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("DestroyWindow ItemList", err);
   }
   hwnd = nullptr;
 }
@@ -262,25 +254,16 @@ void Win32ItemPresenter::OnModelChanged() {
 }
 
 void Win32ItemPresenter::OnUnload() {
-  // Parent ItemList/Main may already have destroyed these children.
-  if (remove_button != nullptr) {
-    if (IsWindow(remove_button) != 0) {
-      if (DestroyWindow(remove_button) == 0) {
-        DWORD const err = GetLastError();
-        FatalWin32("DestroyWindow Item remove", err);
-      }
-    }
-    remove_button = nullptr;
+  if (DestroyWindow(remove_button) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("DestroyWindow Item remove", err);
   }
-  if (hwnd != nullptr) {
-    if (IsWindow(hwnd) != 0) {
-      if (DestroyWindow(hwnd) == 0) {
-        DWORD const err = GetLastError();
-        FatalWin32("DestroyWindow Item", err);
-      }
-    }
-    hwnd = nullptr;
+  remove_button = nullptr;
+  if (DestroyWindow(hwnd) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("DestroyWindow Item", err);
   }
+  hwnd = nullptr;
 }
 
 }  // namespace apptraverse

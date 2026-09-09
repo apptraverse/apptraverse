@@ -17,6 +17,7 @@
 #include "apptraverse/object_serialization.h"
 
 #include "dynamic_ids.h"
+#include "dynamic_distill.h"
 #include "dynamic_lifecycle.h"
 #include "dynamic_model.h"
 
@@ -63,17 +64,12 @@ class TestItemListPresenter : public ItemListPresenter {
   AE_OBJECT_REFLECT()
 
   bool ReadyForPresentation() const override {
-    if (!list.is_valid() || !list.is_loaded() || !list->domain) {
+    if (!list.is_valid() || !list.is_loaded() || !list->window.is_valid() ||
+        !list->window.is_loaded()) {
       return false;
     }
-    auto window = list->domain->Find(ae::ObjId{dynamic_objects::ToObjId(
-        dynamic_objects::ObjId::MainWindow)});
-    if (!window) {
-      return false;
-    }
-    auto* main = dynamic_cast<MainWindow*>(&*window);
-    return main != nullptr && main->presenter.is_valid() &&
-           main->presenter.is_loaded() &&
+    auto* main = &*list->window;
+    return main->presenter.is_valid() && main->presenter.is_loaded() &&
            main->presenter->presentation_loaded;
   }
 
@@ -638,6 +634,80 @@ void TestMultiOperationSequence() {
   std::filesystem::remove_all(dir);
 }
 
+void TestShutdownDrainsAcceptedAdds() {
+  auto dir = TestDir("apptraverse_dynamic_shutdown_drain_add");
+  DynamicModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run([&session](PublicationKind) { session.cv.notify_all(); });
+  }};
+  WaitPublished(session);
+  {
+    std::lock_guard<std::mutex> lock{session.mu};
+    (void)session.channel.TakePublishedCopy();
+  }
+  session.cv.notify_all();
+
+  session.SubmitAddItem(AddItemCommand{1});
+  session.SubmitAddItem(AddItemCommand{2});
+  session.RequestStop();
+  model.join();
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{dynamic_objects::ToObjId(
+                  dynamic_objects::ObjId::Application)});
+  auto& list = *application->main_window->item_list;
+  CHECK(list.items.size() == 3);
+  CHECK(list.items[0]->number == 1);
+  CHECK(list.items[1]->number == 2);
+  CHECK(list.items[2]->number == 3);
+  CHECK(list.journal.size() == 2);
+  std::filesystem::remove_all(dir);
+}
+
+void TestShutdownDrainsAcceptedRemove() {
+  auto dir = TestDir("apptraverse_dynamic_shutdown_drain_remove");
+  DynamicModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run([&session](PublicationKind) { session.cv.notify_all(); });
+  }};
+  WaitPublished(session);
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+
+  session.SubmitAddItem(AddItemCommand{1});
+  WaitPublished(session);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  session.SubmitAddItem(AddItemCommand{2});
+  WaitPublished(session);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  auto const item2_id = ui_app->main_window->item_list->items[1]->obj_id;
+
+  session.SubmitRemoveItem(RemoveItemCommand{item2_id});
+  session.RequestStop();
+  // Do not wait for / consume Remove publication — drain must still Save it.
+  model.join();
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{dynamic_objects::ToObjId(
+                  dynamic_objects::ObjId::Application)});
+  auto& list = *application->main_window->item_list;
+  CHECK(list.items.size() == 2);
+  CHECK(list.items[0]->number == 1);
+  CHECK(list.items[1]->number == 3);
+  CHECK(list.journal.size() == 3);
+
+  session.SubmitAddItem(AddItemCommand{99});
+  CHECK(session.pending_commands.empty());
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace
 
 }  // namespace apptraverse::test
@@ -654,6 +724,8 @@ int main() {
   apptraverse::test::TestMirrorRemoveAndHistoricalPresenter();
   apptraverse::test::TestMiddleRemoveThenAdd();
   apptraverse::test::TestMultiOperationSequence();
+  apptraverse::test::TestShutdownDrainsAcceptedAdds();
+  apptraverse::test::TestShutdownDrainsAcceptedRemove();
   std::cout << "dynamic_objects_add_test OK\n";
   return 0;
 }

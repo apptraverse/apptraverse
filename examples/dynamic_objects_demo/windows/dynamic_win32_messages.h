@@ -13,6 +13,8 @@ inline constexpr UINT WM_APPTRAVERSE_INCREMENTAL_PUBLISHED = WM_APP + 2;
 inline constexpr UINT WM_APPTRAVERSE_STOP = WM_APP + 3;
 inline constexpr UINT WM_APPTRAVERSE_ADD_ITEM = WM_APP + 4;
 inline constexpr UINT WM_APPTRAVERSE_REMOVE_ITEM = WM_APP + 5;
+// wparam = closing MainWindow ObjId. Application decides whether to stop.
+inline constexpr UINT WM_APPTRAVERSE_CLOSE_WINDOW = WM_APP + 6;
 
 }  // namespace apptraverse
 

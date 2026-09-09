@@ -21,6 +21,11 @@ inline wchar_t const kDynamicMainTitle[] = L"Dynamic Objects";
 inline constexpr int kAddButtonId = 1001;
 inline constexpr int kRemoveButtonId = 1002;
 
+// Process/GUI-run lifetime. Call once around the WinApp presentation span —
+// not from per-HWND OnLoad/OnUnload.
+void RegisterDynamicWin32Classes();
+void UnregisterDynamicWin32Classes();
+
 class Win32MainWindowPresenter : public MainWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::dynamic::Win32MainWindowPresenter",
@@ -42,7 +47,6 @@ class Win32MainWindowPresenter : public MainWindowPresenter {
   HWND hwnd{nullptr};
   HWND add_button{nullptr};
 
- private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);
 };
@@ -68,7 +72,6 @@ class Win32ItemListPresenter : public ItemListPresenter {
 
   HWND hwnd{nullptr};
 
- private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);
 };

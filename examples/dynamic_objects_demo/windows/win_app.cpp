@@ -40,7 +40,6 @@ LRESULT CALLBACK WinApp::WndProc(HWND hwnd, UINT msg, WPARAM wparam,
 }
 
 LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-  (void)wparam;
   (void)lparam;
   if (msg == WM_APPTRAVERSE_INITIAL_PUBLISHED) {
     OnInitialPublished();
@@ -58,6 +57,16 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (msg == WM_APPTRAVERSE_REMOVE_ITEM) {
     session_.SubmitRemoveItem(
         RemoveItemCommand{ae::ObjId{static_cast<ae::ObjId::Type>(wparam)}});
+    return 0;
+  }
+  if (msg == WM_APPTRAVERSE_CLOSE_WINDOW) {
+    // Single MainWindow demo: closing that window stops the application.
+    if (ui_application_.is_valid() &&
+        ui_application_->main_window.is_valid() &&
+        ui_application_->main_window->obj_id.id() ==
+            static_cast<ae::ObjId::Type>(wparam)) {
+      session_.RequestStop();
+    }
     return 0;
   }
   if (msg == WM_APPTRAVERSE_STOP) {
@@ -112,6 +121,7 @@ void WinApp::OnIncrementalPublished() {
 
 int WinApp::Run(std::filesystem::path const& state_dir) {
   HINSTANCE const instance = GetModuleHandleW(nullptr);
+  RegisterDynamicWin32Classes();
 
   WNDCLASSW notify_wc{};
   notify_wc.lpfnWndProc = &WinApp::WndProc;
@@ -201,6 +211,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   UnloadPresenters(*ui_application_);
   ui_application_ = {};
   ui_domain_.reset();
+  UnregisterDynamicWin32Classes();
   if (DestroyWindow(notify_) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("DestroyWindow notify", err);
