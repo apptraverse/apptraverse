@@ -176,7 +176,7 @@ void TestModelSessionDoesNotCreateMain() {
 
   ModelSession session;
   session.state_dir = dir;
-  std::thread model{[&] { session.Run(); }};
+  std::thread model{[&] { session.Run([&session] { session.cv.notify_all(); }); }};
   WaitPublished(session);
   CHECK(CountOwnedClass(pid, kMainWindowClass) == 0);
   session.RequestStop();
@@ -234,7 +234,7 @@ void TestChildProcessLoadOnlyThenClose() {
   {
     ModelSession session;
     session.state_dir = dir;
-    std::thread model{[&] { session.Run(); }};
+    std::thread model{[&] { session.Run([&session] { session.cv.notify_all(); }); }};
     WaitPublished(session);
     session.RequestStop();
     model.join();

@@ -47,6 +47,13 @@ not this one.
 Constraints:
 
 - exactly two threads: Windows GUI thread and model thread
+- shared `ModelSession` has no platform handles (`HWND`/`HANDLE`/`void*` stand-ins)
+- `Run(std::function<void()> on_published)` is a required production boundary:
+  called on the model thread after the serialized buffer is published, without
+  holding `mu`; Windows posts to the notify HWND; tests signal their waiter
+- return from `Run` means Application, reachable graph, Domain, and storage
+  have already been destroyed on the model thread; Windows `SetEvent` is after
+  that return, in the thread lambda, not in `ModelSession`
 - GUI never creates, loads, or touches model Domain objects
 - first launch (development build with `APPTRAVERSE_ENABLE_DISTILLATION`):
   create → distill → destroy graph/Domain → new Domain → load

@@ -6,6 +6,7 @@
 #  undef RegisterClass
 #endif
 
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -29,7 +30,11 @@ int RunMissingLoad(char const* dir) {
   apptraverse::EnsureObjectRegistration();
   apptraverse::ModelSession session;
   session.state_dir = dir;
-  session.Run();
+  session.Run([] {
+    std::fputs("unexpected publication after missing load\n", stderr);
+    std::fflush(stderr);
+    std::abort();
+  });
   return 0;
 }
 

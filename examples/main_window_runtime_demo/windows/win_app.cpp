@@ -105,8 +105,8 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   }
 
   session_.state_dir = state_dir;
-  session_.done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  if (session_.done_event == nullptr) {
+  HANDLE done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (done_event == nullptr) {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: CreateEventW done_event GetLastError=%lu\n",
                  err);
@@ -123,7 +123,6 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     std::fflush(stderr);
     std::abort();
   }
-  session_.notify_hwnd = notify_;
 
   loading_ = CreateWindowExW(
       0, kLoadingWindowClass, kLoadingWindowTitle,
@@ -137,10 +136,30 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     std::abort();
   }
 
-  model_thread_ = std::thread([this] { session_.Run(); });
+  HWND const notify = notify_;
+  model_thread_ = std::thread([this, notify, done_event] {
+    session_.Run([notify] {
+      if (PostMessageW(notify, WM_APPTRAVERSE_PUBLISHED, 0, 0) == 0) {
+        DWORD const err = GetLastError();
+        std::fprintf(
+            stderr,
+            "fatal: PostMessageW WM_APPTRAVERSE_PUBLISHED GetLastError=%lu\n",
+            err);
+        std::fflush(stderr);
+        std::abort();
+      }
+    });
+    if (SetEvent(done_event) == 0) {
+      DWORD const err = GetLastError();
+      std::fprintf(stderr, "fatal: SetEvent done_event GetLastError=%lu\n",
+                   err);
+      std::fflush(stderr);
+      std::abort();
+    }
+  });
 
   for (;;) {
-    HANDLE handles[] = {session_.done_event};
+    HANDLE handles[] = {done_event};
     DWORD const wait = MsgWaitForMultipleObjects(1, handles, FALSE, INFINITE,
                                                 QS_ALLINPUT | QS_ALLPOSTMESSAGE);
     if (wait == WAIT_FAILED) {
@@ -187,7 +206,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     std::fflush(stderr);
     std::abort();
   }
-  CloseHandle(session_.done_event);
+  CloseHandle(done_event);
   return 0;
 }
 

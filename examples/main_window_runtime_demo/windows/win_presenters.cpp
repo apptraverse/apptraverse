@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "main_window_lifecycle.h"
+#include "main_window_win32_messages.h"
 
 namespace apptraverse {
 namespace {

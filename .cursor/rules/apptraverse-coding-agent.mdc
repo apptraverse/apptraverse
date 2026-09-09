@@ -55,8 +55,11 @@ If classes/subsystems must be registered before worker threads: once, at one obv
 
 Simplifying helpers must not drop mutex coverage around a condition-variable
 predicate. Mutations that waiters observe (`stop`, `has_unread_published`) are
-done under the same mutex as `wait`, then `notify`. `done` is signaled only
-after model graph/Domain/storage have left scope.
+done under the same mutex as `wait`, then `notify`. `ModelSession` has no
+platform handles. Publication is reported through the required `on_published`
+callback after the mutex is released. Windows signals completion (`SetEvent`)
+only after `Run` returns, in the thread lambda, once graph/Domain/storage have
+left scope.
 
 ## Do not invent entities
 
@@ -82,7 +85,9 @@ Distillation / initial-state creation is not production. A load-only/production 
 
 Startup (not cancelable; user cannot close the app before Main): GUI thread creates Loading → start model thread → model fully loads → initial mirror published → GUI mirror → presenters init → Main created → Loading destroyed.
 
-Shutdown only after full startup: close Main → wake model thread → model frees graph/Domain/storage on that thread → signals done → GUI join → GUI frees presentation and GUI Domain → exit.
+Shutdown only after full startup: close Main → wake model thread → model frees
+graph/Domain/storage on that thread → `Run` returns → Windows `SetEvent` → GUI
+join → GUI frees presentation and GUI Domain → exit.
 
 Do not restore close-during-Loading without an explicit assignment.
 

@@ -1,9 +1,5 @@
 #include "main_window_lifecycle.h"
 
-#include <cstdio>
-#include <cstdlib>
-#include <mutex>
-
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
 #include <filesystem>
 #endif
@@ -37,7 +33,7 @@ void ModelSession::RequestStop() {
   cv.notify_all();
 }
 
-void ModelSession::Run() {
+void ModelSession::Run(std::function<void()> on_published) {
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
   // Development bootstrap: create persisted state only when it does not exist.
   bool state_missing = true;
@@ -73,38 +69,14 @@ void ModelSession::Run() {
       channel.NotePublished();
       channel.PublishProducer();
     }
-#ifdef _WIN32
-    if (notify_hwnd != nullptr) {
-      if (PostMessageW(notify_hwnd, WM_APPTRAVERSE_PUBLISHED, 0, 0) == 0) {
-        DWORD const err = GetLastError();
-        std::fprintf(
-            stderr,
-            "fatal: PostMessageW WM_APPTRAVERSE_PUBLISHED GetLastError=%lu\n",
-            err);
-        std::fflush(stderr);
-        std::abort();
-      }
-    }
-#endif
     cv.notify_all();
+    on_published();
 
     {
       std::unique_lock<std::mutex> lock{mu};
       cv.wait(lock, [&] { return stop; });
     }
   }
-
-#ifdef _WIN32
-  if (done_event != nullptr) {
-    if (SetEvent(done_event) == 0) {
-      DWORD const err = GetLastError();
-      std::fprintf(stderr, "fatal: SetEvent done_event GetLastError=%lu\n",
-                   err);
-      std::fflush(stderr);
-      std::abort();
-    }
-  }
-#endif
 }
 
 }  // namespace apptraverse

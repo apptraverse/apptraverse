@@ -2,20 +2,11 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <condition_variable>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
 #include <thread>
-
-#ifdef _WIN32
-#  ifndef WIN32_LEAN_AND_MEAN
-#    define WIN32_LEAN_AND_MEAN
-#  endif
-#  include <windows.h>
-#  ifdef RegisterClass
-#    undef RegisterClass
-#  endif
-#endif
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -86,6 +77,25 @@ std::filesystem::path TestDir(char const* name) {
   return path;
 }
 
+struct TestPublishGate {
+  std::mutex mu;
+  std::condition_variable cv;
+  bool ready{false};
+
+  void Notify() {
+    {
+      std::lock_guard<std::mutex> lock{mu};
+      ready = true;
+    }
+    cv.notify_all();
+  }
+
+  void Wait() {
+    std::unique_lock<std::mutex> lock{mu};
+    CHECK(cv.wait_for(lock, std::chrono::seconds{30}, [&] { return ready; }));
+  }
+};
+
 void WaitPublished(ModelSession& session) {
   std::unique_lock<std::mutex> lock{session.mu};
   CHECK(session.cv.wait_for(lock, std::chrono::seconds{30}, [&] {
@@ -123,8 +133,9 @@ void TestDevStartup() {
   auto dir = TestDir("apptraverse_main_window_dev");
   ModelSession session;
   session.state_dir = dir;
-  std::thread model{[&] { session.Run(); }};
-  WaitPublished(session);
+  TestPublishGate published;
+  std::thread model{[&] { session.Run([&] { published.Notify(); }); }};
+  published.Wait();
   CHECK(PersistedApplicationExists(dir));
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
   CHECK(TestMainWindowPresenter::dtor_calls.load() == 0);
@@ -160,8 +171,9 @@ void TestDevReloadSameIds() {
   {
     ModelSession first;
     first.state_dir = dir;
-    std::thread model{[&] { first.Run(); }};
-    WaitPublished(first);
+    TestPublishGate published;
+    std::thread model{[&] { first.Run([&] { published.Notify(); }); }};
+    published.Wait();
     CHECK(PersistedApplicationExists(dir));
     first.RequestStop();
     model.join();
@@ -169,8 +181,9 @@ void TestDevReloadSameIds() {
   {
     ModelSession second;
     second.state_dir = dir;
-    std::thread model{[&] { second.Run(); }};
-    WaitPublished(second);
+    TestPublishGate published;
+    std::thread model{[&] { second.Run([&] { published.Notify(); }); }};
+    published.Wait();
     ae::RamDomainStorage ui_storage;
     ae::Domain ui_domain{ui_storage};
     auto ui_app = LoadUiFromSession(second, ui_domain, ui_storage);
@@ -189,19 +202,28 @@ void TestWaitBeforePublish() {
   auto dir = TestDir("apptraverse_main_window_wait_before");
   ModelSession session;
   session.state_dir = dir;
-  std::atomic<bool> waiter_holds_lock{false};
+  std::mutex start_mu;
+  std::condition_variable start_cv;
+  bool waiter_ready = false;
   std::thread waiter{[&] {
     std::unique_lock<std::mutex> lock{session.mu};
-    waiter_holds_lock.store(true);
+    {
+      std::lock_guard<std::mutex> start{start_mu};
+      waiter_ready = true;
+    }
+    start_cv.notify_all();
     CHECK(session.cv.wait_for(lock, std::chrono::seconds{30}, [&] {
       return session.channel.has_unread_published();
     }));
   }};
-  while (!waiter_holds_lock.load()) {
-    std::this_thread::yield();
+  {
+    std::unique_lock<std::mutex> lock{start_mu};
+    CHECK(start_cv.wait_for(lock, std::chrono::seconds{30},
+                            [&] { return waiter_ready; }));
   }
-  std::thread model{[&] { session.Run(); }};
+  std::thread model{[&] { session.Run([&session] { session.cv.notify_all(); }); }};
   waiter.join();
+  WaitPublished(session);
   session.RequestStop();
   model.join();
   CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
@@ -213,16 +235,69 @@ void TestPublishBeforeWait() {
   auto dir = TestDir("apptraverse_main_window_publish_before");
   ModelSession session;
   session.state_dir = dir;
-  std::thread model{[&] { session.Run(); }};
-  auto const deadline =
-      std::chrono::steady_clock::now() + std::chrono::seconds{30};
-  while (!session.channel.has_unread_published()) {
-    CHECK(std::chrono::steady_clock::now() < deadline);
-    std::this_thread::yield();
-  }
+  TestPublishGate published;
+  std::thread model{[&] { session.Run([&] { published.Notify(); }); }};
+  published.Wait();
   WaitPublished(session);
   session.RequestStop();
   model.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestStopBeforeWait() {
+  TestMainWindowPresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_main_window_stop_before_wait");
+  ModelSession session;
+  session.state_dir = dir;
+  std::mutex gate_mu;
+  std::condition_variable gate_cv;
+  bool in_callback = false;
+  bool release_callback = false;
+  std::thread model{[&] {
+    session.Run([&] {
+      {
+        std::lock_guard<std::mutex> lock{gate_mu};
+        in_callback = true;
+      }
+      gate_cv.notify_all();
+      std::unique_lock<std::mutex> lock{gate_mu};
+      CHECK(gate_cv.wait_for(lock, std::chrono::seconds{30},
+                             [&] { return release_callback; }));
+    });
+  }};
+  {
+    std::unique_lock<std::mutex> lock{gate_mu};
+    CHECK(gate_cv.wait_for(lock, std::chrono::seconds{30},
+                            [&] { return in_callback; }));
+  }
+  session.RequestStop();
+  {
+    std::lock_guard<std::mutex> lock{gate_mu};
+    release_callback = true;
+  }
+  gate_cv.notify_all();
+  model.join();
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
+  std::filesystem::remove_all(dir);
+}
+
+void TestStopAfterWait() {
+  TestMainWindowPresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_main_window_stop_after_wait");
+  ModelSession session;
+  session.state_dir = dir;
+  TestPublishGate published;
+  TestPublishGate finished;
+  std::thread model{[&] {
+    session.Run([&] { published.Notify(); });
+    finished.Notify();
+  }};
+  published.Wait();
+  WaitPublished(session);
+  session.RequestStop();
+  finished.Wait();
+  model.join();
+  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
   std::filesystem::remove_all(dir);
 }
 
@@ -277,8 +352,9 @@ void TestPresenterInitFromPublishedGraph() {
   auto dir = TestDir("apptraverse_main_window_presenter");
   ModelSession session;
   session.state_dir = dir;
-  std::thread model{[&] { session.Run(); }};
-  WaitPublished(session);
+  TestPublishGate published;
+  std::thread model{[&] { session.Run([&] { published.Notify(); }); }};
+  published.Wait();
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
 
   ae::RamDomainStorage ui_storage;
@@ -315,19 +391,29 @@ void TestShutdownAfterPublish() {
   auto dir = TestDir("apptraverse_main_window_shutdown");
   ModelSession session;
   session.state_dir = dir;
-#ifdef _WIN32
-  session.done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  CHECK(session.done_event != nullptr);
-#endif
-  std::thread model{[&] { session.Run(); }};
-  WaitPublished(session);
+  TestPublishGate published;
+  std::mutex done_mu;
+  std::condition_variable done_cv;
+  bool run_returned = false;
+  int dtor_at_return = 0;
+  std::thread model{[&] {
+    session.Run([&] { published.Notify(); });
+    dtor_at_return = TestMainWindowPresenter::dtor_calls.load();
+    {
+      std::lock_guard<std::mutex> lock{done_mu};
+      run_returned = true;
+    }
+    done_cv.notify_all();
+  }};
+  published.Wait();
   CHECK(TestMainWindowPresenter::dtor_calls.load() == 0);
   session.RequestStop();
-#ifdef _WIN32
-  CHECK(WaitForSingleObject(session.done_event, 30000) == WAIT_OBJECT_0);
-  CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
-  CloseHandle(session.done_event);
-#endif
+  {
+    std::unique_lock<std::mutex> lock{done_mu};
+    CHECK(done_cv.wait_for(lock, std::chrono::seconds{30},
+                            [&] { return run_returned; }));
+  }
+  CHECK(dtor_at_return == 1);
   model.join();
   CHECK(TestMainWindowPresenter::dtor_calls.load() == 1);
   std::filesystem::remove_all(dir);
@@ -341,6 +427,8 @@ int main() {
   apptraverse::test::TestDevReloadSameIds();
   apptraverse::test::TestWaitBeforePublish();
   apptraverse::test::TestPublishBeforeWait();
+  apptraverse::test::TestStopBeforeWait();
+  apptraverse::test::TestStopAfterWait();
   apptraverse::test::TestMostDerivedFromNeutralPresenter();
   apptraverse::test::TestPresenterInitFromPublishedGraph();
   apptraverse::test::TestShutdownAfterPublish();

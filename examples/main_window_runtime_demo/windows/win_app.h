@@ -1,6 +1,14 @@
 #ifndef APPTRAVERSE_MAIN_WINDOW_WIN_APP_H_
 #define APPTRAVERSE_MAIN_WINDOW_WIN_APP_H_
 
+#ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#ifdef RegisterClass
+#  undef RegisterClass
+#endif
+
 #include <filesystem>
 #include <memory>
 #include <thread>
@@ -10,6 +18,7 @@
 
 #include "main_window_lifecycle.h"
 #include "main_window_model.h"
+#include "main_window_win32_messages.h"
 
 namespace apptraverse {
 

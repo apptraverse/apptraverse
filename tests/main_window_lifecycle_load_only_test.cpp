@@ -111,7 +111,7 @@ void TestLoadOnlyExistingState() {
 
   ModelSession session;
   session.state_dir = dir;
-  std::thread model{[&] { session.Run(); }};
+  std::thread model{[&] { session.Run([&session] { session.cv.notify_all(); }); }};
   WaitPublished(session);
   CHECK(PersistedApplicationExists(dir));
 
@@ -143,7 +143,7 @@ void TestLoadOnlyPresenterHooks() {
 
   ModelSession session;
   session.state_dir = dir;
-  std::thread model{[&] { session.Run(); }};
+  std::thread model{[&] { session.Run([&session] { session.cv.notify_all(); }); }};
   WaitPublished(session);
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
 
