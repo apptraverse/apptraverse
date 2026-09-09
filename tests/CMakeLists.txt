@@ -9,6 +9,17 @@ add_test(
   COMMAND apptraverse_event_sourced_core_test
 )
 
+add_executable(apptraverse_journal_retention_test
+  journal_retention_test.cpp
+)
+
+target_link_libraries(apptraverse_journal_retention_test PRIVATE apptraverse aether)
+
+add_test(
+  NAME apptraverse_journal_retention_test
+  COMMAND apptraverse_journal_retention_test
+)
+
 add_executable(apptraverse_directory_domain_storage_test
   directory_domain_storage_test.cpp
 )
@@ -123,10 +134,12 @@ add_test(
 add_custom_target(apptraverse_chat_headless_check
   COMMAND $<TARGET_FILE:apptraverse_event_sourced_core_test>
   COMMAND $<TARGET_FILE:apptraverse_shared_journal_test>
+  COMMAND $<TARGET_FILE:apptraverse_journal_retention_test>
   COMMAND $<TARGET_FILE:apptraverse_chat_presentation_headless_test>
   DEPENDS
     apptraverse_event_sourced_core_test
     apptraverse_shared_journal_test
+    apptraverse_journal_retention_test
     apptraverse_chat_presentation_headless_test
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Canonical headless chat/shared/presentation checks"

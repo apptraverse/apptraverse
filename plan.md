@@ -94,6 +94,27 @@ written only during graceful model shutdown, after `RequestStop`, before
 A crash before that shutdown save may lose runtime changes since the last
 graceful shutdown. Distillation remains dev-only bootstrap.
 
+Journal retention has two independent controls:
+
+1. Replay/debug retention (`JournalRetentionPolicy`):
+   - `max_events` (0 = retain none; `kUnlimitedEvents` = keep all by count);
+   - optional `max_age` (inclusive: `now - retained_since_us <= max_age`);
+   - union: a record is kept if either reason requires it.
+2. Synchronization safety:
+   - `SetJournalCompactionBlocked(true)` forbids any collapse while a remote
+     replica may still need history (offline / waiting join);
+   - future safe frontier will refine this beyond a single bool.
+
+Compaction folds only a contiguous safe prefix into `base`, leaves the
+retained suffix with canonical `SharedEventId`/`SharedEventOrder`, and does
+not change materialized fields or Generation. It runs on the model thread
+immediately before the shutdown `Save`, never during interactive resize.
+
+MainWindow: `max_events = 0`, no age retention, compaction allowed.
+
+TODO: drive compaction hold from synchronization frontier / required peers
+instead of a plain bool once networking exists.
+
 Out of scope for this slice: chat, contacts, Aether, presence,
 node periodic execution, hierarchical redraw, shared-sync, network,
 DPI/screen system events, periodic model tick.

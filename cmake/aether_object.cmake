@@ -78,6 +78,9 @@ function(apptraverse_add_full_aether)
   target_include_directories(aether PUBLIC
     $<BUILD_INTERFACE:${_src}>
   )
+  if(NOT libbcrypt_SOURCE_DIR AND DEFINED CPM_PACKAGE_libbcrypt_SOURCE_DIR)
+    set(libbcrypt_SOURCE_DIR "${CPM_PACKAGE_libbcrypt_SOURCE_DIR}")
+  endif()
   if(libbcrypt_SOURCE_DIR)
     target_include_directories(aether PUBLIC
       $<BUILD_INTERFACE:${libbcrypt_SOURCE_DIR}>

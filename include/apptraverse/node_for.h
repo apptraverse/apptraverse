@@ -50,6 +50,10 @@ class NodeFor : public BaseNode {
     Node::CommitInto(static_cast<ConcreteNode&>(*this), std::move(event));
   }
 
+  void CompactJournalImpl(std::uint64_t now_us) override {
+    Node::CompactJournalInto(static_cast<ConcreteNode&>(*this), now_us);
+  }
+
  protected:
   void RebuildFromBaseAndReplay() {
     Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
