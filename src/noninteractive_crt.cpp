@@ -1,5 +1,7 @@
 #include "apptraverse/noninteractive_crt.h"
 
+#include <cstdio>
+
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
@@ -7,7 +9,6 @@
 #  include <windows.h>
 #  include <werapi.h>
 #  include <cstdlib>
-#  include <cstdio>
 #  ifdef _MSC_VER
 #    include <crtdbg.h>
 #    pragma comment(lib, "wer.lib")
@@ -38,6 +39,22 @@ int CrtAssertHook(int report_type, char* message, int* return_value) {
 #endif
 
 }  // namespace
+
+void WriteFatalStderr(char const* text) {
+  if (text == nullptr) {
+    return;
+  }
+  std::fputs(text, stderr);
+  std::fflush(stderr);
+#ifdef _WIN32
+  HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+  if (h != nullptr && h != INVALID_HANDLE_VALUE) {
+    DWORD written = 0;
+    WriteFile(h, text, static_cast<DWORD>(lstrlenA(text)), &written, nullptr);
+    FlushFileBuffers(h);
+  }
+#endif
+}
 
 void EnableNoninteractiveCrt() {
 #ifdef _WIN32

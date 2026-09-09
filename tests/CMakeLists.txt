@@ -177,14 +177,34 @@ add_test(
   COMMAND apptraverse_main_window_lifecycle_load_only_test
 )
 
+add_executable(apptraverse_main_window_fatal_ndebug_test
+  main_window_fatal_ndebug_test.cpp
+  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
+)
+
+# Do not compile this executable with NDEBUG. aether-objects Factory layout
+# and RegisterClass are #ifndef NDEBUG; mixing that with Debug-linked
+# aether-objects aborts before main. LoadApplication fail-fast is abort()
+# (not assert), so missing state is still fatal in this Debug binary.
+target_link_libraries(apptraverse_main_window_fatal_ndebug_test PRIVATE
+  main_window_runtime_demo_model
+)
+
+add_test(
+  NAME apptraverse_main_window_fatal_ndebug_test
+  COMMAND apptraverse_main_window_fatal_ndebug_test
+)
+
 add_custom_target(apptraverse_main_window_headless_check
   COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
   COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_test>
   COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_load_only_test>
+  COMMAND $<TARGET_FILE:apptraverse_main_window_fatal_ndebug_test>
   DEPENDS
     apptraverse_publication_channel_test
     apptraverse_main_window_lifecycle_test
     apptraverse_main_window_lifecycle_load_only_test
+    apptraverse_main_window_fatal_ndebug_test
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Main-window lifecycle and publication-channel headless checks"
 )

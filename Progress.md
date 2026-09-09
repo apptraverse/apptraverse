@@ -555,3 +555,69 @@ After recording the implementation SHA (documentation-only follow-up):
 ?? tools/runners/__pycache__/
 ?? tools/runtime/__pycache__/
 ```
+
+# Main-window skeleton — presenter WndProc, wakeup, fail-fast
+
+Status: implemented, verified locally. Not accepted.
+
+## Identity
+
+- Base SHA: `644729c1f69c97055afd90ae88fcda336b8d692e`
+- Branch: `prep/deps-objects-assert-mcp-v1`
+- Worktree / source: `C:\Users\nickc\Projects\apptraverse-prep-deps-assert`
+- `CMAKE_HOME_DIRECTORY`: `C:/Users/nickc/Projects/apptraverse-prep-deps-assert`
+- Build dir: `build/win64-ninja-msvc-debug`
+- Profile: `win64-ninja-msvc-debug` (incremental; no clean)
+
+## Commits
+
+1. `af70e9c` — Native Main `RegisterClassW` / `WndProc` owned by `Win32MainWindowPresenter`. `WinApp` owns Loading/notify only. `lpParam` is the presenter. `WM_CLOSE` posts `WM_APPTRAVERSE_STOP` to the notify HWND.
+2. `158682f` — Lost wakeup: `stop` is a plain `bool` under `mu`; `RequestStop` sets it then `notify_all`. Publication `NotePublished`/`PublishProducer` under the same mutex waiters use. Model graph/Domain/storage leave an inner scope before `SetEvent(done_event)`.
+3. (this file) Fail-fast: `LoadApplication` uses `WriteFatalStderr` + `abort`, not `assert`. `fflush`/`FlushFileBuffers` before abort. Regression tests for missing Application. Coding-agent rules: Æther vs `WNDCLASS`, CV mutex, `done` after model scope, GUI `STD_ERROR_HANDLE`.
+
+## Where Main lives
+
+- `Win32MainWindowPresenter::OnLoad`: `RegisterClassW` then `CreateWindowExW(..., this)`
+- `Win32MainWindowPresenter::WndProc` in `win_presenters.cpp`
+- `OnUnload`: `DestroyWindow` then `UnregisterClassW`
+
+## Fail-fast notes
+
+- Missing Application: `if (!root) { WriteFatalStderr(...); abort(); }`
+- Do not compile registrar TUs with `NDEBUG` against Debug aether-objects (`Factory` layout is `#ifndef NDEBUG`). The fatal-ndebug *test* proves abort+diagnostic; it is a Debug binary.
+- GUI-subsystem load-only: diagnostic goes to `GetStdHandle(STD_ERROR_HANDLE)` as well as CRT stderr.
+
+## Compile (this tree)
+
+`win_app.cpp` / `win_presenters.cpp` (demo target):
+
+```
+cl.exe /TP -DAE_DISTILLATION=1 -DAE_FILTRATION=1 -DAPPTRAVERSE_ENABLE_DISTILLATION -DNOMINMAX -DWIN32_LEAN_AND_MEAN ... /std:c++20 -MDd /utf-8 /Zc:preprocessor -c .../windows/win_app.cpp
+cl.exe /TP ... -c .../windows/win_presenters.cpp
+```
+
+Includes resolve to `C:\Users\nickc\Projects\apptraverse-prep-deps-assert\include` and this worktree's `_deps`.
+
+## Tests actually run (this checkout)
+
+| target | artifact | status |
+| --- | --- | --- |
+| `apptraverse_main_window_headless_check` | `apptraverse-build/20260909-003112-345383` | ok (`publication_channel_test`, `main_window_lifecycle_test`, `main_window_lifecycle_load_only_test`, `main_window_fatal_ndebug_test`) |
+| `apptraverse_main_window_win32_smoke_check` | `apptraverse-build/20260909-003159-203e12` | ok (`main_window_win32_smoke_test OK`) |
+| `win32_main_window_runtime_demo` + `_load_only` | `apptraverse-build/20260909-003136-993f0c` | ok (up_to_date; linked in `20260909-002902-203659`; exercised as smoke children) |
+
+Exes:
+
+- `build/win64-ninja-msvc-debug/tests/apptraverse_main_window_fatal_ndebug_test.exe`
+- `build/win64-ninja-msvc-debug/tests/apptraverse_main_window_win32_smoke_test.exe`
+- `build/win64-ninja-msvc-debug/examples/main_window_runtime_demo/windows/win32_main_window_runtime_demo.exe`
+- `build/win64-ninja-msvc-debug/examples/main_window_runtime_demo/windows/win32_main_window_runtime_demo_load_only.exe`
+
+Cursor `user-apptraverse` MCP still has no `source_dir` (**BLOCKED**). Local runner only.
+
+## Limitations / TODO
+
+- `LoadStoredAncestorLayers` still in App Traverse (`plan.md`)
+- Do not restore close-during-Loading
+- Not accepted-by-user
+

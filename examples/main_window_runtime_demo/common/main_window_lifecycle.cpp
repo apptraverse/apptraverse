@@ -81,6 +81,7 @@ void ModelSession::Run() {
             stderr,
             "fatal: PostMessageW WM_APPTRAVERSE_PUBLISHED GetLastError=%lu\n",
             err);
+        std::fflush(stderr);
         std::abort();
       }
     }
@@ -99,6 +100,7 @@ void ModelSession::Run() {
       DWORD const err = GetLastError();
       std::fprintf(stderr, "fatal: SetEvent done_event GetLastError=%lu\n",
                    err);
+      std::fflush(stderr);
       std::abort();
     }
   }

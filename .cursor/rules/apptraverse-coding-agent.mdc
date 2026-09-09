@@ -19,16 +19,44 @@ Use only incremental builds of the existing build tree. If the tree is broken, e
 
 ## Fail fast on global invariants
 
-If a global invariant is broken and the app cannot work, fail immediately at the origin (`assert` / `abort`). Do not continue.
+If a global invariant is broken and the app cannot work, fail immediately at
+the origin. `assert` is stripped under `NDEBUG`; fatal checks at a real failure
+boundary (`RegisterClassW`, `CreateWindowExW`, `CreateEventW`, `PostMessageW`,
+`SetEvent`, `WAIT_FAILED`, required `LoadApplication`) must use a live check
+and `abort` (stderr diagnostic, `GetLastError` captured immediately on Win32).
+Flush stderr / `STD_ERROR_HANDLE` before `abort`. GUI-subsystem processes do
+not attach `FILE* stderr`; write the diagnostic with `WriteFile` on
+`GetStdHandle(STD_ERROR_HANDLE)` as well. Do not compile registrar TUs with
+`NDEBUG` in a Debug link of aether-objects: `Factory` layout is `#ifndef NDEBUG`.
+No modal dialog, retries, or recovery. Do not wrap the operation in `assert`.
+Do not duplicate `if (!x)` then `assert(x)`.
 
-Examples: required model/Domain/root failed to load; main native window was not created; required graph reference or class registration is missing.
+Examples: required model/Domain/root failed to load; main native window was not
+created; required graph reference or class registration is missing.
 
 - Real state-machine alternative → ordinary `if`
 - Globally impossible / fatal state → fail at the origin, then treat the invariant as true
 - Do not re-check it in every later function
 - Do not write `if (!x) return` / `if (hwnd)` when the previous stage already guaranteed `x`
 
-Before each defensive check: can this state actually be reached after earlier stages succeeded? If not, remove the check. Do not duplicate `if (!x)` then `assert(x)`.
+Before each defensive check: can this state actually be reached after earlier stages succeeded? If not, remove the check.
+
+## Registration: two different things
+
+`APPTRAVERSE_REGISTER` / `EnsureObjectRegistration` registers Æther object
+classes. `WNDCLASSW` / `RegisterClassW` registers a native Windows window class.
+They are not interchangeable. The native Main class, WndProc, HWND create and
+destroy belong to `Win32MainWindowPresenter`. Loading/notify classes belong to
+`WinApp::Run` for that process run.
+
+If classes/subsystems must be registered before worker threads: once, at one obvious startup point, before those threads start. Do not call `Ensure...Registration()` on several layers “just in case”. If a call is already guaranteed earlier, do not repeat it below.
+
+## Synchronization
+
+Simplifying helpers must not drop mutex coverage around a condition-variable
+predicate. Mutations that waiters observe (`stop`, `has_unread_published`) are
+done under the same mutex as `wait`, then `notify`. `done` is signaled only
+after model graph/Domain/storage have left scope.
 
 ## Do not invent entities
 
@@ -41,10 +69,6 @@ Use App Traverse primitives, aether-objects, platform APIs, locals, RAII, and st
 If a function is small, called from one place, is not a callback/API boundary, and does not hide a genuinely complex operation: inline it and put a short intent comment on the block.
 
 Leave callbacks, WndProc, real algorithms, and reused functions separate. This is not code golf.
-
-## Registration and init once
-
-If classes/subsystems must be registered before worker threads: once, at one obvious startup point, before those threads start. Do not call `Ensure...Registration()` on several layers “just in case”. If a call is already guaranteed earlier, do not repeat it below.
 
 ## Tests must not shape production
 

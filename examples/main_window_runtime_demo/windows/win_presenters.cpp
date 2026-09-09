@@ -34,6 +34,7 @@ LRESULT CALLBACK Win32MainWindowPresenter::WndProc(HWND hwnd, UINT msg,
       std::fprintf(stderr,
                    "fatal: PostMessageW WM_APPTRAVERSE_STOP GetLastError=%lu\n",
                    err);
+      std::fflush(stderr);
       std::abort();
     }
     return 0;
@@ -51,6 +52,7 @@ void Win32MainWindowPresenter::OnLoad() {
   if (RegisterClassW(&wc) == 0) {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: RegisterClassW Main GetLastError=%lu\n", err);
+    std::fflush(stderr);
     std::abort();
   }
   hwnd = CreateWindowExW(
@@ -61,6 +63,7 @@ void Win32MainWindowPresenter::OnLoad() {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: CreateWindowExW Main GetLastError=%lu\n",
                  err);
+    std::fflush(stderr);
     std::abort();
   }
   ShowWindow(hwnd, SW_SHOW);
@@ -73,6 +76,7 @@ void Win32MainWindowPresenter::OnUnload() {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: UnregisterClassW Main GetLastError=%lu\n",
                  err);
+    std::fflush(stderr);
     std::abort();
   }
 }

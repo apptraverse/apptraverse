@@ -155,7 +155,8 @@ void TestInProcessStartupShutdown() {
   CHECK(WaitOwned(pid, kMainWindowClass, kMainWindowTitle, &main,
                   std::chrono::seconds{30}));
   CHECK(CountOwnedClass(pid, kMainWindowClass) == 1);
-  PostMessageW(main, WM_CLOSE, 0, 0);
+  SendMessageW(main, WM_CLOSE, 0, 0);
+  CHECK(WaitForSingleObject(gui.native_handle(), 30000) == WAIT_OBJECT_0);
   gui.join();
   CHECK(FindOwned(pid, kMainWindowClass, kMainWindowTitle) == nullptr);
   std::filesystem::remove_all(dir);
@@ -255,22 +256,64 @@ void TestChildProcessLoadOnlyThenClose() {
 void TestChildProcessLoadOnlyEmptyState() {
   auto dir = std::filesystem::temp_directory_path() /
              "apptraverse_main_window_child_load_only_empty";
+  auto err_path = dir;
+  err_path += ".stderr.txt";
   std::filesystem::remove_all(dir);
+  std::filesystem::remove(err_path);
   std::filesystem::create_directories(dir);
   std::filesystem::path exe{WIN32_MAIN_WINDOW_LOAD_ONLY_EXE};
-  ChildProcess child = StartDemo(exe, dir);
-  CHECK(WaitForSingleObject(child.process, 30000) == WAIT_OBJECT_0);
+  std::wstring cmd = L"\"" + exe.wstring() + L"\" --state-dir \"" +
+                     dir.wstring() + L"\"";
+  std::vector<wchar_t> buf(cmd.begin(), cmd.end());
+  buf.push_back(L'\0');
+  SECURITY_ATTRIBUTES sa{};
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+  HANDLE errf = CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE,
+                              FILE_SHARE_READ, &sa, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+  CHECK(errf != INVALID_HANDLE_VALUE);
+  STARTUPINFOW si{};
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+  si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+  si.hStdError = errf;
+  PROCESS_INFORMATION pi{};
+  BOOL ok = CreateProcessW(exe.wstring().c_str(), buf.data(), nullptr, nullptr,
+                            TRUE, 0, nullptr, nullptr, &si, &pi);
+  CloseHandle(errf);
+  CHECK(ok);
+  CloseHandle(pi.hThread);
+  CHECK(WaitForSingleObject(pi.hProcess, 30000) == WAIT_OBJECT_0);
   DWORD code = 0;
-  GetExitCodeProcess(child.process, &code);
+  GetExitCodeProcess(pi.hProcess, &code);
   CHECK(code != 0);
-  CHECK(FindOwned(child.pid, kMainWindowClass, kMainWindowTitle) == nullptr);
+  HANDLE err_in = CreateFileW(err_path.wstring().c_str(), GENERIC_READ,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  CHECK(err_in != INVALID_HANDLE_VALUE);
+  DWORD size = GetFileSize(err_in, nullptr);
+  CHECK(size != INVALID_FILE_SIZE);
+  std::string err(size, '\0');
+  DWORD read = 0;
+  CHECK(ReadFile(err_in, err.data(), size, &read, nullptr) != 0);
+  CloseHandle(err_in);
+  err.resize(read);
+  if (err.find("fatal: LoadApplication failed") == std::string::npos) {
+    std::cerr << "load-only empty stderr was:\n" << err << '\n';
+    std::exit(1);
+  }
+  CHECK(FindOwned(pi.dwProcessId, kMainWindowClass, kMainWindowTitle) ==
+        nullptr);
   DirectoryDomainStorage storage{dir};
   CHECK(storage
             .Enumerate(ae::ObjId{main_window::ToObjId(
                 main_window::ObjId::Application)})
             .empty());
-  CloseHandle(child.process);
+  CloseHandle(pi.hProcess);
   std::filesystem::remove_all(dir);
+  std::filesystem::remove(err_path);
 }
 
 #endif

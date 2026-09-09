@@ -85,6 +85,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: RegisterClassW notify GetLastError=%lu\n",
                  err);
+    std::fflush(stderr);
     std::abort();
   }
 
@@ -99,6 +100,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: RegisterClassW Loading GetLastError=%lu\n",
                  err);
+    std::fflush(stderr);
     std::abort();
   }
 
@@ -108,6 +110,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: CreateEventW done_event GetLastError=%lu\n",
                  err);
+    std::fflush(stderr);
     std::abort();
   }
 
@@ -117,6 +120,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: CreateWindowExW notify GetLastError=%lu\n",
                  err);
+    std::fflush(stderr);
     std::abort();
   }
   session_.notify_hwnd = notify_;
@@ -129,6 +133,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: CreateWindowExW Loading GetLastError=%lu\n",
                  err);
+    std::fflush(stderr);
     std::abort();
   }
 
@@ -142,6 +147,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
       DWORD const err = GetLastError();
       std::fprintf(stderr,
                    "fatal: MsgWaitForMultipleObjects GetLastError=%lu\n", err);
+      std::fflush(stderr);
       std::abort();
     }
     if (wait == WAIT_OBJECT_0) {
@@ -171,12 +177,14 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: UnregisterClassW notify GetLastError=%lu\n",
                  err);
+    std::fflush(stderr);
     std::abort();
   }
   if (UnregisterClassW(kLoadingWindowClass, instance) == 0) {
     DWORD const err = GetLastError();
     std::fprintf(stderr, "fatal: UnregisterClassW Loading GetLastError=%lu\n",
                  err);
+    std::fflush(stderr);
     std::abort();
   }
   CloseHandle(session_.done_event);

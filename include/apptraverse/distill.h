@@ -1,12 +1,14 @@
 #ifndef APPTRAVERSE_DISTILL_H_
 #define APPTRAVERSE_DISTILL_H_
 
-#include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
@@ -34,7 +36,13 @@ template <typename T>
 typename T::ptr LoadApplication(ae::Domain& domain, ae::ObjId id) {
   auto root = T::ptr::Declare(ae::CreateWith{domain}.with_id(id));
   root.Load();
-  assert(root);
+  if (!root) {
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "fatal: LoadApplication failed id=%u\n",
+                  id.id());
+    WriteFatalStderr(buf);
+    std::abort();
+  }
   return root;
 }
 
