@@ -9,7 +9,10 @@
 #  undef RegisterClass
 #endif
 
+#include <cstdint>
+
 #include "apptraverse/object_macros.h"
+#include "apptraverse/presenter.h"
 
 #include "dynamic_model.h"
 
@@ -23,6 +26,12 @@ inline constexpr int kRemoveButtonId = 1002;
 
 void RegisterDynamicWin32Classes();
 void UnregisterDynamicWin32Classes();
+
+// Win32-local child WM_COMMAND → Presenter::OnCommand. Parent WndProcs stay
+// free of Add/Remove / concrete control types. Child HWND GWLP_USERDATA holds
+// Presenter* (single Obj inheritance — no second Win32Presenter Obj base,
+// which would diamond with MainWindowPresenter / AddItemPresenter).
+bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
 
 class Win32MainWindowPresenter : public MainWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
@@ -65,6 +74,7 @@ class Win32AddItemPresenter : public AddItemPresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
+  bool OnCommand(std::uint16_t notification_code) override;
 
   HWND hwnd{nullptr};
 };
@@ -110,6 +120,7 @@ class Win32ItemPresenter : public ItemPresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
+  bool OnCommand(std::uint16_t notification_code) override;
 
   HWND hwnd{nullptr};
   HWND remove_button{nullptr};

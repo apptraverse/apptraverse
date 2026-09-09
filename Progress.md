@@ -1,5 +1,36 @@
 Status: implemented, verified locally. Not accepted.
 
+# dynamic_objects_demo final cleanup (before surfaces_demo)
+
+## Starting / final
+
+- Starting HEAD: `4e6098f`.
+- Branch: `prep/deps-objects-assert-mcp-v1`.
+- Final SHA: (filled after commit).
+
+## Changes
+
+- `ReadyForPresentation` only checks parent `presentation_loaded`.
+- After multipass `InitializeNewPresenters`, every live Presenter must be
+  `presentation_loaded` (assert; broken graph is not "not ready").
+- No `dynamic_cast` in dynamic demo / ModelObjectProxy / presenter-walk path.
+  Typed conversion: `ae::Ptr::as<T>()`, `ObjPtr` AbleToCast conversion,
+  `Registry::GenerationDistance` for Presenter discovery (`AsPresenter`).
+- `Presenter::OnCommand` + Win32 `DispatchChildCommand`; parents do not know
+  Add/Remove. (Separate `Win32Presenter` Obj base avoided — would diamond with
+  `MainWindowPresenter` / `AddItemPresenter`.)
+- `WM_APPTRAVERSE_CLOSE_WINDOW` → `RequestStop()` directly.
+- `Item::Remove`: required `list` relation; only live-membership miss is no-op.
+
+## Tests (local incremental `build/win64-ninja-msvc-debug`)
+
+PASS: dynamic add/proxy/Ready/WndProc-source, Win32 smoke, two-main,
+presenter load order, publication_channel, main_window lifecycle/window/smoke.
+
+Not started: surfaces_demo.
+
+Not accepted-by-user.
+
 # UI ownership + ModelObjectProxy (before surfaces_demo)
 
 ## Starting / final

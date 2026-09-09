@@ -27,8 +27,9 @@ class ModelObjectProxy {
     enqueue_([id, method](ae::Domain& domain) {
       auto object = domain.Find(id);
       assert(object && "model proxy target must exist");
-      auto* target = dynamic_cast<T*>(&*object);
-      assert(target && "model proxy target type mismatch");
+      // Architecture selects T; aether Ptr::as is the typed conversion API
+      // (unchecked static_cast — no C++ RTTI).
+      T* const target = object.as<T>();
       (target->*method)();
     });
   }

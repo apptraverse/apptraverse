@@ -3,9 +3,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <condition_variable>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -64,13 +67,7 @@ class TestAddItemPresenter : public AddItemPresenter {
   AE_OBJECT_REFLECT()
 
   bool ReadyForPresentation() const override {
-    if (!add_item.is_valid() || !add_item.is_loaded() ||
-        !add_item->window.is_valid() || !add_item->window.is_loaded()) {
-      return false;
-    }
-    auto* main = &*add_item->window;
-    return main->presenter.is_valid() && main->presenter.is_loaded() &&
-           main->presenter->presentation_loaded;
+    return add_item->window->presenter->presentation_loaded;
   }
 
   void OnLoad() override { ++on_load_calls; }
@@ -100,13 +97,7 @@ class TestItemListPresenter : public ItemListPresenter {
   AE_OBJECT_REFLECT()
 
   bool ReadyForPresentation() const override {
-    if (!list.is_valid() || !list.is_loaded() || !list->window.is_valid() ||
-        !list->window.is_loaded()) {
-      return false;
-    }
-    auto* main = &*list->window;
-    return main->presenter.is_valid() && main->presenter.is_loaded() &&
-           main->presenter->presentation_loaded;
+    return list->window->presenter->presentation_loaded;
   }
 
   void OnLoad() override { ++on_load_calls; }
@@ -134,27 +125,20 @@ class TestItemPresenter : public ItemPresenter {
   AE_OBJECT_REFLECT()
 
   bool ReadyForPresentation() const override {
-    return item.is_valid() && item.is_loaded() && item->list.is_valid() &&
-           item->list.is_loaded() && item->list->presenter.is_valid() &&
-           item->list->presenter.is_loaded() &&
-           item->list->presenter->presentation_loaded;
+    return item->list->presenter->presentation_loaded;
   }
 
   void OnLoad() override {
     ++on_load_calls;
-    if (item.is_valid()) {
-      last_loaded_number = item->number;
-      loaded_ids.push_back(item->obj_id.id());
-    }
+    last_loaded_number = item->number;
+    loaded_ids.push_back(item->obj_id.id());
   }
 
   void OnModelChanged() override { ++on_model_changed_calls; }
 
   void OnUnload() override {
     ++on_unload_calls;
-    if (item.is_valid()) {
-      unloaded_ids.push_back(item->obj_id.id());
-    }
+    unloaded_ids.push_back(item->obj_id.id());
   }
 
   static inline std::atomic<int> on_load_calls{0};
@@ -235,7 +219,7 @@ void PostModelAddClick(DynamicModelSession& session) {
     auto object = domain.Find(
         ae::ObjId{dynamic_objects::ToObjId(dynamic_objects::ObjId::AddItem)});
     CHECK(object);
-    dynamic_cast<AddItem&>(*object).Click();
+    object.as<AddItem>()->Click();
   });
 }
 
@@ -243,8 +227,81 @@ void PostModelItemRemove(DynamicModelSession& session, ae::ObjId id) {
   session.Post([id](ae::Domain& domain) {
     auto object = domain.Find(id);
     CHECK(object);
-    dynamic_cast<Item&>(*object).Remove();
+    object.as<Item>()->Remove();
   });
+}
+
+void TestReadyForPresentationDependencyOnly() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+
+  auto window = MainWindow::ptr::Create(ae::CreateWith{domain});
+  auto main_p = TestMainWindowPresenter::ptr::Create(ae::CreateWith{domain});
+  auto add_item = AddItem::ptr::Create(ae::CreateWith{domain});
+  auto add_p = TestAddItemPresenter::ptr::Create(ae::CreateWith{domain});
+  auto list = ItemList::ptr::Create(ae::CreateWith{domain});
+  auto list_p = TestItemListPresenter::ptr::Create(ae::CreateWith{domain});
+  auto item = Item::ptr::Create(ae::CreateWith{domain});
+  auto item_p = TestItemPresenter::ptr::Create(ae::CreateWith{domain});
+
+  window->presenter = main_p;
+  main_p->window = window;
+  window->add_item = add_item;
+  add_item->window = window;
+  add_item->presenter = add_p;
+  add_p->add_item = add_item;
+  window->item_list = list;
+  list->window = window;
+  list->presenter = list_p;
+  list_p->list = list;
+  item->list = list;
+  item->presenter = item_p;
+  item_p->item = item;
+  list->items.push_back(item);
+
+  CHECK(!main_p->presentation_loaded);
+  CHECK(!add_p->ReadyForPresentation());
+  CHECK(!list_p->ReadyForPresentation());
+  CHECK(!item_p->ReadyForPresentation());
+
+  main_p->presentation_loaded = true;
+  CHECK(add_p->ReadyForPresentation());
+  CHECK(list_p->ReadyForPresentation());
+  CHECK(!item_p->ReadyForPresentation());
+
+  list_p->presentation_loaded = true;
+  CHECK(item_p->ReadyForPresentation());
+}
+
+void TestParentWndProcHasNoSemanticCasts() {
+  // Parent windows route via DispatchChildCommand only — no concrete Add/Item
+  // presenter names in WndProc implementations.
+  std::ifstream in{
+      std::filesystem::path{APPTRAVERSE_SOURCE_ROOT} /
+      "examples/dynamic_objects_demo/windows/win_presenters.cpp"};
+  CHECK(in);
+  std::string source((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+  auto const wndproc_main = source.find("Win32MainWindowPresenter::WndProc");
+  auto const main_onload = source.find("Win32MainWindowPresenter::OnLoad");
+  auto const wndproc_list = source.find("Win32ItemListPresenter::WndProc");
+  auto const list_ready =
+      source.find("Win32ItemListPresenter::ReadyForPresentation");
+  CHECK(wndproc_main != std::string::npos);
+  CHECK(main_onload != std::string::npos);
+  CHECK(wndproc_list != std::string::npos);
+  CHECK(list_ready != std::string::npos);
+  CHECK(main_onload > wndproc_main);
+  CHECK(list_ready > wndproc_list);
+  std::string const main_only =
+      source.substr(wndproc_main, main_onload - wndproc_main);
+  std::string const list_only =
+      source.substr(wndproc_list, list_ready - wndproc_list);
+  CHECK(main_only.find("Win32AddItemPresenter") == std::string::npos);
+  CHECK(main_only.find("DispatchChildCommand") != std::string::npos);
+  CHECK(list_only.find("Win32ItemPresenter") == std::string::npos);
+  CHECK(list_only.find("DispatchChildCommand") != std::string::npos);
+  CHECK(source.find("dynamic_cast") == std::string::npos);
 }
 
 void TestPresenterGraphOwnership() {
@@ -291,8 +348,9 @@ void TestModelAdd() {
   CHECK(added->obj_id != existing_id);
   CHECK(added->number == 2);
   CHECK(added->presenter.is_valid());
-  CHECK(dynamic_cast<AddItemEvent*>(&*list.journal.back().event) != nullptr);
-  CHECK(&*dynamic_cast<AddItemEvent&>(*list.journal.back().event).item == added);
+  CHECK(list.journal.back().event->GetClassId() == AddItemEvent::kClassId);
+  AddItemEvent::ptr add_event{list.journal.back().event};
+  CHECK(&*add_event->item == added);
 }
 
 void TestReplayIdentity() {
@@ -315,8 +373,8 @@ void TestReplayIdentity() {
   CHECK(list.items[1]->number == 2);
   CHECK(list.journal.size() == 1);
   CHECK(list.journal.back().event->obj_id == event_id);
-  CHECK(&*dynamic_cast<AddItemEvent&>(*list.journal.back().event).item ==
-        &*list.items[1]);
+  AddItemEvent::ptr add_event{list.journal.back().event};
+  CHECK(&*add_event->item == &*list.items[1]);
 }
 
 void TestStructuralPublicationAndPresenterLifecycle() {
@@ -565,11 +623,11 @@ void TestModelRemove() {
   CHECK(list.items.size() == 1);
   CHECK(&*list.items[0] == item1);
   CHECK(list.journal.size() == 2);
-  CHECK(dynamic_cast<RemoveItemEvent*>(&*list.journal.back().event) != nullptr);
-  CHECK(dynamic_cast<RemoveItemEvent&>(*list.journal.back().event)
-            .item->obj_id == item2_id);
-  CHECK(dynamic_cast<AddItemEvent&>(*list.journal.front().event).item->obj_id ==
-        item2_id);
+  CHECK(list.journal.back().event->GetClassId() == RemoveItemEvent::kClassId);
+  RemoveItemEvent::ptr remove_event{list.journal.back().event};
+  CHECK(remove_event->item->obj_id == item2_id);
+  AddItemEvent::ptr add_event{list.journal.front().event};
+  CHECK(add_event->item->obj_id == item2_id);
   item2->Remove();  // stale no-op
   CHECK(list.journal.size() == 2);
 }
@@ -595,8 +653,8 @@ void TestReplayRemove() {
   CHECK(list.journal.size() == 2);
   CHECK(list.journal[0].event->obj_id == add_event_id);
   CHECK(list.journal[1].event->obj_id == remove_event_id);
-  CHECK(dynamic_cast<AddItemEvent&>(*list.journal[0].event).item->obj_id ==
-        item2_id);
+  AddItemEvent::ptr add_event{list.journal[0].event};
+  CHECK(add_event->item->obj_id == item2_id);
   for (auto const& item : list.items) {
     CHECK(item->obj_id != item2_id);
   }
@@ -877,6 +935,8 @@ void TestShutdownDrainsAcceptedRemove() {
 
 int main() {
   apptraverse::EnsureObjectRegistration();
+  apptraverse::test::TestReadyForPresentationDependencyOnly();
+  apptraverse::test::TestParentWndProcHasNoSemanticCasts();
   apptraverse::test::TestPresenterGraphOwnership();
   apptraverse::test::TestModelAdd();
   apptraverse::test::TestReplayIdentity();

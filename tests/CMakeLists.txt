@@ -231,6 +231,7 @@ add_executable(apptraverse_dynamic_objects_add_test
 
 target_compile_definitions(apptraverse_dynamic_objects_add_test PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION
+  "APPTRAVERSE_SOURCE_ROOT=R\"(${CMAKE_SOURCE_DIR})\""
 )
 
 target_link_libraries(apptraverse_dynamic_objects_add_test PRIVATE

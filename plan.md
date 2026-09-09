@@ -20,14 +20,15 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 3. dynamic_objects_demo — Add Item [done]
 4. dynamic_objects_demo — Remove Item [done]
 5. foundation hardening for multi-window / mobile surfaces [done]
-6. UI control ownership + GUI→model ObjId proxy [done — THIS]
-7. surfaces_demo — common model **[NEXT]**
-8. surfaces_demo — Windows: multiple dynamic windows + resize + Z-order
-9. surfaces_demo — first mobile pager port
-10. remaining platform ports
-11. shared_node_demo
-12. chat_demo
-13. aeroadmin-x production chat
+6. UI control ownership + GUI→model ObjId proxy [done]
+7. dynamic_objects_demo final cleanup (invariants / Win32 routing) [done — THIS]
+8. surfaces_demo — common model **[NEXT]**
+9. surfaces_demo — Windows: multiple dynamic windows + resize + Z-order
+10. surfaces_demo — first mobile pager port
+11. remaining platform ports
+12. shared_node_demo
+13. chat_demo
+14. aeroadmin-x production chat
 
 Deferred relative to surfaces/chat:
 
@@ -38,19 +39,16 @@ Deferred relative to surfaces/chat:
 
 ## Current slice (just completed)
 
-Ownership of UI controls and GUI→model path (before `surfaces_demo`):
+Final cleanup of `dynamic_objects_demo` before `surfaces_demo`:
 
-- Each logical UI object owns its Presenter; Presenter owns only that object's
-  native presentation (no presenter ownership tree).
-- `AddItem` / `AddItemPresenter` / `Win32AddItemPresenter` — BUTTON HWND leaves
-  `MainWindowPresenter`.
-- Remove `[x]` stays inside `ItemPresenter` (not a separate model button object).
-- `ModelObjectProxy`: GUI Presenter → ObjId + method → model Domain Find →
-  model method → Event. Session/WinApp carry generic work only.
-- `AddItem::Click` / `Item::Remove` create Events; free `CommitAdd*` and typed
-  Session Add/Remove commands removed.
-- Dirty Node publication via `NoteMaterializedChange` notifier (no Event-type
-  dispatch in Session).
+- `ReadyForPresentation` checks only parent `presentation_loaded`
+- Broken required object relations are invariants (not "not ready")
+- No `dynamic_cast` in dynamic demo / ModelObjectProxy production path
+- `Ptr::as<T>()` / `ObjPtr` hierarchy conversion / Registry
+  `GenerationDistance` for Presenter walk
+- Generic Win32 `DispatchChildCommand` → `Win32Presenter::OnCommand`
+- `CLOSE_WINDOW` → direct `RequestStop` (single MainWindow demo)
+- Stale `Item::Remove` remains the only Remove no-op
 
 ## Next slice
 
@@ -68,7 +66,15 @@ Desktop: one Surface → one top-level window; dynamic create/delete; move/resiz
 logical Z-order separate. Mobile: same Surface objects → pager pages; swipe → active
 Surface Event; page order ≠ activation ≠ desktop Z-order.
 
-Do not start surfaces_demo in the ownership/proxy commits.
+Do not start surfaces_demo in the cleanup commits.
+
+## Known follow-ups (not this slice)
+
+- `Node::SetMaterializedChangeNotifier` is still a process-global static. Must
+  become per-Domain / per-Application before two independent sessions in
+  `shared_node_demo`.
+- Multi-dirty / dynamic Node publication protocol belongs to the first
+  headless `surfaces_demo` slice (first dynamically created `Surface : Node`).
 
 ## Cross-platform invariant (foundation)
 

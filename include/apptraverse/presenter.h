@@ -43,6 +43,13 @@ class Presenter : public ae::Obj {
   // HWND created by another presenter's OnLoad.
   virtual bool ReadyForPresentation() const { return true; }
 
+  // Platform input dispatch (Win32 WM_COMMAND notification codes, etc.).
+  // Default: unhandled. Runtime-only; not reflected.
+  virtual bool OnCommand(std::uint16_t notification_code) {
+    (void)notification_code;
+    return false;
+  }
+
   // Runtime-only. Not serialized. Win32 Main uses this as the notify HWND
   // for shutdown, not as CreateWindow lpParam.
   void* presentation_host{nullptr};

@@ -50,13 +50,9 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     return 0;
   }
   if (msg == WM_APPTRAVERSE_CLOSE_WINDOW) {
-    // Single MainWindow demo: closing that window stops the application.
-    if (ui_application_.is_valid() &&
-        ui_application_->main_window.is_valid() &&
-        ui_application_->main_window->obj_id.id() ==
-            static_cast<ae::ObjId::Type>(wparam)) {
-      session_.RequestStop();
-    }
+    (void)wparam;
+    // Single-MainWindow demo: any close request stops the application.
+    session_.RequestStop();
     return 0;
   }
   if (msg == WM_APPTRAVERSE_STOP) {

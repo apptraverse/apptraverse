@@ -50,8 +50,6 @@ void ItemList::Apply(RemoveItemEvent const& event) {
 }
 
 void AddItem::Click() {
-  assert(window.is_valid() && window.is_loaded());
-  assert(window->item_list.is_valid() && window->item_list.is_loaded());
   ItemList& list = *window->item_list;
   assert(list.domain != nullptr);
 
@@ -60,8 +58,7 @@ void AddItem::Click() {
       ItemPresenter::ptr::Create(ae::CreateWith{*list.domain});
   std::uint32_t next_number = 1;
   for (auto const& existing : list.items) {
-    if (existing.is_valid() && existing.is_loaded() &&
-        existing->number >= next_number) {
+    if (existing->number >= next_number) {
       next_number = existing->number + 1;
     }
   }
@@ -76,17 +73,13 @@ void AddItem::Click() {
 }
 
 void Item::Remove() {
-  if (!list.is_valid() || !list.is_loaded()) {
-    return;
-  }
   ItemList& item_list = *list;
   assert(item_list.domain != nullptr);
   auto const it =
       std::find_if(item_list.items.begin(), item_list.items.end(),
-                   [&](Item::ptr const& entry) {
-                     return entry.is_valid() && &*entry == this;
-                   });
+                   [&](Item::ptr const& entry) { return &*entry == this; });
   if (it == item_list.items.end()) {
+    // Historical / already-removed Item: stale double-remove is a no-op.
     return;
   }
   auto event = RemoveItemEvent::ptr::Create(ae::CreateWith{*item_list.domain});
@@ -96,13 +89,11 @@ void Item::Remove() {
 
 void AddItemPresenter::Click() {
   assert(model_proxy != nullptr);
-  assert(add_item.is_valid());
   model_proxy->Invoke<AddItem>(add_item->obj_id, &AddItem::Click);
 }
 
 void ItemPresenter::RemoveClick() {
   assert(model_proxy != nullptr);
-  assert(item.is_valid());
   model_proxy->Invoke<Item>(item->obj_id, &Item::Remove);
 }
 

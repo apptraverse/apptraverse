@@ -17,6 +17,17 @@
 namespace apptraverse {
 namespace {
 
+Presenter* AsPresenter(ae::Obj* obj) {
+  if (obj == nullptr) {
+    return nullptr;
+  }
+  if (ae::Registry::GetRegistry().GenerationDistance(Presenter::kClassId,
+                                                     obj->GetClassId()) < 0) {
+    return nullptr;
+  }
+  return static_cast<Presenter*>(obj);
+}
+
 void SaveObjectGraphToScratch(ae::Obj const& object,
                               ae::RamDomainStorage& scratch) {
   ae::Domain scratch_domain{scratch};
@@ -484,7 +495,7 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
     std::vector<ae::Obj*> objects;
     CollectLiveReachableObjects(gui_root, objects);
     for (ae::Obj* obj : objects) {
-      auto* presenter = dynamic_cast<Presenter*>(obj);
+      Presenter* const presenter = AsPresenter(obj);
       if (presenter == nullptr || presenter->presentation_loaded) {
         continue;
       }
@@ -502,6 +513,19 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
       break;
     }
   }
+
+  // Every live Presenter must have native presentation after multipass.
+  // Remaining not-ready means a broken graph / missing parent dependency.
+  std::vector<ae::Obj*> objects;
+  CollectLiveReachableObjects(gui_root, objects);
+  for (ae::Obj* obj : objects) {
+    Presenter* const presenter = AsPresenter(obj);
+    if (presenter == nullptr) {
+      continue;
+    }
+    assert(presenter->presentation_loaded &&
+           "live Presenter failed ReadyForPresentation after multipass");
+  }
 }
 
 void InitializePresenters(ae::Obj& gui_root, void* host,
@@ -514,7 +538,7 @@ void UnloadPresenters(ae::Obj& gui_root) {
   CollectLiveReachableObjects(gui_root, objects);
   std::vector<Presenter*> loaded;
   for (ae::Obj* obj : objects) {
-    auto* presenter = dynamic_cast<Presenter*>(obj);
+    Presenter* const presenter = AsPresenter(obj);
     if (presenter != nullptr && presenter->presentation_loaded) {
       loaded.push_back(presenter);
     }
@@ -529,7 +553,7 @@ void UpdatePresentersAfterStructuralPublication(
   CollectLiveReachableObjects(gui_root, live_objects);
   std::unordered_set<Presenter*> live_presenters;
   for (ae::Obj* obj : live_objects) {
-    if (auto* presenter = dynamic_cast<Presenter*>(obj)) {
+    if (Presenter* const presenter = AsPresenter(obj)) {
       live_presenters.insert(presenter);
     }
   }
@@ -560,7 +584,7 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
   keepalive.active_presenters.reserve(objects.size());
   for (ae::Obj* obj : objects) {
     keepalive.live_objects.push_back(ae::MakePtrFromThis(obj));
-    auto* presenter = dynamic_cast<Presenter*>(obj);
+    Presenter* const presenter = AsPresenter(obj);
     if (presenter != nullptr && presenter->presentation_loaded) {
       keepalive.active_presenters.push_back(
           Presenter::ptr::MakeFromThis(presenter));

@@ -254,14 +254,11 @@ void TestInProcessAddCreatesRow() {
 
   HWND add = FindWindowExW(main, nullptr, L"BUTTON", L"Add item");
   CHECK(add != nullptr);
-  auto* add_presenter = reinterpret_cast<Win32AddItemPresenter*>(
-      GetWindowLongPtrW(add, GWLP_USERDATA));
-  CHECK(add_presenter != nullptr);
-  CHECK(add_presenter->hwnd == add);
-  auto* main_presenter = dynamic_cast<Win32MainWindowPresenter*>(
-      &*add_presenter->add_item->window->presenter);
-  CHECK(main_presenter != nullptr);
-  CHECK(main_presenter->hwnd == main);
+  auto* add_owner =
+      reinterpret_cast<Presenter*>(GetWindowLongPtrW(add, GWLP_USERDATA));
+  CHECK(add_owner != nullptr);
+  CHECK(add_owner->GetClassId() == Win32AddItemPresenter::kClassId);
+  CHECK(static_cast<Win32AddItemPresenter*>(add_owner)->hwnd == add);
   SendMessageW(add, BM_CLICK, 0, 0);
 
   CHECK(WaitChildText(main, L"Item 2", std::chrono::seconds{30}));
