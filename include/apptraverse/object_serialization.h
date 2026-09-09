@@ -40,9 +40,15 @@ void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 
 // GUI-thread presentation phase. Walks reachable live objects from the GUI
-// root and calls Presenter::OnLoad for each Presenter. Object Load must not
-// call this. The pass is invoked once per GUI mirror.
+// root and calls Presenter::OnLoad for each Presenter that is not yet
+// presentation_loaded and reports ReadyForPresentation(). Object Load must
+// not call this. Safe to call again after structural publication so only
+// newly introduced presenters activate.
 void InitializePresenters(ae::Obj& gui_root, void* host = nullptr);
+
+// Same activation rule as InitializePresenters. Prefer this name at
+// incremental-apply sites; both may be used interchangeably.
+void InitializeNewPresenters(ae::Obj& gui_root, void* host = nullptr);
 
 // Inverse of InitializePresenters. Call only for a GUI graph that completed
 // that pass. Object destruction does not call this.
@@ -66,6 +72,19 @@ void SerializeIncrementalNodePublication(Node const& node, ByteSink& out);
 // create a Domain, does not call presenter hooks.
 ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
                                      ae::IDomainStorage& storage);
+
+// Structural incremental publication: one changed Node including newly
+// referenced objects (children, presenters). Envelope: object id, generation,
+// payload length, SerializeObjectGraphToBuffer payload. Use this when the
+// Node's reachable graph grows (e.g. Add Item). Field-only updates of an
+// already-mirrored object may keep SerializeIncrementalNodePublication.
+void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
+
+// Apply a structural envelope into an already-mirrored GUI Node. Nested
+// LoadRoot materializes new shells for newly referenced ObjIds. Does not
+// call presenter hooks — caller runs InitializeNewPresenters after apply.
+ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
+                                    ae::IDomainStorage& storage);
 
 }  // namespace apptraverse
 

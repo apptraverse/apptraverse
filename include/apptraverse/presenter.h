@@ -27,7 +27,8 @@ class Presenter : public ae::Obj {
 
   AE_OBJECT_REFLECT()
 
-  // Native presentation initialization. Called once from InitializePresenters.
+  // Native presentation initialization. Called from InitializePresenters /
+  // InitializeNewPresenters after the GUI graph is complete. Not object Load.
   virtual void OnLoad() {}
   // Existing GUI mirror was updated by a model publication. Sync native
   // presentation with the mirror. Not a second OnLoad.
@@ -35,9 +36,18 @@ class Presenter : public ae::Obj {
   // Native teardown. Called once from UnloadPresenters.
   virtual void OnUnload() {}
 
+  // True when this presenter may run OnLoad (parents already presented).
+  // Default: always ready. Child presenters override when they need a parent
+  // HWND created by another presenter's OnLoad.
+  virtual bool ReadyForPresentation() const { return true; }
+
   // Runtime-only. Not serialized. Win32 Main uses this as the notify HWND
   // for shutdown, not as CreateWindow lpParam.
   void* presentation_host{nullptr};
+
+  // Runtime-only. Set by InitializePresenters / InitializeNewPresenters after
+  // OnLoad. Used so incremental graph growth activates only new presenters.
+  bool presentation_loaded{false};
 };
 
 }  // namespace apptraverse
