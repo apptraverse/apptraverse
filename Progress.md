@@ -1,5 +1,64 @@
 Status: implemented, verified locally. Not accepted.
 
+# Dynamic objects demo — Add Item
+
+## Starting point
+
+Branch `prep/deps-objects-assert-mcp-v1` at `460ee2a` (journal retention/compaction predecessor).
+
+## What landed
+
+New example `examples/dynamic_objects_demo`:
+
+```
+Application → MainWindow → ItemList → Item(s)
+```
+
+- Initial graph: one `Item` (`number=1`).
+- GUI Add → `AddItemCommand` (deque, not coalesced) → model `CommitAddItem`.
+- `AddItemEvent` carries pre-created `Item::ptr` so replay keeps the same ObjId (`Apply` only `push_back`).
+- ItemList keeps default unlimited journal retention (AddItemEvent survives restart/replay).
+- Shutdown: `Application::Save()` only; no Save on Add.
+
+### Structural publication (generic)
+
+- `SerializeStructuralNodePublication` / `ApplyStructuralPublication`: envelope like incremental node pub, payload is `SerializeObjectGraphToBuffer` so newly referenced Item/presenter layers enter the GUI Domain.
+- Field-only MainWindow updates still use `SerializeIncrementalNodePublication`.
+
+### Presenter activation (generic)
+
+- `Presenter::presentation_loaded`, `ReadyForPresentation()`.
+- `InitializeNewPresenters` multipass: only not-yet-loaded + ready presenters get `OnLoad`.
+- `InitializePresenters` delegates to it. Existing presenters are not re-OnLoad'd after Add.
+
+### ObjId path
+
+```
+model Create Item (GenerateUnique)
+→ AddItemEvent.item
+→ Commit/Apply (topology)
+→ SerializeStructuralNodePublication(ItemList)
+→ GUI ApplyStructuralPublication (LoadRoot/shells for new ids)
+→ InitializeNewPresenters → Win32ItemPresenter::OnLoad (new STATIC row)
+```
+
+Mirror Item ObjId == model Item ObjId; C++ pointers differ. Application/MainWindow/ItemList/old Item/old presenters preserve identity.
+
+## Tests
+
+| check | result |
+| --- | --- |
+| `apptraverse_dynamic_objects_add_test` (model add, replay identity, structural pub + OnLoad counts, two Adds, restart) | PASS |
+| `apptraverse_publication_channel_test` | PASS |
+| `apptraverse_main_window_window_changed_test` | PASS |
+| `apptraverse_dynamic_objects_win32_smoke_test` (in-process Add row; child distill Add then load-only restore) | PASS |
+
+MCP `user-apptraverse` build against this checkout: failed with `unknown target` before local reconfigure of new targets; not used as proof. Local incremental build in `build/win64-ninja-msvc-debug`.
+
+Not implemented: Delete/Remove Item. Next slice after Add verification.
+
+Not accepted-by-user.
+
 # Dynamic Node journal retention / compaction
 
 ## Problem

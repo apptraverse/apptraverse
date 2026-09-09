@@ -222,6 +222,38 @@ add_custom_target(apptraverse_main_window_headless_check
   COMMENT "Main-window lifecycle and publication-channel headless checks"
 )
 
+add_executable(apptraverse_dynamic_objects_add_test
+  dynamic_objects_add_test.cpp
+  ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/common/dynamic_lifecycle.cpp
+)
+
+target_compile_definitions(apptraverse_dynamic_objects_add_test PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+
+target_link_libraries(apptraverse_dynamic_objects_add_test PRIVATE
+  dynamic_objects_demo_model
+)
+
+target_include_directories(apptraverse_dynamic_objects_add_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/common
+)
+
+add_test(
+  NAME apptraverse_dynamic_objects_add_test
+  COMMAND apptraverse_dynamic_objects_add_test
+)
+
+add_custom_target(apptraverse_dynamic_objects_headless_check
+  COMMAND $<TARGET_FILE:apptraverse_dynamic_objects_add_test>
+  COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
+  DEPENDS
+    apptraverse_dynamic_objects_add_test
+    apptraverse_publication_channel_test
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  COMMENT "Dynamic objects Add Item headless checks"
+)
+
 if(WIN32)
   # Windows CreateProcess parent. Debug binary (not NDEBUG): aether-objects
   # Factory layout is #ifndef NDEBUG. Missing Application is still abort().
@@ -380,6 +412,53 @@ if(WIN32)
     DEPENDS apptraverse_main_window_win32_smoke_test
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Main-window Loading/main HWND smoke"
+  )
+
+  add_executable(apptraverse_dynamic_objects_win32_smoke_test
+    dynamic_objects_win32_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows/win_app.cpp
+    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows/win_presenters.cpp
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
+    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/common/dynamic_lifecycle.cpp
+  )
+
+  target_compile_definitions(apptraverse_dynamic_objects_win32_smoke_test PRIVATE
+    APPTRAVERSE_ENABLE_DISTILLATION
+    "WIN32_DYNAMIC_OBJECTS_DEMO_EXE=R\"($<TARGET_FILE:win32_dynamic_objects_demo>)\""
+    "WIN32_DYNAMIC_OBJECTS_LOAD_ONLY_EXE=R\"($<TARGET_FILE:win32_dynamic_objects_demo_load_only>)\""
+  )
+
+  target_link_libraries(apptraverse_dynamic_objects_win32_smoke_test PRIVATE
+    dynamic_objects_demo_model
+    user32
+    gdi32
+  )
+
+  target_include_directories(apptraverse_dynamic_objects_win32_smoke_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+  )
+
+  add_dependencies(apptraverse_dynamic_objects_win32_smoke_test
+    win32_dynamic_objects_demo
+    win32_dynamic_objects_demo_load_only
+  )
+
+  if(MSVC)
+    target_compile_options(apptraverse_dynamic_objects_win32_smoke_test PRIVATE /utf-8)
+  endif()
+
+  add_test(
+    NAME apptraverse_dynamic_objects_win32_smoke_test
+    COMMAND apptraverse_dynamic_objects_win32_smoke_test
+  )
+
+  add_custom_target(apptraverse_dynamic_objects_win32_smoke_check
+    COMMAND $<TARGET_FILE:apptraverse_dynamic_objects_win32_smoke_test>
+    DEPENDS apptraverse_dynamic_objects_win32_smoke_test
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Dynamic objects Add Item Win32 smoke"
   )
 endif()
 

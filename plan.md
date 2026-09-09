@@ -13,121 +13,69 @@ Do not mark accepted.
 Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push):
 `.cursor/rules/apptraverse-coding-agent.mdc`.
 
+## Chat-critical roadmap (AeroAdmin-X)
+
+1. main_window_runtime_demo — lifecycle/mirror foundation [done / regression base]
+2. journal retention/compaction [landed]
+3. dynamic_objects_demo — Add Item **[THIS ITERATION]**
+4. dynamic_objects_demo — Remove Item
+5. shared_node_demo — two independent domains + memory messages
+6. shared_node_demo — ACK/dedup/reorder
+7. shared_node_demo — presence/offline
+8. shared_node_demo — unload/reload
+9. chat_demo — minimal App Traverse chat
+10. aeroadmin-x — production chat integration
+
+Deferred relative to chat (still roadmap, not blocking):
+
+- Node execution / marquee demo
+- Resource / version / cache
+- Six-platform ports
+- DPI / screen system events
+
 ## Current slice
 
-Object-graph presenter: MainWindow owns a `MainWindowPresenter` in the
-aether-objects graph; the Windows executable registers
-`Win32MainWindowPresenter` as the most-derived descendant. Load uses
-aether-objects `DomainGraph::LoadRoot` (no App Traverse class-mapping
-registry). Native HWND is created only in a GUI presentation-initialization
-pass, not during object Load.
+Dynamic object creation: model `ItemList` commits `AddItemEvent` carrying a
+pre-created `Item::ptr` (stable ObjId on replay). Incremental publication uses
+`SerializeStructuralNodePublication` / `ApplyStructuralPublication` so newly
+reachable objects enter the GUI Domain. `InitializeNewPresenters` activates
+only presenters that are not yet `presentation_loaded`.
 
 ```
 Application
- └── MainWindow          (Node; x, y, width, height; no DPI)
-      └── presenter → MainWindowPresenter   (not a Node; no journal)
-           └── window → MainWindow          (same Domain object)
-                      └── Win32MainWindowPresenter  (most-derived on Windows)
+ └── MainWindow
+      └── ItemList          (Node; journal of AddItemEvent)
+           ├── Item         (ae::Obj; number)
+           │    └── ItemPresenter → Win32ItemPresenter
+           └── ItemListPresenter → Win32ItemListPresenter
 ```
 
-Phases (not the same thing):
+Constraints for this slice:
 
-1. Object Load / GUI deserialize — construct objects, restore state, resolve
-   ObjPtrs. No `Presenter::OnLoad()`, no HWND.
-2. GUI presentation initialization — `InitializePresenters` walks
-   reachable live objects and calls `Presenter::OnLoad()` once.
-   `Win32MainWindowPresenter::OnLoad()` is where `CreateWindowExW` happens.
+- GUI Add → `AddItemCommand` → model thread → Event → journal → Apply
+- no direct model mutation from GUI handlers
+- no Delete / Remove
+- no SharedNode / network / presence / chat
+- no resize-style coalescing of Add (deque of discrete commands)
+- no disk Save on Add; shutdown Save only
+- ItemList keeps default unlimited journal retention (replay/restart)
 
-Presenter local state (not implemented in this slice): not journaled; not
-model-owned; GUI may mutate it later; it may be persisted later. Incremental
-model publication must not overwrite newer GUI presenter state without an
-explicit rule. DPI / monitor / screen events are the next system-event stage,
-not this one.
+## Foundation still in force
 
-Constraints:
+Object-graph presenter and MainWindow resize path remain the regression base.
+See earlier sections in Progress.md for retention and window-changed details.
 
-- exactly two threads: Windows GUI thread and model thread
-- shared `ModelSession` has no platform handles (`HWND`/`HANDLE`/`void*` stand-ins)
-- `Run(std::function<void(PublicationKind)> on_published)` is a required
-  production boundary: called on the model thread after the serialized buffer
-  is published, without holding `mu`; Windows posts initial or incremental
-  notify messages; tests signal their waiter
-- return from `Run` means Application, reachable graph, Domain, and storage
-  have already been destroyed on the model thread; Windows `SetEvent` is after
-  that return, in the thread lambda, not in `ModelSession`
-- Windows `FatalWin32(operation, DWORD)` is the reused example helper for
-  required Win32 failures; it is not a logging framework
-- GUI never creates, loads, or touches model Domain objects
-- first launch (development build with `APPTRAVERSE_ENABLE_DISTILLATION`):
-  create → distill → destroy graph/Domain → new Domain → load
-- load-only / production executable: load existing persisted state only;
-  missing or broken state is fatal
-- initial GUI mirror via serialized publication buffer, not
-  `CopyModelGraphToUiDomain` from the GUI thread
-- shared class registry: model Domain may also materialize
-  `Win32MainWindowPresenter`; construction/Load must not create HWND
-- startup is not cancelable; Loading is not a user window
-- shutdown only after the model is loaded and Main exists; no TerminateThread
-
-Window change path (implemented / verified, not accepted):
-
-```
-native geometry
-→ latest-state WindowChangedCommand (GUI sequence)
-→ WindowChangedEvent
-→ Commit
-→ incremental node publication + processed sequence
-→ existing GUI mirror
-→ OnModelChanged
-```
-
-During active native input, the GUI may be ahead of the model.
-A model publication always updates the GUI mirror. It drives native
-presentation only if it acknowledges every native command that presenter
-has already submitted. An older publication must not roll the native
-control back to a stale model snapshot.
-
-Runtime model changes live in memory. GUI mirror synchronization is
-memory-only (`RamDomainStorage` scratch and publication buffers). Files are
-written only during graceful model shutdown, after `RequestStop`, before
-`Run` returns. Disk state may be older than the live model during resize.
-A crash before that shutdown save may lose runtime changes since the last
-graceful shutdown. Distillation remains dev-only bootstrap.
-
-Journal retention has two independent controls:
-
-1. Replay/debug retention (`JournalRetentionPolicy`):
-   - `max_events` (0 = retain none; `kUnlimitedEvents` = keep all by count);
-   - optional `max_age` (inclusive: `now - retained_since_us <= max_age`);
-   - union: a record is kept if either reason requires it.
-2. Synchronization safety:
-   - `SetJournalCompactionBlocked(true)` forbids any collapse while a remote
-     replica may still need history (offline / waiting join);
-   - future safe frontier will refine this beyond a single bool.
-
-Compaction folds only a contiguous safe prefix into `base`, leaves the
-retained suffix with canonical `SharedEventId`/`SharedEventOrder`, and does
-not change materialized fields or Generation. It runs on the model thread
-immediately before the shutdown `Save`, never during interactive resize.
-
-MainWindow: `max_events = 0`, no age retention, compaction allowed.
-
-TODO: drive compaction hold from synchronization frontier / required peers
-instead of a plain bool once networking exists.
-
-Out of scope for this slice: chat, contacts, Aether, presence,
-node periodic execution, hierarchical redraw, shared-sync, network,
-DPI/screen system events, periodic model tick.
+Journal retention (summary): `JournalRetentionPolicy`, compaction before
+shutdown Save; MainWindow `max_events=0`. Not changed by this slice except
+that dynamic ItemList does **not** adopt MainWindow's retain-none policy.
 
 ## Later stages (deferred; architecture unchanged)
 
 1. Resize events — implemented/verified, not accepted
-2. Node execution / model update loop
-3. Minimal redraw / dirty regions
-4. State restoration beyond the initial Application/MainWindow load
-5. System events: DPI, screens
-6. Æther / presence / network
-7. Connections
-8. Shared-sync
-9. Messages
-10. Platform ports
+2. dynamic_objects_demo Remove Item (next after Add verification)
+3. shared_node_demo …
+4. Node execution / model update loop / marquee (after chat-critical path)
+5. Minimal redraw / dirty regions
+6. System events: DPI, screens
+7. Æther / presence / network
+8. Platform ports

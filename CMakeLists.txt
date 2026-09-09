@@ -67,6 +67,7 @@ add_subdirectory(examples/model_ui_runtime_demo)
 add_subdirectory(examples/chat_ui_runtime_demo)
 add_subdirectory(examples/aether_presence_monitor)
 add_subdirectory(examples/main_window_runtime_demo)
+add_subdirectory(examples/dynamic_objects_demo)
 
 include(CTest)
 if(BUILD_TESTING)
