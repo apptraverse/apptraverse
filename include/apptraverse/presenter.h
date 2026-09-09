@@ -47,6 +47,10 @@ class Presenter : public ae::Obj {
   // for shutdown, not as CreateWindow lpParam.
   void* presentation_host{nullptr};
 
+  // Runtime-only. Not serialized. Queues ObjId-targeted method invokes onto
+  // the model Domain. Distinct from presentation_host (native HWND/host).
+  class ModelObjectProxy* model_proxy{nullptr};
+
   // Runtime-only. Set by InitializePresenters / InitializeNewPresenters after
   // OnLoad. Used so incremental graph growth activates only new presenters.
   bool presentation_loaded{false};

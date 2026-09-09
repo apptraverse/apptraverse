@@ -14,6 +14,7 @@
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_serialization.h"
 
 #include "dynamic_ids.h"
@@ -36,6 +37,41 @@ class TestMainWindowPresenter : public MainWindowPresenter {
       : MainWindowPresenter{prop} {}
 
   AE_OBJECT_REFLECT()
+
+  void OnLoad() override { ++on_load_calls; }
+  void OnModelChanged() override { ++on_model_changed_calls; }
+
+  static inline std::atomic<int> on_load_calls{0};
+  static inline std::atomic<int> on_model_changed_calls{0};
+
+  static void ResetCounts() {
+    on_load_calls.store(0);
+    on_model_changed_calls.store(0);
+  }
+};
+
+class TestAddItemPresenter : public AddItemPresenter {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::dynamic::TestAddItemPresenter",
+      TestAddItemPresenter, AddItemPresenter, 0)
+
+ protected:
+  TestAddItemPresenter() = default;
+
+ public:
+  explicit TestAddItemPresenter(ae::ObjProp prop) : AddItemPresenter{prop} {}
+
+  AE_OBJECT_REFLECT()
+
+  bool ReadyForPresentation() const override {
+    if (!add_item.is_valid() || !add_item.is_loaded() ||
+        !add_item->window.is_valid() || !add_item->window.is_loaded()) {
+      return false;
+    }
+    auto* main = &*add_item->window;
+    return main->presenter.is_valid() && main->presenter.is_loaded() &&
+           main->presenter->presentation_loaded;
+  }
 
   void OnLoad() override { ++on_load_calls; }
   void OnModelChanged() override { ++on_model_changed_calls; }
@@ -141,6 +177,7 @@ class TestItemPresenter : public ItemPresenter {
 namespace {
 
 APPTRAVERSE_REGISTER(TestMainWindowPresenter);
+APPTRAVERSE_REGISTER(TestAddItemPresenter);
 APPTRAVERSE_REGISTER(TestItemListPresenter);
 APPTRAVERSE_REGISTER(TestItemPresenter);
 
@@ -187,6 +224,52 @@ Application::ptr LoadInitialUi(std::vector<std::uint8_t> const& bytes,
   return Application::ptr::MakeFromThis(static_cast<Application*>(root.get()));
 }
 
+ModelObjectProxy MakeSessionProxy(DynamicModelSession& session) {
+  return ModelObjectProxy{[&session](ModelObjectProxy::ModelWork work) {
+    session.Post(std::move(work));
+  }};
+}
+
+void PostModelAddClick(DynamicModelSession& session) {
+  session.Post([](ae::Domain& domain) {
+    auto object = domain.Find(
+        ae::ObjId{dynamic_objects::ToObjId(dynamic_objects::ObjId::AddItem)});
+    CHECK(object);
+    dynamic_cast<AddItem&>(*object).Click();
+  });
+}
+
+void PostModelItemRemove(DynamicModelSession& session, ae::ObjId id) {
+  session.Post([id](ae::Domain& domain) {
+    auto object = domain.Find(id);
+    CHECK(object);
+    dynamic_cast<Item&>(*object).Remove();
+  });
+}
+
+void TestPresenterGraphOwnership() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildDynamicObjectsGraph(domain);
+  FinalizeDistilledGraph(*application);
+
+  auto& window = *application->main_window;
+  CHECK(window.add_item.is_valid());
+  CHECK(window.add_item->presenter.is_valid());
+  CHECK(window.presenter.is_valid());
+  CHECK(window.add_item->presenter->obj_id != window.presenter->obj_id);
+  CHECK(static_cast<ae::Obj*>(&*window.add_item->presenter) !=
+        static_cast<ae::Obj*>(&*window.presenter));
+  CHECK(&*window.add_item->window == &window);
+  CHECK(&*window.add_item->presenter->add_item == &*window.add_item);
+
+  CHECK(window.item_list.is_valid());
+  CHECK(window.item_list->items.size() == 1);
+  CHECK(window.item_list->items[0]->presenter.is_valid());
+  CHECK(window.item_list->items[0]->presenter->obj_id !=
+        window.add_item->presenter->obj_id);
+}
+
 void TestModelAdd() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -198,18 +281,18 @@ void TestModelAdd() {
   auto const existing_id = existing->obj_id;
   auto const journal_before = list.journal.size();
 
-  Item::ptr added = CommitAddItem(list);
+  application->main_window->add_item->Click();
 
   CHECK(list.journal.size() == journal_before + 1);
   CHECK(list.items.size() == 2);
   CHECK(&*list.items[0] == existing);
   CHECK(list.items[0]->obj_id == existing_id);
-  CHECK(&*list.items[1] == &*added);
+  Item* const added = &*list.items[1];
   CHECK(added->obj_id != existing_id);
   CHECK(added->number == 2);
+  CHECK(added->presenter.is_valid());
   CHECK(dynamic_cast<AddItemEvent*>(&*list.journal.back().event) != nullptr);
-  CHECK(&*dynamic_cast<AddItemEvent&>(*list.journal.back().event).item ==
-        &*added);
+  CHECK(&*dynamic_cast<AddItemEvent&>(*list.journal.back().event).item == added);
 }
 
 void TestReplayIdentity() {
@@ -218,8 +301,8 @@ void TestReplayIdentity() {
   auto application = BuildDynamicObjectsGraph(domain);
   FinalizeDistilledGraph(*application);
   ItemList& list = *application->main_window->item_list;
-  Item::ptr added = CommitAddItem(list);
-  auto const added_id = added->obj_id;
+  application->main_window->add_item->Click();
+  auto const added_id = list.items[1]->obj_id;
   auto const event_id = list.journal.back().event->obj_id;
   CHECK(list.items.size() == 2);
   CHECK(list.items[1]->obj_id == added_id);
@@ -238,12 +321,14 @@ void TestReplayIdentity() {
 
 void TestStructuralPublicationAndPresenterLifecycle() {
   TestMainWindowPresenter::ResetCounts();
+  TestAddItemPresenter::ResetCounts();
   TestItemListPresenter::ResetCounts();
   TestItemPresenter::ResetCounts();
 
   auto dir = TestDir("apptraverse_dynamic_structural");
   DynamicModelSession session;
   session.state_dir = dir;
+  auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
   }};
@@ -252,10 +337,12 @@ void TestStructuralPublicationAndPresenterLifecycle() {
   ae::RamDomainStorage ui_storage;
   ae::Domain ui_domain{ui_storage};
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
-  InitializePresenters(*ui_app);
+  InitializePresenters(*ui_app, nullptr, &proxy);
 
   Application* const app = &*ui_app;
   MainWindow* const window = &*ui_app->main_window;
+  AddItem* const add_item = &*window->add_item;
+  Presenter* const add_p = &*add_item->presenter;
   ItemList* const list = &*ui_app->main_window->item_list;
   Item* const item1 = &*list->items[0];
   Presenter* const main_p = &*window->presenter;
@@ -265,20 +352,23 @@ void TestStructuralPublicationAndPresenterLifecycle() {
 
   CHECK(list->items.size() == 1);
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+  CHECK(TestAddItemPresenter::on_load_calls.load() == 1);
   CHECK(TestItemListPresenter::on_load_calls.load() == 1);
   CHECK(TestItemPresenter::on_load_calls.load() == 1);
+  CHECK(main_p->presentation_load_order < add_p->presentation_load_order);
+  CHECK(main_p->presentation_load_order < list_p->presentation_load_order);
+  CHECK(list_p->presentation_load_order < item1_p->presentation_load_order);
 
-  session.SubmitAddItem(AddItemCommand{1});
+  PostModelAddClick(session);
   WaitPublished(session);
   auto bytes = TakeAndWake(session);
 
-  // Peek model identity via a separate load of the same state dir after stop
-  // is not available yet — capture model ObjId from publication apply only
-  // after apply. For ObjId equality, reopen model storage after stop.
-  ApplyItemListStructural(bytes, *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(bytes, *ui_app, ui_storage, nullptr, &proxy);
 
   CHECK(&*ui_app == app);
   CHECK(&*ui_app->main_window == window);
+  CHECK(&*window->add_item == add_item);
+  CHECK(&*add_item->presenter == add_p);
   CHECK(&*ui_app->main_window->item_list == list);
   CHECK(&*list->items[0] == item1);
   CHECK(list->items[0]->obj_id == item1_id);
@@ -295,6 +385,7 @@ void TestStructuralPublicationAndPresenterLifecycle() {
   CHECK(&*item2->presenter != item1_p);
 
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 1);
+  CHECK(TestAddItemPresenter::on_load_calls.load() == 1);
   CHECK(TestItemListPresenter::on_load_calls.load() == 1);
   CHECK(TestItemPresenter::on_load_calls.load() == 2);
   CHECK(TestItemPresenter::last_loaded_number.load() == 2);
@@ -316,11 +407,12 @@ void TestStructuralPublicationAndPresenterLifecycle() {
   std::filesystem::remove_all(dir);
 }
 
-void TestTwoAddsAreTwoEvents() {
+void TestGuiProxyAddAndRemove() {
   TestItemPresenter::ResetCounts();
-  auto dir = TestDir("apptraverse_dynamic_two_adds");
+  auto dir = TestDir("apptraverse_dynamic_gui_proxy");
   DynamicModelSession session;
   session.state_dir = dir;
+  auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
   }};
@@ -329,22 +421,76 @@ void TestTwoAddsAreTwoEvents() {
   ae::RamDomainStorage ui_storage;
   ae::Domain ui_domain{ui_storage};
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
-  InitializePresenters(*ui_app);
+  InitializePresenters(*ui_app, nullptr, &proxy);
+
+  AddItem* const ui_add = &*ui_app->main_window->add_item;
+  auto const add_id = ui_add->obj_id;
+  CHECK(ui_add->presenter.is_valid());
+  CHECK(ui_add->presenter->model_proxy == &proxy);
+
+  ae::RamDomainStorage model_ref_storage;
+  ae::Domain model_ref_domain{model_ref_storage};
+  auto model_ref = BuildDynamicObjectsGraph(model_ref_domain);
+  AddItem* const model_add = &*model_ref->main_window->add_item;
+  CHECK(model_add->obj_id == add_id);
+  CHECK(model_add != ui_add);
+
+  ui_add->presenter->Click();
+  WaitPublished(session);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  CHECK(ui_app->main_window->item_list->items.size() == 2);
+  Item* const ui_item2 = &*ui_app->main_window->item_list->items[1];
+  CHECK(ui_item2->number == 2);
+  CHECK(ui_item2->presenter->model_proxy == &proxy);
+  auto const item2_id = ui_item2->obj_id;
+  CHECK(TestItemPresenter::on_load_calls.load() == 2);
+
+  ui_item2->presenter->RemoveClick();
+  WaitPublished(session);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  CHECK(ui_app->main_window->item_list->items.size() == 1);
+  CHECK(TestItemPresenter::on_unload_calls.load() == 1);
+  CHECK(TestItemPresenter::unloaded_ids[0] == item2_id.id());
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestTwoAddsAreTwoEvents() {
+  TestItemPresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_dynamic_two_adds");
+  DynamicModelSession session;
+  session.state_dir = dir;
+  auto proxy = MakeSessionProxy(session);
+  std::thread model{[&] {
+    session.Run([&session](PublicationKind) { session.cv.notify_all(); });
+  }};
+  WaitPublished(session);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  InitializePresenters(*ui_app, nullptr, &proxy);
   Item* const item1 = &*ui_app->main_window->item_list->items[0];
   CHECK(TestItemPresenter::on_load_calls.load() == 1);
 
-  session.SubmitAddItem(AddItemCommand{1});
-  session.SubmitAddItem(AddItemCommand{2});
+  PostModelAddClick(session);
+  PostModelAddClick(session);
 
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   CHECK(ui_app->main_window->item_list->items.size() == 2);
   Item* const item2 = &*ui_app->main_window->item_list->items[1];
   CHECK(&*ui_app->main_window->item_list->items[0] == item1);
   CHECK(TestItemPresenter::on_load_calls.load() == 2);
 
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   CHECK(ui_app->main_window->item_list->items.size() == 3);
   Item* const item3 = &*ui_app->main_window->item_list->items[2];
   CHECK(&*ui_app->main_window->item_list->items[0] == item1);
@@ -381,7 +527,7 @@ void TestRestartRestoresAddedItem() {
     }};
     WaitPublished(session);
     TakeAndWake(session);
-    session.SubmitAddItem(AddItemCommand{1});
+    PostModelAddClick(session);
     WaitPublished(session);
     TakeAndWake(session);
     session.RequestStop();
@@ -397,6 +543,7 @@ void TestRestartRestoresAddedItem() {
   CHECK(application->main_window->item_list->items[0]->number == 1);
   CHECK(application->main_window->item_list->items[1]->number == 2);
   CHECK(application->main_window->item_list->journal.size() == 1);
+  CHECK(application->main_window->add_item.is_valid());
 
   std::filesystem::remove_all(dir);
 }
@@ -408,22 +555,22 @@ void TestModelRemove() {
   FinalizeDistilledGraph(*application);
   ItemList& list = *application->main_window->item_list;
   Item* const item1 = &*list.items[0];
-  Item::ptr item2 = CommitAddItem(list);
+  application->main_window->add_item->Click();
+  Item::ptr item2 = list.items[1];
   auto const item2_id = item2->obj_id;
   CHECK(list.items.size() == 2);
   CHECK(list.journal.size() == 1);
 
-  CHECK(CommitRemoveItem(list, item2_id));
+  item2->Remove();
   CHECK(list.items.size() == 1);
   CHECK(&*list.items[0] == item1);
   CHECK(list.journal.size() == 2);
   CHECK(dynamic_cast<RemoveItemEvent*>(&*list.journal.back().event) != nullptr);
   CHECK(dynamic_cast<RemoveItemEvent&>(*list.journal.back().event)
             .item->obj_id == item2_id);
-  // Historical AddItemEvent still holds Item2.
   CHECK(dynamic_cast<AddItemEvent&>(*list.journal.front().event).item->obj_id ==
         item2_id);
-  CHECK(!CommitRemoveItem(list, item2_id));  // stale no-op
+  item2->Remove();  // stale no-op
   CHECK(list.journal.size() == 2);
 }
 
@@ -433,10 +580,11 @@ void TestReplayRemove() {
   auto application = BuildDynamicObjectsGraph(domain);
   FinalizeDistilledGraph(*application);
   ItemList& list = *application->main_window->item_list;
-  Item::ptr item2 = CommitAddItem(list);
+  application->main_window->add_item->Click();
+  Item::ptr item2 = list.items[1];
   auto const item2_id = item2->obj_id;
   auto const add_event_id = list.journal[0].event->obj_id;
-  CHECK(CommitRemoveItem(list, item2_id));
+  item2->Remove();
   auto const remove_event_id = list.journal[1].event->obj_id;
   CHECK(list.items.size() == 1);
 
@@ -459,6 +607,7 @@ void TestMirrorRemoveAndHistoricalPresenter() {
   auto dir = TestDir("apptraverse_dynamic_mirror_remove");
   DynamicModelSession session;
   session.state_dir = dir;
+  auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
   }};
@@ -467,7 +616,7 @@ void TestMirrorRemoveAndHistoricalPresenter() {
   ae::RamDomainStorage ui_storage;
   ae::Domain ui_domain{ui_storage};
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
-  InitializePresenters(*ui_app);
+  InitializePresenters(*ui_app, nullptr, &proxy);
   Application* const app = &*ui_app;
   MainWindow* const window = &*ui_app->main_window;
   ItemList* const list = &*ui_app->main_window->item_list;
@@ -475,9 +624,10 @@ void TestMirrorRemoveAndHistoricalPresenter() {
   Presenter* const item1_p = &*item1->presenter;
   CHECK(TestItemPresenter::on_load_calls.load() == 1);
 
-  session.SubmitAddItem(AddItemCommand{1});
+  PostModelAddClick(session);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   CHECK(list->items.size() == 2);
   Item::ptr item2_hold = list->items[1];
   ItemPresenter::ptr item2_presenter_hold = item2_hold->presenter;
@@ -485,9 +635,10 @@ void TestMirrorRemoveAndHistoricalPresenter() {
   CHECK(TestItemPresenter::on_load_calls.load() == 2);
   CHECK(TestItemPresenter::on_unload_calls.load() == 0);
 
-  session.SubmitRemoveItem(RemoveItemCommand{item2_id});
+  PostModelItemRemove(session, item2_id);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
 
   CHECK(&*ui_app == app);
   CHECK(&*ui_app->main_window == window);
@@ -501,8 +652,7 @@ void TestMirrorRemoveAndHistoricalPresenter() {
   CHECK(TestItemPresenter::unloaded_ids[0] == item2_id.id());
   CHECK(!item2_presenter_hold->presentation_loaded);
 
-  // Historical objects must not reactivate through live presenter discovery.
-  InitializeNewPresenters(*ui_app, nullptr);
+  InitializeNewPresenters(*ui_app, nullptr, &proxy);
   CHECK(TestItemPresenter::on_load_calls.load() == 2);
   CHECK(TestItemPresenter::on_unload_calls.load() == 1);
 
@@ -522,6 +672,7 @@ void TestMiddleRemoveThenAdd() {
   auto dir = TestDir("apptraverse_dynamic_middle_remove");
   DynamicModelSession session;
   session.state_dir = dir;
+  auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
   }};
@@ -529,16 +680,18 @@ void TestMiddleRemoveThenAdd() {
   ae::RamDomainStorage ui_storage;
   ae::Domain ui_domain{ui_storage};
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
-  InitializePresenters(*ui_app);
+  InitializePresenters(*ui_app, nullptr, &proxy);
   Item* const item1 = &*ui_app->main_window->item_list->items[0];
   Presenter* const item1_p = &*item1->presenter;
 
-  session.SubmitAddItem(AddItemCommand{1});
+  PostModelAddClick(session);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
-  session.SubmitAddItem(AddItemCommand{2});
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  PostModelAddClick(session);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   CHECK(ui_app->main_window->item_list->items.size() == 3);
   Item* const item2 = &*ui_app->main_window->item_list->items[1];
   Item* const item3 = &*ui_app->main_window->item_list->items[2];
@@ -549,9 +702,10 @@ void TestMiddleRemoveThenAdd() {
   CHECK(item2->number == 2);
   CHECK(item3->number == 3);
 
-  session.SubmitRemoveItem(RemoveItemCommand{item2_id});
+  PostModelItemRemove(session, item2_id);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   CHECK(ui_app->main_window->item_list->items.size() == 2);
   CHECK(&*ui_app->main_window->item_list->items[0] == item1);
   CHECK(&*ui_app->main_window->item_list->items[1] == item3);
@@ -559,9 +713,10 @@ void TestMiddleRemoveThenAdd() {
   CHECK(&*item3->presenter == item3_p);
   CHECK(TestItemPresenter::on_unload_calls.load() == 1);
 
-  session.SubmitAddItem(AddItemCommand{3});
+  PostModelAddClick(session);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   CHECK(ui_app->main_window->item_list->items.size() == 3);
   Item* const item4 = &*ui_app->main_window->item_list->items[2];
   CHECK(item4->number == 4);
@@ -581,6 +736,7 @@ void TestMultiOperationSequence() {
   auto dir = TestDir("apptraverse_dynamic_sequence");
   DynamicModelSession session;
   session.state_dir = dir;
+  auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
   }};
@@ -588,28 +744,33 @@ void TestMultiOperationSequence() {
   ae::RamDomainStorage ui_storage;
   ae::Domain ui_domain{ui_storage};
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
-  InitializePresenters(*ui_app);
+  InitializePresenters(*ui_app, nullptr, &proxy);
   auto* list = &*ui_app->main_window->item_list;
   auto const item1_id = list->items[0]->obj_id;
 
-  session.SubmitAddItem(AddItemCommand{1});
+  PostModelAddClick(session);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   auto const item2_id = list->items[1]->obj_id;
-  session.SubmitAddItem(AddItemCommand{2});
+  PostModelAddClick(session);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   auto const item3_id = list->items[2]->obj_id;
-  session.SubmitRemoveItem(RemoveItemCommand{item2_id});
+  PostModelItemRemove(session, item2_id);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
-  session.SubmitAddItem(AddItemCommand{3});
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  PostModelAddClick(session);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   auto const item4_id = list->items[2]->obj_id;
-  session.SubmitRemoveItem(RemoveItemCommand{item1_id});
+  PostModelItemRemove(session, item1_id);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
 
   CHECK(list->items.size() == 2);
   CHECK(list->items[0]->obj_id == item3_id);
@@ -648,8 +809,8 @@ void TestShutdownDrainsAcceptedAdds() {
   }
   session.cv.notify_all();
 
-  session.SubmitAddItem(AddItemCommand{1});
-  session.SubmitAddItem(AddItemCommand{2});
+  PostModelAddClick(session);
+  PostModelAddClick(session);
   session.RequestStop();
   model.join();
 
@@ -671,6 +832,7 @@ void TestShutdownDrainsAcceptedRemove() {
   auto dir = TestDir("apptraverse_dynamic_shutdown_drain_remove");
   DynamicModelSession session;
   session.state_dir = dir;
+  auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
   }};
@@ -679,17 +841,18 @@ void TestShutdownDrainsAcceptedRemove() {
   ae::Domain ui_domain{ui_storage};
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
 
-  session.SubmitAddItem(AddItemCommand{1});
+  PostModelAddClick(session);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
-  session.SubmitAddItem(AddItemCommand{2});
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  PostModelAddClick(session);
   WaitPublished(session);
-  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr);
+  ApplyItemListStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
   auto const item2_id = ui_app->main_window->item_list->items[1]->obj_id;
 
-  session.SubmitRemoveItem(RemoveItemCommand{item2_id});
+  PostModelItemRemove(session, item2_id);
   session.RequestStop();
-  // Do not wait for / consume Remove publication — drain must still Save it.
   model.join();
 
   DirectoryDomainStorage storage{dir};
@@ -703,8 +866,8 @@ void TestShutdownDrainsAcceptedRemove() {
   CHECK(list.items[1]->number == 3);
   CHECK(list.journal.size() == 3);
 
-  session.SubmitAddItem(AddItemCommand{99});
-  CHECK(session.pending_commands.empty());
+  session.Post([](ae::Domain&) {});
+  CHECK(session.pending_work.empty());
   std::filesystem::remove_all(dir);
 }
 
@@ -714,9 +877,11 @@ void TestShutdownDrainsAcceptedRemove() {
 
 int main() {
   apptraverse::EnsureObjectRegistration();
+  apptraverse::test::TestPresenterGraphOwnership();
   apptraverse::test::TestModelAdd();
   apptraverse::test::TestReplayIdentity();
   apptraverse::test::TestStructuralPublicationAndPresenterLifecycle();
+  apptraverse::test::TestGuiProxyAddAndRemove();
   apptraverse::test::TestTwoAddsAreTwoEvents();
   apptraverse::test::TestRestartRestoresAddedItem();
   apptraverse::test::TestModelRemove();

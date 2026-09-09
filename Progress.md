@@ -1,5 +1,64 @@
 Status: implemented, verified locally. Not accepted.
 
+# UI ownership + ModelObjectProxy (before surfaces_demo)
+
+## Starting / final
+
+- Starting HEAD: `67fb538` (foundation hardening).
+- Branch: `prep/deps-objects-assert-mcp-v1`.
+- Final SHA: (filled after commit).
+
+## Object graph
+
+```
+Application
+ └── MainWindow
+      ├── presenter → MainWindowPresenter (top-level HWND only)
+      ├── add_item → AddItem
+      │                └── presenter → AddItemPresenter (Win32: BUTTON HWND)
+      └── item_list → ItemList
+                       ├── presenter → ItemListPresenter
+                       └── Item → ItemPresenter (label + [x] HWNDs)
+```
+
+Presenter does not own child presenters; composition is the object graph.
+
+## GUI → model path
+
+```
+Win32 click → Win32*Presenter → AddItemPresenter::Click / ItemPresenter::RemoveClick
+  → ModelObjectProxy::Invoke(ObjId, &T::method)
+  → session.Post(ModelWork)
+  → model Domain::Find(ObjId) → AddItem::Click / Item::Remove
+  → AddItemEvent / RemoveItemEvent → ItemList::Commit
+  → NoteMaterializedChange → structural publication → GUI mirror
+```
+
+- No model pointers across domains/threads.
+- GUI Presenter never Commits Events.
+- Session/WinApp no longer know Add/Remove semantics (`AddItemCommand`,
+  `RemoveItemCommand`, `WM_APPTRAVERSE_ADD/REMOVE_ITEM`, free `CommitAddItem` /
+  `CommitRemoveItem` removed).
+- Shutdown drain preserved on generic `pending_work` (accepted before stop runs;
+  after stop rejected).
+
+## Tests (local incremental `build/win64-ninja-msvc-debug`)
+
+| check | result |
+| --- | --- |
+| `apptraverse_dynamic_objects_add_test` (graph, Click/Remove, GUI proxy, drain) | PASS |
+| `apptraverse_dynamic_objects_win32_smoke_test` (Add BUTTON owned by Win32AddItemPresenter) | PASS |
+| `apptraverse_dynamic_two_main_win32_test` | PASS |
+| `apptraverse_presenter_load_order_test` | PASS |
+| `publication_channel` + `main_window_*` lifecycle/window/smoke | PASS |
+
+MCP `apptraverse_build_start` hit a transient `unknown target` against this tree;
+proof is the local MSVC+ninja incremental script.
+
+Not started: surfaces_demo.
+
+Not accepted-by-user.
+
 # Foundation hardening for surfaces_demo
 
 ## Starting point

@@ -7,54 +7,48 @@
 #include <filesystem>
 #include <functional>
 #include <mutex>
-#include <variant>
+#include <unordered_set>
 #include <vector>
 
+#include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/idomain_storage.h"
-#include "aether-objects/obj/obj_id.h"
 
+#include "apptraverse/model_object_proxy.h"
+#include "apptraverse/node.h"
 #include "apptraverse/publication_channel.h"
 
 namespace apptraverse {
 
 class Application;
-class ItemList;
-
-// Discrete commands. Not coalesced: each entry is one Event.
-struct AddItemCommand {
-  std::uint64_t sequence{0};
-};
-
-struct RemoveItemCommand {
-  ae::ObjId item_id;
-};
-
-using ItemListCommand = std::variant<AddItemCommand, RemoveItemCommand>;
 
 enum class PublicationKind {
   Initial,
   Incremental,
 };
 
+// Model thread + publication + persistence. Knows Application for load/save
+// and generic work; does not know Add/Remove semantics.
 struct DynamicModelSession {
+  using ModelWork = ModelObjectProxy::ModelWork;
+
   std::filesystem::path state_dir;
   PublicationChannel<3> channel;
   std::mutex mu;
   std::condition_variable cv;
   bool stop{false};
-  std::deque<ItemListCommand> pending_commands;
+  std::deque<ModelWork> pending_work;
 
   void RequestStop();
-  // Rejected after RequestStop. Commands already queued are accepted and drained.
-  void SubmitAddItem(AddItemCommand command);
-  void SubmitRemoveItem(RemoveItemCommand command);
+  // Rejected after RequestStop. Work already queued is accepted and drained.
+  void Post(ModelWork work);
   void Run(std::function<void(PublicationKind)> on_published);
 };
 
 // Apply structural ItemList publication with generic keepalive + presenter update.
 void ApplyItemListStructural(std::vector<std::uint8_t> const& bytes,
                              Application& ui_application,
-                             ae::IDomainStorage& ui_storage, void* host);
+                             ae::IDomainStorage& ui_storage, void* host,
+                             ModelObjectProxy* model_proxy = nullptr);
 
 }  // namespace apptraverse
 

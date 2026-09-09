@@ -15,6 +15,8 @@
 
 namespace apptraverse {
 
+class ModelObjectProxy;
+
 // Future optimization: serialize reflected concrete state without reflected base
 // class for UI publication, so Node::base/journal do not enter the buffer.
 // TODO(surfaces): structural publication bandwidth / delta protocol — not this
@@ -51,12 +53,15 @@ void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 // calls Presenter::OnLoad for each Presenter that is not yet
 // presentation_loaded and reports ReadyForPresentation(). Object Load must
 // not call this. Safe to call again after structural publication so only
-// newly introduced presenters activate.
-void InitializePresenters(ae::Obj& gui_root, void* host = nullptr);
+// newly introduced presenters activate. host → presentation_host;
+// model_proxy → Presenter::model_proxy (may be nullptr).
+void InitializePresenters(ae::Obj& gui_root, void* host = nullptr,
+                          ModelObjectProxy* model_proxy = nullptr);
 
 // Same activation rule as InitializePresenters. Prefer this name at
 // incremental-apply sites; both may be used interchangeably.
-void InitializeNewPresenters(ae::Obj& gui_root, void* host = nullptr);
+void InitializeNewPresenters(ae::Obj& gui_root, void* host = nullptr,
+                             ModelObjectProxy* model_proxy = nullptr);
 
 // Inverse of InitializePresenters. Unloads by descending presentation_load_order
 // (children before parents). Object destruction does not call this.
@@ -68,7 +73,7 @@ void UnloadPresenters(ae::Obj& gui_root);
 // OnUnload runs while the objects still exist.
 void UpdatePresentersAfterStructuralPublication(
     ae::Obj& gui_root, std::vector<Presenter::ptr> const& previously_active,
-    void* host = nullptr);
+    void* host = nullptr, ModelObjectProxy* model_proxy = nullptr);
 
 // Capture live ObjPtr anchors and active Presenter::ptr before a structural
 // apply. Keeps survivor C++ identity and removed presenters alive across apply.
@@ -85,7 +90,8 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
 // calling ApplyStructuralPublication + UpdatePresenters separately.
 ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
     ByteSource& in, ae::Domain& domain, ae::IDomainStorage& storage,
-    ae::Obj& gui_root, void* host = nullptr);
+    ae::Obj& gui_root, void* host = nullptr,
+    ModelObjectProxy* model_proxy = nullptr);
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 

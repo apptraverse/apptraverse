@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 
+#include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
@@ -12,6 +13,8 @@ APPTRAVERSE_REGISTER(Item);
 APPTRAVERSE_REGISTER(ItemPresenter);
 APPTRAVERSE_REGISTER(ItemList);
 APPTRAVERSE_REGISTER(ItemListPresenter);
+APPTRAVERSE_REGISTER(AddItem);
+APPTRAVERSE_REGISTER(AddItemPresenter);
 APPTRAVERSE_REGISTER(AddItemEvent);
 APPTRAVERSE_REGISTER(RemoveItemEvent);
 APPTRAVERSE_REGISTER(MainWindow);
@@ -21,9 +24,8 @@ APPTRAVERSE_REGISTER(Application);
 }  // namespace
 
 void EnsureDynamicModelRegistration() {
-  // Reference registrar storage so MSVC/lld keep this TU when linking the
-  // static model library into tests/demos that do not pull lifecycle.cpp.
   (void)&g_apptraverse_registrar_Application;
+  (void)&g_apptraverse_registrar_AddItem;
 }
 
 void ItemList::Apply(AddItemEvent const& event) {
@@ -47,10 +49,15 @@ void ItemList::Apply(RemoveItemEvent const& event) {
   NoteMaterializedChange();
 }
 
-Item::ptr CommitAddItem(ItemList& list) {
+void AddItem::Click() {
+  assert(window.is_valid() && window.is_loaded());
+  assert(window->item_list.is_valid() && window->item_list.is_loaded());
+  ItemList& list = *window->item_list;
   assert(list.domain != nullptr);
+
   auto item = Item::ptr::Create(ae::CreateWith{*list.domain});
-  auto presenter = ItemPresenter::ptr::Create(ae::CreateWith{*list.domain});
+  auto item_presenter =
+      ItemPresenter::ptr::Create(ae::CreateWith{*list.domain});
   std::uint32_t next_number = 1;
   for (auto const& existing : list.items) {
     if (existing.is_valid() && existing.is_loaded() &&
@@ -59,32 +66,44 @@ Item::ptr CommitAddItem(ItemList& list) {
     }
   }
   item->number = next_number;
-  item->list = ItemList::ptr::MakeFromThis(&list);
-  item->presenter = presenter;
-  presenter->item = item;
+  item->list = window->item_list;
+  item->presenter = item_presenter;
+  item_presenter->item = item;
 
   auto event = AddItemEvent::ptr::Create(ae::CreateWith{*list.domain});
   event->item = item;
   list.Commit(event);
-  return item;
 }
 
-bool CommitRemoveItem(ItemList& list, ae::ObjId item_id) {
-  assert(list.domain != nullptr);
-  auto const it =
-      std::find_if(list.items.begin(), list.items.end(),
-                   [&](Item::ptr const& item) {
-                     return item.is_valid() && item->obj_id == item_id;
-                   });
-  if (it == list.items.end()) {
-    // Stale / double remove: no-op. Normal GUI flow should not produce this
-    // after the Item is already gone from live topology.
-    return false;
+void Item::Remove() {
+  if (!list.is_valid() || !list.is_loaded()) {
+    return;
   }
-  auto event = RemoveItemEvent::ptr::Create(ae::CreateWith{*list.domain});
-  event->item = *it;
-  list.Commit(event);
-  return true;
+  ItemList& item_list = *list;
+  assert(item_list.domain != nullptr);
+  auto const it =
+      std::find_if(item_list.items.begin(), item_list.items.end(),
+                   [&](Item::ptr const& entry) {
+                     return entry.is_valid() && &*entry == this;
+                   });
+  if (it == item_list.items.end()) {
+    return;
+  }
+  auto event = RemoveItemEvent::ptr::Create(ae::CreateWith{*item_list.domain});
+  event->item = Item::ptr::MakeFromThis(this);
+  item_list.Commit(event);
+}
+
+void AddItemPresenter::Click() {
+  assert(model_proxy != nullptr);
+  assert(add_item.is_valid());
+  model_proxy->Invoke<AddItem>(add_item->obj_id, &AddItem::Click);
+}
+
+void ItemPresenter::RemoveClick() {
+  assert(model_proxy != nullptr);
+  assert(item.is_valid());
+  model_proxy->Invoke<Item>(item->obj_id, &Item::Remove);
 }
 
 }  // namespace apptraverse

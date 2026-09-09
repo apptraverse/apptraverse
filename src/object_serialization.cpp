@@ -476,7 +476,8 @@ void UnloadPresentersDescending(
 
 }  // namespace
 
-void InitializeNewPresenters(ae::Obj& gui_root, void* host) {
+void InitializeNewPresenters(ae::Obj& gui_root, void* host,
+                             ModelObjectProxy* model_proxy) {
   // Multipass: child presenters may wait until a parent HWND exists.
   for (;;) {
     bool progress = false;
@@ -491,6 +492,7 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host) {
         continue;
       }
       presenter->presentation_host = host;
+      presenter->model_proxy = model_proxy;
       presenter->OnLoad();
       presenter->presentation_loaded = true;
       presenter->presentation_load_order = NextPresentationLoadOrder();
@@ -502,8 +504,9 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host) {
   }
 }
 
-void InitializePresenters(ae::Obj& gui_root, void* host) {
-  InitializeNewPresenters(gui_root, host);
+void InitializePresenters(ae::Obj& gui_root, void* host,
+                          ModelObjectProxy* model_proxy) {
+  InitializeNewPresenters(gui_root, host, model_proxy);
 }
 
 void UnloadPresenters(ae::Obj& gui_root) {
@@ -521,7 +524,7 @@ void UnloadPresenters(ae::Obj& gui_root) {
 
 void UpdatePresentersAfterStructuralPublication(
     ae::Obj& gui_root, std::vector<Presenter::ptr> const& previously_active,
-    void* host) {
+    void* host, ModelObjectProxy* model_proxy) {
   std::vector<ae::Obj*> live_objects;
   CollectLiveReachableObjects(gui_root, live_objects);
   std::unordered_set<Presenter*> live_presenters;
@@ -545,7 +548,7 @@ void UpdatePresentersAfterStructuralPublication(
     removed.push_back(presenter);
   }
   UnloadPresentersDescending(std::move(removed));
-  InitializeNewPresenters(gui_root, host);
+  InitializeNewPresenters(gui_root, host, model_proxy);
 }
 
 StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
@@ -568,13 +571,13 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
 
 ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
     ByteSource& in, ae::Domain& domain, ae::IDomainStorage& storage,
-    ae::Obj& gui_root, void* host) {
+    ae::Obj& gui_root, void* host, ModelObjectProxy* model_proxy) {
   StructuralPresentationKeepalive const keepalive =
       CaptureStructuralPresentationKeepalive(gui_root);
   ae::Obj& changed =
       ApplyStructuralPublication(in, domain, storage);
-  UpdatePresentersAfterStructuralPublication(gui_root,
-                                             keepalive.active_presenters, host);
+  UpdatePresentersAfterStructuralPublication(
+      gui_root, keepalive.active_presenters, host, model_proxy);
   return changed;
 }
 

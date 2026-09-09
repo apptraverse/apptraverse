@@ -49,16 +49,6 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     OnIncrementalPublished();
     return 0;
   }
-  if (msg == WM_APPTRAVERSE_ADD_ITEM) {
-    ++add_sequence_;
-    session_.SubmitAddItem(AddItemCommand{add_sequence_});
-    return 0;
-  }
-  if (msg == WM_APPTRAVERSE_REMOVE_ITEM) {
-    session_.SubmitRemoveItem(
-        RemoveItemCommand{ae::ObjId{static_cast<ae::ObjId::Type>(wparam)}});
-    return 0;
-  }
   if (msg == WM_APPTRAVERSE_CLOSE_WINDOW) {
     // Single MainWindow demo: closing that window stops the application.
     if (ui_application_.is_valid() &&
@@ -101,7 +91,7 @@ void WinApp::OnInitialPublished() {
   auto ui_root = LoadInitialPublication(in, *ui_domain_, ui_storage_);
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
-  InitializePresenters(*ui_application_, notify_);
+  InitializePresenters(*ui_application_, notify_, &*model_proxy_);
   if (DestroyWindow(loading_) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("DestroyWindow Loading", err);
@@ -116,7 +106,8 @@ void WinApp::OnIncrementalPublished() {
     bytes = session_.channel.TakePublishedCopy();
   }
   session_.cv.notify_all();
-  ApplyItemListStructural(bytes, *ui_application_, ui_storage_, notify_);
+  ApplyItemListStructural(bytes, *ui_application_, ui_storage_, notify_,
+                          &*model_proxy_);
 }
 
 int WinApp::Run(std::filesystem::path const& state_dir) {
@@ -144,6 +135,10 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   }
 
   session_.state_dir = state_dir;
+  model_proxy_.emplace([this](ModelObjectProxy::ModelWork work) {
+    session_.Post(std::move(work));
+  });
+
   HANDLE done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   if (done_event == nullptr) {
     DWORD const err = GetLastError();
@@ -211,6 +206,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   UnloadPresenters(*ui_application_);
   ui_application_ = {};
   ui_domain_.reset();
+  model_proxy_.reset();
   UnregisterDynamicWin32Classes();
   if (DestroyWindow(notify_) == 0) {
     DWORD const err = GetLastError();

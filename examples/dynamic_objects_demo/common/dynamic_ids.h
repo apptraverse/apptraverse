@@ -15,6 +15,8 @@ enum class ObjId : ae::ObjId::Type {
   ItemListPresenter = 5,
   Item1 = 6,
   Item1Presenter = 7,
+  AddItem = 8,
+  AddItemPresenter = 9,
 };
 
 inline constexpr ae::ObjId::Type ToObjId(ObjId id) {

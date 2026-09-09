@@ -9,6 +9,7 @@ namespace apptraverse {
 namespace {
 
 APPTRAVERSE_REGISTER(Win32MainWindowPresenter);
+APPTRAVERSE_REGISTER(Win32AddItemPresenter);
 APPTRAVERSE_REGISTER(Win32ItemListPresenter);
 APPTRAVERSE_REGISTER(Win32ItemPresenter);
 
@@ -72,10 +73,16 @@ LRESULT CALLBACK Win32MainWindowPresenter::WndProc(HWND hwnd, UINT msg,
   if (presenter == nullptr) {
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
-  if (msg == WM_COMMAND && LOWORD(wparam) == kAddButtonId) {
-    HWND const notify = reinterpret_cast<HWND>(presenter->presentation_host);
-    PostMessageW(notify, WM_APPTRAVERSE_ADD_ITEM, 0, 0);
-    return 0;
+  if (msg == WM_COMMAND) {
+    HWND const child = reinterpret_cast<HWND>(lparam);
+    if (child != nullptr) {
+      auto* owner = reinterpret_cast<Presenter*>(
+          GetWindowLongPtrW(child, GWLP_USERDATA));
+      if (auto* add = dynamic_cast<Win32AddItemPresenter*>(owner)) {
+        add->Click();
+        return 0;
+      }
+    }
   }
   if (msg == WM_CLOSE) {
     HWND const notify = reinterpret_cast<HWND>(presenter->presentation_host);
@@ -95,15 +102,6 @@ void Win32MainWindowPresenter::OnLoad() {
     DWORD const err = GetLastError();
     FatalWin32("CreateWindowExW DynamicMain", err);
   }
-  add_button =
-      CreateWindowExW(0, L"BUTTON", L"Add item",
-                      WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 12, 12, 100, 28,
-                      hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAddButtonId)),
-                      GetModuleHandleW(nullptr), nullptr);
-  if (add_button == nullptr) {
-    DWORD const err = GetLastError();
-    FatalWin32("CreateWindowExW Add button", err);
-  }
   SetPresenterUserData(hwnd, this);
   ShowWindow(hwnd, SW_SHOW);
   UpdateWindow(hwnd);
@@ -118,7 +116,44 @@ void Win32MainWindowPresenter::OnUnload() {
     FatalWin32("DestroyWindow DynamicMain", err);
   }
   hwnd = nullptr;
-  add_button = nullptr;
+}
+
+bool Win32AddItemPresenter::ReadyForPresentation() const {
+  if (!add_item.is_valid() || !add_item.is_loaded() ||
+      !add_item->window.is_valid() || !add_item->window.is_loaded()) {
+    return false;
+  }
+  auto* main = &*add_item->window;
+  return main->presenter.is_valid() && main->presenter.is_loaded() &&
+         main->presenter->presentation_loaded;
+}
+
+void Win32AddItemPresenter::OnLoad() {
+  auto* main = &*add_item->window;
+  auto* main_p =
+      dynamic_cast<Win32MainWindowPresenter*>(&*main->presenter);
+  assert(main_p != nullptr && main_p->hwnd != nullptr);
+  hwnd = CreateWindowExW(
+      0, L"BUTTON", L"Add item", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 12, 12,
+      100, 28, main_p->hwnd,
+      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAddButtonId)),
+      GetModuleHandleW(nullptr), nullptr);
+  if (hwnd == nullptr) {
+    DWORD const err = GetLastError();
+    FatalWin32("CreateWindowExW Add item", err);
+  }
+  SetPresenterUserData(hwnd, this);
+}
+
+void Win32AddItemPresenter::OnModelChanged() {}
+
+void Win32AddItemPresenter::OnUnload() {
+  SetPresenterUserData(hwnd, nullptr);
+  if (DestroyWindow(hwnd) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("DestroyWindow Add item", err);
+  }
+  hwnd = nullptr;
 }
 
 LRESULT CALLBACK Win32ItemListPresenter::WndProc(HWND hwnd, UINT msg,
@@ -135,17 +170,16 @@ LRESULT CALLBACK Win32ItemListPresenter::WndProc(HWND hwnd, UINT msg,
   if (list_p == nullptr) {
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
-  if (msg == WM_COMMAND && LOWORD(wparam) == kRemoveButtonId) {
-    HWND const button = reinterpret_cast<HWND>(lparam);
-    auto const item_id =
-        static_cast<ae::ObjId::Type>(GetWindowLongPtrW(button, GWLP_USERDATA));
-    auto* main = &*list_p->list->window;
-    auto* main_p =
-        dynamic_cast<Win32MainWindowPresenter*>(&*main->presenter);
-    HWND const notify = reinterpret_cast<HWND>(main_p->presentation_host);
-    PostMessageW(notify, WM_APPTRAVERSE_REMOVE_ITEM,
-                 static_cast<WPARAM>(item_id), 0);
-    return 0;
+  if (msg == WM_COMMAND) {
+    HWND const child = reinterpret_cast<HWND>(lparam);
+    if (child != nullptr) {
+      auto* owner = reinterpret_cast<Presenter*>(
+          GetWindowLongPtrW(child, GWLP_USERDATA));
+      if (auto* item_p = dynamic_cast<Win32ItemPresenter*>(owner)) {
+        item_p->RemoveClick();
+        return 0;
+      }
+    }
   }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
@@ -231,8 +265,7 @@ void Win32ItemPresenter::OnLoad() {
     DWORD const err = GetLastError();
     FatalWin32("CreateWindowExW Remove button", err);
   }
-  SetWindowLongPtrW(remove_button, GWLP_USERDATA,
-                    static_cast<LONG_PTR>(item->obj_id.id()));
+  SetPresenterUserData(remove_button, this);
 }
 
 void Win32ItemPresenter::OnModelChanged() {
@@ -254,6 +287,7 @@ void Win32ItemPresenter::OnModelChanged() {
 }
 
 void Win32ItemPresenter::OnUnload() {
+  SetPresenterUserData(remove_button, nullptr);
   if (DestroyWindow(remove_button) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("DestroyWindow Item remove", err);

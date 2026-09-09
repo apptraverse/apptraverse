@@ -14,6 +14,10 @@ Application::ptr BuildDynamicObjectsGraph(ae::Domain& domain) {
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
   auto window_presenter = MainWindowPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindowPresenter)));
+  auto add_item = AddItem::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::AddItem)));
+  auto add_item_presenter = AddItemPresenter::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::AddItemPresenter)));
   auto list = ItemList::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::ItemList)));
   auto list_presenter = ItemListPresenter::ptr::Create(
@@ -28,9 +32,14 @@ Application::ptr BuildDynamicObjectsGraph(ae::Domain& domain) {
   window->width = dynamic_objects::kDefaultWidth;
   window->height = dynamic_objects::kDefaultHeight;
   window->presenter = window_presenter;
-  window->item_list = list;
   window_presenter->window = window;
 
+  window->add_item = add_item;
+  add_item->window = window;
+  add_item->presenter = add_item_presenter;
+  add_item_presenter->add_item = add_item;
+
+  window->item_list = list;
   list->window = window;
   list->presenter = list_presenter;
   list_presenter->list = list;

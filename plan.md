@@ -19,14 +19,15 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 2. journal retention/compaction [landed]
 3. dynamic_objects_demo — Add Item [done]
 4. dynamic_objects_demo — Remove Item [done]
-5. foundation hardening for multi-window / mobile surfaces [done — THIS]
-6. surfaces_demo — common model **[NEXT]**
-7. surfaces_demo — Windows: multiple dynamic windows + resize + Z-order
-8. surfaces_demo — first mobile pager port
-9. remaining platform ports
-10. shared_node_demo
-11. chat_demo
-12. aeroadmin-x production chat
+5. foundation hardening for multi-window / mobile surfaces [done]
+6. UI control ownership + GUI→model ObjId proxy [done — THIS]
+7. surfaces_demo — common model **[NEXT]**
+8. surfaces_demo — Windows: multiple dynamic windows + resize + Z-order
+9. surfaces_demo — first mobile pager port
+10. remaining platform ports
+11. shared_node_demo
+12. chat_demo
+13. aeroadmin-x production chat
 
 Deferred relative to surfaces/chat:
 
@@ -37,19 +38,19 @@ Deferred relative to surfaces/chat:
 
 ## Current slice (just completed)
 
-Foundation hardening for upcoming cross-platform `surfaces_demo`:
+Ownership of UI controls and GUI→model path (before `surfaces_demo`):
 
-- Presenter `presentation_load_order` (OnLoad parent→child, OnUnload reverse)
-- Explicit `ItemList` → `MainWindow` graph parent (no fixed ObjId lookup)
-- Win32 class registration at WinApp lifetime (multi HWND / one class)
-- `WM_APPTRAVERSE_CLOSE_WINDOW` identity; app decides stop
-- Generic structural keepalive + `Presenter::ptr` ownership
-- Shutdown drains accepted commands before Save
-- Distill TU separated from load-only
-- `APPTRAVERSE_BUILD_AETHER_DEMOS` gates full networking client targets
-- `NOMINMAX` / `WIN32_LEAN_AND_MEAN` only on WIN32
-
-Storage I/O remains assumed infallible (out of scope).
+- Each logical UI object owns its Presenter; Presenter owns only that object's
+  native presentation (no presenter ownership tree).
+- `AddItem` / `AddItemPresenter` / `Win32AddItemPresenter` — BUTTON HWND leaves
+  `MainWindowPresenter`.
+- Remove `[x]` stays inside `ItemPresenter` (not a separate model button object).
+- `ModelObjectProxy`: GUI Presenter → ObjId + method → model Domain Find →
+  model method → Event. Session/WinApp carry generic work only.
+- `AddItem::Click` / `Item::Remove` create Events; free `CommitAdd*` and typed
+  Session Add/Remove commands removed.
+- Dirty Node publication via `NoteMaterializedChange` notifier (no Event-type
+  dispatch in Session).
 
 ## Next slice
 
@@ -67,9 +68,24 @@ Desktop: one Surface → one top-level window; dynamic create/delete; move/resiz
 logical Z-order separate. Mobile: same Surface objects → pager pages; swipe → active
 Surface Event; page order ≠ activation ≠ desktop Z-order.
 
-Do not implement surfaces_demo in the foundation-hardening commits.
+Do not start surfaces_demo in the ownership/proxy commits.
+
+## Cross-platform invariant (foundation)
+
+```
+native input
+  → platform presenter
+  → common presenter method
+  → ModelObjectProxy(ObjId)
+  → model object method
+  → Event / Commit
+```
+
+Session/runtime transports work and publications; it contains no application
+event semantics. Same pattern later for Surface / AddSurface presenters.
 
 ## Foundation still in force
 
-Add/Remove Item discrete commands, independent Model/GUI Domains, Event-only Node
-mutation, MainWindow resize path as regression base.
+Independent Model/GUI Domains, Event-only Node mutation, presentation_load_order,
+structural keepalive, CLOSE_WINDOW, shutdown drain, distill separation,
+`APPTRAVERSE_BUILD_AETHER_DEMOS`. MainWindow resize path remains regression base.

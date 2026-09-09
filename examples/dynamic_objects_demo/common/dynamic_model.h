@@ -19,6 +19,8 @@ class Item;
 class ItemPresenter;
 class ItemList;
 class ItemListPresenter;
+class AddItem;
+class AddItemPresenter;
 class MainWindow;
 class MainWindowPresenter;
 class AddItemEvent;
@@ -47,6 +49,10 @@ class Item : public ae::Obj {
     dnv(base_, number, list, presenter);
   }
 
+  // Model-thread only. Commits RemoveItemEvent when this Item is still live.
+  // Stale/double remove is a no-op.
+  void Remove();
+
   std::uint32_t number{0};
   ae::ObjPtr<ItemList> list;
   ae::ObjPtr<ItemPresenter> presenter;
@@ -73,6 +79,9 @@ class ItemPresenter : public Presenter {
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, item);
   }
+
+  // GUI-thread: proxy Remove to the model Item with the same ObjId.
+  void RemoveClick();
 
   Item::ptr item;
 };
@@ -109,7 +118,6 @@ class ItemList : public NodeFor<ItemList> {
 
   std::vector<Item::ptr> items;
   ae::ObjPtr<ItemListPresenter> presenter;
-  // Explicit parent. Prefer this over domain.Find(fixed MainWindow ObjId).
   ae::ObjPtr<MainWindow> window;
 
   void Apply(AddItemEvent const& event);
@@ -141,6 +149,64 @@ class ItemListPresenter : public Presenter {
   ItemList::ptr list;
 };
 
+// Logical "Add item" control. Not a Node; creates topology Events on ItemList.
+class AddItem : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::dynamic::AddItem", AddItem,
+                           ae::Obj, 0)
+
+ protected:
+  AddItem() = default;
+
+ public:
+  explicit AddItem(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(presenter))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, window, presenter);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, window, presenter);
+  }
+
+  // Model-thread only. Creates Item + AddItemEvent and ItemList::Commit.
+  void Click();
+
+  ae::ObjPtr<MainWindow> window;
+  ae::ObjPtr<AddItemPresenter> presenter;
+};
+
+class AddItemPresenter : public Presenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::dynamic::AddItemPresenter",
+                           AddItemPresenter, Presenter, 0)
+
+ protected:
+  AddItemPresenter() = default;
+
+ public:
+  explicit AddItemPresenter(ae::ObjProp prop) : Presenter{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(add_item))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, add_item);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, add_item);
+  }
+
+  // GUI-thread: proxy Click to the model AddItem with the same ObjId.
+  void Click();
+
+  AddItem::ptr add_item;
+};
+
 // Event carries the Item object. Replay pushes the same ObjId; Apply must
 // not Create a new Item.
 class AddItemEvent : public EventFor<ItemList, AddItemEvent> {
@@ -168,8 +234,6 @@ class AddItemEvent : public EventFor<ItemList, AddItemEvent> {
   Item::ptr item;
 };
 
-// Removes the Item from live ItemList::items. Does not destroy the Item;
-// AddItemEvent may still hold it for replay/history.
 class RemoveItemEvent : public EventFor<ItemList, RemoveItemEvent> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::dynamic::RemoveItemEvent",
                            RemoveItemEvent, Event, 0)
@@ -197,7 +261,7 @@ class RemoveItemEvent : public EventFor<ItemList, RemoveItemEvent> {
 
 class MainWindow : public NodeFor<MainWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::dynamic::MainWindow",
-                           MainWindow, Node, 0)
+                           MainWindow, Node, 1)
 
  protected:
   MainWindow() = default;
@@ -206,7 +270,7 @@ class MainWindow : public NodeFor<MainWindow> {
   explicit MainWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height),
-                    AE_MMBR(item_list), AE_MMBR(presenter))
+                    AE_MMBR(item_list), AE_MMBR(add_item), AE_MMBR(presenter))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -215,9 +279,15 @@ class MainWindow : public NodeFor<MainWindow> {
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
+  void Load(ae::Version<1>, Dnv& dnv) {
+    Node::Load(ae::Version<2>{}, dnv);
+    dnv(x, y, width, height, item_list, add_item, presenter);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
     Node::Save(ae::Version<2>{}, dnv);
-    dnv(x, y, width, height, item_list, presenter);
+    dnv(x, y, width, height, item_list, add_item, presenter);
   }
 
   std::int32_t x{dynamic_objects::kDefaultX};
@@ -225,6 +295,7 @@ class MainWindow : public NodeFor<MainWindow> {
   std::int32_t width{dynamic_objects::kDefaultWidth};
   std::int32_t height{dynamic_objects::kDefaultHeight};
   ItemList::ptr item_list;
+  AddItem::ptr add_item;
   ae::ObjPtr<MainWindowPresenter> presenter;
 };
 
@@ -278,16 +349,7 @@ class Application : public ae::Obj {
   MainWindow::ptr main_window;
 };
 
-// Forces model Registrar statics from the model static library to be linked.
 void EnsureDynamicModelRegistration();
-
-// Create Item + presenter with a new ObjId, wire list back-ref, commit.
-// number = max(existing numbers) + 1 (stable after removals; not size+1).
-Item::ptr CommitAddItem(ItemList& list);
-
-// Commit RemoveItemEvent for a live Item. Returns false if item_id is not in
-// the live list (stale/double remove is a no-op).
-bool CommitRemoveItem(ItemList& list, ae::ObjId item_id);
 
 }  // namespace apptraverse
 
