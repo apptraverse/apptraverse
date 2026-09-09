@@ -12,6 +12,7 @@ inline constexpr UINT WM_APPTRAVERSE_INITIAL_PUBLISHED = WM_APP + 1;
 inline constexpr UINT WM_APPTRAVERSE_INCREMENTAL_PUBLISHED = WM_APP + 2;
 inline constexpr UINT WM_APPTRAVERSE_STOP = WM_APP + 3;
 inline constexpr UINT WM_APPTRAVERSE_ADD_ITEM = WM_APP + 4;
+inline constexpr UINT WM_APPTRAVERSE_REMOVE_ITEM = WM_APP + 5;
 
 }  // namespace apptraverse
 

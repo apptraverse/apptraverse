@@ -4,7 +4,10 @@
 #include <filesystem>
 #endif
 
+#include <algorithm>
 #include <cassert>
+#include <unordered_set>
+#include <vector>
 
 #include "aether-objects/obj/domain.h"
 
@@ -12,6 +15,7 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/presenter.h"
 
 #include "dynamic_ids.h"
 #include "dynamic_model.h"
@@ -24,9 +28,23 @@ APPTRAVERSE_REGISTER(ItemPresenter);
 APPTRAVERSE_REGISTER(ItemList);
 APPTRAVERSE_REGISTER(ItemListPresenter);
 APPTRAVERSE_REGISTER(AddItemEvent);
+APPTRAVERSE_REGISTER(RemoveItemEvent);
 APPTRAVERSE_REGISTER(MainWindow);
 APPTRAVERSE_REGISTER(MainWindowPresenter);
 APPTRAVERSE_REGISTER(Application);
+
+std::vector<Presenter*> CaptureActivePresenters(Application& ui_application) {
+  std::vector<ae::Obj*> objects;
+  CollectLiveReachableObjects(ui_application, objects);
+  std::vector<Presenter*> active;
+  for (ae::Obj* obj : objects) {
+    auto* presenter = dynamic_cast<Presenter*>(obj);
+    if (presenter != nullptr && presenter->presentation_loaded) {
+      active.push_back(presenter);
+    }
+  }
+  return active;
+}
 
 }  // namespace
 
@@ -41,7 +59,15 @@ void DynamicModelSession::RequestStop() {
 void DynamicModelSession::SubmitAddItem(AddItemCommand command) {
   {
     std::lock_guard<std::mutex> lock{mu};
-    pending_adds.push_back(command);
+    pending_commands.push_back(command);
+  }
+  cv.notify_all();
+}
+
+void DynamicModelSession::SubmitRemoveItem(RemoveItemCommand command) {
+  {
+    std::lock_guard<std::mutex> lock{mu};
+    pending_commands.push_back(command);
   }
   cv.notify_all();
 }
@@ -49,9 +75,8 @@ void DynamicModelSession::SubmitAddItem(AddItemCommand command) {
 void ApplyItemListStructural(std::vector<std::uint8_t> const& bytes,
                              Application& ui_application,
                              ae::IDomainStorage& ui_storage, void* host) {
-  // Hold live mirror objects across graph deserialize so existing presenters
-  // (and their presentation_loaded / native state) are not released when
-  // ItemList's ObjPtr fields are reloaded.
+  // Hold live mirror objects and previously-active presenters across apply so
+  // identity is preserved and OnUnload can run while presenters still exist.
   auto window = ui_application.main_window;
   auto list = window->item_list;
   auto list_presenter = list->presenter;
@@ -62,6 +87,12 @@ void ApplyItemListStructural(std::vector<std::uint8_t> const& bytes,
   for (auto const& item : existing_items) {
     existing_item_presenters.push_back(item->presenter);
   }
+  std::vector<Presenter::ptr> held_active;
+  auto const previously_active = CaptureActivePresenters(ui_application);
+  held_active.reserve(previously_active.size());
+  for (Presenter* presenter : previously_active) {
+    held_active.push_back(Presenter::ptr::MakeFromThis(presenter));
+  }
 
   ByteSource in;
   in.data = bytes.data();
@@ -71,13 +102,34 @@ void ApplyItemListStructural(std::vector<std::uint8_t> const& bytes,
   assert(&*ui_application.main_window->item_list == &*list);
   assert(&*list->presenter == &*list_presenter);
   assert(&*window->presenter == &*window_presenter);
-  assert(list->items.size() >= existing_items.size());
+
+  std::unordered_set<std::uint32_t> live_ids;
+  for (auto const& item : list->items) {
+    assert(item.is_valid());
+    live_ids.insert(item->obj_id.id());
+  }
   for (std::size_t i = 0; i < existing_items.size(); ++i) {
-    assert(&*list->items[i] == &*existing_items[i]);
-    assert(&*list->items[i]->presenter == &*existing_item_presenters[i]);
+    auto const id = existing_items[i]->obj_id.id();
+    if (live_ids.count(id) == 0) {
+      continue;
+    }
+    auto const it = std::find_if(
+        list->items.begin(), list->items.end(),
+        [&](Item::ptr const& item) { return item->obj_id.id() == id; });
+    assert(it != list->items.end());
+    assert(&**it == &*existing_items[i]);
+    assert(&*(*it)->presenter == &*existing_item_presenters[i]);
   }
 
-  InitializeNewPresenters(ui_application, host);
+  UpdatePresentersAfterStructuralPublication(ui_application, previously_active,
+                                             host);
+
+  for (auto const& item : list->items) {
+    if (item->presenter.is_valid() && item->presenter.is_loaded() &&
+        item->presenter->presentation_loaded) {
+      item->presenter->OnModelChanged();
+    }
+  }
   if (list_presenter.is_valid() && list_presenter.is_loaded() &&
       list_presenter->presentation_loaded) {
     list_presenter->OnModelChanged();
@@ -127,23 +179,32 @@ void DynamicModelSession::Run(
     on_published(PublicationKind::Initial);
 
     for (;;) {
-      AddItemCommand command;
+      ItemListCommand command;
       {
         std::unique_lock<std::mutex> lock{mu};
         cv.wait(lock, [&] {
           return stop ||
-                 (!pending_adds.empty() && !channel.has_unread_published());
+                 (!pending_commands.empty() && !channel.has_unread_published());
         });
         if (stop) {
           break;
         }
-        command = pending_adds.front();
-        pending_adds.pop_front();
+        command = pending_commands.front();
+        pending_commands.pop_front();
       }
-      (void)command;
 
       ItemList& list = *application->main_window->item_list;
-      CommitAddItem(list);
+      bool mutated = false;
+      if (auto const* add = std::get_if<AddItemCommand>(&command)) {
+        (void)add;
+        CommitAddItem(list);
+        mutated = true;
+      } else if (auto const* remove = std::get_if<RemoveItemCommand>(&command)) {
+        mutated = CommitRemoveItem(list, remove->item_id);
+      }
+      if (!mutated) {
+        continue;
+      }
 
       auto* pub = channel.AcquireProducer();
       SerializeStructuralNodePublication(list, pub->sink);
@@ -156,8 +217,8 @@ void DynamicModelSession::Run(
       on_published(PublicationKind::Incremental);
     }
 
-    // ItemList keeps default unlimited retention so AddItemEvent survives
-    // restart/replay. MainWindow has no resize journal here.
+    // ItemList keeps default unlimited retention so topology Events survive
+    // restart/replay.
     application.Save();
   }
 }

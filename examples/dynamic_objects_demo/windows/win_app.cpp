@@ -55,6 +55,11 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     session_.SubmitAddItem(AddItemCommand{add_sequence_});
     return 0;
   }
+  if (msg == WM_APPTRAVERSE_REMOVE_ITEM) {
+    session_.SubmitRemoveItem(
+        RemoveItemCommand{ae::ObjId{static_cast<ae::ObjId::Type>(wparam)}});
+    return 0;
+  }
   if (msg == WM_APPTRAVERSE_STOP) {
     session_.RequestStop();
     return 0;
@@ -102,10 +107,7 @@ void WinApp::OnIncrementalPublished() {
     bytes = session_.channel.TakePublishedCopy();
   }
   session_.cv.notify_all();
-  auto* main_p = dynamic_cast<Win32MainWindowPresenter*>(
-      &*ui_application_->main_window->presenter);
-  assert(main_p != nullptr);
-  ApplyItemListStructural(bytes, *ui_application_, ui_storage_, main_p->hwnd);
+  ApplyItemListStructural(bytes, *ui_application_, ui_storage_, notify_);
 }
 
 int WinApp::Run(std::filesystem::path const& state_dir) {

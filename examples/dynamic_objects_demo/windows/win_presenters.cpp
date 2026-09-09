@@ -102,6 +102,37 @@ void Win32MainWindowPresenter::OnUnload() {
   }
 }
 
+LRESULT CALLBACK Win32ItemListPresenter::WndProc(HWND hwnd, UINT msg,
+                                                 WPARAM wparam,
+                                                 LPARAM lparam) {
+  if (msg == WM_NCCREATE) {
+    auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
+    SetWindowLongPtrW(hwnd, GWLP_USERDATA,
+                      reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+  }
+  auto* list_p = reinterpret_cast<Win32ItemListPresenter*>(
+      GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+  if (list_p == nullptr) {
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+  }
+  if (msg == WM_COMMAND && LOWORD(wparam) == kRemoveButtonId) {
+    HWND const button = reinterpret_cast<HWND>(lparam);
+    auto const item_id =
+        static_cast<ae::ObjId::Type>(GetWindowLongPtrW(button, GWLP_USERDATA));
+    auto window = list_p->list->domain->Find(ae::ObjId{
+        dynamic_objects::ToObjId(dynamic_objects::ObjId::MainWindow)});
+    auto* main = dynamic_cast<MainWindow*>(&*window);
+    auto* main_p =
+        dynamic_cast<Win32MainWindowPresenter*>(&*main->presenter);
+    HWND const notify = reinterpret_cast<HWND>(main_p->presentation_host);
+    PostMessageW(notify, WM_APPTRAVERSE_REMOVE_ITEM,
+                 static_cast<WPARAM>(item_id), 0);
+    return 0;
+  }
+  return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
 bool Win32ItemListPresenter::ReadyForPresentation() const {
   if (!list.is_valid() || !list.is_loaded() || !list->domain) {
     return false;
@@ -126,9 +157,23 @@ void Win32ItemListPresenter::OnLoad() {
   auto* main_p =
       dynamic_cast<Win32MainWindowPresenter*>(&*main->presenter);
   assert(main_p != nullptr && main_p->hwnd != nullptr);
-  hwnd = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE, 12, 52,
-                         main->width - 40, main->height - 100, main_p->hwnd,
-                         nullptr, GetModuleHandleW(nullptr), nullptr);
+
+  WNDCLASSW wc{};
+  wc.lpfnWndProc = &Win32ItemListPresenter::WndProc;
+  wc.hInstance = GetModuleHandleW(nullptr);
+  wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+  wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+  wc.lpszClassName = kDynamicItemListClass;
+  if (RegisterClassW(&wc) == 0) {
+    DWORD const err = GetLastError();
+    if (err != ERROR_CLASS_ALREADY_EXISTS) {
+      FatalWin32("RegisterClassW DynamicItemList", err);
+    }
+  }
+  hwnd = CreateWindowExW(0, kDynamicItemListClass, L"", WS_CHILD | WS_VISIBLE,
+                         12, 52, main->width - 40, main->height - 100,
+                         main_p->hwnd, nullptr, GetModuleHandleW(nullptr),
+                         this);
   if (hwnd == nullptr) {
     DWORD const err = GetLastError();
     FatalWin32("CreateWindowExW ItemList", err);
@@ -138,10 +183,18 @@ void Win32ItemListPresenter::OnLoad() {
 void Win32ItemListPresenter::OnModelChanged() {}
 
 void Win32ItemListPresenter::OnUnload() {
-  if (hwnd != nullptr) {
-    DestroyWindow(hwnd);
-    hwnd = nullptr;
+  if (hwnd == nullptr) {
+    return;
   }
+  // Parent Main may already have DestroyWindow'd this child during its OnUnload.
+  if (IsWindow(hwnd) != 0) {
+    SetPresenterUserData(hwnd, nullptr);
+    if (DestroyWindow(hwnd) == 0) {
+      DWORD const err = GetLastError();
+      FatalWin32("DestroyWindow ItemList", err);
+    }
+  }
+  hwnd = nullptr;
 }
 
 bool Win32ItemPresenter::ReadyForPresentation() const {
@@ -151,37 +204,81 @@ bool Win32ItemPresenter::ReadyForPresentation() const {
          item->list->presenter->presentation_loaded;
 }
 
+int Win32ItemPresenter::LiveIndex() const {
+  assert(item.is_valid() && item->list.is_valid());
+  int index = 0;
+  for (auto const& entry : item->list->items) {
+    if (&*entry == &*item) {
+      return index;
+    }
+    ++index;
+  }
+  return 0;
+}
+
 void Win32ItemPresenter::OnLoad() {
   auto* list_p =
       dynamic_cast<Win32ItemListPresenter*>(&*item->list->presenter);
   assert(list_p != nullptr && list_p->hwnd != nullptr);
   wchar_t text[64];
   std::swprintf(text, 64, L"Item %u", item->number);
-  int const index = static_cast<int>(item->number) - 1;
+  int const index = LiveIndex();
   hwnd = CreateWindowExW(0, L"STATIC", text, WS_CHILD | WS_VISIBLE, 4,
-                         4 + index * 24, 200, 22, list_p->hwnd, nullptr,
+                         4 + index * 28, 200, 22, list_p->hwnd, nullptr,
                          GetModuleHandleW(nullptr), nullptr);
   if (hwnd == nullptr) {
     DWORD const err = GetLastError();
     FatalWin32("CreateWindowExW Item", err);
   }
+  remove_button = CreateWindowExW(
+      0, L"BUTTON", L"x", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 220,
+      4 + index * 28, 28, 22, list_p->hwnd,
+      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRemoveButtonId)),
+      GetModuleHandleW(nullptr), nullptr);
+  if (remove_button == nullptr) {
+    DWORD const err = GetLastError();
+    FatalWin32("CreateWindowExW Remove button", err);
+  }
+  SetWindowLongPtrW(remove_button, GWLP_USERDATA,
+                    static_cast<LONG_PTR>(item->obj_id.id()));
 }
 
 void Win32ItemPresenter::OnModelChanged() {
-  if (hwnd == nullptr || !item.is_valid()) {
+  if (!item.is_valid()) {
     return;
   }
-  wchar_t text[64];
-  std::swprintf(text, 64, L"Item %u", item->number);
-  SetWindowTextW(hwnd, text);
-  int const index = static_cast<int>(item->number) - 1;
-  SetWindowPos(hwnd, nullptr, 4, 4 + index * 24, 200, 22,
-               SWP_NOZORDER | SWP_NOACTIVATE);
+  int const index = LiveIndex();
+  if (hwnd != nullptr) {
+    wchar_t text[64];
+    std::swprintf(text, 64, L"Item %u", item->number);
+    SetWindowTextW(hwnd, text);
+    SetWindowPos(hwnd, nullptr, 4, 4 + index * 28, 200, 22,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+  }
+  if (remove_button != nullptr) {
+    SetWindowPos(remove_button, nullptr, 220, 4 + index * 28, 28, 22,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+  }
 }
 
 void Win32ItemPresenter::OnUnload() {
+  // Parent ItemList/Main may already have destroyed these children.
+  if (remove_button != nullptr) {
+    if (IsWindow(remove_button) != 0) {
+      if (DestroyWindow(remove_button) == 0) {
+        DWORD const err = GetLastError();
+        FatalWin32("DestroyWindow Item remove", err);
+      }
+    }
+    remove_button = nullptr;
+  }
   if (hwnd != nullptr) {
-    DestroyWindow(hwnd);
+    if (IsWindow(hwnd) != 0) {
+      if (DestroyWindow(hwnd) == 0) {
+        DWORD const err = GetLastError();
+        FatalWin32("DestroyWindow Item", err);
+      }
+    }
     hwnd = nullptr;
   }
 }

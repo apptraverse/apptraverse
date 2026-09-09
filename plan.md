@@ -17,9 +17,9 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 
 1. main_window_runtime_demo — lifecycle/mirror foundation [done / regression base]
 2. journal retention/compaction [landed]
-3. dynamic_objects_demo — Add Item **[THIS ITERATION]**
-4. dynamic_objects_demo — Remove Item
-5. shared_node_demo — two independent domains + memory messages
+3. dynamic_objects_demo — Add Item [done]
+4. dynamic_objects_demo — Remove Item [done]
+5. shared_node_demo — two independent domains + memory messages **[NEXT]**
 6. shared_node_demo — ACK/dedup/reorder
 7. shared_node_demo — presence/offline
 8. shared_node_demo — unload/reload
@@ -33,49 +33,52 @@ Deferred relative to chat (still roadmap, not blocking):
 - Six-platform ports
 - DPI / screen system events
 
-## Current slice
+## Current slice (just completed)
 
-Dynamic object creation: model `ItemList` commits `AddItemEvent` carrying a
-pre-created `Item::ptr` (stable ObjId on replay). Incremental publication uses
-`SerializeStructuralNodePublication` / `ApplyStructuralPublication` so newly
-reachable objects enter the GUI Domain. `InitializeNewPresenters` activates
-only presenters that are not yet `presentation_loaded`.
+Dynamic object removal: live `ItemList::items` loses the Item via
+`RemoveItemEvent`; historical `AddItemEvent` may still hold the Item.
+GUI shows live topology only. Structural publication + selective
+`OnUnload` / `OnLoad` update presenters without recreating survivors.
 
 ```
 Application
  └── MainWindow
-      └── ItemList          (Node; journal of AddItemEvent)
-           ├── Item         (ae::Obj; number)
-           │    └── ItemPresenter → Win32ItemPresenter
+      └── ItemList          (Node; journal of Add/Remove Events)
+           ├── Item         (ae::Obj; number — display only)
+           │    └── ItemPresenter → Win32ItemPresenter ([x])
            └── ItemListPresenter → Win32ItemListPresenter
 ```
 
-Constraints for this slice:
+Constraints observed:
 
-- GUI Add → `AddItemCommand` → model thread → Event → journal → Apply
-- no direct model mutation from GUI handlers
-- no Delete / Remove
+- GUI Remove → `RemoveItemCommand{ObjId}` → model → `RemoveItemEvent` → Apply
+- no model pointer across domains/threads
+- no physical GC of historical Item / journal
 - no SharedNode / network / presence / chat
-- no resize-style coalescing of Add (deque of discrete commands)
-- no disk Save on Add; shutdown Save only
-- ItemList keeps default unlimited journal retention (replay/restart)
+- discrete Add/Remove commands (variant deque; not coalesced)
+- no disk Save on Remove; shutdown Save only
+- ItemList keeps default unlimited journal retention
+
+## Next slice
+
+`shared_node_demo`: two independent Application/Domain/Storage in one process
++ in-memory message transport. No ACK, retry, or presence yet.
 
 ## Foundation still in force
 
 Object-graph presenter and MainWindow resize path remain the regression base.
-See earlier sections in Progress.md for retention and window-changed details.
+See Progress.md for retention and window-changed details.
 
 Journal retention (summary): `JournalRetentionPolicy`, compaction before
-shutdown Save; MainWindow `max_events=0`. Not changed by this slice except
-that dynamic ItemList does **not** adopt MainWindow's retain-none policy.
+shutdown Save; MainWindow `max_events=0`. Dynamic ItemList does **not**
+adopt MainWindow's retain-none policy.
 
 ## Later stages (deferred; architecture unchanged)
 
 1. Resize events — implemented/verified, not accepted
-2. dynamic_objects_demo Remove Item (next after Add verification)
-3. shared_node_demo …
-4. Node execution / model update loop / marquee (after chat-critical path)
-5. Minimal redraw / dirty regions
-6. System events: DPI, screens
-7. Æther / presence / network
-8. Platform ports
+2. shared_node_demo (see roadmap)
+3. Node execution / model update loop / marquee (after chat-critical path)
+4. Minimal redraw / dirty regions
+5. System events: DPI, screens
+6. Æther / presence / network
+7. Platform ports

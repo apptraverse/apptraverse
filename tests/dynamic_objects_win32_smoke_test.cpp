@@ -119,6 +119,56 @@ bool ChildHasText(HWND parent, wchar_t const* wanted) {
   return ctx.found;
 }
 
+HWND FindRemoveButtonForItem(HWND main, wchar_t const* item_text) {
+  HWND item_static = nullptr;
+  struct FindStatic {
+    wchar_t const* item_text;
+    HWND* out;
+  } find_static{item_text, &item_static};
+  EnumChildWindows(
+      main,
+      [](HWND hwnd, LPARAM lparam) -> BOOL {
+        auto* c = reinterpret_cast<FindStatic*>(lparam);
+        wchar_t text[256]{};
+        if (GetWindowTextW(hwnd, text, 256) > 0 &&
+            wcscmp(text, c->item_text) == 0) {
+          *c->out = hwnd;
+          return FALSE;
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&find_static));
+  if (item_static == nullptr) {
+    return nullptr;
+  }
+  HWND parent = GetParent(item_static);
+  RECT item_rect{};
+  GetWindowRect(item_static, &item_rect);
+  HWND button = nullptr;
+  struct FindButton {
+    LONG top;
+    HWND* out;
+  } find_button{item_rect.top, &button};
+  EnumChildWindows(
+      parent,
+      [](HWND child, LPARAM lparam) -> BOOL {
+        auto* c = reinterpret_cast<FindButton*>(lparam);
+        wchar_t text[32]{};
+        if (GetWindowTextW(child, text, 32) <= 0 || wcscmp(text, L"x") != 0) {
+          return TRUE;
+        }
+        RECT button_rect{};
+        GetWindowRect(child, &button_rect);
+        if (button_rect.top == c->top) {
+          *c->out = child;
+          return FALSE;
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&find_button));
+  return button;
+}
+
 int CountChildText(HWND parent, wchar_t const* wanted) {
   struct Ctx {
     wchar_t const* wanted;
@@ -211,6 +261,45 @@ void TestInProcessAddCreatesRow() {
   CHECK(CountChildText(main, L"Item 2") == 1);
   CHECK(CountOwnedClass(pid, kDynamicMainClass) == 1);
 
+  SendMessageW(add, BM_CLICK, 0, 0);
+  CHECK(WaitChildText(main, L"Item 3", std::chrono::seconds{30}));
+
+  HWND remove2 = FindRemoveButtonForItem(main, L"Item 2");
+  CHECK(remove2 != nullptr);
+  SendMessageW(remove2, BM_CLICK, 0, 0);
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (!ChildHasText(main, L"Item 2") && ChildHasText(main, L"Item 1") &&
+        ChildHasText(main, L"Item 3")) {
+      break;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  CHECK(!ChildHasText(main, L"Item 2"));
+  CHECK(ChildHasText(main, L"Item 1"));
+  CHECK(ChildHasText(main, L"Item 3"));
+
+  SendMessageW(add, BM_CLICK, 0, 0);
+  CHECK(WaitChildText(main, L"Item 4", std::chrono::seconds{30}));
+  CHECK(!ChildHasText(main, L"Item 2"));
+
+  HWND remove1 = FindRemoveButtonForItem(main, L"Item 1");
+  CHECK(remove1 != nullptr);
+  SendMessageW(remove1, BM_CLICK, 0, 0);
+  auto const deadline2 =
+      std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  while (std::chrono::steady_clock::now() < deadline2) {
+    if (!ChildHasText(main, L"Item 1") && ChildHasText(main, L"Item 3") &&
+        ChildHasText(main, L"Item 4")) {
+      break;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  CHECK(!ChildHasText(main, L"Item 1"));
+  CHECK(ChildHasText(main, L"Item 3"));
+  CHECK(ChildHasText(main, L"Item 4"));
+  CHECK(CountOwnedClass(pid, kDynamicMainClass) == 1);
+
   SendMessageW(main, WM_CLOSE, 0, 0);
   CHECK(WaitForSingleObject(gui.native_handle(), 30000) == WAIT_OBJECT_0);
   gui.join();
@@ -221,7 +310,8 @@ void TestInProcessAddCreatesRow() {
       domain, ae::ObjId{dynamic_objects::ToObjId(
                   dynamic_objects::ObjId::Application)});
   CHECK(application->main_window->item_list->items.size() == 2);
-  CHECK(application->main_window->item_list->items[1]->number == 2);
+  CHECK(application->main_window->item_list->items[0]->number == 3);
+  CHECK(application->main_window->item_list->items[1]->number == 4);
 
   std::filesystem::remove_all(dir);
 }
@@ -296,7 +386,34 @@ void TestChildProcessAddThenLoadOnly() {
     CHECK(add != nullptr);
     SendMessageW(add, BM_CLICK, 0, 0);
     CHECK(WaitChildText(main, L"Item 2", std::chrono::seconds{30}));
-    CHECK(CountChildText(main, L"Item 1") == 1);
+    SendMessageW(add, BM_CLICK, 0, 0);
+    CHECK(WaitChildText(main, L"Item 3", std::chrono::seconds{30}));
+    HWND remove2 = FindRemoveButtonForItem(main, L"Item 2");
+    CHECK(remove2 != nullptr);
+    SendMessageW(remove2, BM_CLICK, 0, 0);
+    auto const deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (!ChildHasText(main, L"Item 2") && ChildHasText(main, L"Item 3")) {
+        break;
+      }
+      PumpGui(std::chrono::milliseconds{20});
+    }
+    CHECK(!ChildHasText(main, L"Item 2"));
+    SendMessageW(add, BM_CLICK, 0, 0);
+    CHECK(WaitChildText(main, L"Item 4", std::chrono::seconds{30}));
+    HWND remove1 = FindRemoveButtonForItem(main, L"Item 1");
+    CHECK(remove1 != nullptr);
+    SendMessageW(remove1, BM_CLICK, 0, 0);
+    auto const deadline2 =
+        std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (std::chrono::steady_clock::now() < deadline2) {
+      if (!ChildHasText(main, L"Item 1") && ChildHasText(main, L"Item 3") &&
+          ChildHasText(main, L"Item 4")) {
+        break;
+      }
+      PumpGui(std::chrono::milliseconds{20});
+    }
     CHECK(CountOwnedClass(child.pid, kDynamicMainClass) == 1);
     CloseAndWait(child, main);
   }
@@ -307,6 +424,8 @@ void TestChildProcessAddThenLoadOnly() {
       domain, ae::ObjId{dynamic_objects::ToObjId(
                   dynamic_objects::ObjId::Application)});
   CHECK(application->main_window->item_list->items.size() == 2);
+  CHECK(application->main_window->item_list->items[0]->number == 3);
+  CHECK(application->main_window->item_list->items[1]->number == 4);
 
   {
     auto child =
@@ -315,8 +434,10 @@ void TestChildProcessAddThenLoadOnly() {
     HWND main = nullptr;
     CHECK(WaitOwned(child.pid, kDynamicMainClass, kDynamicMainTitle, &main,
                     std::chrono::seconds{60}));
-    CHECK(WaitChildText(main, L"Item 1", std::chrono::seconds{30}));
-    CHECK(WaitChildText(main, L"Item 2", std::chrono::seconds{30}));
+    CHECK(WaitChildText(main, L"Item 3", std::chrono::seconds{30}));
+    CHECK(WaitChildText(main, L"Item 4", std::chrono::seconds{30}));
+    CHECK(!ChildHasText(main, L"Item 1"));
+    CHECK(!ChildHasText(main, L"Item 2"));
     CHECK(CountOwnedClass(child.pid, kDynamicMainClass) == 1);
     CloseAndWait(child, main);
   }

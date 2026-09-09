@@ -1,5 +1,61 @@
 Status: implemented, verified locally. Not accepted.
 
+# Dynamic objects demo — Remove Item
+
+## Starting point
+
+Branch `prep/deps-objects-assert-mcp-v1` at `ef26be6` (Add Item Progress SHA note).
+
+## Representations
+
+- `RemoveItemCommand { ae::ObjId item_id }` — copyable identity only; no model pointer.
+- `RemoveItemEvent : EventFor<ItemList,…> { Item::ptr item }` — Apply erases that Item from live `items` and `NoteMaterializedChange()`. No physical destroy, no journal GC, no presenter/Win32 calls.
+- Command queue: `std::variant<AddItemCommand, RemoveItemCommand>` deque (discrete; not coalesced).
+
+## Live vs historical
+
+Removing from `ItemList::items` does not remove historical reachability via `AddItemEvent` in the journal. GUI presentation walks **live** topology only (`CollectLiveReachableObjects` temporarily clears Node `base`/`journal` for Save-based collect). Historical Item/presenter may remain graph-reachable but must not re-`OnLoad`.
+
+## Presenter unload
+
+- Capture active presenters before structural apply (held via `Presenter::ptr`).
+- Apply structural publication fully.
+- `UpdatePresentersAfterStructuralPublication`: OnUnload presenters in previously-active minus live; then `InitializeNewPresenters` for newly live only.
+- `UnloadPresenters` iterates reverse collect order so child HWNDs go before parents; child OnUnload tolerates already-destroyed HWND if parent won the race.
+- Win32 Item `[x]` → `WM_APPTRAVERSE_REMOVE_ITEM` → command → Event → publication → OnUnload → `DestroyWindow` row/button.
+
+## Numbering
+
+`CommitAddItem` uses `max(existing.number)+1` (not `size()+1`). After remove Item2, next Add is Item4.
+
+## Stale / double Remove
+
+`CommitRemoveItem`: if ObjId not in live `items`, **no-op** (`return false`, no Event). Chosen because GUI can race a second click; must not delete another Item or abort.
+
+## Persistence
+
+No Save on Remove. Shutdown `Application::Save()` after model stop. ItemList retention unchanged (unlimited). Empty live list is valid.
+
+## Tests
+
+| check | result |
+| --- | --- |
+| model remove + journal still holds historical Item | PASS |
+| replay Add+Remove → live list without Item2 | PASS |
+| mirror remove: survivor pointer identity, OnUnload==1 | PASS |
+| historical presenter: no second OnLoad after remove | PASS |
+| middle remove + Add → numbers 1,3,4 | PASS |
+| sequence Add/Add/Remove/Add/Remove → live 3,4 | PASS |
+| Win32 smoke Add/Remove + child load-only restore Item3,Item4 | PASS |
+| `publication_channel_test`, `main_window_window_changed_test` | PASS |
+| `main_window_lifecycle_test`, `main_window_win32_smoke_test` | PASS (existing bins) |
+
+MCP `user-apptraverse` not used as proof for this slice (local incremental `build/win64-ninja-msvc-debug`).
+
+Not implemented: SharedNode / transport / presence / chat / GC.
+
+Not accepted-by-user.
+
 # Dynamic objects demo — Add Item
 
 ## Starting point

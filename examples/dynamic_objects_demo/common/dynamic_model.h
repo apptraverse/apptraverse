@@ -22,6 +22,7 @@ class ItemListPresenter;
 class MainWindow;
 class MainWindowPresenter;
 class AddItemEvent;
+class RemoveItemEvent;
 
 // Dynamic child. Not a Node: topology mutations are journaled on ItemList.
 class Item : public ae::Obj {
@@ -104,6 +105,7 @@ class ItemList : public NodeFor<ItemList> {
   ae::ObjPtr<ItemListPresenter> presenter;
 
   void Apply(AddItemEvent const& event);
+  void Apply(RemoveItemEvent const& event);
 };
 
 class ItemListPresenter : public Presenter {
@@ -142,6 +144,33 @@ class AddItemEvent : public EventFor<ItemList, AddItemEvent> {
 
  public:
   explicit AddItemEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(item))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, item);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, item);
+  }
+
+  Item::ptr item;
+};
+
+// Removes the Item from live ItemList::items. Does not destroy the Item;
+// AddItemEvent may still hold it for replay/history.
+class RemoveItemEvent : public EventFor<ItemList, RemoveItemEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::dynamic::RemoveItemEvent",
+                           RemoveItemEvent, Event, 0)
+
+ protected:
+  RemoveItemEvent() = default;
+
+ public:
+  explicit RemoveItemEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(item))
 
@@ -244,7 +273,12 @@ class Application : public ae::Obj {
 Application::ptr BuildDynamicObjectsGraph(ae::Domain& domain);
 
 // Create Item + presenter with a new ObjId, wire list back-ref, commit.
+// number = max(existing numbers) + 1 (stable after removals; not size+1).
 Item::ptr CommitAddItem(ItemList& list);
+
+// Commit RemoveItemEvent for a live Item. Returns false if item_id is not in
+// the live list (stale/double remove is a no-op).
+bool CommitRemoveItem(ItemList& list, ae::ObjId item_id);
 
 }  // namespace apptraverse
 

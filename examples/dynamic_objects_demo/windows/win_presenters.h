@@ -16,8 +16,10 @@
 namespace apptraverse {
 
 inline wchar_t const kDynamicMainClass[] = L"AppTraverseDynamicObjectsMain";
+inline wchar_t const kDynamicItemListClass[] = L"AppTraverseDynamicItemList";
 inline wchar_t const kDynamicMainTitle[] = L"Dynamic Objects";
 inline constexpr int kAddButtonId = 1001;
+inline constexpr int kRemoveButtonId = 1002;
 
 class Win32MainWindowPresenter : public MainWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
@@ -65,6 +67,10 @@ class Win32ItemListPresenter : public ItemListPresenter {
   void OnUnload() override;
 
   HWND hwnd{nullptr};
+
+ private:
+  static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
+                                  LPARAM lparam);
 };
 
 class Win32ItemPresenter : public ItemPresenter {
@@ -85,6 +91,10 @@ class Win32ItemPresenter : public ItemPresenter {
   void OnUnload() override;
 
   HWND hwnd{nullptr};
+  HWND remove_button{nullptr};
+
+ private:
+  int LiveIndex() const;
 };
 
 }  // namespace apptraverse
