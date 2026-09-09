@@ -55,6 +55,8 @@ Mirror Item ObjId == model Item ObjId; C++ pointers differ. Application/MainWind
 
 MCP `user-apptraverse` build against this checkout: failed with `unknown target` before local reconfigure of new targets; not used as proof. Local incremental build in `build/win64-ninja-msvc-debug`.
 
+Commits: `629162f` (structural publication / InitializeNewPresenters), `6102c03` (dynamic_objects_demo Add Item). Pushed to `origin/prep/deps-objects-assert-mcp-v1`.
+
 Not implemented: Delete/Remove Item. Next slice after Add verification.
 
 Not accepted-by-user.
