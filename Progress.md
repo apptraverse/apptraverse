@@ -1,5 +1,46 @@
 Status: implemented, verified locally. Not accepted.
 
+# WindowChanged round-trip
+
+## Finding
+
+A most-derived factory load does not walk ancestor layers; that was already fixed in aether-objects. This iteration adds the first functional event path on top of that load.
+
+Derived `load` still does not replace App Traverse command/event semantics. Native geometry must be copied into a plain command, committed as `WindowChangedEvent` on the model thread, and published as one changed MainWindow.
+
+## Semantics
+
+- `WindowChangedCommand` (`main_window_lifecycle.h`): four `int32_t`, latest-state under `ModelSession::mu`. Newer geometry replaces an older pending command.
+- Model waits on `stop` or (pending command and publication slot free). Stop wins if both are ready.
+- Unchanged geometry is a no-op: no event, no publication, generation unchanged.
+- `WindowChangedEvent` (`main_window_model.h`) is committed on `MainWindow`. Journal gets one event per applied command. `MainWindow::Save()` persists it.
+- Incremental envelope: object id, generation, payload length, `SerializeObjectToBuffer` payload. GUI mirror journal/base stay empty. Generation is adopted.
+- Existing presenter is held across deserialize so the native instance is not replaced.
+- Publication backpressure is unchanged: unread publication is not overwritten. GUI `TakePublishedCopy` under `session.mu`, then `cv.notify_all()`, then apply.
+- `PublicationKind::{Initial,Incremental}` chooses the Win32 notify message. GUI does not guess from bytes.
+- Win32 source is `WM_WINDOWPOSCHANGED` + `GetWindowRect`. Feedback stops by comparing geometry. No suppression flag.
+- aether-objects pin unchanged: `81d5f86f3d6184f86763b4556334dda9471bfd4a`
+
+## Coalescing / no-op / restart
+
+- Coalescing test journal size: 1 `WindowChangedEvent` (commands A/B/C collapsed to C).
+- No-op command does not change generation or persist a new `EventRecord`.
+- Restart load-only initial publication restores the committed geometry.
+
+## Tests actually run (local runner, not attached MCP)
+
+Cursor `user-apptraverse` MCP still has no `source_dir` (**BLOCKED**).
+
+| target | artifact | status |
+| --- | --- | --- |
+| headless + demos | `apptraverse-build/20260909-042307-cd233d` | ok (`publication_channel_test`, `main_window_lifecycle_test`, `main_window_lifecycle_load_only_test`, `main_window_window_changed_test`, `main_window_missing_load_test`) |
+| Win32 smoke | `apptraverse-build/20260909-042240-bce900` | ok (`main_window_win32_smoke_test`, including resize then load-only restored rect) |
+
+`CMAKE_HOME_DIRECTORY`: `C:/Users/nickc/Projects/apptraverse-prep-deps-assert`
+Build dir: `build/win64-ninja-msvc-debug` (incremental; no clean)
+
+Not accepted-by-user.
+
 # Load persisted ancestor layers into aether-objects
 
 ## Finding

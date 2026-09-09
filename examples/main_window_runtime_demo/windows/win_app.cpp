@@ -35,8 +35,17 @@ LRESULT CALLBACK WinApp::WndProc(HWND hwnd, UINT msg, WPARAM wparam,
 }
 
 LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-  if (msg == WM_APPTRAVERSE_PUBLISHED) {
-    OnPublished();
+  if (msg == WM_APPTRAVERSE_INITIAL_PUBLISHED) {
+    OnInitialPublished();
+    return 0;
+  }
+  if (msg == WM_APPTRAVERSE_INCREMENTAL_PUBLISHED) {
+    OnIncrementalPublished();
+    return 0;
+  }
+  if (msg == WM_APPTRAVERSE_WINDOW_CHANGED) {
+    auto const* command = reinterpret_cast<WindowChangedCommand const*>(lparam);
+    session_.SubmitWindowChanged(*command);
     return 0;
   }
   if (msg == WM_APPTRAVERSE_STOP) {
@@ -57,8 +66,13 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-void WinApp::OnPublished() {
-  auto bytes = session_.channel.TakePublishedCopy();
+void WinApp::OnInitialPublished() {
+  std::vector<std::uint8_t> bytes;
+  {
+    std::lock_guard<std::mutex> lock{session_.mu};
+    bytes = session_.channel.TakePublishedCopy();
+  }
+  session_.cv.notify_all();
   ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
   ByteSource in;
   in.data = bytes.data();
@@ -72,6 +86,16 @@ void WinApp::OnPublished() {
     FatalWin32("DestroyWindow Loading", err);
   }
   loading_ = nullptr;
+}
+
+void WinApp::OnIncrementalPublished() {
+  std::vector<std::uint8_t> bytes;
+  {
+    std::lock_guard<std::mutex> lock{session_.mu};
+    bytes = session_.channel.TakePublishedCopy();
+  }
+  session_.cv.notify_all();
+  ApplyMainWindowIncremental(bytes, *ui_application_, ui_storage_);
 }
 
 int WinApp::Run(std::filesystem::path const& state_dir) {
@@ -124,10 +148,13 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
 
   HWND const notify = notify_;
   model_thread_ = std::thread([this, notify, done_event] {
-    session_.Run([notify] {
-      if (PostMessageW(notify, WM_APPTRAVERSE_PUBLISHED, 0, 0) == 0) {
+    session_.Run([notify](PublicationKind kind) {
+      UINT const message = kind == PublicationKind::Initial
+                               ? WM_APPTRAVERSE_INITIAL_PUBLISHED
+                               : WM_APPTRAVERSE_INCREMENTAL_PUBLISHED;
+      if (PostMessageW(notify, message, 0, 0) == 0) {
         DWORD const err = GetLastError();
-        FatalWin32("PostMessageW WM_APPTRAVERSE_PUBLISHED", err);
+        FatalWin32("PostMessageW publication", err);
       }
     });
     if (SetEvent(done_event) == 0) {
@@ -150,7 +177,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     MSG msg{};
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE) != 0) {
       // Startup is not cancelable. Ignore WM_QUIT while Loading is still up.
-      // After OnPublished, loading_ is null and Main exists; then stop is allowed.
+      // After OnInitialPublished, loading_ is null and Main exists; then stop is allowed.
       if (msg.message == WM_QUIT) {
         if (loading_ == nullptr) {
           session_.RequestStop();

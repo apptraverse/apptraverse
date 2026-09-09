@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -176,7 +177,9 @@ void TestModelSessionDoesNotCreateMain() {
 
   ModelSession session;
   session.state_dir = dir;
-  std::thread model{[&] { session.Run([&session] { session.cv.notify_all(); }); }};
+  std::thread model{[&] {
+    session.Run([&session](PublicationKind) { session.cv.notify_all(); });
+  }};
   WaitPublished(session);
   CHECK(CountOwnedClass(pid, kMainWindowClass) == 0);
   session.RequestStop();
@@ -193,19 +196,126 @@ struct ChildProcess {
 };
 
 ChildProcess StartDemo(std::filesystem::path const& exe,
-                       std::filesystem::path const& state_dir) {
+                       std::filesystem::path const& state_dir,
+                       std::filesystem::path const& stderr_path = {}) {
   std::wstring cmd = L"\"" + exe.wstring() + L"\" --state-dir \"" +
                      state_dir.wstring() + L"\"";
   std::vector<wchar_t> buf(cmd.begin(), cmd.end());
   buf.push_back(L'\0');
+  HANDLE errf = INVALID_HANDLE_VALUE;
   STARTUPINFOW si{};
   si.cb = sizeof(si);
+  if (!stderr_path.empty()) {
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    errf = CreateFileW(stderr_path.wstring().c_str(), GENERIC_WRITE,
+                        FILE_SHARE_READ, &sa, CREATE_ALWAYS,
+                        FILE_ATTRIBUTE_NORMAL, nullptr);
+    CHECK(errf != INVALID_HANDLE_VALUE);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError = errf;
+  }
   PROCESS_INFORMATION pi{};
   BOOL ok = CreateProcessW(exe.wstring().c_str(), buf.data(), nullptr, nullptr,
-                            FALSE, 0, nullptr, nullptr, &si, &pi);
+                            errf != INVALID_HANDLE_VALUE, 0, nullptr, nullptr,
+                            &si, &pi);
+  if (errf != INVALID_HANDLE_VALUE) {
+    CloseHandle(errf);
+  }
   CHECK(ok);
   CloseHandle(pi.hThread);
   return ChildProcess{pi.hProcess, pi.dwProcessId};
+}
+
+std::size_t CountStateEntries(std::filesystem::path const& dir) {
+  std::size_t count = 0;
+  if (!std::filesystem::exists(dir)) {
+    return 0;
+  }
+  for (auto const& entry : std::filesystem::directory_iterator{dir}) {
+    (void)entry;
+    ++count;
+  }
+  return count;
+}
+
+bool WaitRect(HWND hwnd, RECT const& expected, RECT* settled,
+              std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    RECT actual{};
+    if (GetWindowRect(hwnd, &actual) != 0 && actual.left == expected.left &&
+        actual.top == expected.top && actual.right == expected.right &&
+        actual.bottom == expected.bottom) {
+      if (settled != nullptr) {
+        *settled = actual;
+      }
+      return true;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  return false;
+}
+
+void TestChildProcessResizePersists() {
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_main_window_child_resize";
+  auto err_path = dir;
+  err_path += ".stderr.txt";
+  std::filesystem::remove_all(dir);
+  std::filesystem::remove(err_path);
+  std::filesystem::path exe{WIN32_MAIN_WINDOW_DEMO_EXE};
+  ChildProcess child = StartDemo(exe, dir, err_path);
+  HWND main = nullptr;
+  CHECK(WaitOwned(child.pid, kMainWindowClass, kMainWindowTitle, &main,
+                  std::chrono::seconds{30}));
+  auto const before = CountStateEntries(dir);
+  RECT desired{120, 90, 120 + 640, 90 + 480};
+  CHECK(SetWindowPos(main, nullptr, desired.left, desired.top, 640, 480,
+                     SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+  RECT settled{};
+  CHECK(WaitRect(main, desired, &settled, std::chrono::seconds{10}));
+  auto const persist_deadline = std::chrono::steady_clock::now() +
+                                std::chrono::seconds{10};
+  while (std::chrono::steady_clock::now() < persist_deadline &&
+         CountStateEntries(dir) <= before) {
+    if (WaitForSingleObject(child.process, 0) == WAIT_OBJECT_0) {
+      break;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  if (WaitForSingleObject(child.process, 0) == WAIT_OBJECT_0) {
+    DWORD code = 1;
+    GetExitCodeProcess(child.process, &code);
+    std::cerr << "resize child exited early code=" << code << " entries="
+              << CountStateEntries(dir) << " before=" << before << '\n';
+    std::ifstream err{err_path};
+    std::cerr << err.rdbuf();
+    std::exit(1);
+  }
+  CHECK(CountStateEntries(dir) > before);
+  PostMessageW(main, WM_CLOSE, 0, 0);
+  CHECK(WaitForSingleObject(child.process, 30000) == WAIT_OBJECT_0);
+  DWORD code = 1;
+  GetExitCodeProcess(child.process, &code);
+  CHECK(code == 0);
+  CloseHandle(child.process);
+
+  std::filesystem::path load_only{WIN32_MAIN_WINDOW_LOAD_ONLY_EXE};
+  ChildProcess restarted = StartDemo(load_only, dir);
+  HWND restored = nullptr;
+  CHECK(WaitOwned(restarted.pid, kMainWindowClass, kMainWindowTitle, &restored,
+                  std::chrono::seconds{30}));
+  CHECK(WaitRect(restored, settled, nullptr, std::chrono::seconds{10}));
+  PostMessageW(restored, WM_CLOSE, 0, 0);
+  CHECK(WaitForSingleObject(restarted.process, 30000) == WAIT_OBJECT_0);
+  GetExitCodeProcess(restarted.process, &code);
+  CHECK(code == 0);
+  CloseHandle(restarted.process);
+  std::filesystem::remove_all(dir);
 }
 
 void TestChildProcessFreshThenClose() {
@@ -234,7 +344,9 @@ void TestChildProcessLoadOnlyThenClose() {
   {
     ModelSession session;
     session.state_dir = dir;
-    std::thread model{[&] { session.Run([&session] { session.cv.notify_all(); }); }};
+    std::thread model{[&] {
+    session.Run([&session](PublicationKind) { session.cv.notify_all(); });
+  }};
     WaitPublished(session);
     session.RequestStop();
     model.join();
@@ -328,6 +440,7 @@ int main() {
   apptraverse::test::TestModelSessionDoesNotCreateMain();
   apptraverse::test::TestInProcessTwice();
 #ifdef WIN32_MAIN_WINDOW_DEMO_EXE
+  apptraverse::test::TestChildProcessResizePersists();
   apptraverse::test::TestChildProcessFreshThenClose();
   apptraverse::test::TestChildProcessLoadOnlyThenClose();
   apptraverse::test::TestChildProcessLoadOnlyEmptyState();

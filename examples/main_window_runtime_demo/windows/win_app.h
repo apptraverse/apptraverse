@@ -34,7 +34,8 @@ class WinApp {
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                    LPARAM lparam);
   LRESULT Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
-  void OnPublished();
+  void OnInitialPublished();
+  void OnIncrementalPublished();
 
   ModelSession session_;
   std::thread model_thread_;

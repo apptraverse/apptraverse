@@ -35,6 +35,7 @@ class Win32MainWindowPresenter : public MainWindowPresenter {
   AE_OBJECT_REFLECT()
 
   void OnLoad() override;
+  void OnModelChanged() override;
   void OnUnload() override;
 
   HWND hwnd{nullptr};

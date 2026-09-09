@@ -1,5 +1,6 @@
 #include "win_presenters.h"
 
+#include "main_window_lifecycle.h"
 #include "main_window_win32_messages.h"
 #include "win32_fatal.h"
 
@@ -33,7 +34,46 @@ LRESULT CALLBACK Win32MainWindowPresenter::WndProc(HWND hwnd, UINT msg,
     }
     return 0;
   }
+  if (msg == WM_WINDOWPOSCHANGED && presenter->hwnd != nullptr) {
+    RECT rect{};
+    if (GetWindowRect(hwnd, &rect) == 0) {
+      DWORD const err = GetLastError();
+      FatalWin32("GetWindowRect WM_WINDOWPOSCHANGED", err);
+    }
+    WindowChangedCommand command;
+    command.x = static_cast<std::int32_t>(rect.left);
+    command.y = static_cast<std::int32_t>(rect.top);
+    command.width = static_cast<std::int32_t>(rect.right - rect.left);
+    command.height = static_cast<std::int32_t>(rect.bottom - rect.top);
+    HWND const notify = reinterpret_cast<HWND>(presenter->presentation_host);
+    // Same GUI thread: SendMessageW invokes notify WndProc before return, and
+    // WinApp copies the four integers before this stack command is used again.
+    SendMessageW(notify, WM_APPTRAVERSE_WINDOW_CHANGED, 0,
+                 reinterpret_cast<LPARAM>(&command));
+  }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+void Win32MainWindowPresenter::OnModelChanged() {
+  RECT actual{};
+  if (GetWindowRect(hwnd, &actual) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("GetWindowRect OnModelChanged", err);
+  }
+  auto const desired_x = window->x;
+  auto const desired_y = window->y;
+  auto const desired_w = window->width;
+  auto const desired_h = window->height;
+  if (actual.left == desired_x && actual.top == desired_y &&
+      actual.right - actual.left == desired_w &&
+      actual.bottom - actual.top == desired_h) {
+    return;
+  }
+  if (SetWindowPos(hwnd, nullptr, desired_x, desired_y, desired_w, desired_h,
+                   SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowPos Main", err);
+  }
 }
 
 void Win32MainWindowPresenter::OnLoad() {
@@ -60,7 +100,11 @@ void Win32MainWindowPresenter::OnLoad() {
 }
 
 void Win32MainWindowPresenter::OnUnload() {
-  if (DestroyWindow(hwnd) == 0) {
+  HWND const dying = hwnd;
+  // DestroyWindow sends WM_WINDOWPOSCHANGED. Clear hwnd first so that
+  // teardown notification is not treated as a live geometry command.
+  hwnd = nullptr;
+  if (DestroyWindow(dying) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("DestroyWindow Main", err);
   }
