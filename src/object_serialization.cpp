@@ -278,34 +278,6 @@ void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
   }
 }
 
-void LoadStoredAncestorLayers(ae::Obj& object, ae::IDomainStorage& storage) {
-  auto* domain = object.domain;
-  assert(domain != nullptr);
-  auto ptr = domain->Find(object.obj_id);
-  assert(ptr);
-  auto const most_derived = object.GetClassId();
-  for (auto const class_id : storage.Enumerate(object.obj_id)) {
-    if (class_id == most_derived) {
-      continue;
-    }
-    auto* factory = ae::Registry::GetRegistry().FindFactory(class_id);
-    if (factory == nullptr || factory->load == nullptr) {
-      continue;
-    }
-    ae::DomainGraph graph{domain};
-    factory->load(&graph, ptr, object.obj_id);
-  }
-}
-
-void LoadStoredAncestorLayersFromRoot(ae::Obj& root,
-                                         ae::IDomainStorage& storage) {
-  std::vector<ae::Obj*> objects;
-  CollectReachableObjects(root, objects);
-  for (ae::Obj* obj : objects) {
-    LoadStoredAncestorLayers(*obj, storage);
-  }
-}
-
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
   if (auto* node = dynamic_cast<Node*>(&object)) {
     node->AdoptPublishedGeneration(generation);
@@ -335,8 +307,6 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
   in.read(&layer_count, sizeof(layer_count));
   assert(in.ok);
 
-  std::vector<ae::ObjId> object_ids;
-  object_ids.reserve(layer_count);
   for (std::uint32_t i = 0; i < layer_count; ++i) {
     std::uint32_t obj_id = 0;
     std::uint32_t class_id = 0;
@@ -350,11 +320,6 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
     InjectObjectBytes(ui_storage, {ae::ObjId{obj_id}, class_id, version},
                       in.data + in.pos, size);
     in.pos += size;
-    ae::ObjId const id{obj_id};
-    if (std::find(object_ids.begin(), object_ids.end(), id) ==
-        object_ids.end()) {
-      object_ids.push_back(id);
-    }
   }
 
   // Create objects through DomainGraph::LoadRoot so aether-objects can pick
@@ -363,19 +328,6 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
   ae::DomainGraph graph{&ui_domain};
   auto ui_root = graph.LoadRoot(ae::ObjId{root_id});
   assert(ui_root);
-
-  // Keepalive + load stored ancestor class layers. LoadRoot constructs the
-  // most-derived registered type; if that class has no stored layer, its
-  // Load is a no-op and ancestor fields (e.g. MainWindowPresenter::window)
-  // would otherwise stay default. Do not copy GetMostRelatedFactory here.
-  std::vector<ae::Ptr<ae::Obj>> keepalive;
-  keepalive.reserve(object_ids.size());
-  for (ae::ObjId const id : object_ids) {
-    if (auto object = ui_domain.Find(id)) {
-      keepalive.push_back(object);
-      LoadStoredAncestorLayers(*object, ui_storage);
-    }
-  }
 
   std::uint32_t node_generation_count = 0;
   in.read(&node_generation_count, sizeof(node_generation_count));

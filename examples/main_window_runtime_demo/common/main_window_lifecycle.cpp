@@ -60,7 +60,6 @@ void ModelSession::Run(std::function<void()> on_published) {
     auto application = LoadApplication<Application>(
         domain,
         ae::ObjId{main_window::ToObjId(main_window::ObjId::Application)});
-    LoadStoredAncestorLayersFromRoot(*application, storage);
 
     auto* buffer = channel.AcquireProducer();
     SerializeInitialPublication(*application, buffer->sink);

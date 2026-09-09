@@ -1,5 +1,41 @@
 Status: implemented, verified locally. Not accepted.
 
+# Load persisted ancestor layers into aether-objects
+
+## Finding
+
+Derived factory `load` is `DomainGraph::Load<T>` for that class only. `LoadVersion` returns immediately when that class has no stored bytes, so it never walks `AE_REF_BASE`. `GetMostRelatedFactory` already filters unknown classes and sorts the known stored chain base→derived, then creates a further registered descendant. Ancestor state was missing because only that descendant's factory `load` ran. The fix belongs in `DomainGraph::LoadRoot` / `LoadCopyImpl`, reusing that chain.
+
+## aether-objects
+
+- Branch: `fix/load-ancestor-layers-v1`
+- Base: `68df7973014fdd366875b3af725a69750a847e8b`
+- Final / remote: `81d5f86f3d6184f86763b4556334dda9471bfd4a`
+- `LoadRoot` and `LoadCopyImpl` now load known stored class layers base → derived
+- Unknown classes stay filtered. Version handling inside a class layer is unchanged
+- Tests: `test-object-system` (including new ancestor-layer cases and existing version tests) exit 0
+
+## AppTraverse
+
+- Branch: `prep/deps-objects-assert-mcp-v1`
+- Pin: `68df7973014fdd366875b3af725a69750a847e8b` → `81d5f86f3d6184f86763b4556334dda9471bfd4a`
+- Configure log: `APPTRAVERSE_aether-objects_SHA=81d5f86f3d6184f86763b4556334dda9471bfd4a`
+- Removed `LoadStoredAncestorLayers` and `LoadStoredAncestorLayersFromRoot` (declarations, definitions, model and GUI calls)
+- `plan.md` TODO closed
+
+## Tests actually run (local runner, not attached MCP)
+
+Cursor `user-apptraverse` MCP still has no `source_dir` (**BLOCKED**).
+
+| target | artifact | status |
+| --- | --- | --- |
+| demos + headless + Win32 smoke | `apptraverse-build/20260909-035302-dfe39b` | ok (`publication_channel_test`, `main_window_lifecycle_test`, `main_window_lifecycle_load_only_test`, `main_window_missing_load_test`, `main_window_win32_smoke_test`) |
+
+`CMAKE_HOME_DIRECTORY`: `C:/Users/nickc/Projects/apptraverse-prep-deps-assert`
+Build dir: `build/win64-ninja-msvc-debug` (incremental; no clean)
+
+Not accepted-by-user.
+
 # Model lifecycle without Win32 notifications; Win32 fatal helper
 
 ## Identity

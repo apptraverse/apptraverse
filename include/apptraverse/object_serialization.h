@@ -50,13 +50,6 @@ void UnloadPresenters(ae::Obj& gui_root);
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 
-// After LoadRoot, load stored ancestor class layers onto already-constructed
-// most-derived objects. Needed when the persisted graph has only a base class
-// (e.g. MainWindowPresenter) and the registry created a descendant.
-void LoadStoredAncestorLayers(ae::Obj& object, ae::IDomainStorage& storage);
-void LoadStoredAncestorLayersFromRoot(ae::Obj& root,
-                                       ae::IDomainStorage& storage);
-
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_OBJECT_SERIALIZATION_H_
