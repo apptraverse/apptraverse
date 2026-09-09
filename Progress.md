@@ -61,6 +61,10 @@ size only.
 MCP used only for an early configure probe (`already_configured`); proof is local
 incremental `build/win64-ninja-msvc-debug` with MSVC env.
 
+Commits: `7fab099` (presenter lifecycle / structural keepalive), `2ce939a`
+(Win32 multi-window prep), `52c386f` (shutdown drain / distill / CMake / plan).
+Pushed to `origin/prep/deps-objects-assert-mcp-v1`.
+
 Not implemented: surfaces_demo.
 
 Not accepted-by-user.
