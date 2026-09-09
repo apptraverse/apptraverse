@@ -2,6 +2,7 @@ set(_main_window_win_sources
   main.cpp
   win_app.cpp
   win_presenters.cpp
+  win32_fatal.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/main_window_lifecycle.cpp
 )
 

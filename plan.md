@@ -54,6 +54,8 @@ Constraints:
 - return from `Run` means Application, reachable graph, Domain, and storage
   have already been destroyed on the model thread; Windows `SetEvent` is after
   that return, in the thread lambda, not in `ModelSession`
+- Windows `FatalWin32(operation, DWORD)` is the reused example helper for
+  required Win32 failures; it is not a logging framework
 - GUI never creates, loads, or touches model Domain objects
 - first launch (development build with `APPTRAVERSE_ENABLE_DISTILLATION`):
   create → distill → destroy graph/Domain → new Domain → load

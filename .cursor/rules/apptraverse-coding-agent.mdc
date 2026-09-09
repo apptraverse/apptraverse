@@ -22,14 +22,15 @@ Use only incremental builds of the existing build tree. If the tree is broken, e
 If a global invariant is broken and the app cannot work, fail immediately at
 the origin. `assert` is stripped under `NDEBUG`; fatal checks at a real failure
 boundary (`RegisterClassW`, `CreateWindowExW`, `CreateEventW`, `PostMessageW`,
-`SetEvent`, `WAIT_FAILED`, required `LoadApplication`) must use a live check
-and `abort` (stderr diagnostic, `GetLastError` captured immediately on Win32).
-Flush stderr / `STD_ERROR_HANDLE` before `abort`. GUI-subsystem processes do
-not attach `FILE* stderr`; write the diagnostic with `WriteFile` on
-`GetStdHandle(STD_ERROR_HANDLE)` as well. Do not compile registrar TUs with
-`NDEBUG` in a Debug link of aether-objects: `Factory` layout is `#ifndef NDEBUG`.
-No modal dialog, retries, or recovery. Do not wrap the operation in `assert`.
-Do not duplicate `if (!x)` then `assert(x)`.
+`SetEvent`, `DestroyWindow`, `CloseHandle`, `WAIT_FAILED`, required
+`LoadApplication`) must use a live check and `abort`. Capture `GetLastError`
+immediately on Win32 and pass it to the reused `FatalWin32` helper in the
+Windows example. `WriteFatalStderr` writes once: CRT stderr when attached,
+otherwise `STD_ERROR_HANDLE`. Do not compile registrar TUs with `NDEBUG` in a
+Debug link of aether-objects: `Factory` layout is `#ifndef NDEBUG`. Test names
+must match the actual compile configuration; a Debug missing-load test is not
+an NDEBUG/Release proof. No modal dialog, retries, or recovery. Do not wrap
+the operation in `assert`. Do not duplicate `if (!x)` then `assert(x)`.
 
 Examples: required model/Domain/root failed to load; main native window was not
 created; required graph reference or class registration is missing.
@@ -65,7 +66,7 @@ left scope.
 
 Do not add Manager, Service, Coordinator, Context, Runtime wrapper, a registry on top of the existing registry, Lifecycle abstraction, Controller, Repository, helper object, or extra state machine without a real need.
 
-Use App Traverse primitives, aether-objects, platform APIs, locals, RAII, and straight-line control flow. A new type is allowed only if it is a real domain concept, is actually reused, or ownership/lifetime is worse without it. No abstractions “for later”.
+Use App Traverse primitives, aether-objects, platform APIs, locals, RAII, and straight-line control flow. A new type is allowed only if it is a real domain concept, is actually reused, or ownership/lifetime is worse without it. No abstractions “for later”. A small free function is allowed when several call sites share the same operation (for example `FatalWin32`).
 
 ## Inline small single-use functions
 

@@ -8,8 +8,8 @@ namespace apptraverse {
 // initialization. Does not define NDEBUG and does not swallow asserts.
 void EnableNoninteractiveCrt();
 
-// CRT stderr plus the Win32 STD_ERROR_HANDLE (GUI-subsystem children inherit
-// the latter even when FILE* stderr is not attached).
+// One diagnostic write: CRT stderr when attached, otherwise Win32
+// STD_ERROR_HANDLE (GUI-subsystem children with redirected stderr).
 void WriteFatalStderr(char const* text);
 
 }  // namespace apptraverse

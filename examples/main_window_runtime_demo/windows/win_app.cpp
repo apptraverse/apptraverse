@@ -1,9 +1,7 @@
 #include "win_app.h"
 
-#include <cstdio>
-#include <cstdlib>
-
 #include "apptraverse/object_serialization.h"
+#include "win32_fatal.h"
 
 namespace apptraverse {
 namespace {
@@ -69,7 +67,10 @@ void WinApp::OnPublished() {
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
   InitializePresenters(*ui_application_, notify_);
-  DestroyWindow(loading_);
+  if (DestroyWindow(loading_) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("DestroyWindow Loading", err);
+  }
   loading_ = nullptr;
 }
 
@@ -83,10 +84,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   notify_wc.lpszClassName = kNotifyWindowClass;
   if (RegisterClassW(&notify_wc) == 0) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: RegisterClassW notify GetLastError=%lu\n",
-                 err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("RegisterClassW notify", err);
   }
 
   // Loading: not a user window. WM_CLOSE is ignored. Unregistered in this Run.
@@ -98,30 +96,21 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   loading_wc.lpszClassName = kLoadingWindowClass;
   if (RegisterClassW(&loading_wc) == 0) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: RegisterClassW Loading GetLastError=%lu\n",
-                 err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("RegisterClassW Loading", err);
   }
 
   session_.state_dir = state_dir;
   HANDLE done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   if (done_event == nullptr) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: CreateEventW done_event GetLastError=%lu\n",
-                 err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("CreateEventW done_event", err);
   }
 
   notify_ = CreateWindowExW(0, kNotifyWindowClass, L"", 0, 0, 0, 0, 0,
                             HWND_MESSAGE, nullptr, instance, this);
   if (notify_ == nullptr) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: CreateWindowExW notify GetLastError=%lu\n",
-                 err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("CreateWindowExW notify", err);
   }
 
   loading_ = CreateWindowExW(
@@ -130,10 +119,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
       nullptr, instance, this);
   if (loading_ == nullptr) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: CreateWindowExW Loading GetLastError=%lu\n",
-                 err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("CreateWindowExW Loading", err);
   }
 
   HWND const notify = notify_;
@@ -141,20 +127,12 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     session_.Run([notify] {
       if (PostMessageW(notify, WM_APPTRAVERSE_PUBLISHED, 0, 0) == 0) {
         DWORD const err = GetLastError();
-        std::fprintf(
-            stderr,
-            "fatal: PostMessageW WM_APPTRAVERSE_PUBLISHED GetLastError=%lu\n",
-            err);
-        std::fflush(stderr);
-        std::abort();
+        FatalWin32("PostMessageW WM_APPTRAVERSE_PUBLISHED", err);
       }
     });
     if (SetEvent(done_event) == 0) {
       DWORD const err = GetLastError();
-      std::fprintf(stderr, "fatal: SetEvent done_event GetLastError=%lu\n",
-                   err);
-      std::fflush(stderr);
-      std::abort();
+      FatalWin32("SetEvent done_event", err);
     }
   });
 
@@ -164,10 +142,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
                                                 QS_ALLINPUT | QS_ALLPOSTMESSAGE);
     if (wait == WAIT_FAILED) {
       DWORD const err = GetLastError();
-      std::fprintf(stderr,
-                   "fatal: MsgWaitForMultipleObjects GetLastError=%lu\n", err);
-      std::fflush(stderr);
-      std::abort();
+      FatalWin32("MsgWaitForMultipleObjects", err);
     }
     if (wait == WAIT_OBJECT_0) {
       break;
@@ -191,22 +166,22 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   UnloadPresenters(*ui_application_);
   ui_application_ = {};
   ui_domain_.reset();
-  DestroyWindow(notify_);
+  if (DestroyWindow(notify_) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("DestroyWindow notify", err);
+  }
   if (UnregisterClassW(kNotifyWindowClass, instance) == 0) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: UnregisterClassW notify GetLastError=%lu\n",
-                 err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("UnregisterClassW notify", err);
   }
   if (UnregisterClassW(kLoadingWindowClass, instance) == 0) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: UnregisterClassW Loading GetLastError=%lu\n",
-                 err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("UnregisterClassW Loading", err);
   }
-  CloseHandle(done_event);
+  if (CloseHandle(done_event) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("CloseHandle done_event", err);
+  }
   return 0;
 }
 

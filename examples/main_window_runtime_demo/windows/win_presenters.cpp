@@ -1,9 +1,7 @@
 #include "win_presenters.h"
 
-#include <cstdio>
-#include <cstdlib>
-
 #include "main_window_win32_messages.h"
+#include "win32_fatal.h"
 
 namespace apptraverse {
 namespace {
@@ -31,11 +29,7 @@ LRESULT CALLBACK Win32MainWindowPresenter::WndProc(HWND hwnd, UINT msg,
     HWND const notify = reinterpret_cast<HWND>(presenter->presentation_host);
     if (PostMessageW(notify, WM_APPTRAVERSE_STOP, 0, 0) == 0) {
       DWORD const err = GetLastError();
-      std::fprintf(stderr,
-                   "fatal: PostMessageW WM_APPTRAVERSE_STOP GetLastError=%lu\n",
-                   err);
-      std::fflush(stderr);
-      std::abort();
+      FatalWin32("PostMessageW WM_APPTRAVERSE_STOP", err);
     }
     return 0;
   }
@@ -51,9 +45,7 @@ void Win32MainWindowPresenter::OnLoad() {
   wc.lpszClassName = kMainWindowClass;
   if (RegisterClassW(&wc) == 0) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: RegisterClassW Main GetLastError=%lu\n", err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("RegisterClassW Main", err);
   }
   hwnd = CreateWindowExW(
       0, kMainWindowClass, kMainWindowTitle, WS_OVERLAPPEDWINDOW, window->x,
@@ -61,23 +53,20 @@ void Win32MainWindowPresenter::OnLoad() {
       GetModuleHandleW(nullptr), this);
   if (hwnd == nullptr) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: CreateWindowExW Main GetLastError=%lu\n",
-                 err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("CreateWindowExW Main", err);
   }
   ShowWindow(hwnd, SW_SHOW);
   UpdateWindow(hwnd);
 }
 
 void Win32MainWindowPresenter::OnUnload() {
-  DestroyWindow(hwnd);
+  if (DestroyWindow(hwnd) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("DestroyWindow Main", err);
+  }
   if (UnregisterClassW(kMainWindowClass, GetModuleHandleW(nullptr)) == 0) {
     DWORD const err = GetLastError();
-    std::fprintf(stderr, "fatal: UnregisterClassW Main GetLastError=%lu\n",
-                 err);
-    std::fflush(stderr);
-    std::abort();
+    FatalWin32("UnregisterClassW Main", err);
   }
 }
 

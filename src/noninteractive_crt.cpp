@@ -6,6 +6,7 @@
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
 #  endif
+#  include <io.h>
 #  include <windows.h>
 #  include <werapi.h>
 #  include <cstdlib>
@@ -44,15 +45,29 @@ void WriteFatalStderr(char const* text) {
   if (text == nullptr) {
     return;
   }
+#ifdef _WIN32
+  // One write. CRT stderr and STD_ERROR_HANDLE are often the same pipe;
+  // writing both duplicates the diagnostic. Prefer CRT when it is attached;
+  // otherwise the Win32 handle (GUI-subsystem child with redirected stderr).
+  int const fd = _fileno(stderr);
+  HANDLE crt = INVALID_HANDLE_VALUE;
+  if (fd >= 0) {
+    crt = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+  }
+  HANDLE const win = GetStdHandle(STD_ERROR_HANDLE);
+  if (crt != nullptr && crt != INVALID_HANDLE_VALUE) {
+    std::fputs(text, stderr);
+    std::fflush(stderr);
+    return;
+  }
+  if (win != nullptr && win != INVALID_HANDLE_VALUE) {
+    DWORD written = 0;
+    WriteFile(win, text, static_cast<DWORD>(lstrlenA(text)), &written, nullptr);
+    FlushFileBuffers(win);
+  }
+#else
   std::fputs(text, stderr);
   std::fflush(stderr);
-#ifdef _WIN32
-  HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
-  if (h != nullptr && h != INVALID_HANDLE_VALUE) {
-    DWORD written = 0;
-    WriteFile(h, text, static_cast<DWORD>(lstrlenA(text)), &written, nullptr);
-    FlushFileBuffers(h);
-  }
 #endif
 }
 

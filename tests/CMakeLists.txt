@@ -177,39 +177,76 @@ add_test(
   COMMAND apptraverse_main_window_lifecycle_load_only_test
 )
 
-add_executable(apptraverse_main_window_fatal_ndebug_test
-  main_window_fatal_ndebug_test.cpp
-  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
-)
-
-# Do not compile this executable with NDEBUG. aether-objects Factory layout
-# and RegisterClass are #ifndef NDEBUG; mixing that with Debug-linked
-# aether-objects aborts before main. LoadApplication fail-fast is abort()
-# (not assert), so missing state is still fatal in this Debug binary.
-target_link_libraries(apptraverse_main_window_fatal_ndebug_test PRIVATE
-  main_window_runtime_demo_model
-)
-
-add_test(
-  NAME apptraverse_main_window_fatal_ndebug_test
-  COMMAND apptraverse_main_window_fatal_ndebug_test
-)
-
 add_custom_target(apptraverse_main_window_headless_check
   COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
   COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_test>
   COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_load_only_test>
-  COMMAND $<TARGET_FILE:apptraverse_main_window_fatal_ndebug_test>
   DEPENDS
     apptraverse_publication_channel_test
     apptraverse_main_window_lifecycle_test
     apptraverse_main_window_lifecycle_load_only_test
-    apptraverse_main_window_fatal_ndebug_test
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Main-window lifecycle and publication-channel headless checks"
 )
 
 if(WIN32)
+  # Windows CreateProcess parent. Debug binary (not NDEBUG): aether-objects
+  # Factory layout is #ifndef NDEBUG. Missing Application is still abort().
+  add_executable(apptraverse_main_window_missing_load_test
+    main_window_missing_load_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
+  )
+  target_link_libraries(apptraverse_main_window_missing_load_test PRIVATE
+    main_window_runtime_demo_model
+  )
+  add_test(
+    NAME apptraverse_main_window_missing_load_test
+    COMMAND apptraverse_main_window_missing_load_test
+  )
+
+  # Isolated FatalWin32 + WriteFatalStderr with NDEBUG. No aether-objects.
+  add_executable(apptraverse_win32_fatal_ndebug_child
+    win32_fatal_ndebug_child.cpp
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
+    ${CMAKE_SOURCE_DIR}/src/noninteractive_crt.cpp
+  )
+  target_compile_definitions(apptraverse_win32_fatal_ndebug_child PRIVATE
+    NDEBUG
+  )
+  target_include_directories(apptraverse_win32_fatal_ndebug_child PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+  )
+
+  add_executable(apptraverse_win32_fatal_ndebug_test
+    win32_fatal_ndebug_test.cpp
+  )
+  target_compile_definitions(apptraverse_win32_fatal_ndebug_test PRIVATE
+    "WIN32_FATAL_NDEBUG_CHILD=R\"($<TARGET_FILE:apptraverse_win32_fatal_ndebug_child>)\""
+  )
+  add_dependencies(apptraverse_win32_fatal_ndebug_test
+    apptraverse_win32_fatal_ndebug_child
+  )
+  add_test(
+    NAME apptraverse_win32_fatal_ndebug_test
+    COMMAND apptraverse_win32_fatal_ndebug_test
+  )
+
+  add_custom_command(TARGET apptraverse_main_window_headless_check POST_BUILD
+    COMMAND $<TARGET_FILE:apptraverse_main_window_missing_load_test>
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  )
+  add_dependencies(apptraverse_main_window_headless_check
+    apptraverse_main_window_missing_load_test
+  )
+
+  add_custom_target(apptraverse_win32_fatal_ndebug_check
+    COMMAND $<TARGET_FILE:apptraverse_win32_fatal_ndebug_test>
+    DEPENDS apptraverse_win32_fatal_ndebug_test
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Isolated FatalWin32 NDEBUG helper check"
+  )
+
   add_executable(apptraverse_chat_p2p_headless_test
     chat_p2p_headless_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows/aether_runtime.cpp
@@ -270,6 +307,7 @@ if(WIN32)
     main_window_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_app.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_presenters.cpp
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
   )
 

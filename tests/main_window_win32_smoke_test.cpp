@@ -304,6 +304,9 @@ void TestChildProcessLoadOnlyEmptyState() {
     std::cerr << "load-only empty stderr was:\n" << err << '\n';
     std::exit(1);
   }
+  CHECK(err.find("fatal: LoadApplication failed",
+                 err.find("fatal: LoadApplication failed") + 1) ==
+        std::string::npos);
   CHECK(FindOwned(pi.dwProcessId, kMainWindowClass, kMainWindowTitle) ==
         nullptr);
   DirectoryDomainStorage storage{dir};

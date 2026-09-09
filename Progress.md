@@ -1,4 +1,85 @@
-Status: implemented, verified. Not accepted.
+Status: implemented, verified locally. Not accepted.
+
+# Model lifecycle without Win32 notifications; Win32 fatal helper
+
+## Identity
+
+- Branch: `prep/deps-objects-assert-mcp-v1`
+- Worktree / source: `C:\Users\nickc\Projects\apptraverse-prep-deps-assert`
+- Base SHA: `a0629ab9d992aafff9ad55803ffa8bdb93409f2d`
+- `CMAKE_HOME_DIRECTORY`: `C:/Users/nickc/Projects/apptraverse-prep-deps-assert`
+- Build dir: `build/win64-ninja-msvc-debug`
+- Profile: `win64-ninja-msvc-debug` (incremental; no clean/rebuild)
+
+## ModelSession API before / after
+
+Before:
+
+- `state_dir`, `PublicationChannel`, `mu`/`cv`, `stop`, `RequestStop`, `Run()`
+- `notify_hwnd` / `done_event` on the shared session
+- `windows.h` / `_WIN32` / `PostMessageW` / `SetEvent` in `main_window_lifecycle.cpp`
+
+After:
+
+- only `state_dir`, `PublicationChannel`, `mu`, `cv`, `stop`, `RequestStop`, `Run(std::function<void()> on_published)`
+- no `HWND`/`HANDLE`/`void*`/`uintptr_t` platform stand-ins
+- `on_published` is required (no default, no `if (callback)`); called on the model thread after publish, without holding `mu`
+- return from `Run` means Application, reachable graph, Domain, and storage are already destroyed on the model thread
+
+## Where Win32 notification and completion live
+
+- `WM_APPTRAVERSE_PUBLISHED` / `WM_APPTRAVERSE_STOP`: `windows/main_window_win32_messages.h` (presenter does not include WinApp)
+- notify HWND: `WinApp` (`notify_`), created before the model thread, alive until join
+- completion event: local `HANDLE` in `WinApp::Run`, created before the thread, closed after join
+- publication: short lambda captures notify HWND and calls `PostMessageW`; fatal via `FatalWin32` on failure
+- `SetEvent(done_event)` is in the Windows thread lambda after `Run` returns, not in `ModelSession`
+
+Order: model destruction (scope end) → `Run` returns → `SetEvent` → GUI sees completion → one `join` → `UnloadPresenters` → GUI graph/Domain destroyed → DestroyWindow notify / UnregisterClass / CloseHandle.
+
+## Mutex / cv protocol (unchanged)
+
+- `RequestStop`: lock `mu`, set `stop`, unlock, `cv.notify_all()`
+- serialize outside `mu`; under `mu`: `NotePublished` + `PublishProducer`; unlock; `cv.notify_all()`; then `on_published()`
+- model wait: predicate `stop` under the same `mu`
+- `stop` remains a plain `bool`, not atomic
+
+## Diagnostics
+
+- `FatalWin32(operation, DWORD)` in the Windows example; `GetLastError` captured at the failing call
+- teardown result checks: `DestroyWindow` Main/Loading/notify, `CloseHandle(done_event)`; DestroyWindow Main failure does not continue to `UnregisterClassW`
+- `WriteFatalStderr`: one write — CRT stderr when attached, otherwise `STD_ERROR_HANDLE`. No unconditional dual print.
+
+## What NDEBUG actually covers
+
+- `apptraverse_main_window_missing_load_test` is a **Debug** binary (not NDEBUG). It checks missing Application: non-zero exit, `fatal: LoadApplication failed` once, publication callback not reached. It does not prove Release/NDEBUG of the application.
+- `apptraverse_win32_fatal_ndebug_child` is compiled with `-DNDEBUG`, links only `FatalWin32` + `WriteFatalStderr`, no aether-objects. Parent `apptraverse_win32_fatal_ndebug_test` checks `fatal: RegisterClassW Main GetLastError=5` once, non-zero exit, no execution after fatal. That proves the helper, not the whole app. No full Release rebuild of dependencies.
+
+## Tests actually run (this checkout, local runner)
+
+Cursor `user-apptraverse` MCP schema still has no `source_dir` (**BLOCKED**). Results below are the local `tools/runners/run_apptraverse_build.py` runner, not attached MCP stdio.
+
+| target | artifact | status |
+| --- | --- | --- |
+| demos + `apptraverse_main_window_headless_check` | `apptraverse-build/20260909-013026-1737b7` | ok (`publication_channel_test`, `main_window_lifecycle_test`, `main_window_lifecycle_load_only_test`, `main_window_missing_load_test`) |
+| `apptraverse_main_window_win32_smoke_check` + `apptraverse_win32_fatal_ndebug_check` | `apptraverse-build/20260909-013107-b228ae` | ok (`win32_fatal_ndebug_test OK`, `main_window_win32_smoke_test OK`) |
+
+Exes (this build tree, not a neighboring checkout):
+
+- `build/win64-ninja-msvc-debug/tests/apptraverse_main_window_lifecycle_test.exe`
+- `build/win64-ninja-msvc-debug/tests/apptraverse_main_window_lifecycle_load_only_test.exe`
+- `build/win64-ninja-msvc-debug/tests/apptraverse_main_window_missing_load_test.exe`
+- `build/win64-ninja-msvc-debug/tests/apptraverse_win32_fatal_ndebug_child.exe` (`DEFINES = -DNDEBUG`)
+- `build/win64-ninja-msvc-debug/tests/apptraverse_win32_fatal_ndebug_test.exe`
+- `build/win64-ninja-msvc-debug/tests/apptraverse_main_window_win32_smoke_test.exe`
+- `build/win64-ninja-msvc-debug/examples/main_window_runtime_demo/windows/win32_main_window_runtime_demo.exe`
+- `build/win64-ninja-msvc-debug/examples/main_window_runtime_demo/windows/win32_main_window_runtime_demo_load_only.exe`
+
+## Limitations / TODO
+
+- `LoadStoredAncestorLayers` still in App Traverse (`plan.md`)
+- Do not restore close-during-Loading
+- MCP attached tools remain BLOCKED (no `source_dir`)
+- Not accepted-by-user
 
 # Main-window startup registration cleanup — progress
 
