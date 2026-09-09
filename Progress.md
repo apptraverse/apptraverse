@@ -22,6 +22,7 @@ Derived factory `load` is `DomainGraph::Load<T>` for that class only. `LoadVersi
 - Configure log: `APPTRAVERSE_aether-objects_SHA=81d5f86f3d6184f86763b4556334dda9471bfd4a`
 - Removed `LoadStoredAncestorLayers` and `LoadStoredAncestorLayersFromRoot` (declarations, definitions, model and GUI calls)
 - `plan.md` TODO closed
+- Commit: `688cfb7b0796d37ecdef0fae8855a1a4e0dea644`
 
 ## Tests actually run (local runner, not attached MCP)
 
