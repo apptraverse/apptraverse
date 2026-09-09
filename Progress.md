@@ -52,6 +52,8 @@ No Save on Remove. Shutdown `Application::Save()` after model stop. ItemList ret
 
 MCP `user-apptraverse` not used as proof for this slice (local incremental `build/win64-ninja-msvc-debug`).
 
+Commits: `19c31a9` (presenter unload / live topology collect), `1c24de2` (dynamic_objects_demo Remove Item). Pushed to `origin/prep/deps-objects-assert-mcp-v1`.
+
 Not implemented: SharedNode / transport / presence / chat / GC.
 
 Not accepted-by-user.
