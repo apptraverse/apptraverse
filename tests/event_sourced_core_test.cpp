@@ -5,7 +5,6 @@
 #include <stdexcept>
 #include <string>
 
-#include "aether/clock.h"
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 

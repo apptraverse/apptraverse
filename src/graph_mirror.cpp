@@ -26,10 +26,11 @@ ae::Ptr<ae::Obj> CreateUiShell(ae::Domain& ui_domain, ae::Obj const& model) {
 }
 
 std::uint64_t ObjectGeneration(ae::Obj const& object) {
-  if (auto const* node = dynamic_cast<Node const*>(&object)) {
-    return node->Generation();
+  if (ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
+                                                     object.GetClassId()) < 0) {
+    return 1;
   }
-  return 1;
+  return static_cast<Node const&>(object).Generation();
 }
 
 }  // namespace

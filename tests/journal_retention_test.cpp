@@ -188,7 +188,7 @@ std::size_t CountReachableAddEvents(RetentionDoc& doc) {
   CollectReachableObjects(doc, objects);
   std::size_t count = 0;
   for (ae::Obj* obj : objects) {
-    if (dynamic_cast<AddEvent*>(obj) != nullptr) {
+    if (obj->GetClassId() == AddEvent::kClassId) {
       ++count;
     }
   }

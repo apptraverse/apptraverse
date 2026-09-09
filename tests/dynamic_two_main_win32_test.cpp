@@ -60,9 +60,10 @@ void TestTwoMainPresenterInstancesShareClass() {
   InitializePresenters(*window_a);
   InitializePresenters(*window_b);
 
-  auto* a = dynamic_cast<Win32MainWindowPresenter*>(&*presenter_a);
-  auto* b = dynamic_cast<Win32MainWindowPresenter*>(&*presenter_b);
-  CHECK(a != nullptr && b != nullptr);
+  CHECK(presenter_a->GetClassId() == Win32MainWindowPresenter::kClassId);
+  CHECK(presenter_b->GetClassId() == Win32MainWindowPresenter::kClassId);
+  auto* a = &*presenter_a;
+  auto* b = &*presenter_b;
   CHECK(a->hwnd != nullptr);
   CHECK(b->hwnd != nullptr);
   CHECK(a->hwnd != b->hwnd);

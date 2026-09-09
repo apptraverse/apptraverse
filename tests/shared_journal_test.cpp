@@ -86,10 +86,10 @@ SharedEventFrame FrameFromJournalRecord(ChatSharedBinding const& binding,
 std::string JournalEventTypeName(EventRecord const& record) {
   REQUIRE(record.event.is_valid());
   record.event.Load();
-  if (dynamic_cast<ClientAddedEvent const*>(&*record.event) != nullptr) {
+  if (record.event->GetClassId() == ClientAddedEvent::kClassId) {
     return "join";
   }
-  if (dynamic_cast<ChatMessageEvent const*>(&*record.event) != nullptr) {
+  if (record.event->GetClassId() == ChatMessageEvent::kClassId) {
     return "message";
   }
   return "unknown";
@@ -98,12 +98,13 @@ std::string JournalEventTypeName(EventRecord const& record) {
 std::string JournalAuthorUid(EventRecord const& record) {
   REQUIRE(record.event.is_valid());
   record.event.Load();
-  if (auto const* join = dynamic_cast<ClientAddedEvent const*>(&*record.event)) {
+  if (record.event->GetClassId() == ClientAddedEvent::kClassId) {
+    auto const* join = static_cast<ClientAddedEvent const*>(&*record.event);
     REQUIRE(join->client.is_valid());
     return join->client->AetherUidText();
   }
-  if (auto const* message =
-          dynamic_cast<ChatMessageEvent const*>(&*record.event)) {
+  if (record.event->GetClassId() == ChatMessageEvent::kClassId) {
+    auto const* message = static_cast<ChatMessageEvent const*>(&*record.event);
     REQUIRE(message->author.is_valid());
     return message->author->AetherUidText();
   }
@@ -113,8 +114,11 @@ std::string JournalAuthorUid(EventRecord const& record) {
 std::string JournalMessageText(EventRecord const& record) {
   REQUIRE(record.event.is_valid());
   record.event.Load();
-  auto const* message = dynamic_cast<ChatMessageEvent const*>(&*record.event);
-  if (message == nullptr || !message->text.is_valid()) {
+  if (record.event->GetClassId() != ChatMessageEvent::kClassId) {
+    return {};
+  }
+  auto const* message = static_cast<ChatMessageEvent const*>(&*record.event);
+  if (!message->text.is_valid()) {
     return {};
   }
   message->text.Load();
@@ -124,10 +128,10 @@ std::string JournalMessageText(EventRecord const& record) {
 std::int64_t JournalSentAt(EventRecord const& record) {
   REQUIRE(record.event.is_valid());
   record.event.Load();
-  auto const* message = dynamic_cast<ChatMessageEvent const*>(&*record.event);
-  if (message == nullptr) {
+  if (record.event->GetClassId() != ChatMessageEvent::kClassId) {
     return 0;
   }
+  auto const* message = static_cast<ChatMessageEvent const*>(&*record.event);
   return message->sent_at_unix_ms;
 }
 
@@ -415,8 +419,8 @@ void test_event_codec_roundtrip_join_and_message() {
   REQUIRE(DeserializeSharedEventPayload(*application2->room, remapped,
                                        join_payload));
   remapped.Load();
-  auto* join = dynamic_cast<ClientAddedEvent*>(&*remapped);
-  REQUIRE(join != nullptr);
+  REQUIRE(remapped->GetClassId() == ClientAddedEvent::kClassId);
+  auto* join = static_cast<ClientAddedEvent*>(&*remapped);
   REQUIRE(join->client->AetherUidText() == "alice-uid");
   REQUIRE(join->client->DisplayNameBytes() == "Alice");
 }

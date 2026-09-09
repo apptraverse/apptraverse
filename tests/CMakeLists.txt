@@ -155,6 +155,10 @@ target_include_directories(apptraverse_publication_channel_test PRIVATE
   ${CMAKE_SOURCE_DIR}/include
 )
 
+target_link_libraries(apptraverse_publication_channel_test PRIVATE
+  apptraverse_compile_policy
+)
+
 add_test(
   NAME apptraverse_publication_channel_test
   COMMAND apptraverse_publication_channel_test
@@ -298,12 +302,18 @@ if(WIN32)
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
   )
+  target_link_libraries(apptraverse_win32_fatal_ndebug_child PRIVATE
+    apptraverse_compile_policy
+  )
 
   add_executable(apptraverse_win32_fatal_ndebug_test
     win32_fatal_ndebug_test.cpp
   )
   target_compile_definitions(apptraverse_win32_fatal_ndebug_test PRIVATE
     "WIN32_FATAL_NDEBUG_CHILD=R\"($<TARGET_FILE:apptraverse_win32_fatal_ndebug_child>)\""
+  )
+  target_link_libraries(apptraverse_win32_fatal_ndebug_test PRIVATE
+    apptraverse_compile_policy
   )
   add_dependencies(apptraverse_win32_fatal_ndebug_test
     apptraverse_win32_fatal_ndebug_child

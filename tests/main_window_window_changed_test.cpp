@@ -152,7 +152,7 @@ std::size_t CountReachableWindowChangedEvents(ae::Obj& root) {
   CollectReachableObjects(root, objects);
   std::size_t count = 0;
   for (ae::Obj* obj : objects) {
-    if (dynamic_cast<WindowChangedEvent*>(obj) != nullptr) {
+    if (obj->GetClassId() == WindowChangedEvent::kClassId) {
       ++count;
     }
   }

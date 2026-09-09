@@ -166,7 +166,10 @@ SharedApplyResult TryApplyFrame(
     return SharedApplyResult::Rejected;
   }
   event.Load();
-  auto* join = dynamic_cast<ClientAddedEvent*>(&*event);
+  ClientAddedEvent* join = nullptr;
+  if (event->GetClassId() == ClientAddedEvent::kClassId) {
+    join = static_cast<ClientAddedEvent*>(&*event);
+  }
   if (join != nullptr) {
     if (join->client.is_valid()) {
       auto const client_uid = join->client->AetherUidText();
@@ -283,13 +286,15 @@ std::vector<std::uint8_t> SerializeSharedEventPayload(Event const& event) {
 }
 
 void StripRuntimeFieldsFromEventGraph(Event& event) {
-  if (auto* join = dynamic_cast<ClientAddedEvent*>(&event)) {
+  if (event.GetClassId() == ClientAddedEvent::kClassId) {
+    auto* join = static_cast<ClientAddedEvent*>(&event);
     if (join->client.is_valid()) {
       join->client->SetPresence(PresenceState::kUnknown);
     }
     return;
   }
-  if (auto* message = dynamic_cast<ChatMessageEvent*>(&event)) {
+  if (event.GetClassId() == ChatMessageEvent::kClassId) {
+    auto* message = static_cast<ChatMessageEvent*>(&event);
     if (message->author.is_valid()) {
       message->author->SetPresence(PresenceState::kUnknown);
     }
@@ -351,7 +356,8 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
   DeserializeObjectGraphFromBuffer(*scratch_event, source, scratch_domain,
                                    scratch_storage);
   scratch_event.Load();
-  if (auto* join = dynamic_cast<ClientAddedEvent*>(&*scratch_event)) {
+  if (scratch_event->GetClassId() == ClientAddedEvent::kClassId) {
+    auto* join = static_cast<ClientAddedEvent*>(&*scratch_event);
     if (!join->client.is_valid()) {
       return {};
     }
@@ -375,7 +381,8 @@ Event::ptr RemapIncomingEvent(ChatRoom& room, ae::Domain& model_domain,
     }
     return event;
   }
-  if (auto* message = dynamic_cast<ChatMessageEvent*>(&*scratch_event)) {
+  if (scratch_event->GetClassId() == ChatMessageEvent::kClassId) {
+    auto* message = static_cast<ChatMessageEvent*>(&*scratch_event);
     if (!message->author.is_valid() || !message->text.is_valid()) {
       return {};
     }

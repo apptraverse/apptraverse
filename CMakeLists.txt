@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include(cmake/aether_version.cmake)
 include(cmake/aether_object.cmake)
 include(cmake/CPM.cmake)
+include(cmake/apptraverse_compile_policy.cmake)
 
 # Quiet Aether telemetry unless the caller passes USER_CONFIG.
 if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "")
@@ -60,7 +61,12 @@ target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 # Object graph only. Full Aether client is linked by chat/presence targets.
-target_link_libraries(apptraverse PUBLIC aether::objects aether::miscpp)
+# PUBLIC compile policy so every AppTraverse-owned consumer gets /GR- or -fno-rtti.
+target_link_libraries(apptraverse PUBLIC
+  aether::objects
+  aether::miscpp
+  apptraverse_compile_policy
+)
 target_compile_definitions(apptraverse PUBLIC
   AE_DISTILLATION=1
   AE_FILTRATION=1

@@ -19,17 +19,6 @@
 #include "dynamic_model.h"
 
 namespace apptraverse {
-namespace {
-
-void EnsureItemListWindowLink(Application& application) {
-  auto& window = *application.main_window;
-  auto& list = *window.item_list;
-  if (!list.window.is_valid()) {
-    list.window = application.main_window;
-  }
-}
-
-}  // namespace
 
 void DynamicModelSession::RequestStop() {
   {
@@ -62,27 +51,13 @@ void ApplyItemListStructural(std::vector<std::uint8_t> const& bytes,
       in, *ui_application.domain, ui_storage, ui_application, host,
       model_proxy);
 
+  // Live presenters are already presentation_loaded after structural apply.
   for (auto const& item : list->items) {
-    if (item->presenter.is_valid() && item->presenter.is_loaded() &&
-        item->presenter->presentation_loaded) {
-      item->presenter->OnModelChanged();
-    }
+    item->presenter->OnModelChanged();
   }
-  if (list->presenter.is_valid() && list->presenter.is_loaded() &&
-      list->presenter->presentation_loaded) {
-    list->presenter->OnModelChanged();
-  }
-  if (ui_application.main_window->add_item.is_valid() &&
-      ui_application.main_window->add_item->presenter.is_valid() &&
-      ui_application.main_window->add_item->presenter.is_loaded() &&
-      ui_application.main_window->add_item->presenter->presentation_loaded) {
-    ui_application.main_window->add_item->presenter->OnModelChanged();
-  }
-  if (ui_application.main_window->presenter.is_valid() &&
-      ui_application.main_window->presenter.is_loaded() &&
-      ui_application.main_window->presenter->presentation_loaded) {
-    ui_application.main_window->presenter->OnModelChanged();
-  }
+  list->presenter->OnModelChanged();
+  ui_application.main_window->add_item->presenter->OnModelChanged();
+  ui_application.main_window->presenter->OnModelChanged();
 }
 
 void DynamicModelSession::Run(
@@ -112,7 +87,8 @@ void DynamicModelSession::Run(
     auto application = LoadApplication<Application>(
         domain, ae::ObjId{dynamic_objects::ToObjId(
                     dynamic_objects::ObjId::Application)});
-    EnsureItemListWindowLink(*application);
+    // ItemList::window is schema v1. Pre-v1 state is not repaired at runtime;
+    // re-distill / fresh state is required.
 
     std::unordered_set<Node*> dirty_nodes;
     Node::SetMaterializedChangeNotifier(

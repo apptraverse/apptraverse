@@ -17,6 +17,38 @@ Never, unless the user explicitly asks:
 
 Use only incremental builds of the existing build tree. If the tree is broken, explain the concrete cause. Do not destroy it automatically.
 
+## No C++ RTTI
+
+AppTraverse code must compile with C++ RTTI disabled (`/GR-` on MSVC,
+`-fno-rtti` on GCC/Clang). Applied centrally via `apptraverse_compile_policy`.
+
+Forbidden:
+
+- `dynamic_cast`
+- `typeid`
+- `std::type_info`
+- `std::type_index`
+- any design relying on compiler RTTI
+
+Use instead:
+
+- Æther object class IDs;
+- `ae::Registry`;
+- `Registry::GenerationDistance`;
+- typed `ae::Ptr<T>` / `ae::ObjPtr<T>`;
+- `Ptr::as<T>()` only where architecture already guarantees the concrete type;
+- virtual dispatch where behavior belongs to an interface/base class.
+
+Do not re-enable RTTI for a target to work around code design.
+If code cannot compile without RTTI, fix that code.
+
+`dynamic_cast` is forbidden in AppTraverse production and test code.
+To test whether an `ae::Obj` is a derived object-system class: use
+`Registry::GenerationDistance(Base::kClassId, obj.GetClassId())`, then
+`static_cast` only after the relation is proven. When the concrete type is
+already guaranteed by a reflected field / object graph, use typed
+`ObjPtr` / `Ptr` conversion.
+
 ## Fail fast on global invariants
 
 If a global invariant is broken and the app cannot work, fail immediately at
@@ -41,6 +73,50 @@ created; required graph reference or class registration is missing.
 - Do not write `if (!x) return` / `if (hwnd)` when the previous stage already guaranteed `x`
 
 Before each defensive check: can this state actually be reached after earlier stages succeeded? If not, remove the check.
+
+## Do not re-check established invariants
+
+Once a lifecycle / load / graph boundary establishes an invariant, downstream
+code treats it as true.
+
+Forbidden patterns unless the state is a genuine runtime alternative:
+
+- `if (!ptr) return;`
+- `if (!obj.is_valid()) return;`
+- `if (!obj.is_loaded()) return;`
+- `if (hwnd != nullptr) ...`
+- `if (presenter != nullptr) ...`
+
+when an earlier successful stage already guarantees the condition.
+
+Do not turn corrupted graph / programming errors into silent no-ops.
+
+Distinguish:
+
+**Real state alternative:** stale Item no longer in live list; no unread
+publication; stop requested; optional user state.
+
+**Programming / global invariant:** required graph reference missing; required
+presenter absent; presenter invoked before required graph loaded; native handle
+absent after successful OnLoad; proxy target missing; object class mismatch.
+
+For programming / global invariants: check/fail at the boundary where the
+invariant is established; after that do not repeat defensive checks.
+
+Do not write `if (!x) return;` then later assume `x`. Do not write both
+`if (!x) fatal;` and later `assert(x);` at subsequent layers.
+
+## No defensive programming
+
+AppTraverse follows invariant-driven code, not defensive programming.
+
+Do not add checks for hypothetical states unless there is a concrete reachable
+state transition that produces them.
+
+Every `if` guarding an invariant must answer: "What valid execution path
+reaches this condition?" If none: remove the branch.
+
+This applies to future platform ports (Win32, macOS, Linux, Android, iOS, WASM).
 
 ## Registration: two different things
 

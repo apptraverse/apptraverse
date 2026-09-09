@@ -50,10 +50,10 @@ std::string JournalEventTypeName(EventRecord const& record) {
     return "unknown";
   }
   record.event.Load();
-  if (dynamic_cast<ClientAddedEvent const*>(&*record.event) != nullptr) {
+  if (record.event->GetClassId() == ClientAddedEvent::kClassId) {
     return "join";
   }
-  if (dynamic_cast<ChatMessageEvent const*>(&*record.event) != nullptr) {
+  if (record.event->GetClassId() == ChatMessageEvent::kClassId) {
     return "message";
   }
   return "unknown";
@@ -64,14 +64,15 @@ std::string JournalAuthorUid(EventRecord const& record) {
     return {};
   }
   record.event.Load();
-  if (auto const* join = dynamic_cast<ClientAddedEvent const*>(&*record.event)) {
+  if (record.event->GetClassId() == ClientAddedEvent::kClassId) {
+    auto const* join = static_cast<ClientAddedEvent const*>(&*record.event);
     if (!join->client.is_valid()) {
       return {};
     }
     return join->client->AetherUidText();
   }
-  if (auto const* message =
-          dynamic_cast<ChatMessageEvent const*>(&*record.event)) {
+  if (record.event->GetClassId() == ChatMessageEvent::kClassId) {
+    auto const* message = static_cast<ChatMessageEvent const*>(&*record.event);
     if (!message->author.is_valid()) {
       return {};
     }
@@ -85,8 +86,11 @@ std::string JournalMessageText(EventRecord const& record) {
     return {};
   }
   record.event.Load();
-  auto const* message = dynamic_cast<ChatMessageEvent const*>(&*record.event);
-  if (message == nullptr || !message->text.is_valid()) {
+  if (record.event->GetClassId() != ChatMessageEvent::kClassId) {
+    return {};
+  }
+  auto const* message = static_cast<ChatMessageEvent const*>(&*record.event);
+  if (!message->text.is_valid()) {
     return {};
   }
   message->text.Load();

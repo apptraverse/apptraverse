@@ -17,16 +17,31 @@
 namespace apptraverse {
 namespace {
 
-Presenter* AsPresenter(ae::Obj* obj) {
+template <typename T>
+T* AsObjOf(ae::Obj* obj) {
   if (obj == nullptr) {
     return nullptr;
   }
-  if (ae::Registry::GetRegistry().GenerationDistance(Presenter::kClassId,
+  if (ae::Registry::GetRegistry().GenerationDistance(T::kClassId,
                                                      obj->GetClassId()) < 0) {
     return nullptr;
   }
-  return static_cast<Presenter*>(obj);
+  return static_cast<T*>(obj);
 }
+
+template <typename T>
+T const* AsObjOf(ae::Obj const* obj) {
+  if (obj == nullptr) {
+    return nullptr;
+  }
+  if (ae::Registry::GetRegistry().GenerationDistance(T::kClassId,
+                                                     obj->GetClassId()) < 0) {
+    return nullptr;
+  }
+  return static_cast<T const*>(obj);
+}
+
+Presenter* AsPresenter(ae::Obj* obj) { return AsObjOf<Presenter>(obj); }
 
 void SaveObjectGraphToScratch(ae::Obj const& object,
                               ae::RamDomainStorage& scratch) {
@@ -86,7 +101,7 @@ void InjectSavedObjectLayers(ByteSource& in, ae::ObjId id,
 void RemoveDistilledBaseObjects(std::vector<ae::Obj*>& objects) {
   std::unordered_set<std::uint32_t> base_ids;
   for (ae::Obj* obj : objects) {
-    if (auto* node = dynamic_cast<Node*>(obj)) {
+    if (auto* node = AsObjOf<Node>(obj)) {
       if (node->base.is_valid()) {
         base_ids.insert(node->base.id().id());
       }
@@ -142,7 +157,7 @@ void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
     if (!obj) {
       continue;
     }
-    if (auto* node = dynamic_cast<Node*>(obj.get())) {
+    if (auto* node = AsObjOf<Node>(obj.get())) {
       if (node->base.is_valid()) {
         distilled_base_ids.insert(node->base.id().id());
       }
@@ -189,7 +204,7 @@ void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
     if (!obj) {
       continue;
     }
-    auto* node = dynamic_cast<Node*>(obj.get());
+    auto* node = AsObjOf<Node>(obj.get());
     if (node == nullptr) {
       continue;
     }
@@ -285,7 +300,7 @@ void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
   std::vector<ae::Obj*> objects;
   CollectReachableObjects(root, objects);
   for (ae::Obj* obj : objects) {
-    if (auto* node = dynamic_cast<Node*>(obj)) {
+    if (auto* node = AsObjOf<Node>(obj)) {
       out.push_back(node);
     }
   }
@@ -304,7 +319,7 @@ void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
   std::vector<SavedBookkeeping> saved;
   saved.reserve(with_history.size());
   for (ae::Obj* obj : with_history) {
-    auto* node = dynamic_cast<Node*>(obj);
+    auto* node = AsObjOf<Node>(obj);
     if (node == nullptr) {
       continue;
     }
@@ -320,7 +335,7 @@ void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
 }
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
-  if (auto* node = dynamic_cast<Node*>(&object)) {
+  if (auto* node = AsObjOf<Node>(&object)) {
     node->AdoptPublishedGeneration(generation);
     node->base = {};
     node->journal.clear();

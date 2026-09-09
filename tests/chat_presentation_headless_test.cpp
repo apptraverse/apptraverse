@@ -150,8 +150,8 @@ void TestTimestampCommitAndRemap() {
       RemapIncomingEvent(*remote_app->room, remote_domain, payload, {},
                          "client-uid");
   CHECK(remapped.is_valid());
-  auto* message = dynamic_cast<ChatMessageEvent*>(&*remapped);
-  CHECK(message != nullptr);
+  CHECK(remapped->GetClassId() == ChatMessageEvent::kClassId);
+  auto* message = static_cast<ChatMessageEvent*>(&*remapped);
   CHECK(message->sent_at_unix_ms == sent_at);
   CHECK(message->text.is_valid());
   message->text.Load();

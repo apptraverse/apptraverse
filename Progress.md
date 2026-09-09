@@ -1,5 +1,118 @@
 Status: implemented, verified locally. Not accepted.
 
+# Disable RTTI and enforce AppTraverse invariants (before surfaces_demo)
+
+## Starting / final
+
+- Starting HEAD: `42536ac`.
+- Branch: `prep/deps-objects-assert-mcp-v1`.
+- Final SHA: 1c1d95\.
+- Push: pending.
+
+## Permanent rules
+
+Updated `.cursor/rules/apptraverse-coding-agent.mdc`:
+
+- **No C++ RTTI** (`dynamic_cast` / `typeid` / `std::type_info` / `std::type_index` forbidden)
+- Use Æther class IDs, `Registry::GenerationDistance`, typed `Ptr`/`ObjPtr`, `Ptr::as<T>()` when type is guaranteed
+- **Do not re-check established invariants**
+- **No defensive programming** (invariant-driven; applies to all future ports)
+
+## Build policy
+
+- `cmake/apptraverse_compile_policy.cmake` → INTERFACE `apptraverse_compile_policy`
+  - MSVC: `/GR-`
+  - GCC/Clang: `-fno-rtti`
+- `apptraverse` PUBLIC-links the policy (consumers inherit automatically)
+- Targets that do not link `apptraverse` link the policy PRIVATE
+  (`publication_channel_test`, `win32_fatal_ndebug_*`)
+
+## Compile-time guard
+
+- `include/apptraverse/no_rtti.h` (`_CPPRTTI` / `__GXX_RTTI` → `#error`)
+- Included from `include/apptraverse/object_macros.h` (central AppTraverse object header)
+
+## Removed `dynamic_cast` (AppTraverse-owned)
+
+Replaced with `Registry::GenerationDistance` + `static_cast`, or typed `ObjPtr`/`Ptr`:
+
+| location | replacement |
+| --- | --- |
+| `src/object_serialization.cpp` | local `AsObjOf<T>` / `AsPresenter` |
+| `src/graph_mirror.cpp` | `GenerationDistance` + `static_cast` for Node |
+| `examples/dynamic_objects_demo/common/dynamic_lifecycle.cpp` | structural apply cleanup + no Session repair |
+| `examples/chat_ui_runtime_demo/common/chat_shared.cpp` | class-id / typed path |
+| `tests/chat_p2p_headless_test.cpp` | class-id / typed path |
+| `tests/chat_presentation_headless_test.cpp` | class-id / typed path |
+| `tests/dynamic_two_main_win32_test.cpp` | `GetClassId` + typed presenter |
+| `tests/journal_retention_test.cpp` | typed path |
+| `tests/main_window_window_changed_test.cpp` | typed path |
+| `tests/shared_journal_test.cpp` | typed path |
+
+`git grep dynamic_cast` in `*.cpp`/`*.h`: only the intentional string CHECK in
+`tests/dynamic_objects_add_test.cpp` (WndProc source must not contain the token).
+
+No `typeid` / `std::type_info` / `std::type_index` in AppTraverse-owned source/tests.
+
+## Defensive-check cleanup
+
+- `ApplyItemListStructural`: call `OnModelChanged()` on live presenters directly
+  (no `is_valid` / `is_loaded` / `presentation_loaded` gates after structural apply)
+- `EnsureItemListWindowLink` **removed**: Session must not repair graph schema.
+  `ItemList::window` is schema v1; pre-v1 persisted state requires re-distill /
+  fresh state (development demo policy).
+- Left real alternatives: WndProc `presenter == nullptr` before userdata attach;
+  `CreateWindowExW` failure → `FatalWin32`; event Apply asserts at Commit boundary.
+- Removed unused `#include "aether/clock.h"` from `event_sourced_core_test.cpp`
+  (test links only `apptraverse`, not full Aether client).
+
+## `/GR-` proof (MSVC incremental `build/win64-ninja-msvc-debug`)
+
+Actual ninja `FLAGS` for AppTraverse-owned CXX objects include `/GR-` and not bare `/GR`.
+Examples after regenerate:
+
+```
+object_serialization.cpp.obj ... /Zc:preprocessor /GR-
+publication_channel_test.cpp.obj ... -std:c++20 -MDd /GR-
+win32_fatal_ndebug_child.cpp.obj ... -std:c++20 -MDd /GR-
+```
+
+Verbose `cl.exe` lines for AppTraverse TUs also showed `/GR-`.
+
+GCC/Clang policy is wired as `-fno-rtti` (not exercised on this Windows slice).
+
+## plan.md
+
+Next: **surfaces_demo common model + headless only**.
+Then Windows minimal multi-window (no resize/Z-order/DPI), then macOS/Linux,
+then mobile, then SharedNode / Chat / AeroAdmin-X.
+`surfaces_demo` **not started** in this slice.
+
+## Tests (local incremental)
+
+PASS:
+
+- `apptraverse_presenter_load_order_test`
+- `apptraverse_dynamic_objects_add_test`
+- `apptraverse_dynamic_two_main_win32_test`
+- `apptraverse_publication_channel_test`
+- `apptraverse_main_window_window_changed_test`
+- `apptraverse_main_window_lifecycle_test`
+- `apptraverse_main_window_win32_smoke_test`
+- `apptraverse_dynamic_objects_win32_smoke_test`
+- `apptraverse_event_sourced_core_test`
+- `apptraverse_journal_retention_test`
+
+MCP: first build attempt failed on a stale target list mid-reconfigure; local
+MSVC/ninja incremental script completed successfully. Chat headless suite not
+re-run as primary gate this slice (casts removed; core/dynamic/main_window set above).
+
+Not accepted-by-user.
+
+---
+
+Status: implemented, verified locally. Not accepted.
+
 # dynamic_objects_demo final cleanup (before surfaces_demo)
 
 ## Starting / final

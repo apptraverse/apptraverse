@@ -17,56 +17,57 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 
 1. main_window_runtime_demo — lifecycle/mirror foundation [done]
 2. journal retention/compaction [landed]
-3. dynamic_objects_demo — Add Item [done]
-4. dynamic_objects_demo — Remove Item [done]
-5. foundation hardening for multi-window / mobile surfaces [done]
-6. UI control ownership + GUI→model ObjId proxy [done]
-7. dynamic_objects_demo final cleanup (invariants / Win32 routing) [done — THIS]
-8. surfaces_demo — common model **[NEXT]**
-9. surfaces_demo — Windows: multiple dynamic windows + resize + Z-order
-10. surfaces_demo — first mobile pager port
-11. remaining platform ports
-12. shared_node_demo
-13. chat_demo
-14. aeroadmin-x production chat
+3. dynamic_objects_demo — Add / Remove Item [done]
+4. foundation hardening + UI ownership / ObjId proxy [done]
+5. dynamic_objects cleanup (invariants / Win32 routing) [done]
+6. Disable RTTI + invariant-driven coding policy [done — THIS]
+7. surfaces_demo — common model + headless **[NEXT]**
+8. surfaces_demo — Windows minimal multi-window
+9. surfaces_demo — macOS desktop port
+10. surfaces_demo — Linux desktop port
+11. surfaces_demo — iOS
+12. surfaces_demo — Android
+13. surfaces_demo — WASM
+14. shared_node_demo
+15. chat_demo
+16. aeroadmin-x production chat
 
 Deferred relative to surfaces/chat:
 
 - Node execution / marquee demo
 - Resource / version / cache
-- Six-platform ports beyond surfaces path
 - DPI / screen system events
+- Surface resize persistence / Z-order (not in minimal surfaces demo)
 
 ## Current slice (just completed)
 
-Final cleanup of `dynamic_objects_demo` before `surfaces_demo`:
+RTTI off + invariant policy:
 
-- `ReadyForPresentation` checks only parent `presentation_loaded`
-- Broken required object relations are invariants (not "not ready")
-- No `dynamic_cast` in dynamic demo / ModelObjectProxy production path
-- `Ptr::as<T>()` / `ObjPtr` hierarchy conversion / Registry
-  `GenerationDistance` for Presenter walk
-- Generic Win32 `DispatchChildCommand` → `Win32Presenter::OnCommand`
-- `CLOSE_WINDOW` → direct `RequestStop` (single MainWindow demo)
-- Stale `Item::Remove` remains the only Remove no-op
+- `/GR-` (MSVC) / `-fno-rtti` (GCC/Clang) via `apptraverse_compile_policy`
+- compile-time `no_rtti.h` guard
+- no `dynamic_cast` / compiler RTTI in AppTraverse-owned code
+- Session no longer repairs `ItemList::window` (pre-v1 state → re-distill)
+- permanent rules in `.cursor/rules/apptraverse-coding-agent.mdc`
 
 ## Next slice
 
-`surfaces_demo` common model only (separate prompt). Direction:
+`surfaces_demo` common model + headless only (separate prompt).
 
 ```
 Application
- └── SurfaceList / Surfaces Node
-      ├── Surface A : Node
-      ├── Surface B : Node
-      └── ...
+ └─ Surfaces : Node
+      └─ surfaces[]
+           ├─ Surface → SurfacePresenter
+           ├─ Surface → SurfacePresenter
+           └─ ...
 ```
 
-Desktop: one Surface → one top-level window; dynamic create/delete; move/resize Events;
-logical Z-order separate. Mobile: same Surface objects → pager pages; swipe → active
-Surface Event; page order ≠ activation ≠ desktop Z-order.
+**Desktop (later Windows slice):** one Surface = one top-level native window;
+Add button creates another Surface/window; native close removes that Surface.
+No resize persistence, no Z-order, no DPI in the minimal demo.
 
-Do not start surfaces_demo in the cleanup commits.
+**Mobile (later):** same Surface objects as pager pages; UI `[ Add ] [ Remove current ]`.
+Swipe/pager may come in the mobile port slice.
 
 ## Known follow-ups (not this slice)
 
@@ -88,10 +89,11 @@ native input
 ```
 
 Session/runtime transports work and publications; it contains no application
-event semantics. Same pattern later for Surface / AddSurface presenters.
+event semantics.
 
 ## Foundation still in force
 
 Independent Model/GUI Domains, Event-only Node mutation, presentation_load_order,
 structural keepalive, CLOSE_WINDOW, shutdown drain, distill separation,
-`APPTRAVERSE_BUILD_AETHER_DEMOS`. MainWindow resize path remains regression base.
+`APPTRAVERSE_BUILD_AETHER_DEMOS`, no RTTI, invariant-driven checks.
+MainWindow resize path remains regression base.
