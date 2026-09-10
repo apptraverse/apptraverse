@@ -23,11 +23,8 @@ Included on that branch:
 - Android / Android Emulator (pager, `mobile_current`)
 - Web / Emscripten / WASM (tabs, IndexedDB checkpoint)
 - Linux desktop — **X11/Xlib** (`LinuxSurfacePresenter`)
-- macOS desktop — **AppKit** (`MacSurfacePresenter`) — merging now
-
-Pending merge (Mac Cursor):
-
-- iOS / iPhone Simulator (`feature/surfaces-ios-v1`)
+- macOS desktop — **AppKit** (`MacSurfacePresenter`)
+- iOS / iPhone Simulator — **UIKit** (`IOSSurfacePresenter`) — merging now
 
 Mac Cursor owns macOS + iPhone Simulator only. Linux host is X11/Xlib (not
 GTK3/Qt/SDL); no backend migration in the merge slice.
@@ -45,8 +42,8 @@ GTK3/Qt/SDL); no backend migration in the merge slice.
 9. surfaces_demo — Android pager + `mobile_current` [done — in `surfaces-demo`]
 10. surfaces_demo — Web/WASM tabs + IDBFS checkpoint [done — in `surfaces-demo`]
 11. surfaces_demo — Linux X11 desktop port [done — in `surfaces-demo`]
-12. surfaces_demo — macOS desktop port [done — merging into `surfaces-demo`]
-13. surfaces_demo — iOS / iPhone Simulator **[NEXT — Mac Cursor]**
+12. surfaces_demo — macOS desktop port [done — in `surfaces-demo`]
+13. surfaces_demo — iOS / iPhone Simulator [done — merging into `surfaces-demo`]
 14. shared_node_demo
 15. chat_demo
 16. aeroadmin-x production chat
@@ -96,7 +93,8 @@ DesktopSurfacePresenter
 SurfacePresenter
   ↓
 MobileSurfacePresenter
-  └─ AndroidSurfacePresenter [in surfaces-demo]
+  ├─ AndroidSurfacePresenter [in surfaces-demo]
+  └─ IOSSurfacePresenter     [in surfaces-demo]
 
 SurfacePresenter
   └─ WebSurfacePresenter     [in surfaces-demo; not under Mobile]

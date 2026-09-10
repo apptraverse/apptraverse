@@ -295,6 +295,95 @@ Compile commands confirmed `-fno-rtti` on `.cpp` and `.mm`.
 
 Not accepted-by-user.
 
+---
+Status: implemented, verified locally. Not accepted.
+
+# surfaces_demo — iOS simulator port
+
+## Starting / final
+
+- Starting HEAD: `7e86814` (`origin/prep/deps-objects-assert-mcp-v1`).
+- Branch: `feature/surfaces-ios-v1` (worktree
+  `/Users/nick/Projects/apptraverse-surfaces-ios-v1`).
+- Feature SHA: `0816f6c`.
+- Pushed to `origin/feature/surfaces-ios-v1`.
+- Common model / desktop / Windows: unchanged.
+- macOS / Linux ports: not claimed finished on this branch.
+
+## Implementation
+
+```
+SurfacePresenter
+  ↓
+MobileSurfacePresenter   (platform-neutral; no desktop geometry)
+  └─ IOSSurfacePresenter [THIS]  (UIKit page UIView)
+```
+
+- `examples/surfaces_demo/mobile/` — `MobileSurfacePresenter`
+- `examples/surfaces_demo/ios/` — `IOSApp`, `IOSSurfacePresenter`, `main.mm`,
+  `Info.plist.in`, `run_simulator.sh`
+- One UIWindow / root VC; `UIScrollView` paging; pages follow `Surfaces::surfaces`
+- Host buttons: `[ Add ] [ Remove current ]`; current page = host
+  `current_index_` (runtime-only; not model / not persisted)
+- Add → current `IOSSurfacePresenter::AddClick` → model `AddSurface`
+- Remove current → `RemoveClick` when count > 1; disabled when count == 1
+- `desktop_*` ignored on mobile
+- State dir: Application Support/`AppTraverseSurfaces` (optional `--state-dir`)
+- Targets: `ios_surfaces_demo` (distill), `ios_surfaces_demo_load_only`
+- `-fno-rtti` on OBJCXX; ARC on `.mm`
+- CMake: `if(IOS)` only (not macOS `APPLE`)
+
+## Toolchain / simulator
+
+- Intel Mac `x86_64`; Xcode 15.2; iOS Simulator SDK 17.2
+- Clang: MacPorts `clang++-mp-20` (Apple Clang 15 cannot build pinned aether-miscpp)
+- Device used for launch proof: **iPhone 15**
+  `88714D26-E069-4135-9F63-35B02D75DDFA` (iOS 17.2)
+- Bundle id: `com.apptraverse.surfaces`
+- App:
+  `build/ios-sim-x86_64-debug/examples/surfaces_demo/ios/ios_surfaces_demo.app`
+
+## Build / launch
+
+```
+cmake -S . -B build/ios-sim-x86_64-debug -G Ninja \
+  -DCMAKE_SYSTEM_NAME=iOS \
+  -DCMAKE_OSX_SYSROOT=.../iPhoneSimulator.sdk \
+  -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+  -DCMAKE_C_COMPILER=/opt/local/bin/clang-mp-20 \
+  -DCMAKE_CXX_COMPILER=/opt/local/bin/clang++-mp-20 \
+  -DCMAKE_OBJCXX_COMPILER=/opt/local/bin/clang++-mp-20 \
+  -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF -DBUILD_TESTING=OFF
+cmake --build build/ios-sim-x86_64-debug --target ios_surfaces_demo
+# or: examples/surfaces_demo/ios/run_simulator.sh
+```
+
+simctl: install exit 0; launch `com.apptraverse.surfaces: 17397`; process stayed
+alive after launch.
+
+## Tests / manual
+
+- Host macOS `apptraverse_surfaces_model_test`: not re-run in this iOS build tree
+  (`BUILD_TESTING=OFF`); common model sources compile for iphonesimulator.
+- Automated UI XCTest: not added (scope).
+- Manual checklist (Add / swipe / Remove / last-disable / relaunch topology):
+  for user in Simulator.
+
+## Files outside `ios/`
+
+- `examples/surfaces_demo/mobile/` (new mobile presenter layer)
+- `examples/surfaces_demo/CMakeLists.txt` — `surfaces_demo_mobile` + `if(IOS)`
+- `plan.md` / `Progress.md` — this section
+
+No common/desktop/windows API changes. No common API blocker.
+
+Not accepted-by-user.
+
+---
+Status: implemented, verified locally. Not accepted.
+
+
 # surfaces_demo — Windows semantics + persisted window geometry
 
 ## Starting / final

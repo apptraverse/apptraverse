@@ -55,6 +55,11 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   add_subdirectory(linux)
 endif()
 
+# APPLE alone is not enough: macOS AppKit vs iOS UIKit must not share hosts.
 if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   add_subdirectory(macos)
+endif()
+
+if(IOS)
+  add_subdirectory(ios)
 endif()
