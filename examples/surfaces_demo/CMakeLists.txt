@@ -41,6 +41,12 @@ target_link_libraries(surfaces_demo_mobile PUBLIC
 )
 target_compile_features(surfaces_demo_mobile PUBLIC cxx_std_20)
 
-if(WIN32)
+# Platform hosts are mutually exclusive. Android builds via its own Gradle/CMake
+# entry (add_subdirectory of the repo root) and is not listed here.
+if(WIN32 AND NOT EMSCRIPTEN)
   add_subdirectory(windows)
+endif()
+
+if(EMSCRIPTEN)
+  add_subdirectory(web)
 endif()
