@@ -25,21 +25,14 @@ void EnsureSurfacesModelRegistration() {
 }
 
 void Surfaces::Apply(AddSurfaceEvent const& event) {
-  assert(event.surface.is_valid());
-  assert(event.surface.is_loaded());
-  assert(event.surface->surfaces.is_valid());
-  assert(&*event.surface->surfaces == this);
   surfaces.push_back(event.surface);
   NoteMaterializedChange();
 }
 
 void Surfaces::Apply(RemoveSurfaceEvent const& event) {
-  assert(event.surface.is_valid());
-  assert(event.surface.is_loaded());
   auto const it = std::find_if(
-      surfaces.begin(), surfaces.end(), [&](Surface::ptr const& entry) {
-        return entry.is_valid() && &*entry == &*event.surface;
-      });
+      surfaces.begin(), surfaces.end(),
+      [&](Surface::ptr const& entry) { return &*entry == &*event.surface; });
   assert(it != surfaces.end() &&
          "RemoveSurfaceEvent surface must be live on Apply");
   surfaces.erase(it);
@@ -48,7 +41,6 @@ void Surfaces::Apply(RemoveSurfaceEvent const& event) {
 
 void Surface::AddSurface() {
   Surfaces& parent = *surfaces;
-  assert(parent.domain != nullptr);
 
   auto sibling = Surface::ptr::Create(ae::CreateWith{*parent.domain});
   auto sibling_presenter =
@@ -73,7 +65,6 @@ void Surface::AddSurface() {
 
 void Surface::Remove() {
   Surfaces& parent = *surfaces;
-  assert(parent.domain != nullptr);
   auto const it =
       std::find_if(parent.surfaces.begin(), parent.surfaces.end(),
                    [&](Surface::ptr const& entry) { return &*entry == this; });
@@ -88,12 +79,10 @@ void Surface::Remove() {
 }
 
 void SurfacePresenter::AddClick() {
-  assert(model_proxy != nullptr);
   model_proxy->Invoke<Surface>(surface->obj_id, &Surface::AddSurface);
 }
 
 void SurfacePresenter::RemoveClick() {
-  assert(model_proxy != nullptr);
   model_proxy->Invoke<Surface>(surface->obj_id, &Surface::Remove);
 }
 

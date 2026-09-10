@@ -21,9 +21,9 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 4. foundation hardening + UI ownership / ObjId proxy [done]
 5. dynamic_objects cleanup (invariants / Win32 routing) [done]
 6. Disable RTTI + invariant-driven coding policy [done]
-7. surfaces_demo — common model + headless [done — THIS]
-8. surfaces_demo — Windows minimal multi-window **[NEXT]**
-9. surfaces_demo — macOS desktop port
+7. surfaces_demo — common model + headless [done]
+8. surfaces_demo — Windows minimal multi-window [done — THIS]
+9. surfaces_demo — macOS desktop port **[NEXT]**
 10. surfaces_demo — Linux desktop port
 11. surfaces_demo — iOS
 12. surfaces_demo — Android
@@ -41,39 +41,37 @@ Deferred relative to surfaces/chat:
 
 ## Current slice (just completed)
 
-`surfaces_demo` common model + headless:
+Windows minimal multi-window:
 
 ```
-Application
- └── surfaces → Surfaces : Node
-      └── Surface : Node → SurfacePresenter
+SurfacePresenter
+  ↓
+DesktopSurfacePresenter
+  ├─ Win32SurfacePresenter   [done]
+  ├─ MacSurfacePresenter     [later]
+  └─ LinuxSurfacePresenter   [later]
 ```
 
-- Add / Remove via `Surface::AddSurface` / `Surface::Remove` and Events only
-- `SurfacePresenter::AddClick` / `RemoveClick` → `ModelObjectProxy` (no `current_surface` in model)
-- Dynamic `Surface : Node` structural publication proven headless
-- No platform GUI
+Mobile later (not created yet):
+
+```
+SurfacePresenter
+  ↓
+MobileSurfacePresenter
+  ├─ IOSSurfacePresenter
+  └─ AndroidSurfacePresenter
+```
+
+- one Surface = one top-level HWND; Add button; X removes that Surface
+- last-window X = app exit without Remove (Surface persisted)
+- no resize/Z-order/DPI
 
 ## Next slice
 
-**Windows minimal multi-window** (separate prompt):
+**macOS desktop port** — `MacSurfacePresenter : DesktopSurfacePresenter`.
 
-Each Surface = one identical top-level window:
-
-```
-+------------------+
-| Surface N         |
-| [ Add ]           |
-+------------------+
-```
-
-- Add → new Surface → new identical window
-- Native close (X) → `RemoveClick` of that SurfacePresenter
-- No resize persistence, no Z-order, no DPI
-
-**Mobile later:** pager pages; UI `[ Add ] [ Remove current ]`.
-"Remove current" is presentation-side: pager picks the current page's
-`SurfacePresenter` and calls `RemoveClick()`. Model has no `current_surface`.
+**Mobile later:** pager; `[ Add ] [ Remove current ]` selects current
+`SurfacePresenter` on the presentation side. Model has no `current_surface`.
 
 ## Known follow-ups (not this slice)
 
@@ -98,6 +96,5 @@ event semantics.
 ## Foundation still in force
 
 Independent Model/GUI Domains, Event-only Node mutation, presentation_load_order,
-structural keepalive, CLOSE_WINDOW, shutdown drain, distill separation,
-`APPTRAVERSE_BUILD_AETHER_DEMOS`, no RTTI, invariant-driven checks.
-MainWindow resize path remains regression base.
+structural keepalive, CLOSE_WINDOW / last-window STOP, shutdown drain, distill
+separation, no RTTI, invariant-driven checks.

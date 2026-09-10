@@ -1,5 +1,69 @@
 Status: implemented, verified locally. Not accepted.
 
+# surfaces_demo slice 2 — Windows minimal multi-window
+
+## Starting / final
+
+- Starting HEAD: `ddd85bd`.
+- Branch: `prep/deps-objects-assert-mcp-v1`.
+- Final SHA: *(filled after commit)*.
+- Push: pending.
+
+## Cleanup (slice 1 residuals)
+
+Removed redundant checks from `surfaces_model.cpp`:
+
+- Apply Add/Remove: no `is_valid` / `is_loaded` / parent relation re-checks
+- `Surface::AddSurface` / `Remove`: no `domain != nullptr`
+- `AddClick` / `RemoveClick`: no `model_proxy != nullptr`
+
+Kept: live-membership miss → no-op; Apply Remove miss → assert (broken Event).
+
+## Presenter hierarchy
+
+```
+SurfacePresenter
+  ↓
+DesktopSurfacePresenter
+  └─ Win32SurfacePresenter  (HWND hwnd, HWND add_button)
+```
+
+Object-system registration; GUI LoadRoot picks Win32 as most-derived.
+No `dynamic_cast`; hierarchy proven via `Registry::GenerationDistance`.
+
+## Native paths
+
+- **Add:** BUTTON → `DispatchChildCommand` → `OnCommand` → `AddClick` → proxy →
+  `Surface::AddSurface` → Event → structural pub → new `OnLoad` / HWND
+- **X non-last:** `WM_CLOSE` → `RemoveClick` → Event → `OnUnload` / DestroyWindow
+- **X last:** `WM_CLOSE` → `WM_APPTRAVERSE_STOP` (no Remove); Surface persisted
+
+## HWND ownership
+
+One WNDCLASS for all Surface windows. HWND created only in `OnLoad`, destroyed
+only in `OnUnload`. Survivors keep identity across Add/Remove.
+
+## Manual executable
+
+`build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_surfaces_demo.exe`
+(`--state-dir <path>`). Load-only: `win32_surfaces_demo_load_only.exe`.
+
+## `/GR-` proof
+
+Ninja FLAGS for desktop/win presenters, WinApp, smoke test include `/GR-`.
+
+## Tests
+
+PASS: `apptraverse_surfaces_model_test`, `apptraverse_surfaces_win32_smoke_test`
+(add from any window, middle close, last-window exit + restart Surface 3).
+Regressions PASS: dynamic_objects_add, presenter_load_order.
+
+Not accepted-by-user.
+
+---
+
+Status: implemented, verified locally. Not accepted.
+
 # surfaces_demo slice 1 — common model + headless
 
 ## Starting / final
