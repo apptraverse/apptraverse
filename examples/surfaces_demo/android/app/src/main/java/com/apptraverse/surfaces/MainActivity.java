@@ -102,6 +102,11 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
 
   @Override
   protected void onStop() {
+    // Last reliable Android edge before a background kill: checkpoint topology
+    // and mobile_current. Back still Saves inside the model Run drain.
+    if (!isFinishing()) {
+      application().persistState();
+    }
     application().uiBridge().detach(this);
     super.onStop();
   }

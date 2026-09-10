@@ -63,6 +63,14 @@ public final class SurfacesApplication extends Application
     NativeRuntime.nativePageShown(runtimeHandle, surfaceId);
   }
 
+  /** Persist model Domain while running (Home / onStop may kill later). */
+  void persistState() {
+    if (runtimeHandle == 0L) {
+      return;
+    }
+    NativeRuntime.nativePersistState(runtimeHandle);
+  }
+
   /** Back / system close: graceful whole-application shutdown, not Remove. */
   void requestStop() {
     NativeRuntime.nativeRequestStop(runtimeHandle);

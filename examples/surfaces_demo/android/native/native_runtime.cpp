@@ -3,9 +3,11 @@
 #include <utility>
 #include <vector>
 
+#include "apptraverse/distill.h"
 #include "apptraverse/object_serialization.h"
 
 #include "android_log.h"
+#include "surfaces_ids.h"
 
 namespace apptraverse::android {
 
@@ -90,7 +92,23 @@ void NativeRuntime::PageShown(std::uint32_t surface_id) {
   if (!presenter) {
     return;
   }
+  // MakeCurrent is queued on the model thread; PersistState is queued after it
+  // so Application::Save sees the new Surfaces::mobile_current.
   presenter->PageShown();
+  PersistState();
+}
+
+void NativeRuntime::PersistState() {
+  // Host-only Android policy (not SurfacesModelSession, not Web publication
+  // checkpoint): write the model Domain while the session keeps running so a
+  // later process kill after Home / onStop still restores mobile_current.
+  session_.Post([](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    application.Save();
+    LogMarker("SURFACES_STATE_CHECKPOINT");
+  });
 }
 
 void NativeRuntime::PublishPages() {

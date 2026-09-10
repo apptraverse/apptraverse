@@ -28,6 +28,9 @@ final class NativeRuntime {
   /** Main thread: the pager settled on the page that owns this Surface ObjId. */
   static native void nativePageShown(long handle, long surfaceId);
 
+  /** Main thread: checkpoint Application::Save without stopping the session. */
+  static native void nativePersistState(long handle);
+
   /** Asks the model session to stop; the state is saved during the drain. */
   static native void nativeRequestStop(long handle);
 

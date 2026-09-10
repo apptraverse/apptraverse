@@ -39,6 +39,9 @@ class NativeRuntime {
   void RemoveSurface(std::uint32_t surface_id);
   // The pager settled on this page: report it as the current mobile page.
   void PageShown(std::uint32_t surface_id);
+  // Android lifecycle checkpoint: persist model Domain without stopping.
+  // Home / recents can kill the process after onStop; Back still Saves in Run.
+  void PersistState();
   void UnloadUi();
 
  private:

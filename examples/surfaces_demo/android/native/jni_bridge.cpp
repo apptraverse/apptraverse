@@ -69,6 +69,10 @@ void NativePageShown(JNIEnv*, jclass, jlong handle, jlong surface_id) {
   FromHandle(handle)->PageShown(static_cast<std::uint32_t>(surface_id));
 }
 
+void NativePersistState(JNIEnv*, jclass, jlong handle) {
+  FromHandle(handle)->PersistState();
+}
+
 void NativeRequestStop(JNIEnv*, jclass, jlong handle) {
   FromHandle(handle)->RequestStop();
 }
@@ -90,6 +94,8 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeRemoveSurface", "(JJ)V",
      reinterpret_cast<void*>(&NativeRemoveSurface)},
     {"nativePageShown", "(JJ)V", reinterpret_cast<void*>(&NativePageShown)},
+    {"nativePersistState", "(J)V",
+     reinterpret_cast<void*>(&NativePersistState)},
     {"nativeRequestStop", "(J)V", reinterpret_cast<void*>(&NativeRequestStop)},
     {"nativeUnloadUi", "(J)V", reinterpret_cast<void*>(&NativeUnloadUi)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
