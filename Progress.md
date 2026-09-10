@@ -7,7 +7,7 @@ Status: implemented, verified locally on Linux. Not accepted.
 
 - Starting SHA: `b234c7d67af517c7f20981d1f2c6a17c6fd3e4cf`
 - Branch: `surfaces-demo`
-- Final SHA: (filled after commit)
+- Final SHA: `91fca1a329aad21886b563e788a691d9e84d7600`
 
 ## Behavior
 
