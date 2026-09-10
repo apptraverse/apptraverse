@@ -22,9 +22,9 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 5. dynamic_objects cleanup (invariants / Win32 routing) [done]
 6. Disable RTTI + invariant-driven coding policy [done]
 7. surfaces_demo — common model + headless [done]
-8. surfaces_demo — Windows multi-window + persisted geometry [done — THIS]
-9. surfaces_demo — macOS desktop port **[NEXT]**
-10. surfaces_demo — Linux desktop port
+8. surfaces_demo — Windows multi-window + persisted geometry [done]
+9. surfaces_demo — macOS desktop port [done — THIS]
+10. surfaces_demo — Linux desktop port **[NEXT]**
 11. surfaces_demo — iOS
 12. surfaces_demo — Android
 13. surfaces_demo — WASM
@@ -41,32 +41,20 @@ Deferred relative to surfaces/chat:
 
 ## Current slice (just completed)
 
-Windows desktop semantics + persisted geometry:
+macOS desktop port — `MacSurfacePresenter : DesktopSurfacePresenter`:
 
-```
-SurfacePresenter
-  ↓
-DesktopSurfacePresenter
-  ├─ Win32SurfacePresenter   [done]
-  ├─ MacSurfacePresenter     [later]
-  └─ LinuxSurfacePresenter   [later]
-```
-
-- one Surface = one top-level window; `[ Add ] [ Close this window ]`
-- native X = whole-application stop (never RemoveSurface)
+- one Surface = one NSWindow; `[ Add ] [ Close this window ]`
+- native red X / Cmd-Q = whole-application stop (never RemoveSurface)
 - Close this window = RemoveSurfaceEvent; last Close = app stop without Remove
-- desktop_x/y/width/height on Surface; SurfaceBoundsChangedEvent
 - geometry snapshot of all live windows immediately before RequestStop
-- no per-WM_MOVE/SIZE Events; no Z-order/DPI
+- common `desktop_*` top-left bounds ↔ AppKit primary-screen frames
+- no per-move/resize Events; Apple Clang 15 insufficient (P0960) — build with
+  MacPorts clang++-mp-20 + `-fno-rtti`
 
 ## Next slice
 
-**macOS desktop port** — `MacSurfacePresenter : DesktopSurfacePresenter` with
-the same semantics: NSWindow per Surface, Add / Close this window, native red X
-closes the whole application, final position/size via common Surface bounds,
-restart restores all windows.
-
-Linux later: same desktop contract.
+**Linux desktop port** — `LinuxSurfacePresenter : DesktopSurfacePresenter` with
+the same desktop contract.
 
 **Mobile later (not created yet):** pager; `[ Add ] [ Remove current ]` selects
 current `SurfacePresenter` on the presentation side. Model has no
