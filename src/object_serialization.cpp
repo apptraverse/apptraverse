@@ -595,14 +595,25 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
   StructuralPresentationKeepalive keepalive;
   std::vector<ae::Obj*> objects;
   CollectLiveReachableObjects(gui_root, objects);
+  ae::Domain* const domain = gui_root.domain;
+  assert(domain != nullptr && "GUI root must belong to a Domain");
   keepalive.live_objects.reserve(objects.size());
   keepalive.active_presenters.reserve(objects.size());
   for (ae::Obj* obj : objects) {
-    keepalive.live_objects.push_back(ae::MakePtrFromThis(obj));
+    // Domain::Find returns the canonical Ptr for the most-derived storage.
+    // MakePtrFromThis / ObjPtr::MakeFromThis on a base pointer is UB when the
+    // object was allocated as a derived type; wasm hits that as
+    // BuildDecrementGraphImpl OOB when keepalive tears down after Apply.
+    auto held = domain->Find(obj->obj_id);
+    assert(held && "live reachable object must remain in Domain");
+    keepalive.live_objects.push_back(std::move(held));
     Presenter* const presenter = AsPresenter(obj);
     if (presenter != nullptr && presenter->presentation_loaded) {
-      keepalive.active_presenters.push_back(
-          Presenter::ptr::MakeFromThis(presenter));
+      auto presenter_held = domain->Find(presenter->obj_id);
+      assert(presenter_held && "loaded presenter must remain in Domain");
+      keepalive.active_presenters.push_back(Presenter::ptr{
+          domain, presenter->obj_id, {},
+          ae::Ptr<Presenter>{presenter_held}});
     }
   }
   return keepalive;

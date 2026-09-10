@@ -9,6 +9,13 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Emscripten pthreads require atomics/bulk-memory on every TU that ends up in
+# a -pthread link. Apply once for the whole tree (including aether-objects).
+if(EMSCRIPTEN)
+  add_compile_options(-pthread -fexceptions)
+  add_link_options(-pthread)
+endif()
+
 include(cmake/aether_version.cmake)
 include(cmake/aether_object.cmake)
 include(cmake/CPM.cmake)

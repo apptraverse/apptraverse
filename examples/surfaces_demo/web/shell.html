@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AppTraverse Surfaces</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 24px;
+      color: #111;
+      background: #f7f7f7;
+    }
+    #toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
+    #tab-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+    button {
+      padding: 8px 14px;
+      border: 1px solid #888;
+      background: #e8e8e8;
+      cursor: pointer;
+    }
+    button.surface-tab.active {
+      background: #fff;
+      border-color: #222;
+      font-weight: 600;
+    }
+    #content {
+      min-height: 180px;
+      padding: 48px 16px;
+      background: #fff;
+      border: 1px solid #ccc;
+      text-align: center;
+      font-size: 28px;
+      color: #666;
+    }
+    #status { margin-top: 16px; color: #444; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>AppTraverse Surfaces</h1>
+  <div id="toolbar">
+    <button type="button" id="add-surface">Add</button>
+    <button type="button" id="remove-current">Remove current</button>
+  </div>
+  <div id="tab-strip"></div>
+  <div id="content">Loading…</div>
+  <div id="status"></div>
+
+  <script>
+    var Module = {
+      print: function(text) { console.log(text); },
+      printErr: function(text) { console.error(text); },
+      preRun: [function() {
+        if (!crossOriginIsolated) {
+          throw new Error('crossOriginIsolated is false; serve with COOP/COEP');
+        }
+        if (typeof SharedArrayBuffer === 'undefined') {
+          throw new Error('SharedArrayBuffer unavailable');
+        }
+        FS.mkdir('/persistent');
+        FS.mount(IDBFS, {}, '/persistent');
+        Module['addRunDependency']('idbfs-sync');
+        FS.syncfs(true, function(err) {
+          if (err) {
+            console.error('IDBFS syncfs(true) failed', err);
+            document.getElementById('status').textContent =
+                'IndexedDB load failed: ' + err;
+          } else {
+            console.log('SURFACES_IDBFS_LOADED');
+          }
+          Module['removeRunDependency']('idbfs-sync');
+        });
+      }],
+      onRuntimeInitialized: function() {
+        document.getElementById('add-surface').onclick = function() {
+          Module['_AppTraverseWebAddCurrent']();
+        };
+        document.getElementById('remove-current').onclick = function() {
+          Module['_AppTraverseWebRemoveCurrent']();
+        };
+        console.log('SURFACES_WASM_READY crossOriginIsolated=' + crossOriginIsolated);
+      }
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

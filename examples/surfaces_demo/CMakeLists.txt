@@ -29,6 +29,10 @@ target_link_libraries(surfaces_demo_desktop PUBLIC
 )
 target_compile_features(surfaces_demo_desktop PUBLIC cxx_std_20)
 
-if(WIN32)
+if(WIN32 AND NOT EMSCRIPTEN)
   add_subdirectory(windows)
+endif()
+
+if(EMSCRIPTEN)
+  add_subdirectory(web)
 endif()

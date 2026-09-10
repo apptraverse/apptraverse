@@ -68,9 +68,10 @@ restart restores all windows.
 
 Linux later: same desktop contract.
 
-**Mobile later (not created yet):** pager; `[ Add ] [ Remove current ]` selects
-current `SurfacePresenter` on the presentation side. Model has no
-`current_surface`. Hierarchy later:
+**Mobile / Web:** pager or tab strip; `[ Add ] [ Remove current ]` uses
+`Surfaces::mobile_current`. Host reports the visible page via
+`SurfacePresenter::PageShown` → `SetCurrentSurfaceEvent`. Desktop leaves
+`mobile_current` empty (every Surface HWND is shown). Hierarchy:
 
 ```
 SurfacePresenter
