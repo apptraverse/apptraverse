@@ -22,17 +22,15 @@ Included on that branch:
 - Windows desktop (multi-window, geometry persistence)
 - Android / Android Emulator (pager, `mobile_current`)
 - Web / Emscripten / WASM (tabs, IndexedDB checkpoint)
-- Linux desktop — **X11/Xlib** (`LinuxSurfacePresenter`; shipped on
-  `feature/surfaces-linux-v1`, merged into `surfaces-demo`)
+- Linux desktop — **X11/Xlib** (`LinuxSurfacePresenter`)
+- macOS desktop — **AppKit** (`MacSurfacePresenter`) — merging now
 
-Pending merge (other Cursors; do not treat as landed):
+Pending merge (Mac Cursor):
 
-- macOS desktop (`feature/surfaces-macos-v1`)
 - iOS / iPhone Simulator (`feature/surfaces-ios-v1`)
 
-Mac Cursor owns macOS + iPhone Simulator only. Linux Cursor owns Linux desktop
-only. The merged Linux host is X11/Xlib (not GTK3/Qt/SDL); no backend migration
-in the merge slice.
+Mac Cursor owns macOS + iPhone Simulator only. Linux host is X11/Xlib (not
+GTK3/Qt/SDL); no backend migration in the merge slice.
 
 ## Roadmap (surfaces before SharedNode)
 
@@ -47,7 +45,7 @@ in the merge slice.
 9. surfaces_demo — Android pager + `mobile_current` [done — in `surfaces-demo`]
 10. surfaces_demo — Web/WASM tabs + IDBFS checkpoint [done — in `surfaces-demo`]
 11. surfaces_demo — Linux X11 desktop port [done — in `surfaces-demo`]
-12. surfaces_demo — macOS desktop port **[NEXT — Mac Cursor]**
+12. surfaces_demo — macOS desktop port [done — merging into `surfaces-demo`]
 13. surfaces_demo — iOS / iPhone Simulator **[NEXT — Mac Cursor]**
 14. shared_node_demo
 15. chat_demo
@@ -69,14 +67,21 @@ Required APIs: `SetCurrentSurfaceEvent`, `Surface::MakeCurrent()`,
 `SurfacePresenter::PageShown()`.
 
 Desktop leaves `mobile_current` empty for presentation; every Surface window is
-shown. Linux desktop does not call `PageShown()` / does not change
-`mobile_current` on focus. Mobile/Web report the visible page through
-`PageShown`.
+shown. Desktop hosts do not call `PageShown()` / do not change `mobile_current`
+on focus. Mobile/Web report the visible page through `PageShown`.
 
 Web checkpoints `Application::Save` after each model publication, then IDBFS
 sync — browser reload/tab close is not a reliable graceful shutdown. This is
 **Web-host policy only**, not common `SurfacesModelSession`, and must not be
-copied onto Windows/Android/Linux.
+copied onto Windows/Android/Linux/macOS/iOS.
+
+macOS AppKit notes: one Surface = one NSWindow; `[ Add ] [ Close this window ]`;
+native red X / Cmd-Q = whole-application stop (never RemoveSurface); Close this
+window = RemoveSurfaceEvent except last Close = app stop without Remove;
+geometry snapshot of all live windows immediately before RequestStop; common
+`desktop_*` top-left bounds ↔ AppKit primary-screen frames (multi-monitor out of
+scope); no per-move/resize Events. Apple Clang 15 insufficient (P0960) — build
+with MacPorts clang++-mp-20 + `-fno-rtti`.
 
 ## Presenter hierarchy
 
@@ -85,7 +90,7 @@ SurfacePresenter
   ↓
 DesktopSurfacePresenter
   ├─ Win32SurfacePresenter   [in surfaces-demo]
-  ├─ MacSurfacePresenter     [pending]
+  ├─ MacSurfacePresenter     [in surfaces-demo]
   └─ LinuxSurfacePresenter   [in surfaces-demo — X11/Xlib]
 
 SurfacePresenter

@@ -54,3 +54,7 @@ endif()
 if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   add_subdirectory(linux)
 endif()
+
+if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  add_subdirectory(macos)
+endif()

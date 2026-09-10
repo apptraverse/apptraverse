@@ -251,6 +251,50 @@ Not accepted-by-user.
 ---
 Status: implemented, verified locally. Not accepted.
 
+# surfaces_demo — macOS desktop port
+
+## Starting / final
+
+- Starting HEAD: `7e86814` (`origin/prep/deps-objects-assert-mcp-v1`).
+- Branch: `feature/surfaces-macos-v1` (worktree
+  `/Users/nick/Projects/apptraverse-surfaces-macos-v1`).
+- Common model / Windows / `DesktopSurfacePresenter`: unchanged.
+- Final SHA: `3ccb5d9100992da49a02af2534cae9d0f327bed7`.
+
+## Implementation
+
+```
+SurfacePresenter
+  ↓
+DesktopSurfacePresenter
+  ├─ Win32SurfacePresenter
+  └─ MacSurfacePresenter   [THIS]
+```
+
+- `examples/surfaces_demo/macos/` — `MacApp`, `MacSurfacePresenter` (`.mm` + ARC)
+- NSWindow per Surface; Add / Close this window; red X + Cmd-Q → one stop path
+  (snapshot all frames → `RequestStop`)
+- Primary-screen coordinate conversion (common top-left ↔ AppKit); multi-monitor
+  out of scope
+- Targets: `macos_surfaces_demo`, `macos_surfaces_demo_load_only`
+- `-fno-rtti` on CXX and OBJCXX; no C++ `dynamic_cast`
+
+## Toolchain note
+
+Apple Clang 15 rejects pinned `aether-miscpp` parenthesized aggregate init
+(P0960). Build used MacPorts `clang++-mp-20` / `clang-mp-20` with macOS SDK.
+
+## Tests
+
+| check | result |
+| --- | --- |
+| `apptraverse_surfaces_model_test` | PASS (`-fno-rtti`, MacPorts Clang 20) |
+| `apptraverse_surfaces_macos_smoke_test` | PASS (Add / Close middle / red X / geometry restore / last Close) |
+
+Compile commands confirmed `-fno-rtti` on `.cpp` and `.mm`.
+
+Not accepted-by-user.
+
 # surfaces_demo — Windows semantics + persisted window geometry
 
 ## Starting / final
