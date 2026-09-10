@@ -7,6 +7,8 @@ Status: implemented, verified locally. Not accepted.
 - Starting HEAD: `7e86814` (`origin/prep/deps-objects-assert-mcp-v1`).
 - Branch: `feature/surfaces-ios-v1` (worktree
   `/Users/nick/Projects/apptraverse-surfaces-ios-v1`).
+- Feature SHA: `0816f6c`.
+- Pushed to `origin/feature/surfaces-ios-v1`.
 - Common model / desktop / Windows: unchanged.
 - macOS / Linux ports: not claimed finished on this branch.
 
