@@ -85,6 +85,14 @@ void NativeRuntime::RemoveSurface(std::uint32_t surface_id) {
   presenter->RemoveClick();
 }
 
+void NativeRuntime::PageShown(std::uint32_t surface_id) {
+  auto presenter = FindLivePresenter(surface_id);
+  if (!presenter) {
+    return;
+  }
+  presenter->PageShown();
+}
+
 void NativeRuntime::PublishPages() {
   auto const& surfaces = ui_application_->surfaces->surfaces;
   std::vector<std::int64_t> ids;
@@ -98,8 +106,12 @@ void NativeRuntime::PublishPages() {
     marker += std::to_string(surface->number);
     marker += ',';
   }
-  LogMarker(marker + " count=" + std::to_string(surfaces.size()));
-  ui_bridge_.PostPages(ids, numbers);
+  auto const& current = ui_application_->surfaces->mobile_current;
+  std::int64_t const current_id =
+      current ? static_cast<std::int64_t>(current->obj_id.id()) : 0;
+  LogMarker(marker + " count=" + std::to_string(surfaces.size()) +
+            " current=" + std::to_string(current_id));
+  ui_bridge_.PostPages(ids, numbers, current_id);
 }
 
 void NativeRuntime::UnloadUi() {

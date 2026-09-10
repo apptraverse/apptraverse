@@ -153,6 +153,25 @@ function Swipe-Page([string]$Adb, [string]$DeviceSerial, [string]$Direction) {
   Start-Sleep -Milliseconds 600
 }
 
+function Get-AppPid($Adb, [string]$DeviceSerial, [string]$Package) {
+  # adb prints nothing at all once the process is gone.
+  $out = & $Adb -s $DeviceSerial shell pidof $Package
+  if (-not $out) { return "" }
+  return ([string]$out).Trim()
+}
+
+function Wait-ProcessExit($Adb, [string]$DeviceSerial, [string]$Package, [string]$After) {
+  $deadline = (Get-Date).AddSeconds(30)
+  while ((Get-Date) -lt $deadline) {
+    if (-not (Get-AppPid $Adb $DeviceSerial $Package)) {
+      Write-Host "  OK  application process exited"
+      return
+    }
+    Start-Sleep -Milliseconds 500
+  }
+  throw "Application process is still running after $After"
+}
+
 function Assert-NoFatal([string]$Logs) {
   foreach ($pattern in @("FATAL EXCEPTION", "JNI DETECTED ERROR", "Fatal signal", "SIGSEGV", "Assertion failed")) {
     if ($Logs -match $pattern) {
@@ -280,41 +299,37 @@ Wait-Marker $adb $Serial "SURFACE_PAGE_UNLOADED number=2" "Surface 2 page unload
 Assert-Page $adb $Serial "Surface 3" "2 / 2"
 
 Write-Host ""
-Write-Host "Phase 5: force-stop and relaunch keeps the topology"
-Invoke-Adb $adb $Serial @("shell", "am", "force-stop", $PackageName) | Out-Null
-Start-Sleep -Seconds 2
+Write-Host "Phase 5: Back saves, relaunch restores topology and current page"
+# Back is the controlled shutdown path and the only save point: a force-stop or
+# a system kill leaves the last changes unsaved.
+Invoke-Adb $adb $Serial @("shell", "input", "keyevent", "4") | Out-Null
+Wait-Marker $adb $Serial "SURFACES_STATE_SAVED" "state saved on Back"
+Wait-Marker $adb $Serial "SURFACES_APP_STOPPED" "native teardown finished"
+Wait-ProcessExit $adb $Serial $PackageName "Back"
 Clear-Logcat $adb $Serial
 Invoke-Adb $adb $Serial @("shell", "am", "start", "-W", "-n", $ActivityName) | Out-Null
 Wait-Marker $adb $Serial "SURFACES_PAGES numbers=1,3, count=2" "restored pages 1 and 3"
-Assert-Page $adb $Serial "Surface 1" "1 / 2"
+# Surface 3 was current when the application stopped.
+Assert-Page $adb $Serial "Surface 3" "2 / 2"
 
 Write-Host ""
 Write-Host "Phase 6: Remove current down to the last page stops the application"
 Tap-Node $adb $Serial "remove_current"
-Wait-Marker $adb $Serial "SURFACE_PAGE_UNLOADED number=1" "Surface 1 page unloaded"
-Assert-Page $adb $Serial "Surface 3" "1 / 1"
+Wait-Marker $adb $Serial "SURFACE_PAGE_UNLOADED number=3" "Surface 3 page unloaded"
+Assert-Page $adb $Serial "Surface 1" "1 / 1"
 Clear-Logcat $adb $Serial
 Tap-Node $adb $Serial "remove_current"
 Wait-Marker $adb $Serial "SURFACES_LAST_PAGE_STOP" "last page requests application stop"
 Wait-Marker $adb $Serial "SURFACES_STATE_SAVED" "state saved on shutdown"
 Wait-Marker $adb $Serial "SURFACES_UI_UNLOADED" "presenters unloaded"
-$stop_deadline = (Get-Date).AddSeconds(30)
-while ((Get-Date) -lt $stop_deadline) {
-  $running = (& $adb -s $Serial shell pidof $PackageName).Trim()
-  if (-not $running) { break }
-  Start-Sleep -Milliseconds 500
-}
-if ((& $adb -s $Serial shell pidof $PackageName).Trim()) {
-  throw "Application process is still running after the last Remove current"
-}
-Write-Host "  OK  application process exited"
+Wait-ProcessExit $adb $Serial $PackageName "the last Remove current"
 
 Write-Host ""
 Write-Host "Phase 7: the last Surface survived the shutdown"
 Clear-Logcat $adb $Serial
 Invoke-Adb $adb $Serial @("shell", "am", "start", "-W", "-n", $ActivityName) | Out-Null
-Wait-Marker $adb $Serial "SURFACES_PAGES numbers=3, count=1" "Surface 3 restored"
-Assert-Page $adb $Serial "Surface 3" "1 / 1"
+Wait-Marker $adb $Serial "SURFACES_PAGES numbers=1, count=1" "Surface 1 restored"
+Assert-Page $adb $Serial "Surface 1" "1 / 1"
 
 Assert-NoFatal (Get-Logcat $adb $Serial)
 

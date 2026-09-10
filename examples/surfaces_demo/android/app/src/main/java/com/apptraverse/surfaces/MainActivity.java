@@ -11,8 +11,9 @@ import android.widget.TextView;
 
 /**
  * Host Activity: one pager of Surface pages plus [ Add ] [ Remove current ].
- * The current page is presentation state only, it never reaches the model.
- * The page list comes from the native runtime after every publication.
+ * Which page becomes current is presentation policy; the page it settles on is
+ * reported to the model so a restart reopens it. The page list and the
+ * persisted current page come from the native runtime after every publication.
  */
 public final class MainActivity extends Activity implements NativeUiBridge.Listener {
 
@@ -26,6 +27,9 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   private long[] pageIds = new long[0];
   private int[] pageNumbers = new int[0];
   private int currentIndex;
+  // Last page id the model knows about, so the publication it triggers does
+  // not report the same page back.
+  private long reportedCurrentId;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -111,10 +115,18 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   }
 
   @Override
-  public void onPages(long[] ids, int[] numbers) {
+  public void onPages(long[] ids, int[] numbers, long currentId) {
     pageIds = ids;
     pageNumbers = numbers;
-    // Structural removal keeps the user on a neighbour page.
+    reportedCurrentId = currentId;
+    for (int i = 0; i < ids.length; ++i) {
+      if (ids[i] == currentId) {
+        showPage(i);
+        return;
+      }
+    }
+    // No persisted current page, or it was just removed: keep the user on a
+    // neighbour page and report that choice.
     showPage(Math.min(currentIndex, numbers.length - 1));
   }
 
@@ -134,6 +146,11 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     pageIndicator.setText((currentIndex + 1) + " / " + pageNumbers.length);
     Log.i(TAG, "PAGE_SHOWN number=" + pageNumbers[currentIndex]
         + " index=" + currentIndex + " count=" + pageNumbers.length);
+
+    if (pageIds[currentIndex] != reportedCurrentId) {
+      reportedCurrentId = pageIds[currentIndex];
+      application().pageShown(reportedCurrentId);
+    }
   }
 
   private SurfacesApplication application() {

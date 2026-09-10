@@ -37,6 +37,8 @@ class NativeRuntime {
   void ConsumePublication(SurfacesPublicationKind kind);
   void AddFromSurface(std::uint32_t surface_id);
   void RemoveSurface(std::uint32_t surface_id);
+  // The pager settled on this page: report it as the current mobile page.
+  void PageShown(std::uint32_t surface_id);
   void UnloadUi();
 
  private:

@@ -142,6 +142,7 @@ void TestInitialGraph() {
   CHECK(surface.journal.empty());
   CHECK(surfaces.base.is_valid());
   CHECK(surfaces.journal.empty());
+  CHECK(!surfaces.mobile_current);
 }
 
 void TestModelAdd() {
@@ -588,6 +589,124 @@ void TestGeometryPersistence() {
   std::filesystem::remove_all(dir);
 }
 
+void TestCurrentPageReplay() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surfaces& surfaces = *application->surfaces;
+  surfaces.surfaces[0]->AddSurface();
+  Surface::ptr surface2 = surfaces.surfaces[1];
+  auto const surface2_id = surface2->obj_id;
+
+  surface2->MakeCurrent();
+  CHECK(surfaces.journal.size() == 2);
+  CHECK(surfaces.journal.back().event->GetClassId() ==
+        SetCurrentSurfaceEvent::kClassId);
+  CHECK(surfaces.mobile_current);
+  CHECK(surfaces.mobile_current->obj_id == surface2_id);
+
+  surface2->MakeCurrent();  // already current → no Event
+  CHECK(surfaces.journal.size() == 2);
+
+  surfaces.ReplayFromBase();
+  CHECK(surfaces.mobile_current);
+  CHECK(surfaces.mobile_current->obj_id == surface2_id);
+  CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[1]);
+
+  // Removing the current page drops the reference; picking the next current
+  // page is the host's decision.
+  surfaces.surfaces[1]->Remove();
+  CHECK(surfaces.surfaces.size() == 1);
+  CHECK(!surfaces.mobile_current);
+
+  surfaces.ReplayFromBase();
+  CHECK(!surfaces.mobile_current);
+
+  surfaces.surfaces[0]->MakeCurrent();
+  CHECK(surfaces.mobile_current);
+  CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[0]);
+  surface2->MakeCurrent();  // stale Surface → no-op
+  CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[0]);
+}
+
+void TestCurrentPagePersistence() {
+  auto dir = TestDir("apptraverse_surfaces_current_persist");
+  ae::ObjId surface2_id;
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = BuildSurfacesGraph(domain);
+    FinalizeDistilledGraph(*application);
+    Surfaces& surfaces = *application->surfaces;
+    surfaces.surfaces[0]->AddSurface();
+    surfaces.surfaces[0]->AddSurface();
+    surface2_id = surfaces.surfaces[1]->obj_id;
+    surfaces.surfaces[1]->MakeCurrent();
+    SaveDistilledRoot(*application);
+  }
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  Surfaces& surfaces = *application->surfaces;
+  CHECK(surfaces.surfaces.size() == 3);
+  CHECK(surfaces.mobile_current);
+  CHECK(surfaces.mobile_current->obj_id == surface2_id);
+  CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[1]);
+  std::filesystem::remove_all(dir);
+}
+
+void TestCurrentPageThroughGuiProxy() {
+  TestSurfacePresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_surfaces_current_proxy");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  auto proxy = MakeSessionProxy(session);
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+  WaitPublished(session);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  InitializePresenters(*ui_app, nullptr, &proxy);
+  Surfaces* const ui_surfaces = &*ui_app->surfaces;
+  CHECK(!ui_surfaces->mobile_current);
+
+  ui_surfaces->surfaces[0]->presenter->AddClick();
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  CHECK(ui_surfaces->surfaces.size() == 2);
+  Surface* const ui_surface2 = &*ui_surfaces->surfaces[1];
+  auto const surface2_id = ui_surface2->obj_id;
+
+  // Swipe to page 2: the GUI mirror learns the current page from the model.
+  ui_surface2->presenter->PageShown();
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  CHECK(ui_surfaces->mobile_current);
+  CHECK(ui_surfaces->mobile_current->obj_id == surface2_id);
+  CHECK(&*ui_surfaces->mobile_current == ui_surface2);
+
+  ui_surface2->presenter->RemoveClick();
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  CHECK(ui_surfaces->surfaces.size() == 1);
+  CHECK(!ui_surfaces->mobile_current);
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestNoRttiCompileGuard() {
 #if defined(_CPPRTTI) || defined(__GXX_RTTI)
   CHECK(false && "surfaces targets must compile with RTTI disabled");
@@ -614,6 +733,9 @@ int main() {
   apptraverse::test::TestShutdownDrain();
   apptraverse::test::TestBoundsReplay();
   apptraverse::test::TestGeometryPersistence();
+  apptraverse::test::TestCurrentPageReplay();
+  apptraverse::test::TestCurrentPagePersistence();
+  apptraverse::test::TestCurrentPageThroughGuiProxy();
   apptraverse::test::TestNoRttiCompileGuard();
   std::cout << "surfaces_model_test OK\n";
   return 0;

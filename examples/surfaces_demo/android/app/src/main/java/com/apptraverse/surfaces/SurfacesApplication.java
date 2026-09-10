@@ -58,6 +58,11 @@ public final class SurfacesApplication extends Application
     NativeRuntime.nativeRemoveSurface(runtimeHandle, surfaceId);
   }
 
+  /** The pager settled on this page; the model records it as current. */
+  void pageShown(long surfaceId) {
+    NativeRuntime.nativePageShown(runtimeHandle, surfaceId);
+  }
+
   /** Back / system close: graceful whole-application shutdown, not Remove. */
   void requestStop() {
     NativeRuntime.nativeRequestStop(runtimeHandle);

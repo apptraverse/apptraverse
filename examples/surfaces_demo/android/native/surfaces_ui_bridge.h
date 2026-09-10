@@ -29,9 +29,11 @@ class SurfacesUiBridge {
   // Called from the model thread: asks the main thread to consume the
   // publication the channel now holds.
   void PostPublication(int kind) const;
-  // Called from the main thread after presenters were updated.
+  // Called from the main thread after presenters were updated. current_id is
+  // the persisted current page, or 0 when the model holds none.
   void PostPages(std::vector<std::int64_t> const& ids,
-                 std::vector<std::int32_t> const& numbers) const;
+                 std::vector<std::int32_t> const& numbers,
+                 std::int64_t current_id) const;
   // Called from the model thread after Run returned (state is saved).
   void PostStopped() const;
 
