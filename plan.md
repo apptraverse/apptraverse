@@ -17,19 +17,22 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 
 **`surfaces-demo`** (`origin/surfaces-demo`)
 
-Included and verified on that SHA:
+Included on that branch:
 
 - Windows desktop (multi-window, geometry persistence)
 - Android / Android Emulator (pager, `mobile_current`)
 - Web / Emscripten / WASM (tabs, IndexedDB checkpoint)
+- Linux desktop — **X11/Xlib** (`LinuxSurfacePresenter`; shipped on
+  `feature/surfaces-linux-v1`, merged into `surfaces-demo`)
 
 Pending merge (other Cursors; do not treat as landed):
 
-- Linux desktop — **GTK3 only** (`feature/surfaces-linux-v1`)
 - macOS desktop (`feature/surfaces-macos-v1`)
 - iOS / iPhone Simulator (`feature/surfaces-ios-v1`)
 
-Mac Cursor owns macOS + iPhone Simulator only. Linux Cursor owns GTK3 Linux only.
+Mac Cursor owns macOS + iPhone Simulator only. Linux Cursor owns Linux desktop
+only. The merged Linux host is X11/Xlib (not GTK3/Qt/SDL); no backend migration
+in the merge slice.
 
 ## Roadmap (surfaces before SharedNode)
 
@@ -43,7 +46,7 @@ Mac Cursor owns macOS + iPhone Simulator only. Linux Cursor owns GTK3 Linux only
 8. surfaces_demo — Windows multi-window + persisted geometry [done]
 9. surfaces_demo — Android pager + `mobile_current` [done — in `surfaces-demo`]
 10. surfaces_demo — Web/WASM tabs + IDBFS checkpoint [done — in `surfaces-demo`]
-11. surfaces_demo — Linux GTK3 port **[NEXT — Linux Cursor]**
+11. surfaces_demo — Linux X11 desktop port [done — in `surfaces-demo`]
 12. surfaces_demo — macOS desktop port **[NEXT — Mac Cursor]**
 13. surfaces_demo — iOS / iPhone Simulator **[NEXT — Mac Cursor]**
 14. shared_node_demo
@@ -65,13 +68,15 @@ not a positional numeric index. UI may keep a runtime page index.
 Required APIs: `SetCurrentSurfaceEvent`, `Surface::MakeCurrent()`,
 `SurfacePresenter::PageShown()`.
 
-Desktop leaves `mobile_current` empty for presentation; every Surface HWND is
-shown. Mobile/Web report the visible page through `PageShown`.
+Desktop leaves `mobile_current` empty for presentation; every Surface window is
+shown. Linux desktop does not call `PageShown()` / does not change
+`mobile_current` on focus. Mobile/Web report the visible page through
+`PageShown`.
 
 Web checkpoints `Application::Save` after each model publication, then IDBFS
 sync — browser reload/tab close is not a reliable graceful shutdown. This is
 **Web-host policy only**, not common `SurfacesModelSession`, and must not be
-copied onto Windows/Android.
+copied onto Windows/Android/Linux.
 
 ## Presenter hierarchy
 
@@ -81,7 +86,7 @@ SurfacePresenter
 DesktopSurfacePresenter
   ├─ Win32SurfacePresenter   [in surfaces-demo]
   ├─ MacSurfacePresenter     [pending]
-  └─ LinuxSurfacePresenter   [pending — GTK3]
+  └─ LinuxSurfacePresenter   [in surfaces-demo — X11/Xlib]
 
 SurfacePresenter
   ↓

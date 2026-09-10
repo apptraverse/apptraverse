@@ -318,6 +318,40 @@ if(WIN32)
   )
 endif()
 
+if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
+  find_package(X11 REQUIRED)
+  add_executable(apptraverse_surfaces_linux_smoke_test
+    surfaces_linux_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux/linux_app.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux/linux_presenters.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux/linux_fatal.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+  )
+  target_compile_definitions(apptraverse_surfaces_linux_smoke_test PRIVATE
+    APPTRAVERSE_ENABLE_DISTILLATION
+  )
+  target_link_libraries(apptraverse_surfaces_linux_smoke_test PRIVATE
+    surfaces_demo_distill
+    surfaces_demo_desktop
+    X11::X11
+  )
+  target_include_directories(apptraverse_surfaces_linux_smoke_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/desktop
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux
+  )
+  add_test(
+    NAME apptraverse_surfaces_linux_smoke_test
+    COMMAND apptraverse_surfaces_linux_smoke_test
+  )
+  add_custom_target(apptraverse_surfaces_linux_smoke_check
+    COMMAND $<TARGET_FILE:apptraverse_surfaces_linux_smoke_test>
+    DEPENDS apptraverse_surfaces_linux_smoke_test
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Surfaces Linux multi-window smoke"
+  )
+endif()
+
 add_executable(apptraverse_presenter_load_order_test
   presenter_load_order_test.cpp
 )

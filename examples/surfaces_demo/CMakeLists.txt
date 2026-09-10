@@ -50,3 +50,7 @@ endif()
 if(EMSCRIPTEN)
   add_subdirectory(web)
 endif()
+
+if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
+  add_subdirectory(linux)
+endif()

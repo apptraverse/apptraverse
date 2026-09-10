@@ -1,3 +1,75 @@
+Status: implemented, verified locally on Linux. Not accepted.
+
+# LINUX CURSOR — X11 merge into canonical surfaces-demo
+
+## Starting / final
+
+- Base canonical: `origin/surfaces-demo` @ `9da6672396d74f99bf61a75966895f1490607d8b`.
+- Linux feature: `origin/feature/surfaces-linux-v1` @ `10a2db16f3bfcd1f88a9cc09dc72b2f910d22eee`.
+- Merge: `git merge --no-ff origin/feature/surfaces-linux-v1` into local `surfaces-demo`.
+- Merge commit / final canonical SHA: (filled after commit).
+- Pushed to `origin/surfaces-demo`. Remote `feature/surfaces-linux-v1` deleted after ancestry proof.
+
+## Conflicts
+
+- `examples/surfaces_demo/CMakeLists.txt` — kept Windows + Emscripten/web + Linux;
+  Linux gated `UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN`.
+- `plan.md` — kept canonical `surfaces-demo` roadmap; marked Linux as landed (X11/Xlib).
+
+Auto-merged: `Progress.md`, `tests/CMakeLists.txt` (Linux smoke condition tightened
+to exclude ANDROID/EMSCRIPTEN).
+
+## Common model decisions
+
+Canonical `surfaces-demo` common model retained untouched:
+
+- `Surfaces::mobile_current`, `SetCurrentSurfaceEvent`, `Surface::MakeCurrent()`,
+  `SurfacePresenter::PageShown()`
+- desktop geometry + `SurfaceBoundsChangedEvent`
+- Web keepalive (`Domain::Find` structural keepalive)
+- schema versions / no RTTI policy
+
+Linux desktop does not call `PageShown` / does not mutate `mobile_current`.
+
+## Backend note
+
+Shipped Linux feature is **X11/Xlib** (not GTK3). No backend migration in this
+merge. Prior plan text asked for GTK3; actual `feature/surfaces-linux-v1` code
+links X11 only.
+
+## Presenter hierarchy after merge
+
+```
+SurfacePresenter
+  ├─ DesktopSurfacePresenter
+  │  ├─ Win32SurfacePresenter
+  │  └─ LinuxSurfacePresenter
+  ├─ MobileSurfacePresenter
+  │  └─ AndroidSurfacePresenter
+  └─ WebSurfacePresenter
+```
+
+## Paths
+
+- Add: X11 ButtonPress → `OnCommand` → `AddClick` → proxy → `AddSurface`
+- Close this window: `RemoveClick`; last → app STOP without Remove
+- Native WM_DELETE_WINDOW: whole-app STOP (never Remove)
+- Geometry: snapshot all live windows → `SetDesktopBounds` → `RequestStop`
+
+## Tests (Linux host)
+
+PASS: `apptraverse_surfaces_model_test`, `apptraverse_surfaces_linux_smoke_test`,
+`apptraverse_presenter_load_order_test`, `apptraverse_publication_channel_test`,
+`apptraverse_event_sourced_core_test`, `apptraverse_journal_retention_test`.
+
+`-fno-rtti` on Linux TUs via `apptraverse_compile_policy`.
+
+Windows/Android/WASM binaries not executed on this Linux machine; source/CMake
+conditions retained and mutually exclusive.
+
+Not accepted-by-user.
+
+---
 Status: implemented, verified on emulator. Not accepted.
 
 # surfaces_demo — Android pager port
@@ -117,6 +189,62 @@ reopened the first page. On request the current page became model state:
   `SurfacePresenter::PageShown`. Desktop presenters and the Win32 host are
   unchanged, but existing state dirs must be recreated.
 - `tests/surfaces_model_test.cpp`: current-page cases.
+
+Not accepted-by-user.
+
+---
+Status: implemented, verified locally. Not accepted.
+
+# surfaces_demo — Linux desktop port (X11)
+
+## Starting / final
+
+- Base: `origin/prep/deps-objects-assert-mcp-v1` @ `7e86814`.
+- Branch: `feature/surfaces-linux-v1` (separate worktree; parallel with macOS).
+- Final SHA: `d465f2b5182d0d5d05d0253561c424805010a113`.
+- Pushed to origin/feature/surfaces-linux-v1. Not merged into prep.
+
+## Backend
+
+X11/Xlib only (no Qt/GTK/SDL). Drawn hit-test buttons; `WM_DELETE_WINDOW`
+for native close. `_NET_FRAME_EXTENTS` for best-effort outer geometry.
+
+## Presenter hierarchy
+
+```
+SurfacePresenter
+  ↓
+DesktopSurfacePresenter
+  ├─ Win32SurfacePresenter   (unchanged)
+  └─ LinuxSurfacePresenter   (new)
+```
+
+Object-system registration; GUI Load picks Linux as most-derived on this host.
+No `dynamic_cast`; hierarchy via `Registry::GenerationDistance`. Common model
+and `DesktopSurfacePresenter` API unchanged.
+
+## Native paths
+
+- **Add:** ButtonPress hit → `OnCommand` → `AddClick` → proxy → `AddSurface`
+- **Close this window:** → `RemoveClick` / last → app STOP without Remove
+- **Native WM close:** → whole-app STOP (never Remove)
+- Shutdown: `QueueAllWindowBounds` → `RequestStop` → model drain → Save
+
+## Targets
+
+- `linux_surfaces_demo` / `linux_surfaces_demo_load_only`
+- `apptraverse_surfaces_linux_smoke_test`
+
+## `-fno-rtti` proof
+
+Ninja FLAGS for `linux_presenters.cpp` / `linux_app.cpp` include `-fno-rtti`
+(via `apptraverse_compile_policy`).
+
+## Tests
+
+PASS: `apptraverse_surfaces_model_test`, `apptraverse_presenter_load_order_test`,
+`apptraverse_surfaces_linux_smoke_test` (DISPLAY=:0.0). Geometry restore uses
+40px tolerance for WM decoration variance.
 
 Not accepted-by-user.
 
