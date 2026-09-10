@@ -6,7 +6,7 @@ Status: implemented, verified locally. Not accepted.
 
 - Base: `origin/prep/deps-objects-assert-mcp-v1` @ `7e86814`.
 - Branch: `feature/surfaces-linux-v1` (separate worktree; parallel with macOS).
-- Final SHA: (filled after commit).
+- Final SHA: `d465f2b5182d0d5d05d0253561c424805010a113`.
 - Pushed to origin/feature/surfaces-linux-v1. Not merged into prep.
 
 ## Backend
