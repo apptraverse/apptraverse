@@ -32,3 +32,7 @@ target_compile_features(surfaces_demo_desktop PUBLIC cxx_std_20)
 if(WIN32)
   add_subdirectory(windows)
 endif()
+
+if(UNIX AND NOT APPLE)
+  add_subdirectory(linux)
+endif()

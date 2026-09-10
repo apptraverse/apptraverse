@@ -1,5 +1,61 @@
 Status: implemented, verified locally. Not accepted.
 
+# surfaces_demo — Linux desktop port (X11)
+
+## Starting / final
+
+- Base: `origin/prep/deps-objects-assert-mcp-v1` @ `7e86814`.
+- Branch: `feature/surfaces-linux-v1` (separate worktree; parallel with macOS).
+- Final SHA: (filled after commit).
+- Pushed to origin/feature/surfaces-linux-v1. Not merged into prep.
+
+## Backend
+
+X11/Xlib only (no Qt/GTK/SDL). Drawn hit-test buttons; `WM_DELETE_WINDOW`
+for native close. `_NET_FRAME_EXTENTS` for best-effort outer geometry.
+
+## Presenter hierarchy
+
+```
+SurfacePresenter
+  ↓
+DesktopSurfacePresenter
+  ├─ Win32SurfacePresenter   (unchanged)
+  └─ LinuxSurfacePresenter   (new)
+```
+
+Object-system registration; GUI Load picks Linux as most-derived on this host.
+No `dynamic_cast`; hierarchy via `Registry::GenerationDistance`. Common model
+and `DesktopSurfacePresenter` API unchanged.
+
+## Native paths
+
+- **Add:** ButtonPress hit → `OnCommand` → `AddClick` → proxy → `AddSurface`
+- **Close this window:** → `RemoveClick` / last → app STOP without Remove
+- **Native WM close:** → whole-app STOP (never Remove)
+- Shutdown: `QueueAllWindowBounds` → `RequestStop` → model drain → Save
+
+## Targets
+
+- `linux_surfaces_demo` / `linux_surfaces_demo_load_only`
+- `apptraverse_surfaces_linux_smoke_test`
+
+## `-fno-rtti` proof
+
+Ninja FLAGS for `linux_presenters.cpp` / `linux_app.cpp` include `-fno-rtti`
+(via `apptraverse_compile_policy`).
+
+## Tests
+
+PASS: `apptraverse_surfaces_model_test`, `apptraverse_presenter_load_order_test`,
+`apptraverse_surfaces_linux_smoke_test` (DISPLAY=:0.0). Geometry restore uses
+40px tolerance for WM decoration variance.
+
+Not accepted-by-user.
+
+---
+Status: implemented, verified locally. Not accepted.
+
 # surfaces_demo — Windows semantics + persisted window geometry
 
 ## Starting / final

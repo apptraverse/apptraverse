@@ -23,8 +23,8 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 6. Disable RTTI + invariant-driven coding policy [done]
 7. surfaces_demo — common model + headless [done]
 8. surfaces_demo — Windows multi-window + persisted geometry [done — THIS]
-9. surfaces_demo — macOS desktop port **[NEXT]**
-10. surfaces_demo — Linux desktop port
+9. surfaces_demo — macOS desktop port **[parallel]**
+10. surfaces_demo — Linux desktop port **[parallel]**
 11. surfaces_demo — iOS
 12. surfaces_demo — Android
 13. surfaces_demo — WASM
@@ -48,8 +48,8 @@ SurfacePresenter
   ↓
 DesktopSurfacePresenter
   ├─ Win32SurfacePresenter   [done]
-  ├─ MacSurfacePresenter     [later]
-  └─ LinuxSurfacePresenter   [later]
+  ├─ MacSurfacePresenter     [parallel / separate branch]
+  └─ LinuxSurfacePresenter   [parallel / feature/surfaces-linux-v1]
 ```
 
 - one Surface = one top-level window; `[ Add ] [ Close this window ]`
@@ -61,12 +61,11 @@ DesktopSurfacePresenter
 
 ## Next slice
 
-**macOS desktop port** — `MacSurfacePresenter : DesktopSurfacePresenter` with
-the same semantics: NSWindow per Surface, Add / Close this window, native red X
-closes the whole application, final position/size via common Surface bounds,
-restart restores all windows.
-
-Linux later: same desktop contract.
+**macOS and Linux desktop ports** run in parallel on separate branches/worktrees.
+Same desktop contract on each: one native window per Surface, Add / Close this
+window, native window-manager close stops the whole application, final
+position/size via common Surface bounds, restart restores all windows.
+Neither port changes the common model or Windows implementation.
 
 **Mobile later (not created yet):** pager; `[ Add ] [ Remove current ]` selects
 current `SurfacePresenter` on the presentation side. Model has no
