@@ -6,6 +6,7 @@ Status: implemented, verified locally. Not accepted.
 ## Identity
 
 - Starting SHA: `cf0b7e6b81f431fc4fe420fb0759c35c7def8a06`
+- Final SHA: `f9dea678bb0273ef664a45712f9b01c8f1c15c27`
 - Branch: `surfaces-demo` → `origin/surfaces-demo`
 
 ## Behavior
