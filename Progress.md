@@ -8,6 +8,7 @@ Status: implemented, verified locally. Not accepted.
 - Branch: `feature/surfaces-macos-v1` (worktree
   `/Users/nick/Projects/apptraverse-surfaces-macos-v1`).
 - Common model / Windows / `DesktopSurfacePresenter`: unchanged.
+- Final SHA: `3ccb5d9100992da49a02af2534cae9d0f327bed7`.
 
 ## Implementation
 
