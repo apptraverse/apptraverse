@@ -1,0 +1,6 @@
+// Root Gradle build for the Android surfaces demo.
+// Stable Android Gradle Plugin only, no preview versions.
+
+plugins {
+  id "com.android.application" version "8.7.3" apply false
+}

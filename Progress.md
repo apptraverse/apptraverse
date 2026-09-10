@@ -1,3 +1,126 @@
+Status: implemented, verified on emulator. Not accepted.
+
+# surfaces_demo — Android pager port
+
+## Starting / final
+
+- Starting HEAD: `7e86814` (origin/prep/deps-objects-assert-mcp-v1).
+- Branch: `feature/surfaces-android-v1` (separate worktree).
+- Windows branch untouched; not merged into the prep branch.
+
+## Toolchain
+
+- SDK `C:/Users/nickc/AppData/Local/Android/Sdk`, NDK `29.0.14206865`, cmake `4.1.2`.
+- AGP 8.7.3, Gradle wrapper 8.9, JDK 20, build-tools 36.0.0.
+- compileSdk 34, targetSdk 34, minSdk 24. ABI: x86_64 only.
+- AVD `Aether_NDK_Smoke_x86_64`, API 34, serial `emulator-5554`.
+- Framework widgets only: no AndroidX, no Compose.
+
+## Presenter hierarchy
+
+`SurfacePresenter` → `MobileSurfacePresenter` → `AndroidSurfacePresenter`,
+sibling to `DesktopSurfacePresenter`. GUI Domain resolves the most-derived
+registered child; no RTTI. Proof of `-fno-rtti` on the real Android command
+line (`compile_commands.json`, `jni_bridge.cpp`):
+`--target=x86_64-none-linux-android24 -DANDROID -std=c++20 -fno-rtti`.
+
+## Presentation
+
+- Single Activity, top bar `[ Add ] [ Remove current ]`, one page per Surface.
+- Pager via `GestureDetector.onFling`.
+- Portrait locked in the manifest for this slice; orientation is not persisted.
+
+## Persisted current page (explicit spec change, approved by the user)
+
+The original slice kept the current page out of the model, so a restart always
+reopened the first page. On request the current page became model state:
+
+- `Surfaces` schema 0 → 1, new persisted `Surface::ptr mobile_current`.
+  `Load(ae::Version<0>)` throws, so pre-existing state dirs on every platform
+  must be recreated — the same policy `Surface` v0 already uses.
+- New `SetCurrentSurfaceEvent`; `Surface::MakeCurrent()` commits it on the
+  model thread and no-ops when the page is already current or already removed.
+- `Apply(RemoveSurfaceEvent)` clears `mobile_current` when the removed Surface
+  was the current one. Which page becomes current next stays presentation
+  policy: the Activity picks the neighbour and reports it.
+- Every settled page reports once through
+  `SurfacePresenter::PageShown()` → `ModelObjectProxy` → `Surface::MakeCurrent`,
+  so a swipe does produce an Event, a commit and a publication. The Activity
+  tracks the last reported id, so the publication it triggers is not echoed
+  back as a second report.
+- Desktop hosts show every Surface at once and leave `mobile_current` empty,
+  the same way mobile ignores `desktop_*`.
+
+## Paths
+
+- Add: button → JNI `nativeAddFromSurface(objId)` → current
+  `SurfacePresenter::AddClick()` → `ModelObjectProxy` → model thread.
+- Remove current (count > 1): `RemoveClick()` → `RemoveSurfaceEvent`; the
+  neighbor `min(old_index, new_size - 1)` becomes current and is reported.
+- Remove current on the last page: `SURFACES_LAST_PAGE_STOP` → `RequestStop`;
+  no `RemoveSurfaceEvent`, the Surface stays persisted.
+- Back: `BACK_REQUESTED_STOP` → model stop first, Activity finishes only after
+  `onModelStopped`.
+- Persistence: `DirectoryDomainStorage` under `filesDir/surfaces_state`; no
+  external storage, no permissions.
+
+## Threads / JNI
+
+- Android main thread = GUI thread; `"apptraverse-model"` native thread = model.
+- Publications: model thread → `NativeUiBridge` main-thread Handler → GUI
+  mirror → presenters → page list.
+- JNI carries Surface ObjIds and page numbers only. No model pointers, no
+  `jlong` object pointers, no Java refs in reflected state.
+
+## Headless proof
+
+`apptraverse_surfaces_model_test` (own MSVC/Ninja tree in this worktree,
+`-DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF`) — OK, including three new cases:
+
+- `TestCurrentPageReplay`: Event committed once, repeat is a no-op,
+  `ReplayFromBase` restores the current page, removing it clears the reference,
+  a stale Surface cannot become current.
+- `TestCurrentPagePersistence`: current page survives save/load.
+- `TestCurrentPageThroughGuiProxy`: `PageShown()` → model thread → publication
+  → GUI mirror resolves `mobile_current` to the mirror's own Surface.
+
+`apptraverse_surfaces_win32_smoke_test` — OK after the schema bump, and
+`win32_surfaces_demo` still links.
+
+## Emulator verification (`tools/android/run_surfaces_smoke.ps1`, 7 phases)
+
+- Clean start → `numbers=1, count=1`, page `Surface 1 (1 / 1)`.
+- Add ×2 → `numbers=1,2,3, count=3`; swipes reach `Surface 2`, `Surface 3`.
+- Remove current on `Surface 2` → `numbers=1,3`; neighbor page becomes current.
+- Back → `SURFACES_STATE_SAVED` → `SURFACES_UI_UNLOADED` →
+  `SURFACES_APP_STOPPED`, process gone.
+- Relaunch → `numbers=1,3, count=2` and the pager reopens on `Surface 3`,
+  the page that was current at shutdown.
+- Remove down to the last page → `SURFACES_LAST_PAGE_STOP`, save, exit;
+  relaunch shows the surviving `Surface 1` (`count=1`).
+- Logcat free of fatal/assert/SIGSEGV/JNI errors.
+
+## Known limitations
+
+- Back (and the last Remove current) is the only save point. A force-stop or a
+  system kill leaves the newest topology and current page unsaved; the state
+  then reloads from an earlier point. No autosave was added.
+- `apptraverse_surfaces_model_test` is not yet wired into an Android native
+  test target.
+
+## Common files changed
+
+- `examples/surfaces_demo/CMakeLists.txt`: added the `surfaces_demo_mobile`
+  target.
+- `examples/surfaces_demo/common/surfaces_model.h/.cpp`: `Surfaces` v1 with
+  `mobile_current`, `SetCurrentSurfaceEvent`, `Surface::MakeCurrent`,
+  `SurfacePresenter::PageShown`. Desktop presenters and the Win32 host are
+  unchanged, but existing state dirs must be recreated.
+- `tests/surfaces_model_test.cpp`: current-page cases.
+
+Not accepted-by-user.
+
+---
 Status: implemented, verified locally. Not accepted.
 
 # surfaces_demo — Windows semantics + persisted window geometry

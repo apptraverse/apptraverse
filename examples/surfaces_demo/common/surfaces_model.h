@@ -21,6 +21,7 @@ class Surface;
 class SurfacePresenter;
 class AddSurfaceEvent;
 class RemoveSurfaceEvent;
+class SetCurrentSurfaceEvent;
 class SurfaceBoundsChangedEvent;
 
 // Cascade initial outer-frame placement for a Surface before InitializeRuntimeNode
@@ -68,6 +69,9 @@ class Surface : public NodeFor<Surface> {
   void AddSurface();
   // Model-thread: RemoveSurfaceEvent when still live; stale double-remove no-op.
   void Remove();
+  // Model-thread: SetCurrentSurfaceEvent on parent Surfaces when this Surface
+  // is not already the current mobile page. Stale Surface → no-op.
+  void MakeCurrent();
   // Model-thread: SurfaceBoundsChangedEvent when values differ; equal → no-op.
   void SetDesktopBounds(std::int32_t x, std::int32_t y, std::int32_t width,
                         std::int32_t height);
@@ -109,13 +113,15 @@ class SurfacePresenter : public Presenter {
   // GUI-thread: proxy to model Surface with the same ObjId.
   void AddClick();
   void RemoveClick();
+  // GUI-thread: this Surface became the current mobile page.
+  void PageShown();
 
   Surface::ptr surface;
 };
 
 class Surfaces : public NodeFor<Surfaces> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::Surfaces", Surfaces,
-                           Node, 0)
+                           Node, 1)
 
  protected:
   Surfaces() = default;
@@ -123,24 +129,36 @@ class Surfaces : public NodeFor<Surfaces> {
  public:
   explicit Surfaces(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(surfaces))
+  AE_OBJECT_REFLECT(AE_MMBR(surfaces), AE_MMBR(mobile_current))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
-    dnv(surfaces);
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error(
+        "Surfaces v0 (pre-current-page) is not supported; start with a fresh "
+        "state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
+  void Load(ae::Version<1>, Dnv& dnv) {
+    Node::Load(ae::Version<2>{}, dnv);
+    dnv(surfaces, mobile_current);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
     Node::Save(ae::Version<2>{}, dnv);
-    dnv(surfaces);
+    dnv(surfaces, mobile_current);
   }
 
   std::vector<Surface::ptr> surfaces;
+  // Current mobile pager page. Empty until a mobile host reports one, and
+  // after the current page was removed. Desktop hosts show every Surface at
+  // once and leave it empty, the same way mobile ignores desktop_*.
+  Surface::ptr mobile_current;
 
   void Apply(AddSurfaceEvent const& event);
   void Apply(RemoveSurfaceEvent const& event);
+  void Apply(SetCurrentSurfaceEvent const& event);
 };
 
 class AddSurfaceEvent : public EventFor<Surfaces, AddSurfaceEvent> {
@@ -178,6 +196,33 @@ class RemoveSurfaceEvent : public EventFor<Surfaces, RemoveSurfaceEvent> {
 
  public:
   explicit RemoveSurfaceEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(surface))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, surface);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, surface);
+  }
+
+  Surface::ptr surface;
+};
+
+class SetCurrentSurfaceEvent
+    : public EventFor<Surfaces, SetCurrentSurfaceEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SetCurrentSurfaceEvent",
+      SetCurrentSurfaceEvent, Event, 0)
+
+ protected:
+  SetCurrentSurfaceEvent() = default;
+
+ public:
+  explicit SetCurrentSurfaceEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(surface))
 
