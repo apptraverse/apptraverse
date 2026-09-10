@@ -1655,7 +1655,7 @@ Desktop does not use `mobile_current` for focus/activation.
 
 ## Canonical branch
 
-- `origin/surfaces-demo` = final verified SHA (pushed after this section’s commits).
+- `origin/surfaces-demo` = `815e25bfa7eb0d7da2722c1fb2a0a8d35f5a8f78`.
 - Intermediate remotes deleted only after ancestry proof:
   - `feature/surfaces-android-v1`
   - `feature/surfaces-wasm-v1`
