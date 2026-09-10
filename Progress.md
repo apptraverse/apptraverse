@@ -7,7 +7,7 @@ Status: implemented, verified locally on Linux. Not accepted.
 - Base canonical: `origin/surfaces-demo` @ `9da6672396d74f99bf61a75966895f1490607d8b`.
 - Linux feature: `origin/feature/surfaces-linux-v1` @ `10a2db16f3bfcd1f88a9cc09dc72b2f910d22eee`.
 - Merge: `git merge --no-ff origin/feature/surfaces-linux-v1` into local `surfaces-demo`.
-- Merge commit / final canonical SHA: (filled after commit).
+- Merge commit / final canonical SHA: `a4d86db18c67782085a4e4e9c7ae9fc24203424e`.
 - Pushed to `origin/surfaces-demo`. Remote `feature/surfaces-linux-v1` deleted after ancestry proof.
 
 ## Conflicts
