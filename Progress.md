@@ -7,7 +7,7 @@ Status: implemented, verified locally. Not accepted.
 - Starting HEAD: `430b16f`.
 - Branch: `prep/deps-objects-assert-mcp-v1`.
 - Final SHA: 9ad6df2.
-- Push: pending.
+- Pushed to origin/prep/deps-objects-assert-mcp-v1.
 
 ## Semantics
 
