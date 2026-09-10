@@ -77,8 +77,9 @@ void Surface::AddSurface() {
   sibling->surfaces = surfaces;
   sibling->presenter = sibling_presenter;
   sibling_presenter->surface = sibling;
-  // New Surface is a Node: establish base/journal before it becomes live.
-  InitializeRuntimeNode(*sibling);
+  // New Surface is a Node: establish base/journal and inherit this Surface's
+  // model-runtime notifier before it becomes live.
+  InitializeRuntimeNode(*sibling, *this);
 
   auto event = AddSurfaceEvent::ptr::Create(ae::CreateWith{*parent.domain});
   event->surface = sibling;

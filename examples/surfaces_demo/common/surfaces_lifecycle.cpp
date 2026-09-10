@@ -13,6 +13,7 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/runtime_node.h"
 
 #include "surfaces_ids.h"
 #include "surfaces_model.h"
@@ -83,9 +84,9 @@ void SurfacesModelSession::Run(
         domain, ae::ObjId{surfaces_demo::ToObjId(
                     surfaces_demo::ObjId::Application)});
 
-    std::unordered_set<Node*> dirty_nodes;
-    Node::SetMaterializedChangeNotifier(
-        [&](Node& node) { dirty_nodes.insert(&node); });
+    PendingDirtyNodes pending_dirty;
+    BindReachableNodesMaterializedChangeNotifier(
+        *application, &pending_dirty, &PendingDirtyNodesNotify);
 
     auto* buffer = channel.AcquireProducer();
     SerializeInitialPublication(*application, buffer->sink);
@@ -106,7 +107,10 @@ void SurfacesModelSession::Run(
           if (stop) {
             return true;
           }
-          return !pending_work.empty() && !channel.has_unread_published();
+          if (!pending_work.empty()) {
+            return true;
+          }
+          return !pending_dirty.empty() && !channel.is_publication_busy();
         });
         if (stop) {
           if (pending_work.empty()) {
@@ -115,32 +119,34 @@ void SurfacesModelSession::Run(
           work = std::move(pending_work.front());
           pending_work.pop_front();
           draining = true;
-        } else {
+        } else if (!pending_work.empty()) {
           work = std::move(pending_work.front());
           pending_work.pop_front();
         }
       }
 
-      dirty_nodes.clear();
-      (*work)(domain);
+      if (work) {
+        // Unread GUI publication must not block accepted ModelWork.
+        (*work)(domain);
+      }
 
-      if (draining || dirty_nodes.empty()) {
+      if (draining) {
         continue;
       }
 
-      std::vector<Node*> to_publish(dirty_nodes.begin(), dirty_nodes.end());
-      for (std::size_t i = 0; i < to_publish.size(); ++i) {
-        if (i > 0) {
-          std::unique_lock<std::mutex> lock{mu};
-          cv.wait(lock, [&] {
-            return stop || !channel.has_unread_published();
-          });
-          if (stop) {
+      // Publish at most one structural snapshot while the channel is free.
+      // Further dirty Nodes stay pending (first-dirty order) until GUI consumes.
+      for (;;) {
+        Node* to_publish = nullptr;
+        {
+          std::lock_guard<std::mutex> lock{mu};
+          if (stop || channel.is_publication_busy() || pending_dirty.empty()) {
             break;
           }
+          to_publish = pending_dirty.PopFront();
         }
         auto* pub = channel.AcquireProducer();
-        SerializeStructuralNodePublication(*to_publish[i], pub->sink);
+        SerializeStructuralNodePublication(*to_publish, pub->sink);
         {
           std::lock_guard<std::mutex> lock{mu};
           channel.NotePublished();
@@ -151,7 +157,7 @@ void SurfacesModelSession::Run(
       }
     }
 
-    Node::SetMaterializedChangeNotifier({});
+    ClearReachableNodesMaterializedChangeNotifier(*application);
     application.Save();
   }
 }

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -740,6 +741,291 @@ void TestNoRttiCompileGuard() {
   CHECK(true);
 }
 
+void TestTwoIndependentSessionsIsolation() {
+  auto dir_a = TestDir("apptraverse_surfaces_two_runtime_a");
+  auto dir_b = TestDir("apptraverse_surfaces_two_runtime_b");
+
+  SurfacesModelSession session_a;
+  SurfacesModelSession session_b;
+  session_a.state_dir = dir_a;
+  session_b.state_dir = dir_b;
+
+  std::thread model_a{[&] {
+    session_a.Run([&](SurfacesPublicationKind) {});
+  }};
+  std::thread model_b{[&] {
+    session_b.Run([&](SurfacesPublicationKind) {});
+  }};
+
+  WaitPublished(session_a);
+  WaitPublished(session_b);
+  (void)TakeAndWake(session_a);
+  (void)TakeAndWake(session_b);
+
+  auto proxy_a = MakeSessionProxy(session_a);
+  auto proxy_b = MakeSessionProxy(session_b);
+
+  std::uint32_t surface1_a = 0;
+  std::uint32_t surface1_b = 0;
+  {
+    std::promise<void> done;
+    auto fut = done.get_future();
+    session_a.Post([&](ae::Domain& domain) {
+      auto app = LoadApplication<Application>(
+          domain, ae::ObjId{surfaces_demo::ToObjId(
+                      surfaces_demo::ObjId::Application)});
+      surface1_a = app->surfaces->surfaces[0]->obj_id.id();
+      app->surfaces->surfaces[0]->AddSurface();
+      done.set_value();
+    });
+    CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
+  }
+  {
+    std::promise<void> done;
+    auto fut = done.get_future();
+    session_b.Post([&](ae::Domain& domain) {
+      auto app = LoadApplication<Application>(
+          domain, ae::ObjId{surfaces_demo::ToObjId(
+                      surfaces_demo::ObjId::Application)});
+      surface1_b = app->surfaces->surfaces[0]->obj_id.id();
+      app->surfaces->surfaces[0]->SetDesktopBounds(10, 20, 300, 200);
+      done.set_value();
+    });
+    CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
+  }
+
+  WaitPublished(session_a);
+  WaitPublished(session_b);
+  auto bytes_a = TakeAndWake(session_a);
+  auto bytes_b = TakeAndWake(session_b);
+  CHECK(!bytes_a.empty());
+  CHECK(!bytes_b.empty());
+  // Same logical ObjId space is allowed across Domains; publications differ.
+  CHECK(bytes_a != bytes_b);
+
+  // Stop A fully; B must keep accepting work and publishing.
+  session_a.RequestStop();
+  model_a.join();
+
+  {
+    std::promise<void> done;
+    auto fut = done.get_future();
+    session_b.Post([&](ae::Domain& domain) {
+      auto app = LoadApplication<Application>(
+          domain, ae::ObjId{surfaces_demo::ToObjId(
+                      surfaces_demo::ObjId::Application)});
+      CHECK(app->surfaces->surfaces.size() == 1);
+      app->surfaces->surfaces[0]->AddSurface();
+      done.set_value();
+    });
+    CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
+  }
+  WaitPublished(session_b);
+  (void)TakeAndWake(session_b);
+
+  // Dynamic Node on B after A is gone: Event on Surface2 still notifies B.
+  {
+    std::promise<void> done;
+    auto fut = done.get_future();
+    session_b.Post([&](ae::Domain& domain) {
+      auto app = LoadApplication<Application>(
+          domain, ae::ObjId{surfaces_demo::ToObjId(
+                      surfaces_demo::ObjId::Application)});
+      CHECK(app->surfaces->surfaces.size() == 2);
+      auto& surface2 = *app->surfaces->surfaces[1];
+      CHECK(surface2.HasMaterializedChangeNotifier());
+      surface2.SetDesktopBounds(40, 50, 400, 300);
+      done.set_value();
+    });
+    CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
+  }
+  WaitPublished(session_b);
+  (void)TakeAndWake(session_b);
+
+  session_b.RequestStop();
+  model_b.join();
+  (void)proxy_a;
+  (void)proxy_b;
+  (void)surface1_a;
+  (void)surface1_b;
+  std::filesystem::remove_all(dir_a);
+  std::filesystem::remove_all(dir_b);
+}
+
+void TestModelWorkRunsWhilePublicationUnread() {
+  auto dir = TestDir("apptraverse_surfaces_unread_backpressure");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run([&](SurfacesPublicationKind) {});
+  }};
+
+  WaitPublished(session);
+  (void)TakeAndWake(session);  // initial
+
+  session.Post([](ae::Domain& domain) {
+    auto app = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    app->surfaces->surfaces[0]->AddSurface();
+  });
+  WaitPublished(session);
+  // Leave publication #1 unread.
+
+  std::promise<void> second_add_done;
+  auto second_add_fut = second_add_done.get_future();
+  session.Post([&](ae::Domain& domain) {
+    auto app = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    app->surfaces->surfaces[0]->AddSurface();
+    second_add_done.set_value();
+  });
+
+  std::promise<void> signal_done;
+  auto signal_fut = signal_done.get_future();
+  session.Post([&](ae::Domain&) { signal_done.set_value(); });
+
+  CHECK(second_add_fut.wait_for(std::chrono::seconds{30}) ==
+        std::future_status::ready);
+  CHECK(signal_fut.wait_for(std::chrono::seconds{30}) ==
+        std::future_status::ready);
+
+  // Model already [1,2,3]; GUI still holds [1,2] publication.
+  auto pub1 = TakeAndWake(session);
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  // Rebuild UI from a fresh initial would be wrong; apply structural to a
+  // loaded mirror from a separate initial consume path is heavy. Instead
+  // verify model Domain topology and that releasing the channel yields the
+  // coalesced/final publication for Surface3 topology.
+  {
+    std::promise<std::size_t> count;
+    auto fut = count.get_future();
+    session.Post([&](ae::Domain& domain) {
+      auto app = LoadApplication<Application>(
+          domain, ae::ObjId{surfaces_demo::ToObjId(
+                      surfaces_demo::ObjId::Application)});
+      count.set_value(app->surfaces->surfaces.size());
+    });
+    CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
+    CHECK(fut.get() == 3);
+  }
+
+  WaitPublished(session);
+  auto pub2 = TakeAndWake(session);
+  CHECK(!pub1.empty());
+  CHECK(!pub2.empty());
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestShutdownDrainsWorkWithUnreadPublication() {
+  auto dir = TestDir("apptraverse_surfaces_stop_unread");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run([&](SurfacesPublicationKind) {});
+  }};
+
+  WaitPublished(session);
+  (void)TakeAndWake(session);
+
+  session.Post([](ae::Domain& domain) {
+    auto app = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    app->surfaces->surfaces[0]->AddSurface();
+  });
+  WaitPublished(session);
+  // Unread publication held.
+
+  session.Post([](ae::Domain& domain) {
+    auto app = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    app->surfaces->surfaces[0]->AddSurface();
+  });
+  session.RequestStop();
+  model.join();
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto app = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    CHECK(app->surfaces->surfaces.size() == 3);
+  }
+  std::filesystem::remove_all(dir);
+}
+
+void TestRuntimeNodeBaseUsesCanonicalOwnership() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto surface = Surface::ptr::Create(ae::CreateWith{domain});
+  surface->number = 1;
+  AssignInitialDesktopBounds(*surface);
+  InitializeRuntimeNode(*surface);
+
+  CHECK(surface->base.is_valid());
+  CHECK(surface->base.is_loaded());
+  CHECK(surface->base.id() != surface->obj_id);
+  CHECK(surface->journal.empty());
+  // Most-derived class id of the base storage matches Surface, not Node.
+  CHECK(surface->base->GetClassId() == Surface::kClassId);
+  CHECK(ae::Registry::GetRegistry().GenerationDistance(
+            Node::kClassId, surface->base->GetClassId()) >= 0);
+
+  // Extra derived layer: Surfaces is NodeFor and also gets a base.
+  auto surfaces = Surfaces::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*surfaces);
+  CHECK(surfaces->base->GetClassId() == Surfaces::kClassId);
+  CHECK(surfaces->base.id() != surfaces->obj_id);
+}
+
+class CountingDomainStorage final : public ae::IDomainStorage {
+ public:
+  explicit CountingDomainStorage(ae::IDomainStorage& inner) : inner_{inner} {}
+
+  std::unique_ptr<ae::IDomainStorageWriter> Store(
+      ae::DomainQuery const& query) override {
+    ++store_calls;
+    return inner_.Store(query);
+  }
+  ae::DomainLoad Load(ae::DomainQuery const& query) override {
+    return inner_.Load(query);
+  }
+  ae::ClassList Enumerate(ae::ObjId const& id) override {
+    return inner_.Enumerate(id);
+  }
+  void Remove(ae::ObjId const& id) override { inner_.Remove(id); }
+  void CleanUp() override { inner_.CleanUp(); }
+
+  std::size_t store_calls{0};
+
+ private:
+  ae::IDomainStorage& inner_;
+};
+
+void TestInitializeRuntimeNodeStorageWrites() {
+  ae::RamDomainStorage ram;
+  CountingDomainStorage counting{ram};
+  ae::Domain domain{counting};
+  auto surface = Surface::ptr::Create(ae::CreateWith{domain});
+  surface->number = 1;
+  AssignInitialDesktopBounds(*surface);
+  auto const before = counting.store_calls;
+  InitializeRuntimeNode(*surface);
+  auto const during_init = counting.store_calls - before;
+  // Characterization: CaptureBaseState currently writes base layers via
+  // DomainGraph::Save before any Application::Save.
+  CHECK(during_init > 0);
+  std::cout << "InitializeRuntimeNode Store calls=" << during_init << '\n';
+}
+
 }  // namespace
 
 }  // namespace apptraverse::test
@@ -764,6 +1050,11 @@ int main() {
   apptraverse::test::TestCurrentPagePersistence();
   apptraverse::test::TestCurrentPageThroughGuiProxy();
   apptraverse::test::TestNoRttiCompileGuard();
+  apptraverse::test::TestTwoIndependentSessionsIsolation();
+  apptraverse::test::TestModelWorkRunsWhilePublicationUnread();
+  apptraverse::test::TestShutdownDrainsWorkWithUnreadPublication();
+  apptraverse::test::TestRuntimeNodeBaseUsesCanonicalOwnership();
+  apptraverse::test::TestInitializeRuntimeNodeStorageWrites();
   std::cout << "surfaces_model_test OK\n";
   return 0;
 }

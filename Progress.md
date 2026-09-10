@@ -1994,3 +1994,95 @@ Desktop does not use `mobile_current` for focus/activation.
 - Linux GTK3 / macOS / iOS merge
 - SharedNode, chat, AeroAdmin-X, dependency refresh
 
+
+# WINDOWS CURSOR — pre-shared runtime hardening
+
+Status: implemented, verified on Windows + Android Emulator + WASM. Not accepted.
+
+## Starting SHA
+
+`c00750386619d2d015d30b269a441dc463d7f4bc` (`origin/surfaces-demo`)
+
+## 1. Node materialized-change notifier
+
+Old: process-global `Node::SetMaterializedChangeNotifier(std::function<...>)`.
+
+New: per-Node runtime-only fields
+`materialized_change_ctx_` + `MaterializedChangeFn` (function pointer).
+`BindMaterializedChangeNotifier` / `ClearMaterializedChangeNotifier` /
+`CopyMaterializedChangeNotifierFrom`.
+
+`BindReachableNodesMaterializedChangeNotifier` walks model graph after Load.
+`InitializeRuntimeNode(node, runtime_source)` copies notifier onto new Node and
+its base so dynamic Surfaces inherit the same runtime without Session-specific
+Surface branching.
+
+GUI mirror Nodes are not bound (sessions bind only the model Application root).
+
+`ModelRuntime` and `SurfacesModelSession` / `DynamicModelSession` all use the
+instance-scoped path. No `thread_local`, global map, or singleton registry.
+
+## 2. Two concurrent runtime proof
+
+`TestTwoIndependentSessionsIsolation`: Sessions A and B in one process.
+A Add / B bounds publish independently; stop A; B still Add + Event on dynamic
+Surface2 with notifier intact.
+
+## 3. Runtime Node base ownership
+
+Old unsafe: `Node::ptr::MakeFromThis(static_cast<Node*>(raw.get()))`.
+
+New: `Domain::AddObject` then `Domain::Find` → `Node::ptr{domain, id, {}, held}`.
+
+`TestRuntimeNodeBaseUsesCanonicalOwnership` checks Surface and Surfaces bases
+keep most-derived class ids and distinct ObjIds.
+
+## 4. GUI backpressure decoupling
+
+Model wait: work OR (pending dirty && !`is_publication_busy()`) OR stop.
+`is_publication_busy()` = unread published **or** consumer `in_ui` slot held.
+
+ModelWork always runs even when a GUI snapshot is unread/held.
+Pending dirty uses `PendingDirtyNodes` (vector + set) for first-dirty order and
+coalesce.
+
+Web holds `TakePublished()` until apply finishes then `ReleaseConsumer()` so the
+next publish cannot interrupt keepalive/DOM apply (rapid Add).
+
+Tests: `TestModelWorkRunsWhilePublicationUnread`,
+`TestShutdownDrainsWorkWithUnreadPublication`.
+
+## 5. Runtime storage-write characterization
+
+`TestInitializeRuntimeNodeStorageWrites`: `CaptureBaseState` causes **2**
+`IDomainStorage::Store` calls during `InitializeRuntimeNode` before
+`Application::Save`. Deferred (not fixed): would need Overlay flush protocol.
+
+## 6. Windows regressions
+
+PASS: `apptraverse_surfaces_model_test` (incl. new cases),
+`apptraverse_surfaces_win32_smoke_test`,
+`apptraverse_presenter_load_order_test`,
+`apptraverse_publication_channel_test`,
+`apptraverse_event_sourced_core_test`,
+`apptraverse_journal_retention_test`,
+`apptraverse_dynamic_objects_add_test`,
+`apptraverse_dynamic_objects_win32_smoke_test`.
+
+## 7. Android
+
+`tools/android/run_surfaces_smoke.ps1` PASS on `emulator-5554` (incremental Gradle).
+
+## 8. WASM
+
+`tools/wasm_surfaces_browser_smoke.py` PASS (rapid Add, reload, remove).
+
+## 9. RTTI
+
+No production `dynamic_cast`/`typeid`; intentional string check in
+`dynamic_objects_add_test` only. Global notifier symbols removed.
+
+## Final SHA
+
+(recorded at push tip of `origin/surfaces-demo`)
+

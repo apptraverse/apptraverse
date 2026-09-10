@@ -8,6 +8,7 @@
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/node.h"
+#include "apptraverse/object_serialization.h"
 
 namespace apptraverse {
 
@@ -27,10 +28,43 @@ inline void InitializeRuntimeNode(Node& node) {
   raw->domain = node.domain;
   raw->obj_id = id;
   node.domain->AddObject(id, raw);
-  node.base = Node::ptr::MakeFromThis(static_cast<Node*>(raw.get()));
+  // Domain::Find returns the canonical owning Ptr for the most-derived
+  // storage. Do not MakePtrFromThis(static_cast<Node*>(raw.get())) — that
+  // reconstructs PtrStorage from a base subobject address (UB).
+  auto held = node.domain->Find(id);
+  assert(held && "AddObject must make the base findable");
+  node.base = Node::ptr{node.domain, id, {}, std::move(held)};
   node.CaptureBaseState();
   assert(node.base.is_valid());
   assert(node.journal.empty());
+}
+
+// Same as InitializeRuntimeNode, then inherit the model-runtime notifier from
+// an already-bound Node (e.g. parent Surface) so Events on the new Node notify
+// the same runtime without session-specific Surface branching.
+inline void InitializeRuntimeNode(Node& node, Node const& runtime_source) {
+  InitializeRuntimeNode(node);
+  node.CopyMaterializedChangeNotifierFrom(runtime_source);
+  assert(node.base.is_valid());
+  assert(node.base.is_loaded());
+  node.base->CopyMaterializedChangeNotifierFrom(runtime_source);
+}
+
+inline void BindReachableNodesMaterializedChangeNotifier(
+    ae::Obj& root, void* ctx, Node::MaterializedChangeFn fn) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(root, nodes);
+  for (Node* node : nodes) {
+    node->BindMaterializedChangeNotifier(ctx, fn);
+  }
+}
+
+inline void ClearReachableNodesMaterializedChangeNotifier(ae::Obj& root) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(root, nodes);
+  for (Node* node : nodes) {
+    node->ClearMaterializedChangeNotifier();
+  }
 }
 
 }  // namespace apptraverse

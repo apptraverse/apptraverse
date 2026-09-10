@@ -215,13 +215,12 @@ void TestMaxEventsTen() {
     return orders;
   }();
 
-  int notify_count = 0;
-  Node::SetMaterializedChangeNotifier(
-      [&](Node&) { ++notify_count; });
+  PendingDirtyNodes pending;
+  doc->BindMaterializedChangeNotifier(&pending, &PendingDirtyNodesNotify);
+  // Compact must not notify even when a notifier is bound.
   doc->CompactJournal(SystemUtcMicros());
-  Node::SetMaterializedChangeNotifier({});
-
-  CHECK(notify_count == 0);
+  CHECK(pending.empty());
+  doc->ClearMaterializedChangeNotifier();
   CHECK(doc->Generation() == generation);
   CHECK(doc->value == 100);
   CHECK(doc->journal.size() == 10);

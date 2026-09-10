@@ -6,6 +6,13 @@
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
+namespace {
+
+void ModelRuntimeMaterializedChange(void* ctx, Node& node) {
+  static_cast<ModelRuntime*>(ctx)->NotifyMaterializedChange(node);
+}
+
+}  // namespace
 
 ModelRuntime::ModelRuntime(ae::Obj& application_root, UiMirror& ui_mirror)
     : application_root_{application_root}, ui_mirror_{ui_mirror} {
@@ -15,7 +22,10 @@ ModelRuntime::ModelRuntime(ae::Obj& application_root, UiMirror& ui_mirror)
 ModelRuntime::~ModelRuntime() {
   RequestStop();
   Join();
-  Node::SetMaterializedChangeNotifier({});
+  ClearReachableNodesMaterializedChangeNotifier(application_root_);
+  for (Node* node : model_nodes_) {
+    node->ClearMaterializedChangeNotifier();
+  }
 }
 
 void ModelRuntime::AddPresentationRoot(ae::Obj& root) {
@@ -33,6 +43,11 @@ void ModelRuntime::AttachNode(Node& node, ae::Obj& presentation_root) {
   // Nodes need InitializeRuntimeNode. Always (re)map for publication.
   if (!node.base.is_valid()) {
     InitializeRuntimeNode(node);
+  }
+  node.BindMaterializedChangeNotifier(this, &ModelRuntimeMaterializedChange);
+  if (node.base.is_valid() && node.base.is_loaded()) {
+    node.base->BindMaterializedChangeNotifier(this,
+                                              &ModelRuntimeMaterializedChange);
   }
   if (std::find(model_nodes_.begin(), model_nodes_.end(), &node) ==
       model_nodes_.end()) {
@@ -52,6 +67,10 @@ void ModelRuntime::DetachNode(Node& node, ae::Obj& presentation_root) {
   model_nodes_.erase(
       std::remove(model_nodes_.begin(), model_nodes_.end(), &node),
       model_nodes_.end());
+  node.ClearMaterializedChangeNotifier();
+  if (node.base.is_valid() && node.base.is_loaded()) {
+    node.base->ClearMaterializedChangeNotifier();
+  }
 
   auto roots_it = object_to_roots_.find(node_id);
   if (roots_it != object_to_roots_.end()) {
@@ -109,11 +128,20 @@ void ModelRuntime::SetUpdateObserver(UpdateObserver observer) {
   update_observer_ = std::move(observer);
 }
 
+void ModelRuntime::BindAllModelNodeNotifiers() {
+  for (Node* node : model_nodes_) {
+    node->BindMaterializedChangeNotifier(this, &ModelRuntimeMaterializedChange);
+    if (node->base.is_valid() && node->base.is_loaded()) {
+      node->base->BindMaterializedChangeNotifier(
+          this, &ModelRuntimeMaterializedChange);
+    }
+  }
+}
+
 void ModelRuntime::Start() {
   stop_ = false;
   accept_work_ = true;
-  Node::SetMaterializedChangeNotifier(
-      [this](Node& node) { OnMaterializedChange(node); });
+  BindAllModelNodeNotifiers();
   thread_ = std::thread([this] { ThreadMain(); });
 }
 
@@ -127,7 +155,6 @@ void ModelRuntime::Join() {
   if (thread_.joinable()) {
     thread_.join();
   }
-  Node::SetMaterializedChangeNotifier({});
 }
 
 void ModelRuntime::Post(Work work) {
@@ -161,8 +188,7 @@ void ModelRuntime::ThreadMain() {
 }
 
 void ModelRuntime::PumpOnce(std::chrono::steady_clock::time_point now) {
-  Node::SetMaterializedChangeNotifier(
-      [this](Node& node) { OnMaterializedChange(node); });
+  BindAllModelNodeNotifiers();
   DrainWork();
   UpdateAll(now);
   PublishChanged();

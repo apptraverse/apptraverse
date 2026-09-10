@@ -5,9 +5,9 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <stdexcept>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -121,9 +121,27 @@ class Node : public ae::Obj {
   // materialized fields are unchanged; notifier is not invoked.
   void CompactJournal(std::uint64_t now_us) { CompactJournalImpl(now_us); }
 
-  static void SetMaterializedChangeNotifier(
-      std::function<void(Node&)> notifier) {
-    materialized_change_notifier_ = std::move(notifier);
+  // Runtime-only, not reflected. Instance-scoped: each model runtime binds the
+  // Nodes it owns. No process-global / thread_local / singleton notifier.
+  using MaterializedChangeFn = void (*)(void* ctx, Node& node);
+
+  void BindMaterializedChangeNotifier(void* ctx, MaterializedChangeFn fn) {
+    materialized_change_ctx_ = ctx;
+    materialized_change_fn_ = fn;
+  }
+
+  void ClearMaterializedChangeNotifier() {
+    materialized_change_ctx_ = nullptr;
+    materialized_change_fn_ = nullptr;
+  }
+
+  void CopyMaterializedChangeNotifierFrom(Node const& source) {
+    materialized_change_ctx_ = source.materialized_change_ctx_;
+    materialized_change_fn_ = source.materialized_change_fn_;
+  }
+
+  bool HasMaterializedChangeNotifier() const {
+    return materialized_change_fn_ != nullptr;
   }
 
   virtual void OnLoad() {}
@@ -159,8 +177,8 @@ class Node : public ae::Obj {
       return;
     }
     ++generation_;
-    if (materialized_change_notifier_) {
-      materialized_change_notifier_(*this);
+    if (materialized_change_fn_ != nullptr) {
+      materialized_change_fn_(materialized_change_ctx_, *this);
     }
   }
 
@@ -387,7 +405,8 @@ class Node : public ae::Obj {
   static constexpr std::size_t kJournalFullyMaterialized =
       (std::numeric_limits<std::size_t>::max)();
 
-  static inline std::function<void(Node&)> materialized_change_notifier_{};
+  void* materialized_change_ctx_{nullptr};
+  MaterializedChangeFn materialized_change_fn_{nullptr};
 
   std::uint64_t generation_{1};
   std::size_t applied_journal_size_{kJournalFullyMaterialized};
@@ -395,6 +414,39 @@ class Node : public ae::Obj {
   bool journal_compaction_blocked_{false};
   bool suppress_materialized_change_{false};
 };
+
+// Ordered unique dirty set for GUI publication. First-dirty order is preserved;
+// membership prevents duplicate entries while Events keep coalescing into one
+// pending Node until published.
+struct PendingDirtyNodes {
+  void Note(Node& node) {
+    if (membership.insert(&node).second) {
+      ordered.push_back(&node);
+    }
+  }
+
+  [[nodiscard]] bool empty() const { return ordered.empty(); }
+
+  void Clear() {
+    ordered.clear();
+    membership.clear();
+  }
+
+  Node* PopFront() {
+    assert(!ordered.empty());
+    Node* const node = ordered.front();
+    ordered.erase(ordered.begin());
+    membership.erase(node);
+    return node;
+  }
+
+  std::vector<Node*> ordered;
+  std::unordered_set<Node*> membership;
+};
+
+inline void PendingDirtyNodesNotify(void* ctx, Node& node) {
+  static_cast<PendingDirtyNodes*>(ctx)->Note(node);
+}
 
 }  // namespace apptraverse
 

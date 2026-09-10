@@ -7,7 +7,6 @@
 #include <filesystem>
 #include <functional>
 #include <mutex>
-#include <unordered_set>
 #include <vector>
 
 #include "aether-objects/obj/domain.h"

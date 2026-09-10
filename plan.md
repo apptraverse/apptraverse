@@ -26,12 +26,7 @@ Included on that branch:
 - macOS desktop — **AppKit** (`MacSurfacePresenter`)
 - iOS / iPhone Simulator — **UIKit** (`IOSSurfacePresenter`)
 
-All current platform ports are merged. Next large stage: SharedNode / Chat —
-not started here.
-
-Linux host is X11/Xlib (not GTK3/Qt/SDL). macOS primary-screen geometry
-limitation remains. iOS last-page Remove is disabled (no programmatic exit).
-Web publication→Save→IDBFS checkpoint remains Web-only.
+All current platform ports are merged.
 
 ## Roadmap (surfaces before SharedNode)
 
@@ -43,14 +38,15 @@ Web publication→Save→IDBFS checkpoint remains Web-only.
 6. Disable RTTI + invariant-driven coding policy [done]
 7. surfaces_demo — common model + headless [done]
 8. surfaces_demo — Windows multi-window + persisted geometry [done]
-9. surfaces_demo — Android pager + `mobile_current` [done — in `surfaces-demo`]
-10. surfaces_demo — Web/WASM tabs + IDBFS checkpoint [done — in `surfaces-demo`]
-11. surfaces_demo — Linux X11 desktop port [done — in `surfaces-demo`]
-12. surfaces_demo — macOS desktop port [done — in `surfaces-demo`]
-13. surfaces_demo — iOS / iPhone Simulator [done — in `surfaces-demo`]
-14. shared_node_demo **[NEXT]**
-15. chat_demo
-16. aeroadmin-x production chat
+9. surfaces_demo — Android pager + `mobile_current` [done]
+10. surfaces_demo — Web/WASM tabs + IDBFS checkpoint [done]
+11. surfaces_demo — Linux X11 desktop port [done]
+12. surfaces_demo — macOS desktop port [done]
+13. surfaces_demo — iOS / iPhone Simulator [done]
+14. pre-shared runtime hardening [done]
+15. shared_node_demo — two independent headless replicas **[NEXT]**
+16. chat_demo
+17. aeroadmin-x production chat
 
 Deferred relative to surfaces/chat:
 
@@ -76,45 +72,35 @@ sync — browser reload/tab close is not a reliable graceful shutdown. This is
 **Web-host policy only**, not common `SurfacesModelSession`, and must not be
 copied onto Windows/Android/Linux/macOS/iOS.
 
-macOS AppKit notes: one Surface = one NSWindow; `[ Add ] [ Close this window ]`;
-native red X / Cmd-Q = whole-application stop (never RemoveSurface); Close this
-window = RemoveSurfaceEvent except last Close = app stop without Remove;
-geometry snapshot of all live windows immediately before RequestStop; common
-`desktop_*` top-left bounds ↔ AppKit primary-screen frames (multi-monitor out of
-scope); no per-move/resize Events. Apple Clang 15 insufficient (P0960) — build
-with MacPorts clang++-mp-20 + `-fno-rtti`.
-
-iOS UIKit notes: one host / UIScrollView pager; `[ Add ] [ Remove current ]`;
-current page = Surfaces::mobile_current by Surface identity (runtime index only);
-swipe/Add/Remove settle → PageShown → MakeCurrent; last Remove disabled (no
-`exit()`); desktop_* ignored.
-
-
 ## Presenter hierarchy
 
 ```
 SurfacePresenter
   ↓
 DesktopSurfacePresenter
-  ├─ Win32SurfacePresenter   [in surfaces-demo]
-  ├─ MacSurfacePresenter     [in surfaces-demo]
-  └─ LinuxSurfacePresenter   [in surfaces-demo — X11/Xlib]
+  ├─ Win32SurfacePresenter
+  ├─ MacSurfacePresenter
+  └─ LinuxSurfacePresenter   — X11/Xlib
 
 SurfacePresenter
   ↓
 MobileSurfacePresenter
-  ├─ AndroidSurfacePresenter [in surfaces-demo]
-  └─ IOSSurfacePresenter     [in surfaces-demo]
+  ├─ AndroidSurfacePresenter
+  └─ IOSSurfacePresenter
 
 SurfacePresenter
-  └─ WebSurfacePresenter     [in surfaces-demo; not under Mobile]
+  └─ WebSurfacePresenter     — not under Mobile
 ```
 
 ## Known follow-ups (not this slice)
 
-- `Node::SetMaterializedChangeNotifier` is still a process-global static. Must
-  become per-Domain / per-Application before two independent sessions in
-  `shared_node_demo`.
+- Runtime base snapshot (`CaptureBaseState` / `DomainGraph::Save`) may write
+  storage before explicit `Application::Save` (characterized: 2 `Store` calls
+  per `InitializeRuntimeNode`). Defer Overlay flushing / persistence redesign.
+- Publication scaling / full-graph cost.
+- Android presenter ownership / UI weaknesses.
+- Mobile lifecycle persistence limitations beyond current checkpoints.
+- Linux host remains X11/Xlib (not GTK3).
 
 ## Cross-platform invariant (foundation)
 
@@ -130,9 +116,13 @@ native input
 Session/runtime transports work and publications; it contains no application
 event semantics.
 
+ModelWork execution is independent of GUI publication consumption.
+`PublicationChannel` backpressure delays only the next GUI snapshot.
+
 ## Foundation still in force
 
 Independent Model/GUI Domains, Event-only Node mutation, presentation_load_order,
-structural keepalive (`Domain::Find`), native-X app STOP + Close-button Remove,
+structural keepalive (`Domain::Find`), instance-scoped Node materialized-change
+notifier (no process-global callback), native-X app STOP + Close-button Remove,
 shutdown geometry snapshot before RequestStop, distill separation, no RTTI,
 invariant-driven checks.

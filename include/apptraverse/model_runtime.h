@@ -54,6 +54,9 @@ class ModelRuntime {
                                    std::uint32_t root_id) const;
   void SetUpdateObserver(UpdateObserver observer);
 
+  // Bound as Node::MaterializedChangeFn context target for this runtime.
+  void NotifyMaterializedChange(Node& node) { OnMaterializedChange(node); }
+
  private:
   void ThreadMain();
   void DrainWork();
@@ -61,6 +64,7 @@ class ModelRuntime {
   void PublishChanged();
   void OnMaterializedChange(Node& node);
   void BuildExecutionLists();
+  void BindAllModelNodeNotifiers();
 
   ae::Obj& application_root_;
   UiMirror& ui_mirror_;

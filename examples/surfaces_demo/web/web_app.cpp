@@ -82,16 +82,17 @@ void WebApp::OnPublicationFromModel(int kind) {
 }
 
 void WebApp::ConsumePublication(SurfacesPublicationKind kind) {
-  std::vector<std::uint8_t> bytes;
+  // Hold the consumer slot (in_ui) for the whole apply so
+  // PublicationChannel::is_publication_busy() stays true and the model will
+  // not publish the next snapshot mid-apply. ModelWork still runs.
+  PublicationBuffer* buffer = nullptr;
   {
     std::lock_guard<std::mutex> lock{session_.mu};
-    bytes = session_.channel.TakePublishedCopy();
+    buffer = session_.channel.TakePublished();
   }
-  // Do not notify the model thread until this publication has been applied on
-  // the browser main thread. TakePublishedCopy already clears unread; an early
-  // notify lets the next Add/Remove run and publish while keepalive/DOM work
-  // for this publication is still in progress — that freezes the main thread
-  // under rapid Add. Windows/Android hosts keep their own consume timing.
+  assert(buffer != nullptr && "on_published requires a published buffer");
+  std::vector<std::uint8_t> bytes = buffer->sink.bytes;
+
   if (kind == SurfacesPublicationKind::Initial) {
     ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
     ByteSource in;
@@ -113,10 +114,11 @@ void WebApp::ConsumePublication(SurfacesPublicationKind kind) {
   }
   SyncTabOrder();
   ShowCurrentPage();
-  // Wake the model only after DOM/keepalive for this publication finished.
+  {
+    std::lock_guard<std::mutex> lock{session_.mu};
+    session_.channel.ReleaseConsumer();
+  }
   session_.cv.notify_all();
-  // PageShown / IndexedDB save Post after notify so their cv wakeups cannot
-  // start the next Add while this consume was still applying.
   if (kind == SurfacesPublicationKind::Incremental) {
     if (std::uint32_t const id = EffectiveCurrentId(); id != 0) {
       if (auto presenter = FindLivePresenter(id)) {

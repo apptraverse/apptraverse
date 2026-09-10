@@ -63,6 +63,13 @@ class PublicationChannel {
     return published_.load(std::memory_order_acquire) >= 0;
   }
 
+  // True while a snapshot is waiting for GUI or currently held by the consumer.
+  // Model work must not wait on this; only publication into the channel may.
+  bool is_publication_busy() const {
+    return published_.load(std::memory_order_acquire) >= 0 ||
+           in_ui_.load(std::memory_order_acquire) >= 0;
+  }
+
   void PublishProducer() {
     int expected = -1;
     bool const stored = published_.compare_exchange_strong(
