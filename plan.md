@@ -24,10 +24,14 @@ Included on that branch:
 - Web / Emscripten / WASM (tabs, IndexedDB checkpoint)
 - Linux desktop — **X11/Xlib** (`LinuxSurfacePresenter`)
 - macOS desktop — **AppKit** (`MacSurfacePresenter`)
-- iOS / iPhone Simulator — **UIKit** (`IOSSurfacePresenter`) 
+- iOS / iPhone Simulator — **UIKit** (`IOSSurfacePresenter`)
 
-Mac Cursor owns macOS + iPhone Simulator only. Linux host is X11/Xlib (not
-GTK3/Qt/SDL); no backend migration in the merge slice.
+All current platform ports are merged. Next large stage: SharedNode / Chat —
+not started here.
+
+Linux host is X11/Xlib (not GTK3/Qt/SDL). macOS primary-screen geometry
+limitation remains. iOS last-page Remove is disabled (no programmatic exit).
+Web publication→Save→IDBFS checkpoint remains Web-only.
 
 ## Roadmap (surfaces before SharedNode)
 
@@ -44,7 +48,7 @@ GTK3/Qt/SDL); no backend migration in the merge slice.
 11. surfaces_demo — Linux X11 desktop port [done — in `surfaces-demo`]
 12. surfaces_demo — macOS desktop port [done — in `surfaces-demo`]
 13. surfaces_demo — iOS / iPhone Simulator [done — in `surfaces-demo`]
-14. shared_node_demo
+14. shared_node_demo **[NEXT]**
 15. chat_demo
 16. aeroadmin-x production chat
 

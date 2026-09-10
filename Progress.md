@@ -1,3 +1,63 @@
+---
+Status: implemented, verified locally. Not accepted.
+
+# MAC CURSOR — macOS + iOS merge into canonical surfaces-demo
+
+## Identity
+
+- Starting canonical SHA: `1bca4c495f50cf4fd0498e69cee7be65537b5181` (`origin/surfaces-demo`)
+- macOS source SHA: `ab9e170620b4ed6c19f085aadd19d4faac0bcdd6` (`origin/feature/surfaces-macos-v1`)
+- iOS source SHA: `4c782e39c6869a7a09cfe7fbd1d06a0560135c95` (`origin/feature/surfaces-ios-v1`)
+- Merge commits:
+  - macOS: `226e90fe817316a999a9efb8cd918129ddd049c9`
+  - iOS: `7c4c60d16d91a7e4ab7c43c1edcebc6e55c3be91`
+- iOS `mobile_current` adaptation: `5b195b5f5a4165199fc13250085f204de9e6a028`
+- Final canonical SHA: (this Progress commit)
+
+## Conflict files
+
+- macOS merge: `examples/surfaces_demo/CMakeLists.txt`, `tests/CMakeLists.txt`, `plan.md`
+- iOS merge: `examples/surfaces_demo/CMakeLists.txt`, `mobile/mobile_surface_presenter.{h,cpp}`, `plan.md`, `Progress.md`
+
+## Common / mobile resolution
+
+- Kept current `surfaces-demo` common model (geometry, `mobile_current`,
+  `PageShown` / `MakeCurrent`, Web checkpoint, keepalive).
+- One `MobileSurfacePresenter`: Android siblings + iOS helpers
+  (`PageTitle`, `RemovableFromPager`).
+- CMake: mutually exclusive WIN32 / EMSCRIPTEN / Linux / macOS AppKit /
+  `if(IOS)` UIKit.
+
+## iOS restore behavior
+
+- Canonical current = `Surfaces::mobile_current` (Surface identity).
+- Runtime pager index + `desired_current_id_` for rapid-swipe races.
+- Initial: restore live `mobile_current` or seed `surfaces[0]` via `PageShown`.
+- Swipe / Add / Remove settle → `PageShown` → `MakeCurrent`.
+- Last page: Remove disabled (no `exit()`).
+
+## macOS geometry
+
+- Unchanged AppKit port: snapshot all frames before `RequestStop`; primary-screen
+  conversion; red X / Cmd-Q = whole-app stop.
+
+## Tests / toolchain
+
+- Host: MacPorts clang++-mp-20, macOS SDK, `-fno-rtti` on CXX/OBJCXX.
+- `apptraverse_surfaces_model_test` PASS (includes identity-after-index-change).
+- `apptraverse_surfaces_macos_smoke_test` PASS.
+- iOS Simulator build + install/launch PASS on iPhone SE (3rd gen) iOS 17.2;
+  process stayed alive (`com.apptraverse.surfaces`).
+- iOS OBJCXX compile commands include `-fno-rtti`.
+
+## Ancestry
+
+- `origin/feature/surfaces-macos-v1` ancestor of HEAD
+- `origin/feature/surfaces-ios-v1` ancestor of HEAD
+- starting canonical SHA ancestor of HEAD
+
+Not accepted-by-user.
+
 Status: implemented, verified locally on Linux. Not accepted.
 
 # LINUX CURSOR — X11 merge into canonical surfaces-demo
