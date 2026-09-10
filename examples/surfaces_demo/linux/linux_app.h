@@ -41,6 +41,9 @@ class LinuxApp {
   // Any thread: enqueue STOP onto the GUI wake pipe.
   void PostApplicationStop();
 
+  // Bring Surfaces::mobile_current (or last Surface) to the top of the Z-order.
+  void RestoreActiveSurfaceZOrder();
+
   // Test/helper: place a Surface window to an outer-frame rect (best-effort).
   void PlaceOuterWindow(Window window, int x, int y, int width, int height);
   // Test/helper: read outer-frame rect (best-effort).
@@ -57,6 +60,8 @@ class LinuxApp {
   void OnInitialPublished();
   void OnIncrementalPublished();
   void QueueAllWindowBounds();
+  // Enqueue PageShown for the focused Surface before geometry snapshot.
+  void QueueFocusedAsCurrent();
   void CreateLoadingWindow();
   void DestroyLoadingWindow();
   void PaintLoading();
@@ -65,6 +70,7 @@ class LinuxApp {
                          long* bottom) const;
   void ApplyOuterPlacement(Window window, int outer_x, int outer_y,
                            int outer_w, int outer_h);
+  LinuxSurfacePresenter* PresenterForWindowOrAncestor(Window window) const;
 
   SurfacesModelSession session_;
   std::optional<ModelObjectProxy> model_proxy_;

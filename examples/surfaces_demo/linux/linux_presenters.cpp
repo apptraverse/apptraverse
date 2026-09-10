@@ -78,7 +78,7 @@ void LinuxSurfacePresenter::OnLoad() {
   XSetWMProtocols(display, window, &wm_delete, 1);
   XSelectInput(display, window,
                ExposureMask | ButtonPressMask | StructureNotifyMask |
-                   KeyPressMask);
+                   KeyPressMask | FocusChangeMask);
   app->RegisterPresenter(window, this);
   XMapWindow(display, window);
   XSync(display, False);
@@ -131,6 +131,14 @@ void LinuxSurfacePresenter::QueueCurrentBounds() {
 
 void LinuxSurfacePresenter::HandleEvent(XEvent const& event) {
   Display* const display = app->display();
+  if (event.type == FocusIn) {
+    // Desktop current Surface: persist via mobile_current for z-order restore.
+    if (event.xfocus.mode == NotifyNormal ||
+        event.xfocus.mode == NotifyWhileGrabbed) {
+      PageShown();
+    }
+    return;
+  }
   if (event.type == Expose && event.xexpose.count == 0) {
     GC gc = XCreateGC(display, window, 0, nullptr);
     XClearWindow(display, window);

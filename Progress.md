@@ -1,4 +1,33 @@
 ---
+Status: implemented, verified locally on Linux. Not accepted.
+
+# LINUX CURSOR — desktop active Surface Z-order
+
+## Identity
+
+- Starting SHA: `b234c7d67af517c7f20981d1f2c6a17c6fd3e4cf`
+- Branch: `surfaces-demo`
+- Final SHA: (filled after commit)
+
+## Behavior
+
+- Linux desktop persists the focused Surface via existing
+  `Surfaces::mobile_current` (`FocusIn` / shutdown focused window →
+  `PageShown` → `MakeCurrent`).
+- On startup after presenter init: `XRaiseWindow` + best-effort
+  `XSetInputFocus` for `mobile_current` (fallback: last Surface when empty —
+  pre-z-order state dirs).
+- All Surface windows still shown; only the active one is restored on top.
+- Common model unchanged; mirrors Windows desktop Z-order contract.
+
+## Tests
+
+- `apptraverse_surfaces_linux_smoke_test` includes `TestActiveZOrderRestored`.
+- Manual: activate Surface 2, close, reload → Surface 2 topmost.
+
+Not accepted-by-user.
+
+---
 Status: implemented, verified locally. Not accepted.
 
 # WINDOWS CURSOR — desktop active Surface Z-order + quiet console

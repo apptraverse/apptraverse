@@ -36,7 +36,10 @@ namespace apptraverse::test {
   } while (0)
 
 int IgnoreBadWindow(Display* display, XErrorEvent* error) {
-  if (error->error_code == BadWindow || error->error_code == BadDrawable) {
+  // BadMatch on SetInputFocus is common when the window is not yet focused /
+  // viewable under the WM; Z-order raise + synthetic FocusIn still apply.
+  if (error->error_code == BadWindow || error->error_code == BadDrawable ||
+      error->error_code == BadMatch) {
     return 0;
   }
   char buf[256];
@@ -512,6 +515,118 @@ void TestNativeXKeepsAllSurfaces() {
   std::filesystem::remove_all(dir);
 }
 
+void ActivateSurface(Display* display, Window window) {
+  // Prefer raise + focus + synthetic FocusIn: FocusChange across Display
+  // connections is not always delivered to the app client.
+  XRaiseWindow(display, window);
+  XSetInputFocus(display, window, RevertToParent, CurrentTime);
+  XEvent event{};
+  event.type = FocusIn;
+  event.xfocus.display = display;
+  event.xfocus.window = window;
+  event.xfocus.mode = NotifyNormal;
+  event.xfocus.detail = NotifyNonlinear;
+  CHECK(XSendEvent(display, window, False, FocusChangeMask, &event) != 0);
+  XFlush(display);
+}
+
+Window TopOwnedSurface(Display* display, pid_t pid) {
+  Atom stacking = XInternAtom(display, "_NET_CLIENT_LIST_STACKING", True);
+  if (stacking != None) {
+    Atom actual_type = None;
+    int actual_format = 0;
+    unsigned long nitems = 0;
+    unsigned long bytes_after = 0;
+    unsigned char* prop = nullptr;
+    int const rc = XGetWindowProperty(
+        display, DefaultRootWindow(display), stacking, 0, 1024, False,
+        XA_WINDOW, &actual_type, &actual_format, &nitems, &bytes_after, &prop);
+    if (rc == Success && prop != nullptr && nitems > 0 && actual_format == 32) {
+      auto const* windows = reinterpret_cast<Window const*>(prop);
+      for (unsigned long i = nitems; i > 0; --i) {
+        Window candidate = windows[i - 1];
+        pid_t window_pid = 0;
+        if (!ReadPid(display, candidate, &window_pid) || window_pid != pid) {
+          continue;
+        }
+        std::string name;
+        if (!ReadName(display, candidate, &name)) {
+          continue;
+        }
+        if (name.rfind("Surface ", 0) == 0) {
+          XFree(prop);
+          return candidate;
+        }
+      }
+      XFree(prop);
+    } else if (prop != nullptr) {
+      XFree(prop);
+    }
+  }
+  // Fallback: last mapped owned Surface from tree walk order is weak; return
+  // None so the CHECK fails loudly if stacking atom is unavailable.
+  return None;
+}
+
+void TestActiveZOrderRestored() {
+  pid_t const pid = getpid();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_linux_zorder";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesModelRegistration();
+  EnsureLinuxSurfacePresenterRegistration();
+
+  LinuxApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  Display* display = XOpenDisplay(nullptr);
+  CHECK(display != nullptr);
+
+  Window s1 = None;
+  CHECK(WaitOwned(display, pid, "Surface 1", &s1, std::chrono::seconds{30}));
+  ClickAdd(display, s1);
+  Window s2 = None;
+  CHECK(WaitOwned(display, pid, "Surface 2", &s2, std::chrono::seconds{30}));
+  ClickAdd(display, s2);
+  Window s3 = None;
+  CHECK(WaitOwned(display, pid, "Surface 3", &s3, std::chrono::seconds{30}));
+  CHECK(WaitCount(display, pid, 3, std::chrono::seconds{10}));
+
+  ActivateSurface(display, s2);
+  Pump(display, std::chrono::milliseconds{300});
+  CHECK(TopOwnedSurface(display, pid) == s2);
+
+  SendWmDelete(display, s2);
+  gui.join();
+  CHECK(CountOwnedSurfaces(display, pid) == 0);
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  CHECK(application->surfaces->mobile_current);
+  CHECK(application->surfaces->mobile_current->number == 2);
+
+  LinuxApp app2;
+  std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
+  Window rs1 = None;
+  Window rs2 = None;
+  Window rs3 = None;
+  CHECK(WaitOwned(display, pid, "Surface 1", &rs1, std::chrono::seconds{30}));
+  CHECK(WaitOwned(display, pid, "Surface 2", &rs2, std::chrono::seconds{30}));
+  CHECK(WaitOwned(display, pid, "Surface 3", &rs3, std::chrono::seconds{30}));
+  Pump(display, std::chrono::milliseconds{300});
+  CHECK(TopOwnedSurface(display, pid) == rs2);
+
+  SendWmDelete(display, rs2);
+  gui2.join();
+  XCloseDisplay(display);
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
@@ -520,6 +635,7 @@ int main() {
   apptraverse::test::TestPresenterHierarchy();
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeXKeepsAllSurfaces();
+  apptraverse::test::TestActiveZOrderRestored();
   std::cout << "surfaces_linux_smoke_test OK\n";
   return 0;
 }

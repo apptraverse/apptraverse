@@ -93,6 +93,30 @@ LinuxSurfacePresenter* LinuxApp::PresenterFor(Window window) const {
   return it->second;
 }
 
+LinuxSurfacePresenter* LinuxApp::PresenterForWindowOrAncestor(
+    Window window) const {
+  Window current = window;
+  for (int depth = 0; depth < 16 && current != None && current != root_;
+       ++depth) {
+    if (LinuxSurfacePresenter* presenter = PresenterFor(current)) {
+      return presenter;
+    }
+    Window root_return = None;
+    Window parent = None;
+    Window* children = nullptr;
+    unsigned int nchildren = 0;
+    if (XQueryTree(display_, current, &root_return, &parent, &children,
+                   &nchildren) == 0) {
+      return nullptr;
+    }
+    if (children != nullptr) {
+      XFree(children);
+    }
+    current = parent;
+  }
+  return nullptr;
+}
+
 bool LinuxApp::QueryFrameExtents(Window window, long* left, long* right,
                                  long* top, long* bottom) const {
   Atom actual_type = None;
@@ -198,8 +222,49 @@ void LinuxApp::QueueAllWindowBounds() {
   }
 }
 
+void LinuxApp::QueueFocusedAsCurrent() {
+  Window focused = None;
+  int revert = RevertToNone;
+  XGetInputFocus(display_, &focused, &revert);
+  if (focused == None || focused == PointerRoot) {
+    return;
+  }
+  LinuxSurfacePresenter* presenter = PresenterForWindowOrAncestor(focused);
+  if (presenter == nullptr) {
+    return;
+  }
+  presenter->PageShown();
+}
+
+void LinuxApp::RestoreActiveSurfaceZOrder() {
+  auto& surfaces = ui_application_->surfaces->surfaces;
+  Surface::ptr target = ui_application_->surfaces->mobile_current;
+  if (!target) {
+    if (surfaces.empty()) {
+      return;
+    }
+    // Pre-z-order state: keep last-created (creation order) on top.
+    target = surfaces.back();
+  }
+  LinuxSurfacePresenter::ptr presenter{target->presenter};
+  XRaiseWindow(display_, presenter->window);
+  // Best-effort focus; Z-order is already raised. WM focus policy / map state
+  // may yield BadMatch — same best-effort stance as SetForegroundWindow.
+  XWindowAttributes attrs{};
+  if (XGetWindowAttributes(display_, presenter->window, &attrs) != 0 &&
+      attrs.map_state == IsViewable) {
+    XSetInputFocus(display_, presenter->window, RevertToParent, CurrentTime);
+  }
+  XFlush(display_);
+  // Explicit PageShown: FocusIn may not fire when already focused.
+  presenter->PageShown();
+}
+
 void LinuxApp::RequestApplicationStop() {
+  // Current Surface + geometry must be accepted before stop so Save persists
+  // both mobile_current (z-order) and desktop_*.
   if (ui_application_) {
+    QueueFocusedAsCurrent();
     QueueAllWindowBounds();
   }
   session_.RequestStop();
@@ -255,6 +320,7 @@ void LinuxApp::OnInitialPublished() {
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
   InitializePresenters(*ui_application_, this, &*model_proxy_);
+  RestoreActiveSurfaceZOrder();
   DestroyLoadingWindow();
 }
 
