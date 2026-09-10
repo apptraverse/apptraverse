@@ -12,7 +12,7 @@ Status: implemented, verified locally. Not accepted.
   - macOS: `226e90fe817316a999a9efb8cd918129ddd049c9`
   - iOS: `7c4c60d16d91a7e4ab7c43c1edcebc6e55c3be91`
 - iOS `mobile_current` adaptation: `5b195b5f5a4165199fc13250085f204de9e6a028`
-- Final canonical SHA: `2a3d610c393cf3544d644e9f38a1e56e5d54b1b6`
+- Final canonical SHA: `5abd4e1c4d0d15308b2fa0b3e7c539db62734f26`
 
 ## Conflict files
 
