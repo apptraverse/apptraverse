@@ -74,7 +74,8 @@ class Win32AddItemPresenter : public AddItemPresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
-  bool OnCommand(std::uint16_t notification_code) override;
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
 
   HWND hwnd{nullptr};
 };
@@ -120,7 +121,8 @@ class Win32ItemPresenter : public ItemPresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
-  bool OnCommand(std::uint16_t notification_code) override;
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
 
   HWND hwnd{nullptr};
   HWND remove_button{nullptr};

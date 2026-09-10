@@ -1,5 +1,44 @@
 Status: implemented, verified locally. Not accepted.
 
+# surfaces_demo — Windows semantics + persisted window geometry
+
+## Starting / final
+
+- Starting HEAD: `430b16f`.
+- Branch: `prep/deps-objects-assert-mcp-v1`.
+- Final SHA: *(filled after commit)*.
+- Push: pending.
+
+## Semantics
+
+- UI: `[ Add ] [ Close this window ]` per Surface HWND
+- Native X → whole-app STOP (never RemoveSurface)
+- Close this window → RemoveSurfaceEvent; last Close → STOP without Remove
+- `OnCommand(command_id, notification_code)` routing (dynamic_objects updated)
+
+## Geometry
+
+- Persisted on model `Surface`: `desktop_x/y/width/height` (schema v1)
+- `SurfaceBoundsChangedEvent` + `Surface::SetDesktopBounds`
+- No Events on WM_MOVE/WM_SIZE
+- Shutdown: `QueueAllWindowBounds` → `RequestStop` → model drain → Save
+- `ModelObjectProxy::Invoke` captures by-value args
+- `DesktopSurfacePresenter::UpdateModelBounds`
+
+## Proof
+
+- Headless: bounds replay + geometry persistence
+- Win32 smoke: Close removes one; X keeps all + restores rects; last Close keeps Surface
+- `/GR-` on desktop/Win32/smoke TUs
+- Regressions: dynamic_objects_add, dynamic_objects_win32_smoke, presenter_load_order, publication_channel
+
+Manual: `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_surfaces_demo.exe`
+
+Not accepted-by-user.
+
+---
+Status: implemented, verified locally. Not accepted.
+
 # surfaces_demo slice 2 — Windows minimal multi-window
 
 ## Starting / final

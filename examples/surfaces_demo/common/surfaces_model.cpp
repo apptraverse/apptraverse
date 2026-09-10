@@ -15,6 +15,7 @@ APPTRAVERSE_REGISTER(SurfacePresenter);
 APPTRAVERSE_REGISTER(Surfaces);
 APPTRAVERSE_REGISTER(AddSurfaceEvent);
 APPTRAVERSE_REGISTER(RemoveSurfaceEvent);
+APPTRAVERSE_REGISTER(SurfaceBoundsChangedEvent);
 APPTRAVERSE_REGISTER(Application);
 
 }  // namespace
@@ -22,6 +23,7 @@ APPTRAVERSE_REGISTER(Application);
 void EnsureSurfacesModelRegistration() {
   (void)&g_apptraverse_registrar_Application;
   (void)&g_apptraverse_registrar_Surface;
+  (void)&g_apptraverse_registrar_SurfaceBoundsChangedEvent;
 }
 
 void Surfaces::Apply(AddSurfaceEvent const& event) {
@@ -39,6 +41,14 @@ void Surfaces::Apply(RemoveSurfaceEvent const& event) {
   NoteMaterializedChange();
 }
 
+void Surface::Apply(SurfaceBoundsChangedEvent const& event) {
+  desktop_x = event.x;
+  desktop_y = event.y;
+  desktop_width = event.width;
+  desktop_height = event.height;
+  NoteMaterializedChange();
+}
+
 void Surface::AddSurface() {
   Surfaces& parent = *surfaces;
 
@@ -52,6 +62,7 @@ void Surface::AddSurface() {
     }
   }
   sibling->number = next_number;
+  AssignInitialDesktopBounds(*sibling);
   sibling->surfaces = surfaces;
   sibling->presenter = sibling_presenter;
   sibling_presenter->surface = sibling;
@@ -76,6 +87,21 @@ void Surface::Remove() {
       RemoveSurfaceEvent::ptr::Create(ae::CreateWith{*parent.domain});
   event->surface = Surface::ptr::MakeFromThis(this);
   parent.Commit(event);
+}
+
+void Surface::SetDesktopBounds(std::int32_t x, std::int32_t y,
+                               std::int32_t width, std::int32_t height) {
+  if (desktop_x == x && desktop_y == y && desktop_width == width &&
+      desktop_height == height) {
+    return;
+  }
+  auto event =
+      SurfaceBoundsChangedEvent::ptr::Create(ae::CreateWith{*domain});
+  event->x = x;
+  event->y = y;
+  event->width = width;
+  event->height = height;
+  Commit(event);
 }
 
 void SurfacePresenter::AddClick() {

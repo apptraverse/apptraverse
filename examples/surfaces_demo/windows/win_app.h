@@ -34,6 +34,8 @@ class WinApp {
   LRESULT Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
   void OnInitialPublished();
   void OnIncrementalPublished();
+  void QueueAllWindowBounds();
+  void RequestApplicationStop();
 
   SurfacesModelSession session_;
   std::optional<ModelObjectProxy> model_proxy_;

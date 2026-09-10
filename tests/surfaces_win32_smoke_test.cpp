@@ -142,6 +142,28 @@ HWND FindAddButton(HWND surface) {
   return FindWindowExW(surface, nullptr, L"BUTTON", L"Add");
 }
 
+HWND FindCloseButton(HWND surface) {
+  return FindWindowExW(surface, nullptr, L"BUTTON", L"Close this window");
+}
+
+RECT WindowRect(HWND hwnd) {
+  RECT rect{};
+  CHECK(GetWindowRect(hwnd, &rect) != 0);
+  return rect;
+}
+
+bool RectNear(RECT const& a, RECT const& b, int tol) {
+  return std::abs(a.left - b.left) <= tol && std::abs(a.top - b.top) <= tol &&
+         std::abs((a.right - a.left) - (b.right - b.left)) <= tol &&
+         std::abs((a.bottom - a.top) - (b.bottom - b.top)) <= tol;
+}
+
+void PlaceWindow(HWND hwnd, int x, int y, int w, int h) {
+  CHECK(SetWindowPos(hwnd, nullptr, x, y, w, h,
+                     SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+  PumpGui(std::chrono::milliseconds{50});
+}
+
 void TestPresenterHierarchy() {
   EnsureObjectRegistration();
   EnsureSurfacesModelRegistration();
@@ -155,10 +177,10 @@ void TestPresenterHierarchy() {
                                     Win32SurfacePresenter::kClassId) == 2);
 }
 
-void TestInProcessMultiWindow() {
+void TestCloseButtonRemovesOne() {
   DWORD const pid = GetCurrentProcessId();
   auto dir = std::filesystem::temp_directory_path() /
-             "apptraverse_surfaces_win32_inproc";
+             "apptraverse_surfaces_win32_close_btn";
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
@@ -171,37 +193,31 @@ void TestInProcessMultiWindow() {
   HWND s1 = nullptr;
   CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
                   std::chrono::seconds{30}));
-  CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 1);
   HWND add1 = FindAddButton(s1);
+  HWND close1 = FindCloseButton(s1);
   CHECK(add1 != nullptr);
-  auto* owner1 =
+  CHECK(close1 != nullptr);
+  auto* add_owner =
       reinterpret_cast<Presenter*>(GetWindowLongPtrW(add1, GWLP_USERDATA));
-  CHECK(owner1 != nullptr);
-  CHECK(owner1->GetClassId() == Win32SurfacePresenter::kClassId);
-  CHECK(static_cast<Win32SurfacePresenter*>(
-            static_cast<SurfacePresenter*>(owner1))
-            ->hwnd == s1);
+  auto* close_owner =
+      reinterpret_cast<Presenter*>(GetWindowLongPtrW(close1, GWLP_USERDATA));
+  CHECK(add_owner == close_owner);
+  CHECK(add_owner->GetClassId() == Win32SurfacePresenter::kClassId);
+  CHECK(GetDlgCtrlID(add1) == kSurfaceAddButtonId);
+  CHECK(GetDlgCtrlID(close1) == kSurfaceCloseButtonId);
 
   SendMessageW(add1, BM_CLICK, 0, 0);
   HWND s2 = nullptr;
   CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
                   std::chrono::seconds{30}));
-  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{10}));
-  CHECK(IsWindow(s1) != 0);
-  CHECK(s1 != s2);
-
-  HWND add2 = FindAddButton(s2);
-  CHECK(add2 != nullptr);
-  SendMessageW(add2, BM_CLICK, 0, 0);
+  SendMessageW(FindAddButton(s2), BM_CLICK, 0, 0);
   HWND s3 = nullptr;
   CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &s3,
                   std::chrono::seconds{30}));
   CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{10}));
-  CHECK(IsWindow(s1) != 0);
-  CHECK(IsWindow(s2) != 0);
 
-  // Close middle Surface 2 via WM_CLOSE → RemoveClick → OnUnload.
-  PostMessageW(s2, WM_CLOSE, 0, 0);
+  // Close this window on Surface 2 removes only that Surface.
+  SendMessageW(FindCloseButton(s2), BM_CLICK, 0, 0);
   CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{30}));
   CHECK(IsWindow(s1) != 0);
   CHECK(IsWindow(s3) != 0);
@@ -209,23 +225,21 @@ void TestInProcessMultiWindow() {
   CHECK(FindOwned(pid, kSurfacesWindowClass, L"Surface 1") == s1);
   CHECK(FindOwned(pid, kSurfacesWindowClass, L"Surface 3") == s3);
 
-  HWND add3 = FindAddButton(s3);
-  CHECK(add3 != nullptr);
-  SendMessageW(add3, BM_CLICK, 0, 0);
+  SendMessageW(FindAddButton(s3), BM_CLICK, 0, 0);
   HWND s4 = nullptr;
   CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 4", &s4,
                   std::chrono::seconds{30}));
   CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{10}));
   CHECK(FindOwned(pid, kSurfacesWindowClass, L"Surface 2") == nullptr);
 
-  // Close Surface 1 and Surface 4; leave Surface 3 as last.
-  PostMessageW(s1, WM_CLOSE, 0, 0);
-  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{30}));
-  PostMessageW(s4, WM_CLOSE, 0, 0);
-  CHECK(WaitCount(pid, kSurfacesWindowClass, 1, std::chrono::seconds{30}));
-  CHECK(FindOwned(pid, kSurfacesWindowClass, L"Surface 3") == s3);
+  // Native X on any window exits the whole app; topology [1,3,4] persists.
+  PlaceWindow(s1, 60, 70, 380, 250);
+  PlaceWindow(s3, 160, 170, 400, 260);
+  PlaceWindow(s4, 260, 270, 420, 270);
+  RECT const r1 = WindowRect(s1);
+  RECT const r3 = WindowRect(s3);
+  RECT const r4 = WindowRect(s4);
 
-  // Last window X → exit without removing Surface 3.
   PostMessageW(s3, WM_CLOSE, 0, 0);
   gui.join();
   CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 0);
@@ -235,20 +249,105 @@ void TestInProcessMultiWindow() {
   auto application = LoadApplication<Application>(
       domain, ae::ObjId{surfaces_demo::ToObjId(
                   surfaces_demo::ObjId::Application)});
-  CHECK(application->surfaces->surfaces.size() == 1);
-  CHECK(application->surfaces->surfaces[0]->number == 3);
-  auto const persisted_id = application->surfaces->surfaces[0]->obj_id;
+  CHECK(application->surfaces->surfaces.size() == 3);
+  CHECK(application->surfaces->surfaces[0]->number == 1);
+  CHECK(application->surfaces->surfaces[1]->number == 3);
+  CHECK(application->surfaces->surfaces[2]->number == 4);
 
-  // Restart restores Surface 3.
   WinApp app2;
   std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
-  HWND restarted = nullptr;
-  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &restarted,
+  HWND rs1 = nullptr;
+  HWND rs3 = nullptr;
+  HWND rs4 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &rs1,
                   std::chrono::seconds{30}));
-  CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 1);
-  CHECK(FindOwned(pid, kSurfacesWindowClass, L"Surface 1") == nullptr);
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &rs3,
+                  std::chrono::seconds{30}));
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 4", &rs4,
+                  std::chrono::seconds{30}));
+  CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 3);
+  CHECK(FindOwned(pid, kSurfacesWindowClass, L"Surface 2") == nullptr);
+  CHECK(RectNear(WindowRect(rs1), r1, 2));
+  CHECK(RectNear(WindowRect(rs3), r3, 2));
+  CHECK(RectNear(WindowRect(rs4), r4, 2));
 
-  PostMessageW(restarted, WM_CLOSE, 0, 0);
+  PostMessageW(rs1, WM_CLOSE, 0, 0);
+  gui2.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestNativeXKeepsAllSurfaces() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_native_x";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesModelRegistration();
+  EnsureWin32SurfacePresenterRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s2), BM_CLICK, 0, 0);
+  HWND s3 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &s3,
+                  std::chrono::seconds{30}));
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{10}));
+
+  PlaceWindow(s1, 50, 60, 370, 240);
+  PlaceWindow(s2, 150, 160, 390, 250);
+  PlaceWindow(s3, 250, 260, 410, 260);
+  RECT const r1 = WindowRect(s1);
+  RECT const r2 = WindowRect(s2);
+  RECT const r3 = WindowRect(s3);
+
+  // X on non-last window exits everything; all three Surfaces persist.
+  PostMessageW(s2, WM_CLOSE, 0, 0);
+  gui.join();
+  CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 0);
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  CHECK(application->surfaces->surfaces.size() == 3);
+  CHECK(application->surfaces->surfaces[0]->number == 1);
+  CHECK(application->surfaces->surfaces[1]->number == 2);
+  CHECK(application->surfaces->surfaces[2]->number == 3);
+
+  WinApp app2;
+  std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
+  HWND rs1 = nullptr;
+  HWND rs2 = nullptr;
+  HWND rs3 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &rs1,
+                  std::chrono::seconds{30}));
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &rs2,
+                  std::chrono::seconds{30}));
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &rs3,
+                  std::chrono::seconds{30}));
+  CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 3);
+  CHECK(RectNear(WindowRect(rs1), r1, 2));
+  CHECK(RectNear(WindowRect(rs2), r2, 2));
+  CHECK(RectNear(WindowRect(rs3), r3, 2));
+
+  // Last Close this window exits without Remove.
+  SendMessageW(FindCloseButton(rs2), BM_CLICK, 0, 0);
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{30}));
+  SendMessageW(FindCloseButton(rs1), BM_CLICK, 0, 0);
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 1, std::chrono::seconds{30}));
+  HWND last = FindOwned(pid, kSurfacesWindowClass, L"Surface 3");
+  CHECK(last != nullptr);
+  SendMessageW(FindCloseButton(last), BM_CLICK, 0, 0);
   gui2.join();
 
   DirectoryDomainStorage storage2{dir};
@@ -258,7 +357,6 @@ void TestInProcessMultiWindow() {
                    surfaces_demo::ObjId::Application)});
   CHECK(application2->surfaces->surfaces.size() == 1);
   CHECK(application2->surfaces->surfaces[0]->number == 3);
-  CHECK(application2->surfaces->surfaces[0]->obj_id == persisted_id);
 
   std::filesystem::remove_all(dir);
 }
@@ -267,7 +365,8 @@ void TestInProcessMultiWindow() {
 
 int main() {
   apptraverse::test::TestPresenterHierarchy();
-  apptraverse::test::TestInProcessMultiWindow();
+  apptraverse::test::TestCloseButtonRemovesOne();
+  apptraverse::test::TestNativeXKeepsAllSurfaces();
   std::cout << "surfaces_win32_smoke_test OK\n";
   return 0;
 }

@@ -20,6 +20,14 @@ void SetHwndUserData(HWND hwnd, void* value) {
   }
 }
 
+void PostApplicationStop(void* presentation_host) {
+  HWND const notify = reinterpret_cast<HWND>(presentation_host);
+  if (PostMessageW(notify, WM_APPTRAVERSE_STOP, 0, 0) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("PostMessageW WM_APPTRAVERSE_STOP", err);
+  }
+}
+
 }  // namespace
 
 void EnsureWin32SurfacePresenterRegistration() {
@@ -37,7 +45,8 @@ bool DispatchChildCommand(WPARAM wparam, LPARAM lparam) {
   if (owner == nullptr) {
     return false;
   }
-  return owner->OnCommand(static_cast<std::uint16_t>(HIWORD(wparam)));
+  return owner->OnCommand(static_cast<std::uint32_t>(LOWORD(wparam)),
+                          static_cast<std::uint16_t>(HIWORD(wparam)));
 }
 
 void RegisterSurfacesWin32Classes() {
@@ -76,17 +85,8 @@ LRESULT CALLBACK Win32SurfacePresenter::WndProc(HWND hwnd, UINT msg,
     return 0;
   }
   if (msg == WM_CLOSE) {
-    Surfaces& parent = *presenter->surface->surfaces;
-    // Real alternative: last live Surface window exits the app without Remove.
-    if (parent.surfaces.size() == 1) {
-      HWND const notify = reinterpret_cast<HWND>(presenter->presentation_host);
-      if (PostMessageW(notify, WM_APPTRAVERSE_STOP, 0, 0) == 0) {
-        DWORD const err = GetLastError();
-        FatalWin32("PostMessageW WM_APPTRAVERSE_STOP", err);
-      }
-      return 0;
-    }
-    presenter->RemoveClick();
+    // Native X always requests whole-application stop. Never RemoveSurface.
+    PostApplicationStop(presenter->presentation_host);
     return 0;
   }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -95,23 +95,35 @@ LRESULT CALLBACK Win32SurfacePresenter::WndProc(HWND hwnd, UINT msg,
 void Win32SurfacePresenter::OnLoad() {
   wchar_t title[64];
   std::swprintf(title, 64, L"Surface %u", surface->number);
-  hwnd = CreateWindowExW(0, kSurfacesWindowClass, title, WS_OVERLAPPEDWINDOW,
-                         CW_USEDEFAULT, CW_USEDEFAULT, 360, 240, nullptr,
-                         nullptr, GetModuleHandleW(nullptr), this);
+  hwnd = CreateWindowExW(
+      0, kSurfacesWindowClass, title, WS_OVERLAPPEDWINDOW, surface->desktop_x,
+      surface->desktop_y, surface->desktop_width, surface->desktop_height,
+      nullptr, nullptr, GetModuleHandleW(nullptr), this);
   if (hwnd == nullptr) {
     DWORD const err = GetLastError();
     FatalWin32("CreateWindowExW Surface", err);
   }
   SetHwndUserData(hwnd, this);
   add_button = CreateWindowExW(
-      0, L"BUTTON", L"Add", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 12, 12, 100,
-      28, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSurfaceAddButtonId)),
+      0, L"BUTTON", L"Add", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 12, 12, 80,
+      28, hwnd,
+      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSurfaceAddButtonId)),
       GetModuleHandleW(nullptr), nullptr);
   if (add_button == nullptr) {
     DWORD const err = GetLastError();
     FatalWin32("CreateWindowExW Add", err);
   }
   SetHwndUserData(add_button, static_cast<Presenter*>(this));
+  close_button = CreateWindowExW(
+      0, L"BUTTON", L"Close this window", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+      100, 12, 160, 28, hwnd,
+      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSurfaceCloseButtonId)),
+      GetModuleHandleW(nullptr), nullptr);
+  if (close_button == nullptr) {
+    DWORD const err = GetLastError();
+    FatalWin32("CreateWindowExW Close this window", err);
+  }
+  SetHwndUserData(close_button, static_cast<Presenter*>(this));
   ShowWindow(hwnd, SW_SHOW);
   UpdateWindow(hwnd);
 }
@@ -125,6 +137,12 @@ void Win32SurfacePresenter::OnUnload() {
     FatalWin32("DestroyWindow Add", err);
   }
   add_button = nullptr;
+  SetHwndUserData(close_button, nullptr);
+  if (DestroyWindow(close_button) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("DestroyWindow Close this window", err);
+  }
+  close_button = nullptr;
   SetHwndUserData(hwnd, nullptr);
   if (DestroyWindow(hwnd) == 0) {
     DWORD const err = GetLastError();
@@ -133,12 +151,35 @@ void Win32SurfacePresenter::OnUnload() {
   hwnd = nullptr;
 }
 
-bool Win32SurfacePresenter::OnCommand(std::uint16_t notification_code) {
+bool Win32SurfacePresenter::OnCommand(std::uint32_t command_id,
+                                      std::uint16_t notification_code) {
   if (notification_code != BN_CLICKED) {
     return false;
   }
-  AddClick();
-  return true;
+  if (command_id == static_cast<std::uint32_t>(kSurfaceAddButtonId)) {
+    AddClick();
+    return true;
+  }
+  if (command_id == static_cast<std::uint32_t>(kSurfaceCloseButtonId)) {
+    // Real alternative: last Close-button closes the app without Remove.
+    if (surface->surfaces->surfaces.size() == 1) {
+      PostApplicationStop(presentation_host);
+    } else {
+      RemoveClick();
+    }
+    return true;
+  }
+  return false;
+}
+
+void Win32SurfacePresenter::QueueCurrentBounds() {
+  RECT rect{};
+  if (GetWindowRect(hwnd, &rect) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("GetWindowRect Surface", err);
+  }
+  UpdateModelBounds(rect.left, rect.top, rect.right - rect.left,
+                    rect.bottom - rect.top);
 }
 
 }  // namespace apptraverse

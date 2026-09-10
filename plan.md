@@ -22,7 +22,7 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 5. dynamic_objects cleanup (invariants / Win32 routing) [done]
 6. Disable RTTI + invariant-driven coding policy [done]
 7. surfaces_demo — common model + headless [done]
-8. surfaces_demo — Windows minimal multi-window [done — THIS]
+8. surfaces_demo — Windows multi-window + persisted geometry [done — THIS]
 9. surfaces_demo — macOS desktop port **[NEXT]**
 10. surfaces_demo — Linux desktop port
 11. surfaces_demo — iOS
@@ -37,11 +37,11 @@ Deferred relative to surfaces/chat:
 - Node execution / marquee demo
 - Resource / version / cache
 - DPI / screen system events
-- Surface resize persistence / Z-order (not in minimal surfaces demo)
+- Surface Z-order / active Surface in model (not in desktop UX)
 
 ## Current slice (just completed)
 
-Windows minimal multi-window:
+Windows desktop semantics + persisted geometry:
 
 ```
 SurfacePresenter
@@ -52,7 +52,25 @@ DesktopSurfacePresenter
   └─ LinuxSurfacePresenter   [later]
 ```
 
-Mobile later (not created yet):
+- one Surface = one top-level window; `[ Add ] [ Close this window ]`
+- native X = whole-application stop (never RemoveSurface)
+- Close this window = RemoveSurfaceEvent; last Close = app stop without Remove
+- desktop_x/y/width/height on Surface; SurfaceBoundsChangedEvent
+- geometry snapshot of all live windows immediately before RequestStop
+- no per-WM_MOVE/SIZE Events; no Z-order/DPI
+
+## Next slice
+
+**macOS desktop port** — `MacSurfacePresenter : DesktopSurfacePresenter` with
+the same semantics: NSWindow per Surface, Add / Close this window, native red X
+closes the whole application, final position/size via common Surface bounds,
+restart restores all windows.
+
+Linux later: same desktop contract.
+
+**Mobile later (not created yet):** pager; `[ Add ] [ Remove current ]` selects
+current `SurfacePresenter` on the presentation side. Model has no
+`current_surface`. Hierarchy later:
 
 ```
 SurfacePresenter
@@ -61,17 +79,6 @@ MobileSurfacePresenter
   ├─ IOSSurfacePresenter
   └─ AndroidSurfacePresenter
 ```
-
-- one Surface = one top-level HWND; Add button; X removes that Surface
-- last-window X = app exit without Remove (Surface persisted)
-- no resize/Z-order/DPI
-
-## Next slice
-
-**macOS desktop port** — `MacSurfacePresenter : DesktopSurfacePresenter`.
-
-**Mobile later:** pager; `[ Add ] [ Remove current ]` selects current
-`SurfacePresenter` on the presentation side. Model has no `current_surface`.
 
 ## Known follow-ups (not this slice)
 
@@ -96,5 +103,5 @@ event semantics.
 ## Foundation still in force
 
 Independent Model/GUI Domains, Event-only Node mutation, presentation_load_order,
-structural keepalive, CLOSE_WINDOW / last-window STOP, shutdown drain, distill
-separation, no RTTI, invariant-driven checks.
+structural keepalive, native-X app STOP + Close-button Remove, shutdown geometry
+snapshot before RequestStop, distill separation, no RTTI, invariant-driven checks.

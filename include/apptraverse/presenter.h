@@ -43,9 +43,11 @@ class Presenter : public ae::Obj {
   // HWND created by another presenter's OnLoad.
   virtual bool ReadyForPresentation() const { return true; }
 
-  // Platform input dispatch (Win32 WM_COMMAND notification codes, etc.).
-  // Default: unhandled. Runtime-only; not reflected.
-  virtual bool OnCommand(std::uint16_t notification_code) {
+  // Platform input dispatch (Win32 WM_COMMAND control id + notification).
+  // Default: unhandled. Runtime-only; not reflected. Does not take HWND.
+  virtual bool OnCommand(std::uint32_t command_id,
+                         std::uint16_t notification_code) {
+    (void)command_id;
     (void)notification_code;
     return false;
   }

@@ -18,6 +18,7 @@ Application::ptr BuildSurfacesGraph(ae::Domain& domain) {
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Surface1Presenter)));
 
   surface1->number = 1;
+  AssignInitialDesktopBounds(*surface1);
   surface1->surfaces = surfaces;
   surface1->presenter = surface1_presenter;
   surface1_presenter->surface = surface1;

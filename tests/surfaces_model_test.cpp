@@ -502,6 +502,92 @@ void TestShutdownDrain() {
   std::filesystem::remove_all(dir);
 }
 
+void TestBoundsReplay() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surface& surface = *application->surfaces->surfaces[0];
+  auto const initial_x = surface.desktop_x;
+  auto const initial_y = surface.desktop_y;
+  auto const initial_w = surface.desktop_width;
+  auto const initial_h = surface.desktop_height;
+  CHECK(initial_w == 360);
+  CHECK(initial_h == 240);
+  CHECK(surface.journal.empty());
+
+  surface.SetDesktopBounds(200, 220, 400, 300);
+  CHECK(surface.journal.size() == 1);
+  CHECK(surface.desktop_x == 200);
+  CHECK(surface.desktop_y == 220);
+  CHECK(surface.desktop_width == 400);
+  CHECK(surface.desktop_height == 300);
+  auto const event_id = surface.journal[0].event->obj_id;
+  CHECK(surface.journal[0].event->GetClassId() ==
+        SurfaceBoundsChangedEvent::kClassId);
+
+  surface.SetDesktopBounds(200, 220, 400, 300);
+  CHECK(surface.journal.size() == 1);
+
+  surface.ReplayFromBase();
+  CHECK(surface.desktop_x == 200);
+  CHECK(surface.desktop_y == 220);
+  CHECK(surface.desktop_width == 400);
+  CHECK(surface.desktop_height == 300);
+  CHECK(surface.journal.size() == 1);
+  CHECK(surface.journal[0].event->obj_id == event_id);
+  (void)initial_x;
+  (void)initial_y;
+}
+
+void TestGeometryPersistence() {
+  auto dir = TestDir("apptraverse_surfaces_geometry_persist");
+  ae::ObjId surface1_id;
+  ae::ObjId surface2_id;
+  ae::ObjId surface3_id;
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = BuildSurfacesGraph(domain);
+    FinalizeDistilledGraph(*application);
+    Surfaces& surfaces = *application->surfaces;
+    surfaces.surfaces[0]->AddSurface();
+    surfaces.surfaces[0]->AddSurface();
+    CHECK(surfaces.surfaces.size() == 3);
+    surfaces.surfaces[0]->SetDesktopBounds(40, 50, 320, 200);
+    surfaces.surfaces[1]->SetDesktopBounds(80, 90, 340, 210);
+    surfaces.surfaces[2]->SetDesktopBounds(120, 130, 360, 220);
+    surface1_id = surfaces.surfaces[0]->obj_id;
+    surface2_id = surfaces.surfaces[1]->obj_id;
+    surface3_id = surfaces.surfaces[2]->obj_id;
+    SaveDistilledRoot(*application);
+  }
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  Surfaces& surfaces = *application->surfaces;
+  CHECK(surfaces.surfaces.size() == 3);
+  CHECK(surfaces.surfaces[0]->obj_id == surface1_id);
+  CHECK(surfaces.surfaces[1]->obj_id == surface2_id);
+  CHECK(surfaces.surfaces[2]->obj_id == surface3_id);
+  CHECK(surfaces.surfaces[0]->desktop_x == 40);
+  CHECK(surfaces.surfaces[0]->desktop_y == 50);
+  CHECK(surfaces.surfaces[0]->desktop_width == 320);
+  CHECK(surfaces.surfaces[0]->desktop_height == 200);
+  CHECK(surfaces.surfaces[1]->desktop_x == 80);
+  CHECK(surfaces.surfaces[1]->desktop_y == 90);
+  CHECK(surfaces.surfaces[1]->desktop_width == 340);
+  CHECK(surfaces.surfaces[1]->desktop_height == 210);
+  CHECK(surfaces.surfaces[2]->desktop_x == 120);
+  CHECK(surfaces.surfaces[2]->desktop_y == 130);
+  CHECK(surfaces.surfaces[2]->desktop_width == 360);
+  CHECK(surfaces.surfaces[2]->desktop_height == 220);
+  std::filesystem::remove_all(dir);
+}
+
 void TestNoRttiCompileGuard() {
 #if defined(_CPPRTTI) || defined(__GXX_RTTI)
   CHECK(false && "surfaces targets must compile with RTTI disabled");
@@ -526,6 +612,8 @@ int main() {
   apptraverse::test::TestGuiProxyAddRemoveAndRemoveCurrent();
   apptraverse::test::TestPresenterLifecycleMultiAdd();
   apptraverse::test::TestShutdownDrain();
+  apptraverse::test::TestBoundsReplay();
+  apptraverse::test::TestGeometryPersistence();
   apptraverse::test::TestNoRttiCompileGuard();
   std::cout << "surfaces_model_test OK\n";
   return 0;

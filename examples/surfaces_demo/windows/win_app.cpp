@@ -39,6 +39,21 @@ LRESULT CALLBACK WinApp::WndProc(HWND hwnd, UINT msg, WPARAM wparam,
   return app->Handle(hwnd, msg, wparam, lparam);
 }
 
+void WinApp::QueueAllWindowBounds() {
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
+    Win32SurfacePresenter::ptr presenter{surface->presenter};
+    presenter->QueueCurrentBounds();
+  }
+}
+
+void WinApp::RequestApplicationStop() {
+  // Geometry work must be accepted before stop so the model drain Saves it.
+  if (ui_application_) {
+    QueueAllWindowBounds();
+  }
+  session_.RequestStop();
+}
+
 LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   (void)lparam;
   (void)wparam;
@@ -51,7 +66,7 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     return 0;
   }
   if (msg == WM_APPTRAVERSE_STOP) {
-    session_.RequestStop();
+    RequestApplicationStop();
     return 0;
   }
   if (msg == WM_PAINT && hwnd == loading_) {
@@ -62,7 +77,7 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     if (hwnd == loading_) {
       return 0;
     }
-    session_.RequestStop();
+    RequestApplicationStop();
     return 0;
   }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -185,7 +200,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE) != 0) {
       if (msg.message == WM_QUIT) {
         if (loading_ == nullptr) {
-          session_.RequestStop();
+          RequestApplicationStop();
         }
         continue;
       }

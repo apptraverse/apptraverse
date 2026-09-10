@@ -1,6 +1,8 @@
 #ifndef APPTRAVERSE_DESKTOP_SURFACE_PRESENTER_H_
 #define APPTRAVERSE_DESKTOP_SURFACE_PRESENTER_H_
 
+#include <cstdint>
+
 #include "apptraverse/object_macros.h"
 
 #include "surfaces_model.h"
@@ -32,6 +34,10 @@ class DesktopSurfacePresenter : public SurfacePresenter {
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_);
   }
+
+  // GUI-thread: enqueue model Surface::SetDesktopBounds via ObjId proxy.
+  void UpdateModelBounds(std::int32_t x, std::int32_t y, std::int32_t width,
+                         std::int32_t height);
 };
 
 void EnsureDesktopSurfacePresenterRegistration();

@@ -19,13 +19,15 @@ namespace apptraverse {
 
 inline wchar_t const kSurfacesWindowClass[] = L"AppTraverseSurfacesWindow";
 inline constexpr int kSurfaceAddButtonId = 1001;
+inline constexpr int kSurfaceCloseButtonId = 1002;
 
 void RegisterSurfacesWin32Classes();
 void UnregisterSurfacesWin32Classes();
 void EnsureWin32SurfacePresenterRegistration();
 
-// Child WM_COMMAND → Presenter::OnCommand. Parent WndProc stays free of Add
-// semantics. Child HWND GWLP_USERDATA holds Presenter*.
+// Child WM_COMMAND → Presenter::OnCommand(command_id, notification).
+// Parent WndProc stays free of Add/Close semantics. Child HWND GWLP_USERDATA
+// holds Presenter*.
 bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
 
 class Win32SurfacePresenter : public DesktopSurfacePresenter {
@@ -45,10 +47,15 @@ class Win32SurfacePresenter : public DesktopSurfacePresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
-  bool OnCommand(std::uint16_t notification_code) override;
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
+
+  // Snapshot outer frame via GetWindowRect and enqueue model bounds update.
+  void QueueCurrentBounds();
 
   HWND hwnd{nullptr};
   HWND add_button{nullptr};
+  HWND close_button{nullptr};
 
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);

@@ -36,7 +36,8 @@ bool DispatchChildCommand(WPARAM wparam, LPARAM lparam) {
   if (owner == nullptr) {
     return false;
   }
-  return owner->OnCommand(static_cast<std::uint16_t>(HIWORD(wparam)));
+  return owner->OnCommand(static_cast<std::uint32_t>(LOWORD(wparam)),
+                          static_cast<std::uint16_t>(HIWORD(wparam)));
 }
 
 void RegisterDynamicWin32Classes() {
@@ -154,7 +155,9 @@ void Win32AddItemPresenter::OnUnload() {
   hwnd = nullptr;
 }
 
-bool Win32AddItemPresenter::OnCommand(std::uint16_t notification_code) {
+bool Win32AddItemPresenter::OnCommand(std::uint32_t command_id,
+                                      std::uint16_t notification_code) {
+  (void)command_id;
   if (notification_code != BN_CLICKED) {
     return false;
   }
@@ -277,7 +280,9 @@ void Win32ItemPresenter::OnUnload() {
   hwnd = nullptr;
 }
 
-bool Win32ItemPresenter::OnCommand(std::uint16_t notification_code) {
+bool Win32ItemPresenter::OnCommand(std::uint32_t command_id,
+                                   std::uint16_t notification_code) {
+  (void)command_id;
   if (notification_code != BN_CLICKED) {
     return false;
   }
