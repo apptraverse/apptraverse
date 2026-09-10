@@ -24,7 +24,7 @@ Included on that branch:
 - Web / Emscripten / WASM (tabs, IndexedDB checkpoint)
 - Linux desktop — **X11/Xlib** (`LinuxSurfacePresenter`)
 - macOS desktop — **AppKit** (`MacSurfacePresenter`)
-- iOS / iPhone Simulator — **UIKit** (`IOSSurfacePresenter`) — merging now
+- iOS / iPhone Simulator — **UIKit** (`IOSSurfacePresenter`) 
 
 Mac Cursor owns macOS + iPhone Simulator only. Linux host is X11/Xlib (not
 GTK3/Qt/SDL); no backend migration in the merge slice.
@@ -43,7 +43,7 @@ GTK3/Qt/SDL); no backend migration in the merge slice.
 10. surfaces_demo — Web/WASM tabs + IDBFS checkpoint [done — in `surfaces-demo`]
 11. surfaces_demo — Linux X11 desktop port [done — in `surfaces-demo`]
 12. surfaces_demo — macOS desktop port [done — in `surfaces-demo`]
-13. surfaces_demo — iOS / iPhone Simulator [done — merging into `surfaces-demo`]
+13. surfaces_demo — iOS / iPhone Simulator [done — in `surfaces-demo`]
 14. shared_node_demo
 15. chat_demo
 16. aeroadmin-x production chat
@@ -79,6 +79,12 @@ geometry snapshot of all live windows immediately before RequestStop; common
 `desktop_*` top-left bounds ↔ AppKit primary-screen frames (multi-monitor out of
 scope); no per-move/resize Events. Apple Clang 15 insufficient (P0960) — build
 with MacPorts clang++-mp-20 + `-fno-rtti`.
+
+iOS UIKit notes: one host / UIScrollView pager; `[ Add ] [ Remove current ]`;
+current page = Surfaces::mobile_current by Surface identity (runtime index only);
+swipe/Add/Remove settle → PageShown → MakeCurrent; last Remove disabled (no
+`exit()`); desktop_* ignored.
+
 
 ## Presenter hierarchy
 

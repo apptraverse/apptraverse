@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 
+#include <algorithm>
 #include <utility>
 
 #include "apptraverse/object_serialization.h"
@@ -86,6 +87,12 @@
       scrollView.contentOffset.x / width + 0.5));
 }
 
+- (void)scrollViewDidEndScrollingAnimation:(UIScrollView*)scrollView {
+  CGFloat const width = scrollView.bounds.size.width;
+  self.app->NoteVisiblePage(static_cast<std::size_t>(
+      scrollView.contentOffset.x / width + 0.5));
+}
+
 @end
 
 namespace apptraverse {
@@ -163,7 +170,10 @@ void IOSApp::OnInitialPublished() {
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
   InitializePresenters(*ui_application_, this, &*model_proxy_);
+  page_count_ = ui_application_->surfaces->surfaces.size();
   RelayoutPages();
+  EnsureModelCurrentSeeded();
+  ApplyDesiredOffset();
 
   SurfacesRootViewController* controller =
       (__bridge SurfacesRootViewController*)root_controller_;
@@ -171,6 +181,8 @@ void IOSApp::OnInitialPublished() {
   controller.pager.hidden = NO;
   controller.addButton.hidden = NO;
   controller.removeButton.hidden = NO;
+  controller.removeButton.enabled =
+      CurrentPresenter()->RemovableFromPager() ? YES : NO;
 }
 
 void IOSApp::OnIncrementalPublished() {
@@ -180,21 +192,45 @@ void IOSApp::OnIncrementalPublished() {
     bytes = session_.channel.TakePublishedCopy();
   }
   session_.cv.notify_all();
+  std::size_t const previous_count = page_count_;
+  structural_apply_in_progress_ = true;
   ApplySurfacesStructural(bytes, *ui_application_, ui_storage_, this,
                           &*model_proxy_);
+  structural_apply_in_progress_ = false;
+  ReconcileDesiredAfterTopologyChange(previous_count);
   RelayoutPages();
+  ApplyDesiredOffset();
+  // Report current after topology settle so mobile_current tracks identity.
+  if (auto presenter = CurrentPresenter()) {
+    presenter->PageShown();
+  }
+  SurfacesRootViewController* controller =
+      (__bridge SurfacesRootViewController*)root_controller_;
+  controller.removeButton.enabled =
+      CurrentPresenter()->RemovableFromPager() ? YES : NO;
 }
 
 void IOSApp::AddCurrentClick() { CurrentPresenter()->AddClick(); }
 
 void IOSApp::RemoveCurrentClick() { CurrentPresenter()->RemoveClick(); }
 
-void IOSApp::NoteVisiblePage(std::size_t index) { current_index_ = index; }
+void IOSApp::NoteVisiblePage(std::size_t index) {
+  if (applying_model_current_) {
+    return;
+  }
+  auto const& surfaces = ui_application_->surfaces->surfaces;
+  if (index >= surfaces.size()) {
+    return;
+  }
+  current_index_ = index;
+  SetDesiredCurrent(surfaces[index]->obj_id.id());
+  CurrentPresenter()->PageShown();
+}
 
 void IOSApp::LayoutPages() {
-  // Pager geometry is laid out before the first publication arrives.
   if (ui_application_) {
     RelayoutPages();
+    ApplyDesiredOffset();
   }
 }
 
@@ -209,26 +245,125 @@ void IOSApp::RelayoutPages() {
   for (std::size_t i = 0; i < count; ++i) {
     IOSSurfacePresenter::ptr presenter{surfaces[i]->presenter};
     UIView* page = (__bridge UIView*)presenter->page_view;
-    page.frame = CGRectMake(page_size.width * i, 0, page_size.width,
-                            page_size.height);
+    page.frame = CGRectMake(page_size.width * static_cast<CGFloat>(i), 0,
+                            page_size.width, page_size.height);
   }
-  pager.contentSize = CGSizeMake(page_size.width * count, page_size.height);
-
-  // Add appends, so show the page that just appeared. Remove keeps the index,
-  // so the nearest surviving page becomes current.
-  if (count > page_count_) {
-    current_index_ = count - 1;
-  } else if (current_index_ >= count) {
-    current_index_ = count - 1;
-  }
+  pager.contentSize =
+      CGSizeMake(page_size.width * static_cast<CGFloat>(count),
+                 page_size.height);
   page_count_ = count;
-  pager.contentOffset = CGPointMake(page_size.width * current_index_, 0);
+}
 
-  controller.removeButton.enabled =
-      CurrentPresenter()->RemovableFromPager() ? YES : NO;
+void IOSApp::ScrollToIndex(std::size_t index, bool animated) {
+  SurfacesRootViewController* controller =
+      (__bridge SurfacesRootViewController*)root_controller_;
+  UIScrollView* pager = controller.pager;
+  CGFloat const width = pager.bounds.size.width;
+  current_index_ = index;
+  applying_model_current_ = true;
+  [pager setContentOffset:CGPointMake(width * static_cast<CGFloat>(index), 0)
+                 animated:animated ? YES : NO];
+  applying_model_current_ = false;
+}
+
+void IOSApp::ApplyDesiredOffset() {
+  std::uint32_t const id = EffectiveCurrentId();
+  if (id == 0) {
+    return;
+  }
+  std::size_t const index = IndexOfSurfaceId(id);
+  ScrollToIndex(index, false);
+}
+
+void IOSApp::SetDesiredCurrent(std::uint32_t surface_id) {
+  desired_current_id_ = surface_id;
+  has_desired_current_ = true;
+}
+
+std::uint32_t IOSApp::ModelCurrentId() const {
+  auto const& current = ui_application_->surfaces->mobile_current;
+  if (!current) {
+    return 0;
+  }
+  return current->obj_id.id();
+}
+
+std::uint32_t IOSApp::EffectiveCurrentId() const {
+  if (has_desired_current_) {
+    for (auto const& surface : ui_application_->surfaces->surfaces) {
+      if (surface->obj_id.id() == desired_current_id_) {
+        return desired_current_id_;
+      }
+    }
+  }
+  return ModelCurrentId();
+}
+
+std::size_t IOSApp::IndexOfSurfaceId(std::uint32_t surface_id) const {
+  auto const& surfaces = ui_application_->surfaces->surfaces;
+  for (std::size_t i = 0; i < surfaces.size(); ++i) {
+    if (surfaces[i]->obj_id.id() == surface_id) {
+      return i;
+    }
+  }
+  return 0;
+}
+
+void IOSApp::EnsureModelCurrentSeeded() {
+  if (ui_application_->surfaces->mobile_current) {
+    SetDesiredCurrent(ModelCurrentId());
+    return;
+  }
+  auto const& surfaces = ui_application_->surfaces->surfaces;
+  if (surfaces.empty()) {
+    return;
+  }
+  SetDesiredCurrent(surfaces[0]->obj_id.id());
+  IOSSurfacePresenter::ptr presenter{surfaces[0]->presenter};
+  presenter->PageShown();
+}
+
+void IOSApp::ReconcileDesiredAfterTopologyChange(std::size_t previous_count) {
+  auto const& surfaces = ui_application_->surfaces->surfaces;
+  std::size_t const count = surfaces.size();
+  if (count == 0) {
+    has_desired_current_ = false;
+    return;
+  }
+  // Add appends: settle on the new page.
+  if (count > previous_count) {
+    SetDesiredCurrent(surfaces[count - 1]->obj_id.id());
+    return;
+  }
+  // Remove: keep desired if still live; else nearest neighbor by prior index.
+  if (has_desired_current_) {
+    for (auto const& surface : surfaces) {
+      if (surface->obj_id.id() == desired_current_id_) {
+        return;
+      }
+    }
+  }
+  std::size_t const neighbor =
+      std::min(current_index_, count - 1);
+  SetDesiredCurrent(surfaces[neighbor]->obj_id.id());
+}
+
+IOSSurfacePresenter::ptr IOSApp::FindLivePresenter(std::uint32_t surface_id) {
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
+    if (surface->obj_id.id() == surface_id) {
+      return IOSSurfacePresenter::ptr{surface->presenter};
+    }
+  }
+  return {};
 }
 
 IOSSurfacePresenter::ptr IOSApp::CurrentPresenter() {
+  std::uint32_t const id = EffectiveCurrentId();
+  if (id != 0) {
+    if (auto presenter = FindLivePresenter(id)) {
+      return presenter;
+    }
+  }
   return IOSSurfacePresenter::ptr{
       ui_application_->surfaces->surfaces[current_index_]->presenter};
 }
