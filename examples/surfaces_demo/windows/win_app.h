@@ -35,6 +35,10 @@ class WinApp {
   void OnInitialPublished();
   void OnIncrementalPublished();
   void QueueAllWindowBounds();
+  // Bring Surfaces::mobile_current (or last Surface) to the top of the Z-order.
+  void RestoreActiveSurfaceZOrder();
+  // Enqueue PageShown for the foreground Surface before geometry snapshot.
+  void QueueForegroundAsCurrent();
   void RequestApplicationStop();
 
   SurfacesModelSession session_;

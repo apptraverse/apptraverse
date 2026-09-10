@@ -84,6 +84,13 @@ LRESULT CALLBACK Win32SurfacePresenter::WndProc(HWND hwnd, UINT msg,
   if (msg == WM_COMMAND && DispatchChildCommand(wparam, lparam)) {
     return 0;
   }
+  if (msg == WM_ACTIVATE) {
+    // Desktop current Surface: persist via mobile_current for z-order restore.
+    if (LOWORD(wparam) != WA_INACTIVE) {
+      presenter->PageShown();
+    }
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+  }
   if (msg == WM_CLOSE) {
     // Native X always requests whole-application stop. Never RemoveSurface.
     PostApplicationStop(presenter->presentation_host);

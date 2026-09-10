@@ -1,6 +1,41 @@
 ---
 Status: implemented, verified locally. Not accepted.
 
+# WINDOWS CURSOR — desktop active Surface Z-order + quiet console
+
+## Identity
+
+- Starting SHA: `cf0b7e6b81f431fc4fe420fb0759c35c7def8a06`
+- Branch: `surfaces-demo` → `origin/surfaces-demo`
+
+## Behavior
+
+- Windows desktop persists the focused Surface via existing
+  `Surfaces::mobile_current` (`WM_ACTIVATE` / shutdown foreground →
+  `PageShown` → `MakeCurrent`).
+- On startup after presenter init: `SetWindowPos(HWND_TOP)` + best-effort
+  `SetForegroundWindow` for `mobile_current` (fallback: last Surface when
+  empty — pre-z-order state dirs).
+- All Surface windows still shown; only the active one is restored on top.
+- Linux/macOS desktop hosts unchanged (still leave `mobile_current` empty).
+
+## Console / logs
+
+- `win32_surfaces_demo` `main`: `FreeConsole()` + `EnableNoninteractiveCrt()`.
+- `aether-objects` built with `AE_NO_DEBUG_LOG=1` (no OBJ_SYS Save spam in
+  Debug).
+
+## Tests
+
+- `apptraverse_surfaces_win32_smoke_test` PASS (includes
+  `TestActiveZOrderRestored`).
+- Manual: activate Surface 2, close, reload → Surface 2 topmost.
+
+Not accepted-by-user.
+
+---
+Status: implemented, verified locally. Not accepted.
+
 # MAC CURSOR — macOS + iOS merge into canonical surfaces-demo
 
 ## Identity

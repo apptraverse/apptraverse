@@ -53,7 +53,8 @@ Deferred relative to surfaces/chat:
 - Node execution / marquee demo
 - Resource / version / cache
 - DPI / screen system events
-- Surface Z-order / active Surface in model (not in desktop UX)
+- Full desktop Z-order stack (Windows restores active Surface only; Linux/macOS
+  desktop Z-order not adapted yet)
 
 ## Canonical current Surface
 
@@ -63,9 +64,12 @@ not a positional numeric index. UI may keep a runtime page index.
 Required APIs: `SetCurrentSurfaceEvent`, `Surface::MakeCurrent()`,
 `SurfacePresenter::PageShown()`.
 
-Desktop leaves `mobile_current` empty for presentation; every Surface window is
-shown. Desktop hosts do not call `PageShown()` / do not change `mobile_current`
-on focus. Mobile/Web report the visible page through `PageShown`.
+Mobile/Web report the visible page through `PageShown`.
+
+Windows desktop also uses `mobile_current` for active-window / Z-order
+restore: `WM_ACTIVATE` → `PageShown`; on startup `SetWindowPos(HWND_TOP)` +
+`SetForegroundWindow` for the persisted current Surface. Linux/macOS desktop
+hosts still leave `mobile_current` empty and do not call `PageShown` on focus.
 
 Web checkpoints `Application::Save` after each model publication, then IDBFS
 sync — browser reload/tab close is not a reliable graceful shutdown. This is

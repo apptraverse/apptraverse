@@ -361,12 +361,103 @@ void TestNativeXKeepsAllSurfaces() {
   std::filesystem::remove_all(dir);
 }
 
+HWND TopSurfacesWindow(DWORD pid) {
+  struct Ctx {
+    DWORD pid;
+    HWND top;
+  } ctx{pid, nullptr};
+  EnumWindows(
+      [](HWND hwnd, LPARAM lparam) -> BOOL {
+        auto* c = reinterpret_cast<Ctx*>(lparam);
+        DWORD window_pid = 0;
+        GetWindowThreadProcessId(hwnd, &window_pid);
+        if (window_pid != c->pid || IsWindowVisible(hwnd) == 0) {
+          return TRUE;
+        }
+        wchar_t name[256]{};
+        if (GetClassNameW(hwnd, name, 256) <= 0 ||
+            wcscmp(name, kSurfacesWindowClass) != 0) {
+          return TRUE;
+        }
+        c->top = hwnd;
+        return FALSE;
+      },
+      reinterpret_cast<LPARAM>(&ctx));
+  return ctx.top;
+}
+
+void TestActiveZOrderRestored() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_zorder";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesModelRegistration();
+  EnsureWin32SurfacePresenterRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s2), BM_CLICK, 0, 0);
+  HWND s3 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &s3,
+                  std::chrono::seconds{30}));
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{10}));
+
+  // Activate Surface 2 so mobile_current / z-order restore targets it.
+  // Prefer SetWindowPos + WM_ACTIVATE: SetForegroundWindow often fails when
+  // the process does not own the foreground (automated smoke / agent host).
+  CHECK(SetWindowPos(s2, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE) != 0);
+  SendMessageW(s2, WM_ACTIVATE, MAKEWPARAM(WA_ACTIVE, FALSE), 0);
+  PumpGui(std::chrono::milliseconds{200});
+  CHECK(TopSurfacesWindow(pid) == s2);
+
+  PostMessageW(s2, WM_CLOSE, 0, 0);
+  gui.join();
+  CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 0);
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  CHECK(application->surfaces->mobile_current);
+  CHECK(application->surfaces->mobile_current->number == 2);
+
+  WinApp app2;
+  std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
+  HWND rs1 = nullptr;
+  HWND rs2 = nullptr;
+  HWND rs3 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &rs1,
+                  std::chrono::seconds{30}));
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &rs2,
+                  std::chrono::seconds{30}));
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &rs3,
+                  std::chrono::seconds{30}));
+  PumpGui(std::chrono::milliseconds{200});
+  CHECK(TopSurfacesWindow(pid) == rs2);
+
+  PostMessageW(rs2, WM_CLOSE, 0, 0);
+  gui2.join();
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::test::TestPresenterHierarchy();
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeXKeepsAllSurfaces();
+  apptraverse::test::TestActiveZOrderRestored();
   std::cout << "surfaces_win32_smoke_test OK\n";
   return 0;
 }

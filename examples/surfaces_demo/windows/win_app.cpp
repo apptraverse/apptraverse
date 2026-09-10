@@ -46,9 +46,45 @@ void WinApp::QueueAllWindowBounds() {
   }
 }
 
+void WinApp::QueueForegroundAsCurrent() {
+  HWND const foreground = GetForegroundWindow();
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
+    Win32SurfacePresenter::ptr presenter{surface->presenter};
+    if (presenter->hwnd == foreground) {
+      presenter->PageShown();
+      return;
+    }
+  }
+}
+
+void WinApp::RestoreActiveSurfaceZOrder() {
+  auto& surfaces = ui_application_->surfaces->surfaces;
+  Surface::ptr target = ui_application_->surfaces->mobile_current;
+  if (!target) {
+    if (surfaces.empty()) {
+      return;
+    }
+    // Pre-z-order state: keep last-created (creation order) on top.
+    target = surfaces.back();
+  }
+  Win32SurfacePresenter::ptr presenter{target->presenter};
+  if (SetWindowPos(presenter->hwnd, HWND_TOP, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowPos HWND_TOP", err);
+  }
+  // Best-effort focus; Z-order is already HWND_TOP. Foreground rights may be
+  // denied when another process owns the foreground.
+  SetForegroundWindow(presenter->hwnd);
+  // Explicit PageShown: WM_ACTIVATE may not fire when already foreground.
+  presenter->PageShown();
+}
+
 void WinApp::RequestApplicationStop() {
-  // Geometry work must be accepted before stop so the model drain Saves it.
+  // Current Surface + geometry must be accepted before stop so Save persists
+  // both mobile_current (z-order) and desktop_*.
   if (ui_application_) {
+    QueueForegroundAsCurrent();
     QueueAllWindowBounds();
   }
   session_.RequestStop();
@@ -98,6 +134,7 @@ void WinApp::OnInitialPublished() {
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
   InitializePresenters(*ui_application_, notify_, &*model_proxy_);
+  RestoreActiveSurfaceZOrder();
   if (DestroyWindow(loading_) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("DestroyWindow Loading", err);

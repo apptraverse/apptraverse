@@ -85,6 +85,10 @@ function(apptraverse_add_pinned_aether_owned_deps)
       "AE_INSTALL OFF"
       "AE_BUILD_TESTS OFF"
   )
+  if(TARGET aether-objects)
+    # Quiet OBJ_SYS / AE_LOG_MACRO spam in Debug product and smoke binaries.
+    target_compile_definitions(aether-objects PRIVATE AE_NO_DEBUG_LOG=1)
+  endif()
   if(MSVC AND TARGET aether-objects)
     target_compile_options(aether-objects PUBLIC /Zc:preprocessor)
   endif()
