@@ -194,13 +194,46 @@ std::uint32_t WebApp::ModelCurrentId() const {
   return current->obj_id.id();
 }
 
-void WebApp::ShowCurrentPage() {
-  auto const& surfaces = ui_application_->surfaces->surfaces;
-  std::uint32_t current_id = ModelCurrentId();
-  // Display fallback until a seed / settle PageShown publication arrives.
-  if (current_id == 0 && !surfaces.empty()) {
-    current_id = surfaces[0]->obj_id.id();
+bool WebApp::SurfaceIsLive(std::uint32_t surface_id) const {
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
+    if (surface->obj_id.id() == surface_id) {
+      return true;
+    }
   }
+  return false;
+}
+
+void WebApp::SetDesiredCurrent(std::uint32_t surface_id) {
+  desired_current_id_ = surface_id;
+  has_desired_current_ = true;
+}
+
+std::uint32_t WebApp::EffectiveCurrentId() const {
+  if (has_desired_current_ && SurfaceIsLive(desired_current_id_)) {
+    return desired_current_id_;
+  }
+  std::uint32_t const model_id = ModelCurrentId();
+  if (model_id != 0) {
+    return model_id;
+  }
+  auto const& surfaces = ui_application_->surfaces->surfaces;
+  if (!surfaces.empty()) {
+    return surfaces[0]->obj_id.id();
+  }
+  return 0;
+}
+
+void WebApp::ShowCurrentPage() {
+  // Drop stale desired when the model has caught up to it.
+  if (has_desired_current_ && ModelCurrentId() == desired_current_id_) {
+    has_desired_current_ = false;
+  }
+  // Drop desired that no longer exists in the live list.
+  if (has_desired_current_ && !SurfaceIsLive(desired_current_id_)) {
+    has_desired_current_ = false;
+  }
+
+  std::uint32_t const current_id = EffectiveCurrentId();
   if (current_id == 0) {
     EM_ASM({
       var tabs = document.querySelectorAll('.surface-tab');
@@ -212,7 +245,7 @@ void WebApp::ShowCurrentPage() {
     return;
   }
   std::uint32_t number = 0;
-  for (auto const& surface : surfaces) {
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
     if (surface->obj_id.id() == current_id) {
       number = surface->number;
       break;
@@ -233,6 +266,7 @@ void WebApp::ShowCurrentPage() {
 
 void WebApp::EnsureModelCurrentSeeded() {
   if (ui_application_->surfaces->mobile_current) {
+    SetDesiredCurrent(ModelCurrentId());
     return;
   }
   auto const& surfaces = ui_application_->surfaces->surfaces;
@@ -243,6 +277,7 @@ void WebApp::EnsureModelCurrentSeeded() {
   if (!presenter) {
     return;
   }
+  SetDesiredCurrent(surfaces[0]->obj_id.id());
   presenter->PageShown();
 }
 
@@ -264,15 +299,20 @@ void WebApp::OnSurfacePageLoaded(std::uint32_t surface_id, std::uint32_t,
   if (structural_apply_in_progress_) {
     auto presenter = FindLivePresenter(surface_id);
     if (presenter) {
+      SetDesiredCurrent(surface_id);
       presenter->PageShown();
     }
   }
 }
 
 void WebApp::OnSurfacePageUnloaded(std::uint32_t surface_id) {
-  // Model already cleared mobile_current when the removed Surface was current.
-  // Host policy: settle on the neighbor at pending_remove_index_.
-  if (ModelCurrentId() != 0 && ModelCurrentId() != surface_id) {
+  if (has_desired_current_ && desired_current_id_ == surface_id) {
+    has_desired_current_ = false;
+  }
+  // Prefer an already-live desired/model current (e.g. Remove raced ahead of
+  // PageShown ACK for a different Surface).
+  if (EffectiveCurrentId() != 0) {
+    ShowCurrentPage();
     return;
   }
   auto const& surfaces = ui_application_->surfaces->surfaces;
@@ -281,8 +321,10 @@ void WebApp::OnSurfacePageUnloaded(std::uint32_t surface_id) {
   }
   std::size_t const index =
       std::min(pending_remove_index_, surfaces.size() - 1);
-  auto presenter = FindLivePresenter(surfaces[index]->obj_id.id());
+  auto const neighbor_id = surfaces[index]->obj_id.id();
+  auto presenter = FindLivePresenter(neighbor_id);
   if (presenter) {
+    SetDesiredCurrent(neighbor_id);
     presenter->PageShown();
   }
 }
@@ -295,6 +337,8 @@ void WebApp::SelectSurface(std::uint32_t surface_id) {
   if (!presenter) {
     return;
   }
+  SetDesiredCurrent(surface_id);
+  ShowCurrentPage();
   presenter->PageShown();
 }
 
@@ -302,10 +346,7 @@ void WebApp::AddCurrent() {
   if (stopped_) {
     return;
   }
-  std::uint32_t current_id = ModelCurrentId();
-  if (current_id == 0 && !ui_application_->surfaces->surfaces.empty()) {
-    current_id = ui_application_->surfaces->surfaces[0]->obj_id.id();
-  }
+  std::uint32_t const current_id = EffectiveCurrentId();
   auto presenter = FindLivePresenter(current_id);
   if (!presenter) {
     return;
@@ -318,10 +359,7 @@ void WebApp::RemoveCurrent() {
     return;
   }
   auto& surfaces = ui_application_->surfaces->surfaces;
-  std::uint32_t current_id = ModelCurrentId();
-  if (current_id == 0 && !surfaces.empty()) {
-    current_id = surfaces[0]->obj_id.id();
-  }
+  std::uint32_t const current_id = EffectiveCurrentId();
   if (surfaces.size() == 1) {
     RequestStop();
     return;

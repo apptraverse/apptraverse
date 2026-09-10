@@ -61,12 +61,17 @@ class WebApp {
   void QueueIndexedDbPersist();
   void SyncTabOrder();
   void ShowCurrentPage();
+  // Presentation intent for Add/Remove/highlight before model publication ACK.
+  // Canonical persistence remains Surfaces::mobile_current.
+  void SetDesiredCurrent(std::uint32_t surface_id);
+  std::uint32_t EffectiveCurrentId() const;
   // After Initial, if model has no mobile_current yet, settle on surfaces[0]
   // the same way the Android pager reports its first page.
   void EnsureModelCurrentSeeded();
   SurfacePresenter::ptr FindLivePresenter(std::uint32_t surface_id);
   // ObjId of Surfaces::mobile_current, or 0 when empty.
   std::uint32_t ModelCurrentId() const;
+  bool SurfaceIsLive(std::uint32_t surface_id) const;
 
   SurfacesModelSession session_;
   std::optional<ModelObjectProxy> model_proxy_;
@@ -74,6 +79,11 @@ class WebApp {
   ae::RamDomainStorage ui_storage_;
   std::unique_ptr<ae::Domain> ui_domain_;
   Application::ptr ui_application_;
+
+  // Runtime-only. Not reflected. Prefer over model for Remove/Add/highlight
+  // until mobile_current catches up (rapid Select races).
+  std::uint32_t desired_current_id_{0};
+  bool has_desired_current_{false};
 
   // True only while ApplySurfacesStructural runs so OnLoad can PageShown a
   // newly added Surface (pager settle on the new page).

@@ -69,17 +69,28 @@ restart restores all windows.
 Linux later: same desktop contract.
 
 **Mobile / Web:** pager or tab strip; `[ Add ] [ Remove current ]` uses
-`Surfaces::mobile_current`. Host reports the visible page via
-`SurfacePresenter::PageShown` → `SetCurrentSurfaceEvent`. Desktop leaves
-`mobile_current` empty (every Surface HWND is shown). Hierarchy:
+`Surfaces::mobile_current` (Surface identity / ObjId reference, not a numeric
+index). Host reports the visible page via `SurfacePresenter::PageShown` →
+`SetCurrentSurfaceEvent`. Desktop leaves `mobile_current` empty (every Surface
+HWND is shown) and ignores it presentation-wise.
+
+Web checkpoints `Application::Save` after each model publication, then IDBFS
+sync — browser reload/tab close is not a reliable graceful shutdown. This is
+host policy, not common SurfacesModelSession.
+
+Hierarchy:
 
 ```
 SurfacePresenter
   ↓
 MobileSurfacePresenter
-  ├─ IOSSurfacePresenter
   └─ AndroidSurfacePresenter
+
+SurfacePresenter
+  └─ WebSurfacePresenter   (not under Mobile)
 ```
+
+Linux/macOS/iOS surfaces ports merge later from the Windows integration branch.
 
 ## Known follow-ups (not this slice)
 

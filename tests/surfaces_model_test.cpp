@@ -630,6 +630,32 @@ void TestCurrentPageReplay() {
   CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[0]);
 }
 
+void TestCurrentPageIdentitySurvivesRemoveBefore() {
+  // Proof that mobile_current is Surface identity, not a list index.
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surfaces& surfaces = *application->surfaces;
+  surfaces.surfaces[0]->AddSurface();
+  surfaces.surfaces[0]->AddSurface();
+  CHECK(surfaces.surfaces.size() == 3);
+  Surface::ptr surface3 = surfaces.surfaces[2];
+  auto const surface3_id = surface3->obj_id;
+
+  surface3->MakeCurrent();
+  CHECK(surfaces.mobile_current);
+  CHECK(surfaces.mobile_current->obj_id == surface3_id);
+  CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[2]);
+
+  surfaces.surfaces[0]->Remove();  // remove a page before current
+  CHECK(surfaces.surfaces.size() == 2);
+  CHECK(surfaces.mobile_current);
+  CHECK(surfaces.mobile_current->obj_id == surface3_id);
+  CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[1]);
+  CHECK(surfaces.surfaces[1]->obj_id == surface3_id);
+}
+
 void TestCurrentPagePersistence() {
   auto dir = TestDir("apptraverse_surfaces_current_persist");
   ae::ObjId surface2_id;
@@ -734,6 +760,7 @@ int main() {
   apptraverse::test::TestBoundsReplay();
   apptraverse::test::TestGeometryPersistence();
   apptraverse::test::TestCurrentPageReplay();
+  apptraverse::test::TestCurrentPageIdentitySurvivesRemoveBefore();
   apptraverse::test::TestCurrentPagePersistence();
   apptraverse::test::TestCurrentPageThroughGuiProxy();
   apptraverse::test::TestNoRttiCompileGuard();
