@@ -1,3 +1,87 @@
+Status: implemented, verified on emulator. Not accepted.
+
+# surfaces_demo — Android pager port
+
+## Starting / final
+
+- Starting HEAD: `7e86814` (origin/prep/deps-objects-assert-mcp-v1).
+- Branch: `feature/surfaces-android-v1` (separate worktree).
+- Windows branch untouched; not merged into the prep branch.
+
+## Toolchain
+
+- SDK `C:/Users/nickc/AppData/Local/Android/Sdk`, NDK `29.0.14206865`, cmake `4.1.2`.
+- AGP 8.7.3, Gradle wrapper 8.9, JDK 20, build-tools 36.0.0.
+- compileSdk 34, targetSdk 34, minSdk 24. ABI: x86_64 only.
+- AVD `Aether_NDK_Smoke_x86_64`, API 34, serial `emulator-5554`.
+- Framework widgets only: no AndroidX, no Compose.
+
+## Presenter hierarchy
+
+`SurfacePresenter` → `MobileSurfacePresenter` → `AndroidSurfacePresenter`,
+sibling to `DesktopSurfacePresenter`. GUI Domain resolves the most-derived
+registered child; no RTTI. Proof of `-fno-rtti` on the real Android command
+line (`compile_commands.json`, `jni_bridge.cpp`):
+`--target=x86_64-none-linux-android24 -DANDROID -std=c++20 -fno-rtti`.
+
+## Presentation
+
+- Single Activity, top bar `[ Add ] [ Remove current ]`, one page per Surface.
+- Pager via `GestureDetector.onFling`; current index is presentation-only.
+- Swipe emits no Event and no publication.
+- Portrait locked in the manifest for this slice; orientation is not persisted.
+
+## Paths
+
+- Add: button → JNI `nativeAddFromSurface(objId)` → current
+  `SurfacePresenter::AddClick()` → `ModelObjectProxy` → model thread.
+- Remove current (count > 1): `RemoveClick()` → `RemoveSurfaceEvent`; the
+  neighbor `min(old_index, new_size - 1)` becomes current without an Event.
+- Remove current on the last page: `SURFACES_LAST_PAGE_STOP` → `RequestStop`;
+  no `RemoveSurfaceEvent`, the Surface stays persisted.
+- Back: `BACK_REQUESTED_STOP` → model stop first, Activity finishes only after
+  `onModelStopped`.
+- Persistence: `DirectoryDomainStorage` under `filesDir/surfaces_state`; no
+  external storage, no permissions.
+
+## Threads / JNI
+
+- Android main thread = GUI thread; `"apptraverse-model"` native thread = model.
+- Publications: model thread → `NativeUiBridge` main-thread Handler → GUI
+  mirror → presenters → page list.
+- JNI carries Surface ObjIds and page numbers only. No model pointers, no
+  `jlong` object pointers, no Java refs in reflected state.
+
+## Emulator verification (`tools/android/run_surfaces_smoke.ps1`)
+
+- Clean start → `SURFACES_PAGES numbers=1, count=1`, page `Surface 1 (1 / 1)`.
+- Add ×2 → `numbers=1,2,3, count=3`; swipes reach `Surface 2`, `Surface 3`.
+- Remove current on `Surface 2` → `numbers=1,3`; neighbor page becomes current.
+- Back → `SURFACES_STATE_SAVED` → `SURFACES_UI_UNLOADED` →
+  `SURFACES_APP_STOPPED`, process gone.
+- Relaunch → `numbers=1,2,3, count=3` restored.
+- Remove down to the last page → `SURFACES_LAST_PAGE_STOP`, save, exit;
+  relaunch shows the surviving `Surface 3` (`count=1`).
+- Logcat free of fatal/assert/SIGSEGV.
+
+## Known limitations
+
+- The presentation current page is not restored after a process restart; the
+  app always opens on the first page. `current` is deliberately absent from the
+  model, and no presentation-level persistence was added.
+- A system kill without a callback loses unsaved state; save happens only on
+  the controlled shutdown path.
+- `apptraverse_surfaces_model_test` is not yet wired into an Android native
+  test target.
+
+## Common files changed
+
+- `examples/surfaces_demo/CMakeLists.txt`: added the `surfaces_demo_mobile`
+  target. The common model and desktop code are unchanged.
+
+Not accepted-by-user.
+
+---
 Status: implemented, verified locally. Not accepted.
 
 # surfaces_demo — Windows semantics + persisted window geometry
