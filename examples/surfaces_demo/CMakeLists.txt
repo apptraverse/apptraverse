@@ -29,6 +29,21 @@ target_link_libraries(surfaces_demo_desktop PUBLIC
 )
 target_compile_features(surfaces_demo_desktop PUBLIC cxx_std_20)
 
+add_library(surfaces_demo_mobile STATIC
+  mobile/mobile_surface_presenter.cpp
+)
+target_include_directories(surfaces_demo_mobile PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/mobile
+  ${CMAKE_CURRENT_SOURCE_DIR}/common
+)
+target_link_libraries(surfaces_demo_mobile PUBLIC
+  surfaces_demo_model
+)
+target_compile_features(surfaces_demo_mobile PUBLIC cxx_std_20)
+
 if(WIN32)
   add_subdirectory(windows)
+endif()
+if(IOS)
+  add_subdirectory(ios)
 endif()

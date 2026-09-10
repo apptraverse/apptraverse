@@ -22,10 +22,10 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push
 5. dynamic_objects cleanup (invariants / Win32 routing) [done]
 6. Disable RTTI + invariant-driven coding policy [done]
 7. surfaces_demo — common model + headless [done]
-8. surfaces_demo — Windows multi-window + persisted geometry [done — THIS]
-9. surfaces_demo — macOS desktop port **[NEXT]**
-10. surfaces_demo — Linux desktop port
-11. surfaces_demo — iOS
+8. surfaces_demo — Windows multi-window + persisted geometry [done]
+9. surfaces_demo — macOS desktop port (parallel branch)
+10. surfaces_demo — Linux desktop port (parallel)
+11. surfaces_demo — iOS simulator port **[NEXT — THIS branch]**
 12. surfaces_demo — Android
 13. surfaces_demo — WASM
 14. shared_node_demo
