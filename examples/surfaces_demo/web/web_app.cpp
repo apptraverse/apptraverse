@@ -87,8 +87,11 @@ void WebApp::ConsumePublication(SurfacesPublicationKind kind) {
     std::lock_guard<std::mutex> lock{session_.mu};
     bytes = session_.channel.TakePublishedCopy();
   }
-  session_.cv.notify_all();
-
+  // Do not notify the model thread until this publication has been applied on
+  // the browser main thread. TakePublishedCopy already clears unread; an early
+  // notify lets the next Add/Remove run and publish while keepalive/DOM work
+  // for this publication is still in progress — that freezes the main thread
+  // under rapid Add. Windows/Android hosts keep their own consume timing.
   if (kind == SurfacesPublicationKind::Initial) {
     ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
     ByteSource in;
@@ -108,9 +111,20 @@ void WebApp::ConsumePublication(SurfacesPublicationKind kind) {
                             &*model_proxy_);
     structural_apply_in_progress_ = false;
   }
-  QueueIndexedDbPersist();
   SyncTabOrder();
   ShowCurrentPage();
+  // Wake the model only after DOM/keepalive for this publication finished.
+  session_.cv.notify_all();
+  // PageShown / IndexedDB save Post after notify so their cv wakeups cannot
+  // start the next Add while this consume was still applying.
+  if (kind == SurfacesPublicationKind::Incremental) {
+    if (std::uint32_t const id = EffectiveCurrentId(); id != 0) {
+      if (auto presenter = FindLivePresenter(id)) {
+        presenter->PageShown();
+      }
+    }
+  }
+  QueueIndexedDbPersist();
 }
 
 void WebApp::QueueIndexedDbPersist() {
@@ -295,13 +309,10 @@ void WebApp::OnSurfacePageLoaded(std::uint32_t surface_id, std::uint32_t,
   if (initializing_presentation_) {
     return;
   }
-  // New page from Add: settle like the Android pager on the new item.
+  // New page from Add: remember desired current. PageShown is emitted from
+  // ConsumePublication after structural_apply_in_progress_ clears.
   if (structural_apply_in_progress_) {
-    auto presenter = FindLivePresenter(surface_id);
-    if (presenter) {
-      SetDesiredCurrent(surface_id);
-      presenter->PageShown();
-    }
+    SetDesiredCurrent(surface_id);
   }
 }
 
@@ -322,10 +333,14 @@ void WebApp::OnSurfacePageUnloaded(std::uint32_t surface_id) {
   std::size_t const index =
       std::min(pending_remove_index_, surfaces.size() - 1);
   auto const neighbor_id = surfaces[index]->obj_id.id();
-  auto presenter = FindLivePresenter(neighbor_id);
-  if (presenter) {
-    SetDesiredCurrent(neighbor_id);
-    presenter->PageShown();
+  SetDesiredCurrent(neighbor_id);
+  ShowCurrentPage();
+  // PageShown after structural apply (ConsumePublication); avoid nesting it
+  // under the keepalive critical section on the browser main thread.
+  if (!structural_apply_in_progress_) {
+    if (auto presenter = FindLivePresenter(neighbor_id)) {
+      presenter->PageShown();
+    }
   }
 }
 

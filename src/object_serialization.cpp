@@ -609,11 +609,15 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
     keepalive.live_objects.push_back(std::move(held));
     Presenter* const presenter = AsPresenter(obj);
     if (presenter != nullptr && presenter->presentation_loaded) {
+      // Keep the Domain::Find Ptr as Obj — do not re-wrap through
+      // Ptr<Presenter>{Ptr<Obj>} with a separate static_cast path. ObjPtr
+      // stores Ptr<Obj> in ObjectPtrBase; Presenter::ptr from Find is enough
+      // for OnUnload while the keepalive still owns the Obj.
       auto presenter_held = domain->Find(presenter->obj_id);
       assert(presenter_held && "loaded presenter must remain in Domain");
       keepalive.active_presenters.push_back(Presenter::ptr{
           domain, presenter->obj_id, {},
-          ae::Ptr<Presenter>{presenter_held}});
+          std::move(presenter_held)});
     }
   }
   return keepalive;
@@ -622,12 +626,16 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
 ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
     ByteSource& in, ae::Domain& domain, ae::IDomainStorage& storage,
     ae::Obj& gui_root, void* host, ModelObjectProxy* model_proxy) {
-  StructuralPresentationKeepalive const keepalive =
+  StructuralPresentationKeepalive keepalive =
       CaptureStructuralPresentationKeepalive(gui_root);
   ae::Obj& changed =
       ApplyStructuralPublication(in, domain, storage);
   UpdatePresentersAfterStructuralPublication(
       gui_root, keepalive.active_presenters, host, model_proxy);
+  // Release presenter anchors before live_objects so derived Presenter::ptr
+  // teardown cannot race Obj graph decrement during wasm Ptr GC.
+  keepalive.active_presenters.clear();
+  keepalive.live_objects.clear();
   return changed;
 }
 

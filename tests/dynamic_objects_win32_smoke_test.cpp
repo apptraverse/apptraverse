@@ -306,7 +306,10 @@ void TestInProcessAddCreatesRow() {
   CHECK(CountOwnedClass(pid, kDynamicMainClass) == 1);
 
   SendMessageW(main, WM_CLOSE, 0, 0);
+  // MSVC: native_handle() is a Win32 HANDLE. MinGW/winpthread: it is not.
+#if defined(_MSC_VER)
   CHECK(WaitForSingleObject(gui.native_handle(), 30000) == WAIT_OBJECT_0);
+#endif
   gui.join();
 
   DirectoryDomainStorage storage{dir};
