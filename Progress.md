@@ -1580,3 +1580,96 @@ Cursor `user-apptraverse` MCP still has no `source_dir` (**BLOCKED**). Local run
 - Do not restore close-during-Loading
 - Not accepted-by-user
 
+
+# WINDOWS CURSOR — finalize Windows + Android + WASM → surfaces-demo
+
+Status: implemented, verified on integration SHA. Not accepted.
+
+## Source SHAs (remote at finalize)
+
+| branch | SHA |
+| --- | --- |
+| `origin/prep/deps-objects-assert-mcp-v1` | `7e86814869384e3d052c452306237ec00f0c6b4a` |
+| `origin/feature/surfaces-android-v1` | `eee06cfb6b997bbb7a946664b0bad4a5cfe4f046` |
+| `origin/feature/surfaces-wasm-v1` | `70f4d27dc6b0ed7418f3fea516fe7f9cf1b6d516` |
+| `origin/integration/surfaces-windows-android-wasm-v1` (pre-fix) | `63039c8be00d77541e35bc55513ead41646b1df3` |
+
+All four are ancestors of the final `surfaces-demo` SHA (merge-base `--is-ancestor` exit 0).
+
+## Fixes after merge (on integration)
+
+1. Structural keepalive: keep `Domain::Find` `Ptr` as Obj ownership; do not
+   re-wrap via `ae::Ptr<Presenter>{presenter_held}`; clear
+   `active_presenters` before `live_objects` after apply.
+2. Web host: defer `PageShown` until after structural apply; delay
+   `session_.cv.notify_all()` until after DOM/keepalive apply so rapid Add
+   cannot publish the next mutation while the previous apply is still on the
+   browser main thread.
+3. MinGW smoke: `#if defined(_MSC_VER)` around `WaitForSingleObject(gui.native_handle())`
+   (`dynamic_objects` / `main_window` win32 smoke).
+4. Playwright smoke: `tools/wasm_surfaces_browser_smoke.py`.
+
+## Common
+
+- Canonical persisted current: `Surfaces::mobile_current` (Surface identity).
+- `SetCurrentSurfaceEvent` / `Surface::MakeCurrent` / `SurfacePresenter::PageShown` present once.
+- Web checkpoint policy preserved (publication → Save → IDBFS); not on Windows/Android session.
+- Compiler RTTI usage: none in production; intentional `dynamic_cast` string check in `dynamic_objects_add_test.cpp` only.
+- CMake isolates `WIN32` / `ANDROID` / `EMSCRIPTEN`.
+
+## Windows (verified)
+
+Incremental tree: `build/win64-ninja-msvc-debug` (MinGW/`-fno-rtti` despite folder name).
+
+PASS: `apptraverse_surfaces_model_test`, `apptraverse_surfaces_win32_smoke_test`,
+`apptraverse_dynamic_objects_add_test`, `apptraverse_dynamic_objects_win32_smoke_test`,
+`apptraverse_presenter_load_order_test`, `apptraverse_publication_channel_test`.
+
+Exes:
+
+- `build/win64-ninja-msvc-debug/tests/apptraverse_surfaces_model_test.exe`
+- `build/win64-ninja-msvc-debug/tests/apptraverse_surfaces_win32_smoke_test.exe`
+- `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_surfaces_demo.exe`
+- `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_surfaces_demo_load_only.exe`
+
+Desktop does not use `mobile_current` for focus/activation.
+
+## Android (verified)
+
+- Script: `tools/android/run_surfaces_smoke.ps1` — PASS on `emulator-5554` (AVD API 34).
+- APK: `examples/surfaces_demo/android/app/build/outputs/apk/debug/app-debug.apk`
+- Incremental Gradle (no clean / no `.cxx` wipe).
+- `-fno-rtti` on Android `jni_bridge.cpp` compile line.
+- Restart restores selected Surface; remove-non-current keeps identity current.
+
+## WASM (verified)
+
+- Tree: `build/wasm-ninja-debug` (`-fno-rtti`, pthreads, COOP/COEP).
+- Artifacts: `build/wasm-ninja-debug/examples/surfaces_demo/web/web_surfaces_demo.{html,js,wasm}`
+- Serve: `tools/serve_wasm.py` → `http://127.0.0.1:8765/web_surfaces_demo.html`
+- Smoke: `tools/wasm_surfaces_browser_smoke.py` — PASS
+  - `crossOriginIsolated=true`, SharedArrayBuffer available
+  - Add ×2, select Surface 2, real browser reload → Surface 2 current
+  - Remove current → topology `[1,3]`
+  - Rapid back-to-back Add ×2 → three tabs (notify-after-apply fix)
+
+## Canonical branch
+
+- `origin/surfaces-demo` = final verified SHA (pushed after this section’s commits).
+- Intermediate remotes deleted only after ancestry proof:
+  - `feature/surfaces-android-v1`
+  - `feature/surfaces-wasm-v1`
+  - `integration/surfaces-windows-android-wasm-v1`
+  - `prep/deps-objects-assert-mcp-v1` (ancestor of `surfaces-demo`)
+
+## Intentionally preserved remotes
+
+- `origin/feature/surfaces-linux-v1`
+- `origin/feature/surfaces-macos-v1`
+- `origin/feature/surfaces-ios-v1`
+
+## Not done (out of Windows Cursor zone)
+
+- Linux GTK3 / macOS / iOS merge
+- SharedNode, chat, AeroAdmin-X, dependency refresh
+
