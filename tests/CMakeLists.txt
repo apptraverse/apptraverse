@@ -372,6 +372,7 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   target_link_libraries(apptraverse_surfaces_macos_smoke_test PRIVATE
     surfaces_demo_distill
     surfaces_demo_desktop
+    surfaces_demo_macos_content
     "-framework AppKit"
     "-framework Foundation"
   )
@@ -382,6 +383,15 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   )
   target_compile_options(apptraverse_surfaces_macos_smoke_test PRIVATE
     $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
+  )
+  # Same as the macOS host: clang++ links, Swift runtime via autolink entries.
+  set_target_properties(apptraverse_surfaces_macos_smoke_test PROPERTIES
+    LINKER_LANGUAGE OBJCXX
+  )
+  target_link_options(apptraverse_surfaces_macos_smoke_test PRIVATE
+    -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
+    -L/usr/lib/swift
+    -Wl,-rpath,/usr/lib/swift
   )
   add_test(
     NAME apptraverse_surfaces_macos_smoke_test

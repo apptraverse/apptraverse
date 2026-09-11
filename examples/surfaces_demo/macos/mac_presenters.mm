@@ -8,6 +8,7 @@
 
 #include "mac_app.h"
 #include "mac_presenters.h"
+#include "mac_surface_content.h"
 
 namespace apptraverse {
 namespace {
@@ -57,20 +58,16 @@ void AppKitFrameToCommonBounds(NSRect frame, std::int32_t* x, std::int32_t* y,
 }  // namespace
 }  // namespace apptraverse
 
-@interface SurfaceWindowDelegate : NSObject <NSWindowDelegate>
+@interface SurfaceWindowDelegate : NSObject <NSWindowDelegate, MacSurfaceActions>
 @property(nonatomic, assign) apptraverse::MacSurfacePresenter* presenter;
-- (void)onAdd:(id)sender;
-- (void)onCloseThis:(id)sender;
 @end
 
 @implementation SurfaceWindowDelegate
-- (void)onAdd:(id)sender {
-  (void)sender;
+- (void)addSurface {
   self.presenter->AddClick();
 }
 
-- (void)onCloseThis:(id)sender {
-  (void)sender;
+- (void)closeThisWindow {
   // Last Close this window: whole-app stop without Remove (Surface persists).
   if (self.presenter->surface->surfaces->surfaces.size() == 1) {
     apptraverse::MacRequestApplicationStop(self.presenter->presentation_host);
@@ -130,34 +127,12 @@ void MacSurfacePresenter::OnLoad() {
   delegate.presenter = this;
   [window setDelegate:delegate];
 
-  NSView* content = [window contentView];
-  // ContentView origin is bottom-left; place controls near the top edge.
-  CGFloat const top_y = NSHeight([content bounds]) - 40.0;
-  NSButton* add = [NSButton buttonWithTitle:@"Add"
-                                    target:delegate
-                                    action:@selector(onAdd:)];
-  if (add == nil) {
-    FatalMac("NSButton Add");
-  }
-  [add setFrame:NSMakeRect(12, top_y, 80, 28)];
-  [add setAutoresizingMask:NSViewMinYMargin];
-  [content addSubview:add];
-
-  NSButton* close_btn =
-      [NSButton buttonWithTitle:@"Close this window"
-                         target:delegate
-                         action:@selector(onCloseThis:)];
-  if (close_btn == nil) {
-    FatalMac("NSButton Close this window");
-  }
-  [close_btn setFrame:NSMakeRect(100, top_y, 160, 28)];
-  [close_btn setAutoresizingMask:NSViewMinYMargin];
-  [content addSubview:close_btn];
+  // SwiftUI owns the window content; AppKit keeps the window itself so
+  // persisted desktop_* bounds and mobile_current z-order stay enforceable.
+  ApptraverseInstallMacSurfaceContent(window, delegate);
 
   this->window = (__bridge_retained void*)window;
   this->window_delegate = (__bridge_retained void*)delegate;
-  this->add_button = (__bridge_retained void*)add;
-  this->close_button = (__bridge_retained void*)close_btn;
 
   // Activates this Surface (windowDidBecomeKey → PageShown). After a full
   // InitializePresenters pass, MacApp::RestoreActiveSurfaceZOrder raises the
@@ -168,16 +143,6 @@ void MacSurfacePresenter::OnLoad() {
 void MacSurfacePresenter::OnModelChanged() {}
 
 void MacSurfacePresenter::OnUnload() {
-  NSButton* add = (__bridge_transfer NSButton*)add_button;
-  add_button = nullptr;
-  [add removeFromSuperview];
-  (void)add;
-
-  NSButton* close_btn = (__bridge_transfer NSButton*)close_button;
-  close_button = nullptr;
-  [close_btn removeFromSuperview];
-  (void)close_btn;
-
   NSWindow* window = (__bridge_transfer NSWindow*)this->window;
   this->window = nullptr;
   [window setDelegate:nil];

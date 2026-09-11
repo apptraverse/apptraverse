@@ -15,6 +15,7 @@
 
 #include "mac_app.h"
 #include "mac_presenters.h"
+#include "mac_surface_actions.h"
 #include "surfaces_ids.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_model.h"
@@ -72,17 +73,14 @@ NSWindow* FindSurfaceWindow(std::uint32_t number) {
   return nil;
 }
 
-NSButton* FindButton(NSWindow* window, NSString* title) {
-  for (NSView* view in [[window contentView] subviews]) {
-    if (![view isKindOfClass:[NSButton class]]) {
-      continue;
-    }
-    auto* button = static_cast<NSButton*>(view);
-    if ([[button title] isEqualToString:title]) {
-      return button;
-    }
+// SwiftUI draws its own button labels in private NSControl subclasses, so the
+// controls are counted rather than matched by title.
+int CountControls(NSView* view) {
+  int count = [view isKindOfClass:[NSControl class]] ? 1 : 0;
+  for (NSView* child in [view subviews]) {
+    count += CountControls(child);
   }
-  return nil;
+  return count;
 }
 
 bool WaitSurfaceCount(int expected, std::chrono::milliseconds timeout) {
@@ -115,11 +113,21 @@ bool WaitSurface(std::uint32_t number, NSWindow* __strong* out,
   return false;
 }
 
-void ClickButton(NSWindow* window, NSString* title) {
+// Production boundary the SwiftUI content view calls on every press. SwiftUI's
+// own rendering is not asserted here; window geometry / z-order below is.
+void ClickAdd(NSWindow* window) {
   RunOnMain(^{
-    NSButton* button = FindButton(window, title);
-    CHECK(button != nil);
-    [button performClick:nil];
+    id<MacSurfaceActions> actions = (id<MacSurfaceActions>)[window delegate];
+    CHECK(actions != nil);
+    [actions addSurface];
+  });
+}
+
+void ClickCloseThis(NSWindow* window) {
+  RunOnMain(^{
+    id<MacSurfaceActions> actions = (id<MacSurfaceActions>)[window delegate];
+    CHECK(actions != nil);
+    [actions closeThisWindow];
   });
 }
 
@@ -219,11 +227,15 @@ void TestCloseButtonRemovesOne() {
       CHECK(WaitSurface(1, &s1, std::chrono::seconds{60}));
       auto* p1 = PresenterForWindow(s1);
       CHECK(p1->GetClassId() == MacSurfacePresenter::kClassId);
+      // SwiftUI content view is installed with both Surface controls.
+      __block int controls = 0;
+      RunOnMain(^{ controls = CountControls([s1 contentView]); });
+      CHECK(controls >= 2);
 
-      ClickButton(s1, @"Add");
+      ClickAdd(s1);
       NSWindow* s2 = nil;
       CHECK(WaitSurface(2, &s2, std::chrono::seconds{30}));
-      ClickButton(s2, @"Add");
+      ClickAdd(s2);
       NSWindow* s3 = nil;
       CHECK(WaitSurface(3, &s3, std::chrono::seconds{30}));
       CHECK(WaitSurfaceCount(3, std::chrono::seconds{10}));
@@ -231,14 +243,14 @@ void TestCloseButtonRemovesOne() {
       void* const s1_id = (__bridge void*)s1;
       void* const s3_id = (__bridge void*)s3;
 
-      ClickButton(s2, @"Close this window");
+      ClickCloseThis(s2);
       CHECK(WaitSurfaceCount(2, std::chrono::seconds{30}));
       CHECK(WaitSurface(1, &s1, std::chrono::seconds{5}));
       CHECK(WaitSurface(3, &s3, std::chrono::seconds{5}));
       CHECK((__bridge void*)s1 == s1_id);
       CHECK((__bridge void*)s3 == s3_id);
 
-      ClickButton(s3, @"Add");
+      ClickAdd(s3);
       NSWindow* s4 = nil;
       CHECK(WaitSurface(4, &s4, std::chrono::seconds{30}));
       CHECK(WaitSurfaceCount(3, std::chrono::seconds{10}));
@@ -327,10 +339,10 @@ void TestNativeXKeepsAllSurfaces() {
       }
       NSWindow* s1 = nil;
       CHECK(WaitSurface(1, &s1, std::chrono::seconds{60}));
-      ClickButton(s1, @"Add");
+      ClickAdd(s1);
       NSWindow* s2 = nil;
       CHECK(WaitSurface(2, &s2, std::chrono::seconds{30}));
-      ClickButton(s2, @"Add");
+      ClickAdd(s2);
       NSWindow* s3 = nil;
       CHECK(WaitSurface(3, &s3, std::chrono::seconds{30}));
       CHECK(WaitSurfaceCount(3, std::chrono::seconds{10}));
@@ -382,13 +394,13 @@ void TestNativeXKeepsAllSurfaces() {
       CHECK(FrameNear(WindowFrame(rs2), r2, 2.0));
       CHECK(FrameNear(WindowFrame(rs3), r3, 2.0));
 
-      ClickButton(rs2, @"Close this window");
+      ClickCloseThis(rs2);
       CHECK(WaitSurfaceCount(2, std::chrono::seconds{30}));
-      ClickButton(rs1, @"Close this window");
+      ClickCloseThis(rs1);
       CHECK(WaitSurfaceCount(1, std::chrono::seconds{30}));
       NSWindow* last = nil;
       CHECK(WaitSurface(3, &last, std::chrono::seconds{5}));
-      ClickButton(last, @"Close this window");
+      ClickCloseThis(last);
       while (!finished.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
       }
@@ -429,10 +441,10 @@ void TestActiveZOrderRestored() {
       }
       NSWindow* s1 = nil;
       CHECK(WaitSurface(1, &s1, std::chrono::seconds{60}));
-      ClickButton(s1, @"Add");
+      ClickAdd(s1);
       NSWindow* s2 = nil;
       CHECK(WaitSurface(2, &s2, std::chrono::seconds{30}));
-      ClickButton(s2, @"Add");
+      ClickAdd(s2);
       NSWindow* s3 = nil;
       CHECK(WaitSurface(3, &s3, std::chrono::seconds{30}));
       CHECK(WaitSurfaceCount(3, std::chrono::seconds{10}));

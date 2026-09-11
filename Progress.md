@@ -1,4 +1,57 @@
 ---
+Status: implemented, verified locally on macOS. Not accepted.
+
+# MAC CURSOR — macOS SwiftUI view layer
+
+## Identity
+
+- Starting SHA: `3055daee7cf34220c29971b8714f98aef3894366`
+- Branch: `surfaces-demo`
+- Final SHA: recorded below after commit
+
+## Behavior
+
+- Per-Surface window content is now SwiftUI (`SurfaceContentView.swift`,
+  `NSHostingView`). The two `NSButton`s are gone, and the presenter no longer
+  owns `add_button` / `close_button`.
+- `MacSurfacePresenter` still owns the `NSWindow`, so persisted `desktop_*`
+  bounds, `mobile_current` Z-order restore, red-X app stop, and
+  Close-this-window Remove semantics are unchanged.
+- Boundary: SwiftUI → `id<MacSurfaceActions>` (pure ObjC protocol adopted by
+  the existing `SurfaceWindowDelegate`) → presenter → model event. The single
+  ObjC++ → Swift call is `@_cdecl ApptraverseInstallMacSurfaceContent`.
+- No `WindowGroup` / SwiftUI app lifecycle: the window set stays model-driven.
+
+## Toolchain
+
+- Xcode 15.2 / Swift 5.9.2 with C++ on `clang++-mp-20`.
+- Swift target `surfaces_demo_macos_content` (static, own target — Swift cannot
+  share a target with ObjC++); `-import-objc-header mac_surface_actions.h`;
+  `CMAKE_Swift_FLAGS` must pass `-sdk` explicitly.
+- Executables and the smoke test pin `LINKER_LANGUAGE OBJCXX` plus Swift
+  runtime search paths: the Swift driver rejects `-fno-rtti`.
+- `-fno-rtti` still applied to all OBJCXX TUs; no generated `-Swift.h`
+  (it requires clang modules, unavailable under `clang++-mp-20`).
+
+## Tests
+
+- `apptraverse_surfaces_macos_smoke_test` PASS (4 cases, including
+  `TestActiveZOrderRestored` and a new assertion that the SwiftUI content view
+  is installed with both Surface controls).
+- Click simulation now drives `MacSurfaceActions` instead of `NSButton` titles:
+  SwiftUI macOS buttons are private `NSControl` subclasses with no title or
+  `accessibilityIdentifier` on the `NSView`, and SwiftUI populates its
+  accessibility tree only for an attached AX client (verified by spike).
+
+## Known limitations
+
+- SwiftUI's own rendering is not asserted headlessly; only that controls exist.
+- iOS host is still UIKit (next slice).
+- Swift compiles are slow on this Intel host (first SwiftUI build ~6 min).
+
+Not accepted-by-user.
+
+---
 Status: implemented. Not accepted.
 
 # MAC CURSOR — macOS demo auto-close with existing state

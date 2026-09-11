@@ -9,7 +9,8 @@ namespace apptraverse {
 
 void EnsureMacSurfacePresenterRegistration();
 
-// AppKit NSWindow per Surface. Objective-C types stay in .mm (void* bridges).
+// AppKit NSWindow per Surface, SwiftUI content (SurfaceContentView.swift).
+// Objective-C types stay in .mm (void* bridges).
 // Coordinate contract: Surface desktop_* = top-left outer frame. Conversion to
 // AppKit bottom-left frames uses the primary screen only (no multi-monitor).
 class MacSurfacePresenter : public DesktopSurfacePresenter {
@@ -33,10 +34,9 @@ class MacSurfacePresenter : public DesktopSurfacePresenter {
   // Snapshot NSWindow frame → common top-left bounds → UpdateModelBounds.
   void QueueCurrentBounds();
 
-  // Bridged NSWindow* / NSButton* / SurfaceWindowDelegate* (ARC retained).
+  // Bridged NSWindow* / SurfaceWindowDelegate* (ARC retained). Controls live
+  // in the SwiftUI content view and are not owned here.
   void* window{nullptr};
-  void* add_button{nullptr};
-  void* close_button{nullptr};
   void* window_delegate{nullptr};
 };
 

@@ -23,7 +23,7 @@ Included on that branch:
 - Android / Android Emulator (pager, `mobile_current`)
 - Web / Emscripten / WASM (tabs, IndexedDB checkpoint)
 - Linux desktop — **X11/Xlib** (`LinuxSurfacePresenter`)
-- macOS desktop — **AppKit** (`MacSurfacePresenter`)
+- macOS desktop — **SwiftUI content in an AppKit window** (`MacSurfacePresenter`)
 - iOS / iPhone Simulator — **UIKit** (`IOSSurfacePresenter`)
 
 All current platform ports are merged.
@@ -75,6 +75,43 @@ sync — browser reload/tab close is not a reliable graceful shutdown. This is
 **Web-host policy only**, not common `SurfacesModelSession`, and must not be
 copied onto Windows/Android/Linux/macOS/iOS.
 
+## SwiftUI view layer (Apple platforms)
+
+SwiftUI owns window/page **content**. It does not own the window set, window
+lifecycle, frames, or Z-order: those follow from the model graph
+(`Surfaces::surfaces`, `desktop_*`, `mobile_current`) and stay with the
+presenter. `WindowGroup` is deliberately not used — it would move the window
+set into SwiftUI scene storage and break both the geometry contract and
+`RestoreActiveSurfaceZOrder`.
+
+Boundary (macOS, mirrored on iOS when ported):
+
+```
+SwiftUI view (SurfaceContentView.swift)
+  → id<MacSurfaceActions>   (pure Objective-C protocol; SurfaceWindowDelegate)
+  → MacSurfacePresenter     (AddClick / RemoveClick / PageShown)
+  → ModelObjectProxy → model event
+```
+
+Two constraints fix this shape:
+
+- Swift's clang importer is Xcode's (Apple Clang 15) and cannot parse pinned
+  `aether-miscpp` C++, while the C++ needs `clang++-mp-20`. So the
+  Swift-visible header is pure Objective-C and all C++ stays in `.mm`.
+- The single ObjC++ → Swift call is `@_cdecl`
+  (`ApptraverseInstallMacSurfaceContent`): it installs an `NSHostingView` into
+  the presenter's window. No generated `-Swift.h` (that header needs clang
+  modules, unavailable under `clang++-mp-20`) and no object ownership crosses
+  the boundary.
+- Swift targets link with the ObjC++ driver (`LINKER_LANGUAGE OBJCXX`); the
+  Swift driver rejects the C++ policy flags such as `-fno-rtti`.
+
+SwiftUI macOS buttons are private `NSControl` subclasses with no title and no
+`accessibilityIdentifier` on the `NSView`, and SwiftUI builds its accessibility
+tree only for an attached AX client. Native smoke tests therefore drive
+`MacSurfaceActions` (the production boundary SwiftUI calls) and keep native
+assertions for window geometry, key window, and Z-order.
+
 ## Presenter hierarchy
 
 ```
@@ -104,6 +141,8 @@ SurfacePresenter
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.
 - Linux host remains X11/Xlib (not GTK3).
+- iOS host is still UIKit; SwiftUI content port mirrors the macOS boundary
+  (`IOSSurfaceActions` protocol + `@_cdecl` installer into the page view).
 
 ## Cross-platform invariant (foundation)
 
