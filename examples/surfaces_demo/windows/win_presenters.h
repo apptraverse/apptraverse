@@ -59,6 +59,11 @@ class Win32SurfacePresenter : public DesktopSurfacePresenter {
 
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);
+
+ private:
+  // Place Add / Close according to the current client aspect ratio. Not model
+  // state: recomputed from GetClientRect on create and every WM_SIZE.
+  void LayoutControls();
 };
 
 }  // namespace apptraverse

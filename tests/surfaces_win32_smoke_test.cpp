@@ -451,6 +451,96 @@ void TestActiveZOrderRestored() {
   std::filesystem::remove_all(dir);
 }
 
+void PlaceClientSize(HWND hwnd, int client_w, int client_h) {
+  RECT desired{0, 0, client_w, client_h};
+  auto const style =
+      static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_STYLE));
+  auto const ex_style =
+      static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
+  CHECK(AdjustWindowRectEx(&desired, style, FALSE, ex_style) != 0);
+  RECT window{};
+  CHECK(GetWindowRect(hwnd, &window) != 0);
+  PlaceWindow(hwnd, window.left, window.top, desired.right - desired.left,
+              desired.bottom - desired.top);
+  RECT client{};
+  CHECK(GetClientRect(hwnd, &client) != 0);
+  int const width = client.right - client.left;
+  int const height = client.bottom - client.top;
+  if (client_w > client_h) {
+    CHECK(width > height);
+  } else {
+    CHECK(width <= height);
+  }
+}
+
+RECT ScreenRect(HWND hwnd) {
+  RECT rect{};
+  CHECK(GetWindowRect(hwnd, &rect) != 0);
+  return rect;
+}
+
+void ExpectHorizontalButtons(HWND surface) {
+  RECT const add = ScreenRect(FindAddButton(surface));
+  RECT const close = ScreenRect(FindCloseButton(surface));
+  CHECK(add.left < close.left);
+  CHECK(std::abs(add.top - close.top) <= 2);
+}
+
+void ExpectVerticalButtons(HWND surface) {
+  RECT const add = ScreenRect(FindAddButton(surface));
+  RECT const close = ScreenRect(FindCloseButton(surface));
+  CHECK(add.top < close.top);
+  CHECK(std::abs(add.left - close.left) <= 2);
+}
+
+void TestControlsFollowClientAspectRatio() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_aspect_layout";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesModelRegistration();
+  EnsureWin32SurfacePresenterRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  CHECK(FindAddButton(s1) != nullptr);
+  CHECK(FindCloseButton(s1) != nullptr);
+
+  PlaceClientSize(s1, 800, 400);
+  ExpectHorizontalButtons(s1);
+
+  PlaceClientSize(s1, 400, 800);
+  ExpectVerticalButtons(s1);
+
+  PlaceClientSize(s1, 500, 500);
+  ExpectVerticalButtons(s1);
+
+  // Live switch back to landscape without recreating the window.
+  PlaceClientSize(s1, 700, 300);
+  ExpectHorizontalButtons(s1);
+
+  // Add still works after layout switches.
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  PlaceClientSize(s2, 360, 640);
+  ExpectVerticalButtons(s2);
+  SendMessageW(FindCloseButton(s2), BM_CLICK, 0, 0);
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 1, std::chrono::seconds{30}));
+  CHECK(IsWindow(s1) != 0);
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
@@ -458,6 +548,7 @@ int main() {
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeXKeepsAllSurfaces();
   apptraverse::test::TestActiveZOrderRestored();
+  apptraverse::test::TestControlsFollowClientAspectRatio();
   std::cout << "surfaces_win32_smoke_test OK\n";
   return 0;
 }

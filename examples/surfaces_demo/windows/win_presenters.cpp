@@ -84,6 +84,10 @@ LRESULT CALLBACK Win32SurfacePresenter::WndProc(HWND hwnd, UINT msg,
   if (msg == WM_COMMAND && DispatchChildCommand(wparam, lparam)) {
     return 0;
   }
+  if (msg == WM_SIZE) {
+    presenter->LayoutControls();
+    return 0;
+  }
   if (msg == WM_ACTIVATE) {
     // Desktop current Surface: persist via mobile_current for z-order restore.
     if (LOWORD(wparam) != WA_INACTIVE) {
@@ -112,8 +116,8 @@ void Win32SurfacePresenter::OnLoad() {
   }
   SetHwndUserData(hwnd, this);
   add_button = CreateWindowExW(
-      0, L"BUTTON", L"Add", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 12, 12, 80,
-      28, hwnd,
+      0, L"BUTTON", L"Add", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0,
+      hwnd,
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSurfaceAddButtonId)),
       GetModuleHandleW(nullptr), nullptr);
   if (add_button == nullptr) {
@@ -123,7 +127,7 @@ void Win32SurfacePresenter::OnLoad() {
   SetHwndUserData(add_button, static_cast<Presenter*>(this));
   close_button = CreateWindowExW(
       0, L"BUTTON", L"Close this window", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-      100, 12, 160, 28, hwnd,
+      0, 0, 0, 0, hwnd,
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSurfaceCloseButtonId)),
       GetModuleHandleW(nullptr), nullptr);
   if (close_button == nullptr) {
@@ -131,8 +135,48 @@ void Win32SurfacePresenter::OnLoad() {
     FatalWin32("CreateWindowExW Close this window", err);
   }
   SetHwndUserData(close_button, static_cast<Presenter*>(this));
+  LayoutControls();
   ShowWindow(hwnd, SW_SHOW);
   UpdateWindow(hwnd);
+}
+
+void Win32SurfacePresenter::LayoutControls() {
+  RECT client{};
+  if (GetClientRect(hwnd, &client) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("GetClientRect Surface", err);
+  }
+  int const width = client.right - client.left;
+  int const height = client.bottom - client.top;
+
+  // Same control sizes the previous fixed CreateWindowEx positions used.
+  constexpr int kMargin = 12;
+  constexpr int kGap = 8;
+  constexpr int kAddW = 80;
+  constexpr int kAddH = 28;
+  constexpr int kCloseW = 160;
+  constexpr int kCloseH = 28;
+
+  int add_x = kMargin;
+  int add_y = kMargin;
+  int close_x = kMargin;
+  int close_y = kMargin;
+  if (width > height) {
+    close_x = kMargin + kAddW + kGap;
+  } else {
+    close_y = kMargin + kAddH + kGap;
+  }
+
+  if (SetWindowPos(add_button, nullptr, add_x, add_y, kAddW, kAddH,
+                   SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowPos Add", err);
+  }
+  if (SetWindowPos(close_button, nullptr, close_x, close_y, kCloseW, kCloseH,
+                   SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowPos Close this window", err);
+  }
 }
 
 void Win32SurfacePresenter::OnModelChanged() {}
