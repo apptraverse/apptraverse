@@ -1,6 +1,7 @@
 package com.apptraverse.surfaces;
 
 import android.app.Activity;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.GestureDetector;
@@ -16,9 +17,9 @@ import android.widget.TextView;
  * reported to the model so a restart reopens it. The page list and the
  * persisted current page come from the native runtime after every publication.
  *
- * Usable host size is measured here and reported to the model. Button row
- * orientation follows SurfacePresenter::IsWide from the published mirror —
- * not Android's orientation enum.
+ * Screen rotation / host resize reports usable presentation size to the model
+ * Event path. Button row orientation follows SurfacePresenter::IsWide from the
+ * published mirror — not Android's orientation enum.
  */
 public final class MainActivity extends Activity implements NativeUiBridge.Listener {
 
@@ -115,6 +116,22 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     applyControlsOrientation(controlsWide);
     Log.i(TAG, "ACTIVITY_CREATED instance="
         + Integer.toHexString(System.identityHashCode(this)));
+  }
+
+  @Override
+  public void onConfigurationChanged(Configuration newConfig) {
+    super.onConfigurationChanged(newConfig);
+    // Rotation is handled here (manifest configChanges). Do not switch
+    // controls from newConfig.orientation — only report the new host size;
+    // IsWide after publication rebuilds the UI.
+    rootContent.requestLayout();
+    rootContent.post(new Runnable() {
+      @Override
+      public void run() {
+        reportHostPresentationSize(rootContent.getWidth(),
+            rootContent.getHeight());
+      }
+    });
   }
 
   @Override
