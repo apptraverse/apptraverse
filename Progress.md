@@ -7,7 +7,7 @@ Status: implemented. Not accepted.
 
 - Starting SHA: `0296b03676a091fba0f96e35dd0729dce3e1abaa`
 - Branch: `surfaces-demo`
-- Final SHA: _(pending commit)_
+- Final SHA: `cc1abaccc9a14f439d299bda73e0a3168d5dbf4d`
 
 ## Root cause
 
