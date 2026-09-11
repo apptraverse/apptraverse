@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
@@ -821,6 +822,91 @@ void TestFindLiveReachableNodeOnModelGraph() {
   CHECK(FindLiveReachableNode(*application, surface2_id) == nullptr);
 }
 
+// While the GUI holds one unread publication the model keeps running: two
+// Adds land as two Events but coalesce into one later publication. The GUI
+// then catches up in two applies without disturbing surviving presenters.
+void TestGuiCatchUpCoalescesPublicationsNotEvents() {
+  TestSurfacePresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_surfaces_gui_catchup");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+
+  WaitPublished(session);
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  InitializePresenters(*ui_app, nullptr, nullptr);
+  Surfaces* const ui_surfaces = &*ui_app->surfaces;
+  CHECK(ui_surfaces->surfaces.size() == 1);
+  Surface* const ui_a = &*ui_surfaces->surfaces[0];
+  Presenter* const ui_a_presenter = &*ui_a->presenter;
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 1);
+  CHECK(session.channel.publish_count() == 1);
+
+  std::uint32_t model_a = 0;
+  std::uint32_t model_b = 0;
+  std::uint32_t model_c = 0;
+  RunOnModel(session, [&](Application& app) {
+    model_a = app.surfaces->surfaces[0]->obj_id.id();
+    app.surfaces->surfaces[0]->AddSurface();
+    model_b = app.surfaces->surfaces[1]->obj_id.id();
+  });
+  WaitPublished(session);
+  CHECK(session.channel.publish_count() == 2);
+
+  // Model keeps working with the publication unread; the second Add is a
+  // second journal Event but cannot get its own publication yet.
+  RunOnModel(session, [&](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
+    CHECK(app.surfaces->surfaces.size() == 3);
+    model_c = app.surfaces->surfaces[2]->obj_id.id();
+    CHECK(app.surfaces->journal.size() == 2);
+    CHECK(app.surfaces->journal[0].event->GetClassId() ==
+          AddSurfaceEvent::kClassId);
+    CHECK(app.surfaces->journal[1].event->GetClassId() ==
+          AddSurfaceEvent::kClassId);
+  });
+  CHECK(session.channel.publish_count() == 2);
+
+  // First catch-up apply: the snapshot taken before C existed.
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(ui_surfaces->surfaces.size() == 2);
+  CHECK(&*ui_surfaces->surfaces[0] == ui_a);
+  CHECK(&*ui_a->presenter == ui_a_presenter);
+  CHECK(ui_surfaces->surfaces[0]->obj_id.id() == model_a);
+  CHECK(ui_surfaces->surfaces[1]->obj_id.id() == model_b);
+  Surface* const ui_b = &*ui_surfaces->surfaces[1];
+  Presenter* const ui_b_presenter = &*ui_b->presenter;
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
+
+  // Second catch-up apply: the coalesced publication for C.
+  WaitPublished(session);
+  CHECK(session.channel.publish_count() == 3);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(ui_surfaces->surfaces.size() == 3);
+  CHECK(&*ui_surfaces->surfaces[0] == ui_a);
+  CHECK(&*ui_a->presenter == ui_a_presenter);
+  CHECK(&*ui_surfaces->surfaces[1] == ui_b);
+  CHECK(&*ui_b->presenter == ui_b_presenter);
+  CHECK(ui_surfaces->surfaces[0]->obj_id.id() == model_a);
+  CHECK(ui_surfaces->surfaces[1]->obj_id.id() == model_b);
+  CHECK(ui_surfaces->surfaces[2]->obj_id.id() == model_c);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
+  CHECK(TestSurfacePresenter::loaded_ids.size() == 3);
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
 // A Node dirtied before removal must not produce a publication afterwards:
 // its pending entry is dropped instead of resurrecting it in the GUI.
 void TestPendingPublicationDroppedForRemovedNode() {
@@ -896,6 +982,134 @@ void TestPendingPublicationDroppedForRemovedNode() {
   std::filesystem::remove_all(dir);
 }
 
+// A Node created and then changed before the GUI catches up must arrive once,
+// with the later field state, and must not reload its presenter.
+void TestNewChildChangedBeforeGuiCatchUp() {
+  TestSurfacePresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_surfaces_new_child_changed");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+
+  WaitPublished(session);
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  InitializePresenters(*ui_app, nullptr, nullptr);
+  Surfaces* const ui_surfaces = &*ui_app->surfaces;
+
+  RunOnModel(session,
+             [](Application& app) { app.surfaces->surfaces[0]->AddSurface(); });
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(ui_surfaces->surfaces.size() == 2);
+
+  // Hold the [A,B,C] snapshot unread, then change the brand new C.
+  std::uint32_t model_c = 0;
+  RunOnModel(session, [&](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
+    model_c = app.surfaces->surfaces[2]->obj_id.id();
+  });
+  WaitPublished(session);
+  RunOnModel(session, [](Application& app) {
+    app.surfaces->surfaces[2]->SetDesktopBounds(17, 29, 341, 251);
+  });
+
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(ui_surfaces->surfaces.size() == 3);
+  Surface* const ui_c = &*ui_surfaces->surfaces[2];
+  Presenter* const ui_c_presenter = &*ui_c->presenter;
+  CHECK(ui_c->obj_id.id() == model_c);
+  CHECK(ui_c->desktop_x != 17);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(ui_surfaces->surfaces.size() == 3);
+  CHECK(&*ui_surfaces->surfaces[2] == ui_c);
+  CHECK(&*ui_c->presenter == ui_c_presenter);
+  CHECK(ui_c->desktop_x == 17);
+  CHECK(ui_c->desktop_y == 29);
+  CHECK(ui_c->desktop_width == 341);
+  CHECK(ui_c->desktop_height == 251);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
+// ObjId::GenerateUnique is one process-wide generator. Two model threads
+// creating Surfaces at the same time must not hand out the same identity.
+void TestConcurrentSessionsGenerateDistinctObjIds() {
+  auto dir_a = TestDir("apptraverse_surfaces_concurrent_ids_a");
+  auto dir_b = TestDir("apptraverse_surfaces_concurrent_ids_b");
+
+  SurfacesModelSession session_a;
+  SurfacesModelSession session_b;
+  session_a.state_dir = dir_a;
+  session_b.state_dir = dir_b;
+
+  std::thread model_a{[&] { session_a.Run([](SurfacesPublicationKind) {}); }};
+  std::thread model_b{[&] { session_b.Run([](SurfacesPublicationKind) {}); }};
+  WaitPublished(session_a);
+  WaitPublished(session_b);
+  (void)TakeAndWake(session_a);
+  (void)TakeAndWake(session_b);
+
+  constexpr int kAddsPerSession = 24;
+  std::vector<std::uint32_t> ids_a;
+  std::vector<std::uint32_t> ids_b;
+  std::atomic<bool> start{false};
+
+  auto drive = [&](SurfacesModelSession& session,
+                   std::vector<std::uint32_t>& ids) {
+    while (!start.load(std::memory_order_acquire)) {
+      std::this_thread::yield();
+    }
+    for (int i = 0; i < kAddsPerSession; ++i) {
+      RunOnModel(session, [&](Application& app) {
+        app.surfaces->surfaces[0]->AddSurface();
+        Surface& added = *app.surfaces->surfaces.back();
+        ids.push_back(added.obj_id.id());
+        ids.push_back(added.base.id().id());
+        ids.push_back(added.presenter.id().id());
+      });
+    }
+  };
+
+  std::thread driver_a{[&] { drive(session_a, ids_a); }};
+  std::thread driver_b{[&] { drive(session_b, ids_b); }};
+  start.store(true, std::memory_order_release);
+  driver_a.join();
+  driver_b.join();
+
+  session_a.RequestStop();
+  session_b.RequestStop();
+  model_a.join();
+  model_b.join();
+
+  CHECK(ids_a.size() == static_cast<std::size_t>(kAddsPerSession) * 3);
+  CHECK(ids_b.size() == static_cast<std::size_t>(kAddsPerSession) * 3);
+  std::unordered_set<std::uint32_t> seen;
+  for (auto const& ids : {ids_a, ids_b}) {
+    for (std::uint32_t id : ids) {
+      CHECK(id != 0);
+      CHECK(seen.insert(id).second);
+    }
+  }
+
+  std::filesystem::remove_all(dir_a);
+  std::filesystem::remove_all(dir_b);
+}
+
 void TestNoRttiCompileGuard() {
 #if defined(_CPPRTTI) || defined(__GXX_RTTI)
   CHECK(false && "surfaces targets must compile with RTTI disabled");
@@ -921,6 +1135,9 @@ void TestTwoIndependentSessionsIsolation() {
 
   WaitPublished(session_a);
   WaitPublished(session_b);
+  // One initial publication each; neither session sees the other's channel.
+  CHECK(session_a.channel.publish_count() == 1);
+  CHECK(session_b.channel.publish_count() == 1);
   (void)TakeAndWake(session_a);
   (void)TakeAndWake(session_b);
 
@@ -958,6 +1175,10 @@ void TestTwoIndependentSessionsIsolation() {
 
   WaitPublished(session_a);
   WaitPublished(session_b);
+  // Exactly one incremental publication each: one session's work never
+  // advances the other's channel.
+  CHECK(session_a.channel.publish_count() == 2);
+  CHECK(session_b.channel.publish_count() == 2);
   auto bytes_a = TakeAndWake(session_a);
   auto bytes_b = TakeAndWake(session_b);
   CHECK(!bytes_a.empty());
@@ -968,6 +1189,8 @@ void TestTwoIndependentSessionsIsolation() {
   // Stop A fully; B must keep accepting work and publishing.
   session_a.RequestStop();
   model_a.join();
+  auto const a_final_publishes = session_a.channel.publish_count();
+  CHECK(a_final_publishes == 2);
 
   {
     std::promise<void> done;
@@ -1003,6 +1226,9 @@ void TestTwoIndependentSessionsIsolation() {
   }
   WaitPublished(session_b);
   (void)TakeAndWake(session_b);
+  // B advanced twice more after A stopped; A's counter never moved again.
+  CHECK(session_b.channel.publish_count() == 4);
+  CHECK(session_a.channel.publish_count() == a_final_publishes);
 
   session_b.RequestStop();
   model_b.join();
@@ -1213,7 +1439,10 @@ int main() {
   apptraverse::test::TestCurrentPageThroughGuiProxy();
   apptraverse::test::TestNotifierNeverBindsNodeBase();
   apptraverse::test::TestFindLiveReachableNodeOnModelGraph();
+  apptraverse::test::TestGuiCatchUpCoalescesPublicationsNotEvents();
   apptraverse::test::TestPendingPublicationDroppedForRemovedNode();
+  apptraverse::test::TestNewChildChangedBeforeGuiCatchUp();
+  apptraverse::test::TestConcurrentSessionsGenerateDistinctObjIds();
   apptraverse::test::TestNoRttiCompileGuard();
   apptraverse::test::TestTwoIndependentSessionsIsolation();
   apptraverse::test::TestModelWorkRunsWhilePublicationUnread();
