@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <mutex>
@@ -122,6 +123,23 @@ ModelObjectProxy MakeSessionProxy(SurfacesModelSession& session) {
   return ModelObjectProxy{[&session](ModelObjectProxy::ModelWork work) {
     session.Post(std::move(work));
   }};
+}
+
+// Run work on the model thread and wait for it, so each test step is ordered
+// against the publication state the next assertion inspects.
+void RunOnModel(SurfacesModelSession& session,
+                std::function<void(Application&)> body) {
+  std::promise<void> done;
+  auto future = done.get_future();
+  session.Post([&](ae::Domain& domain) {
+    auto app = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    body(*app);
+    done.set_value();
+  });
+  CHECK(future.wait_for(std::chrono::seconds{30}) ==
+        std::future_status::ready);
 }
 
 void TestInitialGraph() {
@@ -734,6 +752,150 @@ void TestCurrentPageThroughGuiProxy() {
   std::filesystem::remove_all(dir);
 }
 
+// Node::base is a historical snapshot the owning Node may replace, so no
+// materialized-change notifier may ever reach it — neither through the
+// reachability bind at session start nor through the notifier a dynamically
+// added Node inherits from its creator.
+void TestNotifierNeverBindsNodeBase() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+
+  PendingDirtyNodes pending;
+  BindReachableNodesMaterializedChangeNotifier(*application, &pending,
+                                               &PendingDirtyNodesNotify);
+
+  Surfaces& surfaces = *application->surfaces;
+  CHECK(surfaces.HasMaterializedChangeNotifier());
+  CHECK(surfaces.base.is_loaded());
+  CHECK(!surfaces.base->HasMaterializedChangeNotifier());
+
+  Surface& surface1 = *surfaces.surfaces[0];
+  CHECK(surface1.HasMaterializedChangeNotifier());
+  CHECK(surface1.base.is_loaded());
+  CHECK(!surface1.base->HasMaterializedChangeNotifier());
+
+  surface1.AddSurface();
+  CHECK(surfaces.surfaces.size() == 2);
+  Surface& surface2 = *surfaces.surfaces[1];
+  CHECK(surface2.HasMaterializedChangeNotifier());
+  CHECK(surface2.base.is_loaded());
+  CHECK(!surface2.base->HasMaterializedChangeNotifier());
+
+  // The added Surface really is wired to the same pending set.
+  CHECK(!pending.empty());
+  surface2.SetDesktopBounds(1, 2, 3, 4);
+  CHECK(pending.membership.count(surface2.obj_id.id()) == 1);
+  CHECK(pending.membership.count(surface2.base.id().id()) == 0);
+
+  ClearReachableNodesMaterializedChangeNotifier(*application);
+  CHECK(!surfaces.HasMaterializedChangeNotifier());
+  CHECK(!surface1.HasMaterializedChangeNotifier());
+}
+
+// Deferred publication resolves against live topology, not Domain::Find: the
+// remove Event in the Surfaces journal keeps a removed Surface findable.
+void TestFindLiveReachableNodeOnModelGraph() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surfaces& surfaces = *application->surfaces;
+  surfaces.surfaces[0]->AddSurface();
+  CHECK(surfaces.surfaces.size() == 2);
+  Surface* const surface2 = &*surfaces.surfaces[1];
+  auto const surfaces_id = surfaces.obj_id.id();
+  auto const surface2_id = surface2->obj_id.id();
+
+  CHECK(FindLiveReachableNode(*application, surfaces_id) ==
+        static_cast<Node*>(&surfaces));
+  CHECK(FindLiveReachableNode(*application, surface2_id) ==
+        static_cast<Node*>(surface2));
+
+  surface2->Remove();
+  CHECK(surfaces.surfaces.size() == 1);
+  CHECK(domain.Find(ae::ObjId{surface2_id}));
+  CHECK(FindLiveReachableNode(*application, surfaces_id) ==
+        static_cast<Node*>(&surfaces));
+  CHECK(FindLiveReachableNode(*application, surface2_id) == nullptr);
+}
+
+// A Node dirtied before removal must not produce a publication afterwards:
+// its pending entry is dropped instead of resurrecting it in the GUI.
+void TestPendingPublicationDroppedForRemovedNode() {
+  TestSurfacePresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_surfaces_pending_removed");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+
+  WaitPublished(session);
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  InitializePresenters(*ui_app, nullptr, nullptr);
+  Surfaces* const ui_surfaces = &*ui_app->surfaces;
+
+  // Reach [A,B] in the GUI.
+  RunOnModel(session,
+             [](Application& app) { app.surfaces->surfaces[0]->AddSurface(); });
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(ui_surfaces->surfaces.size() == 2);
+
+  // Hold a publication unread so the next changes stay pending.
+  std::uint32_t model_c = 0;
+  RunOnModel(session, [&](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
+    model_c = app.surfaces->surfaces[2]->obj_id.id();
+  });
+  WaitPublished(session);
+  auto const held = session.channel.publish_count();
+  CHECK(held == 3);
+
+  // C becomes dirty on its own, then leaves live topology.
+  RunOnModel(session, [](Application& app) {
+    app.surfaces->surfaces[2]->SetDesktopBounds(11, 22, 333, 244);
+  });
+  RunOnModel(session, [](Application& app) {
+    app.surfaces->surfaces[2]->Remove();
+    CHECK(app.surfaces->surfaces.size() == 2);
+  });
+  CHECK(session.channel.publish_count() == held);
+
+  // Catch up to [A,B,C] from the held snapshot.
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(ui_surfaces->surfaces.size() == 3);
+  CHECK(ui_surfaces->surfaces[2]->obj_id.id() == model_c);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+
+  // Exactly one further publication: C's stale pending entry is dropped and
+  // only the Surfaces removal is published.
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(session.channel.publish_count() == held + 1);
+  CHECK(ui_surfaces->surfaces.size() == 2);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 1);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+
+  std::vector<ae::Obj*> live;
+  CollectLiveReachableObjects(*ui_app, live);
+  for (ae::Obj* obj : live) {
+    CHECK(obj->obj_id.id() != model_c);
+  }
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestNoRttiCompileGuard() {
 #if defined(_CPPRTTI) || defined(__GXX_RTTI)
   CHECK(false && "surfaces targets must compile with RTTI disabled");
@@ -1049,6 +1211,9 @@ int main() {
   apptraverse::test::TestCurrentPageIdentitySurvivesRemoveBefore();
   apptraverse::test::TestCurrentPagePersistence();
   apptraverse::test::TestCurrentPageThroughGuiProxy();
+  apptraverse::test::TestNotifierNeverBindsNodeBase();
+  apptraverse::test::TestFindLiveReachableNodeOnModelGraph();
+  apptraverse::test::TestPendingPublicationDroppedForRemovedNode();
   apptraverse::test::TestNoRttiCompileGuard();
   apptraverse::test::TestTwoIndependentSessionsIsolation();
   apptraverse::test::TestModelWorkRunsWhilePublicationUnread();

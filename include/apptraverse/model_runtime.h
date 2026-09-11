@@ -71,6 +71,10 @@ class ModelRuntime {
   std::vector<ae::Obj*> presentation_roots_;
   std::vector<Node*> model_nodes_;
   std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> object_to_roots_;
+  // Raw Node*, unlike PendingDirtyNodes: a Node leaves a presentation root
+  // only through DetachNode, which erases it from model_nodes_ and from this
+  // map before the owner may drop it. Removing a Node without DetachNode is
+  // an API-contract violation, not a reachable state.
   std::unordered_map<std::uint32_t, std::unordered_set<Node*>> pending_by_root_;
   UpdateObserver update_observer_;
 

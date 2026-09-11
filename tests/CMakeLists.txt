@@ -20,6 +20,17 @@ add_test(
   COMMAND apptraverse_journal_retention_test
 )
 
+add_executable(apptraverse_model_runtime_stop_test
+  model_runtime_stop_test.cpp
+)
+
+target_link_libraries(apptraverse_model_runtime_stop_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_model_runtime_stop_test
+  COMMAND apptraverse_model_runtime_stop_test
+)
+
 add_executable(apptraverse_directory_domain_storage_test
   directory_domain_storage_test.cpp
 )

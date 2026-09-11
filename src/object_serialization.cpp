@@ -334,6 +334,17 @@ void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
   }
 }
 
+Node* FindLiveReachableNode(ae::Obj& root, std::uint32_t object_id) {
+  std::vector<ae::Obj*> live;
+  CollectLiveReachableObjects(root, live);
+  for (ae::Obj* obj : live) {
+    if (obj->obj_id.id() == object_id) {
+      return AsObjOf<Node>(obj);
+    }
+  }
+  return nullptr;
+}
+
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
   if (auto* node = AsObjOf<Node>(&object)) {
     node->AdoptPublishedGeneration(generation);

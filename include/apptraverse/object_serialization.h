@@ -49,6 +49,12 @@ void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 // historical Event-held objects are not treated as live UI topology.
 void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 
+// Resolve a deferred publication id against live topology. Returns nullptr
+// when the Node has left the live graph, even though a retained Event in some
+// journal (or a base snapshot) still references it — Domain::Find would still
+// hand back such an object, so it is not a substitute for this walk.
+Node* FindLiveReachableNode(ae::Obj& root, std::uint32_t object_id);
+
 // GUI-thread presentation phase. Walks live topology from the GUI root and
 // calls Presenter::OnLoad for each Presenter that is not yet
 // presentation_loaded and reports ReadyForPresentation(). Object Load must
