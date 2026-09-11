@@ -7,7 +7,7 @@ Status: implemented, verified in the iPhone simulator. Not accepted.
 
 - Starting SHA: `062f01e2c983dc02036346e71e3f4825e24df05c`
 - Branch: `surfaces-demo`
-- Final SHA: `PENDING`
+- Final SHA: `28711174f6d5086e5d9d3e106a5719c43cc86374`
 
 ## Behavior
 
