@@ -1046,8 +1046,92 @@ void TestNewChildChangedBeforeGuiCatchUp() {
   std::filesystem::remove_all(dir);
 }
 
-// ObjId::GenerateUnique is one process-wide generator. Two model threads
-// creating Surfaces at the same time must not hand out the same identity.
+// Several Events on one Node while the channel holds an earlier publication
+// must land in the journal individually, but the GUI sees a single later
+// snapshot with the final field state — Events do not coalesce; publications
+// may.
+void TestPublicationCoalescesMultipleEventsOnOneNode() {
+  TestSurfacePresenter::ResetCounts();
+  auto dir = TestDir("apptraverse_surfaces_publish_coalesce");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+
+  WaitPublished(session);
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  InitializePresenters(*ui_app, nullptr, nullptr);
+  Surfaces* const ui_surfaces = &*ui_app->surfaces;
+  CHECK(ui_surfaces->surfaces.size() == 1);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 1);
+
+  // Add B and hold that publication unread.
+  std::uint32_t model_b = 0;
+  RunOnModel(session, [&](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
+    model_b = app.surfaces->surfaces[1]->obj_id.id();
+  });
+  WaitPublished(session);
+  auto const held = session.channel.publish_count();
+
+  // Three distinct bounds Events while the channel cannot publish B.
+  RunOnModel(session, [&](Application& app) {
+    Surface& b = *app.surfaces->surfaces[1];
+    CHECK(b.obj_id.id() == model_b);
+    b.SetDesktopBounds(1, 2, 101, 102);
+    b.SetDesktopBounds(3, 4, 201, 202);
+    b.SetDesktopBounds(17, 29, 341, 251);
+    CHECK(b.journal.size() == 3);
+    CHECK(b.journal[0].event->GetClassId() ==
+          SurfaceBoundsChangedEvent::kClassId);
+    CHECK(b.journal[1].event->GetClassId() ==
+          SurfaceBoundsChangedEvent::kClassId);
+    CHECK(b.journal[2].event->GetClassId() ==
+          SurfaceBoundsChangedEvent::kClassId);
+    CHECK(b.desktop_x == 17);
+    CHECK(b.desktop_y == 29);
+    CHECK(b.desktop_width == 341);
+    CHECK(b.desktop_height == 251);
+  });
+  // No intermediate publication for bounds1/bounds2 while P1 is held.
+  CHECK(session.channel.publish_count() == held);
+
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(ui_surfaces->surfaces.size() == 2);
+  Surface* const ui_b = &*ui_surfaces->surfaces[1];
+  Presenter* const ui_b_presenter = &*ui_b->presenter;
+  CHECK(ui_b->obj_id.id() == model_b);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
+  // P1 was the Add snapshot; final bounds arrive only with the coalesced
+  // publication after the channel is free.
+  CHECK(ui_b->desktop_x != 17);
+
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          nullptr);
+  CHECK(ui_surfaces->surfaces.size() == 2);
+  CHECK(&*ui_surfaces->surfaces[1] == ui_b);
+  CHECK(&*ui_b->presenter == ui_b_presenter);
+  CHECK(ui_b->desktop_x == 17);
+  CHECK(ui_b->desktop_y == 29);
+  CHECK(ui_b->desktop_width == 341);
+  CHECK(ui_b->desktop_height == 251);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
+// Two simultaneous model sessions exercise the shared ObjId generator under
+// real AppTraverse load. This is a race smoke for the mutex, not a proof of
+// mathematical uniqueness of random 32-bit ids.
 void TestConcurrentSessionsGenerateDistinctObjIds() {
   auto dir_a = TestDir("apptraverse_surfaces_concurrent_ids_a");
   auto dir_b = TestDir("apptraverse_surfaces_concurrent_ids_b");
@@ -1098,6 +1182,9 @@ void TestConcurrentSessionsGenerateDistinctObjIds() {
 
   CHECK(ids_a.size() == static_cast<std::size_t>(kAddsPerSession) * 3);
   CHECK(ids_b.size() == static_cast<std::size_t>(kAddsPerSession) * 3);
+  // Race smoke only: an unlocked shared generator yields repeated ids under
+  // this load. Random 32-bit collision remains possible in principle and is
+  // not what this check claims to forbid forever.
   std::unordered_set<std::uint32_t> seen;
   for (auto const& ids : {ids_a, ids_b}) {
     for (std::uint32_t id : ids) {
@@ -1135,7 +1222,6 @@ void TestTwoIndependentSessionsIsolation() {
 
   WaitPublished(session_a);
   WaitPublished(session_b);
-  // One initial publication each; neither session sees the other's channel.
   CHECK(session_a.channel.publish_count() == 1);
   CHECK(session_b.channel.publish_count() == 1);
   (void)TakeAndWake(session_a);
@@ -1144,47 +1230,23 @@ void TestTwoIndependentSessionsIsolation() {
   auto proxy_a = MakeSessionProxy(session_a);
   auto proxy_b = MakeSessionProxy(session_b);
 
-  std::uint32_t surface1_a = 0;
-  std::uint32_t surface1_b = 0;
-  {
-    std::promise<void> done;
-    auto fut = done.get_future();
-    session_a.Post([&](ae::Domain& domain) {
-      auto app = LoadApplication<Application>(
-          domain, ae::ObjId{surfaces_demo::ToObjId(
-                      surfaces_demo::ObjId::Application)});
-      surface1_a = app->surfaces->surfaces[0]->obj_id.id();
-      app->surfaces->surfaces[0]->AddSurface();
-      done.set_value();
-    });
-    CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
-  }
-  {
-    std::promise<void> done;
-    auto fut = done.get_future();
-    session_b.Post([&](ae::Domain& domain) {
-      auto app = LoadApplication<Application>(
-          domain, ae::ObjId{surfaces_demo::ToObjId(
-                      surfaces_demo::ObjId::Application)});
-      surface1_b = app->surfaces->surfaces[0]->obj_id.id();
-      app->surfaces->surfaces[0]->SetDesktopBounds(10, 20, 300, 200);
-      done.set_value();
-    });
-    CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
-  }
-
+  // Change ONLY A. B's channel must stay at the initial publication.
+  RunOnModel(session_a, [](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
+  });
   WaitPublished(session_a);
+  CHECK(session_a.channel.publish_count() == 2);
+  CHECK(session_b.channel.publish_count() == 1);
+  (void)TakeAndWake(session_a);
+
+  // Change ONLY B. A's channel must stay where the A-only step left it.
+  RunOnModel(session_b, [](Application& app) {
+    app.surfaces->surfaces[0]->SetDesktopBounds(10, 20, 300, 200);
+  });
   WaitPublished(session_b);
-  // Exactly one incremental publication each: one session's work never
-  // advances the other's channel.
   CHECK(session_a.channel.publish_count() == 2);
   CHECK(session_b.channel.publish_count() == 2);
-  auto bytes_a = TakeAndWake(session_a);
-  auto bytes_b = TakeAndWake(session_b);
-  CHECK(!bytes_a.empty());
-  CHECK(!bytes_b.empty());
-  // Same logical ObjId space is allowed across Domains; publications differ.
-  CHECK(bytes_a != bytes_b);
+  (void)TakeAndWake(session_b);
 
   // Stop A fully; B must keep accepting work and publishing.
   session_a.RequestStop();
@@ -1192,41 +1254,23 @@ void TestTwoIndependentSessionsIsolation() {
   auto const a_final_publishes = session_a.channel.publish_count();
   CHECK(a_final_publishes == 2);
 
-  {
-    std::promise<void> done;
-    auto fut = done.get_future();
-    session_b.Post([&](ae::Domain& domain) {
-      auto app = LoadApplication<Application>(
-          domain, ae::ObjId{surfaces_demo::ToObjId(
-                      surfaces_demo::ObjId::Application)});
-      CHECK(app->surfaces->surfaces.size() == 1);
-      app->surfaces->surfaces[0]->AddSurface();
-      done.set_value();
-    });
-    CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
-  }
+  RunOnModel(session_b, [](Application& app) {
+    CHECK(app.surfaces->surfaces.size() == 1);
+    app.surfaces->surfaces[0]->AddSurface();
+  });
   WaitPublished(session_b);
   (void)TakeAndWake(session_b);
+  CHECK(session_a.channel.publish_count() == a_final_publishes);
 
   // Dynamic Node on B after A is gone: Event on Surface2 still notifies B.
-  {
-    std::promise<void> done;
-    auto fut = done.get_future();
-    session_b.Post([&](ae::Domain& domain) {
-      auto app = LoadApplication<Application>(
-          domain, ae::ObjId{surfaces_demo::ToObjId(
-                      surfaces_demo::ObjId::Application)});
-      CHECK(app->surfaces->surfaces.size() == 2);
-      auto& surface2 = *app->surfaces->surfaces[1];
-      CHECK(surface2.HasMaterializedChangeNotifier());
-      surface2.SetDesktopBounds(40, 50, 400, 300);
-      done.set_value();
-    });
-    CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
-  }
+  RunOnModel(session_b, [](Application& app) {
+    CHECK(app.surfaces->surfaces.size() == 2);
+    auto& surface2 = *app.surfaces->surfaces[1];
+    CHECK(surface2.HasMaterializedChangeNotifier());
+    surface2.SetDesktopBounds(40, 50, 400, 300);
+  });
   WaitPublished(session_b);
   (void)TakeAndWake(session_b);
-  // B advanced twice more after A stopped; A's counter never moved again.
   CHECK(session_b.channel.publish_count() == 4);
   CHECK(session_a.channel.publish_count() == a_final_publishes);
 
@@ -1234,8 +1278,6 @@ void TestTwoIndependentSessionsIsolation() {
   model_b.join();
   (void)proxy_a;
   (void)proxy_b;
-  (void)surface1_a;
-  (void)surface1_b;
   std::filesystem::remove_all(dir_a);
   std::filesystem::remove_all(dir_b);
 }
@@ -1442,6 +1484,7 @@ int main() {
   apptraverse::test::TestGuiCatchUpCoalescesPublicationsNotEvents();
   apptraverse::test::TestPendingPublicationDroppedForRemovedNode();
   apptraverse::test::TestNewChildChangedBeforeGuiCatchUp();
+  apptraverse::test::TestPublicationCoalescesMultipleEventsOnOneNode();
   apptraverse::test::TestConcurrentSessionsGenerateDistinctObjIds();
   apptraverse::test::TestNoRttiCompileGuard();
   apptraverse::test::TestTwoIndependentSessionsIsolation();
