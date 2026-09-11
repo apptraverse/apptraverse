@@ -47,7 +47,11 @@ inline void InitializeRuntimeNode(Node& node, Node const& runtime_source) {
   node.CopyMaterializedChangeNotifierFrom(runtime_source);
   assert(node.base.is_valid());
   assert(node.base.is_loaded());
-  node.base->CopyMaterializedChangeNotifierFrom(runtime_source);
+  // Node::base is a historical snapshot, never a live participant. It is
+  // replaced by CaptureBaseState / CompactJournal and dropped on the GUI side
+  // by FinalizeUiNodeState, so a notifier bound to it would hand the runtime
+  // a pointer the owning Node is free to discard. Only live Nodes are bound.
+  assert(!node.base->HasMaterializedChangeNotifier());
 }
 
 inline void BindReachableNodesMaterializedChangeNotifier(

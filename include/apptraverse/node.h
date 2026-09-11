@@ -415,13 +415,18 @@ class Node : public ae::Obj {
   bool suppress_materialized_change_{false};
 };
 
-// Ordered unique dirty set for GUI publication. First-dirty order is preserved;
+// Ordered unique dirty set for GUI publication. Entries are ObjIds, not Node
+// pointers: while the GUI holds an unread publication a pending Node may be
+// removed from live topology by a later Event, and the graph is then free to
+// drop it. The publication step resolves each id against live reachability
+// and skips ids that no longer resolve. First-dirty order is preserved;
 // membership prevents duplicate entries while Events keep coalescing into one
-// pending Node until published.
+// pending entry until published.
 struct PendingDirtyNodes {
   void Note(Node& node) {
-    if (membership.insert(&node).second) {
-      ordered.push_back(&node);
+    auto const id = node.obj_id.id();
+    if (membership.insert(id).second) {
+      ordered.push_back(id);
     }
   }
 
@@ -432,16 +437,16 @@ struct PendingDirtyNodes {
     membership.clear();
   }
 
-  Node* PopFront() {
+  std::uint32_t PopFront() {
     assert(!ordered.empty());
-    Node* const node = ordered.front();
+    std::uint32_t const id = ordered.front();
     ordered.erase(ordered.begin());
-    membership.erase(node);
-    return node;
+    membership.erase(id);
+    return id;
   }
 
-  std::vector<Node*> ordered;
-  std::unordered_set<Node*> membership;
+  std::vector<std::uint32_t> ordered;
+  std::unordered_set<std::uint32_t> membership;
 };
 
 inline void PendingDirtyNodesNotify(void* ctx, Node& node) {

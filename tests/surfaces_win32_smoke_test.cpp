@@ -138,6 +138,20 @@ bool WaitCount(DWORD pid, wchar_t const* class_name, int expected,
   return false;
 }
 
+// CountOwnedClass only counts visible windows, and DestroyWindow hides the
+// window before IsWindow stops recognising it. Waiting for the count alone
+// therefore races the final teardown of the removed HWND.
+bool WaitWindowGone(HWND hwnd, std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (IsWindow(hwnd) == 0) {
+      return true;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  return false;
+}
+
 HWND FindAddButton(HWND surface) {
   return FindWindowExW(surface, nullptr, L"BUTTON", L"Add");
 }
@@ -219,9 +233,9 @@ void TestCloseButtonRemovesOne() {
   // Close this window on Surface 2 removes only that Surface.
   SendMessageW(FindCloseButton(s2), BM_CLICK, 0, 0);
   CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{30}));
+  CHECK(WaitWindowGone(s2, std::chrono::seconds{30}));
   CHECK(IsWindow(s1) != 0);
   CHECK(IsWindow(s3) != 0);
-  CHECK(IsWindow(s2) == 0);
   CHECK(FindOwned(pid, kSurfacesWindowClass, L"Surface 1") == s1);
   CHECK(FindOwned(pid, kSurfacesWindowClass, L"Surface 3") == s3);
 

@@ -228,6 +228,21 @@ bool WaitChildText(HWND parent, wchar_t const* text,
   return false;
 }
 
+// The Add button and the first Item row are created by separate presenters,
+// so seeing "Item 1" does not imply the button already exists.
+HWND WaitChildButton(HWND parent, wchar_t const* title,
+                     std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    HWND button = FindWindowExW(parent, nullptr, L"BUTTON", title);
+    if (button != nullptr) {
+      return button;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  return nullptr;
+}
+
 void WaitPublished(DynamicModelSession& session) {
   std::unique_lock<std::mutex> lock{session.mu};
   CHECK(session.cv.wait_for(lock, std::chrono::seconds{30}, [&] {
@@ -252,7 +267,7 @@ void TestInProcessAddCreatesRow() {
   CHECK(CountChildText(main, L"Item 1") == 1);
   CHECK(!ChildHasText(main, L"Item 2"));
 
-  HWND add = FindWindowExW(main, nullptr, L"BUTTON", L"Add item");
+  HWND add = WaitChildButton(main, L"Add item", std::chrono::seconds{30});
   CHECK(add != nullptr);
   auto* add_owner =
       reinterpret_cast<Presenter*>(GetWindowLongPtrW(add, GWLP_USERDATA));
@@ -390,7 +405,8 @@ void TestChildProcessAddThenLoadOnly() {
     CHECK(CountOwnedClass(child.pid, kDynamicMainClass) == 1);
     CHECK(WaitChildText(main, L"Item 1", std::chrono::seconds{30}));
 
-    HWND add = FindWindowExW(main, nullptr, L"BUTTON", L"Add item");
+    HWND add =
+        WaitChildButton(main, L"Add item", std::chrono::seconds{30});
     CHECK(add != nullptr);
     SendMessageW(add, BM_CLICK, 0, 0);
     CHECK(WaitChildText(main, L"Item 2", std::chrono::seconds{30}));
