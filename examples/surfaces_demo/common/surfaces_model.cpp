@@ -17,6 +17,7 @@ APPTRAVERSE_REGISTER(AddSurfaceEvent);
 APPTRAVERSE_REGISTER(RemoveSurfaceEvent);
 APPTRAVERSE_REGISTER(SetCurrentSurfaceEvent);
 APPTRAVERSE_REGISTER(SurfaceBoundsChangedEvent);
+APPTRAVERSE_REGISTER(SurfacePresentationSizeChangedEvent);
 APPTRAVERSE_REGISTER(Application);
 
 }  // namespace
@@ -25,6 +26,7 @@ void EnsureSurfacesModelRegistration() {
   (void)&g_apptraverse_registrar_Application;
   (void)&g_apptraverse_registrar_Surface;
   (void)&g_apptraverse_registrar_SurfaceBoundsChangedEvent;
+  (void)&g_apptraverse_registrar_SurfacePresentationSizeChangedEvent;
 }
 
 void Surfaces::Apply(AddSurfaceEvent const& event) {
@@ -57,6 +59,12 @@ void Surface::Apply(SurfaceBoundsChangedEvent const& event) {
   desktop_y = event.y;
   desktop_width = event.width;
   desktop_height = event.height;
+  NoteMaterializedChange();
+}
+
+void Surface::Apply(SurfacePresentationSizeChangedEvent const& event) {
+  presentation_width = event.width;
+  presentation_height = event.height;
   NoteMaterializedChange();
 }
 
@@ -135,6 +143,17 @@ void Surface::SetDesktopBounds(std::int32_t x, std::int32_t y,
   Commit(event);
 }
 
+void Surface::SetPresentationSize(std::int32_t width, std::int32_t height) {
+  if (presentation_width == width && presentation_height == height) {
+    return;
+  }
+  auto event = SurfacePresentationSizeChangedEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  event->width = width;
+  event->height = height;
+  Commit(event);
+}
+
 void SurfacePresenter::AddClick() {
   model_proxy->Invoke<Surface>(surface->obj_id, &Surface::AddSurface);
 }
@@ -145,6 +164,12 @@ void SurfacePresenter::RemoveClick() {
 
 void SurfacePresenter::PageShown() {
   model_proxy->Invoke<Surface>(surface->obj_id, &Surface::MakeCurrent);
+}
+
+void SurfacePresenter::PresentationSizeChanged(std::int32_t width,
+                                               std::int32_t height) {
+  model_proxy->Invoke<Surface>(surface->obj_id, &Surface::SetPresentationSize,
+                               width, height);
 }
 
 }  // namespace apptraverse

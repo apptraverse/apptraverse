@@ -561,6 +561,111 @@ void TestBoundsReplay() {
   (void)initial_y;
 }
 
+void TestPresentationSize() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surface& surface = *application->surfaces->surfaces[0];
+  CHECK(surface.presentation_width == 360);
+  CHECK(surface.presentation_height == 240);
+  CHECK(surface.journal.empty());
+
+  SurfacePresenter::ptr presenter{surface.presenter};
+  CHECK(presenter->IsWide());
+
+  surface.SetPresentationSize(800, 600);
+  CHECK(surface.journal.size() == 1);
+  CHECK(surface.presentation_width == 800);
+  CHECK(surface.presentation_height == 600);
+  CHECK(surface.journal[0].event->GetClassId() ==
+        SurfacePresentationSizeChangedEvent::kClassId);
+  CHECK(presenter->IsWide());
+
+  surface.SetPresentationSize(800, 600);
+  CHECK(surface.journal.size() == 1);
+
+  surface.SetPresentationSize(400, 800);
+  CHECK(surface.journal.size() == 2);
+  CHECK(surface.presentation_width == 400);
+  CHECK(surface.presentation_height == 800);
+  CHECK(!presenter->IsWide());
+
+  surface.ReplayFromBase();
+  CHECK(surface.presentation_width == 400);
+  CHECK(surface.presentation_height == 800);
+  CHECK(surface.journal.size() == 2);
+  CHECK(!presenter->IsWide());
+}
+
+void TestPresentationSizePersistence() {
+  auto dir = TestDir("apptraverse_surfaces_presentation_size_persist");
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = BuildSurfacesGraph(domain);
+    FinalizeDistilledGraph(*application);
+    application->surfaces->surfaces[0]->SetPresentationSize(640, 480);
+    SaveDistilledRoot(*application);
+  }
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  CHECK(application->surfaces->surfaces[0]->presentation_width == 640);
+  CHECK(application->surfaces->surfaces[0]->presentation_height == 480);
+  SurfacePresenter::ptr presenter{application->surfaces->surfaces[0]->presenter};
+  CHECK(presenter->IsWide());
+  std::filesystem::remove_all(dir);
+}
+
+void TestPresentationSizeThroughGuiProxy() {
+  auto dir = TestDir("apptraverse_surfaces_presentation_size_proxy");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+
+  WaitPublished(session);
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  auto proxy = MakeSessionProxy(session);
+  InitializePresenters(*ui_app, nullptr, &proxy);
+  SurfacePresenter::ptr ui_presenter{ui_app->surfaces->surfaces[0]->presenter};
+  CHECK(ui_presenter->IsWide());
+
+  // GUI-thread helper must not write the mirror fields; only the model Event
+  // path may, and the mirror updates after publication.
+  auto const before_w = ui_app->surfaces->surfaces[0]->presentation_width;
+  auto const before_h = ui_app->surfaces->surfaces[0]->presentation_height;
+  ui_presenter->PresentationSizeChanged(320, 900);
+  CHECK(ui_app->surfaces->surfaces[0]->presentation_width == before_w);
+  CHECK(ui_app->surfaces->surfaces[0]->presentation_height == before_h);
+  CHECK(ui_presenter->IsWide());
+
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  CHECK(ui_app->surfaces->surfaces[0]->presentation_width == 320);
+  CHECK(ui_app->surfaces->surfaces[0]->presentation_height == 900);
+  CHECK(!ui_presenter->IsWide());
+
+  RunOnModel(session, [](Application& app) {
+    CHECK(app.surfaces->surfaces[0]->journal.size() >= 1);
+    CHECK(app.surfaces->surfaces[0]->journal.back().event->GetClassId() ==
+          SurfacePresentationSizeChangedEvent::kClassId);
+  });
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestGeometryPersistence() {
   auto dir = TestDir("apptraverse_surfaces_geometry_persist");
   ae::ObjId surface1_id;
@@ -1474,6 +1579,9 @@ int main() {
   apptraverse::test::TestPresenterLifecycleMultiAdd();
   apptraverse::test::TestShutdownDrain();
   apptraverse::test::TestBoundsReplay();
+  apptraverse::test::TestPresentationSize();
+  apptraverse::test::TestPresentationSizePersistence();
+  apptraverse::test::TestPresentationSizeThroughGuiProxy();
   apptraverse::test::TestGeometryPersistence();
   apptraverse::test::TestCurrentPageReplay();
   apptraverse::test::TestCurrentPageIdentitySurvivesRemoveBefore();
