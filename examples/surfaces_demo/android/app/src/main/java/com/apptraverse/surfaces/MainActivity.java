@@ -29,6 +29,7 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   private TextView surfaceTitle;
   private TextView loading;
   private LinearLayout controlsRow;
+  private View rootContent;
   private View pageContainer;
 
   private long[] pageIds = new long[0];
@@ -49,6 +50,7 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     loading = findViewById(R.id.loading);
     controlsRow = findViewById(R.id.controls_row);
     pageContainer = findViewById(R.id.page_container);
+    rootContent = findViewById(android.R.id.content);
 
     Button addButton = findViewById(R.id.add_surface);
     addButton.setOnClickListener(new View.OnClickListener() {
@@ -99,8 +101,9 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
       }
     });
 
-    // Measure usable presentation area; do not switch orientation here.
-    pageContainer.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+    // Measure the host content area (not page_container): control orientation
+    // must not feed back into presentation size.
+    rootContent.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
       @Override
       public void onLayoutChange(View view, int left, int top, int right,
                                  int bottom, int oldLeft, int oldTop,
@@ -144,10 +147,12 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     pageIds = ids;
     pageNumbers = numbers;
     reportedCurrentId = currentId;
-    applyControlsOrientation(isWide);
+    if (isWide != controlsWide) {
+      applyControlsOrientation(isWide);
+    }
     // Initial publication may land before the first layout; report again once
     // the host is ready so the first size Event is not dropped.
-    reportHostPresentationSize(pageContainer.getWidth(), pageContainer.getHeight());
+    reportHostPresentationSize(rootContent.getWidth(), rootContent.getHeight());
     for (int i = 0; i < ids.length; ++i) {
       if (ids[i] == currentId) {
         showPage(i);
