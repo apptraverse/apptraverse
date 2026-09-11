@@ -6,13 +6,14 @@
 #include "apptraverse/object_serialization.h"
 
 #include "ios_app.h"
+#include "ios_surface_content.h"
 
-@interface SurfacesRootViewController : UIViewController <UIScrollViewDelegate>
+@interface SurfacesRootViewController
+    : UIViewController <UIScrollViewDelegate, IOSSurfaceActions>
 @property(nonatomic, assign) apptraverse::IOSApp* app;
 @property(nonatomic, strong) UIScrollView* pager;
 @property(nonatomic, strong) UILabel* loading;
-@property(nonatomic, strong) UIButton* addButton;
-@property(nonatomic, strong) UIButton* removeButton;
+@property(nonatomic, strong) UIView* bar;
 @end
 
 @implementation SurfacesRootViewController
@@ -28,28 +29,18 @@
   self.pager.hidden = YES;
   [self.view addSubview:self.pager];
 
+  // Host chrome before the model loads: plain UIKit, no model state behind it.
   self.loading = [[UILabel alloc] initWithFrame:CGRectZero];
   self.loading.text = @"Loading";
   self.loading.textAlignment = NSTextAlignmentCenter;
   self.loading.font = [UIFont systemFontOfSize:24.0];
   [self.view addSubview:self.loading];
 
-  self.addButton = [UIButton buttonWithType:UIButtonTypeSystem];
-  [self.addButton setTitle:@"Add" forState:UIControlStateNormal];
-  [self.addButton addTarget:self
-                     action:@selector(onAdd:)
-           forControlEvents:UIControlEventTouchUpInside];
-  self.addButton.hidden = YES;
-  [self.view addSubview:self.addButton];
-
-  self.removeButton = [UIButton buttonWithType:UIButtonTypeSystem];
-  [self.removeButton setTitle:@"Remove current"
-                     forState:UIControlStateNormal];
-  [self.removeButton addTarget:self
-                        action:@selector(onRemoveCurrent:)
-              forControlEvents:UIControlEventTouchUpInside];
-  self.removeButton.hidden = YES;
-  [self.view addSubview:self.removeButton];
+  self.bar = [[UIView alloc] initWithFrame:CGRectZero];
+  self.bar.hidden = YES;
+  [self.view addSubview:self.bar];
+  // Remove starts unavailable: the first publication supplies the model state.
+  ApptraverseInstallIOSSurfaceBar(self.bar, self, NO);
 }
 
 - (void)viewDidLayoutSubviews {
@@ -63,20 +54,16 @@
   self.loading.frame = self.pager.frame;
 
   CGFloat const bar_y = safe.top + pager_height;
-  self.addButton.frame = CGRectMake(16, bar_y, 96, bar_height);
-  self.removeButton.frame =
-      CGRectMake(size.width - 196, bar_y, 180, bar_height);
+  self.bar.frame = CGRectMake(0, bar_y, size.width, bar_height);
 
   self.app->LayoutPages();
 }
 
-- (void)onAdd:(id)sender {
-  (void)sender;
+- (void)addSurface {
   self.app->AddCurrentClick();
 }
 
-- (void)onRemoveCurrent:(id)sender {
-  (void)sender;
+- (void)removeCurrentSurface {
   // Disabled while a single Surface is left, so this is always removable.
   self.app->RemoveCurrentClick();
 }
@@ -179,10 +166,9 @@ void IOSApp::OnInitialPublished() {
       (__bridge SurfacesRootViewController*)root_controller_;
   controller.loading.hidden = YES;
   controller.pager.hidden = NO;
-  controller.addButton.hidden = NO;
-  controller.removeButton.hidden = NO;
-  controller.removeButton.enabled =
-      CurrentPresenter()->RemovableFromPager() ? YES : NO;
+  controller.bar.hidden = NO;
+  ApptraverseUpdateIOSSurfaceBar(
+      controller.bar, CurrentPresenter()->RemovableFromPager() ? YES : NO);
 }
 
 void IOSApp::OnIncrementalPublished() {
@@ -206,8 +192,8 @@ void IOSApp::OnIncrementalPublished() {
   }
   SurfacesRootViewController* controller =
       (__bridge SurfacesRootViewController*)root_controller_;
-  controller.removeButton.enabled =
-      CurrentPresenter()->RemovableFromPager() ? YES : NO;
+  ApptraverseUpdateIOSSurfaceBar(
+      controller.bar, CurrentPresenter()->RemovableFromPager() ? YES : NO);
 }
 
 void IOSApp::AddCurrentClick() { CurrentPresenter()->AddClick(); }

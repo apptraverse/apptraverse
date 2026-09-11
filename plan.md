@@ -24,7 +24,8 @@ Included on that branch:
 - Web / Emscripten / WASM (tabs, IndexedDB checkpoint)
 - Linux desktop — **X11/Xlib** (`LinuxSurfacePresenter`)
 - macOS desktop — **SwiftUI content in an AppKit window** (`MacSurfacePresenter`)
-- iOS / iPhone Simulator — **UIKit** (`IOSSurfacePresenter`)
+- iOS / iPhone Simulator — **SwiftUI content in a UIKit pager**
+  (`IOSSurfacePresenter`)
 
 All current platform ports are merged.
 
@@ -84,13 +85,22 @@ presenter. `WindowGroup` is deliberately not used — it would move the window
 set into SwiftUI scene storage and break both the geometry contract and
 `RestoreActiveSurfaceZOrder`.
 
-Boundary (macOS, mirrored on iOS when ported):
+Boundary (macOS):
 
 ```
 SwiftUI view (SurfaceContentView.swift)
   → id<MacSurfaceActions>   (pure Objective-C protocol; SurfaceWindowDelegate)
   → MacSurfacePresenter     (AddClick / RemoveClick / PageShown)
   → ModelObjectProxy → model event
+```
+
+Boundary (iOS), same shape through the single mobile host:
+
+```
+SwiftUI view (SurfaceContentView.swift)
+  → id<IOSSurfaceActions>   (pure ObjC protocol; SurfacesRootViewController)
+  → IOSApp                  (AddCurrentClick / RemoveCurrentClick)
+  → current IOSSurfacePresenter → ModelObjectProxy → model event
 ```
 
 Two constraints fix this shape:
@@ -105,6 +115,21 @@ Two constraints fix this shape:
   the boundary.
 - Swift targets link with the ObjC++ driver (`LINKER_LANGUAGE OBJCXX`); the
   Swift driver rejects the C++ policy flags such as `-fno-rtti`.
+
+iOS adds three constraints of its own:
+
+- The pager stays UIKit. `TabView(.page)` or a SwiftUI app lifecycle would move
+  page order and the current page into SwiftUI state, breaking `mobile_current`
+  identity and the desired-id reconcile that `IOSApp` uses for swipe races.
+  ObjC++ keeps every container `UIView` and its frame (`RelayoutPages`,
+  `viewDidLayoutSubviews`); SwiftUI only draws inside a container.
+- iOS has no public `UIHostingView`, so content is a `UIHostingController`,
+  which its own view does not retain. It is attached with
+  `objc_setAssociatedObject` to the container UIKit already owns: that ties its
+  lifetime to the container and lets the stateless update entry point
+  (`ApptraverseUpdateIOSSurfaceBar`) find it again without global Swift state.
+- Model-derived control state is re-supplied, never mirrored. Every publication
+  passes `RemovableFromPager()` back in, so `Remove current` has no Swift state.
 
 SwiftUI macOS buttons are private `NSControl` subclasses with no title and no
 `accessibilityIdentifier` on the `NSView`, and SwiftUI builds its accessibility
@@ -141,8 +166,13 @@ SurfacePresenter
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.
 - Linux host remains X11/Xlib (not GTK3).
-- iOS host is still UIKit; SwiftUI content port mirrors the macOS boundary
-  (`IOSSurfaceActions` protocol + `@_cdecl` installer into the page view).
+- The iOS bundle has no launch storyboard, so iOS runs it scaled from a 320×480
+  logical screen and in the light appearance. Layout and the SwiftUI content are
+  correct inside that box; native full-screen geometry is a separate slice.
+- iOS has no user-driven application close, and `simctl terminate` does not
+  deliver `applicationWillTerminate`, so `Application::Save` does not run on a
+  simulator kill: the newest topology change reloads from the earlier runtime
+  write. Pre-existing, identical before the SwiftUI port.
 
 ## Cross-platform invariant (foundation)
 

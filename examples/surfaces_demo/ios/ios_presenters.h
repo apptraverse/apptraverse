@@ -7,9 +7,10 @@
 
 namespace apptraverse {
 
-// UIKit page for one Surface. OnLoad creates the page UIView and registers it
-// with the single mobile host; it never creates a UIWindow. Page order and the
-// current page belong to the host, not here.
+// One Surface page: a UIKit container filled with SwiftUI content. OnLoad
+// creates the container UIView and registers it with the single mobile host; it
+// never creates a UIWindow. Page order and the current page belong to the host,
+// not here.
 class IOSSurfacePresenter : public MobileSurfacePresenter {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::surfaces::IOSSurfacePresenter",
@@ -37,7 +38,7 @@ class IOSSurfacePresenter : public MobileSurfacePresenter {
   void OnLoad() override;
   void OnUnload() override;
 
-  // Runtime-only UIView, retained while this page is presented.
+  // Runtime-only UIView container, retained while this page is presented.
   void* page_view{nullptr};
 };
 

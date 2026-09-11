@@ -5,6 +5,7 @@
 #include "apptraverse/object_macros.h"
 
 #include "ios_presenters.h"
+#include "ios_surface_content.h"
 
 namespace apptraverse {
 namespace {
@@ -19,18 +20,13 @@ void EnsureIOSSurfacePresenterRegistration() {
 }
 
 void IOSSurfacePresenter::OnLoad() {
-  // The page is the caption itself; the host sets its frame when it lays the
-  // pager out in Surfaces order.
-  UILabel* page = [[UILabel alloc] initWithFrame:CGRectZero];
-  page.text = [NSString stringWithUTF8String:PageTitle().c_str()];
-  page.textAlignment = NSTextAlignmentCenter;
-  page.font = [UIFont systemFontOfSize:28.0];
+  // UIKit owns the page container: the host sets its frame when it lays the
+  // pager out in Surfaces order. SwiftUI only draws inside it.
+  UIView* page = [[UIView alloc] initWithFrame:CGRectZero];
   // Distinct tint per Surface so a swipe is visible in the simulator.
-  page.backgroundColor =
-      [UIColor colorWithHue:std::fmod(surface->number * 0.17, 1.0)
-                 saturation:0.18
-                 brightness:1.0
-                      alpha:1.0];
+  ApptraverseInstallIOSSurfacePage(
+      page, [NSString stringWithUTF8String:PageTitle().c_str()],
+      std::fmod(surface->number * 0.17, 1.0));
 
   page_view = (__bridge_retained void*)page;
   IOSAttachPage(presentation_host, page_view);

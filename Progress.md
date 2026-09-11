@@ -1,4 +1,94 @@
 ---
+Status: implemented, verified in the iPhone simulator. Not accepted.
+
+# IOS CURSOR — iOS SwiftUI view layer
+
+## Identity
+
+- Starting SHA: `062f01e2c983dc02036346e71e3f4825e24df05c`
+- Branch: `surfaces-demo`
+- Final SHA: `PENDING`
+
+## Behavior
+
+- Page content is SwiftUI (`SurfacePageView`): caption from `PageTitle()` and
+  the same per-Surface hue (`fmod(number * 0.17, 1.0)`, saturation 0.18,
+  brightness 1.0). `IOSSurfacePresenter` still creates and retains the page
+  container `UIView`, because `IOSApp::RelayoutPages` sets its frame.
+- The bottom bar is SwiftUI (`SurfaceBarView`). The two `UIButton`s are gone;
+  `SurfacesRootViewController` now owns a plain `bar` container whose frame
+  still comes from `viewDidLayoutSubviews`.
+- Boundary: SwiftUI → `id<IOSSurfaceActions>` (pure ObjC protocol adopted by the
+  existing `SurfacesRootViewController`, replacing `onAdd:` / `onRemoveCurrent:`)
+  → `IOSApp` → current `IOSSurfacePresenter` → model event.
+- ObjC++ → Swift is three `@_cdecl` functions and no object ownership:
+  `ApptraverseInstallIOSSurfacePage(container, title, hue)`,
+  `ApptraverseInstallIOSSurfaceBar(container, actions, can_remove)`,
+  `ApptraverseUpdateIOSSurfaceBar(container, can_remove)`.
+- `Remove current` availability stays model-derived: the update call is made from
+  the two publication paths that previously set `removeButton.enabled`, so Swift
+  holds no state. The reveal after the initial publication is still
+  `bar.hidden = NO`.
+- `UIHostingController` is retained by `objc_setAssociatedObject` on its
+  container (a hosting controller is not retained by its own view); that is also
+  how the update entry point finds it. No global/singleton Swift state.
+- No `TabView(.page)` and no SwiftUI app lifecycle: page set, page order,
+  current page, frames and the pager stay in `IOSApp` / the presenter. All of
+  `IOSApp`'s current / desired / index / reconcile logic is untouched.
+- `Loading` stays a `UILabel`: host chrome shown before the model loads, with no
+  model state behind it.
+
+## Toolchain
+
+- Xcode 15.2 / Swift 5.9.2 with C++ on `clang++-mp-20`.
+- Swift target `surfaces_demo_ios_content` (static, own target — Swift cannot
+  share a target with ObjC++); `-import-objc-header ios_surface_actions.h`.
+- The simulator needs both `CMAKE_Swift_FLAGS "-sdk ..."` and
+  `CMAKE_Swift_COMPILER_TARGET x86_64-apple-ios17.0-simulator`: CMake leaves
+  `CMAKE_Swift_COMPILE_OPTIONS_SYSROOT` unset and swiftc otherwise targets the
+  host macOS. Verified on the real command line.
+- Both executables pin `LINKER_LANGUAGE OBJCXX` (the Swift driver rejects
+  `-fno-rtti`) and add `-L<sdk>/usr/lib/swift` plus
+  `-L<toolchain>/lib/swift/iphonesimulator` for the autolinked Swift runtime.
+- `-fno-rtti` confirmed on every OBJCXX compile line of both targets; no
+  generated `-Swift.h` (it needs clang modules, unavailable under
+  `clang++-mp-20`).
+- Incremental build only, in `build/ios-sim-x86_64-debug-surfaces-demo`;
+  `ios_surfaces_demo` and `ios_surfaces_demo_load_only` both link.
+
+## Tests
+
+- No iOS test target exists; verification is a simulator run on iPhone 15 Pro
+  Max `EB9ED0F9-3C43-48A2-A18B-66C654FAAD4D` (iOS 17.2), bundle id
+  `com.apptraverse.surfaces`, uninstalled before each install.
+- Launch: process stays alive; page shows the SwiftUI caption and tint;
+  `Remove current` disabled at one Surface.
+- Add → new page appended, pager settles on it, `Remove current` becomes
+  enabled; second Add → `Surface 3` with its own hue.
+- Swipe back and forward → `Surface 3` ↔ `Surface 2`, page settles.
+- Remove current → neighbor becomes current; removing down to one page leaves
+  `Remove current` disabled again.
+- Relaunch reopened the persisted current Surface (`mobile_current`, not the
+  first page).
+- Clicks/swipes driven by synthetic `CGEvent`s against the Simulator window,
+  each step verified from `simctl io screenshot`.
+
+## Known limitations
+
+- SwiftUI rendering is asserted only by screenshot; there is no headless or
+  XCTest assertion for the iOS host.
+- `simctl terminate` does not deliver `applicationWillTerminate`, so
+  `Application::Save` does not run and the newest topology change is lost on a
+  simulator kill. Reproduced identically with the pre-change UIKit binary, so it
+  is pre-existing, not a port regression. Recorded in `plan.md`.
+- The bundle has no launch storyboard, so iOS scales the app from a 320×480
+  logical screen and in the light appearance (also pre-existing). Recorded in
+  `plan.md`.
+- Swift compiles are slow on this Intel host.
+
+Not accepted-by-user.
+
+---
 Status: implemented, verified locally on macOS. Not accepted.
 
 # MAC CURSOR — macOS SwiftUI view layer
