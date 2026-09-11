@@ -44,11 +44,10 @@ void ModelRuntime::AttachNode(Node& node, ae::Obj& presentation_root) {
   if (!node.base.is_valid()) {
     InitializeRuntimeNode(node);
   }
+  // Only the live Node is bound. Node::base is a historical snapshot that
+  // CaptureBaseState / CompactJournal replace, so a notifier on it would
+  // outlive the object it points at.
   node.BindMaterializedChangeNotifier(this, &ModelRuntimeMaterializedChange);
-  if (node.base.is_valid() && node.base.is_loaded()) {
-    node.base->BindMaterializedChangeNotifier(this,
-                                              &ModelRuntimeMaterializedChange);
-  }
   if (std::find(model_nodes_.begin(), model_nodes_.end(), &node) ==
       model_nodes_.end()) {
     model_nodes_.push_back(&node);
@@ -64,23 +63,8 @@ void ModelRuntime::DetachNode(Node& node, ae::Obj& presentation_root) {
   auto const node_id = node.obj_id.id();
   auto const root_id = presentation_root.obj_id.id();
 
-  model_nodes_.erase(
-      std::remove(model_nodes_.begin(), model_nodes_.end(), &node),
-      model_nodes_.end());
-  node.ClearMaterializedChangeNotifier();
-  if (node.base.is_valid() && node.base.is_loaded()) {
-    node.base->ClearMaterializedChangeNotifier();
-  }
-
-  auto roots_it = object_to_roots_.find(node_id);
-  if (roots_it != object_to_roots_.end()) {
-    auto& roots = roots_it->second;
-    roots.erase(std::remove(roots.begin(), roots.end(), root_id), roots.end());
-    if (roots.empty()) {
-      object_to_roots_.erase(roots_it);
-    }
-  }
-
+  // Drop only this root's deferred publication entry. Other roots that still
+  // map the Node keep theirs until their own DetachNode.
   auto pending_it = pending_by_root_.find(root_id);
   if (pending_it != pending_by_root_.end()) {
     pending_it->second.erase(&node);
@@ -88,6 +72,22 @@ void ModelRuntime::DetachNode(Node& node, ae::Obj& presentation_root) {
       pending_by_root_.erase(pending_it);
     }
   }
+
+  auto roots_it = object_to_roots_.find(node_id);
+  // AttachNode always records the mapping before any DetachNode can run.
+  auto& roots = roots_it->second;
+  roots.erase(std::remove(roots.begin(), roots.end(), root_id), roots.end());
+  if (!roots.empty()) {
+    // Still mapped elsewhere: stay in UpdateAll and keep the notifier so the
+    // remaining roots continue to receive materialized-change notifications.
+    return;
+  }
+
+  object_to_roots_.erase(roots_it);
+  model_nodes_.erase(
+      std::remove(model_nodes_.begin(), model_nodes_.end(), &node),
+      model_nodes_.end());
+  node.ClearMaterializedChangeNotifier();
 }
 
 void ModelRuntime::BuildExecutionLists() {
@@ -131,10 +131,6 @@ void ModelRuntime::SetUpdateObserver(UpdateObserver observer) {
 void ModelRuntime::BindAllModelNodeNotifiers() {
   for (Node* node : model_nodes_) {
     node->BindMaterializedChangeNotifier(this, &ModelRuntimeMaterializedChange);
-    if (node->base.is_valid() && node->base.is_loaded()) {
-      node->base->BindMaterializedChangeNotifier(
-          this, &ModelRuntimeMaterializedChange);
-    }
   }
 }
 
@@ -146,8 +142,14 @@ void ModelRuntime::Start() {
 }
 
 void ModelRuntime::RequestStop() {
-  accept_work_ = false;
-  stop_ = true;
+  // Closing the acceptance window and raising stop happen in the same critical
+  // section that Post and DrainWork use, so a Post either lands before the
+  // boundary (and is drained after the loop exits) or is rejected.
+  {
+    std::lock_guard<std::mutex> lock{mu_};
+    accept_work_ = false;
+    stop_ = true;
+  }
   cv_.notify_all();
 }
 
@@ -158,11 +160,14 @@ void ModelRuntime::Join() {
 }
 
 void ModelRuntime::Post(Work work) {
-  if (!accept_work_.load()) {
-    return;
-  }
   {
     std::lock_guard<std::mutex> lock{mu_};
+    // The accept decision and the push are one step. Reading accept_work_
+    // outside the lock let a Post that observed an open window push after
+    // ThreadMain's final DrainWork, leaving the work queued and never run.
+    if (!accept_work_.load()) {
+      return;
+    }
     work_.push(std::move(work));
   }
   cv_.notify_one();

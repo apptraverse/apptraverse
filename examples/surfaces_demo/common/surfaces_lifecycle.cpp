@@ -137,13 +137,21 @@ void SurfacesModelSession::Run(
       // Publish at most one structural snapshot while the channel is free.
       // Further dirty Nodes stay pending (first-dirty order) until GUI consumes.
       for (;;) {
-        Node* to_publish = nullptr;
+        std::uint32_t pending_id = 0;
         {
           std::lock_guard<std::mutex> lock{mu};
           if (stop || channel.is_publication_busy() || pending_dirty.empty()) {
             break;
           }
-          to_publish = pending_dirty.PopFront();
+          pending_id = pending_dirty.PopFront();
+        }
+        // A Node dirtied while the GUI held an earlier publication may have
+        // been removed from live topology since. Retained Events still
+        // reference it, so only live reachability can tell.
+        Node* const to_publish = FindLiveReachableNode(*application,
+                                                       pending_id);
+        if (to_publish == nullptr) {
+          continue;
         }
         auto* pub = channel.AcquireProducer();
         SerializeStructuralNodePublication(*to_publish, pub->sink);
