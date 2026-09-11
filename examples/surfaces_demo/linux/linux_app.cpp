@@ -1,14 +1,6 @@
 #include "linux_app.h"
 
-#include <X11/Xatom.h>
-#include <X11/Xutil.h>
-
-#include <cerrno>
-#include <cstdio>
-#include <cstring>
-#include <fcntl.h>
-#include <poll.h>
-#include <unistd.h>
+#include <utility>
 
 #include "apptraverse/object_serialization.h"
 #include "linux_fatal.h"
@@ -18,74 +10,51 @@
 namespace apptraverse {
 namespace {
 
-void SetWmName(Display* display, Window window, char const* name) {
-  XStoreName(display, window, name);
-  XClassHint hint{};
-  hint.res_name = const_cast<char*>("apptraverse_surfaces");
-  hint.res_class = const_cast<char*>("AppTraverseSurfaces");
-  XSetClassHint(display, window, &hint);
-}
+struct WakePayload {
+  LinuxApp* app;
+  std::uint8_t code;
+};
+
+struct GuiInvokePayload {
+  std::function<void()> fn;
+};
 
 }  // namespace
 
-void LinuxApp::OpenDisplay() {
-  display_ = XOpenDisplay(nullptr);
-  if (display_ == nullptr) {
-    FatalLinux("XOpenDisplay");
-  }
-  root_ = DefaultRootWindow(display_);
-  wm_delete_ = XInternAtom(display_, "WM_DELETE_WINDOW", False);
-  wm_protocols_ = XInternAtom(display_, "WM_PROTOCOLS", False);
-  net_frame_extents_ = XInternAtom(display_, "_NET_FRAME_EXTENTS", False);
+gboolean LinuxAppWakeIdle(gpointer data) {
+  auto* payload = static_cast<WakePayload*>(data);
+  payload->app->HandleWake(payload->code);
+  delete payload;
+  return G_SOURCE_REMOVE;
 }
 
-void LinuxApp::CloseDisplay() {
-  if (display_ != nullptr) {
-    XCloseDisplay(display_);
-    display_ = nullptr;
-  }
+gboolean LinuxAppGuiInvokeIdle(gpointer data) {
+  auto* payload = static_cast<GuiInvokePayload*>(data);
+  payload->fn();
+  delete payload;
+  return G_SOURCE_REMOVE;
 }
 
-void LinuxApp::CreateWakePipe() {
-  if (pipe(wake_pipe_) != 0) {
-    FatalLinux("pipe wake");
-  }
+void LinuxApp::InvokeOnGui(std::function<void()> fn) {
+  auto* payload = new GuiInvokePayload{std::move(fn)};
+  gdk_threads_add_idle(&LinuxAppGuiInvokeIdle, payload);
 }
 
-void LinuxApp::CloseWakePipe() {
-  if (wake_pipe_[0] >= 0) {
-    close(wake_pipe_[0]);
-    wake_pipe_[0] = -1;
-  }
-  if (wake_pipe_[1] >= 0) {
-    close(wake_pipe_[1]);
-    wake_pipe_[1] = -1;
-  }
+void LinuxApp::PostWake(std::uint8_t code) {
+  auto* payload = new WakePayload{this, code};
+  gdk_threads_add_idle(&LinuxAppWakeIdle, payload);
 }
 
-void LinuxApp::WriteWake(std::uint8_t code) {
-  for (;;) {
-    ssize_t const n = write(wake_pipe_[1], &code, 1);
-    if (n == 1) {
-      return;
-    }
-    if (n < 0 && errno == EINTR) {
-      continue;
-    }
-    FatalLinux("write wake pipe");
-  }
-}
-
-void LinuxApp::RegisterPresenter(Window window,
+void LinuxApp::RegisterPresenter(GtkWidget* window,
                                  LinuxSurfacePresenter* presenter) {
   presenters_[window] = presenter;
 }
 
-void LinuxApp::UnregisterPresenter(Window window) {
+void LinuxApp::UnregisterPresenter(GtkWidget* window) {
   presenters_.erase(window);
 }
 
-LinuxSurfacePresenter* LinuxApp::PresenterFor(Window window) const {
+LinuxSurfacePresenter* LinuxApp::PresenterFor(GtkWidget* window) const {
   auto const it = presenters_.find(window);
   if (it == presenters_.end()) {
     return nullptr;
@@ -93,126 +62,27 @@ LinuxSurfacePresenter* LinuxApp::PresenterFor(Window window) const {
   return it->second;
 }
 
-LinuxSurfacePresenter* LinuxApp::PresenterForWindowOrAncestor(
-    Window window) const {
-  Window current = window;
-  for (int depth = 0; depth < 16 && current != None && current != root_;
-       ++depth) {
-    if (LinuxSurfacePresenter* presenter = PresenterFor(current)) {
-      return presenter;
-    }
-    Window root_return = None;
-    Window parent = None;
-    Window* children = nullptr;
-    unsigned int nchildren = 0;
-    if (XQueryTree(display_, current, &root_return, &parent, &children,
-                   &nchildren) == 0) {
-      return nullptr;
-    }
-    if (children != nullptr) {
-      XFree(children);
-    }
-    current = parent;
-  }
-  return nullptr;
-}
-
-bool LinuxApp::QueryFrameExtents(Window window, long* left, long* right,
-                                 long* top, long* bottom) const {
-  Atom actual_type = None;
-  int actual_format = 0;
-  unsigned long nitems = 0;
-  unsigned long bytes_after = 0;
-  unsigned char* prop = nullptr;
-  int const rc = XGetWindowProperty(
-      display_, window, net_frame_extents_, 0, 4, False, XA_CARDINAL,
-      &actual_type, &actual_format, &nitems, &bytes_after, &prop);
-  if (rc != Success || prop == nullptr || nitems < 4 ||
-      actual_format != 32) {
-    if (prop != nullptr) {
-      XFree(prop);
-    }
-    return false;
-  }
-  long const* values = reinterpret_cast<long const*>(prop);
-  *left = values[0];
-  *right = values[1];
-  *top = values[2];
-  *bottom = values[3];
-  XFree(prop);
-  return true;
-}
-
-void LinuxApp::ReadOuterBounds(Window window, int* x, int* y, int* width,
+void LinuxApp::ReadOuterBounds(GtkWidget* window, int* x, int* y, int* width,
                                int* height) const {
-  Window root_return = None;
-  Window child = None;
-  int win_x = 0;
-  int win_y = 0;
-  unsigned int win_w = 0;
-  unsigned int win_h = 0;
-  unsigned int border = 0;
-  unsigned int depth = 0;
-  if (XGetGeometry(display_, window, &root_return, &win_x, &win_y, &win_w,
-                   &win_h, &border, &depth) == 0) {
-    FatalLinux("XGetGeometry Surface");
-  }
-  int root_x = 0;
-  int root_y = 0;
-  if (XTranslateCoordinates(display_, window, root_, 0, 0, &root_x, &root_y,
-                            &child) == False) {
-    FatalLinux("XTranslateCoordinates Surface");
-  }
-  long left = 0;
-  long right = 0;
-  long top = 0;
-  long bottom = 0;
-  if (QueryFrameExtents(window, &left, &right, &top, &bottom)) {
-    *x = root_x - static_cast<int>(left);
-    *y = root_y - static_cast<int>(top);
-    *width = static_cast<int>(win_w) + static_cast<int>(left + right);
-    *height = static_cast<int>(win_h) + static_cast<int>(top + bottom);
-  } else {
-    *x = root_x;
-    *y = root_y;
-    *width = static_cast<int>(win_w);
-    *height = static_cast<int>(win_h);
-  }
+  gint gx = 0;
+  gint gy = 0;
+  gint gw = 0;
+  gint gh = 0;
+  gtk_window_get_position(GTK_WINDOW(window), &gx, &gy);
+  gtk_window_get_size(GTK_WINDOW(window), &gw, &gh);
+  *x = gx;
+  *y = gy;
+  *width = gw;
+  *height = gh;
 }
 
-void LinuxApp::ApplyOuterPlacement(Window window, int outer_x, int outer_y,
-                                   int outer_w, int outer_h) {
-  long left = 0;
-  long right = 0;
-  long top = 0;
-  long bottom = 0;
-  bool const have_extents =
-      QueryFrameExtents(window, &left, &right, &top, &bottom);
-  int client_w = outer_w;
-  int client_h = outer_h;
-  int client_x = outer_x;
-  int client_y = outer_y;
-  if (have_extents) {
-    client_w = outer_w - static_cast<int>(left + right);
-    client_h = outer_h - static_cast<int>(top + bottom);
-    if (client_w < 1) {
-      client_w = 1;
-    }
-    if (client_h < 1) {
-      client_h = 1;
-    }
-    client_x = outer_x + static_cast<int>(left);
-    client_y = outer_y + static_cast<int>(top);
-  }
-  XMoveResizeWindow(display_, window, client_x, client_y,
-                    static_cast<unsigned int>(client_w),
-                    static_cast<unsigned int>(client_h));
-  XFlush(display_);
-}
-
-void LinuxApp::PlaceOuterWindow(Window window, int x, int y, int width,
+void LinuxApp::PlaceOuterWindow(GtkWidget* window, int x, int y, int width,
                                 int height) {
-  ApplyOuterPlacement(window, x, y, width, height);
+  if (width > 0 && height > 0) {
+    gtk_window_resize(GTK_WINDOW(window), width, height);
+  }
+  // Best-effort; Wayland compositors may ignore absolute position.
+  gtk_window_move(GTK_WINDOW(window), x, y);
 }
 
 void LinuxApp::QueueAllWindowBounds() {
@@ -223,17 +93,12 @@ void LinuxApp::QueueAllWindowBounds() {
 }
 
 void LinuxApp::QueueFocusedAsCurrent() {
-  Window focused = None;
-  int revert = RevertToNone;
-  XGetInputFocus(display_, &focused, &revert);
-  if (focused == None || focused == PointerRoot) {
-    return;
+  for (auto const& entry : presenters_) {
+    if (gtk_window_has_toplevel_focus(GTK_WINDOW(entry.first))) {
+      entry.second->PageShown();
+      return;
+    }
   }
-  LinuxSurfacePresenter* presenter = PresenterForWindowOrAncestor(focused);
-  if (presenter == nullptr) {
-    return;
-  }
-  presenter->PageShown();
 }
 
 void LinuxApp::RestoreActiveSurfaceZOrder() {
@@ -243,26 +108,14 @@ void LinuxApp::RestoreActiveSurfaceZOrder() {
     if (surfaces.empty()) {
       return;
     }
-    // Pre-z-order state: keep last-created (creation order) on top.
     target = surfaces.back();
   }
   LinuxSurfacePresenter::ptr presenter{target->presenter};
-  XRaiseWindow(display_, presenter->window);
-  // Best-effort focus; Z-order is already raised. WM focus policy / map state
-  // may yield BadMatch — same best-effort stance as SetForegroundWindow.
-  XWindowAttributes attrs{};
-  if (XGetWindowAttributes(display_, presenter->window, &attrs) != 0 &&
-      attrs.map_state == IsViewable) {
-    XSetInputFocus(display_, presenter->window, RevertToParent, CurrentTime);
-  }
-  XFlush(display_);
-  // Explicit PageShown: FocusIn may not fire when already focused.
+  gtk_window_present(GTK_WINDOW(presenter->window));
   presenter->PageShown();
 }
 
 void LinuxApp::RequestApplicationStop() {
-  // Current Surface + geometry must be accepted before stop so Save persists
-  // both mobile_current (z-order) and desktop_*.
   if (ui_application_) {
     QueueFocusedAsCurrent();
     QueueAllWindowBounds();
@@ -270,39 +123,29 @@ void LinuxApp::RequestApplicationStop() {
   session_.RequestStop();
 }
 
-void LinuxApp::PostApplicationStop() {
-  WriteWake(kLinuxWakeStop);
-}
+void LinuxApp::PostApplicationStop() { PostWake(kLinuxWakeStop); }
 
 void LinuxApp::CreateLoadingWindow() {
-  loading_ = XCreateSimpleWindow(display_, root_, 200, 200, 280, 120, 1,
-                                 BlackPixel(display_, DefaultScreen(display_)),
-                                 WhitePixel(display_, DefaultScreen(display_)));
-  if (loading_ == None) {
-    FatalLinux("XCreateSimpleWindow Loading");
-  }
-  SetWmName(display_, loading_, "Loading");
-  XSelectInput(display_, loading_, ExposureMask | StructureNotifyMask);
-  XSetWMProtocols(display_, loading_, &wm_delete_, 1);
-  XMapWindow(display_, loading_);
-  XFlush(display_);
+  loading_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  gtk_window_set_title(GTK_WINDOW(loading_), "Loading");
+  gtk_window_set_default_size(GTK_WINDOW(loading_), 280, 120);
+  gtk_window_set_position(GTK_WINDOW(loading_), GTK_WIN_POS_CENTER);
+  GtkWidget* label = gtk_label_new("Loading");
+  gtk_container_add(GTK_CONTAINER(loading_), label);
+  g_signal_connect(loading_, "delete-event",
+                   G_CALLBACK(+[](GtkWidget*, GdkEvent*, gpointer) -> gboolean {
+                     return TRUE;
+                   }),
+                   nullptr);
+  gtk_widget_show_all(loading_);
 }
 
 void LinuxApp::DestroyLoadingWindow() {
-  if (loading_ == None) {
+  if (loading_ == nullptr) {
     return;
   }
-  XDestroyWindow(display_, loading_);
-  loading_ = None;
-  XFlush(display_);
-}
-
-void LinuxApp::PaintLoading() {
-  GC gc = XCreateGC(display_, loading_, 0, nullptr);
-  XClearWindow(display_, loading_);
-  XDrawString(display_, loading_, gc, 110, 64, "Loading", 7);
-  XFreeGC(display_, gc);
-  XFlush(display_);
+  gtk_widget_destroy(loading_);
+  loading_ = nullptr;
 }
 
 void LinuxApp::OnInitialPublished() {
@@ -335,66 +178,32 @@ void LinuxApp::OnIncrementalPublished() {
                           &*model_proxy_);
 }
 
-void LinuxApp::DrainWake() {
-  for (;;) {
-    std::uint8_t code = 0;
-    ssize_t const n = read(wake_pipe_[0], &code, 1);
-    if (n < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        return;
-      }
-      FatalLinux("read wake pipe");
-    }
-    if (n == 0) {
-      return;
-    }
-    if (code == kLinuxWakeInitialPublished) {
-      OnInitialPublished();
-    } else if (code == kLinuxWakeIncrementalPublished) {
-      OnIncrementalPublished();
-    } else if (code == kLinuxWakeStop) {
-      RequestApplicationStop();
-    }
+void LinuxApp::OnModelFinished() {
+  if (ui_application_) {
+    UnloadPresenters(*ui_application_);
   }
+  ui_application_ = {};
+  ui_domain_.reset();
+  model_proxy_.reset();
+  DestroyLoadingWindow();
+  gtk_main_quit();
 }
 
-void LinuxApp::DispatchXEvent(XEvent const& event) {
-  if (event.type == ClientMessage) {
-    if (event.xclient.message_type == wm_protocols_ &&
-        static_cast<Atom>(event.xclient.data.l[0]) == wm_delete_) {
-      if (event.xclient.window == loading_) {
-        // Startup is not cancelable until Loading is gone.
-        return;
-      }
-      // Native WM close of any Surface → whole-application stop. Never Remove.
-      RequestApplicationStop();
-      return;
-    }
-  }
-  if (event.type == Expose && event.xexpose.window == loading_ &&
-      event.xexpose.count == 0) {
-    PaintLoading();
-    return;
-  }
-  LinuxSurfacePresenter* presenter = PresenterFor(event.xany.window);
-  if (presenter != nullptr) {
-    presenter->HandleEvent(event);
+void LinuxApp::HandleWake(std::uint8_t code) {
+  if (code == kLinuxWakeInitialPublished) {
+    OnInitialPublished();
+  } else if (code == kLinuxWakeIncrementalPublished) {
+    OnIncrementalPublished();
+  } else if (code == kLinuxWakeStop) {
+    RequestApplicationStop();
+  } else if (code == kLinuxWakeModelFinished) {
+    OnModelFinished();
   }
 }
 
 int LinuxApp::Run(std::filesystem::path const& state_dir) {
+  gtk_init(nullptr, nullptr);
   EnsureLinuxSurfacePresenterRegistration();
-  OpenDisplay();
-  CreateWakePipe();
-
-  // Non-blocking wake reads so DrainWake can empty the pipe after poll.
-  int flags = fcntl(wake_pipe_[0], F_GETFL, 0);
-  if (flags < 0 || fcntl(wake_pipe_[0], F_SETFL, flags | O_NONBLOCK) < 0) {
-    FatalLinux("fcntl wake O_NONBLOCK");
-  }
 
   session_.state_dir = state_dir;
   model_proxy_.emplace([this](ModelObjectProxy::ModelWork work) {
@@ -406,56 +215,16 @@ int LinuxApp::Run(std::filesystem::path const& state_dir) {
   model_done_.store(false);
   model_thread_ = std::thread([this] {
     session_.Run([this](SurfacesPublicationKind kind) {
-      WriteWake(kind == SurfacesPublicationKind::Initial
-                    ? kLinuxWakeInitialPublished
-                    : kLinuxWakeIncrementalPublished);
+      PostWake(kind == SurfacesPublicationKind::Initial
+                   ? kLinuxWakeInitialPublished
+                   : kLinuxWakeIncrementalPublished);
     });
     model_done_.store(true);
-    WriteWake(kLinuxWakeStop);
+    PostWake(kLinuxWakeModelFinished);
   });
 
-  int const xfd = ConnectionNumber(display_);
-  while (!model_done_.load()) {
-    while (XPending(display_) > 0) {
-      XEvent event{};
-      XNextEvent(display_, &event);
-      DispatchXEvent(event);
-    }
-    pollfd fds[2]{};
-    fds[0].fd = xfd;
-    fds[0].events = POLLIN;
-    fds[1].fd = wake_pipe_[0];
-    fds[1].events = POLLIN;
-    int const pr = poll(fds, 2, -1);
-    if (pr < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      FatalLinux("poll");
-    }
-    if (fds[1].revents & (POLLIN | POLLHUP)) {
-      DrainWake();
-    }
-  }
-
-  // Drain remaining X/wake after model finished (final STOP already applied).
-  DrainWake();
-  while (XPending(display_) > 0) {
-    XEvent event{};
-    XNextEvent(display_, &event);
-    DispatchXEvent(event);
-  }
-
+  gtk_main();
   model_thread_.join();
-  if (ui_application_) {
-    UnloadPresenters(*ui_application_);
-  }
-  ui_application_ = {};
-  ui_domain_.reset();
-  model_proxy_.reset();
-  DestroyLoadingWindow();
-  CloseWakePipe();
-  CloseDisplay();
   return 0;
 }
 
