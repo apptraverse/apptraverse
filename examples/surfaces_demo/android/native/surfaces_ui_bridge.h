@@ -30,10 +30,11 @@ class SurfacesUiBridge {
   // publication the channel now holds.
   void PostPublication(int kind) const;
   // Called from the main thread after presenters were updated. current_id is
-  // the persisted current page, or 0 when the model holds none.
+  // the persisted current page, or 0 when the model holds none. is_wide comes
+  // from SurfacePresenter::IsWide on the published GUI mirror.
   void PostPages(std::vector<std::int64_t> const& ids,
                  std::vector<std::int32_t> const& numbers,
-                 std::int64_t current_id) const;
+                 std::int64_t current_id, bool is_wide) const;
   // Called from the model thread after Run returned (state is saved).
   void PostStopped() const;
 

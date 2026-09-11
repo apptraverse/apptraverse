@@ -44,7 +44,7 @@ target_link_options(web_surfaces_demo PRIVATE
   -sFORCE_FILESYSTEM=1
   -sEXIT_RUNTIME=0
   -lidbfs.js
-  -sEXPORTED_FUNCTIONS=_main,_AppTraverseWebAddCurrent,_AppTraverseWebRemoveCurrent,_AppTraverseWebSelectSurface,_AppTraverseWebStop,_AppTraverseWebSyncDone,_AppTraverseWebRequestSync
+  -sEXPORTED_FUNCTIONS=_main,_AppTraverseWebAddCurrent,_AppTraverseWebRemoveCurrent,_AppTraverseWebSelectSurface,_AppTraverseWebReportPresentationSize,_AppTraverseWebStop,_AppTraverseWebSyncDone,_AppTraverseWebRequestSync
   -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString
   --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell.html
 )

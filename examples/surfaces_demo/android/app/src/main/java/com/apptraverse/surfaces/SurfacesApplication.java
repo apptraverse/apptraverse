@@ -71,6 +71,14 @@ public final class SurfacesApplication extends Application
     NativeRuntime.nativePersistState(runtimeHandle);
   }
 
+  /** Main thread: usable host size for every live Surface page. */
+  void reportPresentationSize(int width, int height) {
+    if (runtimeHandle == 0L) {
+      return;
+    }
+    NativeRuntime.nativeReportPresentationSize(runtimeHandle, width, height);
+  }
+
   /** Back / system close: graceful whole-application shutdown, not Remove. */
   void requestStop() {
     NativeRuntime.nativeRequestStop(runtimeHandle);

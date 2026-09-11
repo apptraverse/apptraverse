@@ -35,6 +35,8 @@ class WebApp {
   void RemoveCurrent();
   // Tab click → SurfacePresenter::PageShown → SetCurrentSurfaceEvent.
   void SelectSurface(std::uint32_t surface_id);
+  // Viewport / content area size → model Event for every live Surface.
+  void ReportPresentationSize(std::int32_t width, std::int32_t height);
   // Dev / last-page path: RequestStop → Save → syncfs(false).
   void RequestStop();
 
@@ -61,6 +63,7 @@ class WebApp {
   void QueueIndexedDbPersist();
   void SyncTabOrder();
   void ShowCurrentPage();
+  void ApplyToolbarOrientation();
   // Presentation intent for Add/Remove/highlight before model publication ACK.
   // Canonical persistence remains Surfaces::mobile_current.
   void SetDesiredCurrent(std::uint32_t surface_id);

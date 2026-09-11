@@ -160,6 +160,38 @@ def main() -> int:
         print(f"  rapid add tabs={labels}")
         assert len(labels) == 3, labels
 
+        print("Phase 6: model-driven toolbar orientation from viewport size")
+        page.set_viewport_size({"width": 900, "height": 500})
+        page.evaluate("() => Module.reportPresentationSize()")
+        page.wait_for_function(
+            "() => document.getElementById('toolbar').dataset.modelWide === '1'",
+            timeout=30000,
+        )
+        wide_dir = page.eval_on_selector(
+            "#toolbar", "el => getComputedStyle(el).flexDirection"
+        )
+        print(f"  wide viewport flexDirection={wide_dir!r}")
+        assert wide_dir == "row", wide_dir
+
+        page.set_viewport_size({"width": 400, "height": 800})
+        page.evaluate("() => Module.reportPresentationSize()")
+        page.wait_for_function(
+            "() => document.getElementById('toolbar').dataset.modelWide === '0'",
+            timeout=30000,
+        )
+        tall_dir = page.eval_on_selector(
+            "#toolbar", "el => getComputedStyle(el).flexDirection"
+        )
+        print(f"  tall viewport flexDirection={tall_dir!r}")
+        assert tall_dir == "column", tall_dir
+
+        page.set_viewport_size({"width": 1000, "height": 400})
+        page.evaluate("() => Module.reportPresentationSize()")
+        page.wait_for_function(
+            "() => document.getElementById('toolbar').dataset.modelWide === '1'",
+            timeout=30000,
+        )
+
         print("WASM browser smoke passed.")
         browser.close()
     return 0

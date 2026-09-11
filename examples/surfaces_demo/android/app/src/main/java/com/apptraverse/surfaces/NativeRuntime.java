@@ -31,6 +31,10 @@ final class NativeRuntime {
   /** Main thread: checkpoint Application::Save without stopping the session. */
   static native void nativePersistState(long handle);
 
+  /** Main thread: report usable presentation size to all live Surface pages. */
+  static native void nativeReportPresentationSize(long handle, int width,
+                                                  int height);
+
   /** Asks the model session to stop; the state is saved during the drain. */
   static native void nativeRequestStop(long handle);
 

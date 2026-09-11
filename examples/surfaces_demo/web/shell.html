@@ -11,7 +11,12 @@
       color: #111;
       background: #f7f7f7;
     }
-    #toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
+    #toolbar {
+      display: flex;
+      flex-direction: row;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
     #tab-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
     button {
       padding: 8px 14px;
@@ -38,7 +43,7 @@
 </head>
 <body>
   <h1>AppTraverse Surfaces</h1>
-  <div id="toolbar">
+  <div id="toolbar" data-model-wide="1">
     <button type="button" id="add-surface">Add</button>
     <button type="button" id="remove-current">Remove current</button>
   </div>
@@ -47,6 +52,16 @@
   <div id="status"></div>
 
   <script>
+    function reportPresentationSize() {
+      if (typeof Module === 'undefined' ||
+          typeof Module._AppTraverseWebReportPresentationSize !== 'function') {
+        return;
+      }
+      // Measure only; orientation is applied from the published model mirror.
+      Module._AppTraverseWebReportPresentationSize(
+          window.innerWidth | 0, window.innerHeight | 0);
+    }
+
     var Module = {
       print: function(text) { console.log(text); },
       printErr: function(text) { console.error(text); },
@@ -78,6 +93,9 @@
         document.getElementById('remove-current').onclick = function() {
           Module['_AppTraverseWebRemoveCurrent']();
         };
+        window.addEventListener('resize', reportPresentationSize);
+        Module.reportPresentationSize = reportPresentationSize;
+        reportPresentationSize();
         console.log('SURFACES_WASM_READY crossOriginIsolated=' + crossOriginIsolated);
       }
     };

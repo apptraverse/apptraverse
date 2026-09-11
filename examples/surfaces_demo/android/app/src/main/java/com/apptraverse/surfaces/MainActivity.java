@@ -7,6 +7,7 @@ import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
@@ -14,6 +15,10 @@ import android.widget.TextView;
  * Which page becomes current is presentation policy; the page it settles on is
  * reported to the model so a restart reopens it. The page list and the
  * persisted current page come from the native runtime after every publication.
+ *
+ * Usable host size is measured here and reported to the model. Button row
+ * orientation follows SurfacePresenter::IsWide from the published mirror —
+ * not Android's orientation enum.
  */
 public final class MainActivity extends Activity implements NativeUiBridge.Listener {
 
@@ -23,6 +28,8 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   private TextView pageIndicator;
   private TextView surfaceTitle;
   private TextView loading;
+  private LinearLayout controlsRow;
+  private View pageContainer;
 
   private long[] pageIds = new long[0];
   private int[] pageNumbers = new int[0];
@@ -30,6 +37,7 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   // Last page id the model knows about, so the publication it triggers does
   // not report the same page back.
   private long reportedCurrentId;
+  private boolean controlsWide = true;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -39,6 +47,8 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     pageIndicator = findViewById(R.id.page_indicator);
     surfaceTitle = findViewById(R.id.surface_title);
     loading = findViewById(R.id.loading);
+    controlsRow = findViewById(R.id.controls_row);
+    pageContainer = findViewById(R.id.page_container);
 
     Button addButton = findViewById(R.id.add_surface);
     addButton.setOnClickListener(new View.OnClickListener() {
@@ -82,7 +92,6 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
           }
         });
 
-    View pageContainer = findViewById(R.id.page_container);
     pageContainer.setOnTouchListener(new View.OnTouchListener() {
       @Override
       public boolean onTouch(View view, MotionEvent event) {
@@ -90,6 +99,17 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
       }
     });
 
+    // Measure usable presentation area; do not switch orientation here.
+    pageContainer.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+      @Override
+      public void onLayoutChange(View view, int left, int top, int right,
+                                 int bottom, int oldLeft, int oldTop,
+                                 int oldRight, int oldBottom) {
+        reportHostPresentationSize(right - left, bottom - top);
+      }
+    });
+
+    applyControlsOrientation(controlsWide);
     Log.i(TAG, "ACTIVITY_CREATED instance="
         + Integer.toHexString(System.identityHashCode(this)));
   }
@@ -120,10 +140,14 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   }
 
   @Override
-  public void onPages(long[] ids, int[] numbers, long currentId) {
+  public void onPages(long[] ids, int[] numbers, long currentId, boolean isWide) {
     pageIds = ids;
     pageNumbers = numbers;
     reportedCurrentId = currentId;
+    applyControlsOrientation(isWide);
+    // Initial publication may land before the first layout; report again once
+    // the host is ready so the first size Event is not dropped.
+    reportHostPresentationSize(pageContainer.getWidth(), pageContainer.getHeight());
     for (int i = 0; i < ids.length; ++i) {
       if (ids[i] == currentId) {
         showPage(i);
@@ -139,6 +163,31 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   public void onModelStopped() {
     finishAndRemoveTask();
     System.exit(0);
+  }
+
+  private void reportHostPresentationSize(int width, int height) {
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    application().reportPresentationSize(width, height);
+  }
+
+  private void applyControlsOrientation(boolean isWide) {
+    controlsWide = isWide;
+    controlsRow.setOrientation(
+        isWide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+    int width = isWide ? 0 : LinearLayout.LayoutParams.MATCH_PARENT;
+    float weight = isWide ? 1.f : 0.f;
+    for (int i = 0; i < controlsRow.getChildCount(); ++i) {
+      View child = controlsRow.getChildAt(i);
+      LinearLayout.LayoutParams params =
+          (LinearLayout.LayoutParams) child.getLayoutParams();
+      params.width = width;
+      params.height = LinearLayout.LayoutParams.WRAP_CONTENT;
+      params.weight = weight;
+      child.setLayoutParams(params);
+    }
+    Log.i(TAG, "CONTROLS_ORIENTATION wide=" + (isWide ? "1" : "0"));
   }
 
   private void showPage(int index) {

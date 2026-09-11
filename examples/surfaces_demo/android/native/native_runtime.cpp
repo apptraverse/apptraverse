@@ -111,6 +111,19 @@ void NativeRuntime::PersistState() {
   });
 }
 
+void NativeRuntime::ReportPresentationSize(std::int32_t width,
+                                           std::int32_t height) {
+  if (!ui_application_) {
+    return;
+  }
+  LogMarker("SURFACES_PRESENTATION_SIZE w=" + std::to_string(width) +
+            " h=" + std::to_string(height));
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
+    SurfacePresenter::ptr presenter{surface->presenter};
+    presenter->PresentationSizeChanged(width, height);
+  }
+}
+
 void NativeRuntime::PublishPages() {
   auto const& surfaces = ui_application_->surfaces->surfaces;
   std::vector<std::int64_t> ids;
@@ -127,9 +140,18 @@ void NativeRuntime::PublishPages() {
   auto const& current = ui_application_->surfaces->mobile_current;
   std::int64_t const current_id =
       current ? static_cast<std::int64_t>(current->obj_id.id()) : 0;
+  bool is_wide = true;
+  if (current) {
+    SurfacePresenter::ptr presenter{current->presenter};
+    is_wide = presenter->IsWide();
+  } else if (!surfaces.empty()) {
+    SurfacePresenter::ptr presenter{surfaces[0]->presenter};
+    is_wide = presenter->IsWide();
+  }
   LogMarker(marker + " count=" + std::to_string(surfaces.size()) +
-            " current=" + std::to_string(current_id));
-  ui_bridge_.PostPages(ids, numbers, current_id);
+            " current=" + std::to_string(current_id) +
+            " wide=" + (is_wide ? "1" : "0"));
+  ui_bridge_.PostPages(ids, numbers, current_id, is_wide);
 }
 
 void NativeRuntime::UnloadUi() {

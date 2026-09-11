@@ -105,7 +105,7 @@ void SurfacesUiBridge::PostPublication(int kind) const {
 
 void SurfacesUiBridge::PostPages(std::vector<std::int64_t> const& ids,
                                  std::vector<std::int32_t> const& numbers,
-                                 std::int64_t current_id) const {
+                                 std::int64_t current_id, bool is_wide) const {
   JNIEnv* env = AttachedEnv();
   if (env == nullptr) {
     LogError("SurfacesUiBridge: failed to attach JNIEnv for pages");
@@ -123,7 +123,8 @@ void SurfacesUiBridge::PostPages(std::vector<std::int64_t> const& ids,
   env->SetIntArrayRegion(java_numbers, 0, count,
                          reinterpret_cast<jint const*>(numbers.data()));
   env->CallVoidMethod(object_, on_pages_, java_ids, java_numbers,
-                      static_cast<jlong>(current_id));
+                      static_cast<jlong>(current_id),
+                      static_cast<jboolean>(is_wide ? JNI_TRUE : JNI_FALSE));
   if (env->ExceptionCheck()) {
     env->ExceptionDescribe();
     env->ExceptionClear();
@@ -165,7 +166,7 @@ SurfacesUiBridge MakeSurfacesUiBridge(JNIEnv* env, jobject ui_bridge) {
   jmethodID const on_publication =
       env->GetMethodID(global_class, "onNativePublication", "(I)V");
   jmethodID const on_pages =
-      env->GetMethodID(global_class, "onNativePages", "([J[IJ)V");
+      env->GetMethodID(global_class, "onNativePages", "([J[IJZ)V");
   jmethodID const on_stopped =
       env->GetMethodID(global_class, "onNativeStopped", "()V");
   if (on_publication == nullptr || on_pages == nullptr ||

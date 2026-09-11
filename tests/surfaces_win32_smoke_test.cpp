@@ -7,6 +7,7 @@
 #endif
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -480,10 +481,10 @@ void PlaceClientSize(HWND hwnd, int client_w, int client_h) {
   CHECK(GetClientRect(hwnd, &client) != 0);
   int const width = client.right - client.left;
   int const height = client.bottom - client.top;
-  if (client_w > client_h) {
-    CHECK(width > height);
+  if (client_w >= client_h) {
+    CHECK(width >= height);
   } else {
-    CHECK(width <= height);
+    CHECK(width < height);
   }
 }
 
@@ -493,24 +494,46 @@ RECT ScreenRect(HWND hwnd) {
   return rect;
 }
 
-void ExpectHorizontalButtons(HWND surface) {
+bool ButtonsHorizontal(HWND surface) {
   RECT const add = ScreenRect(FindAddButton(surface));
   RECT const close = ScreenRect(FindCloseButton(surface));
-  CHECK(add.left < close.left);
-  CHECK(std::abs(add.top - close.top) <= 2);
+  return add.left < close.left && std::abs(add.top - close.top) <= 2;
 }
 
-void ExpectVerticalButtons(HWND surface) {
+bool ButtonsVertical(HWND surface) {
   RECT const add = ScreenRect(FindAddButton(surface));
   RECT const close = ScreenRect(FindCloseButton(surface));
-  CHECK(add.top < close.top);
-  CHECK(std::abs(add.left - close.left) <= 2);
+  return add.top < close.top && std::abs(add.left - close.left) <= 2;
 }
 
-void TestControlsFollowClientAspectRatio() {
+void WaitHorizontalButtons(HWND surface) {
+  auto const deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (ButtonsHorizontal(surface)) {
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  }
+  CHECK(false && "buttons did not become horizontal after model publication");
+}
+
+void WaitVerticalButtons(HWND surface) {
+  auto const deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (ButtonsVertical(surface)) {
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  }
+  CHECK(false && "buttons did not become vertical after model publication");
+}
+
+void TestControlsFollowPresentationSize() {
   DWORD const pid = GetCurrentProcessId();
   auto dir = std::filesystem::temp_directory_path() /
-             "apptraverse_surfaces_win32_aspect_layout";
+             "apptraverse_surfaces_win32_presentation_size";
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
@@ -527,31 +550,49 @@ void TestControlsFollowClientAspectRatio() {
   CHECK(FindCloseButton(s1) != nullptr);
 
   PlaceClientSize(s1, 800, 400);
-  ExpectHorizontalButtons(s1);
+  WaitHorizontalButtons(s1);
 
   PlaceClientSize(s1, 400, 800);
-  ExpectVerticalButtons(s1);
+  WaitVerticalButtons(s1);
 
+  // Square is wide under presentation_width >= presentation_height.
   PlaceClientSize(s1, 500, 500);
-  ExpectVerticalButtons(s1);
+  WaitHorizontalButtons(s1);
 
-  // Live switch back to landscape without recreating the window.
   PlaceClientSize(s1, 700, 300);
-  ExpectHorizontalButtons(s1);
+  WaitHorizontalButtons(s1);
 
-  // Add still works after layout switches.
   SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
   HWND s2 = nullptr;
   CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
                   std::chrono::seconds{30}));
   PlaceClientSize(s2, 360, 640);
-  ExpectVerticalButtons(s2);
+  WaitVerticalButtons(s2);
   SendMessageW(FindCloseButton(s2), BM_CLICK, 0, 0);
   CHECK(WaitCount(pid, kSurfacesWindowClass, 1, std::chrono::seconds{30}));
   CHECK(IsWindow(s1) != 0);
 
   PostMessageW(s1, WM_CLOSE, 0, 0);
   gui.join();
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  Surface& surface = *application->surfaces->surfaces[0];
+  CHECK(surface.presentation_width == 700);
+  CHECK(surface.presentation_height == 300);
+  bool saw_size_event = false;
+  for (auto const& entry : surface.journal) {
+    if (entry.event->GetClassId() ==
+        SurfacePresentationSizeChangedEvent::kClassId) {
+      saw_size_event = true;
+      break;
+    }
+  }
+  CHECK(saw_size_event);
+
   std::filesystem::remove_all(dir);
 }
 
@@ -562,7 +603,7 @@ int main() {
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeXKeepsAllSurfaces();
   apptraverse::test::TestActiveZOrderRestored();
-  apptraverse::test::TestControlsFollowClientAspectRatio();
+  apptraverse::test::TestControlsFollowPresentationSize();
   std::cout << "surfaces_win32_smoke_test OK\n";
   return 0;
 }

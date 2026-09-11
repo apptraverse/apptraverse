@@ -73,6 +73,12 @@ void NativePersistState(JNIEnv*, jclass, jlong handle) {
   FromHandle(handle)->PersistState();
 }
 
+void NativeReportPresentationSize(JNIEnv*, jclass, jlong handle, jint width,
+                                  jint height) {
+  FromHandle(handle)->ReportPresentationSize(static_cast<std::int32_t>(width),
+                                             static_cast<std::int32_t>(height));
+}
+
 void NativeRequestStop(JNIEnv*, jclass, jlong handle) {
   FromHandle(handle)->RequestStop();
 }
@@ -96,6 +102,8 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativePageShown", "(JJ)V", reinterpret_cast<void*>(&NativePageShown)},
     {"nativePersistState", "(J)V",
      reinterpret_cast<void*>(&NativePersistState)},
+    {"nativeReportPresentationSize", "(JII)V",
+     reinterpret_cast<void*>(&NativeReportPresentationSize)},
     {"nativeRequestStop", "(J)V", reinterpret_cast<void*>(&NativeRequestStop)},
     {"nativeUnloadUi", "(J)V", reinterpret_cast<void*>(&NativeUnloadUi)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},

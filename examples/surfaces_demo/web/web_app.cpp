@@ -114,6 +114,13 @@ void WebApp::ConsumePublication(SurfacesPublicationKind kind) {
   }
   SyncTabOrder();
   ShowCurrentPage();
+  ApplyToolbarOrientation();
+  // Initial / structural apply may finish before the first resize callback.
+  EM_ASM({
+    if (typeof Module.reportPresentationSize === 'function') {
+      Module.reportPresentationSize();
+    }
+  });
   {
     std::lock_guard<std::mutex> lock{session_.mu};
     session_.channel.ReleaseConsumer();
@@ -357,6 +364,38 @@ void WebApp::SelectSurface(std::uint32_t surface_id) {
   SetDesiredCurrent(surface_id);
   ShowCurrentPage();
   presenter->PageShown();
+}
+
+void WebApp::ReportPresentationSize(std::int32_t width, std::int32_t height) {
+  if (stopped_ || !ui_application_) {
+    return;
+  }
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
+    SurfacePresenter::ptr presenter{surface->presenter};
+    presenter->PresentationSizeChanged(width, height);
+  }
+}
+
+void WebApp::ApplyToolbarOrientation() {
+  if (!ui_application_ || ui_application_->surfaces->surfaces.empty()) {
+    return;
+  }
+  SurfacePresenter::ptr presenter;
+  if (auto const& current = ui_application_->surfaces->mobile_current) {
+    presenter = SurfacePresenter::ptr{current->presenter};
+  } else {
+    presenter =
+        SurfacePresenter::ptr{ui_application_->surfaces->surfaces[0]->presenter};
+  }
+  int const wide = presenter->IsWide() ? 1 : 0;
+  EM_ASM(
+      {
+        var toolbar = document.getElementById('toolbar');
+        toolbar.style.flexDirection = $0 ? 'row' : 'column';
+        toolbar.dataset.modelWide = $0 ? '1' : '0';
+        console.log('SURFACES_TOOLBAR_ORIENTATION wide=' + ($0 ? '1' : '0'));
+      },
+      wide);
 }
 
 void WebApp::AddCurrent() {

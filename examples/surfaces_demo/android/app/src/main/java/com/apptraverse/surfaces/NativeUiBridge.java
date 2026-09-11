@@ -19,7 +19,7 @@ public final class NativeUiBridge {
 
   /** Implemented by the Activity between onStart and onStop. */
   interface Listener {
-    void onPages(long[] ids, int[] numbers, long currentId);
+    void onPages(long[] ids, int[] numbers, long currentId, boolean isWide);
 
     void onModelStopped();
   }
@@ -32,6 +32,7 @@ public final class NativeUiBridge {
   private long[] pageIds = new long[0];
   private int[] pageNumbers = new int[0];
   private long currentPageId;
+  private boolean controlsWide = true;
   private boolean stopped;
 
   void attachHost(Host newHost) {
@@ -41,7 +42,7 @@ public final class NativeUiBridge {
   void attach(Listener newListener) {
     listener = newListener;
     if (pageNumbers.length > 0) {
-      newListener.onPages(pageIds, pageNumbers, currentPageId);
+      newListener.onPages(pageIds, pageNumbers, currentPageId, controlsWide);
     }
     if (stopped) {
       newListener.onModelStopped();
@@ -65,12 +66,13 @@ public final class NativeUiBridge {
   }
 
   /** Called from the main thread, inside the publication the host consumes. */
-  void onNativePages(long[] ids, int[] numbers, long currentId) {
+  void onNativePages(long[] ids, int[] numbers, long currentId, boolean isWide) {
     pageIds = ids;
     pageNumbers = numbers;
     currentPageId = currentId;
+    controlsWide = isWide;
     if (listener != null) {
-      listener.onPages(ids, numbers, currentId);
+      listener.onPages(ids, numbers, currentId, isWide);
     }
   }
 

@@ -42,6 +42,8 @@ class NativeRuntime {
   // Android lifecycle checkpoint: persist model Domain without stopping.
   // Home / recents can kill the process after onStop; Back still Saves in Run.
   void PersistState();
+  // Usable host presentation size shared by every live Surface page.
+  void ReportPresentationSize(std::int32_t width, std::int32_t height);
   void UnloadUi();
 
  private:

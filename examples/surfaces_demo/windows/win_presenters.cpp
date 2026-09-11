@@ -85,7 +85,14 @@ LRESULT CALLBACK Win32SurfacePresenter::WndProc(HWND hwnd, UINT msg,
     return 0;
   }
   if (msg == WM_SIZE) {
-    presenter->LayoutControls();
+    RECT client{};
+    if (GetClientRect(hwnd, &client) == 0) {
+      DWORD const err = GetLastError();
+      FatalWin32("GetClientRect Surface WM_SIZE", err);
+    }
+    // Report only. Orientation switches after model publication / OnModelChanged.
+    presenter->PresentationSizeChanged(client.right - client.left,
+                                       client.bottom - client.top);
     return 0;
   }
   if (msg == WM_ACTIVATE) {
@@ -141,15 +148,8 @@ void Win32SurfacePresenter::OnLoad() {
 }
 
 void Win32SurfacePresenter::LayoutControls() {
-  RECT client{};
-  if (GetClientRect(hwnd, &client) == 0) {
-    DWORD const err = GetLastError();
-    FatalWin32("GetClientRect Surface", err);
-  }
-  int const width = client.right - client.left;
-  int const height = client.bottom - client.top;
-
-  // Same control sizes the previous fixed CreateWindowEx positions used.
+  // Orientation comes from the GUI-mirror presentation size after publication,
+  // not from the live client rect (that is reported separately via Event).
   constexpr int kMargin = 12;
   constexpr int kGap = 8;
   constexpr int kAddW = 80;
@@ -161,7 +161,7 @@ void Win32SurfacePresenter::LayoutControls() {
   int add_y = kMargin;
   int close_x = kMargin;
   int close_y = kMargin;
-  if (width > height) {
+  if (IsWide()) {
     close_x = kMargin + kAddW + kGap;
   } else {
     close_y = kMargin + kAddH + kGap;
@@ -179,7 +179,7 @@ void Win32SurfacePresenter::LayoutControls() {
   }
 }
 
-void Win32SurfacePresenter::OnModelChanged() {}
+void Win32SurfacePresenter::OnModelChanged() { LayoutControls(); }
 
 void Win32SurfacePresenter::OnUnload() {
   SetHwndUserData(add_button, nullptr);

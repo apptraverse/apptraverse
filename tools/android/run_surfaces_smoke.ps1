@@ -299,6 +299,27 @@ Wait-Marker $adb $Serial "SURFACE_PAGE_UNLOADED number=2" "Surface 2 page unload
 Assert-Page $adb $Serial "Surface 3" "2 / 2"
 
 Write-Host ""
+Write-Host "Phase 5b: model-driven controls orientation (portrait / landscape)"
+Invoke-Adb $adb $Serial @("shell", "settings", "put", "system", "accelerometer_rotation", "0") | Out-Null
+
+Clear-Logcat $adb $Serial
+Invoke-Adb $adb $Serial @("shell", "settings", "put", "system", "user_rotation", "1") | Out-Null
+Wait-Marker $adb $Serial "CONTROLS_ORIENTATION wide=1" "landscape -> horizontal controls"
+Wait-Marker $adb $Serial "SURFACES_PRESENTATION_SIZE" "landscape presentation size reported"
+
+Clear-Logcat $adb $Serial
+Invoke-Adb $adb $Serial @("shell", "settings", "put", "system", "user_rotation", "0") | Out-Null
+Wait-Marker $adb $Serial "CONTROLS_ORIENTATION wide=0" "portrait -> vertical controls"
+
+Clear-Logcat $adb $Serial
+Invoke-Adb $adb $Serial @("shell", "settings", "put", "system", "user_rotation", "1") | Out-Null
+Wait-Marker $adb $Serial "CONTROLS_ORIENTATION wide=1" "landscape again -> horizontal controls"
+
+Invoke-Adb $adb $Serial @("shell", "settings", "put", "system", "user_rotation", "0") | Out-Null
+Invoke-Adb $adb $Serial @("shell", "settings", "put", "system", "accelerometer_rotation", "1") | Out-Null
+Start-Sleep -Seconds 1
+
+Write-Host ""
 Write-Host "Phase 5: Back saves, relaunch restores topology and current page"
 # Back is the controlled shutdown path and the only save point: a force-stop or
 # a system kill leaves the last changes unsaved.

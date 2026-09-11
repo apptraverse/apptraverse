@@ -61,8 +61,8 @@ class Win32SurfacePresenter : public DesktopSurfacePresenter {
                                   LPARAM lparam);
 
  private:
-  // Place Add / Close according to the current client aspect ratio. Not model
-  // state: recomputed from GetClientRect on create and every WM_SIZE.
+  // Place Add / Close from SurfacePresenter::IsWide after model publication.
+  // Not model state. Client size is reported via PresentationSizeChanged.
   void LayoutControls();
 };
 
