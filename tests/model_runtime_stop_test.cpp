@@ -157,7 +157,9 @@ void TestAttachNodeDoesNotBindNodeBase() {
 }
 
 // DetachNode is the boundary where a Node leaves a presentation root, so it
-// must also drop the Node from the deferred publication set.
+// must also drop the Node from that root's deferred publication set. With a
+// single root that is also the last mapping, the Node leaves UpdateAll and
+// loses its notifier.
 void TestDetachNodeClearsPendingPublication() {
   Host host;
   Counter& counter = host.AttachCounter();
@@ -172,6 +174,69 @@ void TestDetachNodeClearsPendingPublication() {
   CHECK(!host.runtime.HasPending(root_id));
   CHECK(!host.runtime.IsInExecutionList(counter));
   CHECK(!host.runtime.IsMappedToPresentationRoot(counter, root_id));
+  CHECK(!counter.HasMaterializedChangeNotifier());
+}
+
+// One Node mapped to two presentation roots: DetachNode for R1 must leave the
+// Node live for R2 (execution list, notifier, R2 pending). Only the last
+// DetachNode clears the notifier and removes it from UpdateAll.
+void TestDetachNodeKeepsOtherRootsLive() {
+  ae::RamDomainStorage model_storage;
+  ae::RamDomainStorage ui_storage;
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
+  auto root1 = RuntimeRoot::ptr::Create(ae::CreateWith{model_domain});
+  auto root2 = RuntimeRoot::ptr::Create(ae::CreateWith{model_domain});
+  UiMirror mirror{ui_domain, ui_storage,
+                  [](std::uint32_t, PublicationChannel<3>*) {}};
+  ModelRuntime runtime{*root1, mirror};
+  runtime.AddPresentationRoot(*root1);
+  runtime.AddPresentationRoot(*root2);
+
+  root1->counter = Counter::ptr::Create(ae::CreateWith{model_domain});
+  InitializeRuntimeNode(*root1->counter);
+  Counter& counter = *root1->counter;
+  runtime.AttachNode(counter, *root1);
+  runtime.AttachNode(counter, *root2);
+
+  auto const r1 = root1->obj_id.id();
+  auto const r2 = root2->obj_id.id();
+  CHECK(runtime.IsMappedToPresentationRoot(counter, r1));
+  CHECK(runtime.IsMappedToPresentationRoot(counter, r2));
+  CHECK(runtime.IsInExecutionList(counter));
+  CHECK(counter.HasMaterializedChangeNotifier());
+
+  auto bump = [&](std::int32_t delta) {
+    auto event = BumpEvent::ptr::Create(ae::CreateWith{model_domain});
+    event->delta = delta;
+    counter.Commit(event);
+  };
+
+  bump(1);
+  CHECK(runtime.HasPending(r1));
+  CHECK(runtime.HasPending(r2));
+
+  runtime.DetachNode(counter, *root1);
+  CHECK(!runtime.IsMappedToPresentationRoot(counter, r1));
+  CHECK(runtime.IsMappedToPresentationRoot(counter, r2));
+  CHECK(!runtime.HasPending(r1));
+  CHECK(runtime.HasPending(r2));
+  CHECK(runtime.IsInExecutionList(counter));
+  CHECK(counter.HasMaterializedChangeNotifier());
+
+  // A further Event still notifies the remaining root only.
+  bump(2);
+  CHECK(!runtime.HasPending(r1));
+  CHECK(runtime.HasPending(r2));
+  CHECK(counter.value == 3);
+
+  runtime.DetachNode(counter, *root2);
+  CHECK(!runtime.IsMappedToPresentationRoot(counter, r1));
+  CHECK(!runtime.IsMappedToPresentationRoot(counter, r2));
+  CHECK(!runtime.IsInExecutionList(counter));
+  CHECK(!counter.HasMaterializedChangeNotifier());
+  CHECK(!runtime.HasPending(r1));
+  CHECK(!runtime.HasPending(r2));
 }
 
 // Work posted before RequestStop runs before Join returns; work posted after
@@ -231,6 +296,7 @@ int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestAttachNodeDoesNotBindNodeBase();
   apptraverse::test::TestDetachNodeClearsPendingPublication();
+  apptraverse::test::TestDetachNodeKeepsOtherRootsLive();
   apptraverse::test::TestStopBoundaryAcceptsQueuedWorkAndRejectsLater();
   apptraverse::test::TestStopWithoutStartDropsWork();
   std::cout << "model_runtime_stop_test OK\n";

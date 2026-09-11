@@ -63,20 +63,8 @@ void ModelRuntime::DetachNode(Node& node, ae::Obj& presentation_root) {
   auto const node_id = node.obj_id.id();
   auto const root_id = presentation_root.obj_id.id();
 
-  model_nodes_.erase(
-      std::remove(model_nodes_.begin(), model_nodes_.end(), &node),
-      model_nodes_.end());
-  node.ClearMaterializedChangeNotifier();
-
-  auto roots_it = object_to_roots_.find(node_id);
-  if (roots_it != object_to_roots_.end()) {
-    auto& roots = roots_it->second;
-    roots.erase(std::remove(roots.begin(), roots.end(), root_id), roots.end());
-    if (roots.empty()) {
-      object_to_roots_.erase(roots_it);
-    }
-  }
-
+  // Drop only this root's deferred publication entry. Other roots that still
+  // map the Node keep theirs until their own DetachNode.
   auto pending_it = pending_by_root_.find(root_id);
   if (pending_it != pending_by_root_.end()) {
     pending_it->second.erase(&node);
@@ -84,6 +72,22 @@ void ModelRuntime::DetachNode(Node& node, ae::Obj& presentation_root) {
       pending_by_root_.erase(pending_it);
     }
   }
+
+  auto roots_it = object_to_roots_.find(node_id);
+  // AttachNode always records the mapping before any DetachNode can run.
+  auto& roots = roots_it->second;
+  roots.erase(std::remove(roots.begin(), roots.end(), root_id), roots.end());
+  if (!roots.empty()) {
+    // Still mapped elsewhere: stay in UpdateAll and keep the notifier so the
+    // remaining roots continue to receive materialized-change notifications.
+    return;
+  }
+
+  object_to_roots_.erase(roots_it);
+  model_nodes_.erase(
+      std::remove(model_nodes_.begin(), model_nodes_.end(), &node),
+      model_nodes_.end());
+  node.ClearMaterializedChangeNotifier();
 }
 
 void ModelRuntime::BuildExecutionLists() {

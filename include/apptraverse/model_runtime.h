@@ -36,8 +36,11 @@ class ModelRuntime {
   // (fresh Create); safe to call on distilled / already-journaled Nodes.
   void AttachNode(Node& node, ae::Obj& presentation_root);
 
-  // Stop UpdateAll / publication mapping for a Node that was removed from the
-  // presentation root graph. Does not delete the object from Domain/storage.
+  // Remove the mapping of Node → presentation_root. Pending publication for
+  // that root is dropped. If other roots still map the Node, it stays in
+  // UpdateAll with its notifier bound. Only the last DetachNode clears the
+  // notifier and removes it from the execution list. Does not delete the
+  // object from Domain/storage.
   void DetachNode(Node& node, ae::Obj& presentation_root);
 
   void Start();
@@ -71,10 +74,12 @@ class ModelRuntime {
   std::vector<ae::Obj*> presentation_roots_;
   std::vector<Node*> model_nodes_;
   std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> object_to_roots_;
-  // Raw Node*, unlike PendingDirtyNodes: a Node leaves a presentation root
-  // only through DetachNode, which erases it from model_nodes_ and from this
-  // map before the owner may drop it. Removing a Node without DetachNode is
-  // an API-contract violation, not a reachable state.
+  // Raw Node*, unlike PendingDirtyNodes: a Node may be mapped to several
+  // presentation roots. DetachNode drops it from this map for one root only;
+  // the Node stays in model_nodes_ (and keeps its notifier) until the last
+  // mapping is detached. The owner may drop the Node only after that last
+  // DetachNode. Removing a Node without DetachNode is an API-contract
+  // violation, not a reachable state.
   std::unordered_map<std::uint32_t, std::unordered_set<Node*>> pending_by_root_;
   UpdateObserver update_observer_;
 
