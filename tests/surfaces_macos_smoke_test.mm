@@ -484,6 +484,11 @@ void TestActiveZOrderRestored() {
       // poll past creation-order makeKeyAndOrderFront from OnLoad.
       CHECK(WaitIsKeyWindow(rs2, std::chrono::seconds{5}));
 
+      // Stay alive after restore: no auto-stop from Loading teardown / Z-order.
+      std::this_thread::sleep_for(std::chrono::seconds{2});
+      CHECK(WaitSurfaceCount(3, std::chrono::seconds{1}));
+      CHECK(WaitIsKeyWindow(rs2, std::chrono::seconds{1}));
+
       RequestNativeClose(rs2);
       while (!finished.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds{10});

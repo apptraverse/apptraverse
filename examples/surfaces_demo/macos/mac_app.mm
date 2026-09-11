@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
@@ -49,6 +50,14 @@ void WakeNsApp() {
   // Cmd-Q / Quit: same graceful path as red X (snapshot → RequestStop).
   self.app->RequestApplicationStop();
   return NSTerminateCancel;
+}
+
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:
+    (NSApplication*)sender {
+  (void)sender;
+  // Surface windows own lifetime via RequestApplicationStop; do not quit when
+  // the Loading splash is released or the last Surface is merely ordered out.
+  return NO;
 }
 @end
 
@@ -152,10 +161,9 @@ void MacApp::OnInitialPublished() {
   InitializePresenters(*ui_application_, this, &*model_proxy_);
   RestoreActiveSurfaceZOrder();
 
-  NSWindow* loading = (__bridge_transfer NSWindow*)loading_window_;
-  loading_window_ = nullptr;
+  // Hide Loading; keep ownership until Run() teardown (same path as leftover).
+  NSWindow* loading = (__bridge NSWindow*)loading_window_;
   [loading orderOut:nil];
-  (void)loading;
 }
 
 void MacApp::OnIncrementalPublished() {
@@ -177,6 +185,10 @@ void MacApp::OnModelFinished() {
 
 int MacApp::Run(std::filesystem::path const& state_dir) {
   EnsureMacSurfacePresenterRegistration();
+
+  // Parent shell exit (agent tool / Terminal close) must not tear down the GUI.
+  // Graceful stop remains red X / Cmd-Q → RequestApplicationStop.
+  std::signal(SIGHUP, SIG_IGN);
 
   [NSApplication sharedApplication];
   [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];

@@ -1,6 +1,43 @@
 ---
 Status: implemented. Not accepted.
 
+# MAC CURSOR — macOS demo auto-close with existing state
+
+## Identity
+
+- Starting SHA: `0296b03676a091fba0f96e35dd0729dce3e1abaa`
+- Branch: `surfaces-demo`
+- Final SHA: _(pending commit)_
+
+## Root cause
+
+- Not an AppKit quit path (`windowShouldClose` / `RequestApplicationStop` /
+  Loading teardown / Z-order restore). Instrumented startup with existing
+  state completed presenters + restore; no stop was requested.
+- Agent `shell &` left the GUI in the tool process group; when the tool
+  session ended, Cursor reaped the process — windows vanished (“auto-close”).
+  Confirmed: same binary stays alive with `fork`+`setsid` / new session.
+
+## Fix (macOS-only)
+
+- `main.mm`: default `fork` + `setsid` before AppKit; `--foreground` keeps
+  parent session for job control / Ctrl-C.
+- `mac_app.mm`: `SIGHUP` ignored; `applicationShouldTerminateAfterLastWindowClosed`
+  returns NO; Loading `orderOut` keeps ownership until `Run` teardown.
+- Smoke: `TestActiveZOrderRestored` waits 2s after restore and asserts
+  windows / key Surface remain.
+
+## Tests
+
+- `apptraverse_surfaces_macos_smoke_test` PASS.
+- Manual: agent-pattern `&` launch with `surfaces_runtime_state_clean` stays
+  alive after shell end; Surfaces 1/2/4 visible.
+
+Not accepted-by-user.
+
+---
+Status: implemented. Not accepted.
+
 # MAC CURSOR — desktop active Surface Z-order
 
 ## Identity
