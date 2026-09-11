@@ -5,10 +5,10 @@
 
 namespace apptraverse {
 
-// Bytes written to LinuxApp wake pipe from the model thread / stop path.
 inline constexpr std::uint8_t kLinuxWakeInitialPublished = 1;
 inline constexpr std::uint8_t kLinuxWakeIncrementalPublished = 2;
 inline constexpr std::uint8_t kLinuxWakeStop = 3;
+inline constexpr std::uint8_t kLinuxWakeModelFinished = 4;
 
 inline constexpr std::uint32_t kSurfaceAddButtonId = 1001;
 inline constexpr std::uint32_t kSurfaceCloseButtonId = 1002;

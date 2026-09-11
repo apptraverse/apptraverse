@@ -1,9 +1,9 @@
 #ifndef APPTRAVERSE_SURFACES_LINUX_PRESENTERS_H_
 #define APPTRAVERSE_SURFACES_LINUX_PRESENTERS_H_
 
-#include <X11/Xlib.h>
-
 #include <cstdint>
+
+#include <gtk/gtk.h>
 
 #include "apptraverse/object_macros.h"
 
@@ -35,25 +35,12 @@ class LinuxSurfacePresenter : public DesktopSurfacePresenter {
   bool OnCommand(std::uint32_t command_id,
                  std::uint16_t notification_code) override;
 
-  // Snapshot outer frame (best-effort via _NET_FRAME_EXTENTS) and enqueue
-  // model bounds update through DesktopSurfacePresenter.
   void QueueCurrentBounds();
 
-  // Dispatch one X event that targets this Surface window.
-  void HandleEvent(XEvent const& event);
-
-  Window window{None};
+  GtkWidget* window{nullptr};
+  GtkWidget* add_button{nullptr};
+  GtkWidget* close_button{nullptr};
   LinuxApp* app{nullptr};
-
-  // Client-area hit targets for the two drawn buttons (no toolkit widgets).
-  int add_x{12};
-  int add_y{12};
-  int add_w{80};
-  int add_h{28};
-  int close_x{100};
-  int close_y{12};
-  int close_w{160};
-  int close_h{28};
 };
 
 }  // namespace apptraverse
