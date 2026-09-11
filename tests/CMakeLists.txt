@@ -319,7 +319,8 @@ if(WIN32)
 endif()
 
 if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
-  find_package(X11 REQUIRED)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
   add_executable(apptraverse_surfaces_linux_smoke_test
     surfaces_linux_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux/linux_app.cpp
@@ -333,7 +334,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   target_link_libraries(apptraverse_surfaces_linux_smoke_test PRIVATE
     surfaces_demo_distill
     surfaces_demo_desktop
-    X11::X11
+    PkgConfig::GTK3
   )
   target_include_directories(apptraverse_surfaces_linux_smoke_test PRIVATE
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
@@ -348,7 +349,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
     COMMAND $<TARGET_FILE:apptraverse_surfaces_linux_smoke_test>
     DEPENDS apptraverse_surfaces_linux_smoke_test
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Surfaces Linux multi-window smoke"
+    COMMENT "Surfaces Linux GTK3 multi-window smoke"
   )
 endif()
 

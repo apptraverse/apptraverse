@@ -1,16 +1,16 @@
-#include <X11/Xatom.h>
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-
 #include <chrono>
+#include <cmath>
+#include <condition_variable>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
+#include <functional>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <thread>
-#include <unistd.h>
 #include <vector>
+
+#include <gtk/gtk.h>
 
 #include "aether-objects/obj/registry.h"
 
@@ -21,7 +21,6 @@
 #include "linux_presenters.h"
 #include "surfaces_ids.h"
 #include "surfaces_lifecycle.h"
-#include "surfaces_linux_messages.h"
 #include "surfaces_model.h"
 
 namespace apptraverse::test {
@@ -35,200 +34,141 @@ namespace apptraverse::test {
     }                                                                        \
   } while (0)
 
-int IgnoreBadWindow(Display* display, XErrorEvent* error) {
-  // BadMatch on SetInputFocus is common when the window is not yet focused /
-  // viewable under the WM; Z-order raise + synthetic FocusIn still apply.
-  if (error->error_code == BadWindow || error->error_code == BadDrawable ||
-      error->error_code == BadMatch) {
-    return 0;
+struct GuiSync {
+  std::mutex mu;
+  std::condition_variable cv;
+  bool done{false};
+  std::function<void()> work;
+};
+
+gboolean RunGuiSync(gpointer data) {
+  auto* sync = static_cast<GuiSync*>(data);
+  sync->work();
+  {
+    std::lock_guard<std::mutex> lock{sync->mu};
+    sync->done = true;
   }
-  char buf[256];
-  XGetErrorText(display, error->error_code, buf, sizeof(buf));
-  std::cerr << "X error: " << buf << " major=" << int{error->request_code}
-            << '\n';
-  std::exit(1);
-  return 0;
+  sync->cv.notify_one();
+  return G_SOURCE_REMOVE;
 }
 
-bool ReadPid(Display* display, Window window, pid_t* out) {
-  XWindowAttributes attrs{};
-  if (XGetWindowAttributes(display, window, &attrs) == 0) {
-    return false;
-  }
-  Atom net_wm_pid = XInternAtom(display, "_NET_WM_PID", True);
-  if (net_wm_pid == None) {
-    return false;
-  }
-  Atom actual_type = None;
-  int actual_format = 0;
-  unsigned long nitems = 0;
-  unsigned long bytes_after = 0;
-  unsigned char* prop = nullptr;
-  int const rc = XGetWindowProperty(display, window, net_wm_pid, 0, 1, False,
-                                    XA_CARDINAL, &actual_type, &actual_format,
-                                    &nitems, &bytes_after, &prop);
-  if (rc != Success || prop == nullptr || nitems < 1) {
-    if (prop != nullptr) {
-      XFree(prop);
+void OnGuiDirect(std::function<void()> work) {
+  GuiSync sync;
+  sync.work = std::move(work);
+  sync.done = false;
+  gdk_threads_add_idle(&RunGuiSync, &sync);
+  std::unique_lock<std::mutex> lock{sync.mu};
+  CHECK(sync.cv.wait_for(lock, std::chrono::seconds{30},
+                         [&] { return sync.done; }));
+}
+
+std::vector<GtkWindow*> ListSurfaceWindows() {
+  std::vector<GtkWindow*> out;
+  GList* toplevels = gtk_window_list_toplevels();
+  for (GList* it = toplevels; it != nullptr; it = it->next) {
+    auto* window = GTK_WINDOW(it->data);
+    char const* title = gtk_window_get_title(window);
+    if (title != nullptr && std::string{title}.rfind("Surface ", 0) == 0 &&
+        gtk_widget_get_visible(GTK_WIDGET(window))) {
+      out.push_back(window);
     }
-    return false;
   }
-  *out = static_cast<pid_t>(*reinterpret_cast<unsigned long*>(prop));
-  XFree(prop);
-  return true;
+  g_list_free(toplevels);
+  return out;
 }
 
-bool ReadName(Display* display, Window window, std::string* out) {
-  char* name = nullptr;
-  if (XFetchName(display, window, &name) == 0 || name == nullptr) {
-    return false;
+GtkWindow* FindSurfaceWindow(char const* title) {
+  for (GtkWindow* window : ListSurfaceWindows()) {
+    char const* text = gtk_window_get_title(window);
+    if (text != nullptr && std::string{text} == title) {
+      return window;
+    }
   }
-  *out = name;
-  XFree(name);
-  return true;
+  return nullptr;
 }
 
-void CollectOwned(Display* display, Window window, pid_t pid,
-                  std::vector<Window>* out) {
-  pid_t window_pid = 0;
-  if (ReadPid(display, window, &window_pid) && window_pid == pid) {
-    out->push_back(window);
+GtkButton* FindButton(GtkWindow* window, char const* label) {
+  GtkWidget* child = gtk_bin_get_child(GTK_BIN(window));
+  if (!GTK_IS_CONTAINER(child)) {
+    return nullptr;
   }
-  Window root = None;
-  Window parent = None;
-  Window* children = nullptr;
-  unsigned int nchildren = 0;
-  if (XQueryTree(display, window, &root, &parent, &children, &nchildren) ==
-      0) {
-    return;
-  }
-  for (unsigned int i = 0; i < nchildren; ++i) {
-    CollectOwned(display, children[i], pid, out);
-  }
-  if (children != nullptr) {
-    XFree(children);
-  }
-}
-
-Window FindOwned(Display* display, pid_t pid, char const* title) {
-  std::vector<Window> owned;
-  CollectOwned(display, DefaultRootWindow(display), pid, &owned);
-  for (Window window : owned) {
-    std::string name;
-    if (!ReadName(display, window, &name)) {
+  GList* kids = gtk_container_get_children(GTK_CONTAINER(child));
+  for (GList* it = kids; it != nullptr; it = it->next) {
+    if (!GTK_IS_BUTTON(it->data)) {
       continue;
     }
-    if (name == title) {
-      XWindowAttributes attrs{};
-      if (XGetWindowAttributes(display, window, &attrs) != 0 &&
-          attrs.map_state == IsViewable) {
-        return window;
-      }
+    auto* button = GTK_BUTTON(it->data);
+    char const* text = gtk_button_get_label(button);
+    if (text != nullptr && std::string{text} == label) {
+      g_list_free(kids);
+      return button;
     }
   }
-  return None;
+  g_list_free(kids);
+  return nullptr;
 }
 
-int CountOwnedSurfaces(Display* display, pid_t pid) {
-  std::vector<Window> owned;
-  CollectOwned(display, DefaultRootWindow(display), pid, &owned);
-  int count = 0;
-  for (Window window : owned) {
-    std::string name;
-    if (!ReadName(display, window, &name)) {
-      continue;
-    }
-    if (name.rfind("Surface ", 0) == 0) {
-      XWindowAttributes attrs{};
-      if (XGetWindowAttributes(display, window, &attrs) != 0 &&
-          attrs.map_state == IsViewable) {
-        ++count;
-      }
-    }
-  }
-  return count;
-}
-
-void Pump(Display* display, std::chrono::milliseconds slice) {
-  auto const deadline = std::chrono::steady_clock::now() + slice;
-  while (std::chrono::steady_clock::now() < deadline) {
-    while (XPending(display) > 0) {
-      XEvent event{};
-      XNextEvent(display, &event);
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds{5});
-  }
-}
-
-bool WaitOwned(Display* display, pid_t pid, char const* title, Window* out,
-               std::chrono::milliseconds timeout) {
+bool WaitSurface(char const* title, GtkWindow** out,
+                 std::chrono::milliseconds timeout) {
   auto const deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {
-    Window window = FindOwned(display, pid, title);
-    if (window != None) {
+    GtkWindow* found = nullptr;
+    OnGuiDirect([&] { found = FindSurfaceWindow(title); });
+    if (found != nullptr) {
       if (out != nullptr) {
-        *out = window;
+        *out = found;
       }
       return true;
     }
-    Pump(display, std::chrono::milliseconds{20});
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
   }
   return false;
 }
 
-bool WaitCount(Display* display, pid_t pid, int expected,
-               std::chrono::milliseconds timeout) {
+bool WaitCount(int expected, std::chrono::milliseconds timeout) {
   auto const deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {
-    if (CountOwnedSurfaces(display, pid) == expected) {
+    int count = -1;
+    OnGuiDirect([&] { count = static_cast<int>(ListSurfaceWindows().size()); });
+    if (count == expected) {
       return true;
     }
-    Pump(display, std::chrono::milliseconds{20});
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
   }
   return false;
 }
 
-void ClickButton(Display* display, Window window, int x, int y) {
-  XEvent event{};
-  event.type = ButtonPress;
-  event.xbutton.display = display;
-  event.xbutton.window = window;
-  event.xbutton.root = DefaultRootWindow(display);
-  event.xbutton.subwindow = None;
-  event.xbutton.time = CurrentTime;
-  event.xbutton.x = x;
-  event.xbutton.y = y;
-  event.xbutton.x_root = x;
-  event.xbutton.y_root = y;
-  event.xbutton.state = Button1Mask;
-  event.xbutton.button = Button1;
-  event.xbutton.same_screen = True;
-  CHECK(XSendEvent(display, window, False, ButtonPressMask, &event) != 0);
-  XFlush(display);
+void ClickButton(GtkWindow* window, char const* label) {
+  OnGuiDirect([&] {
+    GtkButton* button = FindButton(window, label);
+    CHECK(button != nullptr);
+    gtk_button_clicked(button);
+  });
 }
 
-void ClickAdd(Display* display, Window window) {
-  // Matches LinuxSurfacePresenter button rect center.
-  ClickButton(display, window, 12 + 40, 12 + 14);
+void ClickAdd(GtkWindow* window) { ClickButton(window, "Add"); }
+
+void ClickClose(GtkWindow* window) {
+  ClickButton(window, "Close this window");
 }
 
-void ClickClose(Display* display, Window window) {
-  ClickButton(display, window, 100 + 80, 12 + 14);
+void EmitDelete(GtkWindow* window) {
+  OnGuiDirect([&] {
+    gboolean handled = FALSE;
+    g_signal_emit_by_name(window, "delete-event", nullptr, &handled);
+  });
 }
 
-void SendWmDelete(Display* display, Window window) {
-  Atom wm_protocols = XInternAtom(display, "WM_PROTOCOLS", False);
-  Atom wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
-  XEvent event{};
-  event.type = ClientMessage;
-  event.xclient.display = display;
-  event.xclient.window = window;
-  event.xclient.message_type = wm_protocols;
-  event.xclient.format = 32;
-  event.xclient.data.l[0] = static_cast<long>(wm_delete);
-  event.xclient.data.l[1] = CurrentTime;
-  CHECK(XSendEvent(display, window, False, NoEventMask, &event) != 0);
-  XFlush(display);
+void ActivateWindow(LinuxApp& app, GtkWindow* window) {
+  OnGuiDirect([&] {
+    gtk_window_present(window);
+    // Drive PageShown through the same presenter path focus-in uses. Automated
+    // sessions often do not transfer real WM focus to the presented window.
+    LinuxSurfacePresenter* presenter = app.PresenterFor(GTK_WIDGET(window));
+    CHECK(presenter != nullptr);
+    presenter->PageShown();
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
 }
 
 struct Rect {
@@ -238,97 +178,18 @@ struct Rect {
   int height;
 };
 
-bool QueryFrameExtents(Display* display, Window window, long* left, long* right,
-                       long* top, long* bottom) {
-  Atom net_frame_extents = XInternAtom(display, "_NET_FRAME_EXTENTS", True);
-  if (net_frame_extents == None) {
-    return false;
-  }
-  Atom actual_type = None;
-  int actual_format = 0;
-  unsigned long nitems = 0;
-  unsigned long bytes_after = 0;
-  unsigned char* prop = nullptr;
-  int const rc = XGetWindowProperty(
-      display, window, net_frame_extents, 0, 4, False, XA_CARDINAL,
-      &actual_type, &actual_format, &nitems, &bytes_after, &prop);
-  if (rc != Success || prop == nullptr || nitems < 4 || actual_format != 32) {
-    if (prop != nullptr) {
-      XFree(prop);
-    }
-    return false;
-  }
-  long const* values = reinterpret_cast<long const*>(prop);
-  *left = values[0];
-  *right = values[1];
-  *top = values[2];
-  *bottom = values[3];
-  XFree(prop);
-  return true;
-}
-
-Rect ReadOuter(Display* display, Window window) {
-  Window root_return = None;
-  Window child = None;
-  int win_x = 0;
-  int win_y = 0;
-  unsigned int win_w = 0;
-  unsigned int win_h = 0;
-  unsigned int border = 0;
-  unsigned int depth = 0;
-  CHECK(XGetGeometry(display, window, &root_return, &win_x, &win_y, &win_w,
-                     &win_h, &border, &depth) != 0);
-  int root_x = 0;
-  int root_y = 0;
-  CHECK(XTranslateCoordinates(display, window, DefaultRootWindow(display), 0, 0,
-                              &root_x, &root_y, &child) != False);
-  long left = 0;
-  long right = 0;
-  long top = 0;
-  long bottom = 0;
+Rect ReadOuter(LinuxApp& app, GtkWindow* window) {
   Rect rect{};
-  if (QueryFrameExtents(display, window, &left, &right, &top, &bottom)) {
-    rect.x = root_x - static_cast<int>(left);
-    rect.y = root_y - static_cast<int>(top);
-    rect.width = static_cast<int>(win_w) + static_cast<int>(left + right);
-    rect.height = static_cast<int>(win_h) + static_cast<int>(top + bottom);
-  } else {
-    rect.x = root_x;
-    rect.y = root_y;
-    rect.width = static_cast<int>(win_w);
-    rect.height = static_cast<int>(win_h);
-  }
+  OnGuiDirect([&] {
+    app.ReadOuterBounds(GTK_WIDGET(window), &rect.x, &rect.y, &rect.width,
+                        &rect.height);
+  });
   return rect;
 }
 
-void PlaceOuter(Display* display, Window window, int outer_x, int outer_y,
-                int outer_w, int outer_h) {
-  long left = 0;
-  long right = 0;
-  long top = 0;
-  long bottom = 0;
-  bool const have_extents =
-      QueryFrameExtents(display, window, &left, &right, &top, &bottom);
-  int client_w = outer_w;
-  int client_h = outer_h;
-  int client_x = outer_x;
-  int client_y = outer_y;
-  if (have_extents) {
-    client_w = outer_w - static_cast<int>(left + right);
-    client_h = outer_h - static_cast<int>(top + bottom);
-    if (client_w < 1) {
-      client_w = 1;
-    }
-    if (client_h < 1) {
-      client_h = 1;
-    }
-    client_x = outer_x + static_cast<int>(left);
-    client_y = outer_y + static_cast<int>(top);
-  }
-  XMoveResizeWindow(display, window, client_x, client_y,
-                    static_cast<unsigned int>(client_w),
-                    static_cast<unsigned int>(client_h));
-  XFlush(display);
+void PlaceOuter(LinuxApp& app, GtkWindow* window, int x, int y, int w, int h) {
+  OnGuiDirect(
+      [&] { app.PlaceOuterWindow(GTK_WIDGET(window), x, y, w, h); });
 }
 
 bool RectNear(Rect const& a, Rect const& b, int tol) {
@@ -351,9 +212,8 @@ void TestPresenterHierarchy() {
 }
 
 void TestCloseButtonRemovesOne() {
-  pid_t const pid = getpid();
   auto dir = std::filesystem::temp_directory_path() /
-             "apptraverse_surfaces_linux_close_btn";
+             "apptraverse_surfaces_gtk3_close_btn";
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
@@ -363,42 +223,42 @@ void TestCloseButtonRemovesOne() {
   LinuxApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
 
-  Display* display = XOpenDisplay(nullptr);
-  CHECK(display != nullptr);
+  GtkWindow* s1 = nullptr;
+  CHECK(WaitSurface("Surface 1", &s1, std::chrono::seconds{30}));
+  ClickAdd(s1);
+  GtkWindow* s2 = nullptr;
+  CHECK(WaitSurface("Surface 2", &s2, std::chrono::seconds{30}));
+  ClickAdd(s2);
+  GtkWindow* s3 = nullptr;
+  CHECK(WaitSurface("Surface 3", &s3, std::chrono::seconds{30}));
+  CHECK(WaitCount(3, std::chrono::seconds{10}));
 
-  Window s1 = None;
-  CHECK(WaitOwned(display, pid, "Surface 1", &s1, std::chrono::seconds{30}));
-  ClickAdd(display, s1);
-  Window s2 = None;
-  CHECK(WaitOwned(display, pid, "Surface 2", &s2, std::chrono::seconds{30}));
-  ClickAdd(display, s2);
-  Window s3 = None;
-  CHECK(WaitOwned(display, pid, "Surface 3", &s3, std::chrono::seconds{30}));
-  CHECK(WaitCount(display, pid, 3, std::chrono::seconds{10}));
+  ClickClose(s2);
+  CHECK(WaitCount(2, std::chrono::seconds{30}));
+  OnGuiDirect([&] {
+    CHECK(FindSurfaceWindow("Surface 1") != nullptr);
+    CHECK(FindSurfaceWindow("Surface 3") != nullptr);
+    CHECK(FindSurfaceWindow("Surface 2") == nullptr);
+    s1 = FindSurfaceWindow("Surface 1");
+    s3 = FindSurfaceWindow("Surface 3");
+  });
+  CHECK(s1 != nullptr);
+  CHECK(s3 != nullptr);
+  ClickAdd(s3);
+  GtkWindow* s4 = nullptr;
+  CHECK(WaitSurface("Surface 4", &s4, std::chrono::seconds{30}));
+  CHECK(WaitCount(3, std::chrono::seconds{10}));
 
-  ClickClose(display, s2);
-  CHECK(WaitCount(display, pid, 2, std::chrono::seconds{30}));
-  CHECK(FindOwned(display, pid, "Surface 1") == s1);
-  CHECK(FindOwned(display, pid, "Surface 3") == s3);
-  CHECK(FindOwned(display, pid, "Surface 2") == None);
+  PlaceOuter(app, s1, 60, 70, 380, 250);
+  PlaceOuter(app, s3, 160, 170, 400, 260);
+  PlaceOuter(app, s4, 260, 270, 420, 270);
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  Rect const r1 = ReadOuter(app, s1);
+  Rect const r3 = ReadOuter(app, s3);
+  Rect const r4 = ReadOuter(app, s4);
 
-  ClickAdd(display, s3);
-  Window s4 = None;
-  CHECK(WaitOwned(display, pid, "Surface 4", &s4, std::chrono::seconds{30}));
-  CHECK(WaitCount(display, pid, 3, std::chrono::seconds{10}));
-  CHECK(FindOwned(display, pid, "Surface 2") == None);
-
-  PlaceOuter(display, s1, 60, 70, 380, 250);
-  PlaceOuter(display, s3, 160, 170, 400, 260);
-  PlaceOuter(display, s4, 260, 270, 420, 270);
-  Pump(display, std::chrono::milliseconds{100});
-  Rect const r1 = ReadOuter(display, s1);
-  Rect const r3 = ReadOuter(display, s3);
-  Rect const r4 = ReadOuter(display, s4);
-
-  SendWmDelete(display, s3);
+  EmitDelete(s3);
   gui.join();
-  CHECK(CountOwnedSurfaces(display, pid) == 0);
 
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
@@ -412,30 +272,27 @@ void TestCloseButtonRemovesOne() {
 
   LinuxApp app2;
   std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
-  Window rs1 = None;
-  Window rs3 = None;
-  Window rs4 = None;
-  CHECK(WaitOwned(display, pid, "Surface 1", &rs1, std::chrono::seconds{30}));
-  CHECK(WaitOwned(display, pid, "Surface 3", &rs3, std::chrono::seconds{30}));
-  CHECK(WaitOwned(display, pid, "Surface 4", &rs4, std::chrono::seconds{30}));
-  CHECK(CountOwnedSurfaces(display, pid) == 3);
-  CHECK(FindOwned(display, pid, "Surface 2") == None);
-  // X11 frame extents / WM placement can shift by decoration size.
+  GtkWindow* rs1 = nullptr;
+  GtkWindow* rs3 = nullptr;
+  GtkWindow* rs4 = nullptr;
+  CHECK(WaitSurface("Surface 1", &rs1, std::chrono::seconds{30}));
+  CHECK(WaitSurface("Surface 3", &rs3, std::chrono::seconds{30}));
+  CHECK(WaitSurface("Surface 4", &rs4, std::chrono::seconds{30}));
+  CHECK(WaitCount(3, std::chrono::seconds{10}));
+  OnGuiDirect([&] { CHECK(FindSurfaceWindow("Surface 2") == nullptr); });
   constexpr int kTol = 40;
-  CHECK(RectNear(ReadOuter(display, rs1), r1, kTol));
-  CHECK(RectNear(ReadOuter(display, rs3), r3, kTol));
-  CHECK(RectNear(ReadOuter(display, rs4), r4, kTol));
+  CHECK(RectNear(ReadOuter(app2, rs1), r1, kTol));
+  CHECK(RectNear(ReadOuter(app2, rs3), r3, kTol));
+  CHECK(RectNear(ReadOuter(app2, rs4), r4, kTol));
 
-  SendWmDelete(display, rs1);
+  EmitDelete(rs1);
   gui2.join();
-  XCloseDisplay(display);
   std::filesystem::remove_all(dir);
 }
 
-void TestNativeXKeepsAllSurfaces() {
-  pid_t const pid = getpid();
+void TestNativeCloseKeepsAllSurfaces() {
   auto dir = std::filesystem::temp_directory_path() /
-             "apptraverse_surfaces_linux_native_x";
+             "apptraverse_surfaces_gtk3_native_x";
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
@@ -445,30 +302,26 @@ void TestNativeXKeepsAllSurfaces() {
   LinuxApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
 
-  Display* display = XOpenDisplay(nullptr);
-  CHECK(display != nullptr);
+  GtkWindow* s1 = nullptr;
+  CHECK(WaitSurface("Surface 1", &s1, std::chrono::seconds{30}));
+  ClickAdd(s1);
+  GtkWindow* s2 = nullptr;
+  CHECK(WaitSurface("Surface 2", &s2, std::chrono::seconds{30}));
+  ClickAdd(s2);
+  GtkWindow* s3 = nullptr;
+  CHECK(WaitSurface("Surface 3", &s3, std::chrono::seconds{30}));
+  CHECK(WaitCount(3, std::chrono::seconds{10}));
 
-  Window s1 = None;
-  CHECK(WaitOwned(display, pid, "Surface 1", &s1, std::chrono::seconds{30}));
-  ClickAdd(display, s1);
-  Window s2 = None;
-  CHECK(WaitOwned(display, pid, "Surface 2", &s2, std::chrono::seconds{30}));
-  ClickAdd(display, s2);
-  Window s3 = None;
-  CHECK(WaitOwned(display, pid, "Surface 3", &s3, std::chrono::seconds{30}));
-  CHECK(WaitCount(display, pid, 3, std::chrono::seconds{10}));
+  PlaceOuter(app, s1, 50, 60, 370, 240);
+  PlaceOuter(app, s2, 150, 160, 390, 250);
+  PlaceOuter(app, s3, 250, 260, 410, 260);
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  Rect const r1 = ReadOuter(app, s1);
+  Rect const r2 = ReadOuter(app, s2);
+  Rect const r3 = ReadOuter(app, s3);
 
-  PlaceOuter(display, s1, 50, 60, 370, 240);
-  PlaceOuter(display, s2, 150, 160, 390, 250);
-  PlaceOuter(display, s3, 250, 260, 410, 260);
-  Pump(display, std::chrono::milliseconds{100});
-  Rect const r1 = ReadOuter(display, s1);
-  Rect const r2 = ReadOuter(display, s2);
-  Rect const r3 = ReadOuter(display, s3);
-
-  SendWmDelete(display, s2);
+  EmitDelete(s2);
   gui.join();
-  CHECK(CountOwnedSurfaces(display, pid) == 0);
 
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
@@ -482,25 +335,29 @@ void TestNativeXKeepsAllSurfaces() {
 
   LinuxApp app2;
   std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
-  Window rs1 = None;
-  Window rs2 = None;
-  Window rs3 = None;
-  CHECK(WaitOwned(display, pid, "Surface 1", &rs1, std::chrono::seconds{30}));
-  CHECK(WaitOwned(display, pid, "Surface 2", &rs2, std::chrono::seconds{30}));
-  CHECK(WaitOwned(display, pid, "Surface 3", &rs3, std::chrono::seconds{30}));
-  CHECK(CountOwnedSurfaces(display, pid) == 3);
+  GtkWindow* rs1 = nullptr;
+  GtkWindow* rs2 = nullptr;
+  GtkWindow* rs3 = nullptr;
+  CHECK(WaitSurface("Surface 1", &rs1, std::chrono::seconds{30}));
+  CHECK(WaitSurface("Surface 2", &rs2, std::chrono::seconds{30}));
+  CHECK(WaitSurface("Surface 3", &rs3, std::chrono::seconds{30}));
   constexpr int kTol = 40;
-  CHECK(RectNear(ReadOuter(display, rs1), r1, kTol));
-  CHECK(RectNear(ReadOuter(display, rs2), r2, kTol));
-  CHECK(RectNear(ReadOuter(display, rs3), r3, kTol));
+  CHECK(RectNear(ReadOuter(app2, rs1), r1, kTol));
+  CHECK(RectNear(ReadOuter(app2, rs2), r2, kTol));
+  CHECK(RectNear(ReadOuter(app2, rs3), r3, kTol));
 
-  ClickClose(display, rs2);
-  CHECK(WaitCount(display, pid, 2, std::chrono::seconds{30}));
-  ClickClose(display, rs1);
-  CHECK(WaitCount(display, pid, 1, std::chrono::seconds{30}));
-  Window last = FindOwned(display, pid, "Surface 3");
-  CHECK(last != None);
-  ClickClose(display, last);
+  ClickClose(rs2);
+  CHECK(WaitCount(2, std::chrono::seconds{30}));
+  OnGuiDirect([&] {
+    rs1 = FindSurfaceWindow("Surface 1");
+    rs3 = FindSurfaceWindow("Surface 3");
+  });
+  ClickClose(rs1);
+  CHECK(WaitCount(1, std::chrono::seconds{30}));
+  GtkWindow* last = nullptr;
+  OnGuiDirect([&] { last = FindSurfaceWindow("Surface 3"); });
+  CHECK(last != nullptr);
+  ClickClose(last);
   gui2.join();
 
   DirectoryDomainStorage storage2{dir};
@@ -511,67 +368,12 @@ void TestNativeXKeepsAllSurfaces() {
   CHECK(application2->surfaces->surfaces.size() == 1);
   CHECK(application2->surfaces->surfaces[0]->number == 3);
 
-  XCloseDisplay(display);
   std::filesystem::remove_all(dir);
 }
 
-void ActivateSurface(Display* display, Window window) {
-  // Prefer raise + focus + synthetic FocusIn: FocusChange across Display
-  // connections is not always delivered to the app client.
-  XRaiseWindow(display, window);
-  XSetInputFocus(display, window, RevertToParent, CurrentTime);
-  XEvent event{};
-  event.type = FocusIn;
-  event.xfocus.display = display;
-  event.xfocus.window = window;
-  event.xfocus.mode = NotifyNormal;
-  event.xfocus.detail = NotifyNonlinear;
-  CHECK(XSendEvent(display, window, False, FocusChangeMask, &event) != 0);
-  XFlush(display);
-}
-
-Window TopOwnedSurface(Display* display, pid_t pid) {
-  Atom stacking = XInternAtom(display, "_NET_CLIENT_LIST_STACKING", True);
-  if (stacking != None) {
-    Atom actual_type = None;
-    int actual_format = 0;
-    unsigned long nitems = 0;
-    unsigned long bytes_after = 0;
-    unsigned char* prop = nullptr;
-    int const rc = XGetWindowProperty(
-        display, DefaultRootWindow(display), stacking, 0, 1024, False,
-        XA_WINDOW, &actual_type, &actual_format, &nitems, &bytes_after, &prop);
-    if (rc == Success && prop != nullptr && nitems > 0 && actual_format == 32) {
-      auto const* windows = reinterpret_cast<Window const*>(prop);
-      for (unsigned long i = nitems; i > 0; --i) {
-        Window candidate = windows[i - 1];
-        pid_t window_pid = 0;
-        if (!ReadPid(display, candidate, &window_pid) || window_pid != pid) {
-          continue;
-        }
-        std::string name;
-        if (!ReadName(display, candidate, &name)) {
-          continue;
-        }
-        if (name.rfind("Surface ", 0) == 0) {
-          XFree(prop);
-          return candidate;
-        }
-      }
-      XFree(prop);
-    } else if (prop != nullptr) {
-      XFree(prop);
-    }
-  }
-  // Fallback: last mapped owned Surface from tree walk order is weak; return
-  // None so the CHECK fails loudly if stacking atom is unavailable.
-  return None;
-}
-
 void TestActiveZOrderRestored() {
-  pid_t const pid = getpid();
   auto dir = std::filesystem::temp_directory_path() /
-             "apptraverse_surfaces_linux_zorder";
+             "apptraverse_surfaces_gtk3_zorder";
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
@@ -581,26 +383,21 @@ void TestActiveZOrderRestored() {
   LinuxApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
 
-  Display* display = XOpenDisplay(nullptr);
-  CHECK(display != nullptr);
+  GtkWindow* s1 = nullptr;
+  CHECK(WaitSurface("Surface 1", &s1, std::chrono::seconds{30}));
+  ClickAdd(s1);
+  GtkWindow* s2 = nullptr;
+  CHECK(WaitSurface("Surface 2", &s2, std::chrono::seconds{30}));
+  ClickAdd(s2);
+  GtkWindow* s3 = nullptr;
+  CHECK(WaitSurface("Surface 3", &s3, std::chrono::seconds{30}));
+  CHECK(WaitCount(3, std::chrono::seconds{10}));
 
-  Window s1 = None;
-  CHECK(WaitOwned(display, pid, "Surface 1", &s1, std::chrono::seconds{30}));
-  ClickAdd(display, s1);
-  Window s2 = None;
-  CHECK(WaitOwned(display, pid, "Surface 2", &s2, std::chrono::seconds{30}));
-  ClickAdd(display, s2);
-  Window s3 = None;
-  CHECK(WaitOwned(display, pid, "Surface 3", &s3, std::chrono::seconds{30}));
-  CHECK(WaitCount(display, pid, 3, std::chrono::seconds{10}));
+  ActivateWindow(app, s2);
+  std::this_thread::sleep_for(std::chrono::milliseconds{200});
 
-  ActivateSurface(display, s2);
-  Pump(display, std::chrono::milliseconds{300});
-  CHECK(TopOwnedSurface(display, pid) == s2);
-
-  SendWmDelete(display, s2);
+  EmitDelete(s2);
   gui.join();
-  CHECK(CountOwnedSurfaces(display, pid) == 0);
 
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
@@ -612,29 +409,30 @@ void TestActiveZOrderRestored() {
 
   LinuxApp app2;
   std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
-  Window rs1 = None;
-  Window rs2 = None;
-  Window rs3 = None;
-  CHECK(WaitOwned(display, pid, "Surface 1", &rs1, std::chrono::seconds{30}));
-  CHECK(WaitOwned(display, pid, "Surface 2", &rs2, std::chrono::seconds{30}));
-  CHECK(WaitOwned(display, pid, "Surface 3", &rs3, std::chrono::seconds{30}));
-  Pump(display, std::chrono::milliseconds{300});
-  CHECK(TopOwnedSurface(display, pid) == rs2);
+  GtkWindow* rs2 = nullptr;
+  CHECK(WaitSurface("Surface 1", nullptr, std::chrono::seconds{30}));
+  CHECK(WaitSurface("Surface 2", &rs2, std::chrono::seconds{30}));
+  CHECK(WaitSurface("Surface 3", nullptr, std::chrono::seconds{30}));
+  std::this_thread::sleep_for(std::chrono::milliseconds{200});
+  bool is_active = false;
+  OnGuiDirect([&] {
+    is_active =
+        gtk_window_is_active(rs2) || gtk_window_has_toplevel_focus(rs2);
+  });
+  CHECK(is_active);
 
-  SendWmDelete(display, rs2);
+  EmitDelete(rs2);
   gui2.join();
-  XCloseDisplay(display);
   std::filesystem::remove_all(dir);
 }
 
 }  // namespace apptraverse::test
 
 int main() {
-  CHECK(XInitThreads() != 0);
-  XSetErrorHandler(&apptraverse::test::IgnoreBadWindow);
+  // gtk_init runs inside LinuxApp::Run on the GUI thread.
   apptraverse::test::TestPresenterHierarchy();
   apptraverse::test::TestCloseButtonRemovesOne();
-  apptraverse::test::TestNativeXKeepsAllSurfaces();
+  apptraverse::test::TestNativeCloseKeepsAllSurfaces();
   apptraverse::test::TestActiveZOrderRestored();
   std::cout << "surfaces_linux_smoke_test OK\n";
   return 0;
