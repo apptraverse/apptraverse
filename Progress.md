@@ -1,4 +1,36 @@
 ---
+Status: implemented. Not accepted.
+
+# MAC CURSOR — desktop active Surface Z-order
+
+## Identity
+
+- Starting SHA: `b4753c6471c6ea5f57f09268cd82974e3eb2b73a`
+- Branch: `surfaces-demo`
+- Final SHA: (pending commit)
+
+## Behavior
+
+- macOS desktop persists the focused Surface via existing
+  `Surfaces::mobile_current` (`windowDidBecomeKey` / shutdown key window →
+  `PageShown` → `MakeCurrent`).
+- On startup after presenter init: `makeKeyAndOrderFront` +
+  `activateIgnoringOtherApps` for `mobile_current` (fallback: last Surface
+  when empty — pre-z-order state dirs).
+- All Surface windows still shown; only the active one is restored on top.
+- Common model unchanged; mirrors Windows/Linux desktop Z-order contract.
+
+## Tests
+
+- `apptraverse_surfaces_macos_smoke_test` PASS (includes
+  `TestActiveZOrderRestored`).
+- Incremental build: `macos-x64-debug-surfaces-demo` (`-fno-rtti` on
+  OBJCXX with ARC).
+- Manual: activate Surface 2, close, reload → Surface 2 key / front.
+
+Not accepted-by-user.
+
+---
 Status: implemented, verified locally on Linux. Not accepted.
 
 # LINUX CURSOR — desktop active Surface Z-order

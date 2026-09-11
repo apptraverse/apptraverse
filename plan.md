@@ -54,7 +54,7 @@ Deferred relative to surfaces/chat:
 - Resource / version / cache
 - DPI / screen system events
 - Full desktop Z-order stack (only active Surface restored on desktop;
-  Windows + Linux restore via `mobile_current`; macOS not adapted yet)
+  Windows + Linux + macOS restore via `mobile_current`)
 
 ## Canonical current Surface
 
@@ -66,10 +66,9 @@ Required APIs: `SetCurrentSurfaceEvent`, `Surface::MakeCurrent()`,
 
 Mobile/Web report the visible page through `PageShown`.
 
-Windows and Linux desktop also use `mobile_current` for active-window /
+Windows, Linux, and macOS desktop also use `mobile_current` for active-window /
 Z-order restore: focus → `PageShown`; on startup raise + focus the persisted
-current Surface. macOS desktop hosts still leave `mobile_current` empty and do
-not call `PageShown` on focus.
+current Surface.
 
 Web checkpoints `Application::Save` after each model publication, then IDBFS
 sync — browser reload/tab close is not a reliable graceful shutdown. This is

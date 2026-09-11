@@ -88,12 +88,48 @@ void MacApp::QueueAllWindowBounds() {
   }
 }
 
+void MacApp::QueueKeyWindowAsCurrent() {
+  NSWindow* const key = [NSApp keyWindow];
+  if (key == nil) {
+    return;
+  }
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
+    MacSurfacePresenter::ptr presenter{surface->presenter};
+    NSWindow* window = (__bridge NSWindow*)presenter->window;
+    if (window == key) {
+      presenter->PageShown();
+      return;
+    }
+  }
+}
+
+void MacApp::RestoreActiveSurfaceZOrder() {
+  auto& surfaces = ui_application_->surfaces->surfaces;
+  Surface::ptr target = ui_application_->surfaces->mobile_current;
+  if (!target) {
+    if (surfaces.empty()) {
+      return;
+    }
+    // Pre-z-order state: keep last-created (creation order) on top.
+    target = surfaces.back();
+  }
+  MacSurfacePresenter::ptr presenter{target->presenter};
+  NSWindow* window = (__bridge NSWindow*)presenter->window;
+  [window makeKeyAndOrderFront:nil];
+  [NSApp activateIgnoringOtherApps:YES];
+  // Explicit PageShown: windowDidBecomeKey may not fire when already key.
+  presenter->PageShown();
+}
+
 void MacApp::RequestApplicationStop() {
   if (stop_requested_) {
     return;
   }
   stop_requested_ = true;
+  // Current Surface + geometry must be accepted before stop so Save persists
+  // both mobile_current (z-order) and desktop_*.
   if (ui_application_) {
+    QueueKeyWindowAsCurrent();
     QueueAllWindowBounds();
   }
   session_.RequestStop();
@@ -114,6 +150,7 @@ void MacApp::OnInitialPublished() {
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
   InitializePresenters(*ui_application_, this, &*model_proxy_);
+  RestoreActiveSurfaceZOrder();
 
   NSWindow* loading = (__bridge_transfer NSWindow*)loading_window_;
   loading_window_ = nullptr;

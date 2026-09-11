@@ -20,7 +20,7 @@ class MacApp {
  public:
   int Run(std::filesystem::path const& state_dir);
 
-  // Single graceful stop: snapshot all window geometry, then RequestStop.
+  // Single graceful stop: persist current + geometry, then RequestStop.
   void RequestApplicationStop();
 
  private:
@@ -42,6 +42,11 @@ class MacApp {
   void OnIncrementalPublished();
   void OnModelFinished();
   void QueueAllWindowBounds();
+  // Enqueue PageShown for the key Surface before geometry snapshot.
+  void QueueKeyWindowAsCurrent();
+  // Bring Surfaces::mobile_current (or last Surface) to the front of the
+  // window stack.
+  void RestoreActiveSurfaceZOrder();
   void PostMain(void (*fn)(void*), void* ctx);
 
   SurfacesModelSession session_;

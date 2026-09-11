@@ -85,6 +85,12 @@ void AppKitFrameToCommonBounds(NSRect frame, std::int32_t* x, std::int32_t* y,
   apptraverse::MacRequestApplicationStop(self.presenter->presentation_host);
   return NO;
 }
+
+- (void)windowDidBecomeKey:(NSNotification*)notification {
+  (void)notification;
+  // Desktop current Surface: persist via mobile_current for z-order restore.
+  self.presenter->PageShown();
+}
 @end
 
 namespace apptraverse {
@@ -153,6 +159,9 @@ void MacSurfacePresenter::OnLoad() {
   this->add_button = (__bridge_retained void*)add;
   this->close_button = (__bridge_retained void*)close_btn;
 
+  // Activates this Surface (windowDidBecomeKey → PageShown). After a full
+  // InitializePresenters pass, MacApp::RestoreActiveSurfaceZOrder raises the
+  // persisted mobile_current above creation order.
   [window makeKeyAndOrderFront:nil];
 }
 

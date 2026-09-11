@@ -157,6 +157,19 @@ void RequestNativeClose(NSWindow* window) {
   RunOnMain(^{ [window performClose:nil]; });
 }
 
+bool WaitIsKeyWindow(NSWindow* window, std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    __block BOOL is_key = NO;
+    RunOnMain(^{ is_key = [window isKeyWindow]; });
+    if (is_key) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  }
+  return false;
+}
+
 MacSurfacePresenter* PresenterForWindow(NSWindow* window) {
   __block MacSurfacePresenter* presenter = nullptr;
   RunOnMain(^{
@@ -397,12 +410,100 @@ void TestNativeXKeepsAllSurfaces() {
   std::filesystem::remove_all(dir);
 }
 
+void TestActiveZOrderRestored() {
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_macos_zorder";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesModelRegistration();
+  EnsureMacSurfacePresenterRegistration();
+
+  {
+    MacApp app;
+    std::atomic<bool> started{false};
+    std::atomic<bool> finished{false};
+    std::thread driver{[&] {
+      while (!started.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+      }
+      NSWindow* s1 = nil;
+      CHECK(WaitSurface(1, &s1, std::chrono::seconds{60}));
+      ClickButton(s1, @"Add");
+      NSWindow* s2 = nil;
+      CHECK(WaitSurface(2, &s2, std::chrono::seconds{30}));
+      ClickButton(s2, @"Add");
+      NSWindow* s3 = nil;
+      CHECK(WaitSurface(3, &s3, std::chrono::seconds{30}));
+      CHECK(WaitSurfaceCount(3, std::chrono::seconds{10}));
+
+      // Activate Surface 2 so mobile_current / z-order restore targets it.
+      // makeKeyAndOrderFront → windowDidBecomeKey → PageShown; stop path also
+      // QueueKeyWindowAsCurrent before Save (same contract as Win/Linux).
+      RunOnMain(^{
+        [s2 makeKeyAndOrderFront:nil];
+        [NSApp activateIgnoringOtherApps:YES];
+      });
+      CHECK(WaitIsKeyWindow(s2, std::chrono::seconds{5}));
+
+      RequestNativeClose(s2);
+      while (!finished.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+      }
+    }};
+    started.store(true);
+    CHECK(app.Run(dir) == 0);
+    finished.store(true);
+    driver.join();
+  }
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  CHECK(application->surfaces->mobile_current);
+  CHECK(application->surfaces->mobile_current->number == 2);
+
+  {
+    MacApp app2;
+    std::atomic<bool> started{false};
+    std::atomic<bool> finished{false};
+    std::thread driver{[&] {
+      while (!started.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+      }
+      NSWindow* rs1 = nil;
+      NSWindow* rs2 = nil;
+      NSWindow* rs3 = nil;
+      CHECK(WaitSurface(1, &rs1, std::chrono::seconds{60}));
+      CHECK(WaitSurface(2, &rs2, std::chrono::seconds{30}));
+      CHECK(WaitSurface(3, &rs3, std::chrono::seconds{30}));
+      CHECK(WaitSurfaceCount(3, std::chrono::seconds{10}));
+      // RestoreActiveSurfaceZOrder raises mobile_current after presenters init;
+      // poll past creation-order makeKeyAndOrderFront from OnLoad.
+      CHECK(WaitIsKeyWindow(rs2, std::chrono::seconds{5}));
+
+      RequestNativeClose(rs2);
+      while (!finished.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+      }
+    }};
+    started.store(true);
+    CHECK(app2.Run(dir) == 0);
+    finished.store(true);
+    driver.join();
+  }
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::test::TestPresenterHierarchy();
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeXKeepsAllSurfaces();
+  apptraverse::test::TestActiveZOrderRestored();
   std::cout << "surfaces_macos_smoke_test OK\n";
   return 0;
 }
