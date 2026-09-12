@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <iostream>
 #include <thread>
+#include <vector>
 
 #include "aether-objects/obj/registry.h"
 
@@ -16,6 +17,7 @@
 #include "mac_app.h"
 #include "mac_presenters.h"
 #include "mac_surface_actions.h"
+#include "mac_surface_content.h"
 #include "surfaces_ids.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_model.h"
@@ -83,6 +85,15 @@ int CountControls(NSView* view) {
   return count;
 }
 
+void CollectControls(NSView* view, std::vector<NSView*>* out) {
+  if ([view isKindOfClass:[NSControl class]]) {
+    out->push_back(view);
+  }
+  for (NSView* child in [view subviews]) {
+    CollectControls(child, out);
+  }
+}
+
 bool WaitSurfaceCount(int expected, std::chrono::milliseconds timeout) {
   auto const deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {
@@ -148,6 +159,25 @@ void PlaceWindow(NSWindow* window, std::int32_t x, std::int32_t y,
   std::this_thread::sleep_for(std::chrono::milliseconds{50});
 }
 
+// Resize so contentView.bounds matches the requested presentation size.
+void PlaceContentSize(NSWindow* window, std::int32_t width,
+                      std::int32_t height) {
+  RunOnMain(^{
+    NSRect content = [window contentRectForFrameRect:[window frame]];
+    content.size = NSMakeSize(static_cast<CGFloat>(width),
+                              static_cast<CGFloat>(height));
+    NSRect const frame = [window frameRectForContentRect:content];
+    [window setFrame:frame display:YES];
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds{50});
+}
+
+NSSize ContentSize(NSWindow* window) {
+  __block NSSize size{};
+  RunOnMain(^{ size = [[window contentView] bounds].size; });
+  return size;
+}
+
 NSRect WindowFrame(NSWindow* window) {
   __block NSRect frame{};
   RunOnMain(^{ frame = [window frame]; });
@@ -187,6 +217,53 @@ MacSurfacePresenter* PresenterForWindow(NSWindow* window) {
     presenter = static_cast<SurfaceWindowDelegate*>(delegate).presenter;
   });
   return presenter;
+}
+
+bool WaitPresentation(MacSurfacePresenter* presenter, std::int32_t width,
+                      std::int32_t height, bool wide,
+                      std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (presenter->surface->presentation_width == width &&
+        presenter->surface->presentation_height == height &&
+        presenter->IsWide() == wide) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  }
+  return false;
+}
+
+// SwiftUI Add/Close layout after ApptraverseUpdateMacSurfaceContent(IsWide).
+bool ControlsAreHorizontal(NSWindow* window) {
+  __block bool horizontal = false;
+  RunOnMain(^{
+    std::vector<NSView*> controls;
+    CollectControls([window contentView], &controls);
+    CHECK(controls.size() >= 2);
+    // Last pair: hosting updates may briefly retain prior hosts.
+    NSView* first = controls[controls.size() - 2];
+    NSView* second = controls[controls.size() - 1];
+    NSRect const a = [first convertRect:first.bounds toView:nil];
+    NSRect const b = [second convertRect:second.bounds toView:nil];
+    // Leading-aligned VStack shares MinX but not midX (different widths).
+    CGFloat const d_min_x = std::fabs(NSMinX(a) - NSMinX(b));
+    CGFloat const d_min_y = std::fabs(NSMinY(a) - NSMinY(b));
+    horizontal = d_min_y < d_min_x;
+  });
+  return horizontal;
+}
+
+bool WaitControlsOrientation(NSWindow* window, bool wide,
+                             std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (ControlsAreHorizontal(window) == wide) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  }
+  return false;
 }
 
 void TestPresenterHierarchy() {
@@ -514,6 +591,107 @@ void TestActiveZOrderRestored() {
   std::filesystem::remove_all(dir);
 }
 
+void ExpectPresentationRoundtrip(NSWindow* window,
+                                 MacSurfacePresenter* presenter,
+                                 void* window_id, void* presenter_id,
+                                 std::int32_t width, std::int32_t height,
+                                 bool wide) {
+  PlaceContentSize(window, width, height);
+  NSSize const size = ContentSize(window);
+  CHECK(static_cast<std::int32_t>(size.width) == width);
+  CHECK(static_cast<std::int32_t>(size.height) == height);
+  CHECK(WaitPresentation(presenter, width, height, wide,
+                         std::chrono::seconds{10}));
+  // OnModelChanged → IsWide → ApptraverseUpdateMacSurfaceContent.
+  CHECK(WaitControlsOrientation(window, wide, std::chrono::seconds{5}));
+  // Bridge accepts the same model-derived bool; window/presenter unchanged.
+  RunOnMain(^{
+    ApptraverseUpdateMacSurfaceContent(window,
+                                       presenter->IsWide() ? YES : NO);
+  });
+  CHECK(WaitControlsOrientation(window, wide, std::chrono::seconds{5}));
+  CHECK((__bridge void*)window == window_id);
+  CHECK(static_cast<void*>(presenter) == presenter_id);
+  CHECK(PresenterForWindow(window) == presenter);
+}
+
+void TestControlsFollowPresentationSize() {
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_macos_presentation_size";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesModelRegistration();
+  EnsureMacSurfacePresenterRegistration();
+
+  {
+    MacApp app;
+    std::atomic<bool> started{false};
+    std::atomic<bool> finished{false};
+    std::thread driver{[&] {
+      while (!started.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+      }
+      NSWindow* s1 = nil;
+      CHECK(WaitSurface(1, &s1, std::chrono::seconds{60}));
+      auto* p1 = PresenterForWindow(s1);
+      void* const window_id = (__bridge void*)s1;
+      void* const presenter_id = static_cast<void*>(p1);
+
+      // wide → tall → square (wide) → wide; same NSWindow / presenter.
+      ExpectPresentationRoundtrip(s1, p1, window_id, presenter_id, 800, 400,
+                                  true);
+      ExpectPresentationRoundtrip(s1, p1, window_id, presenter_id, 400, 800,
+                                  false);
+      ExpectPresentationRoundtrip(s1, p1, window_id, presenter_id, 500, 500,
+                                  true);
+      ExpectPresentationRoundtrip(s1, p1, window_id, presenter_id, 700, 300,
+                                  true);
+
+      ClickAdd(s1);
+      NSWindow* s2 = nil;
+      CHECK(WaitSurface(2, &s2, std::chrono::seconds{30}));
+      auto* p2 = PresenterForWindow(s2);
+      ExpectPresentationRoundtrip(s2, p2, (__bridge void*)s2,
+                                  static_cast<void*>(p2), 360, 640, false);
+      ClickCloseThis(s2);
+      CHECK(WaitSurfaceCount(1, std::chrono::seconds{30}));
+      CHECK(WaitSurface(1, &s1, std::chrono::seconds{5}));
+      CHECK((__bridge void*)s1 == window_id);
+      CHECK(PresenterForWindow(s1) == p1);
+
+      RequestNativeClose(s1);
+      while (!finished.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+      }
+    }};
+    started.store(true);
+    CHECK(app.Run(dir) == 0);
+    finished.store(true);
+    driver.join();
+  }
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  Surface& surface = *application->surfaces->surfaces[0];
+  CHECK(surface.presentation_width == 700);
+  CHECK(surface.presentation_height == 300);
+  bool saw_size_event = false;
+  for (auto const& entry : surface.journal) {
+    if (entry.event->GetClassId() ==
+        SurfacePresentationSizeChangedEvent::kClassId) {
+      saw_size_event = true;
+      break;
+    }
+  }
+  CHECK(saw_size_event);
+
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
@@ -521,6 +699,7 @@ int main() {
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeXKeepsAllSurfaces();
   apptraverse::test::TestActiveZOrderRestored();
+  apptraverse::test::TestControlsFollowPresentationSize();
   std::cout << "surfaces_macos_smoke_test OK\n";
   return 0;
 }
