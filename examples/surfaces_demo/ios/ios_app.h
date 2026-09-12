@@ -37,6 +37,8 @@ class IOSApp {
   void NoteVisiblePage(std::size_t index);
   // Pager geometry changed (viewDidLayoutSubviews).
   void LayoutPages();
+  // Usable root viewport → every live Surface presenter (shared host size).
+  void ReportPresentationSize(std::int32_t width, std::int32_t height);
 
  private:
   friend void IOSAttachPage(void* presentation_host, void* page_view);
