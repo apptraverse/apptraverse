@@ -3,33 +3,70 @@ Progress: Progress.md
 
 # App Traverse — next application
 
-This plan sequences a new minimal application on App Traverse.
-Architecture of later stages is recorded here and is not to be redesigned
+This plan sequences the next App Traverse work after surfaces.
+Architecture of later stages is recorded here and is not redesigned
 in a slice that does not own that stage.
 
 Status vocabulary: implemented / verified / accepted-by-user are distinct.
 Do not mark accepted.
 
-Coding-agent rules (incremental build, fail-fast, no extra entities, commit/push):
+Coding-agent rules (incremental build, fail-fast, no extra entities, no RTTI,
+Event-only Node mutation, commit/push):
 `.cursor/rules/apptraverse-coding-agent.mdc`.
 
 ## Current canonical application branch
 
-**`surfaces-demo`** (`origin/surfaces-demo`)
+**`surfaces-demo`** — always resolve the live SHA with
+`git rev-parse origin/surfaces-demo` (do not treat a SHA in this file as
+authoritative without fetch).
 
-Included on that branch:
+Observed at docs refresh start (2026-09-12):
 
-- Windows desktop (multi-window, geometry persistence)
-- Android / Android Emulator (pager, `mobile_current`)
-- Web / Emscripten / WASM (tabs, IndexedDB checkpoint)
-- Linux desktop — **X11/Xlib** (`LinuxSurfacePresenter`)
-- macOS desktop — **SwiftUI content in an AppKit window** (`MacSurfacePresenter`)
-- iOS / iPhone Simulator — **SwiftUI content in a UIKit pager**
-  (`IOSSurfacePresenter`)
+`8c298fb71bcbf230484a82a4b33ad4d750e47833`
 
-All current platform ports are merged.
+### Platforms on the intended final surfaces line
 
-## Roadmap (surfaces before SharedNode)
+| Platform | Host | Adaptive orientation (model presentation size) |
+|---|---|---|
+| Windows | Win32 multi-window | **On canonical** — `WM_SIZE` → Event → publication → `IsWide` |
+| Android | pager + `mobile_current` | **On canonical** — host size Event → LinearLayout from `IsWide` |
+| Web / WASM | tabs + IndexedDB checkpoint | **On canonical** — resize → Event → flex from `IsWide` |
+| Linux | **GTK3** (`LinuxSurfacePresenter`) | **On adaptive branch**, not yet on this checkout’s `origin/surfaces-demo` — see below |
+| macOS | SwiftUI content in AppKit window | Apple adaptive finalization **in progress / not yet verified** in this checkout |
+| iOS | SwiftUI content in UIKit pager | Apple adaptive / rotation **in progress / not yet verified**; Info.plist historically portrait-only |
+
+Do **not** mark surfaces fully complete until Apple adaptive work has landed
+on `origin/surfaces-demo` and been verified.
+
+### Linux GTK3 adaptive (reported, separate branch)
+
+- Branch: `feature/surfaces-linux-adaptive-final-v1`
+- Tested SHA (Linux Cursor report): `d7b47ac60c6fd94a8b96933e01d38e007fbf7f10`
+- Path: size-allocate on stable content host → `PresentationSizeChanged` →
+  model Event → publication → `IsWide` → `GtkBox` orientation
+- Wide / tall / square PASS per Linux Cursor report
+- **Raw X11/Xlib is historical.** It is no longer the intended current Linux path.
+  Canonical history already carries the GTK3 host; adaptive orientation lands
+  via the Linux adaptive branch above (merge status must be checked on remote).
+
+### Model-driven adaptive orientation contract (common)
+
+Already on the Windows/Android/Web canonical line:
+
+- `Surface::presentation_width` / `presentation_height` (persisted; not desktop placement)
+- `SurfacePresentationSizeChangedEvent`
+- `Surface::SetPresentationSize` / `SurfacePresenter::PresentationSizeChanged`
+- `SurfacePresenter::IsWide()` ⇔ `presentation_width >= presentation_height`
+- Native resize only **reports** size; native UI must not decide orientation
+  outside the published GUI mirror
+
+### Historical note (superseded)
+
+Older docs referred to “Linux X11/Xlib” and “Linux host remains X11/Xlib”.
+Those statements described an earlier port and are **not** the intended final
+Linux surfaces path.
+
+## Surfaces roadmap (status)
 
 1. main_window_runtime_demo — lifecycle/mirror foundation [done]
 2. journal retention/compaction [landed]
@@ -41,15 +78,15 @@ All current platform ports are merged.
 8. surfaces_demo — Windows multi-window + persisted geometry [done]
 9. surfaces_demo — Android pager + `mobile_current` [done]
 10. surfaces_demo — Web/WASM tabs + IDBFS checkpoint [done]
-11. surfaces_demo — Linux X11 desktop port [done]
-12. surfaces_demo — macOS desktop port [done]
-13. surfaces_demo — iOS / iPhone Simulator [done]
+11. surfaces_demo — Linux desktop host [done as **GTK3**; X11 was historical]
+12. surfaces_demo — macOS desktop port [done as host; Apple adaptive TBD]
+13. surfaces_demo — iOS / iPhone Simulator [done as host; rotation/adaptive TBD]
 14. pre-shared runtime hardening [done]
-15. shared_node_demo — two independent headless replicas **[NEXT]**
-16. chat_demo
-17. aeroadmin-x production chat
+15. model-driven adaptive presentation size — Windows / Android / Web [done on canonical]
+16. model-driven adaptive — Linux GTK3 [implemented on adaptive branch; merge TBD]
+17. model-driven adaptive — macOS / iOS [Apple Cursor; **not verified here**]
 
-Deferred relative to surfaces/chat:
+Deferred relative to surfaces / SharedNode:
 
 - Node execution / marquee demo
 - Resource / version / cache
@@ -76,7 +113,317 @@ sync — browser reload/tab close is not a reliable graceful shutdown. This is
 **Web-host policy only**, not common `SurfacesModelSession`, and must not be
 copied onto Windows/Android/Linux/macOS/iOS.
 
+## Old shared-chat experiment — retired as architecture
+
+`feature/shared-chat-headless-v1` @ known
+`63abddeeb57b78fdb7cfa4dc2a459785fa6566b8`
+is an **experiment / reference only**.
+
+It is **not** the basis of the new SharedNode architecture.
+
+Useful concepts to retain from experiments (including older sync sessions):
+
+- independent Domains / Storages per replica
+- serialized in-memory transport tests
+- duplicate suppression
+- repeated ACK after duplicate
+- lost ACK / retry scenarios
+- restart persistence concepts
+
+**Do not carry forward** as the final design:
+
+- Chat-specific Event remapping as the shared core
+- `SharedInstance<Chat>` as the final SharedNode model
+- room-id coupling as universal topology
+- special Join / presence-controller architecture
+- `ISharedTransport::SendEvent` / `SendAck` as the universal Link API
+
+## NEXT direction — generic sharing first
+
+After surfaces settle (including Apple adaptive when landed):
+
+```
+sharing (generic SharedNode, headless)
+  → memory chat in one process / two windows
+  → host + multiple participants
+  → Æther Link transport
+  → separate processes
+  → AeroAdmin-X product chat
+```
+
+**No GUI** in the first SharedNode milestones.
+
+---
+
+# SharedNode / Link — current working design
+
+The following is **working design**, not implemented fact, unless a later
+slice marks a milestone implemented.
+
+## Link
+
+Link is a **persistent object** in the application graph.
+
+Persistent transport descriptor / config may include:
+
+- transport kind / type
+- UID / address / broker topic / subscription identifiers as needed
+- heartbeat / availability configuration
+- other transport-specific serializable parameters
+
+Runtime-only (not serialized as durable Link state):
+
+- sockets, subscriptions, callbacks, native handles
+- active operations
+- current observed availability
+
+Do **not** serialize a universal `is_local`.
+Each runtime decides which Link is itself from its local transport identity.
+
+One Link may be referenced by:
+
+- multiple SharedNode objects
+- ChatClient / participant business model
+- file-transfer peer model
+- other business Nodes
+
+**Presence belongs to Link**, not to every SharedNode.
+
+## SharedNode topology
+
+SharedNode derives from the existing Node architecture.
+
+Shared part includes roughly:
+
+- `shares[]`: Link reference + access for this SharedNode (initially RW / RO)
+- business state + shared journal
+
+The Link topology itself is shared.
+
+Example chat room:
+
+```
+ChatRoom
+  AliceLink  RW
+  BobLink    RW
+  NickLink   RW
+```
+
+A newly attached participant receives the room and Link transport descriptors,
+so it knows participants / connectivity endpoints.
+Which Link is local differs by runtime.
+
+## Per-Link delivery state is local-persistent
+
+Critical distinction:
+
+- SharedNode **sharing topology** is shared.
+- Delivery progress for Node N through Link X is **local persistent state**
+  of that replica.
+
+Examples of local-persistent metadata:
+
+- what the remote side already ACKed
+- pending packets
+- exact serialized retry bytes
+- initial-sync progress
+- received / dedup information as required
+
+A’s knowledge “B ACKed E17” is not B’s shared state.
+
+It **must** survive restart.
+It **must not** be overwritten by incoming shared snapshot / replay.
+
+**Open implementation point:** current Node replay loads base state; shared
+replay vs local-persistent sync metadata must be separated correctly.
+
+## ACK / durability contract (first sharing guarantee)
+
+Intended first path:
+
+1. sender: create / freeze packet → persist pending exact bytes / identity → send
+2. receiver: decode / validate → apply shared state / Event → persist accepted /
+   dedup state → send AppTraverse ACK
+3. sender: receive ACK → persist delivered state → remove pending
+
+Lost ACK: duplicate accepted as duplicate → no second Apply → ACK again.
+
+Do not claim arbitrary torn-write atomicity.
+Storage I/O failure handling remains out of scope unless separately assigned.
+
+Restart tests must really destroy and recreate Application / Domain / runtime.
+
+## Transport / Link contract
+
+One Link may carry multiple SharedNode protocols.
+
+Incoming transport callback provides:
+
+- source Link / endpoint identity
+- opaque bytes
+
+Shared sync frame must contain **target SharedNode identity**, because source
+alone cannot identify the target Node.
+
+Transport examples:
+
+- Æther: sender UID can come from the receive callback
+- Broker: subscription / topic mapping may identify source / destination
+
+Transport does **not** understand ChatMessage, EditorProfile, or business
+Event types.
+
+## Memory transport first
+
+Headless first transport (Memory Link) must support:
+
+- opaque message delivery
+- source identity
+- disconnect / reconnect
+- directional loss, drop, duplicate, reorder
+- deterministic / fake clock
+- heartbeat
+- local / remote availability
+
+Initial scenarios assume continuously connected clients.
+Sleeping / Poll / Push windows are later; the abstract Link contract must not
+make Æther capabilities impossible.
+
+## Presence
+
+Presence / availability is a **Link** capability.
+
+Business model may reference Link for online status.
+Shared sync scheduler reads the same Link availability.
+
+No special `if local participant … else remote …` branches for sync core.
+
+Old observed Online is not trustworthy immediately after process restart;
+runtime re-establishes observation.
+
+Presence is **not**: Event ACK, membership, synchronized state, or permission.
+
+## RW / RO and visibility are orthogonal
+
+**RO does not mean “do not send Links”.**
+
+A read-only replica may need Link descriptors to:
+
+- subscribe to broker topics
+- receive traffic
+- send ACK
+- identify connectivity endpoints
+
+Example: Alice and Bob edit a shared table; Viewer is RO and must not see
+editor profiles.
+
+Viewer **may** receive: AliceLink, BobLink, ViewerLink, shared document content.  
+Viewer **may not** receive: AliceEditorProfile, BobEditorProfile.
+
+Therefore:
+
+```
+transport Link visibility
+  ≠ business object visibility
+  ≠ RW / RO modification rights
+```
+
+Do **not** reintroduce rejected `anonymous_read` as the answer to this problem.
+
+## Recipient-scoped graph edges (planned)
+
+Need a mechanism for graph edges / fields conceptually:
+
+- shared to all recipients
+- writers only / recipient filtered
+- local persistent only
+
+External / shared-reference semantics also remain relevant (e.g. a document
+may contain a TableSnapshot bytes while a reference identifies another
+shared resource without shipping the full editor topology immediately).
+
+Do not finalize API names until implementation proves them.
+
+## Localization / remote resource note
+
+Localization strings can technically be SharedNode state changed through Events.
+Immutable released resources may instead use a resource reference / version /
+hash with a separate resource subsystem for bytes.
+
+These are distinct use cases — do not force either into the first SharedNode
+implementation.
+
+## Event order (explicit decision)
+
+Shared Event **canonical order uses `timestamp_us` only**.
+
+Do **not** add as mandatory canonical order:
+
+- Lamport
+- origin_uid tie-break
+- origin_sequence tie-break
+
+Event identity / dedup is a **separate** concern.
+
+Equal-timestamp behavior across independent sources remains an open edge case;
+do not silently solve it by adding a second sort key.
+
+---
+
+# Planned implementation ladder
+
+**All milestones below are PLANNED, not implemented.**
+
+### SharedNode headless (01–16)
+
+01. **Introduce persistent Link descriptors** — durable transport config objects in the application graph without runtime sockets.  
+02. **Add SharedNode share topology** — SharedNode carries `shares[]` (Link + RW/RO) plus business journal.  
+03. **Separate shared and local-persistent graph edges** — prevent shared replay from clobbering local sync metadata.  
+04. **Persist per-Link SharedNode sync state** — ACK / pending / retry bytes survive Application restart.  
+05. **Add generic shared sync framing and routing** — opaque frames with target SharedNode identity.  
+06. **Add deterministic Memory Link transport** — drop / reorder / disconnect / heartbeat / availability for tests.  
+07. **Synchronize a SharedNode to a newly attached Link** — initial catch-up for a new share.  
+08. **Replicate incremental SharedNode Events** — steady-state Event + ACK path.  
+09. **Make shared delivery restart-safe** — destroy/recreate Application/Domain; pending and ACKs recover.  
+10. **Replicate dynamic SharedNode graphs** — topology changes as shared Events.  
+11. **Share multiple Nodes over one Link** — multiplexing proof.  
+12. **Enforce RW and RO sharing rights** — modification rights without collapsing Link visibility.  
+13. **Add recipient-scoped object references** — filtered graph edges for writers vs readers.  
+14. **Prove full share topology with three replicas** — A/B/C memory convergence.  
+15. **Integrate Link presence with SharedNode delivery** — scheduler observes Link availability.  
+16. **Freeze shared_node_demo headless contract** — documented PASS criteria for headless sharing.
+
+### Chat ladder on SharedNode (17–21)
+
+17. **Build ChatRoom on SharedNode** — product chat model uses generic sharing, not a special Chat sync core.  
+18. **Add in-process two-window memory chat** — one process, two windows, Memory Link.  
+19. **Add multi-participant host chat** — host + several participants on memory transport.  
+20. **Add Æther Link transport** — replace Memory Link with Æther without redesigning SharedNode.  
+21. **Run chat replicas in separate processes** — then AeroAdmin-X product chat.
+
+---
+
+# Open questions
+
+Do not resolve casually in documentation:
+
+- exact public vs local/private Link fields
+- transport credentials serialization boundary
+- who is authorized to modify shares / access topology
+- direct peer mesh vs host relay
+- exact equal-`timestamp_us` behavior
+- recipient-filtered Event dependency semantics
+- deletion + delayed Events
+- exact class / layout of local-persistent per-Link sync metadata
+- durability beyond explicitly tested Save boundaries
+- future compaction / frontier
+- external resource / reference semantics
+
+---
+
 ## SwiftUI view layer (Apple platforms)
+
+*(Host architecture — unchanged; adaptive orientation status is separate above.)*
 
 SwiftUI owns window/page **content**. It does not own the window set, window
 lifecycle, frames, or Z-order: those follow from the model graph
@@ -145,7 +492,7 @@ SurfacePresenter
 DesktopSurfacePresenter
   ├─ Win32SurfacePresenter
   ├─ MacSurfacePresenter
-  └─ LinuxSurfacePresenter   — X11/Xlib
+  └─ LinuxSurfacePresenter   — GTK3 (intended); X11 was historical
 
 SurfacePresenter
   ↓
@@ -165,7 +512,8 @@ SurfacePresenter
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.
-- Linux host remains X11/Xlib (not GTK3).
+- Apple adaptive orientation / iOS rotation (Mac Cursor; not verified here).
+- Merge Linux GTK3 adaptive branch onto `surfaces-demo` when ready.
 - The iOS bundle has no launch storyboard, so iOS runs it scaled from a 320×480
   logical screen and in the light appearance. Layout and the SwiftUI content are
   correct inside that box; native full-screen geometry is a separate slice.
