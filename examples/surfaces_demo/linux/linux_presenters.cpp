@@ -34,6 +34,20 @@ gboolean OnFocusIn(GtkWidget*, GdkEventFocus*, gpointer user_data) {
   return FALSE;
 }
 
+// Report usable content size only. Orientation applies after model publication.
+void OnContentSizeAllocate(GtkWidget*, GdkRectangle* allocation,
+                           gpointer user_data) {
+  auto* presenter = static_cast<LinuxSurfacePresenter*>(user_data);
+  presenter->PresentationSizeChanged(allocation->width, allocation->height);
+}
+
+void ApplyActionOrientation(LinuxSurfacePresenter* presenter) {
+  gtk_orientable_set_orientation(
+      GTK_ORIENTABLE(presenter->action_box),
+      presenter->IsWide() ? GTK_ORIENTATION_HORIZONTAL
+                          : GTK_ORIENTATION_VERTICAL);
+}
+
 }  // namespace
 
 void EnsureLinuxSurfacePresenterRegistration() {
@@ -54,31 +68,43 @@ void LinuxSurfacePresenter::OnLoad() {
   gtk_window_set_default_size(GTK_WINDOW(window), w, h);
   app->PlaceOuterWindow(window, surface->desktop_x, surface->desktop_y, w, h);
 
-  GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  gtk_container_set_border_width(GTK_CONTAINER(box), 12);
-  gtk_container_add(GTK_CONTAINER(window), box);
+  // Content host fills the window; its allocation is the presentation size.
+  // action_box orientation changes must not redefine that measured area.
+  content_host = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  gtk_container_add(GTK_CONTAINER(window), content_host);
+
+  GtkOrientation const initial = IsWide() ? GTK_ORIENTATION_HORIZONTAL
+                                          : GTK_ORIENTATION_VERTICAL;
+  action_box = gtk_box_new(initial, 8);
+  gtk_container_set_border_width(GTK_CONTAINER(action_box), 12);
+  gtk_box_pack_start(GTK_BOX(content_host), action_box, FALSE, FALSE, 0);
 
   add_button = gtk_button_new_with_label("Add");
   close_button = gtk_button_new_with_label("Close this window");
-  gtk_box_pack_start(GTK_BOX(box), add_button, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(box), close_button, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(action_box), add_button, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(action_box), close_button, FALSE, FALSE, 0);
 
   g_signal_connect(add_button, "clicked", G_CALLBACK(OnAddClicked), this);
   g_signal_connect(close_button, "clicked", G_CALLBACK(OnCloseClicked), this);
   g_signal_connect(window, "delete-event", G_CALLBACK(OnDeleteEvent), this);
   g_signal_connect(window, "focus-in-event", G_CALLBACK(OnFocusIn), this);
+  g_signal_connect(content_host, "size-allocate",
+                   G_CALLBACK(OnContentSizeAllocate), this);
 
   app->RegisterPresenter(window, this);
   gtk_widget_show_all(window);
 }
 
-void LinuxSurfacePresenter::OnModelChanged() {}
+void LinuxSurfacePresenter::OnModelChanged() { ApplyActionOrientation(this); }
 
 void LinuxSurfacePresenter::OnUnload() {
   app->UnregisterPresenter(window);
+  g_signal_handlers_disconnect_by_data(content_host, this);
   // destroy window (and children) under our control after model lifecycle.
   gtk_widget_destroy(window);
   window = nullptr;
+  content_host = nullptr;
+  action_box = nullptr;
   add_button = nullptr;
   close_button = nullptr;
   app = nullptr;
