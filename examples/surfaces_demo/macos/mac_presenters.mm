@@ -88,6 +88,16 @@ void AppKitFrameToCommonBounds(NSRect frame, std::int32_t* x, std::int32_t* y,
   // Desktop current Surface: persist via mobile_current for z-order restore.
   self.presenter->PageShown();
 }
+
+- (void)windowDidResize:(NSNotification*)notification {
+  NSWindow* window = notification.object;
+  NSView* content = [window contentView];
+  NSSize const size = [content bounds].size;
+  // Report only. HStack/VStack switches after model publication / OnModelChanged.
+  self.presenter->PresentationSizeChanged(
+      static_cast<std::int32_t>(size.width),
+      static_cast<std::int32_t>(size.height));
+}
 @end
 
 namespace apptraverse {
@@ -129,7 +139,9 @@ void MacSurfacePresenter::OnLoad() {
 
   // SwiftUI owns the window content; AppKit keeps the window itself so
   // persisted desktop_* bounds and mobile_current z-order stay enforceable.
-  ApptraverseInstallMacSurfaceContent(window, delegate);
+  // Initial orientation from the GUI-mirror presentation size (desktop_* seed).
+  ApptraverseInstallMacSurfaceContent(window, delegate,
+                                      IsWide() ? YES : NO);
 
   this->window = (__bridge_retained void*)window;
   this->window_delegate = (__bridge_retained void*)delegate;
@@ -138,9 +150,20 @@ void MacSurfacePresenter::OnLoad() {
   // InitializePresenters pass, MacApp::RestoreActiveSurfaceZOrder raises the
   // persisted mobile_current above creation order.
   [window makeKeyAndOrderFront:nil];
+
+  // First real contentView size after SwiftUI install (not desktop_* outer).
+  NSView* content = [window contentView];
+  NSSize const size = [content bounds].size;
+  if (size.width > 0 && size.height > 0) {
+    PresentationSizeChanged(static_cast<std::int32_t>(size.width),
+                            static_cast<std::int32_t>(size.height));
+  }
 }
 
-void MacSurfacePresenter::OnModelChanged() {}
+void MacSurfacePresenter::OnModelChanged() {
+  NSWindow* window = (__bridge NSWindow*)this->window;
+  ApptraverseUpdateMacSurfaceContent(window, IsWide() ? YES : NO);
+}
 
 void MacSurfacePresenter::OnUnload() {
   NSWindow* window = (__bridge_transfer NSWindow*)this->window;

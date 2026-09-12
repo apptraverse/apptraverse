@@ -14,6 +14,8 @@
 @property(nonatomic, strong) UIScrollView* pager;
 @property(nonatomic, strong) UILabel* loading;
 @property(nonatomic, strong) UIView* bar;
+// Model-derived IsWide after publication; drives bar height + SwiftUI layout.
+@property(nonatomic, assign) BOOL barIsWide;
 @end
 
 @implementation SurfacesRootViewController
@@ -21,6 +23,7 @@
 - (void)viewDidLoad {
   [super viewDidLoad];
   self.view.backgroundColor = [UIColor systemBackgroundColor];
+  self.barIsWide = YES;
 
   self.pager = [[UIScrollView alloc] initWithFrame:CGRectZero];
   self.pager.pagingEnabled = YES;
@@ -40,21 +43,42 @@
   self.bar.hidden = YES;
   [self.view addSubview:self.bar];
   // Remove starts unavailable: the first publication supplies the model state.
-  ApptraverseInstallIOSSurfaceBar(self.bar, self, NO);
+  ApptraverseInstallIOSSurfaceBar(self.bar, self, NO, YES);
+}
+
+// Match Info.plist: portrait + landscape left/right (not upside-down).
+// Does not force a specific orientation — device rotation drives layout.
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+  return UIInterfaceOrientationMaskAllButUpsideDown;
+}
+
+- (BOOL)shouldAutorotate {
+  return YES;
 }
 
 - (void)viewDidLayoutSubviews {
   [super viewDidLayoutSubviews];
   CGSize const size = self.view.bounds.size;
   UIEdgeInsets const safe = self.view.safeAreaInsets;
-  CGFloat const bar_height = 56.0;
-  CGFloat const pager_height =
-      size.height - safe.top - safe.bottom - bar_height;
-  self.pager.frame = CGRectMake(0, safe.top, size.width, pager_height);
+  // Usable viewport = root bounds minus safe area. Not bar height (avoids
+  // feedback) and not UIDevice / UIInterfaceOrientation.
+  CGFloat const usable_width = size.width - safe.left - safe.right;
+  CGFloat const usable_height = size.height - safe.top - safe.bottom;
+  if (usable_width > 0 && usable_height > 0) {
+    self.app->ReportPresentationSize(
+        static_cast<std::int32_t>(usable_width),
+        static_cast<std::int32_t>(usable_height));
+  }
+
+  // Compact when wide (HStack); taller when tall (VStack).
+  CGFloat const bar_height = self.barIsWide ? 56.0 : 112.0;
+  CGFloat const pager_height = usable_height - bar_height;
+  self.pager.frame =
+      CGRectMake(safe.left, safe.top, usable_width, pager_height);
   self.loading.frame = self.pager.frame;
 
   CGFloat const bar_y = safe.top + pager_height;
-  self.bar.frame = CGRectMake(0, bar_y, size.width, bar_height);
+  self.bar.frame = CGRectMake(safe.left, bar_y, usable_width, bar_height);
 
   self.app->LayoutPages();
 }
@@ -83,6 +107,20 @@
 @end
 
 namespace apptraverse {
+namespace {
+
+void UpdateBarFromPresenter(SurfacesRootViewController* controller,
+                            IOSSurfacePresenter::ptr presenter) {
+  BOOL const can_remove = presenter->RemovableFromPager() ? YES : NO;
+  BOOL const is_wide = presenter->IsWide() ? YES : NO;
+  ApptraverseUpdateIOSSurfaceBar(controller.bar, can_remove, is_wide);
+  if (controller.barIsWide != is_wide) {
+    controller.barIsWide = is_wide;
+    [controller.view setNeedsLayout];
+  }
+}
+
+}  // namespace
 
 void IOSAttachPage(void* presentation_host, void* page_view) {
   auto* app = static_cast<IOSApp*>(presentation_host);
@@ -98,8 +136,18 @@ void IOSDetachPage(void* page_view) {
 }
 
 void IOSApp::Start(std::filesystem::path const& state_dir) {
-  UIWindow* window =
-      [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+  UIWindow* window = nil;
+  // iOS 13+: attach to the connected window scene so rotation updates bounds.
+  for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
+    if (![scene isKindOfClass:[UIWindowScene class]]) {
+      continue;
+    }
+    window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene*)scene];
+    break;
+  }
+  if (window == nil) {
+    window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+  }
   SurfacesRootViewController* controller =
       [[SurfacesRootViewController alloc] init];
   controller.app = this;
@@ -167,8 +215,7 @@ void IOSApp::OnInitialPublished() {
   controller.loading.hidden = YES;
   controller.pager.hidden = NO;
   controller.bar.hidden = NO;
-  ApptraverseUpdateIOSSurfaceBar(
-      controller.bar, CurrentPresenter()->RemovableFromPager() ? YES : NO);
+  UpdateBarFromPresenter(controller, CurrentPresenter());
 }
 
 void IOSApp::OnIncrementalPublished() {
@@ -192,8 +239,7 @@ void IOSApp::OnIncrementalPublished() {
   }
   SurfacesRootViewController* controller =
       (__bridge SurfacesRootViewController*)root_controller_;
-  ApptraverseUpdateIOSSurfaceBar(
-      controller.bar, CurrentPresenter()->RemovableFromPager() ? YES : NO);
+  UpdateBarFromPresenter(controller, CurrentPresenter());
 }
 
 void IOSApp::AddCurrentClick() { CurrentPresenter()->AddClick(); }
@@ -217,6 +263,16 @@ void IOSApp::LayoutPages() {
   if (ui_application_) {
     RelayoutPages();
     ApplyDesiredOffset();
+  }
+}
+
+void IOSApp::ReportPresentationSize(std::int32_t width, std::int32_t height) {
+  if (!ui_application_) {
+    return;
+  }
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
+    SurfacePresenter::ptr presenter{surface->presenter};
+    presenter->PresentationSizeChanged(width, height);
   }
 }
 

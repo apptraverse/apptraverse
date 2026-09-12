@@ -16,18 +16,29 @@ struct SurfacePageView: View {
   }
 }
 
-// Host bottom bar. `canRemove` mirrors RemovableFromPager and is re-supplied on
-// every publication, so the model stays the only source of truth.
+// Host bottom bar. `canRemove` / `isWide` are re-supplied on every publication
+// from RemovableFromPager / IsWide, so the model stays the only source of truth.
 struct SurfaceBarView: View {
   let actions: any IOSSurfaceActions
   let canRemove: Bool
+  let isWide: Bool
 
   var body: some View {
-    HStack {
-      Button("Add") { actions.addSurface() }
-      Spacer()
-      Button("Remove current") { actions.removeCurrentSurface() }
-        .disabled(!canRemove)
+    Group {
+      if isWide {
+        HStack {
+          Button("Add") { actions.addSurface() }
+          Spacer()
+          Button("Remove current") { actions.removeCurrentSurface() }
+            .disabled(!canRemove)
+        }
+      } else {
+        VStack {
+          Button("Add") { actions.addSurface() }
+          Button("Remove current") { actions.removeCurrentSurface() }
+            .disabled(!canRemove)
+        }
+      }
     }
     .padding(.horizontal, 16)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -65,15 +76,19 @@ public func installIOSSurfacePage(_ container: UIView, _ title: NSString,
 @_cdecl("ApptraverseInstallIOSSurfaceBar")
 public func installIOSSurfaceBar(_ container: UIView,
                                  _ actions: any IOSSurfaceActions,
-                                 _ canRemove: Bool) {
-  install(SurfaceBarView(actions: actions, canRemove: canRemove),
+                                 _ canRemove: Bool,
+                                 _ isWide: Bool) {
+  install(SurfaceBarView(actions: actions, canRemove: canRemove,
+                         isWide: isWide),
           into: container)
 }
 
 @_cdecl("ApptraverseUpdateIOSSurfaceBar")
-public func updateIOSSurfaceBar(_ container: UIView, _ canRemove: Bool) {
+public func updateIOSSurfaceBar(_ container: UIView, _ canRemove: Bool,
+                                _ isWide: Bool) {
   let hosting = objc_getAssociatedObject(container, &hostingControllerKey)
       as! UIHostingController<SurfaceBarView>
   hosting.rootView = SurfaceBarView(actions: hosting.rootView.actions,
-                                    canRemove: canRemove)
+                                    canRemove: canRemove,
+                                    isWide: isWide)
 }

@@ -11,6 +11,7 @@
 // UIKit keeps every container UIView and its frame: page order comes from
 // Surfaces::surfaces, the current page from Surfaces::mobile_current, and the
 // bar geometry from viewDidLayoutSubviews. Swift only fills a container.
+// `is_wide` is SurfacePresenter::IsWide after model publication.
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -21,10 +22,11 @@ void ApptraverseInstallIOSSurfacePage(UIView* container, NSString* title,
 
 void ApptraverseInstallIOSSurfaceBar(UIView* container,
                                      id<IOSSurfaceActions> actions,
-                                     BOOL can_remove);
+                                     BOOL can_remove, BOOL is_wide);
 
-// Re-supplies the model-derived Remove state; Swift holds none of its own.
-void ApptraverseUpdateIOSSurfaceBar(UIView* container, BOOL can_remove);
+// Re-supplies model-derived Remove / orientation; Swift holds none of its own.
+void ApptraverseUpdateIOSSurfaceBar(UIView* container, BOOL can_remove,
+                                    BOOL is_wide);
 
 #ifdef __cplusplus
 }  // extern "C"
