@@ -87,12 +87,26 @@ GtkWindow* FindSurfaceWindow(char const* title) {
   return nullptr;
 }
 
-GtkButton* FindButton(GtkWindow* window, char const* label) {
-  GtkWidget* child = gtk_bin_get_child(GTK_BIN(window));
-  if (!GTK_IS_CONTAINER(child)) {
+GtkWidget* FindActionBox(GtkWindow* window) {
+  GtkWidget* host = gtk_bin_get_child(GTK_BIN(window));
+  if (!GTK_IS_CONTAINER(host)) {
     return nullptr;
   }
-  GList* kids = gtk_container_get_children(GTK_CONTAINER(child));
+  GList* kids = gtk_container_get_children(GTK_CONTAINER(host));
+  GtkWidget* box = nullptr;
+  if (kids != nullptr) {
+    box = GTK_WIDGET(kids->data);
+  }
+  g_list_free(kids);
+  return box;
+}
+
+GtkButton* FindButton(GtkWindow* window, char const* label) {
+  GtkWidget* box = FindActionBox(window);
+  if (!GTK_IS_CONTAINER(box)) {
+    return nullptr;
+  }
+  GList* kids = gtk_container_get_children(GTK_CONTAINER(box));
   for (GList* it = kids; it != nullptr; it = it->next) {
     if (!GTK_IS_BUTTON(it->data)) {
       continue;
@@ -106,6 +120,66 @@ GtkButton* FindButton(GtkWindow* window, char const* label) {
   }
   g_list_free(kids);
   return nullptr;
+}
+
+bool WaitOrientation(LinuxApp& app, GtkWindow* window, GtkOrientation expected,
+                     std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    bool match = false;
+    OnGuiDirect([&] {
+      LinuxSurfacePresenter* presenter =
+          app.PresenterFor(GTK_WIDGET(window));
+      if (presenter == nullptr || presenter->action_box == nullptr) {
+        return;
+      }
+      GtkOrientation const orient = gtk_orientable_get_orientation(
+          GTK_ORIENTABLE(presenter->action_box));
+      bool const wide = presenter->IsWide();
+      bool const expect_wide = expected == GTK_ORIENTATION_HORIZONTAL;
+      match = orient == expected && wide == expect_wide &&
+              (expect_wide
+                   ? presenter->surface->presentation_width >=
+                         presenter->surface->presentation_height
+                   : presenter->surface->presentation_width <
+                         presenter->surface->presentation_height);
+    });
+    if (match) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  }
+  return false;
+}
+
+void ResizePresentation(LinuxApp& app, GtkWindow* window, int width,
+                        int height) {
+  OnGuiDirect([&] {
+    // gtk_window_resize drives the content_host size-allocate path.
+    gtk_window_resize(window, width, height);
+  });
+}
+
+bool WaitPresentationSize(LinuxApp& app, GtkWindow* window, int width,
+                          int height, std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    bool match = false;
+    OnGuiDirect([&] {
+      LinuxSurfacePresenter* presenter =
+          app.PresenterFor(GTK_WIDGET(window));
+      if (presenter == nullptr) {
+        return;
+      }
+      match = presenter->surface->presentation_width == width &&
+              presenter->surface->presentation_height == height;
+    });
+    if (match) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  }
+  return false;
 }
 
 bool WaitSurface(char const* title, GtkWindow** out,
@@ -426,6 +500,77 @@ void TestActiveZOrderRestored() {
   std::filesystem::remove_all(dir);
 }
 
+void TestControlsFollowPresentationSize() {
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_gtk3_presentation_size";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesModelRegistration();
+  EnsureLinuxSurfacePresenterRegistration();
+
+  LinuxApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  GtkWindow* s1 = nullptr;
+  CHECK(WaitSurface("Surface 1", &s1, std::chrono::seconds{30}));
+  OnGuiDirect([&] {
+    CHECK(FindButton(s1, "Add") != nullptr);
+    CHECK(FindButton(s1, "Close this window") != nullptr);
+  });
+
+  ResizePresentation(app, s1, 800, 400);
+  CHECK(WaitOrientation(app, s1, GTK_ORIENTATION_HORIZONTAL,
+                        std::chrono::seconds{30}));
+
+  ResizePresentation(app, s1, 400, 800);
+  CHECK(WaitOrientation(app, s1, GTK_ORIENTATION_VERTICAL,
+                        std::chrono::seconds{30}));
+
+  // Square is wide under presentation_width >= presentation_height.
+  ResizePresentation(app, s1, 500, 500);
+  CHECK(WaitOrientation(app, s1, GTK_ORIENTATION_HORIZONTAL,
+                        std::chrono::seconds{30}));
+
+  ResizePresentation(app, s1, 700, 300);
+  CHECK(WaitOrientation(app, s1, GTK_ORIENTATION_HORIZONTAL,
+                        std::chrono::seconds{30}));
+  CHECK(WaitPresentationSize(app, s1, 700, 300, std::chrono::seconds{30}));
+
+  ClickAdd(s1);
+  GtkWindow* s2 = nullptr;
+  CHECK(WaitSurface("Surface 2", &s2, std::chrono::seconds{30}));
+  ResizePresentation(app, s2, 360, 640);
+  CHECK(WaitOrientation(app, s2, GTK_ORIENTATION_VERTICAL,
+                        std::chrono::seconds{30}));
+  ClickClose(s2);
+  CHECK(WaitCount(1, std::chrono::seconds{30}));
+  OnGuiDirect([&] { CHECK(FindSurfaceWindow("Surface 1") != nullptr); });
+
+  EmitDelete(s1);
+  gui.join();
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  Surface& surface = *application->surfaces->surfaces[0];
+  CHECK(surface.presentation_width == 700);
+  CHECK(surface.presentation_height == 300);
+  bool saw_size_event = false;
+  for (auto const& entry : surface.journal) {
+    if (entry.event->GetClassId() ==
+        SurfacePresentationSizeChangedEvent::kClassId) {
+      saw_size_event = true;
+      break;
+    }
+  }
+  CHECK(saw_size_event);
+
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
@@ -434,6 +579,7 @@ int main() {
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeCloseKeepsAllSurfaces();
   apptraverse::test::TestActiveZOrderRestored();
+  apptraverse::test::TestControlsFollowPresentationSize();
   std::cout << "surfaces_linux_smoke_test OK\n";
   return 0;
 }

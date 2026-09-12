@@ -38,6 +38,9 @@ class LinuxSurfacePresenter : public DesktopSurfacePresenter {
   void QueueCurrentBounds();
 
   GtkWidget* window{nullptr};
+  // Stable host for presentation size (window content child). Not action_box.
+  GtkWidget* content_host{nullptr};
+  GtkWidget* action_box{nullptr};
   GtkWidget* add_button{nullptr};
   GtkWidget* close_button{nullptr};
   LinuxApp* app{nullptr};
