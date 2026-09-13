@@ -63,6 +63,9 @@ add_library(apptraverse STATIC
   src/graph_mirror.cpp
   src/shared_frame_codec.cpp
   src/shared_runtime.cpp
+  src/link.cpp
+  src/shared_node.cpp
+  src/shared_network_graph.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -94,6 +97,7 @@ endif()
 add_subdirectory(examples/main_window_runtime_demo)
 add_subdirectory(examples/dynamic_objects_demo)
 add_subdirectory(examples/surfaces_demo)
+add_subdirectory(examples/shared_node_demo)
 
 include(CTest)
 if(BUILD_TESTING)
