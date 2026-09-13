@@ -20,38 +20,55 @@ Event-only Node mutation, commit/push):
 `git rev-parse origin/surfaces-demo` (do not treat a SHA in this file as
 authoritative without fetch).
 
-Observed at docs refresh start (2026-09-12):
+Observed at surfaces freeze (2026-09-12), after Linux + Apple adaptive merges:
 
-`8c298fb71bcbf230484a82a4b33ad4d750e47833`
+`677a5f7adc5e401fb796a492f0fe7abe588a41b4`
 
-### Platforms on the intended final surfaces line
+### surfaces_demo — FEATURE COMPLETE / FROZEN FOR NOW
+
+`surfaces_demo` is **feature-complete and frozen** for architectural work:
+
+- do **not** add SharedNode / chat architecture into this demo
+- performance optimizations and known platform limitations stay deferred
+- regression fixes may land separately
+- next architectural demo is generic **shared_node_demo** (headless first)
+
+### Platforms on the final surfaces line (source-verified on canonical)
 
 | Platform | Host | Adaptive orientation (model presentation size) |
 |---|---|---|
-| Windows | Win32 multi-window | **On canonical** — `WM_SIZE` → Event → publication → `IsWide` |
-| Android | pager + `mobile_current` | **On canonical** — host size Event → LinearLayout from `IsWide` |
-| Web / WASM | tabs + IndexedDB checkpoint | **On canonical** — resize → Event → flex from `IsWide` |
-| Linux | **GTK3** (`LinuxSurfacePresenter`) | **On adaptive branch**, not yet on this checkout’s `origin/surfaces-demo` — see below |
-| macOS | SwiftUI content in AppKit window | Apple adaptive finalization **in progress / not yet verified** in this checkout |
-| iOS | SwiftUI content in UIKit pager | Apple adaptive / rotation **in progress / not yet verified**; Info.plist historically portrait-only |
+| Windows | Win32 multi-window | **DONE** — `WM_SIZE` → Event → publication → `IsWide` |
+| Android | pager + `mobile_current` | **DONE** — host size Event → LinearLayout from `IsWide` (+ rotation) |
+| Web / WASM | tabs + IndexedDB checkpoint | **DONE** — resize → Event → flex from `IsWide` |
+| Linux | **GTK3** (`LinuxSurfacePresenter`) | **DONE** — size-allocate → Event → `GtkBox` from `IsWide` |
+| macOS | SwiftUI content in AppKit window | **DONE** — size report → Event → HStack/VStack from `IsWide` |
+| iOS | SwiftUI content in UIKit pager | **DONE** — size report → Event → HStack/VStack from `IsWide`; portrait/landscape allowed |
 
-Do **not** mark surfaces fully complete until Apple adaptive work has landed
-on `origin/surfaces-demo` and been verified.
+Status vocabulary: **implemented** on canonical source. Platform runtime verification
+was reported by the owning Cursors; this freeze task does **not** re-run those
+tests and does **not** mark **accepted-by-user**.
 
-### Linux GTK3 adaptive (reported, separate branch)
+### Linux GTK3 adaptive (landed on canonical)
 
-- Branch: `feature/surfaces-linux-adaptive-final-v1`
-- Tested SHA (Linux Cursor report): `d7b47ac60c6fd94a8b96933e01d38e007fbf7f10`
+- Was developed on `feature/surfaces-linux-adaptive-final-v1` @
+  `d7b47ac60c6fd94a8b96933e01d38e007fbf7f10`
+- Merged into `surfaces-demo` (see `Merge Linux adaptive presentation…`)
 - Path: size-allocate on stable content host → `PresentationSizeChanged` →
   model Event → publication → `IsWide` → `GtkBox` orientation
-- Wide / tall / square PASS per Linux Cursor report
-- **Raw X11/Xlib is historical.** It is no longer the intended current Linux path.
-  Canonical history already carries the GTK3 host; adaptive orientation lands
-  via the Linux adaptive branch above (merge status must be checked on remote).
+- **Raw X11/Xlib is historical.** It is not the intended current Linux path.
+
+### Apple adaptive (landed on canonical)
+
+- Was developed on `feature/surfaces-apple-adaptive-final-v1` @
+  `ef01ed8e3c22cf5fd8807507eebce49bd5572afc`
+- Merged into `surfaces-demo` (see `Merge Apple adaptive presentation…`)
+- macOS: SwiftUI HStack/VStack from published `IsWide`
+- iOS: same; `UISupportedInterfaceOrientations` includes landscape;
+  orientation enum is not the source of truth for controls
 
 ### Model-driven adaptive orientation contract (common)
 
-Already on the Windows/Android/Web canonical line:
+On the full canonical surfaces line:
 
 - `Surface::presentation_width` / `presentation_height` (persisted; not desktop placement)
 - `SurfacePresentationSizeChangedEvent`
@@ -79,12 +96,13 @@ Linux surfaces path.
 9. surfaces_demo — Android pager + `mobile_current` [done]
 10. surfaces_demo — Web/WASM tabs + IDBFS checkpoint [done]
 11. surfaces_demo — Linux desktop host [done as **GTK3**; X11 was historical]
-12. surfaces_demo — macOS desktop port [done as host; Apple adaptive TBD]
-13. surfaces_demo — iOS / iPhone Simulator [done as host; rotation/adaptive TBD]
+12. surfaces_demo — macOS desktop port [done]
+13. surfaces_demo — iOS / iPhone Simulator [done]
 14. pre-shared runtime hardening [done]
-15. model-driven adaptive presentation size — Windows / Android / Web [done on canonical]
-16. model-driven adaptive — Linux GTK3 [implemented on adaptive branch; merge TBD]
-17. model-driven adaptive — macOS / iOS [Apple Cursor; **not verified here**]
+15. model-driven adaptive presentation size — Windows / Android / Web [done]
+16. model-driven adaptive — Linux GTK3 [done on canonical]
+17. model-driven adaptive — macOS / iOS [done on canonical]
+18. surfaces_demo — **FEATURE COMPLETE / FROZEN** (architectural work stops here)
 
 Deferred relative to surfaces / SharedNode:
 
@@ -140,7 +158,7 @@ Useful concepts to retain from experiments (including older sync sessions):
 
 ## NEXT direction — generic sharing first
 
-After surfaces settle (including Apple adaptive when landed):
+`surfaces_demo` is frozen. Next architectural work:
 
 ```
 sharing (generic SharedNode, headless)
@@ -152,6 +170,7 @@ sharing (generic SharedNode, headless)
 ```
 
 **No GUI** in the first SharedNode milestones.
+Do **not** implement SharedNode inside `surfaces_demo`.
 
 ---
 
@@ -512,8 +531,8 @@ SurfacePresenter
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.
-- Apple adaptive orientation / iOS rotation (Mac Cursor; not verified here).
-- Merge Linux GTK3 adaptive branch onto `surfaces-demo` when ready.
+- Merge of historical adaptive feature branches is complete; further surfaces
+  feature work is frozen (see freeze note above).
 - The iOS bundle has no launch storyboard, so iOS runs it scaled from a 320×480
   logical screen and in the light appearance. Layout and the SwiftUI content are
   correct inside that box; native full-screen geometry is a separate slice.

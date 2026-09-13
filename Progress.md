@@ -1,6 +1,32 @@
 ---
 Status: documentation-only. Not accepted.
 
+# WINDOWS CURSOR — surfaces frozen / land to main
+
+## Identity
+
+- Starting surfaces-demo SHA: `677a5f7adc5e401fb796a492f0fe7abe588a41b4`
+- Starting main SHA: `de799bdc9aa308195d6dc83685b092856d5cb918`
+- Branch path: `integration/finalize-surfaces` → merge into `main`
+- Files changed for docs finalization: `plan.md`, `Progress.md` only
+
+## Source-verified platform adaptive status
+
+- Windows / Android / WASM / Linux GTK3 / macOS SwiftUI / iOS SwiftUI+rotation:
+  adaptive presentation-size Event path present under `677a5f7`.
+- `surfaces_demo` marked **COMPLETE / FROZEN**.
+- SharedNode / Link roadmap retained from `docs/shared-node-plan-v1`.
+- Old `feature/shared-chat-headless-v1`: abandoned experiment (not merged).
+
+## Verification
+
+- Production code changed during docs finalization: **NO**
+- `origin/main` is ancestor of surfaces-demo (no unique main commits to preserve)
+- Not accepted-by-user
+
+---
+Status: documentation-only. Not accepted.
+
 # WINDOWS CURSOR — documentation reset before SharedNode
 
 ## Identity
