@@ -187,16 +187,24 @@ class Node : public ae::Obj {
     EnsureCurrentGeneration();
   }
 
+  // Local-persistent fields (e.g. SharedNode LocalPtr sync metadata) must
+  // survive mid-journal RebuildFromBaseAndReplay. Base snapshots may predate
+  // those fields; Load from base must not discard the live local state.
+  virtual void StashLocalPersistentAcrossRebuild() {}
+  virtual void RestoreLocalPersistentAcrossRebuild() {}
+
   template <typename ConcreteNode>
   void RebuildFromBaseAndReplay(ConcreteNode& target) {
     auto owner_id = obj_id;
     auto saved_base = base;
     auto saved_journal = journal;
+    target.StashLocalPersistentAcrossRebuild();
     ae::DomainGraph graph{domain};
     graph.Load(target, saved_base.id());
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
+    target.RestoreLocalPersistentAcrossRebuild();
     generation_ = 1;
     ReplayJournal();
   }
