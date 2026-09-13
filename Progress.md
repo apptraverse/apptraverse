@@ -1,4 +1,41 @@
 ---
+Status: implemented/verified on feature branch. Not accepted.
+
+# WINDOWS CURSOR — SharedNode foundation v1
+
+## Identity
+
+- Starting main SHA: `45aa9db5b7bd8ca1685fcb6cdc57afa57471a4d1`
+- Branch: `feature/shared-node-foundation-v1`
+- Scope: persistent Link / SharedNode topology / LocalPtr sync metadata /
+  network-serialization boundary tests. No transport, ACK, or chat.
+
+## Implemented
+
+- `Link` + `MemoryLink` persistent descriptors (no `is_local`)
+- `SharedNode` with Event-only `shares[]` (RW/RO stored, not enforced)
+- `LocalPtr` / `SharedPtr` scoped edges; `LinkSyncState` local-persistent
+- `CopySharedNetworkGraph` includes Links, excludes local sync
+- Rebuild stash so shared Event replay does not roll back local sync
+- Headless fixtures under `examples/shared_node_demo/`
+- `apptraverse_shared_node_foundation_test`
+
+## Tests run
+
+- `apptraverse_shared_node_foundation_test` PASS
+- `apptraverse_event_sourced_core_test` PASS
+- `apptraverse_dynamic_objects_add_test` PASS
+- `apptraverse_journal_retention_test` PASS
+- `apptraverse_model_runtime_stop_test` PASS
+- `apptraverse_publication_channel_test` PASS
+
+## Limitations
+
+- No Memory transport / initial sync / ACK / retry / presence / chat
+- Per-Link sync stores only `InitialSyncPhase` (no pending bytes yet)
+- Not accepted-by-user
+
+---
 Status: documentation-only. Not accepted.
 
 # WINDOWS CURSOR — surfaces frozen / land to main

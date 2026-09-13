@@ -391,14 +391,15 @@ do not silently solve it by adding a second sort key.
 
 # Planned implementation ladder
 
-**All milestones below are PLANNED, not implemented.**
+**Milestones 01–03 implemented/verified on `feature/shared-node-foundation-v1`.
+Milestone 04 is foundation-only (initial_sync phase); ACK/pending bytes not yet.**
 
 ### SharedNode headless (01–16)
 
-01. **Introduce persistent Link descriptors** — durable transport config objects in the application graph without runtime sockets.  
-02. **Add SharedNode share topology** — SharedNode carries `shares[]` (Link + RW/RO) plus business journal.  
-03. **Separate shared and local-persistent graph edges** — prevent shared replay from clobbering local sync metadata.  
-04. **Persist per-Link SharedNode sync state** — ACK / pending / retry bytes survive Application restart.  
+01. **Introduce persistent Link descriptors** — **implemented/verified** (`Link` / `MemoryLink`).  
+02. **Add SharedNode share topology** — **implemented/verified** (`shares[]` + Add/Remove/ChangeShareAccess Events).  
+03. **Separate shared and local-persistent graph edges** — **implemented/verified** (`LocalPtr` + network copy clears locals; rebuild stash).  
+04. **Persist per-Link SharedNode sync state** — **foundation implemented/verified** (`LinkSyncState` + `InitialSyncPhase` only; no ACK/pending bytes yet).  
 05. **Add generic shared sync framing and routing** — opaque frames with target SharedNode identity.  
 06. **Add deterministic Memory Link transport** — drop / reorder / disconnect / heartbeat / availability for tests.  
 07. **Synchronize a SharedNode to a newly attached Link** — initial catch-up for a new share.  
