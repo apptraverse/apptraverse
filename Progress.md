@@ -1,4 +1,43 @@
 ---
+Status: documentation-only. Not accepted.
+
+# WINDOWS CURSOR — documentation reset before SharedNode
+
+## Identity
+
+- Starting SHA: `8c298fb71bcbf230484a82a4b33ad4d750e47833` (`origin/surfaces-demo` at fetch)
+- Branch: `docs/shared-node-plan-v1`
+- Files changed: `plan.md`, `Progress.md`
+
+## Factual surfaces status observed at fetch
+
+- Canonical `origin/surfaces-demo`: Windows / Android / Web model-driven adaptive
+  orientation present (`presentation_*` Event → `IsWide`).
+- Linux GTK3 adaptive branch present remotely:
+  `feature/surfaces-linux-adaptive-final-v1` @
+  `d7b47ac60c6fd94a8b96933e01d38e007fbf7f10` (not claimed merged into this
+  checkout’s `surfaces-demo`).
+- Apple adaptive finalization: **in progress / not yet verified** in this
+  checkout (no Apple adaptive remote branch observed at fetch).
+
+## Documentation outcome
+
+- Stale “Linux X11/Xlib as current path” wording corrected; GTK3 is intended.
+- Old shared-chat (`feature/shared-chat-headless-v1` @
+  `63abddeeb57b78fdb7cfa4dc2a459785fa6566b8`) marked **experiment only**, not
+  the new architecture base.
+- New generic SharedNode / Link working design recorded (topology, local-
+  persistent per-Link delivery state, ACK contract, Memory Link first,
+  presence on Link, RW/RO vs visibility, `timestamp_us`-only order).
+- Planned 21-step implementation ladder + open questions in `plan.md`.
+
+## Verification
+
+- Production code changed: **NO**
+- Tests: **NOT RUN** (documentation-only)
+- Not accepted-by-user
+
+---
 Status: implemented, verified in the iPhone simulator. Not accepted.
 
 # IOS CURSOR — iOS SwiftUI view layer
