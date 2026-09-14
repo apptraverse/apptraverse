@@ -84,6 +84,11 @@ Status: implemented/verified on feature branch. Not accepted.
 - `apptraverse_publication_channel_test` PASS
 - full Linux ctest suite (15 tests) PASS
 
+`apptraverse_surfaces_linux_smoke_test` is flaky in this headless GTK
+environment: `CHECK failed: is_active` in roughly two runs out of five, pass or
+fail with the same binary. Untouched by this slice (no surfaces, GTK, or
+presenter code changed) and not in the required set.
+
 ## Limitations
 
 - No incremental Event replication: after the initial snapshot the receiver
