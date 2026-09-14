@@ -44,19 +44,39 @@ enum class InitialSyncPhase : std::uint8_t {
   Complete = 2,
 };
 
+class SetLinkInitialSyncPhaseEvent;
+
 // Local-persistent per-Link synchronization progress for one SharedNode.
-// Lives as a separate Obj so SharedNode journal rebuild reuses the live
-// Domain instance via LocalPtr (Domain::Find) instead of rolling back phase.
-class LinkSyncState : public ae::Obj {
-  APPTRAVERSE_OBJECT(LinkSyncState, ae::Obj, 0)
+// Event-sourced Node: phase changes go through Commit/Apply. Reachable from
+// SharedNode only via LocalPtr, so network shared-graph serialization excludes
+// it without SharedNode-specific sanitization.
+class LinkSyncState : public NodeFor<LinkSyncState> {
+  APPTRAVERSE_OBJECT(LinkSyncState, Node, 1)
 
  protected:
   LinkSyncState() = default;
 
  public:
-  explicit LinkSyncState(ae::ObjProp prop) : Obj{prop} {}
+  explicit LinkSyncState(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(link), AE_MMBR(initial_sync_phase))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error("LinkSyncState v0 is not supported");
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    Node::Load(ae::Version<2>{}, dnv);
+    dnv(link, initial_sync_phase);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    Node::Save(ae::Version<2>{}, dnv);
+    dnv(link, initial_sync_phase);
+  }
 
   Link::ptr link;
   std::uint8_t initial_sync_phase{
@@ -66,9 +86,24 @@ class LinkSyncState : public ae::Obj {
     return static_cast<InitialSyncPhase>(initial_sync_phase);
   }
 
-  void SetInitialSyncPhase(InitialSyncPhase phase) {
-    initial_sync_phase = static_cast<std::uint8_t>(phase);
-  }
+  void SetInitialSyncPhase(InitialSyncPhase phase);
+  void Apply(SetLinkInitialSyncPhaseEvent const& event);
+};
+
+class SetLinkInitialSyncPhaseEvent
+    : public EventFor<LinkSyncState, SetLinkInitialSyncPhaseEvent> {
+  APPTRAVERSE_OBJECT(SetLinkInitialSyncPhaseEvent, Event, 0)
+
+ protected:
+  SetLinkInitialSyncPhaseEvent() = default;
+
+ public:
+  explicit SetLinkInitialSyncPhaseEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(phase))
+
+  std::uint8_t phase{
+      static_cast<std::uint8_t>(InitialSyncPhase::NotStarted)};
 };
 
 class AddShareEvent;
@@ -113,14 +148,10 @@ class SharedNode : public NodeFor<SharedNode> {
   void RemoveShare(Link::ptr link);
   void SetShareAccess(Link::ptr link, ShareAccess access);
 
-  // Local-only sync bookkeeping (not shared Events).
-  LinkSyncState::ptr EnsureLinkSyncState(Link::ptr link);
+  // Local sync phase changes are Events on the per-Link LinkSyncState Node
+  // (created by AddShare Apply). Not shared/network Events.
   void SetInitialSyncPhase(Link::ptr link, InitialSyncPhase phase);
   InitialSyncPhase GetInitialSyncPhase(Link::ptr link) const;
-
-  // Network shared-graph preparation: drop local-persistent edges on this
-  // instance (used on a scratch copy; does not clear the live source).
-  void ClearLocalPersistentEdges();
 
   void Apply(AddShareEvent const& event);
   void Apply(RemoveShareEvent const& event);

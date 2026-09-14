@@ -3,11 +3,13 @@
 #include <algorithm>
 
 #include "apptraverse/object_macros.h"
+#include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
 namespace {
 
 APPTRAVERSE_REGISTER(LinkSyncState);
+APPTRAVERSE_REGISTER(SetLinkInitialSyncPhaseEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddShareEvent);
 APPTRAVERSE_REGISTER(RemoveShareEvent);
@@ -16,6 +18,21 @@ APPTRAVERSE_REGISTER(ChangeShareAccessEvent);
 }  // namespace
 
 void ForceSharedNodeRegistration() {}
+
+void LinkSyncState::SetInitialSyncPhase(InitialSyncPhase phase) {
+  if (GetInitialSyncPhase() == phase) {
+    return;
+  }
+  auto event =
+      SetLinkInitialSyncPhaseEvent::ptr::Create(ae::CreateWith{*domain});
+  event->phase = static_cast<std::uint8_t>(phase);
+  Commit(event);
+}
+
+void LinkSyncState::Apply(SetLinkInitialSyncPhaseEvent const& event) {
+  initial_sync_phase = event.phase;
+  NoteMaterializedChange();
+}
 
 std::size_t SharedNode::FindShareIndex(ae::ObjId link_id) const {
   for (std::size_t i = 0; i < shares.size(); ++i) {
@@ -83,6 +100,17 @@ void SharedNode::Apply(AddShareEvent const& event) {
     return;
   }
   shares.push_back(Share{.link = event.link, .access = event.access});
+
+  // New share relationship starts NotStarted. Skip if local sync for this Link
+  // already exists (e.g. stash restored across RebuildFromBaseAndReplay before
+  // journal replay re-applies AddShare).
+  if (FindLinkSyncIndex(event.link.id()) >= link_sync_states.size()) {
+    auto state = LinkSyncState::ptr::Create(ae::CreateWith{*domain});
+    InitializeRuntimeNode(*state);
+    state->link = event.link;
+    link_sync_states.push_back(LocalPtr<LinkSyncState>{state});
+  }
+
   NoteMaterializedChange();
 }
 
@@ -93,6 +121,15 @@ void SharedNode::Apply(RemoveShareEvent const& event) {
     return;
   }
   shares.erase(shares.begin() + static_cast<std::ptrdiff_t>(index));
+
+  // Drop stale local sync for this Link. A later AddShare creates a fresh
+  // NotStarted relationship and must not inherit Complete.
+  auto const sync_index = FindLinkSyncIndex(event.link.id());
+  if (sync_index < link_sync_states.size()) {
+    link_sync_states.erase(link_sync_states.begin() +
+                           static_cast<std::ptrdiff_t>(sync_index));
+  }
+
   NoteMaterializedChange();
 }
 
@@ -104,26 +141,12 @@ void SharedNode::Apply(ChangeShareAccessEvent const& event) {
   NoteMaterializedChange();
 }
 
-LinkSyncState::ptr SharedNode::EnsureLinkSyncState(Link::ptr link) {
+void SharedNode::SetInitialSyncPhase(Link::ptr link, InitialSyncPhase phase) {
   assert(link.is_valid());
   auto const index = FindLinkSyncIndex(link.id());
-  if (index < link_sync_states.size()) {
-    return link_sync_states[index].as_obj_ptr();
-  }
-  auto state = LinkSyncState::ptr::Create(ae::CreateWith{*domain});
-  state->link = std::move(link);
-  state->SetInitialSyncPhase(InitialSyncPhase::NotStarted);
-  link_sync_states.push_back(LocalPtr<LinkSyncState>{state});
-  state.Save();
-  SharedNode::ptr self{domain, obj_id, {}, domain->Find(obj_id)};
-  self.Save();
-  return state;
-}
-
-void SharedNode::SetInitialSyncPhase(Link::ptr link, InitialSyncPhase phase) {
-  auto state = EnsureLinkSyncState(std::move(link));
-  state->SetInitialSyncPhase(phase);
-  state.Save();
+  assert(index < link_sync_states.size() &&
+         "SetInitialSyncPhase requires sync state from an existing share");
+  link_sync_states[index]->SetInitialSyncPhase(phase);
 }
 
 InitialSyncPhase SharedNode::GetInitialSyncPhase(Link::ptr link) const {
@@ -133,13 +156,6 @@ InitialSyncPhase SharedNode::GetInitialSyncPhase(Link::ptr link) const {
     return InitialSyncPhase::NotStarted;
   }
   return link_sync_states[index]->GetInitialSyncPhase();
-}
-
-void SharedNode::ClearLocalPersistentEdges() {
-  for (auto& entry : link_sync_states) {
-    entry.Reset();
-  }
-  link_sync_states.clear();
 }
 
 void SharedNode::StashLocalPersistentAcrossRebuild() {
