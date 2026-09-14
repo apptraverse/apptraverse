@@ -421,9 +421,9 @@ started.**
 02. **Add SharedNode share topology** — **implemented/verified** (`shares[]` + Add/Remove/ChangeShareAccess Events).  
 03. **Separate shared and local-persistent graph edges** — **implemented/verified** (generic `LocalPtr` + `GraphCopyPolicy::NetworkShared`; no SharedNode sanitization; rebuild stash).  
 04. **Persist per-Share SharedNode sync state** — **foundation implemented/verified** (`LinkSyncState` Event-sourced Node + `InitialSyncPhase` only; keyed by Share relationship identity so RemoveShare+AddShare starts a new relationship at NotStarted and a forced `RebuildFromBaseAndReplay` keeps the current relationship's progress; no ACK/pending bytes yet).  
-05. **Add generic shared sync framing and routing** — **initial-state subset implemented/verified** (protocol v1 `NodeState` / `Ack` frames routed by `target_node_id` and named by `destination_share_id`; `SharedSyncRuntime` per replica; no Event frame yet).  
+05. **Add generic shared sync framing and routing** — **initial-state subset implemented/verified** (protocol v1 `NodeState` / `Ack` frames routed by `target_node_id` and named by `destination_share_id`; canonical frame length and non-zero ids required; every frame bound to the transport `source_endpoint`; `SharedSyncRuntime` per replica; no Event frame yet).  
 06. **Add deterministic Memory Link transport** — **message delivery subset implemented/verified** (opaque bytes, endpoint identity, deliver / drop / duplicate / disconnect / reconnect, no threads or sleeps; no heartbeat, presence, reorder, or fake clock yet).  
-07. **Synchronize a SharedNode to a newly attached Link** — **implemented/verified** (freeze + persist + send, import into the receiver Domain, receiver-local sync state by journal replay, persist before ACK, duplicate acknowledged without re-apply).  
+07. **Synchronize a SharedNode to a newly attached Link** — **implemented/verified** (freeze + persist + send, admission of the snapshot in a scratch Domain before any write to real storage, import into the receiver Domain, receiver-local sync state by journal replay, persist before ACK, duplicate acknowledged without re-apply).  
 08. **Replicate incremental SharedNode Events** — steady-state Event + ACK path.  
 09. **Make shared delivery restart-safe** — **initial-state subset implemented/verified** (sender restart while Pending resends the same packet id and bytes, receiver restart after apply still recognizes the duplicate, sender restart after ACK stays Complete and sends nothing).  
 10. **Replicate dynamic SharedNode graphs** — topology changes as shared Events.  
@@ -562,6 +562,14 @@ SurfacePresenter
   08 (incremental Event replication).
 - A second, different initial snapshot for an already imported relationship is
   rejected instead of applied: protocol v1 has one initial packet per Share.
+- Snapshot admission validates structure, class, relationship identity, and
+  endpoints. It does not audit the *content* of the imported journal, so a
+  hostile-but-structurally-valid history could still trip a model-level
+  invariant during replay. Journal admission belongs with milestone 08, which
+  needs an Event admission policy anyway.
+- Frames are bound to the endpoint identity the transport reports. Whether that
+  identity is authentic is the transport's problem (Æther, milestone 20); the
+  protocol runtime adds no signatures or crypto of its own.
 - The network-shared graph payload reuses the storage encoding of each object
   layer, which is not a portable wire format. Fine for a memory transport in
   one process; revisit before a cross-machine transport.

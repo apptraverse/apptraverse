@@ -1,6 +1,101 @@
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
+# CURSOR — Initial sync v1 protocol hardening
+
+## Identity
+
+- Starting SHA: `7e9a60d7177d0ea92899da43cbc41a60bcb0c9ab`
+- Commits: `8eec568` (frame decoding + payload import), `1f5ef34` (source
+  endpoint binding + scratch admission), docs commit on top
+- Branch: `cursor/sharednode-initial-state-sync-v1-9239`
+- PR: https://github.com/apptraverse/apptraverse/pull/3 (draft, not merged)
+- Scope: correctness of the existing initial-state protocol against untrusted
+  bytes. No incremental Events, no presence, no chat, no protocol redesign.
+
+## What changed
+
+- ACKs are bound to the sender. `OnBytes` now passes `source_endpoint` into
+  `OnAck`, which resolves the destination Share's Link endpoint and requires
+  the bytes to have arrived from it before `CompleteInitialSync`. Previously
+  any endpoint that knew the packet / node / share ids could complete a pending
+  synchronization.
+- NodeState is admitted before it is stored. An expected unknown root is parsed
+  into an `ae::RamDomainStorage` and loaded in a scratch `ae::Domain`, where
+  the runtime checks the root's class (`Registry::GenerationDistance`, no
+  RTTI), that base and every journal Event loaded and can apply, that every
+  Share carries a valid and unique `share_id` with a resolvable Link endpoint,
+  that the destination Share ends at this replica, and that the source endpoint
+  is a Link of the same topology. Only then is the parsed graph committed to
+  real storage, and the Node is pushed into `nodes_` only after the import is
+  durable. The scratch Domain and candidate are destroyed before any of that;
+  nothing process-global is involved.
+- The same endpoint rules now gate a NodeState for an already known Node, so a
+  replay of an applied packet from the wrong endpoint is not acknowledged.
+- `ImportObjectGraphPayload` is parse-then-commit: `ParseObjectGraphPayload`
+  fills an intermediate RAM storage and `CommitObjectGraph` writes it out, so
+  malformed input performs zero writes on the target. `CopyNetworkSharedObjectGraph`
+  reuses `CommitObjectGraph` instead of its own transfer loop.
+- Frame decoding is canonical: a NodeState's declared payload must end exactly
+  at the end of the frame, an Ack must end after its three ids, and a zero
+  `ObjId` is rejected for `packet_id`, `target_node_id`, and
+  `destination_share_id` (each one names something the receiver must resolve).
+  `ParseObjectGraphPayload` likewise rejects a zero object id.
+
+## Coverage (`apptraverse_shared_node_initial_sync_test`, 13 scenarios)
+
+Five scenarios added to the eight already there:
+
+- ACK from the wrong endpoint: A is Pending toward B, with C also a participant
+  of the topology. C sends a byte-valid ACK carrying the exact packet, node,
+  and share ids — A stays Pending with unchanged pending bytes and writes
+  nothing. The same bytes from B complete the sync.
+- Wrong-source NodeState: the frozen packet delivered from non-participant C
+  leaves `FindNode` invalid, B's storage empty for the Node and both Links, no
+  write, and no ACK to anyone. The same packet from A is then accepted, and
+  replaying it from C afterwards is still not acknowledged and rewrites nothing.
+- Wrong-destination NodeState: a hand-built frame from A naming A's own
+  relationship is rejected by B before any storage mutation.
+- Malformed payload: a `CountingStorage` sees zero `Store` calls for a
+  truncated, a head-only, and a trailing-byte payload, and non-zero for the
+  intact one.
+- Strict decoding: round trip, trailing byte, truncation, and zero id for each
+  required field, cross-type decode, and `PeekSyncFrameType` on junk.
+
+Each new guard was mutation-checked: reverting it one at a time (ACK source,
+NodeState canonical length, Ack canonical length, zero-id rejection,
+parse-before-commit, source-in-topology, destination-is-local) makes the suite
+fail, and every mutation was reverted afterwards.
+
+## Tests run
+
+- `apptraverse_shared_node_initial_sync_test` PASS
+- `apptraverse_shared_node_foundation_test` PASS
+- `apptraverse_event_sourced_core_test` PASS
+- `apptraverse_dynamic_objects_add_test` PASS
+- `apptraverse_journal_retention_test` PASS
+- `apptraverse_model_runtime_stop_test` PASS
+- `apptraverse_publication_channel_test` PASS
+
+Incremental builds only; the flaky headless-GTK surfaces smoke test was not
+re-run, as agreed for this slice.
+
+## Limitations
+
+- Endpoint identity is whatever the transport reports. No signatures, MAC,
+  certificates, or trust store: authenticating the endpoint is the Æther
+  transport integration, not this runtime.
+- Admission validates snapshot structure and identity, not the semantics of the
+  imported history. A structurally valid but hostile journal can still reach
+  replay; journal admission belongs with incremental Event sync.
+- Storage write failure and torn writes remain out of scope. The guarantee is
+  invalid input → no target writes, not crash-atomic storage.
+- No incremental Events, no presence: unchanged from the previous slice.
+- Not accepted-by-user
+
+---
+Status: implemented/verified on feature branch. Not accepted.
+
 # CLOUD CURSOR — SharedNode initial state sync v1
 
 ## Identity
