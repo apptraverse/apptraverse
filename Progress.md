@@ -1,6 +1,110 @@
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
+# CLOUD CURSOR — SharedNode initial state sync v1
+
+## Identity
+
+- Starting SHA: `144edb738c0731ab986594295a05bf6cbe27737d`
+- Commits: `66e168b` (transport + frames), `d559721` (packet + ACK durability),
+  test/docs commit on top
+- Branch: `feature/shared-node-foundation-v1`
+- PR: https://github.com/apptraverse/apptraverse/pull/2 (draft, not merged)
+- Scope: initial-state synchronization between two independent replicas over
+  bytes only. No incremental Event replication, no presence, no chat.
+
+## What was built
+
+- `IByteTransport` + `MemoryNetwork` / `MemoryTransport`: opaque bytes between
+  endpoint uids, nothing about SharedNode / Event / ACK / access. Packets queue
+  per direction and move only on `DeliverNext` / `DropNext` / `DuplicateNext`;
+  `Disconnect` / `Reconnect` are directional. No threads, timers, or sleeps.
+  Queues outlive endpoints, so a packet stays in flight across a restart.
+- Protocol v1 frames: `NodeState{packet_id, target_node_id,
+  destination_share_id, payload}` and `Ack{packet_id, target_node_id,
+  destination_share_id}`. Routing is by `target_node_id`, never by source
+  endpoint. Decoders return false on malformed bytes.
+- `SerializeNetworkSharedObjectGraph` / `ImportObjectGraphPayload`: the same
+  `GraphSerializationScope::NetworkShared` walk as the existing graph copy,
+  as bytes, with object / class / version identities preserved. No
+  `source.Save()` side effect.
+- `LinkSyncState` gains `pending_initial_packet_id` +
+  `pending_initial_packet` (sender) and `received_initial_packet_id`
+  (receiver). All three transitions go through Events
+  (`BeginInitialSyncEvent`, `CompleteInitialSyncEvent`,
+  `NoteInitialSyncReceivedEvent`); no reflected field is written after the Node
+  is live.
+- Packet identity is the `BeginInitialSyncEvent` ObjId — the same facility
+  `Share::share_id` already uses, so no new UUID system. It is known before
+  Commit, which is what lets the frozen frame embed it.
+- `SharedSyncRuntime`: one per replica, holding its Domain, storage, and
+  transport. Sender order is freeze → persist → send; `Pending` resends the
+  persisted bytes verbatim; `Complete` sends nothing.
+- Receiver order is decode → bootstrap check → import → replay → persist →
+  ACK. A root is created only for a `target_node_id` the replica explicitly
+  expects.
+- `Link::EndpointUid()` gives the transport address of a descriptor, so
+  locality stays runtime-relative and nothing persists `is_local`.
+- `Node::ReplayFromBase()` became a virtual entry point (implemented by
+  `NodeFor`), so replay works on a base `SharedNode::ptr` without RTTI.
+- `StashLocalPersistentAcrossRebuild` now carries only entries that hold state.
+  An imported SharedNode has one empty local slot per Share; replay of the
+  imported shared journal then creates the receiver's own `LinkSyncState` per
+  relationship, keyed by the `share_id` that travelled with the topology.
+
+## Coverage (`apptraverse_shared_node_initial_sync_test`, 8 scenarios)
+
+- Two replicas, separate storage / Domain / transport, bytes only.
+- Late attach: A already has business history and both Link descriptors.
+- Imported graph: Node identity, Link identities and endpoints, Share topology,
+  and every `Share::share_id` equal on both sides.
+- Sender-local delivery state absent from the receiver's storage.
+- Receiver-local `LinkSyncState` created by replay, distinct ObjIds, same
+  `share_id`.
+- Durability ordering proved by a storage wrapper that records the peer queue
+  depth at every write: both sides write only while that queue is empty.
+- Normal ACK, lost ACK with byte-identical retry, duplicate acknowledged with
+  no write and no re-apply, sender restart while Pending, receiver restart
+  after apply, sender restart after Complete.
+- Mutation after freeze does not change the retry bytes, and the receiver stays
+  at the frozen state.
+- Routing: two SharedNodes over the same Link, a packet for one does not create
+  or touch the other.
+- Unexpected `target_node_id` creates nothing and is not acknowledged.
+- Distinct C++ instances for Node and Link on the two replicas.
+
+## Tests run
+
+- `apptraverse_shared_node_initial_sync_test` PASS
+- `apptraverse_shared_node_foundation_test` PASS
+- `apptraverse_event_sourced_core_test` PASS
+- `apptraverse_dynamic_objects_add_test` PASS
+- `apptraverse_journal_retention_test` PASS
+- `apptraverse_model_runtime_stop_test` PASS
+- `apptraverse_publication_channel_test` PASS
+- full Linux ctest suite (15 tests) PASS
+
+## Limitations
+
+- No incremental Event replication: after the initial snapshot the receiver
+  stays at that state by design.
+- No heartbeat / presence / Online-Offline; transport connection toggles are
+  deterministic test controls only.
+- A second, different initial snapshot for an already imported relationship is
+  rejected rather than applied.
+- The payload reuses the storage encoding of each object layer and is not a
+  portable wire format; fine for an in-process memory transport.
+- Storage I/O failure and torn writes remain out of scope; only the logical
+  durability ordering is enforced.
+- aether-objects `DomainGraph` serialization-scope patch untouched in this
+  slice. The dependency source tree had to be restored (`git checkout`/`clean`
+  in `_deps/aether-objects-src`) before configure would re-apply it; build tree
+  itself was never wiped.
+- Not accepted-by-user
+
+---
+Status: implemented/verified on feature branch. Not accepted.
+
 # CLOUD CURSOR — Share relationship identity / replay correctness
 
 ## Identity
