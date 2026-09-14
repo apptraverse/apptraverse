@@ -131,13 +131,30 @@ sync — browser reload/tab close is not a reliable graceful shutdown. This is
 **Web-host policy only**, not common `SurfacesModelSession`, and must not be
 copied onto Windows/Android/Linux/macOS/iOS.
 
-## Old shared-chat experiment — retired as architecture
+## Old shared-chat experiment — retired as architecture, removed from the tree
 
 `feature/shared-chat-headless-v1` @ known
 `63abddeeb57b78fdb7cfa4dc2a459785fa6566b8`
 is an **experiment / reference only**.
 
 It is **not** the basis of the new SharedNode architecture.
+
+Its runtime is **deleted**, not deprecated: `SharedInstance<TNode>`,
+`SharedRuntime`, `PeerDeliveryState`, `PeerInFlightEntry`,
+`DeferredIncomingEvent`, `SharedWriteState`, the
+`shared_room_id` / `peers[]` / `pending[]` / `in_flight[]` / `channel_ready`
+delivery state, `ISharedTransport` with its `SharedEventFrame` /
+`SharedAckFrame` codec, and the chat binding and Æther Win32 adapter built on
+them are gone from the repository. There is one sharing architecture:
+
+```
+SharedNode + Share/share_id + Link + LinkSyncState + SharedSyncRuntime
+           + IByteTransport (MemoryTransport / MemoryNetwork)
+```
+
+`LinkSyncState` is the only persistent per-Share delivery state, and
+incremental Event replication (milestone 08) extends that architecture rather
+than reviving a second one.
 
 Useful concepts to retain from experiments (including older sync sessions):
 
@@ -403,7 +420,7 @@ works on. Identity never enters ordering, and no secondary sort key exists —
 not origin, sequence, ObjId, endpoint, Share id, or insertion index.
 
 A replica's own consecutive commits still get strictly increasing timestamps
-(`Node::CommitInto`, `SharedRuntime::MakeLocalOrder`). That is a wall-clock
+(`Node::CommitInto`). That is a wall-clock
 adjustment over one replica's own sequence, not a logical clock: remote Events
 never advance it and keep the timestamp they were sent with.
 

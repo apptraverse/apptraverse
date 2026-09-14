@@ -8,7 +8,11 @@ alwaysApply: true
 For chat model, shared journal, events, ordering, contacts, feed formatting, timestamps, and UI projection, always start with:
 
 1. `apptraverse_chat_headless_test_start`
-2. For real Aether P2P journal convergence (no UI): `apptraverse_chat_p2p_headless_test_start`
+
+Chat has no sharing path at the moment: the legacy SharedInstance/SharedRuntime
+engine and the P2P chat test built on it were removed, and chat is rebuilt on
+SharedNode later (ladder 17-21). For generic replication behavior use
+`apptraverse_shared_node_initial_sync_test` instead.
 
 Default rules:
 
@@ -20,7 +24,4 @@ Default rules:
 - Screenshot / manual GUI smoke is not a substitute for headless assertions.
 
 Canonical CMake target: `apptraverse_chat_headless_check`
-(builds and runs `apptraverse_event_sourced_core_test`, `apptraverse_shared_journal_test`, `apptraverse_chat_presentation_headless_test`).
-
-P2P CMake target: `apptraverse_chat_p2p_headless_test`
-(WIN32; Model Domain + ChatAetherRuntime + SharedRuntime; no UiMirror/UI Domain/HWND).
+(builds and runs `apptraverse_event_sourced_core_test`, `apptraverse_journal_retention_test`, `apptraverse_chat_presentation_headless_test`).

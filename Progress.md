@@ -1,6 +1,157 @@
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
+# CURSOR — Legacy SharedInstance / SharedRuntime sync engine removed
+
+## Identity
+
+- Starting SHA: `599aaf7b68a03cdcf239c3e98a3f8fa28004b5e7`
+- Branch: `cursor/sharednode-initial-state-sync-v1-9239`
+- PR: https://github.com/apptraverse/apptraverse/pull/3 (draft, not merged)
+- Scope: deletion only. No incremental Event replication, no presence, no
+  change to the initial NodeState/ACK protocol or to the timestamp-only order
+  model.
+
+## Why
+
+The tree carried two sharing architectures. The older one
+(`SharedInstance<TNode>` + `SharedRuntime` over `ISharedTransport`) predates
+SharedNode and cannot be extended into incremental Event replication without
+duplicating delivery state that `LinkSyncState` already owns. It is gone rather
+than deprecated: no aliases, no compatibility wrappers.
+
+## Removed
+
+Production:
+
+- `include/apptraverse/shared_instance.h` — `SharedInstance<TNode>`,
+  `PeerDeliveryState`, `PeerInFlightEntry`, `DeferredIncomingEvent`,
+  `SharedWriteState`, `shared_room_id`, `peers[]`, `pending[]`, `in_flight[]`,
+  `channel_ready`.
+- `include/apptraverse/shared_runtime.h`, `src/shared_runtime.cpp` —
+  `SharedRuntime` with `kSharedEventPipelineWindow`,
+  `kSharedEventRetryInterval`, per-peer `Tick` scheduling, ACK bookkeeping,
+  deferred incoming Events, local identity/order assignment.
+- `include/apptraverse/shared_transport.h` — `ISharedTransport::SendEvent` /
+  `SendAck`, `SharedEventFrame`, `SharedAckFrame`, room-and-peer addressing.
+- `include/apptraverse/shared_frame_codec.h`, `src/shared_frame_codec.cpp` —
+  the codec for those two frames only.
+- `examples/chat_ui_runtime_demo/common/chat_shared.{h,cpp}` — the chat binding
+  over that runtime, including its shared-Event payload serialization, remap
+  and runtime-field stripping.
+- `examples/chat_ui_runtime_demo/windows/aether_shared_transport.h` — the Æther
+  Win32 adapter implementing `ISharedTransport`.
+- `SharedEventIdLess` — no caller remained; dedup compares identities for
+  equality.
+
+Tests:
+
+- `tests/shared_journal_test.cpp` — deleted. It only drove the deleted engine
+  through a fake peer bridge. Its generic claims already live elsewhere:
+  timestamp-only ordering and mid-journal replay in
+  `apptraverse_event_sourced_core_test`, retention in
+  `apptraverse_journal_retention_test`, packet duplicate/lost-ACK/restart
+  behavior in `apptraverse_shared_node_initial_sync_test`. What it also covered
+  — peer queues, in-flight windows, retry intervals, deferred remote Events —
+  is behavior of the deleted architecture and is not preserved.
+- `tests/chat_p2p_headless_test.cpp` — deleted, with its CMake target
+  `apptraverse_chat_p2p_headless_test`. It was a Win32 Æther P2P convergence
+  test built on `ISharedTransport` and the chat binding. Note that the
+  repository chat-test instructions still name it; real P2P convergence
+  coverage returns when chat is rebuilt on SharedNode (milestones 17–21).
+- `apptraverse_chat_headless_check` now runs event-sourced core, journal
+  retention, and chat presentation headless.
+- `tests/chat_presentation_headless_test.cpp` — three scenarios deleted:
+  `TestOfflineRetrySkippedWhileChannelDown` (peer retry over `channel_ready`),
+  `TestTimestampCommitAndRemap` and `TestIncomingSharedCannotImportPresence`
+  (incoming shared-Event payload remap and the runtime-field stripping guard,
+  both of which lived in the deleted binding). The presence scenarios stay and
+  now use `CommitPresenceChanged` and `ChatPresenceOverlay::ApplyToRoom`
+  directly, which is what the binding wrapped.
+- `tests/chat_ui_runtime_test.cpp` — `TestConnectToHostCommandRegistersPeer`
+  deleted (peer registration and `shared_room_id`). The presence-overlay
+  scenario stays, rewritten against the overlay.
+- `tests/chat_ui_mirror_integration_test.cpp` — stale `chat_shared.h` include
+  dropped; it never used the binding.
+
+The presence guard that `TestIncomingSharedCannotImportPresence` protected —
+an incoming shared Event must not import a peer's Presence — has no code left
+to protect. It has to be re-established when chat Events cross the new
+transport.
+
+## Kept
+
+- `SharedEventId` (identity and equality), `SharedEventOrder` (timestamp only),
+  `EventRecord`, and the Node shared-event insertion machinery
+  (`Node::CommitSharedInto`, `NodeFor::CommitShared`,
+  `NodeFor::InsertSharedOrderedEvent`). Untouched by this change.
+- `SharedSyncRuntime`, `NodeState` / `Ack` frames, `IByteTransport`,
+  `MemoryTransport` / `MemoryNetwork`, `LinkSyncState`, and the initial-sync
+  hardening from PR #3 (strict frame decoding, source-endpoint binding, scratch
+  admission before any write to real storage).
+- `Node::CommitInto` already carried the local strictly-increasing timestamp
+  adjustment, so deleting `SharedRuntime::MakeLocalOrder` lost no behavior.
+
+## Added
+
+`apptraverse_event_sourced_core_test` gains
+`TestSharedEventIdentityRoundTrip`: two Events committed through the public
+`CommitShared` path with distinct identities, saved, reloaded, and checked for
+identity, order, and materialized state, including the "same origin, next
+sequence is a different Event" lookup. It replaces the deleted engine's dedup
+test with the property that actually makes dedup possible — identity is
+journal state that survives a restart.
+
+## Architecture after cleanup
+
+- One generic sharing runtime: `SharedSyncRuntime`.
+- One persistent per-relationship sync state: `LinkSyncState`, keyed by
+  `share_id`. No second pending/in-flight/retry structure exists.
+- One transport abstraction: `IByteTransport` with `MemoryTransport` /
+  `MemoryNetwork`, carrying opaque bytes.
+- Repository search for `SharedInstance`, `PeerDeliveryState`,
+  `PeerInFlightEntry`, `DeferredIncomingEvent`, `SharedWriteState`,
+  `kSharedEventPipelineWindow`, `kSharedEventRetryInterval`, `shared_room_id`,
+  `channel_ready`, `ISharedTransport`, `SharedEventFrame`, `SharedAckFrame`,
+  `shared_transport`, `shared_frame_codec` returns nothing outside this
+  document. `SharedRuntime` matches only `SharedSyncRuntime`.
+
+## Verified
+
+- Required set, all pass: `apptraverse_shared_node_initial_sync_test`,
+  `apptraverse_shared_node_foundation_test`,
+  `apptraverse_event_sourced_core_test`, `apptraverse_dynamic_objects_add_test`,
+  `apptraverse_journal_retention_test`, `apptraverse_model_runtime_stop_test`,
+  `apptraverse_publication_channel_test`.
+- Remaining chat/model tests pass: `apptraverse_chat_presentation_headless_test`,
+  `apptraverse_chat_ui_runtime_test`,
+  `apptraverse_chat_ui_mirror_integration_test`.
+- Incremental build only; the build tree was reused, not wiped. Two unrelated
+  build-tree frictions were worked around without deleting anything: each
+  configure re-runs the dependency patch steps and `patch --forward` exits 1 on
+  an already-patched tree, so the dependency patches are reversed immediately
+  before configuring; and `examples/aether_presence_monitor` includes
+  `windows.h`, so it cannot build on Linux with
+  `APPTRAVERSE_BUILD_AETHER_DEMOS=ON` — pre-existing, unrelated to this change,
+  so the required targets were built by name.
+- `apptraverse_model_ui_runtime_test` still fails at `TestInitialGraphCopy` on
+  Linux and `apptraverse_surfaces_linux_smoke_test` is the known GTK flake.
+  Both pre-date this change.
+
+## Known limitations
+
+- Incremental Event replication is not implemented. No `EventFrame`, no
+  `EventAck`, no pending Event bytes, no retry, no forwarding, no presence.
+  Milestone 08 extends `LinkSyncState` and `IByteTransport`; nothing from the
+  deleted engine returns.
+- Chat has no sharing path at all right now. The chat demo is local-only until
+  it is rebuilt on SharedNode.
+- Equal `timestamp_us` still has no defined order between replicas. Unchanged
+  and deliberate.
+
+---
+Status: implemented/verified on feature branch. Not accepted.
+
 # CURSOR — Shared Event order simplified to timestamp only
 
 ## Identity
@@ -24,16 +175,17 @@ Status: implemented/verified on feature branch. Not accepted.
   `order`, `retained_since_us`. Only `order.timestamp_us` decides position.
 - What was removed: `SharedEventOrder` no longer carries `lamport`,
   `origin_uid`, or `origin_sequence`, and nothing compares that tuple any more.
-  `SharedInstance::lamport_clock` is gone; a remote Event no longer advances
-  any local counter and keeps the `timestamp_us` it was sent with.
+  The legacy runtime's `lamport_clock` is gone; a remote Event no longer
+  advances any local counter and keeps the `timestamp_us` it was sent with.
 
 ## Local timestamps
 
-`Node::CommitInto` and `SharedRuntime::MakeLocalOrder` both keep a replica's own
-consecutive commits strictly increasing: if the wall clock has not moved, the
-next commit takes the previous timestamp plus one. `SharedInstance` tracks that
-as `last_local_timestamp_us`, advanced only by that replica's own Events. It is
-a wall-clock adjustment over one local sequence, not a logical clock.
+`Node::CommitInto` keeps a replica's own consecutive commits strictly
+increasing: if the wall clock has not moved, the next commit takes the previous
+timestamp plus one. It is a wall-clock adjustment over one local sequence, not
+a logical clock. (The legacy runtime had a second copy of this in
+`SharedRuntime::MakeLocalOrder` over `SharedInstance::last_local_timestamp_us`;
+that runtime is deleted in the section above.)
 
 ## Equal timestamps: deliberately unresolved
 
@@ -81,10 +233,11 @@ covered it.
   journal was replayed in timestamp order and origin had no influence.
 - `apptraverse_shared_journal_test`: the simultaneous-commit test asserted that
   equal lamport clocks converge through a lexicographic `origin_uid` tie-break.
-  That claim no longer exists, so the test is now
-  `test_cross_replica_order_follows_timestamp`: the host commits at an earlier
-  forced timestamp than the client although `"client-uid" < "host-uid"`, and
-  both replicas converge with the host's message first.
+  That claim no longer exists, so the test became
+  `test_cross_replica_order_follows_timestamp`. (The whole file is deleted with
+  the legacy runtime in the section above; the equivalent claim without that
+  runtime is `TestMidJournalRemoteEventReplaysByTimestamp` in
+  `apptraverse_event_sourced_core_test`.)
 - Order literals across `journal_retention_test`, `shared_node_foundation_test`,
   and `event_sourced_core_test` are timestamps now; none of them construct an
   order out of identity fields.
