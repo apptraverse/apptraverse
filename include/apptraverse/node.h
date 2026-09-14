@@ -148,37 +148,59 @@ class Node : public ae::Obj {
     (void)now;
   }
 
-  void EnsureCurrentGeneration() {
+  bool TryEnsureCurrentGeneration() {
     if (applied_journal_size_ == kJournalFullyMaterialized) {
       applied_journal_size_ = journal.size();
-      return;
+      return true;
     }
     while (applied_journal_size_ < journal.size()) {
       auto const index = applied_journal_size_++;
       auto const& record = journal[index];
-      assert(record.event.is_valid());
-      assert(record.event.is_loaded());
-      assert(record.event->CanApplyTo(*this));
+      if (!record.event.is_valid() || !record.event.is_loaded()) {
+        return false;
+      }
+      if (!record.event->CanApplyTo(*this)) {
+        return false;
+      }
       ApplyEvent(*record.event);
     }
+    return true;
+  }
+
+  void EnsureCurrentGeneration() {
+    bool const ok = TryEnsureCurrentGeneration();
+    assert(ok && "EnsureCurrentGeneration invariant broken");
+    (void)ok;
   }
 
   void CaptureBaseState() { CaptureBaseStateImpl(); }
 
   void Commit(Event::ptr event) { CommitImpl(std::move(event)); }
 
-  // Rebuild materialized state from base and replay the journal. Used after a
-  // network snapshot import, where local-persistent Nodes reachable only
-  // through LocalPtr did not travel and are re-created by replaying the
-  // shared journal.
-  void ReplayFromBase() { ReplayFromBaseImpl(); }
+  // Rebuild materialized state from base and replay the journal.
+  bool TryReplayFromBase() { return TryReplayFromBaseImpl(); }
+
+  void ReplayFromBase() {
+    bool const ok = TryReplayFromBaseImpl();
+    assert(ok && "ReplayFromBase invariant broken");
+    (void)ok;
+  }
 
   // Insert a remotely originated shared Event at its own identity and
   // timestamp. Dispatches to the most-derived NodeFor so Apply sees the
-  // concrete Node. The caller must already have rejected duplicates.
+  // concrete Node. Returns false if historical replay fails.
+  bool TryInsertShared(Event::ptr event, SharedEventId identity,
+                       SharedEventOrder order) {
+    return TryInsertSharedImpl(std::move(event), std::move(identity),
+                               std::move(order));
+  }
+
   void InsertShared(Event::ptr event, SharedEventId identity,
                     SharedEventOrder order) {
-    InsertSharedImpl(std::move(event), std::move(identity), std::move(order));
+    bool const ok = TryInsertShared(std::move(event), std::move(identity),
+                                    std::move(order));
+    assert(ok && "InsertShared invariant broken");
+    (void)ok;
   }
 
   EventRecord const* FindSharedEvent(SharedEventId const& identity) const {
@@ -206,9 +228,15 @@ class Node : public ae::Obj {
     }
   }
 
-  void ReplayJournal() {
+  bool TryReplayJournal() {
     applied_journal_size_ = 0;
-    EnsureCurrentGeneration();
+    return TryEnsureCurrentGeneration();
+  }
+
+  void ReplayJournal() {
+    bool const ok = TryReplayJournal();
+    assert(ok && "ReplayJournal invariant broken");
+    (void)ok;
   }
 
   // Local-persistent fields (e.g. SharedNode LocalPtr sync metadata) must
@@ -218,7 +246,7 @@ class Node : public ae::Obj {
   virtual void RestoreLocalPersistentAcrossRebuild() {}
 
   template <typename ConcreteNode>
-  void RebuildFromBaseAndReplay(ConcreteNode& target) {
+  bool TryRebuildFromBaseAndReplay(ConcreteNode& target) {
     auto owner_id = obj_id;
     auto saved_base = base;
     auto saved_journal = journal;
@@ -230,7 +258,14 @@ class Node : public ae::Obj {
     journal = std::move(saved_journal);
     target.RestoreLocalPersistentAcrossRebuild();
     generation_ = 1;
-    ReplayJournal();
+    return TryReplayJournal();
+  }
+
+  template <typename ConcreteNode>
+  void RebuildFromBaseAndReplay(ConcreteNode& target) {
+    bool const ok = TryRebuildFromBaseAndReplay(target);
+    assert(ok && "RebuildFromBaseAndReplay invariant broken");
+    (void)ok;
   }
 
   template <typename ConcreteNode>
@@ -332,14 +367,12 @@ class Node : public ae::Obj {
   }
 
   template <typename ConcreteNode>
-  void InsertEvent(ConcreteNode& target, EventRecord record) {
-    assert(domain != nullptr);
-    assert(base.is_valid());
-    assert(base.is_loaded());
-    assert(record.event.is_valid());
-    assert(record.event.is_loaded());
-    assert(record.event.domain() == domain);
-    assert(record.order.timestamp_us != 0);
+  bool TryInsertEvent(ConcreteNode& target, EventRecord record) {
+    if (domain == nullptr || !base.is_valid() || !base.is_loaded() ||
+        !record.event.is_valid() || !record.event.is_loaded() ||
+        record.event.domain() != domain || record.order.timestamp_us == 0) {
+      return false;
+    }
 
     if (record.retained_since_us == 0) {
       record.retained_since_us = SystemUtcMicros();
@@ -349,8 +382,9 @@ class Node : public ae::Obj {
     // timestamp is an accepted, unresolved case, not an error.
     for (auto const& existing : journal) {
       if (record.HasSharedIdentity() && existing.HasSharedIdentity()) {
-        assert(!(existing.identity == record.identity) &&
-               "duplicate SharedEventId");
+        if (existing.identity == record.identity) {
+          return false;
+        }
       }
     }
 
@@ -368,10 +402,22 @@ class Node : public ae::Obj {
       if (applied_journal_size_ == kJournalFullyMaterialized) {
         applied_journal_size_ = journal.size() - 1;
       }
-      EnsureCurrentGeneration();
+      if (!TryEnsureCurrentGeneration()) {
+        journal.pop_back();
+        applied_journal_size_ = journal.size();
+        return false;
+      }
+      return true;
     } else {
-      RebuildFromBaseAndReplay(target);
+      return TryRebuildFromBaseAndReplay(target);
     }
+  }
+
+  template <typename ConcreteNode>
+  void InsertEvent(ConcreteNode& target, EventRecord record) {
+    bool const ok = TryInsertEvent(target, std::move(record));
+    assert(ok && "InsertEvent invariant broken");
+    (void)ok;
   }
 
   // Non-shared local commit: empty identity, current time as order.
@@ -405,12 +451,11 @@ class Node : public ae::Obj {
   // A remotely originated Event is inserted at its own timestamp; nothing here
   // rewrites it from local state.
   template <typename ConcreteNode>
-  void CommitSharedInto(ConcreteNode& target, Event::ptr event,
-                        SharedEventId identity, SharedEventOrder order) {
-    assert(event.is_valid());
-    assert(event.is_loaded());
-    assert(event->CanApplyTo(target));
-    assert(!identity.origin_uid.empty());
+  bool TryCommitSharedInto(ConcreteNode& target, Event::ptr event,
+                           SharedEventId identity, SharedEventOrder order) {
+    if (!event.is_valid() || !event.is_loaded() || identity.origin_uid.empty()) {
+      return false;
+    }
 
     EventRecord record{
         .event = std::move(event),
@@ -418,7 +463,16 @@ class Node : public ae::Obj {
         .order = std::move(order),
         .retained_since_us = SystemUtcMicros(),
     };
-    InsertEvent(target, std::move(record));
+    return TryInsertEvent(target, std::move(record));
+  }
+
+  template <typename ConcreteNode>
+  void CommitSharedInto(ConcreteNode& target, Event::ptr event,
+                        SharedEventId identity, SharedEventOrder order) {
+    bool const ok = TryCommitSharedInto(target, std::move(event),
+                                        std::move(identity), std::move(order));
+    assert(ok && "CommitSharedInto invariant broken");
+    (void)ok;
   }
 
  private:
@@ -436,8 +490,22 @@ class Node : public ae::Obj {
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 
+  virtual bool TryReplayFromBaseImpl() {
+    assert(false && "Concrete Node must inherit through NodeFor");
+    return false;
+  }
+
   virtual void ReplayFromBaseImpl() {
     assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual bool TryInsertSharedImpl(Event::ptr event, SharedEventId identity,
+                                   SharedEventOrder order) {
+    (void)event;
+    (void)identity;
+    (void)order;
+    assert(false && "Concrete Node must inherit through NodeFor");
+    return false;
   }
 
   virtual void InsertSharedImpl(Event::ptr event, SharedEventId identity,

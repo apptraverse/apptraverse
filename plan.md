@@ -585,15 +585,15 @@ SurfacePresenter
   relationship it re-applies (erased again by the matching `RemoveShare`, never
   saved). Revisit only if replay allocation cost shows up.
 - A NodeState frame is the state at freeze time. Changes the sender makes
-  afterwards are not covered by its ACK and are not resent; that is milestone
-  08 (incremental Event replication).
+  afterwards are not covered by its ACK and are resent incrementally via
+  milestone 08 (incremental Event replication). FrozenNodeState produces both
+  payload and covered_event_ids atomically in one pass.
 - A second, different initial snapshot for an already imported relationship is
   rejected instead of applied: protocol v1 has one initial packet per Share.
-- Snapshot admission validates structure, class, relationship identity, and
-  endpoints. It does not audit the *content* of the imported journal, so a
-  hostile-but-structurally-valid history could still trip a model-level
-  invariant during replay. Journal admission belongs with milestone 08, which
-  needs an Event admission policy anyway.
+- Snapshot admission validates structure, class inheritance chains, relationship
+  identity, endpoints, and journal historical replay validity before
+  persisting or mutating. Incremental events undergo preflight historical
+  replay in a scratch node copy before admission.
 - Frames are bound to the endpoint identity the transport reports. Whether that
   identity is authentic is the transport's problem (Æther, milestone 20); the
   protocol runtime adds no signatures or crypto of its own.

@@ -836,6 +836,40 @@ void TestMalformedPayloadWritesNothing() {
   }
 }
 
+void TestMalformedClassLayersInNodeStateRejected() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  auto const fixture = BuildSharedNode(a, 5201, 5202, 5203, 222);
+
+  // Craft a payload where an object has two unrelated registered class layers
+  ae::RamDomainStorage bad_storage;
+  bad_storage.state[fixture.node_id] = ae::RamDomainStorage::ClassData{
+      {SharedValueNode::kClassId, {{1, std::vector<std::uint8_t>{1, 2, 3}}}},
+      {apptraverse::example::shared_node::Client::kClassId,
+       {{1, std::vector<std::uint8_t>{4, 5, 6}}}},
+  };
+
+  auto const payload = SerializeRamDomainStorage(bad_storage);
+
+  b.sync->ExpectInitialNode(fixture.node_id);
+  a.transport->Send(
+      kEndpointB,
+      EncodeNodeStateFrame(NodeStateFrame{.packet_id = ae::ObjId{991},
+                                          .target_node_id = fixture.node_id,
+                                          .destination_share_id = fixture.share_to_b,
+                                          .payload = payload}));
+
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  // Payload must be rejected before LoadRoot / writing to b's storage, no ACK sent
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+}
+
 // Frames are canonical: no trailing bytes, no zero ids.
 void TestFrameDecodingIsStrict() {
   NodeStateFrame const node_state{
@@ -942,6 +976,7 @@ int main() {
   apptraverse::test::TestWrongSourceNodeStateRejected();
   apptraverse::test::TestWrongDestinationNodeStateRejected();
   apptraverse::test::TestMalformedNodeStateRejected();
+  apptraverse::test::TestMalformedClassLayersInNodeStateRejected();
   apptraverse::test::TestMalformedPayloadWritesNothing();
   apptraverse::test::TestFrameDecodingIsStrict();
 

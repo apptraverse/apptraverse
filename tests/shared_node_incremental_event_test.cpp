@@ -92,9 +92,66 @@ class SetValueWithNoteEvent
   NotePayload::ptr note;
 };
 
+class TransitionEvent;
+class StateDependentNode : public NodeFor<StateDependentNode, SharedNode> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::StateDependentNode",
+                           StateDependentNode, SharedNode, 1)
+
+ protected:
+  StateDependentNode() = default;
+
+ public:
+  explicit StateDependentNode(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(state_code))
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    SharedNode::Load(ae::Version<1>{}, dnv);
+    dnv(state_code);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    SharedNode::Save(ae::Version<1>{}, dnv);
+    dnv(state_code);
+  }
+
+  bool CanApply(TransitionEvent const& event) const;
+  void Apply(TransitionEvent const& event);
+
+  std::int32_t state_code{0};
+};
+
+class TransitionEvent : public EventFor<StateDependentNode, TransitionEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::TransitionEvent",
+                           TransitionEvent, Event, 0)
+
+ protected:
+  TransitionEvent() = default;
+
+ public:
+  explicit TransitionEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(expected_from), AE_MMBR(new_to))
+
+  std::int32_t expected_from{0};
+  std::int32_t new_to{0};
+};
+
+bool StateDependentNode::CanApply(TransitionEvent const& event) const {
+  return state_code == event.expected_from;
+}
+
+void StateDependentNode::Apply(TransitionEvent const& event) {
+  state_code = event.new_to;
+}
+
 APPTRAVERSE_REGISTER(NotePayload);
 APPTRAVERSE_REGISTER(NoteTargetNode);
 APPTRAVERSE_REGISTER(SetValueWithNoteEvent);
+APPTRAVERSE_REGISTER(StateDependentNode);
+APPTRAVERSE_REGISTER(TransitionEvent);
 
 class WatchedStorage final : public ae::IDomainStorage {
  public:
@@ -873,6 +930,185 @@ void TestReferencedObjectGraphRefused() {
   (void)a_node;
 }
 
+void TestMalformedClassLayersInEventRejected() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  auto const fixture = BuildTopology(a, 7501, 7502, 7503);
+  HandshakeInitial(network, a, b, fixture);
+
+  // Synthesize a RamDomainStorage payload with unrelated class layers stored under the same ObjId.
+  ae::RamDomainStorage bad_storage;
+  bad_storage.state[kStandaloneEventScratchId] = ae::RamDomainStorage::ClassData{
+      {SetValueEvent::kClassId, {{0, std::vector<std::uint8_t>{1, 2, 3}}}},
+      {NoteTargetNode::kClassId, {{0, std::vector<std::uint8_t>{4, 5, 6}}}},
+  };
+
+  auto const payload = SerializeRamDomainStorage(bad_storage);
+
+  auto const identity =
+      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 20};
+  a.transport->Send(kEndpointB,
+                    EncodeEventFrame(EventFrame{
+                        .packet_id = ae::ObjId{7599},
+                        .target_node_id = fixture.node_id,
+                        .destination_share_id = fixture.share_to_b,
+                        .identity = identity,
+                        .timestamp_us = 20'000,
+                        .event_class_id = SetValueEvent::kClassId,
+                        .payload = payload,
+                    }));
+
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(JournalByIdentity(*ConcreteOf(b.sync->FindNode(fixture.node_id)),
+                          identity) == nullptr);
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+}
+
+void TestHistoricalCanApplyPreflight() {
+  // Verifies that:
+  // 1. An event that is valid historically (at timestamp 150, when state is 0)
+  //    is admitted even though the current state is 1 (where CanApply would be false).
+  // 2. An event that is NOT valid historically (e.g. requires state 1, but inserted
+  //    at timestamp 50 when state is 0) is REJECTED without crashing or mutating.
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  // Create topology with StateDependentNode as root
+  auto a_root = StateDependentNode::ptr::Create(
+      ae::CreateWith{*a.domain}.with_id(ae::ObjId{7900}));
+  InitializeRuntimeNode(*a_root);
+  a_root->state_code = 0;
+  a_root.Save();
+
+  auto a_link_a = MakeMemoryLink(*a.domain, ae::ObjId{7901}, kEndpointA);
+  auto a_link_b = MakeMemoryLink(*a.domain, ae::ObjId{7902}, kEndpointB);
+  a_root->AddShare(a_link_a, ShareAccess::ReadWrite);
+  a_root->AddShare(a_link_b, ShareAccess::ReadWrite);
+  a_root.Save();
+  a_link_a.Save();
+  a_link_b.Save();
+  for (auto& entry : a_root->link_sync_states) {
+    entry.Save();
+  }
+
+  SenderFixture fixture{
+      .node_id = a_root.id(),
+      .share_to_a = a_root->shares[0].share_id,
+      .share_to_b = a_root->shares[1].share_id,
+  };
+  a.sync->RegisterNode(a_root);
+  HandshakeInitial(network, a, b, fixture);
+
+  // Transition node at timestamp 100: 0 -> 1
+  auto e1 = TransitionEvent::ptr::Create(ae::CreateWith{*a.domain});
+  e1->expected_from = 0;
+  e1->new_to = 1;
+  a_root->CommitShared(e1,
+                       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 1},
+                       SharedEventOrder{.timestamp_us = 100});
+  a_root.Save();
+  CHECK(a_root->state_code == 1);
+
+  // Transition node at timestamp 200: 1 -> 2
+  auto e2 = TransitionEvent::ptr::Create(ae::CreateWith{*a.domain});
+  e2->expected_from = 1;
+  e2->new_to = 2;
+  a_root->CommitShared(e2,
+                       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 2},
+                       SharedEventOrder{.timestamp_us = 200});
+  a_root.Save();
+  CHECK(a_root->state_code == 2);
+
+  // Sync both events to B
+  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+
+  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+
+  auto const b_node = static_cast<StateDependentNode*>(
+      b.sync->FindNode(fixture.node_id).operator->());
+  CHECK(b_node->state_code == 2);
+
+  // Now, craft an event e_bad with timestamp 50 (inserted before e1):
+  // e_bad expects state 1 -> 9. But at timestamp 50, state is 0!
+  // Note that if checked against CURRENT state of b_node (which is 2), it's also invalid,
+  // but even if e_bad expected 2 -> 9, at timestamp 50 state was 0, so historical replay would fail!
+  auto e_bad = TransitionEvent::ptr::Create(ae::CreateWith{*a.domain});
+  e_bad->expected_from = 2;  // matches CURRENT state (2), but NOT historical state at t=50 (0)!
+  e_bad->new_to = 9;
+  std::vector<std::uint8_t> bad_payload;
+  CHECK(FreezeStandaloneEventPayload(*e_bad, bad_payload));
+
+  auto const bad_id =
+      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 3};
+  a.transport->Send(kEndpointB,
+                    EncodeEventFrame(EventFrame{
+                        .packet_id = ae::ObjId{8888},
+                        .target_node_id = fixture.node_id,
+                        .destination_share_id = fixture.share_to_b,
+                        .identity = bad_id,
+                        .timestamp_us = 50,
+                        .event_class_id = TransitionEvent::kClassId,
+                        .payload = bad_payload,
+                    }));
+
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  // e_bad must be rejected by preflight because at t=50 state is 0, not 2.
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(JournalByIdentity(*b_node, bad_id) == nullptr);
+  CHECK(b_node->state_code == 2);
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+
+  // Next, craft an event e_good with timestamp 150 (between e1 and e2).
+  // At t=150, state is 1!
+  // e_good transitions 1 -> 3.
+  // And at t=200, e2 originally expected 1 -> 2. If e_good changed state to 3, e2 would fail.
+  // So e_good must transition 1 -> 1 so e2 (which expects 1 -> 2) will still succeed afterwards!
+  // Notice: at the moment e_good arrives, CURRENT state is 2! e_good has expected_from = 1 != 2.
+  // If e_good were checked against current state, CanApply would fail!
+  // But historically at t=150, state is 1, so e_good CanApply is true!
+  auto e_good = TransitionEvent::ptr::Create(ae::CreateWith{*a.domain});
+  e_good->expected_from = 1;  // matches historical state at t=150! Does NOT match CURRENT state (2)!
+  e_good->new_to = 1;         // leaves state as 1 so e2 (1 -> 2) at t=200 remains valid!
+  std::vector<std::uint8_t> good_payload;
+  CHECK(FreezeStandaloneEventPayload(*e_good, good_payload));
+
+  auto const good_id =
+      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 4};
+  a.transport->Send(kEndpointB,
+                    EncodeEventFrame(EventFrame{
+                        .packet_id = ae::ObjId{8889},
+                        .target_node_id = fixture.node_id,
+                        .destination_share_id = fixture.share_to_b,
+                        .identity = good_id,
+                        .timestamp_us = 150,
+                        .event_class_id = TransitionEvent::kClassId,
+                        .payload = good_payload,
+                    }));
+
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  // e_good must be accepted and persisted!
+  CHECK(!b.watched.pending_at_store().empty());
+  CHECK(JournalByIdentity(*b_node, good_id) != nullptr);
+  CHECK(b_node->state_code == 2);  // after full replay: 0 -(t=100)-> 1 -(t=150)-> 1 -(t=200)-> 2
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 1);
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+}
+
 void TestEventFrameDecodingIsStrict() {
   std::vector<std::uint8_t> payload{1, 2, 3};
   EventFrame const frame{
@@ -980,6 +1216,8 @@ int main() {
   apptraverse::test::TestReadOnlySourceRejected();
   apptraverse::test::TestWrongDestinationRejected();
   apptraverse::test::TestMalformedEventPayloadRejected();
+  apptraverse::test::TestMalformedClassLayersInEventRejected();
+  apptraverse::test::TestHistoricalCanApplyPreflight();
   apptraverse::test::TestWrongTargetEventClassRejected();
   apptraverse::test::TestConflictingDuplicateIdentityRejected();
   apptraverse::test::TestReferencedObjectGraphRefused();

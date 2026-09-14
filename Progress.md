@@ -1,6 +1,32 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — Incremental Event v1 hardening
+
+## Identity
+
+- Scope: Hardening of standalone incremental Event transport and initial NodeState admission on `main`.
+- Pre-LoadRoot class chain validation, safe historical CanApply preflight, atomic snapshot freeze coverage, and receiver-local ObjId collision prevention.
+
+## What landed
+
+- **Pre-LoadRoot Class Chain Validation**: Implemented `ValidateStoredClassChains` and `ValidateStandaloneEventStorage` to audit class layers in `RamDomainStorage` prior to `scratch_graph.LoadRoot`. Verifies that all objects have valid IDs, non-empty supported class layers registered in `Registry`, coherent inheritance chains with no unrelated pairs, and that the most-derived class is an instantiable leaf class. Detects and rejects duplicate objects, duplicate class layers, duplicate versions, unknown class layers, and malformed class hierarchies without tripping `DomainGraph` assertions.
+- **NodeState Structural Validation**: Wired `ValidateStoredClassChains` into `ImportValidatedNode` before `scratch_graph.LoadRoot(target_node_id)`, ensuring untrusted NodeState payloads cannot trigger assertions in `DomainGraph`.
+- **Historical CanApply Preflight**: Introduced `Try` methods (`TryEnsureCurrentGeneration`, `TryReplayJournal`, `TryRebuildFromBaseAndReplay`, `TryInsertEvent`, `TryCommitSharedInto`, `TryReplayFromBase`, `TryInsertShared`) across `Node` and `NodeFor` returning `bool` instead of asserting on `CanApplyTo` failures.
+- **Mid-Journal Historical Replay Safety**:
+  - Incremental Event admission uses `PreflightHistoricalEventInsertion` to test Event application in a scratch copy of the target `SharedNode` graph. The Event is admitted only if insertion and entire historical replay from base succeed.
+  - NodeState journal admission validates by replaying the candidate journal in scratch from base in timestamp order via `candidate.TryReplayFromBase()`.
+- **Atomic Snapshot Freeze Coverage**: Refactored snapshot freeze into `FreezeNetworkSharedNodeState`, returning `FrozenNodeState { payload, covered_event_ids }` derived in one operation from the identical scratch state/traversal, eliminating snapshot-vs-coverage race conditions.
+- **Receiver-Local Event ObjId Collision Prevention**: Implemented `AllocateUniqueStorageObjId` which checks both live Domain and underlying storage before picking a fresh local `ObjId` for imported Events.
+
+## Tests
+
+- `apptraverse_shared_node_incremental_event_test`: Added tests for malformed class layers in Event payload, historical `CanApply` preflight (event valid historically but invalid on current state, and event valid on current state but invalid historically), and verified all 18 incremental event scenarios.
+- `apptraverse_shared_node_initial_sync_test`: Added test for malformed class layers in NodeState payload, and verified all 15 initial sync scenarios.
+
+---
+Status: implemented/verified on main. Not accepted.
+
 # CURSOR — SharedNode incremental standalone Event sync v1
 
 ## Identity

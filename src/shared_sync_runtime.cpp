@@ -69,7 +69,7 @@ bool AddressedToThisReplica(SharedNode const& node,
 
 // Admission rules for an untrusted snapshot, checked in a scratch Domain.
 // Everything the import step goes on to dereference is verified here.
-bool SnapshotIsAdmissible(SharedNode const& candidate,
+bool SnapshotIsAdmissible(SharedNode& candidate,
                           std::string const& local_endpoint,
                           std::string const& source_endpoint,
                           ae::ObjId destination_share_id) {
@@ -84,9 +84,14 @@ bool SnapshotIsAdmissible(SharedNode const& candidate,
             record.event->TargetClassId(), candidate.GetClassId()) < 0) {
       return false;
     }
-    if (!record.event->CanApplyTo(candidate)) {
+    if (record.order.timestamp_us == 0) {
       return false;
     }
+  }
+  // Validate the imported journal by replaying it in scratch in timestamp order,
+  // from base to final state, ensuring every event was admissible at its replay point.
+  if (!candidate.TryReplayFromBase()) {
+    return false;
   }
   for (std::size_t i = 0; i < candidate.shares.size(); ++i) {
     auto const& share = candidate.shares[i];
@@ -138,14 +143,62 @@ bool EventAddressedToThisReplica(SharedNode const& node,
   return source->GetAccess() == ShareAccess::ReadWrite;
 }
 
-std::vector<SharedEventId> CoveredSharedEventIds(SharedNode const& node) {
-  std::vector<SharedEventId> covered;
-  for (auto const& record : node.journal) {
-    if (record.HasSharedIdentity()) {
-      covered.push_back(record.identity);
+// Allocate an ObjId that is guaranteed not to exist in storage or live domain.
+ae::ObjId AllocateUniqueStorageObjId(ae::Domain const& domain,
+                                     ae::IDomainStorage& storage) {
+  while (true) {
+    auto const id = ae::ObjId::GenerateUnique();
+    if (!id.is_valid()) {
+      continue;
     }
+    if (domain.Find(id)) {
+      continue;
+    }
+    if (!storage.Enumerate(id).empty()) {
+      continue;
+    }
+    return id;
   }
-  return covered;
+}
+
+// Preflight the insertion of a candidate event into a scratch copy of the
+// target SharedNode to verify historical replay validity before modifying
+// production state.
+bool PreflightHistoricalEventInsertion(
+    SharedNode const& target_node,
+    ae::RamDomainStorage const& parsed_event_storage,
+    SharedEventId const& identity,
+    std::uint64_t timestamp_us) {
+  ae::RamDomainStorage scratch_storage;
+  BuildNetworkSharedScratch(target_node, scratch_storage);
+
+  // Transfer the candidate event into the same scratch storage under a unique scratch id
+  ae::ObjId const scratch_event_id{2};
+  CommitStandaloneEventObject(parsed_event_storage, scratch_event_id,
+                              scratch_storage);
+
+  ae::Domain scratch_domain{scratch_storage};
+  ae::DomainGraph scratch_graph{&scratch_domain};
+
+  auto loaded_node = scratch_graph.LoadRoot(target_node.obj_id);
+  if (!loaded_node) {
+    return false;
+  }
+  auto loaded_event = scratch_graph.LoadRoot(scratch_event_id);
+  if (!loaded_event) {
+    return false;
+  }
+  if (ae::Registry::GetRegistry().GenerationDistance(
+          Event::kClassId, loaded_event->GetClassId()) < 0) {
+    return false;
+  }
+  auto& scratch_shared_node = static_cast<SharedNode&>(*loaded_node);
+  auto scratch_event_ptr =
+      Event::ptr::MakeFromThis(static_cast<Event*>(loaded_event.get()));
+
+  return scratch_shared_node.TryInsertShared(
+      std::move(scratch_event_ptr), identity,
+      SharedEventOrder{.timestamp_us = timestamp_us});
 }
 
 EventRecord const* NextUndeliveredSharedEvent(
@@ -253,14 +306,15 @@ void SharedSyncRuntime::SyncInitialState(ae::ObjId node_id,
   // Packet identity is the Event identity, so it survives restart and can be
   // embedded in the frame before the Event is committed.
   auto event = BeginInitialSyncEvent::ptr::Create(ae::CreateWith{domain_});
+  auto frozen = FreezeNetworkSharedNodeState(*node);
   NodeStateFrame const frame{
       .packet_id = event.id(),
       .target_node_id = node_id,
       .destination_share_id = share_id,
-      .payload = SerializeNetworkSharedObjectGraph(*node),
+      .payload = std::move(frozen.payload),
   };
   event->packet = EncodeNodeStateFrame(frame);
-  event->covered_event_ids = CoveredSharedEventIds(*node);
+  event->covered_event_ids = std::move(frozen.covered_event_ids);
   state->Commit(event);
 
   // Freeze and persist before the first send: bytes that were sent but not
@@ -378,6 +432,29 @@ SharedNode::ptr SharedSyncRuntime::ImportValidatedNode(
   if (!ParseObjectGraphPayload(frame.payload, parsed)) {
     return SharedNode::ptr{};
   }
+
+  // Validate the parsed object graph's stored class chains BEFORE loading any candidate object.
+  std::vector<StoredClassChainInfo> chains;
+  if (!ValidateStoredClassChains(parsed, &chains)) {
+    return SharedNode::ptr{};
+  }
+
+  // Ensure root target object is in the payload and its most-derived class derives SharedNode.
+  bool root_found = false;
+  for (auto const& chain_info : chains) {
+    if (chain_info.obj_id == frame.target_node_id) {
+      root_found = true;
+      if (ae::Registry::GetRegistry().GenerationDistance(
+              SharedNode::kClassId, chain_info.most_derived_class_id) < 0) {
+        return SharedNode::ptr{};
+      }
+      break;
+    }
+  }
+  if (!root_found) {
+    return SharedNode::ptr{};
+  }
+
   {
     // Scratch Domain over the parsed bytes: the candidate is inspected here
     // and discarded with it. No production object is created, and this
@@ -392,7 +469,7 @@ SharedNode::ptr SharedSyncRuntime::ImportValidatedNode(
             SharedNode::kClassId, candidate->GetClassId()) < 0) {
       return SharedNode::ptr{};
     }
-    if (!SnapshotIsAdmissible(static_cast<SharedNode const&>(*candidate),
+    if (!SnapshotIsAdmissible(static_cast<SharedNode&>(*candidate),
                               transport_.local_endpoint_uid(), source_endpoint,
                               frame.destination_share_id)) {
       return SharedNode::ptr{};
@@ -515,6 +592,11 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
     return;
   }
 
+  // Validate stored class chains before any LoadRoot on scratch storage
+  if (!ValidateStandaloneEventStorage(parsed, frame.event_class_id)) {
+    return;
+  }
+
   {
     ae::Domain scratch_domain{parsed};
     ae::DomainGraph scratch_graph{&scratch_domain};
@@ -532,9 +614,6 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
     auto& scratch_event = static_cast<Event&>(*candidate);
     if (ae::Registry::GetRegistry().GenerationDistance(
             scratch_event.TargetClassId(), node->GetClassId()) < 0) {
-      return;
-    }
-    if (!scratch_event.CanApplyTo(*node)) {
       return;
     }
   }
@@ -555,7 +634,14 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
     return;
   }
 
-  ae::ObjId const local_id = ae::ObjId::GenerateUnique();
+  // Preflight replay in a non-production scratch copy of the target SharedNode
+  // at its historical insertion point.
+  if (!PreflightHistoricalEventInsertion(*node, parsed, frame.identity,
+                                         frame.timestamp_us)) {
+    return;
+  }
+
+  ae::ObjId const local_id = AllocateUniqueStorageObjId(domain_, storage_);
   CommitStandaloneEventObject(parsed, local_id, storage_);
   auto local_event =
       Event::ptr::Declare(ae::CreateWith{domain_}.with_id(local_id));
@@ -564,8 +650,11 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
          "admitted standalone Event must load from own storage");
   assert(local_event->GetClassId() == frame.event_class_id);
 
-  node->InsertShared(std::move(local_event), frame.identity,
-                     SharedEventOrder{.timestamp_us = frame.timestamp_us});
+  bool const inserted = node->TryInsertShared(
+      std::move(local_event), frame.identity,
+      SharedEventOrder{.timestamp_us = frame.timestamp_us});
+  assert(inserted && "preflighted historical insertion must succeed");
+  (void)inserted;
   node.Save();
 
   transport_.Send(source_endpoint,
