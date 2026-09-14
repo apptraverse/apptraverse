@@ -415,8 +415,10 @@ field, `SharedEventOrderLess` compares that one field, and journal position
 follows from nothing else.
 
 Shared Event **identity is separate**: `SharedEventId` (`origin_uid`,
-`origin_sequence`) recognizes the same logical Event and is what deduplication
-works on. Identity never enters ordering, and no secondary sort key exists —
+`origin_sequence`) is the only cross-replica logical identity and is what
+deduplication works on. `Event::ObjId` is replica-local object identity: two
+Domains may give the same Event different ObjIds, and a receiver must allocate
+its own. Identity never enters ordering, and no secondary sort key exists —
 not origin, sequence, ObjId, endpoint, Share id, or insertion index.
 
 A replica's own consecutive commits still get strictly increasing timestamps
@@ -436,8 +438,9 @@ adding a second sort key.
 
 **Milestones 01–04 foundation hardened on `feature/shared-node-foundation-v1`
 (v1.1 corrections). Initial-state synchronization (05–07, 09 initial subset)
-landed on the same branch. Incremental Event replication and presence not
-started.**
+and standalone incremental Event replication (08, 09 Event subset, 12 source
+access) are on `main`. Dynamic object graphs, topology Events, multi-hop,
+presence, and Æther are not started.**
 
 ### SharedNode headless (01–16)
 
@@ -445,14 +448,14 @@ started.**
 02. **Add SharedNode share topology** — **implemented/verified** (`shares[]` + Add/Remove/ChangeShareAccess Events).  
 03. **Separate shared and local-persistent graph edges** — **implemented/verified** (generic `LocalPtr` + `GraphCopyPolicy::NetworkShared`; no SharedNode sanitization; rebuild stash).  
 04. **Persist per-Share SharedNode sync state** — **foundation implemented/verified** (`LinkSyncState` Event-sourced Node + `InitialSyncPhase` only; keyed by Share relationship identity so RemoveShare+AddShare starts a new relationship at NotStarted and a forced `RebuildFromBaseAndReplay` keeps the current relationship's progress; no ACK/pending bytes yet).  
-05. **Add generic shared sync framing and routing** — **initial-state subset implemented/verified** (protocol v1 `NodeState` / `Ack` frames routed by `target_node_id` and named by `destination_share_id`; canonical frame length and non-zero ids required; every frame bound to the transport `source_endpoint`; `SharedSyncRuntime` per replica; no Event frame yet).  
+05. **Add generic shared sync framing and routing** — **implemented/verified for NodeState, Ack, and standalone Event** (protocol v1 frames routed by `target_node_id` and named by `destination_share_id`; canonical frame length and non-zero ids required; every frame bound to the transport `source_endpoint`; `SharedSyncRuntime` per replica).  
 06. **Add deterministic Memory Link transport** — **message delivery subset implemented/verified** (opaque bytes, endpoint identity, deliver / drop / duplicate / disconnect / reconnect, no threads or sleeps; no heartbeat, presence, reorder, or fake clock yet).  
 07. **Synchronize a SharedNode to a newly attached Link** — **implemented/verified** (freeze + persist + send, admission of the snapshot in a scratch Domain before any write to real storage, import into the receiver Domain, receiver-local sync state by journal replay, persist before ACK, duplicate acknowledged without re-apply).  
-08. **Replicate incremental SharedNode Events** — steady-state Event + ACK path.  
-09. **Make shared delivery restart-safe** — **initial-state subset implemented/verified** (sender restart while Pending resends the same packet id and bytes, receiver restart after apply still recognizes the duplicate, sender restart after ACK stays Complete and sends nothing).  
+08. **Replicate incremental SharedNode Events** — **standalone scalar subset implemented/verified** (`EventFrame` + generic `Ack`; one pending Event packet per Share; `SharedEventId` is the only cross-replica identity; receiver allocates a fresh local Event ObjId; Event graphs that reach a second object are refused). Dynamic child-object graphs, topology Events, and multi-hop are not started.  
+09. **Make shared delivery restart-safe** — **implemented/verified for initial state and standalone Events** (sender restart while pending resends the same packet id and bytes, receiver restart after apply still recognizes the duplicate from the journal, sender restart after ACK keeps the identity delivered and does not resend).  
 10. **Replicate dynamic SharedNode graphs** — topology changes as shared Events.  
 11. **Share multiple Nodes over one Link** — multiplexing proof.  
-12. **Enforce RW and RO sharing rights** — modification rights without collapsing Link visibility.  
+12. **Enforce RW and RO sharing rights** — **source access implemented/verified for incremental Events** (ReadWrite source required to mutate; ReadOnly destination may still receive). Recipient-filtered graphs and writer-vs-reader edge visibility are later.  
 13. **Add recipient-scoped object references** — filtered graph edges for writers vs readers.  
 14. **Prove full share topology with three replicas** — A/B/C memory convergence.  
 15. **Integrate Link presence with SharedNode delivery** — scheduler observes Link availability.  

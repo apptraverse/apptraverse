@@ -1,4 +1,63 @@
 ---
+Status: implemented/verified on main. Not accepted.
+
+# CURSOR — SharedNode incremental standalone Event sync v1
+
+## Identity
+
+- Fast-forwarded `main` from `5b1bd52` to `8c609a9` (completed initial-sync
+  work) and continued on `main`. No feature branch. No PR.
+- Scope: first incremental Event transport for an already-Complete Share.
+  Standalone scalar Events only. One pending Event packet per Share.
+
+## Model kept
+
+- `SharedEventOrder` is `timestamp_us` only. No Lamport, no tie-break.
+- `SharedEventId` is the only cross-replica logical identity.
+- `Event::ObjId` is replica-local. The receiver creates a fresh Event object
+  and never writes the sender Event ObjId as a storage key.
+
+## What landed
+
+- `Event::TargetClassId()` / `EventFor` returns `Target::kClassId`. An
+  untrusted Event is checked through `Registry::GenerationDistance` against
+  the live Node before `CanApplyTo` / `ApplyTo` would `static_cast`.
+- `Node::InsertShared` / `FindSharedEvent` dispatch through `NodeFor` so
+  `SharedSyncRuntime` never names a concrete business Node.
+- Standalone Event payload: freeze the network-shared graph, refuse if it is
+  not exactly one object, serialize class/version layers without making the
+  sender ObjId authoritative. Receiver parses in scratch, validates, then
+  `GenerateUnique` + load into production storage.
+- Protocol v1 `EventFrame`: packet / node / share ids, `SharedEventId`,
+  `timestamp_us`, `event_class_id`, payload. Strict canonical decode. Ack
+  stays the generic `AckFrame`.
+- `LinkSyncState` v2: `pending_initial_covered_event_ids` captured at
+  NodeState freeze and moved into `delivered_event_ids` on initial ACK;
+  `delivered_event_ids` plus one `pending_event_*` packet for incremental
+  send. All mutations are Events. v1 layout is rejected at load.
+- `SyncNextEvent`: no-op until initial Complete; exact retry of a pending
+  packet; otherwise freeze/persist/send the first undelivered shared journal
+  Event. No timers.
+
+## Tests
+
+`apptraverse_shared_node_incremental_event_test` covers the required
+scenarios: normal A→B scalar Event, same `SharedEventId` / different Event
+ObjIds (B occupies the sender ObjId first), timestamp preserved, mid-journal
+100/200/300 replay, persist-before-send, lost ACK exact retry, duplicate no
+reapply, sender/receiver restart, initial snapshot E1-vs-E2 coverage race,
+wrong source, ReadOnly source, wrong destination, malformed payload, wrong
+target Event class, conflicting duplicate identity, non-standalone Event
+graph refused, and strict Event frame decoding.
+
+## Still open
+
+- Events carrying new object graphs / child Nodes
+- topology Event replication
+- multi-hop / 3-replica fanout
+- presence, Æther, chat
+
+---
 Status: implemented/verified on feature branch. Not accepted.
 
 # CURSOR — Legacy SharedInstance / SharedRuntime sync engine removed
