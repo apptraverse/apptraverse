@@ -169,6 +169,12 @@ class Node : public ae::Obj {
 
   void Commit(Event::ptr event) { CommitImpl(std::move(event)); }
 
+  // Rebuild materialized state from base and replay the journal. Used after a
+  // network snapshot import, where local-persistent Nodes reachable only
+  // through LocalPtr did not travel and are re-created by replaying the
+  // shared journal.
+  void ReplayFromBase() { ReplayFromBaseImpl(); }
+
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 
@@ -407,6 +413,10 @@ class Node : public ae::Obj {
 
   virtual void CompactJournalImpl(std::uint64_t now_us) {
     (void)now_us;
+    assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual void ReplayFromBaseImpl() {
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 

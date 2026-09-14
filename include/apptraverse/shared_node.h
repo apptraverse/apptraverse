@@ -49,6 +49,9 @@ enum class InitialSyncPhase : std::uint8_t {
 };
 
 class SetLinkInitialSyncPhaseEvent;
+class BeginInitialSyncEvent;
+class CompleteInitialSyncEvent;
+class NoteInitialSyncReceivedEvent;
 
 // Local-persistent synchronization progress for one Share relationship of one
 // SharedNode. Belongs to share_id, not to the Link: a later relationship over
@@ -66,7 +69,10 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   explicit LinkSyncState(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(share_id), AE_MMBR(link),
-                    AE_MMBR(initial_sync_phase))
+                    AE_MMBR(initial_sync_phase),
+                    AE_MMBR(pending_initial_packet_id),
+                    AE_MMBR(pending_initial_packet),
+                    AE_MMBR(received_initial_packet_id))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv&) {
@@ -76,13 +82,15 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
     Node::Load(ae::Version<2>{}, dnv);
-    dnv(share_id, link, initial_sync_phase);
+    dnv(share_id, link, initial_sync_phase, pending_initial_packet_id,
+        pending_initial_packet, received_initial_packet_id);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
     Node::Save(ae::Version<2>{}, dnv);
-    dnv(share_id, link, initial_sync_phase);
+    dnv(share_id, link, initial_sync_phase, pending_initial_packet_id,
+        pending_initial_packet, received_initial_packet_id);
   }
 
   ae::ObjId share_id;
@@ -90,12 +98,27 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   std::uint8_t initial_sync_phase{
       static_cast<std::uint8_t>(InitialSyncPhase::NotStarted)};
 
+  // Sender side: the exact frozen initial-state frame, resent byte for byte
+  // until it is acknowledged. Retries never rebuild it from current state.
+  ae::ObjId pending_initial_packet_id;
+  std::vector<std::uint8_t> pending_initial_packet;
+
+  // Receiver side: the initial-state packet already imported and persisted.
+  // A repeat of it is a duplicate to acknowledge again, not state to re-apply.
+  ae::ObjId received_initial_packet_id;
+
   InitialSyncPhase GetInitialSyncPhase() const {
     return static_cast<InitialSyncPhase>(initial_sync_phase);
   }
 
   void SetInitialSyncPhase(InitialSyncPhase phase);
+  void CompleteInitialSync();
+  void NoteInitialSyncReceived(ae::ObjId packet_id);
+
   void Apply(SetLinkInitialSyncPhaseEvent const& event);
+  void Apply(BeginInitialSyncEvent const& event);
+  void Apply(CompleteInitialSyncEvent const& event);
+  void Apply(NoteInitialSyncReceivedEvent const& event);
 };
 
 class SetLinkInitialSyncPhaseEvent
@@ -112,6 +135,54 @@ class SetLinkInitialSyncPhaseEvent
 
   std::uint8_t phase{
       static_cast<std::uint8_t>(InitialSyncPhase::NotStarted)};
+};
+
+// Freeze one initial-state packet for this relationship. The packet identity
+// is this Event's ObjId, so it is stable across retry and restart and can be
+// embedded in the frozen frame before the Event is committed.
+class BeginInitialSyncEvent
+    : public EventFor<LinkSyncState, BeginInitialSyncEvent> {
+  APPTRAVERSE_OBJECT(BeginInitialSyncEvent, Event, 0)
+
+ protected:
+  BeginInitialSyncEvent() = default;
+
+ public:
+  explicit BeginInitialSyncEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(packet))
+
+  std::vector<std::uint8_t> packet;
+};
+
+// Sender: the frozen packet was acknowledged by the peer.
+class CompleteInitialSyncEvent
+    : public EventFor<LinkSyncState, CompleteInitialSyncEvent> {
+  APPTRAVERSE_OBJECT(CompleteInitialSyncEvent, Event, 0)
+
+ protected:
+  CompleteInitialSyncEvent() = default;
+
+ public:
+  explicit CompleteInitialSyncEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT()
+};
+
+// Receiver: an initial-state packet was imported into this replica.
+class NoteInitialSyncReceivedEvent
+    : public EventFor<LinkSyncState, NoteInitialSyncReceivedEvent> {
+  APPTRAVERSE_OBJECT(NoteInitialSyncReceivedEvent, Event, 0)
+
+ protected:
+  NoteInitialSyncReceivedEvent() = default;
+
+ public:
+  explicit NoteInitialSyncReceivedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(packet_id))
+
+  ae::ObjId packet_id;
 };
 
 class AddShareEvent;

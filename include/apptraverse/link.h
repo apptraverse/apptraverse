@@ -23,6 +23,12 @@ class Link : public NodeFor<Link> {
   explicit Link(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT()
+
+  // Transport address of this endpoint, as the concrete descriptor defines it.
+  // Locality stays runtime-relative: a runtime recognizes its own Link by
+  // comparing this with its own endpoint uid. Empty when the descriptor has no
+  // transport address yet.
+  virtual std::string const& EndpointUid() const;
 };
 
 // First concrete transport descriptor. Runtime transport objects are not
@@ -54,6 +60,8 @@ class MemoryLink : public NodeFor<MemoryLink, Link> {
     Node::Save(ae::Version<2>{}, dnv);
     dnv(endpoint_uid, heartbeat_interval_ms);
   }
+
+  std::string const& EndpointUid() const override { return endpoint_uid; }
 
   std::string endpoint_uid;
   std::uint32_t heartbeat_interval_ms{0};

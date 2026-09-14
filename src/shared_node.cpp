@@ -10,6 +10,9 @@ namespace {
 
 APPTRAVERSE_REGISTER(LinkSyncState);
 APPTRAVERSE_REGISTER(SetLinkInitialSyncPhaseEvent);
+APPTRAVERSE_REGISTER(BeginInitialSyncEvent);
+APPTRAVERSE_REGISTER(CompleteInitialSyncEvent);
+APPTRAVERSE_REGISTER(NoteInitialSyncReceivedEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddShareEvent);
 APPTRAVERSE_REGISTER(RemoveShareEvent);
@@ -29,8 +32,43 @@ void LinkSyncState::SetInitialSyncPhase(InitialSyncPhase phase) {
   Commit(event);
 }
 
+void LinkSyncState::CompleteInitialSync() {
+  auto event = CompleteInitialSyncEvent::ptr::Create(ae::CreateWith{*domain});
+  Commit(event);
+}
+
+void LinkSyncState::NoteInitialSyncReceived(ae::ObjId packet_id) {
+  assert(packet_id.is_valid());
+  auto event =
+      NoteInitialSyncReceivedEvent::ptr::Create(ae::CreateWith{*domain});
+  event->packet_id = packet_id;
+  Commit(event);
+}
+
 void LinkSyncState::Apply(SetLinkInitialSyncPhaseEvent const& event) {
   initial_sync_phase = event.phase;
+  NoteMaterializedChange();
+}
+
+void LinkSyncState::Apply(BeginInitialSyncEvent const& event) {
+  assert(GetInitialSyncPhase() == InitialSyncPhase::NotStarted);
+  assert(!event.packet.empty());
+  initial_sync_phase = static_cast<std::uint8_t>(InitialSyncPhase::Pending);
+  pending_initial_packet_id = event.obj_id;
+  pending_initial_packet = event.packet;
+  NoteMaterializedChange();
+}
+
+void LinkSyncState::Apply(CompleteInitialSyncEvent const&) {
+  initial_sync_phase = static_cast<std::uint8_t>(InitialSyncPhase::Complete);
+  pending_initial_packet_id = ae::ObjId{};
+  pending_initial_packet.clear();
+  NoteMaterializedChange();
+}
+
+void LinkSyncState::Apply(NoteInitialSyncReceivedEvent const& event) {
+  received_initial_packet_id = event.packet_id;
+  initial_sync_phase = static_cast<std::uint8_t>(InitialSyncPhase::Complete);
   NoteMaterializedChange();
 }
 
@@ -185,7 +223,15 @@ InitialSyncPhase SharedNode::GetInitialSyncPhase(Link::ptr link) const {
 }
 
 void SharedNode::StashLocalPersistentAcrossRebuild() {
-  rebuild_local_sync_stash_ = link_sync_states;
+  rebuild_local_sync_stash_.clear();
+  for (auto const& entry : link_sync_states) {
+    // An invalid entry is the absence of local state, not state to carry: a
+    // network-imported SharedNode has one per Share. Replay then creates this
+    // replica's own LinkSyncState for each relationship.
+    if (entry.is_valid()) {
+      rebuild_local_sync_stash_.push_back(entry);
+    }
+  }
 }
 
 void SharedNode::RestoreLocalPersistentAcrossRebuild() {
