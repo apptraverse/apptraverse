@@ -1,6 +1,123 @@
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
+# CURSOR — Shared Event order simplified to timestamp only
+
+## Identity
+
+- Starting SHA: `2c176a46f4b8a278cf6db0d097d99b5bdff5046b`
+- Branch: `cursor/sharednode-initial-state-sync-v1-9239`
+- PR: https://github.com/apptraverse/apptraverse/pull/3 (draft, not merged)
+- Scope: the shared Event order model and the persisted journal shape it
+  implies. No incremental Event transport, no presence, no change to the
+  initial NodeState/ACK protocol beyond what the new EventRecord layout forced.
+
+## The model now
+
+- Shared Event **order**: `SharedEventOrder{ timestamp_us }`. One field, one
+  comparison. `SharedEventOrderLess` is `a.timestamp_us < b.timestamp_us` and
+  `EventRecordOrderLess` forwards to it.
+- Shared Event **identity**: `SharedEventId{ origin_uid, origin_sequence }`,
+  unchanged and separate. It recognizes the same logical Event and is what
+  deduplication uses. It does not participate in ordering.
+- `EventRecord` keeps the three concepts apart explicitly: `event`, `identity`,
+  `order`, `retained_since_us`. Only `order.timestamp_us` decides position.
+- What was removed: `SharedEventOrder` no longer carries `lamport`,
+  `origin_uid`, or `origin_sequence`, and nothing compares that tuple any more.
+  `SharedInstance::lamport_clock` is gone; a remote Event no longer advances
+  any local counter and keeps the `timestamp_us` it was sent with.
+
+## Local timestamps
+
+`Node::CommitInto` and `SharedRuntime::MakeLocalOrder` both keep a replica's own
+consecutive commits strictly increasing: if the wall clock has not moved, the
+next commit takes the previous timestamp plus one. `SharedInstance` tracks that
+as `last_local_timestamp_us`, advanced only by that replica's own Events. It is
+a wall-clock adjustment over one local sequence, not a logical clock.
+
+## Equal timestamps: deliberately unresolved
+
+Two different Events may carry the same `timestamp_us`. The insert-time
+assertion that rejected equal orders is gone; the duplicate-`SharedEventId`
+assertion stays. No tie-break replaced it. Where equal-timestamp records land
+relative to each other is `std::lower_bound` behavior on that replica, written
+down as such at the insertion site, and replicas are not claimed to converge
+for that case.
+
+## Persisted state
+
+Measured, not assumed. A `SharedValueNode` with three journal Events was
+written by `2c176a4` and read back by this revision: without a guard it loaded
+"successfully" into a journal of three records of which two had dead Event
+references and a materialized value of 0 instead of 21. A version bump on
+`Node` does not fix that — aether-objects writes a Node's fields into the
+storage layer of the *most derived* class, so `Node`'s version is not part of
+the storage key of any concrete Node, and only the derived class's version is.
+
+So the journal format is stated in the payload: `kNodeJournalFormat` is written
+at the head of every Node payload and checked before the journal is decoded.
+Old development state now fails at load with "AppTraverse Node journal predates
+timestamp-only Event order; re-distill with a fresh state dir". Nothing is
+migrated and nothing is rewritten during Load. `Node` is version 3, and its v1
+and v2 loaders throw for the same reason.
+
+This supersedes the earlier note (journal retention section below) that Node
+`Load(Version<1>)` migrates v1 journals by stamping load time: that migration
+and its `EventRecordWireV1` layout are deleted, together with the
+`LegacyRetentionDoc` fixture and `TestNodeV1MigrationStampsRetainedSince` that
+covered it.
+
+## Tests
+
+- `apptraverse_event_sourced_core_test`: two new scenarios.
+  `TestOrderIgnoresIdentity` pairs timestamp 100/identity `z`/99 against
+  timestamp 200/identity `a`/1 and requires the timestamps to decide, then
+  takes two records with equal timestamps and different identities and requires
+  the comparator to answer false in both directions while identity still
+  reports them as different Events.
+  `TestMidJournalRemoteEventReplaysByTimestamp` commits at 100 and 300 and then
+  inserts at 200 from origin `z-origin`, which sorts last: the materialized
+  label is `b123` rather than the `b132` an append would produce, so the whole
+  journal was replayed in timestamp order and origin had no influence.
+- `apptraverse_shared_journal_test`: the simultaneous-commit test asserted that
+  equal lamport clocks converge through a lexicographic `origin_uid` tie-break.
+  That claim no longer exists, so the test is now
+  `test_cross_replica_order_follows_timestamp`: the host commits at an earlier
+  forced timestamp than the client although `"client-uid" < "host-uid"`, and
+  both replicas converge with the host's message first.
+- Order literals across `journal_retention_test`, `shared_node_foundation_test`,
+  and `event_sourced_core_test` are timestamps now; none of them construct an
+  order out of identity fields.
+
+## Verified
+
+- Required set, all pass: `apptraverse_shared_node_initial_sync_test`,
+  `apptraverse_shared_node_foundation_test`, `apptraverse_event_sourced_core_test`,
+  `apptraverse_dynamic_objects_add_test`, `apptraverse_journal_retention_test`,
+  `apptraverse_model_runtime_stop_test`, `apptraverse_publication_channel_test`.
+- `apptraverse_chat_headless_check` (event-sourced core, shared journal,
+  journal retention, chat presentation headless) passes, as does
+  `apptraverse_chat_ui_mirror_integration_test`.
+- Full `ctest` in this tree: everything passes except
+  `apptraverse_surfaces_linux_smoke_test` (known GTK flake, out of scope).
+  `apptraverse_model_ui_runtime_test` fails at `TestInitialGraphCopy`, and it
+  fails identically when built from `2c176a4`: pre-existing on Linux, not
+  caused by this change.
+- Incremental builds only. The build tree was reconfigured with
+  `APPTRAVERSE_BUILD_AETHER_DEMOS=ON` (the repository default) so the chat
+  headless targets exist; nothing was wiped.
+
+## Known limitations
+
+- Equal timestamps have no defined order between replicas. Open by decision.
+- No incremental Event transport and no presence. An Event frame carrying
+  identity, `timestamp_us`, and payload is still milestone 08.
+- `Node`'s journal format constant is a stand-in for per-class journal
+  versioning. Real versioning would mean bumping every Node subclass.
+
+---
+Status: implemented/verified on feature branch. Not accepted.
+
 # CURSOR — Initial sync v1 protocol hardening
 
 ## Identity

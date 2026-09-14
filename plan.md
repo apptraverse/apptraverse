@@ -391,20 +391,27 @@ hash with a separate resource subsystem for bytes.
 These are distinct use cases — do not force either into the first SharedNode
 implementation.
 
-## Event order (explicit decision)
+## Event order (explicit decision) — implemented
 
-Shared Event **canonical order uses `timestamp_us` only**.
+Shared Event **order is `timestamp_us` only**. `SharedEventOrder` holds that one
+field, `SharedEventOrderLess` compares that one field, and journal position
+follows from nothing else.
 
-Do **not** add as mandatory canonical order:
+Shared Event **identity is separate**: `SharedEventId` (`origin_uid`,
+`origin_sequence`) recognizes the same logical Event and is what deduplication
+works on. Identity never enters ordering, and no secondary sort key exists —
+not origin, sequence, ObjId, endpoint, Share id, or insertion index.
 
-- Lamport
-- origin_uid tie-break
-- origin_sequence tie-break
+A replica's own consecutive commits still get strictly increasing timestamps
+(`Node::CommitInto`, `SharedRuntime::MakeLocalOrder`). That is a wall-clock
+adjustment over one replica's own sequence, not a logical clock: remote Events
+never advance it and keep the timestamp they were sent with.
 
-Event identity / dedup is a **separate** concern.
-
-Equal-timestamp behavior across independent sources remains an open edge case;
-do not silently solve it by adding a second sort key.
+Equal-timestamp behavior across independent sources remains an open edge case.
+Two different Events may carry the same timestamp; where they land relative to
+each other is `std::lower_bound` behavior on that replica, not agreed order,
+and convergence for that case is not claimed. Do not silently solve it by
+adding a second sort key.
 
 ---
 
@@ -573,6 +580,14 @@ SurfacePresenter
 - The network-shared graph payload reuses the storage encoding of each object
   layer, which is not a portable wire format. Fine for a memory transport in
   one process; revisit before a cross-machine transport.
+- Two shared Events with the same `timestamp_us` have no defined order between
+  them, and replicas may disagree. Deliberately unresolved: picking a
+  tie-break would put identity back into ordering.
+- A Node's journal bytes are written into the storage layer of the most derived
+  class, so `Node`'s own version does not key any concrete Node's storage. The
+  journal format is stated by a constant at the head of the payload instead
+  (`kNodeJournalFormat`). If a later change needs real per-class journal
+  versioning, that is a change to every Node subclass.
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.
