@@ -166,27 +166,12 @@ add_test(
   COMMAND apptraverse_chat_presentation_headless_test
 )
 
-add_executable(apptraverse_shared_journal_test
-  shared_journal_test.cpp
-)
-
-target_link_libraries(apptraverse_shared_journal_test PRIVATE
-  chat_ui_runtime_demo_common
-)
-
-add_test(
-  NAME apptraverse_shared_journal_test
-  COMMAND apptraverse_shared_journal_test
-)
-
 add_custom_target(apptraverse_chat_headless_check
   COMMAND $<TARGET_FILE:apptraverse_event_sourced_core_test>
-  COMMAND $<TARGET_FILE:apptraverse_shared_journal_test>
   COMMAND $<TARGET_FILE:apptraverse_journal_retention_test>
   COMMAND $<TARGET_FILE:apptraverse_chat_presentation_headless_test>
   DEPENDS
     apptraverse_event_sourced_core_test
-    apptraverse_shared_journal_test
     apptraverse_journal_retention_test
     apptraverse_chat_presentation_headless_test
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -541,33 +526,6 @@ if(WIN32)
   )
 
   if(APPTRAVERSE_BUILD_AETHER_DEMOS)
-  add_executable(apptraverse_chat_p2p_headless_test
-    chat_p2p_headless_test.cpp
-    ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows/aether_runtime.cpp
-  )
-
-  target_link_libraries(apptraverse_chat_p2p_headless_test PRIVATE
-    chat_ui_runtime_demo_common
-    user32
-    gdi32
-    advapi32
-    wininet
-  )
-
-  target_include_directories(apptraverse_chat_p2p_headless_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows
-    ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/common
-  )
-
-  if(MSVC)
-    target_compile_options(apptraverse_chat_p2p_headless_test PRIVATE /utf-8)
-  endif()
-
-  add_test(
-    NAME apptraverse_chat_p2p_headless_test
-    COMMAND apptraverse_chat_p2p_headless_test
-  )
-
   add_executable(apptraverse_chat_win32_ui_smoke_test
     chat_win32_ui_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows/win_presenters.cpp

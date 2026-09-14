@@ -27,7 +27,7 @@
 #include "chat_aether_client_init.h"
 #include "chat_model.h"
 #include "chat_presence.h"
-#include "chat_shared.h"
+#include "chat_presence_overlay.h"
 #include "apptraverse/node.h"
 #include "apptraverse/runtime_lifecycle.h"
 
@@ -453,28 +453,6 @@ void TestApplicationRoleModelToUiProjection() {
   CHECK(application->GetRole() == ChatRole::Client);
 }
 
-void TestConnectToHostCommandRegistersPeer() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Nikolay");
-  FinalizeDistilledGraph(*application);
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "local-client-uid");
-  std::string const host_uid = "83df0bb1-08ac-45f8-8003-8eeb7fa8f425";
-  int open_count = 0;
-  ConnectToHostCommand(binding, host_uid,
-                       [&](std::string const& uid) {
-                         CHECK(uid == host_uid);
-                         ++open_count;
-                       });
-  CHECK(open_count == 1);
-  CHECK(binding.instance.shared_room_id == host_uid);
-  CHECK(binding.instance.peers.size() == 1);
-  CHECK(binding.instance.peers[0].remote_aether_uid == host_uid);
-  CHECK(!binding.instance.peers[0].channel_ready);
-}
-
 void TestIdentityBarPresenterStructure() {
 #ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR};
@@ -784,14 +762,14 @@ void TestApplyPresenceOverlayUnchangedReturnsZero() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  CreateUnjoinedLocalClient(*application, "host-uid");
+  CompleteLocalRegistration(*application, "host-uid");
 
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->local_client);
-  SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  CHECK(ApplyPresenceOverlay(binding) == 0);
-  CHECK(!SetLocalPresenceObservation(binding, PresenceState::kOnline));
+  ChatPresenceOverlay overlay;
+  CHECK(overlay.SetLocalSelf(PresenceState::kOnline));
+  CHECK(CommitPresenceChanged(*application->local_client,
+                              PresenceState::kOnline));
+  CHECK(overlay.ApplyToRoom(*application->room, "host-uid") == 0);
+  CHECK(!overlay.SetLocalSelf(PresenceState::kOnline));
 }
 
 void TestNoManualSerializersOrRuntimeClasses() {
@@ -852,7 +830,6 @@ int main() {
   using apptraverse::test::TestAetherPinMatchesExpectedSha;
   using apptraverse::test::TestAetherPresenceQueryOnlyOnAetherThread;
   using apptraverse::test::TestAetherRxScheduleConfiguredInRuntime;
-  using apptraverse::test::TestConnectToHostCommandRegistersPeer;
   using apptraverse::test::TestIdentityBarPresenterStructure;
   using apptraverse::test::TestIdentityBarProjection;
   using apptraverse::test::TestNetworkOutageUpdatesIdentityAndPresence;
@@ -876,7 +853,6 @@ int main() {
   TestLocalChatUiProjectionFromDomain();
   TestLocalAetherUidModelToUiProjection();
   TestApplicationRoleModelToUiProjection();
-  TestConnectToHostCommandRegistersPeer();
   TestChatNamedObjectClassIds();
   TestCreateOrLoadIgnoresCliWhenStateExists();
   TestLocalPresenceScheduleStateMapping();

@@ -25,14 +25,6 @@ struct SharedEventId {
   AE_REFLECT_MEMBERS(origin_uid, origin_sequence)
 };
 
-inline bool SharedEventIdLess(SharedEventId const& a,
-                              SharedEventId const& b) noexcept {
-  if (a.origin_uid != b.origin_uid) {
-    return a.origin_uid < b.origin_uid;
-  }
-  return a.origin_sequence < b.origin_sequence;
-}
-
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_SHARED_EVENT_ID_H_

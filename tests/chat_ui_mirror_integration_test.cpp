@@ -22,7 +22,6 @@
 #include "chat_model.h"
 #include "chat_presence.h"
 #include "chat_presence_overlay.h"
-#include "chat_shared.h"
 
 namespace apptraverse::test {
 using namespace apptraverse;

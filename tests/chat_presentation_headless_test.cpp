@@ -13,7 +13,6 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_transport.h"
 
 #include "chat_bootstrap.h"
 #include "chat_commands.h"
@@ -22,7 +21,7 @@
 #include "chat_model.h"
 #include "chat_presentation.h"
 #include "chat_presence.h"
-#include "chat_shared.h"
+#include "chat_presence_overlay.h"
 #include "ui_send_latency_tracker.h"
 
 namespace apptraverse::test {
@@ -114,54 +113,6 @@ void TestPresentationSnapshotFromModelGraph() {
   CHECK(snap.contacts[0].aether_uid == "host-uid");
 }
 
-void TestTimestampCommitAndRemap() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Client");
-  FinalizeDistilledGraph(*application);
-  CompleteLocalRegistration(*application, "client-uid");
-
-  std::int64_t const sent_at = 1'700'000'123'456LL;
-  auto event = CommitSendChatMessage(*application->room,
-                                     *application->local_client, "ping", sent_at);
-  CHECK(event.is_valid());
-  CHECK(event->sent_at_unix_ms == sent_at);
-  CHECK(application->room->feed.back()->sent_at_unix_ms == sent_at);
-  CHECK(application->room->feed.back()->source_event_obj_id ==
-        event.id().id());
-
-  auto payload = SerializeSharedEventPayload(*event);
-
-  ae::RamDomainStorage remote_storage;
-  ae::Domain remote_domain{remote_storage};
-  auto remote_app = BuildChatGraph(remote_domain, "Host");
-  FinalizeDistilledGraph(*remote_app);
-  CompleteLocalRegistration(*remote_app, "host-uid");
-  auto remote_client = ChatClient::ptr::Create(ae::CreateWith{remote_domain});
-  remote_client->SetAetherUidText("client-uid");
-  auto name = ImmutableString::ptr::Create(ae::CreateWith{remote_domain});
-  name->bytes = "Client";
-  remote_client->display_name = name;
-  apptraverse::InitializeRuntimeNode(*remote_client);
-  CommitClientAdded(*remote_app->room, *remote_client);
-
-  auto remapped =
-      RemapIncomingEvent(*remote_app->room, remote_domain, payload, {},
-                         "client-uid");
-  CHECK(remapped.is_valid());
-  CHECK(remapped->GetClassId() == ChatMessageEvent::kClassId);
-  auto* message = static_cast<ChatMessageEvent*>(&*remapped);
-  CHECK(message->sent_at_unix_ms == sent_at);
-  CHECK(message->text.is_valid());
-  message->text.Load();
-  CHECK(message->text->bytes == "ping");
-
-  CHECK(remote_app->room->CanApply(*message));
-  remote_app->room->Commit(remapped);
-  CHECK(remote_app->room->feed.back()->sent_at_unix_ms == sent_at);
-}
-
 void TestLegacyZeroTimestampHasNoFakeTime() {
   CHECK(FormatUnixMsLocalTime(0).empty());
   CHECK(FormatChatMessageDisplayLine("Host", "old", 0) == "Host: old");
@@ -199,58 +150,6 @@ void TestUiSendLatencyTracker() {
   CHECK(!tracker.ResolveForPresentation(999, t1).has_value());
 }
 
-void TestOfflineRetrySkippedWhileChannelDown() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  CreateUnjoinedLocalClient(*application, "host-uid");
-
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->local_client);
-  EnsureSharedPeer(binding, "client-uid");
-  auto* peer = binding.instance.FindPeer("client-uid");
-  peer->channel_ready = true;
-  peer->pending.push_back(
-      SharedEventId{.origin_uid = "host-uid", .origin_sequence = 1});
-
-  int sends = 0;
-  auto now = std::chrono::steady_clock::now();
-  binding.runtime.Tick(binding.instance, now,
-                       [&](PeerDeliveryState&, SharedEventId const&) {
-                         ++sends;
-                         return true;
-                       });
-  CHECK(sends == 1);
-  CHECK(!peer->in_flight.empty());
-
-  // channel_ready is transport evidence: retry proceeds even while offline.
-  binding.runtime.Tick(binding.instance, now + std::chrono::seconds{2},
-                       [&](PeerDeliveryState&, SharedEventId const&) {
-                         ++sends;
-                         return true;
-                       });
-  CHECK(sends == 2);
-
-  peer->channel_ready = false;
-  binding.runtime.Tick(binding.instance, now + std::chrono::seconds{4},
-                       [&](PeerDeliveryState&, SharedEventId const&) {
-                         ++sends;
-                         return true;
-                       });
-  CHECK(sends == 2);
-
-  peer->channel_ready = true;
-  binding.runtime.Tick(binding.instance, now + std::chrono::seconds{4},
-                       [&](PeerDeliveryState&, SharedEventId const&) {
-                         ++sends;
-                         return true;
-                       });
-  CHECK(sends == 3);
-}
-
 void TestPresenceTriStateMapping() {
   CHECK(PresenceFromLocalDiag(false, false) == PresenceState::kUnknown);
   CHECK(PresenceFromLocalDiag(true, true) == PresenceState::kOnline);
@@ -266,26 +165,24 @@ void TestLocalSelfSameStatusDoesNotBumpGeneration() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  CreateUnjoinedLocalClient(*application, "host-uid");
+  CompleteLocalRegistration(*application, "host-uid");
 
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->local_client);
-  SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  auto const gen = application->local_client->Generation();
-  SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  CHECK(application->local_client->Generation() == gen);
+  auto& client = *application->local_client;
+  CommitPresenceChanged(client, PresenceState::kOnline);
+  auto const gen = client.Generation();
+  CommitPresenceChanged(client, PresenceState::kOnline);
+  CHECK(client.Generation() == gen);
 
-  auto const gen_online = application->local_client->Generation();
-  SetLocalPresenceObservation(binding, PresenceState::kOffline);
-  CHECK(application->local_client->Generation() > gen_online);
+  auto const gen_online = client.Generation();
+  CommitPresenceChanged(client, PresenceState::kOffline);
+  CHECK(client.Generation() > gen_online);
 
-  auto const gen_offline = application->local_client->Generation();
-  SetLocalPresenceObservation(binding, PresenceState::kUnknown);
-  CHECK(application->local_client->Generation() > gen_offline);
-  auto const gen_unknown = application->local_client->Generation();
-  SetLocalPresenceObservation(binding, PresenceState::kOnline);
-  CHECK(application->local_client->Generation() > gen_unknown);
+  auto const gen_offline = client.Generation();
+  CommitPresenceChanged(client, PresenceState::kUnknown);
+  CHECK(client.Generation() > gen_offline);
+  auto const gen_unknown = client.Generation();
+  CommitPresenceChanged(client, PresenceState::kOnline);
+  CHECK(client.Generation() > gen_unknown);
 }
 
 void TestContactsLocalFirstFromClientsOnly() {
@@ -343,18 +240,16 @@ void TestPresenceOverlaySurvivesOnlineClear() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  CreateUnjoinedLocalClient(*application, "host-uid");
+  CompleteLocalRegistration(*application, "host-uid");
 
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->local_client);
-  binding.presence.SetLocalSelf(PresenceState::kOnline);
-  ApplyPresenceOverlay(binding);
+  ChatPresenceOverlay overlay;
+  overlay.SetLocalSelf(PresenceState::kOnline);
+  overlay.ApplyToRoom(*application->room, "host-uid");
   CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
 
   // Simulate journal rebuild wiping presence presentation cache.
   application->local_client->SetPresence(PresenceState::kUnknown);
-  ApplyPresenceOverlay(binding);
+  overlay.ApplyToRoom(*application->room, "host-uid");
   CHECK(application->local_client->GetPresence() == PresenceState::kOnline);
 }
 
@@ -364,29 +259,6 @@ void TestNewChatClientStartsUnknown() {
   ae::Domain domain{storage};
   auto client = ChatClient::ptr::Create(ae::CreateWith{domain});
   CHECK(client->GetPresence() == PresenceState::kUnknown);
-}
-
-void TestIncomingSharedCannotImportPresence() {
-  EnsureChatRegistration();
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto application = BuildChatGraph(domain, "Host");
-  FinalizeDistilledGraph(*application);
-  CreateUnjoinedLocalClient(*application, "host-uid");
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->local_client);
-  binding.presence.SetLocalSelf(PresenceState::kOnline);
-
-  auto foreign = ChatClient::ptr::Create(ae::CreateWith{domain});
-  foreign->SetAetherUidText("client-uid");
-  foreign->SetPresence(PresenceState::kOnline);
-  auto name = ImmutableString::ptr::Create(ae::CreateWith{domain});
-  name->bytes = "Client";
-  foreign->display_name = name;
-  auto join = MakeClientAddedEvent(*application->room, *foreign);
-  StripRuntimeFieldsFromEventGraph(*join);
-  CHECK(join->client->GetPresence() == PresenceState::kUnknown);
 }
 
 void TestReplayKeepsJournaledPresence() {
@@ -411,16 +283,14 @@ void TestPresenceOverlayApplyUnchangedReturnsZero() {
   ae::Domain domain{storage};
   auto application = BuildChatGraph(domain, "Host");
   FinalizeDistilledGraph(*application);
-  CreateUnjoinedLocalClient(*application, "host-uid");
+  CompleteLocalRegistration(*application, "host-uid");
 
-  ChatSharedBinding binding;
-  InitializeChatSharedBinding(binding, *application, "host-uid");
-  CommitLocalJoin(binding, *application->local_client);
-  CHECK(binding.presence.SetLocalSelf(PresenceState::kOnline));
-  CHECK(ApplyPresenceOverlay(binding) == 1);
-  CHECK(ApplyPresenceOverlay(binding) == 0);
-  CHECK(!binding.presence.SetLocalSelf(PresenceState::kOnline));
-  CHECK(ApplyPresenceOverlay(binding) == 0);
+  ChatPresenceOverlay overlay;
+  CHECK(overlay.SetLocalSelf(PresenceState::kOnline));
+  CHECK(overlay.ApplyToRoom(*application->room, "host-uid") == 1);
+  CHECK(overlay.ApplyToRoom(*application->room, "host-uid") == 0);
+  CHECK(!overlay.SetLocalSelf(PresenceState::kOnline));
+  CHECK(overlay.ApplyToRoom(*application->room, "host-uid") == 0);
 }
 
 void TestIdentityBarProjectionHeadless() {
@@ -458,16 +328,13 @@ int main() {
     TestSourceGuardNoMirrorOrHwnd();
     TestLocalChatHostJoinAndMessages();
     TestPresentationSnapshotFromModelGraph();
-    TestTimestampCommitAndRemap();
     TestLegacyZeroTimestampHasNoFakeTime();
     TestUiSendLatencyTracker();
-    TestOfflineRetrySkippedWhileChannelDown();
     TestPresenceTriStateMapping();
     TestLocalSelfSameStatusDoesNotBumpGeneration();
     TestContactsLocalFirstFromClientsOnly();
     TestPresenceOverlaySurvivesOnlineClear();
     TestNewChatClientStartsUnknown();
-    TestIncomingSharedCannotImportPresence();
     TestReplayKeepsJournaledPresence();
     TestPresenceOverlayApplyUnchangedReturnsZero();
     TestIdentityBarProjectionHeadless();

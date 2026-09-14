@@ -295,6 +295,71 @@ void TestMidJournalRemoteEventReplaysByTimestamp() {
   CHECK(doc->value == 6);
 }
 
+// Shared Event identity is journal state, not transport state. It is written
+// with the record and read back, so a replica can still tell an Event it has
+// already applied from a new one after a restart.
+void TestSharedEventIdentityRoundTrip() {
+  ae::RamDomainStorage storage;
+  ae::ObjId::Type const doc_id = 51;
+  SharedEventId const first{.origin_uid = "peer-a", .origin_sequence = 7};
+  SharedEventId const second{.origin_uid = "peer-b", .origin_sequence = 1};
+
+  {
+    ae::Domain domain{storage};
+    auto base =
+        CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(50));
+    base->label = "b";
+    auto doc =
+        CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(doc_id));
+    doc->base = base;
+    doc->label = "b";
+    doc->CaptureBaseState();
+
+    auto const add = [&](std::int32_t delta, std::string tag) {
+      auto event = AddEvent::ptr::Create(ae::CreateWith{domain});
+      event->delta = delta;
+      event->tag = std::move(tag);
+      return event;
+    };
+
+    doc->CommitShared(add(2, "x"), first,
+                      SharedEventOrder{.timestamp_us = 400});
+    doc->CommitShared(add(3, "y"), second,
+                      SharedEventOrder{.timestamp_us = 500});
+    doc.Save();
+  }
+
+  {
+    ae::Domain domain{storage};
+    auto doc =
+        CounterDocument::ptr::Declare(ae::CreateWith{domain}.with_id(doc_id));
+    doc.Load();
+    CHECK(doc->journal.size() == 2);
+    CHECK(doc->journal[0].identity == first);
+    CHECK(doc->journal[1].identity == second);
+    CHECK(doc->journal[0].identity != second);
+    CHECK(doc->journal[0].order.timestamp_us == 400);
+    CHECK(doc->journal[1].order.timestamp_us == 500);
+    CHECK(doc->value == 5);
+    CHECK(doc->label == "bxy");
+
+    // The lookup an incoming shared Event is matched against: same origin, one
+    // sequence further along, is a different Event.
+    auto const already_applied = [&](SharedEventId const& id) {
+      for (auto const& record : doc->journal) {
+        if (record.identity == id) {
+          return true;
+        }
+      }
+      return false;
+    };
+    CHECK(already_applied(first));
+    CHECK(already_applied(second));
+    CHECK(!already_applied(
+        SharedEventId{.origin_uid = "peer-a", .origin_sequence = 8}));
+  }
+}
+
 void TestStableClassIdsAreUnique() {
   using apptraverse::Event;
   using apptraverse::Node;
@@ -401,6 +466,7 @@ int main() {
   apptraverse::test::TestMonotonicTimestampWithoutSleep();
   apptraverse::test::TestOrderIgnoresIdentity();
   apptraverse::test::TestMidJournalRemoteEventReplaysByTimestamp();
+  apptraverse::test::TestSharedEventIdentityRoundTrip();
   std::cout << "event_sourced_core_test OK\n";
   return 0;
 }
