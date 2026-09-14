@@ -14,6 +14,7 @@
 #include "apptraverse/memory_transport.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/shared_network_graph.h"
 #include "apptraverse/shared_node.h"
 #include "apptraverse/shared_sync_runtime.h"
 #include "apptraverse/sync_frame.h"
@@ -37,6 +38,7 @@ using apptraverse::example::shared_node::SharedValueNode;
 
 std::string const kEndpointA = "replica-a";
 std::string const kEndpointB = "replica-b";
+std::string const kEndpointC = "replica-c";
 
 // Storage wrapper that records, for every write, how many packets were already
 // queued toward the peer. It proves durability ordering: a replica that
@@ -135,13 +137,17 @@ struct SenderFixture {
   ae::ObjId node_id;
   ae::ObjId share_to_a;
   ae::ObjId share_to_b;
+  ae::ObjId share_to_c;
 };
 
 // A owns a SharedNode that already has business history and the Link topology
 // of both participants. B is one of the shared endpoints but has no state yet.
+// A non-zero link_c_id adds a third participant, for cases that need an
+// endpoint which is in the topology but is not the destination.
 SenderFixture BuildSharedNode(Replica& a, ae::ObjId::Type node_id,
                               ae::ObjId::Type link_a_id,
-                              ae::ObjId::Type link_b_id, std::int32_t value) {
+                              ae::ObjId::Type link_b_id, std::int32_t value,
+                              ae::ObjId::Type link_c_id = 0) {
   auto node =
       SharedValueNode::ptr::Create(ae::CreateWith{*a.domain}.with_id(node_id));
   InitializeRuntimeNode(*node);
@@ -149,6 +155,11 @@ SenderFixture BuildSharedNode(Replica& a, ae::ObjId::Type node_id,
   auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, kEndpointB);
   node->AddShare(link_a, ShareAccess::ReadWrite);
   node->AddShare(link_b, ShareAccess::ReadWrite);
+  if (link_c_id != 0) {
+    auto link_c = MakeMemoryLink(*a.domain, ae::ObjId{link_c_id}, kEndpointC);
+    node->AddShare(link_c, ShareAccess::ReadWrite);
+    link_c.Save();
+  }
   SetValue(*node, value);
   node.Save();
   link_a.Save();
@@ -157,12 +168,32 @@ SenderFixture BuildSharedNode(Replica& a, ae::ObjId::Type node_id,
     entry.Save();
   }
 
-  SenderFixture fixture{.node_id = node.id(),
-                        .share_to_a = node->shares[0].share_id,
-                        .share_to_b = node->shares[1].share_id};
+  SenderFixture fixture{
+      .node_id = node.id(),
+      .share_to_a = node->shares[0].share_id,
+      .share_to_b = node->shares[1].share_id,
+      .share_to_c = link_c_id != 0 ? node->shares[2].share_id : ae::ObjId{},
+  };
   a.sync->RegisterNode(node);
   return fixture;
 }
+
+// A bare endpoint on the network: it can send crafted bytes and counts what it
+// receives, with no Domain or sync runtime behind it.
+struct ObserverEndpoint {
+  ObserverEndpoint(MemoryNetwork& network, std::string endpoint_uid)
+      : transport{network, std::move(endpoint_uid)} {
+    transport.BindReceive(this, &ObserverEndpoint::Thunk);
+  }
+
+  static void Thunk(void* ctx, std::string const&,
+                    std::vector<std::uint8_t> const&) {
+    ++static_cast<ObserverEndpoint*>(ctx)->received;
+  }
+
+  MemoryTransport transport;
+  std::size_t received = 0;
+};
 
 void ReloadAndRegister(Replica& replica, ae::ObjId node_id) {
   auto node =
@@ -569,6 +600,279 @@ void TestTransportDeterministicControls() {
 
 }
 
+// An ACK is only an acknowledgement when it comes from the endpoint the
+// relationship points at. Packet, node, and share ids prove nothing about the
+// sender.
+void TestAckMustComeFromRelationshipEndpoint() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  a.Start();
+  ObserverEndpoint b{network, kEndpointB};
+  ObserverEndpoint c{network, kEndpointC};
+
+  // C is a participant of the shared topology, just not the destination of
+  // the relationship being synchronized.
+  auto const fixture = BuildSharedNode(a, 4801, 4802, 4803, 81, 4804);
+  a.sync->SyncInitialState(fixture.node_id, fixture.share_to_b);
+  CHECK(network.DropNext(kEndpointA, kEndpointB));
+
+  auto const a_node = a.sync->FindNode(fixture.node_id);
+  auto const a_state = SyncStateOf(a_node, fixture.share_to_b);
+  CHECK(a_state->GetInitialSyncPhase() == InitialSyncPhase::Pending);
+  auto const frozen_packet = a_state->pending_initial_packet;
+
+  auto const ack_bytes = EncodeAckFrame(AckFrame{
+      .packet_id = a_state->pending_initial_packet_id,
+      .target_node_id = fixture.node_id,
+      .destination_share_id = fixture.share_to_b,
+  });
+
+  c.transport.Send(kEndpointA, ack_bytes);
+  a.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointC, kEndpointA));
+  CHECK(a_state->GetInitialSyncPhase() == InitialSyncPhase::Pending);
+  CHECK(a_state->pending_initial_packet == frozen_packet);
+  CHECK(a.watched.pending_at_store().empty());
+
+  b.transport.Send(kEndpointA, ack_bytes);
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(a_state->GetInitialSyncPhase() == InitialSyncPhase::Complete);
+  CHECK(a_state->pending_initial_packet.empty());
+}
+
+// A NodeState from an endpoint the snapshot topology does not contain is
+// rejected before a single byte reaches real storage, both as a first
+// delivery and as a replay of an already applied packet.
+void TestWrongSourceNodeStateRejected() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+  ObserverEndpoint c{network, kEndpointC};
+
+  auto const fixture = BuildSharedNode(a, 4901, 4902, 4903, 91);
+  b.sync->ExpectInitialNode(fixture.node_id);
+  a.sync->SyncInitialState(fixture.node_id, fixture.share_to_b);
+  auto const packet = network.PeekNext(kEndpointA, kEndpointB);
+  CHECK(network.DropNext(kEndpointA, kEndpointB));
+
+  // C is not a Link in the snapshot topology.
+  c.transport.Send(kEndpointB, packet);
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointC, kEndpointB));
+  CHECK(!b.sync->FindNode(fixture.node_id).is_valid());
+  CHECK(b.storage.Enumerate(fixture.node_id).empty());
+  CHECK(b.storage.Enumerate(ae::ObjId{4902}).empty());
+  CHECK(b.storage.Enumerate(ae::ObjId{4903}).empty());
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(network.PendingCount(kEndpointB, kEndpointC) == 0);
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+  CHECK(c.received == 0);
+
+  // The same packet from the real sender is accepted.
+  a.sync->SyncInitialState(fixture.node_id, fixture.share_to_b);
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(b.sync->FindNode(fixture.node_id).is_valid());
+  CHECK(ValueOf(b.sync->FindNode(fixture.node_id)) == 91);
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 1);
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+
+  // Replaying the applied packet from the wrong endpoint is not acknowledged.
+  c.transport.Send(kEndpointB, packet);
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointC, kEndpointB));
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(network.PendingCount(kEndpointB, kEndpointC) == 0);
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+  CHECK(c.received == 0);
+  CHECK(ValueOf(b.sync->FindNode(fixture.node_id)) == 91);
+}
+
+// A NodeState whose relationship ends at some other endpoint is rejected the
+// same way, even though the sender is a known participant.
+void TestWrongDestinationNodeStateRejected() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  auto const fixture = BuildSharedNode(a, 5001, 5002, 5003, 101);
+  b.sync->ExpectInitialNode(fixture.node_id);
+
+  auto const a_node = a.sync->FindNode(fixture.node_id);
+  auto const frame = NodeStateFrame{
+      .packet_id = ae::ObjId{5099},
+      .target_node_id = fixture.node_id,
+      // A's own relationship, whose Link endpoint is A, not B.
+      .destination_share_id = fixture.share_to_a,
+      .payload = SerializeNetworkSharedObjectGraph(*a_node),
+  };
+  a.transport->Send(kEndpointB, EncodeNodeStateFrame(frame));
+
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(!b.sync->FindNode(fixture.node_id).is_valid());
+  CHECK(b.storage.Enumerate(fixture.node_id).empty());
+  CHECK(b.storage.Enumerate(ae::ObjId{5002}).empty());
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+}
+
+// Storage that counts writes and refuses none: used to prove a malformed
+// payload writes nothing at all.
+class CountingStorage final : public ae::IDomainStorage {
+ public:
+  std::unique_ptr<ae::IDomainStorageWriter> Store(
+      ae::DomainQuery const& query) override {
+    ++store_count;
+    return inner.Store(query);
+  }
+
+  ae::ClassList Enumerate(ae::ObjId const& obj_id) override {
+    return inner.Enumerate(obj_id);
+  }
+
+  ae::DomainLoad Load(ae::DomainQuery const& query) override {
+    return inner.Load(query);
+  }
+
+  void Remove(ae::ObjId const& obj_id) override { inner.Remove(obj_id); }
+  void CleanUp() override { inner.CleanUp(); }
+
+  ae::RamDomainStorage inner;
+  std::size_t store_count = 0;
+};
+
+// Malformed payload leaves the target storage untouched: the whole graph is
+// parsed into an intermediate before the first write.
+void TestMalformedPayloadWritesNothing() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  a.Start();
+
+  auto const fixture = BuildSharedNode(a, 5101, 5102, 5103, 111);
+  auto const payload =
+      SerializeNetworkSharedObjectGraph(*a.sync->FindNode(fixture.node_id));
+  CHECK(payload.size() > 8);
+
+  {
+    CountingStorage target;
+    auto truncated = payload;
+    truncated.pop_back();
+    CHECK(!ImportObjectGraphPayload(truncated, target));
+    CHECK(target.store_count == 0);
+  }
+  {
+    CountingStorage target;
+    std::vector<std::uint8_t> const head(payload.begin(),
+                                         payload.begin() + 9);
+    CHECK(!ImportObjectGraphPayload(head, target));
+    CHECK(target.store_count == 0);
+  }
+  {
+    CountingStorage target;
+    auto trailing = payload;
+    trailing.push_back(0);
+    CHECK(!ImportObjectGraphPayload(trailing, target));
+    CHECK(target.store_count == 0);
+  }
+  {
+    CountingStorage target;
+    CHECK(ImportObjectGraphPayload(payload, target));
+    CHECK(target.store_count > 0);
+    CHECK(!target.Enumerate(fixture.node_id).empty());
+  }
+}
+
+// Frames are canonical: no trailing bytes, no zero ids.
+void TestFrameDecodingIsStrict() {
+  NodeStateFrame const node_state{
+      .packet_id = ae::ObjId{11},
+      .target_node_id = ae::ObjId{12},
+      .destination_share_id = ae::ObjId{13},
+      .payload = {1, 2, 3},
+  };
+  auto const node_state_bytes = EncodeNodeStateFrame(node_state);
+
+  NodeStateFrame decoded_node_state;
+  CHECK(DecodeNodeStateFrame(node_state_bytes, decoded_node_state));
+  CHECK(decoded_node_state.packet_id == node_state.packet_id);
+  CHECK(decoded_node_state.target_node_id == node_state.target_node_id);
+  CHECK(decoded_node_state.destination_share_id ==
+        node_state.destination_share_id);
+  CHECK(decoded_node_state.payload == node_state.payload);
+
+  auto node_state_trailing = node_state_bytes;
+  node_state_trailing.push_back(0);
+  CHECK(!DecodeNodeStateFrame(node_state_trailing, decoded_node_state));
+
+  auto node_state_truncated = node_state_bytes;
+  node_state_truncated.pop_back();
+  CHECK(!DecodeNodeStateFrame(node_state_truncated, decoded_node_state));
+
+  CHECK(!DecodeNodeStateFrame(
+      EncodeNodeStateFrame(NodeStateFrame{.packet_id = ae::ObjId{},
+                                          .target_node_id = ae::ObjId{12},
+                                          .destination_share_id = ae::ObjId{13},
+                                          .payload = {}}),
+      decoded_node_state));
+  CHECK(!DecodeNodeStateFrame(
+      EncodeNodeStateFrame(NodeStateFrame{.packet_id = ae::ObjId{11},
+                                          .target_node_id = ae::ObjId{},
+                                          .destination_share_id = ae::ObjId{13},
+                                          .payload = {}}),
+      decoded_node_state));
+  CHECK(!DecodeNodeStateFrame(
+      EncodeNodeStateFrame(NodeStateFrame{.packet_id = ae::ObjId{11},
+                                          .target_node_id = ae::ObjId{12},
+                                          .destination_share_id = ae::ObjId{},
+                                          .payload = {}}),
+      decoded_node_state));
+
+  AckFrame const ack{
+      .packet_id = ae::ObjId{21},
+      .target_node_id = ae::ObjId{22},
+      .destination_share_id = ae::ObjId{23},
+  };
+  auto const ack_bytes = EncodeAckFrame(ack);
+
+  AckFrame decoded_ack;
+  CHECK(DecodeAckFrame(ack_bytes, decoded_ack));
+  CHECK(decoded_ack.packet_id == ack.packet_id);
+  CHECK(decoded_ack.target_node_id == ack.target_node_id);
+  CHECK(decoded_ack.destination_share_id == ack.destination_share_id);
+
+  auto ack_trailing = ack_bytes;
+  ack_trailing.push_back(0);
+  CHECK(!DecodeAckFrame(ack_trailing, decoded_ack));
+
+  auto ack_truncated = ack_bytes;
+  ack_truncated.pop_back();
+  CHECK(!DecodeAckFrame(ack_truncated, decoded_ack));
+
+  CHECK(!DecodeAckFrame(
+      EncodeAckFrame(AckFrame{.packet_id = ae::ObjId{},
+                              .target_node_id = ae::ObjId{22},
+                              .destination_share_id = ae::ObjId{23}}),
+      decoded_ack));
+
+  // A NodeState must not decode as an Ack, and neither decodes from junk.
+  CHECK(!DecodeAckFrame(node_state_bytes, decoded_ack));
+  CHECK(!DecodeNodeStateFrame(ack_bytes, decoded_node_state));
+
+  SyncFrameType type{};
+  CHECK(PeekSyncFrameType(node_state_bytes, type));
+  CHECK(type == SyncFrameType::kNodeState);
+  CHECK(PeekSyncFrameType(ack_bytes, type));
+  CHECK(type == SyncFrameType::kAck);
+  CHECK(!PeekSyncFrameType(std::vector<std::uint8_t>{}, type));
+  CHECK(!PeekSyncFrameType(std::vector<std::uint8_t>{1}, type));
+  CHECK(!PeekSyncFrameType(std::vector<std::uint8_t>{99, 1}, type));
+  CHECK(!PeekSyncFrameType(std::vector<std::uint8_t>{1, 99}, type));
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -584,6 +888,11 @@ int main() {
   apptraverse::test::TestRoutingByTargetNodeId();
   apptraverse::test::TestUnexpectedNodeIsRejected();
   apptraverse::test::TestTransportDeterministicControls();
+  apptraverse::test::TestAckMustComeFromRelationshipEndpoint();
+  apptraverse::test::TestWrongSourceNodeStateRejected();
+  apptraverse::test::TestWrongDestinationNodeStateRejected();
+  apptraverse::test::TestMalformedPayloadWritesNothing();
+  apptraverse::test::TestFrameDecodingIsStrict();
 
   std::cout << "shared_node_initial_sync_test OK\n";
   return 0;

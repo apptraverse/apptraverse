@@ -58,7 +58,13 @@ class SharedSyncRuntime {
                std::vector<std::uint8_t> const& bytes);
   void OnNodeState(std::string const& source_endpoint,
                    NodeStateFrame const& frame);
-  void OnAck(AckFrame const& frame);
+  void OnAck(std::string const& source_endpoint, AckFrame const& frame);
+
+  // Admit an expected but unknown root: parse and validate the snapshot in a
+  // scratch Domain, and only then write it into this replica's storage.
+  // Returns an invalid ptr when the frame is rejected, having written nothing.
+  SharedNode::ptr ImportValidatedNode(std::string const& source_endpoint,
+                                      NodeStateFrame const& frame);
 
   bool IsExpectedInitialNode(ae::ObjId node_id) const;
 
