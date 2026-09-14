@@ -232,13 +232,28 @@ A newly attached participant receives the room and Link transport descriptors,
 so it knows participants / connectivity endpoints.
 Which Link is local differs by runtime.
 
-## Per-Link delivery state is local-persistent
+## Share relationship identity
+
+A Link is a long-lived connectivity endpoint. A **Share** is one lifetime of
+`SharedNode <-> Link`. Remove + re-add over the same Link is a **new**
+relationship and must not inherit the previous one's delivery state.
+
+`Share::share_id` is that identity: the `ObjId` of the `AddShareEvent` that
+opened the relationship. It is shared topology state (it crosses a network
+graph copy), it survives Save/Load and journal replay, and `RemoveShareEvent` /
+`ChangeShareAccessEvent` name it instead of the Link.
+
+`LinkSyncState` carries the same `share_id`, so replaying a historical
+`AddShare` / `RemoveShare` of the same Link cannot consume the local sync state
+of the currently active relationship. No post-replay repair pass exists.
+
+## Per-Share delivery state is local-persistent
 
 Critical distinction:
 
 - SharedNode **sharing topology** is shared.
-- Delivery progress for Node N through Link X is **local persistent state**
-  of that replica.
+- Delivery progress for Node N through one Share relationship is
+  **local persistent state** of that replica.
 
 Examples of local-persistent metadata:
 
@@ -391,14 +406,15 @@ do not silently solve it by adding a second sort key.
 
 # Planned implementation ladder
 
-**All milestones below are PLANNED, not implemented.**
+**Milestones 01–04 foundation hardened on `feature/shared-node-foundation-v1`
+(v1.1 corrections). Transport / initial sync / ACK / presence not started.**
 
 ### SharedNode headless (01–16)
 
-01. **Introduce persistent Link descriptors** — durable transport config objects in the application graph without runtime sockets.  
-02. **Add SharedNode share topology** — SharedNode carries `shares[]` (Link + RW/RO) plus business journal.  
-03. **Separate shared and local-persistent graph edges** — prevent shared replay from clobbering local sync metadata.  
-04. **Persist per-Link SharedNode sync state** — ACK / pending / retry bytes survive Application restart.  
+01. **Introduce persistent Link descriptors** — **implemented/verified** (`Link` / `MemoryLink`; config set before `InitializeRuntimeNode`).  
+02. **Add SharedNode share topology** — **implemented/verified** (`shares[]` + Add/Remove/ChangeShareAccess Events).  
+03. **Separate shared and local-persistent graph edges** — **implemented/verified** (generic `LocalPtr` + `GraphCopyPolicy::NetworkShared`; no SharedNode sanitization; rebuild stash).  
+04. **Persist per-Share SharedNode sync state** — **foundation implemented/verified** (`LinkSyncState` Event-sourced Node + `InitialSyncPhase` only; keyed by Share relationship identity so RemoveShare+AddShare starts a new relationship at NotStarted and a forced `RebuildFromBaseAndReplay` keeps the current relationship's progress; no ACK/pending bytes yet).  
 05. **Add generic shared sync framing and routing** — opaque frames with target SharedNode identity.  
 06. **Add deterministic Memory Link transport** — drop / reorder / disconnect / heartbeat / availability for tests.  
 07. **Synchronize a SharedNode to a newly attached Link** — initial catch-up for a new share.  
@@ -433,7 +449,11 @@ Do not resolve casually in documentation:
 - exact equal-`timestamp_us` behavior
 - recipient-filtered Event dependency semantics
 - deletion + delayed Events
-- exact class / layout of local-persistent per-Link sync metadata
+- exact class / layout of local-persistent per-Share sync metadata
+- transport-stable derivation of `Share::share_id`: it is the local
+  `AddShareEvent` ObjId today, which is enough for replay, Save/Load, and graph
+  copy. If a transport re-creates the Event object on the receiver with a fresh
+  ObjId, the identity must travel in the frame instead of being re-derived.
 - durability beyond explicitly tested Save boundaries
 - future compaction / frontier
 - external resource / reference semantics
@@ -528,6 +548,9 @@ SurfacePresenter
 - Runtime base snapshot (`CaptureBaseState` / `DomainGraph::Save`) may write
   storage before explicit `Application::Save` (characterized: 2 `Store` calls
   per `InitializeRuntimeNode`). Defer Overlay flushing / persistence redesign.
+- SharedNode replay allocates a transient `LinkSyncState` for every historical
+  relationship it re-applies (erased again by the matching `RemoveShare`, never
+  saved). Revisit only if replay allocation cost shows up.
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.

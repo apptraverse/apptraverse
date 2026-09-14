@@ -10,6 +10,7 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
+#include "apptraverse/object_link.h"
 
 namespace apptraverse {
 namespace detail {
@@ -31,6 +32,24 @@ void CallIfGraphEdgeObjPtr(ae::ObjPtr<T> const& pointer, Fn&& fn) {
     fn(pointer);
   }
 }
+
+template <typename T, typename Fn>
+void CallIfGraphEdgeObjPtr(SharedPtr<T>& pointer, Fn&& fn) {
+  CallIfGraphEdgeObjPtr(pointer.as_obj_ptr(), std::forward<Fn>(fn));
+}
+
+template <typename T, typename Fn>
+void CallIfGraphEdgeObjPtr(SharedPtr<T> const& pointer, Fn&& fn) {
+  CallIfGraphEdgeObjPtr(pointer.as_obj_ptr(), std::forward<Fn>(fn));
+}
+
+// LocalPtr is intentionally ignored: presentation/shared walks must not treat
+// local-persistent edges as shared topology.
+template <typename T, typename Fn>
+void CallIfGraphEdgeObjPtr(LocalPtr<T>&, Fn&&) {}
+
+template <typename T, typename Fn>
+void CallIfGraphEdgeObjPtr(LocalPtr<T> const&, Fn&&) {}
 
 template <typename Fn>
 void CallIfGraphEdgeObjPtr(auto&, Fn&&) {}

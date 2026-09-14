@@ -9,6 +9,24 @@ add_test(
   COMMAND apptraverse_event_sourced_core_test
 )
 
+add_executable(apptraverse_shared_node_foundation_test
+  shared_node_foundation_test.cpp
+)
+
+target_link_libraries(apptraverse_shared_node_foundation_test PRIVATE
+  apptraverse
+  shared_node_demo_model
+)
+
+target_include_directories(apptraverse_shared_node_foundation_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/shared_node_demo
+)
+
+add_test(
+  NAME apptraverse_shared_node_foundation_test
+  COMMAND apptraverse_shared_node_foundation_test
+)
+
 add_executable(apptraverse_journal_retention_test
   journal_retention_test.cpp
 )
