@@ -173,6 +173,26 @@ class Node : public ae::Obj {
   // shared journal.
   void ReplayFromBase() { ReplayFromBaseImpl(); }
 
+  // Insert a remotely originated shared Event at its own identity and
+  // timestamp. Dispatches to the most-derived NodeFor so Apply sees the
+  // concrete Node. The caller must already have rejected duplicates.
+  void InsertShared(Event::ptr event, SharedEventId identity,
+                    SharedEventOrder order) {
+    InsertSharedImpl(std::move(event), std::move(identity), std::move(order));
+  }
+
+  EventRecord const* FindSharedEvent(SharedEventId const& identity) const {
+    if (identity.origin_uid.empty()) {
+      return nullptr;
+    }
+    for (auto const& record : journal) {
+      if (record.HasSharedIdentity() && record.identity == identity) {
+        return &record;
+      }
+    }
+    return nullptr;
+  }
+
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 
@@ -417,6 +437,14 @@ class Node : public ae::Obj {
   }
 
   virtual void ReplayFromBaseImpl() {
+    assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual void InsertSharedImpl(Event::ptr event, SharedEventId identity,
+                                SharedEventOrder order) {
+    (void)event;
+    (void)identity;
+    (void)order;
     assert(false && "Concrete Node must inherit through NodeFor");
   }
 

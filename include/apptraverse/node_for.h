@@ -54,6 +54,12 @@ class NodeFor : public BaseNode {
     Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
   }
 
+  void InsertSharedImpl(Event::ptr event, SharedEventId identity,
+                        SharedEventOrder order) override {
+    Node::CommitSharedInto(static_cast<ConcreteNode&>(*this), std::move(event),
+                           std::move(identity), std::move(order));
+  }
+
  protected:
   void RebuildFromBaseAndReplay() {
     Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));

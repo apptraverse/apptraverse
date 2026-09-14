@@ -1,6 +1,11 @@
 #include "apptraverse/sync_frame.h"
 
 #include <cstddef>
+#include <string>
+
+#include "aether-objects/obj/registry.h"
+
+#include "apptraverse/event.h"
 
 namespace apptraverse {
 namespace {
@@ -14,6 +19,11 @@ void AppendU32(std::vector<std::uint8_t>& out, std::uint32_t value) {
 
 void AppendObjId(std::vector<std::uint8_t>& out, ae::ObjId id) {
   AppendU32(out, id.id());
+}
+
+void AppendU64(std::vector<std::uint8_t>& out, std::uint64_t value) {
+  AppendU32(out, static_cast<std::uint32_t>(value >> 32U));
+  AppendU32(out, static_cast<std::uint32_t>(value & 0xFFFFFFFFULL));
 }
 
 bool ReadU32(std::vector<std::uint8_t> const& in, std::size_t& pos,
@@ -39,6 +49,32 @@ bool ReadObjId(std::vector<std::uint8_t> const& in, std::size_t& pos,
   }
   id = ae::ObjId{raw};
   return id.is_valid();
+}
+
+bool ReadU64(std::vector<std::uint8_t> const& in, std::size_t& pos,
+             std::uint64_t& value) {
+  std::uint32_t hi = 0;
+  std::uint32_t lo = 0;
+  if (!ReadU32(in, pos, hi) || !ReadU32(in, pos, lo)) {
+    return false;
+  }
+  value = (static_cast<std::uint64_t>(hi) << 32U) |
+          static_cast<std::uint64_t>(lo);
+  return true;
+}
+
+inline constexpr std::uint32_t kMaxOriginUidBytes = 256;
+
+bool ReadBoundedBytes(std::vector<std::uint8_t> const& in, std::size_t& pos,
+                      std::uint32_t max_size, std::string& out) {
+  std::uint32_t size = 0;
+  if (!ReadU32(in, pos, size) || size == 0 || size > max_size ||
+      pos + size > in.size()) {
+    return false;
+  }
+  out.assign(reinterpret_cast<char const*>(in.data() + pos), size);
+  pos += size;
+  return true;
 }
 
 bool ReadHeader(std::vector<std::uint8_t> const& in, SyncFrameType expected,
@@ -74,6 +110,9 @@ bool PeekSyncFrameType(std::vector<std::uint8_t> const& bytes,
       return true;
     case static_cast<std::uint8_t>(SyncFrameType::kAck):
       out = SyncFrameType::kAck;
+      return true;
+    case static_cast<std::uint8_t>(SyncFrameType::kEvent):
+      out = SyncFrameType::kEvent;
       return true;
     default:
       return false;
@@ -131,6 +170,50 @@ bool DecodeAckFrame(std::vector<std::uint8_t> const& bytes, AckFrame& out) {
          ReadObjId(bytes, pos, out.target_node_id) &&
          ReadObjId(bytes, pos, out.destination_share_id) &&
          pos == bytes.size();
+}
+
+std::vector<std::uint8_t> EncodeEventFrame(EventFrame const& frame) {
+  std::vector<std::uint8_t> out;
+  AppendHeader(out, SyncFrameType::kEvent);
+  AppendObjId(out, frame.packet_id);
+  AppendObjId(out, frame.target_node_id);
+  AppendObjId(out, frame.destination_share_id);
+  AppendU32(out, static_cast<std::uint32_t>(frame.identity.origin_uid.size()));
+  out.insert(out.end(), frame.identity.origin_uid.begin(),
+             frame.identity.origin_uid.end());
+  AppendU64(out, frame.identity.origin_sequence);
+  AppendU64(out, frame.timestamp_us);
+  AppendU32(out, frame.event_class_id);
+  AppendU32(out, static_cast<std::uint32_t>(frame.payload.size()));
+  out.insert(out.end(), frame.payload.begin(), frame.payload.end());
+  return out;
+}
+
+bool DecodeEventFrame(std::vector<std::uint8_t> const& bytes, EventFrame& out) {
+  std::size_t pos = 0;
+  if (!ReadHeader(bytes, SyncFrameType::kEvent, pos)) {
+    return false;
+  }
+  std::uint32_t payload_size = 0;
+  if (!ReadObjId(bytes, pos, out.packet_id) ||
+      !ReadObjId(bytes, pos, out.target_node_id) ||
+      !ReadObjId(bytes, pos, out.destination_share_id) ||
+      !ReadBoundedBytes(bytes, pos, kMaxOriginUidBytes,
+                        out.identity.origin_uid) ||
+      !ReadU64(bytes, pos, out.identity.origin_sequence) ||
+      out.identity.origin_sequence == 0 ||
+      !ReadU64(bytes, pos, out.timestamp_us) || out.timestamp_us == 0 ||
+      !ReadU32(bytes, pos, out.event_class_id) || out.event_class_id == 0 ||
+      ae::Registry::GetRegistry().GenerationDistance(Event::kClassId,
+                                                     out.event_class_id) < 0 ||
+      !ReadU32(bytes, pos, payload_size) ||
+      pos + payload_size != bytes.size()) {
+    return false;
+  }
+  out.payload.assign(
+      bytes.begin() + static_cast<std::ptrdiff_t>(pos),
+      bytes.begin() + static_cast<std::ptrdiff_t>(pos + payload_size));
+  return true;
 }
 
 }  // namespace apptraverse

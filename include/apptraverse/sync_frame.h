@@ -2,19 +2,23 @@
 #define APPTRAVERSE_SYNC_FRAME_H_
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "aether-objects/obj/obj_id.h"
 
+#include "apptraverse/shared_event_id.h"
+
 namespace apptraverse {
 
-// Shared synchronization protocol v1: initial state only. Incremental Event
-// replication, presence, and access negotiation are not part of it yet.
+// Shared synchronization protocol v1: initial state plus standalone Event.
+// Dynamic object graphs, presence, and access negotiation are later.
 inline constexpr std::uint8_t kSyncProtocolVersion = 1;
 
 enum class SyncFrameType : std::uint8_t {
   kNodeState = 1,
   kAck = 2,
+  kEvent = 3,
 };
 
 // Initial state of one SharedNode for one Share relationship.
@@ -36,6 +40,19 @@ struct AckFrame {
   ae::ObjId destination_share_id;
 };
 
+// Incremental standalone Event for one already-synchronized SharedNode.
+// Logical identity is SharedEventId. The sender Event ObjId is not on the
+// wire as a receiver storage key.
+struct EventFrame {
+  ae::ObjId packet_id;
+  ae::ObjId target_node_id;
+  ae::ObjId destination_share_id;
+  SharedEventId identity;
+  std::uint64_t timestamp_us{0};
+  std::uint32_t event_class_id{0};
+  std::vector<std::uint8_t> payload;
+};
+
 // Decoders validate untrusted bytes and return false instead of asserting.
 bool PeekSyncFrameType(std::vector<std::uint8_t> const& bytes,
                        SyncFrameType& out);
@@ -46,6 +63,9 @@ bool DecodeNodeStateFrame(std::vector<std::uint8_t> const& bytes,
 
 std::vector<std::uint8_t> EncodeAckFrame(AckFrame const& frame);
 bool DecodeAckFrame(std::vector<std::uint8_t> const& bytes, AckFrame& out);
+
+std::vector<std::uint8_t> EncodeEventFrame(EventFrame const& frame);
+bool DecodeEventFrame(std::vector<std::uint8_t> const& bytes, EventFrame& out);
 
 }  // namespace apptraverse
 

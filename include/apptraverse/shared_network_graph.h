@@ -46,6 +46,25 @@ void CommitObjectGraph(ae::RamDomainStorage const& parsed,
 bool ImportObjectGraphPayload(std::vector<std::uint8_t> const& payload,
                               ae::IDomainStorage& target_storage);
 
+// V1 standalone Event: the reachable network-shared graph is the Event root
+// and nothing else. The wire form is that object's class/version layers and
+// does not make the sender Event ObjId a receiver storage key.
+//
+// Scratch objects used while parsing live under kStandaloneEventScratchId in
+// the caller's RamDomainStorage, never in production storage.
+inline constexpr ae::ObjId kStandaloneEventScratchId{1};
+
+bool FreezeStandaloneEventPayload(ae::Obj const& event,
+                                  std::vector<std::uint8_t>& out);
+
+bool ParseStandaloneEventPayload(std::vector<std::uint8_t> const& payload,
+                                 ae::RamDomainStorage& parsed);
+
+// Copy one scratch object's class layers into target storage under local_id.
+void CommitStandaloneEventObject(ae::RamDomainStorage const& parsed,
+                                 ae::ObjId local_id,
+                                 ae::IDomainStorage& target_storage);
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_SHARED_NETWORK_GRAPH_H_

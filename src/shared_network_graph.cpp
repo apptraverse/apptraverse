@@ -185,4 +185,99 @@ bool ImportObjectGraphPayload(std::vector<std::uint8_t> const& payload,
   return true;
 }
 
+bool FreezeStandaloneEventPayload(ae::Obj const& event,
+                                  std::vector<std::uint8_t>& out) {
+  ae::RamDomainStorage scratch;
+  BuildNetworkSharedScratch(event, scratch);
+
+  ae::ObjId sole{};
+  std::uint32_t object_count = 0;
+  for (auto const& [obj_id, classes] : scratch.state) {
+    if (!classes.has_value()) {
+      continue;
+    }
+    ++object_count;
+    sole = obj_id;
+  }
+  // V1 refuses any Event whose graph reaches another object.
+  if (object_count != 1) {
+    return false;
+  }
+
+  auto const it = scratch.state.find(sole);
+  if (it == scratch.state.end() || !it->second.has_value()) {
+    return false;
+  }
+  auto const& classes = *it->second;
+
+  out.clear();
+  AppendU32(out, static_cast<std::uint32_t>(classes.size()));
+  for (auto const& [class_id, versions] : classes) {
+    AppendU32(out, class_id);
+    AppendU32(out, static_cast<std::uint32_t>(versions.size()));
+    for (auto const& [version, data] : versions) {
+      out.push_back(version);
+      AppendU32(out, static_cast<std::uint32_t>(data.size()));
+      out.insert(out.end(), data.begin(), data.end());
+    }
+  }
+  return true;
+}
+
+bool ParseStandaloneEventPayload(std::vector<std::uint8_t> const& payload,
+                                 ae::RamDomainStorage& parsed) {
+  std::size_t pos = 0;
+  std::uint32_t class_count = 0;
+  if (!ReadU32(payload, pos, class_count) || class_count == 0) {
+    return false;
+  }
+  for (std::uint32_t klass = 0; klass < class_count; ++klass) {
+    std::uint32_t class_id = 0;
+    std::uint32_t version_count = 0;
+    if (!ReadU32(payload, pos, class_id) ||
+        !ReadU32(payload, pos, version_count) || version_count == 0) {
+      return false;
+    }
+    for (std::uint32_t version_index = 0; version_index < version_count;
+         ++version_index) {
+      if (pos >= payload.size()) {
+        return false;
+      }
+      auto const version = payload[pos++];
+      std::uint32_t size = 0;
+      if (!ReadU32(payload, pos, size) || pos + size > payload.size()) {
+        return false;
+      }
+      parsed.SaveData(
+          ae::DomainQuery{kStandaloneEventScratchId, class_id, version},
+          ae::ObjectData{payload.begin() + static_cast<std::ptrdiff_t>(pos),
+                         payload.begin() +
+                             static_cast<std::ptrdiff_t>(pos + size)});
+      pos += size;
+    }
+  }
+  return pos == payload.size();
+}
+
+void CommitStandaloneEventObject(ae::RamDomainStorage const& parsed,
+                                 ae::ObjId local_id,
+                                 ae::IDomainStorage& target_storage) {
+  assert(local_id.is_valid());
+  auto const it = parsed.state.find(kStandaloneEventScratchId);
+  assert(it != parsed.state.end() && it->second.has_value());
+  for (auto const& [class_id, versions] : *it->second) {
+    for (auto const& [version, data] : versions) {
+      auto writer =
+          target_storage.Store(ae::DomainQuery{local_id, class_id, version});
+      assert(writer != nullptr);
+      if (!data.empty()) {
+        auto const result =
+            writer->Write(ae::seri::DataWriteTag{data.data(), data.size()});
+        assert(result);
+        (void)result;
+      }
+    }
+  }
+}
+
 }  // namespace apptraverse

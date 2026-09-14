@@ -43,6 +43,8 @@ class EventFor : public Event {
         static_cast<Target const&>(target),
         static_cast<ConcreteEvent const&>(*this));
   }
+
+  std::uint32_t TargetClassIdImpl() const override { return Target::kClassId; }
 };
 
 }  // namespace apptraverse
