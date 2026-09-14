@@ -720,6 +720,56 @@ void TestWrongDestinationNodeStateRejected() {
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
 }
 
+// An expected target is not enough: a payload that does not parse, or whose
+// root is not a SharedNode, is rejected with real storage untouched.
+void TestMalformedNodeStateRejected() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  auto const fixture = BuildSharedNode(a, 5201, 5202, 5203, 121);
+  b.sync->ExpectInitialNode(fixture.node_id);
+  b.sync->ExpectInitialNode(ae::ObjId{5203});
+
+  auto const a_node = a.sync->FindNode(fixture.node_id);
+  auto truncated_payload = SerializeNetworkSharedObjectGraph(*a_node);
+  truncated_payload.pop_back();
+  a.transport->Send(kEndpointB,
+                    EncodeNodeStateFrame(NodeStateFrame{
+                        .packet_id = ae::ObjId{5299},
+                        .target_node_id = fixture.node_id,
+                        .destination_share_id = fixture.share_to_b,
+                        .payload = truncated_payload,
+                    }));
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(!b.sync->FindNode(fixture.node_id).is_valid());
+  CHECK(b.storage.Enumerate(fixture.node_id).empty());
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+
+  // Parsable, but the root is a Link, not a SharedNode.
+  auto link_b = MemoryLink::ptr::Declare(
+      ae::CreateWith{*a.domain}.with_id(ae::ObjId{5203}));
+  link_b.Load();
+  CHECK(link_b.is_loaded());
+  a.transport->Send(kEndpointB,
+                    EncodeNodeStateFrame(NodeStateFrame{
+                        .packet_id = ae::ObjId{5298},
+                        .target_node_id = ae::ObjId{5203},
+                        .destination_share_id = fixture.share_to_b,
+                        .payload = SerializeNetworkSharedObjectGraph(*link_b),
+                    }));
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(!b.sync->FindNode(ae::ObjId{5203}).is_valid());
+  CHECK(b.storage.Enumerate(ae::ObjId{5203}).empty());
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+}
+
 // Storage that counts writes and refuses none: used to prove a malformed
 // payload writes nothing at all.
 class CountingStorage final : public ae::IDomainStorage {
@@ -891,6 +941,7 @@ int main() {
   apptraverse::test::TestAckMustComeFromRelationshipEndpoint();
   apptraverse::test::TestWrongSourceNodeStateRejected();
   apptraverse::test::TestWrongDestinationNodeStateRejected();
+  apptraverse::test::TestMalformedNodeStateRejected();
   apptraverse::test::TestMalformedPayloadWritesNothing();
   apptraverse::test::TestFrameDecodingIsStrict();
 

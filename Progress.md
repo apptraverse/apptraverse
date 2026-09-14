@@ -42,9 +42,9 @@ Status: implemented/verified on feature branch. Not accepted.
   `destination_share_id` (each one names something the receiver must resolve).
   `ParseObjectGraphPayload` likewise rejects a zero object id.
 
-## Coverage (`apptraverse_shared_node_initial_sync_test`, 13 scenarios)
+## Coverage (`apptraverse_shared_node_initial_sync_test`, 14 scenarios)
 
-Five scenarios added to the eight already there:
+Six scenarios added to the eight already there:
 
 - ACK from the wrong endpoint: A is Pending toward B, with C also a participant
   of the topology. C sends a byte-valid ACK carrying the exact packet, node,
@@ -56,6 +56,11 @@ Five scenarios added to the eight already there:
   replaying it from C afterwards is still not acknowledged and rewrites nothing.
 - Wrong-destination NodeState: a hand-built frame from A naming A's own
   relationship is rejected by B before any storage mutation.
+- Malformed NodeState for an expected target: a truncated payload, and a
+  payload that parses but whose root is a Link rather than a SharedNode, both
+  leave B with no Node, no storage entry, no write, and no ACK. Without the
+  class check the second case crashes the receiver, which is what the guard is
+  for.
 - Malformed payload: a `CountingStorage` sees zero `Store` calls for a
   truncated, a head-only, and a trailing-byte payload, and non-zero for the
   intact one.
@@ -64,8 +69,8 @@ Five scenarios added to the eight already there:
 
 Each new guard was mutation-checked: reverting it one at a time (ACK source,
 NodeState canonical length, Ack canonical length, zero-id rejection,
-parse-before-commit, source-in-topology, destination-is-local) makes the suite
-fail, and every mutation was reverted afterwards.
+parse-before-commit, source-in-topology, destination-is-local, root class)
+makes the suite fail, and every mutation was reverted afterwards.
 
 ## Tests run
 
