@@ -29,6 +29,8 @@ bool ReadU32(std::vector<std::uint8_t> const& in, std::size_t& pos,
   return true;
 }
 
+// Every ObjId a v1 frame carries names something the receiver must resolve,
+// so the zero id is never a legal value on the wire.
 bool ReadObjId(std::vector<std::uint8_t> const& in, std::size_t& pos,
                ae::ObjId& id) {
   std::uint32_t raw = 0;
@@ -36,7 +38,7 @@ bool ReadObjId(std::vector<std::uint8_t> const& in, std::size_t& pos,
     return false;
   }
   id = ae::ObjId{raw};
-  return true;
+  return id.is_valid();
 }
 
 bool ReadHeader(std::vector<std::uint8_t> const& in, SyncFrameType expected,
@@ -100,7 +102,9 @@ bool DecodeNodeStateFrame(std::vector<std::uint8_t> const& bytes,
       !ReadObjId(bytes, pos, out.target_node_id) ||
       !ReadObjId(bytes, pos, out.destination_share_id) ||
       !ReadU32(bytes, pos, payload_size) ||
-      pos + payload_size > bytes.size()) {
+      // Canonical length: the declared payload is the rest of the frame.
+      // Trailing bytes mean this is not a frame we produced.
+      pos + payload_size != bytes.size()) {
     return false;
   }
   out.payload.assign(
@@ -125,7 +129,8 @@ bool DecodeAckFrame(std::vector<std::uint8_t> const& bytes, AckFrame& out) {
   }
   return ReadObjId(bytes, pos, out.packet_id) &&
          ReadObjId(bytes, pos, out.target_node_id) &&
-         ReadObjId(bytes, pos, out.destination_share_id);
+         ReadObjId(bytes, pos, out.destination_share_id) &&
+         pos == bytes.size();
 }
 
 }  // namespace apptraverse

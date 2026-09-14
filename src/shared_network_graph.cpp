@@ -75,13 +75,7 @@ void CopyNetworkSharedObjectGraph(ae::Obj const& root,
                                   ae::IDomainStorage& target_storage) {
   ae::RamDomainStorage scratch;
   BuildNetworkSharedScratch(root, scratch);
-
-  for (auto const& [obj_id, classes] : scratch.state) {
-    if (!classes.has_value()) {
-      continue;
-    }
-    TransferRamObject(scratch, obj_id, target_storage);
-  }
+  CommitObjectGraph(scratch, target_storage);
 }
 
 void CopySharedNetworkGraph(SharedNode::ptr source,
@@ -126,8 +120,8 @@ std::vector<std::uint8_t> SerializeNetworkSharedObjectGraph(
   return out;
 }
 
-bool ImportObjectGraphPayload(std::vector<std::uint8_t> const& payload,
-                              ae::IDomainStorage& target_storage) {
+bool ParseObjectGraphPayload(std::vector<std::uint8_t> const& payload,
+                             ae::RamDomainStorage& parsed) {
   std::size_t pos = 0;
   std::uint32_t object_count = 0;
   if (!ReadU32(payload, pos, object_count)) {
@@ -137,6 +131,9 @@ bool ImportObjectGraphPayload(std::vector<std::uint8_t> const& payload,
     std::uint32_t obj_id = 0;
     std::uint32_t class_count = 0;
     if (!ReadU32(payload, pos, obj_id) || !ReadU32(payload, pos, class_count)) {
+      return false;
+    }
+    if (!ae::ObjId{obj_id}.is_valid()) {
       return false;
     }
     for (std::uint32_t klass = 0; klass < class_count; ++klass) {
@@ -156,20 +153,36 @@ bool ImportObjectGraphPayload(std::vector<std::uint8_t> const& payload,
         if (!ReadU32(payload, pos, size) || pos + size > payload.size()) {
           return false;
         }
-        auto writer = target_storage.Store(
-            ae::DomainQuery{ae::ObjId{obj_id}, class_id, version});
-        assert(writer != nullptr);
-        if (size != 0) {
-          auto const result = writer->Write(
-              ae::seri::DataWriteTag{payload.data() + pos, size});
-          assert(result);
-          (void)result;
-        }
+        parsed.SaveData(
+            ae::DomainQuery{ae::ObjId{obj_id}, class_id, version},
+            ae::ObjectData{payload.begin() + static_cast<std::ptrdiff_t>(pos),
+                           payload.begin() +
+                               static_cast<std::ptrdiff_t>(pos + size)});
         pos += size;
       }
     }
   }
   return pos == payload.size();
+}
+
+void CommitObjectGraph(ae::RamDomainStorage const& parsed,
+                       ae::IDomainStorage& target_storage) {
+  for (auto const& [obj_id, classes] : parsed.state) {
+    if (!classes.has_value()) {
+      continue;
+    }
+    TransferRamObject(parsed, obj_id, target_storage);
+  }
+}
+
+bool ImportObjectGraphPayload(std::vector<std::uint8_t> const& payload,
+                              ae::IDomainStorage& target_storage) {
+  ae::RamDomainStorage parsed;
+  if (!ParseObjectGraphPayload(payload, parsed)) {
+    return false;
+  }
+  CommitObjectGraph(parsed, target_storage);
+  return true;
 }
 
 }  // namespace apptraverse
