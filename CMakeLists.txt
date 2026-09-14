@@ -66,6 +66,8 @@ add_library(apptraverse STATIC
   src/link.cpp
   src/shared_node.cpp
   src/shared_network_graph.cpp
+  src/memory_transport.cpp
+  src/sync_frame.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

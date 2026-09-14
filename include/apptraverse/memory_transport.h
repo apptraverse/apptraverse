@@ -1,0 +1,108 @@
+#ifndef APPTRAVERSE_MEMORY_TRANSPORT_H_
+#define APPTRAVERSE_MEMORY_TRANSPORT_H_
+
+#include <cstdint>
+#include <deque>
+#include <map>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace apptraverse {
+
+// Generic runtime transport: opaque bytes between endpoint identities. It
+// knows nothing about SharedNode, Event, NodeState, ACK, or access rights.
+// The receive binding is a runtime-only ctx + function pointer, owned by the
+// binding runtime instance — no process-global or thread_local receiver.
+class IByteTransport {
+ public:
+  using ReceiveFn = void (*)(void* ctx, std::string const& source_endpoint,
+                             std::vector<std::uint8_t> const& bytes);
+
+  virtual ~IByteTransport() = default;
+
+  virtual std::string const& local_endpoint_uid() const = 0;
+  virtual void Send(std::string const& destination_endpoint,
+                    std::vector<std::uint8_t> bytes) = 0;
+  virtual void BindReceive(void* ctx, ReceiveFn fn) = 0;
+  virtual void ClearReceive() = 0;
+};
+
+class MemoryTransport;
+
+// Deterministic in-process network. Packets queue per directed endpoint pair
+// and move only when the caller asks: no threads, no timers, no sleeps.
+// Queues outlive the endpoints, so a packet stays in flight across a replica
+// restart.
+class MemoryNetwork {
+  friend class MemoryTransport;
+
+ public:
+  using Direction = std::pair<std::string, std::string>;
+
+  std::size_t PendingCount(std::string const& from,
+                           std::string const& to) const;
+  std::vector<std::uint8_t> const& PeekNext(std::string const& from,
+                                            std::string const& to) const;
+
+  // Hand the queued head to the destination endpoint. False when the
+  // direction is down, the queue is empty, or nothing is attached as
+  // destination (the packet then stays queued).
+  bool DeliverNext(std::string const& from, std::string const& to);
+  bool DropNext(std::string const& from, std::string const& to);
+  // Queue a second copy of the head: the same packet arrives twice.
+  bool DuplicateNext(std::string const& from, std::string const& to);
+
+  // Directional outage. Sends are lost while it lasts, queued packets wait.
+  void Disconnect(std::string const& from, std::string const& to);
+  void Reconnect(std::string const& from, std::string const& to);
+  bool IsConnected(std::string const& from, std::string const& to) const;
+
+ private:
+  void Attach(MemoryTransport& transport);
+  void Detach(MemoryTransport& transport);
+  void Enqueue(std::string const& from, std::string const& to,
+               std::vector<std::uint8_t> bytes);
+
+  std::map<std::string, MemoryTransport*> endpoints_;
+  std::map<Direction, std::deque<std::vector<std::uint8_t>>> queues_;
+  std::set<Direction> disconnected_;
+};
+
+// One replica's endpoint on a MemoryNetwork. It is attached for as long as it
+// lives, so a replica restart is destroy + construct with the same endpoint
+// uid. Endpoint identity is the MemoryLink descriptor uid; nothing here is
+// persisted and no Link is marked local.
+class MemoryTransport final : public IByteTransport {
+ public:
+  MemoryTransport(MemoryNetwork& network, std::string local_endpoint_uid);
+  ~MemoryTransport() override;
+
+  MemoryTransport(MemoryTransport const&) = delete;
+  MemoryTransport& operator=(MemoryTransport const&) = delete;
+
+  std::string const& local_endpoint_uid() const override {
+    return local_endpoint_uid_;
+  }
+
+  void Send(std::string const& destination_endpoint,
+            std::vector<std::uint8_t> bytes) override;
+  void BindReceive(void* ctx, ReceiveFn fn) override;
+  void ClearReceive() override;
+
+ private:
+  friend class MemoryNetwork;
+
+  void Deliver(std::string const& source_endpoint,
+               std::vector<std::uint8_t> const& bytes);
+
+  MemoryNetwork& network_;
+  std::string local_endpoint_uid_;
+  void* receive_ctx_{nullptr};
+  ReceiveFn receive_fn_{nullptr};
+};
+
+}  // namespace apptraverse
+
+#endif  // APPTRAVERSE_MEMORY_TRANSPORT_H_
