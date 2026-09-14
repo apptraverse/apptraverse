@@ -14,6 +14,7 @@
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/shared_event_id.h"
 
 namespace apptraverse {
 
@@ -52,6 +53,8 @@ class SetLinkInitialSyncPhaseEvent;
 class BeginInitialSyncEvent;
 class CompleteInitialSyncEvent;
 class NoteInitialSyncReceivedEvent;
+class BeginIncrementalEventSyncEvent;
+class CompleteIncrementalEventSyncEvent;
 
 // Local-persistent synchronization progress for one Share relationship of one
 // SharedNode. Belongs to share_id, not to the Link: a later relationship over
@@ -60,7 +63,7 @@ class NoteInitialSyncReceivedEvent;
 // SharedNode only via LocalPtr, so network shared-graph serialization excludes
 // it without SharedNode-specific sanitization.
 class LinkSyncState : public NodeFor<LinkSyncState> {
-  APPTRAVERSE_OBJECT(LinkSyncState, Node, 1)
+  APPTRAVERSE_OBJECT(LinkSyncState, Node, 2)
 
  protected:
   LinkSyncState() = default;
@@ -72,7 +75,12 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
                     AE_MMBR(initial_sync_phase),
                     AE_MMBR(pending_initial_packet_id),
                     AE_MMBR(pending_initial_packet),
-                    AE_MMBR(received_initial_packet_id))
+                    AE_MMBR(received_initial_packet_id),
+                    AE_MMBR(pending_initial_covered_event_ids),
+                    AE_MMBR(delivered_event_ids),
+                    AE_MMBR(pending_event_packet_id),
+                    AE_MMBR(pending_event_identity),
+                    AE_MMBR(pending_event_packet))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv&) {
@@ -80,17 +88,28 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(share_id, link, initial_sync_phase, pending_initial_packet_id,
-        pending_initial_packet, received_initial_packet_id);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "LinkSyncState v1 predates incremental Event delivery; "
+        "re-distill with a fresh state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Load(ae::Version<2>, Dnv& dnv) {
+    Node::Load(ae::Version<3>{}, dnv);
+    dnv(share_id, link, initial_sync_phase, pending_initial_packet_id,
+        pending_initial_packet, received_initial_packet_id,
+        pending_initial_covered_event_ids, delivered_event_ids,
+        pending_event_packet_id, pending_event_identity, pending_event_packet);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
     Node::Save(ae::Version<3>{}, dnv);
     dnv(share_id, link, initial_sync_phase, pending_initial_packet_id,
-        pending_initial_packet, received_initial_packet_id);
+        pending_initial_packet, received_initial_packet_id,
+        pending_initial_covered_event_ids, delivered_event_ids,
+        pending_event_packet_id, pending_event_identity, pending_event_packet);
   }
 
   ae::ObjId share_id;
@@ -107,6 +126,19 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   // A repeat of it is a duplicate to acknowledge again, not state to re-apply.
   ae::ObjId received_initial_packet_id;
 
+  // SharedEventIds inside the frozen initial snapshot. Moved into
+  // delivered_event_ids when the initial ACK completes, so they are not
+  // resent as incremental Events. Events committed after the freeze are not
+  // listed here.
+  std::vector<SharedEventId> pending_initial_covered_event_ids;
+
+  // Incremental delivery: identities already acknowledged for this Share,
+  // plus at most one outstanding frozen Event packet.
+  std::vector<SharedEventId> delivered_event_ids;
+  ae::ObjId pending_event_packet_id;
+  SharedEventId pending_event_identity;
+  std::vector<std::uint8_t> pending_event_packet;
+
   InitialSyncPhase GetInitialSyncPhase() const {
     return static_cast<InitialSyncPhase>(initial_sync_phase);
   }
@@ -114,11 +146,21 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void SetInitialSyncPhase(InitialSyncPhase phase);
   void CompleteInitialSync();
   void NoteInitialSyncReceived(ae::ObjId packet_id);
+  void BeginIncrementalEvent(SharedEventId identity,
+                             std::vector<std::uint8_t> packet);
+  void CompleteIncrementalEvent();
+
+  bool HasDelivered(SharedEventId const& identity) const;
+  bool HasPendingEvent() const {
+    return pending_event_packet_id.is_valid();
+  }
 
   void Apply(SetLinkInitialSyncPhaseEvent const& event);
   void Apply(BeginInitialSyncEvent const& event);
   void Apply(CompleteInitialSyncEvent const& event);
   void Apply(NoteInitialSyncReceivedEvent const& event);
+  void Apply(BeginIncrementalEventSyncEvent const& event);
+  void Apply(CompleteIncrementalEventSyncEvent const& event);
 };
 
 class SetLinkInitialSyncPhaseEvent
@@ -150,9 +192,10 @@ class BeginInitialSyncEvent
  public:
   explicit BeginInitialSyncEvent(ae::ObjProp prop) : EventFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(packet))
+  AE_OBJECT_REFLECT(AE_MMBR(packet), AE_MMBR(covered_event_ids))
 
   std::vector<std::uint8_t> packet;
+  std::vector<SharedEventId> covered_event_ids;
 };
 
 // Sender: the frozen packet was acknowledged by the peer.
@@ -183,6 +226,39 @@ class NoteInitialSyncReceivedEvent
   AE_OBJECT_REFLECT(AE_MMBR(packet_id))
 
   ae::ObjId packet_id;
+};
+
+// Freeze one incremental standalone Event packet for this relationship.
+// Packet identity is this Event's ObjId.
+class BeginIncrementalEventSyncEvent
+    : public EventFor<LinkSyncState, BeginIncrementalEventSyncEvent> {
+  APPTRAVERSE_OBJECT(BeginIncrementalEventSyncEvent, Event, 0)
+
+ protected:
+  BeginIncrementalEventSyncEvent() = default;
+
+ public:
+  explicit BeginIncrementalEventSyncEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(identity), AE_MMBR(packet))
+
+  SharedEventId identity;
+  std::vector<std::uint8_t> packet;
+};
+
+// Sender: the frozen incremental Event packet was acknowledged.
+class CompleteIncrementalEventSyncEvent
+    : public EventFor<LinkSyncState, CompleteIncrementalEventSyncEvent> {
+  APPTRAVERSE_OBJECT(CompleteIncrementalEventSyncEvent, Event, 0)
+
+ protected:
+  CompleteIncrementalEventSyncEvent() = default;
+
+ public:
+  explicit CompleteIncrementalEventSyncEvent(ae::ObjProp prop)
+      : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT()
 };
 
 class AddShareEvent;

@@ -13,6 +13,8 @@ APPTRAVERSE_REGISTER(SetLinkInitialSyncPhaseEvent);
 APPTRAVERSE_REGISTER(BeginInitialSyncEvent);
 APPTRAVERSE_REGISTER(CompleteInitialSyncEvent);
 APPTRAVERSE_REGISTER(NoteInitialSyncReceivedEvent);
+APPTRAVERSE_REGISTER(BeginIncrementalEventSyncEvent);
+APPTRAVERSE_REGISTER(CompleteIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddShareEvent);
 APPTRAVERSE_REGISTER(RemoveShareEvent);
@@ -56,6 +58,7 @@ void LinkSyncState::Apply(BeginInitialSyncEvent const& event) {
   initial_sync_phase = static_cast<std::uint8_t>(InitialSyncPhase::Pending);
   pending_initial_packet_id = event.obj_id;
   pending_initial_packet = event.packet;
+  pending_initial_covered_event_ids = event.covered_event_ids;
   NoteMaterializedChange();
 }
 
@@ -63,12 +66,70 @@ void LinkSyncState::Apply(CompleteInitialSyncEvent const&) {
   initial_sync_phase = static_cast<std::uint8_t>(InitialSyncPhase::Complete);
   pending_initial_packet_id = ae::ObjId{};
   pending_initial_packet.clear();
+  for (auto const& identity : pending_initial_covered_event_ids) {
+    if (!HasDelivered(identity)) {
+      delivered_event_ids.push_back(identity);
+    }
+  }
+  pending_initial_covered_event_ids.clear();
   NoteMaterializedChange();
 }
 
 void LinkSyncState::Apply(NoteInitialSyncReceivedEvent const& event) {
   received_initial_packet_id = event.packet_id;
   initial_sync_phase = static_cast<std::uint8_t>(InitialSyncPhase::Complete);
+  NoteMaterializedChange();
+}
+
+void LinkSyncState::BeginIncrementalEvent(SharedEventId identity,
+                                          std::vector<std::uint8_t> packet) {
+  assert(GetInitialSyncPhase() == InitialSyncPhase::Complete);
+  assert(!HasPendingEvent());
+  assert(!identity.origin_uid.empty());
+  assert(identity.origin_sequence != 0);
+  assert(!packet.empty());
+  auto event =
+      BeginIncrementalEventSyncEvent::ptr::Create(ae::CreateWith{*domain});
+  event->identity = std::move(identity);
+  event->packet = std::move(packet);
+  Commit(event);
+}
+
+void LinkSyncState::CompleteIncrementalEvent() {
+  assert(HasPendingEvent());
+  auto event =
+      CompleteIncrementalEventSyncEvent::ptr::Create(ae::CreateWith{*domain});
+  Commit(event);
+}
+
+bool LinkSyncState::HasDelivered(SharedEventId const& identity) const {
+  for (auto const& delivered : delivered_event_ids) {
+    if (delivered == identity) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void LinkSyncState::Apply(BeginIncrementalEventSyncEvent const& event) {
+  assert(GetInitialSyncPhase() == InitialSyncPhase::Complete);
+  assert(!HasPendingEvent());
+  assert(!event.identity.origin_uid.empty());
+  assert(!event.packet.empty());
+  pending_event_packet_id = event.obj_id;
+  pending_event_identity = event.identity;
+  pending_event_packet = event.packet;
+  NoteMaterializedChange();
+}
+
+void LinkSyncState::Apply(CompleteIncrementalEventSyncEvent const&) {
+  assert(HasPendingEvent());
+  if (!HasDelivered(pending_event_identity)) {
+    delivered_event_ids.push_back(pending_event_identity);
+  }
+  pending_event_packet_id = ae::ObjId{};
+  pending_event_identity = {};
+  pending_event_packet.clear();
   NoteMaterializedChange();
 }
 

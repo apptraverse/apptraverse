@@ -5,8 +5,11 @@
 #include <utility>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "aether-objects/obj/obj_id.h"
 #include "aether-objects/obj/registry.h"
 
+#include "apptraverse/event.h"
+#include "apptraverse/shared_event_order.h"
 #include "apptraverse/shared_network_graph.h"
 
 namespace apptraverse {
@@ -74,8 +77,14 @@ bool SnapshotIsAdmissible(SharedNode const& candidate,
     return false;
   }
   for (auto const& record : candidate.journal) {
-    if (!record.event.is_valid() || !record.event.is_loaded() ||
-        !record.event->CanApplyTo(candidate)) {
+    if (!record.event.is_valid() || !record.event.is_loaded()) {
+      return false;
+    }
+    if (ae::Registry::GetRegistry().GenerationDistance(
+            record.event->TargetClassId(), candidate.GetClassId()) < 0) {
+      return false;
+    }
+    if (!record.event->CanApplyTo(candidate)) {
       return false;
     }
   }
@@ -96,6 +105,79 @@ bool SnapshotIsAdmissible(SharedNode const& candidate,
   }
   return AddressedToThisReplica(candidate, local_endpoint, source_endpoint,
                                 destination_share_id);
+}
+
+Share const* ShareOfEndpoint(SharedNode const& node,
+                             std::string const& endpoint_uid) {
+  for (auto const& share : node.shares) {
+    auto const* endpoint = ShareEndpoint(share);
+    if (endpoint != nullptr && *endpoint == endpoint_uid) {
+      return &share;
+    }
+  }
+  return nullptr;
+}
+
+// Incremental Event: destination relationship ends here, sender is a
+// ReadWrite participant of the same topology.
+bool EventAddressedToThisReplica(SharedNode const& node,
+                                 std::string const& local_endpoint,
+                                 std::string const& source_endpoint,
+                                 ae::ObjId destination_share_id) {
+  if (source_endpoint == local_endpoint) {
+    return false;
+  }
+  auto const* destination = ShareEndpointOf(node, destination_share_id);
+  if (destination == nullptr || *destination != local_endpoint) {
+    return false;
+  }
+  auto const* source = ShareOfEndpoint(node, source_endpoint);
+  if (source == nullptr) {
+    return false;
+  }
+  return source->GetAccess() == ShareAccess::ReadWrite;
+}
+
+std::vector<SharedEventId> CoveredSharedEventIds(SharedNode const& node) {
+  std::vector<SharedEventId> covered;
+  for (auto const& record : node.journal) {
+    if (record.HasSharedIdentity()) {
+      covered.push_back(record.identity);
+    }
+  }
+  return covered;
+}
+
+EventRecord const* NextUndeliveredSharedEvent(
+    SharedNode const& node, LinkSyncState const& state,
+    std::string const& destination_endpoint) {
+  for (auto const& record : node.journal) {
+    if (!record.HasSharedIdentity()) {
+      continue;
+    }
+    if (state.HasDelivered(record.identity)) {
+      continue;
+    }
+    if (state.HasPendingEvent() &&
+        state.pending_event_identity == record.identity) {
+      continue;
+    }
+    // Do not send an Event back to the endpoint it originated from.
+    if (record.identity.origin_uid == destination_endpoint) {
+      continue;
+    }
+    return &record;
+  }
+  return nullptr;
+}
+
+bool SameStandalonePayload(Event const& event,
+                           std::vector<std::uint8_t> const& payload) {
+  std::vector<std::uint8_t> frozen;
+  if (!FreezeStandaloneEventPayload(event, frozen)) {
+    return false;
+  }
+  return frozen == payload;
 }
 
 }  // namespace
@@ -178,6 +260,7 @@ void SharedSyncRuntime::SyncInitialState(ae::ObjId node_id,
       .payload = SerializeNetworkSharedObjectGraph(*node),
   };
   event->packet = EncodeNodeStateFrame(frame);
+  event->covered_event_ids = CoveredSharedEventIds(*node);
   state->Commit(event);
 
   // Freeze and persist before the first send: bytes that were sent but not
@@ -185,6 +268,65 @@ void SharedSyncRuntime::SyncInitialState(ae::ObjId node_id,
   node.Save();
   state.Save();
   transport_.Send(destination, state->pending_initial_packet);
+}
+
+void SharedSyncRuntime::SyncNextEvent(ae::ObjId node_id, ae::ObjId share_id) {
+  auto node = FindNode(node_id);
+  assert(node.is_valid() && "SyncNextEvent requires a registered SharedNode");
+
+  auto const* destination_endpoint = ShareEndpointOf(*node, share_id);
+  assert(destination_endpoint != nullptr &&
+         "SyncNextEvent requires an open Share relationship");
+  auto const destination = *destination_endpoint;
+  assert(!destination.empty() && "Share Link has no transport endpoint");
+  assert(destination != transport_.local_endpoint_uid() &&
+         "a relationship with this replica's own endpoint is not synchronized");
+
+  auto const sync_index = node->FindLinkSyncIndexForShare(share_id);
+  assert(sync_index < node->link_sync_states.size());
+  auto state = node->link_sync_states[sync_index];
+  if (!state.is_loaded()) {
+    state.Load();
+  }
+
+  if (state->GetInitialSyncPhase() != InitialSyncPhase::Complete) {
+    return;
+  }
+  if (state->HasPendingEvent()) {
+    transport_.Send(destination, state->pending_event_packet);
+    return;
+  }
+
+  auto const* record = NextUndeliveredSharedEvent(*node, *state, destination);
+  if (record == nullptr) {
+    return;
+  }
+  assert(record->event.is_valid());
+  assert(record->event.is_loaded());
+
+  std::vector<std::uint8_t> payload;
+  if (!FreezeStandaloneEventPayload(*record->event, payload)) {
+    return;
+  }
+
+  auto event =
+      BeginIncrementalEventSyncEvent::ptr::Create(ae::CreateWith{domain_});
+  EventFrame const frame{
+      .packet_id = event.id(),
+      .target_node_id = node_id,
+      .destination_share_id = share_id,
+      .identity = record->identity,
+      .timestamp_us = record->order.timestamp_us,
+      .event_class_id = record->event->GetClassId(),
+      .payload = std::move(payload),
+  };
+  event->identity = record->identity;
+  event->packet = EncodeEventFrame(frame);
+  state->Commit(event);
+
+  node.Save();
+  state.Save();
+  transport_.Send(destination, state->pending_event_packet);
 }
 
 void SharedSyncRuntime::ReceiveThunk(void* ctx,
@@ -211,6 +353,13 @@ void SharedSyncRuntime::OnBytes(std::string const& source_endpoint,
       AckFrame frame;
       if (DecodeAckFrame(bytes, frame)) {
         OnAck(source_endpoint, frame);
+      }
+      break;
+    }
+    case SyncFrameType::kEvent: {
+      EventFrame frame;
+      if (DecodeEventFrame(bytes, frame)) {
+        OnEvent(source_endpoint, frame);
       }
       break;
     }
@@ -334,15 +483,97 @@ void SharedSyncRuntime::OnAck(std::string const& source_endpoint,
   if (!state.is_loaded()) {
     state.Load();
   }
-  if (state->GetInitialSyncPhase() != InitialSyncPhase::Pending) {
+  if (state->GetInitialSyncPhase() == InitialSyncPhase::Pending &&
+      state->pending_initial_packet_id == frame.packet_id) {
+    state->CompleteInitialSync();
+    node.Save();
+    state.Save();
     return;
   }
-  if (state->pending_initial_packet_id != frame.packet_id) {
+  if (state->GetInitialSyncPhase() == InitialSyncPhase::Complete &&
+      state->pending_event_packet_id == frame.packet_id) {
+    state->CompleteIncrementalEvent();
+    node.Save();
+    state.Save();
+  }
+}
+
+void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
+                                EventFrame const& frame) {
+  auto node = FindNode(frame.target_node_id);
+  if (!node.is_valid()) {
     return;
   }
-  state->CompleteInitialSync();
+  if (!EventAddressedToThisReplica(*node, transport_.local_endpoint_uid(),
+                                   source_endpoint,
+                                   frame.destination_share_id)) {
+    return;
+  }
+
+  ae::RamDomainStorage parsed;
+  if (!ParseStandaloneEventPayload(frame.payload, parsed)) {
+    return;
+  }
+
+  {
+    ae::Domain scratch_domain{parsed};
+    ae::DomainGraph scratch_graph{&scratch_domain};
+    auto candidate = scratch_graph.LoadRoot(kStandaloneEventScratchId);
+    if (!candidate) {
+      return;
+    }
+    if (ae::Registry::GetRegistry().GenerationDistance(
+            Event::kClassId, candidate->GetClassId()) < 0) {
+      return;
+    }
+    if (candidate->GetClassId() != frame.event_class_id) {
+      return;
+    }
+    auto& scratch_event = static_cast<Event&>(*candidate);
+    if (ae::Registry::GetRegistry().GenerationDistance(
+            scratch_event.TargetClassId(), node->GetClassId()) < 0) {
+      return;
+    }
+    if (!scratch_event.CanApplyTo(*node)) {
+      return;
+    }
+  }
+
+  if (auto const* existing = node->FindSharedEvent(frame.identity)) {
+    if (existing->order.timestamp_us != frame.timestamp_us ||
+        !existing->event.is_valid() || !existing->event.is_loaded() ||
+        existing->event->GetClassId() != frame.event_class_id ||
+        !SameStandalonePayload(*existing->event, frame.payload)) {
+      return;
+    }
+    transport_.Send(source_endpoint,
+                    EncodeAckFrame(AckFrame{
+                        .packet_id = frame.packet_id,
+                        .target_node_id = frame.target_node_id,
+                        .destination_share_id = frame.destination_share_id,
+                    }));
+    return;
+  }
+
+  ae::ObjId const local_id = ae::ObjId::GenerateUnique();
+  CommitStandaloneEventObject(parsed, local_id, storage_);
+  auto local_event =
+      Event::ptr::Declare(ae::CreateWith{domain_}.with_id(local_id));
+  local_event.Load();
+  assert(local_event.is_loaded() &&
+         "admitted standalone Event must load from own storage");
+  assert(local_event->GetClassId() == frame.event_class_id);
+
+  node->InsertShared(std::move(local_event), frame.identity,
+                     SharedEventOrder{.timestamp_us = frame.timestamp_us});
   node.Save();
-  state.Save();
+
+  transport_.Send(source_endpoint,
+                  EncodeAckFrame(AckFrame{
+                      .packet_id = frame.packet_id,
+                      .target_node_id = frame.target_node_id,
+                      .destination_share_id = frame.destination_share_id,
+                  }));
 }
 
 }  // namespace apptraverse

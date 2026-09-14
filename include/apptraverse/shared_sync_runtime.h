@@ -19,8 +19,8 @@ namespace apptraverse {
 // bytes to the SharedNode named by the frame and owns the durable ordering of
 // the initial-state exchange.
 //
-// Protocol v1 carries NodeState and Ack only. Incremental Event replication,
-// heartbeat, and presence are later milestones.
+// Protocol v1 carries NodeState, Ack, and standalone Event. Dynamic object
+// graphs, heartbeat, and presence are later milestones.
 //
 // Instance-scoped: the runtime holds its replica's Domain, storage, and
 // transport. Nothing is process-global or thread_local, and no model pointer
@@ -50,6 +50,13 @@ class SharedSyncRuntime {
   //   Complete   - acknowledged, nothing to send
   void SyncInitialState(ae::ObjId node_id, ae::ObjId share_id);
 
+  // Drive one incremental standalone Event for a Complete relationship:
+  //   pending packet exists - resend those exact bytes
+  //   otherwise freeze the first undelivered shared journal Event, persist,
+  //   then send
+  //   otherwise nothing
+  void SyncNextEvent(ae::ObjId node_id, ae::ObjId share_id);
+
  private:
   static void ReceiveThunk(void* ctx, std::string const& source_endpoint,
                            std::vector<std::uint8_t> const& bytes);
@@ -59,6 +66,7 @@ class SharedSyncRuntime {
   void OnNodeState(std::string const& source_endpoint,
                    NodeStateFrame const& frame);
   void OnAck(std::string const& source_endpoint, AckFrame const& frame);
+  void OnEvent(std::string const& source_endpoint, EventFrame const& frame);
 
   // Admit an expected but unknown root: parse and validate the snapshot in a
   // scratch Domain, and only then write it into this replica's storage.
