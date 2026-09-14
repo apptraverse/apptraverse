@@ -1,6 +1,81 @@
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
+# CLOUD CURSOR — Share relationship identity / replay correctness
+
+## Identity
+
+- Starting SHA: `e8542b6111ac2ec24ae07fc40bd969b17e2577d5`
+- Final SHA: `099d659` (fix) — this Progress entry commits on top
+- Branch: `feature/shared-node-foundation-v1`
+- PR: https://github.com/apptraverse/apptraverse/pull/2 (draft, not merged)
+- Scope: stable Share relationship identity so local sync survives a real
+  `RebuildFromBaseAndReplay`. No transport / packets / ACK / presence / chat.
+
+## Regression proved before the fix
+
+New `TestShareRelationshipIdentitySurvivesForcedReplay` inserts an older
+business Event ahead of the journal head, which forces
+`Node::RebuildFromBaseAndReplay` (not Save/Load). On `e8542b6` it failed twice:
+
+- `CHECK failed: node->link_sync_states[0].id() == second_sync_id`
+- `CHECK failed: node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete`
+
+Cause: the stash restored the second relationship's `LinkSyncState`, then
+replay of the historical `AddShare(B)` matched it by link id, and the
+historical `RemoveShare(B)` erased it; the second `AddShare(B)` then built a
+fresh NotStarted state. The `SetLinkInitialSyncPhaseEvent` lives in the erased
+Node's own journal, so Complete was gone.
+
+## Fix
+
+- `Share::share_id` / `LinkSyncState::share_id` = `ObjId` of the
+  `AddShareEvent` that opened the relationship. No new identity infrastructure:
+  Event identity already survives replay, Save/Load, and graph copy.
+- `RemoveShareEvent` / `ChangeShareAccessEvent` carry `share_id`, not `link`.
+- `FindLinkSyncIndex(link_id)` replaced by `FindLinkSyncIndexForShare(share_id)`
+  plus `FindShareIndexForShare`; `SetInitialSyncPhase` / `GetInitialSyncPhase`
+  resolve Link → active Share → relationship state.
+- `Apply(AddShareEvent)` reuses a restored state with the same `share_id`,
+  otherwise creates one with `share_id` + `link` + NotStarted assigned before
+  `InitializeRuntimeNode`.
+- Stash / restore unchanged; no `AfterReplayFixSyncState`, reconcile scan, or
+  test flag.
+
+## Coverage added
+
+- Forced mid-journal rebuild: second relationship identity, second sync-state
+  identity, and Complete all preserved; no duplicate sync state for the Link.
+- Same test then Saves, reloads in a new Domain, and forces a second rebuild
+  there — relationship identity is re-derived from the persisted Event.
+- Live remove + re-add: new `share_id`, new sync state, NotStarted.
+- Network copy: sender and receiver `share_id` equal; receiver has no
+  `LinkSyncState` and reads NotStarted.
+- One Link shared by two SharedNodes: different `share_id`, independent sync
+  progress across restart.
+
+## Tests run
+
+- `apptraverse_shared_node_foundation_test` PASS
+- `apptraverse_event_sourced_core_test` PASS
+- `apptraverse_dynamic_objects_add_test` PASS
+- `apptraverse_journal_retention_test` PASS
+- `apptraverse_model_runtime_stop_test` PASS
+- `apptraverse_publication_channel_test` PASS
+- full Linux ctest suite (14 tests) PASS
+
+## Limitations
+
+- No Memory transport / initial sync / ACK / retry / presence / chat
+- `share_id` is the local `AddShareEvent` ObjId; a transport that re-creates the
+  Event on the receiver must carry the identity in the frame (recorded in
+  `plan.md` open questions)
+- aether-objects `DomainGraph` serialization-scope patch untouched in this slice
+- Not accepted-by-user
+
+---
+Status: implemented/verified on feature branch. Not accepted.
+
 # CLOUD CURSOR — SharedNode foundation v1.1 follow-up (policy + init)
 
 ## Identity
