@@ -10,8 +10,6 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_ptr.h"
 
-#include "apptraverse/graph_copy_policy.h"
-
 namespace apptraverse {
 
 // Compile-time scope on a graph edge. Never written to storage/wire by itself;
@@ -25,8 +23,9 @@ enum class LinkScope {
 //
 // kShared / ordinary ObjPtr: included in local Save/Load and network shared
 // graph serialization.
-// kLocal: included in local Save/Load. Under GraphCopyPolicy::NetworkShared,
-// serializes as empty/default ObjPtr and does not export the referent.
+// kLocal: included in local Save/Load. When the DomainGraph's
+// serialization_scope is NetworkShared, serializes as empty/default ObjPtr
+// and does not export the referent.
 template <typename T, LinkScope Scope>
 class ObjectLink {
   template <typename U, LinkScope S>
@@ -129,9 +128,10 @@ struct Serializer<BinaryArchive<DomainBuffer>,
 
   SeriResult Seri(Archive& archive, Meta<Link const> meta) const {
     if constexpr (Scope == apptraverse::LinkScope::kLocal) {
-      if (apptraverse::GraphCopyPolicy::ScopeFor(
-              archive.buffer().domain_graph) ==
-          apptraverse::GraphCopyPolicy::Scope::NetworkShared) {
+      auto* const graph = archive.buffer().domain_graph;
+      if (graph != nullptr &&
+          graph->serialization_scope ==
+              ae::GraphSerializationScope::NetworkShared) {
         // Empty/default: no ObjId on the wire, referent not SaveRoot'd.
         ae::ObjPtr<T> const empty{};
         return archive.Save(Meta{empty});
@@ -149,8 +149,9 @@ struct Serializer<BinaryArchive<DomainBuffer>,
 namespace ae::domain_visitor {
 
 // Local edges are never followed by deep reflection traversal. Network
-// exclusion of LocalPtr is handled by ObjectLink Serializer + GraphCopyPolicy,
-// not by visitor skipping alone (skipping would still leave a dangling ObjId).
+// exclusion of LocalPtr is handled by ObjectLink Serializer reading
+// DomainGraph::serialization_scope, not by visitor skipping alone
+// (skipping would still leave a dangling ObjId).
 template <typename T>
 struct NodeVisitor<apptraverse::LocalPtr<T>> {
   using Policy = AnyPolicyMatch;

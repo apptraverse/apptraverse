@@ -1,0 +1,53 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index bf903e2..0372f4a 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -24,7 +24,12 @@
+ 
+ namespace ae {
+ 
+-DomainGraph::DomainGraph(Domain* domain) : domain(domain) { assert(domain); }
++DomainGraph::DomainGraph(Domain* domain) : DomainGraph(domain, GraphSerializationScope::LocalPersistent) {}
++
++DomainGraph::DomainGraph(Domain* domain, GraphSerializationScope scope)
++    : domain(domain), serialization_scope(scope) {
++  assert(domain);
++}
+ 
+ Ptr<Obj> DomainGraph::LoadRoot(ObjId obj_id) {
+   if (!obj_id.is_valid()) {
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index fac5210..5758b05 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -95,6 +95,13 @@ struct DomainBuffer {
+   IDomainStorageReader* reader{nullptr};
+ };
+ 
++// Serialization intent for one DomainGraph Save/Load walk. Owned by the
++// DomainGraph instance (no process-global / thread_local policy registry).
++enum class GraphSerializationScope : std::uint8_t {
++  LocalPersistent = 0,
++  NetworkShared = 1,
++};
++
+ /**
+  * \brief Operations on graph of objects in domain.
+  * For load/save a new graph create a new DomainGraph.
+@@ -102,6 +109,7 @@ struct DomainBuffer {
+ class DomainGraph {
+  public:
+   explicit DomainGraph(Domain* domain);
++  DomainGraph(Domain* domain, GraphSerializationScope scope);
+ 
+   // Load saved state of object.
+   Ptr<Obj> LoadRoot(ObjId obj_id);
+@@ -125,6 +133,8 @@ class DomainGraph {
+ 
+   Domain* domain{};
+   DomainCycleDetector cycle_detector{};
++  GraphSerializationScope serialization_scope{
++      GraphSerializationScope::LocalPersistent};
+ 
+  private:
+   // Load every known stored class layer, base → derived, into the already

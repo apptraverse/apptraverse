@@ -1,36 +1,19 @@
 #ifndef APPTRAVERSE_GRAPH_COPY_POLICY_H_
 #define APPTRAVERSE_GRAPH_COPY_POLICY_H_
 
-#include <cstdint>
-
 #include "aether-objects/obj/domain.h"
 
 namespace apptraverse {
 
-// Explicit per-DomainGraph serialization policy for graph copy/export.
-// Bound with Active at the call site — not a process-global mode flag and not
-// thread_local. Unbound graphs use LocalPersistent (default Save/Load).
-class GraphCopyPolicy {
- public:
-  enum class Scope : std::uint8_t {
-    LocalPersistent = 0,
-    NetworkShared = 1,
-  };
+// Graph serialization scope lives on ae::DomainGraph::serialization_scope.
+// Default DomainGraph construction is LocalPersistent. Network export builds:
+//   ae::DomainGraph graph{&domain, ae::GraphSerializationScope::NetworkShared};
+//
+// ObjectLink / LocalPtr serializers read archive.buffer().domain_graph->
+// serialization_scope. There is no process-global, static, or thread_local
+// policy registry.
 
-  class Active {
-   public:
-    Active(ae::DomainGraph const& graph, Scope scope);
-    ~Active();
-
-    Active(Active const&) = delete;
-    Active& operator=(Active const&) = delete;
-
-   private:
-    ae::DomainGraph const* graph_;
-  };
-
-  static Scope ScopeFor(ae::DomainGraph const* graph);
-};
+using GraphSerializationScope = ae::GraphSerializationScope;
 
 }  // namespace apptraverse
 

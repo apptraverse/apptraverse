@@ -81,6 +81,8 @@ function(apptraverse_add_pinned_aether_owned_deps)
     GITHUB_REPOSITORY aethernetio/aether-objects
     GIT_TAG ${APPTRAVERSE_AETHER_OBJECTS_GIT_TAG}
     EXCLUDE_FROM_ALL NO
+    PATCHES
+      "${CMAKE_SOURCE_DIR}/cmake/patches/aether-objects-domain-graph-serialization-scope.patch"
     OPTIONS
       "AE_INSTALL OFF"
       "AE_BUILD_TESTS OFF"

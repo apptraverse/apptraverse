@@ -3,10 +3,13 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/registry.h"
 
@@ -161,13 +164,14 @@ void TestMultipleRefsSameLinkAfterRestart() {
         ae::CreateWith{domain}.with_id(node_b_id));
     auto client =
         Client::ptr::Create(ae::CreateWith{domain}.with_id(client_id));
+    // Client reflected fields before InitializeRuntimeNode.
+    client->name = "fixture-client";
+    client->link = link;
     InitializeRuntimeNode(*node_a);
     InitializeRuntimeNode(*node_b);
     InitializeRuntimeNode(*client);
     node_a->AddShare(link, ShareAccess::ReadWrite);
     node_b->AddShare(link, ShareAccess::ReadOnly);
-    client->name = "fixture-client";
-    client->link = link;
     node_a.Save();
     node_b.Save();
     client.Save();
@@ -416,11 +420,12 @@ void TestNestedSharedNodeLocalPtrExcluded() {
         RootSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(root_id));
     auto child =
         ChildSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(child_id));
-    InitializeRuntimeNode(*root);
+    // Reflected fields before InitializeRuntimeNode (creation-time config).
+    child->child_value = 9;
     InitializeRuntimeNode(*child);
     root->child = child;
     root->root_value = 7;
-    child->child_value = 9;
+    InitializeRuntimeNode(*root);
 
     auto link_root = MakeMemoryLink(domain, ae::ObjId{link_root_id}, "root-l");
     auto link_child =
@@ -521,6 +526,110 @@ void TestGenericLocalPtrNetworkExclusion() {
   }
 }
 
+void TestLinkSyncStateConfiguredBeforeLive() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto node =
+      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(91));
+  InitializeRuntimeNode(*node);
+  auto link = MakeMemoryLink(domain, ae::ObjId{92}, "sync-peer");
+
+  // AddShare Apply creates LinkSyncState: link + NotStarted assigned before
+  // InitializeRuntimeNode, then phase changes only via Event.
+  node->AddShare(link, ShareAccess::ReadWrite);
+  CHECK(node->link_sync_states.size() == 1);
+  auto sync = node->link_sync_states[0];
+  CHECK(sync.is_valid());
+  sync.Load();
+  CHECK(sync->base.is_valid());  // live after AddShare
+  CHECK(sync->link.is_valid());
+  CHECK(sync->link.id() == link.id());
+  CHECK(sync->GetInitialSyncPhase() == InitialSyncPhase::NotStarted);
+
+  node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
+  CHECK(sync->GetInitialSyncPhase() == InitialSyncPhase::Complete);
+  CHECK(sync->journal.size() >= 1);
+}
+
+void TestSimultaneousDomainGraphSerializationScopes() {
+  // Two DomainGraph lifetimes with different scopes must not interfere —
+  // scope is owned by each DomainGraph, not a process-global registry.
+  ae::RamDomainStorage source_storage;
+  ae::ObjId::Type const holder_id = 101;
+  ae::ObjId::Type const payload_id = 102;
+  ae::Domain source_domain{source_storage};
+  auto holder =
+      LocalPtrHolder::ptr::Create(ae::CreateWith{source_domain}.with_id(holder_id));
+  auto payload = LocalOnlyPayload::ptr::Create(
+      ae::CreateWith{source_domain}.with_id(payload_id));
+  holder->name = "dual-scope";
+  payload->mark = "local-only";
+  holder->local = payload;
+
+  auto ptr = source_domain.Find(holder.id());
+  CHECK(ptr);
+  auto* factory =
+      ae::Registry::GetRegistry().FindFactory(holder->GetClassId());
+  CHECK(factory != nullptr);
+  CHECK(factory->save != nullptr);
+
+  ae::RamDomainStorage local_out;
+  ae::RamDomainStorage network_out;
+  std::exception_ptr local_err;
+  std::exception_ptr network_err;
+
+  std::thread local_thread{[&] {
+    try {
+      ae::Domain local_domain{local_out};
+      ae::DomainGraph local_graph{
+          &local_domain, ae::GraphSerializationScope::LocalPersistent};
+      CHECK(local_graph.serialization_scope ==
+            ae::GraphSerializationScope::LocalPersistent);
+      factory->save(&local_graph, ptr, holder.id());
+    } catch (...) {
+      local_err = std::current_exception();
+    }
+  }};
+
+  std::thread network_thread{[&] {
+    try {
+      ae::Domain network_domain{network_out};
+      ae::DomainGraph network_graph{
+          &network_domain, ae::GraphSerializationScope::NetworkShared};
+      CHECK(network_graph.serialization_scope ==
+            ae::GraphSerializationScope::NetworkShared);
+      factory->save(&network_graph, ptr, holder.id());
+    } catch (...) {
+      network_err = std::current_exception();
+    }
+  }};
+
+  local_thread.join();
+  network_thread.join();
+  CHECK(!local_err);
+  CHECK(!network_err);
+
+  {
+    ae::Domain d{local_out};
+    auto loaded =
+        LocalPtrHolder::ptr::Declare(ae::CreateWith{d}.with_id(holder_id));
+    loaded.Load();
+    CHECK(loaded->name == "dual-scope");
+    CHECK(loaded->local.is_valid());
+    loaded->local.Load();
+    CHECK(loaded->local->mark == "local-only");
+  }
+  {
+    ae::Domain d{network_out};
+    auto loaded =
+        LocalPtrHolder::ptr::Declare(ae::CreateWith{d}.with_id(holder_id));
+    loaded.Load();
+    CHECK(loaded->name == "dual-scope");
+    CHECK(!loaded->local.is_valid());
+    CHECK(network_out.Enumerate(ae::ObjId{payload_id}).empty());
+  }
+}
+
 void TestNoSerializedIsLocalAndNoRttiSurface() {
   static_assert(!std::is_same_v<SharedPtr<Link>, LocalPtr<Link>>);
   static_assert(LocalPtr<LinkSyncState>::kScope == LinkScope::kLocal);
@@ -543,6 +652,8 @@ int main() {
   apptraverse::test::TestNetworkSerializationBoundaries();
   apptraverse::test::TestNestedSharedNodeLocalPtrExcluded();
   apptraverse::test::TestGenericLocalPtrNetworkExclusion();
+  apptraverse::test::TestLinkSyncStateConfiguredBeforeLive();
+  apptraverse::test::TestSimultaneousDomainGraphSerializationScopes();
   apptraverse::test::TestNoSerializedIsLocalAndNoRttiSurface();
 
   std::cout << "shared_node_foundation_test OK\n";

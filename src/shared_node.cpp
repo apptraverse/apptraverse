@@ -106,8 +106,11 @@ void SharedNode::Apply(AddShareEvent const& event) {
   // journal replay re-applies AddShare).
   if (FindLinkSyncIndex(event.link.id()) >= link_sync_states.size()) {
     auto state = LinkSyncState::ptr::Create(ae::CreateWith{*domain});
-    InitializeRuntimeNode(*state);
+    // Creation-time immutable config before the Node becomes live.
     state->link = event.link;
+    state->initial_sync_phase =
+        static_cast<std::uint8_t>(InitialSyncPhase::NotStarted);
+    InitializeRuntimeNode(*state);
     link_sync_states.push_back(LocalPtr<LinkSyncState>{state});
   }
 

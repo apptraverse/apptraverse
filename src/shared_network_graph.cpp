@@ -7,8 +7,6 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/registry.h"
 
-#include "apptraverse/graph_copy_policy.h"
-
 namespace apptraverse {
 namespace {
 
@@ -41,9 +39,8 @@ void CopyNetworkSharedObjectGraph(ae::Obj const& root,
   ae::RamDomainStorage scratch;
   ae::Domain scratch_domain{scratch};
   {
-    ae::DomainGraph graph{&scratch_domain};
-    GraphCopyPolicy::Active const network_scope{
-        graph, GraphCopyPolicy::Scope::NetworkShared};
+    ae::DomainGraph graph{&scratch_domain,
+                          ae::GraphSerializationScope::NetworkShared};
 
     auto ptr = root.domain->Find(root.obj_id);
     assert(ptr);
