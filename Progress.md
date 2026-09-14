@@ -6,7 +6,9 @@ Status: implemented/verified on feature branch. Not accepted.
 ## Identity
 
 - Starting SHA: `3dbfe688e4a4b68bc1b00cbfda2838525c4cd0f7`
+- Final SHA: `e02a150acfbe5c674fd16645e19191a9b4c4a66b`
 - Branch: `feature/shared-node-foundation-v1`
+- PR: https://github.com/apptraverse/apptraverse/pull/2
 - Scope: foundation corrections only — Event-driven local sync,
   generic LocalPtr network exclusion, read-only network snapshot,
   RemoveShare+AddShare sync reset. No transport / ACK / presence / chat.
