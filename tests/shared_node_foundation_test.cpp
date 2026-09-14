@@ -1,11 +1,14 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
+#include "aether-objects/obj/registry.h"
 
 #include "apptraverse/link.h"
 #include "apptraverse/object_link.h"
@@ -20,8 +23,12 @@
 namespace apptraverse::test {
 namespace {
 
+using apptraverse::example::shared_node::ChildSharedNode;
 using apptraverse::example::shared_node::Client;
 using apptraverse::example::shared_node::EnsureSharedNodeDemoRegistration;
+using apptraverse::example::shared_node::LocalOnlyPayload;
+using apptraverse::example::shared_node::LocalPtrHolder;
+using apptraverse::example::shared_node::RootSharedNode;
 using apptraverse::example::shared_node::SetValueEvent;
 using apptraverse::example::shared_node::SharedValueNode;
 
@@ -34,19 +41,67 @@ using apptraverse::example::shared_node::SharedValueNode;
     }                                                                        \
   } while (0)
 
+class CountingDomainStorage final : public ae::IDomainStorage {
+ public:
+  explicit CountingDomainStorage(ae::IDomainStorage& inner) : inner_{inner} {}
+
+  std::size_t store_count() const { return store_count_; }
+
+  std::unique_ptr<ae::IDomainStorageWriter> Store(
+      ae::DomainQuery const& query) override {
+    ++store_count_;
+    return inner_.Store(query);
+  }
+
+  ae::ClassList Enumerate(ae::ObjId const& obj_id) override {
+    return inner_.Enumerate(obj_id);
+  }
+
+  ae::DomainLoad Load(ae::DomainQuery const& query) override {
+    return inner_.Load(query);
+  }
+
+  void Remove(ae::ObjId const& obj_id) override { inner_.Remove(obj_id); }
+  void CleanUp() override { inner_.CleanUp(); }
+
+ private:
+  ae::IDomainStorage& inner_;
+  std::size_t store_count_{0};
+};
+
+bool HasValidLocalSyncEntry(SharedNode const& node) {
+  for (auto const& entry : node.link_sync_states) {
+    if (entry.is_valid()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool StorageHasClass(ae::IDomainStorage& storage, ae::ObjId obj_id,
+                     std::uint32_t class_id) {
+  auto const classes = storage.Enumerate(obj_id);
+  for (auto const cid : classes) {
+    if (cid == class_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void SetValue(SharedValueNode& node, std::int32_t value) {
   auto event = SetValueEvent::ptr::Create(ae::CreateWith{*node.domain});
   event->value = value;
   node.Commit(event);
 }
 
+// Persistent Link fields are set before the Node becomes live.
 MemoryLink::ptr MakeMemoryLink(ae::Domain& domain, ae::ObjId id,
                                std::string endpoint) {
   auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(id));
-  InitializeRuntimeNode(*link);
   link->endpoint_uid = std::move(endpoint);
   link->heartbeat_interval_ms = 1000;
-  link.Save();
+  InitializeRuntimeNode(*link);
   return link;
 }
 
@@ -67,6 +122,28 @@ void TestLinkPersistentSaveLoad() {
     CHECK(link->endpoint_uid == "endpoint-a");
     CHECK(link->heartbeat_interval_ms == 1000);
   }
+}
+
+void TestLinkConfigInitializedBeforeLive() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(12));
+  // Configure while not yet a live runtime Node.
+  CHECK(!link->base.is_valid());
+  link->endpoint_uid = "pre-live";
+  link->heartbeat_interval_ms = 2500;
+  InitializeRuntimeNode(*link);
+  CHECK(link->base.is_valid());
+  CHECK(link->endpoint_uid == "pre-live");
+  CHECK(link->heartbeat_interval_ms == 2500);
+  link.Save();
+
+  ae::Domain domain2{storage};
+  auto loaded =
+      MemoryLink::ptr::Declare(ae::CreateWith{domain2}.with_id(12));
+  loaded.Load();
+  CHECK(loaded->endpoint_uid == "pre-live");
+  CHECK(loaded->heartbeat_interval_ms == 2500);
 }
 
 void TestMultipleRefsSameLinkAfterRestart() {
@@ -116,7 +193,6 @@ void TestMultipleRefsSameLinkAfterRestart() {
     CHECK(node_a->shares[0].link.id().id() == link_id);
     CHECK(node_b->shares[0].link.id().id() == link_id);
     CHECK(client->link.id().id() == link_id);
-    // Same Domain identity map entry — one C++ instance.
     CHECK(node_a->shares[0].link.operator->() ==
           node_b->shares[0].link.operator->());
     CHECK(client->link.operator->() == node_a->shares[0].link.operator->());
@@ -141,8 +217,8 @@ void TestShareTopologyEventsAndPersistence() {
     node->AddShare(link_a, ShareAccess::ReadWrite);
     node->AddShare(link_b, ShareAccess::ReadWrite);
     CHECK(node->shares.size() == 2);
+    CHECK(node->link_sync_states.size() == 2);
     CHECK(node->journal.size() == 2);
-    // Duplicate AddShare is a documented no-op (one share per Link).
     node->AddShare(link_a, ShareAccess::ReadOnly);
     CHECK(node->shares.size() == 2);
     CHECK(node->journal.size() == 2);
@@ -150,6 +226,7 @@ void TestShareTopologyEventsAndPersistence() {
     CHECK(node->shares[1].GetAccess() == ShareAccess::ReadOnly);
     node->RemoveShare(link_a);
     CHECK(node->shares.size() == 1);
+    CHECK(node->link_sync_states.size() == 1);
     CHECK(node->shares[0].link.id().id() == link_b_id);
     node.Save();
   }
@@ -164,7 +241,7 @@ void TestShareTopologyEventsAndPersistence() {
   }
 }
 
-void TestLocalSyncStatePersistsAndSurvivesReplay() {
+void TestLocalSyncStateEventDrivenSaveLoadAndReplay() {
   ae::RamDomainStorage storage;
   ae::ObjId::Type const node_id = 41;
   ae::ObjId::Type const link_id = 42;
@@ -175,24 +252,25 @@ void TestLocalSyncStatePersistsAndSurvivesReplay() {
     InitializeRuntimeNode(*node);
     auto link = MakeMemoryLink(domain, ae::ObjId{link_id}, "bob");
     node->AddShare(link, ShareAccess::ReadWrite);
+    CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
     SetValue(*node, 1);
     SetValue(*node, 2);
     node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
     CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
     CHECK(node->link_sync_states.size() == 1);
+    CHECK(node->link_sync_states[0]->journal.size() >= 1);
     CHECK(node->journal.size() >= 2);
     auto const second_lp = node->journal.back().order.lamport;
     auto const first_lp =
         node->journal[node->journal.size() - 2].order.lamport;
     CHECK(second_lp > first_lp);
 
-    // Mid-journal insert forces RebuildFromBaseAndReplay.
+    // Mid-journal business insert forces RebuildFromBaseAndReplay.
     auto mid = SetValueEvent::ptr::Create(ae::CreateWith{domain});
     mid->value = 3;
     node->InsertAtForTest(
         SharedEventOrder{.lamport = first_lp + (second_lp - first_lp) / 2},
         mid);
-    // Order: 1, 3, 2 → materialized value 2.
     CHECK(node->value == 2);
     CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
     node.Save();
@@ -213,8 +291,46 @@ void TestLocalSyncStatePersistsAndSurvivesReplay() {
   }
 }
 
+void TestRemoveShareAddShareResetsLocalSync() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto node =
+      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(61));
+  InitializeRuntimeNode(*node);
+  auto link = MakeMemoryLink(domain, ae::ObjId{62}, "peer");
+  node->AddShare(link, ShareAccess::ReadWrite);
+  node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
+  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
+  auto const old_sync_id = node->link_sync_states[0].id();
+
+  node->RemoveShare(link);
+  CHECK(node->shares.empty());
+  CHECK(node->link_sync_states.empty());
+
+  node->AddShare(link, ShareAccess::ReadWrite);
+  CHECK(node->shares.size() == 1);
+  CHECK(node->link_sync_states.size() == 1);
+  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
+  CHECK(node->link_sync_states[0].id() != old_sync_id);
+
+  // Replay of Remove+Add must also leave NotStarted (materialized + journal).
+  node.Save();
+  for (auto& entry : node->link_sync_states) {
+    entry.Save();
+  }
+  ae::Domain domain2{storage};
+  auto loaded =
+      SharedValueNode::ptr::Declare(ae::CreateWith{domain2}.with_id(61));
+  loaded.Load();
+  CHECK(loaded->shares.size() == 1);
+  loaded->shares[0].link.Load();
+  CHECK(loaded->GetInitialSyncPhase(loaded->shares[0].link) ==
+        InitialSyncPhase::NotStarted);
+}
+
 void TestNetworkSerializationBoundaries() {
-  ae::RamDomainStorage source_storage;
+  ae::RamDomainStorage raw_source;
+  CountingDomainStorage source_storage{raw_source};
   ae::ObjId::Type const node_id = 51;
   ae::ObjId::Type const link_a_id = 52;
   ae::ObjId::Type const link_b_id = 53;
@@ -232,7 +348,7 @@ void TestNetworkSerializationBoundaries() {
     SetValue(*node, 42);
     node->SetInitialSyncPhase(link_b, InitialSyncPhase::Complete);
     CHECK(node->GetInitialSyncPhase(link_b) == InitialSyncPhase::Complete);
-    CHECK(node->link_sync_states.size() == 1);
+    CHECK(node->link_sync_states.size() == 2);
     source_node_addr = static_cast<void const*>(node.operator->());
     source_link_addr = static_cast<void const*>(link_b.operator->());
     node.Save();
@@ -242,11 +358,15 @@ void TestNetworkSerializationBoundaries() {
       entry.Save();
     }
 
-    // Live source still has local sync after network copy.
+    auto const stores_before_copy = source_storage.store_count();
+
     ae::RamDomainStorage target_storage;
     ae::Domain target_domain{target_storage};
-    CopySharedNetworkGraph(node, source_storage, target_domain, target_storage);
-    CHECK(node->link_sync_states.size() == 1);
+    CopySharedNetworkGraph(node, target_domain, target_storage);
+
+    CHECK(source_storage.store_count() == stores_before_copy);
+    CHECK(node->link_sync_states.size() == 2);
+    CHECK(HasValidLocalSyncEntry(*node));
     CHECK(node->GetInitialSyncPhase(link_b) == InitialSyncPhase::Complete);
 
     auto imported = SharedValueNode::ptr::Declare(
@@ -264,17 +384,140 @@ void TestNetworkSerializationBoundaries() {
           imported->shares[1].link.id().id() == link_b_id);
     CHECK(static_cast<void const*>(imported->shares[0].link.operator->()) !=
           source_link_addr);
-    // Local sync metadata must not arrive with the network graph.
-    CHECK(imported->link_sync_states.empty());
+
+    // Local sync: no valid LocalPtr ids / no LinkSyncState objects.
+    CHECK(!HasValidLocalSyncEntry(*imported));
+    for (auto const& entry : imported->link_sync_states) {
+      CHECK(!entry.is_valid());
+    }
     CHECK(imported->GetInitialSyncPhase(imported->shares[0].link) ==
           InitialSyncPhase::NotStarted);
 
-    // Receiver creates its own local sync state independently.
-    imported->SetInitialSyncPhase(imported->shares[0].link,
-                                  InitialSyncPhase::Pending);
-    CHECK(imported->GetInitialSyncPhase(imported->shares[0].link) ==
-          InitialSyncPhase::Pending);
+    // Receiver creates its own local sync independently (new share → Events).
+    auto link_c = MakeMemoryLink(target_domain, ae::ObjId{54}, "carol");
+    imported->AddShare(link_c, ShareAccess::ReadOnly);
+    imported->SetInitialSyncPhase(link_c, InitialSyncPhase::Pending);
+    CHECK(imported->GetInitialSyncPhase(link_c) == InitialSyncPhase::Pending);
     CHECK(node->GetInitialSyncPhase(link_b) == InitialSyncPhase::Complete);
+  }
+}
+
+void TestNestedSharedNodeLocalPtrExcluded() {
+  ae::RamDomainStorage source_storage;
+  ae::ObjId::Type const root_id = 71;
+  ae::ObjId::Type const child_id = 72;
+  ae::ObjId::Type const link_root_id = 73;
+  ae::ObjId::Type const link_child_id = 74;
+  ae::ObjId::Type root_sync_id = 0;
+  ae::ObjId::Type child_sync_id = 0;
+  {
+    ae::Domain domain{source_storage};
+    auto root =
+        RootSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(root_id));
+    auto child =
+        ChildSharedNode::ptr::Create(ae::CreateWith{domain}.with_id(child_id));
+    InitializeRuntimeNode(*root);
+    InitializeRuntimeNode(*child);
+    root->child = child;
+    root->root_value = 7;
+    child->child_value = 9;
+
+    auto link_root = MakeMemoryLink(domain, ae::ObjId{link_root_id}, "root-l");
+    auto link_child =
+        MakeMemoryLink(domain, ae::ObjId{link_child_id}, "child-l");
+    root->AddShare(link_root, ShareAccess::ReadWrite);
+    child->AddShare(link_child, ShareAccess::ReadWrite);
+    root->SetInitialSyncPhase(link_root, InitialSyncPhase::Complete);
+    child->SetInitialSyncPhase(link_child, InitialSyncPhase::Complete);
+    root_sync_id = root->link_sync_states[0].id().id();
+    child_sync_id = child->link_sync_states[0].id().id();
+    root.Save();
+    child.Save();
+    link_root.Save();
+    link_child.Save();
+    for (auto& entry : root->link_sync_states) {
+      entry.Save();
+    }
+    for (auto& entry : child->link_sync_states) {
+      entry.Save();
+    }
+
+    ae::RamDomainStorage target_storage;
+    ae::Domain target_domain{target_storage};
+    CopySharedNetworkGraph(root, target_domain, target_storage);
+
+    auto imported = RootSharedNode::ptr::Declare(
+        ae::CreateWith{target_domain}.with_id(root_id));
+    imported.Load();
+    CHECK(imported->root_value == 7);
+    CHECK(imported->shares.size() == 1);
+    imported->shares[0].link.Load();
+    CHECK(imported->shares[0].link.id().id() == link_root_id);
+    MemoryLink::ptr imported_root_link = imported->shares[0].link;
+    imported_root_link.Load();
+    CHECK(imported_root_link->endpoint_uid == "root-l");
+
+    CHECK(imported->child.is_valid());
+    imported->child.Load();
+    CHECK(imported->child->child_value == 9);
+    CHECK(imported->child->shares.size() == 1);
+    imported->child->shares[0].link.Load();
+    CHECK(imported->child->shares[0].link.id().id() == link_child_id);
+
+    CHECK(!HasValidLocalSyncEntry(*imported));
+    CHECK(!HasValidLocalSyncEntry(*imported->child));
+    for (auto const& entry : imported->link_sync_states) {
+      CHECK(!entry.is_valid());
+    }
+    for (auto const& entry : imported->child->link_sync_states) {
+      CHECK(!entry.is_valid());
+    }
+    CHECK(!StorageHasClass(target_storage, ae::ObjId{root_sync_id},
+                           LinkSyncState::kClassId));
+    CHECK(!StorageHasClass(target_storage, ae::ObjId{child_sync_id},
+                           LinkSyncState::kClassId));
+  }
+}
+
+void TestGenericLocalPtrNetworkExclusion() {
+  ae::RamDomainStorage source_storage;
+  ae::ObjId::Type const holder_id = 81;
+  ae::ObjId::Type const payload_id = 82;
+  {
+    ae::Domain domain{source_storage};
+    auto holder =
+        LocalPtrHolder::ptr::Create(ae::CreateWith{domain}.with_id(holder_id));
+    auto payload = LocalOnlyPayload::ptr::Create(
+        ae::CreateWith{domain}.with_id(payload_id));
+    holder->name = "holder";
+    payload->mark = "secret-local";
+    holder->local = payload;
+    holder.Save();
+    payload.Save();
+
+    // Local Save/Load keeps LocalPtr.
+    {
+      ae::Domain reload{source_storage};
+      auto loaded = LocalPtrHolder::ptr::Declare(
+          ae::CreateWith{reload}.with_id(holder_id));
+      loaded.Load();
+      CHECK(loaded->name == "holder");
+      CHECK(loaded->local.is_valid());
+      loaded->local.Load();
+      CHECK(loaded->local->mark == "secret-local");
+    }
+
+    ae::RamDomainStorage target_storage;
+    CopyNetworkSharedObjectGraph(*holder, target_storage);
+
+    ae::Domain target_domain{target_storage};
+    auto imported = LocalPtrHolder::ptr::Declare(
+        ae::CreateWith{target_domain}.with_id(holder_id));
+    imported.Load();
+    CHECK(imported->name == "holder");
+    CHECK(!imported->local.is_valid());
+    CHECK(imported->local.id().id() == ae::ObjId{}.id());
+    CHECK(target_storage.Enumerate(ae::ObjId{payload_id}).empty());
   }
 }
 
@@ -292,10 +535,14 @@ int main() {
   apptraverse::example::shared_node::EnsureSharedNodeDemoRegistration();
 
   apptraverse::test::TestLinkPersistentSaveLoad();
+  apptraverse::test::TestLinkConfigInitializedBeforeLive();
   apptraverse::test::TestMultipleRefsSameLinkAfterRestart();
   apptraverse::test::TestShareTopologyEventsAndPersistence();
-  apptraverse::test::TestLocalSyncStatePersistsAndSurvivesReplay();
+  apptraverse::test::TestLocalSyncStateEventDrivenSaveLoadAndReplay();
+  apptraverse::test::TestRemoveShareAddShareResetsLocalSync();
   apptraverse::test::TestNetworkSerializationBoundaries();
+  apptraverse::test::TestNestedSharedNodeLocalPtrExcluded();
+  apptraverse::test::TestGenericLocalPtrNetworkExclusion();
   apptraverse::test::TestNoSerializedIsLocalAndNoRttiSurface();
 
   std::cout << "shared_node_foundation_test OK\n";

@@ -1,6 +1,47 @@
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
+# CLOUD CURSOR — SharedNode foundation v1.1 hardening
+
+## Identity
+
+- Starting SHA: `3dbfe688e4a4b68bc1b00cbfda2838525c4cd0f7`
+- Branch: `feature/shared-node-foundation-v1`
+- Scope: foundation corrections only — Event-driven local sync,
+  generic LocalPtr network exclusion, read-only network snapshot,
+  RemoveShare+AddShare sync reset. No transport / ACK / presence / chat.
+
+## Corrections
+
+- Local-persistent sync state obeys Event-only mutation (`LinkSyncState` is a
+  Node; phase via `SetLinkInitialSyncPhaseEvent`; AddShare creates NotStarted;
+  RemoveShare drops stale sync)
+- Generic `LocalPtr` network exclusion via `GraphCopyPolicy` on DomainGraph
+  (empty/default ObjPtr on wire; referent not exported; nested SharedNode and
+  non-SharedNode fixtures)
+- `CopySharedNetworkGraph` / `CopyNetworkSharedObjectGraph` do not
+  `source.Save()` / Store to source
+- Link persistent config initialized before `InitializeRuntimeNode`
+- Removed `ClearLocalPersistentEdges` / direct `EnsureLinkSyncState` Save paths
+
+## Tests run
+
+- `apptraverse_shared_node_foundation_test` PASS
+- `apptraverse_event_sourced_core_test` PASS
+- `apptraverse_dynamic_objects_add_test` PASS
+- `apptraverse_journal_retention_test` PASS
+- `apptraverse_model_runtime_stop_test` PASS
+- `apptraverse_publication_channel_test` PASS
+
+## Limitations
+
+- No Memory transport / initial sync / ACK / retry / presence / chat
+- Per-Link sync stores only `InitialSyncPhase` (no pending bytes yet)
+- Not accepted-by-user
+
+---
+Status: implemented/verified on feature branch. Not accepted.
+
 # WINDOWS CURSOR — SharedNode foundation v1
 
 ## Identity

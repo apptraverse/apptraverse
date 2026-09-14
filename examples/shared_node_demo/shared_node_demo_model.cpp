@@ -8,6 +8,10 @@ namespace {
 APPTRAVERSE_REGISTER(SharedValueNode);
 APPTRAVERSE_REGISTER(SetValueEvent);
 APPTRAVERSE_REGISTER(Client);
+APPTRAVERSE_REGISTER(ChildSharedNode);
+APPTRAVERSE_REGISTER(RootSharedNode);
+APPTRAVERSE_REGISTER(LocalOnlyPayload);
+APPTRAVERSE_REGISTER(LocalPtrHolder);
 
 }  // namespace
 
