@@ -1,6 +1,43 @@
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
+# CLOUD CURSOR — SharedNode foundation v1.1 follow-up (policy + init)
+
+## Identity
+
+- Starting SHA: `62750540681ddd6755bca9059b53958428c8dfb4`
+- Final SHA: `7563b80f29195c73a4b55961a2f0eb1a7308b846`
+- Branch: `feature/shared-node-foundation-v1`
+- PR: https://github.com/apptraverse/apptraverse/pull/2
+- Scope: remove process-global GraphCopyPolicy registry; put serialization
+  scope on DomainGraph; fix LinkSyncState field init before live. No transport.
+
+## Corrections
+
+- `ae::GraphSerializationScope` + `DomainGraph::serialization_scope` (aether-objects
+  patch). Network export: `DomainGraph{&domain, NetworkShared}`. No static map /
+  thread_local / singleton policy registry.
+- `LinkSyncState`: assign `link` + NotStarted, then `InitializeRuntimeNode`.
+- Fixtures set reflected Node fields before `InitializeRuntimeNode`.
+- Concurrent DomainGraph LocalPersistent vs NetworkShared test (two threads).
+
+## Tests run
+
+- `apptraverse_shared_node_foundation_test` PASS
+- `apptraverse_event_sourced_core_test` PASS
+- `apptraverse_dynamic_objects_add_test` PASS
+- `apptraverse_journal_retention_test` PASS
+- `apptraverse_model_runtime_stop_test` PASS
+- `apptraverse_publication_channel_test` PASS
+
+## Limitations
+
+- No Memory transport / initial sync / ACK / retry / presence / chat
+- Not accepted-by-user
+
+---
+Status: implemented/verified on feature branch. Not accepted.
+
 # CLOUD CURSOR — SharedNode foundation v1.1 hardening
 
 ## Identity
@@ -18,7 +55,7 @@ Status: implemented/verified on feature branch. Not accepted.
 - Local-persistent sync state obeys Event-only mutation (`LinkSyncState` is a
   Node; phase via `SetLinkInitialSyncPhaseEvent`; AddShare creates NotStarted;
   RemoveShare drops stale sync)
-- Generic `LocalPtr` network exclusion via `GraphCopyPolicy` on DomainGraph
+- Generic `LocalPtr` network exclusion via DomainGraph serialization scope
   (empty/default ObjPtr on wire; referent not exported; nested SharedNode and
   non-SharedNode fixtures)
 - `CopySharedNetworkGraph` / `CopyNetworkSharedObjectGraph` do not
