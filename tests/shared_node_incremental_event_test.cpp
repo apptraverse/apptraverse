@@ -258,6 +258,7 @@ SenderFixture BuildTopology(Replica& a, ae::ObjId::Type node_id,
                             ae::ObjId::Type link_b_id) {
   auto node =
       SharedValueNode::ptr::Create(ae::CreateWith{*a.domain}.with_id(node_id));
+  node->value = 0;
   InitializeRuntimeNode(*node);
   auto link_a = MakeMemoryLink(*a.domain, ae::ObjId{link_a_id}, kEndpointA);
   auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, kEndpointB);
@@ -930,6 +931,33 @@ void TestReferencedObjectGraphRefused() {
   (void)a_node;
 }
 
+std::vector<std::uint8_t> SerializeStandaloneObjectStorage(
+    ae::RamDomainStorage const& storage,
+    ae::ObjId obj_id = kStandaloneEventScratchId) {
+  auto const it = storage.state.find(obj_id);
+  assert(it != storage.state.end() && it->second.has_value());
+  auto const& classes = *it->second;
+
+  std::vector<std::uint8_t> out;
+  auto append_u32 = [&out](std::uint32_t val) {
+    out.push_back(static_cast<std::uint8_t>((val >> 24U) & 0xFFU));
+    out.push_back(static_cast<std::uint8_t>((val >> 16U) & 0xFFU));
+    out.push_back(static_cast<std::uint8_t>((val >> 8U) & 0xFFU));
+    out.push_back(static_cast<std::uint8_t>(val & 0xFFU));
+  };
+  append_u32(static_cast<std::uint32_t>(classes.size()));
+  for (auto const& [class_id, versions] : classes) {
+    append_u32(class_id);
+    append_u32(static_cast<std::uint32_t>(versions.size()));
+    for (auto const& [version, data] : versions) {
+      out.push_back(version);
+      append_u32(static_cast<std::uint32_t>(data.size()));
+      out.insert(out.end(), data.begin(), data.end());
+    }
+  }
+  return out;
+}
+
 void TestMalformedClassLayersInEventRejected() {
   MemoryNetwork network;
   Replica a{network, kEndpointA, kEndpointB};
@@ -940,14 +968,26 @@ void TestMalformedClassLayersInEventRejected() {
   auto const fixture = BuildTopology(a, 7501, 7502, 7503);
   HandshakeInitial(network, a, b, fixture);
 
-  // Synthesize a RamDomainStorage payload with unrelated class layers stored under the same ObjId.
-  ae::RamDomainStorage bad_storage;
-  bad_storage.state[kStandaloneEventScratchId] = ae::RamDomainStorage::ClassData{
-      {SetValueEvent::kClassId, {{0, std::vector<std::uint8_t>{1, 2, 3}}}},
-      {NoteTargetNode::kClassId, {{0, std::vector<std::uint8_t>{4, 5, 6}}}},
-  };
+  // Start with correctly serialized class-layer bodies from a valid SetValueEvent
+  auto valid_event = SetValueEvent::ptr::Create(ae::CreateWith{*a.domain});
+  valid_event->value = 42;
+  std::vector<std::uint8_t> valid_payload;
+  CHECK(FreezeStandaloneEventPayload(*valid_event, valid_payload));
 
-  auto const payload = SerializeRamDomainStorage(bad_storage);
+  ae::RamDomainStorage bad_storage;
+  CHECK(ParseStandaloneEventPayload(valid_payload, bad_storage));
+
+  // Add a registered, unrelated class layer under the same standalone object
+  bad_storage.SaveData(
+      ae::DomainQuery{kStandaloneEventScratchId, NoteTargetNode::kClassId, 0},
+      {1, 2, 3});
+
+  auto const payload = SerializeStandaloneObjectStorage(bad_storage);
+
+  // Before delivery explicitly prove parser succeeds but class-chain validation fails
+  ae::RamDomainStorage parsed_check;
+  CHECK(ParseStandaloneEventPayload(payload, parsed_check) == true);
+  CHECK(ValidateStandaloneEventStorage(parsed_check, SetValueEvent::kClassId) == false);
 
   auto const identity =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 20};
@@ -970,6 +1010,244 @@ void TestMalformedClassLayersInEventRejected() {
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
 }
 
+void TestOnlyBaseEventLayerRejected() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  auto const fixture = BuildTopology(a, 7511, 7512, 7513);
+  HandshakeInitial(network, a, b, fixture);
+
+  // Standalone payload with only Event base class layer (no SetValueEvent layer)
+  ae::RamDomainStorage base_only_storage;
+  base_only_storage.SaveData(
+      ae::DomainQuery{kStandaloneEventScratchId, Event::kClassId, 0},
+      {});
+
+  auto const payload = SerializeStandaloneObjectStorage(base_only_storage);
+
+  // Before delivery explicitly prove: parser succeeds, but validator rejects because
+  // most-derived class is Event (not SetValueEvent)
+  ae::RamDomainStorage parsed_check;
+  CHECK(ParseStandaloneEventPayload(payload, parsed_check) == true);
+  CHECK(ValidateStandaloneEventStorage(parsed_check, SetValueEvent::kClassId) == false);
+
+  auto const identity =
+      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 25};
+  a.transport->Send(kEndpointB,
+                    EncodeEventFrame(EventFrame{
+                        .packet_id = ae::ObjId{7598},
+                        .target_node_id = fixture.node_id,
+                        .destination_share_id = fixture.share_to_b,
+                        .identity = identity,
+                        .timestamp_us = 25'000,
+                        .event_class_id = SetValueEvent::kClassId,
+                        .payload = payload,
+                    }));
+
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(JournalByIdentity(*ConcreteOf(b.sync->FindNode(fixture.node_id)),
+                          identity) == nullptr);
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+}
+
+void TestDuplicateClassAndVersionEntriesRejectedByParser() {
+  auto append_u32 = [](std::vector<std::uint8_t>& out, std::uint32_t val) {
+    out.push_back(static_cast<std::uint8_t>((val >> 24U) & 0xFFU));
+    out.push_back(static_cast<std::uint8_t>((val >> 16U) & 0xFFU));
+    out.push_back(static_cast<std::uint8_t>((val >> 8U) & 0xFFU));
+    out.push_back(static_cast<std::uint8_t>(val & 0xFFU));
+  };
+
+  // 1. Standalone payload with duplicate class entry: class_count = 2, both have class_id 100
+  {
+    std::vector<std::uint8_t> dup_class_payload;
+    append_u32(dup_class_payload, 2);  // class_count = 2
+    // class 1: class_id = 100, 1 version
+    append_u32(dup_class_payload, 100);
+    append_u32(dup_class_payload, 1);
+    dup_class_payload.push_back(0);    // version 0
+    append_u32(dup_class_payload, 0);  // size 0
+    // class 2: same class_id = 100, 1 version (duplicate!)
+    append_u32(dup_class_payload, 100);
+    append_u32(dup_class_payload, 1);
+    dup_class_payload.push_back(0);
+    append_u32(dup_class_payload, 0);
+
+    ae::RamDomainStorage parsed;
+    CHECK(ParseStandaloneEventPayload(dup_class_payload, parsed) == false);
+  }
+
+  // 2. Standalone payload with duplicate version entry: class_count = 1, version_count = 2, both version 0
+  {
+    std::vector<std::uint8_t> dup_version_payload;
+    append_u32(dup_version_payload, 1);  // class_count = 1
+    append_u32(dup_version_payload, 100);
+    append_u32(dup_version_payload, 2);  // version_count = 2
+    // version 1: version 0, size 0
+    dup_version_payload.push_back(0);
+    append_u32(dup_version_payload, 0);
+    // version 2: version 0, size 0 (duplicate!)
+    dup_version_payload.push_back(0);
+    append_u32(dup_version_payload, 0);
+
+    ae::RamDomainStorage parsed;
+    CHECK(ParseStandaloneEventPayload(dup_version_payload, parsed) == false);
+  }
+
+  // 3. Object graph (NodeState) payload with duplicate class entry
+  {
+    std::vector<std::uint8_t> dup_class_graph;
+    append_u32(dup_class_graph, 1);    // object_count = 1
+    append_u32(dup_class_graph, 500);  // obj_id = 500
+    append_u32(dup_class_graph, 2);    // class_count = 2
+    // class 1
+    append_u32(dup_class_graph, 100);
+    append_u32(dup_class_graph, 1);
+    dup_class_graph.push_back(0);
+    append_u32(dup_class_graph, 0);
+    // class 2: duplicate class_id 100
+    append_u32(dup_class_graph, 100);
+    append_u32(dup_class_graph, 1);
+    dup_class_graph.push_back(0);
+    append_u32(dup_class_graph, 0);
+
+    ae::RamDomainStorage parsed;
+    CHECK(ParseObjectGraphPayload(dup_class_graph, parsed) == false);
+  }
+
+  // 4. Object graph (NodeState) payload with duplicate version entry
+  {
+    std::vector<std::uint8_t> dup_version_graph;
+    append_u32(dup_version_graph, 1);    // object_count = 1
+    append_u32(dup_version_graph, 500);  // obj_id = 500
+    append_u32(dup_version_graph, 1);    // class_count = 1
+    append_u32(dup_version_graph, 100);
+    append_u32(dup_version_graph, 2);    // version_count = 2
+    dup_version_graph.push_back(1);      // version 1
+    append_u32(dup_version_graph, 0);
+    dup_version_graph.push_back(1);      // duplicate version 1!
+    append_u32(dup_version_graph, 0);
+
+    ae::RamDomainStorage parsed;
+    CHECK(ParseObjectGraphPayload(dup_version_graph, parsed) == false);
+  }
+}
+
+void TestRepeatedFailedCheckingCannotSkipRejectedEvent() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto node = StateDependentNode::ptr::Create(
+      ae::CreateWith{domain}.with_id(ae::ObjId{9001}));
+  node->state_code = 0;
+  InitializeRuntimeNode(*node);
+  node.Save();
+
+  // Create an event that cannot apply (expected_from = 99, but node has 0)
+  auto bad_event = TransitionEvent::ptr::Create(ae::CreateWith{domain});
+  bad_event->expected_from = 99;
+  bad_event->new_to = 100;
+  bad_event.Save();
+
+  node->journal.push_back(EventRecord{
+      .event = bad_event,
+      .identity = {},
+      .order = SharedEventOrder{.timestamp_us = 1000},
+  });
+
+  // Call TryReplayFromBase(): reloads base, sets applied_journal_size_ = 0,
+  // and calls TryEnsureCurrentGeneration(). Must return false because bad_event cannot apply.
+  CHECK(!node->TryReplayFromBase());
+
+  // Call TryEnsureCurrentGeneration() again: MUST STILL return false!
+  // Before the fix, applied_journal_size_ was incremented before CanApplyTo,
+  // causing a second call to skip the failed event and return true.
+  CHECK(!node->TryEnsureCurrentGeneration());
+
+  // State code must still be 0
+  CHECK(node->state_code == 0);
+}
+
+void TestSharedNodeRootWithObjId2Succeeds() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  // Root SharedNode has ObjId 2!
+  auto const fixture = BuildTopology(a, 2, 7602, 7603);
+  HandshakeInitial(network, a, b, fixture);
+
+  auto const identity =
+      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 21};
+  auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
+  auto const a_event = CommitSharedValue(*a_node, 100, identity, 21'000);
+  (void)a_event;
+
+  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+
+  auto const b_node = ConcreteOf(b.sync->FindNode(fixture.node_id));
+  CHECK(b_node->value == 100);
+  CHECK(JournalByIdentity(*b_node, identity) != nullptr);
+}
+
+void TestReachableObjectWithObjId2Succeeds() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  // Link B has ObjId 2!
+  auto const fixture = BuildTopology(a, 7701, 7702, 2);
+  HandshakeInitial(network, a, b, fixture);
+
+  // Commit event 1 at timestamp 1000
+  auto const id1 =
+      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 22};
+  auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
+  CommitSharedValue(*a_node, 10, id1, 1'000);
+  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+
+  // Commit event 2 at timestamp 3000
+  auto const id2 =
+      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 23};
+  CommitSharedValue(*a_node, 30, id2, 3'000);
+  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+
+  // Exercise mid-journal insertion: commit event 3 at timestamp 2000
+  auto const id3 =
+      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 24};
+  CommitSharedValue(*a_node, 20, id3, 2'000);
+  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+
+  auto const b_node = ConcreteOf(b.sync->FindNode(fixture.node_id));
+  CHECK(b_node->value == 30);
+  CHECK(JournalByIdentity(*b_node, id1) != nullptr);
+  CHECK(JournalByIdentity(*b_node, id2) != nullptr);
+  CHECK(JournalByIdentity(*b_node, id3) != nullptr);
+
+  // Check link with ObjId 2 is intact in b: identity, class and state unchanged
+  auto const link2 = b.domain->Find(ae::ObjId{2});
+  CHECK(link2 != nullptr);
+  CHECK(link2->GetClassId() == MemoryLink::kClassId);
+  auto const* mem_link = static_cast<MemoryLink const*>(link2.get());
+  CHECK(mem_link->EndpointUid() == kEndpointB);
+}
+
 void TestHistoricalCanApplyPreflight() {
   // Verifies that:
   // 1. An event that is valid historically (at timestamp 150, when state is 0)
@@ -985,8 +1263,8 @@ void TestHistoricalCanApplyPreflight() {
   // Create topology with StateDependentNode as root
   auto a_root = StateDependentNode::ptr::Create(
       ae::CreateWith{*a.domain}.with_id(ae::ObjId{7900}));
-  InitializeRuntimeNode(*a_root);
   a_root->state_code = 0;
+  InitializeRuntimeNode(*a_root);
   a_root.Save();
 
   auto a_link_a = MakeMemoryLink(*a.domain, ae::ObjId{7901}, kEndpointA);
@@ -1070,6 +1348,54 @@ void TestHistoricalCanApplyPreflight() {
   CHECK(b.watched.pending_at_store().empty());
   CHECK(JournalByIdentity(*b_node, bad_id) == nullptr);
   CHECK(b_node->state_code == 2);
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+
+  // Next, craft an event e_invalidates_later with timestamp 150:
+  // At t=150, state is 1, so e_invalidates_later (expected_from = 1 -> new_to = 99)
+  // is valid at its OWN insertion position!
+  // BUT the subsequent historical event e2 (at t=200) requires expected_from = 1 -> 2.
+  // Because e_invalidates_later changes state to 99, e2's replay fails!
+  // Preflight MUST detect this replay failure on the scratch graph and reject e_invalidates_later.
+  // We explicitly verify that live value, journal, generation, local LinkSyncState,
+  // and storage remain unchanged.
+  auto const pre_reject_val = b_node->state_code;
+  auto const pre_reject_journal_size = b_node->journal.size();
+  auto const pre_reject_gen = b_node->Generation();
+  auto const b_sync_state =
+      SyncStateOf(b.sync->FindNode(fixture.node_id), fixture.share_to_b);
+  auto const pre_reject_delivered = b_sync_state->delivered_event_ids;
+  auto const pre_reject_phase = b_sync_state->GetInitialSyncPhase();
+
+  auto e_invalidates_later =
+      TransitionEvent::ptr::Create(ae::CreateWith{*a.domain});
+  e_invalidates_later->expected_from = 1;
+  e_invalidates_later->new_to = 99;
+  std::vector<std::uint8_t> inv_payload;
+  CHECK(FreezeStandaloneEventPayload(*e_invalidates_later, inv_payload));
+
+  auto const inv_id =
+      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 99};
+  a.transport->Send(kEndpointB,
+                    EncodeEventFrame(EventFrame{
+                        .packet_id = ae::ObjId{8887},
+                        .target_node_id = fixture.node_id,
+                        .destination_share_id = fixture.share_to_b,
+                        .identity = inv_id,
+                        .timestamp_us = 150,
+                        .event_class_id = TransitionEvent::kClassId,
+                        .payload = inv_payload,
+                    }));
+
+  b.watched.ResetWatch();
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  // e_invalidates_later must be rejected without live mutation
+  CHECK(b.watched.pending_at_store().empty());
+  CHECK(JournalByIdentity(*b_node, inv_id) == nullptr);
+  CHECK(b_node->state_code == pre_reject_val);
+  CHECK(b_node->journal.size() == pre_reject_journal_size);
+  CHECK(b_node->Generation() == pre_reject_gen);
+  CHECK(b_sync_state->delivered_event_ids == pre_reject_delivered);
+  CHECK(b_sync_state->GetInitialSyncPhase() == pre_reject_phase);
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
 
   // Next, craft an event e_good with timestamp 150 (between e1 and e2).
@@ -1217,6 +1543,11 @@ int main() {
   apptraverse::test::TestWrongDestinationRejected();
   apptraverse::test::TestMalformedEventPayloadRejected();
   apptraverse::test::TestMalformedClassLayersInEventRejected();
+  apptraverse::test::TestOnlyBaseEventLayerRejected();
+  apptraverse::test::TestDuplicateClassAndVersionEntriesRejectedByParser();
+  apptraverse::test::TestRepeatedFailedCheckingCannotSkipRejectedEvent();
+  apptraverse::test::TestSharedNodeRootWithObjId2Succeeds();
+  apptraverse::test::TestReachableObjectWithObjId2Succeeds();
   apptraverse::test::TestHistoricalCanApplyPreflight();
   apptraverse::test::TestWrongTargetEventClassRejected();
   apptraverse::test::TestConflictingDuplicateIdentityRejected();

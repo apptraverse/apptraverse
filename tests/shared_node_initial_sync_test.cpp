@@ -855,6 +855,11 @@ void TestMalformedClassLayersInNodeStateRejected() {
 
   auto const payload = SerializeRamDomainStorage(bad_storage);
 
+  // Before delivery explicitly prove parser succeeds but class-chain validation fails
+  ae::RamDomainStorage parsed_check;
+  CHECK(ParseObjectGraphPayload(payload, parsed_check) == true);
+  CHECK(ValidateStoredClassChains(parsed_check) == false);
+
   b.sync->ExpectInitialNode(fixture.node_id);
   a.transport->Send(
       kEndpointB,
@@ -867,6 +872,7 @@ void TestMalformedClassLayersInNodeStateRejected() {
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   // Payload must be rejected before LoadRoot / writing to b's storage, no ACK sent
   CHECK(b.watched.pending_at_store().empty());
+  CHECK(!b.sync->FindNode(fixture.node_id).is_valid());
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
 }
 

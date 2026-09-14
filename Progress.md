@@ -1,6 +1,39 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — Correct scratch replay and its tests
+
+## Identity
+
+- Scope: Correct scratch replay failure semantics, remove hardcoded scratch event ID, simplify Try* API, and rebuild class-chain tests with standalone wire format on `main`.
+- Direct push to `origin/main`.
+
+## What landed
+
+- **Dynamic Scratch Event ObjId Allocation**: Replaced fixed `scratch_event_id{2}` in `PreflightHistoricalEventInsertion` with dynamic collision-free allocation via `AllocateUniqueStorageObjId(scratch_domain, scratch_storage)`. Eliminates collisions when `ObjId{2}` is used as a root SharedNode, Link, or other reachable object.
+- **TryEnsureCurrentGeneration Failure Semantics**: Corrected cursor advancement in `TryEnsureCurrentGeneration` to advance `applied_journal_size_` only *after* successful `CanApplyTo` check and `ApplyEvent`. A rejected Event is never treated as applied on subsequent calls.
+- **Try* API and Replay Unification**:
+  - Removed dead/unreachable virtual methods `ReplayFromBaseImpl` and `InsertSharedImpl` in `Node` and `NodeFor`.
+  - Unified on one underlying implementation per operation (`TryRebuildFromBaseAndReplay` for replay, `TryCommitSharedInto` for shared insert).
+  - Production Node operations retain invariant assertion checks (`ReplayFromBase` and `InsertShared`). Speculative execution is explicitly designated for disposable scratch graphs only, which network admission discards without live mutation on failure.
+- **Cleanup**:
+  - Replaced redundant manual serialization loop in `FreezeNetworkSharedNodeState` with `SerializeRamDomainStorage(scratch)`.
+  - Fixed strict weak ordering comparator in `ValidateStoredClassChains`: returns `false` when `a == b`.
+  - Documented that `ValidateStoredClassChains` verifies the most-derived class is registered with create/load/save.
+
+## Tests
+
+- `TestMalformedClassLayersInEventRejected`: Rebuilt with actual standalone wire format (`ParseStandaloneEventPayload == true`, `ValidateStandaloneEventStorage == false`). Proved that disabling the guard causes `ae::Domain::KnownStoredClasses` assertion failure under LoadRoot, while with the guard it safely rejects without mutations or ACK.
+- `TestOnlyBaseEventLayerRejected`: Standalone payload containing only base `Event` class layer while frame names `SetValueEvent::kClassId` is rejected by class-chain validation before LoadRoot.
+- `TestDuplicateClassAndVersionEntriesRejectedByParser`: Verifies parser strictness on duplicate class IDs and duplicate versions for both standalone event payloads and full-graph NodeState payloads.
+- `TestRepeatedFailedCheckingCannotSkipRejectedEvent`: Proves that a rejected Event is not skipped upon repeated calls to `TryEnsureCurrentGeneration`.
+- `TestSharedNodeRootWithObjId2Succeeds` & `TestReachableObjectWithObjId2Succeeds`: Regression tests proving that `ObjId{2}` as a root SharedNode or reachable Link succeeds through initial sync, commit, and mid-journal incremental replication.
+- `TestHistoricalCanApplyPreflight`: Expanded with a candidate valid at its own position but invalidating a later historical Event; asserted rejected preflight leaves live value, journal, generation, LinkSyncState, and storage untouched, with zero ACKs sent.
+- `TestMalformedClassLayersInNodeStateRejected`: Explicitly proves parser succeeds and `ValidateStoredClassChains` fails before network delivery.
+
+---
+Status: implemented/verified on main. Not accepted.
+
 # CURSOR — Incremental Event v1 hardening
 
 ## Identity
