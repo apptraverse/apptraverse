@@ -172,12 +172,14 @@ bool PreflightHistoricalEventInsertion(
   ae::RamDomainStorage scratch_storage;
   BuildNetworkSharedScratch(target_node, scratch_storage);
 
-  // Transfer the candidate event into the same scratch storage under a unique scratch id
-  ae::ObjId const scratch_event_id{2};
+  ae::Domain scratch_domain{scratch_storage};
+
+  // Transfer the candidate event into the same scratch storage under an unused scratch id
+  ae::ObjId const scratch_event_id =
+      AllocateUniqueStorageObjId(scratch_domain, scratch_storage);
   CommitStandaloneEventObject(parsed_event_storage, scratch_event_id,
                               scratch_storage);
 
-  ae::Domain scratch_domain{scratch_storage};
   ae::DomainGraph scratch_graph{&scratch_domain};
 
   auto loaded_node = scratch_graph.LoadRoot(target_node.obj_id);
@@ -650,11 +652,9 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
          "admitted standalone Event must load from own storage");
   assert(local_event->GetClassId() == frame.event_class_id);
 
-  bool const inserted = node->TryInsertShared(
+  node->InsertShared(
       std::move(local_event), frame.identity,
       SharedEventOrder{.timestamp_us = frame.timestamp_us});
-  assert(inserted && "preflighted historical insertion must succeed");
-  (void)inserted;
   node.Save();
 
   transport_.Send(source_endpoint,

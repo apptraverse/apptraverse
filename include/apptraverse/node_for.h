@@ -54,26 +54,11 @@ class NodeFor : public BaseNode {
     return Node::TryRebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
   }
 
-  void ReplayFromBaseImpl() override {
-    bool const ok = Node::TryRebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
-    assert(ok && "ReplayFromBase on validated state must succeed");
-    (void)ok;
-  }
-
   bool TryInsertSharedImpl(Event::ptr event, SharedEventId identity,
                            SharedEventOrder order) override {
     return Node::TryCommitSharedInto(static_cast<ConcreteNode&>(*this),
                                      std::move(event), std::move(identity),
                                      std::move(order));
-  }
-
-  void InsertSharedImpl(Event::ptr event, SharedEventId identity,
-                        SharedEventOrder order) override {
-    bool const ok = Node::TryCommitSharedInto(
-        static_cast<ConcreteNode&>(*this), std::move(event),
-        std::move(identity), std::move(order));
-    assert(ok && "InsertShared on validated state must succeed");
-    (void)ok;
   }
 
  protected:

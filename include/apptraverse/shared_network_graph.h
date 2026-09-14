@@ -59,7 +59,7 @@ struct StoredClassChainInfo {
 
 // Validate that every object stored in parsed has a coherent registered
 // inheritance chain (no unrelated classes, object ID valid, at least one
-// supported class, most-derived class is an instantiable leaf class).
+// supported class, most-derived class is registered with create/load/save).
 bool ValidateStoredClassChains(
     ae::RamDomainStorage const& parsed,
     std::vector<StoredClassChainInfo>* out_chains = nullptr);

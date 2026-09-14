@@ -149,33 +149,8 @@ FrozenNodeState FreezeNetworkSharedNodeState(SharedNode const& root) {
     }
   }
 
-  std::vector<std::uint8_t> out;
-  std::uint32_t object_count = 0;
-  for (auto const& [obj_id, classes] : scratch.state) {
-    if (classes.has_value()) {
-      ++object_count;
-    }
-  }
-  AppendU32(out, object_count);
-
-  for (auto const& [obj_id, classes] : scratch.state) {
-    if (!classes.has_value()) {
-      continue;
-    }
-    AppendU32(out, obj_id.id());
-    AppendU32(out, static_cast<std::uint32_t>(classes->size()));
-    for (auto const& [class_id, versions] : *classes) {
-      AppendU32(out, class_id);
-      AppendU32(out, static_cast<std::uint32_t>(versions.size()));
-      for (auto const& [version, data] : versions) {
-        out.push_back(version);
-        AppendU32(out, static_cast<std::uint32_t>(data.size()));
-        out.insert(out.end(), data.begin(), data.end());
-      }
-    }
-  }
   return FrozenNodeState{
-      .payload = std::move(out),
+      .payload = SerializeRamDomainStorage(scratch),
       .covered_event_ids = std::move(covered_event_ids),
   };
 }
@@ -236,7 +211,11 @@ bool ValidateStoredClassChains(
     }
 
     // Sort base -> derived: left comes before right if right is derived from left.
+    // Strict weak ordering: when a == b, must return false (including when both are obj_class_id).
     std::sort(chain.begin(), chain.end(), [&registry, obj_class_id](auto a, auto b) {
+      if (a == b) {
+        return false;
+      }
       if (a == obj_class_id) {
         return true;
       }

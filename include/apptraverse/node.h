@@ -154,8 +154,7 @@ class Node : public ae::Obj {
       return true;
     }
     while (applied_journal_size_ < journal.size()) {
-      auto const index = applied_journal_size_++;
-      auto const& record = journal[index];
+      auto const& record = journal[applied_journal_size_];
       if (!record.event.is_valid() || !record.event.is_loaded()) {
         return false;
       }
@@ -163,6 +162,7 @@ class Node : public ae::Obj {
         return false;
       }
       ApplyEvent(*record.event);
+      ++applied_journal_size_;
     }
     return true;
   }
@@ -178,17 +178,23 @@ class Node : public ae::Obj {
   void Commit(Event::ptr event) { CommitImpl(std::move(event)); }
 
   // Rebuild materialized state from base and replay the journal.
+  // Note: Speculative replay is intended for disposable scratch copies only.
+  // If historical replay fails, the scratch object is left partially modified
+  // and must not be reused. Network admission discards the scratch graph on failure.
   bool TryReplayFromBase() { return TryReplayFromBaseImpl(); }
 
   void ReplayFromBase() {
-    bool const ok = TryReplayFromBaseImpl();
+    bool const ok = TryReplayFromBase();
     assert(ok && "ReplayFromBase invariant broken");
     (void)ok;
   }
 
   // Insert a remotely originated shared Event at its own identity and
   // timestamp. Dispatches to the most-derived NodeFor so Apply sees the
-  // concrete Node. Returns false if historical replay fails.
+  // concrete Node.
+  // Note: Speculative insertion is intended for disposable scratch copies only.
+  // If historical replay fails, the scratch object is left partially modified
+  // and must not be reused. Network admission discards the scratch graph on failure.
   bool TryInsertShared(Event::ptr event, SharedEventId identity,
                        SharedEventOrder order) {
     return TryInsertSharedImpl(std::move(event), std::move(identity),
@@ -366,6 +372,9 @@ class Node : public ae::Obj {
     applied_journal_size_ = kJournalFullyMaterialized;
   }
 
+  // Speculative insertion is for disposable scratch copies only.
+  // If historical replay fails, the scratch object is left partially modified
+  // and must be discarded. Network admission discards the scratch graph on failure.
   template <typename ConcreteNode>
   bool TryInsertEvent(ConcreteNode& target, EventRecord record) {
     if (domain == nullptr || !base.is_valid() || !base.is_loaded() ||
@@ -495,10 +504,6 @@ class Node : public ae::Obj {
     return false;
   }
 
-  virtual void ReplayFromBaseImpl() {
-    assert(false && "Concrete Node must inherit through NodeFor");
-  }
-
   virtual bool TryInsertSharedImpl(Event::ptr event, SharedEventId identity,
                                    SharedEventOrder order) {
     (void)event;
@@ -506,14 +511,6 @@ class Node : public ae::Obj {
     (void)order;
     assert(false && "Concrete Node must inherit through NodeFor");
     return false;
-  }
-
-  virtual void InsertSharedImpl(Event::ptr event, SharedEventId identity,
-                                SharedEventOrder order) {
-    (void)event;
-    (void)identity;
-    (void)order;
-    assert(false && "Concrete Node must inherit through NodeFor");
   }
 
   static constexpr std::size_t kJournalFullyMaterialized =
