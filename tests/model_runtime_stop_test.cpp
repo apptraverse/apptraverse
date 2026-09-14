@@ -35,13 +35,13 @@ class Counter : public NodeFor<Counter> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(value);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(value);
   }
 

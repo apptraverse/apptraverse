@@ -59,13 +59,13 @@ class ApplicationRuntimeState
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(run_id);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<1>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(run_id);
   }
 
@@ -94,13 +94,13 @@ class NetworkState : public NodeFor<NetworkState> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(run_id, availability);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<1>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(run_id, availability);
   }
 
@@ -143,13 +143,13 @@ class AetherRegistrationState : public NodeFor<AetherRegistrationState> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(run_id, registered_run_id, phase, uid);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<1>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(run_id, registered_run_id, phase, uid);
   }
 

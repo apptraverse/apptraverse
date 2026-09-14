@@ -56,7 +56,7 @@ class Surface : public NodeFor<Surface> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(number, desktop_x, desktop_y, desktop_width, desktop_height, surfaces,
         presenter);
     // Pre-presentation-size state: seed from desktop outer size until native
@@ -67,14 +67,14 @@ class Surface : public NodeFor<Surface> {
 
   template <typename Dnv>
   void Load(ae::Version<2>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(number, desktop_x, desktop_y, desktop_width, desktop_height,
         presentation_width, presentation_height, surfaces, presenter);
   }
 
   template <typename Dnv>
   void Save(ae::Version<2>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(number, desktop_x, desktop_y, desktop_width, desktop_height,
         presentation_width, presentation_height, surfaces, presenter);
   }
@@ -169,13 +169,13 @@ class Surfaces : public NodeFor<Surfaces> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(surfaces, mobile_current);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(surfaces, mobile_current);
   }
 

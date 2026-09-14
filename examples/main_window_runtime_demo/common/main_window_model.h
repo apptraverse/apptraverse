@@ -48,19 +48,19 @@ class MainWindow : public NodeFor<MainWindow> {
 
   template <typename Dnv>
   void Load(ae::Version<3>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(x, y, width, height, presenter);
   }
 
   template <typename Dnv>
   void Load(ae::Version<4>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(x, y, width, height, presenter);
   }
 
   template <typename Dnv>
   void Save(ae::Version<4>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(x, y, width, height, presenter);
   }
 

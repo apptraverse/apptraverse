@@ -77,13 +77,13 @@ class ChatClient : public NodeFor<ChatClient> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(display_name, aether_uid, presence);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<1>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(display_name, aether_uid, presence);
   }
 
@@ -197,13 +197,13 @@ class ChatRoom : public NodeFor<ChatRoom> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(clients, feed);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<1>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(clients, feed);
   }
 

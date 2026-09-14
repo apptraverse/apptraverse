@@ -100,19 +100,19 @@ class ItemList : public NodeFor<ItemList> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(items, presenter);
   }
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(items, presenter, window);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(items, presenter, window);
   }
 
@@ -274,19 +274,19 @@ class MainWindow : public NodeFor<MainWindow> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(x, y, width, height, item_list, presenter);
   }
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(x, y, width, height, item_list, add_item, presenter);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(x, y, width, height, item_list, add_item, presenter);
   }
 

@@ -75,16 +75,12 @@ bool ReadEventId(std::vector<std::uint8_t> const& in, std::size_t& pos,
 }
 
 void AppendOrder(std::vector<std::uint8_t>& out, SharedEventOrder const& order) {
-  AppendU64(out, order.lamport);
-  AppendString(out, order.origin_uid);
-  AppendU64(out, order.origin_sequence);
+  AppendU64(out, order.timestamp_us);
 }
 
 bool ReadOrder(std::vector<std::uint8_t> const& in, std::size_t& pos,
                SharedEventOrder& order) {
-  return ReadU64(in, pos, order.lamport) &&
-         ReadString(in, pos, order.origin_uid) &&
-         ReadU64(in, pos, order.origin_sequence);
+  return ReadU64(in, pos, order.timestamp_us);
 }
 
 }  // namespace

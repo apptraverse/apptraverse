@@ -51,13 +51,13 @@ class MemoryLink : public NodeFor<MemoryLink, Link> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(endpoint_uid, heartbeat_interval_ms);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(endpoint_uid, heartbeat_interval_ms);
   }
 

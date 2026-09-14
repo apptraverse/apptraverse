@@ -43,13 +43,13 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(value, label);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<1>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(value, label);
   }
 
@@ -64,8 +64,17 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
                             .order = std::move(order)});
   }
 
-  void InsertAtForTest(std::uint64_t lamport, Event::ptr event) {
-    InsertAtForTest(SharedEventOrder{.lamport = lamport}, std::move(event));
+  void InsertAtForTest(std::uint64_t timestamp_us, Event::ptr event) {
+    InsertAtForTest(SharedEventOrder{.timestamp_us = timestamp_us},
+                    std::move(event));
+  }
+
+  void InsertSharedForTest(std::uint64_t timestamp_us, SharedEventId identity,
+                           Event::ptr event) {
+    InsertEvent(EventRecord{
+        .event = std::move(event),
+        .identity = std::move(identity),
+        .order = SharedEventOrder{.timestamp_us = timestamp_us}});
   }
 };
 
@@ -126,16 +135,16 @@ void TestJournalCommitAndReplay() {
   doc->Commit(e2);
 
   CHECK(doc->journal.size() == 2);
-  CHECK(doc->journal[0].order.lamport != 0);
-  CHECK(doc->journal[1].order.lamport != 0);
-  CHECK(doc->journal[0].order.lamport < doc->journal[1].order.lamport);
+  CHECK(doc->journal[0].order.timestamp_us != 0);
+  CHECK(doc->journal[1].order.timestamp_us != 0);
+  CHECK(doc->journal[0].order.timestamp_us < doc->journal[1].order.timestamp_us);
   CHECK(doc->value == 6);
   CHECK(doc->label == "bxy");
 
   auto early = AddEvent::ptr::Create(ae::CreateWith{domain}.with_id(14));
   early->delta = 10;
   early->tag = "z";
-  doc->InsertAtForTest(doc->journal[0].order.lamport - 1, early);
+  doc->InsertAtForTest(doc->journal[0].order.timestamp_us - 1, early);
 
   CHECK(doc->journal.size() == 3);
   CHECK(doc->journal[0].event.id().id() == 14);
@@ -205,9 +214,85 @@ void TestMonotonicTimestampWithoutSleep() {
   }
   CHECK(doc->journal.size() == 20);
   for (std::size_t i = 1; i < doc->journal.size(); ++i) {
-    CHECK(doc->journal[i - 1].order.lamport < doc->journal[i].order.lamport);
+    CHECK(doc->journal[i - 1].order.timestamp_us <
+          doc->journal[i].order.timestamp_us);
   }
   CHECK(doc->value == 20);
+}
+
+// Order is the timestamp and nothing else. A record whose identity sorts last
+// still comes first when its timestamp is smaller.
+void TestOrderIgnoresIdentity() {
+  EventRecord const early{
+      .identity = SharedEventId{.origin_uid = "z", .origin_sequence = 99},
+      .order = SharedEventOrder{.timestamp_us = 100}};
+  EventRecord const late{
+      .identity = SharedEventId{.origin_uid = "a", .origin_sequence = 1},
+      .order = SharedEventOrder{.timestamp_us = 200}};
+  CHECK(EventRecordOrderLess(early, late));
+  CHECK(!EventRecordOrderLess(late, early));
+
+  // Equal timestamps, different identities: neither precedes the other. There
+  // is no origin, sequence, or index tie-break to fall back on.
+  EventRecord const same_a{
+      .identity = SharedEventId{.origin_uid = "a", .origin_sequence = 1},
+      .order = SharedEventOrder{.timestamp_us = 500}};
+  EventRecord const same_b{
+      .identity = SharedEventId{.origin_uid = "b", .origin_sequence = 7},
+      .order = SharedEventOrder{.timestamp_us = 500}};
+  CHECK(!EventRecordOrderLess(same_a, same_b));
+  CHECK(!EventRecordOrderLess(same_b, same_a));
+  CHECK(same_a.order == same_b.order);
+
+  // Identity stayed a separate concept: equal order, different Events.
+  CHECK(same_a.identity != same_b.identity);
+  CHECK(same_a.identity ==
+        (SharedEventId{.origin_uid = "a", .origin_sequence = 1}));
+  CHECK(same_a.HasSharedIdentity());
+}
+
+// An Event that arrives after later ones is replayed into place by timestamp.
+// The origins are chosen so that ordering by origin would disagree: the Event
+// that belongs in the middle comes from the origin that sorts last.
+void TestMidJournalRemoteEventReplaysByTimestamp() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+
+  auto base = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(40));
+  base->label = "b";
+  auto doc = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(41));
+  doc->base = base;
+  doc->label = "b";
+  doc->CaptureBaseState();
+
+  auto const add = [&](std::int32_t delta, std::string tag) {
+    auto event = AddEvent::ptr::Create(ae::CreateWith{domain});
+    event->delta = delta;
+    event->tag = std::move(tag);
+    return event;
+  };
+
+  doc->InsertSharedForTest(
+      100, SharedEventId{.origin_uid = "a-origin", .origin_sequence = 1},
+      add(1, "1"));
+  doc->InsertSharedForTest(
+      300, SharedEventId{.origin_uid = "b-origin", .origin_sequence = 1},
+      add(3, "3"));
+  CHECK(doc->label == "b13");
+
+  doc->InsertSharedForTest(
+      200, SharedEventId{.origin_uid = "z-origin", .origin_sequence = 1},
+      add(2, "2"));
+
+  CHECK(doc->journal.size() == 3);
+  CHECK(doc->journal[0].order.timestamp_us == 100);
+  CHECK(doc->journal[1].order.timestamp_us == 200);
+  CHECK(doc->journal[2].order.timestamp_us == 300);
+  CHECK(doc->journal[1].identity.origin_uid == "z-origin");
+  // Appending "2" would have produced "b132": the label proves the whole
+  // journal was replayed from base in timestamp order.
+  CHECK(doc->label == "b123");
+  CHECK(doc->value == 6);
 }
 
 void TestStableClassIdsAreUnique() {
@@ -314,6 +399,8 @@ int main() {
   apptraverse::test::TestStableClassIdsAreUnique();
   apptraverse::test::TestRuntimeSessionResetsObservations();
   apptraverse::test::TestMonotonicTimestampWithoutSleep();
+  apptraverse::test::TestOrderIgnoresIdentity();
+  apptraverse::test::TestMidJournalRemoteEventReplaysByTimestamp();
   std::cout << "event_sourced_core_test OK\n";
   return 0;
 }

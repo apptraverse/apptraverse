@@ -290,16 +290,16 @@ void TestLocalSyncStateEventDrivenSaveLoadAndReplay() {
     CHECK(node->link_sync_states.size() == 1);
     CHECK(node->link_sync_states[0]->journal.size() >= 1);
     CHECK(node->journal.size() >= 2);
-    auto const second_lp = node->journal.back().order.lamport;
-    auto const first_lp =
-        node->journal[node->journal.size() - 2].order.lamport;
-    CHECK(second_lp > first_lp);
+    auto const second_ts = node->journal.back().order.timestamp_us;
+    auto const first_ts =
+        node->journal[node->journal.size() - 2].order.timestamp_us;
+    CHECK(second_ts > first_ts);
 
     // Mid-journal business insert forces RebuildFromBaseAndReplay.
     auto mid = SetValueEvent::ptr::Create(ae::CreateWith{domain});
     mid->value = 3;
     node->InsertAtForTest(
-        SharedEventOrder{.lamport = first_lp + (second_lp - first_lp) / 2},
+        SharedEventOrder{.timestamp_us = first_ts + (second_ts - first_ts) / 2},
         mid);
     CHECK(node->value == 2);
     CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
@@ -393,7 +393,8 @@ void TestShareRelationshipIdentitySurvivesForcedReplay() {
   auto early = SetValueEvent::ptr::Create(ae::CreateWith{domain});
   early->value = 3;
   node->InsertAtForTest(
-      SharedEventOrder{.lamport = node->journal[0].order.lamport - 1}, early);
+      SharedEventOrder{.timestamp_us = node->journal[0].order.timestamp_us - 1},
+      early);
 
   CHECK(node->value == 2);
   CHECK(node->shares.size() == 1);
@@ -430,7 +431,7 @@ void TestShareRelationshipIdentitySurvivesForcedReplay() {
       SetValueEvent::ptr::Create(ae::CreateWith{reloaded_domain});
   reloaded_early->value = 4;
   reloaded->InsertAtForTest(
-      SharedEventOrder{.lamport = reloaded->journal[0].order.lamport - 1},
+      SharedEventOrder{.timestamp_us = reloaded->journal[0].order.timestamp_us - 1},
       reloaded_early);
   CHECK(reloaded->value == 2);
   CHECK(reloaded->shares.size() == 1);

@@ -21,7 +21,7 @@ class NodeFor : public BaseNode {
   explicit NodeFor(ae::ObjProp prop) : BaseNode{prop} {}
 
  public:
-  // Shared replication insert with canonical SharedEventOrder (may mid-insert).
+  // Shared replication insert at the Event's own timestamp (may mid-insert).
   void InsertSharedOrderedEvent(Event::ptr event, SharedEventId identity,
                                 SharedEventOrder order) {
     EventRecord record{.event = std::move(event),

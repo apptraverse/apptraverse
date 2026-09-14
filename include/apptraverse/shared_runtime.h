@@ -8,6 +8,7 @@
 #include <string>
 #include <utility>
 
+#include "apptraverse/node.h"
 #include "apptraverse/shared_event_id.h"
 #include "apptraverse/shared_event_order.h"
 #include "apptraverse/shared_instance.h"
@@ -29,22 +30,23 @@ class SharedRuntime {
 
   template <typename TNode>
   SharedEventId AssignLocalIdentity(SharedInstance<TNode>& instance) {
-    SharedEventId id{
+    return SharedEventId{
         .origin_uid = instance.local_aether_uid,
         .origin_sequence = instance.next_origin_sequence++,
     };
-    ++instance.lamport_clock;
-    return id;
   }
 
+  // Order carries nothing from identity. Consecutive local commits stay in the
+  // order they were made even when the wall clock does not advance between
+  // them; remote Events keep the timestamp they arrived with.
   template <typename TNode>
-  SharedEventOrder MakeLocalOrder(SharedInstance<TNode>& instance,
-                                  SharedEventId const& id) {
-    return SharedEventOrder{
-        .lamport = instance.lamport_clock,
-        .origin_uid = id.origin_uid,
-        .origin_sequence = id.origin_sequence,
-    };
+  SharedEventOrder MakeLocalOrder(SharedInstance<TNode>& instance) {
+    auto timestamp_us = SystemUtcMicros();
+    if (timestamp_us <= instance.last_local_timestamp_us) {
+      timestamp_us = instance.last_local_timestamp_us + 1;
+    }
+    instance.last_local_timestamp_us = timestamp_us;
+    return SharedEventOrder{.timestamp_us = timestamp_us};
   }
 
   template <typename TNode>
@@ -70,7 +72,7 @@ class SharedRuntime {
   template <typename TNode>
   void OnIncomingEventApplied(
       SharedInstance<TNode>& instance, SharedEventId const& id,
-      SharedEventOrder const& order, std::string const& source_peer_uid,
+      std::string const& source_peer_uid,
       std::function<void(PeerDeliveryState&, SharedEventId const&)> const&
           enqueue_for_peer);
 
@@ -151,7 +153,7 @@ void SharedRuntime::SeedPendingFromJournal(SharedInstance<TNode>& instance,
 template <typename TNode>
 void SharedRuntime::OnIncomingEventApplied(
     SharedInstance<TNode>& instance, SharedEventId const& id,
-    SharedEventOrder const& order, std::string const& source_peer_uid,
+    std::string const& source_peer_uid,
     std::function<void(PeerDeliveryState&, SharedEventId const&)> const&
         enqueue_for_peer) {
   if (instance.HasSharedEvent(id)) {
@@ -163,9 +165,6 @@ void SharedRuntime::OnIncomingEventApplied(
     return;
   }
   instance.RememberSharedEvent(id);
-  if (order.lamport > instance.lamport_clock) {
-    instance.lamport_clock = order.lamport;
-  }
   if (config_.log) {
     config_.log("SHARED_EVENT_APPLIED room_id=" + instance.shared_room_id +
                 " event_id=" + id.origin_uid + ":" +

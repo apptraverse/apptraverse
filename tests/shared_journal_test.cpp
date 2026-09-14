@@ -238,16 +238,11 @@ void test_duplicate_event_id() {
   SharedInstance<ChatRoom> instance;
   instance.local_aether_uid = "alice";
   SharedEventId id{.origin_uid = "alice", .origin_sequence = 1};
-  SharedEventOrder order{.lamport = 1,
-                         .origin_uid = "alice",
-                         .origin_sequence = 1};
   runtime.OnIncomingEventApplied(
-      instance, id, order, "bob",
-      [](PeerDeliveryState&, SharedEventId const&) {});
+      instance, id, "bob", [](PeerDeliveryState&, SharedEventId const&) {});
   REQUIRE(instance.HasSharedEvent(id));
   runtime.OnIncomingEventApplied(
-      instance, id, order, "bob",
-      [](PeerDeliveryState&, SharedEventId const&) {});
+      instance, id, "bob", [](PeerDeliveryState&, SharedEventId const&) {});
   REQUIRE(instance.HasSharedEvent(id));
 }
 
@@ -263,11 +258,11 @@ void test_seed_pending_excludes_peer_origin() {
       EventRecord{
           .event = {},
           .identity = {.origin_uid = "alice", .origin_sequence = 1},
-          .order = {.lamport = 1, .origin_uid = "alice", .origin_sequence = 1}},
+          .order = {.timestamp_us = 1}},
       EventRecord{
           .event = {},
           .identity = {.origin_uid = "bob", .origin_sequence = 1},
-          .order = {.lamport = 2, .origin_uid = "bob", .origin_sequence = 1}},
+          .order = {.timestamp_us = 2}},
   };
   for (auto const& record : instance.node->journal) {
     instance.RememberSharedEvent(record.identity);
@@ -793,8 +788,8 @@ void test_interleaved_sent_at_converges_by_shared_order() {
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
   auto host = BindChat(*host_app, "host-uid");
   CommitLocalJoin(host, *host_app->local_client);
-  // Higher wall-clock first, then earlier wall-clock — SharedEventOrder uses
-  // lamport, not sent_at.
+  // Higher wall-clock first, then earlier wall-clock: journal position comes
+  // from the order timestamp of the commit, not from the message's sent_at.
   CommitLocalMessage(host, *host_app->local_client, "host-late-wall",
                      9'000'000'000'000LL);
   CommitLocalMessage(host, *host_app->local_client, "host-early-wall",
@@ -826,7 +821,7 @@ void test_interleaved_sent_at_converges_by_shared_order() {
   RequireJournalSortedBySharedOrder(*host_app->room);
   RequireJournalSortedBySharedOrder(*client_app->room);
 
-  // Local host commits stay in SharedEventOrder (lamport), not sent_at order.
+  // Local host commits stay in commit order, not sent_at order.
   auto const& host_journal = host_app->room->journal;
   std::vector<std::string> host_origin_texts;
   for (auto const& record : host_journal) {
@@ -854,9 +849,11 @@ void test_interleaved_sent_at_converges_by_shared_order() {
           JournalSentAt(host_journal[early_index]));
 }
 
-// Simultaneous local commits: same-turn Host/Client messages must converge to
-// one SharedEventOrder (lamport, origin_uid, origin_sequence) on both sides.
-void test_simultaneous_local_messages_converge() {
+// Cross-replica order follows the Event timestamps. The origins are chosen so
+// that ordering by origin_uid would disagree: "client-uid" sorts before
+// "host-uid", but the host commits at the earlier timestamp and must come
+// first on both replicas.
+void test_cross_replica_order_follows_timestamp() {
   ae::RamDomainStorage host_storage;
   ae::Domain host_domain{host_storage};
   auto host_app = MakeChatApp(host_domain, "Host", "host-uid");
@@ -874,13 +871,14 @@ void test_simultaneous_local_messages_converge() {
   SetSharedPeerChannelReady(host, "client-uid", true);
   SetSharedPeerChannelReady(client, "host-uid", true);
 
-  // Force identical lamport clocks so origin_uid breaks the tie.
-  host.instance.lamport_clock = 100;
-  client.instance.lamport_clock = 100;
-  CommitLocalMessage(host, *host_app->local_client, "H-simul", 50);
-  CommitLocalMessage(client, *client_app->local_client, "C-simul", 50);
-  REQUIRE(host.instance.node->journal.back().order.lamport ==
-          client.instance.node->journal.back().order.lamport);
+  // Both far ahead of the wall clock, so each replica's next local commit
+  // lands on a known timestamp instead of on whatever time it is now.
+  host.instance.last_local_timestamp_us = 4'000'000'000'000'000ull;
+  client.instance.last_local_timestamp_us = 5'000'000'000'000'000ull;
+  CommitLocalMessage(host, *host_app->local_client, "H-earlier", 50);
+  CommitLocalMessage(client, *client_app->local_client, "C-later", 50);
+  REQUIRE(host.instance.node->journal.back().order.timestamp_us <
+          client.instance.node->journal.back().order.timestamp_us);
 
   std::vector<QueuedFrame> to_host;
   std::vector<QueuedFrame> to_client;
@@ -894,11 +892,10 @@ void test_simultaneous_local_messages_converge() {
   auto const& cj = client_app->room->journal;
   REQUIRE(hj.size() == 4);
   REQUIRE(cj.size() == 4);
-  // With equal lamport, lexicographic origin_uid: "client-uid" < "host-uid".
-  REQUIRE(JournalMessageText(hj[2]) == "C-simul");
-  REQUIRE(JournalMessageText(hj[3]) == "H-simul");
-  REQUIRE(JournalMessageText(cj[2]) == "C-simul");
-  REQUIRE(JournalMessageText(cj[3]) == "H-simul");
+  REQUIRE(JournalMessageText(hj[2]) == "H-earlier");
+  REQUIRE(JournalMessageText(hj[3]) == "C-later");
+  REQUIRE(JournalMessageText(cj[2]) == "H-earlier");
+  REQUIRE(JournalMessageText(cj[3]) == "C-later");
 }
 
 }  // namespace
@@ -923,7 +920,7 @@ int main() {
   test_fake_bridge_converges();
   test_exact_journal_convergence_host_vs_client();
   test_interleaved_sent_at_converges_by_shared_order();
-  test_simultaneous_local_messages_converge();
+  test_cross_replica_order_follows_timestamp();
   std::cout << "shared_journal_test ok\n";
   return 0;
 }

@@ -43,19 +43,19 @@ class RetentionDoc : public NodeFor<RetentionDoc> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(value);
   }
 
   template <typename Dnv>
   void Load(ae::Version<2>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(value);
   }
 
   template <typename Dnv>
   void Save(ae::Version<2>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(value);
   }
 
@@ -72,12 +72,12 @@ class RetentionDoc : public NodeFor<RetentionDoc> {
                             .retained_since_us = retained_since_us});
   }
 
-  void InsertLocalForTest(Event::ptr event, std::uint64_t lamport,
+  void InsertLocalForTest(Event::ptr event, std::uint64_t timestamp_us,
                           std::uint64_t retained_since_us) {
     InsertEvent(EventRecord{
         .event = std::move(event),
         .identity = {},
-        .order = SharedEventOrder{.lamport = lamport},
+        .order = SharedEventOrder{.timestamp_us = timestamp_us},
         .retained_since_us = retained_since_us});
   }
 };
@@ -96,67 +96,11 @@ class AddEvent : public EventFor<RetentionDoc, AddEvent> {
   std::int32_t delta{0};
 };
 
-class LegacyRetentionDoc;
-class LegacyAddEvent;
-
-class LegacyRetentionDoc : public NodeFor<LegacyRetentionDoc> {
-  APPTRAVERSE_OBJECT(LegacyRetentionDoc, Node, 1)
-
- protected:
-  LegacyRetentionDoc() = default;
-
- public:
-  explicit LegacyRetentionDoc(ae::ObjProp prop) : NodeFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(value))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("LegacyRetentionDoc v0 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<1>{}, dnv);
-    dnv(value);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<1>{}, dnv);
-    dnv(value);
-  }
-
-  std::int32_t value{0};
-
-  void Apply(LegacyAddEvent const& event);
-};
-
-class LegacyAddEvent : public EventFor<LegacyRetentionDoc, LegacyAddEvent> {
-  APPTRAVERSE_OBJECT(LegacyAddEvent, Event, 0)
-
- protected:
-  LegacyAddEvent() = default;
-
- public:
-  explicit LegacyAddEvent(ae::ObjProp prop) : EventFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(delta))
-
-  std::int32_t delta{0};
-};
 
 APPTRAVERSE_REGISTER(RetentionDoc);
 APPTRAVERSE_REGISTER(AddEvent);
-APPTRAVERSE_REGISTER(LegacyRetentionDoc);
-APPTRAVERSE_REGISTER(LegacyAddEvent);
 
 void RetentionDoc::Apply(AddEvent const& event) {
-  value += event.delta;
-  NoteMaterializedChange();
-}
-
-void LegacyRetentionDoc::Apply(LegacyAddEvent const& event) {
   value += event.delta;
   NoteMaterializedChange();
 }
@@ -372,9 +316,8 @@ void TestSharedOrderPreserved() {
   for (int i = 0; i < 5; ++i) {
     SharedEventId id{.origin_uid = "peer-a",
                      .origin_sequence = static_cast<std::uint64_t>(i + 1)};
-    SharedEventOrder order{.lamport = static_cast<std::uint64_t>((i + 1) * 10),
-                           .origin_uid = id.origin_uid,
-                           .origin_sequence = id.origin_sequence};
+    SharedEventOrder order{
+        .timestamp_us = static_cast<std::uint64_t>((i + 1) * 10)};
     doc->InsertSharedForTest(MakeAdd(domain, 1), id, order,
                              static_cast<std::uint64_t>(i + 1) * 1'000'000ull);
   }
@@ -400,78 +343,24 @@ void TestMidInsertWhileBlocked() {
   doc->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
 
   SharedEventId id1{.origin_uid = "a", .origin_sequence = 1};
-  SharedEventOrder o1{.lamport = 10, .origin_uid = "a", .origin_sequence = 1};
+  SharedEventOrder o1{.timestamp_us = 10};
   SharedEventId id3{.origin_uid = "a", .origin_sequence = 3};
-  SharedEventOrder o3{.lamport = 30, .origin_uid = "a", .origin_sequence = 3};
+  SharedEventOrder o3{.timestamp_us = 30};
   doc->InsertSharedForTest(MakeAdd(domain, 1), id1, o1, 1);
   doc->InsertSharedForTest(MakeAdd(domain, 10), id3, o3, 2);
   CHECK(doc->value == 11);
 
   SharedEventId id2{.origin_uid = "a", .origin_sequence = 2};
-  SharedEventOrder o2{.lamport = 20, .origin_uid = "a", .origin_sequence = 2};
+  SharedEventOrder o2{.timestamp_us = 20};
   doc->InsertSharedForTest(MakeAdd(domain, 100), id2, o2, 3);
   CHECK(doc->journal.size() == 3);
-  CHECK(doc->journal[0].order.lamport == 10);
-  CHECK(doc->journal[1].order.lamport == 20);
-  CHECK(doc->journal[2].order.lamport == 30);
+  CHECK(doc->journal[0].order.timestamp_us == 10);
+  CHECK(doc->journal[1].order.timestamp_us == 20);
+  CHECK(doc->journal[2].order.timestamp_us == 30);
   CHECK(doc->value == 111);
 
   doc->CompactJournal(SystemUtcMicros());
   CHECK(doc->journal.size() == 3);
-}
-
-void TestNodeV1MigrationStampsRetainedSince() {
-  ae::RamDomainStorage storage;
-  ae::ObjId id{};
-  {
-    ae::Domain domain{storage};
-    auto doc = LegacyRetentionDoc::ptr::Create(ae::CreateWith{domain});
-    doc->value = 0;
-    InitializeRuntimeNode(*doc);
-    for (int i = 0; i < 5; ++i) {
-      auto event = LegacyAddEvent::ptr::Create(ae::CreateWith{domain});
-      event->delta = 1;
-      doc->Commit(event);
-    }
-    CHECK(doc->value == 5);
-    for (auto const& record : doc->journal) {
-      CHECK(record.retained_since_us != 0);
-    }
-    id = doc.id();
-    doc.Save();
-  }
-
-  {
-    ae::Domain domain{storage};
-    auto loaded = LegacyRetentionDoc::ptr::Declare(
-        ae::CreateWith{domain}.with_id(id));
-    loaded.Load();
-    CHECK(loaded);
-    CHECK(loaded->value == 5);
-    CHECK(loaded->journal.size() == 5);
-    auto const stamp = loaded->journal[0].retained_since_us;
-    CHECK(stamp != 0);
-    for (auto const& record : loaded->journal) {
-      CHECK(record.retained_since_us == stamp);
-    }
-
-    loaded->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
-    auto const generation = loaded->Generation();
-    loaded->CompactJournal(SystemUtcMicros());
-    CHECK(loaded->journal.empty());
-    CHECK(loaded->value == 5);
-    CHECK(loaded->Generation() == generation);
-    loaded.Save();
-  }
-
-  {
-    ae::Domain domain{storage};
-    auto again = LegacyRetentionDoc::ptr::Declare(
-        ae::CreateWith{domain}.with_id(id));
-    again.Load();
-    CHECK(again->value == 5);
-    CHECK(again->journal.empty());
-  }
 }
 
 void TestUnreferencedEventDirsAreNotLoaded() {
@@ -565,7 +454,6 @@ int main() {
   apptraverse::test::TestDynamicPolicy();
   apptraverse::test::TestSharedOrderPreserved();
   apptraverse::test::TestMidInsertWhileBlocked();
-  apptraverse::test::TestNodeV1MigrationStampsRetainedSince();
   apptraverse::test::TestZeroRetentionFiveHundred();
   apptraverse::test::TestRetentionTenReachable();
   apptraverse::test::TestUnreferencedEventDirsAreNotLoaded();

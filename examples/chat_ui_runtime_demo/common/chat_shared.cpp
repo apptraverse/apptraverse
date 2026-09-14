@@ -189,7 +189,7 @@ SharedApplyResult TryApplyFrame(
   binding.instance.node->InsertSharedOrderedEvent(std::move(event),
                                                   frame.event_id, frame.order);
   binding.runtime.OnIncomingEventApplied(
-      binding.instance, frame.event_id, frame.order, source_peer_uid,
+      binding.instance, frame.event_id, source_peer_uid,
       [](PeerDeliveryState& peer, SharedEventId const& event_id) {
         EnqueuePending(peer, event_id);
       });
@@ -221,8 +221,9 @@ void InitializeChatSharedBinding(ChatSharedBinding& binding, ChatApplication& ap
             "SharedEventId; re-distill with a fresh state dir");
       }
       binding.instance.RememberSharedEvent(record.identity);
-      if (record.order.lamport > binding.instance.lamport_clock) {
-        binding.instance.lamport_clock = record.order.lamport;
+      if (record.identity.origin_uid == binding.instance.local_aether_uid &&
+          record.order.timestamp_us > binding.instance.last_local_timestamp_us) {
+        binding.instance.last_local_timestamp_us = record.order.timestamp_us;
       }
       if (record.identity.origin_uid == binding.instance.local_aether_uid &&
           record.identity.origin_sequence >=
@@ -236,7 +237,7 @@ void InitializeChatSharedBinding(ChatSharedBinding& binding, ChatApplication& ap
 
 void CommitLocalJoin(ChatSharedBinding& binding, ChatClient& client) {
   auto const id = binding.runtime.AssignLocalIdentity(binding.instance);
-  auto const order = binding.runtime.MakeLocalOrder(binding.instance, id);
+  auto const order = binding.runtime.MakeLocalOrder(binding.instance);
   auto event = MakeClientAddedEvent(*binding.instance.node, client);
   assert(binding.instance.node->CanApply(*event));
   binding.instance.node->CommitShared(event, id, order);
@@ -261,7 +262,7 @@ LocalChatCommitResult CommitLocalMessage(ChatSharedBinding& binding,
     return result;
   }
   auto const id = binding.runtime.AssignLocalIdentity(binding.instance);
-  auto const order = binding.runtime.MakeLocalOrder(binding.instance, id);
+  auto const order = binding.runtime.MakeLocalOrder(binding.instance);
   assert(binding.instance.node->CanApply(*event));
   binding.instance.node->CommitShared(event, id, order);
   binding.runtime.RememberLocalCommit(binding.instance, id);

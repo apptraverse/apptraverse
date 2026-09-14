@@ -81,14 +81,14 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(share_id, link, initial_sync_phase, pending_initial_packet_id,
         pending_initial_packet, received_initial_packet_id);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(share_id, link, initial_sync_phase, pending_initial_packet_id,
         pending_initial_packet, received_initial_packet_id);
   }
@@ -209,13 +209,13 @@ class SharedNode : public NodeFor<SharedNode> {
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<2>{}, dnv);
+    Node::Load(ae::Version<3>{}, dnv);
     dnv(shares, link_sync_states);
   }
 
   template <typename Dnv>
   void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<2>{}, dnv);
+    Node::Save(ae::Version<3>{}, dnv);
     dnv(shares, link_sync_states);
   }
 

@@ -11,12 +11,17 @@
 
 namespace apptraverse {
 
-// Single authoritative journal entry. Shared ChatRoom Events always carry
-// identity + SharedEventOrder before insert. Non-shared Nodes may use a
-// local-only order (empty identity.origin_uid) with monotonic lamport.
+// Single authoritative journal entry. Three timestamps-and-identities live
+// here and they are deliberately separate:
 //
-// retained_since_us is local replica bookkeeping for age retention. It is not
-// part of canonical order, SharedEventId, or EventRecordOrderLess.
+// - order.timestamp_us is the only thing that decides journal position.
+// - identity is the logical Event identity, used for deduplication and for
+//   recognizing the same Event arriving twice. It never affects position.
+// - retained_since_us is local replica bookkeeping for age retention. It is
+//   neither order nor identity.
+//
+// Shared Events always carry an identity before insert; a Node's own local
+// Events use an empty identity.
 struct EventRecord {
   Event::ptr event;
   SharedEventId identity{};
@@ -30,15 +35,10 @@ struct EventRecord {
   AE_REFLECT_MEMBERS(event, identity, order, retained_since_us)
 };
 
-// Wire layout for Node journal v1 (before retained_since_us).
-struct EventRecordWireV1 {
-  Event::ptr event;
-  SharedEventId identity{};
-  SharedEventOrder order{};
-
-  AE_REFLECT_MEMBERS(event, identity, order)
-};
-
+// Journal position, and only that. Identity and retention bookkeeping are not
+// consulted, so records with equal timestamps compare equal in both
+// directions and whatever a container algorithm does with them is local
+// implementation behavior, not a distributed ordering rule.
 inline bool EventRecordOrderLess(EventRecord const& a,
                                  EventRecord const& b) noexcept {
   return SharedEventOrderLess(a.order, b.order);

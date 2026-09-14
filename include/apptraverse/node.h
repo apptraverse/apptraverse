@@ -27,10 +27,19 @@ inline std::uint64_t SystemUtcMicros() {
       std::chrono::duration_cast<std::chrono::microseconds>(now).count());
 }
 
+// Written at the head of every Node payload and checked before the journal is
+// decoded. A Node's fields are serialized into the storage layer of the most
+// derived class, so the Node version is not part of the storage key of any
+// concrete Node and cannot by itself separate an old journal from a current
+// one. Journals up to Node v2 ordered EventRecords by
+// (lamport, origin_uid, origin_sequence); read as the current layout those
+// bytes decode into a journal of broken Event references instead of failing,
+// so the format is stated explicitly and obsolete state is rejected.
+inline constexpr std::uint64_t kNodeJournalFormat = 0x41545F4A524E4C33ULL;
+
 class Node : public ae::Obj {
-  // Version 2: EventRecord includes retained_since_us for age retention.
-  // Version 1 journals migrate by stamping retained_since_us at load time.
-  APPTRAVERSE_OBJECT(Node, ae::Obj, 2)
+  // Version 3: SharedEventOrder is timestamp_us only.
+  APPTRAVERSE_OBJECT(Node, ae::Obj, 3)
 
  protected:
   Node() = default;
@@ -48,46 +57,35 @@ class Node : public ae::Obj {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    std::vector<EventRecordWireV1> wire;
-    dnv(base_, base, wire);
-    // Conservative migration: unknown age starts at load so age retention
-    // does not immediately drop historical records.
-    auto const stamp = SystemUtcMicros();
-    journal.clear();
-    journal.reserve(wire.size());
-    for (auto& entry : wire) {
-      journal.push_back(EventRecord{
-          .event = std::move(entry.event),
-          .identity = std::move(entry.identity),
-          .order = std::move(entry.order),
-          .retained_since_us = stamp,
-      });
-    }
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "AppTraverse Node journal v1 ordered by (lamport, origin_uid, "
+        "origin_sequence); re-distill with a fresh state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    std::vector<EventRecordWireV1> wire;
-    wire.reserve(journal.size());
-    for (auto const& entry : journal) {
-      wire.push_back(EventRecordWireV1{
-          .event = entry.event,
-          .identity = entry.identity,
-          .order = entry.order,
-      });
-    }
-    dnv(base_, base, wire);
+  void Load(ae::Version<2>, Dnv&) {
+    throw std::runtime_error(
+        "AppTraverse Node journal v2 ordered by (lamport, origin_uid, "
+        "origin_sequence); re-distill with a fresh state dir");
   }
 
   template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<3>, Dnv& dnv) {
+    std::uint64_t format = 0;
+    dnv(format);
+    if (format != kNodeJournalFormat) {
+      throw std::runtime_error(
+          "AppTraverse Node journal predates timestamp-only Event order; "
+          "re-distill with a fresh state dir");
+    }
     dnv(base_, base, journal);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
-    dnv(base_, base, journal);
+  void Save(ae::Version<3>, Dnv& dnv) const {
+    std::uint64_t const format = kNodeJournalFormat;
+    dnv(format, base_, base, journal);
   }
 
   Node::ptr base;
@@ -321,15 +319,15 @@ class Node : public ae::Obj {
     assert(record.event.is_valid());
     assert(record.event.is_loaded());
     assert(record.event.domain() == domain);
-    assert(record.order.lamport != 0 || !record.order.origin_uid.empty() ||
-           record.order.origin_sequence != 0);
+    assert(record.order.timestamp_us != 0);
 
     if (record.retained_since_us == 0) {
       record.retained_since_us = SystemUtcMicros();
     }
 
+    // Identity is what must be unique. Two different Events sharing a
+    // timestamp is an accepted, unresolved case, not an error.
     for (auto const& existing : journal) {
-      assert(!(existing.order == record.order) && "duplicate EventRecord order");
       if (record.HasSharedIdentity() && existing.HasSharedIdentity()) {
         assert(!(existing.identity == record.identity) &&
                "duplicate SharedEventId");
@@ -352,36 +350,36 @@ class Node : public ae::Obj {
     }
   }
 
-  // Non-shared local commit: monotonic local order (empty identity).
+  // Non-shared local commit: empty identity, current time as order.
   template <typename ConcreteNode>
   void CommitInto(ConcreteNode& target, Event::ptr event) {
     assert(event.is_valid());
     assert(event.is_loaded());
     assert(event->CanApplyTo(target));
 
-    std::uint64_t lamport = SystemUtcMicros();
+    // Timestamp adjustment, not a logical clock: a Node's own consecutive
+    // commits keep the order they were made in even when the wall clock does
+    // not advance between them.
+    std::uint64_t timestamp_us = SystemUtcMicros();
     if (!journal.empty()) {
       auto const& last = journal.back().order;
-      if (lamport <= last.lamport) {
-        lamport = last.lamport + 1;
+      if (timestamp_us <= last.timestamp_us) {
+        timestamp_us = last.timestamp_us + 1;
       }
     }
 
     EventRecord record{
         .event = std::move(event),
         .identity = {},
-        .order =
-            SharedEventOrder{
-                .lamport = lamport,
-                .origin_uid = {},
-                .origin_sequence = 0,
-            },
+        .order = SharedEventOrder{.timestamp_us = timestamp_us},
         .retained_since_us = SystemUtcMicros(),
     };
     InsertEvent(target, std::move(record));
   }
 
-  // Shared commit: EventRecord is inserted with the canonical SharedEventOrder.
+  // Shared commit: the Event keeps the identity and timestamp it was given.
+  // A remotely originated Event is inserted at its own timestamp; nothing here
+  // rewrites it from local state.
   template <typename ConcreteNode>
   void CommitSharedInto(ConcreteNode& target, Event::ptr event,
                         SharedEventId identity, SharedEventOrder order) {
@@ -389,8 +387,6 @@ class Node : public ae::Obj {
     assert(event.is_loaded());
     assert(event->CanApplyTo(target));
     assert(!identity.origin_uid.empty());
-    assert(order.origin_uid == identity.origin_uid);
-    assert(order.origin_sequence == identity.origin_sequence);
 
     EventRecord record{
         .event = std::move(event),

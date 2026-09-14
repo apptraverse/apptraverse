@@ -77,7 +77,10 @@ struct SharedInstance {
   std::string shared_room_id;
   std::string local_aether_uid;
   std::uint64_t next_origin_sequence{1};
-  std::uint64_t lamport_clock{0};
+  // Highest order timestamp this replica has handed to its own Events. Only
+  // its own: remote timestamps never advance it, so this is a wall-clock
+  // adjustment for one sequence of local commits, not a logical clock.
+  std::uint64_t last_local_timestamp_us{0};
   std::vector<PeerDeliveryState> peers;
   std::vector<DeferredIncomingEvent> deferred;
 
