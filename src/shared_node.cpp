@@ -43,7 +43,16 @@ std::size_t SharedNode::FindShareIndex(ae::ObjId link_id) const {
   return shares.size();
 }
 
-std::size_t SharedNode::FindLinkSyncIndex(ae::ObjId link_id) const {
+std::size_t SharedNode::FindShareIndexForShare(ae::ObjId share_id) const {
+  for (std::size_t i = 0; i < shares.size(); ++i) {
+    if (shares[i].share_id == share_id) {
+      return i;
+    }
+  }
+  return shares.size();
+}
+
+std::size_t SharedNode::FindLinkSyncIndexForShare(ae::ObjId share_id) const {
   for (std::size_t i = 0; i < link_sync_states.size(); ++i) {
     auto const& entry = link_sync_states[i];
     if (!entry.is_valid()) {
@@ -52,7 +61,7 @@ std::size_t SharedNode::FindLinkSyncIndex(ae::ObjId link_id) const {
     if (!entry.is_loaded()) {
       entry.Load();
     }
-    if (entry->link.is_valid() && entry->link.id() == link_id) {
+    if (entry->share_id == share_id) {
       return i;
     }
   }
@@ -73,11 +82,12 @@ void SharedNode::AddShare(Link::ptr link, ShareAccess access) {
 
 void SharedNode::RemoveShare(Link::ptr link) {
   assert(link.is_valid() && "RemoveShare requires a valid Link");
-  if (FindShareIndex(link.id()) >= shares.size()) {
+  auto const index = FindShareIndex(link.id());
+  if (index >= shares.size()) {
     return;
   }
   auto event = RemoveShareEvent::ptr::Create(ae::CreateWith{*domain});
-  event->link = std::move(link);
+  event->share_id = shares[index].share_id;
   Commit(event);
 }
 
@@ -89,24 +99,30 @@ void SharedNode::SetShareAccess(Link::ptr link, ShareAccess access) {
     return;
   }
   auto event = ChangeShareAccessEvent::ptr::Create(ae::CreateWith{*domain});
-  event->link = std::move(link);
+  event->share_id = shares[index].share_id;
   event->access = static_cast<std::uint8_t>(access);
   Commit(event);
 }
 
 void SharedNode::Apply(AddShareEvent const& event) {
   assert(event.link.is_valid());
-  if (FindShareIndex(event.link.id()) < shares.size()) {
-    return;
-  }
-  shares.push_back(Share{.link = event.link, .access = event.access});
+  // Relationship identity is the AddShareEvent identity: unique per Commit and
+  // stable across Save/Load, journal replay, and network graph copy.
+  auto const share_id = event.obj_id;
+  assert(share_id.is_valid());
+  assert(FindShareIndexForShare(share_id) == shares.size());
+  assert(FindShareIndex(event.link.id()) == shares.size() &&
+         "AddShare Apply requires the Link to be unshared");
+  shares.push_back(Share{
+      .share_id = share_id, .link = event.link, .access = event.access});
 
-  // New share relationship starts NotStarted. Skip if local sync for this Link
-  // already exists (e.g. stash restored across RebuildFromBaseAndReplay before
-  // journal replay re-applies AddShare).
-  if (FindLinkSyncIndex(event.link.id()) >= link_sync_states.size()) {
+  // Local sync belongs to this relationship. It already exists when the stash
+  // restored it across RebuildFromBaseAndReplay before replay re-applied this
+  // Event; a historical relationship over the same Link gets its own state.
+  if (FindLinkSyncIndexForShare(share_id) >= link_sync_states.size()) {
     auto state = LinkSyncState::ptr::Create(ae::CreateWith{*domain});
     // Creation-time immutable config before the Node becomes live.
+    state->share_id = share_id;
     state->link = event.link;
     state->initial_sync_phase =
         static_cast<std::uint8_t>(InitialSyncPhase::NotStarted);
@@ -118,16 +134,14 @@ void SharedNode::Apply(AddShareEvent const& event) {
 }
 
 void SharedNode::Apply(RemoveShareEvent const& event) {
-  assert(event.link.is_valid());
-  auto const index = FindShareIndex(event.link.id());
-  if (index >= shares.size()) {
-    return;
-  }
+  auto const index = FindShareIndexForShare(event.share_id);
+  assert(index < shares.size() &&
+         "RemoveShare Apply requires the relationship to be open");
   shares.erase(shares.begin() + static_cast<std::ptrdiff_t>(index));
 
-  // Drop stale local sync for this Link. A later AddShare creates a fresh
-  // NotStarted relationship and must not inherit Complete.
-  auto const sync_index = FindLinkSyncIndex(event.link.id());
+  // Drop local sync of this relationship only. A later AddShare over the same
+  // Link is a different relationship and must not inherit Complete.
+  auto const sync_index = FindLinkSyncIndexForShare(event.share_id);
   if (sync_index < link_sync_states.size()) {
     link_sync_states.erase(link_sync_states.begin() +
                            static_cast<std::ptrdiff_t>(sync_index));
@@ -137,8 +151,7 @@ void SharedNode::Apply(RemoveShareEvent const& event) {
 }
 
 void SharedNode::Apply(ChangeShareAccessEvent const& event) {
-  assert(event.link.is_valid());
-  auto const index = FindShareIndex(event.link.id());
+  auto const index = FindShareIndexForShare(event.share_id);
   assert(index < shares.size());
   shares[index].access = event.access;
   NoteMaterializedChange();
@@ -146,16 +159,26 @@ void SharedNode::Apply(ChangeShareAccessEvent const& event) {
 
 void SharedNode::SetInitialSyncPhase(Link::ptr link, InitialSyncPhase phase) {
   assert(link.is_valid());
-  auto const index = FindLinkSyncIndex(link.id());
+  auto const share_index = FindShareIndex(link.id());
+  assert(share_index < shares.size() &&
+         "SetInitialSyncPhase requires an existing share");
+  auto const index =
+      FindLinkSyncIndexForShare(shares[share_index].share_id);
   assert(index < link_sync_states.size() &&
-         "SetInitialSyncPhase requires sync state from an existing share");
+         "SetInitialSyncPhase requires sync state of the active relationship");
   link_sync_states[index]->SetInitialSyncPhase(phase);
 }
 
 InitialSyncPhase SharedNode::GetInitialSyncPhase(Link::ptr link) const {
   assert(link.is_valid());
-  auto const index = FindLinkSyncIndex(link.id());
+  auto const share_index = FindShareIndex(link.id());
+  if (share_index >= shares.size()) {
+    return InitialSyncPhase::NotStarted;
+  }
+  auto const index =
+      FindLinkSyncIndexForShare(shares[share_index].share_id);
   if (index >= link_sync_states.size()) {
+    // Network-imported topology: shared Share without local sync state yet.
     return InitialSyncPhase::NotStarted;
   }
   return link_sync_states[index]->GetInitialSyncPhase();
