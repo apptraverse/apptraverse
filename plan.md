@@ -268,8 +268,12 @@ A’s knowledge “B ACKed E17” is not B’s shared state.
 It **must** survive restart.
 It **must not** be overwritten by incoming shared snapshot / replay.
 
-**Open implementation point:** current Node replay loads base state; shared
-replay vs local-persistent sync metadata must be separated correctly.
+**Settled for initial state:** a network snapshot carries no `LocalPtr`
+referent, so an imported SharedNode arrives with one empty local slot per
+Share. The rebuild stash carries only entries that hold state, and replaying
+the imported shared journal creates the receiver's own `LinkSyncState` for
+every Share, keyed by the `share_id` that travelled with the topology. No
+field repair, no class switch, no patched topology.
 
 ## ACK / durability contract (first sharing guarantee)
 
@@ -407,7 +411,9 @@ do not silently solve it by adding a second sort key.
 # Planned implementation ladder
 
 **Milestones 01–04 foundation hardened on `feature/shared-node-foundation-v1`
-(v1.1 corrections). Transport / initial sync / ACK / presence not started.**
+(v1.1 corrections). Initial-state synchronization (05–07, 09 initial subset)
+landed on the same branch. Incremental Event replication and presence not
+started.**
 
 ### SharedNode headless (01–16)
 
@@ -415,11 +421,11 @@ do not silently solve it by adding a second sort key.
 02. **Add SharedNode share topology** — **implemented/verified** (`shares[]` + Add/Remove/ChangeShareAccess Events).  
 03. **Separate shared and local-persistent graph edges** — **implemented/verified** (generic `LocalPtr` + `GraphCopyPolicy::NetworkShared`; no SharedNode sanitization; rebuild stash).  
 04. **Persist per-Share SharedNode sync state** — **foundation implemented/verified** (`LinkSyncState` Event-sourced Node + `InitialSyncPhase` only; keyed by Share relationship identity so RemoveShare+AddShare starts a new relationship at NotStarted and a forced `RebuildFromBaseAndReplay` keeps the current relationship's progress; no ACK/pending bytes yet).  
-05. **Add generic shared sync framing and routing** — opaque frames with target SharedNode identity.  
-06. **Add deterministic Memory Link transport** — drop / reorder / disconnect / heartbeat / availability for tests.  
-07. **Synchronize a SharedNode to a newly attached Link** — initial catch-up for a new share.  
+05. **Add generic shared sync framing and routing** — **initial-state subset implemented/verified** (protocol v1 `NodeState` / `Ack` frames routed by `target_node_id` and named by `destination_share_id`; `SharedSyncRuntime` per replica; no Event frame yet).  
+06. **Add deterministic Memory Link transport** — **message delivery subset implemented/verified** (opaque bytes, endpoint identity, deliver / drop / duplicate / disconnect / reconnect, no threads or sleeps; no heartbeat, presence, reorder, or fake clock yet).  
+07. **Synchronize a SharedNode to a newly attached Link** — **implemented/verified** (freeze + persist + send, import into the receiver Domain, receiver-local sync state by journal replay, persist before ACK, duplicate acknowledged without re-apply).  
 08. **Replicate incremental SharedNode Events** — steady-state Event + ACK path.  
-09. **Make shared delivery restart-safe** — destroy/recreate Application/Domain; pending and ACKs recover.  
+09. **Make shared delivery restart-safe** — **initial-state subset implemented/verified** (sender restart while Pending resends the same packet id and bytes, receiver restart after apply still recognizes the duplicate, sender restart after ACK stays Complete and sends nothing).  
 10. **Replicate dynamic SharedNode graphs** — topology changes as shared Events.  
 11. **Share multiple Nodes over one Link** — multiplexing proof.  
 12. **Enforce RW and RO sharing rights** — modification rights without collapsing Link visibility.  
@@ -450,10 +456,10 @@ Do not resolve casually in documentation:
 - recipient-filtered Event dependency semantics
 - deletion + delayed Events
 - exact class / layout of local-persistent per-Share sync metadata
-- transport-stable derivation of `Share::share_id`: it is the local
-  `AddShareEvent` ObjId today, which is enough for replay, Save/Load, and graph
-  copy. If a transport re-creates the Event object on the receiver with a fresh
-  ObjId, the identity must travel in the frame instead of being re-derived.
+- ~~transport-stable derivation of `Share::share_id`~~ — **closed**: the
+  initial-state snapshot carries the Share topology and its `AddShareEvent`
+  identities, so the receiver imports the same `share_id` instead of
+  re-deriving one from a receiver-side Event.
 - durability beyond explicitly tested Save boundaries
 - future compaction / frontier
 - external resource / reference semantics
@@ -551,6 +557,14 @@ SurfacePresenter
 - SharedNode replay allocates a transient `LinkSyncState` for every historical
   relationship it re-applies (erased again by the matching `RemoveShare`, never
   saved). Revisit only if replay allocation cost shows up.
+- A NodeState frame is the state at freeze time. Changes the sender makes
+  afterwards are not covered by its ACK and are not resent; that is milestone
+  08 (incremental Event replication).
+- A second, different initial snapshot for an already imported relationship is
+  rejected instead of applied: protocol v1 has one initial packet per Share.
+- The network-shared graph payload reuses the storage encoding of each object
+  layer, which is not a portable wire format. Fine for a memory transport in
+  one process; revisit before a cross-machine transport.
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.
