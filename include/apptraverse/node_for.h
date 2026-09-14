@@ -21,10 +21,6 @@ class NodeFor : public BaseNode {
   explicit NodeFor(ae::ObjProp prop) : BaseNode{prop} {}
 
  public:
-  void ReplayFromBase() {
-    Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
-  }
-
   // Shared replication insert with canonical SharedEventOrder (may mid-insert).
   void InsertSharedOrderedEvent(Event::ptr event, SharedEventId identity,
                                 SharedEventOrder order) {
@@ -52,6 +48,10 @@ class NodeFor : public BaseNode {
 
   void CompactJournalImpl(std::uint64_t now_us) override {
     Node::CompactJournalInto(static_cast<ConcreteNode&>(*this), now_us);
+  }
+
+  void ReplayFromBaseImpl() override {
+    Node::RebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
   }
 
  protected:
