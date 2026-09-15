@@ -24,6 +24,16 @@ class Link : public NodeFor<Link> {
 
   AE_OBJECT_REFLECT()
 
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_);
+  }
+
   // Transport address of this endpoint, as the concrete descriptor defines it.
   // Locality stays runtime-relative: a runtime recognizes its own Link by
   // comparing this with its own endpoint uid. Empty when the descriptor has no
@@ -34,7 +44,7 @@ class Link : public NodeFor<Link> {
 // First concrete transport descriptor. Runtime transport objects are not
 // persisted; only this configuration survives Save/Load.
 class MemoryLink : public NodeFor<MemoryLink, Link> {
-  APPTRAVERSE_OBJECT(MemoryLink, Link, 1)
+  APPTRAVERSE_OBJECT(MemoryLink, Link, 2)
 
  protected:
   MemoryLink() = default;
@@ -50,15 +60,20 @@ class MemoryLink : public NodeFor<MemoryLink, Link> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(endpoint_uid, heartbeat_interval_ms);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "MemoryLink v1 flattened layout is not supported; re-distill with a "
+        "fresh state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(endpoint_uid, heartbeat_interval_ms);
+  void Load(ae::Version<2>, Dnv& dnv) {
+    dnv(base_, endpoint_uid, heartbeat_interval_ms);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
+    dnv(base_, endpoint_uid, heartbeat_interval_ms);
   }
 
   std::string const& EndpointUid() const override { return endpoint_uid; }

@@ -72,6 +72,16 @@ class NoteTargetNode : public NodeFor<NoteTargetNode> {
 
   AE_OBJECT_REFLECT()
 
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_);
+  }
+
   void Apply(SetValueWithNoteEvent const&) {}
 };
 
@@ -95,7 +105,7 @@ class SetValueWithNoteEvent
 class TransitionEvent;
 class StateDependentNode : public NodeFor<StateDependentNode, SharedNode> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::StateDependentNode",
-                           StateDependentNode, SharedNode, 1)
+                           StateDependentNode, SharedNode, 2)
 
  protected:
   StateDependentNode() = default;
@@ -106,15 +116,19 @@ class StateDependentNode : public NodeFor<StateDependentNode, SharedNode> {
   AE_OBJECT_REFLECT(AE_MMBR(state_code))
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    SharedNode::Load(ae::Version<1>{}, dnv);
-    dnv(state_code);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "StateDependentNode v1 flattened layout is not supported");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    SharedNode::Save(ae::Version<1>{}, dnv);
-    dnv(state_code);
+  void Load(ae::Version<2>, Dnv& dnv) {
+    dnv(base_, state_code);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
+    dnv(base_, state_code);
   }
 
   bool CanApply(TransitionEvent const& event) const;

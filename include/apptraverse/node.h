@@ -30,19 +30,9 @@ inline std::uint64_t SystemUtcMicros() {
       std::chrono::duration_cast<std::chrono::microseconds>(now).count());
 }
 
-// Written at the head of every Node payload and checked before the journal is
-// decoded. A Node's fields are serialized into the storage layer of the most
-// derived class, so the Node version is not part of the storage key of any
-// concrete Node and cannot by itself separate an old journal from a current
-// one. Journals up to Node v2 ordered EventRecords by
-// (lamport, origin_uid, origin_sequence); read as the current layout those
-// bytes decode into a journal of broken Event references instead of failing,
-// so the format is stated explicitly and obsolete state is rejected.
-inline constexpr std::uint64_t kNodeJournalFormat = 0x41545F4A524E4C33ULL;
-
 class Node : public ae::Obj {
-  // Version 3: SharedEventOrder is timestamp_us only.
-  APPTRAVERSE_OBJECT(Node, ae::Obj, 3)
+  // Version 4: native base-class serialization (separate class layers).
+  APPTRAVERSE_OBJECT(Node, ae::Obj, 4)
 
  protected:
   Node() = default;
@@ -74,21 +64,20 @@ class Node : public ae::Obj {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<3>, Dnv& dnv) {
-    std::uint64_t format = 0;
-    dnv(format);
-    if (format != kNodeJournalFormat) {
-      throw std::runtime_error(
-          "AppTraverse Node journal predates timestamp-only Event order; "
-          "re-distill with a fresh state dir");
-    }
+  void Load(ae::Version<3>, Dnv&) {
+    throw std::runtime_error(
+        "AppTraverse Node v3 flattened journal layout is not supported; "
+        "re-distill with a fresh state dir");
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<4>, Dnv& dnv) {
     dnv(base_, base, journal);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<3>, Dnv& dnv) const {
-    std::uint64_t const format = kNodeJournalFormat;
-    dnv(format, base_, base, journal);
+  void Save(ae::Version<4>, Dnv& dnv) const {
+    dnv(base_, base, journal);
   }
 
   SharedPtr<Node> base;
@@ -289,7 +278,7 @@ class Node : public ae::Obj {
     auto saved_base = base;
     auto saved_journal = journal;
 
-    base = {};
+    base = Node::ptr{};
     journal.clear();
 
     ae::DomainGraph save_graph{domain};

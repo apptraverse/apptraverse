@@ -34,7 +34,7 @@ inline void AssignInitialDesktopBounds(Surface& surface);
 // live list lives on Surfaces and changes only through Events.
 class Surface : public NodeFor<Surface> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::Surface", Surface,
-                           Node, 2)
+                           Node, 3)
 
  protected:
   Surface() = default;
@@ -55,27 +55,28 @@ class Surface : public NodeFor<Surface> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(number, desktop_x, desktop_y, desktop_width, desktop_height, surfaces,
-        presenter);
-    // Pre-presentation-size state: seed from desktop outer size until native
-    // reports the real content area through SetPresentationSize.
-    presentation_width = desktop_width > 0 ? desktop_width : 360;
-    presentation_height = desktop_height > 0 ? desktop_height : 240;
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "Surface v1 flattened layout is not supported; start with a fresh "
+        "state dir");
   }
 
   template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(number, desktop_x, desktop_y, desktop_width, desktop_height,
+  void Load(ae::Version<2>, Dnv&) {
+    throw std::runtime_error(
+        "Surface v2 flattened layout is not supported; start with a fresh "
+        "state dir");
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<3>, Dnv& dnv) {
+    dnv(base_, number, desktop_x, desktop_y, desktop_width, desktop_height,
         presentation_width, presentation_height, surfaces, presenter);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(number, desktop_x, desktop_y, desktop_width, desktop_height,
+  void Save(ae::Version<3>, Dnv& dnv) const {
+    dnv(base_, number, desktop_x, desktop_y, desktop_width, desktop_height,
         presentation_width, presentation_height, surfaces, presenter);
   }
 
@@ -150,7 +151,7 @@ class SurfacePresenter : public Presenter {
 
 class Surfaces : public NodeFor<Surfaces> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::Surfaces", Surfaces,
-                           Node, 1)
+                           Node, 2)
 
  protected:
   Surfaces() = default;
@@ -168,15 +169,20 @@ class Surfaces : public NodeFor<Surfaces> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(surfaces, mobile_current);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "Surfaces v1 flattened layout is not supported; start with a fresh "
+        "state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(surfaces, mobile_current);
+  void Load(ae::Version<2>, Dnv& dnv) {
+    dnv(base_, surfaces, mobile_current);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
+    dnv(base_, surfaces, mobile_current);
   }
 
   std::vector<Surface::ptr> surfaces;

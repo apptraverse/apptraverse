@@ -140,7 +140,7 @@ class NativeTestItem : public NodeFor<NativeTestItem, Node> {
  public:
   explicit NativeTestItem(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_REF_BASE(Node), AE_MMBR(name), AE_MMBR(metadata))
+  AE_OBJECT_REFLECT(AE_MMBR(name), AE_MMBR(metadata))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {

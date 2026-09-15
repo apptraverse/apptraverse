@@ -324,7 +324,7 @@ void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
       continue;
     }
     saved.push_back(SavedBookkeeping{node, node->base, std::move(node->journal)});
-    node->base = {};
+    node->base = Node::ptr{};
     node->journal.clear();
   }
   CollectReachableObjects(root, out);
@@ -348,7 +348,7 @@ Node* FindLiveReachableNode(ae::Obj& root, std::uint32_t object_id) {
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
   if (auto* node = AsObjOf<Node>(&object)) {
     node->AdoptPublishedGeneration(generation);
-    node->base = {};
+    node->base = Node::ptr{};
     node->journal.clear();
   }
 }

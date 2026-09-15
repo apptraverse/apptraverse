@@ -118,7 +118,7 @@ class Detail : public ae::Obj {
 
 // 2. Item : Node
 class Item : public NodeFor<Item> {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::Item", Item, Node, 0)
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::Item", Item, Node, 1)
 
  protected:
   Item() = default;
@@ -130,15 +130,18 @@ class Item : public NodeFor<Item> {
                     AE_MMBR(local_link))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(name, scalar_old_id, metadata, local_link);
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error("Item v0 flattened layout is not supported");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(name, scalar_old_id, metadata, local_link);
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, name, scalar_old_id, metadata, local_link);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, name, scalar_old_id, metadata, local_link);
   }
 
   std::string name;
@@ -267,7 +270,7 @@ class AddItemEvent : public EventFor<ContainerNode, AddItemEvent> {
 
 class ContainerNode : public NodeFor<ContainerNode> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::ContainerNode", ContainerNode,
-                           Node, 0)
+                           Node, 1)
 
  protected:
   ContainerNode() = default;
@@ -278,15 +281,18 @@ class ContainerNode : public NodeFor<ContainerNode> {
   AE_OBJECT_REFLECT(AE_MMBR(items))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(items);
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error("ContainerNode v0 flattened layout is not supported");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(items);
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, items);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, items);
   }
 
   void Apply(AddItemEvent const& event) {

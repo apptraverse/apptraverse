@@ -24,9 +24,8 @@ class CounterDocument;
 class AddEvent;
 
 class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
-  // Version 1: own Load/Save so CaptureBaseState/Rebuild keep value/label.
-  // (Inheriting only Node's versioned Save would drop derived fields.)
-  APPTRAVERSE_OBJECT(CounterDocument, Node, 1)
+  // Version 2: native base-class serialization (separate class layers).
+  APPTRAVERSE_OBJECT(CounterDocument, Node, 2)
 
  protected:
   CounterDocument() = default;
@@ -42,15 +41,20 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(value, label);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "CounterDocument v1 flattened layout is not supported; re-distill with "
+        "a fresh state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(value, label);
+  void Load(ae::Version<2>, Dnv& dnv) {
+    dnv(base_, value, label);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
+    dnv(base_, value, label);
   }
 
   std::int32_t value{0};

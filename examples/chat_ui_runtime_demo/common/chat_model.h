@@ -58,7 +58,7 @@ inline constexpr std::uint32_t kChatFeedKindJoin = 1;
 inline constexpr std::uint32_t kChatFeedKindMessage = 2;
 
 class ChatClient : public NodeFor<ChatClient> {
-  APPTRAVERSE_NAMED_OBJECT("chat::ChatClient", ChatClient, Node, 1)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatClient", ChatClient, Node, 2)
 
  protected:
   ChatClient() = default;
@@ -76,15 +76,20 @@ class ChatClient : public NodeFor<ChatClient> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(display_name, aether_uid, presence);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "ChatClient v1 flattened layout is not supported; start with a fresh "
+        "state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(display_name, aether_uid, presence);
+  void Load(ae::Version<2>, Dnv& dnv) {
+    dnv(base_, display_name, aether_uid, presence);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
+    dnv(base_, display_name, aether_uid, presence);
   }
 
   ImmutableString::ptr display_name;
@@ -179,7 +184,7 @@ class ChatFeedItem : public ae::Obj {
 };
 
 class ChatRoom : public NodeFor<ChatRoom> {
-  APPTRAVERSE_NAMED_OBJECT("chat::ChatRoom", ChatRoom, Node, 1)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatRoom", ChatRoom, Node, 2)
 
  protected:
   ChatRoom() = default;
@@ -196,15 +201,20 @@ class ChatRoom : public NodeFor<ChatRoom> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(clients, feed);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "ChatRoom v1 flattened layout is not supported; start with a fresh "
+        "state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(clients, feed);
+  void Load(ae::Version<2>, Dnv& dnv) {
+    dnv(base_, clients, feed);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
+    dnv(base_, clients, feed);
   }
 
   std::vector<ChatClient::ptr> clients;

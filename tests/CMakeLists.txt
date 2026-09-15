@@ -63,6 +63,50 @@ add_test(
   COMMAND apptraverse_shared_node_incremental_event_test
 )
 
+add_executable(apptraverse_native_class_layers_test
+  native_class_layers_test.cpp
+)
+
+target_link_libraries(apptraverse_native_class_layers_test PRIVATE
+  apptraverse
+  shared_node_demo_model
+)
+
+target_include_directories(apptraverse_native_class_layers_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/shared_node_demo
+)
+
+add_test(
+  NAME apptraverse_native_class_layers_test
+  COMMAND apptraverse_native_class_layers_test
+)
+
+add_executable(native_class_layers_writer_v1
+  native_class_layers_writer_v1.cpp
+)
+
+target_link_libraries(native_class_layers_writer_v1 PRIVATE
+  apptraverse
+)
+
+add_executable(native_class_layers_reader_v2
+  native_class_layers_reader_v2.cpp
+)
+
+target_link_libraries(native_class_layers_reader_v2 PRIVATE
+  apptraverse
+)
+
+add_test(
+  NAME apptraverse_native_class_layers_writer_v1
+  COMMAND native_class_layers_writer_v1
+)
+
+add_test(
+  NAME apptraverse_native_class_layers_reader_v2
+  COMMAND native_class_layers_reader_v2
+)
+
 add_executable(apptraverse_native_object_graph_serialization_test
   native_object_graph_serialization_test.cpp
 )

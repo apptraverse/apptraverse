@@ -63,7 +63,7 @@ class CompleteIncrementalEventSyncEvent;
 // SharedNode only via LocalPtr, so network shared-graph serialization excludes
 // it without SharedNode-specific sanitization.
 class LinkSyncState : public NodeFor<LinkSyncState> {
-  APPTRAVERSE_OBJECT(LinkSyncState, Node, 2)
+  APPTRAVERSE_OBJECT(LinkSyncState, Node, 3)
 
  protected:
   LinkSyncState() = default;
@@ -95,18 +95,23 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(share_id, link, initial_sync_phase, pending_initial_packet_id,
+  void Load(ae::Version<2>, Dnv&) {
+    throw std::runtime_error(
+        "LinkSyncState v2 flattened layout is not supported; "
+        "re-distill with a fresh state dir");
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<3>, Dnv& dnv) {
+    dnv(base_, share_id, link, initial_sync_phase, pending_initial_packet_id,
         pending_initial_packet, received_initial_packet_id,
         pending_initial_covered_event_ids, delivered_event_ids,
         pending_event_packet_id, pending_event_identity, pending_event_packet);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(share_id, link, initial_sync_phase, pending_initial_packet_id,
+  void Save(ae::Version<3>, Dnv& dnv) const {
+    dnv(base_, share_id, link, initial_sync_phase, pending_initial_packet_id,
         pending_initial_packet, received_initial_packet_id,
         pending_initial_covered_event_ids, delivered_event_ids,
         pending_event_packet_id, pending_event_identity, pending_event_packet);
@@ -268,7 +273,7 @@ class ChangeShareAccessEvent;
 // Generic shared Node: shared topology (shares[]) plus local-persistent
 // per-Link sync metadata (link_sync_states via LocalPtr).
 class SharedNode : public NodeFor<SharedNode> {
-  APPTRAVERSE_OBJECT(SharedNode, Node, 1)
+  APPTRAVERSE_OBJECT(SharedNode, Node, 2)
 
  protected:
   SharedNode() = default;
@@ -284,15 +289,20 @@ class SharedNode : public NodeFor<SharedNode> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(shares, link_sync_states);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "SharedNode v1 flattened layout is not supported; re-distill with a "
+        "fresh state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(shares, link_sync_states);
+  void Load(ae::Version<2>, Dnv& dnv) {
+    dnv(base_, shares, link_sync_states);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
+    dnv(base_, shares, link_sync_states);
   }
 
   std::vector<Share> shares;

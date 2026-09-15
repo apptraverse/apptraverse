@@ -1,6 +1,80 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — FIX 01: NATIVE CLASS-LAYER SERIALIZATION
+
+## Identity
+
+- Starting AppTraverse SHA: `6c21a17a6af6d00776cc9ad088aeab22ade2c245`
+- Pinned aether-objects SHA: `1d30264737c9bcca8a181161116b66c7dbeeb5fb`
+- Pinned aether-client-cpp SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3`
+- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+
+## What Landed
+
+1. **Native Class-Layer Dispatch Restored**:
+   - Every registered concrete `Node`-derived class now serializes its direct registered base through `dnv(base_, ...)` and then its own fields.
+   - Removed direct ancestor calls (`Node::Load`, `Node::Save`, `SharedNode::Load`, `SharedNode::Save`, `Link::Load`, `Link::Save`, etc.).
+   - Passing `base_` to `dnv` routes back through `DomainGraph` to save/load the base class's own layer under the base class ID and native schema version.
+   - Separate layers verified in `RamDomainStorage` without duplicate copies of base fields in derived layers.
+
+2. **kNodeJournalFormat Removed & Schema Versioning Restored**:
+   - Removed `kNodeJournalFormat` and format-word markers.
+   - Removed comments claiming native class versions cannot distinguish base layers.
+   - `Node` current registered version bumped from 3 to 4. `Node::Load(Version<4>)` and `Save(Version<4>)` serialize `dnv(base_, base, journal)`.
+   - Versions 0–3 of `Node` retain explicit rejection loaders with informative error messages that do not mutate storage.
+   - Concrete derived classes whose persisted layer changed increased their own current version by 1 and added rejection loaders for their old flattened layouts.
+
+3. **Class/Version Inventory**:
+   - `Node` (base `ae::Obj`): v3 → v4 (`dnv(base_, base, journal)`)
+   - `Link` (base `Node`): v0 (`dnv(base_)`)
+   - `MemoryLink` (base `Link`): v1 → v2 (`dnv(base_, endpoint_uid, heartbeat_interval_ms)`)
+   - `SharedNode` (base `Node`): v1 → v2 (`dnv(base_, shares, link_sync_states)`)
+   - `LinkSyncState` (base `Node`): v2 → v3 (`dnv(base_, share_id, ..., pending_event_packet)`)
+   - `ApplicationRuntimeState` (base `Node`): v1 → v2 (`dnv(base_, run_id)`)
+   - `NetworkState` (base `Node`): v1 → v2 (`dnv(base_, run_id, availability)`)
+   - `AetherRegistrationState` (base `Node`): v1 → v2 (`dnv(base_, run_id, registered_run_id, phase, uid)`)
+   - `SharedValueNode` (base `SharedNode`): v1 → v2 (`dnv(base_, value)`)
+   - `Client` (base `Node`): v1 → v2 (`dnv(base_, name, link)`)
+   - `ChildSharedNode` (base `SharedNode`): v1 → v2 (`dnv(base_, child_value)`)
+   - `RootSharedNode` (base `SharedNode`): v1 → v2 (`dnv(base_, root_value, child)`)
+   - `Surface` (base `Node`): v2 → v3 (`dnv(base_, number, ..., presenter)`)
+   - `Surfaces` (base `Node`): v1 → v2 (`dnv(base_, surfaces, mobile_current)`)
+   - `ItemList` (base `Node`): v1 → v2 (`dnv(base_, items, presenter, window)`)
+   - `MainWindow` (dynamic_demo, base `Node`): v1 → v2 (`dnv(base_, x, y, width, height, item_list, add_item, presenter)`)
+   - `MainWindow` (main_window_runtime_demo, base `Node`): v4 → v5 (`dnv(base_, x, y, width, height, presenter)`)
+   - `ChatClient` (base `Node`): v1 → v2 (`dnv(base_, display_name, aether_uid, presence)`)
+   - `ChatRoom` (base `Node`): v1 → v2 (`dnv(base_, clients, feed)`)
+   - `Item` (closed_event_graph_test, base `Node`): v0 → v1 (`dnv(base_, name, scalar_old_id, metadata, local_link)`)
+   - `ContainerNode` (closed_event_graph_test, base `Node`): v0 → v1 (`dnv(base_, items)`)
+   - `StateDependentNode` (shared_node_incremental_event_test, base `SharedNode`): v1 → v2 (`dnv(base_, state_code)`)
+   - `NoteTargetNode` (shared_node_incremental_event_test, base `Node`): v0 (`dnv(base_)`)
+   - `Counter` (model_runtime_stop_test, base `Node`): v0 → v1 (`dnv(base_, value)`)
+   - `RetentionDoc` (journal_retention_test, base `Node`): v2 → v3 (`dnv(base_, value)`)
+   - `CounterDocument` (event_sourced_core_test, base `Node`): v1 → v2 (`dnv(base_, value, label)`)
+   - `TextToolbar`, `ColorToolbar`, `CenterStrip`, `Window`, `PaintWindow`, `LayoutWindow` (model_ui_runtime_demo, base `Node` / `Window`): explicit v0 Load/Save with `dnv(base_, ...)`.
+
+4. **Cross-Process Base-Version Evolution Test**:
+   - `native_class_layers_writer_v1`: writes `LayerDerived` (LayerBase v0, LayerDerived v0) with `base_value = 11`, `derived_value = 22`.
+   - `native_class_layers_reader_v2`: reads using `LayerBase` v1 (with v0 compatibility loader supplying default `999` for newly added field) while `LayerDerived` remains at v0.
+   - Verified cross-process execution without ODR issues; reader restored `base_value == 11`, `derived_value == 22`, and `added_base_field == 999` without bumping `LayerDerived` version.
+
+5. **Old Flattened Development State Rejection**:
+   - Tested synthesized old entries for `Node` v3, `SharedValueNode` v1, `MemoryLink` v1, and `LinkSyncState` v2.
+   - Confirmed explicit `std::runtime_error` throws without mutating or rewriting storage.
+
+6. **Real Model Verification**:
+   - `SharedValueNode`: separate storage layers for `Node` (v4), `SharedNode` (v2), and `SharedValueNode` (v2); verified no duplicate fields.
+   - `MemoryLink`: separate storage layers for `Node` (v4), `Link` (v0), and `MemoryLink` (v2).
+   - `LinkSyncState`: separate storage layers for `Node` (v4) and `LinkSyncState` (v3).
+   - Verified Save → destroy Domain → Load root; base snapshot capture; mid-journal compaction and replay from base; `LinkSyncState` persistence across business replay.
+
+7. **Known Remaining Limitations**:
+   - Unsafe `OperationStorage` context handling (`Write` side-channel) remains a known separate issue outside this slice's scope.
+
+---
+Status: implemented/verified on main. Not accepted.
+
 # CURSOR — Remove AppTraverse Custom Object Serialization
 
 ## Identity

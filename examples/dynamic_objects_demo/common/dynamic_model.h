@@ -88,7 +88,7 @@ class ItemPresenter : public Presenter {
 
 class ItemList : public NodeFor<ItemList> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::dynamic::ItemList", ItemList,
-                           Node, 1)
+                           Node, 2)
 
  protected:
   ItemList() = default;
@@ -99,21 +99,25 @@ class ItemList : public NodeFor<ItemList> {
   AE_OBJECT_REFLECT(AE_MMBR(items), AE_MMBR(presenter), AE_MMBR(window))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(items, presenter);
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error("ItemList v0 is not supported");
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(items, presenter, window);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "ItemList v1 flattened layout is not supported; start with a fresh "
+        "state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(items, presenter, window);
+  void Load(ae::Version<2>, Dnv& dnv) {
+    dnv(base_, items, presenter, window);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
+    dnv(base_, items, presenter, window);
   }
 
   std::vector<Item::ptr> items;
@@ -261,7 +265,7 @@ class RemoveItemEvent : public EventFor<ItemList, RemoveItemEvent> {
 
 class MainWindow : public NodeFor<MainWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::dynamic::MainWindow",
-                           MainWindow, Node, 1)
+                           MainWindow, Node, 2)
 
  protected:
   MainWindow() = default;
@@ -273,21 +277,25 @@ class MainWindow : public NodeFor<MainWindow> {
                     AE_MMBR(item_list), AE_MMBR(add_item), AE_MMBR(presenter))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(x, y, width, height, item_list, presenter);
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error("MainWindow v0 is not supported");
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(x, y, width, height, item_list, add_item, presenter);
+  void Load(ae::Version<1>, Dnv&) {
+    throw std::runtime_error(
+        "MainWindow v1 flattened layout is not supported; start with a fresh "
+        "state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(x, y, width, height, item_list, add_item, presenter);
+  void Load(ae::Version<2>, Dnv& dnv) {
+    dnv(base_, x, y, width, height, item_list, add_item, presenter);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const {
+    dnv(base_, x, y, width, height, item_list, add_item, presenter);
   }
 
   std::int32_t x{dynamic_objects::kDefaultX};

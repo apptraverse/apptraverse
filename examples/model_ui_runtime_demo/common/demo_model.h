@@ -53,6 +53,16 @@ class TextToolbar : public NodeFor<TextToolbar> {
 
   AE_OBJECT_REFLECT(AE_MMBR(height), AE_MMBR(text))
 
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, height, text);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, height, text);
+  }
+
   std::int32_t height{demo::kTextToolbarHeight};
   ImmutableString::ptr text;
 
@@ -70,6 +80,16 @@ class ColorToolbar : public NodeFor<ColorToolbar> {
 
   AE_OBJECT_REFLECT(AE_MMBR(height), AE_MMBR(color), AE_MMBR(opacity),
                     AE_MMBR(arbitrary_value))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, height, color, opacity, arbitrary_value);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, height, color, opacity, arbitrary_value);
+  }
 
   std::int32_t height{demo::kColorToolbarHeight};
   std::uint32_t color{0x00C04040};
@@ -95,6 +115,16 @@ class CenterStrip : public NodeFor<CenterStrip> {
   AE_OBJECT_REFLECT(AE_MMBR(width_numerator), AE_MMBR(width_denominator),
                     AE_MMBR(fill_color))
 
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, width_numerator, width_denominator, fill_color);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, width_numerator, width_denominator, fill_color);
+  }
+
   std::uint32_t width_numerator{2};
   std::uint32_t width_denominator{3};
   std::uint32_t fill_color{demo::kCenterStripFill};
@@ -112,6 +142,16 @@ class Window : public NodeFor<Window> {
   AE_OBJECT_REFLECT(AE_MMBR(left), AE_MMBR(top), AE_MMBR(right),
                     AE_MMBR(bottom), AE_MMBR(client_width),
                     AE_MMBR(client_height))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, left, top, right, bottom, client_width, client_height);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, left, top, right, bottom, client_width, client_height);
+  }
 
   std::int32_t left{0};
   std::int32_t top{0};
@@ -133,6 +173,16 @@ class PaintWindow : public NodeFor<PaintWindow, Window> {
   explicit PaintWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT()
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_);
+  }
 };
 
 class LayoutWindow : public NodeFor<LayoutWindow, Window> {
@@ -146,6 +196,16 @@ class LayoutWindow : public NodeFor<LayoutWindow, Window> {
 
   AE_OBJECT_REFLECT(AE_MMBR(text_toolbar), AE_MMBR(color_toolbar),
                     AE_MMBR(center_strips))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, text_toolbar, color_toolbar, center_strips);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, text_toolbar, color_toolbar, center_strips);
+  }
 
   TextToolbar::ptr text_toolbar;
   ColorToolbar::ptr color_toolbar;

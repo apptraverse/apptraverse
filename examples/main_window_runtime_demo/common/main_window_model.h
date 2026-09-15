@@ -20,7 +20,7 @@ class WindowChangedEvent;
 
 class MainWindow : public NodeFor<MainWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::MainWindow", MainWindow, Node,
-                           4)
+                           5)
 
  protected:
   MainWindow() = default;
@@ -47,21 +47,27 @@ class MainWindow : public NodeFor<MainWindow> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<3>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(x, y, width, height, presenter);
+  void Load(ae::Version<3>, Dnv&) {
+    throw std::runtime_error(
+        "MainWindow v3 flattened layout is not supported; start with a fresh "
+        "state dir");
   }
 
   template <typename Dnv>
-  void Load(ae::Version<4>, Dnv& dnv) {
-    Node::Load(ae::Version<3>{}, dnv);
-    dnv(x, y, width, height, presenter);
+  void Load(ae::Version<4>, Dnv&) {
+    throw std::runtime_error(
+        "MainWindow v4 flattened layout is not supported; start with a fresh "
+        "state dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<4>, Dnv& dnv) const {
-    Node::Save(ae::Version<3>{}, dnv);
-    dnv(x, y, width, height, presenter);
+  void Load(ae::Version<5>, Dnv& dnv) {
+    dnv(base_, x, y, width, height, presenter);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<5>, Dnv& dnv) const {
+    dnv(base_, x, y, width, height, presenter);
   }
 
   std::int32_t x{main_window::kDefaultX};

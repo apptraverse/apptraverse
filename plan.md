@@ -604,10 +604,12 @@ SurfacePresenter
   them, and replicas may disagree. Deliberately unresolved: picking a
   tie-break would put identity back into ordering.
 - A Node's journal bytes are written into the storage layer of the most derived
-  class, so `Node`'s own version does not key any concrete Node's storage. The
-  journal format is stated by a constant at the head of the payload instead
-  (`kNodeJournalFormat`). If a later change needs real per-class journal
-  versioning, that is a change to every Node subclass.
+  class, so `Node`'s own version does not key any concrete Node's storage.
+  [RESOLVED in FIX 01]: Native class-layer serialization restored; each class in
+  the inheritance hierarchy now serializes its direct registered base via
+  `dnv(base_, ...)`. Node bumped to v4 (Load/Save base_, base, journal); derived
+  classes bumped by 1 with explicit rejection of former flattened layouts.
+  `kNodeJournalFormat` and format-word markers removed.
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.
