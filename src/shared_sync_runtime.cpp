@@ -257,6 +257,28 @@ bool SharedSyncRuntime::IsExpectedInitialNode(ae::ObjId node_id) const {
                    node_id) != expected_initial_nodes_.end();
 }
 
+void SharedSyncRuntime::ExpectInitialNodeFromEndpoint(
+    std::string source_endpoint, std::uint32_t expected_root_class_id) {
+  if (source_endpoint.empty() || expected_root_class_id == 0) {
+    return;
+  }
+  for (auto& exp : expected_endpoint_nodes_) {
+    if (exp.source_endpoint == source_endpoint) {
+      exp.expected_root_class_id = expected_root_class_id;
+      return;
+    }
+  }
+  expected_endpoint_nodes_.push_back(EndpointExpectation{
+      .source_endpoint = std::move(source_endpoint),
+      .expected_root_class_id = expected_root_class_id,
+  });
+}
+
+void SharedSyncRuntime::SetInitialNodeImportedCallback(
+    InitialNodeImportedCallback callback) {
+  initial_node_imported_callback_ = std::move(callback);
+}
+
 void SharedSyncRuntime::AllowStandaloneEventClass(std::uint32_t class_id) {
   if (class_id == 0) {
     return;
@@ -432,8 +454,17 @@ void SharedSyncRuntime::OnBytes(std::string const& source_endpoint,
 SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     std::string const& source_endpoint, NodeStateFrame const& frame) {
   // Untrusted bytes may not create arbitrary roots: only a SharedNode this
-  // replica is waiting for.
-  if (!IsExpectedInitialNode(frame.target_node_id)) {
+  // replica is waiting for (either by exact node ID or by authorized source endpoint).
+  bool const exact_expected = IsExpectedInitialNode(frame.target_node_id);
+  std::optional<std::uint32_t> endpoint_expected_class;
+  for (auto const& exp : expected_endpoint_nodes_) {
+    if (exp.source_endpoint == source_endpoint) {
+      endpoint_expected_class = exp.expected_root_class_id;
+      break;
+    }
+  }
+
+  if (!exact_expected && !endpoint_expected_class.has_value()) {
     return {};
   }
 
@@ -456,6 +487,11 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
       if (ae::Registry::GetRegistry().GenerationDistance(
               SharedNode::kClassId, chain_info.most_derived_class_id) < 0) {
         return {};
+      }
+      if (endpoint_expected_class.has_value()) {
+        if (chain_info.most_derived_class_id != *endpoint_expected_class) {
+          return {};
+        }
       }
       break;
     }
@@ -594,8 +630,10 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
   }
 
   if (state->received_initial_packet_id != frame.packet_id) {
-    if (state->received_initial_packet_id.is_valid()) {
+    if (state->received_initial_packet_id.is_valid() || !imported) {
       // A second, different initial snapshot is not part of protocol v1.
+      // For an already-existing node, reject a new initial packet; only accept
+      // a repeat of the already-recorded initial packet.
       return;
     }
     state->NoteInitialSyncReceived(frame.packet_id);
@@ -609,6 +647,24 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
   // Registered only once the snapshot is validated, imported, and durable.
   if (imported) {
     nodes_.push_back(node);
+  }
+
+  // Invoke the imported callback on the MODEL thread before sending ACK.
+  // The callback binds the local ChatEntry and saves the workspace.
+  // Consume that endpoint expectation only after successful binding.
+  if (imported && initial_node_imported_callback_) {
+    bool const bound = initial_node_imported_callback_(source_endpoint, node);
+    if (!bound) {
+      return;
+    }
+    auto it = std::find_if(expected_endpoint_nodes_.begin(),
+                           expected_endpoint_nodes_.end(),
+                           [&](EndpointExpectation const& exp) {
+                             return exp.source_endpoint == source_endpoint;
+                           });
+    if (it != expected_endpoint_nodes_.end()) {
+      expected_endpoint_nodes_.erase(it);
+    }
   }
 
   // Persisted now, or already persisted when this packet first arrived: a

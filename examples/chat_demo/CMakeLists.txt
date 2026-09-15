@@ -19,6 +19,7 @@ if(TARGET aether)
     aether/aether_stream_frame.cpp
     aether/chat_aether_runtime.cpp
     aether/aether_byte_transport.cpp
+    aether/aether_link.cpp
   )
 
   target_link_libraries(chat_demo_aether PUBLIC
@@ -27,6 +28,20 @@ if(TARGET aether)
   )
 
   target_include_directories(chat_demo_aether PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/aether
+    ${CMAKE_CURRENT_SOURCE_DIR}/common
+  )
+
+  add_library(chat_demo_runtime STATIC
+    runtime/chat_session.cpp
+  )
+
+  target_link_libraries(chat_demo_runtime PUBLIC
+    chat_demo_aether
+  )
+
+  target_include_directories(chat_demo_runtime PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime
     ${CMAKE_CURRENT_SOURCE_DIR}/aether
     ${CMAKE_CURRENT_SOURCE_DIR}/common
   )

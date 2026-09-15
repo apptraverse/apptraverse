@@ -2,6 +2,7 @@
 #define APPTRAVERSE_SHARED_SYNC_RUNTIME_H_
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,17 @@ class SharedSyncRuntime {
   // Bootstrap permission for a SharedNode this replica does not have yet.
   // Without it, incoming bytes cannot create a new root.
   void ExpectInitialNode(ae::ObjId node_id);
+
+  // Bootstrap permission from an authorized source endpoint without knowing
+  // the node ObjId in advance. Requires root's most-derived class to match.
+  void ExpectInitialNodeFromEndpoint(std::string source_endpoint,
+                                     std::uint32_t expected_root_class_id);
+
+  using InitialNodeImportedCallback =
+      std::function<bool(std::string const& source_endpoint,
+                         SharedNode::ptr node)>;
+
+  void SetInitialNodeImportedCallback(InitialNodeImportedCallback callback);
 
   SharedNode::ptr FindNode(ae::ObjId node_id) const;
 
@@ -86,11 +98,18 @@ class SharedSyncRuntime {
 
   bool IsExpectedInitialNode(ae::ObjId node_id) const;
 
+  struct EndpointExpectation {
+    std::string source_endpoint;
+    std::uint32_t expected_root_class_id{0};
+  };
+
   ae::Domain& domain_;
   ae::IDomainStorage& storage_;
   IByteTransport& transport_;
   std::vector<SharedNode::ptr> nodes_;
   std::vector<ae::ObjId> expected_initial_nodes_;
+  std::vector<EndpointExpectation> expected_endpoint_nodes_;
+  InitialNodeImportedCallback initial_node_imported_callback_;
   std::vector<std::uint32_t> standalone_event_classes_;
 };
 
