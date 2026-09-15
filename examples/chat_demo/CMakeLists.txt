@@ -2,6 +2,7 @@
 add_library(chat_demo_model STATIC
   common/chat_model.cpp
   common/chat_commands.cpp
+  common/chat_launch_options.cpp
 )
 
 target_link_libraries(chat_demo_model PUBLIC
