@@ -1,6 +1,95 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — Remove AppTraverse Custom Object Serialization
+
+## Identity
+
+- Starting AppTraverse SHA: `4e185b6a2d7883f8ec3236fa3ee93ce8129e0d40`
+- Pinned aether-objects SHA: `1d30264737c9bcca8a181161116b66c7dbeeb5fb`
+- Pinned aether-client-cpp SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3`
+- Aether dependency changes required: NO (plugs directly into native `IDomainStorage` / `IDomainStorageWriter` and `Serializer<BinaryArchive<DomainBuffer>, ObjectLink>` extension points)
+- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+
+## Architecture Note: Native Aether Serialization Investigation (Phase 1)
+
+NATIVE MECHANISM FOUND:
+- `ae::seri::BinaryArchive<Buffer>`: `aether-miscpp/serialization/binary_archive.h`, `details/binary_archive.h`
+- `ae::seri::BinaryVectorBuffer<SizeType>` / `LimitedVectorBuffer<SizeType>`: `aether-miscpp/serialization/details/binary_vector_buffer.h`
+- Standard serializers (`std::vector`, `std::map`, `std::set`, `std::optional`, `std::variant`, `std::string`, `std::pair`, `std::tuple`, numerics): `aether-miscpp/serialization/details/binary_std_serializers.h`
+- Reflected type serializer: `aether-miscpp/serialization/details/reflectable_serializer.h`, `details/member_serializer.h`
+- Object system & domain reflection: `aether-objects/obj/obj.h`, `aether-objects/obj/domain.h`, `aether-miscpp/domain_visitor/domain_visitor.h` (`AE_OBJECT_REFLECT`, `AE_REFLECT`, `AE_REF_BASE`, `DomainVisit`)
+- Graph traversal & cycle detection: `DomainGraph::SaveRoot`, `DomainGraph::LoadRoot`, `DomainGraph::LoadCopy`, `DomainGraph::Save`, `DomainGraph::Load`, `DomainCycleDetector`: `aether-objects/obj/domain.h`, `domain.cpp`
+- Class schema versioning: `ae::Version<N>`, `version_iterator<VersionSaveTrait>` / `version_iterator<VersionLoadTrait>`: `aether-miscpp/meta/version.h`, `aether-objects/obj/version_iterator.h`
+- Object pointer serialization: `Serializer<BinaryArchive<DomainBuffer>, ObjPtr<T>>` in `aether-objects/obj/obj_ptr.h` and `ObjPtrBaseSerializer` in `aether-objects/obj/obj_ptr_base.cpp`
+- Object registry & factories: `ae::Registry`, `ae::Registrar<T>`, `ae::Factory`, `GenerationDistance`: `aether-objects/obj/registry.h`, `registrar.h`
+- Domain storage abstractions: `ae::IDomainStorage`, `ae::IDomainStorageWriter`, `ae::IDomainStorageReader`, `ae::DomainQuery`: `aether-objects/obj/idomain_storage.h`
+- In-memory domain storage: `ae::RamDomainStorage` with `State = std::map<ObjId, std::optional<std::map<uint32_t, std::map<Version::Type, std::vector<uint8_t>>>>>`: `aether-objects/domain_storage/ram_domain_storage.h`
+- Examples/tests in aether-client-cpp: `aether/domain_storage/spifs_domain_storage.cpp` (direct `BinaryArchive.Save`/`Load` of nested `object_map_`), `aether/api_protocol/api_pack_parser.h` (`ApiPacker` / `ApiPackParser` via `BinaryArchive`), `tests/test-domain-storage/test_ds_synchronization.cpp`.
+
+WHAT IT ALREADY PROVIDES:
+- One unified serialization model: `BinaryArchive` over buffer concepts (`BinaryVectorBuffer`, `DomainBuffer`).
+- Automatic recursive graph traversal via `DomainGraph::SaveRoot` with `DomainCycleDetector`.
+- Schema evolution through native `Save(ae::Version<N>, ...)` and `Load(ae::Version<N>, ...)`.
+- Serialization of arbitrary reflected structs, nested structs, and containers (`std::vector`, `std::map`, etc.) with zero manual byte packing.
+- Robust bounds checking on deserialization: `BinaryVectorBuffer` checks bounds and returns `ae::Error{read_eof}`, preventing crashes on truncated or malformed payloads.
+- `RamDomainStorage::State` is entirely composed of native types (`std::map`, `ObjId`, `uint32_t`, `uint8_t`, `vector<uint8_t>`, `optional`) with existing `Serializer<BinaryArchive<Buffer>, T>` specializations, allowing direct `archive.Save(state)` and `archive.Load(state)` without manual object-table wire encoding or `AppendU32`/`ReadU32`.
+
+WHAT SMALL CAPABILITY, IF ANY, IS MISSING:
+- Native Aether `DomainGraph` persistence assumes sender and receiver share the same storage `ObjId` space. When receiving a network-shared graph, sender IDs can collide with receiver-local objects or receiver storage.
+- AppTraverse's `ObjectLink` (`SharedPtr` / `LocalPtr`) bridges this via native `Serializer<BinaryArchive<DomainBuffer>, ObjectLink<T, Scope>>`:
+  1. `LocalPtr` under `NetworkShared` scope serializes as null and skips traversal.
+  2. `SharedPtr` remaps IDs to receiver-local `ObjId`s during operation-scoped transfer across domains.
+  3. Deserialization into disposable scratch storage validates graph closure, class compatibility, and absence of external references before committing to receiver storage.
+
+## Phase 2 & 3: Custom Object Serialization and Duplicate Reflection Removal
+
+1. **Deleted Duplicate Object-Table Serialization**:
+   - Removed `SerializeRamDomainStorage` and `ParseObjectGraphPayload`.
+   - Removed `FreezeStandaloneEventPayload`, `ParseStandaloneEventPayload`, and `CommitStandaloneEventObject`.
+   - Removed `FreezeClosedEventGraphPayload` and `ParseClosedEventGraphPayload`.
+   - Removed `AppendU32`, `ReadU32`, `object_count`, `class_count`, `version_count`, and manual class/version table wire encoding from `src/shared_network_graph.cpp`.
+   - Replaced with unified native Aether `BinaryArchive` serialization of `RamDomainStorage::State`: `SerializeObjectGraph`, `DeserializeObjectGraph`, `FreezeEventPayload`, and `ParseEventPayload`.
+
+2. **Unified Event Graph Serialization**:
+   - Standalone/scalar Event and closed Event graph are now ONE serialization format.
+   - `FreezeEventPayload(event, boundary, out_payload)` serializes any reachable Event graph subject to the export boundary.
+   - Overload `FreezeEventPayload(event, out_payload)` enforces standalone boundary (`{event.obj_id}`).
+   - `ParseEventPayload(payload, parsed, out_root_id)` deserializes with native bounds checks.
+
+3. **Removed Duplicate Pointer Remapping & Reflection Visitors**:
+   - Deleted `include/apptraverse/remap_pointers.h` (`RemapField`, `RemapReflectedPointers`, `ValidateFieldPointer`, `ValidateReflectedPointers`).
+   - Removed virtual `RemapPointers` and `ValidatePointers` from `Event`, `Node`, `EventFor`, and `NodeFor`.
+   - Converted `Node::base` from `Node::ptr` to `SharedPtr<Node>`.
+   - Implemented operation-scoped `detail::OperationStorage` and `detail::OperationStorageWriter` in `include/apptraverse/operation_storage.h`.
+   - Validation and remapping hook directly into `Serializer<BinaryArchive<DomainBuffer>, ObjectLink<T, Scope>>`:
+     - In `kValidate` mode: ensures all references are closed within the parsed bundle, validates target class inheritance via `Registry::GenerationDistance`, verifies `LocalPtr` is null.
+     - In `kRemap` mode: updates IDs, Domains, and cached targets to receiver-local objects, and resets `LocalPtr`.
+     - Standard `DomainGraph::SaveRoot` automatically traverses base classes, nested structs, and container elements without duplicate reflection code.
+
+## Verification
+
+- `apptraverse_native_object_graph_serialization_test`: PASS
+- `apptraverse_closed_event_graph_test`: PASS (13/13 test cases, 50/50 consecutive runs clean)
+- `apptraverse_shared_node_incremental_event_test`: PASS
+- `apptraverse_shared_node_initial_sync_test`: PASS
+- `apptraverse_shared_node_foundation_test`: PASS
+- `apptraverse_event_sourced_core_test`: PASS
+- `apptraverse_dynamic_objects_add_test`: PASS
+- `apptraverse_journal_retention_test`: PASS
+- `apptraverse_model_runtime_stop_test`: PASS
+- `apptraverse_publication_channel_test`: PASS
+
+## Code Size / Complexity
+
+AppTraverse production code was reduced:
+- Production LOC removed: 661
+- Production LOC added: 544 (237 in existing files + 307 in `include/apptraverse/operation_storage.h`)
+- Net reduction: -117 lines
+
+---
+Status: implemented/verified on main. Not accepted.
+
 # CURSOR — Finish closed Event graph serialization and import
 
 ## Identity

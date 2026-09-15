@@ -853,11 +853,11 @@ void TestMalformedClassLayersInNodeStateRejected() {
        {{1, std::vector<std::uint8_t>{4, 5, 6}}}},
   };
 
-  auto const payload = SerializeRamDomainStorage(bad_storage);
+  auto const payload = SerializeObjectGraph(bad_storage);
 
   // Before delivery explicitly prove parser succeeds but class-chain validation fails
   ae::RamDomainStorage parsed_check;
-  CHECK(ParseObjectGraphPayload(payload, parsed_check) == true);
+  CHECK(DeserializeObjectGraph(payload, parsed_check) == true);
   CHECK(ValidateStoredClassChains(parsed_check) == false);
 
   b.sync->ExpectInitialNode(fixture.node_id);

@@ -778,7 +778,7 @@ void TestWrongDestinationRejected() {
   auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
   auto const event = CommitSharedValue(*a_node, 7, identity, 14'000);
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeStandaloneEventPayload(*event, payload));
+  CHECK(FreezeEventPayload(*event, payload));
   a.transport->Send(kEndpointB,
                     EncodeEventFrame(EventFrame{
                         .packet_id = ae::ObjId{7099},
@@ -812,7 +812,7 @@ void TestMalformedEventPayloadRejected() {
   auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
   auto const event = CommitSharedValue(*a_node, 8, identity, 15'000);
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeStandaloneEventPayload(*event, payload));
+  CHECK(FreezeEventPayload(*event, payload));
   payload.pop_back();
   a.transport->Send(kEndpointB,
                     EncodeEventFrame(EventFrame{
@@ -846,7 +846,7 @@ void TestWrongTargetEventClassRejected() {
       ae::CreateWith{*a.domain});
   wrong->phase = static_cast<std::uint8_t>(InitialSyncPhase::Complete);
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeStandaloneEventPayload(*wrong, payload));
+  CHECK(FreezeEventPayload(*wrong, payload));
 
   auto const identity =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 16};
@@ -887,7 +887,7 @@ void TestConflictingDuplicateIdentityRejected() {
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
 
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeStandaloneEventPayload(*event, payload));
+  CHECK(FreezeEventPayload(*event, payload));
   a.transport->Send(kEndpointB,
                     EncodeEventFrame(EventFrame{
                         .packet_id = ae::ObjId{7399},
@@ -926,36 +926,9 @@ void TestReferencedObjectGraphRefused() {
   event->value = 4;
   event->note = note;
   std::vector<std::uint8_t> payload;
-  CHECK(!FreezeStandaloneEventPayload(*event, payload));
+  CHECK(!FreezeEventPayload(*event, payload));
   CHECK(payload.empty());
   (void)a_node;
-}
-
-std::vector<std::uint8_t> SerializeStandaloneObjectStorage(
-    ae::RamDomainStorage const& storage,
-    ae::ObjId obj_id = kStandaloneEventScratchId) {
-  auto const it = storage.state.find(obj_id);
-  assert(it != storage.state.end() && it->second.has_value());
-  auto const& classes = *it->second;
-
-  std::vector<std::uint8_t> out;
-  auto append_u32 = [&out](std::uint32_t val) {
-    out.push_back(static_cast<std::uint8_t>((val >> 24U) & 0xFFU));
-    out.push_back(static_cast<std::uint8_t>((val >> 16U) & 0xFFU));
-    out.push_back(static_cast<std::uint8_t>((val >> 8U) & 0xFFU));
-    out.push_back(static_cast<std::uint8_t>(val & 0xFFU));
-  };
-  append_u32(static_cast<std::uint32_t>(classes.size()));
-  for (auto const& [class_id, versions] : classes) {
-    append_u32(class_id);
-    append_u32(static_cast<std::uint32_t>(versions.size()));
-    for (auto const& [version, data] : versions) {
-      out.push_back(version);
-      append_u32(static_cast<std::uint32_t>(data.size()));
-      out.insert(out.end(), data.begin(), data.end());
-    }
-  }
-  return out;
 }
 
 void TestMalformedClassLayersInEventRejected() {
@@ -972,22 +945,30 @@ void TestMalformedClassLayersInEventRejected() {
   auto valid_event = SetValueEvent::ptr::Create(ae::CreateWith{*a.domain});
   valid_event->value = 42;
   std::vector<std::uint8_t> valid_payload;
-  CHECK(FreezeStandaloneEventPayload(*valid_event, valid_payload));
+  CHECK(FreezeEventPayload(*valid_event, valid_payload));
 
   ae::RamDomainStorage bad_storage;
-  CHECK(ParseStandaloneEventPayload(valid_payload, bad_storage));
+  ae::ObjId wire_root_id;
+  CHECK(ParseEventPayload(valid_payload, bad_storage, wire_root_id));
 
-  // Add a registered, unrelated class layer under the same standalone object
+  // Add a registered, unrelated class layer under the same event object
   bad_storage.SaveData(
-      ae::DomainQuery{kStandaloneEventScratchId, NoteTargetNode::kClassId, 0},
+      ae::DomainQuery{wire_root_id, NoteTargetNode::kClassId, 0},
       {1, 2, 3});
 
-  auto const payload = SerializeStandaloneObjectStorage(bad_storage);
+  std::vector<std::uint8_t> payload;
+  {
+    ae::seri::BinaryVectorBuffer buffer{payload};
+    ae::seri::BinaryArchive archive{buffer};
+    CHECK(archive.Save(wire_root_id));
+    CHECK(archive.Save(bad_storage.state));
+  }
 
   // Before delivery explicitly prove parser succeeds but class-chain validation fails
   ae::RamDomainStorage parsed_check;
-  CHECK(ParseStandaloneEventPayload(payload, parsed_check) == true);
-  CHECK(ValidateStandaloneEventStorage(parsed_check, SetValueEvent::kClassId) == false);
+  ae::ObjId parsed_root_id;
+  CHECK(ParseEventPayload(payload, parsed_check, parsed_root_id) == true);
+  CHECK(ValidateClosedEventGraphStorage(parsed_check, parsed_root_id, SetValueEvent::kClassId) == false);
 
   auto const identity =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 20};
@@ -1020,19 +1001,27 @@ void TestOnlyBaseEventLayerRejected() {
   auto const fixture = BuildTopology(a, 7511, 7512, 7513);
   HandshakeInitial(network, a, b, fixture);
 
-  // Standalone payload with only Event base class layer (no SetValueEvent layer)
+  ae::ObjId const root_id{1};
+  // Payload with only Event base class layer (no SetValueEvent layer)
   ae::RamDomainStorage base_only_storage;
   base_only_storage.SaveData(
-      ae::DomainQuery{kStandaloneEventScratchId, Event::kClassId, 0},
+      ae::DomainQuery{root_id, Event::kClassId, 0},
       {});
 
-  auto const payload = SerializeStandaloneObjectStorage(base_only_storage);
+  std::vector<std::uint8_t> payload;
+  {
+    ae::seri::BinaryVectorBuffer buffer{payload};
+    ae::seri::BinaryArchive archive{buffer};
+    CHECK(archive.Save(root_id));
+    CHECK(archive.Save(base_only_storage.state));
+  }
 
   // Before delivery explicitly prove: parser succeeds, but validator rejects because
   // most-derived class is Event (not SetValueEvent)
   ae::RamDomainStorage parsed_check;
-  CHECK(ParseStandaloneEventPayload(payload, parsed_check) == true);
-  CHECK(ValidateStandaloneEventStorage(parsed_check, SetValueEvent::kClassId) == false);
+  ae::ObjId parsed_root_id;
+  CHECK(ParseEventPayload(payload, parsed_check, parsed_root_id) == true);
+  CHECK(ValidateClosedEventGraphStorage(parsed_check, parsed_root_id, SetValueEvent::kClassId) == false);
 
   auto const identity =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 25};
@@ -1056,85 +1045,63 @@ void TestOnlyBaseEventLayerRejected() {
 }
 
 void TestDuplicateClassAndVersionEntriesRejectedByParser() {
-  auto append_u32 = [](std::vector<std::uint8_t>& out, std::uint32_t val) {
-    out.push_back(static_cast<std::uint8_t>((val >> 24U) & 0xFFU));
-    out.push_back(static_cast<std::uint8_t>((val >> 16U) & 0xFFU));
-    out.push_back(static_cast<std::uint8_t>((val >> 8U) & 0xFFU));
-    out.push_back(static_cast<std::uint8_t>(val & 0xFFU));
-  };
-
-  // 1. Standalone payload with duplicate class entry: class_count = 2, both have class_id 100
+  // 1. Truncated Event payload
   {
-    std::vector<std::uint8_t> dup_class_payload;
-    append_u32(dup_class_payload, 2);  // class_count = 2
-    // class 1: class_id = 100, 1 version
-    append_u32(dup_class_payload, 100);
-    append_u32(dup_class_payload, 1);
-    dup_class_payload.push_back(0);    // version 0
-    append_u32(dup_class_payload, 0);  // size 0
-    // class 2: same class_id = 100, 1 version (duplicate!)
-    append_u32(dup_class_payload, 100);
-    append_u32(dup_class_payload, 1);
-    dup_class_payload.push_back(0);
-    append_u32(dup_class_payload, 0);
-
+    std::vector<std::uint8_t> truncated{1, 2};
     ae::RamDomainStorage parsed;
-    CHECK(ParseStandaloneEventPayload(dup_class_payload, parsed) == false);
+    ae::ObjId root_id;
+    CHECK(ParseEventPayload(truncated, parsed, root_id) == false);
   }
 
-  // 2. Standalone payload with duplicate version entry: class_count = 1, version_count = 2, both version 0
+  // 2. Event payload with invalid root ID (0)
   {
-    std::vector<std::uint8_t> dup_version_payload;
-    append_u32(dup_version_payload, 1);  // class_count = 1
-    append_u32(dup_version_payload, 100);
-    append_u32(dup_version_payload, 2);  // version_count = 2
-    // version 1: version 0, size 0
-    dup_version_payload.push_back(0);
-    append_u32(dup_version_payload, 0);
-    // version 2: version 0, size 0 (duplicate!)
-    dup_version_payload.push_back(0);
-    append_u32(dup_version_payload, 0);
+    std::vector<std::uint8_t> bad_root_payload;
+    ae::seri::BinaryVectorBuffer buffer{bad_root_payload};
+    ae::seri::BinaryArchive archive{buffer};
+    ae::ObjId const invalid_root{0};
+    ae::RamDomainStorage empty_storage;
+    CHECK(archive.Save(invalid_root));
+    CHECK(archive.Save(empty_storage.state));
 
     ae::RamDomainStorage parsed;
-    CHECK(ParseStandaloneEventPayload(dup_version_payload, parsed) == false);
+    ae::ObjId root_id;
+    CHECK(ParseEventPayload(bad_root_payload, parsed, root_id) == false);
   }
 
-  // 3. Object graph (NodeState) payload with duplicate class entry
+  // 3. Event payload with trailing junk bytes
   {
-    std::vector<std::uint8_t> dup_class_graph;
-    append_u32(dup_class_graph, 1);    // object_count = 1
-    append_u32(dup_class_graph, 500);  // obj_id = 500
-    append_u32(dup_class_graph, 2);    // class_count = 2
-    // class 1
-    append_u32(dup_class_graph, 100);
-    append_u32(dup_class_graph, 1);
-    dup_class_graph.push_back(0);
-    append_u32(dup_class_graph, 0);
-    // class 2: duplicate class_id 100
-    append_u32(dup_class_graph, 100);
-    append_u32(dup_class_graph, 1);
-    dup_class_graph.push_back(0);
-    append_u32(dup_class_graph, 0);
+    std::vector<std::uint8_t> trailing_payload;
+    ae::seri::BinaryVectorBuffer buffer{trailing_payload};
+    ae::seri::BinaryArchive archive{buffer};
+    ae::ObjId const valid_root{100};
+    ae::RamDomainStorage valid_storage;
+    valid_storage.SaveData(
+        ae::DomainQuery{valid_root, SetValueEvent::kClassId, 0}, {});
+    CHECK(archive.Save(valid_root));
+    CHECK(archive.Save(valid_storage.state));
+    trailing_payload.push_back(0xFF);  // trailing junk byte
 
     ae::RamDomainStorage parsed;
-    CHECK(ParseObjectGraphPayload(dup_class_graph, parsed) == false);
+    ae::ObjId root_id;
+    CHECK(ParseEventPayload(trailing_payload, parsed, root_id) == false);
   }
 
-  // 4. Object graph (NodeState) payload with duplicate version entry
+  // 4. Truncated object graph (NodeState) payload
   {
-    std::vector<std::uint8_t> dup_version_graph;
-    append_u32(dup_version_graph, 1);    // object_count = 1
-    append_u32(dup_version_graph, 500);  // obj_id = 500
-    append_u32(dup_version_graph, 1);    // class_count = 1
-    append_u32(dup_version_graph, 100);
-    append_u32(dup_version_graph, 2);    // version_count = 2
-    dup_version_graph.push_back(1);      // version 1
-    append_u32(dup_version_graph, 0);
-    dup_version_graph.push_back(1);      // duplicate version 1!
-    append_u32(dup_version_graph, 0);
+    std::vector<std::uint8_t> truncated{0x01};
+    ae::RamDomainStorage parsed;
+    CHECK(DeserializeObjectGraph(truncated, parsed) == false);
+  }
+
+  // 5. Object graph payload with trailing junk bytes
+  {
+    ae::RamDomainStorage storage;
+    storage.SaveData(ae::DomainQuery{ae::ObjId{500}, 100, 0}, {});
+    auto payload = SerializeObjectGraph(storage);
+    payload.push_back(0x42);  // trailing junk byte
 
     ae::RamDomainStorage parsed;
-    CHECK(ParseObjectGraphPayload(dup_version_graph, parsed) == false);
+    CHECK(DeserializeObjectGraph(payload, parsed) == false);
   }
 }
 
@@ -1327,7 +1294,7 @@ void TestHistoricalCanApplyPreflight() {
   e_bad->expected_from = 2;  // matches CURRENT state (2), but NOT historical state at t=50 (0)!
   e_bad->new_to = 9;
   std::vector<std::uint8_t> bad_payload;
-  CHECK(FreezeStandaloneEventPayload(*e_bad, bad_payload));
+  CHECK(FreezeEventPayload(*e_bad, bad_payload));
 
   auto const bad_id =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 3};
@@ -1371,7 +1338,7 @@ void TestHistoricalCanApplyPreflight() {
   e_invalidates_later->expected_from = 1;
   e_invalidates_later->new_to = 99;
   std::vector<std::uint8_t> inv_payload;
-  CHECK(FreezeStandaloneEventPayload(*e_invalidates_later, inv_payload));
+  CHECK(FreezeEventPayload(*e_invalidates_later, inv_payload));
 
   auto const inv_id =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 99};
@@ -1410,7 +1377,7 @@ void TestHistoricalCanApplyPreflight() {
   e_good->expected_from = 1;  // matches historical state at t=150! Does NOT match CURRENT state (2)!
   e_good->new_to = 1;         // leaves state as 1 so e2 (1 -> 2) at t=200 remains valid!
   std::vector<std::uint8_t> good_payload;
-  CHECK(FreezeStandaloneEventPayload(*e_good, good_payload));
+  CHECK(FreezeEventPayload(*e_good, good_payload));
 
   auto const good_id =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 4};

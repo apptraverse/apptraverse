@@ -63,6 +63,19 @@ add_test(
   COMMAND apptraverse_shared_node_incremental_event_test
 )
 
+add_executable(apptraverse_native_object_graph_serialization_test
+  native_object_graph_serialization_test.cpp
+)
+
+target_link_libraries(apptraverse_native_object_graph_serialization_test PRIVATE
+  apptraverse
+)
+
+add_test(
+  NAME apptraverse_native_object_graph_serialization_test
+  COMMAND apptraverse_native_object_graph_serialization_test
+)
+
 add_executable(apptraverse_closed_event_graph_test
   closed_event_graph_test.cpp
 )
