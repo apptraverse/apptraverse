@@ -641,6 +641,15 @@ SurfacePresenter
   - Presence: runtime-only, transitions `Offline -> Connecting` on stream re-link, drops malformed frames without updating application state.
   - Model-only build support: `chat_demo_model` builds when `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF` without linking Aether.
   - Cross-platform build guards: POSIX process test `chat_aether_p2p_test` guarded by `if(UNIX AND NOT EMSCRIPTEN AND TARGET chat_demo_aether)`; unit tests `aether_stream_frame_test` and `aether_byte_transport_dispatch_test` compile on all platforms.
+- [CHAT DEMO 05]: First Windows chat and reusable chat session:
+  - Common `ChatSession` (`examples/chat_demo/runtime/chat_session.{h,cpp}`): manages lifecycle (`kStarting`, `kReady`, `kFailed`, `kStopped`), local workspace graph persistence in `state_dir/model`, separate Aether client state in `state_dir/aether`, and publication channel for GUI mirrors.
+  - Strict thread isolation: GUI thread interacts with `ChatSession` exclusively via value-copied commands (`OpenPeer`, `SelectChat`, `EditDraft`, `SendDraft`, `SaveScroll`, `SaveBounds`); model thread executes domain mutations; incoming transport frames dispatched from Aether worker thread onto the model loop.
+  - Unknown-node bootstrap extension in `SharedSyncRuntime`: added `ExpectInitialNodeFromEndpoint` and `SetInitialNodeImportedCallback`, admitting `ChatRoom` without prior `ObjId` knowledge from explicitly authorized endpoints; validates root most-derived class before writes and binds entry before sending ACK.
+  - Rejection of unknown sources, incompatible root classes, and second/duplicate initial snapshots for already existing nodes.
+  - Aether link descriptor: `AetherLink` (`examples/chat_demo/aether/aether_link.{h,cpp}`) reflecting and persisting `endpoint_uid` with registered class ID.
+  - Deterministic room creator election: `canonical local UID < canonical remote UID` creates `ChatRoom` and shares; waiting peer expects room from authorized peer endpoint.
+  - Win32 host `apptraverse_chat` (`examples/chat_demo/windows/`): system controls (ListBox, Msftedit RichEdit, multiline draft Edit, Send button, connection inputs, status/presence labels), UTF-8/UTF-16 conversion, exclusive `profile.lock` file locking, normal/maximized window placement restoration, and non-tail scroll anchor restoration.
+  - Headless integration test `tests/chat_session_integration_test.cpp`: endpoint-authorized room discovery, single creator election, rejection of unauthorized sources and invalid root classes, pre-ACK binding verification, restart persistence of room and queued messages, and private field isolation.
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.

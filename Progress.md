@@ -1,6 +1,53 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — CHAT DEMO 05: FIRST WINDOWS CHAT + REUSABLE CHAT SESSION
+
+## Identity
+
+- Starting AppTraverse SHA: `b1b3a608f41dfdc9bcdff786edc1289fa9dfb306`
+- Pinned aether SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3` (unchanged)
+- Direct main only: tests → commits → push origin/main. NO PR. NO feature branch. NO force push.
+
+## What Landed
+
+1. **Endpoint-Authorized Room Bootstrap (`SharedSyncRuntime`)**:
+   - Added `ExpectInitialNodeFromEndpoint(source_endpoint, expected_root_class_id)` and `SetInitialNodeImportedCallback(callback)` in `include/apptraverse/shared_sync_runtime.h` and `src/shared_sync_runtime.cpp`.
+   - Admitted unknown incoming `SharedNode` snapshots when authorized by source endpoint without requiring advance knowledge of the room `ObjId`.
+   - Validates that the received root object's most-derived class ID matches `expected_root_class_id` (`ChatRoom::kClassId`) in disposable scratch before writing to receiver storage or domain.
+   - Enforces receipt and source-share uniqueness, registers node, and executes `initial_node_imported_callback_` on the model thread to bind `ChatEntry` before returning and acknowledging the snapshot.
+   - Rejects unauthorized source endpoints, incompatible root class types, and duplicate/conflicting initial snapshots for already-existing nodes without touching local storage.
+
+2. **Aether Link Descriptor (`AetherLink`)**:
+   - Implemented `AetherLink` subclass of `apptraverse::Link` in `examples/chat_demo/aether/aether_link.{h,cpp}`.
+   - Native Load/Save for `base_` and persistent `endpoint_uid` (version 0).
+   - `EndpointUid()` returns `endpoint_uid` by reference; zero runtime pointers serialized.
+   - Registration integrated into `EnsureAetherLinkRegistration()`.
+
+3. **Reusable Chat Session (`ChatSession`)**:
+   - Implemented common `ChatSession` in `examples/chat_demo/runtime/chat_session.{h,cpp}` for subsequent Linux and Android hosts.
+   - Thread boundaries: GUI interacts via thread-safe public value-copying API (`OpenPeer`, `SelectChat`, `EditDraft`, `SendDraft`, `SaveScroll`, `SaveBounds`, `RequestStop`, `Join`); model thread owns `ChatWorkspace`, `ChatEntry`, `ChatRoom`, `DirectoryDomainStorage` at `state_dir/model`, `SharedSyncRuntime`, and `AetherByteTransport`.
+   - Aether thread manages `AetherApp` and network state in `state_dir/aether`, dispatching all frame and lifecycle notifications onto the model thread queue.
+   - Deterministic bootstrap role selection: `canonical local UID < canonical remote UID` designates room creator; peer waits for room admission from authorized endpoint.
+   - Reopen peers from persistent links; restores and re-registers all rooms from persistent storage.
+   - UI publication via `PublicationChannel<3>` transmitting initial and structural workspace changes alongside copied `ChatRuntimeStatus`.
+   - Orderly shutdown: stops user commands, stops/joins Aether runtime, drains queued tasks, persists workspace, frees sync runtime and transport, and cleans up domain.
+
+4. **Win32 Chat Application (`apptraverse_chat`)**:
+   - Implemented Win32 host in `examples/chat_demo/windows/` (`main.cpp`, `win_chat_app.h`, `win_chat_app.cpp`, `CMakeLists.txt`).
+   - Pure native Win32 controls: ListBox for chats, Msftedit RichEdit for read-only transcript, multiline Edit for draft, Send button, peer connection inputs, status line, and presence indicator.
+   - UTF-8 / UTF-16 conversions at command boundaries.
+   - Exclusive profile lock (`CreateFileW` with `FILE_SHARE_READ | FILE_SHARE_WRITE` disabled on `profile.lock`) preventing concurrent access to the same state directory.
+   - Geometry restoration: restores normal bounds and maximized state via `WINDOWPLACEMENT` with off-screen monitor detection and clamping.
+   - Transcript and draft management: Ctrl+Enter sends, local edit revision tracking prevents stale publications from overwriting active user input, caret position preserved across publications.
+   - Scroll anchor restoration: message-based `ScrollAnchor` tracking with viewport preservation on non-tail viewing and 200ms scroll command coalescing.
+
+5. **Headless Integration & Smoke Tests**:
+   - Implemented comprehensive `tests/chat_session_integration_test.cpp`: verifies room discovery without advance ObjId knowledge, single creator selection, rejection of unauthorized sources and wrong root classes, workspace binding before ACK, restart persistence of room and queued messages, and private field isolation.
+   - Implemented `tests/chat_windows_smoke_test.cpp` for native Win32 verification.
+
+---
+
 # CURSOR — CHAT DEMO 04: MODEL-THREAD DELIVERY + SAFE AETHER MUX + CROSS-PLATFORM BUILD
 
 ## Identity

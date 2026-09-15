@@ -133,7 +133,27 @@ AppTraverse chat demo enforces strict thread ownership boundaries:
 - If no frame is received within `offline_after_ms`, presence transitions from `kConnecting` or `kOnline` to `kOffline`.
 - Malformed stream frames are dropped immediately without updating presence or forwarding application bytes.
 
+## Runtime Architecture & Reusable ChatSession
+
+The chat runtime provides a cross-platform `ChatSession` (`runtime/chat_session.{h,cpp}`):
+- Manages lifecycle (`kStarting`, `kReady`, `kFailed`, `kStopped`).
+- Isolates `state_dir/model` (chat domain and workspace graph) from `state_dir/aether` (Aether network client state).
+- Drives `SharedSyncRuntime` and `AetherByteTransport` on the model thread.
+- Exposes a thread-safe value-copying API for GUI hosts (`OpenPeer`, `SelectChat`, `EditDraft`, `SendDraft`, `SaveScroll`, `SaveBounds`).
+- Publishes model snapshots to the GUI via `PublicationChannel<3>` alongside `ChatRuntimeStatus`.
+- Automatically elects room creator (`canonical local UID < canonical remote UID`) and accepts incoming rooms from authorized endpoints via `ExpectInitialNodeFromEndpoint`.
+
+## Windows Host (`apptraverse_chat.exe`)
+
+Native Win32 desktop executable (`windows/`):
+- System controls: ListBox for chats, Msftedit RichEdit for read-only transcript, multiline Edit for draft, Send button, peer connection inputs, status line, and presence label.
+- Geometry and placement restoration via `WINDOWPLACEMENT` with off-screen monitor detection and clamping.
+- File-level profile locking (`profile.lock`) preventing concurrent execution with the same state directory.
+- Scroll restoration using message-based `ScrollAnchor` table.
+
 ## Current Limitations & Explicit Out-of-Scope
 
-- **Peer Resolution**: AeroAdmin ID resolution to Aether UID / Link is not implemented in this slice.
-- **GUI**: No UI, window handles, or presenters are included in this slice.
+- **Peer Resolution**: Peer AeroAdmin ID resolution service without an Aether UID is not implemented in this slice; supplied Aether UID or existing bound link is required.
+- **Running-Instance Launch Forwarding**: Not implemented; attempts to open an already-locked profile show an explicit error.
+- **Other Platform GUIs**: Linux/Android/Web GUI not implemented in this slice (reusable `ChatSession` prepared for future hosts).
+- **Disk Transactions**: Arbitrary disk-failure transaction rollbacks are not claimed.

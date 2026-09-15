@@ -358,6 +358,22 @@ if(TARGET chat_demo_aether)
     COMMAND apptraverse_aether_byte_transport_dispatch_test
   )
 
+  add_executable(apptraverse_chat_session_integration_test
+    chat_session_integration_test.cpp
+  )
+  target_link_libraries(apptraverse_chat_session_integration_test PRIVATE
+    chat_demo_runtime
+  )
+  target_include_directories(apptraverse_chat_session_integration_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/runtime
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
+  )
+  add_test(
+    NAME apptraverse_chat_session_integration_test
+    COMMAND apptraverse_chat_session_integration_test
+  )
+
   if(UNIX AND NOT EMSCRIPTEN)
     add_executable(apptraverse_chat_aether_p2p_test
       chat_aether_p2p_test.cpp
@@ -740,6 +756,36 @@ if(WIN32)
     NAME apptraverse_chat_win32_ui_smoke_test
     COMMAND apptraverse_chat_win32_ui_smoke_test
   )
+
+  if(TARGET chat_demo_aether)
+    add_executable(apptraverse_chat_windows_smoke_test
+      chat_windows_smoke_test.cpp
+      ${CMAKE_SOURCE_DIR}/examples/chat_demo/windows/win_chat_app.cpp
+      ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
+    )
+    target_link_libraries(apptraverse_chat_windows_smoke_test PRIVATE
+      chat_demo_runtime
+      user32
+      gdi32
+      comctl32
+      shell32
+      ole32
+    )
+    target_include_directories(apptraverse_chat_windows_smoke_test PRIVATE
+      ${CMAKE_SOURCE_DIR}/examples/chat_demo/windows
+      ${CMAKE_SOURCE_DIR}/examples/chat_demo/runtime
+      ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+      ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
+      ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+    )
+    if(MSVC)
+      target_compile_options(apptraverse_chat_windows_smoke_test PRIVATE /utf-8)
+    endif()
+    add_test(
+      NAME apptraverse_chat_windows_smoke_test
+      COMMAND apptraverse_chat_windows_smoke_test
+    )
+  endif()
   endif() # APPTRAVERSE_BUILD_AETHER_DEMOS
 
   add_executable(apptraverse_main_window_win32_smoke_test
