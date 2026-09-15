@@ -997,6 +997,60 @@ void TestReceiverLocalSentinelCollisionRejected() {
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
 }
 
+void TestSnapshotWithTwoSourceSharesRejected() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  // Create a SharedNode on A with two shares pointing to kEndpointA, and one share pointing to kEndpointB
+  ae::ObjId const node_id{5401};
+  ae::ObjId const link_a1_id{5402};
+  ae::ObjId const link_a2_id{5403};
+  ae::ObjId const link_b_id{5404};
+
+  auto node =
+      SharedValueNode::ptr::Create(ae::CreateWith{*a.domain}.with_id(node_id));
+  InitializeRuntimeNode(*node);
+  auto link_a1 = MakeMemoryLink(*a.domain, link_a1_id, kEndpointA);
+  auto link_a2 = MakeMemoryLink(*a.domain, link_a2_id, kEndpointA);
+  auto link_b = MakeMemoryLink(*a.domain, link_b_id, kEndpointB);
+  node->AddShare(link_a1, ShareAccess::ReadWrite);
+  node->AddShare(link_a2, ShareAccess::ReadWrite);
+  node->AddShare(link_b, ShareAccess::ReadWrite);
+  SetValue(*node, 42);
+  node.Save();
+  link_a1.Save();
+  link_a2.Save();
+  link_b.Save();
+  for (auto& entry : node->link_sync_states) {
+    entry.Save();
+  }
+
+  a.sync->RegisterNode(node);
+  b.sync->ExpectInitialNode(node_id);
+
+  auto const share_to_b = node->shares[2].share_id;
+  a.sync->SyncInitialState(node_id, share_to_b);
+
+  CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+
+  // B must reject snapshot:
+  // - target Node absent from production Domain;
+  // - target Node absent from production storage;
+  // - no imported Link objects;
+  // - no ACK.
+  CHECK(!b.sync->FindNode(node_id).is_valid());
+  CHECK(b.domain->Find(node_id) == nullptr);
+  CHECK(b.storage.Enumerate(node_id).empty());
+  CHECK(b.storage.Enumerate(link_a1_id).empty());
+  CHECK(b.storage.Enumerate(link_a2_id).empty());
+  CHECK(b.storage.Enumerate(link_b_id).empty());
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1020,6 +1074,7 @@ int main() {
   apptraverse::test::TestMalformedPayloadWritesNothing();
   apptraverse::test::TestFrameDecodingIsStrict();
   apptraverse::test::TestReceiverLocalSentinelCollisionRejected();
+  apptraverse::test::TestSnapshotWithTwoSourceSharesRejected();
 
   std::cout << "shared_node_initial_sync_test OK\n";
   return 0;

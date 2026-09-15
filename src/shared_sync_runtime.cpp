@@ -429,23 +429,23 @@ void SharedSyncRuntime::OnBytes(std::string const& source_endpoint,
   }
 }
 
-SharedNode::ptr SharedSyncRuntime::ImportValidatedNode(
+SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     std::string const& source_endpoint, NodeStateFrame const& frame) {
   // Untrusted bytes may not create arbitrary roots: only a SharedNode this
   // replica is waiting for.
   if (!IsExpectedInitialNode(frame.target_node_id)) {
-    return SharedNode::ptr{};
+    return {};
   }
 
   ae::RamDomainStorage parsed;
   if (!DeserializeObjectGraph(frame.payload, parsed)) {
-    return SharedNode::ptr{};
+    return {};
   }
 
   // Validate the parsed object graph's stored class chains BEFORE loading any candidate object.
   std::vector<StoredClassChainInfo> chains;
   if (!ValidateStoredClassChains(parsed, &chains)) {
-    return SharedNode::ptr{};
+    return {};
   }
 
   // Ensure root target object is in the payload and its most-derived class derives SharedNode.
@@ -455,15 +455,16 @@ SharedNode::ptr SharedSyncRuntime::ImportValidatedNode(
       root_found = true;
       if (ae::Registry::GetRegistry().GenerationDistance(
               SharedNode::kClassId, chain_info.most_derived_class_id) < 0) {
-        return SharedNode::ptr{};
+        return {};
       }
       break;
     }
   }
   if (!root_found) {
-    return SharedNode::ptr{};
+    return {};
   }
 
+  ae::ObjId matching_share_id;
   {
     // Scratch Domain over the parsed bytes: the candidate is inspected here
     // and discarded with it. No production object is created, and this
@@ -472,16 +473,45 @@ SharedNode::ptr SharedSyncRuntime::ImportValidatedNode(
     ae::DomainGraph scratch_graph{&scratch_domain};
     auto candidate = scratch_graph.LoadRoot(frame.target_node_id);
     if (!candidate) {
-      return SharedNode::ptr{};
+      return {};
     }
     if (ae::Registry::GetRegistry().GenerationDistance(
             SharedNode::kClassId, candidate->GetClassId()) < 0) {
-      return SharedNode::ptr{};
+      return {};
     }
-    if (!SnapshotIsAdmissible(static_cast<SharedNode&>(*candidate),
+    auto& shared_candidate = static_cast<SharedNode&>(*candidate);
+    if (!SnapshotIsAdmissible(shared_candidate,
                               transport_.local_endpoint_uid(), source_endpoint,
                               frame.destination_share_id)) {
-      return SharedNode::ptr{};
+      return {};
+    }
+
+    // Move source-share uniqueness validation into ImportValidatedNode BEFORE CommitObjectGraph.
+    // 1. In the SCRATCH candidate, iterate candidate.shares.
+    // 2. For each Share: resolve its Link, compare EndpointUid() with source_endpoint.
+    // 3. Require EXACTLY ONE matching Share.
+    // 4. Require matching share_id valid.
+    // 5. Require candidate.FindLinkSyncIndexForShare(matching_share_id)
+    //    identifies exactly one local LinkSyncState after replay.
+    int matching_shares = 0;
+    for (auto const& share : shared_candidate.shares) {
+      auto const* endpoint = ShareEndpoint(share);
+      if (endpoint != nullptr && *endpoint == source_endpoint) {
+        matching_share_id = share.share_id;
+        ++matching_shares;
+      }
+    }
+    if (matching_shares != 1 || !matching_share_id.is_valid()) {
+      return {};
+    }
+
+    auto const source_sync_index =
+        shared_candidate.FindLinkSyncIndexForShare(matching_share_id);
+    if (source_sync_index >= shared_candidate.link_sync_states.size()) {
+      return {};
+    }
+    if (!shared_candidate.link_sync_states[source_sync_index].is_valid()) {
+      return {};
     }
   }
 
@@ -491,10 +521,10 @@ SharedNode::ptr SharedSyncRuntime::ImportValidatedNode(
       continue;
     }
     if (domain_.Find(obj_id)) {
-      return SharedNode::ptr{};
+      return {};
     }
     if (!storage_.Enumerate(obj_id).empty()) {
-      return SharedNode::ptr{};
+      return {};
     }
   }
 
@@ -508,18 +538,24 @@ SharedNode::ptr SharedSyncRuntime::ImportValidatedNode(
   // LinkSyncState for every Share, keyed by the relationship identity that
   // travelled with the topology.
   node->ReplayFromBase();
-  return node;
+  return ImportedNode{
+      .node = std::move(node),
+      .source_share_id = matching_share_id,
+  };
 }
 
 void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
                                     NodeStateFrame const& frame) {
   auto node = FindNode(frame.target_node_id);
   bool const imported = !node.is_valid();
+  ae::ObjId source_share_id;
   if (imported) {
-    node = ImportValidatedNode(source_endpoint, frame);
-    if (!node.is_valid()) {
+    auto imported_result = ImportValidatedNode(source_endpoint, frame);
+    if (!imported_result.node.is_valid()) {
       return;
     }
+    node = std::move(imported_result.node);
+    source_share_id = imported_result.source_share_id;
   } else if (!AddressedToThisReplica(*node, transport_.local_endpoint_uid(),
                                      source_endpoint,
                                      frame.destination_share_id)) {
@@ -528,24 +564,10 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
 
   LinkSyncState::ptr source_state;
   if (imported) {
-    ae::ObjId source_share_id;
-    int matching_shares = 0;
-    for (auto const& share : node->shares) {
-      auto const* endpoint = ShareEndpoint(share);
-      if (endpoint != nullptr && *endpoint == source_endpoint) {
-        source_share_id = share.share_id;
-        ++matching_shares;
-      }
-    }
-    if (matching_shares != 1 || !source_share_id.is_valid()) {
-      return;
-    }
-
+    assert(source_share_id.is_valid());
     auto const source_sync_index =
         node->FindLinkSyncIndexForShare(source_share_id);
-    if (source_sync_index >= node->link_sync_states.size()) {
-      return;
-    }
+    assert(source_sync_index < node->link_sync_states.size());
     source_state = node->link_sync_states[source_sync_index];
     if (!source_state.is_loaded()) {
       source_state.Load();

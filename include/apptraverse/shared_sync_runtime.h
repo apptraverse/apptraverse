@@ -9,7 +9,7 @@
 #include "aether-objects/obj/idomain_storage.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/memory_transport.h"
+#include "apptraverse/byte_transport.h"
 #include "apptraverse/shared_node.h"
 #include "apptraverse/sync_frame.h"
 
@@ -73,11 +73,16 @@ class SharedSyncRuntime {
   void OnAck(std::string const& source_endpoint, AckFrame const& frame);
   void OnEvent(std::string const& source_endpoint, EventFrame const& frame);
 
+  struct ImportedNode {
+    SharedNode::ptr node;
+    ae::ObjId source_share_id;
+  };
+
   // Admit an expected but unknown root: parse and validate the snapshot in a
   // scratch Domain, and only then write it into this replica's storage.
   // Returns an invalid ptr when the frame is rejected, having written nothing.
-  SharedNode::ptr ImportValidatedNode(std::string const& source_endpoint,
-                                      NodeStateFrame const& frame);
+  ImportedNode ImportValidatedNode(std::string const& source_endpoint,
+                                   NodeStateFrame const& frame);
 
   bool IsExpectedInitialNode(ae::ObjId node_id) const;
 

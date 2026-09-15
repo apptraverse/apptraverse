@@ -623,6 +623,15 @@ SurfacePresenter
   - Snapshot local object collision rejection in `ImportValidatedNode` before storage writes or ACK.
   - Two-way initial sync completion: `CompleteFromReceivedSnapshotEvent` on `LinkSyncState` marking source Share complete on first snapshot import.
   - End-to-end product test `apptraverse_chat_demo_sync_test` proving two-way messaging, replies, duplicate ACK, restart persistence, and metadata mismatch rejection.
+- [CHAT DEMO 03]: Real Aether transport and heartbeat presence:
+  - Fixed snapshot admission bug: source-share uniqueness validation occurs in scratch candidate before `CommitObjectGraph` and collision check; returns `ImportedNode` struct; zero storage modifications on failure.
+  - Dedicated `IByteTransport` header in `include/apptraverse/byte_transport.h`.
+  - Runtime-only `PeerPresence` enum (`examples/chat_demo/common/chat_presence.h`).
+  - Native `ChatAetherRuntime` (`examples/chat_demo/aether/chat_aether_runtime.{h,cpp}`) managing `AetherApp`, `Client`, dedicated thread, `P2pStream` peer management, and deterministic stream binding.
+  - 14-byte heartbeat protocol with steady-clock Ping/Pong scheduling and timeout-based presence (`Unknown`, `Connecting`, `Online`, `Offline`).
+  - `AetherByteTransport` adapter mapping `IByteTransport` to `ChatAetherRuntime`.
+  - Headless `apptraverse_chat_aether_probe` for command-line validation and interactive testing.
+  - Multi-process test `apptraverse_chat_aether_p2p_test` proving two-process presence detection, application byte delivery, timeout-based offline detection, and end-to-end two-way chat synchronization over real Aether.
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.

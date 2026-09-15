@@ -1,6 +1,80 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — CHAT DEMO 03: REAL AETHER TRANSPORT + HEARTBEAT PRESENCE
+
+## Identity
+
+- Starting AppTraverse SHA: `efd0838029fa0f836e44e97153046109556f472a`
+- Pinned aether SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3` (unchanged)
+- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+
+## What Landed
+
+0. **Snapshot Admission Source-Share Uniqueness Fix**:
+   - Modified `ImportValidatedNode` in `include/apptraverse/shared_sync_runtime.h` and `src/shared_sync_runtime.cpp`: moved source-share validation to candidate scratch inspection before `CommitObjectGraph` and production collision checks.
+   - Verifies exactly one matching share whose `Link::EndpointUid() == source_endpoint`, ensures matching share ID is valid, and verifies candidate's `FindLinkSyncIndexForShare(matching_share_id)` identifies exactly one local `LinkSyncState`.
+   - Returns `ImportedNode` struct `{ SharedNode::ptr node; ae::ObjId source_share_id; }`. If validation fails, returns empty with zero production writes.
+   - `OnNodeState` uses returned `source_share_id` directly without duplicate lookup.
+   - Added regression test `TestSnapshotWithTwoSourceSharesRejected` in `tests/shared_node_initial_sync_test.cpp` verifying rejection, zero storage entries, zero domain objects, no imported links, and no ACK.
+
+1. **IByteTransport Header Ownership**:
+   - Extracted `IByteTransport` from `include/apptraverse/memory_transport.h` to dedicated `include/apptraverse/byte_transport.h`.
+   - Updated `memory_transport.h` and `shared_sync_runtime.h` includes.
+
+2. **PeerPresence Enum (Runtime-Only)**:
+   - Created `examples/chat_demo/common/chat_presence.h` defining `PeerPresence { kUnknown = 0, kConnecting = 1, kOnline = 2, kOffline = 3 }`.
+   - Kept presence strictly runtime-only with no persistent fields in model classes.
+
+3. **Common Native Aether Runtime (`ChatAetherRuntime`)**:
+   - Implemented `examples/chat_demo/aether/chat_aether_runtime.{h,cpp}`:
+     - Owns `AetherApp`, `Client`, dedicated `std::thread`, `P2pStream` peer states, and command queue (`OpenPeer`, `Send`, `ClosePeer`).
+     - Public API matches exact specification (`Start`, `OpenPeer`, `Send`, `ClosePeer`, `RequestStop`, `Join`, `~ChatAetherRuntime`).
+     - Initialization via `AetherApp::Construct` with `DirectoryDomainStorage`, `EthernetAdapter`, and `SelectClient(parent, config.client_name)`.
+     - Single authoritative `PeerState` per peer UID (`std::unordered_map<std::string, PeerState> peers`).
+     - Outbound `OpenPeer` constructs `P2pStream` via `message_stream_manager().CreatePort(uid)`.
+     - Inbound P2P subscribed to `message_stream_manager().new_port_event()` with deterministic deduplication (keep linked stream, replace unlinked stream with old subscription cleanup).
+     - Dedicated thread lifecycle: all Aether objects created, run, and destroyed on the Aether thread.
+
+4. **Heartbeat Protocol and Presence Semantics**:
+   - 14-byte binary heartbeat frame (`'A' 'T' 'H' 'B'`, version 1, type 1=Ping / 2=Pong, 64-bit nonce).
+   - Heartbeat scheduling and validation (`Config.heartbeat_period_ms >= 250`, `Config.offline_after_ms >= heartbeat_period_ms * 2`).
+   - Steady-clock monotonic timing for Ping interval and timeout-based Offline transition.
+   - Automatic Pong reply with matching nonce. Application bytes and Ping/Pong frames promote peer to `kOnline`.
+   - Stream link errors transition to `kConnecting`.
+
+5. **AetherByteTransport Adapter**:
+   - Implemented `examples/chat_demo/aether/aether_byte_transport.{h,cpp}`: thin adapter implementing `apptraverse::IByteTransport` over `ChatAetherRuntime`.
+   - Bridges `runtime.Send` and routes application frames directly to registered `ReceiveFn`.
+
+6. **Headless Probe Executable (`apptraverse_chat_aether_probe`)**:
+   - Implemented `examples/chat_demo/aether/chat_aether_probe.cpp`:
+     - CLI flags: `--state-dir`, `--client-name`, `--peer-uid`, `--heartbeat-ms`, `--offline-ms`.
+     - Emits `READY uid=<uid>`, `PRESENCE peer=<uid> state=<state>`, and `RX peer=<uid> bytes=<n> text=<text>`.
+     - Supports `send <peer_uid> <text>` stdin commands.
+
+7. **Multi-Process Real Aether Verification Test**:
+   - Implemented `tests/chat_aether_p2p_test.cpp` (`apptraverse_chat_aether_p2p_test`):
+     - Test 1 (Probe Subprocesses): Spawns two independent probe processes with distinct state directories, verifies UID discovery, mutual P2P stream connection, heartbeat presence (`Online`), bidirectional application text delivery, and timeout-based `Offline` transition when process terminates.
+     - Test 2 (Full Chat Sync): Spawns Replica A and Replica B over real Aether using `AetherByteTransport` and `SharedSyncRuntime`. Replicates `ChatRoom` via initial snapshot, completes initial sync, exchanges `MessageAddedEvent` in both directions, verifies ACK reception, and validates 2 synchronized messages on both replicas.
+
+## Tests
+
+- `apptraverse_chat_aether_p2p_test`: PASS (both Test 1 Probe P2P/presence and Test 2 two-process chat sync).
+- `apptraverse_shared_node_initial_sync_test`: PASS (including snapshot duplicate source-share rejection regression).
+- `apptraverse_chat_demo_sync_test`: PASS.
+- `apptraverse_chat_demo_model_test`: PASS (15 scenarios + DirectoryDomainStorage).
+- `apptraverse_shared_node_incremental_event_test`: PASS.
+- `apptraverse_shared_node_foundation_test`: PASS.
+- `apptraverse_event_sourced_core_test`: PASS.
+- `apptraverse_dynamic_objects_add_test`: PASS.
+- `apptraverse_journal_retention_test`: PASS.
+- `apptraverse_model_runtime_stop_test`: PASS.
+- `apptraverse_publication_channel_test`: PASS.
+
+---
+Status: implemented/verified on main. Not accepted.
+
 # CURSOR — CHAT DEMO 02: SAFE TWO-WAY SCALAR CHAT SYNC
 
 ## Identity

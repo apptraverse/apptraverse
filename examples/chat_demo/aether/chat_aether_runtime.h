@@ -1,0 +1,120 @@
+#ifndef APPTRAVERSE_EXAMPLE_CHAT_DEMO_CHAT_AETHER_RUNTIME_H_
+#define APPTRAVERSE_EXAMPLE_CHAT_DEMO_CHAT_AETHER_RUNTIME_H_
+
+#include <atomic>
+#include <cstdint>
+#include <deque>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+#include "aether/aether_app.h"
+#include "aether/client.h"
+#include "aether/client_messages/p2p_message_stream.h"
+#include "aether/client_messages/p2p_port_handle.h"
+#include "aether/types/uid.h"
+
+#include "chat_presence.h"
+
+namespace apptraverse::example::chat_demo {
+
+class ChatAetherRuntime {
+ public:
+  using LocalUidCallback = std::function<void(std::string uid)>;
+  using ReadyCallback = std::function<void()>;
+  using FailedCallback = std::function<void(std::string error)>;
+  using FrameCallback =
+      std::function<void(std::string source_uid,
+                         std::vector<std::uint8_t> bytes)>;
+  using PresenceCallback =
+      std::function<void(std::string peer_uid, PeerPresence presence)>;
+
+  struct Config {
+    std::filesystem::path state_dir;
+    std::string client_name;
+    std::uint64_t heartbeat_period_ms{2000};
+    std::uint64_t offline_after_ms{7000};
+  };
+
+  ChatAetherRuntime();
+  ~ChatAetherRuntime();
+
+  ChatAetherRuntime(ChatAetherRuntime const&) = delete;
+  ChatAetherRuntime& operator=(ChatAetherRuntime const&) = delete;
+
+  void Start(Config config, LocalUidCallback on_uid, ReadyCallback on_ready,
+             FailedCallback on_failed, FrameCallback on_frame,
+             PresenceCallback on_presence);
+
+  void OpenPeer(std::string peer_uid);
+  void Send(std::string peer_uid, std::vector<std::uint8_t> bytes);
+  void ClosePeer(std::string peer_uid);
+
+  void RequestStop();
+  void Join();
+
+  void SetFrameCallback(FrameCallback on_frame);
+
+ private:
+  enum class CommandType : std::uint8_t {
+    kOpenPeer = 1,
+    kSend = 2,
+    kClosePeer = 3,
+  };
+
+  struct Command {
+    CommandType type{CommandType::kOpenPeer};
+    std::string peer_uid;
+    std::vector<std::uint8_t> bytes;
+  };
+
+  struct PeerState {
+    std::string uid_text;
+    ae::Uid uid;
+
+    std::shared_ptr<ae::P2pStream> stream;
+
+    ae::Subscription data_sub;
+    ae::Subscription update_sub;
+
+    std::vector<ae::Subscription> write_subs;
+
+    std::deque<std::vector<std::uint8_t>> pending_out;
+
+    bool stream_linked{false};
+
+    std::uint64_t last_rx_ms{0};
+    std::uint64_t last_heartbeat_tx_ms{0};
+    std::uint64_t last_heartbeat_rx_ms{0};
+
+    PeerPresence reported_presence{PeerPresence::kUnknown};
+  };
+
+  void Enqueue(Command command);
+  void ThreadMain(Config config, LocalUidCallback on_uid,
+                  ReadyCallback on_ready, FailedCallback on_failed,
+                  FrameCallback on_frame, PresenceCallback on_presence);
+
+  std::atomic<bool> stop_{false};
+  std::thread thread_;
+
+  std::mutex command_mu_;
+  std::queue<Command> commands_;
+
+  std::mutex callback_mu_;
+  LocalUidCallback on_uid_;
+  ReadyCallback on_ready_;
+  FailedCallback on_failed_;
+  FrameCallback on_frame_;
+  PresenceCallback on_presence_;
+};
+
+}  // namespace apptraverse::example::chat_demo
+
+#endif  // APPTRAVERSE_EXAMPLE_CHAT_DEMO_CHAT_AETHER_RUNTIME_H_

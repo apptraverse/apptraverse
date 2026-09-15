@@ -12,3 +12,27 @@ target_link_libraries(chat_demo_model PUBLIC
 target_include_directories(chat_demo_model PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common
 )
+
+# Native Aether runtime and IByteTransport adapter
+add_library(chat_demo_aether STATIC
+  aether/chat_aether_runtime.cpp
+  aether/aether_byte_transport.cpp
+)
+
+target_link_libraries(chat_demo_aether PUBLIC
+  chat_demo_model
+  aether
+)
+
+target_include_directories(chat_demo_aether PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/aether
+  ${CMAKE_CURRENT_SOURCE_DIR}/common
+)
+
+add_executable(apptraverse_chat_aether_probe
+  aether/chat_aether_probe.cpp
+)
+
+target_link_libraries(apptraverse_chat_aether_probe PRIVATE
+  chat_demo_aether
+)

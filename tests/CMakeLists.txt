@@ -329,6 +329,27 @@ add_test(
   COMMAND apptraverse_chat_demo_sync_test
 )
 
+add_executable(apptraverse_chat_aether_p2p_test
+  chat_aether_p2p_test.cpp
+)
+target_link_libraries(apptraverse_chat_aether_p2p_test PRIVATE
+  apptraverse
+  chat_demo_model
+  chat_demo_aether
+  aether
+)
+target_include_directories(apptraverse_chat_aether_p2p_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
+  ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+)
+add_dependencies(apptraverse_chat_aether_p2p_test
+  apptraverse_chat_aether_probe
+)
+add_test(
+  NAME apptraverse_chat_aether_p2p_test
+  COMMAND apptraverse_chat_aether_p2p_test
+)
+
 add_executable(apptraverse_main_window_lifecycle_test
   main_window_lifecycle_test.cpp
   ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
