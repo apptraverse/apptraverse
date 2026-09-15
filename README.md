@@ -45,6 +45,15 @@ cmake -S . -B build -DCPM_aether-client-cpp_SOURCE=/path/to/aether-client-cpp
 
 AppTraverse code (`include/apptraverse/*`, demo model classes) uses `ae::Obj`, `ae::Domain`, `AE_OBJECT_REFLECT`, and links `apptraverse` → `aether`.
 
+## Chat Demo (Common Model & Local Workspace)
+
+`examples/chat_demo` provides the common model, local persistence, and AeroAdmin launch options parser:
+- `ChatWorkspace` (`Node`): local persistent workspace root managing chats, desktop window bounds, local endpoint UID, and message sequence counter.
+- `ChatEntry` (`Node`): local workspace entry binding a peer Admin ID / display name to a draft, scroll anchor, peer `Link`, and shared `ChatRoom`.
+- `ChatRoom` (`SharedNode`): shared message room containing `std::vector<MessageValue> messages`, replicated over Aether without exposing local workspace state.
+- Launch options parser (`ParseChatLaunchOptions`): parses CLI arguments (`--admin-id`, `--state-dir`, `--name`, `--uid`) and maps them to `OpenOrSelectChat`.
+- Tests: `apptraverse_chat_demo_model_test` and `apptraverse_chat_demo_launch_options_test`.
+
 ## Namespace
 
 Root namespace: `apptraverse`.

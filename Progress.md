@@ -1,6 +1,46 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — CHAT DEMO 01: SHARED MESSAGE MODEL + LOCAL WORKSPACE
+
+## Identity
+
+- Starting AppTraverse SHA: `75fe82d56d7df1ff86c1ddf2c25bc2f1115bbf71`
+- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+
+## What Landed
+
+1. **Common Model & Ownership Architecture**:
+   - `ChatRoom` (derived from `SharedNode`): shared message room containing `std::vector<MessageValue> messages`, replicated over Aether without exposing local workspace state.
+   - `ChatEntry` (derived from `Node`): local workspace entry binding peer Admin ID / display name to a draft, scroll anchor, peer `Link`, and shared `ChatRoom`.
+   - `ChatWorkspace` (derived from `Node`): local persistence root managing `chats`, `desktop_bounds`, `local_endpoint_uid`, and monotonic `next_message_sequence`.
+   - Value types: `MessageValue`, `ScrollAnchor`, `DesktopBounds`.
+   - Object graph direction: `Workspace → ChatEntry → ChatRoom` and `Workspace → ChatEntry → Link`. No back-pointers from `ChatRoom` to local workspace state.
+
+2. **Native Aether Serialization**:
+   - Each registered class serializes base and its own fields via native `Load`/`Save` (`dnv(base_, ...)`):
+     - `ChatRoom` (v0): `dnv(base_, messages)`
+     - `ChatEntry` (v0): `dnv(base_, peer_admin_id, display_name, peer_link, room, draft, scroll)`
+     - `ChatWorkspace` (v0): `dnv(base_, local_endpoint_uid, next_message_sequence, desktop_bounds, chats, selected_chat_id)`
+   - All events (`ChatEntryAddedEvent`, `ChatSelectedEvent`, `LocalEndpointBoundEvent`, `MessageSequenceReservedEvent`, `DesktopBoundsChangedEvent`, `ChatBindingChangedEvent`, `DraftChangedEvent`, `ScrollChangedEvent`, `MessageAddedEvent`) use native version-0 serialization.
+
+3. **Pure Projection, Events, and Commands**:
+   - Commands: `OpenOrSelectChat`, `BindChat`, `BindLocalEndpoint`, `SetDraft`, `SetScroll`, `SetDesktopBounds`, `SelectChat`, `SubmitDraft`.
+   - `Apply` methods only mutate materialized fields and call `NoteMaterializedChange()`.
+   - Invariant: `SubmitDraft` and `MessageAddedEvent` do not alter `ScrollAnchor`.
+   - Commands accept an optional `PersistLocalState` callback executed after local events are committed.
+
+4. **AeroAdmin Launch Options Parser**:
+   - `ParseChatLaunchOptions` parses `--admin-id`, `--state-dir`, `--name`, `--uid`.
+   - Robust argument validation (e.g., rejecting `--name` or `--uid` without `--admin-id`, duplicate options, missing values).
+
+5. **Test Proofs**:
+   - `apptraverse_chat_demo_model_test`: 15 comprehensive model scenarios covering workspace creation, chat selection, unresolved persistence, room binding, draft submission, sequence reservation, persistence & domain destruction reload, scroll anchor preservation, desktop bounds, tie-breaking insertion, base replay preservation, and shared network scratch export proving no local workspace state leaks into shared state. Also verified `DirectoryDomainStorage` round-trip.
+   - `apptraverse_chat_demo_launch_options_test`: Complete command-line parser regression coverage.
+
+---
+Status: implemented/verified on main. Not accepted.
+
 # CURSOR — FIX 01: NATIVE CLASS-LAYER SERIALIZATION
 
 ## Identity

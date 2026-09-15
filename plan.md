@@ -610,6 +610,10 @@ SurfacePresenter
   `dnv(base_, ...)`. Node bumped to v4 (Load/Save base_, base, journal); derived
   classes bumped by 1 with explicit rejection of former flattened layouts.
   `kNodeJournalFormat` and format-word markers removed.
+- [CHAT DEMO 01]: Common `ChatRoom` (derived from `SharedNode`), `ChatEntry` (Node),
+  and `ChatWorkspace` (Node root) implemented with pure projection, native serialization,
+  scalar `MessageValue` events, command layer (`OpenOrSelectChat`, `BindChat`,
+  `SubmitDraft`, etc.), launch option parser, and 15 comprehensive model regression scenarios.
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.
