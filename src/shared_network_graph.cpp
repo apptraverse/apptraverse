@@ -10,7 +10,9 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/registry.h"
 #include "apptraverse/event.h"
+#include "apptraverse/node.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/remap_pointers.h"
 
 namespace apptraverse {
 
@@ -481,6 +483,249 @@ void CommitStandaloneEventObject(ae::RamDomainStorage const& parsed,
       }
     }
   }
+}
+
+namespace {
+
+ae::ObjId AllocateUniqueReceiverObjId(
+    ae::Domain const& domain,
+    ae::IDomainStorage& storage,
+    std::set<ae::ObjId> const& reserved_ids) {
+  while (true) {
+    auto const id = ae::ObjId::GenerateUnique();
+    if (!id.is_valid()) {
+      continue;
+    }
+    if (reserved_ids.find(id) != reserved_ids.end()) {
+      continue;
+    }
+    if (domain.Find(id)) {
+      continue;
+    }
+    if (!storage.Enumerate(id).empty()) {
+      continue;
+    }
+    return id;
+  }
+}
+
+void RemapObjectPointers(
+    ae::Obj& obj, ae::Domain* target_domain,
+    std::map<ae::ObjId, ae::ObjId> const& mapping) {
+  auto const class_id = obj.GetClassId();
+  auto& reg = ae::Registry::GetRegistry();
+  if (reg.GenerationDistance(Event::kClassId, class_id) >= 0) {
+    static_cast<Event&>(obj).RemapPointers(target_domain, mapping);
+  } else if (reg.GenerationDistance(Node::kClassId, class_id) >= 0) {
+    static_cast<Node&>(obj).RemapPointers(target_domain, mapping);
+  }
+}
+
+bool ValidateObjectPointers(ae::Obj const& obj,
+                            ae::RamDomainStorage const& storage) {
+  auto const class_id = obj.GetClassId();
+  auto& reg = ae::Registry::GetRegistry();
+  if (reg.GenerationDistance(Event::kClassId, class_id) >= 0) {
+    return static_cast<Event const&>(obj).ValidatePointers(storage);
+  } else if (reg.GenerationDistance(Node::kClassId, class_id) >= 0) {
+    return static_cast<Node const&>(obj).ValidatePointers(storage);
+  }
+  return true;
+}
+
+}  // namespace
+
+bool FreezeClosedEventGraphPayload(
+    ae::Obj const& event,
+    EventGraphExportBoundary const& boundary,
+    std::vector<std::uint8_t>& out_payload) {
+  EnsureObjectRegistration();
+  assert(event.domain != nullptr);
+
+  if (!boundary.IsPermitted(event.obj_id)) {
+    return false;
+  }
+
+  ae::RamDomainStorage scratch;
+  BuildNetworkSharedScratch(event, scratch);
+
+  for (auto const& [obj_id, classes] : scratch.state) {
+    if (!classes.has_value()) {
+      continue;
+    }
+    if (!boundary.IsPermitted(obj_id)) {
+      return false;
+    }
+  }
+
+  if (!ValidateClosedEventGraphStorage(scratch, event.obj_id,
+                                       event.GetClassId())) {
+    return false;
+  }
+
+  out_payload.clear();
+  AppendU32(out_payload, event.obj_id.id());
+  auto const storage_bytes = SerializeRamDomainStorage(scratch);
+  out_payload.insert(out_payload.end(), storage_bytes.begin(),
+                     storage_bytes.end());
+  return true;
+}
+
+bool ParseClosedEventGraphPayload(
+    std::vector<std::uint8_t> const& payload,
+    ae::RamDomainStorage& parsed,
+    ae::ObjId& out_root_id) {
+  std::size_t pos = 0;
+  std::uint32_t root_id_raw = 0;
+  if (!ReadU32(payload, pos, root_id_raw)) {
+    return false;
+  }
+  out_root_id = ae::ObjId{root_id_raw};
+  if (!out_root_id.is_valid()) {
+    return false;
+  }
+
+  std::vector<std::uint8_t> const storage_payload{
+      payload.begin() + static_cast<std::ptrdiff_t>(pos), payload.end()};
+  if (!ParseObjectGraphPayload(storage_payload, parsed)) {
+    return false;
+  }
+
+  auto const it = parsed.state.find(out_root_id);
+  if (it == parsed.state.end() || !it->second.has_value()) {
+    return false;
+  }
+  return true;
+}
+
+bool ValidateClosedEventGraphStorage(
+    ae::RamDomainStorage const& parsed,
+    ae::ObjId root_event_id,
+    std::uint32_t expected_event_class_id,
+    std::vector<StoredClassChainInfo>* out_chains) {
+  if (!root_event_id.is_valid()) {
+    return false;
+  }
+  auto const root_it = parsed.state.find(root_event_id);
+  if (root_it == parsed.state.end() || !root_it->second.has_value()) {
+    return false;
+  }
+
+  std::vector<StoredClassChainInfo> chains;
+  if (!ValidateStoredClassChains(parsed, &chains)) {
+    return false;
+  }
+
+  auto const chain_it =
+      std::find_if(chains.begin(), chains.end(),
+                   [&](StoredClassChainInfo const& info) {
+                     return info.obj_id == root_event_id;
+                   });
+  if (chain_it == chains.end()) {
+    return false;
+  }
+
+  auto& reg = ae::Registry::GetRegistry();
+  if (reg.GenerationDistance(Event::kClassId,
+                             chain_it->most_derived_class_id) < 0) {
+    return false;
+  }
+  if (expected_event_class_id != 0 &&
+      chain_it->most_derived_class_id != expected_event_class_id) {
+    return false;
+  }
+
+  ae::RamDomainStorage scratch_copy = parsed;
+  ae::Domain scratch_domain{scratch_copy};
+  ae::DomainGraph scratch_graph{&scratch_domain,
+                                ae::GraphSerializationScope::NetworkShared};
+
+  auto root_ptr = scratch_graph.LoadRoot(root_event_id);
+  if (!root_ptr) {
+    return false;
+  }
+
+  for (auto const& info : chains) {
+    auto obj = scratch_graph.LoadRoot(info.obj_id);
+    if (!obj) {
+      return false;
+    }
+    if (!ValidateObjectPointers(*obj, scratch_copy)) {
+      return false;
+    }
+  }
+
+  if (out_chains != nullptr) {
+    *out_chains = std::move(chains);
+  }
+  return true;
+}
+
+ae::Ptr<Event> ImportClosedEventGraph(
+    ae::RamDomainStorage const& parsed,
+    ae::ObjId root_event_id,
+    ae::Domain& receiver_domain,
+    ae::IDomainStorage& receiver_storage,
+    std::set<ae::ObjId>& reserved_ids,
+    std::map<ae::ObjId, ae::ObjId>* out_mapping) {
+  EnsureObjectRegistration();
+
+  std::vector<StoredClassChainInfo> chains;
+  if (!ValidateClosedEventGraphStorage(parsed, root_event_id, 0, &chains)) {
+    return {};
+  }
+
+  std::map<ae::ObjId, ae::ObjId> old_to_new;
+  for (auto const& info : chains) {
+    auto const new_id = AllocateUniqueReceiverObjId(
+        receiver_domain, receiver_storage, reserved_ids);
+    reserved_ids.insert(new_id);
+    old_to_new[info.obj_id] = new_id;
+  }
+
+  if (out_mapping != nullptr) {
+    *out_mapping = old_to_new;
+  }
+
+  ae::RamDomainStorage staging_storage = parsed;
+  ae::Domain staging_domain{staging_storage};
+  ae::DomainGraph staging_graph{&staging_domain,
+                                ae::GraphSerializationScope::NetworkShared};
+  auto staging_root = staging_graph.LoadRoot(root_event_id);
+  if (!staging_root) {
+    return {};
+  }
+
+  for (auto const& info : chains) {
+    auto obj = staging_graph.LoadRoot(info.obj_id);
+    if (!obj) {
+      return {};
+    }
+  }
+
+  std::vector<std::pair<ae::ObjId, ae::Ptr<ae::Obj>>> loaded_objects;
+  loaded_objects.reserve(chains.size());
+  for (auto const& info : chains) {
+    auto obj = staging_domain.Find(info.obj_id);
+    assert(obj);
+    loaded_objects.emplace_back(old_to_new[info.obj_id], obj);
+  }
+
+  for (auto& [new_id, obj] : loaded_objects) {
+    obj->obj_id = new_id;
+    obj->domain = &receiver_domain;
+    RemapObjectPointers(*obj, &receiver_domain, old_to_new);
+  }
+
+  ae::DomainGraph save_graph{&receiver_domain,
+                             ae::GraphSerializationScope::NetworkShared};
+  for (auto& [new_id, obj] : loaded_objects) {
+    save_graph.SaveRoot(obj, new_id);
+    receiver_domain.AddObject(new_id, obj);
+  }
+
+  auto receiver_root = receiver_domain.Find(old_to_new[root_event_id]);
+  return ae::Ptr<Event>{receiver_root};
 }
 
 }  // namespace apptraverse

@@ -3,7 +3,9 @@
 
 #include <cassert>
 #include <cstdint>
+#include <map>
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/object_macros.h"
@@ -26,6 +28,18 @@ class Event : public ae::Obj {
   AE_OBJECT_REFLECT()
 
   bool CanApplyTo(Node const& target) const { return CanApplyToImpl(target); }
+
+  virtual void RemapPointers(
+      ae::Domain* target_domain,
+      std::map<ae::ObjId, ae::ObjId> const& mapping) {
+    (void)target_domain;
+    (void)mapping;
+  }
+
+  virtual bool ValidatePointers(ae::RamDomainStorage const& storage) const {
+    (void)storage;
+    return true;
+  }
 
   // Most-derived Node class this Event is written against. Used to reject an
   // untrusted Event whose EventFor target is not this Node, before CanApplyTo

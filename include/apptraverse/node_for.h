@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "apptraverse/node.h"
+#include "apptraverse/remap_pointers.h"
 #include "apptraverse/shared_event_id.h"
 #include "apptraverse/shared_event_order.h"
 
@@ -35,6 +36,22 @@ class NodeFor : public BaseNode {
                     SharedEventOrder order) {
     Node::CommitSharedInto(static_cast<ConcreteNode&>(*this), std::move(event),
                            std::move(identity), std::move(order));
+  }
+
+  void RemapPointers(
+      ae::Domain* target_domain,
+      std::map<ae::ObjId, ae::ObjId> const& mapping) override {
+    BaseNode::RemapPointers(target_domain, mapping);
+    detail::RemapReflectedPointers(
+        static_cast<ConcreteNode&>(*this), target_domain, mapping);
+  }
+
+  bool ValidatePointers(ae::RamDomainStorage const& storage) const override {
+    if (!BaseNode::ValidatePointers(storage)) {
+      return false;
+    }
+    return detail::ValidateReflectedPointers(
+        static_cast<ConcreteNode const&>(*this), storage);
   }
 
  private:

@@ -63,6 +63,19 @@ add_test(
   COMMAND apptraverse_shared_node_incremental_event_test
 )
 
+add_executable(apptraverse_closed_event_graph_test
+  closed_event_graph_test.cpp
+)
+
+target_link_libraries(apptraverse_closed_event_graph_test PRIVATE
+  apptraverse
+)
+
+add_test(
+  NAME apptraverse_closed_event_graph_test
+  COMMAND apptraverse_closed_event_graph_test
+)
+
 add_executable(apptraverse_journal_retention_test
   journal_retention_test.cpp
 )

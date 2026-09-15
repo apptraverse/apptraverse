@@ -2,13 +2,18 @@
 #define APPTRAVERSE_SHARED_NETWORK_GRAPH_H_
 
 #include <cstdint>
+#include <initializer_list>
+#include <map>
+#include <set>
 #include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/idomain_storage.h"
 #include "aether-objects/obj/obj.h"
+#include "aether-objects/obj/obj_ptr.h"
 
+#include "apptraverse/event.h"
 #include "apptraverse/shared_event_id.h"
 #include "apptraverse/shared_node.h"
 
@@ -105,6 +110,96 @@ bool ParseStandaloneEventPayload(std::vector<std::uint8_t> const& payload,
 void CommitStandaloneEventObject(ae::RamDomainStorage const& parsed,
                                  ae::ObjId local_id,
                                  ae::IDomainStorage& target_storage);
+
+// Explicit boundary defining which object IDs are permitted to be exported
+// as part of a closed Event graph. References outside this boundary are
+// refused explicitly.
+class EventGraphExportBoundary {
+ public:
+  EventGraphExportBoundary() = default;
+
+  EventGraphExportBoundary(std::initializer_list<ae::ObjId> ids) {
+    for (auto id : ids) {
+      if (id.is_valid()) {
+        permitted_ids_.insert(id);
+      }
+    }
+  }
+
+  void Permit(ae::ObjId id) {
+    if (id.is_valid()) {
+      permitted_ids_.insert(id);
+    }
+  }
+
+  void Permit(ae::Obj const& obj) { Permit(obj.obj_id); }
+
+  template <typename T>
+  void Permit(ae::ObjPtr<T> const& ptr) {
+    if (ptr.is_valid()) {
+      Permit(ptr.id());
+    }
+  }
+
+  bool IsPermitted(ae::ObjId id) const {
+    return permitted_ids_.find(id) != permitted_ids_.end();
+  }
+
+  std::set<ae::ObjId> const& permitted_ids() const {
+    return permitted_ids_;
+  }
+
+ private:
+  std::set<ae::ObjId> permitted_ids_;
+};
+
+// Freeze a closed Event graph reachable from `event`.
+// All reachable network-shared objects must be within `boundary`.
+// If any reachable network-shared object is outside `boundary`, returns false
+// explicitly.
+// Leaves source state and source storage untouched.
+// Produces a self-contained payload that can be parsed and imported
+// after the source Domain is destroyed.
+bool FreezeClosedEventGraphPayload(
+    ae::Obj const& event,
+    EventGraphExportBoundary const& boundary,
+    std::vector<std::uint8_t>& out_payload);
+
+// Parse untrusted closed Event graph payload into scratch RamDomainStorage.
+// Returns false on malformed or truncated payload, or invalid root ID.
+bool ParseClosedEventGraphPayload(
+    std::vector<std::uint8_t> const& payload,
+    ae::RamDomainStorage& parsed,
+    ae::ObjId& out_root_id);
+
+// Validate untrusted closed Event graph storage in disposable scratch.
+// Checks:
+// - complete object table and class chains;
+// - root Event type derives from Event;
+// - reference closure (all typed object references resolve within parsed);
+// - reference type compatibility.
+// Does NOT touch receiver objects or storage.
+bool ValidateClosedEventGraphStorage(
+    ae::RamDomainStorage const& parsed,
+    ae::ObjId root_event_id,
+    std::uint32_t expected_event_class_id = 0,
+    std::vector<StoredClassChainInfo>* out_chains = nullptr);
+
+// Import a validated closed Event graph into receiver Domain and storage.
+// - Allocates unique receiver-local ObjIds avoiding any IDs occupied in
+//   receiver Domain, receiver storage, or reserved by this import;
+// - Exactly one mapping entry per included object;
+// - Remaps all typed object references (including Node::base and aliases);
+// - Preserves ordinary scalar values unchanged;
+// - Excludes LocalPtr referents and leaves them empty;
+// - Returns the imported Event in receiver Domain, ready for Apply or journal.
+ae::Ptr<Event> ImportClosedEventGraph(
+    ae::RamDomainStorage const& parsed,
+    ae::ObjId root_event_id,
+    ae::Domain& receiver_domain,
+    ae::IDomainStorage& receiver_storage,
+    std::set<ae::ObjId>& reserved_ids,
+    std::map<ae::ObjId, ae::ObjId>* out_mapping = nullptr);
 
 }  // namespace apptraverse
 

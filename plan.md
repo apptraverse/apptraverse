@@ -437,10 +437,10 @@ adding a second sort key.
 # Planned implementation ladder
 
 **Milestones 01–04 foundation hardened on `feature/shared-node-foundation-v1`
-(v1.1 corrections). Initial-state synchronization (05–07, 09 initial subset)
-and standalone incremental Event replication (08, 09 Event subset, 12 source
-access) are on `main`. Dynamic object graphs, topology Events, multi-hop,
-presence, and Æther are not started.**
+(v1.1 corrections). Initial-state synchronization (05–07, 09 initial subset),
+standalone incremental Event replication (08, 09 Event subset, 12 source
+access), and closed Event graph serialization slice are on `main`. Dynamic
+object graphs, topology Events, multi-hop, presence, and Æther are not started.**
 
 ### SharedNode headless (01–16)
 
@@ -451,7 +451,7 @@ presence, and Æther are not started.**
 05. **Add generic shared sync framing and routing** — **implemented/verified for NodeState, Ack, and standalone Event** (protocol v1 frames routed by `target_node_id` and named by `destination_share_id`; canonical frame length and non-zero ids required; every frame bound to the transport `source_endpoint`; `SharedSyncRuntime` per replica).  
 06. **Add deterministic Memory Link transport** — **message delivery subset implemented/verified** (opaque bytes, endpoint identity, deliver / drop / duplicate / disconnect / reconnect, no threads or sleeps; no heartbeat, presence, reorder, or fake clock yet).  
 07. **Synchronize a SharedNode to a newly attached Link** — **implemented/verified** (freeze + persist + send, admission of the snapshot in a scratch Domain before any write to real storage, import into the receiver Domain, receiver-local sync state by journal replay, persist before ACK, duplicate acknowledged without re-apply).  
-08. **Replicate incremental SharedNode Events** — **standalone scalar subset implemented/verified** (`EventFrame` + generic `Ack`; one pending Event packet per Share; `SharedEventId` is the only cross-replica identity; receiver allocates a fresh local Event ObjId; Event graphs that reach a second object are refused; pre-LoadRoot class chain validation and scratch preflight replay guarantee safe admission). Dynamic child-object graphs, topology Events, and multi-hop are not started.  
+08. **Replicate incremental SharedNode Events** — **standalone scalar subset implemented/verified** (`EventFrame` + generic `Ack`; one pending Event packet per Share; `SharedEventId` is the only cross-replica identity; receiver allocates a fresh local Event ObjId; Event graphs that reach a second object are refused; pre-LoadRoot class chain validation and scratch preflight replay guarantee safe admission). **Closed Event graph serialization slice implemented/verified** (Freeze, Parse, Validate, and Import for closed Event graphs referencing Nodes and Objs with aliases, remapped `ObjIds` avoiding receiver collisions, remapped `Node::base`, excluded `LocalPtr`s, invariant checks in disposable scratch, zero receiver mutation on failure, and explicit export boundary; wire integration into `EventFrame`/ACK deferred). Dynamic child-object graphs, topology Events, and multi-hop are not started.  
 09. **Make shared delivery restart-safe** — **implemented/verified for initial state and standalone Events** (sender restart while pending resends the same packet id and bytes, receiver restart after apply still recognizes the duplicate from the journal, sender restart after ACK keeps the identity delivered and does not resend).  
 10. **Replicate dynamic SharedNode graphs** — topology changes as shared Events.  
 11. **Share multiple Nodes over one Link** — multiplexing proof.  

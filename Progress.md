@@ -1,6 +1,64 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — Finish closed Event graph serialization and import
+
+## Identity
+
+- Scope: Implement self-contained closed Event graph serialization (Freeze, Parse, Validate, Import) with typed reference remapping, alias preservation, explicit export boundary, and receiver collision prevention on `main`.
+- Direct push to `origin/main`. No PR. No feature branch.
+- EventFrame / ACK / retry changes: NONE. Dynamic child updates/deletions: NOT IMPLEMENTED.
+
+## What landed
+
+- **Export Boundary**: Introduced `EventGraphExportBoundary` defining permitted network-shared object IDs for a bundle. Any reachable network-shared object outside the boundary causes `FreezeClosedEventGraphPayload` to fail explicitly.
+- **Reflection-Based Pointer Remapping and Validation**:
+  - Implemented `include/apptraverse/remap_pointers.h` with generic `RemapReflectedPointers` and `ValidateReflectedPointers` using `ae::reflect::make_reflection` without C++ RTTI or class-specific switches.
+  - Added virtual `RemapPointers` and `ValidatePointers` to `Event` and `Node`.
+  - Concrete `EventFor<Target, ConcreteEvent>` and `NodeFor<ConcreteNode, BaseNode>` invoke reflection-driven remapping and validation over all reflected fields.
+  - `Node::RemapPointers` and `Node::ValidatePointers` explicitly remap and validate `Node::base` with generation distance type compatibility check.
+  - `SharedPtr<U>` and `ae::ObjPtr<U>` references are remapped to freshly allocated receiver-local `ObjId`s.
+  - `LocalPtr<U>` (and vectors of `LocalPtr`) are explicitly excluded and reset on import.
+  - Ordinary scalar values (including integers equal to old sender `ObjId`s) are preserved untouched.
+- **Zero-Mutation Validation Before Import**:
+  - `ValidateClosedEventGraphStorage` validates object table, inheritance class chains, instantiable leaf classes, root `Event` derivation, and typed pointer closure / type compatibility in a disposable scratch domain and storage copy before touching the receiver.
+  - Malformed payloads or missing references fail before any write to receiver domain or storage.
+- **Receiver-Local ID Remapping & Alias Preservation**:
+  - `AllocateUniqueReceiverObjId` allocates fresh `ObjId`s that do not collide with receiver storage, live receiver `Domain`, or other IDs reserved in the same import session.
+  - Exactly one mapping entry per included object; multiple pointers to the same object preserve aliasing.
+  - Imported `AddItemEvent::Apply` attaches the imported `Item` without creating duplicate objects during `Apply` or forced journal replay.
+- **Source Independence**:
+  - Freezing produces a self-contained payload without modifying source domain or storage.
+  - Parsed payloads can be imported and survive destruction of the source domain and receiver domain restart (Save → destroy → Load).
+
+## Tests
+
+- `apptraverse_closed_event_graph_test`:
+  - `TestImportAndAliasPreservation`: Event referencing `Item` (Node), duplicate reference to same `Item`, and `Metadata` (Obj) referenced by `Item` imports with alias intact and unique mapping entries.
+  - `TestNodeBaseRemapping`: `Node::base` correctly remapped to receiver-local `ObjId` and loadable.
+  - `TestAllSenderIdsOccupiedBySentinels`: Receiver with sentinel objects occupying sender `ObjId`s allocates completely disjoint IDs without collisions or overwrites.
+  - `TestZeroSourceWritesDuringFreeze`: Freeze causes zero writes to source `IDomainStorage`.
+  - `TestSourceDestroyedBeforeImport`: Freezing, destroying source domain and storage, and importing into receiver succeeds and produces fully functional object graph.
+  - `TestLocalPtrExclusion`: `LocalPtr` referents are excluded and pointers are reset to null.
+  - `TestExplicitExternalReferenceRefusal`: Objects pointing outside `EventGraphExportBoundary` are explicitly rejected at freeze.
+  - `TestMalformedMissingReferenceRejectionWithoutReceiverWrites`: Corrupted payloads / missing referents fail validation with zero writes to receiver storage.
+  - `TestReceiverSaveDestroyDomainLoad`: Receiver graph persists across domain destruction and reload.
+  - `TestAddItemApplicationAndForcedReplay`: `AddItemEvent` application and subsequent `TryRebuildFromBaseAndReplay` preserve the identical imported `Item` instance without creating duplicates.
+  - `TestScalarValueEqualToOldObjectIdNotRemapped`: Scalar fields with integer values matching sender `ObjId`s are preserved unchanged.
+- Verified all passing:
+  - `apptraverse_closed_event_graph_test`
+  - `apptraverse_shared_node_incremental_event_test`
+  - `apptraverse_shared_node_initial_sync_test`
+  - `apptraverse_shared_node_foundation_test`
+  - `apptraverse_event_sourced_core_test`
+  - `apptraverse_dynamic_objects_add_test`
+  - `apptraverse_journal_retention_test`
+  - `apptraverse_model_runtime_stop_test`
+  - `apptraverse_publication_channel_test`
+
+---
+Status: implemented/verified on main. Not accepted.
+
 # CURSOR — Correct scratch replay and its tests
 
 ## Identity

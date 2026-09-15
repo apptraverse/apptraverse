@@ -6,11 +6,13 @@
 #include <chrono>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 
@@ -90,6 +92,34 @@ class Node : public ae::Obj {
 
   Node::ptr base;
   std::vector<EventRecord> journal;
+
+  virtual void RemapPointers(
+      ae::Domain* target_domain,
+      std::map<ae::ObjId, ae::ObjId> const& mapping) {
+    if (base.is_valid()) {
+      auto const it = mapping.find(base.id());
+      if (it != mapping.end()) {
+        base = Node::ptr{target_domain, it->second, base.flags(), base.cached()};
+      }
+    }
+  }
+
+  virtual bool ValidatePointers(ae::RamDomainStorage const& storage) const {
+    if (base.is_valid()) {
+      auto const it = storage.state.find(base.id());
+      if (it == storage.state.end() || !it->second.has_value() ||
+          !base.is_loaded()) {
+        return false;
+      }
+      if (base.cached()) {
+        if (ae::Registry::GetRegistry().GenerationDistance(
+                Node::kClassId, base.cached()->GetClassId()) < 0) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
 
   std::uint64_t Generation() const { return generation_; }
 
