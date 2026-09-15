@@ -9,6 +9,7 @@
 #include "aether-miscpp/serialization/serialization.h"
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_ptr.h"
+#include "apptraverse/operation_storage.h"
 
 namespace apptraverse {
 
@@ -39,6 +40,10 @@ class ObjectLink {
 
   ObjectLink(ae::ObjPtr<T> ptr) noexcept : ptr_{std::move(ptr)} {}
 
+  ObjectLink(ae::Domain* domain, ae::ObjId id, ae::ObjFlags flags,
+             ae::Ptr<ae::Obj> cached) noexcept
+      : ptr_{domain, id, flags, ae::Ptr<T>{cached}} {}
+
   template <typename U>
     requires(ae::AbleToCast<T, U>)
   ObjectLink(ae::ObjPtr<U> ptr) noexcept : ptr_{std::move(ptr)} {}
@@ -58,15 +63,8 @@ class ObjectLink {
   ObjectLink& operator=(ObjectLink const&) = default;
   ObjectLink& operator=(ObjectLink&&) noexcept = default;
 
-  ObjectLink& operator=(ae::ObjPtr<T> ptr) noexcept {
-    ptr_ = std::move(ptr);
-    return *this;
-  }
-
-  template <typename U>
-    requires(ae::AbleToCast<T, U>)
-  ObjectLink& operator=(ae::ObjPtr<U> ptr) noexcept {
-    ptr_ = std::move(ptr);
+  ObjectLink& operator=(std::nullptr_t) noexcept {
+    ptr_.Reset();
     return *this;
   }
 
@@ -94,6 +92,22 @@ class ObjectLink {
 
   operator ae::ObjPtr<T>&() { return ptr_; }
   operator ae::ObjPtr<T> const&() const { return ptr_; }
+
+  template <typename U>
+    requires(ae::AbleToCast<T, U>)
+  operator ae::ObjPtr<U>() const {
+    return ptr_;
+  }
+
+  template <typename U, LinkScope S2>
+  bool operator==(ObjectLink<U, S2> const& other) const noexcept {
+    return id() == other.id() && domain() == other.domain();
+  }
+
+  template <typename U, LinkScope S2>
+  bool operator!=(ObjectLink<U, S2> const& other) const noexcept {
+    return !(*this == other);
+  }
 
  private:
   ae::ObjPtr<T> ptr_;
@@ -127,6 +141,12 @@ struct Serializer<BinaryArchive<DomainBuffer>,
   using Link = apptraverse::ObjectLink<T, Scope>;
 
   SeriResult Seri(Archive& archive, Meta<Link const> meta) const {
+    auto* const op = apptraverse::detail::GetOperationStorageWriter(
+        archive.buffer().writer);
+    if (op != nullptr) {
+      return apptraverse::detail::HandlePointerSeri<T,
+          Scope == apptraverse::LinkScope::kLocal>(archive, meta.value, op);
+    }
     if constexpr (Scope == apptraverse::LinkScope::kLocal) {
       auto* const graph = archive.buffer().domain_graph;
       if (graph != nullptr &&

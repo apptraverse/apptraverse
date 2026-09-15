@@ -3,16 +3,19 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <map>
 #include <set>
 #include <utility>
+#include <vector>
 
+#include "aether-miscpp/serialization/binary_archive.h"
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/registry.h"
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/remap_pointers.h"
+#include "apptraverse/operation_storage.h"
 
 namespace apptraverse {
 
@@ -35,26 +38,6 @@ void BuildNetworkSharedScratch(ae::Obj const& root,
 
 namespace {
 
-void AppendU32(std::vector<std::uint8_t>& out, std::uint32_t value) {
-  out.push_back(static_cast<std::uint8_t>((value >> 24U) & 0xFFU));
-  out.push_back(static_cast<std::uint8_t>((value >> 16U) & 0xFFU));
-  out.push_back(static_cast<std::uint8_t>((value >> 8U) & 0xFFU));
-  out.push_back(static_cast<std::uint8_t>(value & 0xFFU));
-}
-
-bool ReadU32(std::vector<std::uint8_t> const& in, std::size_t& pos,
-             std::uint32_t& value) {
-  if (pos + 4 > in.size()) {
-    return false;
-  }
-  value = (static_cast<std::uint32_t>(in[pos]) << 24U) |
-          (static_cast<std::uint32_t>(in[pos + 1]) << 16U) |
-          (static_cast<std::uint32_t>(in[pos + 2]) << 8U) |
-          static_cast<std::uint32_t>(in[pos + 3]);
-  pos += 4;
-  return true;
-}
-
 void TransferRamObject(ae::RamDomainStorage const& src, ae::ObjId obj_id,
                        ae::IDomainStorage& dst) {
   auto const it = src.state.find(obj_id);
@@ -72,6 +55,28 @@ void TransferRamObject(ae::RamDomainStorage const& src, ae::ObjId obj_id,
         (void)result;
       }
     }
+  }
+}
+
+ae::ObjId AllocateUniqueReceiverObjId(
+    ae::Domain const& domain,
+    ae::IDomainStorage& storage,
+    std::set<ae::ObjId> const& reserved_ids) {
+  while (true) {
+    auto const id = ae::ObjId::GenerateUnique();
+    if (!id.is_valid()) {
+      continue;
+    }
+    if (reserved_ids.find(id) != reserved_ids.end()) {
+      continue;
+    }
+    if (domain.Find(id)) {
+      continue;
+    }
+    if (!storage.Enumerate(id).empty()) {
+      continue;
+    }
+    return id;
   }
 }
 
@@ -93,49 +98,44 @@ void CopySharedNetworkGraph(SharedNode::ptr source,
   CopyNetworkSharedObjectGraph(*source, target_storage);
 }
 
-std::vector<std::uint8_t> SerializeRamDomainStorage(
+bool SerializeObjectGraph(ae::RamDomainStorage const& storage,
+                          std::vector<std::uint8_t>& out) {
+  out.clear();
+  ae::seri::BinaryVectorBuffer buffer{out};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  return archive.Save(storage.state).IsOk();
+}
+
+std::vector<std::uint8_t> SerializeObjectGraph(
     ae::RamDomainStorage const& storage) {
   std::vector<std::uint8_t> out;
-  std::uint32_t object_count = 0;
-  for (auto const& [obj_id, classes] : storage.state) {
-    if (classes.has_value()) {
-      ++object_count;
-    }
-  }
-  AppendU32(out, object_count);
-
-  for (auto const& [obj_id, classes] : storage.state) {
-    if (!classes.has_value()) {
-      continue;
-    }
-    AppendU32(out, obj_id.id());
-    AppendU32(out, static_cast<std::uint32_t>(classes->size()));
-    for (auto const& [class_id, versions] : *classes) {
-      AppendU32(out, class_id);
-      AppendU32(out, static_cast<std::uint32_t>(versions.size()));
-      for (auto const& [version, data] : versions) {
-        out.push_back(version);
-        AppendU32(out, static_cast<std::uint32_t>(data.size()));
-        out.insert(out.end(), data.begin(), data.end());
-      }
-    }
-  }
+  SerializeObjectGraph(storage, out);
   return out;
+}
+
+bool DeserializeObjectGraph(std::vector<std::uint8_t> const& payload,
+                            ae::RamDomainStorage& storage) {
+  storage.state.clear();
+  std::vector<std::uint8_t> payload_copy = payload;
+  ae::seri::BinaryVectorBuffer buffer{payload_copy};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  if (auto const res = archive.Load(storage.state); res.IsErr()) {
+    return false;
+  }
+  return archive.buffer().read_position() == payload.size();
 }
 
 std::vector<std::uint8_t> SerializeNetworkSharedObjectGraph(
     ae::Obj const& root) {
   ae::RamDomainStorage scratch;
   BuildNetworkSharedScratch(root, scratch);
-  return SerializeRamDomainStorage(scratch);
+  return SerializeObjectGraph(scratch);
 }
 
 FrozenNodeState FreezeNetworkSharedNodeState(SharedNode const& root) {
   ae::RamDomainStorage scratch;
   BuildNetworkSharedScratch(root, scratch);
 
-  // Extract covered SharedEventIds from the scratch snapshot of root.
-  // Reconstruct root in scratch domain to inspect the exact frozen journal.
   std::vector<SharedEventId> covered_event_ids;
   {
     ae::Domain scratch_domain{scratch};
@@ -152,7 +152,7 @@ FrozenNodeState FreezeNetworkSharedNodeState(SharedNode const& root) {
   }
 
   return FrozenNodeState{
-      .payload = SerializeRamDomainStorage(scratch),
+      .payload = SerializeObjectGraph(scratch),
       .covered_event_ids = std::move(covered_event_ids),
   };
 }
@@ -264,102 +264,6 @@ bool ValidateStoredClassChains(
   return true;
 }
 
-bool ValidateStandaloneEventStorage(
-    ae::RamDomainStorage const& parsed,
-    std::uint32_t expected_event_class_id) {
-  auto& registry = ae::Registry::GetRegistry();
-  if (registry.GenerationDistance(Event::kClassId, expected_event_class_id) < 0) {
-    return false;
-  }
-
-  std::vector<StoredClassChainInfo> chains;
-  if (!ValidateStoredClassChains(parsed, &chains)) {
-    return false;
-  }
-
-  if (chains.size() != 1) {
-    return false;
-  }
-  auto const& info = chains.front();
-  if (info.obj_id != kStandaloneEventScratchId) {
-    return false;
-  }
-  if (info.most_derived_class_id != expected_event_class_id) {
-    return false;
-  }
-
-  // Ensure the expected_event_class_id layer is actually present in storage.
-  auto const it = parsed.state.find(kStandaloneEventScratchId);
-  if (it == parsed.state.end() || !it->second.has_value()) {
-    return false;
-  }
-  if (it->second->find(expected_event_class_id) == it->second->end()) {
-    return false;
-  }
-
-  return true;
-}
-
-bool ParseObjectGraphPayload(std::vector<std::uint8_t> const& payload,
-                             ae::RamDomainStorage& parsed) {
-  std::size_t pos = 0;
-  std::uint32_t object_count = 0;
-  if (!ReadU32(payload, pos, object_count)) {
-    return false;
-  }
-  std::set<std::uint32_t> seen_objects;
-  for (std::uint32_t object = 0; object < object_count; ++object) {
-    std::uint32_t obj_id = 0;
-    std::uint32_t class_count = 0;
-    if (!ReadU32(payload, pos, obj_id) || !ReadU32(payload, pos, class_count)) {
-      return false;
-    }
-    if (!ae::ObjId{obj_id}.is_valid()) {
-      return false;
-    }
-    if (!seen_objects.insert(obj_id).second) {
-      // Duplicate object entry
-      return false;
-    }
-    std::set<std::uint32_t> seen_classes;
-    for (std::uint32_t klass = 0; klass < class_count; ++klass) {
-      std::uint32_t class_id = 0;
-      std::uint32_t version_count = 0;
-      if (!ReadU32(payload, pos, class_id) ||
-          !ReadU32(payload, pos, version_count)) {
-        return false;
-      }
-      if (!seen_classes.insert(class_id).second) {
-        // Duplicate class entry
-        return false;
-      }
-      std::set<std::uint8_t> seen_versions;
-      for (std::uint32_t version_index = 0; version_index < version_count;
-           ++version_index) {
-        if (pos >= payload.size()) {
-          return false;
-        }
-        auto const version = payload[pos++];
-        if (!seen_versions.insert(version).second) {
-          // Duplicate version entry
-          return false;
-        }
-        std::uint32_t size = 0;
-        if (!ReadU32(payload, pos, size) || pos + size > payload.size()) {
-          return false;
-        }
-        parsed.SaveData(
-            ae::DomainQuery{ae::ObjId{obj_id}, class_id, version},
-            ae::ObjectData{payload.begin() + static_cast<std::ptrdiff_t>(pos),
-                           payload.begin() +
-                               static_cast<std::ptrdiff_t>(pos + size)});
-        pos += size;
-      }
-    }
-  }
-  return pos == payload.size();
-}
-
 void CommitObjectGraph(ae::RamDomainStorage const& parsed,
                        ae::IDomainStorage& target_storage) {
   for (auto const& [obj_id, classes] : parsed.state) {
@@ -373,169 +277,14 @@ void CommitObjectGraph(ae::RamDomainStorage const& parsed,
 bool ImportObjectGraphPayload(std::vector<std::uint8_t> const& payload,
                               ae::IDomainStorage& target_storage) {
   ae::RamDomainStorage parsed;
-  if (!ParseObjectGraphPayload(payload, parsed)) {
+  if (!DeserializeObjectGraph(payload, parsed)) {
     return false;
   }
   CommitObjectGraph(parsed, target_storage);
   return true;
 }
 
-bool FreezeStandaloneEventPayload(ae::Obj const& event,
-                                  std::vector<std::uint8_t>& out) {
-  ae::RamDomainStorage scratch;
-  BuildNetworkSharedScratch(event, scratch);
-
-  ae::ObjId sole{};
-  std::uint32_t object_count = 0;
-  for (auto const& [obj_id, classes] : scratch.state) {
-    if (!classes.has_value()) {
-      continue;
-    }
-    ++object_count;
-    sole = obj_id;
-  }
-  // V1 refuses any Event whose graph reaches another object.
-  if (object_count != 1) {
-    return false;
-  }
-
-  auto const it = scratch.state.find(sole);
-  if (it == scratch.state.end() || !it->second.has_value()) {
-    return false;
-  }
-  auto const& classes = *it->second;
-
-  out.clear();
-  AppendU32(out, static_cast<std::uint32_t>(classes.size()));
-  for (auto const& [class_id, versions] : classes) {
-    AppendU32(out, class_id);
-    AppendU32(out, static_cast<std::uint32_t>(versions.size()));
-    for (auto const& [version, data] : versions) {
-      out.push_back(version);
-      AppendU32(out, static_cast<std::uint32_t>(data.size()));
-      out.insert(out.end(), data.begin(), data.end());
-    }
-  }
-  return true;
-}
-
-bool ParseStandaloneEventPayload(std::vector<std::uint8_t> const& payload,
-                                 ae::RamDomainStorage& parsed) {
-  std::size_t pos = 0;
-  std::uint32_t class_count = 0;
-  if (!ReadU32(payload, pos, class_count) || class_count == 0) {
-    return false;
-  }
-  std::set<std::uint32_t> seen_classes;
-  for (std::uint32_t klass = 0; klass < class_count; ++klass) {
-    std::uint32_t class_id = 0;
-    std::uint32_t version_count = 0;
-    if (!ReadU32(payload, pos, class_id) ||
-        !ReadU32(payload, pos, version_count) || version_count == 0) {
-      return false;
-    }
-    if (!seen_classes.insert(class_id).second) {
-      // Duplicate class entry
-      return false;
-    }
-    std::set<std::uint8_t> seen_versions;
-    for (std::uint32_t version_index = 0; version_index < version_count;
-         ++version_index) {
-      if (pos >= payload.size()) {
-        return false;
-      }
-      auto const version = payload[pos++];
-      if (!seen_versions.insert(version).second) {
-        // Duplicate version entry
-        return false;
-      }
-      std::uint32_t size = 0;
-      if (!ReadU32(payload, pos, size) || pos + size > payload.size()) {
-        return false;
-      }
-      parsed.SaveData(
-          ae::DomainQuery{kStandaloneEventScratchId, class_id, version},
-          ae::ObjectData{payload.begin() + static_cast<std::ptrdiff_t>(pos),
-                         payload.begin() +
-                             static_cast<std::ptrdiff_t>(pos + size)});
-      pos += size;
-    }
-  }
-  return pos == payload.size();
-}
-
-void CommitStandaloneEventObject(ae::RamDomainStorage const& parsed,
-                                 ae::ObjId local_id,
-                                 ae::IDomainStorage& target_storage) {
-  assert(local_id.is_valid());
-  auto const it = parsed.state.find(kStandaloneEventScratchId);
-  assert(it != parsed.state.end() && it->second.has_value());
-  for (auto const& [class_id, versions] : *it->second) {
-    for (auto const& [version, data] : versions) {
-      auto writer =
-          target_storage.Store(ae::DomainQuery{local_id, class_id, version});
-      assert(writer != nullptr);
-      if (!data.empty()) {
-        auto const result =
-            writer->Write(ae::seri::DataWriteTag{data.data(), data.size()});
-        assert(result);
-        (void)result;
-      }
-    }
-  }
-}
-
-namespace {
-
-ae::ObjId AllocateUniqueReceiverObjId(
-    ae::Domain const& domain,
-    ae::IDomainStorage& storage,
-    std::set<ae::ObjId> const& reserved_ids) {
-  while (true) {
-    auto const id = ae::ObjId::GenerateUnique();
-    if (!id.is_valid()) {
-      continue;
-    }
-    if (reserved_ids.find(id) != reserved_ids.end()) {
-      continue;
-    }
-    if (domain.Find(id)) {
-      continue;
-    }
-    if (!storage.Enumerate(id).empty()) {
-      continue;
-    }
-    return id;
-  }
-}
-
-void RemapObjectPointers(
-    ae::Obj& obj, ae::Domain* target_domain,
-    std::map<ae::ObjId, ae::ObjId> const& mapping) {
-  auto const class_id = obj.GetClassId();
-  auto& reg = ae::Registry::GetRegistry();
-  if (reg.GenerationDistance(Event::kClassId, class_id) >= 0) {
-    static_cast<Event&>(obj).RemapPointers(target_domain, mapping);
-  } else if (reg.GenerationDistance(Node::kClassId, class_id) >= 0) {
-    static_cast<Node&>(obj).RemapPointers(target_domain, mapping);
-  }
-}
-
-bool ValidateObjectPointers(ae::Obj const& obj,
-                            ae::RamDomainStorage const& storage) {
-  auto const class_id = obj.GetClassId();
-  auto& reg = ae::Registry::GetRegistry();
-  if (reg.GenerationDistance(Event::kClassId, class_id) >= 0) {
-    return static_cast<Event const&>(obj).ValidatePointers(storage);
-  } else if (reg.GenerationDistance(Node::kClassId, class_id) >= 0) {
-    return static_cast<Node const&>(obj).ValidatePointers(storage);
-  }
-  return true;
-}
-
-}  // namespace
-
-bool FreezeClosedEventGraphPayload(
+bool FreezeEventPayload(
     ae::Obj const& event,
     EventGraphExportBoundary const& boundary,
     std::vector<std::uint8_t>& out_payload) {
@@ -564,33 +313,44 @@ bool FreezeClosedEventGraphPayload(
   }
 
   out_payload.clear();
-  AppendU32(out_payload, event.obj_id.id());
-  auto const storage_bytes = SerializeRamDomainStorage(scratch);
-  out_payload.insert(out_payload.end(), storage_bytes.begin(),
-                     storage_bytes.end());
+  ae::seri::BinaryVectorBuffer buffer{out_payload};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  if (auto const res = archive.Save(event.obj_id); res.IsErr()) {
+    return false;
+  }
+  if (auto const res = archive.Save(scratch.state); res.IsErr()) {
+    return false;
+  }
   return true;
 }
 
-bool ParseClosedEventGraphPayload(
+bool FreezeEventPayload(
+    ae::Obj const& event,
+    std::vector<std::uint8_t>& out_payload) {
+  return FreezeEventPayload(event, EventGraphExportBoundary{event.obj_id},
+                            out_payload);
+}
+
+bool ParseEventPayload(
     std::vector<std::uint8_t> const& payload,
     ae::RamDomainStorage& parsed,
     ae::ObjId& out_root_id) {
-  std::size_t pos = 0;
-  std::uint32_t root_id_raw = 0;
-  if (!ReadU32(payload, pos, root_id_raw)) {
+  parsed.state.clear();
+  std::vector<std::uint8_t> payload_copy = payload;
+  ae::seri::BinaryVectorBuffer buffer{payload_copy};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  if (auto const res = archive.Load(out_root_id); res.IsErr()) {
     return false;
   }
-  out_root_id = ae::ObjId{root_id_raw};
   if (!out_root_id.is_valid()) {
     return false;
   }
-
-  std::vector<std::uint8_t> const storage_payload{
-      payload.begin() + static_cast<std::ptrdiff_t>(pos), payload.end()};
-  if (!ParseObjectGraphPayload(storage_payload, parsed)) {
+  if (auto const res = archive.Load(parsed.state); res.IsErr()) {
     return false;
   }
-
+  if (archive.buffer().read_position() != payload.size()) {
+    return false;
+  }
   auto const it = parsed.state.find(out_root_id);
   if (it == parsed.state.end() || !it->second.has_value()) {
     return false;
@@ -645,12 +405,37 @@ bool ValidateClosedEventGraphStorage(
     return false;
   }
 
+  std::map<ae::ObjId, std::uint32_t> most_derived_classes;
   for (auto const& info : chains) {
+    most_derived_classes[info.obj_id] = info.most_derived_class_id;
     auto obj = scratch_graph.LoadRoot(info.obj_id);
     if (!obj) {
       return false;
     }
-    if (!ValidateObjectPointers(*obj, scratch_copy)) {
+  }
+
+  bool validation_ok = true;
+  detail::OperationStorage val_storage{
+      detail::OperationMode::kValidate,
+      &parsed,
+      &most_derived_classes,
+      /*target_domain=*/nullptr,
+      /*real_storage=*/nullptr,
+      /*old_to_new=*/nullptr,
+      /*new_id_to_obj=*/nullptr,
+      &validation_ok};
+
+  ae::Domain val_domain{val_storage};
+  ae::DomainGraph val_graph{&val_domain,
+                            ae::GraphSerializationScope::NetworkShared};
+
+  for (auto const& info : chains) {
+    auto obj = scratch_domain.Find(info.obj_id);
+    if (!obj) {
+      return false;
+    }
+    val_graph.SaveRoot(obj, info.obj_id);
+    if (!validation_ok) {
       return false;
     }
   }
@@ -711,17 +496,38 @@ ae::Ptr<Event> ImportClosedEventGraph(
     loaded_objects.emplace_back(old_to_new[info.obj_id], obj);
   }
 
+  std::map<ae::ObjId, ae::Ptr<ae::Obj>> new_id_to_obj;
   for (auto& [new_id, obj] : loaded_objects) {
     obj->obj_id = new_id;
     obj->domain = &receiver_domain;
-    RemapObjectPointers(*obj, &receiver_domain, old_to_new);
+    new_id_to_obj[new_id] = obj;
   }
 
-  ae::DomainGraph save_graph{&receiver_domain,
-                             ae::GraphSerializationScope::NetworkShared};
   for (auto& [new_id, obj] : loaded_objects) {
-    save_graph.SaveRoot(obj, new_id);
     receiver_domain.AddObject(new_id, obj);
+  }
+
+  bool remap_ok = true;
+  detail::OperationStorage remap_storage{
+      detail::OperationMode::kRemap,
+      /*validation_storage=*/nullptr,
+      /*most_derived_classes=*/nullptr,
+      &receiver_domain,
+      &receiver_storage,
+      &old_to_new,
+      &new_id_to_obj,
+      &remap_ok};
+
+  ae::Domain remap_domain{remap_storage};
+  ae::DomainGraph remap_graph{&remap_domain,
+                              ae::GraphSerializationScope::NetworkShared};
+
+  for (auto& [new_id, obj] : loaded_objects) {
+    remap_graph.SaveRoot(obj, new_id);
+  }
+
+  if (!remap_ok) {
+    return {};
   }
 
   auto receiver_root = receiver_domain.Find(old_to_new[root_event_id]);

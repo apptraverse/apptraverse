@@ -14,6 +14,7 @@
 #include "aether-objects/obj/obj_ptr.h"
 
 #include "apptraverse/event.h"
+#include "apptraverse/object_link.h"
 #include "apptraverse/shared_event_id.h"
 #include "apptraverse/shared_node.h"
 
@@ -36,13 +37,20 @@ void CopySharedNetworkGraph(SharedNode::ptr source,
                             ae::Domain& target_domain,
                             ae::IDomainStorage& target_storage);
 
-// Serialize any RamDomainStorage into the canonical wire representation.
-std::vector<std::uint8_t> SerializeRamDomainStorage(
+// Serialize any RamDomainStorage state into transportable bytes using native
+// Aether BinaryArchive serialization.
+bool SerializeObjectGraph(ae::RamDomainStorage const& storage,
+                          std::vector<std::uint8_t>& out);
+std::vector<std::uint8_t> SerializeObjectGraph(
     ae::RamDomainStorage const& storage);
 
-// Same network-shared view, as transportable bytes. Object, class, and version
-// identities are preserved, so a replica that imports the payload keeps the
-// sender's ObjIds and Share relationship identities.
+// Deserialize an untrusted object graph payload into scratch RamDomainStorage
+// using native Aether BinaryArchive serialization. Returns false on error.
+bool DeserializeObjectGraph(std::vector<std::uint8_t> const& payload,
+                            ae::RamDomainStorage& storage);
+
+// Same network-shared view, as transportable bytes produced through native
+// Aether serialization.
 std::vector<std::uint8_t> SerializeNetworkSharedObjectGraph(
     ae::Obj const& root);
 
@@ -69,20 +77,6 @@ bool ValidateStoredClassChains(
     ae::RamDomainStorage const& parsed,
     std::vector<StoredClassChainInfo>* out_chains = nullptr);
 
-// Specialization for standalone Event payloads:
-// Exactly one object (under kStandaloneEventScratchId), its most-derived class
-// matches expected_event_class_id, derives from Event, and the class layer
-// is actually present in storage.
-bool ValidateStandaloneEventStorage(
-    ae::RamDomainStorage const& parsed,
-    std::uint32_t expected_event_class_id);
-
-// Parse an untrusted payload into an in-memory graph. Nothing outside parsed
-// is touched, so a caller can inspect the result before deciding whether the
-// replica accepts it. Returns false for malformed or truncated input.
-bool ParseObjectGraphPayload(std::vector<std::uint8_t> const& payload,
-                             ae::RamDomainStorage& parsed);
-
 // Write an already parsed graph into a replica's own storage.
 void CommitObjectGraph(ae::RamDomainStorage const& parsed,
                        ae::IDomainStorage& target_storage);
@@ -92,27 +86,8 @@ void CommitObjectGraph(ae::RamDomainStorage const& parsed,
 bool ImportObjectGraphPayload(std::vector<std::uint8_t> const& payload,
                               ae::IDomainStorage& target_storage);
 
-// V1 standalone Event: the reachable network-shared graph is the Event root
-// and nothing else. The wire form is that object's class/version layers and
-// does not make the sender Event ObjId a receiver storage key.
-//
-// Scratch objects used while parsing live under kStandaloneEventScratchId in
-// the caller's RamDomainStorage, never in production storage.
-inline constexpr ae::ObjId kStandaloneEventScratchId{1};
-
-bool FreezeStandaloneEventPayload(ae::Obj const& event,
-                                  std::vector<std::uint8_t>& out);
-
-bool ParseStandaloneEventPayload(std::vector<std::uint8_t> const& payload,
-                                 ae::RamDomainStorage& parsed);
-
-// Copy one scratch object's class layers into target storage under local_id.
-void CommitStandaloneEventObject(ae::RamDomainStorage const& parsed,
-                                 ae::ObjId local_id,
-                                 ae::IDomainStorage& target_storage);
-
 // Explicit boundary defining which object IDs are permitted to be exported
-// as part of a closed Event graph. References outside this boundary are
+// as part of an Event graph. References outside this boundary are
 // refused explicitly.
 class EventGraphExportBoundary {
  public:
@@ -141,6 +116,13 @@ class EventGraphExportBoundary {
     }
   }
 
+  template <typename T, LinkScope Scope>
+  void Permit(ObjectLink<T, Scope> const& link) {
+    if (link.is_valid()) {
+      Permit(link.id());
+    }
+  }
+
   bool IsPermitted(ae::ObjId id) const {
     return permitted_ids_.find(id) != permitted_ids_.end();
   }
@@ -153,26 +135,32 @@ class EventGraphExportBoundary {
   std::set<ae::ObjId> permitted_ids_;
 };
 
-// Freeze a closed Event graph reachable from `event`.
+// Freeze an Event graph reachable from `event`.
 // All reachable network-shared objects must be within `boundary`.
 // If any reachable network-shared object is outside `boundary`, returns false
 // explicitly.
 // Leaves source state and source storage untouched.
-// Produces a self-contained payload that can be parsed and imported
-// after the source Domain is destroyed.
-bool FreezeClosedEventGraphPayload(
+// Produces a self-contained payload using native Aether serialization.
+bool FreezeEventPayload(
     ae::Obj const& event,
     EventGraphExportBoundary const& boundary,
     std::vector<std::uint8_t>& out_payload);
 
-// Parse untrusted closed Event graph payload into scratch RamDomainStorage.
-// Returns false on malformed or truncated payload, or invalid root ID.
-bool ParseClosedEventGraphPayload(
+// Overload for standalone/scalar Event: permits only `event.obj_id`.
+// If `event` reaches any other network-shared object, returns false explicitly.
+bool FreezeEventPayload(
+    ae::Obj const& event,
+    std::vector<std::uint8_t>& out_payload);
+
+// Parse untrusted Event graph payload into scratch RamDomainStorage.
+// Uses native Aether serialization. Returns false on malformed or truncated payload,
+// or invalid root ID.
+bool ParseEventPayload(
     std::vector<std::uint8_t> const& payload,
     ae::RamDomainStorage& parsed,
     ae::ObjId& out_root_id);
 
-// Validate untrusted closed Event graph storage in disposable scratch.
+// Validate untrusted Event graph storage in disposable scratch.
 // Checks:
 // - complete object table and class chains;
 // - root Event type derives from Event;
