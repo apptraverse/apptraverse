@@ -53,4 +53,8 @@ if(TARGET aether)
   target_link_libraries(apptraverse_chat_aether_probe PRIVATE
     chat_demo_aether
   )
+
+  if(WIN32)
+    add_subdirectory(windows)
+  endif()
 endif()
