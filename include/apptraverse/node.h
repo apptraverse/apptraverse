@@ -18,6 +18,7 @@
 
 #include "apptraverse/event_record.h"
 #include "apptraverse/journal_retention_policy.h"
+#include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse {
@@ -90,36 +91,8 @@ class Node : public ae::Obj {
     dnv(format, base_, base, journal);
   }
 
-  Node::ptr base;
+  SharedPtr<Node> base;
   std::vector<EventRecord> journal;
-
-  virtual void RemapPointers(
-      ae::Domain* target_domain,
-      std::map<ae::ObjId, ae::ObjId> const& mapping) {
-    if (base.is_valid()) {
-      auto const it = mapping.find(base.id());
-      if (it != mapping.end()) {
-        base = Node::ptr{target_domain, it->second, base.flags(), base.cached()};
-      }
-    }
-  }
-
-  virtual bool ValidatePointers(ae::RamDomainStorage const& storage) const {
-    if (base.is_valid()) {
-      auto const it = storage.state.find(base.id());
-      if (it == storage.state.end() || !it->second.has_value() ||
-          !base.is_loaded()) {
-        return false;
-      }
-      if (base.cached()) {
-        if (ae::Registry::GetRegistry().GenerationDistance(
-                Node::kClassId, base.cached()->GetClassId()) < 0) {
-          return false;
-        }
-      }
-    }
-    return true;
-  }
 
   std::uint64_t Generation() const { return generation_; }
 

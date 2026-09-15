@@ -29,18 +29,6 @@ class Event : public ae::Obj {
 
   bool CanApplyTo(Node const& target) const { return CanApplyToImpl(target); }
 
-  virtual void RemapPointers(
-      ae::Domain* target_domain,
-      std::map<ae::ObjId, ae::ObjId> const& mapping) {
-    (void)target_domain;
-    (void)mapping;
-  }
-
-  virtual bool ValidatePointers(ae::RamDomainStorage const& storage) const {
-    (void)storage;
-    return true;
-  }
-
   // Most-derived Node class this Event is written against. Used to reject an
   // untrusted Event whose EventFor target is not this Node, before CanApplyTo
   // or ApplyTo would static_cast.

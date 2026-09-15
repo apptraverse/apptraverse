@@ -5,7 +5,6 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
-#include "apptraverse/remap_pointers.h"
 
 namespace apptraverse {
 namespace detail {
@@ -43,18 +42,6 @@ class EventFor : public Event {
     return detail::CanApplyEventTo(
         static_cast<Target const&>(target),
         static_cast<ConcreteEvent const&>(*this));
-  }
-
-  void RemapPointers(
-      ae::Domain* target_domain,
-      std::map<ae::ObjId, ae::ObjId> const& mapping) override {
-    detail::RemapReflectedPointers(
-        static_cast<ConcreteEvent&>(*this), target_domain, mapping);
-  }
-
-  bool ValidatePointers(ae::RamDomainStorage const& storage) const override {
-    return detail::ValidateReflectedPointers(
-        static_cast<ConcreteEvent const&>(*this), storage);
   }
 
   std::uint32_t TargetClassIdImpl() const override { return Target::kClassId; }
