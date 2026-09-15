@@ -534,4 +534,126 @@ ae::Ptr<Event> ImportClosedEventGraph(
   return ae::Ptr<Event>{receiver_root};
 }
 
+namespace {
+
+bool CopyStoredObjectAs(
+    ae::RamDomainStorage const& source,
+    ae::ObjId source_id,
+    ae::ObjId destination_id,
+    ae::IDomainStorage& destination) {
+  auto const it = source.state.find(source_id);
+  if (it == source.state.end() || !it->second.has_value()) {
+    return false;
+  }
+  for (auto const& [class_id, versions] : *it->second) {
+    for (auto const& [version, data] : versions) {
+      auto writer = destination.Store(
+          ae::DomainQuery{destination_id, class_id, version});
+      if (writer == nullptr) {
+        return false;
+      }
+      if (!data.empty()) {
+        auto const result = writer->Write(
+            ae::seri::DataWriteTag{data.data(), data.size()});
+        if (!result) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
+bool ValidateStandaloneEventGraph(
+    ae::RamDomainStorage const& parsed,
+    ae::ObjId root_id,
+    std::uint32_t expected_event_class_id) {
+  if (!root_id.is_valid()) {
+    return false;
+  }
+
+  std::vector<StoredClassChainInfo> chains;
+  if (!ValidateStoredClassChains(parsed, &chains)) {
+    return false;
+  }
+
+  std::size_t active_count = 0;
+  ae::ObjId only_id;
+  for (auto const& [obj_id, classes] : parsed.state) {
+    if (classes.has_value()) {
+      ++active_count;
+      only_id = obj_id;
+    }
+  }
+  if (active_count != 1 || only_id != root_id) {
+    return false;
+  }
+
+  auto const chain_it =
+      std::find_if(chains.begin(), chains.end(),
+                   [&](StoredClassChainInfo const& c) {
+                     return c.obj_id == root_id;
+                   });
+  if (chain_it == chains.end()) {
+    return false;
+  }
+
+  if (chain_it->most_derived_class_id != expected_event_class_id) {
+    return false;
+  }
+
+  auto& reg = ae::Registry::GetRegistry();
+  if (reg.GenerationDistance(Event::kClassId, expected_event_class_id) < 0) {
+    return false;
+  }
+
+  ae::RamDomainStorage scratch = parsed;
+  ae::Domain scratch_domain{scratch};
+  ae::DomainGraph graph{&scratch_domain};
+  auto loaded = graph.LoadRoot(root_id);
+  if (!loaded) {
+    return false;
+  }
+  if (loaded->GetClassId() != expected_event_class_id) {
+    return false;
+  }
+
+  return true;
+}
+
+ae::Ptr<Event> ImportStandaloneEventGraph(
+    ae::RamDomainStorage const& parsed,
+    ae::ObjId root_id,
+    std::uint32_t expected_event_class_id,
+    ae::Domain& receiver_domain,
+    ae::IDomainStorage& receiver_storage) {
+  if (!ValidateStandaloneEventGraph(parsed, root_id, expected_event_class_id)) {
+    return {};
+  }
+
+  std::set<ae::ObjId> reserved_ids;
+  auto const destination_id =
+      AllocateUniqueReceiverObjId(receiver_domain, receiver_storage, reserved_ids);
+  if (!destination_id.is_valid()) {
+    return {};
+  }
+
+  if (!CopyStoredObjectAs(parsed, root_id, destination_id, receiver_storage)) {
+    return {};
+  }
+
+  ae::DomainGraph receiver_graph{&receiver_domain};
+  auto loaded = receiver_graph.LoadRoot(destination_id);
+  if (!loaded) {
+    return {};
+  }
+  if (loaded->GetClassId() != expected_event_class_id) {
+    return {};
+  }
+
+  return ae::Ptr<Event>{loaded};
+}
+
 }  // namespace apptraverse

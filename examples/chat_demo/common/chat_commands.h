@@ -9,6 +9,7 @@
 #include "apptraverse/event_for.h"
 #include "apptraverse/link.h"
 #include "apptraverse/shared_event_id.h"
+#include "apptraverse/shared_event_order.h"
 
 #include "chat_model.h"
 
@@ -254,6 +255,13 @@ class MessageAddedEvent
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, message);
+  }
+
+  bool MatchesSharedMetadata(
+      apptraverse::SharedEventId const& identity,
+      apptraverse::SharedEventOrder const& order) const override {
+    return message.id == identity &&
+           message.timestamp_us == order.timestamp_us;
   }
 
   MessageValue message;

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -185,6 +186,21 @@ bool SetDesktopBounds(ChatWorkspace& workspace, DesktopBounds const& bounds,
 
 bool SelectChat(ChatWorkspace& workspace, ae::ObjId entry_id,
                 PersistLocalState const& persist) {
+  if (!entry_id.is_valid()) {
+    return false;
+  }
+
+  bool found = false;
+  for (auto const& entry : workspace.chats) {
+    if (entry.is_valid() && entry.id() == entry_id) {
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    return false;
+  }
+
   if (workspace.selected_chat_id == entry_id) {
     return true;
   }
@@ -207,7 +223,9 @@ SharedEventId SubmitDraft(ChatWorkspace& workspace, ChatEntry& entry,
       !entry.room.is_valid() ||
       entry.draft.empty() ||
       now_us == 0 ||
-      workspace.next_message_sequence == 0) {
+      workspace.next_message_sequence == 0 ||
+      workspace.next_message_sequence ==
+          std::numeric_limits<std::uint64_t>::max()) {
     return {};
   }
 

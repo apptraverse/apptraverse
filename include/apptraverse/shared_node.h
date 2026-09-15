@@ -53,6 +53,7 @@ class SetLinkInitialSyncPhaseEvent;
 class BeginInitialSyncEvent;
 class CompleteInitialSyncEvent;
 class NoteInitialSyncReceivedEvent;
+class CompleteFromReceivedSnapshotEvent;
 class BeginIncrementalEventSyncEvent;
 class CompleteIncrementalEventSyncEvent;
 
@@ -151,6 +152,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void SetInitialSyncPhase(InitialSyncPhase phase);
   void CompleteInitialSync();
   void NoteInitialSyncReceived(ae::ObjId packet_id);
+  void CompleteFromReceivedSnapshot(std::vector<SharedEventId> delivered);
   void BeginIncrementalEvent(SharedEventId identity,
                              std::vector<std::uint8_t> packet);
   void CompleteIncrementalEvent();
@@ -164,6 +166,8 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void Apply(BeginInitialSyncEvent const& event);
   void Apply(CompleteInitialSyncEvent const& event);
   void Apply(NoteInitialSyncReceivedEvent const& event);
+  bool CanApply(CompleteFromReceivedSnapshotEvent const& event) const;
+  void Apply(CompleteFromReceivedSnapshotEvent const& event);
   void Apply(BeginIncrementalEventSyncEvent const& event);
   void Apply(CompleteIncrementalEventSyncEvent const& event);
 };
@@ -231,6 +235,34 @@ class NoteInitialSyncReceivedEvent
   AE_OBJECT_REFLECT(AE_MMBR(packet_id))
 
   ae::ObjId packet_id;
+};
+
+// Receiver: marks the source Share Complete upon importing an initial snapshot,
+// recording covered events already known to the sender.
+class CompleteFromReceivedSnapshotEvent
+    : public EventFor<LinkSyncState, CompleteFromReceivedSnapshotEvent> {
+  APPTRAVERSE_OBJECT(CompleteFromReceivedSnapshotEvent, Event, 0)
+
+ protected:
+  CompleteFromReceivedSnapshotEvent() = default;
+
+ public:
+  explicit CompleteFromReceivedSnapshotEvent(ae::ObjProp prop)
+      : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(delivered_event_ids))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, delivered_event_ids);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, delivered_event_ids);
+  }
+
+  std::vector<SharedEventId> delivered_event_ids;
 };
 
 // Freeze one incremental standalone Event packet for this relationship.

@@ -13,6 +13,7 @@ APPTRAVERSE_REGISTER(SetLinkInitialSyncPhaseEvent);
 APPTRAVERSE_REGISTER(BeginInitialSyncEvent);
 APPTRAVERSE_REGISTER(CompleteInitialSyncEvent);
 APPTRAVERSE_REGISTER(NoteInitialSyncReceivedEvent);
+APPTRAVERSE_REGISTER(CompleteFromReceivedSnapshotEvent);
 APPTRAVERSE_REGISTER(BeginIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(CompleteIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(SharedNode);
@@ -78,6 +79,34 @@ void LinkSyncState::Apply(CompleteInitialSyncEvent const&) {
 void LinkSyncState::Apply(NoteInitialSyncReceivedEvent const& event) {
   received_initial_packet_id = event.packet_id;
   initial_sync_phase = static_cast<std::uint8_t>(InitialSyncPhase::Complete);
+  NoteMaterializedChange();
+}
+
+void LinkSyncState::CompleteFromReceivedSnapshot(
+    std::vector<SharedEventId> delivered) {
+  auto event =
+      CompleteFromReceivedSnapshotEvent::ptr::Create(ae::CreateWith{*domain});
+  event->delivered_event_ids = std::move(delivered);
+  Commit(event);
+}
+
+bool LinkSyncState::CanApply(
+    CompleteFromReceivedSnapshotEvent const& event) const {
+  (void)event;
+  return GetInitialSyncPhase() == InitialSyncPhase::NotStarted &&
+         !HasPendingEvent();
+}
+
+void LinkSyncState::Apply(CompleteFromReceivedSnapshotEvent const& event) {
+  initial_sync_phase = static_cast<std::uint8_t>(InitialSyncPhase::Complete);
+  for (auto const& identity : event.delivered_event_ids) {
+    if (!identity.origin_uid.empty() && !HasDelivered(identity)) {
+      delivered_event_ids.push_back(identity);
+    }
+  }
+  pending_initial_packet_id = ae::ObjId{};
+  pending_initial_packet.clear();
+  pending_initial_covered_event_ids.clear();
   NoteMaterializedChange();
 }
 

@@ -194,8 +194,10 @@ class ChatWorkspace
   DesktopBounds desktop_bounds;
 
   void Apply(ChatEntryAddedEvent const& event);
+  bool CanApply(ChatSelectedEvent const& event) const;
   void Apply(ChatSelectedEvent const& event);
   void Apply(LocalEndpointBoundEvent const& event);
+  bool CanApply(MessageSequenceReservedEvent const& event) const;
   void Apply(MessageSequenceReservedEvent const& event);
   void Apply(DesktopBoundsChangedEvent const& event);
 };

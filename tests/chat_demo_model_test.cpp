@@ -640,6 +640,141 @@ void TestDirectoryDomainStorageRoundTrip() {
   std::filesystem::remove_all(temp_dir);
 }
 
+void TestSequenceOverflowRejection() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto ws = CreateWorkspace(domain);
+  BindLocalEndpoint(*ws, "ep-overflow");
+
+  auto e = OpenOrSelectChat(*ws, "peer-overflow", "OverflowPeer");
+  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "ep-remote");
+  auto room = CreateRoom(domain, ae::ObjId{30});
+  BindChat(*e, link, room);
+
+  ws->next_message_sequence = std::numeric_limits<std::uint64_t>::max();
+  SetDraft(*e, "overflow draft");
+
+  bool persist_called = false;
+  auto id = SubmitDraft(*ws, *e, 1000, [&] { persist_called = true; });
+
+  CHECK(id.origin_uid.empty());
+  CHECK(id.origin_sequence == 0);
+  CHECK(e->draft == "overflow draft");
+  CHECK(room->messages.empty());
+  CHECK(ws->next_message_sequence == std::numeric_limits<std::uint64_t>::max());
+  CHECK(!persist_called);
+
+  // CanApply checks on MessageSequenceReservedEvent
+  auto ev_max =
+      MessageSequenceReservedEvent::ptr::Create(ae::CreateWith{domain});
+  ev_max->reserved_sequence = std::numeric_limits<std::uint64_t>::max();
+  CHECK(!ws->CanApply(*ev_max));
+
+  auto ev_zero =
+      MessageSequenceReservedEvent::ptr::Create(ae::CreateWith{domain});
+  ev_zero->reserved_sequence = 0;
+  CHECK(!ws->CanApply(*ev_zero));
+
+  ws->next_message_sequence = 42;
+  auto ev_mismatch =
+      MessageSequenceReservedEvent::ptr::Create(ae::CreateWith{domain});
+  ev_mismatch->reserved_sequence = 43;
+  CHECK(!ws->CanApply(*ev_mismatch));
+
+  auto ev_valid =
+      MessageSequenceReservedEvent::ptr::Create(ae::CreateWith{domain});
+  ev_valid->reserved_sequence = 42;
+  CHECK(ws->CanApply(*ev_valid));
+}
+
+void TestSelectChatValidation() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto ws = CreateWorkspace(domain);
+
+  auto e1 = OpenOrSelectChat(*ws, "peer-1", "Peer 1");
+  auto e2 = OpenOrSelectChat(*ws, "peer-2", "Peer 2");
+  CHECK(ws->selected_chat_id == e2.id());
+
+  bool persist_called = false;
+
+  // 1. Invalid zero ObjId rejected
+  CHECK(!SelectChat(*ws, ae::ObjId{}, [&] { persist_called = true; }));
+  CHECK(!persist_called);
+  CHECK(ws->selected_chat_id == e2.id());
+
+  // 2. Valid Domain object not in chats rejected
+  auto outsider = ChatEntry::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*outsider);
+  CHECK(!SelectChat(*ws, outsider.id(), [&] { persist_called = true; }));
+  CHECK(!persist_called);
+  CHECK(ws->selected_chat_id == e2.id());
+
+  // 3. Valid ChatEntry in chats accepted
+  CHECK(SelectChat(*ws, e1.id(), [&] { persist_called = true; }));
+  CHECK(persist_called);
+  CHECK(ws->selected_chat_id == e1.id());
+
+  // CanApply checks
+  auto ev_zero = ChatSelectedEvent::ptr::Create(ae::CreateWith{domain});
+  ev_zero->entry_id = ae::ObjId{};
+  CHECK(!ws->CanApply(*ev_zero));
+
+  auto ev_outsider = ChatSelectedEvent::ptr::Create(ae::CreateWith{domain});
+  ev_outsider->entry_id = outsider.id();
+  CHECK(!ws->CanApply(*ev_outsider));
+
+  auto ev_valid = ChatSelectedEvent::ptr::Create(ae::CreateWith{domain});
+  ev_valid->entry_id = e1.id();
+  CHECK(ws->CanApply(*ev_valid));
+}
+
+void TestMessageMetadataMatchesJournalMetadata() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto room = CreateRoom(domain);
+
+  SharedEventId const id1{.origin_uid = "origin-a", .origin_sequence = 1};
+  SharedEventOrder const order1{.timestamp_us = 1000};
+
+  // 1. Matching metadata succeeds
+  {
+    auto ev = MessageAddedEvent::ptr::Create(ae::CreateWith{domain});
+    ev->message =
+        MessageValue{.id = id1, .timestamp_us = 1000, .text = "Hello"};
+    CHECK(room->TryInsertShared(ev, id1, order1));
+    CHECK(room->messages.size() == 1);
+    CHECK(room->journal.size() == 1);
+  }
+
+  // 2. Mismatching ID fails
+  {
+    SharedEventId const id2{.origin_uid = "origin-a", .origin_sequence = 2};
+    SharedEventOrder const order2{.timestamp_us = 2000};
+    auto ev = MessageAddedEvent::ptr::Create(ae::CreateWith{domain});
+    ev->message = MessageValue{
+        .id = SharedEventId{.origin_uid = "origin-b", .origin_sequence = 2},
+        .timestamp_us = 2000,
+        .text = "Mismatch ID"};
+    CHECK(!room->TryInsertShared(ev, id2, order2));
+    CHECK(room->messages.size() == 1);
+    CHECK(room->journal.size() == 1);
+  }
+
+  // 3. Mismatching timestamp fails
+  {
+    SharedEventId const id3{.origin_uid = "origin-a", .origin_sequence = 3};
+    SharedEventOrder const order3{.timestamp_us = 3000};
+    auto ev = MessageAddedEvent::ptr::Create(ae::CreateWith{domain});
+    ev->message = MessageValue{.id = id3,
+                               .timestamp_us = 9999,
+                               .text = "Mismatch time"};
+    CHECK(!room->TryInsertShared(ev, id3, order3));
+    CHECK(room->messages.size() == 1);
+    CHECK(room->journal.size() == 1);
+  }
+}
+
 }  // namespace
 }  // namespace apptraverse::example::chat_demo
 
@@ -663,6 +798,9 @@ int main() {
   TestScenario14_JournalReplayOrder();
   TestScenario15_ExportOnlyChatRoomNetworkShared();
   TestDirectoryDomainStorageRoundTrip();
+  TestSequenceOverflowRejection();
+  TestSelectChatValidation();
+  TestMessageMetadataMatchesJournalMetadata();
 
   std::cout << "All 15 scenarios and DirectoryDomainStorage test passed!\n";
   return 0;

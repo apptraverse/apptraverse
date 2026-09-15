@@ -614,6 +614,15 @@ SurfacePresenter
   and `ChatWorkspace` (Node root) implemented with pure projection, native serialization,
   scalar `MessageValue` events, command layer (`OpenOrSelectChat`, `BindChat`,
   `SubmitDraft`, etc.), launch option parser, and 15 comprehensive model regression scenarios.
+- [CHAT DEMO 02]: Two-way scalar chat synchronization over `MemoryNetwork`:
+  - Sequence overflow protection in `SubmitDraft` and `MessageSequenceReservedEvent::CanApply`.
+  - Chat selection membership validation in `SelectChat` and `ChatSelectedEvent::CanApply`.
+  - Message payload metadata consistency verification via `Event::MatchesSharedMetadata` and `Node::TryCommitSharedInto`.
+  - Standalone-scalar Event allow-list in `SharedSyncRuntime` (`AllowStandaloneEventClass`).
+  - Standalone Event graph validation and import (`ValidateStandaloneEventGraph`, `ImportStandaloneEventGraph`, `CopyStoredObjectAs`) bypassing `OperationStorage`.
+  - Snapshot local object collision rejection in `ImportValidatedNode` before storage writes or ACK.
+  - Two-way initial sync completion: `CompleteFromReceivedSnapshotEvent` on `LinkSyncState` marking source Share complete on first snapshot import.
+  - End-to-end product test `apptraverse_chat_demo_sync_test` proving two-way messaging, replies, duplicate ACK, restart persistence, and metadata mismatch rejection.
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.

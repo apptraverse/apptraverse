@@ -307,7 +307,7 @@ void TestInitialSyncAcrossReplicas() {
   CHECK(b_state->pending_initial_packet.empty());
   CHECK(!b_state->pending_initial_packet_id.is_valid());
   CHECK(SyncStateOf(b_node, fixture.share_to_a)->GetInitialSyncPhase() ==
-        InitialSyncPhase::NotStarted);
+        InitialSyncPhase::Complete);
 
   // A is still Pending until the ACK arrives: a successful transport write is
   // not an acknowledgement.
@@ -963,6 +963,40 @@ void TestFrameDecodingIsStrict() {
   CHECK(!PeekSyncFrameType(std::vector<std::uint8_t>{1, 99}, type));
 }
 
+void TestReceiverLocalSentinelCollisionRejected() {
+  MemoryNetwork network;
+  Replica a{network, kEndpointA, kEndpointB};
+  Replica b{network, kEndpointB, kEndpointA};
+  a.Start();
+  b.Start();
+
+  auto const fixture = BuildSharedNode(a, 5301, 5302, 5303, 777);
+
+  // Create a receiver-local sentinel object on B whose ObjId collides with
+  // one of the objects inside A's node graph (link_a = 5302)
+  auto sentinel = MakeMemoryLink(*b.domain, ae::ObjId{5302}, "sentinel-endpoint-b");
+  sentinel.Save();
+
+  b.sync->ExpectInitialNode(fixture.node_id);
+  a.sync->SyncInitialState(fixture.node_id, fixture.share_to_b);
+
+  CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+
+  // B must reject snapshot: no new target SharedNode registered
+  CHECK(!b.sync->FindNode(fixture.node_id).is_valid());
+
+  // Sentinel must remain untouched in class and value
+  auto loaded_sentinel = b.domain->Find(ae::ObjId{5302});
+  CHECK(loaded_sentinel);
+  CHECK(loaded_sentinel->GetClassId() == MemoryLink::kClassId);
+  auto& mem_link = static_cast<MemoryLink&>(*loaded_sentinel);
+  CHECK(mem_link.endpoint_uid == "sentinel-endpoint-b");
+
+  // No ACK sent back to A
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -985,6 +1019,7 @@ int main() {
   apptraverse::test::TestMalformedClassLayersInNodeStateRejected();
   apptraverse::test::TestMalformedPayloadWritesNothing();
   apptraverse::test::TestFrameDecodingIsStrict();
+  apptraverse::test::TestReceiverLocalSentinelCollisionRejected();
 
   std::cout << "shared_node_initial_sync_test OK\n";
   return 0;

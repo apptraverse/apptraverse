@@ -57,7 +57,12 @@ class SharedSyncRuntime {
   //   otherwise nothing
   void SyncNextEvent(ae::ObjId node_id, ae::ObjId share_id);
 
+  // Allowlist scalar Event classes permitted for standalone network sync.
+  void AllowStandaloneEventClass(std::uint32_t class_id);
+
  private:
+  bool IsStandaloneEventClassAllowed(std::uint32_t class_id) const;
+
   static void ReceiveThunk(void* ctx, std::string const& source_endpoint,
                            std::vector<std::uint8_t> const& bytes);
 
@@ -81,6 +86,7 @@ class SharedSyncRuntime {
   IByteTransport& transport_;
   std::vector<SharedNode::ptr> nodes_;
   std::vector<ae::ObjId> expected_initial_nodes_;
+  std::vector<std::uint32_t> standalone_event_classes_;
 };
 
 }  // namespace apptraverse

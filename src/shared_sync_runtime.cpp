@@ -150,6 +150,7 @@ bool PreflightHistoricalEventInsertion(
     SharedNode const& target_node,
     ae::RamDomainStorage const& parsed_event_storage,
     ae::ObjId wire_root_id,
+    std::uint32_t expected_event_class_id,
     SharedEventId const& identity,
     std::uint64_t timestamp_us) {
   ae::RamDomainStorage scratch_storage;
@@ -157,10 +158,9 @@ bool PreflightHistoricalEventInsertion(
 
   ae::Domain scratch_domain{scratch_storage};
 
-  std::set<ae::ObjId> reserved_ids;
-  auto candidate = ImportClosedEventGraph(
-      parsed_event_storage, wire_root_id, scratch_domain, scratch_storage,
-      reserved_ids);
+  auto candidate = ImportStandaloneEventGraph(
+      parsed_event_storage, wire_root_id, expected_event_class_id,
+      scratch_domain, scratch_storage);
   if (!candidate) {
     return false;
   }
@@ -257,6 +257,25 @@ bool SharedSyncRuntime::IsExpectedInitialNode(ae::ObjId node_id) const {
                    node_id) != expected_initial_nodes_.end();
 }
 
+void SharedSyncRuntime::AllowStandaloneEventClass(std::uint32_t class_id) {
+  if (class_id == 0) {
+    return;
+  }
+  if (ae::Registry::GetRegistry().GenerationDistance(Event::kClassId, class_id) < 0) {
+    return;
+  }
+  if (!IsStandaloneEventClassAllowed(class_id)) {
+    standalone_event_classes_.push_back(class_id);
+  }
+}
+
+bool SharedSyncRuntime::IsStandaloneEventClassAllowed(
+    std::uint32_t class_id) const {
+  return std::find(standalone_event_classes_.begin(),
+                   standalone_event_classes_.end(),
+                   class_id) != standalone_event_classes_.end();
+}
+
 void SharedSyncRuntime::SyncInitialState(ae::ObjId node_id,
                                          ae::ObjId share_id) {
   auto node = FindNode(node_id);
@@ -343,6 +362,10 @@ void SharedSyncRuntime::SyncNextEvent(ae::ObjId node_id, ae::ObjId share_id) {
   }
   assert(record->event.is_valid());
   assert(record->event.is_loaded());
+
+  if (!IsStandaloneEventClassAllowed(record->event->GetClassId())) {
+    return;
+  }
 
   std::vector<std::uint8_t> payload;
   if (!FreezeEventPayload(*record->event, payload)) {
@@ -462,6 +485,19 @@ SharedNode::ptr SharedSyncRuntime::ImportValidatedNode(
     }
   }
 
+  // Reject snapshot if any parsed object collides with receiver Domain or storage
+  for (auto const& [obj_id, classes] : parsed.state) {
+    if (!classes.has_value()) {
+      continue;
+    }
+    if (domain_.Find(obj_id)) {
+      return SharedNode::ptr{};
+    }
+    if (!storage_.Enumerate(obj_id).empty()) {
+      return SharedNode::ptr{};
+    }
+  }
+
   CommitObjectGraph(parsed, storage_);
   auto node = SharedNode::ptr::Declare(
       ae::CreateWith{domain_}.with_id(frame.target_node_id));
@@ -490,6 +526,42 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
     return;
   }
 
+  LinkSyncState::ptr source_state;
+  if (imported) {
+    ae::ObjId source_share_id;
+    int matching_shares = 0;
+    for (auto const& share : node->shares) {
+      auto const* endpoint = ShareEndpoint(share);
+      if (endpoint != nullptr && *endpoint == source_endpoint) {
+        source_share_id = share.share_id;
+        ++matching_shares;
+      }
+    }
+    if (matching_shares != 1 || !source_share_id.is_valid()) {
+      return;
+    }
+
+    auto const source_sync_index =
+        node->FindLinkSyncIndexForShare(source_share_id);
+    if (source_sync_index >= node->link_sync_states.size()) {
+      return;
+    }
+    source_state = node->link_sync_states[source_sync_index];
+    if (!source_state.is_loaded()) {
+      source_state.Load();
+    }
+
+    std::vector<SharedEventId> covered_ids;
+    for (auto const& record : node->journal) {
+      if (record.HasSharedIdentity() && !record.identity.origin_uid.empty()) {
+        covered_ids.push_back(record.identity);
+      }
+    }
+
+    source_state->CompleteFromReceivedSnapshot(std::move(covered_ids));
+    source_state.Save();
+  }
+
   auto const sync_index =
       node->FindLinkSyncIndexForShare(frame.destination_share_id);
   assert(sync_index < node->link_sync_states.size() &&
@@ -507,6 +579,9 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
     state->NoteInitialSyncReceived(frame.packet_id);
     node.Save();
     state.Save();
+    if (source_state.is_valid()) {
+      source_state.Save();
+    }
   }
 
   // Registered only once the snapshot is validated, imported, and durable.
@@ -573,26 +648,26 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
     return;
   }
 
+  if (!IsStandaloneEventClassAllowed(frame.event_class_id)) {
+    return;
+  }
+
   ae::RamDomainStorage parsed;
   ae::ObjId wire_root_id;
   if (!ParseEventPayload(frame.payload, parsed, wire_root_id)) {
     return;
   }
 
-  // Validate stored class chains and references before any LoadRoot on scratch storage
-  if (!ValidateClosedEventGraphStorage(parsed, wire_root_id, frame.event_class_id)) {
+  if (!ValidateStandaloneEventGraph(parsed, wire_root_id, frame.event_class_id)) {
     return;
   }
 
   {
-    ae::Domain scratch_domain{parsed};
+    ae::RamDomainStorage scratch = parsed;
+    ae::Domain scratch_domain{scratch};
     ae::DomainGraph scratch_graph{&scratch_domain};
     auto candidate = scratch_graph.LoadRoot(wire_root_id);
     if (!candidate) {
-      return;
-    }
-    if (ae::Registry::GetRegistry().GenerationDistance(
-            Event::kClassId, candidate->GetClassId()) < 0) {
       return;
     }
     if (candidate->GetClassId() != frame.event_class_id) {
@@ -624,14 +699,14 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
   // Preflight replay in a non-production scratch copy of the target SharedNode
   // at its historical insertion point.
   if (!PreflightHistoricalEventInsertion(*node, parsed, wire_root_id,
+                                         frame.event_class_id,
                                          frame.identity,
                                          frame.timestamp_us)) {
     return;
   }
 
-  std::set<ae::ObjId> reserved_ids;
-  auto local_event = ImportClosedEventGraph(
-      parsed, wire_root_id, domain_, storage_, reserved_ids);
+  auto local_event = ImportStandaloneEventGraph(
+      parsed, wire_root_id, frame.event_class_id, domain_, storage_);
   if (!local_event) {
     return;
   }

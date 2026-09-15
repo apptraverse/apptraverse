@@ -1,6 +1,57 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — CHAT DEMO 02: SAFE TWO-WAY SCALAR CHAT SYNC
+
+## Identity
+
+- Starting AppTraverse SHA: `c96417288138a6954eae7054095b911962433784`
+- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+
+## What Landed
+
+1. **Chat Model Correctness Fixes**:
+   - **Sequence Overflow Protection**: `SubmitDraft` rejects `next_message_sequence == 0` or `next_message_sequence == UINT64_MAX` before creating the reservation event. Added `ChatWorkspace::CanApply(MessageSequenceReservedEvent const&)` requiring exact `reserved_sequence == next_message_sequence` and strictly not 0 or `UINT64_MAX`. `Apply(MessageSequenceReservedEvent)` sets `next_message_sequence = event.reserved_sequence + 1` without redundant `>=` check.
+   - **Chat Selection Membership Validation**: `SelectChat` verifies `entry_id` is valid and actually present in `workspace.chats` before updating selection or committing `ChatSelectedEvent`. Added `ChatWorkspace::CanApply(ChatSelectedEvent const&)` using the same membership rule.
+   - **Message Payload and Journal Metadata Consistency**: Added public virtual `MatchesSharedMetadata(SharedEventId const&, SharedEventOrder const&)` to `Event`. In `Node::TryCommitSharedInto`, `event->MatchesSharedMetadata(identity, order)` is validated before constructing/inserting `EventRecord`. `MessageAddedEvent` overrides this to ensure `message.id == identity && message.timestamp_us == order.timestamp_us`.
+
+2. **Standalone-Scalar Event Network Ingress (No OperationStorage)**:
+   - Added `AllowStandaloneEventClass` and `IsStandaloneEventClassAllowed` to `SharedSyncRuntime`.
+   - `SyncNextEvent` and `OnEvent` gate incremental sync strictly on allowed standalone Event classes.
+   - Added `ValidateStandaloneEventGraph` and `ImportStandaloneEventGraph` in `shared_network_graph.{h,cpp}`: verifies single-object closed graph of the expected Event class, allocates a collision-safe receiver-local `ObjId`, and copies native stored class/version layers via `CopyStoredObjectAs` without `OperationStorage` or pointer remapping.
+   - Wired `ImportStandaloneEventGraph` into `SharedSyncRuntime::PreflightHistoricalEventInsertion` and `SharedSyncRuntime::OnEvent`.
+
+3. **Collision Detection for Initial Snapshots**:
+   - In `SharedSyncRuntime::ImportValidatedNode`, before any production write (`CommitObjectGraph`), verified that none of the parsed snapshot object IDs collide with existing live objects in `domain_` or persisted records in `storage_`. On collision, snapshot is rejected with no partial writes and no ACK.
+   - Added regression test `TestReceiverLocalSentinelCollisionRejected` in `shared_node_initial_sync_test.cpp`.
+
+4. **Two-Way Initial Sync Semantics**:
+   - Added `CompleteFromReceivedSnapshotEvent` on `LinkSyncState` (version 0 native serialization: `dnv(base_, delivered_event_ids)`).
+   - In `SharedSyncRuntime::OnNodeState`, when a snapshot is imported (`imported == true`), finds the single source Share whose Link `EndpointUid() == source_endpoint`, collects all covered `SharedEventId`s from `node->journal`, and executes `source_state->CompleteFromReceivedSnapshot(covered_ids)` and saves `source_state` before sending ACK.
+   - This transitions the source Share's `LinkSyncState` to `InitialSyncPhase::Complete`, allowing the receiving replica to immediately author and send replies over `SyncNextEvent`.
+
+5. **Two-Way Chat Synchronization Product Test**:
+   - Implemented `tests/chat_demo_sync_test.cpp` (`apptraverse_chat_demo_sync_test`):
+     - Sets up independent replicas A and B over `MemoryNetwork`.
+     - Replicates `ChatRoom` via initial snapshot from A to B.
+     - Proves B's source share to A is immediately `InitialSyncPhase::Complete`.
+     - A sends message to B, acknowledged and received.
+     - B replies to A, acknowledged and received.
+     - Exact ACK retry / duplicate handling verified when ACK dropped.
+     - Persistence and domain restart verified from `RamDomainStorage`.
+     - Tampered message payload with mismatched metadata rejected without ACK.
+
+## Tests
+
+- `apptraverse_chat_demo_model_test` (18 scenarios): all passed.
+- `apptraverse_chat_demo_sync_test`: passed.
+- `apptraverse_shared_node_initial_sync_test`: passed (including sentinel collision regression).
+- `apptraverse_shared_node_incremental_event_test`: passed.
+- All primary tests passing cleanly.
+
+---
+Status: implemented/verified on main. Not accepted.
+
 # CURSOR — CHAT DEMO 01: SHARED MESSAGE MODEL + LOCAL WORKSPACE
 
 ## Identity

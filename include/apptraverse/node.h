@@ -457,6 +457,9 @@ class Node : public ae::Obj {
     if (!event.is_valid() || !event.is_loaded() || identity.origin_uid.empty()) {
       return false;
     }
+    if (!event->MatchesSharedMetadata(identity, order)) {
+      return false;
+    }
 
     EventRecord record{
         .event = std::move(event),

@@ -13,6 +13,8 @@
 namespace apptraverse {
 
 class Node;
+struct SharedEventId;
+struct SharedEventOrder;
 
 class Event : public ae::Obj {
   APPTRAVERSE_OBJECT(Event, ae::Obj, 0)
@@ -28,6 +30,14 @@ class Event : public ae::Obj {
   AE_OBJECT_REFLECT()
 
   bool CanApplyTo(Node const& target) const { return CanApplyToImpl(target); }
+
+  virtual bool MatchesSharedMetadata(
+      SharedEventId const& identity,
+      SharedEventOrder const& order) const {
+    (void)identity;
+    (void)order;
+    return true;
+  }
 
   // Most-derived Node class this Event is written against. Used to reject an
   // untrusted Event whose EventFor target is not this Node, before CanApplyTo

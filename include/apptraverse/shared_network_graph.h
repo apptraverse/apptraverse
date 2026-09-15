@@ -189,6 +189,22 @@ ae::Ptr<Event> ImportClosedEventGraph(
     std::set<ae::ObjId>& reserved_ids,
     std::map<ae::ObjId, ae::ObjId>* out_mapping = nullptr);
 
+// Validate standalone Event graph containing exactly one Event object
+// without OperationStorage or pointer-remapping.
+bool ValidateStandaloneEventGraph(
+    ae::RamDomainStorage const& parsed,
+    ae::ObjId root_id,
+    std::uint32_t expected_event_class_id);
+
+// Import standalone scalar Event graph into receiver Domain/storage under a
+// collision-safe receiver-local ObjId.
+ae::Ptr<Event> ImportStandaloneEventGraph(
+    ae::RamDomainStorage const& parsed,
+    ae::ObjId root_id,
+    std::uint32_t expected_event_class_id,
+    ae::Domain& receiver_domain,
+    ae::IDomainStorage& receiver_storage);
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_SHARED_NETWORK_GRAPH_H_

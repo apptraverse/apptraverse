@@ -314,6 +314,21 @@ add_test(
   COMMAND apptraverse_chat_demo_launch_options_test
 )
 
+add_executable(apptraverse_chat_demo_sync_test
+  chat_demo_sync_test.cpp
+)
+target_link_libraries(apptraverse_chat_demo_sync_test PRIVATE
+  apptraverse
+  chat_demo_model
+)
+target_include_directories(apptraverse_chat_demo_sync_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
+)
+add_test(
+  NAME apptraverse_chat_demo_sync_test
+  COMMAND apptraverse_chat_demo_sync_test
+)
+
 add_executable(apptraverse_main_window_lifecycle_test
   main_window_lifecycle_test.cpp
   ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp

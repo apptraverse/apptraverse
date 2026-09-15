@@ -62,6 +62,18 @@ void ChatWorkspace::Apply(ChatEntryAddedEvent const& event) {
   NoteMaterializedChange();
 }
 
+bool ChatWorkspace::CanApply(ChatSelectedEvent const& event) const {
+  if (!event.entry_id.is_valid()) {
+    return false;
+  }
+  for (auto const& entry : chats) {
+    if (entry.is_valid() && entry.id() == event.entry_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void ChatWorkspace::Apply(ChatSelectedEvent const& event) {
   selected_chat_id = event.entry_id;
   NoteMaterializedChange();
@@ -72,10 +84,15 @@ void ChatWorkspace::Apply(LocalEndpointBoundEvent const& event) {
   NoteMaterializedChange();
 }
 
+bool ChatWorkspace::CanApply(MessageSequenceReservedEvent const& event) const {
+  return event.reserved_sequence == next_message_sequence &&
+         event.reserved_sequence != 0 &&
+         event.reserved_sequence !=
+             std::numeric_limits<std::uint64_t>::max();
+}
+
 void ChatWorkspace::Apply(MessageSequenceReservedEvent const& event) {
-  if (event.reserved_sequence >= next_message_sequence) {
-    next_message_sequence = event.reserved_sequence + 1;
-  }
+  next_message_sequence = event.reserved_sequence + 1;
   NoteMaterializedChange();
 }
 

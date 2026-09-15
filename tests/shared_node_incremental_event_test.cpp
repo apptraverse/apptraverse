@@ -218,6 +218,9 @@ struct Replica {
     domain = std::make_unique<ae::Domain>(watched);
     transport = std::make_unique<MemoryTransport>(network_, endpoint_uid_);
     sync = std::make_unique<SharedSyncRuntime>(*domain, watched, *transport);
+    sync->AllowStandaloneEventClass(SetValueEvent::kClassId);
+    sync->AllowStandaloneEventClass(TransitionEvent::kClassId);
+    sync->AllowStandaloneEventClass(SetLinkInitialSyncPhaseEvent::kClassId);
   }
 
   void Stop() {
