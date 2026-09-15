@@ -17,6 +17,7 @@ namespace {
 
 using apptraverse::example::chat_demo::AetherByteTransport;
 using apptraverse::example::chat_demo::ChatAetherRuntime;
+using apptraverse::example::chat_demo::ModelTask;
 using apptraverse::example::chat_demo::PeerPresence;
 
 char const* PresenceStateName(PeerPresence presence) {
@@ -87,7 +88,14 @@ int main(int argc, char* argv[]) {
       [&runtime, &transport, &out_mu, &local_uid, peer_uid]() {
         {
           std::lock_guard<std::mutex> lock{out_mu};
-          transport = std::make_unique<AetherByteTransport>(runtime, local_uid);
+          transport = std::make_unique<AetherByteTransport>(
+              runtime, local_uid,
+              [](ModelTask task) {
+                // Immediate dispatch for probe since probe has no separate model thread
+                if (task) {
+                  task();
+                }
+              });
           transport->BindReceive(
               nullptr,
               [](void*, std::string const& source,

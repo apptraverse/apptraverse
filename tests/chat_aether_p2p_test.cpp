@@ -54,6 +54,31 @@ using apptraverse::example::chat_demo::OpenOrSelectChat;
 using apptraverse::example::chat_demo::PeerPresence;
 using apptraverse::example::chat_demo::SubmitDraft;
 
+class ManualModelDispatcher {
+ public:
+  void Post(std::function<void()> task) {
+    std::lock_guard<std::mutex> lock{mu_};
+    tasks_.push_back(std::move(task));
+  }
+
+  void Drain() {
+    std::vector<std::function<void()>> to_run;
+    {
+      std::lock_guard<std::mutex> lock{mu_};
+      to_run.swap(tasks_);
+    }
+    for (auto& task : to_run) {
+      if (task) {
+        task();
+      }
+    }
+  }
+
+ private:
+  std::mutex mu_;
+  std::vector<std::function<void()>> tasks_;
+};
+
 struct Process {
   pid_t pid{-1};
   int in_fd{-1};
@@ -328,6 +353,32 @@ void TestTwoProcessProbePresenceAndByteDelivery(std::string const& probe_bin) {
 
   CHECK(a_offline && "Process A must report B Offline after heartbeat timeout");
 
+  // 5. Test Offline -> Connecting -> Online reconnect transition
+  std::cout << "  Relaunching Process B to verify Offline -> Connecting -> Online transition...\n";
+  auto run_b_reconnect = SpawnProcess(
+      probe_bin,
+      {"--state-dir", state_dir_b.string(), "--client-name", "probe-client-b",
+       "--peer-uid", uid_a, "--heartbeat-ms", "500", "--offline-ms", "1200"});
+
+  bool a_reconnecting_seen = false;
+  bool a_reonline = false;
+  auto const reconnect_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  while ((!a_reonline) && std::chrono::steady_clock::now() < reconnect_deadline) {
+    auto l = run_a.ReadLine(500);
+    if (l.find("PRESENCE peer=" + uid_b + " state=connecting") != std::string::npos) {
+      a_reconnecting_seen = true;
+      std::cout << "  [Process A] saw reconnect transition to Connecting!\n";
+    }
+    if (l.find("PRESENCE peer=" + uid_b + " state=online") != std::string::npos) {
+      a_reonline = true;
+      std::cout << "  [Process A] saw peer B back Online!\n";
+    }
+  }
+
+  CHECK(a_reonline && "Process A must see B come back Online");
+
+  run_b_reconnect.WriteLine("exit");
+  run_b_reconnect.Wait();
   run_a.WriteLine("exit");
   run_a.Wait();
 
@@ -347,10 +398,11 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
 
   ChatAetherRuntime runtime;
   std::unique_ptr<AetherByteTransport> transport;
-  std::string local_uid;
-  std::mutex mu;
-  std::condition_variable cv;
+  ManualModelDispatcher dispatcher;
+  std::mutex ready_mu;
+  std::condition_variable ready_cv;
   bool ready = false;
+  std::string local_uid;
 
   ChatAetherRuntime::Config config{
       .state_dir = state_dir,
@@ -361,10 +413,19 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
 
   runtime.Start(
       std::move(config),
-      [&local_uid](std::string uid) { local_uid = std::move(uid); },
-      [&ready, &cv]() {
-        ready = true;
-        cv.notify_all();
+      [&local_uid, &ready_mu, &ready_cv](std::string uid) {
+        {
+          std::lock_guard<std::mutex> lock{ready_mu};
+          local_uid = std::move(uid);
+        }
+        ready_cv.notify_all();
+      },
+      [&ready, &ready_mu, &ready_cv]() {
+        {
+          std::lock_guard<std::mutex> lock{ready_mu};
+          ready = true;
+        }
+        ready_cv.notify_all();
       },
       [](std::string error) {
         std::cerr << "Aether error: " << error << '\n';
@@ -372,15 +433,21 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
       {},
       {});
 
+  std::string my_uid;
   {
-    std::unique_lock<std::mutex> lock{mu};
-    cv.wait(lock, [&ready] { return ready; });
+    std::unique_lock<std::mutex> lock{ready_mu};
+    ready_cv.wait(lock, [&ready, &local_uid] { return ready && !local_uid.empty(); });
+    my_uid = local_uid;
   }
 
-  transport = std::make_unique<AetherByteTransport>(runtime, local_uid);
+  transport = std::make_unique<AetherByteTransport>(
+      runtime, my_uid,
+      [&dispatcher](std::function<void()> task) {
+        dispatcher.Post(std::move(task));
+      });
 
   // Print READY uid for parent handshake
-  std::cout << "READY uid=" << local_uid << "\n" << std::flush;
+  std::cout << "READY uid=" << my_uid << "\n" << std::flush;
 
   if (peer_uid.empty()) {
     std::string line;
@@ -406,14 +473,14 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
 
   auto ws = ChatWorkspace::ptr::Create(ae::CreateWith{domain}.with_id(ws_id));
   InitializeRuntimeNode(*ws);
-  BindLocalEndpoint(*ws, local_uid);
+  BindLocalEndpoint(*ws, my_uid);
 
   auto entry = OpenOrSelectChat(*ws, peer_uid, "Peer B");
   CHECK(entry.is_valid());
 
   auto link_local = apptraverse::MemoryLink::ptr::Create(
       ae::CreateWith{domain}.with_id(link_a_id));
-  link_local->endpoint_uid = local_uid;
+  link_local->endpoint_uid = my_uid;
   InitializeRuntimeNode(*link_local);
 
   auto link_remote = apptraverse::MemoryLink::ptr::Create(
@@ -453,6 +520,7 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
 
   // Wait a moment for peer connection to establish, then sync initial state
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  dispatcher.Drain();
   sync.SyncInitialState(room_id, share_to_b);
 
   auto const sync_index = room->FindLinkSyncIndexForShare(share_to_b);
@@ -462,6 +530,7 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
   auto const init_deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(20);
   while (std::chrono::steady_clock::now() < init_deadline) {
+    dispatcher.Drain();
     if (state->GetInitialSyncPhase() ==
         apptraverse::InitialSyncPhase::Complete) {
       break;
@@ -472,6 +541,7 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
+  dispatcher.Drain();
   CHECK(state->GetInitialSyncPhase() ==
         apptraverse::InitialSyncPhase::Complete);
 
@@ -484,6 +554,7 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
   auto const deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(25);
   while (std::chrono::steady_clock::now() < deadline) {
+    dispatcher.Drain();
     if (room->messages.size() >= 2 && !state->HasPendingEvent()) {
       break;
     }
@@ -492,6 +563,7 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
+  dispatcher.Drain();
 
   CHECK(room->messages.size() == 2);
   std::cout << "CHAT_SYNC_OK messages=" << room->messages.size() << "\n"
@@ -508,10 +580,11 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
 
   ChatAetherRuntime runtime;
   std::unique_ptr<AetherByteTransport> transport;
-  std::string local_uid;
-  std::mutex mu;
-  std::condition_variable cv;
+  ManualModelDispatcher dispatcher;
+  std::mutex ready_mu;
+  std::condition_variable ready_cv;
   bool ready = false;
+  std::string local_uid;
 
   ChatAetherRuntime::Config config{
       .state_dir = state_dir,
@@ -522,10 +595,19 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
 
   runtime.Start(
       std::move(config),
-      [&local_uid](std::string uid) { local_uid = std::move(uid); },
-      [&ready, &cv]() {
-        ready = true;
-        cv.notify_all();
+      [&local_uid, &ready_mu, &ready_cv](std::string uid) {
+        {
+          std::lock_guard<std::mutex> lock{ready_mu};
+          local_uid = std::move(uid);
+        }
+        ready_cv.notify_all();
+      },
+      [&ready, &ready_mu, &ready_cv]() {
+        {
+          std::lock_guard<std::mutex> lock{ready_mu};
+          ready = true;
+        }
+        ready_cv.notify_all();
       },
       [](std::string error) {
         std::cerr << "Aether error: " << error << '\n';
@@ -533,15 +615,21 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
       {},
       {});
 
+  std::string my_uid;
   {
-    std::unique_lock<std::mutex> lock{mu};
-    cv.wait(lock, [&ready] { return ready; });
+    std::unique_lock<std::mutex> lock{ready_mu};
+    ready_cv.wait(lock, [&ready, &local_uid] { return ready && !local_uid.empty(); });
+    my_uid = local_uid;
   }
 
-  transport = std::make_unique<AetherByteTransport>(runtime, local_uid);
+  transport = std::make_unique<AetherByteTransport>(
+      runtime, my_uid,
+      [&dispatcher](std::function<void()> task) {
+        dispatcher.Post(std::move(task));
+      });
 
   // Print READY uid for parent handshake
-  std::cout << "READY uid=" << local_uid << "\n" << std::flush;
+  std::cout << "READY uid=" << my_uid << "\n" << std::flush;
 
   if (peer_uid.empty()) {
     std::string line;
@@ -565,6 +653,7 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
   auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(25);
   ChatRoom::ptr room_b;
   while (std::chrono::steady_clock::now() < deadline) {
+    dispatcher.Drain();
     auto imported = sync.FindNode(room_id);
     if (imported.is_valid()) {
       room_b = ChatRoom::ptr::MakeFromThis(static_cast<ChatRoom*>(&*imported));
@@ -572,6 +661,7 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
+  dispatcher.Drain();
   CHECK(room_b.is_valid() && "B must import room snapshot from A");
 
   // Find share back to A
@@ -588,7 +678,7 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
   ae::ObjId const ws_b_id{200};
   auto ws_b = ChatWorkspace::ptr::Create(ae::CreateWith{domain}.with_id(ws_b_id));
   InitializeRuntimeNode(*ws_b);
-  BindLocalEndpoint(*ws_b, local_uid);
+  BindLocalEndpoint(*ws_b, my_uid);
 
   auto entry_b = OpenOrSelectChat(*ws_b, peer_uid, "Peer A");
   apptraverse::Link::ptr remote_link_on_b;
@@ -608,11 +698,13 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
   auto const msg_deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(25);
   while (std::chrono::steady_clock::now() < msg_deadline) {
+    dispatcher.Drain();
     if (!room_b->messages.empty()) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
+  dispatcher.Drain();
   CHECK(!room_b->messages.empty() && "B must receive initial message from A");
   CHECK(room_b->messages[0].text == "Hello from A");
 
@@ -623,6 +715,7 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
 
   // Wait until B has 2 messages and B's reply is ACKed
   while (std::chrono::steady_clock::now() < deadline) {
+    dispatcher.Drain();
     if (room_b->messages.size() >= 2 && !state_b->HasPendingEvent()) {
       break;
     }
@@ -631,6 +724,7 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
+  dispatcher.Drain();
 
   CHECK(room_b->messages.size() == 2);
   std::cout << "CHAT_SYNC_OK messages=" << room_b->messages.size() << "\n"

@@ -1,6 +1,51 @@
 ---
 Status: implemented/verified on main. Not accepted.
 
+# CURSOR — CHAT DEMO 04: MODEL-THREAD DELIVERY + SAFE AETHER MUX + CROSS-PLATFORM BUILD
+
+## Identity
+
+- Starting AppTraverse SHA: `e443e5ce099070244b760636caed98d561f65d41`
+- Pinned aether SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3` (unchanged)
+- Direct main only: tests → commits → push origin/main. NO PR. NO feature branch. NO force push.
+
+## What Landed
+
+1. **Aether Thread Boundary & Model-Thread Delivery**:
+   - `ChatAetherRuntime` remains owned by its dedicated Aether worker thread.
+   - `SharedSyncRuntime`, `ae::Domain`, `ChatWorkspace`, `ChatEntry`, `ChatRoom`, and `LinkSyncState` are never mutated directly from the Aether thread.
+   - Introduced `IAetherFrameEndpoint` in `examples/chat_demo/aether/aether_frame_endpoint.h` decoupling `AetherByteTransport` from the concrete runtime.
+   - Added `ModelTask` and `ModelDispatch` callbacks to `AetherByteTransport`. Incoming frames on the Aether thread are enqueued via caller-supplied `ModelDispatch` to be executed on the model thread.
+   - Completely removed `[this]` capture from runtime frame callbacks. Captured only `std::weak_ptr<ReceiveBinding>` where `ReceiveBinding` holds `mu`, `active`, `receive_ctx`, `receive_fn`, and `dispatch`.
+   - In `~AetherByteTransport()`, unbinds frame callback, locks `receive_binding_->mu`, sets `active = false`, clears `receive_ctx` and `receive_fn`, and resets binding. Queued tasks in flight observe `active == false` and safely drop delivery.
+   - `ClearReceive()` clears context and callback under mutex, suppressing queued delivery.
+
+2. **Internal Aether Stream Framing Envelope & Multiplexer**:
+   - Replaced old 14-byte heartbeat with an internal stream framing envelope in `examples/chat_demo/aether/aether_stream_frame.{h,cpp}`.
+   - Wire format: `'A' 'T' 'R' 'N'` (4 bytes), `version = 1` (1 byte), `kind` (1 byte: 1=Application, 2=HeartbeatPing, 3=HeartbeatPong), `payload_size` (4 bytes little-endian), `payload`.
+   - Maximum application payload size 16 MiB. Heartbeat payload exactly 8-byte little-endian nonce.
+   - Strict decoder enforces exact magic, version 1, known kinds, exact length match (no trailing bytes), and drops malformed frames without touching application state.
+   - Fully collision-free: arbitrary application payloads (even those containing `ATHB` sequences) round-trip with byte-for-byte fidelity without colliding with heartbeats.
+
+3. **Presence & Transport-Local Duplicate Suppression**:
+   - `PeerPresence` remains strictly runtime-only.
+   - Reconnect transitions: when an Aether stream is newly bound or rebound from offline, presence transitions to `kConnecting` if not already `kOnline` (including `Offline -> Connecting`).
+   - Outbound queue (`pending_out`) in `ChatAetherRuntime`: implemented transport-local duplicate suppression (`if (!pending_out.empty() && pending_out.back() == bytes) do not append`), preventing duplicate pileup before P2P stream link.
+
+4. **Thread-Safe Test Handshakes & Model Dispatcher**:
+   - Added `ManualModelDispatcher` to `tests/chat_aether_p2p_test.cpp` ensuring all `Domain`, `SharedSyncRuntime`, and chat model operations run on the model/test thread.
+   - Protected all `ready` and `local_uid` handshakes with `std::mutex` and `std::condition_variable`.
+
+5. **Unit Tests**:
+   - `tests/aether_stream_frame_test.cpp`: Tests frame codec with empty payloads, binary payloads resembling heartbeats, 16 KiB random data, ping/pong nonces, invalid magic, invalid version, unknown kind, truncated headers, mismatched lengths, invalid heartbeat sizes, and oversized payloads.
+   - `tests/aether_byte_transport_dispatch_test.cpp`: Tests deferred delivery via `ModelDispatch`, verified execution on `Drain()`, destruction before drain dropping delivery, and `ClearReceive` suppressing delivery.
+
+6. **Cross-Platform Build & Model-Only Support**:
+   - Updated `examples/chat_demo/CMakeLists.txt` so `chat_demo_model` is always created, while `chat_demo_aether` and `apptraverse_chat_aether_probe` are guarded by `if(TARGET aether)`.
+   - Updated `tests/CMakeLists.txt`: `apptraverse_chat_aether_p2p_test` is guarded by `if(UNIX AND NOT EMSCRIPTEN AND TARGET chat_demo_aether)`. Unit tests `apptraverse_aether_stream_frame_test` and `apptraverse_aether_byte_transport_dispatch_test` compile whenever `chat_demo_aether` exists.
+
+---
+
 # CURSOR — CHAT DEMO 03: REAL AETHER TRANSPORT + HEARTBEAT PRESENCE
 
 ## Identity

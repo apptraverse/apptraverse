@@ -105,9 +105,35 @@ Command-line arguments supported for desktop execution (excluding argv[0]):
 
 Repeated options, unknown options, missing values, or peer UID/name without `--peer-admin-id` produce a structured error message without exiting the process.
 
+## Architecture: Aether Thread Boundary & Model Thread Delivery
+
+AppTraverse chat demo enforces strict thread ownership boundaries:
+
+### Aether Thread (Dedicated Network Thread)
+- Owns `ae::AetherApp`, `ae::Client`, `ae::P2pStreamManager`, and `ae::P2pStream`s.
+- Handles steady-clock heartbeat Ping/Pong scheduling and timeout detection.
+- Encodes and decodes the internal `'A' 'T' 'R' 'N'` stream framing envelope (multiplexing application bytes, heartbeat ping, and heartbeat pong).
+- Performs transport-local duplicate suppression on pending outbound frames prior to stream connection.
+- Posts raw application payload frames into a caller-supplied `ModelDispatch` queue (`ModelTask`).
+- Emits raw application frame into dispatcher.
+
+### Model Thread (Domain / Application Thread)
+- Executes `ModelTask` dispatched from the Aether thread.
+- Drives `AetherByteTransport::ReceiveFn`.
+- Owns and mutates `SharedSyncRuntime`, `ae::Domain`, `DirectoryDomainStorage` / `ae::RamDomainStorage`, `ChatWorkspace`, `ChatEntry`, `ChatRoom`, and `LinkSyncState`.
+- Processes user commands (`SubmitDraft`, `SetDraft`, `OpenOrSelectChat`, etc.).
+
+**Explicit Invariant**:
+"No ae::Domain, Node, SharedNode, SharedSyncRuntime or model storage mutation occurs on the Aether thread."
+
+### Runtime-Only Presence Semantics
+`PeerPresence` (`kUnknown`, `kConnecting`, `kOnline`, `kOffline`) is runtime-only and never persisted into Domain objects or storage.
+- When an Aether stream is newly bound or rebound from offline, presence transitions to `kConnecting` (if not already `kOnline`).
+- Receipt of any valid application frame or heartbeat ping/pong transitions presence to `kOnline`.
+- If no frame is received within `offline_after_ms`, presence transitions from `kConnecting` or `kOnline` to `kOffline`.
+- Malformed stream frames are dropped immediately without updating presence or forwarding application bytes.
+
 ## Current Limitations & Explicit Out-of-Scope
 
-- **Aether Transport**: Not yet connected. The model does not start network threads or send network packets.
-- **Presence**: Not yet connected. Real connection observations will come from the Link runtime in subsequent slices; no mock `bool online` is stored in the model.
 - **Peer Resolution**: AeroAdmin ID resolution to Aether UID / Link is not implemented in this slice.
 - **GUI**: No UI, window handles, or presenters are included in this slice.

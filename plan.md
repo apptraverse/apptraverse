@@ -632,6 +632,15 @@ SurfacePresenter
   - `AetherByteTransport` adapter mapping `IByteTransport` to `ChatAetherRuntime`.
   - Headless `apptraverse_chat_aether_probe` for command-line validation and interactive testing.
   - Multi-process test `apptraverse_chat_aether_p2p_test` proving two-process presence detection, application byte delivery, timeout-based offline detection, and end-to-end two-way chat synchronization over real Aether.
+- [CHAT DEMO 04]: Model-thread delivery, safe Aether stream multiplexer, and cross-platform build guards:
+  - Strict thread isolation: Aether thread owns `ChatAetherRuntime`, client, stream, and frame codec; never calls `SharedSyncRuntime` or mutates model/storage directly.
+  - `AetherByteTransport` receives frames via `IAetherFrameEndpoint`, captures only `std::weak_ptr<ReceiveBinding>`, and dispatches incoming frames onto caller-supplied `ModelDispatch` queue (`ModelTask`).
+  - Safe transport destruction: unbinds frame callback, clears `active`, nulls `receive_ctx`/`receive_fn`, and resets binding without touching or waiting on model queue.
+  - Frame multiplexing envelope (`aether_stream_frame.{h,cpp}`): `'A' 'T' 'R' 'N'` magic, version 1, 10-byte header, with kinds `kApplication` (up to 16 MiB), `kHeartbeatPing` (8-byte nonce), `kHeartbeatPong` (8-byte nonce); complete rejection of malformed frames.
+  - Transport-local duplicate suppression on pending outbound frames prior to P2P stream link.
+  - Presence: runtime-only, transitions `Offline -> Connecting` on stream re-link, drops malformed frames without updating application state.
+  - Model-only build support: `chat_demo_model` builds when `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF` without linking Aether.
+  - Cross-platform build guards: POSIX process test `chat_aether_p2p_test` guarded by `if(UNIX AND NOT EMSCRIPTEN AND TARGET chat_demo_aether)`; unit tests `aether_stream_frame_test` and `aether_byte_transport_dispatch_test` compile on all platforms.
 - Publication scaling / full-graph cost.
 - Android presenter ownership / UI weaknesses.
 - Mobile lifecycle persistence limitations beyond current checkpoints.

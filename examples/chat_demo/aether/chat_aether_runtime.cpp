@@ -1,4 +1,5 @@
 #include "chat_aether_runtime.h"
+#include "aether_stream_frame.h"
 
 #include <algorithm>
 #include <chrono>
@@ -29,45 +30,6 @@ inline std::uint64_t CurrentSteadyTimeMs() {
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now().time_since_epoch())
           .count());
-}
-
-inline std::vector<std::uint8_t> EncodeHeartbeat(std::uint8_t type,
-                                                 std::uint64_t nonce) {
-  std::vector<std::uint8_t> bytes(14);
-  bytes[0] = 'A';
-  bytes[1] = 'T';
-  bytes[2] = 'H';
-  bytes[3] = 'B';
-  bytes[4] = 1;  // version 1
-  bytes[5] = type;
-  for (int i = 0; i < 8; ++i) {
-    bytes[6 + i] = static_cast<std::uint8_t>((nonce >> (i * 8)) & 0xFF);
-  }
-  return bytes;
-}
-
-inline bool DecodeHeartbeat(std::vector<std::uint8_t> const& bytes,
-                            std::uint8_t& out_type, std::uint64_t& out_nonce) {
-  if (bytes.size() != 14) {
-    return false;
-  }
-  if (bytes[0] != 'A' || bytes[1] != 'T' || bytes[2] != 'H' ||
-      bytes[3] != 'B') {
-    return false;
-  }
-  if (bytes[4] != 1) {
-    return false;
-  }
-  auto const type = bytes[5];
-  if (type != 1 && type != 2) {
-    return false;
-  }
-  out_type = type;
-  out_nonce = 0;
-  for (int i = 0; i < 8; ++i) {
-    out_nonce |= (static_cast<std::uint64_t>(bytes[6 + i]) << (i * 8));
-  }
-  return true;
 }
 
 ae::AetherAppContext MakeAetherAppContext(
@@ -248,12 +210,13 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
     };
 
     auto send_heartbeat = [this, &on_write_status](PeerState& peer,
-                                                  std::uint8_t type,
+                                                  AetherFrameKind kind,
                                                   std::uint64_t nonce) {
       if (!peer.stream) {
         return;
       }
-      auto bytes = EncodeHeartbeat(type, nonce);
+      auto nonce_payload = EncodeHeartbeatNonce(nonce);
+      auto bytes = EncodeAetherFrame(kind, nonce_payload);
       ae::DataBuffer buffer{bytes.begin(), bytes.end()};
       auto& action = peer.stream->Write(std::move(buffer));
       peer.write_subs.push_back(action.status_event().Subscribe(
@@ -272,9 +235,10 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         return;
       }
       while (!peer.pending_out.empty()) {
-        auto bytes = std::move(peer.pending_out.front());
+        auto raw_bytes = std::move(peer.pending_out.front());
         peer.pending_out.pop_front();
-        ae::DataBuffer buffer{bytes.begin(), bytes.end()};
+        auto frame_bytes = EncodeAetherFrame(AetherFrameKind::kApplication, raw_bytes);
+        ae::DataBuffer buffer{frame_bytes.begin(), frame_bytes.end()};
         auto& action = peer.stream->Write(std::move(buffer));
         peer.write_subs.push_back(action.status_event().Subscribe(
             [this, &on_write_status, peer_uid = peer.uid_text](
@@ -297,29 +261,43 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       }
       auto& peer = it->second;
       std::vector<std::uint8_t> bytes(data.begin(), data.end());
-      auto const now_ms = CurrentSteadyTimeMs();
-      peer.last_rx_ms = now_ms;
 
-      std::uint8_t hb_type = 0;
-      std::uint64_t hb_nonce = 0;
-      if (DecodeHeartbeat(bytes, hb_type, hb_nonce)) {
-        peer.last_heartbeat_rx_ms = now_ms;
-        set_presence(peer, PeerPresence::kOnline);
-        if (hb_type == 1) {
-          send_heartbeat(peer, 2, hb_nonce);
-        }
+      AetherFrameKind kind{};
+      std::vector<std::uint8_t> payload;
+      if (!DecodeAetherFrame(bytes, kind, payload)) {
+        // Malformed frame: drop. Do not forward as application bytes.
+        // It may update no application state.
         return;
       }
 
-      set_presence(peer, PeerPresence::kOnline);
+      auto const now_ms = CurrentSteadyTimeMs();
+      peer.last_rx_ms = now_ms;
 
-      FrameCallback cb;
-      {
-        std::lock_guard<std::mutex> lock{callback_mu_};
-        cb = on_frame_;
+      if (kind == AetherFrameKind::kHeartbeatPing) {
+        peer.last_heartbeat_rx_ms = now_ms;
+        set_presence(peer, PeerPresence::kOnline);
+        auto const nonce = DecodeHeartbeatNonce(payload);
+        send_heartbeat(peer, AetherFrameKind::kHeartbeatPong, nonce);
+        return;
       }
-      if (cb) {
-        cb(peer.uid_text, std::move(bytes));
+
+      if (kind == AetherFrameKind::kHeartbeatPong) {
+        peer.last_heartbeat_rx_ms = now_ms;
+        set_presence(peer, PeerPresence::kOnline);
+        return;
+      }
+
+      if (kind == AetherFrameKind::kApplication) {
+        set_presence(peer, PeerPresence::kOnline);
+
+        FrameCallback cb;
+        {
+          std::lock_guard<std::mutex> lock{callback_mu_};
+          cb = on_frame_;
+        }
+        if (cb) {
+          cb(peer.uid_text, std::move(payload));
+        }
       }
     };
 
@@ -333,7 +311,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       auto const link_state = peer.stream->stream_info().link_state;
       if (link_state == ae::LinkState::kLinked) {
         peer.stream_linked = true;
-        if (peer.reported_presence == PeerPresence::kUnknown) {
+        if (peer.reported_presence != PeerPresence::kOnline) {
           set_presence(peer, PeerPresence::kConnecting);
         }
         flush_pending_out(peer);
@@ -364,7 +342,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       peer.stream_linked =
           (peer.stream->stream_info().link_state == ae::LinkState::kLinked);
 
-      if (peer.reported_presence == PeerPresence::kUnknown) {
+      if (peer.reported_presence != PeerPresence::kOnline) {
         set_presence(peer, PeerPresence::kConnecting);
       }
       if (peer.last_rx_ms == 0) {
@@ -542,10 +520,14 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
               if (it == peers.end() || !it->second.stream) {
                 auto& peer = peers[cmd.peer_uid];
                 peer.uid_text = cmd.peer_uid;
-                peer.pending_out.push_back(std::move(cmd.bytes));
+                if (peer.pending_out.empty() || peer.pending_out.back() != cmd.bytes) {
+                  peer.pending_out.push_back(std::move(cmd.bytes));
+                }
                 open_peer_internal(cmd.peer_uid);
               } else {
-                ae::DataBuffer buffer{cmd.bytes.begin(), cmd.bytes.end()};
+                auto frame_bytes = EncodeAetherFrame(
+                    AetherFrameKind::kApplication, cmd.bytes);
+                ae::DataBuffer buffer{frame_bytes.begin(), frame_bytes.end()};
                 auto& action = it->second.stream->Write(std::move(buffer));
                 it->second.write_subs.push_back(
                     action.status_event().Subscribe(
@@ -584,7 +566,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
             if (now_ms - peer.last_heartbeat_tx_ms >=
                 config.heartbeat_period_ms) {
               peer.last_heartbeat_tx_ms = now_ms;
-              send_heartbeat(peer, 1, next_nonce++);
+              send_heartbeat(peer, AetherFrameKind::kHeartbeatPing, next_nonce++);
             }
           }
           if (peer.reported_presence == PeerPresence::kConnecting ||

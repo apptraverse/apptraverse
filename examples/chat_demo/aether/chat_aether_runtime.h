@@ -21,17 +21,16 @@
 #include "aether/types/uid.h"
 
 #include "chat_presence.h"
+#include "aether_frame_endpoint.h"
 
 namespace apptraverse::example::chat_demo {
 
-class ChatAetherRuntime {
+class ChatAetherRuntime : public IAetherFrameEndpoint {
  public:
   using LocalUidCallback = std::function<void(std::string uid)>;
   using ReadyCallback = std::function<void()>;
   using FailedCallback = std::function<void(std::string error)>;
-  using FrameCallback =
-      std::function<void(std::string source_uid,
-                         std::vector<std::uint8_t> bytes)>;
+  using FrameCallback = IAetherFrameEndpoint::FrameCallback;
   using PresenceCallback =
       std::function<void(std::string peer_uid, PeerPresence presence)>;
 
@@ -43,7 +42,7 @@ class ChatAetherRuntime {
   };
 
   ChatAetherRuntime();
-  ~ChatAetherRuntime();
+  ~ChatAetherRuntime() override;
 
   ChatAetherRuntime(ChatAetherRuntime const&) = delete;
   ChatAetherRuntime& operator=(ChatAetherRuntime const&) = delete;
@@ -53,13 +52,13 @@ class ChatAetherRuntime {
              PresenceCallback on_presence);
 
   void OpenPeer(std::string peer_uid);
-  void Send(std::string peer_uid, std::vector<std::uint8_t> bytes);
+  void Send(std::string peer_uid, std::vector<std::uint8_t> bytes) override;
   void ClosePeer(std::string peer_uid);
 
   void RequestStop();
   void Join();
 
-  void SetFrameCallback(FrameCallback on_frame);
+  void SetFrameCallback(FrameCallback on_frame) override;
 
  private:
   enum class CommandType : std::uint8_t {
