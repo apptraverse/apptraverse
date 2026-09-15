@@ -2,20 +2,34 @@
 #define APPTRAVERSE_EXAMPLE_CHAT_DEMO_AETHER_BYTE_TRANSPORT_H_
 
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include "apptraverse/byte_transport.h"
-#include "chat_aether_runtime.h"
+#include "aether_frame_endpoint.h"
 
 namespace apptraverse::example::chat_demo {
 
+using ModelTask = std::function<void()>;
+using ModelDispatch = std::function<void(ModelTask)>;
+
 class AetherByteTransport final : public apptraverse::IByteTransport {
  public:
-  AetherByteTransport(ChatAetherRuntime& runtime,
-                      std::string local_endpoint_uid);
-  ~AetherByteTransport() override = default;
+  struct ReceiveBinding {
+    std::mutex mu;
+    bool active{true};
+    void* receive_ctx{nullptr};
+    ReceiveFn receive_fn{nullptr};
+    ModelDispatch dispatch;
+  };
+
+  AetherByteTransport(IAetherFrameEndpoint& endpoint,
+                      std::string local_endpoint_uid,
+                      ModelDispatch dispatch_to_model);
+  ~AetherByteTransport() override;
 
   AetherByteTransport(AetherByteTransport const&) = delete;
   AetherByteTransport& operator=(AetherByteTransport const&) = delete;
@@ -30,16 +44,10 @@ class AetherByteTransport final : public apptraverse::IByteTransport {
   void BindReceive(void* ctx, ReceiveFn fn) override;
   void ClearReceive() override;
 
-  void OnFrame(std::string const& source_uid,
-               std::vector<std::uint8_t> bytes);
-
  private:
-  ChatAetherRuntime& runtime_;
+  IAetherFrameEndpoint& endpoint_;
   std::string local_endpoint_uid_;
-
-  std::mutex mu_;
-  void* receive_ctx_{nullptr};
-  ReceiveFn receive_fn_{nullptr};
+  std::shared_ptr<ReceiveBinding> receive_binding_;
 };
 
 }  // namespace apptraverse::example::chat_demo
