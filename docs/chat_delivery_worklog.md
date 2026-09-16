@@ -354,7 +354,7 @@ preservation, DPI-aware geometry, and repaired Windows smoke coverage while cons
 | native GUI manual | NOT_RUN |
 
 ### Ending SHA
-(pending commit)
+6830a87
 
 ### Next Commit
 - **COMMIT 07**: (per overnight plan)
