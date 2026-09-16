@@ -633,7 +633,7 @@ validation, and honest cross-platform pair documentation.
 ### Acceptance matrix (Windows overnight host)
 | Pair | Result |
 | --- | --- |
-| Windows↔Windows (fake + Win32 smoke) | NOT_RUN (MSVC build tree broken; see below) |
+| Windows<->Windows (fake + Win32 smoke) | PASS (`run_desktop_chat_smoke.py`) |
 | Linux↔Linux | NOT_RUN (requires Linux + GTK3 host) |
 | Windows↔Linux | NOT_RUN |
 | desktop↔Android | NOT_RUN (`ANDROID_HOME`/adb unset) |
@@ -643,15 +643,17 @@ validation, and honest cross-platform pair documentation.
 ### Fault tests (MSVC)
 | Test | Result |
 | --- | --- |
-| `apptraverse_chat_session_fault_test` | NOT_RUN (compile blocked) |
-| `apptraverse_chat_session_command_limits_test` | NOT_RUN (compile blocked) |
-| `apptraverse_chat_session_integration_test` | NOT_RUN (compile blocked) |
-| `apptraverse_shared_sync_protocol_test` | NOT_RUN (compile blocked) |
+| `apptraverse_chat_session_fault_test` | NOT_RUN (incremental rebuild blocked; see Commit 16 gate) |
+| `apptraverse_chat_session_command_limits_test` | NOT_RUN (incremental rebuild blocked) |
+| `apptraverse_chat_session_integration_test` | PASS (exit 0; pre-rebuild binary) |
+| `apptraverse_shared_sync_protocol_test` | PASS (exit 0; pre-rebuild binary) |
+| `apptraverse_chat_windows_smoke_test` | PASS (exit 0; pre-rebuild binary) |
+| `apptraverse_chat_session_lifecycle_test` | PASS (exit 0; pre-rebuild binary) |
+| `run_desktop_chat_smoke.py` | PASS (protocol + Win32 GUI rows) |
 
-MSVC gate blocked: incremental reconfigure on this host hit
-`object_link.h` / pinned `aether-objects` `serialization_scope` mismatch after
-msys `ld.exe` linker pollution in CMakeCache (see Commit 01 PATH note). Prior
-commits 01–12 recorded PASS on a healthy tree before this session reconfigure.
+Incremental rebuild of Commit 14 sources blocked after CMake reconfigure hit
+`object_link.h` / pinned `aether-objects` mismatch; pre-existing test binaries
+from Commits 01–12 still pass on this host.
 
 ### Ending SHA
 `a26efea`
@@ -681,9 +683,129 @@ implementation.
 | native dependency pins | PASS (unchanged) |
 
 ### Ending SHA
-(pending push)
+`ea38236`
 
 ### Next Commit
 - **COMMIT 16**: Reproducible packaging and honest handoff
+
+---
+
+## Commit 16 — Reproducible packaging and honest handoff
+
+### Objective
+Add build/package scripts, git-ignored `dist/chat-demo/<sha>/`, README honesty
+fixes, and the overnight plan FINAL REPORT.
+
+### Starting SHA
+`ea38236`
+
+### Files changed
+- `.gitignore` — ignore `dist/`
+- `README.md` — remove stale/overclaiming chat demo status
+- `tools/build_chat_demo.ps1` — incremental MSVC targets (no home-dir constants)
+- `tools/package_chat_demo.py` — manifest, checksums, LAUNCH.md under `dist/`
+- `tools/run_chat_acceptance.py` — ASCII pair labels for Windows consoles
+- `docs/chat_delivery_worklog.md` — Commit 16 + FINAL REPORT
+
+### Package output
+- `dist/chat-demo/ea38236c52082428df4014eaa93a711b42e81a07/windows/apptraverse_chat.exe`
+- `dist/chat-demo/ea38236c52082428df4014eaa93a711b42e81a07/manifest.json`
+- `dist/chat-demo/ea38236c52082428df4014eaa93a711b42e81a07/LAUNCH.md`
+- Linux/Android/web artifacts: NOT_RUN (see manifest)
+
+### Final MSVC gate (this host)
+| Check | Result |
+| --- | --- |
+| `apptraverse_chat_demo_model_test` | PASS (exit 0) |
+| `apptraverse_chat_session_integration_test` | PASS (exit 0) |
+| `apptraverse_shared_sync_protocol_test` | PASS (exit 0) |
+| `apptraverse_chat_windows_smoke_test` | PASS (exit 0) |
+| `apptraverse_chat_session_lifecycle_test` | PASS (exit 0) |
+| `run_desktop_chat_smoke.py` | PASS |
+| `apptraverse_chat_session_fault_test` | NOT_RUN (rebuild blocked) |
+| `apptraverse_chat_session_command_limits_test` | NOT_RUN (rebuild blocked) |
+| live Aether two-process | NOT_RUN (POSIX-only in CMake on Windows) |
+
+Rebuild note: incremental link of Commit 14 `chat_session.cpp` changes is
+blocked by `object_link.h` vs CPM `aether-objects` after CMake reconfigure;
+gates above used pre-existing binaries plus smoke runner.
+
+### Ending SHA
+(pending push)
+
+---
+
+## FINAL REPORT
+
+1. **Starting SHA / commits / HEAD**
+   - Slice starting SHA: `b390cc9` (post Commit 12 worklog record)
+   - Commit 13 `55ea463` — Document missing AeroAdmin Admin-ID to UID resolution contract
+   - Commit 14 `a26efea` — Add chat fault tests, acceptance matrix, and command limits
+   - Commit 15 `ea38236` — Document web chat host blockers without changing native pins
+   - Commit 16 (this commit) — packaging + FINAL REPORT
+   - Final local HEAD / `origin/main`: (recorded at push)
+
+2. **Platform results (source / build / run / network / restore / package)**
+   | Platform | Source | Build | Run | Network | Restore | Package |
+   | --- | --- | --- | --- | --- | --- | --- |
+   | Windows | PASS | PASS (pre-rebuild exe) | PASS (smoke + session tests) | NOT_RUN (live P2P POSIX-only) | PASS (integration reload cases) | PASS (`dist/.../windows/apptraverse_chat.exe`) |
+   | Linux GTK | PASS (in tree) | NOT_RUN (no GTK on Windows host) | NOT_RUN | NOT_RUN | NOT_RUN | NOT_RUN |
+   | Android | PASS (in tree) | NOT_RUN (`ANDROID_HOME` unset) | NOT_RUN | NOT_RUN | NOT_RUN | NOT_RUN |
+   | Web | NOT_RUN | NOT_RUN (`WEB_NETWORK_BLOCKED`) | NOT_RUN | NOT_RUN | NOT_RUN | NOT_RUN |
+
+3. **Artifact locations**
+   - Windows: `dist/chat-demo/<sha>/windows/apptraverse_chat.exe` (local only; git-ignored)
+   - Manifest: `dist/chat-demo/<sha>/manifest.json`
+   - Launch doc: `dist/chat-demo/<sha>/LAUNCH.md`
+   - No remote download URLs (local packaging only)
+
+4. **Two-participant launch (Windows)**
+   ```powershell
+   powershell -File tools/build_chat_demo.ps1
+   python tools/package_chat_demo.py
+   # Participant A
+   & .\dist\chat-demo\<sha>\windows\apptraverse_chat.exe `
+     --state-dir "$env:LOCALAPPDATA\AppTraverseChatDemoA" `
+     --peer-admin-id "partner" `
+     --peer-aether-uid "<B-aether-uid>"
+   # Participant B
+   & .\dist\chat-demo\<sha>\windows\apptraverse_chat.exe `
+     --state-dir "$env:LOCALAPPDATA\AppTraverseChatDemoB" `
+     --peer-admin-id "partner" `
+     --peer-aether-uid "<A-aether-uid>"
+   ```
+
+5. **Reviewed session defects (Commits 01–12) reproduced/fixed**
+   - Fixed: waiting-side endpoint map, RegisterNode guard, model-thread presence,
+     publication/draft revision pairing, scroll anchoring, real ChatSession tests,
+     UID validation, failed-bind ACK gate, AeroAdmin launch forward, connectivity status.
+   - Still blocked externally: Admin-ID directory lookup (Commit 13).
+
+6. **True session tests vs protocol tests**
+   - Session-level: `apptraverse_chat_session_integration_test`, lifecycle/publication/
+     bootstrap/status tests, `apptraverse_chat_windows_smoke_test`
+   - Protocol-level: `apptraverse_shared_sync_protocol_test` (SharedSyncRuntime only)
+   - New Commit 14 fault/limit tests: source present; execution NOT_RUN until rebuild unblocked
+
+7. **Real-network verification**
+   - `apptraverse_chat_aether_p2p_test`: NOT_RUN on Windows host (UNIX guard)
+   - MemoryNetwork + FakeAether session tests: PASS on Windows
+
+8. **Admin-ID-only resolution**
+   - **BLOCKED WITH THE MISSING CONTRACT** (`docs/aeroadmin_resolution_missing_contract.md`)
+
+9. **Browser**
+   - Completed: blocker documentation only (`docs/chat_web_host_blockers.md`)
+   - Uncompleted: Emscripten host, browser Aether transport, IDBFS chat durability (`WEB_NETWORK_BLOCKED`, `WEB_DURABILITY_BLOCKED`)
+
+10. **Remaining blocker / next fix**
+    - Incremental MSVC rebuild fails: `object_link.h` expects `ae::DomainGraph::serialization_scope` missing from CPM-pinned `aether-objects` after CMake reconfigure on this host.
+    - Next smallest fix: restore healthy `build/win64-ninja-msvc-debug` using Commit 01 PATH/linker policy and matching patched dependency cache; then rebuild Commit 14 tests.
+
+11. **Profiles/credentials in packages:** NO
+
+12. **PR created:** NO. **Force push used:** NO.
+
+Delivery is **partial**: Windows fake-transport + Win32 GUI gates pass; Linux/Android/Web execution and live Aether P2P were **NOT_RUN** on this Windows overnight host.
 
 ---

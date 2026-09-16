@@ -52,6 +52,9 @@ build-p2p-*/
 .artifacts/
 artifacts/presence-monitor/
 
+# Chat demo release packages (binaries, checksums — never commit)
+dist/
+
 # App Traverse Cursor MCP local venv and generated config
 .venv-apptraverse-mcp/
 .cursor/mcp.json

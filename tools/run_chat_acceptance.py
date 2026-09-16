@@ -80,7 +80,7 @@ def main() -> int:
     if host == "Windows":
         report.rows.append(
             MatrixRow(
-                "Windows↔Windows (fake transport + Win32 smoke)",
+                "Windows<->Windows (fake transport + Win32 smoke)",
                 smoke_status,
                 smoke_detail,
             )
@@ -88,7 +88,7 @@ def main() -> int:
     else:
         report.rows.append(
             MatrixRow(
-                "Windows↔Windows",
+                "Windows<->Windows",
                 "NOT_RUN",
                 f"requires Windows host (current: {host})",
             )
@@ -102,23 +102,23 @@ def main() -> int:
         if code == 0:
             report.rows.append(
                 MatrixRow(
-                    "Linux↔Linux",
+                    "Linux<->Linux",
                     smoke_status,
                     "GTK host + smoke when built on Linux",
                 )
             )
         else:
             report.rows.append(
-                MatrixRow("Linux↔Linux", "NOT_RUN", "GTK3 unavailable")
+                MatrixRow("Linux<->Linux", "NOT_RUN", "GTK3 unavailable")
             )
     else:
         report.rows.append(
-            MatrixRow("Linux↔Linux", "NOT_RUN", "requires Linux + GTK3 host")
+            MatrixRow("Linux<->Linux", "NOT_RUN", "requires Linux + GTK3 host")
         )
 
     report.rows.append(
         MatrixRow(
-            "Windows↔Linux",
+            "Windows<->Linux",
             "NOT_RUN",
             "requires two hosts or CI matrix; not run on this single host",
         )
@@ -127,7 +127,7 @@ def main() -> int:
     if _has_android():
         report.rows.append(
             MatrixRow(
-                "desktop↔Android",
+                "desktop<->Android",
                 "NOT_RUN",
                 "ANDROID_HOME+adb present; APK/interop harness not run here",
             )
@@ -135,7 +135,7 @@ def main() -> int:
     else:
         report.rows.append(
             MatrixRow(
-                "desktop↔Android",
+                "desktop<->Android",
                 "NOT_RUN",
                 "ANDROID_HOME/adb unavailable on this host",
             )
@@ -143,7 +143,7 @@ def main() -> int:
 
     report.rows.append(
         MatrixRow(
-            "Android↔Android",
+            "Android<->Android",
             "NOT_RUN",
             "requires two devices/emulators",
         )

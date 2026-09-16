@@ -6,7 +6,10 @@ It is a standalone platform — not merely an SDK and not a product application.
 
 ## Status
 
-Early development. The repository currently provides the project layout and build integration only.
+Active development. The repository provides AppTraverse core, SharedNode
+sharing, and the `examples/chat_demo` multi-platform chat client (Windows
+host implemented; Linux GTK and Android sources present). See
+`docs/chat_delivery_worklog.md` for verification status per platform.
 
 ## Requirements
 
@@ -47,12 +50,16 @@ AppTraverse code (`include/apptraverse/*`, demo model classes) uses `ae::Obj`, `
 
 ## Chat Demo (Common Model & Local Workspace)
 
-`examples/chat_demo` provides the common model, local persistence, and AeroAdmin launch options parser:
-- `ChatWorkspace` (`Node`): local persistent workspace root managing chats, desktop window bounds, local endpoint UID, and message sequence counter.
-- `ChatEntry` (`Node`): local workspace entry binding a peer Admin ID / display name to a draft, scroll anchor, peer `Link`, and shared `ChatRoom`.
-- `ChatRoom` (`SharedNode`): shared message room containing `std::vector<MessageValue> messages`, replicated over Aether without exposing local workspace state.
-- Launch options parser (`ParseChatLaunchOptions`): parses CLI arguments (`--admin-id`, `--state-dir`, `--name`, `--uid`) and maps them to `OpenOrSelectChat`.
-- Tests: `apptraverse_chat_demo_model_test` and `apptraverse_chat_demo_launch_options_test`.
+`examples/chat_demo` provides the common model, `ChatSession`, local persistence,
+and AeroAdmin launch options:
+
+- `ChatWorkspace` (`Node`): local persistent workspace root.
+- `ChatEntry` (`Node`): local entry binding Admin ID to draft, scroll, peer `Link`, shared `ChatRoom`.
+- `ChatRoom` (`SharedNode`): shared messages replicated over Aether.
+- `ParseChatLaunchOptions`: CLI (`--peer-admin-id`, `--state-dir`, `--peer-name`, `--peer-aether-uid`).
+- Windows target: `apptraverse_chat`. Linux: `apptraverse_chat` (GTK3). Android Gradle project under `examples/chat_demo/android/`.
+- Admin-ID → Aether UID lookup: **not implemented**; see `docs/aeroadmin_resolution_missing_contract.md`.
+- Tests include `apptraverse_chat_demo_model_test`, `apptraverse_chat_session_integration_test`, and platform smoke tests where the host supports them.
 
 ## Namespace
 
