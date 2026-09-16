@@ -840,22 +840,45 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                     &processed_edit_revisions](ae::ObjId entry_id, std::string text,
                                              std::uint64_t edit_revision) {
     AssertModelThread();
-    if (!FieldWithinUserCommandLimit(text, kMaxDraftTextBytes)) {
-      UpdateStatus([](ChatRuntimeStatus& s) {
-        s.error_text = "Draft too large";
+    auto const reject_edit = [this, entry_id, edit_revision](std::string reason) {
+      UpdateStatus([entry_id, edit_revision, reason = std::move(reason)](
+                       ChatRuntimeStatus& s) {
+        s.error_text = reason;
+        s.latest_edit_result_by_entry[entry_id] = DraftCommandResult{
+            .entry_id = entry_id,
+            .kind = DraftCommandKind::kEdit,
+            .revision = edit_revision,
+            .outcome = DraftCommandOutcome::kRejected,
+            .failure_reason = reason,
+        };
       });
+    };
+    if (!FieldWithinUserCommandLimit(text, kMaxDraftTextBytes)) {
+      reject_edit("Draft too large");
       publication_dirty = true;
       return;
     }
     for (auto const& entry : workspace->chats) {
       if (entry.is_valid() && entry.id() == entry_id) {
+        bool const unchanged = entry->draft == text;
         if (SetDraft(*entry, text, persist_workspace)) {
           processed_edit_revisions[entry_id] = edit_revision;
-          publication_dirty = true;
+          if (!unchanged) {
+            publication_dirty = true;
+          }
+          UpdateStatus([entry_id, edit_revision](ChatRuntimeStatus& s) {
+            s.latest_edit_result_by_entry[entry_id] = DraftCommandResult{
+                .entry_id = entry_id,
+                .kind = DraftCommandKind::kEdit,
+                .revision = edit_revision,
+                .outcome = DraftCommandOutcome::kAccepted,
+            };
+          });
         }
-        break;
+        return;
       }
     }
+    reject_edit("Unknown chat entry");
   };
 
   on_send_draft_ = [this, &workspace, &persist_workspace, &publication_dirty,
@@ -863,10 +886,21 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                                                std::string current_text,
                                                std::uint64_t edit_revision) {
     AssertModelThread();
-    if (!FieldWithinUserCommandLimit(current_text, kMaxDraftTextBytes)) {
-      UpdateStatus([](ChatRuntimeStatus& s) {
-        s.error_text = "Draft too large";
+    auto const reject_send = [this, entry_id, edit_revision](std::string reason) {
+      UpdateStatus([entry_id, edit_revision, reason = std::move(reason)](
+                       ChatRuntimeStatus& s) {
+        s.error_text = reason;
+        s.latest_send_result_by_entry[entry_id] = DraftCommandResult{
+            .entry_id = entry_id,
+            .kind = DraftCommandKind::kSend,
+            .revision = edit_revision,
+            .outcome = DraftCommandOutcome::kRejected,
+            .failure_reason = reason,
+        };
       });
+    };
+    if (!FieldWithinUserCommandLimit(current_text, kMaxDraftTextBytes)) {
+      reject_send("Draft too large");
       publication_dirty = true;
       return;
     }
@@ -881,10 +915,23 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
         if (!msg_id.origin_uid.empty() && msg_id.origin_sequence > 0) {
           processed_edit_revisions[entry_id] = edit_revision;
           publication_dirty = true;
+          UpdateStatus([entry_id, edit_revision, msg_id](ChatRuntimeStatus& s) {
+            s.latest_send_result_by_entry[entry_id] = DraftCommandResult{
+                .entry_id = entry_id,
+                .kind = DraftCommandKind::kSend,
+                .revision = edit_revision,
+                .outcome = DraftCommandOutcome::kAccepted,
+                .accepted_send_id = msg_id,
+            };
+          });
+        } else {
+          reject_send("Send rejected");
+          publication_dirty = true;
         }
-        break;
+        return;
       }
     }
+    reject_send("Unknown chat entry");
   };
 
   on_save_scroll_ = [&workspace, &persist_workspace, &publication_dirty](

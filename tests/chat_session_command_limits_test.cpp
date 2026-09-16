@@ -28,6 +28,7 @@ using apptraverse::example::chat_demo::ChatSession;
 using apptraverse::example::chat_demo::ChatSessionConfig;
 using apptraverse::example::chat_demo::ChatUiUpdate;
 using apptraverse::example::chat_demo::ChatWorkspace;
+using apptraverse::example::chat_demo::DraftCommandOutcome;
 using apptraverse::example::chat_demo::kMaxDraftTextBytes;
 using apptraverse::example::chat_demo::kMaxPeerAdminIdBytes;
 using apptraverse::example::chat_demo::OpenPeerRequest;
@@ -174,10 +175,33 @@ void TestOversizedDraftPreservesExisting() {
   session.EditDraft(entry_id, huge_draft, 2);
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   CHECK(session.GetRuntimeStatus().error_text == "Draft too large");
+  {
+    auto status = session.GetRuntimeStatus();
+    auto it = status.latest_edit_result_by_entry.find(entry_id);
+    CHECK(it != status.latest_edit_result_by_entry.end());
+    CHECK(it->second.outcome == DraftCommandOutcome::kRejected);
+    CHECK(it->second.revision == 2);
+    CHECK(it->second.failure_reason == "Draft too large");
+  }
   while (auto update = session.TryTakeUiUpdate()) {
     ApplyUiUpdate(ui, *update);
   }
   CHECK(ui.workspace->chats.front()->draft == "keep-me");
+
+  // Empty string remains a valid local edit.
+  session.EditDraft(entry_id, "", 3);
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  {
+    auto status = session.GetRuntimeStatus();
+    auto it = status.latest_edit_result_by_entry.find(entry_id);
+    CHECK(it != status.latest_edit_result_by_entry.end());
+    CHECK(it->second.outcome == DraftCommandOutcome::kAccepted);
+    CHECK(it->second.revision == 3);
+  }
+  while (auto update = session.TryTakeUiUpdate()) {
+    ApplyUiUpdate(ui, *update);
+  }
+  CHECK(ui.workspace->chats.front()->draft.empty());
 
   session.RequestStop();
   session.Join();

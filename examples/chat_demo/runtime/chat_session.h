@@ -40,6 +40,25 @@ enum class ChatPublicationKind : std::uint8_t {
   kStructural = 1,
 };
 
+enum class DraftCommandKind : std::uint8_t {
+  kEdit = 0,
+  kSend = 1,
+};
+
+enum class DraftCommandOutcome : std::uint8_t {
+  kAccepted = 0,
+  kRejected = 1,
+};
+
+struct DraftCommandResult {
+  ae::ObjId entry_id;
+  DraftCommandKind kind{DraftCommandKind::kEdit};
+  std::uint64_t revision{0};
+  DraftCommandOutcome outcome{DraftCommandOutcome::kAccepted};
+  std::string failure_reason;
+  SharedEventId accepted_send_id{};
+};
+
 struct ChatRuntimeStatus {
   std::string local_endpoint_uid;
   SessionLifecycleState lifecycle_state{SessionLifecycleState::kStarting};
@@ -49,6 +68,9 @@ struct ChatRuntimeStatus {
   std::map<SharedEventId, MessageDeliveryState> delivery_by_event_id;
   std::string error_text;
   std::uint64_t completed_checkpoint_id{0};
+  // Runtime-only: latest result per entry for EditDraft / SendDraft.
+  std::map<ae::ObjId, DraftCommandResult> latest_edit_result_by_entry;
+  std::map<ae::ObjId, DraftCommandResult> latest_send_result_by_entry;
 };
 
 struct ChatUiUpdate {

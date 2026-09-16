@@ -280,3 +280,21 @@ A07 network_epoch Retry reincarnation; A08 EditDraft/SendDraft results; A09+.
 ## Next
 
 A08 command results; A09 bootstrap edges; A10–A11 live probe; hosts/package.
+
+## A08 — EditDraft/SendDraft command results (completed)
+
+### Changes
+- `DraftCommandResult` on `ChatRuntimeStatus` (latest per entry for edit/send).
+- Rejected oversized/unknown edits keep visible draft; Accepted includes send id.
+- No-op same-text EditDraft acknowledges revision without forcing publication.
+- Empty draft Accepted as a local edit.
+
+### Evidence
+| Test | Result |
+| --- | --- |
+| command_limits (reject + empty edit) | TEST_PASS exit 0 |
+| fault / integration | TEST_PASS exit 0 |
+
+## Next
+
+A09 bootstrap edges; A10 suite; A11 live probe; A12+ hosts as available.
