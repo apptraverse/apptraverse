@@ -88,6 +88,19 @@ void TestMissingValue() {
   CHECK(!res3.ok);
 }
 
+void TestOptionTokenAsMissingValue() {
+  {
+    std::vector<std::string> args = {"--state-dir", "--peer-admin-id", "abc"};
+    auto res = ParseChatLaunchOptions(args);
+    CHECK(!res.ok);
+  }
+  {
+    std::vector<std::string> args = {"--peer-aether-uid", "--peer-name", "n"};
+    auto res = ParseChatLaunchOptions(args);
+    CHECK(!res.ok);
+  }
+}
+
 void TestUnknownOrRepeatedOption() {
   // Unknown
   {
@@ -173,6 +186,7 @@ int main() {
   TestAllSupportedOptions();
   TestSpacesAndNonAsciiInNameAndPath();
   TestMissingValue();
+  TestOptionTokenAsMissingValue();
   TestUnknownOrRepeatedOption();
   TestUidWithoutAdminId();
   TestRepeatedApplicationSelectsExistingChat();

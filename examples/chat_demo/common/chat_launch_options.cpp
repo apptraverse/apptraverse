@@ -7,6 +7,17 @@
 #include <vector>
 
 namespace apptraverse::example::chat_demo {
+namespace {
+
+bool NextArgIsOption(std::span<std::string_view const> args, std::size_t i) {
+  if (i + 1 >= args.size()) {
+    return false;
+  }
+  std::string_view const next = args[i + 1];
+  return next.size() >= 2 && next[0] == '-' && next[1] == '-';
+}
+
+}  // namespace
 
 ParseLaunchOptionsResult ParseChatLaunchOptions(
     std::span<std::string_view const> args) {
@@ -23,7 +34,7 @@ ParseLaunchOptionsResult ParseChatLaunchOptions(
       if (state_dir.has_value()) {
         return {.ok = false, .error_message = "Repeated option: --state-dir"};
       }
-      if (i + 1 >= args.size()) {
+      if (i + 1 >= args.size() || NextArgIsOption(args, i)) {
         return {.ok = false, .error_message = "Missing value for --state-dir"};
       }
       ++i;
@@ -32,7 +43,7 @@ ParseLaunchOptionsResult ParseChatLaunchOptions(
       if (peer_admin_id.has_value()) {
         return {.ok = false, .error_message = "Repeated option: --peer-admin-id"};
       }
-      if (i + 1 >= args.size()) {
+      if (i + 1 >= args.size() || NextArgIsOption(args, i)) {
         return {.ok = false,
                 .error_message = "Missing value for --peer-admin-id"};
       }
@@ -43,7 +54,7 @@ ParseLaunchOptionsResult ParseChatLaunchOptions(
         return {.ok = false,
                 .error_message = "Repeated option: --peer-aether-uid"};
       }
-      if (i + 1 >= args.size()) {
+      if (i + 1 >= args.size() || NextArgIsOption(args, i)) {
         return {.ok = false,
                 .error_message = "Missing value for --peer-aether-uid"};
       }
@@ -53,7 +64,7 @@ ParseLaunchOptionsResult ParseChatLaunchOptions(
       if (peer_name.has_value()) {
         return {.ok = false, .error_message = "Repeated option: --peer-name"};
       }
-      if (i + 1 >= args.size()) {
+      if (i + 1 >= args.size() || NextArgIsOption(args, i)) {
         return {.ok = false, .error_message = "Missing value for --peer-name"};
       }
       ++i;

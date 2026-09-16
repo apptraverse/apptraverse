@@ -22,9 +22,11 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
 
+#include "chat_launch_ipc.h"
 #include "chat_launch_options.h"
 #include "chat_model.h"
 #include "chat_session.h"
+#include "profile_lock.h"
 
 namespace apptraverse::example::chat_demo {
 
@@ -89,6 +91,7 @@ class WinChatApp {
   };
 
   static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+  static LRESULT CALLBACK IpcNotifyWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
   static LRESULT CALLBACK DraftEditSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                                                UINT_PTR subclass_id, DWORD_PTR ref_data);
 
@@ -125,6 +128,10 @@ class WinChatApp {
   void OnDraftChanged();
   void TryFinishClosing();
   void ShutdownSessionAndResources();
+  void CreateIpcNotifyWindow(HINSTANCE hinst);
+  void DestroyIpcNotifyWindow();
+  LaunchIpcReply HandleLaunchIpcCopyData(COPYDATASTRUCT* cds);
+  void ApplyPendingIpcOpenPeer();
 
   EntryViewState& ViewStateFor(ae::ObjId entry_id);
   ChatEntry::ptr FindUiEntry(ae::ObjId entry_id) const;
@@ -138,11 +145,14 @@ class WinChatApp {
   bool CanAppendTranscript(ChatEntry::ptr const& entry) const;
   void AppendTranscriptLines(ChatEntry::ptr const& entry, std::size_t from_index);
 
-  HANDLE profile_lock_handle_{INVALID_HANDLE_VALUE};
+  ProfileLock profile_lock_;
+  std::string profile_key_;
   HMODULE richedit_module_{nullptr};
 
   ChatSession session_;
   HWND main_hwnd_{nullptr};
+  HWND ipc_notify_hwnd_{nullptr};
+  std::optional<OpenPeerRequest> pending_ipc_open_peer_;
 
   HWND chat_list_hwnd_{nullptr};
   HWND transcript_hwnd_{nullptr};

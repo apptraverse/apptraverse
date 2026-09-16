@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
@@ -19,6 +20,8 @@
 
 #include "apptraverse/object_serialization.h"
 #include "chat_commands.h"
+#include "chat_launch_ipc.h"
+#include "profile_lock.h"
 #include "win32_fatal.h"
 
 #pragma comment(lib, "comctl32.lib")
@@ -154,10 +157,8 @@ WinChatApp::~WinChatApp() {
 }
 
 void WinChatApp::ShutdownSessionAndResources() {
-  if (profile_lock_handle_ != INVALID_HANDLE_VALUE) {
-    CloseHandle(profile_lock_handle_);
-    profile_lock_handle_ = INVALID_HANDLE_VALUE;
-  }
+  DestroyIpcNotifyWindow();
+  profile_lock_ = ProfileLock{};
   if (richedit_module_ != nullptr) {
     FreeLibrary(richedit_module_);
     richedit_module_ = nullptr;
@@ -1005,6 +1006,9 @@ void WinChatApp::TryFinishClosing() {
 
 void WinChatApp::ApplyPublicationFromSession() {
   ConsumeUiUpdates();
+  if (session_.GetRuntimeStatus().lifecycle_state == SessionLifecycleState::kReady) {
+    ApplyPendingIpcOpenPeer();
+  }
   TryFinishClosing();
 }
 
@@ -1158,6 +1162,90 @@ LRESULT WinChatApp::HandleMain(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+LRESULT CALLBACK WinChatApp::IpcNotifyWndProc(HWND hwnd, UINT msg, WPARAM wparam,
+                                               LPARAM lparam) {
+  if (msg == WM_NCCREATE) {
+    auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
+    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+    return TRUE;
+  }
+  auto* app = reinterpret_cast<WinChatApp*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+  if (app != nullptr && msg == WM_COPYDATA) {
+    auto* cds = reinterpret_cast<COPYDATASTRUCT*>(lparam);
+    return static_cast<LRESULT>(app->HandleLaunchIpcCopyData(cds));
+  }
+  return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+void WinChatApp::CreateIpcNotifyWindow(HINSTANCE hinst) {
+  std::wstring const ipc_class = ProfileRoutingWindowClass(profile_key_);
+  WNDCLASSW wc{};
+  if (GetClassInfoW(hinst, ipc_class.c_str(), &wc) == 0) {
+    wc.lpfnWndProc = &WinChatApp::IpcNotifyWndProc;
+    wc.hInstance = hinst;
+    wc.lpszClassName = ipc_class.c_str();
+    RegisterClassW(&wc);
+  }
+  std::wstring const title = ProfileRoutingWindowTitle(profile_key_);
+  ipc_notify_hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW, ipc_class.c_str(), title.c_str(), WS_POPUP,
+                                     0, 0, 0, 0, nullptr, nullptr, hinst, this);
+  if (ipc_notify_hwnd_ == nullptr) {
+    FatalWin32("CreateWindowExW IpcNotify", GetLastError());
+  }
+  ShowWindow(ipc_notify_hwnd_, SW_HIDE);
+}
+
+void WinChatApp::DestroyIpcNotifyWindow() {
+  if (ipc_notify_hwnd_ != nullptr) {
+    DestroyWindow(ipc_notify_hwnd_);
+    ipc_notify_hwnd_ = nullptr;
+  }
+}
+
+LaunchIpcReply WinChatApp::HandleLaunchIpcCopyData(COPYDATASTRUCT* cds) {
+  if (cds == nullptr || cds->dwData != kLaunchIpcCopyDataMagic) {
+    return LaunchIpcReply::kInvalidPayload;
+  }
+  if (cds->cbData > kLaunchIpcMaxPayloadBytes || cds->lpData == nullptr) {
+    return LaunchIpcReply::kOversized;
+  }
+  std::vector<std::uint8_t> bytes(cds->cbData);
+  std::memcpy(bytes.data(), cds->lpData, cds->cbData);
+
+  ChatLaunchIpcPayload payload;
+  if (!DecodeLaunchIpcPayload(bytes, payload)) {
+    return LaunchIpcReply::kInvalidPayload;
+  }
+  LaunchIpcReply const valid = ValidateLaunchIpcPayload(payload, profile_key_);
+  if (valid != LaunchIpcReply::kAccepted) {
+    return valid;
+  }
+
+  if (closing_) {
+    return LaunchIpcReply::kRejected;
+  }
+
+  if (session_.GetRuntimeStatus().lifecycle_state == SessionLifecycleState::kReady) {
+    session_.OpenPeer(payload.open_peer);
+  } else {
+    pending_ipc_open_peer_ = std::move(payload.open_peer);
+  }
+
+  if (main_hwnd_ != nullptr) {
+    AllowSetForegroundWindow(GetCurrentProcessId());
+    ShowWindow(main_hwnd_, SW_RESTORE);
+    SetForegroundWindow(main_hwnd_);
+  }
+  return LaunchIpcReply::kAccepted;
+}
+
+void WinChatApp::ApplyPendingIpcOpenPeer() {
+  if (pending_ipc_open_peer_.has_value()) {
+    session_.OpenPeer(*pending_ipc_open_peer_);
+    pending_ipc_open_peer_.reset();
+  }
+}
+
 int WinChatApp::Run(ChatLaunchOptions options) {
   richedit_module_ = LoadLibraryW(L"Msftedit.dll");
   if (richedit_module_ == nullptr) {
@@ -1171,17 +1259,43 @@ int WinChatApp::Run(ChatLaunchOptions options) {
     state_dir = GetDefaultStateDirectory();
   }
   std::filesystem::create_directories(state_dir);
+  profile_key_ = NormalizeProfileKey(state_dir);
 
-  std::filesystem::path lock_file = state_dir / "profile.lock";
-  profile_lock_handle_ = CreateFileW(lock_file.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                                      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (profile_lock_handle_ == INVALID_HANDLE_VALUE) {
+  ProfileLock candidate;
+  ProfileLock::AcquireResult const lock_result =
+      ProfileLock::TryAcquire(state_dir, candidate);
+  if (lock_result == ProfileLock::AcquireResult::kBusy) {
+    if (options.open_peer.has_value()) {
+      ForwardLaunchResult const forwarded =
+          TryForwardLaunchToPrimary(profile_key_, *options.open_peer);
+      if (forwarded == ForwardLaunchResult::kAccepted) {
+        return 0;
+      }
+      if (forwarded == ForwardLaunchResult::kTimeout) {
+        MessageBoxW(nullptr,
+                    L"Error: Existing chat window is not responding.",
+                    L"AppTraverse Chat", MB_ICONERROR | MB_OK);
+        return 1;
+      }
+      if (forwarded == ForwardLaunchResult::kRejected) {
+        MessageBoxW(nullptr, L"Error: Launch request rejected by active profile.",
+                    L"AppTraverse Chat", MB_ICONERROR | MB_OK);
+        return 1;
+      }
+    }
     MessageBoxW(nullptr, L"Error: Profile already open in another process.", L"AppTraverse Chat",
                 MB_ICONERROR | MB_OK);
     return 1;
   }
+  if (lock_result == ProfileLock::AcquireResult::kError) {
+    MessageBoxW(nullptr, L"Error: Could not acquire profile lock.", L"AppTraverse Chat",
+                MB_ICONERROR | MB_OK);
+    return 1;
+  }
+  profile_lock_ = std::move(candidate);
 
   HINSTANCE const hinst = GetModuleHandleW(nullptr);
+  CreateIpcNotifyWindow(hinst);
   class_registered_ = RegisterMainWindowClassOnce(hinst);
 
   main_hwnd_ = CreateWindowExW(0, kMainChatWindowClass, L"AppTraverse Chat", WS_OVERLAPPEDWINDOW,

@@ -360,3 +360,47 @@ preservation, DPI-aware geometry, and repaired Windows smoke coverage while cons
 - **COMMIT 07**: (per overnight plan)
 
 ---
+
+## Commit 07 — Forward repeated AeroAdmin chat launches to the active profile
+
+### Objective
+Forward secondary AeroAdmin chat launches to the primary instance for the same
+profile via OS-backed profile locking and Win32 `WM_COPYDATA` IPC.
+
+### Starting SHA
+`6c3e35b`
+
+### Files changed
+- `examples/chat_demo/common/profile_lock.h/.cpp` — exclusive profile lock (Windows
+  file; Linux `flock`)
+- `examples/chat_demo/common/chat_launch_ipc.h/.cpp` — profile key normalization,
+  routing token, BinaryArchive IPC, `TryForwardLaunchToPrimary`
+- `examples/chat_demo/common/chat_launch_options.cpp` — reject missing values when
+  next token is another `--option`
+- `examples/chat_demo/windows/win_chat_app.h/.cpp` — `ProfileLock` RAII, hidden
+  IPC notify window, forward-to-primary on lock busy
+- `examples/chat_demo/CMakeLists.txt` — link profile lock + launch IPC
+- `tests/chat_launch_forward_test.cpp` — same/different profile, invalid IPC
+- `tests/chat_demo_launch_options_test.cpp` — option-as-value cases
+- `tests/CMakeLists.txt` — `apptraverse_chat_launch_forward_test`
+- `docs/aeroadmin_chat_launch_contract.md` — CLI quoting, exit codes, profile layout
+
+### Checks (MSVC Debug `build/win64-ninja-msvc-debug`)
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| compilation (MSVC Debug) | PASS |
+| `apptraverse_chat_launch_forward_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_launch_options_test` | PASS (exit 0) |
+| `apptraverse_chat_windows_smoke_test` | PASS (exit 0) |
+| session/status integration | NOT_RUN (Commit 08) |
+| live Aether | NOT_RUN |
+| native GUI manual | NOT_RUN |
+
+### Ending SHA
+808985d
+
+### Next Commit
+- **COMMIT 08**: Expose connection and delivery state without duplicating sync
+
+---
