@@ -1044,3 +1044,33 @@ if(WIN32)
   )
 endif()
 
+if(UNIX AND NOT APPLE AND NOT ANDROID AND APPTRAVERSE_BUILD_AETHER_DEMOS)
+  if(TARGET chat_demo_aether)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(GTK3_CHAT_SMOKE QUIET IMPORTED_TARGET gtk+-3.0)
+    endif()
+    if(GTK3_CHAT_SMOKE_FOUND)
+      add_executable(apptraverse_chat_linux_smoke_test
+        chat_linux_smoke_test.cpp
+        ${CMAKE_SOURCE_DIR}/examples/chat_demo/linux/linux_chat_app.cpp
+        ${CMAKE_SOURCE_DIR}/examples/chat_demo/linux/linux_fatal.cpp
+      )
+      target_link_libraries(apptraverse_chat_linux_smoke_test PRIVATE
+        chat_demo_runtime
+        PkgConfig::GTK3_CHAT_SMOKE
+      )
+      target_include_directories(apptraverse_chat_linux_smoke_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/examples/chat_demo/linux
+        ${CMAKE_SOURCE_DIR}/examples/chat_demo/runtime
+        ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+        ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
+      )
+      add_test(
+        NAME apptraverse_chat_linux_smoke_test
+        COMMAND apptraverse_chat_linux_smoke_test
+      )
+    endif()
+  endif()
+endif()
+

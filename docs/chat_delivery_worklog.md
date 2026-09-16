@@ -478,9 +478,40 @@ delete-event stop — matching the Windows contract.
 | `apptraverse_chat` Linux binary | NOT_RUN |
 
 ### Ending SHA
-(pending push)
+`f8ecd24`
 
 ### Next Commit
 - **COMMIT 10**: Linux E2E + desktop smoke runner
+
+---
+
+## Commit 10 — Linux E2E + desktop smoke runner
+
+### Objective
+Linux GTK smoke test (same behavioral contract as Windows) and shared
+`tools/run_desktop_chat_smoke.py` runner with separate protocol vs GUI rows.
+
+### Starting SHA
+`f8ecd24`
+
+### Files changed
+- `tests/chat_linux_smoke_test.cpp` — GTK smoke harness mirroring Windows cases
+- `tests/CMakeLists.txt` — `apptraverse_chat_linux_smoke_test` behind GTK3 guard
+- `tools/run_desktop_chat_smoke.py` — stdlib runner (protocol + GUI rows)
+
+### Checks (Windows host)
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| `run_desktop_chat_smoke.py` protocol rows | PASS (shared_sync + integration) |
+| `run_desktop_chat_smoke.py` gui_win32_smoke | PASS |
+| `run_desktop_chat_smoke.py` gui_linux_gtk_smoke | NOT_RUN (requires Linux host) |
+| Linux GTK smoke compile/run | NOT_RUN |
+
+### Ending SHA
+(pending push)
+
+### Next Commit
+- **COMMIT 11**: Android build + thin JNI bridge
 
 ---
