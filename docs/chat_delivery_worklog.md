@@ -571,6 +571,6 @@ flush draft/scroll on pause, new-chat Admin ID + optional UID.
 | install/run on device/emulator | NOT_RUN (`adb` unavailable) |
 
 ### Ending SHA
-(pending push)
+`651de1f`
 
 ---
