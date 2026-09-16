@@ -111,6 +111,33 @@ struct RoomSyncSnapshot {
   }
 };
 
+RoomBootstrapState BootstrapFromPhase(apptraverse::InitialSyncPhase phase) {
+  switch (phase) {
+    case apptraverse::InitialSyncPhase::Complete:
+      return RoomBootstrapState::kComplete;
+    case apptraverse::InitialSyncPhase::Pending:
+      return RoomBootstrapState::kPending;
+    case apptraverse::InitialSyncPhase::NotStarted:
+    default:
+      return RoomBootstrapState::kNotStarted;
+  }
+}
+
+MessageDeliveryState DeliveryForOwnEvent(apptraverse::LinkSyncState& state,
+                                         SharedEventId const& id,
+                                         std::string const& local_uid) {
+  if (id.origin_uid != local_uid || id.origin_sequence == 0) {
+    return MessageDeliveryState::kNone;
+  }
+  if (state.HasDelivered(id)) {
+    return MessageDeliveryState::kDelivered;
+  }
+  if (state.HasPendingEvent() && state.pending_event_identity == id) {
+    return MessageDeliveryState::kSending;
+  }
+  return MessageDeliveryState::kQueued;
+}
+
 RoomSyncSnapshot CaptureRoomSyncSnapshot(ChatRoom& room,
                                          apptraverse::LinkSyncState& state) {
   RoomSyncSnapshot snapshot;
@@ -138,6 +165,8 @@ ChatSession::~ChatSession() {
 }
 
 bool ChatSession::Start(ChatSessionConfig config, UiNotifyFn notify_ui) {
+  last_config_ = config;
+  last_notify_ = notify_ui;
   std::lock_guard<std::mutex> lock{queue_mu_};
   if (started_) {
     return false;
@@ -331,6 +360,20 @@ void ChatSession::SaveBounds(DesktopBounds bounds) {
       on_save_bounds_(bounds);
     }
   });
+}
+
+void ChatSession::RetryConnection() {
+  SessionLifecycleState lifecycle = SessionLifecycleState::kStarting;
+  {
+    std::lock_guard<std::mutex> lock{status_mu_};
+    lifecycle = status_.lifecycle_state;
+  }
+  if (lifecycle != SessionLifecycleState::kFailed || !last_config_.has_value() ||
+      !last_notify_) {
+    return;
+  }
+  Join();
+  Start(*last_config_, last_notify_);
 }
 
 void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
@@ -934,7 +977,70 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                                   presence]() {
           set_peer_presence(peer_uid, presence);
         });
+      },
+      [this](bool has_schedule, bool any_online) {
+        EnqueueInternalModelWork([this, has_schedule, any_online]() {
+          AssertModelThread();
+          LocalConnectivityState const state =
+              LocalConnectivityFromDiag(has_schedule, any_online);
+          UpdateStatus([state](ChatRuntimeStatus& s) {
+            s.local_connectivity = state;
+          });
+        });
       });
+
+  auto const refresh_sync_projection =
+      [this, &workspace, &my_uid](
+          std::unordered_map<std::string, RoomBootstrapState>& bootstrap_out,
+          std::map<SharedEventId, MessageDeliveryState>& delivery_out) {
+        AssertModelThread();
+        bootstrap_out.clear();
+        delivery_out.clear();
+        if (!workspace.is_valid() || my_uid.empty()) {
+          return;
+        }
+        for (auto const& entry : workspace->chats) {
+          if (!entry.is_valid() || !entry->room.is_valid() ||
+              !entry->peer_link.is_valid()) {
+            continue;
+          }
+          std::string const& peer_uid = entry->peer_link->EndpointUid();
+          if (peer_uid.empty()) {
+            continue;
+          }
+          ae::ObjId remote_share_id;
+          for (auto const& share : entry->room->shares) {
+            if (share.link.is_valid() && share.link->EndpointUid() == peer_uid) {
+              remote_share_id = share.share_id;
+              break;
+            }
+          }
+          if (!remote_share_id.is_valid()) {
+            continue;
+          }
+          auto const sync_index =
+              entry->room->FindLinkSyncIndexForShare(remote_share_id);
+          if (sync_index >= entry->room->link_sync_states.size()) {
+            continue;
+          }
+          auto state = entry->room->link_sync_states[sync_index];
+          if (!state.is_valid()) {
+            continue;
+          }
+          if (!state.is_loaded()) {
+            state.Load();
+          }
+          bootstrap_out[peer_uid] =
+              BootstrapFromPhase(state->GetInitialSyncPhase());
+          for (auto const& message : entry->room->messages) {
+            MessageDeliveryState const delivery =
+                DeliveryForOwnEvent(*state, message.id, my_uid);
+            if (delivery != MessageDeliveryState::kNone) {
+              delivery_out[message.id] = delivery;
+            }
+          }
+        }
+      };
 
   // Track sync retry states
   struct SyncRetryState {
@@ -1057,6 +1163,23 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           persist_workspace();
           publication_dirty = true;
         }
+      }
+
+      std::unordered_map<std::string, RoomBootstrapState> bootstrap_projection;
+      std::map<SharedEventId, MessageDeliveryState> delivery_projection;
+      refresh_sync_projection(bootstrap_projection, delivery_projection);
+      bool status_changed = false;
+      {
+        std::lock_guard<std::mutex> lock{status_mu_};
+        status_changed = status_.room_bootstrap_by_peer_uid != bootstrap_projection ||
+                         status_.delivery_by_event_id != delivery_projection;
+      }
+      if (status_changed) {
+        UpdateStatus([&bootstrap_projection, &delivery_projection](
+                         ChatRuntimeStatus& s) {
+          s.room_bootstrap_by_peer_uid = std::move(bootstrap_projection);
+          s.delivery_by_event_id = std::move(delivery_projection);
+        });
       }
     }
   }

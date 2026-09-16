@@ -26,8 +26,8 @@ class FakeFrameEndpoint : public IAetherFrameEndpoint {
  public:
   void Start(Config /*config*/, LocalUidCallback /*on_uid*/,
              ReadyCallback /*on_ready*/, FailedCallback /*on_failed*/,
-             FrameCallback on_frame,
-             PresenceCallback /*on_presence*/) override {
+             FrameCallback on_frame, PresenceCallback /*on_presence*/,
+             LocalConnectivityCallback /*on_local_connectivity*/ = {}) override {
     callback_ = std::move(on_frame);
   }
 

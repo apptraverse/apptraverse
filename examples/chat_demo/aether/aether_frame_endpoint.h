@@ -24,6 +24,8 @@ class IAetherFrameEndpoint {
                          std::vector<std::uint8_t> bytes)>;
   using PresenceCallback =
       std::function<void(std::string peer_uid, PeerPresence presence)>;
+  using LocalConnectivityCallback =
+      std::function<void(bool has_schedule, bool any_online)>;
 
   struct Config {
     std::filesystem::path state_dir;
@@ -36,8 +38,8 @@ class IAetherFrameEndpoint {
 
   virtual void Start(Config config, LocalUidCallback on_uid,
                      ReadyCallback on_ready, FailedCallback on_failed,
-                     FrameCallback on_frame,
-                     PresenceCallback on_presence) = 0;
+                     FrameCallback on_frame, PresenceCallback on_presence,
+                     LocalConnectivityCallback on_local_connectivity = {}) = 0;
 
   virtual void OpenPeer(std::string peer_uid) = 0;
   virtual void ClosePeer(std::string peer_uid) = 0;

@@ -186,8 +186,8 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
 
   void Start(Config /*config*/, LocalUidCallback on_uid,
              ReadyCallback on_ready, FailedCallback on_failed,
-             FrameCallback on_frame,
-             PresenceCallback on_presence) override {
+             FrameCallback on_frame, PresenceCallback on_presence,
+             LocalConnectivityCallback on_local_connectivity = {}) override {
     RequestStop();
     Join();
     {
@@ -197,6 +197,7 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
       on_failed_ = std::move(on_failed);
       on_frame_ = std::move(on_frame);
       on_presence_ = std::move(on_presence);
+      on_local_connectivity_ = std::move(on_local_connectivity);
       stop_ = false;
       ready_signaled_ = !defer_ready_;
       fail_signaled_ = false;
@@ -260,6 +261,17 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
     ready_cv_.notify_all();
     if (callback) {
       callback(std::move(error));
+    }
+  }
+
+  void InjectLocalConnectivity(bool has_schedule, bool any_online) {
+    LocalConnectivityCallback callback;
+    {
+      std::lock_guard<std::mutex> lock{mu_};
+      callback = on_local_connectivity_;
+    }
+    if (callback) {
+      callback(has_schedule, any_online);
     }
   }
 
@@ -337,6 +349,7 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
   FailedCallback on_failed_;
   FrameCallback on_frame_;
   PresenceCallback on_presence_;
+  LocalConnectivityCallback on_local_connectivity_;
   std::thread worker_;
   bool fail_signaled_{false};
   std::vector<std::string> opened_peers_;

@@ -398,9 +398,58 @@ profile via OS-backed profile locking and Win32 `WM_COPYDATA` IPC.
 | native GUI manual | NOT_RUN |
 
 ### Ending SHA
-808985d
+11c9ec9
 
 ### Next Commit
 - **COMMIT 08**: Expose connection and delivery state without duplicating sync
+
+---
+
+## Commit 08 — Expose connection and delivery state without duplicating sync
+
+### Objective
+Distinguish registration readiness, local Aether connectivity, remote peer
+reachability, room bootstrap progress, and message delivery in
+`ChatRuntimeStatus` without a separate message-status database.
+
+### Starting SHA
+`11c9ec9`
+
+### Files changed
+- `examples/chat_demo/common/chat_connectivity.h` — local connectivity, bootstrap,
+  delivery enums + local diag mapping
+- `examples/chat_demo/aether/aether_frame_endpoint.h` — `LocalConnectivityCallback`
+- `examples/chat_demo/aether/chat_aether_runtime.h/.cpp` — pinned
+  `DiagnoseLocalPresence` monitor on Aether thread
+- `examples/chat_demo/runtime/chat_session.h/.cpp` — extended status projection from
+  remote share `LinkSyncState`; `RetryConnection()` for terminal failure
+- `examples/chat_demo/windows/win_chat_app.h/.cpp` — status/presence line shows local
+  connectivity, bootstrap, delivery
+- `include/apptraverse/shared_event_id.h` — `operator<` for delivery map keys
+- `tests/chat_session_status_test.cpp` — local connectivity not fabricated;
+  presence toggle after reconnect
+- `tests/fake_aether_frame_endpoint.h` — `InjectLocalConnectivity`
+- `tests/aether_byte_transport_dispatch_test.cpp` — updated `Start` signature
+- `tests/CMakeLists.txt` — `apptraverse_chat_session_status_test`
+
+### Checks (MSVC Debug `build/win64-ninja-msvc-debug`)
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| compilation (MSVC Debug) | PASS |
+| `apptraverse_chat_session_status_test` | PASS (exit 0) |
+| `apptraverse_chat_session_startup_test` | PASS (exit 0) |
+| `apptraverse_chat_session_integration_test` | PASS (exit 0) |
+| `apptraverse_aether_byte_transport_dispatch_test` | PASS (exit 0) |
+| `apptraverse_chat_launch_forward_test` | PASS (exit 0, prior commit) |
+| `apptraverse_chat_windows_smoke_test` | PASS (exit 0, prior commit) |
+| live Aether | NOT_RUN |
+| native GUI manual | NOT_RUN |
+
+### Ending SHA
+604af3b
+
+### Next Commit
+- (per overnight plan)
 
 ---

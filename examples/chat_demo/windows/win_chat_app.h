@@ -22,6 +22,7 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
 
+#include "chat_connectivity.h"
 #include "chat_launch_ipc.h"
 #include "chat_launch_options.h"
 #include "chat_model.h"

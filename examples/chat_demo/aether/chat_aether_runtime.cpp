@@ -22,6 +22,36 @@
 namespace apptraverse::example::chat_demo {
 namespace {
 
+class LocalConnectivityMonitor {
+ public:
+  void Configure(ae::Client::ptr client,
+                 ChatAetherRuntime::LocalConnectivityCallback callback) {
+    client_ = std::move(client);
+    callback_ = std::move(callback);
+    last_reported_.reset();
+  }
+
+  void Tick(ae::TimePoint now) {
+    if (!client_ || !client_->connectivity_policy().is_valid() || !callback_) {
+      return;
+    }
+    auto const& policy = client_->connectivity_policy().Load();
+    auto const diag = policy->DiagnoseLocalPresence(now);
+    if (last_reported_.has_value() && last_reported_->first == diag.has_schedule &&
+        last_reported_->second == diag.any_online) {
+      return;
+    }
+    last_reported_ = std::make_pair(diag.has_schedule, diag.any_online);
+    callback_(diag.has_schedule, diag.any_online);
+  }
+
+ private:
+  ae::Client::ptr client_;
+  ChatAetherRuntime::LocalConnectivityCallback callback_;
+  std::optional<std::pair<bool, bool>> last_reported_;
+};
+
+
 inline constexpr char const* kAetherParentUid =
     "3ac93165-3d37-4970-87a6-fa4ee27744e4";
 
@@ -86,7 +116,8 @@ ChatAetherRuntime::~ChatAetherRuntime() {
 void ChatAetherRuntime::Start(Config config, LocalUidCallback on_uid,
                               ReadyCallback on_ready, FailedCallback on_failed,
                               FrameCallback on_frame,
-                              PresenceCallback on_presence) {
+                              PresenceCallback on_presence,
+                              LocalConnectivityCallback on_local_connectivity) {
   RequestStop();
   Join();
 
@@ -99,10 +130,10 @@ void ChatAetherRuntime::Start(Config config, LocalUidCallback on_uid,
   }
 
   stop_ = false;
-  thread_ = std::thread(&ChatAetherRuntime::ThreadMain, this, std::move(config),
-                        std::move(on_uid), std::move(on_ready),
-                        std::move(on_failed), std::move(on_frame),
-                        std::move(on_presence));
+  thread_ = std::thread(
+      &ChatAetherRuntime::ThreadMain, this, std::move(config), std::move(on_uid),
+      std::move(on_ready), std::move(on_failed), std::move(on_frame),
+      std::move(on_presence), std::move(on_local_connectivity));
 }
 
 void ChatAetherRuntime::OpenPeer(std::string peer_uid) {
@@ -146,7 +177,8 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
                                   ReadyCallback on_ready,
                                   FailedCallback on_failed,
                                   FrameCallback on_frame,
-                                  PresenceCallback on_presence) {
+                                  PresenceCallback on_presence,
+                                  LocalConnectivityCallback on_local_connectivity) {
   {
     std::lock_guard<std::mutex> lock{callback_mu_};
     on_uid_ = std::move(on_uid);
@@ -154,6 +186,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
     on_failed_ = std::move(on_failed);
     on_frame_ = std::move(on_frame);
     on_presence_ = std::move(on_presence);
+    on_local_connectivity_ = std::move(on_local_connectivity);
   }
 
   try {
@@ -172,6 +205,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
     bool client_configured = false;
     bool select_failed = false;
     std::string select_error;
+    LocalConnectivityMonitor local_connectivity;
 
     auto set_presence = [this, &peers](PeerState& peer, PeerPresence new_presence) {
       if (peer.reported_presence != new_presence) {
@@ -484,6 +518,13 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
                                    /*inbound=*/true);
                 });
 
+        LocalConnectivityCallback local_cb;
+        {
+          std::lock_guard<std::mutex> lock{callback_mu_};
+          local_cb = on_local_connectivity_;
+        }
+        local_connectivity.Configure(client, std::move(local_cb));
+
         if (ready_cb) {
           ready_cb();
         }
@@ -581,6 +622,9 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       }
 
       auto const now = ae::Now();
+      if (client_configured) {
+        local_connectivity.Tick(now);
+      }
       auto next = aether_app->Update(now);
       if (stop_) {
         break;

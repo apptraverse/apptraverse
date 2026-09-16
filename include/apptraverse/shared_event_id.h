@@ -22,6 +22,13 @@ struct SharedEventId {
     return !(*this == other);
   }
 
+  bool operator<(SharedEventId const& other) const noexcept {
+    if (origin_uid != other.origin_uid) {
+      return origin_uid < other.origin_uid;
+    }
+    return origin_sequence < other.origin_sequence;
+  }
+
   AE_REFLECT_MEMBERS(origin_uid, origin_sequence)
 };
 

@@ -864,6 +864,12 @@ void WinChatApp::UpdateStatusLine() {
     status_text = L"Error: " + Utf8ToUtf16(local_send_error_);
   } else if (!status.error_text.empty()) {
     status_text = L"Error: " + Utf8ToUtf16(status.error_text);
+  } else if (status.lifecycle_state == SessionLifecycleState::kFailed) {
+    status_text = L"Connection failed";
+  } else if (status.local_connectivity == LocalConnectivityState::kUnknown) {
+    status_text = L"Starting...";
+  } else if (status.local_connectivity == LocalConnectivityState::kOffline) {
+    status_text = L"Local Aether offline";
   } else if (!status.local_endpoint_uid.empty()) {
     status_text = L"UID: " + Utf8ToUtf16(status.local_endpoint_uid);
   } else {
@@ -874,21 +880,50 @@ void WinChatApp::UpdateStatusLine() {
   std::wstring presence_text;
   auto const entry = FindUiEntry(active_entry_id_);
   if (entry.is_valid() && entry->peer_link.is_valid()) {
-    auto it = status.remote_presence.find(entry->peer_link->EndpointUid());
-    if (it != status.remote_presence.end()) {
-      switch (it->second) {
-        case PeerPresence::kOnline:
-          presence_text = L"Online";
-          break;
-        case PeerPresence::kConnecting:
-          presence_text = L"Connecting...";
-          break;
-        case PeerPresence::kOffline:
-          presence_text = L"Offline";
-          break;
-        default:
-          presence_text = L"Unknown";
-          break;
+    std::string const& peer_uid = entry->peer_link->EndpointUid();
+    auto const boot = status.room_bootstrap_by_peer_uid.find(peer_uid);
+    if (boot != status.room_bootstrap_by_peer_uid.end() &&
+        boot->second != RoomBootstrapState::kComplete) {
+      presence_text = boot->second == RoomBootstrapState::kPending ? L"Syncing..."
+                                                                   : L"Waiting room";
+    } else {
+      auto it = status.remote_presence.find(peer_uid);
+      if (it != status.remote_presence.end()) {
+        switch (it->second) {
+          case PeerPresence::kOnline:
+            presence_text = L"Online";
+            break;
+          case PeerPresence::kConnecting:
+            presence_text = L"Connecting...";
+            break;
+          case PeerPresence::kOffline:
+            presence_text = L"Offline";
+            break;
+          default:
+            presence_text = L"Unknown";
+            break;
+        }
+      }
+    }
+    if (!entry->room.is_valid() || entry->room->messages.empty()) {
+      // keep presence only
+    } else {
+      SharedEventId const last_id = entry->room->messages.back().id;
+      auto const delivery = status.delivery_by_event_id.find(last_id);
+      if (delivery != status.delivery_by_event_id.end()) {
+        switch (delivery->second) {
+          case MessageDeliveryState::kDelivered:
+            presence_text += L" | Delivered";
+            break;
+          case MessageDeliveryState::kSending:
+            presence_text += L" | Sending";
+            break;
+          case MessageDeliveryState::kQueued:
+            presence_text += L" | Queued";
+            break;
+          default:
+            break;
+        }
       }
     }
   }

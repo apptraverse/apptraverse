@@ -19,9 +19,11 @@
 #include "aether-objects/obj/obj_id.h"
 #include "aether_frame_endpoint.h"
 #include "apptraverse/publication_channel.h"
+#include "chat_connectivity.h"
 #include "chat_launch_options.h"
 #include "chat_model.h"
 #include "chat_presence.h"
+#include "apptraverse/shared_event_id.h"
 
 namespace apptraverse::example::chat_demo {
 
@@ -40,7 +42,10 @@ enum class ChatPublicationKind : std::uint8_t {
 struct ChatRuntimeStatus {
   std::string local_endpoint_uid;
   SessionLifecycleState lifecycle_state{SessionLifecycleState::kStarting};
+  LocalConnectivityState local_connectivity{LocalConnectivityState::kUnknown};
   std::unordered_map<std::string, PeerPresence> remote_presence;
+  std::unordered_map<std::string, RoomBootstrapState> room_bootstrap_by_peer_uid;
+  std::map<SharedEventId, MessageDeliveryState> delivery_by_event_id;
   std::string error_text;
 };
 
@@ -82,6 +87,7 @@ class ChatSession {
                  std::uint64_t edit_revision);
   void SaveScroll(ae::ObjId entry_id, ScrollAnchor anchor);
   void SaveBounds(DesktopBounds bounds);
+  void RetryConnection();
 
   std::optional<ChatUiUpdate> TryTakeUiUpdate();
   ChatRuntimeStatus GetRuntimeStatus();
@@ -135,6 +141,9 @@ class ChatSession {
   std::function<void(ae::ObjId, std::string, std::uint64_t)> on_send_draft_;
   std::function<void(ae::ObjId, ScrollAnchor)> on_save_scroll_;
   std::function<void(DesktopBounds)> on_save_bounds_;
+
+  std::optional<ChatSessionConfig> last_config_;
+  UiNotifyFn last_notify_;
 };
 
 }  // namespace apptraverse::example::chat_demo
