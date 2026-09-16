@@ -748,14 +748,13 @@ void LinuxChatApp::TryFinishClosing() {
   if (!closing_) {
     return;
   }
-  auto const status = session_.GetRuntimeStatus();
-  if (status.lifecycle_state == SessionLifecycleState::kStopped ||
-      status.lifecycle_state == SessionLifecycleState::kFailed) {
-    session_.Join();
-    gtk_widget_destroy(main_window_);
-    main_window_ = nullptr;
-    gtk_main_quit();
+  if (!session_.IsFinished()) {
+    return;
   }
+  session_.Join();
+  gtk_widget_destroy(main_window_);
+  main_window_ = nullptr;
+  gtk_main_quit();
 }
 
 void LinuxChatApp::ApplyPublicationFromSession() {

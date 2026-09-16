@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_EXAMPLE_CHAT_DEMO_CHAT_SESSION_H_
 #define APPTRAVERSE_EXAMPLE_CHAT_DEMO_CHAT_SESSION_H_
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -47,6 +48,7 @@ struct ChatRuntimeStatus {
   std::unordered_map<std::string, RoomBootstrapState> room_bootstrap_by_peer_uid;
   std::map<SharedEventId, MessageDeliveryState> delivery_by_event_id;
   std::string error_text;
+  std::uint64_t completed_checkpoint_id{0};
 };
 
 struct ChatUiUpdate {
@@ -88,9 +90,11 @@ class ChatSession {
   void SaveScroll(ae::ObjId entry_id, ScrollAnchor anchor);
   void SaveBounds(DesktopBounds bounds);
   void RetryConnection();
+  bool Checkpoint(std::uint64_t request_id);
 
   std::optional<ChatUiUpdate> TryTakeUiUpdate();
-  ChatRuntimeStatus GetRuntimeStatus();
+  ChatRuntimeStatus GetRuntimeStatus() const;
+  bool IsFinished() const noexcept;
 
  private:
   using ModelWork = std::function<void()>;
@@ -116,18 +120,18 @@ class ChatSession {
   UiNotifyFn notify_ui_;
 
   std::mutex publication_mu_;
-  std::condition_variable publication_cv_;
   std::optional<PendingPublicationMetadata> pending_publication_metadata_;
   std::uint64_t next_publication_serial_{1};
 
-  std::mutex status_mu_;
+  mutable std::mutex status_mu_;
   ChatRuntimeStatus status_;
   std::uint64_t status_serial_{0};
   std::uint64_t last_delivered_status_serial_{0};
 
   std::mutex queue_mu_;
   std::condition_variable queue_cv_;
-  bool stop_{false};
+  std::atomic<bool> stop_requested_{false};
+  std::atomic<bool> finished_{false};
   bool started_{false};
   bool accepting_user_commands_{false};
   bool accepting_internal_delivery_{false};
@@ -141,9 +145,8 @@ class ChatSession {
   std::function<void(ae::ObjId, std::string, std::uint64_t)> on_send_draft_;
   std::function<void(ae::ObjId, ScrollAnchor)> on_save_scroll_;
   std::function<void(DesktopBounds)> on_save_bounds_;
-
-  std::optional<ChatSessionConfig> last_config_;
-  UiNotifyFn last_notify_;
+  std::function<void()> on_retry_connection_;
+  std::function<void(std::uint64_t)> on_checkpoint_;
 };
 
 }  // namespace apptraverse::example::chat_demo

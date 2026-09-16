@@ -257,13 +257,29 @@ void TestInvalidProfileLoad() {
 
   CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
   WaitFake(fake_slot);
-  auto const lifecycle = session.GetRuntimeStatus().lifecycle_state;
-  CHECK(lifecycle == SessionLifecycleState::kFailed ||
+  // DirectoryDomainStorage ignores unknown files; worker should still reach
+  // Ready or Failed without deleting the profile directory.
+  auto const deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  SessionLifecycleState lifecycle = SessionLifecycleState::kStarting;
+  while (std::chrono::steady_clock::now() < deadline) {
+    lifecycle = session.GetRuntimeStatus().lifecycle_state;
+    if (lifecycle == SessionLifecycleState::kReady ||
+        lifecycle == SessionLifecycleState::kFailed ||
+        lifecycle == SessionLifecycleState::kStopped) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  CHECK(lifecycle == SessionLifecycleState::kReady ||
+        lifecycle == SessionLifecycleState::kFailed ||
         lifecycle == SessionLifecycleState::kStopped ||
         !session.GetRuntimeStatus().error_text.empty());
+  CHECK(std::filesystem::exists(state_dir));
 
   session.RequestStop();
   session.Join();
+  CHECK(session.IsFinished());
   coordinator.RequestStop();
   coordinator.Join();
   std::filesystem::remove_all(state_dir);
@@ -315,8 +331,19 @@ void TestCheckpointReload() {
     WaitLifecycle(session, SessionLifecycleState::kReady);
     session.OpenPeer(OpenPeerRequest{.peer_admin_id = "saved-peer"});
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    CHECK(session.Checkpoint(42));
+    auto const cp_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < cp_deadline) {
+      if (session.GetRuntimeStatus().completed_checkpoint_id == 42) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK(session.GetRuntimeStatus().completed_checkpoint_id == 42);
     session.RequestStop();
     session.Join();
+    CHECK(session.IsFinished());
   }
 
   {

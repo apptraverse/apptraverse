@@ -63,7 +63,7 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     transcriptScroll = findViewById(R.id.transcript_scroll);
     draft = findViewById(R.id.draft);
     adminId = findViewById(R.id.admin_id);
-    aetherUid = findViewById(R.id/aether_uid);
+    aetherUid = findViewById(R.id.aether_uid);
     openPeer = findViewById(R.id.open_peer);
     sendDraft = findViewById(R.id.send_draft);
     statusLine = findViewById(R.id.status_line);
@@ -235,7 +235,6 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
   @Override
   public void onModelStopped() {
     finishAndRemoveTask();
-    System.exit(0);
   }
 
   private void updateWideLayout(int width, int height) {

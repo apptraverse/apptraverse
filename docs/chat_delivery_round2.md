@@ -177,3 +177,31 @@ Dirty tree embeds `source_dirty=dirty` (expected until this commit lands).
 ## Next
 
 A03 bound ChatSession restart reproduce; A04 ownership; A05–A08 session fixes.
+
+## A06/A07/A08 slice + host completion (completed)
+
+### Changes
+- `TryTakeUiUpdate`: status_serial under `status_mu_` only; publication slot separate
+- `GetRuntimeStatus() const`; `stop_requested_` / `finished_` atomics; `IsFinished()`
+- `RetryConnection()` enqueues only (no caller-thread Join/Start); removed last_config restart
+- `Checkpoint(request_id)` enqueues root Save; advances `completed_checkpoint_id`
+- Model loop no longer waits on `publication_cv_` while GUI is busy
+- Win32/Linux close waits `IsFinished` before Join
+- Android: `R.id.aether_uid`, remove `System.exit`, Checkpoint uses real API
+
+### Evidence
+| Test | Result |
+| --- | --- |
+| integration | UNIT_PASS exit 0 |
+| fault (incl. Checkpoint 42) | UNIT_PASS exit 0 |
+| windows smoke | GUI_PASS exit 0 |
+
+### Remaining
+- A05 WorkerState lifetime (exception drain still after try-scope locals)
+- A07 full network_epoch endpoint reincarnation
+- A03/A04 bound-room restart still GAP
+- Android namespace rename + full UI (A15–A17)
+
+## Next
+
+A03 bound restart reproducers; A05 WorkerState.

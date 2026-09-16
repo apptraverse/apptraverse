@@ -1028,14 +1028,14 @@ void WinChatApp::TryFinishClosing() {
   if (!closing_) {
     return;
   }
-  auto const status = session_.GetRuntimeStatus();
-  if (status.lifecycle_state == SessionLifecycleState::kStopped ||
-      status.lifecycle_state == SessionLifecycleState::kFailed) {
-    session_.Join();
-    if (main_hwnd_ != nullptr) {
-      DestroyWindow(main_hwnd_);
-      main_hwnd_ = nullptr;
-    }
+  // Network Failed is not worker finished — wait for IsFinished.
+  if (!session_.IsFinished()) {
+    return;
+  }
+  session_.Join();
+  if (main_hwnd_ != nullptr) {
+    DestroyWindow(main_hwnd_);
+    main_hwnd_ = nullptr;
   }
 }
 

@@ -1,5 +1,7 @@
 #include "chat_native_runtime.h"
 
+#include <atomic>
+
 #include "apptraverse/object_serialization.h"
 #include "android_log.h"
 
@@ -297,8 +299,15 @@ void ChatNativeRuntime::SaveScroll(ae::ObjId entry_id, ScrollAnchor anchor) {
 }
 
 void ChatNativeRuntime::Checkpoint() {
-  session_.SaveBounds({});
-  LogMarker("CHAT_ANDROID_CHECKPOINT");
+  static std::atomic<std::uint64_t> next_checkpoint{1};
+  std::uint64_t const id =
+      next_checkpoint.fetch_add(1, std::memory_order_relaxed);
+  if (!session_.Checkpoint(id)) {
+    LogMarker("CHAT_ANDROID_CHECKPOINT_REJECTED");
+    return;
+  }
+  // Completion is reported when completed_checkpoint_id advances in status.
+  LogMarker("CHAT_ANDROID_CHECKPOINT_ENQUEUED");
 }
 
 void ChatNativeRuntime::RequestStop() { session_.RequestStop(); }

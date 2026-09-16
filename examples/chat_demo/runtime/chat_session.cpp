@@ -166,14 +166,13 @@ ChatSession::~ChatSession() {
 }
 
 bool ChatSession::Start(ChatSessionConfig config, UiNotifyFn notify_ui) {
-  last_config_ = config;
-  last_notify_ = notify_ui;
   std::lock_guard<std::mutex> lock{queue_mu_};
   if (started_) {
     return false;
   }
   started_ = true;
-  stop_ = false;
+  stop_requested_.store(false, std::memory_order_release);
+  finished_.store(false, std::memory_order_release);
   accepting_user_commands_ = true;
   accepting_internal_delivery_ = true;
   notify_ui_ = std::move(notify_ui);
@@ -186,10 +185,10 @@ bool ChatSession::Start(ChatSessionConfig config, UiNotifyFn notify_ui) {
 void ChatSession::RequestStop() {
   {
     std::lock_guard<std::mutex> lock{queue_mu_};
-    if (!started_ || stop_) {
+    if (!started_ || stop_requested_.load(std::memory_order_relaxed)) {
       return;
     }
-    stop_ = true;
+    stop_requested_.store(true, std::memory_order_release);
     accepting_user_commands_ = false;
   }
   queue_cv_.notify_all();
@@ -199,6 +198,10 @@ void ChatSession::Join() {
   if (worker_thread_.joinable()) {
     worker_thread_.join();
   }
+}
+
+bool ChatSession::IsFinished() const noexcept {
+  return finished_.load(std::memory_order_acquire);
 }
 
 void ChatSession::EnqueueUserModelWork(ModelWork work) {
@@ -223,13 +226,14 @@ void ChatSession::EnqueueInternalModelWork(ModelWork work) {
   queue_cv_.notify_all();
 }
 
-ChatRuntimeStatus ChatSession::GetRuntimeStatus() {
+ChatRuntimeStatus ChatSession::GetRuntimeStatus() const {
   std::lock_guard<std::mutex> lock{status_mu_};
   return status_;
 }
 
 std::optional<ChatUiUpdate> ChatSession::TryTakeUiUpdate() {
   ChatUiUpdate update;
+  bool have_publication = false;
 
   {
     std::lock_guard<std::mutex> pub_lock{publication_mu_};
@@ -239,7 +243,6 @@ std::optional<ChatUiUpdate> ChatSession::TryTakeUiUpdate() {
              "published slot requires matching metadata");
       PendingPublicationMetadata const meta = *pending_publication_metadata_;
       pending_publication_metadata_.reset();
-      publication_cv_.notify_all();
 
       update.publication_bytes = std::move(bytes);
       update.kind = meta.kind;
@@ -247,16 +250,29 @@ std::optional<ChatUiUpdate> ChatSession::TryTakeUiUpdate() {
       update.processed_edit_revisions_by_entry =
           std::move(meta.edit_revisions_by_entry);
       update.selected_chat_ack = meta.selected_chat_ack;
-    } else if (status_serial_ == last_delivered_status_serial_) {
-      return std::nullopt;
+      have_publication = true;
     }
-    last_delivered_status_serial_ = status_serial_;
   }
 
+  bool have_status = false;
   {
     std::lock_guard<std::mutex> status_lock{status_mu_};
-    update.runtime_status = status_;
+    if (status_serial_ != last_delivered_status_serial_) {
+      last_delivered_status_serial_ = status_serial_;
+      update.runtime_status = status_;
+      have_status = true;
+    } else if (have_publication) {
+      update.runtime_status = status_;
+      have_status = true;
+    }
   }
+
+  if (!have_publication && !have_status) {
+    return std::nullopt;
+  }
+
+  // Wake the model worker if it was retaining a dirty publication.
+  queue_cv_.notify_all();
   return update;
 }
 
@@ -364,17 +380,34 @@ void ChatSession::SaveBounds(DesktopBounds bounds) {
 }
 
 void ChatSession::RetryConnection() {
-  SessionLifecycleState lifecycle = SessionLifecycleState::kStarting;
+  // Never Join/Start on the caller (GUI/JNI) thread.
+  EnqueueUserModelWork([this]() {
+    AssertModelThread();
+    if (on_retry_connection_) {
+      on_retry_connection_();
+    }
+  });
+}
+
+bool ChatSession::Checkpoint(std::uint64_t request_id) {
+  if (request_id == 0) {
+    return false;
+  }
+  bool accepted = false;
   {
-    std::lock_guard<std::mutex> lock{status_mu_};
-    lifecycle = status_.lifecycle_state;
+    std::lock_guard<std::mutex> lock{queue_mu_};
+    accepted = accepting_user_commands_;
   }
-  if (lifecycle != SessionLifecycleState::kFailed || !last_config_.has_value() ||
-      !last_notify_) {
-    return;
+  if (!accepted) {
+    return false;
   }
-  Join();
-  Start(*last_config_, last_notify_);
+  EnqueueUserModelWork([this, request_id]() {
+    AssertModelThread();
+    if (on_checkpoint_) {
+      on_checkpoint_(request_id);
+    }
+  });
+  return true;
 }
 
 void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
@@ -395,6 +428,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     on_send_draft_ = nullptr;
     on_save_scroll_ = nullptr;
     on_save_bounds_ = nullptr;
+    on_retry_connection_ = nullptr;
+    on_checkpoint_ = nullptr;
 
     {
       std::lock_guard<std::mutex> lock{queue_mu_};
@@ -407,6 +442,11 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           s.lifecycle_state = SessionLifecycleState::kStopped;
         }
       });
+    }
+
+    finished_.store(true, std::memory_order_release);
+    if (notify_ui_) {
+      notify_ui_();
     }
   };
 
@@ -819,6 +859,42 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     }
   };
 
+  on_checkpoint_ = [this, &persist_workspace](std::uint64_t request_id) {
+    // Root Save only — no geometry/message mutation.
+    try {
+      persist_workspace();
+      UpdateStatus([request_id](ChatRuntimeStatus& s) {
+        s.completed_checkpoint_id = request_id;
+      });
+    } catch (std::exception const& ex) {
+      UpdateStatus([&ex](ChatRuntimeStatus& s) {
+        s.error_text = std::string("Checkpoint Save failed: ") + ex.what();
+      });
+    }
+  };
+
+  // Network-only retry placeholder: keep model alive; do not Join/Start session.
+  // Full endpoint reincarnation (network_epoch) lands with WorkerState (A05/A07).
+  on_retry_connection_ = [this, &identity_conflict]() {
+    AssertModelThread();
+    if (identity_conflict) {
+      return;
+    }
+    SessionLifecycleState life = SessionLifecycleState::kStarting;
+    {
+      std::lock_guard<std::mutex> lock{status_mu_};
+      life = status_.lifecycle_state;
+    }
+    if (life != SessionLifecycleState::kFailed) {
+      return;
+    }
+    UpdateStatus([](ChatRuntimeStatus& s) {
+      s.lifecycle_state = SessionLifecycleState::kStarting;
+      s.local_connectivity = LocalConnectivityState::kUnknown;
+      s.error_text.clear();
+    });
+  };
+
   aether_runtime->Start(
       std::move(aether_cfg),
       /*on_uid=*/
@@ -1082,9 +1158,11 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     {
       std::unique_lock<std::mutex> lock{queue_mu_};
       queue_cv_.wait_for(lock, std::chrono::milliseconds(50), [&]() {
-        return stop_ || !work_queue_.empty();
+        return stop_requested_.load(std::memory_order_relaxed) ||
+               !work_queue_.empty();
       });
-      if (stop_ && work_queue_.empty()) {
+      if (stop_requested_.load(std::memory_order_relaxed) &&
+          work_queue_.empty()) {
         break;
       }
       local_work.swap(work_queue_);
@@ -1100,20 +1178,15 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     }
 
     if (publication_dirty) {
-      std::unique_lock<std::mutex> pub_lock{publication_mu_};
-      if (channel_.is_publication_busy()) {
-        publication_cv_.wait_for(pub_lock, std::chrono::milliseconds(50), [&] {
-          return stop_ || !channel_.is_publication_busy();
-        });
-      }
-      if (publication_dirty && !channel_.is_publication_busy() &&
-          workspace.is_valid()) {
+      std::lock_guard<std::mutex> pub_lock{publication_mu_};
+      // Busy GUI: retain dirty; do not wait on the publication slot.
+      if (!channel_.is_publication_busy() && workspace.is_valid()) {
         publish_now_unlocked(/*is_initial=*/false);
         publication_dirty = false;
       }
     }
 
-    if (stop_) {
+    if (stop_requested_.load(std::memory_order_relaxed)) {
       continue;
     }
 
