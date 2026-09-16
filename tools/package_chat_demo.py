@@ -10,6 +10,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,20 +51,55 @@ def main() -> int:
     parser.add_argument("--out-root", type=Path, default=ROOT / "dist" / "chat-demo")
     args = parser.parse_args()
 
-    sha = git_sha(ROOT)
-    out_dir = args.out_root / sha
+    packaging_sha = git_sha(ROOT)
+    win_exe = args.build_dir / "examples" / "chat_demo" / "windows" / "apptraverse_chat.exe"
+    receipt = args.build_dir / "receipts" / "apptraverse_chat.json"
+
+    binary_source_sha = packaging_sha
+    if win_exe.is_file():
+        with tempfile.TemporaryDirectory() as tmp:
+            info_path = Path(tmp) / "build-info.txt"
+            proc = subprocess.run(
+                [str(win_exe), "--build-info-file", str(info_path)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if proc.returncode != 0 or not info_path.is_file():
+                print(
+                    "ERROR: cannot read --build-info from executable; refusing to package unlabeled bytes",
+                    file=sys.stderr,
+                )
+                return 1
+            for line in info_path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("binary_source_sha="):
+                    binary_source_sha = line.split("=", 1)[1].strip()
+        if receipt.is_file():
+            data = json.loads(receipt.read_text(encoding="utf-8"))
+            if data.get("sha256") != sha256_file(win_exe):
+                print("ERROR: receipt sha256 mismatches executable; refusing package", file=sys.stderr)
+                return 1
+            emb = (data.get("embedded") or {}).get("binary_source_sha")
+            if emb and emb != binary_source_sha:
+                print("ERROR: receipt embedded sha mismatches --build-info", file=sys.stderr)
+                return 1
+            if (data.get("embedded") or {}).get("source_dirty") == "dirty":
+                print("ERROR: dirty compiled source cannot be promoted silently", file=sys.stderr)
+                return 1
+
+    out_dir = args.out_root / binary_source_sha
     out_dir.mkdir(parents=True, exist_ok=True)
 
     manifest: dict = {
-        "repo_sha": sha,
+        "binary_source_sha": binary_source_sha,
+        "packaging_repo_sha": packaging_sha,
         "packaged_at": datetime.now(timezone.utc).isoformat(),
         "host": platform.platform(),
         "artifacts": [],
         "platforms": {},
         "dependency_pins": read_pins(),
     }
-
-    win_exe = args.build_dir / "examples" / "chat_demo" / "windows" / "apptraverse_chat.exe"
     if win_exe.is_file():
         dest = out_dir / "windows" / win_exe.name
         dest.parent.mkdir(parents=True, exist_ok=True)

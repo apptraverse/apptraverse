@@ -2,6 +2,110 @@
 # aether-client-cpp tree. Replaces the object/domain-only subset so chat can
 # SelectClient / RegisterClient while AppTraverse still uses ae::Obj/Domain.
 
+function(_apptraverse_apply_git_patch source_dir patch_file label)
+  if(NOT EXISTS "${patch_file}")
+    message(FATAL_ERROR "Missing ${label} patch: ${patch_file}")
+  endif()
+  find_package(Git REQUIRED)
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --check "${patch_file}"
+    WORKING_DIRECTORY "${source_dir}"
+    RESULT_VARIABLE _chk
+    OUTPUT_VARIABLE _chk_out
+    ERROR_VARIABLE _chk_err
+  )
+  if(NOT _chk EQUAL 0)
+    message(FATAL_ERROR
+      "${label}: cannot apply ${patch_file} onto ${source_dir} "
+      "(rc=${_chk}). ${_chk_out}${_chk_err}")
+  endif()
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply "${patch_file}"
+    WORKING_DIRECTORY "${source_dir}"
+    RESULT_VARIABLE _app
+    OUTPUT_VARIABLE _app_out
+    ERROR_VARIABLE _app_err
+  )
+  if(NOT _app EQUAL 0)
+    message(FATAL_ERROR
+      "${label}: git apply failed for ${patch_file}: ${_app_out}${_app_err}")
+  endif()
+  message(STATUS "APPTRAVERSE_${label}_PATCH=applied ${patch_file}")
+endfunction()
+
+# CPM PATCHES is skipped on SOURCE_CACHE hits. libsodium upstream has no
+# CMakeLists.txt; aether-client-cpp's libsodium_cmake.patch supplies it.
+function(apptraverse_ensure_libsodium_cmake)
+  set(_ae "${aether-client-cpp_SOURCE_DIR}")
+  set(_src "")
+  if(DEFINED libsodium_SOURCE_DIR AND NOT libsodium_SOURCE_DIR STREQUAL "")
+    set(_src "${libsodium_SOURCE_DIR}")
+  elseif(DEFINED CPM_PACKAGE_libsodium_SOURCE_DIR)
+    set(_src "${CPM_PACKAGE_libsodium_SOURCE_DIR}")
+  endif()
+  if(_src STREQUAL "")
+    message(FATAL_ERROR "libsodium SOURCE_DIR unresolved after CPMAddPackage")
+  endif()
+  set(_cmake_patch "${_ae}/third_party/libsodium_cmake.patch")
+  set(_code_patch "${_ae}/third_party/libsodium.patch")
+  if(NOT EXISTS "${_src}/CMakeLists.txt")
+    _apptraverse_apply_git_patch("${_src}" "${_cmake_patch}" "LIBSODIUM_CMAKE")
+    if(EXISTS "${_code_patch}")
+      execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply --check "${_code_patch}"
+        WORKING_DIRECTORY "${_src}"
+        RESULT_VARIABLE _code_chk
+        ERROR_QUIET
+      )
+      if(_code_chk EQUAL 0)
+        _apptraverse_apply_git_patch("${_src}" "${_code_patch}" "LIBSODIUM")
+      endif()
+    endif()
+  else()
+    message(STATUS
+      "APPTRAVERSE_LIBSODIUM_CMAKE=present source=${_src}")
+  endif()
+  if(NOT EXISTS "${_src}/CMakeLists.txt")
+    message(FATAL_ERROR
+      "libsodium still has no CMakeLists.txt after owned patches at ${_src}")
+  endif()
+  if(NOT TARGET sodium)
+    set(_bin "${CMAKE_BINARY_DIR}/_deps/libsodium-build")
+    if(DEFINED CPM_PACKAGE_libsodium_BINARY_DIR AND
+       NOT CPM_PACKAGE_libsodium_BINARY_DIR STREQUAL "")
+      set(_bin "${CPM_PACKAGE_libsodium_BINARY_DIR}")
+    endif()
+    message(STATUS
+      "APPTRAVERSE_LIBSODIUM_ADD_SUBDIR source=${_src} binary=${_bin}")
+    add_subdirectory("${_src}" "${_bin}")
+  endif()
+endfunction()
+
+function(apptraverse_ensure_libbcrypt_cmake)
+  set(_ae "${aether-client-cpp_SOURCE_DIR}")
+  set(_src "")
+  if(DEFINED libbcrypt_SOURCE_DIR AND NOT libbcrypt_SOURCE_DIR STREQUAL "")
+    set(_src "${libbcrypt_SOURCE_DIR}")
+  elseif(DEFINED CPM_PACKAGE_libbcrypt_SOURCE_DIR)
+    set(_src "${CPM_PACKAGE_libbcrypt_SOURCE_DIR}")
+  endif()
+  if(_src STREQUAL "")
+    return()
+  endif()
+  set(_patch "${_ae}/third_party/libbcrypt.patch")
+  if(NOT EXISTS "${_src}/CMakeLists.txt")
+    _apptraverse_apply_git_patch("${_src}" "${_patch}" "LIBBCRYPT")
+  endif()
+  if(NOT TARGET bcrypt AND EXISTS "${_src}/CMakeLists.txt")
+    set(_bin "${CMAKE_BINARY_DIR}/_deps/libbcrypt-build")
+    if(DEFINED CPM_PACKAGE_libbcrypt_BINARY_DIR AND
+       NOT CPM_PACKAGE_libbcrypt_BINARY_DIR STREQUAL "")
+      set(_bin "${CPM_PACKAGE_libbcrypt_BINARY_DIR}")
+    endif()
+    add_subdirectory("${_src}" "${_bin}")
+  endif()
+endfunction()
+
 function(apptraverse_add_aether_client_deps)
   set(_ae "${aether-client-cpp_SOURCE_DIR}")
   if(_ae STREQUAL "")
@@ -15,7 +119,9 @@ function(apptraverse_add_aether_client_deps)
     PATCHES "${_ae}/third_party/libbcrypt.patch"
     OPTIONS "ENABLE_INSTALL OFF"
     EXCLUDE_FROM_ALL FALSE
+    DOWNLOAD_ONLY YES
   )
+  apptraverse_ensure_libbcrypt_cmake()
   CPMAddPackage(
     NAME libhydrogen
     GIT_REPOSITORY "https://github.com/jedisct1/libhydrogen.git"
@@ -33,7 +139,9 @@ function(apptraverse_add_aether_client_deps)
       "${_ae}/third_party/libsodium_cmake.patch"
     OPTIONS "ENABLE_INSTALL OFF"
     EXCLUDE_FROM_ALL FALSE
+    DOWNLOAD_ONLY YES
   )
+  apptraverse_ensure_libsodium_cmake()
   CPMAddPackage(
     NAME etl
     GIT_REPOSITORY "https://github.com/ETLCPP/etl.git"

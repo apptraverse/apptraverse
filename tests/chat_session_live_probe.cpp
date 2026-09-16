@@ -10,9 +10,16 @@
 
 #include "apptraverse/object_macros.h"
 
+#include "chat_build_info.h"
 #include "chat_session.h"
 
 int main(int argc, char* argv[]) {
+  int build_info_exit = 0;
+  if (apptraverse::example::chat_demo::TryHandleBuildInfoArgs(argc, argv,
+                                                              &build_info_exit)) {
+    return build_info_exit;
+  }
+
   std::filesystem::path state_dir;
   std::string peer_uid;
   std::uint64_t run_ms = 5000;
@@ -30,7 +37,9 @@ int main(int argc, char* argv[]) {
 
   if (state_dir.empty()) {
     std::cerr << "Usage: apptraverse_chat_session_live_probe --state-dir <dir> "
-                 "[--peer-uid <uid>] [--run-ms <n>]\n";
+                 "[--peer-uid <uid>] [--run-ms <n>]\n"
+                 "       apptraverse_chat_session_live_probe --build-info\n"
+                 "       apptraverse_chat_session_live_probe --build-info-file <path>\n";
     return 1;
   }
 

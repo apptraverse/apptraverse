@@ -230,10 +230,76 @@ try {
     $Targets = $expanded
   }
 
+  # Refresh generated identity before compiling the identity unit.
+  $genDir = Join-Path $AbsBuild "generated"
+  New-Item -ItemType Directory -Force -Path $genDir | Out-Null
+  $genH = Join-Path $genDir "chat_build_info_generated.h"
+  & $CMake `
+    "-DREPO_ROOT=$Root" `
+    "-DOUTPUT=$genH" `
+    "-DCONFIGURATION=$Configuration" `
+    "-DCXX_COMPILER_ID=MSVC" `
+    -P (Join-Path $Root "cmake\generate_chat_build_info.cmake")
+  Assert-NativeExit $LASTEXITCODE "generate chat build info"
+
+  function Resolve-TargetExe([string]$Target) {
+    switch ($Target) {
+      "apptraverse_chat" {
+        return (Join-Path $AbsBuild "examples\chat_demo\windows\apptraverse_chat.exe")
+      }
+      "apptraverse_chat_session_live_probe" {
+        return (Join-Path $AbsBuild "tests\apptraverse_chat_session_live_probe.exe")
+      }
+      default {
+        $cand = Join-Path $AbsBuild "tests\$Target.exe"
+        if (Test-Path -LiteralPath $cand) { return $cand }
+        return $null
+      }
+    }
+  }
+
+  function Write-BuildReceipt([string]$Target, [string]$ExePath) {
+    if (-not $ExePath -or -not (Test-Path -LiteralPath $ExePath)) {
+      return
+    }
+    $hash = (Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $receiptDir = Join-Path $AbsBuild "receipts"
+    New-Item -ItemType Directory -Force -Path $receiptDir | Out-Null
+    $receiptPath = Join-Path $receiptDir ("{0}.json" -f $Target)
+    $embedded = @{}
+    if (Test-Path -LiteralPath $genH) {
+      Get-Content -LiteralPath $genH | ForEach-Object {
+        if ($_ -match '#define APPTRAVERSE_CHAT_SOURCE_SHA "([^"]+)"') {
+          $embedded["binary_source_sha"] = $Matches[1]
+        } elseif ($_ -match '#define APPTRAVERSE_CHAT_COMPILE_FINGERPRINT "([^"]+)"') {
+          $embedded["compile_fingerprint"] = $Matches[1]
+        } elseif ($_ -match '#define APPTRAVERSE_CHAT_SOURCE_DIRTY_FLAG "([^"]+)"') {
+          $embedded["source_dirty"] = $Matches[1]
+        } elseif ($_ -match '#define APPTRAVERSE_CHAT_BUILD_CONFIGURATION "([^"]+)"') {
+          $embedded["configuration"] = $Matches[1]
+        }
+      }
+    }
+    $obj = [ordered]@{
+      target = $Target
+      artifact = $ExePath
+      sha256 = $hash
+      exit_code = 0
+      embedded = $embedded
+      packaging_repo_sha = $GitSha
+      built_at_utc = [DateTime]::UtcNow.ToString("o")
+    }
+    $json = ($obj | ConvertTo-Json -Depth 5)
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($receiptPath, $json, $utf8NoBom)
+    Write-Host "APPTRAVERSE_BUILD_RECEIPT=$receiptPath sha256=$hash"
+  }
+
   foreach ($t in $Targets) {
     Write-Host "Building $t"
     & $CMake --build $AbsBuild --config $Configuration --target $t
     Assert-NativeExit $LASTEXITCODE "cmake --build --target $t"
+    Write-BuildReceipt $t (Resolve-TargetExe $t)
   }
 } finally {
   foreach ($key in @([Environment]::GetEnvironmentVariables("Process").Keys)) {

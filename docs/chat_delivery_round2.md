@@ -152,3 +152,28 @@ new owned dir `build/chat-a01-msvc-debug` without overrides.
 ## Next
 
 A02 build-info/receipts; A03 bound restart reproduce.
+
+## A02 — Binary identity + sodium ensure (completed)
+
+### Changes
+- Generated `chat_build_info_generated.h` via `cmake/generate_chat_build_info.cmake`
+- `chat_demo_build_info` + `--build-info` / `--build-info-file` on Windows chat and live probe
+- Build receipts under `build/.../receipts/*.json` after successful link
+- `tools/test_chat_build_receipt.py`; packager refuses unlabeled/mismatched/dirty EXE
+- `cmake/aether_object.cmake`: DOWNLOAD_ONLY + ensure-apply for libsodium/libbcrypt
+  CMakeLists patches when CPM PATCHES skipped on cache (reconfigure regression)
+
+### Evidence
+| Check | Result |
+| --- | --- |
+| `apptraverse_chat --build-info-file` | exit 0; identity lines present |
+| live probe `--build-info` | exit 0 |
+| receipt sha256 vs EXE | match |
+| `tools/test_chat_build_receipt.py` | exit 0 |
+| second configure keeps sodium CMakeLists | `LIBSODIUM_CMAKE=present` |
+
+Dirty tree embeds `source_dirty=dirty` (expected until this commit lands).
+
+## Next
+
+A03 bound ChatSession restart reproduce; A04 ownership; A05–A08 session fixes.

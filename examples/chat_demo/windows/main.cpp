@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "apptraverse/noninteractive_crt.h"
+#include "chat_build_info.h"
 #include "chat_launch_options.h"
 #include "win_chat_app.h"
 
@@ -31,6 +32,13 @@ int WINAPI wWinMain(HINSTANCE /*instance*/, HINSTANCE /*prev_instance*/,
       }
     }
     LocalFree(argv_w);
+  }
+
+  // Offline identity only — before profile lock, windows, or Aether.
+  int build_info_exit = 0;
+  if (apptraverse::example::chat_demo::TryHandleBuildInfoArgs(args,
+                                                              &build_info_exit)) {
+    return build_info_exit;
   }
 
   auto const parse_res = apptraverse::example::chat_demo::ParseChatLaunchOptions(args);
