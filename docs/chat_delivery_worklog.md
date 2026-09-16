@@ -573,4 +573,41 @@ flush draft/scroll on pause, new-chat Admin ID + optional UID.
 ### Ending SHA
 `651de1f`
 
+### Next Commit
+- **COMMIT 13**: Admin-ID resolution
+
+---
+
+## Commit 13 — Admin-ID resolution
+
+### Objective
+Revisit Commit 00 inventory across authorized checkouts for AeroAdmin ID→UID
+lookup contract. Document blockers; do not invent resolver.
+
+### Starting SHA
+`b390cc9`
+
+### Files changed
+- `docs/aeroadmin_resolution_missing_contract.md` — authoritative search record;
+  status **BLOCKED WITH THE MISSING CONTRACT**
+
+### Search evidence
+- `apptraverse-chat-delivery`: launch/IPC docs only (`peer_admin_id` opaque;
+  `--peer-aether-uid` explicit hint)
+- `aether-client-cpp-presence-rebase`: no AeroAdmin/admin lookup API
+- `apptraverse-prep-deps-assert`: plan text only
+
+### Checks
+| Check | Result |
+| --- | --- |
+| resolver implementation | BLOCKED WITH THE MISSING CONTRACT |
+| supplied-UID + cached bound chats preserved | PASS (unchanged) |
+| live AeroAdmin lookup | NOT_RUN (no contract) |
+
+### Ending SHA
+(pending push)
+
+### Next Commit
+- **COMMIT 14**: Cross-platform acceptance and failure tests
+
 ---
