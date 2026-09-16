@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "aether-objects/obj/obj_id.h"
+#include "aether_frame_endpoint.h"
 #include "apptraverse/publication_channel.h"
 #include "chat_launch_options.h"
 #include "chat_model.h"
@@ -48,8 +49,11 @@ struct ChatSessionConfig {
 class ChatSession {
  public:
   using UiNotifyFn = std::function<void()>;
+  using EndpointFactory =
+      std::function<std::unique_ptr<IAetherFrameEndpoint>()>;
 
-  ChatSession();
+  // Default factory constructs ChatAetherRuntime. Tests may inject a fake.
+  explicit ChatSession(EndpointFactory endpoint_factory = {});
   ~ChatSession();
 
   ChatSession(ChatSession const&) = delete;
@@ -79,6 +83,7 @@ class ChatSession {
 
   void UpdateStatus(std::function<void(ChatRuntimeStatus&)> mutator);
 
+  EndpointFactory endpoint_factory_;
   PublicationChannel<3> channel_;
   UiNotifyFn notify_ui_;
 

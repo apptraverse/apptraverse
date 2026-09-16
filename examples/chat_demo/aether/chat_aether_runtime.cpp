@@ -220,9 +220,9 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       ae::DataBuffer buffer{bytes.begin(), bytes.end()};
       auto& action = peer.stream->Write(std::move(buffer));
       peer.write_subs.push_back(action.status_event().Subscribe(
-          [this, &on_write_status, peer_uid = peer.uid_text](
+          [&on_write_status, peer_uid = &peer.uid_text](
               ae::WriteAction::Status status) {
-            on_write_status(peer_uid, status);
+            on_write_status(*peer_uid, status);
           }));
       if (peer.write_subs.size() > 128) {
         peer.write_subs.erase(peer.write_subs.begin(),
@@ -241,9 +241,9 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         ae::DataBuffer buffer{frame_bytes.begin(), frame_bytes.end()};
         auto& action = peer.stream->Write(std::move(buffer));
         peer.write_subs.push_back(action.status_event().Subscribe(
-            [this, &on_write_status, peer_uid = peer.uid_text](
+            [&on_write_status, peer_uid = &peer.uid_text](
                 ae::WriteAction::Status status) {
-              on_write_status(peer_uid, status);
+              on_write_status(*peer_uid, status);
             }));
       }
       if (peer.write_subs.size() > 128) {
@@ -531,9 +531,9 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
                 auto& action = it->second.stream->Write(std::move(buffer));
                 it->second.write_subs.push_back(
                     action.status_event().Subscribe(
-                        [this, &on_write_status, peer_uid = cmd.peer_uid](
+                        [&on_write_status, peer_uid = &it->second.uid_text](
                             ae::WriteAction::Status status) {
-                          on_write_status(peer_uid, status);
+                          on_write_status(*peer_uid, status);
                         }));
                 if (it->second.write_subs.size() > 128) {
                   it->second.write_subs.erase(

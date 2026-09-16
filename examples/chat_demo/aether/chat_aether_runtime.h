@@ -20,26 +20,19 @@
 #include "aether/client_messages/p2p_port_handle.h"
 #include "aether/types/uid.h"
 
-#include "chat_presence.h"
 #include "aether_frame_endpoint.h"
+#include "chat_presence.h"
 
 namespace apptraverse::example::chat_demo {
 
 class ChatAetherRuntime : public IAetherFrameEndpoint {
  public:
-  using LocalUidCallback = std::function<void(std::string uid)>;
-  using ReadyCallback = std::function<void()>;
-  using FailedCallback = std::function<void(std::string error)>;
+  using LocalUidCallback = IAetherFrameEndpoint::LocalUidCallback;
+  using ReadyCallback = IAetherFrameEndpoint::ReadyCallback;
+  using FailedCallback = IAetherFrameEndpoint::FailedCallback;
   using FrameCallback = IAetherFrameEndpoint::FrameCallback;
-  using PresenceCallback =
-      std::function<void(std::string peer_uid, PeerPresence presence)>;
-
-  struct Config {
-    std::filesystem::path state_dir;
-    std::string client_name;
-    std::uint64_t heartbeat_period_ms{2000};
-    std::uint64_t offline_after_ms{7000};
-  };
+  using PresenceCallback = IAetherFrameEndpoint::PresenceCallback;
+  using Config = IAetherFrameEndpoint::Config;
 
   ChatAetherRuntime();
   ~ChatAetherRuntime() override;
@@ -49,14 +42,14 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
 
   void Start(Config config, LocalUidCallback on_uid, ReadyCallback on_ready,
              FailedCallback on_failed, FrameCallback on_frame,
-             PresenceCallback on_presence);
+             PresenceCallback on_presence) override;
 
-  void OpenPeer(std::string peer_uid);
+  void OpenPeer(std::string peer_uid) override;
   void Send(std::string peer_uid, std::vector<std::uint8_t> bytes) override;
-  void ClosePeer(std::string peer_uid);
+  void ClosePeer(std::string peer_uid) override;
 
-  void RequestStop();
-  void Join();
+  void RequestStop() override;
+  void Join() override;
 
   void SetFrameCallback(FrameCallback on_frame) override;
 

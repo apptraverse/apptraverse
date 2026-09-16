@@ -72,16 +72,9 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
  public:
   explicit LinkSyncState(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(share_id), AE_MMBR(link),
-                    AE_MMBR(initial_sync_phase),
-                    AE_MMBR(pending_initial_packet_id),
-                    AE_MMBR(pending_initial_packet),
-                    AE_MMBR(received_initial_packet_id),
-                    AE_MMBR(pending_initial_covered_event_ids),
-                    AE_MMBR(delivered_event_ids),
-                    AE_MMBR(pending_event_packet_id),
-                    AE_MMBR(pending_event_identity),
-                    AE_MMBR(pending_event_packet))
+  // Persist via explicit Load/Save (v3). Reflection lists only graph edges
+  // DomainVisitor must follow; MSVC cannot nest mirrors for all wire fields.
+  AE_OBJECT_REFLECT(AE_MMBR(share_id), AE_MMBR(link))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv&) {

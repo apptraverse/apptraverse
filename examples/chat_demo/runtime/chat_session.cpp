@@ -36,7 +36,12 @@ std::string CanonicalizeEndpoint(std::string const& raw) {
 
 }  // namespace
 
-ChatSession::ChatSession() = default;
+ChatSession::ChatSession(EndpointFactory endpoint_factory)
+    : endpoint_factory_(endpoint_factory
+                            ? std::move(endpoint_factory)
+                            : EndpointFactory{[] {
+                                return std::make_unique<ChatAetherRuntime>();
+                              }}) {}
 
 ChatSession::~ChatSession() {
   RequestStop();
@@ -239,9 +244,10 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
   // 5. Publish local workspace immediately before network registration
   publish_now(/*is_initial=*/true);
 
-  // 6. Start ChatAetherRuntime with state_dir/aether
-  ChatAetherRuntime aether_runtime;
-  ChatAetherRuntime::Config aether_cfg{
+  // 6. Start network endpoint (default: ChatAetherRuntime) on model thread
+  std::unique_ptr<IAetherFrameEndpoint> aether_runtime = endpoint_factory_();
+  assert(aether_runtime && "EndpointFactory must create one endpoint");
+  IAetherFrameEndpoint::Config aether_cfg{
       .state_dir = aether_dir,
       .client_name = config.aether_client_name,
       .heartbeat_period_ms = 1000,
@@ -318,7 +324,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           return;
         }
 
-        aether_runtime.OpenPeer(target_endpoint);
+        aether_runtime->OpenPeer(target_endpoint);
 
         if (entry->room.is_valid()) {
           // Restored or already created room: reuse
@@ -433,7 +439,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     }
   };
 
-  aether_runtime.Start(
+  aether_runtime->Start(
       std::move(aether_cfg),
       /*on_uid=*/
       [this, &workspace, &persist_workspace, &my_uid, &publication_dirty](std::string uid) {
@@ -462,7 +468,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
           // 8. Create AetherByteTransport and SharedSyncRuntime
           transport = std::make_unique<AetherByteTransport>(
-              aether_runtime, my_uid, model_dispatcher);
+              *aether_runtime, my_uid, model_dispatcher);
           sync_runtime = std::make_unique<SharedSyncRuntime>(domain, storage, *transport);
 
           // 9. Allow MessageAddedEvent
@@ -531,7 +537,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             if (entry.is_valid() && entry->peer_link.is_valid()) {
               std::string const& uid = entry->peer_link->EndpointUid();
               if (!uid.empty()) {
-                aether_runtime.OpenPeer(uid);
+                aether_runtime->OpenPeer(uid);
               }
             }
           }
@@ -670,8 +676,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
   // Model shutdown sequence:
   // 1. Stop accepting new USER commands (done by stop_ flag)
   // 2. RequestStop and Join ChatAetherRuntime while model queue still exists
-  aether_runtime.RequestStop();
-  aether_runtime.Join();
+  aether_runtime->RequestStop();
+  aether_runtime->Join();
 
   // 3. Drain already queued model deliveries
   std::deque<ModelWork> remaining_work;

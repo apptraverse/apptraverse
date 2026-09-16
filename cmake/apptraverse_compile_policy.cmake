@@ -10,7 +10,13 @@
 add_library(apptraverse_compile_policy INTERFACE)
 
 if(MSVC)
-  target_compile_options(apptraverse_compile_policy INTERFACE /GR-)
+  target_compile_options(apptraverse_compile_policy INTERFACE
+    /GR-
+    /Zc:preprocessor
+    /Zc:__cplusplus
+    /Zc:externConstexpr
+    /bigobj
+  )
 else()
   target_compile_options(apptraverse_compile_policy INTERFACE -fno-rtti)
 endif()

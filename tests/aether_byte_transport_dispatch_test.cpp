@@ -24,6 +24,16 @@ using apptraverse::example::chat_demo::ModelTask;
 
 class FakeFrameEndpoint : public IAetherFrameEndpoint {
  public:
+  void Start(Config /*config*/, LocalUidCallback /*on_uid*/,
+             ReadyCallback /*on_ready*/, FailedCallback /*on_failed*/,
+             FrameCallback on_frame,
+             PresenceCallback /*on_presence*/) override {
+    callback_ = std::move(on_frame);
+  }
+
+  void OpenPeer(std::string /*peer_uid*/) override {}
+  void ClosePeer(std::string /*peer_uid*/) override {}
+
   void Send(std::string peer_uid, std::vector<std::uint8_t> bytes) override {
     last_sent_peer = std::move(peer_uid);
     last_sent_bytes = std::move(bytes);
@@ -32,6 +42,9 @@ class FakeFrameEndpoint : public IAetherFrameEndpoint {
   void SetFrameCallback(FrameCallback callback) override {
     callback_ = std::move(callback);
   }
+
+  void RequestStop() override {}
+  void Join() override {}
 
   void InjectFrame(std::string source_uid, std::vector<std::uint8_t> bytes) {
     if (callback_) {

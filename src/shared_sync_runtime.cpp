@@ -604,7 +604,7 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
     auto const source_sync_index =
         node->FindLinkSyncIndexForShare(source_share_id);
     assert(source_sync_index < node->link_sync_states.size());
-    source_state = node->link_sync_states[source_sync_index];
+    source_state = node->link_sync_states[source_sync_index].as_obj_ptr();
     if (!source_state.is_loaded()) {
       source_state.Load();
     }
