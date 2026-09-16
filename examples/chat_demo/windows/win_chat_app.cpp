@@ -115,7 +115,12 @@ bool RegisterMainWindowClassOnce(HINSTANCE hinst) {
   wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
   wc.lpszClassName = kMainChatWindowClass;
   if (RegisterClassW(&wc) == 0) {
-    FatalWin32("RegisterClassW MainChatWindow", GetLastError());
+    DWORD const err = GetLastError();
+    // Parallel Host+Client startup: both may pass GetClassInfo before either
+    // RegisterClass completes. The loser sees ERROR_CLASS_ALREADY_EXISTS.
+    if (err != ERROR_CLASS_ALREADY_EXISTS) {
+      FatalWin32("RegisterClassW MainChatWindow", err);
+    }
   }
   return true;
 }
