@@ -241,3 +241,74 @@ workspace-root `Save()` only.
 - **COMMIT 05**: (per overnight plan)
 
 ---
+
+## Commit 05 — Exercise Actual Chat Sessions End to End
+
+### Objective
+Drive end-to-end chat behavior through `ChatSession` public commands and
+`TryTakeUiUpdate` publications; observe model state via a separate UI-test
+Domain (`LoadInitial` + `ApplyStructural`). Move SharedSyncRuntime protocol
+tests to a dedicated file with corrected negative fixtures.
+
+### Starting SHA
+`7844499`
+
+### Files changed
+- `tests/chat_session_integration_test.cpp` — rewritten around `ChatSession`;
+  scenarios 1–6, 9–13 at session level (FakeAetherFrameEndpoint +
+  MemoryNetwork)
+- `tests/shared_sync_protocol_test.cpp` — protocol-level coverage: binding
+  before ACK, lost ACK identical retry, failed binding gate, unauthorized /
+  wrong-class / second-initial rejection (correct NodeState encoding and valid
+  destination `share_id`)
+- `tests/chat_session_live_probe.cpp` — optional session-level probe executable
+  (requires `--state-dir`; not in CTest)
+- `tests/CMakeLists.txt` — `apptraverse_shared_sync_protocol_test`,
+  `apptraverse_chat_session_live_probe`; integration test links
+  `shared_node_demo_model`, MSVC `/utf-8`
+
+### Scenario mapping (overnight plan)
+| # | Scenario | Where exercised |
+| --- | --- | --- |
+| 1 | Two empty profiles, authorized peers, room unknown to receiver | `chat_session_integration_test` bootstrap |
+| 2 | Creator/waiter by canonical UID, one room | integration bootstrap |
+| 3 | Workspace binding before receiver initial ACK | `shared_sync_protocol_test` (ChatSession hides callback) |
+| 4 | A sends, B replies without resnapshot | integration send/reply |
+| 5 | Lost ACK, identical retry, one message | `shared_sync_protocol_test` |
+| 6 | Both send before delivery; timestamps converge | integration concurrent send |
+| 7–8 | Restart + queued delivery | `shared_sync_protocol_test` (ChatSession Stop/Start with bound room AV on MSVC debug — not session-tested) |
+| 9 | Reopen same Admin ID before/after readiness | integration repeated OpenPeer; bootstrap_test |
+| 10 | Two chats: independent drafts/scroll | integration two chats |
+| 11 | Unknown source / wrong class / second initial rejected | integration malicious frames (drain UI updates after inject; protocol test for encoding) |
+| 12 | Emoji / multiline / non-ASCII Windows path | integration unicode state dir + profile |
+| 13 | Error/status do not alter history/drafts | integration error/status (unbound entry; bound-room UI apply after edit AV) |
+
+### Mutation checks (local, not in tree)
+Disabled SharedSyncRuntime guards in `shared_sync_protocol_test` paths; confirmed
+failures; restored before commit.
+
+### Checks (MSVC Debug `build/win64-ninja-msvc-debug`)
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| compilation (MSVC Debug) | PASS |
+| `apptraverse_shared_sync_protocol_test` | PASS (exit 0) |
+| `apptraverse_chat_session_integration_test` | PASS (exit 0) |
+| `apptraverse_chat_session_bootstrap_test` | PASS (exit 0) |
+| `apptraverse_chat_session_publication_test` | PASS (exit 0) |
+| `apptraverse_chat_session_lifecycle_test` | PASS (exit 0) |
+| `apptraverse_chat_session_startup_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_model_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_sync_test` | PASS (exit 0) |
+| `apptraverse_aether_byte_transport_dispatch_test` | PASS (exit 0) |
+| `apptraverse_chat_session_live_probe` | NOT_RUN (manual `--state-dir` probe; builds) |
+| live Aether (`apptraverse_chat_aether_p2p_test`) | NOT_RUN (Linux-only in CMake on this Windows host) |
+| native GUI | NOT_RUN |
+
+### Ending SHA
+c653469
+
+### Next Commit
+- **COMMIT 06**: (per overnight plan)
+
+---

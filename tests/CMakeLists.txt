@@ -426,20 +426,55 @@ if(TARGET chat_demo_aether)
     COMMAND apptraverse_chat_session_lifecycle_test
   )
 
+  add_executable(apptraverse_shared_sync_protocol_test
+    shared_sync_protocol_test.cpp
+  )
+  target_link_libraries(apptraverse_shared_sync_protocol_test PRIVATE
+    apptraverse
+    chat_demo_model
+    shared_node_demo_model
+  )
+  target_include_directories(apptraverse_shared_sync_protocol_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/shared_node_demo
+  )
+  add_test(
+    NAME apptraverse_shared_sync_protocol_test
+    COMMAND apptraverse_shared_sync_protocol_test
+  )
+
   add_executable(apptraverse_chat_session_integration_test
     chat_session_integration_test.cpp
   )
   target_link_libraries(apptraverse_chat_session_integration_test PRIVATE
     chat_demo_runtime
+    shared_node_demo_model
   )
   target_include_directories(apptraverse_chat_session_integration_test PRIVATE
     ${CMAKE_SOURCE_DIR}/examples/chat_demo/runtime
     ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
     ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/shared_node_demo
+    ${CMAKE_CURRENT_SOURCE_DIR}
   )
+  if(MSVC)
+    target_compile_options(apptraverse_chat_session_integration_test PRIVATE /utf-8)
+  endif()
   add_test(
     NAME apptraverse_chat_session_integration_test
     COMMAND apptraverse_chat_session_integration_test
+  )
+
+  add_executable(apptraverse_chat_session_live_probe
+    chat_session_live_probe.cpp
+  )
+  target_link_libraries(apptraverse_chat_session_live_probe PRIVATE
+    chat_demo_runtime
+  )
+  target_include_directories(apptraverse_chat_session_live_probe PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/runtime
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
   )
 
   if(UNIX AND NOT EMSCRIPTEN)
