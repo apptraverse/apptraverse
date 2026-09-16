@@ -29,7 +29,8 @@ android {
     externalNativeBuild {
       cmake {
         arguments "-DANDROID_STL=c++_static",
-                  "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+                  "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+                  "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
         targets "apptraverse_chat"
       }
     }

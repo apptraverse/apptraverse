@@ -16,7 +16,7 @@ using apptraverse::example::chat_demo::ScrollAnchor;
 #include "chat_native_runtime.h"
 #include "chat_ui_bridge.h"
 
-namespace apptraverse::chatdemo::android {
+namespace apptraverse::example::chat_demo::android {
 namespace {
 
 constexpr char const kNativeRuntimeClass[] = "com/apptraverse/chatdemo/NativeRuntime";
@@ -143,30 +143,30 @@ JNINativeMethod const kNativeMethods[] = {
 };
 
 }  // namespace
-}  // namespace apptraverse::chatdemo::android
+}  // namespace apptraverse::example::chat_demo::android
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
   JNIEnv* env = nullptr;
   if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
-    apptraverse::chatdemo::android::LogError("JNI_OnLoad failed to obtain JNIEnv");
+    apptraverse::example::chat_demo::android::LogError("JNI_OnLoad failed to obtain JNIEnv");
     return JNI_ERR;
   }
 
-  jclass runtime_class = env->FindClass(apptraverse::chatdemo::android::kNativeRuntimeClass);
+  jclass runtime_class = env->FindClass(apptraverse::example::chat_demo::android::kNativeRuntimeClass);
   if (runtime_class == nullptr) {
     env->ExceptionClear();
-    apptraverse::chatdemo::android::LogError("JNI_OnLoad failed to find NativeRuntime");
+    apptraverse::example::chat_demo::android::LogError("JNI_OnLoad failed to find NativeRuntime");
     return JNI_ERR;
   }
 
-  auto const method_count = static_cast<jint>(sizeof(apptraverse::chatdemo::android::kNativeMethods) /
-                                              sizeof(apptraverse::chatdemo::android::kNativeMethods[0]));
-  auto const result = env->RegisterNatives(runtime_class, apptraverse::chatdemo::android::kNativeMethods,
+  auto const method_count = static_cast<jint>(sizeof(apptraverse::example::chat_demo::android::kNativeMethods) /
+                                              sizeof(apptraverse::example::chat_demo::android::kNativeMethods[0]));
+  auto const result = env->RegisterNatives(runtime_class, apptraverse::example::chat_demo::android::kNativeMethods,
                                            method_count);
   env->DeleteLocalRef(runtime_class);
   if (result != JNI_OK) {
     env->ExceptionClear();
-    apptraverse::chatdemo::android::LogError("JNI_OnLoad failed to register natives");
+    apptraverse::example::chat_demo::android::LogError("JNI_OnLoad failed to register natives");
     return JNI_ERR;
   }
 

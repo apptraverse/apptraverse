@@ -20,7 +20,19 @@
 #include "chat_session.h"
 #include "chat_ui_bridge.h"
 
-namespace apptraverse::chatdemo::android {
+namespace apptraverse::example::chat_demo::android {
+
+using apptraverse::example::chat_demo::ChatEntry;
+using apptraverse::example::chat_demo::ChatSession;
+using apptraverse::example::chat_demo::ChatSessionConfig;
+using apptraverse::example::chat_demo::ChatUiUpdate;
+using apptraverse::example::chat_demo::ChatWorkspace;
+using apptraverse::example::chat_demo::LocalConnectivityState;
+using apptraverse::example::chat_demo::MessageValue;
+using apptraverse::example::chat_demo::OpenPeerRequest;
+using apptraverse::example::chat_demo::RoomBootstrapState;
+using apptraverse::example::chat_demo::ScrollAnchor;
+using apptraverse::example::chat_demo::SessionLifecycleState;
 
 class ChatNativeRuntime {
  public:
@@ -85,6 +97,6 @@ class ChatNativeRuntime {
   std::atomic<bool> stopped_{false};
 };
 
-}  // namespace apptraverse::chatdemo::android
+}  // namespace apptraverse::example::chat_demo::android
 
 #endif  // APPTRAVERSE_CHAT_DEMO_ANDROID_CHAT_NATIVE_RUNTIME_H_

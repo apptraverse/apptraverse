@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace apptraverse::chatdemo::android {
+namespace apptraverse::example::chat_demo::android {
 
 class ChatUiBridge {
  public:
@@ -47,6 +47,6 @@ class ChatUiBridge {
 
 ChatUiBridge MakeChatUiBridge(JNIEnv* env, jobject ui_bridge);
 
-}  // namespace apptraverse::chatdemo::android
+}  // namespace apptraverse::example::chat_demo::android
 
 #endif  // APPTRAVERSE_CHAT_DEMO_ANDROID_CHAT_UI_BRIDGE_H_

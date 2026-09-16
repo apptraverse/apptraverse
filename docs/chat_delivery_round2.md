@@ -326,3 +326,25 @@ A09 remaining bootstrap edges; A10 full regression matrix; A12 Win GUI; A13+ as 
 - `apptraverse_chat.exe` rebuilds with Domain::Find + structural keepalive (A04).
 - Windows smoke CMake target name not present in this tree (`apptraverse_windows_chat_smoke_test` unknown); GUI gate remains NOT_RUN for formal smoke binary.
 - Remaining: A09 edge cases, A10 matrix, A12 GUI assertions, A13 launcher, A15+ Android/Linux/package.
+
+## A15 — Android APK compile (BUILD_PASS; install NOT_RUN)
+
+### Changes
+- `settings.gradle`: google/mavenCentral pluginManagement + `:app` include.
+- Native CPM default cache → `${APPTRAVERSE_ROOT}/.cpm_cache` (no required `C:/cpm-cache`).
+- Gradle cmake `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` for CMake 4.1.2.
+- Namespace `apptraverse::example::chat_demo::android` + imported chat types.
+- `profile_lock.cpp`: `#include <sys/file.h>` for Android `flock`.
+
+### Evidence
+| Check | Result |
+| --- | --- |
+| `gradlew assembleDebug` | BUILD_PASS exit 0 |
+| APK | `examples/chat_demo/android/app/build/outputs/apk/debug/app-debug.apk` |
+| APK sha256 | `E97D7A543442A83EB0053C7CEACBDF587680ED7A0DB081D2E2E3D71698548F80` |
+| ABI | arm64-v8a `.so` linked |
+| Install/CheckJNI/live | NOT_RUN |
+
+## Next
+
+A12 Win GUI smoke; A16–A17 Android UI/lifecycle; A13 launcher; A18 Linux; A19 pairs; package.

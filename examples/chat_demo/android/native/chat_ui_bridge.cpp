@@ -4,7 +4,7 @@
 
 #include "android_log.h"
 
-namespace apptraverse::chatdemo::android {
+namespace apptraverse::example::chat_demo::android {
 namespace {
 
 jbyteArray ToJbytes(JNIEnv* env, std::string const& text) {
@@ -209,4 +209,4 @@ ChatUiBridge MakeChatUiBridge(JNIEnv* env, jobject ui_bridge) {
   return ChatUiBridge{vm, global_object, global_class, on_notify, on_state, on_stopped};
 }
 
-}  // namespace apptraverse::chatdemo::android
+}  // namespace apptraverse::example::chat_demo::android

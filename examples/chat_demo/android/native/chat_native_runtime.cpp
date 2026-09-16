@@ -5,7 +5,7 @@
 #include "apptraverse/object_serialization.h"
 #include "android_log.h"
 
-namespace apptraverse::chatdemo::android {
+namespace apptraverse::example::chat_demo::android {
 namespace {
 
 std::string EntryLabel(ChatEntry::ptr const& entry) {
@@ -319,4 +319,4 @@ bool ChatNativeRuntime::IsStopped() const {
   return stopped_.load(std::memory_order_acquire);
 }
 
-}  // namespace apptraverse::chatdemo::android
+}  // namespace apptraverse::example::chat_demo::android

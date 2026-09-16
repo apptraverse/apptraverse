@@ -9,6 +9,7 @@
 #  include <windows.h>
 #else
 #  include <fcntl.h>
+#  include <sys/file.h>
 #  include <unistd.h>
 #endif
 

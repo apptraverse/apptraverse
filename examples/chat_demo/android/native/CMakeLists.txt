@@ -19,12 +19,8 @@ get_filename_component(APPTRAVERSE_ROOT
   "${CMAKE_CURRENT_LIST_DIR}/../../../.." REALPATH)
 
 if(NOT DEFINED CPM_SOURCE_CACHE AND NOT DEFINED ENV{CPM_SOURCE_CACHE})
-  if(CMAKE_HOST_WIN32)
-    set(CPM_SOURCE_CACHE "C:/cpm-cache" CACHE PATH "CPM.cmake download cache")
-  else()
-    set(CPM_SOURCE_CACHE "${APPTRAVERSE_ROOT}/.cpm_cache"
-      CACHE PATH "CPM.cmake download cache")
-  endif()
+  set(CPM_SOURCE_CACHE "${APPTRAVERSE_ROOT}/.cpm_cache"
+    CACHE PATH "CPM.cmake download cache")
 endif()
 
 set(APPTRAVERSE_BUILD_AETHER_DEMOS ON CACHE BOOL "" FORCE)
