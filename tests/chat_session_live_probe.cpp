@@ -35,7 +35,7 @@ using apptraverse::example::chat_demo::ChatSession;
 using apptraverse::example::chat_demo::ChatSessionConfig;
 using apptraverse::example::chat_demo::ChatUiUpdate;
 using apptraverse::example::chat_demo::ChatWorkspace;
-using apptraverse::example::chat_demo::OpenPeerRequest;
+using apptraverse::example::chat_demo::DemoRole;
 using apptraverse::example::chat_demo::SessionLifecycleState;
 
 constexpr int kMaxCommandBytes = 4096;
@@ -173,15 +173,20 @@ int main(int argc, char* argv[]) {
   }
 
   std::filesystem::path state_dir;
+  DemoRole role = DemoRole::kHost;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
     if (arg == "--state-dir" && i + 1 < argc) {
       state_dir = argv[++i];
+    } else if (arg == "--host") {
+      role = DemoRole::kHost;
+    } else if (arg == "--client") {
+      role = DemoRole::kClient;
     }
   }
   if (state_dir.empty()) {
-    std::cerr << "Usage: apptraverse_chat_session_live_probe --state-dir <dir>\n"
-                 "       stdin commands: OPEN/SEND/DRAFT/SNAPSHOT/CHECKPOINT/"
+    std::cerr << "Usage: apptraverse_chat_session_live_probe --host|--client --state-dir <dir>\n"
+                 "       stdin commands: JOIN/SEND/DRAFT/SNAPSHOT/CHECKPOINT/"
                  "RETRY/STOP\n";
     return 1;
   }
@@ -197,7 +202,7 @@ int main(int argc, char* argv[]) {
 
   UiMirror ui;
   ChatSession session;
-  if (!session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {})) {
+  if (!session.Start(ChatSessionConfig{.state_dir = state_dir, .role = role}, [] {})) {
     Emit("ERROR:Start failed");
     return 1;
   }
@@ -282,17 +287,15 @@ int main(int argc, char* argv[]) {
     std::string cmd;
     iss >> cmd;
     std::unique_lock<std::mutex> lock{ui_mu};
-    if (cmd == "OPEN") {
+    if (cmd == "JOIN" || cmd == "OPEN") {
       std::string peer_uid;
       iss >> peer_uid;
       if (peer_uid.empty()) {
-        Emit("ERROR:OPEN missing uid");
+        Emit("ERROR:JOIN missing uid");
         continue;
       }
-      session.OpenPeer(OpenPeerRequest{
-          .peer_admin_id = "live-peer",
-          .peer_aether_uid = peer_uid,
-      });
+      session.SetHostUidInput(peer_uid);
+      session.JoinHost();
     } else if (cmd == "SEND") {
       unsigned scenario = 0;
       iss >> scenario;

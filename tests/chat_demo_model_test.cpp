@@ -110,7 +110,7 @@ void TestScenario3_EntryPersistWhileUnresolved() {
     auto e = ws->chats[0];
     CHECK(e.is_valid());
     e.Load();
-    CHECK(e->peer_admin_id == "peer-300");
+    CHECK(e->peer_uid == "peer-300");
     CHECK(e->display_name == "Charlie");
     CHECK(!e->peer_link.is_valid());
     CHECK(!e->room.is_valid());
@@ -260,7 +260,7 @@ void TestScenario16_WorkspaceRootSaveReachability() {
     auto entry = ws->chats[0];
     CHECK(entry.is_valid());
     entry.Load();
-    CHECK(entry->peer_admin_id == "peer-root");
+    CHECK(entry->peer_uid == "peer-root");
     CHECK(entry->draft == "Unsent draft");
     CHECK(entry->peer_link.is_valid());
     entry->peer_link.Load();
@@ -325,7 +325,7 @@ void TestScenario8_SaveDestroyReloadWorkspace() {
 
     auto e = ws->chats[0];
     e.Load();
-    CHECK(e->peer_admin_id == "peer-800");
+    CHECK(e->peer_uid == "peer-800");
     CHECK(e->display_name == "Heidi");
     CHECK(e->draft == "Unsent draft restored");
 
@@ -497,14 +497,14 @@ void TestScenario13_InitialCreationValuesExistBeforeInitializeRuntimeNode() {
   ae::Domain domain{storage};
 
   auto entry = ChatEntry::ptr::Create(ae::CreateWith{domain}.with_id(100));
-  entry->peer_admin_id = "peer-admin-preinit";
+  entry->peer_uid = "peer-admin-preinit";
   entry->display_name = "Preinit Display Name";
   entry->draft = "Preinit draft";
   entry->scroll = ScrollAnchor{.follow_tail = false,
                                .first_visible_message = {"origin", 1},
                                .offset_from_message_top = 42.0};
 
-  CHECK(entry->peer_admin_id == "peer-admin-preinit");
+  CHECK(entry->peer_uid == "peer-admin-preinit");
   CHECK(entry->display_name == "Preinit Display Name");
   CHECK(entry->draft == "Preinit draft");
   CHECK(entry->scroll.offset_from_message_top == 42.0);
@@ -516,7 +516,7 @@ void TestScenario13_InitialCreationValuesExistBeforeInitializeRuntimeNode() {
 
   // Confirm values in base snapshot match
   auto base_entry = ChatEntry::ptr{entry->base};
-  CHECK(base_entry->peer_admin_id == "peer-admin-preinit");
+  CHECK(base_entry->peer_uid == "peer-admin-preinit");
   CHECK(base_entry->display_name == "Preinit Display Name");
   CHECK(base_entry->draft == "Preinit draft");
   CHECK(base_entry->scroll == entry->scroll);
@@ -670,7 +670,7 @@ void TestDirectoryDomainStorageRoundTrip() {
 
     auto e = ws->chats[0];
     e.Load();
-    CHECK(e->peer_admin_id == "peer-dir");
+    CHECK(e->peer_uid == "peer-dir");
     CHECK(e->draft == "Persisted draft in dir");
 
     e->room.Load();

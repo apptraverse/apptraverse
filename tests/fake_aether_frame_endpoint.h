@@ -73,6 +73,16 @@ class FakeEndpointCoordinator {
     return *raw;
   }
 
+  void SetControlCallback(
+      std::string const& endpoint_uid,
+      IAetherFrameEndpoint::ControlCallback on_control) {
+    std::lock_guard<std::mutex> lock{mu_};
+    auto it = endpoints_.find(endpoint_uid);
+    if (it != endpoints_.end()) {
+      it->second.on_control = std::move(on_control);
+    }
+  }
+
   void DropTransport(std::string const& endpoint_uid) {
     std::lock_guard<std::mutex> lock{mu_};
     endpoints_.erase(endpoint_uid);
@@ -82,8 +92,18 @@ class FakeEndpointCoordinator {
                    std::vector<std::uint8_t> bytes) {
     {
       std::lock_guard<std::mutex> lock{mu_};
-      sends_.push_back(
-          PendingSend{std::move(from), std::move(to), std::move(bytes)});
+      sends_.push_back(PendingSend{std::move(from), std::move(to),
+                                   std::move(bytes), false});
+    }
+    cv_.notify_all();
+  }
+
+  void EnqueueControl(std::string from, std::string to,
+                      std::vector<std::uint8_t> bytes) {
+    {
+      std::lock_guard<std::mutex> lock{mu_};
+      sends_.push_back(PendingSend{std::move(from), std::move(to),
+                                   std::move(bytes), true});
     }
     cv_.notify_all();
   }
@@ -93,11 +113,13 @@ class FakeEndpointCoordinator {
     std::string from;
     std::string to;
     std::vector<std::uint8_t> bytes;
+    bool control{false};
   };
 
   struct EndpointSlot {
     std::unique_ptr<apptraverse::MemoryTransport> transport;
     IAetherFrameEndpoint::FrameCallback on_frame;
+    IAetherFrameEndpoint::ControlCallback on_control;
   };
 
   static void ReceiveThunk(void* ctx, std::string const& source,
@@ -134,6 +156,21 @@ class FakeEndpointCoordinator {
         }
         send = std::move(sends_.front());
         sends_.pop_front();
+      }
+
+      if (send.control) {
+        IAetherFrameEndpoint::ControlCallback callback;
+        {
+          std::lock_guard<std::mutex> lock{mu_};
+          auto it = endpoints_.find(send.to);
+          if (it != endpoints_.end()) {
+            callback = it->second.on_control;
+          }
+        }
+        if (callback) {
+          callback(send.from, std::move(send.bytes));
+        }
+        continue;
       }
 
       apptraverse::MemoryTransport* transport = nullptr;
@@ -187,7 +224,8 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
   void Start(Config /*config*/, LocalUidCallback on_uid,
              ReadyCallback on_ready, FailedCallback on_failed,
              FrameCallback on_frame, PresenceCallback on_presence,
-             LocalConnectivityCallback on_local_connectivity = {}) override {
+             LocalConnectivityCallback on_local_connectivity = {},
+             ControlCallback on_control = {}) override {
     RequestStop();
     Join();
     {
@@ -198,6 +236,7 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
       on_frame_ = std::move(on_frame);
       on_presence_ = std::move(on_presence);
       on_local_connectivity_ = std::move(on_local_connectivity);
+      on_control_ = std::move(on_control);
       stop_ = false;
       ready_signaled_ = !defer_ready_;
       fail_signaled_ = false;
@@ -208,6 +247,17 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
           {
             std::lock_guard<std::mutex> lock{mu_};
             callback = on_frame_;
+          }
+          if (callback) {
+            callback(std::move(source), std::move(bytes));
+          }
+        });
+    coordinator_.SetControlCallback(
+        local_uid_, [this](std::string source, std::vector<std::uint8_t> bytes) {
+          ControlCallback callback;
+          {
+            std::lock_guard<std::mutex> lock{mu_};
+            callback = on_control_;
           }
           if (callback) {
             callback(std::move(source), std::move(bytes));
@@ -311,6 +361,12 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
     coordinator_.EnqueueSend(local_uid_, std::move(peer_uid), std::move(bytes));
   }
 
+  void SendControl(std::string peer_uid,
+                   std::vector<std::uint8_t> bytes) override {
+    coordinator_.EnqueueControl(local_uid_, std::move(peer_uid),
+                                std::move(bytes));
+  }
+
   void SetFrameCallback(FrameCallback callback) override {
     std::lock_guard<std::mutex> lock{mu_};
     on_frame_ = std::move(callback);
@@ -348,6 +404,7 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
   ReadyCallback on_ready_;
   FailedCallback on_failed_;
   FrameCallback on_frame_;
+  ControlCallback on_control_;
   PresenceCallback on_presence_;
   LocalConnectivityCallback on_local_connectivity_;
   std::thread worker_;

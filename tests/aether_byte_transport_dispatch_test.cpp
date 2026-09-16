@@ -27,8 +27,10 @@ class FakeFrameEndpoint : public IAetherFrameEndpoint {
   void Start(Config /*config*/, LocalUidCallback /*on_uid*/,
              ReadyCallback /*on_ready*/, FailedCallback /*on_failed*/,
              FrameCallback on_frame, PresenceCallback /*on_presence*/,
-             LocalConnectivityCallback /*on_local_connectivity*/ = {}) override {
+             LocalConnectivityCallback /*on_local_connectivity*/ = {},
+             ControlCallback on_control = {}) override {
     callback_ = std::move(on_frame);
+    control_callback_ = std::move(on_control);
   }
 
   void OpenPeer(std::string /*peer_uid*/) override {}
@@ -37,6 +39,12 @@ class FakeFrameEndpoint : public IAetherFrameEndpoint {
   void Send(std::string peer_uid, std::vector<std::uint8_t> bytes) override {
     last_sent_peer = std::move(peer_uid);
     last_sent_bytes = std::move(bytes);
+  }
+
+  void SendControl(std::string peer_uid,
+                   std::vector<std::uint8_t> bytes) override {
+    last_control_peer = std::move(peer_uid);
+    last_control_bytes = std::move(bytes);
   }
 
   void SetFrameCallback(FrameCallback callback) override {
@@ -54,7 +62,10 @@ class FakeFrameEndpoint : public IAetherFrameEndpoint {
 
   std::string last_sent_peer;
   std::vector<std::uint8_t> last_sent_bytes;
+  std::string last_control_peer;
+  std::vector<std::uint8_t> last_control_bytes;
   FrameCallback callback_;
+  ControlCallback control_callback_;
 };
 
 class TestDispatcher {

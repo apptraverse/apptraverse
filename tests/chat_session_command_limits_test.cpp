@@ -30,13 +30,14 @@ using apptraverse::example::chat_demo::ChatUiUpdate;
 using apptraverse::example::chat_demo::ChatWorkspace;
 using apptraverse::example::chat_demo::DraftCommandOutcome;
 using apptraverse::example::chat_demo::kMaxDraftTextBytes;
-using apptraverse::example::chat_demo::kMaxPeerAdminIdBytes;
-using apptraverse::example::chat_demo::OpenPeerRequest;
+using apptraverse::example::chat_demo::kMaxHostUidInputBytes;
+using apptraverse::example::chat_demo::DemoRole;
 using apptraverse::example::chat_demo::SessionLifecycleState;
 using apptraverse::example::chat_demo::test::FakeAetherFrameEndpoint;
 using apptraverse::example::chat_demo::test::FakeEndpointCoordinator;
 
 constexpr char const* kUidA = "a1111111-1111-4111-8111-111111111111";
+constexpr char const* kUidB = "b2222222-2222-4222-8222-222222222222";
 
 std::filesystem::path MakeTempDir(char const* tag) {
   auto path = std::filesystem::temp_directory_path() /
@@ -116,14 +117,15 @@ void TestOversizedOpenPeerRejected() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kClient}, [] {}));
   WaitFake(fake_slot);
   WaitLifecycle(session, SessionLifecycleState::kReady);
 
-  std::string huge_admin(kMaxPeerAdminIdBytes + 1, 'x');
-  session.OpenPeer(OpenPeerRequest{.peer_admin_id = huge_admin});
+  std::string huge_admin(kMaxHostUidInputBytes + 1, 'x');
+  session.SetHostUidInput(huge_admin);
+  session.JoinHost();
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  CHECK(session.GetRuntimeStatus().error_text == "Open peer request too large");
+  CHECK(session.GetRuntimeStatus().error_text == "Invalid Host UID");
 
   session.RequestStop();
   session.Join();
@@ -146,11 +148,12 @@ void TestOversizedDraftPreservesExisting() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kClient}, [] {}));
   WaitFake(fake_slot);
   WaitLifecycle(session, SessionLifecycleState::kReady);
 
-  session.OpenPeer(OpenPeerRequest{.peer_admin_id = "peer-a"});
+  session.SetHostUidInput(std::string{kUidB});
+  session.JoinHost();
   for (int i = 0; i < 100; ++i) {
     if (auto update = session.TryTakeUiUpdate()) {
       ApplyUiUpdate(ui, *update);

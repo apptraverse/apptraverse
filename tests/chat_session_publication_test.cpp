@@ -33,7 +33,7 @@ using apptraverse::example::chat_demo::ChatSessionConfig;
 using apptraverse::example::chat_demo::ChatUiUpdate;
 using apptraverse::example::chat_demo::ChatWorkspace;
 using apptraverse::example::chat_demo::IAetherFrameEndpoint;
-using apptraverse::example::chat_demo::OpenPeerRequest;
+using apptraverse::example::chat_demo::DemoRole;
 using apptraverse::example::chat_demo::PeerPresence;
 using apptraverse::example::chat_demo::SessionLifecycleState;
 using apptraverse::example::chat_demo::test::FakeAetherFrameEndpoint;
@@ -126,9 +126,9 @@ void WaitReady(ChatSession& session, std::string const& uid,
   CHECK(false && "session did not become Ready");
 }
 
-ChatEntry::ptr FindEntryByAdminId(ChatWorkspace& ws, std::string const& admin) {
+ChatEntry::ptr FindEntryByPeerUid(ChatWorkspace& ws, std::string const& admin) {
   for (auto const& entry : ws.chats) {
-    if (entry.is_valid() && entry->peer_admin_id == admin) {
+    if (entry.is_valid() && entry->peer_uid == admin) {
       return entry;
     }
   }
@@ -189,7 +189,7 @@ void TestSnapshotRevisionFrozenWhileUnread() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
   WaitFake(fake_slot);
   UiMirror ui;
   auto initial = WaitForPublication(session);
@@ -197,10 +197,8 @@ void TestSnapshotRevisionFrozenWhileUnread() {
   ApplyUiUpdate(ui, *initial);
   WaitReady(session, kUidA);
 
-  session.OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
+  session.SetHostUidInput(std::string{kUidB});
+  session.JoinHost();
 
   ChatEntry::ptr entry;
   auto const entry_deadline =
@@ -209,7 +207,7 @@ void TestSnapshotRevisionFrozenWhileUnread() {
     if (auto update = session.TryTakeUiUpdate()) {
       ApplyUiUpdate(ui, *update);
     }
-    entry = FindEntryByAdminId(*ui.workspace, "bob");
+    entry = FindEntryByPeerUid(*ui.workspace, kUidB);
     if (entry.is_valid()) {
       break;
     }
@@ -251,21 +249,17 @@ void TestRemoteMessageUpdatesGuiMirror() {
   auto peer_a = MakePeer(coordinator, kUidA);
   auto peer_b = MakePeer(coordinator, kUidB);
   UiMirror ui_b;
-  CHECK(peer_a.session->Start(ChatSessionConfig{.state_dir = peer_a.state_dir}, [] {}));
-  CHECK(peer_b.session->Start(ChatSessionConfig{.state_dir = peer_b.state_dir}, [] {}));
+  CHECK(peer_a.session->Start(ChatSessionConfig{.state_dir = peer_a.state_dir, .role = DemoRole::kHost}, [] {}));
+  CHECK(peer_b.session->Start(ChatSessionConfig{.state_dir = peer_b.state_dir, .role = DemoRole::kClient}, [] {}));
   WaitFake(peer_a.fake_slot);
   WaitFake(peer_b.fake_slot);
   WaitReady(*peer_a.session, kUidA);
   WaitReady(*peer_b.session, kUidB);
 
-  peer_b.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "alice",
-      .peer_aether_uid = std::string{kUidA},
-  });
-  peer_a.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
+  peer_b.session->SetHostUidInput(std::string{kUidA});
+peer_b.session->JoinHost();
+
+  
 
   BringOnline(*peer_a.fake_slot, *peer_b.fake_slot, kUidA, kUidB);
 
@@ -280,7 +274,7 @@ void TestRemoteMessageUpdatesGuiMirror() {
                                          std::chrono::milliseconds(200))) {
       ApplyUiUpdate(ui_b, *update);
     }
-    auto entry = FindEntryByAdminId(*ui_b.workspace, "alice");
+    auto entry = FindEntryByPeerUid(*ui_b.workspace, kUidA);
     if (entry.is_valid() && entry->room.is_valid()) {
       room_bound = true;
       break;
@@ -297,7 +291,7 @@ void TestRemoteMessageUpdatesGuiMirror() {
     if (auto update = peer_a.session->TryTakeUiUpdate()) {
       ApplyUiUpdate(ui_a, *update);
     }
-    entry_a = FindEntryByAdminId(*ui_a.workspace, "bob");
+    entry_a = FindEntryByPeerUid(*ui_a.workspace, kUidB);
     if (entry_a.is_valid() && entry_a->room.is_valid()) {
       break;
     }
@@ -315,7 +309,7 @@ void TestRemoteMessageUpdatesGuiMirror() {
       if (update->publication_bytes.has_value()) {
         ApplyUiUpdate(ui_b, *update);
       }
-      auto entry = FindEntryByAdminId(*ui_b.workspace, "alice");
+      auto entry = FindEntryByPeerUid(*ui_b.workspace, kUidA);
       if (entry.is_valid() && entry->room.is_valid()) {
         message_count = entry->room->messages.size();
         if (message_count >= 1) {
@@ -345,21 +339,17 @@ void TestIdlePollingDoesNotRewrite() {
 
   auto peer_a = MakePeer(coordinator, kUidA);
   auto peer_b = MakePeer(coordinator, kUidB);
-  CHECK(peer_a.session->Start(ChatSessionConfig{.state_dir = peer_a.state_dir}, [] {}));
-  CHECK(peer_b.session->Start(ChatSessionConfig{.state_dir = peer_b.state_dir}, [] {}));
+  CHECK(peer_a.session->Start(ChatSessionConfig{.state_dir = peer_a.state_dir, .role = DemoRole::kHost}, [] {}));
+  CHECK(peer_b.session->Start(ChatSessionConfig{.state_dir = peer_b.state_dir, .role = DemoRole::kClient}, [] {}));
   WaitFake(peer_a.fake_slot);
   WaitFake(peer_b.fake_slot);
   WaitReady(*peer_a.session, kUidA);
   WaitReady(*peer_b.session, kUidB);
 
-  peer_b.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "alice",
-      .peer_aether_uid = std::string{kUidA},
-  });
-  peer_a.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
+  peer_b.session->SetHostUidInput(std::string{kUidA});
+peer_b.session->JoinHost();
+
+  
   BringOnline(*peer_a.fake_slot, *peer_b.fake_slot, kUidA, kUidB);
 
   std::uint64_t last_serial = 0;
@@ -417,14 +407,12 @@ void TestShutdownWithoutUiConsumption() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
   WaitFake(fake_slot);
   WaitReady(session, kUidA);
 
-  session.OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
+  session.SetHostUidInput(std::string{kUidB});
+  session.JoinHost();
   session.EditDraft(ae::ObjId{}, "queued", 1);
 
   session.RequestStop();
@@ -449,7 +437,7 @@ void TestPresenceStatusWithoutGraphRewrite() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
   auto* fake = WaitFake(fake_slot);
   WaitForPublication(session);
   WaitReady(session, kUidA);

@@ -27,6 +27,7 @@ namespace {
 
 using apptraverse::example::chat_demo::ChatSession;
 using apptraverse::example::chat_demo::ChatSessionConfig;
+using apptraverse::example::chat_demo::DemoRole;
 using apptraverse::example::chat_demo::ChatWorkspace;
 using apptraverse::example::chat_demo::IAetherFrameEndpoint;
 using apptraverse::example::chat_demo::SessionLifecycleState;
@@ -59,7 +60,7 @@ void TestChatSessionStartupShutdownWithFakeEndpoint() {
   });
 
   std::atomic<int> notify_count{0};
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir},
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost},
                       [&] { notify_count.fetch_add(1); }));
 
   // Initial model publication must be visible before network readiness.

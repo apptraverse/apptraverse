@@ -85,9 +85,9 @@ def main() -> int:
 
     procs: list[subprocess.Popen[str]] = []
     try:
-        for label, state in (("A", dir_a), ("B", dir_b)):
+        for label, state, role in (("A", dir_a, "--host"), ("B", dir_b, "--client")):
             p = subprocess.Popen(
-                [str(probe), "--state-dir", str(state)],
+                [str(probe), role, "--state-dir", str(state)],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -109,8 +109,7 @@ def main() -> int:
         if uid_a == uid_b:
             raise RuntimeError("peers must have distinct UIDs")
 
-        write_cmd(a, f"OPEN {uid_b}")
-        write_cmd(b, f"OPEN {uid_a}")
+        write_cmd(b, f"JOIN {uid_a}")
 
         # Wait for ROOM on both.
         room_a = read_until(a, "ROOM ", 90.0)

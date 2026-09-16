@@ -83,6 +83,7 @@ void SeedSmokeWorkspace(std::filesystem::path const& state_dir) {
 
   auto ws = ChatWorkspace::ptr::Create(ae::CreateWith{domain}.with_id(kWorkspaceRootId));
   InitializeRuntimeNode(*ws);
+  ConfigureDemoRole(*ws, DemoRole::kHost);
   BindLocalEndpoint(*ws, "11111111-2222-3333-4444-555555555555");
 
   DesktopBounds bounds{
@@ -95,8 +96,8 @@ void SeedSmokeWorkspace(std::filesystem::path const& state_dir) {
   };
   SetDesktopBounds(*ws, bounds);
 
-  auto e1 = OpenOrSelectChat(*ws, "peer-alpha", "Alice");
-  auto e2 = OpenOrSelectChat(*ws, "peer-beta", "Bob");
+  auto e1 = OpenOrSelectChat(*ws, "22222222-3333-4444-5555-666666666666");
+  auto e2 = OpenOrSelectChat(*ws, "33333333-4444-5555-6666-777777777777");
   SelectChat(*ws, e1.id());
 
   auto link1 = CreateAetherLink(domain, ae::ObjId{2001}, "22222222-3333-4444-5555-666666666666");
@@ -161,7 +162,7 @@ void TestLinuxChatSmoke() {
   std::cout << "Starting Linux GTK smoke test harness...\n";
 
   {
-    ChatLaunchOptions options{.state_dir = test_dir.string()};
+    ChatLaunchOptions options{.role = DemoRole::kHost, .state_dir = test_dir.string()};
 
     LinuxChatApp app;
     std::thread gui{[&] { CHECK(app.Run(options) == 0); }};
@@ -231,7 +232,7 @@ void TestLinuxChatSmoke() {
   }
 
   {
-    ChatLaunchOptions options{.state_dir = test_dir.string()};
+    ChatLaunchOptions options{.role = DemoRole::kHost, .state_dir = test_dir.string()};
 
     LinuxChatApp app;
     std::thread gui{[&] { CHECK(app.Run(options) == 0); }};
@@ -253,8 +254,8 @@ void TestLinuxChatSmoke() {
     std::filesystem::path const cold_dir = test_dir / "cold";
     std::filesystem::create_directories(cold_dir);
     ChatLaunchOptions options{
+        .role = DemoRole::kHost,
         .state_dir = cold_dir.string(),
-        .open_peer = OpenPeerRequest{.peer_admin_id = "connecting-peer"},
     };
 
     LinuxChatApp app;

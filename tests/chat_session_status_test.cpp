@@ -26,7 +26,7 @@ using apptraverse::example::chat_demo::ChatSessionConfig;
 using apptraverse::example::chat_demo::IAetherFrameEndpoint;
 using apptraverse::example::chat_demo::LocalConnectivityState;
 using apptraverse::example::chat_demo::MessageDeliveryState;
-using apptraverse::example::chat_demo::OpenPeerRequest;
+using apptraverse::example::chat_demo::DemoRole;
 using apptraverse::example::chat_demo::PeerPresence;
 using apptraverse::example::chat_demo::SessionLifecycleState;
 using apptraverse::example::chat_demo::test::FakeAetherFrameEndpoint;
@@ -80,7 +80,7 @@ void TestLocalConnectivityNotFabricatedBeforeDiag() {
   });
 
   auto const state_dir = MakeTempDir("chat_session_status_local");
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
   WaitUntilEndpointStarted(session, kLocalUid);
   fake->SignalReady();
   WaitUntilReady(session);
@@ -143,8 +143,8 @@ void TestOfflineDraftSendAndReconnectPresence() {
 
   auto const local_dir = MakeTempDir("chat_session_status_local_peer");
   auto const remote_dir = MakeTempDir("chat_session_status_remote_peer");
-  CHECK(local.Start(ChatSessionConfig{.state_dir = local_dir}, [] {}));
-  CHECK(remote.Start(ChatSessionConfig{.state_dir = remote_dir}, [] {}));
+  CHECK(local.Start(ChatSessionConfig{.state_dir = local_dir, .role = DemoRole::kHost}, [] {}));
+  CHECK(remote.Start(ChatSessionConfig{.state_dir = remote_dir, .role = DemoRole::kClient}, [] {}));
   WaitUntilEndpointStarted(local, kLocalUid);
   WaitUntilEndpointStarted(remote, kRemoteUid);
   local_fake->SignalReady();
@@ -155,10 +155,8 @@ void TestOfflineDraftSendAndReconnectPresence() {
   local_fake->InjectLocalConnectivity(true, true);
   remote_fake->InjectLocalConnectivity(true, true);
 
-  local.OpenPeer(OpenPeerRequest{.peer_admin_id = "status-peer",
-                                 .peer_aether_uid = kRemoteUid});
-  remote.OpenPeer(OpenPeerRequest{.peer_admin_id = "status-peer",
-                                  .peer_aether_uid = kLocalUid});
+  remote.SetHostUidInput(std::string{kLocalUid});
+  remote.JoinHost();
 
   local_fake->InjectPresence(kRemoteUid, PeerPresence::kOffline);
   {

@@ -48,7 +48,7 @@ using apptraverse::example::chat_demo::ChatUiUpdate;
 using apptraverse::example::chat_demo::ChatWorkspace;
 using apptraverse::example::chat_demo::DesktopBounds;
 using apptraverse::example::chat_demo::IAetherFrameEndpoint;
-using apptraverse::example::chat_demo::OpenPeerRequest;
+using apptraverse::example::chat_demo::DemoRole;
 using apptraverse::example::chat_demo::PeerPresence;
 using apptraverse::example::chat_demo::ScrollAnchor;
 using apptraverse::example::chat_demo::SessionLifecycleState;
@@ -137,9 +137,9 @@ void WaitReady(ChatSession& session, std::string const& uid,
   CHECK(false && "session did not become Ready");
 }
 
-ChatEntry::ptr FindEntryByAdminId(ChatWorkspace& ws, std::string const& admin) {
+ChatEntry::ptr FindEntryByPeerUid(ChatWorkspace& ws, std::string const& admin) {
   for (auto const& entry : ws.chats) {
-    if (entry.is_valid() && entry->peer_admin_id == admin) {
+    if (entry.is_valid() && entry->peer_uid == admin) {
       return entry;
     }
   }
@@ -152,7 +152,7 @@ bool WaitForEntry(ChatSession& session, UiMirror& ui, std::string const& admin,
   while (std::chrono::steady_clock::now() < deadline) {
     ConsumePublications(session, ui);
     if (ui.workspace.is_valid()) {
-      auto entry = FindEntryByAdminId(*ui.workspace, admin);
+      auto entry = FindEntryByPeerUid(*ui.workspace, admin);
       if (entry.is_valid()) {
         if (!require_bound) {
           return true;
@@ -175,7 +175,7 @@ bool WaitForBoundEntry(ChatSession& session, UiMirror& ui,
   while (std::chrono::steady_clock::now() < deadline) {
     ConsumePublications(session, ui);
     if (ui.workspace.is_valid()) {
-      auto entry = FindEntryByAdminId(*ui.workspace, admin);
+      auto entry = FindEntryByPeerUid(*ui.workspace, admin);
       if (entry.is_valid() && entry->room.is_valid() &&
           entry->peer_link.is_valid()) {
         return true;
@@ -202,7 +202,7 @@ std::size_t MessageCount(UiMirror& ui, std::string const& admin) {
   if (!ui.workspace.is_valid()) {
     return 0;
   }
-  auto entry = FindEntryByAdminId(*ui.workspace, admin);
+  auto entry = FindEntryByPeerUid(*ui.workspace, admin);
   if (!entry.is_valid() || !entry->room.is_valid()) {
     return 0;
   }
@@ -268,7 +268,7 @@ FakeAetherFrameEndpoint* WaitFake(PeerSession& peer,
 
 PeerSession StartPeerFromSavedState(FakeEndpointCoordinator& coordinator,
                                     std::filesystem::path const& state_dir,
-                                    std::string const& uid) {
+                                    std::string const& uid, DemoRole role) {
   PeerSession peer;
   peer.state_dir = state_dir;
   auto fake_slot = peer.fake_slot;
@@ -279,7 +279,7 @@ PeerSession StartPeerFromSavedState(FakeEndpointCoordinator& coordinator,
         *fake_slot = fake.get();
         return fake;
       });
-  CHECK(peer.session->Start(ChatSessionConfig{.state_dir = peer.state_dir},
+  CHECK(peer.session->Start(ChatSessionConfig{.state_dir = peer.state_dir, .role = role},
                             [] {}));
   WaitFake(peer);
   WaitReady(*peer.session, uid);
@@ -296,16 +296,15 @@ PeerSession RestartPeer(PeerSession& old, FakeEndpointCoordinator& coordinator) 
   std::filesystem::path const saved_dir = old.state_dir;
   std::string const uid = old.fake()->local_uid();
   StopSessionKeepState(old);
-  return StartPeerFromSavedState(coordinator, saved_dir, uid);
+  return StartPeerFromSavedState(coordinator, saved_dir, uid, DemoRole::kHost);
 }
 
 void ReopenPersistedPeerChat(PeerSession& self, PeerSession& remote,
                              UiMirror& ui, std::string const& remote_admin,
                              std::string const& remote_uid) {
-  self.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = remote_admin,
-      .peer_aether_uid = remote_uid,
-  });
+  self.session->SetHostUidInput(std::string{remote_uid});
+self.session->JoinHost();
+
   BringOnline(self.fake(), remote.fake(), self.fake()->local_uid(),
               remote.fake()->local_uid());
   CHECK(WaitForBoundEntry(*self.session, ui, remote_admin));
@@ -324,9 +323,9 @@ BootstrapPair BootstrapTwoPeers(FakeEndpointCoordinator& coordinator,
       .a = MakePeer(coordinator, kUidA),
       .b = MakePeer(coordinator, kUidB),
   };
-  CHECK(pair.a.session->Start(ChatSessionConfig{.state_dir = pair.a.state_dir},
+  CHECK(pair.a.session->Start(ChatSessionConfig{.state_dir = pair.a.state_dir, .role = DemoRole::kHost},
                               [] {}));
-  CHECK(pair.b.session->Start(ChatSessionConfig{.state_dir = pair.b.state_dir},
+  CHECK(pair.b.session->Start(ChatSessionConfig{.state_dir = pair.b.state_dir, .role = DemoRole::kClient},
                               [] {}));
   WaitInitialPublication(*pair.a.session, pair.ui_a);
   WaitInitialPublication(*pair.b.session, pair.ui_b);
@@ -335,18 +334,12 @@ BootstrapPair BootstrapTwoPeers(FakeEndpointCoordinator& coordinator,
   WaitFake(pair.a);
   WaitFake(pair.b);
 
-  pair.b.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = admin_on_b,
-      .peer_aether_uid = std::string{kUidA},
-  });
-  pair.a.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = admin_on_a,
-      .peer_aether_uid = std::string{kUidB},
-  });
+  pair.b.session->SetHostUidInput(std::string{kUidA});
+  pair.b.session->JoinHost();
   BringOnline(pair.a.fake(), pair.b.fake(), kUidA, kUidB);
 
-  CHECK(WaitForBoundEntry(*pair.a.session, pair.ui_a, admin_on_a));
-  CHECK(WaitForBoundEntry(*pair.b.session, pair.ui_b, admin_on_b));
+  CHECK(WaitForBoundEntry(*pair.a.session, pair.ui_a, kUidB));
+  CHECK(WaitForBoundEntry(*pair.b.session, pair.ui_b, kUidA));
   return pair;
 }
 
@@ -356,11 +349,11 @@ void TestBootstrapAdmissionAndCreatorElection() {
   FakeEndpointCoordinator coordinator{network};
   coordinator.Start();
 
-  auto pair = BootstrapTwoPeers(coordinator, "bob", "alice");
+  auto pair = BootstrapTwoPeers(coordinator, kUidB, kUidA);
 
   CHECK(kUidA < kUidB);
-  auto entry_a = FindEntryByAdminId(*pair.ui_a.workspace, "bob");
-  auto entry_b = FindEntryByAdminId(*pair.ui_b.workspace, "alice");
+  auto entry_a = FindEntryByPeerUid(*pair.ui_a.workspace, kUidB);
+  auto entry_b = FindEntryByPeerUid(*pair.ui_b.workspace, kUidA);
   CHECK(entry_a.is_valid());
   CHECK(entry_b.is_valid());
   CHECK(entry_a->room.id() == entry_b->room.id());
@@ -385,9 +378,9 @@ void TestSendReplyWithoutResnapshot() {
   auto peer_b = MakePeer(coordinator, kUidB);
   UiMirror ui_a;
   UiMirror ui_b;
-  CHECK(peer_a.session->Start(ChatSessionConfig{.state_dir = peer_a.state_dir},
+  CHECK(peer_a.session->Start(ChatSessionConfig{.state_dir = peer_a.state_dir, .role = DemoRole::kHost},
                               [] {}));
-  CHECK(peer_b.session->Start(ChatSessionConfig{.state_dir = peer_b.state_dir},
+  CHECK(peer_b.session->Start(ChatSessionConfig{.state_dir = peer_b.state_dir, .role = DemoRole::kClient},
                               [] {}));
   WaitInitialPublication(*peer_a.session, ui_a);
   WaitInitialPublication(*peer_b.session, ui_b);
@@ -396,21 +389,17 @@ void TestSendReplyWithoutResnapshot() {
   WaitFake(peer_a);
   WaitFake(peer_b);
 
-  peer_b.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "alice",
-      .peer_aether_uid = std::string{kUidA},
-  });
-  peer_a.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
+  peer_b.session->SetHostUidInput(std::string{kUidA});
+peer_b.session->JoinHost();
+
+  
   BringOnline(peer_a.fake(), peer_b.fake(), kUidA, kUidB);
 
-  CHECK(WaitForBoundEntry(*peer_a.session, ui_a, "bob"));
-  CHECK(WaitForBoundEntry(*peer_b.session, ui_b, "alice"));
+  CHECK(WaitForBoundEntry(*peer_a.session, ui_a, kUidB));
+  CHECK(WaitForBoundEntry(*peer_b.session, ui_b, kUidA));
 
-  auto entry_a = FindEntryByAdminId(*ui_a.workspace, "bob");
-  auto entry_b = FindEntryByAdminId(*ui_b.workspace, "alice");
+  auto entry_a = FindEntryByPeerUid(*ui_a.workspace, kUidB);
+  auto entry_b = FindEntryByPeerUid(*ui_b.workspace, kUidA);
   CHECK(entry_a.is_valid() && entry_a->room.is_valid());
   CHECK(entry_b.is_valid() && entry_b->room.is_valid());
 
@@ -425,12 +414,12 @@ void TestSendReplyWithoutResnapshot() {
         ApplyUiUpdate(ui_b, *update);
       }
     }
-    if (MessageCount(ui_b, "alice") >= 1) {
+    if (MessageCount(ui_b, kUidA) >= 1) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
-  CHECK(MessageCount(ui_b, "alice") == 1);
+  CHECK(MessageCount(ui_b, kUidA) == 1);
 
   peer_b.session->EditDraft(entry_b.id(), "reply from B", 1);
   peer_b.session->SendDraft(entry_b.id(), "reply from B", 1);
@@ -448,13 +437,13 @@ void TestSendReplyWithoutResnapshot() {
         ApplyUiUpdate(ui_b, *update);
       }
     }
-    if (MessageCount(ui_a, "bob") >= 2 && MessageCount(ui_b, "alice") >= 2) {
+    if (MessageCount(ui_a, kUidB) >= 2 && MessageCount(ui_b, kUidA) >= 2) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
-  CHECK(MessageCount(ui_a, "bob") == 2);
-  CHECK(MessageCount(ui_b, "alice") == 2);
+  CHECK(MessageCount(ui_a, kUidB) == 2);
+  CHECK(MessageCount(ui_b, kUidA) == 2);
 
   DestroyPeerState(peer_a);
   DestroyPeerState(peer_b);
@@ -472,9 +461,9 @@ void TestConcurrentSendTimestampsConverge() {
   auto peer_b = MakePeer(coordinator, kUidB);
   UiMirror ui_a;
   UiMirror ui_b;
-  CHECK(peer_a.session->Start(ChatSessionConfig{.state_dir = peer_a.state_dir},
+  CHECK(peer_a.session->Start(ChatSessionConfig{.state_dir = peer_a.state_dir, .role = DemoRole::kHost},
                               [] {}));
-  CHECK(peer_b.session->Start(ChatSessionConfig{.state_dir = peer_b.state_dir},
+  CHECK(peer_b.session->Start(ChatSessionConfig{.state_dir = peer_b.state_dir, .role = DemoRole::kClient},
                               [] {}));
   WaitInitialPublication(*peer_a.session, ui_a);
   WaitInitialPublication(*peer_b.session, ui_b);
@@ -483,22 +472,18 @@ void TestConcurrentSendTimestampsConverge() {
   WaitFake(peer_a);
   WaitFake(peer_b);
 
-  peer_b.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "alice",
-      .peer_aether_uid = std::string{kUidA},
-  });
-  peer_a.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
+  peer_b.session->SetHostUidInput(std::string{kUidA});
+peer_b.session->JoinHost();
+
+  
   BringOnline(peer_a.fake(), peer_b.fake(), kUidA, kUidB);
-  CHECK(WaitForBoundEntry(*peer_a.session, ui_a, "bob"));
-  CHECK(WaitForBoundEntry(*peer_b.session, ui_b, "alice"));
+  CHECK(WaitForBoundEntry(*peer_a.session, ui_a, kUidB));
+  CHECK(WaitForBoundEntry(*peer_b.session, ui_b, kUidA));
 
   ae::ObjId const entry_a_id =
-      FindEntryByAdminId(*ui_a.workspace, "bob").id();
+      FindEntryByPeerUid(*ui_a.workspace, kUidB).id();
   ae::ObjId const entry_b_id =
-      FindEntryByAdminId(*ui_b.workspace, "alice").id();
+      FindEntryByPeerUid(*ui_b.workspace, kUidA).id();
 
   peer_a.session->EditDraft(entry_a_id, "A-first", 1);
   peer_b.session->EditDraft(entry_b_id, "B-first", 1);
@@ -518,16 +503,16 @@ void TestConcurrentSendTimestampsConverge() {
         ApplyUiUpdate(ui_b, *update);
       }
     }
-    if (MessageCount(ui_a, "bob") >= 2 && MessageCount(ui_b, "alice") >= 2) {
+    if (MessageCount(ui_a, kUidB) >= 2 && MessageCount(ui_b, kUidA) >= 2) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
-  CHECK(MessageCount(ui_a, "bob") == 2);
-  CHECK(MessageCount(ui_b, "alice") == 2);
+  CHECK(MessageCount(ui_a, kUidB) == 2);
+  CHECK(MessageCount(ui_b, kUidA) == 2);
 
-  auto entry_a_msgs = FindEntryByAdminId(*ui_a.workspace, "bob");
-  auto entry_b_msgs = FindEntryByAdminId(*ui_b.workspace, "alice");
+  auto entry_a_msgs = FindEntryByPeerUid(*ui_a.workspace, kUidB);
+  auto entry_b_msgs = FindEntryByPeerUid(*ui_b.workspace, kUidA);
   CHECK(entry_a_msgs.is_valid() && entry_b_msgs.is_valid());
   if (!entry_a_msgs->room.is_loaded()) {
     entry_a_msgs->room.Load();
@@ -560,26 +545,24 @@ void TestRepeatedOpenPeerSameAdmin() {
 
   auto peer = MakePeer(coordinator, kUidA, /*defer_ready=*/true);
   UiMirror ui;
-  CHECK(peer.session->Start(ChatSessionConfig{.state_dir = peer.state_dir},
+  CHECK(peer.session->Start(ChatSessionConfig{.state_dir = peer.state_dir, .role = DemoRole::kClient},
                             [] {}));
   WaitInitialPublication(*peer.session, ui);
   WaitFake(peer);
 
-  peer.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
-  CHECK(WaitForEntry(*peer.session, ui, "bob", std::chrono::seconds(5),
+  peer.session->SetHostUidInput(std::string{kUidB});
+  peer.session->JoinHost();
+
+  CHECK(WaitForEntry(*peer.session, ui, kUidB, std::chrono::seconds(5),
                      /*require_bound=*/false));
 
   peer.fake()->SignalReady();
   WaitReady(*peer.session, kUidA);
 
-  peer.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
-  CHECK(WaitForEntry(*peer.session, ui, "bob", std::chrono::seconds(5),
+  peer.session->SetHostUidInput(std::string{kUidB});
+peer.session->JoinHost();
+
+  CHECK(WaitForEntry(*peer.session, ui, kUidB, std::chrono::seconds(5),
                      /*require_bound=*/false));
   ConsumePublications(*peer.session, ui);
   CHECK(ui.workspace.is_valid());
@@ -597,27 +580,36 @@ void TestTwoIndependentChats() {
   FakeEndpointCoordinator coordinator{network};
   coordinator.Start();
 
-  auto peer = MakePeer(coordinator, kUidA);
+  auto host = MakePeer(coordinator, kUidA);
+  auto client_b = MakePeer(coordinator, kUidB);
+  auto client_c = MakePeer(coordinator, kUidC);
   UiMirror ui;
-  CHECK(peer.session->Start(ChatSessionConfig{.state_dir = peer.state_dir},
+  CHECK(host.session->Start(ChatSessionConfig{.state_dir = host.state_dir, .role = DemoRole::kHost},
                             [] {}));
-  WaitInitialPublication(*peer.session, ui);
-  WaitReady(*peer.session, kUidA);
-  WaitFake(peer);
+  CHECK(client_b.session->Start(
+      ChatSessionConfig{.state_dir = client_b.state_dir, .role = DemoRole::kClient}, [] {}));
+  CHECK(client_c.session->Start(
+      ChatSessionConfig{.state_dir = client_c.state_dir, .role = DemoRole::kClient}, [] {}));
+  WaitInitialPublication(*host.session, ui);
+  WaitReady(*host.session, kUidA);
+  WaitReady(*client_b.session, kUidB);
+  WaitReady(*client_c.session, kUidC);
+  WaitFake(host);
+  WaitFake(client_b);
+  WaitFake(client_c);
 
-  peer.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
-  peer.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "carol",
-      .peer_aether_uid = std::string{kUidC},
-  });
+  client_b.session->SetHostUidInput(std::string{kUidA});
+  client_b.session->JoinHost();
+  client_c.session->SetHostUidInput(std::string{kUidA});
+  client_c.session->JoinHost();
+  BringOnline(host.fake(), client_b.fake(), kUidA, kUidB);
+  BringOnline(host.fake(), client_c.fake(), kUidA, kUidC);
+
 
   auto const deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(8);
   while (std::chrono::steady_clock::now() < deadline) {
-    ConsumePublications(*peer.session, ui);
+    ConsumePublications(*host.session, ui);
     if (ui.workspace->chats.size() >= 2) {
       break;
     }
@@ -625,24 +617,24 @@ void TestTwoIndependentChats() {
   }
   CHECK(ui.workspace->chats.size() == 2);
 
-  auto bob = FindEntryByAdminId(*ui.workspace, "bob");
-  auto carol = FindEntryByAdminId(*ui.workspace, "carol");
+  auto bob = FindEntryByPeerUid(*ui.workspace, kUidB);
+  auto carol = FindEntryByPeerUid(*ui.workspace, kUidC);
   CHECK(bob.is_valid());
   CHECK(carol.is_valid());
 
-  peer.session->EditDraft(bob.id(), "draft-bob-only", 1);
-  peer.session->EditDraft(carol.id(), "draft-carol-only", 1);
-  peer.session->SaveScroll(
+  host.session->EditDraft(bob.id(), "draft-bob-only", 1);
+  host.session->EditDraft(carol.id(), "draft-carol-only", 1);
+  host.session->SaveScroll(
       bob.id(), ScrollAnchor{.follow_tail = false, .offset_from_message_top = 7});
-  peer.session->SaveScroll(
+  host.session->SaveScroll(
       carol.id(), ScrollAnchor{.follow_tail = true, .offset_from_message_top = 3});
 
   auto const ui_deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(5);
   while (std::chrono::steady_clock::now() < ui_deadline) {
-    ConsumePublications(*peer.session, ui);
-    bob = FindEntryByAdminId(*ui.workspace, "bob");
-    carol = FindEntryByAdminId(*ui.workspace, "carol");
+    ConsumePublications(*host.session, ui);
+    bob = FindEntryByPeerUid(*ui.workspace, kUidB);
+    carol = FindEntryByPeerUid(*ui.workspace, kUidC);
     if (bob.is_valid() && carol.is_valid() && bob->draft == "draft-bob-only" &&
         carol->draft == "draft-carol-only" &&
         bob->scroll.offset_from_message_top == 7 && carol->scroll.follow_tail) {
@@ -650,14 +642,16 @@ void TestTwoIndependentChats() {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
-  bob = FindEntryByAdminId(*ui.workspace, "bob");
-  carol = FindEntryByAdminId(*ui.workspace, "carol");
+  bob = FindEntryByPeerUid(*ui.workspace, kUidB);
+  carol = FindEntryByPeerUid(*ui.workspace, kUidC);
   CHECK(bob->draft == "draft-bob-only");
   CHECK(carol->draft == "draft-carol-only");
   CHECK(bob->scroll.offset_from_message_top == 7);
   CHECK(carol->scroll.follow_tail == true);
 
-  DestroyPeerState(peer);
+  DestroyPeerState(host);
+  DestroyPeerState(client_b);
+  DestroyPeerState(client_c);
   coordinator.RequestStop();
   coordinator.Join();
 }
@@ -669,8 +663,8 @@ void TestMaliciousFramesRejected() {
   FakeEndpointCoordinator coordinator{network};
   coordinator.Start();
 
-  auto pair = BootstrapTwoPeers(coordinator, "bob", "alice");
-  auto entry_b = FindEntryByAdminId(*pair.ui_b.workspace, "alice");
+  auto pair = BootstrapTwoPeers(coordinator, kUidB, kUidA);
+  auto entry_b = FindEntryByPeerUid(*pair.ui_b.workspace, kUidA);
   CHECK(entry_b.is_valid() && entry_b->room.is_valid());
   if (!entry_b->room.is_loaded()) {
     entry_b->room.Load();
@@ -683,7 +677,7 @@ void TestMaliciousFramesRejected() {
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   while (pair.b.session->TryTakeUiUpdate()) {
   }
-  CHECK(MessageCount(pair.ui_b, "alice") == msg_before);
+  CHECK(MessageCount(pair.ui_b, kUidA) == msg_before);
 
   ae::RamDomainStorage scratch;
   ae::Domain scratch_domain{scratch};
@@ -713,7 +707,7 @@ void TestMaliciousFramesRejected() {
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   while (pair.b.session->TryTakeUiUpdate()) {
   }
-  entry_b = FindEntryByAdminId(*pair.ui_b.workspace, "alice");
+  entry_b = FindEntryByPeerUid(*pair.ui_b.workspace, kUidA);
   CHECK(entry_b->room.id() == room_id);
   if (!entry_b->room.is_loaded()) {
     entry_b->room.Load();
@@ -756,12 +750,12 @@ void TestMaliciousFramesRejected() {
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   while (pair.b.session->TryTakeUiUpdate()) {
   }
-  entry_b = FindEntryByAdminId(*pair.ui_b.workspace, "alice");
+  entry_b = FindEntryByPeerUid(*pair.ui_b.workspace, kUidA);
   if (!entry_b->room.is_loaded()) {
     entry_b->room.Load();
   }
   CHECK(entry_b->room->shares.size() == share_count_before);
-  CHECK(MessageCount(pair.ui_b, "alice") == msg_before);
+  CHECK(MessageCount(pair.ui_b, kUidA) == msg_before);
 
   DestroyPeerState(pair.a);
   DestroyPeerState(pair.b);
@@ -795,22 +789,19 @@ void TestUnicodeStateDirReload() {
       });
 
   UiMirror ui;
-  CHECK(peer.session->Start(ChatSessionConfig{.state_dir = peer.state_dir},
+  CHECK(peer.session->Start(ChatSessionConfig{.state_dir = peer.state_dir, .role = DemoRole::kClient},
                             [] {}));
   WaitInitialPublication(*peer.session, ui);
   WaitReady(*peer.session, kUidA);
   WaitFake(peer);
 
-  peer.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "peer-日本語",
-      .peer_aether_uid = std::string{kUidB},
-      .peer_name = std::string{"Bob 🌍\nline2"},
-  });
-  CHECK(WaitForEntry(*peer.session, ui, "peer-日本語", std::chrono::seconds(5),
+  peer.session->SetHostUidInput(std::string{kUidB});
+  peer.session->JoinHost();
+
+  CHECK(WaitForEntry(*peer.session, ui, kUidB, std::chrono::seconds(5),
                      /*require_bound=*/false));
-  auto entry = FindEntryByAdminId(*ui.workspace, "peer-日本語");
+  auto entry = FindEntryByPeerUid(*ui.workspace, kUidB);
   CHECK(entry.is_valid());
-  CHECK(entry->display_name == "Bob 🌍\nline2");
 
   DestroyPeerState(peer);
   std::filesystem::remove_all(unicode_dir);
@@ -826,35 +817,33 @@ void TestErrorStatusPreservesHistoryAndDrafts() {
 
   auto peer = MakePeer(coordinator, kUidA);
   UiMirror ui;
-  CHECK(peer.session->Start(ChatSessionConfig{.state_dir = peer.state_dir},
+  CHECK(peer.session->Start(ChatSessionConfig{.state_dir = peer.state_dir, .role = DemoRole::kClient},
                             [] {}));
   WaitInitialPublication(*peer.session, ui);
   WaitReady(*peer.session, kUidA);
   WaitFake(peer);
 
-  peer.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
-  CHECK(WaitForEntry(*peer.session, ui, "bob", std::chrono::seconds(5),
+  peer.session->SetHostUidInput(std::string{kUidB});
+  peer.session->JoinHost();
+
+  CHECK(WaitForEntry(*peer.session, ui, kUidB, std::chrono::seconds(5),
                      /*require_bound=*/false));
 
-  ae::ObjId const entry_id = FindEntryByAdminId(*ui.workspace, "bob").id();
+  ae::ObjId const entry_id = FindEntryByPeerUid(*ui.workspace, kUidB).id();
   peer.session->EditDraft(entry_id, "keep-this-draft", 1);
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   ConsumePublications(*peer.session, ui);
 
-  auto entry = FindEntryByAdminId(*ui.workspace, "bob");
+  auto entry = FindEntryByPeerUid(*ui.workspace, kUidB);
   CHECK(entry.is_valid());
   std::string const draft_before = entry->draft;
   CHECK(draft_before == "keep-this-draft");
-  std::size_t const msgs_before = MessageCount(ui, "bob");
+  std::size_t const msgs_before = MessageCount(ui, kUidB);
 
-  peer.session->OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bad",
-      .peer_aether_uid = std::string{"not-a-uid"},
-  });
-  CHECK(WaitForError(*peer.session, "Invalid Aether UID"));
+  peer.session->SetHostUidInput("not-a-uid");
+peer.session->JoinHost();
+
+  CHECK(WaitForError(*peer.session, "Invalid Host UID"));
 
   peer.fake()->InjectPresence(kUidB, PeerPresence::kOffline);
   peer.fake()->InjectPresence(kUidB, PeerPresence::kOnline);
@@ -862,8 +851,8 @@ void TestErrorStatusPreservesHistoryAndDrafts() {
   while (peer.session->TryTakeUiUpdate()) {
   }
 
-  entry = FindEntryByAdminId(*ui.workspace, "bob");
-  CHECK(MessageCount(ui, "bob") == msgs_before);
+  entry = FindEntryByPeerUid(*ui.workspace, kUidB);
+  CHECK(MessageCount(ui, kUidB) == msgs_before);
   CHECK(entry->draft == draft_before);
 
   DestroyPeerState(peer);
@@ -879,10 +868,10 @@ void TestBoundRoomFullRestart() {
   FakeEndpointCoordinator coordinator{network};
   coordinator.Start();
 
-  auto pair = BootstrapTwoPeers(coordinator, "bob", "alice");
+  auto pair = BootstrapTwoPeers(coordinator, kUidB, kUidA);
   std::cout << "  bound-restart: bootstrapped\n";
-  auto entry_a = FindEntryByAdminId(*pair.ui_a.workspace, "bob");
-  auto entry_b = FindEntryByAdminId(*pair.ui_b.workspace, "alice");
+  auto entry_a = FindEntryByPeerUid(*pair.ui_a.workspace, kUidB);
+  auto entry_b = FindEntryByPeerUid(*pair.ui_b.workspace, kUidA);
   CHECK(entry_a.is_valid() && entry_b.is_valid());
   ae::ObjId const room_id = entry_a->room.id();
   ae::ObjId const entry_a_id = entry_a.id();
@@ -902,14 +891,14 @@ void TestBoundRoomFullRestart() {
         ApplyUiUpdate(pair.ui_b, *update);
       }
     }
-    if (MessageCount(pair.ui_b, "alice") >= 1) {
+    if (MessageCount(pair.ui_b, kUidA) >= 1) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
   std::cout << "  bound-restart: B saw count="
-            << MessageCount(pair.ui_b, "alice") << '\n';
-  CHECK(MessageCount(pair.ui_b, "alice") >= 1);
+            << MessageCount(pair.ui_b, kUidA) << '\n';
+  CHECK(MessageCount(pair.ui_b, kUidA) >= 1);
 
   // Reply so both sides have two shared messages before restart.
   pair.b.session->EditDraft(entry_b.id(), "msg-b1", 1);
@@ -927,14 +916,14 @@ void TestBoundRoomFullRestart() {
         ApplyUiUpdate(pair.ui_b, *update);
       }
     }
-    if (MessageCount(pair.ui_a, "bob") >= 2 &&
-        MessageCount(pair.ui_b, "alice") >= 2) {
+    if (MessageCount(pair.ui_a, kUidB) >= 2 &&
+        MessageCount(pair.ui_b, kUidA) >= 2) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
-  CHECK(MessageCount(pair.ui_a, "bob") >= 2);
-  CHECK(MessageCount(pair.ui_b, "alice") >= 2);
+  CHECK(MessageCount(pair.ui_a, kUidB) >= 2);
+  CHECK(MessageCount(pair.ui_b, kUidA) >= 2);
   CHECK(pair.a.session->Checkpoint(1));
   CHECK(pair.b.session->Checkpoint(1));
   {
@@ -969,9 +958,9 @@ void TestBoundRoomFullRestart() {
 
   // Reverse startup order: B then A.
   PeerSession peer_b =
-      StartPeerFromSavedState(coordinator, dir_b, kUidB);
+      StartPeerFromSavedState(coordinator, dir_b, kUidB, DemoRole::kClient);
   PeerSession peer_a =
-      StartPeerFromSavedState(coordinator, dir_a, kUidA);
+      StartPeerFromSavedState(coordinator, dir_a, kUidA, DemoRole::kHost);
   std::cout << "  bound-restart: peers reloaded\n";
   UiMirror ui_b;
   UiMirror ui_a;
@@ -979,21 +968,22 @@ void TestBoundRoomFullRestart() {
   WaitInitialPublication(*peer_a.session, ui_a);
   std::cout << "  bound-restart: initial pubs applied\n";
 
-  ReopenPersistedPeerChat(peer_b, peer_a, ui_b, "alice", kUidA);
+  ReopenPersistedPeerChat(peer_b, peer_a, ui_b, kUidA, kUidA);
   std::cout << "  bound-restart: B reopened\n";
-  ReopenPersistedPeerChat(peer_a, peer_b, ui_a, "bob", kUidB);
-  std::cout << "  bound-restart: A reopened\n";
+  BringOnline(peer_a.fake(), peer_b.fake(), kUidA, kUidB);
+  CHECK(WaitForBoundEntry(*peer_a.session, ui_a, kUidB));
+  std::cout << "  bound-restart: A bound after client rejoin\n";
 
-  entry_a = FindEntryByAdminId(*ui_a.workspace, "bob");
-  entry_b = FindEntryByAdminId(*ui_b.workspace, "alice");
+  entry_a = FindEntryByPeerUid(*ui_a.workspace, kUidB);
+  entry_b = FindEntryByPeerUid(*ui_b.workspace, kUidA);
   CHECK(entry_a.is_valid() && entry_b.is_valid());
   CHECK(entry_a->room.id() == room_id);
   CHECK(entry_b->room.id() == room_id);
-  std::cout << "  bound-restart: counts a=" << MessageCount(ui_a, "bob")
-            << " b=" << MessageCount(ui_b, "alice") << '\n';
+  std::cout << "  bound-restart: counts a=" << MessageCount(ui_a, kUidB)
+            << " b=" << MessageCount(ui_b, kUidA) << '\n';
   // Two messages exchanged before stop; both sides must reload them.
-  CHECK(MessageCount(ui_a, "bob") >= 2);
-  CHECK(MessageCount(ui_b, "alice") >= 2);
+  CHECK(MessageCount(ui_a, kUidB) >= 2);
+  CHECK(MessageCount(ui_b, kUidA) >= 2);
 
   ae::ObjId const post_entry_a = entry_a.id();
   entry_a = {};
@@ -1007,14 +997,14 @@ void TestBoundRoomFullRestart() {
   while (std::chrono::steady_clock::now() < d2) {
     ConsumePublications(*peer_a.session, ui_a);
     ConsumePublications(*peer_b.session, ui_b);
-    if (MessageCount(ui_b, "alice") >= 3) {
+    if (MessageCount(ui_b, kUidA) >= 3) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
   std::cout << "  bound-restart: post-restart b="
-            << MessageCount(ui_b, "alice") << '\n';
-  CHECK(MessageCount(ui_b, "alice") >= 3);
+            << MessageCount(ui_b, kUidA) << '\n';
+  CHECK(MessageCount(ui_b, kUidA) >= 3);
   CHECK(peer_a.session->IsFinished() == false);
 
   DestroyPeerState(peer_a);

@@ -127,6 +127,7 @@ void SeedSmokeWorkspace(std::filesystem::path const& state_dir) {
 
   auto ws = ChatWorkspace::ptr::Create(ae::CreateWith{domain}.with_id(kWorkspaceRootId));
   InitializeRuntimeNode(*ws);
+  ConfigureDemoRole(*ws, DemoRole::kHost);
   BindLocalEndpoint(*ws, "11111111-2222-3333-4444-555555555555");
 
   DesktopBounds bounds{
@@ -139,8 +140,8 @@ void SeedSmokeWorkspace(std::filesystem::path const& state_dir) {
   };
   SetDesktopBounds(*ws, bounds);
 
-  auto e1 = OpenOrSelectChat(*ws, "peer-alpha", "Alice");
-  auto e2 = OpenOrSelectChat(*ws, "peer-beta", "Bob");
+  auto e1 = OpenOrSelectChat(*ws, "22222222-3333-4444-5555-666666666666");
+  auto e2 = OpenOrSelectChat(*ws, "33333333-4444-5555-6666-777777777777");
   SelectChat(*ws, e1.id());
 
   auto link1 = CreateAetherLink(domain, ae::ObjId{2001}, "22222222-3333-4444-5555-666666666666");
@@ -186,12 +187,12 @@ bool WaitForSnapshot(WinChatApp& app, WinChatGuiSnapshot& snap,
          snap.chat_count >= min_chats;
 }
 
-HWND WaitForMainWindow(DWORD pid) {
+HWND WaitForMainWindow(WinChatApp& app) {
   HWND main_hwnd = nullptr;
   auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{20};
   while (std::chrono::steady_clock::now() < deadline) {
-    main_hwnd = FindOwned(pid, L"AppTraverseWinChatMainWindow", L"AppTraverse Chat");
-    if (main_hwnd != nullptr) {
+    main_hwnd = app.main_hwnd();
+    if (main_hwnd != nullptr && IsWindow(main_hwnd) != 0) {
       return main_hwnd;
     }
     PumpGui(std::chrono::milliseconds{20});
@@ -216,12 +217,12 @@ void TestWinChatSmoke() {
   std::cout << "Starting Windows smoke test harness...\n";
 
   {
-    ChatLaunchOptions options{.state_dir = test_dir.string()};
+    ChatLaunchOptions options{.role = DemoRole::kHost, .state_dir = test_dir.string()};
 
     WinChatApp app;
     std::thread gui{[&] { CHECK(app.Run(options) == 0); }};
 
-    HWND const main_hwnd = WaitForMainWindow(pid);
+    HWND const main_hwnd = WaitForMainWindow(app);
     CHECK(main_hwnd != nullptr);
     CHECK(app.main_hwnd() == main_hwnd);
     CHECK(IsWindow(app.chat_list_hwnd()) != 0);
@@ -291,12 +292,12 @@ void TestWinChatSmoke() {
   }
 
   {
-    ChatLaunchOptions options{.state_dir = test_dir.string()};
+    ChatLaunchOptions options{.role = DemoRole::kHost, .state_dir = test_dir.string()};
 
     WinChatApp app;
     std::thread gui{[&] { CHECK(app.Run(options) == 0); }};
 
-    HWND const main_hwnd = WaitForMainWindow(pid);
+    HWND const main_hwnd = WaitForMainWindow(app);
     CHECK(main_hwnd != nullptr);
 
     WinChatGuiSnapshot snap{};
@@ -324,13 +325,13 @@ void TestWinChatSmoke() {
     std::filesystem::path const cold_dir = test_dir / "cold";
     std::filesystem::create_directories(cold_dir);
     ChatLaunchOptions options{
+        .role = DemoRole::kHost,
         .state_dir = cold_dir.string(),
-        .open_peer = OpenPeerRequest{.peer_admin_id = "connecting-peer"},
     };
 
     WinChatApp app;
     std::thread gui{[&] { CHECK(app.Run(options) == 0); }};
-    HWND const main_hwnd = WaitForMainWindow(pid);
+    HWND const main_hwnd = WaitForMainWindow(app);
     CHECK(main_hwnd != nullptr);
     PumpGui(std::chrono::milliseconds{100});
     SendMessageW(main_hwnd, WM_CLOSE, 0, 0);

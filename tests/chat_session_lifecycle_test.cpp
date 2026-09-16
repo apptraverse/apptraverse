@@ -32,7 +32,7 @@ using apptraverse::example::chat_demo::ChatSession;
 using apptraverse::example::chat_demo::ChatSessionConfig;
 using apptraverse::example::chat_demo::ChatWorkspace;
 using apptraverse::example::chat_demo::IAetherFrameEndpoint;
-using apptraverse::example::chat_demo::OpenPeerRequest;
+using apptraverse::example::chat_demo::DemoRole;
 using apptraverse::example::chat_demo::PeerPresence;
 using apptraverse::example::chat_demo::SessionLifecycleState;
 using apptraverse::example::chat_demo::test::FakeAetherFrameEndpoint;
@@ -119,7 +119,7 @@ void TestPresenceInjectedOnModelThread() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
   auto* fake = WaitFake(fake_slot);
   WaitLifecycle(session, SessionLifecycleState::kReady);
 
@@ -153,13 +153,11 @@ void TestStopDuringRegistration() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
   WaitFake(fake_slot);
 
-  session.OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
+  session.SetHostUidInput(std::string{kUidB});
+  session.JoinHost();
 
   session.RequestStop();
   session.Join();
@@ -184,13 +182,11 @@ void TestStopWhileDraftQueued() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
   WaitFake(fake_slot);
 
-  session.OpenPeer(OpenPeerRequest{
-      .peer_admin_id = "bob",
-      .peer_aether_uid = std::string{kUidB},
-  });
+  session.SetHostUidInput(std::string{kUidB});
+  session.JoinHost();
   session.EditDraft(ae::ObjId{0}, "queued draft", 1);
   session.SaveBounds({.valid = true, .x = 10, .y = 20, .width = 800, .height = 600});
 
@@ -218,7 +214,7 @@ void TestFailedStartupAllowsHostClose() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
   auto* fake = WaitFake(fake_slot);
   {
     auto const deadline =
@@ -259,7 +255,7 @@ void TestEndpointUidMismatchFailsWithoutOverwrite() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
   WaitFake(fake_slot);
   WaitLifecycle(session, SessionLifecycleState::kFailed);
 
