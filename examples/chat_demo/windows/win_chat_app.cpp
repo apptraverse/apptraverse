@@ -552,6 +552,20 @@ void WinChatApp::UpdateUiFromWorkspace() {
   applying_view_ = false;
 }
 
+void WinChatApp::TryFinishClosing() {
+  if (!closing_) {
+    return;
+  }
+  auto const status = session_.GetRuntimeStatus();
+  if (status.lifecycle_state == SessionLifecycleState::kStopped ||
+      status.lifecycle_state == SessionLifecycleState::kFailed) {
+    session_.Join();
+    if (main_hwnd_ != nullptr) {
+      DestroyWindow(main_hwnd_);
+    }
+  }
+}
+
 void WinChatApp::ApplyPublicationFromSession() {
   auto& channel = session_.publication_channel();
   while (channel.has_unread_published()) {
@@ -570,6 +584,7 @@ void WinChatApp::ApplyPublicationFromSession() {
     }
   }
   UpdateUiFromWorkspace();
+  TryFinishClosing();
 }
 
 LRESULT WinChatApp::HandleMain(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -624,6 +639,9 @@ LRESULT WinChatApp::HandleMain(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
     return 0;
   }
   if (msg == WM_CLOSE) {
+    if (closing_) {
+      return 0;
+    }
     SaveCurrentDraftAndScroll();
     WINDOWPLACEMENT wp{};
     wp.length = sizeof(wp);
@@ -642,10 +660,10 @@ LRESULT WinChatApp::HandleMain(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
         session_.SaveBounds(bounds);
       }
     }
+    closing_ = true;
     EnableWindow(hwnd, FALSE);
     session_.RequestStop();
-    session_.Join();
-    DestroyWindow(hwnd);
+    TryFinishClosing();
     return 0;
   }
   if (msg == WM_DESTROY) {
@@ -716,6 +734,7 @@ int WinChatApp::Run(ChatLaunchOptions options) {
   session_.Start(std::move(cfg), [this]() {
     if (main_hwnd_ != nullptr) {
       PostMessageW(main_hwnd_, WM_CHAT_PUBLISHED, 0, 0);
+      PostMessageW(main_hwnd_, WM_CHAT_STATUS_NOTIFY, 0, 0);
     }
   });
 

@@ -151,3 +151,46 @@ the binding callback succeeds (retry on duplicate before ACK).
 - **COMMIT 03**: Keep session callbacks and teardown on their owning threads.
 
 ---
+
+## Commit 03 — Keep Session Callbacks and Teardown on Their Owning Threads
+
+### Objective
+Split user vs internal model enqueue paths; keep Aether callbacks on the model
+thread through shutdown; clear handler lambdas before ThreadMain scope ends;
+fail visibly on local endpoint UID conflict; wrap worker in exception handling;
+async Win32 close without blocking Join on WM_CLOSE.
+
+### Starting SHA
+`590d934d30612c37cd7439c24c3dfe7dfa52f73b`
+
+### Files changed
+- `examples/chat_demo/runtime/chat_session.h/.cpp` — user/internal enqueue
+  gates; model-thread assertion; ordered stop (endpoint Join → close internal →
+  drain → clear handlers); BindLocalEndpoint conflict → kFailed; try/catch worker
+- `examples/chat_demo/windows/win_chat_app.h/.cpp` — WM_CLOSE RequestStop only;
+  Join on worker kStopped/kFailed notification
+- `tests/fake_aether_frame_endpoint.h` — `SignalFailed`; fail does not invoke
+  ready
+- `tests/chat_session_lifecycle_test.cpp` — lifecycle/threading scenarios
+- `tests/CMakeLists.txt` — `apptraverse_chat_session_lifecycle_test`
+
+### Checks
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| compilation (MSVC Debug) | PASS |
+| `apptraverse_chat_session_lifecycle_test` | PASS (exit 0) |
+| `apptraverse_chat_session_bootstrap_test` | PASS (exit 0) |
+| `apptraverse_chat_session_startup_test` | PASS (exit 0) |
+| `apptraverse_chat_session_integration_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_model_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_sync_test` | PASS (exit 0) |
+| `apptraverse_aether_byte_transport_dispatch_test` | PASS (exit 0) |
+| `apptraverse_shared_node_incremental_event_test` | PASS (exit 0) |
+| live Aether | NOT_RUN |
+| native GUI | NOT_RUN |
+
+### Next Commit
+- **COMMIT 04**: (per overnight plan)
+
+---

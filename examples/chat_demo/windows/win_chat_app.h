@@ -76,6 +76,7 @@ class WinChatApp {
   void OnSendDraftClicked();
   void OnChatSelectionChanged();
   void OnDraftChanged();
+  void TryFinishClosing();
 
   HANDLE profile_lock_handle_{INVALID_HANDLE_VALUE};
   HMODULE richedit_module_{nullptr};
@@ -107,6 +108,7 @@ class WinChatApp {
   ae::ObjId active_entry_id_;
 
   bool applying_view_{false};
+  bool closing_{false};
   bool geometry_restored_{false};
   std::chrono::steady_clock::time_point last_scroll_save_time_{};
 

@@ -7,6 +7,7 @@
 #include <deque>
 #include <iostream>
 #include <map>
+#include <stdexcept>
 #include <string_view>
 #include <utility>
 
@@ -113,6 +114,8 @@ bool ChatSession::Start(ChatSessionConfig config, UiNotifyFn notify_ui) {
   }
   started_ = true;
   stop_ = false;
+  accepting_user_commands_ = true;
+  accepting_internal_delivery_ = true;
   notify_ui_ = std::move(notify_ui);
   worker_thread_ = std::thread([this, config = std::move(config), notify = notify_ui_]() mutable {
     ThreadMain(std::move(config), std::move(notify));
@@ -127,6 +130,7 @@ void ChatSession::RequestStop() {
       return;
     }
     stop_ = true;
+    accepting_user_commands_ = false;
   }
   queue_cv_.notify_all();
 }
@@ -137,10 +141,21 @@ void ChatSession::Join() {
   }
 }
 
-void ChatSession::EnqueueModelWork(ModelWork work) {
+void ChatSession::EnqueueUserModelWork(ModelWork work) {
   {
     std::lock_guard<std::mutex> lock{queue_mu_};
-    if (stop_) {
+    if (!accepting_user_commands_) {
+      return;
+    }
+    work_queue_.push_back(std::move(work));
+  }
+  queue_cv_.notify_all();
+}
+
+void ChatSession::EnqueueInternalModelWork(ModelWork work) {
+  {
+    std::lock_guard<std::mutex> lock{queue_mu_};
+    if (!accepting_internal_delivery_) {
       return;
     }
     work_queue_.push_back(std::move(work));
@@ -153,6 +168,13 @@ ChatRuntimeStatus ChatSession::GetRuntimeStatus() {
   return status_;
 }
 
+void ChatSession::AssertModelThread() const {
+#ifndef NDEBUG
+  assert(std::this_thread::get_id() == model_thread_id_ &&
+         "ChatSession model command must run on model thread");
+#endif
+}
+
 void ChatSession::UpdateStatus(std::function<void(ChatRuntimeStatus&)> mutator) {
   {
     std::lock_guard<std::mutex> lock{status_mu_};
@@ -163,8 +185,37 @@ void ChatSession::UpdateStatus(std::function<void(ChatRuntimeStatus&)> mutator) 
   }
 }
 
+void ChatSession::DrainModelQueue() {
+  for (;;) {
+    std::deque<ModelWork> local_work;
+    {
+      std::lock_guard<std::mutex> lock{queue_mu_};
+      if (work_queue_.empty()) {
+        break;
+      }
+      local_work.swap(work_queue_);
+    }
+    while (!local_work.empty()) {
+      auto work = std::move(local_work.front());
+      local_work.pop_front();
+      if (work) {
+        work();
+      }
+    }
+  }
+}
+
+void ChatSession::ShutdownEndpointAndDrain(IAetherFrameEndpoint* endpoint) {
+  if (endpoint != nullptr) {
+    endpoint->RequestStop();
+    endpoint->Join();
+  }
+  DrainModelQueue();
+}
+
 void ChatSession::OpenPeer(OpenPeerRequest request) {
-  EnqueueModelWork([this, req = std::move(request)]() mutable {
+  EnqueueUserModelWork([this, req = std::move(request)]() mutable {
+    AssertModelThread();
     if (on_open_peer_) {
       on_open_peer_(std::move(req));
     }
@@ -172,7 +223,8 @@ void ChatSession::OpenPeer(OpenPeerRequest request) {
 }
 
 void ChatSession::SelectChat(ae::ObjId entry_id) {
-  EnqueueModelWork([this, entry_id]() {
+  EnqueueUserModelWork([this, entry_id]() {
+    AssertModelThread();
     if (on_select_chat_) {
       on_select_chat_(entry_id);
     }
@@ -181,7 +233,8 @@ void ChatSession::SelectChat(ae::ObjId entry_id) {
 
 void ChatSession::EditDraft(ae::ObjId entry_id, std::string text,
                             std::uint64_t edit_revision) {
-  EnqueueModelWork([this, entry_id, text = std::move(text), edit_revision]() mutable {
+  EnqueueUserModelWork([this, entry_id, text = std::move(text), edit_revision]() mutable {
+    AssertModelThread();
     if (on_edit_draft_) {
       on_edit_draft_(entry_id, std::move(text), edit_revision);
     }
@@ -190,8 +243,9 @@ void ChatSession::EditDraft(ae::ObjId entry_id, std::string text,
 
 void ChatSession::SendDraft(ae::ObjId entry_id, std::string current_text,
                             std::uint64_t edit_revision) {
-  EnqueueModelWork([this, entry_id, current_text = std::move(current_text),
-                    edit_revision]() mutable {
+  EnqueueUserModelWork([this, entry_id, current_text = std::move(current_text),
+                        edit_revision]() mutable {
+    AssertModelThread();
     if (on_send_draft_) {
       on_send_draft_(entry_id, std::move(current_text), edit_revision);
     }
@@ -199,7 +253,8 @@ void ChatSession::SendDraft(ae::ObjId entry_id, std::string current_text,
 }
 
 void ChatSession::SaveScroll(ae::ObjId entry_id, ScrollAnchor anchor) {
-  EnqueueModelWork([this, entry_id, anchor]() {
+  EnqueueUserModelWork([this, entry_id, anchor]() {
+    AssertModelThread();
     if (on_save_scroll_) {
       on_save_scroll_(entry_id, anchor);
     }
@@ -207,7 +262,8 @@ void ChatSession::SaveScroll(ae::ObjId entry_id, ScrollAnchor anchor) {
 }
 
 void ChatSession::SaveBounds(DesktopBounds bounds) {
-  EnqueueModelWork([this, bounds]() {
+  EnqueueUserModelWork([this, bounds]() {
+    AssertModelThread();
     if (on_save_bounds_) {
       on_save_bounds_(bounds);
     }
@@ -215,33 +271,59 @@ void ChatSession::SaveBounds(DesktopBounds bounds) {
 }
 
 void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
-  // 1. Register all chat and AetherLink classes on model thread
-  apptraverse::EnsureObjectRegistration();
-  EnsureChatDemoModelRegistration();
-  EnsureAetherLinkRegistration();
+  model_thread_id_ = std::this_thread::get_id();
 
-  auto const model_dir = config.state_dir / "model";
-  auto const aether_dir = config.state_dir / "aether";
-  std::filesystem::create_directories(model_dir);
-  std::filesystem::create_directories(aether_dir);
+  bool worker_failed = false;
+  std::string worker_error;
 
-  // 2. Open DirectoryDomainStorage at state_dir/model
-  apptraverse::DirectoryDomainStorage storage{model_dir};
-  ae::Domain domain{storage};
-
-  // 3 & 4. Load or create ChatWorkspace
+  std::unique_ptr<IAetherFrameEndpoint> aether_runtime;
+  std::unique_ptr<AetherByteTransport> transport;
+  std::unique_ptr<SharedSyncRuntime> sync_runtime;
   ChatWorkspace::ptr workspace;
-  if (!storage.Enumerate(kLocalWorkspaceRootId).empty()) {
-    workspace = ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(kLocalWorkspaceRootId));
-    workspace.Load();
-    if (!workspace) {
-      UpdateStatus([](ChatRuntimeStatus& s) {
-        s.lifecycle_state = SessionLifecycleState::kFailed;
-        s.error_text = "Failed to load existing workspace root";
-      });
-      return;
+
+  auto const finalize_worker = [this, &worker_failed]() {
+    on_open_peer_ = nullptr;
+    on_select_chat_ = nullptr;
+    on_edit_draft_ = nullptr;
+    on_send_draft_ = nullptr;
+    on_save_scroll_ = nullptr;
+    on_save_bounds_ = nullptr;
+
+    {
+      std::lock_guard<std::mutex> lock{queue_mu_};
+      started_ = false;
     }
-  } else {
+
+    if (!worker_failed) {
+      UpdateStatus([](ChatRuntimeStatus& s) {
+        if (s.lifecycle_state != SessionLifecycleState::kFailed) {
+          s.lifecycle_state = SessionLifecycleState::kStopped;
+        }
+      });
+    }
+  };
+
+  try {
+    apptraverse::EnsureObjectRegistration();
+    EnsureChatDemoModelRegistration();
+    EnsureAetherLinkRegistration();
+
+    auto const model_dir = config.state_dir / "model";
+    auto const aether_dir = config.state_dir / "aether";
+    std::filesystem::create_directories(model_dir);
+    std::filesystem::create_directories(aether_dir);
+
+    apptraverse::DirectoryDomainStorage storage{model_dir};
+    ae::Domain domain{storage};
+
+    if (!storage.Enumerate(kLocalWorkspaceRootId).empty()) {
+      workspace = ChatWorkspace::ptr::Declare(
+          ae::CreateWith{domain}.with_id(kLocalWorkspaceRootId));
+      workspace.Load();
+      if (!workspace) {
+        throw std::runtime_error("Failed to load existing workspace root");
+      }
+    } else {
     workspace = ChatWorkspace::ptr::Create(ae::CreateWith{domain}.with_id(kLocalWorkspaceRootId));
     InitializeRuntimeNode(*workspace);
     workspace.Save();
@@ -302,9 +384,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
   // 5. Publish local workspace immediately before network registration
   publish_now(/*is_initial=*/true);
 
-  // 6. Start network endpoint (default: ChatAetherRuntime) on model thread
-  std::unique_ptr<IAetherFrameEndpoint> aether_runtime = endpoint_factory_();
-  assert(aether_runtime && "EndpointFactory must create one endpoint");
+    aether_runtime = endpoint_factory_();
+    assert(aether_runtime && "EndpointFactory must create one endpoint");
   IAetherFrameEndpoint::Config aether_cfg{
       .state_dir = aether_dir,
       .client_name = config.aether_client_name,
@@ -312,12 +393,11 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       .offline_after_ms = 4000,
   };
 
-  std::string my_uid;
-  bool aether_ready = false;
-  std::unique_ptr<AetherByteTransport> transport;
-  std::unique_ptr<SharedSyncRuntime> sync_runtime;
+    std::string my_uid;
+    bool aether_ready = false;
+    bool identity_conflict = false;
 
-  std::unordered_map<std::string, PeerPresence> remote_presence_map;
+    std::unordered_map<std::string, PeerPresence> remote_presence_map;
 
   // Model-thread-only: pending UID hints and waiting-side endpoint -> entry.
   // Values/IDs only; bound Link remains authoritative after BindChat.
@@ -327,29 +407,35 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
 
   // Runtime presence helper
-  auto const set_peer_presence = [this, &remote_presence_map, &publication_dirty](
-                                     std::string const& peer, PeerPresence p) {
-    remote_presence_map[peer] = p;
+    auto const set_peer_presence =
+        [this, &remote_presence_map, &publication_dirty](std::string const& peer,
+                                                         PeerPresence p) {
+          AssertModelThread();
+          remote_presence_map[peer] = p;
     UpdateStatus([&remote_presence_map](ChatRuntimeStatus& s) {
       s.remote_presence = remote_presence_map;
     });
     publication_dirty = true;
   };
 
-  // Dispatcher for incoming tasks from Aether thread
-  auto const model_dispatcher = [this](ModelTask task) {
-    EnqueueModelWork([t = std::move(task)]() mutable {
+    auto const model_dispatcher = [this](ModelTask task) {
+      EnqueueInternalModelWork([t = std::move(task)]() mutable {
       if (t) {
         t();
       }
     });
   };
 
-  auto const resolve_and_open_peer =
-      [&workspace, &aether_runtime, &sync_runtime, &persist_workspace, &my_uid,
-       &aether_ready, &publication_dirty, &endpoint_by_pending_entry,
-       &waiting_entry_by_endpoint, &deferred_open_while_registering,
-       this](OpenPeerRequest const& req) {
+    auto const resolve_and_open_peer =
+        [&workspace, &aether_runtime, &sync_runtime, &persist_workspace, &my_uid,
+         &aether_ready, &publication_dirty, &endpoint_by_pending_entry,
+         &waiting_entry_by_endpoint, &deferred_open_while_registering,
+         &identity_conflict, this](OpenPeerRequest const& req) {
+          AssertModelThread();
+          if (identity_conflict) {
+            return;
+          }
+
         // 1. Normalize Admin ID and open/select chat (works before readiness).
         std::string const admin_id = TrimAsciiWhitespace(req.peer_admin_id);
         auto entry = OpenOrSelectChat(*workspace, admin_id,
@@ -539,6 +625,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
   on_edit_draft_ = [&workspace, &persist_workspace, &publication_dirty, this](
                        ae::ObjId entry_id, std::string text, std::uint64_t edit_revision) {
+    AssertModelThread();
     for (auto const& entry : workspace->chats) {
       if (entry.is_valid() && entry.id() == entry_id) {
         if (SetDraft(*entry, text, persist_workspace)) {
@@ -554,6 +641,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
   on_send_draft_ = [&workspace, &persist_workspace, &publication_dirty, this](
                        ae::ObjId entry_id, std::string current_text, std::uint64_t edit_revision) {
+    AssertModelThread();
     for (auto const& entry : workspace->chats) {
       if (entry.is_valid() && entry.id() == entry_id) {
         SetDraft(*entry, current_text, persist_workspace);
@@ -594,11 +682,41 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
   aether_runtime->Start(
       std::move(aether_cfg),
       /*on_uid=*/
-      [this, &workspace, &persist_workspace, &my_uid, &publication_dirty](std::string uid) {
-        EnqueueModelWork([this, &workspace, &persist_workspace, &my_uid, &publication_dirty,
-                          uid = std::move(uid)]() {
+      [this, &workspace, &persist_workspace, &my_uid, &publication_dirty,
+       &identity_conflict, &aether_runtime](std::string uid) {
+        EnqueueInternalModelWork([this, &workspace, &persist_workspace, &my_uid,
+                                  &publication_dirty, &identity_conflict,
+                                  &aether_runtime, uid = std::move(uid)]() mutable {
+          AssertModelThread();
           my_uid = uid;
-          BindLocalEndpoint(*workspace, my_uid, persist_workspace);
+
+          if (!workspace->local_endpoint_uid.empty() &&
+              workspace->local_endpoint_uid != my_uid) {
+            identity_conflict = true;
+            UpdateStatus([&my_uid, &workspace](ChatRuntimeStatus& s) {
+              s.lifecycle_state = SessionLifecycleState::kFailed;
+              s.error_text =
+                  "Local endpoint UID conflict: persisted " +
+                  workspace->local_endpoint_uid + " vs Aether " + my_uid;
+            });
+            publication_dirty = true;
+            aether_runtime->RequestStop();
+            return;
+          }
+
+          if (!BindLocalEndpoint(*workspace, my_uid, persist_workspace)) {
+            identity_conflict = true;
+            UpdateStatus([&my_uid, &workspace](ChatRuntimeStatus& s) {
+              s.lifecycle_state = SessionLifecycleState::kFailed;
+              s.error_text =
+                  "Local endpoint UID conflict: persisted " +
+                  workspace->local_endpoint_uid + " vs Aether " + my_uid;
+            });
+            publication_dirty = true;
+            aether_runtime->RequestStop();
+            return;
+          }
+
           UpdateStatus([&my_uid](ChatRuntimeStatus& s) {
             s.local_endpoint_uid = my_uid;
           });
@@ -609,12 +727,20 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       [this, &aether_ready, &workspace, &aether_runtime, &transport, &sync_runtime,
        &domain, &storage, &my_uid, &model_dispatcher, &persist_workspace,
        &resolve_and_open_peer, &deferred_open_while_registering, &publication_dirty,
-       &endpoint_by_pending_entry, &waiting_entry_by_endpoint]() {
-        EnqueueModelWork([this, &aether_ready, &workspace, &aether_runtime, &transport,
-                          &sync_runtime, &domain, &storage, &my_uid, &model_dispatcher,
-                          &persist_workspace, &resolve_and_open_peer,
-                          &deferred_open_while_registering, &publication_dirty,
-                          &endpoint_by_pending_entry, &waiting_entry_by_endpoint]() {
+       &endpoint_by_pending_entry, &waiting_entry_by_endpoint,
+       &identity_conflict]() {
+        EnqueueInternalModelWork([this, &aether_ready, &workspace, &aether_runtime,
+                                  &transport, &sync_runtime, &domain, &storage,
+                                  &my_uid, &model_dispatcher, &persist_workspace,
+                                  &resolve_and_open_peer,
+                                  &deferred_open_while_registering, &publication_dirty,
+                                  &endpoint_by_pending_entry, &waiting_entry_by_endpoint,
+                                  &identity_conflict]() {
+          AssertModelThread();
+          if (identity_conflict) {
+            return;
+          }
+
           aether_ready = true;
           UpdateStatus([](ChatRuntimeStatus& s) {
             s.lifecycle_state = SessionLifecycleState::kReady;
@@ -721,7 +847,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       },
       /*on_failed=*/
       [this](std::string err) {
-        EnqueueModelWork([this, err = std::move(err)]() {
+        EnqueueInternalModelWork([this, err = std::move(err)]() {
+          AssertModelThread();
           UpdateStatus([err](ChatRuntimeStatus& s) {
             s.lifecycle_state = SessionLifecycleState::kFailed;
             s.error_text = err;
@@ -734,8 +861,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       // Full lifecycle ownership lands in Commit 03; enqueue is required for
       // correct OpenPeer/bootstrap sync driving (Online gate).
       [this, set_peer_presence](std::string peer_uid, PeerPresence presence) {
-        EnqueueModelWork([set_peer_presence, peer_uid = std::move(peer_uid),
-                          presence]() {
+        EnqueueInternalModelWork([set_peer_presence, peer_uid = std::move(peer_uid),
+                                  presence]() {
           set_peer_presence(peer_uid, presence);
         });
       });
@@ -774,10 +901,13 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       publish_now(/*is_initial=*/false);
     }
 
+    if (stop_) {
+      continue;
+    }
+
     auto const now = std::chrono::steady_clock::now();
 
-    // Drive sync engine if sync_runtime is active
-    if (sync_runtime && workspace.is_valid()) {
+    if (sync_runtime && workspace.is_valid() && !identity_conflict) {
       for (auto const& entry : workspace->chats) {
         if (!entry.is_valid() || !entry->room.is_valid() || !entry->peer_link.is_valid()) {
           continue;
@@ -847,42 +977,55 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     }
   }
 
-  // Model shutdown sequence:
-  // 1. Stop accepting new USER commands (done by stop_ flag)
-  // 2. RequestStop and Join ChatAetherRuntime while model queue still exists
-  aether_runtime->RequestStop();
-  aether_runtime->Join();
+    ShutdownEndpointAndDrain(aether_runtime.get());
 
-  // 3. Drain already queued model deliveries
-  std::deque<ModelWork> remaining_work;
-  {
-    std::lock_guard<std::mutex> lock{queue_mu_};
-    remaining_work.swap(work_queue_);
-  }
-  while (!remaining_work.empty()) {
-    auto work = std::move(remaining_work.front());
-    remaining_work.pop_front();
-    if (work) {
-      work();
+    {
+      std::lock_guard<std::mutex> lock{queue_mu_};
+      accepting_internal_delivery_ = false;
     }
+
+    DrainModelQueue();
+
+    persist_workspace();
+
+    sync_runtime.reset();
+    transport.reset();
+    workspace = {};
+
+  } catch (std::exception const& ex) {
+    worker_failed = true;
+    worker_error = ex.what();
+    UpdateStatus([&worker_error](ChatRuntimeStatus& s) {
+      s.lifecycle_state = SessionLifecycleState::kFailed;
+      s.error_text = worker_error;
+    });
+    ShutdownEndpointAndDrain(aether_runtime.get());
+    {
+      std::lock_guard<std::mutex> lock{queue_mu_};
+      accepting_internal_delivery_ = false;
+    }
+    DrainModelQueue();
+    sync_runtime.reset();
+    transport.reset();
+    workspace = {};
+  } catch (...) {
+    worker_failed = true;
+    UpdateStatus([](ChatRuntimeStatus& s) {
+      s.lifecycle_state = SessionLifecycleState::kFailed;
+      s.error_text = "ChatSession worker failed with unknown error";
+    });
+    ShutdownEndpointAndDrain(aether_runtime.get());
+    {
+      std::lock_guard<std::mutex> lock{queue_mu_};
+      accepting_internal_delivery_ = false;
+    }
+    DrainModelQueue();
+    sync_runtime.reset();
+    transport.reset();
+    workspace = {};
   }
 
-  // 4. Save workspace
-  persist_workspace();
-
-  // 5. Destroy SharedSyncRuntime on model thread
-  sync_runtime.reset();
-
-  // 6. Destroy AetherByteTransport while endpoint still exists
-  transport.reset();
-
-  // 7. Destroy chat objects and clear domain/storage
-  workspace = {};
-
-  // 8. Notify GUI completion
-  UpdateStatus([](ChatRuntimeStatus& s) {
-    s.lifecycle_state = SessionLifecycleState::kStopped;
-  });
+  finalize_worker();
 }
 
 }  // namespace apptraverse::example::chat_demo

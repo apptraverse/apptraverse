@@ -185,7 +185,7 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
   }
 
   void Start(Config /*config*/, LocalUidCallback on_uid,
-             ReadyCallback on_ready, FailedCallback /*on_failed*/,
+             ReadyCallback on_ready, FailedCallback on_failed,
              FrameCallback on_frame,
              PresenceCallback on_presence) override {
     RequestStop();
@@ -194,10 +194,12 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
       std::lock_guard<std::mutex> lock{mu_};
       on_uid_ = std::move(on_uid);
       on_ready_ = std::move(on_ready);
+      on_failed_ = std::move(on_failed);
       on_frame_ = std::move(on_frame);
       on_presence_ = std::move(on_presence);
       stop_ = false;
       ready_signaled_ = !defer_ready_;
+      fail_signaled_ = false;
     }
     coordinator_.EnsureTransport(
         local_uid_, [this](std::string source, std::vector<std::uint8_t> bytes) {
@@ -222,7 +224,7 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
       {
         std::unique_lock<std::mutex> lock{mu_};
         ready_cv_.wait(lock, [&] { return stop_ || ready_signaled_; });
-        if (stop_) {
+        if (stop_ || fail_signaled_) {
           return;
         }
       }
@@ -245,6 +247,20 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
       ready_signaled_ = true;
     }
     ready_cv_.notify_all();
+  }
+
+  void SignalFailed(std::string error) {
+    FailedCallback callback;
+    {
+      std::lock_guard<std::mutex> lock{mu_};
+      fail_signaled_ = true;
+      ready_signaled_ = true;
+      callback = on_failed_;
+    }
+    ready_cv_.notify_all();
+    if (callback) {
+      callback(std::move(error));
+    }
   }
 
   void InjectPresence(std::string peer_uid, PeerPresence presence) {
@@ -318,9 +334,11 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
   bool ready_signaled_{false};
   LocalUidCallback on_uid_;
   ReadyCallback on_ready_;
+  FailedCallback on_failed_;
   FrameCallback on_frame_;
   PresenceCallback on_presence_;
   std::thread worker_;
+  bool fail_signaled_{false};
   std::vector<std::string> opened_peers_;
   std::vector<std::string> closed_peers_;
 };
