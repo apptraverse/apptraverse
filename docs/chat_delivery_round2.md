@@ -260,3 +260,23 @@ A05 WorkerState; A07 network_epoch Retry; A08 command results; A09+ gates.
 ## Next
 
 A07 network_epoch Retry reincarnation; A08 EditDraft/SendDraft results; A09+.
+
+## A07 — Network-epoch Retry reincarnation (completed)
+
+### Changes
+- `WorkerState::network_epoch` + `network_cfg`; endpoint Start wrapped in
+  `start_network` callable reused by Retry.
+- UID/ready/failed/presence/connectivity callbacks ignore stale epochs.
+- Retry: stop/join endpoint, destroy sync/transport, preserve Domain/workspace,
+  recreate endpoint, re-register rooms, re-arm waiting expectations, reopen peers.
+- `TestRetryAfterNetworkFailure`: Failed → Retry returns promptly → Ready again.
+
+### Evidence
+| Test | Result |
+| --- | --- |
+| fault (incl. Retry) | TEST_PASS exit 0 |
+| integration (bound restart) | TEST_PASS exit 0 |
+
+## Next
+
+A08 command results; A09 bootstrap edges; A10–A11 live probe; hosts/package.

@@ -373,6 +373,47 @@ void TestCheckpointReload() {
   std::filesystem::remove_all(state_dir);
 }
 
+void TestRetryAfterNetworkFailure() {
+  apptraverse::MemoryNetwork network;
+  FakeEndpointCoordinator coordinator{network};
+  coordinator.Start();
+
+  auto state_dir = MakeTempDir("fault_retry");
+  SeedPersistedLocalUid(state_dir, kUidA);
+
+  auto fake_slot = std::make_shared<FakeAetherFrameEndpoint*>(nullptr);
+  ChatSession session([&coordinator, fake_slot]() {
+    auto fake = std::make_unique<FakeAetherFrameEndpoint>(coordinator, kUidA);
+    *fake_slot = fake.get();
+    return fake;
+  });
+
+  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir}, [] {}));
+  WaitFake(fake_slot);
+  WaitLifecycle(session, SessionLifecycleState::kReady);
+
+  (*fake_slot)->SignalFailed("simulated network failure");
+  WaitLifecycle(session, SessionLifecycleState::kFailed);
+  CHECK(session.IsFinished() == false);
+
+  auto const t0 = std::chrono::steady_clock::now();
+  session.RetryConnection();
+  auto const retry_elapsed = std::chrono::steady_clock::now() - t0;
+  CHECK(retry_elapsed < std::chrono::milliseconds(200));
+
+  WaitLifecycle(session, SessionLifecycleState::kReady);
+  CHECK(session.GetRuntimeStatus().error_text.empty());
+  CHECK(session.IsFinished() == false);
+  CHECK(std::filesystem::exists(state_dir));
+
+  session.RequestStop();
+  session.Join();
+  CHECK(session.IsFinished());
+  coordinator.RequestStop();
+  coordinator.Join();
+  std::filesystem::remove_all(state_dir);
+}
+
 }  // namespace
 
 int main() {
@@ -382,6 +423,7 @@ int main() {
   TestInvalidProfileLoad();
   TestIdentityConflictOnRestart();
   TestCheckpointReload();
+  TestRetryAfterNetworkFailure();
   std::cout << "chat_session_fault_test passed!\n";
   return 0;
 }
