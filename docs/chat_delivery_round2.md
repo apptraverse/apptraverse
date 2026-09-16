@@ -298,3 +298,25 @@ A08 command results; A09 bootstrap edges; A10–A11 live probe; hosts/package.
 ## Next
 
 A09 bootstrap edges; A10 suite; A11 live probe; A12+ hosts as available.
+
+## A11 — Real Windows Aether ChatSession probe (completed)
+
+### Changes
+- `tests/chat_session_live_probe.cpp`: stdin control protocol + `CHATPROBE:`
+  lines; UI Domain via Domain::Find + keepalive; background UI pump so OPEN
+  converges while stdin blocks.
+- `tools/run_chat_session_live_pair.py`: two-process runner, discover UIDs,
+  OPEN both ways, messages, checkpoint, B restart same profile.
+
+### Evidence
+| Check | Result |
+| --- | --- |
+| probe `--build-info` | BUILD_PASS |
+| single probe READY | LIVE readiness PASS (real UID) |
+| two-process pair (`--messages 2`) | LIVE_PASS exit 0; same room id; counts converged; STOPPED |
+
+probe sha256 (this run): `54c578718c763db480d72893bceb33b72bdcdaac661a556aeca70a5cd57e68b1`
+
+## Next
+
+A09 remaining bootstrap edges; A10 full regression matrix; A12 Win GUI; A13+ as available.
