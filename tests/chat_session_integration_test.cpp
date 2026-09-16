@@ -80,6 +80,8 @@ void SaveWorkspaceGraph(ChatWorkspace::ptr const& ws) {
   }
 }
 
+}  // namespace
+
 // 1. Two sessions discover room ID through endpoint-based admission (not a fixed room ID known in advance)
 // 2. Both start from empty independent profiles
 // 3. Only one side creates the room (canonical UID: kEndpointA < kEndpointB => A is creator)
@@ -285,6 +287,66 @@ void TestHeadlessSyncCoverage() {
   }
 }
 
+// Failed binding must not ACK; duplicate of the same NodeState retries the
+// idempotent callback until it succeeds, then ACK.
+void TestFailedBindingBlocksAckUntilSuccess() {
+  MemoryNetwork network;
+
+  ae::RamDomainStorage storage_a;
+  ae::RamDomainStorage storage_b;
+  ae::Domain domain_a{storage_a};
+  ae::Domain domain_b{storage_b};
+
+  MemoryTransport transport_a{network, kEndpointA};
+  MemoryTransport transport_b{network, kEndpointB};
+  SharedSyncRuntime sync_a{domain_a, storage_a, transport_a};
+  SharedSyncRuntime sync_b{domain_b, storage_b, transport_b};
+  sync_a.AllowStandaloneEventClass(MessageAddedEvent::kClassId);
+  sync_b.AllowStandaloneEventClass(MessageAddedEvent::kClassId);
+
+  ae::ObjId const room_id = ae::ObjId::GenerateUnique();
+  auto room_a = CreateRoom(domain_a, room_id);
+  auto link_local_a = CreateAetherLink(domain_a, ae::ObjId::GenerateUnique(), kEndpointA);
+  auto link_remote_b = CreateAetherLink(domain_a, ae::ObjId::GenerateUnique(), kEndpointB);
+  room_a->AddShare(link_local_a, ShareAccess::ReadWrite);
+  room_a->AddShare(link_remote_b, ShareAccess::ReadWrite);
+  sync_a.RegisterNode(room_a);
+
+  sync_b.ExpectInitialNodeFromEndpoint(kEndpointA, ChatRoom::kClassId);
+
+  int callback_count = 0;
+  sync_b.SetInitialNodeImportedCallback(
+      [&](std::string const& source, SharedNode::ptr imported) -> bool {
+        CHECK(source == kEndpointA);
+        CHECK(imported.is_valid());
+        ++callback_count;
+        return callback_count >= 2;
+      });
+
+  ae::ObjId share_to_b;
+  for (auto const& s : room_a->shares) {
+    if (s.link.is_valid() && s.link->EndpointUid() == kEndpointB) {
+      share_to_b = s.share_id;
+      break;
+    }
+  }
+  CHECK(share_to_b.is_valid());
+
+  sync_a.SyncInitialState(room_id, share_to_b);
+  CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
+  CHECK(network.DuplicateNext(kEndpointA, kEndpointB));
+  CHECK(network.PendingCount(kEndpointA, kEndpointB) == 2);
+
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(callback_count == 1);
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+
+  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(callback_count == 2);
+  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 1);
+  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+}
+
 // Unauthorized source cannot create a room; wrong root class rejected before writes
 void TestUnauthorizedAndWrongClassRejection() {
   MemoryNetwork network;
@@ -354,7 +416,6 @@ void TestUnauthorizedAndWrongClassRejection() {
   }
 }
 
-}  // namespace
 }  // namespace apptraverse::example::chat_demo
 
 int main() {
@@ -365,6 +426,8 @@ int main() {
   std::cout << "Running chat_session_integration_test...\n";
   apptraverse::example::chat_demo::TestHeadlessSyncCoverage();
   std::cout << "  Headless sync coverage passed!\n";
+  apptraverse::example::chat_demo::TestFailedBindingBlocksAckUntilSuccess();
+  std::cout << "  Failed-binding ACK gate passed!\n";
   apptraverse::example::chat_demo::TestUnauthorizedAndWrongClassRejection();
   std::cout << "  Unauthorized and wrong class rejection passed!\n";
   std::cout << "chat_session_integration_test passed!\n";

@@ -2,10 +2,15 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <chrono>
+#include <deque>
 #include <iostream>
+#include <map>
+#include <string_view>
 #include <utility>
 
+#include "aether-objects/obj/registry.h"
 #include "aether/types/uid.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
@@ -23,15 +28,68 @@ namespace {
 
 inline constexpr ae::ObjId kLocalWorkspaceRootId{10001};
 
-std::string CanonicalizeEndpoint(std::string const& raw) {
-  if (raw.empty()) {
-    return "";
+std::string TrimAsciiWhitespace(std::string_view sv) {
+  auto start = sv.begin();
+  while (start != sv.end() &&
+         std::isspace(static_cast<unsigned char>(*start))) {
+    ++start;
   }
-  auto uid = ae::Uid::FromString(raw);
+  auto end = sv.end();
+  while (end != start &&
+         std::isspace(static_cast<unsigned char>(*(end - 1)))) {
+    --end;
+  }
+  return std::string(start, end);
+}
+
+bool IsAsciiHex(char c) {
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+         (c >= 'A' && c <= 'F');
+}
+
+// Validate user/CLI UID text before any assert-taking Aether string path.
+bool TryCanonicalizeAetherUid(std::string_view raw, std::string& out) {
+  std::string const trimmed = TrimAsciiWhitespace(raw);
+  if (trimmed.size() != 36) {
+    return false;
+  }
+  bool all_zero = true;
+  for (std::size_t i = 0; i < trimmed.size(); ++i) {
+    if (i == 8 || i == 13 || i == 18 || i == 23) {
+      if (trimmed[i] != '-') {
+        return false;
+      }
+      continue;
+    }
+    if (!IsAsciiHex(trimmed[i])) {
+      return false;
+    }
+    if (trimmed[i] != '0') {
+      all_zero = false;
+    }
+  }
+  if (all_zero) {
+    return false;
+  }
+  ae::UidString const uid_str{std::string_view{trimmed}};
+  if (!uid_str.valid) {
+    return false;
+  }
+  auto const uid = ae::Uid::FromString(uid_str);
   if (uid.empty()) {
-    return "";
+    return false;
   }
-  return ae::Format("{}", uid);
+  out = ae::Format("{}", uid);
+  return !out.empty();
+}
+
+ChatEntry::ptr FindEntryById(ChatWorkspace& workspace, ae::ObjId entry_id) {
+  for (auto const& entry : workspace.chats) {
+    if (entry.is_valid() && entry.id() == entry_id) {
+      return entry;
+    }
+  }
+  return {};
 }
 
 }  // namespace
@@ -261,6 +319,13 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
   std::unordered_map<std::string, PeerPresence> remote_presence_map;
 
+  // Model-thread-only: pending UID hints and waiting-side endpoint -> entry.
+  // Values/IDs only; bound Link remains authoritative after BindChat.
+  std::map<ae::ObjId, std::string> endpoint_by_pending_entry;
+  std::map<std::string, ae::ObjId> waiting_entry_by_endpoint;
+  std::deque<OpenPeerRequest> deferred_open_while_registering;
+
+
   // Runtime presence helper
   auto const set_peer_presence = [this, &remote_presence_map, &publication_dirty](
                                      std::string const& peer, PeerPresence p) {
@@ -280,11 +345,13 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     });
   };
 
-  // Setup resolution and open peer helper
   auto const resolve_and_open_peer =
-      [&workspace, &aether_runtime, &sync_runtime, &persist_workspace,
-       &my_uid, &publication_dirty, this](OpenPeerRequest const& req) {
-        std::string const admin_id = req.peer_admin_id;
+      [&workspace, &aether_runtime, &sync_runtime, &persist_workspace, &my_uid,
+       &aether_ready, &publication_dirty, &endpoint_by_pending_entry,
+       &waiting_entry_by_endpoint, &deferred_open_while_registering,
+       this](OpenPeerRequest const& req) {
+        // 1. Normalize Admin ID and open/select chat (works before readiness).
+        std::string const admin_id = TrimAsciiWhitespace(req.peer_admin_id);
         auto entry = OpenOrSelectChat(*workspace, admin_id,
                                       req.peer_name.value_or(""),
                                       persist_workspace);
@@ -292,19 +359,105 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           return;
         }
 
-        std::string target_endpoint;
-        if (entry->peer_link.is_valid() && !entry->peer_link->EndpointUid().empty()) {
-          target_endpoint = entry->peer_link->EndpointUid();
-        } else if (req.peer_aether_uid.has_value()) {
-          std::string canonical = CanonicalizeEndpoint(*req.peer_aether_uid);
-          if (canonical.empty() || (!my_uid.empty() && canonical == my_uid)) {
+        // 2–3. Validate any supplied UID hint before Aether parsing.
+        std::optional<std::string> hint_canonical;
+        if (req.peer_aether_uid.has_value()) {
+          std::string canonical;
+          if (!TryCanonicalizeAetherUid(*req.peer_aether_uid, canonical)) {
             UpdateStatus([](ChatRuntimeStatus& s) {
-              s.error_text = "Invalid or self Aether UID";
+              s.error_text = "Invalid Aether UID";
             });
             publication_dirty = true;
             return;
           }
-          target_endpoint = canonical;
+          hint_canonical = std::move(canonical);
+        }
+
+        bool const bound =
+            entry->peer_link.is_valid() &&
+            !entry->peer_link->EndpointUid().empty();
+
+        // 4. Bound entry: supplied hint must match the bound endpoint.
+        if (bound && hint_canonical.has_value() &&
+            *hint_canonical != entry->peer_link->EndpointUid()) {
+          UpdateStatus([](ChatRuntimeStatus& s) {
+            s.error_text = "Endpoint conflict for bound chat";
+          });
+          publication_dirty = true;
+          return;
+        }
+
+        std::string target_endpoint;
+        if (bound) {
+          target_endpoint = entry->peer_link->EndpointUid();
+        } else if (hint_canonical.has_value()) {
+          target_endpoint = *hint_canonical;
+        } else {
+          auto pending = endpoint_by_pending_entry.find(entry.id());
+          if (pending != endpoint_by_pending_entry.end()) {
+            target_endpoint = pending->second;
+          }
+        }
+
+        // Alias: endpoint already bound under a different Admin ID.
+        if (!target_endpoint.empty()) {
+          for (auto const& other : workspace->chats) {
+            if (!other.is_valid() || other.id() == entry.id()) {
+              continue;
+            }
+            if (other->peer_link.is_valid() &&
+                other->peer_link->EndpointUid() == target_endpoint) {
+              if (other->peer_admin_id != entry->peer_admin_id) {
+                UpdateStatus([](ChatRuntimeStatus& s) {
+                  s.error_text =
+                      "Admin ID alias conflict for existing endpoint";
+                });
+                apptraverse::example::chat_demo::SelectChat(
+                    *workspace, other.id(), persist_workspace);
+                publication_dirty = true;
+                return;
+              }
+            }
+          }
+          auto waiting = waiting_entry_by_endpoint.find(target_endpoint);
+          if (waiting != waiting_entry_by_endpoint.end() &&
+              waiting->second != entry.id()) {
+            UpdateStatus([](ChatRuntimeStatus& s) {
+              s.error_text = "Endpoint already waiting on another chat";
+            });
+            publication_dirty = true;
+            return;
+          }
+        }
+
+        // 5. Reject self-connection once local UID is known.
+        if (!target_endpoint.empty() && !my_uid.empty() &&
+            target_endpoint == my_uid) {
+          UpdateStatus([](ChatRuntimeStatus& s) {
+            s.error_text = "Cannot open chat with self Aether UID";
+          });
+          publication_dirty = true;
+          return;
+        }
+
+        // 6. Unbound with valid hint: retain pending map.
+        if (!bound && hint_canonical.has_value()) {
+          endpoint_by_pending_entry[entry.id()] = *hint_canonical;
+          target_endpoint = *hint_canonical;
+        }
+
+        // 7. Not ready yet: retain request and return.
+        if (!aether_ready || my_uid.empty() || !sync_runtime) {
+          if (target_endpoint.empty()) {
+            UpdateStatus([](ChatRuntimeStatus& s) {
+              s.error_text = "Aether UID required";
+            });
+            publication_dirty = true;
+            return;
+          }
+          deferred_open_while_registering.push_back(req);
+          publication_dirty = true;
+          return;
         }
 
         if (target_endpoint.empty()) {
@@ -315,42 +468,38 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           return;
         }
 
-        // Bound entry conflict check
-        if (entry->peer_link.is_valid() && entry->peer_link->EndpointUid() != target_endpoint) {
-          UpdateStatus([](ChatRuntimeStatus& s) {
-            s.error_text = "Endpoint conflict for bound chat";
-          });
-          publication_dirty = true;
-          return;
-        }
-
         aether_runtime->OpenPeer(target_endpoint);
 
         if (entry->room.is_valid()) {
-          // Restored or already created room: reuse
-          if (sync_runtime) {
+          // 8. Restored room: register only when not already registered.
+          auto existing = sync_runtime->FindNode(entry->room.id());
+          if (!existing.is_valid()) {
             sync_runtime->RegisterNode(entry->room);
+          } else if (existing.id() != entry->room.id() ||
+                     &*existing != &*entry->room) {
+            UpdateStatus([](ChatRuntimeStatus& s) {
+              s.error_text = "Conflicting SharedNode registration";
+            });
+            publication_dirty = true;
+            return;
           }
           publication_dirty = true;
           return;
         }
 
-        // Creator deterministic selection: canonical local UID < canonical remote UID
-        if (my_uid.empty()) {
-          return;
-        }
-
+        // 9. Creator election by canonical UID ordering.
         if (my_uid < target_endpoint) {
-          // Local side is Creator
           auto room = ChatRoom::ptr::Create(ae::CreateWith{*workspace->domain});
           InitializeRuntimeNode(*room);
           room->SetJournalCompactionBlocked(true);
 
-          auto local_link = AetherLink::ptr::Create(ae::CreateWith{*workspace->domain});
+          auto local_link =
+              AetherLink::ptr::Create(ae::CreateWith{*workspace->domain});
           local_link->endpoint_uid = my_uid;
           InitializeRuntimeNode(*local_link);
 
-          auto remote_link = AetherLink::ptr::Create(ae::CreateWith{*workspace->domain});
+          auto remote_link =
+              AetherLink::ptr::Create(ae::CreateWith{*workspace->domain});
           remote_link->endpoint_uid = target_endpoint;
           InitializeRuntimeNode(*remote_link);
 
@@ -358,21 +507,24 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           room->AddShare(remote_link, apptraverse::ShareAccess::ReadWrite);
 
           BindChat(*entry, remote_link, room, persist_workspace);
-          if (sync_runtime) {
-            sync_runtime->RegisterNode(room);
-          }
+          sync_runtime->RegisterNode(room);
+          endpoint_by_pending_entry.erase(entry.id());
+          waiting_entry_by_endpoint.erase(target_endpoint);
           persist_workspace();
           publication_dirty = true;
         } else {
-          // Waiting side: authorize initial node from target endpoint
-          if (sync_runtime) {
-            sync_runtime->ExpectInitialNodeFromEndpoint(target_endpoint, ChatRoom::kClassId);
-          }
+          // 10. Waiting side: map endpoint BEFORE ExpectInitialNodeFromEndpoint.
+          // No placeholder peer Link.
+          waiting_entry_by_endpoint[target_endpoint] = entry.id();
+          sync_runtime->ExpectInitialNodeFromEndpoint(target_endpoint,
+                                                      ChatRoom::kClassId);
           publication_dirty = true;
         }
       };
 
-  std::optional<OpenPeerRequest> pending_initial_request = config.initial_open_peer;
+  if (config.initial_open_peer.has_value()) {
+    deferred_open_while_registering.push_back(*config.initial_open_peer);
+  }
 
   // Handlers for GUI commands
   on_open_peer_ = [&resolve_and_open_peer](OpenPeerRequest req) {
@@ -456,29 +608,34 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       /*on_ready=*/
       [this, &aether_ready, &workspace, &aether_runtime, &transport, &sync_runtime,
        &domain, &storage, &my_uid, &model_dispatcher, &persist_workspace,
-       &resolve_and_open_peer, &pending_initial_request, &publication_dirty]() {
+       &resolve_and_open_peer, &deferred_open_while_registering, &publication_dirty,
+       &endpoint_by_pending_entry, &waiting_entry_by_endpoint]() {
         EnqueueModelWork([this, &aether_ready, &workspace, &aether_runtime, &transport,
                           &sync_runtime, &domain, &storage, &my_uid, &model_dispatcher,
-                          &persist_workspace, &resolve_and_open_peer, &pending_initial_request,
-                          &publication_dirty]() {
+                          &persist_workspace, &resolve_and_open_peer,
+                          &deferred_open_while_registering, &publication_dirty,
+                          &endpoint_by_pending_entry, &waiting_entry_by_endpoint]() {
           aether_ready = true;
           UpdateStatus([](ChatRuntimeStatus& s) {
             s.lifecycle_state = SessionLifecycleState::kReady;
           });
 
-          // 8. Create AetherByteTransport and SharedSyncRuntime
           transport = std::make_unique<AetherByteTransport>(
               *aether_runtime, my_uid, model_dispatcher);
           sync_runtime = std::make_unique<SharedSyncRuntime>(domain, storage, *transport);
 
-          // 9. Allow MessageAddedEvent
           sync_runtime->AllowStandaloneEventClass(MessageAddedEvent::kClassId);
 
-          // Configure imported callback for unknown node admission
           sync_runtime->SetInitialNodeImportedCallback(
-              [&workspace, &persist_workspace, &publication_dirty](
-                  std::string const& source_endpoint, SharedNode::ptr imported_node) -> bool {
+              [&workspace, &persist_workspace, &publication_dirty,
+               &waiting_entry_by_endpoint, &endpoint_by_pending_entry](
+                  std::string const& source_endpoint,
+                  SharedNode::ptr imported_node) -> bool {
                 if (!imported_node.is_valid()) {
+                  return false;
+                }
+                if (ae::Registry::GetRegistry().GenerationDistance(
+                        ChatRoom::kClassId, imported_node->GetClassId()) < 0) {
                   return false;
                 }
                 auto room = ChatRoom::ptr::MakeFromThis(
@@ -488,51 +645,60 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                 }
                 room->SetJournalCompactionBlocked(true);
 
-                // Find waiting entry for source_endpoint
-                ChatEntry::ptr waiting_entry;
-                for (auto const& entry : workspace->chats) {
-                  if (entry.is_valid() && !entry->room.is_valid()) {
-                    if (entry->peer_link.is_valid() &&
-                        entry->peer_link->EndpointUid() == source_endpoint) {
-                      waiting_entry = entry;
-                      break;
-                    }
-                  }
+                auto waiting_it =
+                    waiting_entry_by_endpoint.find(source_endpoint);
+                if (waiting_it == waiting_entry_by_endpoint.end()) {
+                  return false;
                 }
-
+                auto waiting_entry =
+                    FindEntryById(*workspace, waiting_it->second);
                 if (!waiting_entry.is_valid()) {
                   return false;
                 }
+                if (waiting_entry->room.is_valid() &&
+                    waiting_entry->room.id() != room.id()) {
+                  return false;
+                }
+                if (waiting_entry->room.is_valid() &&
+                    waiting_entry->room.id() == room.id()) {
+                  // Idempotent re-bind after a prior failed callback attempt.
+                  endpoint_by_pending_entry.erase(waiting_entry.id());
+                  waiting_entry_by_endpoint.erase(source_endpoint);
+                  publication_dirty = true;
+                  return true;
+                }
 
-                // Find imported Share whose Link endpoint equals source_endpoint
                 apptraverse::Link::ptr remote_link;
                 for (auto const& share : room->shares) {
-                  if (share.link.is_valid() && share.link->EndpointUid() == source_endpoint) {
+                  if (share.link.is_valid() &&
+                      share.link->EndpointUid() == source_endpoint) {
                     remote_link = share.link;
                     break;
                   }
                 }
-
                 if (!remote_link.is_valid()) {
                   return false;
                 }
 
-                if (!BindChat(*waiting_entry, remote_link, room, persist_workspace)) {
+                if (!BindChat(*waiting_entry, remote_link, room,
+                              persist_workspace)) {
                   return false;
                 }
                 persist_workspace();
+                endpoint_by_pending_entry.erase(waiting_entry.id());
+                waiting_entry_by_endpoint.erase(source_endpoint);
                 publication_dirty = true;
                 return true;
               });
 
-          // 10. Register every already-bound ChatRoom from restored workspace
           for (auto const& entry : workspace->chats) {
             if (entry.is_valid() && entry->room.is_valid()) {
-              sync_runtime->RegisterNode(entry->room);
+              if (!sync_runtime->FindNode(entry->room.id()).is_valid()) {
+                sync_runtime->RegisterNode(entry->room);
+              }
             }
           }
 
-          // 11. Reopen peers from their persistent Link descriptors
           for (auto const& entry : workspace->chats) {
             if (entry.is_valid() && entry->peer_link.is_valid()) {
               std::string const& uid = entry->peer_link->EndpointUid();
@@ -542,10 +708,12 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             }
           }
 
-          // 12. Apply initial OpenPeerRequest if present
-          if (pending_initial_request.has_value()) {
-            resolve_and_open_peer(*pending_initial_request);
-            pending_initial_request.reset();
+          if (!deferred_open_while_registering.empty()) {
+            auto deferred = std::move(deferred_open_while_registering);
+            deferred_open_while_registering.clear();
+            for (auto& req : deferred) {
+              resolve_and_open_peer(req);
+            }
           }
 
           publication_dirty = true;
@@ -562,8 +730,14 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       },
       /*on_frame=*/{},
       /*on_presence=*/
-      [set_peer_presence](std::string peer_uid, PeerPresence presence) {
-        set_peer_presence(peer_uid, presence);
+      // Presence must mutate remote_presence_map on the model thread only.
+      // Full lifecycle ownership lands in Commit 03; enqueue is required for
+      // correct OpenPeer/bootstrap sync driving (Online gate).
+      [this, set_peer_presence](std::string peer_uid, PeerPresence presence) {
+        EnqueueModelWork([set_peer_presence, peer_uid = std::move(peer_uid),
+                          presence]() {
+          set_peer_presence(peer_uid, presence);
+        });
       });
 
   // Track sync retry states

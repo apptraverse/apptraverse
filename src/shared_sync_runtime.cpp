@@ -644,31 +644,35 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
     }
   }
 
-  // Registered only once the snapshot is validated, imported, and durable.
+  // Registered once the snapshot is validated and durable. Binding may still
+  // fail; keep the endpoint expectation until the callback succeeds.
   if (imported) {
     nodes_.push_back(node);
   }
 
-  // Invoke the imported callback on the MODEL thread before sending ACK.
-  // The callback binds the local ChatEntry and saves the workspace.
-  // Consume that endpoint expectation only after successful binding.
-  if (imported && initial_node_imported_callback_) {
-    bool const bound = initial_node_imported_callback_(source_endpoint, node);
+  auto const expectation_it = std::find_if(
+      expected_endpoint_nodes_.begin(), expected_endpoint_nodes_.end(),
+      [&](EndpointExpectation const& exp) {
+        return exp.source_endpoint == source_endpoint;
+      });
+  bool const endpoint_expectation_open =
+      expectation_it != expected_endpoint_nodes_.end();
+
+  // While the expectation remains, every matching NodeState (including an
+  // exact duplicate after a failed bind) must retry the binding callback
+  // before ACK. Never ACK merely because the receipt ID was recorded.
+  if (endpoint_expectation_open) {
+    if (!initial_node_imported_callback_) {
+      return;
+    }
+    bool const bound =
+        initial_node_imported_callback_(source_endpoint, node);
     if (!bound) {
       return;
     }
-    auto it = std::find_if(expected_endpoint_nodes_.begin(),
-                           expected_endpoint_nodes_.end(),
-                           [&](EndpointExpectation const& exp) {
-                             return exp.source_endpoint == source_endpoint;
-                           });
-    if (it != expected_endpoint_nodes_.end()) {
-      expected_endpoint_nodes_.erase(it);
-    }
+    expected_endpoint_nodes_.erase(expectation_it);
   }
 
-  // Persisted now, or already persisted when this packet first arrived: a
-  // duplicate is acknowledged again and applied once.
   transport_.Send(source_endpoint,
                   EncodeAckFrame(AckFrame{
                       .packet_id = frame.packet_id,

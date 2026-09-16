@@ -106,3 +106,48 @@ without changing real Aether runtime behavior.
 - **COMMIT 02**: Bind waiting chat entries by authorized endpoint.
 
 ---
+
+## Commit 02 — Bind Waiting Chat Entries by Authorized Endpoint
+
+### Objective
+Fix waiting-side OpenPeer binding via `waiting_entry_by_endpoint`, defer OpenPeer
+until readiness, validate UID before assert-taking Aether parse, register restored
+rooms only when missing, and keep SharedSyncRuntime endpoint expectation open until
+the binding callback succeeds (retry on duplicate before ACK).
+
+### Starting SHA
+`9b143ce0528e4fce8d548028c3caffdd7c704759`
+
+### Files changed
+- `examples/chat_demo/runtime/chat_session.cpp` — pending/waiting maps; deferred
+  OpenPeer queue; `TryCanonicalizeAetherUid`; waiting import via endpoint map;
+  RegisterNode-if-missing; presence enqueued to model thread (needed for Online sync)
+- `src/shared_sync_runtime.cpp` — retain endpoint expectation until bind succeeds;
+  duplicate NodeState retries callback before ACK
+- `tests/chat_session_bootstrap_test.cpp` — real two-`ChatSession` bootstrap via fakes
+- `tests/chat_session_integration_test.cpp` — failed-bind ACK gate; namespace fix
+- `tests/CMakeLists.txt` — `apptraverse_chat_session_bootstrap_test`
+
+### Checks
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| compilation (MSVC Debug) | PASS |
+| `apptraverse_chat_session_bootstrap_test` | PASS (exit 0) |
+| `apptraverse_chat_session_startup_test` | PASS (exit 0) |
+| `apptraverse_chat_session_integration_test` | PASS (exit 0) |
+| `apptraverse_shared_node_initial_sync_test` | PASS (exit 0) |
+| `apptraverse_aether_byte_transport_dispatch_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_model_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_sync_test` | PASS (exit 0) |
+| `apptraverse_shared_node_incremental_event_test` | FAIL (0xC0000005 AV; reproduces on HEAD SharedSyncRuntime — pre-existing on this host, not introduced by Commit 02) |
+| live Aether | NOT_RUN |
+| native GUI | NOT_RUN |
+
+### Ending SHA
+(pending commit)
+
+### Next Commit
+- **COMMIT 03**: Keep session callbacks and teardown on their owning threads.
+
+---
