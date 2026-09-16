@@ -56,11 +56,12 @@ struct UiMirror {
 };
 
 void ConsumePublications(ChatSession& session, UiMirror& ui) {
-  for (;;) {
-    auto bytes = session.publication_channel().TakePublishedCopy();
-    if (bytes.empty()) {
-      break;
+  while (auto update = session.TryTakeUiUpdate()) {
+    if (!update->publication_bytes.has_value() ||
+        update->publication_bytes->empty()) {
+      continue;
     }
+    auto const& bytes = *update->publication_bytes;
     apptraverse::ByteSource in;
     in.data = bytes.data();
     in.size = bytes.size();

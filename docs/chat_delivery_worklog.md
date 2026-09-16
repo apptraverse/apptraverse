@@ -197,3 +197,47 @@ dee52f6
 - **COMMIT 04**: (per overnight plan)
 
 ---
+
+## Commit 04 — Pair Chat Snapshots with Revisions and Stop Idle Rewrites
+
+### Objective
+Pair `PublicationChannel<3>` snapshots with revision metadata via
+`TryTakeUiUpdate()`, stop presence/sync idle rewrites, and persist through
+workspace-root `Save()` only.
+
+### Starting SHA
+`78b3c3a7d4833d267b737bf804673ee51693dbbc`
+
+### Files changed
+- `examples/chat_demo/runtime/chat_session.h/.cpp` — `ChatUiUpdate`,
+  publication mutex + metadata; per-entry edit revisions; status-only updates;
+  sync snapshot gating; frame dispatch dirty; root `Save()` persist
+- `examples/chat_demo/windows/win_chat_app.cpp` — consume `TryTakeUiUpdate`
+- `tests/chat_session_publication_test.cpp` — publication regression tests
+- `tests/chat_session_{startup,bootstrap}_test.cpp` — `TryTakeUiUpdate` callers
+- `tests/chat_demo_model_test.cpp` — workspace-root save reachability (scenario 16)
+- `tests/CMakeLists.txt` — `apptraverse_chat_session_publication_test`
+
+### Checks
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| compilation (MSVC Debug) | PASS |
+| `apptraverse_chat_session_publication_test` | PASS (exit 0) |
+| `apptraverse_chat_session_bootstrap_test` | PASS (exit 0) |
+| `apptraverse_chat_session_startup_test` | PASS (exit 0) |
+| `apptraverse_chat_session_lifecycle_test` | PASS (exit 0) |
+| `apptraverse_chat_session_integration_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_model_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_sync_test` | PASS (exit 0) |
+| `apptraverse_aether_byte_transport_dispatch_test` | PASS (exit 0) |
+| live Aether | NOT_RUN |
+| native GUI | NOT_RUN |
+
+### Ending SHA
+(TBD after commit)
+
+### Next Commit
+- **COMMIT 05**: (per overnight plan)
+
+---

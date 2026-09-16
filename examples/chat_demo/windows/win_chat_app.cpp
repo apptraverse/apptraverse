@@ -517,8 +517,6 @@ void WinChatApp::UpdateUiFromWorkspace() {
   }
 
   // 2. Draft update: only if local revision caught up or chat changed
-  auto const status = session_.GetRuntimeStatus();
-  last_published_edit_revision_ = status.processed_edit_revision;
   ChatEntry::ptr current_entry;
   for (auto const& e : ui_workspace_->chats) {
     if (e.is_valid() && e.id() == active_entry_id_) {
@@ -567,20 +565,27 @@ void WinChatApp::TryFinishClosing() {
 }
 
 void WinChatApp::ApplyPublicationFromSession() {
-  auto& channel = session_.publication_channel();
-  while (channel.has_unread_published()) {
-    auto bytes = channel.TakePublishedCopy();
-    if (bytes.empty()) {
-      break;
+  while (auto update = session_.TryTakeUiUpdate()) {
+    if (update->publication_bytes.has_value() &&
+        !update->publication_bytes->empty()) {
+      auto const& bytes = *update->publication_bytes;
+      ByteSource in{bytes.data(), bytes.size()};
+      if (!ui_workspace_.is_valid()) {
+        ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
+        auto loaded = LoadInitialPublication(in, *ui_domain_, ui_storage_);
+        ui_workspace_ = ChatWorkspace::ptr::MakeFromThis(
+            static_cast<ChatWorkspace*>(&*loaded));
+        RestoreWindowGeometry();
+      } else {
+        ApplyStructuralPublication(in, *ui_domain_, ui_storage_);
+      }
     }
-    ByteSource in{bytes.data(), bytes.size()};
-    if (!ui_workspace_.is_valid()) {
-      ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
-      auto loaded = LoadInitialPublication(in, *ui_domain_, ui_storage_);
-      ui_workspace_ = ChatWorkspace::ptr::MakeFromThis(static_cast<ChatWorkspace*>(&*loaded));
-      RestoreWindowGeometry();
-    } else {
-      ApplyStructuralPublication(in, *ui_domain_, ui_storage_);
+    if (active_entry_id_.is_valid()) {
+      auto it =
+          update->processed_edit_revisions_by_entry.find(active_entry_id_);
+      if (it != update->processed_edit_revisions_by_entry.end()) {
+        last_published_edit_revision_ = it->second;
+      }
     }
   }
   UpdateUiFromWorkspace();

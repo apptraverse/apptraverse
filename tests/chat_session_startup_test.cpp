@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <optional>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -62,17 +63,25 @@ void TestChatSessionStartupShutdownWithFakeEndpoint() {
                       [&] { notify_count.fetch_add(1); }));
 
   // Initial model publication must be visible before network readiness.
-  std::vector<std::uint8_t> pub_bytes;
+  std::optional<apptraverse::example::chat_demo::ChatUiUpdate> initial_update;
   auto const deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(5);
   while (std::chrono::steady_clock::now() < deadline) {
-    pub_bytes = session.publication_channel().TakePublishedCopy();
-    if (!pub_bytes.empty()) {
+    initial_update = session.TryTakeUiUpdate();
+    if (initial_update.has_value() && initial_update->publication_bytes.has_value() &&
+        !initial_update->publication_bytes->empty()) {
       break;
     }
+    initial_update.reset();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+  CHECK(initial_update.has_value());
+  CHECK(initial_update->publication_bytes.has_value());
+  auto const& pub_bytes = *initial_update->publication_bytes;
   CHECK(!pub_bytes.empty());
+  CHECK(initial_update->kind ==
+        apptraverse::example::chat_demo::ChatPublicationKind::kInitial);
+  CHECK(initial_update->publication_serial >= 1);
 
   ae::RamDomainStorage ui_storage;
   ae::Domain ui_domain{ui_storage};

@@ -93,6 +93,36 @@ ChatEntry::ptr FindEntryById(ChatWorkspace& workspace, ae::ObjId entry_id) {
   return {};
 }
 
+struct RoomSyncSnapshot {
+  apptraverse::InitialSyncPhase phase{
+      apptraverse::InitialSyncPhase::NotStarted};
+  bool has_pending_event{false};
+  ae::ObjId pending_initial_packet_id;
+  ae::ObjId pending_event_packet_id;
+  std::size_t message_count{0};
+  std::size_t journal_size{0};
+
+  bool operator==(RoomSyncSnapshot const& other) const {
+    return phase == other.phase && has_pending_event == other.has_pending_event &&
+           pending_initial_packet_id == other.pending_initial_packet_id &&
+           pending_event_packet_id == other.pending_event_packet_id &&
+           message_count == other.message_count &&
+           journal_size == other.journal_size;
+  }
+};
+
+RoomSyncSnapshot CaptureRoomSyncSnapshot(ChatRoom& room,
+                                         apptraverse::LinkSyncState& state) {
+  RoomSyncSnapshot snapshot;
+  snapshot.phase = state.GetInitialSyncPhase();
+  snapshot.has_pending_event = state.HasPendingEvent();
+  snapshot.pending_initial_packet_id = state.pending_initial_packet_id;
+  snapshot.pending_event_packet_id = state.pending_event_packet_id;
+  snapshot.message_count = room.messages.size();
+  snapshot.journal_size = room.journal.size();
+  return snapshot;
+}
+
 }  // namespace
 
 ChatSession::ChatSession(EndpointFactory endpoint_factory)
@@ -168,6 +198,38 @@ ChatRuntimeStatus ChatSession::GetRuntimeStatus() {
   return status_;
 }
 
+std::optional<ChatUiUpdate> ChatSession::TryTakeUiUpdate() {
+  ChatUiUpdate update;
+
+  {
+    std::lock_guard<std::mutex> pub_lock{publication_mu_};
+    if (channel_.has_unread_published()) {
+      auto bytes = channel_.TakePublishedCopy();
+      assert(pending_publication_metadata_.has_value() &&
+             "published slot requires matching metadata");
+      PendingPublicationMetadata const meta = *pending_publication_metadata_;
+      pending_publication_metadata_.reset();
+      publication_cv_.notify_all();
+
+      update.publication_bytes = std::move(bytes);
+      update.kind = meta.kind;
+      update.publication_serial = meta.serial;
+      update.processed_edit_revisions_by_entry =
+          std::move(meta.edit_revisions_by_entry);
+      update.selected_chat_ack = meta.selected_chat_ack;
+    } else if (status_serial_ == last_delivered_status_serial_) {
+      return std::nullopt;
+    }
+    last_delivered_status_serial_ = status_serial_;
+  }
+
+  {
+    std::lock_guard<std::mutex> status_lock{status_mu_};
+    update.runtime_status = status_;
+  }
+  return update;
+}
+
 void ChatSession::AssertModelThread() const {
 #ifndef NDEBUG
   assert(std::this_thread::get_id() == model_thread_id_ &&
@@ -179,6 +241,7 @@ void ChatSession::UpdateStatus(std::function<void(ChatRuntimeStatus&)> mutator) 
   {
     std::lock_guard<std::mutex> lock{status_mu_};
     mutator(status_);
+    ++status_serial_;
   }
   if (notify_ui_) {
     notify_ui_();
@@ -332,22 +395,6 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
   auto const persist_workspace = [&workspace]() {
     if (workspace.is_valid()) {
       workspace.Save();
-      for (auto& entry : workspace->chats) {
-        if (entry.is_valid()) {
-          entry.Save();
-          if (entry->peer_link.is_valid()) {
-            entry->peer_link.Save();
-          }
-          if (entry->room.is_valid()) {
-            entry->room.Save();
-            for (auto& s : entry->room->link_sync_states) {
-              if (s.is_valid()) {
-                s.Save();
-              }
-            }
-          }
-        }
-      }
     }
   };
 
@@ -359,26 +406,47 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
   }
 
   bool publication_dirty = false;
-  auto const publish_now = [this, &workspace, &notify_ui, &publication_dirty](bool is_initial) {
+  std::map<ae::ObjId, std::uint64_t> processed_edit_revisions;
+  std::optional<ae::ObjId> pending_select_ack;
+
+  auto const publish_now_unlocked =
+      [this, &workspace, &notify_ui, &processed_edit_revisions,
+       &pending_select_ack](bool is_initial) {
+        assert(!channel_.is_publication_busy() &&
+               "publish_now_unlocked requires a free publication slot");
+        auto* buf = channel_.AcquireProducer();
+        if (is_initial) {
+          SerializeInitialPublication(*workspace, buf->sink);
+        } else {
+          SerializeStructuralNodePublication(*workspace, buf->sink);
+        }
+        channel_.NotePublished();
+        pending_publication_metadata_ = PendingPublicationMetadata{
+            .kind = is_initial ? ChatPublicationKind::kInitial
+                               : ChatPublicationKind::kStructural,
+            .serial = next_publication_serial_++,
+            .edit_revisions_by_entry = processed_edit_revisions,
+            .selected_chat_ack = pending_select_ack,
+        };
+        pending_select_ack.reset();
+        channel_.PublishProducer();
+        if (notify_ui) {
+          notify_ui();
+        }
+      };
+
+  auto const publish_now = [this, &workspace, &publication_dirty,
+                            publish_now_unlocked](bool is_initial) {
     if (!workspace.is_valid()) {
       return;
     }
-    if (!channel_.is_publication_busy()) {
-      auto* buf = channel_.AcquireProducer();
-      if (is_initial) {
-        SerializeInitialPublication(*workspace, buf->sink);
-      } else {
-        SerializeStructuralNodePublication(*workspace, buf->sink);
-      }
-      channel_.NotePublished();
-      channel_.PublishProducer();
-      publication_dirty = false;
-      if (notify_ui) {
-        notify_ui();
-      }
-    } else {
+    std::lock_guard<std::mutex> pub_lock{publication_mu_};
+    if (channel_.is_publication_busy()) {
       publication_dirty = true;
+      return;
     }
+    publish_now_unlocked(is_initial);
+    publication_dirty = false;
   };
 
   // 5. Publish local workspace immediately before network registration
@@ -408,23 +476,22 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
   // Runtime presence helper
     auto const set_peer_presence =
-        [this, &remote_presence_map, &publication_dirty](std::string const& peer,
-                                                         PeerPresence p) {
+        [this, &remote_presence_map](std::string const& peer, PeerPresence p) {
           AssertModelThread();
           remote_presence_map[peer] = p;
-    UpdateStatus([&remote_presence_map](ChatRuntimeStatus& s) {
-      s.remote_presence = remote_presence_map;
-    });
-    publication_dirty = true;
-  };
+          UpdateStatus([&remote_presence_map](ChatRuntimeStatus& s) {
+            s.remote_presence = remote_presence_map;
+          });
+        };
 
-    auto const model_dispatcher = [this](ModelTask task) {
-      EnqueueInternalModelWork([t = std::move(task)]() mutable {
-      if (t) {
-        t();
-      }
-    });
-  };
+    auto const model_dispatcher = [this, &publication_dirty](ModelTask task) {
+      EnqueueInternalModelWork([t = std::move(task), &publication_dirty]() mutable {
+        if (t) {
+          t();
+          publication_dirty = true;
+        }
+      });
+    };
 
     auto const resolve_and_open_peer =
         [&workspace, &aether_runtime, &sync_runtime, &persist_workspace, &my_uid,
@@ -617,21 +684,23 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     resolve_and_open_peer(req);
   };
 
-  on_select_chat_ = [&workspace, &persist_workspace, &publication_dirty](ae::ObjId entry_id) {
-    if (apptraverse::example::chat_demo::SelectChat(*workspace, entry_id, persist_workspace)) {
+  on_select_chat_ = [&workspace, &persist_workspace, &publication_dirty,
+                     &pending_select_ack](ae::ObjId entry_id) {
+    if (apptraverse::example::chat_demo::SelectChat(*workspace, entry_id,
+                                                    persist_workspace)) {
+      pending_select_ack = entry_id;
       publication_dirty = true;
     }
   };
 
-  on_edit_draft_ = [&workspace, &persist_workspace, &publication_dirty, this](
-                       ae::ObjId entry_id, std::string text, std::uint64_t edit_revision) {
+  on_edit_draft_ = [this, &workspace, &persist_workspace, &publication_dirty,
+                    &processed_edit_revisions](ae::ObjId entry_id, std::string text,
+                                             std::uint64_t edit_revision) {
     AssertModelThread();
     for (auto const& entry : workspace->chats) {
       if (entry.is_valid() && entry.id() == entry_id) {
         if (SetDraft(*entry, text, persist_workspace)) {
-          UpdateStatus([edit_revision](ChatRuntimeStatus& s) {
-            s.processed_edit_revision = edit_revision;
-          });
+          processed_edit_revisions[entry_id] = edit_revision;
           publication_dirty = true;
         }
         break;
@@ -639,8 +708,10 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     }
   };
 
-  on_send_draft_ = [&workspace, &persist_workspace, &publication_dirty, this](
-                       ae::ObjId entry_id, std::string current_text, std::uint64_t edit_revision) {
+  on_send_draft_ = [this, &workspace, &persist_workspace, &publication_dirty,
+                    &processed_edit_revisions](ae::ObjId entry_id,
+                                               std::string current_text,
+                                               std::uint64_t edit_revision) {
     AssertModelThread();
     for (auto const& entry : workspace->chats) {
       if (entry.is_valid() && entry.id() == entry_id) {
@@ -651,9 +722,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                 .count());
         auto msg_id = SubmitDraft(*workspace, *entry, now_us, persist_workspace);
         if (!msg_id.origin_uid.empty() && msg_id.origin_sequence > 0) {
-          UpdateStatus([edit_revision](ChatRuntimeStatus& s) {
-            s.processed_edit_revision = edit_revision;
-          });
+          processed_edit_revisions[entry_id] = edit_revision;
           publication_dirty = true;
         }
         break;
@@ -896,9 +965,18 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       }
     }
 
-    // Attempt to publish coalesced structural changes if channel is ready
-    if (publication_dirty && !channel_.is_publication_busy()) {
-      publish_now(/*is_initial=*/false);
+    if (publication_dirty) {
+      std::unique_lock<std::mutex> pub_lock{publication_mu_};
+      if (channel_.is_publication_busy()) {
+        publication_cv_.wait_for(pub_lock, std::chrono::milliseconds(50), [&] {
+          return stop_ || !channel_.is_publication_busy();
+        });
+      }
+      if (publication_dirty && !channel_.is_publication_busy() &&
+          workspace.is_valid()) {
+        publish_now_unlocked(/*is_initial=*/false);
+        publication_dirty = false;
+      }
     }
 
     if (stop_) {
@@ -949,12 +1027,11 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
         auto& retry = retry_states[peer_uid];
         auto const phase = state->GetInitialSyncPhase();
+        auto const before = CaptureRoomSyncSnapshot(*room, *state);
 
         if (phase == apptraverse::InitialSyncPhase::NotStarted) {
           sync_runtime->SyncInitialState(room.id(), remote_share_id);
           retry.last_attempt = now;
-          persist_workspace();
-          publication_dirty = true;
         } else if (phase == apptraverse::InitialSyncPhase::Pending) {
           if (now - retry.last_attempt >= std::chrono::seconds(1)) {
             sync_runtime->SyncInitialState(room.id(), remote_share_id);
@@ -969,9 +1046,16 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           } else {
             sync_runtime->SyncNextEvent(room.id(), remote_share_id);
             retry.last_attempt = now;
-            persist_workspace();
-            publication_dirty = true;
           }
+        }
+
+        if (!state.is_loaded()) {
+          state.Load();
+        }
+        auto const after = CaptureRoomSyncSnapshot(*room, *state);
+        if (before != after) {
+          persist_workspace();
+          publication_dirty = true;
         }
       }
     }

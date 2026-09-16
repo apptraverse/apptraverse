@@ -229,6 +229,49 @@ void SaveWorkspaceGraph(ChatWorkspace::ptr const& ws) {
   }
 }
 
+// Scenario 16: Workspace-root Save alone persists nested chat graph reachability.
+void TestScenario16_WorkspaceRootSaveReachability() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const ws_id{10};
+  std::string const multiline_msg = "Root-only save\nLine 2";
+
+  {
+    ae::Domain domain{storage};
+    auto ws = CreateWorkspace(domain, ws_id);
+    BindLocalEndpoint(*ws, "endpoint-a");
+
+    auto e = OpenOrSelectChat(*ws, "peer-root", "Root Peer");
+    auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+    auto room = CreateRoom(domain, ae::ObjId{30});
+    BindChat(*e, link, room);
+
+    SetDraft(*e, multiline_msg);
+    SubmitDraft(*ws, *e, 10000);
+    SetDraft(*e, "Unsent draft");
+    ws.Save();
+  }
+
+  {
+    ae::Domain domain{storage};
+    auto ws = ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
+    ws.Load();
+    CHECK(ws);
+    CHECK(ws->chats.size() == 1);
+    auto entry = ws->chats[0];
+    CHECK(entry.is_valid());
+    entry.Load();
+    CHECK(entry->peer_admin_id == "peer-root");
+    CHECK(entry->draft == "Unsent draft");
+    CHECK(entry->peer_link.is_valid());
+    entry->peer_link.Load();
+    CHECK(entry->peer_link->EndpointUid() == "endpoint-b");
+    CHECK(entry->room.is_valid());
+    entry->room.Load();
+    CHECK(entry->room->messages.size() == 1);
+    CHECK(entry->room->messages[0].text == multiline_msg);
+  }
+}
+
 // Scenario 8: Save, destroy the whole Domain, reload Workspace:
 // chats, selected entry, draft, messages, Link and window bounds restored.
 void TestScenario8_SaveDestroyReloadWorkspace() {
@@ -789,6 +832,7 @@ int main() {
   TestScenario5_BindChatRoomAndLink();
   TestScenario6_SubmitUtf8MultilineDraft();
   TestScenario7_MessageValueIdentityEqualsEventRecord();
+  TestScenario16_WorkspaceRootSaveReachability();
   TestScenario8_SaveDestroyReloadWorkspace();
   TestScenario9_SubmitAfterRestartSequenceAdvances();
   TestScenario10_IndependentDraftsAndScrollAnchors();
