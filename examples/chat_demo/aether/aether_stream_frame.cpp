@@ -41,7 +41,8 @@ bool DecodeAetherFrame(
   auto const raw_kind = bytes[5];
   if (raw_kind != static_cast<std::uint8_t>(AetherFrameKind::kApplication) &&
       raw_kind != static_cast<std::uint8_t>(AetherFrameKind::kHeartbeatPing) &&
-      raw_kind != static_cast<std::uint8_t>(AetherFrameKind::kHeartbeatPong)) {
+      raw_kind != static_cast<std::uint8_t>(AetherFrameKind::kHeartbeatPong) &&
+      raw_kind != static_cast<std::uint8_t>(AetherFrameKind::kControl)) {
     return false;
   }
 
@@ -57,6 +58,10 @@ bool DecodeAetherFrame(
 
   if (raw_kind == static_cast<std::uint8_t>(AetherFrameKind::kApplication)) {
     if (payload_size > kMaxApplicationPayloadSize) {
+      return false;
+    }
+  } else if (raw_kind == static_cast<std::uint8_t>(AetherFrameKind::kControl)) {
+    if (payload_size == 0 || payload_size > kMaxControlPayloadSize) {
       return false;
     }
   } else {

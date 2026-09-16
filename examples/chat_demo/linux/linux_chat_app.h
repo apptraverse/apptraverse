@@ -118,7 +118,7 @@ class LinuxChatApp {
   DesktopBounds CaptureBoundsLogical() const;
   void ApplyBoundsLogical(DesktopBounds const& bounds);
 
-  void OnOpenPeerClicked();
+  void OnJoinClicked();
   void OnSendDraftClicked();
   void OnChatSelectionChanged(ae::ObjId entry_id);
   void OnDraftChangedInternal();

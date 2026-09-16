@@ -21,6 +21,7 @@
 #include "aether_frame_endpoint.h"
 #include "apptraverse/publication_channel.h"
 #include "chat_connectivity.h"
+#include "chat_demo_runtime_state.h"
 #include "chat_launch_options.h"
 #include "chat_model.h"
 #include "chat_presence.h"
@@ -59,8 +60,17 @@ struct DraftCommandResult {
   SharedEventId accepted_send_id{};
 };
 
+struct CopyHostUidEffect {
+  ae::ObjId request_id;
+  std::string uid_text;
+};
+
 struct ChatRuntimeStatus {
+  DemoRole demo_role{DemoRole::kUnconfigured};
   std::string local_endpoint_uid;
+  std::string host_uid_input;
+  ChatJoinPhase join_phase{ChatJoinPhase::kIdle};
+  std::string join_status_text;
   SessionLifecycleState lifecycle_state{SessionLifecycleState::kStarting};
   LocalConnectivityState local_connectivity{LocalConnectivityState::kUnknown};
   std::unordered_map<std::string, PeerPresence> remote_presence;
@@ -71,6 +81,7 @@ struct ChatRuntimeStatus {
   // Runtime-only: latest result per entry for EditDraft / SendDraft.
   std::map<ae::ObjId, DraftCommandResult> latest_edit_result_by_entry;
   std::map<ae::ObjId, DraftCommandResult> latest_send_result_by_entry;
+  std::optional<CopyHostUidEffect> pending_copy;
 };
 
 struct ChatUiUpdate {
@@ -80,11 +91,13 @@ struct ChatUiUpdate {
   std::map<ae::ObjId, std::uint64_t> processed_edit_revisions_by_entry;
   std::optional<ae::ObjId> selected_chat_ack;
   ChatRuntimeStatus runtime_status;
+  std::optional<CopyHostUidEffect> copy_host_uid;
 };
 
 struct ChatSessionConfig {
   std::filesystem::path state_dir;
-  std::optional<OpenPeerRequest> initial_open_peer;
+  DemoRole role{DemoRole::kUnconfigured};
+  std::optional<std::string> host_uid_prefill;
   std::string aether_client_name{"apptraverse-chat"};
 };
 
@@ -104,7 +117,9 @@ class ChatSession {
   void RequestStop();
   void Join();
 
-  void OpenPeer(OpenPeerRequest request);
+  void SetHostUidInput(std::string text);
+  void JoinHost();
+  void RequestCopyHostUid();
   void SelectChat(ae::ObjId entry_id);
   void EditDraft(ae::ObjId entry_id, std::string text, std::uint64_t edit_revision);
   void SendDraft(ae::ObjId entry_id, std::string current_text,
@@ -163,7 +178,9 @@ class ChatSession {
   std::thread worker_thread_;
   std::thread::id model_thread_id_{};
 
-  std::function<void(OpenPeerRequest)> on_open_peer_;
+  std::function<void(std::string)> on_set_host_uid_input_;
+  std::function<void()> on_join_host_;
+  std::function<void()> on_copy_host_uid_;
   std::function<void(ae::ObjId)> on_select_chat_;
   std::function<void(ae::ObjId, std::string, std::uint64_t)> on_edit_draft_;
   std::function<void(ae::ObjId, std::string, std::uint64_t)> on_send_draft_;

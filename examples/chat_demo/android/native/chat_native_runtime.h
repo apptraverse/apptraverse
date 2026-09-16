@@ -29,20 +29,21 @@ using apptraverse::example::chat_demo::ChatUiUpdate;
 using apptraverse::example::chat_demo::ChatWorkspace;
 using apptraverse::example::chat_demo::LocalConnectivityState;
 using apptraverse::example::chat_demo::MessageValue;
-using apptraverse::example::chat_demo::OpenPeerRequest;
+using apptraverse::example::chat_demo::DemoRole;
 using apptraverse::example::chat_demo::RoomBootstrapState;
 using apptraverse::example::chat_demo::ScrollAnchor;
 using apptraverse::example::chat_demo::SessionLifecycleState;
 
 class ChatNativeRuntime {
  public:
-  ChatNativeRuntime(std::filesystem::path state_dir, ChatUiBridge ui_bridge);
+  ChatNativeRuntime(std::filesystem::path state_dir, ChatUiBridge ui_bridge,
+                    DemoRole role = DemoRole::kClient);
   ~ChatNativeRuntime();
 
   void Start();
   void Join();
 
-  void OpenPeer(std::string admin_id, std::optional<std::string> peer_uid);
+  void JoinHost(std::string host_uid);
   void SelectChat(ae::ObjId entry_id);
   void EditDraft(ae::ObjId entry_id, std::string text, std::uint64_t edit_revision);
   void SendDraft(ae::ObjId entry_id, std::string text, std::uint64_t edit_revision);
@@ -79,6 +80,7 @@ class ChatNativeRuntime {
 
   std::filesystem::path state_dir_;
   ChatUiBridge ui_bridge_;
+  DemoRole role_{DemoRole::kHost};
   ChatSession session_;
 
   ae::RamDomainStorage ui_storage_;

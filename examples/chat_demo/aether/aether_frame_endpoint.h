@@ -22,6 +22,9 @@ class IAetherFrameEndpoint {
   using FrameCallback =
       std::function<void(std::string source_uid,
                          std::vector<std::uint8_t> bytes)>;
+  using ControlCallback =
+      std::function<void(std::string source_uid,
+                         std::vector<std::uint8_t> bytes)>;
   using PresenceCallback =
       std::function<void(std::string peer_uid, PeerPresence presence)>;
   using LocalConnectivityCallback =
@@ -39,13 +42,16 @@ class IAetherFrameEndpoint {
   virtual void Start(Config config, LocalUidCallback on_uid,
                      ReadyCallback on_ready, FailedCallback on_failed,
                      FrameCallback on_frame, PresenceCallback on_presence,
-                     LocalConnectivityCallback on_local_connectivity = {}) = 0;
+                     LocalConnectivityCallback on_local_connectivity = {},
+                     ControlCallback on_control = {}) = 0;
 
   virtual void OpenPeer(std::string peer_uid) = 0;
   virtual void ClosePeer(std::string peer_uid) = 0;
 
   virtual void Send(std::string peer_uid,
                     std::vector<std::uint8_t> bytes) = 0;
+  virtual void SendControl(std::string peer_uid,
+                           std::vector<std::uint8_t> bytes) = 0;
   virtual void SetFrameCallback(FrameCallback callback) = 0;
 
   virtual void RequestStop() = 0;

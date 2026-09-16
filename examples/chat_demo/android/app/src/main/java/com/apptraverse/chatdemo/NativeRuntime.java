@@ -8,7 +8,7 @@ public final class NativeRuntime {
 
   public static native void nativeStart(long handle);
 
-  public static native void nativeOpenPeer(long handle, byte[] adminId, byte[] peerUid);
+  public static native void nativeJoinHost(long handle, byte[] hostUid);
 
   public static native void nativeSelectChat(long handle, long entryId);
 

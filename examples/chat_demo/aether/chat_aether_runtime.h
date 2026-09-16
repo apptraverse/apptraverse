@@ -21,6 +21,7 @@
 #include "aether/types/uid.h"
 
 #include "aether_frame_endpoint.h"
+#include "aether_stream_frame.h"
 #include "chat_presence.h"
 
 namespace apptraverse::example::chat_demo {
@@ -33,6 +34,7 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
   using FrameCallback = IAetherFrameEndpoint::FrameCallback;
   using PresenceCallback = IAetherFrameEndpoint::PresenceCallback;
   using LocalConnectivityCallback = IAetherFrameEndpoint::LocalConnectivityCallback;
+  using ControlCallback = IAetherFrameEndpoint::ControlCallback;
   using Config = IAetherFrameEndpoint::Config;
 
   ChatAetherRuntime();
@@ -44,10 +46,13 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
   void Start(Config config, LocalUidCallback on_uid, ReadyCallback on_ready,
              FailedCallback on_failed, FrameCallback on_frame,
              PresenceCallback on_presence,
-             LocalConnectivityCallback on_local_connectivity = {}) override;
+             LocalConnectivityCallback on_local_connectivity = {},
+             ControlCallback on_control = {}) override;
 
   void OpenPeer(std::string peer_uid) override;
   void Send(std::string peer_uid, std::vector<std::uint8_t> bytes) override;
+  void SendControl(std::string peer_uid,
+                   std::vector<std::uint8_t> bytes) override;
   void ClosePeer(std::string peer_uid) override;
 
   void RequestStop() override;
@@ -60,11 +65,17 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
     kOpenPeer = 1,
     kSend = 2,
     kClosePeer = 3,
+    kSendControl = 4,
   };
 
   struct Command {
     CommandType type{CommandType::kOpenPeer};
     std::string peer_uid;
+    std::vector<std::uint8_t> bytes;
+  };
+
+  struct PendingOut {
+    AetherFrameKind kind{AetherFrameKind::kApplication};
     std::vector<std::uint8_t> bytes;
   };
 
@@ -79,7 +90,7 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
 
     std::vector<ae::Subscription> write_subs;
 
-    std::deque<std::vector<std::uint8_t>> pending_out;
+    std::deque<PendingOut> pending_out;
 
     bool stream_linked{false};
 
@@ -94,7 +105,8 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
   void ThreadMain(Config config, LocalUidCallback on_uid,
                   ReadyCallback on_ready, FailedCallback on_failed,
                   FrameCallback on_frame, PresenceCallback on_presence,
-                  LocalConnectivityCallback on_local_connectivity);
+                  LocalConnectivityCallback on_local_connectivity,
+                  ControlCallback on_control);
 
   std::atomic<bool> stop_{false};
   std::thread thread_;
@@ -109,6 +121,7 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
   FrameCallback on_frame_;
   PresenceCallback on_presence_;
   LocalConnectivityCallback on_local_connectivity_;
+  ControlCallback on_control_;
 };
 
 }  // namespace apptraverse::example::chat_demo

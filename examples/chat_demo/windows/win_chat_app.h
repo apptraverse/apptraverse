@@ -23,7 +23,6 @@
 #include "aether-objects/obj/obj_id.h"
 
 #include "chat_connectivity.h"
-#include "chat_launch_ipc.h"
 #include "chat_launch_options.h"
 #include "chat_model.h"
 #include "chat_session.h"
@@ -58,9 +57,9 @@ class WinChatApp {
   HWND transcript_hwnd() const { return transcript_hwnd_; }
   HWND draft_hwnd() const { return draft_hwnd_; }
   HWND send_btn_hwnd() const { return send_btn_hwnd_; }
-  HWND admin_id_hwnd() const { return admin_id_hwnd_; }
-  HWND aether_uid_hwnd() const { return aether_uid_hwnd_; }
-  HWND open_btn_hwnd() const { return open_btn_hwnd_; }
+  HWND uid_label_hwnd() const { return uid_label_hwnd_; }
+  HWND host_uid_hwnd() const { return host_uid_hwnd_; }
+  HWND action_btn_hwnd() const { return action_btn_hwnd_; }
   HWND status_label_hwnd() const { return status_label_hwnd_; }
   HWND presence_label_hwnd() const { return presence_label_hwnd_; }
 
@@ -92,8 +91,9 @@ class WinChatApp {
   };
 
   static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
-  static LRESULT CALLBACK IpcNotifyWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
   static LRESULT CALLBACK DraftEditSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
+                                               UINT_PTR subclass_id, DWORD_PTR ref_data);
+  static LRESULT CALLBACK HostUidSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                                                UINT_PTR subclass_id, DWORD_PTR ref_data);
 
   LRESULT HandleMain(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
@@ -123,16 +123,12 @@ class WinChatApp {
 
   int WindowLogicalDpi(HWND hwnd) const;
 
-  void OnOpenPeerClicked();
+  void OnActionClicked();
   void OnSendDraftClicked();
   void OnChatSelectionChanged();
   void OnDraftChanged();
   void TryFinishClosing();
   void ShutdownSessionAndResources();
-  void CreateIpcNotifyWindow(HINSTANCE hinst);
-  void DestroyIpcNotifyWindow();
-  LaunchIpcReply HandleLaunchIpcCopyData(COPYDATASTRUCT* cds);
-  void ApplyPendingIpcOpenPeer();
 
   EntryViewState& ViewStateFor(ae::ObjId entry_id);
   ChatEntry::ptr FindUiEntry(ae::ObjId entry_id) const;
@@ -148,20 +144,19 @@ class WinChatApp {
 
   ProfileLock profile_lock_;
   std::string profile_key_;
+  DemoRole demo_role_{DemoRole::kUnconfigured};
   HMODULE richedit_module_{nullptr};
 
   ChatSession session_;
   HWND main_hwnd_{nullptr};
-  HWND ipc_notify_hwnd_{nullptr};
-  std::optional<OpenPeerRequest> pending_ipc_open_peer_;
 
   HWND chat_list_hwnd_{nullptr};
   HWND transcript_hwnd_{nullptr};
   HWND draft_hwnd_{nullptr};
   HWND send_btn_hwnd_{nullptr};
-  HWND admin_id_hwnd_{nullptr};
-  HWND aether_uid_hwnd_{nullptr};
-  HWND open_btn_hwnd_{nullptr};
+  HWND uid_label_hwnd_{nullptr};
+  HWND host_uid_hwnd_{nullptr};
+  HWND action_btn_hwnd_{nullptr};
   HWND status_label_hwnd_{nullptr};
   HWND presence_label_hwnd_{nullptr};
 
@@ -185,6 +180,7 @@ class WinChatApp {
   std::chrono::steady_clock::time_point last_scroll_save_time_{};
   std::uint64_t pending_send_revision_{0};
   std::string local_send_error_;
+  ae::ObjId last_copy_request_id_;
 };
 
 }  // namespace apptraverse::example::chat_demo

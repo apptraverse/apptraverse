@@ -15,18 +15,15 @@
     <EditText
         android:id="@+id/admin_id"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:hint="@string/admin_id_hint"
-        android:inputType="text"
-        android:singleLine="true" />
+        android:layout_height="0dp"
+        android:visibility="gone" />
 
     <EditText
         android:id="@+id/aether_uid"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:hint="@string/aether_uid_hint"
+        android:hint="@string/host_uid_hint"
         android:inputType="text"
         android:singleLine="true" />
 
@@ -34,7 +31,7 @@
         android:id="@+id/open_peer"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/open_peer" />
+        android:text="@string/join_host" />
   </LinearLayout>
 
   <LinearLayout

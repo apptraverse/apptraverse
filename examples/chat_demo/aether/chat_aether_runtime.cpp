@@ -117,7 +117,8 @@ void ChatAetherRuntime::Start(Config config, LocalUidCallback on_uid,
                               ReadyCallback on_ready, FailedCallback on_failed,
                               FrameCallback on_frame,
                               PresenceCallback on_presence,
-                              LocalConnectivityCallback on_local_connectivity) {
+                              LocalConnectivityCallback on_local_connectivity,
+                              ControlCallback on_control) {
   RequestStop();
   Join();
 
@@ -133,7 +134,8 @@ void ChatAetherRuntime::Start(Config config, LocalUidCallback on_uid,
   thread_ = std::thread(
       &ChatAetherRuntime::ThreadMain, this, std::move(config), std::move(on_uid),
       std::move(on_ready), std::move(on_failed), std::move(on_frame),
-      std::move(on_presence), std::move(on_local_connectivity));
+      std::move(on_presence), std::move(on_local_connectivity),
+      std::move(on_control));
 }
 
 void ChatAetherRuntime::OpenPeer(std::string peer_uid) {
@@ -145,6 +147,13 @@ void ChatAetherRuntime::OpenPeer(std::string peer_uid) {
 void ChatAetherRuntime::Send(std::string peer_uid,
                              std::vector<std::uint8_t> bytes) {
   Enqueue(Command{.type = CommandType::kSend,
+                  .peer_uid = std::move(peer_uid),
+                  .bytes = std::move(bytes)});
+}
+
+void ChatAetherRuntime::SendControl(std::string peer_uid,
+                                    std::vector<std::uint8_t> bytes) {
+  Enqueue(Command{.type = CommandType::kSendControl,
                   .peer_uid = std::move(peer_uid),
                   .bytes = std::move(bytes)});
 }
@@ -178,7 +187,8 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
                                   FailedCallback on_failed,
                                   FrameCallback on_frame,
                                   PresenceCallback on_presence,
-                                  LocalConnectivityCallback on_local_connectivity) {
+                                  LocalConnectivityCallback on_local_connectivity,
+                                  ControlCallback on_control) {
   {
     std::lock_guard<std::mutex> lock{callback_mu_};
     on_uid_ = std::move(on_uid);
@@ -187,6 +197,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
     on_frame_ = std::move(on_frame);
     on_presence_ = std::move(on_presence);
     on_local_connectivity_ = std::move(on_local_connectivity);
+    on_control_ = std::move(on_control);
   }
 
   try {
@@ -269,9 +280,9 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         return;
       }
       while (!peer.pending_out.empty()) {
-        auto raw_bytes = std::move(peer.pending_out.front());
+        auto item = std::move(peer.pending_out.front());
         peer.pending_out.pop_front();
-        auto frame_bytes = EncodeAetherFrame(AetherFrameKind::kApplication, raw_bytes);
+        auto frame_bytes = EncodeAetherFrame(item.kind, item.bytes);
         ae::DataBuffer buffer{frame_bytes.begin(), frame_bytes.end()};
         auto& action = peer.stream->Write(std::move(buffer));
         peer.write_subs.push_back(action.status_event().Subscribe(
@@ -328,6 +339,18 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         {
           std::lock_guard<std::mutex> lock{callback_mu_};
           cb = on_frame_;
+        }
+        if (cb) {
+          cb(peer.uid_text, std::move(payload));
+        }
+        return;
+      }
+
+      if (kind == AetherFrameKind::kControl) {
+        ControlCallback cb;
+        {
+          std::lock_guard<std::mutex> lock{callback_mu_};
+          cb = on_control_;
         }
         if (cb) {
           cb(peer.uid_text, std::move(payload));
@@ -556,18 +579,25 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
             case CommandType::kOpenPeer:
               open_peer_internal(cmd.peer_uid);
               break;
-            case CommandType::kSend: {
+            case CommandType::kSend:
+            case CommandType::kSendControl: {
+              AetherFrameKind const kind =
+                  cmd.type == CommandType::kSendControl
+                      ? AetherFrameKind::kControl
+                      : AetherFrameKind::kApplication;
               auto it = peers.find(cmd.peer_uid);
               if (it == peers.end() || !it->second.stream) {
                 auto& peer = peers[cmd.peer_uid];
                 peer.uid_text = cmd.peer_uid;
-                if (peer.pending_out.empty() || peer.pending_out.back() != cmd.bytes) {
-                  peer.pending_out.push_back(std::move(cmd.bytes));
+                PendingOut item{.kind = kind, .bytes = std::move(cmd.bytes)};
+                if (peer.pending_out.empty() ||
+                    peer.pending_out.back().kind != item.kind ||
+                    peer.pending_out.back().bytes != item.bytes) {
+                  peer.pending_out.push_back(std::move(item));
                 }
                 open_peer_internal(cmd.peer_uid);
               } else {
-                auto frame_bytes = EncodeAetherFrame(
-                    AetherFrameKind::kApplication, cmd.bytes);
+                auto frame_bytes = EncodeAetherFrame(kind, cmd.bytes);
                 ae::DataBuffer buffer{frame_bytes.begin(), frame_bytes.end()};
                 auto& action = it->second.stream->Write(std::move(buffer));
                 it->second.write_subs.push_back(

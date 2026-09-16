@@ -91,12 +91,11 @@ public final class MainActivity extends Activity implements NativeUiBridge.Liste
     openPeer.setOnClickListener(new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        byte[] admin = utf8Bytes(adminId.getText().toString());
-        if (admin.length == 0) {
+        byte[] uid = utf8Bytes(aetherUid.getText().toString());
+        if (uid.length == 0) {
           return;
         }
-        byte[] uid = utf8Bytes(aetherUid.getText().toString());
-        app().openPeer(admin, uid.length == 0 ? null : uid);
+        app().joinHost(uid);
       }
     });
 

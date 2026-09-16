@@ -70,10 +70,8 @@ jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jobject ui_bridge) {
 
 void NativeStart(JNIEnv*, jclass, jlong handle) { FromHandle(handle)->Start(); }
 
-void NativeOpenPeer(JNIEnv* env, jclass, jlong handle, jbyteArray admin_id,
-                    jbyteArray peer_uid) {
-  FromHandle(handle)->OpenPeer(JbytesToUtf8(env, admin_id),
-                               OptionalJbytesToUtf8(env, peer_uid));
+void NativeJoinHost(JNIEnv* env, jclass, jlong handle, jbyteArray host_uid) {
+  FromHandle(handle)->JoinHost(JbytesToUtf8(env, host_uid));
 }
 
 void NativeSelectChat(JNIEnv*, jclass, jlong handle, jlong entry_id) {
@@ -129,7 +127,7 @@ void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 JNINativeMethod const kNativeMethods[] = {
     {"nativeCreate", kNativeCreateSignature, reinterpret_cast<void*>(&NativeCreate)},
     {"nativeStart", "(J)V", reinterpret_cast<void*>(&NativeStart)},
-    {"nativeOpenPeer", "(J[B[B)V", reinterpret_cast<void*>(&NativeOpenPeer)},
+    {"nativeJoinHost", "(J[B)V", reinterpret_cast<void*>(&NativeJoinHost)},
     {"nativeSelectChat", "(JJ)V", reinterpret_cast<void*>(&NativeSelectChat)},
     {"nativeEditDraft", "(JJ[BJ)V", reinterpret_cast<void*>(&NativeEditDraft)},
     {"nativeSendDraft", "(JJ[BJ)V", reinterpret_cast<void*>(&NativeSendDraft)},

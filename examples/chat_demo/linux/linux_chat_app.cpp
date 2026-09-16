@@ -9,7 +9,6 @@
 
 #include "apptraverse/object_serialization.h"
 #include "chat_commands.h"
-#include "chat_launch_ipc.h"
 #include "linux_fatal.h"
 
 namespace apptraverse::example::chat_demo {
@@ -103,7 +102,7 @@ std::string LinuxChatApp::GetEntryLabel(ChatEntry::ptr const& entry) {
   if (!entry.is_valid()) {
     return "";
   }
-  return entry->display_name.empty() ? entry->peer_admin_id : entry->display_name;
+  return entry->display_name.empty() ? entry->peer_uid : entry->display_name;
 }
 
 void LinuxChatApp::CreateControls() {
@@ -142,14 +141,15 @@ void LinuxChatApp::CreateControls() {
   gtk_box_pack_start(GTK_BOX(right), top_bar, FALSE, FALSE, 0);
 
   admin_id_entry_ = gtk_entry_new();
-  gtk_entry_set_placeholder_text(GTK_ENTRY(admin_id_entry_), "Admin ID");
-  gtk_grid_attach(GTK_GRID(top_bar), admin_id_entry_, 0, 0, 1, 1);
+  gtk_entry_set_placeholder_text(GTK_ENTRY(admin_id_entry_), "Host UID");
+  gtk_widget_set_no_show_all(admin_id_entry_, TRUE);
+  gtk_widget_hide(admin_id_entry_);
 
   aether_uid_entry_ = gtk_entry_new();
-  gtk_entry_set_placeholder_text(GTK_ENTRY(aether_uid_entry_), "Aether UID (optional)");
-  gtk_grid_attach(GTK_GRID(top_bar), aether_uid_entry_, 1, 0, 1, 1);
+  gtk_entry_set_placeholder_text(GTK_ENTRY(aether_uid_entry_), "Enter host UID");
+  gtk_grid_attach(GTK_GRID(top_bar), aether_uid_entry_, 0, 0, 1, 1);
 
-  open_btn_ = gtk_button_new_with_label("Open");
+  open_btn_ = gtk_button_new_with_label("Join");
   g_signal_connect(open_btn_, "clicked", G_CALLBACK(OnOpenClicked), this);
   gtk_grid_attach(GTK_GRID(top_bar), open_btn_, 2, 0, 1, 1);
 
@@ -413,17 +413,10 @@ void LinuxChatApp::OnSendDraftClicked() {
   session_.SendDraft(active_entry_id_, current_text, view.draft.local_edit_revision);
 }
 
-void LinuxChatApp::OnOpenPeerClicked() {
-  std::string const admin_id = gtk_entry_get_text(GTK_ENTRY(admin_id_entry_));
-  std::string const peer_uid = gtk_entry_get_text(GTK_ENTRY(aether_uid_entry_));
-  if (admin_id.empty()) {
-    return;
-  }
-  OpenPeerRequest req{
-      .peer_admin_id = admin_id,
-      .peer_aether_uid = peer_uid.empty() ? std::nullopt : std::optional<std::string>(peer_uid),
-  };
-  session_.OpenPeer(std::move(req));
+void LinuxChatApp::OnJoinClicked() {
+  std::string const host_uid = gtk_entry_get_text(GTK_ENTRY(aether_uid_entry_));
+  session_.SetHostUidInput(host_uid);
+  session_.JoinHost();
 }
 
 void LinuxChatApp::FlushPendingScrollSave() {
@@ -914,7 +907,7 @@ void LinuxChatApp::OnChatListRowActivated(GtkListBox*, GtkListBoxRow* row, gpoin
 }
 
 void LinuxChatApp::OnOpenClicked(GtkButton*, gpointer data) {
-  static_cast<LinuxChatApp*>(data)->OnOpenPeerClicked();
+  static_cast<LinuxChatApp*>(data)->OnJoinClicked();
 }
 
 void LinuxChatApp::OnSendClicked(GtkButton*, gpointer data) {
@@ -973,9 +966,9 @@ int LinuxChatApp::Run(ChatLaunchOptions options) {
 
   std::filesystem::path state_dir =
       options.state_dir.has_value() ? std::filesystem::path{*options.state_dir}
-                                    : DefaultStateDirectory();
+                                    : DefaultChatExampleStateDir(options.role);
   std::filesystem::create_directories(state_dir);
-  profile_key_ = NormalizeProfileKey(state_dir);
+  profile_key_ = state_dir.string();
 
   ProfileLock candidate;
   ProfileLock::AcquireResult const lock_result = ProfileLock::TryAcquire(state_dir, candidate);
@@ -1002,7 +995,8 @@ int LinuxChatApp::Run(ChatLaunchOptions options) {
 
   ChatSessionConfig cfg{
       .state_dir = state_dir,
-      .initial_open_peer = options.open_peer,
+      .role = options.role,
+      .host_uid_prefill = options.host_uid_prefill,
   };
 
   session_.Start(std::move(cfg), [this]() {

@@ -46,6 +46,12 @@ int WINAPI wWinMain(HINSTANCE /*instance*/, HINSTANCE /*prev_instance*/,
     MessageBoxA(nullptr, parse_res.error_message.c_str(), "AppTraverse Chat - Argument Error", MB_ICONERROR | MB_OK);
     return 1;
   }
+  if (parse_res.options.show_help) {
+    MessageBoxA(nullptr,
+                apptraverse::example::chat_demo::ChatLaunchUsageText().c_str(),
+                "App Traverse Chat", MB_OK);
+    return 0;
+  }
 
   apptraverse::example::chat_demo::WinChatApp app;
   return app.Run(parse_res.options);

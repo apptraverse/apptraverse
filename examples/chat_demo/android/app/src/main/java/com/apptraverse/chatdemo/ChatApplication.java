@@ -53,8 +53,8 @@ public final class ChatApplication extends Application implements NativeUiBridge
     return runtimeHandle;
   }
 
-  void openPeer(byte[] adminId, byte[] peerUid) {
-    NativeRuntime.nativeOpenPeer(runtimeHandle, adminId, peerUid);
+  void joinHost(byte[] hostUid) {
+    NativeRuntime.nativeJoinHost(runtimeHandle, hostUid);
   }
 
   void selectChat(long entryId) {

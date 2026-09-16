@@ -12,13 +12,14 @@ std::string EntryLabel(ChatEntry::ptr const& entry) {
   if (!entry.is_valid()) {
     return "";
   }
-  return entry->display_name.empty() ? entry->peer_admin_id : entry->display_name;
+  return entry->display_name.empty() ? entry->peer_uid : entry->display_name;
 }
 
 }  // namespace
 
-ChatNativeRuntime::ChatNativeRuntime(std::filesystem::path state_dir, ChatUiBridge ui_bridge)
-    : state_dir_{std::move(state_dir)}, ui_bridge_{std::move(ui_bridge)} {}
+ChatNativeRuntime::ChatNativeRuntime(std::filesystem::path state_dir, ChatUiBridge ui_bridge,
+                                     DemoRole role)
+    : state_dir_{std::move(state_dir)}, ui_bridge_{std::move(ui_bridge)}, role_{role} {}
 
 ChatNativeRuntime::~ChatNativeRuntime() {
   RequestStop();
@@ -26,7 +27,7 @@ ChatNativeRuntime::~ChatNativeRuntime() {
 }
 
 void ChatNativeRuntime::Start() {
-  ChatSessionConfig cfg{.state_dir = state_dir_};
+  ChatSessionConfig cfg{.state_dir = state_dir_, .role = role_};
   session_.Start(std::move(cfg), [this]() { ui_bridge_.PostNotify(); });
   LogMarker("CHAT_NATIVE_STARTED");
 }
@@ -265,12 +266,9 @@ bool ChatNativeRuntime::ConsumeUiUpdate() {
   return ui_workspace_.is_valid();
 }
 
-void ChatNativeRuntime::OpenPeer(std::string admin_id, std::optional<std::string> peer_uid) {
-  OpenPeerRequest req{
-      .peer_admin_id = std::move(admin_id),
-      .peer_aether_uid = std::move(peer_uid),
-  };
-  session_.OpenPeer(std::move(req));
+void ChatNativeRuntime::JoinHost(std::string host_uid) {
+  session_.SetHostUidInput(std::move(host_uid));
+  session_.JoinHost();
 }
 
 void ChatNativeRuntime::SelectChat(ae::ObjId entry_id) {

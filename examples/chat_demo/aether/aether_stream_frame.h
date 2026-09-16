@@ -12,11 +12,13 @@ enum class AetherFrameKind : std::uint8_t {
   kApplication = 1,
   kHeartbeatPing = 2,
   kHeartbeatPong = 3,
+  kControl = 4,
 };
 
 inline constexpr std::size_t kAetherStreamHeaderSize = 10;
 inline constexpr std::size_t kMaxApplicationPayloadSize = 16 * 1024 * 1024;  // 16 MiB
 inline constexpr std::size_t kHeartbeatPayloadSize = 8;
+inline constexpr std::size_t kMaxControlPayloadSize = 1024;
 
 std::vector<std::uint8_t> EncodeAetherFrame(
     AetherFrameKind kind,

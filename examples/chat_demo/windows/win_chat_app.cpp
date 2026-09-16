@@ -20,7 +20,6 @@
 
 #include "apptraverse/object_serialization.h"
 #include "chat_commands.h"
-#include "chat_launch_ipc.h"
 #include "profile_lock.h"
 #include "win32_fatal.h"
 
@@ -47,8 +46,8 @@ inline constexpr int kGeometrySettleMs = 400;
 #ifndef EM_GETSCROLLPOS
 #  define EM_GETSCROLLPOS (WM_USER + 221)
 #endif
-#ifndef EM_SETSCROLLPOS
-#  define EM_SETSCROLLPOS (WM_USER + 222)
+#ifndef EM_SETCUEBANNER
+#  define EM_SETCUEBANNER 0x1501
 #endif
 
 std::wstring Utf8ToUtf16(std::string const& utf8) {
@@ -157,7 +156,6 @@ WinChatApp::~WinChatApp() {
 }
 
 void WinChatApp::ShutdownSessionAndResources() {
-  DestroyIpcNotifyWindow();
   profile_lock_ = ProfileLock{};
   if (richedit_module_ != nullptr) {
     FreeLibrary(richedit_module_);
@@ -190,6 +188,17 @@ LRESULT CALLBACK WinChatApp::DraftEditSubclassProc(
   return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
+LRESULT CALLBACK WinChatApp::HostUidSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR subclass_id,
+    DWORD_PTR ref_data) {
+  auto* app = reinterpret_cast<WinChatApp*>(ref_data);
+  if (app != nullptr && msg == WM_KEYDOWN && wparam == VK_RETURN) {
+    app->OnActionClicked();
+    return 0;
+  }
+  return DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
 LRESULT CALLBACK WinChatApp::MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (msg == WM_NCCREATE) {
     auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
@@ -212,20 +221,30 @@ void WinChatApp::CreateControls(HWND hwnd) {
       reinterpret_cast<HMENU>(101), hinst, nullptr);
   RequireControl(chat_list_hwnd_, "CreateWindowExW chat list");
 
-  admin_id_hwnd_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                                   WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd,
-                                   reinterpret_cast<HMENU>(102), hinst, nullptr);
-  RequireControl(admin_id_hwnd_, "CreateWindowExW admin id");
+  uid_label_hwnd_ = CreateWindowExW(0, L"STATIC", L"Host UID", WS_CHILD | WS_VISIBLE | SS_LEFT,
+                                    0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(110), hinst,
+                                    nullptr);
+  RequireControl(uid_label_hwnd_, "CreateWindowExW uid label");
 
-  aether_uid_hwnd_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                                     WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd,
-                                     reinterpret_cast<HMENU>(103), hinst, nullptr);
-  RequireControl(aether_uid_hwnd_, "CreateWindowExW aether uid");
+  DWORD uid_style = WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL;
+  if (demo_role_ == DemoRole::kHost) {
+    uid_style |= ES_READONLY;
+  }
+  host_uid_hwnd_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", uid_style, 0, 0, 0, 0, hwnd,
+                                   reinterpret_cast<HMENU>(103), hinst, nullptr);
+  RequireControl(host_uid_hwnd_, "CreateWindowExW host uid");
+  if (demo_role_ == DemoRole::kClient) {
+    SendMessageW(host_uid_hwnd_, EM_SETCUEBANNER, TRUE,
+                 reinterpret_cast<LPARAM>(L"Enter host UID"));
+    SetWindowSubclass(host_uid_hwnd_, &WinChatApp::HostUidSubclassProc, 2,
+                      reinterpret_cast<DWORD_PTR>(this));
+  }
 
-  open_btn_hwnd_ = CreateWindowExW(0, L"BUTTON", L"Open", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                   0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(104), hinst,
-                                   nullptr);
-  RequireControl(open_btn_hwnd_, "CreateWindowExW open button");
+  wchar_t const* action_label = demo_role_ == DemoRole::kHost ? L"Copy" : L"Join";
+  action_btn_hwnd_ = CreateWindowExW(0, L"BUTTON", action_label,
+                                     WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd,
+                                     reinterpret_cast<HMENU>(104), hinst, nullptr);
+  RequireControl(action_btn_hwnd_, "CreateWindowExW action button");
 
   status_label_hwnd_ = CreateWindowExW(0, L"STATIC", L"Starting...", WS_CHILD | WS_VISIBLE | SS_LEFT,
                                        0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(105), hinst,
@@ -274,16 +293,16 @@ void WinChatApp::LayoutControls(int width, int height) {
   MoveWindow(chat_list_hwnd_, margin, margin + top_bar_height + gap, left_width,
              height - 2 * margin - top_bar_height - gap - status_bar_height, TRUE);
 
-  int const admin_w = 120;
-  int const open_w = 60;
-  int const uid_w =
-      (right_width > (admin_w + open_w + 2 * gap)) ? (right_width - admin_w - open_w - 2 * gap)
-                                                   : 100;
+  int const label_w = 80;
+  int const action_w = 72;
+  int const uid_w = (right_width > (label_w + action_w + 2 * gap))
+                        ? (right_width - label_w - action_w - 2 * gap)
+                        : 180;
 
-  MoveWindow(admin_id_hwnd_, right_x, margin, admin_w, top_bar_height, TRUE);
-  MoveWindow(aether_uid_hwnd_, right_x + admin_w + gap, margin, uid_w, top_bar_height, TRUE);
-  MoveWindow(open_btn_hwnd_, right_x + admin_w + gap + uid_w + gap, margin, open_w, top_bar_height,
-             TRUE);
+  MoveWindow(uid_label_hwnd_, right_x, margin, label_w, top_bar_height, TRUE);
+  MoveWindow(host_uid_hwnd_, right_x + label_w + gap, margin, uid_w, top_bar_height, TRUE);
+  MoveWindow(action_btn_hwnd_, right_x + label_w + gap + uid_w + gap, margin, action_w,
+             top_bar_height, TRUE);
 
   int const transcript_y = margin + top_bar_height + gap;
   int const transcript_h =
@@ -377,7 +396,7 @@ std::wstring WinChatApp::FormatTranscriptLine(ChatEntry::ptr const& entry,
       msg.id.origin_uid == ui_workspace_->local_endpoint_uid) {
     author = L"You";
   } else {
-    author = Utf8ToUtf16(entry->display_name.empty() ? entry->peer_admin_id : entry->display_name);
+    author = Utf8ToUtf16(entry->display_name.empty() ? entry->peer_uid : entry->display_name);
   }
   return L"[" + author + L"]: " + Utf8ToUtf16(msg.text) + L"\r\n";
 }
@@ -451,19 +470,14 @@ void WinChatApp::OnSendDraftClicked() {
   session_.SendDraft(active_entry_id_, current_text, view.draft.local_edit_revision);
 }
 
-void WinChatApp::OnOpenPeerClicked() {
-  std::wstring const wadmin = GetWindowTextString(admin_id_hwnd_);
-  std::wstring const wuid = GetWindowTextString(aether_uid_hwnd_);
-  std::string const admin_id = Utf16ToUtf8(wadmin);
-  std::string const peer_uid = Utf16ToUtf8(wuid);
-  if (admin_id.empty()) {
+void WinChatApp::OnActionClicked() {
+  if (demo_role_ == DemoRole::kHost) {
+    session_.RequestCopyHostUid();
     return;
   }
-  OpenPeerRequest req{
-      .peer_admin_id = admin_id,
-      .peer_aether_uid = peer_uid.empty() ? std::nullopt : std::optional<std::string>(peer_uid),
-  };
-  session_.OpenPeer(std::move(req));
+  std::wstring const wuid = GetWindowTextString(host_uid_hwnd_);
+  session_.SetHostUidInput(Utf16ToUtf8(wuid));
+  session_.JoinHost();
 }
 
 void WinChatApp::OnChatSelectionChanged() {
@@ -841,7 +855,7 @@ void WinChatApp::UpdateChatListSelection() {
       continue;
     }
     std::wstring const display =
-        Utf8ToUtf16(entry->display_name.empty() ? entry->peer_admin_id : entry->display_name);
+        Utf8ToUtf16(entry->display_name.empty() ? entry->peer_uid : entry->display_name);
     SendMessageW(chat_list_hwnd_, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(display.c_str()));
     if (entry.id() == target) {
       sel_index = list_index;
@@ -862,20 +876,36 @@ void WinChatApp::UpdateStatusLine() {
   std::wstring status_text;
   if (!local_send_error_.empty()) {
     status_text = L"Error: " + Utf8ToUtf16(local_send_error_);
+  } else if (!status.join_status_text.empty()) {
+    status_text = Utf8ToUtf16(status.join_status_text);
   } else if (!status.error_text.empty()) {
     status_text = L"Error: " + Utf8ToUtf16(status.error_text);
   } else if (status.lifecycle_state == SessionLifecycleState::kFailed) {
     status_text = L"Connection failed";
-  } else if (status.local_connectivity == LocalConnectivityState::kUnknown) {
-    status_text = L"Starting...";
+  } else if (demo_role_ == DemoRole::kHost && status.local_endpoint_uid.empty()) {
+    status_text = L"Registering…";
   } else if (status.local_connectivity == LocalConnectivityState::kOffline) {
-    status_text = L"Local Aether offline";
-  } else if (!status.local_endpoint_uid.empty()) {
-    status_text = L"UID: " + Utf8ToUtf16(status.local_endpoint_uid);
+    status_text = L"Offline";
+  } else if (demo_role_ == DemoRole::kHost) {
+    status_text = L"Waiting for a client to join.";
   } else {
-    status_text = L"Starting...";
+    status_text = L"Enter the host UID and click Join.";
   }
   SetWindowTextW(status_label_hwnd_, status_text.c_str());
+
+  if (demo_role_ == DemoRole::kHost) {
+    bool const have_uid = !status.local_endpoint_uid.empty();
+    EnableWindow(action_btn_hwnd_, have_uid ? TRUE : FALSE);
+    if (have_uid) {
+      std::wstring const shown = GetWindowTextString(host_uid_hwnd_);
+      std::wstring const want = Utf8ToUtf16(status.local_endpoint_uid);
+      if (shown != want) {
+        SetWindowTextW(host_uid_hwnd_, want.c_str());
+      }
+    } else {
+      SetWindowTextW(host_uid_hwnd_, L"Registering…");
+    }
+  }
 
   std::wstring presence_text;
   auto const entry = FindUiEntry(active_entry_id_);
@@ -930,7 +960,9 @@ void WinChatApp::UpdateStatusLine() {
   SetWindowTextW(presence_label_hwnd_, presence_text.c_str());
 
   bool send_enabled = false;
-  if (!status.local_endpoint_uid.empty() && entry.is_valid() && entry->room.is_valid()) {
+  if (!status.local_endpoint_uid.empty() && entry.is_valid() && entry->room.is_valid() &&
+      (demo_role_ == DemoRole::kHost || status.join_phase == ChatJoinPhase::kJoined ||
+       status.join_phase == ChatJoinPhase::kAccepted)) {
     send_enabled = true;
   }
   EnableWindow(send_btn_hwnd_, send_enabled ? TRUE : FALSE);
@@ -972,6 +1004,29 @@ void WinChatApp::ConsumeUiUpdates() {
   bool had_publication = false;
 
   while (auto update = session_.TryTakeUiUpdate()) {
+    if (update->copy_host_uid.has_value() &&
+        update->copy_host_uid->request_id != last_copy_request_id_) {
+      last_copy_request_id_ = update->copy_host_uid->request_id;
+      std::wstring const text = Utf8ToUtf16(update->copy_host_uid->uid_text);
+      if (OpenClipboard(main_hwnd_)) {
+        EmptyClipboard();
+        HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (text.size() + 1) * sizeof(wchar_t));
+        if (mem != nullptr) {
+          auto* dest = static_cast<wchar_t*>(GlobalLock(mem));
+          if (dest != nullptr) {
+            std::copy(text.begin(), text.end(), dest);
+            dest[text.size()] = L'\0';
+            GlobalUnlock(mem);
+            if (SetClipboardData(CF_UNICODETEXT, mem) == nullptr) {
+              GlobalFree(mem);
+            }
+          } else {
+            GlobalFree(mem);
+          }
+        }
+        CloseClipboard();
+      }
+    }
     if (update->publication_bytes.has_value() && !update->publication_bytes->empty()) {
       had_publication = true;
       auto const& bytes = *update->publication_bytes;
@@ -1044,9 +1099,6 @@ void WinChatApp::TryFinishClosing() {
 
 void WinChatApp::ApplyPublicationFromSession() {
   ConsumeUiUpdates();
-  if (session_.GetRuntimeStatus().lifecycle_state == SessionLifecycleState::kReady) {
-    ApplyPendingIpcOpenPeer();
-  }
   TryFinishClosing();
 }
 
@@ -1131,7 +1183,7 @@ LRESULT WinChatApp::HandleMain(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
     WORD const id = LOWORD(wparam);
     WORD const code = HIWORD(wparam);
     if (id == 104 && code == BN_CLICKED) {
-      OnOpenPeerClicked();
+      OnActionClicked();
       return 0;
     }
     if (id == 109 && code == BN_CLICKED) {
@@ -1200,143 +1252,44 @@ LRESULT WinChatApp::HandleMain(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-LRESULT CALLBACK WinChatApp::IpcNotifyWndProc(HWND hwnd, UINT msg, WPARAM wparam,
-                                               LPARAM lparam) {
-  if (msg == WM_NCCREATE) {
-    auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-    return TRUE;
-  }
-  auto* app = reinterpret_cast<WinChatApp*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-  if (app != nullptr && msg == WM_COPYDATA) {
-    auto* cds = reinterpret_cast<COPYDATASTRUCT*>(lparam);
-    return static_cast<LRESULT>(app->HandleLaunchIpcCopyData(cds));
-  }
-  return DefWindowProcW(hwnd, msg, wparam, lparam);
-}
-
-void WinChatApp::CreateIpcNotifyWindow(HINSTANCE hinst) {
-  std::wstring const ipc_class = ProfileRoutingWindowClass(profile_key_);
-  WNDCLASSW wc{};
-  if (GetClassInfoW(hinst, ipc_class.c_str(), &wc) == 0) {
-    wc.lpfnWndProc = &WinChatApp::IpcNotifyWndProc;
-    wc.hInstance = hinst;
-    wc.lpszClassName = ipc_class.c_str();
-    RegisterClassW(&wc);
-  }
-  std::wstring const title = ProfileRoutingWindowTitle(profile_key_);
-  ipc_notify_hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW, ipc_class.c_str(), title.c_str(), WS_POPUP,
-                                     0, 0, 0, 0, nullptr, nullptr, hinst, this);
-  if (ipc_notify_hwnd_ == nullptr) {
-    FatalWin32("CreateWindowExW IpcNotify", GetLastError());
-  }
-  ShowWindow(ipc_notify_hwnd_, SW_HIDE);
-}
-
-void WinChatApp::DestroyIpcNotifyWindow() {
-  if (ipc_notify_hwnd_ != nullptr) {
-    DestroyWindow(ipc_notify_hwnd_);
-    ipc_notify_hwnd_ = nullptr;
-  }
-}
-
-LaunchIpcReply WinChatApp::HandleLaunchIpcCopyData(COPYDATASTRUCT* cds) {
-  if (cds == nullptr || cds->dwData != kLaunchIpcCopyDataMagic) {
-    return LaunchIpcReply::kInvalidPayload;
-  }
-  if (cds->cbData > kLaunchIpcMaxPayloadBytes || cds->lpData == nullptr) {
-    return LaunchIpcReply::kOversized;
-  }
-  std::vector<std::uint8_t> bytes(cds->cbData);
-  std::memcpy(bytes.data(), cds->lpData, cds->cbData);
-
-  ChatLaunchIpcPayload payload;
-  if (!DecodeLaunchIpcPayload(bytes, payload)) {
-    return LaunchIpcReply::kInvalidPayload;
-  }
-  LaunchIpcReply const valid = ValidateLaunchIpcPayload(payload, profile_key_);
-  if (valid != LaunchIpcReply::kAccepted) {
-    return valid;
-  }
-
-  if (closing_) {
-    return LaunchIpcReply::kRejected;
-  }
-
-  if (session_.GetRuntimeStatus().lifecycle_state == SessionLifecycleState::kReady) {
-    session_.OpenPeer(payload.open_peer);
-  } else {
-    pending_ipc_open_peer_ = std::move(payload.open_peer);
-  }
-
-  if (main_hwnd_ != nullptr) {
-    AllowSetForegroundWindow(GetCurrentProcessId());
-    ShowWindow(main_hwnd_, SW_RESTORE);
-    SetForegroundWindow(main_hwnd_);
-  }
-  return LaunchIpcReply::kAccepted;
-}
-
-void WinChatApp::ApplyPendingIpcOpenPeer() {
-  if (pending_ipc_open_peer_.has_value()) {
-    session_.OpenPeer(*pending_ipc_open_peer_);
-    pending_ipc_open_peer_.reset();
-  }
-}
-
 int WinChatApp::Run(ChatLaunchOptions options) {
   richedit_module_ = LoadLibraryW(L"Msftedit.dll");
   if (richedit_module_ == nullptr) {
     FatalWin32("LoadLibraryW Msftedit.dll", GetLastError());
   }
 
+  demo_role_ = options.role;
   std::filesystem::path state_dir;
   if (options.state_dir.has_value()) {
     state_dir = *options.state_dir;
   } else {
-    state_dir = GetDefaultStateDirectory();
+    state_dir = DefaultChatExampleStateDir(options.role);
   }
   std::filesystem::create_directories(state_dir);
-  profile_key_ = NormalizeProfileKey(state_dir);
+  profile_key_ = state_dir.string();
 
   ProfileLock candidate;
   ProfileLock::AcquireResult const lock_result =
       ProfileLock::TryAcquire(state_dir, candidate);
   if (lock_result == ProfileLock::AcquireResult::kBusy) {
-    if (options.open_peer.has_value()) {
-      ForwardLaunchResult const forwarded =
-          TryForwardLaunchToPrimary(profile_key_, *options.open_peer);
-      if (forwarded == ForwardLaunchResult::kAccepted) {
-        return 0;
-      }
-      if (forwarded == ForwardLaunchResult::kTimeout) {
-        MessageBoxW(nullptr,
-                    L"Error: Existing chat window is not responding.",
-                    L"AppTraverse Chat", MB_ICONERROR | MB_OK);
-        return 1;
-      }
-      if (forwarded == ForwardLaunchResult::kRejected) {
-        MessageBoxW(nullptr, L"Error: Launch request rejected by active profile.",
-                    L"AppTraverse Chat", MB_ICONERROR | MB_OK);
-        return 1;
-      }
-    }
-    MessageBoxW(nullptr, L"Error: Profile already open in another process.", L"AppTraverse Chat",
+    MessageBoxW(nullptr, L"Error: Profile already open in another process.", L"App Traverse Chat",
                 MB_ICONERROR | MB_OK);
     return 1;
   }
   if (lock_result == ProfileLock::AcquireResult::kError) {
-    MessageBoxW(nullptr, L"Error: Could not acquire profile lock.", L"AppTraverse Chat",
+    MessageBoxW(nullptr, L"Error: Could not acquire profile lock.", L"App Traverse Chat",
                 MB_ICONERROR | MB_OK);
     return 1;
   }
   profile_lock_ = std::move(candidate);
 
   HINSTANCE const hinst = GetModuleHandleW(nullptr);
-  CreateIpcNotifyWindow(hinst);
   class_registered_ = RegisterMainWindowClassOnce(hinst);
 
-  main_hwnd_ = CreateWindowExW(0, kMainChatWindowClass, L"AppTraverse Chat", WS_OVERLAPPEDWINDOW,
+  wchar_t const* title = demo_role_ == DemoRole::kHost
+                             ? L"App Traverse Chat — Host"
+                             : L"App Traverse Chat — Client";
+  main_hwnd_ = CreateWindowExW(0, kMainChatWindowClass, title, WS_OVERLAPPEDWINDOW,
                                CW_USEDEFAULT, CW_USEDEFAULT, 800, 600, nullptr, nullptr, hinst,
                                this);
   if (main_hwnd_ == nullptr) {
@@ -1348,7 +1301,8 @@ int WinChatApp::Run(ChatLaunchOptions options) {
 
   ChatSessionConfig cfg{
       .state_dir = state_dir,
-      .initial_open_peer = options.open_peer,
+      .role = options.role,
+      .host_uid_prefill = options.host_uid_prefill,
   };
 
   session_.Start(std::move(cfg), [this]() {
@@ -1357,6 +1311,10 @@ int WinChatApp::Run(ChatLaunchOptions options) {
       PostMessageW(main_hwnd_, WM_CHAT_STATUS_NOTIFY, 0, 0);
     }
   });
+
+  if (options.host_uid_prefill.has_value() && demo_role_ == DemoRole::kClient) {
+    SetWindowTextW(host_uid_hwnd_, Utf8ToUtf16(*options.host_uid_prefill).c_str());
+  }
 
   MSG msg{};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
