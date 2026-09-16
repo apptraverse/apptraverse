@@ -87,6 +87,7 @@ function(apptraverse_add_pinned_aether_owned_deps)
       "AE_INSTALL OFF"
       "AE_BUILD_TESTS OFF"
   )
+  apptraverse_ensure_aether_objects_graph_scope()
   if(TARGET aether-objects)
     # Quiet OBJ_SYS / AE_LOG_MACRO spam in Debug product and smoke binaries.
     target_compile_definitions(aether-objects PRIVATE AE_NO_DEBUG_LOG=1)
@@ -98,6 +99,83 @@ endfunction()
 
 function(apptraverse_add_pinned_aether_miscpp)
   apptraverse_add_pinned_aether_owned_deps()
+endfunction()
+
+# CPM PATCHES is skipped when SOURCE_CACHE already contains the package, and
+# Windows reconfigure can leave _deps/aether-objects-src unpatched while a
+# leftover -patched tree exists. App Traverse object_link.h requires
+# ae::DomainGraph::serialization_scope. Apply the owned patch exactly once.
+function(apptraverse_ensure_aether_objects_graph_scope)
+  _apptraverse_cpm_source_dir("aether-objects" _src)
+  if(_src STREQUAL "")
+    message(FATAL_ERROR
+      "aether-objects source directory unresolved after CPMAddPackage")
+  endif()
+  set(_domain "${_src}/src/aether-objects/obj/domain.h")
+  if(NOT EXISTS "${_domain}")
+    set(_domain "${_src}/obj/domain.h")
+  endif()
+  if(NOT EXISTS "${_domain}")
+    message(FATAL_ERROR
+      "aether-objects domain.h not found under ${_src}")
+  endif()
+
+  file(READ "${_domain}" _domain_text)
+  string(FIND "${_domain_text}" "enum class GraphSerializationScope" _enum_pos)
+  string(FIND "${_domain_text}" "serialization_scope{" _member_pos)
+  set(_patch
+    "${CMAKE_SOURCE_DIR}/cmake/patches/aether-objects-domain-graph-serialization-scope.patch")
+  if(NOT EXISTS "${_patch}")
+    message(FATAL_ERROR "Missing owned patch ${_patch}")
+  endif()
+
+  if(_enum_pos GREATER -1 AND _member_pos GREATER -1)
+    message(STATUS
+      "APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH=already-applied source=${_src}")
+    return()
+  endif()
+  if(_enum_pos GREATER -1 OR _member_pos GREATER -1)
+    message(FATAL_ERROR
+      "aether-objects DomainGraph scope patch is PARTIAL at ${_domain}. "
+      "Do not overwrite the dependency; restore the pin and re-apply "
+      "${_patch} in one step.")
+  endif()
+
+  find_package(Git REQUIRED)
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --check "${_patch}"
+    WORKING_DIRECTORY "${_src}"
+    RESULT_VARIABLE _check_rc
+    OUTPUT_VARIABLE _check_out
+    ERROR_VARIABLE _check_err
+  )
+  if(NOT _check_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Pristine aether-objects at ${_src} rejected owned GraphSerializationScope "
+      "patch (case D / unexpected tree). git apply --check rc=${_check_rc}\n"
+      "${_check_out}${_check_err}")
+  endif()
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply "${_patch}"
+    WORKING_DIRECTORY "${_src}"
+    RESULT_VARIABLE _apply_rc
+    OUTPUT_VARIABLE _apply_out
+    ERROR_VARIABLE _apply_err
+  )
+  if(NOT _apply_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Failed to apply ${_patch} onto ${_src}: ${_apply_out}${_apply_err}")
+  endif()
+  file(READ "${_domain}" _domain_text)
+  string(FIND "${_domain_text}" "enum class GraphSerializationScope" _enum_pos)
+  string(FIND "${_domain_text}" "serialization_scope{" _member_pos)
+  if(_enum_pos EQUAL -1 OR _member_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Patch reported success but GraphSerializationScope is still missing in "
+      "${_domain}")
+  endif()
+  message(STATUS
+    "APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH=applied source=${_src}")
 endfunction()
 
 function(_apptraverse_cpm_source_dir package_name out_var)
@@ -112,6 +190,26 @@ function(_apptraverse_cpm_source_dir package_name out_var)
     return()
   endif()
   set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+function(_apptraverse_git_dirty source_dir out_var)
+  execute_process(
+    COMMAND git status --porcelain
+    WORKING_DIRECTORY "${source_dir}"
+    OUTPUT_VARIABLE _dirty
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _git_rc
+    ERROR_VARIABLE _git_err
+  )
+  if(NOT _git_rc EQUAL 0)
+    set(${out_var} "git-status-failed" PARENT_SCOPE)
+    return()
+  endif()
+  if(_dirty STREQUAL "")
+    set(${out_var} "clean" PARENT_SCOPE)
+  else()
+    set(${out_var} "dirty" PARENT_SCOPE)
+  endif()
 endfunction()
 
 function(_apptraverse_git_head source_dir out_var)
@@ -137,9 +235,11 @@ function(_apptraverse_verify_pinned_package package_name expected_sha)
       "Could not resolve ${package_name} source directory after CPMAddPackage")
   endif()
   _apptraverse_git_head("${_src}" _sha)
+  _apptraverse_git_dirty("${_src}" _dirty)
   message(STATUS "APPTRAVERSE_${package_name}_SOURCE=${_src}")
   message(STATUS "APPTRAVERSE_${package_name}_EXPECTED_SHA=${expected_sha}")
   message(STATUS "APPTRAVERSE_${package_name}_SHA=${_sha}")
+  message(STATUS "APPTRAVERSE_${package_name}_TREE=${_dirty}")
   if(NOT _sha STREQUAL expected_sha)
     message(FATAL_ERROR
       "${package_name} SHA mismatch: got ${_sha}, expected ${expected_sha} at ${_src}")
