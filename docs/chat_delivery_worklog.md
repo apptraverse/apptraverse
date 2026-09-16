@@ -447,7 +447,7 @@ reachability, room bootstrap progress, and message delivery in
 | native GUI manual | NOT_RUN |
 
 ### Ending SHA
-604af3b
+001451b
 
 ### Next Commit
 - (per overnight plan)
