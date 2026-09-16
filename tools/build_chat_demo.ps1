@@ -1,16 +1,19 @@
 # Incremental MSVC build for chat demo targets.
-# Isolates vcvars + CMake + VS Ninja in this process; does not edit the user PATH.
+# Imports vcvars into this process, then runs CMake/Ninja with argument arrays.
+# Does not edit the user global PATH permanently.
 #
 # Usage (from repo root):
 #   powershell -File tools/build_chat_demo.ps1
 #   powershell -File tools/build_chat_demo.ps1 -BuildDir build/chat-r2-msvc-debug -Configure
-#   powershell -File tools/build_chat_demo.ps1 -AetherDemos:$false
+#   powershell -File tools/build_chat_demo.ps1 -NoAetherDemos
+# Explicit overrides only (never auto-filled from foreign checkouts):
+#   -LibsodiumSource <path> -LibbcryptSource <path>
 
 param(
   [string]$BuildDir = "build/win64-ninja-msvc-debug",
   [string]$Configuration = "Debug",
   [switch]$Configure,
-  [bool]$AetherDemos = $true,
+  [switch]$NoAetherDemos,
   [string[]]$Targets = @(),
   [string]$LibsodiumSource = "",
   [string]$LibbcryptSource = ""
@@ -20,25 +23,74 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location -LiteralPath $Root
 
-function Invoke-VcCmd([string]$CommandLine) {
-  $batch = Join-Path $env:TEMP ("apptraverse_build_{0}.cmd" -f [guid]::NewGuid().ToString("N"))
+function Assert-NativeExit([int]$Code, [string]$What) {
+  if ($Code -ne 0) {
+    Write-Error "Native command failed with exit $Code : $What"
+    exit $Code
+  }
+}
+
+function Import-VcVars64([string]$VcvarsPath) {
+  # Only the VS install path enters this batch (ASCII under Program Files).
+  # Repository/build/target paths are never written into cmd.
+  $batch = Join-Path $env:TEMP ("apptraverse_vcvars_{0}.cmd" -f [guid]::NewGuid().ToString("N"))
   @(
     "@echo off"
     "setlocal EnableExtensions"
-    "call `"$script:Vcvars`""
+    "call `"$VcvarsPath`" >nul"
     "if errorlevel 1 exit /b 1"
-    "set `"PATH=$script:CMakeDir;$script:NinjaDir;%PATH%`""
-    "set `"PATH=%PATH:C:\msys64\ucrt64\bin;=%`""
-    "set `"PATH=%PATH:C:\msys64\usr\bin;=%`""
-    $CommandLine
-    "exit /b %ERRORLEVEL%"
+    "set"
   ) | Set-Content -LiteralPath $batch -Encoding ASCII
-  cmd.exe /c "`"$batch`""
-  $code = $LASTEXITCODE
-  Remove-Item -LiteralPath $batch -ErrorAction SilentlyContinue
-  if ($code -ne 0) {
-    Write-Error "Native command failed with exit $code : $CommandLine"
-    exit $code
+  try {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "cmd.exe"
+    $psi.Arguments = "/c `"$batch`""
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+    Assert-NativeExit $proc.ExitCode "vcvars64 bootstrap ($stderr)"
+    foreach ($line in ($stdout -split "`r?`n")) {
+      if ($line -match '^(.*?)=(.*)$') {
+        Set-Item -LiteralPath ("Env:{0}" -f $Matches[1]) -Value $Matches[2]
+      }
+    }
+    if (-not $env:VCINSTALLDIR) {
+      Write-Error "vcvars64 did not set VCINSTALLDIR"
+      exit 1
+    }
+  } finally {
+    Remove-Item -LiteralPath $batch -ErrorAction SilentlyContinue
+  }
+}
+
+function Assert-OverrideSource([string]$Label, [string]$Path) {
+  if (-not $Path) { return }
+  if (-not (Test-Path -LiteralPath $Path)) {
+    Write-Error "$Label override path does not exist: $Path"
+    exit 1
+  }
+  $abs = (Resolve-Path -LiteralPath $Path).Path
+  Write-Host "APPTRAVERSE_${Label}_SOURCE=$abs"
+  if (Test-Path -LiteralPath (Join-Path $abs ".git")) {
+    Push-Location -LiteralPath $abs
+    try {
+      $sha = (git rev-parse HEAD).Trim()
+      $dirty = if (git status --porcelain) { "dirty" } else { "clean" }
+      Write-Host "APPTRAVERSE_${Label}_SHA=$sha"
+      Write-Host "APPTRAVERSE_${Label}_TREE=$dirty"
+      if ($dirty -ne "clean") {
+        Write-Host "APPTRAVERSE_${Label}_WARNING=override has local modifications; not a clean release pin"
+      }
+    } finally {
+      Pop-Location
+    }
+  } else {
+    Write-Host "APPTRAVERSE_${Label}_WARNING=override is not a git checkout; patch identity unknown"
   }
 }
 
@@ -50,16 +102,16 @@ if (-not (Test-Path -LiteralPath $VsWhere)) {
 $VsInstall = (& $VsWhere -latest -products * `
   -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
   -property installationPath | Select-Object -First 1).Trim()
-$script:Vcvars = Join-Path $VsInstall "VC\Auxiliary\Build\vcvars64.bat"
-if (-not (Test-Path -LiteralPath $script:Vcvars)) {
-  Write-Error "vcvars64.bat not found at $script:Vcvars"
+$Vcvars = Join-Path $VsInstall "VC\Auxiliary\Build\vcvars64.bat"
+if (-not (Test-Path -LiteralPath $Vcvars)) {
+  Write-Error "vcvars64.bat not found at $Vcvars"
   exit 1
 }
 
 $CMake = Join-Path ${env:ProgramFiles} "CMake\bin\cmake.exe"
-$script:CMakeDir = Join-Path ${env:ProgramFiles} "CMake\bin"
-$script:NinjaDir = Join-Path $VsInstall "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
-$Ninja = Join-Path $script:NinjaDir "ninja.exe"
+$CMakeDir = Join-Path ${env:ProgramFiles} "CMake\bin"
+$NinjaDir = Join-Path $VsInstall "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
+$Ninja = Join-Path $NinjaDir "ninja.exe"
 if (-not (Test-Path -LiteralPath $CMake)) {
   Write-Error "CMake not found at $CMake"
   exit 1
@@ -79,80 +131,119 @@ Write-Host "APPTRAVERSE_CMAKE=$CMake"
 Write-Host "APPTRAVERSE_NINJA=$Ninja"
 Write-Host "APPTRAVERSE_BUILD_DIR=$BuildDir"
 Write-Host "APPTRAVERSE_CONFIGURATION=$Configuration"
+Write-Host "APPTRAVERSE_AETHER_DEMOS=$(-not $NoAetherDemos)"
 
 $AbsBuild = if ([IO.Path]::IsPathRooted($BuildDir)) { $BuildDir } else { Join-Path $Root $BuildDir }
 New-Item -ItemType Directory -Force -Path $AbsBuild | Out-Null
-$NeedConfigure = $Configure -or -not (Test-Path -LiteralPath (Join-Path $AbsBuild "CMakeCache.txt"))
-$AetherValue = if ($AetherDemos) { "ON" } else { "OFF" }
+$CacheFile = Join-Path $AbsBuild "CMakeCache.txt"
+$AetherValue = if ($NoAetherDemos) { "OFF" } else { "ON" }
 
-if ($NeedConfigure) {
-  Write-Host "Configuring $AbsBuild"
-  $qRoot = $Root
-  $qBuild = $AbsBuild
-  $qNinja = $Ninja
-  # Prefer already-patched Windows SOURCE trees when present (CPM PATCHES may not
-  # re-apply on cached downloads). Do not invent paths; only use existing trees.
-  if (-not $LibsodiumSource) {
-    $candidates = @(
-      (Join-Path $Root "build\win64-ninja-msvc-debug\_deps\libsodium-src"),
-      "C:\Users\nickc\Projects\apptraverse-surfaces-integration\build\win64-ninja-msvc-debug\_deps\libsodium-src"
-    )
-    foreach ($c in $candidates) {
-      if ((Test-Path -LiteralPath (Join-Path $c "CMakeLists.txt")) -and
-          (Test-Path -LiteralPath (Join-Path $c "src\libsodium\include\sodium.h"))) {
-        $LibsodiumSource = $c
-        break
-      }
-    }
+$NeedConfigure = [bool]$Configure -or -not (Test-Path -LiteralPath $CacheFile)
+if ((Test-Path -LiteralPath $CacheFile) -and -not $NeedConfigure) {
+  $cachedType = (Select-String -LiteralPath $CacheFile -Pattern '^CMAKE_BUILD_TYPE:STRING=(.*)$' |
+    Select-Object -First 1).Matches.Groups[1].Value
+  $cachedDemos = (Select-String -LiteralPath $CacheFile -Pattern '^APPTRAVERSE_BUILD_AETHER_DEMOS:BOOL=(.*)$' |
+    Select-Object -First 1).Matches.Groups[1].Value
+  if ($cachedType -and ($cachedType -ne $Configuration)) {
+    Write-Error ("CMakeCache CMAKE_BUILD_TYPE={0} mismatches requested Configuration={1}. " +
+      "Use a distinct build directory (e.g. build/chat-msvc-relwithdebinfo) or pass -Configure.") -f $cachedType, $Configuration
+    exit 1
   }
-  if (-not $LibbcryptSource) {
-    $candidates = @(
-      (Join-Path $Root "build\win64-ninja-msvc-debug\_deps\libbcrypt-fixed"),
-      (Join-Path $Root "build\win64-ninja-msvc-debug\_deps\libbcrypt-src")
-    )
-    foreach ($c in $candidates) {
-      if (Test-Path -LiteralPath (Join-Path $c "CMakeLists.txt")) {
-        $LibbcryptSource = $c
-        break
-      }
-    }
+  if ($cachedDemos -and ($cachedDemos -ne $AetherValue)) {
+    Write-Error ("CMakeCache APPTRAVERSE_BUILD_AETHER_DEMOS={0} mismatches requested AetherDemos={1}. " +
+      "Pass -Configure or use a distinct build directory.") -f $cachedDemos, $AetherValue
+    exit 1
   }
-  $extra = "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
-  if ($LibsodiumSource) {
-    $LibsodiumSource = ($LibsodiumSource -replace '\\', '/')
-    Write-Host "APPTRAVERSE_LIBSODIUM_SOURCE=$LibsodiumSource"
-    $extra += " `"-DCPM_libsodium_SOURCE=$LibsodiumSource`""
-  }
-  if ($LibbcryptSource) {
-    $LibbcryptSource = ($LibbcryptSource -replace '\\', '/')
-    Write-Host "APPTRAVERSE_LIBBCRYPT_SOURCE=$LibbcryptSource"
-    $extra += " `"-DCPM_libbcrypt_SOURCE=$LibbcryptSource`""
-  }
-  Invoke-VcCmd " `"$CMake`" -S `"$qRoot`" -B `"$qBuild`" -G Ninja -DCMAKE_BUILD_TYPE=$Configuration -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `"-DCMAKE_MAKE_PROGRAM=$qNinja`" $extra -DAPPTRAVERSE_BUILD_AETHER_DEMOS=$AetherValue"
+}
+if ($Configure) {
+  $NeedConfigure = $true
 }
 
-if ($Targets.Count -eq 0) {
-  if ($AetherDemos) {
-    $Targets = @(
-      "apptraverse_chat",
-      "apptraverse_chat_demo_model_test",
-      "apptraverse_chat_session_integration_test",
-      "apptraverse_chat_session_fault_test",
-      "apptraverse_chat_session_command_limits_test",
-      "apptraverse_chat_windows_smoke_test",
-      "apptraverse_shared_sync_protocol_test"
+Assert-OverrideSource "LIBSODIUM" $LibsodiumSource
+Assert-OverrideSource "LIBBCRYPT" $LibbcryptSource
+
+$savedEnv = @{}
+foreach ($key in [Environment]::GetEnvironmentVariables("Process").Keys) {
+  $savedEnv[$key] = [Environment]::GetEnvironmentVariable($key, "Process")
+}
+
+try {
+  Import-VcVars64 $Vcvars
+  $pathParts = @($CMakeDir, $NinjaDir) + @(
+    ($env:PATH -split ';' | Where-Object {
+      $_ -and
+      ($_ -notlike '*\msys64\ucrt64\bin*') -and
+      ($_ -notlike '*\msys64\usr\bin*')
+    })
+  )
+  $env:PATH = ($pathParts -join ';')
+
+  if ($NeedConfigure) {
+    Write-Host "Configuring $AbsBuild"
+    $cfgArgs = @(
+      "-S", $Root,
+      "-B", $AbsBuild,
+      "-G", "Ninja",
+      "-DCMAKE_BUILD_TYPE=$Configuration",
+      "-DCMAKE_C_COMPILER=cl",
+      "-DCMAKE_CXX_COMPILER=cl",
+      "-DCMAKE_MAKE_PROGRAM=$Ninja",
+      "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+      "-DAPPTRAVERSE_BUILD_AETHER_DEMOS=$AetherValue"
     )
+    if ($LibsodiumSource) {
+      $sodiumFwd = ($LibsodiumSource -replace '\\', '/')
+      $cfgArgs += "-DCPM_libsodium_SOURCE=$sodiumFwd"
+    }
+    if ($LibbcryptSource) {
+      $bcryptFwd = ($LibbcryptSource -replace '\\', '/')
+      $cfgArgs += "-DCPM_libbcrypt_SOURCE=$bcryptFwd"
+    }
+    & $CMake @cfgArgs
+    Assert-NativeExit $LASTEXITCODE "cmake configure"
+  }
+
+  if ($Targets.Count -eq 0) {
+    if (-not $NoAetherDemos) {
+      $Targets = @(
+        "apptraverse_chat",
+        "apptraverse_chat_demo_model_test",
+        "apptraverse_chat_session_integration_test",
+        "apptraverse_chat_session_fault_test",
+        "apptraverse_chat_session_command_limits_test",
+        "apptraverse_chat_windows_smoke_test",
+        "apptraverse_shared_sync_protocol_test"
+      )
+    } else {
+      $Targets = @(
+        "chat_demo_model",
+        "apptraverse_chat_demo_model_test",
+        "apptraverse_chat_demo_launch_options_test"
+      )
+    }
   } else {
-    $Targets = @(
-      "apptraverse_chat_demo_model_test",
-      "apptraverse_chat_demo_launch_options_test"
-    )
+    # powershell -File flattens "a,b" to one string; expand commas.
+    $expanded = @()
+    foreach ($t in $Targets) {
+      $expanded += @($t -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+    $Targets = $expanded
   }
-}
 
-foreach ($t in $Targets) {
-  Write-Host "Building $t"
-  Invoke-VcCmd " `"$CMake`" --build `"$AbsBuild`" --config $Configuration --target $t"
+  foreach ($t in $Targets) {
+    Write-Host "Building $t"
+    & $CMake --build $AbsBuild --config $Configuration --target $t
+    Assert-NativeExit $LASTEXITCODE "cmake --build --target $t"
+  }
+} finally {
+  foreach ($key in @([Environment]::GetEnvironmentVariables("Process").Keys)) {
+    if (-not $savedEnv.ContainsKey($key)) {
+      Remove-Item -LiteralPath ("Env:{0}" -f $key) -ErrorAction SilentlyContinue
+    }
+  }
+  foreach ($key in $savedEnv.Keys) {
+    [Environment]::SetEnvironmentVariable($key, $savedEnv[$key], "Process")
+  }
 }
 
 Write-Host "Built chat demo targets in $AbsBuild exit=0"

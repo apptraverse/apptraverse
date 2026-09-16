@@ -101,3 +101,54 @@ paths, LASTEXITCODE abort, optional `CPM_libsodium_SOURCE` /
 ## Next
 
 R02 build-info/receipts; R03 bound-room restart AV; continue R04+.
+
+---
+
+# AUTO_CONTINUATION (from `f4b232c`)
+
+## A00 — Reconcile (2026-09-16)
+
+| Item | Value |
+| --- | --- |
+| Repo | `C:\Users\nickc\Projects\apptraverse-chat-delivery` → remote `apptraverse/apptraverse` |
+| Branch | `main` |
+| Local HEAD | `f4b232c79f480f31de39a67f4d478f4f3cd98ed9` |
+| origin/main | identical |
+| Worktree | only unrelated `tools/build_commit0{1,2}_msvc.bat` untracked |
+| `build/chat-r2-msvc-debug` | retained; cache still had foreign `CPM_libsodium_SOURCE` → surfaces-integration (defect for A01) |
+| Android SDK | present `%LOCALAPPDATA%\Android\Sdk` |
+| WSL Ubuntu | Stopped (may start later for A18) |
+| Python | 3.11/3.13/3.14 on PATH |
+
+Source-confirmed defects still present in tree: status_serial mutex split,
+RetryConnection Join, Android `R.id/aether_uid` + `System.exit`, Checkpoint→SaveBounds.
+
+A01 in progress: remove foreign SOURCE auto-fill; vcvars env import (no ASCII .cmd
+path interpolation); cache mismatch checks; `APPTRAVERSE_CMAKE_DIR` patch paths;
+new owned dir `build/chat-a01-msvc-debug` without overrides.
+
+## A01 — Portable build (completed)
+
+### Changes
+- `tools/build_chat_demo.ps1`: no foreign checkout auto-fill; explicit
+  `-LibsodiumSource`/`-LibbcryptSource` only; vcvars imported into process env
+  (batch contains only VS path); CMake/Ninja via argument arrays; cache mismatch
+  for Configuration/AetherDemos; `-NoAetherDemos` switch; comma Targets expand.
+- `cmake/aether_version.cmake`: `APPTRAVERSE_CMAKE_DIR` /
+  `APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH`; ensure uses
+  `CMAKE_CURRENT_FUNCTION_LIST_DIR`; reverse+forward `git apply --check`.
+
+### Evidence
+
+| Check | Result |
+| --- | --- |
+| `build/chat-a01-msvc-debug` configure without CPM_*_SOURCE | exit 0; SCOPE_PATCH=applied |
+| Second `-Configure` same dir | exit 0; SCOPE_PATCH=already-applied |
+| model + protocol tests | UNIT_PASS exit 0 |
+| `build/chat-a01-model-only -NoAetherDemos` | BUILD_PASS exit 0; cache DEMOs=OFF |
+| Unicode+space `build/чат demo a01` model-only | BUILD_PASS exit 0 |
+| Foreign sodium path | absent from A01 CMakeCache |
+
+## Next
+
+A02 build-info/receipts; A03 bound restart reproduce.

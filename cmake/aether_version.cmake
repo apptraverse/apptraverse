@@ -1,4 +1,11 @@
 # Pin for aether-client-cpp (network/client) and aether-objects (Obj/Domain).
+# Directory of this module (safe when AppTraverse is an add_subdirectory/Android
+# parent project). Prefer this over CMAKE_SOURCE_DIR for owned patches.
+get_filename_component(APPTRAVERSE_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
+get_filename_component(APPTRAVERSE_REPO_ROOT "${APPTRAVERSE_CMAKE_DIR}/.." ABSOLUTE)
+set(APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-domain-graph-serialization-scope.patch")
+
 set(APPTRAVERSE_AETHER_GIT_TAG "0b0e3b54b9ffa730c41597c8b18f6a75255bded3")
 
 # Optional local checkout of aether-client-cpp. When set (or when a sibling
@@ -82,11 +89,13 @@ function(apptraverse_add_pinned_aether_owned_deps)
     GIT_TAG ${APPTRAVERSE_AETHER_OBJECTS_GIT_TAG}
     EXCLUDE_FROM_ALL NO
     PATCHES
-      "${CMAKE_SOURCE_DIR}/cmake/patches/aether-objects-domain-graph-serialization-scope.patch"
+      "${APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH}"
     OPTIONS
       "AE_INSTALL OFF"
       "AE_BUILD_TESTS OFF"
   )
+  # CPM PATCHES is skipped when SOURCE_CACHE already holds the package. The
+  # ensure step is the authoritative verifier/applier on the compiled SOURCE_DIR.
   apptraverse_ensure_aether_objects_graph_scope()
   if(TARGET aether-objects)
     # Quiet OBJ_SYS / AE_LOG_MACRO spam in Debug product and smoke binaries.
@@ -101,10 +110,9 @@ function(apptraverse_add_pinned_aether_miscpp)
   apptraverse_add_pinned_aether_owned_deps()
 endfunction()
 
-# CPM PATCHES is skipped when SOURCE_CACHE already contains the package, and
-# Windows reconfigure can leave _deps/aether-objects-src unpatched while a
-# leftover -patched tree exists. App Traverse object_link.h requires
-# ae::DomainGraph::serialization_scope. Apply the owned patch exactly once.
+# CPM PATCHES may be skipped on SOURCE_CACHE hits. This function is the single
+# authoritative prepare/verify step for GraphSerializationScope on the SOURCE_DIR
+# actually compiled (not a leftover -patched directory).
 function(apptraverse_ensure_aether_objects_graph_scope)
   _apptraverse_cpm_source_dir("aether-objects" _src)
   if(_src STREQUAL "")
@@ -120,41 +128,54 @@ function(apptraverse_ensure_aether_objects_graph_scope)
       "aether-objects domain.h not found under ${_src}")
   endif()
 
-  file(READ "${_domain}" _domain_text)
-  string(FIND "${_domain_text}" "enum class GraphSerializationScope" _enum_pos)
-  string(FIND "${_domain_text}" "serialization_scope{" _member_pos)
-  set(_patch
-    "${CMAKE_SOURCE_DIR}/cmake/patches/aether-objects-domain-graph-serialization-scope.patch")
+  if(CMAKE_CURRENT_FUNCTION_LIST_DIR)
+    set(_patch
+      "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/patches/aether-objects-domain-graph-serialization-scope.patch")
+  else()
+    set(_patch "${APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH}")
+  endif()
   if(NOT EXISTS "${_patch}")
     message(FATAL_ERROR "Missing owned patch ${_patch}")
   endif()
 
-  if(_enum_pos GREATER -1 AND _member_pos GREATER -1)
+  find_package(Git REQUIRED)
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --reverse --check "${_patch}"
+    WORKING_DIRECTORY "${_src}"
+    RESULT_VARIABLE _rev_rc
+    OUTPUT_VARIABLE _rev_out
+    ERROR_VARIABLE _rev_err
+  )
+  if(_rev_rc EQUAL 0)
     message(STATUS
-      "APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH=already-applied source=${_src}")
+      "APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH=already-applied source=${_src} patch=${_patch}")
     return()
   endif()
-  if(_enum_pos GREATER -1 OR _member_pos GREATER -1)
-    message(FATAL_ERROR
-      "aether-objects DomainGraph scope patch is PARTIAL at ${_domain}. "
-      "Do not overwrite the dependency; restore the pin and re-apply "
-      "${_patch} in one step.")
-  endif()
 
-  find_package(Git REQUIRED)
   execute_process(
     COMMAND "${GIT_EXECUTABLE}" apply --check "${_patch}"
     WORKING_DIRECTORY "${_src}"
-    RESULT_VARIABLE _check_rc
-    OUTPUT_VARIABLE _check_out
-    ERROR_VARIABLE _check_err
+    RESULT_VARIABLE _fwd_rc
+    OUTPUT_VARIABLE _fwd_out
+    ERROR_VARIABLE _fwd_err
   )
-  if(NOT _check_rc EQUAL 0)
+  if(NOT _fwd_rc EQUAL 0)
+    file(READ "${_domain}" _domain_text)
+    string(FIND "${_domain_text}" "enum class GraphSerializationScope" _enum_pos)
+    string(FIND "${_domain_text}" "serialization_scope{" _member_pos)
+    if(_enum_pos GREATER -1 OR _member_pos GREATER -1)
+      message(FATAL_ERROR
+        "aether-objects DomainGraph scope patch is PARTIAL/conflicting at ${_src}. "
+        "Forward and reverse git apply --check both failed. Restore the pin "
+        "(${APPTRAVERSE_AETHER_OBJECTS_GIT_TAG}) and reconfigure.\n"
+        "forward=${_fwd_err}\nreverse=${_rev_err}")
+    endif()
     message(FATAL_ERROR
-      "Pristine aether-objects at ${_src} rejected owned GraphSerializationScope "
-      "patch (case D / unexpected tree). git apply --check rc=${_check_rc}\n"
-      "${_check_out}${_check_err}")
+      "aether-objects at ${_src} rejected owned GraphSerializationScope patch "
+      "(unexpected dirty tree or wrong pin). git apply --check rc=${_fwd_rc}\n"
+      "${_fwd_out}${_fwd_err}")
   endif()
+
   execute_process(
     COMMAND "${GIT_EXECUTABLE}" apply "${_patch}"
     WORKING_DIRECTORY "${_src}"
@@ -166,16 +187,19 @@ function(apptraverse_ensure_aether_objects_graph_scope)
     message(FATAL_ERROR
       "Failed to apply ${_patch} onto ${_src}: ${_apply_out}${_apply_err}")
   endif()
-  file(READ "${_domain}" _domain_text)
-  string(FIND "${_domain_text}" "enum class GraphSerializationScope" _enum_pos)
-  string(FIND "${_domain_text}" "serialization_scope{" _member_pos)
-  if(_enum_pos EQUAL -1 OR _member_pos EQUAL -1)
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --reverse --check "${_patch}"
+    WORKING_DIRECTORY "${_src}"
+    RESULT_VARIABLE _verify_rc
+    OUTPUT_VARIABLE _verify_out
+    ERROR_VARIABLE _verify_err
+  )
+  if(NOT _verify_rc EQUAL 0)
     message(FATAL_ERROR
-      "Patch reported success but GraphSerializationScope is still missing in "
-      "${_domain}")
+      "Patch applied but reverse --check failed for ${_src}: ${_verify_err}")
   endif()
   message(STATUS
-    "APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH=applied source=${_src}")
+    "APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH=applied source=${_src} patch=${_patch}")
 endfunction()
 
 function(_apptraverse_cpm_source_dir package_name out_var)
