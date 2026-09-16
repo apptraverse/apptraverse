@@ -145,7 +145,7 @@ the binding callback succeeds (retry on duplicate before ACK).
 | native GUI | NOT_RUN |
 
 ### Ending SHA
-(pending commit)
+590d934d30612c37cd7439c24c3dfe7dfa52f73b
 
 ### Next Commit
 - **COMMIT 03**: Keep session callbacks and teardown on their owning threads.
