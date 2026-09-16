@@ -71,7 +71,8 @@ void SeedPersistedLocalUid(std::filesystem::path const& state_dir,
 }
 
 struct UiMirror {
-  ae::RamDomainStorage storage;
+  std::unique_ptr<ae::RamDomainStorage> storage =
+      std::make_unique<ae::RamDomainStorage>();
   std::unique_ptr<ae::Domain> domain;
   ChatWorkspace::ptr workspace;
 };
@@ -85,13 +86,16 @@ void ApplyUiUpdate(UiMirror& ui, ChatUiUpdate const& update) {
   in.data = bytes.data();
   in.size = bytes.size();
   if (!ui.workspace.is_valid()) {
-    ui.domain = std::make_unique<ae::Domain>(ui.storage);
-    auto root = apptraverse::LoadInitialPublication(in, *ui.domain, ui.storage);
+    ui.domain = std::make_unique<ae::Domain>(*ui.storage);
+    auto root = apptraverse::LoadInitialPublication(in, *ui.domain, *ui.storage);
     CHECK(root);
-    ui.workspace = ChatWorkspace::ptr::MakeFromThis(
-        static_cast<ChatWorkspace*>(root.get()));
+    auto held = ui.domain->Find(root->obj_id);
+    CHECK(held);
+    ui.workspace = ChatWorkspace::ptr{ui.domain.get(), root->obj_id, {},
+                                     std::move(held)};
   } else {
-    apptraverse::ApplyStructuralPublication(in, *ui.domain, ui.storage);
+    apptraverse::ApplyStructuralPublicationAndUpdatePresenters(
+        in, *ui.domain, *ui.storage, *ui.workspace);
   }
 }
 

@@ -205,3 +205,38 @@ A03 bound ChatSession restart reproduce; A04 ownership; A05–A08 session fixes.
 ## Next
 
 A03 bound restart reproducers; A05 WorkerState.
+
+## A03/A04 — Bound restart + canonical UI ownership (completed)
+
+### Root cause (TEST_PASS evidence)
+`BootstrapPair` returned by value moved `UiMirror` whose `RamDomainStorage`
+was an embedded member. `ae::Domain` retains `IDomainStorage*`; after the move
+`GetReader`/`Load` hit a dangling storage pointer → AV `0xC0000005` in
+`DomainGraph::GetReader` during `ApplyStructuralPublication`.
+`TestSendReplyWithoutResnapshot` kept `UiMirror` on the stack (no move) and
+passed the same apply path.
+
+### Changes
+- UI-test mirrors: heap-allocate `RamDomainStorage`; hold workspace via
+  `Domain::Find` (not `MakeFromThis`); structural apply through
+  `ApplyStructuralPublicationAndUpdatePresenters` with GUI root keepalive.
+- Hosts (Win/Linux/Android): already used Find+keepalive; confirmed.
+- `TestBoundRoomFullRestart`: full destroy of sessions+UI Domains, reverse
+  reload order, checkpoint before stop, continue messaging after reopen.
+
+### Evidence (`build/chat-a01-msvc-debug`, dirty tree on `ef8cf8c`)
+| Test | Result |
+| --- | --- |
+| `apptraverse_chat_session_integration_test` (incl. bound restart) | TEST_PASS exit 0 |
+| `apptraverse_chat_session_fault_test` | TEST_PASS exit 0 |
+| `apptraverse_chat_session_bootstrap_test` | TEST_PASS exit 0 |
+| `apptraverse_chat_session_publication_test` | TEST_PASS exit 0 |
+| `apptraverse_chat_session_command_limits_test` | TEST_PASS exit 0 |
+| `apptraverse_chat_session_startup_test` | TEST_PASS exit 0 |
+| `apptraverse_shared_sync_protocol_test` | TEST_PASS exit 0 |
+
+Historical AV: REPRODUCED then FIXED (dangling Domain storage after UiMirror move).
+
+## Next
+
+A05 WorkerState; A07 network_epoch Retry; A08 command results; A09+ gates.

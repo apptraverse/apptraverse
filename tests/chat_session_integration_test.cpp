@@ -71,7 +71,10 @@ std::filesystem::path MakeTempDir(char const* tag) {
 }
 
 struct UiMirror {
-  ae::RamDomainStorage storage;
+  // Heap storage so Domain::storage_ stays valid if UiMirror is moved
+  // (e.g. BootstrapPair returned by value).
+  std::unique_ptr<ae::RamDomainStorage> storage =
+      std::make_unique<ae::RamDomainStorage>();
   std::unique_ptr<ae::Domain> domain;
   ChatWorkspace::ptr workspace;
 };
@@ -85,14 +88,18 @@ void ApplyUiUpdate(UiMirror& ui, ChatUiUpdate const& update) {
   in.data = bytes.data();
   in.size = bytes.size();
   if (!ui.workspace.is_valid()) {
-    ui.domain = std::make_unique<ae::Domain>(ui.storage);
-    auto root = apptraverse::LoadInitialPublication(in, *ui.domain, ui.storage);
+    ui.domain = std::make_unique<ae::Domain>(*ui.storage);
+    auto root = apptraverse::LoadInitialPublication(in, *ui.domain, *ui.storage);
     CHECK(root);
     CHECK(root->GetClassId() == ChatWorkspace::kClassId);
-    ui.workspace = ChatWorkspace::ptr::MakeFromThis(
-        static_cast<ChatWorkspace*>(root.get()));
+    // Canonical Domain owner — never MakeFromThis on an erased/base Obj*.
+    auto held = ui.domain->Find(root->obj_id);
+    CHECK(held);
+    ui.workspace = ChatWorkspace::ptr{ui.domain.get(), root->obj_id, {},
+                                     std::move(held)};
   } else {
-    apptraverse::ApplyStructuralPublication(in, *ui.domain, ui.storage);
+    apptraverse::ApplyStructuralPublicationAndUpdatePresenters(
+        in, *ui.domain, *ui.storage, *ui.workspace);
   }
 }
 
@@ -864,6 +871,158 @@ void TestErrorStatusPreservesHistoryAndDrafts() {
   coordinator.Join();
 }
 
+// REAL ChatSession bound-room restart: destroy both sessions + UI Domains,
+// reload same profiles in reverse order, verify room/message identity.
+void TestBoundRoomFullRestart() {
+  std::cout << "  bound-restart: begin\n";
+  apptraverse::MemoryNetwork network;
+  FakeEndpointCoordinator coordinator{network};
+  coordinator.Start();
+
+  auto pair = BootstrapTwoPeers(coordinator, "bob", "alice");
+  std::cout << "  bound-restart: bootstrapped\n";
+  auto entry_a = FindEntryByAdminId(*pair.ui_a.workspace, "bob");
+  auto entry_b = FindEntryByAdminId(*pair.ui_b.workspace, "alice");
+  CHECK(entry_a.is_valid() && entry_b.is_valid());
+  ae::ObjId const room_id = entry_a->room.id();
+  ae::ObjId const entry_a_id = entry_a.id();
+  ae::ObjId const entry_b_id = entry_b.id();
+  CHECK(room_id == entry_b->room.id());
+
+  // Match TestSendReplyWithoutResnapshot apply path exactly.
+  pair.a.session->EditDraft(entry_a.id(), "msg-a1", 1);
+  pair.a.session->SendDraft(entry_a.id(), "msg-a1", 1);
+  std::cout << "  bound-restart: A sent\n";
+
+  auto const deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (auto update = pair.b.session->TryTakeUiUpdate()) {
+      if (update->publication_bytes.has_value()) {
+        ApplyUiUpdate(pair.ui_b, *update);
+      }
+    }
+    if (MessageCount(pair.ui_b, "alice") >= 1) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  std::cout << "  bound-restart: B saw count="
+            << MessageCount(pair.ui_b, "alice") << '\n';
+  CHECK(MessageCount(pair.ui_b, "alice") >= 1);
+
+  // Reply so both sides have two shared messages before restart.
+  pair.b.session->EditDraft(entry_b.id(), "msg-b1", 1);
+  pair.b.session->SendDraft(entry_b.id(), "msg-b1", 1);
+  auto const reply_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  while (std::chrono::steady_clock::now() < reply_deadline) {
+    if (auto update = pair.a.session->TryTakeUiUpdate()) {
+      if (update->publication_bytes.has_value()) {
+        ApplyUiUpdate(pair.ui_a, *update);
+      }
+    }
+    if (auto update = pair.b.session->TryTakeUiUpdate()) {
+      if (update->publication_bytes.has_value()) {
+        ApplyUiUpdate(pair.ui_b, *update);
+      }
+    }
+    if (MessageCount(pair.ui_a, "bob") >= 2 &&
+        MessageCount(pair.ui_b, "alice") >= 2) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  CHECK(MessageCount(pair.ui_a, "bob") >= 2);
+  CHECK(MessageCount(pair.ui_b, "alice") >= 2);
+  CHECK(pair.a.session->Checkpoint(1));
+  CHECK(pair.b.session->Checkpoint(1));
+  {
+    auto const cp_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (std::chrono::steady_clock::now() < cp_deadline) {
+      if (pair.a.session->GetRuntimeStatus().completed_checkpoint_id >= 1 &&
+          pair.b.session->GetRuntimeStatus().completed_checkpoint_id >= 1) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK(pair.a.session->GetRuntimeStatus().completed_checkpoint_id >= 1);
+    CHECK(pair.b.session->GetRuntimeStatus().completed_checkpoint_id >= 1);
+  }
+
+  std::filesystem::path const dir_a = pair.a.state_dir;
+  std::filesystem::path const dir_b = pair.b.state_dir;
+
+  entry_a = {};
+  entry_b = {};
+  // Destroy sessions and GUI Domains completely (no retained ObjPtrs).
+  StopSessionKeepState(pair.a);
+  StopSessionKeepState(pair.b);
+  CHECK(pair.a.session == nullptr);
+  CHECK(pair.b.session == nullptr);
+  pair.ui_a.workspace = {};
+  pair.ui_a.domain.reset();
+  pair.ui_b.workspace = {};
+  pair.ui_b.domain.reset();
+  std::cout << "  bound-restart: sessions destroyed\n";
+
+  // Reverse startup order: B then A.
+  PeerSession peer_b =
+      StartPeerFromSavedState(coordinator, dir_b, kUidB);
+  PeerSession peer_a =
+      StartPeerFromSavedState(coordinator, dir_a, kUidA);
+  std::cout << "  bound-restart: peers reloaded\n";
+  UiMirror ui_b;
+  UiMirror ui_a;
+  WaitInitialPublication(*peer_b.session, ui_b);
+  WaitInitialPublication(*peer_a.session, ui_a);
+  std::cout << "  bound-restart: initial pubs applied\n";
+
+  ReopenPersistedPeerChat(peer_b, peer_a, ui_b, "alice", kUidA);
+  std::cout << "  bound-restart: B reopened\n";
+  ReopenPersistedPeerChat(peer_a, peer_b, ui_a, "bob", kUidB);
+  std::cout << "  bound-restart: A reopened\n";
+
+  entry_a = FindEntryByAdminId(*ui_a.workspace, "bob");
+  entry_b = FindEntryByAdminId(*ui_b.workspace, "alice");
+  CHECK(entry_a.is_valid() && entry_b.is_valid());
+  CHECK(entry_a->room.id() == room_id);
+  CHECK(entry_b->room.id() == room_id);
+  std::cout << "  bound-restart: counts a=" << MessageCount(ui_a, "bob")
+            << " b=" << MessageCount(ui_b, "alice") << '\n';
+  // Two messages exchanged before stop; both sides must reload them.
+  CHECK(MessageCount(ui_a, "bob") >= 2);
+  CHECK(MessageCount(ui_b, "alice") >= 2);
+
+  ae::ObjId const post_entry_a = entry_a.id();
+  entry_a = {};
+  entry_b = {};
+
+  // Continue exchanging after restart.
+  peer_a.session->EditDraft(post_entry_a, "after-restart", 10);
+  peer_a.session->SendDraft(post_entry_a, "msg-a2", 11);
+  std::cout << "  bound-restart: post-restart send\n";
+  auto const d2 = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+  while (std::chrono::steady_clock::now() < d2) {
+    ConsumePublications(*peer_a.session, ui_a);
+    ConsumePublications(*peer_b.session, ui_b);
+    if (MessageCount(ui_b, "alice") >= 3) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  std::cout << "  bound-restart: post-restart b="
+            << MessageCount(ui_b, "alice") << '\n';
+  CHECK(MessageCount(ui_b, "alice") >= 3);
+  CHECK(peer_a.session->IsFinished() == false);
+
+  DestroyPeerState(peer_a);
+  DestroyPeerState(peer_b);
+  coordinator.RequestStop();
+  coordinator.Join();
+}
+
 }  // namespace
 
 int main() {
@@ -875,24 +1034,23 @@ int main() {
   std::cout << std::unitbuf;
   std::cout << "Running chat_session_integration_test...\n";
   TestBootstrapAdmissionAndCreatorElection();
-  std::cout << "  Bootstrap admission/creator passed\n";
+  std::cout << "  Bootstrap admission / creator election passed\n";
   TestSendReplyWithoutResnapshot();
-  std::cout << "  Send/reply without resnapshot passed\n";
+  std::cout << "  Send-reply without resnapshot passed\n";
   TestConcurrentSendTimestampsConverge();
   std::cout << "  Concurrent send timestamps passed\n";
-  // Bound-room session reload after Stop/Start: see shared_sync_protocol_test
-  // (queued message + transport-level restart). Full ChatSession re-Start with
-  // a bound room is tracked separately; OpenPeer-after-restart is below.
   TestRepeatedOpenPeerSameAdmin();
   std::cout << "  Repeated OpenPeer same admin passed\n";
   TestTwoIndependentChats();
   std::cout << "  Two independent chats passed\n";
   TestMaliciousFramesRejected();
-  std::cout << "  Malicious frame rejection passed\n";
+  std::cout << "  Malicious frames rejected\n";
   TestUnicodeStateDirReload();
-  std::cout << "  Unicode state dir reload passed\n";
+  std::cout << "  Unicode state-dir reload passed\n";
   TestErrorStatusPreservesHistoryAndDrafts();
-  std::cout << "  Error/status preserves history passed\n";
+  std::cout << "  Error status preserves history/drafts passed\n";
+  TestBoundRoomFullRestart();
+  std::cout << "  Bound-room full restart passed\n";
   std::cout << "chat_session_integration_test passed!\n";
   return 0;
 }

@@ -94,8 +94,10 @@ void TestChatSessionStartupShutdownWithFakeEndpoint() {
       apptraverse::LoadInitialPublication(in, ui_domain, ui_storage);
   CHECK(root);
   CHECK(root->GetClassId() == ChatWorkspace::kClassId);
-  auto workspace = ChatWorkspace::ptr::MakeFromThis(
-      static_cast<ChatWorkspace*>(root.get()));
+  auto held = ui_domain.Find(root->obj_id);
+  CHECK(held);
+  auto workspace =
+      ChatWorkspace::ptr{&ui_domain, root->obj_id, {}, std::move(held)};
   CHECK(workspace);
 
   // Network readiness still deferred — lifecycle should not be Ready yet.

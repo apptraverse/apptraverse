@@ -50,7 +50,8 @@ std::filesystem::path MakeTempDir(char const* tag) {
 }
 
 struct UiMirror {
-  ae::RamDomainStorage storage;
+  std::unique_ptr<ae::RamDomainStorage> storage =
+      std::make_unique<ae::RamDomainStorage>();
   std::unique_ptr<ae::Domain> domain;
   ChatWorkspace::ptr workspace;
 };
@@ -66,16 +67,19 @@ void ConsumePublications(ChatSession& session, UiMirror& ui) {
     in.data = bytes.data();
     in.size = bytes.size();
     if (!ui.workspace.is_valid()) {
-      ui.domain = std::make_unique<ae::Domain>(ui.storage);
+      ui.domain = std::make_unique<ae::Domain>(*ui.storage);
       auto root =
-          apptraverse::LoadInitialPublication(in, *ui.domain, ui.storage);
+          apptraverse::LoadInitialPublication(in, *ui.domain, *ui.storage);
       CHECK(root);
       CHECK(root->GetClassId() == ChatWorkspace::kClassId);
-      ui.workspace = ChatWorkspace::ptr::MakeFromThis(
-          static_cast<ChatWorkspace*>(root.get()));
+      auto held = ui.domain->Find(root->obj_id);
+      CHECK(held);
+      ui.workspace = ChatWorkspace::ptr{ui.domain.get(), root->obj_id, {},
+                                       std::move(held)};
       CHECK(ui.workspace);
     } else {
-      apptraverse::ApplyStructuralPublication(in, *ui.domain, ui.storage);
+      apptraverse::ApplyStructuralPublicationAndUpdatePresenters(
+          in, *ui.domain, *ui.storage, *ui.workspace);
     }
   }
 }

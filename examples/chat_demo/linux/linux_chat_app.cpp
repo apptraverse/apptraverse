@@ -701,14 +701,17 @@ void LinuxChatApp::ConsumeUiUpdates() {
       if (!ui_workspace_.is_valid()) {
         ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
         auto loaded = LoadInitialPublication(in, *ui_domain_, ui_storage_);
-        ui_workspace_ = ChatWorkspace::ptr::MakeFromThis(static_cast<ChatWorkspace*>(&*loaded));
+        auto held = ui_domain_->Find(loaded->obj_id);
+        ui_workspace_ =
+            ChatWorkspace::ptr{ui_domain_.get(), loaded->obj_id, {}, std::move(held)};
         RestoreWindowGeometry();
         if (!active_entry_id_.is_valid() && ui_workspace_->selected_chat_id.is_valid()) {
           active_entry_id_ = ui_workspace_->selected_chat_id;
         }
       } else {
         ae::ObjId const prior_selected = active_entry_id_;
-        ApplyStructuralPublication(in, *ui_domain_, ui_storage_);
+        ApplyStructuralPublicationAndUpdatePresenters(
+            in, *ui_domain_, ui_storage_, *ui_workspace_);
         if (!pending_user_selection_.has_value() && ui_workspace_->selected_chat_id.is_valid() &&
             ui_workspace_->selected_chat_id != prior_selected) {
           chat_switched = true;
