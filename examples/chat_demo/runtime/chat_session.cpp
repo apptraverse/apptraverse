@@ -22,6 +22,7 @@
 #include "aether_byte_transport.h"
 #include "aether_link.h"
 #include "chat_aether_runtime.h"
+#include "chat_command_limits.h"
 #include "chat_commands.h"
 
 namespace apptraverse::example::chat_demo {
@@ -546,6 +547,19 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             return;
           }
 
+        if (!FieldWithinUserCommandLimit(req.peer_admin_id, kMaxPeerAdminIdBytes) ||
+            (req.peer_name.has_value() &&
+             !FieldWithinUserCommandLimit(*req.peer_name, kMaxPeerNameBytes)) ||
+            (req.peer_aether_uid.has_value() &&
+             !FieldWithinUserCommandLimit(*req.peer_aether_uid,
+                                          kMaxPeerAetherUidBytes))) {
+          UpdateStatus([](ChatRuntimeStatus& s) {
+            s.error_text = "Open peer request too large";
+          });
+          publication_dirty = true;
+          return;
+        }
+
         // 1. Normalize Admin ID and open/select chat (works before readiness).
         std::string const admin_id = TrimAsciiWhitespace(req.peer_admin_id);
         auto entry = OpenOrSelectChat(*workspace, admin_id,
@@ -740,6 +754,13 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                     &processed_edit_revisions](ae::ObjId entry_id, std::string text,
                                              std::uint64_t edit_revision) {
     AssertModelThread();
+    if (!FieldWithinUserCommandLimit(text, kMaxDraftTextBytes)) {
+      UpdateStatus([](ChatRuntimeStatus& s) {
+        s.error_text = "Draft too large";
+      });
+      publication_dirty = true;
+      return;
+    }
     for (auto const& entry : workspace->chats) {
       if (entry.is_valid() && entry.id() == entry_id) {
         if (SetDraft(*entry, text, persist_workspace)) {
@@ -756,6 +777,13 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                                                std::string current_text,
                                                std::uint64_t edit_revision) {
     AssertModelThread();
+    if (!FieldWithinUserCommandLimit(current_text, kMaxDraftTextBytes)) {
+      UpdateStatus([](ChatRuntimeStatus& s) {
+        s.error_text = "Draft too large";
+      });
+      publication_dirty = true;
+      return;
+    }
     for (auto const& entry : workspace->chats) {
       if (entry.is_valid() && entry.id() == entry_id) {
         SetDraft(*entry, current_text, persist_workspace);

@@ -605,9 +605,58 @@ lookup contract. Document blockers; do not invent resolver.
 | live AeroAdmin lookup | NOT_RUN (no contract) |
 
 ### Ending SHA
-(pending push)
+`55ea463`
 
 ### Next Commit
 - **COMMIT 14**: Cross-platform acceptance and failure tests
+
+---
+
+## Commit 14 — Cross-platform acceptance and failure tests
+
+### Objective
+Add acceptance matrix runner, session fault tests, bounded user-command ingress
+validation, and honest cross-platform pair documentation.
+
+### Starting SHA
+`55ea463`
+
+### Files changed
+- `examples/chat_demo/common/chat_command_limits.h` — ingress size constants
+- `examples/chat_demo/runtime/chat_session.cpp` — validate OpenPeer/EditDraft/SendDraft
+- `tests/chat_session_fault_test.cpp` — detach, publication, registration stop,
+  invalid profile, identity conflict, checkpoint reload
+- `tests/chat_session_command_limits_test.cpp` — oversize rejection + draft preserved
+- `tests/CMakeLists.txt` — new test targets
+- `tools/run_chat_acceptance.py` — cross-platform pair matrix (NOT_RUN when missing)
+
+### Acceptance matrix (Windows overnight host)
+| Pair | Result |
+| --- | --- |
+| Windows↔Windows (fake + Win32 smoke) | NOT_RUN (MSVC build tree broken; see below) |
+| Linux↔Linux | NOT_RUN (requires Linux + GTK3 host) |
+| Windows↔Linux | NOT_RUN |
+| desktop↔Android | NOT_RUN (`ANDROID_HOME`/adb unset) |
+| Android↔Android | NOT_RUN |
+| live Aether two-process | NOT_RUN (POSIX-only test in CMake on Windows) |
+
+### Fault tests (MSVC)
+| Test | Result |
+| --- | --- |
+| `apptraverse_chat_session_fault_test` | NOT_RUN (compile blocked) |
+| `apptraverse_chat_session_command_limits_test` | NOT_RUN (compile blocked) |
+| `apptraverse_chat_session_integration_test` | NOT_RUN (compile blocked) |
+| `apptraverse_shared_sync_protocol_test` | NOT_RUN (compile blocked) |
+
+MSVC gate blocked: incremental reconfigure on this host hit
+`object_link.h` / pinned `aether-objects` `serialization_scope` mismatch after
+msys `ld.exe` linker pollution in CMakeCache (see Commit 01 PATH note). Prior
+commits 01–12 recorded PASS on a healthy tree before this session reconfigure.
+
+### Ending SHA
+(pending push)
+
+### Next Commit
+- **COMMIT 15**: Optional web host blockers
 
 ---
