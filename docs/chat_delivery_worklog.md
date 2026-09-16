@@ -190,6 +190,9 @@ async Win32 close without blocking Join on WM_CLOSE.
 | live Aether | NOT_RUN |
 | native GUI | NOT_RUN |
 
+### Ending SHA
+dee52f6
+
 ### Next Commit
 - **COMMIT 04**: (per overnight plan)
 
