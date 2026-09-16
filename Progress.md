@@ -3695,3 +3695,33 @@ No production `dynamic_cast`/`typeid`; intentional string check in
 
 `4811f09113483e797abe67cdf5075c197e58c26c`
 
+
+## Join / Send / status-row fix (2026-09-16)
+
+Starting SHA: `0ca85c440ea97ee9f67b1ca2bf825721e075fbd2`
+
+### Landed
+- Retryable JoinRequest (1s / 30s Joining deadline; frozen bytes; Accepted keeps Accept-resend path)
+- Host Accept-then-snapshot order; JoinRejected to Client; no waiting-map mutation on failed CanApply
+- ExpectInitialNodeFromEndpoint(node_id) + ForgetInitialNodeFromEndpoint; snapshot gated on Accepted
+- Model-loop `project_demo_status`; Accepted projects Syncing not Joined
+- Win32: bottom status/presence labels removed; Send from selected binding; inline join error under top row
+- Fake drop-first control; bootstrap regressions; live pair uses `--client` + JOIN + reader threads
+- Initial NodeState retry without Online gate (control/data reorder vs presence)
+
+### Verified
+- `apptraverse_chat_session_bootstrap_test` PASS (incl. lost first JoinRequest, Joined phase, wrong-source)
+- `apptraverse_chat_session_integration_test` PASS
+- `apptraverse_shared_sync_protocol_test` PASS
+- `apptraverse_chat_demo_model_test` PASS
+- `apptraverse_chat_windows_smoke_test` PASS
+- Other listed unit targets built
+
+### Live Aether
+- `run_chat_session_live_pair.py`: Host obtains ROOM after Client JOIN; Client ROOM timed out in owned runs (first missing stage: Client-visible bind after Host accept/snapshot). Deterministic fake path PASS. Package still ships current EXE for manual GUI check.
+
+### Package
+- `dist/chat-demo-host-client-join-fix/` + `start-host.cmd` / `start-client.cmd`
+- EXE SHA256: `5B95FE6389D2CAF8DC57F4C6618FC0D8EBE80928743EF49A0FF6BBAE2816A3EA`
+
+Status: implemented/verified (deterministic). Not accepted-by-user. Live cold join still open.

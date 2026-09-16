@@ -246,14 +246,11 @@ void WinChatApp::CreateControls(HWND hwnd) {
                                      reinterpret_cast<HMENU>(104), hinst, nullptr);
   RequireControl(action_btn_hwnd_, "CreateWindowExW action button");
 
-  status_label_hwnd_ = CreateWindowExW(0, L"STATIC", L"Starting...", WS_CHILD | WS_VISIBLE | SS_LEFT,
-                                       0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(105), hinst,
-                                       nullptr);
-  RequireControl(status_label_hwnd_, "CreateWindowExW status label");
-
-  presence_label_hwnd_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_RIGHT, 0, 0,
-                                         0, 0, hwnd, reinterpret_cast<HMENU>(106), hinst, nullptr);
-  RequireControl(presence_label_hwnd_, "CreateWindowExW presence label");
+  join_error_hwnd_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_LEFT | SS_EDITCONTROL,
+                                      0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(105), hinst,
+                                      nullptr);
+  RequireControl(join_error_hwnd_, "CreateWindowExW join error");
+  ShowWindow(join_error_hwnd_, SW_HIDE);
 
   transcript_hwnd_ = CreateWindowExW(
       WS_EX_CLIENTEDGE, MSFTEDIT_CLASS, L"",
@@ -283,15 +280,12 @@ void WinChatApp::LayoutControls(int width, int height) {
   int const gap = 12;
   int const left_width = 240;
   int const top_bar_height = 28;
-  int const status_bar_height = 20;
   int const draft_height = 90;
   int const send_btn_width = 80;
+  int const error_row_height = 36;
 
   int const right_x = margin + left_width + gap;
-  int const right_width = width - right_x - margin;
-
-  MoveWindow(chat_list_hwnd_, margin, margin + top_bar_height + gap, left_width,
-             height - 2 * margin - top_bar_height - gap - status_bar_height, TRUE);
+  int const right_width = (width > right_x + margin) ? (width - right_x - margin) : 1;
 
   int const label_w = 80;
   int const action_w = 72;
@@ -304,19 +298,31 @@ void WinChatApp::LayoutControls(int width, int height) {
   MoveWindow(action_btn_hwnd_, right_x + label_w + gap + uid_w + gap, margin, action_w,
              top_bar_height, TRUE);
 
-  int const transcript_y = margin + top_bar_height + gap;
+  bool const show_error = IsWindowVisible(join_error_hwnd_) != FALSE;
+  int const error_h = show_error ? error_row_height : 0;
+  if (show_error) {
+    MoveWindow(join_error_hwnd_, right_x, margin + top_bar_height + 4, right_width, error_h,
+               TRUE);
+  } else {
+    MoveWindow(join_error_hwnd_, 0, 0, 0, 0, TRUE);
+  }
+
+  int const content_top = margin + top_bar_height + gap + (show_error ? (error_h + 4) : 0);
+  int const list_h = (height > content_top + margin) ? (height - content_top - margin) : 1;
+  MoveWindow(chat_list_hwnd_, margin, content_top, left_width, list_h, TRUE);
+
   int const transcript_h =
-      height - transcript_y - draft_height - status_bar_height - 2 * gap - margin;
-  MoveWindow(transcript_hwnd_, right_x, transcript_y, right_width, transcript_h, TRUE);
+      (height > content_top + draft_height + gap + margin)
+          ? (height - content_top - draft_height - gap - margin)
+          : 1;
+  MoveWindow(transcript_hwnd_, right_x, content_top, right_width, transcript_h, TRUE);
 
-  int const draft_y = transcript_y + transcript_h + gap;
-  int const draft_w = right_width - send_btn_width - gap;
+  int const draft_y = content_top + transcript_h + gap;
+  int const draft_w = (right_width > send_btn_width + gap)
+                          ? (right_width - send_btn_width - gap)
+                          : 1;
   MoveWindow(draft_hwnd_, right_x, draft_y, draft_w, draft_height, TRUE);
-  MoveWindow(send_btn_hwnd_, right_x + draft_w + gap, draft_y, send_btn_width, draft_height, TRUE);
-
-  int const status_y = height - margin - status_bar_height;
-  MoveWindow(status_label_hwnd_, margin, status_y, width / 2 - margin, status_bar_height, TRUE);
-  MoveWindow(presence_label_hwnd_, width / 2, status_y, width / 2 - margin, status_bar_height,
+  MoveWindow(send_btn_hwnd_, right_x + draft_w + gap, draft_y, send_btn_width, draft_height,
              TRUE);
 }
 
@@ -451,6 +457,7 @@ void WinChatApp::OnDraftChanged() {
                 reinterpret_cast<LPARAM>(&view.draft.sel_end));
 
   session_.EditDraft(active_entry_id_, text, view.draft.local_edit_revision);
+  UpdateSendAvailability();
 }
 
 void WinChatApp::OnSendDraftClicked() {
@@ -871,27 +878,8 @@ void WinChatApp::UpdateChatListSelection() {
   }
 }
 
-void WinChatApp::UpdateStatusLine() {
+void WinChatApp::UpdateConnectionControls() {
   auto const status = session_.GetRuntimeStatus();
-  std::wstring status_text;
-  if (!local_send_error_.empty()) {
-    status_text = L"Error: " + Utf8ToUtf16(local_send_error_);
-  } else if (!status.join_status_text.empty()) {
-    status_text = Utf8ToUtf16(status.join_status_text);
-  } else if (!status.error_text.empty()) {
-    status_text = L"Error: " + Utf8ToUtf16(status.error_text);
-  } else if (status.lifecycle_state == SessionLifecycleState::kFailed) {
-    status_text = L"Connection failed";
-  } else if (demo_role_ == DemoRole::kHost && status.local_endpoint_uid.empty()) {
-    status_text = L"Registering…";
-  } else if (status.local_connectivity == LocalConnectivityState::kOffline) {
-    status_text = L"Offline";
-  } else if (demo_role_ == DemoRole::kHost) {
-    status_text = L"Waiting for a client to join.";
-  } else {
-    status_text = L"Enter the host UID and click Join.";
-  }
-  SetWindowTextW(status_label_hwnd_, status_text.c_str());
 
   if (demo_role_ == DemoRole::kHost) {
     bool const have_uid = !status.local_endpoint_uid.empty();
@@ -905,65 +893,63 @@ void WinChatApp::UpdateStatusLine() {
     } else {
       SetWindowTextW(host_uid_hwnd_, L"Registering…");
     }
+    ShowWindow(join_error_hwnd_, SW_HIDE);
+  } else {
+    bool const joining = status.join_phase == ChatJoinPhase::kJoining ||
+                         status.join_phase == ChatJoinPhase::kAccepted;
+    SetWindowTextW(action_btn_hwnd_, joining ? L"Joining…" : L"Join");
+    EnableWindow(action_btn_hwnd_, joining ? FALSE : TRUE);
+
+    std::wstring error_text;
+    if (!local_send_error_.empty()) {
+      error_text = Utf8ToUtf16(local_send_error_);
+    } else if (status.join_phase == ChatJoinPhase::kFailed &&
+               !status.join_status_text.empty()) {
+      error_text = Utf8ToUtf16(status.join_status_text);
+    } else if (status.join_phase == ChatJoinPhase::kFailed &&
+               !status.error_text.empty()) {
+      error_text = Utf8ToUtf16(status.error_text);
+    }
+    if (error_text.empty()) {
+      ShowWindow(join_error_hwnd_, SW_HIDE);
+    } else {
+      SetWindowTextW(join_error_hwnd_, error_text.c_str());
+      ShowWindow(join_error_hwnd_, SW_SHOW);
+    }
   }
 
-  std::wstring presence_text;
+  RECT rc{};
+  if (main_hwnd_ != nullptr && GetClientRect(main_hwnd_, &rc)) {
+    LayoutControls(rc.right - rc.left, rc.bottom - rc.top);
+  }
+}
+
+void WinChatApp::UpdateSendAvailability() {
+  auto const status = session_.GetRuntimeStatus();
   auto const entry = FindUiEntry(active_entry_id_);
-  if (entry.is_valid() && entry->peer_link.is_valid()) {
-    std::string const& peer_uid = entry->peer_link->EndpointUid();
-    auto const boot = status.room_bootstrap_by_peer_uid.find(peer_uid);
-    if (boot != status.room_bootstrap_by_peer_uid.end() &&
-        boot->second != RoomBootstrapState::kComplete) {
-      presence_text = boot->second == RoomBootstrapState::kPending ? L"Syncing..."
-                                                                   : L"Waiting room";
-    } else {
-      auto it = status.remote_presence.find(peer_uid);
-      if (it != status.remote_presence.end()) {
-        switch (it->second) {
-          case PeerPresence::kOnline:
-            presence_text = L"Online";
-            break;
-          case PeerPresence::kConnecting:
-            presence_text = L"Connecting...";
-            break;
-          case PeerPresence::kOffline:
-            presence_text = L"Offline";
-            break;
-          default:
-            presence_text = L"Unknown";
-            break;
-        }
-      }
-    }
-    if (!entry->room.is_valid() || entry->room->messages.empty()) {
-      // keep presence only
-    } else {
-      SharedEventId const last_id = entry->room->messages.back().id;
-      auto const delivery = status.delivery_by_event_id.find(last_id);
-      if (delivery != status.delivery_by_event_id.end()) {
-        switch (delivery->second) {
-          case MessageDeliveryState::kDelivered:
-            presence_text += L" | Delivered";
-            break;
-          case MessageDeliveryState::kSending:
-            presence_text += L" | Sending";
-            break;
-          case MessageDeliveryState::kQueued:
-            presence_text += L" | Queued";
-            break;
-          default:
-            break;
-        }
-      }
-    }
-  }
-  SetWindowTextW(presence_label_hwnd_, presence_text.c_str());
-
   bool send_enabled = false;
-  if (!status.local_endpoint_uid.empty() && entry.is_valid() && entry->room.is_valid() &&
-      (demo_role_ == DemoRole::kHost || status.join_phase == ChatJoinPhase::kJoined ||
-       status.join_phase == ChatJoinPhase::kAccepted)) {
-    send_enabled = true;
+  if (!closing_ && !status.local_endpoint_uid.empty() &&
+      status.lifecycle_state != SessionLifecycleState::kFailed &&
+      entry.is_valid() && entry->room.is_valid() && entry->peer_link.is_valid()) {
+    bool local_writable = false;
+    for (auto const& share : entry->room->shares) {
+      if (share.link.is_valid() &&
+          share.link->EndpointUid() == status.local_endpoint_uid &&
+          share.access ==
+              static_cast<std::uint8_t>(apptraverse::ShareAccess::ReadWrite)) {
+        local_writable = true;
+        break;
+      }
+    }
+    std::wstring const draft = GetWindowTextString(draft_hwnd_);
+    bool nonempty = false;
+    for (wchar_t ch : draft) {
+      if (ch != L' ' && ch != L'\\t' && ch != L'\\r' && ch != L'\\n') {
+        nonempty = true;
+        break;
+      }
+    }
+    send_enabled = local_writable && nonempty;
   }
   EnableWindow(send_btn_hwnd_, send_enabled ? TRUE : FALSE);
 }
@@ -995,7 +981,8 @@ void WinChatApp::UpdateUiFromWorkspace(bool chat_switched) {
     UpdateTranscript({}, selection_changed, nullptr);
   }
 
-  UpdateStatusLine();
+  UpdateConnectionControls();
+  UpdateSendAvailability();
   applying_view_ = false;
 }
 
@@ -1078,7 +1065,8 @@ void WinChatApp::ConsumeUiUpdates() {
   if (had_publication || ui_workspace_.is_valid()) {
     UpdateUiFromWorkspace(chat_switched);
   } else {
-    UpdateStatusLine();
+    UpdateConnectionControls();
+    UpdateSendAvailability();
   }
 }
 
@@ -1143,7 +1131,7 @@ WinChatGuiSnapshot WinChatApp::BuildGuiSnapshot() {
   }
 
   CaptureScrollAnchor(snap.measured_scroll);
-  snap.status_text = GetWindowTextString(status_label_hwnd_);
+  snap.status_text = GetWindowTextString(join_error_hwnd_);
   return snap;
 }
 

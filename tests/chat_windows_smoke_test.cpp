@@ -140,8 +140,8 @@ void SeedSmokeWorkspace(std::filesystem::path const& state_dir) {
   };
   SetDesktopBounds(*ws, bounds);
 
-  auto e1 = OpenOrSelectChat(*ws, "22222222-3333-4444-5555-666666666666");
-  auto e2 = OpenOrSelectChat(*ws, "33333333-4444-5555-6666-777777777777");
+  auto e1 = OpenOrSelectChat(*ws, "22222222-3333-4444-5555-666666666666", [] {});
+  auto e2 = OpenOrSelectChat(*ws, "33333333-4444-5555-6666-777777777777", [] {});
   SelectChat(*ws, e1.id());
 
   auto link1 = CreateAetherLink(domain, ae::ObjId{2001}, "22222222-3333-4444-5555-666666666666");
@@ -228,6 +228,8 @@ void TestWinChatSmoke() {
     CHECK(IsWindow(app.chat_list_hwnd()) != 0);
     CHECK(IsWindow(app.transcript_hwnd()) != 0);
     CHECK(IsWindow(app.draft_hwnd()) != 0);
+    CHECK(IsWindow(app.join_error_hwnd()) != 0);
+    CHECK(IsWindowVisible(app.join_error_hwnd()) == FALSE);
 
     WinChatGuiSnapshot snap{};
     CHECK(WaitForSnapshot(app, snap, std::chrono::seconds{15}, 2));

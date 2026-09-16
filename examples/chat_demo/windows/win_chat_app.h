@@ -60,8 +60,7 @@ class WinChatApp {
   HWND uid_label_hwnd() const { return uid_label_hwnd_; }
   HWND host_uid_hwnd() const { return host_uid_hwnd_; }
   HWND action_btn_hwnd() const { return action_btn_hwnd_; }
-  HWND status_label_hwnd() const { return status_label_hwnd_; }
-  HWND presence_label_hwnd() const { return presence_label_hwnd_; }
+  HWND join_error_hwnd() const { return join_error_hwnd_; }
 
   void ApplyPublicationFromSession();
   ChatSession& session() { return session_; }
@@ -103,7 +102,8 @@ class WinChatApp {
 
   void ConsumeUiUpdates();
   void UpdateUiFromWorkspace(bool chat_switched);
-  void UpdateStatusLine();
+  void UpdateConnectionControls();
+  void UpdateSendAvailability();
   void UpdateChatListSelection();
   void UpdateDraftFromModel(ChatEntry::ptr const& entry, bool chat_switched);
   void UpdateTranscript(ChatEntry::ptr const& entry, bool chat_switched,
@@ -157,8 +157,7 @@ class WinChatApp {
   HWND uid_label_hwnd_{nullptr};
   HWND host_uid_hwnd_{nullptr};
   HWND action_btn_hwnd_{nullptr};
-  HWND status_label_hwnd_{nullptr};
-  HWND presence_label_hwnd_{nullptr};
+  HWND join_error_hwnd_{nullptr};
 
   ae::RamDomainStorage ui_storage_;
   std::unique_ptr<ae::Domain> ui_domain_;
