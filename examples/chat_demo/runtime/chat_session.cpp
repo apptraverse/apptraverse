@@ -184,6 +184,18 @@ struct WorkerState {
   bool network_retry_in_progress{false};
   std::function<void(std::string, std::vector<std::uint8_t>)> handle_control;
 
+  // Model-thread join send scheduler (nonpersistent; one active attempt).
+  ae::ObjId join_sched_attempt_id;
+  std::vector<std::uint8_t> join_frozen_bytes;
+  std::chrono::steady_clock::time_point join_attempt_start{};
+  std::optional<std::chrono::steady_clock::time_point> join_last_send;
+  std::uint64_t last_projected_runtime_gen{0};
+  std::uint64_t last_projected_workspace_gen{0};
+  ChatJoinPhase last_projected_join_phase{ChatJoinPhase::kIdle};
+  std::string last_projected_join_error;
+  std::string last_projected_host_input;
+  std::string last_projected_local_uid;
+
   explicit WorkerState(std::filesystem::path const& model_dir)
       : storage{model_dir}, domain{storage}, runtime_domain{runtime_storage} {}
 };
@@ -678,50 +690,104 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       });
     };
 
-    auto const publish_demo_status = [this, &workspace, &runtime]() {
-      AssertModelThread();
-      if (!workspace.is_valid() || !runtime.is_valid()) {
-        return;
-      }
-      UpdateStatus([&workspace, &runtime](ChatRuntimeStatus& s) {
-        s.demo_role = workspace->demo_role;
-        s.host_uid_input = workspace->host_uid_input;
-        s.local_endpoint_uid = workspace->local_endpoint_uid;
-        s.join_phase = runtime->join_phase;
-        if (!runtime->last_error.empty()) {
-          s.error_text = runtime->last_error;
-        }
-        if (workspace->demo_role == DemoRole::kHost &&
-            workspace->local_endpoint_uid.empty()) {
-          s.join_status_text = "Registering…";
-        } else if (workspace->demo_role == DemoRole::kClient) {
-          switch (runtime->join_phase) {
-            case ChatJoinPhase::kJoining:
-              s.join_status_text = "Joining…";
-              break;
-            case ChatJoinPhase::kAccepted:
-            case ChatJoinPhase::kJoined:
-              s.join_status_text = "Joined";
-              break;
-            case ChatJoinPhase::kFailed:
-              s.join_status_text = runtime->last_error;
-              break;
-            default:
-              s.join_status_text.clear();
-              break;
-          }
-        }
-      });
+    constexpr auto kJoinRetryInterval = std::chrono::seconds(1);
+    constexpr auto kJoinAttemptDeadline = std::chrono::seconds(30);
+
+    auto const clear_join_scheduler = [&worker]() {
+      worker->join_sched_attempt_id = {};
+      worker->join_frozen_bytes.clear();
+      worker->join_attempt_start = {};
+      worker->join_last_send.reset();
     };
 
-    auto const send_join_request =
-        [&aether_runtime, &runtime, &workspace]() {
-          if (!aether_runtime || !runtime.is_valid() ||
-              workspace->demo_role != DemoRole::kClient) {
+    auto const project_demo_status =
+        [this, &workspace, &runtime, &worker](bool force = false) {
+          AssertModelThread();
+          if (!workspace.is_valid() || !runtime.is_valid()) {
             return;
           }
-          if (runtime->join_phase != ChatJoinPhase::kJoining ||
-              !runtime->join_attempt_id.is_valid()) {
+          auto const runtime_gen = runtime->Generation();
+          auto const workspace_gen = workspace->Generation();
+          auto const phase = runtime->join_phase;
+          auto const err = runtime->last_error;
+          auto const host_in = workspace->host_uid_input;
+          auto const local_uid = workspace->local_endpoint_uid;
+          if (!force &&
+              runtime_gen == worker->last_projected_runtime_gen &&
+              workspace_gen == worker->last_projected_workspace_gen &&
+              phase == worker->last_projected_join_phase &&
+              err == worker->last_projected_join_error &&
+              host_in == worker->last_projected_host_input &&
+              local_uid == worker->last_projected_local_uid) {
+            return;
+          }
+          worker->last_projected_runtime_gen = runtime_gen;
+          worker->last_projected_workspace_gen = workspace_gen;
+          worker->last_projected_join_phase = phase;
+          worker->last_projected_join_error = err;
+          worker->last_projected_host_input = host_in;
+          worker->last_projected_local_uid = local_uid;
+
+          UpdateStatus([&](ChatRuntimeStatus& s) {
+            s.demo_role = workspace->demo_role;
+            s.host_uid_input = host_in;
+            s.local_endpoint_uid = local_uid;
+            s.join_phase = phase;
+            if (workspace->demo_role == DemoRole::kHost && local_uid.empty()) {
+              s.join_status_text = "Registering…";
+            } else if (workspace->demo_role == DemoRole::kClient) {
+              switch (phase) {
+                case ChatJoinPhase::kJoining:
+                  s.join_status_text = "Joining…";
+                  break;
+                case ChatJoinPhase::kAccepted:
+                  // Accepted is not Joined; room import may still be pending.
+                  s.join_status_text = "Syncing…";
+                  break;
+                case ChatJoinPhase::kJoined:
+                  s.join_status_text = "Joined";
+                  break;
+                case ChatJoinPhase::kFailed:
+                  s.join_status_text = err;
+                  s.error_text = err;
+                  break;
+                default:
+                  s.join_status_text.clear();
+                  break;
+              }
+              if (phase != ChatJoinPhase::kFailed && err.empty()) {
+                if (s.error_text.find("Join") != std::string::npos ||
+                    s.error_text.find("join") != std::string::npos ||
+                    s.error_text == "Invalid Host UID" ||
+                    s.error_text.find("timed out") != std::string::npos) {
+                  s.error_text.clear();
+                }
+              }
+            } else {
+              s.join_status_text.clear();
+            }
+          });
+        };
+
+    auto const arm_join_scheduler =
+        [&worker, &runtime, &workspace, &clear_join_scheduler]() {
+          if (!runtime.is_valid() ||
+              workspace->demo_role != DemoRole::kClient) {
+            clear_join_scheduler();
+            return;
+          }
+          if (runtime->join_phase != ChatJoinPhase::kJoining &&
+              runtime->join_phase != ChatJoinPhase::kAccepted) {
+            clear_join_scheduler();
+            return;
+          }
+          if (!runtime->join_attempt_id.is_valid() ||
+              runtime->expected_host_uid.empty()) {
+            clear_join_scheduler();
+            return;
+          }
+          if (worker->join_sched_attempt_id == runtime->join_attempt_id &&
+              !worker->join_frozen_bytes.empty()) {
             return;
           }
           ChatBootstrapMessage req;
@@ -733,17 +799,94 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           }
           std::vector<std::uint8_t> bytes;
           if (!EncodeChatBootstrap(req, bytes)) {
+            clear_join_scheduler();
+            return;
+          }
+          worker->join_sched_attempt_id = runtime->join_attempt_id;
+          worker->join_frozen_bytes = std::move(bytes);
+          worker->join_attempt_start = std::chrono::steady_clock::now();
+          worker->join_last_send.reset();
+        };
+
+    auto const drive_join_send =
+        [this, &worker, &runtime, &workspace, &aether_runtime, &aether_ready,
+         &my_uid, &sync_runtime, &waiting_entry_by_endpoint,
+         &clear_join_scheduler](std::chrono::steady_clock::time_point now) {
+          AssertModelThread();
+          if (!runtime.is_valid() || !aether_runtime ||
+              workspace->demo_role != DemoRole::kClient) {
+            return;
+          }
+          if (runtime->join_phase != ChatJoinPhase::kJoining &&
+              runtime->join_phase != ChatJoinPhase::kAccepted) {
+            clear_join_scheduler();
+            return;
+          }
+          if (!worker->join_sched_attempt_id.is_valid() ||
+              worker->join_frozen_bytes.empty() ||
+              worker->join_sched_attempt_id != runtime->join_attempt_id) {
+            return;
+          }
+          if (!aether_ready || my_uid.empty()) {
+            return;
+          }
+          // Deadline applies only while waiting for Host acceptance.
+          // After Accepted, keep resending JoinRequest so Host can resend
+          // Accept; snapshot bind is driven by SharedSyncRuntime retry.
+          if (runtime->join_phase == ChatJoinPhase::kJoining &&
+              now - worker->join_attempt_start >= kJoinAttemptDeadline) {
+            auto fail = JoinHostFailedEvent::ptr::Create(
+                ae::CreateWith{*runtime->domain});
+            fail->attempt_id = runtime->join_attempt_id;
+            fail->reason = "Join timed out";
+            if (runtime->CanApply(*fail)) {
+              runtime->Commit(fail);
+            }
+            if (sync_runtime) {
+              sync_runtime->ForgetInitialNodeFromEndpoint(
+                  runtime->expected_host_uid);
+            }
+            waiting_entry_by_endpoint.erase(runtime->expected_host_uid);
+            clear_join_scheduler();
+            return;
+          }
+          if (worker->join_last_send.has_value() &&
+              now - *worker->join_last_send < kJoinRetryInterval) {
             return;
           }
           aether_runtime->OpenPeer(runtime->expected_host_uid);
-          aether_runtime->SendControl(runtime->expected_host_uid, std::move(bytes));
+          aether_runtime->SendControl(runtime->expected_host_uid,
+                                      worker->join_frozen_bytes);
+          worker->join_last_send = now;
+        };
+
+    auto const send_join_rejected =
+        [&aether_runtime](std::string const& client_uid, ae::ObjId attempt_id,
+                          std::string reason) {
+          if (!aether_runtime || client_uid.empty()) {
+            return;
+          }
+          ChatBootstrapMessage rejected;
+          rejected.kind = ChatBootstrapKind::kJoinRejected;
+          rejected.attempt_id = attempt_id;
+          rejected.rejection_reason = std::move(reason);
+          std::vector<std::uint8_t> bytes;
+          if (!EncodeChatBootstrap(rejected, bytes)) {
+            return;
+          }
+          aether_runtime->OpenPeer(client_uid);
+          aether_runtime->SendControl(client_uid, std::move(bytes));
         };
 
     auto const host_accept_client =
         [&workspace, &persist_workspace, &sync_runtime, &aether_runtime, &my_uid,
-         &publication_dirty, this](std::string const& client_uid,
-                                     ChatBootstrapMessage const& req) {
+         &publication_dirty, &aether_ready, &send_join_rejected](
+            std::string const& client_uid, ChatBootstrapMessage const& req) {
           if (workspace->demo_role != DemoRole::kHost) {
+            return;
+          }
+          if (!aether_ready || my_uid.empty() || !sync_runtime) {
+            // Pre-readiness: ignore without mutation; Client retries.
             return;
           }
           if (client_uid.empty() || client_uid == my_uid) {
@@ -758,12 +901,9 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           }
           if (existing.is_valid() && existing->room.is_valid()) {
             if (req.room_id.is_valid() && req.room_id != existing->room.id()) {
-              UpdateStatus([](ChatRuntimeStatus& s) {
-                s.error_text =
-                    "Join conflict: saved room does not match the request";
-                s.join_status_text = s.error_text;
-              });
-              publication_dirty = true;
+              send_join_rejected(
+                  client_uid, req.attempt_id,
+                  "Join conflict: saved room does not match host room");
               return;
             }
             persist_workspace();
@@ -776,33 +916,32 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
               aether_runtime->OpenPeer(client_uid);
               aether_runtime->SendControl(client_uid, std::move(bytes));
             }
-            if (sync_runtime && existing->room.is_valid()) {
-              auto existing_reg = sync_runtime->FindNode(existing->room.id());
-              if (!existing_reg.is_valid()) {
-                sync_runtime->RegisterNode(existing->room);
+            // Acceptance first, then snapshot (same order as new-room path).
+            auto existing_reg = sync_runtime->FindNode(existing->room.id());
+            if (!existing_reg.is_valid()) {
+              sync_runtime->RegisterNode(existing->room);
+            }
+            ae::ObjId remote_share_id;
+            for (auto const& share : existing->room->shares) {
+              if (share.link.is_valid() &&
+                  share.link->EndpointUid() == client_uid) {
+                remote_share_id = share.share_id;
+                break;
               }
-              ae::ObjId remote_share_id;
-              for (auto const& share : existing->room->shares) {
-                if (share.link.is_valid() &&
-                    share.link->EndpointUid() == client_uid) {
-                  remote_share_id = share.share_id;
-                  break;
-                }
-              }
-              if (remote_share_id.is_valid()) {
-                auto const idx =
-                    existing->room->FindLinkSyncIndexForShare(remote_share_id);
-                if (idx < existing->room->link_sync_states.size()) {
-                  auto state = existing->room->link_sync_states[idx];
-                  if (state.is_valid()) {
-                    if (!state.is_loaded()) {
-                      state.Load();
-                    }
-                    if (state->GetInitialSyncPhase() !=
-                        apptraverse::InitialSyncPhase::Complete) {
-                      sync_runtime->SyncInitialState(existing->room.id(),
-                                                      remote_share_id);
-                    }
+            }
+            if (remote_share_id.is_valid()) {
+              auto const idx =
+                  existing->room->FindLinkSyncIndexForShare(remote_share_id);
+              if (idx < existing->room->link_sync_states.size()) {
+                auto state = existing->room->link_sync_states[idx];
+                if (state.is_valid()) {
+                  if (!state.is_loaded()) {
+                    state.Load();
+                  }
+                  if (state->GetInitialSyncPhase() !=
+                      apptraverse::InitialSyncPhase::Complete) {
+                    sync_runtime->SyncInitialState(existing->room.id(),
+                                                   remote_share_id);
                   }
                 }
               }
@@ -811,7 +950,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             return;
           }
 
-          auto entry = OpenOrSelectChat(*workspace, client_uid, persist_workspace);
+          auto entry =
+              OpenOrSelectChat(*workspace, client_uid, persist_workspace);
           if (!entry.is_valid()) {
             return;
           }
@@ -832,22 +972,6 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             return;
           }
           persist_workspace();
-          if (sync_runtime) {
-            if (!sync_runtime->FindNode(room.id()).is_valid()) {
-              sync_runtime->RegisterNode(room);
-            }
-            ae::ObjId remote_share_id;
-            for (auto const& share : room->shares) {
-              if (share.link.is_valid() &&
-                  share.link->EndpointUid() == client_uid) {
-                remote_share_id = share.share_id;
-                break;
-              }
-            }
-            if (remote_share_id.is_valid()) {
-              sync_runtime->SyncInitialState(room.id(), remote_share_id);
-            }
-          }
           ChatBootstrapMessage accepted;
           accepted.kind = ChatBootstrapKind::kJoinAccepted;
           accepted.attempt_id = req.attempt_id;
@@ -857,13 +981,28 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             aether_runtime->OpenPeer(client_uid);
             aether_runtime->SendControl(client_uid, std::move(bytes));
           }
+          if (!sync_runtime->FindNode(room.id()).is_valid()) {
+            sync_runtime->RegisterNode(room);
+          }
+          ae::ObjId remote_share_id;
+          for (auto const& share : room->shares) {
+            if (share.link.is_valid() &&
+                share.link->EndpointUid() == client_uid) {
+              remote_share_id = share.share_id;
+              break;
+            }
+          }
+          if (remote_share_id.is_valid()) {
+            sync_runtime->SyncInitialState(room.id(), remote_share_id);
+          }
           publication_dirty = true;
         };
 
     auto const handle_control =
-        [this, &workspace, &runtime, &persist_workspace, &publication_dirty,
+        [this, &workspace, &runtime, &publication_dirty,
          &waiting_entry_by_endpoint, &host_accept_client, &identity_conflict,
-         &worker](std::string source, std::vector<std::uint8_t> bytes) {
+         &sync_runtime, &clear_join_scheduler](
+            std::string source, std::vector<std::uint8_t> bytes) {
           AssertModelThread();
           if (identity_conflict || !runtime.is_valid()) {
             return;
@@ -878,43 +1017,123 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             publication_dirty = true;
             return;
           }
-          if (workspace->demo_role == DemoRole::kClient &&
-              msg.kind == ChatBootstrapKind::kJoinAccepted) {
-            auto ev = JoinHostAcceptedEvent::ptr::Create(
-                ae::CreateWith{*runtime->domain});
-            ev->attempt_id = msg.attempt_id;
-            ev->source_uid = source;
-            ev->room_id = msg.room_id;
-            if (runtime->CanApply(*ev)) {
-              runtime->Commit(ev);
-            }
-            auto entry = FindEntryById(*workspace, runtime->join_entry_id);
-            if (entry.is_valid() && entry->room.is_valid() &&
-                entry->room.id() == msg.room_id) {
-              auto done = JoinHostCompletedEvent::ptr::Create(
-                  ae::CreateWith{*runtime->domain});
-              done->attempt_id = msg.attempt_id;
-              done->room_id = msg.room_id;
-              if (runtime->CanApply(*done)) {
-                runtime->Commit(done);
-              }
-            } else {
-              waiting_entry_by_endpoint[source] = runtime->join_entry_id;
-            }
-            publication_dirty = true;
-          }
-        };
-
-    auto const begin_join =
-        [this, &workspace, &runtime, &persist_workspace, &aether_runtime,
-         &sync_runtime, &aether_ready, &my_uid, &publication_dirty,
-         &waiting_entry_by_endpoint, &send_join_request, &publish_demo_status]() {
-          AssertModelThread();
           if (workspace->demo_role != DemoRole::kClient) {
             return;
           }
-          apptraverse::example::chat_demo::SetHostUidInput(*workspace, workspace->host_uid_input,
-                          persist_workspace);
+          if (msg.kind == ChatBootstrapKind::kJoinRejected) {
+            std::string canonical_source = source;
+            (void)TryCanonicalizeAetherUid(source, canonical_source);
+            if (canonical_source != runtime->expected_host_uid ||
+                msg.attempt_id != runtime->join_attempt_id) {
+              return;
+            }
+            auto fail = JoinHostFailedEvent::ptr::Create(
+                ae::CreateWith{*runtime->domain});
+            fail->attempt_id = msg.attempt_id;
+            fail->reason = msg.rejection_reason.empty()
+                               ? std::string{"Join rejected"}
+                               : msg.rejection_reason;
+            if (!runtime->CanApply(*fail)) {
+              return;
+            }
+            runtime->Commit(fail);
+            if (sync_runtime) {
+              sync_runtime->ForgetInitialNodeFromEndpoint(source);
+            }
+            waiting_entry_by_endpoint.erase(source);
+            clear_join_scheduler();
+            publication_dirty = true;
+            return;
+          }
+          if (msg.kind != ChatBootstrapKind::kJoinAccepted) {
+            return;
+          }
+          // Verify before any Event or waiting-map side effect.
+          {
+            std::string canonical_source = source;
+            (void)TryCanonicalizeAetherUid(source, canonical_source);
+            if (canonical_source != runtime->expected_host_uid ||
+                msg.attempt_id != runtime->join_attempt_id ||
+                !msg.room_id.is_valid()) {
+              return;
+            }
+          }
+          if (runtime->join_phase == ChatJoinPhase::kJoined &&
+              runtime->bound_room_id == msg.room_id &&
+              runtime->join_attempt_id == msg.attempt_id) {
+            return;
+          }
+          if (runtime->join_phase == ChatJoinPhase::kAccepted &&
+              runtime->accepted_room_id == msg.room_id &&
+              runtime->join_attempt_id == msg.attempt_id) {
+            if (sync_runtime) {
+              sync_runtime->ExpectInitialNodeFromEndpoint(
+                  source, ChatRoom::kClassId, msg.room_id);
+            }
+            waiting_entry_by_endpoint[source] = runtime->join_entry_id;
+            return;
+          }
+          if (runtime->join_phase == ChatJoinPhase::kAccepted &&
+              runtime->accepted_room_id.is_valid() &&
+              runtime->accepted_room_id != msg.room_id) {
+            auto fail = JoinHostFailedEvent::ptr::Create(
+                ae::CreateWith{*runtime->domain});
+            fail->attempt_id = msg.attempt_id;
+            fail->reason = "Join conflict: host offered a different room";
+            if (runtime->CanApply(*fail)) {
+              runtime->Commit(fail);
+              clear_join_scheduler();
+              publication_dirty = true;
+            }
+            return;
+          }
+          if (runtime->join_phase != ChatJoinPhase::kJoining) {
+            return;
+          }
+          auto ev = JoinHostAcceptedEvent::ptr::Create(
+              ae::CreateWith{*runtime->domain});
+          ev->attempt_id = msg.attempt_id;
+          ev->source_uid = source;
+          if (std::string canonical_source = source;
+              TryCanonicalizeAetherUid(source, canonical_source)) {
+            ev->source_uid = canonical_source;
+          }
+          ev->room_id = msg.room_id;
+          if (!runtime->CanApply(*ev)) {
+            return;
+          }
+          runtime->Commit(ev);
+          auto entry = FindEntryById(*workspace, runtime->join_entry_id);
+          if (entry.is_valid() && entry->room.is_valid() &&
+              entry->room.id() == msg.room_id) {
+            auto done = JoinHostCompletedEvent::ptr::Create(
+                ae::CreateWith{*runtime->domain});
+            done->attempt_id = msg.attempt_id;
+            done->room_id = msg.room_id;
+            if (runtime->CanApply(*done)) {
+              runtime->Commit(done);
+              clear_join_scheduler();
+            }
+          } else {
+            waiting_entry_by_endpoint[source] = runtime->join_entry_id;
+            if (sync_runtime) {
+              sync_runtime->ExpectInitialNodeFromEndpoint(
+                  source, ChatRoom::kClassId, msg.room_id);
+            }
+          }
+          publication_dirty = true;
+        };
+
+    auto const begin_join =
+        [this, &workspace, &runtime, &persist_workspace, &sync_runtime, &my_uid,
+         &publication_dirty, &waiting_entry_by_endpoint, &arm_join_scheduler,
+         &clear_join_scheduler]() {
+          AssertModelThread();
+          if (workspace->demo_role != DemoRole::kClient || !runtime.is_valid()) {
+            return;
+          }
+          apptraverse::example::chat_demo::SetHostUidInput(
+              *workspace, workspace->host_uid_input, persist_workspace);
           std::string canonical;
           if (!TryCanonicalizeAetherUid(workspace->host_uid_input, canonical) ||
               (!my_uid.empty() && canonical == my_uid)) {
@@ -922,44 +1141,60 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                 ae::CreateWith{*runtime->domain});
             fail->attempt_id = runtime->join_attempt_id;
             fail->reason = "Invalid Host UID";
-            runtime->Commit(fail);
-            publish_demo_status();
+            if (runtime->CanApply(*fail)) {
+              runtime->Commit(fail);
+            }
+            clear_join_scheduler();
             publication_dirty = true;
             return;
           }
-          auto entry = OpenOrSelectChat(*workspace, canonical, persist_workspace);
+          auto entry =
+              OpenOrSelectChat(*workspace, canonical, persist_workspace);
           if (!entry.is_valid()) {
             return;
           }
-          if (runtime->join_phase == ChatJoinPhase::kJoining &&
+
+          // Same host while Joining/Accepted: reuse attempt; no new Event.
+          if ((runtime->join_phase == ChatJoinPhase::kJoining ||
+               runtime->join_phase == ChatJoinPhase::kAccepted) &&
               runtime->expected_host_uid == canonical) {
-            send_join_request();
+            arm_join_scheduler();
             return;
           }
+
+          // Switch host: supersede old attempt expectation.
+          if ((runtime->join_phase == ChatJoinPhase::kJoining ||
+               runtime->join_phase == ChatJoinPhase::kAccepted) &&
+              !runtime->expected_host_uid.empty() &&
+              runtime->expected_host_uid != canonical) {
+            if (sync_runtime) {
+              sync_runtime->ForgetInitialNodeFromEndpoint(
+                  runtime->expected_host_uid);
+            }
+            waiting_entry_by_endpoint.erase(runtime->expected_host_uid);
+            clear_join_scheduler();
+          }
+
           auto req = JoinHostRequestedEvent::ptr::Create(
               ae::CreateWith{*runtime->domain});
           req->entry_id = entry.id();
           req->host_uid = canonical;
+          if (!runtime->CanApply(*req)) {
+            return;
+          }
           runtime->Commit(req);
-          waiting_entry_by_endpoint[canonical] = entry.id();
-          if (sync_runtime) {
-            sync_runtime->ExpectInitialNodeFromEndpoint(canonical,
-                                                         ChatRoom::kClassId);
-          }
-          publish_demo_status();
+          // Snapshot expectation is registered only after Host acceptance.
+          arm_join_scheduler();
           publication_dirty = true;
-          if (aether_ready && aether_runtime) {
-            send_join_request();
-          }
         };
 
     worker->handle_control = handle_control;
 
     on_set_host_uid_input_ = [&workspace, &persist_workspace, &publication_dirty,
-                               &publish_demo_status](std::string text) {
+                               &project_demo_status](std::string text) {
       if (apptraverse::example::chat_demo::SetHostUidInput(*workspace, text, persist_workspace)) {
         publication_dirty = true;
-        publish_demo_status();
+        project_demo_status();
       }
     };
 
@@ -1216,6 +1451,14 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                 if (!imported_node.is_valid()) {
                   return false;
                 }
+                auto& runtime = worker->runtime;
+                if (!runtime.is_valid() ||
+                    runtime->join_phase != ChatJoinPhase::kAccepted) {
+                  return false;
+                }
+                if (source_endpoint != runtime->expected_host_uid) {
+                  return false;
+                }
                 if (ae::Registry::GetRegistry().GenerationDistance(
                         ChatRoom::kClassId, imported_node->GetClassId()) < 0) {
                   return false;
@@ -1225,11 +1468,18 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                 if (!room.is_valid()) {
                   return false;
                 }
+                if (!runtime->accepted_room_id.is_valid() ||
+                    room.id() != runtime->accepted_room_id) {
+                  return false;
+                }
                 room->SetJournalCompactionBlocked(true);
 
                 auto waiting_it =
                     waiting_entry_by_endpoint.find(source_endpoint);
                 if (waiting_it == waiting_entry_by_endpoint.end()) {
+                  return false;
+                }
+                if (waiting_it->second != runtime->join_entry_id) {
                   return false;
                 }
                 auto waiting_entry =
@@ -1240,14 +1490,6 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                 if (waiting_entry->room.is_valid() &&
                     waiting_entry->room.id() != room.id()) {
                   return false;
-                }
-                if (waiting_entry->room.is_valid() &&
-                    waiting_entry->room.id() == room.id()) {
-                  // Idempotent re-bind after a prior failed callback attempt.
-                  endpoint_by_pending_entry.erase(waiting_entry.id());
-                  waiting_entry_by_endpoint.erase(source_endpoint);
-                  publication_dirty = true;
-                  return true;
                 }
 
                 apptraverse::Link::ptr remote_link;
@@ -1262,6 +1504,25 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                   return false;
                 }
 
+                if (waiting_entry->room.is_valid() &&
+                    waiting_entry->room.id() == room.id()) {
+                  auto done = JoinHostCompletedEvent::ptr::Create(
+                      ae::CreateWith{*runtime->domain});
+                  done->attempt_id = runtime->join_attempt_id;
+                  done->room_id = room.id();
+                  if (runtime->CanApply(*done) &&
+                      runtime->join_phase == ChatJoinPhase::kAccepted) {
+                    runtime->Commit(done);
+                  }
+                  endpoint_by_pending_entry.erase(waiting_entry.id());
+                  waiting_entry_by_endpoint.erase(source_endpoint);
+                  worker->join_sched_attempt_id = {};
+                  worker->join_frozen_bytes.clear();
+                  worker->join_last_send.reset();
+                  publication_dirty = true;
+                  return true;
+                }
+
                 if (!BindChat(*waiting_entry, remote_link, room,
                               persist_workspace)) {
                   return false;
@@ -1269,9 +1530,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                 persist_workspace();
                 endpoint_by_pending_entry.erase(waiting_entry.id());
                 waiting_entry_by_endpoint.erase(source_endpoint);
-                auto& runtime = worker->runtime;
-                if (runtime.is_valid() &&
-                    runtime->join_entry_id == waiting_entry.id()) {
+                if (runtime->join_entry_id == waiting_entry.id()) {
                   auto done = JoinHostCompletedEvent::ptr::Create(
                       ae::CreateWith{*runtime->domain});
                   done->attempt_id = runtime->join_attempt_id;
@@ -1280,6 +1539,9 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                     runtime->Commit(done);
                   }
                 }
+                worker->join_sched_attempt_id = {};
+                worker->join_frozen_bytes.clear();
+                worker->join_last_send.reset();
                 publication_dirty = true;
                 return true;
               });
@@ -1292,10 +1554,15 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             }
           }
 
-          for (auto const& [endpoint_uid, entry_id] : waiting_entry_by_endpoint) {
-            (void)entry_id;
-            sync_runtime->ExpectInitialNodeFromEndpoint(endpoint_uid,
-                                                        ChatRoom::kClassId);
+          if (worker->runtime.is_valid() &&
+              worker->runtime->join_phase == ChatJoinPhase::kAccepted &&
+              worker->runtime->accepted_room_id.is_valid() &&
+              !worker->runtime->expected_host_uid.empty()) {
+            waiting_entry_by_endpoint[worker->runtime->expected_host_uid] =
+                worker->runtime->join_entry_id;
+            sync_runtime->ExpectInitialNodeFromEndpoint(
+                worker->runtime->expected_host_uid, ChatRoom::kClassId,
+                worker->runtime->accepted_room_id);
           }
 
           for (auto const& entry : workspace->chats) {
@@ -1309,15 +1576,37 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
           if (workspace->demo_role == DemoRole::kClient &&
               worker->runtime.is_valid() &&
-              worker->runtime->join_phase == ChatJoinPhase::kJoining) {
-            ChatBootstrapMessage req;
-            req.kind = ChatBootstrapKind::kJoinRequest;
-            req.attempt_id = worker->runtime->join_attempt_id;
-            std::vector<std::uint8_t> bytes;
-            if (EncodeChatBootstrap(req, bytes) && aether_runtime) {
+              (worker->runtime->join_phase == ChatJoinPhase::kJoining ||
+               worker->runtime->join_phase == ChatJoinPhase::kAccepted)) {
+            if (worker->join_sched_attempt_id !=
+                    worker->runtime->join_attempt_id ||
+                worker->join_frozen_bytes.empty()) {
+              ChatBootstrapMessage req;
+              req.kind = ChatBootstrapKind::kJoinRequest;
+              req.attempt_id = worker->runtime->join_attempt_id;
+              if (auto entry = FindEntryById(
+                      *workspace, worker->runtime->join_entry_id);
+                  entry.is_valid() && entry->room.is_valid()) {
+                req.room_id = entry->room.id();
+              }
+              std::vector<std::uint8_t> bytes;
+              if (EncodeChatBootstrap(req, bytes)) {
+                worker->join_sched_attempt_id =
+                    worker->runtime->join_attempt_id;
+                worker->join_frozen_bytes = std::move(bytes);
+                if (worker->join_attempt_start ==
+                    std::chrono::steady_clock::time_point{}) {
+                  worker->join_attempt_start =
+                      std::chrono::steady_clock::now();
+                }
+                worker->join_last_send.reset();
+              }
+            }
+            if (!worker->join_frozen_bytes.empty() && aether_runtime) {
               aether_runtime->OpenPeer(worker->runtime->expected_host_uid);
               aether_runtime->SendControl(worker->runtime->expected_host_uid,
-                                          std::move(bytes));
+                                          worker->join_frozen_bytes);
+              worker->join_last_send = std::chrono::steady_clock::now();
             }
           }
 
@@ -1524,12 +1813,6 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           continue;
         }
 
-        // Only drive sync when peer is Online
-        auto pres_it = remote_presence_map.find(peer_uid);
-        if (pres_it == remote_presence_map.end() || pres_it->second != PeerPresence::kOnline) {
-          continue;
-        }
-
         auto room = entry->room;
         ae::ObjId remote_share_id;
         for (auto const& share : room->shares) {
@@ -1558,6 +1841,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
         auto const phase = state->GetInitialSyncPhase();
         auto const before = CaptureRoomSyncSnapshot(*room, *state);
 
+        // Initial snapshot retry must not wait for Online: Join introduces the
+        // peer, and control/data frames can reorder relative to presence.
         if (phase == apptraverse::InitialSyncPhase::NotStarted) {
           sync_runtime->SyncInitialState(room.id(), remote_share_id);
           retry.last_attempt = now;
@@ -1567,6 +1852,12 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             retry.last_attempt = now;
           }
         } else if (phase == apptraverse::InitialSyncPhase::Complete) {
+          // Incremental events: only when peer is Online.
+          auto pres_it = remote_presence_map.find(peer_uid);
+          if (pres_it == remote_presence_map.end() ||
+              pres_it->second != PeerPresence::kOnline) {
+            continue;
+          }
           if (state->HasPendingEvent()) {
             if (now - retry.last_attempt >= std::chrono::seconds(1)) {
               sync_runtime->SyncNextEvent(room.id(), remote_share_id);
@@ -1605,6 +1896,10 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
         });
       }
     }
+
+    // Join retry is independent of bound-room Online sync driving.
+    drive_join_send(now);
+    project_demo_status();
   }
 
     ShutdownEndpointAndDrain(aether_runtime.get());

@@ -9,6 +9,7 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether_link.h"
 #include "apptraverse/object_serialization.h"
+#include "chat_bootstrap.h"
 #include "chat_model.h"
 #include "chat_session.h"
 #include "fake_aether_frame_endpoint.h"
@@ -146,10 +147,24 @@ bool WaitForError(ChatSession& session, std::string const& expected,
                   std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
   auto const deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {
-    if (session.GetRuntimeStatus().error_text == expected) {
+    auto const status = session.GetRuntimeStatus();
+    if (status.error_text == expected || status.join_status_text == expected) {
       return true;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return false;
+}
+
+bool WaitForJoinPhase(ChatSession& session,
+                      apptraverse::example::chat_demo::ChatJoinPhase phase,
+                      std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (session.GetRuntimeStatus().join_phase == phase) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
   return false;
 }
@@ -260,44 +275,120 @@ void TestTwoSessionsOneCreatorWaitingBindsWithoutPlaceholderLink() {
   WaitInitialPublication(*peer_b.session, ui_b);
   WaitReady(*peer_a.session, kUidA);
   WaitReady(*peer_b.session, kUidB);
-  auto* fake_a = WaitFake(peer_a);
-  auto* fake_b = WaitFake(peer_b);
+  (void)WaitFake(peer_a);
+  (void)WaitFake(peer_b);
 
   peer_b.session->SetHostUidInput(std::string{kUidA});
-peer_b.session->JoinHost();
+  peer_b.session->JoinHost();
 
-
-  CHECK(WaitForEntry(*peer_b.session, ui_b, kUidA, std::chrono::seconds(5),
-                     /*require_bound=*/false));
-  {
-    auto entry = FindEntryByPeerUid(*ui_b.workspace, kUidA);
-    CHECK(!entry->peer_link.is_valid());
-    CHECK(!entry->room.is_valid());
-  }
-
-  
-
-  BringOnline(fake_a, fake_b, kUidA, kUidB);
-
+  // No Host-side OpenPeer / user action. Control + snapshot must bind the room.
   CHECK(WaitForEntry(*peer_a.session, ui_a, kUidB, std::chrono::seconds(10),
                      /*require_bound=*/true));
   CHECK(WaitForEntry(*peer_b.session, ui_b, kUidA, std::chrono::seconds(10),
                      /*require_bound=*/true));
+  CHECK(WaitForJoinPhase(*peer_b.session,
+                         apptraverse::example::chat_demo::ChatJoinPhase::kJoined));
 
   auto entry_a = FindEntryByPeerUid(*ui_a.workspace, kUidB);
   auto entry_b = FindEntryByPeerUid(*ui_b.workspace, kUidA);
   CHECK(entry_a->room.id() == entry_b->room.id());
   CHECK(entry_b->peer_link->EndpointUid() == kUidA);
 
-  
-  peer_b.session->SetHostUidInput(std::string{kUidA});
-peer_b.session->JoinHost();
-
+  // Ten Join clicks reuse one attempt / one Host room.
+  for (int i = 0; i < 10; ++i) {
+    peer_b.session->JoinHost();
+  }
   std::this_thread::sleep_for(std::chrono::milliseconds(300));
   ConsumePublications(*peer_a.session, ui_a);
   CHECK(ui_a.workspace->chats.size() == 1);
 
   StopPeer(peer_a);
+  StopPeer(peer_b);
+  coordinator.RequestStop();
+  coordinator.Join();
+}
+
+void TestLostFirstJoinRequestRecovers() {
+  apptraverse::MemoryNetwork network;
+  FakeEndpointCoordinator coordinator{network};
+  coordinator.Start();
+  coordinator.DropNextControlsTo(kUidA, 1);
+
+  auto peer_a = MakePeer(coordinator, kUidA, /*defer_ready=*/false);
+  auto peer_b = MakePeer(coordinator, kUidB, /*defer_ready=*/false);
+  UiMirror ui_a;
+  UiMirror ui_b;
+  CHECK(peer_a.session->Start(
+      ChatSessionConfig{.state_dir = peer_a.state_dir, .role = DemoRole::kHost},
+      [] {}));
+  CHECK(peer_b.session->Start(
+      ChatSessionConfig{.state_dir = peer_b.state_dir, .role = DemoRole::kClient},
+      [] {}));
+  WaitInitialPublication(*peer_a.session, ui_a);
+  WaitInitialPublication(*peer_b.session, ui_b);
+  WaitReady(*peer_a.session, kUidA);
+  WaitReady(*peer_b.session, kUidB);
+
+  peer_b.session->SetHostUidInput(std::string{kUidA});
+  peer_b.session->JoinHost();
+
+  CHECK(WaitForEntry(*peer_a.session, ui_a, kUidB, std::chrono::seconds(15),
+                     /*require_bound=*/true));
+  CHECK(WaitForEntry(*peer_b.session, ui_b, kUidA, std::chrono::seconds(15),
+                     /*require_bound=*/true));
+  CHECK(WaitForJoinPhase(*peer_b.session,
+                         apptraverse::example::chat_demo::ChatJoinPhase::kJoined,
+                         std::chrono::seconds(15)));
+  CHECK(ui_a.workspace->chats.size() == 1);
+
+  StopPeer(peer_a);
+  StopPeer(peer_b);
+  coordinator.RequestStop();
+  coordinator.Join();
+}
+
+void TestStaleAcceptedDoesNotMutateWaiting() {
+  apptraverse::MemoryNetwork network;
+  FakeEndpointCoordinator coordinator{network};
+  coordinator.Start();
+
+  auto peer_b = MakePeer(coordinator, kUidB, /*defer_ready=*/false);
+  UiMirror ui;
+  CHECK(peer_b.session->Start(
+      ChatSessionConfig{.state_dir = peer_b.state_dir, .role = DemoRole::kClient},
+      [] {}));
+  WaitInitialPublication(*peer_b.session, ui);
+  WaitReady(*peer_b.session, kUidB);
+  WaitFake(peer_b);
+
+  peer_b.session->SetHostUidInput(std::string{kUidA});
+  peer_b.session->JoinHost();
+  CHECK(WaitForJoinPhase(
+      *peer_b.session, apptraverse::example::chat_demo::ChatJoinPhase::kJoining));
+  CHECK(WaitForEntry(*peer_b.session, ui, kUidA, std::chrono::seconds(5),
+                     /*require_bound=*/false));
+
+  // Wrong-source JoinAccepted must not mutate waiting map or bind a room.
+  {
+    apptraverse::example::chat_demo::ChatBootstrapMessage accepted;
+    accepted.kind =
+        apptraverse::example::chat_demo::ChatBootstrapKind::kJoinAccepted;
+    accepted.attempt_id = ae::ObjId{111111};
+    accepted.room_id = ae::ObjId{424242};
+    std::vector<std::uint8_t> bytes;
+    CHECK(apptraverse::example::chat_demo::EncodeChatBootstrap(accepted, bytes));
+    peer_b.fake()->InjectControl(kUidC, std::move(bytes));
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ConsumePublications(*peer_b.session, ui);
+  CHECK(peer_b.session->GetRuntimeStatus().join_phase ==
+        apptraverse::example::chat_demo::ChatJoinPhase::kJoining);
+  {
+    auto entry = FindEntryByPeerUid(*ui.workspace, kUidA);
+    CHECK(entry.is_valid());
+    CHECK(!entry->room.is_valid());
+  }
+
   StopPeer(peer_b);
   coordinator.RequestStop();
   coordinator.Join();
@@ -378,6 +469,10 @@ int main() {
   std::cout << "  OpenPeer before readiness passed\n";
   TestTwoSessionsOneCreatorWaitingBindsWithoutPlaceholderLink();
   std::cout << "  Two-session bootstrap passed\n";
+  TestLostFirstJoinRequestRecovers();
+  std::cout << "  Lost first JoinRequest recovers\n";
+  TestStaleAcceptedDoesNotMutateWaiting();
+  std::cout << "  Stale/wrong-source rejected\n";
   TestInvalidAndConflictingUid();
   std::cout << "  Invalid/conflicting UID passed\n";
   TestUnsolicitedSenderDoesNotAuthorizeRoom();

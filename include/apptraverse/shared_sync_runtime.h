@@ -45,8 +45,15 @@ class SharedSyncRuntime {
 
   // Bootstrap permission from an authorized source endpoint without knowing
   // the node ObjId in advance. Requires root's most-derived class to match.
+  // When expected_node_id is set, frame.target_node_id must match before import.
+  // The two-argument call stays compatible (empty expected_node_id).
   void ExpectInitialNodeFromEndpoint(std::string source_endpoint,
-                                     std::uint32_t expected_root_class_id);
+                                     std::uint32_t expected_root_class_id,
+                                     ae::ObjId expected_node_id = {});
+
+  // Remove a pending endpoint expectation only. Does not unregister nodes or
+  // delete stored data.
+  void ForgetInitialNodeFromEndpoint(std::string const& source_endpoint);
 
   using InitialNodeImportedCallback =
       std::function<bool(std::string const& source_endpoint,
@@ -101,6 +108,7 @@ class SharedSyncRuntime {
   struct EndpointExpectation {
     std::string source_endpoint;
     std::uint32_t expected_root_class_id{0};
+    ae::ObjId expected_node_id;
   };
 
   ae::Domain& domain_;

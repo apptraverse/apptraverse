@@ -96,8 +96,8 @@ void SeedSmokeWorkspace(std::filesystem::path const& state_dir) {
   };
   SetDesktopBounds(*ws, bounds);
 
-  auto e1 = OpenOrSelectChat(*ws, "22222222-3333-4444-5555-666666666666");
-  auto e2 = OpenOrSelectChat(*ws, "33333333-4444-5555-6666-777777777777");
+  auto e1 = OpenOrSelectChat(*ws, "22222222-3333-4444-5555-666666666666", [] {});
+  auto e2 = OpenOrSelectChat(*ws, "33333333-4444-5555-6666-777777777777", [] {});
   SelectChat(*ws, e1.id());
 
   auto link1 = CreateAetherLink(domain, ae::ObjId{2001}, "22222222-3333-4444-5555-666666666666");

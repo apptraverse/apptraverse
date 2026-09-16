@@ -475,7 +475,7 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
   InitializeRuntimeNode(*ws);
   BindLocalEndpoint(*ws, my_uid);
 
-  auto entry = OpenOrSelectChat(*ws, peer_uid, "Peer B");
+  auto entry = OpenOrSelectChat(*ws, peer_uid, [] {});
   CHECK(entry.is_valid());
 
   auto link_local = apptraverse::MemoryLink::ptr::Create(
@@ -680,7 +680,7 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
   InitializeRuntimeNode(*ws_b);
   BindLocalEndpoint(*ws_b, my_uid);
 
-  auto entry_b = OpenOrSelectChat(*ws_b, peer_uid, "Peer A");
+  auto entry_b = OpenOrSelectChat(*ws_b, peer_uid, [] {});
   apptraverse::Link::ptr remote_link_on_b;
   for (auto const& share : room_b->shares) {
     if (share.share_id == share_to_a_on_b) {

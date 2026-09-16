@@ -42,10 +42,26 @@ void ChatDemoRuntimeState::Apply(JoinHostAcceptedEvent const& event) {
 }
 
 bool ChatDemoRuntimeState::CanApply(JoinHostCompletedEvent const& event) const {
-  return (join_phase == ChatJoinPhase::kAccepted ||
-          join_phase == ChatJoinPhase::kJoining) &&
-         event.attempt_id == join_attempt_id && event.room_id.is_valid() &&
-         (!accepted_room_id.is_valid() || accepted_room_id == event.room_id);
+  if (!event.attempt_id.is_valid() || !event.room_id.is_valid()) {
+    return false;
+  }
+  // Idempotent re-complete for the same attempt/room while already Joined.
+  if (join_phase == ChatJoinPhase::kJoined &&
+      accepted_room_id == event.room_id &&
+      join_attempt_id == event.attempt_id) {
+    return true;
+  }
+  // Room bind requires a matching Accepted identity first (not bare Joining).
+  if (join_phase != ChatJoinPhase::kAccepted) {
+    return false;
+  }
+  if (event.attempt_id != join_attempt_id) {
+    return false;
+  }
+  if (!accepted_room_id.is_valid() || event.room_id != accepted_room_id) {
+    return false;
+  }
+  return true;
 }
 
 void ChatDemoRuntimeState::Apply(JoinHostCompletedEvent const& event) {
@@ -57,7 +73,25 @@ void ChatDemoRuntimeState::Apply(JoinHostCompletedEvent const& event) {
 }
 
 bool ChatDemoRuntimeState::CanApply(JoinHostFailedEvent const& event) const {
-  return !event.reason.empty();
+  if (event.reason.empty()) {
+    return false;
+  }
+  if (join_phase == ChatJoinPhase::kJoining ||
+      join_phase == ChatJoinPhase::kAccepted) {
+    if (!event.attempt_id.is_valid()) {
+      return false;
+    }
+    if (join_attempt_id.is_valid() && event.attempt_id != join_attempt_id) {
+      return false;
+    }
+    return true;
+  }
+  // Pre-attempt validation failure (e.g. invalid Host UID) while Idle/Failed.
+  if (join_phase == ChatJoinPhase::kIdle ||
+      join_phase == ChatJoinPhase::kFailed) {
+    return true;
+  }
+  return false;
 }
 
 void ChatDemoRuntimeState::Apply(JoinHostFailedEvent const& event) {

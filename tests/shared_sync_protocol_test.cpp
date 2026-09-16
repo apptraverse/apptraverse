@@ -122,7 +122,7 @@ void TestProtocolHeadlessSyncCoverage() {
   auto ws_a = CreateWorkspace(domain_a, ae::ObjId{100});
   apptraverse::example::chat_demo::BindLocalEndpoint(*ws_a, kEndpointA);
   auto entry_a = apptraverse::example::chat_demo::OpenOrSelectChat(
-      *ws_a, "peer-b", "Peer B");
+      *ws_a, kEndpointB, [] {});
   CHECK(entry_a.is_valid());
 
   apptraverse::example::chat_demo::SetDraft(*entry_a, "A's secret draft");
@@ -142,7 +142,7 @@ void TestProtocolHeadlessSyncCoverage() {
   auto ws_b = CreateWorkspace(domain_b, ae::ObjId{200});
   apptraverse::example::chat_demo::BindLocalEndpoint(*ws_b, kEndpointB);
   auto entry_b = apptraverse::example::chat_demo::OpenOrSelectChat(
-      *ws_b, "peer-a", "Peer A");
+      *ws_b, kEndpointA, [] {});
   CHECK(entry_b.is_valid());
 
   CHECK(std::string(kEndpointA) < std::string(kEndpointB));
@@ -156,7 +156,7 @@ void TestProtocolHeadlessSyncCoverage() {
 
   room_a->AddShare(link_local_a, ShareAccess::ReadWrite);
   room_a->AddShare(link_remote_b, ShareAccess::ReadWrite);
-  apptraverse::example::chat_demo::BindChat(*entry_a, link_remote_b, room_a);
+  apptraverse::example::chat_demo::BindChat(*entry_a, link_remote_b, room_a, [] {});
   SaveWorkspaceGraph(ws_a);
   sync_a->RegisterNode(room_a);
 
@@ -384,14 +384,14 @@ void TestProtocolLostAckIdenticalRetryOneMessage() {
   auto ws_a = CreateWorkspace(domain_a, ae::ObjId{9010});
   apptraverse::example::chat_demo::BindLocalEndpoint(*ws_a, kEndpointA);
   auto entry_a = apptraverse::example::chat_demo::OpenOrSelectChat(
-      *ws_a, "peer-b", "Peer B");
+      *ws_a, kEndpointB, [] {});
 
   auto room_a = CreateRoom(domain_a, room_id);
   auto link_a = CreateMemoryLink(domain_a, ae::ObjId{9002}, kEndpointA);
   auto link_b = CreateMemoryLink(domain_a, ae::ObjId{9003}, kEndpointB);
   room_a->AddShare(link_a, ShareAccess::ReadWrite);
   room_a->AddShare(link_b, ShareAccess::ReadWrite);
-  apptraverse::example::chat_demo::BindChat(*entry_a, link_b, room_a);
+  apptraverse::example::chat_demo::BindChat(*entry_a, link_b, room_a, [] {});
   SaveWorkspaceGraph(ws_a);
   sync_a.RegisterNode(room_a);
 

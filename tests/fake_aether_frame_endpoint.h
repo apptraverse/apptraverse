@@ -102,10 +102,21 @@ class FakeEndpointCoordinator {
                       std::vector<std::uint8_t> bytes) {
     {
       std::lock_guard<std::mutex> lock{mu_};
+      auto drop_it = drop_next_controls_.find(to);
+      if (drop_it != drop_next_controls_.end() && drop_it->second > 0) {
+        --drop_it->second;
+        return;
+      }
       sends_.push_back(PendingSend{std::move(from), std::move(to),
                                    std::move(bytes), true});
     }
     cv_.notify_all();
+  }
+
+  // Drop the next N control frames addressed to `to` (JoinRequest loss, etc.).
+  void DropNextControlsTo(std::string const& to, int count) {
+    std::lock_guard<std::mutex> lock{mu_};
+    drop_next_controls_[to] = count;
   }
 
  private:
@@ -203,6 +214,7 @@ class FakeEndpointCoordinator {
   std::condition_variable cv_;
   std::deque<PendingSend> sends_;
   std::unordered_map<std::string, EndpointSlot> endpoints_;
+  std::unordered_map<std::string, int> drop_next_controls_;
   std::string delivering_to_;
   std::thread thread_;
   bool stop_{false};
@@ -341,6 +353,17 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
     {
       std::lock_guard<std::mutex> lock{mu_};
       callback = on_frame_;
+    }
+    if (callback) {
+      callback(std::move(source_uid), std::move(bytes));
+    }
+  }
+
+  void InjectControl(std::string source_uid, std::vector<std::uint8_t> bytes) {
+    ControlCallback callback;
+    {
+      std::lock_guard<std::mutex> lock{mu_};
+      callback = on_control_;
     }
     if (callback) {
       callback(std::move(source_uid), std::move(bytes));

@@ -58,8 +58,8 @@ void TestScenario1_OpenTwoAdminIds() {
   ae::Domain domain{storage};
   auto ws = CreateWorkspace(domain);
 
-  auto e1 = OpenOrSelectChat(*ws, "peer-100", "Alice");
-  auto e2 = OpenOrSelectChat(*ws, "peer-200", "Bob");
+  auto e1 = OpenOrSelectChat(*ws, "peer-100", [] {});
+  auto e2 = OpenOrSelectChat(*ws, "peer-200", [] {});
 
   CHECK(e1.is_valid());
   CHECK(e2.is_valid());
@@ -76,12 +76,12 @@ void TestScenario2_OpenFirstIdAgain() {
   ae::Domain domain{storage};
   auto ws = CreateWorkspace(domain);
 
-  auto e1 = OpenOrSelectChat(*ws, "peer-100", "Alice");
-  auto e2 = OpenOrSelectChat(*ws, "peer-200", "Bob");
+  auto e1 = OpenOrSelectChat(*ws, "peer-100", [] {});
+  auto e2 = OpenOrSelectChat(*ws, "peer-200", [] {});
   CHECK(ws->selected_chat_id == e2.id());
 
   // Opening peer-100 again (with surrounding whitespace to test trimming)
-  auto e1_again = OpenOrSelectChat(*ws, "  peer-100  ", "Alice Renamed");
+  auto e1_again = OpenOrSelectChat(*ws, "  peer-100  ", [] {});
   CHECK(ws->chats.size() == 2);
   CHECK(e1_again.id() == e1.id());
   CHECK(ws->selected_chat_id == e1.id());
@@ -94,7 +94,7 @@ void TestScenario3_EntryPersistWhileUnresolved() {
   {
     ae::Domain domain{storage};
     auto ws = CreateWorkspace(domain, ws_id);
-    auto e = OpenOrSelectChat(*ws, "peer-300", "Charlie");
+    auto e = OpenOrSelectChat(*ws, "peer-300", [] {});
     CHECK(e.is_valid());
     CHECK(!e->peer_link.is_valid());
     CHECK(!e->room.is_valid());
@@ -111,7 +111,7 @@ void TestScenario3_EntryPersistWhileUnresolved() {
     CHECK(e.is_valid());
     e.Load();
     CHECK(e->peer_uid == "peer-300");
-    CHECK(e->display_name == "Charlie");
+    CHECK(e->display_name == "Host peer-300");
     CHECK(!e->peer_link.is_valid());
     CHECK(!e->room.is_valid());
   }
@@ -124,7 +124,7 @@ void TestScenario4_SubmittingWhileUnresolvedFails() {
   auto ws = CreateWorkspace(domain);
   BindLocalEndpoint(*ws, "endpoint-a");
 
-  auto e = OpenOrSelectChat(*ws, "peer-400", "Dave");
+  auto e = OpenOrSelectChat(*ws, "peer-400", [] {});
   SetDraft(*e, "Draft to Dave");
   CHECK(e->draft == "Draft to Dave");
 
@@ -140,22 +140,22 @@ void TestScenario5_BindChatRoomAndLink() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto ws = CreateWorkspace(domain);
-  auto e = OpenOrSelectChat(*ws, "peer-500", "Eve");
+  auto e = OpenOrSelectChat(*ws, "peer-500", [] {});
 
-  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-500");
   auto room = CreateRoom(domain, ae::ObjId{30});
 
-  bool ok = BindChat(*e, link, room);
+  bool ok = BindChat(*e, link, room, [] {});
   CHECK(ok);
   CHECK(e->peer_link.id() == link.id());
   CHECK(e->room.id() == room.id());
 
   // Idempotent binding
-  CHECK(BindChat(*e, link, room));
+  CHECK(BindChat(*e, link, room, [] {}));
 
   // Conflicting binding rejected
-  auto link2 = CreateMemoryLink(domain, ae::ObjId{21}, "endpoint-c");
-  CHECK(!BindChat(*e, link2, room));
+  auto link2 = CreateMemoryLink(domain, ae::ObjId{21}, "peer-other");
+  CHECK(!BindChat(*e, link2, room, [] {}));
 }
 
 // Scenario 6: Submit a UTF-8 multiline draft; exact text reaches MessageValue.
@@ -165,10 +165,10 @@ void TestScenario6_SubmitUtf8MultilineDraft() {
   auto ws = CreateWorkspace(domain);
   BindLocalEndpoint(*ws, "endpoint-a");
 
-  auto e = OpenOrSelectChat(*ws, "peer-600", "Frank");
-  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+  auto e = OpenOrSelectChat(*ws, "peer-600", [] {});
+  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-600");
   auto room = CreateRoom(domain, ae::ObjId{30});
-  BindChat(*e, link, room);
+  BindChat(*e, link, room, [] {});
 
   std::string const utf8_multiline =
       "Hello world!\nLine 2 with UTF-8: Привет мир \xF0\x9F\x9A\x80\nLine 3!";
@@ -191,10 +191,10 @@ void TestScenario7_MessageValueIdentityEqualsEventRecord() {
   auto ws = CreateWorkspace(domain);
   BindLocalEndpoint(*ws, "endpoint-a");
 
-  auto e = OpenOrSelectChat(*ws, "peer-700", "Grace");
-  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+  auto e = OpenOrSelectChat(*ws, "peer-700", [] {});
+  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-700");
   auto room = CreateRoom(domain, ae::ObjId{30});
-  BindChat(*e, link, room);
+  BindChat(*e, link, room, [] {});
 
   SetDraft(*e, "Message 1");
   auto id1 = SubmitDraft(*ws, *e, 5000);
@@ -240,10 +240,10 @@ void TestScenario16_WorkspaceRootSaveReachability() {
     auto ws = CreateWorkspace(domain, ws_id);
     BindLocalEndpoint(*ws, "endpoint-a");
 
-    auto e = OpenOrSelectChat(*ws, "peer-root", "Root Peer");
-    auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+    auto e = OpenOrSelectChat(*ws, "peer-root", [] {});
+    auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-root");
     auto room = CreateRoom(domain, ae::ObjId{30});
-    BindChat(*e, link, room);
+    BindChat(*e, link, room, [] {});
 
     SetDraft(*e, multiline_msg);
     SubmitDraft(*ws, *e, 10000);
@@ -264,7 +264,7 @@ void TestScenario16_WorkspaceRootSaveReachability() {
     CHECK(entry->draft == "Unsent draft");
     CHECK(entry->peer_link.is_valid());
     entry->peer_link.Load();
-    CHECK(entry->peer_link->EndpointUid() == "endpoint-b");
+    CHECK(entry->peer_link->EndpointUid() == "peer-root");
     CHECK(entry->room.is_valid());
     entry->room.Load();
     CHECK(entry->room->messages.size() == 1);
@@ -294,10 +294,10 @@ void TestScenario8_SaveDestroyReloadWorkspace() {
     };
     SetDesktopBounds(*ws, bounds);
 
-    auto e = OpenOrSelectChat(*ws, "peer-800", "Heidi");
-    auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+    auto e = OpenOrSelectChat(*ws, "peer-800", [] {});
+    auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-800");
     auto room = CreateRoom(domain, ae::ObjId{30});
-    BindChat(*e, link, room);
+    BindChat(*e, link, room, [] {});
 
     SetDraft(*e, "Draft before submit");
     SubmitDraft(*ws, *e, 10000);
@@ -326,12 +326,12 @@ void TestScenario8_SaveDestroyReloadWorkspace() {
     auto e = ws->chats[0];
     e.Load();
     CHECK(e->peer_uid == "peer-800");
-    CHECK(e->display_name == "Heidi");
+    CHECK(e->display_name == "Host peer-800");
     CHECK(e->draft == "Unsent draft restored");
 
     CHECK(e->peer_link.is_valid());
     e->peer_link.Load();
-    CHECK(e->peer_link->EndpointUid() == "endpoint-b");
+    CHECK(e->peer_link->EndpointUid() == "peer-800");
 
     CHECK(e->room.is_valid());
     e->room.Load();
@@ -352,10 +352,10 @@ void TestScenario9_SubmitAfterRestartSequenceAdvances() {
     auto ws = CreateWorkspace(domain, ws_id);
     BindLocalEndpoint(*ws, "endpoint-a");
 
-    auto e = OpenOrSelectChat(*ws, "peer-900", "Ivan");
-    auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+    auto e = OpenOrSelectChat(*ws, "peer-900", [] {});
+    auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-900");
     auto room = CreateRoom(domain, ae::ObjId{30});
-    BindChat(*e, link, room);
+    BindChat(*e, link, room, [] {});
 
     SetDraft(*e, "Message 1");
     auto id1 = SubmitDraft(*ws, *e, 1000);
@@ -390,8 +390,8 @@ void TestScenario10_IndependentDraftsAndScrollAnchors() {
   ae::Domain domain{storage};
   auto ws = CreateWorkspace(domain);
 
-  auto e1 = OpenOrSelectChat(*ws, "peer-1001", "Judy");
-  auto e2 = OpenOrSelectChat(*ws, "peer-1002", "Kevin");
+  auto e1 = OpenOrSelectChat(*ws, "peer-1001", [] {});
+  auto e2 = OpenOrSelectChat(*ws, "peer-1002", [] {});
 
   SetDraft(*e1, "Draft for Judy");
   SetDraft(*e2, "Draft for Kevin");
@@ -424,10 +424,10 @@ void TestScenario11_MessageArrivalDoesNotChangeNonTailScrollAnchor() {
   auto ws = CreateWorkspace(domain);
   BindLocalEndpoint(*ws, "endpoint-a");
 
-  auto e = OpenOrSelectChat(*ws, "peer-1100", "Leo");
-  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+  auto e = OpenOrSelectChat(*ws, "peer-1100", [] {});
+  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-1100");
   auto room = CreateRoom(domain, ae::ObjId{30});
-  BindChat(*e, link, room);
+  BindChat(*e, link, room, [] {});
 
   ScrollAnchor initial_scroll{
       .follow_tail = false,
@@ -529,10 +529,10 @@ void TestScenario14_JournalReplayOrder() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto ws = CreateWorkspace(domain);
-  auto e = OpenOrSelectChat(*ws, "peer-1400", "Mallory");
-  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+  auto e = OpenOrSelectChat(*ws, "peer-1400", [] {});
+  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-1400");
   auto room = CreateRoom(domain, ae::ObjId{30});
-  BindChat(*e, link, room);
+  BindChat(*e, link, room, [] {});
 
   SetDraft(*e, "Draft before replay");
   ScrollAnchor anchor{.follow_tail = false,
@@ -594,13 +594,13 @@ void TestScenario15_ExportOnlyChatRoomNetworkShared() {
   BindLocalEndpoint(*ws, "endpoint-a");
   SetDesktopBounds(*ws, DesktopBounds{.valid = true, .x = 100, .y = 100});
 
-  auto e = OpenOrSelectChat(*ws, "peer-1500", "Oscar");
+  auto e = OpenOrSelectChat(*ws, "peer-1500", [] {});
   SetDraft(*e, "Secret local draft");
   SetScroll(*e, ScrollAnchor{.follow_tail = false, .offset_from_message_top = 77.0});
 
-  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-b");
+  auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-1500");
   auto room = CreateRoom(domain, ae::ObjId{30});
-  BindChat(*e, link, room);
+  BindChat(*e, link, room, [] {});
 
   // Add a message to the room
   SetDraft(*e, "Shared Message 1");
@@ -646,10 +646,10 @@ void TestDirectoryDomainStorageRoundTrip() {
     auto ws = CreateWorkspace(domain, ws_id);
     BindLocalEndpoint(*ws, "endpoint-dir-a");
 
-    auto e = OpenOrSelectChat(*ws, "peer-dir", "DirPeer");
-    auto link = CreateMemoryLink(domain, ae::ObjId{20}, "endpoint-dir-b");
+    auto e = OpenOrSelectChat(*ws, "peer-dir", [] {});
+    auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-dir");
     auto room = CreateRoom(domain, ae::ObjId{30});
-    BindChat(*e, link, room);
+    BindChat(*e, link, room, [] {});
 
     SetDraft(*e, "Directory storage message");
     SubmitDraft(*ws, *e, 12345);
@@ -689,10 +689,10 @@ void TestSequenceOverflowRejection() {
   auto ws = CreateWorkspace(domain);
   BindLocalEndpoint(*ws, "ep-overflow");
 
-  auto e = OpenOrSelectChat(*ws, "peer-overflow", "OverflowPeer");
+  auto e = OpenOrSelectChat(*ws, "peer-overflow", [] {});
   auto link = CreateMemoryLink(domain, ae::ObjId{20}, "ep-remote");
   auto room = CreateRoom(domain, ae::ObjId{30});
-  BindChat(*e, link, room);
+  BindChat(*e, link, room, [] {});
 
   ws->next_message_sequence = std::numeric_limits<std::uint64_t>::max();
   SetDraft(*e, "overflow draft");
@@ -735,8 +735,8 @@ void TestSelectChatValidation() {
   ae::Domain domain{storage};
   auto ws = CreateWorkspace(domain);
 
-  auto e1 = OpenOrSelectChat(*ws, "peer-1", "Peer 1");
-  auto e2 = OpenOrSelectChat(*ws, "peer-2", "Peer 2");
+  auto e1 = OpenOrSelectChat(*ws, "peer-1", [] {});
+  auto e2 = OpenOrSelectChat(*ws, "peer-2", [] {});
   CHECK(ws->selected_chat_id == e2.id());
 
   bool persist_called = false;

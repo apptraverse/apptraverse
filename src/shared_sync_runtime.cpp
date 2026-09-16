@@ -258,20 +258,37 @@ bool SharedSyncRuntime::IsExpectedInitialNode(ae::ObjId node_id) const {
 }
 
 void SharedSyncRuntime::ExpectInitialNodeFromEndpoint(
-    std::string source_endpoint, std::uint32_t expected_root_class_id) {
+    std::string source_endpoint, std::uint32_t expected_root_class_id,
+    ae::ObjId expected_node_id) {
   if (source_endpoint.empty() || expected_root_class_id == 0) {
     return;
   }
   for (auto& exp : expected_endpoint_nodes_) {
     if (exp.source_endpoint == source_endpoint) {
       exp.expected_root_class_id = expected_root_class_id;
+      exp.expected_node_id = expected_node_id;
       return;
     }
   }
   expected_endpoint_nodes_.push_back(EndpointExpectation{
       .source_endpoint = std::move(source_endpoint),
       .expected_root_class_id = expected_root_class_id,
+      .expected_node_id = expected_node_id,
   });
+}
+
+void SharedSyncRuntime::ForgetInitialNodeFromEndpoint(
+    std::string const& source_endpoint) {
+  if (source_endpoint.empty()) {
+    return;
+  }
+  expected_endpoint_nodes_.erase(
+      std::remove_if(expected_endpoint_nodes_.begin(),
+                     expected_endpoint_nodes_.end(),
+                     [&](EndpointExpectation const& exp) {
+                       return exp.source_endpoint == source_endpoint;
+                     }),
+      expected_endpoint_nodes_.end());
 }
 
 void SharedSyncRuntime::SetInitialNodeImportedCallback(
@@ -457,14 +474,20 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
   // replica is waiting for (either by exact node ID or by authorized source endpoint).
   bool const exact_expected = IsExpectedInitialNode(frame.target_node_id);
   std::optional<std::uint32_t> endpoint_expected_class;
+  ae::ObjId endpoint_expected_node_id;
   for (auto const& exp : expected_endpoint_nodes_) {
     if (exp.source_endpoint == source_endpoint) {
       endpoint_expected_class = exp.expected_root_class_id;
+      endpoint_expected_node_id = exp.expected_node_id;
       break;
     }
   }
 
   if (!exact_expected && !endpoint_expected_class.has_value()) {
+    return {};
+  }
+  if (endpoint_expected_node_id.is_valid() &&
+      frame.target_node_id != endpoint_expected_node_id) {
     return {};
   }
 
