@@ -2,6 +2,7 @@
 #define APPTRAVERSE_EXAMPLE_CHAT_DEMO_CHAT_MODEL_H_
 
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,12 @@
 #include "apptraverse/shared_node.h"
 
 namespace apptraverse::example::chat_demo {
+
+enum class DemoRole : std::uint8_t {
+  kUnconfigured = 0,
+  kHost = 1,
+  kClient = 2,
+};
 
 // Reflected value type representing an immutable message in a chat room.
 // The author is id.origin_uid.
@@ -96,7 +103,7 @@ class ScrollChangedEvent;
 // Not a SharedNode; local to this device.
 class ChatEntry : public apptraverse::NodeFor<ChatEntry, apptraverse::Node> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::chat_demo::ChatEntry",
-                           ChatEntry, Node, 0)
+                           ChatEntry, Node, 1)
 
  protected:
   ChatEntry() = default;
@@ -104,27 +111,35 @@ class ChatEntry : public apptraverse::NodeFor<ChatEntry, apptraverse::Node> {
  public:
   explicit ChatEntry(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(peer_admin_id), AE_MMBR(display_name),
+  AE_OBJECT_REFLECT(AE_MMBR(peer_uid), AE_MMBR(display_name),
                     AE_MMBR(peer_link), AE_MMBR(room), AE_MMBR(draft),
                     AE_MMBR(scroll))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, peer_admin_id, display_name, peer_link, room, draft, scroll);
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error(
+        "This profile uses an incompatible chat example schema. Choose a "
+        "different --state-dir; the existing directory was not modified.");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, peer_admin_id, display_name, peer_link, room, draft, scroll);
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, peer_uid, display_name, peer_link, room, draft, scroll);
   }
 
-  std::string peer_admin_id;
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, peer_uid, display_name, peer_link, room, draft, scroll);
+  }
+
+  std::string peer_uid;
   std::string display_name;
   apptraverse::Link::ptr peer_link;
   ChatRoom::ptr room;
   std::string draft;
   ScrollAnchor scroll;
 
+  bool CanApply(ChatBindingChangedEvent const& event) const;
   void Apply(ChatBindingChangedEvent const& event);
   void Apply(DraftChangedEvent const& event);
   void Apply(ScrollChangedEvent const& event);
@@ -157,13 +172,15 @@ class ChatSelectedEvent;
 class LocalEndpointBoundEvent;
 class MessageSequenceReservedEvent;
 class DesktopBoundsChangedEvent;
+class DemoRoleConfiguredEvent;
+class HostUidInputChangedEvent;
 
 // Locally persisted root for the chat application workspace.
 // The workspace itself is never shared over the network.
 class ChatWorkspace
     : public apptraverse::NodeFor<ChatWorkspace, apptraverse::Node> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::chat_demo::ChatWorkspace",
-                           ChatWorkspace, Node, 0)
+                           ChatWorkspace, Node, 1)
 
  protected:
   ChatWorkspace() = default;
@@ -171,22 +188,32 @@ class ChatWorkspace
  public:
   explicit ChatWorkspace(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(local_endpoint_uid),
-                    AE_MMBR(next_message_sequence), AE_MMBR(chats),
-                    AE_MMBR(selected_chat_id), AE_MMBR(desktop_bounds))
+  AE_OBJECT_REFLECT(AE_MMBR(demo_role), AE_MMBR(host_uid_input),
+                    AE_MMBR(local_endpoint_uid), AE_MMBR(next_message_sequence),
+                    AE_MMBR(chats), AE_MMBR(selected_chat_id),
+                    AE_MMBR(desktop_bounds))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, local_endpoint_uid, next_message_sequence, chats,
-        selected_chat_id, desktop_bounds);
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error(
+        "This profile uses an incompatible chat example schema. Choose a "
+        "different --state-dir; the existing directory was not modified.");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, local_endpoint_uid, next_message_sequence, chats,
-        selected_chat_id, desktop_bounds);
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, demo_role, host_uid_input, local_endpoint_uid,
+        next_message_sequence, chats, selected_chat_id, desktop_bounds);
   }
 
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, demo_role, host_uid_input, local_endpoint_uid,
+        next_message_sequence, chats, selected_chat_id, desktop_bounds);
+  }
+
+  DemoRole demo_role{DemoRole::kUnconfigured};
+  std::string host_uid_input;
   std::string local_endpoint_uid;
   std::uint64_t next_message_sequence{1};
   std::vector<ChatEntry::ptr> chats;
@@ -196,6 +223,10 @@ class ChatWorkspace
   void Apply(ChatEntryAddedEvent const& event);
   bool CanApply(ChatSelectedEvent const& event) const;
   void Apply(ChatSelectedEvent const& event);
+  bool CanApply(DemoRoleConfiguredEvent const& event) const;
+  void Apply(DemoRoleConfiguredEvent const& event);
+  bool CanApply(HostUidInputChangedEvent const& event) const;
+  void Apply(HostUidInputChangedEvent const& event);
   void Apply(LocalEndpointBoundEvent const& event);
   bool CanApply(MessageSequenceReservedEvent const& event) const;
   void Apply(MessageSequenceReservedEvent const& event);

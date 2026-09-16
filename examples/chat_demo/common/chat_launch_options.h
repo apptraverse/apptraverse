@@ -1,48 +1,37 @@
 #ifndef APPTRAVERSE_EXAMPLE_CHAT_DEMO_CHAT_LAUNCH_OPTIONS_H_
 #define APPTRAVERSE_EXAMPLE_CHAT_DEMO_CHAT_LAUNCH_OPTIONS_H_
 
+#include <filesystem>
 #include <optional>
-#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "chat_model.h"
+
 namespace apptraverse::example::chat_demo {
 
-// AeroAdmin peer opening request.
-struct OpenPeerRequest {
-  std::string peer_admin_id;
-  std::optional<std::string> peer_aether_uid;
-  std::optional<std::string> peer_name;
-
-  bool operator==(OpenPeerRequest const& other) const noexcept = default;
-};
-
-// Parsed desktop launch options.
 struct ChatLaunchOptions {
+  DemoRole role{DemoRole::kUnconfigured};
   std::optional<std::string> state_dir;
-  std::optional<OpenPeerRequest> open_peer;
-
-  bool operator==(ChatLaunchOptions const& other) const noexcept = default;
+  std::optional<std::string> host_uid_prefill;
+  bool show_help{false};
 };
 
-// Result of parsing command line launch options.
-struct ParseLaunchOptionsResult {
+struct ParseChatLaunchOptionsResult {
   bool ok{false};
   ChatLaunchOptions options;
   std::string error_message;
 };
 
-// Parses command-line arguments (excluding executable name).
-ParseLaunchOptionsResult ParseChatLaunchOptions(
-    std::span<std::string_view const> args);
+std::string ChatLaunchUsageText();
 
-// Helper overload accepting vector of strings.
-ParseLaunchOptionsResult ParseChatLaunchOptions(
+std::filesystem::path DefaultChatExampleStateDir(DemoRole role);
+
+ParseChatLaunchOptionsResult ParseChatLaunchOptions(
     std::vector<std::string> const& args);
-
-// Helper overload accepting argc/argv (where argv[0] is program name).
-ParseLaunchOptionsResult ParseChatLaunchOptions(int argc, char const* const* argv);
+ParseChatLaunchOptionsResult ParseChatLaunchOptions(int argc,
+                                                    char const* const* argv);
 
 }  // namespace apptraverse::example::chat_demo
 

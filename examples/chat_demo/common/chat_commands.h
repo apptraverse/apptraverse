@@ -152,6 +152,60 @@ class DesktopBoundsChangedEvent
   DesktopBounds bounds;
 };
 
+class DemoRoleConfiguredEvent
+    : public apptraverse::EventFor<ChatWorkspace, DemoRoleConfiguredEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::chat_demo::DemoRoleConfiguredEvent",
+      DemoRoleConfiguredEvent, Event, 0)
+
+ protected:
+  DemoRoleConfiguredEvent() = default;
+
+ public:
+  explicit DemoRoleConfiguredEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(role))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, role);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, role);
+  }
+
+  DemoRole role{DemoRole::kUnconfigured};
+};
+
+class HostUidInputChangedEvent
+    : public apptraverse::EventFor<ChatWorkspace, HostUidInputChangedEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::chat_demo::HostUidInputChangedEvent",
+      HostUidInputChangedEvent, Event, 0)
+
+ protected:
+  HostUidInputChangedEvent() = default;
+
+ public:
+  explicit HostUidInputChangedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(text))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, text);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, text);
+  }
+
+  std::string text;
+};
+
 // Local events for ChatEntry
 class ChatBindingChangedEvent
     : public apptraverse::EventFor<ChatEntry, ChatBindingChangedEvent> {
@@ -268,9 +322,17 @@ class MessageAddedEvent
 };
 
 // Common command API
+bool ConfigureDemoRole(ChatWorkspace& workspace, DemoRole role,
+                       PersistLocalState const& persist = {});
+
+bool SetHostUidInput(ChatWorkspace& workspace, std::string const& text,
+                     PersistLocalState const& persist = {});
+
+std::string ConversationDisplayName(DemoRole local_role,
+                                    std::string const& peer_uid);
+
 ChatEntry::ptr OpenOrSelectChat(ChatWorkspace& workspace,
-                                std::string const& admin_id,
-                                std::string const& display_name,
+                                std::string const& peer_uid,
                                 PersistLocalState const& persist = {});
 
 bool BindChat(ChatEntry& entry, apptraverse::Link::ptr link,

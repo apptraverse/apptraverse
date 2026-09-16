@@ -6,10 +6,8 @@
 
 namespace apptraverse::example::chat_demo {
 
-// User-command ingress limits (aligned with launch IPC bounds where applicable).
-inline constexpr std::size_t kMaxPeerAdminIdBytes = 1024;
+inline constexpr std::size_t kMaxHostUidInputBytes = 128;
 inline constexpr std::size_t kMaxPeerAetherUidBytes = 128;
-inline constexpr std::size_t kMaxPeerNameBytes = 1024;
 // Draft text bound below Aether application-frame payload cap (16 MiB).
 inline constexpr std::size_t kMaxDraftTextBytes = 65536;
 

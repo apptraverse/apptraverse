@@ -1,6 +1,6 @@
 # Chat Demo Common Model & Local Workspace
 
-This component implements the common chat model, local workspace persistence, commands, and AeroAdmin launch options parser for AppTraverse chat clients.
+This component implements the common chat model, local workspace persistence, commands, and Host/Client launch options parser for AppTraverse chat clients.
 
 ## Model Ownership & Graph Structure
 
@@ -20,7 +20,7 @@ This component implements the common chat model, local workspace persistence, co
                   +-------------------------------+
                   |           ChatEntry           | (Local device state, Node)
                   |-------------------------------|
-                  | peer_admin_id                 |
+                  | peer_uid                      |
                   | display_name                  |
                   | draft                         |
                   | scroll (ScrollAnchor)         |
@@ -45,7 +45,7 @@ This component implements the common chat model, local workspace persistence, co
 
 - **Private / Local to Workspace & Device**:
   - `ChatWorkspace`: `local_endpoint_uid`, `next_message_sequence`, `selected_chat_id`, `desktop_bounds`, `chats`.
-  - `ChatEntry`: `peer_admin_id`, `display_name`, `draft`, `scroll`, pointers to `peer_link` and `room`.
+  - `ChatEntry`: `peer_uid`, `display_name`, `draft`, `scroll`, pointers to `peer_link` and `room`.
   - These are local `Node`s and are never replicated across the network to peers.
 - **Shared / Replicated via SharedNode**:
   - `ChatRoom`: `messages` (`std::vector<MessageValue>`), `shares` (`std::vector<Share>`), `link_sync_states` (per-link synchronization metadata).
@@ -59,7 +59,7 @@ Platform hosts (Windows, Linux, Android, Web/WASM) interact with the model via c
 1. `OpenOrSelectChat(workspace, admin_id, display_name, persist)`:
    - Trims surrounding ASCII whitespace from `admin_id`.
    - Rejects empty ID.
-   - Searches existing entries by normalized `peer_admin_id`. If found, selects it via `ChatSelectedEvent`.
+   - Searches existing entries by normalized `peer_uid`. If found, selects it via `ChatSelectedEvent`.
    - If absent, creates and initializes `ChatEntry` (`InitializeRuntimeNode`), commits `ChatEntryAddedEvent`, and selects it via `ChatSelectedEvent`.
    - Persists state once after the commands.
 
@@ -98,12 +98,12 @@ Platform hosts (Windows, Linux, Android, Web/WASM) interact with the model via c
 ## Supported Launch Arguments
 
 Command-line arguments supported for desktop execution (excluding argv[0]):
-- `--state-dir <path>`: Local storage directory path for `DirectoryDomainStorage`.
-- `--peer-admin-id <id>`: AeroAdmin peer ID to open or select immediately.
-- `--peer-aether-uid <uid>`: Optional Aether transport UID hint for the peer (requires `--peer-admin-id`).
-- `--peer-name <name>`: Optional display name for the peer (requires `--peer-admin-id`).
+- `--host` or `--client`: required role (exactly one).
+- `--state-dir <path>`: Local storage directory (optional; role-specific defaults under AppTraverse / ChatExample).
+- `--host-uid <uid>`: Client-only prefill of the Host UID field (does not Join).
 
-Repeated options, unknown options, missing values, or peer UID/name without `--peer-admin-id` produce a structured error message without exiting the process.
+Unknown options, both roles, no role, or `--host-uid` without `--client` produce an input error without starting the application.
+
 
 ## Architecture: Aether Thread Boundary & Model Thread Delivery
 

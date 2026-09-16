@@ -1,6 +1,7 @@
 #include "chat_model.h"
 
 #include <algorithm>
+#include <limits>
 
 #include "apptraverse/object_macros.h"
 #include "chat_commands.h"
@@ -16,6 +17,8 @@ APPTRAVERSE_REGISTER(ChatSelectedEvent);
 APPTRAVERSE_REGISTER(LocalEndpointBoundEvent);
 APPTRAVERSE_REGISTER(MessageSequenceReservedEvent);
 APPTRAVERSE_REGISTER(DesktopBoundsChangedEvent);
+APPTRAVERSE_REGISTER(DemoRoleConfiguredEvent);
+APPTRAVERSE_REGISTER(HostUidInputChangedEvent);
 APPTRAVERSE_REGISTER(ChatBindingChangedEvent);
 APPTRAVERSE_REGISTER(DraftChangedEvent);
 APPTRAVERSE_REGISTER(ScrollChangedEvent);
@@ -39,7 +42,16 @@ void ChatRoom::Apply(MessageAddedEvent const& event) {
   NoteMaterializedChange();
 }
 
-// ChatEntry Apply
+bool ChatEntry::CanApply(ChatBindingChangedEvent const& event) const {
+  if (!event.peer_link.is_valid() || !event.room.is_valid()) {
+    return false;
+  }
+  if (event.peer_link->EndpointUid() != peer_uid) {
+    return false;
+  }
+  return true;
+}
+
 void ChatEntry::Apply(ChatBindingChangedEvent const& event) {
   peer_link = event.peer_link;
   room = event.room;
@@ -76,6 +88,25 @@ bool ChatWorkspace::CanApply(ChatSelectedEvent const& event) const {
 
 void ChatWorkspace::Apply(ChatSelectedEvent const& event) {
   selected_chat_id = event.entry_id;
+  NoteMaterializedChange();
+}
+
+bool ChatWorkspace::CanApply(DemoRoleConfiguredEvent const& event) const {
+  return (event.role == DemoRole::kHost || event.role == DemoRole::kClient) &&
+         demo_role == DemoRole::kUnconfigured;
+}
+
+void ChatWorkspace::Apply(DemoRoleConfiguredEvent const& event) {
+  demo_role = event.role;
+  NoteMaterializedChange();
+}
+
+bool ChatWorkspace::CanApply(HostUidInputChangedEvent const& event) const {
+  return demo_role == DemoRole::kClient && event.text.size() <= 128;
+}
+
+void ChatWorkspace::Apply(HostUidInputChangedEvent const& event) {
+  host_uid_input = event.text;
   NoteMaterializedChange();
 }
 

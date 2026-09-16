@@ -46,7 +46,8 @@ add_library(chat_demo_model STATIC
   common/chat_commands.cpp
   common/chat_launch_options.cpp
   common/profile_lock.cpp
-  common/chat_launch_ipc.cpp
+  common/chat_bootstrap.cpp
+  common/chat_demo_runtime_state.cpp
 )
 
 target_link_libraries(chat_demo_model PUBLIC

@@ -26,18 +26,65 @@ std::string TrimAsciiWhitespace(std::string_view sv) {
 
 }  // namespace
 
+bool ConfigureDemoRole(ChatWorkspace& workspace, DemoRole role,
+                       PersistLocalState const& persist) {
+  if (role != DemoRole::kHost && role != DemoRole::kClient) {
+    return false;
+  }
+  if (workspace.demo_role == role) {
+    return true;
+  }
+  if (workspace.demo_role != DemoRole::kUnconfigured) {
+    return false;
+  }
+  auto event =
+      DemoRoleConfiguredEvent::ptr::Create(ae::CreateWith{*workspace.domain});
+  event->role = role;
+  workspace.Commit(event);
+  if (persist) {
+    persist();
+  }
+  return true;
+}
+
+bool SetHostUidInput(ChatWorkspace& workspace, std::string const& text,
+                     PersistLocalState const& persist) {
+  if (workspace.demo_role != DemoRole::kClient) {
+    return false;
+  }
+  if (workspace.host_uid_input == text) {
+    return true;
+  }
+  auto event =
+      HostUidInputChangedEvent::ptr::Create(ae::CreateWith{*workspace.domain});
+  event->text = text;
+  workspace.Commit(event);
+  if (persist) {
+    persist();
+  }
+  return true;
+}
+
+std::string ConversationDisplayName(DemoRole local_role,
+                                    std::string const& peer_uid) {
+  std::string const suffix =
+      peer_uid.size() >= 8 ? peer_uid.substr(0, 8) : peer_uid;
+  if (local_role == DemoRole::kHost) {
+    return suffix.empty() ? "Client" : "Client " + suffix;
+  }
+  return suffix.empty() ? "Host" : "Host " + suffix;
+}
+
 ChatEntry::ptr OpenOrSelectChat(ChatWorkspace& workspace,
-                                std::string const& admin_id,
-                                std::string const& display_name,
+                                std::string const& peer_uid,
                                 PersistLocalState const& persist) {
-  std::string const normalized_admin_id = TrimAsciiWhitespace(admin_id);
-  if (normalized_admin_id.empty()) {
+  std::string const canonical_uid = TrimAsciiWhitespace(peer_uid);
+  if (canonical_uid.empty()) {
     return {};
   }
 
-  // Search existing entries by normalized_admin_id
   for (auto const& entry_ptr : workspace.chats) {
-    if (entry_ptr.is_valid() && entry_ptr->peer_admin_id == normalized_admin_id) {
+    if (entry_ptr.is_valid() && entry_ptr->peer_uid == canonical_uid) {
       if (workspace.selected_chat_id != entry_ptr.id()) {
         auto sel_event =
             ChatSelectedEvent::ptr::Create(ae::CreateWith{*workspace.domain});
@@ -51,11 +98,10 @@ ChatEntry::ptr OpenOrSelectChat(ChatWorkspace& workspace,
     }
   }
 
-  // Create new ChatEntry
   auto new_entry = ChatEntry::ptr::Create(ae::CreateWith{*workspace.domain});
-  new_entry->peer_admin_id = normalized_admin_id;
+  new_entry->peer_uid = canonical_uid;
   new_entry->display_name =
-      display_name.empty() ? normalized_admin_id : display_name;
+      ConversationDisplayName(workspace.demo_role, canonical_uid);
   apptraverse::InitializeRuntimeNode(*new_entry);
 
   // Add through ChatEntryAddedEvent
@@ -87,6 +133,10 @@ bool BindChat(ChatEntry& entry, apptraverse::Link::ptr link,
   }
 
   // Idempotent no-op check
+  if (link->EndpointUid() != entry.peer_uid) {
+    return false;
+  }
+
   if (entry.peer_link.is_valid() && entry.room.is_valid() &&
       entry.peer_link.id() == link.id() && entry.room.id() == room.id()) {
     return true;
