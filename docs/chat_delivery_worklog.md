@@ -654,9 +654,36 @@ msys `ld.exe` linker pollution in CMakeCache (see Commit 01 PATH note). Prior
 commits 01–12 recorded PASS on a healthy tree before this session reconfigure.
 
 ### Ending SHA
-(pending push)
+`a26efea`
 
 ### Next Commit
 - **COMMIT 15**: Optional web host blockers
+
+---
+
+## Commit 15 — Optional web host blockers
+
+### Objective
+Inspect web feasibility without breaking native pins. Record blockers; skip
+implementation.
+
+### Starting SHA
+`a26efea`
+
+### Files changed
+- `docs/chat_web_host_blockers.md` — `WEB_NETWORK_BLOCKED`, `WEB_DURABILITY_BLOCKED`
+
+### Checks
+| Check | Result |
+| --- | --- |
+| Emscripten available | NOT_RUN (`emcc` absent) |
+| chat_demo web host | NOT_RUN (not implemented) |
+| native dependency pins | PASS (unchanged) |
+
+### Ending SHA
+(pending push)
+
+### Next Commit
+- **COMMIT 16**: Reproducible packaging and honest handoff
 
 ---
