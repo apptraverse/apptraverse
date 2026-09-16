@@ -113,6 +113,8 @@ class ChatSession {
   void AssertModelThread() const;
   void UpdateStatus(std::function<void(ChatRuntimeStatus&)> mutator);
   void DrainModelQueue();
+  void DiscardModelQueue();
+  void StopEndpointJoin(IAetherFrameEndpoint* endpoint);
   void ShutdownEndpointAndDrain(IAetherFrameEndpoint* endpoint);
 
   EndpointFactory endpoint_factory_;

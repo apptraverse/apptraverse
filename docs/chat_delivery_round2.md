@@ -240,3 +240,23 @@ Historical AV: REPRODUCED then FIXED (dangling Domain storage after UiMirror mov
 ## Next
 
 A05 WorkerState; A07 network_epoch Retry; A08 command results; A09+ gates.
+
+## A05 — WorkerState outlives callbacks (completed)
+
+### Changes
+- Private `WorkerState` in `chat_session.cpp` owns Domain/storage/workspace/
+  endpoint/transport/sync and model-thread maps.
+- `IsFinished` set only after `WorkerState` is destroyed.
+- Fatal path: `StopEndpointJoin` while state alive, then `DiscardModelQueue`
+  (do not execute callbacks against a failed model).
+- Normal stop still drains with Domain alive, then Save, then release.
+
+### Evidence
+| Test | Result |
+| --- | --- |
+| integration (bound restart) | TEST_PASS exit 0 |
+| fault | TEST_PASS exit 0 |
+
+## Next
+
+A07 network_epoch Retry reincarnation; A08 EditDraft/SendDraft results; A09+.

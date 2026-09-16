@@ -7,8 +7,10 @@
 #include <deque>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 #include "aether-objects/obj/registry.h"
@@ -150,6 +152,32 @@ RoomSyncSnapshot CaptureRoomSyncSnapshot(ChatRoom& room,
   snapshot.journal_size = room.journal.size();
   return snapshot;
 }
+
+// Owns model Domain/storage and network objects for one ChatSession worker
+// lifetime. Kept alive outside Initialize/Run try so catch paths never drain
+// callbacks after Domain/storage have already unwound.
+struct WorkerState {
+  apptraverse::DirectoryDomainStorage storage;
+  ae::Domain domain;
+  ChatWorkspace::ptr workspace;
+  std::unique_ptr<IAetherFrameEndpoint> endpoint;
+  std::unique_ptr<AetherByteTransport> transport;
+  std::unique_ptr<SharedSyncRuntime> sync_runtime;
+  std::string my_uid;
+  bool aether_ready{false};
+  bool identity_conflict{false};
+  std::uint64_t network_epoch{0};
+  std::unordered_map<std::string, PeerPresence> remote_presence_map;
+  std::map<ae::ObjId, std::string> endpoint_by_pending_entry;
+  std::map<std::string, ae::ObjId> waiting_entry_by_endpoint;
+  std::deque<OpenPeerRequest> deferred_open_while_registering;
+  bool publication_dirty{false};
+  std::map<ae::ObjId, std::uint64_t> processed_edit_revisions;
+  std::optional<ae::ObjId> pending_select_ack;
+
+  explicit WorkerState(std::filesystem::path const& model_dir)
+      : storage{model_dir}, domain{storage} {}
+};
 
 }  // namespace
 
@@ -314,11 +342,22 @@ void ChatSession::DrainModelQueue() {
   }
 }
 
-void ChatSession::ShutdownEndpointAndDrain(IAetherFrameEndpoint* endpoint) {
+void ChatSession::DiscardModelQueue() {
+  std::lock_guard<std::mutex> lock{queue_mu_};
+  work_queue_.clear();
+  accepting_user_commands_ = false;
+  accepting_internal_delivery_ = false;
+}
+
+void ChatSession::StopEndpointJoin(IAetherFrameEndpoint* endpoint) {
   if (endpoint != nullptr) {
     endpoint->RequestStop();
     endpoint->Join();
   }
+}
+
+void ChatSession::ShutdownEndpointAndDrain(IAetherFrameEndpoint* endpoint) {
+  StopEndpointJoin(endpoint);
   DrainModelQueue();
 }
 
@@ -415,13 +454,9 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
   bool worker_failed = false;
   std::string worker_error;
+  std::unique_ptr<WorkerState> worker;
 
-  std::unique_ptr<IAetherFrameEndpoint> aether_runtime;
-  std::unique_ptr<AetherByteTransport> transport;
-  std::unique_ptr<SharedSyncRuntime> sync_runtime;
-  ChatWorkspace::ptr workspace;
-
-  auto const finalize_worker = [this, &worker_failed]() {
+  auto const finalize_worker = [this, &worker_failed, &worker]() {
     on_open_peer_ = nullptr;
     on_select_chat_ = nullptr;
     on_edit_draft_ = nullptr;
@@ -430,6 +465,14 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     on_save_bounds_ = nullptr;
     on_retry_connection_ = nullptr;
     on_checkpoint_ = nullptr;
+
+    if (worker) {
+      worker->sync_runtime.reset();
+      worker->transport.reset();
+      worker->endpoint.reset();
+      worker->workspace = {};
+      worker.reset();
+    }
 
     {
       std::lock_guard<std::mutex> lock{queue_mu_};
@@ -444,6 +487,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       });
     }
 
+    // IsFinished only after WorkerState/Domain/storage are gone.
     finished_.store(true, std::memory_order_release);
     if (notify_ui_) {
       notify_ui_();
@@ -460,8 +504,24 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     std::filesystem::create_directories(model_dir);
     std::filesystem::create_directories(aether_dir);
 
-    apptraverse::DirectoryDomainStorage storage{model_dir};
-    ae::Domain domain{storage};
+    worker = std::make_unique<WorkerState>(model_dir);
+    auto& storage = worker->storage;
+    auto& domain = worker->domain;
+    auto& workspace = worker->workspace;
+    auto& aether_runtime = worker->endpoint;
+    auto& transport = worker->transport;
+    auto& sync_runtime = worker->sync_runtime;
+    auto& my_uid = worker->my_uid;
+    auto& aether_ready = worker->aether_ready;
+    auto& identity_conflict = worker->identity_conflict;
+    auto& remote_presence_map = worker->remote_presence_map;
+    auto& endpoint_by_pending_entry = worker->endpoint_by_pending_entry;
+    auto& waiting_entry_by_endpoint = worker->waiting_entry_by_endpoint;
+    auto& deferred_open_while_registering =
+        worker->deferred_open_while_registering;
+    auto& publication_dirty = worker->publication_dirty;
+    auto& processed_edit_revisions = worker->processed_edit_revisions;
+    auto& pending_select_ack = worker->pending_select_ack;
 
     if (!storage.Enumerate(kLocalWorkspaceRootId).empty()) {
       workspace = ChatWorkspace::ptr::Declare(
@@ -471,10 +531,11 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
         throw std::runtime_error("Failed to load existing workspace root");
       }
     } else {
-    workspace = ChatWorkspace::ptr::Create(ae::CreateWith{domain}.with_id(kLocalWorkspaceRootId));
-    InitializeRuntimeNode(*workspace);
-    workspace.Save();
-  }
+      workspace = ChatWorkspace::ptr::Create(
+          ae::CreateWith{domain}.with_id(kLocalWorkspaceRootId));
+      InitializeRuntimeNode(*workspace);
+      workspace.Save();
+    }
 
   auto const persist_workspace = [&workspace]() {
     if (workspace.is_valid()) {
@@ -488,10 +549,6 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       entry->room->SetJournalCompactionBlocked(true);
     }
   }
-
-  bool publication_dirty = false;
-  std::map<ae::ObjId, std::uint64_t> processed_edit_revisions;
-  std::optional<ae::ObjId> pending_select_ack;
 
   auto const publish_now_unlocked =
       [this, &workspace, &notify_ui, &processed_edit_revisions,
@@ -544,19 +601,6 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       .heartbeat_period_ms = 1000,
       .offline_after_ms = 4000,
   };
-
-    std::string my_uid;
-    bool aether_ready = false;
-    bool identity_conflict = false;
-
-    std::unordered_map<std::string, PeerPresence> remote_presence_map;
-
-  // Model-thread-only: pending UID hints and waiting-side endpoint -> entry.
-  // Values/IDs only; bound Link remains authoritative after BindChat.
-  std::map<ae::ObjId, std::string> endpoint_by_pending_entry;
-  std::map<std::string, ae::ObjId> waiting_entry_by_endpoint;
-  std::deque<OpenPeerRequest> deferred_open_while_registering;
-
 
   // Runtime presence helper
     auto const set_peer_presence =
@@ -1298,7 +1342,9 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
     sync_runtime.reset();
     transport.reset();
+    aether_runtime.reset();
     workspace = {};
+    worker.reset();
 
   } catch (std::exception const& ex) {
     worker_failed = true;
@@ -1307,30 +1353,36 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       s.lifecycle_state = SessionLifecycleState::kFailed;
       s.error_text = worker_error;
     });
-    ShutdownEndpointAndDrain(aether_runtime.get());
-    {
-      std::lock_guard<std::mutex> lock{queue_mu_};
-      accepting_internal_delivery_ = false;
+    // Keep WorkerState alive: stop producers, then discard unsafe queued work
+    // instead of executing callbacks against a failed model.
+    if (worker) {
+      StopEndpointJoin(worker->endpoint.get());
     }
-    DrainModelQueue();
-    sync_runtime.reset();
-    transport.reset();
-    workspace = {};
+    DiscardModelQueue();
+    if (worker) {
+      worker->sync_runtime.reset();
+      worker->transport.reset();
+      worker->endpoint.reset();
+      worker->workspace = {};
+      worker.reset();
+    }
   } catch (...) {
     worker_failed = true;
     UpdateStatus([](ChatRuntimeStatus& s) {
       s.lifecycle_state = SessionLifecycleState::kFailed;
       s.error_text = "ChatSession worker failed with unknown error";
     });
-    ShutdownEndpointAndDrain(aether_runtime.get());
-    {
-      std::lock_guard<std::mutex> lock{queue_mu_};
-      accepting_internal_delivery_ = false;
+    if (worker) {
+      StopEndpointJoin(worker->endpoint.get());
     }
-    DrainModelQueue();
-    sync_runtime.reset();
-    transport.reset();
-    workspace = {};
+    DiscardModelQueue();
+    if (worker) {
+      worker->sync_runtime.reset();
+      worker->transport.reset();
+      worker->endpoint.reset();
+      worker->workspace = {};
+      worker.reset();
+    }
   }
 
   finalize_worker();
