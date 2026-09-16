@@ -864,6 +864,7 @@ if(WIN32)
     add_executable(apptraverse_chat_windows_smoke_test
       chat_windows_smoke_test.cpp
       ${CMAKE_SOURCE_DIR}/examples/chat_demo/windows/win_chat_app.cpp
+      ${CMAKE_SOURCE_DIR}/examples/chat_demo/windows/app.manifest
       ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
     )
     target_link_libraries(apptraverse_chat_windows_smoke_test PRIVATE

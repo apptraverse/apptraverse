@@ -2,6 +2,7 @@ if(WIN32)
   add_executable(apptraverse_chat
     main.cpp
     win_chat_app.cpp
+    app.manifest
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
   )
 

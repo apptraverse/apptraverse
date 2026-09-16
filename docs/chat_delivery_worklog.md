@@ -312,3 +312,51 @@ cffd9aa
 - **COMMIT 06**: (per overnight plan)
 
 ---
+
+## Commit 06 — Restore Real Chat Viewport and Preserve Windows Editing State
+
+### Objective
+Restore real RichEdit scroll anchoring, GUI-only per-entry view state, draft/selection
+preservation, DPI-aware geometry, and repaired Windows smoke coverage while consuming
+`ChatSession::TryTakeUiUpdate` only.
+
+### Starting SHA
+`86bd9bb`
+
+### Files changed
+- `examples/chat_demo/windows/win_chat_app.h/.cpp` — per-entry view state; real scroll
+  capture/restore via `EM_GETSCROLLPOS`/`EM_POSFROMCHAR`; transcript append/rebuild;
+  pending selection ack; IME-safe draft replace; Ctrl+Enter via `WM_CHAR`; geometry
+  in logical units + `WM_DPICHANGED`; lifecycle stop/join before resource unload
+- `examples/chat_demo/windows/app.manifest` — PerMonitorV2 DPI awareness
+- `examples/chat_demo/windows/CMakeLists.txt` — embed manifest
+- `tests/chat_windows_smoke_test.cpp` — GUI-thread snapshots/selection; seeded
+  multiline scroll workspace; anchor ID + offset assertions; geometry reload
+- `tests/CMakeLists.txt` — smoke test manifest
+
+### Checks (MSVC Debug `build/win64-ninja-msvc-debug`)
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| compilation (MSVC Debug) | PASS |
+| `apptraverse_chat_windows_smoke_test` | PASS (exit 0) |
+| `apptraverse_chat_session_bootstrap_test` | PASS (exit 0) |
+| `apptraverse_chat_session_startup_test` | PASS (exit 0) |
+| `apptraverse_chat_session_integration_test` | PASS (exit 0) |
+| `apptraverse_chat_session_publication_test` | PASS (exit 0) |
+| `apptraverse_chat_session_lifecycle_test` | PASS (exit 0) |
+| `apptraverse_shared_sync_protocol_test` | PASS (exit 0) |
+| `apptraverse_shared_node_initial_sync_test` | PASS (exit 0) |
+| `apptraverse_aether_byte_transport_dispatch_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_model_test` | PASS (exit 0) |
+| `apptraverse_chat_demo_sync_test` | PASS (exit 0) |
+| live Aether | NOT_RUN |
+| native GUI manual | NOT_RUN |
+
+### Ending SHA
+(pending commit)
+
+### Next Commit
+- **COMMIT 07**: (per overnight plan)
+
+---
