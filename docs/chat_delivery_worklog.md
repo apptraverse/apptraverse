@@ -540,9 +540,37 @@ destroy`). Profile under `filesDir/chat-profile`. UTF-8 as `byte[]`.
 | install/run on device | NOT_RUN |
 
 ### Ending SHA
-(pending push)
+`690413c`
 
 ### Next Commit
 - **COMMIT 12**: Android UI, rotation, private-state restoration
+
+---
+
+## Commit 12 — Android UI, rotation, private-state restoration
+
+### Objective
+Native Android widgets: portrait list→conversation, landscape master-detail,
+scroll ID+offset, draft revision logic, `ChatUiRetention` across config change,
+flush draft/scroll on pause, new-chat Admin ID + optional UID.
+
+### Starting SHA
+`690413c`
+
+### Files changed
+- `MainActivity.java` — full widget tree + layout modes
+- `activity_main.xml` — list/conversation/status chrome
+- `ChatUiRetention.java` — process-wide UI private state
+- `ChatApplication.java` — exposes `uiRetention()`
+
+### Checks (Windows host)
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| APK compile | NOT_RUN (`ANDROID_HOME` unset) |
+| install/run on device/emulator | NOT_RUN (`adb` unavailable) |
+
+### Ending SHA
+(pending push)
 
 ---
