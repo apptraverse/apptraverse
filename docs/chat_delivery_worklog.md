@@ -731,7 +731,7 @@ blocked by `object_link.h` vs CPM `aether-objects` after CMake reconfigure;
 gates above used pre-existing binaries plus smoke runner.
 
 ### Ending SHA
-(pending push)
+`da05837`
 
 ---
 
@@ -742,8 +742,8 @@ gates above used pre-existing binaries plus smoke runner.
    - Commit 13 `55ea463` — Document missing AeroAdmin Admin-ID to UID resolution contract
    - Commit 14 `a26efea` — Add chat fault tests, acceptance matrix, and command limits
    - Commit 15 `ea38236` — Document web chat host blockers without changing native pins
-   - Commit 16 (this commit) — packaging + FINAL REPORT
-   - Final local HEAD / `origin/main`: (recorded at push)
+   - Commit 16 `da05837` — Add chat demo packaging scripts and overnight final report
+   - Final local HEAD / `origin/main`: `da05837cda1238e84ed846239100b6beeb154913`
 
 2. **Platform results (source / build / run / network / restore / package)**
    | Platform | Source | Build | Run | Network | Restore | Package |
