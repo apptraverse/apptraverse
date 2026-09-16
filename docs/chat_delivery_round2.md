@@ -320,3 +320,9 @@ probe sha256 (this run): `54c578718c763db480d72893bceb33b72bdcdaac661a556aeca70a
 ## Next
 
 A09 remaining bootstrap edges; A10 full regression matrix; A12 Win GUI; A13+ as available.
+
+## Progress note (post-A11)
+
+- `apptraverse_chat.exe` rebuilds with Domain::Find + structural keepalive (A04).
+- Windows smoke CMake target name not present in this tree (`apptraverse_windows_chat_smoke_test` unknown); GUI gate remains NOT_RUN for formal smoke binary.
+- Remaining: A09 edge cases, A10 matrix, A12 GUI assertions, A13 launcher, A15+ Android/Linux/package.
