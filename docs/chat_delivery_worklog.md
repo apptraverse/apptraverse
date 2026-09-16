@@ -509,9 +509,40 @@ Linux GTK smoke test (same behavioral contract as Windows) and shared
 | Linux GTK smoke compile/run | NOT_RUN |
 
 ### Ending SHA
-(pending push)
+`64c0a81`
 
 ### Next Commit
 - **COMMIT 11**: Android build + thin JNI bridge
+
+---
+
+## Commit 11 — Android build + thin JNI bridge
+
+### Objective
+`examples/chat_demo/android` Gradle project (`com.apptraverse.chatdemo`) with
+JNI bridge over the single `ChatSession` (`create/start/openPeer/selectChat/
+editDraft/sendDraft/saveScroll/checkpoint/requestStop/isStopped/consumeUiUpdate/
+destroy`). Profile under `filesDir/chat-profile`. UTF-8 as `byte[]`.
+
+### Starting SHA
+`64c0a81`
+
+### Files changed
+- `examples/chat_demo/android/` — Gradle wrapper, `app/build.gradle`, manifest
+  (INTERNET only), `native/*` JNI bridge + `ChatNativeRuntime`
+- Java: `NativeRuntime`, `NativeUiBridge`, `ChatApplication`, stub `MainActivity`
+
+### Checks (Windows host)
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| APK compile (Gradle/NDK) | NOT_RUN (`ANDROID_HOME` unset on this host) |
+| install/run on device | NOT_RUN |
+
+### Ending SHA
+(pending push)
+
+### Next Commit
+- **COMMIT 12**: Android UI, rotation, private-state restoration
 
 ---
