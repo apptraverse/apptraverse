@@ -1,6 +1,4 @@
 @echo off
 setlocal EnableExtensions
-set "EXE=%~dp0apptraverse_chat.exe"
-set "PROFILE=%LOCALAPPDATA%\App Traverse\ChatExample\client"
-"%EXE%" --client --state-dir "%PROFILE%"
+"%~dp0apptraverse_chat.exe" --client --state-dir "%LOCALAPPDATA%\App Traverse\ChatExample\client" %*
 if errorlevel 1 pause

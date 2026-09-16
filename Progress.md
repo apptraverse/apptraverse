@@ -3725,3 +3725,22 @@ Starting SHA: `0ca85c440ea97ee9f67b1ca2bf825721e075fbd2`
 - EXE SHA256: `5B95FE6389D2CAF8DC57F4C6618FC0D8EBE80928743EF49A0FF6BBAE2816A3EA`
 
 Status: implemented/verified (deterministic). Not accepted-by-user. Live cold join still open.
+
+
+## Windows launcher --state-dir quoting (2026-09-16)
+
+Starting SHA: `574035d3ec458146da9b21a24f93559062d5f270`
+
+### Landed
+- Generator `tools/windows_chat_launchers.py` emits
+  `--state-dir "%LOCALAPPDATA%\App Traverse\ChatExample\host|client"` (one argv)
+- Package `tools/package_host_client_chat_demo.py` regenerates dist launchers (not hand-edited)
+- `--dump-parsed-launch <file>` (consumed before Parse; parser unchanged) for app-side proof
+- `tools/test_windows_chat_launcher_quoting.py` launches real EXE via generated .cmd + multi-space path
+
+### Verified
+- `python tools/test_windows_chat_launcher_quoting.py` PASS
+- Manual `start-host.cmd` / `start-client.cmd` (no Argument Error; Host UID; Client UID entry)
+
+Status: implemented/verified. Not accepted-by-user.
+

@@ -4,17 +4,17 @@ This example is a two-party Host/Client conversation. It is not a product remote
 
 ## Launch
 
-Use the packaged `apptraverse_chat.exe` and the launchers next to it:
+Use the packaged `apptraverse_chat.exe` and the launchers next to it
+(`tools/windows_chat_launchers.py` / `tools/package_host_client_chat_demo.py`):
 
-- `start-host.cmd` → `apptraverse_chat.exe --host`
-- `start-client.cmd` → `apptraverse_chat.exe --client`
+- `start-host.cmd` →
+  `apptraverse_chat.exe --host --state-dir "%LOCALAPPDATA%\App Traverse\ChatExample\host"`
+- `start-client.cmd` →
+  `apptraverse_chat.exe --client --state-dir "%LOCALAPPDATA%\App Traverse\ChatExample\client"`
 
-Profiles are separate:
-
-- Host: `%LOCALAPPDATA%\App Traverse\ChatExample\host`
-- Client: `%LOCALAPPDATA%\App Traverse\ChatExample\client`
-
-Do not point both processes at the same `--state-dir`.
+The `--state-dir` value must stay one argv item (quotes around the whole path,
+including the space in `App Traverse`). Do not point both processes at the same
+`--state-dir`.
 
 ## Steps
 
