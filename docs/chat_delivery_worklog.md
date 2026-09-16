@@ -450,6 +450,37 @@ reachability, room bootstrap progress, and message delivery in
 001451b
 
 ### Next Commit
-- (per overnight plan)
+- **COMMIT 09**: Linux GTK3 host
+
+---
+
+## Commit 09 — Linux GTK3 host
+
+### Objective
+Ship `apptraverse_chat` on Linux with GTK3, GUI Domain mirror +
+`TryTakeUiUpdate`, SharedEventId transcript marks, profile lock, and async
+delete-event stop — matching the Windows contract.
+
+### Starting SHA
+`001451b`
+
+### Files changed
+- `examples/chat_demo/linux/` — `CMakeLists.txt`, `main.cpp`, `linux_chat_app.h/.cpp`,
+  `linux_fatal.h/.cpp`
+- `examples/chat_demo/CMakeLists.txt` — `UNIX AND NOT APPLE AND NOT ANDROID` guard
+
+### Checks (Windows host — source gate)
+| Check | Result |
+| --- | --- |
+| source implementation | PASS |
+| Linux GTK compile | NOT_RUN (no GTK3 on Windows host; CMake subdirectory skipped) |
+| Windows MSVC regression | NOT_RUN (build tree PATH/regen issue on this host; linux tree skipped by guard) |
+| `apptraverse_chat` Linux binary | NOT_RUN |
+
+### Ending SHA
+(pending push)
+
+### Next Commit
+- **COMMIT 10**: Linux E2E + desktop smoke runner
 
 ---

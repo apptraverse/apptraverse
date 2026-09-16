@@ -58,5 +58,7 @@ if(TARGET aether)
 
   if(WIN32)
     add_subdirectory(windows)
+  elseif(UNIX AND NOT APPLE AND NOT ANDROID)
+    add_subdirectory(linux)
   endif()
 endif()
