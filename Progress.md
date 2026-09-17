@@ -3767,3 +3767,24 @@ Starting SHA: `574035d3ec458146da9b21a24f93559062d5f270`
 
 Status: implemented/verified. Not accepted-by-user.
 
+
+---
+Status: partial on main. Live Host/Client text convergence NOT FIXED.
+
+# Native transport path rewrite (2026-09-17)
+
+Starting SHA: `954114e`. Final remote: `eed9e02`.
+
+## Landed
+1. `apptraverse_aether_p2p_safe_stream_duplex_test` — real `P2pSafeStream` over MockWriteStream; sequential duplex, drop recover, fragment, delay>3s, reentrancy depth (bad>=1, outer=0).
+2. `ChatAetherRuntime` outer-loop write pump; deleted size half-duplex / post-Join reset / 3s hang rebuild; restored heartbeat ping/pong coalesce.
+3. Pins unchanged: aether-client-cpp `0b0e3b54`, objects `1d302647`, miscpp `f8b2e1c6`.
+
+## Live gate (still FAIL)
+- Join + NodeState Host>Client works (`APP_RX` 830).
+- First missing stage: Client Join-ACK `APP_TX` (24B, token=4) never gets `WRITE_OK` while Host may `APP_RX` that ACK ~50s later.
+- Local messages exist on both sides; SharedEvent text does not converge (`LIVE_FAIL`).
+- Logs: `%TEMP%\chat_live_transport_fix2_*`.
+
+## Not packaged
+No promoted Host/Client package while live convergence FAILS.
