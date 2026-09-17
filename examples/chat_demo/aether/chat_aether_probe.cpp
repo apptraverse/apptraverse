@@ -1,9 +1,11 @@
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -34,6 +36,36 @@ char const* PresenceStateName(PeerPresence presence) {
   return "unknown";
 }
 
+std::string HexEncode(std::vector<std::uint8_t> const& bytes) {
+  static char const* kHex = "0123456789abcdef";
+  std::string out;
+  out.resize(bytes.size() * 2);
+  for (std::size_t i = 0; i < bytes.size(); ++i) {
+    out[i * 2] = kHex[bytes[i] >> 4];
+    out[i * 2 + 1] = kHex[bytes[i] & 0x0f];
+  }
+  return out;
+}
+
+std::vector<std::uint8_t> MakePayload(std::uint64_t seq, std::size_t size) {
+  std::vector<std::uint8_t> out(size);
+  for (std::size_t i = 0; i < size; ++i) {
+    std::uint8_t v = static_cast<std::uint8_t>((seq * 131u + i * 17u) & 0xffu);
+    if ((i % 17u) == 0) {
+      v = 0;
+    } else if ((i % 23u) == 0) {
+      v = static_cast<std::uint8_t>(0x80u | (v & 0x7fu));
+    }
+    out[i] = v;
+  }
+  if (size >= 8) {
+    for (int b = 0; b < 8; ++b) {
+      out[b] = static_cast<std::uint8_t>((seq >> (8 * b)) & 0xffu);
+    }
+  }
+  return out;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -42,6 +74,7 @@ int main(int argc, char* argv[]) {
   std::string peer_uid;
   std::uint64_t heartbeat_ms = 2000;
   std::uint64_t offline_ms = 7000;
+  bool binary_ladder = false;
 
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
@@ -55,13 +88,15 @@ int main(int argc, char* argv[]) {
       heartbeat_ms = std::stoull(argv[++i]);
     } else if (arg == "--offline-ms" && i + 1 < argc) {
       offline_ms = std::stoull(argv[++i]);
+    } else if (arg == "--binary-ladder") {
+      binary_ladder = true;
     }
   }
 
   if (state_dir.empty() || client_name.empty()) {
     std::cerr << "Usage: apptraverse_chat_aether_probe --state-dir <dir> "
                  "--client-name <name> [--peer-uid <uid>] [--heartbeat-ms <n>] "
-                 "[--offline-ms <n>]\n";
+                 "[--offline-ms <n>] [--binary-ladder]\n";
     return 1;
   }
 
@@ -85,26 +120,37 @@ int main(int argc, char* argv[]) {
         local_uid = std::move(uid);
       },
       /*on_ready=*/
-      [&runtime, &transport, &out_mu, &local_uid, peer_uid]() {
+      [&runtime, &transport, &out_mu, &local_uid, peer_uid, binary_ladder]() {
         {
           std::lock_guard<std::mutex> lock{out_mu};
           transport = std::make_unique<AetherByteTransport>(
               runtime, local_uid,
               [](ModelTask task) {
-                // Immediate dispatch for probe since probe has no separate model thread
                 if (task) {
                   task();
                 }
               });
-          transport->BindReceive(
-              nullptr,
-              [](void*, std::string const& source,
-                 std::vector<std::uint8_t> const& bytes) {
-                std::string const text(bytes.begin(), bytes.end());
-                std::cout << "RX peer=" << source << " bytes=" << bytes.size()
-                          << " text=" << text << "\n"
-                          << std::flush;
-              });
+          if (binary_ladder) {
+            transport->BindReceive(
+                nullptr,
+                [](void*, std::string const& source,
+                   std::vector<std::uint8_t> const& bytes) {
+                  std::cout << "RECEIVE src=" << source
+                            << " bytes=" << bytes.size()
+                            << " hex=" << HexEncode(bytes) << "\n"
+                            << std::flush;
+                });
+          } else {
+            transport->BindReceive(
+                nullptr,
+                [](void*, std::string const& source,
+                   std::vector<std::uint8_t> const& bytes) {
+                  std::string const text(bytes.begin(), bytes.end());
+                  std::cout << "RX peer=" << source << " bytes=" << bytes.size()
+                            << " text=" << text << "\n"
+                            << std::flush;
+                });
+          }
           std::cout << "READY uid=" << local_uid << "\n" << std::flush;
         }
         if (!peer_uid.empty()) {
@@ -118,7 +164,6 @@ int main(int argc, char* argv[]) {
       },
       /*on_frame=*/
       [](std::string source_uid, std::vector<std::uint8_t> bytes) {
-        // Will be delivered through transport->BindReceive if bound
         (void)source_uid;
         (void)bytes;
       },
@@ -132,7 +177,25 @@ int main(int argc, char* argv[]) {
 
   std::string line;
   while (std::getline(std::cin, line)) {
-    if (line.rfind("send ", 0) == 0) {
+    if (binary_ladder) {
+      if (line.rfind("OPEN ", 0) == 0) {
+        runtime.OpenPeer(line.substr(5));
+      } else if (line.rfind("SEND ", 0) == 0) {
+        std::istringstream iss(line.substr(5));
+        std::string target;
+        std::uint64_t seq = 0;
+        std::size_t size = 0;
+        iss >> target >> seq >> size;
+        if (!target.empty() && size > 0) {
+          runtime.Send(target, MakePayload(seq, size));
+          std::cout << "SEND_QUEUED peer=" << target << " seq=" << seq
+                    << " bytes=" << size << "\n"
+                    << std::flush;
+        }
+      } else if (line == "STOP" || line == "quit" || line == "exit") {
+        break;
+      }
+    } else if (line.rfind("send ", 0) == 0) {
       auto rest = line.substr(5);
       auto space_pos = rest.find(' ');
       if (space_pos != std::string::npos) {

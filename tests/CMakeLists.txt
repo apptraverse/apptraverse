@@ -544,6 +544,16 @@ if(TARGET chat_demo_aether)
     COMMAND apptraverse_chat_session_integration_test
   )
 
+  add_executable(apptraverse_aether_native_live_probe
+    aether_native_live_probe.cpp
+  )
+  target_link_libraries(apptraverse_aether_native_live_probe PRIVATE
+    chat_demo_aether
+  )
+  target_include_directories(apptraverse_aether_native_live_probe PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+  )
+
   add_executable(apptraverse_chat_session_live_probe
     chat_session_live_probe.cpp
   )
