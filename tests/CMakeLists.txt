@@ -330,6 +330,20 @@ add_test(
 )
 
 if(TARGET chat_demo_aether)
+  add_executable(apptraverse_chat_aether_write_completion_test
+    chat_aether_write_completion_test.cpp
+  )
+  target_link_libraries(apptraverse_chat_aether_write_completion_test PRIVATE
+    chat_demo_aether
+  )
+  target_include_directories(apptraverse_chat_aether_write_completion_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+  )
+  add_test(
+    NAME apptraverse_chat_aether_write_completion_test
+    COMMAND apptraverse_chat_aether_write_completion_test
+  )
+
   add_executable(apptraverse_aether_p2p_safe_stream_duplex_test
     aether_p2p_safe_stream_duplex_test.cpp
   )

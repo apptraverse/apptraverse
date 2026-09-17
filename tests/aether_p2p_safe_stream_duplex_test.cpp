@@ -14,6 +14,7 @@
 
 #include "aether/ae_context.h"
 #include "aether/client_messages/p2p_safe_message_stream.h"
+#include "aether/config.h"
 #include "aether/safe_stream/safe_stream_config.h"
 #include "aether/stream_api/istream.h"
 #include "aether/types/data_buffer.h"
@@ -32,6 +33,18 @@
   } while (0)
 
 namespace {
+
+// Production chat adapter config (must stay aligned with chat_aether_runtime.cpp).
+ae::SafeStreamConfig MakeProductionChatConfig() {
+  return ae::SafeStreamConfig{
+      .window_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
+      .max_packet_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
+      .max_repeat_count = 10,
+      .wait_ack_timeout = std::chrono::seconds{5},
+      .send_ack_timeout = std::chrono::seconds{0},
+      .send_repeat_timeout = std::chrono::seconds{2},
+  };
+}
 
 ae::SafeStreamConfig MakeConfig(std::chrono::milliseconds wait_ack =
                                     std::chrono::milliseconds{500}) {
@@ -90,7 +103,7 @@ struct DuplexFixture {
         return;
       }
       if (delay_a.count() > 0) {
-        auto when = ae::Now() + delay_a;
+        auto when = epoch + delay_a;
         auto packet = data;
         ctx.sched.DelayedTask(
             [this, packet = std::move(packet)]() mutable {
@@ -143,9 +156,14 @@ struct DuplexFixture {
 
 void WatchWrite(ae::WriteAction& action, bool& done,
                 ae::WriteAction::Status& st, ae::Subscription& sub) {
+  // is_finished is not Success. If the action already finished before we can
+  // subscribe, the terminal result is unavailable — fail the observation
+  // instead of inventing kSuccess.
   if (action.is_finished()) {
-    st = ae::WriteAction::Status::kSuccess;
+    std::cerr << "WatchWrite: action already finished before Subscribe; "
+                 "cannot invent Success\n";
     done = true;
+    st = ae::WriteAction::Status::kFail;
     return;
   }
   sub = action.status_event().Subscribe([&](ae::WriteAction::Status s) {
@@ -191,13 +209,8 @@ void TestSequentialAndSizes() {
             << " link_state=" << static_cast<int>(fx.stream_a->stream_info().link_state)
             << " writable=" << fx.stream_a->stream_info().is_writable << '\n';
 
+  // Sequential (not overlapping) writes on the small mock link fixture.
   std::vector<std::size_t> lengths{14, 24, 63, 64, 65, 224};
-  if (usable >= 840) {
-    lengths.push_back(840);
-  } else {
-    lengths.push_back(std::min<std::size_t>(usable, 300));
-  }
-
   for (std::size_t i = 0; i < lengths.size(); ++i) {
     auto payload = MakePayload(lengths[i], static_cast<std::uint8_t>(0xA0 + i));
     CHECK(SendOne(fx, *fx.stream_a, payload));
@@ -228,6 +241,40 @@ void TestSequentialAndSizes() {
     std::cerr << "zero_length_write done=" << done
               << " st=" << static_cast<int>(st)
               << " finished=" << action.is_finished() << '\n';
+  }
+}
+
+void TestProductionConfigRepresentativeSizes() {
+  // Larger link so production max_packet_size can carry 830/840 samples.
+  DuplexFixture fx{2048};
+  fx.stream_a.reset();
+  fx.stream_b.reset();
+  auto config = MakeProductionChatConfig();
+  fx.stream_a = std::make_unique<ae::P2pSafeStream>(fx.ctx, config, fx.pipe_a);
+  fx.stream_b = std::make_unique<ae::P2pSafeStream>(fx.ctx, config, fx.pipe_b);
+  fx.sub_a = fx.stream_a->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
+    fx.rx_a.emplace_back(d.begin(), d.end());
+  });
+  fx.sub_b = fx.stream_b->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
+    fx.rx_b.emplace_back(d.begin(), d.end());
+  });
+  fx.Pump(4);
+
+  auto const usable = fx.UsableMax();
+  std::cerr << "production_usable_max_element_size=" << usable << '\n';
+  std::vector<std::size_t> const required{24, 224, 830, 840};
+  for (std::size_t i = 0; i < required.size(); ++i) {
+    auto const n = required[i];
+    if (usable < n) {
+      std::cerr << "UNSUPPORTED production size=" << n
+                << " usable_max=" << usable
+                << " (not substituting a smaller sample)\n";
+      std::exit(1);
+    }
+    auto payload = MakePayload(n, static_cast<std::uint8_t>(0xC0 + i));
+    CHECK(SendOne(fx, *fx.stream_a, payload));
+    CHECK(fx.WaitRx(fx.rx_b, i + 1, 2000));
+    ExpectPayload(fx.rx_b, i, payload);
   }
 }
 
@@ -263,7 +310,8 @@ void TestSmallLargeBothDirections() {
   // Covered by TestSequentialAndSizes (24/224 both directions on one pair).
 }
 
-void TestQueuedWritesSettleCorrectOps() {
+void TestSequentialWritesSettleCorrectOps() {
+  // Sequential back-to-back Writes — not genuinely overlapping ops.
   DuplexFixture fx{40};
   std::vector<std::vector<std::uint8_t>> payloads{
       MakePayload(20, 1), MakePayload(30, 2), MakePayload(40, 3)};
@@ -293,10 +341,17 @@ void TestDelayedDeliveryBeyondThreeSecondsNativePolicy() {
   });
   fx.Pump(2);
 
+  auto const start = fx.epoch;
   auto payload = MakePayload(48, 0x77);
   CHECK(SendOne(fx, *fx.stream_a, payload));
   CHECK(fx.WaitRx(fx.rx_b, 1, 1200));
   ExpectPayload(fx.rx_b, 0, payload);
+  auto const elapsed = fx.epoch - start;
+  CHECK(elapsed >= std::chrono::milliseconds{3500});
+  std::cerr << "delayed_delivery_simulated_ms="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed)
+                   .count()
+            << '\n';
 }
 
 void TestDropRecover() {
@@ -446,9 +501,10 @@ int main() {
   std::cerr << "aether_p2p_safe_stream_duplex_test start\n";
   TestLoopbackSmoke();
   TestSequentialAndSizes();
+  TestProductionConfigRepresentativeSizes();
   TestSimultaneousPending();
   TestSmallLargeBothDirections();
-  TestQueuedWritesSettleCorrectOps();
+  TestSequentialWritesSettleCorrectOps();
   TestDelayedDeliveryBeyondThreeSecondsNativePolicy();
   TestDropRecover();
   TestFragmentedMessage();

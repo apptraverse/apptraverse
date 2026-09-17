@@ -64,6 +64,8 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
   void SetFrameCallback(FrameCallback on_frame) override;
 
  private:
+  friend struct ChatAetherWriteCompletionTestAccess;
+
   enum class CommandType : std::uint8_t {
     kOpenPeer = 1,
     kSend = 2,
@@ -120,6 +122,12 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
     PeerPresence reported_presence{PeerPresence::kUnknown};
   };
 
+  // Status callback path: bind completion to one PeerState address + token +
+  // incarnation. Stores a terminal notice only; outer loop processes it.
+  static void ApplyWriteStatus(PeerState* peer, std::uint64_t token,
+                               std::uint64_t incarnation,
+                               ae::WriteAction::Status status);
+
   void Enqueue(Command command);
   void ThreadMain(Config config, LocalUidCallback on_uid,
                   ReadyCallback on_ready, FailedCallback on_failed,
@@ -141,6 +149,19 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
   PresenceCallback on_presence_;
   LocalConnectivityCallback on_local_connectivity_;
   ControlCallback on_control_;
+};
+
+// Test access to the production write-completion path (same ApplyWriteStatus
+// used by try_start_write's status callback).
+struct ChatAetherWriteCompletionTestAccess {
+  using PeerState = ChatAetherRuntime::PeerState;
+  using TerminalWriteNotice = ChatAetherRuntime::TerminalWriteNotice;
+
+  static void ApplyWriteStatus(PeerState* peer, std::uint64_t token,
+                               std::uint64_t incarnation,
+                               ae::WriteAction::Status status) {
+    ChatAetherRuntime::ApplyWriteStatus(peer, token, incarnation, status);
+  }
 };
 
 }  // namespace apptraverse::example::chat_demo

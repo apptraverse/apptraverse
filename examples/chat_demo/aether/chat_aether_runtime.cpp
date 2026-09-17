@@ -110,6 +110,26 @@ ChatAetherRuntime::~ChatAetherRuntime() {
   Join();
 }
 
+void ChatAetherRuntime::ApplyWriteStatus(PeerState* peer, std::uint64_t token,
+                                         std::uint64_t incarnation,
+                                         ae::WriteAction::Status status) {
+  if (peer == nullptr) {
+    return;
+  }
+  if (peer->channel_incarnation != incarnation) {
+    return;
+  }
+  if (peer->active_write_token != token) {
+    return;
+  }
+  peer->terminal_notice = TerminalWriteNotice{
+      .token = token,
+      .incarnation = incarnation,
+      .status = status,
+  };
+  peer->terminal_notice_pending = true;
+}
+
 void ChatAetherRuntime::Start(Config config, LocalUidCallback on_uid,
                               ReadyCallback on_ready, FailedCallback on_failed,
                               FrameCallback on_frame,
@@ -495,7 +515,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       }
     };
 
-    auto try_start_write = [&peers](PeerState& peer) {
+    auto try_start_write = [](PeerState& peer) {
       while (peer.active_write_token == 0 && peer.stream &&
              !peer.pending_out.empty()) {
         auto& item = peer.pending_out.front();
@@ -572,23 +592,8 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
           return;
         }
         peer.active_write_sub = action.status_event().Subscribe(
-            [&peers, token, incarnation](ae::WriteAction::Status status) {
-              for (auto& [uid, live] : peers) {
-                (void)uid;
-                if (live.channel_incarnation != incarnation) {
-                  continue;
-                }
-                if (live.active_write_token != token) {
-                  continue;
-                }
-                live.terminal_notice = TerminalWriteNotice{
-                    .token = token,
-                    .incarnation = incarnation,
-                    .status = status,
-                };
-                live.terminal_notice_pending = true;
-                return;
-              }
+            [owner = &peer, token, incarnation](ae::WriteAction::Status status) {
+              ApplyWriteStatus(owner, token, incarnation, status);
             });
         return;
       }
