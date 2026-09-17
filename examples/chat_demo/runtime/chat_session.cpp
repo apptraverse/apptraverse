@@ -830,15 +830,15 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           if (!aether_ready || my_uid.empty()) {
             return;
           }
-          // Deadline applies only while waiting for Host acceptance.
-          // After Accepted, keep resending JoinRequest so Host can resend
-          // Accept; snapshot bind is driven by SharedSyncRuntime retry.
-          if (runtime->join_phase == ChatJoinPhase::kJoining &&
-              now - worker->join_attempt_start >= kJoinAttemptDeadline) {
+          // One attempt budget covers Joining and Accepted until the room
+          // is durably bound. Duplicate Accept does not restart the clock.
+          if (now - worker->join_attempt_start >= kJoinAttemptDeadline) {
             auto fail = JoinHostFailedEvent::ptr::Create(
                 ae::CreateWith{*runtime->domain});
             fail->attempt_id = runtime->join_attempt_id;
-            fail->reason = "Join timed out";
+            fail->reason = runtime->join_phase == ChatJoinPhase::kAccepted
+                               ? "Room sync timed out"
+                               : "Host response timed out";
             if (runtime->CanApply(*fail)) {
               runtime->Commit(fail);
             }

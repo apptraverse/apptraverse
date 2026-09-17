@@ -20,6 +20,7 @@
 
 #include "apptraverse/object_serialization.h"
 #include "chat_commands.h"
+#include "join_delivery_trace.h"
 #include "profile_lock.h"
 #include "win32_fatal.h"
 
@@ -900,10 +901,16 @@ void WinChatApp::UpdateConnectionControls() {
     }
     ShowWindow(join_error_hwnd_, SW_HIDE);
   } else {
-    bool const joining = status.join_phase == ChatJoinPhase::kJoining ||
-                         status.join_phase == ChatJoinPhase::kAccepted;
-    SetWindowTextW(action_btn_hwnd_, joining ? L"Joining…" : L"Join");
-    EnableWindow(action_btn_hwnd_, joining ? FALSE : TRUE);
+    bool const joining = status.join_phase == ChatJoinPhase::kJoining;
+    bool const syncing = status.join_phase == ChatJoinPhase::kAccepted;
+    if (joining) {
+      SetWindowTextW(action_btn_hwnd_, L"Joining…");
+    } else if (syncing) {
+      SetWindowTextW(action_btn_hwnd_, L"Syncing…");
+    } else {
+      SetWindowTextW(action_btn_hwnd_, L"Join");
+    }
+    EnableWindow(action_btn_hwnd_, (joining || syncing) ? FALSE : TRUE);
 
     std::wstring error_text;
     if (!local_send_error_.empty()) {
@@ -1298,6 +1305,7 @@ int WinChatApp::Run(ChatLaunchOptions options) {
       .host_uid_prefill = options.host_uid_prefill,
   };
 
+  EnableJoinDeliveryTraceFromEnv();
   session_.Start(std::move(cfg), [this]() {
     if (main_hwnd_ != nullptr) {
       PostMessageW(main_hwnd_, WM_CHAT_PUBLISHED, 0, 0);

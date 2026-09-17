@@ -119,9 +119,12 @@ def main() -> int:
     dir_b = work / "b"
     dir_a.mkdir(exist_ok=True)
     dir_b.mkdir(exist_ok=True)
+    trace_a = work / "join_trace_host.txt"
+    trace_b = work / "join_trace_client.txt"
 
     exe_hash = sha256_file(probe)
     print(f"LIVE_PROBE path={probe} sha256={exe_hash}", flush=True)
+    print(f"LIVE_WORKDIR={work}", flush=True)
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -133,8 +136,12 @@ def main() -> int:
     procs: list[subprocess.Popen[str]] = []
     readers: dict[str, ProbeReader] = {}
     try:
-        a = start_probe(probe, "--host", dir_a, env, creationflags)
-        b = start_probe(probe, "--client", dir_b, env, creationflags)
+        env_a = env.copy()
+        env_a["APPTRAVERSE_JOIN_TRACE"] = str(trace_a)
+        env_b = env.copy()
+        env_b["APPTRAVERSE_JOIN_TRACE"] = str(trace_b)
+        a = start_probe(probe, "--host", dir_a, env_a, creationflags)
+        b = start_probe(probe, "--client", dir_b, env_b, creationflags)
         procs.extend([a, b])
         readers["A"] = ProbeReader(a, "A")
         readers["B"] = ProbeReader(b, "B")
@@ -225,6 +232,12 @@ def main() -> int:
     except Exception as ex:
         print(f"LIVE_FAIL: {ex}", file=sys.stderr)
         print(f"probe_sha256={exe_hash}", file=sys.stderr)
+        print(f"LIVE_WORKDIR={work}", file=sys.stderr)
+        for label, path in (("host", trace_a), ("client", trace_b)):
+            if path.is_file():
+                print(f"--- join_trace_{label} ---", file=sys.stderr)
+                print(path.read_text(encoding="utf-8", errors="replace")[-8000:],
+                      file=sys.stderr)
         return 1
     finally:
         for p in procs:

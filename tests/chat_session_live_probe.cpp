@@ -25,9 +25,11 @@
 #include "chat_build_info.h"
 #include "chat_model.h"
 #include "chat_session.h"
+#include "join_delivery_trace.h"
 
 namespace {
 
+using apptraverse::example::chat_demo::ChatJoinPhase;
 using apptraverse::example::chat_demo::ChatEntry;
 using apptraverse::example::chat_demo::ChatPublicationKind;
 using apptraverse::example::chat_demo::ChatRoom;
@@ -37,6 +39,22 @@ using apptraverse::example::chat_demo::ChatUiUpdate;
 using apptraverse::example::chat_demo::ChatWorkspace;
 using apptraverse::example::chat_demo::DemoRole;
 using apptraverse::example::chat_demo::SessionLifecycleState;
+
+char const* JoinPhaseName(ChatJoinPhase phase) {
+  switch (phase) {
+    case ChatJoinPhase::kIdle:
+      return "Idle";
+    case ChatJoinPhase::kJoining:
+      return "Joining";
+    case ChatJoinPhase::kAccepted:
+      return "Accepted";
+    case ChatJoinPhase::kJoined:
+      return "Joined";
+    case ChatJoinPhase::kFailed:
+      return "Failed";
+  }
+  return "Unknown";
+}
 
 constexpr int kMaxCommandBytes = 4096;
 constexpr int kMaxOutstanding = 64;
@@ -191,6 +209,8 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  apptraverse::example::chat_demo::EnableJoinDeliveryTraceFromEnv();
+
   apptraverse::EnsureObjectRegistration();
   apptraverse::example::chat_demo::EnsureChatDemoModelRegistration();
   apptraverse::example::chat_demo::EnsureAetherLinkRegistration();
@@ -247,12 +267,19 @@ int main(int argc, char* argv[]) {
   std::mutex ui_mu;
   std::thread pump([&] {
     std::optional<std::uint32_t> last_room_id;
+    ChatJoinPhase last_phase = ChatJoinPhase::kIdle;
     while (!stop_pump.load(std::memory_order_relaxed)) {
       bool emitted = false;
       {
         std::lock_guard<std::mutex> lock{ui_mu};
         while (auto update = session.TryTakeUiUpdate()) {
           ApplyUiUpdate(ui, *update);
+          if (update->runtime_status.join_phase != last_phase) {
+            last_phase = update->runtime_status.join_phase;
+            Emit(std::string("JOINPHASE phase=") + JoinPhaseName(last_phase) +
+                 " text=" + update->runtime_status.join_status_text);
+            emitted = true;
+          }
           if (ui.workspace.is_valid()) {
             auto entry = SelectedOrFirst(*ui.workspace);
             if (entry.is_valid() && entry->room.is_valid()) {

@@ -18,6 +18,7 @@
 #include "aether/client.h"
 #include "aether/client_messages/p2p_message_stream.h"
 #include "aether/client_messages/p2p_port_handle.h"
+#include "aether/client_messages/p2p_safe_message_stream.h"
 #include "aether/types/uid.h"
 
 #include "aether_frame_endpoint.h"
@@ -83,7 +84,9 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
     std::string uid_text;
     ae::Uid uid;
 
-    std::shared_ptr<ae::P2pStream> stream;
+    // P2pSafeStream owns the underlying P2pStream and fragments to channel MTU.
+    std::shared_ptr<ae::P2pStream> raw_p2p;
+    std::unique_ptr<ae::P2pSafeStream> stream;
 
     ae::Subscription data_sub;
     ae::Subscription update_sub;
@@ -91,6 +94,25 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
     std::vector<ae::Subscription> write_subs;
 
     std::deque<PendingOut> pending_out;
+
+    // P2pSafeStream acknowledges one Write at a time end-to-end. Stacking
+    // SharedSyncRuntime retries and heartbeats into concurrent Writes stalls
+    // the send window so Host→Client Events never complete after NodeState.
+    bool write_in_flight{false};
+    AetherFrameKind in_flight_kind{AetherFrameKind::kApplication};
+    std::vector<std::uint8_t> in_flight_bytes;
+    std::uint64_t write_started_ms{0};
+
+    // After the Client's initial ACK Write succeeds, defer larger application
+    // Sends until one post-ACK application frame is received. Simultaneous
+    // Host↔Client Event Writes on the same SafeStream pair hang without
+    // WRITE_OK; Host (which receives the ACK) may send first.
+    // Arm only once per peer (re-arming on Event ACKs deadlocks both sides).
+    bool defer_large_app_until_rx{false};
+    bool join_half_duplex_used{false};
+    bool post_join_safestream_reset{false};
+    bool pending_join_safestream_reset{false};
+    std::uint64_t join_reset_ready_ms{0};
 
     bool stream_linked{false};
 

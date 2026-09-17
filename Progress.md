@@ -1,3 +1,26 @@
+## Host	oClient delivery (2026-09-17) — NOT FIXED
+
+Starting SHA: `d9b11a48771d077f0208543fbd1663ca71224d1e`
+
+### Reproduced first broken edge
+- Baseline: Client Join → Host Accept+NodeState → Client binds (Joined, same room) works after wrapping P2p with `P2pSafeStream`.
+- First missing post-Join stage: Host journal Event `APP_TX` never gets `WRITE_OK` (SafeStream status callback absent) while Client has no `APP_RX` for that Event. Fake/bootstrap tests are not this failure.
+- Live pair logs: `chat_live_nohb_*`, `chat_live_halfduplex_*`, `chat_live_hostreset_*`, `chat_live_newport_*`.
+
+### Owning layer
+`ChatAetherRuntime` / `ae::P2pSafeStream` post-Join send path — not admission, binding, or GUI. NodeState (840B) and Join ACK (14–24B) complete; next Event (~224B) stalls.
+
+### Landed (partial)
+- Join delivery trace (`APPTRAVERSE_JOIN_TRACE`) + live pair continuous readers
+- `P2pSafeStream` for MTU fragmentation; serialize one Write; disable app heartbeats on that window
+- NEW_PORT always binds (do not drop inbound when Linked outbound exists)
+- Half-duplex: Client defers large APP TX once after Join ACK until Host Event RX
+- Accepted 30s room-sync timeout + Win32 button `Syncing…` (was infinite Accepted / both labeled Joining…)
+- Experimental post-Join CreatePort / hang recovery — does not reliably clear Event WRITE hang within live timeout
+
+### Still open
+Live cold join+bidirectional text over real Aether: **NOT FIXED**. First missing stage remains Host Event `WRITE_OK` / Client Event `APP_RX` after Join.
+
 ---
 Status: implemented/verified on main. Not accepted.
 
