@@ -330,6 +330,20 @@ add_test(
 )
 
 if(TARGET chat_demo_aether)
+  add_executable(apptraverse_aether_p2p_safe_stream_duplex_test
+    aether_p2p_safe_stream_duplex_test.cpp
+  )
+  target_link_libraries(apptraverse_aether_p2p_safe_stream_duplex_test PRIVATE
+    aether
+  )
+  target_include_directories(apptraverse_aether_p2p_safe_stream_duplex_test PRIVATE
+    ${aether-client-cpp_SOURCE_DIR}
+  )
+  add_test(
+    NAME apptraverse_aether_p2p_safe_stream_duplex_test
+    COMMAND apptraverse_aether_p2p_safe_stream_duplex_test
+  )
+
   add_executable(apptraverse_aether_stream_frame_test
     aether_stream_frame_test.cpp
   )
