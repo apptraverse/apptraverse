@@ -170,6 +170,7 @@ void EmitStreamInfo(std::string const& peer, ae::ByteIStream* stream) {
       << " max_element_size=" << info.max_element_size
       << " rec_element_size=" << info.rec_element_size
       << " is_writable=" << (info.is_writable ? 1 : 0)
+      << " is_reliable=" << (info.is_reliable ? 1 : 0)
       << " link_state=" << static_cast<int>(info.link_state);
   EmitLine(oss.str());
 }

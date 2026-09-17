@@ -304,15 +304,16 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
           }
           auto& peer = it->second;
           std::vector<std::uint8_t> bytes(data.begin(), data.end());
-          JoinTrace("RAW_RX", "aether", "before_outer_decode", 0, peer_uid_text,
-                    {}, {}, {}, bytes.size(), JoinTraceHash(bytes));
+          JoinTrace("APP_REASSEMBLED_RX", "aether", "after_safe_stream_out_data",
+                    0, peer_uid_text, {}, {}, {}, bytes.size(),
+                    JoinTraceHash(bytes));
 
           AetherFrameKind kind{};
           std::vector<std::uint8_t> payload;
           if (!DecodeAetherFrame(bytes, kind, payload)) {
-            JoinTrace("RAW_RX_DECODE_FAIL", "aether", "bad_outer_frame", 0,
-                      peer_uid_text, {}, {}, {}, bytes.size(),
-                      JoinTraceHash(bytes), "bad outer frame");
+            JoinTrace("APP_REASSEMBLED_RX_DECODE_FAIL", "aether",
+                      "bad_outer_frame", 0, peer_uid_text, {}, {}, {},
+                      bytes.size(), JoinTraceHash(bytes), "bad outer frame");
             return;
           }
 
