@@ -556,6 +556,21 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         ae::DataBuffer buffer{frame_bytes.begin(), frame_bytes.end()};
         auto& action = peer.stream->Write(std::move(buffer));
         // Keep the status lambda within SmallFunction storage (no std::string).
+        if (action.is_finished()) {
+          // Finished before Subscribe: unstick the pump. Prefer Fail so
+          // SharedSyncRuntime retries rather than inventing Success.
+          peer.terminal_notice = TerminalWriteNotice{
+              .token = token,
+              .incarnation = incarnation,
+              .status = ae::WriteAction::Status::kFail,
+          };
+          peer.terminal_notice_pending = true;
+          JoinTrace("WRITE_ALREADY_DONE", "aether",
+                    TokenIncarnationDetail(token, incarnation), 0, {},
+                    peer.uid_text, {}, {}, peer.active_payload.size(), 0,
+                    "finished_before_subscribe");
+          return;
+        }
         peer.active_write_sub = action.status_event().Subscribe(
             [&peers, token, incarnation](ae::WriteAction::Status status) {
               for (auto& [uid, live] : peers) {
