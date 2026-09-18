@@ -1,5 +1,14 @@
 ﻿## Messenger example (feature/messenger-v1) — in progress
 
+### Dial / import / restart fixes (post-83d1c54)
+- **Dial:** `SendControl` / `ControlCallback` MSGD DialRequest/DialAck; free peer accepts via `SetPeerUid` from transport `source_uid`; UID-order create vs `ExpectInitialNodeFromEndpoint`; periodic wake while peer set (not only with conversation); SyncInitial waits `peer_prepared_for_sync`
+- **Import:** `CopyMaterializedChangeNotifierFrom(dialog)` + `SetJournalCompactionBlocked(true)` before `BindConversation`; no `InitializeRuntimeNode` on import
+- **Restart:** existing conversation → OpenPeer, compaction/notifier, `RegisterNode` if missing (no early return)
+- **UI:** confirmed draft clear while focused; Send gated until conversation bound; Æther errors to stderr
+- **Tests:** `messenger_sync_test` (FakeAether one-way both UID orders, duplex after dial, restart register)
+- Build/live duplex over real Æther after these commits: **not re-verified** in the upload turn (prior EXE was still 83d1c54)
+- Do not use old `messenger_a` without rebuild — restart assert on unregistered SyncInitial
+
 ### Commit 2 — event model + UI
 - `Dialog` node: own_uid, peer_uid, draft, messages, archived peers
 - Events: OwnUid/PeerUid/Draft/MessageAppended; peer switch archives/restores history

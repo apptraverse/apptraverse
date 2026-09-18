@@ -81,6 +81,30 @@ add_executable(messenger_aether_uid_test
 target_link_libraries(messenger_aether_uid_test PRIVATE messenger_model)
 target_compile_features(messenger_aether_uid_test PRIVATE cxx_std_20)
 
+if(TARGET messenger_aether)
+  add_executable(messenger_sync_test
+    common/messenger_sync_test.cpp
+    common/messenger_lifecycle.cpp
+  )
+  target_link_libraries(messenger_sync_test PRIVATE
+    messenger_model
+    messenger_distill
+    messenger_aether
+  )
+  target_include_directories(messenger_sync_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/common
+    ${CMAKE_SOURCE_DIR}/tests
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+  )
+  target_compile_definitions(messenger_sync_test PRIVATE
+    APPTRAVERSE_ENABLE_DISTILLATION
+  )
+  target_compile_features(messenger_sync_test PRIVATE cxx_std_20)
+  if(MSVC)
+    target_compile_options(messenger_sync_test PRIVATE /utf-8)
+  endif()
+endif()
+
 if(WIN32 AND NOT EMSCRIPTEN)
   add_subdirectory(windows)
 endif()
