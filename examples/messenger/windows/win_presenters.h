@@ -72,6 +72,11 @@ class Win32SurfacePresenter : public DesktopSurfacePresenter {
   void LayoutControls();
   void SyncControlsFromModel();
   void CopyOwnUid();
+  void ApplyDraftFromModel(std::string const& model_draft);
+
+  // Last draft text applied from the model (or confirmed via EN_CHANGE).
+  std::string synced_draft_;
+  bool applying_draft_{false};
 };
 
 }  // namespace apptraverse

@@ -419,12 +419,31 @@ void Win32SurfacePresenter::SyncControlsFromModel() {
                static_cast<LPARAM>(-1));
   SendMessageW(transcript_edit, EM_SCROLLCARET, 0, 0);
 
-  if (GetFocus() != draft_edit) {
-    SetEditUtf8(draft_edit, dialog.draft);
-  }
+  ApplyDraftFromModel(dialog.draft);
+  EnableWindow(send_button, dialog.conversation.is_valid() ? TRUE : FALSE);
 }
 
 void Win32SurfacePresenter::OnModelChanged() { SyncControlsFromModel(); }
+
+void Win32SurfacePresenter::ApplyDraftFromModel(std::string const& model_draft) {
+  std::string const edit_text = ReadEditUtf8(draft_edit);
+  if (model_draft == synced_draft_ && model_draft == edit_text) {
+    return;
+  }
+  // Confirmed model edit: field still shows the last synced value (e.g. sent
+  // draft cleared while focused), or focus is elsewhere.
+  bool const apply =
+      GetFocus() != draft_edit || edit_text == synced_draft_;
+  if (!apply) {
+    // Newer local typing than the model revision — keep the edit text.
+    synced_draft_ = model_draft;
+    return;
+  }
+  applying_draft_ = true;
+  SetEditUtf8(draft_edit, model_draft);
+  applying_draft_ = false;
+  synced_draft_ = model_draft;
+}
 
 bool Win32SurfacePresenter::OnCommand(std::uint32_t command_id,
                                       std::uint16_t notification_code) {
@@ -445,7 +464,11 @@ bool Win32SurfacePresenter::OnCommand(std::uint32_t command_id,
   }
   if (command_id == static_cast<std::uint32_t>(kDraftEditId) &&
       notification_code == EN_CHANGE) {
-    DraftEdited(ReadEditUtf8(draft_edit));
+    if (applying_draft_) {
+      return true;
+    }
+    synced_draft_ = ReadEditUtf8(draft_edit);
+    DraftEdited(synced_draft_);
     return true;
   }
   return false;
@@ -456,6 +479,9 @@ void Win32SurfacePresenter::ConfirmPeerUid() {
 }
 
 void Win32SurfacePresenter::ConfirmSendDraft() {
+  if (!surface->dialog->conversation.is_valid()) {
+    return;
+  }
   std::string text = ReadEditUtf8(draft_edit);
   if (text.empty()) {
     return;
