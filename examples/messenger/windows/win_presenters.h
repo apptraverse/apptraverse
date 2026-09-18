@@ -22,8 +22,10 @@ inline wchar_t const kMessengerWindowClass[] = L"AppTraverseMessengerWindow";
 inline constexpr int kOwnUidEditId = 1001;
 inline constexpr int kCopyButtonId = 1002;
 inline constexpr int kPeerUidEditId = 1003;
-inline constexpr int kTranscriptEditId = 1004;
-inline constexpr int kDraftEditId = 1005;
+inline constexpr int kAddButtonId = 1004;
+inline constexpr int kTranscriptEditId = 1005;
+inline constexpr int kDraftEditId = 1006;
+inline constexpr int kSendButtonId = 1007;
 
 void RegisterMessengerWin32Classes();
 void UnregisterMessengerWin32Classes();
@@ -58,8 +60,10 @@ class Win32SurfacePresenter : public DesktopSurfacePresenter {
   HWND own_uid_edit{nullptr};
   HWND copy_button{nullptr};
   HWND peer_uid_edit{nullptr};
+  HWND add_button{nullptr};
   HWND transcript_edit{nullptr};
   HWND draft_edit{nullptr};
+  HWND send_button{nullptr};
 
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);

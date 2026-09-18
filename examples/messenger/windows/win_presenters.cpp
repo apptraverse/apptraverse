@@ -246,6 +246,16 @@ void Win32SurfacePresenter::OnLoad() {
     FatalWin32("SetWindowSubclass peer uid", err);
   }
 
+  add_button = CreateWindowExW(
+      0, L"BUTTON", L"Добавить", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0,
+      0, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAddButtonId)),
+      instance, nullptr);
+  if (add_button == nullptr) {
+    DWORD const err = GetLastError();
+    FatalWin32("CreateWindowExW add", err);
+  }
+  SetHwndUserData(add_button, static_cast<Presenter*>(this));
+
   transcript_edit = CreateWindowExW(
       WS_EX_CLIENTEDGE, L"EDIT", L"",
       WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY |
@@ -276,6 +286,16 @@ void Win32SurfacePresenter::OnLoad() {
     FatalWin32("SetWindowSubclass draft", err);
   }
 
+  send_button = CreateWindowExW(
+      0, L"BUTTON", L"Отправить", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0,
+      0, 0, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSendButtonId)),
+      instance, nullptr);
+  if (send_button == nullptr) {
+    DWORD const err = GetLastError();
+    FatalWin32("CreateWindowExW send", err);
+  }
+  SetHwndUserData(send_button, static_cast<Presenter*>(this));
+
   LayoutControls();
   SyncControlsFromModel();
   ShowWindow(hwnd, SW_SHOW);
@@ -294,11 +314,17 @@ void Win32SurfacePresenter::LayoutControls() {
   constexpr int kGap = 8;
   constexpr int kRowH = 28;
   constexpr int kCopyW = 110;
+  constexpr int kAddW = 100;
+  constexpr int kSendW = 110;
   constexpr int kDraftH = 28;
 
   int const inner_w = width > 2 * kMargin ? width - 2 * kMargin : 1;
-  int const own_w =
-      inner_w > kCopyW + kGap ? inner_w - kCopyW - kGap : 1;
+  auto const edit_w_for = [inner_w, kGap](int button_w) {
+    return inner_w > button_w + kGap ? inner_w - button_w - kGap : 1;
+  };
+  int const own_w = edit_w_for(kCopyW);
+  int const peer_w = edit_w_for(kAddW);
+  int const draft_w = edit_w_for(kSendW);
   int y = kMargin;
 
   if (SetWindowPos(own_uid_edit, nullptr, kMargin, y, own_w, kRowH,
@@ -312,10 +338,15 @@ void Win32SurfacePresenter::LayoutControls() {
     FatalWin32("SetWindowPos copy", err);
   }
   y += kRowH + kGap;
-  if (SetWindowPos(peer_uid_edit, nullptr, kMargin, y, inner_w, kRowH,
+  if (SetWindowPos(peer_uid_edit, nullptr, kMargin, y, peer_w, kRowH,
                    SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("SetWindowPos peer uid", err);
+  }
+  if (SetWindowPos(add_button, nullptr, kMargin + peer_w + kGap, y, kAddW,
+                   kRowH, SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowPos add", err);
   }
   y += kRowH + kGap;
   int const draft_y = height - kMargin - kDraftH;
@@ -326,10 +357,15 @@ void Win32SurfacePresenter::LayoutControls() {
     DWORD const err = GetLastError();
     FatalWin32("SetWindowPos transcript", err);
   }
-  if (SetWindowPos(draft_edit, nullptr, kMargin, draft_y, inner_w, kDraftH,
+  if (SetWindowPos(draft_edit, nullptr, kMargin, draft_y, draft_w, kDraftH,
                    SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("SetWindowPos draft", err);
+  }
+  if (SetWindowPos(send_button, nullptr, kMargin + draft_w + kGap, draft_y,
+                   kSendW, kDraftH, SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowPos send", err);
   }
 }
 
@@ -397,6 +433,16 @@ bool Win32SurfacePresenter::OnCommand(std::uint32_t command_id,
     CopyOwnUid();
     return true;
   }
+  if (command_id == static_cast<std::uint32_t>(kAddButtonId) &&
+      notification_code == BN_CLICKED) {
+    ConfirmPeerUid();
+    return true;
+  }
+  if (command_id == static_cast<std::uint32_t>(kSendButtonId) &&
+      notification_code == BN_CLICKED) {
+    ConfirmSendDraft();
+    return true;
+  }
   if (command_id == static_cast<std::uint32_t>(kDraftEditId) &&
       notification_code == EN_CHANGE) {
     DraftEdited(ReadEditUtf8(draft_edit));
@@ -460,7 +506,9 @@ void Win32SurfacePresenter::OnUnload() {
   }
   SetHwndUserData(copy_button, nullptr);
   SetHwndUserData(peer_uid_edit, nullptr);
+  SetHwndUserData(add_button, nullptr);
   SetHwndUserData(draft_edit, nullptr);
+  SetHwndUserData(send_button, nullptr);
   SetHwndUserData(hwnd, nullptr);
   if (DestroyWindow(hwnd) == 0) {
     DWORD const err = GetLastError();
@@ -470,8 +518,10 @@ void Win32SurfacePresenter::OnUnload() {
   own_uid_edit = nullptr;
   copy_button = nullptr;
   peer_uid_edit = nullptr;
+  add_button = nullptr;
   transcript_edit = nullptr;
   draft_edit = nullptr;
+  send_button = nullptr;
 }
 
 void Win32SurfacePresenter::QueueCurrentBounds() {
