@@ -358,13 +358,25 @@ void Win32SurfacePresenter::SyncControlsFromModel() {
   }
 
   std::string transcript;
-  for (auto const& line : dialog.messages) {
-    if (!transcript.empty()) {
-      transcript.push_back('\r');
-      transcript.push_back('\n');
+  if (dialog.conversation.is_valid()) {
+    for (auto const& message : dialog.conversation->messages) {
+      if (!transcript.empty()) {
+        transcript.push_back('\r');
+        transcript.push_back('\n');
+      }
+      bool const outgoing = message.id.origin_uid == dialog.own_uid;
+      transcript += outgoing ? "→ " : "← ";
+      transcript += message.text;
     }
-    transcript += line.outgoing ? "→ " : "← ";
-    transcript += line.text;
+  } else {
+    for (auto const& line : dialog.messages) {
+      if (!transcript.empty()) {
+        transcript.push_back('\r');
+        transcript.push_back('\n');
+      }
+      transcript += line.outgoing ? "→ " : "← ";
+      transcript += line.text;
+    }
   }
   SetEditUtf8(transcript_edit, transcript);
   SendMessageW(transcript_edit, EM_SETSEL, static_cast<WPARAM>(-1),

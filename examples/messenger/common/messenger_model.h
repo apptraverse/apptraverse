@@ -13,25 +13,35 @@
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/presenter.h"
+#include "apptraverse/shared_event_id.h"
+#include "apptraverse/shared_event_order.h"
+#include "apptraverse/shared_node.h"
 
 #include "messenger_ids.h"
 
-namespace apptraverse::example::chat_demo {
-class IAetherFrameEndpoint;
-}
-
 namespace apptraverse {
 
+namespace example::chat_demo {
+class IAetherFrameEndpoint;
+}
+class SharedSyncRuntime;
+
+class Application;
 class Surfaces;
 class Surface;
 class SurfacePresenter;
 class Dialog;
+class Conversation;
 class SurfaceBoundsChangedEvent;
 class SurfacePresentationSizeChangedEvent;
 class OwnUidChangedEvent;
 class PeerUidChangedEvent;
 class DraftChangedEvent;
 class MessageAppendedEvent;
+class ConversationBoundEvent;
+class LocalEndpointBoundEvent;
+class MessageSequenceReservedEvent;
+class MessageAddedEvent;
 
 // One local transcript line. outgoing == true means this instance authored it.
 struct MessengerMessage {
@@ -57,6 +67,24 @@ struct PeerConversation {
   std::vector<MessengerMessage> messages;
 
   AE_REFLECT_MEMBERS(peer_uid, draft, messages)
+};
+
+// Shared journal message (replicated via MessageAddedEvent).
+struct MessageValue {
+  SharedEventId id;
+  std::uint64_t timestamp_us{0};
+  std::string text;
+
+  bool operator==(MessageValue const& other) const noexcept {
+    return id == other.id && timestamp_us == other.timestamp_us &&
+           text == other.text;
+  }
+
+  bool operator!=(MessageValue const& other) const noexcept {
+    return !(*this == other);
+  }
+
+  AE_REFLECT_MEMBERS(id, timestamp_us, text)
 };
 
 inline void AssignInitialDesktopBounds(Surface& surface);
@@ -115,10 +143,40 @@ class Surface : public NodeFor<Surface> {
   ae::ObjPtr<Dialog> dialog;
 };
 
+// Replicated pair journal. Sharing topology lives on SharedNode.
+class Conversation
+    : public NodeFor<Conversation, SharedNode> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::messenger::Conversation",
+                           Conversation, SharedNode, 0)
+
+ protected:
+  Conversation() = default;
+
+ public:
+  explicit Conversation(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(messages))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, messages);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, messages);
+  }
+
+  std::vector<MessageValue> messages;
+
+  bool CanApply(MessageAddedEvent const& event) const;
+  void Apply(MessageAddedEvent const& event);
+};
+
 // Active one-peer dialog + archived peers. Mutations only via Events.
 class Dialog : public NodeFor<Dialog> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::messenger::Dialog", Dialog,
-                           Node, 0)
+                           Node, 1)
 
  protected:
   Dialog() = default;
@@ -127,7 +185,7 @@ class Dialog : public NodeFor<Dialog> {
   explicit Dialog(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(own_uid), AE_MMBR(peer_uid), AE_MMBR(draft),
-                    AE_MMBR(messages), AE_MMBR(archived))
+                    AE_MMBR(messages), AE_MMBR(archived), AE_MMBR(conversation))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -135,26 +193,33 @@ class Dialog : public NodeFor<Dialog> {
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, own_uid, peer_uid, draft, messages, archived);
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, own_uid, peer_uid, draft, messages, archived, conversation);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, own_uid, peer_uid, draft, messages, archived, conversation);
   }
 
   // Model-thread entry points (create Event + Commit).
   void SetOwnUid(std::string uid);
   void SetPeerUid(std::string uid);
   void SetDraft(std::string text);
-  void AppendOutgoingMessage(std::string text);
+  void BindConversation(Conversation::ptr next);
 
   void Apply(OwnUidChangedEvent const& event);
   void Apply(PeerUidChangedEvent const& event);
   void Apply(DraftChangedEvent const& event);
   void Apply(MessageAppendedEvent const& event);
+  void Apply(ConversationBoundEvent const& event);
 
   std::string own_uid;
   std::string peer_uid;
   std::string draft;
   std::vector<MessengerMessage> messages;
   std::vector<PeerConversation> archived;
+  Conversation::ptr conversation;
 };
 
 class SurfacePresenter : public Presenter {
@@ -349,6 +414,8 @@ class DraftChangedEvent : public EventFor<Dialog, DraftChangedEvent> {
   std::string text;
 };
 
+// Local-only mirror append (tests / archive restore path). Outgoing shared
+// sends use MessageAddedEvent on Conversation.
 class MessageAppendedEvent : public EventFor<Dialog, MessageAppendedEvent> {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::messenger::MessageAppendedEvent",
@@ -376,38 +443,171 @@ class MessageAppendedEvent : public EventFor<Dialog, MessageAppendedEvent> {
   bool outgoing{true};
 };
 
-class Application : public ae::Obj {
+class ConversationBoundEvent
+    : public EventFor<Dialog, ConversationBoundEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::messenger::ConversationBoundEvent",
+      ConversationBoundEvent, Event, 0)
+
+ protected:
+  ConversationBoundEvent() = default;
+
+ public:
+  explicit ConversationBoundEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(conversation))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, conversation);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, conversation);
+  }
+
+  Conversation::ptr conversation;
+};
+
+class LocalEndpointBoundEvent
+    : public EventFor<Application, LocalEndpointBoundEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::messenger::LocalEndpointBoundEvent",
+      LocalEndpointBoundEvent, Event, 0)
+
+ protected:
+  LocalEndpointBoundEvent() = default;
+
+ public:
+  explicit LocalEndpointBoundEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(endpoint_uid))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, endpoint_uid);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, endpoint_uid);
+  }
+
+  std::string endpoint_uid;
+};
+
+class MessageSequenceReservedEvent
+    : public EventFor<Application, MessageSequenceReservedEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::messenger::MessageSequenceReservedEvent",
+      MessageSequenceReservedEvent, Event, 0)
+
+ protected:
+  MessageSequenceReservedEvent() = default;
+
+ public:
+  explicit MessageSequenceReservedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(reserved_sequence))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, reserved_sequence);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, reserved_sequence);
+  }
+
+  std::uint64_t reserved_sequence{0};
+};
+
+class MessageAddedEvent
+    : public EventFor<Conversation, MessageAddedEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::messenger::MessageAddedEvent",
+                           MessageAddedEvent, Event, 0)
+
+ protected:
+  MessageAddedEvent() = default;
+
+ public:
+  explicit MessageAddedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(message))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, message);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, message);
+  }
+
+  bool MatchesSharedMetadata(SharedEventId const& identity,
+                             SharedEventOrder const& order) const override {
+    return message.id == identity &&
+           message.timestamp_us == order.timestamp_us;
+  }
+
+  MessageValue message;
+};
+
+// Root Node: topology + local endpoint sequence for shared message identity.
+class Application : public NodeFor<Application> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::messenger::Application",
-                           Application, ae::Obj, 0)
+                           Application, Node, 1)
 
  protected:
   Application() = default;
 
  public:
-  explicit Application(ae::ObjProp prop) : Obj{prop} {}
+  explicit Application(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(surfaces))
+  AE_OBJECT_REFLECT(AE_MMBR(surfaces), AE_MMBR(local_endpoint_uid),
+                    AE_MMBR(next_message_sequence))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, surfaces);
+  void Load(ae::Version<0>, Dnv&) {
+    throw std::runtime_error(
+        "Application v0 (pre-sync) is not supported; start with a fresh state "
+        "dir");
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, surfaces);
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, surfaces, local_endpoint_uid, next_message_sequence);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, surfaces, local_endpoint_uid, next_message_sequence);
   }
 
   Surfaces::ptr surfaces;
+  std::string local_endpoint_uid;
+  std::uint64_t next_message_sequence{1};
 
   // Runtime-only (not reflected). Wired by MessengerModelSession.
   example::chat_demo::IAetherFrameEndpoint* aether{nullptr};
+  SharedSyncRuntime* sync_runtime{nullptr};
   bool aether_ready{false};
+
+  void Apply(LocalEndpointBoundEvent const& event);
+  bool CanApply(MessageSequenceReservedEvent const& event) const;
+  void Apply(MessageSequenceReservedEvent const& event);
 
   // Model-thread: validate peer UID, SetPeerUid via Event, OpenPeer when ready.
   void ConfirmPeerUid(std::string raw);
   void OnAetherLocalUid(std::string uid);
   void OnAetherReady();
+  void AppendOutgoingMessage(std::string text);
+  void SetupActivePeerSync();
+  void TeardownPeer(std::string const& peer_uid);
+  void DriveConversationSync();
 };
 
 inline void AssignInitialDesktopBounds(Surface& surface) {

@@ -17,6 +17,8 @@
 #include "apptraverse/node.h"
 #include "apptraverse/publication_channel.h"
 
+#include "aether_byte_transport.h"
+#include "apptraverse/shared_sync_runtime.h"
 #include "chat_aether_runtime.h"
 
 namespace apptraverse {
@@ -28,7 +30,7 @@ enum class MessengerPublicationKind {
   Incremental,
 };
 
-// Model thread + publication + persistence + Aether runtime ownership.
+// Model thread + publication + persistence + Aether / sync ownership.
 struct MessengerModelSession {
   using ModelWork = ModelObjectProxy::ModelWork;
 
@@ -39,6 +41,8 @@ struct MessengerModelSession {
   bool stop{false};
   std::deque<ModelWork> pending_work;
   std::unique_ptr<example::chat_demo::ChatAetherRuntime> aether;
+  std::unique_ptr<example::chat_demo::AetherByteTransport> transport;
+  std::unique_ptr<SharedSyncRuntime> sync_runtime;
 
   void RequestStop();
   // Rejected after RequestStop. Work already queued is accepted and drained.

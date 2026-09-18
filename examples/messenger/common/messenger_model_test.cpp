@@ -55,31 +55,53 @@ int main() {
     CHECK(dialog.own_uid.empty());
     CHECK(dialog.peer_uid.empty());
     CHECK(dialog.messages.empty());
+    CHECK(!dialog.conversation.is_valid());
+    CHECK(app->next_message_sequence == 1);
+
+    // Bind local endpoint + own uid, then create a Conversation for CommitShared.
+    app->OnAetherLocalUid("own-1");
+    CHECK(app->local_endpoint_uid == "own-1");
+    CHECK(dialog.own_uid == "own-1");
 
     dialog.SetPeerUid("peer-a");
+    auto conversation =
+        apptraverse::Conversation::ptr::Create(ae::CreateWith{domain});
+    apptraverse::InitializeRuntimeNode(*conversation, dialog);
+    conversation->SetJournalCompactionBlocked(true);
+    dialog.BindConversation(conversation);
+    CHECK(dialog.conversation.is_valid());
+
     dialog.SetDraft("hello");
-    dialog.AppendOutgoingMessage("hello");
-    CHECK(dialog.peer_uid == "peer-a");
+    app->AppendOutgoingMessage("hello");
     CHECK(dialog.draft.empty());
+    CHECK(dialog.conversation->messages.size() == 1);
+    CHECK(dialog.conversation->messages[0].text == "hello");
+    CHECK(dialog.conversation->messages[0].id.origin_uid == "own-1");
+    CHECK(dialog.conversation->messages[0].id.origin_sequence == 1);
+    CHECK(app->next_message_sequence == 2);
+
+    // Peer switch archives conversation messages; no cross-peer leak.
+    dialog.SetPeerUid("peer-b");
+    CHECK(dialog.peer_uid == "peer-b");
+    CHECK(!dialog.conversation.is_valid());
+    CHECK(dialog.messages.empty());
+    CHECK(dialog.draft.empty());
+
+    auto conversation_b =
+        apptraverse::Conversation::ptr::Create(ae::CreateWith{domain});
+    apptraverse::InitializeRuntimeNode(*conversation_b, dialog);
+    conversation_b->SetJournalCompactionBlocked(true);
+    dialog.BindConversation(conversation_b);
+    app->AppendOutgoingMessage("other");
+    CHECK(dialog.conversation->messages.size() == 1);
+    CHECK(dialog.conversation->messages[0].text == "other");
+
+    dialog.SetPeerUid("peer-a");
+    CHECK(dialog.peer_uid == "peer-a");
+    CHECK(!dialog.conversation.is_valid());
     CHECK(dialog.messages.size() == 1);
     CHECK(dialog.messages[0].text == "hello");
     CHECK(dialog.messages[0].outgoing);
-
-    dialog.SetPeerUid("peer-b");
-    CHECK(dialog.peer_uid == "peer-b");
-    CHECK(dialog.messages.empty());
-    CHECK(dialog.draft.empty());
-    dialog.AppendOutgoingMessage("other");
-    CHECK(dialog.messages.size() == 1);
-    CHECK(dialog.messages[0].text == "other");
-
-    dialog.SetPeerUid("peer-a");
-    CHECK(dialog.peer_uid == "peer-a");
-    CHECK(dialog.messages.size() == 1);
-    CHECK(dialog.messages[0].text == "hello");
-
-    dialog.SetOwnUid("own-1");
-    CHECK(dialog.own_uid == "own-1");
 
     apptraverse::ClearReachableNodesMaterializedChangeNotifier(*app);
     app.Save();
@@ -93,10 +115,10 @@ int main() {
                     apptraverse::messenger::ObjId::Application)});
     auto& dialog = *app->surfaces->surfaces.front()->dialog;
     CHECK(dialog.own_uid == "own-1");
+    CHECK(app->local_endpoint_uid == "own-1");
     CHECK(dialog.peer_uid == "peer-a");
     CHECK(dialog.messages.size() == 1);
     CHECK(dialog.messages[0].text == "hello");
-    // Journal replay: archived peer-b still present after reload.
     bool found_b = false;
     for (auto const& entry : dialog.archived) {
       if (entry.peer_uid == "peer-b") {

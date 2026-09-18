@@ -1,7 +1,6 @@
 #include "aether_link.h"
 
 #include "apptraverse/object_macros.h"
-#include "chat_model.h"
 
 namespace apptraverse::example::chat_demo {
 namespace {
@@ -12,7 +11,6 @@ APPTRAVERSE_REGISTER(AetherLink);
 
 void EnsureAetherLinkRegistration() {
   apptraverse::EnsureObjectRegistration();
-  EnsureChatDemoModelRegistration();
   static bool registered = false;
   if (!registered) {
     registered = true;

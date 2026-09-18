@@ -13,10 +13,16 @@
 - `Application::ConfirmPeerUid` / `OnAetherLocalUid` / `OnAetherReady`
 - Verified: `messenger_model_test`, `messenger_aether_uid_test`, GUI launch/close; `state_dir/aether` created
 - Live own-UID fill not observed in 30s smoke (Aether registration/network may be unavailable)
+### Commit 4 — pair journal sync over Aether
+- `Conversation : SharedNode` + `MessageValue` / `MessageAddedEvent` (MatchesSharedMetadata)
+- `Application` is a Node: `local_endpoint_uid`, `next_message_sequence` via Events
+- `Dialog.conversation`; peer archive from conversation messages; UID-order bootstrap (no Join)
+- `MessengerModelSession` owns `AetherByteTransport` + `SharedSyncRuntime`; model-loop drives SyncInitialState / SyncNextEvent
+- `messenger_aether` adds `aether_byte_transport.cpp` + `aether_link.cpp`; `EnsureAetherLinkRegistration` at startup
+- Presenters read `conversation->messages` when bound (outgoing if `id.origin_uid == own_uid`)
+- Verified: `messenger_model_test` (CommitShared local apply + peer archive), `messenger_aether_uid_test`, build `win32_messenger`, brief GUI smoke (`state_dir/aether` created)
+- Live two-instance duplex journal sync: **not verified** this turn
 ### Remaining
-- Commit 2: dialog events + UI
-- Commit 3: real Aether identity/peer
-- Commit 4: pair journal sync
 - Commit 5: docs + pair smoke
 
 ---

@@ -20,6 +20,8 @@ if(TARGET aether)
   add_library(messenger_aether STATIC
     ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether/aether_stream_frame.cpp
     ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether/chat_aether_runtime.cpp
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether/aether_byte_transport.cpp
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether/aether_link.cpp
   )
   target_link_libraries(messenger_aether PUBLIC
     aether
@@ -30,6 +32,8 @@ if(TARGET aether)
     ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
   )
   target_compile_features(messenger_aether PUBLIC cxx_std_20)
+
+  target_link_libraries(messenger_model PUBLIC messenger_aether)
 endif()
 
 add_library(messenger_distill STATIC
