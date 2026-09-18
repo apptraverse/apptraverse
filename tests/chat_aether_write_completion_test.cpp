@@ -122,6 +122,25 @@ void TestDestroyedChannelStateIgnored() {
   CHECK(peer.channel_incarnation == 2);
 }
 
+void TestCaptureActiveWriteToPendingPreservesInFlight() {
+  using PendingOut = ChatAetherWriteCompletionTestAccess::PendingOut;
+  PeerState peer;
+  peer.active_write_token = 7;
+  peer.active_kind = apptraverse::example::chat_demo::AetherFrameKind::kApplication;
+  peer.active_payload = {0x11, 0x22, 0x33};
+  peer.pending_out.push_back(
+      PendingOut{.kind = apptraverse::example::chat_demo::AetherFrameKind::kControl,
+                 .bytes = {0x99}});
+
+  ChatAetherWriteCompletionTestAccess::CaptureActiveWriteToPending(peer);
+  CHECK(peer.active_payload.empty());
+  CHECK(peer.pending_out.size() == 2);
+  CHECK(peer.pending_out.front().bytes.size() == 3);
+  CHECK(peer.pending_out.front().bytes[0] == 0x11);
+  CHECK(peer.pending_out.back().bytes.size() == 1);
+  CHECK(peer.pending_out.back().bytes[0] == 0x99);
+}
+
 void TestNullPeerNoOp() {
   ChatAetherWriteCompletionTestAccess::ApplyWriteStatus(
       nullptr, 1, 1, ae::WriteAction::Status::kSuccess);
@@ -136,6 +155,7 @@ int main() {
   TestStaleTokenIgnored();
   TestRehashDoesNotChangeCallbackOwnership();
   TestDestroyedChannelStateIgnored();
+  TestCaptureActiveWriteToPendingPreservesInFlight();
   TestNullPeerNoOp();
   std::cerr << "chat_aether_write_completion_test PASS\n";
   return 0;

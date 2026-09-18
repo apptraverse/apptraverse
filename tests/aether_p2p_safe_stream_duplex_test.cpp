@@ -41,7 +41,7 @@ ae::SafeStreamConfig MakeProductionChatConfig() {
       .max_packet_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
       .max_repeat_count = 10,
       .wait_ack_timeout = std::chrono::seconds{5},
-      .send_ack_timeout = std::chrono::seconds{0},
+      .send_ack_timeout = std::chrono::milliseconds{1},
       .send_repeat_timeout = std::chrono::seconds{2},
   };
 }
@@ -86,6 +86,7 @@ struct DuplexFixture {
   std::size_t tx_a{0};
   std::size_t tx_b{0};
   bool drop_next_a{false};
+  bool drop_all_a{false};
   std::chrono::milliseconds delay_a{0};
   std::deque<ae::DataBuffer> held_a;
 
@@ -98,6 +99,9 @@ struct DuplexFixture {
     // on MockWriteStream's size fields and SafeStream OnStreamUpdate.
     wire_a = pipe_a->on_write_event().Subscribe([this](ae::DataBuffer&& data) {
       ++tx_a;
+      if (drop_all_a) {
+        return;
+      }
       if (drop_next_a) {
         drop_next_a = false;
         return;
@@ -354,6 +358,29 @@ void TestDelayedDeliveryBeyondThreeSecondsNativePolicy() {
             << '\n';
 }
 
+void TestInFlightStopSettlesWriteAction() {
+  // Regression: SafeStreamSendAction::Stop used to no-op while a chunk was
+  // still listed as in-flight, and stopped_event_ was never subscribed — so
+  // WriteAction::Stop never produced a terminal status.
+  DuplexFixture fx{48};
+  fx.drop_all_a = true;
+  auto payload = MakePayload(40, 0x42);
+  ae::DataBuffer buf{payload.begin(), payload.end()};
+  bool done = false;
+  ae::WriteAction::Status st = ae::WriteAction::Status::kFail;
+  ae::Subscription sub;
+  auto& action = fx.stream_a->Write(std::move(buf));
+  WatchWrite(action, done, st, sub);
+  fx.Pump(20);
+  CHECK(!done);
+  CHECK(!action.is_finished());
+  action.Stop();
+  PumpUntilDone(fx, done, 200);
+  CHECK(done);
+  CHECK(st == ae::WriteAction::Status::kStop);
+  CHECK(action.is_finished());
+}
+
 void TestDropRecover() {
   DuplexFixture fx{48};
   fx.drop_next_a = true;
@@ -506,6 +533,7 @@ int main() {
   TestSmallLargeBothDirections();
   TestSequentialWritesSettleCorrectOps();
   TestDelayedDeliveryBeyondThreeSecondsNativePolicy();
+  TestInFlightStopSettlesWriteAction();
   TestDropRecover();
   TestFragmentedMessage();
   TestReentrancyDepthProperty();
