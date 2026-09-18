@@ -50,6 +50,14 @@ struct MessengerModelSession {
   void Run(std::function<void(MessengerPublicationKind)> on_published);
 };
 
+// Shared stack wiring for the product session and FakeAether integration tests.
+void WireMessengerSyncStack(
+    Application& application, ae::Domain& domain, ae::IDomainStorage& storage,
+    example::chat_demo::IAetherFrameEndpoint& aether,
+    example::chat_demo::ModelDispatch dispatch,
+    std::unique_ptr<example::chat_demo::AetherByteTransport>& transport,
+    std::unique_ptr<SharedSyncRuntime>& sync_runtime);
+
 void ApplyMessengerStructural(std::vector<std::uint8_t> const& bytes,
                               Application& ui_application,
                               ae::IDomainStorage& ui_storage, void* host,

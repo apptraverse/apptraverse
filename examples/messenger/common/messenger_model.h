@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_MESSENGER_MODEL_H_
 #define APPTRAVERSE_MESSENGER_MODEL_H_
 
+#include <chrono>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -595,6 +596,9 @@ class Application : public NodeFor<Application> {
   example::chat_demo::IAetherFrameEndpoint* aether{nullptr};
   SharedSyncRuntime* sync_runtime{nullptr};
   bool aether_ready{false};
+  // Peer signaled dial readiness (inbound DialRequest or DialAck) for sync.
+  bool peer_prepared_for_sync{false};
+  std::chrono::steady_clock::time_point last_dial_send{};
 
   void Apply(LocalEndpointBoundEvent const& event);
   bool CanApply(MessageSequenceReservedEvent const& event) const;
@@ -604,10 +608,19 @@ class Application : public NodeFor<Application> {
   void ConfirmPeerUid(std::string raw);
   void OnAetherLocalUid(std::string uid);
   void OnAetherReady();
+  // Control-plane dial only. source_uid is the Æther transport identity.
+  void OnControlMessage(std::string source_uid,
+                        std::vector<std::uint8_t> bytes);
   void AppendOutgoingMessage(std::string text);
   void SetupActivePeerSync();
   void TeardownPeer(std::string const& peer_uid);
   void DriveConversationSync();
+  // True while peer is set and journal sync may still need dial / drive ticks.
+  bool NeedsPeriodicSyncWake() const;
+
+ private:
+  void SendDialControl(bool ack);
+  void MaybeRetryDial();
 };
 
 inline void AssignInitialDesktopBounds(Surface& surface) {

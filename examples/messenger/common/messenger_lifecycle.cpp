@@ -8,7 +8,9 @@
 
 #include <cassert>
 #include <chrono>
+#include <cstdio>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -29,6 +31,69 @@
 namespace apptraverse {
 namespace {
 
+void LogMessengerLifecycle(char const* stage, std::string const& detail) {
+  std::fprintf(stderr, "[messenger] %s %s\n", stage, detail.c_str());
+  std::fflush(stderr);
+}
+
+}  // namespace
+
+void WireMessengerSyncStack(
+    Application& application, ae::Domain& domain, ae::IDomainStorage& storage,
+    example::chat_demo::IAetherFrameEndpoint& aether,
+    example::chat_demo::ModelDispatch dispatch,
+    std::unique_ptr<example::chat_demo::AetherByteTransport>& transport,
+    std::unique_ptr<SharedSyncRuntime>& sync_runtime) {
+  if (transport || !application.aether_ready ||
+      application.local_endpoint_uid.empty()) {
+    return;
+  }
+
+  transport = std::make_unique<example::chat_demo::AetherByteTransport>(
+      aether, application.local_endpoint_uid, std::move(dispatch));
+  sync_runtime =
+      std::make_unique<SharedSyncRuntime>(domain, storage, *transport);
+  sync_runtime->AllowStandaloneEventClass(MessageAddedEvent::kClassId);
+
+  Application* const app_ptr = &application;
+  sync_runtime->SetInitialNodeImportedCallback(
+      [app_ptr](std::string const& source_endpoint,
+                SharedNode::ptr imported_node) -> bool {
+        if (!imported_node.is_valid()) {
+          return false;
+        }
+        Dialog& dialog = *app_ptr->surfaces->surfaces.front()->dialog;
+        if (source_endpoint != dialog.peer_uid) {
+          LogMessengerLifecycle(
+              "import_reject",
+              "source=" + source_endpoint + " peer=" + dialog.peer_uid);
+          return false;
+        }
+        if (ae::Registry::GetRegistry().GenerationDistance(
+                Conversation::kClassId, imported_node->GetClassId()) < 0) {
+          LogMessengerLifecycle("import_reject", "class_mismatch");
+          return false;
+        }
+        auto conversation = Conversation::ptr::MakeFromThis(
+            static_cast<Conversation*>(&*imported_node));
+        conversation->SetJournalCompactionBlocked(true);
+        conversation->CopyMaterializedChangeNotifierFrom(dialog);
+        dialog.BindConversation(conversation);
+        app_ptr->peer_prepared_for_sync = true;
+        LogMessengerLifecycle(
+            "import_bind",
+            "conv=" + std::to_string(conversation.id().id()) +
+                " source=" + source_endpoint);
+        return true;
+      });
+
+  application.sync_runtime = sync_runtime.get();
+  LogMessengerLifecycle("sync_stack",
+                        "uid=" + application.local_endpoint_uid);
+}
+
+namespace {
+
 void EnsureSyncStack(MessengerModelSession& session, Application& application,
                      ae::Domain& domain, ae::IDomainStorage& storage) {
   if (session.transport || !application.aether_ready ||
@@ -41,34 +106,9 @@ void EnsureSyncStack(MessengerModelSession& session, Application& application,
         session.Post([task = std::move(task)](ae::Domain&) { task(); });
       };
 
-  session.transport = std::make_unique<example::chat_demo::AetherByteTransport>(
-      *session.aether, application.local_endpoint_uid, std::move(dispatch));
-  session.sync_runtime = std::make_unique<SharedSyncRuntime>(
-      domain, storage, *session.transport);
-  session.sync_runtime->AllowStandaloneEventClass(MessageAddedEvent::kClassId);
-
-  Application* const app_ptr = &application;
-  session.sync_runtime->SetInitialNodeImportedCallback(
-      [app_ptr](std::string const& source_endpoint,
-                SharedNode::ptr imported_node) -> bool {
-        if (!imported_node.is_valid()) {
-          return false;
-        }
-        Dialog& dialog = *app_ptr->surfaces->surfaces.front()->dialog;
-        if (source_endpoint != dialog.peer_uid) {
-          return false;
-        }
-        if (ae::Registry::GetRegistry().GenerationDistance(
-                Conversation::kClassId, imported_node->GetClassId()) < 0) {
-          return false;
-        }
-        auto conversation = Conversation::ptr::MakeFromThis(
-            static_cast<Conversation*>(&*imported_node));
-        dialog.BindConversation(conversation);
-        return true;
-      });
-
-  application.sync_runtime = session.sync_runtime.get();
+  WireMessengerSyncStack(application, domain, storage, *session.aether,
+                         std::move(dispatch), session.transport,
+                         session.sync_runtime);
 }
 
 }  // namespace
@@ -186,19 +226,26 @@ void MessengerModelSession::Run(
           });
         },
         [this](std::string error) {
-          (void)error;
-          Post([](ae::Domain&) {});
+          LogMessengerLifecycle("aether_error", error);
+          Post([error = std::move(error)](ae::Domain&) {
+            LogMessengerLifecycle("aether_error_model", error);
+          });
         },
-        {}, {}, {}, {});
+        {}, {}, {},
+        [this, app_ptr](std::string source_uid,
+                        std::vector<std::uint8_t> bytes) {
+          Post([app_ptr, source_uid = std::move(source_uid),
+                bytes = std::move(bytes)](ae::Domain&) {
+            app_ptr->OnControlMessage(std::move(source_uid), std::move(bytes));
+          });
+        });
 
     for (;;) {
       std::optional<ModelWork> work;
       bool draining = false;
       {
         std::unique_lock<std::mutex> lock{mu};
-        bool const sync_active =
-            sync_runtime && app_ptr->surfaces->surfaces.front()
-                                ->dialog->conversation.is_valid();
+        bool const sync_active = app_ptr->NeedsPeriodicSyncWake();
         if (sync_active) {
           cv.wait_for(lock, std::chrono::milliseconds(250), [&] {
             if (stop) {

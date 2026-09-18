@@ -1,7 +1,12 @@
 #include "messenger_model.h"
 
+#include <cassert>
 #include <chrono>
+#include <cstdio>
 #include <limits>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "aether-objects/obj/registry.h"
 
@@ -13,6 +18,7 @@
 #include "aether_frame_endpoint.h"
 #include "aether_link.h"
 #include "messenger_aether_uid.h"
+#include "messenger_dial.h"
 #include "messenger_ids.h"
 
 namespace apptraverse {
@@ -34,6 +40,11 @@ APPTRAVERSE_REGISTER(LocalEndpointBoundEvent);
 APPTRAVERSE_REGISTER(MessageSequenceReservedEvent);
 APPTRAVERSE_REGISTER(MessageAddedEvent);
 APPTRAVERSE_REGISTER(Application);
+
+void LogMessenger(char const* stage, std::string const& detail) {
+  std::fprintf(stderr, "[messenger] %s %s\n", stage, detail.c_str());
+  std::fflush(stderr);
+}
 
 std::vector<MessengerMessage> ActiveMessagesForArchive(Dialog const& dialog) {
   if (dialog.conversation.is_valid()) {
@@ -86,6 +97,25 @@ ae::ObjId RemoteShareIdForPeer(Conversation const& conversation,
     }
   }
   return {};
+}
+
+bool ConversationMatchesPeerPair(Conversation const& conversation,
+                                 std::string const& own_uid,
+                                 std::string const& peer_uid) {
+  bool saw_own = false;
+  bool saw_peer = false;
+  for (auto const& share : conversation.shares) {
+    if (!share.link.is_valid()) {
+      continue;
+    }
+    auto const& endpoint = share.link->EndpointUid();
+    if (endpoint == own_uid) {
+      saw_own = true;
+    } else if (endpoint == peer_uid) {
+      saw_peer = true;
+    }
+  }
+  return saw_own && saw_peer;
 }
 
 }  // namespace
@@ -281,18 +311,25 @@ void Application::Apply(MessageSequenceReservedEvent const& event) {
 void Application::ConfirmPeerUid(std::string raw) {
   std::string canonical;
   if (!TryCanonicalizeAetherUid(raw, canonical)) {
+    LogMessenger("dial_reject", "invalid_peer_uid");
     return;
   }
   Dialog& dialog = *surfaces->surfaces.front()->dialog;
   if (dialog.peer_uid == canonical) {
     SetupActivePeerSync();
+    MaybeRetryDial();
     return;
   }
   if (!dialog.peer_uid.empty()) {
     TeardownPeer(dialog.peer_uid);
   }
+  peer_prepared_for_sync = false;
+  last_dial_send = {};
   dialog.SetPeerUid(canonical);
+  LogMessenger("dial_local_peer",
+               "own=" + local_endpoint_uid + " peer=" + canonical);
   SetupActivePeerSync();
+  MaybeRetryDial();
 }
 
 void Application::OnAetherLocalUid(std::string uid) {
@@ -309,12 +346,92 @@ void Application::OnAetherReady() {
   aether_ready = true;
 }
 
+void Application::SendDialControl(bool ack) {
+  Dialog& dialog = *surfaces->surfaces.front()->dialog;
+  if (aether == nullptr || dialog.peer_uid.empty()) {
+    return;
+  }
+  std::vector<std::uint8_t> bytes;
+  messenger_dial::Encode(
+      ack ? messenger_dial::Kind::DialAck : messenger_dial::Kind::DialRequest,
+      bytes);
+  aether->SendControl(dialog.peer_uid, std::move(bytes));
+  LogMessenger(ack ? "dial_ack_tx" : "dial_req_tx",
+               "to=" + dialog.peer_uid + " own=" + local_endpoint_uid);
+}
+
+void Application::MaybeRetryDial() {
+  Dialog& dialog = *surfaces->surfaces.front()->dialog;
+  if (!aether_ready || aether == nullptr || dialog.peer_uid.empty() ||
+      local_endpoint_uid.empty()) {
+    return;
+  }
+  // Stop dialing once both sides have a bound conversation.
+  if (dialog.conversation.is_valid() && peer_prepared_for_sync) {
+    return;
+  }
+  auto const now = std::chrono::steady_clock::now();
+  if (last_dial_send.time_since_epoch().count() != 0 &&
+      now - last_dial_send < std::chrono::milliseconds(500)) {
+    return;
+  }
+  last_dial_send = now;
+  aether->OpenPeer(dialog.peer_uid);
+  SendDialControl(false);
+}
+
+void Application::OnControlMessage(std::string source_uid,
+                                   std::vector<std::uint8_t> bytes) {
+  messenger_dial::Kind kind{};
+  if (!messenger_dial::Decode(bytes, kind)) {
+    LogMessenger("dial_ignore", "malformed_control from=" + source_uid);
+    return;
+  }
+  if (source_uid.empty() || local_endpoint_uid.empty()) {
+    return;
+  }
+  if (source_uid == local_endpoint_uid) {
+    return;
+  }
+
+  Dialog& dialog = *surfaces->surfaces.front()->dialog;
+  if (!dialog.peer_uid.empty() && dialog.peer_uid != source_uid) {
+    LogMessenger("dial_reject",
+                 "busy peer=" + dialog.peer_uid + " from=" + source_uid);
+    return;
+  }
+
+  if (dialog.peer_uid.empty()) {
+    peer_prepared_for_sync = false;
+    last_dial_send = {};
+    dialog.SetPeerUid(source_uid);
+    LogMessenger("dial_accept_peer",
+                 "own=" + local_endpoint_uid + " peer=" + source_uid);
+  }
+
+  if (kind == messenger_dial::Kind::DialRequest ||
+      kind == messenger_dial::Kind::DialAck) {
+    peer_prepared_for_sync = true;
+  }
+
+  LogMessenger(kind == messenger_dial::Kind::DialAck ? "dial_ack_rx"
+                                                     : "dial_req_rx",
+               "from=" + source_uid + " own=" + local_endpoint_uid);
+  SetupActivePeerSync();
+  if (kind == messenger_dial::Kind::DialRequest) {
+    SendDialControl(true);
+  }
+}
+
 void Application::AppendOutgoingMessage(std::string text) {
   Dialog& dialog = *surfaces->surfaces.front()->dialog;
   if (text.empty() || !dialog.conversation.is_valid() ||
       dialog.peer_uid.empty() || local_endpoint_uid.empty() ||
       next_message_sequence == 0 ||
       next_message_sequence == std::numeric_limits<std::uint64_t>::max()) {
+    LogMessenger("send_blocked",
+                 dialog.conversation.is_valid() ? "preconditions"
+                                                : "no_conversation");
     return;
   }
 
@@ -354,9 +471,14 @@ void Application::AppendOutgoingMessage(std::string text) {
                             SharedEventOrder{.timestamp_us = now_us});
 
   dialog.SetDraft("");
+  LogMessenger("send_local", "seq=" + std::to_string(identity.origin_sequence) +
+                                 " conv=" +
+                                 std::to_string(conversation.id().id()));
 }
 
 void Application::TeardownPeer(std::string const& peer_uid) {
+  peer_prepared_for_sync = false;
+  last_dial_send = {};
   if (sync_runtime != nullptr) {
     sync_runtime->ForgetInitialNodeFromEndpoint(peer_uid);
   }
@@ -373,11 +495,29 @@ void Application::SetupActivePeerSync() {
   if (dialog.peer_uid.empty() || local_endpoint_uid.empty()) {
     return;
   }
-  if (dialog.conversation.is_valid()) {
-    return;
-  }
 
   aether->OpenPeer(dialog.peer_uid);
+
+  if (dialog.conversation.is_valid()) {
+    Conversation& conversation = *dialog.conversation;
+    if (!ConversationMatchesPeerPair(conversation, local_endpoint_uid,
+                                     dialog.peer_uid)) {
+      LogMessenger("restore_reject",
+                   "conversation_pair_mismatch peer=" + dialog.peer_uid);
+      return;
+    }
+    conversation.SetJournalCompactionBlocked(true);
+    if (!conversation.HasMaterializedChangeNotifier()) {
+      conversation.CopyMaterializedChangeNotifierFrom(dialog);
+    }
+    if (!sync_runtime->FindNode(conversation.id()).is_valid()) {
+      sync_runtime->RegisterNode(dialog.conversation);
+      LogMessenger("restore_register",
+                   "conv=" + std::to_string(conversation.id().id()) +
+                       " peer=" + dialog.peer_uid);
+    }
+    return;
+  }
 
   if (local_endpoint_uid < dialog.peer_uid) {
     auto conversation =
@@ -402,14 +542,23 @@ void Application::SetupActivePeerSync() {
     if (!sync_runtime->FindNode(conversation.id()).is_valid()) {
       sync_runtime->RegisterNode(conversation);
     }
-    ae::ObjId const remote_share =
-        RemoteShareIdForPeer(*conversation, dialog.peer_uid);
-    if (remote_share.is_valid()) {
-      sync_runtime->SyncInitialState(conversation.id(), remote_share);
+    LogMessenger("journal_create",
+                 "conv=" + std::to_string(conversation.id().id()) +
+                     " peer=" + dialog.peer_uid);
+
+    if (peer_prepared_for_sync) {
+      ae::ObjId const remote_share =
+          RemoteShareIdForPeer(*conversation, dialog.peer_uid);
+      if (remote_share.is_valid()) {
+        sync_runtime->SyncInitialState(conversation.id(), remote_share);
+        LogMessenger("initial_sync_tx",
+                     "conv=" + std::to_string(conversation.id().id()));
+      }
     }
   } else {
     sync_runtime->ExpectInitialNodeFromEndpoint(dialog.peer_uid,
                                                 Conversation::kClassId);
+    LogMessenger("journal_expect", "from=" + dialog.peer_uid);
   }
 }
 
@@ -418,11 +567,19 @@ void Application::DriveConversationSync() {
     return;
   }
   Dialog& dialog = *surfaces->surfaces.front()->dialog;
+  MaybeRetryDial();
   if (!dialog.conversation.is_valid() || dialog.peer_uid.empty()) {
     return;
   }
 
   Conversation& conversation = *dialog.conversation;
+  if (!sync_runtime->FindNode(conversation.id()).is_valid()) {
+    assert(false &&
+           "Conversation must be registered before DriveConversationSync");
+    LogMessenger("drive_invariant", "unregistered_conversation");
+    return;
+  }
+
   ae::ObjId const remote_share =
       RemoteShareIdForPeer(conversation, dialog.peer_uid);
   if (!remote_share.is_valid()) {
@@ -443,12 +600,27 @@ void Application::DriveConversationSync() {
   }
 
   auto const phase = state->GetInitialSyncPhase();
-  if (phase == InitialSyncPhase::NotStarted ||
-      phase == InitialSyncPhase::Pending) {
+  if (phase == InitialSyncPhase::NotStarted) {
+    if (!peer_prepared_for_sync) {
+      return;
+    }
+    sync_runtime->SyncInitialState(conversation.obj_id, remote_share);
+  } else if (phase == InitialSyncPhase::Pending) {
     sync_runtime->SyncInitialState(conversation.obj_id, remote_share);
   } else if (phase == InitialSyncPhase::Complete) {
     sync_runtime->SyncNextEvent(conversation.obj_id, remote_share);
   }
+}
+
+bool Application::NeedsPeriodicSyncWake() const {
+  if (!aether_ready || sync_runtime == nullptr) {
+    return false;
+  }
+  Dialog const& dialog = *surfaces->surfaces.front()->dialog;
+  if (dialog.peer_uid.empty() || local_endpoint_uid.empty()) {
+    return false;
+  }
+  return true;
 }
 
 }  // namespace apptraverse
