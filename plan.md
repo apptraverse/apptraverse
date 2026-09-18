@@ -14,6 +14,44 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, no RTTI,
 Event-only Node mutation, commit/push):
 `.cursor/rules/apptraverse-coding-agent.mdc`.
 
+## Active work: `examples/messenger` («Мессенджер»)
+
+Working branch: **`feature/messenger-v1`** (rebased onto `main`).
+
+Base: **`examples/surfaces_demo`** (lifecycle / model thread / GUI mirror /
+publications). Not `chat_demo` Host/Client product model.
+
+Out of scope (do not implement): contacts, display names, presence,
+self-chat, rooms, star merging, multi-surface add/remove, Host/Client UI.
+
+### UI (one native Win32 window)
+
+- Own Æther UID + «Копировать» (disabled until real UID)
+- Peer UID field (Enter confirms; no connect button)
+- Message journal + draft field (Enter sends)
+- One dialog at a time; changing peer UID must not mix histories
+- Instance isolation via `--state-dir`
+
+### Architecture invariants
+
+- Model mutations after distill: **events only** (Commit → Apply)
+- GUI / network callbacks never assign model fields; post to model thread
+- Apply has no network/register side effects
+- Replicated events via journal sync (no local re-create)
+- Real Æther identity + transport; pair journal sync in later commits
+- Lifecycle: `surfaces_lifecycle` pattern (distill/load/work/publish/save
+  on model thread)
+
+### Commit sequence (local commits only; no push)
+
+| # | Scope | Verify |
+|---|---|---|
+| 1 | Scaffold from surfaces: one surface, lifecycle, Win GUI | launch, resize, close |
+| 2 | Dialog model, events, presenters, UI controls | events, journal replay, persist (no network) |
+| 3 | Real Æther identity + peer open | UID show/copy, peer open; callbacks → events |
+| 4 | Pair journal ↔ Æther | duplex, reconnect, no cross-UID history leak |
+| 5 | Smoke + short run docs | two state dirs, restart, draft/history, bad UID, exit |
+
 ## Current canonical application branch
 
 **`surfaces-demo`** — always resolve the live SHA with

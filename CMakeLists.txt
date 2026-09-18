@@ -98,6 +98,7 @@ endif()
 add_subdirectory(examples/main_window_runtime_demo)
 add_subdirectory(examples/dynamic_objects_demo)
 add_subdirectory(examples/surfaces_demo)
+add_subdirectory(examples/messenger)
 add_subdirectory(examples/shared_node_demo)
 add_subdirectory(examples/chat_demo)
 

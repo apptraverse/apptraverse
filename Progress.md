@@ -1,3 +1,21 @@
+﻿## Messenger example (feature/messenger-v1) — in progress
+
+Branch: `feature/messenger-v1` (local only; no push).
+Base: `examples/surfaces_demo` lifecycle/mirror; not chat Host/Client.
+
+### Commit 1 — scaffold
+- Added `examples/messenger`: one Surface, distill lifecycle, Win32 host titled «Мессенджер»
+- Target: `win32_messenger` (`APPTRAVERSE_ENABLE_DISTILLATION`)
+- Verified on `build/chat-a01-msvc-debug`: launch (640x480), MoveWindow resize to 700x520, WM_CLOSE exit 0
+- Note: `build/win64-ninja-msvc-debug` cache polluted by msys `ar`/`ld`; used `chat-a01-msvc-debug` for this stage
+
+### Remaining
+- Commit 2: dialog events + UI
+- Commit 3: real Aether identity/peer
+- Commit 4: pair journal sync
+- Commit 5: docs + pair smoke
+
+---
 ## Host	oClient delivery (2026-09-17) — NOT FIXED
 
 Starting SHA: `d9b11a48771d077f0208543fbd1663ca71224d1e`
@@ -3776,7 +3794,7 @@ Status: partial on main. Live Host/Client text convergence NOT FIXED.
 Starting SHA: `954114e`. Final remote: `eed9e02`.
 
 ## Landed
-1. `apptraverse_aether_p2p_safe_stream_duplex_test` � real `P2pSafeStream` over MockWriteStream; sequential duplex, drop recover, fragment, delay>3s, reentrancy depth (bad>=1, outer=0).
+1. `apptraverse_aether_p2p_safe_stream_duplex_test` � real `P2pSafeStream` over MockWriteStream; sequential duplex, drop recover, fragment, delay>3s, reentrancy depth (bad>=1, outer=0).
 2. `ChatAetherRuntime` outer-loop write pump; deleted size half-duplex / post-Join reset / 3s hang rebuild; restored heartbeat ping/pong coalesce.
 3. Pins unchanged: aether-client-cpp `0b0e3b54`, objects `1d302647`, miscpp `f8b2e1c6`.
 
