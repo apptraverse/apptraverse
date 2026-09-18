@@ -473,7 +473,7 @@ void Application::AppendOutgoingMessage(std::string text) {
   dialog.SetDraft("");
   LogMessenger("send_local", "seq=" + std::to_string(identity.origin_sequence) +
                                  " conv=" +
-                                 std::to_string(conversation.id().id()));
+                                 std::to_string(conversation.obj_id.id()));
 }
 
 void Application::TeardownPeer(std::string const& peer_uid) {
@@ -510,10 +510,10 @@ void Application::SetupActivePeerSync() {
     if (!conversation.HasMaterializedChangeNotifier()) {
       conversation.CopyMaterializedChangeNotifierFrom(dialog);
     }
-    if (!sync_runtime->FindNode(conversation.id()).is_valid()) {
+    if (!sync_runtime->FindNode(conversation.obj_id).is_valid()) {
       sync_runtime->RegisterNode(dialog.conversation);
       LogMessenger("restore_register",
-                   "conv=" + std::to_string(conversation.id().id()) +
+                   "conv=" + std::to_string(conversation.obj_id.id()) +
                        " peer=" + dialog.peer_uid);
     }
     return;
@@ -573,7 +573,7 @@ void Application::DriveConversationSync() {
   }
 
   Conversation& conversation = *dialog.conversation;
-  if (!sync_runtime->FindNode(conversation.id()).is_valid()) {
+  if (!sync_runtime->FindNode(conversation.obj_id).is_valid()) {
     assert(false &&
            "Conversation must be registered before DriveConversationSync");
     LogMessenger("drive_invariant", "unregistered_conversation");

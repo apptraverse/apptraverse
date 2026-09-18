@@ -82,7 +82,7 @@ void WireMessengerSyncStack(
         app_ptr->peer_prepared_for_sync = true;
         LogMessengerLifecycle(
             "import_bind",
-            "conv=" + std::to_string(conversation.id().id()) +
+            "conv=" + std::to_string(conversation->obj_id.id()) +
                 " source=" + source_endpoint);
         return true;
       });

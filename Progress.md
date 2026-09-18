@@ -1,5 +1,31 @@
 ﻿## Messenger example (feature/messenger-v1) — in progress
 
+### Transport write hang (post-c08aea95) — PARTIAL
+- **Checked HEAD:** `c08aea95` on `feature/messenger-v1`
+- **Built/run EXE:** `build/win64-ninja-msvc-debug/examples/messenger/windows/win32_messenger.exe` (chat-a01 tree broken: missing `rules.ninja`)
+- **Aether source actually compiled:** `CPM_aether-client-cpp_SOURCE=C:/Users/nickc/Projects/aether-client-cpp` (CMake cache), base pin `0b0e3b54`, **local fix commit** `16d5e5e14a464e2472613e4b030c89ac3d492ba5` (detached HEAD; pin tag in `aether_version.cmake` not bumped — not published upstream)
+- **JoinTrace:** `EnableJoinDeliveryTraceFromEnv()` in `messenger/windows/main.cpp` and `chat_aether_probe.cpp` before network start; A/B use distinct `APPTRAVERSE_JOIN_TRACE` files
+
+#### Reproduced first broken edge (bare ChatAetherRuntime probe, no GUI/SharedSync)
+- Probe dirs: `probe_nohb_*` under repo root; UIDs exchanged; OPEN both ways; heartbeats suppressible via `--heartbeat-ms 60000`
+- Sequence: HB write tokens 1–2 get `WRITE_OK` both sides → first application `APP_TX` (token 3) never yields peer `APP_RX` / `APP_REASSEMBLED_RX` → `WRITE_STUCK` after ~15s
+- First missing stage: **Æther SafeStream ACK / peer reassembly for the 3rd write** (not GUI publication). FakeAether/MemoryTransport tests do not cover this.
+
+#### Root causes addressed in this iteration
+1. **`ae::SafeStreamSendAction::Stop`** (`aether/safe_stream/details/safe_stream_send_action.h`): in-flight chunks returned early without emitting `stopped_event_`, so `WriteAction::Stop` never settled.
+2. **`ae::SafeStream` constructor** (`aether/safe_stream/safe_stream.h`): `stopped_event_` was never subscribed → `WriteStopped` dead; now wired like ack/fail.
+3. **`ae::SafeStreamRecvAction::EnqueueAck`**: Reset `ack_timer_` before `HandleAcknowledgement` so nested ACK scheduling is not coalesced away (dirty on local aether).
+4. **`ChatAetherRuntime`**: UID-ordered CreatePort vs NEW_PORT; requeue in-flight on rebind; stuck → `Stop` (not token zeroing); on `WRITE_STOP` requeue same bytes; `send_ack_timeout=1ms`; JoinTrace fields for token/incarnation/queue.
+
+#### Still open (live APP delivery)
+- After Stop+requeue, retries still `WRITE_STUCK` with **no** peer `APP_RX` (`probe_nohb_20260918_063458`). Third+ write over real P2pSafeStream still does not complete ACK. Mock duplex (`apptraverse_aether_p2p_safe_stream_duplex_test`) passes including new `TestInFlightStopSettlesWriteAction`.
+- Messenger dual-process 20×20 / disconnect / restart: **not completed** this turn (blocked on bare transport APP delivery).
+
+#### Verified
+- `apptraverse_chat_aether_write_completion_test` PASS (incl. capture-pending)
+- `apptraverse_aether_p2p_safe_stream_duplex_test` PASS (incl. in-flight Stop)
+- Live probe: Stop recovery path emits `WRITE_STOP` then re-`APP_TX` (was missing before Stop fix)
+
 ### Dial / import / restart fixes (post-83d1c54)
 - **Dial:** `SendControl` / `ControlCallback` MSGD DialRequest/DialAck; free peer accepts via `SetPeerUid` from transport `source_uid`; UID-order create vs `ExpectInitialNodeFromEndpoint`; periodic wake while peer set (not only with conversation); SyncInitial waits `peer_prepared_for_sync`
 - **Import:** `CopyMaterializedChangeNotifierFrom(dialog)` + `SetJournalCompactionBlocked(true)` before `BindConversation`; no `InitializeRuntimeNode` on import

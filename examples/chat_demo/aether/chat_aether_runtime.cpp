@@ -32,7 +32,9 @@ constexpr ae::SafeStreamConfig kChatSafeStreamConfig{
     .max_packet_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
     .max_repeat_count = 10,
     .wait_ack_timeout = std::chrono::seconds{5},
-    .send_ack_timeout = std::chrono::seconds{0},
+    // Non-zero so DelayedTask(0) cannot re-enter EnqueueAck during assignment
+    // and permanently suppress subsequent SafeStream acknowledgements.
+    .send_ack_timeout = std::chrono::milliseconds{1},
     .send_repeat_timeout = std::chrono::seconds{2},
 };
 
@@ -286,13 +288,31 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       peer.data_sub.Reset();
       peer.update_sub.Reset();
       peer.active_write_sub.Reset();
+      peer.active_write_action = nullptr;
       peer.stream.reset();
       peer.raw_p2p.reset();
       peer.stream_linked = false;
       peer.active_write_token = 0;
+      peer.active_write_started_ms = 0;
+      peer.stuck_stop_requested = false;
       peer.active_payload.clear();
       peer.terminal_notice.reset();
       peer.terminal_notice_pending = false;
+    };
+
+    auto capture_active_write_to_pending = [](PeerState& peer) {
+      if (peer.active_write_token == 0 || peer.active_payload.empty()) {
+        return;
+      }
+      JoinTrace("WRITE_REQUEUE_ON_REBIND", "aether",
+                TokenIncarnationDetail(peer.active_write_token,
+                                       peer.channel_incarnation),
+                0, {}, peer.uid_text, {}, {}, peer.active_payload.size(),
+                JoinTraceHash(peer.active_payload), "preserve_inflight");
+      peer.pending_out.push_front(
+          PendingOut{.kind = peer.active_kind,
+                     .bytes = std::move(peer.active_payload)});
+      peer.active_payload.clear();
     };
 
     auto on_stream_data =
@@ -402,8 +422,8 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
     };
 
     auto bind_peer_stream = [&peers, &set_presence, &aether_app,
-                             &destroy_peer_channel, &on_stream_data,
-                             &on_stream_update](
+                             &destroy_peer_channel, &capture_active_write_to_pending,
+                             &on_stream_data, &on_stream_update](
                                 std::string const& peer_uid_text, ae::Uid uid,
                                 std::shared_ptr<ae::P2pStream> p2p_stream,
                                 bool inbound) {
@@ -412,8 +432,15 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       peer.uid_text = peer_uid_text;
       peer.uid = uid;
 
-      // Preserve queued frames across channel replacement.
+      // Preserve queued frames and any in-flight payload across replacement.
+      // Capture first so active bytes land at the front of pending_out, then
+      // move the whole queue aside before destroy clears runtime fields.
+      capture_active_write_to_pending(peer);
       auto pending = std::move(peer.pending_out);
+      if (peer.active_write_action != nullptr) {
+        peer.active_write_action->Stop();
+        peer.active_write_action = nullptr;
+      }
       destroy_peer_channel(peer);
       peer.pending_out = std::move(pending);
       ++peer.channel_incarnation;
@@ -442,8 +469,8 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
           });
     };
 
-    auto open_peer_internal = [&peers, &client, &aether_app, &bind_peer_stream](
-                                  std::string const& peer_uid_text) {
+    auto open_peer_internal = [&peers, &client, &aether_app, &bind_peer_stream,
+                               &set_presence](std::string const& peer_uid_text) {
       if (peer_uid_text.empty()) {
         return;
       }
@@ -451,11 +478,26 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       if (uid.empty()) {
         return;
       }
+      if (!client) {
+        return;
+      }
       auto it = peers.find(peer_uid_text);
       if (it != peers.end() && it->second.stream) {
         return;
       }
-      if (!client) {
+
+      auto const local_uid_text = ae::Format("{}", client->uid());
+      // Lower canonical UID owns CreatePort. Higher UID waits for NEW_PORT so
+      // simultaneous OpenPeer does not thrash two ports with rebinds.
+      if (local_uid_text > peer_uid_text) {
+        auto& peer = peers[peer_uid_text];
+        peer.uid_text = peer_uid_text;
+        peer.uid = uid;
+        if (peer.reported_presence != PeerPresence::kOnline) {
+          set_presence(peer, PeerPresence::kConnecting);
+        }
+        JoinTrace("OPEN_PEER_WAIT_INBOUND", "aether", "higher_uid_waits", 0,
+                  local_uid_text, peer_uid_text);
         return;
       }
 
@@ -488,9 +530,14 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       // Reset subscription only after the native status emission unwound.
       peer.active_write_sub.Reset();
       auto const finished_size = peer.active_payload.size();
+      auto const finished_kind = peer.active_kind;
       auto const detail =
           TokenIncarnationDetail(notice.token, notice.incarnation);
+      auto finished_payload = std::move(peer.active_payload);
       peer.active_write_token = 0;
+      peer.active_write_action = nullptr;
+      peer.active_write_started_ms = 0;
+      peer.stuck_stop_requested = false;
       peer.active_payload.clear();
 
       if (notice.status == ae::WriteAction::Status::kFail) {
@@ -511,8 +558,15 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         JoinTrace("WRITE_OK", "aether", detail, 0, {}, peer.uid_text, {}, {},
                   finished_size, 0, {});
       } else {
+        // Stop (including stuck-write recovery): keep the same bytes at the
+        // front of pending_out so the outer pump can retry without inventing a
+        // new AppTraverse event identity.
         JoinTrace("WRITE_STOP", "aether", detail, 0, {}, peer.uid_text, {}, {},
                   finished_size, 0, "write_action_stop");
+        if (!finished_payload.empty()) {
+          peer.pending_out.push_front(PendingOut{
+              .kind = finished_kind, .bytes = std::move(finished_payload)});
+        }
       }
     };
 
@@ -549,6 +603,8 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         reason += std::to_string(info.max_element_size);
         reason += " rec_el=";
         reason += std::to_string(info.rec_element_size);
+        reason += " q=";
+        reason += std::to_string(peer.pending_out.size());
         reason += " ";
         reason += TokenIncarnationDetail(peer.next_write_token,
                                          peer.channel_incarnation);
@@ -561,21 +617,30 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         }
 
         // Move into active state before Write.
-        peer.active_kind = item.kind;
+        auto const started_kind = item.kind;
+        peer.active_kind = started_kind;
         peer.active_payload = std::move(item.bytes);
         peer.pending_out.pop_front();
         peer.active_write_token = peer.next_write_token++;
+        peer.active_write_started_ms = CurrentSteadyTimeMs();
+        peer.stuck_stop_requested = false;
         auto const token = peer.active_write_token;
         auto const incarnation = peer.channel_incarnation;
-        auto const peer_uid = peer.uid_text;
 
         if (stage[0] != '\0') {
           JoinTrace(stage, "aether", "p2p_write", 0, {}, peer.uid_text, {}, {},
                     frame_bytes.size(), JoinTraceHash(frame_bytes), reason);
         }
+        JoinTrace("WRITE_ACTIVE_START", "aether",
+                  TokenIncarnationDetail(token, incarnation), 0, {},
+                  peer.uid_text, {}, {}, peer.active_payload.size(),
+                  JoinTraceHash(peer.active_payload),
+                  started_kind == AetherFrameKind::kControl ? "control"
+                                                            : "application");
 
         ae::DataBuffer buffer{frame_bytes.begin(), frame_bytes.end()};
         auto& action = peer.stream->Write(std::move(buffer));
+        peer.active_write_action = &action;
         // Keep the status lambda within SmallFunction storage (no std::string).
         if (action.is_finished()) {
           // Finished before Subscribe: unstick the pump. Prefer Fail so
@@ -586,6 +651,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
               .status = ae::WriteAction::Status::kFail,
           };
           peer.terminal_notice_pending = true;
+          peer.active_write_action = nullptr;
           JoinTrace("WRITE_ALREADY_DONE", "aether",
                     TokenIncarnationDetail(token, incarnation), 0, {},
                     peer.uid_text, {}, {}, peer.active_payload.size(), 0,
@@ -697,12 +763,21 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
                  &peers](ae::P2pPortHandle handle) {
                   auto const uid = handle.destination();
                   auto const peer_uid_text = ae::Format("{}", uid);
-                  // Bind immediately so the receive consumer is ready for the
-                  // first Deliver on this port.
+                  auto const local_uid_text = ae::Format("{}", client->uid());
                   if (auto it = peers.find(peer_uid_text);
                       it != peers.end() && it->second.stream) {
+                    // Lower UID already owns an outbound stream — keep it.
+                    // Higher UID replaces a speculative outbound with the
+                    // authoritative inbound from the lower UID.
+                    if (local_uid_text < peer_uid_text) {
+                      JoinTrace("NEW_PORT_KEEP_OUTBOUND", "aether",
+                                "owner_keeps_stream", 0, peer_uid_text,
+                                local_uid_text);
+                      return;
+                    }
                     JoinTrace("NEW_PORT_REBIND", "aether",
-                              "replace_existing_stream", 0, peer_uid_text);
+                              "replace_with_owner_inbound", 0, peer_uid_text,
+                              local_uid_text);
                     auto stream = std::make_shared<ae::P2pStream>(
                         *aether_app, client.Load(), uid, std::move(handle));
                     bind_peer_stream(peer_uid_text, uid, std::move(stream),
@@ -819,8 +894,31 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       // Outer write pump: process terminal notices, then start the next Write.
       // Never start Write from native callbacks.
       if (client_configured) {
+        auto const now_ms = CurrentSteadyTimeMs();
+        // Detect stalled SafeStream writes: Stop the live WriteAction so a
+        // terminal status arrives; do not zero the token while it is alive.
+        constexpr std::uint64_t kWriteStuckMs =
+            static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    kChatSafeStreamConfig.wait_ack_timeout)
+                    .count()) *
+            3;
         for (auto& [peer_uid, peer] : peers) {
           (void)peer_uid;
+          if (peer.active_write_token != 0 && !peer.stuck_stop_requested &&
+              peer.active_write_started_ms != 0 &&
+              now_ms - peer.active_write_started_ms >= kWriteStuckMs) {
+            JoinTrace("WRITE_STUCK", "aether",
+                      TokenIncarnationDetail(peer.active_write_token,
+                                             peer.channel_incarnation),
+                      0, {}, peer.uid_text, {}, {}, peer.active_payload.size(),
+                      JoinTraceHash(peer.active_payload),
+                      "stop_without_clearing_token");
+            if (peer.active_write_action != nullptr) {
+              peer.stuck_stop_requested = true;
+              peer.active_write_action->Stop();
+            }
+          }
           process_write_notice(peer);
           try_start_write(peer);
         }

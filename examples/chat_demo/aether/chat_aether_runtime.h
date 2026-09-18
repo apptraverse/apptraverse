@@ -101,6 +101,10 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
     AetherFrameKind active_kind{AetherFrameKind::kApplication};
     std::vector<std::uint8_t> active_payload;
     ae::Subscription active_write_sub;
+    // Non-owning; valid only while active_write_token != 0 and stream alive.
+    ae::WriteAction* active_write_action{nullptr};
+    std::uint64_t active_write_started_ms{0};
+    bool stuck_stop_requested{false};
 
     std::optional<TerminalWriteNotice> terminal_notice;
     bool terminal_notice_pending{false};
@@ -156,11 +160,24 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
 struct ChatAetherWriteCompletionTestAccess {
   using PeerState = ChatAetherRuntime::PeerState;
   using TerminalWriteNotice = ChatAetherRuntime::TerminalWriteNotice;
+  using PendingOut = ChatAetherRuntime::PendingOut;
 
   static void ApplyWriteStatus(PeerState* peer, std::uint64_t token,
                                std::uint64_t incarnation,
                                ae::WriteAction::Status status) {
     ChatAetherRuntime::ApplyWriteStatus(peer, token, incarnation, status);
+  }
+
+  // Mirrors production channel-replace capture: in-flight bytes return to the
+  // front of pending_out so AppTraverse identities are not silently dropped.
+  static void CaptureActiveWriteToPending(PeerState& peer) {
+    if (peer.active_write_token == 0 || peer.active_payload.empty()) {
+      return;
+    }
+    peer.pending_out.push_front(
+        PendingOut{.kind = peer.active_kind,
+                   .bytes = std::move(peer.active_payload)});
+    peer.active_payload.clear();
   }
 };
 

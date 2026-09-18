@@ -14,6 +14,7 @@
 #include "aether_byte_transport.h"
 #include "chat_aether_runtime.h"
 #include "chat_presence.h"
+#include "join_delivery_trace.h"
 
 namespace {
 
@@ -99,6 +100,9 @@ int main(int argc, char* argv[]) {
                  "[--offline-ms <n>] [--binary-ladder]\n";
     return 1;
   }
+
+  // APPTRAVERSE_JOIN_TRACE alone is not enough; initialize before Start().
+  apptraverse::example::chat_demo::EnableJoinDeliveryTraceFromEnv();
 
   ChatAetherRuntime runtime;
   std::unique_ptr<AetherByteTransport> transport;
