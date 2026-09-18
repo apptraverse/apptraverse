@@ -336,7 +336,10 @@ void Win32SurfacePresenter::LayoutControls() {
 void Win32SurfacePresenter::SyncControlsFromModel() {
   Dialog& dialog = *surface->dialog;
   if (dialog.own_uid.empty()) {
-    SetEditUtf8(own_uid_edit, "ожидание UID…");
+    if (SetWindowTextW(own_uid_edit, L"ожидание UID...") == 0) {
+      DWORD const err = GetLastError();
+      FatalWin32("SetWindowTextW waiting uid", err);
+    }
     EnableWindow(copy_button, FALSE);
   } else {
     SetEditUtf8(own_uid_edit, dialog.own_uid);

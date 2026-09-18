@@ -13,6 +13,9 @@ target_compile_definitions(win32_messenger PRIVATE
 target_link_libraries(win32_messenger PRIVATE
   messenger_distill
 )
+if(TARGET messenger_aether)
+  target_link_libraries(win32_messenger PRIVATE messenger_aether)
+endif()
 
 foreach(_messenger_demo win32_messenger)
   target_link_libraries(${_messenger_demo} PRIVATE

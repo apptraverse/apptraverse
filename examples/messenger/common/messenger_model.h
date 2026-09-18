@@ -16,6 +16,10 @@
 
 #include "messenger_ids.h"
 
+namespace apptraverse::example::chat_demo {
+class IAetherFrameEndpoint;
+}
+
 namespace apptraverse {
 
 class Surfaces;
@@ -395,6 +399,15 @@ class Application : public ae::Obj {
   }
 
   Surfaces::ptr surfaces;
+
+  // Runtime-only (not reflected). Wired by MessengerModelSession.
+  example::chat_demo::IAetherFrameEndpoint* aether{nullptr};
+  bool aether_ready{false};
+
+  // Model-thread: validate peer UID, SetPeerUid via Event, OpenPeer when ready.
+  void ConfirmPeerUid(std::string raw);
+  void OnAetherLocalUid(std::string uid);
+  void OnAetherReady();
 };
 
 inline void AssignInitialDesktopBounds(Surface& surface) {

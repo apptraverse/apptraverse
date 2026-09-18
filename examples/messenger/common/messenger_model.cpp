@@ -3,6 +3,10 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
 
+#include "aether_frame_endpoint.h"
+#include "messenger_aether_uid.h"
+#include "messenger_ids.h"
+
 namespace apptraverse {
 namespace {
 
@@ -169,8 +173,9 @@ void SurfacePresenter::PresentationSizeChanged(std::int32_t width,
 }
 
 void SurfacePresenter::PeerUidEntered(std::string uid) {
-  model_proxy->Invoke<Dialog>(surface->dialog->obj_id, &Dialog::SetPeerUid,
-                              std::move(uid));
+  model_proxy->Invoke<Application>(
+      ae::ObjId{messenger::ToObjId(messenger::ObjId::Application)},
+      &Application::ConfirmPeerUid, std::move(uid));
 }
 
 void SurfacePresenter::DraftEdited(std::string text) {
@@ -181,6 +186,30 @@ void SurfacePresenter::DraftEdited(std::string text) {
 void SurfacePresenter::SendDraft(std::string text) {
   model_proxy->Invoke<Dialog>(surface->dialog->obj_id,
                               &Dialog::AppendOutgoingMessage, std::move(text));
+}
+
+void Application::ConfirmPeerUid(std::string raw) {
+  std::string canonical;
+  if (!TryCanonicalizeAetherUid(raw, canonical)) {
+    return;
+  }
+  Dialog& dialog = *surfaces->surfaces.front()->dialog;
+  dialog.SetPeerUid(canonical);
+  if (aether_ready && aether != nullptr) {
+    aether->OpenPeer(canonical);
+  }
+}
+
+void Application::OnAetherLocalUid(std::string uid) {
+  surfaces->surfaces.front()->dialog->SetOwnUid(std::move(uid));
+}
+
+void Application::OnAetherReady() {
+  aether_ready = true;
+  Dialog& dialog = *surfaces->surfaces.front()->dialog;
+  if (!dialog.peer_uid.empty() && aether != nullptr) {
+    aether->OpenPeer(dialog.peer_uid);
+  }
 }
 
 }  // namespace apptraverse

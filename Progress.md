@@ -6,6 +6,13 @@
 - Win32: own UID (waiting) + Копировать (disabled), peer Enter, transcript, draft Enter
 - `messenger_model_test`: events, peer switch isolation, Save/Load — ok
 - GUI smoke: launch/close — ok (no network)
+### Commit 3 — real Aether identity + peer open
+- `messenger_aether` reuses `chat_aether_runtime` + stream frame (no Host/Client session)
+- Model session starts Aether after initial publish; `on_uid`/`on_ready` hop via `Post` → Events
+- `TryCanonicalizeAetherUid`; invalid peer never reaches `OpenPeer`
+- `Application::ConfirmPeerUid` / `OnAetherLocalUid` / `OnAetherReady`
+- Verified: `messenger_model_test`, `messenger_aether_uid_test`, GUI launch/close; `state_dir/aether` created
+- Live own-UID fill not observed in 30s smoke (Aether registration/network may be unavailable)
 ### Remaining
 - Commit 2: dialog events + UI
 - Commit 3: real Aether identity/peer

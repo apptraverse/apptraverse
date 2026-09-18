@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "apptraverse/directory_domain_storage.h"
@@ -15,6 +16,7 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
+#include "chat_aether_runtime.h"
 #include "messenger_ids.h"
 #include "messenger_model.h"
 
@@ -26,6 +28,9 @@ void MessengerModelSession::RequestStop() {
     stop = true;
   }
   cv.notify_all();
+  if (aether) {
+    aether->RequestStop();
+  }
 }
 
 void MessengerModelSession::Post(ModelWork work) {
@@ -98,6 +103,33 @@ void MessengerModelSession::Run(
     cv.notify_all();
     on_published(MessengerPublicationKind::Initial);
 
+    Application* const app_ptr = &*application;
+    aether = std::make_unique<example::chat_demo::ChatAetherRuntime>();
+    app_ptr->aether = aether.get();
+    app_ptr->aether_ready = false;
+
+    example::chat_demo::IAetherFrameEndpoint::Config aether_cfg;
+    aether_cfg.state_dir = state_dir / "aether";
+    aether_cfg.client_name = "apptraverse-messenger";
+    aether_cfg.heartbeat_period_ms = 1000;
+    aether_cfg.offline_after_ms = 4000;
+
+    aether->Start(
+        std::move(aether_cfg),
+        [this, app_ptr](std::string uid) {
+          Post([app_ptr, uid = std::move(uid)](ae::Domain&) {
+            app_ptr->OnAetherLocalUid(std::move(uid));
+          });
+        },
+        [this, app_ptr]() {
+          Post([app_ptr](ae::Domain&) { app_ptr->OnAetherReady(); });
+        },
+        [this](std::string error) {
+          (void)error;
+          Post([](ae::Domain&) {});
+        },
+        {}, {}, {}, {});
+
     for (;;) {
       std::optional<ModelWork> work;
       bool draining = false;
@@ -126,7 +158,6 @@ void MessengerModelSession::Run(
       }
 
       if (work) {
-        // Unread GUI publication must not block accepted ModelWork.
         (*work)(domain);
       }
 
@@ -134,8 +165,6 @@ void MessengerModelSession::Run(
         continue;
       }
 
-      // Publish at most one structural snapshot while the channel is free.
-      // Further dirty Nodes stay pending (first-dirty order) until GUI consumes.
       for (;;) {
         std::uint32_t pending_id = 0;
         {
@@ -160,6 +189,14 @@ void MessengerModelSession::Run(
         cv.notify_all();
         on_published(MessengerPublicationKind::Incremental);
       }
+    }
+
+    application->aether = nullptr;
+    application->aether_ready = false;
+    if (aether) {
+      aether->RequestStop();
+      aether->Join();
+      aether.reset();
     }
 
     ClearReachableNodesMaterializedChangeNotifier(*application);

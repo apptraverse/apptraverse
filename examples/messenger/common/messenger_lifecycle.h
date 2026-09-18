@@ -6,6 +6,7 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -16,6 +17,8 @@
 #include "apptraverse/node.h"
 #include "apptraverse/publication_channel.h"
 
+#include "chat_aether_runtime.h"
+
 namespace apptraverse {
 
 class Application;
@@ -25,8 +28,7 @@ enum class MessengerPublicationKind {
   Incremental,
 };
 
-// Model thread + publication + persistence. Knows Application for load/save
-// and generic work; does not know dialog/Aether semantics.
+// Model thread + publication + persistence + Aether runtime ownership.
 struct MessengerModelSession {
   using ModelWork = ModelObjectProxy::ModelWork;
 
@@ -36,6 +38,7 @@ struct MessengerModelSession {
   std::condition_variable cv;
   bool stop{false};
   std::deque<ModelWork> pending_work;
+  std::unique_ptr<example::chat_demo::ChatAetherRuntime> aether;
 
   void RequestStop();
   // Rejected after RequestStop. Work already queued is accepted and drained.
