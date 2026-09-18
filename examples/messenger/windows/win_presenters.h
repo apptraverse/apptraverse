@@ -9,6 +9,8 @@
 #  undef RegisterClass
 #endif
 
+#include <cstdint>
+
 #include "apptraverse/object_macros.h"
 
 #include "desktop_surface_presenter.h"
@@ -16,6 +18,12 @@
 namespace apptraverse {
 
 inline wchar_t const kMessengerWindowClass[] = L"AppTraverseMessengerWindow";
+
+inline constexpr int kOwnUidEditId = 1001;
+inline constexpr int kCopyButtonId = 1002;
+inline constexpr int kPeerUidEditId = 1003;
+inline constexpr int kTranscriptEditId = 1004;
+inline constexpr int kDraftEditId = 1005;
 
 void RegisterMessengerWin32Classes();
 void UnregisterMessengerWin32Classes();
@@ -38,14 +46,28 @@ class Win32SurfacePresenter : public DesktopSurfacePresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
 
-  // Snapshot outer frame via GetWindowRect and enqueue model bounds update.
   void QueueCurrentBounds();
 
+  void ConfirmPeerUid();
+  void ConfirmSendDraft();
+
   HWND hwnd{nullptr};
+  HWND own_uid_edit{nullptr};
+  HWND copy_button{nullptr};
+  HWND peer_uid_edit{nullptr};
+  HWND transcript_edit{nullptr};
+  HWND draft_edit{nullptr};
 
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);
+
+ private:
+  void LayoutControls();
+  void SyncControlsFromModel();
+  void CopyOwnUid();
 };
 
 }  // namespace apptraverse

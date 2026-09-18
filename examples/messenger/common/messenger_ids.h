@@ -12,6 +12,7 @@ enum class ObjId : ae::ObjId::Type {
   Surfaces = 2,
   Surface1 = 3,
   Surface1Presenter = 4,
+  Dialog = 5,
 };
 
 inline constexpr ae::ObjId::Type ToObjId(ObjId id) {

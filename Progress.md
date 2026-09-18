@@ -1,14 +1,11 @@
 ﻿## Messenger example (feature/messenger-v1) — in progress
 
-Branch: `feature/messenger-v1` (local only; no push).
-Base: `examples/surfaces_demo` lifecycle/mirror; not chat Host/Client.
-
-### Commit 1 — scaffold
-- Added `examples/messenger`: one Surface, distill lifecycle, Win32 host titled «Мессенджер»
-- Target: `win32_messenger` (`APPTRAVERSE_ENABLE_DISTILLATION`)
-- Verified on `build/chat-a01-msvc-debug`: launch (640x480), MoveWindow resize to 700x520, WM_CLOSE exit 0
-- Note: `build/win64-ninja-msvc-debug` cache polluted by msys `ar`/`ld`; used `chat-a01-msvc-debug` for this stage
-
+### Commit 2 — event model + UI
+- `Dialog` node: own_uid, peer_uid, draft, messages, archived peers
+- Events: OwnUid/PeerUid/Draft/MessageAppended; peer switch archives/restores history
+- Win32: own UID (waiting) + Копировать (disabled), peer Enter, transcript, draft Enter
+- `messenger_model_test`: events, peer switch isolation, Save/Load — ok
+- GUI smoke: launch/close — ok (no network)
 ### Remaining
 - Commit 2: dialog events + UI
 - Commit 3: real Aether identity/peer

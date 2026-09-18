@@ -29,6 +29,24 @@ target_link_libraries(messenger_desktop PUBLIC
 )
 target_compile_features(messenger_desktop PUBLIC cxx_std_20)
 
+add_executable(messenger_model_test
+  common/messenger_model_test.cpp
+)
+target_link_libraries(messenger_model_test PRIVATE
+  messenger_model
+  messenger_distill
+)
+target_include_directories(messenger_model_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/common
+)
+target_compile_definitions(messenger_model_test PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+target_compile_features(messenger_model_test PRIVATE cxx_std_20)
+if(MSVC)
+  target_compile_options(messenger_model_test PRIVATE /utf-8)
+endif()
+
 if(WIN32 AND NOT EMSCRIPTEN)
   add_subdirectory(windows)
 endif()

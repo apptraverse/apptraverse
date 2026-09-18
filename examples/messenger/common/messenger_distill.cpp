@@ -16,11 +16,14 @@ Application::ptr BuildMessengerGraph(ae::Domain& domain) {
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Surface1)));
   auto surface1_presenter = SurfacePresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Surface1Presenter)));
+  auto dialog = Dialog::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::Dialog)));
 
   surface1->number = 1;
   AssignInitialDesktopBounds(*surface1);
   surface1->surfaces = surfaces;
   surface1->presenter = surface1_presenter;
+  surface1->dialog = dialog;
   surface1_presenter->surface = surface1;
   surfaces->surfaces.push_back(surface1);
 

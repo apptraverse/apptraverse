@@ -20,6 +20,7 @@ foreach(_messenger_demo win32_messenger)
     messenger_desktop
     user32
     gdi32
+    comctl32
   )
   target_include_directories(${_messenger_demo} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
