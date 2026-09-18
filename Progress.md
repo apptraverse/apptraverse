@@ -22,9 +22,10 @@
 - Presenters read `conversation->messages` when bound (outgoing if `id.origin_uid == own_uid`)
 - Verified: `messenger_model_test` (CommitShared local apply + peer archive), `messenger_aether_uid_test`, build `win32_messenger`, brief GUI smoke (`state_dir/aether` created)
 - Live two-instance duplex journal sync: **not verified** this turn
-### Remaining
-- Commit 5: docs + pair smoke
-
+### Commit 5 — checks and docs
+- `examples/messenger/README.md`: build, two `--state-dir` instances, UID exchange, tests
+- Re-verified: `messenger_model_test`, `messenger_aether_uid_test`, dual GUI launch (separate state dirs, both create `aether/`), clean exit
+- Live own-UID display and bidirectional message converge over real Aether cloud: **not verified** in this session
 ---
 ## Host	oClient delivery (2026-09-17) — NOT FIXED
 
