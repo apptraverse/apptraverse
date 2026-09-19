@@ -227,10 +227,14 @@ SharedSyncRuntime::SharedSyncRuntime(ae::Domain& domain,
                                      IByteTransport& transport)
     : domain_{domain}, storage_{storage}, transport_{transport} {
   transport_.BindReceive(this, &SharedSyncRuntime::ReceiveThunk);
+  transport_.BindAvailability(this, &SharedSyncRuntime::AvailabilityThunk);
   LoadAdmission();
 }
 
-SharedSyncRuntime::~SharedSyncRuntime() { transport_.ClearReceive(); }
+SharedSyncRuntime::~SharedSyncRuntime() {
+  transport_.ClearReceive();
+  transport_.ClearAvailability();
+}
 
 void SharedSyncRuntime::RegisterNode(SharedNode::ptr node) {
   assert(node.is_valid());
@@ -360,7 +364,7 @@ void SharedSyncRuntime::SyncInitialState(ae::ObjId node_id,
     case InitialSyncPhase::Pending:
       // Exact retry: the persisted bytes, never a packet rebuilt from the
       // Node as it looks now.
-      transport_.Send(destination, state->pending_initial_packet);
+      TrySend(destination, state->pending_initial_packet);
       return;
     case InitialSyncPhase::NotStarted:
       break;
@@ -384,7 +388,7 @@ void SharedSyncRuntime::SyncInitialState(ae::ObjId node_id,
   // persisted could not be retried unchanged after a restart.
   node.Save();
   state.Save();
-  transport_.Send(destination, state->pending_initial_packet);
+  TrySend(destination, state->pending_initial_packet);
 }
 
 void SharedSyncRuntime::SyncNextEvent(ae::ObjId node_id, ae::ObjId share_id) {
@@ -410,7 +414,7 @@ void SharedSyncRuntime::SyncNextEvent(ae::ObjId node_id, ae::ObjId share_id) {
     return;
   }
   if (state->HasPendingEvent()) {
-    transport_.Send(destination, state->pending_event_packet);
+    TrySend(destination, state->pending_event_packet);
     return;
   }
 
@@ -447,7 +451,7 @@ void SharedSyncRuntime::SyncNextEvent(ae::ObjId node_id, ae::ObjId share_id) {
 
   node.Save();
   state.Save();
-  transport_.Send(destination, state->pending_event_packet);
+  TrySend(destination, state->pending_event_packet);
 }
 
 void SharedSyncRuntime::ReceiveThunk(void* ctx,
@@ -758,12 +762,12 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
     }
   }
 
-  transport_.Send(source_endpoint,
-                  EncodeAckFrame(AckFrame{
-                      .packet_id = frame.packet_id,
-                      .target_node_id = frame.target_node_id,
-                      .destination_share_id = frame.destination_share_id,
-                  }));
+  QueueAck(source_endpoint,
+           AckFrame{
+               .packet_id = frame.packet_id,
+               .target_node_id = frame.target_node_id,
+               .destination_share_id = frame.destination_share_id,
+           });
 }
 
 void SharedSyncRuntime::OnAck(std::string const& source_endpoint,
@@ -855,12 +859,12 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
         !SameEventPayload(*existing->event, frame.payload)) {
       return;
     }
-    transport_.Send(source_endpoint,
-                    EncodeAckFrame(AckFrame{
-                        .packet_id = frame.packet_id,
-                        .target_node_id = frame.target_node_id,
-                        .destination_share_id = frame.destination_share_id,
-                    }));
+    QueueAck(source_endpoint,
+             AckFrame{
+                 .packet_id = frame.packet_id,
+                 .target_node_id = frame.target_node_id,
+                 .destination_share_id = frame.destination_share_id,
+             });
     return;
   }
 
@@ -888,12 +892,12 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
       SharedEventOrder{.timestamp_us = frame.timestamp_us});
   node.Save();
 
-  transport_.Send(source_endpoint,
-                  EncodeAckFrame(AckFrame{
-                      .packet_id = frame.packet_id,
-                      .target_node_id = frame.target_node_id,
-                      .destination_share_id = frame.destination_share_id,
-                  }));
+  QueueAck(source_endpoint,
+           AckFrame{
+               .packet_id = frame.packet_id,
+               .target_node_id = frame.target_node_id,
+               .destination_share_id = frame.destination_share_id,
+           });
 }
 
 std::size_t SharedSyncRuntime::MatchEndpointExpectation(
@@ -1051,14 +1055,13 @@ void SharedSyncRuntime::RememberOffer(ShareOffer::ptr offer, bool send_now) {
   }
   auto const endpoint = offer->remote_endpoint;
   auto const packet = offer->pending_packet;
+  bool const handed =
+      send_now && !packet.empty() && TrySend(endpoint, packet);
   offers_.push_back(LiveOffer{
       .offer = std::move(offer),
-      .next_send_us = send_now ? kScheduleOnNextService : 0,
-      .primed = send_now,
+      .next_send_us = handed ? kScheduleOnNextService : 0,
+      .primed = handed,
   });
-  if (send_now && !packet.empty()) {
-    transport_.Send(endpoint, packet);
-  }
 }
 
 void SharedSyncRuntime::LoadAdmission() {
@@ -1086,6 +1089,7 @@ void SharedSyncRuntime::NoteDirectSend(ae::ObjId operation_id) {
     if (live.offer.is_valid() && live.offer->operation_id == operation_id) {
       live.primed = true;
       live.next_send_us = kScheduleOnNextService;
+      live.decision_unsent = false;
       return;
     }
   }
@@ -1105,6 +1109,121 @@ void SharedSyncRuntime::NoteDirectSync(ae::ObjId node_id, ae::ObjId share_id) {
       .next_us = kScheduleOnNextService,
       .primed = true,
   });
+}
+
+void SharedSyncRuntime::SetAvailabilityWake(AvailabilityWake wake) {
+  availability_wake_ = std::move(wake);
+}
+
+void SharedSyncRuntime::AvailabilityThunk(void* ctx,
+                                          std::string const& endpoint,
+                                          EndpointAvailability availability) {
+  static_cast<SharedSyncRuntime*>(ctx)->OnAvailability(endpoint, availability);
+}
+
+void SharedSyncRuntime::OnAvailability(std::string const& endpoint,
+                                       EndpointAvailability availability) {
+  EndpointAvailability previous = EndpointAvailability::Unknown;
+  bool found = false;
+  for (auto& observed : observed_availability_) {
+    if (observed.endpoint == endpoint) {
+      previous = observed.availability;
+      observed.availability = availability;
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    observed_availability_.push_back(
+        ObservedAvailability{.endpoint = endpoint, .availability = availability});
+  }
+  if (found && previous == availability) {
+    return;
+  }
+  // Only Offline → Online pulls the retry clock forward. A repeated Online,
+  // or Unknown → Online, keeps the existing interval.
+  if (previous == EndpointAvailability::Offline &&
+      availability == EndpointAvailability::Online) {
+    ArmEndpoint(endpoint);
+  }
+  if (availability_wake_) {
+    availability_wake_();
+  }
+}
+
+void SharedSyncRuntime::ArmEndpoint(std::string const& endpoint) {
+  for (auto& live : offers_) {
+    if (!live.offer.is_valid() || live.offer->remote_endpoint != endpoint) {
+      continue;
+    }
+    if (live.primed) {
+      live.next_send_us = 0;
+    }
+  }
+  for (auto& slot : sync_slots_) {
+    auto node = FindNode(slot.node_id);
+    if (!node.is_valid()) {
+      continue;
+    }
+    auto const* destination = ShareEndpointOf(*node, slot.share_id);
+    if (destination == nullptr || *destination != endpoint) {
+      continue;
+    }
+    if (slot.primed) {
+      slot.next_us = 0;
+    }
+  }
+}
+
+bool SharedSyncRuntime::OutgoingOffline(std::string const& endpoint) const {
+  return transport_.Availability(endpoint) == EndpointAvailability::Offline;
+}
+
+bool SharedSyncRuntime::TrySend(std::string const& endpoint,
+                                std::vector<std::uint8_t> const& bytes) {
+  if (endpoint.empty() || bytes.empty() || OutgoingOffline(endpoint)) {
+    return false;
+  }
+  transport_.Send(endpoint, bytes);
+  return true;
+}
+
+void SharedSyncRuntime::QueueAck(std::string const& endpoint,
+                                 AckFrame const& frame) {
+  auto bytes = EncodeAckFrame(frame);
+  if (TrySend(endpoint, bytes)) {
+    return;
+  }
+  for (auto const& pending : pending_acks_) {
+    if (pending.endpoint == endpoint && pending.bytes == bytes) {
+      return;
+    }
+  }
+  pending_acks_.push_back(
+      PendingAck{.endpoint = endpoint, .bytes = std::move(bytes)});
+}
+
+void SharedSyncRuntime::ServiceAcks() {
+  if (pending_acks_.empty()) {
+    return;
+  }
+  std::vector<PendingAck> waiting;
+  waiting.reserve(pending_acks_.size());
+  for (auto& pending : pending_acks_) {
+    if (!TrySend(pending.endpoint, pending.bytes)) {
+      waiting.push_back(std::move(pending));
+    }
+  }
+  pending_acks_ = std::move(waiting);
+}
+
+void SharedSyncRuntime::MarkDecisionUnsent(ae::ObjId operation_id) {
+  for (auto& live : offers_) {
+    if (live.offer.is_valid() && live.offer->operation_id == operation_id) {
+      live.decision_unsent = true;
+      return;
+    }
+  }
 }
 
 void SharedSyncRuntime::MarkSnapshotSenderComplete(ae::ObjId node_id,
@@ -1373,11 +1492,16 @@ void SharedSyncRuntime::AcceptJoin(ae::ObjId operation_id,
   assert(offer->CanApply(*event));
   offer->Commit(event);
   SaveOffer(offer);
-  transport_.Send(offer->remote_endpoint, offer->pending_packet);
-  NoteDirectSend(offer->operation_id);
+  if (TrySend(offer->remote_endpoint, offer->pending_packet)) {
+    NoteDirectSend(offer->operation_id);
+  } else {
+    MarkDecisionUnsent(offer->operation_id);
+  }
   if (next == ShareOfferPhase::Accepted) {
     SyncInitialState(offer->node_id, share_id);
-    NoteDirectSync(offer->node_id, share_id);
+    if (!OutgoingOffline(offer->remote_endpoint)) {
+      NoteDirectSync(offer->node_id, share_id);
+    }
   }
 }
 
@@ -1403,8 +1527,11 @@ void SharedSyncRuntime::RejectJoin(ae::ObjId operation_id) {
   assert(offer->CanApply(*event));
   offer->Commit(event);
   SaveOffer(offer);
-  transport_.Send(offer->remote_endpoint, offer->pending_packet);
-  NoteDirectSend(offer->operation_id);
+  if (TrySend(offer->remote_endpoint, offer->pending_packet)) {
+    NoteDirectSend(offer->operation_id);
+  } else {
+    MarkDecisionUnsent(offer->operation_id);
+  }
 }
 
 void SharedSyncRuntime::RegisterOffer(ShareOffer::ptr offer) {
@@ -1483,20 +1610,38 @@ std::vector<ae::ObjId> SharedSyncRuntime::RegisteredNodeIds() const {
 
 void SharedSyncRuntime::ServiceOffers(std::uint64_t now_us) {
   for (auto& live : offers_) {
-    if (!live.offer.is_valid() || live.offer->pending_packet.empty()) {
+    if (!live.offer.is_valid()) {
       continue;
     }
-    auto const phase = live.offer->GetPhase();
+    auto const endpoint = live.offer->remote_endpoint;
+    if (endpoint.empty()) {
+      continue;
+    }
+    // Offline keeps the persisted packet and does not move the retry clock,
+    // so a later time jump cannot flush a burst of sends.
+    if (OutgoingOffline(endpoint)) {
+      continue;
+    }
+
+    if (live.decision_unsent && !live.offer->pending_packet.empty()) {
+      if (TrySend(endpoint, live.offer->pending_packet)) {
+        live.decision_unsent = false;
+        live.primed = true;
+        live.next_send_us = now_us + kShareOfferRetryIntervalUs;
+      }
+    }
+
     bool const due = live.offer->GetRole() == ShareOfferRole::Initiator &&
-                     phase == ShareOfferPhase::Pending &&
+                     live.offer->GetPhase() == ShareOfferPhase::Pending &&
                      !live.offer->pending_packet.empty();
     if (!due) {
       continue;
     }
     if (!live.primed) {
-      transport_.Send(live.offer->remote_endpoint, live.offer->pending_packet);
-      live.primed = true;
-      live.next_send_us = now_us + kShareOfferRetryIntervalUs;
+      if (TrySend(endpoint, live.offer->pending_packet)) {
+        live.primed = true;
+        live.next_send_us = now_us + kShareOfferRetryIntervalUs;
+      }
       continue;
     }
     if (live.next_send_us == kScheduleOnNextService) {
@@ -1504,8 +1649,9 @@ void SharedSyncRuntime::ServiceOffers(std::uint64_t now_us) {
       continue;
     }
     if (now_us >= live.next_send_us) {
-      transport_.Send(live.offer->remote_endpoint, live.offer->pending_packet);
-      live.next_send_us = now_us + kShareOfferRetryIntervalUs;
+      if (TrySend(endpoint, live.offer->pending_packet)) {
+        live.next_send_us = now_us + kShareOfferRetryIntervalUs;
+      }
     }
   }
 }
@@ -1516,6 +1662,10 @@ void SharedSyncRuntime::ServiceShares(std::uint64_t now_us) {
     for (auto const& share : node->shares) {
       auto const* endpoint = ShareEndpoint(share);
       if (endpoint == nullptr || endpoint->empty() || *endpoint == local) {
+        continue;
+      }
+      auto const destination = *endpoint;
+      if (OutgoingOffline(destination)) {
         continue;
       }
       auto const sync_index =
@@ -1581,6 +1731,7 @@ void SharedSyncRuntime::ServiceShares(std::uint64_t now_us) {
 }
 
 void SharedSyncRuntime::Service(std::uint64_t now_us) {
+  ServiceAcks();
   ServiceOffers(now_us);
   ServiceShares(now_us);
 }
@@ -1610,8 +1761,11 @@ void SharedSyncRuntime::OnAdmission(std::string const& source_endpoint,
     }
     if (existing->GetPhase() != ShareOfferPhase::AwaitingDecision &&
         !existing->pending_packet.empty()) {
-      transport_.Send(source_endpoint, existing->pending_packet);
-      NoteDirectSend(existing->operation_id);
+      if (TrySend(source_endpoint, existing->pending_packet)) {
+        NoteDirectSend(existing->operation_id);
+      } else {
+        MarkDecisionUnsent(existing->operation_id);
+      }
     }
     return;
   }
@@ -1739,7 +1893,9 @@ void SharedSyncRuntime::OnShareDecision(std::string const& source_endpoint,
     CommitOfferPhase(offer, ShareOfferPhase::Accepted, share_id);
     SaveOffer(offer);
     SyncInitialState(node.id(), share_id);
-    NoteDirectSync(node.id(), share_id);
+    if (!OutgoingOffline(offer->remote_endpoint)) {
+      NoteDirectSync(node.id(), share_id);
+    }
   }
 }
 

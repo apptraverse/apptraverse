@@ -98,6 +98,12 @@ class SharedSyncRuntime {
   using LinkForEndpoint = std::function<Link::ptr(std::string const& endpoint)>;
   void SetLinkForEndpoint(LinkForEndpoint link_for_endpoint);
 
+  // Posted when endpoint availability changes. The callback must not send:
+  // it only wakes the model loop, which then calls Service. A repeated
+  // Online with no change does not call it.
+  using AvailabilityWake = std::function<void()>;
+  void SetAvailabilityWake(AvailabilityWake wake);
+
   // Offer `node` to `remote`'s endpoint with `access` for that peer.
   // The node must already share this replica's own endpoint. The remote
   // Share is added only after the peer accepts.
@@ -166,6 +172,11 @@ class SharedSyncRuntime {
 
   static void ReceiveThunk(void* ctx, std::string const& source_endpoint,
                            std::vector<std::uint8_t> const& bytes);
+  static void AvailabilityThunk(void* ctx, std::string const& endpoint,
+                                EndpointAvailability availability);
+
+  void OnAvailability(std::string const& endpoint,
+                      EndpointAvailability availability);
 
   void OnBytes(std::string const& source_endpoint,
                std::vector<std::uint8_t> const& bytes);
@@ -222,6 +233,15 @@ class SharedSyncRuntime {
   void LoadAdmission();
   void NoteDirectSend(ae::ObjId operation_id);
   void NoteDirectSync(ae::ObjId node_id, ae::ObjId share_id);
+  void MarkDecisionUnsent(ae::ObjId operation_id);
+  void ArmEndpoint(std::string const& endpoint);
+  bool OutgoingOffline(std::string const& endpoint) const;
+  // Hands bytes to the transport only when the endpoint is not Offline.
+  // False means nothing was sent: the caller keeps the persisted packet.
+  bool TrySend(std::string const& endpoint,
+               std::vector<std::uint8_t> const& bytes);
+  void QueueAck(std::string const& endpoint, AckFrame const& frame);
+  void ServiceAcks();
   void MarkSnapshotSenderComplete(ae::ObjId node_id, ae::ObjId share_id);
   void ServiceOffers(std::uint64_t now_us);
   void ServiceShares(std::uint64_t now_us);
@@ -237,6 +257,10 @@ class SharedSyncRuntime {
     ShareOffer::ptr offer;
     std::uint64_t next_send_us{0};
     bool primed{false};
+    // Decision bytes are already on the offer. Set when they have not been
+    // handed to the transport yet, so Service can send that same packet
+    // after Offline without a second outbox.
+    bool decision_unsent{false};
   };
 
   struct SyncSlot {
@@ -244,6 +268,18 @@ class SharedSyncRuntime {
     ae::ObjId share_id;
     std::uint64_t next_us{0};
     bool primed{false};
+  };
+
+  struct ObservedAvailability {
+    std::string endpoint;
+    EndpointAvailability availability{EndpointAvailability::Unknown};
+  };
+
+  // Runtime-only. Not persisted: after restart the peer's retry reproduces
+  // the ACK from the saved received packet id.
+  struct PendingAck {
+    std::string endpoint;
+    std::vector<std::uint8_t> bytes;
   };
 
   static constexpr std::uint64_t kScheduleOnNextService =
@@ -262,7 +298,10 @@ class SharedSyncRuntime {
   ShareOfferPolicy share_offer_policy_;
   ShareOfferNotice share_offer_notice_;
   LinkForEndpoint link_for_endpoint_;
+  AvailabilityWake availability_wake_;
   std::vector<std::uint32_t> standalone_event_classes_;
+  std::vector<ObservedAvailability> observed_availability_;
+  std::vector<PendingAck> pending_acks_;
 };
 
 }  // namespace apptraverse
