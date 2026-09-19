@@ -9,6 +9,7 @@
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/event.h"
+#include "apptraverse/runtime_node.h"
 #include "apptraverse/shared_event_order.h"
 #include "apptraverse/shared_network_graph.h"
 
@@ -263,10 +264,12 @@ void SharedSyncRuntime::ExpectInitialNodeFromEndpoint(
   if (source_endpoint.empty() || expected_root_class_id == 0) {
     return;
   }
+  // Same endpoint and same node id (including the empty wildcard) is one
+  // slot. A different node id is a different slot and must not replace this.
   for (auto& exp : expected_endpoint_nodes_) {
-    if (exp.source_endpoint == source_endpoint) {
+    if (exp.source_endpoint == source_endpoint &&
+        exp.expected_node_id == expected_node_id) {
       exp.expected_root_class_id = expected_root_class_id;
-      exp.expected_node_id = expected_node_id;
       return;
     }
   }
@@ -287,6 +290,21 @@ void SharedSyncRuntime::ForgetInitialNodeFromEndpoint(
                      expected_endpoint_nodes_.end(),
                      [&](EndpointExpectation const& exp) {
                        return exp.source_endpoint == source_endpoint;
+                     }),
+      expected_endpoint_nodes_.end());
+}
+
+void SharedSyncRuntime::ForgetInitialNodeExpectation(
+    std::string const& source_endpoint, ae::ObjId node_id) {
+  if (source_endpoint.empty()) {
+    return;
+  }
+  expected_endpoint_nodes_.erase(
+      std::remove_if(expected_endpoint_nodes_.begin(),
+                     expected_endpoint_nodes_.end(),
+                     [&](EndpointExpectation const& exp) {
+                       return exp.source_endpoint == source_endpoint &&
+                              exp.expected_node_id == node_id;
                      }),
       expected_endpoint_nodes_.end());
 }
@@ -465,29 +483,42 @@ void SharedSyncRuntime::OnBytes(std::string const& source_endpoint,
       }
       break;
     }
+    case SyncFrameType::kShareOffer: {
+      ShareOfferFrame frame;
+      if (DecodeShareOfferFrame(bytes, frame)) {
+        OnShareOffer(source_endpoint, frame);
+      }
+      break;
+    }
+    case SyncFrameType::kShareDecision: {
+      ShareDecisionFrame frame;
+      if (DecodeShareDecisionFrame(bytes, frame)) {
+        OnShareDecision(source_endpoint, frame);
+      }
+      break;
+    }
   }
 }
 
 SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     std::string const& source_endpoint, NodeStateFrame const& frame) {
-  // Untrusted bytes may not create arbitrary roots: only a SharedNode this
-  // replica is waiting for (either by exact node ID or by authorized source endpoint).
+  // Untrusted bytes may not create arbitrary roots. Permission is either a
+  // persisted share offer for this source and node, an exact node id this
+  // replica is waiting for, or one matching endpoint expectation.
+  auto const admission =
+      FindResponderAdmission(source_endpoint, frame.target_node_id);
   bool const exact_expected = IsExpectedInitialNode(frame.target_node_id);
-  std::optional<std::uint32_t> endpoint_expected_class;
-  ae::ObjId endpoint_expected_node_id;
-  for (auto const& exp : expected_endpoint_nodes_) {
-    if (exp.source_endpoint == source_endpoint) {
-      endpoint_expected_class = exp.expected_root_class_id;
-      endpoint_expected_node_id = exp.expected_node_id;
-      break;
-    }
+  auto const expectation_index =
+      MatchEndpointExpectation(source_endpoint, frame.target_node_id);
+  bool const endpoint_expected =
+      expectation_index < expected_endpoint_nodes_.size();
+  std::uint32_t endpoint_expected_class = 0;
+  if (endpoint_expected) {
+    endpoint_expected_class =
+        expected_endpoint_nodes_[expectation_index].expected_root_class_id;
   }
 
-  if (!exact_expected && !endpoint_expected_class.has_value()) {
-    return {};
-  }
-  if (endpoint_expected_node_id.is_valid() &&
-      frame.target_node_id != endpoint_expected_node_id) {
+  if (!admission.is_valid() && !exact_expected && !endpoint_expected) {
     return {};
   }
 
@@ -511,10 +542,14 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
               SharedNode::kClassId, chain_info.most_derived_class_id) < 0) {
         return {};
       }
-      if (endpoint_expected_class.has_value()) {
-        if (chain_info.most_derived_class_id != *endpoint_expected_class) {
+      if (endpoint_expected) {
+        if (chain_info.most_derived_class_id != endpoint_expected_class) {
           return {};
         }
+      }
+      if (admission.is_valid() &&
+          chain_info.most_derived_class_id != admission->root_class_id) {
+        return {};
       }
       break;
     }
@@ -543,6 +578,17 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
                               transport_.local_endpoint_uid(), source_endpoint,
                               frame.destination_share_id)) {
       return {};
+    }
+    if (admission.is_valid()) {
+      auto const dest_index = shared_candidate.FindShareIndexForShare(
+          frame.destination_share_id);
+      if (dest_index >= shared_candidate.shares.size() ||
+          shared_candidate.shares[dest_index].GetAccess() !=
+              admission->GetAccess()) {
+        // The agreed right is part of the offer. A snapshot that grants a
+        // different right is not that offer.
+        return {};
+      }
     }
 
     // Move source-share uniqueness validation into ImportValidatedNode BEFORE CommitObjectGraph.
@@ -668,22 +714,28 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
   }
 
   // Registered once the snapshot is validated and durable. Binding may still
-  // fail; keep the endpoint expectation until the callback succeeds.
+  // fail; keep the matching expectation until the callback succeeds.
   if (imported) {
     nodes_.push_back(node);
+    auto admission =
+        FindResponderAdmission(source_endpoint, frame.target_node_id);
+    if (admission.is_valid() &&
+        admission->GetPhase() == ShareOfferPhase::Pending) {
+      CommitOfferPhase(admission, ShareOfferPhase::Bound,
+                       frame.destination_share_id);
+      SaveOffer(admission);
+    }
   }
 
-  auto const expectation_it = std::find_if(
-      expected_endpoint_nodes_.begin(), expected_endpoint_nodes_.end(),
-      [&](EndpointExpectation const& exp) {
-        return exp.source_endpoint == source_endpoint;
-      });
+  auto const expectation_index =
+      MatchEndpointExpectation(source_endpoint, frame.target_node_id);
   bool const endpoint_expectation_open =
-      expectation_it != expected_endpoint_nodes_.end();
+      expectation_index < expected_endpoint_nodes_.size();
 
-  // While the expectation remains, every matching NodeState (including an
-  // exact duplicate after a failed bind) must retry the binding callback
-  // before ACK. Never ACK merely because the receipt ID was recorded.
+  // While that one expectation remains, every matching NodeState (including
+  // an exact duplicate after a failed bind) must retry the binding callback
+  // before ACK. Other expectations for the same endpoint stay. Never ACK
+  // merely because the receipt ID was recorded.
   if (endpoint_expectation_open) {
     if (!initial_node_imported_callback_) {
       return;
@@ -693,7 +745,9 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
     if (!bound) {
       return;
     }
-    expected_endpoint_nodes_.erase(expectation_it);
+    expected_endpoint_nodes_.erase(expected_endpoint_nodes_.begin() +
+                                   static_cast<std::ptrdiff_t>(
+                                       expectation_index));
   }
 
   transport_.Send(source_endpoint,
@@ -731,6 +785,7 @@ void SharedSyncRuntime::OnAck(std::string const& source_endpoint,
     state->CompleteInitialSync();
     node.Save();
     state.Save();
+    MarkInitiatorComplete(frame.target_node_id, frame.destination_share_id);
     return;
   }
   if (state->GetInitialSyncPhase() == InitialSyncPhase::Complete &&
@@ -831,6 +886,536 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
                       .target_node_id = frame.target_node_id,
                       .destination_share_id = frame.destination_share_id,
                   }));
+}
+
+std::size_t SharedSyncRuntime::MatchEndpointExpectation(
+    std::string const& source_endpoint, ae::ObjId node_id) const {
+  std::size_t wildcard = expected_endpoint_nodes_.size();
+  for (std::size_t i = 0; i < expected_endpoint_nodes_.size(); ++i) {
+    auto const& exp = expected_endpoint_nodes_[i];
+    if (exp.source_endpoint != source_endpoint) {
+      continue;
+    }
+    if (exp.expected_node_id.is_valid()) {
+      if (exp.expected_node_id == node_id) {
+        return i;
+      }
+    } else if (wildcard == expected_endpoint_nodes_.size()) {
+      wildcard = i;
+    }
+  }
+  return wildcard;
+}
+
+ShareOffer::ptr SharedSyncRuntime::FindOfferByOperation(
+    ae::ObjId operation_id) const {
+  for (auto const& live : offers_) {
+    if (live.offer.is_valid() && live.offer->operation_id == operation_id) {
+      return live.offer;
+    }
+  }
+  return ShareOffer::ptr{};
+}
+
+ShareOffer::ptr SharedSyncRuntime::FindResponderAdmission(
+    std::string const& source_endpoint, ae::ObjId node_id) const {
+  for (auto const& live : offers_) {
+    if (!live.offer.is_valid()) {
+      continue;
+    }
+    auto const& offer = *live.offer;
+    if (offer.GetRole() != ShareOfferRole::Responder) {
+      continue;
+    }
+    if (offer.remote_endpoint != source_endpoint || offer.node_id != node_id) {
+      continue;
+    }
+    if (offer.GetPhase() != ShareOfferPhase::Pending &&
+        offer.GetPhase() != ShareOfferPhase::Bound) {
+      continue;
+    }
+    return live.offer;
+  }
+  return ShareOffer::ptr{};
+}
+
+void SharedSyncRuntime::CommitOfferPhase(ShareOffer::ptr offer,
+                                         ShareOfferPhase phase,
+                                         ae::ObjId share_id) {
+  auto event =
+      SetShareOfferPhaseEvent::ptr::Create(ae::CreateWith{domain_});
+  event->phase = static_cast<std::uint8_t>(phase);
+  event->share_id = share_id;
+  assert(offer->CanApply(*event));
+  offer->Commit(event);
+}
+
+void SharedSyncRuntime::SaveOffer(ShareOffer::ptr offer) {
+  offer.Save();
+  if (offer->remote_link.is_valid()) {
+    if (!offer->remote_link.is_loaded()) {
+      offer->remote_link.Load();
+    }
+    offer->remote_link.Save();
+  }
+}
+
+void SharedSyncRuntime::NoteDirectSend(ae::ObjId operation_id) {
+  for (auto& live : offers_) {
+    if (live.offer.is_valid() && live.offer->operation_id == operation_id) {
+      live.primed = true;
+      live.next_send_us = kScheduleOnNextService;
+      return;
+    }
+  }
+}
+
+void SharedSyncRuntime::NoteDirectSync(ae::ObjId node_id, ae::ObjId share_id) {
+  for (auto& slot : sync_slots_) {
+    if (slot.node_id == node_id && slot.share_id == share_id) {
+      slot.primed = true;
+      slot.next_us = kScheduleOnNextService;
+      return;
+    }
+  }
+  sync_slots_.push_back(SyncSlot{
+      .node_id = node_id,
+      .share_id = share_id,
+      .next_us = kScheduleOnNextService,
+      .primed = true,
+  });
+}
+
+void SharedSyncRuntime::MarkInitiatorComplete(ae::ObjId node_id,
+                                              ae::ObjId share_id) {
+  for (auto const& live : offers_) {
+    if (!live.offer.is_valid()) {
+      continue;
+    }
+    auto offer = live.offer;
+    if (offer->GetRole() != ShareOfferRole::Initiator) {
+      continue;
+    }
+    if (offer->node_id != node_id || offer->share_id != share_id) {
+      continue;
+    }
+    if (offer->GetPhase() != ShareOfferPhase::Accepted) {
+      continue;
+    }
+    CommitOfferPhase(offer, ShareOfferPhase::Complete, share_id);
+    SaveOffer(offer);
+  }
+}
+
+bool SharedSyncRuntime::InitiatorDrivesShare(ae::ObjId node_id,
+                                             ae::ObjId share_id) const {
+  for (auto const& live : offers_) {
+    if (!live.offer.is_valid()) {
+      continue;
+    }
+    auto const& offer = *live.offer;
+    if (offer.GetRole() != ShareOfferRole::Initiator) {
+      continue;
+    }
+    if (offer.node_id != node_id || offer.share_id != share_id) {
+      continue;
+    }
+    auto const phase = offer.GetPhase();
+    if (phase == ShareOfferPhase::Accepted ||
+        phase == ShareOfferPhase::Complete) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void SharedSyncRuntime::SetShareOfferPolicy(ShareOfferPolicy policy) {
+  share_offer_policy_ = std::move(policy);
+}
+
+ae::ObjId SharedSyncRuntime::OfferNode(SharedNode::ptr node, Link::ptr remote,
+                                       ShareAccess access) {
+  assert(node.is_valid() && node.is_loaded());
+  assert(FindNode(node.id()).is_valid() &&
+         "OfferNode requires a registered SharedNode");
+  assert(remote.is_valid() && remote.is_loaded());
+  assert(!remote->EndpointUid().empty());
+  assert(remote->EndpointUid() != transport_.local_endpoint_uid() &&
+         "an offer to this replica's own endpoint is not a remote share");
+
+  bool has_local = false;
+  for (auto const& share : node->shares) {
+    auto const* endpoint = ShareEndpoint(share);
+    if (endpoint != nullptr &&
+        *endpoint == transport_.local_endpoint_uid()) {
+      has_local = true;
+      break;
+    }
+  }
+  assert(has_local &&
+         "OfferNode requires the node to already share this replica");
+
+  for (auto const& live : offers_) {
+    if (!live.offer.is_valid()) {
+      continue;
+    }
+    auto const& offer = *live.offer;
+    if (offer.GetRole() != ShareOfferRole::Initiator) {
+      continue;
+    }
+    if (offer.node_id != node.id() ||
+        offer.remote_endpoint != remote->EndpointUid()) {
+      continue;
+    }
+    if (offer.GetPhase() == ShareOfferPhase::Rejected ||
+        offer.GetPhase() == ShareOfferPhase::Unset) {
+      continue;
+    }
+    return offer.operation_id;
+  }
+
+  auto offer = ShareOffer::ptr::Create(ae::CreateWith{domain_});
+  InitializeRuntimeNode(*offer);
+  auto event = OpenShareOfferEvent::ptr::Create(ae::CreateWith{domain_});
+  ShareOfferFrame const frame{
+      .packet_id = event.id(),
+      .operation_id = offer.id(),
+      .target_node_id = node.id(),
+      .root_class_id = node->GetClassId(),
+      .access = static_cast<std::uint8_t>(access),
+  };
+  event->role = static_cast<std::uint8_t>(ShareOfferRole::Initiator);
+  event->phase = static_cast<std::uint8_t>(ShareOfferPhase::Pending);
+  event->node_id = node.id();
+  event->root_class_id = node->GetClassId();
+  event->remote_endpoint = remote->EndpointUid();
+  event->access = static_cast<std::uint8_t>(access);
+  event->remote_link = std::move(remote);
+  event->operation_id = offer.id();
+  event->packet = EncodeShareOfferFrame(frame);
+  offer->Commit(event);
+  SaveOffer(offer);
+  transport_.Send(offer->remote_endpoint, offer->pending_packet);
+  offers_.push_back(LiveOffer{
+      .offer = offer,
+      .next_send_us = kScheduleOnNextService,
+      .primed = true,
+  });
+  return offer->operation_id;
+}
+
+void SharedSyncRuntime::RegisterOffer(ShareOffer::ptr offer) {
+  assert(offer.is_valid() && offer.is_loaded());
+  assert(offer->operation_id.is_valid());
+  for (auto const& live : offers_) {
+    if (live.offer.is_valid() && live.offer.id() == offer.id()) {
+      assert(false && "ShareOffer registered twice");
+    }
+  }
+  offers_.push_back(LiveOffer{.offer = offer});
+  if (!offer->node_id.is_valid() || FindNode(offer->node_id).is_valid()) {
+    return;
+  }
+  if (storage_.Enumerate(offer->node_id).empty()) {
+    return;
+  }
+  auto node = SharedNode::ptr::Declare(
+      ae::CreateWith{domain_}.with_id(offer->node_id));
+  node.Load();
+  assert(node.is_loaded() && "stored SharedNode must load");
+  RegisterNode(node);
+}
+
+std::vector<SharedSyncRuntime::ShareOfferStatus>
+SharedSyncRuntime::OfferStatuses() const {
+  std::vector<ShareOfferStatus> out;
+  out.reserve(offers_.size());
+  for (auto const& live : offers_) {
+    if (!live.offer.is_valid()) {
+      continue;
+    }
+    auto const& offer = *live.offer;
+    out.push_back(ShareOfferStatus{
+        .object_id = live.offer.id(),
+        .operation_id = offer.operation_id,
+        .node_id = offer.node_id,
+        .remote_endpoint = offer.remote_endpoint,
+        .role = offer.GetRole(),
+        .phase = offer.GetPhase(),
+        .access = offer.GetAccess(),
+    });
+  }
+  return out;
+}
+
+ShareOfferPhase SharedSyncRuntime::OfferPhase(ae::ObjId operation_id) const {
+  auto offer = FindOfferByOperation(operation_id);
+  if (!offer.is_valid()) {
+    return ShareOfferPhase::Unset;
+  }
+  return offer->GetPhase();
+}
+
+std::vector<ae::ObjId> SharedSyncRuntime::LocalOfferIds() const {
+  std::vector<ae::ObjId> ids;
+  ids.reserve(offers_.size());
+  for (auto const& live : offers_) {
+    if (live.offer.is_valid()) {
+      ids.push_back(live.offer.id());
+    }
+  }
+  return ids;
+}
+
+std::vector<ae::ObjId> SharedSyncRuntime::RegisteredNodeIds() const {
+  std::vector<ae::ObjId> ids;
+  ids.reserve(nodes_.size());
+  for (auto const& node : nodes_) {
+    if (node.is_valid()) {
+      ids.push_back(node.id());
+    }
+  }
+  return ids;
+}
+
+void SharedSyncRuntime::ServiceOffers(std::uint64_t now_us) {
+  for (auto& live : offers_) {
+    if (!live.offer.is_valid() || live.offer->pending_packet.empty()) {
+      continue;
+    }
+    auto const phase = live.offer->GetPhase();
+    bool const due =
+        (live.offer->GetRole() == ShareOfferRole::Initiator &&
+         phase == ShareOfferPhase::Pending) ||
+        (live.offer->GetRole() == ShareOfferRole::Responder &&
+         (phase == ShareOfferPhase::Pending ||
+          phase == ShareOfferPhase::Rejected));
+    if (!due) {
+      continue;
+    }
+    if (!live.primed) {
+      transport_.Send(live.offer->remote_endpoint, live.offer->pending_packet);
+      live.primed = true;
+      live.next_send_us = now_us + kShareOfferRetryIntervalUs;
+      continue;
+    }
+    if (live.next_send_us == kScheduleOnNextService) {
+      live.next_send_us = now_us + kShareOfferRetryIntervalUs;
+      continue;
+    }
+    if (now_us >= live.next_send_us) {
+      transport_.Send(live.offer->remote_endpoint, live.offer->pending_packet);
+      live.next_send_us = now_us + kShareOfferRetryIntervalUs;
+    }
+  }
+}
+
+void SharedSyncRuntime::ServiceShares(std::uint64_t now_us) {
+  auto const& local = transport_.local_endpoint_uid();
+  for (auto const& node : nodes_) {
+    for (auto const& share : node->shares) {
+      auto const* endpoint = ShareEndpoint(share);
+      if (endpoint == nullptr || endpoint->empty() || *endpoint == local) {
+        continue;
+      }
+      auto const sync_index =
+          node->FindLinkSyncIndexForShare(share.share_id);
+      if (sync_index >= node->link_sync_states.size()) {
+        continue;
+      }
+      auto state = node->link_sync_states[sync_index];
+      if (!state.is_loaded()) {
+        state.Load();
+      }
+      auto const phase = state->GetInitialSyncPhase();
+      bool const drive_initial =
+          phase != InitialSyncPhase::Complete &&
+          InitiatorDrivesShare(node.id(), share.share_id);
+      bool const drive_event = phase == InitialSyncPhase::Complete;
+      if (!drive_initial && !drive_event) {
+        continue;
+      }
+
+      SyncSlot* slot = nullptr;
+      for (auto& existing : sync_slots_) {
+        if (existing.node_id == node.id() &&
+            existing.share_id == share.share_id) {
+          slot = &existing;
+          break;
+        }
+      }
+      if (slot == nullptr) {
+        sync_slots_.push_back(
+            SyncSlot{.node_id = node.id(), .share_id = share.share_id});
+        slot = &sync_slots_.back();
+      }
+
+      bool const is_retry = phase == InitialSyncPhase::Pending ||
+                            state->HasPendingEvent();
+      auto transmit = [&] {
+        if (phase != InitialSyncPhase::Complete &&
+            InitiatorDrivesShare(node.id(), share.share_id)) {
+          SyncInitialState(node.id(), share.share_id);
+        } else if (state->GetInitialSyncPhase() == InitialSyncPhase::Complete ||
+                   phase == InitialSyncPhase::Complete) {
+          SyncNextEvent(node.id(), share.share_id);
+        }
+      };
+
+      if (!slot->primed) {
+        transmit();
+        slot->primed = true;
+        slot->next_us = now_us + kShareOfferRetryIntervalUs;
+        continue;
+      }
+      if (slot->next_us == kScheduleOnNextService) {
+        slot->next_us = now_us + kShareOfferRetryIntervalUs;
+        continue;
+      }
+      if (!is_retry || now_us >= slot->next_us) {
+        transmit();
+        slot->next_us = now_us + kShareOfferRetryIntervalUs;
+      }
+    }
+  }
+}
+
+void SharedSyncRuntime::Service(std::uint64_t now_us) {
+  ServiceOffers(now_us);
+  ServiceShares(now_us);
+}
+
+void SharedSyncRuntime::OnShareOffer(std::string const& source_endpoint,
+                                     ShareOfferFrame const& frame) {
+  if (source_endpoint.empty() ||
+      source_endpoint == transport_.local_endpoint_uid()) {
+    return;
+  }
+  if (auto existing = FindOfferByOperation(frame.operation_id)) {
+    if (existing->GetRole() == ShareOfferRole::Responder &&
+        existing->remote_endpoint == source_endpoint &&
+        !existing->pending_packet.empty()) {
+      transport_.Send(source_endpoint, existing->pending_packet);
+      NoteDirectSend(existing->operation_id);
+    }
+    return;
+  }
+  for (auto const& live : offers_) {
+    if (!live.offer.is_valid()) {
+      continue;
+    }
+    auto const& offer = *live.offer;
+    if (offer.GetRole() == ShareOfferRole::Responder &&
+        offer.remote_endpoint == source_endpoint &&
+        offer.node_id == frame.target_node_id) {
+      return;
+    }
+  }
+  if (!share_offer_policy_) {
+    return;
+  }
+
+  ShareOfferView const view{
+      .source_endpoint = source_endpoint,
+      .operation_id = frame.operation_id,
+      .node_id = frame.target_node_id,
+      .root_class_id = frame.root_class_id,
+      .access = static_cast<ShareAccess>(frame.access),
+  };
+  bool const accept = share_offer_policy_(view);
+
+  auto offer = ShareOffer::ptr::Create(ae::CreateWith{domain_});
+  InitializeRuntimeNode(*offer);
+  auto event = OpenShareOfferEvent::ptr::Create(ae::CreateWith{domain_});
+  ShareDecisionFrame const decision{
+      .packet_id = event.id(),
+      .operation_id = frame.operation_id,
+      .target_node_id = frame.target_node_id,
+      .root_class_id = frame.root_class_id,
+      .access = frame.access,
+      .accepted = accept,
+  };
+  event->role = static_cast<std::uint8_t>(ShareOfferRole::Responder);
+  event->phase = static_cast<std::uint8_t>(accept ? ShareOfferPhase::Pending
+                                                  : ShareOfferPhase::Rejected);
+  event->node_id = frame.target_node_id;
+  event->root_class_id = frame.root_class_id;
+  event->remote_endpoint = source_endpoint;
+  event->access = frame.access;
+  event->operation_id = frame.operation_id;
+  event->packet = EncodeShareDecisionFrame(decision);
+  offer->Commit(event);
+  SaveOffer(offer);
+  transport_.Send(source_endpoint, offer->pending_packet);
+  offers_.push_back(LiveOffer{
+      .offer = std::move(offer),
+      .next_send_us = kScheduleOnNextService,
+      .primed = true,
+  });
+}
+
+void SharedSyncRuntime::OnShareDecision(std::string const& source_endpoint,
+                                        ShareDecisionFrame const& frame) {
+  auto offer = FindOfferByOperation(frame.operation_id);
+  if (!offer.is_valid() || offer->GetRole() != ShareOfferRole::Initiator) {
+    return;
+  }
+  // Who answered is the transport source. A decision whose sender is not the
+  // endpoint this offer named is ignored, even if the fields match.
+  if (source_endpoint != offer->remote_endpoint) {
+    return;
+  }
+  if (frame.target_node_id != offer->node_id ||
+      frame.root_class_id != offer->root_class_id ||
+      frame.access != offer->access) {
+    return;
+  }
+
+  if (!frame.accepted) {
+    if (offer->GetPhase() == ShareOfferPhase::Pending) {
+      CommitOfferPhase(offer, ShareOfferPhase::Rejected, {});
+      SaveOffer(offer);
+    }
+    return;
+  }
+  if (offer->GetPhase() == ShareOfferPhase::Rejected ||
+      offer->GetPhase() == ShareOfferPhase::Complete) {
+    return;
+  }
+  if (offer->GetPhase() != ShareOfferPhase::Pending &&
+      offer->GetPhase() != ShareOfferPhase::Accepted) {
+    return;
+  }
+
+  auto node = FindNode(offer->node_id);
+  if (!node.is_valid()) {
+    return;
+  }
+  if (!offer->remote_link.is_loaded()) {
+    offer->remote_link.Load();
+  }
+  assert(offer->remote_link.is_loaded());
+
+  if (offer->GetPhase() == ShareOfferPhase::Pending) {
+    if (node->FindShareIndex(offer->remote_link.id()) >= node->shares.size()) {
+      node->AddShare(offer->remote_link, offer->GetAccess());
+    }
+    auto const share_index = node->FindShareIndex(offer->remote_link.id());
+    assert(share_index < node->shares.size());
+    if (node->shares[share_index].GetAccess() != offer->GetAccess()) {
+      node->SetShareAccess(offer->remote_link, offer->GetAccess());
+    }
+    auto const share_id = node->shares[share_index].share_id;
+    node.Save();
+    for (auto& entry : node->link_sync_states) {
+      entry.Save();
+    }
+    CommitOfferPhase(offer, ShareOfferPhase::Accepted, share_id);
+    SaveOffer(offer);
+    SyncInitialState(node.id(), share_id);
+    NoteDirectSync(node.id(), share_id);
+    return;
+  }
 }
 
 }  // namespace apptraverse
