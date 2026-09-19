@@ -390,9 +390,108 @@ This slice replicates standalone shared Events on the chosen node. It does
 not claim arbitrary dynamic object graphs, multi-hop, presence, or real
 Æther delivery.
 
-Status of this procedure: **implemented / verified** by
+Status of the grant-only slice: **implemented / verified** by
 `apptraverse_shared_node_join_test` in Debug and Release (`-DNDEBUG`,
-`-fno-rtti`). Not accepted-by-user.
+`-fno-rtti`). Not accepted-by-user. The request direction and the lifecycle
+fixes below are the next contract; they are not verified until Progress.md
+says so.
+
+## Join request — both directions, one exchange
+
+`OfferNode` stays “I have this node, I grant you access”. The other
+direction is `RequestJoin(remote_endpoint, node_id, requested_access)`:
+“you have this node, I want its state”. The requester does not create a
+local lookalike. The holder of the node is the one that may grant access
+and send the snapshot. Instance UIDs are not compared.
+
+Both directions use the same `ShareOffer`, the same import, the same
+retry, and the same journal sync. There is no second runtime.
+
+### Identities
+
+- **endpoint** — one application instance, as the transport names it.
+- **node_id** — the SharedNode being replicated.
+- **operation_id** — one attempt. A repeat of that attempt is not a new
+  attempt. A later attempt after `Rejected` is a new operation.
+- **share_id** — the relationship created when the attempt is accepted.
+  Recipients of node X live only in `X.shares`. An unfinished offer is not
+  a second recipient list, and a finished offer is not what authorizes
+  later events. After `Complete` / `Bound`, sync follows the Share and its
+  `LinkSyncState`.
+
+No saved PeerLink is created just to know the peer. Before a Share exists,
+the only bytes on `IByteTransport` are admission frames. Receiving one does
+not permit import.
+
+### Frames
+
+`ShareOffer` (grant) and `ShareRequest` (request) are distinct frame types
+with the same fields: packet, operation, node, class, access. Neither
+carries a source. `ShareRequest` may carry class 0; the holder fills the
+real class into the decision. `ShareDecision` is shared. Its access byte is
+the granted right.
+
+A repeat is the same operation only when the transport source, node, kind,
+class, and requested access all match the stored attempt. The same
+operation id with any of those changed is ignored. It is not a new attempt
+and it does not rewrite the stored decision.
+
+### Who decides, and when
+
+The receiver of a grant or a request stores the attempt with an event in
+phase `AwaitingDecision` and notifies the application. That does not block
+the model thread. The application later calls `AcceptJoin(operation,
+granted_access, link)` or `RejectJoin(operation)`.
+
+`SetShareOfferPolicy` may still answer in the same turn. It calls those
+same two commands. No policy and no later command means no access. A saved
+`Rejected`, `Admitted`, `Accepted`, `Bound`, or `Complete` is not asked
+again after restart. `AwaitingDecision` is still open and is notified again.
+
+`AcceptJoin` / `RejectJoin` commit events. `Apply` stores the phase and the
+frozen decision bytes. The send happens after `Commit`.
+
+Phases that authorize import are only `Admitted` and `Bound`, and only on
+the side that does not already hold the node (grant responder, request
+initiator). `AwaitingDecision` does not. The snapshot sender is the side
+that already holds the node (grant initiator, request responder), in
+`Accepted` then `Complete`.
+
+### Binding
+
+Import into the Domain is not a finished join. `OnNodeState` calls
+`SetInitialNodeImportedCallback` for an admission that is not yet `Bound`,
+the same callback an endpoint expectation uses. No callback, or a callback
+that returns false, means no ACK and no `Bound`. The node may already be
+saved; the callback runs again on the next snapshot. Once `Bound` is
+stored, a repeated snapshot ACKs and does not bind again.
+
+Successful join: the replica is saved, the local binding the callback
+performed is saved, and both are visible after the runtime is destroyed and
+created again from that storage alone.
+
+### Retries and quiet wire
+
+`Service` resends an initiator packet only while that attempt is `Pending`.
+A stored decision is sent when it is made, and again only as the answer to
+a matching repeat of the original frame. A `Rejected` attempt is not on a
+timer. After every attempt has left `Pending` / `AwaitingDecision` and
+every Share has acknowledged its events, further `Service` calls put no
+bytes on the transport.
+
+A `Rejected` attempt does not block a new operation for the same endpoint
+and node. An attempt that is still open does.
+
+### Recovery
+
+Every `ShareOffer` is attached, by an event, to one local `ShareAdmission`
+root at a fixed ObjId. The runtime loads that root from its own storage
+when it is constructed. `offers_` is only the live cache. A test must not
+copy `LocalOfferIds()` out of the runtime it is about to destroy.
+
+This still replicates standalone shared Events on the chosen node. It does
+not claim arbitrary dynamic object graphs, multi-hop, presence, or real
+Æther delivery. `MemoryTransport` is not authentication.
 
 ## Transport / Link contract
 
