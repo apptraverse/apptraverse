@@ -390,11 +390,9 @@ This slice replicates standalone shared Events on the chosen node. It does
 not claim arbitrary dynamic object graphs, multi-hop, presence, or real
 Æther delivery.
 
-Status of the grant-only slice: **implemented / verified** by
+Status of this procedure: **implemented / verified** by
 `apptraverse_shared_node_join_test` in Debug and Release (`-DNDEBUG`,
-`-fno-rtti`). Not accepted-by-user. The request direction and the lifecycle
-fixes below are the next contract; they are not verified until Progress.md
-says so.
+`-fno-rtti`). Both directions are in that run. Not accepted-by-user.
 
 ## Join request — both directions, one exchange
 

@@ -1,3 +1,51 @@
+# Join request and deferred admission (2026-09-19)
+
+Status: implemented / verified. Not accepted-by-user.
+
+Branch: `cursor/shared-node-join-3c1e`. Continues from `e34e02c6f6c0bcb34a4b11869567e8974659f1f1`. That commit was not reverted.
+
+## What changed
+
+`OfferNode` still means the holder grants a node it already has. `RequestJoin(remote_endpoint, node_id, requested_access)` is the other direction: the caller does not have the node and does not create one. The holder accepts with `AcceptJoin` or refuses with `RejectJoin`. A `SetShareOfferPolicy` answer uses those same commands. No policy does not grant access.
+
+An inbound attempt is stored as `AwaitingDecision` and can sit across `Service` calls. A repeat is the same attempt only when transport source, node, kind, class, and requested access match. A `Rejected` attempt does not block a later operation. `Service` does not keep sending a finished rejection; the stored decision is returned only when that same attempt arrives again.
+
+`OnNodeState` calls `SetInitialNodeImportedCallback` before ACK on an admission that is not yet `Bound`. A repeated snapshot after `Bound` does not bind again.
+
+Every `ShareOffer` is attached to `ShareAdmission` at `kShareAdmissionRootId`. A new runtime loads that root from its own storage. Tests no longer copy `LocalOfferIds()` across `Restart`.
+
+## Reproduction
+
+Same trees as the previous section. Do not wipe them.
+
+```
+cmake --build build --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test -j
+ctest --test-dir build -R 'apptraverse_shared_node_' --output-on-failure
+
+cmake --build build-release --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test -j
+ctest --test-dir build-release -R 'apptraverse_shared_node_' --output-on-failure
+```
+
+Release flags remain `-O3 -DNDEBUG -std=c++20 -fno-rtti`. Join checks use `CHECK` / `std::exit`.
+
+## Results
+
+Debug and Release, 2026-09-19, all four CTest targets passed. The join test covers the previous grant scenarios plus: deferred reject then a new request, two requested nodes, a third participant on an already shared node, loss of the request and of the decision, restart from storage while waiting and after the snapshot is saved, and a tampered repeat. After a finished rejection and after a finished join, advancing logical time did not enqueue more admission traffic.
+
+## Limits
+
+Still standalone shared events on the chosen node, not arbitrary dynamic object graphs, multi-hop, presence, or the real Æther client. `MemoryTransport` is not authentication. `AcceptJoin` for a request needs a `Link` or `SetLinkForEndpoint`; the runtime does not construct a transport-specific Link.
+
+---
+
 # Share admission of a chosen SharedNode (2026-09-19)
 
 Status: implemented / verified. Not accepted-by-user.
