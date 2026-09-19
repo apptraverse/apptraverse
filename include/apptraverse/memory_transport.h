@@ -52,6 +52,15 @@ class MemoryNetwork {
   void Reconnect(std::string const& from, std::string const& to);
   bool IsConnected(std::string const& from, std::string const& to) const;
 
+  // Reported outgoing availability. Independent of Disconnect: a direction
+  // can look Online while Enqueue still drops, or Offline while a queue
+  // still holds bytes. Missing entries are Unknown. Not serialized.
+  // Notifies the source endpoint only when the value changes.
+  void SetAvailability(std::string const& from, std::string const& to,
+                       EndpointAvailability availability);
+  EndpointAvailability Availability(std::string const& from,
+                                    std::string const& to) const;
+
  private:
   void Attach(MemoryTransport& transport);
   void Detach(MemoryTransport& transport);
@@ -61,6 +70,7 @@ class MemoryNetwork {
   std::map<std::string, MemoryTransport*> endpoints_;
   std::map<Direction, std::deque<std::vector<std::uint8_t>>> queues_;
   std::set<Direction> disconnected_;
+  std::map<Direction, EndpointAvailability> availability_;
 };
 
 // One replica's endpoint on a MemoryNetwork. It is attached for as long as it
@@ -83,6 +93,9 @@ class MemoryTransport final : public IByteTransport {
             std::vector<std::uint8_t> bytes) override;
   void BindReceive(void* ctx, ReceiveFn fn) override;
   void ClearReceive() override;
+  EndpointAvailability Availability(std::string const& endpoint) const override;
+  void BindAvailability(void* ctx, AvailabilityFn fn) override;
+  void ClearAvailability() override;
 
  private:
   friend class MemoryNetwork;
@@ -94,6 +107,8 @@ class MemoryTransport final : public IByteTransport {
   std::string local_endpoint_uid_;
   void* receive_ctx_{nullptr};
   ReceiveFn receive_fn_{nullptr};
+  void* availability_ctx_{nullptr};
+  AvailabilityFn availability_fn_{nullptr};
 };
 
 }  // namespace apptraverse

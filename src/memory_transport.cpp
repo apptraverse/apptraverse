@@ -107,6 +107,40 @@ bool MemoryNetwork::IsConnected(std::string const& from,
   return disconnected_.find(Direction{from, to}) == disconnected_.end();
 }
 
+void MemoryNetwork::SetAvailability(std::string const& from,
+                                    std::string const& to,
+                                    EndpointAvailability availability) {
+  auto const key = Direction{from, to};
+  auto const it = availability_.find(key);
+  if (it != availability_.end()) {
+    if (it->second == availability) {
+      return;
+    }
+    it->second = availability;
+  } else if (availability == EndpointAvailability::Unknown) {
+    return;
+  } else {
+    availability_.emplace(key, availability);
+  }
+
+  auto const endpoint = endpoints_.find(from);
+  if (endpoint == endpoints_.end() ||
+      endpoint->second->availability_fn_ == nullptr) {
+    return;
+  }
+  auto* transport = endpoint->second;
+  transport->availability_fn_(transport->availability_ctx_, to, availability);
+}
+
+EndpointAvailability MemoryNetwork::Availability(std::string const& from,
+                                                 std::string const& to) const {
+  auto const it = availability_.find(Direction{from, to});
+  if (it == availability_.end()) {
+    return EndpointAvailability::Unknown;
+  }
+  return it->second;
+}
+
 void MemoryNetwork::Attach(MemoryTransport& transport) {
   auto const [_, inserted] =
       endpoints_.emplace(transport.local_endpoint_uid(), &transport);
@@ -150,6 +184,21 @@ void MemoryTransport::BindReceive(void* ctx, ReceiveFn fn) {
 void MemoryTransport::ClearReceive() {
   receive_ctx_ = nullptr;
   receive_fn_ = nullptr;
+}
+
+EndpointAvailability MemoryTransport::Availability(
+    std::string const& endpoint) const {
+  return network_.Availability(local_endpoint_uid_, endpoint);
+}
+
+void MemoryTransport::BindAvailability(void* ctx, AvailabilityFn fn) {
+  availability_ctx_ = ctx;
+  availability_fn_ = fn;
+}
+
+void MemoryTransport::ClearAvailability() {
+  availability_ctx_ = nullptr;
+  availability_fn_ = nullptr;
 }
 
 void MemoryTransport::Deliver(std::string const& source_endpoint,
