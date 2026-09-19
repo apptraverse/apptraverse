@@ -67,6 +67,32 @@ bool MemoryNetwork::DuplicateNext(std::string const& from,
   return true;
 }
 
+bool MemoryNetwork::DeferNext(std::string const& from, std::string const& to) {
+  auto const queue = queues_.find(Direction{from, to});
+  if (queue == queues_.end() || queue->second.size() < 2) {
+    return false;
+  }
+  auto head = std::move(queue->second.front());
+  queue->second.pop_front();
+  queue->second.push_back(std::move(head));
+  return true;
+}
+
+bool MemoryNetwork::CorruptNext(std::string const& from,
+                                std::string const& to) {
+  auto const queue = queues_.find(Direction{from, to});
+  if (queue == queues_.end() || queue->second.empty() ||
+      queue->second.front().empty()) {
+    return false;
+  }
+  auto& packet = queue->second.front();
+  // Protocol version sits at byte 1. A bad version is not a frame.
+  packet[packet.size() < 2 ? 0 : 1] ^= static_cast<std::uint8_t>(0xFF);
+  return true;
+}
+
+void MemoryNetwork::ClearQueues() { queues_.clear(); }
+
 void MemoryNetwork::Disconnect(std::string const& from,
                                std::string const& to) {
   disconnected_.insert(Direction{from, to});

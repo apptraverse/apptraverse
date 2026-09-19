@@ -37,6 +37,15 @@ class MemoryNetwork {
   bool DropNext(std::string const& from, std::string const& to);
   // Queue a second copy of the head: the same packet arrives twice.
   bool DuplicateNext(std::string const& from, std::string const& to);
+  // Move the head behind every other queued packet on this direction.
+  // False when fewer than two packets are queued — order cannot change.
+  bool DeferNext(std::string const& from, std::string const& to);
+  // Damage the head so the existing frame header check rejects it.
+  // Flipping a payload byte is not enough: that byte can still be a legal value.
+  bool CorruptNext(std::string const& from, std::string const& to);
+  // Drop every queued packet. A restart test uses this so recovery cannot
+  // depend on bytes the test network still held.
+  void ClearQueues();
 
   // Directional outage. Sends are lost while it lasts, queued packets wait.
   void Disconnect(std::string const& from, std::string const& to);

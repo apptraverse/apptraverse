@@ -63,6 +63,19 @@ add_test(
   COMMAND apptraverse_shared_node_incremental_event_test
 )
 
+add_executable(apptraverse_shared_node_join_test
+  shared_node_join_test.cpp
+)
+
+target_link_libraries(apptraverse_shared_node_join_test PRIVATE
+  apptraverse
+)
+
+add_test(
+  NAME apptraverse_shared_node_join_test
+  COMMAND apptraverse_shared_node_join_test
+)
+
 add_executable(apptraverse_native_class_layers_test
   native_class_layers_test.cpp
 )
