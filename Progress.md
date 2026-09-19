@@ -1,3 +1,59 @@
+# Endpoint availability (2026-09-19)
+
+Status: implemented / verified. Not accepted-by-user.
+
+Branch: `cursor/shared-node-join-3c1e`. Continues from `c1c8bfc13186f7ae41641a176d4cbb3fe11fa345`. That commit was not reverted.
+
+## What changed
+
+Outgoing availability is one observation on `IByteTransport`: Online, Offline, or Unknown. `MemoryNetwork::SetAvailability` changes it per direction and notifies the source only when the value changes. `Link` does not store it. A new transport does not reload a previous Online.
+
+`SharedSyncRuntime` checks that observation before every `Send`: offer, request, accept, reject, repeat, snapshot, event, and ACK. Known Offline does not call `Send`. The persisted packet stays pending and is not marked Complete. Offline to Online makes that same packet due on the next `Service`. The availability callback only wakes; it does not send. A repeated Online does not skip the retry interval.
+
+A response formed while Offline is the existing persisted packet. There is no second durable outbox. An ACK that could not be handed off is remembered only until this runtime sends it; after restart the peer's retry reproduces it.
+
+## Reproduction
+
+Baseline before this slice, Debug, HEAD `c1c8bfc`, four existing targets, all passed (join test 1.05s).
+
+```
+cmake --build build --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test \
+  apptraverse_shared_node_availability_test -j
+ctest --test-dir build -R 'apptraverse_shared_node_' --output-on-failure
+
+cmake --build build-release --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test \
+  apptraverse_shared_node_availability_test -j
+ctest --test-dir build-release -R 'apptraverse_shared_node_' --output-on-failure
+```
+
+Release flags remain `-O3 -DNDEBUG -std=c++20 -fno-rtti`. Checks use `CHECK` / `std::exit`, so they stay active under `NDEBUG`.
+
+## Results
+
+Debug and Release, 2026-09-19, all five `apptraverse_shared_node_*` CTest targets passed. Send counts are taken from a test `IByteTransport` wrapper before `MemoryNetwork` can drop a packet.
+
+Debug: foundation 0.01s, initial sync 0.06s, incremental event 0.11s, join 1.08s, availability 0.10s.
+
+Release (`-O3 -DNDEBUG -std=c++20 -fno-rtti`): foundation 0.00s, initial sync 0.01s, incremental event 0.01s, join 0.09s, availability 0.01s.
+
+Baseline before this slice, same Debug tree, HEAD `c1c8bfc`: the four existing targets passed (join 1.05s). Those tests were not weakened.
+
+The availability target covers: initial Offline for `OfferNode` and `RequestJoin` with zero `Send`, then Online completion without a second user call; outage after the request, while awaiting a decision, after `AcceptJoin`, after the snapshot is dropped, after the snapshot is saved and before ACK, and with an unacked event; lost ACK while the link is still Online and the network drops packets; Unknown does not block; A?B can deliver while B?A cannot ACK until the reverse direction is Online; B offline does not stall C, and restoring B resumes both waiting nodes without mixing packet ids or share ids; restart from storage with a pending snapshot and a pending event sends nothing while Offline and then the same bytes; after a finished exchange, 500 retry intervals and a repeated Online notification add no `Send` and no journal record.
+
+## Limits
+
+Known Offline produces no outgoing `Send`. Restore continues the saved exchange. A lost ACK while Online retries the same packet and does not duplicate the event. Heartbeat, last-seen, and the real Æther client are not done. The next open test is full convergence of one node on A, B, and C, including events from each side and the same share list on all three. `TestRequestTwoNodesAndThirdParticipant` does not close that. Not accepted-by-user.
+
+---
+
 # Join request and deferred admission (2026-09-19)
 
 Status: implemented / verified. Not accepted-by-user.

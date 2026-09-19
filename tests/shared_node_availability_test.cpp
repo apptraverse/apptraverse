@@ -1000,6 +1000,167 @@ void TestRepeatedOnlineDoesNotBypassRetry() {
   CHECK(holder.sends() == 2);
 }
 
+std::vector<std::uint8_t> PendingInitial(SharedNode::ptr node,
+                                         std::string const& endpoint) {
+  for (auto const& share : node->shares) {
+    if (!share.link.is_loaded()) {
+      share.link.Load();
+    }
+    if (share.link->EndpointUid() != endpoint) {
+      continue;
+    }
+    auto const index = node->FindLinkSyncIndexForShare(share.share_id);
+    CHECK(index < node->link_sync_states.size());
+    auto state = node->link_sync_states[index];
+    if (!state.is_loaded()) {
+      state.Load();
+    }
+    CHECK(!state->pending_initial_packet.empty());
+    return state->pending_initial_packet;
+  }
+  CHECK(false);
+  return {};
+}
+
+void TestRestartContinuesSavedExchange() {
+  g_now = 0;
+  MemoryNetwork network;
+  Replica holder(network, kA);
+  Replica peer(network, kB);
+  holder.Start(false);
+  peer.Start(false);
+  network.SetAvailability(kA, kB, EndpointAvailability::Online);
+  network.SetAvailability(kB, kA, EndpointAvailability::Online);
+  auto node = MakeRecord(holder, "restart-seed", kSecret);
+  auto const node_id = node.id();
+  auto const op =
+      peer.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  CHECK(network.DeliverNext(kB, kA));
+  holder.sync->AcceptJoin(op, ShareAccess::ReadWrite);
+  CHECK(network.DeliverNext(kA, kB));
+  auto const saved_snapshot = PendingInitial(node, kB);
+  CHECK(network.PeekNext(kA, kB) == saved_snapshot);
+  NodeStateFrame snapshot;
+  CHECK(DecodeNodeStateFrame(saved_snapshot, snapshot));
+  CHECK(snapshot.target_node_id == node_id);
+  node = {};
+  holder.Stop();
+  network.ClearQueues();
+  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
+  holder.Start(false);
+  CHECK(holder.sync->FindNode(node_id).is_valid());
+  CHECK(holder.sync->OfferPhase(op) == ShareOfferPhase::Accepted);
+  holder.sync->Service(g_now);
+  CHECK(holder.sends() == 0);
+  CHECK(network.PendingCount(kA, kB) == 0);
+  Silence(holder, network, kB, 150);
+
+  GoOnline(holder, network, kB);
+  holder.sync->Service(g_now);
+  CHECK(holder.sends() == 1);
+  CHECK(holder.probe->last == saved_snapshot);
+  CHECK(network.DeliverNext(kA, kB));
+  CHECK(peer.binds == 1);
+  CHECK(network.DeliverNext(kB, kA));
+  CHECK(holder.sync->OfferPhase(op) == ShareOfferPhase::Complete);
+  ExpectPayload(peer.sync->FindNode(node_id), "restart-seed", kA, 1);
+
+  auto concrete = AsRecord(holder.sync->FindNode(node_id));
+  AddRecord(*concrete, "pending-event", kA, 2, 5000);
+  holder.sync->Service(g_now);
+  auto const saved_event = holder.probe->last;
+  EventFrame event;
+  CHECK(DecodeEventFrame(saved_event, event));
+  CHECK(event.identity.origin_uid == kA);
+  CHECK(event.identity.origin_sequence == 2);
+  CHECK(event.target_node_id == node_id);
+  concrete = {};
+  holder.Stop();
+  network.ClearQueues();
+  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
+  holder.Start(false);
+  holder.sync->Service(g_now);
+  CHECK(holder.sends() == 0);
+  CHECK(network.PendingCount(kA, kB) == 0);
+  GoOnline(holder, network, kB);
+  holder.sync->Service(g_now);
+  CHECK(holder.sends() == 1);
+  CHECK(holder.probe->last == saved_event);
+  CHECK(network.DeliverNext(kA, kB));
+  ExpectPayload(peer.sync->FindNode(node_id), "pending-event", kA, 2);
+  CHECK(AsRecord(peer.sync->FindNode(node_id))->records.size() == 2);
+  CHECK(network.DeliverNext(kB, kA));
+
+  concrete = AsRecord(holder.sync->FindNode(node_id));
+  AddRecord(*concrete, "after-restart", kA, 3, 6000);
+  auto const before = holder.sends();
+  holder.sync->Service(g_now);
+  CHECK(holder.sends() == before + 1);
+  EventFrame fresh;
+  CHECK(DecodeEventFrame(holder.probe->last, fresh));
+  CHECK(fresh.identity.origin_sequence == 3);
+  CHECK(fresh.packet_id != event.packet_id);
+  CHECK(network.DeliverNext(kA, kB));
+  ExpectPayload(peer.sync->FindNode(node_id), "after-restart", kA, 3);
+  CHECK(AsRecord(peer.sync->FindNode(node_id))->records.size() == 3);
+  CHECK(peer.binds == 1);
+}
+
+void TestNoExtraTraffic() {
+  g_now = 0;
+  MemoryNetwork network;
+  Replica holder(network, kA);
+  Replica peer(network, kB);
+  holder.Start(false);
+  peer.Start(true);
+  network.SetAvailability(kA, kB, EndpointAvailability::Online);
+  network.SetAvailability(kB, kA, EndpointAvailability::Online);
+  auto node = MakeRecord(holder, "quiet-seed", kSecret);
+  auto const node_id = node.id();
+  auto remote = holder.MakeLink(kB);
+  auto const op = holder.sync->OfferNode(node, remote, ShareAccess::ReadWrite);
+  World world{&network, {&holder, &peer}};
+  Pump(world, [&] {
+    return holder.sync->OfferPhase(op) == ShareOfferPhase::Complete &&
+           peer.sync->OfferPhase(op) == ShareOfferPhase::Bound;
+  });
+  for (int step = 0; step < 8; ++step) {
+    Deliver(world);
+  }
+  auto const records_before =
+      AsRecord(holder.sync->FindNode(node_id))->records.size();
+  auto const peer_records =
+      AsRecord(peer.sync->FindNode(node_id))->records.size();
+  auto const offers_before = holder.sync->OfferStatuses().size();
+  auto const holder_sends = holder.sends();
+  auto const peer_sends = peer.sends();
+  CHECK(network.PendingCount(kA, kB) == 0);
+  CHECK(network.PendingCount(kB, kA) == 0);
+
+  g_now += 500 * kShareOfferRetryIntervalUs;
+  holder.sync->Service(g_now);
+  peer.sync->Service(g_now);
+  CHECK(holder.sends() == holder_sends);
+  CHECK(peer.sends() == peer_sends);
+  CHECK(network.PendingCount(kA, kB) == 0);
+  CHECK(network.PendingCount(kB, kA) == 0);
+  CHECK(holder.sync->OfferPhase(op) == ShareOfferPhase::Complete);
+  CHECK(holder.sync->OfferStatuses().size() == offers_before);
+  CHECK(AsRecord(holder.sync->FindNode(node_id))->records.size() ==
+        records_before);
+  CHECK(AsRecord(peer.sync->FindNode(node_id))->records.size() == peer_records);
+
+  auto const wakes = holder.wakes;
+  network.SetAvailability(kA, kB, EndpointAvailability::Online);
+  network.SetAvailability(kB, kA, EndpointAvailability::Online);
+  CHECK(holder.wakes == wakes);
+  holder.sync->Service(g_now);
+  peer.sync->Service(g_now);
+  CHECK(holder.sends() == holder_sends);
+  CHECK(peer.sends() == peer_sends);
+  CHECK(holder.sync->OfferStatuses().size() == offers_before);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1017,5 +1178,7 @@ int main() {
   apptraverse::test::TestUnknownDoesNotBlock();
   apptraverse::test::TestIndependentEndpoints();
   apptraverse::test::TestRepeatedOnlineDoesNotBypassRetry();
+  apptraverse::test::TestRestartContinuesSavedExchange();
+  apptraverse::test::TestNoExtraTraffic();
   return 0;
 }

@@ -22,7 +22,9 @@ namespace apptraverse {
 // owns retry of that exchange.
 //
 // Protocol v1 carries ShareOffer, ShareDecision, NodeState, Ack, and
-// standalone Event. Dynamic object graphs and presence are later.
+// standalone Event. Outgoing endpoint availability is read from the
+// transport. Dynamic object graphs, heartbeat, and real Æther presence
+// are later.
 //
 // Instance-scoped: the runtime holds its replica's Domain, storage, and
 // transport. Nothing is process-global or thread_local, and no model pointer

@@ -480,6 +480,58 @@ bytes on the transport.
 A `Rejected` attempt does not block a new operation for the same endpoint
 and node. An attempt that is still open does.
 
+A decision whose bytes were committed while the endpoint was Offline is
+not a second outbox. Those bytes already live on the `ShareOffer`. The
+first `Service` that is allowed to send hands that same packet to the
+transport. A decision that was handed off and then lost is still reproduced
+only when the original request is repeated.
+
+## Endpoint availability
+
+Outgoing availability is one observation on `IByteTransport`, keyed by the
+Link endpoint uid. `Link` does not store it, and it is not a field of a
+SharedNode snapshot. A→B and B→A are independent. Creating the runtime
+again does not reload a previous Online; a new transport reports Unknown
+until it observes otherwise.
+
+- **Online** — a send may be attempted. This is not a delivery receipt.
+- **Offline** — `Send` is not called. Pending bytes stay where they already
+  live. The operation is not moved to Complete.
+- **Unknown** — not Offline. Rate-limited attempts stay allowed, so the
+  first connection is not blocked forever.
+
+`SharedSyncRuntime` is the only reader. Every outgoing path checks it:
+offer, request, accept, reject, repeat, snapshot, event, and ACK. Incoming
+packets and ACKs are still applied while outgoing is Offline.
+
+A response formed while Offline is the existing persisted packet. The next
+`Service` after Offline→Online sends those same bytes. There is no second
+durable outbox. An ACK that could not be handed off is remembered only in
+the live runtime; after restart the peer's retry reproduces it from the
+saved received packet id.
+
+The availability callback records the change and may wake the model loop.
+It does not send. A repeated Online with no change does not pull the retry
+clock forward. While Offline the retry clock is not consumed, so a long
+outage plus a time jump does not emit a burst: the first `Service` after
+Online sends the current packet once.
+
+Status: **implemented / verified** by
+`apptraverse_shared_node_availability_test`. Heartbeat, last-seen, and real
+Æther presence are not this slice. Not accepted-by-user.
+
+## Next open test — one node on three replicas
+
+`TestRequestTwoNodesAndThirdParticipant` checks some transfer directions
+after a third participant joins a node that a pair already shares. It does
+not compare the final shared journal of that one node on A, B, and C, and
+it does not compare the share list of all three replicas.
+
+The next unclosed test is that convergence: events committed by each of A,
+B, and C land as the same journal on all three, and the shared topology
+(share ids, endpoints, access) matches. Do not grow a topology protocol
+under the availability work. This test is still open.
+
 ### Recovery
 
 Every `ShareOffer` is attached, by an event, to one local `ShareAdmission`
@@ -488,8 +540,9 @@ when it is constructed. `offers_` is only the live cache. A test must not
 copy `LocalOfferIds()` out of the runtime it is about to destroy.
 
 This still replicates standalone shared Events on the chosen node. It does
-not claim arbitrary dynamic object graphs, multi-hop, presence, or real
-Æther delivery. `MemoryTransport` is not authentication.
+not claim arbitrary dynamic object graphs, multi-hop, heartbeat, last-seen,
+or real Æther delivery. Outgoing availability is the slice above.
+`MemoryTransport` is not authentication.
 
 ## Transport / Link contract
 
@@ -529,10 +582,12 @@ make Æther capabilities impossible.
 
 ## Presence
 
-Presence / availability is a **Link** capability.
+Presence / availability is a **Link** capability, observed through the
+transport adapter for that Link's endpoint uid. It is not a second field
+on the synchronizer and it is not serialized on the Link.
 
 Business model may reference Link for online status.
-Shared sync scheduler reads the same Link availability.
+Shared sync scheduler reads the same transport availability.
 
 No special `if local participant … else remote …` branches for sync core.
 
@@ -623,7 +678,9 @@ adding a second sort key.
 (v1.1 corrections). Initial-state synchronization (05–07, 09 initial subset),
 standalone incremental Event replication (08, 09 Event subset, 12 source
 access), and closed Event graph serialization slice are on `main`. Dynamic
-object graphs, topology Events, multi-hop, presence, and Æther are not started.**
+object graphs, topology Events, multi-hop, heartbeat, and Æther are not
+started. Outgoing endpoint availability is implemented on this branch and
+is not accepted-by-user.**
 
 ### SharedNode headless (01–16)
 
@@ -632,7 +689,7 @@ object graphs, topology Events, multi-hop, presence, and Æther are not started.
 03. **Separate shared and local-persistent graph edges** — **implemented/verified** (generic `LocalPtr` + `GraphCopyPolicy::NetworkShared`; no SharedNode sanitization; rebuild stash).  
 04. **Persist per-Share SharedNode sync state** — **foundation implemented/verified** (`LinkSyncState` Event-sourced Node + `InitialSyncPhase` only; keyed by Share relationship identity so RemoveShare+AddShare starts a new relationship at NotStarted and a forced `RebuildFromBaseAndReplay` keeps the current relationship's progress; no ACK/pending bytes yet).  
 05. **Add generic shared sync framing and routing** — **implemented/verified for NodeState, Ack, and standalone Event** (protocol v1 frames routed by `target_node_id` and named by `destination_share_id`; canonical frame length and non-zero ids required; every frame bound to the transport `source_endpoint`; `SharedSyncRuntime` per replica).  
-06. **Add deterministic Memory Link transport** — **message delivery subset implemented/verified** (opaque bytes, endpoint identity, deliver / drop / duplicate / disconnect / reconnect, no threads or sleeps; no heartbeat, presence, reorder, or fake clock yet).  
+06. **Add deterministic Memory Link transport** — **message delivery plus directional availability implemented/verified** (opaque bytes, endpoint identity, deliver / drop / duplicate / disconnect / reconnect, deterministic Online / Offline / Unknown; no threads or sleeps; no heartbeat, last-seen, or reorder yet).  
 07. **Synchronize a SharedNode to a newly attached Link** — **implemented/verified** (freeze + persist + send, admission of the snapshot in a scratch Domain before any write to real storage, import into the receiver Domain, receiver-local sync state by journal replay, persist before ACK, duplicate acknowledged without re-apply).  
 08. **Replicate incremental SharedNode Events** — **standalone scalar subset implemented/verified** (`EventFrame` + generic `Ack`; one pending Event packet per Share; `SharedEventId` is the only cross-replica identity; receiver allocates a fresh local Event ObjId; Event graphs that reach a second object are refused; pre-LoadRoot class chain validation and scratch preflight replay guarantee safe admission). **Closed Event graph serialization slice implemented/verified** (Freeze, Parse, Validate, and Import for closed Event graphs referencing Nodes and Objs with aliases, remapped `ObjIds` avoiding receiver collisions, remapped `Node::base`, excluded `LocalPtr`s, invariant checks in disposable scratch, zero receiver mutation on failure, and explicit export boundary; wire integration into `EventFrame`/ACK deferred). Dynamic child-object graphs, topology Events, and multi-hop are not started.  
 09. **Make shared delivery restart-safe** — **implemented/verified for initial state and standalone Events** (sender restart while pending resends the same packet id and bytes, receiver restart after apply still recognizes the duplicate from the journal, sender restart after ACK keeps the identity delivered and does not resend).  
@@ -640,8 +697,8 @@ object graphs, topology Events, multi-hop, presence, and Æther are not started.
 11. **Share multiple Nodes over one Link** — multiplexing proof.  
 12. **Enforce RW and RO sharing rights** — **source access implemented/verified for incremental Events** (ReadWrite source required to mutate; ReadOnly destination may still receive). Recipient-filtered graphs and writer-vs-reader edge visibility are later.  
 13. **Add recipient-scoped object references** — filtered graph edges for writers vs readers.  
-14. **Prove full share topology with three replicas** — A/B/C memory convergence.  
-15. **Integrate Link presence with SharedNode delivery** — scheduler observes Link availability.  
+14. **Prove full share topology with three replicas** — A/B/C memory convergence. **Still open:** one node at A/B/C after the third participant joins, including events from each side and the same share list on all three. `TestRequestTwoNodesAndThirdParticipant` does not close this.  
+15. **Integrate Link presence with SharedNode delivery** — **availability subset implemented/verified** (scheduler reads `IByteTransport` availability for the Link endpoint; known Offline does not call `Send`; Offline→Online resumes the same packets on the next `Service`). Heartbeat, last-seen, and real Æther presence are not started.  
 16. **Freeze shared_node_demo headless contract** — documented PASS criteria for headless sharing.
 
 ### Chat ladder on SharedNode (17–21)
