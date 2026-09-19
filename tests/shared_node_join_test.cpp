@@ -156,6 +156,37 @@ APPTRAVERSE_REGISTER(JoinRecordNode);
 APPTRAVERSE_REGISTER(AddJoinRecordEvent);
 APPTRAVERSE_REGISTER(JoinOtherNode);
 
+class JoinBinding : public apptraverse::NodeFor<JoinBinding> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::JoinBinding", JoinBinding, Node,
+                           0)
+
+ protected:
+  JoinBinding() = default;
+
+ public:
+  explicit JoinBinding(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT()
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, node_ids);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, node_ids);
+  }
+
+  std::vector<std::uint32_t> node_ids;
+};
+
+APPTRAVERSE_REGISTER(JoinBinding);
+
+ae::ObjId const kJoinBindingId{0x4A4F494E};
+
+MemoryLink::ptr MakeMemoryLink(ae::Domain& domain, std::string endpoint);
+
 bool AcceptAll(SharedSyncRuntime::ShareOfferView const&) { return true; }
 
 bool Contains(std::vector<std::uint8_t> const& bytes, std::string const& needle) {
@@ -174,12 +205,43 @@ struct Replica {
         endpoint_uid_{std::move(endpoint_uid)} {}
 
   void Start() {
+    binds = 0;
     domain = std::make_unique<ae::Domain>(storage);
     transport =
         std::make_unique<MemoryTransport>(network_, endpoint_uid_);
     sync = std::make_unique<SharedSyncRuntime>(*domain, storage, *transport);
     sync->AllowStandaloneEventClass(AddJoinRecordEvent::kClassId);
     sync->SetShareOfferPolicy(AcceptAll);
+    sync->SetLinkForEndpoint([this](std::string const& endpoint) {
+      return MakeMemoryLink(*domain, endpoint);
+    });
+    sync->SetInitialNodeImportedCallback(
+        [this](std::string const&, SharedNode::ptr node) {
+          ++binds;
+          JoinBinding::ptr binding;
+          if (storage.Enumerate(kJoinBindingId).empty()) {
+            binding = JoinBinding::ptr::Create(
+                ae::CreateWith{*domain}.with_id(kJoinBindingId));
+            InitializeRuntimeNode(*binding);
+          } else {
+            binding = JoinBinding::ptr::Declare(
+                ae::CreateWith{*domain}.with_id(kJoinBindingId));
+            binding.Load();
+            CHECK(binding.is_loaded());
+          }
+          auto const id = node.id().id();
+          bool found = false;
+          for (auto existing : binding->node_ids) {
+            if (existing == id) {
+              found = true;
+            }
+          }
+          if (!found) {
+            binding->node_ids.push_back(id);
+          }
+          binding.Save();
+          return true;
+        });
   }
 
   void Stop() {
@@ -194,6 +256,7 @@ struct Replica {
   std::unique_ptr<ae::Domain> domain;
   std::unique_ptr<MemoryTransport> transport;
   std::unique_ptr<SharedSyncRuntime> sync;
+  int binds{0};
 
  private:
   MemoryNetwork& network_;
@@ -411,16 +474,8 @@ void PumpUntil(World& world, auto&& done, int max_steps) {
 }
 
 void Restart(Replica& replica) {
-  auto const offer_ids = replica.sync->LocalOfferIds();
   replica.Stop();
   replica.Start();
-  for (auto const id : offer_ids) {
-    auto offer = ShareOffer::ptr::Declare(
-        ae::CreateWith{*replica.domain}.with_id(id));
-    offer.Load();
-    CHECK(offer.is_loaded());
-    replica.sync->RegisterOffer(offer);
-  }
 }
 
 bool PhaseIs(Replica& replica, ae::ObjId operation, ShareOfferPhase phase) {
@@ -859,7 +914,8 @@ void TestLossDuplicateReorderAndPartition() {
     auto const operation = Offer(pair, node, ShareAccess::ReadWrite);
     CHECK(pair.network.DeliverNext(kEndpointA, kEndpointB));
     CHECK(pair.network.DropNext(kEndpointB, kEndpointA));
-    ServiceRetry(pair.b, pair.network, kEndpointA);
+    ServiceRetry(pair.a, pair.network, kEndpointB);
+    CHECK(pair.network.DeliverNext(kEndpointA, kEndpointB));
     CHECK(pair.network.PendingCount(kEndpointB, kEndpointA) == 1);
     FinishJoin(pair, operation, node.id());
   }
@@ -992,6 +1048,13 @@ void TestRestartAfterSnapshotBeforeAck() {
   CHECK(pair.network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
   CHECK(FullyJoined(pair, operation, node.id()));
+  CHECK(pair.b.binds == 0);
+  auto binding = JoinBinding::ptr::Declare(
+      ae::CreateWith{*pair.b.domain}.with_id(kJoinBindingId));
+  binding.Load();
+  CHECK(binding.is_loaded());
+  CHECK(binding->node_ids.size() == 1);
+  CHECK(binding->node_ids[0] == node.id().id());
   CHECK(AsRecord(pair.b.sync->FindNode(node.id()))->records.size() == 1);
   AddRecord(*AsRecord(pair.a.sync->FindNode(node.id())), "post-ack-restart",
             kEndpointA, 2, 800);
@@ -1186,10 +1249,320 @@ void TestReadOnlyCannotWrite() {
   PumpUntil(
       world,
       [&] {
-        return AsRecord(pair.b.sync->FindNode(node.id()))->records.size() == 3;
+        auto const seen =
+            Observe(*AsRecord(pair.b.sync->FindNode(node.id())));
+        for (auto const& record : seen) {
+          if (record.text == "still-flows" &&
+              record.id.origin_uid == kEndpointA &&
+              record.id.origin_sequence == 3) {
+            return true;
+          }
+        }
+        return false;
       },
       40);
   CHECK(AsRecord(pair.a.sync->FindNode(node.id()))->records.size() == 3);
+}
+
+bool RequestJoined(Replica& holder, Replica& requester, ae::ObjId operation,
+                   ae::ObjId node_id) {
+  return PhaseIs(holder, operation, ShareOfferPhase::Complete) &&
+         PhaseIs(requester, operation, ShareOfferPhase::Bound) &&
+         requester.sync->FindNode(node_id).is_valid();
+}
+
+void TestRequestJoinDeferredThenNewAttempt() {
+  Pair pair;
+  auto node = MakeRecordNode(pair.a, kLocalSecret);
+  AddRecord(*node, "seed", kEndpointA, 1, 100);
+  pair.a.sync->SetShareOfferPolicy({});
+  auto const operation =
+      pair.b.sync->RequestJoin(kEndpointA, node.id(), ShareAccess::ReadWrite);
+  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(PhaseIs(pair.a, operation, ShareOfferPhase::AwaitingDecision));
+  CHECK(!pair.b.sync->FindNode(node.id()).is_valid());
+  for (int i = 0; i < 3; ++i) {
+    pair.a.sync->Service(static_cast<std::uint64_t>(i));
+    pair.b.sync->Service(static_cast<std::uint64_t>(i));
+  }
+  CHECK(pair.network.PendingCount(kEndpointA, kEndpointB) == 0);
+  CHECK(PhaseIs(pair.a, operation, ShareOfferPhase::AwaitingDecision));
+  pair.a.sync->RejectJoin(operation);
+  CHECK(pair.network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(PhaseIs(pair.a, operation, ShareOfferPhase::Rejected));
+  CHECK(PhaseIs(pair.b, operation, ShareOfferPhase::Rejected));
+  CHECK(!pair.b.domain->Find(node.id()));
+  g_now += 4 * kShareOfferRetryIntervalUs;
+  pair.a.sync->Service(g_now);
+  pair.b.sync->Service(g_now);
+  CHECK(pair.network.PendingCount(kEndpointA, kEndpointB) == 0);
+  CHECK(pair.network.PendingCount(kEndpointB, kEndpointA) == 0);
+
+  auto const again =
+      pair.b.sync->RequestJoin(kEndpointA, node.id(), ShareAccess::ReadWrite);
+  CHECK(again != operation);
+  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(PhaseIs(pair.a, again, ShareOfferPhase::AwaitingDecision));
+  pair.a.sync->AcceptJoin(again, ShareAccess::ReadWrite,
+                          MakeMemoryLink(*pair.a.domain, kEndpointB));
+  auto world = pair.world({kLocalSecret});
+  PumpUntil(
+      world, [&] { return RequestJoined(pair.a, pair.b, again, node.id()); },
+      40);
+  AddRecord(*AsRecord(pair.a.sync->FindNode(node.id())), "from-a", kEndpointA,
+            2, 200);
+  AddRecord(*AsRecord(pair.b.sync->FindNode(node.id())), "from-b", kEndpointB,
+            1, 300);
+  PumpUntil(
+      world,
+      [&] {
+        auto b = AsRecord(pair.b.sync->FindNode(node.id()));
+        return b->records.size() == 3 && b->records[2] == "from-b";
+      },
+      40);
+  ExpectSameSharedState(pair.a.sync->FindNode(node.id()),
+                        pair.b.sync->FindNode(node.id()));
+}
+
+void TestRequestTwoNodesAndThirdParticipant() {
+  {
+    Pair pair;
+    auto node_x = MakeRecordNode(pair.a, kLocalSecret);
+    auto node_y = MakeRecordNode(pair.a, kLocalSecret);
+    AddRecord(*node_x, "x-only", kEndpointA, 1, 100);
+    AddRecord(*node_y, "y-only", kEndpointA, 1, 110);
+    auto const op_x = pair.b.sync->RequestJoin(kEndpointA, node_x.id(),
+                                               ShareAccess::ReadWrite);
+    auto const op_y = pair.b.sync->RequestJoin(kEndpointA, node_y.id(),
+                                               ShareAccess::ReadWrite);
+    auto world = pair.world({kLocalSecret});
+    PumpUntil(
+        world,
+        [&] {
+          return RequestJoined(pair.a, pair.b, op_x, node_x.id()) &&
+                 RequestJoined(pair.a, pair.b, op_y, node_y.id());
+        },
+        80);
+    CHECK(AsRecord(pair.b.sync->FindNode(node_x.id()))->records[0] == "x-only");
+    CHECK(AsRecord(pair.b.sync->FindNode(node_y.id()))->records[0] == "y-only");
+    CHECK(AsRecord(pair.b.sync->FindNode(node_x.id()))->records.size() == 1);
+  }
+  {
+    MemoryNetwork network;
+    Replica a{network, kEndpointA};
+    Replica b{network, kEndpointB};
+    Replica c{network, kEndpointC};
+    a.Start();
+    b.Start();
+    c.Start();
+    auto node = MakeRecordNode(a, kLocalSecret);
+    auto hidden = MakeRecordNode(a, kLocalSecret);
+    AddRecord(*node, "shared", kEndpointA, 1, 100);
+    AddRecord(*hidden, kPrivateMarker, kEndpointA, 1, 50);
+    auto const to_b = a.sync->OfferNode(
+        node, MakeMemoryLink(*a.domain, kEndpointB), ShareAccess::ReadWrite);
+    World world{.network = &network,
+                .replicas = {&a, &b, &c},
+                .forbidden = {kLocalSecret, kPrivateMarker}};
+    PumpUntil(
+        world,
+        [&] {
+          return PhaseIs(a, to_b, ShareOfferPhase::Complete) &&
+                 PhaseIs(b, to_b, ShareOfferPhase::Bound) &&
+                 b.sync->FindNode(node.id()).is_valid();
+        },
+        40);
+    auto const to_c =
+        c.sync->RequestJoin(kEndpointA, node.id(), ShareAccess::ReadWrite);
+    PumpUntil(
+        world,
+        [&] {
+          return RequestJoined(a, c, to_c, node.id()) &&
+                 b.sync->FindNode(node.id()).is_valid() &&
+                 !c.sync->FindNode(hidden.id()).is_valid() &&
+                 c.storage.Enumerate(hidden.id()).empty();
+        },
+        80);
+    CHECK(c.sync->FindNode(node.id()).id() == node.id());
+    CHECK(AsRecord(c.sync->FindNode(node.id()))->records[0] == "shared");
+    AddRecord(*AsRecord(a.sync->FindNode(node.id())), "to-both", kEndpointA, 2,
+              500);
+    PumpUntil(
+        world,
+        [&] {
+          auto seen_b = Observe(*AsRecord(b.sync->FindNode(node.id())));
+          auto seen_c = Observe(*AsRecord(c.sync->FindNode(node.id())));
+          return seen_b.size() == 2 && seen_c.size() == 2 &&
+                 seen_b[1].id == seen_c[1].id &&
+                 seen_b[1].text == "to-both" && seen_c[1].text == "to-both";
+        },
+        40);
+    AddRecord(*AsRecord(b.sync->FindNode(node.id())), "from-b", kEndpointB, 1,
+              700);
+    PumpUntil(
+        world,
+        [&] {
+          auto seen_c = Observe(*AsRecord(c.sync->FindNode(node.id())));
+          return seen_c.size() == 3 && seen_c[2].text == "from-b" &&
+                 seen_c[2].id.origin_uid == kEndpointB;
+        },
+        40);
+    CHECK(!c.sync->FindNode(hidden.id()).is_valid());
+  }
+}
+
+void TestRequestLossAndQuiet() {
+  Pair pair;
+  auto node = MakeRecordNode(pair.a, kLocalSecret);
+  AddRecord(*node, "seed", kEndpointA, 1, 100);
+  auto const operation =
+      pair.b.sync->RequestJoin(kEndpointA, node.id(), ShareAccess::ReadWrite);
+  CHECK(pair.network.DropNext(kEndpointB, kEndpointA));
+  ServiceRetry(pair.b, pair.network, kEndpointA);
+  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(pair.network.DropNext(kEndpointA, kEndpointB));
+  CHECK(pair.network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(!pair.b.sync->FindNode(node.id()).is_valid());
+  ServiceRetry(pair.b, pair.network, kEndpointA);
+  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(pair.network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(PhaseIs(pair.b, operation, ShareOfferPhase::Admitted));
+  ServiceRetry(pair.a, pair.network, kEndpointB);
+  CHECK(pair.network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(RequestJoined(pair.a, pair.b, operation, node.id()));
+  auto world = pair.world();
+  Drain(world);
+  auto const queued = pair.network.PendingCount(kEndpointA, kEndpointB) +
+                      pair.network.PendingCount(kEndpointB, kEndpointA);
+  g_now += 5 * kShareOfferRetryIntervalUs;
+  pair.a.sync->Service(g_now);
+  pair.b.sync->Service(g_now);
+  CHECK(pair.network.PendingCount(kEndpointA, kEndpointB) +
+            pair.network.PendingCount(kEndpointB, kEndpointA) ==
+        queued);
+}
+
+void TestRequestRestartFromStorage() {
+  Pair pair;
+  auto node = MakeRecordNode(pair.a, kLocalSecret);
+  AddRecord(*node, "seed", kEndpointA, 1, 100);
+  pair.a.sync->SetShareOfferPolicy({});
+  auto const operation =
+      pair.b.sync->RequestJoin(kEndpointA, node.id(), ShareAccess::ReadWrite);
+  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(PhaseIs(pair.a, operation, ShareOfferPhase::AwaitingDecision));
+  auto const node_id = node.id();
+  node = {};
+  Restart(pair.a);
+  pair.network.ClearQueues();
+  CHECK(pair.a.sync->FindNode(node_id).is_valid());
+  CHECK(PhaseIs(pair.a, operation, ShareOfferPhase::AwaitingDecision));
+  CHECK(!pair.a.sync->OfferStatuses().empty());
+  pair.a.sync->AcceptJoin(operation, ShareAccess::ReadWrite,
+                          MakeMemoryLink(*pair.a.domain, kEndpointB));
+  auto world = pair.world({kLocalSecret});
+  PumpUntil(
+      world,
+      [&] { return RequestJoined(pair.a, pair.b, operation, node_id); }, 40);
+  AddRecord(*AsRecord(pair.a.sync->FindNode(node_id)), "after-restart",
+            kEndpointA, 2, 400);
+  PumpUntil(
+      world,
+      [&] {
+        auto b = AsRecord(pair.b.sync->FindNode(node_id));
+        return b->records.size() == 2 && b->records[1] == "after-restart";
+      },
+      40);
+
+  Pair saved;
+  auto kept = MakeRecordNode(saved.a, kLocalSecret);
+  AddRecord(*kept, "seed", kEndpointA, 1, 100);
+  saved.a.sync->SetShareOfferPolicy({});
+  auto const op = saved.b.sync->RequestJoin(kEndpointA, kept.id(),
+                                            ShareAccess::ReadWrite);
+  CHECK(saved.network.DeliverNext(kEndpointB, kEndpointA));
+  saved.a.sync->AcceptJoin(op, ShareAccess::ReadWrite,
+                           MakeMemoryLink(*saved.a.domain, kEndpointB));
+  CHECK(saved.network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(saved.network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(saved.b.sync->FindNode(kept.id()).is_valid());
+  CHECK(PhaseIs(saved.b, op, ShareOfferPhase::Bound));
+  auto const kept_id = kept.id();
+  kept = {};
+  Restart(saved.b);
+  saved.network.ClearQueues();
+  CHECK(saved.b.binds == 0);
+  CHECK(saved.b.sync->FindNode(kept_id).is_valid());
+  auto binding = JoinBinding::ptr::Declare(
+      ae::CreateWith{*saved.b.domain}.with_id(kJoinBindingId));
+  binding.Load();
+  CHECK(binding.is_loaded());
+  CHECK(binding->node_ids.size() == 1);
+  CHECK(binding->node_ids[0] == kept_id.id());
+  ServiceRetry(saved.a, saved.network, kEndpointB);
+  CHECK(saved.network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(saved.b.binds == 0);
+  CHECK(saved.network.DeliverNext(kEndpointB, kEndpointA));
+  AddRecord(*AsRecord(saved.a.sync->FindNode(kept_id)), "fresh", kEndpointA, 2,
+            800);
+  auto saved_world = saved.world({kLocalSecret});
+  PumpUntil(
+      saved_world,
+      [&] {
+        auto b = AsRecord(saved.b.sync->FindNode(kept_id));
+        return b->records.size() == 2 && b->records[1] == "fresh";
+      },
+      40);
+}
+
+void TestRequestTamperedRepeat() {
+  Pair pair;
+  auto node = MakeRecordNode(pair.a, kLocalSecret);
+  auto other = MakeRecordNode(pair.a, kLocalSecret);
+  AddRecord(*node, "seed", kEndpointA, 1, 100);
+  pair.a.sync->SetShareOfferPolicy({});
+  auto const operation =
+      pair.b.sync->RequestJoin(kEndpointA, node.id(), ShareAccess::ReadWrite);
+  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(PhaseIs(pair.a, operation, ShareOfferPhase::AwaitingDecision));
+  ShareOfferFrame forged{
+      .packet_id = ae::ObjId{9},
+      .operation_id = operation,
+      .target_node_id = node.id(),
+      .root_class_id = 0,
+      .access = static_cast<std::uint8_t>(ShareAccess::ReadOnly),
+  };
+  pair.b.transport->Send(kEndpointA, EncodeShareRequestFrame(forged));
+  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(PhaseIs(pair.a, operation, ShareOfferPhase::AwaitingDecision));
+  CHECK(pair.network.PendingCount(kEndpointA, kEndpointB) == 0);
+  forged.target_node_id = other.id();
+  forged.access = static_cast<std::uint8_t>(ShareAccess::ReadWrite);
+  pair.b.transport->Send(kEndpointA, EncodeShareRequestFrame(forged));
+  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(!pair.b.sync->FindNode(other.id()).is_valid());
+  CHECK(pair.a.storage.Enumerate(other.id()).size() > 0);
+  struct Eve {
+    static void OnBytes(void*, std::string const&,
+                        std::vector<std::uint8_t> const&) {}
+  };
+  MemoryTransport eve{pair.network, "endpoint-eve"};
+  eve.BindReceive(nullptr, &Eve::OnBytes);
+  forged.target_node_id = node.id();
+  eve.Send(kEndpointA, EncodeShareRequestFrame(forged));
+  CHECK(pair.network.DeliverNext("endpoint-eve", kEndpointA));
+  CHECK(PhaseIs(pair.a, operation, ShareOfferPhase::AwaitingDecision));
+  CHECK(!pair.b.sync->FindNode(node.id()).is_valid());
+  pair.a.sync->AcceptJoin(operation, ShareAccess::ReadOnly,
+                          MakeMemoryLink(*pair.a.domain, kEndpointB));
+  auto world = pair.world({kLocalSecret});
+  PumpUntil(
+      world,
+      [&] { return RequestJoined(pair.a, pair.b, operation, node.id()); }, 40);
+  CHECK(AsRecord(pair.b.sync->FindNode(node.id()))->shares[1].GetAccess() ==
+        ShareAccess::ReadOnly);
+  CHECK(!pair.b.sync->FindNode(other.id()).is_valid());
 }
 
 }  // namespace
@@ -1214,6 +1587,11 @@ int main() {
   apptraverse::test::TestRejectionsAndIsolation();
   apptraverse::test::TestWrongSourceAndCorrupt();
   apptraverse::test::TestReadOnlyCannotWrite();
+  apptraverse::test::TestRequestJoinDeferredThenNewAttempt();
+  apptraverse::test::TestRequestTwoNodesAndThirdParticipant();
+  apptraverse::test::TestRequestLossAndQuiet();
+  apptraverse::test::TestRequestRestartFromStorage();
+  apptraverse::test::TestRequestTamperedRepeat();
   std::cout << "shared_node_join_test OK\n";
   return 0;
 }
