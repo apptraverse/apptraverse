@@ -1,3 +1,99 @@
+# Share admission of a chosen SharedNode (2026-09-19)
+
+Status: implemented / verified. Not accepted-by-user.
+
+Branch: `cursor/shared-node-join-3c1e` from `origin/main` `d05d628547f6713b6f08eee93f452a577fa9bcef`.
+`feature/messenger-v1` was not used.
+
+## What landed
+
+Public admission is `SharedSyncRuntime`, not a new manager. The application
+calls `OfferNode` (node, remote `Link`, access) and `Service(now_us)`.
+`SetShareOfferPolicy` accepts or rejects before any replica exists on the
+receiver. `RegisterOffer` reattaches a persisted `ShareOffer` after the
+runtime, transport, and Domain are created again from that replica's storage.
+
+`ShareOffer` is local event-sourced state. It is not in the shared graph.
+Operation id, node id, and share id stay distinct. `ExpectInitialNodeFromEndpoint`
+is keyed by `(source_endpoint, node_id)`: a second node for the same endpoint
+does not replace the first, and completing or forgetting one leaves the others.
+An empty node id is still the single wildcard slot used by chat.
+
+Frames `ShareOffer` and `ShareDecision` travel as opaque bytes on
+`IByteTransport`. The receiver takes the source from the transport callback.
+`MemoryNetwork` delivers those bytes between independent Domains. It is not
+authentication and it is not the Æther client.
+
+## Reproduction
+
+Headless only. `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`. Compilers: `/usr/bin/gcc`
+and `/usr/bin/g++`. Do not wipe an existing build tree.
+
+```
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=/usr/bin/gcc \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF
+cmake --build build --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test -j
+ctest --test-dir build -R 'apptraverse_shared_node_' --output-on-failure
+```
+
+Release is a second tree so the Debug tree stays incremental:
+
+```
+cmake -S . -B build-release -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=/usr/bin/gcc \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF
+cmake --build build-release --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test -j
+ctest --test-dir build-release -R 'apptraverse_shared_node_' --output-on-failure
+```
+
+Release compile line includes `-O3 -DNDEBUG -std=c++20 -fno-rtti`.
+`apptraverse_shared_node_join_test` checks with `CHECK` / `std::exit`, not
+`assert`, so they stay active under `NDEBUG`.
+
+## Results
+
+Debug and Release, 2026-09-19, all four CTest targets passed:
+
+- `apptraverse_shared_node_foundation_test`
+- `apptraverse_shared_node_initial_sync_test`
+- `apptraverse_shared_node_incremental_event_test`
+- `apptraverse_shared_node_join_test`
+
+The join test offers an existing node, lets the receiver policy admit it, and
+then only advances logical time and `MemoryNetwork` delivery. It does not
+pre-build the receiver replica, call the other side's handler, or set
+`Complete` by hand. Covered: both sides (20 events each) compared by shared
+identity and payload; an event during initial sync; two nodes to one endpoint;
+counter-offers; three replicas without mixing; loss, duplicate, reorder, and a
+one-way partition; restart during the offer, after the snapshot is saved and
+before ACK, and with an unacked event (network queue cleared); policy reject,
+wrong node, unsupported class, wrong source, damaged frame, read-only write;
+local fields absent from the transferred bytes.
+
+## Limits
+
+Verified for standalone shared Events that append independent records on the
+chosen node. That is not support for arbitrary dynamic object graphs, multi-hop,
+presence, or the real Æther client. `MemoryTransport` does not authenticate the
+peer. The accept/reject policy is runtime-only and must be set again after
+restart; the persisted decision is not asked again. The initiator must already
+share the node with its own endpoint before `OfferNode`.
+
+---
+
 ## Host	oClient delivery (2026-09-17) — NOT FIXED
 
 Starting SHA: `d9b11a48771d077f0208543fbd1663ca71224d1e`

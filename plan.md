@@ -390,6 +390,10 @@ This slice replicates standalone shared Events on the chosen node. It does
 not claim arbitrary dynamic object graphs, multi-hop, presence, or real
 Æther delivery.
 
+Status of this procedure: **implemented / verified** by
+`apptraverse_shared_node_join_test` in Debug and Release (`-DNDEBUG`,
+`-fno-rtti`). Not accepted-by-user.
+
 ## Transport / Link contract
 
 One Link may carry multiple SharedNode protocols.
