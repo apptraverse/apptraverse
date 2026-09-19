@@ -78,14 +78,25 @@ class SharedSyncRuntime {
     ae::ObjId node_id;
     std::uint32_t root_class_id{0};
     ShareAccess access{ShareAccess::ReadWrite};
+    ShareOfferKind kind{ShareOfferKind::Grant};
   };
 
   using ShareOfferPolicy = std::function<bool(ShareOfferView const& offer)>;
 
-  // Consulted only for an operation this replica has not already recorded.
-  // Runtime-only: set again after restart. The recorded decision is what
-  // survives.
+  // Fired when an inbound grant or request is stored and still unanswered.
+  // Also fired for each such attempt when the notice is set, so a new
+  // runtime surfaces attempts loaded from storage. Not a decision.
+  using ShareOfferNotice = std::function<void(ShareOfferView const& offer)>;
+
+  // Consulted only when an inbound attempt is first stored. A saved decision
+  // is not asked again. No policy means the attempt stays AwaitingDecision.
   void SetShareOfferPolicy(ShareOfferPolicy policy);
+  void SetShareOfferNotice(ShareOfferNotice notice);
+
+  // Builds the Share Link for a request this replica accepts. The runtime
+  // does not construct a transport-specific Link itself.
+  using LinkForEndpoint = std::function<Link::ptr(std::string const& endpoint)>;
+  void SetLinkForEndpoint(LinkForEndpoint link_for_endpoint);
 
   // Offer `node` to `remote`'s endpoint with `access` for that peer.
   // The node must already share this replica's own endpoint. The remote
@@ -94,6 +105,18 @@ class SharedSyncRuntime {
   // open returns the existing operation id.
   ae::ObjId OfferNode(SharedNode::ptr node, Link::ptr remote,
                       ShareAccess access);
+
+  // Ask `remote_endpoint` for a node this replica does not have.
+  // Does not create a local copy. The holder sends the snapshot after accept.
+  ae::ObjId RequestJoin(std::string remote_endpoint, ae::ObjId node_id,
+                        ShareAccess requested_access);
+
+  // Answer a stored AwaitingDecision attempt. `remote` is the Share Link the
+  // holder adds; a grant does not need one because the share arrives in the
+  // snapshot. Ignored when the attempt is not waiting.
+  void AcceptJoin(ae::ObjId operation_id, ShareAccess granted_access,
+                  Link::ptr remote = {});
+  void RejectJoin(ae::ObjId operation_id);
 
   // Reload a ShareOffer from this replica's storage after a restart.
   // Attaches the named SharedNode when that node is already stored.
@@ -152,6 +175,10 @@ class SharedSyncRuntime {
   void OnEvent(std::string const& source_endpoint, EventFrame const& frame);
   void OnShareOffer(std::string const& source_endpoint,
                     ShareOfferFrame const& frame);
+  void OnShareRequest(std::string const& source_endpoint,
+                      ShareOfferFrame const& frame);
+  void OnAdmission(std::string const& source_endpoint,
+                   ShareOfferFrame const& frame, ShareOfferKind kind);
   void OnShareDecision(std::string const& source_endpoint,
                        ShareDecisionFrame const& frame);
 
@@ -174,16 +201,28 @@ class SharedSyncRuntime {
                                        ae::ObjId node_id) const;
 
   ShareOffer::ptr FindOfferByOperation(ae::ObjId operation_id) const;
-  ShareOffer::ptr FindResponderAdmission(std::string const& source_endpoint,
-                                         ae::ObjId node_id) const;
+  ShareOffer::ptr FindImportAdmission(std::string const& source_endpoint,
+                                      ae::ObjId node_id) const;
+  bool OpenAttemptBlocks(std::string const& remote_endpoint,
+                         ae::ObjId node_id) const;
+  bool AttemptMatches(ShareOffer const& offer, std::string const& source,
+                      ShareOfferFrame const& frame,
+                      ShareOfferKind kind) const;
+  bool SendsSnapshot(ShareOffer const& offer) const;
+  bool DrivesInitialSnapshot(ae::ObjId node_id, ae::ObjId share_id) const;
+  ShareOfferView ViewOf(ShareOffer const& offer) const;
 
   void CommitOfferPhase(ShareOffer::ptr offer, ShareOfferPhase phase,
-                        ae::ObjId share_id);
+                        ae::ObjId share_id,
+                        std::vector<std::uint8_t> packet = {},
+                        std::uint8_t access = 0xFF,
+                        std::uint32_t root_class_id = 0);
   void SaveOffer(ShareOffer::ptr offer);
+  void RememberOffer(ShareOffer::ptr offer, bool send_now);
+  void LoadAdmission();
   void NoteDirectSend(ae::ObjId operation_id);
   void NoteDirectSync(ae::ObjId node_id, ae::ObjId share_id);
-  void MarkInitiatorComplete(ae::ObjId node_id, ae::ObjId share_id);
-  bool InitiatorDrivesShare(ae::ObjId node_id, ae::ObjId share_id) const;
+  void MarkSnapshotSenderComplete(ae::ObjId node_id, ae::ObjId share_id);
   void ServiceOffers(std::uint64_t now_us);
   void ServiceShares(std::uint64_t now_us);
 
@@ -213,6 +252,7 @@ class SharedSyncRuntime {
   ae::Domain& domain_;
   ae::IDomainStorage& storage_;
   IByteTransport& transport_;
+  ShareAdmission::ptr admission_;
   std::vector<SharedNode::ptr> nodes_;
   std::vector<ae::ObjId> expected_initial_nodes_;
   std::vector<EndpointExpectation> expected_endpoint_nodes_;
@@ -220,6 +260,8 @@ class SharedSyncRuntime {
   std::vector<SyncSlot> sync_slots_;
   InitialNodeImportedCallback initial_node_imported_callback_;
   ShareOfferPolicy share_offer_policy_;
+  ShareOfferNotice share_offer_notice_;
+  LinkForEndpoint link_for_endpoint_;
   std::vector<std::uint32_t> standalone_event_classes_;
 };
 

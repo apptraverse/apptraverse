@@ -22,6 +22,7 @@ enum class SyncFrameType : std::uint8_t {
   kEvent = 3,
   kShareOffer = 4,
   kShareDecision = 5,
+  kShareRequest = 6,
 };
 
 // Initial state of one SharedNode for one Share relationship.
@@ -93,6 +94,12 @@ struct ShareDecisionFrame {
 std::vector<std::uint8_t> EncodeShareOfferFrame(ShareOfferFrame const& frame);
 bool DecodeShareOfferFrame(std::vector<std::uint8_t> const& bytes,
                            ShareOfferFrame& out);
+
+// Same fields as ShareOffer. Class may be 0: the holder names it in the
+// decision. Still no source field.
+std::vector<std::uint8_t> EncodeShareRequestFrame(ShareOfferFrame const& frame);
+bool DecodeShareRequestFrame(std::vector<std::uint8_t> const& bytes,
+                             ShareOfferFrame& out);
 
 std::vector<std::uint8_t> EncodeShareDecisionFrame(
     ShareDecisionFrame const& frame);

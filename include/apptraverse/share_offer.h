@@ -26,6 +26,13 @@ enum class ShareOfferRole : std::uint8_t {
   Responder = 2,
 };
 
+// Grant: this replica already has the node and offers it.
+// Request: this replica does not have the node and asks for it.
+enum class ShareOfferKind : std::uint8_t {
+  Grant = 1,
+  Request = 2,
+};
+
 enum class ShareOfferPhase : std::uint8_t {
   Unset = 0,
   Pending = 1,
@@ -33,7 +40,16 @@ enum class ShareOfferPhase : std::uint8_t {
   Rejected = 3,
   Bound = 4,
   Complete = 5,
+  // Recorded, application has not answered. Does not authorize import.
+  AwaitingDecision = 6,
+  // Accepted, and this side is the one that will import the snapshot.
+  Admitted = 7,
 };
+
+// Local root that makes every ShareOffer reachable after a new runtime is
+// constructed from this replica's storage. Not a second registry and not a
+// recipient list: X.shares remains the only topology.
+inline constexpr ae::ObjId kShareAdmissionRootId{0x41505452};
 
 class OpenShareOfferEvent;
 class SetShareOfferPhaseEvent;
@@ -53,13 +69,15 @@ class ShareOffer : public NodeFor<ShareOffer> {
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, role, phase, node_id, root_class_id, remote_endpoint, access,
-        remote_link, operation_id, share_id, pending_packet_id, pending_packet);
+        remote_link, operation_id, share_id, pending_packet_id, pending_packet,
+        kind, requested_access, requested_class);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, role, phase, node_id, root_class_id, remote_endpoint, access,
-        remote_link, operation_id, share_id, pending_packet_id, pending_packet);
+        remote_link, operation_id, share_id, pending_packet_id, pending_packet,
+        kind, requested_access, requested_class);
   }
 
   std::uint8_t role{0};
@@ -73,6 +91,9 @@ class ShareOffer : public NodeFor<ShareOffer> {
   ae::ObjId share_id;
   ae::ObjId pending_packet_id;
   std::vector<std::uint8_t> pending_packet;
+  std::uint8_t kind{0};
+  std::uint8_t requested_access{0};
+  std::uint32_t requested_class{0};
 
   ShareOfferRole GetRole() const {
     return static_cast<ShareOfferRole>(role);
@@ -82,6 +103,12 @@ class ShareOffer : public NodeFor<ShareOffer> {
   }
   ShareAccess GetAccess() const {
     return static_cast<ShareAccess>(access);
+  }
+  ShareOfferKind GetKind() const {
+    return static_cast<ShareOfferKind>(kind);
+  }
+  ShareAccess GetRequestedAccess() const {
+    return static_cast<ShareAccess>(requested_access);
   }
 
   void Apply(OpenShareOfferEvent const& event);
@@ -105,13 +132,15 @@ class OpenShareOfferEvent : public EventFor<ShareOffer, OpenShareOfferEvent> {
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, role, phase, node_id, root_class_id, remote_endpoint, access,
-        remote_link, operation_id, packet);
+        remote_link, operation_id, packet, kind, requested_access,
+        requested_class);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, role, phase, node_id, root_class_id, remote_endpoint, access,
-        remote_link, operation_id, packet);
+        remote_link, operation_id, packet, kind, requested_access,
+        requested_class);
   }
 
   std::uint8_t role{0};
@@ -123,6 +152,9 @@ class OpenShareOfferEvent : public EventFor<ShareOffer, OpenShareOfferEvent> {
   Link::ptr remote_link;
   ae::ObjId operation_id;
   std::vector<std::uint8_t> packet;
+  std::uint8_t kind{0};
+  std::uint8_t requested_access{0};
+  std::uint32_t requested_class{0};
 };
 
 class SetShareOfferPhaseEvent
@@ -139,16 +171,75 @@ class SetShareOfferPhaseEvent
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, phase, share_id);
+    dnv(base_, phase, share_id, packet, access, root_class_id);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, phase, share_id);
+    dnv(base_, phase, share_id, packet, access, root_class_id);
   }
 
   std::uint8_t phase{static_cast<std::uint8_t>(ShareOfferPhase::Unset)};
   ae::ObjId share_id;
+  std::vector<std::uint8_t> packet;
+  // 0xFF leaves ShareOffer::access unchanged. 0 and 1 are ShareAccess.
+  std::uint8_t access{0xFF};
+  std::uint32_t root_class_id{0};
+};
+
+class AttachShareOfferEvent;
+
+// One per Domain. Holds the ShareOffer edges so a new process finds them
+// without a list copied out of the previous runtime.
+class ShareAdmission : public NodeFor<ShareAdmission> {
+  APPTRAVERSE_OBJECT(ShareAdmission, Node, 0)
+
+ protected:
+  ShareAdmission() = default;
+
+ public:
+  explicit ShareAdmission(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(offers))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, offers);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, offers);
+  }
+
+  std::vector<ShareOffer::ptr> offers;
+
+  void Apply(AttachShareOfferEvent const& event);
+};
+
+class AttachShareOfferEvent
+    : public EventFor<ShareAdmission, AttachShareOfferEvent> {
+  APPTRAVERSE_OBJECT(AttachShareOfferEvent, Event, 0)
+
+ protected:
+  AttachShareOfferEvent() = default;
+
+ public:
+  explicit AttachShareOfferEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(offer))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, offer);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, offer);
+  }
+
+  ShareOffer::ptr offer;
 };
 
 void ForceShareOfferRegistration();
