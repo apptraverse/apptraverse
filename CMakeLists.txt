@@ -66,6 +66,7 @@ add_library(apptraverse STATIC
   src/shared_network_graph.cpp
   src/memory_transport.cpp
   src/sync_frame.cpp
+  src/share_offer.cpp
   src/shared_sync_runtime.cpp
 )
 target_include_directories(apptraverse PUBLIC

@@ -114,6 +114,12 @@ bool PeekSyncFrameType(std::vector<std::uint8_t> const& bytes,
     case static_cast<std::uint8_t>(SyncFrameType::kEvent):
       out = SyncFrameType::kEvent;
       return true;
+    case static_cast<std::uint8_t>(SyncFrameType::kShareOffer):
+      out = SyncFrameType::kShareOffer;
+      return true;
+    case static_cast<std::uint8_t>(SyncFrameType::kShareDecision):
+      out = SyncFrameType::kShareDecision;
+      return true;
     default:
       return false;
   }
@@ -213,6 +219,81 @@ bool DecodeEventFrame(std::vector<std::uint8_t> const& bytes, EventFrame& out) {
   out.payload.assign(
       bytes.begin() + static_cast<std::ptrdiff_t>(pos),
       bytes.begin() + static_cast<std::ptrdiff_t>(pos + payload_size));
+  return true;
+}
+
+namespace {
+
+bool ReadAccess(std::vector<std::uint8_t> const& in, std::size_t& pos,
+                std::uint8_t& access) {
+  if (pos >= in.size()) {
+    return false;
+  }
+  access = in[pos];
+  ++pos;
+  // Only the two ShareAccess values are legal. Anything else is a bad frame.
+  return access <= 1;
+}
+
+}  // namespace
+
+std::vector<std::uint8_t> EncodeShareOfferFrame(ShareOfferFrame const& frame) {
+  std::vector<std::uint8_t> out;
+  AppendHeader(out, SyncFrameType::kShareOffer);
+  AppendObjId(out, frame.packet_id);
+  AppendObjId(out, frame.operation_id);
+  AppendObjId(out, frame.target_node_id);
+  AppendU32(out, frame.root_class_id);
+  out.push_back(frame.access);
+  return out;
+}
+
+bool DecodeShareOfferFrame(std::vector<std::uint8_t> const& bytes,
+                           ShareOfferFrame& out) {
+  std::size_t pos = 0;
+  if (!ReadHeader(bytes, SyncFrameType::kShareOffer, pos)) {
+    return false;
+  }
+  return ReadObjId(bytes, pos, out.packet_id) &&
+         ReadObjId(bytes, pos, out.operation_id) &&
+         ReadObjId(bytes, pos, out.target_node_id) &&
+         ReadU32(bytes, pos, out.root_class_id) && out.root_class_id != 0 &&
+         ReadAccess(bytes, pos, out.access) && pos == bytes.size();
+}
+
+std::vector<std::uint8_t> EncodeShareDecisionFrame(
+    ShareDecisionFrame const& frame) {
+  std::vector<std::uint8_t> out;
+  AppendHeader(out, SyncFrameType::kShareDecision);
+  AppendObjId(out, frame.packet_id);
+  AppendObjId(out, frame.operation_id);
+  AppendObjId(out, frame.target_node_id);
+  AppendU32(out, frame.root_class_id);
+  out.push_back(frame.access);
+  out.push_back(frame.accepted ? std::uint8_t{1} : std::uint8_t{0});
+  return out;
+}
+
+bool DecodeShareDecisionFrame(std::vector<std::uint8_t> const& bytes,
+                              ShareDecisionFrame& out) {
+  std::size_t pos = 0;
+  if (!ReadHeader(bytes, SyncFrameType::kShareDecision, pos)) {
+    return false;
+  }
+  std::uint8_t accepted = 0;
+  if (!ReadObjId(bytes, pos, out.packet_id) ||
+      !ReadObjId(bytes, pos, out.operation_id) ||
+      !ReadObjId(bytes, pos, out.target_node_id) ||
+      !ReadU32(bytes, pos, out.root_class_id) || out.root_class_id == 0 ||
+      !ReadAccess(bytes, pos, out.access) || pos >= bytes.size()) {
+    return false;
+  }
+  accepted = bytes[pos];
+  ++pos;
+  if ((accepted != 0 && accepted != 1) || pos != bytes.size()) {
+    return false;
+  }
+  out.accepted = accepted == 1;
   return true;
 }
 

@@ -308,6 +308,88 @@ Storage I/O failure handling remains out of scope unless separately assigned.
 
 Restart tests must really destroy and recreate Application / Domain / runtime.
 
+## Share admission — exchange and transitions
+
+Admission of one chosen SharedNode to one remote endpoint is a core
+procedure on `SharedSyncRuntime`. It is not a JoinManager, not chat, and
+not an Æther control channel. Bytes still move only through `IByteTransport`.
+`MemoryTransport` / `MemoryNetwork` is the implementation under test; it is
+not authentication.
+
+Three identities stay distinct:
+
+- **operation** — one offer. On the initiator this is the `ShareOffer` ObjId.
+  Retries reuse it. A second call for the same node and endpoint while the
+  offer is open returns that id and does not add another Share.
+- **node** — the SharedNode being replicated. The receiver imports that ObjId;
+  it does not mint a lookalike.
+- **share** — one `SharedNode <-> Link` lifetime, the `AddShareEvent` ObjId.
+  Created on the initiator only after the peer accepts, then carried inside
+  the snapshot. The receiver does not invent it.
+
+Persisted admission state is event-sourced on local `ShareOffer` objects
+(not part of the shared graph). `Apply` only stores fields. Sends, timers,
+and new identifiers happen outside `Apply`, so replay does not retransmit
+or allocate. Runtime retry clocks are not journaled. Frozen packet bytes are.
+
+Logical time is supplied by `SharedSyncRuntime::Service(now_us)`. There is
+no sleep and no background thread. Retry interval is
+`kShareOfferRetryIntervalUs`. A packet already sent in this process is
+resent only after that interval. After a restart the first `Service` sends
+the persisted packet immediately, because the new transport has no memory
+of the previous send.
+
+### Frames
+
+Protocol v1 gains two frame types. The transport still sees opaque bytes.
+Neither frame contains a source endpoint: the receiver uses the source the
+transport reports.
+
+1. `ShareOffer` — initiator → responder. `packet_id`, `operation_id`,
+   `node_id`, root class, access granted to the responder.
+2. `ShareDecision` — responder → initiator. Same identity fields plus
+   accept/reject. A repeat of one operation resends the persisted decision
+   and does not open a second offer or a second node.
+
+Existing `NodeState`, `Ack`, and `Event` frames are unchanged.
+
+### Transitions
+
+Initiator phases: `Pending` (offer persisted, waiting for a decision) →
+`Accepted` (decision matched the offer; `AddShare` once; initial sync
+started) → `Complete` (initial ACK persisted). `Rejected` is terminal and
+does not add a Share.
+
+Responder phases: policy accept → `Pending` (expectation persisted: source,
+node, class, access) → `Bound` (snapshot imported and saved, then ACK).
+Policy reject → `Rejected`, no node, no successful ACK. A later snapshot is
+admitted only when it matches that persisted expectation. An open
+expectation for a different node from the same endpoint does not authorize
+this one. `ExpectInitialNodeFromEndpoint` keeps the same rule: expectations
+are keyed by `(source_endpoint, node_id)`, a second node does not overwrite
+the first, and completing or forgetting one leaves the others.
+
+`Service` is the only pump the application has to call. It resends a due
+offer or decision, drives `SyncInitialState` for an accepted initiator
+share, then `SyncNextEvent` for every Complete remote share. The application
+does not walk phases itself.
+
+Events committed after the snapshot is frozen are not in
+`covered_event_ids`. They go out as incremental Events after the initial
+ACK. A repeat of the same snapshot is an ACK, not a rollback.
+
+ReadOnly is the destination share's access. That replica receives
+incremental Events and cannot have its own Event admitted by the peer
+(`EventAddressedToThisReplica` still requires ReadWrite). A rejected offer
+or a rejected packet leaves no Complete/Bound success.
+
+Graph, class-chain, addressee, and object-collision checks stay in force.
+A damaged or unauthorized frame is a normal reject: no `abort`.
+
+This slice replicates standalone shared Events on the chosen node. It does
+not claim arbitrary dynamic object graphs, multi-hop, presence, or real
+Æther delivery.
+
 ## Transport / Link contract
 
 One Link may carry multiple SharedNode protocols.

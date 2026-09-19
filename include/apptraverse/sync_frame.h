@@ -11,14 +11,17 @@
 
 namespace apptraverse {
 
-// Shared synchronization protocol v1: initial state plus standalone Event.
-// Dynamic object graphs, presence, and access negotiation are later.
+// Shared synchronization protocol v1: admission, initial state, standalone Event.
+// Dynamic object graphs and presence are later. Admission frames carry no
+// source identity; the transport reports who sent the bytes.
 inline constexpr std::uint8_t kSyncProtocolVersion = 1;
 
 enum class SyncFrameType : std::uint8_t {
   kNodeState = 1,
   kAck = 2,
   kEvent = 3,
+  kShareOffer = 4,
+  kShareDecision = 5,
 };
 
 // Initial state of one SharedNode for one Share relationship.
@@ -66,6 +69,35 @@ bool DecodeAckFrame(std::vector<std::uint8_t> const& bytes, AckFrame& out);
 
 std::vector<std::uint8_t> EncodeEventFrame(EventFrame const& frame);
 bool DecodeEventFrame(std::vector<std::uint8_t> const& bytes, EventFrame& out);
+
+// Offer one existing SharedNode to the transport peer. Access is the right
+// the responder will hold. No source field: the sender cannot name itself.
+struct ShareOfferFrame {
+  ae::ObjId packet_id;
+  ae::ObjId operation_id;
+  ae::ObjId target_node_id;
+  std::uint32_t root_class_id{0};
+  std::uint8_t access{0};
+};
+
+// Accept or reject one operation. Identity fields must echo the offer.
+struct ShareDecisionFrame {
+  ae::ObjId packet_id;
+  ae::ObjId operation_id;
+  ae::ObjId target_node_id;
+  std::uint32_t root_class_id{0};
+  std::uint8_t access{0};
+  bool accepted{false};
+};
+
+std::vector<std::uint8_t> EncodeShareOfferFrame(ShareOfferFrame const& frame);
+bool DecodeShareOfferFrame(std::vector<std::uint8_t> const& bytes,
+                           ShareOfferFrame& out);
+
+std::vector<std::uint8_t> EncodeShareDecisionFrame(
+    ShareDecisionFrame const& frame);
+bool DecodeShareDecisionFrame(std::vector<std::uint8_t> const& bytes,
+                              ShareDecisionFrame& out);
 
 }  // namespace apptraverse
 
