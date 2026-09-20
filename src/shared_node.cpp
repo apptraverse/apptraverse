@@ -261,13 +261,59 @@ void SharedNode::SetShareAccess(Link::ptr link, ShareAccess access) {
   Commit(event);
 }
 
+bool SharedNode::ShareIntroduced(ae::ObjId share_id) const {
+  if (!share_id.is_valid()) {
+    return false;
+  }
+  if (FindShareIndexForShare(share_id) < shares.size()) {
+    return true;
+  }
+  for (auto const& record : journal) {
+    if (!record.event.is_valid()) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (!event.is_loaded() || event->GetClassId() != AddShareEvent::kClassId) {
+      continue;
+    }
+    if (static_cast<AddShareEvent const&>(*event).share_id == share_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool SharedNode::CanApply(AddShareEvent const& event) const {
+  if (!event.share_id.is_valid() || !event.link.is_valid()) {
+    return false;
+  }
+  if (FindShareIndexForShare(event.share_id) < shares.size()) {
+    return false;
+  }
+  return FindShareIndex(event.link.id()) >= shares.size();
+}
+
+bool SharedNode::CanApply(RemoveShareEvent const& event) const {
+  // Open share, or already closed after a prior admissible remove of the
+  // same lifetime. An id that was never introduced is not a concurrent case.
+  return ShareIntroduced(event.share_id);
+}
+
+bool SharedNode::CanApply(ChangeShareAccessEvent const& event) const {
+  if (event.access > static_cast<std::uint8_t>(ShareAccess::ReadOnly)) {
+    return false;
+  }
+  return ShareIntroduced(event.share_id);
+}
+
 void SharedNode::Apply(AddShareEvent const& event) {
+  assert(CanApply(event));
   assert(event.link.is_valid());
   assert(event.share_id.is_valid());
   auto const share_id = event.share_id;
-  assert(FindShareIndexForShare(share_id) == shares.size());
-  assert(FindShareIndex(event.link.id()) == shares.size() &&
-         "AddShare Apply requires the Link to be unshared");
   shares.push_back(Share{
       .share_id = share_id, .link = event.link, .access = event.access});
 
@@ -289,9 +335,12 @@ void SharedNode::Apply(AddShareEvent const& event) {
 }
 
 void SharedNode::Apply(RemoveShareEvent const& event) {
+  assert(CanApply(event));
   auto const index = FindShareIndexForShare(event.share_id);
-  assert(index < shares.size() &&
-         "RemoveShare Apply requires the relationship to be open");
+  if (index >= shares.size()) {
+    // Already closed by a concurrent remove of the same lifetime.
+    return;
+  }
   shares.erase(shares.begin() + static_cast<std::ptrdiff_t>(index));
 
   // Drop local sync of this relationship only. A later AddShare over the same
@@ -306,8 +355,12 @@ void SharedNode::Apply(RemoveShareEvent const& event) {
 }
 
 void SharedNode::Apply(ChangeShareAccessEvent const& event) {
+  assert(CanApply(event));
   auto const index = FindShareIndexForShare(event.share_id);
-  assert(index < shares.size());
+  if (index >= shares.size()) {
+    // Closed by a concurrent remove. Do not reopen.
+    return;
+  }
   shares[index].access = event.access;
   NoteMaterializedChange();
 }

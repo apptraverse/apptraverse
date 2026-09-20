@@ -976,6 +976,157 @@ void TestRemoveShareIsNotRestored() {
   CHECK(!HasText(trio.b.sync->FindNode(node_id), "after-remove", kC, 1));
 }
 
+std::size_t CountSharedClass(SharedNode::ptr node, std::uint32_t class_id) {
+  std::size_t n = 0;
+  for (auto const& record : node->journal) {
+    if (!record.HasSharedIdentity() || !record.event.is_valid()) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (event.is_loaded() && event->GetClassId() == class_id) {
+      ++n;
+    }
+  }
+  return n;
+}
+
+bool HasSharedIdentity(SharedNode::ptr node, SharedEventId const& id) {
+  return node->FindSharedEvent(id) != nullptr;
+}
+
+void TestConcurrentIndependentRemoves() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  auto world = trio.world();
+  Pump(world, [&] { return Joined(trio.a, trio.b, to_b, node_id); }, 40);
+  trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
+
+  auto const c_share =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+
+  // Isolate C so A and B each close the same lifetime without C's help.
+  trio.network.Disconnect(kA, kC);
+  trio.network.Disconnect(kC, kA);
+  trio.network.Disconnect(kB, kC);
+  trio.network.Disconnect(kC, kB);
+
+  trio.a.sync->RemoveShare(node_id, c_share);
+  trio.b.sync->RemoveShare(node_id, c_share);
+  CHECK(!FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC).has_value());
+  CHECK(!FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC).has_value());
+
+  SharedEventId remove_a{};
+  SharedEventId remove_b{};
+  for (auto const& record : trio.a.sync->FindNode(node_id)->journal) {
+    if (!record.HasSharedIdentity()) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (event->GetClassId() == RemoveShareEvent::kClassId &&
+        static_cast<RemoveShareEvent const&>(*event).share_id == c_share) {
+      remove_a = record.identity;
+    }
+  }
+  for (auto const& record : trio.b.sync->FindNode(node_id)->journal) {
+    if (!record.HasSharedIdentity()) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (event->GetClassId() == RemoveShareEvent::kClassId &&
+        static_cast<RemoveShareEvent const&>(*event).share_id == c_share) {
+      remove_b = record.identity;
+    }
+  }
+  CHECK(!remove_a.origin_uid.empty());
+  CHECK(!remove_b.origin_uid.empty());
+  CHECK(!(remove_a == remove_b));
+
+  // Reconnect A↔B and exchange the two independent removes.
+  Pump(
+      world,
+      [&] {
+        auto na = trio.a.sync->FindNode(node_id);
+        auto nb = trio.b.sync->FindNode(node_id);
+        return HasSharedIdentity(na, remove_a) &&
+               HasSharedIdentity(na, remove_b) &&
+               HasSharedIdentity(nb, remove_a) &&
+               HasSharedIdentity(nb, remove_b) &&
+               !FindEndpoint(SharesOf(na), kC).has_value() &&
+               !FindEndpoint(SharesOf(nb), kC).has_value();
+      },
+      80);
+  CHECK(CountSharedClass(trio.a.sync->FindNode(node_id),
+                         RemoveShareEvent::kClassId) >= 2);
+  CHECK(CountSharedClass(trio.b.sync->FindNode(node_id),
+                         RemoveShareEvent::kClassId) >= 2);
+  ExpectSameShares(trio.a.sync->FindNode(node_id),
+                   trio.b.sync->FindNode(node_id));
+}
+
+void TestAccessChangeRacesRemove() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  auto world = trio.world();
+  Pump(world, [&] { return Joined(trio.a, trio.b, to_b, node_id); }, 40);
+  trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
+
+  auto const c_share =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+
+  // A removes C. B changes C's access. Delivery order must not reopen C.
+  trio.network.Disconnect(kA, kB);
+  trio.network.Disconnect(kB, kA);
+  trio.a.sync->RemoveShare(node_id, c_share);
+  trio.b.sync->ChangeShareAccess(node_id, c_share, ShareAccess::ReadOnly);
+  CHECK(!FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC).has_value());
+  auto const on_b_before =
+      FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC);
+  CHECK(on_b_before.has_value());
+  CHECK(on_b_before->access == ShareAccess::ReadOnly);
+
+  trio.network.Reconnect(kA, kB);
+  trio.network.Reconnect(kB, kA);
+  Pump(
+      world,
+      [&] {
+        auto na = trio.a.sync->FindNode(node_id);
+        auto nb = trio.b.sync->FindNode(node_id);
+        return !FindEndpoint(SharesOf(na), kC).has_value() &&
+               !FindEndpoint(SharesOf(nb), kC).has_value() &&
+               CountSharedClass(na, RemoveShareEvent::kClassId) >= 1 &&
+               CountSharedClass(nb, RemoveShareEvent::kClassId) >= 1 &&
+               CountSharedClass(na, ChangeShareAccessEvent::kClassId) >= 1 &&
+               CountSharedClass(nb, ChangeShareAccessEvent::kClassId) >= 1;
+      },
+      80);
+  ExpectSameShares(trio.a.sync->FindNode(node_id),
+                   trio.b.sync->FindNode(node_id));
+  CHECK(!FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC).has_value());
+}
+
 void TestDeterministicThreeReplicaChaos() {
   constexpr std::uint32_t kSeed = 0x3c1e0919u;
   constexpr int kSteps = 3000;
@@ -1121,6 +1272,8 @@ int main() {
   apptraverse::test::TestRestartKeepsShareIdentity();
   apptraverse::test::TestAccessChangePropagates();
   apptraverse::test::TestRemoveShareIsNotRestored();
+  apptraverse::test::TestConcurrentIndependentRemoves();
+  apptraverse::test::TestAccessChangeRacesRemove();
   apptraverse::test::TestDeterministicThreeReplicaChaos();
   std::cout << "shared_node_topology_test OK\n";
   return 0;

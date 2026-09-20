@@ -372,14 +372,21 @@ class SharedNode : public NodeFor<SharedNode> {
   void RemoveShare(Link::ptr link);
   void SetShareAccess(Link::ptr link, ShareAccess access);
 
-  // Local sync phase changes are Events on the LinkSyncState Node of the
-  // active Share relationship (created by AddShare Apply). Not shared Events.
-  void SetInitialSyncPhase(Link::ptr link, InitialSyncPhase phase);
-  InitialSyncPhase GetInitialSyncPhase(Link::ptr link) const;
+  // Concurrent removes of one lifetime and access changes that race a remove
+  // are admissible no-ops when the share is already closed. An unknown
+  // share_id that was never introduced is not.
+  bool CanApply(AddShareEvent const& event) const;
+  bool CanApply(RemoveShareEvent const& event) const;
+  bool CanApply(ChangeShareAccessEvent const& event) const;
 
   void Apply(AddShareEvent const& event);
   void Apply(RemoveShareEvent const& event);
   void Apply(ChangeShareAccessEvent const& event);
+
+  // Local sync phase changes are Events on the LinkSyncState Node of the
+  // active Share relationship (created by AddShare Apply). Not shared Events.
+  void SetInitialSyncPhase(Link::ptr link, InitialSyncPhase phase);
+  InitialSyncPhase GetInitialSyncPhase(Link::ptr link) const;
 
   void StashLocalPersistentAcrossRebuild() override;
   void RestoreLocalPersistentAcrossRebuild() override;
@@ -390,6 +397,8 @@ class SharedNode : public NodeFor<SharedNode> {
   std::size_t FindLinkSyncIndexForShare(ae::ObjId share_id) const;
 
  private:
+  bool ShareIntroduced(ae::ObjId share_id) const;
+
   std::vector<LocalPtr<LinkSyncState>> rebuild_local_sync_stash_;
 };
 

@@ -546,6 +546,33 @@ root at a fixed ObjId. The runtime loads that root from its own storage
 when it is constructed. `offers_` is only the live cache. A test must not
 copy `LocalOfferIds()` out of the runtime it is about to destroy.
 
+## Concurrent topology changes
+
+Removal closes one concrete relationship lifetime identified by `share_id`.
+A second admissible remove of the same lifetime does not crash, does not
+assert, and does not invent new materialized state: the share stays absent.
+An access change of a closed relationship does not reopen it. Rejoining the
+same endpoint is a new relationship and uses a new `share_id`.
+
+Two independent concurrent events (for example A and B both remove C, or
+one side removes while another changes access) are not the same as a
+retransmit of one event. Both events enter the shared journal when they
+are admissible. Apply of a remove whose share is already gone is a no-op.
+Apply of an access change whose share is already gone is a no-op.
+`CanApply` admits those no-ops so historical insert and scratch preflight
+do not abort on a correct concurrent schedule. An unknown `share_id` that
+was never introduced remains inadmissible.
+
+Replicas that exchange both events converge on the same shared identities
+and the same materialized shares and access. Discarding a second concurrent
+event only because it arrived later is forbidden when that would make the
+result depend on delivery order. Equal `timestamp_us` across sources stays
+an open ordering case.
+
+Status: **implemented / verified** by concurrent remove and access-race
+tests in `apptraverse_shared_node_topology_test`. Equal `timestamp_us`
+across sources stays an open ordering case.
+
 ## Transport / Link contract
 
 One Link may carry multiple SharedNode protocols.
