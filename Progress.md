@@ -1,3 +1,38 @@
+# Strip Offer/Remove/CatchUp; permanent-pair chat formation (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user.
+
+Branch: `cursor/shared-node-join-3c1e`.
+Commits: `3d8f715` (runtime.cpp strip) + `81ba780` (header/tests/plan recovery after
+accidental `git checkout -- .`).
+
+## Surface
+
+- Protocol frames: NodeState / Ack / Event only (`sync_frame`).
+- Deleted `share_offer` (+ CMake / `ForceShareOfferRegistration`).
+- `SharedNode`: max 2 ReadWrite shares; no Remove/ChangeAccess/ReadOnly.
+- Removed join / topology / availability test targets and sources.
+- `permanent_pair_sync_test`: chat formation (`InstallLocalShare`×2 +
+  `ExpectInitial` + `SyncInitialState`); no OfferNode.
+- `plan.md`: permanent AeroAdmin contract; ladders 10/12/14/19 cancelled.
+
+## Build / tests (`build-debug-clean`)
+
+```
+cmake --build build-debug-clean -j$(nproc) --target \
+  apptraverse apptraverse_permanent_pair_sync_test \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_chat_demo_sync_test
+```
+
+All EXIT=0 (`/opt/cursor/artifacts/strip-sync-20260920/logs/summary2.txt`).
+
+Pushed: `origin/cursor/shared-node-join-3c1e` @ `81ba780`.
+
+---
+
 # CPM patch fail-closed + permanent-pair test defects (2026-09-20)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
