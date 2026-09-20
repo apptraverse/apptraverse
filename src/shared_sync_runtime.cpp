@@ -644,6 +644,37 @@ EventRecord const* LatestRemoveRecord(SharedNode const& node,
   return found;
 }
 
+// First RemoveShare for this lifetime that this relationship has not yet
+// confirmed. Concurrent closes each need their own delivery.
+EventRecord const* NextUndeliveredRemoveRecord(SharedNode const& node,
+                                               LinkSyncState const& state,
+                                               ae::ObjId share_id) {
+  for (auto const& record : node.journal) {
+    if (!record.HasSharedIdentity() || !record.event.is_valid()) {
+      continue;
+    }
+    if (state.HasDelivered(record.identity)) {
+      continue;
+    }
+    if (state.HasPendingEvent() &&
+        state.pending_event_identity == record.identity) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (!event.is_loaded() ||
+        event->GetClassId() != RemoveShareEvent::kClassId) {
+      continue;
+    }
+    if (static_cast<RemoveShareEvent const&>(*event).share_id == share_id) {
+      return &record;
+    }
+  }
+  return nullptr;
+}
+
 bool ShareIntroducedBySharedEvent(SharedNode const& node, ae::ObjId share_id) {
   // Catch-up is only for a relationship that already travelled as a shared
   // event. A local AddShare is still waiting for an offer to carry the
@@ -692,6 +723,39 @@ bool MayAcknowledgeDelivery(SharedNode const& node,
     return false;
   }
   return TopologyEverKnewEndpoint(node, source_endpoint);
+}
+
+// New RemoveShare for a lifetime that is already closed here. Distinct from
+// duplicate ACK of an already-applied event. Transport source may be a relay
+// (not the shared-event author) but must be a live ReadWrite participant.
+// "Endpoint once appeared in the journal" alone is not enough.
+bool MayAcceptConcurrentClose(SharedNode const& node,
+                              std::string const& local_endpoint,
+                              std::string const& source_endpoint,
+                              ae::ObjId destination_share_id,
+                              RemoveShareEvent const& remove) {
+  if (source_endpoint.empty() || source_endpoint == local_endpoint) {
+    return false;
+  }
+  if (!remove.share_id.is_valid() ||
+      remove.share_id != destination_share_id) {
+    return false;
+  }
+  // Live destination uses EventAddressedToThisReplica instead.
+  if (ShareEndpointOf(node, destination_share_id) != nullptr) {
+    return false;
+  }
+  if (EndpointIntroducedBy(node, destination_share_id) != local_endpoint) {
+    return false;
+  }
+  if (!node.CanApply(remove)) {
+    return false;
+  }
+  auto const* source = ShareOfEndpoint(node, source_endpoint);
+  if (source == nullptr || source->GetAccess() != ShareAccess::ReadWrite) {
+    return false;
+  }
+  return true;
 }
 
 }  // namespace
@@ -1343,6 +1407,10 @@ void SharedSyncRuntime::OnAck(std::string const& source_endpoint,
     state->CompleteIncrementalEvent();
     node.Save();
     state.Save();
+    if (node->FindShareIndexForShare(frame.destination_share_id) >=
+        node->shares.size()) {
+      RelayRemovedShare(node, frame.destination_share_id);
+    }
   }
 }
 
@@ -1385,7 +1453,11 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
   if (!EventAddressedToThisReplica(*node, transport_.local_endpoint_uid(),
                                    source_endpoint,
                                    frame.destination_share_id)) {
-    return;
+    // Live addressing failed. A second concurrent RemoveShare of an already
+    // closed lifetime is still admissible; other new events are not.
+    if (frame.event_class_id != RemoveShareEvent::kClassId) {
+      return;
+    }
   }
 
   if (frame.event_class_id == AddShareEvent::kClassId) {
@@ -1430,6 +1502,27 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
     auto& scratch_event = static_cast<Event&>(*candidate);
     if (ae::Registry::GetRegistry().GenerationDistance(
             scratch_event.TargetClassId(), node->GetClassId()) < 0) {
+      return;
+    }
+  }
+
+  if (frame.event_class_id == RemoveShareEvent::kClassId &&
+      !EventAddressedToThisReplica(*node, transport_.local_endpoint_uid(),
+                                   source_endpoint,
+                                   frame.destination_share_id)) {
+    ae::RamDomainStorage auth_scratch = parsed;
+    ae::Domain auth_domain{auth_scratch};
+    ae::DomainGraph auth_graph{&auth_domain};
+    auto auth_root = auth_graph.LoadRoot(wire_root_id);
+    if (!auth_root ||
+        auth_root->GetClassId() != RemoveShareEvent::kClassId) {
+      return;
+    }
+    auto const& remove =
+        static_cast<RemoveShareEvent const&>(*auth_root);
+    if (!MayAcceptConcurrentClose(*node, transport_.local_endpoint_uid(),
+                                  source_endpoint, frame.destination_share_id,
+                                  remove)) {
       return;
     }
   }
@@ -1822,12 +1915,21 @@ void SharedSyncRuntime::ServiceRelays(std::uint64_t now_us) {
       if (!entry.is_loaded()) {
         entry.Load();
       }
-      if (!entry.is_loaded() || !entry->HasPendingEvent()) {
+      if (!entry.is_loaded()) {
         continue;
       }
       // Open shares are driven by ServiceShares. Closed ones only appear here.
       if (node->FindShareIndexForShare(entry->share_id) < node->shares.size()) {
         continue;
+      }
+      if (!entry->HasPendingEvent()) {
+        RelayRemovedShare(node, entry->share_id);
+        if (!entry.is_loaded()) {
+          entry.Load();
+        }
+        if (!entry.is_loaded() || !entry->HasPendingEvent()) {
+          continue;
+        }
       }
       auto const endpoint = EndpointIntroducedBy(*node, entry->share_id);
       if (endpoint.empty() || endpoint == transport_.local_endpoint_uid()) {
@@ -2836,20 +2938,28 @@ void SharedSyncRuntime::RelayRemovedShare(SharedNode::ptr node,
   if (!state.is_loaded()) {
     state.Load();
   }
-  auto const* record = LatestRemoveRecord(*node, share_id);
+  auto const* record =
+      NextUndeliveredRemoveRecord(*node, *state, share_id);
   if (record == nullptr || !record->event.is_valid() ||
       !record->event.is_loaded()) {
-    return;
-  }
-  if (state->HasDelivered(record->identity)) {
     return;
   }
   if (state->HasPendingEvent()) {
     if (state->pending_event_identity == record->identity) {
       return;
     }
-    // Stop unacknowledged work for a relationship that is closing. Do not
-    // treat cancel as delivery: CompleteIncrementalEvent is ACK-only.
+    EventFrame pending_frame;
+    bool const pending_is_close =
+        DecodeEventFrame(state->pending_event_packet, pending_frame) &&
+        pending_frame.event_class_id == RemoveShareEvent::kClassId &&
+        pending_frame.destination_share_id == share_id;
+    if (pending_is_close) {
+      // Already transmitting one close for this lifetime. Finish it first;
+      // ServiceRelays will arm the next undelivered remove after the ACK.
+      return;
+    }
+    // Stop unacknowledged non-close work for a relationship that is closing.
+    // Do not treat cancel as delivery: CompleteIncrementalEvent is ACK-only.
     state->CancelIncrementalEvent();
     state.Save();
   }

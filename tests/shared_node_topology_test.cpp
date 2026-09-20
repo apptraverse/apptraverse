@@ -1335,6 +1335,312 @@ void TestRemoveDeliveryDoesNotResumeAfterAckedRestart() {
   CHECK(!FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC).has_value());
 }
 
+void TestConcurrentRemovesReachClosedPeer() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  auto world = trio.world();
+  Pump(world, [&] { return Joined(trio.a, trio.b, to_b, node_id); }, 40);
+  trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
+
+  auto const c_share =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+  auto const b_share =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kB)->share_id;
+
+  // Align logical clocks so independent removes can share a timestamp.
+  std::uint64_t now = 1000 * kShareOfferRetryIntervalUs;
+  trio.a.sync->Service(now);
+  trio.b.sync->Service(now);
+
+  trio.network.Disconnect(kA, kC);
+  trio.network.Disconnect(kC, kA);
+  trio.network.Disconnect(kB, kC);
+  trio.network.Disconnect(kC, kB);
+
+  trio.a.sync->RemoveShare(node_id, c_share);
+  trio.b.sync->RemoveShare(node_id, c_share);
+
+  SharedEventId remove_a{};
+  SharedEventId remove_b{};
+  std::uint64_t ts_a = 0;
+  std::uint64_t ts_b = 0;
+  for (auto const& record : trio.a.sync->FindNode(node_id)->journal) {
+    if (!record.HasSharedIdentity()) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (event->GetClassId() == RemoveShareEvent::kClassId &&
+        static_cast<RemoveShareEvent const&>(*event).share_id == c_share) {
+      remove_a = record.identity;
+      ts_a = record.order.timestamp_us;
+    }
+  }
+  for (auto const& record : trio.b.sync->FindNode(node_id)->journal) {
+    if (!record.HasSharedIdentity()) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (event->GetClassId() == RemoveShareEvent::kClassId &&
+        static_cast<RemoveShareEvent const&>(*event).share_id == c_share) {
+      remove_b = record.identity;
+      ts_b = record.order.timestamp_us;
+    }
+  }
+  CHECK(!(remove_a == remove_b));
+  CHECK(ts_a == ts_b);
+
+  auto state_a = SyncStateForShare(trio.a.sync->FindNode(node_id), c_share);
+  auto state_b = SyncStateForShare(trio.b.sync->FindNode(node_id), c_share);
+  CHECK(state_a->HasPendingEvent());
+  CHECK(state_b->HasPendingEvent());
+  CHECK(state_a->pending_event_identity == remove_a);
+  CHECK(state_b->pending_event_identity == remove_b);
+  auto const packet_a = state_a->pending_event_packet;
+  auto const packet_b = state_b->pending_event_packet;
+  EventFrame frame_a;
+  EventFrame frame_b;
+  CHECK(DecodeEventFrame(packet_a, frame_a));
+  CHECK(DecodeEventFrame(packet_b, frame_b));
+  CHECK(frame_a.identity == remove_a);
+  CHECK(frame_b.identity == remove_b);
+
+  Pump(
+      world,
+      [&] {
+        auto na = trio.a.sync->FindNode(node_id);
+        auto nb = trio.b.sync->FindNode(node_id);
+        return HasSharedIdentity(na, remove_a) &&
+               HasSharedIdentity(na, remove_b) &&
+               HasSharedIdentity(nb, remove_a) &&
+               HasSharedIdentity(nb, remove_b);
+      },
+      80);
+
+  // Order 1: A then B (captured before the A↔B exchange).
+  trio.network.ClearQueues();
+  trio.network.Reconnect(kA, kC);
+  trio.network.Reconnect(kC, kA);
+  trio.network.Reconnect(kB, kC);
+  trio.network.Reconnect(kC, kB);
+  trio.a.transport->Send(kC, packet_a);
+  CHECK(trio.network.DeliverNext(kA, kC));
+  CHECK(trio.network.PendingCount(kC, kA) == 1);
+  CHECK(trio.network.DeliverNext(kC, kA));
+  CHECK(!FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC).has_value());
+  CHECK(HasSharedIdentity(trio.c.sync->FindNode(node_id), remove_a));
+
+  trio.b.transport->Send(kC, packet_b);
+  CHECK(trio.network.DeliverNext(kB, kC));
+  CHECK(trio.network.PendingCount(kC, kB) == 1);
+  CHECK(trio.network.DeliverNext(kC, kB));
+  CHECK(HasSharedIdentity(trio.c.sync->FindNode(node_id), remove_a));
+  CHECK(HasSharedIdentity(trio.c.sync->FindNode(node_id), remove_b));
+  CHECK(!FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC).has_value());
+
+  // Settle remaining close deliveries and A↔B catch-up.
+  auto no_pending_anywhere = [&] {
+    auto na = trio.a.sync->FindNode(node_id);
+    auto nb = trio.b.sync->FindNode(node_id);
+    auto nc = trio.c.sync->FindNode(node_id);
+    for (auto node : {na, nb, nc}) {
+      for (auto& entry : node->link_sync_states) {
+        if (!entry.is_loaded()) {
+          entry.Load();
+        }
+        if (entry.is_loaded() && entry->HasPendingEvent()) {
+          return false;
+        }
+      }
+    }
+    return HasSharedIdentity(na, remove_a) && HasSharedIdentity(na, remove_b) &&
+           HasSharedIdentity(nb, remove_a) && HasSharedIdentity(nb, remove_b) &&
+           HasSharedIdentity(nc, remove_a) && HasSharedIdentity(nc, remove_b);
+  };
+  Pump(world, no_pending_anywhere, 120);
+  trio.network.ClearQueues();
+  // Retransmit any pending that ClearQueues dropped, then drain again.
+  Pump(world, no_pending_anywhere, 80);
+  trio.network.ClearQueues();
+  auto const sends_after = trio.a.sends + trio.b.sends + trio.c.sends;
+  now += kShareOfferRetryIntervalUs;
+  for (int i = 0; i < 40; ++i) {
+    trio.a.sync->Service(now);
+    trio.b.sync->Service(now);
+    trio.c.sync->Service(now);
+    now += kShareOfferRetryIntervalUs;
+  }
+  CHECK(trio.a.sends + trio.b.sends + trio.c.sends == sends_after);
+  CHECK(trio.network.PendingCount(kA, kC) == 0);
+  CHECK(trio.network.PendingCount(kB, kC) == 0);
+  CHECK(trio.network.PendingCount(kA, kB) == 0);
+  CHECK(trio.network.PendingCount(kB, kA) == 0);
+
+  // Negatives against a closed peer: no successful ACK.
+  trio.network.ClearQueues();
+  std::string const kX = "endpoint-x";
+  MemoryTransport stranger{trio.network, kX};
+  stranger.Send(kC, packet_b);
+  CHECK(trio.network.DeliverNext(kX, kC));
+  CHECK(trio.network.PendingCount(kC, kX) == 0);
+
+  EventFrame wrong_dest = frame_b;
+  wrong_dest.destination_share_id = b_share;
+  wrong_dest.packet_id = ae::ObjId{0xC10'0001};
+  trio.a.transport->Send(kC, EncodeEventFrame(wrong_dest));
+  CHECK(trio.network.DeliverNext(kA, kC));
+  CHECK(trio.network.PendingCount(kC, kA) == 0);
+
+  EventFrame wrong_share = frame_b;
+  wrong_share.destination_share_id = b_share;
+  wrong_share.packet_id = ae::ObjId{0xC10'0002};
+  // Payload still names c_share; dest header names b_share.
+  trio.b.transport->Send(kC, EncodeEventFrame(wrong_share));
+  CHECK(trio.network.DeliverNext(kB, kC));
+  CHECK(trio.network.PendingCount(kC, kB) == 0);
+
+  EventFrame wrong_node = frame_b;
+  wrong_node.target_node_id = ae::ObjId{0xC10'0003};
+  wrong_node.packet_id = ae::ObjId{0xC10'0004};
+  trio.a.transport->Send(kC, EncodeEventFrame(wrong_node));
+  CHECK(trio.network.DeliverNext(kA, kC));
+  CHECK(trio.network.PendingCount(kC, kA) == 0);
+
+  // Access change must not ride the concurrent-close path.
+  trio.a.sync->ChangeShareAccess(node_id, b_share, ShareAccess::ReadOnly);
+  Pump(
+      world,
+      [&] {
+        return CountSharedClass(trio.a.sync->FindNode(node_id),
+                                ChangeShareAccessEvent::kClassId) >= 1 &&
+               CountSharedClass(trio.b.sync->FindNode(node_id),
+                                ChangeShareAccessEvent::kClassId) >= 1;
+      },
+      40);
+  // Craft an access-change frame aimed at the closed c_share.
+  EventFrame access_as_close = frame_a;
+  access_as_close.event_class_id = ChangeShareAccessEvent::kClassId;
+  access_as_close.packet_id = ae::ObjId{0xC10'0005};
+  access_as_close.identity = SharedEventId{.origin_uid = "spoof",
+                                           .origin_sequence = 99};
+  trio.a.transport->Send(kC, EncodeEventFrame(access_as_close));
+  CHECK(trio.network.DeliverNext(kA, kC));
+  CHECK(trio.network.PendingCount(kC, kA) == 0);
+  CHECK(!FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC).has_value());
+}
+
+void TestConcurrentRemovesReachClosedPeerReverseOrder() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  auto world = trio.world();
+  Pump(world, [&] { return Joined(trio.a, trio.b, to_b, node_id); }, 40);
+  trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
+
+  auto const c_share =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+
+  trio.network.Disconnect(kA, kC);
+  trio.network.Disconnect(kC, kA);
+  trio.network.Disconnect(kB, kC);
+  trio.network.Disconnect(kC, kB);
+  trio.a.sync->RemoveShare(node_id, c_share);
+  trio.b.sync->RemoveShare(node_id, c_share);
+
+  SharedEventId remove_a{};
+  SharedEventId remove_b{};
+  for (auto const& record : trio.a.sync->FindNode(node_id)->journal) {
+    if (!record.HasSharedIdentity()) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (event->GetClassId() == RemoveShareEvent::kClassId &&
+        static_cast<RemoveShareEvent const&>(*event).share_id == c_share) {
+      remove_a = record.identity;
+    }
+  }
+  for (auto const& record : trio.b.sync->FindNode(node_id)->journal) {
+    if (!record.HasSharedIdentity()) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (event->GetClassId() == RemoveShareEvent::kClassId &&
+        static_cast<RemoveShareEvent const&>(*event).share_id == c_share) {
+      remove_b = record.identity;
+    }
+  }
+  auto const packet_a =
+      SyncStateForShare(trio.a.sync->FindNode(node_id), c_share)
+          ->pending_event_packet;
+  auto const packet_b =
+      SyncStateForShare(trio.b.sync->FindNode(node_id), c_share)
+          ->pending_event_packet;
+
+  Pump(
+      world,
+      [&] {
+        return HasSharedIdentity(trio.a.sync->FindNode(node_id), remove_a) &&
+               HasSharedIdentity(trio.a.sync->FindNode(node_id), remove_b) &&
+               HasSharedIdentity(trio.b.sync->FindNode(node_id), remove_a) &&
+               HasSharedIdentity(trio.b.sync->FindNode(node_id), remove_b);
+      },
+      80);
+
+  trio.network.ClearQueues();
+  trio.network.Reconnect(kA, kC);
+  trio.network.Reconnect(kC, kA);
+  trio.network.Reconnect(kB, kC);
+  trio.network.Reconnect(kC, kB);
+
+  // Order 2: B then A.
+  trio.b.transport->Send(kC, packet_b);
+  CHECK(trio.network.DeliverNext(kB, kC));
+  CHECK(trio.network.DeliverNext(kC, kB));
+  CHECK(!FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC).has_value());
+
+  trio.a.transport->Send(kC, packet_a);
+  CHECK(trio.network.DeliverNext(kA, kC));
+  CHECK(trio.network.PendingCount(kC, kA) == 1);
+  CHECK(trio.network.DeliverNext(kC, kA));
+  CHECK(HasSharedIdentity(trio.c.sync->FindNode(node_id), remove_a));
+  CHECK(HasSharedIdentity(trio.c.sync->FindNode(node_id), remove_b));
+  CHECK(!FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC).has_value());
+
+  Pump(
+      world,
+      [&] {
+        return !SyncStateForShare(trio.a.sync->FindNode(node_id), c_share)
+                    ->HasPendingEvent() &&
+               !SyncStateForShare(trio.b.sync->FindNode(node_id), c_share)
+                    ->HasPendingEvent();
+      },
+      80);
+}
+
 void TestCancelPendingDoesNotMarkDelivered() {
   Trio trio;
   auto node = MakeNode(trio.a);
@@ -1821,6 +2127,8 @@ int main() {
   apptraverse::test::TestRemoveShareIsNotRestored();
   apptraverse::test::TestConcurrentIndependentRemoves();
   apptraverse::test::TestAccessChangeRacesRemove();
+  apptraverse::test::TestConcurrentRemovesReachClosedPeer();
+  apptraverse::test::TestConcurrentRemovesReachClosedPeerReverseOrder();
   apptraverse::test::TestRemoveDeliveryRetryIsRateLimited();
   apptraverse::test::TestRemoveDeliveryOfflineAndOnline();
   apptraverse::test::TestRemoveDeliverySurvivesRestartBeforeAck();
