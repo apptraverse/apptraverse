@@ -28,7 +28,7 @@ Fix: `6bb8564dbcbb211d44218a7f1e57ccd476e63612`. `Availability()` on the transpo
 
 Reproducing test: `TestSameNetworkRestartDropsAvailability`, plus the existing fresh-network Unknown check. `MemoryNetwork` kept availability after `Detach`, so a new transport with the same uid inherited Online.
 
-Fix: `37c0a3787d567cbe8a3c6db2378c61a9e0cb84fd`. The observation is on the `MemoryTransport` instance. `SetAvailability` with no attached source stores nothing. Disconnect and queues stay on the network. Initial-Offline tests set Offline after the new instance exists and before the operation. `TestDeterministicThreeReplicaChaos` runs 3000 steps from seed `0x3c1e0919` (events, loss, duplicates, reorder, availability, restarts), then restores delivery and checks convergence. After the queues are empty, further `Service` calls do not `Send`. The count is the transport `Send` counter.
+Fix: `250614c05e0b7b2c30f92dc4424d85a918c4b9f5`. The observation is on the `MemoryTransport` instance. `SetAvailability` with no attached source stores nothing. Disconnect and queues stay on the network. Initial-Offline tests set Offline after the new instance exists and before the operation. `TestDeterministicThreeReplicaChaos` runs 3000 steps from seed `0x3c1e0919` (events, loss, duplicates, reorder, availability, restarts), then restores delivery and checks convergence. After the queues are empty, further `Service` calls do not `Send`. The count is the transport `Send` counter.
 
 ## Commands and results
 
