@@ -1274,6 +1274,173 @@ void TestUnknownDoesNotBlockForever() {
        80);
 }
 
+struct OracleEntry {
+  std::string text;
+  std::string origin;
+  std::uint64_t sequence{0};
+  std::uint64_t timestamp_us{0};
+};
+
+void RunPermanentPairChaos(std::uint32_t seed, int steps,
+                           int min_oracle_size) {
+  std::mt19937 rng{seed};
+  Pair pair;
+  auto node = MakeDialog(pair.a);
+  AddRecord(*node, "seed", kA, 1, 100);
+  auto const node_id = node.id();
+  node = {};
+  auto const op = OfferTo(pair.a, AsDialog(pair.a.sync->FindNode(node_id)), kB);
+  auto world = pair.world();
+  Pump(world, [&] { return FullyJoined(pair, op, node_id); }, 80);
+
+  Replica* reps[2] = {&pair.a, &pair.b};
+  std::string const ids[2] = {kA, kB};
+  std::uint64_t seq[2] = {2, 1};
+  std::vector<OracleEntry> oracle;
+  oracle.push_back(
+      OracleEntry{.text = "seed", .origin = kA, .sequence = 1, .timestamp_us = 100});
+
+  auto write_one = [&](int who) {
+    auto live = reps[who]->sync->FindNode(node_id);
+    if (!live.is_valid()) {
+      return;
+    }
+    auto dialog = AsDialog(live);
+    auto const sequence = seq[who]++;
+    auto const stamp = NextLocalStamp(*dialog);
+    // Periodically collide timestamps across origins (open SharedEventOrder case).
+    std::uint64_t ts = stamp;
+    if ((rng() % 17) == 0) {
+      ts = 10'000 + (rng() % 50);
+    }
+    auto const text = "m" + std::to_string(oracle.size()) + "-" + ids[who];
+    AddRecord(*dialog, text, ids[who], sequence, ts);
+    oracle.push_back(OracleEntry{.text = text,
+                                 .origin = ids[who],
+                                 .sequence = sequence,
+                                 .timestamp_us = ts});
+  };
+
+  for (int step = 0; step < steps; ++step) {
+    auto const roll = rng() % 100;
+    auto const i = static_cast<int>(rng() % 2);
+    auto const j = 1 - i;
+    switch (roll % 6) {
+      case 0:
+        pair.network.DeliverNext(ids[i], ids[j]);
+        break;
+      case 1:
+        pair.network.DropNext(ids[i], ids[j]);
+        break;
+      case 2:
+        pair.network.DuplicateNext(ids[i], ids[j]);
+        break;
+      case 3:
+        if (pair.network.PendingCount(ids[i], ids[j]) >= 2) {
+          pair.network.DeferNext(ids[i], ids[j]);
+        } else {
+          pair.network.DeliverNext(ids[i], ids[j]);
+        }
+        break;
+      case 4:
+        pair.network.SetAvailability(
+            ids[i], ids[j],
+            (roll % 2) == 0 ? EndpointAvailability::Offline
+                            : EndpointAvailability::Online);
+        break;
+      default:
+        DeliverRound(world);
+        break;
+    }
+
+    // Keep writing while replicas may be desynchronized.
+    if ((step % 3) == 0) {
+      write_one(static_cast<int>(rng() % 2));
+    }
+    if ((step % 5) == 0) {
+      write_one(0);
+      write_one(1);
+    }
+
+    if ((step % 220) == 219) {
+      // Restart one side; clear dangling locals first.
+      reps[i]->Stop();
+      pair.network.ClearQueues();
+      reps[i]->Start();
+      CHECK(reps[i]->sync->FindNode(node_id).is_valid());
+      Online(pair.network, kA, kB);
+      Online(pair.network, kB, kA);
+    }
+
+    if ((step % 7) == 0) {
+      reps[i]->clock +=
+          kShareOfferRetryIntervalUs / 8 + static_cast<std::uint64_t>(i + 1);
+      reps[i]->sync->Service(reps[i]->clock);
+    }
+  }
+
+  Online(pair.network, kA, kB);
+  Online(pair.network, kB, kA);
+  Online(pair.network, kB, kA);
+  Online(pair.network, kA, kB);
+
+  bool settled = false;
+  for (int step = 0; step < 2000; ++step) {
+    Drain(world, 256);
+    auto const sends = pair.a.sends + pair.b.sends;
+    Advance(pair.a, kShareOfferRetryIntervalUs + 1);
+    Advance(pair.b, kShareOfferRetryIntervalUs + 3);
+    if (!Queued(world) && pair.a.sends + pair.b.sends == sends &&
+        Observe(*AsDialog(pair.a.sync->FindNode(node_id))).size() ==
+            oracle.size() &&
+        Observe(*AsDialog(pair.b.sync->FindNode(node_id))).size() ==
+            oracle.size()) {
+      settled = true;
+      break;
+    }
+  }
+  if (!settled) {
+    std::cerr << "chaos settle failed seed=" << seed
+              << " oracle=" << oracle.size() << " a="
+              << Observe(*AsDialog(pair.a.sync->FindNode(node_id))).size()
+              << " b="
+              << Observe(*AsDialog(pair.b.sync->FindNode(node_id))).size()
+              << '\n';
+    CHECK(false);
+  }
+
+  CHECK(static_cast<int>(oracle.size()) >= min_oracle_size);
+  ExpectPairTopology(pair.a.sync->FindNode(node_id),
+                     pair.b.sync->FindNode(node_id));
+  ExpectSameObserve(pair.a.sync->FindNode(node_id),
+                    pair.b.sync->FindNode(node_id));
+  for (auto const& entry : oracle) {
+    if (!HasText(pair.a.sync->FindNode(node_id), entry.text, entry.origin,
+                 entry.sequence)) {
+      std::cerr << "oracle miss seed=" << seed << " text=" << entry.text
+                << " origin=" << entry.origin << " seq=" << entry.sequence
+                << '\n';
+      CHECK(false);
+    }
+  }
+
+  auto const quiet = pair.a.sends + pair.b.sends;
+  for (int i = 0; i < 80; ++i) {
+    Advance(pair.a, kShareOfferRetryIntervalUs + 1);
+    Advance(pair.b, kShareOfferRetryIntervalUs + 2);
+  }
+  CHECK(pair.a.sends + pair.b.sends == quiet);
+  CHECK(!Queued(world));
+}
+
+void TestPermanentPairChaos() {
+  // Several fixed seeds; total locally saved messages across runs >> 1000.
+  RunPermanentPairChaos(0x3c1e1001u, 900, 400);
+  RunPermanentPairChaos(0x3c1e1002u, 700, 300);
+  RunPermanentPairChaos(0x3c1e1003u, 700, 300);
+  RunPermanentPairChaos(0x3c1e1004u, 500, 200);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1290,6 +1457,7 @@ int main() {
   apptraverse::test::TestNoExtraTrafficAfterSettleAndReopen();
   apptraverse::test::TestEqualTimestampsObserveOracle();
   apptraverse::test::TestUnknownDoesNotBlockForever();
-  std::cout << "permanent_pair_sync_test (basic) OK\n";
+  apptraverse::test::TestPermanentPairChaos();
+  std::cout << "permanent_pair_sync_test OK\n";
   return 0;
 }

@@ -781,8 +781,8 @@ does not exercise them and does not require them to be finished.
   `(timestamp_us, origin_uid, origin_sequence)` so both replicas can still
   agree on message content without inventing a second distributed order key.
 
-Status: **in progress** via `apptraverse_permanent_pair_sync_test`. Not
-accepted-by-user.
+Status: **verified** via `apptraverse_permanent_pair_sync_test` (basic + chaos).
+Not accepted-by-user.
 
 ---
 
