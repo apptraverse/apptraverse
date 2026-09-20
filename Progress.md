@@ -1,3 +1,101 @@
+# CPM patch fail-closed + permanent-pair test defects (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Prior verified tip `690e76f` not reverted.
+Work tip before this Progress note: `67e8ae12499a965151aaca08a2199842d5fc30ce`.
+
+## 1. CMake patch application
+
+**Defect:** `cpm_add_patches` used `|| true` (Unix) / `|| cd .` (Windows), so corrupt
+or incompatible patches configured successfully. Reproduced: garbage patch input
+exited 0 under `|| true` while `patch` alone exited 2; already-applied runs left
+`.rej` files.
+
+**Fix:** `cmake/cpm_apply_one_patch.cmake` — forward dry-run → apply (tree hash
+must change); else reverse dry-run → already applied; else FATAL_ERROR.
+`cpm_add_patches` invokes it via `${CMAKE_COMMAND} -P` with
+`APPTRAVERSE_PATCH_WORKDIR=<SOURCE_DIR>` (no unconditional error swallow).
+
+**Tests:** `cmake/tests/cpm_add_patches_test.cmake` (real `cpm_add_patches`, no
+SOURCE_CACHE). CTest name `apptraverse_cpm_add_patches_test`.
+
+Commits: `d049a3b` (patch path), registered in `67e8ae1`.
+
+## 2. Chaos Offline/Online
+
+**Defect:** `roll % 6 == 4` is always even → `(roll % 2) == 0` always Offline;
+Online unreachable in the random phase.
+
+**Fix:** independent `rng() % 2` for Offline/Online; count only real
+`Availability` transitions during the random phase (exclude forced Online after
+restart / final settle); explicit Offline→Online recovery without replica
+restart before the random loop. Seeds unchanged.
+
+## 3. Wrong-source ACK
+
+Strengthened `TestWrongSourceDoesNotAck`: drop outbound event without deliver;
+forged ACK from `endpoint-eve`; assert `HasPendingEvent` / `!HasDelivered`;
+retry same `packet_id`; deliver to B; sender stays pending until B's ACK; then
+Delivered + quiet.
+
+**Sensitivity (not in final diff):** temporarily `if (false && destination !=
+source_endpoint)` in `OnAck` → test failed at `HasPendingEvent()` after forged
+ACK (`/opt/cursor/artifacts/permanent-pair-fix-20260920/wrong_source_sensitivity.log`).
+Restored check → OK (`wrong_source_ok.log`).
+
+## Builds and runs (clean trees)
+
+Compilers: `CMAKE_C_COMPILER=gcc`, `CMAKE_CXX_COMPILER=g++` (`/usr/bin/c++` is
+clang without usable asan/libstdc++ in this image).
+`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`. RTTI off via policy / flags.
+ASan/UBSan exclusions (existing): `-fno-sanitize=vptr,null,nonnull-attribute`.
+
+### Debug (`build-debug-clean`)
+
+```
+cmake -S . -B build-debug-clean -G Ninja -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-debug-clean -j$(nproc) --target \
+  apptraverse_permanent_pair_sync_test apptraverse_shared_node_join_test \
+  apptraverse_shared_node_topology_test apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_initial_sync_test apptraverse_shared_node_availability_test \
+  apptraverse_shared_node_foundation_test apptraverse_chat_demo_sync_test
+```
+
+Results (`/opt/cursor/artifacts/permanent-pair-fix-20260920/test-logs-debug/summary.txt`):
+all EXIT=0 including `cpm_patches`.
+
+### Release (`build-release-clean`, `-O3 -DNDEBUG -fno-rtti`)
+
+Same targets. Summary:
+`/opt/cursor/artifacts/permanent-pair-fix-20260920/test-logs-release/summary.txt`
+— all EXIT=0 (NDEBUG active).
+
+### ASan/UBSan (`build-asan-clean`)
+
+```
+-DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++
+-DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute -fno-omit-frame-pointer -fno-rtti'
+-DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1
+```
+
+Summary:
+`/opt/cursor/artifacts/permanent-pair-fix-20260920/test-logs-asan/summary.txt`
+— all EXIT=0 (~12.5 min for permanent_pair).
+
+Full logs under `/opt/cursor/artifacts/permanent-pair-fix-20260920/` and
+`/tmp/test-logs-{debug,release,asan}/`.
+
+## Limits
+
+MemoryTransport only; not real Æther / Windows GUI / disk crash-atomicity.
+Kernel sync unchanged (ACK source check already correct).
+
+Not accepted-by-user.
+
+
 # Permanent pair profile (A↔B) (2026-09-20)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
