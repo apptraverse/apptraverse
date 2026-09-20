@@ -1,3 +1,60 @@
+# Remove / unacked delivery / rejoin combinations (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: cursor/shared-node-join-3c1e. Verified base bf35a7417d10dc6a8159303819e05a321050f294 was not reverted. Tip: fe14176bcf2e6203c512c86c5a80ca93f15ec72d.
+
+## 1. Cancel pending is not Delivered
+
+Reproduction: A sends E to C, drop packet, A removes C; CompleteIncrementalEvent marked HasDelivered(E).
+
+Root cause: RelayRemovedShare used ACK completion to clear unrelated pending.
+
+Fix: CancelIncrementalEventSyncEvent / CancelIncrementalEvent. Late ACK of cancelled packet ignored.
+
+Commit: 36e6f01. Test: TestCancelPendingDoesNotMarkDelivered (failed before fix).
+
+## 2. Concurrent closes reach the closed peer
+
+Reproduction: A and B independently remove C; second new RemoveShare rejected after first close.
+
+Root cause: new RemoveShare required a live destination share.
+
+Fix: MayAcceptConcurrentClose; NextUndeliveredRemoveRecord arms each undelivered close after ACK.
+
+Commit: 4251185. Tests: TestConcurrentRemovesReachClosedPeer and ReverseOrder.
+
+## 3. Revoke during initial sync
+
+Reproduction: snapshot ACK lost leaves Pending; RemoveShare early-returned; late initial ACK could Complete.
+
+Fix: CancelInitialSyncEvent; arm remove without forcing Complete; OnAck ignores late initial ACK on closed share; Accepted to Rejected cancel decision for Admitted peers.
+
+Commit: cddc771. Tests: TestRevokeWhileInitialPendingAckLost, TestRevokeBeforeSnapshotImport.
+
+## 4. Safe rejoin fold
+
+Reproduction: identity skip without content compare; covered ids from merged journal.
+
+Fix: SameSharedEventContent; prefight missing events; snapshot-only covered ids; SharedEventOrderLess stable sort.
+
+Commit: ea07b32. Rejoin tests remain green.
+
+## 5. Combined and chaos
+
+TestUnackedMessageThenRemoveThenRejoin. Chaos: no g_stamp; remove/rejoin steps; oracle of texts written while ThreeWay held; seed 0x3c1e0c41.
+
+Commit: fe14176.
+
+## Builds
+
+Debug build, Release build-release (-O3 -DNDEBUG -fno-rtti), ASan/UBSan build-asan (-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute). APPTRAVERSE_BUILD_AETHER_DEMOS=OFF. Shared-node suite and apptraverse_chat_demo_sync_test passed.
+
+## Not verified
+
+Heartbeat/last-seen/real Aether; messenger/GUI; full crash-atomicity of multi-Save fold batch; mid-chaos remove under extreme loss beyond dedicated seeds. Not accepted-by-user.
+
+
 # Shared-node kernel defect fixes (2026-09-20)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
@@ -62,7 +119,7 @@ Commit: `d0c7304`. Documented in `plan.md`.
 
 ## Not verified / not claimed ready
 
-Heartbeat, last-seen, real Æther presence, arbitrary dynamic object graphs, messenger/GUI product paths, mid-chaos remove+rejoin under heavy loss (covered instead by dedicated concurrent-remove and re-join tests). Not accepted-by-user.
+Heartbeat, last-seen, real ï¿½ther presence, arbitrary dynamic object graphs, messenger/GUI product paths, mid-chaos remove+rejoin under heavy loss (covered instead by dedicated concurrent-remove and re-join tests). Not accepted-by-user.
 
 # Shared-node kernel limits (2026-09-20)
 
@@ -4101,7 +4158,7 @@ Status: partial on main. Live Host/Client text convergence NOT FIXED.
 Starting SHA: `954114e`. Final remote: `eed9e02`.
 
 ## Landed
-1. `apptraverse_aether_p2p_safe_stream_duplex_test` — real `P2pSafeStream` over MockWriteStream; sequential duplex, drop recover, fragment, delay>3s, reentrancy depth (bad>=1, outer=0).
+1. `apptraverse_aether_p2p_safe_stream_duplex_test` ï¿½ real `P2pSafeStream` over MockWriteStream; sequential duplex, drop recover, fragment, delay>3s, reentrancy depth (bad>=1, outer=0).
 2. `ChatAetherRuntime` outer-loop write pump; deleted size half-duplex / post-Join reset / 3s hang rebuild; restored heartbeat ping/pong coalesce.
 3. Pins unchanged: aether-client-cpp `0b0e3b54`, objects `1d302647`, miscpp `f8b2e1c6`.
 
