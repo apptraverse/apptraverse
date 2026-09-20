@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
+#include <set>
 #include <utility>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
@@ -218,6 +220,244 @@ bool SameEventPayload(Event const& event,
     return false;
   }
   return it_event->second == it_wire->second;
+}
+
+bool ObjectOccupied(ae::Domain& domain, ae::IDomainStorage& storage,
+                    ae::ObjId id) {
+  if (domain.Find(id)) {
+    return true;
+  }
+  return !storage.Enumerate(id).empty();
+}
+
+std::set<ae::ObjId> SerializedClosure(ae::Obj const& root) {
+  ae::RamDomainStorage scratch;
+  BuildNetworkSharedScratch(root, scratch);
+  std::set<ae::ObjId> ids;
+  for (auto const& [obj_id, classes] : scratch.state) {
+    if (classes.has_value()) {
+      ids.insert(obj_id);
+    }
+  }
+  return ids;
+}
+
+StoredClassChainInfo const* ChainOf(
+    std::vector<StoredClassChainInfo> const& chains, ae::ObjId id) {
+  for (auto const& chain : chains) {
+    if (chain.obj_id == id) {
+      return &chain;
+    }
+  }
+  return nullptr;
+}
+
+ae::Ptr<ae::Obj> FindOrLoad(ae::Domain& domain, ae::IDomainStorage& storage,
+                            ae::ObjId id) {
+  if (auto found = domain.Find(id)) {
+    return found;
+  }
+  if (storage.Enumerate(id).empty()) {
+    return {};
+  }
+  ae::DomainGraph graph{&domain};
+  return graph.LoadRoot(id);
+}
+
+// Stored class layers and their version keys. Node journal bytes are not
+// compared: a reused Link keeps the receiver's journal.
+bool StoredVersionsMatch(ae::IDomainStorage& storage, ae::ObjId id,
+                         ae::RamDomainStorage::ClassData const& incoming) {
+  auto const listed = storage.Enumerate(id);
+  if (listed.size() != incoming.size()) {
+    return false;
+  }
+  for (auto const class_id : listed) {
+    if (incoming.find(class_id) == incoming.end()) {
+      return false;
+    }
+  }
+  for (auto const& [class_id, versions] : incoming) {
+    if (versions.empty()) {
+      return false;
+    }
+    std::uint8_t max_version = 0;
+    for (auto const& [version, data] : versions) {
+      (void)data;
+      if (version > max_version) {
+        max_version = version;
+      }
+    }
+    // Current object versions are small. A higher key is not this protocol.
+    if (max_version >= 31) {
+      return false;
+    }
+    auto const limit = static_cast<std::uint8_t>(max_version + 1);
+    for (std::uint8_t version = 0; version <= limit; ++version) {
+      ae::DomainQuery const query{id, class_id, version};
+      bool const has =
+          storage.Load(query).result == ae::DomainLoadResult::kLoaded;
+      bool const want = versions.find(version) != versions.end();
+      if (has != want) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool OccupiedClassMatches(ae::Domain& domain, ae::IDomainStorage& storage,
+                          ae::RamDomainStorage const& parsed,
+                          std::vector<StoredClassChainInfo> const& chains,
+                          ae::ObjId id) {
+  auto const* chain = ChainOf(chains, id);
+  if (chain == nullptr) {
+    return false;
+  }
+  auto live = FindOrLoad(domain, storage, id);
+  if (!live) {
+    return false;
+  }
+  if (live->GetClassId() != chain->most_derived_class_id) {
+    return false;
+  }
+  auto const it = parsed.state.find(id);
+  if (it == parsed.state.end() || !it->second.has_value()) {
+    return false;
+  }
+  return StoredVersionsMatch(storage, id, *it->second);
+}
+
+// Identity is the ObjId. Type is the class. Version is the stored class-layer
+// keys. The saved descriptor is EndpointUid plus MemoryLink fields, and the
+// same checks on base. An endpoint string alone is not enough.
+bool LinkDescriptorsMatch(Node& live, Node& incoming) {
+  if (live.obj_id != incoming.obj_id ||
+      live.GetClassId() != incoming.GetClassId()) {
+    return false;
+  }
+  auto& registry = ae::Registry::GetRegistry();
+  if (registry.GenerationDistance(Link::kClassId, live.GetClassId()) < 0) {
+    return false;
+  }
+  auto& live_link = static_cast<Link&>(live);
+  auto& incoming_link = static_cast<Link&>(incoming);
+  if (live_link.EndpointUid() != incoming_link.EndpointUid()) {
+    return false;
+  }
+  if (live.GetClassId() == MemoryLink::kClassId) {
+    auto& live_memory = static_cast<MemoryLink&>(live);
+    auto& incoming_memory = static_cast<MemoryLink&>(incoming);
+    if (live_memory.endpoint_uid != incoming_memory.endpoint_uid ||
+        live_memory.heartbeat_interval_ms !=
+            incoming_memory.heartbeat_interval_ms) {
+      return false;
+    }
+  } else if (live.GetClassId() != Link::kClassId) {
+    return false;
+  }
+
+  bool const live_has_base = live.base.is_valid();
+  bool const incoming_has_base = incoming.base.is_valid();
+  if (live_has_base != incoming_has_base) {
+    return false;
+  }
+  if (!live_has_base) {
+    return true;
+  }
+  if (live.base.id() != incoming.base.id() || live.base.id() == live.obj_id) {
+    return false;
+  }
+  if (!live.base.is_loaded()) {
+    live.base.Load();
+  }
+  if (!incoming.base.is_loaded()) {
+    incoming.base.Load();
+  }
+  if (!live.base.is_loaded() || !incoming.base.is_loaded()) {
+    return false;
+  }
+  return LinkDescriptorsMatch(*live.base, *incoming.base);
+}
+
+// Occupied Link closures that are safe to keep. Returns false when the
+// snapshot must be rejected with the receiver graph still untouched.
+bool PlanReusableLinks(ae::Domain& domain, ae::IDomainStorage& storage,
+                       SharedNode& candidate, ae::RamDomainStorage const& parsed,
+                       std::vector<StoredClassChainInfo> const& chains,
+                       std::set<ae::ObjId>& skip) {
+  std::set<ae::ObjId> seen_links;
+  for (auto const& share : candidate.shares) {
+    if (!share.link.is_valid()) {
+      return false;
+    }
+    if (!share.link.is_loaded()) {
+      share.link.Load();
+    }
+    if (!share.link.is_loaded()) {
+      return false;
+    }
+    if (!seen_links.insert(share.link.id()).second) {
+      continue;
+    }
+    if (!ObjectOccupied(domain, storage, share.link.id())) {
+      continue;
+    }
+
+    auto live = FindOrLoad(domain, storage, share.link.id());
+    if (!live) {
+      return false;
+    }
+    auto& registry = ae::Registry::GetRegistry();
+    if (registry.GenerationDistance(Node::kClassId, live->GetClassId()) < 0 ||
+        registry.GenerationDistance(Node::kClassId, share.link->GetClassId()) <
+            0) {
+      return false;
+    }
+    auto& live_node = static_cast<Node&>(*live);
+    auto& incoming_node = static_cast<Node&>(*share.link);
+    if (!LinkDescriptorsMatch(live_node, incoming_node)) {
+      return false;
+    }
+    if (!OccupiedClassMatches(domain, storage, parsed, chains,
+                              share.link.id())) {
+      return false;
+    }
+    for (Node* cursor = &live_node; cursor->base.is_valid();) {
+      if (!OccupiedClassMatches(domain, storage, parsed, chains,
+                                cursor->base.id())) {
+        return false;
+      }
+      if (!cursor->base.is_loaded()) {
+        cursor->base.Load();
+      }
+      cursor = &*cursor->base;
+    }
+
+    auto const incoming_closure = SerializedClosure(*share.link);
+    auto const existing_closure = SerializedClosure(live_node);
+    if (incoming_closure.find(share.link.id()) == incoming_closure.end()) {
+      return false;
+    }
+    for (auto const id : incoming_closure) {
+      if (!ObjectOccupied(domain, storage, id)) {
+        // A journal object the receiver does not have. Leave the local
+        // journal as it is.
+        skip.insert(id);
+        continue;
+      }
+      if (id != share.link.id() &&
+          existing_closure.find(id) == existing_closure.end()) {
+        return false;
+      }
+      if (id != share.link.id() &&
+          !OccupiedClassMatches(domain, storage, parsed, chains, id)) {
+        return false;
+      }
+      skip.insert(id);
+    }
+  }
+  return true;
 }
 
 }  // namespace
@@ -569,6 +809,7 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     return {};
   }
 
+  std::set<ae::ObjId> reused_link_objects;
   ae::ObjId matching_share_id;
   {
     // Scratch Domain over the parsed bytes: the candidate is inspected here
@@ -629,11 +870,27 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     if (!shared_candidate.link_sync_states[source_sync_index].is_valid()) {
       return {};
     }
+
+    // A second node may name a Link this replica already imported. Only a
+    // compatible descriptor is reused, and that decision is made before any
+    // write. An incompatible ObjId still rejects the whole snapshot.
+    if (!PlanReusableLinks(domain_, storage_, shared_candidate, parsed, chains,
+                           reused_link_objects)) {
+      return {};
+    }
+    if (reused_link_objects.count(frame.target_node_id) != 0) {
+      return {};
+    }
   }
 
-  // Reject snapshot if any parsed object collides with receiver Domain or storage
+  // Reject snapshot if any parsed object collides with receiver Domain or
+  // storage. Objects of a compatible Link closure are not collisions: they
+  // are left untouched, including the Link journal.
   for (auto const& [obj_id, classes] : parsed.state) {
     if (!classes.has_value()) {
+      continue;
+    }
+    if (reused_link_objects.count(obj_id) != 0) {
       continue;
     }
     if (domain_.Find(obj_id)) {
@@ -644,7 +901,17 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     }
   }
 
-  CommitObjectGraph(parsed, storage_);
+  ae::RamDomainStorage admitted;
+  for (auto const& [obj_id, classes] : parsed.state) {
+    if (!classes.has_value()) {
+      continue;
+    }
+    if (reused_link_objects.count(obj_id) != 0) {
+      continue;
+    }
+    admitted.state.emplace(obj_id, classes);
+  }
+  CommitObjectGraph(admitted, storage_);
   auto node = SharedNode::ptr::Declare(
       ae::CreateWith{domain_}.with_id(frame.target_node_id));
   node.Load();

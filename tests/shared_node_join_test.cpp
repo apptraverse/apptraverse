@@ -1565,6 +1565,253 @@ void TestRequestTamperedRepeat() {
   CHECK(!pair.b.sync->FindNode(other.id()).is_valid());
 }
 
+Share const* ShareForEndpoint(SharedNode& node, std::string const& endpoint) {
+  for (auto const& share : node.shares) {
+    if (!share.link.is_valid()) {
+      continue;
+    }
+    if (!share.link.is_loaded()) {
+      share.link.Load();
+    }
+    CHECK(share.link.is_loaded());
+    if (share.link->EndpointUid() == endpoint) {
+      return &share;
+    }
+  }
+  return nullptr;
+}
+
+LinkSyncState::ptr SyncForShare(SharedNode& node, ae::ObjId share_id) {
+  auto const index = node.FindLinkSyncIndexForShare(share_id);
+  CHECK(index < node.link_sync_states.size());
+  auto state = node.link_sync_states[index].as_obj_ptr();
+  if (!state.is_loaded()) {
+    state.Load();
+  }
+  CHECK(state.is_loaded());
+  return state;
+}
+
+MemoryLink::ptr MakeSharedRemoteLink(ae::Domain& domain) {
+  auto link = MemoryLink::ptr::Create(ae::CreateWith{domain});
+  link->endpoint_uid = kEndpointB;
+  link->heartbeat_interval_ms = 1000;
+  InitializeRuntimeNode(*link);
+  link.Save();
+  return link;
+}
+
+void ExpectOneLocalLink(Replica& replica, ae::ObjId node_x, ae::ObjId node_y,
+                        ae::ObjId shared_link_id) {
+  auto bx = AsRecord(replica.sync->FindNode(node_x));
+  auto by = AsRecord(replica.sync->FindNode(node_y));
+  auto const* x_remote = ShareForEndpoint(*bx, kEndpointB);
+  auto const* y_remote = ShareForEndpoint(*by, kEndpointB);
+  auto const* x_self = ShareForEndpoint(*bx, kEndpointA);
+  auto const* y_self = ShareForEndpoint(*by, kEndpointA);
+  CHECK(x_remote != nullptr);
+  CHECK(y_remote != nullptr);
+  CHECK(x_self != nullptr);
+  CHECK(y_self != nullptr);
+  CHECK(x_remote->link.id() == shared_link_id);
+  CHECK(y_remote->link.id() == shared_link_id);
+  CHECK(x_remote->link.id() == y_remote->link.id());
+  CHECK(x_remote->share_id != y_remote->share_id);
+  CHECK(x_remote->share_id != x_self->share_id);
+  CHECK(x_self->link.id() != y_self->link.id());
+  CHECK(x_self->link.id() != shared_link_id);
+  auto const left = replica.domain->Find(x_remote->link.id());
+  auto const right = replica.domain->Find(y_remote->link.id());
+  CHECK(left);
+  CHECK(left.get() == right.get());
+  CHECK(x_remote->link->GetClassId() == MemoryLink::kClassId);
+  MemoryLink::ptr memory = x_remote->link;
+  CHECK(memory.is_loaded());
+  CHECK(memory->endpoint_uid == kEndpointB);
+  CHECK(memory->heartbeat_interval_ms == 1000);
+  CHECK(memory->base.is_valid());
+  CHECK(memory->base.id() != memory.id());
+
+  auto x_sync = SyncForShare(*bx, x_remote->share_id);
+  auto y_sync = SyncForShare(*by, y_remote->share_id);
+  CHECK(x_sync.id() != y_sync.id());
+  CHECK(x_sync->share_id == x_remote->share_id);
+  CHECK(y_sync->share_id == y_remote->share_id);
+  CHECK(x_sync->share_id != y_sync->share_id);
+  CHECK(x_sync->link.id() == y_sync->link.id());
+  CHECK(x_sync->link.id() == shared_link_id);
+
+  auto const x_phase = x_sync->GetInitialSyncPhase();
+  auto const y_phase = y_sync->GetInitialSyncPhase();
+  auto const y_delivered = y_sync->delivered_event_ids;
+  auto const y_packet = y_sync->received_initial_packet_id;
+  bx->SetInitialSyncPhase(x_sync->link, InitialSyncPhase::Pending);
+  CHECK(x_sync->GetInitialSyncPhase() == InitialSyncPhase::Pending);
+  CHECK(y_sync->GetInitialSyncPhase() == y_phase);
+  CHECK(y_sync->delivered_event_ids == y_delivered);
+  CHECK(y_sync->received_initial_packet_id == y_packet);
+  CHECK(y_sync->share_id == y_remote->share_id);
+  bx->SetInitialSyncPhase(x_sync->link, x_phase);
+  CHECK(y_sync->GetInitialSyncPhase() == y_phase);
+  CHECK(y_sync->delivered_event_ids == y_delivered);
+}
+
+void TestSharedLinkSequentialOffer() {
+  Pair pair;
+  auto shared = MakeSharedRemoteLink(*pair.a.domain);
+  auto node_x = MakeRecordNode(pair.a, kLocalSecret);
+  auto node_y = MakeRecordNode(pair.a, kLocalSecret);
+  node_x->AddShare(shared, ShareAccess::ReadWrite);
+  node_y->AddShare(shared, ShareAccess::ReadWrite);
+  AddRecord(*node_x, "x-seed", kEndpointA, 1, 100);
+  AddRecord(*node_y, "y-seed", kEndpointA, 1, 200);
+  SaveSync(node_x);
+  SaveSync(node_y);
+  CHECK(node_x->shares[1].link.id() == node_y->shares[1].link.id());
+  CHECK(node_x->shares[1].share_id != node_y->shares[1].share_id);
+
+  auto const op_x =
+      pair.a.sync->OfferNode(node_x, shared, ShareAccess::ReadWrite);
+  auto world = pair.world({kLocalSecret});
+  PumpUntil(world, [&] { return FullyJoined(pair, op_x, node_x.id()); }, 40);
+  CHECK(pair.b.sync->FindNode(node_y.id()).is_valid() == false);
+  auto const imported = ShareForEndpoint(
+      *AsRecord(pair.b.sync->FindNode(node_x.id())), kEndpointB);
+  CHECK(imported != nullptr);
+  CHECK(imported->link.id() == shared.id());
+
+  auto const op_y =
+      pair.a.sync->OfferNode(node_y, shared, ShareAccess::ReadWrite);
+  CHECK(op_y != op_x);
+  PumpUntil(world, [&] { return FullyJoined(pair, op_y, node_y.id()); }, 40);
+  ExpectOneLocalLink(pair.b, node_x.id(), node_y.id(), shared.id());
+
+  auto const y_sync = SyncForShare(
+      *AsRecord(pair.b.sync->FindNode(node_y.id())),
+      ShareForEndpoint(*AsRecord(pair.b.sync->FindNode(node_y.id())),
+                       kEndpointB)
+          ->share_id);
+  auto const y_delivered = y_sync->delivered_event_ids;
+  auto const y_phase = y_sync->GetInitialSyncPhase();
+  AddRecord(*node_x, "only-x", kEndpointA, 2, 300);
+  PumpUntil(
+      world,
+      [&] {
+        return AsRecord(pair.b.sync->FindNode(node_x.id()))->records.size() ==
+               2;
+      },
+      40);
+  CHECK(AsRecord(pair.b.sync->FindNode(node_x.id()))->records[1] == "only-x");
+  CHECK(AsRecord(pair.b.sync->FindNode(node_y.id()))->records.size() == 1);
+  CHECK(y_sync->delivered_event_ids == y_delivered);
+  CHECK(y_sync->GetInitialSyncPhase() == y_phase);
+  CHECK(y_sync->link.id() == shared.id());
+}
+
+void TestSharedLinkSimultaneousOffer() {
+  Pair pair;
+  auto shared = MakeSharedRemoteLink(*pair.a.domain);
+  auto node_x = MakeRecordNode(pair.a, kLocalSecret);
+  auto node_y = MakeRecordNode(pair.a, kLocalSecret);
+  node_x->AddShare(shared, ShareAccess::ReadWrite);
+  node_y->AddShare(shared, ShareAccess::ReadWrite);
+  AddRecord(*node_x, "x-both", kEndpointA, 1, 110);
+  AddRecord(*node_y, "y-both", kEndpointA, 1, 210);
+  SaveSync(node_x);
+  SaveSync(node_y);
+  auto const op_x =
+      pair.a.sync->OfferNode(node_x, shared, ShareAccess::ReadWrite);
+  auto const op_y =
+      pair.a.sync->OfferNode(node_y, shared, ShareAccess::ReadWrite);
+  CHECK(op_x != op_y);
+  CHECK(pair.network.PendingCount(kEndpointA, kEndpointB) == 2);
+  auto world = pair.world({kLocalSecret});
+  PumpUntil(
+      world,
+      [&] {
+        return FullyJoined(pair, op_x, node_x.id()) &&
+               FullyJoined(pair, op_y, node_y.id());
+      },
+      80);
+  ExpectOneLocalLink(pair.b, node_x.id(), node_y.id(), shared.id());
+  CHECK(AsRecord(pair.b.sync->FindNode(node_x.id()))->records[0] == "x-both");
+  CHECK(AsRecord(pair.b.sync->FindNode(node_y.id()))->records[0] == "y-both");
+}
+
+void TestIncompatibleSharedLinkRejected() {
+  Pair pair;
+  auto shared = MakeSharedRemoteLink(*pair.a.domain);
+  auto node_x = MakeRecordNode(pair.a, kLocalSecret);
+  auto node_y = MakeRecordNode(pair.a, kLocalSecret);
+  node_x->AddShare(shared, ShareAccess::ReadWrite);
+  node_y->AddShare(shared, ShareAccess::ReadWrite);
+  AddRecord(*node_x, "x-keep", kEndpointA, 1, 100);
+  SaveSync(node_x);
+  SaveSync(node_y);
+  auto const op_x =
+      pair.a.sync->OfferNode(node_x, shared, ShareAccess::ReadWrite);
+  auto world = pair.world({kLocalSecret});
+  PumpUntil(world, [&] { return FullyJoined(pair, op_x, node_x.id()); }, 40);
+
+  shared->heartbeat_interval_ms = 2500;
+  shared.Save();
+  auto const op_y =
+      pair.a.sync->OfferNode(node_y, shared, ShareAccess::ReadWrite);
+  CHECK(op_y != op_x);
+  for (int step = 0; step < 30; ++step) {
+    DeliverRound(world);
+    pair.a.sync->Service(0);
+    pair.b.sync->Service(0);
+  }
+  CHECK(!pair.b.sync->FindNode(node_y.id()).is_valid());
+  CHECK(pair.b.storage.Enumerate(node_y.id()).empty());
+  auto const* kept = ShareForEndpoint(
+      *AsRecord(pair.b.sync->FindNode(node_x.id())), kEndpointB);
+  CHECK(kept != nullptr);
+  CHECK(kept->link.id() == shared.id());
+  MemoryLink::ptr memory = kept->link;
+  CHECK(memory->heartbeat_interval_ms == 1000);
+  CHECK(memory->endpoint_uid == kEndpointB);
+  CHECK(AsRecord(pair.b.sync->FindNode(node_x.id()))->records[0] == "x-keep");
+}
+
+void TestOccupiedNonLinkStillRejects() {
+  Pair pair;
+  ae::ObjId const taken{0x11AA0001};
+  auto blocker = JoinLocalSecret::ptr::Create(
+      ae::CreateWith{*pair.b.domain}.with_id(taken));
+  blocker->mark = "stay";
+  blocker.Save();
+
+  auto link = MemoryLink::ptr::Create(
+      ae::CreateWith{*pair.a.domain}.with_id(taken));
+  link->endpoint_uid = kEndpointB;
+  link->heartbeat_interval_ms = 1000;
+  InitializeRuntimeNode(*link);
+  link.Save();
+  auto node = MakeRecordNode(pair.a, kLocalSecret);
+  node->AddShare(link, ShareAccess::ReadWrite);
+  AddRecord(*node, "blocked", kEndpointA, 1, 100);
+  SaveSync(node);
+  auto const before = pair.b.storage.Enumerate(node.id()).size();
+  CHECK(before == 0);
+  pair.a.sync->OfferNode(node, link, ShareAccess::ReadWrite);
+  auto world = pair.world({kLocalSecret});
+  for (int step = 0; step < 30; ++step) {
+    DeliverRound(world);
+    pair.a.sync->Service(0);
+    pair.b.sync->Service(0);
+  }
+  CHECK(!pair.b.sync->FindNode(node.id()).is_valid());
+  CHECK(pair.b.storage.Enumerate(node.id()).empty());
+  auto still = JoinLocalSecret::ptr::Declare(
+      ae::CreateWith{*pair.b.domain}.with_id(taken));
+  still.Load();
+  CHECK(still.is_loaded());
+  CHECK(still->mark == "stay");
+  CHECK(still->GetClassId() == JoinLocalSecret::kClassId);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1592,6 +1839,10 @@ int main() {
   apptraverse::test::TestRequestLossAndQuiet();
   apptraverse::test::TestRequestRestartFromStorage();
   apptraverse::test::TestRequestTamperedRepeat();
+  apptraverse::test::TestSharedLinkSequentialOffer();
+  apptraverse::test::TestSharedLinkSimultaneousOffer();
+  apptraverse::test::TestIncompatibleSharedLinkRejected();
+  apptraverse::test::TestOccupiedNonLinkStillRejects();
   std::cout << "shared_node_join_test OK\n";
   return 0;
 }
