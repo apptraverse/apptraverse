@@ -1571,10 +1571,8 @@ void TestDuplicateEventAckRequiresDeliveryContext() {
   CHECK(!FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC).has_value());
 }
 
-void TestDeterministicThreeReplicaChaos() {
-  constexpr std::uint32_t kSeed = 0x3c1e0919u;
-  constexpr int kSteps = 3000;
-  std::mt19937 rng{kSeed};
+void RunDeterministicThreeReplicaChaos(std::uint32_t seed, int steps) {
+  std::mt19937 rng{seed};
 
   Trio trio;
   auto node = MakeNode(trio.a);
@@ -1592,12 +1590,9 @@ void TestDeterministicThreeReplicaChaos() {
   Replica* reps[3] = {&trio.a, &trio.b, &trio.c};
   std::string const ids[3] = {kA, kB, kC};
   std::uint64_t seq[3] = {2, 1, 1};
+  // Per-replica Service times: peers are not locked to one global counter.
+  std::uint64_t clock[3] = {0, 0, 0};
   int written = 0;
-  auto service_all = [&](std::uint64_t now) {
-    for (auto* replica : reps) {
-      replica->sync->Service(now);
-    }
-  };
   auto queued = [&] {
     for (int from = 0; from < 3; ++from) {
       for (int to = 0; to < 3; ++to) {
@@ -1610,13 +1605,10 @@ void TestDeterministicThreeReplicaChaos() {
     return false;
   };
 
-  for (int step = 0; step < kSteps; ++step) {
+  for (int step = 0; step < steps; ++step) {
     auto const roll = rng() % 100;
     auto const i = static_cast<int>(rng() % 3);
     auto const j = static_cast<int>(rng() % 3);
-    // Network faults on every step. Events and restarts are on a fixed
-    // stride: each commit replays the journal, so an event on most steps
-    // would make the scenario unbounded.
     if (i != j) {
       switch (roll % 5) {
         case 0:
@@ -1652,8 +1644,8 @@ void TestDeterministicThreeReplicaChaos() {
       reps[i]->Start();
     }
     if ((step % 80) == 0) {
-      service_all(static_cast<std::uint64_t>(step) *
-                  kShareOfferRetryIntervalUs);
+      clock[i] += kShareOfferRetryIntervalUs + static_cast<std::uint64_t>(i + 1);
+      reps[i]->sync->Service(clock[i]);
     }
   }
 
@@ -1668,8 +1660,6 @@ void TestDeterministicThreeReplicaChaos() {
     }
   }
 
-  std::uint64_t now = static_cast<std::uint64_t>(kSteps) *
-                      kShareOfferRetryIntervalUs;
   auto drain = [&] {
     for (int n = 0; n < 50000; ++n) {
       if (!DeliverRound(world, nullptr)) {
@@ -1680,9 +1670,11 @@ void TestDeterministicThreeReplicaChaos() {
   bool settled = false;
   for (int step = 0; step < 600; ++step) {
     drain();
-    now += kShareOfferRetryIntervalUs;
     auto const sends = trio.a.sends + trio.b.sends + trio.c.sends;
-    service_all(now);
+    for (int r = 0; r < 3; ++r) {
+      clock[r] += kShareOfferRetryIntervalUs + static_cast<std::uint64_t>(r + 1);
+      reps[r]->sync->Service(clock[r]);
+    }
     if (!queued() &&
         trio.a.sends + trio.b.sends + trio.c.sends == sends &&
         ThreeWay(trio, node_id)) {
@@ -1693,14 +1685,30 @@ void TestDeterministicThreeReplicaChaos() {
   CHECK(settled);
   CHECK(ThreeWay(trio, node_id));
   CHECK(written > 0);
+  ExpectSameShares(trio.a.sync->FindNode(node_id),
+                   trio.b.sync->FindNode(node_id));
+  ExpectSameShares(trio.b.sync->FindNode(node_id),
+                   trio.c.sync->FindNode(node_id));
+  ExpectSameRecords(trio.a.sync->FindNode(node_id),
+                    trio.b.sync->FindNode(node_id));
+  ExpectSameRecords(trio.b.sync->FindNode(node_id),
+                    trio.c.sync->FindNode(node_id));
 
   auto const sends = trio.a.sends + trio.b.sends + trio.c.sends;
   for (int step = 0; step < 40; ++step) {
-    now += kShareOfferRetryIntervalUs;
-    service_all(now);
+    for (int r = 0; r < 3; ++r) {
+      clock[r] += kShareOfferRetryIntervalUs + static_cast<std::uint64_t>(r + 1);
+      reps[r]->sync->Service(clock[r]);
+    }
   }
   CHECK(trio.a.sends + trio.b.sends + trio.c.sends == sends);
   CHECK(!queued());
+}
+
+void TestDeterministicThreeReplicaChaos() {
+  RunDeterministicThreeReplicaChaos(0x3c1e0919u, 3000);
+  RunDeterministicThreeReplicaChaos(0x3c1e0a21u, 1200);
+  RunDeterministicThreeReplicaChaos(0x3c1e0b37u, 1200);
 }
 
 }  // namespace
