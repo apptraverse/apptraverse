@@ -76,6 +76,19 @@ add_test(
   COMMAND apptraverse_shared_node_join_test
 )
 
+add_executable(apptraverse_permanent_pair_sync_test
+  permanent_pair_sync_test.cpp
+)
+
+target_link_libraries(apptraverse_permanent_pair_sync_test PRIVATE
+  apptraverse
+)
+
+add_test(
+  NAME apptraverse_permanent_pair_sync_test
+  COMMAND apptraverse_permanent_pair_sync_test
+)
+
 add_executable(apptraverse_shared_node_availability_test
   shared_node_availability_test.cpp
 )

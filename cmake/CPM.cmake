@@ -593,11 +593,12 @@ function(cpm_add_patches)
     else()
       list(APPEND temp_list "&&")
     endif()
-    # Add the patch command to the list. --forward tolerates already-applied patches on rebuild.
+    # Add the patch command to the list. --forward + a no-op on failure matches
+    # Windows (`|| cd .`): already-applied hunks must not fail rebuild configure.
     if(CMAKE_HOST_WIN32)
       list(APPEND temp_list cmd /c "\"${PATCH_EXECUTABLE}\" -p1 --forward < \"${PATCH_FILE}\" || cd .")
     else()
-      list(APPEND temp_list "${PATCH_EXECUTABLE}" "-p1" "--forward" "<" "${PATCH_FILE}")
+      list(APPEND temp_list bash "-c" "\"${PATCH_EXECUTABLE}\" -p1 --forward < \"${PATCH_FILE}\" || true")
     endif()
   endforeach()
 

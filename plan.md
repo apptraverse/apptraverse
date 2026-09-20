@@ -754,6 +754,36 @@ each other is `std::lower_bound` behavior on that replica, not agreed order,
 and convergence for that case is not claimed. Do not silently solve it by
 adding a second sort key.
 
+## Permanent pair profile (A↔B dialog)
+
+Verified profile for AeroAdmin-style one-to-one chat. One `SharedNode` is one
+dialog between exactly two ReadWrite participants. After the first successful
+admission, the share topology is permanent for this profile: no remove, no
+access change, no third participant on the same node, no rejoin-after-remove.
+Those mechanisms may remain in the codebase for other ladders; this profile
+does not exercise them and does not require them to be finished.
+
+- Formation: A creates X with a local self-Share, then `OfferNode` to B. B's
+  policy accepts the expected dialog; B must not be pre-seeded with a copy of
+  X. After Bound, both replicas share the same protocol node and share ids.
+- Persistence of the relationship: Offline, app exit, window close, restart,
+  and long absence do not delete Shares or open a new join. Sync resumes the
+  same relationship from storage. Full local storage loss is out of scope.
+- Idempotent connect: repeating Offer/open for the same live peer returns the
+  existing operation; it does not create a second journal or Share.
+- Isolation: A↔C is a different SharedNode, not an extension of A↔B.
+- Application path: commit shared Events locally, call `Service()`; the
+  runtime owns phases, retries, and ACKs. Delivery ACK means the peer applied
+  and persisted the Event, not human read receipt.
+- Equal timestamps: journal physical order among equal `timestamp_us` stays
+  the open SharedEventOrder case. The permanent-pair oracle compares the set
+  of shared identities and an Observe sort key
+  `(timestamp_us, origin_uid, origin_sequence)` so both replicas can still
+  agree on message content without inventing a second distributed order key.
+
+Status: **in progress** via `apptraverse_permanent_pair_sync_test`. Not
+accepted-by-user.
+
 ---
 
 # Planned implementation ladder
