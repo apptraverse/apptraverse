@@ -1,3 +1,69 @@
+# Shared-node kernel defect fixes (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Verified base `7949b79cfe8bb6cd58a296d4997029c52518caf1` was not reverted. HEAD after this slice: `40c629477d9f342e7c1a148bce16f13de28ac66f`.
+
+## 1. Test UB (dangling ShareView / ObjPtr)
+
+Reproduction before fix: `FindEndpoint(SharesOf(...), ...)` stored pointers into a temporary vector; ASan/UBSan and `TestSenderRestartAfterAck` ObjPtr-across-`Stop`.
+
+Changed: `tests/shared_node_topology_test.cpp` (`std::optional<ShareView>`), `tests/shared_node_incremental_event_test.cpp` (drop ObjPtrs before `Stop`).
+
+Commits: `3ce2c06`, `dccba24`.
+
+After: ASan+UBSan build in `build-asan` (g++, `-fno-sanitize=vptr,null,nonnull-attribute`, no RTTI). Shared-node suite passed under sanitizers after the memory fixes; prior green results with dangling pointers were not trusted.
+
+## 2. Concurrent topology
+
+Rules recorded in `plan.md` (removal closes one lifetime; second admissible remove is a no-op; access on a closed share does not reopen; re-join gets a new `share_id`).
+
+Reproduction: A and B independently remove C; access change races remove.
+
+Changed: `SharedNode::CanApply` / `Apply` for Remove and ChangeShareAccess.
+
+Commit: `c5934cb`. Tests: `TestConcurrentIndependentRemoves`, `TestAccessChangeRacesRemove`.
+
+## 3. Remove delivery
+
+Reproduction: `ServiceRelays` resent every `Service` at the same `now`; ACK only in RAM; restart re-armed completed removes; `RegisterNode` path could transmit.
+
+Changed: keep `LinkSyncState` after remove; arm without `Send` on load/`RegisterNode`; `ServiceRelays(now_us)` with retry interval; Offline skips Send; Offline?Online arms closed slots; same pending bytes/packet id.
+
+Commit: `f1b7e1a`. Tests: rate-limit, offline/online, restart before/after ACK, lost ACK.
+
+## 4. Duplicate ACK authorization
+
+Reproduction: existing-event path ACKed before source/dest checks.
+
+Changed: `MayAcknowledgeDelivery` (live RW or historical dest ends here + known source). Stranger / wrong dest / wrong node get no ACK; legitimate remove retransmit still ACKs without restoring the share.
+
+Commit: `f1b7e1a`. Test: `TestDuplicateEventAckRequiresDeliveryContext`.
+
+## 5. Re-join after remove
+
+Reproduction: `OpenAttemptBlocks` / Offer/Request reused Complete/Bound forever.
+
+Changed: finished ops block only while their `share_id` is live; Admitted beats stale Bound in `FindImportAdmission`; existing node folds missing shared events from snapshot (`FoldMissingSharedFromSnapshot` + `FreezeTopologyPayload`).
+
+Commit: `7117bfd`. Tests: `TestRejoinAfterRemoveByOffer`, `TestRejoinAfterRemoveByRequest`.
+
+## 6. Public topology API
+
+Changed: `InstallLocalShare` / `CommitLocalRemoveShare` / `CommitLocalShareAccess` for local init; live path is `SharedSyncRuntime::{RemoveShare,ChangeShareAccess}` and admission `PublishShareAccess`.
+
+Commit: `d0c7304`. Documented in `plan.md`.
+
+## 7. Final checks
+
+- Chaos: multi-seed (`0x3c1e0919`, `0x3c1e0a21`, `0x3c1e0b37`) with per-replica Service clocks (`30260ed`).
+- `apptraverse_chat_demo_sync_test`: on base, `BindChat` failed because fixture `peer_uid` was `peer-b` while Link endpoint was `chat-b`. Fixture-only fix `f767ef1` (no production weakening). Now passes Debug/Release/ASan.
+- Debug `build`, Release `build-release` (`-O3 -DNDEBUG -fno-rtti`), ASan `build-asan`: all `apptraverse_shared_node_*` + `apptraverse_chat_demo_sync_test` passed. `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`. Checks use `CHECK`/`std::exit` (active under NDEBUG). Existing build dirs were not cleaned.
+
+## Not verified / not claimed ready
+
+Heartbeat, last-seen, real Æther presence, arbitrary dynamic object graphs, messenger/GUI product paths, mid-chaos remove+rejoin under heavy loss (covered instead by dedicated concurrent-remove and re-join tests). Not accepted-by-user.
+
 # Shared-node kernel limits (2026-09-20)
 
 Status: implemented / verified. Not accepted-by-user.
