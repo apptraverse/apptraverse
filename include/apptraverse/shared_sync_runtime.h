@@ -272,6 +272,12 @@ class SharedSyncRuntime {
   void RelayRemovedShare(SharedNode::ptr node, ae::ObjId share_id);
   void RelayAppliedRemovals(SharedNode::ptr node);
   void ServiceRelays(std::uint64_t now_us);
+  // Existing replica rejoining: fold missing shared journal events from a
+  // snapshot without replacing the local SharedNode graph.
+  bool FoldMissingSharedFromSnapshot(SharedNode::ptr node,
+                                     std::string const& source_endpoint,
+                                     NodeStateFrame const& frame,
+                                     ShareOffer::ptr admission);
   bool IsTopologyEventClass(std::uint32_t class_id) const;
   bool LocalShareAllowsWrite(SharedNode const& node) const;
   bool ApplyIncomingAddShare(SharedNode::ptr node,

@@ -1377,6 +1377,128 @@ void TestRemoveLostAckIsRecoverable() {
         trio.c.sync->FindNode(node_id)->shares.size());
 }
 
+bool RequestJoinedStyle(Replica& holder, Replica& peer, ae::ObjId operation,
+                        ae::ObjId node_id) {
+  return holder.sync->OfferPhase(operation) == ShareOfferPhase::Complete &&
+         peer.sync->OfferPhase(operation) == ShareOfferPhase::Bound &&
+         peer.sync->FindNode(node_id).is_valid();
+}
+
+void TestRejoinAfterRemoveByOffer() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  auto world = trio.world();
+  Pump(world, [&] { return Joined(trio.a, trio.b, to_b, node_id); }, 40);
+  auto const first_join = trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
+  auto const old_c =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+  CHECK(HasText(trio.c.sync->FindNode(node_id), "seed", kA, 1));
+  auto const records_before =
+      Observe(*AsTopo(trio.c.sync->FindNode(node_id))).size();
+
+  trio.a.sync->RemoveShare(node_id, old_c);
+  Pump(
+      world,
+      [&] {
+        return !FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)
+                    .has_value() &&
+               !FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC)
+                    .has_value();
+      },
+      80);
+
+  auto const again = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kC),
+      ShareAccess::ReadWrite);
+  CHECK(again != first_join);
+  CHECK(again != to_b);
+  Pump(
+      world,
+      [&] {
+        return Joined(trio.a, trio.c, again, node_id) &&
+               FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)
+                   .has_value() &&
+               FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC)
+                   .has_value();
+      },
+      80);
+  auto const new_c =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+  CHECK(new_c != old_c);
+  CHECK(FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC)->share_id ==
+        new_c);
+  CHECK(trio.a.sync->FindNode(node_id)->FindShareIndexForShare(old_c) >=
+        trio.a.sync->FindNode(node_id)->shares.size());
+  CHECK(HasText(trio.c.sync->FindNode(node_id), "seed", kA, 1));
+  CHECK(Observe(*AsTopo(trio.c.sync->FindNode(node_id))).size() >=
+        records_before);
+
+  AddRecord(*AsTopo(trio.c.sync->FindNode(node_id)), "after-rejoin", kC, 2);
+  Pump(
+      world,
+      [&] {
+        return HasText(trio.a.sync->FindNode(node_id), "after-rejoin", kC, 2) &&
+               HasText(trio.b.sync->FindNode(node_id), "after-rejoin", kC, 2);
+      },
+      80);
+}
+
+void TestRejoinAfterRemoveByRequest() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  auto world = trio.world();
+  Pump(world, [&] { return Joined(trio.a, trio.b, to_b, node_id); }, 40);
+  auto const first =
+      trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
+  auto const old_c =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+
+  trio.a.sync->RemoveShare(node_id, old_c);
+  Pump(
+      world,
+      [&] {
+        return !FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)
+                    .has_value() &&
+               !FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC)
+                    .has_value();
+      },
+      80);
+
+  auto const again =
+      trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadOnly);
+  CHECK(again != first);
+  Pump(
+      world,
+      [&] {
+        return RequestJoinedStyle(trio.a, trio.c, again, node_id) &&
+               FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)
+                   .has_value();
+      },
+      80);
+  auto const new_c =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+  CHECK(new_c != old_c);
+  auto on_c = FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC);
+  CHECK(on_c.has_value());
+  CHECK(on_c->share_id == new_c);
+  CHECK(on_c->access == ShareAccess::ReadOnly);
+  CHECK(HasText(trio.c.sync->FindNode(node_id), "seed", kA, 1));
+}
+
 void TestDuplicateEventAckRequiresDeliveryContext() {
   Trio trio;
   auto node = MakeNode(trio.a);
@@ -1601,6 +1723,8 @@ int main() {
   apptraverse::test::TestRemoveDeliverySurvivesRestartBeforeAck();
   apptraverse::test::TestRemoveDeliveryDoesNotResumeAfterAckedRestart();
   apptraverse::test::TestRemoveLostAckIsRecoverable();
+  apptraverse::test::TestRejoinAfterRemoveByOffer();
+  apptraverse::test::TestRejoinAfterRemoveByRequest();
   apptraverse::test::TestDuplicateEventAckRequiresDeliveryContext();
   apptraverse::test::TestDeterministicThreeReplicaChaos();
   std::cout << "shared_node_topology_test OK\n";

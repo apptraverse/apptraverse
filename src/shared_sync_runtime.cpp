@@ -1184,6 +1184,7 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
                                     NodeStateFrame const& frame) {
   auto node = FindNode(frame.target_node_id);
   bool const imported = !node.is_valid();
+  auto admission = FindImportAdmission(source_endpoint, frame.target_node_id);
   ae::ObjId source_share_id;
   if (imported) {
     auto imported_result = ImportValidatedNode(source_endpoint, frame);
@@ -1192,6 +1193,16 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
     }
     node = std::move(imported_result.node);
     source_share_id = imported_result.source_share_id;
+  } else if (admission.is_valid() &&
+             admission->GetPhase() == ShareOfferPhase::Admitted &&
+             node->FindShareIndexForShare(frame.destination_share_id) >=
+                 node->shares.size()) {
+// Re-join: local X already exists. Fold missing shared events; do not
+    // replace the node or wipe its history.
+    if (!FoldMissingSharedFromSnapshot(node, source_endpoint, frame,
+                                       admission)) {
+return;
+    }
   } else if (!AddressedToThisReplica(*node, transport_.local_endpoint_uid(),
                                      source_endpoint,
                                      frame.destination_share_id)) {
@@ -1230,10 +1241,13 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
   }
 
   if (state->received_initial_packet_id != frame.packet_id) {
-    if (state->received_initial_packet_id.is_valid() || !imported) {
+    if (state->received_initial_packet_id.is_valid() ||
+        (!imported &&
+         !(admission.is_valid() &&
+           admission->GetPhase() == ShareOfferPhase::Admitted))) {
       // A second, different initial snapshot is not part of protocol v1.
-      // For an already-existing node, reject a new initial packet; only accept
-      // a repeat of the already-recorded initial packet.
+      // Re-join under an open admission may record the new relationship's
+      // first packet after folding missing shared events.
       return;
     }
     state->NoteInitialSyncReceived(frame.packet_id);
@@ -1251,7 +1265,6 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
     RelayAppliedRemovals(node);
   }
 
-  auto admission = FindImportAdmission(source_endpoint, frame.target_node_id);
   bool const admission_needs_bind =
       admission.is_valid() &&
       admission->GetPhase() == ShareOfferPhase::Admitted;
@@ -1489,6 +1502,7 @@ ShareOffer::ptr SharedSyncRuntime::FindOfferByOperation(
 
 ShareOffer::ptr SharedSyncRuntime::FindImportAdmission(
     std::string const& source_endpoint, ae::ObjId node_id) const {
+  ShareOffer::ptr bound;
   for (auto const& live : offers_) {
     if (!live.offer.is_valid()) {
       continue;
@@ -1509,9 +1523,20 @@ ShareOffer::ptr SharedSyncRuntime::FindImportAdmission(
     if (!importer) {
       continue;
     }
-    return live.offer;
+    // An open Admitted attempt must win over a finished Bound of a closed
+    // relationship; otherwise re-join cannot fold into the existing node.
+    if (offer.GetPhase() == ShareOfferPhase::Admitted) {
+      return live.offer;
+    }
+    if (offer.GetPhase() == ShareOfferPhase::Bound && offer.share_id.is_valid()) {
+      auto node = FindNode(node_id);
+      if (node.is_valid() &&
+          node->FindShareIndexForShare(offer.share_id) < node->shares.size()) {
+        bound = live.offer;
+      }
+    }
   }
-  return ShareOffer::ptr{};
+  return bound;
 }
 
 bool SharedSyncRuntime::OpenAttemptBlocks(std::string const& remote_endpoint,
@@ -1526,6 +1551,20 @@ bool SharedSyncRuntime::OpenAttemptBlocks(std::string const& remote_endpoint,
     }
     if (offer.GetPhase() == ShareOfferPhase::Rejected ||
         offer.GetPhase() == ShareOfferPhase::Unset) {
+      continue;
+    }
+    // A finished operation blocks only while that relationship is still live.
+    // After remove, the same endpoint may open a new attempt with a new id.
+    if (offer.GetPhase() == ShareOfferPhase::Complete ||
+        offer.GetPhase() == ShareOfferPhase::Bound) {
+      if (!offer.share_id.is_valid()) {
+        continue;
+      }
+      auto node = FindNode(node_id);
+      if (node.is_valid() &&
+          node->FindShareIndexForShare(offer.share_id) < node->shares.size()) {
+        return true;
+      }
       continue;
     }
     return true;
@@ -1964,6 +2003,15 @@ ae::ObjId SharedSyncRuntime::OfferNode(SharedNode::ptr node, Link::ptr remote,
         offer.GetPhase() == ShareOfferPhase::Unset) {
       continue;
     }
+    if (offer.GetPhase() == ShareOfferPhase::Complete ||
+        offer.GetPhase() == ShareOfferPhase::Bound) {
+      // Finished grant: reuse only while that relationship share is still live.
+      if (offer.share_id.is_valid() &&
+          node->FindShareIndexForShare(offer.share_id) < node->shares.size()) {
+        return offer.operation_id;
+      }
+      continue;
+    }
     return offer.operation_id;
   }
 
@@ -2018,6 +2066,16 @@ ae::ObjId SharedSyncRuntime::RequestJoin(std::string remote_endpoint,
     }
     if (offer.GetPhase() == ShareOfferPhase::Rejected ||
         offer.GetPhase() == ShareOfferPhase::Unset) {
+      continue;
+    }
+    if (offer.GetPhase() == ShareOfferPhase::Complete ||
+        offer.GetPhase() == ShareOfferPhase::Bound) {
+      // Finished request: reuse only while that relationship share is still live.
+      auto node = FindNode(node_id);
+      if (node.is_valid() && offer.share_id.is_valid() &&
+          node->FindShareIndexForShare(offer.share_id) < node->shares.size()) {
+        return offer.operation_id;
+      }
       continue;
     }
     return offer.operation_id;
@@ -2606,6 +2664,157 @@ void SharedSyncRuntime::PublishRemoveShare(SharedNode::ptr node,
     entry.Save();
   }
   RelayRemovedShare(node, share_id);
+}
+
+bool SharedSyncRuntime::FoldMissingSharedFromSnapshot(
+    SharedNode::ptr node, std::string const& source_endpoint,
+    NodeStateFrame const& frame, ShareOffer::ptr admission) {
+  assert(node.is_valid() && node.is_loaded());
+  assert(admission.is_valid());
+  ae::RamDomainStorage parsed;
+  if (!DeserializeObjectGraph(frame.payload, parsed)) {
+    return false;
+  }
+  std::vector<StoredClassChainInfo> chains;
+  if (!ValidateStoredClassChains(parsed, &chains)) {
+    return false;
+  }
+  ae::Domain scratch_domain{parsed};
+  ae::DomainGraph scratch_graph{&scratch_domain};
+  auto candidate = scratch_graph.LoadRoot(frame.target_node_id);
+  if (!candidate) {
+    return false;
+  }
+  if (ae::Registry::GetRegistry().GenerationDistance(
+          SharedNode::kClassId, candidate->GetClassId()) < 0) {
+    return false;
+  }
+  auto& shared_candidate = static_cast<SharedNode&>(*candidate);
+  if (!SnapshotIsAdmissible(shared_candidate, transport_.local_endpoint_uid(),
+                            source_endpoint, frame.destination_share_id)) {
+    return false;
+  }
+  auto const dest_index =
+      shared_candidate.FindShareIndexForShare(frame.destination_share_id);
+  if (dest_index >= shared_candidate.shares.size() ||
+      shared_candidate.shares[dest_index].GetAccess() != admission->GetAccess()) {
+    return false;
+  }
+
+  struct Missing {
+    SharedEventId identity;
+    std::uint64_t timestamp_us{0};
+    std::uint32_t class_id{0};
+    Event::ptr event;
+  };
+  std::vector<Missing> missing;
+  for (auto const& record : shared_candidate.journal) {
+    if (!record.HasSharedIdentity() || !record.event.is_valid()) {
+      continue;
+    }
+    if (node->FindSharedEvent(record.identity) != nullptr) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (!event.is_loaded()) {
+      return false;
+    }
+    missing.push_back(Missing{.identity = record.identity,
+                              .timestamp_us = record.order.timestamp_us,
+                              .class_id = event->GetClassId(),
+                              .event = event});
+  }
+  std::sort(missing.begin(), missing.end(),
+            [](Missing const& a, Missing const& b) {
+              if (a.timestamp_us != b.timestamp_us) {
+                return a.timestamp_us < b.timestamp_us;
+              }
+              return a.identity.origin_sequence < b.identity.origin_sequence;
+            });
+
+  for (auto const& item : missing) {
+    std::vector<std::uint8_t> payload;
+    if (!FreezeTopologyPayload(*item.event, payload)) {
+      return false;
+    }
+    EventFrame const wire{
+        .packet_id = frame.packet_id,
+        .target_node_id = frame.target_node_id,
+        .destination_share_id = frame.destination_share_id,
+        .identity = item.identity,
+        .timestamp_us = item.timestamp_us,
+        .event_class_id = item.class_id,
+        .payload = std::move(payload),
+    };
+    if (item.class_id == AddShareEvent::kClassId) {
+      if (!ApplyIncomingAddShare(node, source_endpoint, wire)) {
+        return false;
+      }
+      continue;
+    }
+    if (!IsTopologyEventClass(item.class_id) &&
+        !IsStandaloneEventClassAllowed(item.class_id)) {
+    return false;
+    }
+    ae::RamDomainStorage event_parsed;
+    ae::ObjId wire_root_id;
+    if (!ParseEventPayload(wire.payload, event_parsed, wire_root_id)) {
+    return false;
+    }
+    if (!ValidateStandaloneEventGraph(event_parsed, wire_root_id,
+                                      item.class_id)) {
+    return false;
+    }
+    if (!PreflightHistoricalEventInsertion(*node, event_parsed, wire_root_id,
+                                           item.class_id, item.identity,
+                                           item.timestamp_us)) {
+return false;
+    }
+    auto local_event = ImportStandaloneEventGraph(
+        event_parsed, wire_root_id, item.class_id, domain_, storage_);
+    if (!local_event) {
+    return false;
+    }
+    auto local_event_ptr = Event::ptr::MakeFromThis(local_event.get());
+    node->InsertShared(std::move(local_event_ptr), item.identity,
+                       SharedEventOrder{.timestamp_us = item.timestamp_us});
+    if (item.class_id == RemoveShareEvent::kClassId) {
+      RelayRemovedShare(
+          node, static_cast<RemoveShareEvent const&>(*local_event).share_id);
+    }
+  }
+
+  if (node->FindShareIndexForShare(frame.destination_share_id) >=
+      node->shares.size()) {
+    return false;
+  }
+  auto const sync_index =
+      node->FindLinkSyncIndexForShare(frame.destination_share_id);
+  if (sync_index >= node->link_sync_states.size()) {
+    return false;
+  }
+  auto state = node->link_sync_states[sync_index];
+  if (!state.is_loaded()) {
+    state.Load();
+  }
+  std::vector<SharedEventId> covered_ids;
+  for (auto const& record : node->journal) {
+    if (record.HasSharedIdentity() && !record.identity.origin_uid.empty()) {
+      covered_ids.push_back(record.identity);
+    }
+  }
+  if (state->GetInitialSyncPhase() != InitialSyncPhase::Complete) {
+    state->CompleteFromReceivedSnapshot(std::move(covered_ids));
+  }
+  node.Save();
+  state.Save();
+  for (auto& entry : node->link_sync_states) {
+    entry.Save();
+  }
+  return true;
 }
 
 void SharedSyncRuntime::RelayRemovedShare(SharedNode::ptr node,
