@@ -696,6 +696,10 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
     constexpr auto kJoinRetryInterval = std::chrono::seconds(1);
     constexpr auto kJoinAttemptDeadline = std::chrono::seconds(30);
+    // Plain copies for lambda capture (GCC rejects constexpr locals in
+    // capture/init-capture of this block-scope lambda).
+    auto const join_retry_interval = kJoinRetryInterval;
+    auto const join_attempt_deadline = kJoinAttemptDeadline;
 
     auto const clear_join_scheduler = [&worker]() {
       worker->join_sched_attempt_id = {};
@@ -815,7 +819,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     auto const drive_join_send =
         [this, &worker, &runtime, &workspace, &aether_runtime, &aether_ready,
          &my_uid, &sync_runtime, &waiting_entry_by_endpoint,
-         &clear_join_scheduler](std::chrono::steady_clock::time_point now) {
+         &clear_join_scheduler, join_attempt_deadline, join_retry_interval](
+            std::chrono::steady_clock::time_point now) {
           AssertModelThread();
           if (!runtime.is_valid() || !aether_runtime ||
               workspace->demo_role != DemoRole::kClient) {
@@ -836,7 +841,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           }
           // One attempt budget covers Joining and Accepted until the room
           // is durably bound. Duplicate Accept does not restart the clock.
-          if (now - worker->join_attempt_start >= kJoinAttemptDeadline) {
+          if (now - worker->join_attempt_start >= join_attempt_deadline) {
             auto fail = JoinHostFailedEvent::ptr::Create(
                 ae::CreateWith{*runtime->domain});
             fail->attempt_id = runtime->join_attempt_id;
@@ -855,7 +860,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
             return;
           }
           if (worker->join_last_send.has_value() &&
-              now - *worker->join_last_send < kJoinRetryInterval) {
+              now - *worker->join_last_send < join_retry_interval) {
             return;
           }
           aether_runtime->OpenPeer(runtime->expected_host_uid);

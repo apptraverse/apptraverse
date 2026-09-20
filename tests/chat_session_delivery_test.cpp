@@ -51,6 +51,7 @@ using apptraverse::example::chat_demo::PeerPresence;
 using apptraverse::example::chat_demo::SessionLifecycleState;
 using apptraverse::example::chat_demo::test::FakeAetherFrameEndpoint;
 using apptraverse::example::chat_demo::test::FakeEndpointCoordinator;
+using apptraverse::SharedEventId;
 
 struct UiMirror {
   std::unique_ptr<ae::RamDomainStorage> storage =
@@ -499,23 +500,17 @@ void TestRestoreUnackedThenResume() {
   auto const state_b = pair.b.state_dir;
   StopSessionKeepState(pair.a);
   StopSessionKeepState(pair.b);
-
-  // Fresh coordinator without the drop budget.
   coordinator.RequestStop();
   coordinator.Join();
+
   apptraverse::MemoryNetwork network2;
   FakeEndpointCoordinator coordinator2{network2};
   coordinator2.Start();
 
-  pair.a = MakePeer(coordinator2, kUidA);
-  pair.a.state_dir = state_a;
-  pair.b = MakePeer(coordinator2, kUidB);
-  pair.b.state_dir = state_b;
-  pair.ui_a = {};
-  pair.ui_b = {};
-  auto fake_slot_a = pair.a.fake_slot;
-  auto fake_slot_b = pair.b.fake_slot;
-  pair.a.session = std::make_unique<ChatSession>(
+  PeerSession peer_a;
+  peer_a.state_dir = state_a;
+  auto fake_slot_a = peer_a.fake_slot;
+  peer_a.session = std::make_unique<ChatSession>(
       [&coordinator2, fake_slot_a]()
           -> std::unique_ptr<IAetherFrameEndpoint> {
         auto fake =
@@ -523,7 +518,10 @@ void TestRestoreUnackedThenResume() {
         *fake_slot_a = fake.get();
         return fake;
       });
-  pair.b.session = std::make_unique<ChatSession>(
+  PeerSession peer_b;
+  peer_b.state_dir = state_b;
+  auto fake_slot_b = peer_b.fake_slot;
+  peer_b.session = std::make_unique<ChatSession>(
       [&coordinator2, fake_slot_b]()
           -> std::unique_ptr<IAetherFrameEndpoint> {
         auto fake =
@@ -531,37 +529,40 @@ void TestRestoreUnackedThenResume() {
         *fake_slot_b = fake.get();
         return fake;
       });
-  CHECK(pair.a.session->Start(
+
+  UiMirror ui_a;
+  UiMirror ui_b;
+  CHECK(peer_a.session->Start(
       ChatSessionConfig{.state_dir = state_a, .role = DemoRole::kHost},
       [] {}));
-  CHECK(pair.b.session->Start(
+  CHECK(peer_b.session->Start(
       ChatSessionConfig{.state_dir = state_b, .role = DemoRole::kClient},
       [] {}));
-  WaitInitialPublication(*pair.a.session, pair.ui_a);
-  WaitInitialPublication(*pair.b.session, pair.ui_b);
-  WaitReady(*pair.a.session, kUidA);
-  WaitReady(*pair.b.session, kUidB);
-  WaitFake(pair.a);
-  WaitFake(pair.b);
-  BringOnline(pair.a.fake(), pair.b.fake());
+  WaitInitialPublication(*peer_a.session, ui_a);
+  WaitInitialPublication(*peer_b.session, ui_b);
+  WaitReady(*peer_a.session, kUidA);
+  WaitReady(*peer_b.session, kUidB);
+  WaitFake(peer_a);
+  WaitFake(peer_b);
+  BringOnline(peer_a.fake(), peer_b.fake());
 
   auto const resume =
       std::chrono::steady_clock::now() + std::chrono::seconds(20);
   while (std::chrono::steady_clock::now() < resume) {
-    ConsumePublications(*pair.a.session, pair.ui_a);
-    ConsumePublications(*pair.b.session, pair.ui_b);
-    if (MessageCount(pair.ui_b, kUidA) >= 1 &&
-        WaitDelivery(*pair.a.session, mid, MessageDeliveryState::kDelivered,
+    ConsumePublications(*peer_a.session, ui_a);
+    ConsumePublications(*peer_b.session, ui_b);
+    if (MessageCount(ui_b, kUidA) >= 1 &&
+        WaitDelivery(*peer_a.session, mid, MessageDeliveryState::kDelivered,
                      std::chrono::milliseconds(50))) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(30));
   }
-  CHECK(MessageCount(pair.ui_b, kUidA) >= 1);
-  CHECK(WaitDelivery(*pair.a.session, mid, MessageDeliveryState::kDelivered));
+  CHECK(MessageCount(ui_b, kUidA) >= 1);
+  CHECK(WaitDelivery(*peer_a.session, mid, MessageDeliveryState::kDelivered));
 
-  DestroyPeerState(pair.a);
-  DestroyPeerState(pair.b);
+  DestroyPeerState(peer_a);
+  DestroyPeerState(peer_b);
   coordinator2.RequestStop();
   coordinator2.Join();
   std::cout << "  restore-unacked: ok\n";
