@@ -52,9 +52,12 @@ class MemoryNetwork {
   void Reconnect(std::string const& from, std::string const& to);
   bool IsConnected(std::string const& from, std::string const& to) const;
 
-  // Reported outgoing availability. Independent of Disconnect: a direction
-  // can look Online while Enqueue still drops, or Offline while a queue
-  // still holds bytes. Missing entries are Unknown. Not serialized.
+  // Reported outgoing availability of one attached transport. Independent of
+  // Disconnect: a direction can look Online while Enqueue still drops, or
+  // Offline while a queue still holds bytes. The observation belongs to that
+  // transport instance. A new instance starts at Unknown. If the source
+  // endpoint is not attached, the value is not stored for a later instance.
+  // Missing entries are Unknown. Not serialized.
   // SetAvailability and Deliver run on the caller's context and invoke the
   // binding before returning. Notifies the source endpoint only when the
   // value changes.
@@ -72,7 +75,6 @@ class MemoryNetwork {
   std::map<std::string, MemoryTransport*> endpoints_;
   std::map<Direction, std::deque<std::vector<std::uint8_t>>> queues_;
   std::set<Direction> disconnected_;
-  std::map<Direction, EndpointAvailability> availability_;
 };
 
 // One replica's endpoint on a MemoryNetwork. It is attached for as long as it
@@ -104,6 +106,8 @@ class MemoryTransport final : public IByteTransport {
 
   void Deliver(std::string const& source_endpoint,
                std::vector<std::uint8_t> const& bytes);
+  void NoteAvailability(std::string const& endpoint,
+                        EndpointAvailability availability);
 
   MemoryNetwork& network_;
   std::string local_endpoint_uid_;
@@ -111,6 +115,7 @@ class MemoryTransport final : public IByteTransport {
   ReceiveFn receive_fn_{nullptr};
   void* availability_ctx_{nullptr};
   AvailabilityFn availability_fn_{nullptr};
+  std::map<std::string, EndpointAvailability> availability_;
 };
 
 }  // namespace apptraverse

@@ -1,3 +1,62 @@
+# Shared-node kernel limits (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user.
+
+Branch: `cursor/shared-node-join-3c1e`. Continues from `fea7444f789f0a4fd3064af829630d9743641af2`. Later commits were not reverted.
+
+HEAD at the start of this slice was `1dc05c4` after the compatible-Link import fix. The five existing `apptraverse_shared_node_*` targets were run before further edits and were not weakened.
+
+## Link reuse
+
+Reproducing test: `TestSharedLinkSequentialOffer` and `TestSharedLinkSimultaneousOffer` in `apptraverse_shared_node_join_test`. X and Y share one remote Link object. A second import used to be rejected on any ObjId collision.
+
+Fix: `1dc05c4` (`Reuse a compatible Link when importing another SharedNode.`). A compatible Link closure (identity, class, version, descriptor, base) is reused. An incompatible object with the same ObjId is rejected before the live graph is written. Other collisions still reject. The existing Link, its local state, and its journal are not overwritten. X and Y keep different `share_id` values and independent `LinkSyncState`.
+
+## Participant topology
+
+Reproducing test: `apptraverse_shared_node_topology_test`. A and B share X, C joins through A. `AddShare` / `RemoveShare` / `SetShareAccess` used ordinary `Commit`, so connected replicas never saw the change. `share_id` used to be the local event ObjId.
+
+Fix: `bc3c0b070e2966fe4b4a990fa69931b89eaa1411`. Those changes are shared events. `AddShareEvent` version 1 carries a protocol `share_id`. The incremental path transfers the Link descriptor for that event only. A removed endpoint is told by a runtime-only relay of the journal event; the share row is not kept just to finish the send. An already-applied packet is acknowledged and does not restore the share. After convergence, B and C exchange while A is down, then A receives the missed events. Simultaneous join, an event during join, a lost ACK, restart, access change, and removal are in the same target.
+
+## Availability delivery
+
+Reproducing test: `TestAvailabilityReachesRuntimeOnlyWhenDrained`. `AvailabilityThunk` called `OnAvailability` directly.
+
+Fix: `6bb8564dbcbb211d44218a7f1e57ccd476e63612`. `Availability()` on the transport is the only observation. The callback is a wake delivered by the adapter on the model context. `QueuedTransport` holds Receive and Availability until `Drain`. `ClearReceive` / `ClearAvailability` drop deferred calls, so destroying the runtime does not leave a live callback.
+
+## Stale availability
+
+Reproducing test: `TestSameNetworkRestartDropsAvailability`, plus the existing fresh-network Unknown check. `MemoryNetwork` kept availability after `Detach`, so a new transport with the same uid inherited Online.
+
+Fix: `37c0a3787d567cbe8a3c6db2378c61a9e0cb84fd`. The observation is on the `MemoryTransport` instance. `SetAvailability` with no attached source stores nothing. Disconnect and queues stay on the network. Initial-Offline tests set Offline after the new instance exists and before the operation. `TestDeterministicThreeReplicaChaos` runs 3000 steps from seed `0x3c1e0919` (events, loss, duplicates, reorder, availability, restarts), then restores delivery and checks convergence. After the queues are empty, further `Service` calls do not `Send`. The count is the transport `Send` counter.
+
+## Commands and results
+
+Debug, `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, checks active under the Debug build (`CHECK` uses `std::exit`):
+
+```
+cmake --build build -j
+ctest --test-dir build --output-on-failure -j
+```
+
+26 of 27 passed. Shared-node targets passed, including `apptraverse_shared_node_topology_test` (4.62s).
+
+Release, `-O3 -DNDEBUG -std=c++20 -fno-rtti` (from `build-release/build.ninja`):
+
+```
+cmake -S . -B build-release -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release -j
+ctest --test-dir build-release --output-on-failure -j
+```
+
+26 of 27 passed. `apptraverse_shared_node_topology_test` passed in 0.38s. `CHECK` still exits under `NDEBUG`. RTTI was not enabled.
+
+The one failure in both configurations is `apptraverse_chat_demo_sync_test`: `SubmitDraft` returns an empty id because `BindChat` returns false (`peer_uid` `peer-b` is not link endpoint `chat-b`). That test and `chat_commands.cpp` are unchanged since `fea7444`. It is not a regression of this slice.
+
+## Not verified
+
+Heartbeat, last-seen, real Æther presence, arbitrary dynamic object graphs, and chat/GUI product behavior. No application was started. Not accepted-by-user.
+
 # Endpoint availability (2026-09-19)
 
 Status: implemented / verified. Not accepted-by-user.

@@ -110,35 +110,20 @@ bool MemoryNetwork::IsConnected(std::string const& from,
 void MemoryNetwork::SetAvailability(std::string const& from,
                                     std::string const& to,
                                     EndpointAvailability availability) {
-  auto const key = Direction{from, to};
-  auto const it = availability_.find(key);
-  if (it != availability_.end()) {
-    if (it->second == availability) {
-      return;
-    }
-    it->second = availability;
-  } else if (availability == EndpointAvailability::Unknown) {
-    return;
-  } else {
-    availability_.emplace(key, availability);
-  }
-
   auto const endpoint = endpoints_.find(from);
-  if (endpoint == endpoints_.end() ||
-      endpoint->second->availability_fn_ == nullptr) {
+  if (endpoint == endpoints_.end()) {
     return;
   }
-  auto* transport = endpoint->second;
-  transport->availability_fn_(transport->availability_ctx_, to, availability);
+  endpoint->second->NoteAvailability(to, availability);
 }
 
 EndpointAvailability MemoryNetwork::Availability(std::string const& from,
                                                  std::string const& to) const {
-  auto const it = availability_.find(Direction{from, to});
-  if (it == availability_.end()) {
+  auto const endpoint = endpoints_.find(from);
+  if (endpoint == endpoints_.end()) {
     return EndpointAvailability::Unknown;
   }
-  return it->second;
+  return endpoint->second->Availability(to);
 }
 
 void MemoryNetwork::Attach(MemoryTransport& transport) {
@@ -188,7 +173,30 @@ void MemoryTransport::ClearReceive() {
 
 EndpointAvailability MemoryTransport::Availability(
     std::string const& endpoint) const {
-  return network_.Availability(local_endpoint_uid_, endpoint);
+  auto const it = availability_.find(endpoint);
+  if (it == availability_.end()) {
+    return EndpointAvailability::Unknown;
+  }
+  return it->second;
+}
+
+void MemoryTransport::NoteAvailability(std::string const& endpoint,
+                                       EndpointAvailability availability) {
+  auto const it = availability_.find(endpoint);
+  if (it != availability_.end()) {
+    if (it->second == availability) {
+      return;
+    }
+    it->second = availability;
+  } else if (availability == EndpointAvailability::Unknown) {
+    return;
+  } else {
+    availability_.emplace(endpoint, availability);
+  }
+  if (availability_fn_ == nullptr) {
+    return;
+  }
+  availability_fn_(availability_ctx_, endpoint, availability);
 }
 
 void MemoryTransport::BindAvailability(void* ctx, AvailabilityFn fn) {

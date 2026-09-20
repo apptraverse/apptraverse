@@ -552,9 +552,9 @@ void TestInitialOfflineOffer() {
   MemoryNetwork network;
   Replica holder(network, kA);
   Replica peer(network, kB);
-  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
   holder.Start(false);
   peer.Start(true);
+  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
   auto node = MakeRecord(holder, "offer-seed", kSecret);
   auto const node_id = node.id();
   auto remote = holder.MakeLink(kB);
@@ -593,9 +593,9 @@ void TestInitialOfflineRequest() {
   MemoryNetwork network;
   Replica holder(network, kA);
   Replica requester(network, kB);
-  network.SetAvailability(kB, kA, EndpointAvailability::Offline);
   holder.Start(true);
   requester.Start(false);
+  network.SetAvailability(kB, kA, EndpointAvailability::Offline);
   auto node = MakeRecord(holder, "request-seed", kSecret);
   auto const node_id = node.id();
   auto const op =
@@ -1155,8 +1155,8 @@ void TestRestartContinuesSavedExchange() {
   node = {};
   holder.Stop();
   network.ClearQueues();
-  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
   holder.Start(false);
+  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
   CHECK(holder.sync->FindNode(node_id).is_valid());
   CHECK(holder.sync->OfferPhase(op) == ShareOfferPhase::Accepted);
   holder.sync->Service(g_now);
@@ -1186,8 +1186,8 @@ void TestRestartContinuesSavedExchange() {
   concrete = {};
   holder.Stop();
   network.ClearQueues();
-  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
   holder.Start(false);
+  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
   holder.sync->Service(g_now);
   CHECK(holder.sends() == 0);
   CHECK(network.PendingCount(kA, kB) == 0);
@@ -1268,6 +1268,66 @@ void TestNoExtraTraffic() {
   CHECK(holder.sends() == holder_sends);
   CHECK(peer.sends() == peer_sends);
   CHECK(holder.sync->OfferStatuses().size() == offers_before);
+}
+
+void TestSameNetworkRestartDropsAvailability() {
+  g_now = 0;
+  MemoryNetwork network;
+  Replica holder(network, kA);
+  Replica peer(network, kB);
+  holder.Start(false);
+  peer.Start(true);
+  network.SetAvailability(kA, kB, EndpointAvailability::Online);
+  network.SetAvailability(kB, kA, EndpointAvailability::Online);
+
+  auto node = MakeRecord(holder, "keep-seed", kSecret);
+  auto const node_id = node.id();
+  auto remote = holder.MakeLink(kB);
+  auto const op =
+      holder.sync->OfferNode(node, remote, ShareAccess::ReadWrite);
+  World world{&network, {&holder, &peer}};
+  Pump(world, [&] {
+    return holder.sync->OfferPhase(op) == ShareOfferPhase::Complete &&
+           peer.sync->FindNode(node_id).is_valid() &&
+           peer.sync->OfferPhase(op) == ShareOfferPhase::Bound;
+  });
+  ExpectPayload(peer.sync->FindNode(node_id), "keep-seed", kA, 1);
+  CHECK(holder.transport->Availability(kB) == EndpointAvailability::Online);
+  CHECK(peer.transport->Availability(kA) == EndpointAvailability::Online);
+
+  network.Disconnect(kB, kA);
+  node = {};
+  remote = {};
+  holder.Stop();
+  holder.Start(false);
+  CHECK(holder.transport->Availability(kB) == EndpointAvailability::Unknown);
+  CHECK(network.Availability(kA, kB) == EndpointAvailability::Unknown);
+  CHECK(peer.transport->Availability(kA) == EndpointAvailability::Online);
+  CHECK(!network.IsConnected(kB, kA));
+  CHECK(network.IsConnected(kA, kB));
+
+  network.Reconnect(kB, kA);
+  network.SetAvailability(kA, kB, EndpointAvailability::Online);
+  CHECK(holder.transport->Availability(kB) == EndpointAvailability::Online);
+  CHECK(holder.sync->FindNode(node_id).is_valid());
+
+  auto concrete = AsRecord(holder.sync->FindNode(node_id));
+  AddRecord(*concrete, "after-new-observation", kA, 2, 7000);
+  concrete = {};
+  Pump(world, [&] {
+    auto peer_node = peer.sync->FindNode(node_id);
+    if (!peer_node.is_valid()) {
+      return false;
+    }
+    for (auto const& text : AsRecord(peer_node)->records) {
+      if (text == "after-new-observation") {
+        return true;
+      }
+    }
+    return false;
+  });
+  ExpectPayload(peer.sync->FindNode(node_id), "after-new-observation", kA, 2);
+  ExpectPayload(holder.sync->FindNode(node_id), "keep-seed", kA, 1);
 }
 
 void TestAvailabilityReachesRuntimeOnlyWhenDrained() {
@@ -1374,6 +1434,7 @@ int main() {
   apptraverse::test::TestRepeatedOnlineDoesNotBypassRetry();
   apptraverse::test::TestRestartContinuesSavedExchange();
   apptraverse::test::TestNoExtraTraffic();
+  apptraverse::test::TestSameNetworkRestartDropsAvailability();
   apptraverse::test::TestAvailabilityReachesRuntimeOnlyWhenDrained();
   return 0;
 }

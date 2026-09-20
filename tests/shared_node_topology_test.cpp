@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -133,6 +134,36 @@ MemoryLink::ptr MakeLink(ae::Domain& domain, std::string endpoint) {
   return link;
 }
 
+class SendCounter final : public IByteTransport {
+ public:
+  SendCounter(MemoryTransport& inner, std::uint64_t& sends)
+      : inner_{inner}, sends_{sends} {}
+
+  std::string const& local_endpoint_uid() const override {
+    return inner_.local_endpoint_uid();
+  }
+  void Send(std::string const& destination_endpoint,
+            std::vector<std::uint8_t> bytes) override {
+    ++sends_;
+    inner_.Send(destination_endpoint, std::move(bytes));
+  }
+  void BindReceive(void* ctx, ReceiveFn fn) override {
+    inner_.BindReceive(ctx, fn);
+  }
+  void ClearReceive() override { inner_.ClearReceive(); }
+  EndpointAvailability Availability(std::string const& endpoint) const override {
+    return inner_.Availability(endpoint);
+  }
+  void BindAvailability(void* ctx, AvailabilityFn fn) override {
+    inner_.BindAvailability(ctx, fn);
+  }
+  void ClearAvailability() override { inner_.ClearAvailability(); }
+
+ private:
+  MemoryTransport& inner_;
+  std::uint64_t& sends_;
+};
+
 struct Replica {
   Replica(MemoryNetwork& network, std::string endpoint)
       : storage{}, network_{network}, endpoint_{std::move(endpoint)} {}
@@ -140,7 +171,8 @@ struct Replica {
   void Start() {
     domain = std::make_unique<ae::Domain>(storage);
     transport = std::make_unique<MemoryTransport>(network_, endpoint_);
-    sync = std::make_unique<SharedSyncRuntime>(*domain, storage, *transport);
+    counter = std::make_unique<SendCounter>(*transport, sends);
+    sync = std::make_unique<SharedSyncRuntime>(*domain, storage, *counter);
     sync->AllowStandaloneEventClass(AddTopoEvent::kClassId);
     sync->SetShareOfferPolicy(AcceptAll);
     sync->SetLinkForEndpoint([this](std::string const& endpoint) {
@@ -152,6 +184,7 @@ struct Replica {
 
   void Stop() {
     sync.reset();
+    counter.reset();
     transport.reset();
     domain.reset();
   }
@@ -161,7 +194,9 @@ struct Replica {
   ae::RamDomainStorage storage;
   std::unique_ptr<ae::Domain> domain;
   std::unique_ptr<MemoryTransport> transport;
+  std::unique_ptr<SendCounter> counter;
   std::unique_ptr<SharedSyncRuntime> sync;
+  std::uint64_t sends{0};
 
  private:
   MemoryNetwork& network_;
@@ -916,6 +951,138 @@ void TestRemoveShareIsNotRestored() {
   CHECK(!HasText(trio.b.sync->FindNode(node_id), "after-remove", kC, 1));
 }
 
+void TestDeterministicThreeReplicaChaos() {
+  constexpr std::uint32_t kSeed = 0x3c1e0919u;
+  constexpr int kSteps = 3000;
+  std::mt19937 rng{kSeed};
+
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  auto world = trio.world();
+  Pump(world, [&] { return Joined(trio.a, trio.b, to_b, node_id); }, 40);
+  trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
+
+  Replica* reps[3] = {&trio.a, &trio.b, &trio.c};
+  std::string const ids[3] = {kA, kB, kC};
+  std::uint64_t seq[3] = {2, 1, 1};
+  int written = 0;
+  auto service_all = [&](std::uint64_t now) {
+    for (auto* replica : reps) {
+      replica->sync->Service(now);
+    }
+  };
+  auto queued = [&] {
+    for (int from = 0; from < 3; ++from) {
+      for (int to = 0; to < 3; ++to) {
+        if (from != to &&
+            trio.network.PendingCount(ids[from], ids[to]) != 0) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  for (int step = 0; step < kSteps; ++step) {
+    auto const roll = rng() % 100;
+    auto const i = static_cast<int>(rng() % 3);
+    auto const j = static_cast<int>(rng() % 3);
+    // Network faults on every step. Events and restarts are on a fixed
+    // stride: each commit replays the journal, so an event on most steps
+    // would make the scenario unbounded.
+    if (i != j) {
+      switch (roll % 5) {
+        case 0:
+          trio.network.DeliverNext(ids[i], ids[j]);
+          break;
+        case 1:
+          trio.network.DropNext(ids[i], ids[j]);
+          break;
+        case 2:
+          trio.network.DuplicateNext(ids[i], ids[j]);
+          break;
+        case 3:
+          trio.network.DeferNext(ids[i], ids[j]);
+          break;
+        default:
+          trio.network.SetAvailability(
+              ids[i], ids[j],
+              (roll % 2) == 0 ? EndpointAvailability::Offline
+                              : EndpointAvailability::Online);
+          break;
+      }
+    }
+    if ((step % 40) == 0) {
+      auto live = reps[i]->sync->FindNode(node_id);
+      if (live.is_valid()) {
+        AddRecord(*AsTopo(live), "c" + std::to_string(written), ids[i],
+                  seq[i]++);
+        ++written;
+      }
+    }
+    if ((step % 400) == 399) {
+      reps[i]->Stop();
+      reps[i]->Start();
+    }
+    if ((step % 80) == 0) {
+      service_all(static_cast<std::uint64_t>(step) *
+                  kShareOfferRetryIntervalUs);
+    }
+  }
+
+  for (int from = 0; from < 3; ++from) {
+    for (int to = 0; to < 3; ++to) {
+      if (from == to) {
+        continue;
+      }
+      trio.network.Reconnect(ids[from], ids[to]);
+      trio.network.SetAvailability(ids[from], ids[to],
+                                   EndpointAvailability::Online);
+    }
+  }
+
+  std::uint64_t now = static_cast<std::uint64_t>(kSteps) *
+                      kShareOfferRetryIntervalUs;
+  auto drain = [&] {
+    for (int n = 0; n < 50000; ++n) {
+      if (!DeliverRound(world, nullptr)) {
+        return;
+      }
+    }
+  };
+  bool settled = false;
+  for (int step = 0; step < 600; ++step) {
+    drain();
+    now += kShareOfferRetryIntervalUs;
+    auto const sends = trio.a.sends + trio.b.sends + trio.c.sends;
+    service_all(now);
+    if (!queued() &&
+        trio.a.sends + trio.b.sends + trio.c.sends == sends &&
+        ThreeWay(trio, node_id)) {
+      settled = true;
+      break;
+    }
+  }
+  CHECK(settled);
+  CHECK(ThreeWay(trio, node_id));
+  CHECK(written > 0);
+
+  auto const sends = trio.a.sends + trio.b.sends + trio.c.sends;
+  for (int step = 0; step < 40; ++step) {
+    now += kShareOfferRetryIntervalUs;
+    service_all(now);
+  }
+  CHECK(trio.a.sends + trio.b.sends + trio.c.sends == sends);
+  CHECK(!queued());
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -929,6 +1096,7 @@ int main() {
   apptraverse::test::TestRestartKeepsShareIdentity();
   apptraverse::test::TestAccessChangePropagates();
   apptraverse::test::TestRemoveShareIsNotRestored();
+  apptraverse::test::TestDeterministicThreeReplicaChaos();
   std::cout << "shared_node_topology_test OK\n";
   return 0;
 }
