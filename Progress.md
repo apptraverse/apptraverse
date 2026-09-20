@@ -110,7 +110,7 @@ cmake --build build-asan-clean    -j$(nproc) && ctest --test-dir build-asan-clea
 |---|---|---|
 | Debug (`build-debug-clean`) | ? | full suite 27/27 passed, stand EXIT=0 |
 | Release (`build-release-clean`) | `-O3 -DNDEBUG -fno-rtti` | full suite 27/27 passed, stand EXIT=0 |
-| ASan+UBSan (`build-asan-clean`) | `-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute` | core subset passed, stand EXIT=0 |
+| ASan+UBSan (`build-asan-clean`) | `-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute` | core subset 8/8 passed (`permanent_pair` 745 s), stand EXIT=0 |
 
 Checks are `std::cerr` + `std::exit(1)`, not `assert`: they hold under NDEBUG
 (verified by the Release run, which exercises the same assertions).
