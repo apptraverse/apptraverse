@@ -567,11 +567,22 @@ Replicas that exchange both events converge on the same shared identities
 and the same materialized shares and access. Discarding a second concurrent
 event only because it arrived later is forbidden when that would make the
 result depend on delivery order. Equal `timestamp_us` across sources stays
-an open ordering case.
+an open ordering case for journal position, but both events must still be
+admitted and delivered to the closed participant.
+
+A new `RemoveShare` aimed at a lifetime that is already closed here is
+accepted when: the payload `share_id` matches `destination_share_id`, that
+relationship was introduced and ended at this endpoint, and the transport
+source is a live ReadWrite participant (a relay may differ from the shared
+author). Duplicate ACK of an already-applied event stays on
+`MayAcknowledgeDelivery`. Access changes and application events do not use
+the concurrent-close path. Each undelivered close for the lifetime is armed
+in turn until acknowledged.
 
 Status: **implemented / verified** by concurrent remove and access-race
-tests in `apptraverse_shared_node_topology_test`. Equal `timestamp_us`
-across sources stays an open ordering case.
+tests in `apptraverse_shared_node_topology_test`, including delivery of both
+independent closes to the closed peer. Equal `timestamp_us` across sources
+stays an open ordering case for journal position.
 
 ## Cancel pending vs confirmed delivery
 
