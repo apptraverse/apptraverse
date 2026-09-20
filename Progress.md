@@ -2,7 +2,7 @@
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
 
-Branch: `cursor/shared-node-join-3c1e`. Verified base `7949b79cfe8bb6cd58a296d4997029c52518caf1` was not reverted. HEAD after this slice: `40c629477d9f342e7c1a148bce16f13de28ac66f`.
+Branch: `cursor/shared-node-join-3c1e`. Verified base `7949b79cfe8bb6cd58a296d4997029c52518caf1` was not reverted. HEAD after this slice: `8a10b4a6af916ed47c096d20d1852a59d422b08f`.
 
 ## 1. Test UB (dangling ShareView / ObjPtr)
 
