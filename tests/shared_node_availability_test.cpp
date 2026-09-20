@@ -303,7 +303,9 @@ std::vector<Seen> Observe(AvailRecordNode const& node) {
     if (!event.is_loaded()) {
       event.Load();
     }
-    CHECK(event->GetClassId() == AddAvailRecordEvent::kClassId);
+    if (event->GetClassId() != AddAvailRecordEvent::kClassId) {
+      continue;
+    }
     AddAvailRecordEvent::ptr concrete = event;
     CHECK(concrete.is_loaded());
     out.push_back(Seen{.id = record.identity,

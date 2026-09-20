@@ -123,6 +123,9 @@ bool PeekSyncFrameType(std::vector<std::uint8_t> const& bytes,
     case static_cast<std::uint8_t>(SyncFrameType::kShareRequest):
       out = SyncFrameType::kShareRequest;
       return true;
+    case static_cast<std::uint8_t>(SyncFrameType::kShareCatchUp):
+      out = SyncFrameType::kShareCatchUp;
+      return true;
     default:
       return false;
   }
@@ -322,6 +325,49 @@ bool DecodeShareDecisionFrame(std::vector<std::uint8_t> const& bytes,
   }
   out.accepted = accepted == 1;
   return true;
+}
+
+std::vector<std::uint8_t> EncodeShareCatchUpFrame(
+    ShareCatchUpFrame const& frame) {
+  std::vector<std::uint8_t> out;
+  AppendHeader(out, SyncFrameType::kShareCatchUp);
+  AppendObjId(out, frame.packet_id);
+  AppendObjId(out, frame.target_node_id);
+  AppendObjId(out, frame.destination_share_id);
+  AppendU32(out, static_cast<std::uint32_t>(frame.have.size()));
+  for (auto const& identity : frame.have) {
+    AppendU32(out, static_cast<std::uint32_t>(identity.origin_uid.size()));
+    out.insert(out.end(), identity.origin_uid.begin(), identity.origin_uid.end());
+    AppendU64(out, identity.origin_sequence);
+  }
+  return out;
+}
+
+bool DecodeShareCatchUpFrame(std::vector<std::uint8_t> const& bytes,
+                             ShareCatchUpFrame& out) {
+  std::size_t pos = 0;
+  if (!ReadHeader(bytes, SyncFrameType::kShareCatchUp, pos)) {
+    return false;
+  }
+  std::uint32_t count = 0;
+  if (!ReadObjId(bytes, pos, out.packet_id) ||
+      !ReadObjId(bytes, pos, out.target_node_id) ||
+      !ReadObjId(bytes, pos, out.destination_share_id) ||
+      !ReadU32(bytes, pos, count) || count > 100000U) {
+    return false;
+  }
+  out.have.clear();
+  out.have.reserve(count);
+  for (std::uint32_t i = 0; i < count; ++i) {
+    SharedEventId identity;
+    if (!ReadBoundedBytes(bytes, pos, kMaxOriginUidBytes, identity.origin_uid) ||
+        !ReadU64(bytes, pos, identity.origin_sequence) ||
+        identity.origin_sequence == 0) {
+      return false;
+    }
+    out.have.push_back(std::move(identity));
+  }
+  return pos == bytes.size();
 }
 
 }  // namespace apptraverse

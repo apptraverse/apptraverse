@@ -14,6 +14,7 @@ APPTRAVERSE_REGISTER(BeginInitialSyncEvent);
 APPTRAVERSE_REGISTER(CompleteInitialSyncEvent);
 APPTRAVERSE_REGISTER(NoteInitialSyncReceivedEvent);
 APPTRAVERSE_REGISTER(CompleteFromReceivedSnapshotEvent);
+APPTRAVERSE_REGISTER(NotePeerDeliveredEvent);
 APPTRAVERSE_REGISTER(BeginIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(CompleteIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(SharedNode);
@@ -90,6 +91,22 @@ void LinkSyncState::CompleteFromReceivedSnapshot(
   Commit(event);
 }
 
+void LinkSyncState::NotePeerDelivered(std::vector<SharedEventId> delivered) {
+  bool any_new = false;
+  for (auto const& identity : delivered) {
+    if (!identity.origin_uid.empty() && !HasDelivered(identity)) {
+      any_new = true;
+      break;
+    }
+  }
+  if (!any_new) {
+    return;
+  }
+  auto event = NotePeerDeliveredEvent::ptr::Create(ae::CreateWith{*domain});
+  event->delivered_event_ids = std::move(delivered);
+  Commit(event);
+}
+
 bool LinkSyncState::CanApply(
     CompleteFromReceivedSnapshotEvent const& event) const {
   (void)event;
@@ -107,6 +124,15 @@ void LinkSyncState::Apply(CompleteFromReceivedSnapshotEvent const& event) {
   pending_initial_packet_id = ae::ObjId{};
   pending_initial_packet.clear();
   pending_initial_covered_event_ids.clear();
+  NoteMaterializedChange();
+}
+
+void LinkSyncState::Apply(NotePeerDeliveredEvent const& event) {
+  for (auto const& identity : event.delivered_event_ids) {
+    if (!identity.origin_uid.empty() && !HasDelivered(identity)) {
+      delivered_event_ids.push_back(identity);
+    }
+  }
   NoteMaterializedChange();
 }
 
@@ -205,6 +231,9 @@ void SharedNode::AddShare(Link::ptr link, ShareAccess access) {
   auto event = AddShareEvent::ptr::Create(ae::CreateWith{*domain});
   event->link = std::move(link);
   event->access = static_cast<std::uint8_t>(access);
+  // Protocol identity. A later import must keep this value rather than the
+  // receiver-local event object id.
+  event->share_id = event.id();
   Commit(event);
 }
 
@@ -234,10 +263,8 @@ void SharedNode::SetShareAccess(Link::ptr link, ShareAccess access) {
 
 void SharedNode::Apply(AddShareEvent const& event) {
   assert(event.link.is_valid());
-  // Relationship identity is the AddShareEvent identity: unique per Commit and
-  // stable across Save/Load, journal replay, and network graph copy.
-  auto const share_id = event.obj_id;
-  assert(share_id.is_valid());
+  assert(event.share_id.is_valid());
+  auto const share_id = event.share_id;
   assert(FindShareIndexForShare(share_id) == shares.size());
   assert(FindShareIndex(event.link.id()) == shares.size() &&
          "AddShare Apply requires the Link to be unshared");

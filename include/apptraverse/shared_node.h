@@ -23,9 +23,11 @@ enum class ShareAccess : std::uint8_t {
   ReadOnly = 1,
 };
 
-// One lifetime of SharedNode <-> Link. share_id is the relationship identity:
-// the ObjId of the AddShareEvent that opened it, so remove + re-add over the
-// same Link yields a different relationship. Shared topology state.
+// One lifetime of SharedNode <-> Link. share_id is the relationship identity
+// carried on AddShareEvent. A local commit uses that event's ObjId. A network
+// import keeps the same id even when the receiver allocates a new event
+// object, so remove + re-add over the same Link is still a new relationship.
+// Shared topology state.
 struct Share {
   ae::ObjId share_id;
   Link::ptr link;
@@ -54,6 +56,7 @@ class BeginInitialSyncEvent;
 class CompleteInitialSyncEvent;
 class NoteInitialSyncReceivedEvent;
 class CompleteFromReceivedSnapshotEvent;
+class NotePeerDeliveredEvent;
 class BeginIncrementalEventSyncEvent;
 class CompleteIncrementalEventSyncEvent;
 
@@ -146,6 +149,9 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void CompleteInitialSync();
   void NoteInitialSyncReceived(ae::ObjId packet_id);
   void CompleteFromReceivedSnapshot(std::vector<SharedEventId> delivered);
+  // Append identities the peer already has. Does not change phase: Complete
+  // still requires an acknowledgement of this replica's own catch-up.
+  void NotePeerDelivered(std::vector<SharedEventId> delivered);
   void BeginIncrementalEvent(SharedEventId identity,
                              std::vector<std::uint8_t> packet);
   void CompleteIncrementalEvent();
@@ -161,6 +167,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void Apply(NoteInitialSyncReceivedEvent const& event);
   bool CanApply(CompleteFromReceivedSnapshotEvent const& event) const;
   void Apply(CompleteFromReceivedSnapshotEvent const& event);
+  void Apply(NotePeerDeliveredEvent const& event);
   void Apply(BeginIncrementalEventSyncEvent const& event);
   void Apply(CompleteIncrementalEventSyncEvent const& event);
 };
@@ -242,6 +249,33 @@ class CompleteFromReceivedSnapshotEvent
  public:
   explicit CompleteFromReceivedSnapshotEvent(ae::ObjProp prop)
       : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(delivered_event_ids))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, delivered_event_ids);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, delivered_event_ids);
+  }
+
+  std::vector<SharedEventId> delivered_event_ids;
+};
+
+// Local only: the peer's catch-up listed events it already has. Not a phase
+// change and not a shared Event.
+class NotePeerDeliveredEvent
+    : public EventFor<LinkSyncState, NotePeerDeliveredEvent> {
+  APPTRAVERSE_OBJECT(NotePeerDeliveredEvent, Event, 0)
+
+ protected:
+  NotePeerDeliveredEvent() = default;
+
+ public:
+  explicit NotePeerDeliveredEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(delivered_event_ids))
 
@@ -360,7 +394,7 @@ class SharedNode : public NodeFor<SharedNode> {
 };
 
 class AddShareEvent : public EventFor<SharedNode, AddShareEvent> {
-  APPTRAVERSE_OBJECT(AddShareEvent, Event, 0)
+  APPTRAVERSE_OBJECT(AddShareEvent, Event, 1)
 
  protected:
   AddShareEvent() = default;
@@ -368,11 +402,31 @@ class AddShareEvent : public EventFor<SharedNode, AddShareEvent> {
  public:
   explicit AddShareEvent(ae::ObjProp prop) : EventFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(link), AE_MMBR(access))
+  AE_OBJECT_REFLECT(AE_MMBR(link), AE_MMBR(access), AE_MMBR(share_id))
+
+  // v0 journals predate the protocol field. Their relationship id is the
+  // event object itself. v1 carries share_id so a receiver can remap the
+  // event object without minting a new relationship.
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, link, access);
+    share_id = obj_id;
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, link, access, share_id);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, link, access, share_id);
+  }
 
   Link::ptr link;
   std::uint8_t access{
       static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
+  ae::ObjId share_id;
 };
 
 // Names the Share relationship being closed, not the transport endpoint: the

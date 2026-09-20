@@ -11,9 +11,10 @@
 
 namespace apptraverse {
 
-// Shared synchronization protocol v1: admission, initial state, standalone Event.
-// Dynamic object graphs and presence are later. Admission frames carry no
-// source identity; the transport reports who sent the bytes.
+// Shared synchronization protocol v1: admission, initial state, catch-up,
+// standalone Event, and topology Events. Catch-up agrees a relationship
+// between replicas that already hold the node. It is not a second snapshot.
+// Dynamic object graphs beyond that topology and presence are later.
 inline constexpr std::uint8_t kSyncProtocolVersion = 1;
 
 enum class SyncFrameType : std::uint8_t {
@@ -23,6 +24,9 @@ enum class SyncFrameType : std::uint8_t {
   kShareOffer = 4,
   kShareDecision = 5,
   kShareRequest = 6,
+  // Events this sender already has, for a relationship that is not driven by
+  // a NodeState snapshot. Both sides already hold the node.
+  kShareCatchUp = 7,
 };
 
 // Initial state of one SharedNode for one Share relationship.
@@ -105,6 +109,22 @@ std::vector<std::uint8_t> EncodeShareDecisionFrame(
     ShareDecisionFrame const& frame);
 bool DecodeShareDecisionFrame(std::vector<std::uint8_t> const& bytes,
                               ShareDecisionFrame& out);
+
+// Lists SharedEventIds the sender already applied. The receiver marks them
+// delivered on its outgoing sync toward the sender and acknowledges. The
+// sender's own covered set stays empty, so that acknowledgement does not
+// suppress events the peer still needs.
+struct ShareCatchUpFrame {
+  ae::ObjId packet_id;
+  ae::ObjId target_node_id;
+  ae::ObjId destination_share_id;
+  std::vector<SharedEventId> have;
+};
+
+std::vector<std::uint8_t> EncodeShareCatchUpFrame(
+    ShareCatchUpFrame const& frame);
+bool DecodeShareCatchUpFrame(std::vector<std::uint8_t> const& bytes,
+                             ShareCatchUpFrame& out);
 
 }  // namespace apptraverse
 

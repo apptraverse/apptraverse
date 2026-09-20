@@ -331,7 +331,11 @@ std::vector<Observed> Observe(JoinRecordNode const& node) {
     if (!event.is_loaded()) {
       event.Load();
     }
-    CHECK(event->GetClassId() == AddJoinRecordEvent::kClassId);
+    // Topology events share the journal but are not record payloads. Business
+    // identity, timestamp, and text are still checked for every record event.
+    if (event->GetClassId() != AddJoinRecordEvent::kClassId) {
+      continue;
+    }
     AddJoinRecordEvent::ptr concrete = event;
     CHECK(concrete.is_loaded());
     out.push_back(Observed{.id = record.identity,
@@ -1230,7 +1234,12 @@ void TestReadOnlyCannotWrite() {
   AddRecord(*AsRecord(pair.b.sync->FindNode(node.id())), "readonly-write",
             kEndpointB, 1, 800);
   pair.b.sync->Service(0);
-  CHECK(pair.network.DeliverNext(kEndpointB, kEndpointA));
+  // Read-only does not hand the event to the transport. A later Service does
+  // not either. The writer must not gain the text.
+  CHECK(pair.network.PendingCount(kEndpointB, kEndpointA) == 0);
+  g_now += 4 * kShareOfferRetryIntervalUs;
+  pair.b.sync->Service(g_now);
+  CHECK(pair.network.PendingCount(kEndpointB, kEndpointA) == 0);
   auto const after = Observe(*AsRecord(pair.a.sync->FindNode(node.id())));
   CHECK(after.size() == before.size());
   CHECK(after[0].id == before[0].id);

@@ -12,6 +12,7 @@
 
 #include "apptraverse/byte_transport.h"
 #include "apptraverse/share_offer.h"
+#include "apptraverse/shared_event_order.h"
 #include "apptraverse/shared_node.h"
 #include "apptraverse/sync_frame.h"
 
@@ -21,10 +22,10 @@ namespace apptraverse {
 // bytes to the SharedNode named by the frame, admits an offered node, and
 // owns retry of that exchange.
 //
-// Protocol v1 carries ShareOffer, ShareDecision, NodeState, Ack, and
-// standalone Event. Outgoing endpoint availability is read from the
-// transport. Dynamic object graphs, heartbeat, and real Æther presence
-// are later.
+// Protocol v1 carries ShareOffer, ShareDecision, NodeState, Ack, Event,
+// and ShareCatchUp. Topology changes travel as shared Events. Outgoing
+// endpoint availability is read from the transport. Arbitrary dynamic
+// object graphs, heartbeat, and real Æther presence are later.
 //
 // Instance-scoped: the runtime holds its replica's Domain, storage, and
 // transport. Nothing is process-global or thread_local, and no model pointer
@@ -126,6 +127,13 @@ class SharedSyncRuntime {
                   Link::ptr remote = {});
   void RejectJoin(ae::ObjId operation_id);
 
+  // Publish a topology change on a node this replica already holds. The
+  // event is shared, so connected replicas learn it. share_id is the
+  // existing relationship, not a new one.
+  void ChangeShareAccess(ae::ObjId node_id, ae::ObjId share_id,
+                         ShareAccess access);
+  void RemoveShare(ae::ObjId node_id, ae::ObjId share_id);
+
   // Reload a ShareOffer from this replica's storage after a restart.
   // Attaches the named SharedNode when that node is already stored.
   void RegisterOffer(ShareOffer::ptr offer);
@@ -158,6 +166,7 @@ class SharedSyncRuntime {
   //   Pending    - resend the persisted packet byte for byte
   //   Complete   - acknowledged, nothing to send
   void SyncInitialState(ae::ObjId node_id, ae::ObjId share_id);
+  void SyncCatchUp(ae::ObjId node_id, ae::ObjId share_id);
 
   // Drive one incremental standalone Event for a Complete relationship:
   //   pending packet exists - resend those exact bytes
@@ -186,6 +195,8 @@ class SharedSyncRuntime {
                    NodeStateFrame const& frame);
   void OnAck(std::string const& source_endpoint, AckFrame const& frame);
   void OnEvent(std::string const& source_endpoint, EventFrame const& frame);
+  void OnCatchUp(std::string const& source_endpoint,
+                 ShareCatchUpFrame const& frame);
   void OnShareOffer(std::string const& source_endpoint,
                     ShareOfferFrame const& frame);
   void OnShareRequest(std::string const& source_endpoint,
@@ -248,6 +259,25 @@ class SharedSyncRuntime {
   void ServiceOffers(std::uint64_t now_us);
   void ServiceShares(std::uint64_t now_us);
 
+  SharedEventId AllocateSharedIdentity();
+  SharedEventOrder AllocateSharedOrder(SharedNode const& node);
+  void PublishAddShare(SharedNode::ptr node, Link::ptr link,
+                       ShareAccess access);
+  void PublishRemoveShare(SharedNode::ptr node, ae::ObjId share_id);
+  void PublishShareAccess(SharedNode::ptr node, ae::ObjId share_id,
+                          ShareAccess access);
+  // The removed relationship is already gone from shares, so the ordinary
+  // per-share sender cannot address it. The journal event is the record;
+  // this only retries the packet until the removed endpoint acknowledges.
+  void RelayRemovedShare(SharedNode::ptr node, ae::ObjId share_id);
+  void RelayAppliedRemovals(SharedNode::ptr node);
+  void ServiceRelays();
+  bool IsTopologyEventClass(std::uint32_t class_id) const;
+  bool LocalShareAllowsWrite(SharedNode const& node) const;
+  bool ApplyIncomingAddShare(SharedNode::ptr node,
+                             std::string const& source_endpoint,
+                             EventFrame const& frame);
+
   struct EndpointExpectation {
     std::string source_endpoint;
     std::uint32_t expected_root_class_id{0};
@@ -284,6 +314,16 @@ class SharedSyncRuntime {
     std::vector<std::uint8_t> bytes;
   };
 
+  // Runtime-only delivery of a RemoveShare whose row is already gone.
+  // Not a participant list: the endpoint is read from the journal Link.
+  struct PendingRelay {
+    std::string endpoint;
+    ae::ObjId node_id;
+    ae::ObjId destination_share_id;
+    ae::ObjId packet_id;
+    std::vector<std::uint8_t> bytes;
+  };
+
   static constexpr std::uint64_t kScheduleOnNextService =
       ~std::uint64_t{0};
 
@@ -304,6 +344,11 @@ class SharedSyncRuntime {
   std::vector<std::uint32_t> standalone_event_classes_;
   std::vector<ObservedAvailability> observed_availability_;
   std::vector<PendingAck> pending_acks_;
+  std::vector<PendingRelay> pending_relays_;
+  // Advanced by Service when the caller moves time forward. Topology commits
+  // take the next tick so their order is the order they were published.
+  std::uint64_t logical_now_us_{0};
+  std::uint64_t next_shared_sequence_{1};
 };
 
 }  // namespace apptraverse
