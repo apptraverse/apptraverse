@@ -1,3 +1,125 @@
+# Synthetic core stand: local parent + shared child Node (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting HEAD: `138bf10`.
+Commit: `e681059` (test + CTest target). Tests only; core untouched.
+
+## Stand
+
+`tests/shared_child_node_stand_test.cpp`, one CTest target
+`apptraverse_shared_child_node_stand_test`. No `ChatSession`, GUI, Æther
+client, sockets, servers, threads or sleeps: real AppTraverse objects,
+`SharedSyncRuntime`, `MemoryTransport`.
+
+Two replicas (`stand-host`, `stand-client`), each with its own
+`ae::RamDomainStorage`, `ae::Domain`, transport endpoint and sync runtime.
+Each has an ordinary persisted parent `LocalParent` (fixed ObjId, local note +
+revision) that reaches the child `SharedDoc : SharedNode` through a reflected
+`SharedDoc::ptr`, attached by an ordinary local Event (`LinkSharedDocEvent`),
+never by direct field assignment. Only the child and its shared journal
+replicate; parents are different and local. Between replicas nothing but
+serialized bytes crosses `MemoryTransport`; every outgoing frame is scanned
+for the parents' local marker (`PARENT_LOCAL_SECRET`) and the send fails the
+test if it ever appears.
+
+`CountingTransport` wraps the endpoint and counts **Send calls** (not queue
+depth), split by frame type, plus retries (a `(destination, type, packet_id)`
+already handed to Send) and sends issued while the destination is observed
+Offline. Counters and the sent-packet set live outside the transport, so a
+replica restart keeps counting.
+
+## Scenario results (all EXIT=0)
+
+Per-scenario Send counts, `host/client`. Each scenario runs its own stand, so
+`initial snapshots = 1/0` is the single first-connection snapshot.
+
+| Scenario | snapshots | events | acks | retries | sends while Offline |
+|---|---:|---:|---:|---:|---:|
+| 1 first connection | 1/0 | 0/0 | 0/1 | 0/0 | 0/0 |
+| 2 incremental (4+4 writes) | 1/0 | 4/4 | 4/5 | 0/0 | 0/0 |
+| 3 offline without unload (both roles) | 1/0 | 3/3 | 3/4 | 0/0 | 0/0 |
+| 4 unload and restore (both roles) | 1/0 | 4/4 | 4/5 | 0/0 | 0/0 |
+| 5 unacknowledged delivery | 1/0 | 4/0 | 0/3 | 3/1 | 0/0 |
+| local parent events | 1/0 | 0/0 | 0/1 | 0/0 | 0/0 |
+
+1. **First connection** ? host saves parent + child with three events; client
+   has only its parent and permits the expected host. One snapshot under
+   `Unknown` availability, imported, linked to the client parent and saved.
+   A fresh `ae::Domain` over the client's storage reloads the parent and
+   reaches the child through the persisted reference (state, journal, link).
+2. **Incremental** ? alternating writes on both sides, delivery driven by
+   `Service()`. Journal identity/order and materialized `lines` equal on both
+   sides, each event applied once, no second snapshot, 0 retries.
+3. **Offline without unload** ? destination observed Offline; 25 `Service()`
+   calls at 3× the retry interval produce no Send at all and an empty queue;
+   Online resumes into the same `SharedNode` instance (pointer identity) with
+   no new connection and no snapshot. Repeated with reversed roles. Repeating
+   an unchanged Online notification five times adds no sends.
+4. **Unload and restore** ? tree saved, runtime + Domain destroyed, all object
+   references released, storage kept; peer observes Offline and keeps writing
+   (no sends). Replica re-created, parent loaded from storage, child reached
+   only through the restored reference (`doc_id` cleared first) and registered
+   with `RegisterNode`. Delivery resumes on Online: same dialog id, no
+   re-import, no duplicates. Repeated with the host unloaded.
+5. **Unacknowledged delivery** ? event packet lost; Offline suppresses the
+   retries too; `Unknown` lets the pending packet through again; retries are
+   interval-bounded (4 × interval/8 ? 0 sends, +1 interval ? exactly 1) and
+   carry the original `packet_id`; ACK lost separately; sender unloaded and
+   restored from storage still retries the same frozen `packet_id`; receiver
+   recognizes the duplicate without re-applying and re-acks.
+
+Cross-cutting checks: shared events compared by identity, timestamp, text and
+**stored journal order** (no test-side re-sorting), duplicates rejected,
+materialized `lines` must equal the journal replay; share topology (2 ids,
+links, endpoints, ReadWrite) identical on both sides; parents independent
+(different notes/revisions, neither parent id present in the other storage);
+after all events and ACKs further `Service()` sends nothing.
+
+## Defects found
+
+None. No core change was needed; `src/`, `include/` and `examples/` are
+untouched by this task.
+
+Because everything passed on the first run, the stand was validated against
+two temporary core mutations (reverted, not committed):
+
+| Mutation in `src/shared_sync_runtime.cpp` | Stand result |
+|---|---|
+| drop `OutgoingOffline` in `TrySend` + `ServiceShares` | fails scenario 3 (`sender.counts.total == sends_before`) |
+| drop `state.HasDelivered` in `NextUndeliveredSharedEvent` | fails "stand did not settle" (endless resend) |
+
+## LOC (vs `138bf10`)
+
+| Bucket | + | - | net |
+|---|---:|---:|---:|
+| Working code (`src/`, `include/`, `examples/`) | 0 | 0 | 0 |
+| Tests (`tests/shared_child_node_stand_test.cpp`, `tests/CMakeLists.txt`) | 1305 | 0 | +1305 |
+
+## Verification
+
+`g++`, RTTI off, `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental trees.
+
+```
+cmake --build build-debug-clean   -j$(nproc) && ctest --test-dir build-debug-clean   --output-on-failure -j4
+cmake --build build-release-clean -j$(nproc) && ctest --test-dir build-release-clean --output-on-failure -j4
+cmake --build build-asan-clean    -j$(nproc) && ctest --test-dir build-asan-clean    --output-on-failure -R "stand|shared_node|permanent_pair|event_sourced|journal_retention|closed_event_graph|shared_sync_protocol"
+```
+
+| Config | Flags | Result |
+|---|---|---|
+| Debug (`build-debug-clean`) | ? | full suite 27/27 passed, stand EXIT=0 |
+| Release (`build-release-clean`) | `-O3 -DNDEBUG -fno-rtti` | full suite 27/27 passed, stand EXIT=0 |
+| ASan+UBSan (`build-asan-clean`) | `-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute` | core subset passed, stand EXIT=0 |
+
+Checks are `std::cerr` + `std::exit(1)`, not `assert`: they hold under NDEBUG
+(verified by the Release run, which exercises the same assertions).
+
+This is a headless core stand. It is **not** a GUI check and **not** a real
+network check: no Æther client, no sockets, no OS windows are involved.
+
+---
+
 # ChatSession Service() unification + pair restore check (2026-09-20)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.

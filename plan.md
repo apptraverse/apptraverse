@@ -807,6 +807,15 @@ second distributed order key.
 Status: **implemented** via stripped permanent-pair surface +
 `apptraverse_permanent_pair_sync_test` (chat formation). Not accepted-by-user.
 
+### Core stand without the application
+
+`apptraverse_shared_child_node_stand_test` is the application-free profile of
+the same contract: two replicas, each with a local persisted parent Node that
+references a child SharedNode, `SharedSyncRuntime` and `MemoryTransport` only.
+Use it for first connection, incremental delivery, Offline/Online without
+unload, unload + restore through the persisted parent reference, and
+unacknowledged delivery — without `ChatSession`, GUI or a network client.
+
 ---
 
 # Planned implementation ladder
