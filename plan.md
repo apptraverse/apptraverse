@@ -573,6 +573,15 @@ Status: **implemented / verified** by concurrent remove and access-race
 tests in `apptraverse_shared_node_topology_test`. Equal `timestamp_us`
 across sources stays an open ordering case.
 
+## Public topology mutation path
+
+Initial local graph construction uses `SharedNode::InstallLocalShare` (and
+the local-only `CommitLocalRemoveShare` / `CommitLocalShareAccess` helpers
+for offline tests). Live shared topology changes go only through
+`SharedSyncRuntime`: Offer/Accept (which `PublishAddShare`),
+`RemoveShare`, and `ChangeShareAccess`. Admission adjusts access via
+`PublishShareAccess`, not a local commit.
+
 ## Transport / Link contract
 
 One Link may carry multiple SharedNode protocols.

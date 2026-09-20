@@ -966,8 +966,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
               AetherLink::ptr::Create(ae::CreateWith{*workspace->domain});
           remote_link->endpoint_uid = client_uid;
           InitializeRuntimeNode(*remote_link);
-          room->AddShare(local_link, apptraverse::ShareAccess::ReadWrite);
-          room->AddShare(remote_link, apptraverse::ShareAccess::ReadWrite);
+          room->InstallLocalShare(local_link, apptraverse::ShareAccess::ReadWrite);
+          room->InstallLocalShare(remote_link, apptraverse::ShareAccess::ReadWrite);
           if (!BindChat(*entry, remote_link, room, persist_workspace)) {
             return;
           }

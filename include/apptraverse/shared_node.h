@@ -367,10 +367,12 @@ class SharedNode : public NodeFor<SharedNode> {
   std::vector<Share> shares;
   std::vector<LocalPtr<LinkSyncState>> link_sync_states;
 
-  // Live topology mutations go through Events.
-  void AddShare(Link::ptr link, ShareAccess access);
-  void RemoveShare(Link::ptr link);
-  void SetShareAccess(Link::ptr link, ShareAccess access);
+  // Local-only topology for initial graph construction and offline tests.
+  // Live shared topology changes go through SharedSyncRuntime
+  // (Offer/Accept, RemoveShare, ChangeShareAccess) so they publish events.
+  void InstallLocalShare(Link::ptr link, ShareAccess access);
+  void CommitLocalRemoveShare(Link::ptr link);
+  void CommitLocalShareAccess(Link::ptr link, ShareAccess access);
 
   // Concurrent removes of one lifetime and access changes that race a remove
   // are admissible no-ops when the share is already closed. An unknown

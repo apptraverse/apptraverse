@@ -463,7 +463,7 @@ TopoNode::ptr MakeNode(Replica& replica) {
   hidden.Save();
   node->local_secret = hidden;
   auto self = MakeLink(*replica.domain, replica.endpoint());
-  node->AddShare(self, ShareAccess::ReadWrite);
+  node->InstallLocalShare(self, ShareAccess::ReadWrite);
   node.Save();
   for (auto& entry : node->link_sync_states) {
     entry.Save();

@@ -290,7 +290,7 @@ JoinRecordNode::ptr MakeRecordNode(Replica& replica, std::string secret) {
   hidden.Save();
   node->local_secret = hidden;
   auto self = MakeMemoryLink(*replica.domain, replica.endpoint());
-  node->AddShare(self, ShareAccess::ReadWrite);
+  node->InstallLocalShare(self, ShareAccess::ReadWrite);
   SaveSync(node);
   replica.sync->RegisterNode(node);
   return node;
@@ -546,8 +546,8 @@ void TestParallelEndpointExpectations() {
   auto node_y = MakeRecordNode(a, kLocalSecret);
   auto link_bx = MakeMemoryLink(*a.domain, kEndpointB);
   auto link_by = MakeMemoryLink(*a.domain, kEndpointB);
-  node_x->AddShare(link_bx, ShareAccess::ReadWrite);
-  node_y->AddShare(link_by, ShareAccess::ReadWrite);
+  node_x->InstallLocalShare(link_bx, ShareAccess::ReadWrite);
+  node_y->InstallLocalShare(link_by, ShareAccess::ReadWrite);
   AddRecord(*node_x, "x-seed", kEndpointA, 1, 100);
   AddRecord(*node_y, "y-seed", kEndpointA, 1, 200);
   SaveSync(node_x);
@@ -586,8 +586,8 @@ void TestForgetOneExpectationLeavesTheOther() {
   b.Start();
   auto node_x = MakeRecordNode(a, kLocalSecret);
   auto node_y = MakeRecordNode(a, kLocalSecret);
-  node_x->AddShare(MakeMemoryLink(*a.domain, kEndpointB), ShareAccess::ReadWrite);
-  node_y->AddShare(MakeMemoryLink(*a.domain, kEndpointB), ShareAccess::ReadWrite);
+  node_x->InstallLocalShare(MakeMemoryLink(*a.domain, kEndpointB), ShareAccess::ReadWrite);
+  node_y->InstallLocalShare(MakeMemoryLink(*a.domain, kEndpointB), ShareAccess::ReadWrite);
   AddRecord(*node_x, "only-x", kEndpointA, 1, 100);
   AddRecord(*node_y, "only-y", kEndpointA, 1, 200);
   SaveSync(node_x);
@@ -1156,7 +1156,7 @@ void TestRejectionsAndIsolation() {
     auto node = JoinOtherNode::ptr::Create(ae::CreateWith{*pair.a.domain});
     InitializeRuntimeNode(*node);
     node->tag = 7;
-    node->AddShare(MakeMemoryLink(*pair.a.domain, pair.a.endpoint()),
+    node->InstallLocalShare(MakeMemoryLink(*pair.a.domain, pair.a.endpoint()),
                    ShareAccess::ReadWrite);
     SaveSync(node);
     pair.a.sync->RegisterNode(node);
@@ -1670,8 +1670,8 @@ void TestSharedLinkSequentialOffer() {
   auto shared = MakeSharedRemoteLink(*pair.a.domain);
   auto node_x = MakeRecordNode(pair.a, kLocalSecret);
   auto node_y = MakeRecordNode(pair.a, kLocalSecret);
-  node_x->AddShare(shared, ShareAccess::ReadWrite);
-  node_y->AddShare(shared, ShareAccess::ReadWrite);
+  node_x->InstallLocalShare(shared, ShareAccess::ReadWrite);
+  node_y->InstallLocalShare(shared, ShareAccess::ReadWrite);
   AddRecord(*node_x, "x-seed", kEndpointA, 1, 100);
   AddRecord(*node_y, "y-seed", kEndpointA, 1, 200);
   SaveSync(node_x);
@@ -1722,8 +1722,8 @@ void TestSharedLinkSimultaneousOffer() {
   auto shared = MakeSharedRemoteLink(*pair.a.domain);
   auto node_x = MakeRecordNode(pair.a, kLocalSecret);
   auto node_y = MakeRecordNode(pair.a, kLocalSecret);
-  node_x->AddShare(shared, ShareAccess::ReadWrite);
-  node_y->AddShare(shared, ShareAccess::ReadWrite);
+  node_x->InstallLocalShare(shared, ShareAccess::ReadWrite);
+  node_y->InstallLocalShare(shared, ShareAccess::ReadWrite);
   AddRecord(*node_x, "x-both", kEndpointA, 1, 110);
   AddRecord(*node_y, "y-both", kEndpointA, 1, 210);
   SaveSync(node_x);
@@ -1752,8 +1752,8 @@ void TestIncompatibleSharedLinkRejected() {
   auto shared = MakeSharedRemoteLink(*pair.a.domain);
   auto node_x = MakeRecordNode(pair.a, kLocalSecret);
   auto node_y = MakeRecordNode(pair.a, kLocalSecret);
-  node_x->AddShare(shared, ShareAccess::ReadWrite);
-  node_y->AddShare(shared, ShareAccess::ReadWrite);
+  node_x->InstallLocalShare(shared, ShareAccess::ReadWrite);
+  node_y->InstallLocalShare(shared, ShareAccess::ReadWrite);
   AddRecord(*node_x, "x-keep", kEndpointA, 1, 100);
   SaveSync(node_x);
   SaveSync(node_y);
@@ -1799,7 +1799,7 @@ void TestOccupiedNonLinkStillRejects() {
   InitializeRuntimeNode(*link);
   link.Save();
   auto node = MakeRecordNode(pair.a, kLocalSecret);
-  node->AddShare(link, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link, ShareAccess::ReadWrite);
   AddRecord(*node, "blocked", kEndpointA, 1, 100);
   SaveSync(node);
   auto const before = pair.b.storage.Enumerate(node.id()).size();

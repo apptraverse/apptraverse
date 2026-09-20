@@ -172,8 +172,8 @@ void TestMultipleRefsSameLinkAfterRestart() {
     InitializeRuntimeNode(*node_a);
     InitializeRuntimeNode(*node_b);
     InitializeRuntimeNode(*client);
-    node_a->AddShare(link, ShareAccess::ReadWrite);
-    node_b->AddShare(link, ShareAccess::ReadOnly);
+    node_a->InstallLocalShare(link, ShareAccess::ReadWrite);
+    node_b->InstallLocalShare(link, ShareAccess::ReadOnly);
     share_a_id = node_a->shares[0].share_id;
     share_b_id = node_b->shares[0].share_id;
 
@@ -244,17 +244,17 @@ void TestShareTopologyEventsAndPersistence() {
     InitializeRuntimeNode(*node);
     auto link_a = MakeMemoryLink(domain, ae::ObjId{link_a_id}, "a");
     auto link_b = MakeMemoryLink(domain, ae::ObjId{link_b_id}, "b");
-    node->AddShare(link_a, ShareAccess::ReadWrite);
-    node->AddShare(link_b, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
     CHECK(node->shares.size() == 2);
     CHECK(node->link_sync_states.size() == 2);
     CHECK(node->journal.size() == 2);
-    node->AddShare(link_a, ShareAccess::ReadOnly);
+    node->InstallLocalShare(link_a, ShareAccess::ReadOnly);
     CHECK(node->shares.size() == 2);
     CHECK(node->journal.size() == 2);
-    node->SetShareAccess(link_b, ShareAccess::ReadOnly);
+    node->CommitLocalShareAccess(link_b, ShareAccess::ReadOnly);
     CHECK(node->shares[1].GetAccess() == ShareAccess::ReadOnly);
-    node->RemoveShare(link_a);
+    node->CommitLocalRemoveShare(link_a);
     CHECK(node->shares.size() == 1);
     // Closed relationship keeps LinkSyncState as the durable delivery record.
     CHECK(node->link_sync_states.size() == 2);
@@ -288,7 +288,7 @@ void TestLocalSyncStateEventDrivenSaveLoadAndReplay() {
         SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(node_id));
     InitializeRuntimeNode(*node);
     auto link = MakeMemoryLink(domain, ae::ObjId{link_id}, "bob");
-    node->AddShare(link, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link, ShareAccess::ReadWrite);
     CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
     SetValue(*node, 1);
     SetValue(*node, 2);
@@ -335,20 +335,20 @@ void TestRemoveShareAddShareResetsLocalSync() {
       SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(61));
   InitializeRuntimeNode(*node);
   auto link = MakeMemoryLink(domain, ae::ObjId{62}, "peer");
-  node->AddShare(link, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link, ShareAccess::ReadWrite);
   node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
   CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
   auto const old_share_id = node->shares[0].share_id;
   auto const old_sync_id = node->link_sync_states[0].id();
 
-  node->RemoveShare(link);
+  node->CommitLocalRemoveShare(link);
   CHECK(node->shares.empty());
   // Delivery record for the closed lifetime remains; it is not the live share.
   CHECK(node->link_sync_states.size() == 1);
   CHECK(node->link_sync_states[0].id() == old_sync_id);
   CHECK(node->link_sync_states[0]->share_id == old_share_id);
 
-  node->AddShare(link, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link, ShareAccess::ReadWrite);
   CHECK(node->shares.size() == 1);
   CHECK(node->link_sync_states.size() == 2);
   CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
@@ -390,13 +390,13 @@ void TestShareRelationshipIdentitySurvivesForcedReplay() {
   auto link = MakeMemoryLink(domain, ae::ObjId{112}, "replay-peer");
 
   SetValue(*node, 1);
-  node->AddShare(link, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link, ShareAccess::ReadWrite);
   node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
   auto const first_share_id = node->shares[0].share_id;
   auto const first_sync_id = node->link_sync_states[0].id();
 
-  node->RemoveShare(link);
-  node->AddShare(link, ShareAccess::ReadWrite);
+  node->CommitLocalRemoveShare(link);
+  node->InstallLocalShare(link, ShareAccess::ReadWrite);
   auto const second_share_id = node->shares[0].share_id;
   CHECK(second_share_id != first_share_id);
   CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
@@ -485,8 +485,8 @@ void TestNetworkSerializationBoundaries() {
     InitializeRuntimeNode(*node);
     auto link_a = MakeMemoryLink(domain, ae::ObjId{link_a_id}, "alice");
     auto link_b = MakeMemoryLink(domain, ae::ObjId{link_b_id}, "bob");
-    node->AddShare(link_a, ShareAccess::ReadWrite);
-    node->AddShare(link_b, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
     auto const share_a_id = node->shares[0].share_id;
     auto const share_b_id = node->shares[1].share_id;
     SetValue(*node, 42);
@@ -547,7 +547,7 @@ void TestNetworkSerializationBoundaries() {
 
     // Receiver creates its own local sync independently (new share → Events).
     auto link_c = MakeMemoryLink(target_domain, ae::ObjId{54}, "carol");
-    imported->AddShare(link_c, ShareAccess::ReadOnly);
+    imported->InstallLocalShare(link_c, ShareAccess::ReadOnly);
     imported->SetInitialSyncPhase(link_c, InitialSyncPhase::Pending);
     CHECK(imported->GetInitialSyncPhase(link_c) == InitialSyncPhase::Pending);
     CHECK(node->GetInitialSyncPhase(link_b) == InitialSyncPhase::Complete);
@@ -578,8 +578,8 @@ void TestNestedSharedNodeLocalPtrExcluded() {
     auto link_root = MakeMemoryLink(domain, ae::ObjId{link_root_id}, "root-l");
     auto link_child =
         MakeMemoryLink(domain, ae::ObjId{link_child_id}, "child-l");
-    root->AddShare(link_root, ShareAccess::ReadWrite);
-    child->AddShare(link_child, ShareAccess::ReadWrite);
+    root->InstallLocalShare(link_root, ShareAccess::ReadWrite);
+    child->InstallLocalShare(link_child, ShareAccess::ReadWrite);
     root->SetInitialSyncPhase(link_root, InitialSyncPhase::Complete);
     child->SetInitialSyncPhase(link_child, InitialSyncPhase::Complete);
     root_sync_id = root->link_sync_states[0].id().id();
@@ -684,7 +684,7 @@ void TestLinkSyncStateConfiguredBeforeLive() {
 
   // AddShare Apply creates LinkSyncState: link + NotStarted assigned before
   // InitializeRuntimeNode, then phase changes only via Event.
-  node->AddShare(link, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link, ShareAccess::ReadWrite);
   CHECK(node->link_sync_states.size() == 1);
   auto sync = node->link_sync_states[0];
   CHECK(sync.is_valid());

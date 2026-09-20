@@ -153,11 +153,11 @@ SenderFixture BuildSharedNode(Replica& a, ae::ObjId::Type node_id,
   InitializeRuntimeNode(*node);
   auto link_a = MakeMemoryLink(*a.domain, ae::ObjId{link_a_id}, kEndpointA);
   auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, kEndpointB);
-  node->AddShare(link_a, ShareAccess::ReadWrite);
-  node->AddShare(link_b, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
   if (link_c_id != 0) {
     auto link_c = MakeMemoryLink(*a.domain, ae::ObjId{link_c_id}, kEndpointC);
-    node->AddShare(link_c, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link_c, ShareAccess::ReadWrite);
     link_c.Save();
   }
   SetValue(*node, value);
@@ -1016,9 +1016,9 @@ void TestSnapshotWithTwoSourceSharesRejected() {
   auto link_a1 = MakeMemoryLink(*a.domain, link_a1_id, kEndpointA);
   auto link_a2 = MakeMemoryLink(*a.domain, link_a2_id, kEndpointA);
   auto link_b = MakeMemoryLink(*a.domain, link_b_id, kEndpointB);
-  node->AddShare(link_a1, ShareAccess::ReadWrite);
-  node->AddShare(link_a2, ShareAccess::ReadWrite);
-  node->AddShare(link_b, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_a1, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_a2, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
   SetValue(*node, 42);
   node.Save();
   link_a1.Save();

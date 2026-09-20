@@ -279,8 +279,8 @@ SenderFixture BuildTopology(Replica& a, ae::ObjId::Type node_id,
   InitializeRuntimeNode(*node);
   auto link_a = MakeMemoryLink(*a.domain, ae::ObjId{link_a_id}, kEndpointA);
   auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, kEndpointB);
-  node->AddShare(link_a, ShareAccess::ReadWrite);
-  node->AddShare(link_b, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
   node.Save();
   link_a.Save();
   link_b.Save();
@@ -759,7 +759,7 @@ void TestReadOnlySourceRejected() {
   HandshakeInitial(network, a, b, fixture);
 
   auto const b_node = ConcreteOf(b.sync->FindNode(fixture.node_id));
-  b_node->SetShareAccess(b_node->shares[0].link, ShareAccess::ReadOnly);
+  b_node->CommitLocalShareAccess(b_node->shares[0].link, ShareAccess::ReadOnly);
   b_node.Save();
 
   auto const identity =
@@ -773,7 +773,7 @@ void TestReadOnlySourceRejected() {
   CHECK(JournalByIdentity(*b_node, identity) == nullptr);
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
 
-  b_node->SetShareAccess(b_node->shares[0].link, ShareAccess::ReadWrite);
+  b_node->CommitLocalShareAccess(b_node->shares[0].link, ShareAccess::ReadWrite);
   b_node.Save();
   a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
@@ -1255,8 +1255,8 @@ void TestHistoricalCanApplyPreflight() {
 
   auto a_link_a = MakeMemoryLink(*a.domain, ae::ObjId{7901}, kEndpointA);
   auto a_link_b = MakeMemoryLink(*a.domain, ae::ObjId{7902}, kEndpointB);
-  a_root->AddShare(a_link_a, ShareAccess::ReadWrite);
-  a_root->AddShare(a_link_b, ShareAccess::ReadWrite);
+  a_root->InstallLocalShare(a_link_a, ShareAccess::ReadWrite);
+  a_root->InstallLocalShare(a_link_b, ShareAccess::ReadWrite);
   a_root.Save();
   a_link_a.Save();
   a_link_b.Save();

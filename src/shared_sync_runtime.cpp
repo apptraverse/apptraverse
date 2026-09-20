@@ -2151,7 +2151,8 @@ void SharedSyncRuntime::AcceptJoin(ae::ObjId operation_id,
     auto const share_index = node->FindShareIndex(remote.id());
     assert(share_index < node->shares.size());
     if (node->shares[share_index].GetAccess() != granted_access) {
-      node->SetShareAccess(remote, granted_access);
+      PublishShareAccess(node, node->shares[share_index].share_id,
+                         granted_access);
     }
     share_id = node->shares[share_index].share_id;
     node.Save();
@@ -2579,7 +2580,7 @@ void SharedSyncRuntime::OnShareDecision(std::string const& source_endpoint,
     auto const share_index = node->FindShareIndex(offer->remote_link.id());
     assert(share_index < node->shares.size());
     if (node->shares[share_index].GetAccess() != offer->GetAccess()) {
-      node->SetShareAccess(offer->remote_link, offer->GetAccess());
+      PublishShareAccess(node, node->shares[share_index].share_id, offer->GetAccess());
     }
     auto const share_id = node->shares[share_index].share_id;
     node.Save();

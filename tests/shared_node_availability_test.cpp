@@ -364,7 +364,7 @@ AvailRecordNode::ptr MakeRecord(Replica& replica, std::string text,
   hidden.Save();
   node->local_secret = hidden;
   auto self = replica.MakeLink(replica.endpoint());
-  node->AddShare(self, ShareAccess::ReadWrite);
+  node->InstallLocalShare(self, ShareAccess::ReadWrite);
   node.Save();
   for (auto& entry : node->link_sync_states) {
     entry.Save();
@@ -1362,7 +1362,7 @@ void TestAvailabilityReachesRuntimeOnlyWhenDrained() {
   self->heartbeat_interval_ms = 1000;
   InitializeRuntimeNode(*self);
   self.Save();
-  node->AddShare(self, ShareAccess::ReadWrite);
+  node->InstallLocalShare(self, ShareAccess::ReadWrite);
   node.Save();
   sync->RegisterNode(node);
   auto remote = MemoryLink::ptr::Create(

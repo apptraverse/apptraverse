@@ -110,8 +110,8 @@ void TestTwoWayChatOverMemoryNetwork() {
   auto link_remote_b = CreateMemoryLink(domain_a, link_b_id, kEndpointB);
   auto room_a = CreateRoom(domain_a, room_id);
 
-  room_a->AddShare(link_local_a, ShareAccess::ReadWrite);
-  room_a->AddShare(link_remote_b, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_local_a, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_remote_b, ShareAccess::ReadWrite);
 
   BindChat(*entry_a, link_remote_b, room_a);
 

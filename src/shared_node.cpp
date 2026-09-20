@@ -222,8 +222,8 @@ std::size_t SharedNode::FindLinkSyncIndexForShare(ae::ObjId share_id) const {
   return link_sync_states.size();
 }
 
-void SharedNode::AddShare(Link::ptr link, ShareAccess access) {
-  assert(link.is_valid() && "AddShare requires a valid Link");
+void SharedNode::InstallLocalShare(Link::ptr link, ShareAccess access) {
+  assert(link.is_valid() && "InstallLocalShare requires a valid Link");
   // Idempotent: same Link already shared → no duplicate entry.
   if (FindShareIndex(link.id()) < shares.size()) {
     return;
@@ -237,8 +237,8 @@ void SharedNode::AddShare(Link::ptr link, ShareAccess access) {
   Commit(event);
 }
 
-void SharedNode::RemoveShare(Link::ptr link) {
-  assert(link.is_valid() && "RemoveShare requires a valid Link");
+void SharedNode::CommitLocalRemoveShare(Link::ptr link) {
+  assert(link.is_valid() && "CommitLocalRemoveShare requires a valid Link");
   auto const index = FindShareIndex(link.id());
   if (index >= shares.size()) {
     return;
@@ -248,10 +248,11 @@ void SharedNode::RemoveShare(Link::ptr link) {
   Commit(event);
 }
 
-void SharedNode::SetShareAccess(Link::ptr link, ShareAccess access) {
-  assert(link.is_valid() && "SetShareAccess requires a valid Link");
+void SharedNode::CommitLocalShareAccess(Link::ptr link, ShareAccess access) {
+  assert(link.is_valid() && "CommitLocalShareAccess requires a valid Link");
   auto const index = FindShareIndex(link.id());
-  assert(index < shares.size() && "SetShareAccess requires an existing share");
+  assert(index < shares.size() &&
+         "CommitLocalShareAccess requires an existing share");
   if (shares[index].GetAccess() == access) {
     return;
   }
