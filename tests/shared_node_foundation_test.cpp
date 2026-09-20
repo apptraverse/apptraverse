@@ -173,7 +173,7 @@ void TestMultipleRefsSameLinkAfterRestart() {
     InitializeRuntimeNode(*node_b);
     InitializeRuntimeNode(*client);
     node_a->InstallLocalShare(link, ShareAccess::ReadWrite);
-    node_b->InstallLocalShare(link, ShareAccess::ReadOnly);
+    node_b->InstallLocalShare(link, ShareAccess::ReadWrite);
     share_a_id = node_a->shares[0].share_id;
     share_b_id = node_b->shares[0].share_id;
 
@@ -237,6 +237,7 @@ void TestShareTopologyEventsAndPersistence() {
   ae::ObjId::Type const node_id = 31;
   ae::ObjId::Type const link_a_id = 32;
   ae::ObjId::Type const link_b_id = 33;
+  ae::ObjId::Type const link_c_id = 34;
   {
     ae::Domain domain{storage};
     auto node =
@@ -244,23 +245,22 @@ void TestShareTopologyEventsAndPersistence() {
     InitializeRuntimeNode(*node);
     auto link_a = MakeMemoryLink(domain, ae::ObjId{link_a_id}, "a");
     auto link_b = MakeMemoryLink(domain, ae::ObjId{link_b_id}, "b");
+    auto link_c = MakeMemoryLink(domain, ae::ObjId{link_c_id}, "c");
     node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
     node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
     CHECK(node->shares.size() == 2);
     CHECK(node->link_sync_states.size() == 2);
     CHECK(node->journal.size() == 2);
-    node->InstallLocalShare(link_a, ShareAccess::ReadOnly);
+    // Idempotent re-install of an existing Link.
+    node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
     CHECK(node->shares.size() == 2);
     CHECK(node->journal.size() == 2);
-    node->CommitLocalShareAccess(link_b, ShareAccess::ReadOnly);
-    CHECK(node->shares[1].GetAccess() == ShareAccess::ReadOnly);
-    node->CommitLocalRemoveShare(link_a);
-    CHECK(node->shares.size() == 1);
-    // Closed relationship keeps LinkSyncState as the durable delivery record.
-    CHECK(node->link_sync_states.size() == 2);
-    CHECK(node->FindLinkSyncIndexForShare(node->shares[0].share_id) <
-          node->link_sync_states.size());
-    CHECK(node->shares[0].link.id().id() == link_b_id);
+    // Permanent pair: third InstallLocalShare refused.
+    node->InstallLocalShare(link_c, ShareAccess::ReadWrite);
+    CHECK(node->shares.size() == 2);
+    CHECK(node->journal.size() == 2);
+    CHECK(node->shares[0].GetAccess() == ShareAccess::ReadWrite);
+    CHECK(node->shares[1].GetAccess() == ShareAccess::ReadWrite);
     node.Save();
     for (auto& entry : node->link_sync_states) {
       entry.Save();
@@ -271,9 +271,9 @@ void TestShareTopologyEventsAndPersistence() {
     auto node =
         SharedValueNode::ptr::Declare(ae::CreateWith{domain}.with_id(node_id));
     node.Load();
-    CHECK(node->shares.size() == 1);
-    CHECK(node->shares[0].link.id().id() == link_b_id);
-    CHECK(node->shares[0].GetAccess() == ShareAccess::ReadOnly);
+    CHECK(node->shares.size() == 2);
+    CHECK(node->shares[0].GetAccess() == ShareAccess::ReadWrite);
+    CHECK(node->shares[1].GetAccess() == ShareAccess::ReadWrite);
     CHECK(node->link_sync_states.size() == 2);
   }
 }
@@ -326,148 +326,6 @@ void TestLocalSyncStateEventDrivenSaveLoadAndReplay() {
     CHECK(node->link_sync_states[0]->GetInitialSyncPhase() ==
           InitialSyncPhase::Complete);
   }
-}
-
-void TestRemoveShareAddShareResetsLocalSync() {
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto node =
-      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(61));
-  InitializeRuntimeNode(*node);
-  auto link = MakeMemoryLink(domain, ae::ObjId{62}, "peer");
-  node->InstallLocalShare(link, ShareAccess::ReadWrite);
-  node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
-  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
-  auto const old_share_id = node->shares[0].share_id;
-  auto const old_sync_id = node->link_sync_states[0].id();
-
-  node->CommitLocalRemoveShare(link);
-  CHECK(node->shares.empty());
-  // Delivery record for the closed lifetime remains; it is not the live share.
-  CHECK(node->link_sync_states.size() == 1);
-  CHECK(node->link_sync_states[0].id() == old_sync_id);
-  CHECK(node->link_sync_states[0]->share_id == old_share_id);
-
-  node->InstallLocalShare(link, ShareAccess::ReadWrite);
-  CHECK(node->shares.size() == 1);
-  CHECK(node->link_sync_states.size() == 2);
-  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
-  // Same Link, new relationship: new identity and its own sync state.
-  CHECK(node->shares[0].share_id != old_share_id);
-  auto const new_sync_index =
-      node->FindLinkSyncIndexForShare(node->shares[0].share_id);
-  CHECK(new_sync_index < node->link_sync_states.size());
-  CHECK(node->link_sync_states[new_sync_index].id() != old_sync_id);
-  CHECK(node->link_sync_states[new_sync_index]->share_id ==
-        node->shares[0].share_id);
-  CHECK(node->FindLinkSyncIndexForShare(old_share_id) <
-        node->link_sync_states.size());
-
-  // Replay of Remove+Add must also leave NotStarted (materialized + journal).
-  node.Save();
-  for (auto& entry : node->link_sync_states) {
-    entry.Save();
-  }
-  ae::Domain domain2{storage};
-  auto loaded =
-      SharedValueNode::ptr::Declare(ae::CreateWith{domain2}.with_id(61));
-  loaded.Load();
-  CHECK(loaded->shares.size() == 1);
-  loaded->shares[0].link.Load();
-  CHECK(loaded->GetInitialSyncPhase(loaded->shares[0].link) ==
-        InitialSyncPhase::NotStarted);
-}
-
-// Remove + re-add over the same Link creates a second sharing relationship.
-// A later older business Event forces RebuildFromBaseAndReplay: replaying the
-// historical Add/Remove must not consume the second relationship's local sync.
-void TestShareRelationshipIdentitySurvivesForcedReplay() {
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto node =
-      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(111));
-  InitializeRuntimeNode(*node);
-  auto link = MakeMemoryLink(domain, ae::ObjId{112}, "replay-peer");
-
-  SetValue(*node, 1);
-  node->InstallLocalShare(link, ShareAccess::ReadWrite);
-  node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
-  auto const first_share_id = node->shares[0].share_id;
-  auto const first_sync_id = node->link_sync_states[0].id();
-
-  node->CommitLocalRemoveShare(link);
-  node->InstallLocalShare(link, ShareAccess::ReadWrite);
-  auto const second_share_id = node->shares[0].share_id;
-  CHECK(second_share_id != first_share_id);
-  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
-  node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
-  auto const second_sync_index =
-      node->FindLinkSyncIndexForShare(second_share_id);
-  CHECK(second_sync_index < node->link_sync_states.size());
-  auto const second_sync_id = node->link_sync_states[second_sync_index].id();
-  CHECK(second_sync_id != first_sync_id);
-  SetValue(*node, 2);
-
-  // Older business Event ahead of the journal head → RebuildFromBaseAndReplay.
-  auto early = SetValueEvent::ptr::Create(ae::CreateWith{domain});
-  early->value = 3;
-  node->InsertAtForTest(
-      SharedEventOrder{.timestamp_us = node->journal[0].order.timestamp_us - 1},
-      early);
-
-  CHECK(node->value == 2);
-  CHECK(node->shares.size() == 1);
-  CHECK(node->shares[0].link.id() == link.id());
-  CHECK(node->shares[0].share_id == second_share_id);
-  CHECK(node->link_sync_states.size() == 2);
-  CHECK(node->FindLinkSyncIndexForShare(first_share_id) <
-        node->link_sync_states.size());
-  CHECK(node->link_sync_states[second_sync_index].id() == second_sync_id);
-  CHECK(node->link_sync_states[second_sync_index]->share_id == second_share_id);
-  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
-
-  // Second relationship also survives destroy + reload of the Domain.
-  node.Save();
-  link.Save();
-  for (auto& entry : node->link_sync_states) {
-    entry.Save();
-  }
-  ae::Domain reloaded_domain{storage};
-  auto reloaded =
-      SharedValueNode::ptr::Declare(ae::CreateWith{reloaded_domain}.with_id(111));
-  reloaded.Load();
-  CHECK(reloaded->shares.size() == 1);
-  CHECK(reloaded->shares[0].share_id == second_share_id);
-  CHECK(reloaded->link_sync_states.size() == 2);
-  auto const reloaded_index =
-      reloaded->FindLinkSyncIndexForShare(second_share_id);
-  CHECK(reloaded_index < reloaded->link_sync_states.size());
-  reloaded->link_sync_states[reloaded_index].Load();
-  CHECK(reloaded->link_sync_states[reloaded_index].id() == second_sync_id);
-  CHECK(reloaded->link_sync_states[reloaded_index]->share_id == second_share_id);
-  reloaded->shares[0].link.Load();
-  CHECK(reloaded->GetInitialSyncPhase(reloaded->shares[0].link) ==
-        InitialSyncPhase::Complete);
-
-  // Relationship identity comes from the persisted AddShareEvent, so a forced
-  // rebuild after the storage round trip resolves to the same relationship.
-  auto reloaded_early =
-      SetValueEvent::ptr::Create(ae::CreateWith{reloaded_domain});
-  reloaded_early->value = 4;
-  reloaded->InsertAtForTest(
-      SharedEventOrder{.timestamp_us = reloaded->journal[0].order.timestamp_us - 1},
-      reloaded_early);
-  CHECK(reloaded->value == 2);
-  CHECK(reloaded->shares.size() == 1);
-  CHECK(reloaded->shares[0].share_id == second_share_id);
-  CHECK(reloaded->link_sync_states.size() == 2);
-  CHECK(reloaded->FindLinkSyncIndexForShare(second_share_id) <
-        reloaded->link_sync_states.size());
-  CHECK(reloaded->link_sync_states[reloaded->FindLinkSyncIndexForShare(
-            second_share_id)]
-            .id() == second_sync_id);
-  CHECK(reloaded->GetInitialSyncPhase(reloaded->shares[0].link) ==
-        InitialSyncPhase::Complete);
 }
 
 void TestNetworkSerializationBoundaries() {
@@ -545,11 +403,10 @@ void TestNetworkSerializationBoundaries() {
     CHECK(imported->GetInitialSyncPhase(imported->shares[1].link) ==
           InitialSyncPhase::NotStarted);
 
-    // Receiver creates its own local sync independently (new share → Events).
+    // Imported snapshot already has two shares: a third Install is refused.
     auto link_c = MakeMemoryLink(target_domain, ae::ObjId{54}, "carol");
-    imported->InstallLocalShare(link_c, ShareAccess::ReadOnly);
-    imported->SetInitialSyncPhase(link_c, InitialSyncPhase::Pending);
-    CHECK(imported->GetInitialSyncPhase(link_c) == InitialSyncPhase::Pending);
+    imported->InstallLocalShare(link_c, ShareAccess::ReadWrite);
+    CHECK(imported->shares.size() == 2);
     CHECK(node->GetInitialSyncPhase(link_b) == InitialSyncPhase::Complete);
   }
 }
@@ -797,8 +654,6 @@ int main() {
   apptraverse::test::TestMultipleRefsSameLinkAfterRestart();
   apptraverse::test::TestShareTopologyEventsAndPersistence();
   apptraverse::test::TestLocalSyncStateEventDrivenSaveLoadAndReplay();
-  apptraverse::test::TestRemoveShareAddShareResetsLocalSync();
-  apptraverse::test::TestShareRelationshipIdentitySurvivesForcedReplay();
   apptraverse::test::TestNetworkSerializationBoundaries();
   apptraverse::test::TestNestedSharedNodeLocalPtrExcluded();
   apptraverse::test::TestGenericLocalPtrNetworkExclusion();

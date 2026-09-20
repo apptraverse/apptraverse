@@ -17,7 +17,6 @@ APPTRAVERSE_REGISTER(Presenter);
 void ForceLifecycleRegistration();
 void ForceLinkRegistration();
 void ForceSharedNodeRegistration();
-void ForceShareOfferRegistration();
 
 // Forces the static library object file (and its Registrars) to be linked.
 void EnsureObjectRegistration() {
@@ -25,7 +24,6 @@ void EnsureObjectRegistration() {
   ForceLifecycleRegistration();
   ForceLinkRegistration();
   ForceSharedNodeRegistration();
-  ForceShareOfferRegistration();
 }
 
 }  // namespace apptraverse

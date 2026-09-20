@@ -63,19 +63,6 @@ add_test(
   COMMAND apptraverse_shared_node_incremental_event_test
 )
 
-add_executable(apptraverse_shared_node_join_test
-  shared_node_join_test.cpp
-)
-
-target_link_libraries(apptraverse_shared_node_join_test PRIVATE
-  apptraverse
-)
-
-add_test(
-  NAME apptraverse_shared_node_join_test
-  COMMAND apptraverse_shared_node_join_test
-)
-
 add_executable(apptraverse_permanent_pair_sync_test
   permanent_pair_sync_test.cpp
 )
@@ -96,32 +83,6 @@ add_test(
     -DAPPTRAVERSE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
     -DFIXTURE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/cpm_add_patches_test
     -P ${CMAKE_SOURCE_DIR}/cmake/tests/cpm_add_patches_test.cmake
-)
-
-add_executable(apptraverse_shared_node_availability_test
-  shared_node_availability_test.cpp
-)
-
-target_link_libraries(apptraverse_shared_node_availability_test PRIVATE
-  apptraverse
-)
-
-add_test(
-  NAME apptraverse_shared_node_availability_test
-  COMMAND apptraverse_shared_node_availability_test
-)
-
-add_executable(apptraverse_shared_node_topology_test
-  shared_node_topology_test.cpp
-)
-
-target_link_libraries(apptraverse_shared_node_topology_test PRIVATE
-  apptraverse
-)
-
-add_test(
-  NAME apptraverse_shared_node_topology_test
-  COMMAND apptraverse_shared_node_topology_test
 )
 
 add_executable(apptraverse_native_class_layers_test

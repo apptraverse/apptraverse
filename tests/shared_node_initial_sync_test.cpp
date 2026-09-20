@@ -141,13 +141,11 @@ struct SenderFixture {
 };
 
 // A owns a SharedNode that already has business history and the Link topology
-// of both participants. B is one of the shared endpoints but has no state yet.
-// A non-zero link_c_id adds a third participant, for cases that need an
-// endpoint which is in the topology but is not the destination.
+// of both permanent-pair participants. B is one of the shared endpoints but
+// has no state yet.
 SenderFixture BuildSharedNode(Replica& a, ae::ObjId::Type node_id,
                               ae::ObjId::Type link_a_id,
-                              ae::ObjId::Type link_b_id, std::int32_t value,
-                              ae::ObjId::Type link_c_id = 0) {
+                              ae::ObjId::Type link_b_id, std::int32_t value) {
   auto node =
       SharedValueNode::ptr::Create(ae::CreateWith{*a.domain}.with_id(node_id));
   InitializeRuntimeNode(*node);
@@ -155,11 +153,6 @@ SenderFixture BuildSharedNode(Replica& a, ae::ObjId::Type node_id,
   auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, kEndpointB);
   node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
   node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
-  if (link_c_id != 0) {
-    auto link_c = MakeMemoryLink(*a.domain, ae::ObjId{link_c_id}, kEndpointC);
-    node->InstallLocalShare(link_c, ShareAccess::ReadWrite);
-    link_c.Save();
-  }
   SetValue(*node, value);
   node.Save();
   link_a.Save();
@@ -172,7 +165,7 @@ SenderFixture BuildSharedNode(Replica& a, ae::ObjId::Type node_id,
       .node_id = node.id(),
       .share_to_a = node->shares[0].share_id,
       .share_to_b = node->shares[1].share_id,
-      .share_to_c = link_c_id != 0 ? node->shares[2].share_id : ae::ObjId{},
+      .share_to_c = ae::ObjId{},
   };
   a.sync->RegisterNode(node);
   return fixture;
@@ -602,7 +595,7 @@ void TestTransportDeterministicControls() {
 
 // An ACK is only an acknowledgement when it comes from the endpoint the
 // relationship points at. Packet, node, and share ids prove nothing about the
-// sender.
+// sender. C need not be in the share topology.
 void TestAckMustComeFromRelationshipEndpoint() {
   MemoryNetwork network;
   Replica a{network, kEndpointA, kEndpointB};
@@ -610,9 +603,7 @@ void TestAckMustComeFromRelationshipEndpoint() {
   ObserverEndpoint b{network, kEndpointB};
   ObserverEndpoint c{network, kEndpointC};
 
-  // C is a participant of the shared topology, just not the destination of
-  // the relationship being synchronized.
-  auto const fixture = BuildSharedNode(a, 4801, 4802, 4803, 81, 4804);
+  auto const fixture = BuildSharedNode(a, 4801, 4802, 4803, 81);
   a.sync->SyncInitialState(fixture.node_id, fixture.share_to_b);
   CHECK(network.DropNext(kEndpointA, kEndpointB));
 
@@ -997,58 +988,28 @@ void TestReceiverLocalSentinelCollisionRejected() {
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
 }
 
-void TestSnapshotWithTwoSourceSharesRejected() {
+void TestThirdShareRefused() {
   MemoryNetwork network;
   Replica a{network, kEndpointA, kEndpointB};
-  Replica b{network, kEndpointB, kEndpointA};
   a.Start();
-  b.Start();
 
-  // Create a SharedNode on A with two shares pointing to kEndpointA, and one share pointing to kEndpointB
   ae::ObjId const node_id{5401};
-  ae::ObjId const link_a1_id{5402};
-  ae::ObjId const link_a2_id{5403};
-  ae::ObjId const link_b_id{5404};
+  ae::ObjId const link_a_id{5402};
+  ae::ObjId const link_b_id{5403};
+  ae::ObjId const link_c_id{5404};
 
   auto node =
       SharedValueNode::ptr::Create(ae::CreateWith{*a.domain}.with_id(node_id));
   InitializeRuntimeNode(*node);
-  auto link_a1 = MakeMemoryLink(*a.domain, link_a1_id, kEndpointA);
-  auto link_a2 = MakeMemoryLink(*a.domain, link_a2_id, kEndpointA);
+  auto link_a = MakeMemoryLink(*a.domain, link_a_id, kEndpointA);
   auto link_b = MakeMemoryLink(*a.domain, link_b_id, kEndpointB);
-  node->InstallLocalShare(link_a1, ShareAccess::ReadWrite);
-  node->InstallLocalShare(link_a2, ShareAccess::ReadWrite);
+  auto link_c = MakeMemoryLink(*a.domain, link_c_id, kEndpointC);
+  node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
   node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
-  SetValue(*node, 42);
-  node.Save();
-  link_a1.Save();
-  link_a2.Save();
-  link_b.Save();
-  for (auto& entry : node->link_sync_states) {
-    entry.Save();
-  }
-
-  a.sync->RegisterNode(node);
-  b.sync->ExpectInitialNode(node_id);
-
-  auto const share_to_b = node->shares[2].share_id;
-  a.sync->SyncInitialState(node_id, share_to_b);
-
-  CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-
-  // B must reject snapshot:
-  // - target Node absent from production Domain;
-  // - target Node absent from production storage;
-  // - no imported Link objects;
-  // - no ACK.
-  CHECK(!b.sync->FindNode(node_id).is_valid());
-  CHECK(b.domain->Find(node_id) == nullptr);
-  CHECK(b.storage.Enumerate(node_id).empty());
-  CHECK(b.storage.Enumerate(link_a1_id).empty());
-  CHECK(b.storage.Enumerate(link_a2_id).empty());
-  CHECK(b.storage.Enumerate(link_b_id).empty());
-  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+  CHECK(node->shares.size() == 2);
+  node->InstallLocalShare(link_c, ShareAccess::ReadWrite);
+  CHECK(node->shares.size() == 2);
+  CHECK(node->journal.size() == 2);
 }
 
 }  // namespace
@@ -1074,7 +1035,7 @@ int main() {
   apptraverse::test::TestMalformedPayloadWritesNothing();
   apptraverse::test::TestFrameDecodingIsStrict();
   apptraverse::test::TestReceiverLocalSentinelCollisionRejected();
-  apptraverse::test::TestSnapshotWithTwoSourceSharesRejected();
+  apptraverse::test::TestThirdShareRefused();
 
   std::cout << "shared_node_initial_sync_test OK\n";
   return 0;

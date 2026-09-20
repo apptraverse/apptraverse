@@ -18,16 +18,16 @@
 
 namespace apptraverse {
 
+// Permanent-pair access: wire layout keeps uint8; only ReadWrite (=0) is
+// valid. Non-zero access is refused at InstallLocalShare / CanApply.
 enum class ShareAccess : std::uint8_t {
   ReadWrite = 0,
-  ReadOnly = 1,
 };
 
 // One lifetime of SharedNode <-> Link. share_id is the relationship identity
 // carried on AddShareEvent. A local commit uses that event's ObjId. A network
 // import keeps the same id even when the receiver allocates a new event
-// object, so remove + re-add over the same Link is still a new relationship.
-// Shared topology state.
+// object. Permanent AeroAdmin dialogs hold at most two shares.
 struct Share {
   ae::ObjId share_id;
   Link::ptr link;
@@ -371,11 +371,10 @@ class CancelInitialSyncEvent
 };
 
 class AddShareEvent;
-class RemoveShareEvent;
-class ChangeShareAccessEvent;
 
 // Generic shared Node: shared topology (shares[]) plus local-persistent
-// per-Link sync metadata (link_sync_states via LocalPtr).
+// per-Link sync metadata (link_sync_states via LocalPtr). Permanent pair:
+// at most two ReadWrite shares; no Remove/ChangeAccess events.
 class SharedNode : public NodeFor<SharedNode> {
   APPTRAVERSE_OBJECT(SharedNode, Node, 2)
 
@@ -412,23 +411,12 @@ class SharedNode : public NodeFor<SharedNode> {
   std::vector<Share> shares;
   std::vector<LocalPtr<LinkSyncState>> link_sync_states;
 
-  // Local-only topology for initial graph construction and offline tests.
-  // Live shared topology changes go through SharedSyncRuntime
-  // (Offer/Accept, RemoveShare, ChangeShareAccess) so they publish events.
+  // Local-only topology for chat formation (self + peer). Refuses a third
+  // share and any access other than ReadWrite.
   void InstallLocalShare(Link::ptr link, ShareAccess access);
-  void CommitLocalRemoveShare(Link::ptr link);
-  void CommitLocalShareAccess(Link::ptr link, ShareAccess access);
 
-  // Concurrent removes of one lifetime and access changes that race a remove
-  // are admissible no-ops when the share is already closed. An unknown
-  // share_id that was never introduced is not.
   bool CanApply(AddShareEvent const& event) const;
-  bool CanApply(RemoveShareEvent const& event) const;
-  bool CanApply(ChangeShareAccessEvent const& event) const;
-
   void Apply(AddShareEvent const& event);
-  void Apply(RemoveShareEvent const& event);
-  void Apply(ChangeShareAccessEvent const& event);
 
   // Local sync phase changes are Events on the LinkSyncState Node of the
   // active Share relationship (created by AddShare Apply). Not shared Events.
@@ -444,8 +432,6 @@ class SharedNode : public NodeFor<SharedNode> {
   std::size_t FindLinkSyncIndexForShare(ae::ObjId share_id) const;
 
  private:
-  bool ShareIntroduced(ae::ObjId share_id) const;
-
   std::vector<LocalPtr<LinkSyncState>> rebuild_local_sync_stash_;
 };
 
@@ -483,39 +469,6 @@ class AddShareEvent : public EventFor<SharedNode, AddShareEvent> {
   std::uint8_t access{
       static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
   ae::ObjId share_id;
-};
-
-// Names the Share relationship being closed, not the transport endpoint: the
-// same Link may have been shared and unshared several times.
-class RemoveShareEvent : public EventFor<SharedNode, RemoveShareEvent> {
-  APPTRAVERSE_OBJECT(RemoveShareEvent, Event, 0)
-
- protected:
-  RemoveShareEvent() = default;
-
- public:
-  explicit RemoveShareEvent(ae::ObjProp prop) : EventFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(share_id))
-
-  ae::ObjId share_id;
-};
-
-class ChangeShareAccessEvent
-    : public EventFor<SharedNode, ChangeShareAccessEvent> {
-  APPTRAVERSE_OBJECT(ChangeShareAccessEvent, Event, 0)
-
- protected:
-  ChangeShareAccessEvent() = default;
-
- public:
-  explicit ChangeShareAccessEvent(ae::ObjProp prop) : EventFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(share_id), AE_MMBR(access))
-
-  ae::ObjId share_id;
-  std::uint8_t access{
-      static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
 };
 
 }  // namespace apptraverse

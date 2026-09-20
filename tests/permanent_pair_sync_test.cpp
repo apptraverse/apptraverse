@@ -20,7 +20,6 @@
 #include "apptraverse/memory_transport.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/share_offer.h"
 #include "apptraverse/shared_node.h"
 #include "apptraverse/shared_sync_runtime.h"
 #include "apptraverse/sync_frame.h"
@@ -193,24 +192,6 @@ struct Replica {
     counter = std::make_unique<SendCounter>(*transport, sends);
     sync = std::make_unique<SharedSyncRuntime>(*domain, storage, *counter);
     sync->AllowStandaloneEventClass(AddPairRecordEvent::kClassId);
-    // Permanent-pair policy: accept the expected peer only; reject a third
-    // participant on a node that already has two live shares.
-    sync->SetShareOfferPolicy([this](SharedSyncRuntime::ShareOfferView const&
-                                         offer) {
-      if (offer.root_class_id != 0 &&
-          offer.root_class_id != PairDialogNode::kClassId) {
-        return false;
-      }
-      if (offer.kind == ShareOfferKind::Request) {
-        auto node = sync->FindNode(offer.node_id);
-        if (node.is_valid() && node->shares.size() >= 2) {
-          return false;
-        }
-      }
-      return true;
-    });
-    sync->SetLinkForEndpoint(
-        [this](std::string const& endpoint) { return MakeLink(*domain, endpoint); });
     sync->SetInitialNodeImportedCallback(
         [this](std::string const&, SharedNode::ptr node) {
           ++binds;
@@ -490,12 +471,8 @@ std::string Diagnose(World const& world) {
   std::string out;
   for (auto* replica : world.replicas) {
     out += replica->endpoint();
-    for (auto const& status : replica->sync->OfferStatuses()) {
-      out += " op=";
-      out += std::to_string(status.operation_id.id());
-      out += " phase=";
-      out += std::to_string(static_cast<int>(status.phase));
-    }
+    out += " nodes=";
+    out += std::to_string(replica->sync->RegisteredNodeIds().size());
     out += '\n';
   }
   return out;
@@ -573,24 +550,88 @@ struct Trio {
   }
 };
 
-bool PhaseIs(Replica& replica, ae::ObjId operation, ShareOfferPhase phase) {
-  return replica.sync->OfferPhase(operation) == phase;
+LinkSyncState::ptr SyncStateForPeer(SharedNode::ptr node,
+                                    std::string const& peer_endpoint) {
+  CHECK(node.is_valid());
+  for (auto const& share : node->shares) {
+    if (!share.link.is_loaded()) {
+      share.link.Load();
+    }
+    CHECK(share.link.is_loaded());
+    if (share.link->EndpointUid() != peer_endpoint) {
+      continue;
+    }
+    auto const idx = node->FindLinkSyncIndexForShare(share.share_id);
+    CHECK(idx < node->link_sync_states.size());
+    auto state = node->link_sync_states[idx];
+    if (!state.is_loaded()) {
+      state.Load();
+    }
+    CHECK(state.is_loaded());
+    return state;
+  }
+  CHECK(false);
+  return {};
 }
 
-bool FullyJoined(Pair& pair, ae::ObjId operation, ae::ObjId node_id) {
-  return PhaseIs(pair.a, operation, ShareOfferPhase::Complete) &&
-         PhaseIs(pair.b, operation, ShareOfferPhase::Bound) &&
-         pair.b.sync->FindNode(node_id).is_valid();
+ae::ObjId PeerShareId(SharedNode::ptr node, std::string const& peer_endpoint) {
+  CHECK(node.is_valid());
+  for (auto const& share : node->shares) {
+    if (!share.link.is_loaded()) {
+      share.link.Load();
+    }
+    CHECK(share.link.is_loaded());
+    if (share.link->EndpointUid() == peer_endpoint) {
+      return share.share_id;
+    }
+  }
+  return {};
 }
 
-ae::ObjId OfferTo(Replica& holder, PairDialogNode::ptr node,
-                  std::string const& remote_endpoint) {
-  return holder.sync->OfferNode(node, MakeLink(*holder.domain, remote_endpoint),
-                                ShareAccess::ReadWrite);
+bool PairJoined(Pair& pair, ae::ObjId node_id) {
+  auto a_node = pair.a.sync->FindNode(node_id);
+  auto b_node = pair.b.sync->FindNode(node_id);
+  if (!a_node.is_valid() || !b_node.is_valid()) {
+    return false;
+  }
+  if (a_node->shares.size() != 2 || b_node->shares.size() != 2) {
+    return false;
+  }
+  auto state = SyncStateForPeer(a_node, kB);
+  return state.is_valid() &&
+         state->GetInitialSyncPhase() == InitialSyncPhase::Complete;
 }
 
-void FinishJoin(Pair& pair, ae::ObjId operation, ae::ObjId node_id) {
-  Pump(pair.world(), [&] { return FullyJoined(pair, operation, node_id); }, 80);
+// Chat formation: holder InstallLocalShare (self already + peer), peer
+// ExpectInitial, SyncInitialState. No OfferNode.
+void FormPair(Replica& holder, Replica& peer, PairDialogNode::ptr node) {
+  auto const node_id = node.id();
+  if (node->shares.size() == 2 && peer.sync->FindNode(node_id).is_valid()) {
+    auto state = SyncStateForPeer(node, peer.endpoint());
+    if (state.is_valid() &&
+        state->GetInitialSyncPhase() == InitialSyncPhase::Complete) {
+      return;
+    }
+  }
+  if (!PeerShareId(node, peer.endpoint()).is_valid()) {
+    auto remote = MakeLink(*holder.domain, peer.endpoint());
+    node->InstallLocalShare(remote, ShareAccess::ReadWrite);
+    SaveSync(node);
+  }
+  CHECK(node->shares.size() == 2);
+  peer.sync->ExpectInitialNodeFromEndpoint(holder.endpoint(),
+                                           PairDialogNode::kClassId, node_id);
+  auto const share_id = PeerShareId(node, peer.endpoint());
+  CHECK(share_id.is_valid());
+  holder.sync->SyncInitialState(node_id, share_id);
+}
+
+void FormPair(Pair& pair, PairDialogNode::ptr node) {
+  FormPair(pair.a, pair.b, node);
+}
+
+void FinishPair(Pair& pair, ae::ObjId node_id) {
+  Pump(pair.world(), [&] { return PairJoined(pair, node_id); }, 80);
 }
 
 void Settle(World& world, int max_steps = 200) {
@@ -630,8 +671,8 @@ PairBinding::ptr LoadBinding(Replica& replica) {
   return binding;
 }
 
-// Re-open a saved dialog: restore runtime registration from storage/binding.
-// Must not OfferNode or create a new journal.
+// Re-open a saved dialog: restore runtime registration from storage.
+// Binding is required on the importer; optional on the holder.
 void ReopenDialog(Replica& replica, ae::ObjId node_id) {
   if (replica.sync->FindNode(node_id).is_valid()) {
     return;
@@ -642,6 +683,9 @@ void ReopenDialog(Replica& replica, ae::ObjId node_id) {
   node.Load();
   CHECK(node.is_loaded());
   replica.sync->RegisterNode(node);
+  if (replica.storage.Enumerate(kPairBindingId).empty()) {
+    return;
+  }
   auto binding = LoadBinding(replica);
   bool found = false;
   for (auto id : binding->node_ids) {
@@ -663,29 +707,7 @@ void Offline(MemoryNetwork& network, std::string const& from,
   network.SetAvailability(from, to, EndpointAvailability::Offline);
 }
 
-LinkSyncState::ptr SyncStateForPeer(SharedNode::ptr node,
-                                    std::string const& peer_endpoint) {
-  CHECK(node.is_valid());
-  for (auto const& share : node->shares) {
-    if (!share.link.is_loaded()) {
-      share.link.Load();
-    }
-    CHECK(share.link.is_loaded());
-    if (share.link->EndpointUid() != peer_endpoint) {
-      continue;
-    }
-    auto const idx = node->FindLinkSyncIndexForShare(share.share_id);
-    CHECK(idx < node->link_sync_states.size());
-    auto state = node->link_sync_states[idx];
-    if (!state.is_loaded()) {
-      state.Load();
-    }
-    CHECK(state.is_loaded());
-    return state;
-  }
-  CHECK(false);
-  return {};
-}
+
 
 // Count only real availability transitions (value actually changes).
 bool SetAvailabilityTracked(MemoryNetwork& network, std::string const& from,
@@ -717,11 +739,11 @@ void TestFormationAndBasicExchange() {
   auto node = MakeDialog(pair.a);
   AddRecord(*node, "seed", kA, 1, 100);
   auto const node_id = node.id();
-  auto const op = OfferTo(pair.a, node, kB);
-  auto const again = OfferTo(pair.a, AsDialog(pair.a.sync->FindNode(node_id)), kB);
-  CHECK(op == again);
-  CHECK(pair.a.sync->LocalOfferIds().size() == 1);
-  FinishJoin(pair, op, node_id);
+  FormPair(pair, node);
+  CHECK(pair.network.PendingCount(kA, kB) == 1);
+  NodeStateFrame first;
+  CHECK(DecodeNodeStateFrame(pair.network.PeekNext(kA, kB), first));
+  FinishPair(pair, node_id);
   ExpectPairTopology(pair.a.sync->FindNode(node_id),
                      pair.b.sync->FindNode(node_id));
   ExpectSameObserve(pair.a.sync->FindNode(node_id),
@@ -748,12 +770,11 @@ void TestFormationAndBasicExchange() {
                     pair.b.sync->FindNode(node_id));
   Settle(world);
 
-  // Idempotent Offer after Complete.
-  auto const third =
-      OfferTo(pair.a, AsDialog(pair.a.sync->FindNode(node_id)), kB);
-  CHECK(third == op);
+  // Already paired: third peer InstallLocalShare refused; shares stay 2.
   CHECK(pair.a.sync->FindNode(node_id)->shares.size() == 2);
-  CHECK(pair.a.sync->LocalOfferIds().size() == 1);
+  AsDialog(pair.a.sync->FindNode(node_id))
+      ->InstallLocalShare(MakeLink(*pair.a.domain, kC), ShareAccess::ReadWrite);
+  CHECK(pair.a.sync->FindNode(node_id)->shares.size() == 2);
 }
 
 void TestLocalAcceptWhileOffline() {
@@ -761,8 +782,8 @@ void TestLocalAcceptWhileOffline() {
   auto node = MakeDialog(pair.a);
   AddRecord(*node, "seed", kA, 1, 10);
   auto const node_id = node.id();
-  auto const op = OfferTo(pair.a, node, kB);
-  FinishJoin(pair, op, node_id);
+  FormPair(pair, node);
+  FinishPair(pair, node_id);
   Offline(pair.network, kA, kB);
   Offline(pair.network, kB, kA);
   auto live_a = AsDialog(pair.a.sync->FindNode(node_id));
@@ -791,32 +812,33 @@ void TestLossesDuplicatesReorderDuringSync() {
     auto node = MakeDialog(pair.a);
     AddRecord(*node, "seed", kA, 1, 100);
     auto const node_id = node.id();
-    auto const op = OfferTo(pair.a, node, kB);
+    FormPair(pair, node);
+    CHECK(pair.network.PendingCount(kA, kB) == 1);
+    NodeStateFrame first;
+    CHECK(DecodeNodeStateFrame(pair.network.PeekNext(kA, kB), first));
     CHECK(pair.network.DropNext(kA, kB));
     ServiceRetry(pair.a, pair.network, kB);
-    FinishJoin(pair, op, node_id);
+    FinishPair(pair, node_id);
   }
   {
     Pair pair;
     auto node = MakeDialog(pair.a);
     AddRecord(*node, "seed", kA, 1, 100);
     auto const node_id = node.id();
-    auto const op = OfferTo(pair.a, node, kB);
+    FormPair(pair, node);
     CHECK(pair.network.DeliverNext(kA, kB));
     CHECK(pair.network.DropNext(kB, kA));
     ServiceRetry(pair.a, pair.network, kB);
     CHECK(pair.network.DeliverNext(kA, kB));
     CHECK(pair.network.PendingCount(kB, kA) == 1);
-    FinishJoin(pair, op, node_id);
+    FinishPair(pair, node_id);
   }
   {
     Pair pair;
     auto node = MakeDialog(pair.a);
     AddRecord(*node, "seed", kA, 1, 100);
     auto const node_id = node.id();
-    auto const op = OfferTo(pair.a, node, kB);
-    CHECK(pair.network.DeliverNext(kA, kB));
-    CHECK(pair.network.DeliverNext(kB, kA));
+    FormPair(pair, node);
     CHECK(pair.network.PendingCount(kA, kB) == 1);
     NodeStateFrame snapshot;
     CHECK(DecodeNodeStateFrame(pair.network.PeekNext(kA, kB), snapshot));
@@ -829,7 +851,7 @@ void TestLossesDuplicatesReorderDuringSync() {
     CHECK(again.packet_id == packet_id);
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "during-initial", kA, 2,
               150);
-    FinishJoin(pair, op, node_id);
+    FinishPair(pair, node_id);
     auto world = pair.world();
     Pump(world,
          [&] {
@@ -845,8 +867,8 @@ void TestLossesDuplicatesReorderDuringSync() {
     auto node = MakeDialog(pair.a);
     AddRecord(*node, "seed", kA, 1, 100);
     auto const node_id = node.id();
-    auto const op = OfferTo(pair.a, node, kB);
-    FinishJoin(pair, op, node_id);
+    FormPair(pair, node);
+    FinishPair(pair, node_id);
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "evt", kA, 2, 200);
     ServiceRetry(pair.a, pair.network, kB);
     CHECK(pair.network.DuplicateNext(kA, kB));
@@ -873,8 +895,8 @@ void TestLossesDuplicatesReorderDuringSync() {
     auto node = MakeDialog(pair.a);
     AddRecord(*node, "seed", kA, 1, 100);
     auto const node_id = node.id();
-    auto const op = OfferTo(pair.a, node, kB);
-    FinishJoin(pair, op, node_id);
+    FormPair(pair, node);
+    FinishPair(pair, node_id);
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "first", kA, 2, 200);
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "second", kA, 3, 300);
     ServiceRetry(pair.a, pair.network, kB);
@@ -898,8 +920,8 @@ void TestWrongSourceDoesNotAck() {
   auto node = MakeDialog(pair.a);
   AddRecord(*node, "seed", kA, 1, 100);
   auto const node_id = node.id();
-  auto const op = OfferTo(pair.a, node, kB);
-  FinishJoin(pair, op, node_id);
+  FormPair(pair, node);
+  FinishPair(pair, node_id);
 
   AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "pending", kA, 2, 200);
   ServiceRetry(pair.a, pair.network, kB);
@@ -977,8 +999,8 @@ void TestLongOfflineMonth() {
   auto node = MakeDialog(pair.a);
   AddRecord(*node, "seed", kA, 1, 100);
   auto const node_id = node.id();
-  auto const op = OfferTo(pair.a, node, kB);
-  FinishJoin(pair, op, node_id);
+  FormPair(pair, node);
+  FinishPair(pair, node_id);
   auto const share_count = pair.a.sync->FindNode(node_id)->shares.size();
   CHECK(share_count == 2);
   auto const share_ids = SharesOf(pair.a.sync->FindNode(node_id));
@@ -1050,21 +1072,26 @@ void TestLongOfflineMonth() {
 }
 
 void TestRestartsPreserveRelationship() {
-  // During admission.
+  // During admission: holder restarts before NodeState is delivered.
   {
     Pair pair;
     auto node = MakeDialog(pair.a);
     AddRecord(*node, "seed", kA, 1, 100);
     auto const node_id = node.id();
-    auto const op = OfferTo(pair.a, node, kB);
+    FormPair(pair, node);
     CHECK(pair.network.PendingCount(kA, kB) == 1);
+    NodeStateFrame pending;
+    CHECK(DecodeNodeStateFrame(pair.network.PeekNext(kA, kB), pending));
     node = {};
     Restart(pair.a);
     pair.network.ClearQueues();
-    CHECK(pair.a.sync->FindNode(node_id).is_valid());
-    CHECK(PhaseIs(pair.a, op, ShareOfferPhase::Pending));
+    ReopenDialog(pair.a, node_id);
+    // Peer still expects the initial node after holder restart.
+    pair.b.sync->ExpectInitialNodeFromEndpoint(kA, PairDialogNode::kClassId);
+    auto state = SyncStateForPeer(pair.a.sync->FindNode(node_id), kB);
+    CHECK(state->GetInitialSyncPhase() == InitialSyncPhase::Pending);
     Advance(pair.a, 1);
-    FinishJoin(pair, op, node_id);
+    FinishPair(pair, node_id);
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "after", kA, 2, 200);
     auto world = pair.world();
     Pump(world,
@@ -1073,28 +1100,25 @@ void TestRestartsPreserveRelationship() {
          },
          80);
   }
-  // After snapshot saved, before ACK.
+  // After snapshot saved on B, before A's ACK is confirmed (drop ACK, restart B).
   {
     Pair pair;
     auto node = MakeDialog(pair.a);
     AddRecord(*node, "seed", kA, 1, 100);
     auto const node_id = node.id();
-    auto const op = OfferTo(pair.a, node, kB);
-    CHECK(pair.network.DeliverNext(kA, kB));
-    CHECK(pair.network.DeliverNext(kB, kA));
+    FormPair(pair, node);
     CHECK(pair.network.DeliverNext(kA, kB));
     CHECK(pair.b.sync->FindNode(node_id).is_valid());
-    CHECK(PhaseIs(pair.b, op, ShareOfferPhase::Bound));
-    CHECK(PhaseIs(pair.a, op, ShareOfferPhase::Accepted));
+    CHECK(pair.network.PendingCount(kB, kA) == 1);
     node = {};
     Restart(pair.b);
     pair.network.ClearQueues();
-    CHECK(pair.b.sync->FindNode(node_id).is_valid());
+    ReopenDialog(pair.b, node_id);
     CHECK(pair.b.binds == 0);
     auto binding = LoadBinding(pair.b);
     CHECK(binding->node_ids[0] == node_id.id());
     Advance(pair.a, kShareOfferRetryIntervalUs);
-    FinishJoin(pair, op, node_id);
+    FinishPair(pair, node_id);
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "post", kA, 2, 300);
     auto world = pair.world();
     Pump(world,
@@ -1109,8 +1133,8 @@ void TestRestartsPreserveRelationship() {
     auto node = MakeDialog(pair.a);
     AddRecord(*node, "seed", kA, 1, 100);
     auto const node_id = node.id();
-    auto const op = OfferTo(pair.a, node, kB);
-    FinishJoin(pair, op, node_id);
+    FormPair(pair, node);
+    FinishPair(pair, node_id);
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "unacked", kA, 2, 400);
     ServiceRetry(pair.a, pair.network, kB);
     CHECK(pair.network.DeliverNext(kA, kB));
@@ -1118,7 +1142,7 @@ void TestRestartsPreserveRelationship() {
     node = {};
     Restart(pair.a);
     pair.network.ClearQueues();
-    CHECK(pair.a.sync->FindNode(node_id).is_valid());
+    ReopenDialog(pair.a, node_id);
     Advance(pair.a, 1);
     auto world = pair.world();
     Pump(world, [&] { return !Queued(world); }, 80);
@@ -1137,8 +1161,8 @@ void TestRestartsPreserveRelationship() {
     auto node = MakeDialog(pair.a);
     AddRecord(*node, "seed", kA, 1, 100);
     auto const node_id = node.id();
-    auto const op = OfferTo(pair.a, node, kB);
-    FinishJoin(pair, op, node_id);
+    FormPair(pair, node);
+    FinishPair(pair, node_id);
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "acked", kA, 2, 600);
     auto world = pair.world();
     Pump(world,
@@ -1152,17 +1176,13 @@ void TestRestartsPreserveRelationship() {
     Restart(pair.a);
     Restart(pair.b);
     pair.network.ClearQueues();
-    CHECK(pair.a.sync->FindNode(node_id).is_valid());
-    CHECK(pair.b.sync->FindNode(node_id).is_valid());
     ReopenDialog(pair.a, node_id);
     ReopenDialog(pair.b, node_id);
     ExpectPairTopology(pair.a.sync->FindNode(node_id),
                        pair.b.sync->FindNode(node_id));
     CHECK(SharesOf(pair.a.sync->FindNode(node_id))[0].share_id ==
           shares_before[0].share_id);
-    // Re-open must not start a new Offer / journal.
-    CHECK(pair.a.sync->LocalOfferIds().size() == 1);
-    CHECK(OfferTo(pair.a, AsDialog(pair.a.sync->FindNode(node_id)), kB) == op);
+    CHECK(pair.a.sync->FindNode(node_id)->shares.size() == 2);
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "after-both-restart",
               kA, 3, 700);
     Pump(world,
@@ -1182,15 +1202,23 @@ void TestIsolationTwoDialogs() {
   AddRecord(*node_ac, "ac-seed", kA, 1, 100);
   auto const ab_id = node_ab.id();
   auto const ac_id = node_ac.id();
-  auto const op_b = OfferTo(trio.a, node_ab, kB);
-  auto const op_c = OfferTo(trio.a, node_ac, kC);
+  FormPair(trio.a, trio.b, node_ab);
+  FormPair(trio.a, trio.c, node_ac);
   auto world = trio.world();
   Pump(world,
        [&] {
-         return PhaseIs(trio.a, op_b, ShareOfferPhase::Complete) &&
-                PhaseIs(trio.b, op_b, ShareOfferPhase::Bound) &&
-                PhaseIs(trio.a, op_c, ShareOfferPhase::Complete) &&
-                PhaseIs(trio.c, op_c, ShareOfferPhase::Bound);
+         auto ab_a = trio.a.sync->FindNode(ab_id);
+         auto ab_b = trio.b.sync->FindNode(ab_id);
+         auto ac_a = trio.a.sync->FindNode(ac_id);
+         auto ac_c = trio.c.sync->FindNode(ac_id);
+         if (!ab_a.is_valid() || !ab_b.is_valid() || !ac_a.is_valid() ||
+             !ac_c.is_valid()) {
+           return false;
+         }
+         return SyncStateForPeer(ab_a, kB)->GetInitialSyncPhase() ==
+                    InitialSyncPhase::Complete &&
+                SyncStateForPeer(ac_a, kC)->GetInitialSyncPhase() ==
+                    InitialSyncPhase::Complete;
        },
        120);
   CHECK(trio.b.sync->FindNode(ab_id).is_valid());
@@ -1223,32 +1251,18 @@ void TestIsolationTwoDialogs() {
 }
 
 void TestRejectThirdOnEstablishedPair() {
-  Trio trio;
-  auto node = MakeDialog(trio.a);
+  Pair pair;
+  auto node = MakeDialog(pair.a);
   AddRecord(*node, "seed", kA, 1, 100);
   auto const node_id = node.id();
-  auto const op = OfferTo(trio.a, node, kB);
-  auto world = trio.world();
-  Pump(world,
-       [&] {
-         return PhaseIs(trio.a, op, ShareOfferPhase::Complete) &&
-                PhaseIs(trio.b, op, ShareOfferPhase::Bound);
-       },
-       80);
-  CHECK(trio.a.sync->FindNode(node_id)->shares.size() == 2);
-  auto const to_c =
-      trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
-  Pump(world,
-       [&] {
-         return PhaseIs(trio.a, to_c, ShareOfferPhase::Rejected) ||
-                PhaseIs(trio.c, to_c, ShareOfferPhase::Rejected);
-       },
-       80);
-  CHECK(!trio.c.sync->FindNode(node_id).is_valid());
-  CHECK(trio.c.storage.Enumerate(node_id).empty());
-  CHECK(trio.a.sync->FindNode(node_id)->shares.size() == 2);
-  ExpectPairTopology(trio.a.sync->FindNode(node_id),
-                     trio.b.sync->FindNode(node_id));
+  FormPair(pair, node);
+  FinishPair(pair, node_id);
+  CHECK(pair.a.sync->FindNode(node_id)->shares.size() == 2);
+  auto live = AsDialog(pair.a.sync->FindNode(node_id));
+  live->InstallLocalShare(MakeLink(*pair.a.domain, kC), ShareAccess::ReadWrite);
+  CHECK(live->shares.size() == 2);
+  ExpectPairTopology(pair.a.sync->FindNode(node_id),
+                     pair.b.sync->FindNode(node_id));
 }
 
 void TestNoExtraTrafficAfterSettleAndReopen() {
@@ -1256,8 +1270,8 @@ void TestNoExtraTrafficAfterSettleAndReopen() {
   auto node = MakeDialog(pair.a);
   AddRecord(*node, "seed", kA, 1, 100);
   auto const node_id = node.id();
-  auto const op = OfferTo(pair.a, node, kB);
-  FinishJoin(pair, op, node_id);
+  FormPair(pair, node);
+  FinishPair(pair, node_id);
   for (std::uint64_t i = 1; i <= 10; ++i) {
     AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "a" + std::to_string(i),
               kA, i + 1, 1000 + i);
@@ -1304,8 +1318,8 @@ void TestEqualTimestampsObserveOracle() {
   auto node = MakeDialog(pair.a);
   AddRecord(*node, "seed", kA, 1, 100);
   auto const node_id = node.id();
-  auto const op = OfferTo(pair.a, node, kB);
-  FinishJoin(pair, op, node_id);
+  FormPair(pair, node);
+  FinishPair(pair, node_id);
   // Same timestamp_us from independent origins — contract does not invent a
   // second distributed order key. Observe uses (ts, origin, seq).
   AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "eq-a", kA, 2, 5000);
@@ -1342,8 +1356,8 @@ void TestUnknownDoesNotBlockForever() {
   auto node = MakeDialog(pair.a);
   AddRecord(*node, "seed", kA, 1, 100);
   auto const node_id = node.id();
-  auto const op = OfferTo(pair.a, node, kB);
-  FinishJoin(pair, op, node_id);
+  FormPair(pair, node);
+  FinishPair(pair, node_id);
   auto const sends_before = pair.a.sends;
   pair.network.SetAvailability(kA, kB, EndpointAvailability::Unknown);
   AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "via-unknown", kA, 2,
@@ -1376,10 +1390,10 @@ void RunPermanentPairChaos(std::uint32_t seed, int steps,
   auto node = MakeDialog(pair.a);
   AddRecord(*node, "seed", kA, 1, 100);
   auto const node_id = node.id();
+  FormPair(pair, node);
   node = {};
-  auto const op = OfferTo(pair.a, AsDialog(pair.a.sync->FindNode(node_id)), kB);
   auto world = pair.world();
-  Pump(world, [&] { return FullyJoined(pair, op, node_id); }, 80);
+  Pump(world, [&] { return PairJoined(pair, node_id); }, 80);
 
   // Forced Online after join must not count toward random-phase transitions.
   Online(pair.network, kA, kB);
@@ -1500,6 +1514,7 @@ void RunPermanentPairChaos(std::uint32_t seed, int steps,
       reps[i]->Stop();
       pair.network.ClearQueues();
       reps[i]->Start();
+      ReopenDialog(*reps[i], node_id);
       CHECK(reps[i]->sync->FindNode(node_id).is_valid());
       // Forced Online after restart is excluded from transition counters.
       Online(pair.network, kA, kB);

@@ -21,8 +21,6 @@ APPTRAVERSE_REGISTER(CancelIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(CancelInitialSyncEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddShareEvent);
-APPTRAVERSE_REGISTER(RemoveShareEvent);
-APPTRAVERSE_REGISTER(ChangeShareAccessEvent);
 
 }  // namespace
 
@@ -265,8 +263,14 @@ std::size_t SharedNode::FindLinkSyncIndexForShare(ae::ObjId share_id) const {
 
 void SharedNode::InstallLocalShare(Link::ptr link, ShareAccess access) {
   assert(link.is_valid() && "InstallLocalShare requires a valid Link");
+  assert(access == ShareAccess::ReadWrite &&
+         "InstallLocalShare requires ReadWrite");
   // Idempotent: same Link already shared → no duplicate entry.
   if (FindShareIndex(link.id()) < shares.size()) {
+    return;
+  }
+  // Permanent pair: exactly two participants. Refuse a third.
+  if (shares.size() >= 2) {
     return;
   }
   auto event = AddShareEvent::ptr::Create(ae::CreateWith{*domain});
@@ -278,77 +282,20 @@ void SharedNode::InstallLocalShare(Link::ptr link, ShareAccess access) {
   Commit(event);
 }
 
-void SharedNode::CommitLocalRemoveShare(Link::ptr link) {
-  assert(link.is_valid() && "CommitLocalRemoveShare requires a valid Link");
-  auto const index = FindShareIndex(link.id());
-  if (index >= shares.size()) {
-    return;
-  }
-  auto event = RemoveShareEvent::ptr::Create(ae::CreateWith{*domain});
-  event->share_id = shares[index].share_id;
-  Commit(event);
-}
-
-void SharedNode::CommitLocalShareAccess(Link::ptr link, ShareAccess access) {
-  assert(link.is_valid() && "CommitLocalShareAccess requires a valid Link");
-  auto const index = FindShareIndex(link.id());
-  assert(index < shares.size() &&
-         "CommitLocalShareAccess requires an existing share");
-  if (shares[index].GetAccess() == access) {
-    return;
-  }
-  auto event = ChangeShareAccessEvent::ptr::Create(ae::CreateWith{*domain});
-  event->share_id = shares[index].share_id;
-  event->access = static_cast<std::uint8_t>(access);
-  Commit(event);
-}
-
-bool SharedNode::ShareIntroduced(ae::ObjId share_id) const {
-  if (!share_id.is_valid()) {
-    return false;
-  }
-  if (FindShareIndexForShare(share_id) < shares.size()) {
-    return true;
-  }
-  for (auto const& record : journal) {
-    if (!record.event.is_valid()) {
-      continue;
-    }
-    auto event = record.event;
-    if (!event.is_loaded()) {
-      event.Load();
-    }
-    if (!event.is_loaded() || event->GetClassId() != AddShareEvent::kClassId) {
-      continue;
-    }
-    if (static_cast<AddShareEvent const&>(*event).share_id == share_id) {
-      return true;
-    }
-  }
-  return false;
-}
-
 bool SharedNode::CanApply(AddShareEvent const& event) const {
   if (!event.share_id.is_valid() || !event.link.is_valid()) {
+    return false;
+  }
+  if (event.access != static_cast<std::uint8_t>(ShareAccess::ReadWrite)) {
+    return false;
+  }
+  if (shares.size() >= 2) {
     return false;
   }
   if (FindShareIndexForShare(event.share_id) < shares.size()) {
     return false;
   }
   return FindShareIndex(event.link.id()) >= shares.size();
-}
-
-bool SharedNode::CanApply(RemoveShareEvent const& event) const {
-  // Open share, or already closed after a prior admissible remove of the
-  // same lifetime. An id that was never introduced is not a concurrent case.
-  return ShareIntroduced(event.share_id);
-}
-
-bool SharedNode::CanApply(ChangeShareAccessEvent const& event) const {
-  if (event.access > static_cast<std::uint8_t>(ShareAccess::ReadOnly)) {
-    return false;
-  }
-  return ShareIntroduced(event.share_id);
 }
 
 void SharedNode::Apply(AddShareEvent const& event) {
@@ -373,33 +320,6 @@ void SharedNode::Apply(AddShareEvent const& event) {
     link_sync_states.push_back(LocalPtr<LinkSyncState>{state});
   }
 
-  NoteMaterializedChange();
-}
-
-void SharedNode::Apply(RemoveShareEvent const& event) {
-  assert(CanApply(event));
-  auto const index = FindShareIndexForShare(event.share_id);
-  if (index >= shares.size()) {
-    // Already closed by a concurrent remove of the same lifetime.
-    return;
-  }
-  shares.erase(shares.begin() + static_cast<std::ptrdiff_t>(index));
-
-  // Keep LinkSyncState: it is the durable delivery record for the closing
-  // event and for acknowledging retransmits after the share row is gone.
-  // A later AddShare over the same Link uses a new share_id and a new state.
-
-  NoteMaterializedChange();
-}
-
-void SharedNode::Apply(ChangeShareAccessEvent const& event) {
-  assert(CanApply(event));
-  auto const index = FindShareIndexForShare(event.share_id);
-  if (index >= shares.size()) {
-    // Closed by a concurrent remove. Do not reopen.
-    return;
-  }
-  shares[index].access = event.access;
   NoteMaterializedChange();
 }
 

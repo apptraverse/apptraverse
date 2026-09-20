@@ -310,6 +310,11 @@ Restart tests must really destroy and recreate Application / Domain / runtime.
 
 ## Share admission — exchange and transitions
 
+**Superseded by the permanent pair contract.** Offer/RequestJoin/ShareOffer
+admission FSM and decision frames are removed from the product surface.
+Formation is InstallLocalShare×2 + ExpectInitial + SyncInitialState. Text
+below is design archaeology only.
+
 Admission of one chosen SharedNode to one remote endpoint is a core
 procedure on `SharedSyncRuntime`. It is not a JoinManager, not chat, and
 not an Æther control channel. Bytes still move only through `IByteTransport`.
@@ -526,6 +531,9 @@ Status: **implemented / verified** by
 
 ## Three replicas of one node
 
+**Superseded / cancelled** with ladder 14. One dialog is exactly two peers;
+`apptraverse_shared_node_topology_test` is removed. Text below is archaeology.
+
 `apptraverse_shared_node_topology_test` is the closed check. A and B share
 one node, C joins through A, and all three converge on shared events and on
 share id, endpoint, and access. B and C exchange directly after A is down.
@@ -621,12 +629,12 @@ the same closed relationship.
 
 ## Public topology mutation path
 
-Initial local graph construction uses `SharedNode::InstallLocalShare` (and
-the local-only `CommitLocalRemoveShare` / `CommitLocalShareAccess` helpers
-for offline tests). Live shared topology changes go only through
-`SharedSyncRuntime`: Offer/Accept (which `PublishAddShare`),
-`RemoveShare`, and `ChangeShareAccess`. Admission adjusts access via
-`PublishShareAccess`, not a local commit.
+Permanent AeroAdmin dialog formation uses `SharedNode::InstallLocalShare`
+twice (self + peer; max two ReadWrite shares) on the holder, then
+`ExpectInitialNodeFromEndpoint` / `ExpectInitialNode` on the peer and
+`SyncInitialState`. There is no Offer/Accept, RemoveShare, ChangeShareAccess,
+or CatchUp on the product surface. `AddShareEvent` remains the journal form of
+a local install and of the topology carried in a NodeState snapshot.
 
 ## Transport / Link contract
 
@@ -754,35 +762,62 @@ each other is `std::lower_bound` behavior on that replica, not agreed order,
 and convergence for that case is not claimed. Do not silently solve it by
 adding a second sort key.
 
-## Permanent pair profile (A↔B dialog)
+## Permanent pair contract (AeroAdmin A↔B dialog)
 
-Verified profile for AeroAdmin-style one-to-one chat. One `SharedNode` is one
-dialog between exactly two ReadWrite participants. After the first successful
-admission, the share topology is permanent for this profile: no remove, no
-access change, no third participant on the same node, no rejoin-after-remove.
-Those mechanisms may remain in the codebase for other ladders; this profile
-does not exercise them and does not require them to be finished.
+Product scope for SharedNode sync is permanent one-to-one chat only. One
+`SharedNode` is one dialog between exactly two permanent ReadWrite participants.
+Dynamic multi-party topology is out of product scope and is not kept in the
+runtime for later ladders (history remains in Git).
 
-- Formation: A creates X with a local self-Share, then `OfferNode` to B. B's
-  policy accepts the expected dialog; B must not be pre-seeded with a copy of
-  X. After Bound, both replicas share the same protocol node and share ids.
-- Persistence of the relationship: Offline, app exit, window close, restart,
-  and long absence do not delete Shares or open a new join. Sync resumes the
-  same relationship from storage. Full local storage loss is out of scope.
-- Idempotent connect: repeating Offer/open for the same live peer returns the
-  existing operation; it does not create a second journal or Share.
-- Isolation: A↔C is a different SharedNode, not an extension of A↔B.
-- Application path: commit shared Events locally, call `Service()`; the
-  runtime owns phases, retries, and ACKs. Delivery ACK means the peer applied
-  and persisted the Event, not human read receipt.
-- Equal timestamps: journal physical order among equal `timestamp_us` stays
-  the open SharedEventOrder case. The permanent-pair oracle compares the set
-  of shared identities and an Observe sort key
-  `(timestamp_us, origin_uid, origin_sequence)` so both replicas can still
-  agree on message content without inventing a second distributed order key.
+### Formation (single scheme = product path)
 
-Status: **verified** via `apptraverse_permanent_pair_sync_test` (basic + chaos).
-Not accepted-by-user.
+1. Operator launches via existing AeroAdmin / chat_demo parameters.
+2. Host creates the dialog node, `InstallLocalShare` for self and for the peer
+   (exactly two shares), registers the node, then `SyncInitialState` toward the
+   peer share.
+3. Peer calls `ExpectInitialNodeFromEndpoint` (or an exact node expectation) and
+   imports the `NodeState` snapshot. No `OfferNode` / `RequestJoin` / ShareOffer
+   admission FSM.
+4. After connect: both sides are permanent ReadWrite; both send messages.
+
+### Persistence and reopen
+
+Offline, window close, app exit, and restart do not delete the relationship or
+mint a new journal. Reopen registers the stored node and resumes
+`SyncInitialState` / `SyncNextEvent` / ACK retry. Full local storage loss is
+out of scope.
+
+### Delivery
+
+Local commit + `Service()`. Initial sync, bidirectional incremental Events,
+ACK, retry, dedupe. Delivered means peer applied and persisted — not human
+read, and not merely handing bytes to the transport. Offline suppresses sends;
+Online resumes without restart; Unknown does not permanently block the first
+attempt. After all confirmations, no repeated event sends.
+
+### Isolation and admission
+
+A↔B and A↔C are different SharedNodes. A third InstallLocalShare on an
+established pair is refused in code (`shares.size() <= 2`). Foreign endpoints
+do not receive history or become participants without a matching expectation.
+Inbound Events are validated; ACK source must match the pending destination.
+
+### Removed from the product surface
+
+Third+ participants on one dialog; leave/remove/revoke; access change /
+ReadOnly grants; rejoin-after-remove and snapshot fold; topology event relay;
+concurrent remove/access races; Offer/RequestJoin admission; ShareCatchUp for
+topology-introduced shares.
+
+### Equal timestamps
+
+Unchanged open case: journal physical order among equal `timestamp_us` is not
+agreed order. Permanent-pair Observe uses
+`(timestamp_us, origin_uid, origin_sequence)` for content agreement without a
+second distributed order key.
+
+Status: **implemented** via stripped permanent-pair surface +
+`apptraverse_permanent_pair_sync_test` (chat formation). Not accepted-by-user.
 
 ---
 
@@ -807,21 +842,21 @@ is not accepted-by-user.**
 07. **Synchronize a SharedNode to a newly attached Link** — **implemented/verified** (freeze + persist + send, admission of the snapshot in a scratch Domain before any write to real storage, import into the receiver Domain, receiver-local sync state by journal replay, persist before ACK, duplicate acknowledged without re-apply).  
 08. **Replicate incremental SharedNode Events** — **standalone scalar subset implemented/verified** (`EventFrame` + generic `Ack`; one pending Event packet per Share; `SharedEventId` is the only cross-replica identity; receiver allocates a fresh local Event ObjId; Event graphs that reach a second object are refused; pre-LoadRoot class chain validation and scratch preflight replay guarantee safe admission). **Closed Event graph serialization slice implemented/verified** (Freeze, Parse, Validate, and Import for closed Event graphs referencing Nodes and Objs with aliases, remapped `ObjIds` avoiding receiver collisions, remapped `Node::base`, excluded `LocalPtr`s, invariant checks in disposable scratch, zero receiver mutation on failure, and explicit export boundary; wire integration into `EventFrame`/ACK deferred). Dynamic child-object graphs, topology Events, and multi-hop are not started.  
 09. **Make shared delivery restart-safe** — **implemented/verified for initial state and standalone Events** (sender restart while pending resends the same packet id and bytes, receiver restart after apply still recognizes the duplicate from the journal, sender restart after ACK keeps the identity delivered and does not resend).  
-10. **Replicate dynamic SharedNode graphs** — share Add/Remove/ChangeAccess travel as shared events with a stable `share_id` (**verified** in the three-replica test). Arbitrary dynamic object graphs are not started.  
+10. **Replicate dynamic SharedNode graphs** — **cancelled** (superseded by permanent-pair contract; Offer/Remove/ChangeAccess / multi-party topology removed from the product surface).  
 11. **Share multiple Nodes over one Link** — multiplexing proof.  
-12. **Enforce RW and RO sharing rights** — **source access implemented/verified for incremental Events** (ReadWrite source required to mutate; ReadOnly destination may still receive). Recipient-filtered graphs and writer-vs-reader edge visibility are later.  
+12. **Enforce RW and RO sharing rights** — **cancelled** (permanent pair is ReadWrite-only; ReadOnly / ChangeShareAccess removed).  
 13. **Add recipient-scoped object references** — filtered graph edges for writers vs readers.  
-14. **Prove full share topology with three replicas** — **implemented/verified** (`apptraverse_shared_node_topology_test`: one node at A/B/C, direct B↔C after A is down, stable `share_id`, access change, removal, and a fixed-seed 3000-step loss/reorder/restart run). Arbitrary dynamic object graphs are not this slice.  
+14. **Prove full share topology with three replicas** — **cancelled** (superseded; `apptraverse_shared_node_topology_test` removed; one dialog = two peers).  
 15. **Integrate Link presence with SharedNode delivery** — **availability subset implemented/verified** (scheduler reads `IByteTransport` availability for the Link endpoint; known Offline does not call `Send`; Offline→Online resumes the same packets on the next `Service`). Heartbeat, last-seen, and real Æther presence are not started.  
 16. **Freeze shared_node_demo headless contract** — documented PASS criteria for headless sharing.
 
 ### Chat ladder on SharedNode (17–21)
 
-17. **Build ChatRoom on SharedNode** — product chat model uses generic sharing, not a special Chat sync core.  
-18. **Add in-process two-window memory chat** — one process, two windows, Memory Link.  
-19. **Add multi-participant host chat** — host + several participants on memory transport.  
-20. **Add Æther Link transport** — replace Memory Link with Æther without redesigning SharedNode.  
-21. **Run chat replicas in separate processes** — then AeroAdmin-X product chat.
+17. **Port chat model onto SharedNode** — Workspace / ChatEntry / ChatRoom as SharedNode graph.  
+18. **Prove 1:1 chat over SharedNode + memory transport** — formation via InstallLocalShare×2 + ExpectInitial + SyncInitial.  
+19. **Add multi-participant host chat** — **cancelled** (permanent pair only; no third participant on one dialog).  
+20. **Chat presentation headless projection** — feed formatting without UiMirror.  
+21. **Chat demo sync smoke** — `apptraverse_chat_demo_sync_test`.
 
 ---
 

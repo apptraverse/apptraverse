@@ -470,29 +470,6 @@ bool PlanReusableLinks(ae::Domain& domain, ae::IDomainStorage& storage,
   return true;
 }
 
-// InstallLocalShare commits AddShare without a shared identity. Those shares
-// drive SyncInitialState. Shared-topology AddShare (CatchUp) is gone.
-bool DrivesInitialSnapshot(SharedNode const& node, ae::ObjId share_id) {
-  for (auto const& record : node.journal) {
-    if (!record.event.is_valid()) {
-      continue;
-    }
-    auto event = record.event;
-    if (!event.is_loaded()) {
-      event.Load();
-    }
-    if (event->GetClassId() != AddShareEvent::kClassId) {
-      continue;
-    }
-    auto const& add = static_cast<AddShareEvent const&>(*event);
-    if (add.share_id != share_id) {
-      continue;
-    }
-    return !record.HasSharedIdentity();
-  }
-  return false;
-}
-
 }  // namespace
 
 SharedSyncRuntime::SharedSyncRuntime(ae::Domain& domain,
@@ -1321,9 +1298,8 @@ void SharedSyncRuntime::ServiceShares(std::uint64_t now_us) {
         state.Load();
       }
       auto const phase = state->GetInitialSyncPhase();
-      bool const drive_snapshot =
-          phase != InitialSyncPhase::Complete &&
-          DrivesInitialSnapshot(*node, share.share_id);
+      // Permanent-pair remote shares: drive initial until Complete, then events.
+      bool const drive_snapshot = phase != InitialSyncPhase::Complete;
       bool const drive_event = phase == InitialSyncPhase::Complete;
       if (!drive_snapshot && !drive_event) {
         continue;

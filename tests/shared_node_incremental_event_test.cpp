@@ -748,40 +748,6 @@ void TestWrongSourceRejected() {
   CHECK(c.received == 0);
 }
 
-void TestReadOnlySourceRejected() {
-  MemoryNetwork network;
-  Replica a{network, kEndpointA, kEndpointB};
-  Replica b{network, kEndpointB, kEndpointA};
-  a.Start();
-  b.Start();
-
-  auto const fixture = BuildTopology(a, 6901, 6902, 6903);
-  HandshakeInitial(network, a, b, fixture);
-
-  auto const b_node = ConcreteOf(b.sync->FindNode(fixture.node_id));
-  b_node->CommitLocalShareAccess(b_node->shares[0].link, ShareAccess::ReadOnly);
-  b_node.Save();
-
-  auto const identity =
-      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 13};
-  CommitSharedValue(*ConcreteOf(a.sync->FindNode(fixture.node_id)), 6, identity,
-                    13'000);
-  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
-  b.watched.ResetWatch();
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-  CHECK(b.watched.pending_at_store().empty());
-  CHECK(JournalByIdentity(*b_node, identity) == nullptr);
-  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
-
-  b_node->CommitLocalShareAccess(b_node->shares[0].link, ShareAccess::ReadWrite);
-  b_node.Save();
-  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
-  CHECK(JournalByIdentity(*b_node, identity) != nullptr);
-  CHECK(b_node->value == 6);
-}
-
 void TestWrongDestinationRejected() {
   MemoryNetwork network;
   Replica a{network, kEndpointA, kEndpointB};
@@ -1525,7 +1491,6 @@ int main() {
   apptraverse::test::TestSenderRestartAfterAck();
   apptraverse::test::TestInitialSnapshotCoverageRace();
   apptraverse::test::TestWrongSourceRejected();
-  apptraverse::test::TestReadOnlySourceRejected();
   apptraverse::test::TestWrongDestinationRejected();
   apptraverse::test::TestMalformedEventPayloadRejected();
   apptraverse::test::TestMalformedClassLayersInEventRejected();

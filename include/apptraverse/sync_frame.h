@@ -11,22 +11,15 @@
 
 namespace apptraverse {
 
-// Shared synchronization protocol v1: admission, initial state, catch-up,
-// standalone Event, and topology Events. Catch-up agrees a relationship
-// between replicas that already hold the node. It is not a second snapshot.
-// Dynamic object graphs beyond that topology and presence are later.
+// Shared synchronization protocol v1 for permanent AeroAdmin 1:1 dialogs.
+// NodeState, Ack, and Event only. Offer/Decision/Request/CatchUp are not
+// part of this surface.
 inline constexpr std::uint8_t kSyncProtocolVersion = 1;
 
 enum class SyncFrameType : std::uint8_t {
   kNodeState = 1,
   kAck = 2,
   kEvent = 3,
-  kShareOffer = 4,
-  kShareDecision = 5,
-  kShareRequest = 6,
-  // Events this sender already has, for a relationship that is not driven by
-  // a NodeState snapshot. Both sides already hold the node.
-  kShareCatchUp = 7,
 };
 
 // Initial state of one SharedNode for one Share relationship.
@@ -74,57 +67,6 @@ bool DecodeAckFrame(std::vector<std::uint8_t> const& bytes, AckFrame& out);
 
 std::vector<std::uint8_t> EncodeEventFrame(EventFrame const& frame);
 bool DecodeEventFrame(std::vector<std::uint8_t> const& bytes, EventFrame& out);
-
-// Offer one existing SharedNode to the transport peer. Access is the right
-// the responder will hold. No source field: the sender cannot name itself.
-struct ShareOfferFrame {
-  ae::ObjId packet_id;
-  ae::ObjId operation_id;
-  ae::ObjId target_node_id;
-  std::uint32_t root_class_id{0};
-  std::uint8_t access{0};
-};
-
-// Accept or reject one operation. Identity fields must echo the offer.
-struct ShareDecisionFrame {
-  ae::ObjId packet_id;
-  ae::ObjId operation_id;
-  ae::ObjId target_node_id;
-  std::uint32_t root_class_id{0};
-  std::uint8_t access{0};
-  bool accepted{false};
-};
-
-std::vector<std::uint8_t> EncodeShareOfferFrame(ShareOfferFrame const& frame);
-bool DecodeShareOfferFrame(std::vector<std::uint8_t> const& bytes,
-                           ShareOfferFrame& out);
-
-// Same fields as ShareOffer. Class may be 0: the holder names it in the
-// decision. Still no source field.
-std::vector<std::uint8_t> EncodeShareRequestFrame(ShareOfferFrame const& frame);
-bool DecodeShareRequestFrame(std::vector<std::uint8_t> const& bytes,
-                             ShareOfferFrame& out);
-
-std::vector<std::uint8_t> EncodeShareDecisionFrame(
-    ShareDecisionFrame const& frame);
-bool DecodeShareDecisionFrame(std::vector<std::uint8_t> const& bytes,
-                              ShareDecisionFrame& out);
-
-// Lists SharedEventIds the sender already applied. The receiver marks them
-// delivered on its outgoing sync toward the sender and acknowledges. The
-// sender's own covered set stays empty, so that acknowledgement does not
-// suppress events the peer still needs.
-struct ShareCatchUpFrame {
-  ae::ObjId packet_id;
-  ae::ObjId target_node_id;
-  ae::ObjId destination_share_id;
-  std::vector<SharedEventId> have;
-};
-
-std::vector<std::uint8_t> EncodeShareCatchUpFrame(
-    ShareCatchUpFrame const& frame);
-bool DecodeShareCatchUpFrame(std::vector<std::uint8_t> const& bytes,
-                             ShareCatchUpFrame& out);
 
 }  // namespace apptraverse
 
