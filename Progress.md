@@ -4,7 +4,7 @@ Status: implemented / verified. Not accepted-by-user. Stopped for review.
 
 Branch: `cursor/shared-node-join-3c1e`. Base tip before this work:
 `df4e7eb7faeecafef530619255e303816266462d` (not reverted). Contract commit:
-`bff7d36`. Stress/docs tip: `3c300d4cbaa80481cfd9930bfaf3d7c3c9580118`.
+`bff7d36`. Stress/docs tip: `f101c8b` (Progress tip includes this note).
 
 ## Scope
 
