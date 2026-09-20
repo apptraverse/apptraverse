@@ -2,7 +2,7 @@
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
 
-Branch: `cursor/shared-node-join-3c1e`. Verified base `7949b79cfe8bb6cd58a296d4997029c52518caf1` was not reverted. HEAD after this slice: `8a10b4a6af916ed47c096d20d1852a59d422b08f`.
+Branch: `cursor/shared-node-join-3c1e`. Verified base `7949b79cfe8bb6cd58a296d4997029c52518caf1` was not reverted. Last functional code tip for this slice: `30260ed3fcddb4865897d641eabf17cddd484379` (Progress.md documentation commits follow on the same branch).
 
 ## 1. Test UB (dangling ShareView / ObjPtr)
 
