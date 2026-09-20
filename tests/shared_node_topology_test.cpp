@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -342,14 +343,16 @@ std::vector<ShareView> SharesOf(SharedNode::ptr node) {
   return out;
 }
 
-ShareView const* FindEndpoint(std::vector<ShareView> const& shares,
-                              std::string const& endpoint) {
+// By value: callers often pass SharesOf(...) as a temporary, so a pointer
+// into that vector would dangle after the full expression.
+std::optional<ShareView> FindEndpoint(std::vector<ShareView> const& shares,
+                                      std::string const& endpoint) {
   for (auto const& share : shares) {
     if (share.endpoint == endpoint) {
-      return &share;
+      return share;
     }
   }
-  return nullptr;
+  return std::nullopt;
 }
 
 ae::ObjId AddEventObjectId(SharedNode::ptr node, ae::ObjId share_id) {
@@ -553,8 +556,8 @@ void ExpectProtocolShareId(Trio& trio, ae::ObjId node_id,
   auto na = trio.a.sync->FindNode(node_id);
   auto nb = trio.b.sync->FindNode(node_id);
   auto nc = trio.c.sync->FindNode(node_id);
-  auto const* share = FindEndpoint(SharesOf(na), endpoint);
-  CHECK(share != nullptr);
+  auto const share = FindEndpoint(SharesOf(na), endpoint);
+  CHECK(share.has_value());
   auto const id_a = AddEventObjectId(na, share->share_id);
   auto const id_b = AddEventObjectId(nb, share->share_id);
   auto const id_c = AddEventObjectId(nc, share->share_id);
@@ -566,8 +569,12 @@ void ExpectProtocolShareId(Trio& trio, ae::ObjId node_id,
   CHECK(id_a == share->share_id);
   CHECK(id_b != share->share_id);
   CHECK(id_c == share->share_id);
-  CHECK(FindEndpoint(SharesOf(nb), endpoint)->share_id == share->share_id);
-  CHECK(FindEndpoint(SharesOf(nc), endpoint)->share_id == share->share_id);
+  auto const on_b = FindEndpoint(SharesOf(nb), endpoint);
+  auto const on_c = FindEndpoint(SharesOf(nc), endpoint);
+  CHECK(on_b.has_value());
+  CHECK(on_c.has_value());
+  CHECK(on_b->share_id == share->share_id);
+  CHECK(on_c->share_id == share->share_id);
 }
 
 void CutA(Trio& trio) {
@@ -616,11 +623,16 @@ void TestThreeReplicasConverge() {
   CHECK(Joined(trio.a, trio.c, to_c, node_id));
 
   auto const shares = SharesOf(trio.a.sync->FindNode(node_id));
-  CHECK(FindEndpoint(shares, kA)->access == ShareAccess::ReadWrite);
-  CHECK(FindEndpoint(shares, kB)->access == ShareAccess::ReadWrite);
-  CHECK(FindEndpoint(shares, kC)->access == ShareAccess::ReadWrite);
-  CHECK(FindEndpoint(shares, kB)->share_id !=
-        FindEndpoint(shares, kC)->share_id);
+  auto const self = FindEndpoint(shares, kA);
+  auto const to_b_share = FindEndpoint(shares, kB);
+  auto const to_c_share = FindEndpoint(shares, kC);
+  CHECK(self.has_value());
+  CHECK(to_b_share.has_value());
+  CHECK(to_c_share.has_value());
+  CHECK(self->access == ShareAccess::ReadWrite);
+  CHECK(to_b_share->access == ShareAccess::ReadWrite);
+  CHECK(to_c_share->access == ShareAccess::ReadWrite);
+  CHECK(to_b_share->share_id != to_c_share->share_id);
 }
 
 void TestDirectExchangeWhileHolderIsDown() {
@@ -686,8 +698,9 @@ void TestSimultaneousJoin() {
       },
       120);
   ExpectProtocolShareId(trio, node_id, kC);
-  auto const* b_on_c = FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kB);
-  CHECK(b_on_c != nullptr);
+  auto const b_on_c =
+      FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kB);
+  CHECK(b_on_c.has_value());
   CHECK(AddEventObjectId(trio.a.sync->FindNode(node_id), b_on_c->share_id) ==
         b_on_c->share_id);
 }
@@ -745,23 +758,28 @@ void TestLostAckKeepsShareId() {
   EventFrame first;
   CHECK(DecodeEventFrame(saved_add, first));
   auto const share_before =
-      FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC)->share_id;
+      FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC);
+  CHECK(share_before.has_value());
 
   // The acknowledgement of that AddShare may already have been delivered.
   // Force one more retry of a later business event and of a duplicate of
   // the original topology packet.
   Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
   auto const share_after =
-      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
-  CHECK(share_before == share_after);
-  CHECK(FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC)->share_id ==
-        share_after);
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC);
+  CHECK(share_after.has_value());
+  CHECK(share_before->share_id == share_after->share_id);
+  auto const on_c =
+      FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC);
+  CHECK(on_c.has_value());
+  CHECK(on_c->share_id == share_after->share_id);
 
   AddRecord(*AsTopo(trio.b.sync->FindNode(node_id)), "retry-me", kB, 4);
   trio.network.ClearQueues();
   trio.b.sync->Service(1000 * kShareOfferRetryIntervalUs);
-  auto const toward_c = FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC);
-  CHECK(toward_c != nullptr);
+  auto const toward_c =
+      FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC);
+  CHECK(toward_c.has_value());
   auto const sync_index = trio.b.sync->FindNode(node_id)
                               ->FindLinkSyncIndexForShare(toward_c->share_id);
   auto state = trio.b.sync->FindNode(node_id)->link_sync_states[sync_index];
@@ -783,12 +801,12 @@ void TestLostAckKeepsShareId() {
   CHECK(Observe(*AsTopo(trio.c.sync->FindNode(node_id))).size() ==
         Observe(*AsTopo(trio.b.sync->FindNode(node_id))).size());
   CHECK(FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC)->share_id ==
-        share_after);
+        share_after->share_id);
 
   trio.b.transport->Send(kC, saved_add);
   CHECK(trio.network.DeliverNext(kB, kC));
   CHECK(FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC)->share_id ==
-        share_after);
+        share_after->share_id);
   CHECK(trio.c.sync->FindNode(node_id)->shares.size() == 3);
   (void)first;
 }
@@ -807,9 +825,11 @@ void TestRestartKeepsShareIdentity() {
   trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
   Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
   auto const before = SharesOf(trio.b.sync->FindNode(node_id));
-  auto const b_event = AddEventObjectId(trio.b.sync->FindNode(node_id),
-                                        FindEndpoint(before, kC)->share_id);
-  CHECK(b_event != FindEndpoint(before, kC)->share_id);
+  auto const before_c = FindEndpoint(before, kC);
+  CHECK(before_c.has_value());
+  auto const b_event =
+      AddEventObjectId(trio.b.sync->FindNode(node_id), before_c->share_id);
+  CHECK(b_event != before_c->share_id);
 
   trio.b.Stop();
   trio.network.ClearQueues();
@@ -822,11 +842,12 @@ void TestRestartKeepsShareIdentity() {
     CHECK(after[i].access == before[i].access);
     CHECK(after[i].link_id == before[i].link_id);
   }
-  CHECK(AddEventObjectId(trio.b.sync->FindNode(node_id),
-                         FindEndpoint(after, kC)->share_id) == b_event);
-  CHECK(AddEventObjectId(trio.b.sync->FindNode(node_id),
-                         FindEndpoint(after, kC)->share_id) !=
-        FindEndpoint(after, kC)->share_id);
+  auto const after_c = FindEndpoint(after, kC);
+  CHECK(after_c.has_value());
+  CHECK(AddEventObjectId(trio.b.sync->FindNode(node_id), after_c->share_id) ==
+        b_event);
+  CHECK(AddEventObjectId(trio.b.sync->FindNode(node_id), after_c->share_id) !=
+        after_c->share_id);
 
   AddRecord(*AsTopo(trio.c.sync->FindNode(node_id)), "after-restart", kC, 3);
   Pump(
@@ -854,15 +875,17 @@ void TestAccessChangePropagates() {
   trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
   Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
 
-  auto const b_share =
-      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kB)->share_id;
+  auto const b_share_view =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kB);
+  CHECK(b_share_view.has_value());
+  auto const b_share = b_share_view->share_id;
   trio.a.sync->ChangeShareAccess(node_id, b_share, ShareAccess::ReadOnly);
   Pump(
       world,
       [&] {
         auto on_b = FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kB);
         auto on_c = FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kB);
-        return on_b != nullptr && on_c != nullptr &&
+        return on_b.has_value() && on_c.has_value() &&
                on_b->access == ShareAccess::ReadOnly &&
                on_c->access == ShareAccess::ReadOnly &&
                on_b->share_id == b_share && on_c->share_id == b_share;
@@ -913,8 +936,10 @@ void TestRemoveShareIsNotRestored() {
   std::vector<std::uint8_t> saved_add;
   Pump(world, [&] { return ThreeWay(trio, node_id); }, 80, &saved_add);
   CHECK(!saved_add.empty());
-  auto const c_share =
-      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+  auto const c_share_view =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC);
+  CHECK(c_share_view.has_value());
+  auto const c_share = c_share_view->share_id;
   EventFrame saved;
   CHECK(DecodeEventFrame(saved_add, saved));
   CHECK(saved.event_class_id == AddShareEvent::kClassId);
@@ -923,12 +948,12 @@ void TestRemoveShareIsNotRestored() {
   Pump(
       world,
       [&] {
-        return FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC) ==
-                   nullptr &&
-               FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC) ==
-                   nullptr &&
-               FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC) ==
-                   nullptr;
+        return !FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)
+                    .has_value() &&
+               !FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC)
+                    .has_value() &&
+               !FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC)
+                    .has_value();
       },
       80);
   CHECK(trio.a.sync->FindNode(node_id)->shares.size() == 2);
@@ -939,9 +964,9 @@ void TestRemoveShareIsNotRestored() {
   CHECK(trio.network.DeliverNext(kA, kB));
   trio.a.transport->Send(kB, saved_add);
   CHECK(trio.network.DeliverNext(kA, kB));
-  CHECK(FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC) == nullptr);
+  CHECK(!FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kC).has_value());
   CHECK(trio.b.sync->FindNode(node_id)->shares.size() == 2);
-  CHECK(FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC) == nullptr);
+  CHECK(!FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC).has_value());
 
   AddRecord(*AsTopo(trio.c.sync->FindNode(node_id)), "after-remove", kC, 1);
   std::uint64_t now = 1000 * kShareOfferRetryIntervalUs;
