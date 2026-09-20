@@ -671,11 +671,15 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
   };
   worker->network_epoch = 1;
 
-  // Runtime presence helper
+  // Runtime presence helper: UI status + AetherByteTransport availability.
     auto const set_peer_presence =
-        [this, &remote_presence_map](std::string const& peer, PeerPresence p) {
+        [this, &remote_presence_map, &transport](std::string const& peer,
+                                                 PeerPresence p) {
           AssertModelThread();
           remote_presence_map[peer] = p;
+          if (transport) {
+            transport->NotePeerPresence(peer, p);
+          }
           UpdateStatus([&remote_presence_map](ChatRuntimeStatus& s) {
             s.remote_presence = remote_presence_map;
           });
@@ -916,35 +920,10 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
               aether_runtime->OpenPeer(client_uid);
               aether_runtime->SendControl(client_uid, std::move(bytes));
             }
-            // Acceptance first, then snapshot (same order as new-room path).
+            // Acceptance first; SharedSyncRuntime::Service drives the snapshot.
             auto existing_reg = sync_runtime->FindNode(existing->room.id());
             if (!existing_reg.is_valid()) {
               sync_runtime->RegisterNode(existing->room);
-            }
-            ae::ObjId remote_share_id;
-            for (auto const& share : existing->room->shares) {
-              if (share.link.is_valid() &&
-                  share.link->EndpointUid() == client_uid) {
-                remote_share_id = share.share_id;
-                break;
-              }
-            }
-            if (remote_share_id.is_valid()) {
-              auto const idx =
-                  existing->room->FindLinkSyncIndexForShare(remote_share_id);
-              if (idx < existing->room->link_sync_states.size()) {
-                auto state = existing->room->link_sync_states[idx];
-                if (state.is_valid()) {
-                  if (!state.is_loaded()) {
-                    state.Load();
-                  }
-                  if (state->GetInitialSyncPhase() !=
-                      apptraverse::InitialSyncPhase::Complete) {
-                    sync_runtime->SyncInitialState(existing->room.id(),
-                                                   remote_share_id);
-                  }
-                }
-              }
             }
             publication_dirty = true;
             return;
@@ -983,17 +962,6 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           }
           if (!sync_runtime->FindNode(room.id()).is_valid()) {
             sync_runtime->RegisterNode(room);
-          }
-          ae::ObjId remote_share_id;
-          for (auto const& share : room->shares) {
-            if (share.link.is_valid() &&
-                share.link->EndpointUid() == client_uid) {
-              remote_share_id = share.share_id;
-              break;
-            }
-          }
-          if (remote_share_id.is_valid()) {
-            sync_runtime->SyncInitialState(room.id(), remote_share_id);
           }
           publication_dirty = true;
         };
@@ -1418,13 +1386,13 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       /*on_ready=*/
       [this, &worker, &aether_ready, &workspace, &aether_runtime, &transport, &sync_runtime,
        &domain, &storage, &my_uid, &model_dispatcher, &persist_workspace,
-        &publication_dirty,
+        &publication_dirty, &remote_presence_map,
        &endpoint_by_pending_entry, &waiting_entry_by_endpoint,
        &identity_conflict, epoch]() {
         EnqueueInternalModelWork([this, &worker, &aether_ready, &workspace, &aether_runtime,
                                   &transport, &sync_runtime, &domain, &storage,
                                   &my_uid, &model_dispatcher, &persist_workspace,
-                                  &publication_dirty,
+                                  &publication_dirty, &remote_presence_map,
                                   &endpoint_by_pending_entry, &waiting_entry_by_endpoint,
                                   &identity_conflict, epoch]() {
           AssertModelThread();
@@ -1442,6 +1410,14 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
           sync_runtime = std::make_unique<SharedSyncRuntime>(domain, storage, *transport);
 
           sync_runtime->AllowStandaloneEventClass(MessageAddedEvent::kClassId);
+          // Availability only wakes the model loop; Service() sends.
+          sync_runtime->SetAvailabilityWake([this]() {
+            EnqueueInternalModelWork([] {});
+          });
+          // Seed availability observed before transport existed (after bind).
+          for (auto const& [peer, presence] : remote_presence_map) {
+            transport->NotePeerPresence(peer, presence);
+          }
 
           sync_runtime->SetInitialNodeImportedCallback(
               [&workspace, &persist_workspace, &publication_dirty,
@@ -1548,6 +1524,15 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
 
           for (auto const& entry : workspace->chats) {
             if (entry.is_valid() && entry->room.is_valid()) {
+              auto const violation =
+                  apptraverse::DescribeRestoredPermanentPairViolation(
+                      *entry->room, my_uid);
+              if (!violation.empty()) {
+                throw std::runtime_error(
+                    violation +
+                    " Choose another --state-dir; the existing directory was "
+                    "not modified.");
+              }
               if (!sync_runtime->FindNode(entry->room.id()).is_valid()) {
                 sync_runtime->RegisterNode(entry->room);
               }
@@ -1629,8 +1614,7 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       /*on_frame=*/{},
       /*on_presence=*/
       // Presence must mutate remote_presence_map on the model thread only.
-      // Full lifecycle ownership lands in Commit 03; enqueue is required for
-      // correct OpenPeer/bootstrap sync driving (Online gate).
+      // NotePeerPresence maps into AetherByteTransport availability for Service().
       [this, &worker, set_peer_presence, epoch](std::string peer_uid,
                                                PeerPresence presence) {
         EnqueueInternalModelWork([this, &worker, set_peer_presence, epoch,
@@ -1757,12 +1741,6 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
         }
       };
 
-  // Track sync retry states
-  struct SyncRetryState {
-    std::chrono::steady_clock::time_point last_attempt{};
-  };
-  std::unordered_map<std::string, SyncRetryState> retry_states;
-
   // Main model event loop
   for (;;) {
     std::deque<ModelWork> local_work;
@@ -1804,15 +1782,21 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
     auto const now = std::chrono::steady_clock::now();
 
     if (sync_runtime && workspace.is_valid() && !identity_conflict) {
+      struct TrackedSync {
+        ChatRoom::ptr room;
+        apptraverse::LinkSyncState::ptr state;
+        RoomSyncSnapshot before;
+      };
+      std::vector<TrackedSync> tracked;
       for (auto const& entry : workspace->chats) {
-        if (!entry.is_valid() || !entry->room.is_valid() || !entry->peer_link.is_valid()) {
+        if (!entry.is_valid() || !entry->room.is_valid() ||
+            !entry->peer_link.is_valid()) {
           continue;
         }
         std::string const& peer_uid = entry->peer_link->EndpointUid();
         if (peer_uid.empty()) {
           continue;
         }
-
         auto room = entry->room;
         ae::ObjId remote_share_id;
         for (auto const& share : room->shares) {
@@ -1824,8 +1808,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
         if (!remote_share_id.is_valid()) {
           continue;
         }
-
-        auto const sync_index = room->FindLinkSyncIndexForShare(remote_share_id);
+        auto const sync_index =
+            room->FindLinkSyncIndexForShare(remote_share_id);
         if (sync_index >= room->link_sync_states.size()) {
           continue;
         }
@@ -1836,47 +1820,32 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
         if (!state.is_loaded()) {
           state.Load();
         }
+        tracked.push_back(TrackedSync{
+            .room = room,
+            .state = state,
+            .before = CaptureRoomSyncSnapshot(*room, *state),
+        });
+      }
 
-        auto& retry = retry_states[peer_uid];
-        auto const phase = state->GetInitialSyncPhase();
-        auto const before = CaptureRoomSyncSnapshot(*room, *state);
+      auto const now_us = static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(
+              now.time_since_epoch())
+              .count());
+      sync_runtime->Service(now_us);
 
-        // Initial snapshot retry must not wait for Online: Join introduces the
-        // peer, and control/data frames can reorder relative to presence.
-        if (phase == apptraverse::InitialSyncPhase::NotStarted) {
-          sync_runtime->SyncInitialState(room.id(), remote_share_id);
-          retry.last_attempt = now;
-        } else if (phase == apptraverse::InitialSyncPhase::Pending) {
-          if (now - retry.last_attempt >= std::chrono::seconds(1)) {
-            sync_runtime->SyncInitialState(room.id(), remote_share_id);
-            retry.last_attempt = now;
-          }
-        } else if (phase == apptraverse::InitialSyncPhase::Complete) {
-          // Incremental events: only when peer is Online.
-          auto pres_it = remote_presence_map.find(peer_uid);
-          if (pres_it == remote_presence_map.end() ||
-              pres_it->second != PeerPresence::kOnline) {
-            continue;
-          }
-          if (state->HasPendingEvent()) {
-            if (now - retry.last_attempt >= std::chrono::seconds(1)) {
-              sync_runtime->SyncNextEvent(room.id(), remote_share_id);
-              retry.last_attempt = now;
-            }
-          } else {
-            sync_runtime->SyncNextEvent(room.id(), remote_share_id);
-            retry.last_attempt = now;
-          }
+      bool any_sync_change = false;
+      for (auto& item : tracked) {
+        if (!item.state.is_loaded()) {
+          item.state.Load();
         }
-
-        if (!state.is_loaded()) {
-          state.Load();
+        auto const after = CaptureRoomSyncSnapshot(*item.room, *item.state);
+        if (item.before != after) {
+          any_sync_change = true;
         }
-        auto const after = CaptureRoomSyncSnapshot(*room, *state);
-        if (before != after) {
-          persist_workspace();
-          publication_dirty = true;
-        }
+      }
+      if (any_sync_change) {
+        persist_workspace();
+        publication_dirty = true;
       }
 
       std::unordered_map<std::string, RoomBootstrapState> bootstrap_projection;

@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -56,11 +57,8 @@ class BeginInitialSyncEvent;
 class CompleteInitialSyncEvent;
 class NoteInitialSyncReceivedEvent;
 class CompleteFromReceivedSnapshotEvent;
-class NotePeerDeliveredEvent;
 class BeginIncrementalEventSyncEvent;
 class CompleteIncrementalEventSyncEvent;
-class CancelIncrementalEventSyncEvent;
-class CancelInitialSyncEvent;
 
 // Local-persistent synchronization progress for one Share relationship of one
 // SharedNode. Belongs to share_id, not to the Link: a later relationship over
@@ -151,20 +149,8 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void CompleteInitialSync();
   void NoteInitialSyncReceived(ae::ObjId packet_id);
   void CompleteFromReceivedSnapshot(std::vector<SharedEventId> delivered);
-  // Append identities the peer already has. Does not change phase: Complete
-  // still requires an acknowledgement of this replica's own catch-up.
-  void NotePeerDelivered(std::vector<SharedEventId> delivered);
-  void BeginIncrementalEvent(SharedEventId identity,
-                             std::vector<std::uint8_t> packet);
   // Confirmed delivery: pending identity enters delivered_event_ids.
   void CompleteIncrementalEvent();
-  // Stop an unacknowledged transmission without treating it as delivered.
-  // The Event stays in the SharedNode journal; only this relationship's
-  // pending slot is cleared.
-  void CancelIncrementalEvent();
-  // Stop an unacknowledged initial snapshot without treating it as delivered.
-  // Phase returns to NotStarted; a late ACK of the old packet_id is ignored.
-  void CancelInitialSync();
 
   bool HasDelivered(SharedEventId const& identity) const;
   bool HasPendingEvent() const {
@@ -180,11 +166,9 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void Apply(NoteInitialSyncReceivedEvent const& event);
   bool CanApply(CompleteFromReceivedSnapshotEvent const& event) const;
   void Apply(CompleteFromReceivedSnapshotEvent const& event);
-  void Apply(NotePeerDeliveredEvent const& event);
+  bool CanApply(BeginIncrementalEventSyncEvent const& event) const;
   void Apply(BeginIncrementalEventSyncEvent const& event);
   void Apply(CompleteIncrementalEventSyncEvent const& event);
-  void Apply(CancelIncrementalEventSyncEvent const& event);
-  void Apply(CancelInitialSyncEvent const& event);
 };
 
 class SetLinkInitialSyncPhaseEvent
@@ -280,35 +264,8 @@ class CompleteFromReceivedSnapshotEvent
   std::vector<SharedEventId> delivered_event_ids;
 };
 
-// Local only: the peer's catch-up listed events it already has. Not a phase
-// change and not a shared Event.
-class NotePeerDeliveredEvent
-    : public EventFor<LinkSyncState, NotePeerDeliveredEvent> {
-  APPTRAVERSE_OBJECT(NotePeerDeliveredEvent, Event, 0)
-
- protected:
-  NotePeerDeliveredEvent() = default;
-
- public:
-  explicit NotePeerDeliveredEvent(ae::ObjProp prop) : EventFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(delivered_event_ids))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, delivered_event_ids);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, delivered_event_ids);
-  }
-
-  std::vector<SharedEventId> delivered_event_ids;
-};
-
 // Freeze one incremental standalone Event packet for this relationship.
-// Packet identity is this Event's ObjId.
+// Packet identity is this Event's ObjId. Requires InitialSyncPhase::Complete.
 class BeginIncrementalEventSyncEvent
     : public EventFor<LinkSyncState, BeginIncrementalEventSyncEvent> {
   APPTRAVERSE_OBJECT(BeginIncrementalEventSyncEvent, Event, 0)
@@ -336,36 +293,6 @@ class CompleteIncrementalEventSyncEvent
  public:
   explicit CompleteIncrementalEventSyncEvent(ae::ObjProp prop)
       : EventFor{prop} {}
-
-  AE_OBJECT_REFLECT()
-};
-
-// Sender: abandon an unacknowledged pending transmission. Clears the pending
-// slot without recording the identity as delivered. Distinct from a real ACK.
-class CancelIncrementalEventSyncEvent
-    : public EventFor<LinkSyncState, CancelIncrementalEventSyncEvent> {
-  APPTRAVERSE_OBJECT(CancelIncrementalEventSyncEvent, Event, 0)
-
- protected:
-  CancelIncrementalEventSyncEvent() = default;
-
- public:
-  explicit CancelIncrementalEventSyncEvent(ae::ObjProp prop) : EventFor{prop} {}
-
-  AE_OBJECT_REFLECT()
-};
-
-// Sender: abandon an unacknowledged initial snapshot. Clears pending_initial
-// and returns phase to NotStarted without recording covered ids as delivered.
-class CancelInitialSyncEvent
-    : public EventFor<LinkSyncState, CancelInitialSyncEvent> {
-  APPTRAVERSE_OBJECT(CancelInitialSyncEvent, Event, 0)
-
- protected:
-  CancelInitialSyncEvent() = default;
-
- public:
-  explicit CancelInitialSyncEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT()
 };
@@ -470,6 +397,13 @@ class AddShareEvent : public EventFor<SharedNode, AddShareEvent> {
       static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
   ae::ObjId share_id;
 };
+
+// Release-safe check for a restored working permanent-pair dialog before
+// RegisterNode / send. Empty string: OK, or not yet a working pair (0–1
+// shares: empty base or mid InstallLocalShare). Non-empty: diagnostic; caller
+// must not mutate storage or truncate participants.
+std::string DescribeRestoredPermanentPairViolation(
+    SharedNode const& node, std::string const& local_endpoint);
 
 }  // namespace apptraverse
 

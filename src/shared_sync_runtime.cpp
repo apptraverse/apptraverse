@@ -1335,10 +1335,6 @@ void SharedSyncRuntime::ServiceShares(std::uint64_t now_us) {
         slot->next_us = now_us + kShareOfferRetryIntervalUs;
         continue;
       }
-      if (slot->next_us == kScheduleOnNextService) {
-        slot->next_us = now_us + kShareOfferRetryIntervalUs;
-        continue;
-      }
       if (!is_retry || now_us >= slot->next_us) {
         transmit();
         slot->next_us = now_us + kShareOfferRetryIntervalUs;

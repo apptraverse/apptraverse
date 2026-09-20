@@ -642,6 +642,49 @@ void TestNoSerializedIsLocalAndNoRttiSurface() {
   static_assert(!std::is_same_v<ShareAccess, bool>);
 }
 
+void TestDescribeRestoredPermanentPairViolation() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+
+  auto link_a = MemoryLink::ptr::Create(ae::CreateWith{domain});
+  link_a->endpoint_uid = "endpoint-a";
+  InitializeRuntimeNode(*link_a);
+  auto link_b = MemoryLink::ptr::Create(ae::CreateWith{domain});
+  link_b->endpoint_uid = "endpoint-b";
+  InitializeRuntimeNode(*link_b);
+
+  auto empty = SharedNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*empty);
+  CHECK(DescribeRestoredPermanentPairViolation(*empty, "endpoint-a").empty());
+
+  auto mid = SharedNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*mid);
+  mid->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  CHECK(DescribeRestoredPermanentPairViolation(*mid, "endpoint-a").empty());
+
+  auto pair = SharedNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*pair);
+  pair->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  pair->InstallLocalShare(link_b, ShareAccess::ReadWrite);
+  CHECK(DescribeRestoredPermanentPairViolation(*pair, "endpoint-a").empty());
+  CHECK(DescribeRestoredPermanentPairViolation(*pair, "endpoint-b").empty());
+  CHECK(!DescribeRestoredPermanentPairViolation(*pair, "endpoint-other")
+             .empty());
+
+  auto link_c = MemoryLink::ptr::Create(ae::CreateWith{domain});
+  link_c->endpoint_uid = "endpoint-c";
+  InitializeRuntimeNode(*link_c);
+  pair->shares.push_back(Share{
+      .share_id = ae::ObjId{42},
+      .link = link_c,
+      .access = static_cast<std::uint8_t>(ShareAccess::ReadWrite),
+  });
+  auto const three =
+      DescribeRestoredPermanentPairViolation(*pair, "endpoint-a");
+  CHECK(!three.empty());
+  CHECK(three.find("exactly two") != std::string::npos);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -660,6 +703,7 @@ int main() {
   apptraverse::test::TestLinkSyncStateConfiguredBeforeLive();
   apptraverse::test::TestSimultaneousDomainGraphSerializationScopes();
   apptraverse::test::TestNoSerializedIsLocalAndNoRttiSurface();
+  apptraverse::test::TestDescribeRestoredPermanentPairViolation();
 
   std::cout << "shared_node_foundation_test OK\n";
   return 0;

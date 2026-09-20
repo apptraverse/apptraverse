@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -10,6 +11,7 @@
 
 #include "apptraverse/byte_transport.h"
 #include "aether_frame_endpoint.h"
+#include "chat_presence.h"
 
 namespace apptraverse::example::chat_demo {
 
@@ -23,6 +25,8 @@ class AetherByteTransport final : public apptraverse::IByteTransport {
     bool active{true};
     void* receive_ctx{nullptr};
     ReceiveFn receive_fn{nullptr};
+    void* availability_ctx{nullptr};
+    AvailabilityFn availability_fn{nullptr};
     ModelDispatch dispatch;
   };
 
@@ -44,10 +48,24 @@ class AetherByteTransport final : public apptraverse::IByteTransport {
   void BindReceive(void* ctx, ReceiveFn fn) override;
   void ClearReceive() override;
 
+  EndpointAvailability Availability(
+      std::string const& endpoint) const override;
+  void BindAvailability(void* ctx, AvailabilityFn fn) override;
+  void ClearAvailability() override;
+
+  // Model-thread only. Maps PeerPresence into EndpointAvailability for the
+  // SharedSyncRuntime scheduler. Repeated Online with no change does not
+  // notify the availability callback.
+  void NotePeerPresence(std::string const& peer_uid, PeerPresence presence);
+
  private:
+  static EndpointAvailability FromPresence(PeerPresence presence);
+
   IAetherFrameEndpoint& endpoint_;
   std::string local_endpoint_uid_;
   std::shared_ptr<ReceiveBinding> receive_binding_;
+  // Observed only on the model thread that owns this transport.
+  std::map<std::string, EndpointAvailability> availability_;
 };
 
 }  // namespace apptraverse::example::chat_demo

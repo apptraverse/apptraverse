@@ -566,6 +566,23 @@ if(TARGET chat_demo_aether)
     COMMAND apptraverse_chat_session_integration_test
   )
 
+  add_executable(apptraverse_chat_session_delivery_test
+    chat_session_delivery_test.cpp
+  )
+  target_link_libraries(apptraverse_chat_session_delivery_test PRIVATE
+    chat_demo_runtime
+  )
+  target_include_directories(apptraverse_chat_session_delivery_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/runtime
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+  add_test(
+    NAME apptraverse_chat_session_delivery_test
+    COMMAND apptraverse_chat_session_delivery_test
+  )
+
   add_executable(apptraverse_aether_native_live_probe
     aether_native_live_probe.cpp
   )

@@ -125,9 +125,6 @@ class SharedSyncRuntime {
     std::vector<std::uint8_t> bytes;
   };
 
-  static constexpr std::uint64_t kScheduleOnNextService =
-      ~std::uint64_t{0};
-
   ae::Domain& domain_;
   ae::IDomainStorage& storage_;
   IByteTransport& transport_;

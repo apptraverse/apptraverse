@@ -598,34 +598,22 @@ stays an open ordering case for journal position.
 locally for matching timestamp, class, and canonical content (AddShare uses
 `LinkDescriptorsMatch`, not endpoint string alone). A mismatch is a conflict
 and rejects the snapshot before live mutation. Missing events are prefighted,
-then applied; `CompleteFromReceivedSnapshot` / `NotePeerDelivered` receive only
+then applied; `CompleteFromReceivedSnapshot` receives only
 identities from the snapshot journal, not the merged local journal. Ordering
 uses `SharedEventOrderLess` with a stable sort (no `origin_sequence` tie-break).
 
 ## Revoke during initial sync
 
-Closing a relationship does not wait for an initial-sync ACK. If the sender
-still has `InitialSyncPhase::Pending`, `CancelInitialSyncEvent` clears the
-frozen snapshot without forcing `Complete`. The remove is then armed as an
-incremental close. A late initial ACK is ignored when the share is already
-closed. An `Accepted` offer becomes `Rejected` and a matching cancel decision
-is sent so an `Admitted` peer without a local node rejects a late snapshot
-without importing one. Undelivered snapshot bytes are obsolete relative to
-the saved close.
+**Removed** with the permanent-pair strip: `CancelInitialSyncEvent` /
+`CancelIncrementalEventSyncEvent` / `NotePeerDelivered` are no longer part of
+the product surface. Closing a relationship mid-sync is not supported; a
+dialog is Install×2 then SyncInitial/Next until Complete.
 
 ## Cancel pending vs confirmed delivery
 
-Closing a relationship may stop an outstanding incremental transmission
-that was never acknowledged. That cancel is a local `LinkSyncState` event
-(`CancelIncrementalEventSyncEvent`): it clears the pending slot and does
-**not** append the identity to `delivered_event_ids`. Confirmed delivery
-still uses only `CompleteIncrementalEventSyncEvent` after a protocol ACK.
-
-The application Event remains in the SharedNode journal; other live Shares
-continue to receive it. A late ACK whose `packet_id` no longer matches the
-current pending packet is ignored: it does not mark the cancelled identity
-delivered, and it does not clear or complete a later pending remove for
-the same closed relationship.
+**Removed** cancel-pending path. Confirmed delivery still uses only
+`CompleteIncrementalEventSyncEvent` after a protocol ACK. A late ACK whose
+`packet_id` no longer matches the current pending packet is ignored.
 
 ## Public topology mutation path
 
