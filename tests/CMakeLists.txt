@@ -89,6 +89,15 @@ add_test(
   COMMAND apptraverse_permanent_pair_sync_test
 )
 
+# Exercises real cpm_add_patches() + cpm_apply_one_patch.cmake (no SOURCE_CACHE).
+add_test(
+  NAME apptraverse_cpm_add_patches_test
+  COMMAND ${CMAKE_COMMAND}
+    -DAPPTRAVERSE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+    -DFIXTURE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/cpm_add_patches_test
+    -P ${CMAKE_SOURCE_DIR}/cmake/tests/cpm_add_patches_test.cmake
+)
+
 add_executable(apptraverse_shared_node_availability_test
   shared_node_availability_test.cpp
 )

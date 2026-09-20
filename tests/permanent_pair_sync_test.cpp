@@ -663,6 +663,49 @@ void Offline(MemoryNetwork& network, std::string const& from,
   network.SetAvailability(from, to, EndpointAvailability::Offline);
 }
 
+LinkSyncState::ptr SyncStateForPeer(SharedNode::ptr node,
+                                    std::string const& peer_endpoint) {
+  CHECK(node.is_valid());
+  for (auto const& share : node->shares) {
+    if (!share.link.is_loaded()) {
+      share.link.Load();
+    }
+    CHECK(share.link.is_loaded());
+    if (share.link->EndpointUid() != peer_endpoint) {
+      continue;
+    }
+    auto const idx = node->FindLinkSyncIndexForShare(share.share_id);
+    CHECK(idx < node->link_sync_states.size());
+    auto state = node->link_sync_states[idx];
+    if (!state.is_loaded()) {
+      state.Load();
+    }
+    CHECK(state.is_loaded());
+    return state;
+  }
+  CHECK(false);
+  return {};
+}
+
+// Count only real availability transitions (value actually changes).
+bool SetAvailabilityTracked(MemoryNetwork& network, std::string const& from,
+                            std::string const& to,
+                            EndpointAvailability next,
+                            int& to_offline, int& to_online) {
+  auto const prev = network.Availability(from, to);
+  if (prev == next) {
+    return false;
+  }
+  network.SetAvailability(from, to, next);
+  if (next == EndpointAvailability::Offline) {
+    ++to_offline;
+  } else if (next == EndpointAvailability::Online) {
+    ++to_online;
+  }
+  return true;
+}
+
+
 // ---------------------------------------------------------------------------
 // Contract / basic scenarios
 // ---------------------------------------------------------------------------
@@ -857,32 +900,77 @@ void TestWrongSourceDoesNotAck() {
   auto const node_id = node.id();
   auto const op = OfferTo(pair.a, node, kB);
   FinishJoin(pair, op, node_id);
+
   AddRecord(*AsDialog(pair.a.sync->FindNode(node_id)), "pending", kA, 2, 200);
   ServiceRetry(pair.a, pair.network, kB);
   CHECK(pair.network.PendingCount(kA, kB) >= 1);
   EventFrame frame;
   CHECK(DecodeEventFrame(pair.network.PeekNext(kA, kB), frame));
+  auto const packet_id = frame.packet_id;
+  auto const identity = frame.identity;
+  // Remove the original packet without delivering it to B.
+  CHECK(pair.network.DropNext(kA, kB));
+  CHECK(pair.network.PendingCount(kA, kB) == 0);
+
+  auto state = SyncStateForPeer(pair.a.sync->FindNode(node_id), kB);
+  CHECK(state->HasPendingEvent());
+  CHECK(state->pending_event_packet_id == packet_id);
+  CHECK(!state->HasDelivered(identity));
+
   struct Eve {
     static void OnBytes(void*, std::string const&,
                         std::vector<std::uint8_t> const&) {}
   };
   MemoryTransport eve{pair.network, "endpoint-eve"};
   eve.BindReceive(nullptr, &Eve::OnBytes);
-  AckFrame forged{.packet_id = frame.packet_id,
+  AckFrame forged{.packet_id = packet_id,
                   .target_node_id = frame.target_node_id,
                   .destination_share_id = frame.destination_share_id};
   eve.Send(kA, EncodeAckFrame(forged));
   CHECK(pair.network.DeliverNext("endpoint-eve", kA));
-  // Pending must still be live; wrong source must not clear delivery.
-  Advance(pair.a, kShareOfferRetryIntervalUs);
+
+  // Wrong source must not mark Delivered or clear the pending wait.
+  state = SyncStateForPeer(pair.a.sync->FindNode(node_id), kB);
+  CHECK(state->HasPendingEvent());
+  CHECK(state->pending_event_packet_id == packet_id);
+  CHECK(!state->HasDelivered(identity));
+
+  // Advance to retry: same packet_id must be re-queued.
+  auto const sends_before = pair.a.sends;
+  ServiceRetry(pair.a, pair.network, kB);
+  CHECK(pair.a.sends > sends_before);
   CHECK(pair.network.PendingCount(kA, kB) >= 1);
+  EventFrame retried;
+  CHECK(DecodeEventFrame(pair.network.PeekNext(kA, kB), retried));
+  CHECK(retried.packet_id == packet_id);
+  CHECK(retried.identity == identity);
+
+  // Deliver to the real peer. Until its ACK arrives, sender stays pending.
+  CHECK(pair.network.DeliverNext(kA, kB));
+  CHECK(HasText(pair.b.sync->FindNode(node_id), "pending", kA, 2));
+  state = SyncStateForPeer(pair.a.sync->FindNode(node_id), kB);
+  CHECK(state->HasPendingEvent());
+  CHECK(!state->HasDelivered(identity));
+  CHECK(pair.network.PendingCount(kB, kA) >= 1);
+
+  CHECK(pair.network.DeliverNext(kB, kA));
+  state = SyncStateForPeer(pair.a.sync->FindNode(node_id), kB);
+  CHECK(!state->HasPendingEvent());
+  CHECK(state->HasDelivered(identity));
+
+  // No duplicate apply on B; quiet after confirmation.
+  CHECK(Observe(*AsDialog(pair.b.sync->FindNode(node_id))).size() == 2);
   auto world = pair.world();
-  Pump(world,
-       [&] {
-         return HasText(pair.b.sync->FindNode(node_id), "pending", kA, 2);
-       },
-       80);
+  Settle(world);
+  auto const quiet = pair.a.sends + pair.b.sends;
+  for (int i = 0; i < 40; ++i) {
+    Advance(pair.a, kShareOfferRetryIntervalUs + 1);
+    Advance(pair.b, kShareOfferRetryIntervalUs + 2);
+  }
+  CHECK(pair.a.sends + pair.b.sends == quiet);
+  CHECK(!Queued(world));
 }
+
 
 void TestLongOfflineMonth() {
   Pair pair;
@@ -1293,12 +1381,57 @@ void RunPermanentPairChaos(std::uint32_t seed, int steps,
   auto world = pair.world();
   Pump(world, [&] { return FullyJoined(pair, op, node_id); }, 80);
 
+  // Forced Online after join must not count toward random-phase transitions.
+  Online(pair.network, kA, kB);
+  Online(pair.network, kB, kA);
+
+  // Explicit Offline → Online recovery without restarting either replica.
+  {
+    Offline(pair.network, kA, kB);
+    Offline(pair.network, kB, kA);
+    AddRecordLocal(*AsDialog(pair.a.sync->FindNode(node_id)), "pre-offline-a",
+                   kA, 2);
+    AddRecordLocal(*AsDialog(pair.b.sync->FindNode(node_id)), "pre-offline-b",
+                   kB, 1);
+    auto const sends_a = pair.a.sends;
+    auto const sends_b = pair.b.sends;
+    Advance(pair.a, kShareOfferRetryIntervalUs);
+    Advance(pair.b, kShareOfferRetryIntervalUs + 1);
+    CHECK(pair.a.sends == sends_a);
+    CHECK(pair.b.sends == sends_b);
+    Online(pair.network, kA, kB);
+    Online(pair.network, kB, kA);
+    Pump(world,
+         [&] {
+           return HasText(pair.a.sync->FindNode(node_id), "pre-offline-b", kB,
+                          1) &&
+                  HasText(pair.b.sync->FindNode(node_id), "pre-offline-a", kA,
+                          2);
+         },
+         120);
+  }
+
   Replica* reps[2] = {&pair.a, &pair.b};
   std::string const ids[2] = {kA, kB};
-  std::uint64_t seq[2] = {2, 1};
+  std::uint64_t seq[2] = {3, 2};
   std::vector<OracleEntry> oracle;
   oracle.push_back(
       OracleEntry{.text = "seed", .origin = kA, .sequence = 1, .timestamp_us = 100});
+  // Capture whatever Observe holds after the recovery prelude (includes the
+  // two offline messages with their real stamps).
+  for (auto const& seen :
+       Observe(*AsDialog(pair.a.sync->FindNode(node_id)))) {
+    if (seen.text == "seed") {
+      continue;
+    }
+    oracle.push_back(OracleEntry{.text = seen.text,
+                                 .origin = seen.id.origin_uid,
+                                 .sequence = seen.id.origin_sequence,
+                                 .timestamp_us = seen.timestamp_us});
+  }
+
+  int transitions_to_offline = 0;
+  int transitions_to_online = 0;
 
   auto write_one = [&](int who) {
     auto live = reps[who]->sync->FindNode(node_id);
@@ -1308,7 +1441,6 @@ void RunPermanentPairChaos(std::uint32_t seed, int steps,
     auto dialog = AsDialog(live);
     auto const sequence = seq[who]++;
     auto const stamp = NextLocalStamp(*dialog);
-    // Periodically collide timestamps across origins (open SharedEventOrder case).
     std::uint64_t ts = stamp;
     if ((rng() % 17) == 0) {
       ts = 10'000 + (rng() % 50);
@@ -1342,18 +1474,20 @@ void RunPermanentPairChaos(std::uint32_t seed, int steps,
           pair.network.DeliverNext(ids[i], ids[j]);
         }
         break;
-      case 4:
-        pair.network.SetAvailability(
-            ids[i], ids[j],
-            (roll % 2) == 0 ? EndpointAvailability::Offline
-                            : EndpointAvailability::Online);
+      case 4: {
+        // Availability target is an independent draw — not coupled to roll%6
+        // parity (which made Online unreachable when roll%6==4).
+        auto const want = (rng() % 2) == 0 ? EndpointAvailability::Offline
+                                           : EndpointAvailability::Online;
+        SetAvailabilityTracked(pair.network, ids[i], ids[j], want,
+                               transitions_to_offline, transitions_to_online);
         break;
+      }
       default:
         DeliverRound(world);
         break;
     }
 
-    // Keep writing while replicas may be desynchronized.
     if ((step % 3) == 0) {
       write_one(static_cast<int>(rng() % 2));
     }
@@ -1363,11 +1497,11 @@ void RunPermanentPairChaos(std::uint32_t seed, int steps,
     }
 
     if ((step % 220) == 219) {
-      // Restart one side; clear dangling locals first.
       reps[i]->Stop();
       pair.network.ClearQueues();
       reps[i]->Start();
       CHECK(reps[i]->sync->FindNode(node_id).is_valid());
+      // Forced Online after restart is excluded from transition counters.
       Online(pair.network, kA, kB);
       Online(pair.network, kB, kA);
     }
@@ -1379,10 +1513,12 @@ void RunPermanentPairChaos(std::uint32_t seed, int steps,
     }
   }
 
+  CHECK(transitions_to_offline > 0);
+  CHECK(transitions_to_online > 0);
+
+  // Final delivery Online is forced and excluded from the counters above.
   Online(pair.network, kA, kB);
   Online(pair.network, kB, kA);
-  Online(pair.network, kB, kA);
-  Online(pair.network, kA, kB);
 
   bool settled = false;
   for (int step = 0; step < 2000; ++step) {
@@ -1405,7 +1541,8 @@ void RunPermanentPairChaos(std::uint32_t seed, int steps,
               << Observe(*AsDialog(pair.a.sync->FindNode(node_id))).size()
               << " b="
               << Observe(*AsDialog(pair.b.sync->FindNode(node_id))).size()
-              << '\n';
+              << " to_offline=" << transitions_to_offline
+              << " to_online=" << transitions_to_online << '\n';
     CHECK(false);
   }
 
