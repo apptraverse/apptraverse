@@ -76,6 +76,19 @@ add_test(
   COMMAND apptraverse_permanent_pair_sync_test
 )
 
+add_executable(apptraverse_shared_child_node_stand_test
+  shared_child_node_stand_test.cpp
+)
+
+target_link_libraries(apptraverse_shared_child_node_stand_test PRIVATE
+  apptraverse
+)
+
+add_test(
+  NAME apptraverse_shared_child_node_stand_test
+  COMMAND apptraverse_shared_child_node_stand_test
+)
+
 # Exercises real cpm_add_patches() + cpm_apply_one_patch.cmake (no SOURCE_CACHE).
 add_test(
   NAME apptraverse_cpm_add_patches_test
