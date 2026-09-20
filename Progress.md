@@ -3,14 +3,14 @@
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
 
 Branch: `cursor/shared-node-join-3c1e`. Fixed prior tip: `d3c2243` (not reverted).
-Work tip after this note: see latest commit on the branch.
+Work tip: `c35c47d`.
 
 ## Changes
 
-1. **One scheduler** — `ChatSession` model loop calls `SharedSyncRuntime::Service(now_us)`; removed `SyncRetryState` and per-phase `SyncInitial`/`SyncNext` branches (including host-accept immediate SyncInitial). Peer presence → `AetherByteTransport::NotePeerPresence` → Availability; `SetAvailabilityWake` only enqueues a model wake.
-2. **Post-load pair check** — `DescribeRestoredPermanentPairViolation` before `RegisterNode` on restored rooms (2 distinct RW endpoints, one local, share/sync consistent). 0–1 shares skipped. Failure: diagnostic + no storage mutation.
-3. **Remnants removed** — `CancelInitialSync` / `CancelIncrementalEvent` / `NotePeerDelivered` (+ event classes/registration); BeginIncremental requires `Complete` only (`CanApply` Release-safe); dead `kScheduleOnNextService` branch. `logical_now_us_` kept (still used by `Service`).
-4. **Tests** — `apptraverse_chat_session_delivery_test` (FakeAetherFrameEndpoint sync-frame counts: Offline suppress/resume, repeated Online, lost ACK, restore unacked, refuse incompatible, Unknown attempt); transport availability dispatch; foundation pair-validation unit.
+1. **One scheduler** - `ChatSession` model loop calls `SharedSyncRuntime::Service(now_us)`; removed `SyncRetryState` and per-phase `SyncInitial`/`SyncNext` branches (including host-accept immediate SyncInitial). Peer presence -> `AetherByteTransport::NotePeerPresence` -> Availability; `SetAvailabilityWake` only enqueues a model wake.
+2. **Post-load pair check** - `DescribeRestoredPermanentPairViolation` before `RegisterNode` on restored rooms (2 distinct RW endpoints, one local, share/sync consistent). 0-1 shares skipped. Failure: diagnostic + no storage mutation.
+3. **Remnants removed** - `CancelInitialSync` / `CancelIncrementalEvent` / `NotePeerDelivered` (+ event classes/registration); BeginIncremental requires `Complete` only (`CanApply` Release-safe); dead `kScheduleOnNextService` branch. `logical_now_us_` kept (still used by `Service`).
+4. **Tests** - `apptraverse_chat_session_delivery_test` (FakeAetherFrameEndpoint sync-frame counts: Offline suppress/resume, repeated Online, lost ACK, restore unacked, refuse incompatible, Unknown attempt); transport availability dispatch; foundation pair-validation unit.
 
 ## Reproduced defects (tests first)
 
@@ -19,16 +19,17 @@ Work tip after this note: see latest commit on the branch.
 | Sync sends while Offline (SyncRetryState initial path) | `TestOfflineSuppressesSyncSendsAndResumes` |
 | Extra sends on repeated Online | `TestRepeatedOnlineDoesNotExtraSend` |
 | Delivered without ACK | `TestLostAckRetriesThenDelivered` |
-| No resume after Offline→Online | same offline test |
+| No resume after Offline->Online | same offline test |
 | Restored 3-share dialog accepted | `TestRefuseIncompatibleRestoredDialogLeavesStorage` |
 | Stale transport callbacks | dispatch test (existing + availability) |
 
 ## LOC (vs `d3c2243`)
 
-| Bucket | Δ lines (diffstat) |
-|---|---:|
-| Working code (examples + include + src + plan.md) | +272 / −283 |
-| Tests | +908 / −1 |
+| Bucket | + | - | net |
+|---|---:|---:|---:|
+| Working code (`examples/` + `include/` + `src/` + `plan.md`) | 272 | 283 | -11 |
+| Tests | 908 | 1 | +907 |
+| Progress.md | (this note) |  |  |
 
 ## Verification
 
@@ -36,11 +37,11 @@ Compilers: `gcc`/`g++`, RTTI off. Logs: `/opt/cursor/artifacts/service-unify-202
 
 | Config | DEMOs | Result |
 |---|---|---|
-| Debug (`build-service-debug`) | ON | chat_demo_runtime + delivery/integration/dispatch/foundation/permanent_pair/initial/incr/chat_demo_sync/protocol — EXIT=0 |
-| Release `-O3 -DNDEBUG` (`build-service-release`) | ON | same set — EXIT=0 |
-| ASan only (`build-service-asan`) | ON | same set — EXIT=0 (`ASAN_OPTIONS=detect_leaks=0`) |
+| Debug (`build-service-debug`) | ON | chat_demo_runtime + delivery/integration/dispatch/foundation/permanent_pair/initial/incr/chat_demo_sync/protocol - EXIT=0 |
+| Release `-O3 -DNDEBUG` (`build-service-release`) | ON | same set - EXIT=0 |
+| ASan only (`build-service-asan`) | ON | same set - EXIT=0 (`ASAN_OPTIONS=detect_leaks=0`) |
 | ASan+UBSan | ON | **blocked**: upstream `aether`/`stdexec` constexpr failure in `registration.cpp` under UBSan |
-| ASan+UBSan (`build-service-ubsan-core`) | OFF | core permanent_pair/foundation/initial/incr — see run log |
+| ASan+UBSan (`build-service-ubsan-core`) | OFF | permanent_pair/foundation/initial/incr - EXIT=0 |
 
 Foreign ACK / isolation / chaos: retained in `apptraverse_permanent_pair_sync_test` (EXIT=0 Debug/Release/ASan).
 
@@ -58,7 +59,7 @@ Commits: `3d8f715` (runtime.cpp) ? `81ba780` (headers/tests/plan) ? `80a9755`
 
 | Mechanism | Decision | Reason |
 |---|---|---|
-| InstallLocalShare �2 + ExpectInitial* + SyncInitial/Next | KEEP | AeroAdmin path |
+| InstallLocalShare �2 + ExpectInitial* + SyncInitial/Next | KEEP | AeroAdmin path |
 | Service / ACK / retry / Offline-Online | KEEP | Delivery |
 | OfferNode / RequestJoin / ShareOffer / admission | REMOVE | Not product path |
 | RemoveShare / ChangeShareAccess / ReadOnly / CatchUp / Fold / Relay | REMOVE | Not permanent pair |
@@ -100,7 +101,7 @@ Logs: `/opt/cursor/artifacts/strip-sync-20260920/logs-{debug,release,asan}/`.
 
 Also built/ran available app-adjacent targets (Debug): chat_demo_model,
 launch_options, main_window_lifecycle(+load_only), event_sourced_core,
-journal_retention ? EXIT=0. Full �ther chat GUI demos not enabled in this
+journal_retention ? EXIT=0. Full �ther chat GUI demos not enabled in this
 tree (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`).
 
 Known limitation unchanged: equal-timestamp journal order not claimed fixed.
