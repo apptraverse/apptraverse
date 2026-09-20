@@ -584,6 +584,16 @@ tests in `apptraverse_shared_node_topology_test`, including delivery of both
 independent closes to the closed peer. Equal `timestamp_us` across sources
 stays an open ordering case for journal position.
 
+## Safe rejoin snapshot fold
+
+`FoldMissingSharedFromSnapshot` compares every shared identity already present
+locally for matching timestamp, class, and canonical content (AddShare uses
+`LinkDescriptorsMatch`, not endpoint string alone). A mismatch is a conflict
+and rejects the snapshot before live mutation. Missing events are prefighted,
+then applied; `CompleteFromReceivedSnapshot` / `NotePeerDelivered` receive only
+identities from the snapshot journal, not the merged local journal. Ordering
+uses `SharedEventOrderLess` with a stable sort (no `origin_sequence` tie-break).
+
 ## Revoke during initial sync
 
 Closing a relationship does not wait for an initial-sync ACK. If the sender

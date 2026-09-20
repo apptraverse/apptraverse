@@ -513,6 +513,68 @@ bool FreezeTopologyPayload(Event const& event,
   return FreezeEventPayload(event, boundary, out);
 }
 
+// Shared identity already present: order, class, and canonical content must
+// match. Local Event ObjIds may differ; protocol share_id / Link descriptors
+// must not.
+bool SameSharedEventContent(EventRecord const& local,
+                            EventRecord const& incoming) {
+  if (local.order.timestamp_us != incoming.order.timestamp_us) {
+    return false;
+  }
+  if (!local.event.is_valid() || !incoming.event.is_valid()) {
+    return false;
+  }
+  auto local_event = local.event;
+  auto incoming_event = incoming.event;
+  if (!local_event.is_loaded()) {
+    local_event.Load();
+  }
+  if (!incoming_event.is_loaded()) {
+    incoming_event.Load();
+  }
+  if (!local_event.is_loaded() || !incoming_event.is_loaded()) {
+    return false;
+  }
+  if (local_event->GetClassId() != incoming_event->GetClassId()) {
+    return false;
+  }
+  if (local_event->GetClassId() == AddShareEvent::kClassId) {
+    auto const& a = static_cast<AddShareEvent const&>(*local_event);
+    auto const& b = static_cast<AddShareEvent const&>(*incoming_event);
+    if (a.share_id != b.share_id || a.access != b.access) {
+      return false;
+    }
+    if (!a.link.is_valid() || !b.link.is_valid()) {
+      return false;
+    }
+    if (!a.link.is_loaded()) {
+      a.link.Load();
+    }
+    if (!b.link.is_loaded()) {
+      b.link.Load();
+    }
+    if (!a.link.is_loaded() || !b.link.is_loaded()) {
+      return false;
+    }
+    return LinkDescriptorsMatch(static_cast<Node&>(*a.link),
+                                static_cast<Node&>(*b.link));
+  }
+  if (local_event->GetClassId() == RemoveShareEvent::kClassId) {
+    return static_cast<RemoveShareEvent const&>(*local_event).share_id ==
+           static_cast<RemoveShareEvent const&>(*incoming_event).share_id;
+  }
+  if (local_event->GetClassId() == ChangeShareAccessEvent::kClassId) {
+    auto const& a = static_cast<ChangeShareAccessEvent const&>(*local_event);
+    auto const& b = static_cast<ChangeShareAccessEvent const&>(*incoming_event);
+    return a.share_id == b.share_id && a.access == b.access;
+  }
+  std::vector<std::uint8_t> payload;
+  if (!FreezeTopologyPayload(*incoming_event, payload)) {
+    return false;
+  }
+  return SameEventPayload(*local_event, payload);
+}
+
 Link::ptr AsLinkPtr(ae::Ptr<ae::Obj> held) {
   if (!held) {
     return {};
@@ -2839,6 +2901,12 @@ bool SharedSyncRuntime::FoldMissingSharedFromSnapshot(
     NodeStateFrame const& frame, ShareOffer::ptr admission) {
   assert(node.is_valid() && node.is_loaded());
   assert(admission.is_valid());
+
+  // Fingerprint before any mutation: rejection must leave live state unchanged.
+  auto const journal_before = node->journal.size();
+  auto const shares_before = node->shares.size();
+  auto const sync_before = node->link_sync_states.size();
+
   ae::RamDomainStorage parsed;
   if (!DeserializeObjectGraph(frame.payload, parsed)) {
     return false;
@@ -2871,16 +2939,21 @@ bool SharedSyncRuntime::FoldMissingSharedFromSnapshot(
 
   struct Missing {
     SharedEventId identity;
-    std::uint64_t timestamp_us{0};
+    SharedEventOrder order{};
     std::uint32_t class_id{0};
     Event::ptr event;
   };
   std::vector<Missing> missing;
+  std::vector<SharedEventId> snapshot_covered;
   for (auto const& record : shared_candidate.journal) {
     if (!record.HasSharedIdentity() || !record.event.is_valid()) {
       continue;
     }
-    if (node->FindSharedEvent(record.identity) != nullptr) {
+    snapshot_covered.push_back(record.identity);
+    if (auto const* existing = node->FindSharedEvent(record.identity)) {
+      if (!SameSharedEventContent(*existing, record)) {
+        return false;
+      }
       continue;
     }
     auto event = record.event;
@@ -2891,65 +2964,105 @@ bool SharedSyncRuntime::FoldMissingSharedFromSnapshot(
       return false;
     }
     missing.push_back(Missing{.identity = record.identity,
-                              .timestamp_us = record.order.timestamp_us,
+                              .order = record.order,
                               .class_id = event->GetClassId(),
                               .event = event});
   }
-  std::sort(missing.begin(), missing.end(),
-            [](Missing const& a, Missing const& b) {
-              if (a.timestamp_us != b.timestamp_us) {
-                return a.timestamp_us < b.timestamp_us;
-              }
-              return a.identity.origin_sequence < b.identity.origin_sequence;
-            });
+  // Canonical order only. Equal timestamps keep snapshot relative order.
+  std::stable_sort(missing.begin(), missing.end(),
+                   [](Missing const& a, Missing const& b) {
+                     return SharedEventOrderLess(a.order, b.order);
+                   });
 
+  // Build wire frames and preflight the full merge in scratch before live
+  // writes. A failure here must not change journals, shares, or sync-state.
+  struct Prepared {
+    Missing item;
+    EventFrame wire;
+    ae::RamDomainStorage event_parsed;
+    ae::ObjId wire_root_id;
+  };
+  std::vector<Prepared> prepared;
+  prepared.reserve(missing.size());
   for (auto const& item : missing) {
-    std::vector<std::uint8_t> payload;
-    if (!FreezeTopologyPayload(*item.event, payload)) {
+    Prepared entry{.item = item};
+    if (!FreezeTopologyPayload(*item.event, entry.wire.payload)) {
       return false;
     }
-    EventFrame const wire{
-        .packet_id = frame.packet_id,
-        .target_node_id = frame.target_node_id,
-        .destination_share_id = frame.destination_share_id,
-        .identity = item.identity,
-        .timestamp_us = item.timestamp_us,
-        .event_class_id = item.class_id,
-        .payload = std::move(payload),
-    };
+    entry.wire.packet_id = frame.packet_id;
+    entry.wire.target_node_id = frame.target_node_id;
+    entry.wire.destination_share_id = frame.destination_share_id;
+    entry.wire.identity = item.identity;
+    entry.wire.timestamp_us = item.order.timestamp_us;
+    entry.wire.event_class_id = item.class_id;
     if (item.class_id == AddShareEvent::kClassId) {
-      if (!ApplyIncomingAddShare(node, source_endpoint, wire)) {
+      // PreflightAddShare validates historical insert without live Save.
+      ae::RamDomainStorage event_parsed;
+      ae::ObjId wire_root_id;
+      if (!ParseEventPayload(entry.wire.payload, event_parsed, wire_root_id)) {
         return false;
       }
+      ae::Domain wire_domain{event_parsed};
+      ae::DomainGraph wire_graph{&wire_domain};
+      auto root = wire_graph.LoadRoot(wire_root_id);
+      if (!root || root->GetClassId() != AddShareEvent::kClassId) {
+        return false;
+      }
+      if (!PreflightAddShare(*node, static_cast<AddShareEvent&>(*root),
+                             event_parsed, entry.wire)) {
+        return false;
+      }
+      entry.event_parsed = std::move(event_parsed);
+      entry.wire_root_id = wire_root_id;
+      prepared.push_back(std::move(entry));
       continue;
     }
     if (!IsTopologyEventClass(item.class_id) &&
         !IsStandaloneEventClassAllowed(item.class_id)) {
-    return false;
+      return false;
     }
-    ae::RamDomainStorage event_parsed;
-    ae::ObjId wire_root_id;
-    if (!ParseEventPayload(wire.payload, event_parsed, wire_root_id)) {
-    return false;
+    if (!ParseEventPayload(entry.wire.payload, entry.event_parsed,
+                           entry.wire_root_id)) {
+      return false;
     }
-    if (!ValidateStandaloneEventGraph(event_parsed, wire_root_id,
+    if (!ValidateStandaloneEventGraph(entry.event_parsed, entry.wire_root_id,
                                       item.class_id)) {
-    return false;
+      return false;
     }
-    if (!PreflightHistoricalEventInsertion(*node, event_parsed, wire_root_id,
-                                           item.class_id, item.identity,
-                                           item.timestamp_us)) {
-return false;
+    if (!PreflightHistoricalEventInsertion(
+            *node, entry.event_parsed, entry.wire_root_id, item.class_id,
+            item.identity, item.order.timestamp_us)) {
+      return false;
+    }
+    prepared.push_back(std::move(entry));
+  }
+
+  assert(node->journal.size() == journal_before);
+  assert(node->shares.size() == shares_before);
+  assert(node->link_sync_states.size() == sync_before);
+
+  // Apply only after every missing event prefighted. Individual Prefights use
+  // the pre-fold live journal; equal-timestamp open cases stay open. A later
+  // missing event that depends on an earlier missing insert is rejected by
+  // live Apply and must not ACK — callers see Fold return false with no
+  // Bound. Crash-safe boundary: no Save until the batch finishes below.
+  for (auto const& entry : prepared) {
+    if (entry.item.class_id == AddShareEvent::kClassId) {
+      if (!ApplyIncomingAddShare(node, source_endpoint, entry.wire)) {
+        return false;
+      }
+      continue;
     }
     auto local_event = ImportStandaloneEventGraph(
-        event_parsed, wire_root_id, item.class_id, domain_, storage_);
+        entry.event_parsed, entry.wire_root_id, entry.item.class_id, domain_,
+        storage_);
     if (!local_event) {
-    return false;
+      return false;
     }
     auto local_event_ptr = Event::ptr::MakeFromThis(local_event.get());
-    node->InsertShared(std::move(local_event_ptr), item.identity,
-                       SharedEventOrder{.timestamp_us = item.timestamp_us});
-    if (item.class_id == RemoveShareEvent::kClassId) {
+    node->InsertShared(std::move(local_event_ptr), entry.item.identity,
+                       entry.item.order);
+    if (entry.item.class_id == RemoveShareEvent::kClassId) {
       RelayRemovedShare(
           node, static_cast<RemoveShareEvent const&>(*local_event).share_id);
     }
@@ -2968,14 +3081,12 @@ return false;
   if (!state.is_loaded()) {
     state.Load();
   }
-  std::vector<SharedEventId> covered_ids;
-  for (auto const& record : node->journal) {
-    if (record.HasSharedIdentity() && !record.identity.origin_uid.empty()) {
-      covered_ids.push_back(record.identity);
-    }
-  }
+  // Only identities present in the received snapshot are peer-known. Do not
+  // mark local-only history delivered.
   if (state->GetInitialSyncPhase() != InitialSyncPhase::Complete) {
-    state->CompleteFromReceivedSnapshot(std::move(covered_ids));
+    state->CompleteFromReceivedSnapshot(std::move(snapshot_covered));
+  } else {
+    state->NotePeerDelivered(std::move(snapshot_covered));
   }
   node.Save();
   state.Save();
