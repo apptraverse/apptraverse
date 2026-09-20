@@ -367,8 +367,14 @@ struct Replica {
         });
   }
 
+  // Nothing a restarted application could only know from RAM may survive:
+  // the live parent handle, the child id and the origin-sequence cache all go
+  // with the runtime. Only the storage and the test's own observation
+  // counters stay.
   void Stop() {
     parent_ = {};
+    doc_id = {};
+    sequence_cache_ = 0;
     sync.reset();
     counting.reset();
     transport.reset();
@@ -440,9 +446,23 @@ struct Replica {
     return doc;
   }
 
+  // Origin sequence of the next local shared Event. After a restart the cache
+  // is empty and the value is recovered from the persisted shared journal:
+  // this replica's own highest origin_sequence plus one.
+  std::uint64_t NextSharedSequence() {
+    if (sequence_cache_ == 0) {
+      sequence_cache_ = HighestPersistedOriginSequence();
+    }
+    return ++sequence_cache_;
+  }
+
+  // Runtime-only view of that counter. Zero means "not recovered yet".
+  std::uint64_t CachedSequence() const { return sequence_cache_; }
+
   // Restore after a full unload: load the parent from storage, reach the child
   // through the persisted reference, register it with the ordinary API.
   ae::ObjId RestoreFromStorage() {
+    CHECK(sync->RegisteredNodeIds().empty());
     auto parent = Parent();
     CHECK(parent->shared.is_valid());
     if (!parent->shared.is_loaded()) {
@@ -463,11 +483,24 @@ struct Replica {
 
   SendCounts counts;
   std::uint64_t clock{0};
-  std::uint64_t sequence{0};
   int imports{0};
   ae::ObjId doc_id;
 
  private:
+  std::uint64_t HighestPersistedOriginSequence() const {
+    auto doc = Doc();
+    CHECK(doc.is_valid());
+    std::uint64_t highest = 0;
+    for (auto const& record : doc->journal) {
+      if (!record.HasSharedIdentity() ||
+          record.identity.origin_uid != endpoint_) {
+        continue;
+      }
+      highest = std::max(highest, record.identity.origin_sequence);
+    }
+    return highest;
+  }
+
   MemoryLink::ptr MakeLink(std::string endpoint) const {
     auto link = MemoryLink::ptr::Create(
         ae::CreateWith{*domain}.with_id(ae::ObjId::GenerateUnique()));
@@ -512,6 +545,7 @@ struct Replica {
 
   ae::ObjId parent_id_;
   mutable LocalParent::ptr parent_;
+  std::uint64_t sequence_cache_{0};
   std::string note_;
   std::set<SentKey> sent_;
   MemoryNetwork& network_;
@@ -799,12 +833,17 @@ bool HasLine(SharedDoc::ptr doc, std::string const& text) {
 std::string Write(Stand& stand, Replica& who, std::string text) {
   auto doc = who.Doc();
   CHECK(doc.is_valid());
+  auto const journal_before = doc->journal.size();
   auto event = AppendLineEvent::ptr::Create(ae::CreateWith{*who.domain});
   event->text = text;
+  auto const sequence = who.NextSharedSequence();
   doc->CommitShared(event,
                     SharedEventId{.origin_uid = who.endpoint(),
-                                  .origin_sequence = ++who.sequence},
+                                  .origin_sequence = sequence},
                     SharedEventOrder{.timestamp_us = stand.NextTimestamp()});
+  // A reused identity is refused by the journal instead of throwing: the
+  // commit must be visible, not silently dropped under NDEBUG.
+  CHECK(doc->journal.size() == journal_before + 1);
   who.SaveTree();
   return text;
 }
@@ -1068,7 +1107,8 @@ void RunUnloadAndRestore(Stand& stand, Replica& gone, Replica& staying,
 
   gone.Start();
   // The only path back to the child is the parent's persisted reference.
-  gone.doc_id = {};
+  CHECK(!gone.doc_id.is_valid());
+  CHECK(gone.CachedSequence() == 0);
   auto const restored_id = gone.RestoreFromStorage();
   CHECK(restored_id == doc_id);
   CHECK(gone.Doc()->lines.size() == lines_before);
@@ -1120,6 +1160,105 @@ void TestUnloadAndRestore() {
   CHECK(stand.client.counts.while_offline == 0);
   ExpectQuiet(stand);
   Report("scenario 4 unload and restore", stand);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 4b: the next origin sequence comes back from storage
+// ---------------------------------------------------------------------------
+
+std::uint64_t HighestOriginSequence(SharedDoc const& doc,
+                                    std::string const& origin) {
+  std::uint64_t highest = 0;
+  for (auto const& seen : Observe(doc)) {
+    if (seen.id.origin_uid == origin) {
+      highest = std::max(highest, seen.id.origin_sequence);
+    }
+  }
+  return highest;
+}
+
+std::set<std::pair<std::string, std::uint64_t>> IdentitiesOf(
+    SharedDoc const& doc) {
+  std::set<std::pair<std::string, std::uint64_t>> ids;
+  for (auto const& seen : Observe(doc)) {
+    ids.insert({seen.id.origin_uid, seen.id.origin_sequence});
+  }
+  return ids;
+}
+
+// A restarted replica knows nothing until it loads. The origin sequence of its
+// next shared Event must come back from the persisted journal, not from a
+// value that outlived the runtime, and it must not collide with an identity
+// already in that journal.
+void RunSequenceRecovery(Stand& stand, Replica& gone, Replica& peer,
+                         std::string const& prefix) {
+  auto const doc_id = gone.doc_id;
+  auto const journal_before = Observe(*gone.Doc()).size();
+  auto const identities_before = IdentitiesOf(*gone.Doc());
+  auto const highest_before =
+      HighestOriginSequence(*gone.Doc(), gone.endpoint());
+  CHECK(highest_before != 0);
+  CHECK(gone.CachedSequence() == highest_before);
+
+  gone.SaveTree();
+  gone.Stop();
+  gone.Start();
+
+  // Nothing but the storage survived.
+  CHECK(gone.CachedSequence() == 0);
+  CHECK(!gone.doc_id.is_valid());
+  CHECK(gone.sync->RegisteredNodeIds().empty());
+
+  // Recovery starts at the ordinary parent Node and reaches the child only
+  // through its persisted reference.
+  CHECK(gone.RestoreFromStorage() == doc_id);
+  CHECK(Observe(*gone.Doc()).size() == journal_before);
+
+  auto const text = Write(stand, gone, prefix + "-after-unload");
+  CHECK(gone.CachedSequence() == highest_before + 1);
+  auto const after = Observe(*gone.Doc());
+  CHECK(after.size() == journal_before + 1);
+  auto const& fresh = after.back();
+  CHECK(fresh.text == text);
+  CHECK(fresh.id.origin_uid == gone.endpoint());
+  CHECK(fresh.id.origin_sequence == highest_before + 1);
+  CHECK(identities_before.count(
+            {fresh.id.origin_uid, fresh.id.origin_sequence}) == 0);
+
+  Pump(stand, [&] { return HasLine(peer.Doc(), text); }, 80);
+  CHECK(Observe(*peer.Doc()).size() == journal_before + 1);
+  ExpectSameDialog(stand);
+}
+
+void TestSequenceRecoveredFromStorage() {
+  Stand stand;
+  Connect(stand);
+
+  std::size_t expected = 3;
+  for (int i = 0; i < 2; ++i) {
+    Write(stand, stand.host, "seq-host-" + std::to_string(i));
+    Write(stand, stand.client, "seq-client-" + std::to_string(i));
+    expected += 2;
+  }
+  Pump(stand,
+       [&] {
+         return Observe(*stand.host.Doc()).size() == expected &&
+                Observe(*stand.client.Doc()).size() == expected;
+       },
+       120);
+  ExpectQuiet(stand);
+
+  RunSequenceRecovery(stand, stand.client, stand.host, "client");
+  ExpectQuiet(stand);
+  RunSequenceRecovery(stand, stand.host, stand.client, "host");
+  ExpectQuiet(stand);
+
+  ExpectParentsIndependent(stand);
+  CHECK(stand.host.counts.node_state == 1);
+  CHECK(stand.client.counts.node_state == 0);
+  CHECK(stand.host.counts.while_offline == 0);
+  CHECK(stand.client.counts.while_offline == 0);
+  Report("scenario 4b sequence recovery", stand);
 }
 
 // ---------------------------------------------------------------------------
@@ -1206,7 +1345,8 @@ void TestUnacknowledgedDelivery() {
   stand.host.Stop();
   stand.network.ClearQueues();
   stand.host.Start();
-  stand.host.doc_id = {};
+  CHECK(!stand.host.doc_id.is_valid());
+  CHECK(stand.host.CachedSequence() == 0);
   CHECK(stand.host.RestoreFromStorage() == doc_id);
   auto restored_state = SyncStateForPeer(stand.host.Doc(), kClient);
   CHECK(restored_state->HasPendingEvent());
@@ -1240,6 +1380,139 @@ void TestUnacknowledgedDelivery() {
   CHECK(stand.host.counts.while_offline == 0);
   CHECK(stand.client.counts.while_offline == 0);
   Report("scenario 5 unacknowledged delivery", stand);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 5b: availability notifications and the retry interval
+// ---------------------------------------------------------------------------
+
+// One Event applied by the receiver, its ACK lost. While the sender waits, a
+// repeated Online notification whose observed value did not change must not
+// buy an early retry: pacing is the retry interval, not the notification.
+void TestRepeatedOnlineDoesNotBypassRetryInterval() {
+  Stand stand;
+  Connect(stand);
+  SetAvailability(stand, kHost, kClient, EndpointAvailability::Online);
+  SetAvailability(stand, kClient, kHost, EndpointAvailability::Online);
+  ExpectQuiet(stand);
+
+  auto const text = Write(stand, stand.host, "ack-lost");
+  Advance(stand.host, 1);
+  CHECK(stand.network.PendingCount(kHost, kClient) == 1);
+  EventFrame sent;
+  CHECK(DecodeEventFrame(stand.network.PeekNext(kHost, kClient), sent));
+  auto const packet_id = sent.packet_id;
+  auto const identity = sent.identity;
+
+  CHECK(stand.network.DeliverNext(kHost, kClient));
+  CHECK(HasLine(stand.client.Doc(), text));
+  auto const client_journal = Observe(*stand.client.Doc()).size();
+  CHECK(stand.network.PendingCount(kClient, kHost) == 1);
+  CHECK(stand.network.DropNext(kClient, kHost));
+  CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
+  CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->pending_event_packet_id ==
+        packet_id);
+
+  // Five notifications, total elapsed time still below one retry interval.
+  auto const sends = stand.host.counts.total;
+  for (int i = 0; i < 5; ++i) {
+    stand.host.counting->RepeatAvailabilityNotification(kClient);
+    SetAvailability(stand, kHost, kClient, EndpointAvailability::Online);
+    Advance(stand.host, kShareOfferRetryIntervalUs / 16);
+    CHECK(stand.host.counts.total == sends);
+    CHECK(
+        SyncStateForPeer(stand.host.Doc(), kClient)->pending_event_packet_id ==
+        packet_id);
+  }
+  CHECK(stand.network.PendingCount(kHost, kClient) == 0);
+
+  // The deadline itself buys exactly one retry of the same frozen packet.
+  Advance(stand.host, kShareOfferRetryIntervalUs);
+  CHECK(stand.host.counts.total == sends + 1);
+  CHECK(stand.network.PendingCount(kHost, kClient) == 1);
+  EventFrame retried;
+  CHECK(DecodeEventFrame(stand.network.PeekNext(kHost, kClient), retried));
+  CHECK(retried.packet_id == packet_id);
+  CHECK(retried.identity == identity);
+  for (int i = 0; i < 4; ++i) {
+    stand.host.counting->RepeatAvailabilityNotification(kClient);
+    Advance(stand.host, 1);
+  }
+  CHECK(stand.host.counts.total == sends + 1);
+
+  // The duplicate is not re-applied, and the correct ACK finishes delivery.
+  CHECK(stand.network.DeliverNext(kHost, kClient));
+  CHECK(Observe(*stand.client.Doc()).size() == client_journal);
+  CHECK(stand.network.PendingCount(kClient, kHost) == 1);
+  CHECK(stand.network.DeliverNext(kClient, kHost));
+  CHECK(!SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
+  CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasDelivered(identity));
+
+  // With nothing pending, notifications plus Service stay silent.
+  auto const quiet = TotalSends(stand);
+  for (int i = 0; i < 5; ++i) {
+    stand.host.counting->RepeatAvailabilityNotification(kClient);
+    stand.client.counting->RepeatAvailabilityNotification(kHost);
+    ServiceBoth(stand, kShareOfferRetryIntervalUs + 1);
+  }
+  CHECK(TotalSends(stand) == quiet);
+  CHECK(!Queued(stand));
+  ExpectSameDialog(stand);
+  CHECK(stand.host.counts.while_offline == 0);
+  Report("scenario 5b repeated online vs retry interval", stand);
+}
+
+// A real Offline -> Online transition is allowed to release the waiting
+// delivery before the deadline. What follows it is paced again.
+void TestOfflineToOnlineResumesAndKeepsPacing() {
+  Stand stand;
+  Connect(stand);
+  SetAvailability(stand, kHost, kClient, EndpointAvailability::Online);
+  SetAvailability(stand, kClient, kHost, EndpointAvailability::Online);
+  ExpectQuiet(stand);
+
+  auto const text = Write(stand, stand.host, "resume-pending");
+  Advance(stand.host, 1);
+  CHECK(stand.network.PendingCount(kHost, kClient) == 1);
+  EventFrame sent;
+  CHECK(DecodeEventFrame(stand.network.PeekNext(kHost, kClient), sent));
+  auto const packet_id = sent.packet_id;
+  // Lost on the wire: the sender keeps waiting with the packet frozen.
+  CHECK(stand.network.DropNext(kHost, kClient));
+
+  auto sends = stand.host.counts.total;
+  for (int i = 0; i < 3; ++i) {
+    stand.host.counting->RepeatAvailabilityNotification(kClient);
+    Advance(stand.host, kShareOfferRetryIntervalUs / 16);
+  }
+  CHECK(stand.host.counts.total == sends);
+
+  SetAvailability(stand, kHost, kClient, EndpointAvailability::Offline);
+  Advance(stand.host, kShareOfferRetryIntervalUs / 16);
+  CHECK(stand.host.counts.total == sends);
+  CHECK(stand.host.counts.while_offline == 0);
+
+  SetAvailability(stand, kHost, kClient, EndpointAvailability::Online);
+  Advance(stand.host, 1);
+  CHECK(stand.host.counts.total == sends + 1);
+  EventFrame resumed;
+  CHECK(DecodeEventFrame(stand.network.PeekNext(kHost, kClient), resumed));
+  CHECK(resumed.packet_id == packet_id);
+
+  // Pacing starts again from that send: repeated Online adds nothing.
+  sends = stand.host.counts.total;
+  for (int i = 0; i < 4; ++i) {
+    stand.host.counting->RepeatAvailabilityNotification(kClient);
+    SetAvailability(stand, kHost, kClient, EndpointAvailability::Online);
+    Advance(stand.host, kShareOfferRetryIntervalUs / 16);
+  }
+  CHECK(stand.host.counts.total == sends);
+
+  Pump(stand, [&] { return HasLine(stand.client.Doc(), text); }, 80);
+  ExpectSameDialog(stand);
+  ExpectQuiet(stand);
+  CHECK(stand.host.counts.while_offline == 0);
+  Report("scenario 5c offline to online resume", stand);
 }
 
 // Local parent events stay local: they never reach the peer journal and never
@@ -1284,7 +1557,10 @@ int main() {
   apptraverse::test::TestIncrementalSync();
   apptraverse::test::TestOfflineWithoutUnload();
   apptraverse::test::TestUnloadAndRestore();
+  apptraverse::test::TestSequenceRecoveredFromStorage();
   apptraverse::test::TestUnacknowledgedDelivery();
+  apptraverse::test::TestRepeatedOnlineDoesNotBypassRetryInterval();
+  apptraverse::test::TestOfflineToOnlineResumesAndKeepsPacing();
   apptraverse::test::TestLocalParentEventsStayLocal();
 
   std::cout << "shared_child_node_stand_test OK\n";
