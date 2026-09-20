@@ -1,3 +1,81 @@
+# Permanent pair profile (A↔B) (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Base tip before this work:
+`df4e7eb7faeecafef530619255e303816266462d` (not reverted). Contract commit:
+`bff7d36`. Stress/docs tip: `3c300d4cbaa80481cfd9930bfaf3d7c3c9580118`.
+
+## Scope
+
+Verified permanent one SharedNode = one A↔B dialog. Exactly two ReadWrite
+shares after first admission. No RemoveShare / access change / third
+participant / rejoin-after-remove in this profile (code kept, not exercised).
+Full local storage loss out of scope. No messenger/GUI/real Æther.
+
+## Deliverables
+
+- `plan.md`: Permanent pair profile contract; equal-timestamp Observe oracle
+  `(timestamp_us, origin_uid, origin_sequence)` while SharedEventOrderLess
+  stays timestamp-only.
+- Target: `apptraverse_permanent_pair_sync_test` → `tests/permanent_pair_sync_test.cpp`.
+- Unix CPM patch step tolerates already-applied aether-objects patches
+  (`cmake/CPM.cmake`, matches Windows `|| cd .`).
+
+## Profile tests (commands and results)
+
+```
+cmake --build build --target apptraverse_permanent_pair_sync_test -j$(nproc)
+./build/tests/apptraverse_permanent_pair_sync_test
+# → permanent_pair_sync_test OK
+
+cmake --build build-release --target apptraverse_permanent_pair_sync_test -j$(nproc)
+./build-release/tests/apptraverse_permanent_pair_sync_test
+# → permanent_pair_sync_test OK
+
+cmake --build build-asan --target apptraverse_permanent_pair_sync_test -j$(nproc)
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
+  ./build-asan/tests/apptraverse_permanent_pair_sync_test
+# → permanent_pair_sync_test OK (~12 min)
+```
+
+Coverage: formation via OfferNode + policy accept; B not pre-seeded; PairBinding
+persist/restore; idempotent Offer; local accept while Offline; packet/ACK
+loss/duplicate/defer; long Offline (~month clock advance, no Send storm);
+restarts during admission / pre-ACK snapshot / unacked event / post-ACK;
+A↔B vs A↔C isolation; reject C RequestJoin on established pair; Send-counted
+quiet after settle + reopen; equal-timestamp Observe oracle; Unknown first
+attempt; chaos ≥1000 local messages across seeds 0x3c1e1001–1004 with
+independent clocks, losses, Offline, restarts, external oracle.
+
+## Other shared-node suite (Debug)
+
+```
+./build/tests/apptraverse_shared_node_join_test              # OK
+./build/tests/apptraverse_shared_node_topology_test          # OK
+./build/tests/apptraverse_shared_node_incremental_event_test # OK
+./build/tests/apptraverse_shared_node_initial_sync_test      # OK
+./build/tests/apptraverse_shared_node_availability_test      # exit 0
+```
+
+APPTRAVERSE_BUILD_AETHER_DEMOS=OFF. RTTI off. NDEBUG Release green.
+
+## Defects in this profile
+
+No kernel defects confirmed on the permanent-pair path; existing join/sync
+behavior was sufficient. Test hygiene only (ServiceRetry after clock advance;
+clear ObjPtr before Domain Restart; DeferNext requires ≥2 queued packets).
+
+## Limitations
+
+MemoryTransport only; not real Æther. Dynamic topology / remove / rejoin not
+re-verified as completion criteria. Full storage wipe not implemented.
+Materialized `records` Apply order may differ from Observe under equal
+timestamps — contract documents Observe as the cross-replica agreement key.
+
+Not accepted-by-user.
+
+
 # Remove / unacked delivery / rejoin combinations (2026-09-20)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
