@@ -1,35 +1,62 @@
 # Strip Offer/Remove/CatchUp; permanent-pair chat formation (2026-09-20)
 
-Status: implemented / verified. Not accepted-by-user.
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
 
-Branch: `cursor/shared-node-join-3c1e`.
-Commits: `3d8f715` (runtime.cpp strip) + `81ba780` (header/tests/plan recovery after
-accidental `git checkout -- .`).
+Branch: `cursor/shared-node-join-3c1e`. Starting HEAD for this task: `830d9ee`.
+Commits: `3d8f715` (runtime.cpp) ? `81ba780` (headers/tests/plan) ? `80a9755`
+(Progress note). Tip after this update will follow.
 
-## Surface
+## Keep / remove (executed)
 
-- Protocol frames: NodeState / Ack / Event only (`sync_frame`).
-- Deleted `share_offer` (+ CMake / `ForceShareOfferRegistration`).
-- `SharedNode`: max 2 ReadWrite shares; no Remove/ChangeAccess/ReadOnly.
-- Removed join / topology / availability test targets and sources.
-- `permanent_pair_sync_test`: chat formation (`InstallLocalShare`Ã—2 +
-  `ExpectInitial` + `SyncInitialState`); no OfferNode.
-- `plan.md`: permanent AeroAdmin contract; ladders 10/12/14/19 cancelled.
+| Mechanism | Decision | Reason |
+|---|---|---|
+| InstallLocalShare ×2 + ExpectInitial* + SyncInitial/Next | KEEP | AeroAdmin path |
+| Service / ACK / retry / Offline-Online | KEEP | Delivery |
+| OfferNode / RequestJoin / ShareOffer / admission | REMOVE | Not product path |
+| RemoveShare / ChangeShareAccess / ReadOnly / CatchUp / Fold / Relay | REMOVE | Not permanent pair |
+| Max 2 shares in code | ADD | Enforce pair invariant |
 
-## Build / tests (`build-debug-clean`)
+## Surface removed
 
-```
-cmake --build build-debug-clean -j$(nproc) --target \
-  apptraverse apptraverse_permanent_pair_sync_test \
-  apptraverse_shared_node_foundation_test \
-  apptraverse_shared_node_initial_sync_test \
-  apptraverse_shared_node_incremental_event_test \
-  apptraverse_chat_demo_sync_test
-```
+- Frames 4?7 (`ShareOffer` / `Decision` / `Request` / `CatchUp`); `share_offer.*`
+- Public runtime APIs: Offer/Join/Remove/Change/CatchUp/RegisterOffer/OfferStatuses/?
+- SharedNode: Remove/Change events + CommitLocal*; `ShareAccess::ReadOnly`
+- Tests/targets: join, topology, availability
 
-All EXIT=0 (`/opt/cursor/artifacts/strip-sync-20260920/logs/summary2.txt`).
+## Formation remaining
 
-Pushed: `origin/cursor/shared-node-join-3c1e` @ `81ba780`.
+Chat-shaped only: host `InstallLocalShare(self+peer)` ? `SyncInitialState`;
+peer `ExpectInitialNodeFromEndpoint` ? NodeState import; then bidirectional
+`SyncNextEvent` + ACK. Reopen from storage; no new journal.
+
+## LOC (vs `830d9ee` tip before strip)
+
+| Bucket | Before | After | ? |
+|---|---:|---:|---:|
+| Working code (runtime/node/frames/share_offer headers+src) | 5624 | 2650 | ?2974 |
+| Sync tests (pair/join/topo/avail/foundation/incr/initial) | 10692 | 4833 | ?5859 |
+| plan.md | 1043 | 1078 | +35 |
+
+Deleted public API / state symbols (runtime+node headers): ~39 (Offer/Join/Remove/Change/CatchUp/RO helpers + ShareOffer types). Event classes Remove/ChangeShareAccess and ShareAdmission root gone.
+
+## Verification
+
+Compilers: `gcc`/`g++`, `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, RTTI off.
+ASan/UBSan: `-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute`.
+
+Debug (`build-debug-clean`), Release (`build-release-clean`, `-O3 -DNDEBUG`),
+ASan (`build-asan-clean`): foundation, initial, incremental, chat_demo_sync,
+permanent_pair, cpm_patches ? all EXIT=0.
+
+Logs: `/opt/cursor/artifacts/strip-sync-20260920/logs-{debug,release,asan}/`.
+
+Also built/ran available app-adjacent targets (Debug): chat_demo_model,
+launch_options, main_window_lifecycle(+load_only), event_sourced_core,
+journal_retention ? EXIT=0. Full Æther chat GUI demos not enabled in this
+tree (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`).
+
+Known limitation unchanged: equal-timestamp journal order not claimed fixed.
+Wrong-source ACK sensitivity previously proven (not re-run this pass).
 
 ---
 
