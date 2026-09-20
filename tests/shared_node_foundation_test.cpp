@@ -256,9 +256,15 @@ void TestShareTopologyEventsAndPersistence() {
     CHECK(node->shares[1].GetAccess() == ShareAccess::ReadOnly);
     node->RemoveShare(link_a);
     CHECK(node->shares.size() == 1);
-    CHECK(node->link_sync_states.size() == 1);
+    // Closed relationship keeps LinkSyncState as the durable delivery record.
+    CHECK(node->link_sync_states.size() == 2);
+    CHECK(node->FindLinkSyncIndexForShare(node->shares[0].share_id) <
+          node->link_sync_states.size());
     CHECK(node->shares[0].link.id().id() == link_b_id);
     node.Save();
+    for (auto& entry : node->link_sync_states) {
+      entry.Save();
+    }
   }
   {
     ae::Domain domain{storage};
@@ -268,6 +274,7 @@ void TestShareTopologyEventsAndPersistence() {
     CHECK(node->shares.size() == 1);
     CHECK(node->shares[0].link.id().id() == link_b_id);
     CHECK(node->shares[0].GetAccess() == ShareAccess::ReadOnly);
+    CHECK(node->link_sync_states.size() == 2);
   }
 }
 
@@ -336,16 +343,25 @@ void TestRemoveShareAddShareResetsLocalSync() {
 
   node->RemoveShare(link);
   CHECK(node->shares.empty());
-  CHECK(node->link_sync_states.empty());
+  // Delivery record for the closed lifetime remains; it is not the live share.
+  CHECK(node->link_sync_states.size() == 1);
+  CHECK(node->link_sync_states[0].id() == old_sync_id);
+  CHECK(node->link_sync_states[0]->share_id == old_share_id);
 
   node->AddShare(link, ShareAccess::ReadWrite);
   CHECK(node->shares.size() == 1);
-  CHECK(node->link_sync_states.size() == 1);
+  CHECK(node->link_sync_states.size() == 2);
   CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
   // Same Link, new relationship: new identity and its own sync state.
   CHECK(node->shares[0].share_id != old_share_id);
-  CHECK(node->link_sync_states[0].id() != old_sync_id);
-  CHECK(node->link_sync_states[0]->share_id == node->shares[0].share_id);
+  auto const new_sync_index =
+      node->FindLinkSyncIndexForShare(node->shares[0].share_id);
+  CHECK(new_sync_index < node->link_sync_states.size());
+  CHECK(node->link_sync_states[new_sync_index].id() != old_sync_id);
+  CHECK(node->link_sync_states[new_sync_index]->share_id ==
+        node->shares[0].share_id);
+  CHECK(node->FindLinkSyncIndexForShare(old_share_id) <
+        node->link_sync_states.size());
 
   // Replay of Remove+Add must also leave NotStarted (materialized + journal).
   node.Save();
@@ -385,7 +401,10 @@ void TestShareRelationshipIdentitySurvivesForcedReplay() {
   CHECK(second_share_id != first_share_id);
   CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
   node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
-  auto const second_sync_id = node->link_sync_states[0].id();
+  auto const second_sync_index =
+      node->FindLinkSyncIndexForShare(second_share_id);
+  CHECK(second_sync_index < node->link_sync_states.size());
+  auto const second_sync_id = node->link_sync_states[second_sync_index].id();
   CHECK(second_sync_id != first_sync_id);
   SetValue(*node, 2);
 
@@ -400,9 +419,11 @@ void TestShareRelationshipIdentitySurvivesForcedReplay() {
   CHECK(node->shares.size() == 1);
   CHECK(node->shares[0].link.id() == link.id());
   CHECK(node->shares[0].share_id == second_share_id);
-  CHECK(node->link_sync_states.size() == 1);
-  CHECK(node->link_sync_states[0].id() == second_sync_id);
-  CHECK(node->link_sync_states[0]->share_id == second_share_id);
+  CHECK(node->link_sync_states.size() == 2);
+  CHECK(node->FindLinkSyncIndexForShare(first_share_id) <
+        node->link_sync_states.size());
+  CHECK(node->link_sync_states[second_sync_index].id() == second_sync_id);
+  CHECK(node->link_sync_states[second_sync_index]->share_id == second_share_id);
   CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
 
   // Second relationship also survives destroy + reload of the Domain.
@@ -417,10 +438,13 @@ void TestShareRelationshipIdentitySurvivesForcedReplay() {
   reloaded.Load();
   CHECK(reloaded->shares.size() == 1);
   CHECK(reloaded->shares[0].share_id == second_share_id);
-  CHECK(reloaded->link_sync_states.size() == 1);
-  reloaded->link_sync_states[0].Load();
-  CHECK(reloaded->link_sync_states[0].id() == second_sync_id);
-  CHECK(reloaded->link_sync_states[0]->share_id == second_share_id);
+  CHECK(reloaded->link_sync_states.size() == 2);
+  auto const reloaded_index =
+      reloaded->FindLinkSyncIndexForShare(second_share_id);
+  CHECK(reloaded_index < reloaded->link_sync_states.size());
+  reloaded->link_sync_states[reloaded_index].Load();
+  CHECK(reloaded->link_sync_states[reloaded_index].id() == second_sync_id);
+  CHECK(reloaded->link_sync_states[reloaded_index]->share_id == second_share_id);
   reloaded->shares[0].link.Load();
   CHECK(reloaded->GetInitialSyncPhase(reloaded->shares[0].link) ==
         InitialSyncPhase::Complete);
@@ -436,8 +460,12 @@ void TestShareRelationshipIdentitySurvivesForcedReplay() {
   CHECK(reloaded->value == 2);
   CHECK(reloaded->shares.size() == 1);
   CHECK(reloaded->shares[0].share_id == second_share_id);
-  CHECK(reloaded->link_sync_states.size() == 1);
-  CHECK(reloaded->link_sync_states[0].id() == second_sync_id);
+  CHECK(reloaded->link_sync_states.size() == 2);
+  CHECK(reloaded->FindLinkSyncIndexForShare(second_share_id) <
+        reloaded->link_sync_states.size());
+  CHECK(reloaded->link_sync_states[reloaded->FindLinkSyncIndexForShare(
+            second_share_id)]
+            .id() == second_sync_id);
   CHECK(reloaded->GetInitialSyncPhase(reloaded->shares[0].link) ==
         InitialSyncPhase::Complete);
 }

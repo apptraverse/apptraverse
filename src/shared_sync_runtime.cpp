@@ -115,6 +115,36 @@ bool SnapshotIsAdmissible(SharedNode& candidate,
                                 destination_share_id);
 }
 
+bool TopologyEverKnewEndpoint(SharedNode const& node,
+                              std::string const& endpoint_uid) {
+  if (TopologyKnowsEndpoint(node, endpoint_uid)) {
+    return true;
+  }
+  for (auto const& record : node.journal) {
+    if (!record.event.is_valid()) {
+      continue;
+    }
+    auto event = record.event;
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    if (!event.is_loaded() || event->GetClassId() != AddShareEvent::kClassId) {
+      continue;
+    }
+    auto const& add = static_cast<AddShareEvent const&>(*event);
+    if (!add.link.is_valid()) {
+      continue;
+    }
+    if (!add.link.is_loaded()) {
+      add.link.Load();
+    }
+    if (add.link.is_loaded() && add.link->EndpointUid() == endpoint_uid) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Share const* ShareOfEndpoint(SharedNode const& node,
                              std::string const& endpoint_uid) {
   for (auto const& share : node.shares) {
@@ -563,9 +593,8 @@ bool PreflightAddShare(SharedNode const& node, AddShareEvent& wire,
   return ok;
 }
 
-// Catch-up is only for a relationship that already travelled as a shared
-// event. A local AddShare is still waiting for an offer to carry the
-// snapshot; starting catch-up first would freeze that slot on the wrong packet.
+// The endpoint named by an AddShare in the journal. Used after the share row
+// is gone so a closing remove can still be addressed.
 std::string EndpointIntroducedBy(SharedNode const& node, ae::ObjId share_id) {
   for (auto const& record : node.journal) {
     if (!record.event.is_valid()) {
@@ -616,6 +645,9 @@ EventRecord const* LatestRemoveRecord(SharedNode const& node,
 }
 
 bool ShareIntroducedBySharedEvent(SharedNode const& node, ae::ObjId share_id) {
+  // Catch-up is only for a relationship that already travelled as a shared
+  // event. A local AddShare is still waiting for an offer to carry the
+  // snapshot; starting catch-up first would freeze that slot on the wrong packet.
   for (auto const& record : node.journal) {
     if (!record.event.is_valid()) {
       continue;
@@ -634,6 +666,32 @@ bool ShareIntroducedBySharedEvent(SharedNode const& node, ae::ObjId share_id) {
     return record.HasSharedIdentity();
   }
   return false;
+}
+
+// Live RW relationship, or a closed relationship that ended here and whose
+// source was a known participant. Matching identity/payload alone is not
+// enough for a foreign endpoint.
+bool MayAcknowledgeDelivery(SharedNode const& node,
+                            std::string const& local_endpoint,
+                            std::string const& source_endpoint,
+                            ae::ObjId destination_share_id) {
+  if (EventAddressedToThisReplica(node, local_endpoint, source_endpoint,
+                                  destination_share_id)) {
+    return true;
+  }
+  if (source_endpoint.empty() || source_endpoint == local_endpoint) {
+    return false;
+  }
+  std::string destination;
+  if (auto const* live = ShareEndpointOf(node, destination_share_id)) {
+    destination = *live;
+  } else {
+    destination = EndpointIntroducedBy(node, destination_share_id);
+  }
+  if (destination != local_endpoint) {
+    return false;
+  }
+  return TopologyEverKnewEndpoint(node, source_endpoint);
 }
 
 }  // namespace
@@ -1235,26 +1293,19 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
 
 void SharedSyncRuntime::OnAck(std::string const& source_endpoint,
                               AckFrame const& frame) {
-  pending_relays_.erase(
-      std::remove_if(pending_relays_.begin(), pending_relays_.end(),
-                     [&](PendingRelay const& pending) {
-                       return pending.endpoint == source_endpoint &&
-                              pending.packet_id == frame.packet_id &&
-                              pending.node_id == frame.target_node_id &&
-                              pending.destination_share_id ==
-                                  frame.destination_share_id;
-                     }),
-      pending_relays_.end());
-
   auto node = FindNode(frame.target_node_id);
   if (!node.is_valid()) {
     return;
   }
-  // Only the endpoint the relationship points at can acknowledge it. The
-  // packet fields alone say nothing about who actually sent these bytes.
-  auto const* destination =
-      ShareEndpointOf(*node, frame.destination_share_id);
-  if (destination == nullptr || *destination != source_endpoint) {
+  // Live share or closed relationship whose Link still names this source.
+  std::string destination;
+  if (auto const* live =
+          ShareEndpointOf(*node, frame.destination_share_id)) {
+    destination = *live;
+  } else {
+    destination = EndpointIntroducedBy(*node, frame.destination_share_id);
+  }
+  if (destination != source_endpoint) {
     return;
   }
   auto const sync_index =
@@ -1289,9 +1340,8 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
     return;
   }
 
-  // Already applied: acknowledge and do not touch the graph. The destination
-  // share may already have been removed, and the sender may no longer be a
-  // member. A different payload is not that event and is not acknowledged.
+  // Already applied: acknowledge only with a live or historical delivery
+  // context. Identity/payload match alone is not authorization.
   if (auto const* existing = node->FindSharedEvent(frame.identity)) {
     auto event = existing->event;
     if (!event.is_valid()) {
@@ -1304,6 +1354,10 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
         existing->order.timestamp_us != frame.timestamp_us ||
         event->GetClassId() != frame.event_class_id ||
         !SameEventPayload(*event, frame.payload)) {
+      return;
+    }
+    if (!MayAcknowledgeDelivery(*node, transport_.local_endpoint_uid(),
+                                source_endpoint, frame.destination_share_id)) {
       return;
     }
     QueueAck(source_endpoint,
@@ -1673,8 +1727,14 @@ void SharedSyncRuntime::ArmEndpoint(std::string const& endpoint) {
     if (!node.is_valid()) {
       continue;
     }
-    auto const* destination = ShareEndpointOf(*node, slot.share_id);
-    if (destination == nullptr || *destination != endpoint) {
+    std::string destination;
+    if (auto const* live = ShareEndpointOf(*node, slot.share_id)) {
+      destination = *live;
+    } else {
+      // Closed relationship: LinkSyncState still drives remove delivery.
+      destination = EndpointIntroducedBy(*node, slot.share_id);
+    }
+    if (destination != endpoint) {
       continue;
     }
     if (slot.primed) {
@@ -1711,9 +1771,63 @@ void SharedSyncRuntime::QueueAck(std::string const& endpoint,
       PendingAck{.endpoint = endpoint, .bytes = std::move(bytes)});
 }
 
-void SharedSyncRuntime::ServiceRelays() {
-  for (auto const& pending : pending_relays_) {
-    TrySend(pending.endpoint, pending.bytes);
+void SharedSyncRuntime::ServiceRelays(std::uint64_t now_us) {
+  for (auto& node : nodes_) {
+    if (!node.is_valid() || !node.is_loaded()) {
+      continue;
+    }
+    for (auto& entry : node->link_sync_states) {
+      if (!entry.is_valid()) {
+        continue;
+      }
+      if (!entry.is_loaded()) {
+        entry.Load();
+      }
+      if (!entry.is_loaded() || !entry->HasPendingEvent()) {
+        continue;
+      }
+      // Open shares are driven by ServiceShares. Closed ones only appear here.
+      if (node->FindShareIndexForShare(entry->share_id) < node->shares.size()) {
+        continue;
+      }
+      auto const endpoint = EndpointIntroducedBy(*node, entry->share_id);
+      if (endpoint.empty() || endpoint == transport_.local_endpoint_uid()) {
+        continue;
+      }
+      if (OutgoingOffline(endpoint)) {
+        continue;
+      }
+      SyncSlot* slot = nullptr;
+      for (auto& existing : sync_slots_) {
+        if (existing.node_id == node.id() &&
+            existing.share_id == entry->share_id) {
+          slot = &existing;
+          break;
+        }
+      }
+      if (slot == nullptr) {
+        sync_slots_.push_back(
+            SyncSlot{.node_id = node.id(), .share_id = entry->share_id});
+        slot = &sync_slots_.back();
+      }
+      auto transmit = [&] {
+        TrySend(endpoint, entry->pending_event_packet);
+      };
+      if (!slot->primed) {
+        transmit();
+        slot->primed = true;
+        slot->next_us = now_us + kShareOfferRetryIntervalUs;
+        continue;
+      }
+      if (slot->next_us == kScheduleOnNextService) {
+        slot->next_us = now_us + kShareOfferRetryIntervalUs;
+        continue;
+      }
+      if (now_us >= slot->next_us) {
+        transmit();
+        slot->next_us = now_us + kShareOfferRetryIntervalUs;
+      }
+    }
   }
 }
 
@@ -2255,7 +2369,7 @@ void SharedSyncRuntime::Service(std::uint64_t now_us) {
     logical_now_us_ = now_us;
   }
   ServiceAcks();
-  ServiceRelays();
+  ServiceRelays(now_us);
   ServiceOffers(now_us);
   ServiceShares(now_us);
 }
@@ -2504,24 +2618,41 @@ void SharedSyncRuntime::RelayRemovedShare(SharedNode::ptr node,
   if (endpoint.empty() || endpoint == transport_.local_endpoint_uid()) {
     return;
   }
-  for (auto const& pending : pending_relays_) {
-    if (pending.node_id == node.id() &&
-        pending.destination_share_id == share_id &&
-        pending.endpoint == endpoint) {
-      return;
-    }
+  auto const sync_index = node->FindLinkSyncIndexForShare(share_id);
+  if (sync_index >= node->link_sync_states.size()) {
+    return;
+  }
+  auto state = node->link_sync_states[sync_index];
+  if (!state.is_loaded()) {
+    state.Load();
   }
   auto const* record = LatestRemoveRecord(*node, share_id);
   if (record == nullptr || !record->event.is_valid() ||
       !record->event.is_loaded()) {
     return;
   }
+  if (state->HasDelivered(record->identity)) {
+    return;
+  }
+  if (state->HasPendingEvent()) {
+    if (state->pending_event_identity == record->identity) {
+      return;
+    }
+    // Abandon undelivered work to a relationship that is closing.
+    state->CompleteIncrementalEvent();
+    state.Save();
+  }
+  if (state->GetInitialSyncPhase() != InitialSyncPhase::Complete) {
+    return;
+  }
   std::vector<std::uint8_t> payload;
   if (!FreezeEventPayload(*record->event, payload)) {
     return;
   }
+  auto event =
+      BeginIncrementalEventSyncEvent::ptr::Create(ae::CreateWith{domain_});
   EventFrame const frame{
-      .packet_id = record->event.id(),
+      .packet_id = event.id(),
       .target_node_id = node.id(),
       .destination_share_id = share_id,
       .identity = record->identity,
@@ -2529,15 +2660,20 @@ void SharedSyncRuntime::RelayRemovedShare(SharedNode::ptr node,
       .event_class_id = RemoveShareEvent::kClassId,
       .payload = std::move(payload),
   };
-  auto bytes = EncodeEventFrame(frame);
-  TrySend(endpoint, bytes);
-  pending_relays_.push_back(PendingRelay{
-      .endpoint = endpoint,
-      .node_id = node.id(),
-      .destination_share_id = share_id,
-      .packet_id = frame.packet_id,
-      .bytes = std::move(bytes),
-  });
+  event->identity = record->identity;
+  event->packet = EncodeEventFrame(frame);
+  state->Commit(event);
+  node.Save();
+  state.Save();
+  // Do not Send here. RegisterNode and load paths only arm; Service transmits.
+  // Drop a prior open-share schedule so the first Service after close sends.
+  for (auto& slot : sync_slots_) {
+    if (slot.node_id == node.id() && slot.share_id == share_id) {
+      slot.primed = false;
+      slot.next_us = 0;
+      return;
+    }
+  }
 }
 
 void SharedSyncRuntime::RelayAppliedRemovals(SharedNode::ptr node) {

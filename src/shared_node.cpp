@@ -343,13 +343,9 @@ void SharedNode::Apply(RemoveShareEvent const& event) {
   }
   shares.erase(shares.begin() + static_cast<std::ptrdiff_t>(index));
 
-  // Drop local sync of this relationship only. A later AddShare over the same
-  // Link is a different relationship and must not inherit Complete.
-  auto const sync_index = FindLinkSyncIndexForShare(event.share_id);
-  if (sync_index < link_sync_states.size()) {
-    link_sync_states.erase(link_sync_states.begin() +
-                           static_cast<std::ptrdiff_t>(sync_index));
-  }
+  // Keep LinkSyncState: it is the durable delivery record for the closing
+  // event and for acknowledging retransmits after the share row is gone.
+  // A later AddShare over the same Link uses a new share_id and a new state.
 
   NoteMaterializedChange();
 }

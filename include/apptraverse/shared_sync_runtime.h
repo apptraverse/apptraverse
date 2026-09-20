@@ -271,7 +271,7 @@ class SharedSyncRuntime {
   // this only retries the packet until the removed endpoint acknowledges.
   void RelayRemovedShare(SharedNode::ptr node, ae::ObjId share_id);
   void RelayAppliedRemovals(SharedNode::ptr node);
-  void ServiceRelays();
+  void ServiceRelays(std::uint64_t now_us);
   bool IsTopologyEventClass(std::uint32_t class_id) const;
   bool LocalShareAllowsWrite(SharedNode const& node) const;
   bool ApplyIncomingAddShare(SharedNode::ptr node,
@@ -314,16 +314,6 @@ class SharedSyncRuntime {
     std::vector<std::uint8_t> bytes;
   };
 
-  // Runtime-only delivery of a RemoveShare whose row is already gone.
-  // Not a participant list: the endpoint is read from the journal Link.
-  struct PendingRelay {
-    std::string endpoint;
-    ae::ObjId node_id;
-    ae::ObjId destination_share_id;
-    ae::ObjId packet_id;
-    std::vector<std::uint8_t> bytes;
-  };
-
   static constexpr std::uint64_t kScheduleOnNextService =
       ~std::uint64_t{0};
 
@@ -344,7 +334,6 @@ class SharedSyncRuntime {
   std::vector<std::uint32_t> standalone_event_classes_;
   std::vector<ObservedAvailability> observed_availability_;
   std::vector<PendingAck> pending_acks_;
-  std::vector<PendingRelay> pending_relays_;
   // Advanced by Service when the caller moves time forward. Topology commits
   // take the next tick so their order is the order they were published.
   std::uint64_t logical_now_us_{0};
