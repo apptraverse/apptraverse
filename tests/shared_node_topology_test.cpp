@@ -1335,6 +1335,101 @@ void TestRemoveDeliveryDoesNotResumeAfterAckedRestart() {
   CHECK(!FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC).has_value());
 }
 
+void TestCancelPendingDoesNotMarkDelivered() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  auto world = trio.world();
+  Pump(world, [&] { return Joined(trio.a, trio.b, to_b, node_id); }, 40);
+  trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
+
+  auto const c_share =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+  trio.network.ClearQueues();
+  AddRecord(*AsTopo(trio.a.sync->FindNode(node_id)), "lost-to-c", kA, 2);
+  auto const e_identity =
+      SharedEventId{.origin_uid = std::string{kA}, .origin_sequence = 2};
+
+  std::uint64_t now = 0;
+  trio.a.sync->Service(now);
+  auto state = SyncStateForShare(trio.a.sync->FindNode(node_id), c_share);
+  CHECK(state->HasPendingEvent());
+  CHECK(state->pending_event_identity == e_identity);
+  auto const cancelled_packet_id = state->pending_event_packet_id;
+  CHECK(trio.network.PendingCount(kA, kC) >= 1);
+  CHECK(trio.network.DropNext(kA, kC));
+  while (trio.network.PendingCount(kA, kC) > 0) {
+    CHECK(trio.network.DropNext(kA, kC));
+  }
+  // B may still receive E over the live relationship.
+  while (trio.network.DeliverNext(kA, kB) || trio.network.DeliverNext(kB, kA)) {
+  }
+
+  trio.a.sync->RemoveShare(node_id, c_share);
+  state = SyncStateForShare(trio.a.sync->FindNode(node_id), c_share);
+  CHECK(!state->HasDelivered(e_identity));
+  CHECK(state->HasPendingEvent());
+  CHECK(state->pending_event_identity != e_identity);
+  auto const remove_packet_id = state->pending_event_packet_id;
+  auto const remove_identity = state->pending_event_identity;
+  auto const remove_bytes = state->pending_event_packet;
+  CHECK(remove_packet_id != cancelled_packet_id);
+
+  // Cancelled transmission of E must stay non-delivered across restart.
+  state = {};
+  trio.a.Stop();
+  trio.network.ClearQueues();
+  trio.a.Start();
+  state = SyncStateForShare(trio.a.sync->FindNode(node_id), c_share);
+  CHECK(!state->HasDelivered(e_identity));
+  CHECK(state->HasPendingEvent());
+  CHECK(state->pending_event_packet_id == remove_packet_id);
+  CHECK(state->pending_event_identity == remove_identity);
+  CHECK(state->pending_event_packet == remove_bytes);
+
+  // Late ACK of cancelled E must not clear the remove pending or mark E
+  // delivered. Documented separately from a real ACK of E on a live share.
+  now += kShareOfferRetryIntervalUs;
+  trio.a.sync->Service(now);
+  CHECK(trio.network.PendingCount(kA, kC) >= 1);
+  CHECK(trio.network.PeekNext(kA, kC) == remove_bytes);
+  auto const late_ack = EncodeAckFrame(AckFrame{
+      .packet_id = cancelled_packet_id,
+      .target_node_id = node_id,
+      .destination_share_id = c_share,
+  });
+  // Late ACK of the cancelled packet, as if C had received E.
+  trio.c.transport->Send(kA, late_ack);
+  CHECK(trio.network.DeliverNext(kC, kA));
+  state = SyncStateForShare(trio.a.sync->FindNode(node_id), c_share);
+  CHECK(state->HasPendingEvent());
+  CHECK(state->pending_event_packet_id == remove_packet_id);
+  CHECK(!state->HasDelivered(e_identity));
+  CHECK(!state->HasDelivered(remove_identity));
+
+  // Deliver the remove on its own packet identity.
+  Pump(
+      world,
+      [&] {
+        return !FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC)
+                    .has_value() &&
+               !SyncStateForShare(trio.a.sync->FindNode(node_id), c_share)
+                    ->HasPendingEvent();
+      },
+      40);
+  state = SyncStateForShare(trio.a.sync->FindNode(node_id), c_share);
+  CHECK(state->HasDelivered(remove_identity));
+  CHECK(!state->HasDelivered(e_identity));
+  CHECK(HasText(trio.a.sync->FindNode(node_id), "lost-to-c", kA, 2));
+  CHECK(HasText(trio.b.sync->FindNode(node_id), "lost-to-c", kA, 2));
+}
+
 void TestRemoveLostAckIsRecoverable() {
   Trio trio;
   auto node = MakeNode(trio.a);
@@ -1730,6 +1825,7 @@ int main() {
   apptraverse::test::TestRemoveDeliveryOfflineAndOnline();
   apptraverse::test::TestRemoveDeliverySurvivesRestartBeforeAck();
   apptraverse::test::TestRemoveDeliveryDoesNotResumeAfterAckedRestart();
+  apptraverse::test::TestCancelPendingDoesNotMarkDelivered();
   apptraverse::test::TestRemoveLostAckIsRecoverable();
   apptraverse::test::TestRejoinAfterRemoveByOffer();
   apptraverse::test::TestRejoinAfterRemoveByRequest();

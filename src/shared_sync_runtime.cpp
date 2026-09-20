@@ -2848,8 +2848,9 @@ void SharedSyncRuntime::RelayRemovedShare(SharedNode::ptr node,
     if (state->pending_event_identity == record->identity) {
       return;
     }
-    // Abandon undelivered work to a relationship that is closing.
-    state->CompleteIncrementalEvent();
+    // Stop unacknowledged work for a relationship that is closing. Do not
+    // treat cancel as delivery: CompleteIncrementalEvent is ACK-only.
+    state->CancelIncrementalEvent();
     state.Save();
   }
   if (state->GetInitialSyncPhase() != InitialSyncPhase::Complete) {

@@ -17,6 +17,7 @@ APPTRAVERSE_REGISTER(CompleteFromReceivedSnapshotEvent);
 APPTRAVERSE_REGISTER(NotePeerDeliveredEvent);
 APPTRAVERSE_REGISTER(BeginIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(CompleteIncrementalEventSyncEvent);
+APPTRAVERSE_REGISTER(CancelIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddShareEvent);
 APPTRAVERSE_REGISTER(RemoveShareEvent);
@@ -157,6 +158,13 @@ void LinkSyncState::CompleteIncrementalEvent() {
   Commit(event);
 }
 
+void LinkSyncState::CancelIncrementalEvent() {
+  assert(HasPendingEvent());
+  auto event =
+      CancelIncrementalEventSyncEvent::ptr::Create(ae::CreateWith{*domain});
+  Commit(event);
+}
+
 bool LinkSyncState::HasDelivered(SharedEventId const& identity) const {
   for (auto const& delivered : delivered_event_ids) {
     if (delivered == identity) {
@@ -182,6 +190,14 @@ void LinkSyncState::Apply(CompleteIncrementalEventSyncEvent const&) {
   if (!HasDelivered(pending_event_identity)) {
     delivered_event_ids.push_back(pending_event_identity);
   }
+  pending_event_packet_id = ae::ObjId{};
+  pending_event_identity = {};
+  pending_event_packet.clear();
+  NoteMaterializedChange();
+}
+
+void LinkSyncState::Apply(CancelIncrementalEventSyncEvent const&) {
+  assert(HasPendingEvent());
   pending_event_packet_id = ae::ObjId{};
   pending_event_identity = {};
   pending_event_packet.clear();

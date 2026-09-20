@@ -59,6 +59,7 @@ class CompleteFromReceivedSnapshotEvent;
 class NotePeerDeliveredEvent;
 class BeginIncrementalEventSyncEvent;
 class CompleteIncrementalEventSyncEvent;
+class CancelIncrementalEventSyncEvent;
 
 // Local-persistent synchronization progress for one Share relationship of one
 // SharedNode. Belongs to share_id, not to the Link: a later relationship over
@@ -154,7 +155,12 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void NotePeerDelivered(std::vector<SharedEventId> delivered);
   void BeginIncrementalEvent(SharedEventId identity,
                              std::vector<std::uint8_t> packet);
+  // Confirmed delivery: pending identity enters delivered_event_ids.
   void CompleteIncrementalEvent();
+  // Stop an unacknowledged transmission without treating it as delivered.
+  // The Event stays in the SharedNode journal; only this relationship's
+  // pending slot is cleared.
+  void CancelIncrementalEvent();
 
   bool HasDelivered(SharedEventId const& identity) const;
   bool HasPendingEvent() const {
@@ -170,6 +176,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void Apply(NotePeerDeliveredEvent const& event);
   void Apply(BeginIncrementalEventSyncEvent const& event);
   void Apply(CompleteIncrementalEventSyncEvent const& event);
+  void Apply(CancelIncrementalEventSyncEvent const& event);
 };
 
 class SetLinkInitialSyncPhaseEvent
@@ -321,6 +328,21 @@ class CompleteIncrementalEventSyncEvent
  public:
   explicit CompleteIncrementalEventSyncEvent(ae::ObjProp prop)
       : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT()
+};
+
+// Sender: abandon an unacknowledged pending transmission. Clears the pending
+// slot without recording the identity as delivered. Distinct from a real ACK.
+class CancelIncrementalEventSyncEvent
+    : public EventFor<LinkSyncState, CancelIncrementalEventSyncEvent> {
+  APPTRAVERSE_OBJECT(CancelIncrementalEventSyncEvent, Event, 0)
+
+ protected:
+  CancelIncrementalEventSyncEvent() = default;
+
+ public:
+  explicit CancelIncrementalEventSyncEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT()
 };

@@ -573,6 +573,20 @@ Status: **implemented / verified** by concurrent remove and access-race
 tests in `apptraverse_shared_node_topology_test`. Equal `timestamp_us`
 across sources stays an open ordering case.
 
+## Cancel pending vs confirmed delivery
+
+Closing a relationship may stop an outstanding incremental transmission
+that was never acknowledged. That cancel is a local `LinkSyncState` event
+(`CancelIncrementalEventSyncEvent`): it clears the pending slot and does
+**not** append the identity to `delivered_event_ids`. Confirmed delivery
+still uses only `CompleteIncrementalEventSyncEvent` after a protocol ACK.
+
+The application Event remains in the SharedNode journal; other live Shares
+continue to receive it. A late ACK whose `packet_id` no longer matches the
+current pending packet is ignored: it does not mark the cancelled identity
+delivered, and it does not clear or complete a later pending remove for
+the same closed relationship.
+
 ## Public topology mutation path
 
 Initial local graph construction uses `SharedNode::InstallLocalShare` (and
