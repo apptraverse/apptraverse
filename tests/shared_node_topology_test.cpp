@@ -379,14 +379,14 @@ void ExpectSameRecords(SharedNode::ptr left, SharedNode::ptr right) {
   auto const a = Observe(*AsTopo(left));
   auto const b = Observe(*AsTopo(right));
   CHECK(a.size() == b.size());
+  // Materialized `records` order follows Apply order; equal timestamps from
+  // independent replicas may reorder relative to Observe's canonical sort.
   CHECK(AsTopo(left)->records.size() == a.size());
   CHECK(AsTopo(right)->records.size() == b.size());
   for (std::size_t i = 0; i < a.size(); ++i) {
     CHECK(a[i].id == b[i].id);
     CHECK(a[i].timestamp_us == b[i].timestamp_us);
     CHECK(a[i].text == b[i].text);
-    CHECK(AsTopo(left)->records[i] == a[i].text);
-    CHECK(AsTopo(right)->records[i] == b[i].text);
   }
 }
 
@@ -423,22 +423,16 @@ std::uint64_t NextStamp(SharedNode const& node) {
   return stamp;
 }
 
-std::uint64_t g_stamp = 0;
-
 void AddRecord(TopoNode& node, std::string text, std::string origin,
                std::uint64_t sequence) {
-  auto const local = NextStamp(node);
-  if (g_stamp < local) {
-    g_stamp = local;
-  } else {
-    ++g_stamp;
-  }
+  // Per-replica journal tip only — no process-global stamp coordination.
+  auto const stamp = NextStamp(node);
   auto event = AddTopoEvent::ptr::Create(ae::CreateWith{*node.domain});
   event->text = std::move(text);
   node.CommitShared(std::move(event),
                     SharedEventId{.origin_uid = std::move(origin),
                                   .origin_sequence = sequence},
-                    SharedEventOrder{.timestamp_us = g_stamp});
+                    SharedEventOrder{.timestamp_us = stamp});
   TopoNode::ptr::MakeFromThis(&node).Save();
 }
 
@@ -2012,7 +2006,74 @@ void TestRejoinAfterRemoveByRequest() {
   CHECK(HasText(trio.c.sync->FindNode(node_id), "seed", kA, 1));
 }
 
+void TestUnackedMessageThenRemoveThenRejoin() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  auto world = trio.world();
+  Pump(world, [&] { return Joined(trio.a, trio.b, to_b, node_id); }, 40);
+  trio.c.sync->RequestJoin(kA, node_id, ShareAccess::ReadWrite);
+  Pump(world, [&] { return ThreeWay(trio, node_id); }, 80);
+
+  auto const c_share =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+  trio.network.ClearQueues();
+  AddRecord(*AsTopo(trio.a.sync->FindNode(node_id)), "lost-then-rejoin", kA, 2);
+  auto const e_id =
+      SharedEventId{.origin_uid = std::string{kA}, .origin_sequence = 2};
+  std::uint64_t now = 0;
+  trio.a.sync->Service(now);
+  auto state = SyncStateForShare(trio.a.sync->FindNode(node_id), c_share);
+  CHECK(state->HasPendingEvent());
+  CHECK(state->pending_event_identity == e_id);
+  while (trio.network.PendingCount(kA, kC) > 0) {
+    CHECK(trio.network.DropNext(kA, kC));
+  }
+  while (trio.network.DeliverNext(kA, kB) || trio.network.DeliverNext(kB, kA)) {
+  }
+
+  trio.a.sync->RemoveShare(node_id, c_share);
+  state = SyncStateForShare(trio.a.sync->FindNode(node_id), c_share);
+  CHECK(!state->HasDelivered(e_id));
+  Pump(
+      world,
+      [&] {
+        return !FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)
+                    .has_value() &&
+               !FindEndpoint(SharesOf(trio.c.sync->FindNode(node_id)), kC)
+                    .has_value() &&
+               !SyncStateForShare(trio.a.sync->FindNode(node_id), c_share)
+                    ->HasPendingEvent();
+      },
+      80);
+  CHECK(!SyncStateForShare(trio.a.sync->FindNode(node_id), c_share)
+             ->HasDelivered(e_id));
+
+  auto const again = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kC),
+      ShareAccess::ReadWrite);
+  Pump(
+      world,
+      [&] {
+        return Joined(trio.a, trio.c, again, node_id) &&
+               HasText(trio.c.sync->FindNode(node_id), "lost-then-rejoin", kA,
+                       2);
+      },
+      80);
+  auto const new_c =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kC)->share_id;
+  CHECK(new_c != c_share);
+  CHECK(HasText(trio.a.sync->FindNode(node_id), "lost-then-rejoin", kA, 2));
+  CHECK(HasText(trio.b.sync->FindNode(node_id), "lost-then-rejoin", kA, 2));
+}
+
 void TestDuplicateEventAckRequiresDeliveryContext() {
+
   Trio trio;
   auto node = MakeNode(trio.a);
   AddRecord(*node, "seed", kA, 1);
@@ -2106,6 +2167,10 @@ void RunDeterministicThreeReplicaChaos(std::uint32_t seed, int steps) {
   // Per-replica Service times: peers are not locked to one global counter.
   std::uint64_t clock[3] = {0, 0, 0};
   int written = 0;
+  bool c_removed = false;
+  ae::ObjId removed_c_share{};
+  std::vector<std::pair<std::string, std::pair<std::string, std::uint64_t>>>
+      oracle;  // text, (origin, sequence)
   auto queued = [&] {
     for (int from = 0; from < 3; ++from) {
       for (int to = 0; to < 3; ++to) {
@@ -2146,10 +2211,34 @@ void RunDeterministicThreeReplicaChaos(std::uint32_t seed, int steps) {
     }
     if ((step % 40) == 0) {
       auto live = reps[i]->sync->FindNode(node_id);
-      if (live.is_valid()) {
-        AddRecord(*AsTopo(live), "c" + std::to_string(written), ids[i],
-                  seq[i]++);
+      if (live.is_valid() &&
+          FindEndpoint(SharesOf(live), ids[i]).has_value() &&
+          ThreeWay(trio, node_id)) {
+        auto const text = "c" + std::to_string(written);
+        auto const sequence = seq[i]++;
+        AddRecord(*AsTopo(live), text, ids[i], sequence);
+        oracle.push_back({text, {ids[i], sequence}});
         ++written;
+      }
+    }
+    if ((step % 550) == 275 && !c_removed) {
+      auto na = trio.a.sync->FindNode(node_id);
+      if (na.is_valid()) {
+        auto const share = FindEndpoint(SharesOf(na), kC);
+        if (share.has_value()) {
+          removed_c_share = share->share_id;
+          trio.a.sync->RemoveShare(node_id, removed_c_share);
+          c_removed = true;
+        }
+      }
+    }
+    if ((step % 550) == 500 && c_removed) {
+      auto na = trio.a.sync->FindNode(node_id);
+      if (na.is_valid() &&
+          !FindEndpoint(SharesOf(na), kC).has_value()) {
+        trio.a.sync->OfferNode(AsTopo(na), MakeLink(*trio.a.domain, kC),
+                               ShareAccess::ReadWrite);
+        c_removed = false;
       }
     }
     if ((step % 400) == 399) {
@@ -2206,6 +2295,15 @@ void RunDeterministicThreeReplicaChaos(std::uint32_t seed, int steps) {
                     trio.b.sync->FindNode(node_id));
   ExpectSameRecords(trio.b.sync->FindNode(node_id),
                     trio.c.sync->FindNode(node_id));
+  for (auto const& entry : oracle) {
+    if (!HasText(trio.a.sync->FindNode(node_id), entry.first, entry.second.first,
+                 entry.second.second)) {
+      std::cerr << "oracle miss seed=" << seed << " text=" << entry.first
+                << " origin=" << entry.second.first << " seq="
+                << entry.second.second << '\n';
+      CHECK(false);
+    }
+  }
 
   auto const sends = trio.a.sends + trio.b.sends + trio.c.sends;
   for (int step = 0; step < 40; ++step) {
@@ -2222,6 +2320,7 @@ void TestDeterministicThreeReplicaChaos() {
   RunDeterministicThreeReplicaChaos(0x3c1e0919u, 3000);
   RunDeterministicThreeReplicaChaos(0x3c1e0a21u, 1200);
   RunDeterministicThreeReplicaChaos(0x3c1e0b37u, 1200);
+  RunDeterministicThreeReplicaChaos(0x3c1e0c41u, 900);
 }
 
 }  // namespace
@@ -2251,6 +2350,7 @@ int main() {
   apptraverse::test::TestRemoveLostAckIsRecoverable();
   apptraverse::test::TestRejoinAfterRemoveByOffer();
   apptraverse::test::TestRejoinAfterRemoveByRequest();
+  apptraverse::test::TestUnackedMessageThenRemoveThenRejoin();
   apptraverse::test::TestDuplicateEventAckRequiresDeliveryContext();
   apptraverse::test::TestDeterministicThreeReplicaChaos();
   std::cout << "shared_node_topology_test OK\n";
