@@ -55,7 +55,9 @@ class MemoryNetwork {
   // Reported outgoing availability. Independent of Disconnect: a direction
   // can look Online while Enqueue still drops, or Offline while a queue
   // still holds bytes. Missing entries are Unknown. Not serialized.
-  // Notifies the source endpoint only when the value changes.
+  // SetAvailability and Deliver run on the caller's context and invoke the
+  // binding before returning. Notifies the source endpoint only when the
+  // value changes.
   void SetAvailability(std::string const& from, std::string const& to,
                        EndpointAvailability availability);
   EndpointAvailability Availability(std::string const& from,

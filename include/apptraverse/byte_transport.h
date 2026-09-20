@@ -27,14 +27,22 @@ enum class EndpointAvailability : std::uint8_t {
 // The receive binding is a runtime-only ctx + function pointer, owned by the
 // binding runtime instance — no process-global or thread_local receiver.
 //
-// Availability is the same kind of binding: the adapter reports it, the
-// caller does not keep a second copy. A→B and B→A are independent.
+// ReceiveFn and AvailabilityFn run on the model context that owns that
+// runtime. The adapter delivers them there. An external network callback
+// must not call them, and must not touch SharedSyncRuntime itself.
+// ClearReceive and ClearAvailability drop every invocation not yet
+// delivered, so a deferred callback cannot run after the runtime is gone.
+//
+// Availability() is the only observation the runtime reads. The callback
+// names the endpoint that changed; it is not a second availability policy.
+// A→B and B→A are independent.
 class IByteTransport {
  public:
   using ReceiveFn = void (*)(void* ctx, std::string const& source_endpoint,
                              std::vector<std::uint8_t> const& bytes);
-  // Fired when this instance's observation of `endpoint` changes. Must not
-  // send. The binding runtime records the change and services it later.
+  // Fired on the model context when this instance's observation of
+  // `endpoint` changes. Must not send. The runtime reads Availability()
+  // for the value and may arm a later Service. It does not start a thread.
   using AvailabilityFn = void (*)(void* ctx, std::string const& endpoint,
                                   EndpointAvailability availability);
 

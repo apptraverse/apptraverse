@@ -1627,27 +1627,31 @@ void SharedSyncRuntime::AvailabilityThunk(void* ctx,
 
 void SharedSyncRuntime::OnAvailability(std::string const& endpoint,
                                        EndpointAvailability availability) {
+  // The argument only names the endpoint. Availability() is the observation.
+  (void)availability;
+  auto const current = transport_.Availability(endpoint);
   EndpointAvailability previous = EndpointAvailability::Unknown;
   bool found = false;
   for (auto& observed : observed_availability_) {
     if (observed.endpoint == endpoint) {
       previous = observed.availability;
-      observed.availability = availability;
+      observed.availability = current;
       found = true;
       break;
     }
   }
   if (!found) {
     observed_availability_.push_back(
-        ObservedAvailability{.endpoint = endpoint, .availability = availability});
+        ObservedAvailability{.endpoint = endpoint, .availability = current});
   }
-  if (found && previous == availability) {
+  if (found && previous == current) {
     return;
   }
   // Only Offline → Online pulls the retry clock forward. A repeated Online,
-  // or Unknown → Online, keeps the existing interval.
+  // or Unknown → Online, keeps the existing interval. The stored previous
+  // value detects that transition; it is not consulted by Send.
   if (previous == EndpointAvailability::Offline &&
-      availability == EndpointAvailability::Online) {
+      current == EndpointAvailability::Online) {
     ArmEndpoint(endpoint);
   }
   if (availability_wake_) {

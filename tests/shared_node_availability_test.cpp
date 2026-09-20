@@ -156,6 +156,113 @@ class SendProbe final : public IByteTransport {
   MemoryTransport& inner_;
 };
 
+// Adapter with a caller-drained queue. Network notifications land here and
+// do not enter SharedSyncRuntime until Drain, which is the model context.
+class QueuedTransport final : public IByteTransport {
+ public:
+  explicit QueuedTransport(MemoryTransport& inner) : inner_{inner} {}
+
+  std::string const& local_endpoint_uid() const override {
+    return inner_.local_endpoint_uid();
+  }
+
+  void Send(std::string const& destination_endpoint,
+            std::vector<std::uint8_t> bytes) override {
+    ++sends;
+    inner_.Send(destination_endpoint, std::move(bytes));
+  }
+
+  void BindReceive(void* ctx, ReceiveFn fn) override {
+    receive_ctx_ = ctx;
+    receive_fn_ = fn;
+    inner_.BindReceive(this, &QueueReceive);
+  }
+  void ClearReceive() override {
+    receive_ctx_ = nullptr;
+    receive_fn_ = nullptr;
+    receives_.clear();
+    inner_.ClearReceive();
+  }
+
+  EndpointAvailability Availability(std::string const& endpoint) const override {
+    auto const it = published_.find(endpoint);
+    if (it == published_.end()) {
+      return EndpointAvailability::Unknown;
+    }
+    return it->second;
+  }
+  void BindAvailability(void* ctx, AvailabilityFn fn) override {
+    availability_ctx_ = ctx;
+    availability_fn_ = fn;
+    inner_.BindAvailability(this, &QueueAvailability);
+  }
+  void ClearAvailability() override {
+    availability_ctx_ = nullptr;
+    availability_fn_ = nullptr;
+    availability_notes_.clear();
+    inner_.ClearAvailability();
+  }
+
+  void Drain() {
+    auto availability = std::move(availability_notes_);
+    availability_notes_.clear();
+    for (auto const& note : availability) {
+      if (availability_fn_ == nullptr) {
+        break;
+      }
+      published_[note.endpoint] = note.availability;
+      ++availability_deliveries;
+      availability_fn_(availability_ctx_, note.endpoint, note.availability);
+    }
+    auto receives = std::move(receives_);
+    receives_.clear();
+    for (auto const& note : receives) {
+      if (receive_fn_ == nullptr) {
+        break;
+      }
+      ++receive_deliveries;
+      receive_fn_(receive_ctx_, note.source, note.bytes);
+    }
+  }
+
+  std::size_t queued_availability() const { return availability_notes_.size(); }
+  std::size_t queued_receives() const { return receives_.size(); }
+
+  std::uint64_t sends{0};
+  std::uint64_t availability_deliveries{0};
+  std::uint64_t receive_deliveries{0};
+
+ private:
+  struct AvailNote {
+    std::string endpoint;
+    EndpointAvailability availability{EndpointAvailability::Unknown};
+  };
+  struct RecvNote {
+    std::string source;
+    std::vector<std::uint8_t> bytes;
+  };
+
+  static void QueueAvailability(void* ctx, std::string const& endpoint,
+                                EndpointAvailability availability) {
+    static_cast<QueuedTransport*>(ctx)->availability_notes_.push_back(
+        AvailNote{endpoint, availability});
+  }
+  static void QueueReceive(void* ctx, std::string const& source,
+                           std::vector<std::uint8_t> const& bytes) {
+    static_cast<QueuedTransport*>(ctx)->receives_.push_back(
+        RecvNote{source, bytes});
+  }
+
+  MemoryTransport& inner_;
+  void* receive_ctx_{nullptr};
+  ReceiveFn receive_fn_{nullptr};
+  void* availability_ctx_{nullptr};
+  AvailabilityFn availability_fn_{nullptr};
+  std::map<std::string, EndpointAvailability> published_;
+  std::vector<AvailNote> availability_notes_;
+  std::vector<RecvNote> receives_;
+};
+
 struct Replica {
   Replica(MemoryNetwork& network, std::string endpoint_uid)
       : storage{},
@@ -1163,6 +1270,91 @@ void TestNoExtraTraffic() {
   CHECK(holder.sync->OfferStatuses().size() == offers_before);
 }
 
+void TestAvailabilityReachesRuntimeOnlyWhenDrained() {
+  g_now = 0;
+  MemoryNetwork network;
+  MemoryTransport raw_a(network, kA);
+  MemoryTransport raw_b(network, kB);
+  QueuedTransport queued(raw_a);
+  ae::RamDomainStorage storage;
+  auto domain = std::make_unique<ae::Domain>(storage);
+  auto sync = std::make_unique<SharedSyncRuntime>(*domain, storage, queued);
+  int wakes = 0;
+  sync->SetAvailabilityWake([&] { ++wakes; });
+
+  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
+  CHECK(queued.queued_availability() == 1);
+  CHECK(queued.Availability(kB) == EndpointAvailability::Unknown);
+  CHECK(wakes == 0);
+  CHECK(queued.availability_deliveries == 0);
+
+  queued.Drain();
+  CHECK(queued.queued_availability() == 0);
+  CHECK(queued.Availability(kB) == EndpointAvailability::Offline);
+  CHECK(wakes == 1);
+  CHECK(queued.availability_deliveries == 1);
+
+  auto node = AvailRecordNode::ptr::Create(ae::CreateWith{*domain});
+  InitializeRuntimeNode(*node);
+  auto self = MemoryLink::ptr::Create(
+      ae::CreateWith{*domain}.with_id(ae::ObjId::GenerateUnique()));
+  self->endpoint_uid = kA;
+  self->heartbeat_interval_ms = 1000;
+  InitializeRuntimeNode(*self);
+  self.Save();
+  node->AddShare(self, ShareAccess::ReadWrite);
+  node.Save();
+  sync->RegisterNode(node);
+  auto remote = MemoryLink::ptr::Create(
+      ae::CreateWith{*domain}.with_id(ae::ObjId::GenerateUnique()));
+  remote->endpoint_uid = kB;
+  remote->heartbeat_interval_ms = 1000;
+  InitializeRuntimeNode(*remote);
+  remote.Save();
+  auto const op = sync->OfferNode(node, remote, ShareAccess::ReadWrite);
+  sync->Service(0);
+  g_now = 4 * kShareOfferRetryIntervalUs;
+  sync->Service(g_now);
+  CHECK(sync->OfferPhase(op) == ShareOfferPhase::Pending);
+  CHECK(queued.sends == 0);
+  CHECK(network.PendingCount(kA, kB) == 0);
+
+  auto const wakes_before_online = wakes;
+  auto const deliveries_before_online = queued.availability_deliveries;
+  network.SetAvailability(kA, kB, EndpointAvailability::Online);
+  CHECK(queued.queued_availability() == 1);
+  CHECK(queued.Availability(kB) == EndpointAvailability::Offline);
+  CHECK(wakes == wakes_before_online);
+  sync->Service(g_now);
+  CHECK(queued.sends == 0);
+  CHECK(sync->OfferPhase(op) == ShareOfferPhase::Pending);
+
+  queued.Drain();
+  CHECK(queued.Availability(kB) == EndpointAvailability::Online);
+  CHECK(wakes == wakes_before_online + 1);
+  CHECK(queued.availability_deliveries == deliveries_before_online + 1);
+  sync->Service(g_now);
+  CHECK(queued.sends == 1);
+  CHECK(network.PendingCount(kA, kB) == 1);
+
+  raw_b.Send(kA, std::vector<std::uint8_t>{9, 9, 9});
+  CHECK(network.DeliverNext(kB, kA));
+  CHECK(queued.queued_receives() == 1);
+  CHECK(queued.receive_deliveries == 0);
+
+  auto const deliveries = queued.availability_deliveries;
+  auto const receives = queued.receive_deliveries;
+  network.SetAvailability(kA, kB, EndpointAvailability::Offline);
+  CHECK(queued.queued_availability() == 1);
+  sync.reset();
+  CHECK(queued.queued_availability() == 0);
+  CHECK(queued.queued_receives() == 0);
+  queued.Drain();
+  CHECK(queued.availability_deliveries == deliveries);
+  CHECK(queued.receive_deliveries == receives);
+  CHECK(wakes == wakes_before_online + 1);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1182,5 +1374,6 @@ int main() {
   apptraverse::test::TestRepeatedOnlineDoesNotBypassRetry();
   apptraverse::test::TestRestartContinuesSavedExchange();
   apptraverse::test::TestNoExtraTraffic();
+  apptraverse::test::TestAvailabilityReachesRuntimeOnlyWhenDrained();
   return 0;
 }
