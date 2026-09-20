@@ -651,8 +651,10 @@ void TestSenderRestartAfterAck() {
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 6};
   auto const second =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 7};
-  auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
-  CommitSharedValue(*a_node, 41, first, 6'000);
+  {
+    auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
+    CommitSharedValue(*a_node, 41, first, 6'000);
+  }
   a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
