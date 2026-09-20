@@ -1396,14 +1396,28 @@ void SharedSyncRuntime::OnAck(std::string const& source_endpoint,
   }
   if (state->GetInitialSyncPhase() == InitialSyncPhase::Pending &&
       state->pending_initial_packet_id == frame.packet_id) {
+    // A late ACK after the share was closed (or initial cancelled) must not
+    // Complete the cancelled join or restore the relationship.
+    if (node->FindShareIndexForShare(frame.destination_share_id) >=
+        node->shares.size()) {
+      return;
+    }
     state->CompleteInitialSync();
     node.Save();
     state.Save();
     MarkSnapshotSenderComplete(frame.target_node_id, frame.destination_share_id);
     return;
   }
-  if (state->GetInitialSyncPhase() == InitialSyncPhase::Complete &&
-      state->pending_event_packet_id == frame.packet_id) {
+  if (state->pending_event_packet_id == frame.packet_id) {
+    // Incremental ACK is valid after a finished initial exchange, or after
+    // CancelInitialSync left NotStarted while a close is still pending.
+    bool const initial_done =
+        state->GetInitialSyncPhase() == InitialSyncPhase::Complete ||
+        (state->GetInitialSyncPhase() == InitialSyncPhase::NotStarted &&
+         !state->HasPendingInitial());
+    if (!initial_done) {
+      return;
+    }
     state->CompleteIncrementalEvent();
     node.Save();
     state.Save();
@@ -2620,7 +2634,7 @@ void SharedSyncRuntime::OnAdmission(std::string const& source_endpoint,
 void SharedSyncRuntime::OnShareDecision(std::string const& source_endpoint,
                                         ShareDecisionFrame const& frame) {
   auto offer = FindOfferByOperation(frame.operation_id);
-  if (!offer.is_valid() || offer->GetRole() != ShareOfferRole::Initiator) {
+  if (!offer.is_valid()) {
     return;
   }
   // Who answered is the transport source. A decision whose sender is not the
@@ -2633,10 +2647,23 @@ void SharedSyncRuntime::OnShareDecision(std::string const& source_endpoint,
   }
 
   if (!frame.accepted) {
-    if (offer->GetPhase() == ShareOfferPhase::Pending) {
+    // Initiator: reject while still waiting. Responder: cancel Admitted before
+    // import so a late snapshot cannot open the node. Bound/Complete are
+    // closed by RemoveShareEvent, not by this decision.
+    if (offer->GetRole() == ShareOfferRole::Initiator &&
+        offer->GetPhase() == ShareOfferPhase::Pending) {
+      CommitOfferPhase(offer, ShareOfferPhase::Rejected, {});
+      SaveOffer(offer);
+      return;
+    }
+    if (offer->GetRole() == ShareOfferRole::Responder &&
+        offer->GetPhase() == ShareOfferPhase::Admitted) {
       CommitOfferPhase(offer, ShareOfferPhase::Rejected, {});
       SaveOffer(offer);
     }
+    return;
+  }
+  if (offer->GetRole() != ShareOfferRole::Initiator) {
     return;
   }
   if (offer->GetPhase() == ShareOfferPhase::Rejected ||
@@ -2765,6 +2792,44 @@ void SharedSyncRuntime::PublishRemoveShare(SharedNode::ptr node,
   node.Save();
   for (auto& entry : node->link_sync_states) {
     entry.Save();
+  }
+  // Terminate any Accepted snapshot drive for this lifetime so OpenAttemptBlocks
+  // does not keep the endpoint blocked, and so an Admitted peer can reject a
+  // late snapshot without importing a node.
+  for (auto& live : offers_) {
+    if (!live.offer.is_valid()) {
+      continue;
+    }
+    auto offer = live.offer;
+    if (offer->node_id != node.id() || offer->share_id != share_id) {
+      continue;
+    }
+    if (offer->GetPhase() != ShareOfferPhase::Accepted) {
+      continue;
+    }
+    auto decision_event =
+        SetShareOfferPhaseEvent::ptr::Create(ae::CreateWith{domain_});
+    ShareDecisionFrame const decision{
+        .packet_id = decision_event.id(),
+        .operation_id = offer->operation_id,
+        .target_node_id = offer->node_id,
+        .root_class_id = offer->root_class_id == 0 ? std::uint32_t{1}
+                                                  : offer->root_class_id,
+        .access = offer->requested_access,
+        .accepted = false,
+    };
+    decision_event->phase =
+        static_cast<std::uint8_t>(ShareOfferPhase::Rejected);
+    decision_event->share_id = share_id;
+    decision_event->packet = EncodeShareDecisionFrame(decision);
+    assert(offer->CanApply(*decision_event));
+    offer->Commit(decision_event);
+    SaveOffer(offer);
+    if (TrySend(offer->remote_endpoint, offer->pending_packet)) {
+      NoteDirectSend(offer->operation_id);
+    } else {
+      MarkDecisionUnsent(offer->operation_id);
+    }
   }
   RelayRemovedShare(node, share_id);
 }
@@ -2963,8 +3028,11 @@ void SharedSyncRuntime::RelayRemovedShare(SharedNode::ptr node,
     state->CancelIncrementalEvent();
     state.Save();
   }
-  if (state->GetInitialSyncPhase() != InitialSyncPhase::Complete) {
-    return;
+  if (state->GetInitialSyncPhase() == InitialSyncPhase::Pending &&
+      state->HasPendingInitial()) {
+    // Close supersedes the frozen initial packet. Do not force Complete.
+    state->CancelInitialSync();
+    state.Save();
   }
   std::vector<std::uint8_t> payload;
   if (!FreezeEventPayload(*record->event, payload)) {

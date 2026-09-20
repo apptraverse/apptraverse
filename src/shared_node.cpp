@@ -18,6 +18,7 @@ APPTRAVERSE_REGISTER(NotePeerDeliveredEvent);
 APPTRAVERSE_REGISTER(BeginIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(CompleteIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(CancelIncrementalEventSyncEvent);
+APPTRAVERSE_REGISTER(CancelInitialSyncEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddShareEvent);
 APPTRAVERSE_REGISTER(RemoveShareEvent);
@@ -139,7 +140,12 @@ void LinkSyncState::Apply(NotePeerDeliveredEvent const& event) {
 
 void LinkSyncState::BeginIncrementalEvent(SharedEventId identity,
                                           std::vector<std::uint8_t> packet) {
-  assert(GetInitialSyncPhase() == InitialSyncPhase::Complete);
+  // Complete after a finished initial exchange, or NotStarted after the
+  // initial packet was cancelled on close — never while a frozen initial
+  // packet is still outstanding.
+  assert(GetInitialSyncPhase() == InitialSyncPhase::Complete ||
+         (GetInitialSyncPhase() == InitialSyncPhase::NotStarted &&
+          !HasPendingInitial()));
   assert(!HasPendingEvent());
   assert(!identity.origin_uid.empty());
   assert(identity.origin_sequence != 0);
@@ -165,6 +171,13 @@ void LinkSyncState::CancelIncrementalEvent() {
   Commit(event);
 }
 
+void LinkSyncState::CancelInitialSync() {
+  assert(GetInitialSyncPhase() == InitialSyncPhase::Pending);
+  assert(HasPendingInitial());
+  auto event = CancelInitialSyncEvent::ptr::Create(ae::CreateWith{*domain});
+  Commit(event);
+}
+
 bool LinkSyncState::HasDelivered(SharedEventId const& identity) const {
   for (auto const& delivered : delivered_event_ids) {
     if (delivered == identity) {
@@ -175,7 +188,9 @@ bool LinkSyncState::HasDelivered(SharedEventId const& identity) const {
 }
 
 void LinkSyncState::Apply(BeginIncrementalEventSyncEvent const& event) {
-  assert(GetInitialSyncPhase() == InitialSyncPhase::Complete);
+  assert(GetInitialSyncPhase() == InitialSyncPhase::Complete ||
+         (GetInitialSyncPhase() == InitialSyncPhase::NotStarted &&
+          !pending_initial_packet_id.is_valid()));
   assert(!HasPendingEvent());
   assert(!event.identity.origin_uid.empty());
   assert(!event.packet.empty());
@@ -201,6 +216,16 @@ void LinkSyncState::Apply(CancelIncrementalEventSyncEvent const&) {
   pending_event_packet_id = ae::ObjId{};
   pending_event_identity = {};
   pending_event_packet.clear();
+  NoteMaterializedChange();
+}
+
+void LinkSyncState::Apply(CancelInitialSyncEvent const&) {
+  assert(GetInitialSyncPhase() == InitialSyncPhase::Pending);
+  assert(pending_initial_packet_id.is_valid());
+  initial_sync_phase = static_cast<std::uint8_t>(InitialSyncPhase::NotStarted);
+  pending_initial_packet_id = ae::ObjId{};
+  pending_initial_packet.clear();
+  pending_initial_covered_event_ids.clear();
   NoteMaterializedChange();
 }
 

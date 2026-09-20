@@ -1641,7 +1641,119 @@ void TestConcurrentRemovesReachClosedPeerReverseOrder() {
       80);
 }
 
+void TestRevokeWhileInitialPendingAckLost() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  CHECK(trio.network.DeliverNext(kA, kB));
+  CHECK(trio.network.DeliverNext(kB, kA));
+  CHECK(trio.network.PendingCount(kA, kB) >= 1);
+  NodeStateFrame snapshot;
+  CHECK(DecodeNodeStateFrame(trio.network.PeekNext(kA, kB), snapshot));
+  auto const initial_packet_id = snapshot.packet_id;
+  auto const b_share = snapshot.destination_share_id;
+  CHECK(trio.network.DeliverNext(kA, kB));
+  CHECK(trio.b.sync->FindNode(node_id).is_valid());
+  CHECK(FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kB).has_value());
+  CHECK(FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kB)->share_id ==
+        b_share);
+  CHECK(trio.network.PendingCount(kB, kA) >= 1);
+  CHECK(trio.network.DropNext(kB, kA));
+  while (trio.network.PendingCount(kB, kA) > 0) {
+    CHECK(trio.network.DropNext(kB, kA));
+  }
+  auto state = SyncStateForShare(trio.a.sync->FindNode(node_id), b_share);
+  CHECK(state->GetInitialSyncPhase() == InitialSyncPhase::Pending);
+  CHECK(state->HasPendingInitial());
+  CHECK(state->pending_initial_packet_id == initial_packet_id);
+  CHECK(trio.a.sync->OfferPhase(to_b) == ShareOfferPhase::Accepted);
+
+  trio.a.sync->RemoveShare(node_id, b_share);
+  state = SyncStateForShare(trio.a.sync->FindNode(node_id), b_share);
+  CHECK(state->GetInitialSyncPhase() == InitialSyncPhase::NotStarted);
+  CHECK(!state->HasPendingInitial());
+  CHECK(state->HasPendingEvent());
+  CHECK(trio.a.sync->OfferPhase(to_b) == ShareOfferPhase::Rejected);
+
+  auto const late_ack = EncodeAckFrame(AckFrame{
+      .packet_id = initial_packet_id,
+      .target_node_id = node_id,
+      .destination_share_id = b_share,
+  });
+  trio.b.transport->Send(kA, late_ack);
+  CHECK(trio.network.DeliverNext(kB, kA));
+  state = SyncStateForShare(trio.a.sync->FindNode(node_id), b_share);
+  CHECK(state->GetInitialSyncPhase() == InitialSyncPhase::NotStarted);
+  CHECK(state->HasPendingEvent());
+  CHECK(trio.a.sync->OfferPhase(to_b) == ShareOfferPhase::Rejected);
+
+  auto world = trio.world();
+  Pump(
+      world,
+      [&] {
+        return !FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kB)
+                    .has_value() &&
+               !FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kB)
+                    .has_value() &&
+               !SyncStateForShare(trio.a.sync->FindNode(node_id), b_share)
+                    ->HasPendingEvent();
+      },
+      80);
+  CHECK(!FindEndpoint(SharesOf(trio.b.sync->FindNode(node_id)), kB).has_value());
+
+  auto const again = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  CHECK(again != to_b);
+  Pump(world, [&] { return Joined(trio.a, trio.b, again, node_id); }, 80);
+  auto const new_b =
+      FindEndpoint(SharesOf(trio.a.sync->FindNode(node_id)), kB)->share_id;
+  CHECK(new_b != b_share);
+}
+
+void TestRevokeBeforeSnapshotImport() {
+  Trio trio;
+  auto node = MakeNode(trio.a);
+  AddRecord(*node, "seed", kA, 1);
+  auto const node_id = node.id();
+  node = {};
+  auto const to_b = trio.a.sync->OfferNode(
+      AsTopo(trio.a.sync->FindNode(node_id)), MakeLink(*trio.a.domain, kB),
+      ShareAccess::ReadWrite);
+  CHECK(trio.network.DeliverNext(kA, kB));
+  CHECK(trio.network.DeliverNext(kB, kA));
+  CHECK(trio.network.PendingCount(kA, kB) >= 1);
+  auto const frozen_snapshot = trio.network.PeekNext(kA, kB);
+  NodeStateFrame snapshot;
+  CHECK(DecodeNodeStateFrame(frozen_snapshot, snapshot));
+  auto const b_share = snapshot.destination_share_id;
+  // Hold the snapshot off-wire so Pump cannot import it before the cancel.
+  CHECK(trio.network.DropNext(kA, kB));
+  CHECK(!trio.b.sync->FindNode(node_id).is_valid());
+  CHECK(trio.b.sync->OfferPhase(to_b) == ShareOfferPhase::Admitted);
+
+  trio.a.sync->RemoveShare(node_id, b_share);
+  CHECK(trio.a.sync->OfferPhase(to_b) == ShareOfferPhase::Rejected);
+  auto world = trio.world();
+  Pump(
+      world,
+      [&] { return trio.b.sync->OfferPhase(to_b) == ShareOfferPhase::Rejected; },
+      40);
+  CHECK(!trio.b.sync->FindNode(node_id).is_valid());
+
+  trio.a.transport->Send(kB, frozen_snapshot);
+  CHECK(trio.network.DeliverNext(kA, kB));
+  CHECK(!trio.b.sync->FindNode(node_id).is_valid());
+  CHECK(trio.b.sync->OfferPhase(to_b) == ShareOfferPhase::Rejected);
+}
+
 void TestCancelPendingDoesNotMarkDelivered() {
+
   Trio trio;
   auto node = MakeNode(trio.a);
   AddRecord(*node, "seed", kA, 1);
@@ -2133,6 +2245,8 @@ int main() {
   apptraverse::test::TestRemoveDeliveryOfflineAndOnline();
   apptraverse::test::TestRemoveDeliverySurvivesRestartBeforeAck();
   apptraverse::test::TestRemoveDeliveryDoesNotResumeAfterAckedRestart();
+  apptraverse::test::TestRevokeWhileInitialPendingAckLost();
+  apptraverse::test::TestRevokeBeforeSnapshotImport();
   apptraverse::test::TestCancelPendingDoesNotMarkDelivered();
   apptraverse::test::TestRemoveLostAckIsRecoverable();
   apptraverse::test::TestRejoinAfterRemoveByOffer();

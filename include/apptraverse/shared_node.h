@@ -60,6 +60,7 @@ class NotePeerDeliveredEvent;
 class BeginIncrementalEventSyncEvent;
 class CompleteIncrementalEventSyncEvent;
 class CancelIncrementalEventSyncEvent;
+class CancelInitialSyncEvent;
 
 // Local-persistent synchronization progress for one Share relationship of one
 // SharedNode. Belongs to share_id, not to the Link: a later relationship over
@@ -161,10 +162,16 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   // The Event stays in the SharedNode journal; only this relationship's
   // pending slot is cleared.
   void CancelIncrementalEvent();
+  // Stop an unacknowledged initial snapshot without treating it as delivered.
+  // Phase returns to NotStarted; a late ACK of the old packet_id is ignored.
+  void CancelInitialSync();
 
   bool HasDelivered(SharedEventId const& identity) const;
   bool HasPendingEvent() const {
     return pending_event_packet_id.is_valid();
+  }
+  bool HasPendingInitial() const {
+    return pending_initial_packet_id.is_valid();
   }
 
   void Apply(SetLinkInitialSyncPhaseEvent const& event);
@@ -177,6 +184,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void Apply(BeginIncrementalEventSyncEvent const& event);
   void Apply(CompleteIncrementalEventSyncEvent const& event);
   void Apply(CancelIncrementalEventSyncEvent const& event);
+  void Apply(CancelInitialSyncEvent const& event);
 };
 
 class SetLinkInitialSyncPhaseEvent
@@ -343,6 +351,21 @@ class CancelIncrementalEventSyncEvent
 
  public:
   explicit CancelIncrementalEventSyncEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT()
+};
+
+// Sender: abandon an unacknowledged initial snapshot. Clears pending_initial
+// and returns phase to NotStarted without recording covered ids as delivered.
+class CancelInitialSyncEvent
+    : public EventFor<LinkSyncState, CancelInitialSyncEvent> {
+  APPTRAVERSE_OBJECT(CancelInitialSyncEvent, Event, 0)
+
+ protected:
+  CancelInitialSyncEvent() = default;
+
+ public:
+  explicit CancelInitialSyncEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT()
 };

@@ -584,6 +584,17 @@ tests in `apptraverse_shared_node_topology_test`, including delivery of both
 independent closes to the closed peer. Equal `timestamp_us` across sources
 stays an open ordering case for journal position.
 
+## Revoke during initial sync
+
+Closing a relationship does not wait for an initial-sync ACK. If the sender
+still has `InitialSyncPhase::Pending`, `CancelInitialSyncEvent` clears the
+frozen snapshot without forcing `Complete`. The remove is then armed as an
+incremental close. A late initial ACK is ignored when the share is already
+closed. An `Accepted` offer becomes `Rejected` and a matching cancel decision
+is sent so an `Admitted` peer without a local node rejects a late snapshot
+without importing one. Undelivered snapshot bytes are obsolete relative to
+the saved close.
+
 ## Cancel pending vs confirmed delivery
 
 Closing a relationship may stop an outstanding incremental transmission

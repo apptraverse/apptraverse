@@ -24,10 +24,15 @@ bool LegalPhaseChange(ShareOfferPhase from, ShareOfferPhase to) {
        to == ShareOfferPhase::Admitted)) {
     return true;
   }
-  if (from == ShareOfferPhase::Admitted && to == ShareOfferPhase::Bound) {
+  if (from == ShareOfferPhase::Admitted &&
+      (to == ShareOfferPhase::Bound || to == ShareOfferPhase::Rejected)) {
     return true;
   }
-  return from == ShareOfferPhase::Accepted && to == ShareOfferPhase::Complete;
+  if (from == ShareOfferPhase::Accepted &&
+      (to == ShareOfferPhase::Complete || to == ShareOfferPhase::Rejected)) {
+    return true;
+  }
+  return false;
 }
 
 }  // namespace
