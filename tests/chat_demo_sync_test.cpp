@@ -103,7 +103,7 @@ void TestTwoWayChatOverMemoryNetwork() {
   auto ws_a = CreateWorkspace(domain_a, ws_a_id);
   BindLocalEndpoint(*ws_a, kEndpointA);
 
-  auto entry_a = OpenOrSelectChat(*ws_a, "peer-b", [] {});
+  auto entry_a = OpenOrSelectChat(*ws_a, kEndpointB, [] {});
   CHECK(entry_a.is_valid());
 
   auto link_local_a = CreateMemoryLink(domain_a, link_a_id, kEndpointA);
@@ -164,7 +164,7 @@ void TestTwoWayChatOverMemoryNetwork() {
   ae::ObjId const ws_b_id{200};
   auto ws_b = CreateWorkspace(domain_b, ws_b_id);
   BindLocalEndpoint(*ws_b, kEndpointB);
-  auto entry_b = OpenOrSelectChat(*ws_b, "peer-a", [] {});
+  auto entry_b = OpenOrSelectChat(*ws_b, kEndpointA, [] {});
 
   auto link_remote_a_on_b = CreateMemoryLink(domain_b, link_a_id, kEndpointA);
   BindChat(*entry_b, link_remote_a_on_b, room_b);
