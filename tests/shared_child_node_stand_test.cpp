@@ -30,6 +30,7 @@
 #include "apptraverse/memory_transport.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/shared_network_graph.h"
 #include "apptraverse/shared_node.h"
 #include "apptraverse/shared_sync_runtime.h"
 #include "apptraverse/sync_frame.h"
@@ -226,6 +227,222 @@ APPTRAVERSE_REGISTER(SetParentNoteEvent);
 APPTRAVERSE_REGISTER(LinkSharedDocEvent);
 
 // ---------------------------------------------------------------------------
+// Projection of one shared journal: identity, order key, class and content
+// ---------------------------------------------------------------------------
+
+struct Observed {
+  SharedEventId id;
+  std::uint64_t timestamp_us{0};
+  std::uint32_t class_id{0};
+  std::string text;
+};
+
+// Journal order as stored. Nothing is re-sorted here: a divergence in stored
+// order must show up as a failure, not be normalized away.
+std::vector<Observed> Observe(SharedDoc const& doc) {
+  std::vector<Observed> out;
+  for (auto const& record : doc.journal) {
+    if (!record.HasSharedIdentity()) {
+      continue;
+    }
+    auto event = record.event;
+    CHECK(event.is_valid());
+    if (!event.is_loaded()) {
+      event.Load();
+    }
+    CHECK(event.is_loaded());
+    if (event->GetClassId() != AppendLineEvent::kClassId) {
+      continue;
+    }
+    AppendLineEvent::ptr concrete = event;
+    CHECK(concrete.is_loaded());
+    out.push_back(Observed{.id = record.identity,
+                           .timestamp_us = record.order.timestamp_us,
+                           .class_id = event->GetClassId(),
+                           .text = concrete->text});
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Cold reader: one replica's storage as a restart would find it
+// ---------------------------------------------------------------------------
+
+// A separate Domain over the storage, entered at the ordinary parent Node,
+// reaching the child only through the parent's saved reference. Nothing of
+// the live session is consulted.
+struct PersistedView {
+  bool has_child{false};
+  ae::ObjId child_id;
+  std::vector<Observed> events;
+  std::vector<std::string> lines;
+
+  std::size_t IndexOf(SharedEventId const& id) const {
+    for (std::size_t i = 0; i < events.size(); ++i) {
+      if (events[i].id == id) {
+        return i;
+      }
+    }
+    return events.size();
+  }
+};
+
+PersistedView ReadPersisted(ae::RamDomainStorage& storage,
+                            ae::ObjId parent_id) {
+  ae::Domain probe_domain{storage};
+  auto parent = LocalParent::ptr::Declare(
+      ae::CreateWith{probe_domain}.with_id(parent_id));
+  parent.Load();
+  CHECK(parent.is_loaded());
+  PersistedView view;
+  if (!parent->shared.is_valid()) {
+    return view;
+  }
+  if (!parent->shared.is_loaded()) {
+    parent->shared.Load();
+  }
+  CHECK(parent->shared.is_loaded());
+  SharedDoc::ptr doc = parent->shared;
+  view.has_child = true;
+  view.child_id = doc.id();
+  view.events = Observe(*doc);
+  view.lines = doc->lines;
+  return view;
+}
+
+// ---------------------------------------------------------------------------
+// Ack ledger: what a given ACK is a statement about
+// ---------------------------------------------------------------------------
+
+// The data one Event or NodeState frame carried, decoded from the frame
+// itself at the moment it was handed to the transport. Logical content only:
+// the local ObjId of an Event object differs between replicas, its shared
+// identity does not.
+struct AckExpectation {
+  bool initial_snapshot{false};
+  ae::ObjId target_node_id;
+  std::vector<Observed> events;
+};
+
+// Test-side observer. It never takes part in delivery, object recovery or
+// identifier generation: it only remembers what went out, so the ACK that
+// comes back can be held to it.
+class AckLedger {
+ public:
+  // Called before the bytes reach the transport. A repeat of the same packet
+  // keeps the first description: a retry may not redefine what is owed.
+  void NoteOutgoing(std::string const& from, std::string const& to,
+                    NodeStateFrame const& frame) {
+    expectations_.emplace(Key(from, to, frame.packet_id, frame.target_node_id,
+                              frame.destination_share_id),
+                          DescribeSnapshot(frame));
+  }
+
+  void NoteOutgoing(std::string const& from, std::string const& to,
+                    EventFrame const& frame) {
+    expectations_.emplace(Key(from, to, frame.packet_id, frame.target_node_id,
+                              frame.destination_share_id),
+                          DescribeEvent(frame));
+  }
+
+  // The frame this ACK answers. An ACK for a frame the stand never saw is a
+  // failure, not a reason to skip the check.
+  AckExpectation const& Require(std::string const& original_from,
+                                std::string const& original_to,
+                                AckFrame const& ack) const {
+    auto const it = expectations_.find(Key(original_from, original_to,
+                                           ack.packet_id, ack.target_node_id,
+                                           ack.destination_share_id));
+    CHECK(it != expectations_.end());
+    return it->second;
+  }
+
+ private:
+  using Key5 = std::tuple<std::string, std::string, std::uint32_t,
+                          std::uint32_t, std::uint32_t>;
+
+  static Key5 Key(std::string const& from, std::string const& to,
+                  ae::ObjId packet_id, ae::ObjId target_node_id,
+                  ae::ObjId destination_share_id) {
+    return Key5{from, to, packet_id.id(), target_node_id.id(),
+                destination_share_id.id()};
+  }
+
+  static AckExpectation DescribeEvent(EventFrame const& frame) {
+    ae::RamDomainStorage parsed;
+    ae::ObjId root_id;
+    CHECK(ParseEventPayload(frame.payload, parsed, root_id));
+    ae::Domain scratch{parsed};
+    auto event =
+        AppendLineEvent::ptr::Declare(ae::CreateWith{scratch}.with_id(root_id));
+    event.Load();
+    CHECK(event.is_loaded());
+    CHECK(frame.event_class_id == AppendLineEvent::kClassId);
+    AckExpectation expected{.target_node_id = frame.target_node_id};
+    expected.events.push_back(Observed{.id = frame.identity,
+                                       .timestamp_us = frame.timestamp_us,
+                                       .class_id = frame.event_class_id,
+                                       .text = event->text});
+    return expected;
+  }
+
+  // Everything the snapshot froze, and nothing the sender wrote afterwards:
+  // the payload is read, not the sender's journal as it looks now.
+  static AckExpectation DescribeSnapshot(NodeStateFrame const& frame) {
+    ae::RamDomainStorage parsed;
+    CHECK(DeserializeObjectGraph(frame.payload, parsed));
+    ae::Domain scratch{parsed};
+    auto doc = SharedDoc::ptr::Declare(
+        ae::CreateWith{scratch}.with_id(frame.target_node_id));
+    doc.Load();
+    CHECK(doc.is_loaded());
+    return AckExpectation{.initial_snapshot = true,
+                          .target_node_id = frame.target_node_id,
+                          .events = Observe(*doc)};
+  }
+
+  std::map<Key5, AckExpectation> expectations_;
+};
+
+// The statement an ACK makes: by the time these bytes leave, the replica
+// sending them has the acknowledged data applied and written to its own
+// storage. Read cold, through the parent's saved reference; the live session
+// is not consulted and is not a precondition for running the check.
+void ExpectAckCoversPersistedState(ae::RamDomainStorage& storage,
+                                   ae::ObjId parent_id,
+                                   AckExpectation const& expected) {
+  auto const persisted = ReadPersisted(storage, parent_id);
+  CHECK(persisted.has_child);
+  CHECK(persisted.child_id == expected.target_node_id);
+
+  // Materialized state is the persisted journal replayed in stored order.
+  CHECK(persisted.lines.size() == persisted.events.size());
+  for (std::size_t i = 0; i < persisted.events.size(); ++i) {
+    CHECK(persisted.lines[i] == persisted.events[i].text);
+  }
+
+  // Every acknowledged event is in that journal with its own identity, order
+  // key, class and content, and in the order the snapshot froze them. Events
+  // the receiver has of its own may sit between them.
+  std::size_t previous = 0;
+  bool have_previous = false;
+  for (auto const& promised : expected.events) {
+    auto const index = persisted.IndexOf(promised.id);
+    CHECK(index < persisted.events.size());
+    auto const& seen = persisted.events[index];
+    CHECK(seen.timestamp_us == promised.timestamp_us);
+    CHECK(seen.class_id == promised.class_id);
+    CHECK(seen.text == promised.text);
+    CHECK(persisted.lines[index] == promised.text);
+    if (have_previous) {
+      CHECK(previous < index);
+    }
+    previous = index;
+    have_previous = true;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Transport wrapper: counts Send calls, not queued packets
 // ---------------------------------------------------------------------------
 
@@ -256,8 +473,8 @@ bool ContainsMarker(std::vector<std::uint8_t> const& bytes) {
 class CountingTransport final : public IByteTransport {
  public:
   CountingTransport(MemoryTransport& inner, SendCounts& counts,
-                    std::set<SentKey>& sent)
-      : inner_{inner}, counts_{counts}, sent_{sent} {}
+                    std::set<SentKey>& sent, AckLedger& ledger)
+      : inner_{inner}, counts_{counts}, sent_{sent}, ledger_{ledger} {}
 
   std::string const& local_endpoint_uid() const override {
     return inner_.local_endpoint_uid();
@@ -281,6 +498,7 @@ class CountingTransport final : public IByteTransport {
         CHECK(DecodeNodeStateFrame(bytes, frame));
         packet_id = frame.packet_id;
         ++counts_.node_state;
+        ledger_.NoteOutgoing(local_endpoint_uid(), destination_endpoint, frame);
         break;
       }
       case SyncFrameType::kEvent: {
@@ -288,6 +506,7 @@ class CountingTransport final : public IByteTransport {
         CHECK(DecodeEventFrame(bytes, frame));
         packet_id = frame.packet_id;
         ++counts_.event;
+        ledger_.NoteOutgoing(local_endpoint_uid(), destination_endpoint, frame);
         break;
       }
       case SyncFrameType::kAck: {
@@ -295,9 +514,10 @@ class CountingTransport final : public IByteTransport {
         CHECK(DecodeAckFrame(bytes, frame));
         packet_id = frame.packet_id;
         ++counts_.ack;
-        if (ack_send_hook_) {
-          ack_send_hook_();
-        }
+        // The frame being acknowledged travelled the other way.
+        CHECK(ack_send_hook_ != nullptr);
+        ack_send_hook_(ledger_.Require(destination_endpoint,
+                                       local_endpoint_uid(), frame));
         break;
       }
     }
@@ -338,7 +558,7 @@ class CountingTransport final : public IByteTransport {
 
   // Run before an Ack frame leaves this endpoint, while the sending call is
   // still on the stack.
-  void SetAckSendHook(std::function<void()> hook) {
+  void SetAckSendHook(std::function<void(AckExpectation const&)> hook) {
     ack_send_hook_ = std::move(hook);
   }
 
@@ -346,7 +566,8 @@ class CountingTransport final : public IByteTransport {
   MemoryTransport& inner_;
   SendCounts& counts_;
   std::set<SentKey>& sent_;
-  std::function<void()> ack_send_hook_;
+  AckLedger& ledger_;
+  std::function<void(AckExpectation const&)> ack_send_hook_;
   void* availability_ctx_{nullptr};
   AvailabilityFn availability_fn_{nullptr};
 };
@@ -355,18 +576,13 @@ class CountingTransport final : public IByteTransport {
 // One replica: own storage, Domain, transport endpoint, sync runtime
 // ---------------------------------------------------------------------------
 
-struct Replica;
-
-// Defined with the oracles below: what must already be true of this replica's
-// own storage whenever it acknowledges.
-void ExpectAckPreconditions(Replica& replica);
-
 struct Replica {
-  Replica(MemoryNetwork& network, std::string endpoint, std::string peer,
-          ae::ObjId parent_id, std::string note)
+  Replica(MemoryNetwork& network, AckLedger& ledger, std::string endpoint,
+          std::string peer, ae::ObjId parent_id, std::string note)
       : parent_id_{parent_id},
         note_{std::move(note)},
         network_{network},
+        ledger_{ledger},
         endpoint_{std::move(endpoint)},
         peer_{std::move(peer)} {}
 
@@ -375,14 +591,17 @@ struct Replica {
   void Start() {
     domain = std::make_unique<ae::Domain>(storage);
     transport = std::make_unique<MemoryTransport>(network_, endpoint_);
-    counting = std::make_unique<CountingTransport>(*transport, counts, sent_);
+    counting =
+        std::make_unique<CountingTransport>(*transport, counts, sent_, ledger_);
     sync = std::make_unique<SharedSyncRuntime>(*domain, storage, *counting);
     sync->AllowStandaloneEventClass(AppendLineEvent::kClassId);
     sync->SetInitialNodeImportedCallback(
         [this](std::string const& source_endpoint, SharedNode::ptr node) {
           return AdoptImportedDoc(source_endpoint, node);
         });
-    counting->SetAckSendHook([this] { ExpectAckPreconditions(*this); });
+    counting->SetAckSendHook([this](AckExpectation const& expected) {
+      ExpectAckCoversPersistedState(storage, parent_id_, expected);
+    });
   }
 
   // Nothing a restarted application could only know from RAM may survive:
@@ -567,14 +786,15 @@ struct Replica {
   std::string note_;
   std::set<SentKey> sent_;
   MemoryNetwork& network_;
+  AckLedger& ledger_;
   std::string endpoint_;
   std::string peer_;
 };
 
 struct Stand {
   Stand()
-      : host{network, kHost, kClient, kHostParentId, kHostNote},
-        client{network, kClient, kHost, kClientParentId, kClientNote} {
+      : host{network, ledger, kHost, kClient, kHostParentId, kHostNote},
+        client{network, ledger, kClient, kHost, kClientParentId, kClientNote} {
     host.Start();
     client.Start();
   }
@@ -582,6 +802,9 @@ struct Stand {
   std::uint64_t NextTimestamp() { return ++timestamp_us; }
 
   MemoryNetwork network;
+  // Outlives both replicas: a packet sent before a restart is still owed an
+  // ACK after it.
+  AckLedger ledger;
   Replica host;
   Replica client;
   // Test-side logical clock for shared event order: strictly increasing and
@@ -676,38 +899,6 @@ void SetAvailability(Stand& stand, std::string const& from,
 // ---------------------------------------------------------------------------
 // Oracles: identity, data and order of shared events plus materialized state
 // ---------------------------------------------------------------------------
-
-struct Observed {
-  SharedEventId id;
-  std::uint64_t timestamp_us{0};
-  std::string text;
-};
-
-// Journal order as stored. Nothing is re-sorted here: a divergence in stored
-// order must show up as a failure, not be normalized away.
-std::vector<Observed> Observe(SharedDoc const& doc) {
-  std::vector<Observed> out;
-  for (auto const& record : doc.journal) {
-    if (!record.HasSharedIdentity()) {
-      continue;
-    }
-    auto event = record.event;
-    CHECK(event.is_valid());
-    if (!event.is_loaded()) {
-      event.Load();
-    }
-    CHECK(event.is_loaded());
-    if (event->GetClassId() != AppendLineEvent::kClassId) {
-      continue;
-    }
-    AppendLineEvent::ptr concrete = event;
-    CHECK(concrete.is_loaded());
-    out.push_back(Observed{.id = record.identity,
-                           .timestamp_us = record.order.timestamp_us,
-                           .text = concrete->text});
-  }
-  return out;
-}
 
 void ExpectNoDuplicates(std::vector<Observed> const& seen) {
   std::set<std::pair<std::string, std::uint64_t>> ids;
@@ -835,55 +1026,13 @@ LinkSyncState::ptr SyncStateForPeer(SharedNode::ptr node,
   return {};
 }
 
-// What a cold reader finds in a replica's storage right now, reached the way
-// a restart reaches it: parent first, child only through its saved reference.
-// Nothing of the live session is consulted.
-struct PersistedView {
-  std::vector<std::string> lines;
-  std::set<std::pair<std::string, std::uint64_t>> identities;
-};
-
 PersistedView ReadPersisted(Replica& replica) {
-  ae::Domain probe_domain{replica.storage};
-  auto parent = LocalParent::ptr::Declare(
-      ae::CreateWith{probe_domain}.with_id(replica.parent_id()));
-  parent.Load();
-  CHECK(parent.is_loaded());
-  PersistedView view;
-  if (!parent->shared.is_valid()) {
-    return view;
-  }
-  if (!parent->shared.is_loaded()) {
-    parent->shared.Load();
-  }
-  CHECK(parent->shared.is_loaded());
-  SharedDoc::ptr doc = parent->shared;
-  view.lines = doc->lines;
-  for (auto const& seen : Observe(*doc)) {
-    view.identities.insert({seen.id.origin_uid, seen.id.origin_sequence});
-  }
-  return view;
+  return ReadPersisted(replica.storage, replica.parent_id());
 }
 
-// An ACK is a statement about durable state, so it may only leave once the
-// events it covers are in this replica's own storage. Checked while the Send
-// call is still on the stack: the live shared journal must already be fully
-// covered by what a cold reader of the storage would find, and the persisted
-// materialized state must match the live one.
-void ExpectAckPreconditions(Replica& replica) {
-  if (!replica.doc_id.is_valid()) {
-    return;
-  }
-  auto doc = replica.Doc();
-  if (!doc.is_valid()) {
-    return;
-  }
+bool PersistedHas(Replica& replica, SharedEventId const& id) {
   auto const persisted = ReadPersisted(replica);
-  for (auto const& seen : Observe(*doc)) {
-    CHECK(persisted.identities.count(
-              {seen.id.origin_uid, seen.id.origin_sequence}) == 1);
-  }
-  CHECK(persisted.lines == doc->lines);
+  return persisted.IndexOf(id) < persisted.events.size();
 }
 
 bool HasLine(SharedDoc::ptr doc, std::string const& text) {
@@ -1621,9 +1770,6 @@ void TestAckMeansAppliedAndPersisted() {
   EventFrame sent;
   CHECK(DecodeEventFrame(stand.network.PeekNext(kHost, kClient), sent));
   auto const identity = sent.identity;
-  auto const key =
-      std::pair<std::string, std::uint64_t>{identity.origin_uid,
-                                            identity.origin_sequence};
 
   // The Send call returned and the destination reads Online. The sender still
   // treats the Event as undelivered, and the receiver has nothing.
@@ -1632,7 +1778,7 @@ void TestAckMeansAppliedAndPersisted() {
   CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
   CHECK(!SyncStateForPeer(stand.host.Doc(), kClient)->HasDelivered(identity));
   CHECK(!HasLine(stand.client.Doc(), text));
-  CHECK(ReadPersisted(stand.client).identities.count(key) == 0);
+  CHECK(!PersistedHas(stand.client, identity));
 
   // Deliver the Event and hold the ACK in the queue.
   CHECK(stand.network.DeliverNext(kHost, kClient));
@@ -1646,9 +1792,10 @@ void TestAckMeansAppliedAndPersisted() {
   // with the Event in place: a cold reader of its storage sees the identity,
   // the payload and the materialized line.
   auto const persisted = ReadPersisted(stand.client);
-  CHECK(persisted.identities.count(key) == 1);
-  CHECK(!persisted.lines.empty());
-  CHECK(persisted.lines.back() == text);
+  auto const index = persisted.IndexOf(identity);
+  CHECK(index < persisted.events.size());
+  CHECK(persisted.events[index].text == text);
+  CHECK(persisted.lines[index] == text);
 
   // And the sender is still waiting: an ACK that has not arrived is not one.
   CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
@@ -1701,8 +1848,7 @@ void TestAckHeldWhileAcknowledgerOffline() {
   // Applied and persisted by the Offline replica.
   CHECK(HasLine(stand.client.Doc(), text));
   auto const applied = Observe(*stand.client.Doc()).size();
-  CHECK(ReadPersisted(stand.client).identities.count(
-            {identity.origin_uid, identity.origin_sequence}) == 1);
+  CHECK(PersistedHas(stand.client, identity));
 
   // Nothing left its endpoint, and the ACK was not dropped on the floor.
   CHECK(stand.client.counts.total == client_sends);
