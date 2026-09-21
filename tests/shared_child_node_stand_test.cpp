@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -294,6 +295,9 @@ class CountingTransport final : public IByteTransport {
         CHECK(DecodeAckFrame(bytes, frame));
         packet_id = frame.packet_id;
         ++counts_.ack;
+        if (ack_send_hook_) {
+          ack_send_hook_();
+        }
         break;
       }
     }
@@ -332,10 +336,17 @@ class CountingTransport final : public IByteTransport {
     availability_fn_(availability_ctx_, endpoint, inner_.Availability(endpoint));
   }
 
+  // Run before an Ack frame leaves this endpoint, while the sending call is
+  // still on the stack.
+  void SetAckSendHook(std::function<void()> hook) {
+    ack_send_hook_ = std::move(hook);
+  }
+
  private:
   MemoryTransport& inner_;
   SendCounts& counts_;
   std::set<SentKey>& sent_;
+  std::function<void()> ack_send_hook_;
   void* availability_ctx_{nullptr};
   AvailabilityFn availability_fn_{nullptr};
 };
@@ -343,6 +354,12 @@ class CountingTransport final : public IByteTransport {
 // ---------------------------------------------------------------------------
 // One replica: own storage, Domain, transport endpoint, sync runtime
 // ---------------------------------------------------------------------------
+
+struct Replica;
+
+// Defined with the oracles below: what must already be true of this replica's
+// own storage whenever it acknowledges.
+void ExpectAckPreconditions(Replica& replica);
 
 struct Replica {
   Replica(MemoryNetwork& network, std::string endpoint, std::string peer,
@@ -365,6 +382,7 @@ struct Replica {
         [this](std::string const& source_endpoint, SharedNode::ptr node) {
           return AdoptImportedDoc(source_endpoint, node);
         });
+    counting->SetAckSendHook([this] { ExpectAckPreconditions(*this); });
   }
 
   // Nothing a restarted application could only know from RAM may survive:
@@ -815,6 +833,57 @@ LinkSyncState::ptr SyncStateForPeer(SharedNode::ptr node,
   }
   CHECK(false);
   return {};
+}
+
+// What a cold reader finds in a replica's storage right now, reached the way
+// a restart reaches it: parent first, child only through its saved reference.
+// Nothing of the live session is consulted.
+struct PersistedView {
+  std::vector<std::string> lines;
+  std::set<std::pair<std::string, std::uint64_t>> identities;
+};
+
+PersistedView ReadPersisted(Replica& replica) {
+  ae::Domain probe_domain{replica.storage};
+  auto parent = LocalParent::ptr::Declare(
+      ae::CreateWith{probe_domain}.with_id(replica.parent_id()));
+  parent.Load();
+  CHECK(parent.is_loaded());
+  PersistedView view;
+  if (!parent->shared.is_valid()) {
+    return view;
+  }
+  if (!parent->shared.is_loaded()) {
+    parent->shared.Load();
+  }
+  CHECK(parent->shared.is_loaded());
+  SharedDoc::ptr doc = parent->shared;
+  view.lines = doc->lines;
+  for (auto const& seen : Observe(*doc)) {
+    view.identities.insert({seen.id.origin_uid, seen.id.origin_sequence});
+  }
+  return view;
+}
+
+// An ACK is a statement about durable state, so it may only leave once the
+// events it covers are in this replica's own storage. Checked while the Send
+// call is still on the stack: the live shared journal must already be fully
+// covered by what a cold reader of the storage would find, and the persisted
+// materialized state must match the live one.
+void ExpectAckPreconditions(Replica& replica) {
+  if (!replica.doc_id.is_valid()) {
+    return;
+  }
+  auto doc = replica.Doc();
+  if (!doc.is_valid()) {
+    return;
+  }
+  auto const persisted = ReadPersisted(replica);
+  for (auto const& seen : Observe(*doc)) {
+    CHECK(persisted.identities.count(
+              {seen.id.origin_uid, seen.id.origin_sequence}) == 1);
+  }
+  CHECK(persisted.lines == doc->lines);
 }
 
 bool HasLine(SharedDoc::ptr doc, std::string const& text) {
@@ -1499,20 +1568,279 @@ void TestOfflineToOnlineResumesAndKeepsPacing() {
   CHECK(DecodeEventFrame(stand.network.PeekNext(kHost, kClient), resumed));
   CHECK(resumed.packet_id == packet_id);
 
-  // Pacing starts again from that send: repeated Online adds nothing.
+  // The next deadline is counted from the resumed send, not from the moment
+  // the endpoint went Online and not from the deadline that was pending
+  // before. The packet is dropped again so the wait is observable.
+  CHECK(stand.network.DropNext(kHost, kClient));
   sends = stand.host.counts.total;
-  for (int i = 0; i < 4; ++i) {
+  std::uint64_t waited = 0;
+  for (int i = 0; i < 15; ++i) {
     stand.host.counting->RepeatAvailabilityNotification(kClient);
     SetAvailability(stand, kHost, kClient, EndpointAvailability::Online);
     Advance(stand.host, kShareOfferRetryIntervalUs / 16);
+    waited += kShareOfferRetryIntervalUs / 16;
+    CHECK(stand.host.counts.total == sends);
   }
+  // Just short of one full interval since that send, still nothing.
+  CHECK(waited < kShareOfferRetryIntervalUs);
+  Advance(stand.host, kShareOfferRetryIntervalUs - waited - 1);
   CHECK(stand.host.counts.total == sends);
+  // Crossing it buys exactly one repeat of the same frozen packet.
+  Advance(stand.host, 1);
+  CHECK(stand.host.counts.total == sends + 1);
+  EventFrame paced;
+  CHECK(DecodeEventFrame(stand.network.PeekNext(kHost, kClient), paced));
+  CHECK(paced.packet_id == packet_id);
 
   Pump(stand, [&] { return HasLine(stand.client.Doc(), text); }, 80);
   ExpectSameDialog(stand);
   ExpectQuiet(stand);
   CHECK(stand.host.counts.while_offline == 0);
   Report("scenario 5c offline to online resume", stand);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 6: an ACK is the receiver's applied-and-persisted statement
+// ---------------------------------------------------------------------------
+
+// A successful Send does not deliver anything, and neither does an Online
+// destination. The sender may only consider an Event delivered once the
+// receiver has acknowledged it, and the receiver may only acknowledge an
+// Event it has already applied and written to its own storage.
+void TestAckMeansAppliedAndPersisted() {
+  Stand stand;
+  Connect(stand);
+  SetAvailability(stand, kHost, kClient, EndpointAvailability::Online);
+  SetAvailability(stand, kClient, kHost, EndpointAvailability::Online);
+  ExpectQuiet(stand);
+
+  auto const doc_id = stand.host.doc_id;
+  auto const text = Write(stand, stand.host, "durable-before-ack");
+  Advance(stand.host, 1);
+  CHECK(stand.network.PendingCount(kHost, kClient) == 1);
+  EventFrame sent;
+  CHECK(DecodeEventFrame(stand.network.PeekNext(kHost, kClient), sent));
+  auto const identity = sent.identity;
+  auto const key =
+      std::pair<std::string, std::uint64_t>{identity.origin_uid,
+                                            identity.origin_sequence};
+
+  // The Send call returned and the destination reads Online. The sender still
+  // treats the Event as undelivered, and the receiver has nothing.
+  CHECK(stand.network.Availability(kHost, kClient) ==
+        EndpointAvailability::Online);
+  CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
+  CHECK(!SyncStateForPeer(stand.host.Doc(), kClient)->HasDelivered(identity));
+  CHECK(!HasLine(stand.client.Doc(), text));
+  CHECK(ReadPersisted(stand.client).identities.count(key) == 0);
+
+  // Deliver the Event and hold the ACK in the queue.
+  CHECK(stand.network.DeliverNext(kHost, kClient));
+  CHECK(stand.network.PendingCount(kClient, kHost) == 1);
+  AckFrame ack;
+  CHECK(DecodeAckFrame(stand.network.PeekNext(kClient, kHost), ack));
+  CHECK(ack.packet_id == sent.packet_id);
+  CHECK(ack.target_node_id == doc_id);
+
+  // That ACK exists, so the receiver must already be able to survive a crash
+  // with the Event in place: a cold reader of its storage sees the identity,
+  // the payload and the materialized line.
+  auto const persisted = ReadPersisted(stand.client);
+  CHECK(persisted.identities.count(key) == 1);
+  CHECK(!persisted.lines.empty());
+  CHECK(persisted.lines.back() == text);
+
+  // And the sender is still waiting: an ACK that has not arrived is not one.
+  CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
+  CHECK(!SyncStateForPeer(stand.host.Doc(), kClient)->HasDelivered(identity));
+
+  // Unload the receiver with the ACK still in flight, and without any
+  // test-side save: only what production persisted before acknowledging can
+  // come back.
+  stand.client.Stop();
+  stand.client.Start();
+  CHECK(stand.client.RestoreFromStorage() == doc_id);
+  CHECK(HasLine(stand.client.Doc(), text));
+  CHECK(stand.client.Doc()->lines.back() == text);
+
+  // The queued ACK now reaches the sender and completes the delivery.
+  CHECK(stand.network.DeliverNext(kClient, kHost));
+  CHECK(!SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
+  CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasDelivered(identity));
+
+  ExpectSameDialog(stand);
+  ExpectParentsIndependent(stand);
+  ExpectQuiet(stand);
+  CHECK(stand.host.counts.node_state == 1);
+  CHECK(stand.client.counts.node_state == 0);
+  CHECK(stand.client.imports == 1);
+  CHECK(stand.host.counts.while_offline == 0);
+  CHECK(stand.client.counts.while_offline == 0);
+  Report("scenario 6 ack means applied and persisted", stand);
+}
+
+// The Offline side can also be the one that owes an ACK. It still applies and
+// persists what arrives, but must not put a single frame on the wire until it
+// is Online again, and the ACK it owes may not be lost meanwhile.
+void TestAckHeldWhileAcknowledgerOffline() {
+  Stand stand;
+  Connect(stand);
+  ExpectQuiet(stand);
+
+  SetAvailability(stand, kClient, kHost, EndpointAvailability::Offline);
+  auto const text = Write(stand, stand.host, "ack-blocked");
+  auto const client_sends = stand.client.counts.total;
+
+  Advance(stand.host, 1);
+  CHECK(stand.network.PendingCount(kHost, kClient) == 1);
+  EventFrame sent;
+  CHECK(DecodeEventFrame(stand.network.PeekNext(kHost, kClient), sent));
+  auto const identity = sent.identity;
+  CHECK(stand.network.DeliverNext(kHost, kClient));
+
+  // Applied and persisted by the Offline replica.
+  CHECK(HasLine(stand.client.Doc(), text));
+  auto const applied = Observe(*stand.client.Doc()).size();
+  CHECK(ReadPersisted(stand.client).identities.count(
+            {identity.origin_uid, identity.origin_sequence}) == 1);
+
+  // Nothing left its endpoint, and the ACK was not dropped on the floor.
+  CHECK(stand.client.counts.total == client_sends);
+  CHECK(stand.client.counts.while_offline == 0);
+  CHECK(stand.network.PendingCount(kClient, kHost) == 0);
+  CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
+
+  // The sender keeps retrying on its own interval. Each duplicate is
+  // recognized rather than applied again, and the owed ACK stays owed once.
+  for (int i = 0; i < 6; ++i) {
+    Advance(stand.host, kShareOfferRetryIntervalUs + 1);
+    while (stand.network.DeliverNext(kHost, kClient)) {
+    }
+    Advance(stand.client, kShareOfferRetryIntervalUs + 1);
+  }
+  CHECK(Observe(*stand.client.Doc()).size() == applied);
+  CHECK(stand.client.Doc()->lines.size() == applied);
+  CHECK(stand.client.counts.total == client_sends);
+  CHECK(stand.client.counts.while_offline == 0);
+  CHECK(stand.network.PendingCount(kClient, kHost) == 0);
+  CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
+  CHECK(!SyncStateForPeer(stand.host.Doc(), kClient)->HasDelivered(identity));
+
+  // Online again: the retained ACK goes out once and completes the delivery.
+  SetAvailability(stand, kClient, kHost, EndpointAvailability::Online);
+  Advance(stand.client, 1);
+  CHECK(stand.client.counts.total == client_sends + 1);
+  CHECK(stand.network.PendingCount(kClient, kHost) == 1);
+  AckFrame ack;
+  CHECK(DecodeAckFrame(stand.network.PeekNext(kClient, kHost), ack));
+  CHECK(ack.packet_id == sent.packet_id);
+  CHECK(stand.network.DeliverNext(kClient, kHost));
+  CHECK(!SyncStateForPeer(stand.host.Doc(), kClient)->HasPendingEvent());
+  CHECK(SyncStateForPeer(stand.host.Doc(), kClient)->HasDelivered(identity));
+
+  ExpectSameDialog(stand);
+  ExpectParentsIndependent(stand);
+  ExpectQuiet(stand);
+  CHECK(stand.host.counts.node_state == 1);
+  CHECK(stand.client.counts.node_state == 0);
+  CHECK(stand.host.counts.while_offline == 0);
+  CHECK(stand.client.counts.while_offline == 0);
+  Report("scenario 6b ack held while offline", stand);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 7: the initial snapshot under Unknown availability
+// ---------------------------------------------------------------------------
+
+// Nothing is known about the peer before the first exchange. Unknown must
+// still allow the attempt, its repeats are paced by the retry interval rather
+// than by the number of Service calls, and every repeat is the packet frozen
+// at the first attempt — not a snapshot rebuilt from the Node as it looks now.
+void TestInitialSnapshotUnderUnknownIsPacedAndFrozen() {
+  Stand stand;
+  stand.host.CreateParent();
+  stand.client.CreateParent();
+  auto doc = stand.host.CreateDoc();
+  auto const doc_id = doc.id();
+  Write(stand, stand.host, "frozen-1");
+  doc = {};
+  stand.client.sync->ExpectInitialNodeFromEndpoint(kHost, SharedDoc::kClassId);
+
+  CHECK(stand.network.Availability(kHost, kClient) ==
+        EndpointAvailability::Unknown);
+  Advance(stand.host, 1);
+  CHECK(stand.host.counts.node_state == 1);
+  std::vector<std::uint8_t> const first_bytes =
+      stand.network.PeekNext(kHost, kClient);
+  NodeStateFrame first;
+  CHECK(DecodeNodeStateFrame(first_bytes, first));
+  CHECK(first.target_node_id == doc_id);
+  std::size_t state_journal = 0;
+  {
+    auto state = SyncStateForPeer(stand.host.Doc(), kClient);
+    CHECK(state->GetInitialSyncPhase() == InitialSyncPhase::Pending);
+    CHECK(state->pending_initial_packet_id == first.packet_id);
+    state_journal = state->journal.size();
+  }
+
+  // Lost. Below the deadline nothing is re-sent, however often Service runs.
+  CHECK(stand.network.DropNext(kHost, kClient));
+  auto const sends = stand.host.counts.total;
+  for (int i = 0; i < 8; ++i) {
+    Advance(stand.host, kShareOfferRetryIntervalUs / 16);
+  }
+  CHECK(stand.host.counts.total == sends);
+  CHECK(stand.network.PendingCount(kHost, kClient) == 0);
+
+  // The host keeps writing while the snapshot is unacknowledged. The new
+  // Event waits: the relationship has no agreed base state yet.
+  Write(stand, stand.host, "frozen-2");
+  CHECK(stand.host.counts.total == sends);
+
+  // One elapsed interval buys exactly one repeat, and it is the same bytes.
+  Advance(stand.host, kShareOfferRetryIntervalUs);
+  CHECK(stand.host.counts.total == sends + 1);
+  CHECK(stand.host.counts.node_state == 2);
+  CHECK(stand.host.counts.event == 0);
+  CHECK(stand.network.PendingCount(kHost, kClient) == 1);
+  CHECK(stand.network.PeekNext(kHost, kClient) == first_bytes);
+  {
+    auto state = SyncStateForPeer(stand.host.Doc(), kClient);
+    CHECK(state->pending_initial_packet_id == first.packet_id);
+    CHECK(state->journal.size() == state_journal);
+  }
+  for (int i = 0; i < 4; ++i) {
+    Advance(stand.host, kShareOfferRetryIntervalUs / 16);
+  }
+  CHECK(stand.host.counts.total == sends + 1);
+
+  // The same snapshot arrives twice. The second one imports nothing.
+  CHECK(stand.network.DuplicateNext(kHost, kClient));
+  CHECK(stand.network.DeliverNext(kHost, kClient));
+  CHECK(stand.client.imports == 1);
+  CHECK(stand.network.DeliverNext(kHost, kClient));
+  CHECK(stand.client.imports == 1);
+
+  Pump(stand,
+       [&] {
+         return HasLine(stand.client.Doc(), "frozen-1") &&
+                HasLine(stand.client.Doc(), "frozen-2");
+       },
+       80);
+
+  // The snapshot carried the state it was frozen with; the later write
+  // arrived as an ordinary incremental Event.
+  CHECK(stand.host.counts.node_state == 2);
+  CHECK(stand.client.counts.node_state == 0);
+  CHECK(stand.host.counts.event == 1);
+  CHECK(Observe(*stand.client.Doc()).size() == 2);
+  ExpectNoDuplicates(Observe(*stand.client.Doc()));
+  ExpectSameDialog(stand);
+  ExpectParentsIndependent(stand);
+  ExpectQuiet(stand);
+  CHECK(stand.host.counts.while_offline == 0);
+  CHECK(stand.client.counts.while_offline == 0);
+  Report("scenario 7 unknown initial snapshot", stand);
 }
 
 // Local parent events stay local: they never reach the peer journal and never
@@ -1561,6 +1889,9 @@ int main() {
   apptraverse::test::TestUnacknowledgedDelivery();
   apptraverse::test::TestRepeatedOnlineDoesNotBypassRetryInterval();
   apptraverse::test::TestOfflineToOnlineResumesAndKeepsPacing();
+  apptraverse::test::TestAckMeansAppliedAndPersisted();
+  apptraverse::test::TestAckHeldWhileAcknowledgerOffline();
+  apptraverse::test::TestInitialSnapshotUnderUnknownIsPacedAndFrozen();
   apptraverse::test::TestLocalParentEventsStayLocal();
 
   std::cout << "shared_child_node_stand_test OK\n";
