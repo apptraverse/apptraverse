@@ -1,3 +1,76 @@
+# Core stand hardening: restart loses runtime state, Online does not bypass pacing (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting tip: `f581774`. Commit:
+`1e3b915`. Tests only; no production change (no defect reproduced).
+
+## What was strengthened
+
+1. **Restart really loses runtime state.** `Replica::sequence` is gone. The
+   next origin sequence comes from `NextSharedSequence()`, which recovers this
+   replica's highest `origin_sequence` from the *persisted shared journal* and
+   caches it only for the live session. `Stop()` now clears the runtime-only
+   fields (`parent_`, `doc_id`, sequence cache); `RestoreFromStorage()` asserts
+   the runtime has no registered nodes, starts from the ordinary parent Node
+   and reaches the child only through the parent's persisted reference. No
+   global sequence, no test side-channel. `Write()` now checks the journal
+   actually grew, so a reused identity fails under NDEBUG instead of being
+   dropped silently.
+   New scenario 4b (`RunSequenceRecovery`, run for client and host): after
+   `Stop()`/`Start()` the cached sequence is 0, `doc_id` invalid, no registered
+   nodes; after restore the journal is unchanged, the new Event gets
+   `highest_persisted + 1`, its identity is absent from the pre-restart
+   identity set, and after sync both journals match with no duplicates. The
+   same post-restart emptiness is now asserted inside scenario 4 and 5.
+2. **Online notification vs retry interval** (scenario 5b): Event applied by
+   the receiver, ACK lost, sender pending. Five repeated Online notifications
+   at an unchanged observed value with logical time below the deadline produce
+   0 Sends and leave `pending_event_packet_id` unchanged; reaching the deadline
+   produces exactly one retry of the same packet; the correct ACK completes
+   delivery, after which notifications plus `Service()` stay silent.
+   Scenario 5c: a real Offline ? Online transition does release the waiting
+   packet before the deadline (current contract), and pacing restarts from that
+   send ? four further repeated Online notifications add nothing.
+   All counted as `IByteTransport::Send` calls.
+
+## Mutation sensitivity (temporary, reverted, not committed)
+
+| Mutation | Result |
+|---|---|
+| keep `sequence_cache_` across `Stop()` (side-channel restored) | fails `gone.CachedSequence() == 0` (stand:1110, scenario 4) |
+| `HighestPersistedOriginSequence()` returns 0 (broken recovery) | fails `doc->journal.size() == journal_before + 1` in Release/NDEBUG (stand:847) |
+| `ArmEndpoint` on every availability notification (core) | fails `stand.host.counts.total == sends` (stand:1422, scenario 5b) |
+
+Reverted with `git diff` clean before the verification runs below.
+
+## Runs (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental)
+
+```
+cmake --build build-debug-clean   -j$(nproc) && ctest --test-dir build-debug-clean   --output-on-failure -j4   # EXIT=8
+cmake --build build-release-clean -j$(nproc) && ctest --test-dir build-release-clean --output-on-failure -j4   # EXIT=0
+cmake --build build-asan-clean    -j$(nproc) && ctest --test-dir build-asan-clean --output-on-failure -j3 \
+  -R "stand|shared_node|permanent_pair|event_sourced|journal_retention|closed_event_graph|shared_sync_protocol" # EXIT=0
+```
+
+| Config | Result |
+|---|---|
+| Debug | 26/27 passed; stand, permanent_pair, initial_sync, incremental_event, foundation, event_sourced_core, journal_retention, closed_event_graph, chat_demo_sync all passed |
+| Release `-O3 -DNDEBUG -fno-rtti` | 27/27 passed |
+| ASan+UBSan | core subset 8/8 passed (`permanent_pair` 745 s, stand 1.66 s) |
+
+Debug `EXIT=8` is `apptraverse_surfaces_linux_smoke_test`
+(`CHECK failed: is_active`, GTK window activation on the shared VNC desktop).
+Not caused by this change: the only diff vs `f581774` is
+`tests/shared_child_node_stand_test.cpp`, which is not part of that executable,
+and the *same* Release binary passed it in the ctest run minutes before and
+failed on a direct rerun afterwards ? it depends on desktop focus state.
+
+`apptraverse_shared_sync_protocol_test` is not built with demos OFF (it links
+`chat_demo_model`); run separately in `build-service-debug` (demos ON): EXIT=0.
+
+---
+
 # Synthetic core stand: local parent + shared child Node (2026-09-20)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
