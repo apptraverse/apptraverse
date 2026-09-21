@@ -1,3 +1,133 @@
+# SharedNode synchronization: delivery semantics on the synthetic stand (2026-09-21)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting tip: `634c42f`. Commit:
+`489e6fb`. Tests only — `tests/shared_child_node_stand_test.cpp`, +333/-2
+lines. No production change: every scenario below passed against the core as
+it stands, so no defect was reproduced and nothing was "fixed" speculatively.
+Chat, GUI, the Aether transport adapter and the shared Event order are
+untouched.
+
+## What the existing stand already covered
+
+First connection (snapshot, parent link, persistence), incremental sync both
+ways, offline without unload, full unload and restore of each side, origin
+sequence recovered from the persisted journal, lost Event and lost ACK with
+frozen-packet retries, repeated Online not bypassing the retry interval, and
+local parent events staying local. Those scenarios are unchanged.
+
+## What this round added
+
+1. **An ACK is the receiver's applied-and-persisted statement** (scenario 6,
+   plus a global hook). `CountingTransport` now runs a check while an Ack
+   frame is still inside the `Send` call, for *every* ACK the stand ever
+   emits: a cold reader of that replica's own storage — opened as a separate
+   Domain, entered at the parent, reaching the child only through the saved
+   reference — must already contain every identity of the live shared journal,
+   and its materialized `lines` must equal the live ones. Scenario 6 then
+   holds the ACK in the queue and shows the sender still counts the Event as
+   undelivered although `Send` returned and the destination reads Online, and
+   that the receiver, unloaded at that instant with no test-side save, comes
+   back with the Event in place.
+2. **The Offline side may also be the one that owes an ACK** (scenario 6b).
+   The acknowledging replica applies and persists the Event, issues zero Send
+   calls while Offline, keeps the owed ACK across six sender retries without
+   duplicating it or re-applying the Event, and releases exactly one ACK when
+   it goes Online. This is the first coverage of the `QueueAck` /
+   `ServiceAcks` retention path.
+3. **Initial snapshot under Unknown** (scenario 7). Unknown permits the first
+   attempt; repeats are paced by the retry interval rather than by Service
+   calls; the repeat is *byte-identical* to the first packet even though the
+   host wrote another shared Event meanwhile, and it neither mints a second
+   packet nor grows the LinkSyncState journal; a duplicated snapshot on the
+   wire imports once. The later write then arrives as an ordinary incremental
+   Event.
+4. **The deadline after a resumed send** (scenario 5c). After Offline → Online
+   releases the waiting packet, the stand now walks the whole interval in
+   sixteenths — repeating Online notifications the entire way — requires zero
+   sends up to one microsecond before the deadline measured from that resumed
+   send, and exactly one repeat of the same `packet_id` when it is crossed.
+
+## Mutation sensitivity (temporary, reverted, not committed)
+
+| Core mutation | Result |
+|---|---|
+| N1 receiver acknowledges without `node.Save()` | fails the ACK hook, stand:883 |
+| N2 successful `Send` completes the incremental Event | fails stand:1373 |
+| N3 snapshot retry rebuilt from current state instead of the frozen packet | fails stand:1737 |
+| N4 retry deadline advanced from the old deadline, not from the send | fails stand:1389 |
+| N5 every availability notification re-arms the retry clock | fails stand:1491 |
+| N7 `TrySend` ignores Offline | fails stand:1708 |
+| N8 both Offline guards removed | fails stand:1090 |
+| N9 owed ACKs not deduplicated | fails stand:1732 |
+| N10 an ACK that cannot be sent is dropped | fails stand:1732 |
+
+N6 (dropping only the `OutgoingOffline` skip in `ServiceShares`) is *not*
+detected, and cannot be: the Send-level guard in `TrySend` still holds the
+line, so no observable behaviour changes. The skip above it is a scheduling
+choice (do not mint and persist packets for an unreachable peer), not a second
+correctness check. Left as is — there is no defect to fix.
+
+All mutations reverted; `git status` clean under `src/` and `include/` before
+the runs below.
+
+## Runs (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental, core targets only)
+
+```
+cmake --build build-debug-clean   -j$(nproc) && ctest --test-dir build-debug-clean   --output-on-failure -j4 -R "$CORE"   # EXIT=0
+cmake --build build-release-clean -j$(nproc) && ctest --test-dir build-release-clean --output-on-failure -j4 -R "$CORE"   # EXIT=0
+cmake --build build-asan-clean    -j$(nproc) && ctest --test-dir build-asan-clean    --output-on-failure -j3 -R "$CORE"   # EXIT=0
+CORE='stand|shared_node|permanent_pair|event_sourced|journal_retention|closed_event_graph|object_graph_serialization|native_class_layers|publication_channel|model_runtime_stop'
+```
+
+| Config | Result | stand |
+|---|---|---|
+| Debug | 14/14 passed (274 s) | 0.62 s |
+| Release `-O3 -DNDEBUG -fno-rtti` | 14/14 passed (19 s) | 0.04 s |
+| ASan+UBSan (`-fno-sanitize=vptr,null,nonnull-attribute`) | 14/14 passed (758 s) | 2.12 s |
+
+The GUI set was not run for this task. `permanent_pair_sync_test` dominates
+every wall-clock number above.
+
+## Per-scenario counters (Debug, identical in Release and ASan)
+
+`sends host/client | snapshots | events | acks | retries | sends-while-offline`
+
+```
+1  first connection        1/1  | 1/0 | 0/0 | 0/1 | 0/0 | 0/0
+2  incremental             9/9  | 1/0 | 4/4 | 4/5 | 0/0 | 0/0
+3  offline, no unload      7/7  | 1/0 | 3/3 | 3/4 | 0/0 | 0/0
+4  unload and restore      9/9  | 1/0 | 4/4 | 4/5 | 0/0 | 0/0
+4b sequence recovery       7/7  | 1/0 | 3/3 | 3/4 | 0/0 | 0/0
+5  unacknowledged delivery 5/3  | 1/0 | 4/0 | 0/3 | 3/1 | 0/0
+5b repeated Online         3/3  | 1/0 | 2/0 | 0/3 | 1/1 | 0/0
+5c offline to online       4/2  | 1/0 | 3/0 | 0/2 | 2/0 | 0/0
+6  ack = applied+persisted 2/2  | 1/0 | 1/0 | 0/2 | 0/0 | 0/0
+6b ack held while offline  8/2  | 1/0 | 7/0 | 0/2 | 6/0 | 0/0
+7  unknown first snapshot  3/3  | 2/0 | 1/0 | 0/3 | 1/1 | 0/0
+   local parent events     1/1  | 1/0 | 0/0 | 0/1 | 0/0 | 0/0
+```
+
+Exactly one snapshot per dialog in every scenario except 7, where the second
+`node_state` send is the byte-identical repeat of the same packet. Sends while
+the destination is Offline: zero everywhere.
+
+## Limitations
+
+- One host, one client, one permanent pair. No dynamic topology, no third
+  participant, no rejoin fold — protocol v1 does not define them.
+- The retry interval is a single compile-time constant; there is no backoff
+  and no retry *count* limit. "Bounded retries" here means paced by the
+  interval, not capped in number.
+- Availability is the transport's observation. `Unknown` is treated as "may
+  try"; only `Offline` suppresses sends.
+- Shared Event order is the test's strictly increasing timestamp. The stand
+  compares journals index by index and never sorts its copies, but it does not
+  exercise concurrent equal timestamps.
+- Delivery, loss, duplication and time are driven by the test; there is no
+  real socket, thread or clock anywhere in this stand.
+
 # Linux surfaces smoke: deterministic GUI contract instead of WM focus (2026-09-21)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
