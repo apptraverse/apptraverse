@@ -1,3 +1,133 @@
+# Linux surfaces smoke: deterministic GUI contract instead of WM focus (2026-09-21)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting tip: `3bc52c0`. Tests only:
+`tests/surfaces_linux_smoke_test.cpp`. No production change — no production
+defect was reproduced. SharedNode sync and the synthetic stand are untouched.
+
+## Root cause of the old `CHECK(is_active)` failure
+
+`TestActiveZOrderRestored` relaunched the app with three persisted Surfaces and
+required `gtk_window_is_active(rs2) || gtk_window_has_toplevel_focus(rs2)`.
+
+Baseline (this cloud desktop: Xtigervnc `:1` + xfwm4), 30 sequential runs each:
+
+| Config | Result |
+|---|---|
+| Debug | 15/30 passed, 15 failed on `is_active` (smoke:496) |
+| Release | 14/30 passed, 16 failed on the same check |
+
+Instrumented probe (`is_active` replaced by a 3 s trace of every Surface
+window plus the mirror's current Surface) showed two variants:
+
+```
+PROBE t=0ms    [Surface 1 act=0][Surface 2 act=1][Surface 3 act=0] current=2
+PROBE t=100ms  [Surface 1 act=0][Surface 2 act=0][Surface 3 act=1] current=3   <- WM took it back
+PROBE t=0ms    [Surface 1 act=0][Surface 2 act=0][Surface 3 act=1] current=2
+PROBE t=100ms  [Surface 1 act=0][Surface 2 act=0][Surface 3 act=1] current=3
+```
+
+`RestoreActiveSurfaceZOrder()` runs inside `OnInitialPublished`, right after
+`InitializePresenters` has shown all three toplevels. Its `gtk_window_present`
+does reach the server — the first trace shows Surface 2 genuinely active at
+t=0 — and xfwm4 then applies its own new-window focus policy to the windows it
+is still mapping and moves focus to the last one, ~100 ms later. The state is
+stable afterwards; the WM simply picks a different winner in about half the
+runs. `OnFocusIn -> PageShown` then follows focus, which is the product's
+intended desktop behaviour, so `Surfaces::mobile_current` moves with it.
+
+## Why `is_active` is not an AppTraverse contract
+
+X11 input focus is granted by the window manager, not by the client: xfwm4 and
+friends implement focus-stealing prevention, a session may run with no WM at
+all, and a Wayland compositor ignores activation without an xdg-activation
+token. The probe shows the WM overriding an activation the application had
+already been granted, which no client code can prevent. The application's own
+obligation ends at issuing the request and reporting the Surface.
+
+For the same reason the test no longer asserts any absolute value of
+`Surfaces::mobile_current` while a session is live, nor the shutdown snapshot
+(`QueueFocusedAsCurrent` records the focused window): both are functions of WM
+focus by design.
+
+## Deterministic invariant checked instead
+
+`RestoreActiveSurfaceZOrder()` must resolve `Surfaces::mobile_current` by
+identity — falling back to `surfaces.back()` when it is empty — and *present
+that Surface's own window*. `gtk_window_present()` on a withdrawn window is
+plain GTK/X presentation: mapping cannot be refused by a window manager.
+
+`RestoreAndCheckTarget()` performs, inside one GUI turn (so no X event can
+interleave): hide every Surface window, read the target the production rule
+names from the live mirror, run the production restore, require exactly the
+target's window to be visible and mapped and every other to stay withdrawn,
+then withdraw it again. It is exercised twice — with a current Surface (the
+test selects Surface 2, which is not the creation-order last) and after that
+Surface was closed (fallback branch). Because the presented window is
+withdrawn again before returning to the main loop, no focus-in can report the
+Surface in the application's place, so the follow-up
+`WaitCurrentSurface(target)` proves the restore's own `PageShown`.
+
+The scenario also now asserts: each restored window is mapped and bound both
+ways to its own Surface; presenter unload destroys windows rather than hiding
+them (`CountSurfaceToplevels`); after `gui.join()` no Surface toplevel is
+left; the persisted current Surface is always a live list member.
+
+Two further deterministic fixes in the same file:
+
+- `ActivateWindow` no longer sleeps 100 ms; callers wait on the model instead.
+- Window bounds were snapshotted 100 ms after `PlaceOuter`, i.e. possibly
+  before the WM had applied the move. The app then persisted the settled
+  bounds and the restored comparison drifted past the 40 px tolerance
+  (3/100 Debug runs). `WaitOuterNear` now waits for the placement to land on
+  both the snapshot and the restore side.
+- The relaunch precondition (current Surface = Surface 2) is seeded from the
+  model between runs instead of relying on the WM-dependent shutdown snapshot.
+
+## Mutation sensitivity (temporary, reverted, not committed)
+
+| Mutation (production) | Result |
+|---|---|
+| M1 restore ignores `mobile_current` (always fallback) | 3/3 fail, smoke:392 |
+| M2 fallback uses `surfaces.front()` | 3/3 fail, smoke:392 |
+| M3 restore does not `gtk_window_present` | 3/3 fail, smoke:392 |
+| M4 restore does not `PageShown` its target | 3/3 fail, smoke:715 |
+| M5 `OnUnload` hides the window instead of destroying it | 3/3 fail, smoke:709 |
+| M6 `PlaceOuterWindow` ignores x/y | 3/3 fail, smoke:455 |
+
+M4 escaped the intermediate version that left the presented window mapped —
+the WM's focus-in reported the Surface instead of the application. Withdrawing
+the window inside the same GUI turn closed that hole.
+
+Reverted; `git status` clean under `examples/` before the runs below.
+
+## Runs (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental, `DISPLAY=:1`)
+
+```
+for i in $(seq 1 100); do DISPLAY=:1 build/tests/apptraverse_surfaces_linux_smoke_test || echo FAIL; done          # pass=100 fail=0
+for i in $(seq 1 100); do DISPLAY=:1 build-release/tests/apptraverse_surfaces_linux_smoke_test || echo FAIL; done  # pass=100 fail=0
+DISPLAY=:1 ctest --test-dir build         --output-on-failure -j4   # EXIT=0
+DISPLAY=:1 ctest --test-dir build-release --output-on-failure -j4   # EXIT=0
+./build/tests/apptraverse_shared_child_node_stand_test              # EXIT=0 (x3)
+./build-release/tests/apptraverse_shared_child_node_stand_test      # EXIT=0 (x3)
+```
+
+| Stage | Debug | Release |
+|---|---|---|
+| smoke, before | 15/30 passed | 14/30 passed |
+| smoke, derived target + placement wait (intermediate) | 99/100, 96/100 | — |
+| smoke, final | 100/100 | 100/100 |
+| full ctest | 27/27 passed (277 s) | 27/27 passed (19 s) |
+| `apptraverse_shared_child_node_stand_test` alone | passed 3/3 | passed 3/3 |
+
+The two intermediate attempts that still failed ~1-4/100 both tried to pin
+`mobile_current` to a chosen Surface before the check (hiding the competing
+windows, then withdrawing the WM input hint). Neither is reachable: unmapping
+a focused window makes the WM move focus, and its report lands after the
+selection. The final version derives the expectation instead, which is why it
+is stable.
+
 # Core stand hardening: restart loses runtime state, Online does not bypass pacing (2026-09-20)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
@@ -81,7 +211,7 @@ Commit: `e681059` (test + CTest target). Tests only; core untouched.
 ## Stand
 
 `tests/shared_child_node_stand_test.cpp`, one CTest target
-`apptraverse_shared_child_node_stand_test`. No `ChatSession`, GUI, �ther
+`apptraverse_shared_child_node_stand_test`. No `ChatSession`, GUI, �ther
 client, sockets, servers, threads or sleeps: real AppTraverse objects,
 `SharedSyncRuntime`, `MemoryTransport`.
 
@@ -125,7 +255,7 @@ Per-scenario Send counts, `host/client`. Each scenario runs its own stand, so
    `Service()`. Journal identity/order and materialized `lines` equal on both
    sides, each event applied once, no second snapshot, 0 retries.
 3. **Offline without unload** ? destination observed Offline; 25 `Service()`
-   calls at 3� the retry interval produce no Send at all and an empty queue;
+   calls at 3� the retry interval produce no Send at all and an empty queue;
    Online resumes into the same `SharedNode` instance (pointer identity) with
    no new connection and no snapshot. Repeated with reversed roles. Repeating
    an unchanged Online notification five times adds no sends.
@@ -137,7 +267,7 @@ Per-scenario Send counts, `host/client`. Each scenario runs its own stand, so
    re-import, no duplicates. Repeated with the host unloaded.
 5. **Unacknowledged delivery** ? event packet lost; Offline suppresses the
    retries too; `Unknown` lets the pending packet through again; retries are
-   interval-bounded (4 � interval/8 ? 0 sends, +1 interval ? exactly 1) and
+   interval-bounded (4 � interval/8 ? 0 sends, +1 interval ? exactly 1) and
    carry the original `packet_id`; ACK lost separately; sender unloaded and
    restored from storage still retries the same frozen `packet_id`; receiver
    recognizes the duplicate without re-applying and re-acks.
@@ -189,7 +319,7 @@ Checks are `std::cerr` + `std::exit(1)`, not `assert`: they hold under NDEBUG
 (verified by the Release run, which exercises the same assertions).
 
 This is a headless core stand. It is **not** a GUI check and **not** a real
-network check: no �ther client, no sockets, no OS windows are involved.
+network check: no �ther client, no sockets, no OS windows are involved.
 
 ---
 
