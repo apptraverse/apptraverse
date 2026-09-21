@@ -37,11 +37,34 @@ class MemoryNetwork {
   bool DropNext(std::string const& from, std::string const& to);
   // Queue a second copy of the head: the same packet arrives twice.
   bool DuplicateNext(std::string const& from, std::string const& to);
+  // Move the head behind every other queued packet on this direction.
+  // False when fewer than two packets are queued — order cannot change.
+  bool DeferNext(std::string const& from, std::string const& to);
+  // Damage the head so the existing frame header check rejects it.
+  // Flipping a payload byte is not enough: that byte can still be a legal value.
+  bool CorruptNext(std::string const& from, std::string const& to);
+  // Drop every queued packet. A restart test uses this so recovery cannot
+  // depend on bytes the test network still held.
+  void ClearQueues();
 
   // Directional outage. Sends are lost while it lasts, queued packets wait.
   void Disconnect(std::string const& from, std::string const& to);
   void Reconnect(std::string const& from, std::string const& to);
   bool IsConnected(std::string const& from, std::string const& to) const;
+
+  // Reported outgoing availability of one attached transport. Independent of
+  // Disconnect: a direction can look Online while Enqueue still drops, or
+  // Offline while a queue still holds bytes. The observation belongs to that
+  // transport instance. A new instance starts at Unknown. If the source
+  // endpoint is not attached, the value is not stored for a later instance.
+  // Missing entries are Unknown. Not serialized.
+  // SetAvailability and Deliver run on the caller's context and invoke the
+  // binding before returning. Notifies the source endpoint only when the
+  // value changes.
+  void SetAvailability(std::string const& from, std::string const& to,
+                       EndpointAvailability availability);
+  EndpointAvailability Availability(std::string const& from,
+                                    std::string const& to) const;
 
  private:
   void Attach(MemoryTransport& transport);
@@ -74,17 +97,25 @@ class MemoryTransport final : public IByteTransport {
             std::vector<std::uint8_t> bytes) override;
   void BindReceive(void* ctx, ReceiveFn fn) override;
   void ClearReceive() override;
+  EndpointAvailability Availability(std::string const& endpoint) const override;
+  void BindAvailability(void* ctx, AvailabilityFn fn) override;
+  void ClearAvailability() override;
 
  private:
   friend class MemoryNetwork;
 
   void Deliver(std::string const& source_endpoint,
                std::vector<std::uint8_t> const& bytes);
+  void NoteAvailability(std::string const& endpoint,
+                        EndpointAvailability availability);
 
   MemoryNetwork& network_;
   std::string local_endpoint_uid_;
   void* receive_ctx_{nullptr};
   ReceiveFn receive_fn_{nullptr};
+  void* availability_ctx_{nullptr};
+  AvailabilityFn availability_fn_{nullptr};
+  std::map<std::string, EndpointAvailability> availability_;
 };
 
 }  // namespace apptraverse

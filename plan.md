@@ -308,6 +308,322 @@ Storage I/O failure handling remains out of scope unless separately assigned.
 
 Restart tests must really destroy and recreate Application / Domain / runtime.
 
+## Share admission — exchange and transitions
+
+**Superseded by the permanent pair contract.** Offer/RequestJoin/ShareOffer
+admission FSM and decision frames are removed from the product surface.
+Formation is InstallLocalShare×2 + ExpectInitial + SyncInitialState. Text
+below is design archaeology only.
+
+Admission of one chosen SharedNode to one remote endpoint is a core
+procedure on `SharedSyncRuntime`. It is not a JoinManager, not chat, and
+not an Æther control channel. Bytes still move only through `IByteTransport`.
+`MemoryTransport` / `MemoryNetwork` is the implementation under test; it is
+not authentication.
+
+Three identities stay distinct:
+
+- **operation** — one offer. On the initiator this is the `ShareOffer` ObjId.
+  Retries reuse it. A second call for the same node and endpoint while the
+  offer is open returns that id and does not add another Share.
+- **node** — the SharedNode being replicated. The receiver imports that ObjId;
+  it does not mint a lookalike.
+- **share** — one `SharedNode <-> Link` lifetime, the `AddShareEvent` ObjId.
+  Created on the initiator only after the peer accepts, then carried inside
+  the snapshot. The receiver does not invent it.
+
+Persisted admission state is event-sourced on local `ShareOffer` objects
+(not part of the shared graph). `Apply` only stores fields. Sends, timers,
+and new identifiers happen outside `Apply`, so replay does not retransmit
+or allocate. Runtime retry clocks are not journaled. Frozen packet bytes are.
+
+Logical time is supplied by `SharedSyncRuntime::Service(now_us)`. There is
+no sleep and no background thread. Retry interval is
+`kShareOfferRetryIntervalUs`. A packet already sent in this process is
+resent only after that interval. After a restart the first `Service` sends
+the persisted packet immediately, because the new transport has no memory
+of the previous send.
+
+### Frames
+
+Protocol v1 gains two frame types. The transport still sees opaque bytes.
+Neither frame contains a source endpoint: the receiver uses the source the
+transport reports.
+
+1. `ShareOffer` — initiator → responder. `packet_id`, `operation_id`,
+   `node_id`, root class, access granted to the responder.
+2. `ShareDecision` — responder → initiator. Same identity fields plus
+   accept/reject. A repeat of one operation resends the persisted decision
+   and does not open a second offer or a second node.
+
+Existing `NodeState`, `Ack`, and `Event` frames are unchanged.
+
+### Transitions
+
+Initiator phases: `Pending` (offer persisted, waiting for a decision) →
+`Accepted` (decision matched the offer; `AddShare` once; initial sync
+started) → `Complete` (initial ACK persisted). `Rejected` is terminal and
+does not add a Share.
+
+Responder phases: policy accept → `Pending` (expectation persisted: source,
+node, class, access) → `Bound` (snapshot imported and saved, then ACK).
+Policy reject → `Rejected`, no node, no successful ACK. A later snapshot is
+admitted only when it matches that persisted expectation. An open
+expectation for a different node from the same endpoint does not authorize
+this one. `ExpectInitialNodeFromEndpoint` keeps the same rule: expectations
+are keyed by `(source_endpoint, node_id)`, a second node does not overwrite
+the first, and completing or forgetting one leaves the others.
+
+`Service` is the only pump the application has to call. It resends a due
+offer or decision, drives `SyncInitialState` for an accepted initiator
+share, then `SyncNextEvent` for every Complete remote share. The application
+does not walk phases itself.
+
+Events committed after the snapshot is frozen are not in
+`covered_event_ids`. They go out as incremental Events after the initial
+ACK. A repeat of the same snapshot is an ACK, not a rollback.
+
+ReadOnly is the destination share's access. That replica receives
+incremental Events and cannot have its own Event admitted by the peer
+(`EventAddressedToThisReplica` still requires ReadWrite). A rejected offer
+or a rejected packet leaves no Complete/Bound success.
+
+Graph, class-chain, addressee, and object-collision checks stay in force.
+A damaged or unauthorized frame is a normal reject: no `abort`.
+
+This slice replicates standalone shared Events on the chosen node. It does
+not claim arbitrary dynamic object graphs, multi-hop, presence, or real
+Æther delivery.
+
+Status of this procedure: **implemented / verified** by
+`apptraverse_shared_node_join_test` in Debug and Release (`-DNDEBUG`,
+`-fno-rtti`). Both directions are in that run. Not accepted-by-user.
+
+## Join request — both directions, one exchange
+
+`OfferNode` stays “I have this node, I grant you access”. The other
+direction is `RequestJoin(remote_endpoint, node_id, requested_access)`:
+“you have this node, I want its state”. The requester does not create a
+local lookalike. The holder of the node is the one that may grant access
+and send the snapshot. Instance UIDs are not compared.
+
+Both directions use the same `ShareOffer`, the same import, the same
+retry, and the same journal sync. There is no second runtime.
+
+### Identities
+
+- **endpoint** — one application instance, as the transport names it.
+- **node_id** — the SharedNode being replicated.
+- **operation_id** — one attempt. A repeat of that attempt is not a new
+  attempt. A later attempt after `Rejected` is a new operation.
+- **share_id** — the relationship created when the attempt is accepted.
+  Recipients of node X live only in `X.shares`. An unfinished offer is not
+  a second recipient list, and a finished offer is not what authorizes
+  later events. After `Complete` / `Bound`, sync follows the Share and its
+  `LinkSyncState`.
+
+No saved PeerLink is created just to know the peer. Before a Share exists,
+the only bytes on `IByteTransport` are admission frames. Receiving one does
+not permit import.
+
+### Frames
+
+`ShareOffer` (grant) and `ShareRequest` (request) are distinct frame types
+with the same fields: packet, operation, node, class, access. Neither
+carries a source. `ShareRequest` may carry class 0; the holder fills the
+real class into the decision. `ShareDecision` is shared. Its access byte is
+the granted right.
+
+A repeat is the same operation only when the transport source, node, kind,
+class, and requested access all match the stored attempt. The same
+operation id with any of those changed is ignored. It is not a new attempt
+and it does not rewrite the stored decision.
+
+### Who decides, and when
+
+The receiver of a grant or a request stores the attempt with an event in
+phase `AwaitingDecision` and notifies the application. That does not block
+the model thread. The application later calls `AcceptJoin(operation,
+granted_access, link)` or `RejectJoin(operation)`.
+
+`SetShareOfferPolicy` may still answer in the same turn. It calls those
+same two commands. No policy and no later command means no access. A saved
+`Rejected`, `Admitted`, `Accepted`, `Bound`, or `Complete` is not asked
+again after restart. `AwaitingDecision` is still open and is notified again.
+
+`AcceptJoin` / `RejectJoin` commit events. `Apply` stores the phase and the
+frozen decision bytes. The send happens after `Commit`.
+
+Phases that authorize import are only `Admitted` and `Bound`, and only on
+the side that does not already hold the node (grant responder, request
+initiator). `AwaitingDecision` does not. The snapshot sender is the side
+that already holds the node (grant initiator, request responder), in
+`Accepted` then `Complete`.
+
+### Binding
+
+Import into the Domain is not a finished join. `OnNodeState` calls
+`SetInitialNodeImportedCallback` for an admission that is not yet `Bound`,
+the same callback an endpoint expectation uses. No callback, or a callback
+that returns false, means no ACK and no `Bound`. The node may already be
+saved; the callback runs again on the next snapshot. Once `Bound` is
+stored, a repeated snapshot ACKs and does not bind again.
+
+Successful join: the replica is saved, the local binding the callback
+performed is saved, and both are visible after the runtime is destroyed and
+created again from that storage alone.
+
+### Retries and quiet wire
+
+`Service` resends an initiator packet only while that attempt is `Pending`.
+A stored decision is sent when it is made, and again only as the answer to
+a matching repeat of the original frame. A `Rejected` attempt is not on a
+timer. After every attempt has left `Pending` / `AwaitingDecision` and
+every Share has acknowledged its events, further `Service` calls put no
+bytes on the transport.
+
+A `Rejected` attempt does not block a new operation for the same endpoint
+and node. An attempt that is still open does.
+
+A decision whose bytes were committed while the endpoint was Offline is
+not a second outbox. Those bytes already live on the `ShareOffer`. The
+first `Service` that is allowed to send hands that same packet to the
+transport. A decision that was handed off and then lost is still reproduced
+only when the original request is repeated.
+
+## Endpoint availability
+
+Outgoing availability is one observation on `IByteTransport`, keyed by the
+Link endpoint uid. `Link` does not store it, and it is not a field of a
+SharedNode snapshot. A→B and B→A are independent. Creating the runtime
+again does not reload a previous Online. The observation lives on that
+transport instance, not on the network. Detach drops it.
+`SetAvailability` while the source is not attached does not leave a value
+for the next instance. A new transport reports Unknown until it observes
+otherwise. Disconnect and queued bytes stay on the network.
+
+- **Online** — a send may be attempted. This is not a delivery receipt.
+- **Offline** — `Send` is not called. Pending bytes stay where they already
+  live. The operation is not moved to Complete.
+- **Unknown** — not Offline. Rate-limited attempts stay allowed, so the
+  first connection is not blocked forever.
+
+`SharedSyncRuntime` is the only reader. Every outgoing path checks it:
+offer, request, accept, reject, repeat, snapshot, event, and ACK. Incoming
+packets and ACKs are still applied while outgoing is Offline.
+
+A response formed while Offline is the existing persisted packet. The next
+`Service` after Offline→Online sends those same bytes. There is no second
+durable outbox. An ACK that could not be handed off is remembered only in
+the live runtime; after restart the peer's retry reproduces it from the
+saved received packet id.
+
+The availability callback is delivered by the adapter on the model context.
+`Availability()` is the only observation `SharedSyncRuntime` reads. The
+callback does not send. A repeated Online with no change does not pull the
+retry clock forward. While Offline the retry clock is not consumed, so a
+long outage plus a time jump does not emit a burst: the first `Service`
+after Online sends the current packet once.
+
+Status: **implemented / verified** by
+`apptraverse_shared_node_availability_test`. Heartbeat, last-seen, and real
+Æther presence are not this slice. Not accepted-by-user.
+
+## Three replicas of one node
+
+**Superseded / cancelled** with ladder 14. One dialog is exactly two peers;
+`apptraverse_shared_node_topology_test` is removed. Text below is archaeology.
+
+`apptraverse_shared_node_topology_test` is the closed check. A and B share
+one node, C joins through A, and all three converge on shared events and on
+share id, endpoint, and access. B and C exchange directly after A is down.
+The relationship id is the protocol `share_id` on `AddShareEvent`, not the
+receiver's local event ObjId. Access changes and removal propagate. A
+removed share is not restored by an old AddShare packet. A deterministic
+3000-step run with loss, duplicates, reordering, availability, and restarts
+converges, and further `Service` calls do not `Send` once every
+acknowledgement has been delivered.
+
+This still replicates standalone shared Events plus the share-topology
+events. It does not claim arbitrary dynamic object graphs, multi-hop,
+heartbeat, last-seen, or real Æther delivery. `MemoryTransport` is not
+authentication. Not accepted-by-user.
+
+Every `ShareOffer` is attached, by an event, to one local `ShareAdmission`
+root at a fixed ObjId. The runtime loads that root from its own storage
+when it is constructed. `offers_` is only the live cache. A test must not
+copy `LocalOfferIds()` out of the runtime it is about to destroy.
+
+## Concurrent topology changes
+
+Removal closes one concrete relationship lifetime identified by `share_id`.
+A second admissible remove of the same lifetime does not crash, does not
+assert, and does not invent new materialized state: the share stays absent.
+An access change of a closed relationship does not reopen it. Rejoining the
+same endpoint is a new relationship and uses a new `share_id`.
+
+Two independent concurrent events (for example A and B both remove C, or
+one side removes while another changes access) are not the same as a
+retransmit of one event. Both events enter the shared journal when they
+are admissible. Apply of a remove whose share is already gone is a no-op.
+Apply of an access change whose share is already gone is a no-op.
+`CanApply` admits those no-ops so historical insert and scratch preflight
+do not abort on a correct concurrent schedule. An unknown `share_id` that
+was never introduced remains inadmissible.
+
+Replicas that exchange both events converge on the same shared identities
+and the same materialized shares and access. Discarding a second concurrent
+event only because it arrived later is forbidden when that would make the
+result depend on delivery order. Equal `timestamp_us` across sources stays
+an open ordering case for journal position, but both events must still be
+admitted and delivered to the closed participant.
+
+A new `RemoveShare` aimed at a lifetime that is already closed here is
+accepted when: the payload `share_id` matches `destination_share_id`, that
+relationship was introduced and ended at this endpoint, and the transport
+source is a live ReadWrite participant (a relay may differ from the shared
+author). Duplicate ACK of an already-applied event stays on
+`MayAcknowledgeDelivery`. Access changes and application events do not use
+the concurrent-close path. Each undelivered close for the lifetime is armed
+in turn until acknowledged.
+
+Status: **implemented / verified** by concurrent remove and access-race
+tests in `apptraverse_shared_node_topology_test`, including delivery of both
+independent closes to the closed peer. Equal `timestamp_us` across sources
+stays an open ordering case for journal position.
+
+## Safe rejoin snapshot fold
+
+`FoldMissingSharedFromSnapshot` compares every shared identity already present
+locally for matching timestamp, class, and canonical content (AddShare uses
+`LinkDescriptorsMatch`, not endpoint string alone). A mismatch is a conflict
+and rejects the snapshot before live mutation. Missing events are prefighted,
+then applied; `CompleteFromReceivedSnapshot` receives only
+identities from the snapshot journal, not the merged local journal. Ordering
+uses `SharedEventOrderLess` with a stable sort (no `origin_sequence` tie-break).
+
+## Revoke during initial sync
+
+**Removed** with the permanent-pair strip: `CancelInitialSyncEvent` /
+`CancelIncrementalEventSyncEvent` / `NotePeerDelivered` are no longer part of
+the product surface. Closing a relationship mid-sync is not supported; a
+dialog is Install×2 then SyncInitial/Next until Complete.
+
+## Cancel pending vs confirmed delivery
+
+**Removed** cancel-pending path. Confirmed delivery still uses only
+`CompleteIncrementalEventSyncEvent` after a protocol ACK. A late ACK whose
+`packet_id` no longer matches the current pending packet is ignored.
+
+## Public topology mutation path
+
+Permanent AeroAdmin dialog formation uses `SharedNode::InstallLocalShare`
+twice (self + peer; max two ReadWrite shares) on the holder, then
+`ExpectInitialNodeFromEndpoint` / `ExpectInitialNode` on the peer and
+`SyncInitialState`. There is no Offer/Accept, RemoveShare, ChangeShareAccess,
+or CatchUp on the product surface. `AddShareEvent` remains the journal form of
+a local install and of the topology carried in a NodeState snapshot.
+
 ## Transport / Link contract
 
 One Link may carry multiple SharedNode protocols.
@@ -346,10 +662,12 @@ make Æther capabilities impossible.
 
 ## Presence
 
-Presence / availability is a **Link** capability.
+Presence / availability is a **Link** capability, observed through the
+transport adapter for that Link's endpoint uid. It is not a second field
+on the synchronizer and it is not serialized on the Link.
 
 Business model may reference Link for online status.
-Shared sync scheduler reads the same Link availability.
+Shared sync scheduler reads the same transport availability.
 
 No special `if local participant … else remote …` branches for sync core.
 
@@ -432,6 +750,72 @@ each other is `std::lower_bound` behavior on that replica, not agreed order,
 and convergence for that case is not claimed. Do not silently solve it by
 adding a second sort key.
 
+## Permanent pair contract (AeroAdmin A↔B dialog)
+
+Product scope for SharedNode sync is permanent one-to-one chat only. One
+`SharedNode` is one dialog between exactly two permanent ReadWrite participants.
+Dynamic multi-party topology is out of product scope and is not kept in the
+runtime for later ladders (history remains in Git).
+
+### Formation (single scheme = product path)
+
+1. Operator launches via existing AeroAdmin / chat_demo parameters.
+2. Host creates the dialog node, `InstallLocalShare` for self and for the peer
+   (exactly two shares), registers the node, then `SyncInitialState` toward the
+   peer share.
+3. Peer calls `ExpectInitialNodeFromEndpoint` (or an exact node expectation) and
+   imports the `NodeState` snapshot. No `OfferNode` / `RequestJoin` / ShareOffer
+   admission FSM.
+4. After connect: both sides are permanent ReadWrite; both send messages.
+
+### Persistence and reopen
+
+Offline, window close, app exit, and restart do not delete the relationship or
+mint a new journal. Reopen registers the stored node and resumes
+`SyncInitialState` / `SyncNextEvent` / ACK retry. Full local storage loss is
+out of scope.
+
+### Delivery
+
+Local commit + `Service()`. Initial sync, bidirectional incremental Events,
+ACK, retry, dedupe. Delivered means peer applied and persisted — not human
+read, and not merely handing bytes to the transport. Offline suppresses sends;
+Online resumes without restart; Unknown does not permanently block the first
+attempt. After all confirmations, no repeated event sends.
+
+### Isolation and admission
+
+A↔B and A↔C are different SharedNodes. A third InstallLocalShare on an
+established pair is refused in code (`shares.size() <= 2`). Foreign endpoints
+do not receive history or become participants without a matching expectation.
+Inbound Events are validated; ACK source must match the pending destination.
+
+### Removed from the product surface
+
+Third+ participants on one dialog; leave/remove/revoke; access change /
+ReadOnly grants; rejoin-after-remove and snapshot fold; topology event relay;
+concurrent remove/access races; Offer/RequestJoin admission; ShareCatchUp for
+topology-introduced shares.
+
+### Equal timestamps
+
+Unchanged open case: journal physical order among equal `timestamp_us` is not
+agreed order. Permanent-pair Observe uses
+`(timestamp_us, origin_uid, origin_sequence)` for content agreement without a
+second distributed order key.
+
+Status: **implemented** via stripped permanent-pair surface +
+`apptraverse_permanent_pair_sync_test` (chat formation). Not accepted-by-user.
+
+### Core stand without the application
+
+`apptraverse_shared_child_node_stand_test` is the application-free profile of
+the same contract: two replicas, each with a local persisted parent Node that
+references a child SharedNode, `SharedSyncRuntime` and `MemoryTransport` only.
+Use it for first connection, incremental delivery, Offline/Online without
+unload, unload + restore through the persisted parent reference, and
+unacknowledged delivery — without `ChatSession`, GUI or a network client.
+
 ---
 
 # Planned implementation ladder
@@ -440,7 +824,9 @@ adding a second sort key.
 (v1.1 corrections). Initial-state synchronization (05–07, 09 initial subset),
 standalone incremental Event replication (08, 09 Event subset, 12 source
 access), and closed Event graph serialization slice are on `main`. Dynamic
-object graphs, topology Events, multi-hop, presence, and Æther are not started.**
+object graphs, topology Events, multi-hop, heartbeat, and Æther are not
+started. Outgoing endpoint availability is implemented on this branch and
+is not accepted-by-user.**
 
 ### SharedNode headless (01–16)
 
@@ -449,25 +835,25 @@ object graphs, topology Events, multi-hop, presence, and Æther are not started.
 03. **Separate shared and local-persistent graph edges** — **implemented/verified** (generic `LocalPtr` + `GraphCopyPolicy::NetworkShared`; no SharedNode sanitization; rebuild stash).  
 04. **Persist per-Share SharedNode sync state** — **foundation implemented/verified** (`LinkSyncState` Event-sourced Node + `InitialSyncPhase` only; keyed by Share relationship identity so RemoveShare+AddShare starts a new relationship at NotStarted and a forced `RebuildFromBaseAndReplay` keeps the current relationship's progress; no ACK/pending bytes yet).  
 05. **Add generic shared sync framing and routing** — **implemented/verified for NodeState, Ack, and standalone Event** (protocol v1 frames routed by `target_node_id` and named by `destination_share_id`; canonical frame length and non-zero ids required; every frame bound to the transport `source_endpoint`; `SharedSyncRuntime` per replica).  
-06. **Add deterministic Memory Link transport** — **message delivery subset implemented/verified** (opaque bytes, endpoint identity, deliver / drop / duplicate / disconnect / reconnect, no threads or sleeps; no heartbeat, presence, reorder, or fake clock yet).  
+06. **Add deterministic Memory Link transport** — **message delivery plus directional availability implemented/verified** (opaque bytes, endpoint identity, deliver / drop / duplicate / defer-reorder / disconnect / reconnect, deterministic Online / Offline / Unknown; no threads or sleeps; no heartbeat or last-seen).  
 07. **Synchronize a SharedNode to a newly attached Link** — **implemented/verified** (freeze + persist + send, admission of the snapshot in a scratch Domain before any write to real storage, import into the receiver Domain, receiver-local sync state by journal replay, persist before ACK, duplicate acknowledged without re-apply).  
 08. **Replicate incremental SharedNode Events** — **standalone scalar subset implemented/verified** (`EventFrame` + generic `Ack`; one pending Event packet per Share; `SharedEventId` is the only cross-replica identity; receiver allocates a fresh local Event ObjId; Event graphs that reach a second object are refused; pre-LoadRoot class chain validation and scratch preflight replay guarantee safe admission). **Closed Event graph serialization slice implemented/verified** (Freeze, Parse, Validate, and Import for closed Event graphs referencing Nodes and Objs with aliases, remapped `ObjIds` avoiding receiver collisions, remapped `Node::base`, excluded `LocalPtr`s, invariant checks in disposable scratch, zero receiver mutation on failure, and explicit export boundary; wire integration into `EventFrame`/ACK deferred). Dynamic child-object graphs, topology Events, and multi-hop are not started.  
 09. **Make shared delivery restart-safe** — **implemented/verified for initial state and standalone Events** (sender restart while pending resends the same packet id and bytes, receiver restart after apply still recognizes the duplicate from the journal, sender restart after ACK keeps the identity delivered and does not resend).  
-10. **Replicate dynamic SharedNode graphs** — topology changes as shared Events.  
+10. **Replicate dynamic SharedNode graphs** — **cancelled** (superseded by permanent-pair contract; Offer/Remove/ChangeAccess / multi-party topology removed from the product surface).  
 11. **Share multiple Nodes over one Link** — multiplexing proof.  
-12. **Enforce RW and RO sharing rights** — **source access implemented/verified for incremental Events** (ReadWrite source required to mutate; ReadOnly destination may still receive). Recipient-filtered graphs and writer-vs-reader edge visibility are later.  
+12. **Enforce RW and RO sharing rights** — **cancelled** (permanent pair is ReadWrite-only; ReadOnly / ChangeShareAccess removed).  
 13. **Add recipient-scoped object references** — filtered graph edges for writers vs readers.  
-14. **Prove full share topology with three replicas** — A/B/C memory convergence.  
-15. **Integrate Link presence with SharedNode delivery** — scheduler observes Link availability.  
+14. **Prove full share topology with three replicas** — **cancelled** (superseded; `apptraverse_shared_node_topology_test` removed; one dialog = two peers).  
+15. **Integrate Link presence with SharedNode delivery** — **availability subset implemented/verified** (scheduler reads `IByteTransport` availability for the Link endpoint; known Offline does not call `Send`; Offline→Online resumes the same packets on the next `Service`). Heartbeat, last-seen, and real Æther presence are not started.  
 16. **Freeze shared_node_demo headless contract** — documented PASS criteria for headless sharing.
 
 ### Chat ladder on SharedNode (17–21)
 
-17. **Build ChatRoom on SharedNode** — product chat model uses generic sharing, not a special Chat sync core.  
-18. **Add in-process two-window memory chat** — one process, two windows, Memory Link.  
-19. **Add multi-participant host chat** — host + several participants on memory transport.  
-20. **Add Æther Link transport** — replace Memory Link with Æther without redesigning SharedNode.  
-21. **Run chat replicas in separate processes** — then AeroAdmin-X product chat.
+17. **Port chat model onto SharedNode** — Workspace / ChatEntry / ChatRoom as SharedNode graph.  
+18. **Prove 1:1 chat over SharedNode + memory transport** — formation via InstallLocalShare×2 + ExpectInitial + SyncInitial.  
+19. **Add multi-participant host chat** — **cancelled** (permanent pair only; no third participant on one dialog).  
+20. **Chat presentation headless projection** — feed formatting without UiMirror.  
+21. **Chat demo sync smoke** — `apptraverse_chat_demo_sync_test`.
 
 ---
 

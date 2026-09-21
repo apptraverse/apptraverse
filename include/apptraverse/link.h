@@ -38,6 +38,9 @@ class Link : public NodeFor<Link> {
   // Locality stays runtime-relative: a runtime recognizes its own Link by
   // comparing this with its own endpoint uid. Empty when the descriptor has no
   // transport address yet.
+  //
+  // Observed availability is not a field of Link. The transport adapter
+  // reports it for this uid at runtime. A saved Online is not reloaded.
   virtual std::string const& EndpointUid() const;
 };
 

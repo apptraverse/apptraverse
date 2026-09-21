@@ -67,6 +67,32 @@ bool MemoryNetwork::DuplicateNext(std::string const& from,
   return true;
 }
 
+bool MemoryNetwork::DeferNext(std::string const& from, std::string const& to) {
+  auto const queue = queues_.find(Direction{from, to});
+  if (queue == queues_.end() || queue->second.size() < 2) {
+    return false;
+  }
+  auto head = std::move(queue->second.front());
+  queue->second.pop_front();
+  queue->second.push_back(std::move(head));
+  return true;
+}
+
+bool MemoryNetwork::CorruptNext(std::string const& from,
+                                std::string const& to) {
+  auto const queue = queues_.find(Direction{from, to});
+  if (queue == queues_.end() || queue->second.empty() ||
+      queue->second.front().empty()) {
+    return false;
+  }
+  auto& packet = queue->second.front();
+  // Protocol version sits at byte 1. A bad version is not a frame.
+  packet[packet.size() < 2 ? 0 : 1] ^= static_cast<std::uint8_t>(0xFF);
+  return true;
+}
+
+void MemoryNetwork::ClearQueues() { queues_.clear(); }
+
 void MemoryNetwork::Disconnect(std::string const& from,
                                std::string const& to) {
   disconnected_.insert(Direction{from, to});
@@ -79,6 +105,25 @@ void MemoryNetwork::Reconnect(std::string const& from, std::string const& to) {
 bool MemoryNetwork::IsConnected(std::string const& from,
                                 std::string const& to) const {
   return disconnected_.find(Direction{from, to}) == disconnected_.end();
+}
+
+void MemoryNetwork::SetAvailability(std::string const& from,
+                                    std::string const& to,
+                                    EndpointAvailability availability) {
+  auto const endpoint = endpoints_.find(from);
+  if (endpoint == endpoints_.end()) {
+    return;
+  }
+  endpoint->second->NoteAvailability(to, availability);
+}
+
+EndpointAvailability MemoryNetwork::Availability(std::string const& from,
+                                                 std::string const& to) const {
+  auto const endpoint = endpoints_.find(from);
+  if (endpoint == endpoints_.end()) {
+    return EndpointAvailability::Unknown;
+  }
+  return endpoint->second->Availability(to);
 }
 
 void MemoryNetwork::Attach(MemoryTransport& transport) {
@@ -124,6 +169,44 @@ void MemoryTransport::BindReceive(void* ctx, ReceiveFn fn) {
 void MemoryTransport::ClearReceive() {
   receive_ctx_ = nullptr;
   receive_fn_ = nullptr;
+}
+
+EndpointAvailability MemoryTransport::Availability(
+    std::string const& endpoint) const {
+  auto const it = availability_.find(endpoint);
+  if (it == availability_.end()) {
+    return EndpointAvailability::Unknown;
+  }
+  return it->second;
+}
+
+void MemoryTransport::NoteAvailability(std::string const& endpoint,
+                                       EndpointAvailability availability) {
+  auto const it = availability_.find(endpoint);
+  if (it != availability_.end()) {
+    if (it->second == availability) {
+      return;
+    }
+    it->second = availability;
+  } else if (availability == EndpointAvailability::Unknown) {
+    return;
+  } else {
+    availability_.emplace(endpoint, availability);
+  }
+  if (availability_fn_ == nullptr) {
+    return;
+  }
+  availability_fn_(availability_ctx_, endpoint, availability);
+}
+
+void MemoryTransport::BindAvailability(void* ctx, AvailabilityFn fn) {
+  availability_ctx_ = ctx;
+  availability_fn_ = fn;
+}
+
+void MemoryTransport::ClearAvailability() {
+  availability_ctx_ = nullptr;
+  availability_fn_ = nullptr;
 }
 
 void MemoryTransport::Deliver(std::string const& source_endpoint,
