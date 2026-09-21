@@ -1,3 +1,90 @@
+# ACK check: verify the data the ACK actually answers (2026-09-21)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting tip: `2f0e4e6`. Commit:
+`dfcffee`. One file: `tests/shared_child_node_stand_test.cpp`, +251/-105.
+**Production diff for this round is empty** — `git diff src/ include/
+examples/` is clean, and both mutations below were reverted before the runs.
+
+## The gap
+
+`ExpectAckPreconditions()` compared the acknowledging replica's *live* state
+with its *persisted* state. An ACK sent before the event was applied left both
+sides equally stale, so the comparison passed. It also skipped itself entirely
+when the live `doc_id` was not set, turning a missing object into a pass.
+
+## What the check asks now
+
+Each ACK is matched to the frame it answers, and the answer is checked against
+that frame's own content:
+
+- **Ledger of outgoing frames.** `CountingTransport` describes every Event and
+  NodeState frame it is about to hand to `MemoryTransport` — before the bytes
+  are transmitted — and files it under (sender, receiver, `packet_id`,
+  `target_node_id`, `destination_share_id`). The ACK travels the other way, so
+  the ACK's own fields address the original direction. Expected data is
+  decoded from the frame payload, never from either journal as it looks now, so
+  writes the sender made after freezing a snapshot are not in the expectation.
+  A repeat of the same packet keeps the first description. The ledger is owned
+  by `Stand`, so it outlives a replica restart. It is a pure observer: it takes
+  no part in delivery, object recovery or identifier generation.
+- **Checked inside the ACK's `Send`.** Before the bytes leave, a separate
+  Domain is opened over the acknowledging replica's storage, its ordinary
+  parent Node is loaded, and the SharedNode is reached only through the
+  parent's saved reference.
+- **For an Event ACK**: that shared identity must be in the persisted journal
+  with the same timestamp, class and text, and the persisted materialized
+  state must show it at the same index.
+- **For an initial-snapshot ACK**: the parent's saved reference must already
+  point at the acknowledged `target_node_id`, and everything the frozen
+  snapshot carried must be in the persisted journal, in the frozen relative
+  order. Events the receiver has of its own may sit between them; later
+  sender writes are not part of the expectation.
+- **No early returns.** A missing original frame, parent, reference or
+  acknowledged data fails the test. The live `doc_id` is no longer consulted.
+- Comparison is on logical data — shared identity, order key, class, text —
+  because the local `ObjId` of an Event object differs between replicas. The
+  projection is the stand's own two-class model, not a generic graph walker.
+
+`Observed`/`Observe` gained the class id and moved up so both the cold reader
+and the ledger use one projection; the old `PersistedView`/`ReadPersisted`
+pair was folded into it. No scenario was removed or weakened, and the
+per-scenario send counters are byte-for-byte what they were at `2f0e4e6`.
+
+## Mutation sensitivity (temporary, reverted, not in the diff)
+
+| Core mutation | Failure |
+|---|---|
+| `OnEvent` acknowledges before applying and persisting, then carries on | `CHECK failed: index < persisted.events.size()` at stand:431 |
+| `OnNodeState` acknowledges before importing and binding, then carries on | `CHECK failed: persisted.has_child` at stand:415 |
+
+Both CHECKs live in `ExpectAckCoversPersistedState`, whose only caller is the
+ACK hook inside `CountingTransport::Send`. The stand therefore fails *during
+the premature ACK*, not on a later assertion: the first mutation dies in
+scenario 2 on the first incremental Event, the second in scenario 1 on the
+first connection. Correct repeated ACKs of already-persisted data still pass —
+scenarios 5, 5b, 6b and 7 each re-acknowledge a duplicate.
+
+## Runs (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental, no GUI set)
+
+```
+cmake --build build-debug-clean   -j$(nproc) --target apptraverse_shared_child_node_stand_test && ./build-debug-clean/tests/apptraverse_shared_child_node_stand_test    # EXIT=0
+cmake --build build-release-clean -j$(nproc) --target apptraverse_shared_child_node_stand_test && ./build-release-clean/tests/apptraverse_shared_child_node_stand_test  # EXIT=0
+cmake --build build-asan-clean    -j$(nproc) --target apptraverse_shared_child_node_stand_test && ./build-asan-clean/tests/apptraverse_shared_child_node_stand_test     # EXIT=0
+ctest --test-dir build-debug-clean -R 'stand|shared_node_foundation|shared_node_initial_sync|shared_node_incremental|event_sourced|journal_retention|closed_event_graph'  # 7/7 passed
+```
+
+| Config | Result |
+|---|---|
+| Debug | passed |
+| Release `-O3 -DNDEBUG -fno-rtti` | passed |
+| ASan+UBSan | passed |
+
+All three print identical per-scenario counters. The wider core suite
+(including `permanent_pair_sync_test`) was last run green in all three
+configurations at `2f0e4e6`; this change touches only the stand file.
+
 # SharedNode synchronization: delivery semantics on the synthetic stand (2026-09-21)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
