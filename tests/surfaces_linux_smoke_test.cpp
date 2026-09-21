@@ -227,34 +227,28 @@ int CountSurfaceToplevels() {
   return count;
 }
 
-void HideWindow(GtkWindow* window) {
-  OnGuiDirect([&] {
-    gtk_widget_hide(GTK_WIDGET(window));
-    CHECK(!gtk_widget_get_visible(GTK_WIDGET(window)));
-  });
-}
-
-bool WaitMapped(GtkWindow* window, bool mapped,
-                std::chrono::milliseconds timeout) {
-  auto const deadline = std::chrono::steady_clock::now() + timeout;
-  while (std::chrono::steady_clock::now() < deadline) {
-    bool match = false;
-    OnGuiDirect(
-        [&] { match = gtk_widget_get_mapped(GTK_WIDGET(window)) == mapped; });
-    if (match) {
-      return true;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds{20});
-  }
-  return false;
-}
-
 // The GUI mirror reached through a live presenter: the model state presenters
 // actually render. Caller must already be on the GUI thread.
 Surfaces& MirrorSurfaces(LinuxApp& app, GtkWindow* anchor) {
   LinuxSurfacePresenter* presenter = app.PresenterFor(GTK_WIDGET(anchor));
   CHECK(presenter != nullptr);
   return *presenter->surface->surfaces;
+}
+
+GtkWidget* SurfaceWindow(Surface const& surface) {
+  return LinuxSurfacePresenter::ptr{surface.presenter}->window;
+}
+
+// Desktop focus drives Surfaces::mobile_current by design, and which toplevel
+// the window manager focuses is the window manager's choice. Withdrawing the
+// input hint (ICCCM WM_HINTS) tells it not to focus these windows at all, so
+// the current Surface below moves only when the test drives the presenter.
+void DenyWindowManagerFocus(std::vector<GtkWindow*> const& windows) {
+  OnGuiDirect([&] {
+    for (GtkWindow* window : windows) {
+      gtk_window_set_accept_focus(window, FALSE);
+    }
+  });
 }
 
 // Number of the mirror's current Surface, 0 when there is none.
@@ -354,6 +348,55 @@ bool RectNear(Rect const& a, Rect const& b, int tol) {
          std::abs(a.height - b.height) <= tol;
 }
 
+// The window manager applies move/resize asynchronously. Snapshotting bounds
+// before it has done so would compare against a placement the application
+// never persisted, so wait for the request to land instead.
+bool WaitOuterNear(LinuxApp& app, GtkWindow* window, Rect const& expected,
+                   int tol, std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (RectNear(ReadOuter(app, window), expected, tol)) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  }
+  return false;
+}
+
+// Runs the production Z-order restore with every Surface window hidden and
+// requires it to present exactly the window of the Surface the rule names:
+// Surfaces::mobile_current, or the last Surface when there is none. Hiding,
+// reading the target, running the restore and withdrawing the presented window
+// again all happen in a single GUI turn, so no window-manager focus decision
+// can slip in between — neither to satisfy the presentation check nor to
+// report a Surface in place of the restore's own PageShown. Returns the number
+// of the Surface the restore was required to present.
+std::uint32_t RestoreAndCheckTarget(LinuxApp& app, GtkWindow* anchor,
+                                    std::vector<GtkWindow*> const& windows) {
+  std::uint32_t number = 0;
+  OnGuiDirect([&] {
+    for (GtkWindow* window : windows) {
+      gtk_widget_hide(GTK_WIDGET(window));
+      CHECK(!gtk_widget_get_visible(GTK_WIDGET(window)));
+    }
+    Surfaces const& mirror = MirrorSurfaces(app, anchor);
+    Surface const& target = mirror.mobile_current ? *mirror.mobile_current
+                                                  : *mirror.surfaces.back();
+    number = target.number;
+    GtkWidget* const target_window = SurfaceWindow(target);
+
+    app.RestoreActiveSurfaceZOrder();
+
+    for (GtkWindow* window : windows) {
+      bool const is_target = GTK_WIDGET(window) == target_window;
+      CHECK(gtk_widget_get_visible(GTK_WIDGET(window)) == is_target);
+      CHECK(gtk_widget_get_mapped(GTK_WIDGET(window)) == is_target);
+    }
+    gtk_widget_hide(target_window);
+  });
+  return number;
+}
+
 void TestPresenterHierarchy() {
   EnsureObjectRegistration();
   EnsureSurfacesModelRegistration();
@@ -405,10 +448,16 @@ void TestCloseButtonRemovesOne() {
   CHECK(WaitSurface("Surface 4", &s4, std::chrono::seconds{30}));
   CHECK(WaitCount(3, std::chrono::seconds{10}));
 
+  constexpr int kTol = 40;
   PlaceOuter(app, s1, 60, 70, 380, 250);
   PlaceOuter(app, s3, 160, 170, 400, 260);
   PlaceOuter(app, s4, 260, 270, 420, 270);
-  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  CHECK(WaitOuterNear(app, s1, Rect{60, 70, 380, 250}, kTol,
+                      std::chrono::seconds{30}));
+  CHECK(WaitOuterNear(app, s3, Rect{160, 170, 400, 260}, kTol,
+                      std::chrono::seconds{30}));
+  CHECK(WaitOuterNear(app, s4, Rect{260, 270, 420, 270}, kTol,
+                      std::chrono::seconds{30}));
   Rect const r1 = ReadOuter(app, s1);
   Rect const r3 = ReadOuter(app, s3);
   Rect const r4 = ReadOuter(app, s4);
@@ -436,10 +485,9 @@ void TestCloseButtonRemovesOne() {
   CHECK(WaitSurface("Surface 4", &rs4, std::chrono::seconds{30}));
   CHECK(WaitCount(3, std::chrono::seconds{10}));
   OnGuiDirect([&] { CHECK(FindSurfaceWindow("Surface 2") == nullptr); });
-  constexpr int kTol = 40;
-  CHECK(RectNear(ReadOuter(app2, rs1), r1, kTol));
-  CHECK(RectNear(ReadOuter(app2, rs3), r3, kTol));
-  CHECK(RectNear(ReadOuter(app2, rs4), r4, kTol));
+  CHECK(WaitOuterNear(app2, rs1, r1, kTol, std::chrono::seconds{30}));
+  CHECK(WaitOuterNear(app2, rs3, r3, kTol, std::chrono::seconds{30}));
+  CHECK(WaitOuterNear(app2, rs4, r4, kTol, std::chrono::seconds{30}));
 
   EmitDelete(rs1);
   gui2.join();
@@ -468,10 +516,16 @@ void TestNativeCloseKeepsAllSurfaces() {
   CHECK(WaitSurface("Surface 3", &s3, std::chrono::seconds{30}));
   CHECK(WaitCount(3, std::chrono::seconds{10}));
 
+  constexpr int kTol = 40;
   PlaceOuter(app, s1, 50, 60, 370, 240);
   PlaceOuter(app, s2, 150, 160, 390, 250);
   PlaceOuter(app, s3, 250, 260, 410, 260);
-  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  CHECK(WaitOuterNear(app, s1, Rect{50, 60, 370, 240}, kTol,
+                      std::chrono::seconds{30}));
+  CHECK(WaitOuterNear(app, s2, Rect{150, 160, 390, 250}, kTol,
+                      std::chrono::seconds{30}));
+  CHECK(WaitOuterNear(app, s3, Rect{250, 260, 410, 260}, kTol,
+                      std::chrono::seconds{30}));
   Rect const r1 = ReadOuter(app, s1);
   Rect const r2 = ReadOuter(app, s2);
   Rect const r3 = ReadOuter(app, s3);
@@ -497,10 +551,9 @@ void TestNativeCloseKeepsAllSurfaces() {
   CHECK(WaitSurface("Surface 1", &rs1, std::chrono::seconds{30}));
   CHECK(WaitSurface("Surface 2", &rs2, std::chrono::seconds{30}));
   CHECK(WaitSurface("Surface 3", &rs3, std::chrono::seconds{30}));
-  constexpr int kTol = 40;
-  CHECK(RectNear(ReadOuter(app2, rs1), r1, kTol));
-  CHECK(RectNear(ReadOuter(app2, rs2), r2, kTol));
-  CHECK(RectNear(ReadOuter(app2, rs3), r3, kTol));
+  CHECK(WaitOuterNear(app2, rs1, r1, kTol, std::chrono::seconds{30}));
+  CHECK(WaitOuterNear(app2, rs2, r2, kTol, std::chrono::seconds{30}));
+  CHECK(WaitOuterNear(app2, rs3, r3, kTol, std::chrono::seconds{30}));
 
   ClickClose(rs2);
   CHECK(WaitCount(2, std::chrono::seconds{30}));
@@ -560,17 +613,20 @@ void TestActiveSurfaceRestoreTargetsPersistedSurface() {
   CHECK(WaitSurface("Surface 3", &s3, std::chrono::seconds{30}));
   CHECK(WaitCount(3, std::chrono::seconds{10}));
 
-  // Activation report: with the other Surfaces hidden, focus-in cannot name a
-  // Surface this test did not select, so the model must settle on Surface 2
-  // purely because of the presenter-path PageShown.
-  HideWindow(s1);
-  HideWindow(s3);
+  DenyWindowManagerFocus({s1, s2, s3});
+
+  // Activation report: the presenter path must carry the selected Surface into
+  // the model and back into the GUI mirror.
   ActivateWindow(app, s2);
   CHECK(WaitCurrentSurface(app, s2, 2, std::chrono::seconds{30}));
 
   EmitDelete(s2);
   gui.join();
 
+  // The shutdown snapshot records whichever window the window manager had
+  // focused, so seed the current Surface from the model instead. Surface 2 is
+  // not the creation-order last one: a restore driven by creation order would
+  // pick a different window below.
   {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
@@ -579,8 +635,6 @@ void TestActiveSurfaceRestoreTargetsPersistedSurface() {
                     surfaces_demo::ObjId::Application)});
     Surfaces& surfaces = *application->surfaces;
     CHECK(surfaces.surfaces.size() == 3);
-    // Persist a current Surface that is not the creation-order last one, so a
-    // restore that ignored mobile_current would pick a different window.
     surfaces.surfaces[1]->MakeCurrent();
     application.Save();  // runtime-save-ok: test fixture
   }
@@ -593,6 +647,7 @@ void TestActiveSurfaceRestoreTargetsPersistedSurface() {
         domain, ae::ObjId{surfaces_demo::ToObjId(
                     surfaces_demo::ObjId::Application)});
     Surfaces& surfaces = *application->surfaces;
+    CHECK(surfaces.surfaces.size() == 3);
     CHECK(surfaces.mobile_current);
     CHECK(surfaces.mobile_current->number == 2);
     CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[1]);
@@ -609,6 +664,7 @@ void TestActiveSurfaceRestoreTargetsPersistedSurface() {
   CHECK(WaitSurface("Surface 2", &rs2, std::chrono::seconds{30}));
   CHECK(WaitSurface("Surface 3", &rs3, std::chrono::seconds{30}));
   CHECK(WaitCount(3, std::chrono::seconds{10}));
+  DenyWindowManagerFocus({rs1, rs2, rs3});
 
   // Every restored window is mapped and bound both ways to its own Surface.
   OnGuiDirect([&] {
@@ -628,30 +684,15 @@ void TestActiveSurfaceRestoreTargetsPersistedSurface() {
     CHECK(mirror.surfaces[1]->obj_id == surface2_id);
   });
 
-  // Hiding the other two leaves a single focusable toplevel, so once the
-  // presenter path has reported Surface 2 the mirror's current Surface can no
-  // longer move: the restore target below is fully determined.
-  HideWindow(rs1);
-  HideWindow(rs3);
+  // Report the restored Surface through the presenter path, then require the
+  // restore to present its window and only its window. Surface 2 is not the
+  // last Surface, so a restore driven by creation order would show Surface 3.
   ActivateWindow(app2, rs2);
   CHECK(WaitCurrentSurface(app2, rs1, 2, std::chrono::seconds{30}));
-  HideWindow(rs2);
+  CHECK(RestoreAndCheckTarget(app2, rs1, {rs1, rs2, rs3}) == 2);
 
-  OnGuiDirect([&] {
-    Surfaces const& mirror = MirrorSurfaces(app2, rs1);
-    CHECK(mirror.mobile_current);
-    CHECK(mirror.mobile_current->obj_id == surface2_id);
-    app2.RestoreActiveSurfaceZOrder();
-    // Exactly the current Surface is presented, not the last one.
-    CHECK(gtk_widget_get_visible(GTK_WIDGET(rs2)));
-    CHECK(!gtk_widget_get_visible(GTK_WIDGET(rs1)));
-    CHECK(!gtk_widget_get_visible(GTK_WIDGET(rs3)));
-  });
-  CHECK(WaitMapped(rs2, true, std::chrono::seconds{30}));
-
-  // Removing the current Surface clears mobile_current, and with every
-  // remaining window hidden no focus-in can refill it. The restore must then
-  // take the documented fallback: the last Surface, still resolved by identity.
+  // Removing the current Surface drops the reference, so the same rule must
+  // now name the last Surface instead.
   ClickClose(rs2);
   CHECK(WaitMirrorSurfaceCount(app2, rs1, 2, std::chrono::seconds{30}));
   OnGuiDirect([&] {
@@ -661,20 +702,12 @@ void TestActiveSurfaceRestoreTargetsPersistedSurface() {
     CHECK(mirror.surfaces[1]->number == 3);
     // Presenter unload destroyed the removed window instead of hiding it.
     CHECK(CountSurfaceToplevels() == 2);
-
-    app2.RestoreActiveSurfaceZOrder();
-    CHECK(gtk_widget_get_visible(GTK_WIDGET(rs3)));
-    CHECK(!gtk_widget_get_visible(GTK_WIDGET(rs1)));
   });
-  CHECK(WaitMapped(rs3, true, std::chrono::seconds{30}));
-  // The restore reports its target through PageShown, so the model follows it.
+  CHECK(RestoreAndCheckTarget(app2, rs1, {rs1, rs3}) == 3);
+  // The restore also reports its target through PageShown: its window was
+  // withdrawn again before returning to the main loop, so only the
+  // application itself can have moved the model onto Surface 3.
   CHECK(WaitCurrentSurface(app2, rs1, 3, std::chrono::seconds{30}));
-
-  // Leave a single Surface so the shutdown snapshot has nothing to choose
-  // between, then stop through the native close path.
-  ClickClose(rs1);
-  CHECK(WaitMirrorSurfaceCount(app2, rs3, 1, std::chrono::seconds{30}));
-  OnGuiDirect([&] { CHECK(CountSurfaceToplevels() == 1); });
 
   EmitDelete(rs3);
   gui2.join();
@@ -687,10 +720,14 @@ void TestActiveSurfaceRestoreTargetsPersistedSurface() {
       domain, ae::ObjId{surfaces_demo::ToObjId(
                   surfaces_demo::ObjId::Application)});
   Surfaces& surfaces = *application->surfaces;
-  CHECK(surfaces.surfaces.size() == 1);
-  CHECK(surfaces.surfaces[0]->number == 3);
+  CHECK(surfaces.surfaces.size() == 2);
+  CHECK(surfaces.surfaces[0]->number == 1);
+  CHECK(surfaces.surfaces[1]->number == 3);
+  CHECK(surfaces.surfaces[0]->obj_id != surface2_id);
+  CHECK(surfaces.surfaces[1]->obj_id != surface2_id);
+  // The Surface the restore settled on is the one that persisted.
   CHECK(surfaces.mobile_current);
-  CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[0]);
+  CHECK(&*surfaces.mobile_current == &*surfaces.surfaces[1]);
 
   std::filesystem::remove_all(dir);
 }
