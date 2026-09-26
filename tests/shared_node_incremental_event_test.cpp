@@ -279,8 +279,8 @@ SenderFixture BuildTopology(Replica& a, ae::ObjId::Type node_id,
   InitializeRuntimeNode(*node);
   auto link_a = MakeMemoryLink(*a.domain, ae::ObjId{link_a_id}, kEndpointA);
   auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, kEndpointB);
-  node->AddShare(link_a, ShareAccess::ReadWrite);
-  node->AddShare(link_b, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
   node.Save();
   link_a.Save();
   link_b.Save();
@@ -651,8 +651,10 @@ void TestSenderRestartAfterAck() {
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 6};
   auto const second =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 7};
-  auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
-  CommitSharedValue(*a_node, 41, first, 6'000);
+  {
+    auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
+    CommitSharedValue(*a_node, 41, first, 6'000);
+  }
   a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
@@ -744,40 +746,6 @@ void TestWrongSourceRejected() {
                           identity) == nullptr);
   CHECK(network.PendingCount(kEndpointB, kEndpointC) == 0);
   CHECK(c.received == 0);
-}
-
-void TestReadOnlySourceRejected() {
-  MemoryNetwork network;
-  Replica a{network, kEndpointA, kEndpointB};
-  Replica b{network, kEndpointB, kEndpointA};
-  a.Start();
-  b.Start();
-
-  auto const fixture = BuildTopology(a, 6901, 6902, 6903);
-  HandshakeInitial(network, a, b, fixture);
-
-  auto const b_node = ConcreteOf(b.sync->FindNode(fixture.node_id));
-  b_node->SetShareAccess(b_node->shares[0].link, ShareAccess::ReadOnly);
-  b_node.Save();
-
-  auto const identity =
-      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 13};
-  CommitSharedValue(*ConcreteOf(a.sync->FindNode(fixture.node_id)), 6, identity,
-                    13'000);
-  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
-  b.watched.ResetWatch();
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-  CHECK(b.watched.pending_at_store().empty());
-  CHECK(JournalByIdentity(*b_node, identity) == nullptr);
-  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
-
-  b_node->SetShareAccess(b_node->shares[0].link, ShareAccess::ReadWrite);
-  b_node.Save();
-  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
-  CHECK(JournalByIdentity(*b_node, identity) != nullptr);
-  CHECK(b_node->value == 6);
 }
 
 void TestWrongDestinationRejected() {
@@ -1253,8 +1221,8 @@ void TestHistoricalCanApplyPreflight() {
 
   auto a_link_a = MakeMemoryLink(*a.domain, ae::ObjId{7901}, kEndpointA);
   auto a_link_b = MakeMemoryLink(*a.domain, ae::ObjId{7902}, kEndpointB);
-  a_root->AddShare(a_link_a, ShareAccess::ReadWrite);
-  a_root->AddShare(a_link_b, ShareAccess::ReadWrite);
+  a_root->InstallLocalShare(a_link_a, ShareAccess::ReadWrite);
+  a_root->InstallLocalShare(a_link_b, ShareAccess::ReadWrite);
   a_root.Save();
   a_link_a.Save();
   a_link_b.Save();
@@ -1523,7 +1491,6 @@ int main() {
   apptraverse::test::TestSenderRestartAfterAck();
   apptraverse::test::TestInitialSnapshotCoverageRace();
   apptraverse::test::TestWrongSourceRejected();
-  apptraverse::test::TestReadOnlySourceRejected();
   apptraverse::test::TestWrongDestinationRejected();
   apptraverse::test::TestMalformedEventPayloadRejected();
   apptraverse::test::TestMalformedClassLayersInEventRejected();

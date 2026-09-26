@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -18,14 +19,16 @@
 
 namespace apptraverse {
 
+// Permanent-pair access: wire layout keeps uint8; only ReadWrite (=0) is
+// valid. Non-zero access is refused at InstallLocalShare / CanApply.
 enum class ShareAccess : std::uint8_t {
   ReadWrite = 0,
-  ReadOnly = 1,
 };
 
-// One lifetime of SharedNode <-> Link. share_id is the relationship identity:
-// the ObjId of the AddShareEvent that opened it, so remove + re-add over the
-// same Link yields a different relationship. Shared topology state.
+// One lifetime of SharedNode <-> Link. share_id is the relationship identity
+// carried on AddShareEvent. A local commit uses that event's ObjId. A network
+// import keeps the same id even when the receiver allocates a new event
+// object. Permanent AeroAdmin dialogs hold at most two shares.
 struct Share {
   ae::ObjId share_id;
   Link::ptr link;
@@ -146,13 +149,15 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void CompleteInitialSync();
   void NoteInitialSyncReceived(ae::ObjId packet_id);
   void CompleteFromReceivedSnapshot(std::vector<SharedEventId> delivered);
-  void BeginIncrementalEvent(SharedEventId identity,
-                             std::vector<std::uint8_t> packet);
+  // Confirmed delivery: pending identity enters delivered_event_ids.
   void CompleteIncrementalEvent();
 
   bool HasDelivered(SharedEventId const& identity) const;
   bool HasPendingEvent() const {
     return pending_event_packet_id.is_valid();
+  }
+  bool HasPendingInitial() const {
+    return pending_initial_packet_id.is_valid();
   }
 
   void Apply(SetLinkInitialSyncPhaseEvent const& event);
@@ -161,6 +166,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void Apply(NoteInitialSyncReceivedEvent const& event);
   bool CanApply(CompleteFromReceivedSnapshotEvent const& event) const;
   void Apply(CompleteFromReceivedSnapshotEvent const& event);
+  bool CanApply(BeginIncrementalEventSyncEvent const& event) const;
   void Apply(BeginIncrementalEventSyncEvent const& event);
   void Apply(CompleteIncrementalEventSyncEvent const& event);
 };
@@ -259,7 +265,7 @@ class CompleteFromReceivedSnapshotEvent
 };
 
 // Freeze one incremental standalone Event packet for this relationship.
-// Packet identity is this Event's ObjId.
+// Packet identity is this Event's ObjId. Requires InitialSyncPhase::Complete.
 class BeginIncrementalEventSyncEvent
     : public EventFor<LinkSyncState, BeginIncrementalEventSyncEvent> {
   APPTRAVERSE_OBJECT(BeginIncrementalEventSyncEvent, Event, 0)
@@ -292,11 +298,10 @@ class CompleteIncrementalEventSyncEvent
 };
 
 class AddShareEvent;
-class RemoveShareEvent;
-class ChangeShareAccessEvent;
 
 // Generic shared Node: shared topology (shares[]) plus local-persistent
-// per-Link sync metadata (link_sync_states via LocalPtr).
+// per-Link sync metadata (link_sync_states via LocalPtr). Permanent pair:
+// at most two ReadWrite shares; no Remove/ChangeAccess events.
 class SharedNode : public NodeFor<SharedNode> {
   APPTRAVERSE_OBJECT(SharedNode, Node, 2)
 
@@ -333,19 +338,17 @@ class SharedNode : public NodeFor<SharedNode> {
   std::vector<Share> shares;
   std::vector<LocalPtr<LinkSyncState>> link_sync_states;
 
-  // Live topology mutations go through Events.
-  void AddShare(Link::ptr link, ShareAccess access);
-  void RemoveShare(Link::ptr link);
-  void SetShareAccess(Link::ptr link, ShareAccess access);
+  // Local-only topology for chat formation (self + peer). Refuses a third
+  // share and any access other than ReadWrite.
+  void InstallLocalShare(Link::ptr link, ShareAccess access);
+
+  bool CanApply(AddShareEvent const& event) const;
+  void Apply(AddShareEvent const& event);
 
   // Local sync phase changes are Events on the LinkSyncState Node of the
   // active Share relationship (created by AddShare Apply). Not shared Events.
   void SetInitialSyncPhase(Link::ptr link, InitialSyncPhase phase);
   InitialSyncPhase GetInitialSyncPhase(Link::ptr link) const;
-
-  void Apply(AddShareEvent const& event);
-  void Apply(RemoveShareEvent const& event);
-  void Apply(ChangeShareAccessEvent const& event);
 
   void StashLocalPersistentAcrossRebuild() override;
   void RestoreLocalPersistentAcrossRebuild() override;
@@ -360,7 +363,7 @@ class SharedNode : public NodeFor<SharedNode> {
 };
 
 class AddShareEvent : public EventFor<SharedNode, AddShareEvent> {
-  APPTRAVERSE_OBJECT(AddShareEvent, Event, 0)
+  APPTRAVERSE_OBJECT(AddShareEvent, Event, 1)
 
  protected:
   AddShareEvent() = default;
@@ -368,45 +371,39 @@ class AddShareEvent : public EventFor<SharedNode, AddShareEvent> {
  public:
   explicit AddShareEvent(ae::ObjProp prop) : EventFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(link), AE_MMBR(access))
+  AE_OBJECT_REFLECT(AE_MMBR(link), AE_MMBR(access), AE_MMBR(share_id))
+
+  // v0 journals predate the protocol field. Their relationship id is the
+  // event object itself. v1 carries share_id so a receiver can remap the
+  // event object without minting a new relationship.
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, link, access);
+    share_id = obj_id;
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, link, access, share_id);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, link, access, share_id);
+  }
 
   Link::ptr link;
   std::uint8_t access{
       static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
-};
-
-// Names the Share relationship being closed, not the transport endpoint: the
-// same Link may have been shared and unshared several times.
-class RemoveShareEvent : public EventFor<SharedNode, RemoveShareEvent> {
-  APPTRAVERSE_OBJECT(RemoveShareEvent, Event, 0)
-
- protected:
-  RemoveShareEvent() = default;
-
- public:
-  explicit RemoveShareEvent(ae::ObjProp prop) : EventFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(share_id))
-
   ae::ObjId share_id;
 };
 
-class ChangeShareAccessEvent
-    : public EventFor<SharedNode, ChangeShareAccessEvent> {
-  APPTRAVERSE_OBJECT(ChangeShareAccessEvent, Event, 0)
-
- protected:
-  ChangeShareAccessEvent() = default;
-
- public:
-  explicit ChangeShareAccessEvent(ae::ObjProp prop) : EventFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(share_id), AE_MMBR(access))
-
-  ae::ObjId share_id;
-  std::uint8_t access{
-      static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
-};
+// Release-safe check for a restored working permanent-pair dialog before
+// RegisterNode / send. Empty string: OK, or not yet a working pair (0–1
+// shares: empty base or mid InstallLocalShare). Non-empty: diagnostic; caller
+// must not mutate storage or truncate participants.
+std::string DescribeRestoredPermanentPairViolation(
+    SharedNode const& node, std::string const& local_endpoint);
 
 }  // namespace apptraverse
 

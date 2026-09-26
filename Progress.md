@@ -1,3 +1,1237 @@
+# Branch scope trim: drop Python, WASM, and unrelated demos (2026-09-26)
+
+Status: implemented / verified locally on `cursor/shared-node-join-3673` (MSVC Debug, incremental `build/`).
+
+Local (2026-09-26): `cmake .. -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF` in `build/`, then
+`cmake --build . --config Debug --target apptraverse_shared_node_headless_check` — **PASS**
+(event_sourced, journal_retention, shared_node foundation/initial/incremental,
+permanent_pair, shared_child_node_stand all scenarios, closed_event_graph).
+Sibling `aether-client-cpp` was at `16d5e5e…`; temporarily checked out pin
+`0b0e3b54…` for configure (restore local Aether work with
+`git checkout 16d5e5e` there when done).
+
+Removed from the branch tree:
+
+- All of `tools/` (Python runners, WASM serve/smoke, MCP helpers, packaging).
+- `examples/surfaces_demo/` (including Web/WASM, Android, iOS, macOS, Linux, Windows).
+- Legacy demos: `main_window_runtime_demo`, `dynamic_objects_demo`, `model_ui_runtime_demo`, `chat_ui_runtime_demo`, `aether_presence_monitor`.
+- Chat GUI hosts: `examples/chat_demo/android`, `windows`, `linux`.
+- CMake CPM patch-test harness added on this branch (reverted to `main` CPM.cmake).
+- GUI/smoke tests and `apptraverse_cpm_add_patches_test`; headless entry point is now `apptraverse_shared_node_headless_check`.
+
+Kept for SharedNode join / transport: core library, `shared_node_demo`, headless `chat_demo` (model + runtime + aether adapter), and SharedNode/chat-session tests.
+
+# ACK check: verify the data the ACK actually answers (2026-09-21)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting tip: `2f0e4e6`. Commit:
+`dfcffee`. One file: `tests/shared_child_node_stand_test.cpp`, +251/-105.
+**Production diff for this round is empty** — `git diff src/ include/
+examples/` is clean, and both mutations below were reverted before the runs.
+
+## The gap
+
+`ExpectAckPreconditions()` compared the acknowledging replica's *live* state
+with its *persisted* state. An ACK sent before the event was applied left both
+sides equally stale, so the comparison passed. It also skipped itself entirely
+when the live `doc_id` was not set, turning a missing object into a pass.
+
+## What the check asks now
+
+Each ACK is matched to the frame it answers, and the answer is checked against
+that frame's own content:
+
+- **Ledger of outgoing frames.** `CountingTransport` describes every Event and
+  NodeState frame it is about to hand to `MemoryTransport` — before the bytes
+  are transmitted — and files it under (sender, receiver, `packet_id`,
+  `target_node_id`, `destination_share_id`). The ACK travels the other way, so
+  the ACK's own fields address the original direction. Expected data is
+  decoded from the frame payload, never from either journal as it looks now, so
+  writes the sender made after freezing a snapshot are not in the expectation.
+  A repeat of the same packet keeps the first description. The ledger is owned
+  by `Stand`, so it outlives a replica restart. It is a pure observer: it takes
+  no part in delivery, object recovery or identifier generation.
+- **Checked inside the ACK's `Send`.** Before the bytes leave, a separate
+  Domain is opened over the acknowledging replica's storage, its ordinary
+  parent Node is loaded, and the SharedNode is reached only through the
+  parent's saved reference.
+- **For an Event ACK**: that shared identity must be in the persisted journal
+  with the same timestamp, class and text, and the persisted materialized
+  state must show it at the same index.
+- **For an initial-snapshot ACK**: the parent's saved reference must already
+  point at the acknowledged `target_node_id`, and everything the frozen
+  snapshot carried must be in the persisted journal, in the frozen relative
+  order. Events the receiver has of its own may sit between them; later
+  sender writes are not part of the expectation.
+- **No early returns.** A missing original frame, parent, reference or
+  acknowledged data fails the test. The live `doc_id` is no longer consulted.
+- Comparison is on logical data — shared identity, order key, class, text —
+  because the local `ObjId` of an Event object differs between replicas. The
+  projection is the stand's own two-class model, not a generic graph walker.
+
+`Observed`/`Observe` gained the class id and moved up so both the cold reader
+and the ledger use one projection; the old `PersistedView`/`ReadPersisted`
+pair was folded into it. No scenario was removed or weakened, and the
+per-scenario send counters are byte-for-byte what they were at `2f0e4e6`.
+
+## Mutation sensitivity (temporary, reverted, not in the diff)
+
+| Core mutation | Failure |
+|---|---|
+| `OnEvent` acknowledges before applying and persisting, then carries on | `CHECK failed: index < persisted.events.size()` at stand:431 |
+| `OnNodeState` acknowledges before importing and binding, then carries on | `CHECK failed: persisted.has_child` at stand:415 |
+
+Both CHECKs live in `ExpectAckCoversPersistedState`, whose only caller is the
+ACK hook inside `CountingTransport::Send`. The stand therefore fails *during
+the premature ACK*, not on a later assertion: the first mutation dies in
+scenario 2 on the first incremental Event, the second in scenario 1 on the
+first connection. Correct repeated ACKs of already-persisted data still pass —
+scenarios 5, 5b, 6b and 7 each re-acknowledge a duplicate.
+
+## Runs (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental, no GUI set)
+
+```
+cmake --build build-debug-clean   -j$(nproc) --target apptraverse_shared_child_node_stand_test && ./build-debug-clean/tests/apptraverse_shared_child_node_stand_test    # EXIT=0
+cmake --build build-release-clean -j$(nproc) --target apptraverse_shared_child_node_stand_test && ./build-release-clean/tests/apptraverse_shared_child_node_stand_test  # EXIT=0
+cmake --build build-asan-clean    -j$(nproc) --target apptraverse_shared_child_node_stand_test && ./build-asan-clean/tests/apptraverse_shared_child_node_stand_test     # EXIT=0
+ctest --test-dir build-debug-clean -R 'stand|shared_node_foundation|shared_node_initial_sync|shared_node_incremental|event_sourced|journal_retention|closed_event_graph'  # 7/7 passed
+```
+
+| Config | Result |
+|---|---|
+| Debug | passed |
+| Release `-O3 -DNDEBUG -fno-rtti` | passed |
+| ASan+UBSan | passed |
+
+All three print identical per-scenario counters. The wider core suite
+(including `permanent_pair_sync_test`) was last run green in all three
+configurations at `2f0e4e6`; this change touches only the stand file.
+
+# SharedNode synchronization: delivery semantics on the synthetic stand (2026-09-21)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting tip: `634c42f`. Commit:
+`489e6fb`. Tests only — `tests/shared_child_node_stand_test.cpp`, +333/-2
+lines. No production change: every scenario below passed against the core as
+it stands, so no defect was reproduced and nothing was "fixed" speculatively.
+Chat, GUI, the Aether transport adapter and the shared Event order are
+untouched.
+
+## What the existing stand already covered
+
+First connection (snapshot, parent link, persistence), incremental sync both
+ways, offline without unload, full unload and restore of each side, origin
+sequence recovered from the persisted journal, lost Event and lost ACK with
+frozen-packet retries, repeated Online not bypassing the retry interval, and
+local parent events staying local. Those scenarios are unchanged.
+
+## What this round added
+
+1. **An ACK is the receiver's applied-and-persisted statement** (scenario 6,
+   plus a global hook). `CountingTransport` now runs a check while an Ack
+   frame is still inside the `Send` call, for *every* ACK the stand ever
+   emits: a cold reader of that replica's own storage — opened as a separate
+   Domain, entered at the parent, reaching the child only through the saved
+   reference — must already contain every identity of the live shared journal,
+   and its materialized `lines` must equal the live ones. Scenario 6 then
+   holds the ACK in the queue and shows the sender still counts the Event as
+   undelivered although `Send` returned and the destination reads Online, and
+   that the receiver, unloaded at that instant with no test-side save, comes
+   back with the Event in place.
+2. **The Offline side may also be the one that owes an ACK** (scenario 6b).
+   The acknowledging replica applies and persists the Event, issues zero Send
+   calls while Offline, keeps the owed ACK across six sender retries without
+   duplicating it or re-applying the Event, and releases exactly one ACK when
+   it goes Online. This is the first coverage of the `QueueAck` /
+   `ServiceAcks` retention path.
+3. **Initial snapshot under Unknown** (scenario 7). Unknown permits the first
+   attempt; repeats are paced by the retry interval rather than by Service
+   calls; the repeat is *byte-identical* to the first packet even though the
+   host wrote another shared Event meanwhile, and it neither mints a second
+   packet nor grows the LinkSyncState journal; a duplicated snapshot on the
+   wire imports once. The later write then arrives as an ordinary incremental
+   Event.
+4. **The deadline after a resumed send** (scenario 5c). After Offline → Online
+   releases the waiting packet, the stand now walks the whole interval in
+   sixteenths — repeating Online notifications the entire way — requires zero
+   sends up to one microsecond before the deadline measured from that resumed
+   send, and exactly one repeat of the same `packet_id` when it is crossed.
+
+## Mutation sensitivity (temporary, reverted, not committed)
+
+| Core mutation | Result |
+|---|---|
+| N1 receiver acknowledges without `node.Save()` | fails the ACK hook, stand:883 |
+| N2 successful `Send` completes the incremental Event | fails stand:1373 |
+| N3 snapshot retry rebuilt from current state instead of the frozen packet | fails stand:1737 |
+| N4 retry deadline advanced from the old deadline, not from the send | fails stand:1389 |
+| N5 every availability notification re-arms the retry clock | fails stand:1491 |
+| N7 `TrySend` ignores Offline | fails stand:1708 |
+| N8 both Offline guards removed | fails stand:1090 |
+| N9 owed ACKs not deduplicated | fails stand:1732 |
+| N10 an ACK that cannot be sent is dropped | fails stand:1732 |
+
+N6 (dropping only the `OutgoingOffline` skip in `ServiceShares`) is *not*
+detected, and cannot be: the Send-level guard in `TrySend` still holds the
+line, so no observable behaviour changes. The skip above it is a scheduling
+choice (do not mint and persist packets for an unreachable peer), not a second
+correctness check. Left as is — there is no defect to fix.
+
+All mutations reverted; `git status` clean under `src/` and `include/` before
+the runs below.
+
+## Runs (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental, core targets only)
+
+```
+cmake --build build-debug-clean   -j$(nproc) && ctest --test-dir build-debug-clean   --output-on-failure -j4 -R "$CORE"   # EXIT=0
+cmake --build build-release-clean -j$(nproc) && ctest --test-dir build-release-clean --output-on-failure -j4 -R "$CORE"   # EXIT=0
+cmake --build build-asan-clean    -j$(nproc) && ctest --test-dir build-asan-clean    --output-on-failure -j3 -R "$CORE"   # EXIT=0
+CORE='stand|shared_node|permanent_pair|event_sourced|journal_retention|closed_event_graph|object_graph_serialization|native_class_layers|publication_channel|model_runtime_stop'
+```
+
+| Config | Result | stand |
+|---|---|---|
+| Debug | 14/14 passed (274 s) | 0.62 s |
+| Release `-O3 -DNDEBUG -fno-rtti` | 14/14 passed (19 s) | 0.04 s |
+| ASan+UBSan (`-fno-sanitize=vptr,null,nonnull-attribute`) | 14/14 passed (758 s) | 2.12 s |
+
+The GUI set was not run for this task. `permanent_pair_sync_test` dominates
+every wall-clock number above.
+
+## Per-scenario counters (Debug, identical in Release and ASan)
+
+`sends host/client | snapshots | events | acks | retries | sends-while-offline`
+
+```
+1  first connection        1/1  | 1/0 | 0/0 | 0/1 | 0/0 | 0/0
+2  incremental             9/9  | 1/0 | 4/4 | 4/5 | 0/0 | 0/0
+3  offline, no unload      7/7  | 1/0 | 3/3 | 3/4 | 0/0 | 0/0
+4  unload and restore      9/9  | 1/0 | 4/4 | 4/5 | 0/0 | 0/0
+4b sequence recovery       7/7  | 1/0 | 3/3 | 3/4 | 0/0 | 0/0
+5  unacknowledged delivery 5/3  | 1/0 | 4/0 | 0/3 | 3/1 | 0/0
+5b repeated Online         3/3  | 1/0 | 2/0 | 0/3 | 1/1 | 0/0
+5c offline to online       4/2  | 1/0 | 3/0 | 0/2 | 2/0 | 0/0
+6  ack = applied+persisted 2/2  | 1/0 | 1/0 | 0/2 | 0/0 | 0/0
+6b ack held while offline  8/2  | 1/0 | 7/0 | 0/2 | 6/0 | 0/0
+7  unknown first snapshot  3/3  | 2/0 | 1/0 | 0/3 | 1/1 | 0/0
+   local parent events     1/1  | 1/0 | 0/0 | 0/1 | 0/0 | 0/0
+```
+
+Exactly one snapshot per dialog in every scenario except 7, where the second
+`node_state` send is the byte-identical repeat of the same packet. Sends while
+the destination is Offline: zero everywhere.
+
+## Limitations
+
+- One host, one client, one permanent pair. No dynamic topology, no third
+  participant, no rejoin fold — protocol v1 does not define them.
+- The retry interval is a single compile-time constant; there is no backoff
+  and no retry *count* limit. "Bounded retries" here means paced by the
+  interval, not capped in number.
+- Availability is the transport's observation. `Unknown` is treated as "may
+  try"; only `Offline` suppresses sends.
+- Shared Event order is the test's strictly increasing timestamp. The stand
+  compares journals index by index and never sorts its copies, but it does not
+  exercise concurrent equal timestamps.
+- Delivery, loss, duplication and time are driven by the test; there is no
+  real socket, thread or clock anywhere in this stand.
+
+# Linux surfaces smoke: deterministic GUI contract instead of WM focus (2026-09-21)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting tip: `3bc52c0`. Tests only:
+`tests/surfaces_linux_smoke_test.cpp`. No production change — no production
+defect was reproduced. SharedNode sync and the synthetic stand are untouched.
+
+## Root cause of the old `CHECK(is_active)` failure
+
+`TestActiveZOrderRestored` relaunched the app with three persisted Surfaces and
+required `gtk_window_is_active(rs2) || gtk_window_has_toplevel_focus(rs2)`.
+
+Baseline (this cloud desktop: Xtigervnc `:1` + xfwm4), 30 sequential runs each:
+
+| Config | Result |
+|---|---|
+| Debug | 15/30 passed, 15 failed on `is_active` (smoke:496) |
+| Release | 14/30 passed, 16 failed on the same check |
+
+Instrumented probe (`is_active` replaced by a 3 s trace of every Surface
+window plus the mirror's current Surface) showed two variants:
+
+```
+PROBE t=0ms    [Surface 1 act=0][Surface 2 act=1][Surface 3 act=0] current=2
+PROBE t=100ms  [Surface 1 act=0][Surface 2 act=0][Surface 3 act=1] current=3   <- WM took it back
+PROBE t=0ms    [Surface 1 act=0][Surface 2 act=0][Surface 3 act=1] current=2
+PROBE t=100ms  [Surface 1 act=0][Surface 2 act=0][Surface 3 act=1] current=3
+```
+
+`RestoreActiveSurfaceZOrder()` runs inside `OnInitialPublished`, right after
+`InitializePresenters` has shown all three toplevels. Its `gtk_window_present`
+does reach the server — the first trace shows Surface 2 genuinely active at
+t=0 — and xfwm4 then applies its own new-window focus policy to the windows it
+is still mapping and moves focus to the last one, ~100 ms later. The state is
+stable afterwards; the WM simply picks a different winner in about half the
+runs. `OnFocusIn -> PageShown` then follows focus, which is the product's
+intended desktop behaviour, so `Surfaces::mobile_current` moves with it.
+
+## Why `is_active` is not an AppTraverse contract
+
+X11 input focus is granted by the window manager, not by the client: xfwm4 and
+friends implement focus-stealing prevention, a session may run with no WM at
+all, and a Wayland compositor ignores activation without an xdg-activation
+token. The probe shows the WM overriding an activation the application had
+already been granted, which no client code can prevent. The application's own
+obligation ends at issuing the request and reporting the Surface.
+
+For the same reason the test no longer asserts any absolute value of
+`Surfaces::mobile_current` while a session is live, nor the shutdown snapshot
+(`QueueFocusedAsCurrent` records the focused window): both are functions of WM
+focus by design.
+
+## Deterministic invariant checked instead
+
+`RestoreActiveSurfaceZOrder()` must resolve `Surfaces::mobile_current` by
+identity — falling back to `surfaces.back()` when it is empty — and *present
+that Surface's own window*. `gtk_window_present()` on a withdrawn window is
+plain GTK/X presentation: mapping cannot be refused by a window manager.
+
+`RestoreAndCheckTarget()` performs, inside one GUI turn (so no X event can
+interleave): hide every Surface window, read the target the production rule
+names from the live mirror, run the production restore, require exactly the
+target's window to be visible and mapped and every other to stay withdrawn,
+then withdraw it again. It is exercised twice — with a current Surface (the
+test selects Surface 2, which is not the creation-order last) and after that
+Surface was closed (fallback branch). Because the presented window is
+withdrawn again before returning to the main loop, no focus-in can report the
+Surface in the application's place, so the follow-up
+`WaitCurrentSurface(target)` proves the restore's own `PageShown`.
+
+The scenario also now asserts: each restored window is mapped and bound both
+ways to its own Surface; presenter unload destroys windows rather than hiding
+them (`CountSurfaceToplevels`); after `gui.join()` no Surface toplevel is
+left; the persisted current Surface is always a live list member.
+
+Two further deterministic fixes in the same file:
+
+- `ActivateWindow` no longer sleeps 100 ms; callers wait on the model instead.
+- Window bounds were snapshotted 100 ms after `PlaceOuter`, i.e. possibly
+  before the WM had applied the move. The app then persisted the settled
+  bounds and the restored comparison drifted past the 40 px tolerance
+  (3/100 Debug runs). `WaitOuterNear` now waits for the placement to land on
+  both the snapshot and the restore side.
+- The relaunch precondition (current Surface = Surface 2) is seeded from the
+  model between runs instead of relying on the WM-dependent shutdown snapshot.
+
+## Mutation sensitivity (temporary, reverted, not committed)
+
+| Mutation (production) | Result |
+|---|---|
+| M1 restore ignores `mobile_current` (always fallback) | 3/3 fail, smoke:392 |
+| M2 fallback uses `surfaces.front()` | 3/3 fail, smoke:392 |
+| M3 restore does not `gtk_window_present` | 3/3 fail, smoke:392 |
+| M4 restore does not `PageShown` its target | 3/3 fail, smoke:715 |
+| M5 `OnUnload` hides the window instead of destroying it | 3/3 fail, smoke:709 |
+| M6 `PlaceOuterWindow` ignores x/y | 3/3 fail, smoke:455 |
+
+M4 escaped the intermediate version that left the presented window mapped —
+the WM's focus-in reported the Surface instead of the application. Withdrawing
+the window inside the same GUI turn closed that hole.
+
+Reverted; `git status` clean under `examples/` before the runs below.
+
+## Runs (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental, `DISPLAY=:1`)
+
+```
+for i in $(seq 1 100); do DISPLAY=:1 build/tests/apptraverse_surfaces_linux_smoke_test || echo FAIL; done          # pass=100 fail=0
+for i in $(seq 1 100); do DISPLAY=:1 build-release/tests/apptraverse_surfaces_linux_smoke_test || echo FAIL; done  # pass=100 fail=0
+DISPLAY=:1 ctest --test-dir build         --output-on-failure -j4   # EXIT=0
+DISPLAY=:1 ctest --test-dir build-release --output-on-failure -j4   # EXIT=0
+./build/tests/apptraverse_shared_child_node_stand_test              # EXIT=0 (x3)
+./build-release/tests/apptraverse_shared_child_node_stand_test      # EXIT=0 (x3)
+```
+
+| Stage | Debug | Release |
+|---|---|---|
+| smoke, before | 15/30 passed | 14/30 passed |
+| smoke, derived target + placement wait (intermediate) | 99/100, 96/100 | — |
+| smoke, final | 100/100 | 100/100 |
+| full ctest | 27/27 passed (277 s) | 27/27 passed (19 s) |
+| `apptraverse_shared_child_node_stand_test` alone | passed 3/3 | passed 3/3 |
+
+The two intermediate attempts that still failed ~1-4/100 both tried to pin
+`mobile_current` to a chosen Surface before the check (hiding the competing
+windows, then withdrawing the WM input hint). Neither is reachable: unmapping
+a focused window makes the WM move focus, and its report lands after the
+selection. The final version derives the expectation instead, which is why it
+is stable.
+
+# Core stand hardening: restart loses runtime state, Online does not bypass pacing (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting tip: `f581774`. Commit:
+`1e3b915`. Tests only; no production change (no defect reproduced).
+
+## What was strengthened
+
+1. **Restart really loses runtime state.** `Replica::sequence` is gone. The
+   next origin sequence comes from `NextSharedSequence()`, which recovers this
+   replica's highest `origin_sequence` from the *persisted shared journal* and
+   caches it only for the live session. `Stop()` now clears the runtime-only
+   fields (`parent_`, `doc_id`, sequence cache); `RestoreFromStorage()` asserts
+   the runtime has no registered nodes, starts from the ordinary parent Node
+   and reaches the child only through the parent's persisted reference. No
+   global sequence, no test side-channel. `Write()` now checks the journal
+   actually grew, so a reused identity fails under NDEBUG instead of being
+   dropped silently.
+   New scenario 4b (`RunSequenceRecovery`, run for client and host): after
+   `Stop()`/`Start()` the cached sequence is 0, `doc_id` invalid, no registered
+   nodes; after restore the journal is unchanged, the new Event gets
+   `highest_persisted + 1`, its identity is absent from the pre-restart
+   identity set, and after sync both journals match with no duplicates. The
+   same post-restart emptiness is now asserted inside scenario 4 and 5.
+2. **Online notification vs retry interval** (scenario 5b): Event applied by
+   the receiver, ACK lost, sender pending. Five repeated Online notifications
+   at an unchanged observed value with logical time below the deadline produce
+   0 Sends and leave `pending_event_packet_id` unchanged; reaching the deadline
+   produces exactly one retry of the same packet; the correct ACK completes
+   delivery, after which notifications plus `Service()` stay silent.
+   Scenario 5c: a real Offline ? Online transition does release the waiting
+   packet before the deadline (current contract), and pacing restarts from that
+   send ? four further repeated Online notifications add nothing.
+   All counted as `IByteTransport::Send` calls.
+
+## Mutation sensitivity (temporary, reverted, not committed)
+
+| Mutation | Result |
+|---|---|
+| keep `sequence_cache_` across `Stop()` (side-channel restored) | fails `gone.CachedSequence() == 0` (stand:1110, scenario 4) |
+| `HighestPersistedOriginSequence()` returns 0 (broken recovery) | fails `doc->journal.size() == journal_before + 1` in Release/NDEBUG (stand:847) |
+| `ArmEndpoint` on every availability notification (core) | fails `stand.host.counts.total == sends` (stand:1422, scenario 5b) |
+
+Reverted with `git diff` clean before the verification runs below.
+
+## Runs (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental)
+
+```
+cmake --build build-debug-clean   -j$(nproc) && ctest --test-dir build-debug-clean   --output-on-failure -j4   # EXIT=8
+cmake --build build-release-clean -j$(nproc) && ctest --test-dir build-release-clean --output-on-failure -j4   # EXIT=0
+cmake --build build-asan-clean    -j$(nproc) && ctest --test-dir build-asan-clean --output-on-failure -j3 \
+  -R "stand|shared_node|permanent_pair|event_sourced|journal_retention|closed_event_graph|shared_sync_protocol" # EXIT=0
+```
+
+| Config | Result |
+|---|---|
+| Debug | 26/27 passed; stand, permanent_pair, initial_sync, incremental_event, foundation, event_sourced_core, journal_retention, closed_event_graph, chat_demo_sync all passed |
+| Release `-O3 -DNDEBUG -fno-rtti` | 27/27 passed |
+| ASan+UBSan | core subset 8/8 passed (`permanent_pair` 745 s, stand 1.66 s) |
+
+Debug `EXIT=8` is `apptraverse_surfaces_linux_smoke_test`
+(`CHECK failed: is_active`, GTK window activation on the shared VNC desktop).
+Not caused by this change: the only diff vs `f581774` is
+`tests/shared_child_node_stand_test.cpp`, which is not part of that executable,
+and the *same* Release binary passed it in the ctest run minutes before and
+failed on a direct rerun afterwards ? it depends on desktop focus state.
+
+`apptraverse_shared_sync_protocol_test` is not built with demos OFF (it links
+`chat_demo_model`); run separately in `build-service-debug` (demos ON): EXIT=0.
+
+---
+
+# Synthetic core stand: local parent + shared child Node (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting HEAD: `138bf10`.
+Commit: `e681059` (test + CTest target). Tests only; core untouched.
+
+## Stand
+
+`tests/shared_child_node_stand_test.cpp`, one CTest target
+`apptraverse_shared_child_node_stand_test`. No `ChatSession`, GUI, �ther
+client, sockets, servers, threads or sleeps: real AppTraverse objects,
+`SharedSyncRuntime`, `MemoryTransport`.
+
+Two replicas (`stand-host`, `stand-client`), each with its own
+`ae::RamDomainStorage`, `ae::Domain`, transport endpoint and sync runtime.
+Each has an ordinary persisted parent `LocalParent` (fixed ObjId, local note +
+revision) that reaches the child `SharedDoc : SharedNode` through a reflected
+`SharedDoc::ptr`, attached by an ordinary local Event (`LinkSharedDocEvent`),
+never by direct field assignment. Only the child and its shared journal
+replicate; parents are different and local. Between replicas nothing but
+serialized bytes crosses `MemoryTransport`; every outgoing frame is scanned
+for the parents' local marker (`PARENT_LOCAL_SECRET`) and the send fails the
+test if it ever appears.
+
+`CountingTransport` wraps the endpoint and counts **Send calls** (not queue
+depth), split by frame type, plus retries (a `(destination, type, packet_id)`
+already handed to Send) and sends issued while the destination is observed
+Offline. Counters and the sent-packet set live outside the transport, so a
+replica restart keeps counting.
+
+## Scenario results (all EXIT=0)
+
+Per-scenario Send counts, `host/client`. Each scenario runs its own stand, so
+`initial snapshots = 1/0` is the single first-connection snapshot.
+
+| Scenario | snapshots | events | acks | retries | sends while Offline |
+|---|---:|---:|---:|---:|---:|
+| 1 first connection | 1/0 | 0/0 | 0/1 | 0/0 | 0/0 |
+| 2 incremental (4+4 writes) | 1/0 | 4/4 | 4/5 | 0/0 | 0/0 |
+| 3 offline without unload (both roles) | 1/0 | 3/3 | 3/4 | 0/0 | 0/0 |
+| 4 unload and restore (both roles) | 1/0 | 4/4 | 4/5 | 0/0 | 0/0 |
+| 5 unacknowledged delivery | 1/0 | 4/0 | 0/3 | 3/1 | 0/0 |
+| local parent events | 1/0 | 0/0 | 0/1 | 0/0 | 0/0 |
+
+1. **First connection** ? host saves parent + child with three events; client
+   has only its parent and permits the expected host. One snapshot under
+   `Unknown` availability, imported, linked to the client parent and saved.
+   A fresh `ae::Domain` over the client's storage reloads the parent and
+   reaches the child through the persisted reference (state, journal, link).
+2. **Incremental** ? alternating writes on both sides, delivery driven by
+   `Service()`. Journal identity/order and materialized `lines` equal on both
+   sides, each event applied once, no second snapshot, 0 retries.
+3. **Offline without unload** ? destination observed Offline; 25 `Service()`
+   calls at 3� the retry interval produce no Send at all and an empty queue;
+   Online resumes into the same `SharedNode` instance (pointer identity) with
+   no new connection and no snapshot. Repeated with reversed roles. Repeating
+   an unchanged Online notification five times adds no sends.
+4. **Unload and restore** ? tree saved, runtime + Domain destroyed, all object
+   references released, storage kept; peer observes Offline and keeps writing
+   (no sends). Replica re-created, parent loaded from storage, child reached
+   only through the restored reference (`doc_id` cleared first) and registered
+   with `RegisterNode`. Delivery resumes on Online: same dialog id, no
+   re-import, no duplicates. Repeated with the host unloaded.
+5. **Unacknowledged delivery** ? event packet lost; Offline suppresses the
+   retries too; `Unknown` lets the pending packet through again; retries are
+   interval-bounded (4 � interval/8 ? 0 sends, +1 interval ? exactly 1) and
+   carry the original `packet_id`; ACK lost separately; sender unloaded and
+   restored from storage still retries the same frozen `packet_id`; receiver
+   recognizes the duplicate without re-applying and re-acks.
+
+Cross-cutting checks: shared events compared by identity, timestamp, text and
+**stored journal order** (no test-side re-sorting), duplicates rejected,
+materialized `lines` must equal the journal replay; share topology (2 ids,
+links, endpoints, ReadWrite) identical on both sides; parents independent
+(different notes/revisions, neither parent id present in the other storage);
+after all events and ACKs further `Service()` sends nothing.
+
+## Defects found
+
+None. No core change was needed; `src/`, `include/` and `examples/` are
+untouched by this task.
+
+Because everything passed on the first run, the stand was validated against
+two temporary core mutations (reverted, not committed):
+
+| Mutation in `src/shared_sync_runtime.cpp` | Stand result |
+|---|---|
+| drop `OutgoingOffline` in `TrySend` + `ServiceShares` | fails scenario 3 (`sender.counts.total == sends_before`) |
+| drop `state.HasDelivered` in `NextUndeliveredSharedEvent` | fails "stand did not settle" (endless resend) |
+
+## LOC (vs `138bf10`)
+
+| Bucket | + | - | net |
+|---|---:|---:|---:|
+| Working code (`src/`, `include/`, `examples/`) | 0 | 0 | 0 |
+| Tests (`tests/shared_child_node_stand_test.cpp`, `tests/CMakeLists.txt`) | 1305 | 0 | +1305 |
+
+## Verification
+
+`g++`, RTTI off, `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, incremental trees.
+
+```
+cmake --build build-debug-clean   -j$(nproc) && ctest --test-dir build-debug-clean   --output-on-failure -j4
+cmake --build build-release-clean -j$(nproc) && ctest --test-dir build-release-clean --output-on-failure -j4
+cmake --build build-asan-clean    -j$(nproc) && ctest --test-dir build-asan-clean    --output-on-failure -R "stand|shared_node|permanent_pair|event_sourced|journal_retention|closed_event_graph|shared_sync_protocol"
+```
+
+| Config | Flags | Result |
+|---|---|---|
+| Debug (`build-debug-clean`) | ? | full suite 27/27 passed, stand EXIT=0 |
+| Release (`build-release-clean`) | `-O3 -DNDEBUG -fno-rtti` | full suite 27/27 passed, stand EXIT=0 |
+| ASan+UBSan (`build-asan-clean`) | `-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute` | core subset 8/8 passed (`permanent_pair` 745 s), stand EXIT=0 |
+
+Checks are `std::cerr` + `std::exit(1)`, not `assert`: they hold under NDEBUG
+(verified by the Release run, which exercises the same assertions).
+
+This is a headless core stand. It is **not** a GUI check and **not** a real
+network check: no �ther client, no sockets, no OS windows are involved.
+
+---
+
+# ChatSession Service() unification + pair restore check (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Fixed prior tip: `d3c2243` (not reverted).
+Work tip: `c35c47d`.
+
+## Changes
+
+1. **One scheduler** - `ChatSession` model loop calls `SharedSyncRuntime::Service(now_us)`; removed `SyncRetryState` and per-phase `SyncInitial`/`SyncNext` branches (including host-accept immediate SyncInitial). Peer presence -> `AetherByteTransport::NotePeerPresence` -> Availability; `SetAvailabilityWake` only enqueues a model wake.
+2. **Post-load pair check** - `DescribeRestoredPermanentPairViolation` before `RegisterNode` on restored rooms (2 distinct RW endpoints, one local, share/sync consistent). 0-1 shares skipped. Failure: diagnostic + no storage mutation.
+3. **Remnants removed** - `CancelInitialSync` / `CancelIncrementalEvent` / `NotePeerDelivered` (+ event classes/registration); BeginIncremental requires `Complete` only (`CanApply` Release-safe); dead `kScheduleOnNextService` branch. `logical_now_us_` kept (still used by `Service`).
+4. **Tests** - `apptraverse_chat_session_delivery_test` (FakeAetherFrameEndpoint sync-frame counts: Offline suppress/resume, repeated Online, lost ACK, restore unacked, refuse incompatible, Unknown attempt); transport availability dispatch; foundation pair-validation unit.
+
+## Reproduced defects (tests first)
+
+| Defect | Repro |
+|---|---|
+| Sync sends while Offline (SyncRetryState initial path) | `TestOfflineSuppressesSyncSendsAndResumes` |
+| Extra sends on repeated Online | `TestRepeatedOnlineDoesNotExtraSend` |
+| Delivered without ACK | `TestLostAckRetriesThenDelivered` |
+| No resume after Offline->Online | same offline test |
+| Restored 3-share dialog accepted | `TestRefuseIncompatibleRestoredDialogLeavesStorage` |
+| Stale transport callbacks | dispatch test (existing + availability) |
+
+## LOC (vs `d3c2243`)
+
+| Bucket | + | - | net |
+|---|---:|---:|---:|
+| Working code (`examples/` + `include/` + `src/` + `plan.md`) | 272 | 283 | -11 |
+| Tests | 908 | 1 | +907 |
+| Progress.md | (this note) |  |  |
+
+## Verification
+
+Compilers: `gcc`/`g++`, RTTI off. Logs: `/opt/cursor/artifacts/service-unify-20260920/`.
+
+| Config | DEMOs | Result |
+|---|---|---|
+| Debug (`build-service-debug`) | ON | chat_demo_runtime + delivery/integration/dispatch/foundation/permanent_pair/initial/incr/chat_demo_sync/protocol - EXIT=0 |
+| Release `-O3 -DNDEBUG` (`build-service-release`) | ON | same set - EXIT=0 |
+| ASan only (`build-service-asan`) | ON | same set - EXIT=0 (`ASAN_OPTIONS=detect_leaks=0`) |
+| ASan+UBSan | ON | **blocked**: upstream `aether`/`stdexec` constexpr failure in `registration.cpp` under UBSan |
+| ASan+UBSan (`build-service-ubsan-core`) | OFF | permanent_pair/foundation/initial/incr - EXIT=0 |
+
+Foreign ACK / isolation / chaos: retained in `apptraverse_permanent_pair_sync_test` (EXIT=0 Debug/Release/ASan).
+
+---
+
+# Strip Offer/Remove/CatchUp; permanent-pair chat formation (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Starting HEAD for this task: `830d9ee`.
+Commits: `3d8f715` (runtime.cpp) ? `81ba780` (headers/tests/plan) ? `80a9755`
+(Progress note). Tip after this update will follow.
+
+## Keep / remove (executed)
+
+| Mechanism | Decision | Reason |
+|---|---|---|
+| InstallLocalShare �2 + ExpectInitial* + SyncInitial/Next | KEEP | AeroAdmin path |
+| Service / ACK / retry / Offline-Online | KEEP | Delivery |
+| OfferNode / RequestJoin / ShareOffer / admission | REMOVE | Not product path |
+| RemoveShare / ChangeShareAccess / ReadOnly / CatchUp / Fold / Relay | REMOVE | Not permanent pair |
+| Max 2 shares in code | ADD | Enforce pair invariant |
+
+## Surface removed
+
+- Frames 4?7 (`ShareOffer` / `Decision` / `Request` / `CatchUp`); `share_offer.*`
+- Public runtime APIs: Offer/Join/Remove/Change/CatchUp/RegisterOffer/OfferStatuses/?
+- SharedNode: Remove/Change events + CommitLocal*; `ShareAccess::ReadOnly`
+- Tests/targets: join, topology, availability
+
+## Formation remaining
+
+Chat-shaped only: host `InstallLocalShare(self+peer)` ? `SyncInitialState`;
+peer `ExpectInitialNodeFromEndpoint` ? NodeState import; then bidirectional
+`SyncNextEvent` + ACK. Reopen from storage; no new journal.
+
+## LOC (vs `830d9ee` tip before strip)
+
+| Bucket | Before | After | ? |
+|---|---:|---:|---:|
+| Working code (runtime/node/frames/share_offer headers+src) | 5624 | 2650 | ?2974 |
+| Sync tests (pair/join/topo/avail/foundation/incr/initial) | 10692 | 4833 | ?5859 |
+| plan.md | 1043 | 1078 | +35 |
+
+Deleted public API / state symbols (runtime+node headers): ~39 (Offer/Join/Remove/Change/CatchUp/RO helpers + ShareOffer types). Event classes Remove/ChangeShareAccess and ShareAdmission root gone.
+
+## Verification
+
+Compilers: `gcc`/`g++`, `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, RTTI off.
+ASan/UBSan: `-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute`.
+
+Debug (`build-debug-clean`), Release (`build-release-clean`, `-O3 -DNDEBUG`),
+ASan (`build-asan-clean`): foundation, initial, incremental, chat_demo_sync,
+permanent_pair, cpm_patches ? all EXIT=0.
+
+Logs: `/opt/cursor/artifacts/strip-sync-20260920/logs-{debug,release,asan}/`.
+
+Also built/ran available app-adjacent targets (Debug): chat_demo_model,
+launch_options, main_window_lifecycle(+load_only), event_sourced_core,
+journal_retention ? EXIT=0. Full �ther chat GUI demos not enabled in this
+tree (`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`).
+
+Known limitation unchanged: equal-timestamp journal order not claimed fixed.
+Wrong-source ACK sensitivity previously proven (not re-run this pass).
+
+---
+
+# CPM patch fail-closed + permanent-pair test defects (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Prior verified tip `690e76f` not reverted.
+Work tip before this Progress note: `67e8ae12499a965151aaca08a2199842d5fc30ce`.
+
+## 1. CMake patch application
+
+**Defect:** `cpm_add_patches` used `|| true` (Unix) / `|| cd .` (Windows), so corrupt
+or incompatible patches configured successfully. Reproduced: garbage patch input
+exited 0 under `|| true` while `patch` alone exited 2; already-applied runs left
+`.rej` files.
+
+**Fix:** `cmake/cpm_apply_one_patch.cmake` — forward dry-run → apply (tree hash
+must change); else reverse dry-run → already applied; else FATAL_ERROR.
+`cpm_add_patches` invokes it via `${CMAKE_COMMAND} -P` with
+`APPTRAVERSE_PATCH_WORKDIR=<SOURCE_DIR>` (no unconditional error swallow).
+
+**Tests:** `cmake/tests/cpm_add_patches_test.cmake` (real `cpm_add_patches`, no
+SOURCE_CACHE). CTest name `apptraverse_cpm_add_patches_test`.
+
+Commits: `d049a3b` (patch path), registered in `67e8ae1`.
+
+## 2. Chaos Offline/Online
+
+**Defect:** `roll % 6 == 4` is always even → `(roll % 2) == 0` always Offline;
+Online unreachable in the random phase.
+
+**Fix:** independent `rng() % 2` for Offline/Online; count only real
+`Availability` transitions during the random phase (exclude forced Online after
+restart / final settle); explicit Offline→Online recovery without replica
+restart before the random loop. Seeds unchanged.
+
+## 3. Wrong-source ACK
+
+Strengthened `TestWrongSourceDoesNotAck`: drop outbound event without deliver;
+forged ACK from `endpoint-eve`; assert `HasPendingEvent` / `!HasDelivered`;
+retry same `packet_id`; deliver to B; sender stays pending until B's ACK; then
+Delivered + quiet.
+
+**Sensitivity (not in final diff):** temporarily `if (false && destination !=
+source_endpoint)` in `OnAck` → test failed at `HasPendingEvent()` after forged
+ACK (`/opt/cursor/artifacts/permanent-pair-fix-20260920/wrong_source_sensitivity.log`).
+Restored check → OK (`wrong_source_ok.log`).
+
+## Builds and runs (clean trees)
+
+Compilers: `CMAKE_C_COMPILER=gcc`, `CMAKE_CXX_COMPILER=g++` (`/usr/bin/c++` is
+clang without usable asan/libstdc++ in this image).
+`APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`. RTTI off via policy / flags.
+ASan/UBSan exclusions (existing): `-fno-sanitize=vptr,null,nonnull-attribute`.
+
+### Debug (`build-debug-clean`)
+
+```
+cmake -S . -B build-debug-clean -G Ninja -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-debug-clean -j$(nproc) --target \
+  apptraverse_permanent_pair_sync_test apptraverse_shared_node_join_test \
+  apptraverse_shared_node_topology_test apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_initial_sync_test apptraverse_shared_node_availability_test \
+  apptraverse_shared_node_foundation_test apptraverse_chat_demo_sync_test
+```
+
+Results (`/opt/cursor/artifacts/permanent-pair-fix-20260920/test-logs-debug/summary.txt`):
+all EXIT=0 including `cpm_patches`.
+
+### Release (`build-release-clean`, `-O3 -DNDEBUG -fno-rtti`)
+
+Same targets. Summary:
+`/opt/cursor/artifacts/permanent-pair-fix-20260920/test-logs-release/summary.txt`
+— all EXIT=0 (NDEBUG active).
+
+### ASan/UBSan (`build-asan-clean`)
+
+```
+-DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++
+-DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute -fno-omit-frame-pointer -fno-rtti'
+-DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1
+```
+
+Summary:
+`/opt/cursor/artifacts/permanent-pair-fix-20260920/test-logs-asan/summary.txt`
+— all EXIT=0 (~12.5 min for permanent_pair).
+
+Full logs under `/opt/cursor/artifacts/permanent-pair-fix-20260920/` and
+`/tmp/test-logs-{debug,release,asan}/`.
+
+## Limits
+
+MemoryTransport only; not real Æther / Windows GUI / disk crash-atomicity.
+Kernel sync unchanged (ACK source check already correct).
+
+Not accepted-by-user.
+
+
+# Permanent pair profile (A↔B) (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Base tip before this work:
+`df4e7eb7faeecafef530619255e303816266462d` (not reverted). Contract commit:
+`bff7d36`. Stress/docs tip: `f101c8b` (Progress tip includes this note).
+
+## Scope
+
+Verified permanent one SharedNode = one A↔B dialog. Exactly two ReadWrite
+shares after first admission. No RemoveShare / access change / third
+participant / rejoin-after-remove in this profile (code kept, not exercised).
+Full local storage loss out of scope. No messenger/GUI/real Æther.
+
+## Deliverables
+
+- `plan.md`: Permanent pair profile contract; equal-timestamp Observe oracle
+  `(timestamp_us, origin_uid, origin_sequence)` while SharedEventOrderLess
+  stays timestamp-only.
+- Target: `apptraverse_permanent_pair_sync_test` → `tests/permanent_pair_sync_test.cpp`.
+- Unix CPM patch step tolerates already-applied aether-objects patches
+  (`cmake/CPM.cmake`, matches Windows `|| cd .`).
+
+## Profile tests (commands and results)
+
+```
+cmake --build build --target apptraverse_permanent_pair_sync_test -j$(nproc)
+./build/tests/apptraverse_permanent_pair_sync_test
+# → permanent_pair_sync_test OK
+
+cmake --build build-release --target apptraverse_permanent_pair_sync_test -j$(nproc)
+./build-release/tests/apptraverse_permanent_pair_sync_test
+# → permanent_pair_sync_test OK
+
+cmake --build build-asan --target apptraverse_permanent_pair_sync_test -j$(nproc)
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
+  ./build-asan/tests/apptraverse_permanent_pair_sync_test
+# → permanent_pair_sync_test OK (~12 min)
+```
+
+Coverage: formation via OfferNode + policy accept; B not pre-seeded; PairBinding
+persist/restore; idempotent Offer; local accept while Offline; packet/ACK
+loss/duplicate/defer; long Offline (~month clock advance, no Send storm);
+restarts during admission / pre-ACK snapshot / unacked event / post-ACK;
+A↔B vs A↔C isolation; reject C RequestJoin on established pair; Send-counted
+quiet after settle + reopen; equal-timestamp Observe oracle; Unknown first
+attempt; chaos ≥1000 local messages across seeds 0x3c1e1001–1004 with
+independent clocks, losses, Offline, restarts, external oracle.
+
+## Other shared-node suite (Debug)
+
+```
+./build/tests/apptraverse_shared_node_join_test              # OK
+./build/tests/apptraverse_shared_node_topology_test          # OK
+./build/tests/apptraverse_shared_node_incremental_event_test # OK
+./build/tests/apptraverse_shared_node_initial_sync_test      # OK
+./build/tests/apptraverse_shared_node_availability_test      # exit 0
+```
+
+APPTRAVERSE_BUILD_AETHER_DEMOS=OFF. RTTI off. NDEBUG Release green.
+
+## Defects in this profile
+
+No kernel defects confirmed on the permanent-pair path; existing join/sync
+behavior was sufficient. Test hygiene only (ServiceRetry after clock advance;
+clear ObjPtr before Domain Restart; DeferNext requires ≥2 queued packets).
+
+## Limitations
+
+MemoryTransport only; not real Æther. Dynamic topology / remove / rejoin not
+re-verified as completion criteria. Full storage wipe not implemented.
+Materialized `records` Apply order may differ from Observe under equal
+timestamps — contract documents Observe as the cross-replica agreement key.
+
+Not accepted-by-user.
+
+
+# Remove / unacked delivery / rejoin combinations (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: cursor/shared-node-join-3c1e. Verified base bf35a7417d10dc6a8159303819e05a321050f294 was not reverted. Tip: fe14176bcf2e6203c512c86c5a80ca93f15ec72d.
+
+## 1. Cancel pending is not Delivered
+
+Reproduction: A sends E to C, drop packet, A removes C; CompleteIncrementalEvent marked HasDelivered(E).
+
+Root cause: RelayRemovedShare used ACK completion to clear unrelated pending.
+
+Fix: CancelIncrementalEventSyncEvent / CancelIncrementalEvent. Late ACK of cancelled packet ignored.
+
+Commit: 36e6f01. Test: TestCancelPendingDoesNotMarkDelivered (failed before fix).
+
+## 2. Concurrent closes reach the closed peer
+
+Reproduction: A and B independently remove C; second new RemoveShare rejected after first close.
+
+Root cause: new RemoveShare required a live destination share.
+
+Fix: MayAcceptConcurrentClose; NextUndeliveredRemoveRecord arms each undelivered close after ACK.
+
+Commit: 4251185. Tests: TestConcurrentRemovesReachClosedPeer and ReverseOrder.
+
+## 3. Revoke during initial sync
+
+Reproduction: snapshot ACK lost leaves Pending; RemoveShare early-returned; late initial ACK could Complete.
+
+Fix: CancelInitialSyncEvent; arm remove without forcing Complete; OnAck ignores late initial ACK on closed share; Accepted to Rejected cancel decision for Admitted peers.
+
+Commit: cddc771. Tests: TestRevokeWhileInitialPendingAckLost, TestRevokeBeforeSnapshotImport.
+
+## 4. Safe rejoin fold
+
+Reproduction: identity skip without content compare; covered ids from merged journal.
+
+Fix: SameSharedEventContent; prefight missing events; snapshot-only covered ids; SharedEventOrderLess stable sort.
+
+Commit: ea07b32. Rejoin tests remain green.
+
+## 5. Combined and chaos
+
+TestUnackedMessageThenRemoveThenRejoin. Chaos: no g_stamp; remove/rejoin steps; oracle of texts written while ThreeWay held; seed 0x3c1e0c41.
+
+Commit: fe14176.
+
+## Builds
+
+Debug build, Release build-release (-O3 -DNDEBUG -fno-rtti), ASan/UBSan build-asan (-fsanitize=address,undefined -fno-sanitize=vptr,null,nonnull-attribute). APPTRAVERSE_BUILD_AETHER_DEMOS=OFF. Shared-node suite and apptraverse_chat_demo_sync_test passed.
+
+## Not verified
+
+Heartbeat/last-seen/real Aether; messenger/GUI; full crash-atomicity of multi-Save fold batch; mid-chaos remove under extreme loss beyond dedicated seeds. Not accepted-by-user.
+
+
+# Shared-node kernel defect fixes (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user. Stopped for review.
+
+Branch: `cursor/shared-node-join-3c1e`. Verified base `7949b79cfe8bb6cd58a296d4997029c52518caf1` was not reverted. Last functional code tip for this slice: `30260ed3fcddb4865897d641eabf17cddd484379` (Progress.md documentation commits follow on the same branch).
+
+## 1. Test UB (dangling ShareView / ObjPtr)
+
+Reproduction before fix: `FindEndpoint(SharesOf(...), ...)` stored pointers into a temporary vector; ASan/UBSan and `TestSenderRestartAfterAck` ObjPtr-across-`Stop`.
+
+Changed: `tests/shared_node_topology_test.cpp` (`std::optional<ShareView>`), `tests/shared_node_incremental_event_test.cpp` (drop ObjPtrs before `Stop`).
+
+Commits: `3ce2c06`, `dccba24`.
+
+After: ASan+UBSan build in `build-asan` (g++, `-fno-sanitize=vptr,null,nonnull-attribute`, no RTTI). Shared-node suite passed under sanitizers after the memory fixes; prior green results with dangling pointers were not trusted.
+
+## 2. Concurrent topology
+
+Rules recorded in `plan.md` (removal closes one lifetime; second admissible remove is a no-op; access on a closed share does not reopen; re-join gets a new `share_id`).
+
+Reproduction: A and B independently remove C; access change races remove.
+
+Changed: `SharedNode::CanApply` / `Apply` for Remove and ChangeShareAccess.
+
+Commit: `c5934cb`. Tests: `TestConcurrentIndependentRemoves`, `TestAccessChangeRacesRemove`.
+
+## 3. Remove delivery
+
+Reproduction: `ServiceRelays` resent every `Service` at the same `now`; ACK only in RAM; restart re-armed completed removes; `RegisterNode` path could transmit.
+
+Changed: keep `LinkSyncState` after remove; arm without `Send` on load/`RegisterNode`; `ServiceRelays(now_us)` with retry interval; Offline skips Send; Offline?Online arms closed slots; same pending bytes/packet id.
+
+Commit: `f1b7e1a`. Tests: rate-limit, offline/online, restart before/after ACK, lost ACK.
+
+## 4. Duplicate ACK authorization
+
+Reproduction: existing-event path ACKed before source/dest checks.
+
+Changed: `MayAcknowledgeDelivery` (live RW or historical dest ends here + known source). Stranger / wrong dest / wrong node get no ACK; legitimate remove retransmit still ACKs without restoring the share.
+
+Commit: `f1b7e1a`. Test: `TestDuplicateEventAckRequiresDeliveryContext`.
+
+## 5. Re-join after remove
+
+Reproduction: `OpenAttemptBlocks` / Offer/Request reused Complete/Bound forever.
+
+Changed: finished ops block only while their `share_id` is live; Admitted beats stale Bound in `FindImportAdmission`; existing node folds missing shared events from snapshot (`FoldMissingSharedFromSnapshot` + `FreezeTopologyPayload`).
+
+Commit: `7117bfd`. Tests: `TestRejoinAfterRemoveByOffer`, `TestRejoinAfterRemoveByRequest`.
+
+## 6. Public topology API
+
+Changed: `InstallLocalShare` / `CommitLocalRemoveShare` / `CommitLocalShareAccess` for local init; live path is `SharedSyncRuntime::{RemoveShare,ChangeShareAccess}` and admission `PublishShareAccess`.
+
+Commit: `d0c7304`. Documented in `plan.md`.
+
+## 7. Final checks
+
+- Chaos: multi-seed (`0x3c1e0919`, `0x3c1e0a21`, `0x3c1e0b37`) with per-replica Service clocks (`30260ed`).
+- `apptraverse_chat_demo_sync_test`: on base, `BindChat` failed because fixture `peer_uid` was `peer-b` while Link endpoint was `chat-b`. Fixture-only fix `f767ef1` (no production weakening). Now passes Debug/Release/ASan.
+- Debug `build`, Release `build-release` (`-O3 -DNDEBUG -fno-rtti`), ASan `build-asan`: all `apptraverse_shared_node_*` + `apptraverse_chat_demo_sync_test` passed. `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`. Checks use `CHECK`/`std::exit` (active under NDEBUG). Existing build dirs were not cleaned.
+
+## Not verified / not claimed ready
+
+Heartbeat, last-seen, real �ther presence, arbitrary dynamic object graphs, messenger/GUI product paths, mid-chaos remove+rejoin under heavy loss (covered instead by dedicated concurrent-remove and re-join tests). Not accepted-by-user.
+
+# Shared-node kernel limits (2026-09-20)
+
+Status: implemented / verified. Not accepted-by-user.
+
+Branch: `cursor/shared-node-join-3c1e`. Continues from `fea7444f789f0a4fd3064af829630d9743641af2`. Later commits were not reverted.
+
+HEAD at the start of this slice was `1dc05c4` after the compatible-Link import fix. The five existing `apptraverse_shared_node_*` targets were run before further edits and were not weakened.
+
+## Link reuse
+
+Reproducing test: `TestSharedLinkSequentialOffer` and `TestSharedLinkSimultaneousOffer` in `apptraverse_shared_node_join_test`. X and Y share one remote Link object. A second import used to be rejected on any ObjId collision.
+
+Fix: `1dc05c4` (`Reuse a compatible Link when importing another SharedNode.`). A compatible Link closure (identity, class, version, descriptor, base) is reused. An incompatible object with the same ObjId is rejected before the live graph is written. Other collisions still reject. The existing Link, its local state, and its journal are not overwritten. X and Y keep different `share_id` values and independent `LinkSyncState`.
+
+## Participant topology
+
+Reproducing test: `apptraverse_shared_node_topology_test`. A and B share X, C joins through A. `AddShare` / `RemoveShare` / `SetShareAccess` used ordinary `Commit`, so connected replicas never saw the change. `share_id` used to be the local event ObjId.
+
+Fix: `bc3c0b070e2966fe4b4a990fa69931b89eaa1411`. Those changes are shared events. `AddShareEvent` version 1 carries a protocol `share_id`. The incremental path transfers the Link descriptor for that event only. A removed endpoint is told by a runtime-only relay of the journal event; the share row is not kept just to finish the send. An already-applied packet is acknowledged and does not restore the share. After convergence, B and C exchange while A is down, then A receives the missed events. Simultaneous join, an event during join, a lost ACK, restart, access change, and removal are in the same target.
+
+## Availability delivery
+
+Reproducing test: `TestAvailabilityReachesRuntimeOnlyWhenDrained`. `AvailabilityThunk` called `OnAvailability` directly.
+
+Fix: `6bb8564dbcbb211d44218a7f1e57ccd476e63612`. `Availability()` on the transport is the only observation. The callback is a wake delivered by the adapter on the model context. `QueuedTransport` holds Receive and Availability until `Drain`. `ClearReceive` / `ClearAvailability` drop deferred calls, so destroying the runtime does not leave a live callback.
+
+## Stale availability
+
+Reproducing test: `TestSameNetworkRestartDropsAvailability`, plus the existing fresh-network Unknown check. `MemoryNetwork` kept availability after `Detach`, so a new transport with the same uid inherited Online.
+
+Fix: `250614c05e0b7b2c30f92dc4424d85a918c4b9f5`. The observation is on the `MemoryTransport` instance. `SetAvailability` with no attached source stores nothing. Disconnect and queues stay on the network. Initial-Offline tests set Offline after the new instance exists and before the operation. `TestDeterministicThreeReplicaChaos` runs 3000 steps from seed `0x3c1e0919` (events, loss, duplicates, reorder, availability, restarts), then restores delivery and checks convergence. After the queues are empty, further `Service` calls do not `Send`. The count is the transport `Send` counter.
+
+## Commands and results
+
+Debug, `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`, checks active under the Debug build (`CHECK` uses `std::exit`):
+
+```
+cmake --build build -j
+ctest --test-dir build --output-on-failure -j
+```
+
+26 of 27 passed. Shared-node targets passed, including `apptraverse_shared_node_topology_test` (4.62s).
+
+Release, `-O3 -DNDEBUG -std=c++20 -fno-rtti` (from `build-release/build.ninja`):
+
+```
+cmake -S . -B build-release -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release -j
+ctest --test-dir build-release --output-on-failure -j
+```
+
+26 of 27 passed. `apptraverse_shared_node_topology_test` passed in 0.38s. `CHECK` still exits under `NDEBUG`. RTTI was not enabled.
+
+The one failure in both configurations is `apptraverse_chat_demo_sync_test`: `SubmitDraft` returns an empty id because `BindChat` returns false (`peer_uid` `peer-b` is not link endpoint `chat-b`). That test and `chat_commands.cpp` are unchanged since `fea7444`. It is not a regression of this slice.
+
+## Not verified
+
+Heartbeat, last-seen, real Æther presence, arbitrary dynamic object graphs, and chat/GUI product behavior. No application was started. Not accepted-by-user.
+
+# Endpoint availability (2026-09-19)
+
+Status: implemented / verified. Not accepted-by-user.
+
+Branch: `cursor/shared-node-join-3c1e`. Continues from `c1c8bfc13186f7ae41641a176d4cbb3fe11fa345`. That commit was not reverted.
+
+## What changed
+
+Outgoing availability is one observation on `IByteTransport`: Online, Offline, or Unknown. `MemoryNetwork::SetAvailability` changes it per direction and notifies the source only when the value changes. `Link` does not store it. A new transport does not reload a previous Online.
+
+`SharedSyncRuntime` checks that observation before every `Send`: offer, request, accept, reject, repeat, snapshot, event, and ACK. Known Offline does not call `Send`. The persisted packet stays pending and is not marked Complete. Offline to Online makes that same packet due on the next `Service`. The availability callback only wakes; it does not send. A repeated Online does not skip the retry interval.
+
+A response formed while Offline is the existing persisted packet. There is no second durable outbox. An ACK that could not be handed off is remembered only until this runtime sends it; after restart the peer's retry reproduces it.
+
+## Reproduction
+
+Baseline before this slice, Debug, HEAD `c1c8bfc`, four existing targets, all passed (join test 1.05s).
+
+```
+cmake --build build --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test \
+  apptraverse_shared_node_availability_test -j
+ctest --test-dir build -R 'apptraverse_shared_node_' --output-on-failure
+
+cmake --build build-release --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test \
+  apptraverse_shared_node_availability_test -j
+ctest --test-dir build-release -R 'apptraverse_shared_node_' --output-on-failure
+```
+
+Release flags remain `-O3 -DNDEBUG -std=c++20 -fno-rtti`. Checks use `CHECK` / `std::exit`, so they stay active under `NDEBUG`.
+
+## Results
+
+Debug and Release, 2026-09-19, all five `apptraverse_shared_node_*` CTest targets passed. Send counts are taken from a test `IByteTransport` wrapper before `MemoryNetwork` can drop a packet.
+
+Debug: foundation 0.01s, initial sync 0.06s, incremental event 0.11s, join 1.08s, availability 0.10s.
+
+Release (`-O3 -DNDEBUG -std=c++20 -fno-rtti`): foundation 0.00s, initial sync 0.01s, incremental event 0.01s, join 0.09s, availability 0.01s.
+
+Baseline before this slice, same Debug tree, HEAD `c1c8bfc`: the four existing targets passed (join 1.05s). Those tests were not weakened.
+
+The availability target covers: initial Offline for `OfferNode` and `RequestJoin` with zero `Send`, then Online completion without a second user call; outage after the request, while awaiting a decision, after `AcceptJoin`, after the snapshot is dropped, after the snapshot is saved and before ACK, and with an unacked event; lost ACK while the link is still Online and the network drops packets; Unknown does not block; A?B can deliver while B?A cannot ACK until the reverse direction is Online; B offline does not stall C, and restoring B resumes both waiting nodes without mixing packet ids or share ids; restart from storage with a pending snapshot and a pending event sends nothing while Offline and then the same bytes; after a finished exchange, 500 retry intervals and a repeated Online notification add no `Send` and no journal record.
+
+## Limits
+
+Known Offline produces no outgoing `Send`. Restore continues the saved exchange. A lost ACK while Online retries the same packet and does not duplicate the event. Heartbeat, last-seen, and the real Æther client are not done. The next open test is full convergence of one node on A, B, and C, including events from each side and the same share list on all three. `TestRequestTwoNodesAndThirdParticipant` does not close that. Not accepted-by-user.
+
+---
+
+# Join request and deferred admission (2026-09-19)
+
+Status: implemented / verified. Not accepted-by-user.
+
+Branch: `cursor/shared-node-join-3c1e`. Continues from `e34e02c6f6c0bcb34a4b11869567e8974659f1f1`. That commit was not reverted.
+
+## What changed
+
+`OfferNode` still means the holder grants a node it already has. `RequestJoin(remote_endpoint, node_id, requested_access)` is the other direction: the caller does not have the node and does not create one. The holder accepts with `AcceptJoin` or refuses with `RejectJoin`. A `SetShareOfferPolicy` answer uses those same commands. No policy does not grant access.
+
+An inbound attempt is stored as `AwaitingDecision` and can sit across `Service` calls. A repeat is the same attempt only when transport source, node, kind, class, and requested access match. A `Rejected` attempt does not block a later operation. `Service` does not keep sending a finished rejection; the stored decision is returned only when that same attempt arrives again.
+
+`OnNodeState` calls `SetInitialNodeImportedCallback` before ACK on an admission that is not yet `Bound`. A repeated snapshot after `Bound` does not bind again.
+
+Every `ShareOffer` is attached to `ShareAdmission` at `kShareAdmissionRootId`. A new runtime loads that root from its own storage. Tests no longer copy `LocalOfferIds()` across `Restart`.
+
+## Reproduction
+
+Same trees as the previous section. Do not wipe them.
+
+```
+cmake --build build --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test -j
+ctest --test-dir build -R 'apptraverse_shared_node_' --output-on-failure
+
+cmake --build build-release --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test -j
+ctest --test-dir build-release -R 'apptraverse_shared_node_' --output-on-failure
+```
+
+Release flags remain `-O3 -DNDEBUG -std=c++20 -fno-rtti`. Join checks use `CHECK` / `std::exit`.
+
+## Results
+
+Debug and Release, 2026-09-19, all four CTest targets passed. The join test covers the previous grant scenarios plus: deferred reject then a new request, two requested nodes, a third participant on an already shared node, loss of the request and of the decision, restart from storage while waiting and after the snapshot is saved, and a tampered repeat. After a finished rejection and after a finished join, advancing logical time did not enqueue more admission traffic.
+
+## Limits
+
+Still standalone shared events on the chosen node, not arbitrary dynamic object graphs, multi-hop, presence, or the real Æther client. `MemoryTransport` is not authentication. `AcceptJoin` for a request needs a `Link` or `SetLinkForEndpoint`; the runtime does not construct a transport-specific Link.
+
+---
+
+# Share admission of a chosen SharedNode (2026-09-19)
+
+Status: implemented / verified. Not accepted-by-user.
+
+Branch: `cursor/shared-node-join-3c1e` from `origin/main` `d05d628547f6713b6f08eee93f452a577fa9bcef`.
+`feature/messenger-v1` was not used.
+
+## What landed
+
+Public admission is `SharedSyncRuntime`, not a new manager. The application
+calls `OfferNode` (node, remote `Link`, access) and `Service(now_us)`.
+`SetShareOfferPolicy` accepts or rejects before any replica exists on the
+receiver. `RegisterOffer` reattaches a persisted `ShareOffer` after the
+runtime, transport, and Domain are created again from that replica's storage.
+
+`ShareOffer` is local event-sourced state. It is not in the shared graph.
+Operation id, node id, and share id stay distinct. `ExpectInitialNodeFromEndpoint`
+is keyed by `(source_endpoint, node_id)`: a second node for the same endpoint
+does not replace the first, and completing or forgetting one leaves the others.
+An empty node id is still the single wildcard slot used by chat.
+
+Frames `ShareOffer` and `ShareDecision` travel as opaque bytes on
+`IByteTransport`. The receiver takes the source from the transport callback.
+`MemoryNetwork` delivers those bytes between independent Domains. It is not
+authentication and it is not the Æther client.
+
+## Reproduction
+
+Headless only. `APPTRAVERSE_BUILD_AETHER_DEMOS=OFF`. Compilers: `/usr/bin/gcc`
+and `/usr/bin/g++`. Do not wipe an existing build tree.
+
+```
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=/usr/bin/gcc \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF
+cmake --build build --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test -j
+ctest --test-dir build -R 'apptraverse_shared_node_' --output-on-failure
+```
+
+Release is a second tree so the Debug tree stays incremental:
+
+```
+cmake -S . -B build-release -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=/usr/bin/gcc \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF
+cmake --build build-release --target \
+  apptraverse_shared_node_foundation_test \
+  apptraverse_shared_node_initial_sync_test \
+  apptraverse_shared_node_incremental_event_test \
+  apptraverse_shared_node_join_test -j
+ctest --test-dir build-release -R 'apptraverse_shared_node_' --output-on-failure
+```
+
+Release compile line includes `-O3 -DNDEBUG -std=c++20 -fno-rtti`.
+`apptraverse_shared_node_join_test` checks with `CHECK` / `std::exit`, not
+`assert`, so they stay active under `NDEBUG`.
+
+## Results
+
+Debug and Release, 2026-09-19, all four CTest targets passed:
+
+- `apptraverse_shared_node_foundation_test`
+- `apptraverse_shared_node_initial_sync_test`
+- `apptraverse_shared_node_incremental_event_test`
+- `apptraverse_shared_node_join_test`
+
+The join test offers an existing node, lets the receiver policy admit it, and
+then only advances logical time and `MemoryNetwork` delivery. It does not
+pre-build the receiver replica, call the other side's handler, or set
+`Complete` by hand. Covered: both sides (20 events each) compared by shared
+identity and payload; an event during initial sync; two nodes to one endpoint;
+counter-offers; three replicas without mixing; loss, duplicate, reorder, and a
+one-way partition; restart during the offer, after the snapshot is saved and
+before ACK, and with an unacked event (network queue cleared); policy reject,
+wrong node, unsupported class, wrong source, damaged frame, read-only write;
+local fields absent from the transferred bytes.
+
+## Limits
+
+Verified for standalone shared Events that append independent records on the
+chosen node. That is not support for arbitrary dynamic object graphs, multi-hop,
+presence, or the real Æther client. `MemoryTransport` does not authenticate the
+peer. The accept/reject policy is runtime-only and must be set again after
+restart; the persisted decision is not asked again. The initiator must already
+share the node with its own endpoint before `OfferNode`.
+
+---
+
 ## Host	oClient delivery (2026-09-17) — NOT FIXED
 
 Starting SHA: `d9b11a48771d077f0208543fbd1663ca71224d1e`
@@ -3776,7 +5010,7 @@ Status: partial on main. Live Host/Client text convergence NOT FIXED.
 Starting SHA: `954114e`. Final remote: `eed9e02`.
 
 ## Landed
-1. `apptraverse_aether_p2p_safe_stream_duplex_test` � real `P2pSafeStream` over MockWriteStream; sequential duplex, drop recover, fragment, delay>3s, reentrancy depth (bad>=1, outer=0).
+1. `apptraverse_aether_p2p_safe_stream_duplex_test` � real `P2pSafeStream` over MockWriteStream; sequential duplex, drop recover, fragment, delay>3s, reentrancy depth (bad>=1, outer=0).
 2. `ChatAetherRuntime` outer-loop write pump; deleted size half-duplex / post-Join reset / 3s hang rebuild; restored heartbeat ping/pong coalesce.
 3. Pins unchanged: aether-client-cpp `0b0e3b54`, objects `1d302647`, miscpp `f8b2e1c6`.
 

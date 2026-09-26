@@ -507,7 +507,7 @@ void TestLinkSyncStatePersistenceAcrossBusinessReplay() {
   InitializeRuntimeNode(*node);
 
   // Add share creates a LocalPtr<LinkSyncState> on node
-  node->AddShare(link, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link, ShareAccess::ReadWrite);
   CHECK(!node->link_sync_states.empty());
   CHECK(node->link_sync_states[0].is_valid());
   node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);

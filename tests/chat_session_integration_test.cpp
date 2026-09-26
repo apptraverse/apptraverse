@@ -692,8 +692,8 @@ void TestMaliciousFramesRejected() {
       ae::CreateWith{scratch_domain}.with_id(ae::ObjId{9103}));
   link_b->endpoint_uid = kUidB;
   InitializeRuntimeNode(*link_b);
-  wrong_node->AddShare(link_a, apptraverse::ShareAccess::ReadWrite);
-  wrong_node->AddShare(link_b, apptraverse::ShareAccess::ReadWrite);
+  wrong_node->InstallLocalShare(link_a, apptraverse::ShareAccess::ReadWrite);
+  wrong_node->InstallLocalShare(link_b, apptraverse::ShareAccess::ReadWrite);
   ae::ObjId share_to_b = wrong_node->shares[1].share_id;
 
   pair.b.fake()->InjectFrame(
@@ -728,8 +728,8 @@ void TestMaliciousFramesRejected() {
       ae::CreateWith{fake_domain}.with_id(ae::ObjId{9202}));
   fl_b->endpoint_uid = kUidB;
   InitializeRuntimeNode(*fl_b);
-  fake_room->AddShare(fl_a, apptraverse::ShareAccess::ReadWrite);
-  fake_room->AddShare(fl_b, apptraverse::ShareAccess::ReadWrite);
+  fake_room->InstallLocalShare(fl_a, apptraverse::ShareAccess::ReadWrite);
+  fake_room->InstallLocalShare(fl_b, apptraverse::ShareAccess::ReadWrite);
   ae::ObjId fake_share_to_b;
   for (auto const& s : fake_room->shares) {
     if (s.link.is_valid() && s.link->EndpointUid() == kUidB) {
