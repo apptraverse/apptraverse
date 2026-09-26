@@ -1,6 +1,14 @@
 # Branch scope trim: drop Python, WASM, and unrelated demos (2026-09-26)
 
-Status: implemented on `cursor/shared-node-join-3673`. Build not re-run on this VM (missing `libstdc++` linker).
+Status: implemented / verified locally on `cursor/shared-node-join-3673` (MSVC Debug, incremental `build/`).
+
+Local (2026-09-26): `cmake .. -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF` in `build/`, then
+`cmake --build . --config Debug --target apptraverse_shared_node_headless_check` — **PASS**
+(event_sourced, journal_retention, shared_node foundation/initial/incremental,
+permanent_pair, shared_child_node_stand all scenarios, closed_event_graph).
+Sibling `aether-client-cpp` was at `16d5e5e…`; temporarily checked out pin
+`0b0e3b54…` for configure (restore local Aether work with
+`git checkout 16d5e5e` there when done).
 
 Removed from the branch tree:
 
