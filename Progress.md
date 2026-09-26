@@ -1,3 +1,18 @@
+# Branch scope trim: drop Python, WASM, and unrelated demos (2026-09-26)
+
+Status: implemented on `cursor/shared-node-join-3673`. Build not re-run on this VM (missing `libstdc++` linker).
+
+Removed from the branch tree:
+
+- All of `tools/` (Python runners, WASM serve/smoke, MCP helpers, packaging).
+- `examples/surfaces_demo/` (including Web/WASM, Android, iOS, macOS, Linux, Windows).
+- Legacy demos: `main_window_runtime_demo`, `dynamic_objects_demo`, `model_ui_runtime_demo`, `chat_ui_runtime_demo`, `aether_presence_monitor`.
+- Chat GUI hosts: `examples/chat_demo/android`, `windows`, `linux`.
+- CMake CPM patch-test harness added on this branch (reverted to `main` CPM.cmake).
+- GUI/smoke tests and `apptraverse_cpm_add_patches_test`; headless entry point is now `apptraverse_shared_node_headless_check`.
+
+Kept for SharedNode join / transport: core library, `shared_node_demo`, headless `chat_demo` (model + runtime + aether adapter), and SharedNode/chat-session tests.
+
 # ACK check: verify the data the ACK actually answers (2026-09-21)
 
 Status: implemented / verified. Not accepted-by-user. Stopped for review.
