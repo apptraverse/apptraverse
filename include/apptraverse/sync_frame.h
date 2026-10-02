@@ -11,8 +11,9 @@
 
 namespace apptraverse {
 
-// Shared synchronization protocol v1: initial state plus standalone Event.
-// Dynamic object graphs, presence, and access negotiation are later.
+// Shared synchronization protocol v1 for permanent AeroAdmin 1:1 dialogs.
+// NodeState, Ack, and Event only. Offer/Decision/Request/CatchUp are not
+// part of this surface.
 inline constexpr std::uint8_t kSyncProtocolVersion = 1;
 
 enum class SyncFrameType : std::uint8_t {

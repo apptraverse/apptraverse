@@ -1,5 +1,5 @@
 #include "chat_aether_runtime.h"
-#include "aether_stream_frame.h"
+#include "chat_bootstrap.h"
 #include "join_delivery_trace.h"
 
 #include <algorithm>
@@ -227,8 +227,6 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
     ae::Subscription inbound_sub;
     ae::Subscription select_sub;
     std::unordered_map<std::string, PeerState> peers;
-    std::uint64_t next_nonce = 1;
-
     bool select_started = false;
     bool client_configured = false;
     bool select_failed = false;
@@ -249,7 +247,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       }
     };
 
-    auto same_pending = [](PeerState const& peer, AetherFrameKind kind,
+    auto same_pending = [](PeerState const& peer, OutboundKind kind,
                            std::vector<std::uint8_t> const& bytes) {
       if (peer.active_write_token != 0 && peer.active_kind == kind &&
           peer.active_payload == bytes) {
@@ -257,18 +255,6 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
       }
       for (auto const& item : peer.pending_out) {
         if (item.kind == kind && item.bytes == bytes) {
-          return true;
-        }
-      }
-      return false;
-    };
-
-    auto has_pending_kind = [](PeerState const& peer, AetherFrameKind kind) {
-      if (peer.active_write_token != 0 && peer.active_kind == kind) {
-        return true;
-      }
-      for (auto const& item : peer.pending_out) {
-        if (item.kind == kind) {
           return true;
         }
       }
@@ -296,7 +282,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
     };
 
     auto on_stream_data =
-        [this, &peers, &set_presence, &same_pending](
+        [this, &peers, &set_presence](
             std::string const& peer_uid_text, ae::DataBuffer const& data) {
           auto it = peers.find(peer_uid_text);
           if (it == peers.end()) {
@@ -308,73 +294,34 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
                     0, peer_uid_text, {}, {}, {}, bytes.size(),
                     JoinTraceHash(bytes));
 
-          AetherFrameKind kind{};
-          std::vector<std::uint8_t> payload;
-          if (!DecodeAetherFrame(bytes, kind, payload)) {
-            JoinTrace("APP_REASSEMBLED_RX_DECODE_FAIL", "aether",
-                      "bad_outer_frame", 0, peer_uid_text, {}, {}, {},
-                      bytes.size(), JoinTraceHash(bytes), "bad outer frame");
-            return;
-          }
-
           auto const now_ms = CurrentSteadyTimeMs();
           peer.last_rx_ms = now_ms;
+          set_presence(peer, PeerPresence::kOnline);
 
-          if (kind == AetherFrameKind::kHeartbeatPing) {
-            peer.last_heartbeat_rx_ms = now_ms;
-            set_presence(peer, PeerPresence::kOnline);
-            auto const nonce = DecodeHeartbeatNonce(payload);
-            auto pong_bytes = EncodeHeartbeatNonce(nonce);
-            // Queue/coalesce pong; never drop solely because the FIFO is
-            // non-empty. Write starts only from the outer pump.
-            if (!same_pending(peer, AetherFrameKind::kHeartbeatPong,
-                              pong_bytes)) {
-              auto& q = peer.pending_out;
-              q.erase(std::remove_if(
-                          q.begin(), q.end(),
-                          [](PendingOut const& item) {
-                            return item.kind == AetherFrameKind::kHeartbeatPong;
-                          }),
-                      q.end());
-              peer.pending_out.push_back(
-                  PendingOut{.kind = AetherFrameKind::kHeartbeatPong,
-                             .bytes = std::move(pong_bytes)});
-            }
-            return;
-          }
-
-          if (kind == AetherFrameKind::kHeartbeatPong) {
-            peer.last_heartbeat_rx_ms = now_ms;
-            set_presence(peer, PeerPresence::kOnline);
-            return;
-          }
-
-          if (kind == AetherFrameKind::kApplication) {
-            set_presence(peer, PeerPresence::kOnline);
-            JoinTrace("APP_RX", "aether", "kApplication", 0, peer_uid_text, {},
-                      {}, {}, payload.size(), JoinTraceHash(payload));
-            FrameCallback cb;
-            {
-              std::lock_guard<std::mutex> lock{callback_mu_};
-              cb = on_frame_;
-            }
-            if (cb) {
-              cb(peer.uid_text, std::move(payload));
-            }
-            return;
-          }
-
-          if (kind == AetherFrameKind::kControl) {
-            JoinTrace("CTRL_RX", "aether", "kControl", 0, peer_uid_text, {}, {},
-                      {}, payload.size(), JoinTraceHash(payload));
+          ChatBootstrapMessage bootstrap;
+          if (DecodeChatBootstrap(bytes, bootstrap)) {
+            JoinTrace("CTRL_RX", "aether", "chat_bootstrap", 0, peer_uid_text,
+                      {}, {}, {}, bytes.size(), JoinTraceHash(bytes));
             ControlCallback cb;
             {
               std::lock_guard<std::mutex> lock{callback_mu_};
               cb = on_control_;
             }
             if (cb) {
-              cb(peer.uid_text, std::move(payload));
+              cb(peer.uid_text, std::move(bytes));
             }
+            return;
+          }
+
+          JoinTrace("APP_RX", "aether", "payload", 0, peer_uid_text, {}, {}, {},
+                    bytes.size(), JoinTraceHash(bytes));
+          FrameCallback cb;
+          {
+            std::lock_guard<std::mutex> lock{callback_mu_};
+            cb = on_frame_;
+          }
+          if (cb) {
+            cb(peer.uid_text, std::move(bytes));
           }
         };
 
@@ -530,7 +477,7 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
           return;
         }
 
-        auto frame_bytes = EncodeAetherFrame(item.kind, item.bytes);
+        std::vector<std::uint8_t> frame_bytes = item.bytes;
         if (info.max_element_size != 0 &&
             frame_bytes.size() > info.max_element_size) {
           JoinTrace("WRITE_OVERSIZE", "aether",
@@ -554,9 +501,9 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
                                          peer.channel_incarnation);
 
         char const* stage = "";
-        if (item.kind == AetherFrameKind::kControl) {
+        if (item.kind == OutboundKind::kControl) {
           stage = "CTRL_TX";
-        } else if (item.kind == AetherFrameKind::kApplication) {
+        } else if (item.kind == OutboundKind::kApplication) {
           stage = "APP_TX";
         }
 
@@ -599,21 +546,6 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         return;
       }
     };
-
-    auto schedule_heartbeat_ping =
-        [&queue_pending, &has_pending_kind, &next_nonce](PeerState& peer) {
-          if (!peer.stream) {
-            return;
-          }
-          // At most one unsent scheduled ping per peer.
-          if (has_pending_kind(peer, AetherFrameKind::kHeartbeatPing)) {
-            return;
-          }
-          auto nonce_payload = EncodeHeartbeatNonce(next_nonce++);
-          queue_pending(peer,
-                        PendingOut{.kind = AetherFrameKind::kHeartbeatPing,
-                                   .bytes = std::move(nonce_payload)});
-        };
 
     auto parent = ae::Uid::FromString(std::string{kAetherParentUid});
 
@@ -756,10 +688,10 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
               break;
             case CommandType::kSend:
             case CommandType::kSendControl: {
-              AetherFrameKind const kind =
+              OutboundKind const kind =
                   cmd.type == CommandType::kSendControl
-                      ? AetherFrameKind::kControl
-                      : AetherFrameKind::kApplication;
+                      ? OutboundKind::kControl
+                      : OutboundKind::kApplication;
               auto& peer = peers[cmd.peer_uid];
               peer.uid_text = cmd.peer_uid;
               queue_pending(peer,
@@ -786,21 +718,10 @@ void ChatAetherRuntime::ThreadMain(Config config, LocalUidCallback on_uid,
         auto const now_ms = CurrentSteadyTimeMs();
         for (auto& [peer_uid, peer] : peers) {
           (void)peer_uid;
-          if (peer.stream) {
-            // Periodic ping for opened peers, including Connecting/Offline.
-            if (peer.last_heartbeat_tx_ms == 0 ||
-                now_ms - peer.last_heartbeat_tx_ms >=
-                    config.heartbeat_period_ms) {
-              schedule_heartbeat_ping(peer);
-              peer.last_heartbeat_tx_ms = now_ms;
-            }
-          }
           if (peer.reported_presence == PeerPresence::kConnecting ||
               peer.reported_presence == PeerPresence::kOnline) {
-            auto const last_active =
-                (std::max)(peer.last_heartbeat_rx_ms, peer.last_rx_ms);
-            if (last_active != 0 &&
-                now_ms - last_active >= config.offline_after_ms) {
+            if (peer.last_rx_ms != 0 &&
+                now_ms - peer.last_rx_ms >= config.offline_after_ms) {
               set_presence(peer, PeerPresence::kOffline);
             }
           }

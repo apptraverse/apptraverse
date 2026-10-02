@@ -24,7 +24,6 @@
 #include "aether/write_action/write_action.h"
 
 #include "aether_frame_endpoint.h"
-#include "aether_stream_frame.h"
 #include "chat_presence.h"
 
 namespace apptraverse::example::chat_demo {
@@ -79,8 +78,13 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
     std::vector<std::uint8_t> bytes;
   };
 
+  enum class OutboundKind : std::uint8_t {
+    kApplication = 1,
+    kControl = 2,
+  };
+
   struct PendingOut {
-    AetherFrameKind kind{AetherFrameKind::kApplication};
+    OutboundKind kind{OutboundKind::kApplication};
     std::vector<std::uint8_t> bytes;
   };
 
@@ -98,7 +102,7 @@ class ChatAetherRuntime : public IAetherFrameEndpoint {
     std::uint64_t channel_incarnation{0};
     std::uint64_t next_write_token{1};
     std::uint64_t active_write_token{0};  // 0 = idle
-    AetherFrameKind active_kind{AetherFrameKind::kApplication};
+    OutboundKind active_kind{OutboundKind::kApplication};
     std::vector<std::uint8_t> active_payload;
     ae::Subscription active_write_sub;
 

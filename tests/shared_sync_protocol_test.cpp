@@ -23,6 +23,7 @@
 #include "chat_commands.h"
 #include "chat_model.h"
 #include "shared_node_demo_model.h"
+#include "memory_test_endpoint.h"
 
 namespace apptraverse::test {
 namespace {
@@ -39,6 +40,14 @@ namespace {
 char const* const kEndpointA = "uid-aaa-111";
 char const* const kEndpointB = "uid-bbb-222";
 char const* const kEndpointEve = "uid-eve-666";
+
+std::string TransportOf(char const* label) {
+  return apptraverse::test::LegacyLabelTransport(label);
+}
+
+ae::Uid UidOf(char const* label) {
+  return apptraverse::test::LegacyLabelEndpoint(label);
+}
 
 using apptraverse::example::chat_demo::ChatRoom;
 using apptraverse::example::chat_demo::ChatWorkspace;
@@ -59,9 +68,10 @@ ChatRoom::ptr CreateRoom(ae::Domain& domain, ae::ObjId id) {
 }
 
 MemoryLink::ptr CreateMemoryLink(ae::Domain& domain, ae::ObjId id,
-                                 std::string endpoint) {
+                                 char const* endpoint_label) {
   auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(id));
-  link->endpoint_uid = std::move(endpoint);
+  link->endpoint_uid =
+      apptraverse::test::LegacyLabelEndpoint(endpoint_label);
   InitializeRuntimeNode(*link);
   return link;
 }
@@ -109,8 +119,8 @@ void TestProtocolHeadlessSyncCoverage() {
   ae::Domain domain_b{storage_b};
 
   std::unique_ptr<MemoryTransport> transport_a =
-      std::make_unique<MemoryTransport>(network, kEndpointA);
-  MemoryTransport transport_b{network, kEndpointB};
+      std::make_unique<MemoryTransport>(network, TransportOf(kEndpointA));
+  MemoryTransport transport_b{network, TransportOf(kEndpointB)};
 
   std::unique_ptr<SharedSyncRuntime> sync_a =
       std::make_unique<SharedSyncRuntime>(domain_a, storage_a, *transport_a);
@@ -120,9 +130,9 @@ void TestProtocolHeadlessSyncCoverage() {
   sync_b.AllowStandaloneEventClass(MessageAddedEvent::kClassId);
 
   auto ws_a = CreateWorkspace(domain_a, ae::ObjId{100});
-  apptraverse::example::chat_demo::BindLocalEndpoint(*ws_a, kEndpointA);
+  apptraverse::example::chat_demo::BindLocalEndpoint(*ws_a, TransportOf(kEndpointA));
   auto entry_a = apptraverse::example::chat_demo::OpenOrSelectChat(
-      *ws_a, kEndpointB, [] {});
+      *ws_a, TransportOf(kEndpointB), [] {});
   CHECK(entry_a.is_valid());
 
   apptraverse::example::chat_demo::SetDraft(*entry_a, "A's secret draft");
@@ -140,9 +150,9 @@ void TestProtocolHeadlessSyncCoverage() {
                  .maximized = false});
 
   auto ws_b = CreateWorkspace(domain_b, ae::ObjId{200});
-  apptraverse::example::chat_demo::BindLocalEndpoint(*ws_b, kEndpointB);
+  apptraverse::example::chat_demo::BindLocalEndpoint(*ws_b, TransportOf(kEndpointB));
   auto entry_b = apptraverse::example::chat_demo::OpenOrSelectChat(
-      *ws_b, kEndpointA, [] {});
+      *ws_b, TransportOf(kEndpointA), [] {});
   CHECK(entry_b.is_valid());
 
   CHECK(std::string(kEndpointA) < std::string(kEndpointB));
@@ -154,13 +164,13 @@ void TestProtocolHeadlessSyncCoverage() {
   auto link_remote_b =
       CreateMemoryLink(domain_a, ae::ObjId::GenerateUnique(), kEndpointB);
 
-  room_a->AddShare(link_local_a, ShareAccess::ReadWrite);
-  room_a->AddShare(link_remote_b, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_local_a, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_remote_b, ShareAccess::ReadWrite);
   apptraverse::example::chat_demo::BindChat(*entry_a, link_remote_b, room_a, [] {});
   SaveWorkspaceGraph(ws_a);
   sync_a->RegisterNode(room_a);
 
-  sync_b.ExpectInitialNodeFromEndpoint(kEndpointA, ChatRoom::kClassId);
+  sync_b.ExpectInitialNodeFromEndpoint(TransportOf(kEndpointA), ChatRoom::kClassId);
 
   bool callback_invoked = false;
   bool binding_existed_before_ack = false;
@@ -168,7 +178,7 @@ void TestProtocolHeadlessSyncCoverage() {
   sync_b.SetInitialNodeImportedCallback(
       [&](std::string const& source, SharedNode::ptr imported) -> bool {
         callback_invoked = true;
-        CHECK(source == kEndpointA);
+        CHECK(source == TransportOf(kEndpointA));
         CHECK(imported.is_valid());
         CHECK(imported.id() == generated_room_id);
 
@@ -179,7 +189,7 @@ void TestProtocolHeadlessSyncCoverage() {
         apptraverse::Link::ptr found_link;
         for (auto const& share : imported_room->shares) {
           if (share.link.is_valid() &&
-              share.link->EndpointUid() == kEndpointA) {
+              share.link->EndpointUid() == UidOf(kEndpointA)) {
             found_link = share.link;
             break;
           }
@@ -200,7 +210,7 @@ void TestProtocolHeadlessSyncCoverage() {
 
   ae::ObjId share_to_b;
   for (auto const& s : room_a->shares) {
-    if (s.link.is_valid() && s.link->EndpointUid() == kEndpointB) {
+    if (s.link.is_valid() && s.link->EndpointUid() == UidOf(kEndpointB)) {
       share_to_b = s.share_id;
       break;
     }
@@ -208,14 +218,14 @@ void TestProtocolHeadlessSyncCoverage() {
   CHECK(share_to_b.is_valid());
 
   sync_a->SyncInitialState(generated_room_id, share_to_b);
-  CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
+  CHECK(network.PendingCount(TransportOf(kEndpointA), TransportOf(kEndpointB)) == 1);
 
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.DeliverNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
   CHECK(callback_invoked);
   CHECK(binding_existed_before_ack);
 
-  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 1);
-  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(network.PendingCount(TransportOf(kEndpointB), TransportOf(kEndpointA)) == 1);
+  CHECK(network.DeliverNext(TransportOf(kEndpointB), TransportOf(kEndpointA)));
 
   auto room_b = entry_b->room;
   CHECK(room_b.is_valid());
@@ -234,12 +244,12 @@ void TestProtocolHeadlessSyncCoverage() {
     auto fake_room = CreateRoom(fake_domain, generated_room_id);
     auto l1 = CreateMemoryLink(fake_domain, ae::ObjId{991}, kEndpointA);
     auto l2 = CreateMemoryLink(fake_domain, ae::ObjId{992}, kEndpointB);
-    fake_room->AddShare(l1, ShareAccess::ReadWrite);
-    fake_room->AddShare(l2, ShareAccess::ReadWrite);
+    fake_room->InstallLocalShare(l1, ShareAccess::ReadWrite);
+    fake_room->InstallLocalShare(l2, ShareAccess::ReadWrite);
 
     ae::ObjId fake_share_to_b;
     for (auto const& s : fake_room->shares) {
-      if (s.link.is_valid() && s.link->EndpointUid() == kEndpointB) {
+      if (s.link.is_valid() && s.link->EndpointUid() == UidOf(kEndpointB)) {
         fake_share_to_b = s.share_id;
         break;
       }
@@ -254,13 +264,13 @@ void TestProtocolHeadlessSyncCoverage() {
         .payload = std::move(frozen.payload),
     };
     auto const storage_before = CountStorageObjects(storage_b);
-    transport_a->Send(kEndpointB, EncodeNodeStateFrame(fake_frame));
-    CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
+    transport_a->Send(TransportOf(kEndpointB), EncodeNodeStateFrame(fake_frame));
+    CHECK(network.PendingCount(TransportOf(kEndpointA), TransportOf(kEndpointB)) == 1);
 
     std::size_t const before_shares = room_b->shares.size();
-    CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+    CHECK(network.DeliverNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
     CHECK(room_b->shares.size() == before_shares);
-    CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+    CHECK(network.PendingCount(TransportOf(kEndpointB), TransportOf(kEndpointA)) == 0);
     CHECK(CountStorageObjects(storage_b) == storage_before);
   }
 
@@ -289,19 +299,19 @@ void TestProtocolHeadlessSyncCoverage() {
     CHECK(reloaded_entry_a->room->messages.size() == 1);
     CHECK(reloaded_entry_a->room->messages[0].text == "Queued message 1");
 
-    MemoryTransport reloaded_transport_a{network, kEndpointA};
+    MemoryTransport reloaded_transport_a{network, TransportOf(kEndpointA)};
     SharedSyncRuntime reloaded_sync_a{reloaded_domain_a, storage_a,
                                       reloaded_transport_a};
     reloaded_sync_a.AllowStandaloneEventClass(MessageAddedEvent::kClassId);
     reloaded_sync_a.RegisterNode(reloaded_entry_a->room);
 
     reloaded_sync_a.SyncNextEvent(generated_room_id, share_to_b);
-    CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
-    CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+    CHECK(network.PendingCount(TransportOf(kEndpointA), TransportOf(kEndpointB)) == 1);
+    CHECK(network.DeliverNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
     CHECK(room_b->messages.size() == 1);
     CHECK(room_b->messages[0].text == "Queued message 1");
-    CHECK(network.PendingCount(kEndpointB, kEndpointA) == 1);
-    CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+    CHECK(network.PendingCount(TransportOf(kEndpointB), TransportOf(kEndpointA)) == 1);
+    CHECK(network.DeliverNext(TransportOf(kEndpointB), TransportOf(kEndpointA)));
   }
 }
 
@@ -313,8 +323,8 @@ void TestProtocolFailedBindingBlocksAckUntilSuccess() {
   ae::Domain domain_a{storage_a};
   ae::Domain domain_b{storage_b};
 
-  MemoryTransport transport_a{network, kEndpointA};
-  MemoryTransport transport_b{network, kEndpointB};
+  MemoryTransport transport_a{network, TransportOf(kEndpointA)};
+  MemoryTransport transport_b{network, TransportOf(kEndpointB)};
   SharedSyncRuntime sync_a{domain_a, storage_a, transport_a};
   SharedSyncRuntime sync_b{domain_b, storage_b, transport_b};
   sync_a.AllowStandaloneEventClass(MessageAddedEvent::kClassId);
@@ -326,16 +336,16 @@ void TestProtocolFailedBindingBlocksAckUntilSuccess() {
       CreateMemoryLink(domain_a, ae::ObjId::GenerateUnique(), kEndpointA);
   auto link_remote_b =
       CreateMemoryLink(domain_a, ae::ObjId::GenerateUnique(), kEndpointB);
-  room_a->AddShare(link_local_a, ShareAccess::ReadWrite);
-  room_a->AddShare(link_remote_b, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_local_a, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_remote_b, ShareAccess::ReadWrite);
   sync_a.RegisterNode(room_a);
 
-  sync_b.ExpectInitialNodeFromEndpoint(kEndpointA, ChatRoom::kClassId);
+  sync_b.ExpectInitialNodeFromEndpoint(TransportOf(kEndpointA), ChatRoom::kClassId);
 
   int callback_count = 0;
   sync_b.SetInitialNodeImportedCallback(
       [&](std::string const& source, SharedNode::ptr imported) -> bool {
-        CHECK(source == kEndpointA);
+        CHECK(source == TransportOf(kEndpointA));
         CHECK(imported.is_valid());
         ++callback_count;
         return callback_count >= 2;
@@ -343,7 +353,7 @@ void TestProtocolFailedBindingBlocksAckUntilSuccess() {
 
   ae::ObjId share_to_b;
   for (auto const& s : room_a->shares) {
-    if (s.link.is_valid() && s.link->EndpointUid() == kEndpointB) {
+    if (s.link.is_valid() && s.link->EndpointUid() == UidOf(kEndpointB)) {
       share_to_b = s.share_id;
       break;
     }
@@ -351,18 +361,18 @@ void TestProtocolFailedBindingBlocksAckUntilSuccess() {
   CHECK(share_to_b.is_valid());
 
   sync_a.SyncInitialState(room_id, share_to_b);
-  CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
-  CHECK(network.DuplicateNext(kEndpointA, kEndpointB));
-  CHECK(network.PendingCount(kEndpointA, kEndpointB) == 2);
+  CHECK(network.PendingCount(TransportOf(kEndpointA), TransportOf(kEndpointB)) == 1);
+  CHECK(network.DuplicateNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
+  CHECK(network.PendingCount(TransportOf(kEndpointA), TransportOf(kEndpointB)) == 2);
 
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.DeliverNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
   CHECK(callback_count == 1);
-  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+  CHECK(network.PendingCount(TransportOf(kEndpointB), TransportOf(kEndpointA)) == 0);
 
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.DeliverNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
   CHECK(callback_count == 2);
-  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 1);
-  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(network.PendingCount(TransportOf(kEndpointB), TransportOf(kEndpointA)) == 1);
+  CHECK(network.DeliverNext(TransportOf(kEndpointB), TransportOf(kEndpointA)));
 }
 
 void TestProtocolLostAckIdenticalRetryOneMessage() {
@@ -373,8 +383,8 @@ void TestProtocolLostAckIdenticalRetryOneMessage() {
   ae::Domain domain_a{storage_a};
   ae::Domain domain_b{storage_b};
 
-  MemoryTransport transport_a{network, kEndpointA};
-  MemoryTransport transport_b{network, kEndpointB};
+  MemoryTransport transport_a{network, TransportOf(kEndpointA)};
+  MemoryTransport transport_b{network, TransportOf(kEndpointB)};
   SharedSyncRuntime sync_a{domain_a, storage_a, transport_a};
   SharedSyncRuntime sync_b{domain_b, storage_b, transport_b};
   sync_a.AllowStandaloneEventClass(MessageAddedEvent::kClassId);
@@ -382,22 +392,22 @@ void TestProtocolLostAckIdenticalRetryOneMessage() {
 
   ae::ObjId const room_id = ae::ObjId{9001};
   auto ws_a = CreateWorkspace(domain_a, ae::ObjId{9010});
-  apptraverse::example::chat_demo::BindLocalEndpoint(*ws_a, kEndpointA);
+  apptraverse::example::chat_demo::BindLocalEndpoint(*ws_a, TransportOf(kEndpointA));
   auto entry_a = apptraverse::example::chat_demo::OpenOrSelectChat(
-      *ws_a, kEndpointB, [] {});
+      *ws_a, TransportOf(kEndpointB), [] {});
 
   auto room_a = CreateRoom(domain_a, room_id);
   auto link_a = CreateMemoryLink(domain_a, ae::ObjId{9002}, kEndpointA);
   auto link_b = CreateMemoryLink(domain_a, ae::ObjId{9003}, kEndpointB);
-  room_a->AddShare(link_a, ShareAccess::ReadWrite);
-  room_a->AddShare(link_b, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_b, ShareAccess::ReadWrite);
   apptraverse::example::chat_demo::BindChat(*entry_a, link_b, room_a, [] {});
   SaveWorkspaceGraph(ws_a);
   sync_a.RegisterNode(room_a);
 
   ae::ObjId share_to_b;
   for (auto const& share : room_a->shares) {
-    if (share.link.is_valid() && share.link->EndpointUid() == kEndpointB) {
+    if (share.link.is_valid() && share.link->EndpointUid() == UidOf(kEndpointB)) {
       share_to_b = share.share_id;
       break;
     }
@@ -406,8 +416,8 @@ void TestProtocolLostAckIdenticalRetryOneMessage() {
 
   sync_b.ExpectInitialNode(room_id);
   sync_a.SyncInitialState(room_id, share_to_b);
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+  CHECK(network.DeliverNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
+  CHECK(network.DeliverNext(TransportOf(kEndpointB), TransportOf(kEndpointA)));
 
   auto imported_room_b = sync_b.FindNode(room_id);
   CHECK(imported_room_b.is_valid());
@@ -421,20 +431,20 @@ void TestProtocolLostAckIdenticalRetryOneMessage() {
   CHECK(room_a->messages.size() == 1);
 
   sync_a.SyncNextEvent(room_id, share_to_b);
-  CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
-  CHECK(network.DuplicateNext(kEndpointA, kEndpointB));
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+  CHECK(network.PendingCount(TransportOf(kEndpointA), TransportOf(kEndpointB)) == 1);
+  CHECK(network.DuplicateNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
+  CHECK(network.DeliverNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
+  CHECK(network.DeliverNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
 
   CHECK(room_b->messages.size() == 1);
   CHECK(room_b->messages[0].text == "once-only");
 
   // Duplicate event delivery must not duplicate the visible timeline; ACK
   // retry (lost ACK + identical resend) is likewise idempotent.
-  std::size_t const acks = network.PendingCount(kEndpointB, kEndpointA);
+  std::size_t const acks = network.PendingCount(TransportOf(kEndpointB), TransportOf(kEndpointA));
   CHECK(acks >= 1);
   for (std::size_t i = 0; i < acks; ++i) {
-    CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+    CHECK(network.DeliverNext(TransportOf(kEndpointB), TransportOf(kEndpointA)));
   }
   CHECK(room_a->messages.size() == 1);
   CHECK(room_b->messages.size() == 1);
@@ -445,27 +455,27 @@ void TestProtocolUnauthorizedAndWrongClassRejection() {
 
   ae::RamDomainStorage storage_b;
   ae::Domain domain_b{storage_b};
-  MemoryTransport transport_b{network, kEndpointB};
+  MemoryTransport transport_b{network, TransportOf(kEndpointB)};
   SharedSyncRuntime sync_b{domain_b, storage_b, transport_b};
   sync_b.AllowStandaloneEventClass(MessageAddedEvent::kClassId);
 
-  sync_b.ExpectInitialNodeFromEndpoint(kEndpointA, ChatRoom::kClassId);
+  sync_b.ExpectInitialNodeFromEndpoint(TransportOf(kEndpointA), ChatRoom::kClassId);
 
   // Unknown source.
   {
     ae::RamDomainStorage storage_eve;
     ae::Domain domain_eve{storage_eve};
-    MemoryTransport transport_eve{network, kEndpointEve};
+    MemoryTransport transport_eve{network, TransportOf(kEndpointEve)};
 
     auto room_eve = CreateRoom(domain_eve, ae::ObjId{7001});
     auto link_eve = CreateMemoryLink(domain_eve, ae::ObjId{7002}, kEndpointEve);
     auto link_b = CreateMemoryLink(domain_eve, ae::ObjId{7003}, kEndpointB);
-    room_eve->AddShare(link_eve, ShareAccess::ReadWrite);
-    room_eve->AddShare(link_b, ShareAccess::ReadWrite);
+    room_eve->InstallLocalShare(link_eve, ShareAccess::ReadWrite);
+    room_eve->InstallLocalShare(link_b, ShareAccess::ReadWrite);
 
     ae::ObjId share_to_b;
     for (auto const& s : room_eve->shares) {
-      if (s.link.is_valid() && s.link->EndpointUid() == kEndpointB) {
+      if (s.link.is_valid() && s.link->EndpointUid() == UidOf(kEndpointB)) {
         share_to_b = s.share_id;
         break;
       }
@@ -479,13 +489,13 @@ void TestProtocolUnauthorizedAndWrongClassRejection() {
         .destination_share_id = share_to_b,
         .payload = std::move(frozen.payload),
     };
-    transport_eve.Send(kEndpointB, EncodeNodeStateFrame(frame));
-    CHECK(network.PendingCount(kEndpointEve, kEndpointB) == 1);
+    transport_eve.Send(TransportOf(kEndpointB), EncodeNodeStateFrame(frame));
+    CHECK(network.PendingCount(TransportOf(kEndpointEve), TransportOf(kEndpointB)) == 1);
 
     auto const storage_before = CountStorageObjects(storage_b);
-    CHECK(network.DeliverNext(kEndpointEve, kEndpointB));
+    CHECK(network.DeliverNext(TransportOf(kEndpointEve), TransportOf(kEndpointB)));
     CHECK(sync_b.FindNode(ae::ObjId{7001}).is_valid() == false);
-    CHECK(network.PendingCount(kEndpointB, kEndpointEve) == 0);
+    CHECK(network.PendingCount(TransportOf(kEndpointB), TransportOf(kEndpointEve)) == 0);
     CHECK(CountStorageObjects(storage_b) == storage_before);
   }
 
@@ -495,25 +505,25 @@ void TestProtocolUnauthorizedAndWrongClassRejection() {
     apptraverse::example::shared_node::EnsureSharedNodeDemoRegistration();
     ae::RamDomainStorage storage_a;
     ae::Domain domain_a{storage_a};
-    MemoryTransport transport_a{network, kEndpointA};
+    MemoryTransport transport_a{network, TransportOf(kEndpointA)};
 
     auto wrong_node = SharedValueNode::ptr::Create(
         ae::CreateWith{domain_a}.with_id(ae::ObjId{8001}));
     InitializeRuntimeNode(*wrong_node);
     auto link_a = MemoryLink::ptr::Create(
         ae::CreateWith{domain_a}.with_id(ae::ObjId{8002}));
-    link_a->endpoint_uid = kEndpointA;
+    link_a->endpoint_uid = UidOf(kEndpointA);
     InitializeRuntimeNode(*link_a);
     auto link_b_peer = MemoryLink::ptr::Create(
         ae::CreateWith{domain_a}.with_id(ae::ObjId{8003}));
-    link_b_peer->endpoint_uid = kEndpointB;
+    link_b_peer->endpoint_uid = UidOf(kEndpointB);
     InitializeRuntimeNode(*link_b_peer);
-    wrong_node->AddShare(link_a, ShareAccess::ReadWrite);
-    wrong_node->AddShare(link_b_peer, ShareAccess::ReadWrite);
+    wrong_node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+    wrong_node->InstallLocalShare(link_b_peer, ShareAccess::ReadWrite);
 
     ae::ObjId share_to_b;
     for (auto const& s : wrong_node->shares) {
-      if (s.link.is_valid() && s.link->EndpointUid() == kEndpointB) {
+      if (s.link.is_valid() && s.link->EndpointUid() == UidOf(kEndpointB)) {
         share_to_b = s.share_id;
         break;
       }
@@ -522,18 +532,17 @@ void TestProtocolUnauthorizedAndWrongClassRejection() {
 
     auto const storage_before = CountStorageObjects(storage_b);
     transport_a.Send(
-        kEndpointB,
-        EncodeNodeStateFrame(NodeStateFrame{
+        TransportOf(kEndpointB),`n        EncodeNodeStateFrame(NodeStateFrame{
             .packet_id = ae::ObjId{8004},
             .target_node_id = ae::ObjId{8001},
             .destination_share_id = share_to_b,
             .payload = SerializeNetworkSharedObjectGraph(*wrong_node),
         }));
-    CHECK(network.PendingCount(kEndpointA, kEndpointB) == 1);
-    CHECK(network.DeliverNext(kEndpointA, kEndpointB));
+    CHECK(network.PendingCount(TransportOf(kEndpointA), TransportOf(kEndpointB)) == 1);
+    CHECK(network.DeliverNext(TransportOf(kEndpointA), TransportOf(kEndpointB)));
     CHECK(sync_b.FindNode(ae::ObjId{8001}).is_valid() == false);
     CHECK(storage_b.Enumerate(ae::ObjId{8001}).empty());
-    CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
+    CHECK(network.PendingCount(TransportOf(kEndpointB), TransportOf(kEndpointA)) == 0);
     CHECK(CountStorageObjects(storage_b) == storage_before);
   }
 }
@@ -557,3 +566,4 @@ int main() {
   std::cout << "shared_sync_protocol_test passed!\n";
   return 0;
 }
+

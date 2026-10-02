@@ -1,27 +1,21 @@
 ﻿---
-description: Prefer canonical headless chat tests before mirror or GUI
+description: Prefer canonical headless SharedNode tests before mirror or GUI
 alwaysApply: true
 ---
 
-# AppTraverse headless chat tests
+# AppTraverse headless SharedNode tests
 
-For chat model, shared journal, events, ordering, contacts, feed formatting, timestamps, and UI projection, always start with:
+For SharedNode sync, transport, join/permanent-pair formation, and journal behavior, start with:
 
-1. `apptraverse_chat_headless_test_start`
-
-Chat has no sharing path at the moment: the legacy SharedInstance/SharedRuntime
-engine and the P2P chat test built on it were removed, and chat is rebuilt on
-SharedNode later (ladder 17-21). For generic replication behavior use
-`apptraverse_shared_node_initial_sync_test` instead.
+1. `apptraverse_shared_node_headless_check`
 
 Default rules:
 
-- Do not launch a product process for functional chat/UI checks.
-- Do not create UiMirror / UI Domain in functional UI tests by default.
-- Presentation logic must live in common pure projection and be tested directly against the Model graph.
-- Run mirror integration tests only when changing serializer, publication channel, graph copy, or UiMirror.
-- Run native Win32 tests only for HWND layout, clipboard, focus, keyboard handling, font/glyph, and real rendering.
-- Screenshot / manual GUI smoke is not a substitute for headless assertions.
+- Do not launch a product process for functional replication checks.
+- Do not create UiMirror / UI Domain in functional tests by default.
+- Run native GUI smoke only for platform-specific presentation work (not on this branch).
 
-Canonical CMake target: `apptraverse_chat_headless_check`
-(builds and runs `apptraverse_event_sourced_core_test`, `apptraverse_journal_retention_test`, `apptraverse_chat_presentation_headless_test`).
+Canonical CMake target: `apptraverse_shared_node_headless_check`
+(runs core event-sourced, journal retention, foundation, initial sync, incremental Event, permanent pair, and stand tests).
+
+For chat session + byte transport adapter checks when Aether demos are enabled, use the `chat_session_*` and `aether_byte_transport_dispatch_test` targets.

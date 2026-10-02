@@ -24,6 +24,7 @@
 #include "apptraverse/sync_frame.h"
 
 #include "shared_node_demo_model.h"
+#include "memory_test_endpoint.h"
 
 namespace apptraverse::test {
 namespace {
@@ -40,9 +41,12 @@ using apptraverse::example::shared_node::SharedValueNode;
     }                                                                        \
   } while (0)
 
-std::string const kEndpointA = "replica-a";
-std::string const kEndpointB = "replica-b";
-std::string const kEndpointC = "replica-c";
+using apptraverse::test::LegacyLabelEndpoint;
+using apptraverse::test::LegacyLabelTransport;
+
+std::string const kEndpointA = LegacyLabelTransport("replica-a");
+std::string const kEndpointB = LegacyLabelTransport("replica-b");
+std::string const kEndpointC = LegacyLabelTransport("replica-c");
 
 class NotePayload : public ae::Obj {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::NotePayload", NotePayload,
@@ -256,9 +260,9 @@ struct ObserverEndpoint {
 };
 
 MemoryLink::ptr MakeMemoryLink(ae::Domain& domain, ae::ObjId id,
-                               std::string endpoint) {
+                               std::string const& endpoint_label) {
   auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(id));
-  link->endpoint_uid = std::move(endpoint);
+  link->endpoint_uid = LegacyLabelEndpoint(endpoint_label);
   link->heartbeat_interval_ms = 1000;
   InitializeRuntimeNode(*link);
   return link;
@@ -277,10 +281,10 @@ SenderFixture BuildTopology(Replica& a, ae::ObjId::Type node_id,
       SharedValueNode::ptr::Create(ae::CreateWith{*a.domain}.with_id(node_id));
   node->value = 0;
   InitializeRuntimeNode(*node);
-  auto link_a = MakeMemoryLink(*a.domain, ae::ObjId{link_a_id}, kEndpointA);
-  auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, kEndpointB);
-  node->AddShare(link_a, ShareAccess::ReadWrite);
-  node->AddShare(link_b, ShareAccess::ReadWrite);
+  auto link_a = MakeMemoryLink(*a.domain, ae::ObjId{link_a_id}, "replica-a");
+  auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, "replica-b");
+  node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
   node.Save();
   link_a.Save();
   link_b.Save();
@@ -430,7 +434,7 @@ void TestReceiverAllocatesLocalEventObjId() {
 
   auto occupied = MemoryLink::ptr::Create(
       ae::CreateWith{*b.domain}.with_id(sender_event_id));
-  occupied->endpoint_uid = "occupied";
+  occupied->endpoint_uid = LegacyLabelEndpoint("occupied");
   occupied->heartbeat_interval_ms = 1;
   InitializeRuntimeNode(*occupied);
   occupied.Save();
@@ -450,7 +454,7 @@ void TestReceiverAllocatesLocalEventObjId() {
       ae::CreateWith{*b.domain}.with_id(sender_event_id));
   still.Load();
   CHECK(still.is_loaded());
-  CHECK(still->endpoint_uid == "occupied");
+  CHECK(still->endpoint_uid == LegacyLabelEndpoint("occupied"));
 }
 
 void TestMidJournalTimestampReplay() {
@@ -651,8 +655,10 @@ void TestSenderRestartAfterAck() {
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 6};
   auto const second =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 7};
-  auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
-  CommitSharedValue(*a_node, 41, first, 6'000);
+  {
+    auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
+    CommitSharedValue(*a_node, 41, first, 6'000);
+  }
   a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
@@ -744,40 +750,6 @@ void TestWrongSourceRejected() {
                           identity) == nullptr);
   CHECK(network.PendingCount(kEndpointB, kEndpointC) == 0);
   CHECK(c.received == 0);
-}
-
-void TestReadOnlySourceRejected() {
-  MemoryNetwork network;
-  Replica a{network, kEndpointA, kEndpointB};
-  Replica b{network, kEndpointB, kEndpointA};
-  a.Start();
-  b.Start();
-
-  auto const fixture = BuildTopology(a, 6901, 6902, 6903);
-  HandshakeInitial(network, a, b, fixture);
-
-  auto const b_node = ConcreteOf(b.sync->FindNode(fixture.node_id));
-  b_node->SetShareAccess(b_node->shares[0].link, ShareAccess::ReadOnly);
-  b_node.Save();
-
-  auto const identity =
-      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 13};
-  CommitSharedValue(*ConcreteOf(a.sync->FindNode(fixture.node_id)), 6, identity,
-                    13'000);
-  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
-  b.watched.ResetWatch();
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-  CHECK(b.watched.pending_at_store().empty());
-  CHECK(JournalByIdentity(*b_node, identity) == nullptr);
-  CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
-
-  b_node->SetShareAccess(b_node->shares[0].link, ShareAccess::ReadWrite);
-  b_node.Save();
-  a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
-  CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-  CHECK(network.DeliverNext(kEndpointB, kEndpointA));
-  CHECK(JournalByIdentity(*b_node, identity) != nullptr);
-  CHECK(b_node->value == 6);
 }
 
 void TestWrongDestinationRejected() {
@@ -1229,7 +1201,7 @@ void TestReachableObjectWithObjId2Succeeds() {
   CHECK(link2 != nullptr);
   CHECK(link2->GetClassId() == MemoryLink::kClassId);
   auto const* mem_link = static_cast<MemoryLink const*>(link2.get());
-  CHECK(mem_link->EndpointUid() == kEndpointB);
+  CHECK(EndpointMatchesTransport(mem_link->EndpointUid(), kEndpointB));
 }
 
 void TestHistoricalCanApplyPreflight() {
@@ -1251,10 +1223,10 @@ void TestHistoricalCanApplyPreflight() {
   InitializeRuntimeNode(*a_root);
   a_root.Save();
 
-  auto a_link_a = MakeMemoryLink(*a.domain, ae::ObjId{7901}, kEndpointA);
-  auto a_link_b = MakeMemoryLink(*a.domain, ae::ObjId{7902}, kEndpointB);
-  a_root->AddShare(a_link_a, ShareAccess::ReadWrite);
-  a_root->AddShare(a_link_b, ShareAccess::ReadWrite);
+  auto a_link_a = MakeMemoryLink(*a.domain, ae::ObjId{7901}, "replica-a");
+  auto a_link_b = MakeMemoryLink(*a.domain, ae::ObjId{7902}, "replica-b");
+  a_root->InstallLocalShare(a_link_a, ShareAccess::ReadWrite);
+  a_root->InstallLocalShare(a_link_b, ShareAccess::ReadWrite);
   a_root.Save();
   a_link_a.Save();
   a_link_b.Save();
@@ -1523,7 +1495,6 @@ int main() {
   apptraverse::test::TestSenderRestartAfterAck();
   apptraverse::test::TestInitialSnapshotCoverageRace();
   apptraverse::test::TestWrongSourceRejected();
-  apptraverse::test::TestReadOnlySourceRejected();
   apptraverse::test::TestWrongDestinationRejected();
   apptraverse::test::TestMalformedEventPayloadRejected();
   apptraverse::test::TestMalformedClassLayersInEventRejected();

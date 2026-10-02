@@ -13,6 +13,10 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/registry.h"
 
+#include "memory_test_endpoint.h"
+
+using apptraverse::test::LegacyLabelEndpoint;
+
 #include "apptraverse/link.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
@@ -100,9 +104,9 @@ void SetValue(SharedValueNode& node, std::int32_t value) {
 
 // Persistent Link fields are set before the Node becomes live.
 MemoryLink::ptr MakeMemoryLink(ae::Domain& domain, ae::ObjId id,
-                               std::string endpoint) {
+                               std::string const& endpoint_label) {
   auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(id));
-  link->endpoint_uid = std::move(endpoint);
+  link->endpoint_uid = LegacyLabelEndpoint(endpoint_label);
   link->heartbeat_interval_ms = 1000;
   InitializeRuntimeNode(*link);
   return link;
@@ -122,7 +126,7 @@ void TestLinkPersistentSaveLoad() {
         MemoryLink::ptr::Declare(ae::CreateWith{domain}.with_id(link_id));
     link.Load();
     CHECK(link.is_loaded());
-    CHECK(link->endpoint_uid == "endpoint-a");
+    CHECK(link->endpoint_uid == LegacyLabelEndpoint("endpoint-a"));
     CHECK(link->heartbeat_interval_ms == 1000);
   }
 }
@@ -133,11 +137,11 @@ void TestLinkConfigInitializedBeforeLive() {
   auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(12));
   // Configure while not yet a live runtime Node.
   CHECK(!link->base.is_valid());
-  link->endpoint_uid = "pre-live";
+  link->endpoint_uid = LegacyLabelEndpoint("pre-live");
   link->heartbeat_interval_ms = 2500;
   InitializeRuntimeNode(*link);
   CHECK(link->base.is_valid());
-  CHECK(link->endpoint_uid == "pre-live");
+  CHECK(link->endpoint_uid == LegacyLabelEndpoint("pre-live"));
   CHECK(link->heartbeat_interval_ms == 2500);
   link.Save();
 
@@ -145,7 +149,7 @@ void TestLinkConfigInitializedBeforeLive() {
   auto loaded =
       MemoryLink::ptr::Declare(ae::CreateWith{domain2}.with_id(12));
   loaded.Load();
-  CHECK(loaded->endpoint_uid == "pre-live");
+  CHECK(loaded->endpoint_uid == LegacyLabelEndpoint("pre-live"));
   CHECK(loaded->heartbeat_interval_ms == 2500);
 }
 
@@ -172,8 +176,8 @@ void TestMultipleRefsSameLinkAfterRestart() {
     InitializeRuntimeNode(*node_a);
     InitializeRuntimeNode(*node_b);
     InitializeRuntimeNode(*client);
-    node_a->AddShare(link, ShareAccess::ReadWrite);
-    node_b->AddShare(link, ShareAccess::ReadOnly);
+    node_a->InstallLocalShare(link, ShareAccess::ReadWrite);
+    node_b->InstallLocalShare(link, ShareAccess::ReadWrite);
     share_a_id = node_a->shares[0].share_id;
     share_b_id = node_b->shares[0].share_id;
 
@@ -221,7 +225,7 @@ void TestMultipleRefsSameLinkAfterRestart() {
     CHECK(client->link.operator->() == node_a->shares[0].link.operator->());
     MemoryLink::ptr memory = node_a->shares[0].link;
     memory.Load();
-    CHECK(memory->endpoint_uid == "shared-x");
+    CHECK(memory->endpoint_uid == LegacyLabelEndpoint("shared-x"));
 
     CHECK(node_a->shares[0].share_id == share_a_id);
     CHECK(node_b->shares[0].share_id == share_b_id);
@@ -237,6 +241,7 @@ void TestShareTopologyEventsAndPersistence() {
   ae::ObjId::Type const node_id = 31;
   ae::ObjId::Type const link_a_id = 32;
   ae::ObjId::Type const link_b_id = 33;
+  ae::ObjId::Type const link_c_id = 34;
   {
     ae::Domain domain{storage};
     auto node =
@@ -244,30 +249,36 @@ void TestShareTopologyEventsAndPersistence() {
     InitializeRuntimeNode(*node);
     auto link_a = MakeMemoryLink(domain, ae::ObjId{link_a_id}, "a");
     auto link_b = MakeMemoryLink(domain, ae::ObjId{link_b_id}, "b");
-    node->AddShare(link_a, ShareAccess::ReadWrite);
-    node->AddShare(link_b, ShareAccess::ReadWrite);
+    auto link_c = MakeMemoryLink(domain, ae::ObjId{link_c_id}, "c");
+    node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
     CHECK(node->shares.size() == 2);
     CHECK(node->link_sync_states.size() == 2);
     CHECK(node->journal.size() == 2);
-    node->AddShare(link_a, ShareAccess::ReadOnly);
+    // Idempotent re-install of an existing Link.
+    node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
     CHECK(node->shares.size() == 2);
     CHECK(node->journal.size() == 2);
-    node->SetShareAccess(link_b, ShareAccess::ReadOnly);
-    CHECK(node->shares[1].GetAccess() == ShareAccess::ReadOnly);
-    node->RemoveShare(link_a);
-    CHECK(node->shares.size() == 1);
-    CHECK(node->link_sync_states.size() == 1);
-    CHECK(node->shares[0].link.id().id() == link_b_id);
+    // Permanent pair: third InstallLocalShare refused.
+    node->InstallLocalShare(link_c, ShareAccess::ReadWrite);
+    CHECK(node->shares.size() == 2);
+    CHECK(node->journal.size() == 2);
+    CHECK(node->shares[0].GetAccess() == ShareAccess::ReadWrite);
+    CHECK(node->shares[1].GetAccess() == ShareAccess::ReadWrite);
     node.Save();
+    for (auto& entry : node->link_sync_states) {
+      entry.Save();
+    }
   }
   {
     ae::Domain domain{storage};
     auto node =
         SharedValueNode::ptr::Declare(ae::CreateWith{domain}.with_id(node_id));
     node.Load();
-    CHECK(node->shares.size() == 1);
-    CHECK(node->shares[0].link.id().id() == link_b_id);
-    CHECK(node->shares[0].GetAccess() == ShareAccess::ReadOnly);
+    CHECK(node->shares.size() == 2);
+    CHECK(node->shares[0].GetAccess() == ShareAccess::ReadWrite);
+    CHECK(node->shares[1].GetAccess() == ShareAccess::ReadWrite);
+    CHECK(node->link_sync_states.size() == 2);
   }
 }
 
@@ -281,7 +292,7 @@ void TestLocalSyncStateEventDrivenSaveLoadAndReplay() {
         SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(node_id));
     InitializeRuntimeNode(*node);
     auto link = MakeMemoryLink(domain, ae::ObjId{link_id}, "bob");
-    node->AddShare(link, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link, ShareAccess::ReadWrite);
     CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
     SetValue(*node, 1);
     SetValue(*node, 2);
@@ -321,127 +332,6 @@ void TestLocalSyncStateEventDrivenSaveLoadAndReplay() {
   }
 }
 
-void TestRemoveShareAddShareResetsLocalSync() {
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto node =
-      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(61));
-  InitializeRuntimeNode(*node);
-  auto link = MakeMemoryLink(domain, ae::ObjId{62}, "peer");
-  node->AddShare(link, ShareAccess::ReadWrite);
-  node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
-  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
-  auto const old_share_id = node->shares[0].share_id;
-  auto const old_sync_id = node->link_sync_states[0].id();
-
-  node->RemoveShare(link);
-  CHECK(node->shares.empty());
-  CHECK(node->link_sync_states.empty());
-
-  node->AddShare(link, ShareAccess::ReadWrite);
-  CHECK(node->shares.size() == 1);
-  CHECK(node->link_sync_states.size() == 1);
-  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
-  // Same Link, new relationship: new identity and its own sync state.
-  CHECK(node->shares[0].share_id != old_share_id);
-  CHECK(node->link_sync_states[0].id() != old_sync_id);
-  CHECK(node->link_sync_states[0]->share_id == node->shares[0].share_id);
-
-  // Replay of Remove+Add must also leave NotStarted (materialized + journal).
-  node.Save();
-  for (auto& entry : node->link_sync_states) {
-    entry.Save();
-  }
-  ae::Domain domain2{storage};
-  auto loaded =
-      SharedValueNode::ptr::Declare(ae::CreateWith{domain2}.with_id(61));
-  loaded.Load();
-  CHECK(loaded->shares.size() == 1);
-  loaded->shares[0].link.Load();
-  CHECK(loaded->GetInitialSyncPhase(loaded->shares[0].link) ==
-        InitialSyncPhase::NotStarted);
-}
-
-// Remove + re-add over the same Link creates a second sharing relationship.
-// A later older business Event forces RebuildFromBaseAndReplay: replaying the
-// historical Add/Remove must not consume the second relationship's local sync.
-void TestShareRelationshipIdentitySurvivesForcedReplay() {
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto node =
-      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(111));
-  InitializeRuntimeNode(*node);
-  auto link = MakeMemoryLink(domain, ae::ObjId{112}, "replay-peer");
-
-  SetValue(*node, 1);
-  node->AddShare(link, ShareAccess::ReadWrite);
-  node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
-  auto const first_share_id = node->shares[0].share_id;
-  auto const first_sync_id = node->link_sync_states[0].id();
-
-  node->RemoveShare(link);
-  node->AddShare(link, ShareAccess::ReadWrite);
-  auto const second_share_id = node->shares[0].share_id;
-  CHECK(second_share_id != first_share_id);
-  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
-  node->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
-  auto const second_sync_id = node->link_sync_states[0].id();
-  CHECK(second_sync_id != first_sync_id);
-  SetValue(*node, 2);
-
-  // Older business Event ahead of the journal head → RebuildFromBaseAndReplay.
-  auto early = SetValueEvent::ptr::Create(ae::CreateWith{domain});
-  early->value = 3;
-  node->InsertAtForTest(
-      SharedEventOrder{.timestamp_us = node->journal[0].order.timestamp_us - 1},
-      early);
-
-  CHECK(node->value == 2);
-  CHECK(node->shares.size() == 1);
-  CHECK(node->shares[0].link.id() == link.id());
-  CHECK(node->shares[0].share_id == second_share_id);
-  CHECK(node->link_sync_states.size() == 1);
-  CHECK(node->link_sync_states[0].id() == second_sync_id);
-  CHECK(node->link_sync_states[0]->share_id == second_share_id);
-  CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
-
-  // Second relationship also survives destroy + reload of the Domain.
-  node.Save();
-  link.Save();
-  for (auto& entry : node->link_sync_states) {
-    entry.Save();
-  }
-  ae::Domain reloaded_domain{storage};
-  auto reloaded =
-      SharedValueNode::ptr::Declare(ae::CreateWith{reloaded_domain}.with_id(111));
-  reloaded.Load();
-  CHECK(reloaded->shares.size() == 1);
-  CHECK(reloaded->shares[0].share_id == second_share_id);
-  CHECK(reloaded->link_sync_states.size() == 1);
-  reloaded->link_sync_states[0].Load();
-  CHECK(reloaded->link_sync_states[0].id() == second_sync_id);
-  CHECK(reloaded->link_sync_states[0]->share_id == second_share_id);
-  reloaded->shares[0].link.Load();
-  CHECK(reloaded->GetInitialSyncPhase(reloaded->shares[0].link) ==
-        InitialSyncPhase::Complete);
-
-  // Relationship identity comes from the persisted AddShareEvent, so a forced
-  // rebuild after the storage round trip resolves to the same relationship.
-  auto reloaded_early =
-      SetValueEvent::ptr::Create(ae::CreateWith{reloaded_domain});
-  reloaded_early->value = 4;
-  reloaded->InsertAtForTest(
-      SharedEventOrder{.timestamp_us = reloaded->journal[0].order.timestamp_us - 1},
-      reloaded_early);
-  CHECK(reloaded->value == 2);
-  CHECK(reloaded->shares.size() == 1);
-  CHECK(reloaded->shares[0].share_id == second_share_id);
-  CHECK(reloaded->link_sync_states.size() == 1);
-  CHECK(reloaded->link_sync_states[0].id() == second_sync_id);
-  CHECK(reloaded->GetInitialSyncPhase(reloaded->shares[0].link) ==
-        InitialSyncPhase::Complete);
-}
-
 void TestNetworkSerializationBoundaries() {
   ae::RamDomainStorage raw_source;
   CountingDomainStorage source_storage{raw_source};
@@ -457,8 +347,8 @@ void TestNetworkSerializationBoundaries() {
     InitializeRuntimeNode(*node);
     auto link_a = MakeMemoryLink(domain, ae::ObjId{link_a_id}, "alice");
     auto link_b = MakeMemoryLink(domain, ae::ObjId{link_b_id}, "bob");
-    node->AddShare(link_a, ShareAccess::ReadWrite);
-    node->AddShare(link_b, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+    node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
     auto const share_a_id = node->shares[0].share_id;
     auto const share_b_id = node->shares[1].share_id;
     SetValue(*node, 42);
@@ -517,11 +407,10 @@ void TestNetworkSerializationBoundaries() {
     CHECK(imported->GetInitialSyncPhase(imported->shares[1].link) ==
           InitialSyncPhase::NotStarted);
 
-    // Receiver creates its own local sync independently (new share → Events).
+    // Imported snapshot already has two shares: a third Install is refused.
     auto link_c = MakeMemoryLink(target_domain, ae::ObjId{54}, "carol");
-    imported->AddShare(link_c, ShareAccess::ReadOnly);
-    imported->SetInitialSyncPhase(link_c, InitialSyncPhase::Pending);
-    CHECK(imported->GetInitialSyncPhase(link_c) == InitialSyncPhase::Pending);
+    imported->InstallLocalShare(link_c, ShareAccess::ReadWrite);
+    CHECK(imported->shares.size() == 2);
     CHECK(node->GetInitialSyncPhase(link_b) == InitialSyncPhase::Complete);
   }
 }
@@ -550,8 +439,8 @@ void TestNestedSharedNodeLocalPtrExcluded() {
     auto link_root = MakeMemoryLink(domain, ae::ObjId{link_root_id}, "root-l");
     auto link_child =
         MakeMemoryLink(domain, ae::ObjId{link_child_id}, "child-l");
-    root->AddShare(link_root, ShareAccess::ReadWrite);
-    child->AddShare(link_child, ShareAccess::ReadWrite);
+    root->InstallLocalShare(link_root, ShareAccess::ReadWrite);
+    child->InstallLocalShare(link_child, ShareAccess::ReadWrite);
     root->SetInitialSyncPhase(link_root, InitialSyncPhase::Complete);
     child->SetInitialSyncPhase(link_child, InitialSyncPhase::Complete);
     root_sync_id = root->link_sync_states[0].id().id();
@@ -580,7 +469,7 @@ void TestNestedSharedNodeLocalPtrExcluded() {
     CHECK(imported->shares[0].link.id().id() == link_root_id);
     MemoryLink::ptr imported_root_link = imported->shares[0].link;
     imported_root_link.Load();
-    CHECK(imported_root_link->endpoint_uid == "root-l");
+    CHECK(imported_root_link->endpoint_uid == LegacyLabelEndpoint("root-l"));
 
     CHECK(imported->child.is_valid());
     imported->child.Load();
@@ -656,7 +545,7 @@ void TestLinkSyncStateConfiguredBeforeLive() {
 
   // AddShare Apply creates LinkSyncState: link + NotStarted assigned before
   // InitializeRuntimeNode, then phase changes only via Event.
-  node->AddShare(link, ShareAccess::ReadWrite);
+  node->InstallLocalShare(link, ShareAccess::ReadWrite);
   CHECK(node->link_sync_states.size() == 1);
   auto sync = node->link_sync_states[0];
   CHECK(sync.is_valid());
@@ -757,6 +646,49 @@ void TestNoSerializedIsLocalAndNoRttiSurface() {
   static_assert(!std::is_same_v<ShareAccess, bool>);
 }
 
+void TestDescribeRestoredPermanentPairViolation() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+
+  auto link_a = MemoryLink::ptr::Create(ae::CreateWith{domain});
+  link_a->endpoint_uid = LegacyLabelEndpoint("endpoint-a");
+  InitializeRuntimeNode(*link_a);
+  auto link_b = MemoryLink::ptr::Create(ae::CreateWith{domain});
+  link_b->endpoint_uid = LegacyLabelEndpoint("endpoint-b");
+  InitializeRuntimeNode(*link_b);
+
+  auto empty = SharedNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*empty);
+  CHECK(DescribeRestoredPermanentPairViolation(*empty, "endpoint-a").empty());
+
+  auto mid = SharedNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*mid);
+  mid->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  CHECK(DescribeRestoredPermanentPairViolation(*mid, "endpoint-a").empty());
+
+  auto pair = SharedNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*pair);
+  pair->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  pair->InstallLocalShare(link_b, ShareAccess::ReadWrite);
+  CHECK(DescribeRestoredPermanentPairViolation(*pair, "endpoint-a").empty());
+  CHECK(DescribeRestoredPermanentPairViolation(*pair, "endpoint-b").empty());
+  CHECK(!DescribeRestoredPermanentPairViolation(*pair, "endpoint-other")
+             .empty());
+
+  auto link_c = MemoryLink::ptr::Create(ae::CreateWith{domain});
+  link_c->endpoint_uid = LegacyLabelEndpoint("endpoint-c");
+  InitializeRuntimeNode(*link_c);
+  pair->shares.push_back(Share{
+      .share_id = ae::ObjId{42},
+      .link = link_c,
+      .access = static_cast<std::uint8_t>(ShareAccess::ReadWrite),
+  });
+  auto const three =
+      DescribeRestoredPermanentPairViolation(*pair, "endpoint-a");
+  CHECK(!three.empty());
+  CHECK(three.find("exactly two") != std::string::npos);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -769,14 +701,13 @@ int main() {
   apptraverse::test::TestMultipleRefsSameLinkAfterRestart();
   apptraverse::test::TestShareTopologyEventsAndPersistence();
   apptraverse::test::TestLocalSyncStateEventDrivenSaveLoadAndReplay();
-  apptraverse::test::TestRemoveShareAddShareResetsLocalSync();
-  apptraverse::test::TestShareRelationshipIdentitySurvivesForcedReplay();
   apptraverse::test::TestNetworkSerializationBoundaries();
   apptraverse::test::TestNestedSharedNodeLocalPtrExcluded();
   apptraverse::test::TestGenericLocalPtrNetworkExclusion();
   apptraverse::test::TestLinkSyncStateConfiguredBeforeLive();
   apptraverse::test::TestSimultaneousDomainGraphSerializationScopes();
   apptraverse::test::TestNoSerializedIsLocalAndNoRttiSurface();
+  apptraverse::test::TestDescribeRestoredPermanentPairViolation();
 
   std::cout << "shared_node_foundation_test OK\n";
   return 0;

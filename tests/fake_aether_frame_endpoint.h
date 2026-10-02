@@ -4,6 +4,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -14,6 +15,7 @@
 
 #include "aether_frame_endpoint.h"
 #include "apptraverse/memory_transport.h"
+#include "apptraverse/sync_frame.h"
 
 namespace apptraverse::example::chat_demo::test {
 
@@ -92,6 +94,13 @@ class FakeEndpointCoordinator {
                    std::vector<std::uint8_t> bytes) {
     {
       std::lock_guard<std::mutex> lock{mu_};
+      auto drop_it = drop_next_data_.find(to);
+      if (drop_it != drop_next_data_.end() && drop_it->second > 0) {
+        --drop_it->second;
+        NoteSyncSend(from, to, bytes, /*dropped=*/true);
+        return;
+      }
+      NoteSyncSend(from, to, bytes, /*dropped=*/false);
       sends_.push_back(PendingSend{std::move(from), std::move(to),
                                    std::move(bytes), false});
     }
@@ -119,6 +128,34 @@ class FakeEndpointCoordinator {
     drop_next_controls_[to] = count;
   }
 
+  // Drop the next N data (sync) frames addressed to `to` before enqueue.
+  void DropNextDataTo(std::string const& to, int count) {
+    std::lock_guard<std::mutex> lock{mu_};
+    drop_next_data_[to] = count;
+  }
+
+  struct SyncSendCounts {
+    std::uint64_t node_state{0};
+    std::uint64_t event{0};
+    std::uint64_t ack{0};
+    std::uint64_t total() const { return node_state + event + ack; }
+  };
+
+  SyncSendCounts SyncSends(std::string const& from,
+                           std::string const& to) const {
+    std::lock_guard<std::mutex> lock{mu_};
+    auto it = sync_sends_.find(Direction{from, to});
+    if (it == sync_sends_.end()) {
+      return {};
+    }
+    return it->second;
+  }
+
+  void ResetSyncSendCounts() {
+    std::lock_guard<std::mutex> lock{mu_};
+    sync_sends_.clear();
+  }
+
  private:
   struct PendingSend {
     std::string from;
@@ -132,6 +169,28 @@ class FakeEndpointCoordinator {
     IAetherFrameEndpoint::FrameCallback on_frame;
     IAetherFrameEndpoint::ControlCallback on_control;
   };
+
+  using Direction = std::pair<std::string, std::string>;
+
+  void NoteSyncSend(std::string const& from, std::string const& to,
+                    std::vector<std::uint8_t> const& bytes, bool /*dropped*/) {
+    apptraverse::SyncFrameType type{};
+    if (!apptraverse::PeekSyncFrameType(bytes, type)) {
+      return;
+    }
+    auto& counts = sync_sends_[Direction{from, to}];
+    switch (type) {
+      case apptraverse::SyncFrameType::kNodeState:
+        ++counts.node_state;
+        break;
+      case apptraverse::SyncFrameType::kEvent:
+        ++counts.event;
+        break;
+      case apptraverse::SyncFrameType::kAck:
+        ++counts.ack;
+        break;
+    }
+  }
 
   static void ReceiveThunk(void* ctx, std::string const& source,
                            std::vector<std::uint8_t> const& bytes) {
@@ -210,11 +269,13 @@ class FakeEndpointCoordinator {
   }
 
   apptraverse::MemoryNetwork& network_;
-  std::mutex mu_;
+  mutable std::mutex mu_;
   std::condition_variable cv_;
   std::deque<PendingSend> sends_;
   std::unordered_map<std::string, EndpointSlot> endpoints_;
   std::unordered_map<std::string, int> drop_next_controls_;
+  std::unordered_map<std::string, int> drop_next_data_;
+  std::map<Direction, SyncSendCounts> sync_sends_;
   std::string delivering_to_;
   std::thread thread_;
   bool stop_{false};

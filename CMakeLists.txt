@@ -9,13 +9,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Emscripten pthreads require atomics/bulk-memory on every TU that ends up in
-# a -pthread link. Apply once for the whole tree (including aether-objects).
-if(EMSCRIPTEN)
-  add_compile_options(-pthread -fexceptions)
-  add_link_options(-pthread)
-endif()
-
 include(cmake/aether_version.cmake)
 include(cmake/aether_object.cmake)
 include(cmake/CPM.cmake)
@@ -62,6 +55,7 @@ add_library(apptraverse STATIC
   src/model_runtime.cpp
   src/graph_mirror.cpp
   src/link.cpp
+  src/endpoint_uid.cpp
   src/shared_node.cpp
   src/shared_network_graph.cpp
   src/memory_transport.cpp
@@ -70,6 +64,7 @@ add_library(apptraverse STATIC
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
+  $<BUILD_INTERFACE:${aether-client-cpp_SOURCE_DIR}>
 )
 # Object graph only. Full Aether client is linked by chat/presence targets.
 # PUBLIC compile policy so every AppTraverse-owned consumer gets /GR- or -fno-rtti.
@@ -90,14 +85,6 @@ if(WIN32)
 endif()
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
-if(APPTRAVERSE_BUILD_AETHER_DEMOS)
-  add_subdirectory(examples/model_ui_runtime_demo)
-  add_subdirectory(examples/chat_ui_runtime_demo)
-  add_subdirectory(examples/aether_presence_monitor)
-endif()
-add_subdirectory(examples/main_window_runtime_demo)
-add_subdirectory(examples/dynamic_objects_demo)
-add_subdirectory(examples/surfaces_demo)
 add_subdirectory(examples/shared_node_demo)
 add_subdirectory(examples/chat_demo)
 
