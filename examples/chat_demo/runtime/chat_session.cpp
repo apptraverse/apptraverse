@@ -1476,7 +1476,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
                 apptraverse::Link::ptr remote_link;
                 for (auto const& share : room->shares) {
                   if (share.link.is_valid() &&
-                      share.link->EndpointUid() == source_endpoint) {
+                      apptraverse::EndpointMatchesTransport(
+                          share.link->EndpointUid(), source_endpoint)) {
                     remote_link = share.link;
                     break;
                   }

@@ -292,20 +292,6 @@ if(TARGET chat_demo_aether)
     COMMAND apptraverse_aether_p2p_safe_stream_duplex_test
   )
 
-  add_executable(apptraverse_aether_stream_frame_test
-    aether_stream_frame_test.cpp
-  )
-  target_link_libraries(apptraverse_aether_stream_frame_test PRIVATE
-    chat_demo_aether
-  )
-  target_include_directories(apptraverse_aether_stream_frame_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
-  )
-  add_test(
-    NAME apptraverse_aether_stream_frame_test
-    COMMAND apptraverse_aether_stream_frame_test
-  )
-
   add_executable(apptraverse_aether_byte_transport_dispatch_test
     aether_byte_transport_dispatch_test.cpp
   )

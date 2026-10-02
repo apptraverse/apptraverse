@@ -86,8 +86,7 @@ bool MemoryNetwork::CorruptNext(std::string const& from,
     return false;
   }
   auto& packet = queue->second.front();
-  // Protocol version sits at byte 1. A bad version is not a frame.
-  packet[packet.size() < 2 ? 0 : 1] ^= static_cast<std::uint8_t>(0xFF);
+  packet[0] ^= static_cast<std::uint8_t>(0xFF);
   return true;
 }
 

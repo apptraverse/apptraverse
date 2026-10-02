@@ -5,6 +5,8 @@
 #include <string>
 #include <stdexcept>
 
+#include "aether/types/uid.h"
+#include "apptraverse/endpoint_uid.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 
@@ -41,13 +43,13 @@ class Link : public NodeFor<Link> {
   //
   // Observed availability is not a field of Link. The transport adapter
   // reports it for this uid at runtime. A saved Online is not reloaded.
-  virtual std::string const& EndpointUid() const;
+  virtual ae::Uid const& EndpointUid() const;
 };
 
 // First concrete transport descriptor. Runtime transport objects are not
 // persisted; only this configuration survives Save/Load.
 class MemoryLink : public NodeFor<MemoryLink, Link> {
-  APPTRAVERSE_OBJECT(MemoryLink, Link, 2)
+  APPTRAVERSE_OBJECT(MemoryLink, Link, 3)
 
  protected:
   MemoryLink() = default;
@@ -71,17 +73,24 @@ class MemoryLink : public NodeFor<MemoryLink, Link> {
 
   template <typename Dnv>
   void Load(ae::Version<2>, Dnv& dnv) {
+    std::string legacy_endpoint;
+    dnv(base_, legacy_endpoint, heartbeat_interval_ms);
+    endpoint_uid = apptraverse::LoadLegacyEndpointUidForMigration(legacy_endpoint);
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<3>, Dnv& dnv) {
     dnv(base_, endpoint_uid, heartbeat_interval_ms);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<3>, Dnv& dnv) const {
     dnv(base_, endpoint_uid, heartbeat_interval_ms);
   }
 
-  std::string const& EndpointUid() const override { return endpoint_uid; }
+  ae::Uid const& EndpointUid() const override { return endpoint_uid; }
 
-  std::string endpoint_uid;
+  ae::Uid endpoint_uid;
   std::uint32_t heartbeat_interval_ms{0};
 };
 

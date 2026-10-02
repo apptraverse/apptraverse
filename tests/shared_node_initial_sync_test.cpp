@@ -20,6 +20,7 @@
 #include "apptraverse/sync_frame.h"
 
 #include "shared_node_demo_model.h"
+#include "memory_test_endpoint.h"
 
 namespace apptraverse::test {
 namespace {
@@ -36,9 +37,12 @@ using apptraverse::example::shared_node::SharedValueNode;
     }                                                                        \
   } while (0)
 
-std::string const kEndpointA = "replica-a";
-std::string const kEndpointB = "replica-b";
-std::string const kEndpointC = "replica-c";
+using apptraverse::test::LegacyLabelEndpoint;
+using apptraverse::test::LegacyLabelTransport;
+
+std::string const kEndpointA = LegacyLabelTransport("replica-a");
+std::string const kEndpointB = LegacyLabelTransport("replica-b");
+std::string const kEndpointC = LegacyLabelTransport("replica-c");
 
 // Storage wrapper that records, for every write, how many packets were already
 // queued toward the peer. It proves durability ordering: a replica that
@@ -119,9 +123,9 @@ struct Replica {
 };
 
 MemoryLink::ptr MakeMemoryLink(ae::Domain& domain, ae::ObjId id,
-                               std::string endpoint) {
+                               std::string const& endpoint_label) {
   auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(id));
-  link->endpoint_uid = std::move(endpoint);
+  link->endpoint_uid = LegacyLabelEndpoint(endpoint_label);
   link->heartbeat_interval_ms = 1000;
   InitializeRuntimeNode(*link);
   return link;
@@ -149,8 +153,8 @@ SenderFixture BuildSharedNode(Replica& a, ae::ObjId::Type node_id,
   auto node =
       SharedValueNode::ptr::Create(ae::CreateWith{*a.domain}.with_id(node_id));
   InitializeRuntimeNode(*node);
-  auto link_a = MakeMemoryLink(*a.domain, ae::ObjId{link_a_id}, kEndpointA);
-  auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, kEndpointB);
+  auto link_a = MakeMemoryLink(*a.domain, ae::ObjId{link_a_id}, "replica-a");
+  auto link_b = MakeMemoryLink(*a.domain, ae::ObjId{link_b_id}, "replica-b");
   node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
   node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
   SetValue(*node, value);
@@ -279,8 +283,10 @@ void TestInitialSyncAcrossReplicas() {
     CHECK(b_node->shares[i].link->EndpointUid() ==
           a_node->shares[i].link->EndpointUid());
   }
-  CHECK(b_node->shares[0].link->EndpointUid() == kEndpointA);
-  CHECK(b_node->shares[1].link->EndpointUid() == kEndpointB);
+  CHECK(EndpointMatchesTransport(b_node->shares[0].link->EndpointUid(),
+                                 kEndpointA));
+  CHECK(EndpointMatchesTransport(b_node->shares[1].link->EndpointUid(),
+                                 kEndpointB));
 
   // Receiver-local sync state is its own, created by replaying the imported
   // shared journal, and keyed by the shared relationship identity.
@@ -982,7 +988,7 @@ void TestReceiverLocalSentinelCollisionRejected() {
   CHECK(loaded_sentinel);
   CHECK(loaded_sentinel->GetClassId() == MemoryLink::kClassId);
   auto& mem_link = static_cast<MemoryLink&>(*loaded_sentinel);
-  CHECK(mem_link.endpoint_uid == "sentinel-endpoint-b");
+  CHECK(mem_link.endpoint_uid == LegacyLabelEndpoint("sentinel-endpoint-b"));
 
   // No ACK sent back to A
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
@@ -1001,9 +1007,9 @@ void TestThirdShareRefused() {
   auto node =
       SharedValueNode::ptr::Create(ae::CreateWith{*a.domain}.with_id(node_id));
   InitializeRuntimeNode(*node);
-  auto link_a = MakeMemoryLink(*a.domain, link_a_id, kEndpointA);
-  auto link_b = MakeMemoryLink(*a.domain, link_b_id, kEndpointB);
-  auto link_c = MakeMemoryLink(*a.domain, link_c_id, kEndpointC);
+  auto link_a = MakeMemoryLink(*a.domain, link_a_id, "replica-a");
+  auto link_b = MakeMemoryLink(*a.domain, link_b_id, "replica-b");
+  auto link_c = MakeMemoryLink(*a.domain, link_c_id, "replica-c");
   node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
   node->InstallLocalShare(link_b, ShareAccess::ReadWrite);
   CHECK(node->shares.size() == 2);

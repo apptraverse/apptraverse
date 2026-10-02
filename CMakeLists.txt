@@ -55,6 +55,7 @@ add_library(apptraverse STATIC
   src/model_runtime.cpp
   src/graph_mirror.cpp
   src/link.cpp
+  src/endpoint_uid.cpp
   src/shared_node.cpp
   src/shared_network_graph.cpp
   src/memory_transport.cpp
@@ -63,6 +64,7 @@ add_library(apptraverse STATIC
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
+  $<BUILD_INTERFACE:${aether-client-cpp_SOURCE_DIR}>
 )
 # Object graph only. Full Aether client is linked by chat/presence targets.
 # PUBLIC compile policy so every AppTraverse-owned consumer gets /GR- or -fno-rtti.

@@ -1,3 +1,4 @@
+#include "apptraverse/endpoint_uid.h"
 #include "apptraverse/shared_node.h"
 
 #include <algorithm>
@@ -311,7 +312,7 @@ std::string DescribeRestoredPermanentPairViolation(
     return "Incompatible stored dialog: local endpoint is empty";
   }
 
-  std::string endpoints[2];
+  ae::Uid endpoints[2];
   bool local_found = false;
   for (std::size_t i = 0; i < 2; ++i) {
     auto const& share = node.shares[i];
@@ -338,7 +339,7 @@ std::string DescribeRestoredPermanentPairViolation(
     if (endpoints[i].empty()) {
       return "Incompatible stored dialog: share endpoint is empty";
     }
-    if (endpoints[i] == local_endpoint) {
+    if (EndpointMatchesTransport(endpoints[i], local_endpoint)) {
       local_found = true;
     }
 

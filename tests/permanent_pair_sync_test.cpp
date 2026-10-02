@@ -24,6 +24,8 @@
 #include "apptraverse/shared_sync_runtime.h"
 #include "apptraverse/sync_frame.h"
 
+#include "memory_test_endpoint.h"
+
 namespace apptraverse::test {
 namespace {
 
@@ -36,9 +38,12 @@ namespace {
     }                                                                        \
   } while (0)
 
-std::string const kA = "endpoint-a";
-std::string const kB = "endpoint-b";
-std::string const kC = "endpoint-c";
+using apptraverse::test::LegacyLabelEndpoint;
+using apptraverse::test::LegacyLabelTransport;
+
+std::string const kA = LegacyLabelTransport("endpoint-a");
+std::string const kB = LegacyLabelTransport("endpoint-b");
+std::string const kC = LegacyLabelTransport("endpoint-c");
 std::string const kSecret = "PAIR_LOCAL_SECRET_do_not_ship";
 ae::ObjId const kPairBindingId{0x50414952};  // "PAIR"
 
@@ -179,8 +184,6 @@ class SendCounter final : public IByteTransport {
   std::uint64_t& sends_;
 };
 
-MemoryLink::ptr MakeLink(ae::Domain& domain, std::string endpoint);
-
 struct Replica {
   Replica(MemoryNetwork& network, std::string endpoint)
       : storage{}, network_{network}, endpoint_{std::move(endpoint)} {}
@@ -248,10 +251,11 @@ struct Replica {
   std::string endpoint_;
 };
 
-MemoryLink::ptr MakeLink(ae::Domain& domain, std::string endpoint) {
+MemoryLink::ptr MakeLink(ae::Domain& domain, std::string const& transport_endpoint) {
   auto link = MemoryLink::ptr::Create(
       ae::CreateWith{domain}.with_id(ae::ObjId::GenerateUnique()));
-  link->endpoint_uid = std::move(endpoint);
+  link->endpoint_uid = apptraverse::ParseEndpointUid(transport_endpoint);
+  assert(!link->endpoint_uid.empty());
   link->heartbeat_interval_ms = 1000;
   InitializeRuntimeNode(*link);
   link.Save();
@@ -367,7 +371,7 @@ bool HasText(SharedNode::ptr node, std::string const& text,
 struct ShareView {
   ae::ObjId share_id;
   ae::ObjId link_id;
-  std::string endpoint;
+  ae::Uid endpoint;
   ShareAccess access{ShareAccess::ReadWrite};
 };
 
@@ -384,7 +388,7 @@ std::vector<ShareView> SharesOf(SharedNode::ptr node) {
                             .access = share.GetAccess()});
   }
   std::sort(out.begin(), out.end(), [](ShareView const& a, ShareView const& b) {
-    return a.endpoint < b.endpoint;
+    return a.endpoint.value < b.endpoint.value;
   });
   return out;
 }
@@ -558,7 +562,7 @@ LinkSyncState::ptr SyncStateForPeer(SharedNode::ptr node,
       share.link.Load();
     }
     CHECK(share.link.is_loaded());
-    if (share.link->EndpointUid() != peer_endpoint) {
+    if (!EndpointMatchesTransport(share.link->EndpointUid(), peer_endpoint)) {
       continue;
     }
     auto const idx = node->FindLinkSyncIndexForShare(share.share_id);
@@ -581,7 +585,7 @@ ae::ObjId PeerShareId(SharedNode::ptr node, std::string const& peer_endpoint) {
       share.link.Load();
     }
     CHECK(share.link.is_loaded());
-    if (share.link->EndpointUid() == peer_endpoint) {
+    if (EndpointMatchesTransport(share.link->EndpointUid(), peer_endpoint)) {
       return share.share_id;
     }
   }

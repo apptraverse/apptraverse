@@ -62,7 +62,6 @@ target_include_directories(chat_demo_model PUBLIC
 # Native Aether runtime and IByteTransport adapter
 if(TARGET aether)
   add_library(chat_demo_aether STATIC
-    aether/aether_stream_frame.cpp
     aether/chat_aether_runtime.cpp
     aether/aether_byte_transport.cpp
     aether/aether_link.cpp

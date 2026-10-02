@@ -10,6 +10,7 @@
 #include "aether-objects/obj/obj_id.h"
 #include "aether-objects/obj/registry.h"
 
+#include "apptraverse/endpoint_uid.h"
 #include "apptraverse/event.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/shared_event_order.h"
@@ -21,7 +22,7 @@ namespace {
 // Transport address of a Share's Link, or nullptr when the descriptor is not
 // in the graph. An imported snapshot is untrusted, so a Share can name a Link
 // whose object never arrived.
-std::string const* ShareEndpoint(Share const& share) {
+ae::Uid const* ShareEndpoint(Share const& share) {
   if (!share.link.is_valid()) {
     return nullptr;
   }
@@ -34,8 +35,7 @@ std::string const* ShareEndpoint(Share const& share) {
   return &share.link->EndpointUid();
 }
 
-std::string const* ShareEndpointOf(SharedNode const& node,
-                                   ae::ObjId share_id) {
+ae::Uid const* ShareEndpointOf(SharedNode const& node, ae::ObjId share_id) {
   auto const share_index = node.FindShareIndexForShare(share_id);
   if (share_index >= node.shares.size()) {
     return nullptr;
@@ -44,10 +44,11 @@ std::string const* ShareEndpointOf(SharedNode const& node,
 }
 
 bool TopologyKnowsEndpoint(SharedNode const& node,
-                           std::string const& endpoint_uid) {
+                           std::string const& transport_endpoint) {
   for (auto const& share : node.shares) {
     auto const* endpoint = ShareEndpoint(share);
-    if (endpoint != nullptr && *endpoint == endpoint_uid) {
+    if (endpoint != nullptr &&
+        EndpointMatchesTransport(*endpoint, transport_endpoint)) {
       return true;
     }
   }
@@ -64,7 +65,8 @@ bool AddressedToThisReplica(SharedNode const& node,
     return false;
   }
   auto const* destination = ShareEndpointOf(node, destination_share_id);
-  if (destination == nullptr || *destination != local_endpoint) {
+  if (destination == nullptr ||
+      !EndpointMatchesTransport(*destination, local_endpoint)) {
     return false;
   }
   return TopologyKnowsEndpoint(node, source_endpoint);
@@ -126,10 +128,11 @@ bool SnapshotIsAdmissible(SharedNode& candidate,
 }
 
 Share const* ShareOfEndpoint(SharedNode const& node,
-                             std::string const& endpoint_uid) {
+                             std::string const& transport_endpoint) {
   for (auto const& share : node.shares) {
     auto const* endpoint = ShareEndpoint(share);
-    if (endpoint != nullptr && *endpoint == endpoint_uid) {
+    if (endpoint != nullptr &&
+        EndpointMatchesTransport(*endpoint, transport_endpoint)) {
       return &share;
     }
   }
@@ -146,7 +149,8 @@ bool EventAddressedToThisReplica(SharedNode const& node,
     return false;
   }
   auto const* destination = ShareEndpointOf(node, destination_share_id);
-  if (destination == nullptr || *destination != local_endpoint) {
+  if (destination == nullptr ||
+      !EndpointMatchesTransport(*destination, local_endpoint)) {
     return false;
   }
   auto const* source = ShareOfEndpoint(node, source_endpoint);
@@ -596,9 +600,10 @@ void SharedSyncRuntime::SyncInitialState(ae::ObjId node_id,
   auto const* destination_endpoint = ShareEndpointOf(*node, share_id);
   assert(destination_endpoint != nullptr &&
          "SyncInitialState requires an open Share relationship");
-  auto const destination = *destination_endpoint;
-  assert(!destination.empty() && "Share Link has no transport endpoint");
-  assert(destination != transport_.local_endpoint_uid() &&
+  assert(!destination_endpoint->empty() && "Share Link has no transport endpoint");
+  auto const destination = FormatEndpointUid(*destination_endpoint);
+  assert(!EndpointMatchesTransport(*destination_endpoint,
+                                   transport_.local_endpoint_uid()) &&
          "a relationship with this replica's own endpoint is not synchronized");
 
   auto const sync_index = node->FindLinkSyncIndexForShare(share_id);
@@ -648,9 +653,10 @@ void SharedSyncRuntime::SyncNextEvent(ae::ObjId node_id, ae::ObjId share_id) {
   auto const* destination_endpoint = ShareEndpointOf(*node, share_id);
   assert(destination_endpoint != nullptr &&
          "SyncNextEvent requires an open Share relationship");
-  auto const destination = *destination_endpoint;
-  assert(!destination.empty() && "Share Link has no transport endpoint");
-  assert(destination != transport_.local_endpoint_uid() &&
+  assert(!destination_endpoint->empty() && "Share Link has no transport endpoint");
+  auto const destination = FormatEndpointUid(*destination_endpoint);
+  assert(!EndpointMatchesTransport(*destination_endpoint,
+                                   transport_.local_endpoint_uid()) &&
          "a relationship with this replica's own endpoint is not synchronized");
 
   auto const sync_index = node->FindLinkSyncIndexForShare(share_id);
@@ -828,7 +834,8 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     int matching_shares = 0;
     for (auto const& share : shared_candidate.shares) {
       auto const* endpoint = ShareEndpoint(share);
-      if (endpoint != nullptr && *endpoint == source_endpoint) {
+      if (endpoint != nullptr &&
+          EndpointMatchesTransport(*endpoint, source_endpoint)) {
         matching_share_id = share.share_id;
         ++matching_shares;
       }
@@ -1010,7 +1017,8 @@ void SharedSyncRuntime::OnAck(std::string const& source_endpoint,
     return;
   }
   auto const* live = ShareEndpointOf(*node, frame.destination_share_id);
-  if (live == nullptr || *live != source_endpoint) {
+  if (live == nullptr ||
+      !EndpointMatchesTransport(*live, source_endpoint)) {
     return;
   }
   auto const sync_index =
@@ -1214,7 +1222,7 @@ void SharedSyncRuntime::ArmEndpoint(std::string const& endpoint) {
       continue;
     }
     auto const* live = ShareEndpointOf(*node, slot.share_id);
-    if (live == nullptr || *live != endpoint) {
+    if (live == nullptr || !EndpointMatchesTransport(*live, endpoint)) {
       continue;
     }
     if (slot.primed) {
@@ -1281,10 +1289,11 @@ void SharedSyncRuntime::ServiceShares(std::uint64_t now_us) {
   for (auto const& node : nodes_) {
     for (auto const& share : node->shares) {
       auto const* endpoint = ShareEndpoint(share);
-      if (endpoint == nullptr || endpoint->empty() || *endpoint == local) {
+      if (endpoint == nullptr || endpoint->empty() ||
+          EndpointMatchesTransport(*endpoint, local)) {
         continue;
       }
-      auto const destination = *endpoint;
+      auto const destination = FormatEndpointUid(*endpoint);
       if (OutgoingOffline(destination)) {
         continue;
       }

@@ -13,6 +13,10 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/registry.h"
 
+#include "memory_test_endpoint.h"
+
+using apptraverse::test::LegacyLabelEndpoint;
+
 #include "apptraverse/link.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
@@ -100,9 +104,9 @@ void SetValue(SharedValueNode& node, std::int32_t value) {
 
 // Persistent Link fields are set before the Node becomes live.
 MemoryLink::ptr MakeMemoryLink(ae::Domain& domain, ae::ObjId id,
-                               std::string endpoint) {
+                               std::string const& endpoint_label) {
   auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(id));
-  link->endpoint_uid = std::move(endpoint);
+  link->endpoint_uid = LegacyLabelEndpoint(endpoint_label);
   link->heartbeat_interval_ms = 1000;
   InitializeRuntimeNode(*link);
   return link;
@@ -122,7 +126,7 @@ void TestLinkPersistentSaveLoad() {
         MemoryLink::ptr::Declare(ae::CreateWith{domain}.with_id(link_id));
     link.Load();
     CHECK(link.is_loaded());
-    CHECK(link->endpoint_uid == "endpoint-a");
+    CHECK(link->endpoint_uid == LegacyLabelEndpoint("endpoint-a"));
     CHECK(link->heartbeat_interval_ms == 1000);
   }
 }
@@ -133,11 +137,11 @@ void TestLinkConfigInitializedBeforeLive() {
   auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(12));
   // Configure while not yet a live runtime Node.
   CHECK(!link->base.is_valid());
-  link->endpoint_uid = "pre-live";
+  link->endpoint_uid = LegacyLabelEndpoint("pre-live");
   link->heartbeat_interval_ms = 2500;
   InitializeRuntimeNode(*link);
   CHECK(link->base.is_valid());
-  CHECK(link->endpoint_uid == "pre-live");
+  CHECK(link->endpoint_uid == LegacyLabelEndpoint("pre-live"));
   CHECK(link->heartbeat_interval_ms == 2500);
   link.Save();
 
@@ -145,7 +149,7 @@ void TestLinkConfigInitializedBeforeLive() {
   auto loaded =
       MemoryLink::ptr::Declare(ae::CreateWith{domain2}.with_id(12));
   loaded.Load();
-  CHECK(loaded->endpoint_uid == "pre-live");
+  CHECK(loaded->endpoint_uid == LegacyLabelEndpoint("pre-live"));
   CHECK(loaded->heartbeat_interval_ms == 2500);
 }
 
@@ -221,7 +225,7 @@ void TestMultipleRefsSameLinkAfterRestart() {
     CHECK(client->link.operator->() == node_a->shares[0].link.operator->());
     MemoryLink::ptr memory = node_a->shares[0].link;
     memory.Load();
-    CHECK(memory->endpoint_uid == "shared-x");
+    CHECK(memory->endpoint_uid == LegacyLabelEndpoint("shared-x"));
 
     CHECK(node_a->shares[0].share_id == share_a_id);
     CHECK(node_b->shares[0].share_id == share_b_id);
@@ -465,7 +469,7 @@ void TestNestedSharedNodeLocalPtrExcluded() {
     CHECK(imported->shares[0].link.id().id() == link_root_id);
     MemoryLink::ptr imported_root_link = imported->shares[0].link;
     imported_root_link.Load();
-    CHECK(imported_root_link->endpoint_uid == "root-l");
+    CHECK(imported_root_link->endpoint_uid == LegacyLabelEndpoint("root-l"));
 
     CHECK(imported->child.is_valid());
     imported->child.Load();
@@ -647,10 +651,10 @@ void TestDescribeRestoredPermanentPairViolation() {
   ae::Domain domain{storage};
 
   auto link_a = MemoryLink::ptr::Create(ae::CreateWith{domain});
-  link_a->endpoint_uid = "endpoint-a";
+  link_a->endpoint_uid = LegacyLabelEndpoint("endpoint-a");
   InitializeRuntimeNode(*link_a);
   auto link_b = MemoryLink::ptr::Create(ae::CreateWith{domain});
-  link_b->endpoint_uid = "endpoint-b";
+  link_b->endpoint_uid = LegacyLabelEndpoint("endpoint-b");
   InitializeRuntimeNode(*link_b);
 
   auto empty = SharedNode::ptr::Create(ae::CreateWith{domain});
@@ -672,7 +676,7 @@ void TestDescribeRestoredPermanentPairViolation() {
              .empty());
 
   auto link_c = MemoryLink::ptr::Create(ae::CreateWith{domain});
-  link_c->endpoint_uid = "endpoint-c";
+  link_c->endpoint_uid = LegacyLabelEndpoint("endpoint-c");
   InitializeRuntimeNode(*link_c);
   pair->shares.push_back(Share{
       .share_id = ae::ObjId{42},

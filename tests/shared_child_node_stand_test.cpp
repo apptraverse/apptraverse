@@ -35,6 +35,8 @@
 #include "apptraverse/shared_sync_runtime.h"
 #include "apptraverse/sync_frame.h"
 
+#include "memory_test_endpoint.h"
+
 namespace apptraverse::test {
 namespace {
 
@@ -48,8 +50,11 @@ namespace {
     }                                                                    \
   } while (0)
 
-std::string const kHost = "stand-host";
-std::string const kClient = "stand-client";
+using apptraverse::test::LegacyLabelEndpoint;
+using apptraverse::test::LegacyLabelTransport;
+
+std::string const kHost = LegacyLabelTransport("stand-host");
+std::string const kClient = LegacyLabelTransport("stand-client");
 
 // Parent-local payload. A marker shared by both parents so one transport-level
 // scan proves no local parent field ever reaches the wire.
@@ -738,10 +743,11 @@ struct Replica {
     return highest;
   }
 
-  MemoryLink::ptr MakeLink(std::string endpoint) const {
+  MemoryLink::ptr MakeLink(std::string const& transport_endpoint) const {
     auto link = MemoryLink::ptr::Create(
         ae::CreateWith{*domain}.with_id(ae::ObjId::GenerateUnique()));
-    link->endpoint_uid = std::move(endpoint);
+    link->endpoint_uid = apptraverse::ParseEndpointUid(transport_endpoint);
+    assert(!link->endpoint_uid.empty());
     link->heartbeat_interval_ms = 1000;
     InitializeRuntimeNode(*link);
     link.Save();
@@ -932,7 +938,8 @@ std::vector<ShareView> SharesOf(SharedNode::ptr node) {
     CHECK(share.link.is_loaded());
     out.push_back(ShareView{.share_id = share.share_id,
                             .link_id = share.link.id(),
-                            .endpoint = share.link->EndpointUid(),
+                            .endpoint =
+                                FormatEndpointUid(share.link->EndpointUid()),
                             .access = share.GetAccess()});
   }
   return out;
@@ -1010,7 +1017,7 @@ LinkSyncState::ptr SyncStateForPeer(SharedNode::ptr node,
       share.link.Load();
     }
     CHECK(share.link.is_loaded());
-    if (share.link->EndpointUid() != peer_endpoint) {
+    if (!EndpointMatchesTransport(share.link->EndpointUid(), peer_endpoint)) {
       continue;
     }
     auto const index = node->FindLinkSyncIndexForShare(share.share_id);
