@@ -85,6 +85,10 @@ class ChatComponent {
   void SetQueryPeerOnlineSchedule(QueryPeerScheduleFunction fn) {
     SetQueryPeerSchedule(std::move(fn));
   }
+  void SetLocalUid(ae::Uid local_uid) { sync_.SetLocalUid(local_uid); }
+  LocalPresenceStatus GetLocalPresence() const {
+    return sync_.GetLocalPresence();
+  }
   PeerReachability GetPeerReachability(ae::Uid const& remote_uid) const;
   bool IsPeerOfflineMissedVisit(ae::Uid const& remote_uid) const;
   bool IsPeerOfflineNoFuturePing(ae::Uid const& remote_uid) const;

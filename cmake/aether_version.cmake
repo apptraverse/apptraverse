@@ -1,5 +1,5 @@
-# Single source of truth for the aether-client-cpp pin used by desktop and Android.
-set(APPTRAVERSE_AETHER_GIT_TAG "9d5223ac0450a01a8f6d4a82dfae59581fa8042c")
+﻿# Single source of truth for the aether-client-cpp pin used by desktop and Android.
+set(APPTRAVERSE_AETHER_GIT_TAG "41e00350da4bc08777223fd2c4d3e6f770c50e64")
 
 # Exact Aether-owned dependency revisions recorded from two independent
 # configures of the candidate (CPM GIT_TAG main/master, then reused).

@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <utility>
 
-#include "aether/ae_actions/query_peer_ping_schedule.h"
 #include "aether-miscpp/format/format.h"
 
 #include "aether_runtime.h"
@@ -49,6 +48,8 @@ std::string AetherP2pTransport::UidKey(ae::Uid const& uid) {
 AetherP2pTransport::~AetherP2pTransport() { Stop(); }
 
 void AetherP2pTransport::Stop() {
+  stopped_ = true;
+  prepare_for_shutdown_done_ = true;
   new_port_sub_ = ae::Subscription{};
   while (!sessions_.empty()) {
     auto session = std::move(sessions_.back());
@@ -58,6 +59,15 @@ void AetherP2pTransport::Stop() {
     }
   }
   reconnect_in_flight_.clear();
+  // Drop callbacks without invoking business code after Stop.
+  for (auto& query : schedule_queries_) {
+    if (query) {
+      query->result_sub = ae::Subscription{};
+      query->cb = {};
+      query->action.reset();
+      query->completed = true;
+    }
+  }
   schedule_queries_.clear();
   aether_app_ = nullptr;
   local_client_ = {};
@@ -66,6 +76,7 @@ void AetherP2pTransport::Stop() {
 void AetherP2pTransport::Start(ae::AetherApp& aether_app,
                                ae::Client::ptr local_client) {
   Stop();
+  stopped_ = false;
   aether_app_ = &aether_app;
   local_client_ = std::move(local_client);
   if (!aether_app_ || !local_client_) {
@@ -93,9 +104,9 @@ void AetherP2pTransport::SetSessionReadyHandler(SessionReadyHandler handler) {
   on_session_ready_ = std::move(handler);
 }
 
-void AetherP2pTransport::QueryPeerPingSchedule(
+void AetherP2pTransport::QueryPeerReceiveSchedule(
     ae::Uid const& peer, chat::PeerScheduleQueryCallback cb) {
-  if (aether_app_ == nullptr || !local_client_.is_valid() || !cb) {
+  if (stopped_ || aether_app_ == nullptr || !local_client_.is_valid() || !cb) {
     if (cb) {
       cb(std::nullopt);
     }
@@ -106,41 +117,67 @@ void AetherP2pTransport::QueryPeerPingSchedule(
     cb(std::nullopt);
     return;
   }
-  Log(ae::Format("PEER_UAP_QUERY_BEGIN peer={}", peer));
+  Log(ae::Format("PEER_SCHEDULE_QUERY_BEGIN peer={}", peer));
   auto query = std::make_unique<ScheduleQuery>();
   query->cb = std::move(cb);
-  query->action = std::make_unique<ae::QueryPeerPingSchedule>(
+  // Own the action here: Client::QueryPeerReceiveSchedule keeps only one slot.
+  query->action = std::make_unique<ae::QueryPeerReceiveSchedule>(
       ae::AeContext{*aether_app_}, *local_client_, peer);
   auto* raw = query.get();
   query->result_sub = query->action->result_event().Subscribe(
-      [raw](ae::Result<ae::PeerPingSchedule, int> const& res) {
-        if (!raw->cb) {
+      [this, raw](ae::Result<ae::PeerReceiveSchedule, int> const& res) {
+        if (stopped_ || raw == nullptr || raw->completed) {
+          return;
+        }
+        auto user_cb = std::move(raw->cb);
+        raw->cb = {};
+        raw->completed = true;
+        if (!user_cb) {
           return;
         }
         if (!res) {
-          raw->cb(std::nullopt);
+          user_cb(std::nullopt);
           return;
         }
-        auto const& in = res.value();
-        chat::PeerScheduleSnapshot out{};
-        out.last_ping_server_ms = in.last_ping_server_ms;
-        out.next_ping_delta_ms = in.next_ping_delta_ms;
-        out.local_deadline = in.local_deadline;
-        raw->cb(out);
+        user_cb(chat::MakePeerScheduleSnapshot(res.value()));
       });
   schedule_queries_.push_back(std::move(query));
 }
 
 void AetherP2pTransport::AnnounceNextPingUnknown() {
-  if (aether_app_ == nullptr || !local_client_.is_valid()) {
+  // No-op on feature/client-timing-v2 (API not present).
+}
+
+bool AetherP2pTransport::BeginPrepareForShutdown() {
+  // No PrepareForShutdown action on feature/client-timing-v2.
+  prepare_for_shutdown_done_ = true;
+  return false;
+}
+
+bool AetherP2pTransport::PollPrepareForShutdown() {
+  return prepare_for_shutdown_done_;
+}
+
+std::size_t AetherP2pTransport::active_schedule_query_count() const {
+  std::size_t n = 0;
+  for (auto const& query : schedule_queries_) {
+    if (query && !query->completed) {
+      ++n;
+    }
+  }
+  return n;
+}
+
+void AetherP2pTransport::Poll() {
+  if (schedule_queries_.empty()) {
     return;
   }
-  local_client_.Load();
-  if (!local_client_.is_loaded()) {
-    return;
-  }
-  (void)local_client_->AnnounceNextPingUnknown();
-  Log("AETHER_NEXT_PING_UNKNOWN_SENT");
+  schedule_queries_.erase(
+      std::remove_if(schedule_queries_.begin(), schedule_queries_.end(),
+                     [](std::unique_ptr<ScheduleQuery> const& q) {
+                       return q == nullptr || q->completed;
+                     }),
+      schedule_queries_.end());
 }
 
 std::uint64_t AetherP2pTransport::session_generation(ae::Uid const& peer) const {
@@ -201,10 +238,11 @@ void AetherP2pTransport::NotifySessionReadyWhenWritable(PeerSession& session) {
       " generation=" + std::to_string(session.generation) +
       " link_state=" + std::string{LinkStateName(info.link_state)} +
       " writable=" + std::string{info.is_writable ? "1" : "0"});
-  if (info.link_state != ae::LinkState::kLinked) {
+  if (info.link_state != ae::LinkState::kLinked || !info.is_writable) {
     Log("P2P_SESSION_LINK_WAIT peer=" + FormatAetherUid(session.remote_uid) +
         " generation=" + std::to_string(session.generation) +
-        " link_state=" + std::string{LinkStateName(info.link_state)});
+        " link_state=" + std::string{LinkStateName(info.link_state)} +
+        " writable=" + std::string{info.is_writable ? "1" : "0"});
     return;
   }
   session.announced_ready = true;

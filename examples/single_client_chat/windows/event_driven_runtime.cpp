@@ -339,6 +339,10 @@ class EventDrivenUi {
     on_applied_ = std::move(on_applied);
   }
 
+  void SetPeerDisplayName(std::string const& uid, std::string name) {
+    peer_names_[uid] = std::move(name);
+  }
+
   HWND Create(std::wstring title) {
     WNDCLASSW wc{};
     wc.lpfnWndProc = &EventDrivenUi::WndProc;
@@ -471,6 +475,12 @@ class EventDrivenUi {
             ES_AUTOVSCROLL,
         0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(1)),
         GetModuleHandleW(nullptr), nullptr);
+    participants_ = CreateWindowExW(
+        WS_EX_CLIENTEDGE, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY |
+            ES_AUTOVSCROLL,
+        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(13)),
+        GetModuleHandleW(nullptr), nullptr);
     edit_ = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
         0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(2)),
@@ -488,6 +498,7 @@ class EventDrivenUi {
     int const margin = 8;
     int const edit_h = 28;
     int const send_w = 80;
+    int const participants_w = 200;
     int y = margin;
     if (uid_ != nullptr) {
       MoveWindow(uid_, margin, y, width - 2 * margin, edit_h, TRUE);
@@ -505,9 +516,14 @@ class EventDrivenUi {
     }
     int const bottom = height - margin - edit_h;
     int const transcript_h = bottom - y;
+    int const content_w = width - 3 * margin - participants_w;
     if (transcript_ != nullptr) {
-      MoveWindow(transcript_, margin, y, width - 2 * margin,
+      MoveWindow(transcript_, margin, y, content_w > 0 ? content_w : 0,
                  transcript_h > 0 ? transcript_h : 0, TRUE);
+    }
+    if (participants_ != nullptr) {
+      MoveWindow(participants_, width - margin - participants_w, y,
+                 participants_w, transcript_h > 0 ? transcript_h : 0, TRUE);
     }
     int const edit_w = width - 3 * margin - send_w;
     if (edit_ != nullptr) {
@@ -581,24 +597,24 @@ class EventDrivenUi {
     auto const apply_us = static_cast<std::uint64_t>(UtcMicros());
     auto const utf8 = FormatWindowsChatPresentationUtf8(
         snapshot, &delivery_cache_, apply_us);
-    if (utf8 == last_transcript_utf8_) {
-      return;
-    }
-    std::wstring text = Utf8ToWide(utf8);
-    std::wstring crlf;
-    crlf.reserve(text.size() + 8);
-    for (wchar_t ch : text) {
-      if (ch == L'\n') {
-        crlf += L"\r\n";
-      } else if (ch != L'\r') {
-        crlf.push_back(ch);
+    if (utf8 != last_transcript_utf8_) {
+      std::wstring text = Utf8ToWide(utf8);
+      std::wstring crlf;
+      crlf.reserve(text.size() + 8);
+      for (wchar_t ch : text) {
+        if (ch == L'\n') {
+          crlf += L"\r\n";
+        } else if (ch != L'\r') {
+          crlf.push_back(ch);
+        }
       }
+      SetWindowTextW(transcript_, crlf.c_str());
+      SendMessageW(transcript_, EM_SETSEL, static_cast<WPARAM>(crlf.size()),
+                   static_cast<LPARAM>(crlf.size()));
+      SendMessageW(transcript_, EM_SCROLLCARET, 0, 0);
+      last_transcript_utf8_ = utf8;
     }
-    SetWindowTextW(transcript_, crlf.c_str());
-    SendMessageW(transcript_, EM_SETSEL, static_cast<WPARAM>(crlf.size()),
-                 static_cast<LPARAM>(crlf.size()));
-    SendMessageW(transcript_, EM_SCROLLCARET, 0, 0);
-    last_transcript_utf8_ = utf8;
+    ApplyParticipants(snapshot);
     if (room_trace_ != nullptr && room_trace_->enabled()) {
       if (room_mode_.is_host) {
         room_trace_->Event("HOST_TRANSCRIPT_APPLIED", {}, {}, {}, {}, {},
@@ -650,8 +666,75 @@ class EventDrivenUi {
     }
   }
 
+  void ApplyParticipants(ChatPresentationSnapshot const& snapshot) {
+    if (participants_ == nullptr) {
+      return;
+    }
+    auto glyph = [](chat::PeerPresenceStatus s) -> char const* {
+      switch (s) {
+        case chat::PeerPresenceStatus::kOnline:
+          return "\xE2\x97\x8F";  // ●
+        case chat::PeerPresenceStatus::kOffline:
+          return "\xE2\x97\x8B";  // ○
+        case chat::PeerPresenceStatus::kNotRunning:
+          return "\xE2\x80\x94";  // —
+        case chat::PeerPresenceStatus::kUnknown:
+          return "?";
+      }
+      return "?";
+    };
+    auto local_glyph = [](chat::LocalPresenceStatus s) -> char const* {
+      switch (s) {
+        case chat::LocalPresenceStatus::kOnline:
+          return "\xE2\x97\x8F";
+        case chat::LocalPresenceStatus::kOffline:
+          return "\xE2\x97\x8B";
+        case chat::LocalPresenceStatus::kConnecting:
+          return "\xE2\x80\xA6";  // …
+      }
+      return "?";
+    };
+
+    std::string utf8;
+    utf8 += "You          ";
+    utf8 += local_glyph(snapshot.local_presence);
+    utf8 += " ";
+    utf8 += chat::LocalPresenceStatusName(snapshot.local_presence);
+    utf8 += "\r\n";
+    for (auto const& peer : snapshot.peers) {
+      std::string name = peer.display_name;
+      if (name.empty() || name == peer.remote_uid) {
+        auto it = peer_names_.find(peer.remote_uid);
+        if (it != peer_names_.end()) {
+          name = it->second;
+        } else if (peer.remote_uid.size() > 8) {
+          name = peer.remote_uid.substr(0, 8);
+        } else {
+          name = peer.remote_uid;
+        }
+      }
+      if (name.size() < 12) {
+        name.append(12 - name.size(), ' ');
+      } else if (name.size() > 12) {
+        name.resize(12);
+      }
+      utf8 += name;
+      utf8 += " ";
+      utf8 += glyph(peer.presence);
+      utf8 += " ";
+      utf8 += chat::PeerPresenceStatusName(peer.presence);
+      utf8 += "\r\n";
+    }
+    if (utf8 == last_participants_utf8_) {
+      return;
+    }
+    SetWindowTextW(participants_, Utf8ToWide(utf8).c_str());
+    last_participants_utf8_ = std::move(utf8);
+  }
+
   HWND hwnd_{nullptr};
   HWND transcript_{nullptr};
+  HWND participants_{nullptr};
   HWND edit_{nullptr};
   HWND send_{nullptr};
   HWND add_{nullptr};
@@ -662,6 +745,8 @@ class EventDrivenUi {
   RoomUiMode room_mode_{};
   std::string local_uid_;
   std::string last_transcript_utf8_;
+  std::string last_participants_utf8_;
+  std::unordered_map<std::string, std::string> peer_names_;
   WindowsTranscriptDeliveryCache delivery_cache_;
   SubmitFn submit_;
   AddPeerFn add_peer_;
@@ -812,13 +897,17 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
     return 1;
   }
   {
-    auto policy = aether_client->connectivity_policy();
-    policy.Load();
-    if (policy.is_loaded()) {
-      // Drop the previous process lifetime's ping appointment so this start
-      // opens a fresh RX window instead of waiting out a missed slot.
-      policy->ResetRxTimings();
+    auto const schedule_res = aether_client->SetReceiveSchedule(ae::ReceiveSchedule{
+        .ping_interval = std::chrono::seconds{1},
+        .receive_window = std::chrono::seconds{1},
+    });
+    if (!schedule_res) {
+      std::cerr << "SetReceiveSchedule failed code=" << schedule_res.error()
+                << '\n';
+      return 1;
     }
+    // Start cloud/pings only after receive schedule is configured.
+    (void)aether_client->cloud_connection();
   }
   auto const local_uid = FormatAetherUid(aether_client->uid());
   std::cout << "AETHER_CLIENT_READY platform=windows uid=" << local_uid << '\n';
@@ -1271,7 +1360,7 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                   }
                 }
               } else if constexpr (std::is_same_v<T, QueryPeerScheduleCommand>) {
-                transport.QueryPeerPingSchedule(
+                transport.QueryPeerReceiveSchedule(
                     cmd.peer,
                     [&, cb = std::move(cmd.cb)](
                         std::optional<chat::PeerScheduleSnapshot> result) {
@@ -1279,12 +1368,19 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
                           cb, std::move(result)});
                     });
               } else if constexpr (std::is_same_v<T, StopNetworkCommand>) {
-                // Announce delta=0 while the network thread and Aether are
-                // still running, then drain in-flight writes once.
-                transport.AnnounceNextPingUnknown();
-                (void)aether_app->Update(ae::Now());
-                // Tear down PeerSession subscriptions before AetherApp Exit so
-                // stream callbacks cannot touch destroyed sessions.
+                // STOP_PING -> setNextReadDelay(0) -> WRITE_DONE|FAIL|TIMEOUT
+                // then transport stop and Aether exit.
+                (void)transport.BeginPrepareForShutdown();
+                auto const deadline =
+                    std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds{500};
+                while (!transport.PollPrepareForShutdown() &&
+                       std::chrono::steady_clock::now() < deadline) {
+                  auto const now = ae::Now();
+                  auto const next = aether_app->Update(now);
+                  aether_app->WaitUntil(
+                      std::min(next, ae::Now() + std::chrono::milliseconds{20}));
+                }
                 transport.Stop();
                 network_stop.store(true, std::memory_order::release);
                 aether_app->Exit(0);
@@ -1300,6 +1396,7 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
 
       auto const now = ae::Now();
       auto const next = aether_app->Update(now);
+      transport.Poll();
       if (network_stop.load(std::memory_order::acquire) ||
           aether_app->IsExited()) {
         break;
@@ -1685,6 +1782,7 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
           network_q.Push(QueryPeerScheduleCommand{peer, std::move(cb)});
           wake_network();
         });
+    component.SetLocalUid(aether_client->uid());
 
     if (*options.role == ChatRoomRole::kHost) {
       if (room_trace.enabled()) {
@@ -1701,6 +1799,7 @@ int RunEventDriven(EventDrivenCliOptions const& options) {
       }
       // Transport connect can run before ChatComponent::Start; AddPeer cannot.
       for (auto const& p : room.ActiveParticipants()) {
+        ui.SetPeerDisplayName(FormatAetherUid(p.uid), p.display_name);
         if (p.uid == aether_client->uid()) {
           continue;
         }

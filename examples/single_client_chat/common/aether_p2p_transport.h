@@ -11,7 +11,8 @@
 #include <vector>
 
 #include "aether/all.h"
-#include "aether/ae_actions/query_peer_ping_schedule.h"
+#include "aether/ae_actions/query_peer_receive_schedule.h"
+#include "aether/receive_schedule.h"
 
 #include "aether_p2p_framing.h"
 #include "chat_peer_schedule.h"
@@ -62,16 +63,31 @@ class AetherP2pTransport {
   void SetLogHandler(LogHandler handler);
   void SetPreWriteHandler(PreWriteHandler handler);
   void SetSessionReadyHandler(SessionReadyHandler handler);
+  void QueryPeerReceiveSchedule(ae::Uid const& peer,
+                                chat::PeerScheduleQueryCallback cb);
   void QueryPeerPingSchedule(ae::Uid const& peer,
-                             chat::PeerScheduleQueryCallback cb);
+                             chat::PeerScheduleQueryCallback cb) {
+    QueryPeerReceiveSchedule(peer, std::move(cb));
+  }
   void QueryPeerOnlineSchedule(ae::Uid const& peer,
                                chat::PeerScheduleQueryCallback cb) {
-    QueryPeerPingSchedule(peer, std::move(cb));
+    QueryPeerReceiveSchedule(peer, std::move(cb));
   }
+  // client-timing-v2 has no AnnounceNextPingUnknown; kept as a no-op hook.
   void AnnounceNextPingUnknown();
+  // client-timing-v2 has no PrepareForShutdown action; returns false.
+  bool BeginPrepareForShutdown();
+  bool PollPrepareForShutdown();
+  bool prepare_for_shutdown_done() const noexcept {
+    return prepare_for_shutdown_done_;
+  }
 
   std::uint64_t session_generation(ae::Uid const& peer) const;
   std::size_t live_session_count(ae::Uid const& peer) const;
+  // Incomplete schedule queries (not yet completed / reaped).
+  std::size_t active_schedule_query_count() const;
+  // Safe to call from the network loop: reaps completed ScheduleQuery objects.
+  void Poll();
 
  private:
   struct PeerSession {
@@ -107,9 +123,10 @@ class AetherP2pTransport {
   static std::string UidKey(ae::Uid const& uid);
 
   struct ScheduleQuery {
-    std::unique_ptr<ae::QueryPeerPingSchedule> action;
+    std::unique_ptr<ae::QueryPeerReceiveSchedule> action;
     ae::Subscription result_sub;
     chat::PeerScheduleQueryCallback cb;
+    bool completed{false};
   };
 
   ae::AetherApp* aether_app_{nullptr};
@@ -125,6 +142,8 @@ class AetherP2pTransport {
   // Prevents overlapping Reconnect creating duplicate Connect races.
   std::unordered_set<std::string> reconnect_in_flight_;
   std::vector<std::unique_ptr<ScheduleQuery>> schedule_queries_;
+  bool stopped_{false};
+  bool prepare_for_shutdown_done_{true};
 };
 
 bool TryHandleP2pProbePayload(

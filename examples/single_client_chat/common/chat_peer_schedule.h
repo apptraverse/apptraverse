@@ -4,9 +4,11 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
-#include <limits>
 #include <optional>
 #include <string_view>
+
+#include "aether/clock.h"
+#include "aether/receive_schedule.h"
 
 namespace ae {
 struct Uid;
@@ -15,22 +17,30 @@ struct Uid;
 namespace apptraverse::chat {
 
 inline constexpr std::string_view kOfflinePingMarker{"\xE2\x8F\xB1"};
-inline constexpr std::string_view kOfflineMissedVisitMarker = kOfflinePingMarker;
-inline constexpr std::int64_t kPeerScheduleGraceMs = 500;
+inline constexpr std::chrono::milliseconds kPeerScheduleGrace{500};
+inline constexpr std::chrono::milliseconds kPresenceRefreshInterval{1000};
 
-enum class PeerReachability : std::uint8_t {
+// Display / control-plane peer presence derived from ae::PeerReceiveSchedule.
+enum class PeerPresenceStatus : std::uint8_t {
   kUnknown = 0,
   kOnline = 1,
-  kWaitingForScheduledPing = 2,
-  kScheduleCheckPending = 3,
-  kOfflineMissedPing = 4,
-  kOfflineNoFuturePing = 5,
+  kOffline = 2,
+  kNotRunning = 3,
 };
 
+enum class LocalPresenceStatus : std::uint8_t {
+  kConnecting = 0,
+  kOnline = 1,
+  kOffline = 2,
+};
+
+// Adapter snapshot over ae::PeerReceiveSchedule (library TimePoint timeline).
 struct PeerScheduleSnapshot {
-  std::int64_t last_ping_server_ms{0};
-  std::int64_t next_ping_delta_ms{0};
-  std::optional<std::chrono::steady_clock::time_point> local_deadline;
+  ae::TimePoint last_online{};
+  std::optional<ae::TimePoint> next_ping_deadline;
+  ae::PeerScheduleState schedule_state{ae::PeerScheduleState::kUnknown};
+  // next_ping_deadline + grace; used for retry opportunity planning.
+  std::optional<ae::TimePoint> retry_after;
 };
 
 using PeerScheduleQueryCallback =
@@ -43,62 +53,118 @@ inline bool ScheduleQueryFailed(
   return !r.has_value();
 }
 
-inline std::int64_t SaturatingAddI64(std::int64_t a, std::int64_t b) noexcept {
-  auto const max_v = std::numeric_limits<std::int64_t>::max();
-  auto const min_v = std::numeric_limits<std::int64_t>::min();
-  if (b >= 0) {
-    if (a > max_v - b) {
-      return max_v;
-    }
-  } else if (a < min_v - b) {
-    return min_v;
-  }
-  return a + b;
-}
-
-inline std::int64_t SaturatingSubI64(std::int64_t a, std::int64_t b) noexcept {
-  auto const max_v = std::numeric_limits<std::int64_t>::max();
-  auto const min_v = std::numeric_limits<std::int64_t>::min();
-  if (b >= 0) {
-    if (a < min_v + b) {
-      return min_v;
-    }
-  } else if (a > max_v + b) {
-    return max_v;
-  }
-  return a - b;
-}
-
 inline PeerScheduleSnapshot MakePeerScheduleSnapshot(
-    std::int64_t last_ping_server_ms, std::int64_t next_ping_delta_ms,
-    std::int64_t server_now_ms,
-    std::chrono::steady_clock::time_point steady_now =
-        std::chrono::steady_clock::now()) {
-  PeerScheduleSnapshot snap{};
-  snap.last_ping_server_ms = last_ping_server_ms;
-  snap.next_ping_delta_ms = next_ping_delta_ms;
-  if (next_ping_delta_ms <= 0) {
-    return snap;
+    ae::PeerReceiveSchedule const& in,
+    ae::Duration grace = kPeerScheduleGrace) {
+  PeerScheduleSnapshot out{};
+  out.last_online = in.last_online;
+  out.next_ping_deadline = in.next_ping_deadline;
+  out.schedule_state = in.state;
+  if (in.next_ping_deadline.has_value()) {
+    out.retry_after = *in.next_ping_deadline + grace;
   }
-  auto remaining =
-      SaturatingSubI64(SaturatingAddI64(last_ping_server_ms, next_ping_delta_ms),
-                       server_now_ms);
-  if (remaining < 0) {
-    remaining = 0;
-  }
-  snap.local_deadline = steady_now + std::chrono::milliseconds{remaining} +
-                        std::chrono::milliseconds{kPeerScheduleGraceMs};
-  return snap;
+  return out;
 }
 
-inline bool ConfirmedOfflineHold(PeerReachability reachability) noexcept {
-  return reachability == PeerReachability::kOfflineMissedPing ||
-         reachability == PeerReachability::kOfflineNoFuturePing;
+inline PeerPresenceStatus ClassifyPeerPresence(
+    PeerScheduleSnapshot const& snap) noexcept {
+  switch (snap.schedule_state) {
+    case ae::PeerScheduleState::kExpected:
+      if (snap.next_ping_deadline.has_value()) {
+        return PeerPresenceStatus::kOnline;
+      }
+      return PeerPresenceStatus::kUnknown;
+    case ae::PeerScheduleState::kMissedDeadline:
+      return PeerPresenceStatus::kOffline;
+    case ae::PeerScheduleState::kUnknown:
+      // Successful API sample with no announced next window.
+      if (!snap.next_ping_deadline.has_value()) {
+        return PeerPresenceStatus::kNotRunning;
+      }
+      return PeerPresenceStatus::kUnknown;
+  }
+  return PeerPresenceStatus::kUnknown;
 }
 
-inline bool ShowOfflinePingMarker(PeerReachability reachability) noexcept {
-  return ConfirmedOfflineHold(reachability);
+inline LocalPresenceStatus ClassifyLocalPresence(
+    bool ever_succeeded, std::optional<PeerScheduleSnapshot> const& snap) {
+  if (!ever_succeeded || !snap.has_value()) {
+    return ever_succeeded ? LocalPresenceStatus::kOffline
+                          : LocalPresenceStatus::kConnecting;
+  }
+  switch (snap->schedule_state) {
+    case ae::PeerScheduleState::kExpected:
+      return LocalPresenceStatus::kOnline;
+    case ae::PeerScheduleState::kMissedDeadline:
+      return LocalPresenceStatus::kOffline;
+    case ae::PeerScheduleState::kUnknown:
+      // Self with no next window: treat as offline for local UI.
+      return LocalPresenceStatus::kOffline;
+  }
+  return LocalPresenceStatus::kConnecting;
 }
+
+inline char const* PeerPresenceStatusName(PeerPresenceStatus s) noexcept {
+  switch (s) {
+    case PeerPresenceStatus::kOnline:
+      return "Online";
+    case PeerPresenceStatus::kOffline:
+      return "Offline";
+    case PeerPresenceStatus::kNotRunning:
+      return "Not running";
+    case PeerPresenceStatus::kUnknown:
+      return "Unknown";
+  }
+  return "Unknown";
+}
+
+inline char const* LocalPresenceStatusName(LocalPresenceStatus s) noexcept {
+  switch (s) {
+    case LocalPresenceStatus::kConnecting:
+      return "Connecting";
+    case LocalPresenceStatus::kOnline:
+      return "Online";
+    case LocalPresenceStatus::kOffline:
+      return "Offline";
+  }
+  return "Connecting";
+}
+
+inline char const* PeerScheduleStateName(ae::PeerScheduleState s) noexcept {
+  switch (s) {
+    case ae::PeerScheduleState::kExpected:
+      return "Expected";
+    case ae::PeerScheduleState::kMissedDeadline:
+      return "MissedDeadline";
+    case ae::PeerScheduleState::kUnknown:
+      return "Unknown";
+  }
+  return "Unknown";
+}
+
+// Retries for pending payloads: only while peer is Online.
+inline bool PayloadRetriesAllowed(PeerPresenceStatus status) noexcept {
+  return status == PeerPresenceStatus::kOnline;
+}
+
+// Initial user-message send may proceed when Online, or once while Unknown if
+// the transport path is already usable. Never while Offline / Not running.
+inline bool InitialSendAllowed(PeerPresenceStatus status) noexcept {
+  return status == PeerPresenceStatus::kOnline ||
+         status == PeerPresenceStatus::kUnknown;
+}
+
+inline bool ConfirmedOfflineHold(PeerPresenceStatus status) noexcept {
+  return status == PeerPresenceStatus::kOffline ||
+         status == PeerPresenceStatus::kNotRunning;
+}
+
+inline bool ShowOfflinePingMarker(PeerPresenceStatus status) noexcept {
+  return ConfirmedOfflineHold(status);
+}
+
+// Back-compat alias used by older call sites during migration.
+using PeerReachability = PeerPresenceStatus;
 
 }  // namespace apptraverse::chat
 

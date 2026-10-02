@@ -90,6 +90,43 @@ void SharedGraphSyncSession::AddId(std::vector<ae::ObjId>& ids, ae::ObjId id) {
   }
 }
 
+bool SharedGraphSyncSession::IsPendingDeliveryEvent(ae::ObjId event_id) const {
+  for (auto const& pending : state_->data.pending_packets) {
+    if (pending.kind == PendingSyncPacketKind::kEvent &&
+        pending.event_id == event_id) {
+      return true;
+    }
+    if (pending.kind == PendingSyncPacketKind::kNodeState &&
+        !pending.is_initial_state && ContainsId(pending.event_ids, event_id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::vector<ae::ObjId> SharedGraphSyncSession::PendingEventIds() const {
+  std::vector<ae::ObjId> out;
+  auto push_unique = [&out](ae::ObjId id) {
+    for (auto const existing : out) {
+      if (existing == id) {
+        return;
+      }
+    }
+    out.push_back(id);
+  };
+  for (auto const& pending : state_->data.pending_packets) {
+    if (pending.kind == PendingSyncPacketKind::kEvent) {
+      push_unique(pending.event_id);
+    } else if (pending.kind == PendingSyncPacketKind::kNodeState &&
+               !pending.is_initial_state) {
+      for (auto const id : pending.event_ids) {
+        push_unique(id);
+      }
+    }
+  }
+  return out;
+}
+
 bool SharedGraphSyncSession::HasPendingEvent(ae::ObjId event_id) const {
   for (auto const& pending : state_->data.pending_packets) {
     if (pending.kind == PendingSyncPacketKind::kEvent &&

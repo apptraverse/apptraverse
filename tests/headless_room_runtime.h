@@ -583,6 +583,14 @@ class HeadlessRoomRuntime {
                                   chat::ChatPresenceMessage::kOnline));
     PublishPresentation();
   }
+  void InjectPeerOffline(ae::Uid const& from) {
+    if (component_ == nullptr) {
+      return;
+    }
+    component_->Receive(from, chat::EncodeChatPresence(
+                                  chat::ChatPresenceMessage::kOffline));
+    PublishPresentation();
+  }
   std::filesystem::path const& StateDir() const { return state_dir_; }
 
   std::string LocalName() const {

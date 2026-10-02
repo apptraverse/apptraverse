@@ -47,6 +47,8 @@ class SharedGraphSyncSession : public SyncPacketHandler {
   std::size_t pending_packet_count() const {
     return state_->data.pending_packets.size();
   }
+  bool IsPendingDeliveryEvent(ae::ObjId event_id) const;
+  std::vector<ae::ObjId> PendingEventIds() const;
 
   SyncSessionState::ptr state() const { return state_; }
 

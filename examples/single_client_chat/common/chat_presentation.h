@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "chat_peer_schedule.h"
+
 namespace apptraverse::chat {
 
 enum class ChatTimelineItemKind : std::uint8_t {
@@ -36,6 +38,8 @@ struct ChatTimelineItemView {
 
 struct ChatPeerStatusView {
   std::string remote_uid;
+  std::string display_name;
+  PeerPresenceStatus presence{PeerPresenceStatus::kUnknown};
   bool online{false};
   bool initial_sync_complete{false};
   std::size_t pending_packets{0};
@@ -45,6 +49,7 @@ struct ChatPeerStatusView {
 struct ChatPresentationSnapshot {
   bool running{false};
   ChatParticipantView local_participant;
+  LocalPresenceStatus local_presence{LocalPresenceStatus::kConnecting};
   std::vector<ChatTimelineItemView> timeline;
   std::vector<ChatPeerStatusView> peers;
 };

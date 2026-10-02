@@ -93,10 +93,18 @@ class ChatSyncController {
   SharedGraphSyncSession* FindSession(ae::Uid const& remote_uid);
   SharedGraphSyncSession const* FindSession(ae::Uid const& remote_uid) const;
   bool IsPeerOnline(ae::Uid const& remote_uid) const;
-  PeerReachability GetPeerReachability(ae::Uid const& remote_uid) const;
+  PeerPresenceStatus GetPeerReachability(ae::Uid const& remote_uid) const;
+  PeerPresenceStatus GetPeerPresence(ae::Uid const& remote_uid) const {
+    return GetPeerReachability(remote_uid);
+  }
+  LocalPresenceStatus GetLocalPresence() const { return local_presence_; }
+  void SetLocalUid(ae::Uid local_uid) { local_uid_ = local_uid; }
   bool IsPeerOfflineMissedVisit(ae::Uid const& remote_uid) const;
   bool IsPeerOfflineNoFuturePing(ae::Uid const& remote_uid) const;
   bool ShowOfflinePingMarker(ae::Uid const& remote_uid) const;
+  // Event ObjIds pending to at least one peer in confirmed offline hold.
+  std::vector<ae::ObjId> PendingEventIdsForHeldPeers() const;
+  bool IsPendingHeldEvent(ae::ObjId event_id) const;
 
   // Diagnostics / unit tests: runtime gate state (not persisted).
   std::size_t write_gate_size(ae::Uid const& remote_uid) const;
@@ -129,15 +137,15 @@ class ChatSyncController {
     // Set on presence-offline. Stale-path rebuild is allowed only after this,
     // so the first inbound of a fresh room does not tear down a live session.
     bool rebuild_after_offline{false};
-    PeerReachability reachability{PeerReachability::kUnknown};
-    std::int64_t last_ping_server_ms{0};
-    std::int64_t next_ping_delta_ms{0};
-    std::optional<std::chrono::steady_clock::time_point> local_deadline;
-    std::optional<ae::TimePoint> tick_deadline;
-    bool had_valid_uap{false};
+    PeerPresenceStatus presence{PeerPresenceStatus::kUnknown};
+    PeerPresenceStatus reachability{PeerPresenceStatus::kUnknown};
+    std::optional<PeerScheduleSnapshot> last_schedule;
+    std::optional<ae::TimePoint> retry_after;
     bool schedule_query_in_flight{false};
     ae::TimePoint last_schedule_query{};
     bool offline_marker_on{false};
+    bool payload_retry_held_logged{false};
+    bool unknown_initial_send_used{false};
   };
 
   struct PendingAutoAccept {
@@ -178,18 +186,18 @@ class ChatSyncController {
   // arrives while pending packets are still bound to the pre-restart path.
   bool RequestStalePathReconnect(RuntimeSession& runtime, char const* reason);
   void DrivePresence(RuntimeSession& runtime, ae::TimePoint now);
+  void RefreshPresenceSchedules(ae::TimePoint now);
   void RequestPeerSchedule(RuntimeSession& runtime);
+  void RequestLocalSchedule();
   void OnPeerScheduleResult(RuntimeSession& runtime,
                             std::optional<PeerScheduleSnapshot> result);
+  void OnLocalScheduleResult(std::optional<PeerScheduleSnapshot> result);
   bool PayloadRetriesAllowed(RuntimeSession const& runtime) const;
   void MaybeHandleScheduleDeadline(RuntimeSession& runtime, ae::TimePoint now);
-  void MaybeRetryScheduleQuery(RuntimeSession& runtime, ae::TimePoint now);
-  void RearmFromPeerOnlineNotify(RuntimeSession& runtime);
   void ImmediatePayloadRetry(RuntimeSession& runtime, ae::TimePoint now);
-  void ApplyTickDeadline(RuntimeSession& runtime,
-                         PeerScheduleSnapshot const& snap, ae::TimePoint now);
-  void EnterOfflineMissedPing(RuntimeSession& runtime);
-  void EnterOfflineNoFuturePing(RuntimeSession& runtime);
+  void SetPeerPresence(RuntimeSession& runtime, PeerPresenceStatus next,
+                       char const* reason);
+  void EnterOfflineHold(RuntimeSession& runtime, PeerPresenceStatus status);
   void ClearOfflinePingMarker(RuntimeSession& runtime);
   void QueueAutoAccept(ae::Uid const& remote_uid,
                        std::vector<std::uint8_t> const& bytes);
@@ -213,6 +221,12 @@ class ChatSyncController {
   // Runtime-only; packets arriving for unknown peers before AddPeer completes.
   std::vector<PendingAutoAccept> pending_auto_accept_;
   std::optional<ae::TimePoint> last_tick_now_;
+  std::optional<ae::TimePoint> last_presence_refresh_;
+  ae::Uid local_uid_{};
+  LocalPresenceStatus local_presence_{LocalPresenceStatus::kConnecting};
+  bool local_schedule_ever_ok_{false};
+  bool local_schedule_query_in_flight_{false};
+  std::optional<PeerScheduleSnapshot> local_schedule_;
 };
 
 }  // namespace apptraverse::chat

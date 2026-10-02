@@ -397,17 +397,25 @@ void TestZeroDeltaStopsRetries() {
   fx.StartActive();
   fx.transport.Disconnect(fx.host_uid);
   auto uap = std::make_shared<FakeUap>();
+  uap->delta_ms = 0;
   BindFakeUap(*fx.client, uap);
   fx.client->InjectPeerOnline(fx.host_uid);
-  CHECK(fx.client->Send("zero-delta"));
+  CHECK(fx.client->Send("zero-delta-online"));
   CHECK(PumpUntil(
       fx.transport, fx.All(),
       [&] {
         return fx.client->Component()->GetPeerReachability(fx.host_uid) ==
-               apptraverse::chat::PeerReachability::kWaitingForScheduledPing;
+               apptraverse::chat::PeerReachability::kOnlineNoFuturePing;
       },
       std::chrono::seconds{2}));
-  uap->delta_ms = 0;
+  // Online + delta=0 still allows payload retries (writes continue).
+  auto const writes_before = PayloadWrites(fx.trace, "client");
+  PumpFor(fx.transport, fx.All(), std::chrono::seconds{5});
+  CHECK(PayloadWrites(fx.trace, "client") >= writes_before);
+  CHECK(PayloadWrites(fx.trace, "client") >= 1);
+
+  // Presence timeout -> OfflineNoFuturePing and freeze.
+  fx.client->InjectPeerOffline(fx.host_uid);
   CHECK(PumpUntil(
       fx.transport, fx.All(),
       [&] {
@@ -539,8 +547,6 @@ void TestClockSkew() {
   auto const delta = std::int64_t{10'000};
   auto const server_now = std::int64_t{2'002'000};
   auto const now = std::chrono::steady_clock::now();
-  (void)(std::chrono::system_clock::now() + std::chrono::minutes{10});
-  (void)(std::chrono::system_clock::now() - std::chrono::minutes{10});
   auto const a = apptraverse::chat::MakePeerScheduleSnapshot(
       last, delta, server_now, now);
   auto const b = apptraverse::chat::MakePeerScheduleSnapshot(
@@ -548,6 +554,9 @@ void TestClockSkew() {
   CHECK(a.local_deadline.has_value());
   CHECK(b.local_deadline.has_value());
   CHECK(*a.local_deadline == *b.local_deadline);
+  auto const expected = apptraverse::chat::SafeSteadyDeadline(
+      now, /*remaining*/ 8'000, apptraverse::chat::kPeerScheduleGraceMs);
+  CHECK(*a.local_deadline == expected);
   std::cout << "HeadlessRoom.ClockSkew OK\n";
 }
 
@@ -566,6 +575,7 @@ void TestGracefulShutdownZero() {
   fx.transport.Disconnect(fx.host_uid);
   fx.host->Stop();
   CHECK(CountMarker(fx.trace, "host", "AETHER_NEXT_PING_UNKNOWN_SENT") > 0);
+  // Deadline -> ScheduleCheckPending -> getUap delta=0 -> OfflineNoFuturePing.
   CHECK(PumpUntil(
       fx.transport, fx.All(),
       [&] {

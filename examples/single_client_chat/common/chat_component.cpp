@@ -346,9 +346,11 @@ ChatPresentationSnapshot ChatComponent::CapturePresentation() const {
       for (auto const& peer : peer_set_->peers) {
         ChatPeerStatusView status{};
         status.remote_uid = ae::Format("{}", peer.remote_uid);
-        status.online = sync_.IsPeerOnline(peer.remote_uid);
+        status.presence = sync_.GetPeerPresence(peer.remote_uid);
+        status.online = status.presence == PeerPresenceStatus::kOnline;
         status.offline_missed_visit =
             sync_.ShowOfflinePingMarker(peer.remote_uid);
+        status.display_name = status.remote_uid;
         if (auto const* session = sync_.FindSession(peer.remote_uid)) {
           status.initial_sync_complete = session->initial_sync_complete();
           status.pending_packets = session->pending_packet_count();
@@ -358,17 +360,20 @@ ChatPresentationSnapshot ChatComponent::CapturePresentation() const {
     }
   }
 
-  bool show_marker = false;
+  snapshot.local_presence = sync_.GetLocalPresence();
+
+  bool show_marker_any = false;
   for (auto const& peer : snapshot.peers) {
     if (peer.offline_missed_visit && peer.pending_packets > 0) {
-      show_marker = true;
+      show_marker_any = true;
       break;
     }
   }
-  if (show_marker) {
+  if (show_marker_any) {
     for (auto& item : snapshot.timeline) {
       if (item.kind == ChatTimelineItemKind::kMessage &&
-          item.direction == ChatMessageDirection::kLocal) {
+          item.direction == ChatMessageDirection::kLocal &&
+          sync_.IsPendingHeldEvent(ae::ObjId{item.event_obj_id})) {
         item.show_offline_marker = true;
       }
     }
