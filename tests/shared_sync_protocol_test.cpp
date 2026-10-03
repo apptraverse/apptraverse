@@ -154,8 +154,8 @@ void TestProtocolHeadlessSyncCoverage() {
   auto link_remote_b =
       CreateMemoryLink(domain_a, ae::ObjId::GenerateUnique(), kEndpointB);
 
-  room_a->AddShare(link_local_a, ShareAccess::ReadWrite);
-  room_a->AddShare(link_remote_b, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_local_a, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_remote_b, ShareAccess::ReadWrite);
   apptraverse::example::chat_demo::BindChat(*entry_a, link_remote_b, room_a, [] {});
   SaveWorkspaceGraph(ws_a);
   sync_a->RegisterNode(room_a);
@@ -234,8 +234,8 @@ void TestProtocolHeadlessSyncCoverage() {
     auto fake_room = CreateRoom(fake_domain, generated_room_id);
     auto l1 = CreateMemoryLink(fake_domain, ae::ObjId{991}, kEndpointA);
     auto l2 = CreateMemoryLink(fake_domain, ae::ObjId{992}, kEndpointB);
-    fake_room->AddShare(l1, ShareAccess::ReadWrite);
-    fake_room->AddShare(l2, ShareAccess::ReadWrite);
+    fake_room->InstallLocalShare(l1, ShareAccess::ReadWrite);
+    fake_room->InstallLocalShare(l2, ShareAccess::ReadWrite);
 
     ae::ObjId fake_share_to_b;
     for (auto const& s : fake_room->shares) {
@@ -326,8 +326,8 @@ void TestProtocolFailedBindingBlocksAckUntilSuccess() {
       CreateMemoryLink(domain_a, ae::ObjId::GenerateUnique(), kEndpointA);
   auto link_remote_b =
       CreateMemoryLink(domain_a, ae::ObjId::GenerateUnique(), kEndpointB);
-  room_a->AddShare(link_local_a, ShareAccess::ReadWrite);
-  room_a->AddShare(link_remote_b, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_local_a, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_remote_b, ShareAccess::ReadWrite);
   sync_a.RegisterNode(room_a);
 
   sync_b.ExpectInitialNodeFromEndpoint(kEndpointA, ChatRoom::kClassId);
@@ -389,8 +389,8 @@ void TestProtocolLostAckIdenticalRetryOneMessage() {
   auto room_a = CreateRoom(domain_a, room_id);
   auto link_a = CreateMemoryLink(domain_a, ae::ObjId{9002}, kEndpointA);
   auto link_b = CreateMemoryLink(domain_a, ae::ObjId{9003}, kEndpointB);
-  room_a->AddShare(link_a, ShareAccess::ReadWrite);
-  room_a->AddShare(link_b, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+  room_a->InstallLocalShare(link_b, ShareAccess::ReadWrite);
   apptraverse::example::chat_demo::BindChat(*entry_a, link_b, room_a, [] {});
   SaveWorkspaceGraph(ws_a);
   sync_a.RegisterNode(room_a);
@@ -460,8 +460,8 @@ void TestProtocolUnauthorizedAndWrongClassRejection() {
     auto room_eve = CreateRoom(domain_eve, ae::ObjId{7001});
     auto link_eve = CreateMemoryLink(domain_eve, ae::ObjId{7002}, kEndpointEve);
     auto link_b = CreateMemoryLink(domain_eve, ae::ObjId{7003}, kEndpointB);
-    room_eve->AddShare(link_eve, ShareAccess::ReadWrite);
-    room_eve->AddShare(link_b, ShareAccess::ReadWrite);
+    room_eve->InstallLocalShare(link_eve, ShareAccess::ReadWrite);
+    room_eve->InstallLocalShare(link_b, ShareAccess::ReadWrite);
 
     ae::ObjId share_to_b;
     for (auto const& s : room_eve->shares) {
@@ -508,8 +508,8 @@ void TestProtocolUnauthorizedAndWrongClassRejection() {
         ae::CreateWith{domain_a}.with_id(ae::ObjId{8003}));
     link_b_peer->endpoint_uid = kEndpointB;
     InitializeRuntimeNode(*link_b_peer);
-    wrong_node->AddShare(link_a, ShareAccess::ReadWrite);
-    wrong_node->AddShare(link_b_peer, ShareAccess::ReadWrite);
+    wrong_node->InstallLocalShare(link_a, ShareAccess::ReadWrite);
+    wrong_node->InstallLocalShare(link_b_peer, ShareAccess::ReadWrite);
 
     ae::ObjId share_to_b;
     for (auto const& s : wrong_node->shares) {

@@ -18,8 +18,6 @@ APPTRAVERSE_REGISTER(BeginIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(CompleteIncrementalEventSyncEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddShareEvent);
-APPTRAVERSE_REGISTER(RemoveShareEvent);
-APPTRAVERSE_REGISTER(ChangeShareAccessEvent);
 
 }  // namespace
 
@@ -110,18 +108,25 @@ void LinkSyncState::Apply(CompleteFromReceivedSnapshotEvent const& event) {
   NoteMaterializedChange();
 }
 
-void LinkSyncState::BeginIncrementalEvent(SharedEventId identity,
-                                          std::vector<std::uint8_t> packet) {
-  assert(GetInitialSyncPhase() == InitialSyncPhase::Complete);
-  assert(!HasPendingEvent());
-  assert(!identity.origin_uid.empty());
-  assert(identity.origin_sequence != 0);
-  assert(!packet.empty());
-  auto event =
-      BeginIncrementalEventSyncEvent::ptr::Create(ae::CreateWith{*domain});
-  event->identity = std::move(identity);
-  event->packet = std::move(packet);
-  Commit(event);
+bool LinkSyncState::CanApply(BeginIncrementalEventSyncEvent const& event) const {
+  if (GetInitialSyncPhase() != InitialSyncPhase::Complete) {
+    return false;
+  }
+  if (HasPendingEvent()) {
+    return false;
+  }
+  if (event.identity.origin_uid.empty() || event.packet.empty()) {
+    return false;
+  }
+  return true;
+}
+
+void LinkSyncState::Apply(BeginIncrementalEventSyncEvent const& event) {
+  assert(CanApply(event));
+  pending_event_packet_id = event.obj_id;
+  pending_event_identity = event.identity;
+  pending_event_packet = event.packet;
+  NoteMaterializedChange();
 }
 
 void LinkSyncState::CompleteIncrementalEvent() {
@@ -138,17 +143,6 @@ bool LinkSyncState::HasDelivered(SharedEventId const& identity) const {
     }
   }
   return false;
-}
-
-void LinkSyncState::Apply(BeginIncrementalEventSyncEvent const& event) {
-  assert(GetInitialSyncPhase() == InitialSyncPhase::Complete);
-  assert(!HasPendingEvent());
-  assert(!event.identity.origin_uid.empty());
-  assert(!event.packet.empty());
-  pending_event_packet_id = event.obj_id;
-  pending_event_identity = event.identity;
-  pending_event_packet = event.packet;
-  NoteMaterializedChange();
 }
 
 void LinkSyncState::Apply(CompleteIncrementalEventSyncEvent const&) {
@@ -196,51 +190,48 @@ std::size_t SharedNode::FindLinkSyncIndexForShare(ae::ObjId share_id) const {
   return link_sync_states.size();
 }
 
-void SharedNode::AddShare(Link::ptr link, ShareAccess access) {
-  assert(link.is_valid() && "AddShare requires a valid Link");
+void SharedNode::InstallLocalShare(Link::ptr link, ShareAccess access) {
+  assert(link.is_valid() && "InstallLocalShare requires a valid Link");
+  assert(access == ShareAccess::ReadWrite &&
+         "InstallLocalShare requires ReadWrite");
   // Idempotent: same Link already shared → no duplicate entry.
   if (FindShareIndex(link.id()) < shares.size()) {
+    return;
+  }
+  // Permanent pair: exactly two participants. Refuse a third.
+  if (shares.size() >= 2) {
     return;
   }
   auto event = AddShareEvent::ptr::Create(ae::CreateWith{*domain});
   event->link = std::move(link);
   event->access = static_cast<std::uint8_t>(access);
+  // Protocol identity. A later import must keep this value rather than the
+  // receiver-local event object id.
+  event->share_id = event.id();
   Commit(event);
 }
 
-void SharedNode::RemoveShare(Link::ptr link) {
-  assert(link.is_valid() && "RemoveShare requires a valid Link");
-  auto const index = FindShareIndex(link.id());
-  if (index >= shares.size()) {
-    return;
+bool SharedNode::CanApply(AddShareEvent const& event) const {
+  if (!event.share_id.is_valid() || !event.link.is_valid()) {
+    return false;
   }
-  auto event = RemoveShareEvent::ptr::Create(ae::CreateWith{*domain});
-  event->share_id = shares[index].share_id;
-  Commit(event);
-}
-
-void SharedNode::SetShareAccess(Link::ptr link, ShareAccess access) {
-  assert(link.is_valid() && "SetShareAccess requires a valid Link");
-  auto const index = FindShareIndex(link.id());
-  assert(index < shares.size() && "SetShareAccess requires an existing share");
-  if (shares[index].GetAccess() == access) {
-    return;
+  if (event.access != static_cast<std::uint8_t>(ShareAccess::ReadWrite)) {
+    return false;
   }
-  auto event = ChangeShareAccessEvent::ptr::Create(ae::CreateWith{*domain});
-  event->share_id = shares[index].share_id;
-  event->access = static_cast<std::uint8_t>(access);
-  Commit(event);
+  if (shares.size() >= 2) {
+    return false;
+  }
+  if (FindShareIndexForShare(event.share_id) < shares.size()) {
+    return false;
+  }
+  return FindShareIndex(event.link.id()) >= shares.size();
 }
 
 void SharedNode::Apply(AddShareEvent const& event) {
+  assert(CanApply(event));
   assert(event.link.is_valid());
-  // Relationship identity is the AddShareEvent identity: unique per Commit and
-  // stable across Save/Load, journal replay, and network graph copy.
-  auto const share_id = event.obj_id;
-  assert(share_id.is_valid());
-  assert(FindShareIndexForShare(share_id) == shares.size());
-  assert(FindShareIndex(event.link.id()) == shares.size() &&
-         "AddShare Apply requires the Link to be unshared");
+  assert(event.share_id.is_valid());
+  auto const share_id = event.share_id;
   shares.push_back(Share{
       .share_id = share_id, .link = event.link, .access = event.access});
 
@@ -258,30 +249,6 @@ void SharedNode::Apply(AddShareEvent const& event) {
     link_sync_states.push_back(LocalPtr<LinkSyncState>{state});
   }
 
-  NoteMaterializedChange();
-}
-
-void SharedNode::Apply(RemoveShareEvent const& event) {
-  auto const index = FindShareIndexForShare(event.share_id);
-  assert(index < shares.size() &&
-         "RemoveShare Apply requires the relationship to be open");
-  shares.erase(shares.begin() + static_cast<std::ptrdiff_t>(index));
-
-  // Drop local sync of this relationship only. A later AddShare over the same
-  // Link is a different relationship and must not inherit Complete.
-  auto const sync_index = FindLinkSyncIndexForShare(event.share_id);
-  if (sync_index < link_sync_states.size()) {
-    link_sync_states.erase(link_sync_states.begin() +
-                           static_cast<std::ptrdiff_t>(sync_index));
-  }
-
-  NoteMaterializedChange();
-}
-
-void SharedNode::Apply(ChangeShareAccessEvent const& event) {
-  auto const index = FindShareIndexForShare(event.share_id);
-  assert(index < shares.size());
-  shares[index].access = event.access;
   NoteMaterializedChange();
 }
 
@@ -327,6 +294,86 @@ void SharedNode::StashLocalPersistentAcrossRebuild() {
 void SharedNode::RestoreLocalPersistentAcrossRebuild() {
   link_sync_states = std::move(rebuild_local_sync_stash_);
   rebuild_local_sync_stash_.clear();
+}
+
+std::string DescribeRestoredPermanentPairViolation(
+    SharedNode const& node, std::string const& local_endpoint) {
+  // Empty base / mid InstallLocalShare: not a restored working dialog yet.
+  if (node.shares.size() < 2) {
+    return {};
+  }
+  if (node.shares.size() != 2) {
+    return "Incompatible stored dialog: permanent pair requires exactly two "
+           "participants, found " +
+           std::to_string(node.shares.size());
+  }
+  if (local_endpoint.empty()) {
+    return "Incompatible stored dialog: local endpoint is empty";
+  }
+
+  std::string endpoints[2];
+  bool local_found = false;
+  for (std::size_t i = 0; i < 2; ++i) {
+    auto const& share = node.shares[i];
+    if (!share.share_id.is_valid()) {
+      return "Incompatible stored dialog: share relationship id is missing";
+    }
+    if (node.FindShareIndexForShare(share.share_id) != i) {
+      return "Incompatible stored dialog: duplicate or inconsistent share "
+             "relationship id";
+    }
+    if (share.GetAccess() != ShareAccess::ReadWrite) {
+      return "Incompatible stored dialog: both participants must be ReadWrite";
+    }
+    if (!share.link.is_valid()) {
+      return "Incompatible stored dialog: share link is missing";
+    }
+    if (!share.link.is_loaded()) {
+      share.link.Load();
+    }
+    if (!share.link.is_loaded()) {
+      return "Incompatible stored dialog: share link failed to load";
+    }
+    endpoints[i] = share.link->EndpointUid();
+    if (endpoints[i].empty()) {
+      return "Incompatible stored dialog: share endpoint is empty";
+    }
+    if (endpoints[i] == local_endpoint) {
+      local_found = true;
+    }
+
+    auto const sync_index = node.FindLinkSyncIndexForShare(share.share_id);
+    if (sync_index >= node.link_sync_states.size()) {
+      return "Incompatible stored dialog: missing sync state for share "
+             "relationship";
+    }
+    auto state = node.link_sync_states[sync_index];
+    if (!state.is_valid()) {
+      return "Incompatible stored dialog: invalid sync state for share "
+             "relationship";
+    }
+    if (!state.is_loaded()) {
+      state.Load();
+    }
+    if (!state.is_loaded()) {
+      return "Incompatible stored dialog: sync state failed to load";
+    }
+    if (state->share_id != share.share_id) {
+      return "Incompatible stored dialog: sync state share id mismatch";
+    }
+    if (!state->link.is_valid() || state->link.id() != share.link.id()) {
+      return "Incompatible stored dialog: sync state link mismatch";
+    }
+  }
+
+  if (endpoints[0] == endpoints[1]) {
+    return "Incompatible stored dialog: participant endpoints must differ";
+  }
+  if (!local_found) {
+    return "Incompatible stored dialog: neither participant matches local "
+           "endpoint";
+  }
+  return {};
 }
 
 }  // namespace apptraverse

@@ -28,6 +28,10 @@
 
 cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
 
+# Directory of this CPM.cmake — used by cpm_add_patches to locate the owned
+# apply helper without relying on CMAKE_CURRENT_FUNCTION_LIST_DIR alone.
+get_filename_component(CPM_DIRECTORY "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
+
 # Initialize logging prefix
 if(NOT CPM_INDENT)
   set(CPM_INDENT
@@ -548,24 +552,18 @@ function(cpm_add_patches)
     return()
   endif()
 
-  # Find the patch program.
-  find_program(PATCH_EXECUTABLE patch)
-  if(CMAKE_HOST_WIN32 AND NOT PATCH_EXECUTABLE)
-    # The Windows git executable is distributed with patch.exe. Find the path to the executable, if
-    # it exists, then search `../usr/bin` and `../../usr/bin` for patch.exe.
-    find_package(Git QUIET)
-    if(GIT_EXECUTABLE)
-      get_filename_component(extra_search_path ${GIT_EXECUTABLE} DIRECTORY)
-      get_filename_component(extra_search_path_1up ${extra_search_path} DIRECTORY)
-      get_filename_component(extra_search_path_2up ${extra_search_path_1up} DIRECTORY)
-      find_program(
-        PATCH_EXECUTABLE patch HINTS "${extra_search_path_1up}/usr/bin"
-                                     "${extra_search_path_2up}/usr/bin"
-      )
+  get_filename_component(_cpm_apply_script
+    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cpm_apply_one_patch.cmake" ABSOLUTE)
+  if(NOT EXISTS "${_cpm_apply_script}")
+    # CMAKE_CURRENT_FUNCTION_LIST_DIR needs CMake ≥ 3.17; fall back to the
+    # directory of this CPM.cmake file recorded at include time.
+    if(DEFINED CPM_DIRECTORY)
+      set(_cpm_apply_script "${CPM_DIRECTORY}/cpm_apply_one_patch.cmake")
     endif()
   endif()
-  if(NOT PATCH_EXECUTABLE)
-    message(FATAL_ERROR "Couldn't find `patch` executable to use with PATCHES keyword.")
+  if(NOT EXISTS "${_cpm_apply_script}")
+    message(FATAL_ERROR
+      "cpm_add_patches: missing cpm_apply_one_patch.cmake next to CPM.cmake")
   endif()
 
   # Create a temporary
@@ -593,12 +591,15 @@ function(cpm_add_patches)
     else()
       list(APPEND temp_list "&&")
     endif()
-    # Add the patch command to the list. --forward tolerates already-applied patches on rebuild.
-    if(CMAKE_HOST_WIN32)
-      list(APPEND temp_list cmd /c "\"${PATCH_EXECUTABLE}\" -p1 --forward < \"${PATCH_FILE}\" || cd .")
-    else()
-      list(APPEND temp_list "${PATCH_EXECUTABLE}" "-p1" "--forward" "<" "${PATCH_FILE}")
-    endif()
+    # Portable apply: dry-run forward → apply; else reverse dry-run → already
+    # applied; else fail. Never masks corrupt/partial patches with `|| true`.
+    # <SOURCE_DIR> is substituted by ExternalProject at build time.
+    list(APPEND temp_list
+      "${CMAKE_COMMAND}"
+      "-DAPPTRAVERSE_PATCH_FILE=${PATCH_FILE}"
+      "-DAPPTRAVERSE_PATCH_WORKDIR=<SOURCE_DIR>"
+      "-P"
+      "${_cpm_apply_script}")
   endforeach()
 
   # Move temp out into parent scope.

@@ -6,6 +6,8 @@
 
 #include "aether_byte_transport.h"
 #include "aether_frame_endpoint.h"
+#include "apptraverse/byte_transport.h"
+#include "chat_presence.h"
 
 #define CHECK(cond)                                                           \
   do {                                                                        \
@@ -18,9 +20,11 @@
 
 namespace {
 
+using apptraverse::EndpointAvailability;
 using apptraverse::example::chat_demo::AetherByteTransport;
 using apptraverse::example::chat_demo::IAetherFrameEndpoint;
 using apptraverse::example::chat_demo::ModelTask;
+using apptraverse::example::chat_demo::PeerPresence;
 
 class FakeFrameEndpoint : public IAetherFrameEndpoint {
  public:
@@ -106,6 +110,20 @@ struct ReceiverState {
   }
 };
 
+struct AvailabilityState {
+  int call_count{0};
+  std::string last_endpoint;
+  EndpointAvailability last_availability{EndpointAvailability::Unknown};
+
+  static void AvailabilityThunk(void* ctx, std::string const& endpoint,
+                                EndpointAvailability availability) {
+    auto* self = static_cast<AvailabilityState*>(ctx);
+    self->call_count++;
+    self->last_endpoint = endpoint;
+    self->last_availability = availability;
+  }
+};
+
 }  // namespace
 
 int main() {
@@ -171,6 +189,27 @@ int main() {
 
   // Must not have called receiver
   CHECK(receiver.call_count == 1);
+
+  // 11. Presence → Availability; repeated Online does not re-notify.
+  AvailabilityState availability;
+  transport2->BindAvailability(&availability,
+                               &AvailabilityState::AvailabilityThunk);
+  CHECK(transport2->Availability("peer-1") == EndpointAvailability::Unknown);
+  transport2->NotePeerPresence("peer-1", PeerPresence::kOffline);
+  CHECK(availability.call_count == 1);
+  CHECK(availability.last_availability == EndpointAvailability::Offline);
+  CHECK(transport2->Availability("peer-1") == EndpointAvailability::Offline);
+  transport2->NotePeerPresence("peer-1", PeerPresence::kOnline);
+  CHECK(availability.call_count == 2);
+  CHECK(availability.last_availability == EndpointAvailability::Online);
+  transport2->NotePeerPresence("peer-1", PeerPresence::kOnline);
+  CHECK(availability.call_count == 2);
+
+  // 12. Stale availability after destroy must not notify.
+  transport2->NotePeerPresence("peer-2", PeerPresence::kOffline);
+  CHECK(availability.call_count == 3);
+  transport2.reset();
+  // No transport to call; binding was cleared on destroy.
 
   std::cout << "aether_byte_transport_dispatch_test passed!\n";
   return 0;

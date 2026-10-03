@@ -63,6 +63,41 @@ add_test(
   COMMAND apptraverse_shared_node_incremental_event_test
 )
 
+add_executable(apptraverse_permanent_pair_sync_test
+  permanent_pair_sync_test.cpp
+)
+
+target_link_libraries(apptraverse_permanent_pair_sync_test PRIVATE
+  apptraverse
+)
+
+add_test(
+  NAME apptraverse_permanent_pair_sync_test
+  COMMAND apptraverse_permanent_pair_sync_test
+)
+
+add_executable(apptraverse_shared_child_node_stand_test
+  shared_child_node_stand_test.cpp
+)
+
+target_link_libraries(apptraverse_shared_child_node_stand_test PRIVATE
+  apptraverse
+)
+
+add_test(
+  NAME apptraverse_shared_child_node_stand_test
+  COMMAND apptraverse_shared_child_node_stand_test
+)
+
+# Exercises real cpm_add_patches() + cpm_apply_one_patch.cmake (no SOURCE_CACHE).
+add_test(
+  NAME apptraverse_cpm_add_patches_test
+  COMMAND ${CMAKE_COMMAND}
+    -DAPPTRAVERSE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+    -DFIXTURE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/cpm_add_patches_test
+    -P ${CMAKE_SOURCE_DIR}/cmake/tests/cpm_add_patches_test.cmake
+)
+
 add_executable(apptraverse_native_class_layers_test
   native_class_layers_test.cpp
 )
@@ -542,6 +577,23 @@ if(TARGET chat_demo_aether)
   add_test(
     NAME apptraverse_chat_session_integration_test
     COMMAND apptraverse_chat_session_integration_test
+  )
+
+  add_executable(apptraverse_chat_session_delivery_test
+    chat_session_delivery_test.cpp
+  )
+  target_link_libraries(apptraverse_chat_session_delivery_test PRIVATE
+    chat_demo_runtime
+  )
+  target_include_directories(apptraverse_chat_session_delivery_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/runtime
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/aether
+    ${CMAKE_SOURCE_DIR}/examples/chat_demo/common
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+  add_test(
+    NAME apptraverse_chat_session_delivery_test
+    COMMAND apptraverse_chat_session_delivery_test
   )
 
   add_executable(apptraverse_aether_native_live_probe

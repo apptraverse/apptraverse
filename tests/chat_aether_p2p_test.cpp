@@ -491,8 +491,8 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
   auto room = ChatRoom::ptr::Create(ae::CreateWith{domain}.with_id(room_id));
   InitializeRuntimeNode(*room);
 
-  room->AddShare(link_local, apptraverse::ShareAccess::ReadWrite);
-  room->AddShare(link_remote, apptraverse::ShareAccess::ReadWrite);
+  room->InstallLocalShare(link_local, apptraverse::ShareAccess::ReadWrite);
+  room->InstallLocalShare(link_remote, apptraverse::ShareAccess::ReadWrite);
 
   BindChat(*entry, link_remote, room);
 
