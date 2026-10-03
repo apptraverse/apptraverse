@@ -6,7 +6,7 @@ get_filename_component(APPTRAVERSE_REPO_ROOT "${APPTRAVERSE_CMAKE_DIR}/.." ABSOL
 set(APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-domain-graph-serialization-scope.patch")
 
-set(APPTRAVERSE_AETHER_GIT_TAG "0b0e3b54b9ffa730c41597c8b18f6a75255bded3")
+set(APPTRAVERSE_AETHER_GIT_TAG "16a5e692b50838cce1ee06631da451107d571a4e")
 
 # Optional local checkout of aether-client-cpp. When set (or when a sibling
 # ../aether-client-cpp exists), CPM uses that tree instead of fetching GitHub.
