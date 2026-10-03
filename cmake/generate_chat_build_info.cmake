@@ -70,6 +70,7 @@ endif()
 set(_fingerprint "${_sha}|${_dirty_flag}|${_cmake_blob}|${_chat_tree}|${CONFIGURATION}")
 string(SHA256 _fp_hash "${_fingerprint}")
 
+# WTF is this!!?
 set(_objects_pin "1d30264737c9bcca8a181161116b66c7dbeeb5fb")
 set(_client_pin "0b0e3b54b9ffa730c41597c8b18f6a75255bded3")
 set(_miscpp_pin "f8b2e1c60d12fa04fdb63ca46722e111b912d8b4")
