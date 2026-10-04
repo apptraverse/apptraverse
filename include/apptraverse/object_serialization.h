@@ -39,6 +39,9 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
 // Full-graph initial publication: root ObjId then SerializeObjectGraphToBuffer.
 // Load creates UI shells from the buffer (no model Domain / model Obj*).
 void SerializeInitialPublication(ae::Obj const& root, ByteSink& out);
+// Returns null when the buffer cannot build a UI mirror root (no assert).
+ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
+                                           ae::IDomainStorage& ui_storage);
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                         ae::IDomainStorage& ui_storage);
 

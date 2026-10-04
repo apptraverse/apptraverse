@@ -430,15 +430,19 @@ void SerializeInitialPublication(ae::Obj const& root, ByteSink& out) {
   SerializeObjectGraphToBuffer(root, out);
 }
 
-ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
-                                      ae::IDomainStorage& ui_storage) {
+ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
+                                          ae::IDomainStorage& ui_storage) {
   std::uint32_t root_id = 0;
   in.read(&root_id, sizeof(root_id));
-  assert(in.ok);
+  if (!in.ok) {
+    return {};
+  }
 
   std::uint32_t layer_count = 0;
   in.read(&layer_count, sizeof(layer_count));
-  assert(in.ok);
+  if (!in.ok) {
+    return {};
+  }
 
   for (std::uint32_t i = 0; i < layer_count; ++i) {
     std::uint32_t obj_id = 0;
@@ -449,28 +453,33 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
     in.read(&class_id, sizeof(class_id));
     in.read(&version, sizeof(version));
     in.read(&size, sizeof(size));
-    assert(in.ok && in.pos + size <= in.size);
+    if (!in.ok || in.pos + size > in.size) {
+      return {};
+    }
     InjectObjectBytes(ui_storage, {ae::ObjId{obj_id}, class_id, version},
                       in.data + in.pos, size);
     in.pos += size;
   }
 
-  // Create objects through DomainGraph::LoadRoot so aether-objects can pick
-  // the most-derived registered factory for the stored class layers. Do not
-  // select a factory in App Traverse.
   ae::DomainGraph graph{&ui_domain};
   auto ui_root = graph.LoadRoot(ae::ObjId{root_id});
-  assert(ui_root);
+  if (!ui_root) {
+    return {};
+  }
 
   std::uint32_t node_generation_count = 0;
   in.read(&node_generation_count, sizeof(node_generation_count));
-  assert(in.ok);
+  if (!in.ok) {
+    return {};
+  }
   for (std::uint32_t i = 0; i < node_generation_count; ++i) {
     std::uint32_t obj_id = 0;
     std::uint64_t generation = 0;
     in.read(&obj_id, sizeof(obj_id));
     in.read(&generation, sizeof(generation));
-    assert(in.ok);
+    if (!in.ok) {
+      return {};
+    }
     auto object = ui_domain.Find(ae::ObjId{obj_id});
     if (!object) {
       continue;
@@ -479,6 +488,15 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
   }
 
   ui_root = ui_domain.Find(ae::ObjId{root_id});
+  if (!ui_root) {
+    return {};
+  }
+  return ui_root;
+}
+
+ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
+                                      ae::IDomainStorage& ui_storage) {
+  auto ui_root = TryLoadInitialPublication(in, ui_domain, ui_storage);
   assert(ui_root && "UI mirror graph must stay reachable via ObjPtr refs");
   return ui_root;
 }
