@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+#include "ae-numeric/percentile.h"
 #include "aether/adapters/ethernet.h"
 #include "aether/aether_app.h"
 #include "aether/client.h"
@@ -33,14 +34,12 @@
 #include "aether/stream_api/istream.h"
 #include "aether/types/uid.h"
 #include "aether/write_action/write_action.h"
-#include "ae-numeric/percentile.h"
 
 #include "apptraverse/directory_domain_storage.h"
 
 namespace {
 
-constexpr char const* kAetherParentUid =
-    "3ac93165-3d37-4970-87a6-fa4ee27744e4";
+constexpr char const* kAetherParentUid = "3ac93165-3d37-4970-87a6-fa4ee27744e4";
 
 constexpr ae::SafeStreamConfig kChatSafeStreamConfig{
     .window_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
@@ -312,7 +311,8 @@ int main(int argc, char* argv[]) {
     };
 
     auto open_peer = [&](std::string const& peer_uid_text) {
-      if (peers.count(peer_uid_text) && peers[peer_uid_text].active != nullptr) {
+      if (peers.count(peer_uid_text) &&
+          peers[peer_uid_text].active != nullptr) {
         EmitLine("ERROR reason=open_existing peer=" + peer_uid_text);
         return;
       }
@@ -370,9 +370,10 @@ int main(int argc, char* argv[]) {
         if (action.is_finished()) {
           EmitLine("ERROR reason=finished_before_subscribe peer=" +
                    peer.uid_text + " seq=" + std::to_string(seq));
-          peer.notice = TerminalNotice{.token = token,
-                                       .seq = seq,
-                                       .status = ae::WriteAction::Status::kFail};
+          peer.notice =
+              TerminalNotice{.token = token,
+                             .seq = seq,
+                             .status = ae::WriteAction::Status::kFail};
           peer.notice_pending = true;
           return;
         }
@@ -382,8 +383,8 @@ int main(int argc, char* argv[]) {
               if (owner->active_token != token) {
                 return;
               }
-              owner->notice = TerminalNotice{
-                  .token = token, .seq = seq, .status = status};
+              owner->notice =
+                  TerminalNotice{.token = token, .seq = seq, .status = status};
               owner->notice_pending = true;
             });
         return;
@@ -394,8 +395,7 @@ int main(int argc, char* argv[]) {
     while (!stop && !aether_app->IsExited()) {
       if (!select_started) {
         select_started = true;
-        auto& select =
-            aether_app->aether()->SelectClient(parent, client_name);
+        auto& select = aether_app->aether()->SelectClient(parent, client_name);
         select_sub = select.result_event().Subscribe(
             [&](ae::Result<ae::Client::ptr, int> const& res) {
               if (!res) {
@@ -429,14 +429,14 @@ int main(int argc, char* argv[]) {
                     std::chrono::duration_cast<ae::Duration>(kReceiveWindow));
         if (auto policy = client->connectivity_policy()) {
           policy->ResetRxTimings();
-          policy->SetOfflineDetectionTimeout(
+          policy->policy().SetOfflineDetectionTimeout(
               std::chrono::duration_cast<ae::Duration>(kOfflineTimeout));
           policy->ConfigureRxTimings(ae::RequestPolicy::All{})
               .ForAllPriorities(conf);
           for (auto* server : client->cloud_connection().selected_servers()) {
             if (server != nullptr) {
-              policy->ConfigureServerRxTiming(server->server_id(), conf,
-                                              ae::Percentile::FromPercent(99.0));
+              policy->ConfigureServerRxTiming(
+                  server->server_id(), conf, ae::Percentile::FromPercent(99.0));
             }
           }
         }
@@ -445,7 +445,7 @@ int main(int argc, char* argv[]) {
         std::string const uid_text = ae::Format("{}", client->uid());
         inbound_sub =
             client->message_stream_manager().new_port_event().Subscribe(
-                [&](ae::P2pPortHandle handle) {
+                [&](ae::P2pPortHandle& handle) {
                   auto const uid = handle.destination();
                   auto const peer_uid_text = ae::Format("{}", uid);
                   if (peers.count(peer_uid_text) &&

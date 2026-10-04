@@ -690,8 +690,8 @@ void ChatSession::ThreadMain(ChatSessionConfig config, UiNotifyFn notify_ui) {
       });
     };
 
-    constexpr auto kJoinRetryInterval = std::chrono::seconds(1);
-    constexpr auto kJoinAttemptDeadline = std::chrono::seconds(30);
+    static constexpr auto kJoinRetryInterval = std::chrono::seconds(1);
+    static constexpr auto kJoinAttemptDeadline = std::chrono::seconds(30);
 
     auto const clear_join_scheduler = [&worker]() {
       worker->join_sched_attempt_id = {};

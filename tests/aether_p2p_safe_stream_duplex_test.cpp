@@ -23,18 +23,19 @@
 #include "tests/test-safe-stream/stream-test-ctx.h"
 #include "tests/test-stream/mock_write_stream.h"
 
-#define CHECK(cond)                                                            \
-  do {                                                                         \
-    if (!(cond)) {                                                             \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"         \
-                << __LINE__ << '\n';                                           \
-      std::exit(1);                                                            \
-    }                                                                          \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 namespace {
 
-// Production chat adapter config (must stay aligned with chat_aether_runtime.cpp).
+// Production chat adapter config (must stay aligned with
+// chat_aether_runtime.cpp).
 ae::SafeStreamConfig MakeProductionChatConfig() {
   return ae::SafeStreamConfig{
       .window_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
@@ -46,8 +47,8 @@ ae::SafeStreamConfig MakeProductionChatConfig() {
   };
 }
 
-ae::SafeStreamConfig MakeConfig(std::chrono::milliseconds wait_ack =
-                                    std::chrono::milliseconds{500}) {
+ae::SafeStreamConfig MakeConfig(
+    std::chrono::milliseconds wait_ack = std::chrono::milliseconds{500}) {
   return ae::SafeStreamConfig{
       .window_size = 1024,
       .max_packet_size = 200,
@@ -96,7 +97,7 @@ struct DuplexFixture {
     // MockWriteStream sets sizes but leaves link_state default; patch via
     // WriteOut path after Tie by emitting update is not available, so we rely
     // on MockWriteStream's size fields and SafeStream OnStreamUpdate.
-    wire_a = pipe_a->on_write_event().Subscribe([this](ae::DataBuffer&& data) {
+    wire_a = pipe_a->on_write_event().Subscribe([this](ae::DataBuffer& data) {
       ++tx_a;
       if (drop_next_a) {
         drop_next_a = false;
@@ -117,7 +118,7 @@ struct DuplexFixture {
       }
       pipe_b->WriteOut(data);
     });
-    wire_b = pipe_b->on_write_event().Subscribe([this](ae::DataBuffer&& data) {
+    wire_b = pipe_b->on_write_event().Subscribe([this](ae::DataBuffer& data) {
       ++tx_b;
       pipe_a->WriteOut(data);
     });
@@ -125,12 +126,14 @@ struct DuplexFixture {
     auto config = MakeConfig();
     stream_a = std::make_unique<ae::P2pSafeStream>(ctx, config, pipe_a);
     stream_b = std::make_unique<ae::P2pSafeStream>(ctx, config, pipe_b);
-    sub_a = stream_a->out_data_event().Subscribe([this](ae::DataBuffer const& d) {
-      rx_a.emplace_back(d.begin(), d.end());
-    });
-    sub_b = stream_b->out_data_event().Subscribe([this](ae::DataBuffer const& d) {
-      rx_b.emplace_back(d.begin(), d.end());
-    });
+    sub_a =
+        stream_a->out_data_event().Subscribe([this](ae::DataBuffer const& d) {
+          rx_a.emplace_back(d.begin(), d.end());
+        });
+    sub_b =
+        stream_b->out_data_event().Subscribe([this](ae::DataBuffer const& d) {
+          rx_b.emplace_back(d.begin(), d.end());
+        });
     Pump(4);
   }
 
@@ -189,9 +192,10 @@ bool SendOne(DuplexFixture& fx, ae::P2pSafeStream& stream,
   WatchWrite(action, done, st, sub);
   PumpUntilDone(fx, done);
   std::cerr << "SendOne n=" << payload.size() << " done=" << done
-            << " st=" << static_cast<int>(st) << " dtx=" << (fx.tx_a + fx.tx_b - tx0)
-            << " tx_a=" << fx.tx_a << " tx_b=" << fx.tx_b
-            << " rx_a=" << fx.rx_a.size() << " rx_b=" << fx.rx_b.size() << '\n';
+            << " st=" << static_cast<int>(st)
+            << " dtx=" << (fx.tx_a + fx.tx_b - tx0) << " tx_a=" << fx.tx_a
+            << " tx_b=" << fx.tx_b << " rx_a=" << fx.rx_a.size()
+            << " rx_b=" << fx.rx_b.size() << '\n';
   return done && st == ae::WriteAction::Status::kSuccess;
 }
 
@@ -205,8 +209,8 @@ void TestSequentialAndSizes() {
   DuplexFixture fx{48};
   auto const usable = fx.UsableMax();
   CHECK(usable > 0);
-  std::cerr << "usable_max_element_size=" << usable
-            << " link_state=" << static_cast<int>(fx.stream_a->stream_info().link_state)
+  std::cerr << "usable_max_element_size=" << usable << " link_state="
+            << static_cast<int>(fx.stream_a->stream_info().link_state)
             << " writable=" << fx.stream_a->stream_info().is_writable << '\n';
 
   // Sequential (not overlapping) writes on the small mock link fixture.
@@ -252,12 +256,14 @@ void TestProductionConfigRepresentativeSizes() {
   auto config = MakeProductionChatConfig();
   fx.stream_a = std::make_unique<ae::P2pSafeStream>(fx.ctx, config, fx.pipe_a);
   fx.stream_b = std::make_unique<ae::P2pSafeStream>(fx.ctx, config, fx.pipe_b);
-  fx.sub_a = fx.stream_a->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
-    fx.rx_a.emplace_back(d.begin(), d.end());
-  });
-  fx.sub_b = fx.stream_b->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
-    fx.rx_b.emplace_back(d.begin(), d.end());
-  });
+  fx.sub_a =
+      fx.stream_a->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
+        fx.rx_a.emplace_back(d.begin(), d.end());
+      });
+  fx.sub_b =
+      fx.stream_b->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
+        fx.rx_b.emplace_back(d.begin(), d.end());
+      });
   fx.Pump(4);
 
   auto const usable = fx.UsableMax();
@@ -333,12 +339,14 @@ void TestDelayedDeliveryBeyondThreeSecondsNativePolicy() {
   auto config = MakeConfig(std::chrono::milliseconds{5000});
   fx.stream_a = std::make_unique<ae::P2pSafeStream>(fx.ctx, config, fx.pipe_a);
   fx.stream_b = std::make_unique<ae::P2pSafeStream>(fx.ctx, config, fx.pipe_b);
-  fx.sub_a = fx.stream_a->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
-    fx.rx_a.emplace_back(d.begin(), d.end());
-  });
-  fx.sub_b = fx.stream_b->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
-    fx.rx_b.emplace_back(d.begin(), d.end());
-  });
+  fx.sub_a =
+      fx.stream_a->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
+        fx.rx_a.emplace_back(d.begin(), d.end());
+      });
+  fx.sub_b =
+      fx.stream_b->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
+        fx.rx_b.emplace_back(d.begin(), d.end());
+      });
   fx.Pump(2);
 
   auto const start = fx.epoch;
@@ -348,10 +356,10 @@ void TestDelayedDeliveryBeyondThreeSecondsNativePolicy() {
   ExpectPayload(fx.rx_b, 0, payload);
   auto const elapsed = fx.epoch - start;
   CHECK(elapsed >= std::chrono::milliseconds{3500});
-  std::cerr << "delayed_delivery_simulated_ms="
-            << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed)
-                   .count()
-            << '\n';
+  std::cerr
+      << "delayed_delivery_simulated_ms="
+      << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()
+      << '\n';
 }
 
 void TestDropRecover() {
@@ -401,12 +409,13 @@ void TestReentrancyDepthProperty() {
     ae::DataBuffer buf{payload.begin(), payload.end()};
     auto& action = fx.stream_a->Write(std::move(buf));
     CHECK(!action.is_finished());
-    subs.push_back(action.status_event().Subscribe([&](ae::WriteAction::Status) {
-      ++callback_depth;
-      write_in_flight = false;
-      flush_reentrant();
-      --callback_depth;
-    }));
+    subs.push_back(
+        action.status_event().Subscribe([&](ae::WriteAction::Status) {
+          ++callback_depth;
+          write_in_flight = false;
+          flush_reentrant();
+          --callback_depth;
+        }));
   };
 
   flush_reentrant();
@@ -441,12 +450,13 @@ void TestReentrancyDepthProperty() {
     ae::DataBuffer buf{payload.begin(), payload.end()};
     auto& action = fx2.stream_a->Write(std::move(buf));
     CHECK(!action.is_finished());
-    active_sub = action.status_event().Subscribe([&](ae::WriteAction::Status s) {
-      ++callback_depth;
-      terminal_status = s;
-      terminal_pending = true;
-      --callback_depth;
-    });
+    active_sub =
+        action.status_event().Subscribe([&](ae::WriteAction::Status s) {
+          ++callback_depth;
+          terminal_status = s;
+          terminal_pending = true;
+          --callback_depth;
+        });
   };
 
   start_outer();
@@ -463,23 +473,24 @@ void TestReentrancyDepthProperty() {
   CHECK(pending.empty());
   CHECK(!write_in_flight);
   CHECK(max_write_depth == 0);
-  std::cerr << "outer_pump_write_max_callback_depth=" << max_write_depth << '\n';
+  std::cerr << "outer_pump_write_max_callback_depth=" << max_write_depth
+            << '\n';
 }
-
 
 void TestLoopbackSmoke() {
   ae::TestContext ctx;
   auto pipe = std::make_shared<ae::MockWriteStream>(ctx, 120);
-  auto wire = pipe->on_write_event().Subscribe([&](ae::DataBuffer&& data) {
-    pipe->WriteOut(data);
-  });
+  auto wire = pipe->on_write_event().Subscribe(
+      [&](ae::DataBuffer& data) { pipe->WriteOut(data); });
   auto stream = std::make_unique<ae::P2pSafeStream>(ctx, MakeConfig(), pipe);
   std::vector<std::uint8_t> rx;
-  auto sub = stream->out_data_event().Subscribe([&](ae::DataBuffer const& d) {
-    rx.assign(d.begin(), d.end());
-  });
+  auto sub = stream->out_data_event().Subscribe(
+      [&](ae::DataBuffer const& d) { rx.assign(d.begin(), d.end()); });
   auto epoch = ae::TimePoint::clock::now();
-  for (int i = 0; i < 4; ++i) { epoch += std::chrono::milliseconds{5}; ctx.Update(epoch); }
+  for (int i = 0; i < 4; ++i) {
+    epoch += std::chrono::milliseconds{5};
+    ctx.Update(epoch);
+  }
   auto payload = MakePayload(14, 0xAB);
   bool done = false;
   ae::WriteAction::Status st = ae::WriteAction::Status::kFail;
@@ -487,8 +498,12 @@ void TestLoopbackSmoke() {
   ae::DataBuffer buf{payload.begin(), payload.end()};
   auto& action = stream->Write(std::move(buf));
   WatchWrite(action, done, st, wsub);
-  for (int i = 0; i < 200 && !done; ++i) { epoch += std::chrono::milliseconds{5}; ctx.Update(epoch); }
-  std::cerr << "LOOPBACK_SMOKE done=" << done << " st=" << (int)st << " rx=" << rx.size()
+  for (int i = 0; i < 200 && !done; ++i) {
+    epoch += std::chrono::milliseconds{5};
+    ctx.Update(epoch);
+  }
+  std::cerr << "LOOPBACK_SMOKE done=" << done << " st=" << (int)st
+            << " rx=" << rx.size()
             << " max=" << stream->stream_info().max_element_size
             << " link=" << (int)stream->stream_info().link_state << "\n";
   CHECK(done);

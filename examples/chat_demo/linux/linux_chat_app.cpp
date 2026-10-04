@@ -42,15 +42,14 @@ std::string MarkNameForMessage(SharedEventId const& id) {
 
 LinuxChatApp::LinuxChatApp() = default;
 
-LinuxChatApp::~LinuxChatApp() {
-  ShutdownSessionAndResources();
-}
+LinuxChatApp::~LinuxChatApp() { ShutdownSessionAndResources(); }
 
 void LinuxChatApp::ShutdownSessionAndResources() {
   profile_lock_ = ProfileLock{};
   for (auto& [id, mark] : message_marks_) {
     if (mark != nullptr) {
-      GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
+      GtkTextBuffer* buffer =
+          gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
       if (buffer != nullptr) {
         gtk_text_buffer_delete_mark(buffer, mark);
       }
@@ -81,11 +80,14 @@ std::string LinuxChatApp::GetTextBufferUtf8(GtkTextBuffer* buffer) {
   return result;
 }
 
-void LinuxChatApp::SetTextBufferUtf8(GtkTextBuffer* buffer, std::string const& utf8) {
-  gtk_text_buffer_set_text(buffer, utf8.c_str(), static_cast<gint>(utf8.size()));
+void LinuxChatApp::SetTextBufferUtf8(GtkTextBuffer* buffer,
+                                     std::string const& utf8) {
+  gtk_text_buffer_set_text(buffer, utf8.c_str(),
+                           static_cast<gint>(utf8.size()));
 }
 
-void LinuxChatApp::GetTextBufferSelection(GtkTextBuffer* buffer, int* start, int* end) {
+void LinuxChatApp::GetTextBufferSelection(GtkTextBuffer* buffer, int* start,
+                                          int* end) {
   GtkTextIter s;
   GtkTextIter e;
   if (gtk_text_buffer_get_selection_bounds(buffer, &s, &e)) {
@@ -109,9 +111,12 @@ void LinuxChatApp::CreateControls() {
   main_window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   gtk_window_set_title(GTK_WINDOW(main_window_), "AppTraverse Chat");
   gtk_window_set_default_size(GTK_WINDOW(main_window_), 800, 600);
-  g_signal_connect(main_window_, "delete-event", G_CALLBACK(OnDeleteEvent), this);
-  g_signal_connect(main_window_, "configure-event", G_CALLBACK(OnConfigureEvent), this);
-  g_signal_connect(main_window_, "window-state-event", G_CALLBACK(OnWindowStateEvent), this);
+  g_signal_connect(main_window_, "delete-event", G_CALLBACK(OnDeleteEvent),
+                   this);
+  g_signal_connect(main_window_, "configure-event",
+                   G_CALLBACK(OnConfigureEvent), this);
+  g_signal_connect(main_window_, "window-state-event",
+                   G_CALLBACK(OnWindowStateEvent), this);
 
   GtkWidget* outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
   gtk_container_add(GTK_CONTAINER(main_window_), outer);
@@ -124,11 +129,13 @@ void LinuxChatApp::CreateControls() {
   gtk_box_pack_start(GTK_BOX(outer), paned_, TRUE, TRUE, 0);
 
   chat_list_ = gtk_list_box_new();
-  gtk_list_box_set_selection_mode(GTK_LIST_BOX(chat_list_), GTK_SELECTION_SINGLE);
-  g_signal_connect(chat_list_, "row-activated", G_CALLBACK(OnChatListRowActivated), this);
+  gtk_list_box_set_selection_mode(GTK_LIST_BOX(chat_list_),
+                                  GTK_SELECTION_SINGLE);
+  g_signal_connect(chat_list_, "row-activated",
+                   G_CALLBACK(OnChatListRowActivated), this);
   GtkWidget* list_scroll = gtk_scrolled_window_new(nullptr, nullptr);
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(list_scroll), GTK_POLICY_NEVER,
-                                 GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(list_scroll),
+                                 GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_container_add(GTK_CONTAINER(list_scroll), chat_list_);
   gtk_paned_pack1(GTK_PANED(paned_), list_scroll, FALSE, FALSE);
   gtk_paned_set_position(GTK_PANED(paned_), 240);
@@ -146,7 +153,8 @@ void LinuxChatApp::CreateControls() {
   gtk_widget_hide(admin_id_entry_);
 
   aether_uid_entry_ = gtk_entry_new();
-  gtk_entry_set_placeholder_text(GTK_ENTRY(aether_uid_entry_), "Enter host UID");
+  gtk_entry_set_placeholder_text(GTK_ENTRY(aether_uid_entry_),
+                                 "Enter host UID");
   gtk_grid_attach(GTK_GRID(top_bar), aether_uid_entry_, 0, 0, 1, 1);
 
   open_btn_ = gtk_button_new_with_label("Join");
@@ -155,16 +163,18 @@ void LinuxChatApp::CreateControls() {
 
   transcript_view_ = gtk_text_view_new();
   gtk_text_view_set_editable(GTK_TEXT_VIEW(transcript_view_), FALSE);
-  gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(transcript_view_), GTK_WRAP_WORD_CHAR);
+  gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(transcript_view_),
+                              GTK_WRAP_WORD_CHAR);
   GtkWidget* transcript_scroll = gtk_scrolled_window_new(nullptr, nullptr);
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(transcript_scroll), GTK_POLICY_NEVER,
-                                 GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(transcript_scroll),
+                                 GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_container_add(GTK_CONTAINER(transcript_scroll), transcript_view_);
   gtk_box_pack_start(GTK_BOX(right), transcript_scroll, TRUE, TRUE, 0);
 
-  GtkAdjustment* vadj =
-      gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(transcript_scroll));
-  g_signal_connect(vadj, "value-changed", G_CALLBACK(OnTranscriptVadjustmentChanged), this);
+  GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(
+      GTK_SCROLLED_WINDOW(transcript_scroll));
+  g_signal_connect(vadj, "value-changed",
+                   G_CALLBACK(OnTranscriptVadjustmentChanged), this);
 
   GtkWidget* draft_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   draft_view_ = gtk_text_view_new();
@@ -179,7 +189,8 @@ void LinuxChatApp::CreateControls() {
   gtk_box_pack_start(GTK_BOX(draft_row), send_btn_, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(right), draft_row, FALSE, FALSE, 0);
 
-  GtkTextBuffer* draft_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(draft_view_));
+  GtkTextBuffer* draft_buffer =
+      gtk_text_view_get_buffer(GTK_TEXT_VIEW(draft_view_));
   g_signal_connect(draft_buffer, "changed", G_CALLBACK(OnDraftChanged), this);
 
   GtkWidget* status_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -220,8 +231,10 @@ std::string LinuxChatApp::FormatTranscriptLine(ChatEntry::ptr const& entry,
   return "[" + author + "]: " + msg.text + "\n";
 }
 
-void LinuxChatApp::EnsureMessageMark(SharedEventId const& id, GtkTextIter const& iter) {
-  GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
+void LinuxChatApp::EnsureMessageMark(SharedEventId const& id,
+                                     GtkTextIter const& iter) {
+  GtkTextBuffer* buffer =
+      gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
   std::string const name = MarkNameForMessage(id);
   GtkTextMark* mark = gtk_text_buffer_get_mark(buffer, name.c_str());
   if (mark == nullptr) {
@@ -233,7 +246,8 @@ void LinuxChatApp::EnsureMessageMark(SharedEventId const& id, GtkTextIter const&
 }
 
 void LinuxChatApp::RebuildMessageMarks(ChatEntry::ptr const& entry) {
-  GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
+  GtkTextBuffer* buffer =
+      gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
   for (auto& [id, mark] : message_marks_) {
     if (mark != nullptr) {
       gtk_text_buffer_delete_mark(buffer, mark);
@@ -250,7 +264,8 @@ void LinuxChatApp::RebuildMessageMarks(ChatEntry::ptr const& entry) {
   for (auto const& msg : entry->room->messages) {
     EnsureMessageMark(msg.id, iter);
     std::string const line = FormatTranscriptLine(entry, msg);
-    gtk_text_buffer_insert(buffer, &iter, line.c_str(), static_cast<gint>(line.size()));
+    gtk_text_buffer_insert(buffer, &iter, line.c_str(),
+                           static_cast<gint>(line.size()));
   }
 }
 
@@ -265,12 +280,15 @@ bool LinuxChatApp::CanAppendTranscript(ChatEntry::ptr const& entry) const {
       transcript_cache_.message_count >= entry->room->messages.size()) {
     return false;
   }
-  auto const& prior = entry->room->messages[transcript_cache_.message_count - 1];
+  auto const& prior =
+      entry->room->messages[transcript_cache_.message_count - 1];
   return prior.id == transcript_cache_.last_message_id;
 }
 
-void LinuxChatApp::AppendTranscriptLines(ChatEntry::ptr const& entry, std::size_t from_index) {
-  GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
+void LinuxChatApp::AppendTranscriptLines(ChatEntry::ptr const& entry,
+                                         std::size_t from_index) {
+  GtkTextBuffer* buffer =
+      gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
   GtkTextIter iter;
   gtk_text_buffer_get_end_iter(buffer, &iter);
 
@@ -278,7 +296,8 @@ void LinuxChatApp::AppendTranscriptLines(ChatEntry::ptr const& entry, std::size_
     auto const& msg = entry->room->messages[i];
     EnsureMessageMark(msg.id, iter);
     std::string const line = FormatTranscriptLine(entry, msg);
-    gtk_text_buffer_insert(buffer, &iter, line.c_str(), static_cast<gint>(line.size()));
+    gtk_text_buffer_insert(buffer, &iter, line.c_str(),
+                           static_cast<gint>(line.size()));
     transcript_cache_.message_count = i + 1;
     transcript_cache_.last_message_id = msg.id;
   }
@@ -292,7 +311,8 @@ bool LinuxChatApp::IsNearBottom() const {
   if (parent == nullptr) {
     return true;
   }
-  GtkAdjustment* adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(parent));
+  GtkAdjustment* adj =
+      gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(parent));
   if (adj == nullptr) {
     return true;
   }
@@ -303,13 +323,13 @@ bool LinuxChatApp::IsNearBottom() const {
 }
 
 std::optional<SharedEventId> LinuxChatApp::MessageAtTopOfView() const {
-  GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
+  GtkTextBuffer* buffer =
+      gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
   GtkTextIter start;
   gtk_text_buffer_get_start_iter(buffer, &start);
   GtkTextIter top;
-  if (!gtk_text_view_get_line_at_y(GTK_TEXT_VIEW(transcript_view_), &top, 0, nullptr)) {
-    return std::nullopt;
-  }
+  gtk_text_view_get_line_at_y(GTK_TEXT_VIEW(transcript_view_), &top, 0,
+                              nullptr);
   for (auto const& [id, mark] : message_marks_) {
     if (mark == nullptr) {
       continue;
@@ -334,7 +354,8 @@ void LinuxChatApp::CaptureScrollAnchor(ScrollAnchor& anchor) {
     anchor.follow_tail = true;
     return;
   }
-  GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
+  GtkTextBuffer* buffer =
+      gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
   std::string const name = MarkNameForMessage(*visible);
   GtkTextMark* mark = gtk_text_buffer_get_mark(buffer, name.c_str());
   if (mark == nullptr) {
@@ -344,18 +365,21 @@ void LinuxChatApp::CaptureScrollAnchor(ScrollAnchor& anchor) {
   GtkTextIter mark_iter;
   gtk_text_buffer_get_iter_at_mark(buffer, &mark_iter, mark);
   GdkRectangle rect;
-  gtk_text_view_get_line_yrange(GTK_TEXT_VIEW(transcript_view_), &mark_iter, &rect.y, &rect.height);
+  gtk_text_view_get_line_yrange(GTK_TEXT_VIEW(transcript_view_), &mark_iter,
+                                &rect.y, &rect.height);
   anchor.follow_tail = false;
   anchor.first_visible_message = *visible;
   anchor.offset_from_message_top = static_cast<double>(rect.y);
 }
 
 void LinuxChatApp::RestoreScrollAnchor(ScrollAnchor const& anchor) {
-  GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
+  GtkTextBuffer* buffer =
+      gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
   if (anchor.follow_tail) {
     GtkTextIter end;
     gtk_text_buffer_get_end_iter(buffer, &end);
-    gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(transcript_view_), &end, 0.0, FALSE, 0.0, 1.0);
+    gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(transcript_view_), &end, 0.0,
+                                 FALSE, 0.0, 1.0);
     return;
   }
   std::string const name = MarkNameForMessage(anchor.first_visible_message);
@@ -363,19 +387,22 @@ void LinuxChatApp::RestoreScrollAnchor(ScrollAnchor const& anchor) {
   if (mark == nullptr) {
     GtkTextIter start;
     gtk_text_buffer_get_start_iter(buffer, &start);
-    gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(transcript_view_), &start, 0.0, FALSE, 0.0, 0.0);
+    gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(transcript_view_), &start, 0.0,
+                                 FALSE, 0.0, 0.0);
     return;
   }
   GtkTextIter mark_iter;
   gtk_text_buffer_get_iter_at_mark(buffer, &mark_iter, mark);
-  gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(transcript_view_), mark, 0.0, FALSE, 0.0, 0.0);
+  gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(transcript_view_), mark, 0.0,
+                               FALSE, 0.0, 0.0);
   if (anchor.offset_from_message_top != 0.0) {
     GtkWidget* parent = gtk_widget_get_parent(transcript_view_);
     while (parent != nullptr && !GTK_IS_SCROLLED_WINDOW(parent)) {
       parent = gtk_widget_get_parent(parent);
     }
     if (parent != nullptr) {
-      GtkAdjustment* adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(parent));
+      GtkAdjustment* adj =
+          gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(parent));
       if (adj != nullptr) {
         gdouble const value = gtk_adjustment_get_value(adj);
         gtk_adjustment_set_value(adj, value + anchor.offset_from_message_top);
@@ -410,7 +437,8 @@ void LinuxChatApp::OnSendDraftClicked() {
   ++view.draft.local_edit_revision;
   pending_send_revision_ = view.draft.local_edit_revision;
   local_send_error_.clear();
-  session_.SendDraft(active_entry_id_, current_text, view.draft.local_edit_revision);
+  session_.SendDraft(active_entry_id_, current_text,
+                     view.draft.local_edit_revision);
 }
 
 void LinuxChatApp::OnJoinClicked() {
@@ -448,13 +476,15 @@ void LinuxChatApp::SaveCurrentDraftAndScroll(bool flush_scroll) {
   view.live_scroll_valid = true;
 }
 
-void LinuxChatApp::UpdateDraftFromModel(ChatEntry::ptr const& entry, bool chat_switched) {
+void LinuxChatApp::UpdateDraftFromModel(ChatEntry::ptr const& entry,
+                                        bool chat_switched) {
   if (!entry.is_valid()) {
     return;
   }
   EntryViewState& view = ViewStateFor(entry.id());
   bool const may_replace =
-      chat_switched || view.draft.local_edit_revision <= view.draft.last_published_edit_revision;
+      chat_switched ||
+      view.draft.local_edit_revision <= view.draft.last_published_edit_revision;
   if (!may_replace) {
     return;
   }
@@ -488,7 +518,8 @@ void LinuxChatApp::UpdateDraftFromModel(ChatEntry::ptr const& entry, bool chat_s
   }
 }
 
-void LinuxChatApp::UpdateTranscript(ChatEntry::ptr const& entry, bool chat_switched,
+void LinuxChatApp::UpdateTranscript(ChatEntry::ptr const& entry,
+                                    bool chat_switched,
                                     ScrollAnchor const* restore_anchor) {
   ScrollAnchor captured{};
   bool const preserve_live = !chat_switched && restore_anchor == nullptr;
@@ -497,7 +528,8 @@ void LinuxChatApp::UpdateTranscript(ChatEntry::ptr const& entry, bool chat_switc
   }
 
   if (!entry.is_valid() || !entry->room.is_valid()) {
-    GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
+    GtkTextBuffer* buffer =
+        gtk_text_view_get_buffer(GTK_TEXT_VIEW(transcript_view_));
     gtk_text_buffer_set_text(buffer, "", 0);
     transcript_cache_ = {};
     return;
@@ -520,7 +552,8 @@ void LinuxChatApp::UpdateTranscript(ChatEntry::ptr const& entry, bool chat_switc
   if (restore_anchor != nullptr) {
     RestoreScrollAnchor(*restore_anchor);
   } else if (preserve_live) {
-    RestoreScrollAnchor(captured.follow_tail ? ScrollAnchor{.follow_tail = true} : captured);
+    RestoreScrollAnchor(captured.follow_tail ? ScrollAnchor{.follow_tail = true}
+                                             : captured);
   }
 }
 
@@ -602,7 +635,9 @@ void LinuxChatApp::UpdateStatusLine() {
     auto const boot = status.room_bootstrap_by_peer_uid.find(peer_uid);
     if (boot != status.room_bootstrap_by_peer_uid.end() &&
         boot->second != RoomBootstrapState::kComplete) {
-      presence_text = boot->second == RoomBootstrapState::kPending ? "Syncing..." : "Waiting room";
+      presence_text = boot->second == RoomBootstrapState::kPending
+                          ? "Syncing..."
+                          : "Waiting room";
     } else {
       auto it = status.remote_presence.find(peer_uid);
       if (it != status.remote_presence.end()) {
@@ -645,7 +680,8 @@ void LinuxChatApp::UpdateStatusLine() {
   gtk_label_set_text(GTK_LABEL(presence_label_), presence_text.c_str());
 
   bool send_enabled = false;
-  if (!status.local_endpoint_uid.empty() && entry.is_valid() && entry->room.is_valid()) {
+  if (!status.local_endpoint_uid.empty() && entry.is_valid() &&
+      entry->room.is_valid()) {
     send_enabled = true;
   }
   gtk_widget_set_sensitive(send_btn_, send_enabled ? TRUE : FALSE);
@@ -660,7 +696,8 @@ void LinuxChatApp::UpdateUiFromWorkspace(bool chat_switched) {
   UpdateChatListSelection();
 
   bool const selection_changed =
-      chat_switched || (displayed_entry_id_.is_valid() && displayed_entry_id_ != active_entry_id_);
+      chat_switched || (displayed_entry_id_.is_valid() &&
+                        displayed_entry_id_ != active_entry_id_);
   if (selection_changed) {
     displayed_entry_id_ = active_entry_id_;
   }
@@ -687,7 +724,8 @@ void LinuxChatApp::ConsumeUiUpdates() {
   bool had_publication = false;
 
   while (auto update = session_.TryTakeUiUpdate()) {
-    if (update->publication_bytes.has_value() && !update->publication_bytes->empty()) {
+    if (update->publication_bytes.has_value() &&
+        !update->publication_bytes->empty()) {
       had_publication = true;
       auto const& bytes = *update->publication_bytes;
       ByteSource in{bytes.data(), bytes.size()};
@@ -695,17 +733,19 @@ void LinuxChatApp::ConsumeUiUpdates() {
         ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
         auto loaded = LoadInitialPublication(in, *ui_domain_, ui_storage_);
         auto held = ui_domain_->Find(loaded->obj_id);
-        ui_workspace_ =
-            ChatWorkspace::ptr{ui_domain_.get(), loaded->obj_id, {}, std::move(held)};
+        ui_workspace_ = ChatWorkspace::ptr{
+            ui_domain_.get(), loaded->obj_id, {}, std::move(held)};
         RestoreWindowGeometry();
-        if (!active_entry_id_.is_valid() && ui_workspace_->selected_chat_id.is_valid()) {
+        if (!active_entry_id_.is_valid() &&
+            ui_workspace_->selected_chat_id.is_valid()) {
           active_entry_id_ = ui_workspace_->selected_chat_id;
         }
       } else {
         ae::ObjId const prior_selected = active_entry_id_;
         ApplyStructuralPublicationAndUpdatePresenters(
             in, *ui_domain_, ui_storage_, *ui_workspace_);
-        if (!pending_user_selection_.has_value() && ui_workspace_->selected_chat_id.is_valid() &&
+        if (!pending_user_selection_.has_value() &&
+            ui_workspace_->selected_chat_id.is_valid() &&
             ui_workspace_->selected_chat_id != prior_selected) {
           chat_switched = true;
           active_entry_id_ = ui_workspace_->selected_chat_id;
@@ -719,7 +759,8 @@ void LinuxChatApp::ConsumeUiUpdates() {
       }
     }
 
-    for (auto const& [entry_id, rev] : update->processed_edit_revisions_by_entry) {
+    for (auto const& [entry_id, rev] :
+         update->processed_edit_revisions_by_entry) {
       EntryViewState& view = ViewStateFor(entry_id);
       view.draft.last_published_edit_revision = rev;
       if (entry_id == active_entry_id_ && pending_send_revision_ == rev) {
@@ -769,7 +810,8 @@ DesktopBounds LinuxChatApp::CaptureBoundsLogical() const {
   gint h = 0;
   gtk_window_get_position(GTK_WINDOW(main_window_), &x, &y);
   gtk_window_get_size(GTK_WINDOW(main_window_), &w, &h);
-  GdkWindowState state = gdk_window_get_state(gtk_widget_get_window(main_window_));
+  GdkWindowState state =
+      gdk_window_get_state(gtk_widget_get_window(main_window_));
   bounds.valid = true;
   bounds.x = x;
   bounds.y = y;
@@ -780,7 +822,8 @@ DesktopBounds LinuxChatApp::CaptureBoundsLogical() const {
 }
 
 void LinuxChatApp::ApplyBoundsLogical(DesktopBounds const& bounds) {
-  if (!bounds.valid || bounds.width <= 0 || bounds.height <= 0 || main_window_ == nullptr) {
+  if (!bounds.valid || bounds.width <= 0 || bounds.height <= 0 ||
+      main_window_ == nullptr) {
     return;
   }
   gtk_window_resize(GTK_WINDOW(main_window_), bounds.width, bounds.height);
@@ -851,7 +894,8 @@ LinuxChatGuiSnapshot LinuxChatApp::BuildGuiSnapshot() {
   if (row != nullptr) {
     snap.list_selection = gtk_list_box_row_get_index(row);
   }
-  snap.draft = GetTextBufferUtf8(gtk_text_view_get_buffer(GTK_TEXT_VIEW(draft_view_)));
+  snap.draft =
+      GetTextBufferUtf8(gtk_text_view_get_buffer(GTK_TEXT_VIEW(draft_view_)));
   GetTextBufferSelection(gtk_text_view_get_buffer(GTK_TEXT_VIEW(draft_view_)),
                          &snap.draft_cursor_pos, &snap.draft_cursor_pos);
   snap.bounds = CaptureBoundsLogical();
@@ -870,7 +914,8 @@ bool LinuxChatApp::TryQueryGuiSnapshot(LinuxChatGuiSnapshot& out) {
 }
 
 void LinuxChatApp::TestSelectChatByIndex(int index) {
-  GtkListBoxRow* row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(chat_list_), index);
+  GtkListBoxRow* row =
+      gtk_list_box_get_row_at_index(GTK_LIST_BOX(chat_list_), index);
   if (row == nullptr) {
     return;
   }
@@ -899,7 +944,8 @@ gboolean LinuxChatApp::OnDeleteEvent(GtkWidget*, GdkEvent*, gpointer data) {
   return TRUE;
 }
 
-void LinuxChatApp::OnChatListRowActivated(GtkListBox*, GtkListBoxRow* row, gpointer data) {
+void LinuxChatApp::OnChatListRowActivated(GtkListBox*, GtkListBoxRow* row,
+                                          gpointer data) {
   auto* app = static_cast<LinuxChatApp*>(data);
   ae::ObjId const entry_id{static_cast<std::uint32_t>(
       GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(row), "entry-id")))};
@@ -918,7 +964,8 @@ void LinuxChatApp::OnDraftChanged(GtkTextBuffer*, gpointer data) {
   static_cast<LinuxChatApp*>(data)->OnDraftChangedInternal();
 }
 
-void LinuxChatApp::OnTranscriptVadjustmentChanged(GtkAdjustment*, gpointer data) {
+void LinuxChatApp::OnTranscriptVadjustmentChanged(GtkAdjustment*,
+                                                  gpointer data) {
   auto* app = static_cast<LinuxChatApp*>(data);
   if (app->applying_view_ || !app->active_entry_id_.is_valid()) {
     return;
@@ -930,7 +977,8 @@ void LinuxChatApp::OnTranscriptVadjustmentChanged(GtkAdjustment*, gpointer data)
   view.live_scroll = anchor;
   view.live_scroll_valid = true;
   auto const now = std::chrono::steady_clock::now();
-  if (now - app->last_scroll_save_time_ >= std::chrono::milliseconds(kScrollCoalesceMs)) {
+  if (now - app->last_scroll_save_time_ >=
+      std::chrono::milliseconds(kScrollCoalesceMs)) {
     app->last_scroll_save_time_ = now;
     app->FlushPendingScrollSave();
   }
@@ -943,7 +991,8 @@ gboolean LinuxChatApp::OnGeometrySettleTimeout(gpointer data) {
   return G_SOURCE_REMOVE;
 }
 
-void LinuxChatApp::OnConfigureEvent(GtkWidget*, GdkEventConfigure*, gpointer data) {
+void LinuxChatApp::OnConfigureEvent(GtkWidget*, GdkEventConfigure*,
+                                    gpointer data) {
   auto* app = static_cast<LinuxChatApp*>(data);
   if (app->geometry_settle_source_ != 0) {
     g_source_remove(app->geometry_settle_source_);
@@ -952,7 +1001,8 @@ void LinuxChatApp::OnConfigureEvent(GtkWidget*, GdkEventConfigure*, gpointer dat
       g_timeout_add(kGeometrySettleMs, OnGeometrySettleTimeout, app);
 }
 
-void LinuxChatApp::OnWindowStateEvent(GtkWidget*, GdkEventWindowState*, gpointer data) {
+void LinuxChatApp::OnWindowStateEvent(GtkWidget*, GdkEventWindowState*,
+                                      gpointer data) {
   auto* app = static_cast<LinuxChatApp*>(data);
   if (app->geometry_settle_source_ != 0) {
     g_source_remove(app->geometry_settle_source_);
@@ -971,7 +1021,8 @@ int LinuxChatApp::Run(ChatLaunchOptions options) {
   profile_key_ = state_dir.string();
 
   ProfileLock candidate;
-  ProfileLock::AcquireResult const lock_result = ProfileLock::TryAcquire(state_dir, candidate);
+  ProfileLock::AcquireResult const lock_result =
+      ProfileLock::TryAcquire(state_dir, candidate);
   if (lock_result == ProfileLock::AcquireResult::kBusy) {
     GtkWidget* dialog = gtk_message_dialog_new(
         nullptr, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK,
@@ -1000,9 +1051,7 @@ int LinuxChatApp::Run(ChatLaunchOptions options) {
   };
 
   session_.Start(std::move(cfg), [this]() {
-    InvokeOnGui([this]() {
-      ApplyPublicationFromSession();
-    });
+    InvokeOnGui([this]() { ApplyPublicationFromSession(); });
   });
 
   gtk_main();
