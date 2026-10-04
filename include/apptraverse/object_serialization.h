@@ -39,9 +39,41 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
 // Full-graph initial publication: root ObjId then SerializeObjectGraphToBuffer.
 // Load creates UI shells from the buffer (no model Domain / model Obj*).
 void SerializeInitialPublication(ae::Obj const& root, ByteSink& out);
+
+enum class InitialPublicationLoadStage : std::uint8_t {
+  Ok = 0,
+  ReadRootId,
+  ReadLayerCount,
+  ReadLayerHeader,
+  ReadLayerPayload,
+  InjectLayerBytes,
+  LoadRoot,
+  LoadExistingObject,
+  ReadGenerationCount,
+  ReadGenerationEntry,
+  FinalFindRoot,
+};
+
+struct InitialPublicationLoadDiagnostics {
+  InitialPublicationLoadStage stage{InitialPublicationLoadStage::Ok};
+  std::uint32_t root_id{0};
+  std::uint32_t obj_id{0};
+  std::uint32_t class_id{0};
+  std::uint8_t version{0};
+  std::uint32_t offset{0};
+  std::uint32_t size{0};
+  std::uint32_t layer_index{0};
+  std::uint32_t layer_count{0};
+};
+
+void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
+                                             char* buffer, std::size_t buffer_size);
+
 // Returns null when the buffer cannot build a UI mirror root (no assert).
 ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
-                                           ae::IDomainStorage& ui_storage);
+                                          ae::IDomainStorage& ui_storage,
+                                          InitialPublicationLoadDiagnostics* diagnostics_out =
+                                              nullptr);
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                         ae::IDomainStorage& ui_storage);
 

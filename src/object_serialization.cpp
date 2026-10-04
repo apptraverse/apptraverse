@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <cstdio>
 #include <cstring>
 #include <utility>
 #include <unordered_set>
@@ -12,6 +13,7 @@
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/graph_walk.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
 
 namespace apptraverse {
@@ -55,13 +57,14 @@ void SaveObjectGraphToScratch(ae::Obj const& object,
   factory->save(&graph, ptr, object.obj_id);
 }
 
-void InjectObjectBytes(ae::IDomainStorage& storage, ae::DomainQuery const& query,
+bool InjectObjectBytes(ae::IDomainStorage& storage, ae::DomainQuery const& query,
                        std::uint8_t const* data, std::size_t size) {
   auto writer = storage.Store(query);
-  assert(writer);
+  if (!writer) {
+    return false;
+  }
   auto const result = writer->Write(ae::seri::DataWriteTag{data, size});
-  assert(result);
-  (void)result;
+  return static_cast<bool>(result);
 }
 
 void AppendSavedObjectLayers(ae::RamDomainStorage const& scratch, ae::ObjId id,
@@ -142,80 +145,6 @@ void DeserializeObjectFromBuffer(ae::Obj& object, ByteSource& in,
   std::size_t const payload_size = in.size - in.pos;
   InjectSavedObjectLayers(in, object.obj_id, domain_storage, payload_size);
   LoadExistingObject(object, domain);
-}
-
-void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
-  ae::RamDomainStorage scratch;
-  SaveObjectGraphToScratch(root, scratch);
-
-  std::unordered_set<std::uint32_t> distilled_base_ids;
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    if (auto* node = AsObjOf<Node>(obj.get())) {
-      if (node->base.is_valid()) {
-        distilled_base_ids.insert(node->base.id().id());
-      }
-    }
-  }
-
-  auto const count_at = out.bytes.size();
-  std::uint32_t layer_count = 0;
-  out.write(&layer_count, sizeof(layer_count));
-
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    if (distilled_base_ids.count(obj_id.id()) != 0) {
-      continue;
-    }
-    for (auto const& [class_id, versions] : *class_map_opt) {
-      for (auto const& [version, data] : versions) {
-        auto const oid = obj_id.id();
-        out.write(&oid, sizeof(oid));
-        out.write(&class_id, sizeof(class_id));
-        out.write(&version, sizeof(version));
-        auto const size = static_cast<std::uint32_t>(data.size());
-        out.write(&size, sizeof(size));
-        out.write(data.data(), data.size());
-        ++layer_count;
-      }
-    }
-  }
-  std::memcpy(out.bytes.data() + count_at, &layer_count, sizeof(layer_count));
-
-  auto const gen_count_at = out.bytes.size();
-  std::uint32_t node_generation_count = 0;
-  out.write(&node_generation_count, sizeof(node_generation_count));
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    if (distilled_base_ids.count(obj_id.id()) != 0) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    auto* node = AsObjOf<Node>(obj.get());
-    if (node == nullptr) {
-      continue;
-    }
-    auto const oid = obj_id.id();
-    auto const generation = node->Generation();
-    out.write(&oid, sizeof(oid));
-    out.write(&generation, sizeof(generation));
-    ++node_generation_count;
-  }
-  std::memcpy(out.bytes.data() + gen_count_at, &node_generation_count,
-              sizeof(node_generation_count));
 }
 
 void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
@@ -304,6 +233,110 @@ void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
       out.push_back(node);
     }
   }
+}
+
+struct SavedNodeBookkeeping {
+  Node* node;
+  Node::ptr base;
+  std::vector<EventRecord> journal;
+};
+
+void ClearReachableNodeHistoryForPublicationSave(ae::Obj const& root,
+                                                 std::vector<SavedNodeBookkeeping>& saved) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(const_cast<ae::Obj&>(root), nodes);
+  saved.clear();
+  saved.reserve(nodes.size());
+  for (Node* node : nodes) {
+    saved.push_back(SavedNodeBookkeeping{node, node->base, std::move(node->journal)});
+    node->base = Node::ptr{};
+    node->journal.clear();
+  }
+}
+
+void RestoreReachableNodeHistory(std::vector<SavedNodeBookkeeping>& saved) {
+  for (SavedNodeBookkeeping& entry : saved) {
+    entry.node->base = std::move(entry.base);
+    entry.node->journal = std::move(entry.journal);
+  }
+  saved.clear();
+}
+
+void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
+  ae::RamDomainStorage scratch;
+  std::vector<SavedNodeBookkeeping> saved_history;
+  ClearReachableNodeHistoryForPublicationSave(root, saved_history);
+  SaveObjectGraphToScratch(root, scratch);
+  RestoreReachableNodeHistory(saved_history);
+
+  std::unordered_set<std::uint32_t> distilled_base_ids;
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj) {
+      continue;
+    }
+    if (auto* node = AsObjOf<Node>(obj.get())) {
+      if (node->base.is_valid()) {
+        distilled_base_ids.insert(node->base.id().id());
+      }
+    }
+  }
+
+  auto const count_at = out.bytes.size();
+  std::uint32_t layer_count = 0;
+  out.write(&layer_count, sizeof(layer_count));
+
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
+      continue;
+    }
+    for (auto const& [class_id, versions] : *class_map_opt) {
+      for (auto const& [version, data] : versions) {
+        auto const oid = obj_id.id();
+        out.write(&oid, sizeof(oid));
+        out.write(&class_id, sizeof(class_id));
+        out.write(&version, sizeof(version));
+        auto const size = static_cast<std::uint32_t>(data.size());
+        out.write(&size, sizeof(size));
+        out.write(data.data(), data.size());
+        ++layer_count;
+      }
+    }
+  }
+  std::memcpy(out.bytes.data() + count_at, &layer_count, sizeof(layer_count));
+
+  auto const gen_count_at = out.bytes.size();
+  std::uint32_t node_generation_count = 0;
+  out.write(&node_generation_count, sizeof(node_generation_count));
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj) {
+      continue;
+    }
+    auto* node = AsObjOf<Node>(obj.get());
+    if (node == nullptr) {
+      continue;
+    }
+    auto const oid = obj_id.id();
+    auto const generation = node->Generation();
+    out.write(&oid, sizeof(oid));
+    out.write(&generation, sizeof(generation));
+    ++node_generation_count;
+  }
+  std::memcpy(out.bytes.data() + gen_count_at, &node_generation_count,
+              sizeof(node_generation_count));
 }
 
 void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
@@ -430,20 +463,70 @@ void SerializeInitialPublication(ae::Obj const& root, ByteSink& out) {
   SerializeObjectGraphToBuffer(root, out);
 }
 
-ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
-                                          ae::IDomainStorage& ui_storage) {
-  std::uint32_t root_id = 0;
-  in.read(&root_id, sizeof(root_id));
-  if (!in.ok) {
-    return {};
+void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
+                                             char* buffer, std::size_t buffer_size) {
+  char const* stage = "unknown";
+  switch (diagnostics.stage) {
+    case InitialPublicationLoadStage::Ok:
+      stage = "ok";
+      break;
+    case InitialPublicationLoadStage::ReadRootId:
+      stage = "read_root_id";
+      break;
+    case InitialPublicationLoadStage::ReadLayerCount:
+      stage = "read_layer_count";
+      break;
+    case InitialPublicationLoadStage::ReadLayerHeader:
+      stage = "read_layer_header";
+      break;
+    case InitialPublicationLoadStage::ReadLayerPayload:
+      stage = "read_layer_payload";
+      break;
+    case InitialPublicationLoadStage::InjectLayerBytes:
+      stage = "inject_layer_bytes";
+      break;
+    case InitialPublicationLoadStage::LoadRoot:
+      stage = "load_root";
+      break;
+    case InitialPublicationLoadStage::LoadExistingObject:
+      stage = "load_existing_object";
+      break;
+    case InitialPublicationLoadStage::ReadGenerationCount:
+      stage = "read_generation_count";
+      break;
+    case InitialPublicationLoadStage::ReadGenerationEntry:
+      stage = "read_generation_entry";
+      break;
+    case InitialPublicationLoadStage::FinalFindRoot:
+      stage = "final_find_root";
+      break;
   }
+  std::snprintf(
+      buffer, buffer_size,
+      "InitialPublicationLoad failed stage=%s root_id=%u obj_id=%u class_id=%u version=%u "
+      "offset=%u size=%u layer_index=%u layer_count=%u\n",
+      stage, diagnostics.root_id, diagnostics.obj_id, diagnostics.class_id,
+      static_cast<unsigned>(diagnostics.version), diagnostics.offset, diagnostics.size,
+      diagnostics.layer_index, diagnostics.layer_count);
+}
 
+bool ReadAndInjectPublicationLayers(ByteSource& in, ae::IDomainStorage& ui_storage,
+                                    std::vector<std::uint32_t>& unique_obj_ids,
+                                    InitialPublicationLoadDiagnostics* diagnostics) {
   std::uint32_t layer_count = 0;
   in.read(&layer_count, sizeof(layer_count));
   if (!in.ok) {
-    return {};
+    if (diagnostics) {
+      diagnostics->stage = InitialPublicationLoadStage::ReadLayerCount;
+      diagnostics->offset = static_cast<std::uint32_t>(in.pos);
+    }
+    return false;
   }
-
+  if (diagnostics) {
+    diagnostics->layer_count = layer_count;
+  }
+  unique_obj_ids.clear();
+  unique_obj_ids.reserve(layer_count);
   for (std::uint32_t i = 0; i < layer_count; ++i) {
     std::uint32_t obj_id = 0;
     std::uint32_t class_id = 0;
@@ -453,23 +536,109 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
     in.read(&class_id, sizeof(class_id));
     in.read(&version, sizeof(version));
     in.read(&size, sizeof(size));
-    if (!in.ok || in.pos + size > in.size) {
-      return {};
+    if (!in.ok) {
+      if (diagnostics) {
+        diagnostics->stage = InitialPublicationLoadStage::ReadLayerHeader;
+        diagnostics->layer_index = i;
+        diagnostics->obj_id = obj_id;
+        diagnostics->class_id = class_id;
+        diagnostics->version = version;
+        diagnostics->size = size;
+        diagnostics->offset = static_cast<std::uint32_t>(in.pos);
+      }
+      return false;
     }
-    InjectObjectBytes(ui_storage, {ae::ObjId{obj_id}, class_id, version},
-                      in.data + in.pos, size);
+    if (in.pos + size > in.size) {
+      if (diagnostics) {
+        diagnostics->stage = InitialPublicationLoadStage::ReadLayerPayload;
+        diagnostics->layer_index = i;
+        diagnostics->obj_id = obj_id;
+        diagnostics->class_id = class_id;
+        diagnostics->version = version;
+        diagnostics->size = size;
+        diagnostics->offset = static_cast<std::uint32_t>(in.pos);
+      }
+      return false;
+    }
+    if (!InjectObjectBytes(ui_storage, {ae::ObjId{obj_id}, class_id, version},
+                           in.data + in.pos, size)) {
+      if (diagnostics) {
+        diagnostics->stage = InitialPublicationLoadStage::InjectLayerBytes;
+        diagnostics->layer_index = i;
+        diagnostics->obj_id = obj_id;
+        diagnostics->class_id = class_id;
+        diagnostics->version = version;
+        diagnostics->size = size;
+        diagnostics->offset = static_cast<std::uint32_t>(in.pos);
+      }
+      return false;
+    }
     in.pos += size;
+    if (std::find(unique_obj_ids.begin(), unique_obj_ids.end(), obj_id) ==
+        unique_obj_ids.end()) {
+      unique_obj_ids.push_back(obj_id);
+    }
   }
+  return true;
+}
 
+bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain, std::uint32_t root_id,
+                                   std::vector<std::uint32_t> const& unique_obj_ids,
+                                   InitialPublicationLoadDiagnostics* diagnostics) {
   ae::DomainGraph graph{&ui_domain};
   auto ui_root = graph.LoadRoot(ae::ObjId{root_id});
   if (!ui_root) {
+    if (diagnostics) {
+      diagnostics->stage = InitialPublicationLoadStage::LoadRoot;
+      diagnostics->root_id = root_id;
+    }
+    return false;
+  }
+  for (std::uint32_t obj_id : unique_obj_ids) {
+    auto object = ui_domain.Find(ae::ObjId{obj_id});
+    if (!object) {
+      if (diagnostics) {
+        diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
+        diagnostics->root_id = root_id;
+        diagnostics->obj_id = obj_id;
+      }
+      return false;
+    }
+    LoadExistingObject(*object, ui_domain);
+  }
+  return true;
+}
+
+ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
+                                          ae::IDomainStorage& ui_storage,
+                                          InitialPublicationLoadDiagnostics* diagnostics_out) {
+  InitialPublicationLoadDiagnostics local;
+  InitialPublicationLoadDiagnostics* diagnostics = diagnostics_out ? diagnostics_out : &local;
+  *diagnostics = {};
+
+  std::uint32_t root_id = 0;
+  in.read(&root_id, sizeof(root_id));
+  if (!in.ok) {
+    diagnostics->stage = InitialPublicationLoadStage::ReadRootId;
+    diagnostics->offset = static_cast<std::uint32_t>(in.pos);
+    return {};
+  }
+  diagnostics->root_id = root_id;
+
+  std::vector<std::uint32_t> unique_obj_ids;
+  if (!ReadAndInjectPublicationLayers(in, ui_storage, unique_obj_ids, diagnostics)) {
+    return {};
+  }
+
+  if (!HydrateInjectedPublicationGraph(ui_domain, root_id, unique_obj_ids, diagnostics)) {
     return {};
   }
 
   std::uint32_t node_generation_count = 0;
   in.read(&node_generation_count, sizeof(node_generation_count));
   if (!in.ok) {
+    diagnostics->stage = InitialPublicationLoadStage::ReadGenerationCount;
+    diagnostics->offset = static_cast<std::uint32_t>(in.pos);
     return {};
   }
   for (std::uint32_t i = 0; i < node_generation_count; ++i) {
@@ -478,6 +647,10 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
     in.read(&obj_id, sizeof(obj_id));
     in.read(&generation, sizeof(generation));
     if (!in.ok) {
+      diagnostics->stage = InitialPublicationLoadStage::ReadGenerationEntry;
+      diagnostics->layer_index = i;
+      diagnostics->obj_id = obj_id;
+      diagnostics->offset = static_cast<std::uint32_t>(in.pos);
       return {};
     }
     auto object = ui_domain.Find(ae::ObjId{obj_id});
@@ -487,17 +660,26 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
     FinalizeUiNodeState(*object, generation);
   }
 
-  ui_root = ui_domain.Find(ae::ObjId{root_id});
+  ae::DomainGraph final_graph{&ui_domain};
+  auto ui_root = final_graph.LoadRoot(ae::ObjId{root_id});
   if (!ui_root) {
+    diagnostics->stage = InitialPublicationLoadStage::FinalFindRoot;
     return {};
   }
+  diagnostics->stage = InitialPublicationLoadStage::Ok;
   return ui_root;
 }
 
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                       ae::IDomainStorage& ui_storage) {
-  auto ui_root = TryLoadInitialPublication(in, ui_domain, ui_storage);
-  assert(ui_root && "UI mirror graph must stay reachable via ObjPtr refs");
+  InitialPublicationLoadDiagnostics diagnostics;
+  auto ui_root = TryLoadInitialPublication(in, ui_domain, ui_storage, &diagnostics);
+  if (!ui_root) {
+    char message[256];
+    FormatInitialPublicationLoadDiagnostics(diagnostics, message, sizeof(message));
+    WriteFatalStderr(message);
+    std::abort();
+  }
   return ui_root;
 }
 
