@@ -5,14 +5,13 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 #include <utility>
 #include <unordered_set>
 #include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/registry.h"
-
-#include "apptraverse/graph_walk.h"
 #include "apptraverse/model_persistence.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
@@ -979,8 +978,13 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
     saved_journals.push_back(std::move(saved_entry));
   }
 
+  PersistentSnapshotPatchSession objptr_patches;
+  RunPersistentObjPtrClearHooks(root, objptr_patches);
+
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(root, scratch);
+
+  objptr_patches.RestoreAll();
 
   for (SavedJournal& entry : saved_journals) {
     entry.node->journal = std::move(entry.journal);
@@ -1048,6 +1052,8 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
       node->AdoptPublishedGeneration(generation);
     }
   }
+
+  SanitizeLoadedPersistentObjPtrs(root, loaded_ids);
 }
 
 void SavePersistentModelSnapshotToStorage(ae::Obj& root,

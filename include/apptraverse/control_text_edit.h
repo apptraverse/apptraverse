@@ -11,6 +11,8 @@
 namespace apptraverse {
 
 // UTF-16 code-unit indices. Caret is the active selection endpoint.
+// Boundary policy: indices never sit between a high and low surrogate of one
+// code point; an index on the low unit snaps forward past the pair.
 class TextEdit;
 class TextEditInsertEvent;
 class TextEditDeleteBackwardEvent;

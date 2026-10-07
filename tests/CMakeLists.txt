@@ -29,6 +29,26 @@ add_test(
   COMMAND apptraverse_control_text_edit_test
 )
 
+add_executable(apptraverse_model_persistence_runtime_ref_test
+  model_persistence_runtime_ref_test.cpp
+)
+target_link_libraries(apptraverse_model_persistence_runtime_ref_test PRIVATE
+  apptraverse)
+add_test(
+  NAME apptraverse_model_persistence_runtime_ref_test
+  COMMAND apptraverse_model_persistence_runtime_ref_test
+)
+
+add_executable(apptraverse_text_edit_utf16_boundary_test
+  text_edit_utf16_boundary_test.cpp
+)
+target_link_libraries(apptraverse_text_edit_utf16_boundary_test PRIVATE
+  apptraverse)
+add_test(
+  NAME apptraverse_text_edit_utf16_boundary_test
+  COMMAND apptraverse_text_edit_utf16_boundary_test
+)
+
 add_executable(apptraverse_shared_node_foundation_test
   shared_node_foundation_test.cpp
 )
