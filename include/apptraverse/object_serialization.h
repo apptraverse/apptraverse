@@ -80,6 +80,9 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 
+void CollectPersistentSerializationReachableObjects(
+    ae::Obj& root, std::vector<ae::Obj*>& out);
+
 // Reachability for presentation: omits Node::base and Node::journal so
 // historical Event-held objects are not treated as live UI topology.
 void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
@@ -166,6 +169,15 @@ void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
 // when presentation must stay in sync.
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
                                     ae::IDomainStorage& storage);
+
+// Durable model checkpoint (RAM or directory). Excludes presenters and
+// RegisterRuntimeOnlyClassId types. Restores temporary ref/journal patches
+// before returning; live graph unchanged after SerializePersistentModelSnapshot.
+void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out);
+void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
+                                 ae::IDomainStorage& storage, ae::Obj& root);
+void SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                          ae::IDomainStorage& storage);
 
 }  // namespace apptraverse
 

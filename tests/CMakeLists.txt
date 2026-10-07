@@ -1128,3 +1128,36 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND APPTRAVERSE_BUILD_AETHER_DEMOS)
   endif()
 endif()
 
+add_executable(apptraverse_partitioned_model_domain_storage_test
+  partitioned_model_domain_storage_test.cpp
+)
+target_link_libraries(apptraverse_partitioned_model_domain_storage_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_partitioned_model_domain_storage_test
+  COMMAND apptraverse_partitioned_model_domain_storage_test
+)
+
+add_executable(apptraverse_model_persistence_runtime_ref_test
+  model_persistence_runtime_ref_test.cpp
+)
+target_link_libraries(apptraverse_model_persistence_runtime_ref_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_model_persistence_runtime_ref_test
+  COMMAND apptraverse_model_persistence_runtime_ref_test
+)
+
+add_executable(apptraverse_model_persistence_test
+  model_persistence_test.cpp
+)
+target_link_libraries(apptraverse_model_persistence_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_model_persistence_test
+  COMMAND apptraverse_model_persistence_test
+)
+
