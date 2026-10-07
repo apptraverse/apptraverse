@@ -17,6 +17,16 @@ Never, unless the user explicitly asks:
 
 Use only incremental builds of the existing build tree. If the tree is broken, explain the concrete cause. Do not destroy it automatically.
 
+## Noninteractive automated tests (Windows)
+
+Automated test processes must be noninteractive. On Windows, headless/unit/integration
+tests and CTest/MCP/Cursor runs must never display fatal CRT dialogs (assert,
+`abort()`, invalid parameter, purecall), JIT debugger prompts, or WER UI. Failures
+go to stderr and a non-zero exit code. Do not disable assertions, define `NDEBUG` to
+hide failures, or click Ignore/Retry on modal dialogs. If a modal failure window
+appears during automation, treat it as test-infrastructure bug and fix startup
+(`apptraverse_noninteractive_test_runtime` / `EnableNoninteractiveCrt()`).
+
 ## No C++ RTTI
 
 AppTraverse code must compile with C++ RTTI disabled (`/GR-` on MSVC,

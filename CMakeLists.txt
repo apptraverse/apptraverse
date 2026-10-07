@@ -125,6 +125,17 @@ if(WIN32)
 endif()
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
+include(cmake/apptraverse_noninteractive_test_runtime.cmake)
+if(MSVC)
+  get_filename_component(_APPTRAVERSE_MSVC_LIB_DIR "${CMAKE_LINKER}" DIRECTORY)
+  if(EXISTS "${_APPTRAVERSE_MSVC_LIB_DIR}/lib.exe")
+    if(NOT CMAKE_AR OR CMAKE_AR MATCHES "(^|[/\\\\])ar\\.exe$")
+      set(CMAKE_AR "${_APPTRAVERSE_MSVC_LIB_DIR}/lib.exe" CACHE FILEPATH
+          "MSVC static library archiver" FORCE)
+    endif()
+  endif()
+endif()
+
 if(APPTRAVERSE_BUILD_AETHER_DEMOS)
   add_subdirectory(examples/model_ui_runtime_demo)
   add_subdirectory(examples/chat_ui_runtime_demo)

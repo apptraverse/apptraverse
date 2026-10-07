@@ -1,3 +1,5 @@
+include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_noninteractive_test_runtime.cmake)
+
 add_executable(apptraverse_event_sourced_core_test
   event_sourced_core_test.cpp
 )
@@ -1145,4 +1147,55 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND APPTRAVERSE_BUILD_AETHER_DEMOS)
     endif()
   endif()
 endif()
+
+if(WIN32)
+  add_executable(apptraverse_noninteractive_abort_child
+    noninteractive_abort_child.cpp
+  )
+  apptraverse_attach_noninteractive_test_runtime(apptraverse_noninteractive_abort_child)
+
+  add_executable(apptraverse_noninteractive_assert_child
+    noninteractive_assert_child.cpp
+  )
+  apptraverse_attach_noninteractive_test_runtime(apptraverse_noninteractive_assert_child)
+
+  add_executable(apptraverse_noninteractive_abort_test
+    noninteractive_failure_child_test.cpp
+  )
+  target_compile_definitions(apptraverse_noninteractive_abort_test PRIVATE
+    "NONINTERACTIVE_FAILURE_CHILD=R\"($<TARGET_FILE:apptraverse_noninteractive_abort_child>)\""
+  )
+  apptraverse_attach_noninteractive_test_runtime(apptraverse_noninteractive_abort_test)
+  add_dependencies(apptraverse_noninteractive_abort_test
+    apptraverse_noninteractive_abort_child
+  )
+
+  add_executable(apptraverse_noninteractive_assert_test
+    noninteractive_failure_child_test.cpp
+  )
+  target_compile_definitions(apptraverse_noninteractive_assert_test PRIVATE
+    "NONINTERACTIVE_FAILURE_CHILD=R\"($<TARGET_FILE:apptraverse_noninteractive_assert_child>)\""
+  )
+  apptraverse_attach_noninteractive_test_runtime(apptraverse_noninteractive_assert_test)
+  add_dependencies(apptraverse_noninteractive_assert_test
+    apptraverse_noninteractive_assert_child
+  )
+
+  add_test(NAME apptraverse_noninteractive_abort_test
+    COMMAND apptraverse_noninteractive_abort_test
+  )
+  add_test(NAME apptraverse_noninteractive_assert_test
+    COMMAND apptraverse_noninteractive_assert_test
+  )
+endif()
+
+get_property(_apptraverse_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_at_test_target IN LISTS _apptraverse_test_targets)
+  if(TARGET "${_at_test_target}")
+    get_target_property(_at_test_target_type "${_at_test_target}" TYPE)
+    if(_at_test_target_type STREQUAL "EXECUTABLE")
+      apptraverse_attach_noninteractive_test_runtime("${_at_test_target}")
+    endif()
+  endif()
+endforeach()
 

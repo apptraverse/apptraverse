@@ -21,8 +21,19 @@ namespace {
 
 #ifdef _WIN32
 #  ifdef _MSC_VER
-int CrtAssertHook(int report_type, char* message, int* return_value) {
-  if (report_type != _CRT_ASSERT) {
+void InvalidParameterHandler(wchar_t const*, wchar_t const*, wchar_t const*,
+                             unsigned int, uintptr_t) {
+  apptraverse::WriteFatalStderr("CRT invalid parameter\n");
+  std::_Exit(4);
+}
+
+void PurecallHandler() {
+  apptraverse::WriteFatalStderr("CRT pure virtual call\n");
+  std::_Exit(5);
+}
+
+int CrtReportHook(int report_type, char* message, int* return_value) {
+  if (report_type != _CRT_ASSERT && report_type != _CRT_ERROR) {
     return 0;
   }
   if (message != nullptr) {
@@ -34,7 +45,6 @@ int CrtAssertHook(int report_type, char* message, int* return_value) {
     *return_value = 0;
   }
   std::_Exit(3);
-  return 1;
 }
 #  endif
 #endif
@@ -84,7 +94,9 @@ void EnableNoninteractiveCrt() {
   _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
   _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
   _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-  _CrtSetReportHook(&CrtAssertHook);
+  _CrtSetReportHook(&CrtReportHook);
+  _set_invalid_parameter_handler(&InvalidParameterHandler);
+  _set_purecall_handler(&PurecallHandler);
 #  endif
   WerSetFlags(WER_FAULT_REPORTING_NO_UI);
 #endif
