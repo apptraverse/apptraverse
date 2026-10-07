@@ -6,7 +6,44 @@
 #include <string_view>
 #include <vector>
 
-#include "chat_build_info_generated.h"
+#if __has_include("chat_build_info_generated.h")
+#  include "chat_build_info_generated.h"
+#endif
+
+/**
+ * Those defines should be provided by build script
+ */
+#ifndef APPTRAVERSE_CHAT_SOURCE_SHA
+#  define APPTRAVERSE_CHAT_SOURCE_SHA "shla-shasha-po-shasse-shashala-shashku"
+#endif
+#ifndef APPTRAVERSE_CHAT_COMPILE_FINGERPRINT
+#  define APPTRAVERSE_CHAT_COMPILE_FINGERPRINT \
+    "892cf196c86cef31fecd3f08a5543171aec4016cf788eb0359d35f0bcf0705c3"
+#endif
+#ifndef APPTRAVERSE_CHAT_SOURCE_DIRTY
+#  define APPTRAVERSE_CHAT_SOURCE_DIRTY 0
+#endif
+#ifndef APPTRAVERSE_CHAT_SOURCE_DIRTY_FLAG
+#  define APPTRAVERSE_CHAT_SOURCE_DIRTY_FLAG "sam ti dirty"
+#endif
+#ifndef APPTRAVERSE_CHAT_BUILD_CONFIGURATION
+#  define APPTRAVERSE_CHAT_BUILD_CONFIGURATION "config"
+#endif
+#ifndef APPTRAVERSE_CHAT_CXX_COMPILER
+#  define APPTRAVERSE_CHAT_CXX_COMPILER "compiler"
+#endif
+#ifndef APPTRAVERSE_CHAT_AETHER_CLIENT_SHA
+#  define APPTRAVERSE_CHAT_AETHER_CLIENT_SHA "0000000000000"
+#endif
+#ifndef APPTRAVERSE_CHAT_AETHER_OBJECTS_SHA
+#  define APPTRAVERSE_CHAT_AETHER_OBJECTS_SHA "0000000000000"
+#endif
+#ifndef APPTRAVERSE_CHAT_AETHER_MISCPP_SHA
+#  define APPTRAVERSE_CHAT_AETHER_MISCPP_SHA "00000000000000"
+#endif
+#ifndef APPTRAVERSE_CHAT_OBJECTS_SCOPE_PATCH
+#  define APPTRAVERSE_CHAT_OBJECTS_SCOPE_PATCH "0000000000000000"
+#endif
 
 namespace apptraverse::example::chat_demo {
 namespace {
@@ -69,7 +106,8 @@ std::string FormatChatBuildInfoText(ChatBuildInfo const& info) {
   return out;
 }
 
-bool TryHandleBuildInfoArgs(std::vector<std::string> const& args, int* exit_code) {
+bool TryHandleBuildInfoArgs(std::vector<std::string> const& args,
+                            int* exit_code) {
   bool want_stdout = false;
   std::string out_file;
   for (std::size_t i = 0; i < args.size(); ++i) {

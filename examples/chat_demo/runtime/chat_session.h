@@ -20,12 +20,12 @@
 #include "aether-objects/obj/obj_id.h"
 #include "aether_frame_endpoint.h"
 #include "apptraverse/publication_channel.h"
+#include "apptraverse/shared_event_id.h"
 #include "chat_connectivity.h"
 #include "chat_demo_runtime_state.h"
 #include "chat_launch_options.h"
 #include "chat_model.h"
 #include "chat_presence.h"
-#include "apptraverse/shared_event_id.h"
 
 namespace apptraverse::example::chat_demo {
 
@@ -74,7 +74,8 @@ struct ChatRuntimeStatus {
   SessionLifecycleState lifecycle_state{SessionLifecycleState::kStarting};
   LocalConnectivityState local_connectivity{LocalConnectivityState::kUnknown};
   std::unordered_map<std::string, PeerPresence> remote_presence;
-  std::unordered_map<std::string, RoomBootstrapState> room_bootstrap_by_peer_uid;
+  std::unordered_map<std::string, RoomBootstrapState>
+      room_bootstrap_by_peer_uid;
   std::map<SharedEventId, MessageDeliveryState> delivery_by_event_id;
   std::string error_text;
   std::uint64_t completed_checkpoint_id{0};
@@ -121,7 +122,8 @@ class ChatSession {
   void JoinHost();
   void RequestCopyHostUid();
   void SelectChat(ae::ObjId entry_id);
-  void EditDraft(ae::ObjId entry_id, std::string text, std::uint64_t edit_revision);
+  void EditDraft(ae::ObjId entry_id, std::string text,
+                 std::uint64_t edit_revision);
   void SendDraft(ae::ObjId entry_id, std::string current_text,
                  std::uint64_t edit_revision);
   void SaveScroll(ae::ObjId entry_id, ScrollAnchor anchor);
