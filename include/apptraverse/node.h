@@ -31,8 +31,8 @@ inline std::uint64_t SystemUtcMicros() {
 }
 
 class Node : public ae::Obj {
-  // Single current schema (native base-class serialization layers).
-  APPTRAVERSE_OBJECT(Node, ae::Obj, 0)
+  // Version 4: native base-class serialization (single current layout).
+  APPTRAVERSE_OBJECT(Node, ae::Obj, 4)
 
  protected:
   Node() = default;
@@ -43,12 +43,12 @@ class Node : public ae::Obj {
   AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
+  void Load(ae::Version<4>, Dnv& dnv) {
     dnv(base_, base, journal);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
+  void Save(ae::Version<4>, Dnv& dnv) const {
     dnv(base_, base, journal);
   }
 

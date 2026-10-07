@@ -24,7 +24,7 @@ class CounterDocument;
 class AddEvent;
 
 class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
-  APPTRAVERSE_OBJECT(CounterDocument, Node, 0)
+  APPTRAVERSE_OBJECT(CounterDocument, Node, 2)
 
  protected:
   CounterDocument() = default;
@@ -35,12 +35,12 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
   AE_OBJECT_REFLECT(AE_MMBR(value), AE_MMBR(label))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
+  void Load(ae::Version<2>, Dnv& dnv) {
     dnv(base_, value, label);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
+  void Save(ae::Version<2>, Dnv& dnv) const {
     dnv(base_, value, label);
   }
 

@@ -23,7 +23,7 @@ class Counter;
 class BumpEvent;
 
 class Counter : public NodeFor<Counter> {
-  APPTRAVERSE_OBJECT(Counter, Node, 0)
+  APPTRAVERSE_OBJECT(Counter, Node, 1)
 
  protected:
   Counter() = default;
@@ -34,12 +34,12 @@ class Counter : public NodeFor<Counter> {
   AE_OBJECT_REFLECT(AE_MMBR(value))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
+  void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, value);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
+  void Save(ae::Version<1>, Dnv& dnv) const {
     dnv(base_, value);
   }
 

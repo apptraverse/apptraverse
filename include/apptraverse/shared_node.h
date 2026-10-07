@@ -64,7 +64,7 @@ class CompleteIncrementalEventSyncEvent;
 // SharedNode only via LocalPtr, so network shared-graph serialization excludes
 // it without SharedNode-specific sanitization.
 class LinkSyncState : public NodeFor<LinkSyncState> {
-  APPTRAVERSE_OBJECT(LinkSyncState, Node, 0)
+  APPTRAVERSE_OBJECT(LinkSyncState, Node, 3)
 
  protected:
   LinkSyncState() = default;
@@ -77,7 +77,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   AE_OBJECT_REFLECT(AE_MMBR(share_id), AE_MMBR(link))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
+  void Load(ae::Version<3>, Dnv& dnv) {
     dnv(base_, share_id, link, initial_sync_phase, pending_initial_packet_id,
         pending_initial_packet, received_initial_packet_id,
         pending_initial_covered_event_ids, delivered_event_ids,
@@ -85,7 +85,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
+  void Save(ae::Version<3>, Dnv& dnv) const {
     dnv(base_, share_id, link, initial_sync_phase, pending_initial_packet_id,
         pending_initial_packet, received_initial_packet_id,
         pending_initial_covered_event_ids, delivered_event_ids,
@@ -279,7 +279,7 @@ class ChangeShareAccessEvent;
 // Generic shared Node: shared topology (shares[]) plus local-persistent
 // per-Link sync metadata (link_sync_states via LocalPtr).
 class SharedNode : public NodeFor<SharedNode> {
-  APPTRAVERSE_OBJECT(SharedNode, Node, 0)
+  APPTRAVERSE_OBJECT(SharedNode, Node, 2)
 
  protected:
   SharedNode() = default;
@@ -290,12 +290,12 @@ class SharedNode : public NodeFor<SharedNode> {
   AE_OBJECT_REFLECT(AE_MMBR(shares), AE_MMBR(link_sync_states))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
+  void Load(ae::Version<2>, Dnv& dnv) {
     dnv(base_, shares, link_sync_states);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
+  void Save(ae::Version<2>, Dnv& dnv) const {
     dnv(base_, shares, link_sync_states);
   }
 
