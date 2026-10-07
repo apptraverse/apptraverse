@@ -1,44 +1,44 @@
 #include "apptraverse/control_text_edit.h"
 
 #include <algorithm>
-#include <cassert>
+#include <cstdio>
+#include <utility>
 
 #include "apptraverse/object_macros.h"
+#include "apptraverse/utf8_text.h"
 
 namespace apptraverse {
 namespace {
 
-std::uint32_t ClampIndex(std::u16string const& text, std::uint32_t index) {
-  return std::min(index, static_cast<std::uint32_t>(text.size()));
+[[noreturn]] void TextEditFatalInvalidUtf8(char const* context) {
+  std::fprintf(stderr, "TextEdit invariant: invalid UTF-8 (%s)\n", context);
+  std::abort();
 }
 
-std::pair<std::uint32_t, std::uint32_t> NormalizeRange(std::u16string const& text,
-                                                       std::uint32_t a,
-                                                       std::uint32_t b) {
-  a = ClampIndex(text, a);
-  b = ClampIndex(text, b);
+void RequireValidUtf8(std::string const& value, char const* context) {
+  if (!IsValidUtf8(value)) {
+    TextEditFatalInvalidUtf8(context);
+  }
+}
+
+std::uint32_t ClampByteOffset(std::string const& text, std::uint32_t offset) {
+  return static_cast<std::uint32_t>(
+      std::min<std::size_t>(offset, text.size()));
+}
+
+std::uint32_t SnapBoundary(std::string const& text, std::uint32_t offset) {
+  return static_cast<std::uint32_t>(SnapForwardToUtf8Boundary(text, offset));
+}
+
+std::pair<std::uint32_t, std::uint32_t> NormalizeByteRange(std::string const& text,
+                                                           std::uint32_t a,
+                                                           std::uint32_t b) {
+  a = SnapBoundary(text, a);
+  b = SnapBoundary(text, b);
   if (a <= b) {
     return {a, b};
   }
   return {b, a};
-}
-
-bool IsHighSurrogate(char16_t unit) {
-  return unit >= 0xD800 && unit <= 0xDBFF;
-}
-
-bool IsLowSurrogate(char16_t unit) {
-  return unit >= 0xDC00 && unit <= 0xDFFF;
-}
-
-std::uint32_t SnapToUtf16Boundary(std::u16string const& text,
-                                  std::uint32_t index) {
-  index = ClampIndex(text, index);
-  if (index < text.size() && IsLowSurrogate(text[index]) && index > 0 &&
-      IsHighSurrogate(text[index - 1])) {
-    ++index;
-  }
-  return ClampIndex(text, index);
 }
 
 APPTRAVERSE_REGISTER(TextEdit);
@@ -70,21 +70,22 @@ void EnsureTextEditControlRegistration() {
   (void)&g_apptraverse_registrar_TextEditReplaceRangeEvent;
 }
 
-void TextEdit::RequestInsert(std::u16string insert_text) {
+void TextEdit::RequestInsert(std::string insert_text) {
+  RequireValidUtf8(insert_text, "RequestInsert");
   auto event = TextEditInsertEvent::ptr::Create(ae::CreateWith{*domain});
   event->insert_text = std::move(insert_text);
   Commit(event);
 }
 
-void TextEdit::RequestDeleteBackward(std::uint32_t code_units) {
+void TextEdit::RequestDeleteBackward(std::uint32_t code_points) {
   auto event = TextEditDeleteBackwardEvent::ptr::Create(ae::CreateWith{*domain});
-  event->code_units = code_units == 0 ? 1 : code_units;
+  event->code_points = code_points == 0 ? 1 : code_points;
   Commit(event);
 }
 
-void TextEdit::RequestDeleteForward(std::uint32_t code_units) {
+void TextEdit::RequestDeleteForward(std::uint32_t code_points) {
   auto event = TextEditDeleteForwardEvent::ptr::Create(ae::CreateWith{*domain});
-  event->code_units = code_units == 0 ? 1 : code_units;
+  event->code_points = code_points == 0 ? 1 : code_points;
   Commit(event);
 }
 
@@ -94,16 +95,17 @@ void TextEdit::RequestDeleteSelection() {
   Commit(event);
 }
 
-void TextEdit::RequestSetCaret(std::uint32_t index) {
+void TextEdit::RequestSetCaret(std::uint32_t byte_offset) {
   auto event = TextEditSetCaretEvent::ptr::Create(ae::CreateWith{*domain});
-  event->index = SnapToUtf16Boundary(text, index);
+  event->index = SnapBoundary(text, byte_offset);
   Commit(event);
 }
 
-void TextEdit::RequestSetSelection(std::uint32_t anchor, std::uint32_t active) {
+void TextEdit::RequestSetSelection(std::uint32_t anchor_byte_offset,
+                                   std::uint32_t active_byte_offset) {
   auto event = TextEditSetSelectionEvent::ptr::Create(ae::CreateWith{*domain});
-  event->anchor = SnapToUtf16Boundary(text, anchor);
-  event->active = SnapToUtf16Boundary(text, active);
+  event->anchor = SnapBoundary(text, anchor_byte_offset);
+  event->active = SnapBoundary(text, active_byte_offset);
   Commit(event);
 }
 
@@ -112,53 +114,65 @@ void TextEdit::RequestClear() {
   Commit(event);
 }
 
-void TextEdit::RequestReplaceRange(std::uint32_t start, std::uint32_t end,
-                                   std::u16string replacement) {
+void TextEdit::RequestReplaceRange(std::uint32_t start_byte_offset,
+                                   std::uint32_t end_byte_offset,
+                                   std::string replacement) {
+  RequireValidUtf8(replacement, "RequestReplaceRange");
   auto event =
       TextEditReplaceRangeEvent::ptr::Create(ae::CreateWith{*domain});
-  event->start = SnapToUtf16Boundary(text, start);
-  event->end = SnapToUtf16Boundary(text, end);
+  event->start = SnapBoundary(text, start_byte_offset);
+  event->end = SnapBoundary(text, end_byte_offset);
   event->replacement = std::move(replacement);
   Commit(event);
 }
 
 void TextEdit::Apply(TextEditInsertEvent const& event) {
-  std::uint32_t const at = SnapToUtf16Boundary(text, caret);
+  RequireValidUtf8(event.insert_text, "TextEditInsertEvent");
+  if (HasSelection()) {
+    auto const [start, end] = NormalizeByteRange(text, selection_anchor, caret);
+    text.erase(start, end - start);
+    caret = start;
+    selection_anchor = start;
+  }
+  std::uint32_t const at = SnapBoundary(text, caret);
   text.insert(at, event.insert_text);
   caret = at + static_cast<std::uint32_t>(event.insert_text.size());
   selection_anchor = caret;
 }
 
 void TextEdit::Apply(TextEditDeleteBackwardEvent const& event) {
-  std::uint32_t at = ClampIndex(text, caret);
-  std::uint32_t count = event.code_units == 0 ? 1 : event.code_units;
-  at = SnapToUtf16Boundary(text, at);
+  if (HasSelection()) {
+    auto const [start, end] = NormalizeByteRange(text, selection_anchor, caret);
+    text.erase(start, end - start);
+    caret = start;
+    selection_anchor = start;
+    return;
+  }
+  std::uint32_t const end = SnapBoundary(text, caret);
+  std::uint32_t at = end;
+  std::uint32_t count = event.code_points == 0 ? 1 : event.code_points;
   while (count > 0 && at > 0) {
-    if (at > 0 && text[at - 1] >= 0xDC00 && text[at - 1] <= 0xDFFF &&
-        at > 1 && text[at - 2] >= 0xD800 && text[at - 2] <= 0xDBFF) {
-      at -= 2;
-    } else {
-      --at;
-    }
+    at = static_cast<std::uint32_t>(PreviousUtf8CodePointBoundary(text, at));
     --count;
   }
-  text.erase(at, caret - at);
+  text.erase(at, end - at);
   caret = at;
   selection_anchor = at;
 }
 
 void TextEdit::Apply(TextEditDeleteForwardEvent const& event) {
-  std::uint32_t at = ClampIndex(text, caret);
+  if (HasSelection()) {
+    auto const [start, end] = NormalizeByteRange(text, selection_anchor, caret);
+    text.erase(start, end - start);
+    caret = start;
+    selection_anchor = start;
+    return;
+  }
+  std::uint32_t at = SnapBoundary(text, caret);
   std::uint32_t end = at;
-  std::uint32_t count = event.code_units == 0 ? 1 : event.code_units;
-  at = SnapToUtf16Boundary(text, at);
+  std::uint32_t count = event.code_points == 0 ? 1 : event.code_points;
   while (count > 0 && end < text.size()) {
-    if (end + 1 < text.size() && text[end] >= 0xD800 && text[end] <= 0xDBFF &&
-        text[end + 1] >= 0xDC00 && text[end + 1] <= 0xDFFF) {
-      end += 2;
-    } else {
-      ++end;
-    }
+    end = static_cast<std::uint32_t>(NextUtf8CodePointBoundary(text, end));
     --count;
   }
   text.erase(at, end - at);
@@ -171,20 +185,20 @@ void TextEdit::Apply(TextEditDeleteSelectionEvent const& event) {
   if (!HasSelection()) {
     return;
   }
-  auto const [start, end] = NormalizeRange(text, selection_anchor, caret);
+  auto const [start, end] = NormalizeByteRange(text, selection_anchor, caret);
   text.erase(start, end - start);
   caret = start;
   selection_anchor = start;
 }
 
 void TextEdit::Apply(TextEditSetCaretEvent const& event) {
-  caret = SnapToUtf16Boundary(text, event.index);
+  caret = SnapBoundary(text, event.index);
   selection_anchor = caret;
 }
 
 void TextEdit::Apply(TextEditSetSelectionEvent const& event) {
-  selection_anchor = SnapToUtf16Boundary(text, event.anchor);
-  caret = SnapToUtf16Boundary(text, event.active);
+  selection_anchor = SnapBoundary(text, event.anchor);
+  caret = SnapBoundary(text, event.active);
 }
 
 void TextEdit::Apply(TextEditClearEvent const& event) {
@@ -195,9 +209,9 @@ void TextEdit::Apply(TextEditClearEvent const& event) {
 }
 
 void TextEdit::Apply(TextEditReplaceRangeEvent const& event) {
-  auto const [start, end] = NormalizeRange(
-      text, SnapToUtf16Boundary(text, event.start),
-      SnapToUtf16Boundary(text, event.end));
+  RequireValidUtf8(event.replacement, "TextEditReplaceRangeEvent");
+  auto const [start, end] =
+      NormalizeByteRange(text, event.start, event.end);
   text.replace(start, end - start, event.replacement);
   caret = start + static_cast<std::uint32_t>(event.replacement.size());
   selection_anchor = caret;

@@ -91,6 +91,7 @@ add_library(apptraverse STATIC
   src/object_serialization.cpp
   src/model_persistence.cpp
   src/control_text_edit.cpp
+  src/utf8_text.cpp
   src/control_button.cpp
   src/ui_mirror.cpp
   src/model_runtime.cpp

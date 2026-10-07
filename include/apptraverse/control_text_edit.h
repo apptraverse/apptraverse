@@ -10,9 +10,9 @@
 
 namespace apptraverse {
 
-// UTF-16 code-unit indices. Caret is the active selection endpoint.
-// Boundary policy: indices never sit between a high and low surrogate of one
-// code point; an index on the low unit snaps forward past the pair.
+// TextEdit stores valid UTF-8 in std::string. caret and selection_anchor are
+// UTF-8 byte offsets at Unicode scalar value boundaries (never inside a
+// multi-byte sequence). Grapheme-cluster editing is deferred.
 class TextEdit;
 class TextEditInsertEvent;
 class TextEditDeleteBackwardEvent;
@@ -44,21 +44,21 @@ class TextEdit : public NodeFor<TextEdit> {
     dnv(base_, text, caret, selection_anchor);
   }
 
-  std::u16string text;
+  std::string text;
   std::uint32_t caret{0};
   std::uint32_t selection_anchor{0};
 
   bool HasSelection() const { return selection_anchor != caret; }
 
-  void RequestInsert(std::u16string insert_text);
-  void RequestDeleteBackward(std::uint32_t code_units);
-  void RequestDeleteForward(std::uint32_t code_units);
+  void RequestInsert(std::string insert_text);
+  void RequestDeleteBackward(std::uint32_t code_points);
+  void RequestDeleteForward(std::uint32_t code_points);
   void RequestDeleteSelection();
-  void RequestSetCaret(std::uint32_t index);
-  void RequestSetSelection(std::uint32_t anchor, std::uint32_t active);
+  void RequestSetCaret(std::uint32_t byte_offset);
+  void RequestSetSelection(std::uint32_t anchor_byte_offset, std::uint32_t active_byte_offset);
   void RequestClear();
-  void RequestReplaceRange(std::uint32_t start, std::uint32_t end,
-                           std::u16string replacement);
+  void RequestReplaceRange(std::uint32_t start_byte_offset, std::uint32_t end_byte_offset,
+                           std::string replacement);
 
   void Apply(TextEditInsertEvent const& event);
   void Apply(TextEditDeleteBackwardEvent const& event);
@@ -81,7 +81,7 @@ class TextEditInsertEvent : public EventFor<TextEdit, TextEditInsertEvent> {
 
   AE_OBJECT_REFLECT(AE_MMBR(insert_text))
 
-  std::u16string insert_text;
+  std::string insert_text;
 };
 
 class TextEditDeleteBackwardEvent
@@ -94,9 +94,9 @@ class TextEditDeleteBackwardEvent
  public:
   explicit TextEditDeleteBackwardEvent(ae::ObjProp prop) : EventFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(code_units))
+  AE_OBJECT_REFLECT(AE_MMBR(code_points))
 
-  std::uint32_t code_units{1};
+  std::uint32_t code_points{1};
 };
 
 class TextEditDeleteForwardEvent
@@ -109,9 +109,9 @@ class TextEditDeleteForwardEvent
  public:
   explicit TextEditDeleteForwardEvent(ae::ObjProp prop) : EventFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(code_units))
+  AE_OBJECT_REFLECT(AE_MMBR(code_points))
 
-  std::uint32_t code_units{1};
+  std::uint32_t code_points{1};
 };
 
 class TextEditDeleteSelectionEvent
@@ -179,7 +179,7 @@ class TextEditReplaceRangeEvent
 
   std::uint32_t start{0};
   std::uint32_t end{0};
-  std::u16string replacement;
+  std::string replacement;
 };
 
 void EnsureTextEditControlRegistration();

@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
@@ -18,7 +19,7 @@ namespace {
                 << __LINE__ << '\n';                                         \
       std::exit(1);                                                          \
     }                                                                        \
-  } while (false)
+  } while (0)
 
 }  // namespace
 
@@ -29,17 +30,17 @@ void RunControlTextEditTest() {
   auto edit = TextEdit::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*edit);
 
-  edit->RequestInsert(u"hello");
-  CHECK(edit->text == u"hello");
+  edit->RequestInsert("hello");
+  CHECK(edit->text == "hello");
   CHECK(edit->caret == 5);
 
   edit->RequestSetSelection(1, 4);
   CHECK(edit->HasSelection());
-  edit->RequestReplaceRange(1, 4, u"i");
-  CHECK(edit->text == u"hio");
+  edit->RequestReplaceRange(1, 4, "i");
+  CHECK(edit->text == "hio");
   CHECK(edit->caret == 2);
 
-  edit->RequestInsert(u"\U0001F600");
+  edit->RequestInsert("\xF0\x9F\x98\x80");
   CHECK(edit->text.size() >= 5);
 
   ByteSink snapshot;
@@ -79,9 +80,9 @@ void RunControlTextEditTest() {
 
   auto after_event =
       TextEditInsertEvent::ptr::Create(ae::CreateWith{caret_domain});
-  after_event->insert_text = u"!";
+  after_event->insert_text = "!";
   caret_edit->Commit(after_event);
-  CHECK(caret_edit->text.find(u'!') != std::u16string::npos);
+  CHECK(caret_edit->text.find('!') != std::string::npos);
 }
 
 }  // namespace apptraverse::test

@@ -59,15 +59,44 @@ add_test(
   COMMAND apptraverse_model_persistence_node_base_excluded_ref_test
 )
 
-add_executable(apptraverse_text_edit_utf16_boundary_test
-  text_edit_utf16_boundary_test.cpp
+add_executable(apptraverse_text_edit_utf8_boundary_test
+  text_edit_utf8_boundary_test.cpp
 )
-target_link_libraries(apptraverse_text_edit_utf16_boundary_test PRIVATE
+target_link_libraries(apptraverse_text_edit_utf8_boundary_test PRIVATE
   apptraverse)
 add_test(
-  NAME apptraverse_text_edit_utf16_boundary_test
-  COMMAND apptraverse_text_edit_utf16_boundary_test
+  NAME apptraverse_text_edit_utf8_boundary_test
+  COMMAND apptraverse_text_edit_utf8_boundary_test
 )
+
+add_executable(apptraverse_text_edit_journal_test
+  text_edit_journal_test.cpp
+)
+target_link_libraries(apptraverse_text_edit_journal_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_text_edit_journal_test
+  COMMAND apptraverse_text_edit_journal_test
+)
+
+add_executable(apptraverse_text_edit_invalid_utf8_test
+  text_edit_invalid_utf8_test.cpp
+)
+target_link_libraries(apptraverse_text_edit_invalid_utf8_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_text_edit_invalid_utf8_test
+  COMMAND apptraverse_text_edit_invalid_utf8_test
+  WILL_FAIL TRUE
+)
+
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(
+    NAME apptraverse_utf8_policy_test
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_SOURCE_DIR}/tools/check_utf8_text_policy.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  )
+endif()
 
 add_executable(apptraverse_shared_node_foundation_test
   shared_node_foundation_test.cpp
