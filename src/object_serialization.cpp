@@ -262,13 +262,8 @@ void RestoreReachableNodeHistory(std::vector<SavedNodeBookkeeping>& saved) {
   saved.clear();
 }
 
-void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
-  ae::RamDomainStorage scratch;
-  std::vector<SavedNodeBookkeeping> saved_history;
-  ClearReachableNodeHistoryForPublicationSave(root, saved_history);
-  SaveObjectGraphToScratch(root, scratch);
-  RestoreReachableNodeHistory(saved_history);
-
+std::unordered_set<std::uint32_t> CollectDistilledNodeBaseIds(
+    ae::RamDomainStorage const& scratch, ae::Obj const& root) {
   std::unordered_set<std::uint32_t> distilled_base_ids;
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
@@ -284,6 +279,13 @@ void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
       }
     }
   }
+  return distilled_base_ids;
+}
+
+void WriteUiPublicationScratchLayers(ae::RamDomainStorage const& scratch,
+                                     ae::Obj const& root, ByteSink& out) {
+  std::unordered_set<std::uint32_t> const distilled_base_ids =
+      CollectDistilledNodeBaseIds(scratch, root);
 
   auto const count_at = out.bytes.size();
   std::uint32_t layer_count = 0;
@@ -337,6 +339,15 @@ void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
   }
   std::memcpy(out.bytes.data() + gen_count_at, &node_generation_count,
               sizeof(node_generation_count));
+}
+
+void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
+  ae::RamDomainStorage scratch;
+  std::vector<SavedNodeBookkeeping> saved_history;
+  ClearReachableNodeHistoryForPublicationSave(root, saved_history);
+  SaveObjectGraphToScratch(root, scratch);
+  RestoreReachableNodeHistory(saved_history);
+  WriteUiPublicationScratchLayers(scratch, root, out);
 }
 
 void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
@@ -865,33 +876,15 @@ void FilterNodeJournalForPersistentSave(Node& node) {
   node.journal = std::move(kept);
 }
 
-void WriteFilteredScratchLayers(ae::RamDomainStorage const& scratch,
-                                ae::Obj const& root, ByteSink& out) {
-  std::unordered_set<std::uint32_t> distilled_base_ids;
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    if (auto* node = AsObjOf<Node>(obj.get())) {
-      if (node->base.is_valid()) {
-        distilled_base_ids.insert(node->base.id().id());
-      }
-    }
-  }
-
+// Persistent checkpoint: event-sourced Node base objects and journal must round-trip.
+void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
+                                            ae::Obj const& root, ByteSink& out) {
   auto const count_at = out.bytes.size();
   std::uint32_t layer_count = 0;
   out.write(&layer_count, sizeof(layer_count));
 
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
-      continue;
-    }
-    if (distilled_base_ids.count(obj_id.id()) != 0) {
       continue;
     }
     auto obj = root.domain->Find(obj_id);
@@ -923,9 +916,6 @@ void WriteFilteredScratchLayers(ae::RamDomainStorage const& scratch,
   out.write(&node_generation_count, sizeof(node_generation_count));
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
-      continue;
-    }
-    if (distilled_base_ids.count(obj_id.id()) != 0) {
       continue;
     }
     auto obj = root.domain->Find(obj_id);
@@ -964,16 +954,16 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
     }
     SavedJournal saved_entry;
     saved_entry.node = node;
-    saved_entry.journal = std::move(node->journal);
+    saved_entry.journal = node->journal;
     node->journal.clear();
-    for (EventRecord& record : saved_entry.journal) {
+    for (EventRecord const& record : saved_entry.journal) {
       if (!record.event.is_valid()) {
         continue;
       }
       if (IsExcludedFromPersistentSnapshot(*record.event)) {
         continue;
       }
-      node->journal.push_back(std::move(record));
+      node->journal.push_back(record);
     }
     saved_journals.push_back(std::move(saved_entry));
   }
@@ -990,7 +980,7 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
     entry.node->journal = std::move(entry.journal);
   }
 
-  WriteFilteredScratchLayers(scratch, root, out);
+  WritePersistentCheckpointScratchLayers(scratch, root, out);
 }
 
 void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
