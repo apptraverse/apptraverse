@@ -134,7 +134,7 @@ std::unordered_set<std::uint32_t> SnapshotObjectIds(std::vector<std::uint8_t> co
   return ids;
 }
 
-void RunOneRoundtrip() {
+void RunOneRoundtripMaterializedOnlyRuntimeRef() {
   ae::ObjId const kAppId{0xA9900001u};
   ae::ObjId const kDocId{0xA9900002u};
 
@@ -219,11 +219,48 @@ void RunOneRoundtrip() {
   CHECK(load_app2->doc->label == "event_c");
 }
 
+void RunOneRoundtripBaseCapturedRuntimeRef() {
+  ae::ObjId const kAppId{0xA9900101u};
+  ae::ObjId const kDocId{0xA9900102u};
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto app = PersistentApplication::ptr::Create(
+      ae::CreateWith{domain}.with_id(kAppId));
+  auto doc = PersistentDoc::ptr::Create(ae::CreateWith{domain}.with_id(kDocId));
+  auto runtime = NetworkState::ptr::Create(ae::CreateWith{domain});
+  doc->runtime_observer = runtime;
+  InitializeRuntimeNode(*doc);
+  app->doc = doc;
+  CHECK(doc->base.is_valid());
+  CHECK(static_cast<PersistentDoc&>(*doc->base).runtime_observer.is_valid());
+
+  ByteSink snapshot;
+  SerializePersistentModelSnapshot(*app, snapshot);
+
+  ae::RamDomainStorage load_storage;
+  ae::Domain load_domain{load_storage};
+  auto load_app = PersistentApplication::ptr::Create(
+      ae::CreateWith{load_domain}.with_id(kAppId));
+  auto load_doc = PersistentDoc::ptr::Create(ae::CreateWith{load_domain}.with_id(kDocId));
+  InitializeRuntimeNode(*load_doc);
+  load_app->doc = load_doc;
+
+  ByteSource in;
+  in.data = snapshot.bytes.data();
+  in.size = snapshot.bytes.size();
+  in.pos = 0;
+  LoadPersistentModelSnapshot(in, load_domain, load_storage, *load_app);
+  CHECK(!load_app->doc->runtime_observer.is_valid());
+  CHECK(!static_cast<PersistentDoc&>(*load_app->doc->base).runtime_observer.is_valid());
+}
+
 }  // namespace
 
 void RunModelPersistenceApplicationRootRoundtripTest() {
   for (int i = 0; i < 20; ++i) {
-    RunOneRoundtrip();
+    RunOneRoundtripMaterializedOnlyRuntimeRef();
+    RunOneRoundtripBaseCapturedRuntimeRef();
   }
 }
 

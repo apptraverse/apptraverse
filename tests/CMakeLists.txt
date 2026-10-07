@@ -49,6 +49,16 @@ add_test(
   COMMAND apptraverse_model_persistence_application_root_roundtrip_test
 )
 
+add_executable(apptraverse_model_persistence_node_base_excluded_ref_test
+  model_persistence_node_base_excluded_ref_test.cpp
+)
+target_link_libraries(apptraverse_model_persistence_node_base_excluded_ref_test PRIVATE
+  apptraverse)
+add_test(
+  NAME apptraverse_model_persistence_node_base_excluded_ref_test
+  COMMAND apptraverse_model_persistence_node_base_excluded_ref_test
+)
+
 add_executable(apptraverse_text_edit_utf16_boundary_test
   text_edit_utf16_boundary_test.cpp
 )

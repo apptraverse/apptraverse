@@ -7,6 +7,7 @@
 
 #include "apptraverse/graph_walk.h"
 #include "apptraverse/model_persistence.h"
+#include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_lifecycle.h"
 #include "apptraverse/runtime_node.h"
@@ -158,6 +159,7 @@ void RunModelPersistenceRuntimeRefTest() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::RunModelPersistenceRuntimeRefTest();
   return 0;
 }

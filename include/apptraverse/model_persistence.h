@@ -46,9 +46,35 @@ class PersistentSnapshotPatchSession {
     return loaded_object_ids_;
   }
 
+  bool restored() const { return restored_; }
+
  private:
+  friend class PersistentSnapshotPatchGuard;
   std::vector<PersistentObjPtrPatch> patches_;
   std::unordered_set<std::uint32_t> const* loaded_object_ids_{nullptr};
+  bool restored_{false};
+};
+
+// Restores ObjPtr patches on scope exit unless dismissed or already restored.
+class PersistentSnapshotPatchGuard {
+ public:
+  explicit PersistentSnapshotPatchGuard(PersistentSnapshotPatchSession& session)
+      : session_{session} {}
+  ~PersistentSnapshotPatchGuard() { release(); }
+  PersistentSnapshotPatchGuard(PersistentSnapshotPatchGuard const&) = delete;
+  PersistentSnapshotPatchGuard& operator=(PersistentSnapshotPatchGuard const&) = delete;
+
+  void dismiss() { release(); }
+
+ private:
+  void release() {
+    if (!dismissed_ && !session_.restored_) {
+      session_.RestoreAll();
+    }
+    dismissed_ = true;
+  }
+  PersistentSnapshotPatchSession& session_;
+  bool dismissed_{false};
 };
 
 using PersistentObjPtrClearHook =

@@ -145,10 +145,14 @@ void PersistentSnapshotPatchSession::ClearStaleObjPtr(
 }
 
 void PersistentSnapshotPatchSession::RestoreAll() {
+  if (restored_) {
+    return;
+  }
   for (PersistentObjPtrPatch& patch : patches_) {
     *patch.slot = patch.previous;
   }
   patches_.clear();
+  restored_ = true;
 }
 
 void RegisterPersistentObjPtrClearHook(std::uint32_t class_id,
@@ -204,26 +208,86 @@ void SanitizePersistentObjPtrFields(Node& node,
   });
 }
 
+void ClearPersistentObjPtrFieldsOnObject(ae::Obj& object,
+                                       PersistentSnapshotPatchSession& session) {
+  if (IsExcludedFromPersistentSnapshot(object)) {
+    return;
+  }
+  if (ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
+                                                     object.GetClassId()) >= 0) {
+    ClearPersistentObjPtrFields(static_cast<Node&>(object), session);
+    return;
+  }
+  if (auto const hook = PersistentObjPtrClearObjHooks().find(object.GetClassId());
+      hook != PersistentObjPtrClearObjHooks().end()) {
+    hook->second(object, session);
+  }
+}
+
+void SanitizePersistentObjPtrFieldsOnObject(
+    ae::Obj& object, PersistentSnapshotPatchSession& session) {
+  if (IsExcludedFromPersistentSnapshot(object)) {
+    return;
+  }
+  if (ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
+                                                     object.GetClassId()) >= 0) {
+    SanitizePersistentObjPtrFields(static_cast<Node&>(object), session);
+    return;
+  }
+  if (auto const hook = PersistentObjPtrSanitizeObjHooks().find(object.GetClassId());
+      hook != PersistentObjPtrSanitizeObjHooks().end()) {
+    hook->second(object, session);
+  }
+}
+
 void RunPersistentObjPtrClearHooks(ae::Obj& root,
                                    PersistentSnapshotPatchSession& session) {
-  if (ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
-                                                     root.GetClassId()) >= 0) {
-    if (!IsExcludedFromPersistentSnapshot(root)) {
-      ClearPersistentObjPtrFields(static_cast<Node&>(root), session);
-    }
-  } else if (!IsExcludedFromPersistentSnapshot(root)) {
-    if (auto const hook = PersistentObjPtrClearObjHooks().find(root.GetClassId());
-        hook != PersistentObjPtrClearObjHooks().end()) {
-      hook->second(root, session);
-    }
+  std::vector<ae::Obj*> objects;
+  CollectPersistentSerializationReachableObjects(root, objects);
+  for (ae::Obj* object : objects) {
+    ClearPersistentObjPtrFieldsOnObject(*object, session);
   }
-  std::vector<Node*> nodes;
-  CollectReachableNodes(root, nodes);
-  for (Node* node : nodes) {
-    if (IsExcludedFromPersistentSnapshot(*node)) {
+}
+
+void CollectLoadedPersistentObjectsForSanitize(
+    ae::Obj& root, std::vector<ae::ObjId> const& loaded_object_ids,
+    std::vector<ae::Obj*>& out) {
+  std::unordered_set<std::uint32_t> queued;
+  std::vector<ae::ObjId> stack;
+  auto queue_id = [&](ae::ObjId const& id) {
+    if (!id.is_valid()) {
+      return;
+    }
+    if (!queued.insert(id.id()).second) {
+      return;
+    }
+    stack.push_back(id);
+  };
+  queue_id(root.obj_id);
+  for (ae::ObjId const id : loaded_object_ids) {
+    queue_id(id);
+  }
+  out.clear();
+  while (!stack.empty()) {
+    ae::ObjId const id = stack.back();
+    stack.pop_back();
+    auto obj = root.domain->Find(id);
+    if (!obj || IsExcludedFromPersistentSnapshot(*obj)) {
       continue;
     }
-    ClearPersistentObjPtrFields(*node, session);
+    out.push_back(&*obj);
+    if (ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
+                                                       obj->GetClassId()) >= 0) {
+      Node& node = static_cast<Node&>(*obj);
+      if (node.base.is_valid()) {
+        queue_id(node.base.id());
+      }
+      for (EventRecord const& record : node.journal) {
+        if (record.event.is_valid()) {
+          queue_id(record.event.id());
+        }
+      }
+    }
   }
 }
 
@@ -236,24 +300,10 @@ void SanitizeLoadedPersistentObjPtrs(
   }
   PersistentSnapshotPatchSession session;
   session.SetLoadedObjectIds(&loaded_ids);
-  if (ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
-                                                     root.GetClassId()) >= 0) {
-    if (!IsExcludedFromPersistentSnapshot(root)) {
-      SanitizePersistentObjPtrFields(static_cast<Node&>(root), session);
-    }
-  } else if (!IsExcludedFromPersistentSnapshot(root)) {
-    if (auto const hook = PersistentObjPtrSanitizeObjHooks().find(root.GetClassId());
-        hook != PersistentObjPtrSanitizeObjHooks().end()) {
-      hook->second(root, session);
-    }
-  }
-  std::vector<Node*> nodes;
-  CollectReachableNodes(root, nodes);
-  for (Node* node : nodes) {
-    if (IsExcludedFromPersistentSnapshot(*node)) {
-      continue;
-    }
-    SanitizePersistentObjPtrFields(*node, session);
+  std::vector<ae::Obj*> objects;
+  CollectLoadedPersistentObjectsForSanitize(root, loaded_object_ids, objects);
+  for (ae::Obj* object : objects) {
+    SanitizePersistentObjPtrFieldsOnObject(*object, session);
   }
 }
 

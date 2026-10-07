@@ -235,6 +235,32 @@ void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
   }
 }
 
+void CollectPersistentSerializationReachableObjects(
+    ae::Obj& root, std::vector<ae::Obj*>& out) {
+  ae::RamDomainStorage scratch;
+  SaveObjectGraphToScratch(root, scratch);
+
+  std::unordered_set<std::uint32_t> seen;
+  out.clear();
+  out.reserve(scratch.state.size() + 1);
+  auto add_id = [&](ae::ObjId const& id) {
+    if (!id.is_valid()) {
+      return;
+    }
+    if (!seen.insert(id.id()).second) {
+      return;
+    }
+    if (auto obj = root.domain->Find(id)) {
+      out.push_back(&*obj);
+    }
+  };
+  add_id(root.obj_id);
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    (void)class_map_opt;
+    add_id(obj_id);
+  }
+}
+
 struct SavedNodeBookkeeping {
   Node* node;
   Node::ptr base;
@@ -969,11 +995,13 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
   }
 
   PersistentSnapshotPatchSession objptr_patches;
+  PersistentSnapshotPatchGuard objptr_guard{objptr_patches};
   RunPersistentObjPtrClearHooks(root, objptr_patches);
 
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(root, scratch);
 
+  objptr_guard.dismiss();
   objptr_patches.RestoreAll();
 
   for (SavedJournal& entry : saved_journals) {

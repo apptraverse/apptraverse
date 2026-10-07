@@ -80,6 +80,11 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 
+// Full Save traversal for persistent checkpoints: includes Node::base snapshots,
+// journal Events, and other history objects (no RemoveDistilledBaseObjects).
+void CollectPersistentSerializationReachableObjects(
+    ae::Obj& root, std::vector<ae::Obj*>& out);
+
 // Reachability for presentation: omits Node::base and Node::journal so
 // historical Event-held objects are not treated as live UI topology.
 void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
