@@ -10,9 +10,9 @@
 #include "apptraverse/event_for.h"
 #include "apptraverse/event_record.h"
 #include "apptraverse/node.h"
-#include "apptraverse/shared_event_order.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/runtime_node.h"
 
 namespace apptraverse::test {
 
@@ -53,12 +53,6 @@ class DirectoryProbeNode : public NodeFor<DirectoryProbeNode> {
   std::string label;
 
   void Apply(DirectoryProbeBumpEvent const& event);
-
-  void InsertAtForTest(std::uint64_t timestamp_us, Event::ptr event) {
-    InsertEvent(EventRecord{.event = std::move(event),
-                            .identity = {},
-                            .order = SharedEventOrder{.timestamp_us = timestamp_us}});
-  }
 };
 
 class DirectoryProbeBumpEvent
@@ -84,7 +78,15 @@ void DirectoryProbeNode::Apply(DirectoryProbeBumpEvent const& event) {
 }
 
 constexpr ae::ObjId::Type kProbeNodeId = 100000;
-constexpr ae::ObjId::Type kProbeEventId = 100001;
+constexpr ae::ObjId::Type kFirstEventId = 100001;
+
+Event::ptr MakeBumpEvent(ae::Domain& domain, ae::ObjId::Type event_id,
+                         std::int32_t delta) {
+  auto event = DirectoryProbeBumpEvent::ptr::Create(
+      ae::CreateWith{domain}.with_id(event_id));
+  event->delta = delta;
+  return event;
+}
 
 void TestDirectoryDomainStorageConcreteRoundtrip() {
   auto root = std::filesystem::temp_directory_path() /
@@ -98,10 +100,8 @@ void TestDirectoryDomainStorageConcreteRoundtrip() {
         ae::CreateWith{domain}.with_id(kProbeNodeId));
     node->label = "probe";
     node->value = 1;
-    auto event = DirectoryProbeBumpEvent::ptr::Create(
-        ae::CreateWith{domain}.with_id(kProbeEventId));
-    event->delta = 4;
-    node->InsertAtForTest(1, event);
+    InitializeRuntimeNode(*node);
+    node->Commit(MakeBumpEvent(domain, kFirstEventId, 4));
     node.Save();
     CHECK(node->value == 5);
     CHECK(!node->journal.empty());
@@ -114,13 +114,11 @@ void TestDirectoryDomainStorageConcreteRoundtrip() {
         ae::CreateWith{domain}.with_id(kProbeNodeId));
     node.Load();
     CHECK(node.is_loaded());
+    CHECK(node->base.is_valid() && node->base.is_loaded());
     CHECK(node->value == 5);
     CHECK(node->label == "probe");
     CHECK(!node->journal.empty());
-    auto event2 = DirectoryProbeBumpEvent::ptr::Create(
-        ae::CreateWith{domain}.with_id(kProbeEventId + 1));
-    event2->delta = 2;
-    node->InsertAtForTest(2, event2);
+    node->Commit(MakeBumpEvent(domain, kFirstEventId + 1, 2));
     node.Save();
     CHECK(node->value == 7);
   }
