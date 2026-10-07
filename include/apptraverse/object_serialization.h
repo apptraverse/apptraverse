@@ -167,6 +167,15 @@ void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
                                     ae::IDomainStorage& storage);
 
+// Durable model checkpoint (RAM or directory). Excludes presenters and
+// RegisterRuntimeOnlyClassId types. Restores temporary ref/journal patches
+// before returning; live graph unchanged after SerializePersistentModelSnapshot.
+void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out);
+void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
+                                 ae::IDomainStorage& storage, ae::Obj& root);
+void SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                          ae::IDomainStorage& storage);
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_OBJECT_SERIALIZATION_H_

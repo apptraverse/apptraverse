@@ -9,6 +9,24 @@ add_test(
   COMMAND apptraverse_event_sourced_core_test
 )
 
+add_executable(apptraverse_model_persistence_test
+  model_persistence_test.cpp
+)
+target_link_libraries(apptraverse_model_persistence_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_model_persistence_test
+  COMMAND apptraverse_model_persistence_test
+)
+
+add_executable(apptraverse_control_text_edit_test
+  control_text_edit_test.cpp
+)
+target_link_libraries(apptraverse_control_text_edit_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_control_text_edit_test
+  COMMAND apptraverse_control_text_edit_test
+)
+
 add_executable(apptraverse_shared_node_foundation_test
   shared_node_foundation_test.cpp
 )

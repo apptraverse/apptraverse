@@ -13,6 +13,7 @@
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/graph_walk.h"
+#include "apptraverse/model_persistence.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
 
@@ -848,6 +849,217 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   keepalive.active_presenters.clear();
   keepalive.live_objects.clear();
   return changed;
+}
+
+void FilterNodeJournalForPersistentSave(Node& node) {
+  std::vector<EventRecord> kept;
+  kept.reserve(node.journal.size());
+  for (EventRecord& record : node.journal) {
+    if (!record.event.is_valid()) {
+      continue;
+    }
+    if (IsExcludedFromPersistentSnapshot(*record.event)) {
+      continue;
+    }
+    kept.push_back(std::move(record));
+  }
+  node.journal = std::move(kept);
+}
+
+void WriteFilteredScratchLayers(ae::RamDomainStorage const& scratch,
+                                ae::Obj const& root, ByteSink& out) {
+  std::unordered_set<std::uint32_t> distilled_base_ids;
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj) {
+      continue;
+    }
+    if (auto* node = AsObjOf<Node>(obj.get())) {
+      if (node->base.is_valid()) {
+        distilled_base_ids.insert(node->base.id().id());
+      }
+    }
+  }
+
+  auto const count_at = out.bytes.size();
+  std::uint32_t layer_count = 0;
+  out.write(&layer_count, sizeof(layer_count));
+
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj || IsExcludedFromPersistentSnapshot(*obj)) {
+      continue;
+    }
+    for (auto const& [class_id, versions] : *class_map_opt) {
+      if (IsRuntimeOnlyClassId(class_id) ||
+          ae::Registry::GetRegistry().GenerationDistance(Presenter::kClassId,
+                                                         class_id) >= 0) {
+        continue;
+      }
+      for (auto const& [version, data] : versions) {
+        auto const oid = obj_id.id();
+        out.write(&oid, sizeof(oid));
+        out.write(&class_id, sizeof(class_id));
+        out.write(&version, sizeof(version));
+        auto const size = static_cast<std::uint32_t>(data.size());
+        out.write(&size, sizeof(size));
+        out.write(data.data(), data.size());
+        ++layer_count;
+      }
+    }
+  }
+  std::memcpy(out.bytes.data() + count_at, &layer_count, sizeof(layer_count));
+
+  auto const gen_count_at = out.bytes.size();
+  std::uint32_t node_generation_count = 0;
+  out.write(&node_generation_count, sizeof(node_generation_count));
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj || IsExcludedFromPersistentSnapshot(*obj)) {
+      continue;
+    }
+    auto* node = AsObjOf<Node>(obj.get());
+    if (node == nullptr) {
+      continue;
+    }
+    auto const oid = obj_id.id();
+    auto const generation = node->Generation();
+    out.write(&oid, sizeof(oid));
+    out.write(&generation, sizeof(generation));
+    ++node_generation_count;
+  }
+  std::memcpy(out.bytes.data() + gen_count_at, &node_generation_count,
+              sizeof(node_generation_count));
+}
+
+void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
+  std::uint32_t const root_id = root.obj_id.id();
+  out.write(&root_id, sizeof(root_id));
+
+  std::vector<Node*> nodes;
+  CollectReachableNodes(root, nodes);
+  struct SavedJournal {
+    Node* node;
+    std::vector<EventRecord> journal;
+  };
+  std::vector<SavedJournal> saved_journals;
+  saved_journals.reserve(nodes.size());
+  for (Node* node : nodes) {
+    if (IsExcludedFromPersistentSnapshot(*node)) {
+      continue;
+    }
+    SavedJournal saved_entry;
+    saved_entry.node = node;
+    saved_entry.journal = std::move(node->journal);
+    node->journal.clear();
+    for (EventRecord& record : saved_entry.journal) {
+      if (!record.event.is_valid()) {
+        continue;
+      }
+      if (IsExcludedFromPersistentSnapshot(*record.event)) {
+        continue;
+      }
+      node->journal.push_back(std::move(record));
+    }
+    saved_journals.push_back(std::move(saved_entry));
+  }
+
+  ae::RamDomainStorage scratch;
+  SaveObjectGraphToScratch(root, scratch);
+
+  for (SavedJournal& entry : saved_journals) {
+    entry.node->journal = std::move(entry.journal);
+  }
+
+  WriteFilteredScratchLayers(scratch, root, out);
+}
+
+void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
+                                 ae::IDomainStorage& storage, ae::Obj& root) {
+  std::uint32_t root_id = 0;
+  in.read(&root_id, sizeof(root_id));
+  assert(in.ok);
+  assert(root.obj_id.id() == root_id);
+
+  std::uint32_t layer_count = 0;
+  in.read(&layer_count, sizeof(layer_count));
+  assert(in.ok);
+
+  std::vector<ae::ObjId> loaded_ids;
+  loaded_ids.reserve(layer_count);
+  for (std::uint32_t i = 0; i < layer_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint32_t class_id = 0;
+    std::uint8_t version = 0;
+    std::uint32_t size = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&class_id, sizeof(class_id));
+    in.read(&version, sizeof(version));
+    in.read(&size, sizeof(size));
+    assert(in.ok && in.pos + size <= in.size);
+    InjectObjectBytes(storage, {ae::ObjId{obj_id}, class_id, version},
+                      in.data + in.pos, size);
+    in.pos += size;
+    ae::ObjId const id{obj_id};
+    if (std::find(loaded_ids.begin(), loaded_ids.end(), id) == loaded_ids.end()) {
+      loaded_ids.push_back(id);
+    }
+  }
+
+  LoadExistingObject(root, domain);
+  for (ae::ObjId const id : loaded_ids) {
+    if (id == root.obj_id) {
+      continue;
+    }
+    if (auto object = domain.Find(id); object) {
+      LoadExistingObject(*object, domain);
+    }
+  }
+
+  std::uint32_t node_generation_count = 0;
+  in.read(&node_generation_count, sizeof(node_generation_count));
+  assert(in.ok);
+  for (std::uint32_t i = 0; i < node_generation_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint64_t generation = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&generation, sizeof(generation));
+    assert(in.ok);
+    auto object = domain.Find(ae::ObjId{obj_id});
+    if (!object) {
+      continue;
+    }
+    if (auto* node = AsObjOf<Node>(object.get())) {
+      node->AdoptPublishedGeneration(generation);
+    }
+  }
+}
+
+void SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                          ae::IDomainStorage& storage) {
+  ByteSink bytes;
+  SerializePersistentModelSnapshot(root, bytes);
+  ByteSource in;
+  in.data = bytes.bytes.data();
+  in.size = bytes.bytes.size();
+  in.pos = 0;
+  ae::Domain domain{storage};
+  LoadPersistentModelSnapshot(in, domain, storage, root);
 }
 
 }  // namespace apptraverse
