@@ -44,7 +44,7 @@ class Link : public NodeFor<Link> {
 // First concrete transport descriptor. Runtime transport objects are not
 // persisted; only this configuration survives Save/Load.
 class MemoryLink : public NodeFor<MemoryLink, Link> {
-  APPTRAVERSE_OBJECT(MemoryLink, Link, 2)
+  APPTRAVERSE_OBJECT(MemoryLink, Link, 0)
 
  protected:
   MemoryLink() = default;
@@ -55,24 +55,12 @@ class MemoryLink : public NodeFor<MemoryLink, Link> {
   AE_OBJECT_REFLECT(AE_MMBR(endpoint_uid), AE_MMBR(heartbeat_interval_ms))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("MemoryLink v0 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "MemoryLink v1 flattened layout is not supported; re-distill with a "
-        "fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, endpoint_uid, heartbeat_interval_ms);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, endpoint_uid, heartbeat_interval_ms);
   }
 

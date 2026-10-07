@@ -24,8 +24,7 @@ class CounterDocument;
 class AddEvent;
 
 class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
-  // Version 2: native base-class serialization (separate class layers).
-  APPTRAVERSE_OBJECT(CounterDocument, Node, 2)
+  APPTRAVERSE_OBJECT(CounterDocument, Node, 0)
 
  protected:
   CounterDocument() = default;
@@ -36,24 +35,12 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
   AE_OBJECT_REFLECT(AE_MMBR(value), AE_MMBR(label))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("CounterDocument v0 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "CounterDocument v1 flattened layout is not supported; re-distill with "
-        "a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, value, label);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, value, label);
   }
 

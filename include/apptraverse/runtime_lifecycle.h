@@ -40,7 +40,7 @@ class AetherRegistrationCompletedEvent;
 
 class ApplicationRuntimeState
     : public NodeFor<ApplicationRuntimeState> {
-  APPTRAVERSE_OBJECT(ApplicationRuntimeState, Node, 2)
+  APPTRAVERSE_OBJECT(ApplicationRuntimeState, Node, 0)
 
  protected:
   ApplicationRuntimeState() = default;
@@ -51,26 +51,12 @@ class ApplicationRuntimeState
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "ApplicationRuntimeState v0 is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "ApplicationRuntimeState v1 flattened layout is not supported; start "
-        "with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, run_id);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, run_id);
   }
 
@@ -81,7 +67,7 @@ class ApplicationRuntimeState
 };
 
 class NetworkState : public NodeFor<NetworkState> {
-  APPTRAVERSE_OBJECT(NetworkState, Node, 2)
+  APPTRAVERSE_OBJECT(NetworkState, Node, 0)
 
  protected:
   NetworkState() = default;
@@ -92,25 +78,12 @@ class NetworkState : public NodeFor<NetworkState> {
   AE_OBJECT_REFLECT(AE_MMBR(run_id), AE_MMBR(availability))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "NetworkState v0 is not supported; start with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "NetworkState v1 flattened layout is not supported; start with a "
-        "fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, run_id, availability);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, run_id, availability);
   }
 
@@ -133,7 +106,7 @@ class NetworkState : public NodeFor<NetworkState> {
 };
 
 class AetherRegistrationState : public NodeFor<AetherRegistrationState> {
-  APPTRAVERSE_OBJECT(AetherRegistrationState, Node, 2)
+  APPTRAVERSE_OBJECT(AetherRegistrationState, Node, 0)
 
  protected:
   AetherRegistrationState() = default;
@@ -145,26 +118,12 @@ class AetherRegistrationState : public NodeFor<AetherRegistrationState> {
                     AE_MMBR(uid))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "AetherRegistrationState v0 is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "AetherRegistrationState v1 flattened layout is not supported; start "
-        "with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, run_id, registered_run_id, phase, uid);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, run_id, registered_run_id, phase, uid);
   }
 
