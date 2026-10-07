@@ -53,10 +53,16 @@ class PersistentSnapshotPatchSession {
 
 using PersistentObjPtrClearHook =
     void (*)(Node& node, PersistentSnapshotPatchSession& session);
+using PersistentObjPtrClearObjHook =
+    void (*)(ae::Obj& object, PersistentSnapshotPatchSession& session);
 void RegisterPersistentObjPtrClearHook(std::uint32_t class_id,
                                        PersistentObjPtrClearHook hook);
 void RegisterPersistentObjPtrSanitizeHook(std::uint32_t class_id,
                                           PersistentObjPtrClearHook hook);
+void RegisterPersistentObjPtrClearObjHook(std::uint32_t class_id,
+                                          PersistentObjPtrClearObjHook hook);
+void RegisterPersistentObjPtrSanitizeObjHook(std::uint32_t class_id,
+                                             PersistentObjPtrClearObjHook hook);
 void RunPersistentObjPtrClearHooks(ae::Obj& root,
                                    PersistentSnapshotPatchSession& session);
 void SanitizeLoadedPersistentObjPtrs(

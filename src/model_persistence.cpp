@@ -51,6 +51,18 @@ PersistentObjPtrSanitizeHooks() {
   return hooks;
 }
 
+std::unordered_map<std::uint32_t, PersistentObjPtrClearObjHook>&
+PersistentObjPtrClearObjHooks() {
+  static std::unordered_map<std::uint32_t, PersistentObjPtrClearObjHook> hooks;
+  return hooks;
+}
+
+std::unordered_map<std::uint32_t, PersistentObjPtrClearObjHook>&
+PersistentObjPtrSanitizeObjHooks() {
+  static std::unordered_map<std::uint32_t, PersistentObjPtrClearObjHook> hooks;
+  return hooks;
+}
+
 }  // namespace
 
 bool ObjPtrPointsToExcludedTarget(ae::ObjectPtrBase const& ref) {
@@ -149,6 +161,16 @@ void RegisterPersistentObjPtrSanitizeHook(std::uint32_t class_id,
   PersistentObjPtrSanitizeHooks()[class_id] = hook;
 }
 
+void RegisterPersistentObjPtrClearObjHook(std::uint32_t class_id,
+                                          PersistentObjPtrClearObjHook hook) {
+  PersistentObjPtrClearObjHooks()[class_id] = hook;
+}
+
+void RegisterPersistentObjPtrSanitizeObjHook(std::uint32_t class_id,
+                                             PersistentObjPtrClearObjHook hook) {
+  PersistentObjPtrSanitizeObjHooks()[class_id] = hook;
+}
+
 void ClearPersistentObjPtrFields(Node& node,
                                  PersistentSnapshotPatchSession& session) {
   auto const hook = PersistentObjPtrClearHooks().find(node.GetClassId());
@@ -184,9 +206,15 @@ void SanitizePersistentObjPtrFields(Node& node,
 
 void RunPersistentObjPtrClearHooks(ae::Obj& root,
                                    PersistentSnapshotPatchSession& session) {
-  if (Node* root_node = static_cast<Node*>(&root)) {
+  if (ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
+                                                     root.GetClassId()) >= 0) {
     if (!IsExcludedFromPersistentSnapshot(root)) {
-      ClearPersistentObjPtrFields(*root_node, session);
+      ClearPersistentObjPtrFields(static_cast<Node&>(root), session);
+    }
+  } else if (!IsExcludedFromPersistentSnapshot(root)) {
+    if (auto const hook = PersistentObjPtrClearObjHooks().find(root.GetClassId());
+        hook != PersistentObjPtrClearObjHooks().end()) {
+      hook->second(root, session);
     }
   }
   std::vector<Node*> nodes;
@@ -208,9 +236,15 @@ void SanitizeLoadedPersistentObjPtrs(
   }
   PersistentSnapshotPatchSession session;
   session.SetLoadedObjectIds(&loaded_ids);
-  if (Node* root_node = static_cast<Node*>(&root)) {
+  if (ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
+                                                     root.GetClassId()) >= 0) {
     if (!IsExcludedFromPersistentSnapshot(root)) {
-      SanitizePersistentObjPtrFields(*root_node, session);
+      SanitizePersistentObjPtrFields(static_cast<Node&>(root), session);
+    }
+  } else if (!IsExcludedFromPersistentSnapshot(root)) {
+    if (auto const hook = PersistentObjPtrSanitizeObjHooks().find(root.GetClassId());
+        hook != PersistentObjPtrSanitizeObjHooks().end()) {
+      hook->second(root, session);
     }
   }
   std::vector<Node*> nodes;
