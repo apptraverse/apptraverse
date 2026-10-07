@@ -1056,8 +1056,9 @@ void SavePersistentModelSnapshotToStorage(ae::Obj& root,
   in.data = bytes.bytes.data();
   in.size = bytes.bytes.size();
   in.pos = 0;
-  ae::Domain domain{storage};
-  LoadPersistentModelSnapshot(in, domain, storage, root);
+  ae::Domain* const live_domain = root.domain;
+  assert(live_domain != nullptr);
+  LoadPersistentModelSnapshot(in, *live_domain, storage, root);
 }
 
 }  // namespace apptraverse
