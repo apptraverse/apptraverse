@@ -415,12 +415,43 @@ Node* FindLiveReachableNode(ae::Obj& root, std::uint32_t object_id) {
   return nullptr;
 }
 
-void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
-  // Incremental GUI envelopes target a live Node shell already in the UI domain.
-  Node& node = static_cast<Node&>(object);
+bool PublicationTargetIsNodeShell(ae::Obj const& object) {
+  return ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
+                                                        object.GetClassId()) >= 0;
+}
+
+void AdoptPublishedNodeGeneration(Node& node, std::uint64_t generation) {
   node.AdoptPublishedGeneration(generation);
   node.base = Node::ptr{};
   node.journal.clear();
+}
+
+[[noreturn]] void FatalPublicationContract(char const* context, ae::Obj const& object) {
+  char message[320];
+  std::snprintf(message, sizeof(message),
+                "GUI publication contract violation: %s obj_id=%u class_id=%u\n", context,
+                object.obj_id.id(), object.GetClassId());
+  WriteFatalStderr(message);
+  std::abort();
+}
+
+Node& RequireNodeShell(ae::Obj& object, char const* context) {
+  if (!PublicationTargetIsNodeShell(object)) {
+    FatalPublicationContract(context, object);
+  }
+  return static_cast<Node&>(object);
+}
+
+void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
+  if (!PublicationTargetIsNodeShell(object)) {
+    char message[320];
+    std::snprintf(message, sizeof(message),
+                  "publication generation table entry is not a Node shell: obj_id=%u class_id=%u\n",
+                  object.obj_id.id(), object.GetClassId());
+    WriteFatalStderr(message);
+    std::abort();
+  }
+  AdoptPublishedNodeGeneration(static_cast<Node&>(object), generation);
 }
 
 void SerializeIncrementalNodePublication(Node const& node, ByteSink& out) {
@@ -451,9 +482,10 @@ ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
   in.pos += payload_size;
   auto object = domain.Find(ae::ObjId{object_id});
   assert(object && "incremental publication object must already exist");
-  DeserializeObjectFromBuffer(*object, payload, domain, storage);
-  FinalizeUiNodeState(*object, generation);
-  return *object;
+  Node& node = RequireNodeShell(*object, "ApplyIncrementalPublication");
+  DeserializeObjectFromBuffer(node, payload, domain, storage);
+  AdoptPublishedNodeGeneration(node, generation);
+  return node;
 }
 
 void SerializeStructuralNodePublication(Node const& node, ByteSink& out) {
@@ -484,8 +516,56 @@ ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
   in.pos += payload_size;
   auto object = domain.Find(ae::ObjId{object_id});
   assert(object && "structural publication object must already exist");
+  Node& node = RequireNodeShell(*object, "ApplyStructuralPublication");
+  DeserializeObjectGraphFromBuffer(node, payload, domain, storage);
+  if (node.Generation() != generation) {
+    char message[320];
+    std::snprintf(message, sizeof(message),
+                  "structural Node envelope generation mismatch wire=%llu mirrored=%llu obj_id=%u\n",
+                  static_cast<unsigned long long>(generation),
+                  static_cast<unsigned long long>(node.Generation()), object_id);
+    WriteFatalStderr(message);
+    std::abort();
+  }
+  return node;
+}
+
+void SerializeStructuralObjectPublication(ae::Obj const& root, ByteSink& out) {
+  if (PublicationTargetIsNodeShell(root)) {
+    FatalPublicationContract("SerializeStructuralObjectPublication rejects Node shell roots", root);
+  }
+  auto const object_id = root.obj_id.id();
+  std::uint64_t const generation = 0;
+  ByteSink payload;
+  SerializeObjectGraphToBuffer(root, payload);
+  auto const payload_size = static_cast<std::uint32_t>(payload.bytes.size());
+  out.write(&object_id, sizeof(object_id));
+  out.write(&generation, sizeof(generation));
+  out.write(&payload_size, sizeof(payload_size));
+  out.write(payload.bytes.data(), payload.bytes.size());
+}
+
+ae::Obj& ApplyStructuralObjectPublication(ByteSource& in, ae::Domain& domain,
+                                          ae::IDomainStorage& storage) {
+  std::uint32_t object_id = 0;
+  std::uint64_t generation = 0;
+  std::uint32_t payload_size = 0;
+  in.read(&object_id, sizeof(object_id));
+  in.read(&generation, sizeof(generation));
+  in.read(&payload_size, sizeof(payload_size));
+  assert(in.ok);
+  assert(in.pos + payload_size <= in.size);
+  ByteSource payload;
+  payload.data = in.data + in.pos;
+  payload.size = payload_size;
+  in.pos += payload_size;
+  auto object = domain.Find(ae::ObjId{object_id});
+  assert(object && "structural object publication target must already exist");
+  if (PublicationTargetIsNodeShell(*object)) {
+    FatalPublicationContract("ApplyStructuralObjectPublication rejects Node shell roots", *object);
+  }
+  (void)generation;
   DeserializeObjectGraphFromBuffer(*object, payload, domain, storage);
-  FinalizeUiNodeState(*object, generation);
   return *object;
 }
 

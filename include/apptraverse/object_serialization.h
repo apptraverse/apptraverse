@@ -165,12 +165,28 @@ ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
 // already-mirrored object may keep SerializeIncrementalNodePublication.
 void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
 
+// Structural graph envelope with an ordinary ae::Obj root (not a Node shell).
+// Nested Node generations are carried in the graph payload generation table;
+// the outer root is not Node-finalized.
+void SerializeStructuralObjectPublication(ae::Obj const& root, ByteSink& out);
+
 // Apply a structural envelope into an already-mirrored GUI Node. Nested
 // LoadRoot materializes new shells for newly referenced ObjIds. Does not
 // call presenter hooks — prefer ApplyStructuralPublicationAndUpdatePresenters
-// when presentation must stay in sync.
+// when presentation must stay in sync. Fail-fast if the envelope object id is
+// not a Node shell (use ApplyStructuralObjectPublication for ae::Obj roots).
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
                                     ae::IDomainStorage& storage);
+
+// Apply a structural graph envelope into an already-mirrored ae::Obj root.
+// Does not Node-finalize the outer root; nested Nodes adopt generations from
+// the payload generation table. Fail-fast if the envelope object id is a Node
+// shell (use ApplyStructuralPublication instead).
+ae::Obj& ApplyStructuralObjectPublication(ByteSource& in, ae::Domain& domain,
+                                          ae::IDomainStorage& storage);
+
+// True when the mirrored GUI object participates in the Node shell hierarchy.
+bool PublicationTargetIsNodeShell(ae::Obj const& object);
 
 // Durable model checkpoint (RAM or directory). Excludes presenters and
 // RegisterRuntimeOnlyClassId types. Restores temporary ref/journal patches

@@ -9,6 +9,7 @@
 
 #include "apptraverse/control_text_edit.h"
 #include "apptraverse/node.h"
+#include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
@@ -89,6 +90,7 @@ void RunTextEditIncrementalPublicationTest() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::RunTextEditIncrementalPublicationTest();
   std::cerr << "text_edit_incremental_publication_test OK\n";
   return 0;
