@@ -416,11 +416,11 @@ Node* FindLiveReachableNode(ae::Obj& root, std::uint32_t object_id) {
 }
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
-  if (auto* node = AsObjOf<Node>(&object)) {
-    node->AdoptPublishedGeneration(generation);
-    node->base = Node::ptr{};
-    node->journal.clear();
-  }
+  // Incremental GUI envelopes target a live Node shell already in the UI domain.
+  Node& node = static_cast<Node&>(object);
+  node.AdoptPublishedGeneration(generation);
+  node.base = Node::ptr{};
+  node.journal.clear();
 }
 
 void SerializeIncrementalNodePublication(Node const& node, ByteSink& out) {

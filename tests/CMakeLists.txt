@@ -88,6 +88,33 @@ add_test(
   WILL_FAIL TRUE
 )
 
+add_executable(apptraverse_text_edit_publication_generation_test
+  text_edit_publication_generation_test.cpp
+)
+target_link_libraries(apptraverse_text_edit_publication_generation_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_text_edit_publication_generation_test
+  COMMAND apptraverse_text_edit_publication_generation_test
+)
+
+add_executable(apptraverse_text_edit_incremental_publication_test
+  text_edit_incremental_publication_test.cpp
+)
+target_link_libraries(apptraverse_text_edit_incremental_publication_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_text_edit_incremental_publication_test
+  COMMAND apptraverse_text_edit_incremental_publication_test
+)
+
+add_executable(apptraverse_text_edit_generation_sequence_test
+  text_edit_generation_sequence_test.cpp
+)
+target_link_libraries(apptraverse_text_edit_generation_sequence_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_text_edit_generation_sequence_test
+  COMMAND apptraverse_text_edit_generation_sequence_test
+)
+
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
   add_test(

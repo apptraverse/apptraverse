@@ -138,6 +138,7 @@ void TextEdit::Apply(TextEditInsertEvent const& event) {
   text.insert(at, event.insert_text);
   caret = at + static_cast<std::uint32_t>(event.insert_text.size());
   selection_anchor = caret;
+  NoteMaterializedChange();
 }
 
 void TextEdit::Apply(TextEditDeleteBackwardEvent const& event) {
@@ -146,6 +147,7 @@ void TextEdit::Apply(TextEditDeleteBackwardEvent const& event) {
     text.erase(start, end - start);
     caret = start;
     selection_anchor = start;
+    NoteMaterializedChange();
     return;
   }
   std::uint32_t const end = SnapBoundary(text, caret);
@@ -158,6 +160,7 @@ void TextEdit::Apply(TextEditDeleteBackwardEvent const& event) {
   text.erase(at, end - at);
   caret = at;
   selection_anchor = at;
+  NoteMaterializedChange();
 }
 
 void TextEdit::Apply(TextEditDeleteForwardEvent const& event) {
@@ -166,6 +169,7 @@ void TextEdit::Apply(TextEditDeleteForwardEvent const& event) {
     text.erase(start, end - start);
     caret = start;
     selection_anchor = start;
+    NoteMaterializedChange();
     return;
   }
   std::uint32_t at = SnapBoundary(text, caret);
@@ -178,27 +182,32 @@ void TextEdit::Apply(TextEditDeleteForwardEvent const& event) {
   text.erase(at, end - at);
   caret = at;
   selection_anchor = at;
+  NoteMaterializedChange();
 }
 
 void TextEdit::Apply(TextEditDeleteSelectionEvent const& event) {
   (void)event;
   if (!HasSelection()) {
+    NoteMaterializedChange();
     return;
   }
   auto const [start, end] = NormalizeByteRange(text, selection_anchor, caret);
   text.erase(start, end - start);
   caret = start;
   selection_anchor = start;
+  NoteMaterializedChange();
 }
 
 void TextEdit::Apply(TextEditSetCaretEvent const& event) {
   caret = SnapBoundary(text, event.index);
   selection_anchor = caret;
+  NoteMaterializedChange();
 }
 
 void TextEdit::Apply(TextEditSetSelectionEvent const& event) {
   selection_anchor = SnapBoundary(text, event.anchor);
   caret = SnapBoundary(text, event.active);
+  NoteMaterializedChange();
 }
 
 void TextEdit::Apply(TextEditClearEvent const& event) {
@@ -206,6 +215,7 @@ void TextEdit::Apply(TextEditClearEvent const& event) {
   text.clear();
   caret = 0;
   selection_anchor = 0;
+  NoteMaterializedChange();
 }
 
 void TextEdit::Apply(TextEditReplaceRangeEvent const& event) {
@@ -215,6 +225,7 @@ void TextEdit::Apply(TextEditReplaceRangeEvent const& event) {
   text.replace(start, end - start, event.replacement);
   caret = start + static_cast<std::uint32_t>(event.replacement.size());
   selection_anchor = caret;
+  NoteMaterializedChange();
 }
 
 }  // namespace apptraverse
