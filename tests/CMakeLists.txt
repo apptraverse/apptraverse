@@ -1,3 +1,12 @@
+add_executable(apptraverse_ui_edit_box_headless_test
+  ui/ui_edit_box_headless_test.cpp
+)
+target_link_libraries(apptraverse_ui_edit_box_headless_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_ui_edit_box_headless_test
+  COMMAND apptraverse_ui_edit_box_headless_test
+)
+
 add_executable(apptraverse_event_sourced_core_test
   event_sourced_core_test.cpp
 )

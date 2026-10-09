@@ -100,6 +100,15 @@ add_library(apptraverse STATIC
   src/memory_transport.cpp
   src/sync_frame.cpp
   src/shared_sync_runtime.cpp
+  src/ui/ui_localization_string.cpp
+  src/ui/ui_locale_settings.cpp
+  src/ui/ui_window.cpp
+  src/ui/ui_desktop_window.cpp
+  src/ui/ui_edit_box.cpp
+  src/ui/ui_push_button.cpp
+  src/ui/ui_list_container.cpp
+  src/ui/ui_presenters.cpp
+  src/ui/ui_registration.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -120,6 +129,15 @@ if(WIN32)
   target_compile_definitions(apptraverse PUBLIC
     NOMINMAX
     WIN32_LEAN_AND_MEAN
+  )
+  add_library(apptraverse_ui_windows STATIC
+    src/platform/windows/win_ui_utf8.cpp
+    src/platform/windows/win_ui_presenters.cpp
+    src/platform/windows/win_ui_registration.cpp
+  )
+  target_link_libraries(apptraverse_ui_windows PUBLIC apptraverse user32 gdi32 comctl32)
+  target_include_directories(apptraverse_ui_windows PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
 endif()
 target_compile_features(apptraverse PUBLIC cxx_std_20)
