@@ -10,6 +10,17 @@
 
 namespace apptraverse::ui::windows {
 
+class WinWindowPresenter : public UiWindowPresenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinWindowPresenter",
+                           WinWindowPresenter, UiWindowPresenter, 0)
+
+ protected:
+  WinWindowPresenter() = default;
+
+ public:
+  explicit WinWindowPresenter(ae::ObjProp prop) : UiWindowPresenter{prop} {}
+};
+
 class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinDesktopWindowPresenter",
                            WinDesktopWindowPresenter,
@@ -28,16 +39,19 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   HWND hwnd() const { return hwnd_; }
 
+  bool RouteChildCommand(std::uint32_t command_id,
+                         std::uint16_t notification_code, HWND child);
+
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);
 
  private:
   void SyncNativeFrameFromMirror();
-  void HandleNativeFrameChanged(RECT const& frame);
+  void HandleNativeFrameChanged();
+  std::wstring ResolveTitleText() const;
 
   HWND hwnd_{nullptr};
   bool applying_native_frame_{false};
-  std::uint64_t suppress_native_echo_until_{0};
 };
 
 class WinEditBoxPresenter : public UiEditBoxPresenter {
@@ -54,16 +68,18 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
-  static LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wparam,
-                                           LPARAM lparam, UINT_PTR id,
-                                           DWORD_PTR ref_data);
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
+
+  void ReadFromNativeAndSubmit();
 
  private:
   void SyncFromMirror();
-  void ReadFromNativeAndSubmit();
+  WinDesktopWindowPresenter* Desktop() const;
 
   HWND hwnd_{nullptr};
   bool applying_mirror_text_{false};
+  std::uint64_t last_applied_generation_{0};
 };
 
 class WinPushButtonPresenter : public UiPushButtonPresenter {
@@ -80,6 +96,12 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
+
+ private:
+  void SyncFromMirror();
+  WinDesktopWindowPresenter* Desktop() const;
+
+  HWND hwnd_{nullptr};
 };
 
 class WinLabelPresenter : public UiLabelPresenter {
@@ -97,6 +119,9 @@ class WinLabelPresenter : public UiLabelPresenter {
   void OnUnload() override;
 
  private:
+  void SyncFromMirror();
+  WinDesktopWindowPresenter* Desktop() const;
+
   HWND hwnd_{nullptr};
 };
 

@@ -3,26 +3,32 @@
 namespace apptraverse::ui {
 
 void UiDesktopWindow::Apply(SetUiDesktopWindowFrameEvent const& event) {
-  x_ = event.x;
-  y_ = event.y;
-  if (window) {
-    auto size_event = SetUiWindowClientSizeEvent::ptr::Create(
-        ae::CreateWith{*window->domain});
-    size_event->width = event.width;
-    size_event->height = event.height;
-    window->Commit(std::move(size_event));
+  bool changed = false;
+  if (x_ != event.x) {
+    x_ = event.x;
+    changed = true;
+  }
+  if (y_ != event.y) {
+    y_ = event.y;
+    changed = true;
+  }
+  if (client_width() != event.client_width ||
+      client_height() != event.client_height) {
+    SetClientSizeInternal(event.client_width, event.client_height);
+  } else if (changed) {
+    NoteMaterializedChange();
   }
 }
 
 void UiDesktopWindow::SubmitFrameFromNative(std::int32_t x, std::int32_t y,
-                                            std::int32_t width,
-                                            std::int32_t height) {
+                                            std::int32_t client_width,
+                                            std::int32_t client_height) {
   auto event = SetUiDesktopWindowFrameEvent::ptr::Create(
       ae::CreateWith{*domain});
   event->x = x;
   event->y = y;
-  event->width = width;
-  event->height = height;
+  event->client_width = client_width;
+  event->client_height = client_height;
   Commit(std::move(event));
 }
 

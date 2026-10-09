@@ -10,4 +10,8 @@ void UiPushButton::NotifyClicked() {
 
 void UiPushButton::Apply(UiPushButtonClickedEvent const&) {}
 
+void UiPushButton::Apply(SetUiPushButtonEnabledEvent const& event) {
+  enabled_ = event.enabled;
+}
+
 }  // namespace apptraverse::ui

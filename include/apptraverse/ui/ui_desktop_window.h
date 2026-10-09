@@ -11,9 +11,9 @@ namespace apptraverse::ui {
 
 class SetUiDesktopWindowFrameEvent;
 
-class UiDesktopWindow : public NodeFor<UiDesktopWindow> {
+class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiDesktopWindow",
-                           UiDesktopWindow, Node, 0)
+                           UiDesktopWindow, UiWindow, 0)
 
  protected:
   UiDesktopWindow() = default;
@@ -21,31 +21,25 @@ class UiDesktopWindow : public NodeFor<UiDesktopWindow> {
  public:
   explicit UiDesktopWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(x_), AE_MMBR(y_))
+  AE_OBJECT_REFLECT(AE_MMBR(x_), AE_MMBR(y_))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, window, x_, y_);
+    dnv(base_, x_, y_);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, window, x_, y_);
+    dnv(base_, x_, y_);
   }
 
-  ae::ObjPtr<UiWindow> window;
   std::int32_t x() const { return x_; }
   std::int32_t y() const { return y_; }
-  std::int32_t client_width() const {
-    return window ? window->client_width() : 0;
-  }
-  std::int32_t client_height() const {
-    return window ? window->client_height() : 0;
-  }
 
   void Apply(SetUiDesktopWindowFrameEvent const& event);
-  void SubmitFrameFromNative(std::int32_t x, std::int32_t y, std::int32_t width,
-                             std::int32_t height);
+  void SubmitFrameFromNative(std::int32_t x, std::int32_t y,
+                             std::int32_t client_width,
+                             std::int32_t client_height);
 
  private:
   std::int32_t x_{100};
@@ -63,12 +57,13 @@ class SetUiDesktopWindowFrameEvent
  public:
   explicit SetUiDesktopWindowFrameEvent(ae::ObjProp prop) : EventFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height))
+  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(client_width),
+                    AE_MMBR(client_height))
 
   std::int32_t x{0};
   std::int32_t y{0};
-  std::int32_t width{0};
-  std::int32_t height{0};
+  std::int32_t client_width{0};
+  std::int32_t client_height{0};
 };
 
 }  // namespace apptraverse::ui

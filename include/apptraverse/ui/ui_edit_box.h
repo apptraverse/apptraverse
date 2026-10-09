@@ -41,6 +41,7 @@ class UiEditBox : public NodeFor<UiEditBox> {
 
   void SubmitTextFromUi(std::string text, std::size_t caret_utf8_offset);
   void SubmitCaretFromUi(std::size_t caret_utf8_offset);
+  void BootstrapSetReadOnly(bool read_only) { read_only_ = read_only; }
 
   void Apply(SetUiEditBoxTextEvent const& event);
   void Apply(SetUiEditBoxCaretEvent const& event);

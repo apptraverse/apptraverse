@@ -31,7 +31,7 @@ int main() {
 
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto doc = UiWindow::ptr::Create(ae::CreateWith{domain});
+  auto doc = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*doc);
   auto edit_box = MakeEditBox(domain);
   InitializeRuntimeNode(*edit_box, *doc);

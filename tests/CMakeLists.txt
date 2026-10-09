@@ -1,3 +1,14 @@
+add_executable(apptraverse_ui_desktop_window_geometry_test
+  ui/ui_desktop_window_geometry_test.cpp
+)
+target_link_libraries(apptraverse_ui_desktop_window_geometry_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_ui_desktop_window_geometry_test
+  COMMAND apptraverse_ui_desktop_window_geometry_test
+)
+
 add_executable(apptraverse_ui_edit_box_headless_test
   ui/ui_edit_box_headless_test.cpp
 )

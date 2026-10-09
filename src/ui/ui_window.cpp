@@ -2,9 +2,17 @@
 
 namespace apptraverse::ui {
 
+void UiWindow::SetClientSizeInternal(std::int32_t width, std::int32_t height) {
+  if (client_width_ == width && client_height_ == height) {
+    return;
+  }
+  client_width_ = width;
+  client_height_ = height;
+  NoteMaterializedChange();
+}
+
 void UiWindow::Apply(SetUiWindowClientSizeEvent const& event) {
-  client_width_ = event.width;
-  client_height_ = event.height;
+  SetClientSizeInternal(event.width, event.height);
 }
 
 }  // namespace apptraverse::ui

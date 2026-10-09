@@ -15,6 +15,8 @@ class UiWindow : public NodeFor<UiWindow> {
  protected:
   UiWindow() = default;
 
+  void SetClientSizeInternal(std::int32_t width, std::int32_t height);
+
  public:
   explicit UiWindow(ae::ObjProp prop) : NodeFor{prop} {}
 

@@ -6,6 +6,7 @@
 namespace apptraverse::ui::windows {
 namespace {
 
+APPTRAVERSE_REGISTER(WinWindowPresenter);
 APPTRAVERSE_REGISTER(WinDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(WinEditBoxPresenter);
 APPTRAVERSE_REGISTER(WinPushButtonPresenter);

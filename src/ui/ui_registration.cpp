@@ -27,11 +27,13 @@ APPTRAVERSE_REGISTER(SetUiEditBoxTextEvent);
 APPTRAVERSE_REGISTER(SetUiEditBoxCaretEvent);
 APPTRAVERSE_REGISTER(UiPushButton);
 APPTRAVERSE_REGISTER(UiPushButtonClickedEvent);
+APPTRAVERSE_REGISTER(SetUiPushButtonEnabledEvent);
 APPTRAVERSE_REGISTER(UiLabel);
 APPTRAVERSE_REGISTER(UiListRow);
 APPTRAVERSE_REGISTER(UiListContainer);
 APPTRAVERSE_REGISTER(RemoveUiListRowEvent);
 APPTRAVERSE_REGISTER(UiListRowPresenter);
+APPTRAVERSE_REGISTER(UiWindowPresenter);
 APPTRAVERSE_REGISTER(UiDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(UiEditBoxPresenter);
 APPTRAVERSE_REGISTER(UiPushButtonPresenter);
@@ -40,6 +42,7 @@ APPTRAVERSE_REGISTER(UiLabelPresenter);
 }  // namespace
 
 void EnsureUiPresenterRegistration() {
+  (void)&g_apptraverse_registrar_UiWindowPresenter;
   (void)&g_apptraverse_registrar_UiDesktopWindowPresenter;
   (void)&g_apptraverse_registrar_UiEditBoxPresenter;
   (void)&g_apptraverse_registrar_UiPushButtonPresenter;

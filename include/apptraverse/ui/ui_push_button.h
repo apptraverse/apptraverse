@@ -10,6 +10,7 @@
 namespace apptraverse::ui {
 
 class UiPushButtonClickedEvent;
+class SetUiPushButtonEnabledEvent;
 
 class UiPushButton : public NodeFor<UiPushButton> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiPushButton", UiPushButton, Node,
@@ -21,22 +22,44 @@ class UiPushButton : public NodeFor<UiPushButton> {
  public:
   explicit UiPushButton(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(label))
+  AE_OBJECT_REFLECT(AE_MMBR(label), AE_MMBR(enabled_))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, label);
+    dnv(base_, label, enabled_);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, label);
+    dnv(base_, label, enabled_);
   }
 
   ae::ObjPtr<UiLocalizationString> label;
+  bool enabled() const { return enabled_; }
 
   void NotifyClicked();
+  void BootstrapSetEnabled(bool enabled) { enabled_ = enabled; }
   void Apply(UiPushButtonClickedEvent const& event);
+  void Apply(SetUiPushButtonEnabledEvent const& event);
+
+ private:
+  bool enabled_{true};
+};
+
+class SetUiPushButtonEnabledEvent
+    : public EventFor<UiPushButton, SetUiPushButtonEnabledEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::SetUiPushButtonEnabledEvent",
+                           SetUiPushButtonEnabledEvent, Event, 0)
+
+ protected:
+  SetUiPushButtonEnabledEvent() = default;
+
+ public:
+  explicit SetUiPushButtonEnabledEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(enabled))
+
+  bool enabled{true};
 };
 
 class UiPushButtonClickedEvent

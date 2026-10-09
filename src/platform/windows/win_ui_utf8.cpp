@@ -36,15 +36,27 @@ std::string WideToUtf8(std::wstring_view wide) {
   return utf8;
 }
 
-std::size_t Utf8CaretFromWideSelection(std::string_view utf8,
-                                       std::wstring_view wide,
-                                       int wide_caret) {
+std::size_t Utf8OffsetFromWideCaret(std::wstring_view wide, int wide_caret) {
   if (wide_caret <= 0) {
     return 0;
   }
-  auto const prefix = WideToUtf8(wide.substr(0, static_cast<std::size_t>(wide_caret)));
-  (void)utf8;
-  return prefix.size();
+  auto const clamped =
+      std::min(static_cast<std::size_t>(wide_caret), wide.size());
+  return WideToUtf8(wide.substr(0, clamped)).size();
+}
+
+int WideCaretFromUtf8Offset(std::wstring_view wide, std::size_t utf8_offset) {
+  if (utf8_offset == 0) {
+    return 0;
+  }
+  std::size_t bytes = 0;
+  for (std::size_t i = 0; i < wide.size(); ++i) {
+    bytes = WideToUtf8(wide.substr(0, i + 1)).size();
+    if (bytes >= utf8_offset) {
+      return static_cast<int>(i + 1);
+    }
+  }
+  return static_cast<int>(wide.size());
 }
 
 }  // namespace apptraverse::ui::windows
