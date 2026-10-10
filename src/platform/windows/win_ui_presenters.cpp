@@ -1,5 +1,6 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 
+#include "apptraverse/platform/windows/win_presentation_host.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/ui/ui_localization_string.h"
@@ -52,9 +53,14 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     presenter->HandleNativeFrameChanged();
   }
   if (msg == WM_CLOSE) {
-    HWND const notify = reinterpret_cast<HWND>(presenter->presentation_host);
-    if (notify != nullptr) {
-      PostMessageW(notify, WM_CLOSE, 0, 0);
+    auto* host =
+        static_cast<WinPresentationHost*>(presenter->presentation_host);
+    if (host != nullptr) {
+      if (host->on_desktop_window_user_close != nullptr) {
+        host->on_desktop_window_user_close(host->opaque);
+      } else if (host->notify_hwnd != nullptr) {
+        PostMessageW(host->notify_hwnd, WM_CLOSE, 0, 0);
+      }
     }
     return 0;
   }

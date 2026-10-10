@@ -43,6 +43,10 @@ class Presenter : public ae::Obj {
   // HWND created by another presenter's OnLoad.
   virtual bool ReadyForPresentation() const { return true; }
 
+  // After OnLoad, false if native presentation was not created (e.g. CreateWindow
+  // failure). InitializePresenters skips marking presentation_loaded when false.
+  virtual bool PresentationCreateSucceeded() const { return true; }
+
   // Platform input dispatch (Win32 WM_COMMAND control id + notification).
   // Default: unhandled. Runtime-only; not reflected. Does not take HWND.
   virtual bool OnCommand(std::uint32_t command_id,

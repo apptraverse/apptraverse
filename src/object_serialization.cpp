@@ -758,6 +758,9 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
       presenter->presentation_host = host;
       presenter->model_proxy = model_proxy;
       presenter->OnLoad();
+      if (!presenter->PresentationCreateSucceeded()) {
+        continue;
+      }
       presenter->presentation_loaded = true;
       presenter->presentation_load_order = NextPresentationLoadOrder();
       progress = true;

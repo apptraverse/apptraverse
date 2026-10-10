@@ -37,6 +37,8 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
+  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
+
   HWND hwnd() const { return hwnd_; }
 
   bool RouteChildCommand(std::uint32_t command_id,
@@ -68,6 +70,8 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
+  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
+
   bool OnCommand(std::uint32_t command_id,
                  std::uint16_t notification_code) override;
 
@@ -97,6 +101,8 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
+  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
+
  private:
   void SyncFromMirror();
   WinDesktopWindowPresenter* Desktop() const;
@@ -117,6 +123,8 @@ class WinLabelPresenter : public UiLabelPresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
+
+  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
  private:
   void SyncFromMirror();
