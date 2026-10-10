@@ -10,6 +10,7 @@
 
 namespace apptraverse::ui {
 
+class UiWindowPresenter;
 class UiBitmapImagePresenter;
 
 class UiBitmapImage : public NodeFor<UiBitmapImage> {

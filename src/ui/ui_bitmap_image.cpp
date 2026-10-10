@@ -1,5 +1,7 @@
 #include "apptraverse/ui/ui_bitmap_image.h"
 
+#include "apptraverse/ui/ui_presenters.h"
+
 namespace apptraverse::ui {
 
 bool UiBitmapImagePresenter::ReadyForPresentation() const {
