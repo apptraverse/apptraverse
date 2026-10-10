@@ -45,6 +45,8 @@ class UiEditBox : public NodeFor<UiEditBox> {
 
   void Apply(SetUiEditBoxTextEvent const& event);
   void Apply(SetUiEditBoxCaretEvent const& event);
+  void MaterializeText(std::string const& text);
+  void MaterializeCaret(std::size_t caret_utf8_offset);
 
  private:
   std::string text_;

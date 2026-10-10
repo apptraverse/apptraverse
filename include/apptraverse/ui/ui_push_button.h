@@ -39,6 +39,8 @@ class UiPushButton : public NodeFor<UiPushButton> {
 
   void NotifyClicked();
   void BootstrapSetEnabled(bool enabled) { enabled_ = enabled; }
+  virtual void HandlePushButtonClicked();
+  void MaterializeEnabled(bool enabled);
   void Apply(UiPushButtonClickedEvent const& event);
   void Apply(SetUiPushButtonEnabledEvent const& event);
 

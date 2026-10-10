@@ -19,11 +19,27 @@ void UiEditBox::SubmitCaretFromUi(std::size_t caret_utf8_offset) {
 }
 
 void UiEditBox::Apply(SetUiEditBoxTextEvent const& event) {
-  text_ = event.text;
+  MaterializeText(event.text);
 }
 
 void UiEditBox::Apply(SetUiEditBoxCaretEvent const& event) {
-  caret_utf8_offset_ = event.caret_utf8_offset;
+  MaterializeCaret(event.caret_utf8_offset);
+}
+
+void UiEditBox::MaterializeText(std::string const& text) {
+  if (text_ == text) {
+    return;
+  }
+  text_ = text;
+  NoteMaterializedChange();
+}
+
+void UiEditBox::MaterializeCaret(std::size_t caret_utf8_offset) {
+  if (caret_utf8_offset_ == caret_utf8_offset) {
+    return;
+  }
+  caret_utf8_offset_ = caret_utf8_offset;
+  NoteMaterializedChange();
 }
 
 }  // namespace apptraverse::ui

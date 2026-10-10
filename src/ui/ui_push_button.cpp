@@ -3,15 +3,26 @@
 namespace apptraverse::ui {
 
 void UiPushButton::NotifyClicked() {
-  auto event =
-      UiPushButtonClickedEvent::ptr::Create(ae::CreateWith{*domain});
-  Commit(std::move(event));
+  if (!enabled()) {
+    return;
+  }
+  HandlePushButtonClicked();
 }
+
+void UiPushButton::HandlePushButtonClicked() {}
 
 void UiPushButton::Apply(UiPushButtonClickedEvent const&) {}
 
 void UiPushButton::Apply(SetUiPushButtonEnabledEvent const& event) {
-  enabled_ = event.enabled;
+  MaterializeEnabled(event.enabled);
+}
+
+void UiPushButton::MaterializeEnabled(bool enabled) {
+  if (enabled_ == enabled) {
+    return;
+  }
+  enabled_ = enabled;
+  NoteMaterializedChange();
 }
 
 }  // namespace apptraverse::ui

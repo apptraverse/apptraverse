@@ -202,19 +202,28 @@ void WinEditBoxPresenter::SyncFromMirror() {
   if (hwnd_ == nullptr || !edit_box) {
     return;
   }
-  auto const wide = Utf8ToWide(edit_box->text());
-  auto const current = WideToUtf8(std::wstring_view{
-      wide.c_str(), wide.size()});
-  if (current != edit_box->text() ||
-      edit_box->Generation() != last_applied_generation_) {
-    applying_mirror_text_ = true;
-    SetWindowTextW(hwnd_, wide.c_str());
-    int const caret =
-        WideCaretFromUtf8Offset(wide, edit_box->caret_utf8_offset());
-    SendMessageW(hwnd_, EM_SETSEL, caret, caret);
-    applying_mirror_text_ = false;
-    last_applied_generation_ = edit_box->Generation();
+  int const len = GetWindowTextLengthW(hwnd_);
+  std::wstring wide_native(static_cast<std::size_t>(len), L'\0');
+  if (len > 0) {
+    GetWindowTextW(hwnd_, wide_native.data(), len + 1);
   }
+  wide_native.resize(static_cast<std::size_t>(len));
+  auto const current_native = WideToUtf8(wide_native);
+  bool const needs_update =
+      !mirror_text_applied_ || current_native != edit_box->text() ||
+      edit_box->Generation() != last_applied_generation_;
+  if (!needs_update) {
+    return;
+  }
+  auto const wide = Utf8ToWide(edit_box->text());
+  applying_mirror_text_ = true;
+  SetWindowTextW(hwnd_, wide.c_str());
+  int const caret =
+      WideCaretFromUtf8Offset(wide, edit_box->caret_utf8_offset());
+  SendMessageW(hwnd_, EM_SETSEL, caret, caret);
+  applying_mirror_text_ = false;
+  mirror_text_applied_ = true;
+  last_applied_generation_ = edit_box->Generation();
 }
 
 void WinEditBoxPresenter::ReadFromNativeAndSubmit() {

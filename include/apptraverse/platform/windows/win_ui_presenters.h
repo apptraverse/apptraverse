@@ -84,6 +84,7 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
   HWND hwnd_{nullptr};
   bool applying_mirror_text_{false};
   std::uint64_t last_applied_generation_{0};
+  bool mirror_text_applied_{false};
 };
 
 class WinPushButtonPresenter : public UiPushButtonPresenter {
