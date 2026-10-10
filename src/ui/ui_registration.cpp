@@ -37,6 +37,7 @@ APPTRAVERSE_REGISTER(UiWindowPresenter);
 APPTRAVERSE_REGISTER(UiDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(UiEditBoxPresenter);
 APPTRAVERSE_REGISTER(UiPushButtonPresenter);
+APPTRAVERSE_REGISTER(UiListContainerPresenter);
 APPTRAVERSE_REGISTER(UiLabelPresenter);
 
 }  // namespace
@@ -46,6 +47,7 @@ void EnsureUiPresenterRegistration() {
   (void)&g_apptraverse_registrar_UiDesktopWindowPresenter;
   (void)&g_apptraverse_registrar_UiEditBoxPresenter;
   (void)&g_apptraverse_registrar_UiPushButtonPresenter;
+  (void)&g_apptraverse_registrar_UiListContainerPresenter;
   (void)&g_apptraverse_registrar_UiLabelPresenter;
   (void)&g_apptraverse_registrar_UiListRowPresenter;
 }

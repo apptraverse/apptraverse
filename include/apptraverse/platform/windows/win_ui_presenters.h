@@ -115,6 +115,33 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
   HWND hwnd_{nullptr};
 };
 
+class WinListContainerPresenter : public UiListContainerPresenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinListContainerPresenter",
+                           WinListContainerPresenter, UiListContainerPresenter,
+                           0)
+
+ protected:
+  WinListContainerPresenter() = default;
+
+ public:
+  explicit WinListContainerPresenter(ae::ObjProp prop)
+      : UiListContainerPresenter{prop} {}
+
+  void OnLoad() override;
+  void OnModelChanged() override;
+  void OnUnload() override;
+
+  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
+
+  HWND hwnd() const { return hwnd_; }
+
+ private:
+  void SyncFromMirror();
+  WinDesktopWindowPresenter* Desktop() const;
+
+  HWND hwnd_{nullptr};
+};
+
 class WinLabelPresenter : public UiLabelPresenter {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinLabelPresenter",
                            WinLabelPresenter, UiLabelPresenter, 0)

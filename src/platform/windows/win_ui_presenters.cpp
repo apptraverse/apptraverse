@@ -309,6 +309,59 @@ void WinPushButtonPresenter::OnUnload() {
   }
 }
 
+WinDesktopWindowPresenter* WinListContainerPresenter::Desktop() const {
+  if (!window_presenter) {
+    return nullptr;
+  }
+  return static_cast<WinDesktopWindowPresenter*>(window_presenter.operator->());
+}
+
+void WinListContainerPresenter::OnLoad() {
+  auto* desktop = Desktop();
+  if (desktop == nullptr || desktop->hwnd() == nullptr || !container) {
+    return;
+  }
+  hwnd_ = CreateWindowExW(
+      WS_EX_CLIENTEDGE, L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL,
+      layout_x, layout_y, layout_width, layout_height, desktop->hwnd(),
+      reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
+      GetModuleHandleW(nullptr), nullptr);
+  if (CreateFailed(hwnd_)) {
+    return;
+  }
+  EnableWindow(hwnd_, FALSE);
+  SetUserData(hwnd_, this);
+  SyncFromMirror();
+}
+
+void WinListContainerPresenter::SyncFromMirror() {
+  if (hwnd_ == nullptr || !container) {
+    return;
+  }
+  SendMessageW(hwnd_, LB_RESETCONTENT, 0, 0);
+  int language_index = 0;
+  if (window_presenter && window_presenter->locale) {
+    language_index = window_presenter->locale->language_index();
+  }
+  for (auto const& row : container->rows) {
+    if (!row || !row->primary_text) {
+      continue;
+    }
+    auto const text = Utf8ToWide(row->primary_text->Resolve(language_index));
+    SendMessageW(hwnd_, LB_ADDSTRING, 0,
+                 reinterpret_cast<LPARAM>(text.c_str()));
+  }
+}
+
+void WinListContainerPresenter::OnModelChanged() { SyncFromMirror(); }
+
+void WinListContainerPresenter::OnUnload() {
+  if (hwnd_ != nullptr) {
+    DestroyWindow(hwnd_);
+    hwnd_ = nullptr;
+  }
+}
+
 WinDesktopWindowPresenter* WinLabelPresenter::Desktop() const {
   if (!window_presenter) {
     return nullptr;

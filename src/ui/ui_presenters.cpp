@@ -72,4 +72,10 @@ void UiPushButtonPresenter::SimulateClickForTest() {
   static_cast<void>(OnCommand(control_id, kBnClicked));
 }
 
+bool UiListContainerPresenter::ReadyForPresentation() const {
+  return window_presenter && window_presenter->presentation_loaded;
+}
+
+void UiListContainerPresenter::OnModelChanged() {}
+
 }  // namespace apptraverse::ui

@@ -6,6 +6,7 @@
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_edit_box.h"
 #include "apptraverse/ui/ui_label.h"
+#include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_window.h"
@@ -152,6 +153,45 @@ class UiPushButtonPresenter : public Presenter {
                  std::uint16_t notification_code) override;
 
   void SimulateClickForTest();
+};
+
+class UiListContainerPresenter : public Presenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiListContainerPresenter",
+                           UiListContainerPresenter, Presenter, 0)
+
+ protected:
+  UiListContainerPresenter() = default;
+
+ public:
+  explicit UiListContainerPresenter(ae::ObjProp prop) : Presenter{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(container), AE_MMBR(window_presenter),
+                    AE_MMBR(layout_x), AE_MMBR(layout_y),
+                    AE_MMBR(layout_width), AE_MMBR(layout_height),
+                    AE_MMBR(control_id))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
+        layout_height, control_id);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
+        layout_height, control_id);
+  }
+
+  UiListContainer::ptr container;
+  ae::ObjPtr<UiWindowPresenter> window_presenter;
+  std::int32_t layout_x{0};
+  std::int32_t layout_y{0};
+  std::int32_t layout_width{200};
+  std::int32_t layout_height{120};
+  std::uint32_t control_id{0};
+
+  bool ReadyForPresentation() const override;
+  void OnModelChanged() override;
 };
 
 class UiLabelPresenter : public Presenter {
