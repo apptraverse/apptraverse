@@ -7,7 +7,6 @@ namespace {
 
 constexpr std::uint16_t kEnChange = 0x0300;
 constexpr std::uint16_t kBnClicked = 0;
-
 }  // namespace
 
 void UiDesktopWindowPresenter::SubmitFrameFromNative(
@@ -77,5 +76,26 @@ bool UiListContainerPresenter::ReadyForPresentation() const {
 }
 
 void UiListContainerPresenter::OnModelChanged() {}
+
+bool UiListContainerPresenter::OnCommand(std::uint32_t command_id,
+                                         std::uint16_t notification_code) {
+  static_cast<void>(command_id);
+  static_cast<void>(notification_code);
+  return false;
+}
+
+void UiListContainerPresenter::SubmitListRowActivatedFromUi(
+    std::size_t row_index) {
+  if (!model_proxy || !container) {
+    return;
+  }
+  model_proxy->Invoke(container->obj_id,
+                      &UiListContainer::SubmitListRowActivatedFromUi,
+                      row_index);
+}
+
+void UiListContainerPresenter::OnListRowActivated(std::size_t row_index) {
+  static_cast<void>(row_index);
+}
 
 }  // namespace apptraverse::ui

@@ -6,6 +6,7 @@
 #endif
 #include <windows.h>
 
+#include "apptraverse/ui/ui_bitmap_image.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::windows {
@@ -131,6 +132,9 @@ class WinListContainerPresenter : public UiListContainerPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
+
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
   HWND hwnd() const { return hwnd_; }
@@ -160,6 +164,31 @@ class WinLabelPresenter : public UiLabelPresenter {
 
  private:
   void SyncFromMirror();
+  WinDesktopWindowPresenter* Desktop() const;
+
+  HWND hwnd_{nullptr};
+};
+
+class WinBitmapImagePresenter : public UiBitmapImagePresenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinBitmapImagePresenter",
+                           WinBitmapImagePresenter, UiBitmapImagePresenter, 0)
+
+ protected:
+  WinBitmapImagePresenter() = default;
+
+ public:
+  explicit WinBitmapImagePresenter(ae::ObjProp prop)
+      : UiBitmapImagePresenter{prop} {}
+
+  void OnLoad() override;
+  void OnModelChanged() override;
+  void OnUnload() override;
+
+  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
+
+  void PaintToHdc(HDC hdc) const;
+
+ private:
   WinDesktopWindowPresenter* Desktop() const;
 
   HWND hwnd_{nullptr};

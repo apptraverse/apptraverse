@@ -9,7 +9,40 @@ namespace apptraverse::ui::windows {
 namespace {
 
 constexpr wchar_t kDesktopWindowClass[] = L"AppTraverseUiDesktopWindow";
+constexpr wchar_t kBitmapViewportClass[] = L"AppTraverseUiBitmapViewport";
 constexpr std::uint16_t kEnChange = 0x0300;
+constexpr std::uint16_t kLbnDblclk = 2;
+
+bool g_bitmap_viewport_class_registered{false};
+
+LRESULT CALLBACK BitmapViewportWndProc(HWND hwnd, UINT msg, WPARAM wparam,
+                                       LPARAM lparam) {
+  if (msg == WM_PAINT) {
+    auto* presenter = reinterpret_cast<WinBitmapImagePresenter*>(
+        GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    PAINTSTRUCT ps{};
+    HDC const hdc = BeginPaint(hwnd, &ps);
+    if (presenter != nullptr) {
+      presenter->PaintToHdc(hdc);
+    }
+    EndPaint(hwnd, &ps);
+    return 0;
+  }
+  return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+void EnsureBitmapViewportClass(HINSTANCE instance) {
+  if (g_bitmap_viewport_class_registered) {
+    return;
+  }
+  WNDCLASSW wc{};
+  wc.lpfnWndProc = &BitmapViewportWndProc;
+  wc.hInstance = instance;
+  wc.lpszClassName = kBitmapViewportClass;
+  wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+  RegisterClassW(&wc);
+  g_bitmap_viewport_class_registered = true;
+}
 
 void SetUserData(HWND hwnd, void* value) {
   SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(value));
@@ -329,9 +362,23 @@ void WinListContainerPresenter::OnLoad() {
   if (CreateFailed(hwnd_)) {
     return;
   }
-  EnableWindow(hwnd_, FALSE);
+  EnableWindow(hwnd_, TRUE);
   SetUserData(hwnd_, this);
   SyncFromMirror();
+}
+
+bool WinListContainerPresenter::OnCommand(std::uint32_t command_id,
+                                          std::uint16_t notification_code) {
+  if (control_id == 0 || command_id != control_id ||
+      notification_code != kLbnDblclk || hwnd_ == nullptr) {
+    return UiListContainerPresenter::OnCommand(command_id, notification_code);
+  }
+  LRESULT const sel = SendMessageW(hwnd_, LB_GETCURSEL, 0, 0);
+  if (sel == LB_ERR) {
+    return true;
+  }
+  SubmitListRowActivatedFromUi(static_cast<std::size_t>(sel));
+  return true;
 }
 
 void WinListContainerPresenter::SyncFromMirror() {
@@ -356,6 +403,69 @@ void WinListContainerPresenter::SyncFromMirror() {
 void WinListContainerPresenter::OnModelChanged() { SyncFromMirror(); }
 
 void WinListContainerPresenter::OnUnload() {
+  if (hwnd_ != nullptr) {
+    DestroyWindow(hwnd_);
+    hwnd_ = nullptr;
+  }
+}
+
+WinDesktopWindowPresenter* WinBitmapImagePresenter::Desktop() const {
+  if (!window_presenter) {
+    return nullptr;
+  }
+  return static_cast<WinDesktopWindowPresenter*>(window_presenter.operator->());
+}
+
+void WinBitmapImagePresenter::OnLoad() {
+  auto* desktop = Desktop();
+  if (desktop == nullptr || desktop->hwnd() == nullptr) {
+    return;
+  }
+  HINSTANCE const instance = GetModuleHandleW(nullptr);
+  EnsureBitmapViewportClass(instance);
+  hwnd_ = CreateWindowExW(
+      0, kBitmapViewportClass, L"", WS_CHILD | WS_VISIBLE, layout_x, layout_y,
+      layout_width, layout_height, desktop->hwnd(), nullptr, instance, nullptr);
+  if (CreateFailed(hwnd_)) {
+    return;
+  }
+  SetUserData(hwnd_, this);
+  InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void WinBitmapImagePresenter::OnModelChanged() {
+  if (hwnd_ != nullptr) {
+    InvalidateRect(hwnd_, nullptr, FALSE);
+  }
+}
+
+void WinBitmapImagePresenter::PaintToHdc(HDC hdc) const {
+  if (!image || image->width == 0 || image->height == 0 ||
+      image->bgra_bytes.empty()) {
+    return;
+  }
+  std::size_t const expected =
+      static_cast<std::size_t>(image->width) *
+      static_cast<std::size_t>(image->height) * 4U;
+  if (image->bgra_bytes.size() < expected) {
+    return;
+  }
+  BITMAPINFO bmi{};
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = static_cast<LONG>(image->width);
+  bmi.bmiHeader.biHeight = -static_cast<LONG>(image->height);
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
+  RECT client{};
+  GetClientRect(hwnd_, &client);
+  StretchDIBits(hdc, client.left, client.top,
+                client.right - client.left, client.bottom - client.top, 0, 0,
+                static_cast<int>(image->width), static_cast<int>(image->height),
+                image->bgra_bytes.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
+}
+
+void WinBitmapImagePresenter::OnUnload() {
   if (hwnd_ != nullptr) {
     DestroyWindow(hwnd_);
     hwnd_ = nullptr;

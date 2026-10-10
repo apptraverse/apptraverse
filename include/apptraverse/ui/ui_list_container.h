@@ -70,6 +70,9 @@ class UiListContainer : public NodeFor<UiListContainer> {
   std::vector<UiListRow::ptr> rows;
 
   void Apply(RemoveUiListRowEvent const& event);
+
+  void SubmitListRowActivatedFromUi(std::size_t row_index);
+  virtual void HandleListRowActivated(std::size_t row_index);
 };
 
 class RemoveUiListRowEvent

@@ -1,5 +1,6 @@
 #include "apptraverse/object_macros.h"
 
+#include "apptraverse/ui/ui_bitmap_image.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_edit_box.h"
 #include "apptraverse/ui/ui_label.h"
@@ -29,6 +30,8 @@ APPTRAVERSE_REGISTER(UiPushButton);
 APPTRAVERSE_REGISTER(UiPushButtonClickedEvent);
 APPTRAVERSE_REGISTER(SetUiPushButtonEnabledEvent);
 APPTRAVERSE_REGISTER(UiLabel);
+APPTRAVERSE_REGISTER(UiBitmapImage);
+APPTRAVERSE_REGISTER(UiBitmapImagePresenter);
 APPTRAVERSE_REGISTER(UiListRow);
 APPTRAVERSE_REGISTER(UiListContainer);
 APPTRAVERSE_REGISTER(RemoveUiListRowEvent);
@@ -50,6 +53,7 @@ void EnsureUiPresenterRegistration() {
   (void)&g_apptraverse_registrar_UiListContainerPresenter;
   (void)&g_apptraverse_registrar_UiLabelPresenter;
   (void)&g_apptraverse_registrar_UiListRowPresenter;
+  (void)&g_apptraverse_registrar_UiBitmapImagePresenter;
 }
 
 void ForceUiRegistration() {

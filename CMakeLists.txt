@@ -107,6 +107,7 @@ add_library(apptraverse STATIC
   src/ui/ui_edit_box.cpp
   src/ui/ui_push_button.cpp
   src/ui/ui_list_container.cpp
+  src/ui/ui_bitmap_image.cpp
   src/ui/ui_presenters.cpp
   src/ui/ui_registration.cpp
 )
@@ -143,16 +144,21 @@ if(WIN32)
 endif()
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
+option(APPTRAVERSE_BUILD_EXAMPLES "Build upstream AppTraverse examples" OFF)
+
 if(APPTRAVERSE_BUILD_AETHER_DEMOS)
   add_subdirectory(examples/model_ui_runtime_demo)
   add_subdirectory(examples/chat_ui_runtime_demo)
   add_subdirectory(examples/aether_presence_monitor)
 endif()
+
+if(APPTRAVERSE_BUILD_EXAMPLES)
 add_subdirectory(examples/main_window_runtime_demo)
 add_subdirectory(examples/dynamic_objects_demo)
 add_subdirectory(examples/surfaces_demo)
 add_subdirectory(examples/shared_node_demo)
 add_subdirectory(examples/chat_demo)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)

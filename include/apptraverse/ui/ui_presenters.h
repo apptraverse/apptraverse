@@ -192,6 +192,13 @@ class UiListContainerPresenter : public Presenter {
 
   bool ReadyForPresentation() const override;
   void OnModelChanged() override;
+
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
+
+  virtual void SubmitListRowActivatedFromUi(std::size_t row_index);
+
+  virtual void OnListRowActivated(std::size_t row_index);
 };
 
 class UiLabelPresenter : public Presenter {
