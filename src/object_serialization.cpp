@@ -829,6 +829,12 @@ void UpdatePresentersAfterStructuralPublication(
   }
   UnloadPresentersDescending(std::move(removed));
   InitializeNewPresenters(gui_root, host, model_proxy);
+  for (ae::Obj* obj : live_objects) {
+    Presenter* const presenter = AsPresenter(obj);
+    if (presenter != nullptr && presenter->presentation_loaded) {
+      presenter->OnModelChanged();
+    }
+  }
 }
 
 StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(

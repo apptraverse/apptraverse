@@ -75,6 +75,8 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
   bool OnCommand(std::uint32_t command_id,
                  std::uint16_t notification_code) override;
 
+  HWND hwnd() const { return hwnd_; }
+
   void ReadFromNativeAndSubmit();
 
  private:
@@ -103,6 +105,8 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
   void OnUnload() override;
 
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
+
+  HWND hwnd() const { return hwnd_; }
 
  private:
   void SyncFromMirror();
