@@ -1051,6 +1051,56 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
   SanitizeLoadedPersistentObjPtrs(root, loaded_ids);
 }
 
+bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
+                                            ae::IDomainStorage& storage,
+                                            std::uint32_t expected_root_id) {
+  std::uint32_t root_id = 0;
+  in.read(&root_id, sizeof(root_id));
+  if (!in.ok || root_id != expected_root_id) {
+    return false;
+  }
+
+  std::uint32_t layer_count = 0;
+  in.read(&layer_count, sizeof(layer_count));
+  if (!in.ok) {
+    return false;
+  }
+  for (std::uint32_t i = 0; i < layer_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint32_t class_id = 0;
+    std::uint8_t version = 0;
+    std::uint32_t size = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&class_id, sizeof(class_id));
+    in.read(&version, sizeof(version));
+    in.read(&size, sizeof(size));
+    if (!in.ok || in.pos + size > in.size) {
+      return false;
+    }
+    if (!InjectObjectBytes(storage, {ae::ObjId{obj_id}, class_id, version},
+                           in.data + in.pos, size)) {
+      return false;
+    }
+    in.pos += size;
+  }
+
+  std::uint32_t node_generation_count = 0;
+  in.read(&node_generation_count, sizeof(node_generation_count));
+  if (!in.ok) {
+    return false;
+  }
+  for (std::uint32_t i = 0; i < node_generation_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint64_t generation = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&generation, sizeof(generation));
+    if (!in.ok) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void SavePersistentModelSnapshotToStorage(ae::Obj& root,
                                           ae::IDomainStorage& storage) {
   ByteSink bytes;
@@ -1059,9 +1109,7 @@ void SavePersistentModelSnapshotToStorage(ae::Obj& root,
   in.data = bytes.bytes.data();
   in.size = bytes.bytes.size();
   in.pos = 0;
-  ae::Domain* const live_domain = root.domain;
-  assert(live_domain != nullptr);
-  LoadPersistentModelSnapshot(in, *live_domain, storage, root);
+  assert(InjectPersistentModelSnapshotToStorage(in, storage, root.obj_id.id()));
 }
 
 }  // namespace apptraverse

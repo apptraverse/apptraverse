@@ -1,12 +1,16 @@
+#include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/model_persistence.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/partitioned_model_domain_storage.h"
 #include "apptraverse/runtime_lifecycle.h"
 #include "apptraverse/runtime_node.h"
 
@@ -132,9 +136,44 @@ void RunModelPersistenceTest() {
   CHECK(load_doc->label == "after");
 }
 
+void RunSaveToStorageDoesNotMutateLiveGraphTest() {
+  ae::RamDomainStorage ram;
+  ae::Domain domain{ram};
+  auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*doc);
+  doc->label = "checkpoint";
+
+  std::uint64_t const gen_before = doc->Generation();
+  std::size_t const journal_before = doc->journal.size();
+
+  auto const temp =
+      std::filesystem::temp_directory_path() /
+      ("apptraverse_save_to_storage_" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code ec;
+  std::filesystem::remove_all(temp, ec);
+
+  apptraverse::DirectoryDomainStorage durable{temp};
+  apptraverse::SavePersistentModelSnapshotToStorage(*doc, durable);
+
+  CHECK(doc->Generation() == gen_before);
+  CHECK(doc->journal.size() == journal_before);
+  CHECK(doc->label == "checkpoint");
+
+  apptraverse::PartitionedModelDomainStorage load_model{durable};
+  ae::Domain load_domain{load_model};
+  auto load_doc =
+      DocNode::ptr::Declare(ae::CreateWith{load_domain}.with_id(doc->obj_id));
+  load_doc.Load();
+  CHECK(load_doc);
+  CHECK(load_doc->label == "checkpoint");
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::test::RunModelPersistenceTest();
+  apptraverse::test::RunSaveToStorageDoesNotMutateLiveGraphTest();
   return 0;
 }

@@ -176,6 +176,9 @@ ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
 void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out);
 void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
                                  ae::IDomainStorage& storage, ae::Obj& root);
+bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
+                                            ae::IDomainStorage& storage,
+                                            std::uint32_t expected_root_id);
 void SavePersistentModelSnapshotToStorage(ae::Obj& root,
                                           ae::IDomainStorage& storage);
 
