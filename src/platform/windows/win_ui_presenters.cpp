@@ -90,7 +90,8 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
         static_cast<WinPresentationHost*>(presenter->presentation_host);
     if (host != nullptr) {
       if (host->on_desktop_window_user_close != nullptr) {
-        host->on_desktop_window_user_close(host->opaque);
+        host->on_desktop_window_user_close(host->opaque,
+                                           presenter->window.operator->());
       } else if (host->notify_hwnd != nullptr) {
         PostMessageW(host->notify_hwnd, WM_CLOSE, 0, 0);
       }
@@ -355,7 +356,8 @@ void WinListContainerPresenter::OnLoad() {
     return;
   }
   hwnd_ = CreateWindowExW(
-      WS_EX_CLIENTEDGE, L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL,
+      WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+      WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
       layout_x, layout_y, layout_width, layout_height, desktop->hwnd(),
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
       GetModuleHandleW(nullptr), nullptr);

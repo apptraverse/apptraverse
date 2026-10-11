@@ -6,13 +6,18 @@
 #endif
 #include <windows.h>
 
+namespace ae {
+class Obj;
+}
+
 namespace apptraverse::ui::windows {
 
 // Passed as Presenter::presentation_host for Win32 UI shells.
 // Not serialized; not product-specific.
 struct WinPresentationHost {
   HWND notify_hwnd{nullptr};
-  void (*on_desktop_window_user_close)(void* opaque){nullptr};
+  void (*on_desktop_window_user_close)(void* opaque, ae::Obj* desktop_window){
+      nullptr};
   void* opaque{nullptr};
 };
 
