@@ -59,6 +59,16 @@ class UiDesktopWindowPresenter : public UiWindowPresenter {
   explicit UiDesktopWindowPresenter(ae::ObjProp prop)
       : UiWindowPresenter{prop} {}
 
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_);
+  }
+
   UiDesktopWindow::ptr desktop_window() const {
     return window ? UiDesktopWindow::ptr::MakeFromThis(
                         static_cast<UiDesktopWindow*>(&*window))

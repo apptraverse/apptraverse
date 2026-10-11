@@ -34,6 +34,16 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   explicit WinDesktopWindowPresenter(ae::ObjProp prop)
       : UiDesktopWindowPresenter{prop} {}
 
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_);
+  }
+
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
