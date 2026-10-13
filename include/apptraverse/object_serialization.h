@@ -194,6 +194,11 @@ bool PublicationTargetIsNodeShell(ae::Obj const& object);
 void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out);
 void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
                                  ae::IDomainStorage& storage, ae::Obj& root);
+// Inject checkpoint layer bytes into storage only; does not load or mutate any live root.
+void ApplyPersistentModelSnapshotBytesToStorage(ByteSource& in,
+                                                ae::IDomainStorage& storage);
+// Serialize live root and write durable layers to storage without reloading live root.
+void WritePersistentModelSnapshotToStorage(ae::Obj& root, ae::IDomainStorage& storage);
 void SavePersistentModelSnapshotToStorage(ae::Obj& root,
                                           ae::IDomainStorage& storage);
 

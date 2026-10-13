@@ -1154,16 +1154,58 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
   SanitizeLoadedPersistentObjPtrs(root, loaded_ids);
 }
 
-void SavePersistentModelSnapshotToStorage(ae::Obj& root,
-                                          ae::IDomainStorage& storage) {
+void ApplyPersistentModelSnapshotBytesToStorage(ByteSource& in,
+                                                ae::IDomainStorage& storage) {
+  std::uint32_t root_id = 0;
+  in.read(&root_id, sizeof(root_id));
+  assert(in.ok);
+
+  std::uint32_t layer_count = 0;
+  in.read(&layer_count, sizeof(layer_count));
+  assert(in.ok);
+
+  for (std::uint32_t i = 0; i < layer_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint32_t class_id = 0;
+    std::uint8_t version = 0;
+    std::uint32_t size = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&class_id, sizeof(class_id));
+    in.read(&version, sizeof(version));
+    in.read(&size, sizeof(size));
+    assert(in.ok && in.pos + size <= in.size);
+    InjectObjectBytes(storage, {ae::ObjId{obj_id}, class_id, version},
+                      in.data + in.pos, size);
+    in.pos += size;
+  }
+
+  std::uint32_t node_generation_count = 0;
+  in.read(&node_generation_count, sizeof(node_generation_count));
+  assert(in.ok);
+  for (std::uint32_t i = 0; i < node_generation_count; ++i) {
+    std::uint32_t obj_id = 0;
+    std::uint64_t generation = 0;
+    in.read(&obj_id, sizeof(obj_id));
+    in.read(&generation, sizeof(generation));
+    assert(in.ok);
+  }
+  assert(in.pos == in.size);
+}
+
+void WritePersistentModelSnapshotToStorage(ae::Obj& root,
+                                           ae::IDomainStorage& storage) {
   ByteSink bytes;
   SerializePersistentModelSnapshot(root, bytes);
   ByteSource in;
   in.data = bytes.bytes.data();
   in.size = bytes.bytes.size();
   in.pos = 0;
-  ae::Domain domain{storage};
-  LoadPersistentModelSnapshot(in, domain, storage, root);
+  ApplyPersistentModelSnapshotBytesToStorage(in, storage);
+}
+
+void SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                          ae::IDomainStorage& storage) {
+  WritePersistentModelSnapshotToStorage(root, storage);
 }
 
 }  // namespace apptraverse

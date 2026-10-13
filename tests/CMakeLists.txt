@@ -39,6 +39,16 @@ add_test(
   COMMAND apptraverse_model_persistence_runtime_ref_test
 )
 
+add_executable(apptraverse_model_persistence_nonmutating_save_test
+  model_persistence_nonmutating_save_test.cpp
+)
+target_link_libraries(apptraverse_model_persistence_nonmutating_save_test PRIVATE
+  apptraverse)
+add_test(
+  NAME apptraverse_model_persistence_nonmutating_save_test
+  COMMAND apptraverse_model_persistence_nonmutating_save_test
+)
+
 add_executable(apptraverse_model_persistence_application_root_roundtrip_test
   model_persistence_application_root_roundtrip_test.cpp
 )
