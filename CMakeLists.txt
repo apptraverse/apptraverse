@@ -87,6 +87,7 @@ add_library(apptraverse STATIC
   src/noninteractive_crt.cpp
   src/runtime_lifecycle.cpp
   src/directory_domain_storage.cpp
+  src/partitioned_model_domain_storage.cpp
   src/overlay_domain_storage.cpp
   src/object_serialization.cpp
   src/model_persistence.cpp

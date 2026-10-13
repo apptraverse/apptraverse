@@ -289,6 +289,17 @@ add_test(
   COMMAND apptraverse_directory_domain_storage_test
 )
 
+add_executable(apptraverse_partitioned_model_domain_storage_test
+  partitioned_model_domain_storage_test.cpp
+)
+
+target_link_libraries(apptraverse_partitioned_model_domain_storage_test PRIVATE apptraverse)
+
+add_test(
+  NAME apptraverse_partitioned_model_domain_storage_test
+  COMMAND apptraverse_partitioned_model_domain_storage_test
+)
+
 add_executable(apptraverse_overlay_domain_storage_test
   overlay_domain_storage_test.cpp
 )
