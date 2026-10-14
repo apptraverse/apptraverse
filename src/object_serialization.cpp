@@ -483,6 +483,10 @@ ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
   auto object = domain.Find(ae::ObjId{object_id});
   assert(object && "incremental publication object must already exist");
   Node& node = RequireNodeShell(*object, "ApplyIncrementalPublication");
+  if (generation <= node.Generation()) {
+    in.pos += payload_size;
+    return node;
+  }
   DeserializeObjectFromBuffer(node, payload, domain, storage);
   AdoptPublishedNodeGeneration(node, generation);
   return node;

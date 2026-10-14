@@ -116,6 +116,15 @@ add_test(
   COMMAND apptraverse_text_edit_incremental_publication_test
 )
 
+add_executable(apptraverse_text_edit_stale_incremental_publication_test
+  text_edit_stale_incremental_publication_test.cpp
+)
+target_link_libraries(apptraverse_text_edit_stale_incremental_publication_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_text_edit_stale_incremental_publication_test
+  COMMAND apptraverse_text_edit_stale_incremental_publication_test
+)
+
 add_executable(apptraverse_structural_publication_test structural_publication_test.cpp)
 target_link_libraries(apptraverse_structural_publication_test PRIVATE apptraverse)
 add_test(
