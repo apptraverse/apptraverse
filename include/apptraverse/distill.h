@@ -27,6 +27,16 @@ inline void FinalizeDistilledGraph(ae::Obj& application_root) {
   }
 }
 
+// Normalize generations/journals so repeated distill runs emit identical bytes.
+inline void StabilizeDistilledPersistentSnapshot(ae::Obj& application_root) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(application_root, nodes);
+  for (Node* node : nodes) {
+    node->AdoptPublishedGeneration(1);
+    node->CompactJournal(0);
+  }
+}
+
 template <typename T>
 void SaveDistilledRoot(T& root) {
   T::ptr::MakeFromThis(&root).Save();  // runtime-save-ok: distill
