@@ -609,7 +609,9 @@ bool ReadAndInjectPublicationLayers(ByteSource& in, ae::IDomainStorage& ui_stora
   return true;
 }
 
-bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain, std::uint32_t root_id,
+bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain,
+                                   ae::IDomainStorage& ui_storage,
+                                   std::uint32_t root_id,
                                    std::vector<std::uint32_t> const& unique_obj_ids,
                                    InitialPublicationLoadDiagnostics* diagnostics) {
   ae::DomainGraph graph{&ui_domain};
@@ -618,6 +620,18 @@ bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain, std::uint32_t root_i
     if (diagnostics) {
       diagnostics->stage = InitialPublicationLoadStage::LoadRoot;
       diagnostics->root_id = root_id;
+      for (std::uint32_t obj_id : unique_obj_ids) {
+        ae::DomainGraph probe{&ui_domain};
+        ae::Ptr<ae::Obj> probe_root;
+        if (probe.LoadRoot(ae::ObjId{obj_id}, probe_root).IsErr()) {
+          diagnostics->obj_id = obj_id;
+          ae::ClassList classes = ui_storage.Enumerate(ae::ObjId{obj_id});
+          if (!classes.empty()) {
+            diagnostics->class_id = classes.back();
+          }
+          break;
+        }
+      }
     }
     return false;
   }
@@ -657,7 +671,8 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
     return {};
   }
 
-  if (!HydrateInjectedPublicationGraph(ui_domain, root_id, unique_obj_ids, diagnostics)) {
+  if (!HydrateInjectedPublicationGraph(ui_domain, ui_storage, root_id,
+                                       unique_obj_ids, diagnostics)) {
     return {};
   }
 
