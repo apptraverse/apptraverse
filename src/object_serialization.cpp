@@ -638,12 +638,19 @@ bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain,
   for (std::uint32_t obj_id : unique_obj_ids) {
     auto object = ui_domain.Find(ae::ObjId{obj_id});
     if (!object) {
-      if (diagnostics) {
-        diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
-        diagnostics->root_id = root_id;
-        diagnostics->obj_id = obj_id;
+      object = graph.LoadRoot(ae::ObjId{obj_id});
+      if (!object) {
+        if (diagnostics) {
+          diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
+          diagnostics->root_id = root_id;
+          diagnostics->obj_id = obj_id;
+          ae::ClassList classes = ui_storage.Enumerate(ae::ObjId{obj_id});
+          if (!classes.empty()) {
+            diagnostics->class_id = classes.back();
+          }
+        }
+        return false;
       }
-      return false;
     }
     LoadExistingObject(*object, ui_domain);
   }
