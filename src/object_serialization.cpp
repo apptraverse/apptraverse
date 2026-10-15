@@ -654,6 +654,11 @@ bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain,
     }
     LoadExistingObject(*object, ui_domain);
   }
+  for (std::uint32_t obj_id : unique_obj_ids) {
+    if (auto object = ui_domain.Find(ae::ObjId{obj_id})) {
+      LoadExistingObject(*object, ui_domain);
+    }
+  }
   return true;
 }
 
