@@ -383,22 +383,89 @@ bool WinListContainerPresenter::OnCommand(std::uint32_t command_id,
   return true;
 }
 
+namespace {
+
+std::vector<std::wstring> ReadListBoxStrings(HWND hwnd) {
+  LRESULT const count = SendMessageW(hwnd, LB_GETCOUNT, 0, 0);
+  if (count == LB_ERR || count <= 0) {
+    return {};
+  }
+  std::vector<std::wstring> out;
+  out.reserve(static_cast<std::size_t>(count));
+  for (LRESULT i = 0; i < count; ++i) {
+    LRESULT const len = SendMessageW(hwnd, LB_GETTEXTLEN, static_cast<WPARAM>(i),
+                                     0);
+    if (len == LB_ERR || len <= 0) {
+      out.emplace_back();
+      continue;
+    }
+    std::wstring text(static_cast<std::size_t>(len), L'\0');
+    SendMessageW(hwnd, LB_GETTEXT, static_cast<WPARAM>(i),
+                 reinterpret_cast<LPARAM>(text.data()));
+    text.resize(static_cast<std::size_t>(len));
+    out.push_back(std::move(text));
+  }
+  return out;
+}
+
+}  // namespace
+
 void WinListContainerPresenter::SyncFromMirror() {
   if (hwnd_ == nullptr || !container) {
     return;
   }
-  SendMessageW(hwnd_, LB_RESETCONTENT, 0, 0);
   int language_index = 0;
   if (window_presenter && window_presenter->locale) {
     language_index = window_presenter->locale->language_index();
   }
+  std::vector<std::wstring> desired;
+  desired.reserve(container->rows.size());
   for (auto const& row : container->rows) {
     if (!row || !row->primary_text) {
       continue;
     }
-    auto const text = Utf8ToWide(row->primary_text->Resolve(language_index));
+    desired.push_back(
+        Utf8ToWide(row->primary_text->Resolve(language_index)));
+  }
+
+  std::vector<std::wstring> const current = ReadListBoxStrings(hwnd_);
+  if (current == desired) {
+    return;
+  }
+
+  LRESULT const previous_sel = SendMessageW(hwnd_, LB_GETCURSEL, 0, 0);
+  LRESULT const previous_top = SendMessageW(hwnd_, LB_GETTOPINDEX, 0, 0);
+
+  if (current.size() == desired.size()) {
+    for (std::size_t i = 0; i < desired.size(); ++i) {
+      if (current[i] == desired[i]) {
+        continue;
+      }
+      SendMessageW(hwnd_, LB_DELETESTRING, static_cast<WPARAM>(i), 0);
+      SendMessageW(hwnd_, LB_INSERTSTRING, static_cast<WPARAM>(i),
+                   reinterpret_cast<LPARAM>(desired[i].c_str()));
+    }
+    if (previous_sel != LB_ERR && previous_sel >= 0 &&
+        previous_sel < static_cast<LRESULT>(desired.size())) {
+      SendMessageW(hwnd_, LB_SETCURSEL, static_cast<WPARAM>(previous_sel), 0);
+    }
+    if (previous_top != LB_ERR && previous_top >= 0) {
+      SendMessageW(hwnd_, LB_SETTOPINDEX, static_cast<WPARAM>(previous_top), 0);
+    }
+    return;
+  }
+
+  SendMessageW(hwnd_, LB_RESETCONTENT, 0, 0);
+  for (auto const& text : desired) {
     SendMessageW(hwnd_, LB_ADDSTRING, 0,
                  reinterpret_cast<LPARAM>(text.c_str()));
+  }
+  if (previous_sel != LB_ERR && previous_sel >= 0 &&
+      previous_sel < static_cast<LRESULT>(desired.size())) {
+    SendMessageW(hwnd_, LB_SETCURSEL, static_cast<WPARAM>(previous_sel), 0);
+  }
+  if (previous_top != LB_ERR && previous_top >= 0) {
+    SendMessageW(hwnd_, LB_SETTOPINDEX, static_cast<WPARAM>(previous_top), 0);
   }
 }
 

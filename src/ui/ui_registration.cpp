@@ -17,6 +17,7 @@ namespace {
 
 APPTRAVERSE_REGISTER(UiString);
 APPTRAVERSE_REGISTER(UiLocalizationString);
+APPTRAVERSE_REGISTER(SetUiLocalizationSlotUtf8Event);
 APPTRAVERSE_REGISTER(UiLocaleSettings);
 APPTRAVERSE_REGISTER(SetUiLanguageIndexEvent);
 APPTRAVERSE_REGISTER(UiWindow);
