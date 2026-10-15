@@ -32,6 +32,7 @@ inline void StabilizeDistilledPersistentSnapshot(ae::Obj& application_root) {
   std::vector<Node*> nodes;
   CollectReachableNodes(application_root, nodes);
   for (Node* node : nodes) {
+    node->journal.clear();
     node->AdoptPublishedGeneration(1);
     node->CompactJournal(0);
   }
