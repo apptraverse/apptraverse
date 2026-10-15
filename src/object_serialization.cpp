@@ -1107,7 +1107,7 @@ bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
   return true;
 }
 
-void SavePersistentModelSnapshotToStorage(ae::Obj& root,
+bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
                                           ae::IDomainStorage& storage) {
   ByteSink bytes;
   SerializePersistentModelSnapshot(root, bytes);
@@ -1115,7 +1115,7 @@ void SavePersistentModelSnapshotToStorage(ae::Obj& root,
   in.data = bytes.bytes.data();
   in.size = bytes.bytes.size();
   in.pos = 0;
-  assert(InjectPersistentModelSnapshotToStorage(in, storage, root.obj_id.id()));
+  return InjectPersistentModelSnapshotToStorage(in, storage, root.obj_id.id());
 }
 
 }  // namespace apptraverse

@@ -179,7 +179,7 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
 bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
                                             ae::IDomainStorage& storage,
                                             std::uint32_t expected_root_id);
-void SavePersistentModelSnapshotToStorage(ae::Obj& root,
+bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
                                           ae::IDomainStorage& storage);
 
 }  // namespace apptraverse
