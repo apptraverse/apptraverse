@@ -635,28 +635,52 @@ bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain,
     }
     return false;
   }
-  for (std::uint32_t obj_id : unique_obj_ids) {
+  auto reload_object = [&](std::uint32_t obj_id) {
     auto object = ui_domain.Find(ae::ObjId{obj_id});
     if (!object) {
       object = graph.LoadRoot(ae::ObjId{obj_id});
-      if (!object) {
-        if (diagnostics) {
-          diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
-          diagnostics->root_id = root_id;
-          diagnostics->obj_id = obj_id;
-          ae::ClassList classes = ui_storage.Enumerate(ae::ObjId{obj_id});
-          if (!classes.empty()) {
-            diagnostics->class_id = classes.back();
-          }
-        }
-        return false;
-      }
+    }
+    if (!object) {
+      return false;
     }
     LoadExistingObject(*object, ui_domain);
+    return true;
+  };
+  for (std::uint32_t obj_id : unique_obj_ids) {
+    if (!reload_object(obj_id)) {
+      if (diagnostics) {
+        diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
+        diagnostics->root_id = root_id;
+        diagnostics->obj_id = obj_id;
+        ae::ClassList classes = ui_storage.Enumerate(ae::ObjId{obj_id});
+        if (!classes.empty()) {
+          diagnostics->class_id = classes.back();
+        }
+      }
+      return false;
+    }
+  }
+  std::vector<std::uint32_t> reverse_order = unique_obj_ids;
+  std::sort(reverse_order.begin(), reverse_order.end(),
+            std::greater<std::uint32_t>{});
+  for (std::uint32_t obj_id : reverse_order) {
+    if (!reload_object(obj_id)) {
+      if (diagnostics) {
+        diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
+        diagnostics->root_id = root_id;
+        diagnostics->obj_id = obj_id;
+      }
+      return false;
+    }
   }
   for (std::uint32_t obj_id : unique_obj_ids) {
-    if (auto object = ui_domain.Find(ae::ObjId{obj_id})) {
-      LoadExistingObject(*object, ui_domain);
+    if (!reload_object(obj_id)) {
+      if (diagnostics) {
+        diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
+        diagnostics->root_id = root_id;
+        diagnostics->obj_id = obj_id;
+      }
+      return false;
     }
   }
   return true;
