@@ -11,6 +11,7 @@ namespace {
 constexpr wchar_t kDesktopWindowClass[] = L"AppTraverseUiDesktopWindow";
 constexpr wchar_t kBitmapViewportClass[] = L"AppTraverseUiBitmapViewport";
 constexpr std::uint16_t kEnChange = 0x0300;
+constexpr std::uint16_t kLbnSelchange = 1;
 constexpr std::uint16_t kLbnDblclk = 2;
 
 bool g_bitmap_viewport_class_registered{false};
@@ -371,8 +372,19 @@ void WinListContainerPresenter::OnLoad() {
 
 bool WinListContainerPresenter::OnCommand(std::uint32_t command_id,
                                           std::uint16_t notification_code) {
-  if (control_id == 0 || command_id != control_id ||
-      notification_code != kLbnDblclk || hwnd_ == nullptr) {
+  if (control_id == 0 || command_id != control_id || hwnd_ == nullptr) {
+    return UiListContainerPresenter::OnCommand(command_id, notification_code);
+  }
+  if (notify_list_selection_change &&
+      notification_code == kLbnSelchange) {
+    LRESULT const sel = SendMessageW(hwnd_, LB_GETCURSEL, 0, 0);
+    if (sel == LB_ERR) {
+      return true;
+    }
+    SubmitListRowSelectionChangedFromUi(static_cast<std::size_t>(sel));
+    return true;
+  }
+  if (notification_code != kLbnDblclk) {
     return UiListContainerPresenter::OnCommand(command_id, notification_code);
   }
   LRESULT const sel = SendMessageW(hwnd_, LB_GETCURSEL, 0, 0);
@@ -430,6 +442,17 @@ void WinListContainerPresenter::SyncFromMirror() {
 
   std::vector<std::wstring> const current = ReadListBoxStrings(hwnd_);
   if (current == desired) {
+    if (notify_list_selection_change && window_presenter &&
+        window_presenter->locale) {
+      int const language_index = window_presenter->locale->language_index();
+      LRESULT const cur_sel = SendMessageW(hwnd_, LB_GETCURSEL, 0, 0);
+      if (language_index >= 0 &&
+          language_index < static_cast<int>(desired.size()) &&
+          cur_sel != language_index) {
+        SendMessageW(hwnd_, LB_SETCURSEL,
+                     static_cast<WPARAM>(language_index), 0);
+      }
+    }
     return;
   }
 
@@ -466,6 +489,16 @@ void WinListContainerPresenter::SyncFromMirror() {
   }
   if (previous_top != LB_ERR && previous_top >= 0) {
     SendMessageW(hwnd_, LB_SETTOPINDEX, static_cast<WPARAM>(previous_top), 0);
+  }
+
+  if (notify_list_selection_change && window_presenter &&
+      window_presenter->locale) {
+    int const language_index = window_presenter->locale->language_index();
+    if (language_index >= 0 &&
+        language_index < static_cast<int>(desired.size())) {
+      SendMessageW(hwnd_, LB_SETCURSEL,
+                   static_cast<WPARAM>(language_index), 0);
+    }
   }
 }
 

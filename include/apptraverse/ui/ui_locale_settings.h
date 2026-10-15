@@ -34,6 +34,7 @@ class UiLocaleSettings : public NodeFor<UiLocaleSettings> {
   int language_index() const { return language_index_; }
 
   void Apply(SetUiLanguageIndexEvent const& event);
+  void SubmitLanguageIndexFromUi(int language_index);
 
  private:
   int language_index_{0};

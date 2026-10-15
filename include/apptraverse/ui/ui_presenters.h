@@ -199,6 +199,7 @@ class UiListContainerPresenter : public Presenter {
   std::int32_t layout_width{200};
   std::int32_t layout_height{120};
   std::uint32_t control_id{0};
+  bool notify_list_selection_change{false};
 
   bool ReadyForPresentation() const override;
   void OnModelChanged() override;
@@ -207,8 +208,10 @@ class UiListContainerPresenter : public Presenter {
                  std::uint16_t notification_code) override;
 
   virtual void SubmitListRowActivatedFromUi(std::size_t row_index);
+  virtual void SubmitListRowSelectionChangedFromUi(std::size_t row_index);
 
   virtual void OnListRowActivated(std::size_t row_index);
+  virtual void OnListRowSelectionChanged(std::size_t row_index);
 };
 
 class UiLabelPresenter : public Presenter {

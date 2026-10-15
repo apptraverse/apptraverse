@@ -94,7 +94,20 @@ void UiListContainerPresenter::SubmitListRowActivatedFromUi(
                       row_index);
 }
 
+void UiListContainerPresenter::SubmitListRowSelectionChangedFromUi(
+    std::size_t row_index) {
+  if (!model_proxy || !container) {
+    return;
+  }
+  OnListRowSelectionChanged(row_index);
+}
+
 void UiListContainerPresenter::OnListRowActivated(std::size_t row_index) {
+  static_cast<void>(row_index);
+}
+
+void UiListContainerPresenter::OnListRowSelectionChanged(
+    std::size_t row_index) {
   static_cast<void>(row_index);
 }
 
