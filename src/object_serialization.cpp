@@ -1014,14 +1014,40 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   return changed;
 }
 
+void CollectDistilledBaseIdsFromScratch(
+    ae::RamDomainStorage const& scratch, ae::Obj const& root,
+    std::unordered_set<std::uint32_t>& out) {
+  out.clear();
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj) {
+      continue;
+    }
+    if (auto* node = AsObjOf<Node>(obj.get())) {
+      if (node->base.is_valid()) {
+        out.insert(node->base.id().id());
+      }
+    }
+  }
+}
+
 void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
                                             ae::Obj const& root, ByteSink& out) {
+  std::unordered_set<std::uint32_t> distilled_base_ids;
+  CollectDistilledBaseIdsFromScratch(scratch, root, distilled_base_ids);
+
   auto const count_at = out.bytes.size();
   std::uint32_t layer_count = 0;
   out.write(&layer_count, sizeof(layer_count));
 
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
+      continue;
+    }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
       continue;
     }
     auto obj = root.domain->Find(obj_id);
@@ -1053,6 +1079,9 @@ void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
   out.write(&node_generation_count, sizeof(node_generation_count));
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
+      continue;
+    }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
       continue;
     }
     auto obj = root.domain->Find(obj_id);
