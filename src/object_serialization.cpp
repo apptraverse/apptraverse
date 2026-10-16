@@ -1267,7 +1267,7 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
 
   InitialPublicationLoadDiagnostics diagnostics;
   ae::DomainGraph hydrate_graph{&domain};
-  auto load_checkpoint_object = [&](ae::ObjId const id) {
+  auto ensure_checkpoint_shell = [&](ae::ObjId const id) -> ae::Obj& {
     ae::Ptr<ae::Obj> object = domain.Find(id);
     if (!object) {
       object = hydrate_graph.LoadRoot(id);
@@ -1280,23 +1280,30 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
       WriteFatalStderr(message);
       std::abort();
     }
-    diagnostics = {};
-    if (!LoadExistingObject(*object, domain, &storage, &diagnostics)) {
-      diagnostics.obj_id = id.id();
+    return *object;
+  };
+  constexpr int kMaxCheckpointLoadPasses = 16;
+  for (int pass = 0; pass < kMaxCheckpointLoadPasses; ++pass) {
+    bool any_failed = false;
+    for (ae::ObjId const id : loaded_ids) {
+      ae::Obj& object = ensure_checkpoint_shell(id);
+      diagnostics = {};
+      if (!LoadExistingObject(object, domain, &storage, &diagnostics)) {
+        any_failed = true;
+      }
+    }
+    if (!any_failed) {
+      break;
+    }
+    if (pass + 1 == kMaxCheckpointLoadPasses) {
+      diagnostics.obj_id = root.obj_id.id();
       char message[512];
       FormatInitialPublicationLoadDiagnostics(diagnostics, message,
                                             sizeof(message));
       WriteFatalStderr(message);
       std::abort();
     }
-  };
-  for (ae::ObjId const id : loaded_ids) {
-    if (id == root.obj_id) {
-      continue;
-    }
-    load_checkpoint_object(id);
   }
-  load_checkpoint_object(root.obj_id);
 
   std::uint32_t node_generation_count = 0;
   in.read(&node_generation_count, sizeof(node_generation_count));
