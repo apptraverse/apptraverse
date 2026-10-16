@@ -378,6 +378,27 @@ void RestoreReachableNodeBase(std::vector<SavedNodeBaseOnly>& saved) {
   saved.clear();
 }
 
+void EnsurePersistentCheckpointBaseObjectsInScratch(
+    std::vector<SavedNodeBaseOnly> const& saved_bases,
+    ae::RamDomainStorage& scratch) {
+  for (SavedNodeBaseOnly const& entry : saved_bases) {
+    if (!entry.base.is_valid()) {
+      continue;
+    }
+    if (IsExcludedFromPersistentSnapshot(*entry.node)) {
+      continue;
+    }
+    ae::ObjId const base_id = entry.base.id();
+    auto scratch_it = scratch.state.find(base_id);
+    if (scratch_it != scratch.state.end() && scratch_it->second.has_value()) {
+      continue;
+    }
+    if (auto obj = entry.node->domain->Find(base_id)) {
+      SaveObjectGraphToScratch(*obj, scratch);
+    }
+  }
+}
+
 void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
   ae::RamDomainStorage scratch;
   std::vector<SavedNodeBookkeeping> saved_history;
@@ -1221,6 +1242,7 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
 
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(root, scratch);
+  EnsurePersistentCheckpointBaseObjectsInScratch(saved_bases, scratch);
 
   objptr_guard.dismiss();
   objptr_patches.RestoreAll();
