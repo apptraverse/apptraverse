@@ -1266,17 +1266,8 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
   }
 
   InitialPublicationLoadDiagnostics diagnostics;
-  if (!LoadExistingObject(root, domain, &storage, &diagnostics)) {
-    char message[512];
-    FormatInitialPublicationLoadDiagnostics(diagnostics, message, sizeof(message));
-    WriteFatalStderr(message);
-    std::abort();
-  }
   ae::DomainGraph hydrate_graph{&domain};
-  for (ae::ObjId const id : loaded_ids) {
-    if (id == root.obj_id) {
-      continue;
-    }
+  auto load_checkpoint_object = [&](ae::ObjId const id) {
     ae::Ptr<ae::Obj> object = domain.Find(id);
     if (!object) {
       object = hydrate_graph.LoadRoot(id);
@@ -1298,7 +1289,14 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
       WriteFatalStderr(message);
       std::abort();
     }
+  };
+  for (ae::ObjId const id : loaded_ids) {
+    if (id == root.obj_id) {
+      continue;
+    }
+    load_checkpoint_object(id);
   }
+  load_checkpoint_object(root.obj_id);
 
   std::uint32_t node_generation_count = 0;
   in.read(&node_generation_count, sizeof(node_generation_count));
