@@ -21,6 +21,7 @@
 #include "apptraverse/model_persistence.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
+#include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
 namespace {
@@ -1479,6 +1480,13 @@ bool TryLoadPersistedModelFromStorageSidecar(
   checkpoint.data = bytes.data();
   checkpoint.size = bytes.size();
   checkpoint.pos = 0;
+  std::vector<Node*> nodes;
+  CollectReachableNodes(root, nodes);
+  for (Node* node : nodes) {
+    if (!node->base.is_valid()) {
+      InitializeRuntimeNode(*node);
+    }
+  }
   LoadPersistentModelSnapshot(checkpoint, domain, storage, root);
   return true;
 }
