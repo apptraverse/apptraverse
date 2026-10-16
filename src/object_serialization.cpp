@@ -21,7 +21,6 @@
 #include "apptraverse/model_persistence.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
-#include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
 namespace {
@@ -377,16 +376,6 @@ void RestoreReachableNodeBase(std::vector<SavedNodeBaseOnly>& saved) {
     entry.node->base = std::move(entry.base);
   }
   saved.clear();
-}
-
-void EstablishPersistentCheckpointNodeBaseFromMaterializedState(Node& node) {
-  if (node.base.is_valid() || node.journal.empty()) {
-    return;
-  }
-  auto saved_journal = node.journal;
-  node.journal.clear();
-  node.CaptureBaseState();
-  node.journal = std::move(saved_journal);
 }
 
 void EnsurePersistentCheckpointBaseObjectsInScratch(
@@ -1183,7 +1172,11 @@ void RestorePersistedNodeBaseBindings(ByteSource& in, ae::Domain& domain) {
     if (node == nullptr || node->base.is_valid()) {
       continue;
     }
-    auto held = domain.Find(ae::ObjId{base_id});
+    ae::Ptr<ae::Obj> held = domain.Find(ae::ObjId{base_id});
+    if (!held) {
+      ae::DomainGraph graph{&domain};
+      held = graph.LoadRoot(ae::ObjId{base_id});
+    }
     if (!held) {
       continue;
     }
@@ -1306,20 +1299,31 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
     WriteFatalStderr(message);
     std::abort();
   }
+  ae::DomainGraph hydrate_graph{&domain};
   for (ae::ObjId const id : loaded_ids) {
     if (id == root.obj_id) {
       continue;
     }
-    if (auto object = domain.Find(id); object) {
-      diagnostics = {};
-      if (!LoadExistingObject(*object, domain, &storage, &diagnostics)) {
-        diagnostics.obj_id = id.id();
-        char message[512];
-        FormatInitialPublicationLoadDiagnostics(diagnostics, message,
-                                              sizeof(message));
-        WriteFatalStderr(message);
-        std::abort();
-      }
+    ae::Ptr<ae::Obj> object = domain.Find(id);
+    if (!object) {
+      object = hydrate_graph.LoadRoot(id);
+    }
+    if (!object) {
+      char message[512];
+      std::snprintf(message, sizeof(message),
+                    "fatal: persistent checkpoint missing domain object id=%u\n",
+                    id.id());
+      WriteFatalStderr(message);
+      std::abort();
+    }
+    diagnostics = {};
+    if (!LoadExistingObject(*object, domain, &storage, &diagnostics)) {
+      diagnostics.obj_id = id.id();
+      char message[512];
+      FormatInitialPublicationLoadDiagnostics(diagnostics, message,
+                                            sizeof(message));
+      WriteFatalStderr(message);
+      std::abort();
     }
   }
 
@@ -1355,7 +1359,6 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
         LoadExistingObject(*event_obj, domain, &storage, &event_diagnostics);
       }
     }
-    EstablishPersistentCheckpointNodeBaseFromMaterializedState(*node);
     node->AdoptMaterializedPersistentCheckpointJournal();
   }
 }
