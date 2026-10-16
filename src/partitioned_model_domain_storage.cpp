@@ -1,5 +1,7 @@
 #include "apptraverse/partitioned_model_domain_storage.h"
 
+#include "apptraverse/directory_domain_storage.h"
+
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/model_persistence.h"
@@ -21,6 +23,11 @@ bool ClassIdUsesTransientPartition(std::uint32_t class_id) {
 PartitionedModelDomainStorage::PartitionedModelDomainStorage(
     ae::IDomainStorage& durable_backing)
     : durable_backing_{durable_backing} {}
+
+PartitionedModelDomainStorage::PartitionedModelDomainStorage(
+    DirectoryDomainStorage& durable_directory)
+    : durable_backing_{durable_directory},
+      checkpoint_sidecar_directory_{durable_directory.root()} {}
 
 bool PartitionedModelDomainStorage::QueryUsesTransientPartition(
     ae::DomainQuery const& query) {

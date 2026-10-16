@@ -351,6 +351,33 @@ void RestoreReachableNodeHistory(std::vector<SavedNodeBookkeeping>& saved) {
   saved.clear();
 }
 
+struct SavedNodeBaseOnly {
+  Node* node;
+  Node::ptr base;
+};
+
+void ClearReachableNodeBaseForCheckpointSave(
+    ae::Obj const& root, std::vector<SavedNodeBaseOnly>& saved) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(const_cast<ae::Obj&>(root), nodes);
+  saved.clear();
+  saved.reserve(nodes.size());
+  for (Node* node : nodes) {
+    if (IsExcludedFromPersistentSnapshot(*node)) {
+      continue;
+    }
+    saved.push_back(SavedNodeBaseOnly{node, node->base});
+    node->base = Node::ptr{};
+  }
+}
+
+void RestoreReachableNodeBase(std::vector<SavedNodeBaseOnly>& saved) {
+  for (SavedNodeBaseOnly& entry : saved) {
+    entry.node->base = std::move(entry.base);
+  }
+  saved.clear();
+}
+
 void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
   ae::RamDomainStorage scratch;
   std::vector<SavedNodeBookkeeping> saved_history;
@@ -1019,40 +1046,14 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   return changed;
 }
 
-void CollectDistilledBaseIdsFromScratch(
-    ae::RamDomainStorage const& scratch, ae::Obj const& root,
-    std::unordered_set<std::uint32_t>& out) {
-  out.clear();
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    if (auto* node = AsObjOf<Node>(obj.get())) {
-      if (node->base.is_valid()) {
-        out.insert(node->base.id().id());
-      }
-    }
-  }
-}
-
 void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
                                             ae::Obj const& root, ByteSink& out) {
-  std::unordered_set<std::uint32_t> distilled_base_ids;
-  CollectDistilledBaseIdsFromScratch(scratch, root, distilled_base_ids);
-
   auto const count_at = out.bytes.size();
   std::uint32_t layer_count = 0;
   out.write(&layer_count, sizeof(layer_count));
 
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
-      continue;
-    }
-    if (distilled_base_ids.count(obj_id.id()) != 0) {
       continue;
     }
     auto obj = root.domain->Find(obj_id);
@@ -1086,9 +1087,6 @@ void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
     if (!class_map_opt) {
       continue;
     }
-    if (distilled_base_ids.count(obj_id.id()) != 0) {
-      continue;
-    }
     auto obj = root.domain->Find(obj_id);
     if (!obj || IsExcludedFromPersistentSnapshot(*obj)) {
       continue;
@@ -1107,12 +1105,115 @@ void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
               sizeof(node_generation_count));
 }
 
+void WritePersistentCheckpointNodeBaseBindings(
+    std::vector<SavedNodeBaseOnly> const& saved_bases, ByteSink& out) {
+  auto const count_at = out.bytes.size();
+  std::uint32_t binding_count = 0;
+  out.write(&binding_count, sizeof(binding_count));
+  for (SavedNodeBaseOnly const& entry : saved_bases) {
+    if (!entry.base.is_valid()) {
+      continue;
+    }
+    if (IsExcludedFromPersistentSnapshot(*entry.node)) {
+      continue;
+    }
+    std::uint32_t const node_id = entry.node->obj_id.id();
+    std::uint32_t const base_id = entry.base.id().id();
+    out.write(&node_id, sizeof(node_id));
+    out.write(&base_id, sizeof(base_id));
+    ++binding_count;
+  }
+  std::memcpy(out.bytes.data() + count_at, &binding_count, sizeof(binding_count));
+}
+
+void RestorePersistedNodeBaseBindings(ByteSource& in, ae::Domain& domain) {
+  if (in.pos + sizeof(std::uint32_t) > in.size) {
+    return;
+  }
+  std::uint32_t binding_count = 0;
+  in.read(&binding_count, sizeof(binding_count));
+  if (!in.ok) {
+    return;
+  }
+  for (std::uint32_t i = 0; i < binding_count; ++i) {
+    std::uint32_t node_id = 0;
+    std::uint32_t base_id = 0;
+    in.read(&node_id, sizeof(node_id));
+    in.read(&base_id, sizeof(base_id));
+    if (!in.ok) {
+      return;
+    }
+    auto node_obj = domain.Find(ae::ObjId{node_id});
+    if (!node_obj) {
+      continue;
+    }
+    auto* node = AsObjOf<Node>(node_obj.get());
+    if (node == nullptr || node->base.is_valid()) {
+      continue;
+    }
+    auto held = domain.Find(ae::ObjId{base_id});
+    if (!held) {
+      continue;
+    }
+    node->base = Node::ptr{node->domain, ae::ObjId{base_id}, {}, std::move(held)};
+  }
+}
+
+bool SkipPersistentCheckpointNodeBaseBindings(ByteSource& in) {
+  if (in.pos + sizeof(std::uint32_t) > in.size) {
+    return true;
+  }
+  std::uint32_t binding_count = 0;
+  in.read(&binding_count, sizeof(binding_count));
+  if (!in.ok) {
+    return false;
+  }
+  for (std::uint32_t i = 0; i < binding_count; ++i) {
+    std::uint32_t node_id = 0;
+    std::uint32_t base_id = 0;
+    in.read(&node_id, sizeof(node_id));
+    in.read(&base_id, sizeof(base_id));
+    if (!in.ok) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
   std::uint32_t const root_id = root.obj_id.id();
   out.write(&root_id, sizeof(root_id));
 
-  std::vector<SavedNodeBookkeeping> saved_history;
-  ClearReachableNodeHistoryForPublicationSave(root, saved_history);
+  std::vector<Node*> nodes;
+  CollectReachableNodes(root, nodes);
+  struct SavedJournal {
+    Node* node;
+    std::vector<EventRecord> journal;
+  };
+  std::vector<SavedJournal> saved_journals;
+  saved_journals.reserve(nodes.size());
+  for (Node* node : nodes) {
+    if (IsExcludedFromPersistentSnapshot(*node)) {
+      continue;
+    }
+    SavedJournal saved_entry;
+    saved_entry.node = node;
+    saved_entry.journal = node->journal;
+    node->journal.clear();
+    for (EventRecord const& record : saved_entry.journal) {
+      if (!record.event.is_valid()) {
+        continue;
+      }
+      if (IsExcludedFromPersistentSnapshot(*record.event)) {
+        continue;
+      }
+      node->journal.push_back(record);
+    }
+    saved_journals.push_back(std::move(saved_entry));
+  }
+
+  std::vector<SavedNodeBaseOnly> saved_bases;
+  ClearReachableNodeBaseForCheckpointSave(root, saved_bases);
 
   PersistentSnapshotPatchSession objptr_patches;
   PersistentSnapshotPatchGuard objptr_guard{objptr_patches};
@@ -1123,9 +1224,14 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
 
   objptr_guard.dismiss();
   objptr_patches.RestoreAll();
-  RestoreReachableNodeHistory(saved_history);
 
   WritePersistentCheckpointScratchLayers(scratch, root, out);
+  WritePersistentCheckpointNodeBaseBindings(saved_bases, out);
+
+  RestoreReachableNodeBase(saved_bases);
+  for (SavedJournal& entry : saved_journals) {
+    entry.node->journal = std::move(entry.journal);
+  }
 }
 
 void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
@@ -1202,6 +1308,7 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
     }
   }
 
+  RestorePersistedNodeBaseBindings(in, domain);
   SanitizeLoadedPersistentObjPtrs(root, loaded_ids);
 }
 
@@ -1252,7 +1359,7 @@ bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
       return false;
     }
   }
-  return true;
+  return SkipPersistentCheckpointNodeBaseBindings(in);
 }
 
 namespace {
@@ -1296,30 +1403,25 @@ bool SavePersistentModelSnapshotToStorageImpl(ae::Obj& root,
 
 }  // namespace
 
-bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
-                                          ae::IDomainStorage& storage) {
-  return SavePersistentModelSnapshotToStorageImpl(root, storage, nullptr);
-}
-
-bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
-                                          DirectoryDomainStorage& storage) {
-  auto const sidecar_root = storage.root();
-  return SavePersistentModelSnapshotToStorageImpl(root, storage, &sidecar_root);
-}
-
-bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
-                                          PartitionedModelDomainStorage& storage) {
-  auto& durable =
-      static_cast<DirectoryDomainStorage&>(storage.durable_backing());
-  auto const sidecar_root = durable.root();
-  return SavePersistentModelSnapshotToStorageImpl(root, storage, &sidecar_root);
+bool SavePersistentModelSnapshotToStorage(
+    ae::Obj& root, ae::IDomainStorage& storage,
+    std::optional<std::filesystem::path> checkpoint_sidecar_directory) {
+  std::filesystem::path const* sidecar_root = nullptr;
+  std::filesystem::path sidecar_path_storage;
+  if (checkpoint_sidecar_directory) {
+    sidecar_path_storage = *checkpoint_sidecar_directory;
+    sidecar_root = &sidecar_path_storage;
+  }
+  return SavePersistentModelSnapshotToStorageImpl(root, storage, sidecar_root);
 }
 
 bool TryLoadPersistedModelFromStorageSidecar(
     ae::Domain& domain, PartitionedModelDomainStorage& storage, ae::Obj& root) {
-  auto& durable =
-      static_cast<DirectoryDomainStorage&>(storage.durable_backing());
-  auto sidecar = PersistentModelCheckpointSidecarPath(durable.root());
+  if (!storage.checkpoint_sidecar_directory()) {
+    return false;
+  }
+  auto sidecar =
+      PersistentModelCheckpointSidecarPath(*storage.checkpoint_sidecar_directory());
   if (!std::filesystem::exists(sidecar)) {
     return false;
   }

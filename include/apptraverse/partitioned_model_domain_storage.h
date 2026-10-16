@@ -1,10 +1,15 @@
 #ifndef APPTRAVERSE_PARTITIONED_MODEL_DOMAIN_STORAGE_H_
 #define APPTRAVERSE_PARTITIONED_MODEL_DOMAIN_STORAGE_H_
 
+#include <filesystem>
+#include <optional>
+
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/idomain_storage.h"
 
 namespace apptraverse {
+
+class DirectoryDomainStorage;
 
 // Live model Domain storage: durable product state uses backing; runtime-only
 // class layers (RegisterRuntimeOnlyClassId) and presenters use in-memory RAM
@@ -13,6 +18,12 @@ namespace apptraverse {
 class PartitionedModelDomainStorage final : public ae::IDomainStorage {
  public:
   explicit PartitionedModelDomainStorage(ae::IDomainStorage& durable_backing);
+  explicit PartitionedModelDomainStorage(DirectoryDomainStorage& durable_directory);
+
+  std::optional<std::filesystem::path> const& checkpoint_sidecar_directory()
+      const {
+    return checkpoint_sidecar_directory_;
+  }
 
   std::unique_ptr<ae::IDomainStorageWriter> Store(
       ae::DomainQuery const& query) override;
@@ -31,6 +42,7 @@ class PartitionedModelDomainStorage final : public ae::IDomainStorage {
  private:
   ae::IDomainStorage& durable_backing_;
   ae::RamDomainStorage transient_;
+  std::optional<std::filesystem::path> checkpoint_sidecar_directory_;
 };
 
 }  // namespace apptraverse

@@ -8,6 +8,7 @@
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/journal_retention_policy.h"
 #include "apptraverse/model_persistence.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/partitioned_model_domain_storage.h"
@@ -288,11 +289,113 @@ void RunSaveToStorageColdDirectoryRoundTripTest() {
   std::filesystem::remove_all(temp, ec);
 }
 
+void RunPersistentJournalCheckpointRoundTripTest() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*doc);
+  CHECK(doc->base.is_valid());
+  doc->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 10});
+  doc->label = "v0";
+
+  auto ev1 = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
+  ev1->label = "v1";
+  doc->Commit(ev1);
+  auto ev2 = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
+  ev2->label = "v2";
+  doc->Commit(ev2);
+  CHECK(doc->label == "v2");
+  CHECK(doc->journal.size() >= 2);
+
+  std::size_t const journal_before = doc->journal.size();
+  std::uint64_t const gen_before = doc->Generation();
+
+  ByteSink snapshot;
+  SerializePersistentModelSnapshot(*doc, snapshot);
+  CHECK(doc->journal.size() == journal_before);
+  CHECK(doc->Generation() == gen_before);
+
+  ae::RamDomainStorage load_storage;
+  ae::Domain load_domain{load_storage};
+  auto load_doc =
+      DocNode::ptr::Create(ae::CreateWith{load_domain}.with_id(doc->obj_id));
+  InitializeRuntimeNode(*load_doc);
+  ByteSource in;
+  in.data = snapshot.bytes.data();
+  in.size = snapshot.bytes.size();
+  LoadPersistentModelSnapshot(in, load_domain, load_storage, *load_doc);
+  CHECK(load_doc->label == "v2");
+  CHECK(load_doc->journal.size() == journal_before);
+  CHECK(load_doc->base.is_valid());
+
+  auto ev3 = DocChangedEvent::ptr::Create(ae::CreateWith{load_domain});
+  ev3->label = "v3";
+  load_doc->Commit(ev3);
+  CHECK(load_doc->label == "v3");
+
+  ByteSink snapshot2;
+  SerializePersistentModelSnapshot(*load_doc, snapshot2);
+  ae::RamDomainStorage load_storage2;
+  ae::Domain load_domain2{load_storage2};
+  auto load_doc2 =
+      DocNode::ptr::Create(ae::CreateWith{load_domain2}.with_id(doc->obj_id));
+  InitializeRuntimeNode(*load_doc2);
+  ByteSource in2;
+  in2.data = snapshot2.bytes.data();
+  in2.size = snapshot2.bytes.size();
+  LoadPersistentModelSnapshot(in2, load_domain2, load_storage2, *load_doc2);
+  CHECK(load_doc2->label == "v3");
+  CHECK(load_doc2->journal.size() >= journal_before);
+}
+
+void RunCheckpointSidecarStorageEquivalenceTest() {
+  auto const temp =
+      std::filesystem::temp_directory_path() /
+      ("apptraverse_sidecar_equiv_" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code ec;
+  std::filesystem::remove_all(temp, ec);
+
+  ae::RamDomainStorage ram;
+  ae::Domain domain{ram};
+  auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*doc);
+  doc->label = "equiv";
+
+  apptraverse::DirectoryDomainStorage durable{temp};
+  CHECK(SavePersistentModelSnapshotToStorage(*doc, durable));
+  CHECK(std::filesystem::exists(temp / "persistent_model_checkpoint.bin"));
+
+  std::filesystem::remove_all(temp, ec);
+  apptraverse::DirectoryDomainStorage durable2{temp};
+  ae::IDomainStorage& storage_ref = durable2;
+  CHECK(SavePersistentModelSnapshotToStorage(*doc, storage_ref, durable2.root()));
+  CHECK(std::filesystem::exists(temp / "persistent_model_checkpoint.bin"));
+
+  apptraverse::PartitionedModelDomainStorage partitioned{durable2};
+  ae::Domain load_domain{partitioned};
+  auto load_doc =
+      DocNode::ptr::Create(ae::CreateWith{load_domain}.with_id(doc->obj_id));
+  CHECK(TryLoadPersistedModelFromStorageSidecar(load_domain, partitioned,
+                                                *load_doc));
+  CHECK(load_doc->label == "equiv");
+
+  ae::RamDomainStorage ram_backing;
+  apptraverse::PartitionedModelDomainStorage ram_partition{ram_backing};
+  CHECK(SavePersistentModelSnapshotToStorage(*doc, ram_partition));
+  CHECK(!ram_partition.checkpoint_sidecar_directory());
+
+  std::filesystem::remove_all(temp, ec);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::test::RunModelPersistenceTest();
   apptraverse::test::RunSaveToStorageDoesNotMutateLiveGraphTest();
   apptraverse::test::RunSaveToStorageColdDirectoryRoundTripTest();
+  apptraverse::test::RunPersistentJournalCheckpointRoundTripTest();
+  apptraverse::test::RunCheckpointSidecarStorageEquivalenceTest();
   return 0;
 }

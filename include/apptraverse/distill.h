@@ -20,7 +20,10 @@ inline void FinalizeDistilledGraph(ae::Obj& application_root) {
   std::vector<Node*> nodes;
   CollectReachableNodes(application_root, nodes);
   for (Node* node : nodes) {
-    if (node->base) {
+    if (node->base.is_valid()) {
+      continue;
+    }
+    if (!node->journal.empty()) {
       continue;
     }
     InitializeRuntimeNode(*node);

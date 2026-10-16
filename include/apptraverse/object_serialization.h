@@ -2,6 +2,8 @@
 #define APPTRAVERSE_OBJECT_SERIALIZATION_H_
 
 #include <cstdint>
+#include <filesystem>
+#include <optional>
 #include <vector>
 
 #include "aether-objects/obj/domain.h"
@@ -9,14 +11,14 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/ptr/ptr.h"
 
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/node.h"
+#include "apptraverse/partitioned_model_domain_storage.h"
 #include "apptraverse/presenter.h"
 #include "apptraverse/publication_channel.h"
 
 namespace apptraverse {
 
-class DirectoryDomainStorage;
-class PartitionedModelDomainStorage;
 class ModelObjectProxy;
 
 // Future optimization: serialize reflected concrete state without reflected base
@@ -186,15 +188,24 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
 bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
                                             ae::IDomainStorage& storage,
                                             std::uint32_t expected_root_id);
-bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
-                                          ae::IDomainStorage& storage);
-bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
-                                          DirectoryDomainStorage& storage);
-bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
-                                          PartitionedModelDomainStorage& storage);
+bool SavePersistentModelSnapshotToStorage(
+    ae::Obj& root, ae::IDomainStorage& storage,
+    std::optional<std::filesystem::path> checkpoint_sidecar_directory = {});
 
-// When SavePersistentModelSnapshotToStorage wrote a directory sidecar, reload
-// through the same hydration path as LoadPersistentModelSnapshot.
+inline bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                                 DirectoryDomainStorage& storage) {
+  return SavePersistentModelSnapshotToStorage(root, storage, storage.root());
+}
+
+inline bool SavePersistentModelSnapshotToStorage(
+    ae::Obj& root, PartitionedModelDomainStorage& storage) {
+  return SavePersistentModelSnapshotToStorage(root, storage,
+                                            storage.checkpoint_sidecar_directory());
+}
+
+// Sidecar stores the full checkpoint envelope (layer list + node generations)
+// for LoadPersistentModelSnapshot hydration; per-object layers alone omit
+// generation metadata discarded by InjectPersistentModelSnapshotToStorage.
 bool TryLoadPersistedModelFromStorageSidecar(
     ae::Domain& domain, PartitionedModelDomainStorage& storage, ae::Obj& root);
 
