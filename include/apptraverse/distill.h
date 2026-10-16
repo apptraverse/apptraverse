@@ -33,8 +33,10 @@ inline void StabilizeDistilledPersistentSnapshot(ae::Obj& application_root) {
   CollectReachableNodes(application_root, nodes);
   for (Node* node : nodes) {
     node->journal.clear();
+    if (node->base.is_valid()) {
+      node->CaptureBaseState();
+    }
     node->AdoptPublishedGeneration(1);
-    node->CompactJournal(0);
   }
 }
 
