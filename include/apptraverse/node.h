@@ -93,9 +93,7 @@ class Node : public ae::Obj {
   // bytes. Runtime replay cursor is not stored on disk; treat live state as
   // current so the next Commit does not replay historical Events from storage.
   void AdoptMaterializedPersistentCheckpointJournal() {
-    if (!journal.empty()) {
-      applied_journal_size_ = kJournalFullyMaterialized;
-    }
+    applied_journal_size_ = kJournalFullyMaterialized;
   }
 
   void SetJournalRetentionPolicy(JournalRetentionPolicy policy) {

@@ -1335,9 +1335,16 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
   std::vector<Node*> loaded_nodes;
   CollectReachableNodes(root, loaded_nodes);
   for (Node* node : loaded_nodes) {
-    if (!IsExcludedFromPersistentSnapshot(*node)) {
-      node->AdoptMaterializedPersistentCheckpointJournal();
+    for (EventRecord const& record : node->journal) {
+      if (!record.event.is_valid() || record.event.is_loaded()) {
+        continue;
+      }
+      if (auto event_obj = domain.Find(record.event.id())) {
+        InitialPublicationLoadDiagnostics event_diagnostics;
+        LoadExistingObject(*event_obj, domain, &storage, &event_diagnostics);
+      }
     }
+    node->AdoptMaterializedPersistentCheckpointJournal();
   }
 }
 
