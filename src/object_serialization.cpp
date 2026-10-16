@@ -1332,6 +1332,13 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
 
   RestorePersistedNodeBaseBindings(in, domain);
   SanitizeLoadedPersistentObjPtrs(root, loaded_ids);
+  std::vector<Node*> loaded_nodes;
+  CollectReachableNodes(root, loaded_nodes);
+  for (Node* node : loaded_nodes) {
+    if (!IsExcludedFromPersistentSnapshot(*node)) {
+      node->AdoptMaterializedPersistentCheckpointJournal();
+    }
+  }
 }
 
 bool InjectPersistentModelSnapshotToStorage(ByteSource& in,

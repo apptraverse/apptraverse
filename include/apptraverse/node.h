@@ -89,6 +89,15 @@ class Node : public ae::Obj {
     generation_ = generation;
   }
 
+  // Persistent checkpoint loads materialized Node fields plus retained journal
+  // bytes. Runtime replay cursor is not stored on disk; treat live state as
+  // current so the next Commit does not replay historical Events from storage.
+  void AdoptMaterializedPersistentCheckpointJournal() {
+    if (!journal.empty()) {
+      applied_journal_size_ = kJournalFullyMaterialized;
+    }
+  }
+
   void SetJournalRetentionPolicy(JournalRetentionPolicy policy) {
     journal_retention_policy_ = policy;
   }
