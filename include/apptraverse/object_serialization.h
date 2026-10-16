@@ -15,6 +15,8 @@
 
 namespace apptraverse {
 
+class DirectoryDomainStorage;
+class PartitionedModelDomainStorage;
 class ModelObjectProxy;
 
 // Future optimization: serialize reflected concrete state without reflected base
@@ -186,6 +188,15 @@ bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
                                             std::uint32_t expected_root_id);
 bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
                                           ae::IDomainStorage& storage);
+bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                          DirectoryDomainStorage& storage);
+bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                          PartitionedModelDomainStorage& storage);
+
+// When SavePersistentModelSnapshotToStorage wrote a directory sidecar, reload
+// through the same hydration path as LoadPersistentModelSnapshot.
+bool TryLoadPersistedModelFromStorageSidecar(
+    ae::Domain& domain, PartitionedModelDomainStorage& storage, ae::Obj& root);
 
 }  // namespace apptraverse
 

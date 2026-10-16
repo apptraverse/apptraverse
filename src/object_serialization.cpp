@@ -5,9 +5,14 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <optional>
 #include <utility>
 #include <unordered_set>
 #include <vector>
+
+#include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/partitioned_model_domain_storage.h"
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/registry.h"
@@ -1014,14 +1019,40 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   return changed;
 }
 
+void CollectDistilledBaseIdsFromScratch(
+    ae::RamDomainStorage const& scratch, ae::Obj const& root,
+    std::unordered_set<std::uint32_t>& out) {
+  out.clear();
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj) {
+      continue;
+    }
+    if (auto* node = AsObjOf<Node>(obj.get())) {
+      if (node->base.is_valid()) {
+        out.insert(node->base.id().id());
+      }
+    }
+  }
+}
+
 void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
                                             ae::Obj const& root, ByteSink& out) {
+  std::unordered_set<std::uint32_t> distilled_base_ids;
+  CollectDistilledBaseIdsFromScratch(scratch, root, distilled_base_ids);
+
   auto const count_at = out.bytes.size();
   std::uint32_t layer_count = 0;
   out.write(&layer_count, sizeof(layer_count));
 
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
+      continue;
+    }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
       continue;
     }
     auto obj = root.domain->Find(obj_id);
@@ -1055,6 +1086,9 @@ void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
     if (!class_map_opt) {
       continue;
     }
+    if (distilled_base_ids.count(obj_id.id()) != 0) {
+      continue;
+    }
     auto obj = root.domain->Find(obj_id);
     if (!obj || IsExcludedFromPersistentSnapshot(*obj)) {
       continue;
@@ -1077,33 +1111,8 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
   std::uint32_t const root_id = root.obj_id.id();
   out.write(&root_id, sizeof(root_id));
 
-  std::vector<Node*> nodes;
-  CollectReachableNodes(root, nodes);
-  struct SavedJournal {
-    Node* node;
-    std::vector<EventRecord> journal;
-  };
-  std::vector<SavedJournal> saved_journals;
-  saved_journals.reserve(nodes.size());
-  for (Node* node : nodes) {
-    if (IsExcludedFromPersistentSnapshot(*node)) {
-      continue;
-    }
-    SavedJournal saved_entry;
-    saved_entry.node = node;
-    saved_entry.journal = node->journal;
-    node->journal.clear();
-    for (EventRecord const& record : saved_entry.journal) {
-      if (!record.event.is_valid()) {
-        continue;
-      }
-      if (IsExcludedFromPersistentSnapshot(*record.event)) {
-        continue;
-      }
-      node->journal.push_back(record);
-    }
-    saved_journals.push_back(std::move(saved_entry));
-  }
+  std::vector<SavedNodeBookkeeping> saved_history;
+  ClearReachableNodeHistoryForPublicationSave(root, saved_history);
 
   PersistentSnapshotPatchSession objptr_patches;
   PersistentSnapshotPatchGuard objptr_guard{objptr_patches};
@@ -1114,10 +1123,7 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
 
   objptr_guard.dismiss();
   objptr_patches.RestoreAll();
-
-  for (SavedJournal& entry : saved_journals) {
-    entry.node->journal = std::move(entry.journal);
-  }
+  RestoreReachableNodeHistory(saved_history);
 
   WritePersistentCheckpointScratchLayers(scratch, root, out);
 }
@@ -1154,13 +1160,27 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
     }
   }
 
-  LoadExistingObjectUnchecked(root, domain);
+  InitialPublicationLoadDiagnostics diagnostics;
+  if (!LoadExistingObject(root, domain, &storage, &diagnostics)) {
+    char message[512];
+    FormatInitialPublicationLoadDiagnostics(diagnostics, message, sizeof(message));
+    WriteFatalStderr(message);
+    std::abort();
+  }
   for (ae::ObjId const id : loaded_ids) {
     if (id == root.obj_id) {
       continue;
     }
     if (auto object = domain.Find(id); object) {
-      LoadExistingObjectUnchecked(*object, domain);
+      diagnostics = {};
+      if (!LoadExistingObject(*object, domain, &storage, &diagnostics)) {
+        diagnostics.obj_id = id.id();
+        char message[512];
+        FormatInitialPublicationLoadDiagnostics(diagnostics, message,
+                                              sizeof(message));
+        WriteFatalStderr(message);
+        std::abort();
+      }
     }
   }
 
@@ -1235,15 +1255,94 @@ bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
   return true;
 }
 
-bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
-                                          ae::IDomainStorage& storage) {
+namespace {
+
+constexpr char kPersistentModelCheckpointSidecar[] =
+    "persistent_model_checkpoint.bin";
+
+std::filesystem::path PersistentModelCheckpointSidecarPath(
+    std::filesystem::path const& model_root) {
+  return model_root / kPersistentModelCheckpointSidecar;
+}
+
+bool WritePersistentModelCheckpointSidecar(std::filesystem::path const& model_root,
+                                           ByteSink const& bytes) {
+  std::ofstream out{PersistentModelCheckpointSidecarPath(model_root),
+                    std::ios::binary | std::ios::trunc};
+  if (!out) {
+    return false;
+  }
+  out.write(reinterpret_cast<char const*>(bytes.bytes.data()),
+            static_cast<std::streamsize>(bytes.bytes.size()));
+  return static_cast<bool>(out);
+}
+
+bool SavePersistentModelSnapshotToStorageImpl(ae::Obj& root,
+                                              ae::IDomainStorage& storage,
+                                              std::filesystem::path const*
+                                                  sidecar_root) {
   ByteSink bytes;
   SerializePersistentModelSnapshot(root, bytes);
+  if (sidecar_root != nullptr &&
+      !WritePersistentModelCheckpointSidecar(*sidecar_root, bytes)) {
+    return false;
+  }
   ByteSource in;
   in.data = bytes.bytes.data();
   in.size = bytes.bytes.size();
   in.pos = 0;
   return InjectPersistentModelSnapshotToStorage(in, storage, root.obj_id.id());
+}
+
+}  // namespace
+
+bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                          ae::IDomainStorage& storage) {
+  return SavePersistentModelSnapshotToStorageImpl(root, storage, nullptr);
+}
+
+bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                          DirectoryDomainStorage& storage) {
+  auto const sidecar_root = storage.root();
+  return SavePersistentModelSnapshotToStorageImpl(root, storage, &sidecar_root);
+}
+
+bool SavePersistentModelSnapshotToStorage(ae::Obj& root,
+                                          PartitionedModelDomainStorage& storage) {
+  auto& durable =
+      static_cast<DirectoryDomainStorage&>(storage.durable_backing());
+  auto const sidecar_root = durable.root();
+  return SavePersistentModelSnapshotToStorageImpl(root, storage, &sidecar_root);
+}
+
+bool TryLoadPersistedModelFromStorageSidecar(
+    ae::Domain& domain, PartitionedModelDomainStorage& storage, ae::Obj& root) {
+  auto& durable =
+      static_cast<DirectoryDomainStorage&>(storage.durable_backing());
+  auto sidecar = PersistentModelCheckpointSidecarPath(durable.root());
+  if (!std::filesystem::exists(sidecar)) {
+    return false;
+  }
+  std::ifstream in{sidecar, std::ios::binary | std::ios::ate};
+  if (!in) {
+    return false;
+  }
+  auto const size = static_cast<std::size_t>(in.tellg());
+  in.seekg(0);
+  std::vector<std::uint8_t> bytes(size);
+  if (size > 0) {
+    in.read(reinterpret_cast<char*>(bytes.data()),
+            static_cast<std::streamsize>(size));
+    if (!in) {
+      return false;
+    }
+  }
+  ByteSource checkpoint;
+  checkpoint.data = bytes.data();
+  checkpoint.size = bytes.size();
+  checkpoint.pos = 0;
+  LoadPersistentModelSnapshot(checkpoint, domain, storage, root);
+  return true;
 }
 
 }  // namespace apptraverse
