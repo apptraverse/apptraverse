@@ -4,8 +4,6 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/model_persistence.h"
-#include "apptraverse/object_macros.h"
 #include "apptraverse/partitioned_model_domain_storage.h"
 #include "apptraverse/runtime_lifecycle.h"
 #include "apptraverse/runtime_node.h"
@@ -48,9 +46,7 @@ void RunPartitionedModelDomainStorageTest() {
     (void)writer->Write(ae::seri::DataWriteTag{&byte, 1});
   }
 
-  CHECK(!RamHasClass(durable, runtime->obj_id, NetworkState::kClassId));
-  CHECK(RamHasClass(storage.transient(), runtime->obj_id,
-                    NetworkState::kClassId));
+  CHECK(RamHasClass(durable, runtime->obj_id, NetworkState::kClassId));
 }
 
 }  // namespace apptraverse::test

@@ -4,17 +4,15 @@
 #include <filesystem>
 #include <optional>
 
-#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/idomain_storage.h"
 
 namespace apptraverse {
 
 class DirectoryDomainStorage;
 
-// Live model Domain storage: durable product state uses backing; runtime-only
-// class layers (RegisterRuntimeOnlyClassId) and presenters use in-memory RAM
-// only. Load never reads runtime-only layers from backing, so legacy runtime
-// blobs on disk are ignored after upgrade.
+// Durable model storage with optional checkpoint sidecar metadata when
+// constructed from DirectoryDomainStorage. All object layers use the durable
+// backing; there is no class-based RAM partition.
 class PartitionedModelDomainStorage final : public ae::IDomainStorage {
  public:
   explicit PartitionedModelDomainStorage(ae::IDomainStorage& durable_backing);
@@ -34,14 +32,9 @@ class PartitionedModelDomainStorage final : public ae::IDomainStorage {
 
   ae::IDomainStorage& durable_backing() { return durable_backing_; }
   ae::IDomainStorage const& durable_backing() const { return durable_backing_; }
-  ae::RamDomainStorage& transient() { return transient_; }
-  ae::RamDomainStorage const& transient() const { return transient_; }
-
-  static bool QueryUsesTransientPartition(ae::DomainQuery const& query);
 
  private:
   ae::IDomainStorage& durable_backing_;
-  ae::RamDomainStorage transient_;
   std::optional<std::filesystem::path> checkpoint_sidecar_directory_;
 };
 

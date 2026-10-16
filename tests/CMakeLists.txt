@@ -1179,6 +1179,52 @@ add_test(
   COMMAND apptraverse_model_persistence_runtime_ref_test
 )
 
+add_executable(apptraverse_presenter_graph_persistence_test
+  presenter_graph_persistence_test.cpp
+)
+target_link_libraries(apptraverse_presenter_graph_persistence_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_presenter_graph_persistence_test
+  COMMAND apptraverse_presenter_graph_persistence_test
+)
+
+if(WIN32)
+  add_executable(apptraverse_presenter_win_hwnd_persistence_test
+    presenter_win_hwnd_persistence_test.cpp
+  )
+  target_link_libraries(apptraverse_presenter_win_hwnd_persistence_test PRIVATE
+    apptraverse
+    apptraverse_ui_windows
+  )
+  add_test(
+    NAME apptraverse_presenter_win_hwnd_persistence_test
+    COMMAND apptraverse_presenter_win_hwnd_persistence_test
+  )
+endif()
+
+add_executable(apptraverse_presenter_platform_persist_save
+  presenter_platform_persist_save.cpp
+)
+add_executable(apptraverse_presenter_platform_persist_load
+  presenter_platform_persist_load.cpp
+)
+target_link_libraries(apptraverse_presenter_platform_persist_save PRIVATE
+  apptraverse
+)
+target_link_libraries(apptraverse_presenter_platform_persist_load PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_presenter_platform_persist_roundtrip
+  COMMAND ${CMAKE_COMMAND}
+    -DSNAPSHOT=${CMAKE_CURRENT_BINARY_DIR}/presenter_platform_persist.bin
+    -DSAVE_EXE=$<TARGET_FILE:apptraverse_presenter_platform_persist_save>
+    -DLOAD_EXE=$<TARGET_FILE:apptraverse_presenter_platform_persist_load>
+    -P ${CMAKE_CURRENT_LIST_DIR}/presenter_platform_persist_run.cmake
+)
+
 add_executable(apptraverse_model_persistence_test
   model_persistence_test.cpp
 )

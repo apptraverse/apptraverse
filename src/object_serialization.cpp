@@ -363,9 +363,6 @@ void ClearReachableNodeBaseForCheckpointSave(
   saved.clear();
   saved.reserve(nodes.size());
   for (Node* node : nodes) {
-    if (IsExcludedFromPersistentSnapshot(*node)) {
-      continue;
-    }
     saved.push_back(SavedNodeBaseOnly{node, node->base});
     node->base = Node::ptr{};
   }
@@ -383,9 +380,6 @@ void EnsurePersistentCheckpointBaseObjectsInScratch(
     ae::RamDomainStorage& scratch) {
   for (SavedNodeBaseOnly const& entry : saved_bases) {
     if (!entry.base.is_valid()) {
-      continue;
-    }
-    if (IsExcludedFromPersistentSnapshot(*entry.node)) {
       continue;
     }
     ae::ObjId const base_id = entry.base.id();
@@ -1078,15 +1072,10 @@ void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
       continue;
     }
     auto obj = root.domain->Find(obj_id);
-    if (!obj || IsExcludedFromPersistentSnapshot(*obj)) {
+    if (!obj) {
       continue;
     }
     for (auto const& [class_id, versions] : *class_map_opt) {
-      if (IsRuntimeOnlyClassId(class_id) ||
-          ae::Registry::GetRegistry().GenerationDistance(Presenter::kClassId,
-                                                         class_id) >= 0) {
-        continue;
-      }
       for (auto const& [version, data] : versions) {
         auto const oid = obj_id.id();
         out.write(&oid, sizeof(oid));
@@ -1109,7 +1098,7 @@ void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
       continue;
     }
     auto obj = root.domain->Find(obj_id);
-    if (!obj || IsExcludedFromPersistentSnapshot(*obj)) {
+    if (!obj) {
       continue;
     }
     auto* node = AsObjOf<Node>(obj.get());
@@ -1133,9 +1122,6 @@ void WritePersistentCheckpointNodeBaseBindings(
   out.write(&binding_count, sizeof(binding_count));
   for (SavedNodeBaseOnly const& entry : saved_bases) {
     if (!entry.base.is_valid()) {
-      continue;
-    }
-    if (IsExcludedFromPersistentSnapshot(*entry.node)) {
       continue;
     }
     std::uint32_t const node_id = entry.node->obj_id.id();
@@ -1218,18 +1204,12 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
   std::vector<SavedJournal> saved_journals;
   saved_journals.reserve(nodes.size());
   for (Node* node : nodes) {
-    if (IsExcludedFromPersistentSnapshot(*node)) {
-      continue;
-    }
     SavedJournal saved_entry;
     saved_entry.node = node;
     saved_entry.journal = node->journal;
     node->journal.clear();
     for (EventRecord const& record : saved_entry.journal) {
       if (!record.event.is_valid()) {
-        continue;
-      }
-      if (IsExcludedFromPersistentSnapshot(*record.event)) {
         continue;
       }
       node->journal.push_back(record);
@@ -1240,16 +1220,9 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
   std::vector<SavedNodeBaseOnly> saved_bases;
   ClearReachableNodeBaseForCheckpointSave(root, saved_bases);
 
-  PersistentSnapshotPatchSession objptr_patches;
-  PersistentSnapshotPatchGuard objptr_guard{objptr_patches};
-  RunPersistentObjPtrClearHooks(root, objptr_patches);
-
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(root, scratch);
   EnsurePersistentCheckpointBaseObjectsInScratch(saved_bases, scratch);
-
-  objptr_guard.dismiss();
-  objptr_patches.RestoreAll();
 
   WritePersistentCheckpointScratchLayers(scratch, root, out);
   WritePersistentCheckpointNodeBaseBindings(saved_bases, out);

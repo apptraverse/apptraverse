@@ -179,9 +179,9 @@ void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
                                     ae::IDomainStorage& storage);
 
-// Durable model checkpoint (RAM or directory). Excludes presenters and
-// RegisterRuntimeOnlyClassId types. Restores temporary ref/journal patches
-// before returning; live graph unchanged after SerializePersistentModelSnapshot.
+// Durable model checkpoint (RAM or directory). Serializes the full reachable
+// object graph including presenters; live graph unchanged after
+// SerializePersistentModelSnapshot (temporary base/journal patches only).
 void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out);
 void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
                                  ae::IDomainStorage& storage, ae::Obj& root);

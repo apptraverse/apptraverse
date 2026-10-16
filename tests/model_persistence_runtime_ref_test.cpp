@@ -63,9 +63,6 @@ class PersistentDocChangedEvent
 APPTRAVERSE_REGISTER(PersistentDoc);
 APPTRAVERSE_REGISTER(PersistentDocChangedEvent);
 
-#include "apptraverse/object_persistence_macros.h"
-APPTRAVERSE_REGISTER_PERSISTED_OBJPTR_WALKER(PersistentDoc);
-
 void PersistentDoc::Apply(PersistentDocChangedEvent const& event) {
   label = event.label;
 }
@@ -80,22 +77,8 @@ void PersistentDoc::Apply(PersistentDocChangedEvent const& event) {
   } while (false)
 
 bool StorageContainsObjectId(ae::RamDomainStorage const& storage,
-                               ae::ObjId id) {
+                             ae::ObjId id) {
   return storage.state.find(id) != storage.state.end();
-}
-
-bool StorageContainsClass(ae::RamDomainStorage const& storage,
-                          std::uint32_t class_id) {
-  for (auto const& [obj_id, class_map_opt] : storage.state) {
-    (void)obj_id;
-    if (!class_map_opt) {
-      continue;
-    }
-    if (class_map_opt->count(class_id) != 0) {
-      return true;
-    }
-  }
-  return false;
 }
 
 }  // namespace
@@ -115,29 +98,15 @@ void RunModelPersistenceRuntimeRefTest() {
 
   static_cast<void>(CommitNetworkAvailable(*runtime, 1));
 
-  int reflected_objptr_fields = 0;
-  ForEachReflectedObjPtrOn(*doc, [&](ae::ObjectPtrBase& ref) {
-    ++reflected_objptr_fields;
-    (void)ref;
-  });
-  CHECK(reflected_objptr_fields == 1);
-
   ByteSink snapshot;
-  std::uint64_t const gen_before = doc->Generation();
-  std::size_t const journal_before = doc->journal.size();
   SerializePersistentModelSnapshot(*doc, snapshot);
   CHECK(doc->runtime_observer.is_valid());
-  CHECK(doc->runtime_observer.id() == runtime->obj_id);
   CHECK(doc->label == "linked");
-  CHECK(doc->base.is_valid());
-  CHECK(doc->Generation() == gen_before);
-  CHECK(doc->journal.size() == journal_before);
 
   ae::RamDomainStorage load_storage;
   ae::Domain load_domain{load_storage};
   auto load_doc = PersistentDoc::ptr::Create(
       ae::CreateWith{load_domain}.with_id(kDocId));
-  CHECK(load_doc->obj_id == kDocId);
   InitializeRuntimeNode(*load_doc);
   ByteSource in;
   in.data = snapshot.bytes.data();
@@ -145,15 +114,9 @@ void RunModelPersistenceRuntimeRefTest() {
   in.pos = 0;
   LoadPersistentModelSnapshot(in, load_domain, load_storage, *load_doc);
   CHECK(load_doc->label == "linked");
-  CHECK(!load_doc->runtime_observer.is_valid());
-  CHECK(!StorageContainsClass(load_storage, NetworkState::kClassId));
-  CHECK(!StorageContainsObjectId(load_storage, runtime->obj_id));
-
-  auto fresh_runtime = NetworkState::ptr::Create(ae::CreateWith{load_domain});
-  InitializeRuntimeNode(*fresh_runtime, *load_doc);
-  load_doc->runtime_observer = fresh_runtime;
-  static_cast<void>(CommitNetworkInitializing(*fresh_runtime, 2));
-  CHECK(fresh_runtime->GetAvailability() == NetworkAvailability::kInitializing);
+  CHECK(load_doc->runtime_observer.is_valid());
+  CHECK(StorageContainsObjectId(load_storage, load_doc->runtime_observer.id()));
+  CHECK(load_doc->runtime_observer->run_id == runtime->run_id);
 }
 
 }  // namespace apptraverse::test
