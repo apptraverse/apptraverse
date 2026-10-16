@@ -379,6 +379,16 @@ void RestoreReachableNodeBase(std::vector<SavedNodeBaseOnly>& saved) {
   saved.clear();
 }
 
+void EstablishPersistentCheckpointNodeBaseFromMaterializedState(Node& node) {
+  if (node.base.is_valid() || node.journal.empty()) {
+    return;
+  }
+  auto saved_journal = node.journal;
+  node.journal.clear();
+  node.CaptureBaseState();
+  node.journal = std::move(saved_journal);
+}
+
 void EnsurePersistentCheckpointBaseObjectsInScratch(
     std::vector<SavedNodeBaseOnly> const& saved_bases,
     ae::RamDomainStorage& scratch) {
@@ -1345,6 +1355,7 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
         LoadExistingObject(*event_obj, domain, &storage, &event_diagnostics);
       }
     }
+    EstablishPersistentCheckpointNodeBaseFromMaterializedState(*node);
     node->AdoptMaterializedPersistentCheckpointJournal();
   }
 }
@@ -1480,13 +1491,6 @@ bool TryLoadPersistedModelFromStorageSidecar(
   checkpoint.data = bytes.data();
   checkpoint.size = bytes.size();
   checkpoint.pos = 0;
-  std::vector<Node*> nodes;
-  CollectReachableNodes(root, nodes);
-  for (Node* node : nodes) {
-    if (!node->base.is_valid()) {
-      InitializeRuntimeNode(*node);
-    }
-  }
   LoadPersistentModelSnapshot(checkpoint, domain, storage, root);
   return true;
 }
