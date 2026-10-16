@@ -122,14 +122,71 @@ void RemoveDistilledBaseObjects(std::vector<ae::Obj*>& objects) {
       objects.end());
 }
 
-void LoadExistingObject(ae::Obj& object, ae::Domain& domain) {
+void RecordStorageLayers(ae::IDomainStorage& storage, ae::ObjId id,
+                         InitialPublicationLoadDiagnostics* diagnostics) {
+  if (diagnostics == nullptr) {
+    return;
+  }
+  ae::ClassList const classes = storage.Enumerate(id);
+  std::size_t pos = 0;
+  for (std::size_t i = 0; i < classes.size() && pos + 12 < sizeof(diagnostics->storage_layers);
+       ++i) {
+    if (i > 0) {
+      diagnostics->storage_layers[pos++] = ',';
+    }
+    int const written = std::snprintf(
+        diagnostics->storage_layers + pos,
+        sizeof(diagnostics->storage_layers) - pos, "%u", classes[i]);
+    if (written <= 0) {
+      break;
+    }
+    pos += static_cast<std::size_t>(written);
+  }
+}
+
+bool LoadExistingObject(ae::Obj& object, ae::Domain& domain,
+                        ae::IDomainStorage* storage_for_diag,
+                        InitialPublicationLoadDiagnostics* diagnostics) {
   ae::DomainGraph graph{&domain};
   auto ptr = domain.Find(object.obj_id);
-  assert(ptr);
+  if (!ptr) {
+    if (diagnostics) {
+      diagnostics->object_class_id = object.GetClassId();
+    }
+    return false;
+  }
   auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
-  assert(factory != nullptr);
-  assert(factory->load != nullptr);
-  factory->load(&graph, ptr, object.obj_id);
+  if (factory == nullptr || factory->load == nullptr) {
+    if (diagnostics) {
+      diagnostics->object_class_id = object.GetClassId();
+      diagnostics->factory_class_id = 0;
+      if (storage_for_diag) {
+        RecordStorageLayers(*storage_for_diag, object.obj_id, diagnostics);
+      }
+    }
+    return false;
+  }
+  auto const load_result = factory->load(&graph, ptr, object.obj_id);
+  if (load_result && load_result->IsErr()) {
+    if (diagnostics) {
+      diagnostics->object_class_id = object.GetClassId();
+#ifndef NDEBUG
+      diagnostics->factory_class_id = factory->cls_id;
+#else
+      diagnostics->factory_class_id = object.GetClassId();
+#endif
+      diagnostics->load_error_code = load_result->error().error_code;
+      if (storage_for_diag) {
+        RecordStorageLayers(*storage_for_diag, object.obj_id, diagnostics);
+      }
+    }
+    return false;
+  }
+  return true;
+}
+
+void LoadExistingObjectUnchecked(ae::Obj& object, ae::Domain& domain) {
+  (void)LoadExistingObject(object, domain, nullptr, nullptr);
 }
 
 }  // namespace
@@ -145,7 +202,7 @@ void DeserializeObjectFromBuffer(ae::Obj& object, ByteSource& in,
                                  ae::IDomainStorage& domain_storage) {
   std::size_t const payload_size = in.size - in.pos;
   InjectSavedObjectLayers(in, object.obj_id, domain_storage, payload_size);
-  LoadExistingObject(object, domain);
+  LoadExistingObjectUnchecked(object, domain);
 }
 
 void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
@@ -185,10 +242,10 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
   // referenced objects when nested LoadRoot short-circuits). Then refresh every
   // injected object with a fresh DomainGraph so storage bytes (e.g. message
   // bodies) actually populate those shells — matching CopyModelGraphToUiDomain.
-  LoadExistingObject(existing_root, domain);
+  LoadExistingObjectUnchecked(existing_root, domain);
   for (ae::ObjId const id : object_ids) {
     if (auto object = domain.Find(id); object) {
-      LoadExistingObject(*object, domain);
+      LoadExistingObjectUnchecked(*object, domain);
     }
   }
 
@@ -531,10 +588,13 @@ void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics c
   std::snprintf(
       buffer, buffer_size,
       "InitialPublicationLoad failed stage=%s root_id=%u obj_id=%u class_id=%u version=%u "
-      "offset=%u size=%u layer_index=%u layer_count=%u\n",
+      "offset=%u size=%u layer_index=%u layer_count=%u object_class_id=%u "
+      "factory_class_id=%u load_error_code=%d storage_layers=%s\n",
       stage, diagnostics.root_id, diagnostics.obj_id, diagnostics.class_id,
       static_cast<unsigned>(diagnostics.version), diagnostics.offset, diagnostics.size,
-      diagnostics.layer_index, diagnostics.layer_count);
+      diagnostics.layer_index, diagnostics.layer_count, diagnostics.object_class_id,
+      diagnostics.factory_class_id, diagnostics.load_error_code,
+      diagnostics.storage_layers[0] != '\0' ? diagnostics.storage_layers : "(none)");
 }
 
 bool ReadAndInjectPublicationLayers(ByteSource& in, ae::IDomainStorage& ui_storage,
@@ -641,13 +701,6 @@ bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain,
       object = graph.LoadRoot(ae::ObjId{obj_id});
     }
     if (!object) {
-      return false;
-    }
-    LoadExistingObject(*object, ui_domain);
-    return true;
-  };
-  for (std::uint32_t obj_id : unique_obj_ids) {
-    if (!reload_object(obj_id)) {
       if (diagnostics) {
         diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
         diagnostics->root_id = root_id;
@@ -656,7 +709,31 @@ bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain,
         if (!classes.empty()) {
           diagnostics->class_id = classes.back();
         }
+        RecordStorageLayers(ui_storage, ae::ObjId{obj_id}, diagnostics);
       }
+      return false;
+    }
+    InitialPublicationLoadDiagnostics load_diag;
+    if (!LoadExistingObject(*object, ui_domain, &ui_storage,
+                            diagnostics ? diagnostics : &load_diag)) {
+      if (diagnostics) {
+        diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
+        diagnostics->root_id = root_id;
+        diagnostics->obj_id = obj_id;
+        if (diagnostics->object_class_id == 0) {
+          diagnostics->object_class_id = object->GetClassId();
+        }
+        ae::ClassList classes = ui_storage.Enumerate(ae::ObjId{obj_id});
+        if (!classes.empty() && diagnostics->class_id == 0) {
+          diagnostics->class_id = classes.back();
+        }
+      }
+      return false;
+    }
+    return true;
+  };
+  for (std::uint32_t obj_id : unique_obj_ids) {
+    if (!reload_object(obj_id)) {
       return false;
     }
   }
@@ -753,7 +830,7 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
   InitialPublicationLoadDiagnostics diagnostics;
   auto ui_root = TryLoadInitialPublication(in, ui_domain, ui_storage, &diagnostics);
   if (!ui_root) {
-    char message[256];
+    char message[512];
     FormatInitialPublicationLoadDiagnostics(diagnostics, message, sizeof(message));
     WriteFatalStderr(message);
     std::abort();
@@ -1077,13 +1154,13 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
     }
   }
 
-  LoadExistingObject(root, domain);
+  LoadExistingObjectUnchecked(root, domain);
   for (ae::ObjId const id : loaded_ids) {
     if (id == root.obj_id) {
       continue;
     }
     if (auto object = domain.Find(id); object) {
-      LoadExistingObject(*object, domain);
+      LoadExistingObjectUnchecked(*object, domain);
     }
   }
 

@@ -64,6 +64,11 @@ struct InitialPublicationLoadDiagnostics {
   std::uint32_t size{0};
   std::uint32_t layer_index{0};
   std::uint32_t layer_count{0};
+  // Populated for LoadExistingObject / inner load_root failures.
+  std::uint32_t object_class_id{0};
+  std::uint32_t factory_class_id{0};
+  int load_error_code{0};
+  char storage_layers[192]{};
 };
 
 void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
