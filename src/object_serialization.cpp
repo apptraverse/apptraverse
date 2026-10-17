@@ -1297,6 +1297,9 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
       std::abort();
     }
   };
+  // Checkpoint hydrate: materialize every saved shell while load_keepalive holds
+  // strong refs (Domain only stores PtrView). Load non-root objects before root,
+  // then root, so cyclic ObjPtr fields resolve without a second full reload pass.
   for (ae::ObjId const id : loaded_ids) {
     if (id == root.obj_id) {
       continue;
@@ -1311,9 +1314,6 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
     load_checkpoint_object(id);
   }
   load_checkpoint_object(root.obj_id);
-  for (ae::ObjId const id : loaded_ids) {
-    load_checkpoint_object(id);
-  }
 
   std::uint32_t node_generation_count = 0;
   in.read(&node_generation_count, sizeof(node_generation_count));

@@ -1179,6 +1179,17 @@ add_test(
   COMMAND apptraverse_model_persistence_runtime_ref_test
 )
 
+add_executable(apptraverse_checkpoint_load_rehydration_test
+  checkpoint_load_rehydration_test.cpp
+)
+target_link_libraries(apptraverse_checkpoint_load_rehydration_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_checkpoint_load_rehydration_test
+  COMMAND apptraverse_checkpoint_load_rehydration_test
+)
+
 add_executable(apptraverse_ui_bitmap_publication_test
   ui_bitmap_publication_test.cpp
 )
@@ -1188,6 +1199,17 @@ target_link_libraries(apptraverse_ui_bitmap_publication_test PRIVATE
 add_test(
   NAME apptraverse_ui_bitmap_publication_test
   COMMAND apptraverse_ui_bitmap_publication_test
+)
+
+add_executable(apptraverse_ui_bitmap_structural_publication_test
+  ui_bitmap_structural_publication_test.cpp
+)
+target_link_libraries(apptraverse_ui_bitmap_structural_publication_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_ui_bitmap_structural_publication_test
+  COMMAND apptraverse_ui_bitmap_structural_publication_test
 )
 
 add_executable(apptraverse_checkpoint_load_cycle_persistence_test
