@@ -218,6 +218,49 @@ void TestSecondDragBeforeFirstAck() {
   CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 }
 
+void TestAbaStaleMiddlePublicationDoesNotJump() {
+  Harness h;
+  HWND const hwnd = h.presenter->hwnd();
+  h.presenter->TestMoveNativeOuter(10, 10, 640, 480);
+  ApplyFrameToMirror(*h.root->window, 10, 10, 640, 480);
+  h.presenter->TestMoveNativeOuter(20, 20, 640, 480);
+  ApplyFrameToMirror(*h.root->window, 20, 20, 640, 480);
+  h.presenter->TestMoveNativeOuter(10, 10, 640, 480);
+  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
+  ApplyFrameToMirror(*h.root->window, 20, 20, 640, 480);
+  h.presenter->OnModelChanged();
+  std::int32_t x = 0;
+  std::int32_t y = 0;
+  std::int32_t cw = 0;
+  std::int32_t ch = 0;
+  ReadHwndFrame(hwnd, x, y, cw, ch);
+  CHECK(x == 10);
+  CHECK(y == 10);
+  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
+  CHECK(h.presenter->TestNativeFrameAckSerial() <
+        h.presenter->TestNativeFrameSubmitSerial());
+}
+
+void TestProgrammaticMoveWhileNativePending() {
+  Harness h;
+  HWND const hwnd = h.presenter->hwnd();
+  h.presenter->TestMoveNativeOuter(50, 50, 640, 480);
+  ApplyFrameToMirror(*h.root->window, 50, 50, 640, 480);
+  h.presenter->OnModelChanged();
+  h.presenter->TestMoveNativeOuter(60, 60, 640, 480);
+  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
+  ApplyFrameToMirror(*h.root->window, 700, 800, 640, 480);
+  h.presenter->OnModelChanged();
+  std::int32_t x = 0;
+  std::int32_t y = 0;
+  std::int32_t cw = 0;
+  std::int32_t ch = 0;
+  ReadHwndFrame(hwnd, x, y, cw, ch);
+  CHECK(x == 700);
+  CHECK(y == 800);
+  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 1);
+}
+
 void TestResizeStaleEcho() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
@@ -252,6 +295,8 @@ int main() {
   apptraverse::test::TestProgrammaticMoveAfterSync();
   apptraverse::test::TestNonGeometryPublicationDoesNotMove();
   apptraverse::test::TestSecondDragBeforeFirstAck();
+  apptraverse::test::TestAbaStaleMiddlePublicationDoesNotJump();
+  apptraverse::test::TestProgrammaticMoveWhileNativePending();
   apptraverse::test::TestResizeStaleEcho();
   std::cout << "presenter_win_desktop_frame_sync_test OK\n";
   return 0;

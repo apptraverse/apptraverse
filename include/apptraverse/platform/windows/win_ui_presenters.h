@@ -74,6 +74,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void RecordNativeFrameSubmission(ClientFrame frame);
   void TryAcknowledgeMirrorFrame(ClientFrame mirror);
   bool FramePublicationIsCurrent() const;
+  bool IsMirrorStaleNativeSubmission(ClientFrame mirror) const;
   bool ShouldApplyMirrorFrameToNative(ClientFrame mirror,
                                       ClientFrame native) const;
 
@@ -82,7 +83,18 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   bool interactive_move_active_{false};
   std::uint64_t native_frame_submit_serial_{0};
   std::uint64_t native_frame_ack_serial_{0};
+  std::uint64_t ui_generation_at_native_submit_{0};
+  // Model desktop generation after the latest native frame commit completes.
+  // Zero when no model proxy (unit tests) or before the commit runs.
+  std::uint64_t model_generation_at_native_submit_{0};
   ClientFrame latest_native_frame_{};
+  struct NativeSubmitRecord {
+    std::uint64_t serial{0};
+    ClientFrame frame{};
+  };
+  static constexpr std::size_t kNativeSubmitHistoryCap = 32;
+  NativeSubmitRecord native_submit_history_[kNativeSubmitHistoryCap]{};
+  std::size_t native_submit_history_count_{0};
 
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
  public:

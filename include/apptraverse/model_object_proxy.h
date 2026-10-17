@@ -27,7 +27,7 @@ class ModelObjectProxy {
   template <typename T, typename... Args>
   void Invoke(ae::ObjId id, void (T::*method)(Args...), Args... args) {
     assert(method != nullptr);
-    enqueue_([id, method, args...](ae::Domain& domain) {
+    EnqueueModelWork([id, method, args...](ae::Domain& domain) {
       auto object = domain.Find(id);
       assert(object && "model proxy target must exist");
       // Architecture selects T; aether Ptr::as is the typed conversion API
@@ -36,6 +36,8 @@ class ModelObjectProxy {
       (target->*method)(args...);
     });
   }
+
+  void EnqueueModelWork(ModelWork work) { enqueue_(std::move(work)); }
 
  private:
   Enqueue enqueue_;
