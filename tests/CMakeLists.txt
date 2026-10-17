@@ -1179,6 +1179,17 @@ add_test(
   COMMAND apptraverse_model_persistence_runtime_ref_test
 )
 
+add_executable(apptraverse_ui_bitmap_publication_test
+  ui_bitmap_publication_test.cpp
+)
+target_link_libraries(apptraverse_ui_bitmap_publication_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_ui_bitmap_publication_test
+  COMMAND apptraverse_ui_bitmap_publication_test
+)
+
 add_executable(apptraverse_checkpoint_load_cycle_persistence_test
   checkpoint_load_cycle_persistence_test.cpp
 )
