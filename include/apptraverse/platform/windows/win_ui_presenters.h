@@ -59,12 +59,55 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
                                   LPARAM lparam);
 
  private:
+  struct ClientFrame {
+    std::int32_t x{0};
+    std::int32_t y{0};
+    std::int32_t client_width{0};
+    std::int32_t client_height{0};
+  };
+
   void SyncNativeFrameFromMirror();
   void HandleNativeFrameChanged();
   std::wstring ResolveTitleText() const;
+  ClientFrame ReadMirrorClientFrame() const;
+  ClientFrame ReadNativeClientFrame() const;
+  void RecordNativeFrameSubmission(ClientFrame frame);
+  void TryAcknowledgeMirrorFrame(ClientFrame mirror);
+  bool FramePublicationIsCurrent() const;
+  bool ShouldApplyMirrorFrameToNative(ClientFrame mirror,
+                                      ClientFrame native) const;
 
   HWND hwnd_{nullptr};
   bool applying_native_frame_{false};
+  bool interactive_move_active_{false};
+  std::uint64_t native_frame_submit_serial_{0};
+  std::uint64_t native_frame_ack_serial_{0};
+  ClientFrame latest_native_frame_{};
+
+#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+ public:
+  static int TestSetWindowPosCount();
+  static void TestResetSetWindowPosCount();
+  std::uint64_t TestNativeFrameSubmitSerial() const {
+    return native_frame_submit_serial_;
+  }
+  std::uint64_t TestNativeFrameAckSerial() const {
+    return native_frame_ack_serial_;
+  }
+  bool TestInteractiveMoveActive() const { return interactive_move_active_; }
+  void TestSetInteractiveMoveActive(bool active) {
+    interactive_move_active_ = active;
+  }
+  void TestReportNativeFrame(std::int32_t x, std::int32_t y,
+                             std::int32_t client_width,
+                             std::int32_t client_height);
+  void TestMoveNativeOuter(std::int32_t x, std::int32_t y,
+                           std::int32_t client_width,
+                           std::int32_t client_height);
+
+ private:
+  static int test_set_window_pos_count_;
+#endif
 };
 
 class WinEditBoxPresenter : public UiEditBoxPresenter {

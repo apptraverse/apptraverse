@@ -1246,6 +1246,22 @@ if(WIN32)
     NAME apptraverse_presenter_win_hwnd_persistence_test
     COMMAND apptraverse_presenter_win_hwnd_persistence_test
   )
+
+  target_compile_definitions(apptraverse_ui_windows PRIVATE
+    APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
+  add_executable(apptraverse_presenter_win_desktop_frame_sync_test
+    presenter_win_desktop_frame_sync_test.cpp
+  )
+  target_compile_definitions(apptraverse_presenter_win_desktop_frame_sync_test PRIVATE
+    APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
+  target_link_libraries(apptraverse_presenter_win_desktop_frame_sync_test PRIVATE
+    apptraverse
+    apptraverse_ui_windows
+  )
+  add_test(
+    NAME apptraverse_presenter_win_desktop_frame_sync_test
+    COMMAND apptraverse_presenter_win_desktop_frame_sync_test
+  )
 endif()
 
 add_executable(apptraverse_presenter_platform_persist_save

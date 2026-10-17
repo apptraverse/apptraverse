@@ -65,6 +65,42 @@ bool CreateFailed(HWND hwnd) { return hwnd == nullptr; }
 
 }  // namespace
 
+#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+int WinDesktopWindowPresenter::test_set_window_pos_count_{0};
+
+int WinDesktopWindowPresenter::TestSetWindowPosCount() {
+  return test_set_window_pos_count_;
+}
+
+void WinDesktopWindowPresenter::TestResetSetWindowPosCount() {
+  test_set_window_pos_count_ = 0;
+}
+
+void WinDesktopWindowPresenter::TestReportNativeFrame(std::int32_t x,
+                                                      std::int32_t y,
+                                                      std::int32_t client_width,
+                                                      std::int32_t client_height) {
+  RecordNativeFrameSubmission({x, y, client_width, client_height});
+}
+
+void WinDesktopWindowPresenter::TestMoveNativeOuter(std::int32_t x,
+                                                    std::int32_t y,
+                                                    std::int32_t client_width,
+                                                    std::int32_t client_height) {
+  if (hwnd_ == nullptr) {
+    return;
+  }
+  applying_native_frame_ = true;
+  int outer_w = 0;
+  int outer_h = 0;
+  ClientSizeToOuter(client_width, client_height, outer_w, outer_h);
+  SetWindowPos(hwnd_, nullptr, x, y, outer_w, outer_h,
+               SWP_NOZORDER | SWP_NOACTIVATE);
+  applying_native_frame_ = false;
+  RecordNativeFrameSubmission({x, y, client_width, client_height});
+}
+#endif
+
 LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
                                                   WPARAM wparam,
                                                   LPARAM lparam) {
@@ -81,6 +117,15 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
                                      static_cast<std::uint16_t>(HIWORD(wparam)),
                                      child)) {
       return 0;
+    }
+  }
+  if (msg == WM_ENTERSIZEMOVE) {
+    presenter->interactive_move_active_ = true;
+  }
+  if (msg == WM_EXITSIZEMOVE) {
+    presenter->interactive_move_active_ = false;
+    if (!presenter->applying_native_frame_) {
+      presenter->HandleNativeFrameChanged();
     }
   }
   if (msg == WM_WINDOWPOSCHANGED && !presenter->applying_native_frame_) {
@@ -140,17 +185,96 @@ void WinDesktopWindowPresenter::OnLoad() {
   UpdateWindow(hwnd_);
 }
 
+WinDesktopWindowPresenter::ClientFrame
+WinDesktopWindowPresenter::ReadMirrorClientFrame() const {
+  ClientFrame frame{};
+  auto const desktop = desktop_window();
+  if (!desktop) {
+    return frame;
+  }
+  frame.x = desktop->x();
+  frame.y = desktop->y();
+  frame.client_width = desktop->client_width();
+  frame.client_height = desktop->client_height();
+  return frame;
+}
+
+WinDesktopWindowPresenter::ClientFrame
+WinDesktopWindowPresenter::ReadNativeClientFrame() const {
+  ClientFrame frame{};
+  if (hwnd_ == nullptr) {
+    return frame;
+  }
+  ReadModelFrameFromHwnd(hwnd_, frame.x, frame.y, frame.client_width,
+                         frame.client_height);
+  return frame;
+}
+
+void WinDesktopWindowPresenter::RecordNativeFrameSubmission(
+    ClientFrame frame) {
+  if (native_frame_submit_serial_ != 0 && frame.x == latest_native_frame_.x &&
+      frame.y == latest_native_frame_.y &&
+      frame.client_width == latest_native_frame_.client_width &&
+      frame.client_height == latest_native_frame_.client_height) {
+    return;
+  }
+  latest_native_frame_ = frame;
+  ++native_frame_submit_serial_;
+}
+
+void WinDesktopWindowPresenter::TryAcknowledgeMirrorFrame(ClientFrame mirror) {
+  if (mirror.x == latest_native_frame_.x && mirror.y == latest_native_frame_.y &&
+      mirror.client_width == latest_native_frame_.client_width &&
+      mirror.client_height == latest_native_frame_.client_height) {
+    native_frame_ack_serial_ = native_frame_submit_serial_;
+  }
+}
+
+bool WinDesktopWindowPresenter::FramePublicationIsCurrent() const {
+  return native_frame_ack_serial_ >= native_frame_submit_serial_;
+}
+
+bool WinDesktopWindowPresenter::ShouldApplyMirrorFrameToNative(
+    ClientFrame mirror, ClientFrame native) const {
+  if (interactive_move_active_) {
+    return false;
+  }
+  if (mirror.x == native.x && mirror.y == native.y &&
+      mirror.client_width == native.client_width &&
+      mirror.client_height == native.client_height) {
+    return false;
+  }
+  if (native_frame_submit_serial_ > native_frame_ack_serial_) {
+    if (mirror.x != latest_native_frame_.x ||
+        mirror.y != latest_native_frame_.y ||
+        mirror.client_width != latest_native_frame_.client_width ||
+        mirror.client_height != latest_native_frame_.client_height) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void WinDesktopWindowPresenter::SyncNativeFrameFromMirror() {
   auto const desktop = desktop_window();
   if (hwnd_ == nullptr || !desktop) {
     return;
   }
+  ClientFrame const mirror = ReadMirrorClientFrame();
+  ClientFrame const native = ReadNativeClientFrame();
+  TryAcknowledgeMirrorFrame(mirror);
+  if (!ShouldApplyMirrorFrameToNative(mirror, native)) {
+    return;
+  }
   applying_native_frame_ = true;
   int outer_w = 0;
   int outer_h = 0;
-  ClientSizeToOuter(desktop->client_width(), desktop->client_height(), outer_w,
+  ClientSizeToOuter(mirror.client_width, mirror.client_height, outer_w,
                     outer_h);
-  SetWindowPos(hwnd_, nullptr, desktop->x(), desktop->y(), outer_w, outer_h,
+#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+  ++test_set_window_pos_count_;
+#endif
+  SetWindowPos(hwnd_, nullptr, mirror.x, mirror.y, outer_w, outer_h,
                SWP_NOZORDER | SWP_NOACTIVATE);
   applying_native_frame_ = false;
 }
@@ -163,12 +287,10 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged() {
   if (hwnd_ == nullptr || !desktop) {
     return;
   }
-  int x = 0;
-  int y = 0;
-  int cw = 0;
-  int ch = 0;
-  ReadModelFrameFromHwnd(hwnd_, x, y, cw, ch);
-  SubmitFrameFromNative(x, y, cw, ch);
+  ClientFrame const native = ReadNativeClientFrame();
+  RecordNativeFrameSubmission(native);
+  SubmitFrameFromNative(native.x, native.y, native.client_width,
+                        native.client_height);
 }
 
 bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
