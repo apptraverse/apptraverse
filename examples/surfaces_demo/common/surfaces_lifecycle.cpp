@@ -43,28 +43,12 @@ void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
                              Application& ui_application,
                              ae::IDomainStorage& ui_storage, void* host,
                              ModelObjectProxy* model_proxy) {
-  auto surfaces = ui_application.surfaces;
   ByteSource in;
   in.data = bytes.data();
   in.size = bytes.size();
   ApplyStructuralPublicationAndUpdatePresenters(
       in, *ui_application.domain, ui_storage, ui_application, host,
       model_proxy);
-
-  for (auto const& surface : surfaces->surfaces) {
-    if (surface->chrome.window) {
-      surface->chrome.window->OnModelChanged();
-    }
-    if (surface->chrome.add_button) {
-      surface->chrome.add_button->OnModelChanged();
-    }
-    if (surface->chrome.close_button) {
-      surface->chrome.close_button->OnModelChanged();
-    }
-    if (surface->chrome.language_button) {
-      surface->chrome.language_button->OnModelChanged();
-    }
-  }
 }
 
 void SurfacesModelSession::Run(

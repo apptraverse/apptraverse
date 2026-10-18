@@ -1545,6 +1545,44 @@ void TestInitializeRuntimeNodeStorageWrites() {
   std::cout << "InitializeRuntimeNode Store calls=" << during_init << '\n';
 }
 
+void TestStructuralApplyOnModelChangedOnce() {
+  TestSurfacePresenter::ResetCounts();
+  auto const dir = TestDir("apptraverse_surfaces_structural_once");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  auto proxy = MakeSessionProxy(session);
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+  WaitPublished(session);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  InitializePresenters(*ui_app, nullptr, &proxy);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 4);
+
+  session.Post([&](ae::Domain& domain) {
+    auto app = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    auto event = ui::SetUiLanguageIndexEvent::ptr::Create(
+        ae::CreateWith{domain});
+    event->language_index = 1;
+    app->locale->Commit(std::move(event));
+  });
+  WaitPublished(session);
+  int const before = TestSurfacePresenter::on_model_changed_calls.load();
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  CHECK(TestSurfacePresenter::on_model_changed_calls.load() - before == 4);
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestLocaleCommitAndPersistence() {
   auto const dir = TestDir("apptraverse_surfaces_locale_persist");
   DirectoryDomainStorage storage{dir};
@@ -1617,6 +1655,7 @@ int main() {
   apptraverse::test::TestShutdownDrainsWorkWithUnreadPublication();
   apptraverse::test::TestRuntimeNodeBaseUsesCanonicalOwnership();
   apptraverse::test::TestInitializeRuntimeNodeStorageWrites();
+  apptraverse::test::TestStructuralApplyOnModelChangedOnce();
   apptraverse::test::TestLocaleCommitAndPersistence();
   std::cout << "surfaces_model_test OK\n";
   return 0;

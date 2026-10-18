@@ -1016,6 +1016,14 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
 void InitializePresenters(ae::Obj& gui_root, void* host,
                           ModelObjectProxy* model_proxy) {
   InitializeNewPresenters(gui_root, host, model_proxy);
+  std::vector<ae::Obj*> objects;
+  CollectLiveReachableObjects(gui_root, objects);
+  for (ae::Obj* obj : objects) {
+    Presenter* const presenter = AsPresenter(obj);
+    if (presenter != nullptr && presenter->presentation_loaded) {
+      presenter->OnModelChanged();
+    }
+  }
 }
 
 void UnloadPresenters(ae::Obj& gui_root) {

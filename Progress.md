@@ -3788,3 +3788,28 @@ Starting SHA: `954114e`. Final remote: `eed9e02`.
 
 ## Not packaged
 No promoted Host/Client package while live convergence FAILS.
+
+---
+
+# surfaces_demo presenter + locale completion (2026-10-18)
+
+Branch: `cursor/surfaces-presenter-decomposition`.
+
+## Landed
+- aether-objects pinned to `79283b667cabf689da1059d618fe2a22abf51db4`; single patch
+  `cmake/patches/aether-objects-local-persistent-load.patch` (scope + LoadStoredLayers).
+- Removed duplicate chrome `OnModelChanged` loop from `ApplySurfacesStructural`; library
+  `InitializePresenters` now ends with one `OnModelChanged` sweep (matches structural path).
+- Win32 language button `OnModelChanged` updates caption + layout; horizontal chrome only
+  when client width fits three buttons (`ChromeButtonsUseHorizontalRow`).
+- Release clean cache: `build-presenter-decomp-msvc-rel` (CPM `64e1`); configure ×2 OK.
+
+## Verified (Windows)
+- Release: `apptraverse_surfaces_model_test`, `apptraverse_surfaces_win32_smoke_test`,
+  `apptraverse_directory_domain_storage_test`; `win32_surfaces_demo` +
+  `win32_surfaces_demo_load_only` link.
+- Debug: `apptraverse_surfaces_model_test`, `apptraverse_surfaces_win32_smoke_test` (incl.
+  `TestStructuralApplyOnModelChangedOnce`, load_only RU restore).
+- Screenshots: `docs/surfaces_demo_acceptance/*.bmp`.
+
+Status: implemented/verified in isolated worktree; pushed on branch.

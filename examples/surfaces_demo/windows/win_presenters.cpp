@@ -26,6 +26,19 @@ constexpr int kLangW = 48;
 constexpr int kLangH = 28;
 constexpr int kCloseW = 200;
 constexpr int kCloseH = 28;
+constexpr int kHorizontalChromeMinWidth =
+    kMargin + kAddW + kGap + kLangW + kGap + kCloseW + kMargin;
+
+bool ChromeButtonsUseHorizontalRow(SurfaceWindowPresenter const& window) {
+  if (!window.surface) {
+    return true;
+  }
+  Surface const& surface = *window.surface;
+  if (surface.presentation_width < kHorizontalChromeMinWidth) {
+    return false;
+  }
+  return surface.presentation_width >= surface.presentation_height;
+}
 
 void SetHwndUserData(HWND hwnd, void* value) {
   SetLastError(0);
@@ -65,7 +78,7 @@ void SurfaceButtonLayout(SurfaceWindowPresenter const& window,
   if (control_id == static_cast<std::uint32_t>(kSurfaceLanguageButtonId)) {
     *w = kLangW;
     *h = kLangH;
-    if (window.IsWide()) {
+    if (ChromeButtonsUseHorizontalRow(window)) {
       *x = kMargin + kAddW + kGap;
     } else {
       *y = kMargin + kAddH + kGap;
@@ -74,7 +87,7 @@ void SurfaceButtonLayout(SurfaceWindowPresenter const& window,
   }
   *w = kCloseW;
   *h = kCloseH;
-  if (window.IsWide()) {
+  if (ChromeButtonsUseHorizontalRow(window)) {
     *x = kMargin + kAddW + kGap + kLangW + kGap;
   } else {
     *y = kMargin + kAddH + kGap + kLangH + kGap;
@@ -347,7 +360,10 @@ void Win32SurfaceLanguageButtonPresenter::OnLoad() {
   ApplyLayout();
 }
 
-void Win32SurfaceLanguageButtonPresenter::OnModelChanged() { SyncCaption(); }
+void Win32SurfaceLanguageButtonPresenter::OnModelChanged() {
+  SyncCaption();
+  ApplyLayout();
+}
 
 void Win32SurfaceLanguageButtonPresenter::OnUnload() {
   SetHwndUserData(hwnd, nullptr);

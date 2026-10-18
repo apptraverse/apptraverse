@@ -26,6 +26,7 @@
 #include "surfaces_ids.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_model.h"
+#include "surfaces_win32_capture.h"
 #include "win_app.h"
 #include "win_presenters.h"
 
@@ -39,6 +40,27 @@ namespace apptraverse::test {
       std::exit(1);                                                          \
     }                                                                        \
   } while (0)
+
+namespace {
+
+std::filesystem::path AcceptanceScreenshotDir() {
+#ifdef APPTRAVERSE_SURFACES_ACCEPTANCE_DIR
+  return std::filesystem::path{APPTRAVERSE_SURFACES_ACCEPTANCE_DIR};
+#else
+  return {};
+#endif
+}
+
+void SaveAcceptanceScreenshot(HWND hwnd, char const* name) {
+  auto const dir = AcceptanceScreenshotDir();
+  if (dir.empty() || hwnd == nullptr) {
+    return;
+  }
+  auto const path = dir / (std::string{name} + ".bmp");
+  CHECK(SaveWindowClientBmp(hwnd, path));
+}
+
+}  // namespace
 
 HWND FindOwned(DWORD pid, wchar_t const* class_name, wchar_t const* title) {
   struct Ctx {
@@ -527,14 +549,20 @@ RECT ScreenRect(HWND hwnd) {
 
 bool ButtonsHorizontal(HWND surface) {
   RECT const add = ScreenRect(FindAddButton(surface));
+  RECT const lang = ScreenRect(FindLanguageButton(surface));
   RECT const close = ScreenRect(FindCloseButton(surface));
-  return add.left < close.left && std::abs(add.top - close.top) <= 2;
+  return add.left < lang.left && lang.left < close.left &&
+         std::abs(add.top - lang.top) <= 2 &&
+         std::abs(lang.top - close.top) <= 2;
 }
 
 bool ButtonsVertical(HWND surface) {
   RECT const add = ScreenRect(FindAddButton(surface));
+  RECT const lang = ScreenRect(FindLanguageButton(surface));
   RECT const close = ScreenRect(FindCloseButton(surface));
-  return add.top < close.top && std::abs(add.left - close.left) <= 2;
+  return add.top < lang.top && lang.top < close.top &&
+         std::abs(add.left - lang.left) <= 2 &&
+         std::abs(lang.left - close.left) <= 2;
 }
 
 void WaitHorizontalButtons(HWND surface) {
@@ -582,9 +610,11 @@ void TestControlsFollowPresentationSize() {
 
   PlaceClientSize(s1, 800, 400);
   WaitHorizontalButtons(s1);
+  SaveAcceptanceScreenshot(s1, "layout_wide_three_buttons");
 
   PlaceClientSize(s1, 400, 800);
   WaitVerticalButtons(s1);
+  SaveAcceptanceScreenshot(s1, "layout_narrow_three_buttons");
 
   // Square is wide under presentation_width >= presentation_height.
   PlaceClientSize(s1, 500, 500);
@@ -670,6 +700,8 @@ void TestLocalizationEnRuEn() {
   CHECK(WindowText(lang1) == L"EN");
   CHECK(WindowText(close1) == L"Закрыть это окно");
   CHECK(WindowText(FindAddButton(s2)) == L"Добавить");
+  SaveAcceptanceScreenshot(s1, "ru_wide_surface1");
+  SaveAcceptanceScreenshot(s2, "ru_wide_surface2");
   CHECK(add1 == add1_before);
   CHECK(lang1 == lang1_before);
   CHECK(close1 == close1_before);
@@ -694,11 +726,111 @@ void TestLocalizationEnRuEn() {
   std::filesystem::remove_all(dir);
 }
 
+void TestLoadOnlyRestoresRuProfile() {
+#ifdef APPTRAVERSE_SURFACES_LOAD_ONLY_EXE
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_load_only_acceptance";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesModelRegistration();
+  EnsureWin32SurfacePresenterRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindLanguageButton(s1), BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WindowText(s1) == L"Поверхность 1");
+  PlaceWindow(s1, 80, 90, 400, 280);
+  PlaceWindow(s2, 200, 210, 420, 300);
+  CHECK(SetWindowPos(s2, HWND_TOP, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0);
+  SendMessageW(s2, WM_ACTIVATE, MAKEWPARAM(WA_ACTIVE, FALSE), 0);
+  PumpGui(std::chrono::milliseconds{200});
+  PumpGui(std::chrono::seconds{2});
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+
+  DirectoryDomainStorage probe{dir};
+  ae::Domain probe_domain{probe};
+  auto saved = LoadApplication<Application>(
+      probe_domain, ae::ObjId{surfaces_demo::ToObjId(
+                        surfaces_demo::ObjId::Application)});
+  CHECK(saved->locale->language_index() == 1);
+
+  std::filesystem::path const load_only_path{
+      APPTRAVERSE_SURFACES_LOAD_ONLY_EXE};
+  std::wstring cmdline = L"\"" + load_only_path.wstring() +
+                         L"\" --state-dir \"" + dir.wstring() + L"\"";
+  std::vector<wchar_t> cmd_storage(cmdline.begin(), cmdline.end());
+  cmd_storage.push_back(L'\0');
+  STARTUPINFOW si{};
+  si.cb = sizeof(si);
+  PROCESS_INFORMATION pi{};
+  CHECK(CreateProcessW(nullptr, cmd_storage.data(), nullptr, nullptr, FALSE, 0,
+                       nullptr, nullptr, &si, &pi) != 0);
+  CloseHandle(pi.hThread);
+  DWORD const load_only_pid = pi.dwProcessId;
+
+  HWND rs1 = nullptr;
+  HWND rs2 = nullptr;
+  CHECK(WaitOwned(load_only_pid, kSurfacesWindowClass, nullptr, &rs1,
+                  std::chrono::seconds{30}));
+  CHECK(WaitOwned(load_only_pid, kSurfacesWindowClass, L"Поверхность 2", &rs2,
+                  std::chrono::seconds{30}));
+  auto const ru_deadline = std::chrono::steady_clock::now() + std::chrono::seconds{45};
+  while (std::chrono::steady_clock::now() < ru_deadline) {
+    if (WindowText(rs1) == L"Поверхность 1") {
+      break;
+    }
+    PumpGui(std::chrono::milliseconds{50});
+  }
+  CHECK(WindowText(rs1) == L"Поверхность 1");
+  SaveAcceptanceScreenshot(rs1, "load_only_restored_surface1");
+  SaveAcceptanceScreenshot(rs2, "load_only_restored_surface2");
+  CHECK(TopSurfacesWindow(load_only_pid) == rs2);
+
+  SendMessageW(FindLanguageButton(rs1), BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WindowText(rs1) == L"Surface 1");
+  SendMessageW(FindAddButton(rs1), BM_CLICK, 0, 0);
+  CHECK(WaitOwned(load_only_pid, kSurfacesWindowClass, L"Surface 3", nullptr,
+                  std::chrono::seconds{30}));
+
+  PostMessageW(rs1, WM_CLOSE, 0, 0);
+  CHECK(WaitForSingleObject(pi.hProcess, 30000) == WAIT_OBJECT_0);
+  DWORD exit_code = 1;
+  CHECK(GetExitCodeProcess(pi.hProcess, &exit_code) != 0);
+  CHECK(exit_code == 0);
+  CloseHandle(pi.hProcess);
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  CHECK(application->locale->language_index() == 0);
+
+  std::filesystem::remove_all(dir);
+#endif
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::test::TestPresenterHierarchy();
   apptraverse::test::TestLocalizationEnRuEn();
+  apptraverse::test::TestLoadOnlyRestoresRuProfile();
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeXKeepsAllSurfaces();
   apptraverse::test::TestActiveZOrderRestored();
