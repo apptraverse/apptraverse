@@ -89,7 +89,8 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   std::uint64_t native_frame_submit_serial_{0};
   std::uint64_t native_frame_ack_serial_{0};
   std::uint64_t ui_generation_at_native_submit_{0};
-  ClientFrame latest_native_frame_{};
+  ClientFrame observed_native_frame_{};
+  ClientFrame last_submitted_native_frame_{};
   struct NativeSubmitRecord {
     std::uint64_t serial{0};
     ClientFrame frame{};

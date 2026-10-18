@@ -228,7 +228,7 @@ void WinDesktopWindowPresenter::TrackInteractiveNativeFrame() {
   if (hwnd_ == nullptr) {
     return;
   }
-  latest_native_frame_ = ReadNativeClientFrame();
+  observed_native_frame_ = ReadNativeClientFrame();
 }
 
 WinDesktopWindowPresenter::ClientFrame
@@ -244,13 +244,7 @@ WinDesktopWindowPresenter::ReadNativeClientFrame() const {
 
 void WinDesktopWindowPresenter::RecordNativeFrameSubmission(
     ClientFrame frame) {
-  if (native_frame_submit_serial_ != 0 && frame.x == latest_native_frame_.x &&
-      frame.y == latest_native_frame_.y &&
-      frame.client_width == latest_native_frame_.client_width &&
-      frame.client_height == latest_native_frame_.client_height) {
-    return;
-  }
-  latest_native_frame_ = frame;
+  observed_native_frame_ = frame;
   ++native_frame_submit_serial_;
   if (auto const desktop = desktop_window()) {
     ui_generation_at_native_submit_ = desktop->Generation();
@@ -270,7 +264,7 @@ void WinDesktopWindowPresenter::RecordNativeFrameSubmission(
 
 bool WinDesktopWindowPresenter::IsMirrorStaleNativeSubmission(
     ClientFrame mirror) const {
-  if (FramesEqual(mirror, latest_native_frame_)) {
+  if (FramesEqual(mirror, observed_native_frame_)) {
     return false;
   }
   for (std::size_t i = 0; i < native_submit_history_count_; ++i) {
@@ -290,10 +284,7 @@ void WinDesktopWindowPresenter::TryAcknowledgeMirrorFrame(ClientFrame mirror) {
   if (!desktop.is_valid()) {
     return;
   }
-  if (mirror.x != latest_native_frame_.x ||
-      mirror.y != latest_native_frame_.y ||
-      mirror.client_width != latest_native_frame_.client_width ||
-      mirror.client_height != latest_native_frame_.client_height) {
+  if (!FramesEqual(mirror, observed_native_frame_)) {
     return;
   }
   if (desktop->Generation() <= ui_generation_at_native_submit_) {
@@ -329,8 +320,8 @@ bool WinDesktopWindowPresenter::ShouldApplyMirrorFrameToNative(
   if (FramesEqual(mirror, native)) {
     return false;
   }
-  bool const mirror_is_latest = FramesEqual(mirror, latest_native_frame_);
-  bool const native_is_latest = FramesEqual(native, latest_native_frame_);
+  bool const mirror_is_latest = FramesEqual(mirror, observed_native_frame_);
+  bool const native_is_latest = FramesEqual(native, observed_native_frame_);
   if (pending_native_sync_) {
     if (mirror_is_latest && native_is_latest) {
       return false;
@@ -392,15 +383,8 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged() {
     return;
   }
   ClientFrame const native = ReadNativeClientFrame();
+  observed_native_frame_ = native;
   RecordNativeFrameSubmission(native);
-  ClientFrame const mirror = ReadMirrorClientFrame();
-  if (FramesEqual(mirror, native)) {
-    pending_native_sync_ = false;
-    pending_native_wave_commits_ = 0;
-    pending_native_wave_ui_generation_ = 0;
-    native_frame_ack_serial_ = native_frame_submit_serial_;
-    return;
-  }
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
   ++test_model_frame_submit_count_;
 #endif
@@ -413,6 +397,7 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged() {
   pending_native_sync_ = true;
   SubmitFrameFromNative(native.x, native.y, native.client_width,
                         native.client_height);
+  last_submitted_native_frame_ = native;
 }
 
 bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
