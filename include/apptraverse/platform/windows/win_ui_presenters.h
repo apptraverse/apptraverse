@@ -71,22 +71,24 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   std::wstring ResolveTitleText() const;
   ClientFrame ReadMirrorClientFrame() const;
   ClientFrame ReadNativeClientFrame() const;
+  void TrackInteractiveNativeFrame();
   void RecordNativeFrameSubmission(ClientFrame frame);
   void TryAcknowledgeMirrorFrame(ClientFrame mirror);
   bool FramePublicationIsCurrent() const;
   bool IsMirrorStaleNativeSubmission(ClientFrame mirror) const;
   bool ShouldApplyMirrorFrameToNative(ClientFrame mirror,
                                       ClientFrame native) const;
+  static bool FramesEqual(ClientFrame a, ClientFrame b);
 
   HWND hwnd_{nullptr};
   bool applying_native_frame_{false};
   bool interactive_move_active_{false};
+  bool pending_native_sync_{false};
+  std::uint64_t pending_native_wave_ui_generation_{0};
+  std::uint64_t pending_native_wave_commits_{0};
   std::uint64_t native_frame_submit_serial_{0};
   std::uint64_t native_frame_ack_serial_{0};
   std::uint64_t ui_generation_at_native_submit_{0};
-  // Model desktop generation after the latest native frame commit completes.
-  // Zero when no model proxy (unit tests) or before the commit runs.
-  std::uint64_t model_generation_at_native_submit_{0};
   ClientFrame latest_native_frame_{};
   struct NativeSubmitRecord {
     std::uint64_t serial{0};
@@ -116,9 +118,16 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void TestMoveNativeOuter(std::int32_t x, std::int32_t y,
                            std::int32_t client_width,
                            std::int32_t client_height);
+  void TestSimulateInteractiveNativeMove(std::int32_t x, std::int32_t y,
+                                         std::int32_t client_width,
+                                         std::int32_t client_height);
+  void TestFinishInteractiveNativeMove();
+  int TestModelFrameSubmitCount() const { return test_model_frame_submit_count_; }
+  void TestResetModelFrameSubmitCount() { test_model_frame_submit_count_ = 0; }
 
  private:
   static int test_set_window_pos_count_;
+  int test_model_frame_submit_count_{0};
 #endif
 };
 

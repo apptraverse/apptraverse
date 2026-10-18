@@ -261,6 +261,17 @@ void TestProgrammaticMoveWhileNativePending() {
   CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 1);
 }
 
+void TestInteractiveDragCoalescesModelSubmits() {
+  Harness h;
+  h.presenter->TestResetModelFrameSubmitCount();
+  for (int i = 0; i < 500; ++i) {
+    h.presenter->TestSimulateInteractiveNativeMove(100 + i, 200 + i, 640, 480);
+  }
+  CHECK(h.presenter->TestModelFrameSubmitCount() == 0);
+  h.presenter->TestFinishInteractiveNativeMove();
+  CHECK(h.presenter->TestModelFrameSubmitCount() == 1);
+}
+
 void TestResizeStaleEcho() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
@@ -295,6 +306,7 @@ int main() {
   apptraverse::test::TestProgrammaticMoveAfterSync();
   apptraverse::test::TestNonGeometryPublicationDoesNotMove();
   apptraverse::test::TestSecondDragBeforeFirstAck();
+  apptraverse::test::TestInteractiveDragCoalescesModelSubmits();
   apptraverse::test::TestAbaStaleMiddlePublicationDoesNotJump();
   apptraverse::test::TestProgrammaticMoveWhileNativePending();
   apptraverse::test::TestResizeStaleEcho();

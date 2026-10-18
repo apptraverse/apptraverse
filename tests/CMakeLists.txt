@@ -9,6 +9,17 @@ add_test(
   COMMAND apptraverse_ui_desktop_window_geometry_test
 )
 
+add_executable(apptraverse_node_local_commit_journal_scaling_test
+  node_local_commit_journal_scaling_test.cpp
+)
+target_link_libraries(apptraverse_node_local_commit_journal_scaling_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_node_local_commit_journal_scaling_test
+  COMMAND apptraverse_node_local_commit_journal_scaling_test
+)
+
 add_executable(apptraverse_ui_edit_box_headless_test
   ui/ui_edit_box_headless_test.cpp
 )

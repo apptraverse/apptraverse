@@ -23,6 +23,10 @@ void UiDesktopWindow::Apply(SetUiDesktopWindowFrameEvent const& event) {
 void UiDesktopWindow::SubmitFrameFromNative(std::int32_t x, std::int32_t y,
                                             std::int32_t client_width,
                                             std::int32_t client_height) {
+  if (x_ == x && y_ == y && this->client_width() == client_width &&
+      this->client_height() == client_height) {
+    return;
+  }
   auto event = SetUiDesktopWindowFrameEvent::ptr::Create(
       ae::CreateWith{*domain});
   event->x = x;

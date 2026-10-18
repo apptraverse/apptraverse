@@ -388,9 +388,10 @@ class Node : public ae::Obj {
 
     // Identity is what must be unique. Two different Events sharing a
     // timestamp is an accepted, unresolved case, not an error.
-    for (auto const& existing : journal) {
-      if (record.HasSharedIdentity() && existing.HasSharedIdentity()) {
-        if (existing.identity == record.identity) {
+    if (record.HasSharedIdentity()) {
+      for (auto const& existing : journal) {
+        if (existing.HasSharedIdentity() &&
+            existing.identity == record.identity) {
           return false;
         }
       }
