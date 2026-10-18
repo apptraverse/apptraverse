@@ -87,7 +87,6 @@ void Surface::AddSurface() {
   // New Surface is a Node: establish base/journal and inherit this Surface's
   // model-runtime notifier before it becomes live.
   InitializeRuntimeNode(*sibling, *this);
-  RewireSurfaceChromePresenters(*sibling);
 
   auto event = AddSurfaceEvent::ptr::Create(ae::CreateWith{*parent.domain});
   event->surface = sibling;

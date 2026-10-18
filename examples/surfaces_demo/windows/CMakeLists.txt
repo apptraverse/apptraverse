@@ -9,19 +9,23 @@ add_executable(win32_surfaces_demo ${_surfaces_win_sources})
 target_compile_definitions(win32_surfaces_demo PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION
 )
+add_executable(win32_surfaces_demo_load_only ${_surfaces_win_sources})
+# Load-only: model + desktop/win presenters — no distill bootstrap.
+
 target_link_libraries(win32_surfaces_demo PRIVATE
   surfaces_demo_distill
   surfaces_demo_win32
   surfaces_demo_desktop
 )
 
-add_executable(win32_surfaces_demo_load_only ${_surfaces_win_sources})
-# Load-only: model + desktop/win presenters — no distill bootstrap.
+target_link_libraries(win32_surfaces_demo_load_only PRIVATE
+  surfaces_demo_win32
+  surfaces_demo_desktop
+)
 
 foreach(_surfaces_demo win32_surfaces_demo win32_surfaces_demo_load_only)
   target_link_libraries(${_surfaces_demo} PRIVATE
     surfaces_demo_model
-    surfaces_demo_desktop
     user32
     gdi32
   )

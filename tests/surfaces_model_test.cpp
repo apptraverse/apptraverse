@@ -27,7 +27,6 @@
 #include "surface_button_presenter.h"
 #include "surface_window_presenter.h"
 #include "surfaces_distill.h"
-#include "surfaces_presentation.h"
 #include "surfaces_ids.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_model.h"
@@ -112,7 +111,7 @@ void TestInitialGraph() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
 
   Surfaces& surfaces = *application->surfaces;
   CHECK(surfaces.surfaces.size() == 1);
@@ -139,7 +138,7 @@ void TestModelAdd() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   Surface* const surface1 = &*surfaces.surfaces[0];
   auto const surface1_id = surface1->obj_id;
@@ -170,7 +169,7 @@ void TestAddFromSecondSurface() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   CHECK(surfaces.surfaces.size() == 2);
@@ -187,7 +186,7 @@ void TestModelRemove() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   Surface* const surface1 = &*surfaces.surfaces[0];
   surface1->AddSurface();
@@ -215,7 +214,7 @@ void TestReplay() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   surfaces.surfaces[0]->AddSurface();
@@ -252,7 +251,7 @@ void TestRestartPersistence() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto application = BuildSurfacesGraph(domain);
-    FinalizeSurfacesDistilledGraph(*application);
+    FinalizeDistilledGraph(*application);
     Surfaces& surfaces = *application->surfaces;
     surfaces.surfaces[0]->AddSurface();
     surfaces.surfaces[0]->AddSurface();
@@ -268,9 +267,6 @@ void TestRestartPersistence() {
   auto application = LoadApplication<Application>(
       domain, ae::ObjId{surfaces_demo::ToObjId(
                   surfaces_demo::ObjId::Application)});
-  for (auto const& surface : application->surfaces->surfaces) {
-    RewireSurfaceChromePresenters(*surface);
-  }
   Surfaces& surfaces = *application->surfaces;
   CHECK(surfaces.surfaces.size() == 2);
   CHECK(surfaces.surfaces[0]->number == 1);
@@ -500,7 +496,7 @@ void TestBoundsReplay() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
   Surface& surface = *application->surfaces->surfaces[0];
   auto const initial_x = surface.desktop_x;
   auto const initial_y = surface.desktop_y;
@@ -538,7 +534,7 @@ void TestPresentationSize() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
   Surface& surface = *application->surfaces->surfaces[0];
   CHECK(surface.presentation_width == 360);
   CHECK(surface.presentation_height == 240);
@@ -577,7 +573,7 @@ void TestPresentationSizePersistence() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto application = BuildSurfacesGraph(domain);
-    FinalizeSurfacesDistilledGraph(*application);
+    FinalizeDistilledGraph(*application);
     application->surfaces->surfaces[0]->SetPresentationSize(640, 480);
     SaveDistilledRoot(*application);
   }
@@ -648,7 +644,7 @@ void TestGeometryPersistence() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto application = BuildSurfacesGraph(domain);
-    FinalizeSurfacesDistilledGraph(*application);
+    FinalizeDistilledGraph(*application);
     Surfaces& surfaces = *application->surfaces;
     surfaces.surfaces[0]->AddSurface();
     surfaces.surfaces[0]->AddSurface();
@@ -691,7 +687,7 @@ void TestCurrentPageReplay() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   Surface::ptr surface2 = surfaces.surfaces[1];
@@ -733,7 +729,7 @@ void TestCurrentPageIdentitySurvivesRemoveBefore() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   surfaces.surfaces[0]->AddSurface();
@@ -761,7 +757,7 @@ void TestCurrentPagePersistence() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto application = BuildSurfacesGraph(domain);
-    FinalizeSurfacesDistilledGraph(*application);
+    FinalizeDistilledGraph(*application);
     Surfaces& surfaces = *application->surfaces;
     surfaces.surfaces[0]->AddSurface();
     surfaces.surfaces[0]->AddSurface();
@@ -839,7 +835,7 @@ void TestNotifierNeverBindsNodeBase() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
 
   PendingDirtyNodes pending;
   BindReachableNodesMaterializedChangeNotifier(*application, &pending,
@@ -879,7 +875,7 @@ void TestFindLiveReachableNodeOnModelGraph() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeSurfacesDistilledGraph(*application);
+  FinalizeDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   CHECK(surfaces.surfaces.size() == 2);

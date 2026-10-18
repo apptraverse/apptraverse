@@ -19,26 +19,20 @@ class SurfaceWindowPresenter : public DesktopSurfacePresenter {
   explicit SurfaceWindowPresenter(ae::ObjProp prop)
       : DesktopSurfacePresenter{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(surface))
+  AE_OBJECT_REFLECT()
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, surface);
+    dnv(base_);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, surface);
+    dnv(base_);
   }
 
   void PageShown();
   void PresentationSizeChanged(std::int32_t width, std::int32_t height);
-
-  [[nodiscard]] bool IsWide() const {
-    return surface->presentation_width >= surface->presentation_height;
-  }
-
-  Surface::ptr surface;
 };
 
 void EnsureSurfaceWindowPresenterRegistration();

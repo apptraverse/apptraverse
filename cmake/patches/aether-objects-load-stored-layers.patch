@@ -1,0 +1,180 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 3abf8f4..3035e43 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -24,7 +24,12 @@
+ 
+ namespace ae {
+ 
+-DomainGraph::DomainGraph(Domain* domain) : domain(domain) { assert(domain); }
++DomainGraph::DomainGraph(Domain* domain) : DomainGraph(domain, GraphSerializationScope::LocalPersistent) {}
++
++DomainGraph::DomainGraph(Domain* domain, GraphSerializationScope scope)
++    : domain(domain), serialization_scope(scope) {
++  assert(domain);
++}
+ 
+ Ptr<Obj> DomainGraph::LoadRoot(ObjId obj_id) {
+   Ptr<Obj> ptr;
+@@ -49,12 +54,11 @@ seri::SeriResult DomainGraph::LoadRoot(ObjId obj_id, Ptr<Obj>& ptr) {
+   }
+ 
+   ptr = domain->ConstructObj(*factory, obj_id);
+-  auto result = factory->load(this, ptr, obj_id);
+-  if (result && result->IsErr()) {
+-    domain->RemoveObject(ptr.get());
+-    ptr.Reset();
++  LoadStoredLayers(ptr, obj_id);
++  if (!ptr) {
++    return Error{seri::read_error};
+   }
+-  return result.value_or(Ok{seri::good});
++  return Ok{seri::good};
+ }
+ 
+ Ptr<Obj> DomainGraph::LoadCopyImpl(ObjId ref_id, ObjId copy_id) {
+@@ -73,15 +77,26 @@ Ptr<Obj> DomainGraph::LoadCopyImpl(ObjId ref_id, ObjId copy_id) {
+   }
+ 
+   auto ptr = domain->ConstructObj(*factory, copy_id);
+-  // load new object with ref_id
+-  auto result = factory->load(this, ptr, ref_id);
+-  if (result && result->IsErr()) {
+-    domain->RemoveObject(ptr.get());
++  LoadStoredLayers(ptr, ref_id);
++  if (!ptr) {
+     return {};
+   }
+   return ptr;
+ }
+ 
++void DomainGraph::LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id) {
++  for (auto const class_id : domain->KnownStoredClasses(storage_id)) {
++    auto* layer = domain->FindClassFactory(class_id);
++    assert(layer && layer->load);
++    auto result = layer->load(this, obj, storage_id);
++    if (result && result->IsErr()) {
++      domain->RemoveObject(obj.get());
++      obj.Reset();
++      return;
++    }
++  }
++}
++
+ seri::SeriResult DomainGraph::SaveRoot(Ptr<Obj> const& ptr, ObjId obj_id) {
+   if (!ptr) {
+     return Error{seri::write_error};
+@@ -139,32 +154,15 @@ void Domain::AddObject(ObjId id, Ptr<Obj> const& obj) {
+ 
+ void Domain::RemoveObject(Obj* ptr) { id_objects_.erase(ptr->obj_id.id()); }
+ 
+-Factory* Domain::GetMostRelatedFactory(ObjId id) {
++std::vector<std::uint32_t> Domain::KnownStoredClasses(ObjId id) {
+   auto classes = storage_->Enumerate(id);
+-#ifndef NDEBUG
+-  auto class_names = std::vector<std::string_view>{};
+-  class_names.reserve(classes.size());
+-  for (auto cid : classes) {
+-    class_names.emplace_back(registry_->ClassName(cid));
+-  }
+-
+-  AE_LOG_MACRO("For obj {} enumerated classes [{}]", id.id(), class_names);
+-#else
+-  AE_LOG_MACRO("For obj {} enumerated classes [{}]", id.id(), classes);
+-#endif
+-
+-  // Remove all unsupported classes.
+   classes.erase(
+       std::remove_if(std::begin(classes), std::end(classes),
+                      [this](auto const& c) { return !IsExisting(c); }),
+       std::end(classes));
+-
+   if (classes.empty()) {
+-    return nullptr;
++    return {};
+   }
+-
+-  // Build inheritance chain.
+-  // from base to derived.
+   std::sort(std::begin(classes), std::end(classes),
+             [this](auto left, auto right) {
+               if (registry_->GenerationDistance(right, left) > 0) {
+@@ -173,10 +171,30 @@ Factory* Domain::GetMostRelatedFactory(ObjId id) {
+               if (registry_->GenerationDistance(left, right) >= 0) {
+                 return true;
+               }
+-              // All classes must be in one inheritance chain.
+               assert(false);
+               return false;
+             });
++  return classes;
++}
++
++Factory* Domain::GetMostRelatedFactory(ObjId id) {
++  auto classes = storage_->Enumerate(id);
++#ifndef NDEBUG
++  auto class_names = std::vector<std::string_view>{};
++  class_names.reserve(classes.size());
++  for (auto cid : classes) {
++    class_names.emplace_back(registry_->ClassName(cid));
++  }
++
++  AE_LOG_MACRO("For obj {} enumerated classes [{}]", id.id(), class_names);
++#else
++  AE_LOG_MACRO("For obj {} enumerated classes [{}]", id.id(), classes);
++#endif
++
++  classes = KnownStoredClasses(id);
++  if (classes.empty()) {
++    return nullptr;
++  }
+ 
+   // Find the Final class for the most derived class provided and create it.
+   for (auto& f : registry_->factories) {
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index dbeab19..4cc911d 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -103,6 +103,13 @@ struct DomainBuffer {
+   IDomainStorageReader* reader{nullptr};
+ };
+ 
++// Serialization intent for one DomainGraph Save/Load walk. Owned by the
++// DomainGraph instance (no process-global / thread_local policy registry).
++enum class GraphSerializationScope : std::uint8_t {
++  LocalPersistent = 0,
++  NetworkShared = 1,
++};
++
+ /**
+  * \brief Operations on graph of objects in domain.
+  * For load/save a new graph create a new DomainGraph.
+@@ -110,6 +117,7 @@ struct DomainBuffer {
+ class DomainGraph {
+  public:
+   explicit DomainGraph(Domain* domain);
++  DomainGraph(Domain* domain, GraphSerializationScope scope);
+ 
+   // Load saved state of object.
+   Ptr<Obj> LoadRoot(ObjId obj_id);
+@@ -134,8 +142,12 @@ class DomainGraph {
+ 
+   Domain* domain{};
+   DomainCycleDetector cycle_detector{};
++  GraphSerializationScope serialization_scope{
++      GraphSerializationScope::LocalPersistent};
+ 
+  private:
++  void LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id);
++
+   DomainLoad GetReader(DomainQuery const& query);
+   std::unique_ptr<IDomainStorageWriter> GetWriter(DomainQuery const& query);
+ };
+@@ -169,6 +181,7 @@ class Domain {
+ 
+   Factory* FindClassFactory(std::uint32_t class_id);
+   Factory* GetMostRelatedFactory(ObjId id);
++  std::vector<std::uint32_t> KnownStoredClasses(ObjId id);
+ 
+   IDomainStorage* storage_;
+   Registry* registry_;
