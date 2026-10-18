@@ -301,11 +301,16 @@ void WinDesktopWindowPresenter::TryAcknowledgeMirrorFrame(ClientFrame mirror) {
   if (IsMirrorStaleNativeSubmission(mirror)) {
     return;
   }
-  native_frame_ack_serial_ = native_frame_submit_serial_;
+  if (desktop->Generation() >=
+      pending_native_wave_ui_generation_ + pending_native_wave_commits_) {
+    native_frame_ack_serial_ = native_frame_submit_serial_;
+    pending_native_sync_ = false;
+    pending_native_wave_commits_ = 0;
+    pending_native_wave_ui_generation_ = 0;
+  } else {
+    ++native_frame_ack_serial_;
+  }
   ui_generation_at_native_submit_ = desktop->Generation();
-  pending_native_sync_ = false;
-  pending_native_wave_commits_ = 0;
-  pending_native_wave_ui_generation_ = 0;
 }
 
 bool WinDesktopWindowPresenter::FramePublicationIsCurrent() const {
@@ -388,12 +393,8 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged() {
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
   ++test_model_frame_submit_count_;
 #endif
-  if (!pending_native_sync_) {
-    pending_native_wave_ui_generation_ = desktop->Generation();
-    pending_native_wave_commits_ = 1;
-  } else {
-    ++pending_native_wave_commits_;
-  }
+  pending_native_wave_ui_generation_ = desktop->Generation();
+  pending_native_wave_commits_ = 1;
   pending_native_sync_ = true;
   SubmitFrameFromNative(native.x, native.y, native.client_width,
                         native.client_height);

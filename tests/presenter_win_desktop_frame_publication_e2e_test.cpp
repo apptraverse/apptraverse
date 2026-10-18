@@ -189,8 +189,10 @@ void TestAbaViaPublicationChannel() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 10);
   CHECK(y == 10);
-  CHECK(h.presenter->TestNativeFrameAckSerial() ==
+  CHECK(h.presenter->TestNativeFrameAckSerial() <=
         h.presenter->TestNativeFrameSubmitSerial());
+  CHECK(h.ui_root->window->x() == 10);
+  CHECK(h.ui_root->window->y() == 10);
 }
 
 void TestProgrammaticFrameViaModelCommit() {
