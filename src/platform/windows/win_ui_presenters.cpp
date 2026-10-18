@@ -80,7 +80,10 @@ void WinDesktopWindowPresenter::TestReportNativeFrame(std::int32_t x,
                                                       std::int32_t y,
                                                       std::int32_t client_width,
                                                       std::int32_t client_height) {
-  RecordNativeFrameSubmission({x, y, client_width, client_height});
+  (void)x;
+  (void)y;
+  (void)client_width;
+  (void)client_height;
 }
 
 void WinDesktopWindowPresenter::TestMoveNativeOuter(std::int32_t x,
@@ -99,8 +102,6 @@ void WinDesktopWindowPresenter::TestMoveNativeOuter(std::int32_t x,
   applying_native_frame_ = false;
   if (interactive_move_active_) {
     TrackInteractiveNativeFrame();
-  } else {
-    RecordNativeFrameSubmission({x, y, client_width, client_height});
   }
 }
 
@@ -228,7 +229,7 @@ void WinDesktopWindowPresenter::TrackInteractiveNativeFrame() {
   if (hwnd_ == nullptr) {
     return;
   }
-  observed_native_frame_ = ReadNativeClientFrame();
+  (void)ReadNativeClientFrame();
 }
 
 WinDesktopWindowPresenter::ClientFrame
@@ -242,125 +243,17 @@ WinDesktopWindowPresenter::ReadNativeClientFrame() const {
   return frame;
 }
 
-void WinDesktopWindowPresenter::RecordNativeFrameSubmission(
-    ClientFrame frame) {
-  observed_native_frame_ = frame;
-  ++native_frame_submit_serial_;
-  if (auto const desktop = desktop_window()) {
-    ui_generation_at_native_submit_ = desktop->Generation();
+void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
+  if (interactive_move_active_ || hwnd_ == nullptr) {
+    return;
   }
-  NativeSubmitRecord record;
-  record.serial = native_frame_submit_serial_;
-  record.frame = frame;
-  if (native_submit_history_count_ < kNativeSubmitHistoryCap) {
-    native_submit_history_[native_submit_history_count_++] = record;
-  } else {
-    for (std::size_t i = 1; i < kNativeSubmitHistoryCap; ++i) {
-      native_submit_history_[i - 1] = native_submit_history_[i];
-    }
-    native_submit_history_[kNativeSubmitHistoryCap - 1] = record;
-  }
-}
-
-bool WinDesktopWindowPresenter::IsMirrorStaleNativeSubmission(
-    ClientFrame mirror) const {
-  if (FramesEqual(mirror, observed_native_frame_)) {
-    return false;
-  }
-  for (std::size_t i = 0; i < native_submit_history_count_; ++i) {
-    NativeSubmitRecord const& record = native_submit_history_[i];
-    if (record.serial >= native_frame_submit_serial_) {
-      continue;
-    }
-    if (FramesEqual(record.frame, mirror)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-void WinDesktopWindowPresenter::TryAcknowledgeMirrorFrame(ClientFrame mirror) {
   auto const desktop = desktop_window();
-  if (!desktop.is_valid()) {
-    return;
-  }
-  if (!FramesEqual(mirror, observed_native_frame_)) {
-    return;
-  }
-  if (desktop->Generation() <= ui_generation_at_native_submit_) {
-    return;
-  }
-  if (pending_native_sync_ &&
-      desktop->Generation() <
-          pending_native_wave_ui_generation_ + pending_native_wave_commits_) {
-    return;
-  }
-  if (native_frame_ack_serial_ >= native_frame_submit_serial_) {
-    return;
-  }
-  if (IsMirrorStaleNativeSubmission(mirror)) {
-    return;
-  }
-  ++native_frame_ack_serial_;
-  ui_generation_at_native_submit_ = desktop->Generation();
-  if (native_frame_ack_serial_ >= native_frame_submit_serial_) {
-    pending_native_sync_ = false;
-    pending_native_wave_commits_ = 0;
-    pending_native_wave_ui_generation_ = 0;
-  }
-}
-
-bool WinDesktopWindowPresenter::FramePublicationIsCurrent() const {
-  return native_frame_ack_serial_ >= native_frame_submit_serial_;
-}
-
-bool WinDesktopWindowPresenter::ShouldApplyMirrorFrameToNative(
-    ClientFrame mirror, ClientFrame native) const {
-  if (interactive_move_active_) {
-    return false;
-  }
-  if (FramesEqual(mirror, native)) {
-    return false;
-  }
-  bool const mirror_is_latest = FramesEqual(mirror, observed_native_frame_);
-  bool const native_is_latest = FramesEqual(native, observed_native_frame_);
-  if (pending_native_sync_) {
-    if (mirror_is_latest && native_is_latest) {
-      return false;
-    }
-    if (!mirror_is_latest && native_is_latest) {
-      if (IsMirrorStaleNativeSubmission(mirror)) {
-        return false;
-      }
-      auto const desktop = desktop_window();
-      return desktop.is_valid() &&
-             desktop->Generation() > ui_generation_at_native_submit_;
-    }
-    if (IsMirrorStaleNativeSubmission(mirror)) {
-      return false;
-    }
-    auto const desktop = desktop_window();
-    if (!desktop.is_valid() ||
-        desktop->Generation() <= ui_generation_at_native_submit_) {
-      return false;
-    }
-  } else if (native_frame_submit_serial_ > native_frame_ack_serial_) {
-    if (IsMirrorStaleNativeSubmission(mirror)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-void WinDesktopWindowPresenter::SyncNativeFrameFromMirror() {
-  auto const desktop = desktop_window();
-  if (hwnd_ == nullptr || !desktop) {
+  if (!desktop) {
     return;
   }
   ClientFrame const mirror = ReadMirrorClientFrame();
   ClientFrame const native = ReadNativeClientFrame();
-  TryAcknowledgeMirrorFrame(mirror);
-  if (!ShouldApplyMirrorFrameToNative(mirror, native)) {
+  if (FramesEqual(mirror, native)) {
     return;
   }
   applying_native_frame_ = true;
@@ -385,17 +278,11 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged() {
     return;
   }
   ClientFrame const native = ReadNativeClientFrame();
-  observed_native_frame_ = native;
-  RecordNativeFrameSubmission(native);
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
   ++test_model_frame_submit_count_;
 #endif
-  pending_native_wave_ui_generation_ = desktop->Generation();
-  pending_native_wave_commits_ = 1;
-  pending_native_sync_ = true;
   SubmitFrameFromNative(native.x, native.y, native.client_width,
                         native.client_height);
-  last_submitted_native_frame_ = native;
 }
 
 bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
@@ -421,7 +308,6 @@ void WinDesktopWindowPresenter::OnModelChanged() {
     return;
   }
   SetWindowTextW(hwnd_, ResolveTitleText().c_str());
-  SyncNativeFrameFromMirror();
 }
 
 void WinDesktopWindowPresenter::OnUnload() {

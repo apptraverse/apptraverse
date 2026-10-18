@@ -147,8 +147,8 @@ struct Harness {
     ByteSource in;
     in.data = sink.bytes.data();
     in.size = sink.bytes.size();
-    ApplyStructuralPublication(in, ui_domain, ui_storage);
-    presenter->OnModelChanged();
+    ApplyStructuralPublicationAndUpdatePresenters(
+        in, ui_domain, ui_storage, *ui_root, nullptr, &model_proxy);
   }
 
   void SyncModelUiAt(std::int32_t x, std::int32_t y) {
@@ -163,16 +163,13 @@ void TestTwoDragsBackToAWithLaggyMirror() {
   HWND const hwnd = h.presenter->hwnd();
   h.SyncModelUiAt(100, 100);
   h.presenter->TestResetModelFrameSubmitCount();
-  std::uint64_t const serial0 = h.presenter->TestNativeFrameSubmitSerial();
 
   InteractiveDragEnd(*h.presenter, 200, 200, 640, 480);
   CHECK(h.presenter->TestModelFrameSubmitCount() == 1);
-  CHECK(h.presenter->TestNativeFrameSubmitSerial() == serial0 + 1);
   CHECK(h.deferred_model_work.size() == 1);
 
   InteractiveDragEnd(*h.presenter, 100, 100, 640, 480);
   CHECK(h.presenter->TestModelFrameSubmitCount() == 2);
-  CHECK(h.presenter->TestNativeFrameSubmitSerial() == serial0 + 2);
   CHECK(h.deferred_model_work.size() == 2);
 
   h.PumpOneModelTask();
@@ -190,8 +187,8 @@ void TestTwoDragsBackToAWithLaggyMirror() {
   ByteSource stale;
   stale.data = pub_b.data();
   stale.size = pub_b.size();
-  ApplyStructuralPublication(stale, h.ui_domain, h.ui_storage);
-  h.presenter->OnModelChanged();
+  ApplyStructuralPublicationAndUpdatePresenters(
+      stale, h.ui_domain, h.ui_storage, *h.ui_root, nullptr, &h.model_proxy);
   std::int32_t x = 0;
   std::int32_t y = 0;
   std::int32_t cw = 0;
@@ -225,11 +222,9 @@ void TestSequentialInteractiveDragsIncrementSerial() {
   Harness h;
   h.SyncModelUiAt(10, 10);
   h.presenter->TestResetModelFrameSubmitCount();
-  std::uint64_t const serial0 = h.presenter->TestNativeFrameSubmitSerial();
   InteractiveDragEnd(*h.presenter, 30, 30, 640, 480);
   InteractiveDragEnd(*h.presenter, 10, 10, 640, 480);
   CHECK(h.presenter->TestModelFrameSubmitCount() == 2);
-  CHECK(h.presenter->TestNativeFrameSubmitSerial() == serial0 + 2);
   h.PumpModel();
   CHECK(h.model_root->window->x() == 10);
   CHECK(h.model_root->window->y() == 10);

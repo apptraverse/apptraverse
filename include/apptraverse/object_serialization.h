@@ -177,7 +177,8 @@ void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
 // call presenter hooks — prefer ApplyStructuralPublicationAndUpdatePresenters
 // when presentation must stay in sync.
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
-                                    ae::IDomainStorage& storage);
+                                    ae::IDomainStorage& storage,
+                                    std::uint8_t* sidecar_out = nullptr);
 
 // Durable model checkpoint (RAM or directory). Serializes the full reachable
 // object graph including presenters; live graph unchanged after

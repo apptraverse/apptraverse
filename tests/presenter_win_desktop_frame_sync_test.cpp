@@ -10,6 +10,7 @@ int main() { return 0; }
 
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
+// ApplyStructuralPublicationAndUpdatePresenters
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/runtime_node.h"
@@ -128,8 +129,6 @@ void TestStalePublicationDuringDrag() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 300);
   CHECK(y == 200);
-  CHECK(h.presenter->TestNativeFrameAckSerial() ==
-        h.presenter->TestNativeFrameSubmitSerial());
 }
 
 void TestStalePublicationAfterRelease() {
@@ -155,9 +154,17 @@ void TestStalePublicationAfterRelease() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 500);
   CHECK(y == 350);
-  CHECK(h.presenter->TestNativeFrameAckSerial() ==
-        h.presenter->TestNativeFrameSubmitSerial());
   CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
+}
+
+void ApplyModelStructuralPublication(Harness& h) {
+  ByteSink sink;
+  SerializeStructuralNodePublication(*h.root->window, sink);
+  ByteSource in;
+  in.data = sink.bytes.data();
+  in.size = sink.bytes.size();
+  ApplyStructuralPublicationAndUpdatePresenters(in, h.domain, h.storage, *h.root,
+                                                nullptr, nullptr);
 }
 
 void TestProgrammaticMoveAfterSync() {
@@ -166,12 +173,10 @@ void TestProgrammaticMoveAfterSync() {
   h.presenter->TestMoveNativeOuter(120, 130, 640, 480);
   ApplyFrameToMirror(*h.root->window, 120, 130, 640, 480);
   h.presenter->OnModelChanged();
-  CHECK(h.presenter->TestNativeFrameAckSerial() ==
-        h.presenter->TestNativeFrameSubmitSerial());
 
-  ApplyFrameToMirror(*h.root->window, 700, 800, 640, 480);
+  h.root->window->RequestFrame(700, 800, 640, 480);
   ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
-  h.presenter->OnModelChanged();
+  ApplyModelStructuralPublication(h);
   std::int32_t x = 0;
   std::int32_t y = 0;
   std::int32_t cw = 0;
@@ -237,8 +242,6 @@ void TestAbaStaleMiddlePublicationDoesNotJump() {
   CHECK(x == 10);
   CHECK(y == 10);
   CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
-  CHECK(h.presenter->TestNativeFrameAckSerial() <
-        h.presenter->TestNativeFrameSubmitSerial());
 }
 
 void TestProgrammaticMoveWhileNativePending() {
@@ -249,8 +252,8 @@ void TestProgrammaticMoveWhileNativePending() {
   h.presenter->OnModelChanged();
   h.presenter->TestMoveNativeOuter(60, 60, 640, 480);
   ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
-  ApplyFrameToMirror(*h.root->window, 700, 800, 640, 480);
-  h.presenter->OnModelChanged();
+  h.root->window->RequestFrame(700, 800, 640, 480);
+  ApplyModelStructuralPublication(h);
   std::int32_t x = 0;
   std::int32_t y = 0;
   std::int32_t cw = 0;

@@ -1,276 +1,498 @@
 #ifndef APPTRAVERSE_PLATFORM_WINDOWS_WIN_UI_PRESENTERS_H_
+
 #define APPTRAVERSE_PLATFORM_WINDOWS_WIN_UI_PRESENTERS_H_
 
+
+
 #ifndef WIN32_LEAN_AND_MEAN
+
 #define WIN32_LEAN_AND_MEAN
+
 #endif
+
 #include <windows.h>
 
+
+
 #include "apptraverse/ui/ui_bitmap_image.h"
+
 #include "apptraverse/ui/ui_presenters.h"
+
+
 
 namespace apptraverse::ui::windows {
 
+
+
 class WinWindowPresenter : public UiWindowPresenter {
+
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinWindowPresenter",
+
                            WinWindowPresenter, UiWindowPresenter, 0)
 
+
+
  protected:
+
   WinWindowPresenter() = default;
 
+
+
  public:
+
   explicit WinWindowPresenter(ae::ObjProp prop) : UiWindowPresenter{prop} {}
+
 };
+
+
 
 class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
+
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinDesktopWindowPresenter",
+
                            WinDesktopWindowPresenter,
+
                            UiDesktopWindowPresenter, 0)
 
+
+
  protected:
+
   WinDesktopWindowPresenter() = default;
 
+
+
  public:
+
   explicit WinDesktopWindowPresenter(ae::ObjProp prop)
+
       : UiDesktopWindowPresenter{prop} {}
 
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_);
-  }
+
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
+
+  void Load(ae::Version<0>, Dnv& dnv) {
+
     dnv(base_);
+
   }
+
+
+
+  template <typename Dnv>
+
+  void Save(ae::Version<0>, Dnv& dnv) const {
+
+    dnv(base_);
+
+  }
+
+
 
   void OnLoad() override;
+
   void OnModelChanged() override;
+
   void OnUnload() override;
+
+  void ApplyRequestedFrameFromMirror() override;
+
+
 
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
+
+
   HWND hwnd() const { return hwnd_; }
+
+
 
   bool RouteChildCommand(std::uint32_t command_id,
+
                          std::uint16_t notification_code, HWND child);
 
+
+
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
+
                                   LPARAM lparam);
 
+
+
  private:
+
   struct ClientFrame {
+
     std::int32_t x{0};
+
     std::int32_t y{0};
+
     std::int32_t client_width{0};
+
     std::int32_t client_height{0};
+
   };
 
-  void SyncNativeFrameFromMirror();
+
+
   void HandleNativeFrameChanged();
+
   std::wstring ResolveTitleText() const;
+
   ClientFrame ReadMirrorClientFrame() const;
+
   ClientFrame ReadNativeClientFrame() const;
+
   void TrackInteractiveNativeFrame();
-  void RecordNativeFrameSubmission(ClientFrame frame);
-  void TryAcknowledgeMirrorFrame(ClientFrame mirror);
-  bool FramePublicationIsCurrent() const;
-  bool IsMirrorStaleNativeSubmission(ClientFrame mirror) const;
-  bool ShouldApplyMirrorFrameToNative(ClientFrame mirror,
-                                      ClientFrame native) const;
+
   static bool FramesEqual(ClientFrame a, ClientFrame b);
 
+
+
   HWND hwnd_{nullptr};
+
   bool applying_native_frame_{false};
+
   bool interactive_move_active_{false};
-  bool pending_native_sync_{false};
-  std::uint64_t pending_native_wave_ui_generation_{0};
-  std::uint64_t pending_native_wave_commits_{0};
-  std::uint64_t native_frame_submit_serial_{0};
-  std::uint64_t native_frame_ack_serial_{0};
-  std::uint64_t ui_generation_at_native_submit_{0};
-  ClientFrame observed_native_frame_{};
-  ClientFrame last_submitted_native_frame_{};
-  struct NativeSubmitRecord {
-    std::uint64_t serial{0};
-    ClientFrame frame{};
-  };
-  static constexpr std::size_t kNativeSubmitHistoryCap = 32;
-  NativeSubmitRecord native_submit_history_[kNativeSubmitHistoryCap]{};
-  std::size_t native_submit_history_count_{0};
+
+
 
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+
  public:
+
   static int TestSetWindowPosCount();
+
   static void TestResetSetWindowPosCount();
-  std::uint64_t TestNativeFrameSubmitSerial() const {
-    return native_frame_submit_serial_;
-  }
-  std::uint64_t TestNativeFrameAckSerial() const {
-    return native_frame_ack_serial_;
-  }
+
   bool TestInteractiveMoveActive() const { return interactive_move_active_; }
+
   void TestSetInteractiveMoveActive(bool active) {
+
     interactive_move_active_ = active;
+
   }
+
   void TestReportNativeFrame(std::int32_t x, std::int32_t y,
+
                              std::int32_t client_width,
+
                              std::int32_t client_height);
+
   void TestMoveNativeOuter(std::int32_t x, std::int32_t y,
+
                            std::int32_t client_width,
+
                            std::int32_t client_height);
+
   void TestSimulateInteractiveNativeMove(std::int32_t x, std::int32_t y,
+
                                          std::int32_t client_width,
+
                                          std::int32_t client_height);
+
   void TestFinishInteractiveNativeMove();
+
   int TestModelFrameSubmitCount() const { return test_model_frame_submit_count_; }
+
   void TestResetModelFrameSubmitCount() { test_model_frame_submit_count_ = 0; }
 
+
+
  private:
+
   static int test_set_window_pos_count_;
+
   int test_model_frame_submit_count_{0};
+
 #endif
+
 };
 
+
+
 class WinEditBoxPresenter : public UiEditBoxPresenter {
+
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinEditBoxPresenter",
+
                            WinEditBoxPresenter, UiEditBoxPresenter, 0)
 
+
+
  protected:
+
   WinEditBoxPresenter() = default;
 
+
+
  public:
+
   explicit WinEditBoxPresenter(ae::ObjProp prop) : UiEditBoxPresenter{prop} {}
 
+
+
   void OnLoad() override;
+
   void OnModelChanged() override;
+
   void OnUnload() override;
+
+
 
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
+
+
   bool OnCommand(std::uint32_t command_id,
+
                  std::uint16_t notification_code) override;
 
+
+
   HWND hwnd() const { return hwnd_; }
+
+
 
   void ReadFromNativeAndSubmit();
 
+
+
  private:
+
   void SyncFromMirror();
+
   WinDesktopWindowPresenter* Desktop() const;
 
+
+
   HWND hwnd_{nullptr};
+
   bool applying_mirror_text_{false};
+
   std::uint64_t last_applied_generation_{0};
+
   bool mirror_text_applied_{false};
+
 };
+
+
 
 class WinPushButtonPresenter : public UiPushButtonPresenter {
+
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinPushButtonPresenter",
+
                            WinPushButtonPresenter, UiPushButtonPresenter, 0)
 
+
+
  protected:
+
   WinPushButtonPresenter() = default;
 
+
+
  public:
+
   explicit WinPushButtonPresenter(ae::ObjProp prop)
+
       : UiPushButtonPresenter{prop} {}
 
+
+
   void OnLoad() override;
+
   void OnModelChanged() override;
+
   void OnUnload() override;
+
+
 
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
+
+
   HWND hwnd() const { return hwnd_; }
 
+
+
  private:
+
   void SyncFromMirror();
+
   WinDesktopWindowPresenter* Desktop() const;
 
+
+
   HWND hwnd_{nullptr};
+
 };
+
+
 
 class WinListContainerPresenter : public UiListContainerPresenter {
+
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinListContainerPresenter",
+
                            WinListContainerPresenter, UiListContainerPresenter,
+
                            0)
 
+
+
  protected:
+
   WinListContainerPresenter() = default;
 
+
+
  public:
+
   explicit WinListContainerPresenter(ae::ObjProp prop)
+
       : UiListContainerPresenter{prop} {}
 
+
+
   void OnLoad() override;
+
   void OnModelChanged() override;
+
   void OnUnload() override;
 
+
+
   bool OnCommand(std::uint32_t command_id,
+
                  std::uint16_t notification_code) override;
 
+
+
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
+
+
 
   HWND hwnd() const { return hwnd_; }
 
+
+
  private:
+
   void SyncFromMirror();
+
   WinDesktopWindowPresenter* Desktop() const;
 
+
+
   HWND hwnd_{nullptr};
+
 };
+
+
 
 class WinLabelPresenter : public UiLabelPresenter {
+
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinLabelPresenter",
+
                            WinLabelPresenter, UiLabelPresenter, 0)
 
+
+
  protected:
+
   WinLabelPresenter() = default;
 
+
+
  public:
+
   explicit WinLabelPresenter(ae::ObjProp prop) : UiLabelPresenter{prop} {}
 
+
+
   void OnLoad() override;
+
   void OnModelChanged() override;
+
   void OnUnload() override;
 
+
+
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
+
+
 
  private:
+
   void SyncFromMirror();
+
   WinDesktopWindowPresenter* Desktop() const;
 
+
+
   HWND hwnd_{nullptr};
+
 };
 
+
+
 class WinBitmapImagePresenter : public UiBitmapImagePresenter {
+
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinBitmapImagePresenter",
+
                            WinBitmapImagePresenter, UiBitmapImagePresenter, 0)
 
+
+
  protected:
+
   WinBitmapImagePresenter() = default;
 
+
+
  public:
+
   explicit WinBitmapImagePresenter(ae::ObjProp prop)
+
       : UiBitmapImagePresenter{prop} {}
 
+
+
   void OnLoad() override;
+
   void OnModelChanged() override;
+
   void OnUnload() override;
 
+
+
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
+
+
 
   void PaintToHdc(HDC hdc) const;
 
+
+
  private:
+
   WinDesktopWindowPresenter* Desktop() const;
 
+
+
   HWND hwnd_{nullptr};
+
 };
+
+
 
 void EnsureWinUiPresenterRegistration();
 
+
+
 }  // namespace apptraverse::ui::windows
 
+
+
 #endif  // APPTRAVERSE_PLATFORM_WINDOWS_WIN_UI_PRESENTERS_H_
+

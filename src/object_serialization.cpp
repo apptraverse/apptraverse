@@ -21,9 +21,19 @@
 #include "apptraverse/model_persistence.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
+#include "apptraverse/ui/ui_desktop_window.h"
+
+#if defined(_WIN32)
+#include "apptraverse/platform/windows/win_ui_presenters.h"
+#endif
 
 namespace apptraverse {
 namespace {
+
+enum StructuralPublicationSidecar : std::uint8_t {
+  kStructuralPublicationSidecarNone = 0,
+  kStructuralPublicationSidecarUiDesktopFrameRequest = 1,
+};
 
 template <typename T>
 T* AsObjOf(ae::Obj* obj) {
@@ -50,6 +60,34 @@ T const* AsObjOf(ae::Obj const* obj) {
 }
 
 Presenter* AsPresenter(ae::Obj* obj) { return AsObjOf<Presenter>(obj); }
+
+ui::UiDesktopWindow* AsUiDesktopWindow(ae::Obj* obj) {
+  return AsObjOf<ui::UiDesktopWindow>(obj);
+}
+
+#if defined(_WIN32)
+void ApplyUiDesktopFrameRequestPresentation(ae::Obj& gui_root,
+                                           ae::ObjId window_id) {
+  std::vector<ae::Obj*> objects;
+  CollectLiveReachableObjects(gui_root, objects);
+  for (ae::Obj* obj : objects) {
+    Presenter* const presenter = AsPresenter(obj);
+    if (presenter == nullptr ||
+        presenter->GetClassId() !=
+            ui::windows::WinDesktopWindowPresenter::kClassId) {
+      continue;
+    }
+    auto* desktop_presenter =
+        static_cast<ui::windows::WinDesktopWindowPresenter*>(presenter);
+    auto const window = desktop_presenter->desktop_window();
+    if (!window.is_valid() || window->obj_id != window_id) {
+      continue;
+    }
+    desktop_presenter->ApplyRequestedFrameFromMirror();
+    return;
+  }
+}
+#endif
 
 void SaveObjectGraphToScratch(ae::Obj const& object,
                               ae::RamDomainStorage& scratch) {
@@ -560,10 +598,19 @@ void SerializeStructuralNodePublication(Node const& node, ByteSink& out) {
   out.write(&generation, sizeof(generation));
   out.write(&payload_size, sizeof(payload_size));
   out.write(payload.bytes.data(), payload.bytes.size());
+  std::uint8_t sidecar = kStructuralPublicationSidecarNone;
+  if (ui::UiDesktopWindow* desktop =
+          AsUiDesktopWindow(const_cast<Node*>(&node))) {
+    if (desktop->TakeFrameRequestPendingPublication()) {
+      sidecar = kStructuralPublicationSidecarUiDesktopFrameRequest;
+    }
+  }
+  out.write(&sidecar, sizeof(sidecar));
 }
 
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
-                                    ae::IDomainStorage& storage) {
+                                    ae::IDomainStorage& storage,
+                                    std::uint8_t* sidecar_out) {
   std::uint32_t object_id = 0;
   std::uint64_t generation = 0;
   std::uint32_t payload_size = 0;
@@ -580,6 +627,13 @@ ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
   assert(object && "structural publication object must already exist");
   DeserializeObjectGraphFromBuffer(*object, payload, domain, storage);
   FinalizeUiNodeState(*object, generation);
+  std::uint8_t sidecar = kStructuralPublicationSidecarNone;
+  if (in.pos < in.size) {
+    in.read(&sidecar, sizeof(sidecar));
+  }
+  if (sidecar_out != nullptr) {
+    *sidecar_out = sidecar;
+  }
   return *object;
 }
 
@@ -1050,8 +1104,16 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
     ae::Obj& gui_root, void* host, ModelObjectProxy* model_proxy) {
   StructuralPresentationKeepalive keepalive =
       CaptureStructuralPresentationKeepalive(gui_root);
+  std::uint8_t sidecar = kStructuralPublicationSidecarNone;
   ae::Obj& changed =
-      ApplyStructuralPublication(in, domain, storage);
+      ApplyStructuralPublication(in, domain, storage, &sidecar);
+#if defined(_WIN32)
+  if (sidecar == kStructuralPublicationSidecarUiDesktopFrameRequest) {
+    ApplyUiDesktopFrameRequestPresentation(gui_root, changed.obj_id);
+  }
+#else
+  (void)sidecar;
+#endif
   UpdatePresentersAfterStructuralPublication(
       gui_root, keepalive.active_presenters, host, model_proxy);
   // Release presenter anchors before live_objects so derived Presenter::ptr

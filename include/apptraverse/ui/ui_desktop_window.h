@@ -10,6 +10,8 @@
 namespace apptraverse::ui {
 
 class SetUiDesktopWindowFrameEvent;
+class ReportUiDesktopWindowFrameFromNativeEvent;
+class RequestUiDesktopWindowFrameEvent;
 
 class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiDesktopWindow",
@@ -37,13 +39,28 @@ class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiWindow> {
   std::int32_t y() const { return y_; }
 
   void Apply(SetUiDesktopWindowFrameEvent const& event);
+  void Apply(ReportUiDesktopWindowFrameFromNativeEvent const& event);
+  void Apply(RequestUiDesktopWindowFrameEvent const& event);
+
   void SubmitFrameFromNative(std::int32_t x, std::int32_t y,
                              std::int32_t client_width,
                              std::int32_t client_height);
+  void RequestFrame(std::int32_t x, std::int32_t y, std::int32_t client_width,
+                    std::int32_t client_height);
+
+  bool TakeFrameRequestPendingPublication() {
+    bool const pending = frame_request_pending_publication_;
+    frame_request_pending_publication_ = false;
+    return pending;
+  }
 
  private:
+  void ApplyFrameGeometry(std::int32_t x, std::int32_t y, std::int32_t width,
+                          std::int32_t height);
+
   std::int32_t x_{100};
   std::int32_t y_{100};
+  bool frame_request_pending_publication_{false};
 };
 
 class SetUiDesktopWindowFrameEvent
@@ -56,6 +73,50 @@ class SetUiDesktopWindowFrameEvent
 
  public:
   explicit SetUiDesktopWindowFrameEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(client_width),
+                    AE_MMBR(client_height))
+
+  std::int32_t x{0};
+  std::int32_t y{0};
+  std::int32_t client_width{0};
+  std::int32_t client_height{0};
+};
+
+class ReportUiDesktopWindowFrameFromNativeEvent
+    : public EventFor<UiDesktopWindow,
+                       ReportUiDesktopWindowFrameFromNativeEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::ui::ReportUiDesktopWindowFrameFromNativeEvent",
+      ReportUiDesktopWindowFrameFromNativeEvent, Event, 0)
+
+ protected:
+  ReportUiDesktopWindowFrameFromNativeEvent() = default;
+
+ public:
+  explicit ReportUiDesktopWindowFrameFromNativeEvent(ae::ObjProp prop)
+      : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(client_width),
+                    AE_MMBR(client_height))
+
+  std::int32_t x{0};
+  std::int32_t y{0};
+  std::int32_t client_width{0};
+  std::int32_t client_height{0};
+};
+
+class RequestUiDesktopWindowFrameEvent
+    : public EventFor<UiDesktopWindow, RequestUiDesktopWindowFrameEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::RequestUiDesktopWindowFrameEvent",
+                           RequestUiDesktopWindowFrameEvent, Event, 0)
+
+ protected:
+  RequestUiDesktopWindowFrameEvent() = default;
+
+ public:
+  explicit RequestUiDesktopWindowFrameEvent(ae::ObjProp prop)
+      : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(client_width),
                     AE_MMBR(client_height))

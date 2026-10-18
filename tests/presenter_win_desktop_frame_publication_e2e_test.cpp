@@ -72,16 +72,18 @@ void ReadHwndFrame(HWND hwnd, std::int32_t& x, std::int32_t& y,
   ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
 }
 
-void MoveNativeOuter(ui::windows::WinDesktopWindowPresenter& presenter,
-                     std::int32_t x, std::int32_t y, std::int32_t cw,
-                     std::int32_t ch) {
+void InteractiveDragEnd(ui::windows::WinDesktopWindowPresenter& presenter,
+                        std::int32_t x, std::int32_t y, std::int32_t cw,
+                        std::int32_t ch) {
   HWND const hwnd = presenter.hwnd();
   CHECK(hwnd != nullptr);
+  SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
   int outer_w = 0;
   int outer_h = 0;
   ui::windows::ClientSizeToOuter(cw, ch, outer_w, outer_h);
   CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
                      SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+  SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
 }
 
 struct E2EHarness {
@@ -148,13 +150,13 @@ struct E2EHarness {
     ByteSource in;
     in.data = bytes.data();
     in.size = bytes.size();
-    ApplyStructuralPublication(in, ui_domain, ui_storage);
-    presenter->OnModelChanged();
+    ApplyStructuralPublicationAndUpdatePresenters(
+        in, ui_domain, ui_storage, *ui_root, nullptr, &model_proxy);
   }
 
   void MoveCommitPublish(std::int32_t x, std::int32_t y, std::int32_t cw,
                          std::int32_t ch) {
-    MoveNativeOuter(*presenter, x, y, cw, ch);
+    InteractiveDragEnd(*presenter, x, y, cw, ch);
     PumpModel();
   }
 };
@@ -189,10 +191,52 @@ void TestAbaViaPublicationChannel() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 10);
   CHECK(y == 10);
-  CHECK(h.presenter->TestNativeFrameAckSerial() <=
-        h.presenter->TestNativeFrameSubmitSerial());
   CHECK(h.ui_root->window->x() == 10);
   CHECK(h.ui_root->window->y() == 10);
+}
+
+void TestDelayedNativeReportPublicationsAbc() {
+  E2EHarness h;
+  HWND const hwnd = h.presenter->hwnd();
+
+  auto capture_after_drag = [&](std::int32_t x, std::int32_t y) {
+    InteractiveDragEnd(*h.presenter, x, y, 640, 480);
+    h.PumpModel();
+    return h.CaptureStructuralPublication();
+  };
+
+  auto const pub_a = capture_after_drag(10, 10);
+  auto const pub_b = capture_after_drag(20, 20);
+  auto const pub_c = capture_after_drag(30, 30);
+
+  std::int32_t x = 0;
+  std::int32_t y = 0;
+  std::int32_t cw = 0;
+  std::int32_t ch = 0;
+  ReadHwndFrame(hwnd, x, y, cw, ch);
+  CHECK(x == 30);
+  CHECK(y == 30);
+
+  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
+  h.ApplyStructuralBytes(pub_a);
+  ReadHwndFrame(hwnd, x, y, cw, ch);
+  CHECK(x == 30);
+  CHECK(y == 30);
+
+  h.ApplyStructuralBytes(pub_b);
+  ReadHwndFrame(hwnd, x, y, cw, ch);
+  CHECK(x == 30);
+  CHECK(y == 30);
+
+  h.ApplyStructuralBytes(pub_c);
+  ReadHwndFrame(hwnd, x, y, cw, ch);
+  CHECK(x == 30);
+  CHECK(y == 30);
+  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
+  CHECK(h.ui_root->window->x() == 30);
+  CHECK(h.ui_root->window->y() == 30);
+  CHECK(h.model_root->window->x() == 30);
+  CHECK(h.model_root->window->y() == 30);
 }
 
 void TestProgrammaticFrameViaModelCommit() {
@@ -200,13 +244,7 @@ void TestProgrammaticFrameViaModelCommit() {
   HWND const hwnd = h.presenter->hwnd();
   h.MoveCommitPublish(50, 50, 640, 480);
   h.PumpModel();
-  auto ev = ui::SetUiDesktopWindowFrameEvent::ptr::Create(
-      ae::CreateWith{h.model_domain});
-  ev->x = 700;
-  ev->y = 800;
-  ev->client_width = 640;
-  ev->client_height = 480;
-  h.model_root->window->Commit(std::move(ev));
+  h.model_root->window->RequestFrame(700, 800, 640, 480);
   auto const pub = h.CaptureStructuralPublication();
   ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.ApplyStructuralBytes(pub);
@@ -218,6 +256,10 @@ void TestProgrammaticFrameViaModelCommit() {
   CHECK(x == 700);
   CHECK(y == 800);
   CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 1);
+
+  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
+  h.ApplyStructuralBytes(h.CaptureStructuralPublication());
+  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 }
 
 void TestLocalePublicationDoesNotMoveWindow() {
@@ -255,6 +297,7 @@ void TestLocalePublicationDoesNotMoveWindow() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestAbaViaPublicationChannel();
+  apptraverse::test::TestDelayedNativeReportPublicationsAbc();
   apptraverse::test::TestProgrammaticFrameViaModelCommit();
   apptraverse::test::TestLocalePublicationDoesNotMoveWindow();
   std::cout << "presenter_win_desktop_frame_publication_e2e_test OK\n";

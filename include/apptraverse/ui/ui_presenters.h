@@ -78,6 +78,8 @@ class UiDesktopWindowPresenter : public UiWindowPresenter {
   void SubmitFrameFromNative(std::int32_t x, std::int32_t y,
                              std::int32_t client_width,
                              std::int32_t client_height);
+
+  virtual void ApplyRequestedFrameFromMirror() {}
 };
 
 class UiEditBoxPresenter : public Presenter {
