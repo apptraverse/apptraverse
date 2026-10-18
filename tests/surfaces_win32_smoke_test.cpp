@@ -184,6 +184,59 @@ std::wstring WindowText(HWND hwnd) {
   return buffer;
 }
 
+std::wstring ControlCaption(HWND hwnd) {
+  if (hwnd == nullptr) {
+    return {};
+  }
+  wchar_t buffer[512]{};
+  SendMessageW(hwnd, WM_GETTEXT, static_cast<WPARAM>(std::size(buffer)),
+               reinterpret_cast<LPARAM>(buffer));
+  return buffer;
+}
+
+DWORD WindowProcessId(HWND hwnd) {
+  DWORD window_pid = 0;
+  GetWindowThreadProcessId(hwnd, &window_pid);
+  return window_pid;
+}
+
+bool ProcessHasExited(HANDLE process, DWORD* exit_code) {
+  DWORD code = STILL_ACTIVE;
+  if (GetExitCodeProcess(process, &code) == 0) {
+    return true;
+  }
+  if (code != STILL_ACTIVE) {
+    if (exit_code != nullptr) {
+      *exit_code = code;
+    }
+    return true;
+  }
+  return false;
+}
+
+bool WaitOwnedChild(DWORD pid, HANDLE process, wchar_t const* class_name,
+                    wchar_t const* title, HWND* out,
+                    std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    DWORD exit_code = 0;
+    if (ProcessHasExited(process, &exit_code)) {
+      std::cerr << "load_only process exited early with code " << exit_code
+                << " while waiting for a surfaces window\n";
+      return false;
+    }
+    HWND hwnd = FindOwned(pid, class_name, title);
+    if (hwnd != nullptr) {
+      if (out != nullptr) {
+        *out = hwnd;
+      }
+      return true;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  return false;
+}
+
 HWND FindSurfaceButton(HWND surface, int control_id) {
   for (HWND child = nullptr;;) {
     child = FindWindowExW(surface, child, L"BUTTON", nullptr);
@@ -206,6 +259,48 @@ HWND FindCloseButton(HWND surface) {
 
 HWND FindLanguageButton(HWND surface) {
   return FindSurfaceButton(surface, kSurfaceLanguageButtonId);
+}
+
+bool WaitSurfaceChromeReady(HWND surface,
+                            std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (FindAddButton(surface) != nullptr &&
+        FindCloseButton(surface) != nullptr &&
+        FindLanguageButton(surface) != nullptr) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    PumpGui(std::chrono::milliseconds{0});
+  }
+  return false;
+}
+
+void ExpectRuChrome(HWND surface) {
+  HWND const add = FindAddButton(surface);
+  HWND const close = FindCloseButton(surface);
+  HWND const lang = FindLanguageButton(surface);
+  CHECK(add != nullptr);
+  CHECK(close != nullptr);
+  CHECK(lang != nullptr);
+  CHECK(GetDlgCtrlID(add) == kSurfaceAddButtonId);
+  CHECK(GetDlgCtrlID(close) == kSurfaceCloseButtonId);
+  CHECK(GetDlgCtrlID(lang) == kSurfaceLanguageButtonId);
+  CHECK(ControlCaption(add) == L"Добавить");
+  CHECK(ControlCaption(close) == L"Закрыть это окно");
+  CHECK(ControlCaption(lang) == L"EN");
+}
+
+void ExpectEnChrome(HWND surface) {
+  HWND const add = FindAddButton(surface);
+  HWND const close = FindCloseButton(surface);
+  HWND const lang = FindLanguageButton(surface);
+  CHECK(add != nullptr);
+  CHECK(close != nullptr);
+  CHECK(lang != nullptr);
+  CHECK(ControlCaption(add) == L"Add");
+  CHECK(ControlCaption(close) == L"Close this window");
+  CHECK(ControlCaption(lang) == L"RU");
 }
 
 RECT WindowRect(HWND hwnd) {
@@ -758,6 +853,10 @@ void TestLoadOnlyRestoresRuProfile() {
   PumpGui(std::chrono::milliseconds{200});
   PumpGui(std::chrono::seconds{2});
 
+  RECT const saved_r1 = WindowRect(s1);
+  RECT const saved_r2 = WindowRect(s2);
+  CHECK(TopSurfacesWindow(pid) == s2);
+
   PostMessageW(s1, WM_CLOSE, 0, 0);
   gui.join();
 
@@ -770,6 +869,13 @@ void TestLoadOnlyRestoresRuProfile() {
 
   std::filesystem::path const load_only_path{
       APPTRAVERSE_SURFACES_LOAD_ONLY_EXE};
+  std::cout << "load_only exe: " << load_only_path << '\n';
+#ifdef NDEBUG
+  std::cout << "smoke config: Release\n";
+#else
+  std::cout << "smoke config: Debug\n";
+#endif
+
   std::wstring cmdline = L"\"" + load_only_path.wstring() +
                          L"\" --state-dir \"" + dir.wstring() + L"\"";
   std::vector<wchar_t> cmd_storage(cmdline.begin(), cmdline.end());
@@ -784,28 +890,50 @@ void TestLoadOnlyRestoresRuProfile() {
 
   HWND rs1 = nullptr;
   HWND rs2 = nullptr;
-  CHECK(WaitOwned(load_only_pid, kSurfacesWindowClass, nullptr, &rs1,
-                  std::chrono::seconds{30}));
-  CHECK(WaitOwned(load_only_pid, kSurfacesWindowClass, L"Поверхность 2", &rs2,
-                  std::chrono::seconds{30}));
-  auto const ru_deadline = std::chrono::steady_clock::now() + std::chrono::seconds{45};
-  while (std::chrono::steady_clock::now() < ru_deadline) {
-    if (WindowText(rs1) == L"Поверхность 1") {
-      break;
-    }
-    PumpGui(std::chrono::milliseconds{50});
-  }
-  CHECK(WindowText(rs1) == L"Поверхность 1");
+  CHECK(WaitOwnedChild(load_only_pid, pi.hProcess, kSurfacesWindowClass,
+                       L"Поверхность 1", &rs1, std::chrono::seconds{30}));
+  CHECK(WaitOwnedChild(load_only_pid, pi.hProcess, kSurfacesWindowClass,
+                       L"Поверхность 2", &rs2, std::chrono::seconds{30}));
+  CHECK(rs1 != rs2);
+  CHECK(IsWindow(rs1) != 0);
+  CHECK(IsWindow(rs2) != 0);
+  CHECK(IsWindowVisible(rs1) != 0);
+  CHECK(IsWindowVisible(rs2) != 0);
+  CHECK(WindowProcessId(rs1) == load_only_pid);
+  CHECK(WindowProcessId(rs2) == load_only_pid);
+  CHECK(ControlCaption(rs1) == L"Поверхность 1");
+  CHECK(ControlCaption(rs2) == L"Поверхность 2");
+  CHECK(RectNear(saved_r1, WindowRect(rs1), 8));
+  CHECK(RectNear(saved_r2, WindowRect(rs2), 8));
+  CHECK(WaitSurfaceChromeReady(rs1, std::chrono::seconds{30}));
+  CHECK(WaitSurfaceChromeReady(rs2, std::chrono::seconds{30}));
+  ExpectRuChrome(rs1);
+  ExpectRuChrome(rs2);
   SaveAcceptanceScreenshot(rs1, "load_only_restored_surface1");
   SaveAcceptanceScreenshot(rs2, "load_only_restored_surface2");
   CHECK(TopSurfacesWindow(load_only_pid) == rs2);
 
   SendMessageW(FindLanguageButton(rs1), BM_CLICK, 0, 0);
   PumpGui(std::chrono::milliseconds{500});
-  CHECK(WindowText(rs1) == L"Surface 1");
+  CHECK(ControlCaption(rs1) == L"Surface 1");
+  CHECK(ControlCaption(rs2) == L"Surface 2");
+  ExpectEnChrome(rs1);
+  ExpectEnChrome(rs2);
+
+  SendMessageW(FindLanguageButton(rs1), BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(ControlCaption(rs1) == L"Поверхность 1");
+  CHECK(ControlCaption(rs2) == L"Поверхность 2");
+  ExpectRuChrome(rs1);
+  ExpectRuChrome(rs2);
+
   SendMessageW(FindAddButton(rs1), BM_CLICK, 0, 0);
-  CHECK(WaitOwned(load_only_pid, kSurfacesWindowClass, L"Surface 3", nullptr,
-                  std::chrono::seconds{30}));
+  HWND rs3 = nullptr;
+  CHECK(WaitOwnedChild(load_only_pid, pi.hProcess, kSurfacesWindowClass,
+                       L"Поверхность 3", &rs3, std::chrono::seconds{30}));
+  CHECK(WindowProcessId(rs3) == load_only_pid);
+  CHECK(WaitSurfaceChromeReady(rs3, std::chrono::seconds{30}));
+  ExpectRuChrome(rs3);
 
   PostMessageW(rs1, WM_CLOSE, 0, 0);
   CHECK(WaitForSingleObject(pi.hProcess, 30000) == WAIT_OBJECT_0);
@@ -819,7 +947,7 @@ void TestLoadOnlyRestoresRuProfile() {
   auto application = LoadApplication<Application>(
       domain, ae::ObjId{surfaces_demo::ToObjId(
                   surfaces_demo::ObjId::Application)});
-  CHECK(application->locale->language_index() == 0);
+  CHECK(application->locale->language_index() == 1);
 
   std::filesystem::remove_all(dir);
 #endif

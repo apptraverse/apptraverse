@@ -760,7 +760,7 @@ if(WIN32)
   target_compile_definitions(apptraverse_surfaces_win32_smoke_test PRIVATE
     APPTRAVERSE_ENABLE_DISTILLATION
     "APPTRAVERSE_SURFACES_ACCEPTANCE_DIR=\"${CMAKE_SOURCE_DIR}/docs/surfaces_demo_acceptance\""
-    "APPTRAVERSE_SURFACES_LOAD_ONLY_EXE=\"${CMAKE_BINARY_DIR}/examples/surfaces_demo/windows/win32_surfaces_demo_load_only.exe\""
+    "APPTRAVERSE_SURFACES_LOAD_ONLY_EXE=R\"($<TARGET_FILE:win32_surfaces_demo_load_only>)\""
   )
   add_dependencies(apptraverse_surfaces_win32_smoke_test
     win32_surfaces_demo_load_only)
