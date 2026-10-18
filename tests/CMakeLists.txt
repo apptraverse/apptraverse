@@ -719,6 +719,7 @@ add_test(
 
 add_executable(apptraverse_surfaces_model_test
   surfaces_model_test.cpp
+  surfaces_test_presentation.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
 )
 
@@ -728,10 +729,13 @@ target_compile_definitions(apptraverse_surfaces_model_test PRIVATE
 
 target_link_libraries(apptraverse_surfaces_model_test PRIVATE
   surfaces_demo_distill
+  surfaces_demo_desktop
 )
 
 target_include_directories(apptraverse_surfaces_model_test PRIVATE
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/desktop
+  ${CMAKE_SOURCE_DIR}/tests
 )
 
 add_test(
@@ -750,7 +754,6 @@ if(WIN32)
   add_executable(apptraverse_surfaces_win32_smoke_test
     surfaces_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows/win_app.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows/win_presenters.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
   )
@@ -760,6 +763,7 @@ if(WIN32)
   target_link_libraries(apptraverse_surfaces_win32_smoke_test PRIVATE
     surfaces_demo_distill
     surfaces_demo_desktop
+    surfaces_demo_win32
     user32
     gdi32
   )

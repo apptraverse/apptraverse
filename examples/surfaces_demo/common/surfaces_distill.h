@@ -10,6 +10,8 @@ namespace apptraverse {
 // Dev-only initial graph. Production load path never calls this.
 Application::ptr BuildSurfacesGraph(ae::Domain& domain);
 
+void FinalizeSurfacesDistilledGraph(Application& application);
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_SURFACES_DISTILL_H_

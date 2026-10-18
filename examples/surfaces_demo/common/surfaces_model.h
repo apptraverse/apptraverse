@@ -2,7 +2,6 @@
 #define APPTRAVERSE_SURFACES_MODEL_H_
 
 #include <cstdint>
-#include <stdexcept>
 #include <vector>
 
 #include "aether-objects/obj/obj.h"
@@ -19,11 +18,19 @@ namespace apptraverse {
 class Surfaces;
 class Surface;
 class SurfacePresenter;
+class SurfaceWindowPresenter;
+class SurfaceButtonPresenter;
 class AddSurfaceEvent;
 class RemoveSurfaceEvent;
 class SetCurrentSurfaceEvent;
 class SurfaceBoundsChangedEvent;
 class SurfacePresentationSizeChangedEvent;
+
+struct SurfaceChromePresenters {
+  ae::ObjPtr<SurfacePresenter> window;
+  ae::ObjPtr<Presenter> add_button;
+  ae::ObjPtr<Presenter> close_button;
+};
 
 // Cascade initial outer-frame placement for a Surface before InitializeRuntimeNode
 // / FinalizeDistilledGraph. desktop_* are top-left outer frame + outer size.
@@ -34,7 +41,7 @@ inline void AssignInitialDesktopBounds(Surface& surface);
 // live list lives on Surfaces and changes only through Events.
 class Surface : public NodeFor<Surface> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::Surface", Surface,
-                           Node, 3)
+                           Node, 0)
 
  protected:
   Surface() = default;
@@ -45,39 +52,20 @@ class Surface : public NodeFor<Surface> {
   AE_OBJECT_REFLECT(AE_MMBR(number), AE_MMBR(desktop_x), AE_MMBR(desktop_y),
                     AE_MMBR(desktop_width), AE_MMBR(desktop_height),
                     AE_MMBR(presentation_width), AE_MMBR(presentation_height),
-                    AE_MMBR(surfaces), AE_MMBR(presenter))
+                    AE_MMBR(surfaces))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "Surface v0 (pre-geometry) is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "Surface v1 flattened layout is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv&) {
-    throw std::runtime_error(
-        "Surface v2 flattened layout is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<3>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, number, desktop_x, desktop_y, desktop_width, desktop_height,
-        presentation_width, presentation_height, surfaces, presenter);
+        presentation_width, presentation_height, surfaces, chrome.window,
+        chrome.add_button, chrome.close_button);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<3>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, number, desktop_x, desktop_y, desktop_width, desktop_height,
-        presentation_width, presentation_height, surfaces, presenter);
+        presentation_width, presentation_height, surfaces, chrome.window,
+        chrome.add_button, chrome.close_button);
   }
 
   // Model-thread: create sibling Surface + AddSurfaceEvent on parent Surfaces.
@@ -107,7 +95,7 @@ class Surface : public NodeFor<Surface> {
   std::int32_t presentation_width{0};
   std::int32_t presentation_height{0};
   ae::ObjPtr<Surfaces> surfaces;
-  ae::ObjPtr<SurfacePresenter> presenter;
+  SurfaceChromePresenters chrome;
 };
 
 class SurfacePresenter : public Presenter {
@@ -151,7 +139,7 @@ class SurfacePresenter : public Presenter {
 
 class Surfaces : public NodeFor<Surfaces> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::Surfaces", Surfaces,
-                           Node, 2)
+                           Node, 0)
 
  protected:
   Surfaces() = default;
@@ -162,26 +150,12 @@ class Surfaces : public NodeFor<Surfaces> {
   AE_OBJECT_REFLECT(AE_MMBR(surfaces), AE_MMBR(mobile_current))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "Surfaces v0 (pre-current-page) is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "Surfaces v1 flattened layout is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, surfaces, mobile_current);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, surfaces, mobile_current);
   }
 

@@ -92,7 +92,7 @@ void MacApp::PostMain(void (*fn)(void*), void* ctx) {
 
 void MacApp::QueueAllWindowBounds() {
   for (auto const& surface : ui_application_->surfaces->surfaces) {
-    MacSurfacePresenter::ptr presenter{surface->presenter};
+    MacSurfacePresenter::ptr presenter{surface->chrome.window};
     presenter->QueueCurrentBounds();
   }
 }
@@ -103,7 +103,7 @@ void MacApp::QueueKeyWindowAsCurrent() {
     return;
   }
   for (auto const& surface : ui_application_->surfaces->surfaces) {
-    MacSurfacePresenter::ptr presenter{surface->presenter};
+    MacSurfacePresenter::ptr presenter{surface->chrome.window};
     NSWindow* window = (__bridge NSWindow*)presenter->window;
     if (window == key) {
       presenter->PageShown();
@@ -122,7 +122,7 @@ void MacApp::RestoreActiveSurfaceZOrder() {
     // Pre-z-order state: keep last-created (creation order) on top.
     target = surfaces.back();
   }
-  MacSurfacePresenter::ptr presenter{target->presenter};
+  MacSurfacePresenter::ptr presenter{target->chrome.window};
   NSWindow* window = (__bridge NSWindow*)presenter->window;
   [window makeKeyAndOrderFront:nil];
   [NSApp activateIgnoringOtherApps:YES];

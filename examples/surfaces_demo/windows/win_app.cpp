@@ -41,18 +41,22 @@ LRESULT CALLBACK WinApp::WndProc(HWND hwnd, UINT msg, WPARAM wparam,
 
 void WinApp::QueueAllWindowBounds() {
   for (auto const& surface : ui_application_->surfaces->surfaces) {
-    Win32SurfacePresenter::ptr presenter{surface->presenter};
-    presenter->QueueCurrentBounds();
+    if (Win32SurfaceWindowPresenter::ptr window =
+            ResolveWin32WindowPresenter(*surface)) {
+      window->QueueCurrentBounds();
+    }
   }
 }
 
 void WinApp::QueueForegroundAsCurrent() {
   HWND const foreground = GetForegroundWindow();
   for (auto const& surface : ui_application_->surfaces->surfaces) {
-    Win32SurfacePresenter::ptr presenter{surface->presenter};
-    if (presenter->hwnd == foreground) {
-      presenter->PageShown();
-      return;
+    if (Win32SurfaceWindowPresenter::ptr window =
+            ResolveWin32WindowPresenter(*surface)) {
+      if (window->hwnd == foreground) {
+        window->PageShown();
+        return;
+      }
     }
   }
 }
@@ -67,17 +71,26 @@ void WinApp::RestoreActiveSurfaceZOrder() {
     // Pre-z-order state: keep last-created (creation order) on top.
     target = surfaces.back();
   }
-  Win32SurfacePresenter::ptr presenter{target->presenter};
-  if (SetWindowPos(presenter->hwnd, HWND_TOP, 0, 0, 0, 0,
+  HWND target_hwnd = nullptr;
+  SurfacePresenter* target_presenter = nullptr;
+  if (Win32SurfaceWindowPresenter::ptr window =
+          ResolveWin32WindowPresenter(*target)) {
+    target_hwnd = window->hwnd;
+    target_presenter = &*window;
+  }
+  if (target_hwnd == nullptr || target_presenter == nullptr) {
+    return;
+  }
+  if (SetWindowPos(target_hwnd, HWND_TOP, 0, 0, 0, 0,
                    SWP_NOMOVE | SWP_NOSIZE) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("SetWindowPos HWND_TOP", err);
   }
   // Best-effort focus; Z-order is already HWND_TOP. Foreground rights may be
   // denied when another process owns the foreground.
-  SetForegroundWindow(presenter->hwnd);
+  SetForegroundWindow(target_hwnd);
   // Explicit PageShown: WM_ACTIVATE may not fire when already foreground.
-  presenter->PageShown();
+  target_presenter->PageShown();
 }
 
 void WinApp::RequestApplicationStop() {

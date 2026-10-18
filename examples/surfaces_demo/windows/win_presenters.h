@@ -13,7 +13,9 @@
 
 #include "apptraverse/object_macros.h"
 
-#include "desktop_surface_presenter.h"
+#include "surface_button_presenter.h"
+#include "surface_window_presenter.h"
+#include "surfaces_model.h"
 
 namespace apptraverse {
 
@@ -25,22 +27,44 @@ void RegisterSurfacesWin32Classes();
 void UnregisterSurfacesWin32Classes();
 void EnsureWin32SurfacePresenterRegistration();
 
-// Child WM_COMMAND → Presenter::OnCommand(command_id, notification).
-// Parent WndProc stays free of Add/Close semantics. Child HWND GWLP_USERDATA
-// holds Presenter*.
 bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
 
-class Win32SurfacePresenter : public DesktopSurfacePresenter {
+class Win32SurfaceWindowPresenter : public SurfaceWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::Win32SurfacePresenter",
-      Win32SurfacePresenter, DesktopSurfacePresenter, 0)
+      "apptraverse::example::surfaces::Win32SurfaceWindowPresenter",
+      Win32SurfaceWindowPresenter, SurfaceWindowPresenter, 0)
 
  protected:
-  Win32SurfacePresenter() = default;
+  Win32SurfaceWindowPresenter() = default;
 
  public:
-  explicit Win32SurfacePresenter(ae::ObjProp prop)
-      : DesktopSurfacePresenter{prop} {}
+  explicit Win32SurfaceWindowPresenter(ae::ObjProp prop)
+      : SurfaceWindowPresenter{prop} {}
+
+  AE_OBJECT_REFLECT()
+
+  void OnLoad() override;
+  void OnUnload() override;
+
+  void QueueCurrentBounds();
+
+  HWND hwnd{nullptr};
+
+  static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
+                                  LPARAM lparam);
+};
+
+class Win32SurfaceButtonPresenter : public SurfaceButtonPresenter {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::Win32SurfaceButtonPresenter",
+      Win32SurfaceButtonPresenter, SurfaceButtonPresenter, 0)
+
+ protected:
+  Win32SurfaceButtonPresenter() = default;
+
+ public:
+  explicit Win32SurfaceButtonPresenter(ae::ObjProp prop)
+      : SurfaceButtonPresenter{prop} {}
 
   AE_OBJECT_REFLECT()
 
@@ -50,21 +74,14 @@ class Win32SurfacePresenter : public DesktopSurfacePresenter {
   bool OnCommand(std::uint32_t command_id,
                  std::uint16_t notification_code) override;
 
-  // Snapshot outer frame via GetWindowRect and enqueue model bounds update.
-  void QueueCurrentBounds();
-
   HWND hwnd{nullptr};
-  HWND add_button{nullptr};
-  HWND close_button{nullptr};
-
-  static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
-                                  LPARAM lparam);
 
  private:
-  // Place Add / Close from SurfacePresenter::IsWide after model publication.
-  // Not model state. Client size is reported via PresentationSizeChanged.
-  void LayoutControls();
+  void ApplyLayout();
 };
+
+Win32SurfaceWindowPresenter::ptr ResolveWin32WindowPresenter(
+    Surface const& surface);
 
 }  // namespace apptraverse
 

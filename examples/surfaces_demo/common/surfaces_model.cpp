@@ -7,6 +7,8 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
 
+#include "surfaces_presentation.h"
+
 namespace apptraverse {
 namespace {
 
@@ -72,8 +74,6 @@ void Surface::AddSurface() {
   Surfaces& parent = *surfaces;
 
   auto sibling = Surface::ptr::Create(ae::CreateWith{*parent.domain});
-  auto sibling_presenter =
-      SurfacePresenter::ptr::Create(ae::CreateWith{*parent.domain});
   std::uint32_t next_number = 1;
   for (auto const& existing : parent.surfaces) {
     if (existing->number >= next_number) {
@@ -83,11 +83,11 @@ void Surface::AddSurface() {
   sibling->number = next_number;
   AssignInitialDesktopBounds(*sibling);
   sibling->surfaces = surfaces;
-  sibling->presenter = sibling_presenter;
-  sibling_presenter->surface = sibling;
+  AttachPlatformSurfacePresenters(*sibling, *parent.domain);
   // New Surface is a Node: establish base/journal and inherit this Surface's
   // model-runtime notifier before it becomes live.
   InitializeRuntimeNode(*sibling, *this);
+  RewireSurfaceChromePresenters(*sibling);
 
   auto event = AddSurfaceEvent::ptr::Create(ae::CreateWith{*parent.domain});
   event->surface = sibling;

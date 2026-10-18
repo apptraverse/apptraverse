@@ -15,8 +15,10 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
+#include "surfaces_distill.h"
 #include "surfaces_ids.h"
 #include "surfaces_model.h"
+#include "surfaces_presentation.h"
 
 namespace apptraverse {
 
@@ -52,7 +54,15 @@ void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
       model_proxy);
 
   for (auto const& surface : surfaces->surfaces) {
-    surface->presenter->OnModelChanged();
+    if (surface->chrome.window) {
+      surface->chrome.window->OnModelChanged();
+    }
+    if (surface->chrome.add_button) {
+      surface->chrome.add_button->OnModelChanged();
+    }
+    if (surface->chrome.close_button) {
+      surface->chrome.close_button->OnModelChanged();
+    }
   }
 }
 
@@ -72,7 +82,7 @@ void SurfacesModelSession::Run(
     DirectoryDomainStorage bootstrap_storage{state_dir};
     ae::Domain bootstrap_domain{bootstrap_storage};
     auto bootstrap_app = BuildSurfacesGraph(bootstrap_domain);
-    FinalizeDistilledGraph(*bootstrap_app);
+    FinalizeSurfacesDistilledGraph(*bootstrap_app);
     SaveDistilledRoot(*bootstrap_app);
   }
 #endif
@@ -83,6 +93,9 @@ void SurfacesModelSession::Run(
     auto application = LoadApplication<Application>(
         domain, ae::ObjId{surfaces_demo::ToObjId(
                     surfaces_demo::ObjId::Application)});
+    for (auto const& surface : application->surfaces->surfaces) {
+      RewireSurfaceChromePresenters(*surface);
+    }
 
     PendingDirtyNodes pending_dirty;
     BindReachableNodesMaterializedChangeNotifier(

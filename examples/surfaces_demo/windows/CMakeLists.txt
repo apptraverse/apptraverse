@@ -1,7 +1,6 @@
 set(_surfaces_win_sources
   main.cpp
   win_app.cpp
-  win_presenters.cpp
   ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
 )
@@ -12,6 +11,8 @@ target_compile_definitions(win32_surfaces_demo PRIVATE
 )
 target_link_libraries(win32_surfaces_demo PRIVATE
   surfaces_demo_distill
+  surfaces_demo_win32
+  surfaces_demo_desktop
 )
 
 add_executable(win32_surfaces_demo_load_only ${_surfaces_win_sources})

@@ -87,7 +87,7 @@ void LinuxApp::PlaceOuterWindow(GtkWidget* window, int x, int y, int width,
 
 void LinuxApp::QueueAllWindowBounds() {
   for (auto const& surface : ui_application_->surfaces->surfaces) {
-    LinuxSurfacePresenter::ptr presenter{surface->presenter};
+    LinuxSurfacePresenter::ptr presenter{surface->chrome.window};
     presenter->QueueCurrentBounds();
   }
 }
@@ -110,7 +110,7 @@ void LinuxApp::RestoreActiveSurfaceZOrder() {
     }
     target = surfaces.back();
   }
-  LinuxSurfacePresenter::ptr presenter{target->presenter};
+  LinuxSurfacePresenter::ptr presenter{target->chrome.window};
   gtk_window_present(GTK_WINDOW(presenter->window));
   presenter->PageShown();
 }

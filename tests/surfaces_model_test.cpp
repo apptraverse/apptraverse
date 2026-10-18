@@ -23,54 +23,19 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
+#include "desktop_surface_presenter.h"
+#include "surface_button_presenter.h"
+#include "surface_window_presenter.h"
 #include "surfaces_distill.h"
+#include "surfaces_presentation.h"
 #include "surfaces_ids.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_model.h"
+#include "surfaces_test_presenter_counters.h"
 
 namespace apptraverse::test {
 
-class TestSurfacePresenter : public SurfacePresenter {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::TestSurfacePresenter",
-      TestSurfacePresenter, SurfacePresenter, 0)
-
- protected:
-  TestSurfacePresenter() = default;
-
- public:
-  explicit TestSurfacePresenter(ae::ObjProp prop) : SurfacePresenter{prop} {}
-
-  AE_OBJECT_REFLECT()
-
-  void OnLoad() override {
-    ++on_load_calls;
-    loaded_ids.push_back(obj_id.id());
-  }
-  void OnModelChanged() override { ++on_model_changed_calls; }
-  void OnUnload() override {
-    ++on_unload_calls;
-    unloaded_ids.push_back(obj_id.id());
-  }
-
-  static inline std::atomic<int> on_load_calls{0};
-  static inline std::atomic<int> on_model_changed_calls{0};
-  static inline std::atomic<int> on_unload_calls{0};
-  static inline std::vector<std::uint32_t> loaded_ids;
-  static inline std::vector<std::uint32_t> unloaded_ids;
-
-  static void ResetCounts() {
-    on_load_calls.store(0);
-    on_model_changed_calls.store(0);
-    on_unload_calls.store(0);
-    loaded_ids.clear();
-    unloaded_ids.clear();
-  }
-};
-
 namespace {
-
-APPTRAVERSE_REGISTER(TestSurfacePresenter);
 
 #define CHECK(cond)                                                          \
   do {                                                                       \
@@ -147,15 +112,20 @@ void TestInitialGraph() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
 
   Surfaces& surfaces = *application->surfaces;
   CHECK(surfaces.surfaces.size() == 1);
   Surface& surface = *surfaces.surfaces[0];
   CHECK(surface.number == 1);
   CHECK(&*surface.surfaces == &surfaces);
-  CHECK(surface.presenter.is_valid());
-  CHECK(&*surface.presenter->surface == &surface);
+  CHECK(surface.chrome.window.is_valid());
+  CHECK(surface.chrome.add_button.is_valid());
+  CHECK(surface.chrome.close_button.is_valid());
+  CHECK(surface.chrome.window->obj_id != surface.chrome.add_button->obj_id);
+  CHECK(surface.chrome.add_button->obj_id !=
+        surface.chrome.close_button->obj_id);
+  CHECK(&*surface.chrome.window->surface == &surface);
   CHECK(IsNodeObj(surface));
   CHECK(IsNodeObj(surfaces));
   CHECK(surface.base.is_valid());
@@ -169,7 +139,7 @@ void TestModelAdd() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   Surface* const surface1 = &*surfaces.surfaces[0];
   auto const surface1_id = surface1->obj_id;
@@ -185,8 +155,8 @@ void TestModelAdd() {
   CHECK(surface2->obj_id != surface1_id);
   CHECK(surface2->number == 2);
   CHECK(&*surface2->surfaces == &surfaces);
-  CHECK(surface2->presenter.is_valid());
-  CHECK(&*surface2->presenter->surface == surface2);
+  CHECK(surface2->chrome.window.is_valid());
+  CHECK(&*SurfacePresenter::ptr{surface2->chrome.window}->surface == surface2);
   CHECK(IsNodeObj(*surface2));
   CHECK(surface2->base.is_valid());
   CHECK(surface2->journal.empty());
@@ -200,7 +170,7 @@ void TestAddFromSecondSurface() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   CHECK(surfaces.surfaces.size() == 2);
@@ -217,7 +187,7 @@ void TestModelRemove() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   Surface* const surface1 = &*surfaces.surfaces[0];
   surface1->AddSurface();
@@ -245,7 +215,7 @@ void TestReplay() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   surfaces.surfaces[0]->AddSurface();
@@ -282,7 +252,7 @@ void TestRestartPersistence() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto application = BuildSurfacesGraph(domain);
-    FinalizeDistilledGraph(*application);
+    FinalizeSurfacesDistilledGraph(*application);
     Surfaces& surfaces = *application->surfaces;
     surfaces.surfaces[0]->AddSurface();
     surfaces.surfaces[0]->AddSurface();
@@ -298,6 +268,9 @@ void TestRestartPersistence() {
   auto application = LoadApplication<Application>(
       domain, ae::ObjId{surfaces_demo::ToObjId(
                   surfaces_demo::ObjId::Application)});
+  for (auto const& surface : application->surfaces->surfaces) {
+    RewireSurfaceChromePresenters(*surface);
+  }
   Surfaces& surfaces = *application->surfaces;
   CHECK(surfaces.surfaces.size() == 2);
   CHECK(surfaces.surfaces[0]->number == 1);
@@ -328,9 +301,9 @@ void TestDynamicNodeStructuralPublication() {
   InitializePresenters(*ui_app, nullptr, &proxy);
   Surfaces* const ui_surfaces = &*ui_app->surfaces;
   Surface* const ui_surface1 = &*ui_surfaces->surfaces[0];
-  Presenter* const ui_surface1_p = &*ui_surface1->presenter;
+  Presenter* const ui_surface1_p = &*ui_surface1->chrome.window;
   auto const surface1_id = ui_surface1->obj_id;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 1);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
   CHECK(IsNodeObj(*ui_surface1));
 
   ae::Obj* model_surface1 = nullptr;
@@ -346,12 +319,12 @@ void TestDynamicNodeStructuralPublication() {
 
   CHECK(ui_surfaces->surfaces.size() == 2);
   CHECK(&*ui_surfaces->surfaces[0] == ui_surface1);
-  CHECK(&*ui_surface1->presenter == ui_surface1_p);
+  CHECK(&*ui_surface1->chrome.window == ui_surface1_p);
   Surface* const ui_surface2 = &*ui_surfaces->surfaces[1];
   CHECK(ui_surface2->number == 2);
   CHECK(IsNodeObj(*ui_surface2));
-  CHECK(ui_surface2->presenter.is_valid());
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
+  CHECK(ui_surface2->chrome.window.is_valid());
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
   CHECK(static_cast<ae::Obj*>(ui_surface1) != model_surface1);
   CHECK(ui_surface1->obj_id == surface1_id);
   CHECK(ui_surface2->obj_id != surface1_id);
@@ -379,35 +352,35 @@ void TestGuiProxyAddRemoveAndRemoveCurrent() {
   InitializePresenters(*ui_app, nullptr, &proxy);
   Surfaces* const ui_surfaces = &*ui_app->surfaces;
   Surface* const ui_surface1 = &*ui_surfaces->surfaces[0];
-  Presenter* const ui_surface1_p = &*ui_surface1->presenter;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 1);
+  Presenter* const ui_surface1_p = &*ui_surface1->chrome.window;
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
 
   // GUI AddClick → MODEL Surface1::AddSurface (no model pointer across domains).
-  ui_surface1->presenter->AddClick();
+  SurfacePresenter::ptr{ui_surface1->chrome.window}->AddClick();
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
                           &proxy);
   CHECK(ui_surfaces->surfaces.size() == 2);
   Surface* const ui_surface2 = &*ui_surfaces->surfaces[1];
   auto const surface2_id = ui_surface2->obj_id;
-  SurfacePresenter::ptr surface2_presenter_hold = ui_surface2->presenter;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
+  SurfacePresenter::ptr surface2_presenter_hold = ui_surface2->chrome.window;
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
 
   // Conceptual "Remove current" without model current_surface: caller picks
   // Surface2 presenter (future mobile pager current page).
-  ui_surface2->presenter->RemoveClick();
+  SurfacePresenter::ptr{ui_surface2->chrome.window}->RemoveClick();
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
                           &proxy);
   CHECK(ui_surfaces->surfaces.size() == 1);
   CHECK(&*ui_surfaces->surfaces[0] == ui_surface1);
-  CHECK(&*ui_surface1->presenter == ui_surface1_p);
-  CHECK(TestSurfacePresenter::on_unload_calls.load() == 1);
+  CHECK(&*ui_surface1->chrome.window == ui_surface1_p);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 3);
   CHECK(!surface2_presenter_hold->presentation_loaded);
 
   InitializeNewPresenters(*ui_app, nullptr, &proxy);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
-  CHECK(TestSurfacePresenter::on_unload_calls.load() == 1);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 3);
 
   std::vector<ae::Obj*> live;
   CollectLiveReachableObjects(*ui_app, live);
@@ -437,41 +410,41 @@ void TestPresenterLifecycleMultiAdd() {
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
   InitializePresenters(*ui_app, nullptr, &proxy);
   Surface* const s1 = &*ui_app->surfaces->surfaces[0];
-  Presenter* const s1_p = &*s1->presenter;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 1);
+  Presenter* const s1_p = &*s1->chrome.window;
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
 
-  s1->presenter->AddClick();
+  SurfacePresenter::ptr{s1->chrome.window}->AddClick();
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
                           &proxy);
   Surface* const s2 = &*ui_app->surfaces->surfaces[1];
-  Presenter* const s2_p = &*s2->presenter;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
-  CHECK(&*s1->presenter == s1_p);
+  Presenter* const s2_p = &*s2->chrome.window;
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
+  CHECK(&*s1->chrome.window == s1_p);
 
-  s2->presenter->AddClick();
+  SurfacePresenter::ptr{s2->chrome.window}->AddClick();
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
                           &proxy);
   CHECK(ui_app->surfaces->surfaces.size() == 3);
   Surface* const s3 = &*ui_app->surfaces->surfaces[2];
-  Presenter* const s3_p = &*s3->presenter;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
-  CHECK(&*s1->presenter == s1_p);
-  CHECK(&*s2->presenter == s2_p);
+  Presenter* const s3_p = &*s3->chrome.window;
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
+  CHECK(&*s1->chrome.window == s1_p);
+  CHECK(&*s2->chrome.window == s2_p);
 
   auto const s2_id = s2->obj_id;
-  SurfacePresenter::ptr s2_hold = s2->presenter;
-  s2->presenter->RemoveClick();
+  SurfacePresenter::ptr s2_hold = s2->chrome.window;
+  SurfacePresenter::ptr{s2->chrome.window}->RemoveClick();
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
                           &proxy);
   CHECK(ui_app->surfaces->surfaces.size() == 2);
   CHECK(&*ui_app->surfaces->surfaces[0] == s1);
   CHECK(&*ui_app->surfaces->surfaces[1] == s3);
-  CHECK(&*s1->presenter == s1_p);
-  CHECK(&*s3->presenter == s3_p);
-  CHECK(TestSurfacePresenter::on_unload_calls.load() == 1);
+  CHECK(&*s1->chrome.window == s1_p);
+  CHECK(&*s3->chrome.window == s3_p);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 3);
   CHECK(!s2_hold->presentation_loaded);
   (void)s2_id;
 
@@ -527,7 +500,7 @@ void TestBoundsReplay() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
   Surface& surface = *application->surfaces->surfaces[0];
   auto const initial_x = surface.desktop_x;
   auto const initial_y = surface.desktop_y;
@@ -565,13 +538,13 @@ void TestPresentationSize() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
   Surface& surface = *application->surfaces->surfaces[0];
   CHECK(surface.presentation_width == 360);
   CHECK(surface.presentation_height == 240);
   CHECK(surface.journal.empty());
 
-  SurfacePresenter::ptr presenter{surface.presenter};
+  SurfacePresenter::ptr presenter{surface.chrome.window};
   CHECK(presenter->IsWide());
 
   surface.SetPresentationSize(800, 600);
@@ -604,7 +577,7 @@ void TestPresentationSizePersistence() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto application = BuildSurfacesGraph(domain);
-    FinalizeDistilledGraph(*application);
+    FinalizeSurfacesDistilledGraph(*application);
     application->surfaces->surfaces[0]->SetPresentationSize(640, 480);
     SaveDistilledRoot(*application);
   }
@@ -616,7 +589,7 @@ void TestPresentationSizePersistence() {
                   surfaces_demo::ObjId::Application)});
   CHECK(application->surfaces->surfaces[0]->presentation_width == 640);
   CHECK(application->surfaces->surfaces[0]->presentation_height == 480);
-  SurfacePresenter::ptr presenter{application->surfaces->surfaces[0]->presenter};
+  SurfacePresenter::ptr presenter{application->surfaces->surfaces[0]->chrome.window};
   CHECK(presenter->IsWide());
   std::filesystem::remove_all(dir);
 }
@@ -636,7 +609,7 @@ void TestPresentationSizeThroughGuiProxy() {
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
   auto proxy = MakeSessionProxy(session);
   InitializePresenters(*ui_app, nullptr, &proxy);
-  SurfacePresenter::ptr ui_presenter{ui_app->surfaces->surfaces[0]->presenter};
+  SurfacePresenter::ptr ui_presenter{ui_app->surfaces->surfaces[0]->chrome.window};
   CHECK(ui_presenter->IsWide());
 
   // GUI-thread helper must not write the mirror fields; only the model Event
@@ -675,7 +648,7 @@ void TestGeometryPersistence() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto application = BuildSurfacesGraph(domain);
-    FinalizeDistilledGraph(*application);
+    FinalizeSurfacesDistilledGraph(*application);
     Surfaces& surfaces = *application->surfaces;
     surfaces.surfaces[0]->AddSurface();
     surfaces.surfaces[0]->AddSurface();
@@ -718,7 +691,7 @@ void TestCurrentPageReplay() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   Surface::ptr surface2 = surfaces.surfaces[1];
@@ -760,7 +733,7 @@ void TestCurrentPageIdentitySurvivesRemoveBefore() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   surfaces.surfaces[0]->AddSurface();
@@ -788,7 +761,7 @@ void TestCurrentPagePersistence() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto application = BuildSurfacesGraph(domain);
-    FinalizeDistilledGraph(*application);
+    FinalizeSurfacesDistilledGraph(*application);
     Surfaces& surfaces = *application->surfaces;
     surfaces.surfaces[0]->AddSurface();
     surfaces.surfaces[0]->AddSurface();
@@ -829,7 +802,7 @@ void TestCurrentPageThroughGuiProxy() {
   Surfaces* const ui_surfaces = &*ui_app->surfaces;
   CHECK(!ui_surfaces->mobile_current);
 
-  ui_surfaces->surfaces[0]->presenter->AddClick();
+  SurfacePresenter::ptr{ui_surfaces->surfaces[0]->chrome.window}->AddClick();
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
                           &proxy);
@@ -838,7 +811,7 @@ void TestCurrentPageThroughGuiProxy() {
   auto const surface2_id = ui_surface2->obj_id;
 
   // Swipe to page 2: the GUI mirror learns the current page from the model.
-  ui_surface2->presenter->PageShown();
+  SurfacePresenter::ptr{ui_surface2->chrome.window}->PageShown();
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
                           &proxy);
@@ -846,7 +819,7 @@ void TestCurrentPageThroughGuiProxy() {
   CHECK(ui_surfaces->mobile_current->obj_id == surface2_id);
   CHECK(&*ui_surfaces->mobile_current == ui_surface2);
 
-  ui_surface2->presenter->RemoveClick();
+  SurfacePresenter::ptr{ui_surface2->chrome.window}->RemoveClick();
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
                           &proxy);
@@ -866,7 +839,7 @@ void TestNotifierNeverBindsNodeBase() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
 
   PendingDirtyNodes pending;
   BindReachableNodesMaterializedChangeNotifier(*application, &pending,
@@ -906,7 +879,7 @@ void TestFindLiveReachableNodeOnModelGraph() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto application = BuildSurfacesGraph(domain);
-  FinalizeDistilledGraph(*application);
+  FinalizeSurfacesDistilledGraph(*application);
   Surfaces& surfaces = *application->surfaces;
   surfaces.surfaces[0]->AddSurface();
   CHECK(surfaces.surfaces.size() == 2);
@@ -948,8 +921,8 @@ void TestGuiCatchUpCoalescesPublicationsNotEvents() {
   Surfaces* const ui_surfaces = &*ui_app->surfaces;
   CHECK(ui_surfaces->surfaces.size() == 1);
   Surface* const ui_a = &*ui_surfaces->surfaces[0];
-  Presenter* const ui_a_presenter = &*ui_a->presenter;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 1);
+  Presenter* const ui_a_presenter = &*ui_a->chrome.window;
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
   CHECK(session.channel.publish_count() == 1);
 
   std::uint32_t model_a = 0;
@@ -982,12 +955,12 @@ void TestGuiCatchUpCoalescesPublicationsNotEvents() {
                           nullptr);
   CHECK(ui_surfaces->surfaces.size() == 2);
   CHECK(&*ui_surfaces->surfaces[0] == ui_a);
-  CHECK(&*ui_a->presenter == ui_a_presenter);
+  CHECK(&*ui_a->chrome.window == ui_a_presenter);
   CHECK(ui_surfaces->surfaces[0]->obj_id.id() == model_a);
   CHECK(ui_surfaces->surfaces[1]->obj_id.id() == model_b);
   Surface* const ui_b = &*ui_surfaces->surfaces[1];
-  Presenter* const ui_b_presenter = &*ui_b->presenter;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
+  Presenter* const ui_b_presenter = &*ui_b->chrome.window;
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
   CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
 
   // Second catch-up apply: the coalesced publication for C.
@@ -997,15 +970,15 @@ void TestGuiCatchUpCoalescesPublicationsNotEvents() {
                           nullptr);
   CHECK(ui_surfaces->surfaces.size() == 3);
   CHECK(&*ui_surfaces->surfaces[0] == ui_a);
-  CHECK(&*ui_a->presenter == ui_a_presenter);
+  CHECK(&*ui_a->chrome.window == ui_a_presenter);
   CHECK(&*ui_surfaces->surfaces[1] == ui_b);
-  CHECK(&*ui_b->presenter == ui_b_presenter);
+  CHECK(&*ui_b->chrome.window == ui_b_presenter);
   CHECK(ui_surfaces->surfaces[0]->obj_id.id() == model_a);
   CHECK(ui_surfaces->surfaces[1]->obj_id.id() == model_b);
   CHECK(ui_surfaces->surfaces[2]->obj_id.id() == model_c);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
   CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
-  CHECK(TestSurfacePresenter::loaded_ids.size() == 3);
+  CHECK(TestSurfacePresenter::loaded_ids.size() == 9);
 
   session.RequestStop();
   model.join();
@@ -1064,7 +1037,7 @@ void TestPendingPublicationDroppedForRemovedNode() {
                           nullptr);
   CHECK(ui_surfaces->surfaces.size() == 3);
   CHECK(ui_surfaces->surfaces[2]->obj_id.id() == model_c);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
 
   // Exactly one further publication: C's stale pending entry is dropped and
   // only the Surfaces removal is published.
@@ -1073,8 +1046,8 @@ void TestPendingPublicationDroppedForRemovedNode() {
                           nullptr);
   CHECK(session.channel.publish_count() == held + 1);
   CHECK(ui_surfaces->surfaces.size() == 2);
-  CHECK(TestSurfacePresenter::on_unload_calls.load() == 1);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
 
   std::vector<ae::Obj*> live;
   CollectLiveReachableObjects(*ui_app, live);
@@ -1128,22 +1101,22 @@ void TestNewChildChangedBeforeGuiCatchUp() {
                           nullptr);
   CHECK(ui_surfaces->surfaces.size() == 3);
   Surface* const ui_c = &*ui_surfaces->surfaces[2];
-  Presenter* const ui_c_presenter = &*ui_c->presenter;
+  Presenter* const ui_c_presenter = &*ui_c->chrome.window;
   CHECK(ui_c->obj_id.id() == model_c);
   CHECK(ui_c->desktop_x != 17);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
 
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
                           nullptr);
   CHECK(ui_surfaces->surfaces.size() == 3);
   CHECK(&*ui_surfaces->surfaces[2] == ui_c);
-  CHECK(&*ui_c->presenter == ui_c_presenter);
+  CHECK(&*ui_c->chrome.window == ui_c_presenter);
   CHECK(ui_c->desktop_x == 17);
   CHECK(ui_c->desktop_y == 29);
   CHECK(ui_c->desktop_width == 341);
   CHECK(ui_c->desktop_height == 251);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
   CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
 
   session.RequestStop();
@@ -1172,7 +1145,7 @@ void TestPublicationCoalescesMultipleEventsOnOneNode() {
   InitializePresenters(*ui_app, nullptr, nullptr);
   Surfaces* const ui_surfaces = &*ui_app->surfaces;
   CHECK(ui_surfaces->surfaces.size() == 1);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 1);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
 
   // Add B and hold that publication unread.
   std::uint32_t model_b = 0;
@@ -1209,9 +1182,9 @@ void TestPublicationCoalescesMultipleEventsOnOneNode() {
                           nullptr);
   CHECK(ui_surfaces->surfaces.size() == 2);
   Surface* const ui_b = &*ui_surfaces->surfaces[1];
-  Presenter* const ui_b_presenter = &*ui_b->presenter;
+  Presenter* const ui_b_presenter = &*ui_b->chrome.window;
   CHECK(ui_b->obj_id.id() == model_b);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
   // P1 was the Add snapshot; final bounds arrive only with the coalesced
   // publication after the channel is free.
   CHECK(ui_b->desktop_x != 17);
@@ -1221,12 +1194,12 @@ void TestPublicationCoalescesMultipleEventsOnOneNode() {
                           nullptr);
   CHECK(ui_surfaces->surfaces.size() == 2);
   CHECK(&*ui_surfaces->surfaces[1] == ui_b);
-  CHECK(&*ui_b->presenter == ui_b_presenter);
+  CHECK(&*ui_b->chrome.window == ui_b_presenter);
   CHECK(ui_b->desktop_x == 17);
   CHECK(ui_b->desktop_y == 29);
   CHECK(ui_b->desktop_width == 341);
   CHECK(ui_b->desktop_height == 251);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 2);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
   CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
 
   session.RequestStop();
@@ -1269,7 +1242,7 @@ void TestConcurrentSessionsGenerateDistinctObjIds() {
         Surface& added = *app.surfaces->surfaces.back();
         ids.push_back(added.obj_id.id());
         ids.push_back(added.base.id().id());
-        ids.push_back(added.presenter.id().id());
+        ids.push_back(added.chrome.window.id().id());
       });
     }
   };
@@ -1568,6 +1541,9 @@ void TestInitializeRuntimeNodeStorageWrites() {
 int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSurfacesModelRegistration();
+  apptraverse::EnsureDesktopSurfacePresenterRegistration();
+  apptraverse::EnsureSurfaceWindowPresenterRegistration();
+  apptraverse::EnsureSurfaceButtonPresenterRegistration();
   apptraverse::test::TestInitialGraph();
   apptraverse::test::TestModelAdd();
   apptraverse::test::TestAddFromSecondSurface();

@@ -307,7 +307,7 @@ void WebApp::EnsureModelCurrentSeeded() {
 SurfacePresenter::ptr WebApp::FindLivePresenter(std::uint32_t surface_id) {
   for (auto const& surface : ui_application_->surfaces->surfaces) {
     if (surface->obj_id.id() == surface_id) {
-      return SurfacePresenter::ptr{surface->presenter};
+      return SurfacePresenter::ptr{surface->chrome.window};
     }
   }
   return {};
@@ -371,7 +371,7 @@ void WebApp::ReportPresentationSize(std::int32_t width, std::int32_t height) {
     return;
   }
   for (auto const& surface : ui_application_->surfaces->surfaces) {
-    SurfacePresenter::ptr presenter{surface->presenter};
+    SurfacePresenter::ptr presenter{surface->chrome.window};
     presenter->PresentationSizeChanged(width, height);
   }
 }
@@ -382,10 +382,10 @@ void WebApp::ApplyToolbarOrientation() {
   }
   SurfacePresenter::ptr presenter;
   if (auto const& current = ui_application_->surfaces->mobile_current) {
-    presenter = SurfacePresenter::ptr{current->presenter};
+    presenter = SurfacePresenter::ptr{current->chrome.window};
   } else {
-    presenter =
-        SurfacePresenter::ptr{ui_application_->surfaces->surfaces[0]->presenter};
+    presenter = SurfacePresenter::ptr{
+        ui_application_->surfaces->surfaces[0]->chrome.window};
   }
   int const wide = presenter->IsWide() ? 1 : 0;
   EM_ASM(

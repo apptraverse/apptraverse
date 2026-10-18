@@ -59,7 +59,7 @@ SurfacePresenter::ptr NativeRuntime::FindLivePresenter(
     std::uint32_t surface_id) {
   for (auto const& surface : ui_application_->surfaces->surfaces) {
     if (surface->obj_id.id() == surface_id) {
-      return SurfacePresenter::ptr{surface->presenter};
+      return SurfacePresenter::ptr{surface->chrome.window};
     }
   }
   return {};
@@ -119,7 +119,7 @@ void NativeRuntime::ReportPresentationSize(std::int32_t width,
   LogMarker("SURFACES_PRESENTATION_SIZE w=" + std::to_string(width) +
             " h=" + std::to_string(height));
   for (auto const& surface : ui_application_->surfaces->surfaces) {
-    SurfacePresenter::ptr presenter{surface->presenter};
+    SurfacePresenter::ptr presenter{surface->chrome.window};
     presenter->PresentationSizeChanged(width, height);
   }
 }
@@ -142,10 +142,10 @@ void NativeRuntime::PublishPages() {
       current ? static_cast<std::int64_t>(current->obj_id.id()) : 0;
   bool is_wide = true;
   if (current) {
-    SurfacePresenter::ptr presenter{current->presenter};
+    SurfacePresenter::ptr presenter{current->chrome.window};
     is_wide = presenter->IsWide();
   } else if (!surfaces.empty()) {
-    SurfacePresenter::ptr presenter{surfaces[0]->presenter};
+    SurfacePresenter::ptr presenter{surfaces[0]->chrome.window};
     is_wide = presenter->IsWide();
   }
   LogMarker(marker + " count=" + std::to_string(surfaces.size()) +

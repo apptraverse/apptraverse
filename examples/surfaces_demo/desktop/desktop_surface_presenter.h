@@ -10,7 +10,7 @@
 namespace apptraverse {
 
 // Desktop one-window-per-Surface presentation layer. Platform siblings:
-// Win32SurfacePresenter, MacSurfacePresenter, LinuxSurfacePresenter.
+// Win32SurfaceWindowPresenter, MacSurfacePresenter, LinuxSurfacePresenter.
 // Not a Node; no journal; no native resources.
 class DesktopSurfacePresenter : public SurfacePresenter {
   APPTRAVERSE_NAMED_OBJECT(

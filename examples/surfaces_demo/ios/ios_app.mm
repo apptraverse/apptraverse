@@ -271,7 +271,7 @@ void IOSApp::ReportPresentationSize(std::int32_t width, std::int32_t height) {
     return;
   }
   for (auto const& surface : ui_application_->surfaces->surfaces) {
-    SurfacePresenter::ptr presenter{surface->presenter};
+    SurfacePresenter::ptr presenter{surface->chrome.window};
     presenter->PresentationSizeChanged(width, height);
   }
 }
@@ -285,7 +285,7 @@ void IOSApp::RelayoutPages() {
   auto const& surfaces = ui_application_->surfaces->surfaces;
   std::size_t const count = surfaces.size();
   for (std::size_t i = 0; i < count; ++i) {
-    IOSSurfacePresenter::ptr presenter{surfaces[i]->presenter};
+    IOSSurfacePresenter::ptr presenter{surfaces[i]->chrome.window};
     UIView* page = (__bridge UIView*)presenter->page_view;
     page.frame = CGRectMake(page_size.width * static_cast<CGFloat>(i), 0,
                             page_size.width, page_size.height);
@@ -361,7 +361,7 @@ void IOSApp::EnsureModelCurrentSeeded() {
     return;
   }
   SetDesiredCurrent(surfaces[0]->obj_id.id());
-  IOSSurfacePresenter::ptr presenter{surfaces[0]->presenter};
+  IOSSurfacePresenter::ptr presenter{surfaces[0]->chrome.window};
   presenter->PageShown();
 }
 
@@ -393,7 +393,7 @@ void IOSApp::ReconcileDesiredAfterTopologyChange(std::size_t previous_count) {
 IOSSurfacePresenter::ptr IOSApp::FindLivePresenter(std::uint32_t surface_id) {
   for (auto const& surface : ui_application_->surfaces->surfaces) {
     if (surface->obj_id.id() == surface_id) {
-      return IOSSurfacePresenter::ptr{surface->presenter};
+      return IOSSurfacePresenter::ptr{surface->chrome.window};
     }
   }
   return {};
@@ -407,7 +407,7 @@ IOSSurfacePresenter::ptr IOSApp::CurrentPresenter() {
     }
   }
   return IOSSurfacePresenter::ptr{
-      ui_application_->surfaces->surfaces[current_index_]->presenter};
+      ui_application_->surfaces->surfaces[current_index_]->chrome.window};
 }
 
 }  // namespace apptraverse

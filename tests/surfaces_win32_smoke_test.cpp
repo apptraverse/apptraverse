@@ -21,6 +21,8 @@
 #include "apptraverse/distill.h"
 
 #include "surfaces_ids.h"
+#include "surface_button_presenter.h"
+#include "surface_window_presenter.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_model.h"
 #include "win_app.h"
@@ -187,9 +189,11 @@ void TestPresenterHierarchy() {
   CHECK(registry.GenerationDistance(SurfacePresenter::kClassId,
                                     DesktopSurfacePresenter::kClassId) == 1);
   CHECK(registry.GenerationDistance(DesktopSurfacePresenter::kClassId,
-                                    Win32SurfacePresenter::kClassId) == 1);
-  CHECK(registry.GenerationDistance(SurfacePresenter::kClassId,
-                                    Win32SurfacePresenter::kClassId) == 2);
+                                    SurfaceWindowPresenter::kClassId) == 1);
+  CHECK(registry.GenerationDistance(SurfaceWindowPresenter::kClassId,
+                                    Win32SurfaceWindowPresenter::kClassId) == 1);
+  CHECK(registry.GenerationDistance(SurfaceButtonPresenter::kClassId,
+                                    Win32SurfaceButtonPresenter::kClassId) == 1);
 }
 
 void TestCloseButtonRemovesOne() {
@@ -216,8 +220,9 @@ void TestCloseButtonRemovesOne() {
       reinterpret_cast<Presenter*>(GetWindowLongPtrW(add1, GWLP_USERDATA));
   auto* close_owner =
       reinterpret_cast<Presenter*>(GetWindowLongPtrW(close1, GWLP_USERDATA));
-  CHECK(add_owner == close_owner);
-  CHECK(add_owner->GetClassId() == Win32SurfacePresenter::kClassId);
+  CHECK(add_owner != close_owner);
+  CHECK(add_owner->GetClassId() == Win32SurfaceButtonPresenter::kClassId);
+  CHECK(close_owner->GetClassId() == Win32SurfaceButtonPresenter::kClassId);
   CHECK(GetDlgCtrlID(add1) == kSurfaceAddButtonId);
   CHECK(GetDlgCtrlID(close1) == kSurfaceCloseButtonId);
 
