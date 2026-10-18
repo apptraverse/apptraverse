@@ -301,16 +301,13 @@ void WinDesktopWindowPresenter::TryAcknowledgeMirrorFrame(ClientFrame mirror) {
   if (IsMirrorStaleNativeSubmission(mirror)) {
     return;
   }
-  if (desktop->Generation() >=
-      pending_native_wave_ui_generation_ + pending_native_wave_commits_) {
-    native_frame_ack_serial_ = native_frame_submit_serial_;
+  ++native_frame_ack_serial_;
+  ui_generation_at_native_submit_ = desktop->Generation();
+  if (native_frame_ack_serial_ >= native_frame_submit_serial_) {
     pending_native_sync_ = false;
     pending_native_wave_commits_ = 0;
     pending_native_wave_ui_generation_ = 0;
-  } else {
-    ++native_frame_ack_serial_;
   }
-  ui_generation_at_native_submit_ = desktop->Generation();
 }
 
 bool WinDesktopWindowPresenter::FramePublicationIsCurrent() const {
