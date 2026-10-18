@@ -11,6 +11,9 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/presenter.h"
 
+#include "apptraverse/ui/ui_localization_string.h"
+#include "apptraverse/ui/ui_locale_settings.h"
+
 #include "surfaces_ids.h"
 
 namespace apptraverse {
@@ -30,6 +33,7 @@ struct SurfaceChromePresenters {
   ae::ObjPtr<SurfacePresenter> window;
   ae::ObjPtr<Presenter> add_button;
   ae::ObjPtr<Presenter> close_button;
+  ae::ObjPtr<Presenter> language_button;
 };
 
 // Cascade initial outer-frame placement for a Surface before InitializeRuntimeNode
@@ -58,14 +62,14 @@ class Surface : public NodeFor<Surface> {
   void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, number, desktop_x, desktop_y, desktop_width, desktop_height,
         presentation_width, presentation_height, surfaces, chrome.window,
-        chrome.add_button, chrome.close_button);
+        chrome.add_button, chrome.close_button, chrome.language_button);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, number, desktop_x, desktop_y, desktop_width, desktop_height,
         presentation_width, presentation_height, surfaces, chrome.window,
-        chrome.add_button, chrome.close_button);
+        chrome.add_button, chrome.close_button, chrome.language_button);
   }
 
   // Model-thread: create sibling Surface + AddSurfaceEvent on parent Surfaces.
@@ -317,19 +321,28 @@ class Application : public ae::Obj {
  public:
   explicit Application(ae::ObjProp prop) : Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(surfaces))
+  AE_OBJECT_REFLECT(AE_MMBR(surfaces), AE_MMBR(locale), AE_MMBR(label_add),
+                    AE_MMBR(label_close), AE_MMBR(window_title_prefix),
+                    AE_MMBR(language_switch_label))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, surfaces);
+    dnv(base_, surfaces, locale, label_add, label_close, window_title_prefix,
+        language_switch_label);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, surfaces);
+    dnv(base_, surfaces, locale, label_add, label_close, window_title_prefix,
+        language_switch_label);
   }
 
   Surfaces::ptr surfaces;
+  ae::ObjPtr<ui::UiLocaleSettings> locale;
+  ae::ObjPtr<ui::UiLocalizationString> label_add;
+  ae::ObjPtr<ui::UiLocalizationString> label_close;
+  ae::ObjPtr<ui::UiLocalizationString> window_title_prefix;
+  ae::ObjPtr<ui::UiLocalizationString> language_switch_label;
 };
 
 inline void AssignInitialDesktopBounds(Surface& surface) {

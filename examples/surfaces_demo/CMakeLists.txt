@@ -1,5 +1,6 @@
 add_library(surfaces_demo_model STATIC
   common/surfaces_model.cpp
+  common/surfaces_localization.cpp
 )
 
 target_include_directories(surfaces_demo_model PUBLIC
@@ -16,6 +17,8 @@ add_library(surfaces_demo_desktop STATIC
   desktop/desktop_surface_presenter.cpp
   desktop/surface_window_presenter.cpp
   desktop/surface_button_presenter.cpp
+  desktop/surface_language_button_presenter.cpp
+  desktop/surfaces_chrome_wiring.cpp
 )
 target_include_directories(surfaces_demo_desktop PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/desktop
@@ -39,6 +42,7 @@ if(WIN32 AND NOT EMSCRIPTEN)
   )
   target_link_libraries(surfaces_demo_win32 PUBLIC
     surfaces_demo_desktop
+    apptraverse_ui_windows
     user32
   )
   target_compile_features(surfaces_demo_win32 PUBLIC cxx_std_20)

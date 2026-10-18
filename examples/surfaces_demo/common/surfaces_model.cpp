@@ -7,6 +7,9 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
 
+#include "apptraverse/distill.h"
+
+#include "surfaces_ids.h"
 #include "surfaces_presentation.h"
 
 namespace apptraverse {
@@ -83,7 +86,10 @@ void Surface::AddSurface() {
   sibling->number = next_number;
   AssignInitialDesktopBounds(*sibling);
   sibling->surfaces = surfaces;
-  AttachPlatformSurfacePresenters(*sibling, *parent.domain);
+  auto application = LoadApplication<Application>(
+      *parent.domain,
+      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
+  AttachPlatformSurfacePresenters(*sibling, *application, *parent.domain);
   // New Surface is a Node: establish base/journal and inherit this Surface's
   // model-runtime notifier before it becomes live.
   InitializeRuntimeNode(*sibling, *this);

@@ -26,9 +26,13 @@
 #include "desktop_surface_presenter.h"
 #include "surface_button_presenter.h"
 #include "surface_window_presenter.h"
+#include "apptraverse/ui/ui_locale_settings.h"
+
+#include "surface_language_button_presenter.h"
 #include "surfaces_distill.h"
 #include "surfaces_ids.h"
 #include "surfaces_lifecycle.h"
+#include "surfaces_localization.h"
 #include "surfaces_model.h"
 #include "surfaces_test_presenter_counters.h"
 
@@ -121,6 +125,15 @@ void TestInitialGraph() {
   CHECK(surface.chrome.window.is_valid());
   CHECK(surface.chrome.add_button.is_valid());
   CHECK(surface.chrome.close_button.is_valid());
+  CHECK(surface.chrome.language_button.is_valid());
+  CHECK(application->locale.is_valid());
+  CHECK(application->label_add.is_valid());
+  CHECK(application->locale->language_index() == 0);
+  CHECK(application->label_add->Resolve(0) == "Add");
+  CHECK(application->label_add->Resolve(1) == "Добавить");
+  auto add = SurfaceButtonPresenter::ptr{surface.chrome.add_button};
+  CHECK(&*add->locale == &*application->locale);
+  CHECK(&*add->label == &*application->label_add);
   CHECK(surface.chrome.window->obj_id != surface.chrome.add_button->obj_id);
   CHECK(surface.chrome.add_button->obj_id !=
         surface.chrome.close_button->obj_id);
@@ -156,6 +169,8 @@ void TestModelAdd() {
   CHECK(&*surface2->surfaces == &surfaces);
   CHECK(surface2->chrome.window.is_valid());
   CHECK(&*SurfacePresenter::ptr{surface2->chrome.window}->surface == surface2);
+  CHECK(&*SurfaceButtonPresenter::ptr{surface2->chrome.add_button}->locale ==
+        &*application->locale);
   CHECK(IsNodeObj(*surface2));
   CHECK(surface2->base.is_valid());
   CHECK(surface2->journal.empty());
@@ -299,7 +314,7 @@ void TestDynamicNodeStructuralPublication() {
   Surface* const ui_surface1 = &*ui_surfaces->surfaces[0];
   Presenter* const ui_surface1_p = &*ui_surface1->chrome.window;
   auto const surface1_id = ui_surface1->obj_id;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 4);
   CHECK(IsNodeObj(*ui_surface1));
 
   ae::Obj* model_surface1 = nullptr;
@@ -320,7 +335,7 @@ void TestDynamicNodeStructuralPublication() {
   CHECK(ui_surface2->number == 2);
   CHECK(IsNodeObj(*ui_surface2));
   CHECK(ui_surface2->chrome.window.is_valid());
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 8);
   CHECK(static_cast<ae::Obj*>(ui_surface1) != model_surface1);
   CHECK(ui_surface1->obj_id == surface1_id);
   CHECK(ui_surface2->obj_id != surface1_id);
@@ -349,7 +364,7 @@ void TestGuiProxyAddRemoveAndRemoveCurrent() {
   Surfaces* const ui_surfaces = &*ui_app->surfaces;
   Surface* const ui_surface1 = &*ui_surfaces->surfaces[0];
   Presenter* const ui_surface1_p = &*ui_surface1->chrome.window;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 4);
 
   // GUI AddClick → MODEL Surface1::AddSurface (no model pointer across domains).
   SurfacePresenter::ptr{ui_surface1->chrome.window}->AddClick();
@@ -360,7 +375,7 @@ void TestGuiProxyAddRemoveAndRemoveCurrent() {
   Surface* const ui_surface2 = &*ui_surfaces->surfaces[1];
   auto const surface2_id = ui_surface2->obj_id;
   SurfacePresenter::ptr surface2_presenter_hold = ui_surface2->chrome.window;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 8);
 
   // Conceptual "Remove current" without model current_surface: caller picks
   // Surface2 presenter (future mobile pager current page).
@@ -371,12 +386,12 @@ void TestGuiProxyAddRemoveAndRemoveCurrent() {
   CHECK(ui_surfaces->surfaces.size() == 1);
   CHECK(&*ui_surfaces->surfaces[0] == ui_surface1);
   CHECK(&*ui_surface1->chrome.window == ui_surface1_p);
-  CHECK(TestSurfacePresenter::on_unload_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 4);
   CHECK(!surface2_presenter_hold->presentation_loaded);
 
   InitializeNewPresenters(*ui_app, nullptr, &proxy);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
-  CHECK(TestSurfacePresenter::on_unload_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 8);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 4);
 
   std::vector<ae::Obj*> live;
   CollectLiveReachableObjects(*ui_app, live);
@@ -407,7 +422,7 @@ void TestPresenterLifecycleMultiAdd() {
   InitializePresenters(*ui_app, nullptr, &proxy);
   Surface* const s1 = &*ui_app->surfaces->surfaces[0];
   Presenter* const s1_p = &*s1->chrome.window;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 4);
 
   SurfacePresenter::ptr{s1->chrome.window}->AddClick();
   WaitPublished(session);
@@ -415,7 +430,7 @@ void TestPresenterLifecycleMultiAdd() {
                           &proxy);
   Surface* const s2 = &*ui_app->surfaces->surfaces[1];
   Presenter* const s2_p = &*s2->chrome.window;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 8);
   CHECK(&*s1->chrome.window == s1_p);
 
   SurfacePresenter::ptr{s2->chrome.window}->AddClick();
@@ -425,7 +440,7 @@ void TestPresenterLifecycleMultiAdd() {
   CHECK(ui_app->surfaces->surfaces.size() == 3);
   Surface* const s3 = &*ui_app->surfaces->surfaces[2];
   Presenter* const s3_p = &*s3->chrome.window;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 12);
   CHECK(&*s1->chrome.window == s1_p);
   CHECK(&*s2->chrome.window == s2_p);
 
@@ -440,7 +455,7 @@ void TestPresenterLifecycleMultiAdd() {
   CHECK(&*ui_app->surfaces->surfaces[1] == s3);
   CHECK(&*s1->chrome.window == s1_p);
   CHECK(&*s3->chrome.window == s3_p);
-  CHECK(TestSurfacePresenter::on_unload_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 4);
   CHECK(!s2_hold->presentation_loaded);
   (void)s2_id;
 
@@ -918,7 +933,7 @@ void TestGuiCatchUpCoalescesPublicationsNotEvents() {
   CHECK(ui_surfaces->surfaces.size() == 1);
   Surface* const ui_a = &*ui_surfaces->surfaces[0];
   Presenter* const ui_a_presenter = &*ui_a->chrome.window;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 4);
   CHECK(session.channel.publish_count() == 1);
 
   std::uint32_t model_a = 0;
@@ -956,7 +971,7 @@ void TestGuiCatchUpCoalescesPublicationsNotEvents() {
   CHECK(ui_surfaces->surfaces[1]->obj_id.id() == model_b);
   Surface* const ui_b = &*ui_surfaces->surfaces[1];
   Presenter* const ui_b_presenter = &*ui_b->chrome.window;
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 8);
   CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
 
   // Second catch-up apply: the coalesced publication for C.
@@ -972,9 +987,9 @@ void TestGuiCatchUpCoalescesPublicationsNotEvents() {
   CHECK(ui_surfaces->surfaces[0]->obj_id.id() == model_a);
   CHECK(ui_surfaces->surfaces[1]->obj_id.id() == model_b);
   CHECK(ui_surfaces->surfaces[2]->obj_id.id() == model_c);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 12);
   CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
-  CHECK(TestSurfacePresenter::loaded_ids.size() == 9);
+  CHECK(TestSurfacePresenter::loaded_ids.size() == 12);
 
   session.RequestStop();
   model.join();
@@ -1033,7 +1048,7 @@ void TestPendingPublicationDroppedForRemovedNode() {
                           nullptr);
   CHECK(ui_surfaces->surfaces.size() == 3);
   CHECK(ui_surfaces->surfaces[2]->obj_id.id() == model_c);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 12);
 
   // Exactly one further publication: C's stale pending entry is dropped and
   // only the Surfaces removal is published.
@@ -1042,8 +1057,8 @@ void TestPendingPublicationDroppedForRemovedNode() {
                           nullptr);
   CHECK(session.channel.publish_count() == held + 1);
   CHECK(ui_surfaces->surfaces.size() == 2);
-  CHECK(TestSurfacePresenter::on_unload_calls.load() == 3);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
+  CHECK(TestSurfacePresenter::on_unload_calls.load() == 4);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 12);
 
   std::vector<ae::Obj*> live;
   CollectLiveReachableObjects(*ui_app, live);
@@ -1100,7 +1115,7 @@ void TestNewChildChangedBeforeGuiCatchUp() {
   Presenter* const ui_c_presenter = &*ui_c->chrome.window;
   CHECK(ui_c->obj_id.id() == model_c);
   CHECK(ui_c->desktop_x != 17);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 12);
 
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
@@ -1112,7 +1127,7 @@ void TestNewChildChangedBeforeGuiCatchUp() {
   CHECK(ui_c->desktop_y == 29);
   CHECK(ui_c->desktop_width == 341);
   CHECK(ui_c->desktop_height == 251);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 9);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 12);
   CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
 
   session.RequestStop();
@@ -1141,7 +1156,7 @@ void TestPublicationCoalescesMultipleEventsOnOneNode() {
   InitializePresenters(*ui_app, nullptr, nullptr);
   Surfaces* const ui_surfaces = &*ui_app->surfaces;
   CHECK(ui_surfaces->surfaces.size() == 1);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 3);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 4);
 
   // Add B and hold that publication unread.
   std::uint32_t model_b = 0;
@@ -1180,7 +1195,7 @@ void TestPublicationCoalescesMultipleEventsOnOneNode() {
   Surface* const ui_b = &*ui_surfaces->surfaces[1];
   Presenter* const ui_b_presenter = &*ui_b->chrome.window;
   CHECK(ui_b->obj_id.id() == model_b);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 8);
   // P1 was the Add snapshot; final bounds arrive only with the coalesced
   // publication after the channel is free.
   CHECK(ui_b->desktop_x != 17);
@@ -1195,7 +1210,7 @@ void TestPublicationCoalescesMultipleEventsOnOneNode() {
   CHECK(ui_b->desktop_y == 29);
   CHECK(ui_b->desktop_width == 341);
   CHECK(ui_b->desktop_height == 251);
-  CHECK(TestSurfacePresenter::on_load_calls.load() == 6);
+  CHECK(TestSurfacePresenter::on_load_calls.load() == 8);
   CHECK(TestSurfacePresenter::on_unload_calls.load() == 0);
 
   session.RequestStop();
@@ -1530,6 +1545,35 @@ void TestInitializeRuntimeNodeStorageWrites() {
   std::cout << "InitializeRuntimeNode Store calls=" << during_init << '\n';
 }
 
+void TestLocaleCommitAndPersistence() {
+  auto const dir = TestDir("apptraverse_surfaces_locale_persist");
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+  SaveDistilledRoot(*application);
+
+  auto event = ui::SetUiLanguageIndexEvent::ptr::Create(
+      ae::CreateWith{domain});
+  event->language_index = 1;
+  application->locale->Commit(std::move(event));
+  CHECK(application->locale->language_index() == 1);
+  CHECK(FormatSurfaceWindowTitle(*application->window_title_prefix, 1, 1) ==
+        "Поверхность 1");
+  SaveDistilledRoot(*application);
+
+  DirectoryDomainStorage load_storage{dir};
+  ae::Domain load_domain{load_storage};
+  auto loaded = LoadApplication<Application>(
+      load_domain,
+      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
+  CHECK(loaded->locale->language_index() == 1);
+  Surface& surface = *loaded->surfaces->surfaces[0];
+  auto add = SurfaceButtonPresenter::ptr{surface.chrome.add_button};
+  CHECK(&*add->locale == &*loaded->locale);
+  CHECK(add->label->Resolve(1) == "Добавить");
+}
+
 }  // namespace
 
 }  // namespace apptraverse::test
@@ -1540,6 +1584,7 @@ int main() {
   apptraverse::EnsureDesktopSurfacePresenterRegistration();
   apptraverse::EnsureSurfaceWindowPresenterRegistration();
   apptraverse::EnsureSurfaceButtonPresenterRegistration();
+  apptraverse::EnsureSurfaceLanguageButtonPresenterRegistration();
   apptraverse::test::TestInitialGraph();
   apptraverse::test::TestModelAdd();
   apptraverse::test::TestAddFromSecondSurface();
@@ -1572,6 +1617,7 @@ int main() {
   apptraverse::test::TestShutdownDrainsWorkWithUnreadPublication();
   apptraverse::test::TestRuntimeNodeBaseUsesCanonicalOwnership();
   apptraverse::test::TestInitializeRuntimeNodeStorageWrites();
+  apptraverse::test::TestLocaleCommitAndPersistence();
   std::cout << "surfaces_model_test OK\n";
   return 0;
 }

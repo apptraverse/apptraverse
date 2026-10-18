@@ -20,9 +20,10 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 
-#include "surfaces_ids.h"
 #include "surface_button_presenter.h"
+#include "surface_language_button_presenter.h"
 #include "surface_window_presenter.h"
+#include "surfaces_ids.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_model.h"
 #include "win_app.h"
@@ -155,12 +156,34 @@ bool WaitWindowGone(HWND hwnd, std::chrono::milliseconds timeout) {
   return false;
 }
 
+std::wstring WindowText(HWND hwnd) {
+  wchar_t buffer[512]{};
+  GetWindowTextW(hwnd, buffer, 512);
+  return buffer;
+}
+
+HWND FindSurfaceButton(HWND surface, int control_id) {
+  for (HWND child = nullptr;;) {
+    child = FindWindowExW(surface, child, L"BUTTON", nullptr);
+    if (child == nullptr) {
+      return nullptr;
+    }
+    if (GetDlgCtrlID(child) == control_id) {
+      return child;
+    }
+  }
+}
+
 HWND FindAddButton(HWND surface) {
-  return FindWindowExW(surface, nullptr, L"BUTTON", L"Add");
+  return FindSurfaceButton(surface, kSurfaceAddButtonId);
 }
 
 HWND FindCloseButton(HWND surface) {
-  return FindWindowExW(surface, nullptr, L"BUTTON", L"Close this window");
+  return FindSurfaceButton(surface, kSurfaceCloseButtonId);
+}
+
+HWND FindLanguageButton(HWND surface) {
+  return FindSurfaceButton(surface, kSurfaceLanguageButtonId);
 }
 
 RECT WindowRect(HWND hwnd) {
@@ -194,6 +217,9 @@ void TestPresenterHierarchy() {
                                     Win32SurfaceWindowPresenter::kClassId) == 1);
   CHECK(registry.GenerationDistance(SurfaceButtonPresenter::kClassId,
                                     Win32SurfaceButtonPresenter::kClassId) == 1);
+  CHECK(registry.GenerationDistance(SurfaceLanguageButtonPresenter::kClassId,
+                                    Win32SurfaceLanguageButtonPresenter::
+                                        kClassId) == 1);
 }
 
 void TestCloseButtonRemovesOne() {
@@ -601,10 +627,78 @@ void TestControlsFollowPresentationSize() {
   std::filesystem::remove_all(dir);
 }
 
+void TestLocalizationEnRuEn() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_locale";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesModelRegistration();
+  EnsureWin32SurfacePresenterRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  HWND add1 = FindAddButton(s1);
+  HWND lang1 = FindLanguageButton(s1);
+  HWND close1 = FindCloseButton(s1);
+  CHECK(add1 != nullptr);
+  CHECK(lang1 != nullptr);
+  CHECK(close1 != nullptr);
+  CHECK(WindowText(s1) == L"Surface 1");
+  CHECK(WindowText(add1) == L"Add");
+  CHECK(WindowText(lang1) == L"RU");
+  CHECK(WindowText(close1) == L"Close this window");
+
+  SendMessageW(add1, BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  HWND const add1_before = add1;
+  HWND const lang1_before = lang1;
+  HWND const close1_before = close1;
+  HWND const s1_before = s1;
+
+  SendMessageW(lang1, BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WindowText(s1) == L"Поверхность 1");
+  CHECK(WindowText(add1) == L"Добавить");
+  CHECK(WindowText(lang1) == L"EN");
+  CHECK(WindowText(close1) == L"Закрыть это окно");
+  CHECK(WindowText(FindAddButton(s2)) == L"Добавить");
+  CHECK(add1 == add1_before);
+  CHECK(lang1 == lang1_before);
+  CHECK(close1 == close1_before);
+  CHECK(s1 == s1_before);
+
+  SendMessageW(FindLanguageButton(s2), BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WindowText(s1) == L"Surface 1");
+  CHECK(WindowText(s2) == L"Surface 2");
+  CHECK(WindowText(FindAddButton(s2)) == L"Add");
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = LoadApplication<Application>(
+      domain, ae::ObjId{surfaces_demo::ToObjId(
+                  surfaces_demo::ObjId::Application)});
+  CHECK(application->locale->language_index() == 0);
+
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::test::TestPresenterHierarchy();
+  apptraverse::test::TestLocalizationEnRuEn();
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeXKeepsAllSurfaces();
   apptraverse::test::TestActiveZOrderRestored();

@@ -3,6 +3,8 @@
 
 #include "apptraverse/object_macros.h"
 #include "apptraverse/presenter.h"
+#include "apptraverse/ui/ui_localization_string.h"
+#include "apptraverse/ui/ui_locale_settings.h"
 
 #include "surface_window_presenter.h"
 #include "surfaces_model.h"
@@ -28,16 +30,17 @@ class SurfaceButtonPresenter : public Presenter {
   explicit SurfaceButtonPresenter(ae::ObjProp prop) : Presenter{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(surface), AE_MMBR(window_presenter),
-                    AE_MMBR(role), AE_MMBR(control_id))
+                    AE_MMBR(role), AE_MMBR(control_id), AE_MMBR(locale),
+                    AE_MMBR(label))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, surface, window_presenter, role, control_id);
+    dnv(base_, surface, window_presenter, role, control_id, locale, label);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, surface, window_presenter, role, control_id);
+    dnv(base_, surface, window_presenter, role, control_id, locale, label);
   }
 
   bool ReadyForPresentation() const override;
@@ -48,6 +51,8 @@ class SurfaceButtonPresenter : public Presenter {
   ae::ObjPtr<SurfaceWindowPresenter> window_presenter;
   SurfaceButtonRole role{SurfaceButtonRole::Add};
   std::uint32_t control_id{0};
+  ae::ObjPtr<ui::UiLocaleSettings> locale;
+  ae::ObjPtr<ui::UiLocalizationString> label;
 };
 
 void EnsureSurfaceButtonPresenterRegistration();

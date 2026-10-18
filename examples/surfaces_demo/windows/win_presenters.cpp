@@ -1,8 +1,10 @@
 #include "win_presenters.h"
 
-#include <cstdio>
+#include <string>
 
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/platform/windows/win_ui_utf8.h"
+#include "surfaces_localization.h"
 #include "surfaces_win32_messages.h"
 #include "win32_fatal.h"
 
@@ -14,6 +16,16 @@ namespace {
 
 APPTRAVERSE_REGISTER(Win32SurfaceWindowPresenter);
 APPTRAVERSE_REGISTER(Win32SurfaceButtonPresenter);
+APPTRAVERSE_REGISTER(Win32SurfaceLanguageButtonPresenter);
+
+constexpr int kMargin = 12;
+constexpr int kGap = 8;
+constexpr int kAddW = 88;
+constexpr int kAddH = 28;
+constexpr int kLangW = 48;
+constexpr int kLangH = 28;
+constexpr int kCloseW = 200;
+constexpr int kCloseH = 28;
 
 void SetHwndUserData(HWND hwnd, void* value) {
   SetLastError(0);
@@ -38,6 +50,35 @@ Win32SurfaceWindowPresenter* AsWin32Window(SurfaceWindowPresenter* base) {
     return nullptr;
   }
   return static_cast<Win32SurfaceWindowPresenter*>(base);
+}
+
+void SurfaceButtonLayout(SurfaceWindowPresenter const& window,
+                         std::uint32_t control_id, int* x, int* y, int* w,
+                         int* h) {
+  *x = kMargin;
+  *y = kMargin;
+  if (control_id == static_cast<std::uint32_t>(kSurfaceAddButtonId)) {
+    *w = kAddW;
+    *h = kAddH;
+    return;
+  }
+  if (control_id == static_cast<std::uint32_t>(kSurfaceLanguageButtonId)) {
+    *w = kLangW;
+    *h = kLangH;
+    if (window.IsWide()) {
+      *x = kMargin + kAddW + kGap;
+    } else {
+      *y = kMargin + kAddH + kGap;
+    }
+    return;
+  }
+  *w = kCloseW;
+  *h = kCloseH;
+  if (window.IsWide()) {
+    *x = kMargin + kAddW + kGap + kLangW + kGap;
+  } else {
+    *y = kMargin + kAddH + kGap + kLangH + kGap;
+  }
 }
 
 LRESULT CALLBACK SurfaceHostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
@@ -104,8 +145,10 @@ void EnsureWin32SurfacePresenterRegistration() {
   EnsureDesktopSurfacePresenterRegistration();
   EnsureSurfaceWindowPresenterRegistration();
   EnsureSurfaceButtonPresenterRegistration();
+  EnsureSurfaceLanguageButtonPresenterRegistration();
   (void)&g_apptraverse_registrar_Win32SurfaceWindowPresenter;
   (void)&g_apptraverse_registrar_Win32SurfaceButtonPresenter;
+  (void)&g_apptraverse_registrar_Win32SurfaceLanguageButtonPresenter;
 }
 
 void RegisterSurfacesWin32Classes() {
@@ -130,11 +173,18 @@ void UnregisterSurfacesWin32Classes() {
   }
 }
 
+void Win32SurfaceWindowPresenter::SyncWindowTitle() {
+  if (hwnd == nullptr || !locale || !window_title_prefix || !surface) {
+    return;
+  }
+  std::string const title = FormatSurfaceWindowTitle(
+      *window_title_prefix, locale->language_index(), surface->number);
+  SetWindowTextW(hwnd, ui::windows::Utf8ToWide(title).c_str());
+}
+
 void Win32SurfaceWindowPresenter::OnLoad() {
-  wchar_t title[64];
-  std::swprintf(title, 64, L"Surface %u", surface->number);
   hwnd = CreateWindowExW(
-      0, kSurfacesWindowClass, title, WS_OVERLAPPEDWINDOW, surface->desktop_x,
+      0, kSurfacesWindowClass, L"", WS_OVERLAPPEDWINDOW, surface->desktop_x,
       surface->desktop_y, surface->desktop_width, surface->desktop_height,
       nullptr, nullptr, GetModuleHandleW(nullptr), this);
   if (hwnd == nullptr) {
@@ -142,9 +192,12 @@ void Win32SurfaceWindowPresenter::OnLoad() {
     FatalWin32("CreateWindowExW Surface", err);
   }
   SetHwndUserData(hwnd, this);
+  SyncWindowTitle();
   ShowWindow(hwnd, SW_SHOW);
   UpdateWindow(hwnd);
 }
+
+void Win32SurfaceWindowPresenter::OnModelChanged() { SyncWindowTitle(); }
 
 void Win32SurfaceWindowPresenter::OnUnload() {
   SetHwndUserData(hwnd, nullptr);
@@ -167,30 +220,24 @@ void Win32SurfaceWindowPresenter::QueueCurrentBounds() {
                     rect.bottom - rect.top);
 }
 
+void Win32SurfaceButtonPresenter::SyncCaption() {
+  if (hwnd == nullptr || !locale || !label) {
+    return;
+  }
+  SetWindowTextW(
+      hwnd, ui::windows::Utf8ToWide(label->Resolve(locale->language_index()))
+                .c_str());
+}
+
 void Win32SurfaceButtonPresenter::ApplyLayout() {
   if (hwnd == nullptr || !window_presenter || !window_presenter->surface) {
     return;
   }
-  constexpr int kMargin = 12;
-  constexpr int kGap = 8;
-  constexpr int kAddW = 80;
-  constexpr int kAddH = 28;
-  constexpr int kCloseW = 160;
-  constexpr int kCloseH = 28;
-
-  int x = kMargin;
-  int y = kMargin;
-  int w = kAddW;
-  int h = kAddH;
-  if (role == SurfaceButtonRole::Close) {
-    w = kCloseW;
-    h = kCloseH;
-    if (window_presenter->IsWide()) {
-      x = kMargin + kAddW + kGap;
-    } else {
-      y = kMargin + kAddH + kGap;
-    }
-  }
+  int x = 0;
+  int y = 0;
+  int w = 0;
+  int h = 0;
+  SurfaceButtonLayout(*window_presenter, control_id, &x, &y, &w, &h);
 
   if (SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE) ==
       0) {
@@ -204,9 +251,7 @@ void Win32SurfaceButtonPresenter::OnLoad() {
   if (window == nullptr || window->hwnd == nullptr) {
     return;
   }
-  wchar_t const* label = role == SurfaceButtonRole::Add ? L"Add"
-                                                        : L"Close this window";
-  hwnd = CreateWindowExW(0, L"BUTTON", label,
+  hwnd = CreateWindowExW(0, L"BUTTON", L"",
                          WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0,
                          window->hwnd,
                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
@@ -216,10 +261,14 @@ void Win32SurfaceButtonPresenter::OnLoad() {
     FatalWin32("CreateWindowExW Surface button", err);
   }
   SetHwndUserData(hwnd, this);
+  SyncCaption();
   ApplyLayout();
 }
 
-void Win32SurfaceButtonPresenter::OnModelChanged() { ApplyLayout(); }
+void Win32SurfaceButtonPresenter::OnModelChanged() {
+  SyncCaption();
+  ApplyLayout();
+}
 
 void Win32SurfaceButtonPresenter::OnUnload() {
   SetHwndUserData(hwnd, nullptr);
@@ -250,6 +299,65 @@ bool Win32SurfaceButtonPresenter::OnCommand(std::uint32_t command_id,
     model_proxy->Invoke<Surface>(surface->obj_id, &Surface::Remove);
   }
   return true;
+}
+
+void Win32SurfaceLanguageButtonPresenter::SyncCaption() {
+  if (hwnd == nullptr || !locale || !language_switch_label) {
+    return;
+  }
+  SetWindowTextW(hwnd,
+                 ui::windows::Utf8ToWide(language_switch_label->Resolve(
+                                           locale->language_index()))
+                     .c_str());
+}
+
+void Win32SurfaceLanguageButtonPresenter::ApplyLayout() {
+  if (hwnd == nullptr || !window_presenter || !window_presenter->surface) {
+    return;
+  }
+  int x = 0;
+  int y = 0;
+  int w = 0;
+  int h = 0;
+  SurfaceButtonLayout(*window_presenter, control_id, &x, &y, &w, &h);
+
+  if (SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE) ==
+      0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowPos Surface language button", err);
+  }
+}
+
+void Win32SurfaceLanguageButtonPresenter::OnLoad() {
+  auto* window = AsWin32Window(&*window_presenter);
+  if (window == nullptr || window->hwnd == nullptr) {
+    return;
+  }
+  hwnd = CreateWindowExW(0, L"BUTTON", L"",
+                         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0,
+                         window->hwnd,
+                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
+                         GetModuleHandleW(nullptr), nullptr);
+  if (hwnd == nullptr) {
+    DWORD const err = GetLastError();
+    FatalWin32("CreateWindowExW Surface language button", err);
+  }
+  SetHwndUserData(hwnd, this);
+  SyncCaption();
+  ApplyLayout();
+}
+
+void Win32SurfaceLanguageButtonPresenter::OnModelChanged() { SyncCaption(); }
+
+void Win32SurfaceLanguageButtonPresenter::OnUnload() {
+  SetHwndUserData(hwnd, nullptr);
+  if (hwnd != nullptr) {
+    if (DestroyWindow(hwnd) == 0) {
+      DWORD const err = GetLastError();
+      FatalWin32("DestroyWindow Surface language button", err);
+    }
+    hwnd = nullptr;
+  }
 }
 
 LRESULT CALLBACK Win32SurfaceWindowPresenter::WndProc(HWND hwnd, UINT msg,

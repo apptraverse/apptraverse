@@ -1,6 +1,9 @@
 #ifndef APPTRAVERSE_SURFACE_WINDOW_PRESENTER_H_
 #define APPTRAVERSE_SURFACE_WINDOW_PRESENTER_H_
 
+#include "apptraverse/ui/ui_localization_string.h"
+#include "apptraverse/ui/ui_locale_settings.h"
+
 #include "desktop_surface_presenter.h"
 
 namespace apptraverse {
@@ -19,17 +22,20 @@ class SurfaceWindowPresenter : public DesktopSurfacePresenter {
   explicit SurfaceWindowPresenter(ae::ObjProp prop)
       : DesktopSurfacePresenter{prop} {}
 
-  AE_OBJECT_REFLECT()
+  AE_OBJECT_REFLECT(AE_MMBR(locale), AE_MMBR(window_title_prefix))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_);
+    dnv(base_, locale, window_title_prefix);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_);
+    dnv(base_, locale, window_title_prefix);
   }
+
+  ae::ObjPtr<ui::UiLocaleSettings> locale;
+  ae::ObjPtr<ui::UiLocalizationString> window_title_prefix;
 
   void PageShown();
   void PresentationSizeChanged(std::int32_t width, std::int32_t height);

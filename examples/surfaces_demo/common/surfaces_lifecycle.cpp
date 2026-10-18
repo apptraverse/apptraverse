@@ -61,6 +61,9 @@ void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
     if (surface->chrome.close_button) {
       surface->chrome.close_button->OnModelChanged();
     }
+    if (surface->chrome.language_button) {
+      surface->chrome.language_button->OnModelChanged();
+    }
   }
 }
 
