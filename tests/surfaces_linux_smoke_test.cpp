@@ -19,9 +19,10 @@
 
 #include "linux_app.h"
 #include "linux_presenters.h"
-#include "surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
 #include "surfaces_lifecycle.h"
-#include "surfaces_model.h"
 
 namespace apptraverse::test {
 
@@ -274,7 +275,7 @@ bool RectNear(Rect const& a, Rect const& b, int tol) {
 
 void TestPresenterHierarchy() {
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureLinuxSurfacePresenterRegistration();
   auto& registry = ae::Registry::GetRegistry();
   CHECK(registry.GenerationDistance(SurfacePresenter::kClassId,
@@ -291,7 +292,7 @@ void TestCloseButtonRemovesOne() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureLinuxSurfacePresenterRegistration();
 
   LinuxApp app;
@@ -370,7 +371,7 @@ void TestNativeCloseKeepsAllSurfaces() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureLinuxSurfacePresenterRegistration();
 
   LinuxApp app;
@@ -451,7 +452,7 @@ void TestActiveZOrderRestored() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureLinuxSurfacePresenterRegistration();
 
   LinuxApp app;
@@ -506,7 +507,7 @@ void TestControlsFollowPresentationSize() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureLinuxSurfacePresenterRegistration();
 
   LinuxApp app;

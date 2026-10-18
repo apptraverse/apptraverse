@@ -729,12 +729,11 @@ target_compile_definitions(apptraverse_surfaces_model_test PRIVATE
 
 target_link_libraries(apptraverse_surfaces_model_test PRIVATE
   surfaces_demo_distill
-  surfaces_demo_desktop
+  apptraverse_surfaces
 )
 
 target_include_directories(apptraverse_surfaces_model_test PRIVATE
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/desktop
   ${CMAKE_SOURCE_DIR}/tests
 )
 
@@ -766,14 +765,13 @@ if(WIN32)
     win32_surfaces_demo_load_only)
   target_link_libraries(apptraverse_surfaces_win32_smoke_test PRIVATE
     surfaces_demo_distill
-    surfaces_demo_desktop
     surfaces_demo_win32
+    apptraverse_surfaces_windows
     user32
     gdi32
   )
   target_include_directories(apptraverse_surfaces_win32_smoke_test PRIVATE
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/desktop
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
   )
@@ -807,12 +805,11 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   )
   target_link_libraries(apptraverse_surfaces_linux_smoke_test PRIVATE
     surfaces_demo_distill
-    surfaces_demo_desktop
+    apptraverse_surfaces
     PkgConfig::GTK3
   )
   target_include_directories(apptraverse_surfaces_linux_smoke_test PRIVATE
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/desktop
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux
   )
   add_test(
@@ -846,14 +843,13 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   )
   target_link_libraries(apptraverse_surfaces_macos_smoke_test PRIVATE
     surfaces_demo_distill
-    surfaces_demo_desktop
+    apptraverse_surfaces
     surfaces_demo_macos_content
     "-framework AppKit"
     "-framework Foundation"
   )
   target_include_directories(apptraverse_surfaces_macos_smoke_test PRIVATE
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/desktop
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/macos
   )
   target_compile_options(apptraverse_surfaces_macos_smoke_test PRIVATE

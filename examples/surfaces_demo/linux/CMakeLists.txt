@@ -22,13 +22,11 @@ add_executable(linux_surfaces_demo_load_only ${_surfaces_linux_sources})
 
 foreach(_surfaces_demo linux_surfaces_demo linux_surfaces_demo_load_only)
   target_link_libraries(${_surfaces_demo} PRIVATE
-    surfaces_demo_model
-    surfaces_demo_desktop
+    apptraverse_surfaces
     PkgConfig::GTK3
   )
   target_include_directories(${_surfaces_demo} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../common
-    ${CMAKE_CURRENT_SOURCE_DIR}/../desktop
   )
 endforeach()

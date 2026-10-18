@@ -14,7 +14,7 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 
-#include "surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
 
 namespace apptraverse {
 
@@ -361,8 +361,6 @@ inline void AssignInitialDesktopBounds(Surface& surface) {
   surface.presentation_width = kWidth;
   surface.presentation_height = kHeight;
 }
-
-void EnsureSurfacesModelRegistration();
 
 }  // namespace apptraverse
 

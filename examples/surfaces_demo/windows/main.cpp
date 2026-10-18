@@ -12,7 +12,8 @@
 #include "apptraverse/noninteractive_crt.h"
 
 #include "win_app.h"
-#include "win_presenters.h"
+#include "apptraverse/platform/windows/surfaces_win_registration.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
 
 int main(int argc, char** argv) {
   // GUI host: no debug console even when launched from a terminal/parent.
@@ -27,8 +28,8 @@ int main(int argc, char** argv) {
     }
   }
   apptraverse::EnsureObjectRegistration();
-  apptraverse::EnsureSurfacesModelRegistration();
-  apptraverse::EnsureWin32SurfacePresenterRegistration();
+  apptraverse::EnsureSurfacesRegistration();
+  apptraverse::EnsureWin32SurfacesPresenterRegistration();
   apptraverse::WinApp app;
   return app.Run(state_dir);
 }

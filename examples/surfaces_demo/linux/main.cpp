@@ -1,6 +1,8 @@
 #include <filesystem>
 #include <string_view>
 
+#include "apptraverse/surfaces/surfaces_registration.h"
+
 #include "linux_app.h"
 #include "linux_presenters.h"
 
@@ -13,7 +15,7 @@ int main(int argc, char** argv) {
     }
   }
   apptraverse::EnsureObjectRegistration();
-  apptraverse::EnsureSurfacesModelRegistration();
+  apptraverse::EnsureSurfacesRegistration();
   apptraverse::EnsureLinuxSurfacePresenterRegistration();
   apptraverse::LinuxApp app;
   return app.Run(state_dir);

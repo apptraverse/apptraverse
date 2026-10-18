@@ -1,7 +1,7 @@
 #ifndef APPTRAVERSE_SURFACES_CHROME_WIRING_H_
 #define APPTRAVERSE_SURFACES_CHROME_WIRING_H_
 
-#include "surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_model.h"
 
 namespace apptraverse {
 

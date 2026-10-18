@@ -4,6 +4,7 @@
 #include <string>
 
 #include "apptraverse/object_macros.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
 
 #include "ios_app.h"
 #include "ios_presenters.h"
@@ -53,7 +54,7 @@ std::filesystem::path ResolveStateDir() {
 
 int main(int argc, char* argv[]) {
   apptraverse::EnsureObjectRegistration();
-  apptraverse::EnsureSurfacesModelRegistration();
+  apptraverse::EnsureSurfacesRegistration();
   apptraverse::EnsureIOSSurfacePresenterRegistration();
   @autoreleasepool {
     return UIApplicationMain(argc, argv, nil,

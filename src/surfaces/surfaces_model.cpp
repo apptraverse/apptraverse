@@ -1,38 +1,16 @@
-#include "surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_model.h"
 
 #include <algorithm>
 #include <cassert>
 
+#include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
-#include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
 
-#include "apptraverse/distill.h"
-
-#include "surfaces_ids.h"
-#include "surfaces_presentation.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_presentation.h"
 
 namespace apptraverse {
-namespace {
-
-APPTRAVERSE_REGISTER(Surface);
-APPTRAVERSE_REGISTER(SurfacePresenter);
-APPTRAVERSE_REGISTER(Surfaces);
-APPTRAVERSE_REGISTER(AddSurfaceEvent);
-APPTRAVERSE_REGISTER(RemoveSurfaceEvent);
-APPTRAVERSE_REGISTER(SetCurrentSurfaceEvent);
-APPTRAVERSE_REGISTER(SurfaceBoundsChangedEvent);
-APPTRAVERSE_REGISTER(SurfacePresentationSizeChangedEvent);
-APPTRAVERSE_REGISTER(Application);
-
-}  // namespace
-
-void EnsureSurfacesModelRegistration() {
-  (void)&g_apptraverse_registrar_Application;
-  (void)&g_apptraverse_registrar_Surface;
-  (void)&g_apptraverse_registrar_SurfaceBoundsChangedEvent;
-  (void)&g_apptraverse_registrar_SurfacePresentationSizeChangedEvent;
-}
 
 void Surfaces::Apply(AddSurfaceEvent const& event) {
   surfaces.push_back(event.surface);

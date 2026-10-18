@@ -142,6 +142,44 @@ if(WIN32)
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
 endif()
+
+add_library(apptraverse_surfaces STATIC
+  src/surfaces/surfaces_model.cpp
+  src/surfaces/surfaces_localization.cpp
+  src/surfaces/surfaces_registration.cpp
+  src/surfaces/desktop_surface_presenter.cpp
+  src/surfaces/surface_window_presenter.cpp
+  src/surfaces/surface_button_presenter.cpp
+  src/surfaces/surface_language_button_presenter.cpp
+  src/surfaces/surfaces_chrome_wiring.cpp
+)
+target_link_libraries(apptraverse_surfaces PUBLIC apptraverse)
+target_include_directories(apptraverse_surfaces PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(apptraverse_surfaces PUBLIC cxx_std_20)
+if(MSVC)
+  target_compile_options(apptraverse_surfaces PRIVATE /bigobj)
+endif()
+
+if(WIN32)
+  add_library(apptraverse_surfaces_windows STATIC
+    src/platform/windows/surfaces_win_presenters.cpp
+    src/platform/windows/surfaces_win_registration.cpp
+  )
+  target_link_libraries(apptraverse_surfaces_windows PUBLIC
+    apptraverse_surfaces
+    apptraverse_ui_windows
+    user32
+    gdi32
+  )
+  target_include_directories(apptraverse_surfaces_windows PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+  )
+  target_compile_features(apptraverse_surfaces_windows PUBLIC cxx_std_20)
+endif()
+
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
 option(APPTRAVERSE_BUILD_EXAMPLES "Build upstream AppTraverse examples" OFF)

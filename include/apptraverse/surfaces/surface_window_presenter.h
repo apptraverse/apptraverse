@@ -4,7 +4,7 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 
-#include "desktop_surface_presenter.h"
+#include "apptraverse/surfaces/desktop_surface_presenter.h"
 
 namespace apptraverse {
 

@@ -7,7 +7,7 @@
 #include "apptraverse/object_serialization.h"
 
 #include "android_log.h"
-#include "surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
 
 namespace apptraverse::android {
 

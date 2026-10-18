@@ -18,9 +18,10 @@
 #include "mac_presenters.h"
 #include "mac_surface_actions.h"
 #include "mac_surface_content.h"
-#include "surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
 #include "surfaces_lifecycle.h"
-#include "surfaces_model.h"
 
 @interface SurfaceWindowDelegate : NSObject <NSWindowDelegate>
 @property(nonatomic, assign) apptraverse::MacSurfacePresenter* presenter;
@@ -268,7 +269,7 @@ bool WaitControlsOrientation(NSWindow* window, bool wide,
 
 void TestPresenterHierarchy() {
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureMacSurfacePresenterRegistration();
   auto& registry = ae::Registry::GetRegistry();
   CHECK(registry.GenerationDistance(SurfacePresenter::kClassId,
@@ -285,7 +286,7 @@ void TestCloseButtonRemovesOne() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureMacSurfacePresenterRegistration();
 
   NSRect r1{};
@@ -399,7 +400,7 @@ void TestNativeXKeepsAllSurfaces() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureMacSurfacePresenterRegistration();
 
   NSRect r1{};
@@ -505,7 +506,7 @@ void TestActiveZOrderRestored() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureMacSurfacePresenterRegistration();
 
   {
@@ -621,7 +622,7 @@ void TestControlsFollowPresentationSize() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureMacSurfacePresenterRegistration();
 
   {

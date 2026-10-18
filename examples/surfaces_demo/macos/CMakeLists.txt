@@ -51,8 +51,7 @@ add_executable(macos_surfaces_demo_load_only ${_surfaces_mac_sources})
 
 foreach(_surfaces_demo macos_surfaces_demo macos_surfaces_demo_load_only)
   target_link_libraries(${_surfaces_demo} PRIVATE
-    surfaces_demo_model
-    surfaces_demo_desktop
+    apptraverse_surfaces
     surfaces_demo_macos_content
     "-framework AppKit"
     "-framework Foundation"
@@ -60,7 +59,6 @@ foreach(_surfaces_demo macos_surfaces_demo macos_surfaces_demo_load_only)
   target_include_directories(${_surfaces_demo} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../common
-    ${CMAKE_CURRENT_SOURCE_DIR}/../desktop
   )
   # Ensure ObjC++ TUs also get -fno-rtti (policy is on the C++ link interface).
   target_compile_options(${_surfaces_demo} PRIVATE

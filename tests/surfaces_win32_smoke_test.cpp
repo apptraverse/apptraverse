@@ -20,15 +20,17 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 
-#include "surface_button_presenter.h"
-#include "surface_language_button_presenter.h"
-#include "surface_window_presenter.h"
-#include "surfaces_ids.h"
+#include "apptraverse/platform/windows/surfaces_win_presenters.h"
+#include "apptraverse/platform/windows/surfaces_win_registration.h"
+#include "apptraverse/surfaces/surface_button_presenter.h"
+#include "apptraverse/surfaces/surface_language_button_presenter.h"
+#include "apptraverse/surfaces/surface_window_presenter.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
 #include "surfaces_lifecycle.h"
-#include "surfaces_model.h"
 #include "surfaces_win32_capture.h"
 #include "win_app.h"
-#include "win_presenters.h"
 
 namespace apptraverse::test {
 
@@ -323,8 +325,8 @@ void PlaceWindow(HWND hwnd, int x, int y, int w, int h) {
 
 void TestPresenterHierarchy() {
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
-  EnsureWin32SurfacePresenterRegistration();
+  EnsureSurfacesRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
   auto& registry = ae::Registry::GetRegistry();
   CHECK(registry.GenerationDistance(SurfacePresenter::kClassId,
                                     DesktopSurfacePresenter::kClassId) == 1);
@@ -346,8 +348,8 @@ void TestCloseButtonRemovesOne() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
-  EnsureWin32SurfacePresenterRegistration();
+  EnsureSurfacesRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -446,8 +448,8 @@ void TestNativeXKeepsAllSurfaces() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
-  EnsureWin32SurfacePresenterRegistration();
+  EnsureSurfacesRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -556,8 +558,8 @@ void TestActiveZOrderRestored() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
-  EnsureWin32SurfacePresenterRegistration();
+  EnsureSurfacesRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -691,8 +693,8 @@ void TestControlsFollowPresentationSize() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
-  EnsureWin32SurfacePresenterRegistration();
+  EnsureSurfacesRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -759,8 +761,8 @@ void TestLocalizationEnRuEn() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
-  EnsureWin32SurfacePresenterRegistration();
+  EnsureSurfacesRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -829,8 +831,8 @@ void TestLoadOnlyRestoresRuProfile() {
   std::filesystem::remove_all(dir);
 
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
-  EnsureWin32SurfacePresenterRegistration();
+  EnsureSurfacesRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};

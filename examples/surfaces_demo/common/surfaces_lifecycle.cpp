@@ -15,8 +15,8 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
-#include "surfaces_ids.h"
-#include "surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_model.h"
 
 namespace apptraverse {
 

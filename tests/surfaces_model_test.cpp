@@ -23,17 +23,17 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
-#include "desktop_surface_presenter.h"
-#include "surface_button_presenter.h"
-#include "surface_window_presenter.h"
+#include "apptraverse/surfaces/desktop_surface_presenter.h"
+#include "apptraverse/surfaces/surface_button_presenter.h"
+#include "apptraverse/surfaces/surface_language_button_presenter.h"
+#include "apptraverse/surfaces/surface_window_presenter.h"
 #include "apptraverse/ui/ui_locale_settings.h"
-
-#include "surface_language_button_presenter.h"
 #include "surfaces_distill.h"
-#include "surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
 #include "surfaces_lifecycle.h"
-#include "surfaces_localization.h"
-#include "surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_localization.h"
+#include "apptraverse/surfaces/surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
 #include "surfaces_test_presenter_counters.h"
 
 namespace apptraverse::test {
@@ -1618,11 +1618,7 @@ void TestLocaleCommitAndPersistence() {
 
 int main() {
   apptraverse::EnsureObjectRegistration();
-  apptraverse::EnsureSurfacesModelRegistration();
-  apptraverse::EnsureDesktopSurfacePresenterRegistration();
-  apptraverse::EnsureSurfaceWindowPresenterRegistration();
-  apptraverse::EnsureSurfaceButtonPresenterRegistration();
-  apptraverse::EnsureSurfaceLanguageButtonPresenterRegistration();
+  apptraverse::EnsureSurfacesRegistration();
   apptraverse::test::TestInitialGraph();
   apptraverse::test::TestModelAdd();
   apptraverse::test::TestAddFromSecondSurface();

@@ -3,7 +3,7 @@
 
 #include "apptraverse/object_macros.h"
 
-#include "desktop_surface_presenter.h"
+#include "apptraverse/surfaces/desktop_surface_presenter.h"
 
 namespace apptraverse {
 

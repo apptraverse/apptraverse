@@ -15,7 +15,7 @@
 #include "apptraverse/model_object_proxy.h"
 
 #include "surfaces_lifecycle.h"
-#include "surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_model.h"
 
 namespace apptraverse {
 

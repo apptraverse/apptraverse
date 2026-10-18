@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "apptraverse/object_macros.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
 
 #include "android_log.h"
 #include "android_surface_presenter.h"
@@ -28,7 +29,7 @@ NativeRuntime* FromHandle(jlong handle) {
 jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jobject ui_bridge) {
   // Single startup point for the object-class registrations of this process.
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureAndroidSurfacePresenterRegistration();
 
   auto const* chars = env->GetStringUTFChars(files_dir, nullptr);

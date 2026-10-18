@@ -1,11 +1,11 @@
-#include "win_presenters.h"
+#include "apptraverse/platform/windows/surfaces_win_presenters.h"
 
 #include <string>
 
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
-#include "surfaces_localization.h"
-#include "surfaces_win32_messages.h"
+#include "apptraverse/surfaces/surfaces_localization.h"
+#include "apptraverse/surfaces/surfaces_win32_messages.h"
 #include "win32_fatal.h"
 
 namespace apptraverse {
@@ -13,10 +13,6 @@ namespace apptraverse {
 bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
 
 namespace {
-
-APPTRAVERSE_REGISTER(Win32SurfaceWindowPresenter);
-APPTRAVERSE_REGISTER(Win32SurfaceButtonPresenter);
-APPTRAVERSE_REGISTER(Win32SurfaceLanguageButtonPresenter);
 
 constexpr int kMargin = 12;
 constexpr int kGap = 8;
@@ -152,16 +148,6 @@ Win32SurfaceWindowPresenter::ptr ResolveWin32WindowPresenter(
     return Win32SurfaceWindowPresenter::ptr{surface.chrome.window};
   }
   return {};
-}
-
-void EnsureWin32SurfacePresenterRegistration() {
-  EnsureDesktopSurfacePresenterRegistration();
-  EnsureSurfaceWindowPresenterRegistration();
-  EnsureSurfaceButtonPresenterRegistration();
-  EnsureSurfaceLanguageButtonPresenterRegistration();
-  (void)&g_apptraverse_registrar_Win32SurfaceWindowPresenter;
-  (void)&g_apptraverse_registrar_Win32SurfaceButtonPresenter;
-  (void)&g_apptraverse_registrar_Win32SurfaceLanguageButtonPresenter;
 }
 
 void RegisterSurfacesWin32Classes() {

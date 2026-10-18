@@ -1,9 +1,10 @@
 #include "win_app.h"
 
 #include "apptraverse/object_serialization.h"
-#include "surfaces_win32_messages.h"
+#include "apptraverse/surfaces/surfaces_win32_messages.h"
 #include "win32_fatal.h"
-#include "win_presenters.h"
+#include "apptraverse/platform/windows/surfaces_win_presenters.h"
+#include "apptraverse/platform/windows/surfaces_win_registration.h"
 
 namespace apptraverse {
 namespace {

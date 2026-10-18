@@ -12,7 +12,8 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 
-#include "surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
 #include "web_surface_presenter.h"
 
 namespace apptraverse {
@@ -31,7 +32,7 @@ WebApp& WebApp::Instance() {
 
 void WebApp::Start(std::filesystem::path state_dir) {
   EnsureObjectRegistration();
-  EnsureSurfacesModelRegistration();
+  EnsureSurfacesRegistration();
   EnsureWebSurfacePresenterRegistration();
 
   if (!emscripten_is_main_browser_thread()) {

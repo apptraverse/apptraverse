@@ -5,7 +5,7 @@
 
 #include "apptraverse/object_macros.h"
 
-#include "surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_model.h"
 
 namespace apptraverse {
 

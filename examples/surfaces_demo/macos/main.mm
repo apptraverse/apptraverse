@@ -3,6 +3,8 @@
 
 #include <unistd.h>
 
+#include "apptraverse/surfaces/surfaces_registration.h"
+
 #include "mac_app.h"
 #include "mac_presenters.h"
 
@@ -34,7 +36,7 @@ int main(int argc, char** argv) {
   }
 
   apptraverse::EnsureObjectRegistration();
-  apptraverse::EnsureSurfacesModelRegistration();
+  apptraverse::EnsureSurfacesRegistration();
   apptraverse::EnsureMacSurfacePresenterRegistration();
   apptraverse::MacApp app;
   return app.Run(state_dir);

@@ -60,7 +60,7 @@ add_executable(ios_surfaces_demo_load_only ${_surfaces_ios_sources})
 
 foreach(_surfaces_demo ios_surfaces_demo ios_surfaces_demo_load_only)
   target_link_libraries(${_surfaces_demo} PRIVATE
-    surfaces_demo_model
+    apptraverse_surfaces
     surfaces_demo_mobile
     surfaces_demo_ios_content
     "-framework UIKit"

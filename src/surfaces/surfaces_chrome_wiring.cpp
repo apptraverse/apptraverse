@@ -1,8 +1,8 @@
-#include "surfaces_chrome_wiring.h"
+#include "apptraverse/surfaces/surfaces_chrome_wiring.h"
 
-#include "surface_button_presenter.h"
-#include "surface_language_button_presenter.h"
-#include "surface_window_presenter.h"
+#include "apptraverse/surfaces/surface_button_presenter.h"
+#include "apptraverse/surfaces/surface_language_button_presenter.h"
+#include "apptraverse/surfaces/surface_window_presenter.h"
 
 namespace apptraverse {
 
