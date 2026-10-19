@@ -27,6 +27,7 @@ class SurfaceButtonPresenter;
 class AddSurfaceEvent;
 class RemoveSurfaceEvent;
 class SetCurrentSurfaceEvent;
+class SetDesktopZOrderEvent;
 class SurfaceBoundsChangedEvent;
 class SurfacePresentationSizeChangedEvent;
 
@@ -146,7 +147,7 @@ class SurfacePresenter : public Presenter {
 
 class Surfaces : public NodeFor<Surfaces> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::Surfaces", Surfaces,
-                           Node, 0)
+                           Node, 1)
 
  protected:
   Surfaces() = default;
@@ -154,16 +155,23 @@ class Surfaces : public NodeFor<Surfaces> {
  public:
   explicit Surfaces(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(surfaces), AE_MMBR(mobile_current))
+  AE_OBJECT_REFLECT(AE_MMBR(surfaces), AE_MMBR(mobile_current),
+                    AE_MMBR(desktop_z_order))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, surfaces, mobile_current);
+    desktop_z_order.clear();
   }
 
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, surfaces, mobile_current);
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, surfaces, mobile_current, desktop_z_order);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, surfaces, mobile_current, desktop_z_order);
   }
 
   std::vector<Surface::ptr> surfaces;
@@ -171,10 +179,16 @@ class Surfaces : public NodeFor<Surfaces> {
   // after the current page was removed. Desktop hosts show every Surface at
   // once and leave it empty, the same way mobile ignores desktop_*.
   Surface::ptr mobile_current;
+  // Desktop-only persisted Z-order: top → bottom among live Surface windows.
+  // Empty on legacy profiles and non-desktop hosts.
+  std::vector<Surface::ptr> desktop_z_order;
 
   void Apply(AddSurfaceEvent const& event);
   void Apply(RemoveSurfaceEvent const& event);
   void Apply(SetCurrentSurfaceEvent const& event);
+  void Apply(SetDesktopZOrderEvent const& event);
+  // Model-thread: authoritative snapshot from UI (ObjIds top → bottom).
+  void SetDesktopZOrderFromObjIds(std::vector<std::uint32_t> ordered_obj_ids);
 };
 
 class AddSurfaceEvent : public EventFor<Surfaces, AddSurfaceEvent> {
@@ -253,6 +267,33 @@ class SetCurrentSurfaceEvent
   }
 
   Surface::ptr surface;
+};
+
+class SetDesktopZOrderEvent
+    : public EventFor<Surfaces, SetDesktopZOrderEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SetDesktopZOrderEvent",
+      SetDesktopZOrderEvent, Event, 0)
+
+ protected:
+  SetDesktopZOrderEvent() = default;
+
+ public:
+  explicit SetDesktopZOrderEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(ordered))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, ordered);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, ordered);
+  }
+
+  std::vector<Surface::ptr> ordered;
 };
 
 class SurfaceBoundsChangedEvent

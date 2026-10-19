@@ -3983,3 +3983,19 @@ Demo EXE SHA256 (close pass, pre-trace-summary): **`AC4749D3DE3357B7146118B2E543
 ### Still open (manual profile)
 - Scenarios **A/B/C** on copied user profile with per-stage timings + post-save **`load_only`** verification (automation not run in this pass).
 - Repeat-close **~196 ms** after save (**~25 ms**) — use new trace summaries on one run (do not mix minima across runs) to split GUI wait vs presenter unload vs process exit.
+
+## Full desktop Surface Z-order (2026-10-19, baseline **`d080d71`**)
+
+### Cause
+Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreActiveSurfaceZOrder`** raised a single HWND to **`HWND_TOP`**, so overlapping windows restored top Surface identity but not the full stack.
+
+### Fix
+- **`Surfaces` v1**: persisted **`desktop_z_order`** (`Surface::ptr`, top → bottom); legacy v0 profiles keep empty list → prior fallback (`mobile_current` or last created).
+- **`SetDesktopZOrderEvent`** + **`SetDesktopZOrderFromObjIds`** on model thread; Add/Remove maintain the list; no-op when order unchanged.
+- **Win32**: **`QueueDesktopZOrderSnapshot`** enumerates live Surface host HWNDs before **`RequestStop`**; **`RestoreDesktopSurfaceZOrder`** once after initial presenters (suppress **`PageShown`** during restore via **`SurfacesWin32ZOrderRestoreInProgress`**).
+- **`mobile_current`** still separate (foreground hint); bounds + language unchanged.
+
+### Verified (Release `build-presenter-decomp-msvc-rel`)
+- **`apptraverse_surfaces_win32_smoke_test`**: full stack round-trip (3/4 windows), two stacks with same top Surface different rest, remove-middle + add-new; logs `zorder_test … before_close/after_load`.
+- **`apptraverse_surfaces_model_test`**: PASS.
+- Demo EXE SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`**

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <unordered_set>
 
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/runtime_node.h"
@@ -14,6 +15,7 @@ namespace apptraverse {
 
 void Surfaces::Apply(AddSurfaceEvent const& event) {
   surfaces.push_back(event.surface);
+  desktop_z_order.push_back(event.surface);
   NoteMaterializedChange();
 }
 
@@ -29,12 +31,85 @@ void Surfaces::Apply(RemoveSurfaceEvent const& event) {
     // only drops the reference to the removed Surface.
     mobile_current = {};
   }
+  desktop_z_order.erase(
+      std::remove_if(desktop_z_order.begin(), desktop_z_order.end(),
+                     [&](Surface::ptr const& entry) {
+                       return &*entry == &*event.surface;
+                     }),
+      desktop_z_order.end());
   NoteMaterializedChange();
 }
 
 void Surfaces::Apply(SetCurrentSurfaceEvent const& event) {
   mobile_current = event.surface;
   NoteMaterializedChange();
+}
+
+void Surfaces::Apply(SetDesktopZOrderEvent const& event) {
+  desktop_z_order = event.ordered;
+  NoteMaterializedChange();
+}
+
+namespace {
+
+bool SameSurfaceOrder(std::vector<Surface::ptr> const& a,
+                      std::vector<Surface::ptr> const& b) {
+  if (a.size() != b.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    if (a[i]->obj_id != b[i]->obj_id) {
+      return false;
+    }
+  }
+  return true;
+}
+
+Surface::ptr FindLiveSurfaceByObjId(Surfaces& parent, ae::ObjId id) {
+  for (auto const& entry : parent.surfaces) {
+    if (entry->obj_id == id) {
+      return entry;
+    }
+  }
+  return {};
+}
+
+}  // namespace
+
+void Surfaces::SetDesktopZOrderFromObjIds(
+    std::vector<std::uint32_t> ordered_obj_ids) {
+  std::vector<Surface::ptr> resolved;
+  resolved.reserve(ordered_obj_ids.size());
+  std::unordered_set<std::uint32_t> seen;
+  for (std::uint32_t raw_id : ordered_obj_ids) {
+    if (!seen.insert(raw_id).second) {
+      continue;
+    }
+    Surface::ptr surface = FindLiveSurfaceByObjId(*this, ae::ObjId{raw_id});
+    if (!surface) {
+      continue;
+    }
+    resolved.push_back(std::move(surface));
+  }
+  for (auto const& live : surfaces) {
+    bool already = false;
+    for (auto const& entry : resolved) {
+      if (entry->obj_id == live->obj_id) {
+        already = true;
+        break;
+      }
+    }
+    if (!already) {
+      resolved.push_back(live);
+    }
+  }
+  if (SameSurfaceOrder(desktop_z_order, resolved)) {
+    return;
+  }
+  auto event =
+      SetDesktopZOrderEvent::ptr::Create(ae::CreateWith{*domain});
+  event->ordered = std::move(resolved);
+  Commit(event);
 }
 
 void Surface::Apply(SurfaceBoundsChangedEvent const& event) {

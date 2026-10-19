@@ -21,6 +21,7 @@
 #include "apptraverse/distill.h"
 
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
+#include "apptraverse/platform/windows/surfaces_win32_z_order.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
 #include "apptraverse/surfaces/surface_button_presenter.h"
 #include "apptraverse/surfaces/surface_language_button_presenter.h"
@@ -526,6 +527,31 @@ void TestNativeXKeepsAllSurfaces() {
   std::filesystem::remove_all(dir);
 }
 
+void ApplySurfaceNumbersZOrder(DWORD pid,
+                               std::vector<std::uint32_t> top_to_bottom) {
+  std::vector<HWND> hwnds;
+  hwnds.reserve(top_to_bottom.size());
+  for (std::uint32_t number : top_to_bottom) {
+    wchar_t title[64]{};
+    swprintf_s(title, L"Surface %u", number);
+    HWND const hwnd = FindOwned(pid, kSurfacesWindowClass, title);
+    CHECK(hwnd != nullptr);
+    hwnds.push_back(hwnd);
+  }
+  ApplySurfaceHostWindowsZOrderTopToBottom(hwnds);
+  PumpGui(std::chrono::milliseconds{100});
+}
+
+void ActivateSurfaceNumber(DWORD pid, std::uint32_t number) {
+  wchar_t title[64]{};
+  swprintf_s(title, L"Surface %u", number);
+  HWND const hwnd = FindOwned(pid, kSurfacesWindowClass, title);
+  CHECK(hwnd != nullptr);
+  CHECK(SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE) != 0);
+  SendMessageW(hwnd, WM_ACTIVATE, MAKEWPARAM(WA_ACTIVE, FALSE), 0);
+  PumpGui(std::chrono::milliseconds{200});
+}
+
 HWND TopSurfacesWindow(DWORD pid) {
   struct Ctx {
     DWORD pid;
@@ -561,6 +587,13 @@ void TestActiveZOrderRestored() {
   EnsureSurfacesRegistration();
   EnsureWin32SurfacesPresenterRegistration();
 
+  std::vector<std::uint32_t> const expected_stack{2, 3, 1};
+  std::cout << "zorder_test before_close stack expect:";
+  for (auto n : expected_stack) {
+    std::cout << ' ' << n;
+  }
+  std::cout << '\n';
+
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
 
@@ -577,13 +610,9 @@ void TestActiveZOrderRestored() {
                   std::chrono::seconds{30}));
   CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{10}));
 
-  // Activate Surface 2 so mobile_current / z-order restore targets it.
-  // Prefer SetWindowPos + WM_ACTIVATE: SetForegroundWindow often fails when
-  // the process does not own the foreground (automated smoke / agent host).
-  CHECK(SetWindowPos(s2, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE) != 0);
-  SendMessageW(s2, WM_ACTIVATE, MAKEWPARAM(WA_ACTIVE, FALSE), 0);
-  PumpGui(std::chrono::milliseconds{200});
-  CHECK(TopSurfacesWindow(pid) == s2);
+  ApplySurfaceNumbersZOrder(pid, expected_stack);
+  ActivateSurfaceNumber(pid, 2);
+  CHECK(SurfaceNumbersFromHostWindowsTopToBottom(pid) == expected_stack);
 
   PostMessageW(s2, WM_CLOSE, 0, 0);
   gui.join();
@@ -596,22 +625,151 @@ void TestActiveZOrderRestored() {
                   surfaces_demo::ObjId::Application)});
   CHECK(application->surfaces->mobile_current);
   CHECK(application->surfaces->mobile_current->number == 2);
+  CHECK(application->surfaces->desktop_z_order.size() == 3);
+  CHECK(application->surfaces->desktop_z_order[0]->number == 2);
+  CHECK(application->surfaces->desktop_z_order[1]->number == 3);
+  CHECK(application->surfaces->desktop_z_order[2]->number == 1);
 
   WinApp app2;
   std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
-  HWND rs1 = nullptr;
-  HWND rs2 = nullptr;
-  HWND rs3 = nullptr;
-  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &rs1,
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
                   std::chrono::seconds{30}));
-  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &rs2,
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
                   std::chrono::seconds{30}));
-  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &rs3,
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &s3,
                   std::chrono::seconds{30}));
   PumpGui(std::chrono::milliseconds{200});
-  CHECK(TopSurfacesWindow(pid) == rs2);
+  auto const restored = SurfaceNumbersFromHostWindowsTopToBottom(pid);
+  std::cout << "zorder_test after_load stack:";
+  for (auto n : restored) {
+    std::cout << ' ' << n;
+  }
+  std::cout << '\n';
+  CHECK(restored == expected_stack);
+  CHECK(TopSurfacesWindow(pid) == s2);
 
-  PostMessageW(rs2, WM_CLOSE, 0, 0);
+  PostMessageW(s2, WM_CLOSE, 0, 0);
+  gui2.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestFullDesktopZOrderDistinctStacksSameTop() {
+  DWORD const pid = GetCurrentProcessId();
+  struct Scenario {
+    char const* name;
+    std::vector<std::uint32_t> stack;
+  };
+  Scenario const scenarios[] = {
+      {"same_top_a", {2, 4, 1, 3}},
+      {"same_top_b", {2, 3, 4, 1}},
+  };
+
+  for (Scenario const& scenario : scenarios) {
+    auto dir = std::filesystem::temp_directory_path() /
+               ("apptraverse_surfaces_win32_zorder_" + std::string{scenario.name});
+    std::filesystem::remove_all(dir);
+
+    WinApp app;
+    std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+    HWND s1 = nullptr;
+    CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                    std::chrono::seconds{30}));
+    for (int i = 0; i < 3; ++i) {
+      SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+      PumpGui(std::chrono::milliseconds{300});
+    }
+    CHECK(WaitCount(pid, kSurfacesWindowClass, 4, std::chrono::seconds{30}));
+
+    ApplySurfaceNumbersZOrder(pid, scenario.stack);
+    ActivateSurfaceNumber(pid, 2);
+    CHECK(SurfaceNumbersFromHostWindowsTopToBottom(pid) == scenario.stack);
+
+    std::cout << "zorder_test " << scenario.name << " before_close:";
+    for (auto n : scenario.stack) {
+      std::cout << ' ' << n;
+    }
+    std::cout << '\n';
+
+    HWND const close_before_save =
+        FindOwned(pid, kSurfacesWindowClass, L"Surface 2");
+    PostMessageW(close_before_save, WM_CLOSE, 0, 0);
+    gui.join();
+
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    CHECK(application->surfaces->desktop_z_order.size() == 4);
+    for (std::size_t i = 0; i < scenario.stack.size(); ++i) {
+      CHECK(application->surfaces->desktop_z_order[i]->number ==
+            scenario.stack[i]);
+    }
+
+    WinApp app2;
+    std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
+    CHECK(WaitCount(pid, kSurfacesWindowClass, 4, std::chrono::seconds{30}));
+    PumpGui(std::chrono::milliseconds{300});
+    auto const restored = SurfaceNumbersFromHostWindowsTopToBottom(pid);
+    std::cout << "zorder_test " << scenario.name << " after_load:";
+    for (auto n : restored) {
+      std::cout << ' ' << n;
+    }
+    std::cout << '\n';
+    CHECK(restored == scenario.stack);
+
+    HWND const close_after_load =
+        FindOwned(pid, kSurfacesWindowClass, L"Surface 2");
+    PostMessageW(close_after_load, WM_CLOSE, 0, 0);
+    gui2.join();
+    std::filesystem::remove_all(dir);
+  }
+}
+
+void TestDesktopZOrderAfterRemoveMiddleAndAdd() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_zorder_remove_add";
+  std::filesystem::remove_all(dir);
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{30}));
+
+  HWND s2 = FindOwned(pid, kSurfacesWindowClass, L"Surface 2");
+  SendMessageW(FindCloseButton(s2), BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{30}));
+
+  s1 = FindOwned(pid, kSurfacesWindowClass, L"Surface 1");
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{30}));
+
+  std::vector<std::uint32_t> const expected_stack{3, 1, 4};
+  ApplySurfaceNumbersZOrder(pid, expected_stack);
+  ActivateSurfaceNumber(pid, 3);
+  CHECK(SurfaceNumbersFromHostWindowsTopToBottom(pid) == expected_stack);
+
+  HWND const close_before_save =
+      FindOwned(pid, kSurfacesWindowClass, L"Surface 1");
+  PostMessageW(close_before_save, WM_CLOSE, 0, 0);
+  gui.join();
+
+  WinApp app2;
+  std::thread gui2{[&] { CHECK(app2.Run(dir) == 0); }};
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{30}));
+  PumpGui(std::chrono::milliseconds{300});
+  CHECK(SurfaceNumbersFromHostWindowsTopToBottom(pid) == expected_stack);
+  HWND const close_after_load =
+      FindOwned(pid, kSurfacesWindowClass, L"Surface 1");
+  PostMessageW(close_after_load, WM_CLOSE, 0, 0);
   gui2.join();
   std::filesystem::remove_all(dir);
 }
@@ -1037,6 +1195,8 @@ int main() {
   apptraverse::test::TestCloseButtonRemovesOne();
   apptraverse::test::TestNativeXKeepsAllSurfaces();
   apptraverse::test::TestActiveZOrderRestored();
+  apptraverse::test::TestFullDesktopZOrderDistinctStacksSameTop();
+  apptraverse::test::TestDesktopZOrderAfterRemoveMiddleAndAdd();
   apptraverse::test::TestControlsFollowPresentationSize();
   apptraverse::test::TestPostReleaseOuterFrameStable();
   std::cout << "surfaces_win32_smoke_test OK\n";

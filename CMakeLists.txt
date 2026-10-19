@@ -169,6 +169,7 @@ endif()
 if(WIN32)
   add_library(apptraverse_surfaces_windows STATIC
     src/platform/windows/surfaces_win_presenters.cpp
+    src/platform/windows/surfaces_win32_z_order.cpp
     src/platform/windows/surfaces_win_registration.cpp
   )
   target_link_libraries(apptraverse_surfaces_windows PUBLIC

@@ -1,5 +1,7 @@
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
 
+#include "apptraverse/platform/windows/surfaces_win32_z_order.h"
+
 #include <string>
 
 #include "apptraverse/model_object_proxy.h"
@@ -114,7 +116,8 @@ LRESULT CALLBACK SurfaceHostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
     return 0;
   }
   if (msg == WM_ACTIVATE) {
-    if (LOWORD(wparam) != WA_INACTIVE) {
+    if (LOWORD(wparam) != WA_INACTIVE &&
+        !SurfacesWin32ZOrderRestoreInProgress()) {
       presenter->PageShown();
     }
     return DefWindowProcW(hwnd, msg, wparam, lparam);

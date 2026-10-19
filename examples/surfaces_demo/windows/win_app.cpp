@@ -6,6 +6,7 @@
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
 #include "win32_fatal.h"
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
+#include "apptraverse/platform/windows/surfaces_win32_z_order.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
 
 namespace apptraverse {
@@ -51,6 +52,31 @@ void WinApp::QueueAllWindowBounds() {
   }
 }
 
+void WinApp::QueueDesktopZOrderSnapshot() {
+  if (!ui_application_ || !model_proxy_) {
+    return;
+  }
+  DWORD const pid = GetCurrentProcessId();
+  std::vector<HWND> const host_windows =
+      EnumerateSurfaceHostWindowsTopToBottom(pid);
+  std::vector<std::uint32_t> ordered_obj_ids;
+  ordered_obj_ids.reserve(host_windows.size());
+  for (HWND hwnd : host_windows) {
+    for (auto const& surface : ui_application_->surfaces->surfaces) {
+      if (Win32SurfaceWindowPresenter::ptr window =
+              ResolveWin32WindowPresenter(*surface)) {
+        if (window->hwnd == hwnd) {
+          ordered_obj_ids.push_back(surface->obj_id.id());
+          break;
+        }
+      }
+    }
+  }
+  model_proxy_->Invoke<Surfaces>(
+      ui_application_->surfaces->obj_id, &Surfaces::SetDesktopZOrderFromObjIds,
+      std::move(ordered_obj_ids));
+}
+
 void WinApp::QueueForegroundAsCurrent() {
   HWND const foreground = GetForegroundWindow();
   for (auto const& surface : ui_application_->surfaces->surfaces) {
@@ -64,45 +90,59 @@ void WinApp::QueueForegroundAsCurrent() {
   }
 }
 
-void WinApp::RestoreActiveSurfaceZOrder() {
-  auto& surfaces = ui_application_->surfaces->surfaces;
-  Surface::ptr target = ui_application_->surfaces->mobile_current;
-  if (!target) {
-    if (surfaces.empty()) {
-      return;
+void WinApp::RestoreDesktopSurfaceZOrder() {
+  Surfaces& surfaces_node = *ui_application_->surfaces;
+  std::vector<HWND> hwnds_top_to_bottom;
+  if (!surfaces_node.desktop_z_order.empty()) {
+    hwnds_top_to_bottom.reserve(surfaces_node.desktop_z_order.size());
+    for (auto const& surface : surfaces_node.desktop_z_order) {
+      if (Win32SurfaceWindowPresenter::ptr window =
+              ResolveWin32WindowPresenter(*surface)) {
+        if (window->hwnd != nullptr) {
+          hwnds_top_to_bottom.push_back(window->hwnd);
+        }
+      }
     }
-    // Pre-z-order state: keep last-created (creation order) on top.
-    target = surfaces.back();
+  } else {
+    Surface::ptr target = surfaces_node.mobile_current;
+    if (!target) {
+      if (surfaces_node.surfaces.empty()) {
+        return;
+      }
+      target = surfaces_node.surfaces.back();
+    }
+    if (Win32SurfaceWindowPresenter::ptr window =
+            ResolveWin32WindowPresenter(*target)) {
+      if (window->hwnd != nullptr) {
+        hwnds_top_to_bottom.push_back(window->hwnd);
+      }
+    }
   }
-  HWND target_hwnd = nullptr;
-  SurfacePresenter* target_presenter = nullptr;
-  if (Win32SurfaceWindowPresenter::ptr window =
-          ResolveWin32WindowPresenter(*target)) {
-    target_hwnd = window->hwnd;
-    target_presenter = &*window;
-  }
-  if (target_hwnd == nullptr || target_presenter == nullptr) {
+  if (hwnds_top_to_bottom.empty()) {
     return;
   }
-  if (SetWindowPos(target_hwnd, HWND_TOP, 0, 0, 0, 0,
-                   SWP_NOMOVE | SWP_NOSIZE) == 0) {
-    DWORD const err = GetLastError();
-    FatalWin32("SetWindowPos HWND_TOP", err);
+  SetSurfacesWin32ZOrderRestoreInProgress(true);
+  ApplySurfaceHostWindowsZOrderTopToBottom(hwnds_top_to_bottom);
+  SetSurfacesWin32ZOrderRestoreInProgress(false);
+
+  Surface::ptr const focus = surfaces_node.mobile_current;
+  if (!focus) {
+    return;
   }
-  // Best-effort focus; Z-order is already HWND_TOP. Foreground rights may be
-  // denied when another process owns the foreground.
-  SetForegroundWindow(target_hwnd);
-  // Explicit PageShown: WM_ACTIVATE may not fire when already foreground.
-  target_presenter->PageShown();
+  if (Win32SurfaceWindowPresenter::ptr window =
+          ResolveWin32WindowPresenter(*focus)) {
+    if (window->hwnd != nullptr) {
+      SetForegroundWindow(window->hwnd);
+    }
+  }
 }
 
 void WinApp::RequestApplicationStop() {
   SurfacesShutdownTrace::MarkCloseRequested();
-  // Current Surface + geometry must be accepted before stop so Save persists
-  // both mobile_current (z-order) and desktop_*.
   if (ui_application_) {
-    QueueForegroundAsCurrent();
     QueueAllWindowBounds();
+    QueueDesktopZOrderSnapshot();
+    QueueForegroundAsCurrent();
   }
   SurfacesShutdownTrace::MarkCloseUiStateQueued();
   session_.RequestStop();
@@ -152,7 +192,7 @@ void WinApp::OnInitialPublished() {
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
   InitializePresenters(*ui_application_, notify_, &*model_proxy_);
-  RestoreActiveSurfaceZOrder();
+  RestoreDesktopSurfaceZOrder();
   if (DestroyWindow(loading_) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("DestroyWindow Loading", err);
