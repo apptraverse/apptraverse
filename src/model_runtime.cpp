@@ -22,7 +22,7 @@ ModelRuntime::ModelRuntime(ae::Obj& application_root, UiMirror& ui_mirror)
 ModelRuntime::~ModelRuntime() {
   RequestStop();
   Join();
-  ClearReachableNodesMaterializedChangeNotifier(application_root_);
+  ClearLiveReachableNodesMaterializedChangeNotifier(application_root_);
   for (Node* node : model_nodes_) {
     node->ClearMaterializedChangeNotifier();
   }

@@ -99,6 +99,9 @@ void CollectMaterializedReachableObjects(ae::Obj& root,
 void CollectReachableObjectsFromLiveFields(ae::Obj& root,
                                            std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
+// Live ObjPtr topology only (no Save walk); Node::base/journal excluded via
+// RemoveDistilledBaseObjects on the object walk.
+void CollectLiveReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 
 void CollectPersistentSerializationReachableObjects(
     ae::Obj& root, std::vector<ae::Obj*>& out);

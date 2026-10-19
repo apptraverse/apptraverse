@@ -298,7 +298,12 @@ class Node : public ae::Obj {
     base = Node::ptr{};
     journal.clear();
 
-    ae::DomainGraph save_graph{domain};
+    // Serialize into RAM first so recursive ObjPtr saves do not rewrite the
+    // whole live session graph on DirectoryDomainStorage during Add/init.
+    ae::RamDomainStorage scratch;
+    ae::Domain scratch_domain{scratch};
+    ae::DomainGraph save_graph{
+        &scratch_domain, ae::GraphSerializationScope::MaterializedPublication};
     bool const owner_marked =
         save_graph.cycle_detector.Add(ConcreteNode::kClassId, owner_id);
     assert(owner_marked);
@@ -307,6 +312,25 @@ class Node : public ae::Obj {
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
+
+    auto const base_id = saved_base.id();
+    ae::IDomainStorage& persistent_storage = domain->domain_storage();
+    auto const scratch_obj = scratch.state.find(base_id);
+    assert(scratch_obj != scratch.state.end() &&
+           scratch_obj->second.has_value());
+    for (auto const& [class_id, versions] : *scratch_obj->second) {
+      for (auto const& [version, data] : versions) {
+        auto writer = persistent_storage.Store(
+            ae::DomainQuery{base_id, class_id, version});
+        assert(writer != nullptr);
+        if (!data.empty()) {
+          auto const result = writer->Write(
+              ae::seri::DataWriteTag{data.data(), data.size()});
+          assert(result);
+          (void)result;
+        }
+      }
+    }
 
     auto& concrete_base = static_cast<ConcreteNode&>(*base);
     ae::DomainGraph load_graph{domain};

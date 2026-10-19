@@ -185,7 +185,7 @@ void SurfacesModelSession::Run(
       }
     }
 
-    ClearReachableNodesMaterializedChangeNotifier(*application);
+    ClearLiveReachableNodesMaterializedChangeNotifier(*application);
     application.Save();
   }
 }

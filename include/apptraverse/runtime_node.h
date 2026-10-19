@@ -63,6 +63,14 @@ inline void BindReachableNodesMaterializedChangeNotifier(
   }
 }
 
+inline void ClearLiveReachableNodesMaterializedChangeNotifier(ae::Obj& root) {
+  std::vector<Node*> nodes;
+  CollectLiveReachableNodes(root, nodes);
+  for (Node* node : nodes) {
+    node->ClearMaterializedChangeNotifier();
+  }
+}
+
 inline void ClearReachableNodesMaterializedChangeNotifier(ae::Obj& root) {
   std::vector<Node*> nodes;
   CollectReachableNodes(root, nodes);

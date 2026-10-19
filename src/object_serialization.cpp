@@ -386,6 +386,18 @@ void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
   }
 }
 
+void CollectLiveReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
+  std::vector<ae::Obj*> objects;
+  CollectReachableObjectsFromLiveFields(root, objects);
+  out.clear();
+  out.reserve(objects.size());
+  for (ae::Obj* obj : objects) {
+    if (auto* node = AsObjOf<Node>(obj)) {
+      out.push_back(node);
+    }
+  }
+}
+
 void CollectPersistentSerializationReachableObjects(
     ae::Obj& root, std::vector<ae::Obj*>& out) {
   ae::RamDomainStorage scratch;

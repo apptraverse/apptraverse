@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cassert>
 
-#include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/runtime_node.h"
 
@@ -65,10 +64,11 @@ void Surface::AddSurface() {
   sibling->number = next_number;
   AssignInitialDesktopBounds(*sibling);
   sibling->surfaces = surfaces;
-  auto application = LoadApplication<Application>(
-      *parent.domain,
-      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
-  AttachPlatformSurfacePresenters(*sibling, *application, *parent.domain);
+  auto application = parent.domain->Find(ae::ObjId{surfaces_demo::ToObjId(
+      surfaces_demo::ObjId::Application)});
+  assert(application && "AddSurface requires live Application in domain");
+  AttachPlatformSurfacePresenters(*sibling, static_cast<Application&>(*application),
+                                    *parent.domain);
   // New Surface is a Node: establish base/journal and inherit this Surface's
   // model-runtime notifier before it becomes live.
   InitializeRuntimeNode(*sibling, *this);

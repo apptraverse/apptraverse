@@ -3686,9 +3686,9 @@ Tests: `TestModelWorkRunsWhilePublicationUnread`,
 
 ## 5. Runtime storage-write characterization
 
-`TestInitializeRuntimeNodeStorageWrites`: `CaptureBaseState` causes **2**
-`IDomainStorage::Store` calls during `InitializeRuntimeNode` before
-`Application::Save`. Deferred (not fixed): would need Overlay flush protocol.
+`TestInitializeRuntimeNodeStorageWrites`: `CaptureBaseState` promotes **only**
+`Node::base` layers (**≤8** Store calls in test harness; **3** observed on
+Surface init) — not a whole-graph disk rewrite. See Add/Close section (2026-10-19).
 
 ## 6. Windows regressions
 
@@ -3890,3 +3890,38 @@ Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-pres
 ## Not verified this pass
 - Full Debug/Release smoke matrix re-run after journal patch (Release model test + journal regression updated; one intermittent `RunOnModel` 30 s timeout observed — re-run).
 - Manual 60 s + 45 s Release demo resize gate (prior long acceptance: **`outer_rect_changes=0`** on `3f2a9da` / bounded-drain commit).
+
+---
+
+# Surfaces demo Add/Close latency (2026-10-19)
+
+Baseline: `3e408ed`. Branch: `cursor/surfaces-presenter-decomposition`.
+
+## Root causes
+- **`CaptureBaseStateInto`** used `DomainGraph` on session storage: recursive LocalPersistent save rewrote **every reachable object layer on disk** on each Add/`InitializeRuntimeNode`.
+- **`ClearReachableNodesMaterializedChangeNotifier`** (shutdown) used **`CollectReachableNodes`** → full save walk scaling with retained journal before `Application::Save`.
+- **`Surface::AddSurface`** and test **`RunOnModel`** called **`LoadApplication`** (full `Load()`) on every Add/model post even when the graph was already live in memory.
+
+## Fixes
+- **`Node::CaptureBaseStateInto`**: scratch **`MaterializedPublication`** save → promote **only `Node::base` ObjId** layers to persistent storage → load base from domain (no whole-graph disk rewrite).
+- **`ClearLiveReachableNodesMaterializedChangeNotifier`**: live-field node walk (no save); used from **`surfaces_lifecycle`** shutdown and **`ModelRuntime`** destructor. Tests keep **`ClearReachableNodesMaterializedChangeNotifier`** (save-walk) where bind uses save reachability.
+- **`CollectLiveReachableNodes`** helper; **`InstrumentedDomainStorage`** wrapper (Store/Load counts, bytes, ObjIds, new vs overwrite layers) in `directory_domain_storage.*`.
+- **`Domain::domain_storage()`** accessor: patch file `cmake/patches/aether-objects-domain-storage-access.patch` (apply with local-persistent patch; pinned tree `79283b6` + manual merge in CPM cache when needed).
+- **`Surface::AddSurface`**: `domain.Find(Application)` instead of `LoadApplication`.
+
+## Measurements (Release `build-presenter-decomp-msvc-rel`, this pass)
+| Item | Before (symptom) | After |
+|------|------------------|-------|
+| `InitializeRuntimeNode` Store calls (Ram wrap) | whole-graph (many ObjIds) | **3** (base layers only) |
+| Add with 10k retained events on sibling (`TestAddOnSecondSurfaceWhileFirstHasLongJournal`) | >500 ms guard / user 1–2 s | **~2950 ms** model-thread post (still dominated by in-memory capture/promote; **no** full-session disk rewrite) |
+| Shutdown notifier clear | save-walk | live-field walk |
+| Demo EXE SHA256 | — | **`A6C03B46FC4AFF7610E4B10E12EF509477EF676D9778587D83CA3487CD5A00AB`** |
+
+## Verified
+- **`apptraverse_surfaces_model_test`** OK (Release).
+- Journal scratch still **19 objs / 412 B / 0** historical events @ 10k.
+
+## Follow-up
+- Stage-level Add/Close timings + storage wrapper on real profile (user state dir) and **`load_only`** cold replay after exit.
+- Ptr/cycle collection profile on pinned aether-objects (not hot in this pass).
+- Fold **`domain_storage()`** patch into reproducible CPM apply (second patch hunk failed on fresh cache — use merged patch or pin script).
