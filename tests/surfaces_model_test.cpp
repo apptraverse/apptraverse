@@ -94,6 +94,10 @@ ModelObjectProxy MakeSessionProxy(SurfacesModelSession& session) {
   }};
 }
 
+void AttachSessionProxy(SurfacesModelSession& session, ModelObjectProxy& proxy) {
+  session.presentation_size_queue.BindProxy(&proxy);
+}
+
 // Run work on the model thread and wait for it, so each test step is ordered
 // against the publication state the next assertion inspects.
 void RunOnModel(SurfacesModelSession& session,
@@ -619,6 +623,7 @@ void TestPresentationSizeThroughGuiProxy() {
   ae::Domain ui_domain{ui_storage};
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
   auto proxy = MakeSessionProxy(session);
+  AttachSessionProxy(session, proxy);
   InitializePresenters(*ui_app, nullptr, &proxy);
   SurfacePresenter::ptr ui_presenter{ui_app->surfaces->surfaces[0]->chrome.window};
   CHECK(ui_presenter->IsWide());
@@ -645,9 +650,115 @@ void TestPresentationSizeThroughGuiProxy() {
           SurfacePresentationSizeChangedEvent::kClassId);
   });
 
+  session.presentation_size_queue.UnbindProxy(&proxy);
   session.RequestStop();
   model.join();
   std::filesystem::remove_all(dir);
+}
+
+void TestPresentationSizeCoalescesUnderBurst() {
+  auto dir = TestDir("apptraverse_surfaces_presentation_size_coalesce");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+
+  WaitPublished(session);
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  auto proxy = MakeSessionProxy(session);
+  AttachSessionProxy(session, proxy);
+  InitializePresenters(*ui_app, nullptr, &proxy);
+  SurfacePresenter::ptr ui_presenter{
+      ui_app->surfaces->surfaces[0]->chrome.window};
+  auto const surface_id = ui_app->surfaces->surfaces[0]->obj_id;
+
+  for (int i = 0; i < 500; ++i) {
+    ui_presenter->PresentationSizeChanged(300 + i, 900 - i);
+  }
+  CHECK(session.presentation_size_queue.PendingSurfaceCountForTest() <= 1);
+
+  WaitPublished(session);
+  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
+                          &proxy);
+  CHECK(ui_app->surfaces->surfaces[0]->presentation_width == 799);
+  CHECK(ui_app->surfaces->surfaces[0]->presentation_height == 401);
+
+  RunOnModel(session, [surface_id](Application& app) {
+    auto* surface = app.domain->Find(surface_id).as<Surface>();
+    std::size_t size_events = 0;
+    for (auto const& entry : surface->journal) {
+      if (entry.event->GetClassId() ==
+          SurfacePresentationSizeChangedEvent::kClassId) {
+        ++size_events;
+      }
+    }
+    CHECK(size_events <= 2);
+    CHECK(surface->presentation_width == 799);
+    CHECK(surface->presentation_height == 401);
+  });
+
+  ui_presenter->PresentationSizeChanged(640, 480);
+  RunOnModel(session, [](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
+  });
+  WaitPublished(session);
+  (void)TakeAndWake(session);
+  RunOnModel(session, [](Application& app) {
+    CHECK(app.surfaces->surfaces.size() == 2);
+  });
+
+  session.presentation_size_queue.UnbindProxy(&proxy);
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
+std::chrono::nanoseconds CollectLiveFieldReachableOnce(Application& application) {
+  auto const t0 = std::chrono::steady_clock::now();
+  std::vector<ae::Obj*> live;
+  CollectReachableObjectsFromLiveFields(application, live);
+  CHECK(!live.empty());
+  return std::chrono::steady_clock::now() - t0;
+}
+
+void TestCollectLiveReachableStableWithLongJournal() {
+  struct SeededApp {
+    ae::RamDomainStorage storage;
+    ae::Domain domain{storage};
+    Application::ptr application;
+  };
+  auto seed_journal = [](int event_count) {
+    SeededApp seeded;
+    seeded.application = BuildSurfacesGraph(seeded.domain);
+    FinalizeDistilledGraph(*seeded.application);
+    Surface& surface = *seeded.application->surfaces->surfaces[0];
+    for (int i = 0; i < event_count; ++i) {
+      surface.SetPresentationSize(400 + i, 800 - i);
+    }
+    CHECK(surface.journal.size() >=
+          static_cast<std::size_t>(event_count / 2));
+    return seeded;
+  };
+
+  auto const t100 = CollectLiveFieldReachableOnce(*seed_journal(100).application);
+  auto const t1000 =
+      CollectLiveFieldReachableOnce(*seed_journal(1000).application);
+  auto const t10000 =
+      CollectLiveFieldReachableOnce(*seed_journal(10000).application);
+
+  auto const ms = [](std::chrono::nanoseconds t) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(t).count();
+  };
+  std::cout << "CollectLiveFieldReachable ms: 100ev=" << ms(t100)
+            << " 1000ev=" << ms(t1000) << " 10000ev=" << ms(t10000) << "\n";
+
+  // Live-field walk must not replay retained Node history.
+  CHECK(t1000 <= t100 + std::chrono::milliseconds{500});
+  CHECK(t10000 <= t100 + std::chrono::milliseconds{500});
 }
 
 void TestGeometryPersistence() {
@@ -1633,6 +1744,8 @@ int main() {
   apptraverse::test::TestPresentationSize();
   apptraverse::test::TestPresentationSizePersistence();
   apptraverse::test::TestPresentationSizeThroughGuiProxy();
+  apptraverse::test::TestPresentationSizeCoalescesUnderBurst();
+  apptraverse::test::TestCollectLiveReachableStableWithLongJournal();
   apptraverse::test::TestGeometryPersistence();
   apptraverse::test::TestCurrentPageReplay();
   apptraverse::test::TestCurrentPageIdentitySurvivesRemoveBefore();

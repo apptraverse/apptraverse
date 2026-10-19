@@ -1,22 +1,22 @@
-## Host	oClient delivery (2026-09-17) — NOT FIXED
+## Host	oClient delivery (2026-09-17) ? NOT FIXED
 
 Starting SHA: `d9b11a48771d077f0208543fbd1663ca71224d1e`
 
 ### Reproduced first broken edge
-- Baseline: Client Join → Host Accept+NodeState → Client binds (Joined, same room) works after wrapping P2p with `P2pSafeStream`.
+- Baseline: Client Join ? Host Accept+NodeState ? Client binds (Joined, same room) works after wrapping P2p with `P2pSafeStream`.
 - First missing post-Join stage: Host journal Event `APP_TX` never gets `WRITE_OK` (SafeStream status callback absent) while Client has no `APP_RX` for that Event. Fake/bootstrap tests are not this failure.
 - Live pair logs: `chat_live_nohb_*`, `chat_live_halfduplex_*`, `chat_live_hostreset_*`, `chat_live_newport_*`.
 
 ### Owning layer
-`ChatAetherRuntime` / `ae::P2pSafeStream` post-Join send path — not admission, binding, or GUI. NodeState (840B) and Join ACK (14–24B) complete; next Event (~224B) stalls.
+`ChatAetherRuntime` / `ae::P2pSafeStream` post-Join send path ? not admission, binding, or GUI. NodeState (840B) and Join ACK (14?24B) complete; next Event (~224B) stalls.
 
 ### Landed (partial)
 - Join delivery trace (`APPTRAVERSE_JOIN_TRACE`) + live pair continuous readers
 - `P2pSafeStream` for MTU fragmentation; serialize one Write; disable app heartbeats on that window
 - NEW_PORT always binds (do not drop inbound when Linked outbound exists)
 - Half-duplex: Client defers large APP TX once after Join ACK until Host Event RX
-- Accepted 30s room-sync timeout + Win32 button `Syncing…` (was infinite Accepted / both labeled Joining…)
-- Experimental post-Join CreatePort / hang recovery — does not reliably clear Event WRITE hang within live timeout
+- Accepted 30s room-sync timeout + Win32 button `Syncing?` (was infinite Accepted / both labeled Joining?)
+- Experimental post-Join CreatePort / hang recovery ? does not reliably clear Event WRITE hang within live timeout
 
 ### Still open
 Live cold join+bidirectional text over real Aether: **NOT FIXED**. First missing stage remains Host Event `WRITE_OK` / Client Event `APP_RX` after Join.
@@ -24,13 +24,13 @@ Live cold join+bidirectional text over real Aether: **NOT FIXED**. First missing
 ---
 Status: implemented/verified on main. Not accepted.
 
-# CURSOR — CHAT DEMO 05: FIRST WINDOWS CHAT + REUSABLE CHAT SESSION
+# CURSOR ? CHAT DEMO 05: FIRST WINDOWS CHAT + REUSABLE CHAT SESSION
 
 ## Identity
 
 - Starting AppTraverse SHA: `b1b3a608f41dfdc9bcdff786edc1289fa9dfb306`
 - Pinned aether SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3` (unchanged)
-- Direct main only: tests → commits → push origin/main. NO PR. NO feature branch. NO force push.
+- Direct main only: tests ? commits ? push origin/main. NO PR. NO feature branch. NO force push.
 
 ## What Landed
 
@@ -71,13 +71,13 @@ Status: implemented/verified on main. Not accepted.
 
 ---
 
-# CURSOR — CHAT DEMO 04: MODEL-THREAD DELIVERY + SAFE AETHER MUX + CROSS-PLATFORM BUILD
+# CURSOR ? CHAT DEMO 04: MODEL-THREAD DELIVERY + SAFE AETHER MUX + CROSS-PLATFORM BUILD
 
 ## Identity
 
 - Starting AppTraverse SHA: `e443e5ce099070244b760636caed98d561f65d41`
 - Pinned aether SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3` (unchanged)
-- Direct main only: tests → commits → push origin/main. NO PR. NO feature branch. NO force push.
+- Direct main only: tests ? commits ? push origin/main. NO PR. NO feature branch. NO force push.
 
 ## What Landed
 
@@ -116,13 +116,13 @@ Status: implemented/verified on main. Not accepted.
 
 ---
 
-# CURSOR — CHAT DEMO 03: REAL AETHER TRANSPORT + HEARTBEAT PRESENCE
+# CURSOR ? CHAT DEMO 03: REAL AETHER TRANSPORT + HEARTBEAT PRESENCE
 
 ## Identity
 
 - Starting AppTraverse SHA: `efd0838029fa0f836e44e97153046109556f472a`
 - Pinned aether SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3` (unchanged)
-- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+- Direct main only: tests ? commit ? push origin/main. NO PR. NO feature branch. NO force push.
 
 ## What Landed
 
@@ -190,12 +190,12 @@ Status: implemented/verified on main. Not accepted.
 ---
 Status: implemented/verified on main. Not accepted.
 
-# CURSOR — CHAT DEMO 02: SAFE TWO-WAY SCALAR CHAT SYNC
+# CURSOR ? CHAT DEMO 02: SAFE TWO-WAY SCALAR CHAT SYNC
 
 ## Identity
 
 - Starting AppTraverse SHA: `c96417288138a6954eae7054095b911962433784`
-- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+- Direct main only: tests ? commit ? push origin/main. NO PR. NO feature branch. NO force push.
 
 ## What Landed
 
@@ -241,12 +241,12 @@ Status: implemented/verified on main. Not accepted.
 ---
 Status: implemented/verified on main. Not accepted.
 
-# CURSOR — CHAT DEMO 01: SHARED MESSAGE MODEL + LOCAL WORKSPACE
+# CURSOR ? CHAT DEMO 01: SHARED MESSAGE MODEL + LOCAL WORKSPACE
 
 ## Identity
 
 - Starting AppTraverse SHA: `75fe82d56d7df1ff86c1ddf2c25bc2f1115bbf71`
-- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+- Direct main only: tests ? commit ? push origin/main. NO PR. NO feature branch. NO force push.
 
 ## What Landed
 
@@ -255,7 +255,7 @@ Status: implemented/verified on main. Not accepted.
    - `ChatEntry` (derived from `Node`): local workspace entry binding peer Admin ID / display name to a draft, scroll anchor, peer `Link`, and shared `ChatRoom`.
    - `ChatWorkspace` (derived from `Node`): local persistence root managing `chats`, `desktop_bounds`, `local_endpoint_uid`, and monotonic `next_message_sequence`.
    - Value types: `MessageValue`, `ScrollAnchor`, `DesktopBounds`.
-   - Object graph direction: `Workspace → ChatEntry → ChatRoom` and `Workspace → ChatEntry → Link`. No back-pointers from `ChatRoom` to local workspace state.
+   - Object graph direction: `Workspace ? ChatEntry ? ChatRoom` and `Workspace ? ChatEntry ? Link`. No back-pointers from `ChatRoom` to local workspace state.
 
 2. **Native Aether Serialization**:
    - Each registered class serializes base and its own fields via native `Load`/`Save` (`dnv(base_, ...)`):
@@ -281,14 +281,14 @@ Status: implemented/verified on main. Not accepted.
 ---
 Status: implemented/verified on main. Not accepted.
 
-# CURSOR — FIX 01: NATIVE CLASS-LAYER SERIALIZATION
+# CURSOR ? FIX 01: NATIVE CLASS-LAYER SERIALIZATION
 
 ## Identity
 
 - Starting AppTraverse SHA: `6c21a17a6af6d00776cc9ad088aeab22ade2c245`
 - Pinned aether-objects SHA: `1d30264737c9bcca8a181161116b66c7dbeeb5fb`
 - Pinned aether-client-cpp SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3`
-- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+- Direct main only: tests ? commit ? push origin/main. NO PR. NO feature branch. NO force push.
 
 ## What Landed
 
@@ -302,36 +302,36 @@ Status: implemented/verified on main. Not accepted.
    - Removed `kNodeJournalFormat` and format-word markers.
    - Removed comments claiming native class versions cannot distinguish base layers.
    - `Node` current registered version bumped from 3 to 4. `Node::Load(Version<4>)` and `Save(Version<4>)` serialize `dnv(base_, base, journal)`.
-   - Versions 0–3 of `Node` retain explicit rejection loaders with informative error messages that do not mutate storage.
+   - Versions 0?3 of `Node` retain explicit rejection loaders with informative error messages that do not mutate storage.
    - Concrete derived classes whose persisted layer changed increased their own current version by 1 and added rejection loaders for their old flattened layouts.
 
 3. **Class/Version Inventory**:
-   - `Node` (base `ae::Obj`): v3 → v4 (`dnv(base_, base, journal)`)
+   - `Node` (base `ae::Obj`): v3 ? v4 (`dnv(base_, base, journal)`)
    - `Link` (base `Node`): v0 (`dnv(base_)`)
-   - `MemoryLink` (base `Link`): v1 → v2 (`dnv(base_, endpoint_uid, heartbeat_interval_ms)`)
-   - `SharedNode` (base `Node`): v1 → v2 (`dnv(base_, shares, link_sync_states)`)
-   - `LinkSyncState` (base `Node`): v2 → v3 (`dnv(base_, share_id, ..., pending_event_packet)`)
-   - `ApplicationRuntimeState` (base `Node`): v1 → v2 (`dnv(base_, run_id)`)
-   - `NetworkState` (base `Node`): v1 → v2 (`dnv(base_, run_id, availability)`)
-   - `AetherRegistrationState` (base `Node`): v1 → v2 (`dnv(base_, run_id, registered_run_id, phase, uid)`)
-   - `SharedValueNode` (base `SharedNode`): v1 → v2 (`dnv(base_, value)`)
-   - `Client` (base `Node`): v1 → v2 (`dnv(base_, name, link)`)
-   - `ChildSharedNode` (base `SharedNode`): v1 → v2 (`dnv(base_, child_value)`)
-   - `RootSharedNode` (base `SharedNode`): v1 → v2 (`dnv(base_, root_value, child)`)
-   - `Surface` (base `Node`): v2 → v3 (`dnv(base_, number, ..., presenter)`)
-   - `Surfaces` (base `Node`): v1 → v2 (`dnv(base_, surfaces, mobile_current)`)
-   - `ItemList` (base `Node`): v1 → v2 (`dnv(base_, items, presenter, window)`)
-   - `MainWindow` (dynamic_demo, base `Node`): v1 → v2 (`dnv(base_, x, y, width, height, item_list, add_item, presenter)`)
-   - `MainWindow` (main_window_runtime_demo, base `Node`): v4 → v5 (`dnv(base_, x, y, width, height, presenter)`)
-   - `ChatClient` (base `Node`): v1 → v2 (`dnv(base_, display_name, aether_uid, presence)`)
-   - `ChatRoom` (base `Node`): v1 → v2 (`dnv(base_, clients, feed)`)
-   - `Item` (closed_event_graph_test, base `Node`): v0 → v1 (`dnv(base_, name, scalar_old_id, metadata, local_link)`)
-   - `ContainerNode` (closed_event_graph_test, base `Node`): v0 → v1 (`dnv(base_, items)`)
-   - `StateDependentNode` (shared_node_incremental_event_test, base `SharedNode`): v1 → v2 (`dnv(base_, state_code)`)
+   - `MemoryLink` (base `Link`): v1 ? v2 (`dnv(base_, endpoint_uid, heartbeat_interval_ms)`)
+   - `SharedNode` (base `Node`): v1 ? v2 (`dnv(base_, shares, link_sync_states)`)
+   - `LinkSyncState` (base `Node`): v2 ? v3 (`dnv(base_, share_id, ..., pending_event_packet)`)
+   - `ApplicationRuntimeState` (base `Node`): v1 ? v2 (`dnv(base_, run_id)`)
+   - `NetworkState` (base `Node`): v1 ? v2 (`dnv(base_, run_id, availability)`)
+   - `AetherRegistrationState` (base `Node`): v1 ? v2 (`dnv(base_, run_id, registered_run_id, phase, uid)`)
+   - `SharedValueNode` (base `SharedNode`): v1 ? v2 (`dnv(base_, value)`)
+   - `Client` (base `Node`): v1 ? v2 (`dnv(base_, name, link)`)
+   - `ChildSharedNode` (base `SharedNode`): v1 ? v2 (`dnv(base_, child_value)`)
+   - `RootSharedNode` (base `SharedNode`): v1 ? v2 (`dnv(base_, root_value, child)`)
+   - `Surface` (base `Node`): v2 ? v3 (`dnv(base_, number, ..., presenter)`)
+   - `Surfaces` (base `Node`): v1 ? v2 (`dnv(base_, surfaces, mobile_current)`)
+   - `ItemList` (base `Node`): v1 ? v2 (`dnv(base_, items, presenter, window)`)
+   - `MainWindow` (dynamic_demo, base `Node`): v1 ? v2 (`dnv(base_, x, y, width, height, item_list, add_item, presenter)`)
+   - `MainWindow` (main_window_runtime_demo, base `Node`): v4 ? v5 (`dnv(base_, x, y, width, height, presenter)`)
+   - `ChatClient` (base `Node`): v1 ? v2 (`dnv(base_, display_name, aether_uid, presence)`)
+   - `ChatRoom` (base `Node`): v1 ? v2 (`dnv(base_, clients, feed)`)
+   - `Item` (closed_event_graph_test, base `Node`): v0 ? v1 (`dnv(base_, name, scalar_old_id, metadata, local_link)`)
+   - `ContainerNode` (closed_event_graph_test, base `Node`): v0 ? v1 (`dnv(base_, items)`)
+   - `StateDependentNode` (shared_node_incremental_event_test, base `SharedNode`): v1 ? v2 (`dnv(base_, state_code)`)
    - `NoteTargetNode` (shared_node_incremental_event_test, base `Node`): v0 (`dnv(base_)`)
-   - `Counter` (model_runtime_stop_test, base `Node`): v0 → v1 (`dnv(base_, value)`)
-   - `RetentionDoc` (journal_retention_test, base `Node`): v2 → v3 (`dnv(base_, value)`)
-   - `CounterDocument` (event_sourced_core_test, base `Node`): v1 → v2 (`dnv(base_, value, label)`)
+   - `Counter` (model_runtime_stop_test, base `Node`): v0 ? v1 (`dnv(base_, value)`)
+   - `RetentionDoc` (journal_retention_test, base `Node`): v2 ? v3 (`dnv(base_, value)`)
+   - `CounterDocument` (event_sourced_core_test, base `Node`): v1 ? v2 (`dnv(base_, value, label)`)
    - `TextToolbar`, `ColorToolbar`, `CenterStrip`, `Window`, `PaintWindow`, `LayoutWindow` (model_ui_runtime_demo, base `Node` / `Window`): explicit v0 Load/Save with `dnv(base_, ...)`.
 
 4. **Cross-Process Base-Version Evolution Test**:
@@ -347,7 +347,7 @@ Status: implemented/verified on main. Not accepted.
    - `SharedValueNode`: separate storage layers for `Node` (v4), `SharedNode` (v2), and `SharedValueNode` (v2); verified no duplicate fields.
    - `MemoryLink`: separate storage layers for `Node` (v4), `Link` (v0), and `MemoryLink` (v2).
    - `LinkSyncState`: separate storage layers for `Node` (v4) and `LinkSyncState` (v3).
-   - Verified Save → destroy Domain → Load root; base snapshot capture; mid-journal compaction and replay from base; `LinkSyncState` persistence across business replay.
+   - Verified Save ? destroy Domain ? Load root; base snapshot capture; mid-journal compaction and replay from base; `LinkSyncState` persistence across business replay.
 
 7. **Known Remaining Limitations**:
    - Unsafe `OperationStorage` context handling (`Write` side-channel) remains a known separate issue outside this slice's scope.
@@ -355,7 +355,7 @@ Status: implemented/verified on main. Not accepted.
 ---
 Status: implemented/verified on main. Not accepted.
 
-# CURSOR — Remove AppTraverse Custom Object Serialization
+# CURSOR ? Remove AppTraverse Custom Object Serialization
 
 ## Identity
 
@@ -363,7 +363,7 @@ Status: implemented/verified on main. Not accepted.
 - Pinned aether-objects SHA: `1d30264737c9bcca8a181161116b66c7dbeeb5fb`
 - Pinned aether-client-cpp SHA: `0b0e3b54b9ffa730c41597c8b18f6a75255bded3`
 - Aether dependency changes required: NO (plugs directly into native `IDomainStorage` / `IDomainStorageWriter` and `Serializer<BinaryArchive<DomainBuffer>, ObjectLink>` extension points)
-- Direct main only: tests → commit → push origin/main. NO PR. NO feature branch. NO force push.
+- Direct main only: tests ? commit ? push origin/main. NO PR. NO feature branch. NO force push.
 
 ## Architecture Note: Native Aether Serialization Investigation (Phase 1)
 
@@ -444,7 +444,7 @@ AppTraverse production code was reduced:
 ---
 Status: implemented/verified on main. Not accepted.
 
-# CURSOR — Finish closed Event graph serialization and import
+# CURSOR ? Finish closed Event graph serialization and import
 
 ## Identity
 
@@ -472,7 +472,7 @@ Status: implemented/verified on main. Not accepted.
   - Imported `AddItemEvent::Apply` attaches the imported `Item` without creating duplicate objects during `Apply` or forced journal replay.
 - **Source Independence**:
   - Freezing produces a self-contained payload without modifying source domain or storage.
-  - Parsed payloads can be imported and survive destruction of the source domain and receiver domain restart (Save → destroy → Load).
+  - Parsed payloads can be imported and survive destruction of the source domain and receiver domain restart (Save ? destroy ? Load).
 
 ## Tests
 
@@ -502,7 +502,7 @@ Status: implemented/verified on main. Not accepted.
 ---
 Status: implemented/verified on main. Not accepted.
 
-# CURSOR — Correct scratch replay and its tests
+# CURSOR ? Correct scratch replay and its tests
 
 ## Identity
 
@@ -535,7 +535,7 @@ Status: implemented/verified on main. Not accepted.
 ---
 Status: implemented/verified on main. Not accepted.
 
-# CURSOR — Incremental Event v1 hardening
+# CURSOR ? Incremental Event v1 hardening
 
 ## Identity
 
@@ -561,7 +561,7 @@ Status: implemented/verified on main. Not accepted.
 ---
 Status: implemented/verified on main. Not accepted.
 
-# CURSOR — SharedNode incremental standalone Event sync v1
+# CURSOR ? SharedNode incremental standalone Event sync v1
 
 ## Identity
 
@@ -602,7 +602,7 @@ Status: implemented/verified on main. Not accepted.
 ## Tests
 
 `apptraverse_shared_node_incremental_event_test` covers the required
-scenarios: normal A→B scalar Event, same `SharedEventId` / different Event
+scenarios: normal A?B scalar Event, same `SharedEventId` / different Event
 ObjIds (B occupies the sender ObjId first), timestamp preserved, mid-journal
 100/200/300 replay, persist-before-send, lost ACK exact retry, duplicate no
 reapply, sender/receiver restart, initial snapshot E1-vs-E2 coverage race,
@@ -615,12 +615,12 @@ graph refused, and strict Event frame decoding.
 - Events carrying new object graphs / child Nodes
 - topology Event replication
 - multi-hop / 3-replica fanout
-- presence, Æther, chat
+- presence, �ther, chat
 
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
-# CURSOR — Legacy SharedInstance / SharedRuntime sync engine removed
+# CURSOR ? Legacy SharedInstance / SharedRuntime sync engine removed
 
 ## Identity
 
@@ -643,58 +643,58 @@ than deprecated: no aliases, no compatibility wrappers.
 
 Production:
 
-- `include/apptraverse/shared_instance.h` — `SharedInstance<TNode>`,
+- `include/apptraverse/shared_instance.h` ? `SharedInstance<TNode>`,
   `PeerDeliveryState`, `PeerInFlightEntry`, `DeferredIncomingEvent`,
   `SharedWriteState`, `shared_room_id`, `peers[]`, `pending[]`, `in_flight[]`,
   `channel_ready`.
-- `include/apptraverse/shared_runtime.h`, `src/shared_runtime.cpp` —
+- `include/apptraverse/shared_runtime.h`, `src/shared_runtime.cpp` ?
   `SharedRuntime` with `kSharedEventPipelineWindow`,
   `kSharedEventRetryInterval`, per-peer `Tick` scheduling, ACK bookkeeping,
   deferred incoming Events, local identity/order assignment.
-- `include/apptraverse/shared_transport.h` — `ISharedTransport::SendEvent` /
+- `include/apptraverse/shared_transport.h` ? `ISharedTransport::SendEvent` /
   `SendAck`, `SharedEventFrame`, `SharedAckFrame`, room-and-peer addressing.
-- `include/apptraverse/shared_frame_codec.h`, `src/shared_frame_codec.cpp` —
+- `include/apptraverse/shared_frame_codec.h`, `src/shared_frame_codec.cpp` ?
   the codec for those two frames only.
-- `examples/chat_ui_runtime_demo/common/chat_shared.{h,cpp}` — the chat binding
+- `examples/chat_ui_runtime_demo/common/chat_shared.{h,cpp}` ? the chat binding
   over that runtime, including its shared-Event payload serialization, remap
   and runtime-field stripping.
-- `examples/chat_ui_runtime_demo/windows/aether_shared_transport.h` — the Æther
+- `examples/chat_ui_runtime_demo/windows/aether_shared_transport.h` ? the �ther
   Win32 adapter implementing `ISharedTransport`.
-- `SharedEventIdLess` — no caller remained; dedup compares identities for
+- `SharedEventIdLess` ? no caller remained; dedup compares identities for
   equality.
 
 Tests:
 
-- `tests/shared_journal_test.cpp` — deleted. It only drove the deleted engine
+- `tests/shared_journal_test.cpp` ? deleted. It only drove the deleted engine
   through a fake peer bridge. Its generic claims already live elsewhere:
   timestamp-only ordering and mid-journal replay in
   `apptraverse_event_sourced_core_test`, retention in
   `apptraverse_journal_retention_test`, packet duplicate/lost-ACK/restart
   behavior in `apptraverse_shared_node_initial_sync_test`. What it also covered
-  — peer queues, in-flight windows, retry intervals, deferred remote Events —
+  ? peer queues, in-flight windows, retry intervals, deferred remote Events ?
   is behavior of the deleted architecture and is not preserved.
-- `tests/chat_p2p_headless_test.cpp` — deleted, with its CMake target
-  `apptraverse_chat_p2p_headless_test`. It was a Win32 Æther P2P convergence
+- `tests/chat_p2p_headless_test.cpp` ? deleted, with its CMake target
+  `apptraverse_chat_p2p_headless_test`. It was a Win32 �ther P2P convergence
   test built on `ISharedTransport` and the chat binding. Note that the
   repository chat-test instructions still name it; real P2P convergence
-  coverage returns when chat is rebuilt on SharedNode (milestones 17–21).
+  coverage returns when chat is rebuilt on SharedNode (milestones 17?21).
 - `apptraverse_chat_headless_check` now runs event-sourced core, journal
   retention, and chat presentation headless.
-- `tests/chat_presentation_headless_test.cpp` — three scenarios deleted:
+- `tests/chat_presentation_headless_test.cpp` ? three scenarios deleted:
   `TestOfflineRetrySkippedWhileChannelDown` (peer retry over `channel_ready`),
   `TestTimestampCommitAndRemap` and `TestIncomingSharedCannotImportPresence`
   (incoming shared-Event payload remap and the runtime-field stripping guard,
   both of which lived in the deleted binding). The presence scenarios stay and
   now use `CommitPresenceChanged` and `ChatPresenceOverlay::ApplyToRoom`
   directly, which is what the binding wrapped.
-- `tests/chat_ui_runtime_test.cpp` — `TestConnectToHostCommandRegistersPeer`
+- `tests/chat_ui_runtime_test.cpp` ? `TestConnectToHostCommandRegistersPeer`
   deleted (peer registration and `shared_room_id`). The presence-overlay
   scenario stays, rewritten against the overlay.
-- `tests/chat_ui_mirror_integration_test.cpp` — stale `chat_shared.h` include
+- `tests/chat_ui_mirror_integration_test.cpp` ? stale `chat_shared.h` include
   dropped; it never used the binding.
 
-The presence guard that `TestIncomingSharedCannotImportPresence` protected —
-an incoming shared Event must not import a peer's Presence — has no code left
+The presence guard that `TestIncomingSharedCannotImportPresence` protected ?
+an incoming shared Event must not import a peer's Presence ? has no code left
 to protect. It has to be re-established when chat Events cross the new
 transport.
 
@@ -718,7 +718,7 @@ transport.
 `CommitShared` path with distinct identities, saved, reloaded, and checked for
 identity, order, and materialized state, including the "same origin, next
 sequence is a different Event" lookup. It replaces the deleted engine's dedup
-test with the property that actually makes dedup possible — identity is
+test with the property that actually makes dedup possible ? identity is
 journal state that survives a restart.
 
 ## Architecture after cleanup
@@ -751,7 +751,7 @@ journal state that survives a restart.
   an already-patched tree, so the dependency patches are reversed immediately
   before configuring; and `examples/aether_presence_monitor` includes
   `windows.h`, so it cannot build on Linux with
-  `APPTRAVERSE_BUILD_AETHER_DEMOS=ON` — pre-existing, unrelated to this change,
+  `APPTRAVERSE_BUILD_AETHER_DEMOS=ON` ? pre-existing, unrelated to this change,
   so the required targets were built by name.
 - `apptraverse_model_ui_runtime_test` still fails at `TestInitialGraphCopy` on
   Linux and `apptraverse_surfaces_linux_smoke_test` is the known GTK flake.
@@ -771,7 +771,7 @@ journal state that survives a restart.
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
-# CURSOR — Shared Event order simplified to timestamp only
+# CURSOR ? Shared Event order simplified to timestamp only
 
 ## Identity
 
@@ -821,7 +821,7 @@ Measured, not assumed. A `SharedValueNode` with three journal Events was
 written by `2c176a4` and read back by this revision: without a guard it loaded
 "successfully" into a journal of three records of which two had dead Event
 references and a materialized value of 0 instead of 21. A version bump on
-`Node` does not fix that — aether-objects writes a Node's fields into the
+`Node` does not fix that ? aether-objects writes a Node's fields into the
 storage layer of the *most derived* class, so `Node`'s version is not part of
 the storage key of any concrete Node, and only the derived class's version is.
 
@@ -890,7 +890,7 @@ covered it.
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
-# CURSOR — Initial sync v1 protocol hardening
+# CURSOR ? Initial sync v1 protocol hardening
 
 ## Identity
 
@@ -937,7 +937,7 @@ Six scenarios added to the eight already there:
 
 - ACK from the wrong endpoint: A is Pending toward B, with C also a participant
   of the topology. C sends a byte-valid ACK carrying the exact packet, node,
-  and share ids — A stays Pending with unchanged pending bytes and writes
+  and share ids ? A stays Pending with unchanged pending bytes and writes
   nothing. The same bytes from B complete the sync.
 - Wrong-source NodeState: the frozen packet delivered from non-participant C
   leaves `FindNode` invalid, B's storage empty for the Node and both Links, no
@@ -977,20 +977,20 @@ re-run, as agreed for this slice.
 ## Limitations
 
 - Endpoint identity is whatever the transport reports. No signatures, MAC,
-  certificates, or trust store: authenticating the endpoint is the Æther
+  certificates, or trust store: authenticating the endpoint is the �ther
   transport integration, not this runtime.
 - Admission validates snapshot structure and identity, not the semantics of the
   imported history. A structurally valid but hostile journal can still reach
   replay; journal admission belongs with incremental Event sync.
 - Storage write failure and torn writes remain out of scope. The guarantee is
-  invalid input → no target writes, not crash-atomic storage.
+  invalid input ? no target writes, not crash-atomic storage.
 - No incremental Events, no presence: unchanged from the previous slice.
 - Not accepted-by-user
 
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
-# CLOUD CURSOR — SharedNode initial state sync v1
+# CLOUD CURSOR ? SharedNode initial state sync v1
 
 ## Identity
 
@@ -1023,13 +1023,13 @@ Status: implemented/verified on feature branch. Not accepted.
   (`BeginInitialSyncEvent`, `CompleteInitialSyncEvent`,
   `NoteInitialSyncReceivedEvent`); no reflected field is written after the Node
   is live.
-- Packet identity is the `BeginInitialSyncEvent` ObjId — the same facility
+- Packet identity is the `BeginInitialSyncEvent` ObjId ? the same facility
   `Share::share_id` already uses, so no new UUID system. It is known before
   Commit, which is what lets the frozen frame embed it.
 - `SharedSyncRuntime`: one per replica, holding its Domain, storage, and
-  transport. Sender order is freeze → persist → send; `Pending` resends the
+  transport. Sender order is freeze ? persist ? send; `Pending` resends the
   persisted bytes verbatim; `Complete` sends nothing.
-- Receiver order is decode → bootstrap check → import → replay → persist →
+- Receiver order is decode ? bootstrap check ? import ? replay ? persist ?
   ACK. A root is created only for a `target_node_id` the replica explicitly
   expects.
 - `Link::EndpointUid()` gives the transport address of a descriptor, so
@@ -1099,12 +1099,12 @@ presenter code changed) and not in the required set.
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
-# CLOUD CURSOR — Share relationship identity / replay correctness
+# CLOUD CURSOR ? Share relationship identity / replay correctness
 
 ## Identity
 
 - Starting SHA: `e8542b6111ac2ec24ae07fc40bd969b17e2577d5`
-- Final SHA: `099d659` (fix) — this Progress entry commits on top
+- Final SHA: `099d659` (fix) ? this Progress entry commits on top
 - Branch: `feature/shared-node-foundation-v1`
 - PR: https://github.com/apptraverse/apptraverse/pull/2 (draft, not merged)
 - Scope: stable Share relationship identity so local sync survives a real
@@ -1133,7 +1133,7 @@ Node's own journal, so Complete was gone.
 - `RemoveShareEvent` / `ChangeShareAccessEvent` carry `share_id`, not `link`.
 - `FindLinkSyncIndex(link_id)` replaced by `FindLinkSyncIndexForShare(share_id)`
   plus `FindShareIndexForShare`; `SetInitialSyncPhase` / `GetInitialSyncPhase`
-  resolve Link → active Share → relationship state.
+  resolve Link ? active Share ? relationship state.
 - `Apply(AddShareEvent)` reuses a restored state with the same `share_id`,
   otherwise creates one with `share_id` + `link` + NotStarted assigned before
   `InitializeRuntimeNode`.
@@ -1145,7 +1145,7 @@ Node's own journal, so Complete was gone.
 - Forced mid-journal rebuild: second relationship identity, second sync-state
   identity, and Complete all preserved; no duplicate sync state for the Link.
 - Same test then Saves, reloads in a new Domain, and forces a second rebuild
-  there — relationship identity is re-derived from the persisted Event.
+  there ? relationship identity is re-derived from the persisted Event.
 - Live remove + re-add: new `share_id`, new sync state, NotStarted.
 - Network copy: sender and receiver `share_id` equal; receiver has no
   `LinkSyncState` and reads NotStarted.
@@ -1174,7 +1174,7 @@ Node's own journal, so Complete was gone.
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
-# CLOUD CURSOR — SharedNode foundation v1.1 follow-up (policy + init)
+# CLOUD CURSOR ? SharedNode foundation v1.1 follow-up (policy + init)
 
 ## Identity
 
@@ -1211,7 +1211,7 @@ Status: implemented/verified on feature branch. Not accepted.
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
-# CLOUD CURSOR — SharedNode foundation v1.1 hardening
+# CLOUD CURSOR ? SharedNode foundation v1.1 hardening
 
 ## Identity
 
@@ -1219,7 +1219,7 @@ Status: implemented/verified on feature branch. Not accepted.
 - Final SHA: `e02a150acfbe5c674fd16645e19191a9b4c4a66b`
 - Branch: `feature/shared-node-foundation-v1`
 - PR: https://github.com/apptraverse/apptraverse/pull/2
-- Scope: foundation corrections only — Event-driven local sync,
+- Scope: foundation corrections only ? Event-driven local sync,
   generic LocalPtr network exclusion, read-only network snapshot,
   RemoveShare+AddShare sync reset. No transport / ACK / presence / chat.
 
@@ -1254,7 +1254,7 @@ Status: implemented/verified on feature branch. Not accepted.
 ---
 Status: implemented/verified on feature branch. Not accepted.
 
-# WINDOWS CURSOR — SharedNode foundation v1
+# WINDOWS CURSOR ? SharedNode foundation v1
 
 ## Identity
 
@@ -1291,13 +1291,13 @@ Status: implemented/verified on feature branch. Not accepted.
 ---
 Status: documentation-only. Not accepted.
 
-# WINDOWS CURSOR — surfaces frozen / land to main
+# WINDOWS CURSOR ? surfaces frozen / land to main
 
 ## Identity
 
 - Starting surfaces-demo SHA: `677a5f7adc5e401fb796a492f0fe7abe588a41b4`
 - Starting main SHA: `de799bdc9aa308195d6dc83685b092856d5cb918`
-- Branch path: `integration/finalize-surfaces` → merge into `main`
+- Branch path: `integration/finalize-surfaces` ? merge into `main`
 - Files changed for docs finalization: `plan.md`, `Progress.md` only
 
 ## Source-verified platform adaptive status
@@ -1317,7 +1317,7 @@ Status: documentation-only. Not accepted.
 ---
 Status: documentation-only. Not accepted.
 
-# WINDOWS CURSOR — documentation reset before SharedNode
+# WINDOWS CURSOR ? documentation reset before SharedNode
 
 ## Identity
 
@@ -1328,17 +1328,17 @@ Status: documentation-only. Not accepted.
 ## Factual surfaces status observed at fetch
 
 - Canonical `origin/surfaces-demo`: Windows / Android / Web model-driven adaptive
-  orientation present (`presentation_*` Event → `IsWide`).
+  orientation present (`presentation_*` Event ? `IsWide`).
 - Linux GTK3 adaptive branch present remotely:
   `feature/surfaces-linux-adaptive-final-v1` @
   `d7b47ac60c6fd94a8b96933e01d38e007fbf7f10` (not claimed merged into this
-  checkout’s `surfaces-demo`).
+  checkout?s `surfaces-demo`).
 - Apple adaptive finalization: **in progress / not yet verified** in this
   checkout (no Apple adaptive remote branch observed at fetch).
 
 ## Documentation outcome
 
-- Stale “Linux X11/Xlib as current path” wording corrected; GTK3 is intended.
+- Stale ?Linux X11/Xlib as current path? wording corrected; GTK3 is intended.
 - Old shared-chat (`feature/shared-chat-headless-v1` @
   `63abddeeb57b78fdb7cfa4dc2a459785fa6566b8`) marked **experiment only**, not
   the new architecture base.
@@ -1356,7 +1356,7 @@ Status: documentation-only. Not accepted.
 ---
 Status: implemented, verified in the iPhone simulator. Not accepted.
 
-# IOS CURSOR — iOS SwiftUI view layer
+# IOS CURSOR ? iOS SwiftUI view layer
 
 ## Identity
 
@@ -1373,10 +1373,10 @@ Status: implemented, verified in the iPhone simulator. Not accepted.
 - The bottom bar is SwiftUI (`SurfaceBarView`). The two `UIButton`s are gone;
   `SurfacesRootViewController` now owns a plain `bar` container whose frame
   still comes from `viewDidLayoutSubviews`.
-- Boundary: SwiftUI → `id<IOSSurfaceActions>` (pure ObjC protocol adopted by the
+- Boundary: SwiftUI ? `id<IOSSurfaceActions>` (pure ObjC protocol adopted by the
   existing `SurfacesRootViewController`, replacing `onAdd:` / `onRemoveCurrent:`)
-  → `IOSApp` → current `IOSSurfacePresenter` → model event.
-- ObjC++ → Swift is three `@_cdecl` functions and no object ownership:
+  ? `IOSApp` ? current `IOSSurfacePresenter` ? model event.
+- ObjC++ ? Swift is three `@_cdecl` functions and no object ownership:
   `ApptraverseInstallIOSSurfacePage(container, title, hue)`,
   `ApptraverseInstallIOSSurfaceBar(container, actions, can_remove)`,
   `ApptraverseUpdateIOSSurfaceBar(container, can_remove)`.
@@ -1396,7 +1396,7 @@ Status: implemented, verified in the iPhone simulator. Not accepted.
 ## Toolchain
 
 - Xcode 15.2 / Swift 5.9.2 with C++ on `clang++-mp-20`.
-- Swift target `surfaces_demo_ios_content` (static, own target — Swift cannot
+- Swift target `surfaces_demo_ios_content` (static, own target ? Swift cannot
   share a target with ObjC++); `-import-objc-header ios_surface_actions.h`.
 - The simulator needs both `CMAKE_Swift_FLAGS "-sdk ..."` and
   `CMAKE_Swift_COMPILER_TARGET x86_64-apple-ios17.0-simulator`: CMake leaves
@@ -1418,10 +1418,10 @@ Status: implemented, verified in the iPhone simulator. Not accepted.
   `com.apptraverse.surfaces`, uninstalled before each install.
 - Launch: process stays alive; page shows the SwiftUI caption and tint;
   `Remove current` disabled at one Surface.
-- Add → new page appended, pager settles on it, `Remove current` becomes
-  enabled; second Add → `Surface 3` with its own hue.
-- Swipe back and forward → `Surface 3` ↔ `Surface 2`, page settles.
-- Remove current → neighbor becomes current; removing down to one page leaves
+- Add ? new page appended, pager settles on it, `Remove current` becomes
+  enabled; second Add ? `Surface 3` with its own hue.
+- Swipe back and forward ? `Surface 3` ? `Surface 2`, page settles.
+- Remove current ? neighbor becomes current; removing down to one page leaves
   `Remove current` disabled again.
 - Relaunch reopened the persisted current Surface (`mobile_current`, not the
   first page).
@@ -1436,7 +1436,7 @@ Status: implemented, verified in the iPhone simulator. Not accepted.
   `Application::Save` does not run and the newest topology change is lost on a
   simulator kill. Reproduced identically with the pre-change UIKit binary, so it
   is pre-existing, not a port regression. Recorded in `plan.md`.
-- The bundle has no launch storyboard, so iOS scales the app from a 320×480
+- The bundle has no launch storyboard, so iOS scales the app from a 320�480
   logical screen and in the light appearance (also pre-existing). Recorded in
   `plan.md`.
 - Swift compiles are slow on this Intel host.
@@ -1446,7 +1446,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified locally on macOS. Not accepted.
 
-# MAC CURSOR — macOS SwiftUI view layer
+# MAC CURSOR ? macOS SwiftUI view layer
 
 ## Identity
 
@@ -1462,15 +1462,15 @@ Status: implemented, verified locally on macOS. Not accepted.
 - `MacSurfacePresenter` still owns the `NSWindow`, so persisted `desktop_*`
   bounds, `mobile_current` Z-order restore, red-X app stop, and
   Close-this-window Remove semantics are unchanged.
-- Boundary: SwiftUI → `id<MacSurfaceActions>` (pure ObjC protocol adopted by
-  the existing `SurfaceWindowDelegate`) → presenter → model event. The single
-  ObjC++ → Swift call is `@_cdecl ApptraverseInstallMacSurfaceContent`.
+- Boundary: SwiftUI ? `id<MacSurfaceActions>` (pure ObjC protocol adopted by
+  the existing `SurfaceWindowDelegate`) ? presenter ? model event. The single
+  ObjC++ ? Swift call is `@_cdecl ApptraverseInstallMacSurfaceContent`.
 - No `WindowGroup` / SwiftUI app lifecycle: the window set stays model-driven.
 
 ## Toolchain
 
 - Xcode 15.2 / Swift 5.9.2 with C++ on `clang++-mp-20`.
-- Swift target `surfaces_demo_macos_content` (static, own target — Swift cannot
+- Swift target `surfaces_demo_macos_content` (static, own target ? Swift cannot
   share a target with ObjC++); `-import-objc-header mac_surface_actions.h`;
   `CMAKE_Swift_FLAGS` must pass `-sdk` explicitly.
 - Executables and the smoke test pin `LINKER_LANGUAGE OBJCXX` plus Swift
@@ -1499,7 +1499,7 @@ Not accepted-by-user.
 ---
 Status: implemented. Not accepted.
 
-# MAC CURSOR — macOS demo auto-close with existing state
+# MAC CURSOR ? macOS demo auto-close with existing state
 
 ## Identity
 
@@ -1513,7 +1513,7 @@ Status: implemented. Not accepted.
   Loading teardown / Z-order restore). Instrumented startup with existing
   state completed presenters + restore; no stop was requested.
 - Agent `shell &` left the GUI in the tool process group; when the tool
-  session ended, Cursor reaped the process — windows vanished (“auto-close”).
+  session ended, Cursor reaped the process ? windows vanished (?auto-close?).
   Confirmed: same binary stays alive with `fork`+`setsid` / new session.
 
 ## Fix (macOS-only)
@@ -1536,7 +1536,7 @@ Not accepted-by-user.
 ---
 Status: implemented. Not accepted.
 
-# MAC CURSOR — desktop active Surface Z-order
+# MAC CURSOR ? desktop active Surface Z-order
 
 ## Identity
 
@@ -1547,11 +1547,11 @@ Status: implemented. Not accepted.
 ## Behavior
 
 - macOS desktop persists the focused Surface via existing
-  `Surfaces::mobile_current` (`windowDidBecomeKey` / shutdown key window →
-  `PageShown` → `MakeCurrent`).
+  `Surfaces::mobile_current` (`windowDidBecomeKey` / shutdown key window ?
+  `PageShown` ? `MakeCurrent`).
 - On startup after presenter init: `makeKeyAndOrderFront` +
   `activateIgnoringOtherApps` for `mobile_current` (fallback: last Surface
-  when empty — pre-z-order state dirs).
+  when empty ? pre-z-order state dirs).
 - All Surface windows still shown; only the active one is restored on top.
 - Common model unchanged; mirrors Windows/Linux desktop Z-order contract.
 
@@ -1561,14 +1561,14 @@ Status: implemented. Not accepted.
   `TestActiveZOrderRestored`).
 - Incremental build: `macos-x64-debug-surfaces-demo` (`-fno-rtti` on
   OBJCXX with ARC).
-- Manual: activate Surface 2, close, reload → Surface 2 key / front.
+- Manual: activate Surface 2, close, reload ? Surface 2 key / front.
 
 Not accepted-by-user.
 
 ---
 Status: implemented, verified locally on Linux. Not accepted.
 
-# LINUX CURSOR — desktop active Surface Z-order
+# LINUX CURSOR ? desktop active Surface Z-order
 
 ## Identity
 
@@ -1579,10 +1579,10 @@ Status: implemented, verified locally on Linux. Not accepted.
 ## Behavior
 
 - Linux desktop persists the focused Surface via existing
-  `Surfaces::mobile_current` (`FocusIn` / shutdown focused window →
-  `PageShown` → `MakeCurrent`).
+  `Surfaces::mobile_current` (`FocusIn` / shutdown focused window ?
+  `PageShown` ? `MakeCurrent`).
 - On startup after presenter init: `XRaiseWindow` + best-effort
-  `XSetInputFocus` for `mobile_current` (fallback: last Surface when empty —
+  `XSetInputFocus` for `mobile_current` (fallback: last Surface when empty ?
   pre-z-order state dirs).
 - All Surface windows still shown; only the active one is restored on top.
 - Common model unchanged; mirrors Windows desktop Z-order contract.
@@ -1590,29 +1590,29 @@ Status: implemented, verified locally on Linux. Not accepted.
 ## Tests
 
 - `apptraverse_surfaces_linux_smoke_test` includes `TestActiveZOrderRestored`.
-- Manual: activate Surface 2, close, reload → Surface 2 topmost.
+- Manual: activate Surface 2, close, reload ? Surface 2 topmost.
 
 Not accepted-by-user.
 
 ---
 Status: implemented, verified locally. Not accepted.
 
-# WINDOWS CURSOR — desktop active Surface Z-order + quiet console
+# WINDOWS CURSOR ? desktop active Surface Z-order + quiet console
 
 ## Identity
 
 - Starting SHA: `cf0b7e6b81f431fc4fe420fb0759c35c7def8a06`
 - Final SHA: `e8adadc17d0d8eb0787d03687c041bac7fed1211`
-- Branch: `surfaces-demo` → `origin/surfaces-demo`
+- Branch: `surfaces-demo` ? `origin/surfaces-demo`
 
 ## Behavior
 
 - Windows desktop persists the focused Surface via existing
-  `Surfaces::mobile_current` (`WM_ACTIVATE` / shutdown foreground →
-  `PageShown` → `MakeCurrent`).
+  `Surfaces::mobile_current` (`WM_ACTIVATE` / shutdown foreground ?
+  `PageShown` ? `MakeCurrent`).
 - On startup after presenter init: `SetWindowPos(HWND_TOP)` + best-effort
   `SetForegroundWindow` for `mobile_current` (fallback: last Surface when
-  empty — pre-z-order state dirs).
+  empty ? pre-z-order state dirs).
 - All Surface windows still shown; only the active one is restored on top.
 - Linux/macOS desktop hosts unchanged (still leave `mobile_current` empty).
 
@@ -1626,14 +1626,14 @@ Status: implemented, verified locally. Not accepted.
 
 - `apptraverse_surfaces_win32_smoke_test` PASS (includes
   `TestActiveZOrderRestored`).
-- Manual: activate Surface 2, close, reload → Surface 2 topmost.
+- Manual: activate Surface 2, close, reload ? Surface 2 topmost.
 
 Not accepted-by-user.
 
 ---
 Status: implemented, verified locally. Not accepted.
 
-# MAC CURSOR — macOS + iOS merge into canonical surfaces-demo
+# MAC CURSOR ? macOS + iOS merge into canonical surfaces-demo
 
 ## Identity
 
@@ -1665,7 +1665,7 @@ Status: implemented, verified locally. Not accepted.
 - Canonical current = `Surfaces::mobile_current` (Surface identity).
 - Runtime pager index + `desired_current_id_` for rapid-swipe races.
 - Initial: restore live `mobile_current` or seed `surfaces[0]` via `PageShown`.
-- Swipe / Add / Remove settle → `PageShown` → `MakeCurrent`.
+- Swipe / Add / Remove settle ? `PageShown` ? `MakeCurrent`.
 - Last page: Remove disabled (no `exit()`).
 
 ## macOS geometry
@@ -1692,7 +1692,7 @@ Not accepted-by-user.
 
 Status: implemented, verified locally on Linux. Not accepted.
 
-# LINUX CURSOR — X11 merge into canonical surfaces-demo
+# LINUX CURSOR ? X11 merge into canonical surfaces-demo
 
 ## Starting / final
 
@@ -1704,9 +1704,9 @@ Status: implemented, verified locally on Linux. Not accepted.
 
 ## Conflicts
 
-- `examples/surfaces_demo/CMakeLists.txt` — kept Windows + Emscripten/web + Linux;
+- `examples/surfaces_demo/CMakeLists.txt` ? kept Windows + Emscripten/web + Linux;
   Linux gated `UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN`.
-- `plan.md` — kept canonical `surfaces-demo` roadmap; marked Linux as landed (X11/Xlib).
+- `plan.md` ? kept canonical `surfaces-demo` roadmap; marked Linux as landed (X11/Xlib).
 
 Auto-merged: `Progress.md`, `tests/CMakeLists.txt` (Linux smoke condition tightened
 to exclude ANDROID/EMSCRIPTEN).
@@ -1733,20 +1733,20 @@ links X11 only.
 
 ```
 SurfacePresenter
-  ├─ DesktopSurfacePresenter
-  │  ├─ Win32SurfacePresenter
-  │  └─ LinuxSurfacePresenter
-  ├─ MobileSurfacePresenter
-  │  └─ AndroidSurfacePresenter
-  └─ WebSurfacePresenter
+  ?? DesktopSurfacePresenter
+  ?  ?? Win32SurfacePresenter
+  ?  ?? LinuxSurfacePresenter
+  ?? MobileSurfacePresenter
+  ?  ?? AndroidSurfacePresenter
+  ?? WebSurfacePresenter
 ```
 
 ## Paths
 
-- Add: X11 ButtonPress → `OnCommand` → `AddClick` → proxy → `AddSurface`
-- Close this window: `RemoveClick`; last → app STOP without Remove
+- Add: X11 ButtonPress ? `OnCommand` ? `AddClick` ? proxy ? `AddSurface`
+- Close this window: `RemoveClick`; last ? app STOP without Remove
 - Native WM_DELETE_WINDOW: whole-app STOP (never Remove)
-- Geometry: snapshot all live windows → `SetDesktopBounds` → `RequestStop`
+- Geometry: snapshot all live windows ? `SetDesktopBounds` ? `RequestStop`
 
 ## Tests (Linux host)
 
@@ -1764,7 +1764,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified on emulator. Not accepted.
 
-# surfaces_demo — Android pager port
+# surfaces_demo ? Android pager port
 
 ## Starting / final
 
@@ -1782,7 +1782,7 @@ Status: implemented, verified on emulator. Not accepted.
 
 ## Presenter hierarchy
 
-`SurfacePresenter` → `MobileSurfacePresenter` → `AndroidSurfacePresenter`,
+`SurfacePresenter` ? `MobileSurfacePresenter` ? `AndroidSurfacePresenter`,
 sibling to `DesktopSurfacePresenter`. GUI Domain resolves the most-derived
 registered child; no RTTI. Proof of `-fno-rtti` on the real Android command
 line (`compile_commands.json`, `jni_bridge.cpp`):
@@ -1799,16 +1799,16 @@ line (`compile_commands.json`, `jni_bridge.cpp`):
 The original slice kept the current page out of the model, so a restart always
 reopened the first page. On request the current page became model state:
 
-- `Surfaces` schema 0 → 1, new persisted `Surface::ptr mobile_current`.
+- `Surfaces` schema 0 ? 1, new persisted `Surface::ptr mobile_current`.
   `Load(ae::Version<0>)` throws, so pre-existing state dirs on every platform
-  must be recreated — the same policy `Surface` v0 already uses.
+  must be recreated ? the same policy `Surface` v0 already uses.
 - New `SetCurrentSurfaceEvent`; `Surface::MakeCurrent()` commits it on the
   model thread and no-ops when the page is already current or already removed.
 - `Apply(RemoveSurfaceEvent)` clears `mobile_current` when the removed Surface
   was the current one. Which page becomes current next stays presentation
   policy: the Activity picks the neighbour and reports it.
 - Every settled page reports once through
-  `SurfacePresenter::PageShown()` → `ModelObjectProxy` → `Surface::MakeCurrent`,
+  `SurfacePresenter::PageShown()` ? `ModelObjectProxy` ? `Surface::MakeCurrent`,
   so a swipe does produce an Event, a commit and a publication. The Activity
   tracks the last reported id, so the publication it triggers is not echoed
   back as a second report.
@@ -1817,13 +1817,13 @@ reopened the first page. On request the current page became model state:
 
 ## Paths
 
-- Add: button → JNI `nativeAddFromSurface(objId)` → current
-  `SurfacePresenter::AddClick()` → `ModelObjectProxy` → model thread.
-- Remove current (count > 1): `RemoveClick()` → `RemoveSurfaceEvent`; the
+- Add: button ? JNI `nativeAddFromSurface(objId)` ? current
+  `SurfacePresenter::AddClick()` ? `ModelObjectProxy` ? model thread.
+- Remove current (count > 1): `RemoveClick()` ? `RemoveSurfaceEvent`; the
   neighbor `min(old_index, new_size - 1)` becomes current and is reported.
-- Remove current on the last page: `SURFACES_LAST_PAGE_STOP` → `RequestStop`;
+- Remove current on the last page: `SURFACES_LAST_PAGE_STOP` ? `RequestStop`;
   no `RemoveSurfaceEvent`, the Surface stays persisted.
-- Back: `BACK_REQUESTED_STOP` → model stop first, Activity finishes only after
+- Back: `BACK_REQUESTED_STOP` ? model stop first, Activity finishes only after
   `onModelStopped`.
 - Persistence: `DirectoryDomainStorage` under `filesDir/surfaces_state`; no
   external storage, no permissions.
@@ -1831,36 +1831,36 @@ reopened the first page. On request the current page became model state:
 ## Threads / JNI
 
 - Android main thread = GUI thread; `"apptraverse-model"` native thread = model.
-- Publications: model thread → `NativeUiBridge` main-thread Handler → GUI
-  mirror → presenters → page list.
+- Publications: model thread ? `NativeUiBridge` main-thread Handler ? GUI
+  mirror ? presenters ? page list.
 - JNI carries Surface ObjIds and page numbers only. No model pointers, no
   `jlong` object pointers, no Java refs in reflected state.
 
 ## Headless proof
 
 `apptraverse_surfaces_model_test` (own MSVC/Ninja tree in this worktree,
-`-DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF`) — OK, including three new cases:
+`-DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF`) ? OK, including three new cases:
 
 - `TestCurrentPageReplay`: Event committed once, repeat is a no-op,
   `ReplayFromBase` restores the current page, removing it clears the reference,
   a stale Surface cannot become current.
 - `TestCurrentPagePersistence`: current page survives save/load.
-- `TestCurrentPageThroughGuiProxy`: `PageShown()` → model thread → publication
-  → GUI mirror resolves `mobile_current` to the mirror's own Surface.
+- `TestCurrentPageThroughGuiProxy`: `PageShown()` ? model thread ? publication
+  ? GUI mirror resolves `mobile_current` to the mirror's own Surface.
 
-`apptraverse_surfaces_win32_smoke_test` — OK after the schema bump, and
+`apptraverse_surfaces_win32_smoke_test` ? OK after the schema bump, and
 `win32_surfaces_demo` still links.
 
 ## Emulator verification (`tools/android/run_surfaces_smoke.ps1`, 7 phases)
 
-- Clean start → `numbers=1, count=1`, page `Surface 1 (1 / 1)`.
-- Add ×2 → `numbers=1,2,3, count=3`; swipes reach `Surface 2`, `Surface 3`.
-- Remove current on `Surface 2` → `numbers=1,3`; neighbor page becomes current.
-- Back → `SURFACES_STATE_SAVED` → `SURFACES_UI_UNLOADED` →
+- Clean start ? `numbers=1, count=1`, page `Surface 1 (1 / 1)`.
+- Add �2 ? `numbers=1,2,3, count=3`; swipes reach `Surface 2`, `Surface 3`.
+- Remove current on `Surface 2` ? `numbers=1,3`; neighbor page becomes current.
+- Back ? `SURFACES_STATE_SAVED` ? `SURFACES_UI_UNLOADED` ?
   `SURFACES_APP_STOPPED`, process gone.
-- Relaunch → `numbers=1,3, count=2` and the pager reopens on `Surface 3`,
+- Relaunch ? `numbers=1,3, count=2` and the pager reopens on `Surface 3`,
   the page that was current at shutdown.
-- Remove down to the last page → `SURFACES_LAST_PAGE_STOP`, save, exit;
+- Remove down to the last page ? `SURFACES_LAST_PAGE_STOP`, save, exit;
   relaunch shows the surviving `Surface 1` (`count=1`).
 - Logcat free of fatal/assert/SIGSEGV/JNI errors.
 
@@ -1887,7 +1887,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo — Linux desktop port (X11)
+# surfaces_demo ? Linux desktop port (X11)
 
 ## Starting / final
 
@@ -1905,10 +1905,10 @@ for native close. `_NET_FRAME_EXTENTS` for best-effort outer geometry.
 
 ```
 SurfacePresenter
-  ↓
+  ?
 DesktopSurfacePresenter
-  ├─ Win32SurfacePresenter   (unchanged)
-  └─ LinuxSurfacePresenter   (new)
+  ?? Win32SurfacePresenter   (unchanged)
+  ?? LinuxSurfacePresenter   (new)
 ```
 
 Object-system registration; GUI Load picks Linux as most-derived on this host.
@@ -1917,10 +1917,10 @@ and `DesktopSurfacePresenter` API unchanged.
 
 ## Native paths
 
-- **Add:** ButtonPress hit → `OnCommand` → `AddClick` → proxy → `AddSurface`
-- **Close this window:** → `RemoveClick` / last → app STOP without Remove
-- **Native WM close:** → whole-app STOP (never Remove)
-- Shutdown: `QueueAllWindowBounds` → `RequestStop` → model drain → Save
+- **Add:** ButtonPress hit ? `OnCommand` ? `AddClick` ? proxy ? `AddSurface`
+- **Close this window:** ? `RemoveClick` / last ? app STOP without Remove
+- **Native WM close:** ? whole-app STOP (never Remove)
+- Shutdown: `QueueAllWindowBounds` ? `RequestStop` ? model drain ? Save
 
 ## Targets
 
@@ -1943,7 +1943,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo — macOS desktop port
+# surfaces_demo ? macOS desktop port
 
 ## Starting / final
 
@@ -1957,16 +1957,16 @@ Status: implemented, verified locally. Not accepted.
 
 ```
 SurfacePresenter
-  ↓
+  ?
 DesktopSurfacePresenter
-  ├─ Win32SurfacePresenter
-  └─ MacSurfacePresenter   [THIS]
+  ?? Win32SurfacePresenter
+  ?? MacSurfacePresenter   [THIS]
 ```
 
-- `examples/surfaces_demo/macos/` — `MacApp`, `MacSurfacePresenter` (`.mm` + ARC)
-- NSWindow per Surface; Add / Close this window; red X + Cmd-Q → one stop path
-  (snapshot all frames → `RequestStop`)
-- Primary-screen coordinate conversion (common top-left ↔ AppKit); multi-monitor
+- `examples/surfaces_demo/macos/` ? `MacApp`, `MacSurfacePresenter` (`.mm` + ARC)
+- NSWindow per Surface; Add / Close this window; red X + Cmd-Q ? one stop path
+  (snapshot all frames ? `RequestStop`)
+- Primary-screen coordinate conversion (common top-left ? AppKit); multi-monitor
   out of scope
 - Targets: `macos_surfaces_demo`, `macos_surfaces_demo_load_only`
 - `-fno-rtti` on CXX and OBJCXX; no C++ `dynamic_cast`
@@ -1990,7 +1990,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo — iOS simulator port
+# surfaces_demo ? iOS simulator port
 
 ## Starting / final
 
@@ -2006,19 +2006,19 @@ Status: implemented, verified locally. Not accepted.
 
 ```
 SurfacePresenter
-  ↓
+  ?
 MobileSurfacePresenter   (platform-neutral; no desktop geometry)
-  └─ IOSSurfacePresenter [THIS]  (UIKit page UIView)
+  ?? IOSSurfacePresenter [THIS]  (UIKit page UIView)
 ```
 
-- `examples/surfaces_demo/mobile/` — `MobileSurfacePresenter`
-- `examples/surfaces_demo/ios/` — `IOSApp`, `IOSSurfacePresenter`, `main.mm`,
+- `examples/surfaces_demo/mobile/` ? `MobileSurfacePresenter`
+- `examples/surfaces_demo/ios/` ? `IOSApp`, `IOSSurfacePresenter`, `main.mm`,
   `Info.plist.in`, `run_simulator.sh`
 - One UIWindow / root VC; `UIScrollView` paging; pages follow `Surfaces::surfaces`
 - Host buttons: `[ Add ] [ Remove current ]`; current page = host
   `current_index_` (runtime-only; not model / not persisted)
-- Add → current `IOSSurfacePresenter::AddClick` → model `AddSurface`
-- Remove current → `RemoveClick` when count > 1; disabled when count == 1
+- Add ? current `IOSSurfacePresenter::AddClick` ? model `AddSurface`
+- Remove current ? `RemoveClick` when count > 1; disabled when count == 1
 - `desktop_*` ignored on mobile
 - State dir: Application Support/`AppTraverseSurfaces` (optional `--state-dir`)
 - Targets: `ios_surfaces_demo` (distill), `ios_surfaces_demo_load_only`
@@ -2065,8 +2065,8 @@ alive after launch.
 ## Files outside `ios/`
 
 - `examples/surfaces_demo/mobile/` (new mobile presenter layer)
-- `examples/surfaces_demo/CMakeLists.txt` — `surfaces_demo_mobile` + `if(IOS)`
-- `plan.md` / `Progress.md` — this section
+- `examples/surfaces_demo/CMakeLists.txt` ? `surfaces_demo_mobile` + `if(IOS)`
+- `plan.md` / `Progress.md` ? this section
 
 No common/desktop/windows API changes. No common API blocker.
 
@@ -2076,7 +2076,7 @@ Not accepted-by-user.
 Status: implemented, verified locally. Not accepted.
 
 
-# surfaces_demo — Windows semantics + persisted window geometry
+# surfaces_demo ? Windows semantics + persisted window geometry
 
 ## Starting / final
 
@@ -2088,8 +2088,8 @@ Status: implemented, verified locally. Not accepted.
 ## Semantics
 
 - UI: `[ Add ] [ Close this window ]` per Surface HWND
-- Native X → whole-app STOP (never RemoveSurface)
-- Close this window → RemoveSurfaceEvent; last Close → STOP without Remove
+- Native X ? whole-app STOP (never RemoveSurface)
+- Close this window ? RemoveSurfaceEvent; last Close ? STOP without Remove
 - `OnCommand(command_id, notification_code)` routing (dynamic_objects updated)
 
 ## Geometry
@@ -2097,7 +2097,7 @@ Status: implemented, verified locally. Not accepted.
 - Persisted on model `Surface`: `desktop_x/y/width/height` (schema v1)
 - `SurfaceBoundsChangedEvent` + `Surface::SetDesktopBounds`
 - No Events on WM_MOVE/WM_SIZE
-- Shutdown: `QueueAllWindowBounds` → `RequestStop` → model drain → Save
+- Shutdown: `QueueAllWindowBounds` ? `RequestStop` ? model drain ? Save
 - `ModelObjectProxy::Invoke` captures by-value args
 - `DesktopSurfacePresenter::UpdateModelBounds`
 
@@ -2115,7 +2115,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo slice 2 — Windows minimal multi-window
+# surfaces_demo slice 2 ? Windows minimal multi-window
 
 ## Starting / final
 
@@ -2132,15 +2132,15 @@ Removed redundant checks from `surfaces_model.cpp`:
 - `Surface::AddSurface` / `Remove`: no `domain != nullptr`
 - `AddClick` / `RemoveClick`: no `model_proxy != nullptr`
 
-Kept: live-membership miss → no-op; Apply Remove miss → assert (broken Event).
+Kept: live-membership miss ? no-op; Apply Remove miss ? assert (broken Event).
 
 ## Presenter hierarchy
 
 ```
 SurfacePresenter
-  ↓
+  ?
 DesktopSurfacePresenter
-  └─ Win32SurfacePresenter  (HWND hwnd, HWND add_button)
+  ?? Win32SurfacePresenter  (HWND hwnd, HWND add_button)
 ```
 
 Object-system registration; GUI LoadRoot picks Win32 as most-derived.
@@ -2148,10 +2148,10 @@ No `dynamic_cast`; hierarchy proven via `Registry::GenerationDistance`.
 
 ## Native paths
 
-- **Add:** BUTTON → `DispatchChildCommand` → `OnCommand` → `AddClick` → proxy →
-  `Surface::AddSurface` → Event → structural pub → new `OnLoad` / HWND
-- **X non-last:** `WM_CLOSE` → `RemoveClick` → Event → `OnUnload` / DestroyWindow
-- **X last:** `WM_CLOSE` → `WM_APPTRAVERSE_STOP` (no Remove); Surface persisted
+- **Add:** BUTTON ? `DispatchChildCommand` ? `OnCommand` ? `AddClick` ? proxy ?
+  `Surface::AddSurface` ? Event ? structural pub ? new `OnLoad` / HWND
+- **X non-last:** `WM_CLOSE` ? `RemoveClick` ? Event ? `OnUnload` / DestroyWindow
+- **X last:** `WM_CLOSE` ? `WM_APPTRAVERSE_STOP` (no Remove); Surface persisted
 
 ## HWND ownership
 
@@ -2179,7 +2179,7 @@ Not accepted-by-user.
 
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo slice 1 — common model + headless
+# surfaces_demo slice 1 ? common model + headless
 
 ## Starting / final
 
@@ -2192,17 +2192,17 @@ Status: implemented, verified locally. Not accepted.
 
 ```
 Application
- └── surfaces → Surfaces : Node
-      └── Surface : Node
-           └── presenter → SurfacePresenter
+ ??? surfaces ? Surfaces : Node
+      ??? Surface : Node
+           ??? presenter ? SurfacePresenter
 ```
 
-Initial distill: Application → Surfaces → Surface #1 → SurfacePresenter.
+Initial distill: Application ? Surfaces ? Surface #1 ? SurfacePresenter.
 
 ## Event paths
 
-- `Surface::AddSurface()` → create Surface + Presenter → `InitializeRuntimeNode` → `AddSurfaceEvent` → `Surfaces::Commit`
-- `Surface::Remove()` → live-membership check → `RemoveSurfaceEvent` → `Surfaces::Commit` (stale = no-op)
+- `Surface::AddSurface()` ? create Surface + Presenter ? `InitializeRuntimeNode` ? `AddSurfaceEvent` ? `Surfaces::Commit`
+- `Surface::Remove()` ? live-membership check ? `RemoveSurfaceEvent` ? `Surfaces::Commit` (stale = no-op)
 - Topology vector mutates only in `Surfaces::Apply(Add|Remove)`
 
 ## Dynamic Node init
@@ -2215,7 +2215,7 @@ Runtime Surface uses canonical `InitializeRuntimeNode` (same as distill `Finaliz
 
 ## Proven headless
 
-- initial graph; Add from Surface1 and from Surface2; Remove; replay [1,3]; restart + Add→4
+- initial graph; Add from Surface1 and from Surface2; Remove; replay [1,3]; restart + Add?4
 - dynamic Node structural publication (GUI Surface2 new ObjId match, different C++ instance, OnLoad once)
 - GUI proxy AddClick / RemoveClick
 - presenter lifecycle (no reload of survivors; historical not reactivated)
@@ -2249,13 +2249,13 @@ Status: implemented, verified locally. Not accepted.
 Updated `.cursor/rules/apptraverse-coding-agent.mdc`:
 
 - **No C++ RTTI** (`dynamic_cast` / `typeid` / `std::type_info` / `std::type_index` forbidden)
-- Use Æther class IDs, `Registry::GenerationDistance`, typed `Ptr`/`ObjPtr`, `Ptr::as<T>()` when type is guaranteed
+- Use �ther class IDs, `Registry::GenerationDistance`, typed `Ptr`/`ObjPtr`, `Ptr::as<T>()` when type is guaranteed
 - **Do not re-check established invariants**
 - **No defensive programming** (invariant-driven; applies to all future ports)
 
 ## Build policy
 
-- `cmake/apptraverse_compile_policy.cmake` → INTERFACE `apptraverse_compile_policy`
+- `cmake/apptraverse_compile_policy.cmake` ? INTERFACE `apptraverse_compile_policy`
   - MSVC: `/GR-`
   - GCC/Clang: `-fno-rtti`
 - `apptraverse` PUBLIC-links the policy (consumers inherit automatically)
@@ -2264,7 +2264,7 @@ Updated `.cursor/rules/apptraverse-coding-agent.mdc`:
 
 ## Compile-time guard
 
-- `include/apptraverse/no_rtti.h` (`_CPPRTTI` / `__GXX_RTTI` → `#error`)
+- `include/apptraverse/no_rtti.h` (`_CPPRTTI` / `__GXX_RTTI` ? `#error`)
 - Included from `include/apptraverse/object_macros.h` (central AppTraverse object header)
 
 ## Removed `dynamic_cast` (AppTraverse-owned)
@@ -2297,7 +2297,7 @@ No `typeid` / `std::type_info` / `std::type_index` in AppTraverse-owned source/t
   `ItemList::window` is schema v1; pre-v1 persisted state requires re-distill /
   fresh state (development demo policy).
 - Left real alternatives: WndProc `presenter == nullptr` before userdata attach;
-  `CreateWindowExW` failure → `FatalWin32`; event Apply asserts at Commit boundary.
+  `CreateWindowExW` failure ? `FatalWin32`; event Apply asserts at Commit boundary.
 - Removed unused `#include "aether/clock.h"` from `event_sourced_core_test.cpp`
   (test links only `apptraverse`, not full Aether client).
 
@@ -2366,9 +2366,9 @@ Status: implemented, verified locally. Not accepted.
   Typed conversion: `ae::Ptr::as<T>()`, `ObjPtr` AbleToCast conversion,
   `Registry::GenerationDistance` for Presenter discovery (`AsPresenter`).
 - `Presenter::OnCommand` + Win32 `DispatchChildCommand`; parents do not know
-  Add/Remove. (Separate `Win32Presenter` Obj base avoided — would diamond with
+  Add/Remove. (Separate `Win32Presenter` Obj base avoided ? would diamond with
   `MainWindowPresenter` / `AddItemPresenter`.)
-- `WM_APPTRAVERSE_CLOSE_WINDOW` → `RequestStop()` directly.
+- `WM_APPTRAVERSE_CLOSE_WINDOW` ? `RequestStop()` directly.
 - `Item::Remove`: required `list` relation; only live-membership miss is no-op.
 
 ## Tests (local incremental `build/win64-ninja-msvc-debug`)
@@ -2393,26 +2393,26 @@ Not accepted-by-user.
 
 ```
 Application
- └── MainWindow
-      ├── presenter → MainWindowPresenter (top-level HWND only)
-      ├── add_item → AddItem
-      │                └── presenter → AddItemPresenter (Win32: BUTTON HWND)
-      └── item_list → ItemList
-                       ├── presenter → ItemListPresenter
-                       └── Item → ItemPresenter (label + [x] HWNDs)
+ ??? MainWindow
+      ??? presenter ? MainWindowPresenter (top-level HWND only)
+      ??? add_item ? AddItem
+      ?                ??? presenter ? AddItemPresenter (Win32: BUTTON HWND)
+      ??? item_list ? ItemList
+                       ??? presenter ? ItemListPresenter
+                       ??? Item ? ItemPresenter (label + [x] HWNDs)
 ```
 
 Presenter does not own child presenters; composition is the object graph.
 
-## GUI → model path
+## GUI ? model path
 
 ```
-Win32 click → Win32*Presenter → AddItemPresenter::Click / ItemPresenter::RemoveClick
-  → ModelObjectProxy::Invoke(ObjId, &T::method)
-  → session.Post(ModelWork)
-  → model Domain::Find(ObjId) → AddItem::Click / Item::Remove
-  → AddItemEvent / RemoveItemEvent → ItemList::Commit
-  → NoteMaterializedChange → structural publication → GUI mirror
+Win32 click ? Win32*Presenter ? AddItemPresenter::Click / ItemPresenter::RemoveClick
+  ? ModelObjectProxy::Invoke(ObjId, &T::method)
+  ? session.Post(ModelWork)
+  ? model Domain::Find(ObjId) ? AddItem::Click / Item::Remove
+  ? AddItemEvent / RemoveItemEvent ? ItemList::Commit
+  ? NoteMaterializedChange ? structural publication ? GUI mirror
 ```
 
 - No model pointers across domains/threads.
@@ -2452,39 +2452,39 @@ Storage Save/Load / DirectoryDomainStorage / filesystem failures are assumed
 impossible in this architecture. No error propagation work.
 
 SharedNode, transport, presence, chat, surfaces_demo implementation, structural
-delta/bandwidth optimization — not started. TODO recorded for structural payload
+delta/bandwidth optimization ? not started. TODO recorded for structural payload
 size only.
 
 ## Issues fixed
 
-1. **Presenter load order** — runtime `presentation_load_order` set on successful
+1. **Presenter load order** ? runtime `presentation_load_order` set on successful
    OnLoad; UnloadPresenters / structural unload sort descending (child before parent),
    independent of ObjId / Save collect order. Win32 no longer uses IsWindow
-   “parent already destroyed child” branches.
+   ?parent already destroyed child? branches.
 
-2. **Explicit parent** — `ItemList::window` (`ae::ObjPtr<MainWindow>`); graph sets
+2. **Explicit parent** ? `ItemList::window` (`ae::ObjPtr<MainWindow>`); graph sets
    both directions. Win32 ItemList uses `list->window`, not fixed MainWindow ObjId.
    v0 saves migrate via `EnsureItemListWindowLink`.
 
-3. **Native class lifetime** — `RegisterDynamicWin32Classes` /
+3. **Native class lifetime** ? `RegisterDynamicWin32Classes` /
    `UnregisterDynamicWin32Classes` around WinApp; per-HWND OnLoad/OnUnload only
    create/destroy windows.
 
-4. **WM_CLOSE** — presenter posts `WM_APPTRAVERSE_CLOSE_WINDOW(window ObjId)`;
+4. **WM_CLOSE** ? presenter posts `WM_APPTRAVERSE_CLOSE_WINDOW(window ObjId)`;
    WinApp stops only when that id is the single MainWindow.
 
-5. **Generic structural keepalive** —
+5. **Generic structural keepalive** ?
    `CaptureStructuralPresentationKeepalive` / `ApplyStructuralPublicationAndUpdatePresenters`
    hold `ae::Ptr<ae::Obj>` + `Presenter::ptr`. `ApplyItemListStructural` no longer
    enumerates concrete Item/presenter vectors for lifetime.
 
-6. **Shutdown drain** — after `RequestStop`, accepted deque commands Commit in order
+6. **Shutdown drain** ? after `RequestStop`, accepted deque commands Commit in order
    without requiring GUI publication consumption; then Save. Submit after stop is no-op.
 
-7. **Distill separation** — `dynamic_distill.cpp` / `BuildDynamicObjectsGraph` linked
+7. **Distill separation** ? `dynamic_distill.cpp` / `BuildDynamicObjectsGraph` linked
    only by distill demo + fixture tests; load-only does not link it.
 
-8. **CMake** — `APPTRAVERSE_BUILD_AETHER_DEMOS` (default ON) gates full `aether` client
+8. **CMake** ? `APPTRAVERSE_BUILD_AETHER_DEMOS` (default ON) gates full `aether` client
    + chat/model_ui/presence. Core + dynamic_objects + main_window build without it.
    `NOMINMAX` / `WIN32_LEAN_AND_MEAN` only `if(WIN32)`.
 
@@ -2509,7 +2509,7 @@ Not implemented: surfaces_demo.
 
 Not accepted-by-user.
 
-# Dynamic objects demo — Remove Item
+# Dynamic objects demo ? Remove Item
 
 ## Starting point
 
@@ -2517,8 +2517,8 @@ Branch `prep/deps-objects-assert-mcp-v1` at `ef26be6` (Add Item Progress SHA not
 
 ## Representations
 
-- `RemoveItemCommand { ae::ObjId item_id }` — copyable identity only; no model pointer.
-- `RemoveItemEvent : EventFor<ItemList,…> { Item::ptr item }` — Apply erases that Item from live `items` and `NoteMaterializedChange()`. No physical destroy, no journal GC, no presenter/Win32 calls.
+- `RemoveItemCommand { ae::ObjId item_id }` ? copyable identity only; no model pointer.
+- `RemoveItemEvent : EventFor<ItemList,?> { Item::ptr item }` ? Apply erases that Item from live `items` and `NoteMaterializedChange()`. No physical destroy, no journal GC, no presenter/Win32 calls.
 - Command queue: `std::variant<AddItemCommand, RemoveItemCommand>` deque (discrete; not coalesced).
 
 ## Live vs historical
@@ -2531,7 +2531,7 @@ Removing from `ItemList::items` does not remove historical reachability via `Add
 - Apply structural publication fully.
 - `UpdatePresentersAfterStructuralPublication`: OnUnload presenters in previously-active minus live; then `InitializeNewPresenters` for newly live only.
 - `UnloadPresenters` iterates reverse collect order so child HWNDs go before parents; child OnUnload tolerates already-destroyed HWND if parent won the race.
-- Win32 Item `[x]` → `WM_APPTRAVERSE_REMOVE_ITEM` → command → Event → publication → OnUnload → `DestroyWindow` row/button.
+- Win32 Item `[x]` ? `WM_APPTRAVERSE_REMOVE_ITEM` ? command ? Event ? publication ? OnUnload ? `DestroyWindow` row/button.
 
 ## Numbering
 
@@ -2550,11 +2550,11 @@ No Save on Remove. Shutdown `Application::Save()` after model stop. ItemList ret
 | check | result |
 | --- | --- |
 | model remove + journal still holds historical Item | PASS |
-| replay Add+Remove → live list without Item2 | PASS |
+| replay Add+Remove ? live list without Item2 | PASS |
 | mirror remove: survivor pointer identity, OnUnload==1 | PASS |
 | historical presenter: no second OnLoad after remove | PASS |
-| middle remove + Add → numbers 1,3,4 | PASS |
-| sequence Add/Add/Remove/Add/Remove → live 3,4 | PASS |
+| middle remove + Add ? numbers 1,3,4 | PASS |
+| sequence Add/Add/Remove/Add/Remove ? live 3,4 | PASS |
 | Win32 smoke Add/Remove + child load-only restore Item3,Item4 | PASS |
 | `publication_channel_test`, `main_window_window_changed_test` | PASS |
 | `main_window_lifecycle_test`, `main_window_win32_smoke_test` | PASS (existing bins) |
@@ -2567,7 +2567,7 @@ Not implemented: SharedNode / transport / presence / chat / GC.
 
 Not accepted-by-user.
 
-# Dynamic objects demo — Add Item
+# Dynamic objects demo ? Add Item
 
 ## Starting point
 
@@ -2578,11 +2578,11 @@ Branch `prep/deps-objects-assert-mcp-v1` at `460ee2a` (journal retention/compact
 New example `examples/dynamic_objects_demo`:
 
 ```
-Application → MainWindow → ItemList → Item(s)
+Application ? MainWindow ? ItemList ? Item(s)
 ```
 
 - Initial graph: one `Item` (`number=1`).
-- GUI Add → `AddItemCommand` (deque, not coalesced) → model `CommitAddItem`.
+- GUI Add ? `AddItemCommand` (deque, not coalesced) ? model `CommitAddItem`.
 - `AddItemEvent` carries pre-created `Item::ptr` so replay keeps the same ObjId (`Apply` only `push_back`).
 - ItemList keeps default unlimited journal retention (AddItemEvent survives restart/replay).
 - Shutdown: `Application::Save()` only; no Save on Add.
@@ -2602,11 +2602,11 @@ Application → MainWindow → ItemList → Item(s)
 
 ```
 model Create Item (GenerateUnique)
-→ AddItemEvent.item
-→ Commit/Apply (topology)
-→ SerializeStructuralNodePublication(ItemList)
-→ GUI ApplyStructuralPublication (LoadRoot/shells for new ids)
-→ InitializeNewPresenters → Win32ItemPresenter::OnLoad (new STATIC row)
+? AddItemEvent.item
+? Commit/Apply (topology)
+? SerializeStructuralNodePublication(ItemList)
+? GUI ApplyStructuralPublication (LoadRoot/shells for new ids)
+? InitializeNewPresenters ? Win32ItemPresenter::OnLoad (new STATIC row)
 ```
 
 Mirror Item ObjId == model Item ObjId; C++ pointers differ. Application/MainWindow/ItemList/old Item/old presenters preserve identity.
@@ -2652,10 +2652,10 @@ MainWindow sets `max_events=0` after load; shutdown: `CompactJournal` then `Appl
 
 ## Proof
 
-- Count 100→10; age boundary inclusive; count+age union (3+age→7, 10+age→10); blocked then unblock; dynamic policy; shared order preserved; mid-insert while blocked; 500→0 reachable events; retention=10 reachable=10.
-- Node journal v1 (`LegacyRetentionDoc`) save → load stamps `retained_since_us` → compact → reload.
+- Count 100?10; age boundary inclusive; count+age union (3+age?7, 10+age?10); blocked then unblock; dynamic policy; shared order preserved; mid-insert while blocked; 500?0 reachable events; retention=10 reachable=10.
+- Node journal v1 (`LegacyRetentionDoc`) save ? load stamps `retained_since_us` ? compact ? reload.
 - Unreferenced event dirs may remain after SaveRoot; reload does not load them.
-- MainWindow 50 session commits → journal 0 / reachable WindowChangedEvent 0; direct 500 WindowChangedEvent compact → 0, then retention=10 → 10.
+- MainWindow 50 session commits ? journal 0 / reachable WindowChangedEvent 0; direct 500 WindowChangedEvent compact ? 0, then retention=10 ? 10.
 
 ## Filesystem orphans
 
@@ -2700,7 +2700,7 @@ Disk geometry stays the loaded snapshot until that save. A crash before graceful
 
 Sequence/ack interactive resize: successful user verification (right/left drag no longer rolls back). Not marked accepted.
 
-MANUAL interactive drag after removing runtime Save — not re-run by the agent. Disk writes during drag: none by test, not a measured latency number.
+MANUAL interactive drag after removing runtime Save ? not re-run by the agent. Disk writes during drag: none by test, not a measured latency number.
 
 ## Tests actually run
 
@@ -2732,7 +2732,7 @@ PublicationChannel remains single-unread. The model cannot publish the next buff
 ## Counts from tests
 
 - Coalesce seq 1/2/3 before processing: 3 commands, 1 committed `WindowChangedEvent`, 1 incremental publication, journal size 1, ack=3.
-- No-op seq 7: journal unchanged, generation unchanged, no Save, ACK publication received, `publish_count` 1 → 2.
+- No-op seq 7: journal unchanged, generation unchanged, no Save, ACK publication received, `publish_count` 1 ? 2.
 - Stale A then B: mirror becomes A while native-emulation stays B; then ack 2 applies B. Same Application/MainWindow/Presenter. `OnLoad` once. Journal size 2.
 
 ## Tests actually run (local runner, not attached MCP)
@@ -2742,7 +2742,7 @@ Commit / push: `f3a74c53bc3531920bb3a0937615da676272db83` on `origin/prep/deps-o
 
 Cursor `user-apptraverse` MCP is not bound to this checkout (`source_dir` missing). This turn's MCP `apptraverse_build_start` (`20260909-044756-5b4ff3`) failed immediately with `unknown target 'apptraverse_main_window_headless_check'` and did not write an artifact here. Local incremental `cmake --build --preset win64-ninja-msvc-debug` (same targets, MSVC env) is the verification.
 
-MANUAL INTERACTIVE DRAG — BLOCKED / requires user verification. Automated `SetWindowPos` burst (including left+width) is not a mouse-drag proof. Do not treat jitter as fixed from unit tests alone.
+MANUAL INTERACTIVE DRAG ? BLOCKED / requires user verification. Automated `SetWindowPos` burst (including left+width) is not a mouse-drag proof. Do not treat jitter as fixed from unit tests alone.
 
 | target | artifact | status |
 | --- | --- | --- |
@@ -2798,21 +2798,21 @@ Not accepted-by-user.
 
 ## Finding
 
-Derived factory `load` is `DomainGraph::Load<T>` for that class only. `LoadVersion` returns immediately when that class has no stored bytes, so it never walks `AE_REF_BASE`. `GetMostRelatedFactory` already filters unknown classes and sorts the known stored chain base→derived, then creates a further registered descendant. Ancestor state was missing because only that descendant's factory `load` ran. The fix belongs in `DomainGraph::LoadRoot` / `LoadCopyImpl`, reusing that chain.
+Derived factory `load` is `DomainGraph::Load<T>` for that class only. `LoadVersion` returns immediately when that class has no stored bytes, so it never walks `AE_REF_BASE`. `GetMostRelatedFactory` already filters unknown classes and sorts the known stored chain base?derived, then creates a further registered descendant. Ancestor state was missing because only that descendant's factory `load` ran. The fix belongs in `DomainGraph::LoadRoot` / `LoadCopyImpl`, reusing that chain.
 
 ## aether-objects
 
 - Branch: `fix/load-ancestor-layers-v1`
 - Base: `68df7973014fdd366875b3af725a69750a847e8b`
 - Final / remote: `81d5f86f3d6184f86763b4556334dda9471bfd4a`
-- `LoadRoot` and `LoadCopyImpl` now load known stored class layers base → derived
+- `LoadRoot` and `LoadCopyImpl` now load known stored class layers base ? derived
 - Unknown classes stay filtered. Version handling inside a class layer is unchanged
 - Tests: `test-object-system` (including new ancestor-layer cases and existing version tests) exit 0
 
 ## AppTraverse
 
 - Branch: `prep/deps-objects-assert-mcp-v1`
-- Pin: `68df7973014fdd366875b3af725a69750a847e8b` → `81d5f86f3d6184f86763b4556334dda9471bfd4a`
+- Pin: `68df7973014fdd366875b3af725a69750a847e8b` ? `81d5f86f3d6184f86763b4556334dda9471bfd4a`
 - Configure log: `APPTRAVERSE_aether-objects_SHA=81d5f86f3d6184f86763b4556334dda9471bfd4a`
 - Removed `LoadStoredAncestorLayers` and `LoadStoredAncestorLayersFromRoot` (declarations, definitions, model and GUI calls)
 - `plan.md` TODO closed
@@ -2865,7 +2865,7 @@ After:
 - publication: short lambda captures notify HWND and calls `PostMessageW`; fatal via `FatalWin32` on failure
 - `SetEvent(done_event)` is in the Windows thread lambda after `Run` returns, not in `ModelSession`
 
-Order: model destruction (scope end) → `Run` returns → `SetEvent` → GUI sees completion → one `join` → `UnloadPresenters` → GUI graph/Domain destroyed → DestroyWindow notify / UnregisterClass / CloseHandle.
+Order: model destruction (scope end) ? `Run` returns ? `SetEvent` ? GUI sees completion ? one `join` ? `UnloadPresenters` ? GUI graph/Domain destroyed ? DestroyWindow notify / UnregisterClass / CloseHandle.
 
 ## Mutex / cv protocol (unchanged)
 
@@ -2878,7 +2878,7 @@ Order: model destruction (scope end) → `Run` returns → `SetEvent` → GUI se
 
 - `FatalWin32(operation, DWORD)` in the Windows example; `GetLastError` captured at the failing call
 - teardown result checks: `DestroyWindow` Main/Loading/notify, `CloseHandle(done_event)`; DestroyWindow Main failure does not continue to `UnregisterClassW`
-- `WriteFatalStderr`: one write — CRT stderr when attached, otherwise `STD_ERROR_HANDLE`. No unconditional dual print.
+- `WriteFatalStderr`: one write ? CRT stderr when attached, otherwise `STD_ERROR_HANDLE`. No unconditional dual print.
 
 ## What NDEBUG actually covers
 
@@ -2912,7 +2912,7 @@ Exes (this build tree, not a neighboring checkout):
 - MCP attached tools remain BLOCKED (no `source_dir`)
 - Not accepted-by-user
 
-# Main-window startup registration cleanup — progress
+# Main-window startup registration cleanup ? progress
 
 ## Identity
 
@@ -2964,10 +2964,10 @@ Unchanged architecture. Distill bootstrap remains `#ifdef APPTRAVERSE_ENABLE_DIS
 
 ## Remaining exceptions (not this slice)
 
-- `LoadStoredAncestorLayers` / `LoadStoredAncestorLayersFromRoot` after LoadRoot — TODO in `plan.md` (aether-objects)
-- `if (notify hwnd)` / `if (done_event)` — real WinApp vs headless branch
+- `LoadStoredAncestorLayers` / `LoadStoredAncestorLayersFromRoot` after LoadRoot ? TODO in `plan.md` (aether-objects)
+- `if (notify hwnd)` / `if (done_event)` ? real WinApp vs headless branch
 - WndProc `app == nullptr` before `WM_NCCREATE`
-- `loading_ == nullptr` as the “Main exists” flag for close/quit
+- `loading_ == nullptr` as the ?Main exists? flag for close/quit
 - Cursor `user-apptraverse` MCP schema still has no `source_dir` (**BLOCKED**). Local runner is not attached MCP success.
 
 ## Tests / artifacts
@@ -2980,11 +2980,11 @@ Worktree runner, incremental, no clean/rebuild:
 
 ## Commits / push
 
-- `cedf9fa7e193e3fcc5a01d71f73e9e68c31a3aab` — Simplify main-window startup and registration
+- `cedf9fa7e193e3fcc5a01d71f73e9e68c31a3aab` ? Simplify main-window startup and registration
 
 Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
-# Coding-agent rules — progress
+# Coding-agent rules ? progress
 
 
 ## Identity
@@ -3009,10 +3009,10 @@ No application rebuild (instructions/docs only). No clean/rebuild.
 
 Not treated as violations:
 
-- `EnsureMainWindowRegistration` + `EnsureWin32MainWindowPresenterRegistration` in `main()` — one startup point, two TUs
-- `if (notify hwnd)` / `if (done_event)` — WinApp vs headless
+- `EnsureMainWindowRegistration` + `EnsureWin32MainWindowPresenterRegistration` in `main()` ? one startup point, two TUs
+- `if (notify hwnd)` / `if (done_event)` ? WinApp vs headless
 - `if (app == nullptr)` in WndProc before `WM_NCCREATE`
-- `RegisterWindowClasses` / `PaintLoading` — allowed Win32 groups / WndProc
+- `RegisterWindowClasses` / `PaintLoading` ? allowed Win32 groups / WndProc
 - Distill bootstrap is behind `APPTRAVERSE_ENABLE_DISTILLATION`
 - Close-during-Loading tests/API are gone; Loading has no system Close
 
@@ -3025,11 +3025,11 @@ Recorded for later:
 
 ## Commits / push
 
-- `dcc14902fb6828582d1d7d123faa30ac45fd6c64` — Add App Traverse coding-agent rules
+- `dcc14902fb6828582d1d7d123faa30ac45fd6c64` ? Add App Traverse coding-agent rules
 
 Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
-# Main-window startup simplify and distill/load-only split — progress
+# Main-window startup simplify and distill/load-only split ? progress
 
 ## Identity
 
@@ -3058,8 +3058,8 @@ Shared production model-thread path for Win32 and headless tests:
 ## Dev / load-only
 
 - Compile definition: `APPTRAVERSE_ENABLE_DISTILLATION`
-- `win32_main_window_runtime_demo` — distill-enabled; bootstrap if state missing
-- `win32_main_window_runtime_demo_load_only` — no definition; load only; missing
+- `win32_main_window_runtime_demo` ? distill-enabled; bootstrap if state missing
+- `win32_main_window_runtime_demo_load_only` ? no definition; load only; missing
   Application is fatal
 - Lifecycle `.cpp` is compiled per target (not one STATIC lib), so the ifdef is
   real. Load-only lifecycle obj has `LoadApplication` and no
@@ -3081,12 +3081,12 @@ Missing-state fatal is the load-only child-process smoke (non-zero, no Main, no 
 
 ## Commits / push
 
-- `628174df8a5b006b9d783a331751a829034e671f` — Simplify main-window startup and remove test state machine
-- `1e91b0e15c484ed4fa2584d694dcfc26a06ea415` — Split development distillation and load-only targets
+- `628174df8a5b006b9d783a331751a829034e671f` ? Simplify main-window startup and remove test state machine
+- `1e91b0e15c484ed4fa2584d694dcfc26a06ea415` ? Split development distillation and load-only targets
 
 Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
-# Main-window lifecycle defensive-check cleanup — progress
+# Main-window lifecycle defensive-check cleanup ? progress
 
 ## Identity
 
@@ -3120,7 +3120,7 @@ Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
 - `InitializePresenters` / `UnloadPresenters`: `dynamic_cast` skip of
   non-Presenter objects on the reachable walk.
-- `OnPublished`: `stop_requested_` — publication can arrive after close during
+- `OnPublished`: `stop_requested_` ? publication can arrive after close during
   Loading; skip presentation init.
 - `RequestStop`: already requested (Loading and Main can both send WM_CLOSE).
 - `loading_ != nullptr` at shutdown: close during Loading vs after Main replaced
@@ -3168,11 +3168,11 @@ class-id check.
 
 ## Commits / push
 
-- `c0008de19a234eda79b63bb7c08e316f5bcf763b` — Remove defensive state checks from main-window lifecycle
+- `c0008de19a234eda79b63bb7c08e316f5bcf763b` ? Remove defensive state checks from main-window lifecycle
 
 Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
-# Object-graph presenter — progress
+# Object-graph presenter ? progress
 
 ## Identity
 
@@ -3199,8 +3199,8 @@ Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 
 ## Example changes
 
-- Graph: `Application` → `MainWindow` (Node, schema v3: x,y,width,height,presenter)
-  → `MainWindowPresenter` (not Node) → `Win32MainWindowPresenter` (HWND runtime-only).
+- Graph: `Application` ? `MainWindow` (Node, schema v3: x,y,width,height,presenter)
+  ? `MainWindowPresenter` (not Node) ? `Win32MainWindowPresenter` (HWND runtime-only).
 - Cycle: `presenter->window` is the same MainWindow in that Domain.
 - `WinApp` no longer owns a presenter member or calls `Create`. It loads the
   GUI graph, runs `InitializePresenters`, then destroys Loading. No
@@ -3212,7 +3212,7 @@ Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed.
 Headless `apptraverse_main_window_lifecycle_test` (no Win32):
 
 - A. Neutral `MainWindowPresenter` in the buffer + registered
-  `TestMainWindowPresenter` → LoadRoot materializes Test
+  `TestMainWindowPresenter` ? LoadRoot materializes Test
 - B. OnLoad not called after model load / serialize / GUI deserialize
 - C. `InitializePresenters` once; `presenter.window` resolved; back-pointer
 - D. Model vs GUI: same ObjIds, different addresses/Domains
@@ -3250,8 +3250,8 @@ no clean/rebuild):
 
 ## Commits / push
 
-1. `86f5d38019c88a5397cb8dc19d3efcf8971bbca4` — Use aether-object descendant resolution for GUI mirror loading
-2. `63a6eff6080d883819855ce28c9459af065c8e52` — Move main window presentation into object graph
+1. `86f5d38019c88a5397cb8dc19d3efcf8971bbca4` ? Use aether-object descendant resolution for GUI mirror loading
+2. `63a6eff6080d883819855ce28c9459af065c8e52` ? Move main window presentation into object graph
 
 Pushed to `origin/prep/deps-objects-assert-mcp-v1`. `main` not changed. History not rewritten.
 
@@ -3265,7 +3265,7 @@ Untracked caches only (not committed):
 ?? tools/runtime/__pycache__/
 ```
 
-# MCP worktree-aware — progress
+# MCP worktree-aware ? progress
 
 ## Problem
 
@@ -3307,16 +3307,16 @@ Tools with `source_dir`:
 
 ## Commit SHA
 
-`5699c613e55f66ccea6eece1f2009f28d8dd6f26` — Make App Traverse MCP worktree-aware
+`5699c613e55f66ccea6eece1f2009f28d8dd6f26` ? Make App Traverse MCP worktree-aware
 
 ## Unit tests
 
 `python -m unittest tools.mcp.test_apptraverse_mcp tools.runners.test_run_apptraverse_job tools.runners.test_run_apptraverse_platform_job`
 
-- omitted `source_dir` → `start_job(repo_root(), …)`
-- explicit fixture `source_dir` → runner receives that path, not MCP `repo_root()`
+- omitted `source_dir` ? `start_job(repo_root(), ?)`
+- explicit fixture `source_dir` ? runner receives that path, not MCP `repo_root()`
 - two roots: status/excerpt do not mix jobs or same-run-id artifacts
-- missing path / non-App-Traverse dir / relative path → `invalid_source_dir`
+- missing path / non-App-Traverse dir / relative path ? `invalid_source_dir`
 - existing MCP tests remain green
 
 ## Real MCP jobs against this worktree
@@ -3333,7 +3333,7 @@ binary and ignores `source_dir`. Proof of the new server used this worktree's
 | `apptraverse_main_window_headless_check` | `20260908-195713-0fef9b` | `apptraverse-jobs/20260908-195713-0fef9b` | `apptraverse-build/20260908-195714-45078a` | ok |
 | `apptraverse_main_window_lifecycle_test` | `20260908-195737-53326d` | `apptraverse-jobs/20260908-195737-53326d` | `apptraverse-build/20260908-195739-d8ba7b` | ok |
 | `apptraverse_main_window_win32_smoke_check` | `20260908-195739-1c8eb3` | `apptraverse-jobs/20260908-195739-1c8eb3` | `apptraverse-build/20260908-195741-ce8814` | ok |
-| stdio preflight (cwd Temp) | `20260908-195928-053c6d` | `apptraverse-jobs/20260908-195928-053c6d` | — | ok |
+| stdio preflight (cwd Temp) | `20260908-195928-053c6d` | `apptraverse-jobs/20260908-195928-053c6d` | ? | ok |
 
 Canonical `source_dir` in job metadata and public payloads:
 `C:\Users\nickc\Projects\apptraverse-prep-deps-assert`
@@ -3344,7 +3344,7 @@ job failed with unknown target. After `source_dir`, ninja found the target here.
 Assert/crash path was not regressed: these jobs completed `ok` through the
 existing noninteractive worker (no assert dialog).
 
-# Main-window skeleton — progress
+# Main-window skeleton ? progress
 
 ## Identity
 
@@ -3354,17 +3354,17 @@ existing noninteractive worker (no assert dialog).
 
 ## Commits
 
-1. `e9bca9adfeba9b0c111486276646b1265a97452e` — Fix PublicationChannel TakePublished so a consumer buffer cannot be cleared.
-2. `6a58e2074a108ca85599b6cd191ef9982f8011ea` — Add serialized initial publication without GUI-thread model graph copies.
-3. `0f2540bc1d55e8853a0851376ba31e34fb7c9c20` — Add Loading/main-window example with a dedicated model thread.
-4. `57f4fc30db7b75354d82085e81924f3ef3b520fc` — Add headless lifecycle and Win32 smoke tests for the main window.
-5. `1a078f9f9a6b1f907749d1a8d5f6fbca7da3c0da` — Record the main-window skeleton plan and progress.
-6. `75a1af396b86237bf6c6b770a8db50e4ef2a159f` — Name the documentation commit in Progress.md.
-7. `4135ca5afa46b7f731afa3ba295ff1baf63aab27` — Remove premature DPI state from main window skeleton.
+1. `e9bca9adfeba9b0c111486276646b1265a97452e` ? Fix PublicationChannel TakePublished so a consumer buffer cannot be cleared.
+2. `6a58e2074a108ca85599b6cd191ef9982f8011ea` ? Add serialized initial publication without GUI-thread model graph copies.
+3. `0f2540bc1d55e8853a0851376ba31e34fb7c9c20` ? Add Loading/main-window example with a dedicated model thread.
+4. `57f4fc30db7b75354d82085e81924f3ef3b520fc` ? Add headless lifecycle and Win32 smoke tests for the main window.
+5. `1a078f9f9a6b1f907749d1a8d5f6fbca7da3c0da` ? Record the main-window skeleton plan and progress.
+6. `75a1af396b86237bf6c6b770a8db50e4ef2a159f` ? Name the documentation commit in Progress.md.
+7. `4135ca5afa46b7f731afa3ba295ff1baf63aab27` ? Remove premature DPI state from main window skeleton.
 
 ## DPI cleanup
 
-DPI was removed from the new skeleton because `plan.md` defers DPI/screen system events to a later stage. This slice only needs Loading → model thread → serialized mirror → Main → shutdown.
+DPI was removed from the new skeleton because `plan.md` defers DPI/screen system events to a later stage. This slice only needs Loading ? model thread ? serialized mirror ? Main ? shutdown.
 
 Removed from the example and its tests:
 
@@ -3387,7 +3387,7 @@ Removed from the example and its tests:
 
 `examples/main_window_runtime_demo/`:
 
-- `Application` → `MainWindow` (Node) with `x, y, width, height`
+- `Application` ? `MainWindow` (Node) with `x, y, width, height`
 - `ModelSession::Run` on the model thread
 - Win32 `WinApp`: Loading HWND, notify HWND, presenter, empty Main HWND
 
@@ -3402,7 +3402,7 @@ Fresh state (model thread only):
 5. `LoadApplication`
 6. serialize into `PublicationChannel<3>` and notify GUI
 
-Existing state: skip 1–3; load and publish.
+Existing state: skip 1?3; load and publish.
 
 Stop (`RequestStop` + `cv.notify_all`) is checked at each stage, including mid-serialize before `PublishProducer`. Cleanup always runs on the model thread: Application, Domain, storage, then `SetEvent(done_event)`.
 
@@ -3420,7 +3420,7 @@ Stop (`RequestStop` + `cv.notify_all`) is checked at each stage, including mid-s
 
 User-level `user-apptraverse` MCP is bound to the original App Traverse checkout, not this worktree.
 
-- MCP job `20260908-193409-2f3650` / artifact `apptraverse-jobs/20260908-193409-2f3650` → failed: `unknown target 'apptraverse_main_window_headless_check'`
+- MCP job `20260908-193409-2f3650` / artifact `apptraverse-jobs/20260908-193409-2f3650` ? failed: `unknown target 'apptraverse_main_window_headless_check'`
 - Nested MCP build artifact `apptraverse-build/20260908-193411-af0768`
 
 Local runner in this worktree (authoritative for this slice):
@@ -3431,7 +3431,7 @@ Local runner in this worktree (authoritative for this slice):
 
 Profile `win64-ninja-msvc-debug`.
 
-- `apptraverse_main_window_lifecycle_test` — OK after DPI removal
+- `apptraverse_main_window_lifecycle_test` ? OK after DPI removal
   - fresh: distill + destroy Domain + reload + initial publication
   - existing: no second distill
   - initial mirror: same ObjIds, different addresses/Domains, same MainWindow bounds, UI `base` invalid and journal empty
@@ -3442,18 +3442,18 @@ Profile `win64-ninja-msvc-debug`.
 
 ## Windows smoke
 
-`apptraverse_main_window_win32_smoke_test` — OK after DPI removal (`main_window_win32_smoke_test OK`, exit 0)
+`apptraverse_main_window_win32_smoke_test` ? OK after DPI removal (`main_window_win32_smoke_test OK`, exit 0)
 
 - in-process: Loading appears, Main appears, Loading gone, close Main, thread exits
 - in-process close during Loading (`hold_stage=Distilling`): join, no Main
-- child `win32_main_window_runtime_demo`: same Loading → Main → close → process exit 0
+- child `win32_main_window_runtime_demo`: same Loading ? Main ? close ? process exit 0
 - child close during Loading (`--hold-stage 2`): process exit 0
 
 Search after cleanup: `dpi`, `DPI`, `WM_DPICHANGED`, `GetDpiForWindow` are absent from `examples/main_window_runtime_demo` and `tests/main_window_*.cpp`.
 
 ## Shutdown
 
-- During Loading: GUI `WM_CLOSE` → `RequestStop` + wake; message loop until `done_event`; join; destroy Loading/notify/GUI Domain on GUI thread.
+- During Loading: GUI `WM_CLOSE` ? `RequestStop` + wake; message loop until `done_event`; join; destroy Loading/notify/GUI Domain on GUI thread.
 - After Ready: same stop path; presenter/Main HWND destroyed on GUI thread after join.
 - No `TerminateThread`. Model objects are not freed on the GUI thread.
 
@@ -3468,7 +3468,7 @@ After recording the implementation SHA (documentation-only follow-up):
 ?? tools/runtime/__pycache__/
 ```
 
-# Main-window skeleton — presenter WndProc, wakeup, fail-fast
+# Main-window skeleton ? presenter WndProc, wakeup, fail-fast
 
 Status: implemented, verified locally. Not accepted.
 
@@ -3483,9 +3483,9 @@ Status: implemented, verified locally. Not accepted.
 
 ## Commits
 
-1. `af70e9c` — Native Main `RegisterClassW` / `WndProc` owned by `Win32MainWindowPresenter`. `WinApp` owns Loading/notify only. `lpParam` is the presenter. `WM_CLOSE` posts `WM_APPTRAVERSE_STOP` to the notify HWND.
-2. `158682f` — Lost wakeup: `stop` is a plain `bool` under `mu`; `RequestStop` sets it then `notify_all`. Publication `NotePublished`/`PublishProducer` under the same mutex waiters use. Model graph/Domain/storage leave an inner scope before `SetEvent(done_event)`.
-3. (this file) Fail-fast: `LoadApplication` uses `WriteFatalStderr` + `abort`, not `assert`. `fflush`/`FlushFileBuffers` before abort. Regression tests for missing Application. Coding-agent rules: Æther vs `WNDCLASS`, CV mutex, `done` after model scope, GUI `STD_ERROR_HANDLE`.
+1. `af70e9c` ? Native Main `RegisterClassW` / `WndProc` owned by `Win32MainWindowPresenter`. `WinApp` owns Loading/notify only. `lpParam` is the presenter. `WM_CLOSE` posts `WM_APPTRAVERSE_STOP` to the notify HWND.
+2. `158682f` ? Lost wakeup: `stop` is a plain `bool` under `mu`; `RequestStop` sets it then `notify_all`. Publication `NotePublished`/`PublishProducer` under the same mutex waiters use. Model graph/Domain/storage leave an inner scope before `SetEvent(done_event)`.
+3. (this file) Fail-fast: `LoadApplication` uses `WriteFatalStderr` + `abort`, not `assert`. `fflush`/`FlushFileBuffers` before abort. Regression tests for missing Application. Coding-agent rules: �ther vs `WNDCLASS`, CV mutex, `done` after model scope, GUI `STD_ERROR_HANDLE`.
 
 ## Where Main lives
 
@@ -3534,7 +3534,7 @@ Cursor `user-apptraverse` MCP still has no `source_dir` (**BLOCKED**). Local run
 - Not accepted-by-user
 
 
-# WINDOWS CURSOR — finalize Windows + Android + WASM → surfaces-demo
+# WINDOWS CURSOR ? finalize Windows + Android + WASM ? surfaces-demo
 
 Status: implemented, verified on integration SHA. Not accepted.
 
@@ -3566,7 +3566,7 @@ All four are ancestors of the final `surfaces-demo` SHA (merge-base `--is-ancest
 
 - Canonical persisted current: `Surfaces::mobile_current` (Surface identity).
 - `SetCurrentSurfaceEvent` / `Surface::MakeCurrent` / `SurfacePresenter::PageShown` present once.
-- Web checkpoint policy preserved (publication → Save → IDBFS); not on Windows/Android session.
+- Web checkpoint policy preserved (publication ? Save ? IDBFS); not on Windows/Android session.
 - Compiler RTTI usage: none in production; intentional `dynamic_cast` string check in `dynamic_objects_add_test.cpp` only.
 - CMake isolates `WIN32` / `ANDROID` / `EMSCRIPTEN`.
 
@@ -3589,7 +3589,7 @@ Desktop does not use `mobile_current` for focus/activation.
 
 ## Android (verified)
 
-- Script: `tools/android/run_surfaces_smoke.ps1` — PASS on `emulator-5554` (AVD API 34).
+- Script: `tools/android/run_surfaces_smoke.ps1` ? PASS on `emulator-5554` (AVD API 34).
 - APK: `examples/surfaces_demo/android/app/build/outputs/apk/debug/app-debug.apk`
 - Incremental Gradle (no clean / no `.cxx` wipe).
 - `-fno-rtti` on Android `jni_bridge.cpp` compile line.
@@ -3599,12 +3599,12 @@ Desktop does not use `mobile_current` for focus/activation.
 
 - Tree: `build/wasm-ninja-debug` (`-fno-rtti`, pthreads, COOP/COEP).
 - Artifacts: `build/wasm-ninja-debug/examples/surfaces_demo/web/web_surfaces_demo.{html,js,wasm}`
-- Serve: `tools/serve_wasm.py` → `http://127.0.0.1:8765/web_surfaces_demo.html`
-- Smoke: `tools/wasm_surfaces_browser_smoke.py` — PASS
+- Serve: `tools/serve_wasm.py` ? `http://127.0.0.1:8765/web_surfaces_demo.html`
+- Smoke: `tools/wasm_surfaces_browser_smoke.py` ? PASS
   - `crossOriginIsolated=true`, SharedArrayBuffer available
-  - Add ×2, select Surface 2, real browser reload → Surface 2 current
-  - Remove current → topology `[1,3]`
-  - Rapid back-to-back Add ×2 → three tabs (notify-after-apply fix)
+  - Add �2, select Surface 2, real browser reload ? Surface 2 current
+  - Remove current ? topology `[1,3]`
+  - Rapid back-to-back Add �2 ? three tabs (notify-after-apply fix)
 
 ## Canonical branch
 
@@ -3627,7 +3627,7 @@ Desktop does not use `mobile_current` for focus/activation.
 - SharedNode, chat, AeroAdmin-X, dependency refresh
 
 
-# WINDOWS CURSOR — pre-shared runtime hardening
+# WINDOWS CURSOR ? pre-shared runtime hardening
 
 Status: implemented, verified on Windows + Android Emulator + WASM. Not accepted.
 
@@ -3664,7 +3664,7 @@ Surface2 with notifier intact.
 
 Old unsafe: `Node::ptr::MakeFromThis(static_cast<Node*>(raw.get()))`.
 
-New: `Domain::AddObject` then `Domain::Find` → `Node::ptr{domain, id, {}, held}`.
+New: `Domain::AddObject` then `Domain::Find` ? `Node::ptr{domain, id, {}, held}`.
 
 `TestRuntimeNodeBaseUsesCanonicalOwnership` checks Surface and Surfaces bases
 keep most-derived class ids and distinct ObjIds.
@@ -3776,7 +3776,7 @@ Status: partial on main. Live Host/Client text convergence NOT FIXED.
 Starting SHA: `954114e`. Final remote: `eed9e02`.
 
 ## Landed
-1. `apptraverse_aether_p2p_safe_stream_duplex_test` � real `P2pSafeStream` over MockWriteStream; sequential duplex, drop recover, fragment, delay>3s, reentrancy depth (bad>=1, outer=0).
+1. `apptraverse_aether_p2p_safe_stream_duplex_test` ? real `P2pSafeStream` over MockWriteStream; sequential duplex, drop recover, fragment, delay>3s, reentrancy depth (bad>=1, outer=0).
 2. `ChatAetherRuntime` outer-loop write pump; deleted size half-duplex / post-Join reset / 3s hang rebuild; restored heartbeat ping/pong coalesce.
 3. Pins unchanged: aether-client-cpp `0b0e3b54`, objects `1d302647`, miscpp `f8b2e1c6`.
 
@@ -3802,7 +3802,7 @@ Branch: `cursor/surfaces-presenter-decomposition`.
   `InitializePresenters` now ends with one `OnModelChanged` sweep (matches structural path).
 - Win32 language button `OnModelChanged` updates caption + layout; horizontal chrome only
   when client width fits three buttons (`ChromeButtonsUseHorizontalRow`).
-- Release clean cache: `build-presenter-decomp-msvc-rel` (CPM `64e1`); configure �2 OK.
+- Release clean cache: `build-presenter-decomp-msvc-rel` (CPM `64e1`); configure ?2 OK.
 
 ## Verified (Windows)
 - Release: `apptraverse_surfaces_model_test`, `apptraverse_surfaces_win32_smoke_test`,
@@ -3813,3 +3813,25 @@ Branch: `cursor/surfaces-presenter-decomposition`.
 - Screenshots: `docs/surfaces_demo_acceptance/*.bmp`.
 
 Status: implemented/verified in isolated worktree; pushed on branch.
+
+---
+
+# surfaces resize latency fix (2026-10-18)
+
+Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-presenter-decomp`).
+
+## Measured cause
+- **Model queue:** Without coalescing, each `WM_SIZE` could enqueue separate model work while a burst was still in flight; the UI could apply an early publication while hundreds of size commits remained pending (`TestPresentationSizeCoalescesUnderBurst`).
+- **Publication prep:** `CollectLiveReachableObjects` still uses `ClearReachableNodeHistoryForPublicationSave` + `SaveObjectGraphToScratch` (journal replay on save-based node discovery). Retained size events on one Surface do **not** affect `CollectReachableObjectsFromLiveFields` (test: 100 / 1000 / 10000 events ? ~0 ms each). Incremental publish batch now calls `CollectLiveReachableObjects` once per batch and resolves dirty ids via `domain.Find` instead of per-id `FindLiveReachableNode`.
+
+## Fix
+- `SurfacesPresentationSizeQueue`: per-Surface coalesce (?1 queued + 1 in-flight), replace stale size before `Commit`, re-read slot before `SetPresentationSize`, keep `queued` until drain completes; wired in `SurfacesModelSession`, Win32 demo, tests.
+- `graph_walk.h`: traverse `std::vector` of `ObjPtr` edges (e.g. `Surfaces::surfaces`).
+- `surfaces_lifecycle.cpp`: one live-id set per publish batch.
+
+## Verified
+- Debug: `apptraverse_surfaces_model_test` (incl. coalesce + live-field journal timing), `apptraverse_surfaces_win32_smoke_test`.
+- Release: same tests PASS; `win32_surfaces_demo.exe` SHA256 `61A6BCFD8902DD8AB9EED4E583C0CB84A3DD8D27804A20D6288B91052CAC34C3` (`build-presenter-decomp-msvc-rel/examples/surfaces_demo/windows/`).
+- Manual 60 s edge drag + row/column toggles: not re-run in this agent pass (rely on coalesce tests + existing smoke resize paths).
+
+Status: committed and pushed on branch (see git log).

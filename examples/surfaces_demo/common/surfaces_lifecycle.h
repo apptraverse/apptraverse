@@ -15,6 +15,7 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/node.h"
 #include "apptraverse/publication_channel.h"
+#include "apptraverse/surfaces/surfaces_presentation_size_queue.h"
 
 namespace apptraverse {
 
@@ -36,6 +37,7 @@ struct SurfacesModelSession {
   std::condition_variable cv;
   bool stop{false};
   std::deque<ModelWork> pending_work;
+  SurfacesPresentationSizeQueue presentation_size_queue;
 
   void RequestStop();
   // Rejected after RequestStop. Work already queued is accepted and drained.

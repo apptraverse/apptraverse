@@ -3,6 +3,7 @@
 
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "aether-miscpp/reflect/reflect.h"
 #include "aether-objects/obj/obj.h"
@@ -53,6 +54,20 @@ void CallIfGraphEdgeObjPtr(LocalPtr<T> const&, Fn&&) {}
 
 template <typename Fn>
 void CallIfGraphEdgeObjPtr(auto&, Fn&&) {}
+
+template <typename Elem, typename Fn>
+void CallIfGraphEdgeObjPtr(std::vector<Elem>& vec, Fn&& fn) {
+  for (auto& elem : vec) {
+    CallIfGraphEdgeObjPtr(elem, fn);
+  }
+}
+
+template <typename Elem, typename Fn>
+void CallIfGraphEdgeObjPtr(std::vector<Elem> const& vec, Fn&& fn) {
+  for (auto const& elem : vec) {
+    CallIfGraphEdgeObjPtr(elem, fn);
+  }
+}
 
 template <typename T, typename Fn>
   requires(ae::reflect::Reflectable<T>)

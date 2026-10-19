@@ -196,6 +196,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   model_proxy_.emplace([this](ModelObjectProxy::ModelWork work) {
     session_.Post(std::move(work));
   });
+  session_.presentation_size_queue.BindProxy(&*model_proxy_);
 
   HANDLE done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   if (done_event == nullptr) {
@@ -264,6 +265,9 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
   UnloadPresenters(*ui_application_);
   ui_application_ = {};
   ui_domain_.reset();
+  if (model_proxy_) {
+    session_.presentation_size_queue.UnbindProxy(&*model_proxy_);
+  }
   model_proxy_.reset();
   UnregisterSurfacesWin32Classes();
   if (DestroyWindow(notify_) == 0) {

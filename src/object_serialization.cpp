@@ -309,6 +309,31 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
   }
 }
 
+void CollectReachableObjectsFromLiveFields(ae::Obj& root,
+                                           std::vector<ae::Obj*>& out) {
+  std::unordered_set<std::uint32_t> seen;
+  std::vector<ae::Obj*> stack;
+  stack.push_back(&root);
+  out.clear();
+  while (!stack.empty()) {
+    ae::Obj* obj = stack.back();
+    stack.pop_back();
+    if (!seen.insert(obj->obj_id.id()).second) {
+      continue;
+    }
+    out.push_back(obj);
+    ForEachGraphEdgeObjPtrOn(*obj, [&](auto& edge) {
+      if (!edge.is_valid()) {
+        return;
+      }
+      if (auto found = root.domain->Find(edge.id())) {
+        stack.push_back(&*found);
+      }
+    });
+  }
+  RemoveDistilledBaseObjects(out);
+}
+
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(root, scratch);
@@ -509,31 +534,10 @@ void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
 }
 
 void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
-  // Clear Node bookkeeping temporarily so Save-based reachability follows
-  // live fields only (e.g. ItemList::items), not journal/base history.
-  std::vector<ae::Obj*> with_history;
-  CollectReachableObjects(root, with_history);
-  struct SavedBookkeeping {
-    Node* node;
-    Node::ptr base;
-    std::vector<EventRecord> journal;
-  };
-  std::vector<SavedBookkeeping> saved;
-  saved.reserve(with_history.size());
-  for (ae::Obj* obj : with_history) {
-    auto* node = AsObjOf<Node>(obj);
-    if (node == nullptr) {
-      continue;
-    }
-    saved.push_back(SavedBookkeeping{node, node->base, std::move(node->journal)});
-    node->base = Node::ptr{};
-    node->journal.clear();
-  }
+  std::vector<SavedNodeBookkeeping> saved_history;
+  ClearReachableNodeHistoryForPublicationSave(root, saved_history);
   CollectReachableObjects(root, out);
-  for (SavedBookkeeping& entry : saved) {
-    entry.node->base = std::move(entry.base);
-    entry.node->journal = std::move(entry.journal);
-  }
+  RestoreReachableNodeHistory(saved_history);
 }
 
 Node* FindLiveReachableNode(ae::Obj& root, std::uint32_t object_id) {

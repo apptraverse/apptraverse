@@ -87,6 +87,8 @@ ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                         ae::IDomainStorage& ui_storage);
 
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
+void CollectReachableObjectsFromLiveFields(ae::Obj& root,
+                                           std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 
 void CollectPersistentSerializationReachableObjects(

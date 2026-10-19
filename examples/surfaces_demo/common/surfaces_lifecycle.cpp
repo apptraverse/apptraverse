@@ -8,11 +8,13 @@
 
 #include <cassert>
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/node.h"
 #include "apptraverse/runtime_node.h"
 
 #include "apptraverse/surfaces/surfaces_ids.h"
@@ -53,6 +55,9 @@ void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
 
 void SurfacesModelSession::Run(
     std::function<void(SurfacesPublicationKind)> on_published) {
+  presentation_size_queue.BindPostWork(
+      [this](ModelObjectProxy::ModelWork work) { Post(std::move(work)); });
+
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
   bool state_missing = true;
   if (std::filesystem::exists(state_dir)) {
@@ -130,6 +135,15 @@ void SurfacesModelSession::Run(
 
       // Publish at most one structural snapshot while the channel is free.
       // Further dirty Nodes stay pending (first-dirty order) until GUI consumes.
+      std::unordered_set<std::uint32_t> live_ids;
+      {
+        std::vector<ae::Obj*> live;
+        CollectLiveReachableObjects(*application, live);
+        live_ids.reserve(live.size());
+        for (ae::Obj* obj : live) {
+          live_ids.insert(obj->obj_id.id());
+        }
+      }
       for (;;) {
         std::uint32_t pending_id = 0;
         {
@@ -139,11 +153,14 @@ void SurfacesModelSession::Run(
           }
           pending_id = pending_dirty.PopFront();
         }
-        // A Node dirtied while the GUI held an earlier publication may have
-        // been removed from live topology since. Retained Events still
-        // reference it, so only live reachability can tell.
-        Node* const to_publish = FindLiveReachableNode(*application,
-                                                       pending_id);
+        if (live_ids.count(pending_id) == 0) {
+          continue;
+        }
+        auto object = domain.Find(ae::ObjId{pending_id});
+        if (!object) {
+          continue;
+        }
+        Node* const to_publish = object.as<Node>();
         if (to_publish == nullptr) {
           continue;
         }

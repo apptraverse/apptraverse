@@ -152,6 +152,7 @@ add_library(apptraverse_surfaces STATIC
   src/surfaces/surface_button_presenter.cpp
   src/surfaces/surface_language_button_presenter.cpp
   src/surfaces/surfaces_chrome_wiring.cpp
+  src/surfaces/surfaces_presentation_size_queue.cpp
 )
 target_link_libraries(apptraverse_surfaces PUBLIC apptraverse)
 target_include_directories(apptraverse_surfaces PUBLIC
