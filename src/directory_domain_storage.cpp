@@ -6,16 +6,65 @@
 #include <iostream>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace apptraverse {
 namespace {
 
-class DirectoryStorageWriter final : public ae::IDomainStorageWriter {
- public:
-  DirectoryStorageWriter(ae::DomainQuery q, std::ofstream&& f)
-      : query_{std::move(q)}, file_{std::move(f)} {}
+DirectoryDomainStorageStoreStats* g_store_stats = nullptr;
 
-  ~DirectoryStorageWriter() override { file_.close(); }
+std::vector<std::uint8_t> ReadExistingLayerFile(std::filesystem::path const& path) {
+  std::ifstream in{path, std::ios::binary | std::ios::ate};
+  if (!in) {
+    return {};
+  }
+  auto const size = static_cast<std::size_t>(in.tellg());
+  in.seekg(0);
+  std::vector<std::uint8_t> bytes(size);
+  if (size != 0) {
+    in.read(reinterpret_cast<char*>(bytes.data()),
+            static_cast<std::streamsize>(size));
+    if (!in) {
+      return {};
+    }
+  }
+  return bytes;
+}
+
+bool WriteLayerFile(std::filesystem::path const& path,
+                    std::vector<std::uint8_t> const& bytes) {
+  std::filesystem::create_directories(path.parent_path());
+  std::ofstream out{path, std::ios::out | std::ios::binary | std::ios::trunc};
+  if (!out) {
+    return false;
+  }
+  if (!bytes.empty()) {
+    out.write(reinterpret_cast<char const*>(bytes.data()),
+              static_cast<std::streamsize>(bytes.size()));
+  }
+  return static_cast<bool>(out);
+}
+
+void NoteLayerStoreCommit(bool written, std::size_t bytes) {
+  if (g_store_stats == nullptr) {
+    return;
+  }
+  ++g_store_stats->layer_store_calls;
+  if (written) {
+    ++g_store_stats->layers_written;
+    g_store_stats->layers_written_bytes += bytes;
+  } else {
+    ++g_store_stats->layers_skipped_unchanged;
+  }
+}
+
+class CompareOnCloseDirectoryStorageWriter final : public ae::IDomainStorageWriter {
+ public:
+  CompareOnCloseDirectoryStorageWriter(ae::DomainQuery query,
+                                       std::filesystem::path path)
+      : query_{std::move(query)}, path_{std::move(path)} {}
+
+  ~CompareOnCloseDirectoryStorageWriter() override { CommitIfNeeded(); }
 
   ae::seri::SeriResult Write(ae::seri::SizeWriteTag data) override {
     auto const u_size = static_cast<std::uint32_t>(data.size);
@@ -23,17 +72,42 @@ class DirectoryStorageWriter final : public ae::IDomainStorageWriter {
   }
 
   ae::seri::SeriResult Write(ae::seri::DataWriteTag data) override {
-    file_.write(reinterpret_cast<std::ofstream::char_type const*>(data.data),
-                static_cast<std::streamsize>(data.size));
-    if (file_.fail()) {
+    if (failed_) {
       return ae::Error{ae::seri::write_error};
     }
+    auto const* begin = static_cast<std::uint8_t const*>(data.data);
+    buffer_.insert(buffer_.end(), begin, begin + data.size);
     return ae::Ok{ae::seri::good};
   }
 
  private:
+  void CommitIfNeeded() {
+    if (committed_ || failed_) {
+      return;
+    }
+    committed_ = true;
+    std::error_code ec;
+    bool const file_exists =
+        std::filesystem::is_regular_file(path_, ec) && !ec;
+    std::vector<std::uint8_t> const existing =
+        file_exists ? ReadExistingLayerFile(path_) : std::vector<std::uint8_t>{};
+    if (file_exists && existing == buffer_) {
+      NoteLayerStoreCommit(false, 0);
+      return;
+    }
+    if (!WriteLayerFile(path_, buffer_)) {
+      failed_ = true;
+      NoteLayerStoreCommit(true, buffer_.size());
+      return;
+    }
+    NoteLayerStoreCommit(true, buffer_.size());
+  }
+
   ae::DomainQuery query_;
-  std::ofstream file_;
+  std::filesystem::path path_;
+  std::vector<std::uint8_t> buffer_;
+  bool committed_{false};
+  bool failed_{false};
 };
 
 class DirectoryStorageReader final : public ae::IDomainStorageReader {
@@ -69,6 +143,32 @@ class DirectoryStorageReader final : public ae::IDomainStorageReader {
 
 }  // namespace
 
+void SetDirectoryDomainStorageStoreStats(DirectoryDomainStorageStoreStats* stats) {
+  g_store_stats = stats;
+}
+
+DirectoryDomainStorageStoreStats TakeDirectoryDomainStorageStoreStats() {
+  DirectoryDomainStorageStoreStats out{};
+  if (g_store_stats != nullptr) {
+    out = *g_store_stats;
+    g_store_stats = nullptr;
+  }
+  return out;
+}
+
+std::filesystem::path DirectoryDomainStorageLayerPath(
+    std::filesystem::path const& root, ae::DomainQuery const& query) {
+  return root / std::to_string(query.id.id()) /
+         std::to_string(query.class_id) / std::to_string(query.version);
+}
+
+bool DirectoryDomainStorageLayerFileExists(std::filesystem::path const& root,
+                                           ae::DomainQuery const& query) {
+  std::error_code ec;
+  return std::filesystem::is_regular_file(DirectoryDomainStorageLayerPath(root, query),
+                                          ec);
+}
+
 DirectoryDomainStorage::DirectoryDomainStorage(std::filesystem::path root)
     : root_{std::move(root)} {
   std::filesystem::create_directories(root_);
@@ -78,13 +178,9 @@ DirectoryDomainStorage::~DirectoryDomainStorage() = default;
 
 std::unique_ptr<ae::IDomainStorageWriter> DirectoryDomainStorage::Store(
     ae::DomainQuery const& query) {
-  auto class_dir =
-      root_ / std::to_string(query.id.id()) / std::to_string(query.class_id);
-  std::filesystem::create_directories(class_dir);
-  auto version_data_path = class_dir / std::to_string(query.version);
-  std::ofstream f(version_data_path,
-                  std::ios::out | std::ios::binary | std::ios::trunc);
-  return std::make_unique<DirectoryStorageWriter>(query, std::move(f));
+  auto version_data_path = DirectoryDomainStorageLayerPath(root_, query);
+  return std::make_unique<CompareOnCloseDirectoryStorageWriter>(
+      query, std::move(version_data_path));
 }
 
 ae::ClassList DirectoryDomainStorage::Enumerate(ae::ObjId const& obj_id) {
@@ -154,11 +250,26 @@ class InstrumentedStorageWriter final : public ae::IDomainStorageWriter {
  public:
   InstrumentedStorageWriter(ae::DomainQuery query,
                             std::unique_ptr<ae::IDomainStorageWriter> inner,
-                            InstrumentedDomainStorageStats& stats, std::mutex& mu)
+                            InstrumentedDomainStorageStats& stats, std::mutex& mu,
+                            bool layer_existed)
       : query_{std::move(query)},
         inner_{std::move(inner)},
         stats_{stats},
-        mu_{mu} {}
+        mu_{mu},
+        layer_existed_{layer_existed} {}
+
+  ~InstrumentedStorageWriter() override {
+    std::lock_guard<std::mutex> lock{mu_};
+    if (bytes_written_ == 0) {
+      ++stats_.store_skipped_unchanged_layers;
+      return;
+    }
+    if (layer_existed_) {
+      ++stats_.store_overwrite_layers;
+    } else {
+      ++stats_.store_new_layers;
+    }
+  }
 
   ae::seri::SeriResult Write(ae::seri::SizeWriteTag data) override {
     auto const u_size = static_cast<std::uint32_t>(data.size);
@@ -170,6 +281,7 @@ class InstrumentedStorageWriter final : public ae::IDomainStorageWriter {
     if (result) {
       std::lock_guard<std::mutex> lock{mu_};
       stats_.store_bytes += data.size;
+      bytes_written_ += data.size;
     }
     return result;
   }
@@ -179,6 +291,8 @@ class InstrumentedStorageWriter final : public ae::IDomainStorageWriter {
   std::unique_ptr<ae::IDomainStorageWriter> inner_;
   InstrumentedDomainStorageStats& stats_;
   std::mutex& mu_;
+  bool layer_existed_{false};
+  std::size_t bytes_written_{0};
 };
 
 class InstrumentedStorageReader final : public ae::IDomainStorageReader {
@@ -213,13 +327,15 @@ class InstrumentedStorageReader final : public ae::IDomainStorageReader {
   std::mutex& mu_;
 };
 
-bool LayerVersionExists(ae::IDomainStorage& storage, ae::DomainQuery const& query) {
-  ae::ClassList const classes = storage.Enumerate(query.id);
-  if (std::find(classes.begin(), classes.end(), query.class_id) == classes.end()) {
-    return false;
+bool LayerVersionExistsOnDisk(std::filesystem::path const* layer_root,
+                              ae::IDomainStorage& storage,
+                              ae::DomainQuery const& query) {
+  if (layer_root != nullptr) {
+    return DirectoryDomainStorageLayerFileExists(*layer_root, query);
   }
-  ae::DomainLoad const load = storage.Load(query);
-  return load.result == ae::DomainLoadResult::kLoaded;
+  ae::ClassList const classes = storage.Enumerate(query.id);
+  return std::find(classes.begin(), classes.end(), query.class_id) !=
+         classes.end();
 }
 
 }  // namespace
@@ -227,9 +343,13 @@ bool LayerVersionExists(ae::IDomainStorage& storage, ae::DomainQuery const& quer
 InstrumentedDomainStorage::InstrumentedDomainStorage(ae::IDomainStorage& inner)
     : inner_{inner} {}
 
+InstrumentedDomainStorage::InstrumentedDomainStorage(
+    ae::IDomainStorage& inner, std::filesystem::path const& layer_root)
+    : inner_{inner}, layer_root_{&layer_root} {}
+
 std::unique_ptr<ae::IDomainStorageWriter> InstrumentedDomainStorage::Store(
     ae::DomainQuery const& query) {
-  bool const existed = LayerVersionExists(inner_, query);
+  bool const existed = LayerVersionExistsOnDisk(layer_root_, inner_, query);
   auto inner_writer = inner_.Store(query);
   if (!inner_writer) {
     return {};
@@ -238,14 +358,9 @@ std::unique_ptr<ae::IDomainStorageWriter> InstrumentedDomainStorage::Store(
     std::lock_guard<std::mutex> lock{mu_};
     ++stats_.store_calls;
     stats_.store_obj_ids.insert(query.id.id());
-    if (existed) {
-      ++stats_.store_overwrite_layers;
-    } else {
-      ++stats_.store_new_layers;
-    }
   }
   return std::make_unique<InstrumentedStorageWriter>(
-      query, std::move(inner_writer), stats_, mu_);
+      query, std::move(inner_writer), stats_, mu_, existed);
 }
 
 ae::ClassList InstrumentedDomainStorage::Enumerate(ae::ObjId const& obj_id) {
@@ -283,7 +398,8 @@ void LogInstrumentedDomainStorageStats(InstrumentedDomainStorageStats const& sta
             << " store_obj_ids=" << stats.store_obj_ids.size()
             << " store_new_layers=" << stats.store_new_layers
             << " store_overwrite_layers=" << stats.store_overwrite_layers
-            << '\n';
+            << " store_skipped_unchanged_layers="
+            << stats.store_skipped_unchanged_layers << '\n';
 }
 
 }  // namespace apptraverse

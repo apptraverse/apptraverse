@@ -3921,7 +3921,33 @@ Baseline: `3e408ed`. Branch: `cursor/surfaces-presenter-decomposition`.
 - **`apptraverse_surfaces_model_test`** OK (Release).
 - Journal scratch still **19 objs / 412 B / 0** historical events @ 10k.
 
-## Follow-up
-- Stage-level Add/Close timings + storage wrapper on real profile (user state dir) and **`load_only`** cold replay after exit.
-- Ptr/cycle collection profile on pinned aether-objects (not hot in this pass).
-- Fold **`domain_storage()`** patch into reproducible CPM apply (second patch hunk failed on fresh cache — use merged patch or pin script).
+## Close latency (2026-10-19, same branch)
+
+### Root cause (confirmed on Release EXE)
+Shutdown **`Application::Save()`** (`DomainGraph::SaveRoot`) still visited every persisted layer, but the dominant cost was **`DirectoryDomainStorage::Store` truncating and rewriting** each layer file even when serialized bytes were **identical** to what was already on disk (80 layer commits on a typical distilled profile).
+
+### Fix
+- **`DirectoryDomainStorage`**: buffer each `Store` in memory; on writer close, **byte-compare** with the existing layer file and **skip the truncate/write** when equal (new/changed layers still write; missing file + empty payload still creates the empty layer file like the old eager truncate).
+- **`InstrumentedDomainStorage`**: no `Load()` before `Store` for overwrite stats (uses layer path existence only when `layer_root` is known); tracks **`store_skipped_unchanged_layers`** when the inner commit writes zero bytes.
+- Opt-in shutdown timeline: **`APPTRAVERSE_SURFACES_SHUTDOWN_TRACE=1`** → `surfaces_shutdown_trace.*` + stage marks in `surfaces_lifecycle` / `win_app` / `main` (Save vs `model_domain_destroyed` vs `done_event` vs `windows_gone` vs process exit).
+
+### Measurements (Release `build-presenter-decomp-msvc-rel`, scenario A: bootstrap → close; then **`load_only`** on same `--state-dir`)
+| Stage | First close (after distill) | Second close (no changes, load_only) |
+|-------|----------------------------|--------------------------------------|
+| `application_save` wall | **~38 ms** (t 67→105 ms) | **~45 ms** (t 146→191 ms) |
+| Disk: layer commits / written / skipped / bytes | 80 / **10** / **70** / **164** | 80 / **0** / **80** / **0** |
+| close → `windows_gone` | **507 ms** | **471 ms** |
+| close → process exit | **513 ms** | **476 ms** |
+| `load_only` after exit | surfaces restored (3 windows, WM_CLOSE clean exit) | same profile, idempotent save |
+
+Demo EXE SHA256 (this close pass): **`AC4749D3DE3357B7146118B2E5434E56B71B0E6ECBEF8BE0B8D96FC8DD26DE23`**. Sources at commit after push (parent baseline **`3eec5d2`**).
+
+### Verified
+- **`apptraverse_directory_domain_storage_test`** OK (round-trip + store stats).
+- **`apptraverse_surfaces_model_test`** OK (Release).
+- Add path unchanged (still **3** `InitializeRuntimeNode` store calls on Ram wrap).
+
+### Follow-up
+- Remaining **~0.5 s** close→exit is mostly **`model_domain_destroyed`** + UI waiting on `done_event` before `UnloadPresenters` (not Save I/O); profile Ptr teardown if that becomes the next target.
+- Scenario B/C (locale/geometry-only, long resize) on copied user profile.
+- Fold **`domain_storage()`** patch into reproducible CPM apply when second hunk fails on fresh cache.

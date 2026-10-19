@@ -34,7 +34,12 @@ void TestDirectoryDomainStorageRoundtrip() {
     auto node =
         Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
     CHECK(node.is_valid());
+    DirectoryDomainStorageStoreStats stats{};
+    SetDirectoryDomainStorageStoreStats(&stats);
     node.Save();
+    stats = TakeDirectoryDomainStorageStoreStats();
+    CHECK(stats.layer_store_calls >= 1);
+    CHECK(stats.layers_written >= 1);
     CHECK(node.domain() == &domain);
   }
 

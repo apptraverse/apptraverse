@@ -41,6 +41,7 @@ add_library(apptraverse_surfaces SHARED
   native_runtime.cpp
   surfaces_ui_bridge.cpp
   ${APPTRAVERSE_ROOT}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
 )
 
 # Dev build: create the initial graph when the state directory is empty.

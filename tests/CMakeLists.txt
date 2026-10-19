@@ -721,6 +721,7 @@ add_executable(apptraverse_surfaces_model_test
   surfaces_model_test.cpp
   surfaces_test_presentation.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
 )
 
 target_compile_definitions(apptraverse_surfaces_model_test PRIVATE
@@ -755,6 +756,7 @@ if(WIN32)
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows/win_app.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
   )
   target_compile_definitions(apptraverse_surfaces_win32_smoke_test PRIVATE
     APPTRAVERSE_ENABLE_DISTILLATION
@@ -799,6 +801,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux/linux_presenters.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux/linux_fatal.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
   )
   target_compile_definitions(apptraverse_surfaces_linux_smoke_test PRIVATE
     APPTRAVERSE_ENABLE_DISTILLATION
@@ -837,6 +840,7 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/macos/mac_app.mm
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/macos/mac_presenters.mm
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
   )
   target_compile_definitions(apptraverse_surfaces_macos_smoke_test PRIVATE
     APPTRAVERSE_ENABLE_DISTILLATION

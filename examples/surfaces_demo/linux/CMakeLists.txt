@@ -7,6 +7,7 @@ set(_surfaces_linux_sources
   linux_presenters.cpp
   linux_fatal.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_shutdown_trace.cpp
 )
 
 add_executable(linux_surfaces_demo ${_surfaces_linux_sources})

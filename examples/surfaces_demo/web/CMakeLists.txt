@@ -8,6 +8,7 @@ add_executable(web_surfaces_demo
   web_bridge.cpp
   web_surface_presenter.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
 )
 
 target_compile_definitions(web_surfaces_demo PRIVATE
@@ -58,6 +59,7 @@ set_target_properties(web_surfaces_demo PROPERTIES
 add_executable(web_surfaces_model_compile_check
   ${CMAKE_SOURCE_DIR}/tests/surfaces_model_test.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
 )
 target_compile_definitions(web_surfaces_model_compile_check PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION

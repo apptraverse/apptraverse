@@ -12,12 +12,15 @@
 #include "apptraverse/noninteractive_crt.h"
 
 #include "win_app.h"
+#include "surfaces_shutdown_trace.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
 
 int main(int argc, char** argv) {
-  // GUI host: no debug console even when launched from a terminal/parent.
-  FreeConsole();
+  if (!apptraverse::SurfacesShutdownTrace::Enabled()) {
+    // GUI host: no debug console even when launched from a terminal/parent.
+    FreeConsole();
+  }
   apptraverse::EnableNoninteractiveCrt();
 
   std::filesystem::path state_dir{"surfaces_runtime_state"};
@@ -31,5 +34,8 @@ int main(int argc, char** argv) {
   apptraverse::EnsureSurfacesRegistration();
   apptraverse::EnsureWin32SurfacesPresenterRegistration();
   apptraverse::WinApp app;
-  return app.Run(state_dir);
+  int const code = app.Run(state_dir);
+  apptraverse::SurfacesShutdownTrace::MarkProcessExit();
+  apptraverse::SurfacesShutdownTrace::FlushSummary();
+  return code;
 }

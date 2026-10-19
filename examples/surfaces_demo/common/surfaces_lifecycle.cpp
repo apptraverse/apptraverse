@@ -1,5 +1,7 @@
 #include "surfaces_lifecycle.h"
 
+#include "surfaces_shutdown_trace.h"
+
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
 #include <filesystem>
 
@@ -80,8 +82,14 @@ void SurfacesModelSession::Run(
 #endif
 
   {
-    DirectoryDomainStorage storage{state_dir};
-    ae::Domain domain{storage};
+    DirectoryDomainStorage durable_storage{state_dir};
+    std::optional<InstrumentedDomainStorage> instrumented_storage;
+    ae::IDomainStorage* storage = &durable_storage;
+    if (SurfacesShutdownTrace::Enabled()) {
+      instrumented_storage.emplace(durable_storage, durable_storage.root());
+      storage = &*instrumented_storage;
+    }
+    ae::Domain domain{*storage};
     auto application = LoadApplication<Application>(
         domain, ae::ObjId{surfaces_demo::ToObjId(
                     surfaces_demo::ObjId::Application)});
@@ -115,6 +123,7 @@ void SurfacesModelSession::Run(
         });
         if (stop) {
           if (pending_work.empty()) {
+            SurfacesShutdownTrace::MarkModelDrainedAcceptedTasks();
             break;
           }
           work = std::move(pending_work.front());
@@ -186,8 +195,31 @@ void SurfacesModelSession::Run(
     }
 
     ClearLiveReachableNodesMaterializedChangeNotifier(*application);
+    SurfacesShutdownTrace::MarkClearLiveNotifiersDone();
+
+    struct StoreStatsGuard {
+      DirectoryDomainStorageStoreStats stats{};
+      StoreStatsGuard() { SetDirectoryDomainStorageStoreStats(&stats); }
+      ~StoreStatsGuard() { TakeDirectoryDomainStorageStoreStats(); }
+    } store_stats_guard;
+    SurfacesShutdownTrace::MarkApplicationSaveStart();
     application.Save();
+    SurfacesShutdownTrace::MarkApplicationSaveEnd();
+    SurfacesShutdownTrace::LogStorageStoreStats(
+        store_stats_guard.stats.layer_store_calls,
+        store_stats_guard.stats.layers_written,
+        store_stats_guard.stats.layers_skipped_unchanged,
+        store_stats_guard.stats.layers_written_bytes);
+    if (instrumented_storage) {
+      InstrumentedDomainStorageStats const save_stats =
+          instrumented_storage->SnapshotStats();
+      SurfacesShutdownTrace::LogInstrumentedSaveStats(
+          save_stats.store_calls, save_stats.store_bytes,
+          save_stats.store_new_layers, save_stats.store_overwrite_layers,
+          save_stats.store_skipped_unchanged_layers);
+    }
   }
+  SurfacesShutdownTrace::MarkModelDomainDestroyed();
 }
 
 }  // namespace apptraverse

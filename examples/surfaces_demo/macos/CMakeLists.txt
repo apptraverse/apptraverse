@@ -30,6 +30,7 @@ set(_surfaces_mac_sources
   mac_app.mm
   mac_presenters.mm
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_shutdown_trace.cpp
 )
 
 # ARC for AppKit ownership in .mm; C++ RTTI stays off via apptraverse_compile_policy.

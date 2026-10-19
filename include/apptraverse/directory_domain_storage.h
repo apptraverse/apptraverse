@@ -40,12 +40,30 @@ struct InstrumentedDomainStorageStats {
   std::size_t load_bytes{0};
   std::size_t store_new_layers{0};
   std::size_t store_overwrite_layers{0};
+  std::size_t store_skipped_unchanged_layers{0};
   std::unordered_set<std::uint32_t> store_obj_ids;
 };
+
+// Optional counters while DirectoryDomainStorage commits layer files (e.g. during
+// Application::Save). Not thread-safe; set on one thread around Save only.
+struct DirectoryDomainStorageStoreStats {
+  std::size_t layer_store_calls{0};
+  std::size_t layers_written{0};
+  std::size_t layers_skipped_unchanged{0};
+  std::size_t layers_written_bytes{0};
+};
+
+void SetDirectoryDomainStorageStoreStats(DirectoryDomainStorageStoreStats* stats);
+DirectoryDomainStorageStoreStats TakeDirectoryDomainStorageStoreStats();
+
+std::filesystem::path DirectoryDomainStorageLayerPath(
+    std::filesystem::path const& root, ae::DomainQuery const& query);
 
 class InstrumentedDomainStorage final : public ae::IDomainStorage {
  public:
   explicit InstrumentedDomainStorage(ae::IDomainStorage& inner);
+  InstrumentedDomainStorage(ae::IDomainStorage& inner,
+                            std::filesystem::path const& layer_root);
 
   std::unique_ptr<ae::IDomainStorageWriter> Store(
       ae::DomainQuery const& query) override;
@@ -58,11 +76,15 @@ class InstrumentedDomainStorage final : public ae::IDomainStorage {
 
  private:
   ae::IDomainStorage& inner_;
+  std::filesystem::path const* layer_root_{nullptr};
   mutable std::mutex mu_;
   InstrumentedDomainStorageStats stats_;
 };
 
 void LogInstrumentedDomainStorageStats(InstrumentedDomainStorageStats const& stats);
+
+bool DirectoryDomainStorageLayerFileExists(std::filesystem::path const& root,
+                                           ae::DomainQuery const& query);
 
 }  // namespace apptraverse
 

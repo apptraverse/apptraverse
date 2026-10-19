@@ -39,6 +39,7 @@ set(_surfaces_ios_sources
   ios_app.mm
   ios_presenters.mm
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_shutdown_trace.cpp
 )
 
 # ARC for UIKit ownership in .mm; C++ RTTI stays off via apptraverse_compile_policy.
