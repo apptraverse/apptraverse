@@ -1,8 +1,6 @@
 #ifndef APPTRAVERSE_EVENT_FOR_H_
 #define APPTRAVERSE_EVENT_FOR_H_
 
-#include <type_traits>
-
 #include "apptraverse/object/event.h"
 #include "apptraverse/object/node.h"
 

@@ -3,9 +3,7 @@
 
 #include <cassert>
 #include <cstdint>
-#include <map>
 
-#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/object/object_macros.h"
@@ -48,16 +46,9 @@ class Event : public ae::Obj {
 
   virtual void ApplyToImpl(ae::Obj& target) const = 0;
 
-  virtual bool CanApplyToImpl(Node const& target) const {
-    (void)target;
-    assert(false && "Concrete Event must inherit through EventFor");
-    return false;
-  }
+  virtual bool CanApplyToImpl(Node const& target) const = 0;
 
-  virtual std::uint32_t TargetClassIdImpl() const {
-    assert(false && "Concrete Event must inherit through EventFor");
-    return 0;
-  }
+  virtual std::uint32_t TargetClassIdImpl() const = 0;
 };
 
 }  // namespace apptraverse

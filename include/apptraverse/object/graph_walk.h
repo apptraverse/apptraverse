@@ -5,7 +5,6 @@
 #include <utility>
 
 #include "aether-miscpp/reflect/reflect.h"
-#include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_ptr.h"
 
 #include "apptraverse/object/event.h"
