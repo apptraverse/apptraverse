@@ -1,0 +1,81 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 5dd036a..519c015 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -39,6 +39,44 @@
+   return ptr;
+ }
+ 
++Ptr<Obj> DomainGraph::MaterializeShell(ObjId obj_id) {
++  Ptr<Obj> ptr;
++  if (MaterializeShell(obj_id, ptr).IsErr()) {
++    return {};
++  }
++  return ptr;
++}
++
++seri::SeriResult DomainGraph::MaterializeShell(ObjId obj_id, Ptr<Obj>& ptr) {
++  if (!obj_id.is_valid()) {
++    return Error{seri::read_error};
++  }
++  if (ptr = domain->Find(obj_id); ptr) {
++    return Ok{seri::good};
++  }
++  auto* factory = domain->GetMostRelatedFactory(obj_id);
++  if (factory == nullptr) {
++    return Error{seri::read_error};
++  }
++  ptr = domain->ConstructObj(*factory, obj_id);
++  if (!ptr) {
++    return Error{seri::read_error};
++  }
++  return Ok{seri::good};
++}
++
++seri::SeriResult DomainGraph::HydrateShellFromStorage(Ptr<Obj>& obj,
++                                                      ObjId storage_id) {
++  if (!obj) {
++    return Error{seri::read_error};
++  }
++  LoadStoredLayers(obj, storage_id);
++  if (!obj) {
++    return Error{seri::read_error};
++  }
++  return Ok{seri::good};
++}
++
+ seri::SeriResult DomainGraph::LoadRoot(ObjId obj_id, Ptr<Obj>& ptr) {
+   if (!obj_id.is_valid()) {
+     return Error{seri::read_error};
+@@ -53,12 +91,10 @@
+     return Error{seri::read_error};
+   }
+ 
+-  ptr = domain->ConstructObj(*factory, obj_id);
+-  LoadStoredLayers(ptr, obj_id);
+-  if (!ptr) {
++  if (MaterializeShell(obj_id, ptr).IsErr() || !ptr) {
+     return Error{seri::read_error};
+   }
+-  return Ok{seri::good};
++  return HydrateShellFromStorage(ptr, obj_id);
+ }
+ 
+ Ptr<Obj> DomainGraph::LoadCopyImpl(ObjId ref_id, ObjId copy_id) {
+
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index a408e75..6abedfe 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -125,6 +125,10 @@
+   // Load saved state of object.
+   Ptr<Obj> LoadRoot(ObjId obj_id);
+   seri::SeriResult LoadRoot(ObjId obj_id, Ptr<Obj>& ptr);
++  // Checkpoint hydrate: empty shell (ConstructObj) without reading storage.
++  Ptr<Obj> MaterializeShell(ObjId obj_id);
++  seri::SeriResult MaterializeShell(ObjId obj_id, Ptr<Obj>& ptr);
++  seri::SeriResult HydrateShellFromStorage(Ptr<Obj>& obj, ObjId storage_id);
+   // Save state of object.
+   seri::SeriResult SaveRoot(Ptr<Obj> const& ptr, ObjId obj_id);
+   // Load a copy of object
+

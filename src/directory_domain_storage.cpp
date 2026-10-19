@@ -98,45 +98,17 @@ LayerFileRead ReadExistingLayerFile(std::filesystem::path const& path) {
 
 }
 
+bool ReplaceLayerFile(std::filesystem::path const& path,
+
+                      std::vector<std::uint8_t> const& bytes);
+
 
 
 bool WriteNewLayerFile(std::filesystem::path const& path,
 
                        std::vector<std::uint8_t> const& bytes) {
 
-  std::error_code ec;
-
-  std::filesystem::create_directories(path.parent_path(), ec);
-
-  if (ec) {
-
-    return false;
-
-  }
-
-  std::ofstream out{path, std::ios::out | std::ios::binary | std::ios::trunc};
-
-  if (!out) {
-
-    return false;
-
-  }
-
-  if (!bytes.empty()) {
-
-    out.write(reinterpret_cast<char const*>(bytes.data()),
-
-              static_cast<std::streamsize>(bytes.size()));
-
-    if (!out) {
-
-      return false;
-
-    }
-
-  }
-
-  return static_cast<bool>(out);
+  return ReplaceLayerFile(path, bytes);
 
 }
 

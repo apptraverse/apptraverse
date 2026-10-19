@@ -41,6 +41,9 @@ class SurfacesShutdownTrace {
   static void LogSaveCallPhases(std::int64_t owning_ptr_ms,
                                 std::int64_t save_root_ms);
 
+  static void LogCheckpointCommitStats(bool success,
+                                       std::uint64_t checkpoint_bytes);
+
   static void LogInstrumentedSaveStats(std::uint64_t store_calls,
                                        std::uint64_t store_bytes_accepted,
                                        std::uint64_t store_disk_bytes_written,

@@ -778,6 +778,11 @@ target_compile_definitions(apptraverse_surfaces_long_journal_save_test PRIVATE
 target_link_libraries(apptraverse_surfaces_long_journal_save_test PRIVATE
   apptraverse_surfaces
 )
+if(WIN32)
+  target_link_libraries(apptraverse_surfaces_long_journal_save_test PRIVATE
+    apptraverse_surfaces_windows
+  )
+endif()
 
 target_include_directories(apptraverse_surfaces_long_journal_save_test PRIVATE
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
@@ -1310,6 +1315,17 @@ target_link_libraries(apptraverse_checkpoint_load_cycle_persistence_test PRIVATE
 add_test(
   NAME apptraverse_checkpoint_load_cycle_persistence_test
   COMMAND apptraverse_checkpoint_load_cycle_persistence_test
+)
+
+add_executable(apptraverse_checkpoint_obj_root_graph_persistence_test
+  checkpoint_obj_root_graph_persistence_test.cpp
+)
+target_link_libraries(apptraverse_checkpoint_obj_root_graph_persistence_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_checkpoint_obj_root_graph_persistence_test
+  COMMAND apptraverse_checkpoint_obj_root_graph_persistence_test
 )
 
 add_executable(apptraverse_presenter_graph_persistence_test

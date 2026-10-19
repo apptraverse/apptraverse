@@ -9,9 +9,12 @@
 #include <chrono>
 #include <optional>
 
+#include "aether-objects/obj/registry.h"
+
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/graph_walk.h"
 #include "apptraverse/object_serialization.h"
 
 #include "apptraverse/surfaces/surfaces_ids.h"
@@ -40,12 +43,40 @@ void ConfigureSurfacesDemoModelSession(SurfacesModelSession& session) {
     session.model_root = application;
     return &*application;
   };
+  session.config.create_checkpoint_root_shell =
+      [&session](ae::Domain& domain) -> ae::Obj* {
+        auto application = Application::ptr::Create(ae::CreateWith{domain}.with_id(
+            ae::ObjId{ToObjId(ObjId::Application)}));
+        session.model_root = application;
+        return &*application;
+      };
   session.config.on_model_root_loaded = [](ae::Obj& root) {
     auto& application = static_cast<Application&>(root);
-    assert(application.surfaces.is_valid() &&
-           application.surfaces.is_loaded());
-    application.surfaces->host_application = &application;
-    WireSurfacesDemoPlatformBindings(*application.surfaces);
+    Surfaces* surfaces = nullptr;
+    if (application.surfaces.is_valid()) {
+      if (!application.surfaces.is_loaded()) {
+        (void)application.surfaces.Load();
+      }
+      if (application.surfaces.is_loaded()) {
+        surfaces = &*application.surfaces;
+      }
+    }
+    if (surfaces == nullptr) {
+      std::vector<ae::Obj*> objects;
+      CollectReachableObjects(root, objects);
+      for (ae::Obj* obj : objects) {
+        if (ae::Registry::GetRegistry().GenerationDistance(
+                Surfaces::kClassId, obj->GetClassId()) >= 0) {
+          surfaces = static_cast<Surfaces*>(obj);
+          break;
+        }
+      }
+    }
+    if (surfaces == nullptr) {
+      return;
+    }
+    surfaces->host_application = &application;
+    WireSurfacesDemoPlatformBindings(*surfaces);
   };
   session.config.bind_presentation_size_queue =
       [](PresentationSizeQueue& queue) {
@@ -84,36 +115,29 @@ void ConfigureSurfacesDemoModelSession(SurfacesModelSession& session) {
   session.config.on_clear_live_notifiers = [](ae::Obj&) {
     SurfacesShutdownTrace::MarkClearLiveNotifiersDone();
   };
+  session.config.durable_persistence =
+      ModelDurablePersistence::PackedCheckpointFile;
   session.config.on_save_start = [] {
     SurfacesShutdownTrace::MarkApplicationSaveStart();
   };
-  session.config.persist_root = [](ae::Obj& root) {
-    using Clock = std::chrono::steady_clock;
-    auto const ptr_start = Clock::now();
-    Application::ptr app =
-        Application::ptr::MakeFromThis(static_cast<Application*>(&root));
-    auto const save_start = Clock::now();
-    app.Save();
-    auto const save_end = Clock::now();
-    SurfacesShutdownTrace::LogSaveCallPhases(
-        std::chrono::duration_cast<std::chrono::milliseconds>(save_start -
-                                                              ptr_start)
-            .count(),
-        std::chrono::duration_cast<std::chrono::milliseconds>(save_end -
-                                                              save_start)
-            .count());
-  };
-  session.config.on_save_end = [](ae::Obj&, DirectoryDomainStorage& durable) {
+  session.config.on_save_end = [](ae::Obj&,
+                                  ModelPublicationSaveContext const& save) {
     SurfacesShutdownTrace::MarkApplicationSaveEnd();
-    DirectoryDomainStorageStoreStats const store_stats =
-        durable.SnapshotSaveSessionStats();
-    SurfacesShutdownTrace::LogStorageStoreStats(
-        store_stats.layer_store_calls, store_stats.layers_bytes_accepted,
-        store_stats.layers_written, store_stats.layers_skipped_unchanged,
-        store_stats.layers_written_bytes, store_stats.layers_failed_commits,
-        store_stats.layers_compare_bytes_read,
-        store_stats.layers_size_mismatch_writes,
-        store_stats.layers_new_file_writes);
+    if (save.backend == ModelDurablePersistence::DirectoryObjectLayers &&
+        save.directory_storage != nullptr) {
+      DirectoryDomainStorageStoreStats const store_stats =
+          save.directory_storage->SnapshotSaveSessionStats();
+      SurfacesShutdownTrace::LogStorageStoreStats(
+          store_stats.layer_store_calls, store_stats.layers_bytes_accepted,
+          store_stats.layers_written, store_stats.layers_skipped_unchanged,
+          store_stats.layers_written_bytes, store_stats.layers_failed_commits,
+          store_stats.layers_compare_bytes_read,
+          store_stats.layers_size_mismatch_writes,
+          store_stats.layers_new_file_writes);
+    } else if (save.backend == ModelDurablePersistence::PackedCheckpointFile) {
+      SurfacesShutdownTrace::LogCheckpointCommitStats(save.success,
+                                                      save.checkpoint_bytes);
+    }
     SurfacesShutdownTrace::MarkApplicationGraphTeardownStart();
   };
 }

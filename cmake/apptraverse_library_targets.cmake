@@ -54,6 +54,7 @@ add_library(apptraverse_application_runtime STATIC
   src/model_object_proxy.cpp
   src/presentation_size_queue.cpp
   src/application/model_publication_session.cpp
+  src/application/model_checkpoint_persistence.cpp
   src/ui_mirror.cpp
   src/model_runtime.cpp
 )

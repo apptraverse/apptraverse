@@ -18,6 +18,7 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/registry.h"
 
+#include "apptraverse/application/model_checkpoint_persistence.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
@@ -33,6 +34,7 @@
 #include "surfaces_distill.h"
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "surfaces_lifecycle.h"
+#include "surfaces_demo_platform_attach.h"
 #include "apptraverse/surfaces/surfaces_localization.h"
 #include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
@@ -60,6 +62,27 @@ std::filesystem::path TestDir(char const* name) {
   auto path = std::filesystem::temp_directory_path() / name;
   std::filesystem::remove_all(path);
   return path;
+}
+
+Application& ModelApplication(ae::Domain& domain) {
+  auto object = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
+      surfaces_demo::ObjId::Application)});
+  CHECK(object);
+  return static_cast<Application&>(*object);
+}
+
+Application::ptr LoadApplicationFromSessionCheckpoint(
+    std::filesystem::path const& state_dir) {
+  ae::RamDomainStorage ram;
+  ae::Domain domain{ram};
+  ModelCheckpointPaths const paths =
+      ModelCheckpointPathsForStateDir(state_dir);
+  auto application = Application::ptr::Create(ae::CreateWith{domain}.with_id(
+      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)}));
+  CHECK(LoadModelCheckpoint(paths, domain, ram, *application));
+  application->surfaces->host_application = &*application;
+  WireSurfacesDemoPlatformBindings(*application->surfaces);
+  return application;
 }
 
 void WaitPublished(SurfacesModelSession& session) {
@@ -107,10 +130,13 @@ void RunOnModel(SurfacesModelSession& session,
   std::promise<void> done;
   auto future = done.get_future();
   session.Post([&](ae::Domain& domain) {
-    auto app = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
-        surfaces_demo::ObjId::Application)});
-    CHECK(app);
-    body(static_cast<Application&>(*app));
+    Application& app = ModelApplication(domain);
+    if (app.surfaces.is_valid() && !app.surfaces->surfaces.empty()) {
+      Surfaces& surfaces = *app.surfaces->surfaces[0]->surfaces;
+      surfaces.host_application = &app;
+      WireSurfacesDemoPlatformBindings(surfaces);
+    }
+    body(app);
     done.set_value();
   });
   CHECK(future.wait_for(std::chrono::seconds{30}) ==
@@ -328,10 +354,22 @@ void TestDynamicNodeStructuralPublication() {
 
   ae::Obj* model_surface1 = nullptr;
   session.Post([&](ae::Domain& domain) {
+    Application& app = ModelApplication(domain);
+    if (app.surfaces.is_valid()) {
+      Surfaces& surfaces = *app.surfaces;
+      surfaces.host_application = &app;
+      WireSurfacesDemoPlatformBindings(surfaces);
+    }
     auto object = domain.Find(surface1_id);
     CHECK(object);
     model_surface1 = &*object;
-    object.as<Surface>()->AddSurface();
+    Surface* surface = object.as<Surface>();
+    Surfaces& parent = *surface->surfaces;
+    parent.host_application = &app;
+    if (parent.platform_attach == nullptr) {
+      WireSurfacesDemoPlatformBindings(parent);
+    }
+    surface->AddSurface();
   });
   WaitPublished(session);
   ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
@@ -486,26 +524,16 @@ void TestShutdownDrain() {
   WaitPublished(session);
   TakeAndWake(session);
 
-  session.Post([](ae::Domain& domain) {
-    auto object = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
-        surfaces_demo::ObjId::Surface1)});
-    CHECK(object);
-    object.as<Surface>()->AddSurface();
+  RunOnModel(session, [](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
   });
-  session.Post([](ae::Domain& domain) {
-    auto object = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
-        surfaces_demo::ObjId::Surface1)});
-    CHECK(object);
-    object.as<Surface>()->AddSurface();
+  RunOnModel(session, [](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
   });
   session.RequestStop();
   model.join();
 
-  DirectoryDomainStorage storage{dir};
-  ae::Domain domain{storage};
-  auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+  auto application = LoadApplicationFromSessionCheckpoint(dir);
   Surfaces& surfaces = *application->surfaces;
   CHECK(surfaces.surfaces.size() == 3);
   CHECK(surfaces.surfaces[0]->number == 1);
@@ -1780,10 +1808,7 @@ void TestModelWorkRunsWhilePublicationUnread() {
   (void)TakeAndWake(session);  // initial
 
   session.Post([](ae::Domain& domain) {
-    auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
-    app->surfaces->surfaces[0]->AddSurface();
+    ModelApplication(domain).surfaces->surfaces[0]->AddSurface();
   });
   WaitPublished(session);
   // Leave publication #1 unread.
@@ -1791,10 +1816,7 @@ void TestModelWorkRunsWhilePublicationUnread() {
   std::promise<void> second_add_done;
   auto second_add_fut = second_add_done.get_future();
   session.Post([&](ae::Domain& domain) {
-    auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
-    app->surfaces->surfaces[0]->AddSurface();
+    ModelApplication(domain).surfaces->surfaces[0]->AddSurface();
     second_add_done.set_value();
   });
 
@@ -1819,10 +1841,7 @@ void TestModelWorkRunsWhilePublicationUnread() {
     std::promise<std::size_t> count;
     auto fut = count.get_future();
     session.Post([&](ae::Domain& domain) {
-      auto app = LoadApplication<Application>(
-          domain, ae::ObjId{surfaces_demo::ToObjId(
-                      surfaces_demo::ObjId::Application)});
-      count.set_value(app->surfaces->surfaces.size());
+      count.set_value(ModelApplication(domain).surfaces->surfaces.size());
     });
     CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
     CHECK(fut.get() == 3);
@@ -1850,29 +1869,19 @@ void TestShutdownDrainsWorkWithUnreadPublication() {
   (void)TakeAndWake(session);
 
   session.Post([](ae::Domain& domain) {
-    auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
-    app->surfaces->surfaces[0]->AddSurface();
+    ModelApplication(domain).surfaces->surfaces[0]->AddSurface();
   });
   WaitPublished(session);
   // Unread publication held.
 
   session.Post([](ae::Domain& domain) {
-    auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
-    app->surfaces->surfaces[0]->AddSurface();
+    ModelApplication(domain).surfaces->surfaces[0]->AddSurface();
   });
   session.RequestStop();
   model.join();
 
   {
-    DirectoryDomainStorage storage{dir};
-    ae::Domain domain{storage};
-    auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+    auto app = LoadApplicationFromSessionCheckpoint(dir);
     CHECK(app->surfaces->surfaces.size() == 3);
   }
   std::filesystem::remove_all(dir);
@@ -1963,13 +1972,10 @@ void TestStructuralApplyOnModelChangedOnce() {
   CHECK(TestSurfacePresenter::on_load_calls.load() == 4);
 
   session.Post([&](ae::Domain& domain) {
-    auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
     auto event = ui::SetUiLanguageIndexEvent::ptr::Create(
         ae::CreateWith{domain});
     event->language_index = 1;
-    app->locale->Commit(std::move(event));
+    ModelApplication(domain).locale->Commit(std::move(event));
   });
   WaitPublished(session);
   int const before = TestSurfacePresenter::on_model_changed_calls.load();

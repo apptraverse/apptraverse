@@ -4073,6 +4073,28 @@ Long-journal scenario (10k seed + Add sibling + shutdown): **add_ms=3000**, **sh
 - **`apptraverse_surfaces_long_journal_save_test`**: PASS (CTest)
 - **`apptraverse_surfaces_model_test`**: full suite **not re-run** here (local direct launch returned exit **3** without diagnostics; main list unchanged — not truncated)
 
+## Packed checkpoint — two-phase cold load (2026-10-19)
+
+### Root cause (first real failure)
+- **`LoadPersistentModelSnapshot`** used **`LoadRoot` / `LoadExistingObject`**, which ran **`LoadStoredLayers` twice** on the same shells → heap corruption / AV on cyclic Surfaces graph.
+- **`ObjPtr::Declare` + dereference** for checkpoint root did not register a domain shell; **`MaterializeShell`** then ran with **empty storage** for the Application id (`Obj not found` / invalid `ObjPtr` assert).
+
+### Fix
+- **`aether-objects-checkpoint-shell.patch`**: **`MaterializeShell`** (ConstructObj only) + **`HydrateShellFromStorage`** (single **`LoadStoredLayers`** pass); **`LoadRoot`** delegates to both.
+- **`LoadPersistentModelSnapshot`**: inject layers → materialize all ids → hydrate once → generations → node base bindings → journal event shells; **`load_keepalive`** until hydrate completes.
+- Session: **`create_checkpoint_root_shell`** (Surfaces: **`Application::Create`**) instead of **`Declare`**; regression **`apptraverse_checkpoint_obj_root_graph_persistence_test`** (Obj root, shuffled layer order).
+
+### Tests (Release `build-presenter-decomp-msvc-rel`)
+- **`apptraverse_checkpoint_obj_root_graph_persistence_test`**: PASS
+- **`apptraverse_checkpoint_load_cycle_persistence_test`**: PASS
+- **`apptraverse_checkpoint_load_rehydration_test`**: PASS
+- **`apptraverse_presenter_graph_persistence_test`**: PASS
+- **`apptraverse_surfaces_model_test`**: exit **3** — `Surface::AddSurface` **`host_application`** assert on model-thread path after packed bootstrap (needs runtime wire on loaded **`Surfaces`** back-link; in progress in `surfaces_lifecycle` / tests).
+
+### aether-objects pin
+- Patches (in order): **`aether-objects-local-persistent-load.patch`** (hunk fix), **`aether-objects-domain-storage-access.patch`**, **`aether-objects-checkpoint-shell.patch`**
+- Objects SHA unchanged: **`79283b667cabf689da1059d618fe2a22abf51db4`**
+
 Remaining cost is **linear in retained Events** (~30k new layer files on first durable flush — expected for current object-per-Event persistence); not masked with timeout/ExitProcess/skip-save.
 
 ### Roadmap

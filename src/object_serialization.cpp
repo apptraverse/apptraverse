@@ -1434,51 +1434,68 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
   std::vector<ae::Ptr<ae::Obj>> load_keepalive;
   load_keepalive.reserve(loaded_ids.size());
   ae::DomainGraph hydrate_graph{&domain};
-  auto materialize_checkpoint_shell = [&](ae::ObjId const id) -> ae::Obj& {
+
+  auto ensure_checkpoint_shell = [&](ae::ObjId const id) -> ae::Ptr<ae::Obj> {
+    if (id == root.obj_id) {
+      ae::Ptr<ae::Obj> existing = domain.Find(id);
+      if (!existing) {
+        char message[512];
+        std::snprintf(message, sizeof(message),
+                      "fatal: persistent checkpoint root shell missing id=%u\n",
+                      id.id());
+        WriteFatalStderr(message);
+        std::abort();
+      }
+      if (existing->GetClassId() != root.GetClassId()) {
+        char message[512];
+        std::snprintf(
+            message, sizeof(message),
+            "fatal: persistent checkpoint root id=%u class mismatch "
+            "(expected class=%u got class=%u)\n",
+            id.id(), root.GetClassId(), existing->GetClassId());
+        WriteFatalStderr(message);
+        std::abort();
+      }
+      load_keepalive.push_back(existing);
+      return existing;
+    }
     ae::Ptr<ae::Obj> object = domain.Find(id);
     if (!object) {
-      object = hydrate_graph.LoadRoot(id);
+      object = hydrate_graph.MaterializeShell(id);
     }
     if (!object) {
       char message[512];
       std::snprintf(message, sizeof(message),
-                    "fatal: persistent checkpoint missing domain object id=%u\n",
+                    "fatal: persistent checkpoint shell materialize failed "
+                    "id=%u\n",
                     id.id());
       WriteFatalStderr(message);
       std::abort();
     }
     load_keepalive.push_back(object);
-    return *object;
+    return object;
   };
-  auto load_checkpoint_object = [&](ae::ObjId const id) {
-    ae::Obj& object = materialize_checkpoint_shell(id);
-    diagnostics = {};
-    if (!LoadExistingObject(object, domain, &storage, &diagnostics)) {
+
+  for (ae::ObjId const id : loaded_ids) {
+    (void)ensure_checkpoint_shell(id);
+  }
+  if (!domain.Find(root.obj_id)) {
+    (void)ensure_checkpoint_shell(root.obj_id);
+  }
+
+  for (ae::ObjId const id : loaded_ids) {
+    ae::Ptr<ae::Obj> object = domain.Find(id);
+    assert(object);
+    if (hydrate_graph.HydrateShellFromStorage(object, id).IsErr() || !object) {
       diagnostics.obj_id = id.id();
+      diagnostics.object_class_id = object ? object->GetClassId() : 0;
       char message[512];
       FormatInitialPublicationLoadDiagnostics(diagnostics, message,
                                             sizeof(message));
       WriteFatalStderr(message);
       std::abort();
     }
-  };
-  // Checkpoint hydrate: materialize every saved shell while load_keepalive holds
-  // strong refs (Domain only stores PtrView). Load non-root objects before root,
-  // then root, so cyclic ObjPtr fields resolve without a second full reload pass.
-  for (ae::ObjId const id : loaded_ids) {
-    if (id == root.obj_id) {
-      continue;
-    }
-    materialize_checkpoint_shell(id);
   }
-  materialize_checkpoint_shell(root.obj_id);
-  for (ae::ObjId const id : loaded_ids) {
-    if (id == root.obj_id) {
-      continue;
-    }
-    load_checkpoint_object(id);
-  }
-  load_checkpoint_object(root.obj_id);
 
   std::uint32_t node_generation_count = 0;
   in.read(&node_generation_count, sizeof(node_generation_count));

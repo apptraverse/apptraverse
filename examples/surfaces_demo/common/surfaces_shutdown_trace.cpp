@@ -327,6 +327,16 @@ void SurfacesShutdownTrace::LogSaveCallPhases(std::int64_t owning_ptr_ms,
 
 }
 
+void SurfacesShutdownTrace::LogCheckpointCommitStats(bool success,
+                                                     std::uint64_t checkpoint_bytes) {
+  if (!TraceEnabled()) {
+    return;
+  }
+  std::cerr << "surfaces_shutdown_trace checkpoint_commit success="
+            << (success ? 1 : 0)
+            << " checkpoint_bytes=" << checkpoint_bytes << '\n';
+}
+
 
 
 void SurfacesShutdownTrace::LogInstrumentedSaveStats(

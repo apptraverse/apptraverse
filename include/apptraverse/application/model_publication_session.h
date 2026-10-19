@@ -12,6 +12,7 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/idomain_storage.h"
 
+#include "apptraverse/application/model_checkpoint_persistence.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/node.h"
 #include "apptraverse/presentation_size_queue.h"
@@ -29,6 +30,8 @@ struct ModelPublicationSessionConfig {
   ae::ObjId root_object_id;
   std::function<void()> ensure_type_registration;
   std::function<ae::Obj*(ae::Domain& domain)> load_mutable_root;
+  // Empty typed root shell in domain before packed checkpoint hydration.
+  std::function<ae::Obj*(ae::Domain& domain)> create_checkpoint_root_shell;
   // Optional: create distilled state when state_dir has no root layer.
   std::function<void(ae::Domain& domain, ae::IDomainStorage& storage)>
       bootstrap_if_missing;
@@ -42,7 +45,9 @@ struct ModelPublicationSessionConfig {
   std::function<void(ae::Obj& root)> on_clear_live_notifiers;
   std::function<void()> on_save_start;
   std::function<void(ae::Obj& root)> persist_root;
-  std::function<void(ae::Obj& root, DirectoryDomainStorage& durable)>
+  ModelDurablePersistence durable_persistence{
+      ModelDurablePersistence::PackedCheckpointFile};
+  std::function<void(ae::Obj& root, ModelPublicationSaveContext const& save)>
       on_save_end;
 };
 

@@ -7,6 +7,8 @@ set(APPTRAVERSE_AETHER_OBJECTS_LOCAL_PERSISTENT_LOAD_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-local-persistent-load.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_DOMAIN_STORAGE_ACCESS_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-domain-storage-access.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_CHECKPOINT_SHELL_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-checkpoint-shell.patch")
 
 set(APPTRAVERSE_AETHER_GIT_TAG "feature/percentile8-policy-v1")
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
