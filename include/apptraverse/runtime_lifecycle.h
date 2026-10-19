@@ -7,9 +7,9 @@
 
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/event_for.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse {
 
@@ -38,8 +38,7 @@ class NetworkAvailableEvent;
 class AetherRegistrationStartedEvent;
 class AetherRegistrationCompletedEvent;
 
-class ApplicationRuntimeState
-    : public NodeFor<ApplicationRuntimeState> {
+class ApplicationRuntimeState : public NodeFor<ApplicationRuntimeState> {
   APPTRAVERSE_OBJECT(ApplicationRuntimeState, Node, 2)
 
  protected:

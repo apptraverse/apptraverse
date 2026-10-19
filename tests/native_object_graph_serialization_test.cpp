@@ -15,25 +15,25 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/event_for.h"
-#include "apptraverse/node.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_link.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/node.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_link.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/transport/shared_network_graph.h"
 
 namespace apptraverse::test {
 namespace {
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 class NativeSentinel : public ae::Obj {
@@ -167,11 +167,10 @@ class NativeTestEvent : public EventFor<NativeTestItem, NativeTestEvent> {
  public:
   explicit NativeTestEvent(ae::ObjProp prop) : EventFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_REF_BASE(Event), AE_MMBR(item),
-                    AE_MMBR(second_item_ref), AE_MMBR(metadata),
-                    AE_MMBR(second_metadata_ref), AE_MMBR(nested_struct),
-                    AE_MMBR(nested_vector), AE_MMBR(event_detail),
-                    AE_MMBR(scalar_event_id))
+  AE_OBJECT_REFLECT(AE_REF_BASE(Event), AE_MMBR(item), AE_MMBR(second_item_ref),
+                    AE_MMBR(metadata), AE_MMBR(second_metadata_ref),
+                    AE_MMBR(nested_struct), AE_MMBR(nested_vector),
+                    AE_MMBR(event_detail), AE_MMBR(scalar_event_id))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -201,9 +200,7 @@ APPTRAVERSE_REGISTER(NativeTestMetadata);
 APPTRAVERSE_REGISTER(NativeTestItem);
 APPTRAVERSE_REGISTER(NativeTestEvent);
 
-void NativeTestItem::Apply(NativeTestEvent const& event) {
-  (void)event;
-}
+void NativeTestItem::Apply(NativeTestEvent const& event) { (void)event; }
 
 void TestNativeObjectGraphSerializationProof() {
   std::set<ae::ObjId> sender_ids;
@@ -357,8 +354,7 @@ void TestNativeObjectGraphSerializationProof() {
     CHECK(imported_event->nested_vector.size() == 1);
     CHECK(imported_event->event_detail.id() ==
           imported_event->nested_vector[0].detail.id());
-    CHECK(&*imported_event->event_detail ==
-          &*imported_event->metadata->detail);
+    CHECK(&*imported_event->event_detail == &*imported_event->metadata->detail);
 
     // Verify Node::base is valid and remapped
     CHECK(imported_event->item->base.is_valid());
@@ -403,8 +399,7 @@ void TestNativeObjectGraphSerializationProof() {
     CHECK(&*reloaded_event->metadata == &*reloaded_event->second_metadata_ref);
     CHECK(reloaded_event->event_detail.id() ==
           reloaded_event->metadata->detail.id());
-    CHECK(&*reloaded_event->event_detail ==
-          &*reloaded_event->metadata->detail);
+    CHECK(&*reloaded_event->event_detail == &*reloaded_event->metadata->detail);
     CHECK(reloaded_event->item->base.is_valid());
     CHECK(!reloaded_event->metadata->local_link.is_valid());
     CHECK(reloaded_event->metadata->scalar_obj_id == ae::ObjId{999});

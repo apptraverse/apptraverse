@@ -7,7 +7,7 @@
 
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/shared_event_id.h"
+#include "apptraverse/object/shared_event_id.h"
 
 namespace apptraverse {
 

@@ -10,14 +10,14 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/link.h"
-#include "apptraverse/memory_transport.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_node.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_network_graph.h"
-#include "apptraverse/shared_node.h"
-#include "apptraverse/shared_sync_runtime.h"
-#include "apptraverse/sync_frame.h"
+#include "apptraverse/transport/memory_transport.h"
+#include "apptraverse/transport/shared_network_graph.h"
+#include "apptraverse/transport/shared_sync_runtime.h"
+#include "apptraverse/transport/sync_frame.h"
 
 #include "shared_node_demo_model.h"
 
@@ -27,13 +27,13 @@ namespace {
 using apptraverse::example::shared_node::SetValueEvent;
 using apptraverse::example::shared_node::SharedValueNode;
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 std::string const kEndpointA = "replica-a";
@@ -196,9 +196,8 @@ struct ObserverEndpoint {
 };
 
 void ReloadAndRegister(Replica& replica, ae::ObjId node_id) {
-  auto node =
-      SharedValueNode::ptr::Declare(ae::CreateWith{*replica.domain}.with_id(
-          node_id));
+  auto node = SharedValueNode::ptr::Declare(
+      ae::CreateWith{*replica.domain}.with_id(node_id));
   node.Load();
   CHECK(node.is_loaded());
   replica.sync->RegisterNode(node);
@@ -320,7 +319,6 @@ void TestInitialSyncAcrossReplicas() {
   // Nothing is sent for an already acknowledged relationship.
   a.sync->SyncInitialState(fixture.node_id, fixture.share_to_b);
   CHECK(network.PendingCount(kEndpointA, kEndpointB) == 0);
-
 }
 
 // Lost ACK: the retry is the persisted packet byte for byte, the receiver
@@ -369,20 +367,19 @@ void TestLostAckExactRetryAndDuplicate() {
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(b.watched.pending_at_store().empty());
-  CHECK(b.sync->FindNode(fixture.node_id).operator->() ==
-        b_node.operator->());
+  CHECK(b.sync->FindNode(fixture.node_id).operator->() == b_node.operator->());
   CHECK(ValueOf(b_node) == 11);
   CHECK(b_node->journal.size() == b_journal_size);
   CHECK(b_node->shares.size() == 2);
   CHECK(b_node->link_sync_states.size() == 2);
   CHECK(SyncStateOf(b_node, fixture.share_to_b).id() == b_state_id);
-  CHECK(b_state->received_initial_packet_id == a_state->pending_initial_packet_id);
+  CHECK(b_state->received_initial_packet_id ==
+        a_state->pending_initial_packet_id);
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 1);
 
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
   CHECK(a_state->GetInitialSyncPhase() == InitialSyncPhase::Complete);
   CHECK(ValueOf(b_node) == 11);
-
 }
 
 // Sender restart while Pending: the same packet id and the same bytes come
@@ -428,7 +425,6 @@ void TestSenderRestartWhilePending() {
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
   CHECK(a_state->GetInitialSyncPhase() == InitialSyncPhase::Complete);
   CHECK(ValueOf(b.sync->FindNode(fixture.node_id)) == 21);
-
 }
 
 // Receiver restart after it applied the snapshot but before the sender saw an
@@ -478,7 +474,6 @@ void TestReceiverRestartAfterApply() {
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
   CHECK(SyncStateOf(a.sync->FindNode(fixture.node_id), fixture.share_to_b)
             ->GetInitialSyncPhase() == InitialSyncPhase::Complete);
-
 }
 
 // Sender restart after the ACK was persisted: the relationship stays Complete
@@ -508,7 +503,6 @@ void TestSenderRestartAfterComplete() {
 
   a.sync->SyncInitialState(fixture.node_id, fixture.share_to_b);
   CHECK(network.PendingCount(kEndpointA, kEndpointB) == 0);
-
 }
 
 // One Link carries several SharedNodes: a packet is applied to the SharedNode
@@ -541,7 +535,6 @@ void TestRoutingByTargetNodeId() {
   CHECK(ValueOf(b.sync->FindNode(first.node_id)) == 51);
   CHECK(ValueOf(b.sync->FindNode(second.node_id)) == 52);
   CHECK(first.share_to_b != second.share_to_b);
-
 }
 
 // Untrusted bytes may not create a root this replica is not waiting for.
@@ -561,7 +554,6 @@ void TestUnexpectedNodeIsRejected() {
   CHECK(b.storage.Enumerate(fixture.node_id).empty());
   CHECK(b.watched.pending_at_store().empty());
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
-
 }
 
 // Deterministic transport controls: directional outage, duplicate delivery,
@@ -597,7 +589,6 @@ void TestTransportDeterministicControls() {
   CHECK(b_node->link_sync_states.size() == 2);
   // Both copies were acknowledged, the state was applied once.
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 2);
-
 }
 
 // An ACK is only an acknowledgement when it comes from the endpoint the
@@ -736,13 +727,12 @@ void TestMalformedNodeStateRejected() {
   auto const a_node = a.sync->FindNode(fixture.node_id);
   auto truncated_payload = SerializeNetworkSharedObjectGraph(*a_node);
   truncated_payload.pop_back();
-  a.transport->Send(kEndpointB,
-                    EncodeNodeStateFrame(NodeStateFrame{
-                        .packet_id = ae::ObjId{5299},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_b,
-                        .payload = truncated_payload,
-                    }));
+  a.transport->Send(kEndpointB, EncodeNodeStateFrame(NodeStateFrame{
+                                    .packet_id = ae::ObjId{5299},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_b,
+                                    .payload = truncated_payload,
+                                }));
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(!b.sync->FindNode(fixture.node_id).is_valid());
@@ -816,8 +806,7 @@ void TestMalformedPayloadWritesNothing() {
   }
   {
     CountingStorage target;
-    std::vector<std::uint8_t> const head(payload.begin(),
-                                         payload.begin() + 9);
+    std::vector<std::uint8_t> const head(payload.begin(), payload.begin() + 9);
     CHECK(!ImportObjectGraphPayload(head, target));
     CHECK(target.store_count == 0);
   }
@@ -855,22 +844,23 @@ void TestMalformedClassLayersInNodeStateRejected() {
 
   auto const payload = SerializeObjectGraph(bad_storage);
 
-  // Before delivery explicitly prove parser succeeds but class-chain validation fails
+  // Before delivery explicitly prove parser succeeds but class-chain validation
+  // fails
   ae::RamDomainStorage parsed_check;
   CHECK(DeserializeObjectGraph(payload, parsed_check) == true);
   CHECK(ValidateStoredClassChains(parsed_check) == false);
 
   b.sync->ExpectInitialNode(fixture.node_id);
-  a.transport->Send(
-      kEndpointB,
-      EncodeNodeStateFrame(NodeStateFrame{.packet_id = ae::ObjId{991},
-                                          .target_node_id = fixture.node_id,
-                                          .destination_share_id = fixture.share_to_b,
-                                          .payload = payload}));
+  a.transport->Send(kEndpointB, EncodeNodeStateFrame(NodeStateFrame{
+                                    .packet_id = ae::ObjId{991},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_b,
+                                    .payload = payload}));
 
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
-  // Payload must be rejected before LoadRoot / writing to b's storage, no ACK sent
+  // Payload must be rejected before LoadRoot / writing to b's storage, no ACK
+  // sent
   CHECK(b.watched.pending_at_store().empty());
   CHECK(!b.sync->FindNode(fixture.node_id).is_valid());
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
@@ -974,7 +964,8 @@ void TestReceiverLocalSentinelCollisionRejected() {
 
   // Create a receiver-local sentinel object on B whose ObjId collides with
   // one of the objects inside A's node graph (link_a = 5302)
-  auto sentinel = MakeMemoryLink(*b.domain, ae::ObjId{5302}, "sentinel-endpoint-b");
+  auto sentinel =
+      MakeMemoryLink(*b.domain, ae::ObjId{5302}, "sentinel-endpoint-b");
   sentinel.Save();
 
   b.sync->ExpectInitialNode(fixture.node_id);
@@ -1004,7 +995,8 @@ void TestSnapshotWithTwoSourceSharesRejected() {
   a.Start();
   b.Start();
 
-  // Create a SharedNode on A with two shares pointing to kEndpointA, and one share pointing to kEndpointB
+  // Create a SharedNode on A with two shares pointing to kEndpointA, and one
+  // share pointing to kEndpointB
   ae::ObjId const node_id{5401};
   ae::ObjId const link_a1_id{5402};
   ae::ObjId const link_a2_id{5403};

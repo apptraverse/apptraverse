@@ -10,8 +10,8 @@
 #include "aether-objects/obj/obj_id.h"
 #include "aether-objects/ptr/ptr.h"
 
-#include "apptraverse/object_macros.h"
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/transport/shared_network_graph.h"
 
 namespace apptraverse::test::evolution {
 
@@ -81,7 +81,8 @@ int main(int argc, char* argv[]) {
 
   {
     ae::Domain domain{storage};
-    auto derived_ptr = ae::MakePtr<apptraverse::test::evolution::LayerDerived>();
+    auto derived_ptr =
+        ae::MakePtr<apptraverse::test::evolution::LayerDerived>();
     domain.AddObject(target_id, derived_ptr);
     derived_ptr->domain = &domain;
     derived_ptr->obj_id = target_id;

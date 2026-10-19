@@ -5,9 +5,9 @@
 #include <string>
 
 #include "aether-objects/obj/obj_id.h"
-#include "apptraverse/event_for.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse::example::chat_demo {
 
@@ -26,8 +26,7 @@ class JoinHostFailedEvent;
 class CopyHostUidRequestedEvent;
 class CopyHostUidCompletedEvent;
 
-class ChatDemoRuntimeState
-    : public apptraverse::NodeFor<ChatDemoRuntimeState> {
+class ChatDemoRuntimeState : public apptraverse::NodeFor<ChatDemoRuntimeState> {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::chat_demo::ChatDemoRuntimeState",
       ChatDemoRuntimeState, Node, 0)
@@ -111,7 +110,8 @@ class JoinHostRequestedEvent
 };
 
 class JoinHostAcceptedEvent
-    : public apptraverse::EventFor<ChatDemoRuntimeState, JoinHostAcceptedEvent> {
+    : public apptraverse::EventFor<ChatDemoRuntimeState,
+                                   JoinHostAcceptedEvent> {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::chat_demo::JoinHostAcceptedEvent",
       JoinHostAcceptedEvent, Event, 0)

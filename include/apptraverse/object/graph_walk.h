@@ -8,9 +8,9 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_ptr.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/node.h"
-#include "apptraverse/object_link.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/node.h"
+#include "apptraverse/object/object_link.h"
 
 namespace apptraverse {
 namespace detail {
@@ -58,9 +58,8 @@ template <typename T, typename Fn>
   requires(ae::reflect::Reflectable<T>)
 void ForEachReflectedGraphEdgeObjPtr(T& obj, Fn&& fn) {
   auto reflection = ae::reflect::make_reflection(obj);
-  reflection.Apply([&](auto&&... fields) {
-    (CallIfGraphEdgeObjPtr(fields, fn), ...);
-  });
+  reflection.Apply(
+      [&](auto&&... fields) { (CallIfGraphEdgeObjPtr(fields, fn), ...); });
 }
 
 }  // namespace detail

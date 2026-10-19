@@ -16,10 +16,10 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/event_record.h"
 #include "apptraverse/journal_retention_policy.h"
-#include "apptraverse/object_link.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event_record.h"
+#include "apptraverse/object/object_link.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse {
 
@@ -136,9 +136,7 @@ class Node : public ae::Obj {
 
   virtual void OnLoad() {}
 
-  virtual void Update(std::chrono::steady_clock::time_point now) {
-    (void)now;
-  }
+  virtual void Update(std::chrono::steady_clock::time_point now) { (void)now; }
 
   bool TryEnsureCurrentGeneration() {
     if (applied_journal_size_ == kJournalFullyMaterialized) {
@@ -172,7 +170,8 @@ class Node : public ae::Obj {
   // Rebuild materialized state from base and replay the journal.
   // Note: Speculative replay is intended for disposable scratch copies only.
   // If historical replay fails, the scratch object is left partially modified
-  // and must not be reused. Network admission discards the scratch graph on failure.
+  // and must not be reused. Network admission discards the scratch graph on
+  // failure.
   bool TryReplayFromBase() { return TryReplayFromBaseImpl(); }
 
   void ReplayFromBase() {
@@ -186,7 +185,8 @@ class Node : public ae::Obj {
   // concrete Node.
   // Note: Speculative insertion is intended for disposable scratch copies only.
   // If historical replay fails, the scratch object is left partially modified
-  // and must not be reused. Network admission discards the scratch graph on failure.
+  // and must not be reused. Network admission discards the scratch graph on
+  // failure.
   bool TryInsertShared(Event::ptr event, SharedEventId identity,
                        SharedEventOrder order) {
     return TryInsertSharedImpl(std::move(event), std::move(identity),
@@ -336,8 +336,7 @@ class Node : public ae::Obj {
 
     auto const saved_generation = generation_;
     std::vector<EventRecord> retained(
-        journal.begin() + static_cast<std::ptrdiff_t>(collapse),
-        journal.end());
+        journal.begin() + static_cast<std::ptrdiff_t>(collapse), journal.end());
 
     if (retained.empty()) {
       // Live fields already equal old base + the whole journal. Snapshot them
@@ -366,7 +365,8 @@ class Node : public ae::Obj {
 
   // Speculative insertion is for disposable scratch copies only.
   // If historical replay fails, the scratch object is left partially modified
-  // and must be discarded. Network admission discards the scratch graph on failure.
+  // and must be discarded. Network admission discards the scratch graph on
+  // failure.
   template <typename ConcreteNode>
   bool TryInsertEvent(ConcreteNode& target, EventRecord record) {
     if (domain == nullptr || !base.is_valid() || !base.is_loaded() ||
@@ -454,7 +454,8 @@ class Node : public ae::Obj {
   template <typename ConcreteNode>
   bool TryCommitSharedInto(ConcreteNode& target, Event::ptr event,
                            SharedEventId identity, SharedEventOrder order) {
-    if (!event.is_valid() || !event.is_loaded() || identity.origin_uid.empty()) {
+    if (!event.is_valid() || !event.is_loaded() ||
+        identity.origin_uid.empty()) {
       return false;
     }
     if (!event->MatchesSharedMetadata(identity, order)) {

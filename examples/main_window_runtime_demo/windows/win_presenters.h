@@ -9,7 +9,7 @@
 #  undef RegisterClass
 #endif
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 #include "main_window_model.h"
 
@@ -42,7 +42,7 @@ class Win32MainWindowPresenter : public MainWindowPresenter {
 
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
-                                   LPARAM lparam);
+                                  LPARAM lparam);
 };
 
 }  // namespace apptraverse

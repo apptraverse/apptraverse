@@ -5,9 +5,9 @@
 
 #include "aether-miscpp/reflect/reflect.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_event_order.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/shared_event_id.h"
+#include "apptraverse/object/shared_event_order.h"
 
 namespace apptraverse {
 

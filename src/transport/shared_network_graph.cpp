@@ -1,4 +1,4 @@
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/transport/shared_network_graph.h"
 
 #include <algorithm>
 #include <cassert>
@@ -12,9 +12,9 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/registry.h"
-#include "apptraverse/event.h"
-#include "apptraverse/node.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/node.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/operation_storage.h"
 
 namespace apptraverse {
@@ -49,8 +49,8 @@ void TransferRamObject(ae::RamDomainStorage const& src, ae::ObjId obj_id,
       auto writer = dst.Store(ae::DomainQuery{obj_id, class_id, version});
       assert(writer != nullptr);
       if (!data.empty()) {
-        auto const result = writer->Write(
-            ae::seri::DataWriteTag{data.data(), data.size()});
+        auto const result =
+            writer->Write(ae::seri::DataWriteTag{data.data(), data.size()});
         assert(result);
         (void)result;
       }
@@ -58,10 +58,9 @@ void TransferRamObject(ae::RamDomainStorage const& src, ae::ObjId obj_id,
   }
 }
 
-ae::ObjId AllocateUniqueReceiverObjId(
-    ae::Domain const& domain,
-    ae::IDomainStorage& storage,
-    std::set<ae::ObjId> const& reserved_ids) {
+ae::ObjId AllocateUniqueReceiverObjId(ae::Domain const& domain,
+                                      ae::IDomainStorage& storage,
+                                      std::set<ae::ObjId> const& reserved_ids) {
   while (true) {
     auto const id = ae::ObjId::GenerateUnique();
     if (!id.is_valid()) {
@@ -89,8 +88,7 @@ void CopyNetworkSharedObjectGraph(ae::Obj const& root,
   CommitObjectGraph(scratch, target_storage);
 }
 
-void CopySharedNetworkGraph(SharedNode::ptr source,
-                            ae::Domain& target_domain,
+void CopySharedNetworkGraph(SharedNode::ptr source, ae::Domain& target_domain,
                             ae::IDomainStorage& target_storage) {
   assert(source.is_valid());
   assert(source.is_loaded());
@@ -157,9 +155,8 @@ FrozenNodeState FreezeNetworkSharedNodeState(SharedNode const& root) {
   };
 }
 
-bool ValidateStoredClassChains(
-    ae::RamDomainStorage const& parsed,
-    std::vector<StoredClassChainInfo>* out_chains) {
+bool ValidateStoredClassChains(ae::RamDomainStorage const& parsed,
+                               std::vector<StoredClassChainInfo>* out_chains) {
   EnsureObjectRegistration();
   auto& registry = ae::Registry::GetRegistry();
   auto const obj_class_id = ae::Obj::kClassId;
@@ -182,9 +179,10 @@ bool ValidateStoredClassChains(
     std::vector<std::uint32_t> chain;
     chain.reserve(classes.size());
 
-    // Check that every registered class layer exists in registry and has no unknown layers.
-    // Note: ae::Obj is the root of all objects in aether-objects, but ae::Registry does not
-    // register an entry for ae::Obj itself (its base_id is "Obj").
+    // Check that every registered class layer exists in registry and has no
+    // unknown layers. Note: ae::Obj is the root of all objects in
+    // aether-objects, but ae::Registry does not register an entry for ae::Obj
+    // itself (its base_id is "Obj").
     for (auto const& [class_id, versions] : classes) {
       if (class_id != obj_class_id && !registry.IsExisting(class_id)) {
         return false;
@@ -195,7 +193,8 @@ bool ValidateStoredClassChains(
       chain.push_back(class_id);
     }
 
-    // Check that every pair of classes in chain is related (one inherits from the other).
+    // Check that every pair of classes in chain is related (one inherits from
+    // the other).
     for (std::size_t i = 0; i < chain.size(); ++i) {
       for (std::size_t j = i + 1; j < chain.size(); ++j) {
         auto const c1 = chain[i];
@@ -212,21 +211,23 @@ bool ValidateStoredClassChains(
       }
     }
 
-    // Sort base -> derived: left comes before right if right is derived from left.
-    // Strict weak ordering: when a == b, must return false (including when both are obj_class_id).
-    std::sort(chain.begin(), chain.end(), [&registry, obj_class_id](auto a, auto b) {
-      if (a == b) {
-        return false;
-      }
-      if (a == obj_class_id) {
-        return true;
-      }
-      if (b == obj_class_id) {
-        return false;
-      }
-      int const dist = registry.GenerationDistance(a, b);
-      return dist > 0;
-    });
+    // Sort base -> derived: left comes before right if right is derived from
+    // left. Strict weak ordering: when a == b, must return false (including
+    // when both are obj_class_id).
+    std::sort(chain.begin(), chain.end(),
+              [&registry, obj_class_id](auto a, auto b) {
+                if (a == b) {
+                  return false;
+                }
+                if (a == obj_class_id) {
+                  return true;
+                }
+                if (b == obj_class_id) {
+                  return false;
+                }
+                int const dist = registry.GenerationDistance(a, b);
+                return dist > 0;
+              });
 
     auto const most_derived = chain.back();
     if (most_derived == obj_class_id) {
@@ -241,8 +242,8 @@ bool ValidateStoredClassChains(
     }
 
     // Verify that every stored class in chain is an ancestor of most_derived
-    // (or equal to it). Since we checked pairwise relatedness and sorted base->derived,
-    // verify each element's distance to most_derived is >= 0.
+    // (or equal to it). Since we checked pairwise relatedness and sorted
+    // base->derived, verify each element's distance to most_derived is >= 0.
     for (auto const c : chain) {
       if (c == obj_class_id) {
         continue;
@@ -284,10 +285,9 @@ bool ImportObjectGraphPayload(std::vector<std::uint8_t> const& payload,
   return true;
 }
 
-bool FreezeEventPayload(
-    ae::Obj const& event,
-    EventGraphExportBoundary const& boundary,
-    std::vector<std::uint8_t>& out_payload) {
+bool FreezeEventPayload(ae::Obj const& event,
+                        EventGraphExportBoundary const& boundary,
+                        std::vector<std::uint8_t>& out_payload) {
   EnsureObjectRegistration();
   assert(event.domain != nullptr);
 
@@ -324,17 +324,14 @@ bool FreezeEventPayload(
   return true;
 }
 
-bool FreezeEventPayload(
-    ae::Obj const& event,
-    std::vector<std::uint8_t>& out_payload) {
+bool FreezeEventPayload(ae::Obj const& event,
+                        std::vector<std::uint8_t>& out_payload) {
   return FreezeEventPayload(event, EventGraphExportBoundary{event.obj_id},
                             out_payload);
 }
 
-bool ParseEventPayload(
-    std::vector<std::uint8_t> const& payload,
-    ae::RamDomainStorage& parsed,
-    ae::ObjId& out_root_id) {
+bool ParseEventPayload(std::vector<std::uint8_t> const& payload,
+                       ae::RamDomainStorage& parsed, ae::ObjId& out_root_id) {
   parsed.state.clear();
   std::vector<std::uint8_t> payload_copy = payload;
   ae::seri::BinaryVectorBuffer buffer{payload_copy};
@@ -359,8 +356,7 @@ bool ParseEventPayload(
 }
 
 bool ValidateClosedEventGraphStorage(
-    ae::RamDomainStorage const& parsed,
-    ae::ObjId root_event_id,
+    ae::RamDomainStorage const& parsed, ae::ObjId root_event_id,
     std::uint32_t expected_event_class_id,
     std::vector<StoredClassChainInfo>* out_chains) {
   if (!root_event_id.is_valid()) {
@@ -376,18 +372,17 @@ bool ValidateClosedEventGraphStorage(
     return false;
   }
 
-  auto const chain_it =
-      std::find_if(chains.begin(), chains.end(),
-                   [&](StoredClassChainInfo const& info) {
-                     return info.obj_id == root_event_id;
-                   });
+  auto const chain_it = std::find_if(chains.begin(), chains.end(),
+                                     [&](StoredClassChainInfo const& info) {
+                                       return info.obj_id == root_event_id;
+                                     });
   if (chain_it == chains.end()) {
     return false;
   }
 
   auto& reg = ae::Registry::GetRegistry();
-  if (reg.GenerationDistance(Event::kClassId,
-                             chain_it->most_derived_class_id) < 0) {
+  if (reg.GenerationDistance(Event::kClassId, chain_it->most_derived_class_id) <
+      0) {
     return false;
   }
   if (expected_event_class_id != 0 &&
@@ -416,14 +411,11 @@ bool ValidateClosedEventGraphStorage(
 
   bool validation_ok = true;
   detail::OperationStorage val_storage{
-      detail::OperationMode::kValidate,
-      &parsed,
-      &most_derived_classes,
+      detail::OperationMode::kValidate, &parsed,       &most_derived_classes,
       /*target_domain=*/nullptr,
       /*real_storage=*/nullptr,
       /*old_to_new=*/nullptr,
-      /*new_id_to_obj=*/nullptr,
-      &validation_ok};
+      /*new_id_to_obj=*/nullptr,        &validation_ok};
 
   ae::Domain val_domain{val_storage};
   ae::DomainGraph val_graph{&val_domain,
@@ -447,10 +439,8 @@ bool ValidateClosedEventGraphStorage(
 }
 
 ae::Ptr<Event> ImportClosedEventGraph(
-    ae::RamDomainStorage const& parsed,
-    ae::ObjId root_event_id,
-    ae::Domain& receiver_domain,
-    ae::IDomainStorage& receiver_storage,
+    ae::RamDomainStorage const& parsed, ae::ObjId root_event_id,
+    ae::Domain& receiver_domain, ae::IDomainStorage& receiver_storage,
     std::set<ae::ObjId>& reserved_ids,
     std::map<ae::ObjId, ae::ObjId>* out_mapping) {
   EnsureObjectRegistration();
@@ -508,15 +498,14 @@ ae::Ptr<Event> ImportClosedEventGraph(
   }
 
   bool remap_ok = true;
-  detail::OperationStorage remap_storage{
-      detail::OperationMode::kRemap,
-      /*validation_storage=*/nullptr,
-      /*most_derived_classes=*/nullptr,
-      &receiver_domain,
-      &receiver_storage,
-      &old_to_new,
-      &new_id_to_obj,
-      &remap_ok};
+  detail::OperationStorage remap_storage{detail::OperationMode::kRemap,
+                                         /*validation_storage=*/nullptr,
+                                         /*most_derived_classes=*/nullptr,
+                                         &receiver_domain,
+                                         &receiver_storage,
+                                         &old_to_new,
+                                         &new_id_to_obj,
+                                         &remap_ok};
 
   ae::Domain remap_domain{remap_storage};
   ae::DomainGraph remap_graph{&remap_domain,
@@ -536,25 +525,23 @@ ae::Ptr<Event> ImportClosedEventGraph(
 
 namespace {
 
-bool CopyStoredObjectAs(
-    ae::RamDomainStorage const& source,
-    ae::ObjId source_id,
-    ae::ObjId destination_id,
-    ae::IDomainStorage& destination) {
+bool CopyStoredObjectAs(ae::RamDomainStorage const& source, ae::ObjId source_id,
+                        ae::ObjId destination_id,
+                        ae::IDomainStorage& destination) {
   auto const it = source.state.find(source_id);
   if (it == source.state.end() || !it->second.has_value()) {
     return false;
   }
   for (auto const& [class_id, versions] : *it->second) {
     for (auto const& [version, data] : versions) {
-      auto writer = destination.Store(
-          ae::DomainQuery{destination_id, class_id, version});
+      auto writer =
+          destination.Store(ae::DomainQuery{destination_id, class_id, version});
       if (writer == nullptr) {
         return false;
       }
       if (!data.empty()) {
-        auto const result = writer->Write(
-            ae::seri::DataWriteTag{data.data(), data.size()});
+        auto const result =
+            writer->Write(ae::seri::DataWriteTag{data.data(), data.size()});
         if (!result) {
           return false;
         }
@@ -566,10 +553,9 @@ bool CopyStoredObjectAs(
 
 }  // namespace
 
-bool ValidateStandaloneEventGraph(
-    ae::RamDomainStorage const& parsed,
-    ae::ObjId root_id,
-    std::uint32_t expected_event_class_id) {
+bool ValidateStandaloneEventGraph(ae::RamDomainStorage const& parsed,
+                                  ae::ObjId root_id,
+                                  std::uint32_t expected_event_class_id) {
   if (!root_id.is_valid()) {
     return false;
   }
@@ -591,11 +577,9 @@ bool ValidateStandaloneEventGraph(
     return false;
   }
 
-  auto const chain_it =
-      std::find_if(chains.begin(), chains.end(),
-                   [&](StoredClassChainInfo const& c) {
-                     return c.obj_id == root_id;
-                   });
+  auto const chain_it = std::find_if(
+      chains.begin(), chains.end(),
+      [&](StoredClassChainInfo const& c) { return c.obj_id == root_id; });
   if (chain_it == chains.end()) {
     return false;
   }
@@ -624,18 +608,16 @@ bool ValidateStandaloneEventGraph(
 }
 
 ae::Ptr<Event> ImportStandaloneEventGraph(
-    ae::RamDomainStorage const& parsed,
-    ae::ObjId root_id,
-    std::uint32_t expected_event_class_id,
-    ae::Domain& receiver_domain,
+    ae::RamDomainStorage const& parsed, ae::ObjId root_id,
+    std::uint32_t expected_event_class_id, ae::Domain& receiver_domain,
     ae::IDomainStorage& receiver_storage) {
   if (!ValidateStandaloneEventGraph(parsed, root_id, expected_event_class_id)) {
     return {};
   }
 
   std::set<ae::ObjId> reserved_ids;
-  auto const destination_id =
-      AllocateUniqueReceiverObjId(receiver_domain, receiver_storage, reserved_ids);
+  auto const destination_id = AllocateUniqueReceiverObjId(
+      receiver_domain, receiver_storage, reserved_ids);
   if (!destination_id.is_valid()) {
     return {};
   }

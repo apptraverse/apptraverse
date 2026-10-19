@@ -2,7 +2,7 @@
 
 #include <cassert>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse {
 namespace {
@@ -58,8 +58,7 @@ bool NetworkState::CanApply(NetworkAvailableEvent const& event) const {
 void NetworkState::Apply(NetworkInitializingEvent const& event) {
   assert(CanApply(event));
   run_id = event.run_id;
-  availability =
-      static_cast<std::uint8_t>(NetworkAvailability::kInitializing);
+  availability = static_cast<std::uint8_t>(NetworkAvailability::kInitializing);
   NoteMaterializedChange();
 }
 

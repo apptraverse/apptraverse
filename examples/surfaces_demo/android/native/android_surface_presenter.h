@@ -1,7 +1,7 @@
 #ifndef APPTRAVERSE_ANDROID_SURFACE_PRESENTER_H_
 #define APPTRAVERSE_ANDROID_SURFACE_PRESENTER_H_
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 #include "mobile_surface_presenter.h"
 

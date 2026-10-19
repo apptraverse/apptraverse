@@ -12,23 +12,23 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/object_serialization.h"
 
 #include "dynamic_model.h"
-#include "win_presenters.h"
 #include "win32_fatal.h"
+#include "win_presenters.h"
 
 namespace apptraverse::test {
 namespace {
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"     \
-                << __LINE__ << '\n';                                        \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 void TestTwoMainPresenterInstancesShareClass() {
@@ -38,8 +38,8 @@ void TestTwoMainPresenterInstancesShareClass() {
   ae::Domain domain{storage};
 
   auto window_a = MainWindow::ptr::Create(ae::CreateWith{domain}.with_id(501));
-  auto presenter_a =
-      Win32MainWindowPresenter::ptr::Create(ae::CreateWith{domain}.with_id(502));
+  auto presenter_a = Win32MainWindowPresenter::ptr::Create(
+      ae::CreateWith{domain}.with_id(502));
   window_a->presenter = presenter_a;
   presenter_a->window = window_a;
   window_a->x = 40;
@@ -48,8 +48,8 @@ void TestTwoMainPresenterInstancesShareClass() {
   window_a->height = 240;
 
   auto window_b = MainWindow::ptr::Create(ae::CreateWith{domain}.with_id(601));
-  auto presenter_b =
-      Win32MainWindowPresenter::ptr::Create(ae::CreateWith{domain}.with_id(602));
+  auto presenter_b = Win32MainWindowPresenter::ptr::Create(
+      ae::CreateWith{domain}.with_id(602));
   window_b->presenter = presenter_b;
   presenter_b->window = window_b;
   window_b->x = 80;

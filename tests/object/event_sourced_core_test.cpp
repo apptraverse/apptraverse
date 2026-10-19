@@ -8,15 +8,15 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/event_for.h"
-#include "apptraverse/node.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/node.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_event_order.h"
 #include "apptraverse/presenter.h"
 #include "apptraverse/runtime_lifecycle.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_event_order.h"
 
 namespace apptraverse::test {
 
@@ -63,9 +63,8 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
   void Apply(AddEvent const& event);
 
   void InsertAtForTest(SharedEventOrder order, Event::ptr event) {
-    InsertEvent(EventRecord{.event = std::move(event),
-                            .identity = {},
-                            .order = std::move(order)});
+    InsertEvent(EventRecord{
+        .event = std::move(event), .identity = {}, .order = std::move(order)});
   }
 
   void InsertAtForTest(std::uint64_t timestamp_us, Event::ptr event) {
@@ -75,10 +74,10 @@ class CounterDocument : public apptraverse::NodeFor<CounterDocument> {
 
   void InsertSharedForTest(std::uint64_t timestamp_us, SharedEventId identity,
                            Event::ptr event) {
-    InsertEvent(EventRecord{
-        .event = std::move(event),
-        .identity = std::move(identity),
-        .order = SharedEventOrder{.timestamp_us = timestamp_us}});
+    InsertEvent(
+        EventRecord{.event = std::move(event),
+                    .identity = std::move(identity),
+                    .order = SharedEventOrder{.timestamp_us = timestamp_us}});
   }
 };
 
@@ -105,13 +104,13 @@ void CounterDocument::Apply(AddEvent const& event) {
   label += event.tag;
 }
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 void TestJournalCommitAndReplay() {
@@ -141,7 +140,8 @@ void TestJournalCommitAndReplay() {
   CHECK(doc->journal.size() == 2);
   CHECK(doc->journal[0].order.timestamp_us != 0);
   CHECK(doc->journal[1].order.timestamp_us != 0);
-  CHECK(doc->journal[0].order.timestamp_us < doc->journal[1].order.timestamp_us);
+  CHECK(doc->journal[0].order.timestamp_us <
+        doc->journal[1].order.timestamp_us);
   CHECK(doc->value == 6);
   CHECK(doc->label == "bxy");
 
@@ -365,14 +365,14 @@ void TestSharedEventIdentityRoundTrip() {
 }
 
 void TestStableClassIdsAreUnique() {
+  using apptraverse::AetherRegistrationCompletedEvent;
+  using apptraverse::AetherRegistrationState;
+  using apptraverse::ApplicationRuntimeState;
+  using apptraverse::ApplicationStartedEvent;
   using apptraverse::Event;
+  using apptraverse::NetworkState;
   using apptraverse::Node;
   using apptraverse::Presenter;
-  using apptraverse::ApplicationRuntimeState;
-  using apptraverse::NetworkState;
-  using apptraverse::AetherRegistrationState;
-  using apptraverse::ApplicationStartedEvent;
-  using apptraverse::AetherRegistrationCompletedEvent;
 
   CHECK(Node::kClassId == crc32::from_literal("apptraverse::Node").value);
   CHECK(Event::kClassId == crc32::from_literal("apptraverse::Event").value);

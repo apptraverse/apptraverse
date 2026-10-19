@@ -10,8 +10,8 @@
 
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/runtime_lifecycle.h"
 
 #include "chat_ids.h"

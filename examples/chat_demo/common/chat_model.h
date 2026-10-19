@@ -10,11 +10,11 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/link.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_node.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_event_id.h"
+#include "apptraverse/object/shared_node.h"
 
 namespace apptraverse::example::chat_demo {
 
@@ -47,7 +47,8 @@ class MessageAddedEvent;
 
 // Replicated chat room derived from SharedNode.
 // Owns the shared message timeline; sharing topology is owned by SharedNode.
-class ChatRoom : public apptraverse::NodeFor<ChatRoom, apptraverse::SharedNode> {
+class ChatRoom
+    : public apptraverse::NodeFor<ChatRoom, apptraverse::SharedNode> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::chat_demo::ChatRoom",
                            ChatRoom, SharedNode, 0)
 

@@ -14,16 +14,16 @@
 #include <string_view>
 #include <vector>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "main_window_lifecycle.h"
 
-#define CHECK(cond)                                                         \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"     \
-                << __LINE__ << '\n';                                        \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 int RunMissingLoad(char const* dir) {
@@ -81,21 +81,21 @@ int main(int argc, char** argv) {
 
   wchar_t self[MAX_PATH]{};
   CHECK(GetModuleFileNameW(nullptr, self, MAX_PATH) != 0);
-  std::wstring cmd = std::wstring{L"\""} + self +
-                      L"\" --load-missing \"" + dir.wstring() + L"\"";
+  std::wstring cmd = std::wstring{L"\""} + self + L"\" --load-missing \"" +
+                     dir.wstring() + L"\"";
   std::vector<wchar_t> buf(cmd.begin(), cmd.end());
   buf.push_back(L'\0');
 
   SECURITY_ATTRIBUTES sa{};
   sa.nLength = sizeof(sa);
   sa.bInheritHandle = TRUE;
-  HANDLE errf = CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE,
-                              FILE_SHARE_READ, &sa, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
+  HANDLE errf =
+      CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                  &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
   CHECK(errf != INVALID_HANDLE_VALUE);
   HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
-                            FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
-                            OPEN_EXISTING, 0, nullptr);
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                           OPEN_EXISTING, 0, nullptr);
   CHECK(nul != INVALID_HANDLE_VALUE);
 
   STARTUPINFOW si{};
@@ -106,8 +106,8 @@ int main(int argc, char** argv) {
   si.hStdError = errf;
   PROCESS_INFORMATION pi{};
   BOOL ok = CreateProcessW(self, buf.data(), nullptr, nullptr, TRUE,
-                             CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
-                             nullptr, nullptr, &si, &pi);
+                           CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW, nullptr,
+                           nullptr, &si, &pi);
   CloseHandle(errf);
   CloseHandle(nul);
   CHECK(ok);

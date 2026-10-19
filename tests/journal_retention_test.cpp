@@ -10,14 +10,14 @@
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/event_for.h"
 #include "apptraverse/journal_retention_policy.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_event_id.h"
+#include "apptraverse/object/shared_event_order.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_event_order.h"
 
 namespace apptraverse::test {
 namespace {
@@ -78,11 +78,11 @@ class RetentionDoc : public NodeFor<RetentionDoc> {
 
   void InsertLocalForTest(Event::ptr event, std::uint64_t timestamp_us,
                           std::uint64_t retained_since_us) {
-    InsertEvent(EventRecord{
-        .event = std::move(event),
-        .identity = {},
-        .order = SharedEventOrder{.timestamp_us = timestamp_us},
-        .retained_since_us = retained_since_us});
+    InsertEvent(
+        EventRecord{.event = std::move(event),
+                    .identity = {},
+                    .order = SharedEventOrder{.timestamp_us = timestamp_us},
+                    .retained_since_us = retained_since_us});
   }
 };
 
@@ -100,7 +100,6 @@ class AddEvent : public EventFor<RetentionDoc, AddEvent> {
   std::int32_t delta{0};
 };
 
-
 APPTRAVERSE_REGISTER(RetentionDoc);
 APPTRAVERSE_REGISTER(AddEvent);
 
@@ -109,13 +108,13 @@ void RetentionDoc::Apply(AddEvent const& event) {
   NoteMaterializedChange();
 }
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 RetentionDoc::ptr MakeDoc(ae::Domain& domain) {
@@ -178,8 +177,8 @@ void TestMaxEventsTen() {
   }
 
   doc.Save();
-  auto reloaded = RetentionDoc::ptr::Declare(
-      ae::CreateWith{domain}.with_id(doc.id()));
+  auto reloaded =
+      RetentionDoc::ptr::Declare(ae::CreateWith{domain}.with_id(doc.id()));
   reloaded.Load();
   CHECK(reloaded);
   CHECK(reloaded->value == 100);
@@ -238,7 +237,8 @@ void TestCountAgeUnion() {
       .max_age = std::chrono::seconds{6},
   });
   for (int i = 0; i < 20; ++i) {
-    doc->InsertLocalForTest(MakeAdd(domain, 1), static_cast<std::uint64_t>(i + 1),
+    doc->InsertLocalForTest(MakeAdd(domain, 1),
+                            static_cast<std::uint64_t>(i + 1),
                             static_cast<std::uint64_t>(i + 1) * 1'000'000ull);
   }
   doc->CompactJournal(20ull * 1'000'000ull);
@@ -253,9 +253,9 @@ void TestCountAgeUnion() {
       .max_age = std::chrono::seconds{3},
   });
   for (int i = 0; i < 20; ++i) {
-    doc2->InsertLocalForTest(
-        MakeAdd(domain2, 1), static_cast<std::uint64_t>(i + 1),
-        static_cast<std::uint64_t>(i + 1) * 1'000'000ull);
+    doc2->InsertLocalForTest(MakeAdd(domain2, 1),
+                             static_cast<std::uint64_t>(i + 1),
+                             static_cast<std::uint64_t>(i + 1) * 1'000'000ull);
   }
   doc2->CompactJournal(20ull * 1'000'000ull);
   // Age keeps last 4; count keeps last 10; union = 10.
@@ -320,8 +320,8 @@ void TestSharedOrderPreserved() {
   for (int i = 0; i < 5; ++i) {
     SharedEventId id{.origin_uid = "peer-a",
                      .origin_sequence = static_cast<std::uint64_t>(i + 1)};
-    SharedEventOrder order{
-        .timestamp_us = static_cast<std::uint64_t>((i + 1) * 10)};
+    SharedEventOrder order{.timestamp_us =
+                               static_cast<std::uint64_t>((i + 1) * 10)};
     doc->InsertSharedForTest(MakeAdd(domain, 1), id, order,
                              static_cast<std::uint64_t>(i + 1) * 1'000'000ull);
   }
@@ -387,8 +387,7 @@ void TestUnreferencedEventDirsAreNotLoaded() {
     CHECK(CountReachableAddEvents(*doc) == 0);
     doc.Save();
   }
-  for (auto const& entry :
-       std::filesystem::recursive_directory_iterator{dir}) {
+  for (auto const& entry : std::filesystem::recursive_directory_iterator{dir}) {
     if (entry.is_regular_file()) {
       ++files_after_compact;
     }
@@ -396,8 +395,8 @@ void TestUnreferencedEventDirsAreNotLoaded() {
   {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
-    auto loaded = RetentionDoc::ptr::Declare(
-        ae::CreateWith{domain}.with_id(id));
+    auto loaded =
+        RetentionDoc::ptr::Declare(ae::CreateWith{domain}.with_id(id));
     loaded.Load();
     CHECK(loaded->value == 20);
     CHECK(loaded->journal.empty());

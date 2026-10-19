@@ -11,7 +11,7 @@
 
 #include <cstdint>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/presenter.h"
 
 #include "dynamic_model.h"
@@ -89,8 +89,7 @@ class Win32ItemListPresenter : public ItemListPresenter {
   Win32ItemListPresenter() = default;
 
  public:
-  explicit Win32ItemListPresenter(ae::ObjProp prop)
-      : ItemListPresenter{prop} {}
+  explicit Win32ItemListPresenter(ae::ObjProp prop) : ItemListPresenter{prop} {}
 
   AE_OBJECT_REFLECT()
 

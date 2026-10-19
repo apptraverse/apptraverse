@@ -2,16 +2,16 @@
 #define APPTRAVERSE_SHARED_NODE_DEMO_MODEL_H_
 
 #include <cstdint>
-#include <string>
 #include <stdexcept>
+#include <string>
 
-#include "apptraverse/event_for.h"
-#include "apptraverse/link.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_link.h"
-#include "apptraverse/object_macros.h"
-#include "apptraverse/shared_event_order.h"
-#include "apptraverse/shared_node.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_link.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_event_order.h"
+#include "apptraverse/object/shared_node.h"
 
 namespace apptraverse::example::shared_node {
 
@@ -58,9 +58,8 @@ class SharedValueNode
   void Apply(SetValueEvent const& event);
 
   void InsertAtForTest(SharedEventOrder order, Event::ptr event) {
-    InsertEvent(EventRecord{.event = std::move(event),
-                            .identity = {},
-                            .order = std::move(order)});
+    InsertEvent(EventRecord{
+        .event = std::move(event), .identity = {}, .order = std::move(order)});
   }
 };
 

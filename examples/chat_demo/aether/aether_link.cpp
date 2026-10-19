@@ -1,6 +1,6 @@
 #include "aether_link.h"
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "chat_model.h"
 
 namespace apptraverse::example::chat_demo {

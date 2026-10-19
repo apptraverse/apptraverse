@@ -1,6 +1,6 @@
 #include "shared_node_demo_model.h"
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse::example::shared_node {
 namespace {

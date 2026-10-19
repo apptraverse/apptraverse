@@ -11,14 +11,14 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/link.h"
-#include "apptraverse/memory_transport.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/shared_event_id.h"
+#include "apptraverse/object/shared_node.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_network_graph.h"
-#include "apptraverse/shared_node.h"
-#include "apptraverse/shared_sync_runtime.h"
-#include "apptraverse/sync_frame.h"
+#include "apptraverse/transport/memory_transport.h"
+#include "apptraverse/transport/shared_network_graph.h"
+#include "apptraverse/transport/shared_sync_runtime.h"
+#include "apptraverse/transport/sync_frame.h"
 
 #include "chat_commands.h"
 #include "chat_model.h"
@@ -27,13 +27,13 @@
 namespace apptraverse::test {
 namespace {
 
-#define CHECK(cond)                                                           \
-  do {                                                                        \
-    if (!(cond)) {                                                            \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"        \
-                << __LINE__ << '\n';                                          \
-      std::exit(1);                                                           \
-    }                                                                         \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 char const* const kEndpointA = "uid-aaa-111";
@@ -127,17 +127,16 @@ void TestProtocolHeadlessSyncCoverage() {
 
   apptraverse::example::chat_demo::SetDraft(*entry_a, "A's secret draft");
   apptraverse::example::chat_demo::SetScroll(
-      *entry_a,
-      apptraverse::example::chat_demo::ScrollAnchor{
-          .follow_tail = false, .offset_from_message_top = 42.0});
+      *entry_a, apptraverse::example::chat_demo::ScrollAnchor{
+                    .follow_tail = false, .offset_from_message_top = 42.0});
   apptraverse::example::chat_demo::SetDesktopBounds(
-      *ws_a, apptraverse::example::chat_demo::DesktopBounds{
-                 .valid = true,
-                 .x = 10,
-                 .y = 20,
-                 .width = 800,
-                 .height = 600,
-                 .maximized = false});
+      *ws_a,
+      apptraverse::example::chat_demo::DesktopBounds{.valid = true,
+                                                     .x = 10,
+                                                     .y = 20,
+                                                     .width = 800,
+                                                     .height = 600,
+                                                     .maximized = false});
 
   auto ws_b = CreateWorkspace(domain_b, ae::ObjId{200});
   apptraverse::example::chat_demo::BindLocalEndpoint(*ws_b, kEndpointB);
@@ -156,7 +155,8 @@ void TestProtocolHeadlessSyncCoverage() {
 
   room_a->AddShare(link_local_a, ShareAccess::ReadWrite);
   room_a->AddShare(link_remote_b, ShareAccess::ReadWrite);
-  apptraverse::example::chat_demo::BindChat(*entry_a, link_remote_b, room_a, [] {});
+  apptraverse::example::chat_demo::BindChat(*entry_a, link_remote_b, room_a,
+                                            [] {});
   SaveWorkspaceGraph(ws_a);
   sync_a->RegisterNode(room_a);
 
@@ -165,38 +165,35 @@ void TestProtocolHeadlessSyncCoverage() {
   bool callback_invoked = false;
   bool binding_existed_before_ack = false;
 
-  sync_b.SetInitialNodeImportedCallback(
-      [&](std::string const& source, SharedNode::ptr imported) -> bool {
-        callback_invoked = true;
-        CHECK(source == kEndpointA);
-        CHECK(imported.is_valid());
-        CHECK(imported.id() == generated_room_id);
+  sync_b.SetInitialNodeImportedCallback([&](std::string const& source,
+                                            SharedNode::ptr imported) -> bool {
+    callback_invoked = true;
+    CHECK(source == kEndpointA);
+    CHECK(imported.is_valid());
+    CHECK(imported.id() == generated_room_id);
 
-        auto imported_room = ChatRoom::ptr::MakeFromThis(
-            static_cast<ChatRoom*>(&*imported));
-        CHECK(imported_room.is_valid());
+    auto imported_room =
+        ChatRoom::ptr::MakeFromThis(static_cast<ChatRoom*>(&*imported));
+    CHECK(imported_room.is_valid());
 
-        apptraverse::Link::ptr found_link;
-        for (auto const& share : imported_room->shares) {
-          if (share.link.is_valid() &&
-              share.link->EndpointUid() == kEndpointA) {
-            found_link = share.link;
-            break;
-          }
-        }
-        CHECK(found_link.is_valid());
+    apptraverse::Link::ptr found_link;
+    for (auto const& share : imported_room->shares) {
+      if (share.link.is_valid() && share.link->EndpointUid() == kEndpointA) {
+        found_link = share.link;
+        break;
+      }
+    }
+    CHECK(found_link.is_valid());
 
-        bool const bound = apptraverse::example::chat_demo::BindChat(
-            *entry_b, found_link, imported_room, [&]() {
-              SaveWorkspaceGraph(ws_b);
-            });
-        CHECK(bound);
+    bool const bound = apptraverse::example::chat_demo::BindChat(
+        *entry_b, found_link, imported_room,
+        [&]() { SaveWorkspaceGraph(ws_b); });
+    CHECK(bound);
 
-        binding_existed_before_ack =
-            (entry_b->room.id() == generated_room_id &&
-             entry_b->peer_link.id() == found_link.id());
-        return true;
-      });
+    binding_existed_before_ack = (entry_b->room.id() == generated_room_id &&
+                                  entry_b->peer_link.id() == found_link.id());
+    return true;
+  });
 
   ae::ObjId share_to_b;
   for (auto const& s : room_a->shares) {
@@ -411,8 +408,8 @@ void TestProtocolLostAckIdenticalRetryOneMessage() {
 
   auto imported_room_b = sync_b.FindNode(room_id);
   CHECK(imported_room_b.is_valid());
-  auto room_b = ChatRoom::ptr::MakeFromThis(
-      static_cast<ChatRoom*>(&*imported_room_b));
+  auto room_b =
+      ChatRoom::ptr::MakeFromThis(static_cast<ChatRoom*>(&*imported_room_b));
 
   apptraverse::example::chat_demo::SetDraft(*entry_a, "once-only");
   auto msg_id = apptraverse::example::chat_demo::SubmitDraft(

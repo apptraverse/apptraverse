@@ -12,23 +12,23 @@
 #include "aether-objects/obj/obj_id.h"
 
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/link.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/shared_event_id.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/transport/shared_network_graph.h"
 #include "chat_commands.h"
 #include "chat_model.h"
 
 namespace apptraverse::example::chat_demo {
 namespace {
 
-#define CHECK(cond)                                                           \
-  do {                                                                        \
-    if (!(cond)) {                                                            \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"        \
-                << __LINE__ << '\n';                                          \
-      std::exit(1);                                                           \
-    }                                                                         \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 ChatWorkspace::ptr CreateWorkspace(ae::Domain& domain,
@@ -104,7 +104,8 @@ void TestScenario3_EntryPersistWhileUnresolved() {
   }
   {
     ae::Domain domain{storage};
-    auto ws = ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
+    auto ws =
+        ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
     ws.Load();
     CHECK(ws->chats.size() == 1);
     auto e = ws->chats[0];
@@ -184,7 +185,8 @@ void TestScenario6_SubmitUtf8MultilineDraft() {
   CHECK(room->messages[0].id == msg_id);
 }
 
-// Scenario 7: MessageValue identity/timestamp equal the room's EventRecord metadata.
+// Scenario 7: MessageValue identity/timestamp equal the room's EventRecord
+// metadata.
 void TestScenario7_MessageValueIdentityEqualsEventRecord() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -229,7 +231,8 @@ void SaveWorkspaceGraph(ChatWorkspace::ptr const& ws) {
   }
 }
 
-// Scenario 16: Workspace-root Save alone persists nested chat graph reachability.
+// Scenario 16: Workspace-root Save alone persists nested chat graph
+// reachability.
 void TestScenario16_WorkspaceRootSaveReachability() {
   ae::RamDomainStorage storage;
   ae::ObjId const ws_id{10};
@@ -253,7 +256,8 @@ void TestScenario16_WorkspaceRootSaveReachability() {
 
   {
     ae::Domain domain{storage};
-    auto ws = ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
+    auto ws =
+        ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
     ws.Load();
     CHECK(ws);
     CHECK(ws->chats.size() == 1);
@@ -310,7 +314,8 @@ void TestScenario8_SaveDestroyReloadWorkspace() {
 
   {
     ae::Domain domain{storage};
-    auto ws = ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
+    auto ws =
+        ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
     ws.Load();
 
     CHECK(ws->local_endpoint_uid == "endpoint-a");
@@ -342,7 +347,8 @@ void TestScenario8_SaveDestroyReloadWorkspace() {
   }
 }
 
-// Scenario 9: Submit after restart: sequence is greater than the previous reservation.
+// Scenario 9: Submit after restart: sequence is greater than the previous
+// reservation.
 void TestScenario9_SubmitAfterRestartSequenceAdvances() {
   ae::RamDomainStorage storage;
   ae::ObjId const ws_id{10};
@@ -367,7 +373,8 @@ void TestScenario9_SubmitAfterRestartSequenceAdvances() {
 
   {
     ae::Domain domain{storage};
-    auto ws = ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
+    auto ws =
+        ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
     ws.Load();
     CHECK(ws->next_message_sequence == 2);
 
@@ -480,7 +487,8 @@ void TestScenario12_NegativeDesktopBoundsSurvivePersistence() {
   }
   {
     ae::Domain domain{storage};
-    auto ws = ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
+    auto ws =
+        ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
     ws.Load();
     CHECK(ws->desktop_bounds.valid);
     CHECK(ws->desktop_bounds.x == -1920);
@@ -522,9 +530,10 @@ void TestScenario13_InitialCreationValuesExistBeforeInitializeRuntimeNode() {
   CHECK(base_entry->scroll == entry->scroll);
 }
 
-// Scenario 14: Insert message Events at 100, 300, then 200 using explicit different IDs:
-// existing journal replay yields 100, 200, 300 in messages, without a
-// separate message sort and without changing local draft/scroll state.
+// Scenario 14: Insert message Events at 100, 300, then 200 using explicit
+// different IDs: existing journal replay yields 100, 200, 300 in messages,
+// without a separate message sort and without changing local draft/scroll
+// state.
 void TestScenario14_JournalReplayOrder() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -542,7 +551,8 @@ void TestScenario14_JournalReplayOrder() {
 
   // Insert at 100
   {
-    MessageValue msg{.id = {"origin-x", 1}, .timestamp_us = 100, .text = "Msg 100"};
+    MessageValue msg{
+        .id = {"origin-x", 1}, .timestamp_us = 100, .text = "Msg 100"};
     auto ev = MessageAddedEvent::ptr::Create(ae::CreateWith{domain});
     ev->message = msg;
     room->InsertSharedOrderedEvent(ev, msg.id,
@@ -551,7 +561,8 @@ void TestScenario14_JournalReplayOrder() {
 
   // Insert at 300
   {
-    MessageValue msg{.id = {"origin-y", 2}, .timestamp_us = 300, .text = "Msg 300"};
+    MessageValue msg{
+        .id = {"origin-y", 2}, .timestamp_us = 300, .text = "Msg 300"};
     auto ev = MessageAddedEvent::ptr::Create(ae::CreateWith{domain});
     ev->message = msg;
     room->InsertSharedOrderedEvent(ev, msg.id,
@@ -564,7 +575,8 @@ void TestScenario14_JournalReplayOrder() {
 
   // Mid-insert at 200 (forces base replay)
   {
-    MessageValue msg{.id = {"origin-z", 3}, .timestamp_us = 200, .text = "Msg 200"};
+    MessageValue msg{
+        .id = {"origin-z", 3}, .timestamp_us = 200, .text = "Msg 200"};
     auto ev = MessageAddedEvent::ptr::Create(ae::CreateWith{domain});
     ev->message = msg;
     room->InsertSharedOrderedEvent(ev, msg.id,
@@ -596,7 +608,8 @@ void TestScenario15_ExportOnlyChatRoomNetworkShared() {
 
   auto e = OpenOrSelectChat(*ws, "peer-1500", [] {});
   SetDraft(*e, "Secret local draft");
-  SetScroll(*e, ScrollAnchor{.follow_tail = false, .offset_from_message_top = 77.0});
+  SetScroll(
+      *e, ScrollAnchor{.follow_tail = false, .offset_from_message_top = 77.0});
 
   auto link = CreateMemoryLink(domain, ae::ObjId{20}, "peer-1500");
   auto room = CreateRoom(domain, ae::ObjId{30});
@@ -662,7 +675,8 @@ void TestDirectoryDomainStorageRoundTrip() {
   {
     apptraverse::DirectoryDomainStorage storage{temp_dir};
     ae::Domain domain{storage};
-    auto ws = ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
+    auto ws =
+        ChatWorkspace::ptr::Declare(ae::CreateWith{domain}.with_id(ws_id));
     ws.Load();
 
     CHECK(ws->local_endpoint_uid == "endpoint-dir-a");
@@ -809,9 +823,8 @@ void TestMessageMetadataMatchesJournalMetadata() {
     SharedEventId const id3{.origin_uid = "origin-a", .origin_sequence = 3};
     SharedEventOrder const order3{.timestamp_us = 3000};
     auto ev = MessageAddedEvent::ptr::Create(ae::CreateWith{domain});
-    ev->message = MessageValue{.id = id3,
-                               .timestamp_us = 9999,
-                               .text = "Mismatch time"};
+    ev->message =
+        MessageValue{.id = id3, .timestamp_us = 9999, .text = "Mismatch time"};
     CHECK(!room->TryInsertShared(ev, id3, order3));
     CHECK(room->messages.size() == 1);
     CHECK(room->journal.size() == 1);

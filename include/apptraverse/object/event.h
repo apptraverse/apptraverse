@@ -8,7 +8,7 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse {
 
@@ -31,9 +31,8 @@ class Event : public ae::Obj {
 
   bool CanApplyTo(Node const& target) const { return CanApplyToImpl(target); }
 
-  virtual bool MatchesSharedMetadata(
-      SharedEventId const& identity,
-      SharedEventOrder const& order) const {
+  virtual bool MatchesSharedMetadata(SharedEventId const& identity,
+                                     SharedEventOrder const& order) const {
     (void)identity;
     (void)order;
     return true;

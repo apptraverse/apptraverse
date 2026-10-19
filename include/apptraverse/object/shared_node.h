@@ -9,12 +9,12 @@
 
 #include "aether-miscpp/reflect/reflect.h"
 
-#include "apptraverse/event_for.h"
-#include "apptraverse/link.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_link.h"
-#include "apptraverse/object_macros.h"
-#include "apptraverse/shared_event_id.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_link.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_event_id.h"
 
 namespace apptraverse {
 
@@ -29,14 +29,11 @@ enum class ShareAccess : std::uint8_t {
 struct Share {
   ae::ObjId share_id;
   Link::ptr link;
-  std::uint8_t access{
-      static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
+  std::uint8_t access{static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
 
   AE_REFLECT_MEMBERS(share_id, link, access)
 
-  ShareAccess GetAccess() const {
-    return static_cast<ShareAccess>(access);
-  }
+  ShareAccess GetAccess() const { return static_cast<ShareAccess>(access); }
 
   void SetAccess(ShareAccess value) {
     access = static_cast<std::uint8_t>(value);
@@ -151,9 +148,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   void CompleteIncrementalEvent();
 
   bool HasDelivered(SharedEventId const& identity) const;
-  bool HasPendingEvent() const {
-    return pending_event_packet_id.is_valid();
-  }
+  bool HasPendingEvent() const { return pending_event_packet_id.is_valid(); }
 
   void Apply(SetLinkInitialSyncPhaseEvent const& event);
   void Apply(BeginInitialSyncEvent const& event);
@@ -177,8 +172,7 @@ class SetLinkInitialSyncPhaseEvent
 
   AE_OBJECT_REFLECT(AE_MMBR(phase))
 
-  std::uint8_t phase{
-      static_cast<std::uint8_t>(InitialSyncPhase::NotStarted)};
+  std::uint8_t phase{static_cast<std::uint8_t>(InitialSyncPhase::NotStarted)};
 };
 
 // Freeze one initial-state packet for this relationship. The packet identity
@@ -371,8 +365,7 @@ class AddShareEvent : public EventFor<SharedNode, AddShareEvent> {
   AE_OBJECT_REFLECT(AE_MMBR(link), AE_MMBR(access))
 
   Link::ptr link;
-  std::uint8_t access{
-      static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
+  std::uint8_t access{static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
 };
 
 // Names the Share relationship being closed, not the transport endpoint: the
@@ -404,8 +397,7 @@ class ChangeShareAccessEvent
   AE_OBJECT_REFLECT(AE_MMBR(share_id), AE_MMBR(access))
 
   ae::ObjId share_id;
-  std::uint8_t access{
-      static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
+  std::uint8_t access{static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
 };
 
 }  // namespace apptraverse

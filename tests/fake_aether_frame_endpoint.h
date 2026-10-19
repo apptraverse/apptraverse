@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "aether_frame_endpoint.h"
-#include "apptraverse/memory_transport.h"
+#include "apptraverse/transport/memory_transport.h"
 
 namespace apptraverse::example::chat_demo::test {
 
@@ -73,9 +73,8 @@ class FakeEndpointCoordinator {
     return *raw;
   }
 
-  void SetControlCallback(
-      std::string const& endpoint_uid,
-      IAetherFrameEndpoint::ControlCallback on_control) {
+  void SetControlCallback(std::string const& endpoint_uid,
+                          IAetherFrameEndpoint::ControlCallback on_control) {
     std::lock_guard<std::mutex> lock{mu_};
     auto it = endpoints_.find(endpoint_uid);
     if (it != endpoints_.end()) {
@@ -92,8 +91,8 @@ class FakeEndpointCoordinator {
                    std::vector<std::uint8_t> bytes) {
     {
       std::lock_guard<std::mutex> lock{mu_};
-      sends_.push_back(PendingSend{std::move(from), std::move(to),
-                                   std::move(bytes), false});
+      sends_.push_back(
+          PendingSend{std::move(from), std::move(to), std::move(bytes), false});
     }
     cv_.notify_all();
   }
@@ -107,8 +106,8 @@ class FakeEndpointCoordinator {
         --drop_it->second;
         return;
       }
-      sends_.push_back(PendingSend{std::move(from), std::move(to),
-                                   std::move(bytes), true});
+      sends_.push_back(
+          PendingSend{std::move(from), std::move(to), std::move(bytes), true});
     }
     cv_.notify_all();
   }
@@ -233,9 +232,9 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
     Join();
   }
 
-  void Start(Config /*config*/, LocalUidCallback on_uid,
-             ReadyCallback on_ready, FailedCallback on_failed,
-             FrameCallback on_frame, PresenceCallback on_presence,
+  void Start(Config /*config*/, LocalUidCallback on_uid, ReadyCallback on_ready,
+             FailedCallback on_failed, FrameCallback on_frame,
+             PresenceCallback on_presence,
              LocalConnectivityCallback on_local_connectivity = {},
              ControlCallback on_control = {}) override {
     RequestStop();
@@ -254,7 +253,8 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
       fail_signaled_ = false;
     }
     coordinator_.EnsureTransport(
-        local_uid_, [this](std::string source, std::vector<std::uint8_t> bytes) {
+        local_uid_,
+        [this](std::string source, std::vector<std::uint8_t> bytes) {
           FrameCallback callback;
           {
             std::lock_guard<std::mutex> lock{mu_};
@@ -265,7 +265,8 @@ class FakeAetherFrameEndpoint : public IAetherFrameEndpoint {
           }
         });
     coordinator_.SetControlCallback(
-        local_uid_, [this](std::string source, std::vector<std::uint8_t> bytes) {
+        local_uid_,
+        [this](std::string source, std::vector<std::uint8_t> bytes) {
           ControlCallback callback;
           {
             std::lock_guard<std::mutex> lock{mu_};

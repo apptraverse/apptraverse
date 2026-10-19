@@ -1,7 +1,7 @@
 #ifndef APPTRAVERSE_WEB_SURFACE_PRESENTER_H_
 #define APPTRAVERSE_WEB_SURFACE_PRESENTER_H_
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 #include "surfaces_model.h"
 

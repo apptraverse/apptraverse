@@ -5,13 +5,13 @@
 
 #include "aether_stream_frame.h"
 
-#define CHECK(cond)                                                           \
-  do {                                                                        \
-    if (!(cond)) {                                                            \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"        \
-                << __LINE__ << '\n';                                          \
-      std::exit(1);                                                           \
-    }                                                                         \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 using namespace apptraverse::example::chat_demo;
@@ -20,7 +20,8 @@ int main() {
   // 1. Empty application payload round trip
   {
     std::vector<std::uint8_t> empty_payload;
-    auto encoded = EncodeAetherFrame(AetherFrameKind::kApplication, empty_payload);
+    auto encoded =
+        EncodeAetherFrame(AetherFrameKind::kApplication, empty_payload);
     CHECK(encoded.size() == 10);
 
     AetherFrameKind out_kind{};
@@ -30,11 +31,14 @@ int main() {
     CHECK(out_payload.empty());
   }
 
-  // 2. Binary payload containing 00 FF 'A' 'T' 'H' 'B' 01 01 round trips as APPLICATION, not heartbeat
+  // 2. Binary payload containing 00 FF 'A' 'T' 'H' 'B' 01 01 round trips as
+  // APPLICATION, not heartbeat
   {
-    std::vector<std::uint8_t> tricky_payload = {
-        0x00, 0xFF, 'A', 'T', 'H', 'B', 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    auto encoded = EncodeAetherFrame(AetherFrameKind::kApplication, tricky_payload);
+    std::vector<std::uint8_t> tricky_payload = {0x00, 0xFF, 'A',  'T',  'H',
+                                                'B',  0x01, 0x01, 0x00, 0x00,
+                                                0x00, 0x00, 0x00, 0x00};
+    auto encoded =
+        EncodeAetherFrame(AetherFrameKind::kApplication, tricky_payload);
 
     AetherFrameKind out_kind{};
     std::vector<std::uint8_t> out_payload;
@@ -50,7 +54,8 @@ int main() {
     for (auto& b : rand_payload) {
       b = static_cast<std::uint8_t>(rng() & 0xFF);
     }
-    auto encoded = EncodeAetherFrame(AetherFrameKind::kApplication, rand_payload);
+    auto encoded =
+        EncodeAetherFrame(AetherFrameKind::kApplication, rand_payload);
 
     AetherFrameKind out_kind{};
     std::vector<std::uint8_t> out_payload;
@@ -63,7 +68,8 @@ int main() {
   {
     std::uint64_t const nonce = 0x0123456789ABCDEFULL;
     auto nonce_bytes = EncodeHeartbeatNonce(nonce);
-    auto encoded = EncodeAetherFrame(AetherFrameKind::kHeartbeatPing, nonce_bytes);
+    auto encoded =
+        EncodeAetherFrame(AetherFrameKind::kHeartbeatPing, nonce_bytes);
 
     AetherFrameKind out_kind{};
     std::vector<std::uint8_t> out_payload;
@@ -76,7 +82,8 @@ int main() {
   {
     std::uint64_t const nonce = 0xFEDCBA9876543210ULL;
     auto nonce_bytes = EncodeHeartbeatNonce(nonce);
-    auto encoded = EncodeAetherFrame(AetherFrameKind::kHeartbeatPong, nonce_bytes);
+    auto encoded =
+        EncodeAetherFrame(AetherFrameKind::kHeartbeatPong, nonce_bytes);
 
     AetherFrameKind out_kind{};
     std::vector<std::uint8_t> out_payload;
@@ -114,7 +121,8 @@ int main() {
 
   // 9. Truncated header rejected (< 10 bytes)
   {
-    std::vector<std::uint8_t> truncated = {'A', 'T', 'R', 'N', 1, 1, 0, 0, 0};  // 9 bytes
+    std::vector<std::uint8_t> truncated = {'A', 'T', 'R', 'N', 1,
+                                           1,   0,   0,   0};  // 9 bytes
     AetherFrameKind out_kind{};
     std::vector<std::uint8_t> out_payload;
     CHECK(!DecodeAetherFrame(truncated, out_kind, out_payload));
@@ -133,7 +141,8 @@ int main() {
   {
     std::vector<std::uint8_t> payload = {'A', 'B', 'C'};
     auto encoded = EncodeAetherFrame(AetherFrameKind::kApplication, payload);
-    encoded.push_back('X');  // trailing byte: size is 14, but declared is 3 (10+3 != 14)
+    encoded.push_back(
+        'X');  // trailing byte: size is 14, but declared is 3 (10+3 != 14)
     AetherFrameKind out_kind{};
     std::vector<std::uint8_t> out_payload;
     CHECK(!DecodeAetherFrame(encoded, out_kind, out_payload));
@@ -141,8 +150,10 @@ int main() {
 
   // 12. Heartbeat payload != 8 rejected
   {
-    std::vector<std::uint8_t> bad_hb_payload = {1, 2, 3, 4};  // 4 bytes instead of 8
-    auto encoded = EncodeAetherFrame(AetherFrameKind::kHeartbeatPing, bad_hb_payload);
+    std::vector<std::uint8_t> bad_hb_payload = {1, 2, 3,
+                                                4};  // 4 bytes instead of 8
+    auto encoded =
+        EncodeAetherFrame(AetherFrameKind::kHeartbeatPing, bad_hb_payload);
     AetherFrameKind out_kind{};
     std::vector<std::uint8_t> out_payload;
     CHECK(!DecodeAetherFrame(encoded, out_kind, out_payload));

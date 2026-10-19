@@ -2,11 +2,11 @@
 #define APPTRAVERSE_LINK_H_
 
 #include <cstdint>
-#include <string>
 #include <stdexcept>
+#include <string>
 
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse {
 

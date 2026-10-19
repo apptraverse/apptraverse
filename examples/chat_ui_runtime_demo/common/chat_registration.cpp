@@ -1,8 +1,8 @@
 #include "chat_model.h"
 
-#include "chat_events.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/runtime_lifecycle.h"
+#include "chat_events.h"
 
 namespace chat {
 namespace {

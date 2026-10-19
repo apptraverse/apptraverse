@@ -1,11 +1,11 @@
-#include "apptraverse/sync_frame.h"
+#include "apptraverse/transport/sync_frame.h"
 
 #include <cstddef>
 #include <string>
 
 #include "aether-objects/obj/registry.h"
 
-#include "apptraverse/event.h"
+#include "apptraverse/object/event.h"
 
 namespace apptraverse {
 namespace {
@@ -58,8 +58,8 @@ bool ReadU64(std::vector<std::uint8_t> const& in, std::size_t& pos,
   if (!ReadU32(in, pos, hi) || !ReadU32(in, pos, lo)) {
     return false;
   }
-  value = (static_cast<std::uint64_t>(hi) << 32U) |
-          static_cast<std::uint64_t>(lo);
+  value =
+      (static_cast<std::uint64_t>(hi) << 32U) | static_cast<std::uint64_t>(lo);
   return true;
 }
 
@@ -168,8 +168,7 @@ bool DecodeAckFrame(std::vector<std::uint8_t> const& bytes, AckFrame& out) {
   }
   return ReadObjId(bytes, pos, out.packet_id) &&
          ReadObjId(bytes, pos, out.target_node_id) &&
-         ReadObjId(bytes, pos, out.destination_share_id) &&
-         pos == bytes.size();
+         ReadObjId(bytes, pos, out.destination_share_id) && pos == bytes.size();
 }
 
 std::vector<std::uint8_t> EncodeEventFrame(EventFrame const& frame) {

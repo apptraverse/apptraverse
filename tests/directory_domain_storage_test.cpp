@@ -7,18 +7,18 @@
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/node.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/node.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse::test {
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 constexpr ae::ObjId::Type kProbeNodeId = 100000;
@@ -31,8 +31,7 @@ void TestDirectoryDomainStorageRoundtrip() {
   {
     DirectoryDomainStorage storage{root};
     ae::Domain domain{storage};
-    auto node =
-        Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
+    auto node = Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
     CHECK(node.is_valid());
     node.Save();
     CHECK(node.domain() == &domain);

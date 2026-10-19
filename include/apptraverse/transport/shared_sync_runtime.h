@@ -10,9 +10,9 @@
 #include "aether-objects/obj/idomain_storage.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/byte_transport.h"
-#include "apptraverse/shared_node.h"
-#include "apptraverse/sync_frame.h"
+#include "apptraverse/object/shared_node.h"
+#include "apptraverse/transport/byte_transport.h"
+#include "apptraverse/transport/sync_frame.h"
 
 namespace apptraverse {
 
@@ -45,8 +45,8 @@ class SharedSyncRuntime {
 
   // Bootstrap permission from an authorized source endpoint without knowing
   // the node ObjId in advance. Requires root's most-derived class to match.
-  // When expected_node_id is set, frame.target_node_id must match before import.
-  // The two-argument call stays compatible (empty expected_node_id).
+  // When expected_node_id is set, frame.target_node_id must match before
+  // import. The two-argument call stays compatible (empty expected_node_id).
   void ExpectInitialNodeFromEndpoint(std::string source_endpoint,
                                      std::uint32_t expected_root_class_id,
                                      ae::ObjId expected_node_id = {});
@@ -55,9 +55,8 @@ class SharedSyncRuntime {
   // delete stored data.
   void ForgetInitialNodeFromEndpoint(std::string const& source_endpoint);
 
-  using InitialNodeImportedCallback =
-      std::function<bool(std::string const& source_endpoint,
-                         SharedNode::ptr node)>;
+  using InitialNodeImportedCallback = std::function<bool(
+      std::string const& source_endpoint, SharedNode::ptr node)>;
 
   void SetInitialNodeImportedCallback(InitialNodeImportedCallback callback);
 

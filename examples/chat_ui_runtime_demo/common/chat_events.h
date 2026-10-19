@@ -6,8 +6,8 @@
 
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/event_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/object_macros.h"
 #include "chat_model.h"
 
 namespace chat {

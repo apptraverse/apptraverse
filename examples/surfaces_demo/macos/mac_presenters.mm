@@ -4,7 +4,7 @@
 #include <cstdlib>
 
 #include "apptraverse/noninteractive_crt.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 #include "mac_app.h"
 #include "mac_presenters.h"

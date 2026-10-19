@@ -1,8 +1,8 @@
-#include "apptraverse/shared_node.h"
+#include "apptraverse/object/shared_node.h"
 
 #include <algorithm>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
@@ -241,8 +241,8 @@ void SharedNode::Apply(AddShareEvent const& event) {
   assert(FindShareIndexForShare(share_id) == shares.size());
   assert(FindShareIndex(event.link.id()) == shares.size() &&
          "AddShare Apply requires the Link to be unshared");
-  shares.push_back(Share{
-      .share_id = share_id, .link = event.link, .access = event.access});
+  shares.push_back(
+      Share{.share_id = share_id, .link = event.link, .access = event.access});
 
   // Local sync belongs to this relationship. It already exists when the stash
   // restored it across RebuildFromBaseAndReplay before replay re-applied this
@@ -290,8 +290,7 @@ void SharedNode::SetInitialSyncPhase(Link::ptr link, InitialSyncPhase phase) {
   auto const share_index = FindShareIndex(link.id());
   assert(share_index < shares.size() &&
          "SetInitialSyncPhase requires an existing share");
-  auto const index =
-      FindLinkSyncIndexForShare(shares[share_index].share_id);
+  auto const index = FindLinkSyncIndexForShare(shares[share_index].share_id);
   assert(index < link_sync_states.size() &&
          "SetInitialSyncPhase requires sync state of the active relationship");
   link_sync_states[index]->SetInitialSyncPhase(phase);
@@ -303,8 +302,7 @@ InitialSyncPhase SharedNode::GetInitialSyncPhase(Link::ptr link) const {
   if (share_index >= shares.size()) {
     return InitialSyncPhase::NotStarted;
   }
-  auto const index =
-      FindLinkSyncIndexForShare(shares[share_index].share_id);
+  auto const index = FindLinkSyncIndexForShare(shares[share_index].share_id);
   if (index >= link_sync_states.size()) {
     // Network-imported topology: shared Share without local sync state yet.
     return InitialSyncPhase::NotStarted;

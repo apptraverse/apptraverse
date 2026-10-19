@@ -3,8 +3,8 @@
 
 #include <type_traits>
 
-#include "apptraverse/event.h"
-#include "apptraverse/node.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/node.h"
 
 namespace apptraverse {
 namespace detail {
@@ -39,9 +39,8 @@ class EventFor : public Event {
   }
 
   bool CanApplyToImpl(Node const& target) const override {
-    return detail::CanApplyEventTo(
-        static_cast<Target const&>(target),
-        static_cast<ConcreteEvent const&>(*this));
+    return detail::CanApplyEventTo(static_cast<Target const&>(target),
+                                   static_cast<ConcreteEvent const&>(*this));
   }
 
   std::uint32_t TargetClassIdImpl() const override { return Target::kClassId; }

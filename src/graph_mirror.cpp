@@ -4,7 +4,7 @@
 
 #include "aether-objects/obj/registry.h"
 
-#include "apptraverse/node.h"
+#include "apptraverse/object/node.h"
 #include "apptraverse/object_serialization.h"
 
 namespace apptraverse {
@@ -14,8 +14,7 @@ ae::Ptr<ae::Obj> CreateUiShell(ae::Domain& ui_domain, ae::Obj const& model) {
   if (auto existing = ui_domain.Find(model.obj_id)) {
     return existing;
   }
-  auto* factory =
-      ae::Registry::GetRegistry().FindFactory(model.GetClassId());
+  auto* factory = ae::Registry::GetRegistry().FindFactory(model.GetClassId());
   assert(factory != nullptr);
   assert(factory->create != nullptr);
   ae::Ptr<ae::Obj> raw = factory->create();
@@ -69,8 +68,9 @@ ae::Ptr<ae::Obj> CopyModelGraphToUiDomain(ae::Obj& model_root,
 
   auto ui_root = ui_domain.Find(model_root.obj_id);
   assert(ui_root);
-  // Domain holds weak refs only; the mirrored ObjPtr graph must keep nodes alive
-  // once keepalive is released. The returned root Ptr is the caller's anchor.
+  // Domain holds weak refs only; the mirrored ObjPtr graph must keep nodes
+  // alive once keepalive is released. The returned root Ptr is the caller's
+  // anchor.
   keepalive.clear();
   ui_root = ui_domain.Find(model_root.obj_id);
   assert(ui_root && "UI mirror graph must stay reachable via ObjPtr refs");

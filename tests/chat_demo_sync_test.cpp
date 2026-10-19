@@ -9,11 +9,11 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/memory_transport.h"
+#include "apptraverse/object/shared_node.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_network_graph.h"
-#include "apptraverse/shared_node.h"
-#include "apptraverse/shared_sync_runtime.h"
+#include "apptraverse/transport/memory_transport.h"
+#include "apptraverse/transport/shared_network_graph.h"
+#include "apptraverse/transport/shared_sync_runtime.h"
 
 #include "chat_commands.h"
 #include "chat_model.h"
@@ -21,13 +21,13 @@
 namespace apptraverse::example::chat_demo {
 namespace {
 
-#define CHECK(cond)                                                           \
-  do {                                                                        \
-    if (!(cond)) {                                                            \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"        \
-                << __LINE__ << '\n';                                          \
-      std::exit(1);                                                           \
-    }                                                                         \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 char const* const kEndpointA = "chat-a";
@@ -138,7 +138,8 @@ void TestTwoWayChatOverMemoryNetwork() {
   // B must have imported room
   auto imported_room_b = sync_b.FindNode(room_id);
   CHECK(imported_room_b.is_valid());
-  auto room_b = ChatRoom::ptr::MakeFromThis(static_cast<ChatRoom*>(&*imported_room_b));
+  auto room_b =
+      ChatRoom::ptr::MakeFromThis(static_cast<ChatRoom*>(&*imported_room_b));
 
   // B sends ACK back to A
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 1);
@@ -155,7 +156,8 @@ void TestTwoWayChatOverMemoryNetwork() {
   CHECK(share_to_a_on_b.is_valid());
 
   // Verify B's source share back to A is ALREADY Complete!
-  auto const b_source_sync_idx = room_b->FindLinkSyncIndexForShare(share_to_a_on_b);
+  auto const b_source_sync_idx =
+      room_b->FindLinkSyncIndexForShare(share_to_a_on_b);
   CHECK(b_source_sync_idx < room_b->link_sync_states.size());
   auto b_source_state = room_b->link_sync_states[b_source_sync_idx];
   CHECK(b_source_state->GetInitialSyncPhase() == InitialSyncPhase::Complete);
@@ -261,7 +263,7 @@ void TestTwoWayChatOverMemoryNetwork() {
     SharedEventId const bad_id{.origin_uid = kEndpointA, .origin_sequence = 99};
     bad_ev->message = MessageValue{
         .id = bad_id,
-        .timestamp_us = 99999, // Mismatched timestamp
+        .timestamp_us = 99999,  // Mismatched timestamp
         .text = "Tampered message",
     };
     std::vector<std::uint8_t> payload;
@@ -272,7 +274,7 @@ void TestTwoWayChatOverMemoryNetwork() {
         .target_node_id = room_id,
         .destination_share_id = share_to_a_on_b,
         .identity = bad_id,
-        .timestamp_us = 5000, // Frame says 5000, payload says 99999!
+        .timestamp_us = 5000,  // Frame says 5000, payload says 99999!
         .event_class_id = MessageAddedEvent::kClassId,
         .payload = payload,
     };

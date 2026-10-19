@@ -18,7 +18,7 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/object_serialization.h"
 
 #include "aether_link.h"
@@ -29,8 +29,8 @@
 
 namespace {
 
-using apptraverse::example::chat_demo::ChatJoinPhase;
 using apptraverse::example::chat_demo::ChatEntry;
+using apptraverse::example::chat_demo::ChatJoinPhase;
 using apptraverse::example::chat_demo::ChatPublicationKind;
 using apptraverse::example::chat_demo::ChatRoom;
 using apptraverse::example::chat_demo::ChatSession;
@@ -82,7 +82,8 @@ void ApplyUiUpdate(UiMirror& ui, ChatUiUpdate const& update) {
   in.size = bytes.size();
   if (!ui.workspace.is_valid()) {
     ui.domain = std::make_unique<ae::Domain>(*ui.storage);
-    auto root = apptraverse::LoadInitialPublication(in, *ui.domain, *ui.storage);
+    auto root =
+        apptraverse::LoadInitialPublication(in, *ui.domain, *ui.storage);
     if (!root || root->GetClassId() != ChatWorkspace::kClassId) {
       Emit("ERROR:initial publication class mismatch");
       return;
@@ -185,8 +186,8 @@ int main(int argc, char* argv[]) {
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
   int build_info_exit = 0;
-  if (apptraverse::example::chat_demo::TryHandleBuildInfoArgs(argc, argv,
-                                                              &build_info_exit)) {
+  if (apptraverse::example::chat_demo::TryHandleBuildInfoArgs(
+          argc, argv, &build_info_exit)) {
     return build_info_exit;
   }
 
@@ -203,7 +204,8 @@ int main(int argc, char* argv[]) {
     }
   }
   if (state_dir.empty()) {
-    std::cerr << "Usage: apptraverse_chat_session_live_probe --host|--client --state-dir <dir>\n"
+    std::cerr << "Usage: apptraverse_chat_session_live_probe --host|--client "
+                 "--state-dir <dir>\n"
                  "       stdin commands: JOIN/SEND/DRAFT/SNAPSHOT/CHECKPOINT/"
                  "RETRY/STOP\n";
     return 1;
@@ -222,7 +224,8 @@ int main(int argc, char* argv[]) {
 
   UiMirror ui;
   ChatSession session;
-  if (!session.Start(ChatSessionConfig{.state_dir = state_dir, .role = role}, [] {})) {
+  if (!session.Start(ChatSessionConfig{.state_dir = state_dir, .role = role},
+                     [] {})) {
     Emit("ERROR:Start failed");
     return 1;
   }

@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "apptraverse/byte_transport.h"
 #include "aether_frame_endpoint.h"
+#include "apptraverse/transport/byte_transport.h"
 
 namespace apptraverse::example::chat_demo {
 

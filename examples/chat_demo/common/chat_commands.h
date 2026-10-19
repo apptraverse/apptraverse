@@ -6,10 +6,10 @@
 #include <string>
 
 #include "aether-objects/obj/obj_id.h"
-#include "apptraverse/event_for.h"
-#include "apptraverse/link.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_event_order.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/shared_event_id.h"
+#include "apptraverse/object/shared_event_order.h"
 
 #include "chat_model.h"
 
@@ -21,8 +21,9 @@ using PersistLocalState = std::function<void()>;
 // Local events for ChatWorkspace
 class ChatEntryAddedEvent
     : public apptraverse::EventFor<ChatWorkspace, ChatEntryAddedEvent> {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::chat_demo::ChatEntryAddedEvent",
-                           ChatEntryAddedEvent, Event, 0)
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::chat_demo::ChatEntryAddedEvent",
+      ChatEntryAddedEvent, Event, 0)
 
  protected:
   ChatEntryAddedEvent() = default;
@@ -99,7 +100,8 @@ class LocalEndpointBoundEvent
 };
 
 class MessageSequenceReservedEvent
-    : public apptraverse::EventFor<ChatWorkspace, MessageSequenceReservedEvent> {
+    : public apptraverse::EventFor<ChatWorkspace,
+                                   MessageSequenceReservedEvent> {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::chat_demo::MessageSequenceReservedEvent",
       MessageSequenceReservedEvent, Event, 0)
@@ -263,8 +265,9 @@ class DraftChangedEvent
 
 class ScrollChangedEvent
     : public apptraverse::EventFor<ChatEntry, ScrollChangedEvent> {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::chat_demo::ScrollChangedEvent",
-                           ScrollChangedEvent, Event, 0)
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::chat_demo::ScrollChangedEvent", ScrollChangedEvent,
+      Event, 0)
 
  protected:
   ScrollChangedEvent() = default;
@@ -314,8 +317,7 @@ class MessageAddedEvent
   bool MatchesSharedMetadata(
       apptraverse::SharedEventId const& identity,
       apptraverse::SharedEventOrder const& order) const override {
-    return message.id == identity &&
-           message.timestamp_us == order.timestamp_us;
+    return message.id == identity && message.timestamp_us == order.timestamp_us;
   }
 
   MessageValue message;
@@ -335,8 +337,8 @@ ChatEntry::ptr OpenOrSelectChat(ChatWorkspace& workspace,
                                 std::string const& peer_uid,
                                 PersistLocalState const& persist = {});
 
-bool BindChat(ChatEntry& entry, apptraverse::Link::ptr link,
-              ChatRoom::ptr room, PersistLocalState const& persist = {});
+bool BindChat(ChatEntry& entry, apptraverse::Link::ptr link, ChatRoom::ptr room,
+              PersistLocalState const& persist = {});
 
 bool BindLocalEndpoint(ChatWorkspace& workspace, std::string const& uid,
                        PersistLocalState const& persist = {});

@@ -3,7 +3,7 @@
 
 #include <string>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 #include "surfaces_model.h"
 

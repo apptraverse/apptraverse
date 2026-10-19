@@ -4,7 +4,7 @@
 #include <cassert>
 
 #include "apptraverse/model_object_proxy.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
@@ -103,8 +103,7 @@ void Surface::Remove() {
     // Historical / already-removed Surface: stale double-remove is a no-op.
     return;
   }
-  auto event =
-      RemoveSurfaceEvent::ptr::Create(ae::CreateWith{*parent.domain});
+  auto event = RemoveSurfaceEvent::ptr::Create(ae::CreateWith{*parent.domain});
   event->surface = Surface::ptr::MakeFromThis(this);
   parent.Commit(event);
 }
@@ -134,8 +133,7 @@ void Surface::SetDesktopBounds(std::int32_t x, std::int32_t y,
       desktop_height == height) {
     return;
   }
-  auto event =
-      SurfaceBoundsChangedEvent::ptr::Create(ae::CreateWith{*domain});
+  auto event = SurfaceBoundsChangedEvent::ptr::Create(ae::CreateWith{*domain});
   event->x = x;
   event->y = y;
   event->width = width;
@@ -147,8 +145,8 @@ void Surface::SetPresentationSize(std::int32_t width, std::int32_t height) {
   if (presentation_width == width && presentation_height == height) {
     return;
   }
-  auto event = SurfacePresentationSizeChangedEvent::ptr::Create(
-      ae::CreateWith{*domain});
+  auto event =
+      SurfacePresentationSizeChangedEvent::ptr::Create(ae::CreateWith{*domain});
   event->width = width;
   event->height = height;
   Commit(event);

@@ -9,7 +9,7 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/ptr/ptr.h"
 
-#include "apptraverse/node.h"
+#include "apptraverse/object/node.h"
 #include "apptraverse/presenter.h"
 #include "apptraverse/publication_channel.h"
 
@@ -17,8 +17,8 @@ namespace apptraverse {
 
 class ModelObjectProxy;
 
-// Future optimization: serialize reflected concrete state without reflected base
-// class for UI publication, so Node::base/journal do not enter the buffer.
+// Future optimization: serialize reflected concrete state without reflected
+// base class for UI publication, so Node::base/journal do not enter the buffer.
 // TODO(surfaces): structural publication bandwidth / delta protocol — not this
 // slice; live presentation correctness does not require a smaller payload yet.
 
@@ -66,14 +66,14 @@ struct InitialPublicationLoadDiagnostics {
   std::uint32_t layer_count{0};
 };
 
-void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
-                                             char* buffer, std::size_t buffer_size);
+void FormatInitialPublicationLoadDiagnostics(
+    InitialPublicationLoadDiagnostics const& diagnostics, char* buffer,
+    std::size_t buffer_size);
 
 // Returns null when the buffer cannot build a UI mirror root (no assert).
-ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
-                                          ae::IDomainStorage& ui_storage,
-                                          InitialPublicationLoadDiagnostics* diagnostics_out =
-                                              nullptr);
+ae::Ptr<ae::Obj> TryLoadInitialPublication(
+    ByteSource& in, ae::Domain& ui_domain, ae::IDomainStorage& ui_storage,
+    InitialPublicationLoadDiagnostics* diagnostics_out = nullptr);
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                         ae::IDomainStorage& ui_storage);
 
@@ -104,8 +104,9 @@ void InitializePresenters(ae::Obj& gui_root, void* host = nullptr,
 void InitializeNewPresenters(ae::Obj& gui_root, void* host = nullptr,
                              ModelObjectProxy* model_proxy = nullptr);
 
-// Inverse of InitializePresenters. Unloads by descending presentation_load_order
-// (children before parents). Object destruction does not call this.
+// Inverse of InitializePresenters. Unloads by descending
+// presentation_load_order (children before parents). Object destruction does
+// not call this.
 void UnloadPresenters(ae::Obj& gui_root);
 
 // After a structural publication is fully applied: OnUnload presenters that

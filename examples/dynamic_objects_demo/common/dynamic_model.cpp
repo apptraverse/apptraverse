@@ -4,7 +4,7 @@
 #include <cassert>
 
 #include "apptraverse/model_object_proxy.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse {
 namespace {

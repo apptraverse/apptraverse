@@ -5,15 +5,15 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
-#include <utility>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/registry.h"
 
-#include "apptraverse/graph_walk.h"
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/object/graph_walk.h"
 #include "apptraverse/presenter.h"
 
 namespace apptraverse {
@@ -57,8 +57,9 @@ void SaveObjectGraphToScratch(ae::Obj const& object,
   factory->save(&graph, ptr, object.obj_id);
 }
 
-bool InjectObjectBytes(ae::IDomainStorage& storage, ae::DomainQuery const& query,
-                       std::uint8_t const* data, std::size_t size) {
+bool InjectObjectBytes(ae::IDomainStorage& storage,
+                       ae::DomainQuery const& query, std::uint8_t const* data,
+                       std::size_t size) {
   auto writer = storage.Store(query);
   if (!writer) {
     return false;
@@ -113,12 +114,11 @@ void RemoveDistilledBaseObjects(std::vector<ae::Obj*>& objects) {
   if (base_ids.empty()) {
     return;
   }
-  objects.erase(
-      std::remove_if(objects.begin(), objects.end(),
-                     [&](ae::Obj* obj) {
-                       return base_ids.count(obj->obj_id.id()) > 0;
-                     }),
-      objects.end());
+  objects.erase(std::remove_if(objects.begin(), objects.end(),
+                               [&](ae::Obj* obj) {
+                                 return base_ids.count(obj->obj_id.id()) > 0;
+                               }),
+                objects.end());
 }
 
 void LoadExistingObject(ae::Obj& object, ae::Domain& domain) {
@@ -241,14 +241,15 @@ struct SavedNodeBookkeeping {
   std::vector<EventRecord> journal;
 };
 
-void ClearReachableNodeHistoryForPublicationSave(ae::Obj const& root,
-                                                 std::vector<SavedNodeBookkeeping>& saved) {
+void ClearReachableNodeHistoryForPublicationSave(
+    ae::Obj const& root, std::vector<SavedNodeBookkeeping>& saved) {
   std::vector<Node*> nodes;
   CollectReachableNodes(const_cast<ae::Obj&>(root), nodes);
   saved.clear();
   saved.reserve(nodes.size());
   for (Node* node : nodes) {
-    saved.push_back(SavedNodeBookkeeping{node, node->base, std::move(node->journal)});
+    saved.push_back(
+        SavedNodeBookkeeping{node, node->base, std::move(node->journal)});
     node->base = Node::ptr{};
     node->journal.clear();
   }
@@ -356,7 +357,8 @@ void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
     if (node == nullptr) {
       continue;
     }
-    saved.push_back(SavedBookkeeping{node, node->base, std::move(node->journal)});
+    saved.push_back(
+        SavedBookkeeping{node, node->base, std::move(node->journal)});
     node->base = Node::ptr{};
     node->journal.clear();
   }
@@ -463,8 +465,9 @@ void SerializeInitialPublication(ae::Obj const& root, ByteSink& out) {
   SerializeObjectGraphToBuffer(root, out);
 }
 
-void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
-                                             char* buffer, std::size_t buffer_size) {
+void FormatInitialPublicationLoadDiagnostics(
+    InitialPublicationLoadDiagnostics const& diagnostics, char* buffer,
+    std::size_t buffer_size) {
   char const* stage = "unknown";
   switch (diagnostics.stage) {
     case InitialPublicationLoadStage::Ok:
@@ -503,16 +506,18 @@ void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics c
   }
   std::snprintf(
       buffer, buffer_size,
-      "InitialPublicationLoad failed stage=%s root_id=%u obj_id=%u class_id=%u version=%u "
+      "InitialPublicationLoad failed stage=%s root_id=%u obj_id=%u class_id=%u "
+      "version=%u "
       "offset=%u size=%u layer_index=%u layer_count=%u\n",
       stage, diagnostics.root_id, diagnostics.obj_id, diagnostics.class_id,
-      static_cast<unsigned>(diagnostics.version), diagnostics.offset, diagnostics.size,
-      diagnostics.layer_index, diagnostics.layer_count);
+      static_cast<unsigned>(diagnostics.version), diagnostics.offset,
+      diagnostics.size, diagnostics.layer_index, diagnostics.layer_count);
 }
 
-bool ReadAndInjectPublicationLayers(ByteSource& in, ae::IDomainStorage& ui_storage,
-                                    std::vector<std::uint32_t>& unique_obj_ids,
-                                    InitialPublicationLoadDiagnostics* diagnostics) {
+bool ReadAndInjectPublicationLayers(
+    ByteSource& in, ae::IDomainStorage& ui_storage,
+    std::vector<std::uint32_t>& unique_obj_ids,
+    InitialPublicationLoadDiagnostics* diagnostics) {
   std::uint32_t layer_count = 0;
   in.read(&layer_count, sizeof(layer_count));
   if (!in.ok) {
@@ -582,9 +587,10 @@ bool ReadAndInjectPublicationLayers(ByteSource& in, ae::IDomainStorage& ui_stora
   return true;
 }
 
-bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain, std::uint32_t root_id,
-                                   std::vector<std::uint32_t> const& unique_obj_ids,
-                                   InitialPublicationLoadDiagnostics* diagnostics) {
+bool HydrateInjectedPublicationGraph(
+    ae::Domain& ui_domain, std::uint32_t root_id,
+    std::vector<std::uint32_t> const& unique_obj_ids,
+    InitialPublicationLoadDiagnostics* diagnostics) {
   ae::DomainGraph graph{&ui_domain};
   auto ui_root = graph.LoadRoot(ae::ObjId{root_id});
   if (!ui_root) {
@@ -609,11 +615,12 @@ bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain, std::uint32_t root_i
   return true;
 }
 
-ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
-                                          ae::IDomainStorage& ui_storage,
-                                          InitialPublicationLoadDiagnostics* diagnostics_out) {
+ae::Ptr<ae::Obj> TryLoadInitialPublication(
+    ByteSource& in, ae::Domain& ui_domain, ae::IDomainStorage& ui_storage,
+    InitialPublicationLoadDiagnostics* diagnostics_out) {
   InitialPublicationLoadDiagnostics local;
-  InitialPublicationLoadDiagnostics* diagnostics = diagnostics_out ? diagnostics_out : &local;
+  InitialPublicationLoadDiagnostics* diagnostics =
+      diagnostics_out ? diagnostics_out : &local;
   *diagnostics = {};
 
   std::uint32_t root_id = 0;
@@ -626,11 +633,13 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
   diagnostics->root_id = root_id;
 
   std::vector<std::uint32_t> unique_obj_ids;
-  if (!ReadAndInjectPublicationLayers(in, ui_storage, unique_obj_ids, diagnostics)) {
+  if (!ReadAndInjectPublicationLayers(in, ui_storage, unique_obj_ids,
+                                      diagnostics)) {
     return {};
   }
 
-  if (!HydrateInjectedPublicationGraph(ui_domain, root_id, unique_obj_ids, diagnostics)) {
+  if (!HydrateInjectedPublicationGraph(ui_domain, root_id, unique_obj_ids,
+                                       diagnostics)) {
     return {};
   }
 
@@ -671,12 +680,14 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
 }
 
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
-                                      ae::IDomainStorage& ui_storage) {
+                                        ae::IDomainStorage& ui_storage) {
   InitialPublicationLoadDiagnostics diagnostics;
-  auto ui_root = TryLoadInitialPublication(in, ui_domain, ui_storage, &diagnostics);
+  auto ui_root =
+      TryLoadInitialPublication(in, ui_domain, ui_storage, &diagnostics);
   if (!ui_root) {
     char message[256];
-    FormatInitialPublicationLoadDiagnostics(diagnostics, message, sizeof(message));
+    FormatInitialPublicationLoadDiagnostics(diagnostics, message,
+                                            sizeof(message));
     WriteFatalStderr(message);
     std::abort();
   }
@@ -697,8 +708,7 @@ void UnloadPresenter(Presenter& presenter) {
   presenter.presentation_load_order = 0;
 }
 
-void UnloadPresentersDescending(
-    std::vector<Presenter*> presenters) {
+void UnloadPresentersDescending(std::vector<Presenter*> presenters) {
   std::sort(presenters.begin(), presenters.end(),
             [](Presenter* a, Presenter* b) {
               return a->presentation_load_order > b->presentation_load_order;
@@ -827,8 +837,7 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
       auto presenter_held = domain->Find(presenter->obj_id);
       assert(presenter_held && "loaded presenter must remain in Domain");
       keepalive.active_presenters.push_back(Presenter::ptr{
-          domain, presenter->obj_id, {},
-          std::move(presenter_held)});
+          domain, presenter->obj_id, {}, std::move(presenter_held)});
     }
   }
   return keepalive;
@@ -839,8 +848,7 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
     ae::Obj& gui_root, void* host, ModelObjectProxy* model_proxy) {
   StructuralPresentationKeepalive keepalive =
       CaptureStructuralPresentationKeepalive(gui_root);
-  ae::Obj& changed =
-      ApplyStructuralPublication(in, domain, storage);
+  ae::Obj& changed = ApplyStructuralPublication(in, domain, storage);
   UpdatePresentersAfterStructuralPublication(
       gui_root, keepalive.active_presenters, host, model_proxy);
   // Release presenter anchors before live_objects so derived Presenter::ptr

@@ -10,15 +10,15 @@
 #include <unordered_map>
 #include <vector>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/presenter.h"
 
 #include "chat_commands.h"
 #include "chat_ids.h"
 #include "chat_log.h"
 #include "chat_model.h"
-#include "chat_presentation.h"
 #include "chat_presence.h"
+#include "chat_presentation.h"
 #include "chat_runtime_diag_ui_state.h"
 #include "ui_send_latency_tracker.h"
 #include "win_identity_bar_presenter.h"
@@ -28,7 +28,8 @@ namespace chat::win32 {
 using apptraverse::Presenter;
 
 class WinChatWindowPresenter : public Presenter {
-  APPTRAVERSE_NAMED_OBJECT("chat::win32::WinChatWindowPresenter", WinChatWindowPresenter, Presenter, 0)
+  APPTRAVERSE_NAMED_OBJECT("chat::win32::WinChatWindowPresenter",
+                           WinChatWindowPresenter, Presenter, 0)
 
  protected:
   WinChatWindowPresenter() = default;
@@ -73,16 +74,14 @@ class WinChatWindowPresenter : public Presenter {
     creating_ = true;
     hwnd = CreateWindowExW(
         0, kClassName, title, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-        kChatWindowLeft, kChatWindowTop,
-        kChatWindowRight - kChatWindowLeft,
+        kChatWindowLeft, kChatWindowTop, kChatWindowRight - kChatWindowLeft,
         kChatWindowBottom - kChatWindowTop, nullptr, nullptr,
         GetModuleModuleHandleSafe(), this);
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
     creating_ = false;
     last_room_generation_ = room->Generation();
-    last_network_generation_ =
-        network.is_valid() ? network->Generation() : 0;
+    last_network_generation_ = network.is_valid() ? network->Generation() : 0;
     last_aether_generation_ = aether.is_valid() ? aether->Generation() : 0;
     SyncClientGenerations();
     RebuildFromDomain();
@@ -112,8 +111,7 @@ class WinChatWindowPresenter : public Presenter {
       last_network_generation_ = network->Generation();
       changed = true;
     }
-    if (aether.is_valid() &&
-        aether->Generation() != last_aether_generation_) {
+    if (aether.is_valid() && aether->Generation() != last_aether_generation_) {
       last_aether_generation_ = aether->Generation();
       changed = true;
     }
@@ -237,8 +235,8 @@ class WinChatWindowPresenter : public Presenter {
     RECT client{};
     GetClientRect(wnd, &client);
     HINSTANCE inst = GetModuleModuleHandleSafe();
-    ChatRole const role = application.is_valid() ? application->GetRole()
-                                                 : ChatRole::Host;
+    ChatRole const role =
+        application.is_valid() ? application->GetRole() : ChatRole::Host;
     identity_bar.on_join_room = on_join_room;
     identity_bar.Create(wnd, inst, role);
     feed_hwnd = CreateWindowExW(
@@ -263,9 +261,9 @@ class WinChatWindowPresenter : public Presenter {
         0, wnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdSend)), inst,
         nullptr);
 #ifndef NDEBUG
-    diag_hwnd_ = CreateWindowExW(
-        0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, wnd,
-        nullptr, inst, nullptr);
+    diag_hwnd_ =
+        CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT, 0,
+                        0, 0, 0, wnd, nullptr, inst, nullptr);
 #endif
     SetWindowLongPtrW(input_hwnd, GWLP_USERDATA,
                       reinterpret_cast<LONG_PTR>(this));
@@ -300,14 +298,13 @@ class WinChatWindowPresenter : public Presenter {
     int const send_y = body_top + body_h - input_h - gap;
     int const contacts_h = send_y - body_top - gap * 2;
     if (contacts_h > 20) {
-      MoveWindow(contacts_hwnd, side_x, body_top + gap, side, contacts_h,
-                 TRUE);
+      MoveWindow(contacts_hwnd, side_x, body_top + gap, side, contacts_h, TRUE);
     }
     MoveWindow(send_hwnd, side_x, send_y, side, input_h, TRUE);
 #ifndef NDEBUG
     if (diag_hwnd_ != nullptr && diag_h > 0) {
-      MoveWindow(diag_hwnd_, gap, client_h - diag_h, client_w - gap * 2,
-                 diag_h, TRUE);
+      MoveWindow(diag_hwnd_, gap, client_h - diag_h, client_w - gap * 2, diag_h,
+                 TRUE);
     }
 #endif
   }
@@ -320,9 +317,10 @@ class WinChatWindowPresenter : public Presenter {
     if (text.find_first_not_of(" \t\r\n") == std::string::npos) {
       return;
     }
-    auto const sent_at = std::chrono::duration_cast<std::chrono::milliseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
-                             .count();
+    auto const sent_at =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
     ChatSendUiRequest request;
     request.text = std::move(text);
     request.sent_at_unix_ms = sent_at;
@@ -354,10 +352,10 @@ class WinChatWindowPresenter : public Presenter {
         auto resolved = latency_tracker->ResolveForPresentation(
             event_obj_id, std::chrono::steady_clock::now());
         if (resolved) {
-          ChatLog("UI_MESSAGE_PRESENTED event_obj_id=" +
-                        std::to_string(event_obj_id) + " latency_us=" +
-                        std::to_string(static_cast<std::int64_t>(
-                            (*resolved) * 1000.0)));
+          ChatLog(
+              "UI_MESSAGE_PRESENTED event_obj_id=" +
+              std::to_string(event_obj_id) + " latency_us=" +
+              std::to_string(static_cast<std::int64_t>((*resolved) * 1000.0)));
         }
         return resolved;
       };
@@ -372,11 +370,10 @@ class WinChatWindowPresenter : public Presenter {
     if (prev_count > 0) {
       RECT feed_rect{};
       GetClientRect(feed_hwnd, &feed_rect);
-      int const item_h = static_cast<int>(
-          SendMessageW(feed_hwnd, LB_GETITEMHEIGHT, 0, 0));
+      int const item_h =
+          static_cast<int>(SendMessageW(feed_hwnd, LB_GETITEMHEIGHT, 0, 0));
       if (item_h > 0) {
-        visible_items =
-            (feed_rect.bottom - feed_rect.top) / item_h;
+        visible_items = (feed_rect.bottom - feed_rect.top) / item_h;
         if (visible_items < 1) {
           visible_items = 1;
         }
@@ -412,8 +409,8 @@ class WinChatWindowPresenter : public Presenter {
     contact_rows_.clear();
     for (auto const& contact : snapshot.contacts) {
       ContactRow row;
-      row.text = FormatContactPresenceLabel(
-          contact.presence, Utf8ToWide(contact.display_name));
+      row.text = FormatContactPresenceLabel(contact.presence,
+                                            Utf8ToWide(contact.display_name));
       row.is_local = contact.is_local;
       contact_rows_.push_back(std::move(row));
       SendMessageW(contacts_hwnd, LB_ADDSTRING, 0,
@@ -512,8 +509,7 @@ class WinChatWindowPresenter : public Presenter {
     DeleteObject(brush);
     SetBkMode(draw.hDC, TRANSPARENT);
     SetTextColor(draw.hDC, fg);
-    HFONT font =
-        row.is_local ? contact_bold_font_ : contact_normal_font_;
+    HFONT font = row.is_local ? contact_bold_font_ : contact_normal_font_;
     HFONT old = static_cast<HFONT>(SelectObject(draw.hDC, font));
     RECT text_rect = draw.rcItem;
     text_rect.left += 4;
@@ -561,7 +557,8 @@ class WinChatWindowPresenter : public Presenter {
 };
 
 class WinChatPresentationApplication : public Presenter {
-  APPTRAVERSE_NAMED_OBJECT("chat::win32::WinChatPresentationApplication", WinChatPresentationApplication, Presenter, 0)
+  APPTRAVERSE_NAMED_OBJECT("chat::win32::WinChatPresentationApplication",
+                           WinChatPresentationApplication, Presenter, 0)
 
  protected:
   WinChatPresentationApplication() = default;

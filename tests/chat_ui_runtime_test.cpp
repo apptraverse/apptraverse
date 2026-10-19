@@ -8,11 +8,11 @@
 #include <vector>
 
 #if defined(_MSC_VER)
-#include <cstdlib>
+#  include <cstdlib>
 #endif
 
-#include "aether/clock.h"
 #include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "aether/clock.h"
 
 #include "apptraverse/distill.h"
 #include "apptraverse/graph_mirror.h"
@@ -20,28 +20,28 @@
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/ui_mirror.h"
 
+#include "apptraverse/object/node.h"
+#include "apptraverse/runtime_lifecycle.h"
+#include "chat_aether_client_init.h"
 #include "chat_bootstrap.h"
 #include "chat_commands.h"
 #include "chat_events.h"
 #include "chat_identity_bar.h"
-#include "chat_aether_client_init.h"
 #include "chat_model.h"
 #include "chat_presence.h"
 #include "chat_presence_overlay.h"
-#include "apptraverse/node.h"
-#include "apptraverse/runtime_lifecycle.h"
 
 namespace apptraverse::test {
 using namespace apptraverse;
 using namespace chat;
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 void TestLocalChatHostJoinAndMessages() {
@@ -73,8 +73,7 @@ void TestLocalChatHostJoinAndMessages() {
                         "hello");
   CHECK(application->room->feed.size() == 2);
   CHECK(application->room->feed[1]->kind == kChatFeedKindMessage);
-  CHECK(FormatChatFeedLine(*application->room->feed[1]) ==
-        "Nikolay: hello");
+  CHECK(FormatChatFeedLine(*application->room->feed[1]) == "Nikolay: hello");
 
   auto const gen_before = application->room->Generation();
   CommitSendChatMessage(*application->room, *application->local_client, "");
@@ -88,10 +87,8 @@ void TestLocalChatHostJoinAndMessages() {
   CommitSendChatMessage(*application->room, *application->local_client,
                         "third");
   CHECK(application->room->feed.size() == 4);
-  CHECK(FormatChatFeedLine(*application->room->feed[2]) ==
-        "Nikolay: second");
-  CHECK(FormatChatFeedLine(*application->room->feed[3]) ==
-        "Nikolay: third");
+  CHECK(FormatChatFeedLine(*application->room->feed[2]) == "Nikolay: second");
+  CHECK(FormatChatFeedLine(*application->room->feed[3]) == "Nikolay: third");
 }
 
 void TestLocalChatUiProjectionFromDomain() {
@@ -104,8 +101,7 @@ void TestLocalChatUiProjectionFromDomain() {
   FinalizeDistilledGraph(*application);
   CompleteLocalRegistration(*application, "test-uid");
 
-  auto ui_root =
-      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  auto ui_root = CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
   auto ui_application = ChatApplication::ptr::MakeFromThis(
       static_cast<ChatApplication*>(ui_root.get()));
   CHECK(ui_application->room.is_valid());
@@ -136,10 +132,8 @@ void TestLocalChatUiProjectionFromDomain() {
   CHECK(FormatChatFeedLine(*ui_application->room->feed[0]) ==
         "Nikolay joined the chat");
   {
-    auto const model_line =
-        FormatChatFeedLine(*application->room->feed[1]);
-    auto const ui_line =
-        FormatChatFeedLine(*ui_application->room->feed[1]);
+    auto const model_line = FormatChatFeedLine(*application->room->feed[1]);
+    auto const ui_line = FormatChatFeedLine(*ui_application->room->feed[1]);
     if (ui_line != "Nikolay: hello") {
       std::cerr << "model=[" << model_line << "] ui=[" << ui_line << "]\n";
       auto ui_item = ui_application->room->feed[1];
@@ -148,13 +142,12 @@ void TestLocalChatUiProjectionFromDomain() {
                 << " body_valid=" << ui_item->body.is_valid() << "\n";
       if (ui_item->body.is_valid()) {
         ui_item->body.Load();
-        std::cerr << "body=[" << ui_item->body->bytes << "] len="
-                  << ui_item->body->bytes.size() << "\n";
+        std::cerr << "body=[" << ui_item->body->bytes
+                  << "] len=" << ui_item->body->bytes.size() << "\n";
       }
     }
   }
-  CHECK(FormatChatFeedLine(*ui_application->room->feed[1]) ==
-        "Nikolay: hello");
+  CHECK(FormatChatFeedLine(*ui_application->room->feed[1]) == "Nikolay: hello");
   CHECK(ui_application->room->clients.size() == 1);
 }
 
@@ -166,8 +159,7 @@ void TestLocalAetherUidModelToUiProjection() {
   ae::Domain ui_domain{ui_storage};
   auto application = BuildChatGraph(model_domain, "Nikolay");
   FinalizeDistilledGraph(*application);
-  auto ui_root =
-      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  auto ui_root = CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
   auto ui_application = ChatApplication::ptr::MakeFromThis(
       static_cast<ChatApplication*>(ui_root.get()));
   CHECK(ui_application->aether.is_valid());
@@ -185,13 +177,11 @@ void TestLocalAetherUidModelToUiProjection() {
   runtime.AddPresentationRoot(*application->aether);
 
   std::string const uid = "3ac93165-1111-2222-3333-444444444444";
-  runtime.Post([&] {
-    CommitAetherRegistrationCompleted(*application->aether, uid);
-  });
+  runtime.Post(
+      [&] { CommitAetherRegistrationCompleted(*application->aether, uid); });
   runtime.PumpOnce(std::chrono::steady_clock::now());
   CHECK(!applies.empty());
-  CHECK(applies.back().root_id ==
-        ToObjId(ChatObjId::AetherRegistration));
+  CHECK(applies.back().root_id == ToObjId(ChatObjId::AetherRegistration));
   CHECK(ui_application->aether->CurrentUid() == uid);
   CHECK(application->aether->CurrentUid() == uid);
 }
@@ -199,12 +189,10 @@ void TestLocalAetherUidModelToUiProjection() {
 void TestChatNamedObjectClassIds() {
   using apptraverse::Event;
   using apptraverse::Node;
-  CHECK(ChatClient::kClassId ==
-        crc32::from_literal("chat::ChatClient").value);
+  CHECK(ChatClient::kClassId == crc32::from_literal("chat::ChatClient").value);
   CHECK(ChatApplication::kClassId ==
         crc32::from_literal("chat::ChatApplication").value);
-  CHECK(ChatRoom::kClassId ==
-        crc32::from_literal("chat::ChatRoom").value);
+  CHECK(ChatRoom::kClassId == crc32::from_literal("chat::ChatRoom").value);
   CHECK(ClientAddedEvent::kClassId ==
         crc32::from_literal("chat::ClientAddedEvent").value);
   CHECK(PresenceChangedEvent::kClassId ==
@@ -277,8 +265,7 @@ void TestHostOnlineModelToUiProjection() {
   CompleteLocalRegistration(*application, "test-uid");
   CHECK(application->local_client->GetPresence() == PresenceState::kConnecting);
 
-  auto ui_root =
-      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  auto ui_root = CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
   auto ui_application = ChatApplication::ptr::MakeFromThis(
       static_cast<ChatApplication*>(ui_root.get()));
 
@@ -418,11 +405,10 @@ void TestAetherRxScheduleConfiguredInRuntime() {
 void TestAetherPresenceQueryOnlyOnAetherThread() {
 #ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR};
-  for (auto const& rel :
-       {std::filesystem::path{"windows/win_app.cpp"},
-        std::filesystem::path{"windows/win_presenters.h"},
-        std::filesystem::path{"common/chat_commands.h"},
-        std::filesystem::path{"common/chat_model.h"}}) {
+  for (auto const& rel : {std::filesystem::path{"windows/win_app.cpp"},
+                          std::filesystem::path{"windows/win_presenters.h"},
+                          std::filesystem::path{"common/chat_commands.h"},
+                          std::filesystem::path{"common/chat_model.h"}}) {
     std::ifstream in{root / rel};
     std::string text((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
@@ -445,8 +431,7 @@ void TestApplicationRoleModelToUiProjection() {
   CHECK(application->GetRole() == ChatRole::Host);
 
   SetApplicationRole(*application, ChatRole::Client);
-  auto ui_root =
-      CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
+  auto ui_root = CopyModelGraphToUiDomain(*application, ui_domain, ui_storage);
   auto ui_application = ChatApplication::ptr::MakeFromThis(
       static_cast<ChatApplication*>(ui_root.get()));
   CHECK(ui_application->GetRole() == ChatRole::Client);
@@ -547,9 +532,9 @@ void TestIdentityBarProjection() {
                             *application->aether);
   CHECK(host.field_text == kIdentityBarNoInternet);
 
-  CompleteLocalRegistration(*application, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-  CHECK(ApplyNetworkObservation(*application,
-                                NetworkAvailability::kAvailable));
+  CompleteLocalRegistration(*application,
+                            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  CHECK(ApplyNetworkObservation(*application, NetworkAvailability::kAvailable));
   host = ProjectIdentityBar(ChatRole::Host, *application->network,
                             *application->aether);
   CHECK(host.field_text == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
@@ -562,8 +547,7 @@ void TestIdentityBarProjection() {
   CHECK(client.join_enabled);
   CHECK(client.show_edit_cue);
   CHECK(application->room->journal.size() == 1);
-  CHECK(application->local_client->GetPresence() ==
-        PresenceState::kConnecting);
+  CHECK(application->local_client->GetPresence() == PresenceState::kConnecting);
 }
 
 void TestNetworkOutageUpdatesIdentityAndPresence() {
@@ -574,14 +558,12 @@ void TestNetworkOutageUpdatesIdentityAndPresence() {
   FinalizeDistilledGraph(*application);
   BeginCurrentRun(*application);
   CompleteLocalRegistration(*application,
-                             "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-  CHECK(ApplyNetworkObservation(
-      *application, NetworkAvailability::kAvailable));
+                            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  CHECK(ApplyNetworkObservation(*application, NetworkAvailability::kAvailable));
   CHECK(application->network->GetAvailability() ==
         NetworkAvailability::kAvailable);
   // NetworkAvailable must not fabricate Presence Online.
-  CHECK(application->local_client->GetPresence() ==
-        PresenceState::kConnecting);
+  CHECK(application->local_client->GetPresence() == PresenceState::kConnecting);
   CHECK(CommitPresenceChanged(*application->local_client,
                               PresenceState::kOnline));
   auto host = ProjectIdentityBar(ChatRole::Host, *application->network,
@@ -589,23 +571,20 @@ void TestNetworkOutageUpdatesIdentityAndPresence() {
   CHECK(host.field_text == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
   CHECK(host.copy_enabled);
 
-  CHECK(ApplyNetworkObservation(
-      *application, NetworkAvailability::kInternetUnavailable));
+  CHECK(ApplyNetworkObservation(*application,
+                                NetworkAvailability::kInternetUnavailable));
   CHECK(application->network->GetAvailability() ==
         NetworkAvailability::kInternetUnavailable);
-  CHECK(application->local_client->GetPresence() ==
-        PresenceState::kConnecting);
+  CHECK(application->local_client->GetPresence() == PresenceState::kConnecting);
   host = ProjectIdentityBar(ChatRole::Host, *application->network,
                             *application->aether);
   CHECK(host.field_text == kIdentityBarNoInternet);
   CHECK(!host.copy_enabled);
 
-  CHECK(ApplyNetworkObservation(
-      *application, NetworkAvailability::kAvailable));
+  CHECK(ApplyNetworkObservation(*application, NetworkAvailability::kAvailable));
   CHECK(application->network->GetAvailability() ==
         NetworkAvailability::kAvailable);
-  CHECK(application->local_client->GetPresence() ==
-        PresenceState::kConnecting);
+  CHECK(application->local_client->GetPresence() == PresenceState::kConnecting);
   host = ProjectIdentityBar(ChatRole::Host, *application->network,
                             *application->aether);
   CHECK(host.field_text == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
@@ -624,30 +603,25 @@ void TestNetworkOutageUpdatesIdentityAndPresence() {
   BeginCurrentRun(*client_app);
   CompleteLocalRegistration(*client_app,
                             "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
-  CHECK(ApplyNetworkObservation(*client_app,
-                                NetworkAvailability::kAvailable));
+  CHECK(ApplyNetworkObservation(*client_app, NetworkAvailability::kAvailable));
   auto client = ProjectIdentityBar(ChatRole::Client, *client_app->network,
                                    *client_app->aether);
   CHECK(client.field_text.empty());
   CHECK(client.join_enabled);
-  CHECK(client_app->local_client->GetPresence() ==
-        PresenceState::kConnecting);
-  CHECK(ApplyNetworkObservation(
-      *client_app, NetworkAvailability::kInterfaceUnavailable));
+  CHECK(client_app->local_client->GetPresence() == PresenceState::kConnecting);
+  CHECK(ApplyNetworkObservation(*client_app,
+                                NetworkAvailability::kInterfaceUnavailable));
   client = ProjectIdentityBar(ChatRole::Client, *client_app->network,
                               *client_app->aether);
   CHECK(client.field_text == kIdentityBarNoInterface);
   CHECK(!client.join_enabled);
-  CHECK(client_app->local_client->GetPresence() ==
-        PresenceState::kConnecting);
-  CHECK(ApplyNetworkObservation(*client_app,
-                                NetworkAvailability::kAvailable));
+  CHECK(client_app->local_client->GetPresence() == PresenceState::kConnecting);
+  CHECK(ApplyNetworkObservation(*client_app, NetworkAvailability::kAvailable));
   client = ProjectIdentityBar(ChatRole::Client, *client_app->network,
                               *client_app->aether);
   CHECK(client.field_text.empty());
   CHECK(client.join_enabled);
-  CHECK(client_app->local_client->GetPresence() ==
-        PresenceState::kConnecting);
+  CHECK(client_app->local_client->GetPresence() == PresenceState::kConnecting);
 }
 
 void TestAetherClientInitControllerLifecycle() {
@@ -776,24 +750,50 @@ void TestNoManualSerializersOrRuntimeClasses() {
 #ifdef CHAT_UI_RUNTIME_DEMO_SOURCE_DIR
   std::filesystem::path const root{CHAT_UI_RUNTIME_DEMO_SOURCE_DIR};
   CHECK(std::filesystem::exists(root));
-  std::vector<std::string> forbidden = {
-      "WriteUiState",       "ReadRuntime",        "RuntimeWindow",
-      "RuntimeTextToolbar", "RuntimeColorToolbar", "RuntimeChat",
-      "RuntimeObject",      "UiRuntimeRegistry",   "PayloadArchive",
-      "ImmutableObjectStore", "ConstRef",          "AddMessageEvent",
-      "AddMessageCommand",  "last_pub_a_",         "last_pub_b_",
-      "window_b_",          "CaptureBaseState(",   "text_id",
-      "kUiSubgraphMagic",   "0x41545549",          "kReuseObject",
-      "ReuseObjectRecord",  "reused_obj_ids",      "EnsureUiObject",
-      "UiRecordKind",       "MaterializedOps",     "MaterializedOpsRegistrar",
-      "SaveMaterializedField", "LoadMaterializedField",
-      "RegisterMaterializedOps", "FindMaterializedOps",
-      "APPTRAVERSE_REGISTER_MATERIALIZED", "materialized_ops.h",
-      "ui_materialized.h",  "SerializeMaterializedObject",
-      "DeserializeMaterializedObject", "EagerLoadReachable",
-      "WinCenterStripPresenter", "PaintWindow", "LayoutWindow",
-      "CenterStrip", "ColorToolbar", "WaitActions(select)",
-      "aether_app->Exit(1)"};
+  std::vector<std::string> forbidden = {"WriteUiState",
+                                        "ReadRuntime",
+                                        "RuntimeWindow",
+                                        "RuntimeTextToolbar",
+                                        "RuntimeColorToolbar",
+                                        "RuntimeChat",
+                                        "RuntimeObject",
+                                        "UiRuntimeRegistry",
+                                        "PayloadArchive",
+                                        "ImmutableObjectStore",
+                                        "ConstRef",
+                                        "AddMessageEvent",
+                                        "AddMessageCommand",
+                                        "last_pub_a_",
+                                        "last_pub_b_",
+                                        "window_b_",
+                                        "CaptureBaseState(",
+                                        "text_id",
+                                        "kUiSubgraphMagic",
+                                        "0x41545549",
+                                        "kReuseObject",
+                                        "ReuseObjectRecord",
+                                        "reused_obj_ids",
+                                        "EnsureUiObject",
+                                        "UiRecordKind",
+                                        "MaterializedOps",
+                                        "MaterializedOpsRegistrar",
+                                        "SaveMaterializedField",
+                                        "LoadMaterializedField",
+                                        "RegisterMaterializedOps",
+                                        "FindMaterializedOps",
+                                        "APPTRAVERSE_REGISTER_MATERIALIZED",
+                                        "materialized_ops.h",
+                                        "ui_materialized.h",
+                                        "SerializeMaterializedObject",
+                                        "DeserializeMaterializedObject",
+                                        "EagerLoadReachable",
+                                        "WinCenterStripPresenter",
+                                        "PaintWindow",
+                                        "LayoutWindow",
+                                        "CenterStrip",
+                                        "ColorToolbar",
+                                        "WaitActions(select)",
+                                        "aether_app->Exit(1)"};
   for (auto const& entry :
        std::filesystem::recursive_directory_iterator(root)) {
     if (!entry.is_regular_file()) {
@@ -826,29 +826,29 @@ int main() {
 #if defined(_MSC_VER)
   _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
-  using apptraverse::test::TestApplicationRoleModelToUiProjection;
+  using apptraverse::test::TestAetherClientInitControllerLifecycle;
+  using apptraverse::test::TestAetherClientInitDuplicateSuccessIgnored;
   using apptraverse::test::TestAetherPinMatchesExpectedSha;
   using apptraverse::test::TestAetherPresenceQueryOnlyOnAetherThread;
   using apptraverse::test::TestAetherRxScheduleConfiguredInRuntime;
-  using apptraverse::test::TestIdentityBarPresenterStructure;
-  using apptraverse::test::TestIdentityBarProjection;
-  using apptraverse::test::TestNetworkOutageUpdatesIdentityAndPresence;
-  using apptraverse::test::TestAetherClientInitControllerLifecycle;
-  using apptraverse::test::TestAetherClientInitDuplicateSuccessIgnored;
-  using apptraverse::test::TestCompleteLocalRegistrationIdempotent;
-  using apptraverse::test::TestSecondLaunchStartsRegistering;
+  using apptraverse::test::TestApplicationRoleModelToUiProjection;
+  using apptraverse::test::TestApplyPresenceOverlayUnchangedReturnsZero;
   using apptraverse::test::TestChatNamedObjectClassIds;
+  using apptraverse::test::TestCompleteLocalRegistrationIdempotent;
+  using apptraverse::test::TestContactPresencePresentationGlyphs;
   using apptraverse::test::TestCreateOrLoadIgnoresCliWhenStateExists;
   using apptraverse::test::TestHostOnlineModelToUiProjection;
+  using apptraverse::test::TestIdentityBarPresenterStructure;
+  using apptraverse::test::TestIdentityBarProjection;
   using apptraverse::test::TestLocalAetherUidModelToUiProjection;
   using apptraverse::test::TestLocalChatHostJoinAndMessages;
   using apptraverse::test::TestLocalChatUiProjectionFromDomain;
   using apptraverse::test::TestLocalPresenceScheduleStateMapping;
-  using apptraverse::test::TestContactPresencePresentationGlyphs;
-  using apptraverse::test::TestPresenterTracksNestedClientGeneration;
-  using apptraverse::test::TestPresenceChangedEventIsJournaled;
-  using apptraverse::test::TestApplyPresenceOverlayUnchangedReturnsZero;
+  using apptraverse::test::TestNetworkOutageUpdatesIdentityAndPresence;
   using apptraverse::test::TestNoManualSerializersOrRuntimeClasses;
+  using apptraverse::test::TestPresenceChangedEventIsJournaled;
+  using apptraverse::test::TestPresenterTracksNestedClientGeneration;
+  using apptraverse::test::TestSecondLaunchStartsRegistering;
   TestLocalChatHostJoinAndMessages();
   TestLocalChatUiProjectionFromDomain();
   TestLocalAetherUidModelToUiProjection();

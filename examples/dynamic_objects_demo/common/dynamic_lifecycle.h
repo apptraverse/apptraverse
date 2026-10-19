@@ -13,7 +13,7 @@
 #include "aether-objects/obj/idomain_storage.h"
 
 #include "apptraverse/model_object_proxy.h"
-#include "apptraverse/node.h"
+#include "apptraverse/object/node.h"
 #include "apptraverse/publication_channel.h"
 
 namespace apptraverse {
@@ -43,7 +43,8 @@ struct DynamicModelSession {
   void Run(std::function<void(PublicationKind)> on_published);
 };
 
-// Apply structural ItemList publication with generic keepalive + presenter update.
+// Apply structural ItemList publication with generic keepalive + presenter
+// update.
 void ApplyItemListStructural(std::vector<std::uint8_t> const& bytes,
                              Application& ui_application,
                              ae::IDomainStorage& ui_storage, void* host,

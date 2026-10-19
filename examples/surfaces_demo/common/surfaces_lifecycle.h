@@ -13,7 +13,7 @@
 #include "aether-objects/obj/idomain_storage.h"
 
 #include "apptraverse/model_object_proxy.h"
-#include "apptraverse/node.h"
+#include "apptraverse/object/node.h"
 #include "apptraverse/publication_channel.h"
 
 namespace apptraverse {

@@ -5,7 +5,7 @@
 
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse {
 

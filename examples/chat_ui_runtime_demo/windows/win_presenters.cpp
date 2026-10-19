@@ -1,6 +1,6 @@
 #include "win_presenters.h"
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace chat::win32 {
 namespace {
@@ -19,8 +19,8 @@ WinChatPresentationApplication::ptr BuildPresentationGraph(
   auto root = WinChatPresentationApplication::ptr::Create(
       ae::CreateWith{domain}.with_id(
           ToObjId(ChatObjId::WinPresentationApplication)));
-  auto chat = WinChatWindowPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(
+  auto chat =
+      WinChatWindowPresenter::ptr::Create(ae::CreateWith{domain}.with_id(
           ToObjId(ChatObjId::WinChatWindowPresenter)));
 
   chat->room = application.room;

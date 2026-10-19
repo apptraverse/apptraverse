@@ -11,22 +11,22 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/memory_transport.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/transport/memory_transport.h"
 #include "chat_commands.h"
 #include "chat_model.h"
 #include "chat_session.h"
 #include "fake_aether_frame_endpoint.h"
 
-#define CHECK(cond)                                                           \
-  do {                                                                        \
-    if (!(cond)) {                                                            \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"        \
-                << __LINE__ << '\n';                                          \
-      std::exit(1);                                                           \
-    }                                                                         \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 namespace {
@@ -48,10 +48,11 @@ constexpr char const* kUidA = "a1111111-1111-4111-8111-111111111111";
 constexpr char const* kUidB = "b2222222-2222-4222-8222-222222222222";
 
 std::filesystem::path MakeTempDir(char const* tag) {
-  auto path = std::filesystem::temp_directory_path() /
-              (std::string(tag) + "_" +
-               std::to_string(
-                   std::chrono::steady_clock::now().time_since_epoch().count()));
+  auto path =
+      std::filesystem::temp_directory_path() /
+      (std::string(tag) + "_" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
   std::filesystem::remove_all(path);
   std::filesystem::create_directories(path);
   return path;
@@ -78,7 +79,8 @@ struct UiMirror {
 };
 
 void ApplyUiUpdate(UiMirror& ui, ChatUiUpdate const& update) {
-  if (!update.publication_bytes.has_value() || update.publication_bytes->empty()) {
+  if (!update.publication_bytes.has_value() ||
+      update.publication_bytes->empty()) {
     return;
   }
   auto const& bytes = *update.publication_bytes;
@@ -87,12 +89,13 @@ void ApplyUiUpdate(UiMirror& ui, ChatUiUpdate const& update) {
   in.size = bytes.size();
   if (!ui.workspace.is_valid()) {
     ui.domain = std::make_unique<ae::Domain>(*ui.storage);
-    auto root = apptraverse::LoadInitialPublication(in, *ui.domain, *ui.storage);
+    auto root =
+        apptraverse::LoadInitialPublication(in, *ui.domain, *ui.storage);
     CHECK(root);
     auto held = ui.domain->Find(root->obj_id);
     CHECK(held);
-    ui.workspace = ChatWorkspace::ptr{ui.domain.get(), root->obj_id, {},
-                                     std::move(held)};
+    ui.workspace =
+        ChatWorkspace::ptr{ui.domain.get(), root->obj_id, {}, std::move(held)};
   } else {
     apptraverse::ApplyStructuralPublicationAndUpdatePresenters(
         in, *ui.domain, *ui.storage, *ui.workspace);
@@ -105,9 +108,9 @@ void DrainUi(ChatSession& session, UiMirror& ui) {
   }
 }
 
-FakeAetherFrameEndpoint* WaitFake(std::shared_ptr<FakeAetherFrameEndpoint*>& slot,
-                                  std::chrono::milliseconds timeout =
-                                      std::chrono::seconds(5)) {
+FakeAetherFrameEndpoint* WaitFake(
+    std::shared_ptr<FakeAetherFrameEndpoint*>& slot,
+    std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
   auto const deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {
     if (*slot != nullptr) {
@@ -119,8 +122,9 @@ FakeAetherFrameEndpoint* WaitFake(std::shared_ptr<FakeAetherFrameEndpoint*>& slo
   return nullptr;
 }
 
-void WaitLifecycle(ChatSession& session, SessionLifecycleState expected,
-                   std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+void WaitLifecycle(
+    ChatSession& session, SessionLifecycleState expected,
+    std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
   auto const deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {
     if (session.GetRuntimeStatus().lifecycle_state == expected) {
@@ -144,7 +148,9 @@ void TestCallbackAfterHostDetach() {
       *slot = fake.get();
       return fake;
     });
-    CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
+    CHECK(session.Start(
+        ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost},
+        [] {}));
     auto* fake = WaitFake(fake_slot);
     WaitLifecycle(session, SessionLifecycleState::kReady);
     fake->InjectPresence(kUidB, PeerPresence::kOnline);
@@ -180,8 +186,11 @@ void TestPendingPublicationWhileModelReceives() {
 
   UiMirror ui_local;
   UiMirror ui_remote;
-  CHECK(local.Start(ChatSessionConfig{.state_dir = state_a, .role = DemoRole::kHost}, [] {}));
-  CHECK(remote.Start(ChatSessionConfig{.state_dir = state_b, .role = DemoRole::kClient}, [] {}));
+  CHECK(local.Start(
+      ChatSessionConfig{.state_dir = state_a, .role = DemoRole::kHost}, [] {}));
+  CHECK(remote.Start(
+      ChatSessionConfig{.state_dir = state_b, .role = DemoRole::kClient},
+      [] {}));
   WaitFake(fake_a);
   WaitFake(fake_b);
   WaitLifecycle(local, SessionLifecycleState::kReady);
@@ -225,7 +234,9 @@ void TestCloseDuringRegistration() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
+  CHECK(session.Start(
+      ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost},
+      [] {}));
   WaitFake(fake_slot);
   session.RequestStop();
   session.Join();
@@ -255,7 +266,9 @@ void TestInvalidProfileLoad() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
+  CHECK(session.Start(
+      ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost},
+      [] {}));
   WaitFake(fake_slot);
   // DirectoryDomainStorage ignores unknown files; worker should still reach
   // Ready or Failed without deleting the profile directory.
@@ -300,7 +313,9 @@ void TestIdentityConflictOnRestart() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
+  CHECK(session.Start(
+      ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost},
+      [] {}));
   WaitFake(fake_slot);
   WaitLifecycle(session, SessionLifecycleState::kFailed);
   CHECK(!session.GetRuntimeStatus().error_text.empty());
@@ -327,10 +342,12 @@ void TestCheckpointReload() {
       *slot = fake.get();
       return fake;
     });
-    CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
+    CHECK(session.Start(
+        ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost},
+        [] {}));
     WaitLifecycle(session, SessionLifecycleState::kReady);
     session.SetHostUidInput(std::string{kUidA});
-  session.JoinHost();
+    session.JoinHost();
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     CHECK(session.Checkpoint(42));
     auto const cp_deadline =
@@ -355,7 +372,9 @@ void TestCheckpointReload() {
       return fake;
     });
     UiMirror ui;
-    CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
+    CHECK(session.Start(
+        ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost},
+        [] {}));
     WaitLifecycle(session, SessionLifecycleState::kReady);
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     DrainUi(session, ui);
@@ -385,7 +404,9 @@ void TestRetryAfterNetworkFailure() {
     return fake;
   });
 
-  CHECK(session.Start(ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost}, [] {}));
+  CHECK(session.Start(
+      ChatSessionConfig{.state_dir = state_dir, .role = DemoRole::kHost},
+      [] {}));
   WaitFake(fake_slot);
   WaitLifecycle(session, SessionLifecycleState::kReady);
 

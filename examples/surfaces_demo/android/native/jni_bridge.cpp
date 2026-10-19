@@ -6,7 +6,7 @@
 #include <string>
 #include <utility>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 #include "android_log.h"
 #include "android_surface_presenter.h"

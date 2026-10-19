@@ -7,7 +7,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/presenter.h"
 
 #include "demo_commands.h"
@@ -40,8 +40,9 @@ class WinTextToolbarPresenter : public Presenter {
   void OnLoad() override {
     hwnd = CreateWindowExW(
         0, L"STATIC", L"",
-        WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOTIFY, 0, 0, 0, 0,
-        parent_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlId)),
+        WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOTIFY, 0, 0, 0,
+        0, parent_hwnd,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlId)),
         GetModuleHandleW(nullptr), nullptr);
     ApplyText();
   }
@@ -53,9 +54,7 @@ class WinTextToolbarPresenter : public Presenter {
     }
   }
 
-  void Destroy() {
-    hwnd = nullptr;
-  }
+  void Destroy() { hwnd = nullptr; }
 
   static constexpr int kControlId = 401;
 
@@ -90,9 +89,9 @@ class WinColorToolbarPresenter : public Presenter {
     wc.lpszClassName = kClassName;
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     RegisterClassW(&wc);
-    hwnd = CreateWindowExW(0, kClassName, L"", WS_CHILD | WS_VISIBLE, 0, 0, 0,
-                           0, parent_hwnd, nullptr, GetModuleHandleW(nullptr),
-                           this);
+    hwnd =
+        CreateWindowExW(0, kClassName, L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+                        parent_hwnd, nullptr, GetModuleHandleW(nullptr), this);
     last_generation_ = toolbar->Generation();
     last_color_ = toolbar->color;
   }
@@ -117,8 +116,7 @@ class WinColorToolbarPresenter : public Presenter {
                                   LPARAM lparam) {
     if (msg == WM_NCCREATE) {
       auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
-      auto* self =
-          static_cast<WinColorToolbarPresenter*>(cs->lpCreateParams);
+      auto* self = static_cast<WinColorToolbarPresenter*>(cs->lpCreateParams);
       SetWindowLongPtrW(wnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
       self->hwnd = wnd;
       return DefWindowProcW(wnd, msg, wparam, lparam);
@@ -144,7 +142,8 @@ class WinColorToolbarPresenter : public Presenter {
   std::uint32_t last_color_{0};
 };
 
-// Runtime-only child presenter. Not an ae::Obj; created by WinLayoutWindowPresenter.
+// Runtime-only child presenter. Not an ae::Obj; created by
+// WinLayoutWindowPresenter.
 class WinRuntimeCenterStripPresenter {
  public:
   CenterStrip::ptr strip;
@@ -161,9 +160,9 @@ class WinRuntimeCenterStripPresenter {
     wc.hbrBackground = nullptr;
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     RegisterClassW(&wc);
-    hwnd = CreateWindowExW(0, kClassName, L"", WS_CHILD | WS_VISIBLE, 0, 0, 0,
-                           0, parent_hwnd, nullptr, GetModuleHandleW(nullptr),
-                           this);
+    hwnd =
+        CreateWindowExW(0, kClassName, L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+                        parent_hwnd, nullptr, GetModuleHandleW(nullptr), this);
     last_generation_ = strip->Generation();
     last_color_ = strip->fill_color;
   }
@@ -240,8 +239,7 @@ class WinRuntimeCenterStripPresenter {
 // Reconcile runtime strip presenters to match LayoutWindow.center_strips.
 // Creates missing presenters and Destroys entries whose ObjId left the vector.
 inline void ReconcileRuntimeCenterStripPresenters(
-    LayoutWindow& window, HWND parent_hwnd,
-    std::function<void()> const& on_add,
+    LayoutWindow& window, HWND parent_hwnd, std::function<void()> const& on_add,
     std::function<void(std::uint32_t)> const& on_remove,
     std::unordered_map<std::uint32_t,
                        std::unique_ptr<WinRuntimeCenterStripPresenter>>&
@@ -302,9 +300,8 @@ class WinPaintWindowPresenter : public Presenter {
 
     creating_ = true;
     hwnd = CreateWindowExW(0, kClassName, L"Window A",
-                           WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-                           window->left, window->top,
-                           window->right - window->left,
+                           WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, window->left,
+                           window->top, window->right - window->left,
                            window->bottom - window->top, nullptr, nullptr,
                            GetModuleHandleW(nullptr), this);
     ShowWindow(hwnd, SW_SHOW);
@@ -395,9 +392,8 @@ class WinPaintWindowPresenter : public Presenter {
       case WM_WINDOWPOSCHANGED: {
         auto const* wp = reinterpret_cast<WINDOWPOS*>(lparam);
         bool const geometry_changed =
-            wp != nullptr &&
-            (wp->flags & (SWP_NOMOVE | SWP_NOSIZE)) !=
-                (SWP_NOMOVE | SWP_NOSIZE);
+            wp != nullptr && (wp->flags & (SWP_NOMOVE | SWP_NOSIZE)) !=
+                                 (SWP_NOMOVE | SWP_NOSIZE);
         if (!creating_ && !applying_model_bounds_ && geometry_changed) {
           MaybePostBoundsCommand(wnd);
         }
@@ -423,10 +419,10 @@ class WinPaintWindowPresenter : public Presenter {
     RegisterClassW(&wc);
     RECT client{};
     GetClientRect(wnd, &client);
-    paint_child = CreateWindowExW(
-        0, L"AppTraversePaintChild", L"", WS_CHILD | WS_VISIBLE, 0, 0,
-        client.right, client.bottom, wnd, nullptr, GetModuleHandleW(nullptr),
-        nullptr);
+    paint_child =
+        CreateWindowExW(0, L"AppTraversePaintChild", L"", WS_CHILD | WS_VISIBLE,
+                        0, 0, client.right, client.bottom, wnd, nullptr,
+                        GetModuleHandleW(nullptr), nullptr);
     SetWindowLongPtrW(paint_child, GWLP_USERDATA,
                       reinterpret_cast<LONG_PTR>(this));
     SetTimer(wnd, kPaintTimer, 1000, nullptr);
@@ -436,8 +432,8 @@ class WinPaintWindowPresenter : public Presenter {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(wnd, &ps);
     ++paint_count_;
-    COLORREF const fill = RGB(static_cast<int>(paint_count_ * 40 % 180) + 40,
-                              80, 160);
+    COLORREF const fill =
+        RGB(static_cast<int>(paint_count_ * 40 % 180) + 40, 80, 160);
     HBRUSH brush = CreateSolidBrush(fill);
     FillRect(hdc, &ps.rcPaint, brush);
     DeleteObject(brush);
@@ -505,9 +501,8 @@ class WinLayoutWindowPresenter : public Presenter {
 
     creating_ = true;
     hwnd = CreateWindowExW(0, kClassName, L"Window B",
-                           WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-                           window->left, window->top,
-                           window->right - window->left,
+                           WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, window->left,
+                           window->top, window->right - window->left,
                            window->bottom - window->top, nullptr, nullptr,
                            GetModuleHandleW(nullptr), this);
     ShowWindow(hwnd, SW_SHOW);
@@ -556,8 +551,7 @@ class WinLayoutWindowPresenter : public Presenter {
                                   LPARAM lparam) {
     if (msg == WM_NCCREATE) {
       auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
-      auto* self =
-          static_cast<WinLayoutWindowPresenter*>(cs->lpCreateParams);
+      auto* self = static_cast<WinLayoutWindowPresenter*>(cs->lpCreateParams);
       SetWindowLongPtrW(wnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
       self->hwnd = wnd;
       return DefWindowProcW(wnd, msg, wparam, lparam);
@@ -593,9 +587,8 @@ class WinLayoutWindowPresenter : public Presenter {
       case WM_WINDOWPOSCHANGED: {
         auto const* wp = reinterpret_cast<WINDOWPOS*>(lparam);
         bool const geometry_changed =
-            wp != nullptr &&
-            (wp->flags & (SWP_NOMOVE | SWP_NOSIZE)) !=
-                (SWP_NOMOVE | SWP_NOSIZE);
+            wp != nullptr && (wp->flags & (SWP_NOMOVE | SWP_NOSIZE)) !=
+                                 (SWP_NOMOVE | SWP_NOSIZE);
         if (!creating_ && !applying_model_bounds_ && geometry_changed) {
           MaybePostBoundsCommand(wnd);
         }
@@ -613,9 +606,9 @@ class WinLayoutWindowPresenter : public Presenter {
   }
 
   void ReconcileCenterStrips() {
-    ReconcileRuntimeCenterStripPresenters(
-        *window, hwnd, on_add_center_strip, on_remove_center_strip,
-        center_strips_);
+    ReconcileRuntimeCenterStripPresenters(*window, hwnd, on_add_center_strip,
+                                          on_remove_center_strip,
+                                          center_strips_);
   }
 
   void LayoutChildren() {

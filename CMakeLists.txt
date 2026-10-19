@@ -92,12 +92,12 @@ add_library(apptraverse STATIC
   src/ui_mirror.cpp
   src/model_runtime.cpp
   src/graph_mirror.cpp
-  src/link.cpp
-  src/shared_node.cpp
-  src/shared_network_graph.cpp
-  src/memory_transport.cpp
-  src/sync_frame.cpp
-  src/shared_sync_runtime.cpp
+  src/object/link.cpp
+  src/object/shared_node.cpp
+  src/transport/shared_network_graph.cpp
+  src/transport/memory_transport.cpp
+  src/transport/sync_frame.cpp
+  src/transport/shared_sync_runtime.cpp
 )
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

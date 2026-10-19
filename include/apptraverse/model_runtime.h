@@ -14,7 +14,7 @@
 
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/node.h"
+#include "apptraverse/object/node.h"
 #include "apptraverse/ui_mirror.h"
 
 namespace apptraverse {
@@ -54,7 +54,7 @@ class ModelRuntime {
   bool HasPending(std::uint32_t root_id) const;
   bool IsInExecutionList(Node const& node) const;
   bool IsMappedToPresentationRoot(Node const& node,
-                                   std::uint32_t root_id) const;
+                                  std::uint32_t root_id) const;
   void SetUpdateObserver(UpdateObserver observer);
 
   // Bound as Node::MaterializedChangeFn context target for this runtime.
@@ -73,7 +73,8 @@ class ModelRuntime {
   UiMirror& ui_mirror_;
   std::vector<ae::Obj*> presentation_roots_;
   std::vector<Node*> model_nodes_;
-  std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> object_to_roots_;
+  std::unordered_map<std::uint32_t, std::vector<std::uint32_t>>
+      object_to_roots_;
   // Raw Node*, unlike PendingDirtyNodes: a Node may be mapped to several
   // presentation roots. DetachNode drops it from this map for one root only;
   // the Node stays in model_nodes_ (and keeps its notifier) until the last

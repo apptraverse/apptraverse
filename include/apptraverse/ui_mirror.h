@@ -10,7 +10,7 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/idomain_storage.h"
 
-#include "apptraverse/node.h"
+#include "apptraverse/object/node.h"
 #include "apptraverse/publication_channel.h"
 
 namespace apptraverse {

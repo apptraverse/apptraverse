@@ -10,8 +10,8 @@
 #include "aether-objects/obj/obj_id.h"
 #include "aether-objects/ptr/ptr.h"
 
-#include "apptraverse/object_macros.h"
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/transport/shared_network_graph.h"
 
 namespace apptraverse::test::evolution {
 
@@ -80,13 +80,13 @@ APPTRAVERSE_REGISTER(LayerDerived);
 
 }  // namespace apptraverse::test::evolution
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      return 1;                                                              \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      return 1;                                                        \
+    }                                                                  \
   } while (0)
 
 int main(int argc, char* argv[]) {
@@ -121,8 +121,7 @@ int main(int argc, char* argv[]) {
   CHECK(root->GetClassId() ==
         apptraverse::test::evolution::LayerDerived::kClassId);
 
-  auto derived =
-      ae::Ptr<apptraverse::test::evolution::LayerDerived>{root};
+  auto derived = ae::Ptr<apptraverse::test::evolution::LayerDerived>{root};
   CHECK(derived->base_value == 11);
   CHECK(derived->derived_value == 22);
   CHECK(derived->added_base_field == 999);

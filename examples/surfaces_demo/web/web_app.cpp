@@ -9,7 +9,7 @@
 #include <emscripten/threading.h>
 
 #include "apptraverse/distill.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/object_serialization.h"
 
 #include "surfaces_ids.h"
@@ -46,9 +46,8 @@ void WebApp::Start(std::filesystem::path state_dir) {
       throw new Error('crossOriginIsolated is false');
     });
   }
-  if (!EM_ASM_INT({
-        return (typeof SharedArrayBuffer !== 'undefined') ? 1 : 0;
-      })) {
+  if (!EM_ASM_INT(
+          { return (typeof SharedArrayBuffer != = 'undefined') ? 1 : 0; })) {
     EM_ASM({
       document.getElementById('status').textContent =
           'FAIL: SharedArrayBuffer unavailable';
@@ -70,7 +69,8 @@ void WebApp::Start(std::filesystem::path state_dir) {
       emscripten_async_run_in_main_runtime_thread(EM_FUNC_SIG_VI,
                                                   &MainThreadPublication, flag);
     });
-    // Save already happened inside Run. Finish UI teardown + IDBFS sync on main.
+    // Save already happened inside Run. Finish UI teardown + IDBFS sync on
+    // main.
     emscripten_async_run_in_main_runtime_thread(
         EM_FUNC_SIG_V, +[]() { WebApp::Instance().FinishStopAndSync(); });
   });
@@ -117,7 +117,7 @@ void WebApp::ConsumePublication(SurfacesPublicationKind kind) {
   ApplyToolbarOrientation();
   // Initial / structural apply may finish before the first resize callback.
   EM_ASM({
-    if (typeof Module.reportPresentationSize === 'function') {
+    if (typeof Module.reportPresentationSize == = 'function') {
       Module.reportPresentationSize();
     }
   });
@@ -145,8 +145,8 @@ void WebApp::QueueIndexedDbPersist() {
   // syncfs(false) to IndexedDB. SurfacesModelSession itself is unchanged.
   session_.Post([](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain,
+        ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
     application.Save();
     emscripten_async_run_in_main_runtime_thread(
         EM_FUNC_SIG_V, +[]() { WebApp::Instance().SyncIndexedDbFromFs(); });
@@ -159,7 +159,8 @@ void WebApp::SyncIndexedDbFromFs() {
   }
   // JS queue lives on Module so overlapping syncfs(false) calls serialize.
   EM_ASM({
-    var state = Module.apptraverseSync || (Module.apptraverseSync = {busy: 0, again: 0});
+    var state = Module.apptraverseSync ||
+                (Module.apptraverseSync = {busy : 0, again : 0});
     if (state.busy) {
       state.again = 1;
       return;
@@ -280,7 +281,7 @@ void WebApp::ShowCurrentPage() {
         var tabs = document.querySelectorAll('.surface-tab');
         for (var i = 0; i < tabs.length; ++i) {
           tabs[i].classList.toggle('active',
-                                   tabs[i].dataset.surfaceId === currentId);
+                                   tabs[i].dataset.surfaceId == = currentId);
         }
         document.getElementById('content').textContent = 'Surface ' + $1;
       },
@@ -384,8 +385,8 @@ void WebApp::ApplyToolbarOrientation() {
   if (auto const& current = ui_application_->surfaces->mobile_current) {
     presenter = SurfacePresenter::ptr{current->presenter};
   } else {
-    presenter =
-        SurfacePresenter::ptr{ui_application_->surfaces->surfaces[0]->presenter};
+    presenter = SurfacePresenter::ptr{
+        ui_application_->surfaces->surfaces[0]->presenter};
   }
   int const wide = presenter->IsWide() ? 1 : 0;
   EM_ASM(
@@ -464,16 +465,17 @@ void WebApp::FinishStopAndSync() {
     document.getElementById('content').textContent =
         'Stopped — reload to start again';
     document.getElementById('status').textContent = 'Saving to IndexedDB…';
-    FS.syncfs(false, function(err) {
-      if (err) {
-        document.getElementById('status').textContent =
-            'IndexedDB sync failed: ' + err;
-        console.error(err);
-        return;
-      }
-      document.getElementById('status').textContent = 'Saved.';
-      console.log('SURFACES_IDBFS_SYNCED');
-    });
+    FS.syncfs(
+        false, function(err) {
+          if (err) {
+            document.getElementById('status').textContent =
+                'IndexedDB sync failed: ' + err;
+            console.error(err);
+            return;
+          }
+          document.getElementById('status').textContent = 'Saved.';
+          console.log('SURFACES_IDBFS_SYNCED');
+        });
   });
 }
 

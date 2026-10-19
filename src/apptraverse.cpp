@@ -1,8 +1,8 @@
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/node.h"
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/node.h"
 #include "apptraverse/presenter.h"
 
 namespace apptraverse {

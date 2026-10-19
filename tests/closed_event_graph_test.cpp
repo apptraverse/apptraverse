@@ -14,27 +14,27 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/event_for.h"
-#include "apptraverse/node.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_link.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/node.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_link.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_event_id.h"
+#include "apptraverse/object/shared_event_order.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_event_order.h"
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/transport/shared_network_graph.h"
 
 namespace apptraverse::test {
 namespace {
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 class CountingStorage final : public ae::IDomainStorage {
@@ -282,7 +282,8 @@ class ContainerNode : public NodeFor<ContainerNode> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("ContainerNode v0 flattened layout is not supported");
+    throw std::runtime_error(
+        "ContainerNode v0 flattened layout is not supported");
   }
 
   template <typename Dnv>
@@ -459,15 +460,14 @@ void TestImportAndAliasPreservation() {
   auto source = CreateSourceBundle();
 
   std::vector<std::uint8_t> payload;
-  bool const frozen = FreezeEventPayload(*source.event.cached(),
-                                                    source.boundary, payload);
+  bool const frozen =
+      FreezeEventPayload(*source.event.cached(), source.boundary, payload);
   CHECK(frozen);
   CHECK(!payload.empty());
 
   ae::RamDomainStorage parsed;
   ae::ObjId root_id;
-  bool const parsed_ok =
-      ParseEventPayload(payload, parsed, root_id);
+  bool const parsed_ok = ParseEventPayload(payload, parsed, root_id);
   CHECK(parsed_ok);
   CHECK(root_id == source.event.id());
 
@@ -476,9 +476,9 @@ void TestImportAndAliasPreservation() {
   std::set<ae::ObjId> reserved_ids;
   std::map<ae::ObjId, ae::ObjId> mapping;
 
-  auto imported = ImportClosedEventGraph(parsed, root_id, receiver_domain,
-                                         receiver_storage, reserved_ids,
-                                         &mapping);
+  auto imported =
+      ImportClosedEventGraph(parsed, root_id, receiver_domain, receiver_storage,
+                             reserved_ids, &mapping);
   CHECK(imported);
 
   auto imported_event = imported.as<AddItemEvent>();
@@ -521,8 +521,7 @@ void TestNodeBaseRemapping() {
   auto source = CreateSourceBundle();
 
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary,
-                                      payload));
+  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary, payload));
 
   ae::RamDomainStorage parsed;
   ae::ObjId root_id;
@@ -533,9 +532,9 @@ void TestNodeBaseRemapping() {
   std::set<ae::ObjId> reserved_ids;
   std::map<ae::ObjId, ae::ObjId> mapping;
 
-  auto imported = ImportClosedEventGraph(parsed, root_id, receiver_domain,
-                                         receiver_storage, reserved_ids,
-                                         &mapping);
+  auto imported =
+      ImportClosedEventGraph(parsed, root_id, receiver_domain, receiver_storage,
+                             reserved_ids, &mapping);
   CHECK(imported);
 
   auto imported_event = imported.as<AddItemEvent>();
@@ -557,8 +556,7 @@ void TestAllSenderIdsOccupiedBySentinels() {
   auto source = CreateSourceBundle();
 
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary,
-                                      payload));
+  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary, payload));
 
   ae::RamDomainStorage parsed;
   ae::ObjId root_id;
@@ -568,9 +566,9 @@ void TestAllSenderIdsOccupiedBySentinels() {
   ae::Domain receiver_domain{receiver_storage};
 
   // Pre-occupy on receiver EVERY sender ObjId with a sentinel object
-  std::vector<ae::ObjId> sender_ids{
-      source.event.id(), source.item.id(),
-      source.base_item.id(), source.metadata.id()};
+  std::vector<ae::ObjId> sender_ids{source.event.id(), source.item.id(),
+                                    source.base_item.id(),
+                                    source.metadata.id()};
 
   std::vector<SentinelObject::ptr> sentinels;
   sentinels.reserve(sender_ids.size());
@@ -585,9 +583,9 @@ void TestAllSenderIdsOccupiedBySentinels() {
   std::set<ae::ObjId> reserved_ids;
   std::map<ae::ObjId, ae::ObjId> mapping;
 
-  auto imported = ImportClosedEventGraph(parsed, root_id, receiver_domain,
-                                         receiver_storage, reserved_ids,
-                                         &mapping);
+  auto imported =
+      ImportClosedEventGraph(parsed, root_id, receiver_domain, receiver_storage,
+                             reserved_ids, &mapping);
   CHECK(imported);
 
   // Every remapped ID must NOT collide with ANY sender / sentinel ID
@@ -635,8 +633,7 @@ void TestZeroSourceWritesDuringFreeze() {
   EventGraphExportBoundary boundary{event.id(), item.id(), item->base.id(),
                                     meta.id()};
   std::vector<std::uint8_t> payload;
-  bool const ok =
-      FreezeEventPayload(*event.cached(), boundary, payload);
+  bool const ok = FreezeEventPayload(*event.cached(), boundary, payload);
   CHECK(ok);
   CHECK(!payload.empty());
 
@@ -656,8 +653,7 @@ void TestSourceDestroyedBeforeImport() {
   {
     auto source = CreateSourceBundle();
     expected_root_id = source.event.id();
-    CHECK(FreezeEventPayload(*source.event.cached(), source.boundary,
-                                        payload));
+    CHECK(FreezeEventPayload(*source.event.cached(), source.boundary, payload));
     // source scope ends here: source Domain and source storage are destroyed!
   }
 
@@ -695,8 +691,7 @@ void TestLocalPtrExclusion() {
   source.item->local_link = local_meta;
 
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary,
-                                      payload));
+  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary, payload));
 
   ae::RamDomainStorage parsed;
   ae::ObjId root_id;
@@ -741,8 +736,8 @@ void TestExplicitExternalReferenceRefusal() {
   std::vector<std::uint8_t> payload;
 
   // MUST BE REFUSED EXPLICITLY
-  bool const frozen = FreezeEventPayload(
-      *event_with_ext.cached(), boundary, payload);
+  bool const frozen =
+      FreezeEventPayload(*event_with_ext.cached(), boundary, payload);
   CHECK(!frozen);
   CHECK(payload.empty());
 }
@@ -752,8 +747,7 @@ void TestMalformedMissingReferenceRejectionWithoutReceiverWrites() {
   auto source = CreateSourceBundle();
 
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary,
-                                      payload));
+  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary, payload));
 
   ae::RamDomainStorage parsed;
   ae::ObjId root_id;
@@ -786,8 +780,7 @@ void TestReceiverSaveDestroyDomainLoad() {
   auto source = CreateSourceBundle();
 
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary,
-                                      payload));
+  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary, payload));
 
   ae::RamDomainStorage parsed;
   ae::ObjId root_id;
@@ -801,9 +794,9 @@ void TestReceiverSaveDestroyDomainLoad() {
     std::set<ae::ObjId> reserved_ids;
     std::map<ae::ObjId, ae::ObjId> mapping;
 
-    auto imported = ImportClosedEventGraph(parsed, root_id, receiver_domain,
-                                           receiver_storage, reserved_ids,
-                                           &mapping);
+    auto imported =
+        ImportClosedEventGraph(parsed, root_id, receiver_domain,
+                               receiver_storage, reserved_ids, &mapping);
     CHECK(imported);
     imported_event_id = mapping[root_id];
     // receiver_domain is destroyed here!
@@ -834,8 +827,7 @@ void TestAddItemApplicationAndForcedReplay() {
   auto source = CreateSourceBundle();
 
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary,
-                                      payload));
+  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary, payload));
 
   ae::RamDomainStorage parsed;
   ae::ObjId root_id;
@@ -867,9 +859,8 @@ void TestAddItemApplicationAndForcedReplay() {
   // Commit to journal for replay
   Event::ptr const event_ptr{&receiver_domain, imported->obj_id,
                              ae::ObjFlags::kNone, imported};
-  container->CommitShared(
-      event_ptr, SharedEventId{"test-origin", 1},
-      SharedEventOrder{100});
+  container->CommitShared(event_ptr, SharedEventId{"test-origin", 1},
+                          SharedEventOrder{100});
   CHECK(container->journal.size() == 1);
 
   // Forced replay from base
@@ -894,8 +885,7 @@ void TestScalarValueEqualToOldObjectIdNotRemapped() {
   source.event->scalar_old_id = old_item_id;
 
   std::vector<std::uint8_t> payload;
-  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary,
-                                      payload));
+  CHECK(FreezeEventPayload(*source.event.cached(), source.boundary, payload));
 
   ae::RamDomainStorage parsed;
   ae::ObjId root_id;
@@ -906,9 +896,9 @@ void TestScalarValueEqualToOldObjectIdNotRemapped() {
   std::set<ae::ObjId> reserved_ids;
   std::map<ae::ObjId, ae::ObjId> mapping;
 
-  auto imported = ImportClosedEventGraph(parsed, root_id, receiver_domain,
-                                         receiver_storage, reserved_ids,
-                                         &mapping);
+  auto imported =
+      ImportClosedEventGraph(parsed, root_id, receiver_domain, receiver_storage,
+                             reserved_ids, &mapping);
   CHECK(imported);
 
   auto imported_event = imported.as<AddItemEvent>();
@@ -924,15 +914,16 @@ void TestScalarValueEqualToOldObjectIdNotRemapped() {
   CHECK(imported_event->metadata->scalar_old_id == old_item_id);
 }
 
-// 12. Regressions: Ordinary Obj reference, Nested structure reference, Inherited reference
+// 12. Regressions: Ordinary Obj reference, Nested structure reference,
+// Inherited reference
 void TestOrdinaryObjNestedAndInheritedReferences() {
   ae::ObjId sender_detail_id;
   ae::ObjId sender_meta_id;
   std::vector<ae::ObjId> sender_ids;
   std::vector<std::uint8_t> payload;
 
-  // 1. Setup source graph and freeze within an inner scope so source domain & storage
-  // are completely destroyed before receiver operations
+  // 1. Setup source graph and freeze within an inner scope so source domain &
+  // storage are completely destroyed before receiver operations
   {
     CountingStorage source_storage;
     ae::Domain source_domain{source_storage};
@@ -992,9 +983,8 @@ void TestOrdinaryObjNestedAndInheritedReferences() {
     sender_detail_id = detail.id();
     sender_meta_id = metadata.id();
 
-    sender_ids = {event.id(), item.id(), item->base.id(),
-                  metadata.id(), detail.id(),
-                  derived_obj.id()};
+    sender_ids = {event.id(),    item.id(),   item->base.id(),
+                  metadata.id(), detail.id(), derived_obj.id()};
 
     bool const frozen = FreezeEventPayload(*event.cached(), boundary, payload);
     CHECK(frozen);
@@ -1022,9 +1012,9 @@ void TestOrdinaryObjNestedAndInheritedReferences() {
   std::set<ae::ObjId> reserved_ids;
   std::map<ae::ObjId, ae::ObjId> mapping;
 
-  auto imported = ImportClosedEventGraph(parsed, root_id, receiver_domain,
-                                         receiver_storage, reserved_ids,
-                                         &mapping);
+  auto imported =
+      ImportClosedEventGraph(parsed, root_id, receiver_domain, receiver_storage,
+                             reserved_ids, &mapping);
   CHECK(imported);
 
   auto imported_event = imported.as<AddItemEvent>();
@@ -1036,7 +1026,8 @@ void TestOrdinaryObjNestedAndInheritedReferences() {
     CHECK(obj);
     auto sentinel = obj.as<SentinelObject>();
     CHECK(sentinel != nullptr);
-    CHECK(sentinel->marker == "sentinel_regress_" + std::to_string(sender_id.id()));
+    CHECK(sentinel->marker ==
+          "sentinel_regress_" + std::to_string(sender_id.id()));
   }
 
   // 2. All remapped IDs are new and avoid sentinels
@@ -1067,25 +1058,31 @@ void TestOrdinaryObjNestedAndInheritedReferences() {
   // 5. DEFECT 2 CHECK: Nested value structure reference
   CHECK(imported_event->nested_struct.detail.is_valid());
   CHECK(imported_event->nested_struct.detail.id() == receiver_detail_id);
-  CHECK(&*imported_event->nested_struct.detail == &*imported_event->event_detail);
+  CHECK(&*imported_event->nested_struct.detail ==
+        &*imported_event->event_detail);
 
   // 6. Vector of nested value structures
   CHECK(imported_event->nested_structs.size() == 2);
   CHECK(imported_event->nested_structs[0].detail.is_valid());
   CHECK(imported_event->nested_structs[0].detail.id() == receiver_detail_id);
-  CHECK(&*imported_event->nested_structs[0].detail == &*imported_event->event_detail);
+  CHECK(&*imported_event->nested_structs[0].detail ==
+        &*imported_event->event_detail);
   CHECK(imported_event->nested_structs[1].detail.is_valid());
   CHECK(imported_event->nested_structs[1].detail.id() == receiver_detail_id);
-  CHECK(&*imported_event->nested_structs[1].detail == &*imported_event->event_detail);
+  CHECK(&*imported_event->nested_structs[1].detail ==
+        &*imported_event->event_detail);
 
-  // 7. Inherited fields in derived Obj (BaseObjWithRef::base_detail and DerivedObjWithRef::extra_detail)
+  // 7. Inherited fields in derived Obj (BaseObjWithRef::base_detail and
+  // DerivedObjWithRef::extra_detail)
   CHECK(imported_event->derived_obj.is_valid());
   CHECK(imported_event->derived_obj->base_detail.is_valid());
   CHECK(imported_event->derived_obj->base_detail.id() == receiver_detail_id);
-  CHECK(&*imported_event->derived_obj->base_detail == &*imported_event->event_detail);
+  CHECK(&*imported_event->derived_obj->base_detail ==
+        &*imported_event->event_detail);
   CHECK(imported_event->derived_obj->extra_detail.is_valid());
   CHECK(imported_event->derived_obj->extra_detail.id() == receiver_detail_id);
-  CHECK(&*imported_event->derived_obj->extra_detail == &*imported_event->event_detail);
+  CHECK(&*imported_event->derived_obj->extra_detail ==
+        &*imported_event->event_detail);
 
   // 8. Plain business ae::ObjId fields are NOT remapped (scalars)
   CHECK(imported_event->scalar_obj_id == sender_detail_id);
@@ -1160,7 +1157,8 @@ void TestMalformedVariantsRejectedBeforeWrites() {
   std::vector<std::uint8_t> payload;
   CHECK(FreezeEventPayload(*event.cached(), boundary, payload));
 
-  // Variant A: Remove Detail from parsed bundle while Metadata still references it
+  // Variant A: Remove Detail from parsed bundle while Metadata still references
+  // it
   {
     ae::RamDomainStorage parsed;
     ae::ObjId root_id;
@@ -1180,8 +1178,9 @@ void TestMalformedVariantsRejectedBeforeWrites() {
     CHECK(receiver_storage.store_count == 0);
   }
 
-  // Variant B: Remove Detail from parsed bundle while nested_struct still references it
-  // (Clear metadata detail so only nested_struct has missing reference)
+  // Variant B: Remove Detail from parsed bundle while nested_struct still
+  // references it (Clear metadata detail so only nested_struct has missing
+  // reference)
   {
     // Build a bundle where ONLY nested struct references detail
     CountingStorage s_storage;
@@ -1225,7 +1224,8 @@ void TestMalformedVariantsRejectedBeforeWrites() {
     CHECK(receiver_storage.store_count == 0);
   }
 
-  // Variant C: Replace Detail's stored class with an incompatible registered class (SentinelObject)
+  // Variant C: Replace Detail's stored class with an incompatible registered
+  // class (SentinelObject)
   {
     ae::RamDomainStorage parsed;
     ae::ObjId root_id;
@@ -1266,7 +1266,8 @@ int main() {
   apptraverse::test::TestSourceDestroyedBeforeImport();
   apptraverse::test::TestLocalPtrExclusion();
   apptraverse::test::TestExplicitExternalReferenceRefusal();
-  apptraverse::test::TestMalformedMissingReferenceRejectionWithoutReceiverWrites();
+  apptraverse::test::
+      TestMalformedMissingReferenceRejectionWithoutReceiverWrites();
   apptraverse::test::TestReceiverSaveDestroyDomainLoad();
   apptraverse::test::TestAddItemApplicationAndForcedReplay();
   apptraverse::test::TestScalarValueEqualToOldObjectIdNotRemapped();

@@ -10,18 +10,18 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/event_for.h"
-#include "apptraverse/link.h"
-#include "apptraverse/memory_transport.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_event_id.h"
+#include "apptraverse/object/shared_event_order.h"
+#include "apptraverse/object/shared_node.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_event_order.h"
-#include "apptraverse/shared_network_graph.h"
-#include "apptraverse/shared_node.h"
-#include "apptraverse/shared_sync_runtime.h"
-#include "apptraverse/sync_frame.h"
+#include "apptraverse/transport/memory_transport.h"
+#include "apptraverse/transport/shared_network_graph.h"
+#include "apptraverse/transport/shared_sync_runtime.h"
+#include "apptraverse/transport/sync_frame.h"
 
 #include "shared_node_demo_model.h"
 
@@ -31,13 +31,13 @@ namespace {
 using apptraverse::example::shared_node::SetValueEvent;
 using apptraverse::example::shared_node::SharedValueNode;
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 std::string const kEndpointA = "replica-a";
@@ -462,12 +462,9 @@ void TestMidJournalTimestampReplay() {
 
   auto const fixture = BuildTopology(a, 6201, 6202, 6203);
   auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
-  auto const e1 =
-      SharedEventId{.origin_uid = "z-origin", .origin_sequence = 1};
-  auto const e3 =
-      SharedEventId{.origin_uid = "a-origin", .origin_sequence = 1};
-  auto const e2 =
-      SharedEventId{.origin_uid = "m-origin", .origin_sequence = 1};
+  auto const e1 = SharedEventId{.origin_uid = "z-origin", .origin_sequence = 1};
+  auto const e3 = SharedEventId{.origin_uid = "a-origin", .origin_sequence = 1};
+  auto const e2 = SharedEventId{.origin_uid = "m-origin", .origin_sequence = 1};
   CommitSharedValue(*a_node, 1, e1, 100);
   CommitSharedValue(*a_node, 3, e3, 300);
   HandshakeInitial(network, a, b, fixture);
@@ -530,9 +527,9 @@ void TestLostAckExactRetryAndDuplicate() {
   CHECK(a_state->HasPendingEvent());
   CHECK(a_state->pending_event_packet == frozen);
 
-  CommitSharedValue(*a_node, 99, 
-                    SharedEventId{.origin_uid = "peer-a", .origin_sequence = 99},
-                    9'000);
+  CommitSharedValue(
+      *a_node, 99, SharedEventId{.origin_uid = "peer-a", .origin_sequence = 99},
+      9'000);
   CHECK(a_state->pending_event_packet == frozen);
 
   a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
@@ -688,10 +685,8 @@ void TestInitialSnapshotCoverageRace() {
 
   auto const fixture = BuildTopology(a, 6701, 6702, 6703);
   auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
-  auto const e1 =
-      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 10};
-  auto const e2 =
-      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 11};
+  auto const e1 = SharedEventId{.origin_uid = "peer-a", .origin_sequence = 10};
+  auto const e2 = SharedEventId{.origin_uid = "peer-a", .origin_sequence = 11};
   CommitSharedValue(*a_node, 1, e1, 10'000);
 
   b.sync->ExpectInitialNode(fixture.node_id);
@@ -796,16 +791,15 @@ void TestWrongDestinationRejected() {
   auto const event = CommitSharedValue(*a_node, 7, identity, 14'000);
   std::vector<std::uint8_t> payload;
   CHECK(FreezeEventPayload(*event, payload));
-  a.transport->Send(kEndpointB,
-                    EncodeEventFrame(EventFrame{
-                        .packet_id = ae::ObjId{7099},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_a,
-                        .identity = identity,
-                        .timestamp_us = 14'000,
-                        .event_class_id = SetValueEvent::kClassId,
-                        .payload = payload,
-                    }));
+  a.transport->Send(kEndpointB, EncodeEventFrame(EventFrame{
+                                    .packet_id = ae::ObjId{7099},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_a,
+                                    .identity = identity,
+                                    .timestamp_us = 14'000,
+                                    .event_class_id = SetValueEvent::kClassId,
+                                    .payload = payload,
+                                }));
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(b.watched.pending_at_store().empty());
@@ -831,16 +825,15 @@ void TestMalformedEventPayloadRejected() {
   std::vector<std::uint8_t> payload;
   CHECK(FreezeEventPayload(*event, payload));
   payload.pop_back();
-  a.transport->Send(kEndpointB,
-                    EncodeEventFrame(EventFrame{
-                        .packet_id = ae::ObjId{7199},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_b,
-                        .identity = identity,
-                        .timestamp_us = 15'000,
-                        .event_class_id = SetValueEvent::kClassId,
-                        .payload = payload,
-                    }));
+  a.transport->Send(kEndpointB, EncodeEventFrame(EventFrame{
+                                    .packet_id = ae::ObjId{7199},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_b,
+                                    .identity = identity,
+                                    .timestamp_us = 15'000,
+                                    .event_class_id = SetValueEvent::kClassId,
+                                    .payload = payload,
+                                }));
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(b.watched.pending_at_store().empty());
@@ -859,24 +852,24 @@ void TestWrongTargetEventClassRejected() {
   auto const fixture = BuildTopology(a, 7201, 7202, 7203);
   HandshakeInitial(network, a, b, fixture);
 
-  auto wrong = SetLinkInitialSyncPhaseEvent::ptr::Create(
-      ae::CreateWith{*a.domain});
+  auto wrong =
+      SetLinkInitialSyncPhaseEvent::ptr::Create(ae::CreateWith{*a.domain});
   wrong->phase = static_cast<std::uint8_t>(InitialSyncPhase::Complete);
   std::vector<std::uint8_t> payload;
   CHECK(FreezeEventPayload(*wrong, payload));
 
   auto const identity =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 16};
-  a.transport->Send(kEndpointB,
-                    EncodeEventFrame(EventFrame{
-                        .packet_id = ae::ObjId{7299},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_b,
-                        .identity = identity,
-                        .timestamp_us = 16'000,
-                        .event_class_id = SetLinkInitialSyncPhaseEvent::kClassId,
-                        .payload = payload,
-                    }));
+  a.transport->Send(
+      kEndpointB, EncodeEventFrame(EventFrame{
+                      .packet_id = ae::ObjId{7299},
+                      .target_node_id = fixture.node_id,
+                      .destination_share_id = fixture.share_to_b,
+                      .identity = identity,
+                      .timestamp_us = 16'000,
+                      .event_class_id = SetLinkInitialSyncPhaseEvent::kClassId,
+                      .payload = payload,
+                  }));
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(b.watched.pending_at_store().empty());
@@ -905,16 +898,15 @@ void TestConflictingDuplicateIdentityRejected() {
 
   std::vector<std::uint8_t> payload;
   CHECK(FreezeEventPayload(*event, payload));
-  a.transport->Send(kEndpointB,
-                    EncodeEventFrame(EventFrame{
-                        .packet_id = ae::ObjId{7399},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_b,
-                        .identity = identity,
-                        .timestamp_us = 99'000,
-                        .event_class_id = SetValueEvent::kClassId,
-                        .payload = payload,
-                    }));
+  a.transport->Send(kEndpointB, EncodeEventFrame(EventFrame{
+                                    .packet_id = ae::ObjId{7399},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_b,
+                                    .identity = identity,
+                                    .timestamp_us = 99'000,
+                                    .event_class_id = SetValueEvent::kClassId,
+                                    .payload = payload,
+                                }));
   auto const b_node = ConcreteOf(b.sync->FindNode(fixture.node_id));
   auto const journal_size = b_node->journal.size();
   b.watched.ResetWatch();
@@ -938,8 +930,7 @@ void TestReferencedObjectGraphRefused() {
   auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
   auto note = NotePayload::ptr::Create(ae::CreateWith{*a.domain});
   note->text = "child";
-  auto event =
-      SetValueWithNoteEvent::ptr::Create(ae::CreateWith{*a.domain});
+  auto event = SetValueWithNoteEvent::ptr::Create(ae::CreateWith{*a.domain});
   event->value = 4;
   event->note = note;
   std::vector<std::uint8_t> payload;
@@ -958,7 +949,8 @@ void TestMalformedClassLayersInEventRejected() {
   auto const fixture = BuildTopology(a, 7501, 7502, 7503);
   HandshakeInitial(network, a, b, fixture);
 
-  // Start with correctly serialized class-layer bodies from a valid SetValueEvent
+  // Start with correctly serialized class-layer bodies from a valid
+  // SetValueEvent
   auto valid_event = SetValueEvent::ptr::Create(ae::CreateWith{*a.domain});
   valid_event->value = 42;
   std::vector<std::uint8_t> valid_payload;
@@ -970,8 +962,7 @@ void TestMalformedClassLayersInEventRejected() {
 
   // Add a registered, unrelated class layer under the same event object
   bad_storage.SaveData(
-      ae::DomainQuery{wire_root_id, NoteTargetNode::kClassId, 0},
-      {1, 2, 3});
+      ae::DomainQuery{wire_root_id, NoteTargetNode::kClassId, 0}, {1, 2, 3});
 
   std::vector<std::uint8_t> payload;
   {
@@ -981,24 +972,25 @@ void TestMalformedClassLayersInEventRejected() {
     CHECK(archive.Save(bad_storage.state));
   }
 
-  // Before delivery explicitly prove parser succeeds but class-chain validation fails
+  // Before delivery explicitly prove parser succeeds but class-chain validation
+  // fails
   ae::RamDomainStorage parsed_check;
   ae::ObjId parsed_root_id;
   CHECK(ParseEventPayload(payload, parsed_check, parsed_root_id) == true);
-  CHECK(ValidateClosedEventGraphStorage(parsed_check, parsed_root_id, SetValueEvent::kClassId) == false);
+  CHECK(ValidateClosedEventGraphStorage(parsed_check, parsed_root_id,
+                                        SetValueEvent::kClassId) == false);
 
   auto const identity =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 20};
-  a.transport->Send(kEndpointB,
-                    EncodeEventFrame(EventFrame{
-                        .packet_id = ae::ObjId{7599},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_b,
-                        .identity = identity,
-                        .timestamp_us = 20'000,
-                        .event_class_id = SetValueEvent::kClassId,
-                        .payload = payload,
-                    }));
+  a.transport->Send(kEndpointB, EncodeEventFrame(EventFrame{
+                                    .packet_id = ae::ObjId{7599},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_b,
+                                    .identity = identity,
+                                    .timestamp_us = 20'000,
+                                    .event_class_id = SetValueEvent::kClassId,
+                                    .payload = payload,
+                                }));
 
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
@@ -1021,9 +1013,7 @@ void TestOnlyBaseEventLayerRejected() {
   ae::ObjId const root_id{1};
   // Payload with only Event base class layer (no SetValueEvent layer)
   ae::RamDomainStorage base_only_storage;
-  base_only_storage.SaveData(
-      ae::DomainQuery{root_id, Event::kClassId, 0},
-      {});
+  base_only_storage.SaveData(ae::DomainQuery{root_id, Event::kClassId, 0}, {});
 
   std::vector<std::uint8_t> payload;
   {
@@ -1033,25 +1023,25 @@ void TestOnlyBaseEventLayerRejected() {
     CHECK(archive.Save(base_only_storage.state));
   }
 
-  // Before delivery explicitly prove: parser succeeds, but validator rejects because
-  // most-derived class is Event (not SetValueEvent)
+  // Before delivery explicitly prove: parser succeeds, but validator rejects
+  // because most-derived class is Event (not SetValueEvent)
   ae::RamDomainStorage parsed_check;
   ae::ObjId parsed_root_id;
   CHECK(ParseEventPayload(payload, parsed_check, parsed_root_id) == true);
-  CHECK(ValidateClosedEventGraphStorage(parsed_check, parsed_root_id, SetValueEvent::kClassId) == false);
+  CHECK(ValidateClosedEventGraphStorage(parsed_check, parsed_root_id,
+                                        SetValueEvent::kClassId) == false);
 
   auto const identity =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 25};
-  a.transport->Send(kEndpointB,
-                    EncodeEventFrame(EventFrame{
-                        .packet_id = ae::ObjId{7598},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_b,
-                        .identity = identity,
-                        .timestamp_us = 25'000,
-                        .event_class_id = SetValueEvent::kClassId,
-                        .payload = payload,
-                    }));
+  a.transport->Send(kEndpointB, EncodeEventFrame(EventFrame{
+                                    .packet_id = ae::ObjId{7598},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_b,
+                                    .identity = identity,
+                                    .timestamp_us = 25'000,
+                                    .event_class_id = SetValueEvent::kClassId,
+                                    .payload = payload,
+                                }));
 
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
@@ -1144,7 +1134,8 @@ void TestRepeatedFailedCheckingCannotSkipRejectedEvent() {
   });
 
   // Call TryReplayFromBase(): reloads base, sets applied_journal_size_ = 0,
-  // and calls TryEnsureCurrentGeneration(). Must return false because bad_event cannot apply.
+  // and calls TryEnsureCurrentGeneration(). Must return false because bad_event
+  // cannot apply.
   CHECK(!node->TryReplayFromBase());
 
   // Call TryEnsureCurrentGeneration() again: MUST STILL return false!
@@ -1194,8 +1185,7 @@ void TestReachableObjectWithObjId2Succeeds() {
   HandshakeInitial(network, a, b, fixture);
 
   // Commit event 1 at timestamp 1000
-  auto const id1 =
-      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 22};
+  auto const id1 = SharedEventId{.origin_uid = "peer-a", .origin_sequence = 22};
   auto const a_node = ConcreteOf(a.sync->FindNode(fixture.node_id));
   CommitSharedValue(*a_node, 10, id1, 1'000);
   a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
@@ -1203,16 +1193,14 @@ void TestReachableObjectWithObjId2Succeeds() {
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
 
   // Commit event 2 at timestamp 3000
-  auto const id2 =
-      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 23};
+  auto const id2 = SharedEventId{.origin_uid = "peer-a", .origin_sequence = 23};
   CommitSharedValue(*a_node, 30, id2, 3'000);
   a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
 
   // Exercise mid-journal insertion: commit event 3 at timestamp 2000
-  auto const id3 =
-      SharedEventId{.origin_uid = "peer-a", .origin_sequence = 24};
+  auto const id3 = SharedEventId{.origin_uid = "peer-a", .origin_sequence = 24};
   CommitSharedValue(*a_node, 20, id3, 2'000);
   a.sync->SyncNextEvent(fixture.node_id, fixture.share_to_b);
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
@@ -1235,9 +1223,12 @@ void TestReachableObjectWithObjId2Succeeds() {
 void TestHistoricalCanApplyPreflight() {
   // Verifies that:
   // 1. An event that is valid historically (at timestamp 150, when state is 0)
-  //    is admitted even though the current state is 1 (where CanApply would be false).
-  // 2. An event that is NOT valid historically (e.g. requires state 1, but inserted
-  //    at timestamp 50 when state is 0) is REJECTED without crashing or mutating.
+  //    is admitted even though the current state is 1 (where CanApply would be
+  //    false).
+  // 2. An event that is NOT valid historically (e.g. requires state 1, but
+  // inserted
+  //    at timestamp 50 when state is 0) is REJECTED without crashing or
+  //    mutating.
   MemoryNetwork network;
   Replica a{network, kEndpointA, kEndpointB};
   Replica b{network, kEndpointB, kEndpointA};
@@ -1274,9 +1265,9 @@ void TestHistoricalCanApplyPreflight() {
   auto e1 = TransitionEvent::ptr::Create(ae::CreateWith{*a.domain});
   e1->expected_from = 0;
   e1->new_to = 1;
-  a_root->CommitShared(e1,
-                       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 1},
-                       SharedEventOrder{.timestamp_us = 100});
+  a_root->CommitShared(
+      e1, SharedEventId{.origin_uid = "peer-a", .origin_sequence = 1},
+      SharedEventOrder{.timestamp_us = 100});
   a_root.Save();
   CHECK(a_root->state_code == 1);
 
@@ -1284,9 +1275,9 @@ void TestHistoricalCanApplyPreflight() {
   auto e2 = TransitionEvent::ptr::Create(ae::CreateWith{*a.domain});
   e2->expected_from = 1;
   e2->new_to = 2;
-  a_root->CommitShared(e2,
-                       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 2},
-                       SharedEventOrder{.timestamp_us = 200});
+  a_root->CommitShared(
+      e2, SharedEventId{.origin_uid = "peer-a", .origin_sequence = 2},
+      SharedEventOrder{.timestamp_us = 200});
   a_root.Save();
   CHECK(a_root->state_code == 2);
 
@@ -1305,26 +1296,27 @@ void TestHistoricalCanApplyPreflight() {
 
   // Now, craft an event e_bad with timestamp 50 (inserted before e1):
   // e_bad expects state 1 -> 9. But at timestamp 50, state is 0!
-  // Note that if checked against CURRENT state of b_node (which is 2), it's also invalid,
-  // but even if e_bad expected 2 -> 9, at timestamp 50 state was 0, so historical replay would fail!
+  // Note that if checked against CURRENT state of b_node (which is 2), it's
+  // also invalid, but even if e_bad expected 2 -> 9, at timestamp 50 state was
+  // 0, so historical replay would fail!
   auto e_bad = TransitionEvent::ptr::Create(ae::CreateWith{*a.domain});
-  e_bad->expected_from = 2;  // matches CURRENT state (2), but NOT historical state at t=50 (0)!
+  e_bad->expected_from =
+      2;  // matches CURRENT state (2), but NOT historical state at t=50 (0)!
   e_bad->new_to = 9;
   std::vector<std::uint8_t> bad_payload;
   CHECK(FreezeEventPayload(*e_bad, bad_payload));
 
   auto const bad_id =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 3};
-  a.transport->Send(kEndpointB,
-                    EncodeEventFrame(EventFrame{
-                        .packet_id = ae::ObjId{8888},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_b,
-                        .identity = bad_id,
-                        .timestamp_us = 50,
-                        .event_class_id = TransitionEvent::kClassId,
-                        .payload = bad_payload,
-                    }));
+  a.transport->Send(kEndpointB, EncodeEventFrame(EventFrame{
+                                    .packet_id = ae::ObjId{8888},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_b,
+                                    .identity = bad_id,
+                                    .timestamp_us = 50,
+                                    .event_class_id = TransitionEvent::kClassId,
+                                    .payload = bad_payload,
+                                }));
 
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
@@ -1335,13 +1327,13 @@ void TestHistoricalCanApplyPreflight() {
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 0);
 
   // Next, craft an event e_invalidates_later with timestamp 150:
-  // At t=150, state is 1, so e_invalidates_later (expected_from = 1 -> new_to = 99)
-  // is valid at its OWN insertion position!
-  // BUT the subsequent historical event e2 (at t=200) requires expected_from = 1 -> 2.
-  // Because e_invalidates_later changes state to 99, e2's replay fails!
-  // Preflight MUST detect this replay failure on the scratch graph and reject e_invalidates_later.
-  // We explicitly verify that live value, journal, generation, local LinkSyncState,
-  // and storage remain unchanged.
+  // At t=150, state is 1, so e_invalidates_later (expected_from = 1 -> new_to =
+  // 99) is valid at its OWN insertion position! BUT the subsequent historical
+  // event e2 (at t=200) requires expected_from = 1 -> 2. Because
+  // e_invalidates_later changes state to 99, e2's replay fails! Preflight MUST
+  // detect this replay failure on the scratch graph and reject
+  // e_invalidates_later. We explicitly verify that live value, journal,
+  // generation, local LinkSyncState, and storage remain unchanged.
   auto const pre_reject_val = b_node->state_code;
   auto const pre_reject_journal_size = b_node->journal.size();
   auto const pre_reject_gen = b_node->Generation();
@@ -1359,16 +1351,15 @@ void TestHistoricalCanApplyPreflight() {
 
   auto const inv_id =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 99};
-  a.transport->Send(kEndpointB,
-                    EncodeEventFrame(EventFrame{
-                        .packet_id = ae::ObjId{8887},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_b,
-                        .identity = inv_id,
-                        .timestamp_us = 150,
-                        .event_class_id = TransitionEvent::kClassId,
-                        .payload = inv_payload,
-                    }));
+  a.transport->Send(kEndpointB, EncodeEventFrame(EventFrame{
+                                    .packet_id = ae::ObjId{8887},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_b,
+                                    .identity = inv_id,
+                                    .timestamp_us = 150,
+                                    .event_class_id = TransitionEvent::kClassId,
+                                    .payload = inv_payload,
+                                }));
 
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
@@ -1385,36 +1376,39 @@ void TestHistoricalCanApplyPreflight() {
   // Next, craft an event e_good with timestamp 150 (between e1 and e2).
   // At t=150, state is 1!
   // e_good transitions 1 -> 3.
-  // And at t=200, e2 originally expected 1 -> 2. If e_good changed state to 3, e2 would fail.
-  // So e_good must transition 1 -> 1 so e2 (which expects 1 -> 2) will still succeed afterwards!
-  // Notice: at the moment e_good arrives, CURRENT state is 2! e_good has expected_from = 1 != 2.
-  // If e_good were checked against current state, CanApply would fail!
-  // But historically at t=150, state is 1, so e_good CanApply is true!
+  // And at t=200, e2 originally expected 1 -> 2. If e_good changed state to 3,
+  // e2 would fail. So e_good must transition 1 -> 1 so e2 (which expects 1 ->
+  // 2) will still succeed afterwards! Notice: at the moment e_good arrives,
+  // CURRENT state is 2! e_good has expected_from = 1 != 2. If e_good were
+  // checked against current state, CanApply would fail! But historically at
+  // t=150, state is 1, so e_good CanApply is true!
   auto e_good = TransitionEvent::ptr::Create(ae::CreateWith{*a.domain});
-  e_good->expected_from = 1;  // matches historical state at t=150! Does NOT match CURRENT state (2)!
-  e_good->new_to = 1;         // leaves state as 1 so e2 (1 -> 2) at t=200 remains valid!
+  e_good->expected_from = 1;  // matches historical state at t=150! Does NOT
+                              // match CURRENT state (2)!
+  e_good->new_to =
+      1;  // leaves state as 1 so e2 (1 -> 2) at t=200 remains valid!
   std::vector<std::uint8_t> good_payload;
   CHECK(FreezeEventPayload(*e_good, good_payload));
 
   auto const good_id =
       SharedEventId{.origin_uid = "peer-a", .origin_sequence = 4};
-  a.transport->Send(kEndpointB,
-                    EncodeEventFrame(EventFrame{
-                        .packet_id = ae::ObjId{8889},
-                        .target_node_id = fixture.node_id,
-                        .destination_share_id = fixture.share_to_b,
-                        .identity = good_id,
-                        .timestamp_us = 150,
-                        .event_class_id = TransitionEvent::kClassId,
-                        .payload = good_payload,
-                    }));
+  a.transport->Send(kEndpointB, EncodeEventFrame(EventFrame{
+                                    .packet_id = ae::ObjId{8889},
+                                    .target_node_id = fixture.node_id,
+                                    .destination_share_id = fixture.share_to_b,
+                                    .identity = good_id,
+                                    .timestamp_us = 150,
+                                    .event_class_id = TransitionEvent::kClassId,
+                                    .payload = good_payload,
+                                }));
 
   b.watched.ResetWatch();
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   // e_good must be accepted and persisted!
   CHECK(!b.watched.pending_at_store().empty());
   CHECK(JournalByIdentity(*b_node, good_id) != nullptr);
-  CHECK(b_node->state_code == 2);  // after full replay: 0 -(t=100)-> 1 -(t=150)-> 1 -(t=200)-> 2
+  CHECK(b_node->state_code ==
+        2);  // after full replay: 0 -(t=100)-> 1 -(t=150)-> 1 -(t=200)-> 2
   CHECK(network.PendingCount(kEndpointB, kEndpointA) == 1);
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
 }
@@ -1446,17 +1440,16 @@ void TestEventFrameDecodingIsStrict() {
   truncated.pop_back();
   CHECK(!DecodeEventFrame(truncated, decoded));
 
-  CHECK(!DecodeEventFrame(
-      EncodeEventFrame(EventFrame{
-          .packet_id = ae::ObjId{},
-          .target_node_id = ae::ObjId{32},
-          .destination_share_id = ae::ObjId{33},
-          .identity = frame.identity,
-          .timestamp_us = 100,
-          .event_class_id = SetValueEvent::kClassId,
-          .payload = payload,
-      }),
-      decoded));
+  CHECK(!DecodeEventFrame(EncodeEventFrame(EventFrame{
+                              .packet_id = ae::ObjId{},
+                              .target_node_id = ae::ObjId{32},
+                              .destination_share_id = ae::ObjId{33},
+                              .identity = frame.identity,
+                              .timestamp_us = 100,
+                              .event_class_id = SetValueEvent::kClassId,
+                              .payload = payload,
+                          }),
+                          decoded));
   CHECK(!DecodeEventFrame(
       EncodeEventFrame(EventFrame{
           .packet_id = ae::ObjId{31},
@@ -1468,39 +1461,37 @@ void TestEventFrameDecodingIsStrict() {
           .payload = payload,
       }),
       decoded));
-  CHECK(!DecodeEventFrame(
-      EncodeEventFrame(EventFrame{
-          .packet_id = ae::ObjId{31},
-          .target_node_id = ae::ObjId{32},
-          .destination_share_id = ae::ObjId{33},
-          .identity = SharedEventId{.origin_uid = "peer-a", .origin_sequence = 0},
-          .timestamp_us = 100,
-          .event_class_id = SetValueEvent::kClassId,
-          .payload = payload,
-      }),
-      decoded));
-  CHECK(!DecodeEventFrame(
-      EncodeEventFrame(EventFrame{
-          .packet_id = ae::ObjId{31},
-          .target_node_id = ae::ObjId{32},
-          .destination_share_id = ae::ObjId{33},
-          .identity = frame.identity,
-          .timestamp_us = 0,
-          .event_class_id = SetValueEvent::kClassId,
-          .payload = payload,
-      }),
-      decoded));
-  CHECK(!DecodeEventFrame(
-      EncodeEventFrame(EventFrame{
-          .packet_id = ae::ObjId{31},
-          .target_node_id = ae::ObjId{32},
-          .destination_share_id = ae::ObjId{33},
-          .identity = frame.identity,
-          .timestamp_us = 100,
-          .event_class_id = SharedValueNode::kClassId,
-          .payload = payload,
-      }),
-      decoded));
+  CHECK(!DecodeEventFrame(EncodeEventFrame(EventFrame{
+                              .packet_id = ae::ObjId{31},
+                              .target_node_id = ae::ObjId{32},
+                              .destination_share_id = ae::ObjId{33},
+                              .identity = SharedEventId{.origin_uid = "peer-a",
+                                                        .origin_sequence = 0},
+                              .timestamp_us = 100,
+                              .event_class_id = SetValueEvent::kClassId,
+                              .payload = payload,
+                          }),
+                          decoded));
+  CHECK(!DecodeEventFrame(EncodeEventFrame(EventFrame{
+                              .packet_id = ae::ObjId{31},
+                              .target_node_id = ae::ObjId{32},
+                              .destination_share_id = ae::ObjId{33},
+                              .identity = frame.identity,
+                              .timestamp_us = 0,
+                              .event_class_id = SetValueEvent::kClassId,
+                              .payload = payload,
+                          }),
+                          decoded));
+  CHECK(!DecodeEventFrame(EncodeEventFrame(EventFrame{
+                              .packet_id = ae::ObjId{31},
+                              .target_node_id = ae::ObjId{32},
+                              .destination_share_id = ae::ObjId{33},
+                              .identity = frame.identity,
+                              .timestamp_us = 100,
+                              .event_class_id = SharedValueNode::kClassId,
+                              .payload = payload,
+                          }),
+                          decoded));
 
   SyncFrameType type{};
   CHECK(PeekSyncFrameType(bytes, type));

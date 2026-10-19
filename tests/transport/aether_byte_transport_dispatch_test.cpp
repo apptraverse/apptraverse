@@ -7,13 +7,13 @@
 #include "aether_byte_transport.h"
 #include "aether_frame_endpoint.h"
 
-#define CHECK(cond)                                                           \
-  do {                                                                        \
-    if (!(cond)) {                                                            \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"        \
-                << __LINE__ << '\n';                                          \
-      std::exit(1);                                                           \
-    }                                                                         \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 namespace {
@@ -70,9 +70,7 @@ class FakeFrameEndpoint : public IAetherFrameEndpoint {
 
 class TestDispatcher {
  public:
-  void Post(ModelTask task) {
-    queue_.push_back(std::move(task));
-  }
+  void Post(ModelTask task) { queue_.push_back(std::move(task)); }
 
   void Drain() {
     std::vector<ModelTask> to_run;
@@ -84,9 +82,7 @@ class TestDispatcher {
     }
   }
 
-  std::size_t pending_count() const {
-    return queue_.size();
-  }
+  std::size_t pending_count() const { return queue_.size(); }
 
  private:
   std::vector<ModelTask> queue_;
@@ -115,9 +111,7 @@ int main() {
 
   auto transport = std::make_unique<AetherByteTransport>(
       endpoint, "local-123",
-      [&dispatcher](ModelTask task) {
-        dispatcher.Post(std::move(task));
-      });
+      [&dispatcher](ModelTask task) { dispatcher.Post(std::move(task)); });
 
   // 1. Bind ReceiveFn.
   transport->BindReceive(&receiver, &ReceiverState::ReceiveThunk);
@@ -156,9 +150,7 @@ int main() {
   // 10. Verify ClearReceive before Drain also suppresses queued delivery.
   auto transport2 = std::make_unique<AetherByteTransport>(
       endpoint, "local-456",
-      [&dispatcher](ModelTask task) {
-        dispatcher.Post(std::move(task));
-      });
+      [&dispatcher](ModelTask task) { dispatcher.Post(std::move(task)); });
   transport2->BindReceive(&receiver, &ReceiverState::ReceiveThunk);
 
   std::vector<std::uint8_t> const frame3 = {'T', 'e', 's', 't'};

@@ -13,13 +13,13 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/registry.h"
 
-#include "apptraverse/link.h"
-#include "apptraverse/object_link.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/object_link.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_event_order.h"
+#include "apptraverse/object/shared_node.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_event_order.h"
-#include "apptraverse/shared_network_graph.h"
-#include "apptraverse/shared_node.h"
+#include "apptraverse/transport/shared_network_graph.h"
 
 #include "shared_node_demo_model.h"
 
@@ -35,13 +35,13 @@ using apptraverse::example::shared_node::RootSharedNode;
 using apptraverse::example::shared_node::SetValueEvent;
 using apptraverse::example::shared_node::SharedValueNode;
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 class CountingDomainStorage final : public ae::IDomainStorage {
@@ -142,8 +142,7 @@ void TestLinkConfigInitializedBeforeLive() {
   link.Save();
 
   ae::Domain domain2{storage};
-  auto loaded =
-      MemoryLink::ptr::Declare(ae::CreateWith{domain2}.with_id(12));
+  auto loaded = MemoryLink::ptr::Declare(ae::CreateWith{domain2}.with_id(12));
   loaded.Load();
   CHECK(loaded->endpoint_uid == "pre-live");
   CHECK(loaded->heartbeat_interval_ms == 2500);
@@ -160,10 +159,10 @@ void TestMultipleRefsSameLinkAfterRestart() {
   {
     ae::Domain domain{storage};
     auto link = MakeMemoryLink(domain, ae::ObjId{link_id}, "shared-x");
-    auto node_a = SharedValueNode::ptr::Create(
-        ae::CreateWith{domain}.with_id(node_a_id));
-    auto node_b = SharedValueNode::ptr::Create(
-        ae::CreateWith{domain}.with_id(node_b_id));
+    auto node_a =
+        SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(node_a_id));
+    auto node_b =
+        SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(node_b_id));
     auto client =
         Client::ptr::Create(ae::CreateWith{domain}.with_id(client_id));
     // Client reflected fields before InitializeRuntimeNode.
@@ -182,8 +181,7 @@ void TestMultipleRefsSameLinkAfterRestart() {
     node_a->SetInitialSyncPhase(link, InitialSyncPhase::Complete);
     CHECK(node_a->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
     CHECK(node_b->GetInitialSyncPhase(link) == InitialSyncPhase::NotStarted);
-    CHECK(node_a->link_sync_states[0].id() !=
-          node_b->link_sync_states[0].id());
+    CHECK(node_a->link_sync_states[0].id() != node_b->link_sync_states[0].id());
 
     node_a.Save();
     node_b.Save();
@@ -324,8 +322,7 @@ void TestLocalSyncStateEventDrivenSaveLoadAndReplay() {
 void TestRemoveShareAddShareResetsLocalSync() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto node =
-      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(61));
+  auto node = SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(61));
   InitializeRuntimeNode(*node);
   auto link = MakeMemoryLink(domain, ae::ObjId{62}, "peer");
   node->AddShare(link, ShareAccess::ReadWrite);
@@ -368,8 +365,7 @@ void TestRemoveShareAddShareResetsLocalSync() {
 void TestShareRelationshipIdentitySurvivesForcedReplay() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto node =
-      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(111));
+  auto node = SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(111));
   InitializeRuntimeNode(*node);
   auto link = MakeMemoryLink(domain, ae::ObjId{112}, "replay-peer");
 
@@ -412,8 +408,8 @@ void TestShareRelationshipIdentitySurvivesForcedReplay() {
     entry.Save();
   }
   ae::Domain reloaded_domain{storage};
-  auto reloaded =
-      SharedValueNode::ptr::Declare(ae::CreateWith{reloaded_domain}.with_id(111));
+  auto reloaded = SharedValueNode::ptr::Declare(
+      ae::CreateWith{reloaded_domain}.with_id(111));
   reloaded.Load();
   CHECK(reloaded->shares.size() == 1);
   CHECK(reloaded->shares[0].share_id == second_share_id);
@@ -431,7 +427,8 @@ void TestShareRelationshipIdentitySurvivesForcedReplay() {
       SetValueEvent::ptr::Create(ae::CreateWith{reloaded_domain});
   reloaded_early->value = 4;
   reloaded->InsertAtForTest(
-      SharedEventOrder{.timestamp_us = reloaded->journal[0].order.timestamp_us - 1},
+      SharedEventOrder{.timestamp_us =
+                           reloaded->journal[0].order.timestamp_us - 1},
       reloaded_early);
   CHECK(reloaded->value == 2);
   CHECK(reloaded->shares.size() == 1);
@@ -649,8 +646,7 @@ void TestGenericLocalPtrNetworkExclusion() {
 void TestLinkSyncStateConfiguredBeforeLive() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto node =
-      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(91));
+  auto node = SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(91));
   InitializeRuntimeNode(*node);
   auto link = MakeMemoryLink(domain, ae::ObjId{92}, "sync-peer");
 
@@ -679,8 +675,8 @@ void TestSimultaneousDomainGraphSerializationScopes() {
   ae::ObjId::Type const holder_id = 101;
   ae::ObjId::Type const payload_id = 102;
   ae::Domain source_domain{source_storage};
-  auto holder =
-      LocalPtrHolder::ptr::Create(ae::CreateWith{source_domain}.with_id(holder_id));
+  auto holder = LocalPtrHolder::ptr::Create(
+      ae::CreateWith{source_domain}.with_id(holder_id));
   auto payload = LocalOnlyPayload::ptr::Create(
       ae::CreateWith{source_domain}.with_id(payload_id));
   holder->name = "dual-scope";
@@ -689,8 +685,7 @@ void TestSimultaneousDomainGraphSerializationScopes() {
 
   auto ptr = source_domain.Find(holder.id());
   CHECK(ptr);
-  auto* factory =
-      ae::Registry::GetRegistry().FindFactory(holder->GetClassId());
+  auto* factory = ae::Registry::GetRegistry().FindFactory(holder->GetClassId());
   CHECK(factory != nullptr);
   CHECK(factory->save != nullptr);
 
@@ -702,8 +697,8 @@ void TestSimultaneousDomainGraphSerializationScopes() {
   std::thread local_thread{[&] {
     try {
       ae::Domain local_domain{local_out};
-      ae::DomainGraph local_graph{
-          &local_domain, ae::GraphSerializationScope::LocalPersistent};
+      ae::DomainGraph local_graph{&local_domain,
+                                  ae::GraphSerializationScope::LocalPersistent};
       CHECK(local_graph.serialization_scope ==
             ae::GraphSerializationScope::LocalPersistent);
       factory->save(&local_graph, ptr, holder.id());
@@ -715,8 +710,8 @@ void TestSimultaneousDomainGraphSerializationScopes() {
   std::thread network_thread{[&] {
     try {
       ae::Domain network_domain{network_out};
-      ae::DomainGraph network_graph{
-          &network_domain, ae::GraphSerializationScope::NetworkShared};
+      ae::DomainGraph network_graph{&network_domain,
+                                    ae::GraphSerializationScope::NetworkShared};
       CHECK(network_graph.serialization_scope ==
             ae::GraphSerializationScope::NetworkShared);
       factory->save(&network_graph, ptr, holder.id());

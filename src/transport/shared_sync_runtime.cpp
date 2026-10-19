@@ -1,4 +1,4 @@
-#include "apptraverse/shared_sync_runtime.h"
+#include "apptraverse/transport/shared_sync_runtime.h"
 
 #include <algorithm>
 #include <cassert>
@@ -8,9 +8,9 @@
 #include "aether-objects/obj/obj_id.h"
 #include "aether-objects/obj/registry.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/shared_event_order.h"
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/shared_event_order.h"
+#include "apptraverse/transport/shared_network_graph.h"
 
 namespace apptraverse {
 namespace {
@@ -31,8 +31,7 @@ std::string const* ShareEndpoint(Share const& share) {
   return &share.link->EndpointUid();
 }
 
-std::string const* ShareEndpointOf(SharedNode const& node,
-                                   ae::ObjId share_id) {
+std::string const* ShareEndpointOf(SharedNode const& node, ae::ObjId share_id) {
   auto const share_index = node.FindShareIndexForShare(share_id);
   if (share_index >= node.shares.size()) {
     return nullptr;
@@ -88,8 +87,9 @@ bool SnapshotIsAdmissible(SharedNode& candidate,
       return false;
     }
   }
-  // Validate the imported journal by replaying it in scratch in timestamp order,
-  // from base to final state, ensuring every event was admissible at its replay point.
+  // Validate the imported journal by replaying it in scratch in timestamp
+  // order, from base to final state, ensuring every event was admissible at its
+  // replay point.
   if (!candidate.TryReplayFromBase()) {
     return false;
   }
@@ -148,10 +148,8 @@ bool EventAddressedToThisReplica(SharedNode const& node,
 // production state.
 bool PreflightHistoricalEventInsertion(
     SharedNode const& target_node,
-    ae::RamDomainStorage const& parsed_event_storage,
-    ae::ObjId wire_root_id,
-    std::uint32_t expected_event_class_id,
-    SharedEventId const& identity,
+    ae::RamDomainStorage const& parsed_event_storage, ae::ObjId wire_root_id,
+    std::uint32_t expected_event_class_id, SharedEventId const& identity,
     std::uint64_t timestamp_us) {
   ae::RamDomainStorage scratch_storage;
   BuildNetworkSharedScratch(target_node, scratch_storage);
@@ -300,7 +298,8 @@ void SharedSyncRuntime::AllowStandaloneEventClass(std::uint32_t class_id) {
   if (class_id == 0) {
     return;
   }
-  if (ae::Registry::GetRegistry().GenerationDistance(Event::kClassId, class_id) < 0) {
+  if (ae::Registry::GetRegistry().GenerationDistance(Event::kClassId,
+                                                     class_id) < 0) {
     return;
   }
   if (!IsStandaloneEventClassAllowed(class_id)) {
@@ -318,7 +317,8 @@ bool SharedSyncRuntime::IsStandaloneEventClassAllowed(
 void SharedSyncRuntime::SyncInitialState(ae::ObjId node_id,
                                          ae::ObjId share_id) {
   auto node = FindNode(node_id);
-  assert(node.is_valid() && "SyncInitialState requires a registered SharedNode");
+  assert(node.is_valid() &&
+         "SyncInitialState requires a registered SharedNode");
 
   auto const* destination_endpoint = ShareEndpointOf(*node, share_id);
   assert(destination_endpoint != nullptr &&
@@ -471,7 +471,8 @@ void SharedSyncRuntime::OnBytes(std::string const& source_endpoint,
 SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     std::string const& source_endpoint, NodeStateFrame const& frame) {
   // Untrusted bytes may not create arbitrary roots: only a SharedNode this
-  // replica is waiting for (either by exact node ID or by authorized source endpoint).
+  // replica is waiting for (either by exact node ID or by authorized source
+  // endpoint).
   bool const exact_expected = IsExpectedInitialNode(frame.target_node_id);
   std::optional<std::uint32_t> endpoint_expected_class;
   ae::ObjId endpoint_expected_node_id;
@@ -496,13 +497,15 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     return {};
   }
 
-  // Validate the parsed object graph's stored class chains BEFORE loading any candidate object.
+  // Validate the parsed object graph's stored class chains BEFORE loading any
+  // candidate object.
   std::vector<StoredClassChainInfo> chains;
   if (!ValidateStoredClassChains(parsed, &chains)) {
     return {};
   }
 
-  // Ensure root target object is in the payload and its most-derived class derives SharedNode.
+  // Ensure root target object is in the payload and its most-derived class
+  // derives SharedNode.
   bool root_found = false;
   for (auto const& chain_info : chains) {
     if (chain_info.obj_id == frame.target_node_id) {
@@ -539,15 +542,16 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
       return {};
     }
     auto& shared_candidate = static_cast<SharedNode&>(*candidate);
-    if (!SnapshotIsAdmissible(shared_candidate,
-                              transport_.local_endpoint_uid(), source_endpoint,
-                              frame.destination_share_id)) {
+    if (!SnapshotIsAdmissible(shared_candidate, transport_.local_endpoint_uid(),
+                              source_endpoint, frame.destination_share_id)) {
       return {};
     }
 
-    // Move source-share uniqueness validation into ImportValidatedNode BEFORE CommitObjectGraph.
+    // Move source-share uniqueness validation into ImportValidatedNode BEFORE
+    // CommitObjectGraph.
     // 1. In the SCRATCH candidate, iterate candidate.shares.
-    // 2. For each Share: resolve its Link, compare EndpointUid() with source_endpoint.
+    // 2. For each Share: resolve its Link, compare EndpointUid() with
+    // source_endpoint.
     // 3. Require EXACTLY ONE matching Share.
     // 4. Require matching share_id valid.
     // 5. Require candidate.FindLinkSyncIndexForShare(matching_share_id)
@@ -574,7 +578,8 @@ SharedSyncRuntime::ImportedNode SharedSyncRuntime::ImportValidatedNode(
     }
   }
 
-  // Reject snapshot if any parsed object collides with receiver Domain or storage
+  // Reject snapshot if any parsed object collides with receiver Domain or
+  // storage
   for (auto const& [obj_id, classes] : parsed.state) {
     if (!classes.has_value()) {
       continue;
@@ -688,8 +693,7 @@ void SharedSyncRuntime::OnNodeState(std::string const& source_endpoint,
     if (!initial_node_imported_callback_) {
       return;
     }
-    bool const bound =
-        initial_node_imported_callback_(source_endpoint, node);
+    bool const bound = initial_node_imported_callback_(source_endpoint, node);
     if (!bound) {
       return;
     }
@@ -712,8 +716,7 @@ void SharedSyncRuntime::OnAck(std::string const& source_endpoint,
   }
   // Only the endpoint the relationship points at can acknowledge it. The
   // packet fields alone say nothing about who actually sent these bytes.
-  auto const* destination =
-      ShareEndpointOf(*node, frame.destination_share_id);
+  auto const* destination = ShareEndpointOf(*node, frame.destination_share_id);
   if (destination == nullptr || *destination != source_endpoint) {
     return;
   }
@@ -763,7 +766,8 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
     return;
   }
 
-  if (!ValidateStandaloneEventGraph(parsed, wire_root_id, frame.event_class_id)) {
+  if (!ValidateStandaloneEventGraph(parsed, wire_root_id,
+                                    frame.event_class_id)) {
     return;
   }
 
@@ -804,8 +808,7 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
   // Preflight replay in a non-production scratch copy of the target SharedNode
   // at its historical insertion point.
   if (!PreflightHistoricalEventInsertion(*node, parsed, wire_root_id,
-                                         frame.event_class_id,
-                                         frame.identity,
+                                         frame.event_class_id, frame.identity,
                                          frame.timestamp_us)) {
     return;
   }
@@ -815,14 +818,12 @@ void SharedSyncRuntime::OnEvent(std::string const& source_endpoint,
   if (!local_event) {
     return;
   }
-  assert(local_event != nullptr &&
-         "admitted Event must load from own storage");
+  assert(local_event != nullptr && "admitted Event must load from own storage");
   assert(local_event->GetClassId() == frame.event_class_id);
 
   auto local_event_ptr = Event::ptr::MakeFromThis(local_event.get());
-  node->InsertShared(
-      std::move(local_event_ptr), frame.identity,
-      SharedEventOrder{.timestamp_us = frame.timestamp_us});
+  node->InsertShared(std::move(local_event_ptr), frame.identity,
+                     SharedEventOrder{.timestamp_us = frame.timestamp_us});
   node.Save();
 
   transport_.Send(source_endpoint,

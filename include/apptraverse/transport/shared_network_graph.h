@@ -13,10 +13,10 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_ptr.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/object_link.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_node.h"
+#include "apptraverse/object/event.h"
+#include "apptraverse/object/object_link.h"
+#include "apptraverse/object/shared_event_id.h"
+#include "apptraverse/object/shared_node.h"
 
 namespace apptraverse {
 
@@ -33,8 +33,7 @@ void CopyNetworkSharedObjectGraph(ae::Obj const& root,
 
 // SharedNode convenience: includes business state, shares[], and reachable
 // Link objects; excludes LocalPtr sync metadata. Scratch/target writes only.
-void CopySharedNetworkGraph(SharedNode::ptr source,
-                            ae::Domain& target_domain,
+void CopySharedNetworkGraph(SharedNode::ptr source, ae::Domain& target_domain,
                             ae::IDomainStorage& target_storage);
 
 // Serialize any RamDomainStorage state into transportable bytes using native
@@ -127,9 +126,7 @@ class EventGraphExportBoundary {
     return permitted_ids_.find(id) != permitted_ids_.end();
   }
 
-  std::set<ae::ObjId> const& permitted_ids() const {
-    return permitted_ids_;
-  }
+  std::set<ae::ObjId> const& permitted_ids() const { return permitted_ids_; }
 
  private:
   std::set<ae::ObjId> permitted_ids_;
@@ -141,24 +138,20 @@ class EventGraphExportBoundary {
 // explicitly.
 // Leaves source state and source storage untouched.
 // Produces a self-contained payload using native Aether serialization.
-bool FreezeEventPayload(
-    ae::Obj const& event,
-    EventGraphExportBoundary const& boundary,
-    std::vector<std::uint8_t>& out_payload);
+bool FreezeEventPayload(ae::Obj const& event,
+                        EventGraphExportBoundary const& boundary,
+                        std::vector<std::uint8_t>& out_payload);
 
 // Overload for standalone/scalar Event: permits only `event.obj_id`.
 // If `event` reaches any other network-shared object, returns false explicitly.
-bool FreezeEventPayload(
-    ae::Obj const& event,
-    std::vector<std::uint8_t>& out_payload);
+bool FreezeEventPayload(ae::Obj const& event,
+                        std::vector<std::uint8_t>& out_payload);
 
 // Parse untrusted Event graph payload into scratch RamDomainStorage.
-// Uses native Aether serialization. Returns false on malformed or truncated payload,
-// or invalid root ID.
-bool ParseEventPayload(
-    std::vector<std::uint8_t> const& payload,
-    ae::RamDomainStorage& parsed,
-    ae::ObjId& out_root_id);
+// Uses native Aether serialization. Returns false on malformed or truncated
+// payload, or invalid root ID.
+bool ParseEventPayload(std::vector<std::uint8_t> const& payload,
+                       ae::RamDomainStorage& parsed, ae::ObjId& out_root_id);
 
 // Validate untrusted Event graph storage in disposable scratch.
 // Checks:
@@ -168,8 +161,7 @@ bool ParseEventPayload(
 // - reference type compatibility.
 // Does NOT touch receiver objects or storage.
 bool ValidateClosedEventGraphStorage(
-    ae::RamDomainStorage const& parsed,
-    ae::ObjId root_event_id,
+    ae::RamDomainStorage const& parsed, ae::ObjId root_event_id,
     std::uint32_t expected_event_class_id = 0,
     std::vector<StoredClassChainInfo>* out_chains = nullptr);
 
@@ -182,28 +174,24 @@ bool ValidateClosedEventGraphStorage(
 // - Excludes LocalPtr referents and leaves them empty;
 // - Returns the imported Event in receiver Domain, ready for Apply or journal.
 ae::Ptr<Event> ImportClosedEventGraph(
-    ae::RamDomainStorage const& parsed,
-    ae::ObjId root_event_id,
-    ae::Domain& receiver_domain,
-    ae::IDomainStorage& receiver_storage,
+    ae::RamDomainStorage const& parsed, ae::ObjId root_event_id,
+    ae::Domain& receiver_domain, ae::IDomainStorage& receiver_storage,
     std::set<ae::ObjId>& reserved_ids,
     std::map<ae::ObjId, ae::ObjId>* out_mapping = nullptr);
 
 // Validate standalone Event graph containing exactly one Event object
 // without OperationStorage or pointer-remapping.
-bool ValidateStandaloneEventGraph(
-    ae::RamDomainStorage const& parsed,
-    ae::ObjId root_id,
-    std::uint32_t expected_event_class_id);
+bool ValidateStandaloneEventGraph(ae::RamDomainStorage const& parsed,
+                                  ae::ObjId root_id,
+                                  std::uint32_t expected_event_class_id);
 
 // Import standalone scalar Event graph into receiver Domain/storage under a
 // collision-safe receiver-local ObjId.
-ae::Ptr<Event> ImportStandaloneEventGraph(
-    ae::RamDomainStorage const& parsed,
-    ae::ObjId root_id,
-    std::uint32_t expected_event_class_id,
-    ae::Domain& receiver_domain,
-    ae::IDomainStorage& receiver_storage);
+ae::Ptr<Event> ImportStandaloneEventGraph(ae::RamDomainStorage const& parsed,
+                                          ae::ObjId root_id,
+                                          std::uint32_t expected_event_class_id,
+                                          ae::Domain& receiver_domain,
+                                          ae::IDomainStorage& receiver_storage);
 
 }  // namespace apptraverse
 

@@ -7,9 +7,9 @@
 
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/event_for.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/presenter.h"
 
 #include "surfaces_ids.h"
@@ -25,9 +25,10 @@ class SetCurrentSurfaceEvent;
 class SurfaceBoundsChangedEvent;
 class SurfacePresentationSizeChangedEvent;
 
-// Cascade initial outer-frame placement for a Surface before InitializeRuntimeNode
-// / FinalizeDistilledGraph. desktop_* are top-left outer frame + outer size.
-// Also seeds presentation_* until the native host reports the real content size.
+// Cascade initial outer-frame placement for a Surface before
+// InitializeRuntimeNode / FinalizeDistilledGraph. desktop_* are top-left outer
+// frame + outer size. Also seeds presentation_* until the native host reports
+// the real content size.
 inline void AssignInitialDesktopBounds(Surface& surface);
 
 // Dynamic child Surface is intentionally a Node (unlike Item). Topology of the
@@ -82,7 +83,8 @@ class Surface : public NodeFor<Surface> {
 
   // Model-thread: create sibling Surface + AddSurfaceEvent on parent Surfaces.
   void AddSurface();
-  // Model-thread: RemoveSurfaceEvent when still live; stale double-remove no-op.
+  // Model-thread: RemoveSurfaceEvent when still live; stale double-remove
+  // no-op.
   void Remove();
   // Model-thread: SetCurrentSurfaceEvent on parent Surfaces when this Surface
   // is not already the current mobile page. Stale Surface → no-op.
@@ -97,13 +99,14 @@ class Surface : public NodeFor<Surface> {
   void Apply(SurfacePresentationSizeChangedEvent const& event);
 
   std::uint32_t number{0};
-  // Desktop outer-frame placement (screen top-left + outer size). Mobile ignores.
+  // Desktop outer-frame placement (screen top-left + outer size). Mobile
+  // ignores.
   std::int32_t desktop_x{0};
   std::int32_t desktop_y{0};
   std::int32_t desktop_width{0};
   std::int32_t desktop_height{0};
-  // Native presentation/content area used for derived UI decisions (e.g. IsWide).
-  // Not desktop placement. Mobile and desktop hosts both report this.
+  // Native presentation/content area used for derived UI decisions (e.g.
+  // IsWide). Not desktop placement. Mobile and desktop hosts both report this.
   std::int32_t presentation_width{0};
   std::int32_t presentation_height{0};
   ae::ObjPtr<Surfaces> surfaces;
@@ -364,9 +367,8 @@ inline void AssignInitialDesktopBounds(Surface& surface) {
   constexpr std::int32_t kBaseX = 120;
   constexpr std::int32_t kBaseY = 120;
   constexpr std::int32_t kCascade = 36;
-  std::int32_t const offset =
-      static_cast<std::int32_t>((surface.number > 0 ? surface.number - 1 : 0) *
-                                kCascade);
+  std::int32_t const offset = static_cast<std::int32_t>(
+      (surface.number > 0 ? surface.number - 1 : 0) * kCascade);
   surface.desktop_x = kBaseX + offset;
   surface.desktop_y = kBaseY + offset;
   surface.desktop_width = kWidth;

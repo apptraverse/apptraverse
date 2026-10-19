@@ -1,5 +1,5 @@
 add_executable(apptraverse_event_sourced_core_test
-  event_sourced_core_test.cpp
+  object/event_sourced_core_test.cpp
 )
 
 target_link_libraries(apptraverse_event_sourced_core_test PRIVATE apptraverse)
@@ -10,7 +10,7 @@ add_test(
 )
 
 add_executable(apptraverse_shared_node_foundation_test
-  shared_node_foundation_test.cpp
+  object/shared_node_foundation_test.cpp
 )
 
 target_link_libraries(apptraverse_shared_node_foundation_test PRIVATE
@@ -28,7 +28,7 @@ add_test(
 )
 
 add_executable(apptraverse_shared_node_initial_sync_test
-  shared_node_initial_sync_test.cpp
+  transport/shared_node_initial_sync_test.cpp
 )
 
 target_link_libraries(apptraverse_shared_node_initial_sync_test PRIVATE
@@ -46,7 +46,7 @@ add_test(
 )
 
 add_executable(apptraverse_shared_node_incremental_event_test
-  shared_node_incremental_event_test.cpp
+  transport/shared_node_incremental_event_test.cpp
 )
 
 target_link_libraries(apptraverse_shared_node_incremental_event_test PRIVATE
@@ -345,7 +345,7 @@ if(TARGET chat_demo_aether)
   )
 
   add_executable(apptraverse_aether_p2p_safe_stream_duplex_test
-    aether_p2p_safe_stream_duplex_test.cpp
+    transport/aether_p2p_safe_stream_duplex_test.cpp
   )
   target_link_libraries(apptraverse_aether_p2p_safe_stream_duplex_test PRIVATE
     aether
@@ -359,7 +359,7 @@ if(TARGET chat_demo_aether)
   )
 
   add_executable(apptraverse_aether_stream_frame_test
-    aether_stream_frame_test.cpp
+    transport/aether_stream_frame_test.cpp
   )
   target_link_libraries(apptraverse_aether_stream_frame_test PRIVATE
     chat_demo_aether
@@ -373,7 +373,7 @@ if(TARGET chat_demo_aether)
   )
 
   add_executable(apptraverse_aether_byte_transport_dispatch_test
-    aether_byte_transport_dispatch_test.cpp
+    transport/aether_byte_transport_dispatch_test.cpp
   )
   target_link_libraries(apptraverse_aether_byte_transport_dispatch_test PRIVATE
     chat_demo_aether
@@ -506,7 +506,7 @@ if(TARGET chat_demo_aether)
   )
 
   add_executable(apptraverse_shared_sync_protocol_test
-    shared_sync_protocol_test.cpp
+    transport/shared_sync_protocol_test.cpp
   )
   target_link_libraries(apptraverse_shared_sync_protocol_test PRIVATE
     apptraverse
@@ -1127,4 +1127,3 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND APPTRAVERSE_BUILD_AETHER_DEMOS)
     endif()
   endif()
 endif()
-

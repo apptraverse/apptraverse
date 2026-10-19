@@ -19,8 +19,8 @@
 
 #include "aether-objects/obj/obj_id.h"
 #include "aether_frame_endpoint.h"
+#include "apptraverse/object/shared_event_id.h"
 #include "apptraverse/publication_channel.h"
-#include "apptraverse/shared_event_id.h"
 #include "chat_connectivity.h"
 #include "chat_demo_runtime_state.h"
 #include "chat_launch_options.h"

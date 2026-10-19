@@ -4,9 +4,9 @@
 #include <string>
 
 #include "aether-miscpp/reflect/reflect.h"
-#include "apptraverse/link.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
 
 namespace apptraverse::example::chat_demo {
 
@@ -34,9 +34,7 @@ class AetherLink : public apptraverse::NodeFor<AetherLink, apptraverse::Link> {
     dnv(base_, endpoint_uid);
   }
 
-  std::string const& EndpointUid() const override {
-    return endpoint_uid;
-  }
+  std::string const& EndpointUid() const override { return endpoint_uid; }
 
   std::string endpoint_uid;
 };

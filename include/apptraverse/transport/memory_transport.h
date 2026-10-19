@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "apptraverse/byte_transport.h"
+#include "apptraverse/transport/byte_transport.h"
 
 namespace apptraverse {
 

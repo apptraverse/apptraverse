@@ -4,9 +4,9 @@
 #include <type_traits>
 #include <utility>
 
-#include "apptraverse/node.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_event_order.h"
+#include "apptraverse/object/node.h"
+#include "apptraverse/object/shared_event_id.h"
+#include "apptraverse/object/shared_event_order.h"
 
 namespace apptraverse {
 

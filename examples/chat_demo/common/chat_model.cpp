@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <limits>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "chat_commands.h"
 
 namespace apptraverse::example::chat_demo {
@@ -30,8 +30,7 @@ APPTRAVERSE_REGISTER(MessageAddedEvent);
 bool ChatRoom::CanApply(MessageAddedEvent const& event) const {
   if (event.message.id.origin_uid.empty() ||
       event.message.id.origin_sequence == 0 ||
-      event.message.timestamp_us == 0 ||
-      event.message.text.empty()) {
+      event.message.timestamp_us == 0 || event.message.text.empty()) {
     return false;
   }
   return true;
@@ -118,8 +117,7 @@ void ChatWorkspace::Apply(LocalEndpointBoundEvent const& event) {
 bool ChatWorkspace::CanApply(MessageSequenceReservedEvent const& event) const {
   return event.reserved_sequence == next_message_sequence &&
          event.reserved_sequence != 0 &&
-         event.reserved_sequence !=
-             std::numeric_limits<std::uint64_t>::max();
+         event.reserved_sequence != std::numeric_limits<std::uint64_t>::max();
 }
 
 void ChatWorkspace::Apply(MessageSequenceReservedEvent const& event) {

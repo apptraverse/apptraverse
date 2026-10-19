@@ -1,7 +1,7 @@
 #ifndef APPTRAVERSE_SURFACES_MAC_PRESENTERS_H_
 #define APPTRAVERSE_SURFACES_MAC_PRESENTERS_H_
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 #include "desktop_surface_presenter.h"
 

@@ -17,29 +17,30 @@
 #include "aether-objects/obj/obj_ptr.h"
 #include "aether-objects/ptr/ptr.h"
 
-#include "apptraverse/link.h"
-#include "apptraverse/node.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/node.h"
+#include "apptraverse/object/object_macros.h"
+#include "apptraverse/object/shared_node.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_network_graph.h"
-#include "apptraverse/shared_node.h"
+#include "apptraverse/transport/shared_network_graph.h"
 #include "shared_node_demo_model.h"
 
 namespace apptraverse::test {
 namespace {
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 // 1. Correct native class-layer dispatch pattern
 class LayerBase : public ae::Obj {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::LayerBase", LayerBase, ae::Obj, 0)
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::LayerBase", LayerBase, ae::Obj,
+                           0)
  protected:
   LayerBase() = default;
 
@@ -90,7 +91,8 @@ APPTRAVERSE_REGISTER(LayerDerived);
 
 // 2. Broken pattern: direct ancestor Save/Load call instead of dnv(base_)
 class BrokenBase : public ae::Obj {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::BrokenBase", BrokenBase, ae::Obj, 0)
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::BrokenBase", BrokenBase, ae::Obj,
+                           0)
  protected:
   BrokenBase() = default;
 
@@ -162,8 +164,8 @@ void TestNativeLayerDispatch() {
   // 2. Query storage directly using native storage queries and readers
   // A. Check that LayerBase layer exists and contains base_value == 11
   {
-    auto base_load = storage.Load(
-        ae::DomainQuery{target_id, LayerBase::kClassId, 0});
+    auto base_load =
+        storage.Load(ae::DomainQuery{target_id, LayerBase::kClassId, 0});
     CHECK(base_load.result == ae::DomainLoadResult::kLoaded);
     CHECK(base_load.reader != nullptr);
 
@@ -181,8 +183,8 @@ void TestNativeLayerDispatch() {
 
   // B. Check that LayerDerived layer exists and contains derived_value == 22
   {
-    auto derived_load = storage.Load(
-        ae::DomainQuery{target_id, LayerDerived::kClassId, 0});
+    auto derived_load =
+        storage.Load(ae::DomainQuery{target_id, LayerDerived::kClassId, 0});
     CHECK(derived_load.result == ae::DomainLoadResult::kLoaded);
     CHECK(derived_load.reader != nullptr);
 
@@ -244,14 +246,14 @@ void TestBrokenDirectCallPattern() {
   }
 
   // Storage check: BrokenDerived class layer exists
-  auto derived_load = storage.Load(
-      ae::DomainQuery{target_id, BrokenDerived::kClassId, 0});
+  auto derived_load =
+      storage.Load(ae::DomainQuery{target_id, BrokenDerived::kClassId, 0});
   CHECK(derived_load.result == ae::DomainLoadResult::kLoaded);
 
   // BUT BrokenBase layer DOES NOT exist! It is kEmpty because Base::Save was
   // called directly and flattened its bytes into BrokenDerived's buffer!
-  auto base_load = storage.Load(
-      ae::DomainQuery{target_id, BrokenBase::kClassId, 0});
+  auto base_load =
+      storage.Load(ae::DomainQuery{target_id, BrokenBase::kClassId, 0});
   CHECK(base_load.result == ae::DomainLoadResult::kEmpty);
 
   // Enumerate only contains BrokenDerived, not BrokenBase
@@ -284,20 +286,21 @@ void TestRealModelLayers_SharedValueNode() {
     graph.SaveRoot(node, target_id);
   }
 
-  // 1. Storage must contain separate layers for Node, SharedNode, SharedValueNode
-  auto node_load = storage.Load(
-      ae::DomainQuery{target_id, Node::kClassId, 4});
+  // 1. Storage must contain separate layers for Node, SharedNode,
+  // SharedValueNode
+  auto node_load = storage.Load(ae::DomainQuery{target_id, Node::kClassId, 4});
   CHECK(node_load.result == ae::DomainLoadResult::kLoaded);
 
-  auto shared_node_load = storage.Load(
-      ae::DomainQuery{target_id, SharedNode::kClassId, 2});
+  auto shared_node_load =
+      storage.Load(ae::DomainQuery{target_id, SharedNode::kClassId, 2});
   CHECK(shared_node_load.result == ae::DomainLoadResult::kLoaded);
 
-  auto svn_load = storage.Load(
-      ae::DomainQuery{target_id, SharedValueNode::kClassId, 2});
+  auto svn_load =
+      storage.Load(ae::DomainQuery{target_id, SharedValueNode::kClassId, 2});
   CHECK(svn_load.result == ae::DomainLoadResult::kLoaded);
 
-  // 2. Verify no duplicate copies: SharedValueNode layer has only its own fields (value)
+  // 2. Verify no duplicate copies: SharedValueNode layer has only its own
+  // fields (value)
   {
     ae::seri::BinaryArchive arch{ae::DomainBuffer{
         .id = target_id,
@@ -342,19 +345,18 @@ void TestRealModelLayers_MemoryLink() {
   }
 
   // 1. Storage must contain separate layers for Node, Link, MemoryLink
-  auto node_load = storage.Load(
-      ae::DomainQuery{target_id, Node::kClassId, 4});
+  auto node_load = storage.Load(ae::DomainQuery{target_id, Node::kClassId, 4});
   CHECK(node_load.result == ae::DomainLoadResult::kLoaded);
 
-  auto link_load = storage.Load(
-      ae::DomainQuery{target_id, Link::kClassId, 0});
+  auto link_load = storage.Load(ae::DomainQuery{target_id, Link::kClassId, 0});
   CHECK(link_load.result == ae::DomainLoadResult::kLoaded);
 
-  auto mem_load = storage.Load(
-      ae::DomainQuery{target_id, MemoryLink::kClassId, 2});
+  auto mem_load =
+      storage.Load(ae::DomainQuery{target_id, MemoryLink::kClassId, 2});
   CHECK(mem_load.result == ae::DomainLoadResult::kLoaded);
 
-  // 2. Verify no duplicate copies: MemoryLink layer contains endpoint_uid and heartbeat_interval_ms
+  // 2. Verify no duplicate copies: MemoryLink layer contains endpoint_uid and
+  // heartbeat_interval_ms
   {
     ae::seri::BinaryArchive arch{ae::DomainBuffer{
         .id = target_id,
@@ -405,12 +407,11 @@ void TestRealModelLayers_LinkSyncState() {
   }
 
   // 1. Storage must contain separate layers for Node, LinkSyncState
-  auto node_load = storage.Load(
-      ae::DomainQuery{target_id, Node::kClassId, 4});
+  auto node_load = storage.Load(ae::DomainQuery{target_id, Node::kClassId, 4});
   CHECK(node_load.result == ae::DomainLoadResult::kLoaded);
 
-  auto lss_load = storage.Load(
-      ae::DomainQuery{target_id, LinkSyncState::kClassId, 3});
+  auto lss_load =
+      storage.Load(ae::DomainQuery{target_id, LinkSyncState::kClassId, 3});
   CHECK(lss_load.result == ae::DomainLoadResult::kLoaded);
 
   // 2. Verify no duplicate copies: LinkSyncState layer has share_id first
@@ -442,15 +443,15 @@ void TestRealModelLayers_LinkSyncState() {
 }
 
 void TestBaseSnapshotAndMidJournalReplay() {
-  using example::shared_node::SharedValueNode;
   using example::shared_node::SetValueEvent;
+  using example::shared_node::SharedValueNode;
 
   ae::RamDomainStorage storage;
   ae::ObjId target_id{60001};
 
   ae::Domain domain{storage};
-  auto node = SharedValueNode::ptr::Create(
-      ae::CreateWith{domain}.with_id(target_id));
+  auto node =
+      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(target_id));
   node->value = 100;
 
   // Initialize runtime node: captures base state
@@ -488,20 +489,19 @@ void TestBaseSnapshotAndMidJournalReplay() {
 }
 
 void TestLinkSyncStatePersistenceAcrossBusinessReplay() {
-  using example::shared_node::SharedValueNode;
   using example::shared_node::SetValueEvent;
+  using example::shared_node::SharedValueNode;
 
   ae::RamDomainStorage storage;
   ae::ObjId target_id{60002};
   ae::ObjId link_id{60003};
 
   ae::Domain domain{storage};
-  auto node = SharedValueNode::ptr::Create(
-      ae::CreateWith{domain}.with_id(target_id));
+  auto node =
+      SharedValueNode::ptr::Create(ae::CreateWith{domain}.with_id(target_id));
   node->value = 50;
 
-  auto link = MemoryLink::ptr::Create(
-      ae::CreateWith{domain}.with_id(link_id));
+  auto link = MemoryLink::ptr::Create(ae::CreateWith{domain}.with_id(link_id));
   link->endpoint_uid = "ep_replay";
 
   InitializeRuntimeNode(*node);
@@ -538,9 +538,11 @@ void TestOldFlattenedStateRejected() {
     ae::RamDomainStorage storage;
     ae::ObjId target_id{80001};
 
-    // Synthesize old Node v3 entry: storage key has class_id = Node::kClassId, version = 3
+    // Synthesize old Node v3 entry: storage key has class_id = Node::kClassId,
+    // version = 3
     storage.state[target_id].emplace();
-    (*storage.state[target_id])[Node::kClassId][3] = std::vector<std::uint8_t>{0x01, 0x02, 0x03};
+    (*storage.state[target_id])[Node::kClassId][3] =
+        std::vector<std::uint8_t>{0x01, 0x02, 0x03};
 
     auto original_state = storage.state;
 
@@ -651,18 +653,21 @@ void TestCrossProcessEvolution() {
     if (std::filesystem::exists("./tests/" + bin_name)) {
       return "./tests/" + bin_name;
     }
-    if (std::filesystem::exists("./build/linux-x64-ninja-gcc-debug/tests/" + bin_name)) {
+    if (std::filesystem::exists("./build/linux-x64-ninja-gcc-debug/tests/" +
+                                bin_name)) {
       return "./build/linux-x64-ninja-gcc-debug/tests/" + bin_name;
     }
     return bin_name;
   };
 
   std::string file_path = "/tmp/native_class_layers_evolution_test.bin";
-  std::string writer_cmd = find_exe("native_class_layers_writer_v1") + " " + file_path;
+  std::string writer_cmd =
+      find_exe("native_class_layers_writer_v1") + " " + file_path;
   int w_rc = std::system(writer_cmd.c_str());
   CHECK(w_rc == 0);
 
-  std::string reader_cmd = find_exe("native_class_layers_reader_v2") + " " + file_path;
+  std::string reader_cmd =
+      find_exe("native_class_layers_reader_v2") + " " + file_path;
   int r_rc = std::system(reader_cmd.c_str());
   CHECK(r_rc == 0);
 }

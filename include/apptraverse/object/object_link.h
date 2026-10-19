@@ -141,17 +141,16 @@ struct Serializer<BinaryArchive<DomainBuffer>,
   using Link = apptraverse::ObjectLink<T, Scope>;
 
   SeriResult Seri(Archive& archive, Meta<Link const> meta) const {
-    auto* const op = apptraverse::detail::GetOperationStorageWriter(
-        archive.buffer().writer);
+    auto* const op =
+        apptraverse::detail::GetOperationStorageWriter(archive.buffer().writer);
     if (op != nullptr) {
-      return apptraverse::detail::HandlePointerSeri<T,
-          Scope == apptraverse::LinkScope::kLocal>(archive, meta.value, op);
+      return apptraverse::detail::HandlePointerSeri<
+          T, Scope == apptraverse::LinkScope::kLocal>(archive, meta.value, op);
     }
     if constexpr (Scope == apptraverse::LinkScope::kLocal) {
       auto* const graph = archive.buffer().domain_graph;
-      if (graph != nullptr &&
-          graph->serialization_scope ==
-              ae::GraphSerializationScope::NetworkShared) {
+      if (graph != nullptr && graph->serialization_scope ==
+                                  ae::GraphSerializationScope::NetworkShared) {
         // Empty/default: no ObjId on the wire, referent not SaveRoot'd.
         ae::ObjPtr<T> const empty{};
         return archive.Save(Meta{empty});
@@ -180,8 +179,8 @@ struct NodeVisitor<apptraverse::LocalPtr<T>> {
   void Visit(apptraverse::LocalPtr<T>&, CycleDetector&, Visitor&&) const {}
 
   template <typename Visitor>
-  void Visit(apptraverse::LocalPtr<T> const&, CycleDetector&,
-             Visitor&&) const {}
+  void Visit(apptraverse::LocalPtr<T> const&, CycleDetector&, Visitor&&) const {
+  }
 };
 
 // Shared scoped edges behave like ObjPtr for visitor policies that walk

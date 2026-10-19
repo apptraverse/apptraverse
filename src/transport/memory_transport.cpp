@@ -1,4 +1,4 @@
-#include "apptraverse/memory_transport.h"
+#include "apptraverse/transport/memory_transport.h"
 
 #include <cassert>
 #include <utility>
@@ -67,8 +67,7 @@ bool MemoryNetwork::DuplicateNext(std::string const& from,
   return true;
 }
 
-void MemoryNetwork::Disconnect(std::string const& from,
-                               std::string const& to) {
+void MemoryNetwork::Disconnect(std::string const& from, std::string const& to) {
   disconnected_.insert(Direction{from, to});
 }
 

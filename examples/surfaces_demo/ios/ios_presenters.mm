@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 #include "ios_presenters.h"
 #include "ios_surface_content.h"

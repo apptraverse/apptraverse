@@ -23,23 +23,23 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
 
-#include "apptraverse/link.h"
+#include "apptraverse/object/link.h"
+#include "apptraverse/object/shared_node.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_node.h"
-#include "apptraverse/shared_sync_runtime.h"
+#include "apptraverse/transport/shared_sync_runtime.h"
 
 #include "aether_byte_transport.h"
 #include "chat_aether_runtime.h"
 #include "chat_commands.h"
 #include "chat_model.h"
 
-#define CHECK(cond)                                                           \
-  do {                                                                        \
-    if (!(cond)) {                                                            \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"        \
-                << __LINE__ << '\n';                                          \
-      std::exit(1);                                                           \
-    }                                                                         \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 namespace {
@@ -110,8 +110,8 @@ struct Process {
   }
 
   std::string ReadLine(int timeout_ms = 30000) {
-    auto const deadline =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    auto const deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(timeout_ms);
     while (true) {
       auto nl = read_buffer.find('\n');
       if (nl != std::string::npos) {
@@ -127,9 +127,9 @@ struct Process {
       if (now >= deadline) {
         return "";
       }
-      auto const rem_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                              deadline - now)
-                              .count();
+      auto const rem_ms =
+          std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now)
+              .count();
 
       struct pollfd pfd;
       pfd.fd = out_fd;
@@ -178,7 +178,8 @@ struct Process {
         return WEXITSTATUS(status);
       }
       if (WIFSIGNALED(status)) {
-        std::cerr << "Process terminated by signal: " << WTERMSIG(status) << '\n';
+        std::cerr << "Process terminated by signal: " << WTERMSIG(status)
+                  << '\n';
       }
     }
     return -1;
@@ -246,23 +247,26 @@ std::filesystem::path FindBinary(std::string const& argv0,
 }
 
 void TestTwoProcessProbePresenceAndByteDelivery(std::string const& probe_bin) {
-  std::cout << "[Test 1] Real Aether Probe Two-Process Presence & Byte Delivery\n";
-  auto state_dir_a = std::filesystem::temp_directory_path() / "test_aether_p2p_probe_a";
-  auto state_dir_b = std::filesystem::temp_directory_path() / "test_aether_p2p_probe_b";
+  std::cout
+      << "[Test 1] Real Aether Probe Two-Process Presence & Byte Delivery\n";
+  auto state_dir_a =
+      std::filesystem::temp_directory_path() / "test_aether_p2p_probe_a";
+  auto state_dir_b =
+      std::filesystem::temp_directory_path() / "test_aether_p2p_probe_b";
   std::filesystem::remove_all(state_dir_a);
   std::filesystem::remove_all(state_dir_b);
 
   // 1. Initial run to discover UIDs
-  auto proc_a = SpawnProcess(
-      probe_bin, {"--state-dir", state_dir_a.string(), "--client-name", "probe-client-a"});
+  auto proc_a = SpawnProcess(probe_bin, {"--state-dir", state_dir_a.string(),
+                                         "--client-name", "probe-client-a"});
   auto line_a = proc_a.ReadLine(15000);
   CHECK(line_a.rfind("READY uid=", 0) == 0);
   auto const uid_a = line_a.substr(10);
   proc_a.WriteLine("exit");
   CHECK(proc_a.Wait() == 0);
 
-  auto proc_b = SpawnProcess(
-      probe_bin, {"--state-dir", state_dir_b.string(), "--client-name", "probe-client-b"});
+  auto proc_b = SpawnProcess(probe_bin, {"--state-dir", state_dir_b.string(),
+                                         "--client-name", "probe-client-b"});
   auto line_b = proc_b.ReadLine(15000);
   CHECK(line_b.rfind("READY uid=", 0) == 0);
   auto const uid_b = line_b.substr(10);
@@ -285,19 +289,23 @@ void TestTwoProcessProbePresenceAndByteDelivery(std::string const& probe_bin) {
   // Read until both report online
   bool a_online = false;
   bool b_online = false;
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  auto const deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
 
-  while ((!a_online || !b_online) && std::chrono::steady_clock::now() < deadline) {
+  while ((!a_online || !b_online) &&
+         std::chrono::steady_clock::now() < deadline) {
     if (!a_online) {
       auto l = run_a.ReadLine(500);
-      if (l.find("PRESENCE peer=" + uid_b + " state=online") != std::string::npos) {
+      if (l.find("PRESENCE peer=" + uid_b + " state=online") !=
+          std::string::npos) {
         a_online = true;
         std::cout << "  [Process A] peer B is Online!\n";
       }
     }
     if (!b_online) {
       auto l = run_b.ReadLine(500);
-      if (l.find("PRESENCE peer=" + uid_a + " state=online") != std::string::npos) {
+      if (l.find("PRESENCE peer=" + uid_a + " state=online") !=
+          std::string::npos) {
         b_online = true;
         std::cout << "  [Process B] peer A is Online!\n";
       }
@@ -313,7 +321,8 @@ void TestTwoProcessProbePresenceAndByteDelivery(std::string const& probe_bin) {
 
   bool a_rx = false;
   bool b_rx = false;
-  auto const rx_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+  auto const rx_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(15);
   while ((!a_rx || !b_rx) && std::chrono::steady_clock::now() < rx_deadline) {
     if (!a_rx) {
       auto l = run_a.ReadLine(500);
@@ -336,16 +345,20 @@ void TestTwoProcessProbePresenceAndByteDelivery(std::string const& probe_bin) {
   CHECK(a_rx && "Process A must receive application frame from B");
   CHECK(b_rx && "Process B must receive application frame from A");
 
-  // 4. Test offline detection on timeout: terminate B, A must transition to offline
-  std::cout << "  Stopping Process B to verify timeout-based Offline transition...\n";
+  // 4. Test offline detection on timeout: terminate B, A must transition to
+  // offline
+  std::cout
+      << "  Stopping Process B to verify timeout-based Offline transition...\n";
   run_b.WriteLine("exit");
   run_b.Wait();
 
   bool a_offline = false;
-  auto const offline_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  auto const offline_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
   while (!a_offline && std::chrono::steady_clock::now() < offline_deadline) {
     auto l = run_a.ReadLine(500);
-    if (l.find("PRESENCE peer=" + uid_b + " state=offline") != std::string::npos) {
+    if (l.find("PRESENCE peer=" + uid_b + " state=offline") !=
+        std::string::npos) {
       a_offline = true;
       std::cout << "  [Process A] detected peer B Offline!\n";
     }
@@ -354,7 +367,8 @@ void TestTwoProcessProbePresenceAndByteDelivery(std::string const& probe_bin) {
   CHECK(a_offline && "Process A must report B Offline after heartbeat timeout");
 
   // 5. Test Offline -> Connecting -> Online reconnect transition
-  std::cout << "  Relaunching Process B to verify Offline -> Connecting -> Online transition...\n";
+  std::cout << "  Relaunching Process B to verify Offline -> Connecting -> "
+               "Online transition...\n";
   auto run_b_reconnect = SpawnProcess(
       probe_bin,
       {"--state-dir", state_dir_b.string(), "--client-name", "probe-client-b",
@@ -362,14 +376,18 @@ void TestTwoProcessProbePresenceAndByteDelivery(std::string const& probe_bin) {
 
   bool a_reconnecting_seen = false;
   bool a_reonline = false;
-  auto const reconnect_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
-  while ((!a_reonline) && std::chrono::steady_clock::now() < reconnect_deadline) {
+  auto const reconnect_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  while ((!a_reonline) &&
+         std::chrono::steady_clock::now() < reconnect_deadline) {
     auto l = run_a.ReadLine(500);
-    if (l.find("PRESENCE peer=" + uid_b + " state=connecting") != std::string::npos) {
+    if (l.find("PRESENCE peer=" + uid_b + " state=connecting") !=
+        std::string::npos) {
       a_reconnecting_seen = true;
       std::cout << "  [Process A] saw reconnect transition to Connecting!\n";
     }
-    if (l.find("PRESENCE peer=" + uid_b + " state=online") != std::string::npos) {
+    if (l.find("PRESENCE peer=" + uid_b + " state=online") !=
+        std::string::npos) {
       a_reonline = true;
       std::cout << "  [Process A] saw peer B back Online!\n";
     }
@@ -427,22 +445,19 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
         }
         ready_cv.notify_all();
       },
-      [](std::string error) {
-        std::cerr << "Aether error: " << error << '\n';
-      },
-      {},
-      {});
+      [](std::string error) { std::cerr << "Aether error: " << error << '\n'; },
+      {}, {});
 
   std::string my_uid;
   {
     std::unique_lock<std::mutex> lock{ready_mu};
-    ready_cv.wait(lock, [&ready, &local_uid] { return ready && !local_uid.empty(); });
+    ready_cv.wait(lock,
+                  [&ready, &local_uid] { return ready && !local_uid.empty(); });
     my_uid = local_uid;
   }
 
   transport = std::make_unique<AetherByteTransport>(
-      runtime, my_uid,
-      [&dispatcher](std::function<void()> task) {
+      runtime, my_uid, [&dispatcher](std::function<void()> task) {
         dispatcher.Post(std::move(task));
       });
 
@@ -526,7 +541,8 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
   auto const sync_index = room->FindLinkSyncIndexForShare(share_to_b);
   auto state = room->link_sync_states[sync_index];
 
-  // Wait until initial sync phase on A is Complete (meaning ACK from B for snapshot arrived)
+  // Wait until initial sync phase on A is Complete (meaning ACK from B for
+  // snapshot arrived)
   auto const init_deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(20);
   while (std::chrono::steady_clock::now() < init_deadline) {
@@ -550,7 +566,8 @@ void RunChatReplicaA(std::filesystem::path state_dir, std::string client_name,
   auto msg_id_a = SubmitDraft(*ws, *entry, 1000001);
   sync.SyncNextEvent(room_id, share_to_b);
 
-  // Wait for B's reply to arrive (total messages in room == 2) and A's message ACKed
+  // Wait for B's reply to arrive (total messages in room == 2) and A's message
+  // ACKed
   auto const deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(25);
   while (std::chrono::steady_clock::now() < deadline) {
@@ -609,22 +626,19 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
         }
         ready_cv.notify_all();
       },
-      [](std::string error) {
-        std::cerr << "Aether error: " << error << '\n';
-      },
-      {},
-      {});
+      [](std::string error) { std::cerr << "Aether error: " << error << '\n'; },
+      {}, {});
 
   std::string my_uid;
   {
     std::unique_lock<std::mutex> lock{ready_mu};
-    ready_cv.wait(lock, [&ready, &local_uid] { return ready && !local_uid.empty(); });
+    ready_cv.wait(lock,
+                  [&ready, &local_uid] { return ready && !local_uid.empty(); });
     my_uid = local_uid;
   }
 
   transport = std::make_unique<AetherByteTransport>(
-      runtime, my_uid,
-      [&dispatcher](std::function<void()> task) {
+      runtime, my_uid, [&dispatcher](std::function<void()> task) {
         dispatcher.Post(std::move(task));
       });
 
@@ -650,7 +664,8 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
   sync.ExpectInitialNode(room_id);
 
   // Wait for initial snapshot import from A
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(25);
+  auto const deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(25);
   ChatRoom::ptr room_b;
   while (std::chrono::steady_clock::now() < deadline) {
     dispatcher.Drain();
@@ -676,7 +691,8 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
 
   // Setup local workspace on B for reply
   ae::ObjId const ws_b_id{200};
-  auto ws_b = ChatWorkspace::ptr::Create(ae::CreateWith{domain}.with_id(ws_b_id));
+  auto ws_b =
+      ChatWorkspace::ptr::Create(ae::CreateWith{domain}.with_id(ws_b_id));
   InitializeRuntimeNode(*ws_b);
   BindLocalEndpoint(*ws_b, my_uid);
 
@@ -735,9 +751,12 @@ void RunChatReplicaB(std::filesystem::path state_dir, std::string client_name,
 }
 
 void TestTwoProcessChatSync(std::string const& self_bin) {
-  std::cout << "[Test 2] Real Aether Chat Sync Two-Process (Snapshot + ACK + 2-Way Events)\n";
-  auto state_dir_a = std::filesystem::temp_directory_path() / "test_aether_chat_a";
-  auto state_dir_b = std::filesystem::temp_directory_path() / "test_aether_chat_b";
+  std::cout << "[Test 2] Real Aether Chat Sync Two-Process (Snapshot + ACK + "
+               "2-Way Events)\n";
+  auto state_dir_a =
+      std::filesystem::temp_directory_path() / "test_aether_chat_a";
+  auto state_dir_b =
+      std::filesystem::temp_directory_path() / "test_aether_chat_b";
   std::filesystem::remove_all(state_dir_a);
   std::filesystem::remove_all(state_dir_b);
 

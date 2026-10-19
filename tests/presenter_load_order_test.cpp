@@ -6,20 +6,20 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/presenter.h"
 
 namespace apptraverse::test {
 namespace {
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"     \
-                << __LINE__ << '\n';                                        \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 class OrderRoot;
@@ -148,7 +148,8 @@ class OrderChild : public ae::Obj {
 };
 
 class OrderRoot : public ae::Obj {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::OrderRoot", OrderRoot, ae::Obj, 0)
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::OrderRoot", OrderRoot, ae::Obj,
+                           0)
 
  protected:
   OrderRoot() = default;
@@ -193,8 +194,7 @@ struct Pair {
 Pair MakePair(ae::Domain& domain, ae::ObjId::Type root_id,
               ae::ObjId::Type child_id, ae::ObjId::Type root_p_id,
               ae::ObjId::Type child_p_id, char root_tag, char child_tag) {
-  auto root =
-      OrderRoot::ptr::Create(ae::CreateWith{domain}.with_id(root_id));
+  auto root = OrderRoot::ptr::Create(ae::CreateWith{domain}.with_id(root_id));
   auto child =
       OrderChild::ptr::Create(ae::CreateWith{domain}.with_id(child_id));
   auto root_p = OrderRootPresenter::ptr::Create(

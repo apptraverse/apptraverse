@@ -6,7 +6,7 @@
 
 #include "aether-objects/obj/registry.h"
 
-#include "apptraverse/node.h"
+#include "apptraverse/object/node.h"
 #include "apptraverse/object_serialization.h"
 
 namespace apptraverse {
@@ -131,7 +131,8 @@ bool UiMirror::Publish(std::uint32_t root_id,
     SerializeObjectGraphToBuffer(*node, out);
     auto const payload_size =
         static_cast<std::uint32_t>(out.bytes.size() - payload_at);
-    std::memcpy(out.bytes.data() + size_at, &payload_size, sizeof(payload_size));
+    std::memcpy(out.bytes.data() + size_at, &payload_size,
+                sizeof(payload_size));
   }
 
   channel.NotePublished();
@@ -184,8 +185,7 @@ UiApplyResult UiMirror::ApplyPublished(PublicationChannel<3>& channel,
       return false;
     }
     ByteSource payload = rec.payload;
-    DeserializeObjectGraphFromBuffer(*object, payload, ui_domain_,
-                                     ui_storage_);
+    DeserializeObjectGraphFromBuffer(*object, payload, ui_domain_, ui_storage_);
     FinalizeUiNodeState(*object, rec.generation);
     result.changed_obj_ids.push_back(rec.obj_id);
     rec.applied = true;
@@ -216,8 +216,7 @@ UiApplyResult UiMirror::ApplyPublished(PublicationChannel<3>& channel,
     if (rec.applied) {
       continue;
     }
-    std::uint32_t const class_id =
-        PreferredClassIdFor(rec.payload, rec.obj_id);
+    std::uint32_t const class_id = PreferredClassIdFor(rec.payload, rec.obj_id);
     auto created = CreateUiShell(ui_domain_, ae::ObjId{rec.obj_id}, class_id);
     assert(created);
     keepalive.push_back(created);

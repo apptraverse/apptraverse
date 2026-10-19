@@ -9,10 +9,10 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/event_for.h"
 #include "apptraverse/model_runtime.h"
-#include "apptraverse/node_for.h"
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/event_for.h"
+#include "apptraverse/object/node_for.h"
+#include "apptraverse/object/object_macros.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui_mirror.h"
 
@@ -100,13 +100,13 @@ void Counter::Apply(BumpEvent const& event) {
   NoteMaterializedChange();
 }
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 constexpr auto kStepTimeout = std::chrono::seconds{30};

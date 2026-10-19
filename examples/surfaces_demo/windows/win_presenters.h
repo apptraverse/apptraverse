@@ -11,7 +11,7 @@
 
 #include <cstdint>
 
-#include "apptraverse/object_macros.h"
+#include "apptraverse/object/object_macros.h"
 
 #include "desktop_surface_presenter.h"
 

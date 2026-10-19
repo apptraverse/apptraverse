@@ -7,7 +7,7 @@
 #include "aether-objects/obj/obj_ptr.h"
 #include "aether-objects/obj/registry.h"
 
-#include "apptraverse/node.h"
+#include "apptraverse/object/node.h"
 #include "apptraverse/object_serialization.h"
 
 namespace apptraverse {
