@@ -1,3 +1,14 @@
+add_executable(apptraverse_minimal_runtime_consumer_test
+  minimal_runtime_consumer_test.cpp
+)
+target_link_libraries(apptraverse_minimal_runtime_consumer_test PRIVATE
+  apptraverse
+)
+add_test(
+  NAME apptraverse_minimal_runtime_consumer_test
+  COMMAND apptraverse_minimal_runtime_consumer_test
+)
+
 add_executable(apptraverse_ui_desktop_window_geometry_test
   ui/ui_desktop_window_geometry_test.cpp
 )
@@ -722,6 +733,7 @@ add_test(
 add_executable(apptraverse_surfaces_model_test
   surfaces_model_test.cpp
   surfaces_test_presentation.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_distill.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
 )
@@ -731,7 +743,6 @@ target_compile_definitions(apptraverse_surfaces_model_test PRIVATE
 )
 
 target_link_libraries(apptraverse_surfaces_model_test PRIVATE
-  surfaces_demo_distill
   apptraverse_surfaces
 )
 

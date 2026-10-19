@@ -2,7 +2,7 @@
 
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_localization.h"
-#include "apptraverse/surfaces/surfaces_presentation.h"
+#include "surfaces_demo_platform_attach.h"
 
 
 
@@ -39,9 +39,11 @@ Application::ptr BuildSurfacesGraph(ae::Domain& domain) {
   surface1->surfaces = surfaces;
   surfaces->surfaces.push_back(surface1);
   application->surfaces = surfaces;
+  surfaces->host_application = &*application;
+  WireSurfacesDemoPlatformBindings(*surfaces);
 
   InstallSurfacesDemoLocalization(*application, domain);
-  AttachPlatformSurfacePresenters(*surface1, *application, domain);
+  AttachSurfacesDemoPlatformPresenters(*surface1, *application, domain);
 
   return application;
 

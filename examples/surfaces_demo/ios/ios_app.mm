@@ -164,7 +164,7 @@ void IOSApp::Start(std::filesystem::path const& state_dir) {
   });
 
   model_thread_ = std::thread([this] {
-    session_.Run([this](SurfacesPublicationKind kind) {
+    RunSurfacesDemoModelSession(session_, [this](SurfacesPublicationKind kind) {
       if (kind == SurfacesPublicationKind::Initial) {
         dispatch_async(dispatch_get_main_queue(), ^{
           OnInitialPublished();

@@ -6,8 +6,8 @@
 
 namespace apptraverse {
 
-void AttachPlatformSurfacePresenters(Surface& surface, Application& application,
-                                     ae::Domain& domain) {
+void AttachSurfacesWin32LibraryPlatformPresenters(
+    Surface& surface, Application& application, ae::Domain& domain) {
   auto window = Win32SurfaceWindowPresenter::ptr::Create(ae::CreateWith{domain});
   auto add_button =
       Win32SurfaceButtonPresenter::ptr::Create(ae::CreateWith{domain});

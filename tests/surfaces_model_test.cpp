@@ -306,8 +306,9 @@ void TestDynamicNodeStructuralPublication() {
   SurfacesModelSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
+  AttachSessionProxy(session, proxy);
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
   WaitPublished(session);
@@ -357,8 +358,9 @@ void TestGuiProxyAddRemoveAndRemoveCurrent() {
   SurfacesModelSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
+  AttachSessionProxy(session, proxy);
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
   WaitPublished(session);
@@ -416,8 +418,9 @@ void TestPresenterLifecycleMultiAdd() {
   SurfacesModelSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
+  AttachSessionProxy(session, proxy);
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
   WaitPublished(session);
@@ -475,7 +478,7 @@ void TestShutdownDrain() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
   WaitPublished(session);
@@ -616,7 +619,7 @@ void TestPresentationSizeThroughGuiProxy() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
 
@@ -663,7 +666,7 @@ void TestPresentationSizeCoalescesUnderBurst() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
 
@@ -681,7 +684,7 @@ void TestPresentationSizeCoalescesUnderBurst() {
   for (int i = 0; i < 500; ++i) {
     ui_presenter->PresentationSizeChanged(300 + i, 900 - i);
   }
-  CHECK(session.presentation_size_queue.PendingSurfaceCountForTest() <= 1);
+  CHECK(session.presentation_size_queue.PendingObjectCountForTest() <= 1);
 
   // Bounded drain yields between model tasks; wait for the coalesced size.
   bool coalesced = false;
@@ -692,7 +695,7 @@ void TestPresentationSizeCoalescesUnderBurst() {
           app.surfaces->surfaces[0]->presentation_height == 401;
     });
     if (coalesced &&
-        session.presentation_size_queue.PendingSurfaceCountForTest() == 0) {
+        session.presentation_size_queue.PendingObjectCountForTest() == 0) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds{1});
@@ -813,7 +816,7 @@ void TestPresentationSizeYieldsForAddDuringStream() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
 
@@ -1007,7 +1010,7 @@ void TestAddOnSecondSurfaceWhileFirstHasLongJournal() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
   WaitPublished(session);
@@ -1188,8 +1191,9 @@ void TestCurrentPageThroughGuiProxy() {
   SurfacesModelSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
+  AttachSessionProxy(session, proxy);
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
   WaitPublished(session);
@@ -1308,7 +1312,7 @@ void TestGuiCatchUpCoalescesPublicationsNotEvents() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
 
@@ -1392,7 +1396,7 @@ void TestPendingPublicationDroppedForRemovedNode() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
 
@@ -1467,7 +1471,7 @@ void TestNewChildChangedBeforeGuiCatchUp() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
 
@@ -1533,7 +1537,7 @@ void TestPublicationCoalescesMultipleEventsOnOneNode() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
 
@@ -1706,6 +1710,8 @@ void TestTwoIndependentSessionsIsolation() {
 
   auto proxy_a = MakeSessionProxy(session_a);
   auto proxy_b = MakeSessionProxy(session_b);
+  AttachSessionProxy(session_a, proxy_a);
+  AttachSessionProxy(session_b, proxy_b);
 
   // Change ONLY A. B's channel must stay at the initial publication.
   RunOnModel(session_a, [](Application& app) {
@@ -1764,7 +1770,7 @@ void TestModelWorkRunsWhilePublicationUnread() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run([&](SurfacesPublicationKind) {});
+    RunSurfacesDemoModelSession(session,[&](SurfacesPublicationKind) {});
   }};
 
   WaitPublished(session);
@@ -1834,7 +1840,7 @@ void TestShutdownDrainsWorkWithUnreadPublication() {
   SurfacesModelSession session;
   session.state_dir = dir;
   std::thread model{[&] {
-    session.Run([&](SurfacesPublicationKind) {});
+    RunSurfacesDemoModelSession(session,[&](SurfacesPublicationKind) {});
   }};
 
   WaitPublished(session);
@@ -1940,8 +1946,9 @@ void TestStructuralApplyOnModelChangedOnce() {
   SurfacesModelSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
+  AttachSessionProxy(session, proxy);
   std::thread model{[&] {
-    session.Run(
+    RunSurfacesDemoModelSession(session,
         [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
   }};
   WaitPublished(session);

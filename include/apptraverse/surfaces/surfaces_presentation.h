@@ -1,17 +1,7 @@
 #ifndef APPTRAVERSE_SURFACES_PRESENTATION_H_
 #define APPTRAVERSE_SURFACES_PRESENTATION_H_
 
-#include "aether-objects/obj/domain.h"
-
-namespace apptraverse {
-
-class Application;
-class Surface;
-
-// Platform host creates window + button presenter objects and wires Surface refs.
-void AttachPlatformSurfacePresenters(Surface& surface, Application& application,
-                                     ae::Domain& domain);
-
-}  // namespace apptraverse
+// Demo/tests implement SurfacePlatformAttachFn and assign Surfaces::platform_attach.
+#include "apptraverse/surfaces/surface_platform_attach.h"
 
 #endif  // APPTRAVERSE_SURFACES_PRESENTATION_H_

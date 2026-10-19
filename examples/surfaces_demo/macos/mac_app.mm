@@ -227,7 +227,7 @@ int MacApp::Run(std::filesystem::path const& state_dir) {
   [NSApp activateIgnoringOtherApps:YES];
 
   model_thread_ = std::thread([this] {
-    session_.Run([this](SurfacesPublicationKind kind) {
+    RunSurfacesDemoModelSession(session_, [this](SurfacesPublicationKind kind) {
       auto* ctx = new MainOpCtx{
           this, kind == SurfacesPublicationKind::Initial
                     ? MainOp::InitialPublished

@@ -83,57 +83,9 @@ CPMAddPackage(
     "AE_BUILD_TESTS ${APPTRAVERSE_BUILD_AETHER_DEMOS}"
 )
 
-add_library(apptraverse STATIC
-  src/apptraverse.cpp
-  src/noninteractive_crt.cpp
-  src/runtime_lifecycle.cpp
-  src/directory_domain_storage.cpp
-  src/overlay_domain_storage.cpp
-  src/partitioned_model_domain_storage.cpp
-  src/model_persistence.cpp
-  src/model_object_proxy.cpp
-  src/object_serialization.cpp
-  src/publication_serialization_scope.cpp
-  src/ui_mirror.cpp
-  src/model_runtime.cpp
-  src/graph_mirror.cpp
-  src/link.cpp
-  src/shared_node.cpp
-  src/shared_network_graph.cpp
-  src/memory_transport.cpp
-  src/sync_frame.cpp
-  src/shared_sync_runtime.cpp
-  src/ui/ui_localization_string.cpp
-  src/ui/ui_locale_settings.cpp
-  src/ui/ui_window.cpp
-  src/ui/ui_desktop_window.cpp
-  src/ui/ui_edit_box.cpp
-  src/ui/ui_push_button.cpp
-  src/ui/ui_list_container.cpp
-  src/ui/ui_bitmap_image.cpp
-  src/ui/ui_presenters.cpp
-  src/ui/ui_registration.cpp
-)
-target_include_directories(apptraverse PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-# Object graph only. Full Aether client is linked by chat/presence targets.
-# PUBLIC compile policy so every AppTraverse-owned consumer gets /GR- or -fno-rtti.
-target_link_libraries(apptraverse PUBLIC
-  aether::objects
-  aether::miscpp
-  apptraverse_compile_policy
-)
+include(cmake/apptraverse_library_targets.cmake)
 
-target_compile_definitions(apptraverse PUBLIC
-  AE_DISTILLATION=1
-  AE_FILTRATION=1
-)
 if(WIN32)
-  target_compile_definitions(apptraverse PUBLIC
-    NOMINMAX
-    WIN32_LEAN_AND_MEAN
-  )
   add_library(apptraverse_ui_windows STATIC
     src/platform/windows/win_ui_utf8.cpp
     src/platform/windows/win_ui_frame.cpp
@@ -141,7 +93,7 @@ if(WIN32)
     src/platform/windows/win_ui_registration.cpp
     src/platform/windows/win32_fatal.cpp
   )
-  target_link_libraries(apptraverse_ui_windows PUBLIC apptraverse user32 gdi32 comctl32)
+  target_link_libraries(apptraverse_ui_windows PUBLIC apptraverse_application_runtime user32 gdi32 comctl32)
   target_include_directories(apptraverse_ui_windows PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
@@ -158,7 +110,7 @@ add_library(apptraverse_surfaces STATIC
   src/surfaces/surfaces_chrome_wiring.cpp
   src/surfaces/surfaces_presentation_size_queue.cpp
 )
-target_link_libraries(apptraverse_surfaces PUBLIC apptraverse)
+target_link_libraries(apptraverse_surfaces PUBLIC apptraverse_application_runtime)
 target_include_directories(apptraverse_surfaces PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -184,8 +136,6 @@ if(WIN32)
   )
   target_compile_features(apptraverse_surfaces_windows PUBLIC cxx_std_20)
 endif()
-
-target_compile_features(apptraverse PUBLIC cxx_std_20)
 
 option(APPTRAVERSE_BUILD_EXAMPLES "Build upstream AppTraverse examples" OFF)
 

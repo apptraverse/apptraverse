@@ -1,51 +1,20 @@
 #ifndef APPTRAVERSE_SURFACES_LIFECYCLE_H_
 #define APPTRAVERSE_SURFACES_LIFECYCLE_H_
 
-#include <condition_variable>
-#include <cstdint>
-#include <deque>
-#include <filesystem>
-#include <functional>
-#include <mutex>
-#include <vector>
+#include "apptraverse/application/model_publication_session.h"
 
-#include "aether-objects/obj/domain.h"
-#include "aether-objects/obj/idomain_storage.h"
-
-#include "apptraverse/model_object_proxy.h"
-#include "apptraverse/node.h"
-#include "apptraverse/publication_channel.h"
-#include "apptraverse/surfaces/surfaces_presentation_size_queue.h"
+#include "apptraverse/surfaces/surfaces_model.h"
 
 namespace apptraverse {
 
-class Application;
+using SurfacesPublicationKind = ModelPublicationKind;
+using SurfacesModelSession = ModelPublicationSession;
 
-enum class SurfacesPublicationKind {
-  Initial,
-  Incremental,
-};
+void ConfigureSurfacesDemoModelSession(SurfacesModelSession& session);
 
-// Model thread + publication + persistence. Knows Application for load/save
-// and generic work; does not know Add/Remove Surface semantics.
-struct SurfacesModelSession {
-  using ModelWork = ModelObjectProxy::ModelWork;
-
-  std::filesystem::path state_dir;
-  PublicationChannel<3> channel;
-  std::mutex mu;
-  std::condition_variable cv;
-  bool stop{false};
-  // Non-zero when shutdown Save could not commit durable state.
-  int shutdown_exit_code{0};
-  std::deque<ModelWork> pending_work;
-  SurfacesPresentationSizeQueue presentation_size_queue;
-
-  void RequestStop();
-  // Rejected after RequestStop. Work already queued is accepted and drained.
-  void Post(ModelWork work);
-  void Run(std::function<void(SurfacesPublicationKind)> on_published);
-};
+void RunSurfacesDemoModelSession(
+    SurfacesModelSession& session,
+    std::function<void(SurfacesPublicationKind)> on_published);
 
 void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
                              Application& ui_application,

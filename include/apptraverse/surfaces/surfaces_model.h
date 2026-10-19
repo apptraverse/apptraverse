@@ -15,12 +15,13 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 
-#include "apptraverse/surfaces/surfaces_ids.h"
+#include "apptraverse/surfaces/surface_platform_attach.h"
 
 namespace apptraverse {
 
 class Surfaces;
 class Surface;
+class Application;
 class SurfacePresenter;
 class SurfaceWindowPresenter;
 class SurfaceButtonPresenter;
@@ -160,17 +161,11 @@ class Surfaces : public NodeFor<Surfaces> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, surfaces, mobile_current);
-    desktop_z_order.clear();
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, surfaces, mobile_current, desktop_z_order);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, surfaces, mobile_current, desktop_z_order);
   }
 
@@ -182,6 +177,10 @@ class Surfaces : public NodeFor<Surfaces> {
   // Desktop-only persisted Z-order: top → bottom among live Surface windows.
   // Empty on legacy profiles and non-desktop hosts.
   std::vector<Surface::ptr> desktop_z_order;
+
+  // Runtime-only back-link (not serialized).
+  Application* host_application{nullptr};
+  SurfacePlatformAttachFn platform_attach{nullptr};
 
   void Apply(AddSurfaceEvent const& event);
   void Apply(RemoveSurfaceEvent const& event);

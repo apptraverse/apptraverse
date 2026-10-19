@@ -65,7 +65,7 @@ void WebApp::Start(std::filesystem::path state_dir) {
   });
 
   model_thread_ = std::thread([this] {
-    session_.Run([](SurfacesPublicationKind kind) {
+    RunSurfacesDemoModelSession(session_, [](SurfacesPublicationKind kind) {
       int const flag = kind == SurfacesPublicationKind::Initial ? 0 : 1;
       // Model pthread must not touch the DOM.
       emscripten_async_run_in_main_runtime_thread(EM_FUNC_SIG_VI,

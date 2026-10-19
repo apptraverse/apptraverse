@@ -4022,3 +4022,27 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ### Artifacts
 - **`win32_surfaces_demo.exe`** SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`** (unchanged vs Z-order pass).
 - **`apptraverse_surfaces_win32_library_consumer_test.exe`** SHA256: **`1593CFAA0D6F92F9F855CDE13C6D7EBC3BB5A268CFB56F69D656B5EA5C1E6806`**
+
+## Reusable libraries + generic runtime (2026-10-19, phase 1 Windows)
+
+### Library targets (`cmake/apptraverse_library_targets.cmake`)
+- **`apptraverse_core`**, **`apptraverse_ui`**, **`apptraverse_application_runtime`**, **`apptraverse_shared_sync`**; aggregate **`apptraverse`** INTERFACE.
+- **`ModelPublicationSession`** in `apptraverse_application_runtime` (demo **`SurfacesModelSession`** alias).
+- Generic **`PresentationSizeQueue`** on **`ModelObjectProxy`** (Surfaces applier in demo config only).
+
+### Surfaces demo as consumer
+- **`RunSurfacesDemoModelSession`** / **`ConfigureSurfacesDemoModelSession`**; no duplicated session loop in demo.
+- Runtime **`platform_attach`** + **`host_application`** (not serialized); demo **`AttachSurfacesDemoPlatformPresenters`**.
+- **`Surfaces` Load/Save**: single **v0** includes **`desktop_z_order`**.
+
+### Second consumer (no Surface types)
+- **`apptraverse_minimal_runtime_consumer_test`**: custom **`MinimalConsumerRoot`**, same session API, **`APPTRAVERSE_BUILD_EXAMPLES=OFF`**.
+
+### Verified (Release `build-presenter-decomp-msvc-rel`)
+- **`apptraverse_minimal_runtime_consumer_test`**: **PASS**
+- **`apptraverse_surfaces_win32_library_consumer_test`**: **PASS**
+- **`win32_surfaces_demo.exe`** SHA256: **`CF0A3DC269875D7657D775F7DB5F17F4971D2CDB82EB44FC36A27C42EA49A8B5`**
+- **`apptraverse_surfaces_model_test`**: **NOT RUN** full suite this pass (long-journal shutdown save can exceed practical local timeout; prior baseline **4605 ms** > 4000 ms on Add timing remains a known FAIL).
+
+### Roadmap
+- **`docs/library_roadmap.md`**: platform ports → optional Æther components → AeroAdmin (not started).

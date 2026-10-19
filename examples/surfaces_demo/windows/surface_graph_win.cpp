@@ -1,12 +1,13 @@
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
 #include "apptraverse/surfaces/surfaces_chrome_wiring.h"
 #include "apptraverse/surfaces/surfaces_ids.h"
-#include "apptraverse/surfaces/surfaces_presentation.h"
+#include "surfaces_demo_platform_attach.h"
 
 namespace apptraverse {
 
-void AttachPlatformSurfacePresenters(Surface& surface, Application& application,
-                                     ae::Domain& domain) {
+void AttachSurfacesDemoPlatformPresenters(Surface& surface,
+                                        Application& application,
+                                        ae::Domain& domain) {
   using surfaces_demo::ObjId;
   using surfaces_demo::ToObjId;
 

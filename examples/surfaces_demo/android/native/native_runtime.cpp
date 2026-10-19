@@ -21,7 +21,7 @@ NativeRuntime::NativeRuntime(std::filesystem::path state_dir,
 }
 
 void NativeRuntime::RunModel() {
-  session_.Run([this](SurfacesPublicationKind kind) {
+  RunSurfacesDemoModelSession(session_, [this](SurfacesPublicationKind kind) {
     ui_bridge_.PostPublication(kind == SurfacesPublicationKind::Initial ? 0 : 1);
   });
   LogMarker("SURFACES_STATE_SAVED");

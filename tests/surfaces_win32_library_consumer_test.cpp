@@ -15,7 +15,7 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
-#include "apptraverse/surfaces/surfaces_presentation.h"
+#include "surfaces_win32_library_consumer_presentation.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/surfaces/surfaces_localization.h"
@@ -54,8 +54,11 @@ Application::ptr BuildMinimalConsumerGraph(ae::Domain& domain) {
   surface->surfaces = surfaces;
   surfaces->surfaces.push_back(surface);
   application->surfaces = surfaces;
+  surfaces->host_application = &*application;
+  surfaces->platform_attach = apptraverse::AttachSurfacesWin32LibraryPlatformPresenters;
   InstallSurfacesDemoLocalization(*application, domain);
-  AttachPlatformSurfacePresenters(*surface, *application, domain);
+  apptraverse::AttachSurfacesWin32LibraryPlatformPresenters(*surface, *application,
+                                                            domain);
   return application;
 }
 

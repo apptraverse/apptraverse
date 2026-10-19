@@ -94,8 +94,9 @@ APPTRAVERSE_REGISTER(TestSurfaceLanguageButtonPresenter);
 
 }  // namespace test
 
-void AttachPlatformSurfacePresenters(Surface& surface, Application& application,
-                                     ae::Domain& domain) {
+void AttachSurfacesTestPlatformPresenters(Surface& surface,
+                                          Application& application,
+                                          ae::Domain& domain) {
   auto window = test::TestSurfaceWindowPresenter::ptr::Create(
       ae::CreateWith{domain});
   auto add_button = test::TestSurfaceButtonPresenter::ptr::Create(
@@ -127,6 +128,12 @@ void AttachPlatformSurfacePresenters(Surface& surface, Application& application,
   surface.chrome.language_button = language_button;
 
   WireSurfaceChromeLocalization(surface, application);
+}
+
+void AttachSurfacesDemoPlatformPresenters(Surface& surface,
+                                          Application& application,
+                                          ae::Domain& domain) {
+  AttachSurfacesTestPlatformPresenters(surface, application, domain);
 }
 
 }  // namespace apptraverse

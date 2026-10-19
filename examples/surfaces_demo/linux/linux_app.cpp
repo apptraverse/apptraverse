@@ -214,7 +214,7 @@ int LinuxApp::Run(std::filesystem::path const& state_dir) {
 
   model_done_.store(false);
   model_thread_ = std::thread([this] {
-    session_.Run([this](SurfacesPublicationKind kind) {
+    RunSurfacesDemoModelSession(session_, [this](SurfacesPublicationKind kind) {
       PostWake(kind == SurfacesPublicationKind::Initial
                    ? kLinuxWakeInitialPublished
                    : kLinuxWakeIncrementalPublished);

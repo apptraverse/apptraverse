@@ -266,7 +266,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
 
   HWND const notify = notify_;
   model_thread_ = std::thread([this, notify, done_event] {
-    session_.Run([notify](SurfacesPublicationKind kind) {
+    RunSurfacesDemoModelSession(session_, [notify](SurfacesPublicationKind kind) {
       UINT const message = kind == SurfacesPublicationKind::Initial
                                ? WM_APPTRAVERSE_INITIAL_PUBLISHED
                                : WM_APPTRAVERSE_INCREMENTAL_PUBLISHED;

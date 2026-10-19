@@ -1,7 +1,6 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/publication_serialization_scope.h"
 #include "apptraverse/event.h"
-#include "apptraverse/surfaces/surfaces_model.h"
 
 #include <algorithm>
 #include <atomic>

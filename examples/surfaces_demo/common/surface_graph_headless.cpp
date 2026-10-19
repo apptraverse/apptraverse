@@ -3,12 +3,13 @@
 #include "apptraverse/surfaces/surface_window_presenter.h"
 #include "apptraverse/surfaces/surfaces_chrome_wiring.h"
 #include "apptraverse/surfaces/surfaces_model.h"
-#include "apptraverse/surfaces/surfaces_presentation.h"
+#include "surfaces_demo_platform_attach.h"
 
 namespace apptraverse {
 
-void AttachPlatformSurfacePresenters(Surface& surface, Application& application,
-                                     ae::Domain& domain) {
+void AttachSurfacesDemoPlatformPresenters(Surface& surface,
+                                          Application& application,
+                                          ae::Domain& domain) {
   auto window = SurfaceWindowPresenter::ptr::Create(ae::CreateWith{domain});
   auto add_button = SurfaceButtonPresenter::ptr::Create(ae::CreateWith{domain});
   auto close_button =

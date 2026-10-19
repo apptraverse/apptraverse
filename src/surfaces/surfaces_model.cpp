@@ -139,11 +139,12 @@ void Surface::AddSurface() {
   sibling->number = next_number;
   AssignInitialDesktopBounds(*sibling);
   sibling->surfaces = surfaces;
-  auto application = parent.domain->Find(ae::ObjId{surfaces_demo::ToObjId(
-      surfaces_demo::ObjId::Application)});
-  assert(application && "AddSurface requires live Application in domain");
-  AttachPlatformSurfacePresenters(*sibling, static_cast<Application&>(*application),
-                                    *parent.domain);
+  assert(parent.host_application != nullptr &&
+         "Surfaces.host_application must reference the owning Application");
+  Application& application = *parent.host_application;
+  if (parent.platform_attach != nullptr) {
+    parent.platform_attach(*sibling, application, *parent.domain);
+  }
   // New Surface is a Node: establish base/journal and inherit this Surface's
   // model-runtime notifier before it becomes live.
   InitializeRuntimeNode(*sibling, *this);
