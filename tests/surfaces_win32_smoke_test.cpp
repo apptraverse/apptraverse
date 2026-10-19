@@ -754,6 +754,79 @@ void TestControlsFollowPresentationSize() {
   std::filesystem::remove_all(dir);
 }
 
+void TestPostReleaseOuterFrameStable() {
+  if (std::getenv("APPTRAVERSE_SURFACES_LONG_ACCEPTANCE") == nullptr) {
+    return;
+  }
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_post_release_frame";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+
+  auto const resize_until =
+      std::chrono::steady_clock::now() + std::chrono::seconds{60};
+  int i = 0;
+  while (std::chrono::steady_clock::now() < resize_until) {
+    if (i % 2 == 0) {
+      PlaceClientSize(s1, 820, 380 + (i % 30));
+    } else {
+      PlaceClientSize(s1, 380 + (i % 30), 820);
+    }
+    ++i;
+    PumpGui(std::chrono::milliseconds{5});
+  }
+
+  RECT outer_at_release = WindowRect(s1);
+  RECT client_at_release{};
+  CHECK(GetClientRect(s1, &client_at_release) != 0);
+  bool layout_horizontal = ButtonsHorizontal(s1);
+
+  int outer_changes = 0;
+  int client_changes = 0;
+  int layout_flips = 0;
+  auto const observe_until =
+      std::chrono::steady_clock::now() + std::chrono::seconds{45};
+  while (std::chrono::steady_clock::now() < observe_until) {
+    PumpGui(std::chrono::milliseconds{50});
+    RECT outer_now = WindowRect(s1);
+    RECT client_now{};
+    CHECK(GetClientRect(s1, &client_now) != 0);
+    if (!RectNear(outer_at_release, outer_now, 1)) {
+      ++outer_changes;
+      outer_at_release = outer_now;
+    }
+    if (!RectNear(client_at_release, client_now, 1)) {
+      ++client_changes;
+      client_at_release = client_now;
+    }
+    bool const horiz = ButtonsHorizontal(s1);
+    if (horiz != layout_horizontal) {
+      ++layout_flips;
+      layout_horizontal = horiz;
+    }
+  }
+
+  std::cout << "post_release outer_rect_changes=" << outer_changes
+            << " client_rect_changes=" << client_changes
+            << " layout_flips=" << layout_flips << "\n";
+  CHECK(outer_changes == 0);
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestLocalizationEnRuEn() {
   DWORD const pid = GetCurrentProcessId();
   auto dir = std::filesystem::temp_directory_path() /
@@ -965,6 +1038,7 @@ int main() {
   apptraverse::test::TestNativeXKeepsAllSurfaces();
   apptraverse::test::TestActiveZOrderRestored();
   apptraverse::test::TestControlsFollowPresentationSize();
+  apptraverse::test::TestPostReleaseOuterFrameStable();
   std::cout << "surfaces_win32_smoke_test OK\n";
   return 0;
 }

@@ -3835,3 +3835,28 @@ Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-pres
 - Manual 60 s edge drag + row/column toggles: not re-run in this agent pass (rely on coalesce tests + existing smoke resize paths).
 
 Status: `e57be6d` pushed to `origin/cursor/surfaces-presenter-decomposition`.
+
+---
+
+# surfaces bounded resize drain + publication skip (2026-10-19)
+
+Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-presenter-decomp`), baseline `bc29a23`.
+
+## Symptoms / reproduction
+- **Layout lag after resize:** unbounded `for(;;)` drain in one model task blocked `Add`, locale, and incremental publications until mouse release; UI applied a backlog of structural snapshots (~3 s cadence).
+- **Late “window stretch”:** Release long gate (`APPTRAVERSE_SURFACES_LONG_ACCEPTANCE=1`): 60 s resize, release, 45 s observe — **`post_release outer_rect_changes=0`** (main `GetWindowRect` stable); **`client_rect_changes=0`**; perceived motion is **child chrome `SetWindowPos` / layout** from queued publications, not main-frame `SetWindowPos` on the surface host presenter path.
+
+## Fixes
+- **`SurfacesPresentationSizeQueue`:** removed process-global `g_bound_queue`; route via `ModelObjectProxy::PresentationSizeQueue()`; bounded drain (`EnsureDrainScheduled`, one coalesced apply per surface per model turn, reschedule if slot moved).
+- **`surfaces_lifecycle.cpp`:** skip incremental publish prep when `stop`, `pending_dirty` empty, or `channel.is_publication_busy()`; `EnsureSurfacesRegistration()` at session start; incremental live-id batch still uses **`CollectLiveReachableObjects`** (save-clear path — do not substitute incomplete live-field-only set for deferred ids).
+- **Live graph:** `RegisterLiveGraphEdgeAppender` + `AppendSurfaceLiveGraphEdges` (`Surface.chrome` Save/Load fields) for `CollectReachableObjectsFromLiveFields`.
+
+## Measurements (Release `apptraverse_surfaces_model_test`, μs)
+- `CollectReachableObjectsFromLiveFields`: 100 / 1000 / 10000 retained size events on one Surface — **~4 / ~0 / ~0** (stable vs journal).
+- `CollectLiveReachableObjects` (UI init path): **~1743 / ~27329 / ~1285423** (scales with retained events — expected while save-clear walk remains on that path).
+- `SerializeStructuralNodePublication(Surface)`: **~2899 / ~68137 / ~2652386** (still save-based subgraph).
+
+## Verified (Windows Release, `build-presenter-decomp-msvc-rel`)
+- `apptraverse_surfaces_model_test` OK (coalesce, stream+Add, two-session routing, journal timing).
+- `apptraverse_surfaces_win32_smoke_test` OK incl. long acceptance **`outer_rect_changes=0`**.
+- Demo EXE SHA256 **`E4241CD75E010F03345AE3713E92063428864D20D924CDC31BD08200BEC64242`** (`win32_surfaces_demo.exe`).

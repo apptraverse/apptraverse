@@ -681,11 +681,45 @@ void TestPresentationSizeCoalescesUnderBurst() {
   }
   CHECK(session.presentation_size_queue.PendingSurfaceCountForTest() <= 1);
 
-  WaitPublished(session);
-  ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage, nullptr,
-                          &proxy);
-  CHECK(ui_app->surfaces->surfaces[0]->presentation_width == 799);
-  CHECK(ui_app->surfaces->surfaces[0]->presentation_height == 401);
+  // Bounded drain yields between model tasks; wait for the coalesced size.
+  bool coalesced = false;
+  for (int attempt = 0; attempt < 1000; ++attempt) {
+    RunOnModel(session, [&coalesced](Application& app) {
+      coalesced =
+          app.surfaces->surfaces[0]->presentation_width == 799 &&
+          app.surfaces->surfaces[0]->presentation_height == 401;
+    });
+    if (coalesced &&
+        session.presentation_size_queue.PendingSurfaceCountForTest() == 0) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{1});
+  }
+  CHECK(coalesced);
+
+  // Bounded drain may publish intermediate sizes before the coalesced commit
+  // lands; catch up until the mirror matches the model.
+  bool mirror_coalesced = false;
+  for (int attempt = 0; attempt < 500; ++attempt) {
+    RunOnModel(session, [](Application&) {});
+    {
+      std::unique_lock<std::mutex> lock{session.mu};
+      session.cv.wait_for(lock, std::chrono::milliseconds{50}, [&] {
+        return session.channel.has_unread_published();
+      });
+    }
+    if (session.channel.has_unread_published()) {
+      ApplySurfacesStructural(TakeAndWake(session), *ui_app, ui_storage,
+                              nullptr, &proxy);
+    }
+    mirror_coalesced =
+        ui_app->surfaces->surfaces[0]->presentation_width == 799 &&
+        ui_app->surfaces->surfaces[0]->presentation_height == 401;
+    if (mirror_coalesced) {
+      break;
+    }
+  }
+  CHECK(mirror_coalesced);
 
   RunOnModel(session, [surface_id](Application& app) {
     auto* surface = app.domain->Find(surface_id).as<Surface>();
@@ -725,6 +759,118 @@ std::chrono::nanoseconds CollectLiveFieldReachableOnce(Application& application)
   return std::chrono::steady_clock::now() - t0;
 }
 
+std::chrono::nanoseconds CollectLiveReachableOnce(Application& application) {
+  auto const t0 = std::chrono::steady_clock::now();
+  std::vector<ae::Obj*> live;
+  CollectLiveReachableObjects(application, live);
+  CHECK(!live.empty());
+  return std::chrono::steady_clock::now() - t0;
+}
+
+std::chrono::nanoseconds SerializeSurfacePublicationOnce(Surface& surface) {
+  auto const t0 = std::chrono::steady_clock::now();
+  ByteSink sink;
+  SerializeStructuralNodePublication(surface, sink);
+  CHECK(!sink.bytes.empty());
+  return std::chrono::steady_clock::now() - t0;
+}
+
+void TestPresentationSizeYieldsForAddDuringStream() {
+  auto dir = TestDir("apptraverse_surfaces_presentation_size_stream_add");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+
+  WaitPublished(session);
+  (void)TakeAndWake(session);
+  auto proxy = MakeSessionProxy(session);
+  AttachSessionProxy(session, proxy);
+
+  std::atomic<bool> stop{false};
+  std::thread resize{[&] {
+    ae::ObjId surface_id;
+    RunOnModel(session, [&surface_id](Application& app) {
+      surface_id = app.surfaces->surfaces[0]->obj_id;
+    });
+    int i = 0;
+    while (!stop.load()) {
+      session.presentation_size_queue.Post(&proxy, surface_id, 500 + i, 600 - i);
+      ++i;
+      std::this_thread::sleep_for(std::chrono::milliseconds{2});
+    }
+  }};
+
+  RunOnModel(session, [](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
+    CHECK(app.surfaces->surfaces.size() == 2);
+  });
+
+  stop.store(true);
+  resize.join();
+  session.presentation_size_queue.UnbindProxy(&proxy);
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestTwoSessionsPresentationSizeRouting() {
+  auto dir_a = TestDir("apptraverse_surfaces_psz_route_a");
+  auto dir_b = TestDir("apptraverse_surfaces_psz_route_b");
+  SurfacesModelSession session_a;
+  SurfacesModelSession session_b;
+  session_a.state_dir = dir_a;
+  session_b.state_dir = dir_b;
+  std::thread model_a{[&] {
+    session_a.Run([&](SurfacesPublicationKind) { session_a.cv.notify_all(); });
+  }};
+  std::thread model_b{[&] {
+    session_b.Run([&](SurfacesPublicationKind) { session_b.cv.notify_all(); });
+  }};
+  WaitPublished(session_a);
+  WaitPublished(session_b);
+  (void)TakeAndWake(session_a);
+  (void)TakeAndWake(session_b);
+
+  auto proxy_a = MakeSessionProxy(session_a);
+  auto proxy_b = MakeSessionProxy(session_b);
+  AttachSessionProxy(session_a, proxy_a);
+  AttachSessionProxy(session_b, proxy_b);
+
+  ae::ObjId surface_a_id;
+  ae::ObjId surface_b_id;
+  RunOnModel(session_a, [&surface_a_id](Application& app) {
+    surface_a_id = app.surfaces->surfaces[0]->obj_id;
+  });
+  RunOnModel(session_b, [&surface_b_id](Application& app) {
+    surface_b_id = app.surfaces->surfaces[0]->obj_id;
+  });
+  CHECK(surface_a_id == surface_b_id);
+
+  for (int i = 0; i < 200; ++i) {
+    session_a.presentation_size_queue.Post(&proxy_a, surface_a_id, 640 + i,
+                                           480 + i);
+  }
+  RunOnModel(session_a, [](Application& app) {
+    CHECK(app.surfaces->surfaces[0]->presentation_width >= 839);
+  });
+  RunOnModel(session_b, [](Application& app) {
+    CHECK(app.surfaces->surfaces[0]->presentation_width == 360);
+    CHECK(app.surfaces->surfaces[0]->presentation_height == 240);
+  });
+
+  session_a.presentation_size_queue.UnbindProxy(&proxy_a);
+  session_b.presentation_size_queue.UnbindProxy(&proxy_b);
+  session_a.RequestStop();
+  session_b.RequestStop();
+  model_a.join();
+  model_b.join();
+  std::filesystem::remove_all(dir_a);
+  std::filesystem::remove_all(dir_b);
+}
+
 void TestCollectLiveReachableStableWithLongJournal() {
   struct SeededApp {
     ae::RamDomainStorage storage;
@@ -744,21 +890,40 @@ void TestCollectLiveReachableStableWithLongJournal() {
     return seeded;
   };
 
-  auto const t100 = CollectLiveFieldReachableOnce(*seed_journal(100).application);
-  auto const t1000 =
-      CollectLiveFieldReachableOnce(*seed_journal(1000).application);
-  auto const t10000 =
-      CollectLiveFieldReachableOnce(*seed_journal(10000).application);
+  auto const seeded100 = seed_journal(100);
+  auto const seeded1000 = seed_journal(1000);
+  auto const seeded10000 = seed_journal(10000);
 
-  auto const ms = [](std::chrono::nanoseconds t) {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(t).count();
+  auto const fields100 = CollectLiveFieldReachableOnce(*seeded100.application);
+  auto const fields1000 =
+      CollectLiveFieldReachableOnce(*seeded1000.application);
+  auto const fields10000 =
+      CollectLiveFieldReachableOnce(*seeded10000.application);
+
+  auto const live100 = CollectLiveReachableOnce(*seeded100.application);
+  auto const live1000 = CollectLiveReachableOnce(*seeded1000.application);
+  auto const live10000 = CollectLiveReachableOnce(*seeded10000.application);
+
+  auto const pub100 =
+      SerializeSurfacePublicationOnce(*seeded100.application->surfaces->surfaces[0]);
+  auto const pub1000 =
+      SerializeSurfacePublicationOnce(*seeded1000.application->surfaces->surfaces[0]);
+  auto const pub10000 = SerializeSurfacePublicationOnce(
+      *seeded10000.application->surfaces->surfaces[0]);
+
+  auto const us = [](std::chrono::nanoseconds t) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(t).count();
   };
-  std::cout << "CollectLiveFieldReachable ms: 100ev=" << ms(t100)
-            << " 1000ev=" << ms(t1000) << " 10000ev=" << ms(t10000) << "\n";
+  std::cout << "CollectReachableObjectsFromLiveFields us: 100ev=" << us(fields100)
+            << " 1000ev=" << us(fields1000) << " 10000ev=" << us(fields10000)
+            << "\nCollectLiveReachableObjects us: 100ev=" << us(live100)
+            << " 1000ev=" << us(live1000) << " 10000ev=" << us(live10000)
+            << "\nSerializeStructuralNodePublication us: 100ev=" << us(pub100)
+            << " 1000ev=" << us(pub1000) << " 10000ev=" << us(pub10000)
+            << "\n";
 
-  // Live-field walk must not replay retained Node history.
-  CHECK(t1000 <= t100 + std::chrono::milliseconds{500});
-  CHECK(t10000 <= t100 + std::chrono::milliseconds{500});
+  CHECK(fields1000 <= fields100 + std::chrono::milliseconds{2});
+  CHECK(fields10000 <= fields100 + std::chrono::milliseconds{2});
 }
 
 void TestGeometryPersistence() {
@@ -1745,6 +1910,8 @@ int main() {
   apptraverse::test::TestPresentationSizePersistence();
   apptraverse::test::TestPresentationSizeThroughGuiProxy();
   apptraverse::test::TestPresentationSizeCoalescesUnderBurst();
+  apptraverse::test::TestPresentationSizeYieldsForAddDuringStream();
+  apptraverse::test::TestTwoSessionsPresentationSizeRouting();
   apptraverse::test::TestCollectLiveReachableStableWithLongJournal();
   apptraverse::test::TestGeometryPersistence();
   apptraverse::test::TestCurrentPageReplay();

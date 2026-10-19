@@ -10,6 +10,8 @@
 
 namespace apptraverse {
 
+class SurfacesPresentationSizeQueue;
+
 // Cross-domain GUI → model invoke: only ObjId + member-function identity and
 // by-value arguments cross the thread boundary. The queued work resolves the
 // object on the model Domain.
@@ -39,8 +41,15 @@ class ModelObjectProxy {
 
   void EnqueueModelWork(ModelWork work) { enqueue_(std::move(work)); }
 
+  void BindPresentationSizeQueue(SurfacesPresentationSizeQueue* queue);
+  void UnbindPresentationSizeQueue(SurfacesPresentationSizeQueue* queue);
+  [[nodiscard]] SurfacesPresentationSizeQueue* PresentationSizeQueue() const {
+    return presentation_size_queue_;
+  }
+
  private:
   Enqueue enqueue_;
+  SurfacesPresentationSizeQueue* presentation_size_queue_{nullptr};
 };
 
 }  // namespace apptraverse

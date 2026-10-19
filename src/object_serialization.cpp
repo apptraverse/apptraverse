@@ -30,6 +30,8 @@
 namespace apptraverse {
 namespace {
 
+LiveGraphEdgeAppender g_live_graph_edge_appender = nullptr;
+
 enum StructuralPublicationSidecar : std::uint8_t {
   kStructuralPublicationSidecarNone = 0,
   kStructuralPublicationSidecarUiDesktopFrameRequest = 1,
@@ -309,6 +311,10 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
   }
 }
 
+void RegisterLiveGraphEdgeAppender(LiveGraphEdgeAppender appender) {
+  g_live_graph_edge_appender = appender;
+}
+
 void CollectReachableObjectsFromLiveFields(ae::Obj& root,
                                            std::vector<ae::Obj*>& out) {
   std::unordered_set<std::uint32_t> seen;
@@ -330,6 +336,9 @@ void CollectReachableObjectsFromLiveFields(ae::Obj& root,
         stack.push_back(&*found);
       }
     });
+    if (g_live_graph_edge_appender != nullptr) {
+      g_live_graph_edge_appender(*obj, root, stack);
+    }
   }
   RemoveDistilledBaseObjects(out);
 }

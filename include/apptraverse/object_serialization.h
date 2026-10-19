@@ -86,6 +86,11 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                         ae::IDomainStorage& ui_storage);
 
+using LiveGraphEdgeAppender = void (*)(ae::Obj& object, ae::Obj& walk_root,
+                                       std::vector<ae::Obj*>& stack);
+
+void RegisterLiveGraphEdgeAppender(LiveGraphEdgeAppender appender);
+
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
 void CollectReachableObjectsFromLiveFields(ae::Obj& root,
                                            std::vector<ae::Obj*>& out);

@@ -19,6 +19,7 @@
 
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
 
 namespace apptraverse {
 
@@ -55,6 +56,7 @@ void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
 
 void SurfacesModelSession::Run(
     std::function<void(SurfacesPublicationKind)> on_published) {
+  EnsureSurfacesRegistration();
   presentation_size_queue.BindPostWork(
       [this](ModelObjectProxy::ModelWork work) { Post(std::move(work)); });
 
@@ -131,6 +133,13 @@ void SurfacesModelSession::Run(
 
       if (draining) {
         continue;
+      }
+
+      {
+        std::lock_guard<std::mutex> lock{mu};
+        if (stop || pending_dirty.empty() || channel.is_publication_busy()) {
+          continue;
+        }
       }
 
       // Publish at most one structural snapshot while the channel is free.
