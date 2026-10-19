@@ -278,7 +278,10 @@ void SurfacesShutdownTrace::LogStorageStoreStats(
 
     std::uint64_t layers_written, std::uint64_t layers_skipped_unchanged,
 
-    std::uint64_t layers_written_bytes, std::uint64_t layers_failed_commits) {
+    std::uint64_t layers_written_bytes, std::uint64_t layers_failed_commits,
+    std::uint64_t layers_compare_bytes_read,
+    std::uint64_t layers_size_mismatch_writes,
+    std::uint64_t layers_new_file_writes) {
 
   if (!TraceEnabled()) {
 
@@ -296,7 +299,31 @@ void SurfacesShutdownTrace::LogStorageStoreStats(
 
             << " layers_written_bytes=" << layers_written_bytes
 
-            << " layers_failed_commits=" << layers_failed_commits << '\n';
+            << " layers_failed_commits=" << layers_failed_commits
+
+            << " layers_compare_bytes_read=" << layers_compare_bytes_read
+
+            << " layers_size_mismatch_writes=" << layers_size_mismatch_writes
+
+            << " layers_new_file_writes=" << layers_new_file_writes << '\n';
+
+}
+
+
+
+void SurfacesShutdownTrace::LogSaveCallPhases(std::int64_t owning_ptr_ms,
+
+                                              std::int64_t save_root_ms) {
+
+  if (!TraceEnabled()) {
+
+    return;
+
+  }
+
+  std::cerr << "surfaces_shutdown_trace save_call_phases owning_ptr_ms="
+
+            << owning_ptr_ms << " save_root_ms=" << save_root_ms << '\n';
 
 }
 

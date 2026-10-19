@@ -4044,5 +4044,36 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **`win32_surfaces_demo.exe`** SHA256: **`CF0A3DC269875D7657D775F7DB5F17F4971D2CDB82EB44FC36A27C42EA49A8B5`**
 - **`apptraverse_surfaces_model_test`**: **NOT RUN** full suite this pass (long-journal shutdown save can exceed practical local timeout; prior baseline **4605 ms** > 4000 ms on Add timing remains a known FAIL).
 
+## Long-journal shutdown save hang (2026-10-19, baseline **`f21c75f`**)
+
+### Symptom (FAIL/TIMEOUT, not PASS)
+`TestAddOnSecondSurfaceWhileFirstHasLongJournal`: Add ~**3100 ms**, then **~3 min** stuck after `application_save_start` (no `application_save_end`; process killed).
+
+### Root cause (profiled)
+Shutdown `Application::Save()` on a graph with **~10k retained journal Events** produces **~30k layer `Store` commits** (separate on-disk object layers + updated Node). `DirectoryDomainStorage` **read every existing layer file in full** before compare/write, and used **tmp+rename for every new layer**. Wall time was dominated by **per-layer full-file read + create/write** (I/O), not `Ptr::DecrementGraphCount` / graph teardown (RAM baseline: save **~23 ms**, destroy **~300 ms** @ 10k events vs Directory save **~49 s**).
+
+### Fix (minimal, Save/Load contract unchanged)
+- **Size mismatch fast path**: if on-disk `file_size != buffer.size()`, **write without reading** the old payload.
+- **New layer fast path**: if the layer file does not exist, **direct trunc write** (no `.tmp`+`rename`).
+- Same-size skip still does one bounded read/compare (retention + correctness preserved).
+- Session stats: `layers_compare_bytes_read`, `layers_new_file_writes`, `layers_size_mismatch_writes`; trace logs `save_call_phases owning_ptr_ms / save_root_ms`.
+- Isolated target: **`apptraverse_surfaces_long_journal_save_test`**.
+
+### Measurements after fix (Release `build-presenter-decomp-msvc-rel`)
+| Events | RAM save | RAM destroy | Directory save | layer stores | disk written | compare bytes read |
+|--------|----------|-------------|----------------|--------------|--------------|---------------------|
+| 100 | 0 ms | 0 ms | 306 ms | 374 | 4162 B | 591 B |
+| 1000 | 1 ms | 5 ms | 3646 ms | 3074 | 41 KB | 591 B |
+| 10000 | 23 ms | 300 ms | **49386 ms** | **30074** | **410 KB** | **591 B** |
+
+Long-journal scenario (10k seed + Add sibling + shutdown): **add_ms=3000**, **shutdown_join_ms=46349**, **`application_save_end` observed**, exit **0**; cold reload + second Commit/save **PASS** (`apptraverse_surfaces_long_journal_save_test`, CTest **147 s**).
+
+### Verified this pass
+- **`apptraverse_directory_domain_storage_test`**: PASS
+- **`apptraverse_surfaces_long_journal_save_test`**: PASS (CTest)
+- **`apptraverse_surfaces_model_test`**: full suite **not re-run** here (local direct launch returned exit **3** without diagnostics; main list unchanged — not truncated)
+
+Remaining cost is **linear in retained Events** (~30k new layer files on first durable flush — expected for current object-per-Event persistence); not masked with timeout/ExitProcess/skip-save.
+
 ### Roadmap
 - **`docs/library_roadmap.md`**: platform ports → optional Æther components → AeroAdmin (not started).

@@ -100,6 +100,48 @@ LayerFileRead ReadExistingLayerFile(std::filesystem::path const& path) {
 
 
 
+bool WriteNewLayerFile(std::filesystem::path const& path,
+
+                       std::vector<std::uint8_t> const& bytes) {
+
+  std::error_code ec;
+
+  std::filesystem::create_directories(path.parent_path(), ec);
+
+  if (ec) {
+
+    return false;
+
+  }
+
+  std::ofstream out{path, std::ios::out | std::ios::binary | std::ios::trunc};
+
+  if (!out) {
+
+    return false;
+
+  }
+
+  if (!bytes.empty()) {
+
+    out.write(reinterpret_cast<char const*>(bytes.data()),
+
+              static_cast<std::streamsize>(bytes.size()));
+
+    if (!out) {
+
+      return false;
+
+    }
+
+  }
+
+  return static_cast<bool>(out);
+
+}
+
+
+
 bool ReplaceLayerFile(std::filesystem::path const& path,
 
                       std::vector<std::uint8_t> const& bytes) {
@@ -244,6 +286,122 @@ class CompareOnCloseDirectoryStorageWriter final : public ae::IDomainStorageWrit
 
     committed_ = true;
 
+    std::error_code ec;
+
+    bool const file_exists =
+
+        std::filesystem::is_regular_file(path_, ec) && !ec;
+
+    if (!file_exists) {
+
+      if (!WriteNewLayerFile(path_, buffer_)) {
+
+        failed_ = true;
+
+        if (owner_ != nullptr) {
+
+          owner_->RecordLayerCommit(
+
+              DirectoryDomainStorage::LayerCommitOutcome::kFailed, 0);
+
+        }
+
+        return;
+
+      }
+
+      if (owner_ != nullptr) {
+
+        owner_->RecordLayerNewFileWrite();
+
+        owner_->RecordLayerCommit(
+
+            DirectoryDomainStorage::LayerCommitOutcome::kWritten,
+
+            buffer_.size());
+
+      }
+
+      return;
+
+    }
+
+    if (buffer_.empty()) {
+
+      auto const disk_size = std::filesystem::file_size(path_, ec);
+
+      if (!ec && disk_size == 0) {
+
+        if (owner_ != nullptr) {
+
+          owner_->RecordLayerCommit(
+
+              DirectoryDomainStorage::LayerCommitOutcome::kSkippedUnchanged, 0);
+
+        }
+
+        return;
+
+      }
+
+    }
+
+    auto const disk_size = std::filesystem::file_size(path_, ec);
+
+    if (ec) {
+
+      failed_ = true;
+
+      if (owner_ != nullptr) {
+
+        owner_->RecordLayerCommit(
+
+            DirectoryDomainStorage::LayerCommitOutcome::kFailed, 0);
+
+      }
+
+      return;
+
+    }
+
+    if (disk_size != buffer_.size()) {
+
+      if (owner_ != nullptr) {
+
+        owner_->RecordLayerSizeMismatchWrite();
+
+      }
+
+      if (!ReplaceLayerFile(path_, buffer_)) {
+
+        failed_ = true;
+
+        if (owner_ != nullptr) {
+
+          owner_->RecordLayerCommit(
+
+              DirectoryDomainStorage::LayerCommitOutcome::kFailed, 0);
+
+        }
+
+        return;
+
+      }
+
+      if (owner_ != nullptr) {
+
+        owner_->RecordLayerCommit(
+
+            DirectoryDomainStorage::LayerCommitOutcome::kWritten,
+
+            buffer_.size());
+
+      }
+
+      return;
+
+    }
+
     LayerFileRead const existing_read = ReadExistingLayerFile(path_);
 
     if (existing_read.status == LayerFileReadStatus::kReadError) {
@@ -252,9 +410,9 @@ class CompareOnCloseDirectoryStorageWriter final : public ae::IDomainStorageWrit
 
       if (owner_ != nullptr) {
 
-        owner_->RecordLayerCommit(DirectoryDomainStorage::LayerCommitOutcome::kFailed,
+        owner_->RecordLayerCommit(
 
-                                  0);
+            DirectoryDomainStorage::LayerCommitOutcome::kFailed, 0);
 
       }
 
@@ -262,11 +420,13 @@ class CompareOnCloseDirectoryStorageWriter final : public ae::IDomainStorageWrit
 
     }
 
-    std::vector<std::uint8_t> const& existing = existing_read.bytes;
+    if (owner_ != nullptr) {
 
-    bool const had_file = existing_read.status != LayerFileReadStatus::kNotFound;
+      owner_->RecordLayerCompareRead(existing_read.bytes.size());
 
-    if (had_file && existing == buffer_) {
+    }
+
+    if (existing_read.bytes == buffer_) {
 
       if (owner_ != nullptr) {
 
@@ -286,9 +446,9 @@ class CompareOnCloseDirectoryStorageWriter final : public ae::IDomainStorageWrit
 
       if (owner_ != nullptr) {
 
-        owner_->RecordLayerCommit(DirectoryDomainStorage::LayerCommitOutcome::kFailed,
+        owner_->RecordLayerCommit(
 
-                                  0);
+            DirectoryDomainStorage::LayerCommitOutcome::kFailed, 0);
 
       }
 
@@ -441,6 +601,42 @@ void DirectoryDomainStorage::RecordLayerBytesAccepted(std::size_t bytes) {
   if (save_session_active_) {
 
     save_session_stats_.layers_bytes_accepted += bytes;
+
+  }
+
+}
+
+
+
+void DirectoryDomainStorage::RecordLayerCompareRead(std::size_t bytes) {
+
+  if (save_session_active_) {
+
+    save_session_stats_.layers_compare_bytes_read += bytes;
+
+  }
+
+}
+
+
+
+void DirectoryDomainStorage::RecordLayerSizeMismatchWrite() {
+
+  if (save_session_active_) {
+
+    ++save_session_stats_.layers_size_mismatch_writes;
+
+  }
+
+}
+
+
+
+void DirectoryDomainStorage::RecordLayerNewFileWrite() {
+
+  if (save_session_active_) {
+
+    ++save_session_stats_.layers_new_file_writes;
 
   }
 

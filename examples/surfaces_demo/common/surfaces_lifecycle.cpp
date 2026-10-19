@@ -6,6 +6,7 @@
 #include "surfaces_distill.h"
 #endif
 
+#include <chrono>
 #include <optional>
 
 #include "apptraverse/directory_domain_storage.h"
@@ -87,7 +88,20 @@ void ConfigureSurfacesDemoModelSession(SurfacesModelSession& session) {
     SurfacesShutdownTrace::MarkApplicationSaveStart();
   };
   session.config.persist_root = [](ae::Obj& root) {
-    Application::ptr::MakeFromThis(static_cast<Application*>(&root)).Save();
+    using Clock = std::chrono::steady_clock;
+    auto const ptr_start = Clock::now();
+    Application::ptr app =
+        Application::ptr::MakeFromThis(static_cast<Application*>(&root));
+    auto const save_start = Clock::now();
+    app.Save();
+    auto const save_end = Clock::now();
+    SurfacesShutdownTrace::LogSaveCallPhases(
+        std::chrono::duration_cast<std::chrono::milliseconds>(save_start -
+                                                              ptr_start)
+            .count(),
+        std::chrono::duration_cast<std::chrono::milliseconds>(save_end -
+                                                              save_start)
+            .count());
   };
   session.config.on_save_end = [](ae::Obj&, DirectoryDomainStorage& durable) {
     SurfacesShutdownTrace::MarkApplicationSaveEnd();
@@ -96,7 +110,10 @@ void ConfigureSurfacesDemoModelSession(SurfacesModelSession& session) {
     SurfacesShutdownTrace::LogStorageStoreStats(
         store_stats.layer_store_calls, store_stats.layers_bytes_accepted,
         store_stats.layers_written, store_stats.layers_skipped_unchanged,
-        store_stats.layers_written_bytes, store_stats.layers_failed_commits);
+        store_stats.layers_written_bytes, store_stats.layers_failed_commits,
+        store_stats.layers_compare_bytes_read,
+        store_stats.layers_size_mismatch_writes,
+        store_stats.layers_new_file_writes);
     SurfacesShutdownTrace::MarkApplicationGraphTeardownStart();
   };
 }

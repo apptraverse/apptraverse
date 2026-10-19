@@ -162,6 +162,8 @@ void TestModelAdd() {
   Surface* const surface1 = &*surfaces.surfaces[0];
   auto const surface1_id = surface1->obj_id;
   auto const journal_before = surfaces.journal.size();
+  CHECK(surfaces.host_application != nullptr);
+  CHECK(surfaces.platform_attach != nullptr);
 
   surface1->AddSurface();
 
@@ -1038,6 +1040,7 @@ void TestAddOnSecondSurfaceWhileFirstHasLongJournal() {
 
   session.RequestStop();
   model.join();
+  CHECK(session.shutdown_exit_code == 0);
   std::filesystem::remove_all(dir);
 }
 

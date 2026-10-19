@@ -18,6 +18,10 @@ struct DirectoryDomainStorageStoreStats {
   std::size_t layers_skipped_unchanged{0};
   std::size_t layers_written_bytes{0};
   std::size_t layers_failed_commits{0};
+  // Full layer file reads done only for same-size compare-before-skip.
+  std::size_t layers_compare_bytes_read{0};
+  std::size_t layers_size_mismatch_writes{0};
+  std::size_t layers_new_file_writes{0};
 };
 
 class DirectoryDomainStorage final : public ae::IDomainStorage {
@@ -47,6 +51,9 @@ class DirectoryDomainStorage final : public ae::IDomainStorage {
   LayerCommitOutcome TakeLastLayerCommitOutcome();
 
   void RecordLayerBytesAccepted(std::size_t bytes);
+  void RecordLayerCompareRead(std::size_t bytes);
+  void RecordLayerSizeMismatchWrite();
+  void RecordLayerNewFileWrite();
   void RecordLayerCommit(LayerCommitOutcome outcome, std::size_t disk_bytes);
 
  private:

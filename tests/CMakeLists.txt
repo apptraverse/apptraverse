@@ -763,6 +763,32 @@ add_custom_target(apptraverse_surfaces_headless_check
   COMMENT "Surfaces common model headless checks"
 )
 
+add_executable(apptraverse_surfaces_long_journal_save_test
+  surfaces_long_journal_save_test.cpp
+  surfaces_test_presentation.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_distill.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
+)
+
+target_compile_definitions(apptraverse_surfaces_long_journal_save_test PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+
+target_link_libraries(apptraverse_surfaces_long_journal_save_test PRIVATE
+  apptraverse_surfaces
+)
+
+target_include_directories(apptraverse_surfaces_long_journal_save_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+  ${CMAKE_SOURCE_DIR}/tests
+)
+
+add_test(
+  NAME apptraverse_surfaces_long_journal_save_test
+  COMMAND apptraverse_surfaces_long_journal_save_test
+)
+
 endif() # APPTRAVERSE_BUILD_EXAMPLES
 
 if(WIN32)
