@@ -1,5 +1,5 @@
 #include "apptraverse/noninteractive_crt.h"
-#include "win32_fatal.h"
+#include "apptraverse/platform/windows/win32_fatal.h"
 
 #include <cstdio>
 

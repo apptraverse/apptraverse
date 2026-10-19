@@ -49,6 +49,8 @@ add_test(
   COMMAND apptraverse_event_sourced_core_test
 )
 
+if(APPTRAVERSE_BUILD_EXAMPLES)
+
 add_executable(apptraverse_shared_node_foundation_test
   shared_node_foundation_test.cpp
 )
@@ -750,11 +752,33 @@ add_custom_target(apptraverse_surfaces_headless_check
   COMMENT "Surfaces common model headless checks"
 )
 
+endif() # APPTRAVERSE_BUILD_EXAMPLES
+
 if(WIN32)
+  add_executable(apptraverse_surfaces_win32_library_consumer_test
+    surfaces_win32_library_consumer_test.cpp
+    surfaces_win32_library_consumer_presentation.cpp
+  )
+  target_link_libraries(apptraverse_surfaces_win32_library_consumer_test PRIVATE
+    apptraverse_surfaces_windows
+    user32
+    gdi32
+  )
+  target_include_directories(apptraverse_surfaces_win32_library_consumer_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+  )
+  if(MSVC)
+    target_compile_options(apptraverse_surfaces_win32_library_consumer_test PRIVATE /utf-8)
+  endif()
+  add_test(
+    NAME apptraverse_surfaces_win32_library_consumer_test
+    COMMAND apptraverse_surfaces_win32_library_consumer_test
+  )
+
+  if(APPTRAVERSE_BUILD_EXAMPLES)
   add_executable(apptraverse_surfaces_win32_smoke_test
     surfaces_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows/win_app.cpp
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
   )
@@ -777,6 +801,9 @@ if(WIN32)
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
   )
+  target_link_libraries(apptraverse_surfaces_win32_smoke_test PRIVATE
+    apptraverse_ui_windows
+  )
   if(MSVC)
     target_compile_options(apptraverse_surfaces_win32_smoke_test PRIVATE /utf-8)
   endif()
@@ -790,9 +817,10 @@ if(WIN32)
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Surfaces Windows multi-window smoke"
   )
+  endif() # APPTRAVERSE_BUILD_EXAMPLES
 endif()
 
-if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
+if(APPTRAVERSE_BUILD_EXAMPLES AND UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
   add_executable(apptraverse_surfaces_linux_smoke_test
@@ -827,7 +855,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   )
 endif()
 
-if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+if(APPTRAVERSE_BUILD_EXAMPLES AND APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   enable_language(OBJCXX)
   set_source_files_properties(
     surfaces_macos_smoke_test.mm
@@ -891,6 +919,7 @@ add_test(
   COMMAND apptraverse_presenter_load_order_test
 )
 
+if(APPTRAVERSE_BUILD_EXAMPLES)
 add_custom_target(apptraverse_dynamic_objects_headless_check
   COMMAND $<TARGET_FILE:apptraverse_dynamic_objects_add_test>
   COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
@@ -902,8 +931,10 @@ add_custom_target(apptraverse_dynamic_objects_headless_check
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Dynamic objects Add Item headless checks"
 )
+endif()
 
 if(WIN32)
+  if(APPTRAVERSE_BUILD_EXAMPLES)
   # Windows CreateProcess parent. Debug binary (not NDEBUG): aether-objects
   # Factory layout is #ifndef NDEBUG. Missing Application is still abort().
   add_executable(apptraverse_main_window_missing_load_test
@@ -918,10 +949,18 @@ if(WIN32)
     COMMAND apptraverse_main_window_missing_load_test
   )
 
+  add_custom_command(TARGET apptraverse_main_window_headless_check POST_BUILD
+    COMMAND $<TARGET_FILE:apptraverse_main_window_missing_load_test>
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  )
+  add_dependencies(apptraverse_main_window_headless_check
+    apptraverse_main_window_missing_load_test
+  )
+  endif() # APPTRAVERSE_BUILD_EXAMPLES
+
   # Isolated FatalWin32 + WriteFatalStderr with NDEBUG. No aether-objects.
   add_executable(apptraverse_win32_fatal_ndebug_child
     win32_fatal_ndebug_child.cpp
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
     ${CMAKE_SOURCE_DIR}/src/noninteractive_crt.cpp
   )
   target_compile_definitions(apptraverse_win32_fatal_ndebug_child PRIVATE
@@ -929,9 +968,9 @@ if(WIN32)
   )
   target_include_directories(apptraverse_win32_fatal_ndebug_child PRIVATE
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
   )
   target_link_libraries(apptraverse_win32_fatal_ndebug_child PRIVATE
+    apptraverse_ui_windows
     apptraverse_compile_policy
   )
 
@@ -952,14 +991,6 @@ if(WIN32)
     COMMAND apptraverse_win32_fatal_ndebug_test
   )
 
-  add_custom_command(TARGET apptraverse_main_window_headless_check POST_BUILD
-    COMMAND $<TARGET_FILE:apptraverse_main_window_missing_load_test>
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-  )
-  add_dependencies(apptraverse_main_window_headless_check
-    apptraverse_main_window_missing_load_test
-  )
-
   add_custom_target(apptraverse_win32_fatal_ndebug_check
     COMMAND $<TARGET_FILE:apptraverse_win32_fatal_ndebug_test>
     DEPENDS apptraverse_win32_fatal_ndebug_test
@@ -967,7 +998,7 @@ if(WIN32)
     COMMENT "Isolated FatalWin32 NDEBUG helper check"
   )
 
-  if(APPTRAVERSE_BUILD_AETHER_DEMOS)
+  if(APPTRAVERSE_BUILD_EXAMPLES AND APPTRAVERSE_BUILD_AETHER_DEMOS)
   add_executable(apptraverse_chat_win32_ui_smoke_test
     chat_win32_ui_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows/win_presenters.cpp
@@ -1002,10 +1033,10 @@ if(WIN32)
       chat_windows_smoke_test.cpp
       ${CMAKE_SOURCE_DIR}/examples/chat_demo/windows/win_chat_app.cpp
       ${CMAKE_SOURCE_DIR}/examples/chat_demo/windows/app.manifest
-      ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
     )
     target_link_libraries(apptraverse_chat_windows_smoke_test PRIVATE
       chat_demo_runtime
+      apptraverse_ui_windows
       user32
       gdi32
       comctl32
@@ -1027,13 +1058,13 @@ if(WIN32)
       COMMAND apptraverse_chat_windows_smoke_test
     )
   endif()
-  endif() # APPTRAVERSE_BUILD_AETHER_DEMOS
+  endif() # APPTRAVERSE_BUILD_EXAMPLES AND APPTRAVERSE_BUILD_AETHER_DEMOS
 
+  if(APPTRAVERSE_BUILD_EXAMPLES)
   add_executable(apptraverse_main_window_win32_smoke_test
     main_window_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_app.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_presenters.cpp
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
   )
 
@@ -1045,6 +1076,7 @@ if(WIN32)
 
   target_link_libraries(apptraverse_main_window_win32_smoke_test PRIVATE
     main_window_runtime_demo_model
+    apptraverse_ui_windows
     user32
     gdi32
   )
@@ -1079,7 +1111,6 @@ if(WIN32)
     dynamic_objects_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows/win_app.cpp
     ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows/win_presenters.cpp
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
     ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/common/dynamic_lifecycle.cpp
   )
 
@@ -1091,6 +1122,7 @@ if(WIN32)
 
   target_link_libraries(apptraverse_dynamic_objects_win32_smoke_test PRIVATE
     dynamic_objects_demo_distill
+    apptraverse_ui_windows
     user32
     gdi32
   )
@@ -1125,10 +1157,10 @@ if(WIN32)
   add_executable(apptraverse_dynamic_two_main_win32_test
     dynamic_two_main_win32_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows/win_presenters.cpp
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
   )
   target_link_libraries(apptraverse_dynamic_two_main_win32_test PRIVATE
     dynamic_objects_demo_model
+    apptraverse_ui_windows
     user32
     gdi32
   )
@@ -1144,9 +1176,10 @@ if(WIN32)
     NAME apptraverse_dynamic_two_main_win32_test
     COMMAND apptraverse_dynamic_two_main_win32_test
   )
+  endif() # APPTRAVERSE_BUILD_EXAMPLES
 endif()
 
-if(UNIX AND NOT APPLE AND NOT ANDROID AND APPTRAVERSE_BUILD_AETHER_DEMOS)
+if(APPTRAVERSE_BUILD_EXAMPLES AND UNIX AND NOT APPLE AND NOT ANDROID AND APPTRAVERSE_BUILD_AETHER_DEMOS)
   if(TARGET chat_demo_aether)
     find_package(PkgConfig QUIET)
     if(PKG_CONFIG_FOUND)

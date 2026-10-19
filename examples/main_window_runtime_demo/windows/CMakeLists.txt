@@ -2,7 +2,6 @@ set(_main_window_win_sources
   main.cpp
   win_app.cpp
   win_presenters.cpp
-  win32_fatal.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/main_window_lifecycle.cpp
 )
 
@@ -16,6 +15,7 @@ add_executable(win32_main_window_runtime_demo_load_only ${_main_window_win_sourc
 foreach(_mw_demo win32_main_window_runtime_demo win32_main_window_runtime_demo_load_only)
   target_link_libraries(${_mw_demo} PRIVATE
     main_window_runtime_demo_model
+    apptraverse_ui_windows
     user32
     gdi32
   )

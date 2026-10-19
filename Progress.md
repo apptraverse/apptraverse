@@ -3999,3 +3999,26 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **`apptraverse_surfaces_win32_smoke_test`**: full stack round-trip (3/4 windows), two stacks with same top Surface different rest, remove-middle + add-new; logs `zorder_test … before_close/after_load`.
 - **`apptraverse_surfaces_model_test`**: PASS.
 - Demo EXE SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`**
+
+## Surfaces library independence (2026-10-19, baseline **`4c01acb`**)
+
+### Removed `examples/*` from library targets
+- **`FatalWin32`** moved to **`apptraverse_ui_windows`**: `include/apptraverse/platform/windows/win32_fatal.h`, `src/platform/windows/win32_fatal.cpp`.
+- **`apptraverse_surfaces_windows`**: no CMake include path under `examples/`; presenters include library fatal header only.
+- Examples/tests link **`apptraverse_ui_windows`** instead of compiling `examples/.../win32_fatal.cpp` (demo keeps **`win32_fatal.h`** shim → library header).
+
+### Minimal library consumer (no example `.cpp` in target)
+- **`apptraverse_surfaces_win32_library_consumer_test`**: builds graph in-test, host **`AttachPlatformSurfacePresenters`** in `tests/surfaces_win32_library_consumer_presentation.cpp`, library **`Win32Surface*Presenter`** only.
+- **`APPTRAVERSE_BUILD_EXAMPLES=OFF`**: configure + build consumer **PASS**; example-dependent CTest targets gated on **`APPTRAVERSE_BUILD_EXAMPLES`**.
+
+### Application contract (not universal API)
+- Documented in **`docs/surfaces_library_application_contract.md`**: host **`AttachPlatformSurfacePresenters`**, fixed **`surfaces_demo::ObjId::Application`** in **`Surface::AddSurface`**, Win32 class registration + non-null **`ModelObjectProxy`** for **`WM_SIZE`** during init.
+
+### Verified (Release `build-presenter-decomp-msvc-rel`)
+- **`apptraverse_surfaces_win32_library_consumer_test`**: **PASS** (examples OFF config).
+- **`apptraverse_surfaces_win32_smoke_test`**: **PASS** (Z-order, geometry, EN/RU, fast Add/close, **`load_only`**).
+- **`apptraverse_surfaces_model_test`**: one run **FAIL** timing `AddSurface with long journal` (**4605 ms** > 4000 ms threshold); unrelated to library CMake (retry if needed).
+
+### Artifacts
+- **`win32_surfaces_demo.exe`** SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`** (unchanged vs Z-order pass).
+- **`apptraverse_surfaces_win32_library_consumer_test.exe`** SHA256: **`1593CFAA0D6F92F9F855CDE13C6D7EBC3BB5A268CFB56F69D656B5EA5C1E6806`**

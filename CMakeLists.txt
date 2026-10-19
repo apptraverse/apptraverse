@@ -139,6 +139,7 @@ if(WIN32)
     src/platform/windows/win_ui_frame.cpp
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
+    src/platform/windows/win32_fatal.cpp
   )
   target_link_libraries(apptraverse_ui_windows PUBLIC apptraverse user32 gdi32 comctl32)
   target_include_directories(apptraverse_ui_windows PUBLIC
@@ -180,7 +181,6 @@ if(WIN32)
   )
   target_include_directories(apptraverse_surfaces_windows PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/examples/main_window_runtime_demo/windows
   )
   target_compile_features(apptraverse_surfaces_windows PUBLIC cxx_std_20)
 endif()
