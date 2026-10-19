@@ -3860,3 +3860,33 @@ Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-pres
 - `apptraverse_surfaces_model_test` OK (coalesce, stream+Add, two-session routing, journal timing).
 - `apptraverse_surfaces_win32_smoke_test` OK incl. long acceptance **`outer_rect_changes=0`**.
 - Demo EXE SHA256 **`E4241CD75E010F03345AE3713E92063428864D20D924CDC31BD08200BEC64242`** (`win32_surfaces_demo.exe`).
+
+---
+
+# UI publication decoupled from journal bytes (2026-10-19)
+
+Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-presenter-decomp`).
+
+## Removed / replaced
+- **No** `ClearReachableNodeHistoryForPublicationSave` + journal strip/restore on the publication save path (`SerializeObjectGraphToBuffer`, incremental node payload save).
+- Publication uses **`DomainGraph{…, MaterializedPublication}`** on the graph instance (`cmake/patches/aether-objects-local-persistent-load.patch` adds scope enum value `2`).
+
+## Semantics preserved
+- Disk checkpoint still uses full journal/base via existing persistent snapshot path (`SerializePersistentModelSnapshot`).
+- Live model: journal/base/generation untouched during publish; UI mirror gets empty historical fields via `FinalizeUiNodeState` after load.
+- **`Node::Save(v4)`** omits base/journal when scope is `MaterializedPublication`; **`ae::seri` `vector<EventRecord>`** writes empty journal without iterating retained entries.
+
+## `CollectLiveReachableObjects` (production)
+- **Live-field walk first** (`CollectReachableObjectsFromLiveFields` + nested reflect for `Surface.chrome` + vector edges).
+- **Materialized save merge** only for Save/Load-only ids not seen in the reflect walk (same completeness as save-only discovery, no journal bytes in scratch).
+- Avoid **`RecordMaterializedScratchStats` + `domain.Find` per scratch id** on hot paths (was ~1 s+ with large domains).
+
+## Measurements (Release `apptraverse_surfaces_model_test`, retained size events on one Surface)
+- `CollectReachableObjectsFromLiveFields`: stable ~0–2 ms (100 / 1000 / 10000).
+- Materialized scratch: **~19 objects**, **~412 layer bytes**, **0** historical `Event` objects in scratch @ 10k events.
+- `CollectLiveReachableObjects` p95 @ 10k: **~0.85 s** (down from ~1.3–2 s pre-change; still correlates with in-memory journal — save/merge cost, not serialized history size).
+- `SerializeStructuralNodePublication` p95 @ 10k: **~1.05 s** (wire size bounded; wall time still save-dominated).
+
+## Not verified this pass
+- Full Debug/Release smoke matrix re-run after journal patch (Release model test + journal regression updated; one intermittent `RunOnModel` 30 s timeout observed — re-run).
+- Manual 60 s + 45 s Release demo resize gate (prior long acceptance: **`outer_rect_changes=0`** on `3f2a9da` / bounded-drain commit).

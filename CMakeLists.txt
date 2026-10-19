@@ -92,6 +92,7 @@ add_library(apptraverse STATIC
   src/model_persistence.cpp
   src/model_object_proxy.cpp
   src/object_serialization.cpp
+  src/publication_serialization_scope.cpp
   src/ui_mirror.cpp
   src/model_runtime.cpp
   src/graph_mirror.cpp

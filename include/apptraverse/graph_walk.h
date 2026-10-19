@@ -52,6 +52,13 @@ void CallIfGraphEdgeObjPtr(LocalPtr<T>&, Fn&&) {}
 template <typename T, typename Fn>
 void CallIfGraphEdgeObjPtr(LocalPtr<T> const&, Fn&&) {}
 
+template <typename T, typename Fn>
+  requires(ae::reflect::Reflectable<T> &&
+           !std::is_base_of_v<ae::Obj, std::decay_t<T>>)
+void CallIfGraphEdgeObjPtr(T& value, Fn&& fn) {
+  ForEachReflectedGraphEdgeObjPtr(value, std::forward<Fn>(fn));
+}
+
 template <typename Fn>
 void CallIfGraphEdgeObjPtr(auto&, Fn&&) {}
 

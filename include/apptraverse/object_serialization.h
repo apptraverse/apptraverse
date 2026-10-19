@@ -28,6 +28,8 @@ class ModelObjectProxy;
 
 // Single-object layers for initial UI shells that already exist.
 void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out);
+void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out,
+                             ae::GraphSerializationScope scope);
 void DeserializeObjectFromBuffer(ae::Obj& object, ByteSource& in,
                                  ae::Domain& domain,
                                  ae::IDomainStorage& domain_storage);
@@ -92,6 +94,8 @@ using LiveGraphEdgeAppender = void (*)(ae::Obj& object, ae::Obj& walk_root,
 void RegisterLiveGraphEdgeAppender(LiveGraphEdgeAppender appender);
 
 void CollectReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out);
+void CollectMaterializedReachableObjects(ae::Obj& root,
+                                         std::vector<ae::Obj*>& out);
 void CollectReachableObjectsFromLiveFields(ae::Obj& root,
                                            std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);

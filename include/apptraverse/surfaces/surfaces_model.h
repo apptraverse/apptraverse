@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "aether-miscpp/reflect/reflect.h"
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/event_for.h"
@@ -34,6 +35,8 @@ struct SurfaceChromePresenters {
   ae::ObjPtr<Presenter> add_button;
   ae::ObjPtr<Presenter> close_button;
   ae::ObjPtr<Presenter> language_button;
+
+  AE_REFLECT_MEMBERS(window, add_button, close_button, language_button)
 };
 
 // Cascade initial outer-frame placement for a Surface before InitializeRuntimeNode
@@ -56,7 +59,7 @@ class Surface : public NodeFor<Surface> {
   AE_OBJECT_REFLECT(AE_MMBR(number), AE_MMBR(desktop_x), AE_MMBR(desktop_y),
                     AE_MMBR(desktop_width), AE_MMBR(desktop_height),
                     AE_MMBR(presentation_width), AE_MMBR(presentation_height),
-                    AE_MMBR(surfaces))
+                    AE_MMBR(surfaces), AE_MMBR(chrome))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {

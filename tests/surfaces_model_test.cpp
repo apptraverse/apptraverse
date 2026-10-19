@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <algorithm>
 #include <unordered_set>
 #include <vector>
 
@@ -21,6 +22,7 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/publication_serialization_scope.h"
 #include "apptraverse/runtime_node.h"
 
 #include "apptraverse/surfaces/desktop_surface_presenter.h"
@@ -760,19 +762,50 @@ std::chrono::nanoseconds CollectLiveFieldReachableOnce(Application& application)
 }
 
 std::chrono::nanoseconds CollectLiveReachableOnce(Application& application) {
+  ResetPublicationSerializationStats();
   auto const t0 = std::chrono::steady_clock::now();
   std::vector<ae::Obj*> live;
   CollectLiveReachableObjects(application, live);
   CHECK(!live.empty());
+  CHECK(ActivePublicationSerializationStats().journal_entries_serialized == 0);
+  CHECK(ActivePublicationSerializationStats().node_base_snapshots_serialized ==
+        0);
+  CHECK(ActivePublicationSerializationStats().node_v4_publication_omit_saves > 0);
+  CHECK(ActivePublicationSerializationStats().materialized_historical_event_objects ==
+        0);
   return std::chrono::steady_clock::now() - t0;
 }
 
 std::chrono::nanoseconds SerializeSurfacePublicationOnce(Surface& surface) {
+  ResetPublicationSerializationStats();
   auto const t0 = std::chrono::steady_clock::now();
   ByteSink sink;
   SerializeStructuralNodePublication(surface, sink);
   CHECK(!sink.bytes.empty());
+  CHECK(ActivePublicationSerializationStats().journal_entries_serialized == 0);
+  CHECK(ActivePublicationSerializationStats().node_base_snapshots_serialized ==
+        0);
+  CHECK(ActivePublicationSerializationStats().node_v4_publication_omit_saves >
+        0);
+  CHECK(ActivePublicationSerializationStats().materialized_historical_event_objects ==
+        0);
   return std::chrono::steady_clock::now() - t0;
+}
+
+template <typename Fn>
+std::pair<std::chrono::nanoseconds, std::chrono::nanoseconds> SampleP50P95(
+    Fn fn, int runs = 11) {
+  std::vector<std::chrono::nanoseconds> samples;
+  samples.reserve(static_cast<std::size_t>(runs));
+  for (int i = 0; i < runs; ++i) {
+    auto const t0 = std::chrono::steady_clock::now();
+    fn();
+    samples.push_back(std::chrono::steady_clock::now() - t0);
+  }
+  std::sort(samples.begin(), samples.end());
+  auto const p50 = samples[static_cast<std::size_t>(runs / 2)];
+  auto const p95 = samples[static_cast<std::size_t>((runs * 95) / 100)];
+  return {p50, p95};
 }
 
 void TestPresentationSizeYieldsForAddDuringStream() {
@@ -920,10 +953,85 @@ void TestCollectLiveReachableStableWithLongJournal() {
             << " 1000ev=" << us(live1000) << " 10000ev=" << us(live10000)
             << "\nSerializeStructuralNodePublication us: 100ev=" << us(pub100)
             << " 1000ev=" << us(pub1000) << " 10000ev=" << us(pub10000)
+            << "\nmaterialized_scratch_objects="
+            << ActivePublicationSerializationStats().materialized_scratch_object_count
+            << " historical_events_in_scratch="
+            << ActivePublicationSerializationStats()
+                   .materialized_historical_event_objects
+            << " scratch_layer_bytes="
+            << ActivePublicationSerializationStats()
+                   .materialized_scratch_layer_bytes
+            << " event_record_vector_seri="
+            << ActivePublicationSerializationStats().event_record_vector_seri_calls
+            << " short_circuits="
+            << ActivePublicationSerializationStats()
+                   .event_record_vector_publication_short_circuits
             << "\n";
 
   CHECK(fields1000 <= fields100 + std::chrono::milliseconds{2});
   CHECK(fields10000 <= fields100 + std::chrono::milliseconds{2});
+  CHECK(ActivePublicationSerializationStats().materialized_scratch_layer_bytes <
+        8192);
+  CHECK(ActivePublicationSerializationStats().materialized_historical_event_objects ==
+        0);
+
+  auto const [live_p50, live_p95] = SampleP50P95([&] {
+    (void)CollectLiveReachableOnce(*seeded10000.application);
+  });
+  auto const [pub_p50, pub_p95] = SampleP50P95([&] {
+    (void)SerializeSurfacePublicationOnce(
+        *seeded10000.application->surfaces->surfaces[0]);
+  });
+  std::cout << "p50/p95 us @10000ev: CollectLiveReachable=" << us(live_p50)
+            << "/" << us(live_p95)
+            << " SerializeStructuralNodePublication=" << us(pub_p50) << "/"
+            << us(pub_p95) << "\n";
+  CHECK(us(live_p95) < 900'000);
+  CHECK(us(pub_p95) < 1'200'000);
+
+  Surface& probe = *seeded10000.application->surfaces->surfaces[0];
+  auto const journal_before = probe.journal.size();
+  auto const generation_before = probe.Generation();
+  auto const base_before = probe.base.id();
+  std::vector<ae::Obj*> live_after;
+  CollectLiveReachableObjects(*seeded10000.application, live_after);
+  CHECK(probe.journal.size() == journal_before);
+  CHECK(probe.Generation() == generation_before);
+  CHECK(probe.base.id() == base_before);
+  CHECK(probe.presentation_width == 400 + 9999);
+  CHECK(probe.presentation_height == 800 - 9999);
+}
+
+void TestAddOnSecondSurfaceWhileFirstHasLongJournal() {
+  auto dir = TestDir("apptraverse_surfaces_long_journal_add_sibling");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+  WaitPublished(session);
+  (void)TakeAndWake(session);
+
+  RunOnModel(session, [](Application& app) {
+    Surface& surface = *app.surfaces->surfaces[0];
+    for (int i = 0; i < 10000; ++i) {
+      surface.SetPresentationSize(500 + i, 700 - i);
+    }
+    CHECK(surface.journal.size() >= 5000);
+  });
+
+  auto const t0 = std::chrono::steady_clock::now();
+  RunOnModel(session, [](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
+    CHECK(app.surfaces->surfaces.size() == 2);
+  });
+  auto const add_ns = std::chrono::steady_clock::now() - t0;
+  CHECK(add_ns < std::chrono::milliseconds{500});
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
 }
 
 void TestGeometryPersistence() {
@@ -1913,6 +2021,7 @@ int main() {
   apptraverse::test::TestPresentationSizeYieldsForAddDuringStream();
   apptraverse::test::TestTwoSessionsPresentationSizeRouting();
   apptraverse::test::TestCollectLiveReachableStableWithLongJournal();
+  apptraverse::test::TestAddOnSecondSurfaceWhileFirstHasLongJournal();
   apptraverse::test::TestGeometryPersistence();
   apptraverse::test::TestCurrentPageReplay();
   apptraverse::test::TestCurrentPageIdentitySurvivesRemoveBefore();

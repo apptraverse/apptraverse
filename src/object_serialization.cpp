@@ -1,4 +1,7 @@
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/publication_serialization_scope.h"
+#include "apptraverse/event.h"
+#include "apptraverse/surfaces/surfaces_model.h"
 
 #include <algorithm>
 #include <atomic>
@@ -92,15 +95,22 @@ void ApplyUiDesktopFrameRequestPresentation(ae::Obj& gui_root,
 #endif
 
 void SaveObjectGraphToScratch(ae::Obj const& object,
-                              ae::RamDomainStorage& scratch) {
+                              ae::RamDomainStorage& scratch,
+                              ae::GraphSerializationScope scope) {
   ae::Domain scratch_domain{scratch};
-  ae::DomainGraph graph{&scratch_domain};
+  ae::DomainGraph graph{&scratch_domain, scope};
   auto ptr = object.domain->Find(object.obj_id);
   assert(ptr);
   auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
   assert(factory != nullptr);
   assert(factory->save != nullptr);
   factory->save(&graph, ptr, object.obj_id);
+}
+
+void SaveObjectGraphToScratch(ae::Obj const& object,
+                              ae::RamDomainStorage& scratch) {
+  SaveObjectGraphToScratch(object, scratch,
+                           ae::GraphSerializationScope::LocalPersistent);
 }
 
 bool InjectObjectBytes(ae::IDomainStorage& storage, ae::DomainQuery const& query,
@@ -236,10 +246,16 @@ void LoadExistingObjectUnchecked(ae::Obj& object, ae::Domain& domain) {
 
 }  // namespace
 
-void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out) {
+void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out,
+                             ae::GraphSerializationScope scope) {
   ae::RamDomainStorage scratch;
-  SaveObjectGraphToScratch(object, scratch);
+  SaveObjectGraphToScratch(object, scratch, scope);
   AppendSavedObjectLayers(scratch, object.obj_id, out);
+}
+
+void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out) {
+  SerializeObjectToBuffer(object, out,
+                          ae::GraphSerializationScope::LocalPersistent);
 }
 
 void DeserializeObjectFromBuffer(ae::Obj& object, ByteSource& in,
@@ -466,11 +482,25 @@ void EnsurePersistentCheckpointBaseObjectsInScratch(
 }
 
 void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
+  ResetPublicationSerializationStats();
   ae::RamDomainStorage scratch;
-  std::vector<SavedNodeBookkeeping> saved_history;
-  ClearReachableNodeHistoryForPublicationSave(root, saved_history);
-  SaveObjectGraphToScratch(root, scratch);
-  RestoreReachableNodeHistory(saved_history);
+  SaveObjectGraphToScratch(
+      root, scratch, ae::GraphSerializationScope::MaterializedPublication);
+  std::uint64_t layer_bytes = 0;
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    for (auto const& [class_id, versions] : *class_map_opt) {
+      for (auto const& [version, data] : versions) {
+        layer_bytes += data.size();
+      }
+    }
+  }
+  detail::NoteMaterializedScratchObjectCount(scratch.state.size());
+  ActivePublicationSerializationStats().materialized_scratch_layer_bytes =
+      layer_bytes;
+  ActivePublicationSerializationStats().materialized_historical_event_objects = 0;
 
   std::unordered_set<std::uint32_t> distilled_base_ids;
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
@@ -542,11 +572,51 @@ void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
               sizeof(node_generation_count));
 }
 
+void CollectMaterializedReachableObjects(ae::Obj& root,
+                                         std::vector<ae::Obj*>& out) {
+  ae::RamDomainStorage scratch;
+  SaveObjectGraphToScratch(
+      root, scratch, ae::GraphSerializationScope::MaterializedPublication);
+  detail::NoteMaterializedScratchObjectCount(scratch.state.size());
+  out.clear();
+  out.reserve(scratch.state.size());
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    if (auto obj = root.domain->Find(obj_id)) {
+      out.push_back(&*obj);
+    }
+  }
+  RemoveDistilledBaseObjects(out);
+}
+
 void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
-  std::vector<SavedNodeBookkeeping> saved_history;
-  ClearReachableNodeHistoryForPublicationSave(root, saved_history);
-  CollectReachableObjects(root, out);
-  RestoreReachableNodeHistory(saved_history);
+  ResetPublicationSerializationStats();
+  CollectReachableObjectsFromLiveFields(root, out);
+  std::unordered_set<std::uint32_t> seen;
+  seen.reserve(out.size() + 16);
+  for (ae::Obj* obj : out) {
+    seen.insert(obj->obj_id.id());
+  }
+
+  ae::RamDomainStorage scratch;
+  SaveObjectGraphToScratch(
+      root, scratch, ae::GraphSerializationScope::MaterializedPublication);
+  detail::NoteMaterializedScratchObjectCount(scratch.state.size());
+  out.reserve(out.size() + scratch.state.size());
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    if (!seen.insert(obj_id.id()).second) {
+      continue;
+    }
+    if (auto obj = root.domain->Find(obj_id)) {
+      out.push_back(&*obj);
+    }
+  }
+  RemoveDistilledBaseObjects(out);
 }
 
 Node* FindLiveReachableNode(ae::Obj& root, std::uint32_t object_id) {
@@ -572,7 +642,8 @@ void SerializeIncrementalNodePublication(Node const& node, ByteSink& out) {
   auto const object_id = node.obj_id.id();
   auto const generation = node.Generation();
   ByteSink payload;
-  SerializeObjectToBuffer(node, payload);
+  SerializeObjectToBuffer(node, payload,
+                          ae::GraphSerializationScope::MaterializedPublication);
   auto const payload_size = static_cast<std::uint32_t>(payload.bytes.size());
   out.write(&object_id, sizeof(object_id));
   out.write(&generation, sizeof(generation));

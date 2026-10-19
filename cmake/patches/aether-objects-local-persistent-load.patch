@@ -144,6 +144,9 @@ index dbeab19..4cc911d 100644
 +enum class GraphSerializationScope : std::uint8_t {
 +  LocalPersistent = 0,
 +  NetworkShared = 1,
++  // UI structural/incremental publication: materialized fields only; Node
++  // historical base/journal must not expand the Save walk.
++  MaterializedPublication = 2,
 +};
 +
  /**

@@ -17,9 +17,11 @@
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/event_record.h"
+#include "apptraverse/event_record_publication_seri.h"
 #include "apptraverse/journal_retention_policy.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/publication_serialization_scope.h"
 
 namespace apptraverse {
 
@@ -77,6 +79,14 @@ class Node : public ae::Obj {
 
   template <typename Dnv>
   void Save(ae::Version<4>, Dnv& dnv) const {
+    if (detail::OmitNodeHistoryForPublication(dnv)) {
+      detail::NoteNodeV4PublicationOmitSave();
+      SharedPtr<Node> empty_base{};
+      static std::vector<EventRecord> const kEmptyJournal{};
+      dnv(base_, empty_base, kEmptyJournal);
+      return;
+    }
+    detail::NoteNodeHistorySerialized(journal.size(), base.is_valid());
     dnv(base_, base, journal);
   }
 
