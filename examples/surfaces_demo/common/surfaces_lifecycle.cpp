@@ -86,7 +86,8 @@ void SurfacesModelSession::Run(
     std::optional<InstrumentedDomainStorage> instrumented_storage;
     ae::IDomainStorage* storage = &durable_storage;
     if (SurfacesShutdownTrace::Enabled()) {
-      instrumented_storage.emplace(durable_storage, durable_storage.root());
+      instrumented_storage.emplace(durable_storage, durable_storage.root(),
+                                   &durable_storage);
       storage = &*instrumented_storage;
     }
     ae::Domain domain{*storage};
@@ -197,26 +198,28 @@ void SurfacesModelSession::Run(
     ClearLiveReachableNodesMaterializedChangeNotifier(*application);
     SurfacesShutdownTrace::MarkClearLiveNotifiersDone();
 
-    struct StoreStatsGuard {
-      DirectoryDomainStorageStoreStats stats{};
-      StoreStatsGuard() { SetDirectoryDomainStorageStoreStats(&stats); }
-      ~StoreStatsGuard() { TakeDirectoryDomainStorageStoreStats(); }
-    } store_stats_guard;
+    durable_storage.BeginSaveSession();
     SurfacesShutdownTrace::MarkApplicationSaveStart();
     application.Save();
     SurfacesShutdownTrace::MarkApplicationSaveEnd();
+    DirectoryDomainStorageStoreStats const store_stats =
+        durable_storage.SnapshotSaveSessionStats();
+    if (durable_storage.SaveSessionHadFailure()) {
+      shutdown_exit_code = 1;
+    }
     SurfacesShutdownTrace::LogStorageStoreStats(
-        store_stats_guard.stats.layer_store_calls,
-        store_stats_guard.stats.layers_written,
-        store_stats_guard.stats.layers_skipped_unchanged,
-        store_stats_guard.stats.layers_written_bytes);
+        store_stats.layer_store_calls, store_stats.layers_bytes_accepted,
+        store_stats.layers_written, store_stats.layers_skipped_unchanged,
+        store_stats.layers_written_bytes, store_stats.layers_failed_commits);
     if (instrumented_storage) {
       InstrumentedDomainStorageStats const save_stats =
           instrumented_storage->SnapshotStats();
       SurfacesShutdownTrace::LogInstrumentedSaveStats(
-          save_stats.store_calls, save_stats.store_bytes,
-          save_stats.store_new_layers, save_stats.store_overwrite_layers,
-          save_stats.store_skipped_unchanged_layers);
+          save_stats.store_calls, save_stats.store_bytes_accepted,
+          save_stats.store_disk_bytes_written, save_stats.store_new_layers,
+          save_stats.store_overwrite_layers,
+          save_stats.store_skipped_unchanged_layers,
+          save_stats.store_failed_commits);
     }
     SurfacesShutdownTrace::MarkApplicationGraphTeardownStart();
   }

@@ -36,6 +36,8 @@ struct SurfacesModelSession {
   std::mutex mu;
   std::condition_variable cv;
   bool stop{false};
+  // Non-zero when shutdown Save could not commit durable state.
+  int shutdown_exit_code{0};
   std::deque<ModelWork> pending_work;
   SurfacesPresentationSizeQueue presentation_size_queue;
 

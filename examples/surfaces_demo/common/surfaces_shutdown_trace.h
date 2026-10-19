@@ -29,15 +29,19 @@ class SurfacesShutdownTrace {
   static void MarkProcessExit();
 
   static void LogStorageStoreStats(std::uint64_t layer_store_calls,
+                                   std::uint64_t layers_bytes_accepted,
                                    std::uint64_t layers_written,
                                    std::uint64_t layers_skipped_unchanged,
-                                   std::uint64_t layers_written_bytes);
+                                   std::uint64_t layers_written_bytes,
+                                   std::uint64_t layers_failed_commits);
 
   static void LogInstrumentedSaveStats(std::uint64_t store_calls,
-                                       std::uint64_t store_bytes,
+                                       std::uint64_t store_bytes_accepted,
+                                       std::uint64_t store_disk_bytes_written,
                                        std::uint64_t store_new_layers,
                                        std::uint64_t store_overwrite_layers,
-                                       std::uint64_t store_skipped_unchanged_layers);
+                                       std::uint64_t store_skipped_unchanged_layers,
+                                       std::uint64_t store_failed_commits);
 
   static void FlushSummary();
 
@@ -46,6 +50,7 @@ class SurfacesShutdownTrace {
   static Clock::time_point Origin();
   static Clock::time_point close_requested_;
   static Clock::time_point close_ui_state_queued_;
+  static Clock::time_point clear_live_notifiers_done_;
   static Clock::time_point model_drained_;
   static Clock::time_point save_start_;
   static Clock::time_point save_end_;
@@ -56,6 +61,8 @@ class SurfacesShutdownTrace {
   static Clock::time_point windows_gone_;
   static bool origin_set_;
   static bool close_requested_set_;
+  static bool close_ui_state_queued_set_;
+  static bool clear_live_notifiers_done_set_;
   static bool model_drained_set_;
   static bool save_start_set_;
   static bool save_end_set_;

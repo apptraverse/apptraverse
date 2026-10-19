@@ -293,7 +293,7 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
     DWORD const err = GetLastError();
     FatalWin32("CloseHandle done_event", err);
   }
-  return 0;
+  return session_.shutdown_exit_code;
 }
 
 }  // namespace apptraverse

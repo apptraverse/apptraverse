@@ -54,6 +54,8 @@ SurfacesShutdownTrace::Clock::time_point SurfacesShutdownTrace::close_requested_
 
 SurfacesShutdownTrace::Clock::time_point SurfacesShutdownTrace::close_ui_state_queued_{};
 
+SurfacesShutdownTrace::Clock::time_point SurfacesShutdownTrace::clear_live_notifiers_done_{};
+
 SurfacesShutdownTrace::Clock::time_point SurfacesShutdownTrace::model_drained_{};
 
 SurfacesShutdownTrace::Clock::time_point SurfacesShutdownTrace::save_start_{};
@@ -73,6 +75,10 @@ SurfacesShutdownTrace::Clock::time_point SurfacesShutdownTrace::windows_gone_{};
 bool SurfacesShutdownTrace::origin_set_{false};
 
 bool SurfacesShutdownTrace::close_requested_set_{false};
+
+bool SurfacesShutdownTrace::close_ui_state_queued_set_{false};
+
+bool SurfacesShutdownTrace::clear_live_notifiers_done_set_{false};
 
 bool SurfacesShutdownTrace::model_drained_set_{false};
 
@@ -146,6 +152,8 @@ void SurfacesShutdownTrace::MarkCloseUiStateQueued() {
 
   close_ui_state_queued_ = Clock::now();
 
+  close_ui_state_queued_set_ = true;
+
   Mark("close_ui_state_queued");
 
 }
@@ -165,6 +173,10 @@ void SurfacesShutdownTrace::MarkModelDrainedAcceptedTasks() {
 
 
 void SurfacesShutdownTrace::MarkClearLiveNotifiersDone() {
+
+  clear_live_notifiers_done_ = Clock::now();
+
+  clear_live_notifiers_done_set_ = true;
 
   Mark("clear_live_notifiers_done");
 
@@ -262,9 +274,11 @@ void SurfacesShutdownTrace::MarkProcessExit() { Mark("process_exit"); }
 
 void SurfacesShutdownTrace::LogStorageStoreStats(
 
-    std::uint64_t layer_store_calls, std::uint64_t layers_written,
+    std::uint64_t layer_store_calls, std::uint64_t layers_bytes_accepted,
 
-    std::uint64_t layers_skipped_unchanged, std::uint64_t layers_written_bytes) {
+    std::uint64_t layers_written, std::uint64_t layers_skipped_unchanged,
+
+    std::uint64_t layers_written_bytes, std::uint64_t layers_failed_commits) {
 
   if (!TraceEnabled()) {
 
@@ -274,11 +288,15 @@ void SurfacesShutdownTrace::LogStorageStoreStats(
 
   std::cerr << "surfaces_shutdown_trace save_store_stats layer_store_calls="
 
-            << layer_store_calls << " layers_written=" << layers_written
+            << layer_store_calls << " layers_bytes_accepted="
+
+            << layers_bytes_accepted << " layers_written=" << layers_written
 
             << " layers_skipped_unchanged=" << layers_skipped_unchanged
 
-            << " layers_written_bytes=" << layers_written_bytes << '\n';
+            << " layers_written_bytes=" << layers_written_bytes
+
+            << " layers_failed_commits=" << layers_failed_commits << '\n';
 
 }
 
@@ -286,11 +304,15 @@ void SurfacesShutdownTrace::LogStorageStoreStats(
 
 void SurfacesShutdownTrace::LogInstrumentedSaveStats(
 
-    std::uint64_t store_calls, std::uint64_t store_bytes,
+    std::uint64_t store_calls, std::uint64_t store_bytes_accepted,
 
-    std::uint64_t store_new_layers, std::uint64_t store_overwrite_layers,
+    std::uint64_t store_disk_bytes_written, std::uint64_t store_new_layers,
 
-    std::uint64_t store_skipped_unchanged_layers) {
+    std::uint64_t store_overwrite_layers,
+
+    std::uint64_t store_skipped_unchanged_layers,
+
+    std::uint64_t store_failed_commits) {
 
   if (!TraceEnabled()) {
 
@@ -300,7 +322,9 @@ void SurfacesShutdownTrace::LogInstrumentedSaveStats(
 
   std::cerr << "surfaces_shutdown_trace save_instrumented store_calls="
 
-            << store_calls << " store_bytes=" << store_bytes
+            << store_calls << " store_bytes_accepted=" << store_bytes_accepted
+
+            << " store_disk_bytes_written=" << store_disk_bytes_written
 
             << " store_new_layers=" << store_new_layers
 
@@ -308,7 +332,9 @@ void SurfacesShutdownTrace::LogInstrumentedSaveStats(
 
             << " store_skipped_unchanged_layers="
 
-            << store_skipped_unchanged_layers << '\n';
+            << store_skipped_unchanged_layers << " store_failed_commits="
+
+            << store_failed_commits << '\n';
 
 }
 
@@ -336,6 +362,38 @@ void SurfacesShutdownTrace::FlushSummary() {
 
   }
 
+  if (close_requested_set_ && close_ui_state_queued_set_) {
+
+    std::cerr << "surfaces_shutdown_trace summary close_to_ui_state_queued_ms="
+
+              << MsBetween(close_requested_, close_ui_state_queued_) << '\n';
+
+  }
+
+  if (close_ui_state_queued_set_ && model_drained_set_) {
+
+    std::cerr << "surfaces_shutdown_trace summary ui_state_queued_to_model_drained_ms="
+
+              << MsBetween(close_ui_state_queued_, model_drained_) << '\n';
+
+  }
+
+  if (model_drained_set_ && clear_live_notifiers_done_set_) {
+
+    std::cerr << "surfaces_shutdown_trace summary model_drained_to_clear_notifiers_ms="
+
+              << MsBetween(model_drained_, clear_live_notifiers_done_) << '\n';
+
+  }
+
+  if (clear_live_notifiers_done_set_ && save_start_set_) {
+
+    std::cerr << "surfaces_shutdown_trace summary clear_notifiers_to_save_start_ms="
+
+              << MsBetween(clear_live_notifiers_done_, save_start_) << '\n';
+
+  }
+
   if (close_requested_set_ && model_drained_set_) {
 
     std::cerr << "surfaces_shutdown_trace summary close_to_model_drained_ms="
@@ -360,11 +418,35 @@ void SurfacesShutdownTrace::FlushSummary() {
 
   }
 
+  if (model_domain_destroyed_set_ && done_event_set_flag_) {
+
+    std::cerr << "surfaces_shutdown_trace summary model_destroyed_to_done_event_ms="
+
+              << MsBetween(model_domain_destroyed_, done_event_) << '\n';
+
+  }
+
   if (done_event_set_flag_ && unload_done_set_) {
 
-    std::cerr << "surfaces_shutdown_trace summary unload_presenters_ms="
+    std::cerr << "surfaces_shutdown_trace summary done_event_to_unload_presenters_ms="
 
               << MsBetween(done_event_, unload_done_) << '\n';
+
+  }
+
+  if (unload_done_set_ && windows_gone_set_) {
+
+    std::cerr << "surfaces_shutdown_trace summary unload_presenters_to_windows_gone_ms="
+
+              << MsBetween(unload_done_, windows_gone_) << '\n';
+
+  }
+
+  if (windows_gone_set_) {
+
+    std::cerr << "surfaces_shutdown_trace summary windows_gone_to_process_exit_ms="
+
+              << MsBetween(windows_gone_, now) << '\n';
 
   }
 

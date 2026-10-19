@@ -3957,3 +3957,29 @@ Demo EXE SHA256 (close pass, pre-trace-summary): **`AC4749D3DE3357B7146118B2E543
 - Remaining **~0.5 s** close→exit is mostly **`model_domain_destroyed`** + UI waiting on `done_event` before `UnloadPresenters` (not Save I/O); profile Ptr teardown if that becomes the next target.
 - Scenario B/C (locale/geometry-only, long resize) on copied user profile.
 - Fold **`domain_storage()`** patch into reproducible CPM apply when second hunk fails on fresh cache.
+
+## Save completion + shutdown trace (2026-10-19, baseline **`12acee4`**)
+
+### Save errors reach session exit
+- **`DirectoryDomainStorage`**: per-storage save session stats (removed global `g_store_stats`); layer commit on writer close records **skipped / written / failed**; **`SaveSessionHadFailure()`** after `Application::Save()`.
+- **Compare-before-write** kept; **read-for-compare** distinguishes missing/empty/read-error (read-error → failed commit, prior file kept); **`.tmp` + rename`** per layer (failed replace leaves prior file).
+- **`SurfacesModelSession::shutdown_exit_code`** set to **1** on save failure; **`WinApp::Run`** returns it (no exit 0 with failed durable commit).
+
+### Trustworthy stats
+- Split **`layers_bytes_accepted`** (RAM) vs **`layers_written` / `layers_written_bytes`** (disk) vs **`layers_skipped_unchanged`** vs **`layers_failed_commits`**.
+- **`InstrumentedDomainStorage`**: counts skip/write/fail after inner writer commit (not `bytes_written==0` in RAM); **`store_bytes_accepted`** vs **`store_disk_bytes_written`**.
+
+### Tests (Release)
+- **`apptraverse_directory_domain_storage_test`**: round-trip, unchanged non-empty skip, new empty layer, replace with empty payload, write failure preserves file, compare read error, finalize/create failure — **PASS**.
+- **`apptraverse_surfaces_model_test`**: **PASS** (Release; thresholds unchanged).
+
+### Shutdown timeline (trace summaries extended)
+- Summaries now include **`close_to_ui_state_queued`**, **`ui_state_queued_to_model_drained`**, **`model_drained_to_clear_notifiers`**, **`clear_notifiers_to_save_start`**, **`application_save`**, graph teardown, **`model_destroyed_to_done_event`**, **`done_event_to_unload_presenters`** (includes UI wait, not pure destructors), **`unload_presenters_to_windows_gone`**, **`windows_gone_to_process_exit`**.
+
+### Artifacts
+- Release **`win32_surfaces_demo.exe`** SHA256: **`708042E0F3CC81C728741F032E24D0F363849CFC9384D371A7CFE2E8E5679330`**
+- Source HEAD (this pass): branch **`cursor/surfaces-presenter-decomposition`** (commit pending push after **`12acee4`**).
+
+### Still open (manual profile)
+- Scenarios **A/B/C** on copied user profile with per-stage timings + post-save **`load_only`** verification (automation not run in this pass).
+- Repeat-close **~196 ms** after save (**~25 ms**) — use new trace summaries on one run (do not mix minima across runs) to split GUI wait vs presenter unload vs process exit.
