@@ -104,6 +104,7 @@ void WinApp::RequestApplicationStop() {
     QueueForegroundAsCurrent();
     QueueAllWindowBounds();
   }
+  SurfacesShutdownTrace::MarkCloseUiStateQueued();
   session_.RequestStop();
 }
 

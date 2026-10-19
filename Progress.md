@@ -3940,7 +3940,13 @@ Shutdown **`Application::Save()`** (`DomainGraph::SaveRoot`) still visited every
 | close → process exit | **513 ms** | **476 ms** |
 | `load_only` after exit | surfaces restored (3 windows, WM_CLOSE clean exit) | same profile, idempotent save |
 
-Demo EXE SHA256 (this close pass): **`AC4749D3DE3357B7146118B2E5434E56B71B0E6ECBEF8BE0B8D96FC8DD26DE23`**. Sources at commit after push (parent baseline **`3eec5d2`**).
+Demo EXE SHA256 (close pass, pre-trace-summary): **`AC4749D3DE3357B7146118B2E5434E56B71B0E6ECBEF8BE0B8D96FC8DD26DE23`**. Parent baseline **`3eec5d2`**.
+
+### Trace summary (2026-10-19 follow-up, **`6679A762…B4FA1`**)
+- Stages: `close_ui_state_queued` → drain → clear notifiers → **`application_save_*`** (isolated) → **`application_graph_teardown_*`** → `model_domain_destroyed` → `done_event` → `unload_presenters` → `windows_gone`.
+- Scenario A (distill → close, trace on): **`application_save_ms≈287`**, **`application_graph_teardown_ms≈1`**, close→windows_gone **~593 ms**, close→exit **~599 ms**; store **80** commits, **10** written / **70** skipped unchanged (**164** B).
+- Scenario A repeat (`load_only`, no changes): save **~25 ms**, **0** written / **80** skipped, close→exit **~221 ms** (prior run).
+- **`domain_storage()`** patch wired in **`CMakeLists.txt`** + CPM **`2c31`** (both patches apply on configure).
 
 ### Verified
 - **`apptraverse_directory_domain_storage_test`** OK (round-trip + store stats).

@@ -14,10 +14,14 @@ class SurfacesShutdownTrace {
   static bool Enabled();
 
   static void MarkCloseRequested();
+  // After QueueForegroundAsCurrent + QueueAllWindowBounds (model work not yet drained).
+  static void MarkCloseUiStateQueued();
   static void MarkModelDrainedAcceptedTasks();
   static void MarkClearLiveNotifiersDone();
   static void MarkApplicationSaveStart();
   static void MarkApplicationSaveEnd();
+  // Immediately before ~Application / ~Domain (after Save returns).
+  static void MarkApplicationGraphTeardownStart();
   static void MarkModelDomainDestroyed();
   static void MarkDoneEventSet();
   static void MarkUnloadPresentersDone();
@@ -41,9 +45,24 @@ class SurfacesShutdownTrace {
   static void Mark(char const* label);
   static Clock::time_point Origin();
   static Clock::time_point close_requested_;
+  static Clock::time_point close_ui_state_queued_;
+  static Clock::time_point model_drained_;
+  static Clock::time_point save_start_;
+  static Clock::time_point save_end_;
+  static Clock::time_point graph_teardown_start_;
+  static Clock::time_point model_domain_destroyed_;
+  static Clock::time_point done_event_;
+  static Clock::time_point unload_done_;
   static Clock::time_point windows_gone_;
   static bool origin_set_;
   static bool close_requested_set_;
+  static bool model_drained_set_;
+  static bool save_start_set_;
+  static bool save_end_set_;
+  static bool graph_teardown_start_set_;
+  static bool model_domain_destroyed_set_;
+  static bool done_event_set_flag_;
+  static bool unload_done_set_;
   static bool windows_gone_set_;
 };
 

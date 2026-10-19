@@ -218,6 +218,7 @@ void SurfacesModelSession::Run(
           save_stats.store_new_layers, save_stats.store_overwrite_layers,
           save_stats.store_skipped_unchanged_layers);
     }
+    SurfacesShutdownTrace::MarkApplicationGraphTeardownStart();
   }
   SurfacesShutdownTrace::MarkModelDomainDestroyed();
 }
