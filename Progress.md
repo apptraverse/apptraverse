@@ -615,7 +615,7 @@ graph refused, and strict Event frame decoding.
 - Events carrying new object graphs / child Nodes
 - topology Event replication
 - multi-hop / 3-replica fanout
-- presence, Æther, chat
+- presence, ?ther, chat
 
 ---
 Status: implemented/verified on feature branch. Not accepted.
@@ -658,7 +658,7 @@ Production:
 - `examples/chat_ui_runtime_demo/common/chat_shared.{h,cpp}` ? the chat binding
   over that runtime, including its shared-Event payload serialization, remap
   and runtime-field stripping.
-- `examples/chat_ui_runtime_demo/windows/aether_shared_transport.h` ? the Æther
+- `examples/chat_ui_runtime_demo/windows/aether_shared_transport.h` ? the ?ther
   Win32 adapter implementing `ISharedTransport`.
 - `SharedEventIdLess` ? no caller remained; dedup compares identities for
   equality.
@@ -674,7 +674,7 @@ Tests:
   ? peer queues, in-flight windows, retry intervals, deferred remote Events ?
   is behavior of the deleted architecture and is not preserved.
 - `tests/chat_p2p_headless_test.cpp` ? deleted, with its CMake target
-  `apptraverse_chat_p2p_headless_test`. It was a Win32 Æther P2P convergence
+  `apptraverse_chat_p2p_headless_test`. It was a Win32 ?ther P2P convergence
   test built on `ISharedTransport` and the chat binding. Note that the
   repository chat-test instructions still name it; real P2P convergence
   coverage returns when chat is rebuilt on SharedNode (milestones 17?21).
@@ -977,7 +977,7 @@ re-run, as agreed for this slice.
 ## Limitations
 
 - Endpoint identity is whatever the transport reports. No signatures, MAC,
-  certificates, or trust store: authenticating the endpoint is the Æther
+  certificates, or trust store: authenticating the endpoint is the ?ther
   transport integration, not this runtime.
 - Admission validates snapshot structure and identity, not the semantics of the
   imported history. A structurally valid but hostile journal can still reach
@@ -1436,7 +1436,7 @@ Status: implemented, verified in the iPhone simulator. Not accepted.
   `Application::Save` does not run and the newest topology change is lost on a
   simulator kill. Reproduced identically with the pre-change UIKit binary, so it
   is pre-existing, not a port regression. Recorded in `plan.md`.
-- The bundle has no launch storyboard, so iOS scales the app from a 320×480
+- The bundle has no launch storyboard, so iOS scales the app from a 320?480
   logical screen and in the light appearance (also pre-existing). Recorded in
   `plan.md`.
 - Swift compiles are slow on this Intel host.
@@ -1854,7 +1854,7 @@ reopened the first page. On request the current page became model state:
 ## Emulator verification (`tools/android/run_surfaces_smoke.ps1`, 7 phases)
 
 - Clean start ? `numbers=1, count=1`, page `Surface 1 (1 / 1)`.
-- Add ×2 ? `numbers=1,2,3, count=3`; swipes reach `Surface 2`, `Surface 3`.
+- Add ?2 ? `numbers=1,2,3, count=3`; swipes reach `Surface 2`, `Surface 3`.
 - Remove current on `Surface 2` ? `numbers=1,3`; neighbor page becomes current.
 - Back ? `SURFACES_STATE_SAVED` ? `SURFACES_UI_UNLOADED` ?
   `SURFACES_APP_STOPPED`, process gone.
@@ -2249,7 +2249,7 @@ Status: implemented, verified locally. Not accepted.
 Updated `.cursor/rules/apptraverse-coding-agent.mdc`:
 
 - **No C++ RTTI** (`dynamic_cast` / `typeid` / `std::type_info` / `std::type_index` forbidden)
-- Use Æther class IDs, `Registry::GenerationDistance`, typed `Ptr`/`ObjPtr`, `Ptr::as<T>()` when type is guaranteed
+- Use ?ther class IDs, `Registry::GenerationDistance`, typed `Ptr`/`ObjPtr`, `Ptr::as<T>()` when type is guaranteed
 - **Do not re-check established invariants**
 - **No defensive programming** (invariant-driven; applies to all future ports)
 
@@ -3485,7 +3485,7 @@ Status: implemented, verified locally. Not accepted.
 
 1. `af70e9c` ? Native Main `RegisterClassW` / `WndProc` owned by `Win32MainWindowPresenter`. `WinApp` owns Loading/notify only. `lpParam` is the presenter. `WM_CLOSE` posts `WM_APPTRAVERSE_STOP` to the notify HWND.
 2. `158682f` ? Lost wakeup: `stop` is a plain `bool` under `mu`; `RequestStop` sets it then `notify_all`. Publication `NotePublished`/`PublishProducer` under the same mutex waiters use. Model graph/Domain/storage leave an inner scope before `SetEvent(done_event)`.
-3. (this file) Fail-fast: `LoadApplication` uses `WriteFatalStderr` + `abort`, not `assert`. `fflush`/`FlushFileBuffers` before abort. Regression tests for missing Application. Coding-agent rules: Æther vs `WNDCLASS`, CV mutex, `done` after model scope, GUI `STD_ERROR_HANDLE`.
+3. (this file) Fail-fast: `LoadApplication` uses `WriteFatalStderr` + `abort`, not `assert`. `fflush`/`FlushFileBuffers` before abort. Regression tests for missing Application. Coding-agent rules: ?ther vs `WNDCLASS`, CV mutex, `done` after model scope, GUI `STD_ERROR_HANDLE`.
 
 ## Where Main lives
 
@@ -3602,9 +3602,9 @@ Desktop does not use `mobile_current` for focus/activation.
 - Serve: `tools/serve_wasm.py` ? `http://127.0.0.1:8765/web_surfaces_demo.html`
 - Smoke: `tools/wasm_surfaces_browser_smoke.py` ? PASS
   - `crossOriginIsolated=true`, SharedArrayBuffer available
-  - Add ×2, select Surface 2, real browser reload ? Surface 2 current
+  - Add ?2, select Surface 2, real browser reload ? Surface 2 current
   - Remove current ? topology `[1,3]`
-  - Rapid back-to-back Add ×2 ? three tabs (notify-after-apply fix)
+  - Rapid back-to-back Add ?2 ? three tabs (notify-after-apply fix)
 
 ## Canonical branch
 
@@ -3834,4 +3834,4 @@ Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-pres
 - Release: same tests PASS; `win32_surfaces_demo.exe` SHA256 `61A6BCFD8902DD8AB9EED4E583C0CB84A3DD8D27804A20D6288B91052CAC34C3` (`build-presenter-decomp-msvc-rel/examples/surfaces_demo/windows/`).
 - Manual 60 s edge drag + row/column toggles: not re-run in this agent pass (rely on coalesce tests + existing smoke resize paths).
 
-Status: committed and pushed on branch (see git log).
+Status: `e57be6d` pushed to `origin/cursor/surfaces-presenter-decomposition`.
