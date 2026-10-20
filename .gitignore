@@ -1,5 +1,10 @@
+# Runtime state (default is next to demo exe under the build tree)
+surfaces_runtime_state/
+
 # Build
 build/
+build-presenter-decomp*/
+build-no-examples-rel/
 build-linux/
 build-gnu/
 cmake-build-*/

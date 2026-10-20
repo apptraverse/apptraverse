@@ -11,6 +11,7 @@
 
 #include "apptraverse/noninteractive_crt.h"
 
+#include "surfaces_state_dir.h"
 #include "win_app.h"
 #include "surfaces_shutdown_trace.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
@@ -23,7 +24,8 @@ int main(int argc, char** argv) {
   }
   apptraverse::EnableNoninteractiveCrt();
 
-  std::filesystem::path state_dir{"surfaces_runtime_state"};
+  std::filesystem::path state_dir =
+      apptraverse::surfaces_demo::DefaultRuntimeStateDir();
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
     if (arg == "--state-dir" && i + 1 < argc) {

@@ -1,6 +1,8 @@
 #include "surfaces_test_long_journal_add.h"
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <future>
 #include <iostream>
@@ -143,34 +145,67 @@ LongJournalSeedStats SeedLongJournalOnModel(SurfacesModelSession& session,
     LJ_CHECK(surface.journal.size() >=
              static_cast<std::size_t>(event_count / 2));
     stats.journal_event_count = surface.journal.size();
+    stats.dirty_obj_ids_after_seed = session.pending_dirty.ordered.size();
   });
   stats.publish_count_after = session.channel.publish_count();
   stats.channel_busy_after_seed = session.channel.is_publication_busy();
   return stats;
 }
 
-void WaitModelPublicationBacklogDrained(SurfacesModelSession& session) {
-  int idle_passes = 0;
-  while (idle_passes < 6) {
-    while (session.channel.has_unread_published()) {
-      TakeAndWake(session);
-      idle_passes = 0;
+LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
+    SurfacesModelSession& session, SurfacesUiPublicationConsumer& ui) {
+  LongJournalPublicationDrainStats stats;
+  std::size_t const dirty_target = session.pending_dirty_count_observed.load();
+  (void)dirty_target;
+
+  auto apply_unread = [&] {
+    std::vector<std::uint8_t> bytes;
+    {
+      std::lock_guard<std::mutex> lock{session.mu};
+      if (!session.channel.has_unread_published()) {
+        return false;
+      }
+      bytes = session.channel.TakePublishedCopy();
     }
-    std::uint64_t const before = session.channel.publish_count();
-    RunOnModelPlain(session, [](Application&) {});
-    while (session.channel.has_unread_published()) {
-      TakeAndWake(session);
-      idle_passes = 0;
+    session.cv.notify_all();
+    LJ_CHECK(!bytes.empty());
+    ui.ApplyStructuralBytes(bytes);
+    return true;
+  };
+
+  auto const deadline = Clock::now() + kModelWatchdog;
+  while (Clock::now() < deadline) {
+    while (apply_unread()) {
     }
-    std::uint64_t const after = session.channel.publish_count();
-    if (after == before && PendingWorkEmpty(session) &&
-        !session.channel.has_unread_published() &&
-        !session.channel.is_publication_busy()) {
-      ++idle_passes;
-    } else {
-      idle_passes = 0;
+
+    stats.pending_dirty_at_completion =
+        session.pending_dirty_count_observed.load();
+    stats.publish_count_at_completion = session.channel.publish_count();
+    stats.incremental_applied_to_ui = ui.incremental_applies;
+
+    bool idle = false;
+    {
+      std::lock_guard<std::mutex> lock{session.mu};
+      idle = session.pending_work.empty() &&
+             !session.channel.has_unread_published() &&
+             !session.channel.is_publication_busy() &&
+             session.pending_dirty_count_observed.load() == 0;
     }
+    if (idle && ui.incremental_applies > 0) {
+      break;
+    }
+
+    std::unique_lock<std::mutex> lock{session.mu};
+    session.cv.wait_for(lock, std::chrono::milliseconds{20}, [&] {
+      return session.channel.has_unread_published() ||
+             session.pending_dirty_count_observed.load() > 0 ||
+             !session.pending_work.empty();
+    });
   }
+
+  LJ_CHECK(session.pending_dirty_count_observed.load() == 0);
+  LJ_CHECK(ui.incremental_applies > 0);
+  return stats;
 }
 
 LongJournalAddTiming RunMeasuredAddSurfaceOnFirstSurface(
@@ -179,7 +214,9 @@ LongJournalAddTiming RunMeasuredAddSurfaceOnFirstSurface(
 }
 
 LongJournalAddPerfResult RunAddImmediatelyAfterChanges(
-    SurfacesModelSession& session, int event_count) {
+    SurfacesModelSession& session, int event_count,
+    SurfacesUiPublicationConsumer* ui_consumer) {
+  (void)ui_consumer;
   LongJournalAddPerfResult result;
   result.seed = SeedLongJournalOnModel(session, event_count);
   result.journal_size_after_seed = result.seed.journal_event_count;
@@ -192,15 +229,65 @@ LongJournalAddPerfResult RunAddImmediatelyAfterChanges(
 }
 
 LongJournalAddPerfResult RunAddAfterPublicationDrain(
-    SurfacesModelSession& session, int event_count) {
+    SurfacesModelSession& session, int event_count,
+    SurfacesUiPublicationConsumer* ui_consumer) {
+  SurfacesUiPublicationConsumer local_ui;
+  SurfacesUiPublicationConsumer& ui =
+      ui_consumer != nullptr ? *ui_consumer : local_ui;
+  if (ui_consumer == nullptr) {
+    ui.BindSession(session);
+    ui.LoadInitialFromSession(session);
+  }
+
   LongJournalAddPerfResult result;
   result.seed = SeedLongJournalOnModel(session, event_count);
   result.journal_size_after_seed = result.seed.journal_event_count;
-  WaitModelPublicationBacklogDrained(session);
-  result.publish_count_after_drain = session.channel.publish_count();
+  result.drain = WaitModelPublicationBacklogDrained(session, ui);
+  result.publish_count_after_drain = result.drain.publish_count_at_completion;
   result.timing = RunMeasuredAddSurfaceOnFirstSurfaceImpl(session);
   RunOnModelPlain(session, [&](Application& app) {
     result.fingerprint =
+        SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
+  });
+  return result;
+}
+
+LongJournalAddDuringPrepResult RunAddDuringIncrementalPublicationPrep(
+    SurfacesModelSession& session, int event_count) {
+  LongJournalAddDuringPrepResult result;
+  std::mutex gate_mu;
+  std::condition_variable gate_cv;
+  bool prep_entered = false;
+
+  session.config.before_incremental_publication =
+      [&](std::uint32_t dirty_id) {
+        (void)dirty_id;
+        std::lock_guard<std::mutex> lock{gate_mu};
+        if (!prep_entered) {
+          prep_entered = true;
+          result.publish_count_at_prep = session.channel.publish_count();
+          result.pending_dirty_at_prep =
+              session.pending_dirty_count_observed.load();
+          gate_cv.notify_all();
+        }
+      };
+
+  result.add.seed = SeedLongJournalOnModel(session, event_count);
+  result.add.journal_size_after_seed = result.add.seed.journal_event_count;
+
+  {
+    std::unique_lock<std::mutex> lock{gate_mu};
+    LJ_CHECK(gate_cv.wait_for(lock, kModelWatchdog, [&] { return prep_entered; }));
+  }
+
+  auto const add_post_start = Clock::now();
+  result.add.timing = RunMeasuredAddSurfaceOnFirstSurfaceImpl(session);
+  result.barrier_pause_us = Us(Clock::now() - add_post_start);
+
+  session.config.before_incremental_publication = {};
+
+  RunOnModelPlain(session, [&](Application& app) {
+    result.add.fingerprint =
         SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
   });
   return result;
@@ -213,7 +300,8 @@ void ReportLongJournalAddPerf(char const* scenario, char const* label,
   std::cout << "long_journal_add_perf scenario=" << scenario
             << " label=" << label << " journal_events=" << s.journal_event_count
             << " seed_publish_delta=" << (s.publish_count_after - s.publish_count_before)
-            << " dirty_obj_ids~" << LongJournalAddPerfResult::kDirtyObjIdsSingleSurfaceSeed
+            << " dirty_obj_ids=" << s.dirty_obj_ids_after_seed
+            << " ui_applied=" << result.drain.incremental_applied_to_ui
             << " publish_after_drain=" << result.publish_count_after_drain
             << " channel_busy_after_seed=" << (s.channel_busy_after_seed ? 1 : 0)
             << " publish_at_post=" << t.publish_count_at_post

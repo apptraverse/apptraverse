@@ -734,6 +734,7 @@ add_executable(apptraverse_surfaces_model_test
   surfaces_model_test.cpp
   surfaces_test_loaded_bundle.cpp
   surfaces_test_long_journal_add.cpp
+  surfaces_test_publication_ui.cpp
   surfaces_test_presentation.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_distill.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
@@ -770,6 +771,7 @@ add_executable(apptraverse_surfaces_long_journal_save_test
   surfaces_long_journal_save_test.cpp
   surfaces_test_loaded_bundle.cpp
   surfaces_test_long_journal_add.cpp
+  surfaces_test_publication_ui.cpp
   surfaces_test_presentation.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_distill.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp

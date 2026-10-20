@@ -6,10 +6,12 @@
 #include "apptraverse/surfaces/surfaces_registration.h"
 
 #include "mac_app.h"
+#include "surfaces_state_dir.h"
 #include "mac_presenters.h"
 
 int main(int argc, char** argv) {
-  std::filesystem::path state_dir{"surfaces_runtime_state"};
+  std::filesystem::path state_dir =
+      apptraverse::surfaces_demo::DefaultRuntimeStateDir();
   bool foreground = false;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};

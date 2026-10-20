@@ -41,6 +41,7 @@
 #include "surfaces_test_presenter_counters.h"
 #include "surfaces_test_loaded_bundle.h"
 #include "surfaces_test_long_journal_add.h"
+#include "surfaces_test_publication_ui.h"
 
 namespace apptraverse::test {
 
@@ -821,6 +822,50 @@ std::pair<std::chrono::nanoseconds, std::chrono::nanoseconds> SampleP50P95(
   return {p50, p95};
 }
 
+void TestIncrementalPublicationUnderQueuedModelWork() {
+  auto dir = TestDir("apptraverse_surfaces_pub_under_queued_work");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    RunSurfacesDemoModelSession(session,
+                                [&session](SurfacesPublicationKind) {
+                                  session.cv.notify_all();
+                                });
+  }};
+  WaitPublished(session);
+  SurfacesUiPublicationConsumer ui;
+  ui.BindSession(session);
+  ui.LoadInitialFromSession(session);
+  std::uint64_t const publish0 = session.channel.publish_count();
+  for (int i = 0; i < 40; ++i) {
+    RunOnModel(session, [i](Application& app) {
+      app.surfaces->surfaces[0]->SetPresentationSize(400 + i, 500 - i);
+    });
+  }
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (session.channel.has_unread_published()) {
+      std::vector<std::uint8_t> bytes;
+      {
+        std::lock_guard<std::mutex> lock{session.mu};
+        bytes = session.channel.TakePublishedCopy();
+      }
+      session.cv.notify_all();
+      ui.ApplyStructuralBytes(bytes);
+    }
+    if (session.channel.publish_count() > publish0 &&
+        ui.incremental_applies > 0) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{5});
+  }
+  CHECK(session.channel.publish_count() > publish0);
+  CHECK(ui.incremental_applies > 0);
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestPresentationSizeYieldsForAddDuringStream() {
   auto dir = TestDir("apptraverse_surfaces_presentation_size_stream_add");
   SurfacesModelSession session;
@@ -1034,8 +1079,10 @@ void TestAddOnSecondSurfaceWhileFirstHasLongJournal() {
           [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
     }};
     WaitPublished(session);
-    (void)TakeAndWake(session);
-    LongJournalAddPerfResult const perf = scenario_fn(session, 10000);
+    SurfacesUiPublicationConsumer ui;
+    ui.BindSession(session);
+    ui.LoadInitialFromSession(session);
+    LongJournalAddPerfResult const perf = scenario_fn(session, 10000, &ui);
     ReportLongJournalAddPerf(tag, "surfaces_model_test", perf);
     session.RequestStop();
     model.join();
@@ -1051,6 +1098,64 @@ void TestAddOnSecondSurfaceWhileFirstHasLongJournal() {
 
   (void)run_scenario("apptraverse_surfaces_long_journal_add_after_drain",
                      RunAddAfterPublicationDrain);
+
+  auto dir_prep = TestDir("apptraverse_surfaces_long_journal_add_during_prep");
+  SurfacesModelSession session_prep;
+  session_prep.state_dir = dir_prep;
+  std::thread model_prep{[&] {
+    RunSurfacesDemoModelSession(session_prep,
+                                [&session_prep](SurfacesPublicationKind) {
+                                  session_prep.cv.notify_all();
+                                });
+  }};
+  WaitPublished(session_prep);
+  SurfacesUiPublicationConsumer ui_prep;
+  ui_prep.BindSession(session_prep);
+  ui_prep.LoadInitialFromSession(session_prep);
+  LongJournalAddDuringPrepResult const during_prep =
+      RunAddDuringIncrementalPublicationPrep(session_prep, 10000);
+  std::cout << "long_journal_add_during_prep barrier_pause_ms="
+            << (during_prep.barrier_pause_us / 1000)
+            << " publish_at_prep=" << during_prep.publish_count_at_prep
+            << " client_wait_ms="
+            << (during_prep.add.timing.client_wait_us / 1000)
+            << " queue_wait_ms="
+            << (during_prep.add.timing.queue_wait_us / 1000) << '\n';
+  session_prep.RequestStop();
+  model_prep.join();
+  std::filesystem::remove_all(dir_prep);
+}
+
+void TestLongJournalImmediateAddCheckpointRoundTrip() {
+  auto dir = TestDir("apptraverse_surfaces_long_journal_immediate_ckpt");
+  SurfaceJournalFingerprint expected;
+  {
+    SurfacesModelSession session;
+    session.state_dir = dir;
+    std::thread model{[&] {
+      RunSurfacesDemoModelSession(session,
+                                  [&session](SurfacesPublicationKind) {
+                                    session.cv.notify_all();
+                                  });
+    }};
+    WaitPublished(session);
+    SurfacesUiPublicationConsumer ui;
+    ui.BindSession(session);
+    ui.LoadInitialFromSession(session);
+    LongJournalAddPerfResult const perf =
+        RunAddImmediatelyAfterChanges(session, 10000, &ui);
+    expected = perf.fingerprint;
+    session.RequestStop();
+    model.join();
+    CHECK(session.shutdown_exit_code == 0);
+  }
+  ae::RamDomainStorage ram;
+  ae::Domain domain{ram};
+  auto bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  SurfaceJournalFingerprint const reloaded =
+      SurfaceJournalFingerprint::Capture(*bundle->app().surfaces->surfaces[0]);
+  reloaded.ExpectEqual(expected);
+  std::filesystem::remove_all(dir);
 }
 
 void TestGeometryPersistence() {
@@ -1682,11 +1787,29 @@ void TestConcurrentSessionsGenerateDistinctObjIds() {
   // Race smoke only: an unlocked shared generator yields repeated ids under
   // this load. Random 32-bit collision remains possible in principle and is
   // not what this check claims to forbid forever.
-  std::unordered_set<std::uint32_t> seen;
+  auto check_session_ids = [](char const* label, std::vector<std::uint32_t> const& ids) {
+    std::unordered_set<std::uint32_t> seen;
+    for (std::size_t i = 0; i < ids.size(); i += 3) {
+      std::uint32_t const surface_id = ids[i];
+      CHECK(surface_id != 0);
+      if (!seen.insert(surface_id).second) {
+        std::cerr << "duplicate surface ObjId in " << label << ": " << surface_id
+                  << '\n';
+        CHECK(false);
+      }
+    }
+  };
+  check_session_ids("session_a", ids_a);
+  check_session_ids("session_b", ids_b);
+  std::unordered_set<std::uint32_t> cross;
   for (auto const& ids : {ids_a, ids_b}) {
-    for (std::uint32_t id : ids) {
-      CHECK(id != 0);
-      CHECK(seen.insert(id).second);
+    for (std::size_t i = 0; i < ids.size(); i += 3) {
+      std::uint32_t const surface_id = ids[i];
+      if (!cross.insert(surface_id).second) {
+        std::cerr << "cross-session duplicate surface ObjId: " << surface_id
+                  << '\n';
+        CHECK(false);
+      }
     }
   }
 
@@ -2034,7 +2157,9 @@ int main() {
   RUN_SURFACES_MODEL_TEST(TestPresentationSizeYieldsForAddDuringStream);
   RUN_SURFACES_MODEL_TEST(TestTwoSessionsPresentationSizeRouting);
   RUN_SURFACES_MODEL_TEST(TestCollectLiveReachableStableWithLongJournal);
+  RUN_SURFACES_MODEL_TEST(TestIncrementalPublicationUnderQueuedModelWork);
   RUN_SURFACES_MODEL_TEST(TestAddOnSecondSurfaceWhileFirstHasLongJournal);
+  RUN_SURFACES_MODEL_TEST(TestLongJournalImmediateAddCheckpointRoundTrip);
   RUN_SURFACES_MODEL_TEST(TestGeometryPersistence);
   RUN_SURFACES_MODEL_TEST(TestCurrentPageReplay);
   RUN_SURFACES_MODEL_TEST(TestCurrentPageIdentitySurvivesRemoveBefore);

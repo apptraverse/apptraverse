@@ -7,6 +7,8 @@
 #include "apptraverse/application/model_publication_session.h"
 #include "apptraverse/surfaces/surfaces_model.h"
 
+#include "surfaces_test_publication_ui.h"
+
 namespace apptraverse {
 using SurfacesModelSession = ModelPublicationSession;
 }
@@ -26,9 +28,16 @@ struct SurfaceJournalFingerprint {
 
 struct LongJournalSeedStats {
   std::size_t journal_event_count{0};
+  std::size_t dirty_obj_ids_after_seed{0};
   std::uint64_t publish_count_before{0};
   std::uint64_t publish_count_after{0};
   bool channel_busy_after_seed{false};
+};
+
+struct LongJournalPublicationDrainStats {
+  std::size_t incremental_applied_to_ui{0};
+  std::uint64_t publish_count_at_completion{0};
+  std::size_t pending_dirty_at_completion{0};
 };
 
 struct LongJournalAddTiming {
@@ -46,23 +55,36 @@ struct LongJournalAddPerfResult {
   LongJournalAddTiming timing;
   LongJournalSeedStats seed;
   SurfaceJournalFingerprint fingerprint;
+  LongJournalPublicationDrainStats drain;
   std::size_t journal_size_after_seed{0};
   std::uint64_t publish_count_after_drain{0};
-  static constexpr int kDirtyObjIdsSingleSurfaceSeed{1};
 };
 
 LongJournalSeedStats SeedLongJournalOnModel(SurfacesModelSession& session,
                                             int event_count);
 
-void WaitModelPublicationBacklogDrained(SurfacesModelSession& session);
+LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
+    SurfacesModelSession& session, SurfacesUiPublicationConsumer& ui);
 
 LongJournalAddTiming RunMeasuredAddSurfaceOnFirstSurface(
     SurfacesModelSession& session);
 
-LongJournalAddPerfResult RunAddAfterPublicationDrain(SurfacesModelSession& session,
-                                                       int event_count);
+LongJournalAddPerfResult RunAddAfterPublicationDrain(
+    SurfacesModelSession& session, int event_count,
+    SurfacesUiPublicationConsumer* ui_consumer = nullptr);
 
 LongJournalAddPerfResult RunAddImmediatelyAfterChanges(
+    SurfacesModelSession& session, int event_count,
+    SurfacesUiPublicationConsumer* ui_consumer = nullptr);
+
+struct LongJournalAddDuringPrepResult {
+  LongJournalAddPerfResult add;
+  std::int64_t barrier_pause_us{0};
+  std::uint64_t publish_count_at_prep{0};
+  std::size_t pending_dirty_at_prep{0};
+};
+
+LongJournalAddDuringPrepResult RunAddDuringIncrementalPublicationPrep(
     SurfacesModelSession& session, int event_count);
 
 void ReportLongJournalAddPerf(char const* scenario, char const* label,

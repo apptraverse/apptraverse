@@ -239,7 +239,9 @@ void ModelPublicationSession::Run(
 
 
 
-  PendingDirtyNodes pending_dirty;
+  pending_dirty.Clear();
+
+  pending_dirty_count_observed.store(0);
 
   BindReachableNodesMaterializedChangeNotifier(*root, &pending_dirty,
 
@@ -265,7 +267,65 @@ void ModelPublicationSession::Run(
 
   on_published(ModelPublicationKind::Initial);
 
+  auto try_publish_one_incremental = [&]() -> bool {
+    {
+      std::lock_guard<std::mutex> lock{mu};
+      if (stop || pending_dirty.empty() || channel.is_publication_busy()) {
+        return false;
+      }
+    }
 
+    std::unordered_set<std::uint32_t> live_ids;
+    {
+      std::vector<ae::Obj*> live;
+      CollectLiveReachableObjects(*root, live);
+      live_ids.reserve(live.size());
+      for (ae::Obj* obj : live) {
+        live_ids.insert(obj->obj_id.id());
+      }
+    }
+
+    std::uint32_t pending_id = 0;
+    {
+      std::lock_guard<std::mutex> lock{mu};
+      if (stop || channel.is_publication_busy() || pending_dirty.empty()) {
+        return false;
+      }
+      pending_id = pending_dirty.PopFront();
+      pending_dirty_count_observed.store(pending_dirty.ordered.size());
+    }
+
+    if (live_ids.count(pending_id) == 0) {
+      return false;
+    }
+
+    auto object = domain.Find(ae::ObjId{pending_id});
+    if (!object) {
+      return false;
+    }
+
+    Node* const to_publish = object.as<Node>();
+    if (to_publish == nullptr) {
+      return false;
+    }
+
+    if (config.before_incremental_publication) {
+      config.before_incremental_publication(pending_id);
+    }
+
+    auto* pub = channel.AcquireProducer();
+    SerializeStructuralNodePublication(*to_publish, pub->sink);
+
+    {
+      std::lock_guard<std::mutex> lock{mu};
+      channel.NotePublished();
+      channel.PublishProducer();
+    }
+
+    cv.notify_all();
+    on_published(ModelPublicationKind::Incremental);
+    return true;
+  };
 
   for (;;) {
 
@@ -341,6 +401,22 @@ void ModelPublicationSession::Run(
 
     }
 
+    pending_dirty_count_observed.store(pending_dirty.ordered.size());
+
+    // Interleave one incremental publish when multiple model tasks are queued
+    // (resize streams). A single queued task (e.g. Add right after seed) still
+    // runs before publish prep so immediate Add is not starved.
+    {
+      std::size_t queued = 0;
+      {
+        std::lock_guard<std::mutex> lock{mu};
+        queued = pending_work.size();
+      }
+      if (queued > 1 && try_publish_one_incremental()) {
+        continue;
+      }
+    }
+
     // Re-enter the loop before publishing so newly posted ModelWork (e.g. Add
     // right after a long seed task) is not starved by incremental publications.
     {
@@ -350,101 +426,9 @@ void ModelPublicationSession::Run(
       }
     }
 
-
-
-    {
-
-      std::lock_guard<std::mutex> lock{mu};
-
-      if (stop || pending_dirty.empty() || channel.is_publication_busy()) {
-
-        continue;
-
-      }
-
-    }
-
-
-
-    std::unordered_set<std::uint32_t> live_ids;
-
-    {
-
-      std::vector<ae::Obj*> live;
-
-      CollectLiveReachableObjects(*root, live);
-
-      live_ids.reserve(live.size());
-
-      for (ae::Obj* obj : live) {
-
-        live_ids.insert(obj->obj_id.id());
-
-      }
-
-    }
-
-    std::uint32_t pending_id = 0;
-
-    {
-
-      std::lock_guard<std::mutex> lock{mu};
-
-      if (stop || channel.is_publication_busy() || pending_dirty.empty()) {
-
-        continue;
-
-      }
-
-      if (!pending_work.empty()) {
-
-        continue;
-
-      }
-
-      pending_id = pending_dirty.PopFront();
-
-    }
-
-    if (live_ids.count(pending_id) == 0) {
-
+    if (try_publish_one_incremental()) {
       continue;
-
     }
-
-    auto object = domain.Find(ae::ObjId{pending_id});
-
-    if (!object) {
-
-      continue;
-
-    }
-
-    Node* const to_publish = object.as<Node>();
-
-    if (to_publish == nullptr) {
-
-      continue;
-
-    }
-
-    auto* pub = channel.AcquireProducer();
-
-    SerializeStructuralNodePublication(*to_publish, pub->sink);
-
-    {
-
-      std::lock_guard<std::mutex> lock{mu};
-
-      channel.NotePublished();
-
-      channel.PublishProducer();
-
-    }
-
-    cv.notify_all();
-
-    on_published(ModelPublicationKind::Incremental);
 
   }
 

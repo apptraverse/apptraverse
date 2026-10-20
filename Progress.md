@@ -4188,6 +4188,28 @@ Baseline: **`b7a9321`**.
 
 Shutdown **~3 s** (`application_save` ~**2.6 s**) remains a separate open PERF item. **Phase 1 not complete.**
 
+## Publication drain + busy Add during prep (2026-10-20)
+
+Baseline: **`5ddc55f`**.
+
+### Drain / UI apply
+- **`WaitModelPublicationBacklogDrained`**: consumes structural bytes via **`ApplySurfacesStructural`** into a UI mirror (`surfaces_test_publication_ui.*`); completion when **`pending_dirty_count_observed==0`**, channel idle, **`incremental_applied_to_ui>0`** (not TakeAndWake-only).
+- **`ModelPublicationSession`**: **`pending_dirty`** on session + **`pending_dirty_count_observed`**; test hook **`before_incremental_publication`**; fairness — one incremental publish between model tasks when **`pending_work.size()>1`** (resize streams), still **single** queued task (Add after seed) runs before publish prep.
+
+### Scenarios (Release `build-presenter-decomp-msvc-rel`, verified)
+- **Immediate Add@10k**: **`client_wait_ms` ~2863**, **`queue_wait_ms` ~1738**, **`add_body_ms` ~1046**, **`dirty_obj_ids=1`**, gate **4000 ms** PASS.
+- **After drain**: **`ui_applied=1`**, **`publish_after_drain=2`**, **`client_wait_ms` ~1809**, **`queue_wait_ms` ~141**.
+- **Add during incremental prep** (`before_incremental_publication` barrier): **`queue_wait_ms` ~1563**, **`barrier_pause_ms` ~3321** (includes serialize while Add queued — reported separately from **`add_body_ms`**).
+- **`TestLongJournalImmediateAddCheckpointRoundTrip`**: journal fingerprint matches packed checkpoint reload after immediate Add (no pre-Add diagnostic task).
+- **`TestIncrementalPublicationUnderQueuedModelWork`**: **`publish_count`** and **`ui.incremental_applies`** increase under 40 queued resize tasks.
+- **`TestConcurrentSessionsGenerateDistinctObjIds`**: assert **surface ObjId** uniqueness per session and cross-session (not all layer ids — avoids false duplicate on shared node id across classes).
+
+### Demo state dir (local, not in `5ddc55f`)
+- **`surfaces_state_dir.h`**: default **`{exe_dir}/surfaces_runtime_state`**; **`--state-dir`** overrides (works from any CWD).
+
+### Regressions
+- **`apptraverse_surfaces_model_test`**, **`apptraverse_surfaces_long_journal_save_test`**, **`apptraverse_publication_channel_test`**, checkpoint load tests, **`apptraverse_surfaces_win32_smoke_test`**: **PASS**.
+
 ### aether-objects pin
 - Patches (in order): **`aether-objects-local-persistent-load.patch`** (hunk fix), **`aether-objects-domain-storage-access.patch`**, **`aether-objects-checkpoint-shell.patch`**
 - Objects SHA unchanged: **`79283b667cabf689da1059d618fe2a22abf51db4`**

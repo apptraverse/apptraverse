@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_APPLICATION_MODEL_PUBLICATION_SESSION_H_
 #define APPTRAVERSE_APPLICATION_MODEL_PUBLICATION_SESSION_H_
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -49,6 +50,8 @@ struct ModelPublicationSessionConfig {
       ModelDurablePersistence::PackedCheckpointFile};
   std::function<void(ae::Obj& root, ModelPublicationSaveContext const& save)>
       on_save_end;
+  // Tests only: invoked on model thread immediately before incremental serialize.
+  std::function<void(std::uint32_t dirty_node_id)> before_incremental_publication;
 };
 
 struct ModelPublicationSession {
@@ -66,6 +69,8 @@ struct ModelPublicationSession {
   // Keeps the model root alive for the whole Run() call (load_mutable_root
   // must not return the address of a temporary smart pointer).
   ae::Obj::ptr model_root;
+  PendingDirtyNodes pending_dirty;
+  std::atomic<std::size_t> pending_dirty_count_observed{0};
 
   void RequestStop();
   void Post(ModelWork work);
