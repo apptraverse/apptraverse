@@ -4231,14 +4231,19 @@ Baseline: **`8c51b84`**.
 - **`docs/surfaces_debug_model_test3_drain_timeout.txt`**: **`DRAIN TIMEOUT expected_ui_applies=2 ui_applied=1 pending_dirty=1 publish_count=2 baseline=1 in_progress=1`** (120 s watchdog; not blamed on “slow Debug” without these counters).
 - immediate **`client_wait_ms≈50923`**; after_drain **≈65636**; during_prep **≈59082** (perf gate NDEBUG-only).
 
-### Publication/drain/acceptance fixes (after **`2787d3d`**, verified Release)
-- **Immediate @10k**: UI consumer **`LoadInitialFromSession` once** before seed (isolated + shutdown paths); **`RunAddImmediatelyAfterChanges` requires caller-owned UI** (lifetime through session stop).
-- **Prefer vs ForceWaitLimit** incremental publish; **`ForceWaitLimit` skips post-`Collect` `pending_work` abort**; test-gated via **`allow_force_incremental_with_pending_work`** + presentation-size **`DrainScheduledForTest`** guard.
-- **`ObjIdRegistry`**: mutex; **`incremental_publications_completed`** + drain wait without **`in_progress` spin**; two-dirty test drains seed then forces **≥2** dirty nodes.
-- **Prep barrier**: one-shot **`Phase`** + stop wake; **`TestingUiReady`** atomic + **120 s** timeout; **`prep_continue_to_add_start_us`** through Add task start.
-- **Win32 smoke**: **`click_to_hwnd_ms`** split — **`seed_model_post_ms`**, **`click_dispatch_ms`**, **`hwnd_wait_after_click_ms`** (UI path; not model gate).
-- **Release**: **`surfaces_model_test OK`** (immediate **1839 ms** gate pass); **`--add-perf-only OK`**; **win32 smoke OK** (`click_to_hwnd_ms=5711` breakdown logged).
-- **Debug `surfaces_model_test`**: full re-run after fixes — **in progress / see `debug_model_test5.out`**.
+### Publication/drain/acceptance fixes (**`05b689c`** … **`9c950ec`**)
+- **`05b689c`**: immediate UI consumer lifetime, Prefer/`ForceWaitLimit` split (initial), drain **`incremental_publications_completed`**, prep barrier **`Phase`**, win32 timing split.
+- **`9c950ec`**: **`ForceWaitLimit` decision under `mu`, invoke after unlock**; runtime Force (not test flag) for single queued work + wait limit; **drain prefetches unread** (`prefetched_ui_applies`, `need_new_incremental_publishes`); **two-dirty** Add+touch in **one** model task + UI mirror **401×401**; prep barrier reads under lock + **`stop_requested`**; tests **`TestPublicationDrainPrefetchAlreadyUnread`**, **`TestPrepBarrierRequestStopDuringWait`**, PSQ **`TestIncrementalPublicationUnderQueuedModelWork`**.
+
+### Measured @ **`9c950ec`** (Release, verified)
+- **`surfaces_model_test`**: **PASS** (~107 s); new targeted tests **PASS**; long-journal immediate **`client_wait_ms≈1541–1839`** (gate **4000 ms**).
+- **`--add-perf-only`**: **PASS**; immediate **`client_wait_ms≈1541–1651`**; after_drain **`≈1048–1071 ms`**, **`ui_applied=1`**.
+- **Model Post→future** (Release long-journal): see **`client_wait_ms`** / **`queue_wait_ms`** / **`add_body_ms`** / **`cleanup_ms`** lines above (not click→HWND).
+
+### Debug runs (120 s drain watchdog unchanged)
+- **`debug_model_test6.out` @ `05b689c`**: reached **`TestPublicationDrainTwoDirtyNodes`**, **no** `DRAIN TIMEOUT` / **no** `surfaces_model_test OK` (process stopped before completion; **not** a finished run).
+- **`debug_model_test5.out`**: incomplete (superseded).
+- **`debug_model_test_9c950ec.out` @ `9c950ec`**: **in progress** (single full run after targeted Release checks).
 
 Phase 1 / shutdown PERF **open**.
 
