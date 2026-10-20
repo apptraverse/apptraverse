@@ -7,6 +7,7 @@
 #include <future>
 #include <iostream>
 #include <mutex>
+#include <thread>
 
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_model.h"
@@ -78,9 +79,14 @@ LongJournalAddTiming RunMeasuredAddSurfaceOnFirstSurfaceImpl(
     auto const add_end = Clock::now();
     timing.add_body_us = Us(add_end - add_start);
 
-    (void)app;
-    auto const task_end = Clock::now();
-    timing.cleanup_us = Us(task_end - add_end);
+    std::vector<Surface::ptr> scratch;
+    scratch.reserve(app.surfaces->surfaces.size());
+    for (auto const& s : app.surfaces->surfaces) {
+      scratch.push_back(s);
+    }
+    scratch.clear();
+    auto const cleanup_end = Clock::now();
+    timing.cleanup_us = Us(cleanup_end - add_end);
     done.set_value();
   });
 
@@ -155,7 +161,8 @@ LongJournalSeedStats SeedLongJournalOnModel(SurfacesModelSession& session,
 void ResetIncrementalPrepBarrier(SurfacesModelSession& session) {
   std::lock_guard<std::mutex> lock{session.incremental_prep_barrier.mu};
   session.incremental_prep_barrier.enabled = false;
-  session.incremental_prep_barrier.at_checkpoint = false;
+  session.incremental_prep_barrier.phase =
+      SurfacesModelSession::IncrementalPrepBarrier::Phase::Idle;
   session.incremental_prep_barrier.add_posted = false;
   session.incremental_prep_barrier.continue_prep = false;
 }
@@ -169,7 +176,8 @@ bool WaitIncrementalPrepAtCheckpoint(SurfacesModelSession& session,
                                      std::chrono::milliseconds timeout) {
   std::unique_lock<std::mutex> lock{session.incremental_prep_barrier.mu};
   return session.incremental_prep_barrier.cv.wait_for(lock, timeout, [&] {
-    return session.incremental_prep_barrier.at_checkpoint;
+    return session.incremental_prep_barrier.phase ==
+           SurfacesModelSession::IncrementalPrepBarrier::Phase::AtCheckpoint;
   });
 }
 
@@ -205,6 +213,8 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
   LongJournalPublicationDrainStats stats;
   std::size_t const expected_ui_applies = seed.dirty_obj_ids_after_seed;
   std::uint64_t const publish_baseline = seed.publish_count_after;
+  std::uint64_t const incremental_baseline =
+      session.incremental_publications_completed.load();
 
   auto apply_unread = [&] {
     std::vector<std::uint8_t> bytes;
@@ -221,11 +231,7 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
     return true;
   };
 
-#ifdef NDEBUG
   auto const deadline = Clock::now() + kModelWatchdog;
-#else
-  auto const deadline = Clock::now() + std::chrono::seconds{600};
-#endif
   while (Clock::now() < deadline) {
     while (apply_unread()) {
     }
@@ -245,16 +251,25 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
              !session.incremental_publication_in_progress.load();
     }
     if (idle && ui.incremental_applies >= expected_ui_applies &&
+        session.incremental_publications_completed.load() >=
+            incremental_baseline + expected_ui_applies &&
         session.channel.publish_count() >= publish_baseline + expected_ui_applies) {
       break;
     }
 
     std::unique_lock<std::mutex> lock{session.mu};
-    session.cv.wait_for(lock, std::chrono::milliseconds{20}, [&] {
-      return session.channel.has_unread_published() ||
-             session.pending_dirty_count_observed.load() > 0 ||
-             !session.pending_work.empty() ||
-             session.incremental_publication_in_progress.load();
+    session.cv.wait_for(lock, std::chrono::milliseconds{250}, [&] {
+      if (session.channel.has_unread_published()) {
+        return true;
+      }
+      if (!session.pending_work.empty()) {
+        return true;
+      }
+      if (session.pending_dirty_count_observed.load() > 0 &&
+          !session.incremental_publication_in_progress.load()) {
+        return true;
+      }
+      return false;
     });
   }
 
@@ -265,6 +280,9 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
               << session.pending_dirty_count_observed.load()
               << " publish_count=" << session.channel.publish_count()
               << " baseline=" << publish_baseline
+              << " incremental_completed="
+              << session.incremental_publications_completed.load()
+              << " incremental_baseline=" << incremental_baseline
               << " in_progress="
               << session.incremental_publication_in_progress.load() << '\n';
     LJ_CHECK(false);
@@ -273,6 +291,8 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
   LJ_CHECK(session.pending_dirty_count_observed.load() == 0);
   LJ_CHECK(!session.incremental_publication_in_progress.load());
   LJ_CHECK(ui.incremental_applies >= expected_ui_applies);
+  LJ_CHECK(session.incremental_publications_completed.load() >=
+           incremental_baseline + expected_ui_applies);
   LJ_CHECK(session.channel.publish_count() >= publish_baseline + expected_ui_applies);
   return stats;
 }
@@ -285,7 +305,9 @@ LongJournalAddTiming RunMeasuredAddSurfaceOnFirstSurface(
 LongJournalAddPerfResult RunAddImmediatelyAfterChanges(
     SurfacesModelSession& session, int event_count,
     SurfacesUiPublicationConsumer* ui_consumer) {
+  LJ_CHECK(ui_consumer != nullptr);
   (void)ui_consumer;
+
   LongJournalAddPerfResult result;
   result.seed = SeedLongJournalOnModel(session, event_count);
   result.journal_size_after_seed = result.seed.journal_event_count;
@@ -344,7 +366,11 @@ LongJournalAddDuringPrepResult RunAddDuringIncrementalPublicationPrep(
   auto const add_post_start = Clock::now();
   std::promise<void> add_done;
   auto add_future = add_done.get_future();
-  session.Post([&session, &t, &add_done, add_post_start](ae::Domain& domain) {
+  std::atomic<bool> add_task_started{false};
+  session.Post([&session, &t, &add_done, &add_task_started,
+                add_post_start](ae::Domain& domain) {
+    add_task_started.store(true, std::memory_order_release);
+    session.cv.notify_all();
     auto const lambda_start = Clock::now();
     t.queue_wait_us = Us(lambda_start - add_post_start);
     t.publish_count_at_task_start = session.channel.publish_count();
@@ -356,13 +382,24 @@ LongJournalAddDuringPrepResult RunAddDuringIncrementalPublicationPrep(
     LJ_CHECK(app.surfaces->surfaces.size() == 2);
     auto const add_end = Clock::now();
     t.add_body_us = Us(add_end - add_start);
-    auto const task_end = Clock::now();
-    t.cleanup_us = Us(task_end - add_end);
+    std::vector<Surface::ptr> scratch;
+    for (auto const& s : app.surfaces->surfaces) {
+      scratch.push_back(s);
+    }
+    scratch.clear();
+    auto const cleanup_end = Clock::now();
+    t.cleanup_us = Us(cleanup_end - add_end);
     add_done.set_value();
   });
   NotifyIncrementalPrepAddPosted(session);
   auto const continue_start = Clock::now();
   NotifyIncrementalPrepContinue(session);
+  while (!add_task_started.load(std::memory_order_acquire)) {
+    if (Clock::now() - continue_start > kModelWatchdog) {
+      LJ_CHECK(false);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{1});
+  }
   result.prep_continue_to_add_start_us = Us(Clock::now() - continue_start);
   LJ_CHECK(add_future.wait_for(kModelWatchdog) == std::future_status::ready);
   t.client_wait_us = Us(Clock::now() - add_post_start);

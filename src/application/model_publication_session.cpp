@@ -4,6 +4,8 @@
 
 #include <cassert>
 
+#include <chrono>
+
 #include <filesystem>
 
 #include <optional>
@@ -35,6 +37,13 @@ void ModelPublicationSession::RequestStop() {
 
     stop = true;
 
+  }
+
+  {
+    std::lock_guard<std::mutex> lock{incremental_prep_barrier.mu};
+    incremental_prep_barrier.enabled = false;
+    incremental_prep_barrier.phase = IncrementalPrepBarrier::Phase::Done;
+    incremental_prep_barrier.cv.notify_all();
   }
 
   cv.notify_all();
@@ -267,7 +276,17 @@ void ModelPublicationSession::Run(
 
   on_published(ModelPublicationKind::Initial);
 
-  auto try_publish_one_incremental = [&]() -> bool {
+  enum class IncrementalPublishAttempt {
+    PreferAddPriority,
+    ForceWaitLimit,
+  };
+
+  auto try_publish_one_incremental =
+      [&](IncrementalPublishAttempt attempt,
+          bool* aborted_after_collect_due_to_pending_work) -> bool {
+    if (aborted_after_collect_due_to_pending_work != nullptr) {
+      *aborted_after_collect_due_to_pending_work = false;
+    }
     struct IncrementalGuard {
       ModelPublicationSession& session;
       ~IncrementalGuard() {
@@ -287,15 +306,35 @@ void ModelPublicationSession::Run(
 
     if (incremental_prep_barrier.enabled) {
       std::unique_lock<std::mutex> lock{incremental_prep_barrier.mu};
-      incremental_prep_barrier.at_checkpoint = true;
-      incremental_prep_barrier.cv.notify_all();
-      incremental_prep_barrier.cv.wait(lock, [&] {
-        return incremental_prep_barrier.add_posted || stop;
-      });
-      incremental_prep_barrier.cv.wait(lock, [&] {
-        return incremental_prep_barrier.continue_prep || stop;
-      });
-      incremental_prep_barrier.at_checkpoint = false;
+      if (incremental_prep_barrier.phase == IncrementalPrepBarrier::Phase::Idle) {
+        incremental_prep_barrier.phase =
+            IncrementalPrepBarrier::Phase::AtCheckpoint;
+        incremental_prep_barrier.cv.notify_all();
+      }
+      if (!incremental_prep_barrier.cv.wait_for(
+              lock, std::chrono::seconds{120}, [&] {
+                return incremental_prep_barrier.add_posted || stop;
+              })) {
+        return false;
+      }
+      if (stop) {
+        incremental_prep_barrier.enabled = false;
+        incremental_prep_barrier.phase = IncrementalPrepBarrier::Phase::Done;
+        return false;
+      }
+      if (!incremental_prep_barrier.cv.wait_for(
+              lock, std::chrono::seconds{120}, [&] {
+                return incremental_prep_barrier.continue_prep || stop;
+              })) {
+        return false;
+      }
+      if (stop) {
+        incremental_prep_barrier.enabled = false;
+        incremental_prep_barrier.phase = IncrementalPrepBarrier::Phase::Done;
+        return false;
+      }
+      incremental_prep_barrier.phase = IncrementalPrepBarrier::Phase::Done;
+      incremental_prep_barrier.enabled = false;
     }
 
     std::uint32_t pending_id = 0;
@@ -317,9 +356,12 @@ void ModelPublicationSession::Run(
       }
     }
 
-    {
+    if (attempt == IncrementalPublishAttempt::PreferAddPriority) {
       std::lock_guard<std::mutex> lock{mu};
       if (!pending_work.empty()) {
+        if (aborted_after_collect_due_to_pending_work != nullptr) {
+          *aborted_after_collect_due_to_pending_work = true;
+        }
         return false;
       }
     }
@@ -361,6 +403,7 @@ void ModelPublicationSession::Run(
     }
 
     model_work_executions_since_incremental_publish.store(0);
+    incremental_publications_completed.fetch_add(1);
     cv.notify_all();
     on_published(ModelPublicationKind::Incremental);
     return true;
@@ -457,7 +500,11 @@ void ModelPublicationSession::Run(
 
     pending_dirty_count_observed.store(pending_dirty.ordered.size());
 
-    if (should_interleave_publish() && try_publish_one_incremental()) {
+    bool aborted_after_collect = false;
+    if (should_interleave_publish() &&
+        try_publish_one_incremental(
+            IncrementalPublishAttempt::PreferAddPriority,
+            &aborted_after_collect)) {
       continue;
     }
 
@@ -466,11 +513,22 @@ void ModelPublicationSession::Run(
     {
       std::lock_guard<std::mutex> lock{mu};
       if (!pending_work.empty()) {
+        if (config.allow_force_incremental_with_pending_work &&
+            aborted_after_collect && pending_work.size() == 1 &&
+            model_work_executions_since_incremental_publish.load() >= 2 &&
+            presentation_size_queue.PendingObjectCountForTest() == 0 &&
+            !presentation_size_queue.DrainScheduledForTest()) {
+          if (try_publish_one_incremental(
+                  IncrementalPublishAttempt::ForceWaitLimit, nullptr)) {
+            continue;
+          }
+        }
         continue;
       }
     }
 
-    if (try_publish_one_incremental()) {
+    if (try_publish_one_incremental(
+            IncrementalPublishAttempt::PreferAddPriority, nullptr)) {
       continue;
     }
 

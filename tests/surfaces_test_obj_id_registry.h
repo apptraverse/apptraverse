@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <unordered_map>
 
 namespace apptraverse::test {
@@ -18,6 +19,7 @@ struct ObjIdSample {
 class ObjIdRegistry {
  public:
   void RegisterOrDie(ObjIdSample sample) {
+    std::lock_guard<std::mutex> lock{mu_};
     auto it = seen_.find(sample.obj_id);
     if (it == seen_.end()) {
       seen_.emplace(sample.obj_id, sample);
@@ -34,6 +36,7 @@ class ObjIdRegistry {
   }
 
  private:
+  std::mutex mu_;
   std::unordered_map<std::uint32_t, ObjIdSample> seen_;
 };
 

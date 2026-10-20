@@ -100,10 +100,12 @@ void TestLongJournalAddSiblingShutdownSave(int event_count) {
                                 });
   }};
   WaitPublished(session);
-  (void)TakeAndWake(session);
+  SurfacesUiPublicationConsumer ui;
+  ui.BindSession(session);
+  ui.LoadInitialFromSession(session);
 
   LongJournalAddPerfResult const perf =
-      RunAddImmediatelyAfterChanges(session, event_count);
+      RunAddImmediatelyAfterChanges(session, event_count, &ui);
   ReportLongJournalAddPerf("immediate", "long_journal_save", perf);
   AssertReleaseLongJournalAddImmediateGate("long_journal_save", perf);
   SurfaceJournalFingerprint const before_save = perf.fingerprint;
@@ -324,8 +326,11 @@ void TestLongJournalAddPerfIsolatedProcess() {
       });
     }};
     WaitPublished(session);
+    SurfacesUiPublicationConsumer ui_immediate;
+    ui_immediate.BindSession(session);
+    ui_immediate.LoadInitialFromSession(session);
     LongJournalAddPerfResult const immediate =
-        RunAddImmediatelyAfterChanges(session, 10000);
+        RunAddImmediatelyAfterChanges(session, 10000, &ui_immediate);
     ReportLongJournalAddPerf("immediate", "isolated", immediate);
     AssertReleaseLongJournalAddImmediateGate("isolated", immediate);
     session.RequestStop();
@@ -383,7 +388,6 @@ int main(int argc, char** argv) {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSurfacesRegistration();
-  apptraverse::EnsureWin32SurfacesPresenterRegistration();
 
   if (argc > 1 && std::string_view{argv[1]} == "--add-perf-only") {
     apptraverse::test::TestLongJournalAddPerfIsolatedProcess();

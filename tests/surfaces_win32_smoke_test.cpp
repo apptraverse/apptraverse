@@ -1199,13 +1199,19 @@ void TestLongJournalAddClickToSecondSurfaceHwnd() {
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
 
-  while (!app.TestingUiReady()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  {
+    auto const ui_ready_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{120};
+    while (!app.TestingUiReady()) {
+      CHECK(std::chrono::steady_clock::now() < ui_ready_deadline);
+      std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    }
   }
 
   HWND s1 = nullptr;
   CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
                   std::chrono::seconds{60}));
+  auto const seed_start = std::chrono::steady_clock::now();
   RunOnModelSession(app.TestingSession(), [](Application& application) {
     Surface& surface = *application.surfaces->surfaces[0];
     for (int i = 0; i < 10000; ++i) {
@@ -1213,17 +1219,32 @@ void TestLongJournalAddClickToSecondSurfaceHwnd() {
     }
     CHECK(surface.journal.size() >= 10000U);
   });
+  auto const seed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - seed_start);
 
   HWND const add1 = FindAddButton(s1);
   CHECK(add1 != nullptr);
   auto const click_start = std::chrono::steady_clock::now();
   SendMessageW(add1, BM_CLICK, 0, 0);
+  auto const post_click = std::chrono::steady_clock::now();
   HWND s2 = nullptr;
   CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
                   std::chrono::seconds{120}));
-  auto const hwnd_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now() - click_start);
-  std::cout << "long_journal_add_click_to_hwnd_ms=" << hwnd_ms.count() << '\n';
+  auto const hwnd_found = std::chrono::steady_clock::now();
+  auto const click_to_hwnd_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(hwnd_found -
+                                                            click_start);
+  auto const click_dispatch_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(post_click -
+                                                            click_start);
+  auto const hwnd_wait_after_click_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(hwnd_found -
+                                                            post_click);
+  std::cout << "long_journal_add_click seed_model_post_ms=" << seed_ms.count()
+            << " click_dispatch_ms=" << click_dispatch_ms.count()
+            << " hwnd_wait_after_click_ms=" << hwnd_wait_after_click_ms.count()
+            << " click_to_hwnd_ms=" << click_to_hwnd_ms.count()
+            << " (ui path; not model client_wait gate)\n";
 
   app.TestingRequestStop();
   gui.join();

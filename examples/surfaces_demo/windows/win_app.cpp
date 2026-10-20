@@ -198,6 +198,9 @@ void WinApp::OnInitialPublished() {
     FatalWin32("DestroyWindow Loading", err);
   }
   loading_ = nullptr;
+#if defined(APPTRAVERSE_SURFACES_TESTING)
+  testing_ui_ready_.store(true, std::memory_order_release);
+#endif
 }
 
 void WinApp::OnIncrementalPublished() {
@@ -212,6 +215,9 @@ void WinApp::OnIncrementalPublished() {
 }
 
 int WinApp::Run(std::filesystem::path const& state_dir) {
+#if defined(APPTRAVERSE_SURFACES_TESTING)
+  testing_ui_ready_.store(false, std::memory_order_release);
+#endif
   HINSTANCE const instance = GetModuleHandleW(nullptr);
   EnsureWin32SurfacePresenterRegistration();
   RegisterSurfacesWin32Classes();

@@ -85,9 +85,10 @@ LongJournalAddPerfResult RunAddAfterPublicationDrain(
     SurfacesModelSession& session, int event_count,
     SurfacesUiPublicationConsumer* ui_consumer = nullptr);
 
+// ui_consumer must outlive session activity; load initial exactly once before seed.
 LongJournalAddPerfResult RunAddImmediatelyAfterChanges(
     SurfacesModelSession& session, int event_count,
-    SurfacesUiPublicationConsumer* ui_consumer = nullptr);
+    SurfacesUiPublicationConsumer* ui_consumer);
 
 struct LongJournalAddDuringPrepResult {
   LongJournalAddPerfResult add;

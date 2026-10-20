@@ -30,6 +30,7 @@ class PresentationSizeQueue {
   void UnbindProxy(ModelObjectProxy* proxy);
 
   [[nodiscard]] std::size_t PendingObjectCountForTest() const;
+  [[nodiscard]] bool DrainScheduledForTest() const;
 
  private:
   struct SizeSlot {

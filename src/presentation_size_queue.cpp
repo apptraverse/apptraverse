@@ -39,6 +39,11 @@ std::size_t PresentationSizeQueue::PendingObjectCountForTest() const {
   return slots_.size();
 }
 
+bool PresentationSizeQueue::DrainScheduledForTest() const {
+  std::lock_guard<std::mutex> lock{mu_};
+  return drain_scheduled_;
+}
+
 void PresentationSizeQueue::EnsureDrainScheduled() {
   {
     std::lock_guard<std::mutex> lock{mu_};

@@ -52,6 +52,9 @@ struct ModelPublicationSessionConfig {
       on_save_end;
   // Tests only: invoked on model thread immediately before incremental serialize.
   std::function<void(std::uint32_t dirty_node_id)> before_incremental_publication;
+  // Tests only: allow ForceWaitLimit incremental publish after collect while one
+  // coalesced ModelWork remains queued (see TestIncrementalPublicationUnderQueuedModelWork).
+  bool allow_force_incremental_with_pending_work{false};
 };
 
 struct ModelPublicationSession {
@@ -74,11 +77,13 @@ struct ModelPublicationSession {
   std::atomic<bool> incremental_publication_in_progress{false};
   std::atomic<std::uint32_t> model_work_executions_since_incremental_publish{
       0};
+  std::atomic<std::uint64_t> incremental_publications_completed{0};
   struct IncrementalPrepBarrier {
     std::mutex mu;
     std::condition_variable cv;
     bool enabled{false};
-    bool at_checkpoint{false};
+    enum class Phase : std::uint8_t { Idle, AtCheckpoint, Done } phase{
+        Phase::Idle};
     bool add_posted{false};
     bool continue_prep{false};
   } incremental_prep_barrier;

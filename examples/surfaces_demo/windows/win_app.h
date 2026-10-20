@@ -9,6 +9,7 @@
 #  undef RegisterClass
 #endif
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -29,7 +30,9 @@ class WinApp {
   int Run(std::filesystem::path const& state_dir);
 
 #if defined(APPTRAVERSE_SURFACES_TESTING)
-  bool TestingUiReady() const { return ui_application_.is_valid(); }
+  bool TestingUiReady() const {
+    return testing_ui_ready_.load(std::memory_order_acquire);
+  }
   SurfacesModelSession& TestingSession() { return session_; }
   ModelObjectProxy& TestingProxy() { return *model_proxy_; }
   void TestingRequestStop() { session_.RequestStop(); }
@@ -55,6 +58,9 @@ class WinApp {
   ae::RamDomainStorage ui_storage_;
   std::unique_ptr<ae::Domain> ui_domain_;
   Application::ptr ui_application_;
+#if defined(APPTRAVERSE_SURFACES_TESTING)
+  std::atomic<bool> testing_ui_ready_{false};
+#endif
 };
 
 }  // namespace apptraverse

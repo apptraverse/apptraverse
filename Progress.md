@@ -4227,9 +4227,18 @@ Baseline: **`8c51b84`**.
 - **`surfaces_model_test`**: immediate **3344 ms** (gate 4000 ms); after_drain **1750 ms**; during_prep **`add_post_to_ready_ms=2102`**, **`queue_wait_ms=716`**.
 - **click→HWND @10k**: **`long_journal_add_click_to_hwnd_ms=8564`** (Release smoke).
 
-### Debug (`surfaces_model_test`, full run)
+### Debug (`surfaces_model_test`, full run @ **`2787d3d`**, preserved)
+- **`docs/surfaces_debug_model_test3_drain_timeout.txt`**: **`DRAIN TIMEOUT expected_ui_applies=2 ui_applied=1 pending_dirty=1 publish_count=2 baseline=1 in_progress=1`** (120 s watchdog; not blamed on “slow Debug” without these counters).
 - immediate **`client_wait_ms≈50923`**; after_drain **≈65636**; during_prep **≈59082** (perf gate NDEBUG-only).
-- **`TestPublicationDrainTwoDirtyNodes`**: was **DRAIN TIMEOUT** at 120 s (two structural publishes @10k); extended drain watchdog to **600 s** in Debug — **re-run pending** after this commit.
+
+### Publication/drain/acceptance fixes (after **`2787d3d`**, verified Release)
+- **Immediate @10k**: UI consumer **`LoadInitialFromSession` once** before seed (isolated + shutdown paths); **`RunAddImmediatelyAfterChanges` requires caller-owned UI** (lifetime through session stop).
+- **Prefer vs ForceWaitLimit** incremental publish; **`ForceWaitLimit` skips post-`Collect` `pending_work` abort**; test-gated via **`allow_force_incremental_with_pending_work`** + presentation-size **`DrainScheduledForTest`** guard.
+- **`ObjIdRegistry`**: mutex; **`incremental_publications_completed`** + drain wait without **`in_progress` spin**; two-dirty test drains seed then forces **≥2** dirty nodes.
+- **Prep barrier**: one-shot **`Phase`** + stop wake; **`TestingUiReady`** atomic + **120 s** timeout; **`prep_continue_to_add_start_us`** through Add task start.
+- **Win32 smoke**: **`click_to_hwnd_ms`** split — **`seed_model_post_ms`**, **`click_dispatch_ms`**, **`hwnd_wait_after_click_ms`** (UI path; not model gate).
+- **Release**: **`surfaces_model_test OK`** (immediate **1839 ms** gate pass); **`--add-perf-only OK`**; **win32 smoke OK** (`click_to_hwnd_ms=5711` breakdown logged).
+- **Debug `surfaces_model_test`**: full re-run after fixes — **in progress / see `debug_model_test5.out`**.
 
 Phase 1 / shutdown PERF **open**.
 
