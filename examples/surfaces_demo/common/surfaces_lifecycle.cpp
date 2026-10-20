@@ -9,13 +9,11 @@
 #include <chrono>
 #include <optional>
 
-#include "aether-objects/obj/registry.h"
-
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/distill.h"
-#include "apptraverse/graph_walk.h"
 #include "apptraverse/object_serialization.h"
+#include "surfaces_runtime_execution.h"
 
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_model.h"
@@ -51,32 +49,7 @@ void ConfigureSurfacesDemoModelSession(SurfacesModelSession& session) {
         return &*application;
       };
   session.config.on_model_root_loaded = [](ae::Obj& root) {
-    auto& application = static_cast<Application&>(root);
-    Surfaces* surfaces = nullptr;
-    if (application.surfaces.is_valid()) {
-      if (!application.surfaces.is_loaded()) {
-        (void)application.surfaces.Load();
-      }
-      if (application.surfaces.is_loaded()) {
-        surfaces = &*application.surfaces;
-      }
-    }
-    if (surfaces == nullptr) {
-      std::vector<ae::Obj*> objects;
-      CollectReachableObjects(root, objects);
-      for (ae::Obj* obj : objects) {
-        if (ae::Registry::GetRegistry().GenerationDistance(
-                Surfaces::kClassId, obj->GetClassId()) >= 0) {
-          surfaces = static_cast<Surfaces*>(obj);
-          break;
-        }
-      }
-    }
-    if (surfaces == nullptr) {
-      return;
-    }
-    surfaces->host_application = &application;
-    WireSurfacesDemoPlatformBindings(*surfaces);
+    WireSurfacesDemoRuntimeExecution(static_cast<Application&>(root));
   };
   session.config.bind_presentation_size_queue =
       [](PresentationSizeQueue& queue) {

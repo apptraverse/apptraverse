@@ -5,6 +5,8 @@
 
 #include "apptraverse/surfaces/surfaces_model.h"
 
+#include "surfaces_runtime_execution.h"
+
 namespace apptraverse {
 
 using SurfacesPublicationKind = ModelPublicationKind;

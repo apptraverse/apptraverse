@@ -4091,6 +4091,32 @@ Long-journal scenario (10k seed + Add sibling + shutdown): **add_ms=3000**, **sh
 - **`apptraverse_presenter_graph_persistence_test`**: PASS
 - **`apptraverse_surfaces_model_test`**: exit **3** — `Surface::AddSurface` **`host_application`** assert on model-thread path after packed bootstrap (needs runtime wire on loaded **`Surfaces`** back-link; in progress in `surfaces_lifecycle` / tests).
 
+## Surfaces runtime lifecycle after packed load (2026-10-19)
+
+Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-presenter-decomp`). Baseline: **`4cc18c4`**.
+
+### First actual failure (named tests)
+- Full **`apptraverse_surfaces_model_test`** now prints **`surfaces_model_test: <TestName>`** before each case.
+- After checkpoint shell fix, **`TestRestartPersistence`** PASS with explicit **`WireSurfacesDemoRuntimeExecution`** after directory **`LoadApplication`** (data restore ≠ runtime bind ≠ Add).
+- Remaining exit **3** was **`TestTwoSessionsPresentationSizeRouting`**: raw **`session.Run`** without **`ConfigureSurfacesDemoModelSession`** → **`config.ensure_type_registration`** assert (`model_publication_session.cpp:94`). Fixed: all multi-session tests use **`RunSurfacesDemoModelSession`**.
+
+### Lifetime + canonical graph (pre-bind)
+- **`LoadApplicationBundleFromSessionCheckpoint`**: owns **`RamDomainStorage` → Domain → Application`** (no dangling domain).
+- **`VerifySurfacesPersistentGraph`**: Application/Surfaces/Surface back-links, domain identity, presenter→surface, locale — fatal on mismatch (no graph-walk fallback).
+- **`on_model_root_loaded`**: only **`WireSurfacesDemoRuntimeExecution`**; removed “first Surfaces in reachable graph” fallback.
+- **`RunOnModel`**: no **`host_application` / platform_attach** hacks; standalone load+Add calls wire once via bundle or lifecycle hook.
+
+### Single runtime attach point
+- **`WireSurfacesDemoRuntimeExecution`**: verify graph → set **`host_application`** → **`WireSurfacesDemoPlatformBindings`** (demo/session hook; not serialized).
+
+### Verified (Release `build-presenter-decomp-msvc-rel`)
+- **`apptraverse_surfaces_model_test`**: **PASS** (full suite).
+- Checkpoint regressions: **PASS** (obj root, load cycle, rehydration, presenter graph).
+- **`apptraverse_surfaces_long_journal_save_test`**: **PASS** (10k journal fingerprint + cold RAM checkpoint load + session2 reload; shutdown_join_ms ~**8.1 s** — serialize/write/teardown still open).
+- Debug **`apptraverse_surfaces_model_test`**: p95 timing guards skipped under **`NDEBUG`**; model-thread wait **120 s** for slow Debug paths.
+
+Phase **1** not complete (shared Windows host, universal controls, SharedNode, full schema v0 migration remain).
+
 ### aether-objects pin
 - Patches (in order): **`aether-objects-local-persistent-load.patch`** (hunk fix), **`aether-objects-domain-storage-access.patch`**, **`aether-objects-checkpoint-shell.patch`**
 - Objects SHA unchanged: **`79283b667cabf689da1059d618fe2a22abf51db4`**

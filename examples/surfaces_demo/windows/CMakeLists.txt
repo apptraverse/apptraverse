@@ -6,6 +6,8 @@ set(_surfaces_win_sources
 
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
 
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_runtime_execution.cpp
+
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_shutdown_trace.cpp
 
 )

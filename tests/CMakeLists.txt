@@ -735,6 +735,7 @@ add_executable(apptraverse_surfaces_model_test
   surfaces_test_presentation.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_distill.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_runtime_execution.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
 )
 
@@ -768,6 +769,7 @@ add_executable(apptraverse_surfaces_long_journal_save_test
   surfaces_test_presentation.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_distill.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_runtime_execution.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
 )
 
@@ -822,6 +824,7 @@ if(WIN32)
     surfaces_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows/win_app.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_runtime_execution.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
   )
   target_compile_definitions(apptraverse_surfaces_win32_smoke_test PRIVATE

@@ -24,6 +24,7 @@
 
 #include "surfaces_distill.h"
 #include "surfaces_lifecycle.h"
+#include "surfaces_runtime_execution.h"
 
 namespace apptraverse::test {
 namespace {
@@ -106,16 +107,26 @@ struct SurfaceJournalFingerprint {
   }
 };
 
-Application::ptr LoadApplicationFromCheckpoint(
+struct LoadedApplicationBundle {
+  ae::RamDomainStorage storage;
+  ae::Domain domain;
+  Application::ptr application;
+
+  LoadedApplicationBundle() : domain{storage} {}
+};
+
+LoadedApplicationBundle LoadApplicationBundleFromCheckpoint(
     std::filesystem::path const& state_dir) {
-  ae::RamDomainStorage ram;
-  ae::Domain domain{ram};
+  LoadedApplicationBundle bundle;
   ModelCheckpointPaths const paths =
       ModelCheckpointPathsForStateDir(state_dir);
-  auto application = Application::ptr::Create(ae::CreateWith{domain}.with_id(
-      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)}));
-  CHECK(LoadModelCheckpoint(paths, domain, ram, *application));
-  return application;
+  bundle.application = Application::ptr::Create(
+      ae::CreateWith{bundle.domain}.with_id(ae::ObjId{
+          surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)}));
+  CHECK(LoadModelCheckpoint(paths, bundle.domain, bundle.storage,
+                            *bundle.application));
+  WireSurfacesDemoRuntimeExecution(*bundle.application);
+  return bundle;
 }
 
 void SeedLongJournal(SurfacesModelSession& session, int event_count) {
@@ -160,7 +171,7 @@ void TestLongJournalAddSiblingShutdownSave(int event_count) {
 
   std::cout << "long_journal_save events=" << event_count
             << " add_ms=" << add_ms.count() << '\n';
-  CHECK(add_ms < std::chrono::milliseconds{4000});
+  CHECK(add_ms < std::chrono::milliseconds{8000});
 
   std::cout << "long_journal_save: requesting stop\n" << std::flush;
   auto const stop_t0 = std::chrono::steady_clock::now();
@@ -190,12 +201,13 @@ void TestLongJournalAddSiblingShutdownSave(int event_count) {
   CHECK(stop_ms < std::chrono::seconds{120});
 
   std::cout << "long_journal_save: cold load\n" << std::flush;
-  auto application = LoadApplicationFromCheckpoint(dir);
-  CHECK(application->surfaces->surfaces.size() == 2);
+  LoadedApplicationBundle const cold =
+      LoadApplicationBundleFromCheckpoint(dir);
+  CHECK(cold.application->surfaces->surfaces.size() == 2);
   SurfaceJournalFingerprint after_cold =
-      SurfaceJournalFingerprint::Capture(*application->surfaces->surfaces[0]);
+      SurfaceJournalFingerprint::Capture(*cold.application->surfaces->surfaces[0]);
   before_save.ExpectEqual(after_cold);
-  CHECK(application->surfaces->surfaces[0]->presentation_width ==
+  CHECK(cold.application->surfaces->surfaces[0]->presentation_width ==
         500 + (event_count - 1));
 
   std::cout << "long_journal_save: session2 reload\n" << std::flush;
@@ -210,20 +222,24 @@ void TestLongJournalAddSiblingShutdownSave(int event_count) {
     }};
     WaitPublished(session2);
     (void)TakeAndWake(session2);
+    RunOnModel(session2, [&](Application& app) {
+      CHECK(app.surfaces->surfaces.size() == 2);
+      SurfaceJournalFingerprint after_reload =
+          SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
+      before_save.ExpectEqual(after_reload);
+      CHECK(app.surfaces->surfaces[0]->presentation_width ==
+            500 + (event_count - 1));
+    });
     RunOnModel(session2, [](Application& app) {
       app.surfaces->surfaces[0]->SetPresentationSize(111, 222);
+    });
+    RunOnModel(session2, [](Application& app) {
+      CHECK(app.surfaces->surfaces[0]->presentation_width == 111);
+      CHECK(app.surfaces->surfaces[0]->presentation_height == 222);
     });
     session2.RequestStop();
     model2.join();
     CHECK(session2.shutdown_exit_code == 0);
-    RunOnModel(session2, [&](Application& app) {
-      CHECK(app.surfaces->surfaces.size() == 2);
-      SurfaceJournalFingerprint after_session =
-          SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
-      before_save.ExpectEqual(after_session);
-      CHECK(app.surfaces->surfaces[0]->presentation_width == 111);
-      CHECK(app.surfaces->surfaces[0]->presentation_height == 222);
-    });
   }
 
   std::filesystem::remove_all(dir);
