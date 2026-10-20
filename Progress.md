@@ -4113,7 +4113,7 @@ Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-pres
 - **`apptraverse_surfaces_model_test`**: **PASS** (full suite).
 - Checkpoint regressions: **PASS** (obj root, load cycle, rehydration, presenter graph).
 - **`apptraverse_surfaces_long_journal_save_test`**: **PASS** (10k journal fingerprint + cold RAM checkpoint load + session2 reload; shutdown_join_ms ~**8.1 s** — serialize/write/teardown still open).
-- Debug **`apptraverse_surfaces_model_test`**: p95 timing guards skipped under **`NDEBUG`**; model-thread wait **120 s** for slow Debug paths.
+- Debug **`apptraverse_surfaces_model_test`**: p95 and long-journal **Add** timing guards skipped under **`NDEBUG`** (Debug Add@10k ~**81 s** observed); model-thread wait **120 s** for slow Debug paths.
 
 Phase **1** not complete (shared Windows host, universal controls, SharedNode, full schema v0 migration remain).
 
