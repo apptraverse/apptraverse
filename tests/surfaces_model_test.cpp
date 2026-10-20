@@ -827,7 +827,14 @@ void TestIncrementalPublicationUnderQueuedModelWork() {
   auto dir = TestDir("apptraverse_surfaces_pub_under_queued_work");
   SurfacesModelSession session;
   session.state_dir = dir;
-  session.config.allow_force_incremental_with_pending_work = true;
+  std::atomic<int> incremental_with_pending_work{0};
+  session.config.before_incremental_publication =
+      [&session, &incremental_with_pending_work](std::uint32_t) {
+        std::lock_guard<std::mutex> lock{session.mu};
+        if (!session.pending_work.empty()) {
+          incremental_with_pending_work.fetch_add(1);
+        }
+      };
   std::thread model{[&] {
     RunSurfacesDemoModelSession(session,
                                 [&session](SurfacesPublicationKind) {
@@ -838,23 +845,22 @@ void TestIncrementalPublicationUnderQueuedModelWork() {
   SurfacesUiPublicationConsumer ui;
   ui.BindSession(session);
   ui.LoadInitialFromSession(session);
+  auto proxy = MakeSessionProxy(session);
+  AttachSessionProxy(session, proxy);
   std::uint64_t const publish0 = session.channel.publish_count();
+
+  ae::ObjId surface_id;
+  RunOnModel(session, [&surface_id](Application& app) {
+    surface_id = app.surfaces->surfaces[0]->obj_id;
+  });
 
   std::atomic<bool> stop_producer{false};
   std::atomic<bool> saw_single_coalesced_queue{false};
   std::thread producer{[&] {
     int i = 0;
     while (!stop_producer.load()) {
-      session.Post([&session, i](ae::Domain& domain) {
-        auto object = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
-            surfaces_demo::ObjId::Application)});
-        if (!object) {
-          return;
-        }
-        auto& app = static_cast<Application&>(*object);
-        app.surfaces->surfaces[0]->SetPresentationSize(400 + (i % 40),
-                                                         500 - (i % 40));
-      });
+      session.presentation_size_queue.Post(&proxy, surface_id, 400 + (i % 40),
+                                           500 - (i % 40));
       {
         std::lock_guard<std::mutex> lock{session.mu};
         if (session.pending_work.size() == 1) {
@@ -878,18 +884,73 @@ void TestIncrementalPublicationUnderQueuedModelWork() {
       ui.ApplyStructuralBytes(bytes);
     }
     if (session.channel.publish_count() > publish0 &&
-        ui.incremental_applies > 0) {
+        ui.incremental_applies > 0 &&
+        incremental_with_pending_work.load() > 0) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds{5});
   }
   stop_producer.store(true);
   producer.join();
+  session.presentation_size_queue.UnbindProxy(&proxy);
   CHECK(session.channel.publish_count() > publish0);
   CHECK(ui.incremental_applies > 0);
   CHECK(saw_single_coalesced_queue.load());
+  CHECK(incremental_with_pending_work.load() > 0);
   session.RequestStop();
   model.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestPublicationDrainPrefetchAlreadyUnread() {
+  auto dir = TestDir("apptraverse_surfaces_drain_prefetch_unread");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    RunSurfacesDemoModelSession(session,
+                                [&session](SurfacesPublicationKind) {
+                                  session.cv.notify_all();
+                                });
+  }};
+  WaitPublished(session);
+  SurfacesUiPublicationConsumer ui;
+  ui.BindSession(session);
+  ui.LoadInitialFromSession(session);
+  LongJournalSeedStats seed = SeedLongJournalOnModel(session, 200);
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (session.channel.has_unread_published()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{5});
+  }
+  CHECK(session.channel.has_unread_published());
+  LongJournalPublicationDrainStats const drain =
+      WaitModelPublicationBacklogDrained(session, ui, seed);
+  CHECK(drain.incremental_applied_to_ui >= 1);
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestPrepBarrierRequestStopDuringWait() {
+  auto dir = TestDir("apptraverse_surfaces_prep_barrier_stop");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  EnableIncrementalPrepBarrier(session);
+  std::thread model{[&] {
+    RunSurfacesDemoModelSession(session,
+                                [&session](SurfacesPublicationKind) {
+                                  session.cv.notify_all();
+                                });
+  }};
+  WaitPublished(session);
+  (void)TakeAndWake(session);
+  SeedLongJournalOnModel(session, 100);
+  CHECK(WaitIncrementalPrepAtCheckpoint(session, std::chrono::seconds{30}));
+  session.RequestStop();
+  model.join();
+  CHECK(session.stop_requested.load());
   std::filesystem::remove_all(dir);
 }
 
@@ -1176,26 +1237,23 @@ void TestPublicationDrainTwoDirtyNodes() {
   ui.LoadInitialFromSession(session);
   LongJournalSeedStats seed = SeedLongJournalOnModel(session, 10000);
   (void)WaitModelPublicationBacklogDrained(session, ui, seed);
-  std::uint64_t const publish_baseline = session.channel.publish_count();
+  std::size_t dirty_pending = 0;
   RunOnModel(session, [&](Application& app) {
     app.surfaces->surfaces[0]->AddSurface();
     CHECK(app.surfaces->surfaces.size() == 2);
-  });
-  RunOnModel(session, [&](Application& app) {
     app.surfaces->surfaces[1]->SetPresentationSize(401, 401);
-  });
-  std::size_t dirty_pending = 0;
-  RunOnModel(session, [&](Application&) {
     dirty_pending = session.pending_dirty.ordered.size();
+    CHECK(dirty_pending >= 2);
   });
-  CHECK(dirty_pending >= 2);
   LongJournalSeedStats drain_target{};
   drain_target.dirty_obj_ids_after_seed = dirty_pending;
-  drain_target.publish_count_after = publish_baseline;
 
   LongJournalPublicationDrainStats const drain =
       WaitModelPublicationBacklogDrained(session, ui, drain_target);
   CHECK(drain.incremental_applied_to_ui >= dirty_pending);
+  CHECK(ui.ui_app->surfaces->surfaces.size() == 2);
+  CHECK(ui.ui_app->surfaces->surfaces[1]->presentation_width == 401);
+  CHECK(ui.ui_app->surfaces->surfaces[1]->presentation_height == 401);
   session.RequestStop();
   model.join();
   std::filesystem::remove_all(dir);
@@ -2206,6 +2264,8 @@ int main() {
   RUN_SURFACES_MODEL_TEST(TestTwoSessionsPresentationSizeRouting);
   RUN_SURFACES_MODEL_TEST(TestCollectLiveReachableStableWithLongJournal);
   RUN_SURFACES_MODEL_TEST(TestIncrementalPublicationUnderQueuedModelWork);
+  RUN_SURFACES_MODEL_TEST(TestPublicationDrainPrefetchAlreadyUnread);
+  RUN_SURFACES_MODEL_TEST(TestPrepBarrierRequestStopDuringWait);
   RUN_SURFACES_MODEL_TEST(TestAddOnSecondSurfaceWhileFirstHasLongJournal);
   RUN_SURFACES_MODEL_TEST(TestPublicationDrainTwoDirtyNodes);
   RUN_SURFACES_MODEL_TEST(TestLongJournalImmediateAddCheckpointRoundTrip);

@@ -78,16 +78,8 @@ LongJournalAddTiming RunMeasuredAddSurfaceOnFirstSurfaceImpl(
     LJ_CHECK(app.surfaces->surfaces.size() == 2);
     auto const add_end = Clock::now();
     timing.add_body_us = Us(add_end - add_start);
-
-    std::vector<Surface::ptr> scratch;
-    scratch.reserve(app.surfaces->surfaces.size());
-    for (auto const& s : app.surfaces->surfaces) {
-      scratch.push_back(s);
-    }
-    scratch.clear();
-    auto const cleanup_end = Clock::now();
-    timing.cleanup_us = Us(cleanup_end - add_end);
     done.set_value();
+    timing.cleanup_us = Us(Clock::now() - add_end);
   });
 
   LJ_CHECK(future.wait_for(kModelWatchdog) == std::future_status::ready);
@@ -168,7 +160,12 @@ void ResetIncrementalPrepBarrier(SurfacesModelSession& session) {
 }
 
 void EnableIncrementalPrepBarrier(SurfacesModelSession& session) {
-  ResetIncrementalPrepBarrier(session);
+  std::lock_guard<std::mutex> lock{session.incremental_prep_barrier.mu};
+  session.incremental_prep_barrier.enabled = false;
+  session.incremental_prep_barrier.phase =
+      SurfacesModelSession::IncrementalPrepBarrier::Phase::Idle;
+  session.incremental_prep_barrier.add_posted = false;
+  session.incremental_prep_barrier.continue_prep = false;
   session.incremental_prep_barrier.enabled = true;
 }
 
@@ -212,9 +209,7 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
     LongJournalSeedStats const& seed) {
   LongJournalPublicationDrainStats stats;
   std::size_t const expected_ui_applies = seed.dirty_obj_ids_after_seed;
-  std::uint64_t const publish_baseline = seed.publish_count_after;
-  std::uint64_t const incremental_baseline =
-      session.incremental_publications_completed.load();
+  std::size_t const ui_applies_goal_start = ui.incremental_applies;
 
   auto apply_unread = [&] {
     std::vector<std::uint8_t> bytes;
@@ -230,6 +225,20 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
     ui.ApplyStructuralBytes(bytes);
     return true;
   };
+
+  std::size_t prefetched_ui_applies = 0;
+  while (apply_unread()) {
+    ++prefetched_ui_applies;
+  }
+  std::uint64_t const publish_baseline = session.channel.publish_count();
+  std::uint64_t const incremental_baseline =
+      session.incremental_publications_completed.load();
+  std::size_t const need_new_incremental_publishes =
+      expected_ui_applies > prefetched_ui_applies
+          ? expected_ui_applies - prefetched_ui_applies
+          : 0;
+  std::size_t const ui_applies_goal =
+      ui_applies_goal_start + expected_ui_applies;
 
   auto const deadline = Clock::now() + kModelWatchdog;
   while (Clock::now() < deadline) {
@@ -250,10 +259,11 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
              session.pending_dirty_count_observed.load() == 0 &&
              !session.incremental_publication_in_progress.load();
     }
-    if (idle && ui.incremental_applies >= expected_ui_applies &&
+    if (idle && ui.incremental_applies >= ui_applies_goal &&
         session.incremental_publications_completed.load() >=
-            incremental_baseline + expected_ui_applies &&
-        session.channel.publish_count() >= publish_baseline + expected_ui_applies) {
+            incremental_baseline + need_new_incremental_publishes &&
+        session.channel.publish_count() >=
+            publish_baseline + need_new_incremental_publishes) {
       break;
     }
 
@@ -276,10 +286,14 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
   if (Clock::now() >= deadline) {
     std::cerr << "DRAIN TIMEOUT expected_ui_applies=" << expected_ui_applies
               << " ui_applied=" << ui.incremental_applies
+              << " ui_applies_goal=" << ui_applies_goal
+              << " prefetched_ui_applies=" << prefetched_ui_applies
+              << " need_new_incremental_publishes="
+              << need_new_incremental_publishes
               << " pending_dirty="
               << session.pending_dirty_count_observed.load()
               << " publish_count=" << session.channel.publish_count()
-              << " baseline=" << publish_baseline
+              << " publish_baseline=" << publish_baseline
               << " incremental_completed="
               << session.incremental_publications_completed.load()
               << " incremental_baseline=" << incremental_baseline
@@ -290,10 +304,11 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
 
   LJ_CHECK(session.pending_dirty_count_observed.load() == 0);
   LJ_CHECK(!session.incremental_publication_in_progress.load());
-  LJ_CHECK(ui.incremental_applies >= expected_ui_applies);
+  LJ_CHECK(ui.incremental_applies >= ui_applies_goal);
   LJ_CHECK(session.incremental_publications_completed.load() >=
-           incremental_baseline + expected_ui_applies);
-  LJ_CHECK(session.channel.publish_count() >= publish_baseline + expected_ui_applies);
+           incremental_baseline + need_new_incremental_publishes);
+  LJ_CHECK(session.channel.publish_count() >=
+           publish_baseline + need_new_incremental_publishes);
   return stats;
 }
 
@@ -382,14 +397,8 @@ LongJournalAddDuringPrepResult RunAddDuringIncrementalPublicationPrep(
     LJ_CHECK(app.surfaces->surfaces.size() == 2);
     auto const add_end = Clock::now();
     t.add_body_us = Us(add_end - add_start);
-    std::vector<Surface::ptr> scratch;
-    for (auto const& s : app.surfaces->surfaces) {
-      scratch.push_back(s);
-    }
-    scratch.clear();
-    auto const cleanup_end = Clock::now();
-    t.cleanup_us = Us(cleanup_end - add_end);
     add_done.set_value();
+    t.cleanup_us = Us(Clock::now() - add_end);
   });
   NotifyIncrementalPrepAddPosted(session);
   auto const continue_start = Clock::now();

@@ -31,6 +31,8 @@ namespace apptraverse {
 
 void ModelPublicationSession::RequestStop() {
 
+  stop_requested.store(true, std::memory_order_release);
+
   {
 
     std::lock_guard<std::mutex> lock{mu};
@@ -304,7 +306,14 @@ void ModelPublicationSession::Run(
     incremental_publication_in_progress.store(true);
     IncrementalGuard guard{*this};
 
-    if (incremental_prep_barrier.enabled) {
+    bool prep_barrier_active = false;
+    {
+      std::lock_guard<std::mutex> lock{incremental_prep_barrier.mu};
+      prep_barrier_active = incremental_prep_barrier.enabled &&
+                            incremental_prep_barrier.phase !=
+                                IncrementalPrepBarrier::Phase::Done;
+    }
+    if (prep_barrier_active) {
       std::unique_lock<std::mutex> lock{incremental_prep_barrier.mu};
       if (incremental_prep_barrier.phase == IncrementalPrepBarrier::Phase::Idle) {
         incremental_prep_barrier.phase =
@@ -313,22 +322,24 @@ void ModelPublicationSession::Run(
       }
       if (!incremental_prep_barrier.cv.wait_for(
               lock, std::chrono::seconds{120}, [&] {
-                return incremental_prep_barrier.add_posted || stop;
+                return incremental_prep_barrier.add_posted ||
+                       stop_requested.load(std::memory_order_acquire);
               })) {
         return false;
       }
-      if (stop) {
+      if (stop_requested.load(std::memory_order_acquire)) {
         incremental_prep_barrier.enabled = false;
         incremental_prep_barrier.phase = IncrementalPrepBarrier::Phase::Done;
         return false;
       }
       if (!incremental_prep_barrier.cv.wait_for(
               lock, std::chrono::seconds{120}, [&] {
-                return incremental_prep_barrier.continue_prep || stop;
+                return incremental_prep_barrier.continue_prep ||
+                       stop_requested.load(std::memory_order_acquire);
               })) {
         return false;
       }
-      if (stop) {
+      if (stop_requested.load(std::memory_order_acquire)) {
         incremental_prep_barrier.enabled = false;
         incremental_prep_barrier.phase = IncrementalPrepBarrier::Phase::Done;
         return false;
@@ -510,21 +521,24 @@ void ModelPublicationSession::Run(
 
     // Re-enter the loop before publishing so newly posted ModelWork (e.g. Add
     // right after a long seed task) is not starved by incremental publications.
+    bool try_force_wait_limit = false;
     {
       std::lock_guard<std::mutex> lock{mu};
       if (!pending_work.empty()) {
-        if (config.allow_force_incremental_with_pending_work &&
-            aborted_after_collect && pending_work.size() == 1 &&
-            model_work_executions_since_incremental_publish.load() >= 2 &&
-            presentation_size_queue.PendingObjectCountForTest() == 0 &&
-            !presentation_size_queue.DrainScheduledForTest()) {
-          if (try_publish_one_incremental(
-                  IncrementalPublishAttempt::ForceWaitLimit, nullptr)) {
-            continue;
-          }
+        if (aborted_after_collect && pending_work.size() == 1 &&
+            model_work_executions_since_incremental_publish.load() >= 2) {
+          try_force_wait_limit = true;
+        } else {
+          continue;
         }
+      }
+    }
+    if (try_force_wait_limit) {
+      if (try_publish_one_incremental(
+              IncrementalPublishAttempt::ForceWaitLimit, nullptr)) {
         continue;
       }
+      continue;
     }
 
     if (try_publish_one_incremental(
