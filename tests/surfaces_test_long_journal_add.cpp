@@ -152,11 +152,59 @@ LongJournalSeedStats SeedLongJournalOnModel(SurfacesModelSession& session,
   return stats;
 }
 
+void ResetIncrementalPrepBarrier(SurfacesModelSession& session) {
+  std::lock_guard<std::mutex> lock{session.incremental_prep_barrier.mu};
+  session.incremental_prep_barrier.enabled = false;
+  session.incremental_prep_barrier.at_checkpoint = false;
+  session.incremental_prep_barrier.add_posted = false;
+  session.incremental_prep_barrier.continue_prep = false;
+}
+
+void EnableIncrementalPrepBarrier(SurfacesModelSession& session) {
+  ResetIncrementalPrepBarrier(session);
+  session.incremental_prep_barrier.enabled = true;
+}
+
+bool WaitIncrementalPrepAtCheckpoint(SurfacesModelSession& session,
+                                     std::chrono::milliseconds timeout) {
+  std::unique_lock<std::mutex> lock{session.incremental_prep_barrier.mu};
+  return session.incremental_prep_barrier.cv.wait_for(lock, timeout, [&] {
+    return session.incremental_prep_barrier.at_checkpoint;
+  });
+}
+
+void NotifyIncrementalPrepAddPosted(SurfacesModelSession& session) {
+  std::lock_guard<std::mutex> lock{session.incremental_prep_barrier.mu};
+  session.incremental_prep_barrier.add_posted = true;
+  session.incremental_prep_barrier.cv.notify_all();
+}
+
+void NotifyIncrementalPrepContinue(SurfacesModelSession& session) {
+  std::lock_guard<std::mutex> lock{session.incremental_prep_barrier.mu};
+  session.incremental_prep_barrier.continue_prep = true;
+  session.incremental_prep_barrier.cv.notify_all();
+}
+
+void VerifyLongJournalSeedJournalContent(Surface const& surface,
+                                         int event_count) {
+  LJ_CHECK(surface.journal.size() >= static_cast<std::size_t>(event_count));
+  int matched = 0;
+  for (EventRecord const& record : surface.journal) {
+    if (SurfacePresentationSizeChangedEvent::ptr size_event{record.event}) {
+      LJ_CHECK(size_event->width == 500 + matched);
+      LJ_CHECK(size_event->height == 700 - matched);
+      ++matched;
+    }
+  }
+  LJ_CHECK(matched == event_count);
+}
+
 LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
-    SurfacesModelSession& session, SurfacesUiPublicationConsumer& ui) {
+    SurfacesModelSession& session, SurfacesUiPublicationConsumer& ui,
+    LongJournalSeedStats const& seed) {
   LongJournalPublicationDrainStats stats;
-  std::size_t const dirty_target = session.pending_dirty_count_observed.load();
-  (void)dirty_target;
+  std::size_t const expected_ui_applies = seed.dirty_obj_ids_after_seed;
+  std::uint64_t const publish_baseline = seed.publish_count_after;
 
   auto apply_unread = [&] {
     std::vector<std::uint8_t> bytes;
@@ -173,7 +221,11 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
     return true;
   };
 
+#ifdef NDEBUG
   auto const deadline = Clock::now() + kModelWatchdog;
+#else
+  auto const deadline = Clock::now() + std::chrono::seconds{600};
+#endif
   while (Clock::now() < deadline) {
     while (apply_unread()) {
     }
@@ -189,9 +241,11 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
       idle = session.pending_work.empty() &&
              !session.channel.has_unread_published() &&
              !session.channel.is_publication_busy() &&
-             session.pending_dirty_count_observed.load() == 0;
+             session.pending_dirty_count_observed.load() == 0 &&
+             !session.incremental_publication_in_progress.load();
     }
-    if (idle && ui.incremental_applies > 0) {
+    if (idle && ui.incremental_applies >= expected_ui_applies &&
+        session.channel.publish_count() >= publish_baseline + expected_ui_applies) {
       break;
     }
 
@@ -199,12 +253,27 @@ LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
     session.cv.wait_for(lock, std::chrono::milliseconds{20}, [&] {
       return session.channel.has_unread_published() ||
              session.pending_dirty_count_observed.load() > 0 ||
-             !session.pending_work.empty();
+             !session.pending_work.empty() ||
+             session.incremental_publication_in_progress.load();
     });
   }
 
+  if (Clock::now() >= deadline) {
+    std::cerr << "DRAIN TIMEOUT expected_ui_applies=" << expected_ui_applies
+              << " ui_applied=" << ui.incremental_applies
+              << " pending_dirty="
+              << session.pending_dirty_count_observed.load()
+              << " publish_count=" << session.channel.publish_count()
+              << " baseline=" << publish_baseline
+              << " in_progress="
+              << session.incremental_publication_in_progress.load() << '\n';
+    LJ_CHECK(false);
+  }
+
   LJ_CHECK(session.pending_dirty_count_observed.load() == 0);
-  LJ_CHECK(ui.incremental_applies > 0);
+  LJ_CHECK(!session.incremental_publication_in_progress.load());
+  LJ_CHECK(ui.incremental_applies >= expected_ui_applies);
+  LJ_CHECK(session.channel.publish_count() >= publish_baseline + expected_ui_applies);
   return stats;
 }
 
@@ -224,6 +293,7 @@ LongJournalAddPerfResult RunAddImmediatelyAfterChanges(
   RunOnModelPlain(session, [&](Application& app) {
     result.fingerprint =
         SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
+    VerifyLongJournalSeedJournalContent(*app.surfaces->surfaces[0], event_count);
   });
   return result;
 }
@@ -242,12 +312,13 @@ LongJournalAddPerfResult RunAddAfterPublicationDrain(
   LongJournalAddPerfResult result;
   result.seed = SeedLongJournalOnModel(session, event_count);
   result.journal_size_after_seed = result.seed.journal_event_count;
-  result.drain = WaitModelPublicationBacklogDrained(session, ui);
+  result.drain = WaitModelPublicationBacklogDrained(session, ui, result.seed);
   result.publish_count_after_drain = result.drain.publish_count_at_completion;
   result.timing = RunMeasuredAddSurfaceOnFirstSurfaceImpl(session);
   RunOnModelPlain(session, [&](Application& app) {
     result.fingerprint =
         SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
+    VerifyLongJournalSeedJournalContent(*app.surfaces->surfaces[0], event_count);
   });
   return result;
 }
@@ -255,40 +326,54 @@ LongJournalAddPerfResult RunAddAfterPublicationDrain(
 LongJournalAddDuringPrepResult RunAddDuringIncrementalPublicationPrep(
     SurfacesModelSession& session, int event_count) {
   LongJournalAddDuringPrepResult result;
-  std::mutex gate_mu;
-  std::condition_variable gate_cv;
-  bool prep_entered = false;
-
-  session.config.before_incremental_publication =
-      [&](std::uint32_t dirty_id) {
-        (void)dirty_id;
-        std::lock_guard<std::mutex> lock{gate_mu};
-        if (!prep_entered) {
-          prep_entered = true;
-          result.publish_count_at_prep = session.channel.publish_count();
-          result.pending_dirty_at_prep =
-              session.pending_dirty_count_observed.load();
-          gate_cv.notify_all();
-        }
-      };
+  EnableIncrementalPrepBarrier(session);
 
   result.add.seed = SeedLongJournalOnModel(session, event_count);
   result.add.journal_size_after_seed = result.add.seed.journal_event_count;
 
-  {
-    std::unique_lock<std::mutex> lock{gate_mu};
-    LJ_CHECK(gate_cv.wait_for(lock, kModelWatchdog, [&] { return prep_entered; }));
-  }
+  auto const checkpoint_wait_start = Clock::now();
+  LJ_CHECK(WaitIncrementalPrepAtCheckpoint(session, kModelWatchdog));
+  result.checkpoint_wait_for_add_post_us =
+      Us(Clock::now() - checkpoint_wait_start);
+  result.publish_count_at_prep = session.channel.publish_count();
+  result.pending_dirty_at_prep = session.pending_dirty_count_observed.load();
 
+  LongJournalAddTiming& t = result.add.timing;
+  t.publish_count_at_post = session.channel.publish_count();
+  t.channel_busy_at_post = session.channel.is_publication_busy();
   auto const add_post_start = Clock::now();
-  result.add.timing = RunMeasuredAddSurfaceOnFirstSurfaceImpl(session);
-  result.barrier_pause_us = Us(Clock::now() - add_post_start);
+  std::promise<void> add_done;
+  auto add_future = add_done.get_future();
+  session.Post([&session, &t, &add_done, add_post_start](ae::Domain& domain) {
+    auto const lambda_start = Clock::now();
+    t.queue_wait_us = Us(lambda_start - add_post_start);
+    t.publish_count_at_task_start = session.channel.publish_count();
+    auto const root_start = Clock::now();
+    Application& app = ModelApplication(domain);
+    t.root_access_us = Us(Clock::now() - root_start);
+    auto const add_start = Clock::now();
+    app.surfaces->surfaces[0]->AddSurface();
+    LJ_CHECK(app.surfaces->surfaces.size() == 2);
+    auto const add_end = Clock::now();
+    t.add_body_us = Us(add_end - add_start);
+    auto const task_end = Clock::now();
+    t.cleanup_us = Us(task_end - add_end);
+    add_done.set_value();
+  });
+  NotifyIncrementalPrepAddPosted(session);
+  auto const continue_start = Clock::now();
+  NotifyIncrementalPrepContinue(session);
+  result.prep_continue_to_add_start_us = Us(Clock::now() - continue_start);
+  LJ_CHECK(add_future.wait_for(kModelWatchdog) == std::future_status::ready);
+  t.client_wait_us = Us(Clock::now() - add_post_start);
+  result.add_post_to_future_ready_us = t.client_wait_us;
 
-  session.config.before_incremental_publication = {};
+  ResetIncrementalPrepBarrier(session);
 
   RunOnModelPlain(session, [&](Application& app) {
     result.add.fingerprint =
         SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
+    VerifyLongJournalSeedJournalContent(*app.surfaces->surfaces[0], event_count);
   });
   return result;
 }

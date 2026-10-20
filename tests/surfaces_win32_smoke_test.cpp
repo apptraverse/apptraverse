@@ -10,6 +10,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
+#include <future>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -1170,6 +1172,64 @@ void TestLoadOnlyRestoresRuProfile() {
 #endif
 }
 
+void RunOnModelSession(SurfacesModelSession& session,
+                       std::function<void(Application&)> body) {
+  std::promise<void> done;
+  auto future = done.get_future();
+  session.Post([&](ae::Domain& domain) {
+    auto object = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
+        surfaces_demo::ObjId::Application)});
+    CHECK(object);
+    body(static_cast<Application&>(*object));
+    done.set_value();
+  });
+  CHECK(future.wait_for(std::chrono::seconds{120}) == std::future_status::ready);
+}
+
+void TestLongJournalAddClickToSecondSurfaceHwnd() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_long_journal_add_hwnd";
+  std::filesystem::remove_all(dir);
+
+  EnsureObjectRegistration();
+  EnsureSurfacesRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  while (!app.TestingUiReady()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{60}));
+  RunOnModelSession(app.TestingSession(), [](Application& application) {
+    Surface& surface = *application.surfaces->surfaces[0];
+    for (int i = 0; i < 10000; ++i) {
+      surface.SetPresentationSize(500 + i, 700 - i);
+    }
+    CHECK(surface.journal.size() >= 10000U);
+  });
+
+  HWND const add1 = FindAddButton(s1);
+  CHECK(add1 != nullptr);
+  auto const click_start = std::chrono::steady_clock::now();
+  SendMessageW(add1, BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{120}));
+  auto const hwnd_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - click_start);
+  std::cout << "long_journal_add_click_to_hwnd_ms=" << hwnd_ms.count() << '\n';
+
+  app.TestingRequestStop();
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
@@ -1183,6 +1243,7 @@ int main() {
   apptraverse::test::TestDesktopZOrderAfterRemoveMiddleAndAdd();
   apptraverse::test::TestControlsFollowPresentationSize();
   apptraverse::test::TestPostReleaseOuterFrameStable();
+  apptraverse::test::TestLongJournalAddClickToSecondSurfaceHwnd();
   std::cout << "surfaces_win32_smoke_test OK\n";
   return 0;
 }

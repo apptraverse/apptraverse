@@ -41,6 +41,7 @@
 #include "surfaces_test_presenter_counters.h"
 #include "surfaces_test_loaded_bundle.h"
 #include "surfaces_test_long_journal_add.h"
+#include "surfaces_test_obj_id_registry.h"
 #include "surfaces_test_publication_ui.h"
 
 namespace apptraverse::test {
@@ -1114,16 +1115,54 @@ void TestAddOnSecondSurfaceWhileFirstHasLongJournal() {
   ui_prep.LoadInitialFromSession(session_prep);
   LongJournalAddDuringPrepResult const during_prep =
       RunAddDuringIncrementalPublicationPrep(session_prep, 10000);
-  std::cout << "long_journal_add_during_prep barrier_pause_ms="
-            << (during_prep.barrier_pause_us / 1000)
+  std::cout << "long_journal_add_during_prep checkpoint_wait_ms="
+            << (during_prep.checkpoint_wait_for_add_post_us / 1000)
+            << " add_post_to_ready_ms="
+            << (during_prep.add_post_to_future_ready_us / 1000)
+            << " prep_continue_signal_us="
+            << during_prep.prep_continue_to_add_start_us
             << " publish_at_prep=" << during_prep.publish_count_at_prep
             << " client_wait_ms="
             << (during_prep.add.timing.client_wait_us / 1000)
             << " queue_wait_ms="
-            << (during_prep.add.timing.queue_wait_us / 1000) << '\n';
+            << (during_prep.add.timing.queue_wait_us / 1000)
+            << " add_body_ms=" << (during_prep.add.timing.add_body_us / 1000)
+            << " cleanup_ms=" << (during_prep.add.timing.cleanup_us / 1000)
+            << '\n';
   session_prep.RequestStop();
   model_prep.join();
   std::filesystem::remove_all(dir_prep);
+}
+
+void TestPublicationDrainTwoDirtyNodes() {
+  auto dir = TestDir("apptraverse_surfaces_drain_two_dirty");
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    RunSurfacesDemoModelSession(session,
+                                [&session](SurfacesPublicationKind) {
+                                  session.cv.notify_all();
+                                });
+  }};
+  WaitPublished(session);
+  SurfacesUiPublicationConsumer ui;
+  ui.BindSession(session);
+  ui.LoadInitialFromSession(session);
+  LongJournalSeedStats seed = SeedLongJournalOnModel(session, 10000);
+  std::size_t dirty_after_seed = 0;
+  RunOnModel(session, [&](Application& app) {
+    app.surfaces->surfaces[0]->AddSurface();
+    dirty_after_seed = session.pending_dirty.ordered.size();
+  });
+  CHECK(dirty_after_seed >= 2);
+  seed.dirty_obj_ids_after_seed = dirty_after_seed;
+
+  LongJournalPublicationDrainStats const drain =
+      WaitModelPublicationBacklogDrained(session, ui, seed);
+  CHECK(drain.incremental_applied_to_ui >= dirty_after_seed);
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
 }
 
 void TestLongJournalImmediateAddCheckpointRoundTrip() {
@@ -1155,6 +1194,7 @@ void TestLongJournalImmediateAddCheckpointRoundTrip() {
   SurfaceJournalFingerprint const reloaded =
       SurfaceJournalFingerprint::Capture(*bundle->app().surfaces->surfaces[0]);
   reloaded.ExpectEqual(expected);
+  VerifyLongJournalSeedJournalContent(*bundle->app().surfaces->surfaces[0], 10000);
   std::filesystem::remove_all(dir);
 }
 
@@ -1751,12 +1791,10 @@ void TestConcurrentSessionsGenerateDistinctObjIds() {
   (void)TakeAndWake(session_b);
 
   constexpr int kAddsPerSession = 24;
-  std::vector<std::uint32_t> ids_a;
-  std::vector<std::uint32_t> ids_b;
+  ObjIdRegistry registry;
   std::atomic<bool> start{false};
 
-  auto drive = [&](SurfacesModelSession& session,
-                   std::vector<std::uint32_t>& ids) {
+  auto drive = [&](char const* session_label, SurfacesModelSession& session) {
     while (!start.load(std::memory_order_acquire)) {
       std::this_thread::yield();
     }
@@ -1764,15 +1802,20 @@ void TestConcurrentSessionsGenerateDistinctObjIds() {
       RunOnModel(session, [&](Application& app) {
         app.surfaces->surfaces[0]->AddSurface();
         Surface& added = *app.surfaces->surfaces.back();
-        ids.push_back(added.obj_id.id());
-        ids.push_back(added.base.id().id());
-        ids.push_back(added.chrome.window.id().id());
+        registry.RegisterOrDie(
+            {session_label, i, "Surface", added.GetClassId(), added.obj_id.id()});
+        registry.RegisterOrDie(
+            {session_label, i, "NodeBase", added.base->GetClassId(),
+             added.base.id().id()});
+        registry.RegisterOrDie(
+            {session_label, i, "SurfaceWindowPresenter",
+             added.chrome.window->GetClassId(), added.chrome.window.id().id()});
       });
     }
   };
 
-  std::thread driver_a{[&] { drive(session_a, ids_a); }};
-  std::thread driver_b{[&] { drive(session_b, ids_b); }};
+  std::thread driver_a{[&] { drive("session_a", session_a); }};
+  std::thread driver_b{[&] { drive("session_b", session_b); }};
   start.store(true, std::memory_order_release);
   driver_a.join();
   driver_b.join();
@@ -1781,37 +1824,6 @@ void TestConcurrentSessionsGenerateDistinctObjIds() {
   session_b.RequestStop();
   model_a.join();
   model_b.join();
-
-  CHECK(ids_a.size() == static_cast<std::size_t>(kAddsPerSession) * 3);
-  CHECK(ids_b.size() == static_cast<std::size_t>(kAddsPerSession) * 3);
-  // Race smoke only: an unlocked shared generator yields repeated ids under
-  // this load. Random 32-bit collision remains possible in principle and is
-  // not what this check claims to forbid forever.
-  auto check_session_ids = [](char const* label, std::vector<std::uint32_t> const& ids) {
-    std::unordered_set<std::uint32_t> seen;
-    for (std::size_t i = 0; i < ids.size(); i += 3) {
-      std::uint32_t const surface_id = ids[i];
-      CHECK(surface_id != 0);
-      if (!seen.insert(surface_id).second) {
-        std::cerr << "duplicate surface ObjId in " << label << ": " << surface_id
-                  << '\n';
-        CHECK(false);
-      }
-    }
-  };
-  check_session_ids("session_a", ids_a);
-  check_session_ids("session_b", ids_b);
-  std::unordered_set<std::uint32_t> cross;
-  for (auto const& ids : {ids_a, ids_b}) {
-    for (std::size_t i = 0; i < ids.size(); i += 3) {
-      std::uint32_t const surface_id = ids[i];
-      if (!cross.insert(surface_id).second) {
-        std::cerr << "cross-session duplicate surface ObjId: " << surface_id
-                  << '\n';
-        CHECK(false);
-      }
-    }
-  }
 
   std::filesystem::remove_all(dir_a);
   std::filesystem::remove_all(dir_b);
@@ -2159,6 +2171,7 @@ int main() {
   RUN_SURFACES_MODEL_TEST(TestCollectLiveReachableStableWithLongJournal);
   RUN_SURFACES_MODEL_TEST(TestIncrementalPublicationUnderQueuedModelWork);
   RUN_SURFACES_MODEL_TEST(TestAddOnSecondSurfaceWhileFirstHasLongJournal);
+  RUN_SURFACES_MODEL_TEST(TestPublicationDrainTwoDirtyNodes);
   RUN_SURFACES_MODEL_TEST(TestLongJournalImmediateAddCheckpointRoundTrip);
   RUN_SURFACES_MODEL_TEST(TestGeometryPersistence);
   RUN_SURFACES_MODEL_TEST(TestCurrentPageReplay);

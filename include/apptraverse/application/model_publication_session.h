@@ -71,6 +71,17 @@ struct ModelPublicationSession {
   ae::Obj::ptr model_root;
   PendingDirtyNodes pending_dirty;
   std::atomic<std::size_t> pending_dirty_count_observed{0};
+  std::atomic<bool> incremental_publication_in_progress{false};
+  std::atomic<std::uint32_t> model_work_executions_since_incremental_publish{
+      0};
+  struct IncrementalPrepBarrier {
+    std::mutex mu;
+    std::condition_variable cv;
+    bool enabled{false};
+    bool at_checkpoint{false};
+    bool add_posted{false};
+    bool continue_prep{false};
+  } incremental_prep_barrier;
 
   void RequestStop();
   void Post(ModelWork work);

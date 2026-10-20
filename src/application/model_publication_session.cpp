@@ -268,11 +268,43 @@ void ModelPublicationSession::Run(
   on_published(ModelPublicationKind::Initial);
 
   auto try_publish_one_incremental = [&]() -> bool {
+    struct IncrementalGuard {
+      ModelPublicationSession& session;
+      ~IncrementalGuard() {
+        session.incremental_publication_in_progress.store(false);
+      }
+    };
+
     {
       std::lock_guard<std::mutex> lock{mu};
       if (stop || pending_dirty.empty() || channel.is_publication_busy()) {
         return false;
       }
+    }
+
+    incremental_publication_in_progress.store(true);
+    IncrementalGuard guard{*this};
+
+    if (incremental_prep_barrier.enabled) {
+      std::unique_lock<std::mutex> lock{incremental_prep_barrier.mu};
+      incremental_prep_barrier.at_checkpoint = true;
+      incremental_prep_barrier.cv.notify_all();
+      incremental_prep_barrier.cv.wait(lock, [&] {
+        return incremental_prep_barrier.add_posted || stop;
+      });
+      incremental_prep_barrier.cv.wait(lock, [&] {
+        return incremental_prep_barrier.continue_prep || stop;
+      });
+      incremental_prep_barrier.at_checkpoint = false;
+    }
+
+    std::uint32_t pending_id = 0;
+    {
+      std::lock_guard<std::mutex> lock{mu};
+      if (stop || channel.is_publication_busy() || pending_dirty.empty()) {
+        return false;
+      }
+      pending_id = pending_dirty.ordered.front();
     }
 
     std::unordered_set<std::uint32_t> live_ids;
@@ -285,7 +317,13 @@ void ModelPublicationSession::Run(
       }
     }
 
-    std::uint32_t pending_id = 0;
+    {
+      std::lock_guard<std::mutex> lock{mu};
+      if (!pending_work.empty()) {
+        return false;
+      }
+    }
+
     {
       std::lock_guard<std::mutex> lock{mu};
       if (stop || channel.is_publication_busy() || pending_dirty.empty()) {
@@ -322,9 +360,24 @@ void ModelPublicationSession::Run(
       channel.PublishProducer();
     }
 
+    model_work_executions_since_incremental_publish.store(0);
     cv.notify_all();
     on_published(ModelPublicationKind::Incremental);
     return true;
+  };
+
+  auto should_interleave_publish = [&]() -> bool {
+    std::lock_guard<std::mutex> lock{mu};
+    if (stop || pending_dirty.empty() || channel.is_publication_busy()) {
+      return false;
+    }
+    if (pending_work.empty()) {
+      return true;
+    }
+    if (pending_work.size() > 1) {
+      return true;
+    }
+    return model_work_executions_since_incremental_publish.load() >= 2;
   };
 
   for (;;) {
@@ -390,6 +443,7 @@ void ModelPublicationSession::Run(
     if (work) {
 
       (*work)(domain);
+      ++model_work_executions_since_incremental_publish;
 
     }
 
@@ -403,18 +457,8 @@ void ModelPublicationSession::Run(
 
     pending_dirty_count_observed.store(pending_dirty.ordered.size());
 
-    // Interleave one incremental publish when multiple model tasks are queued
-    // (resize streams). A single queued task (e.g. Add right after seed) still
-    // runs before publish prep so immediate Add is not starved.
-    {
-      std::size_t queued = 0;
-      {
-        std::lock_guard<std::mutex> lock{mu};
-        queued = pending_work.size();
-      }
-      if (queued > 1 && try_publish_one_incremental()) {
-        continue;
-      }
+    if (should_interleave_publish() && try_publish_one_incremental()) {
+      continue;
     }
 
     // Re-enter the loop before publishing so newly posted ModelWork (e.g. Add

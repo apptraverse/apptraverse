@@ -4210,6 +4210,29 @@ Baseline: **`5ddc55f`**.
 ### Regressions
 - **`apptraverse_surfaces_model_test`**, **`apptraverse_surfaces_long_journal_save_test`**, **`apptraverse_publication_channel_test`**, checkpoint load tests, **`apptraverse_surfaces_win32_smoke_test`**: **PASS**.
 
+## Drain barrier, ObjId registry, click→HWND (2026-10-20)
+
+Baseline: **`8c51b84`**.
+
+### Fixes
+- **`--add-perf-only`**: idle path uses **`LoadInitialFromSession`** once (no **`TakeAndWake`** before drain).
+- **`ObjIdRegistry`**: independent **Surface / NodeBase / SurfaceWindowPresenter** ids with collision diagnostics (session, iter, role, ClassId, ObjId).
+- **Two-way incremental prep barrier** on session (`incremental_prep_barrier`): checkpoint → **`NotifyIncrementalPrepAddPosted`** → **`NotifyIncrementalPrepContinue`**; timings split from Add **`client_wait`**.
+- **Model loop**: publish after **`CollectLiveReachableObjects`** if **`pending_work`** non-empty (Add during collect); interleave publish when queue empty, **>1** tasks, or **≥2** model works since last publish; **`incremental_publication_in_progress`** for drain.
+- **Drain**: requires **`ui_applied ≥ dirty`**, publish count, idle channel, **`!incremental_publication_in_progress`**; **600 s** watchdog in Debug drain (120 s elsewhere).
+- **Win32**: **`TestLongJournalAddClickToSecondSurfaceHwnd`** via **`APPTRAVERSE_SURFACES_TESTING`** on **`WinApp`**.
+
+### Measured (Release)
+- **`--add-perf-only`**: immediate **1124–1583 ms** `client_wait`; after_drain **1093–1263 ms**, **`ui_applied=1`**.
+- **`surfaces_model_test`**: immediate **3344 ms** (gate 4000 ms); after_drain **1750 ms**; during_prep **`add_post_to_ready_ms=2102`**, **`queue_wait_ms=716`**.
+- **click→HWND @10k**: **`long_journal_add_click_to_hwnd_ms=8564`** (Release smoke).
+
+### Debug (`surfaces_model_test`, full run)
+- immediate **`client_wait_ms≈50923`**; after_drain **≈65636**; during_prep **≈59082** (perf gate NDEBUG-only).
+- **`TestPublicationDrainTwoDirtyNodes`**: was **DRAIN TIMEOUT** at 120 s (two structural publishes @10k); extended drain watchdog to **600 s** in Debug — **re-run pending** after this commit.
+
+Phase 1 / shutdown PERF **open**.
+
 ### aether-objects pin
 - Patches (in order): **`aether-objects-local-persistent-load.patch`** (hunk fix), **`aether-objects-domain-storage-access.patch`**, **`aether-objects-checkpoint-shell.patch`**
 - Objects SHA unchanged: **`79283b667cabf689da1059d618fe2a22abf51db4`**

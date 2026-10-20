@@ -324,7 +324,6 @@ void TestLongJournalAddPerfIsolatedProcess() {
       });
     }};
     WaitPublished(session);
-    (void)TakeAndWake(session);
     LongJournalAddPerfResult const immediate =
         RunAddImmediatelyAfterChanges(session, 10000);
     ReportLongJournalAddPerf("immediate", "isolated", immediate);
@@ -343,9 +342,11 @@ void TestLongJournalAddPerfIsolatedProcess() {
                                   });
     }};
     WaitPublished(session_idle);
-    (void)TakeAndWake(session_idle);
+    SurfacesUiPublicationConsumer ui_idle;
+    ui_idle.BindSession(session_idle);
+    ui_idle.LoadInitialFromSession(session_idle);
     LongJournalAddPerfResult const idle =
-        RunAddAfterPublicationDrain(session_idle, 10000);
+        RunAddAfterPublicationDrain(session_idle, 10000, &ui_idle);
     ReportLongJournalAddPerf("after_drain", "isolated", idle);
     session_idle.RequestStop();
     model_idle.join();

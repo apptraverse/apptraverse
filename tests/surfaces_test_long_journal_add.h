@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_TESTS_SURFACES_TEST_LONG_JOURNAL_ADD_H_
 #define APPTRAVERSE_TESTS_SURFACES_TEST_LONG_JOURNAL_ADD_H_
 
+#include <chrono>
 #include <cstdint>
 #include <vector>
 
@@ -64,7 +65,18 @@ LongJournalSeedStats SeedLongJournalOnModel(SurfacesModelSession& session,
                                             int event_count);
 
 LongJournalPublicationDrainStats WaitModelPublicationBacklogDrained(
-    SurfacesModelSession& session, SurfacesUiPublicationConsumer& ui);
+    SurfacesModelSession& session, SurfacesUiPublicationConsumer& ui,
+    LongJournalSeedStats const& seed);
+
+void VerifyLongJournalSeedJournalContent(Surface const& surface,
+                                         int event_count);
+
+void ResetIncrementalPrepBarrier(SurfacesModelSession& session);
+void EnableIncrementalPrepBarrier(SurfacesModelSession& session);
+bool WaitIncrementalPrepAtCheckpoint(SurfacesModelSession& session,
+                                     std::chrono::milliseconds timeout);
+void NotifyIncrementalPrepAddPosted(SurfacesModelSession& session);
+void NotifyIncrementalPrepContinue(SurfacesModelSession& session);
 
 LongJournalAddTiming RunMeasuredAddSurfaceOnFirstSurface(
     SurfacesModelSession& session);
@@ -79,7 +91,9 @@ LongJournalAddPerfResult RunAddImmediatelyAfterChanges(
 
 struct LongJournalAddDuringPrepResult {
   LongJournalAddPerfResult add;
-  std::int64_t barrier_pause_us{0};
+  std::int64_t add_post_to_future_ready_us{0};
+  std::int64_t checkpoint_wait_for_add_post_us{0};
+  std::int64_t prep_continue_to_add_start_us{0};
   std::uint64_t publish_count_at_prep{0};
   std::size_t pending_dirty_at_prep{0};
 };

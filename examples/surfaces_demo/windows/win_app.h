@@ -28,6 +28,13 @@ class WinApp {
  public:
   int Run(std::filesystem::path const& state_dir);
 
+#if defined(APPTRAVERSE_SURFACES_TESTING)
+  bool TestingUiReady() const { return ui_application_.is_valid(); }
+  SurfacesModelSession& TestingSession() { return session_; }
+  ModelObjectProxy& TestingProxy() { return *model_proxy_; }
+  void TestingRequestStop() { session_.RequestStop(); }
+#endif
+
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);
