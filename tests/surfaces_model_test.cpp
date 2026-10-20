@@ -39,6 +39,7 @@
 #include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
 #include "surfaces_test_presenter_counters.h"
+#include "surfaces_test_loaded_bundle.h"
 
 namespace apptraverse::test {
 
@@ -69,31 +70,6 @@ Application& ModelApplication(ae::Domain& domain) {
       surfaces_demo::ObjId::Application)});
   CHECK(object);
   return static_cast<Application&>(*object);
-}
-
-struct LoadedApplicationBundle {
-  ae::RamDomainStorage storage;
-  ae::Domain domain;
-  Application::ptr application;
-
-  LoadedApplicationBundle()
-      : domain{storage} {}
-
-  Application& app() { return *application; }
-};
-
-LoadedApplicationBundle LoadApplicationBundleFromSessionCheckpoint(
-    std::filesystem::path const& state_dir) {
-  LoadedApplicationBundle bundle;
-  ModelCheckpointPaths const paths =
-      ModelCheckpointPathsForStateDir(state_dir);
-  bundle.application = Application::ptr::Create(
-      ae::CreateWith{bundle.domain}.with_id(ae::ObjId{
-          surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)}));
-  CHECK(LoadModelCheckpoint(paths, bundle.domain, bundle.storage,
-                            *bundle.application));
-  WireSurfacesDemoRuntimeExecution(bundle.app());
-  return bundle;
 }
 
 void WaitPublished(SurfacesModelSession& session) {
@@ -144,8 +120,12 @@ void RunOnModel(SurfacesModelSession& session,
     body(ModelApplication(domain));
     done.set_value();
   });
-  CHECK(future.wait_for(std::chrono::seconds{120}) ==
-        std::future_status::ready);
+#ifdef NDEBUG
+  constexpr auto kRunOnModelWatchdog = std::chrono::seconds{30};
+#else
+  constexpr auto kRunOnModelWatchdog = std::chrono::seconds{120};
+#endif
+  CHECK(future.wait_for(kRunOnModelWatchdog) == std::future_status::ready);
 }
 
 void TestInitialGraph() {
@@ -529,9 +509,11 @@ void TestShutdownDrain() {
   session.RequestStop();
   model.join();
 
-  LoadedApplicationBundle const bundle =
-      LoadApplicationBundleFromSessionCheckpoint(dir);
-  Surfaces& surfaces = *bundle.application->surfaces;
+  auto bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  bundle->VerifyOwnerInvariants();
+  ModelCheckpointPaths const paths = ModelCheckpointPathsForStateDir(dir);
+  CHECK(CommitModelCheckpoint(bundle->app(), paths));
+  Surfaces& surfaces = *bundle->application->surfaces;
   CHECK(surfaces.surfaces.size() == 3);
   CHECK(surfaces.surfaces[0]->number == 1);
   CHECK(surfaces.surfaces[1]->number == 2);
@@ -1073,7 +1055,13 @@ void TestAddOnSecondSurfaceWhileFirstHasLongJournal() {
 #ifndef NDEBUG
   (void)add_ns;
 #else
-  CHECK(add_ns < std::chrono::milliseconds{8000});
+  if (add_ns >= std::chrono::milliseconds{4000}) {
+    std::cerr << "PERF FAIL: AddSurface with long journal ms="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(add_ns)
+                     .count()
+              << " (Release threshold 4000 ms)\n";
+    CHECK(false);
+  }
 #endif
 
   session.RequestStop();
@@ -1895,9 +1883,9 @@ void TestShutdownDrainsWorkWithUnreadPublication() {
   model.join();
 
   {
-    LoadedApplicationBundle const bundle =
-        LoadApplicationBundleFromSessionCheckpoint(dir);
-    CHECK(bundle.application->surfaces->surfaces.size() == 3);
+    auto bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+    bundle->VerifyOwnerInvariants();
+    CHECK(bundle->application->surfaces->surfaces.size() == 3);
   }
   std::filesystem::remove_all(dir);
 }

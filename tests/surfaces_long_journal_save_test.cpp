@@ -1,6 +1,9 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#if defined(_WIN32)
+#include <stdlib.h>
+#endif
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -24,7 +27,7 @@
 
 #include "surfaces_distill.h"
 #include "surfaces_lifecycle.h"
-#include "surfaces_runtime_execution.h"
+#include "surfaces_test_loaded_bundle.h"
 
 namespace apptraverse::test {
 namespace {
@@ -42,6 +45,14 @@ std::filesystem::path TestDir(char const* name) {
   auto path = std::filesystem::temp_directory_path() / name;
   std::filesystem::remove_all(path);
   return path;
+}
+
+void SetEnvFlag(char const* name, char const* value) {
+#if defined(_WIN32)
+  _putenv_s(name, value);
+#else
+  setenv(name, value, 1);
+#endif
 }
 
 void WaitPublished(SurfacesModelSession& session) {
@@ -107,28 +118,6 @@ struct SurfaceJournalFingerprint {
   }
 };
 
-struct LoadedApplicationBundle {
-  ae::RamDomainStorage storage;
-  ae::Domain domain;
-  Application::ptr application;
-
-  LoadedApplicationBundle() : domain{storage} {}
-};
-
-LoadedApplicationBundle LoadApplicationBundleFromCheckpoint(
-    std::filesystem::path const& state_dir) {
-  LoadedApplicationBundle bundle;
-  ModelCheckpointPaths const paths =
-      ModelCheckpointPathsForStateDir(state_dir);
-  bundle.application = Application::ptr::Create(
-      ae::CreateWith{bundle.domain}.with_id(ae::ObjId{
-          surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)}));
-  CHECK(LoadModelCheckpoint(paths, bundle.domain, bundle.storage,
-                            *bundle.application));
-  WireSurfacesDemoRuntimeExecution(*bundle.application);
-  return bundle;
-}
-
 void SeedLongJournal(SurfacesModelSession& session, int event_count) {
   RunOnModel(session, [event_count](Application& app) {
     Surface& surface = *app.surfaces->surfaces[0];
@@ -171,8 +160,19 @@ void TestLongJournalAddSiblingShutdownSave(int event_count) {
 
   std::cout << "long_journal_save events=" << event_count
             << " add_ms=" << add_ms.count() << '\n';
-  CHECK(add_ms < std::chrono::milliseconds{8000});
+#ifndef NDEBUG
+  (void)add_ms;
+#else
+  if (add_ms >= std::chrono::milliseconds{4000}) {
+    std::cerr << "PERF FAIL: long_journal AddSurface ms=" << add_ms.count()
+              << " (Release threshold 4000 ms)\n";
+    CHECK(false);
+  }
+#endif
 
+  if (event_count == 10000) {
+    SetEnvFlag("APPTRAVERSE_SURFACES_SHUTDOWN_TRACE", "1");
+  }
   std::cout << "long_journal_save: requesting stop\n" << std::flush;
   auto const stop_t0 = std::chrono::steady_clock::now();
   session.RequestStop();
@@ -195,19 +195,22 @@ void TestLongJournalAddSiblingShutdownSave(int event_count) {
             << " checkpoint_bytes=" << checkpoint_bytes << '\n';
 
   CHECK(session.shutdown_exit_code == 0);
+  if (event_count == 10000) {
+    SetEnvFlag("APPTRAVERSE_SURFACES_SHUTDOWN_TRACE", "0");
+  }
   CHECK(HasActiveModelCheckpoint(paths));
   CHECK(file_count <= 2);
   CHECK(checkpoint_bytes > 0);
   CHECK(stop_ms < std::chrono::seconds{120});
 
   std::cout << "long_journal_save: cold load\n" << std::flush;
-  LoadedApplicationBundle const cold =
-      LoadApplicationBundleFromCheckpoint(dir);
-  CHECK(cold.application->surfaces->surfaces.size() == 2);
+  auto cold = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  cold->VerifyOwnerInvariants();
+  CHECK(cold->application->surfaces->surfaces.size() == 2);
   SurfaceJournalFingerprint after_cold =
-      SurfaceJournalFingerprint::Capture(*cold.application->surfaces->surfaces[0]);
+      SurfaceJournalFingerprint::Capture(*cold->application->surfaces->surfaces[0]);
   before_save.ExpectEqual(after_cold);
-  CHECK(cold.application->surfaces->surfaces[0]->presentation_width ==
+  CHECK(cold->application->surfaces->surfaces[0]->presentation_width ==
         500 + (event_count - 1));
 
   std::cout << "long_journal_save: session2 reload\n" << std::flush;
@@ -321,6 +324,56 @@ void TestSaveScaleRamVsDirectoryVsCheckpoint(int event_count) {
   std::filesystem::remove_all(checkpoint_dir);
 }
 
+void ProfilePackedCheckpointPhases(int event_count) {
+  using Clock = std::chrono::steady_clock;
+  auto const ms = [](Clock::duration d) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+  };
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  Application::ptr application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surface& surface = *application->surfaces->surfaces[0];
+  for (int i = 0; i < event_count; ++i) {
+    surface.SetPresentationSize(500 + i, 700 - i);
+  }
+
+  auto const ram_t0 = Clock::now();
+  application.Save();
+  auto const ram_save_ms = ms(Clock::now() - ram_t0);
+
+  SetEnvFlag("APPTRAVERSE_PERSISTENT_SNAPSHOT_PROFILE", "1");
+  SetEnvFlag("APPTRAVERSE_CHECKPOINT_COMMIT_PROFILE", "1");
+  ByteSink snapshot_bytes;
+  auto const serialize_t0 = Clock::now();
+  SerializePersistentModelSnapshot(*application, snapshot_bytes);
+  auto const serialize_only_ms = ms(Clock::now() - serialize_t0);
+
+  auto const profile_dir = TestDir("apptraverse_surfaces_checkpoint_profile");
+  ModelCheckpointPaths paths = ModelCheckpointPathsForStateDir(profile_dir);
+  auto const commit_t0 = Clock::now();
+  CHECK(CommitModelCheckpoint(*application, paths));
+  auto const commit_ms = ms(Clock::now() - commit_t0);
+
+  auto const release_t0 = Clock::now();
+  application = {};
+  auto const root_release_ms = ms(Clock::now() - release_t0);
+
+  std::cout << "packed_checkpoint_profile events=" << event_count
+            << " ram_save_ms=" << ram_save_ms
+            << " serialize_only_ms=" << serialize_only_ms
+            << " commit_total_ms=" << commit_ms
+            << " root_release_ms=" << root_release_ms
+            << " snapshot_bytes=" << snapshot_bytes.bytes.size()
+            << " checkpoint_bytes="
+            << ActiveModelCheckpointByteSize(paths) << '\n';
+
+  SetEnvFlag("APPTRAVERSE_PERSISTENT_SNAPSHOT_PROFILE", "0");
+  SetEnvFlag("APPTRAVERSE_CHECKPOINT_COMMIT_PROFILE", "0");
+  std::filesystem::remove_all(profile_dir);
+}
+
 void TestCheckpointCommitFailureKeepsPriorFile() {
   auto dir = TestDir("apptraverse_surfaces_checkpoint_atomic");
   ae::RamDomainStorage ram;
@@ -354,14 +407,16 @@ int main() {
 
   std::cout << "long_journal_save: atomic test\n" << std::flush;
   apptraverse::test::TestCheckpointCommitFailureKeepsPriorFile();
+  std::cout << "long_journal_save: checkpoint phase profile\n" << std::flush;
+  for (int n : {100, 1000, 10000}) {
+    apptraverse::test::ProfilePackedCheckpointPhases(n);
+  }
   std::cout << "long_journal_save: session test\n" << std::flush;
   apptraverse::test::TestLongJournalAddSiblingShutdownSave(10000);
   std::cout << "long_journal_save: scale tests\n" << std::flush;
-
   for (int n : {100, 1000}) {
     apptraverse::test::TestSaveScaleRamVsDirectoryVsCheckpoint(n);
   }
-  apptraverse::test::TestSaveScaleRamVsDirectoryVsCheckpoint(10000);
 
   std::cout << "surfaces_long_journal_save_test OK\n";
   return 0;

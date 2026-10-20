@@ -4117,6 +4117,42 @@ Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-pres
 
 Phase **1** not complete (shared Windows host, universal controls, SharedNode, full schema v0 migration remain).
 
+## Packed checkpoint acceptance + shutdown profile (2026-10-19)
+
+Branch: `cursor/surfaces-presenter-decomposition`. Baseline: **`40225dd`**.
+
+### Immovable load bundle (no NRVO reliance)
+- **`tests/surfaces_test_loaded_bundle.{h,cpp}`**: **`std::unique_ptr<LoadedApplicationBundle>`** from **`LoadFromModelCheckpoint`**; copy/move deleted; destroy order **`application` → `domain` → `storage`**; **`VerifyOwnerInvariants()`** + post-load **`CommitModelCheckpoint`** in **`TestShutdownDrain`**.
+- Win32 smoke post-close probes use checkpoint load (packed profile), not directory **`LoadApplication`**.
+
+### Performance gates (Release **4000 ms** Add restored)
+- **`PERF FAIL`** logged explicitly; thresholds not relaxed.
+- **`apptraverse_surfaces_long_journal_save_test`**: Add@10k **1195 ms** PASS; full suite PASS.
+- **`apptraverse_surfaces_model_test` (Release)**: **`TestAddOnSecondSurfaceWhileFirstHasLongJournal`** **PERF FAIL** **5501 ms** > **4000 ms** (functional Add OK; watchdog separate from perf).
+- Debug: Add/p95 perf guards skipped under **`NDEBUG`**; **`RunOnModel`** watchdog **120 s** (Debug) vs **30 s** (Release).
+
+### Packed shutdown / serialize breakdown (@10k retained events, Release)
+| Stage | Before opt | After opt |
+|--------|------------|-----------|
+| **`SerializePersistentModelSnapshot`** (isolated) | ~4292 ms | ~1219 ms |
+| **`application_save`** (session trace) | ~6844 ms | ~2582 ms |
+| **`shutdown_join_ms`** (long journal) | ~7155 ms | ~3015 ms |
+| Disk **write** (checkpoint commit) | ~2 ms | ~2 ms |
+
+**Root cause of ~7–8 s shutdown:** almost all time in **`CommitModelCheckpoint` → `SerializePersistentModelSnapshot`**, dominated by redundant **`domain.Find`** during checkpoint byte emission and a second full **`CollectReachableNodes`** pass. Fix: single node list for journal/base/generations; emit scratch layers without per-layer **`Find`**.
+
+Profiling hooks: **`APPTRAVERSE_PERSISTENT_SNAPSHOT_PROFILE=1`**, **`APPTRAVERSE_CHECKPOINT_COMMIT_PROFILE=1`**, **`APPTRAVERSE_SURFACES_SHUTDOWN_TRACE=1`**; test harness **`ProfilePackedCheckpointPhases(100/1000/10000)`** compares RAM **`Save()`** vs packed serialize/commit on the same graph.
+
+### Demo / load_only (Release, this build)
+- **`win32_surfaces_demo_load_only.exe`**: `C:/Users/nickc/Projects/apptraverse-wt-presenter-decomp/build-presenter-decomp-msvc-rel/examples/surfaces_demo/windows/win32_surfaces_demo_load_only.exe`
+- **SHA256:** `66341eb77e12b58b875d41d6f71a5fc45fbc82e0abae2109aae85f8e98ecac05`
+- **`apptraverse_surfaces_win32_smoke_test`**: **PASS** (EN/RU, bounds, Z-order, **`TestLoadOnlyRestoresRuProfile`**).
+
+### Verified (Release)
+- Checkpoint regressions: **PASS**
+- **`apptraverse_surfaces_long_journal_save_test`**: **PASS**
+- Debug **`apptraverse_surfaces_model_test`**: **PASS** (functional; **`TestAddOnSecondSurfaceWhileFirstHasLongJournal`** Add **81780 ms** — perf gate skipped under **`NDEBUG`**; first long stage is Add on 10k journal, not shutdown).
+
 ### aether-objects pin
 - Patches (in order): **`aether-objects-local-persistent-load.patch`** (hunk fix), **`aether-objects-domain-storage-access.patch`**, **`aether-objects-checkpoint-shell.patch`**
 - Objects SHA unchanged: **`79283b667cabf689da1059d618fe2a22abf51db4`**

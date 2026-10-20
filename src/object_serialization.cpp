@@ -5,8 +5,11 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <fstream>
 #include <optional>
 #include <utility>
@@ -31,6 +34,36 @@
 
 namespace apptraverse {
 namespace {
+
+bool PersistentSnapshotProfileEnabled() {
+  char const* v = std::getenv("APPTRAVERSE_PERSISTENT_SNAPSHOT_PROFILE");
+  return v != nullptr && v[0] == '1' && v[1] == '\0';
+}
+
+void LogPersistentSnapshotPhase(char const* phase, std::int64_t ms) {
+  if (!PersistentSnapshotProfileEnabled()) {
+    return;
+  }
+  std::cout << "persistent_snapshot_profile " << phase << "_ms=" << ms << '\n';
+}
+
+std::size_t EstimateScratchCheckpointBytes(ae::RamDomainStorage const& scratch) {
+  std::size_t bytes = 0;
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    (void)obj_id;
+    for (auto const& [class_id, versions] : *class_map_opt) {
+      (void)class_id;
+      for (auto const& [version, data] : versions) {
+        (void)version;
+        bytes += sizeof(std::uint32_t) * 4 + data.size();
+      }
+    }
+  }
+  return bytes;
+}
 
 LiveGraphEdgeAppender g_live_graph_edge_appender = nullptr;
 
@@ -456,15 +489,20 @@ struct SavedNodeBaseOnly {
 };
 
 void ClearReachableNodeBaseForCheckpointSave(
-    ae::Obj const& root, std::vector<SavedNodeBaseOnly>& saved) {
-  std::vector<Node*> nodes;
-  CollectReachableNodes(const_cast<ae::Obj&>(root), nodes);
+    std::vector<Node*> const& nodes, std::vector<SavedNodeBaseOnly>& saved) {
   saved.clear();
   saved.reserve(nodes.size());
   for (Node* node : nodes) {
     saved.push_back(SavedNodeBaseOnly{node, node->base});
     node->base = Node::ptr{};
   }
+}
+
+void ClearReachableNodeBaseForCheckpointSave(
+    ae::Obj const& root, std::vector<SavedNodeBaseOnly>& saved) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(const_cast<ae::Obj&>(root), nodes);
+  ClearReachableNodeBaseForCheckpointSave(nodes, saved);
 }
 
 void RestoreReachableNodeBase(std::vector<SavedNodeBaseOnly>& saved) {
@@ -1226,18 +1264,15 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   return changed;
 }
 
-void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
-                                            ae::Obj const& root, ByteSink& out) {
+void WritePersistentCheckpointScratchLayers(
+    ae::RamDomainStorage const& scratch, ByteSink& out,
+    std::vector<Node*> const& live_nodes) {
   auto const count_at = out.bytes.size();
   std::uint32_t layer_count = 0;
   out.write(&layer_count, sizeof(layer_count));
 
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
       continue;
     }
     for (auto const& [class_id, versions] : *class_map_opt) {
@@ -1258,19 +1293,8 @@ void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
   auto const gen_count_at = out.bytes.size();
   std::uint32_t node_generation_count = 0;
   out.write(&node_generation_count, sizeof(node_generation_count));
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    auto* node = AsObjOf<Node>(obj.get());
-    if (node == nullptr) {
-      continue;
-    }
-    auto const oid = obj_id.id();
+  for (Node* node : live_nodes) {
+    auto const oid = node->obj_id.id();
     auto const generation = node->Generation();
     out.write(&oid, sizeof(oid));
     out.write(&generation, sizeof(generation));
@@ -1357,17 +1381,29 @@ bool SkipPersistentCheckpointNodeBaseBindings(ByteSource& in) {
 }
 
 void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
+  using Clock = std::chrono::steady_clock;
+  auto const profile = PersistentSnapshotProfileEnabled();
+  auto const t0 = profile ? Clock::now() : Clock::time_point{};
+
   std::uint32_t const root_id = root.obj_id.id();
   out.write(&root_id, sizeof(root_id));
 
   std::vector<Node*> nodes;
   CollectReachableNodes(root, nodes);
+  if (profile) {
+    LogPersistentSnapshotPhase("collect_nodes",
+                               std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   Clock::now() - t0)
+                                   .count());
+  }
+
   struct SavedJournal {
     Node* node;
     std::vector<EventRecord> journal;
   };
   std::vector<SavedJournal> saved_journals;
   saved_journals.reserve(nodes.size());
+  auto journal_t0 = profile ? Clock::now() : Clock::time_point{};
   for (Node* node : nodes) {
     SavedJournal saved_entry;
     saved_entry.node = node;
@@ -1381,20 +1417,63 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
     }
     saved_journals.push_back(std::move(saved_entry));
   }
+  if (profile) {
+    LogPersistentSnapshotPhase("journal_prepare",
+                               std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   Clock::now() - journal_t0)
+                                   .count());
+  }
 
   std::vector<SavedNodeBaseOnly> saved_bases;
-  ClearReachableNodeBaseForCheckpointSave(root, saved_bases);
+  auto base_t0 = profile ? Clock::now() : Clock::time_point{};
+  ClearReachableNodeBaseForCheckpointSave(nodes, saved_bases);
+  if (profile) {
+    LogPersistentSnapshotPhase("clear_node_base",
+                               std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   Clock::now() - base_t0)
+                                   .count());
+  }
 
   ae::RamDomainStorage scratch;
+  auto scratch_t0 = profile ? Clock::now() : Clock::time_point{};
   SaveObjectGraphToScratch(root, scratch);
   EnsurePersistentCheckpointBaseObjectsInScratch(saved_bases, scratch);
+  if (profile) {
+    LogPersistentSnapshotPhase("save_graph_to_scratch",
+                               std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   Clock::now() - scratch_t0)
+                                   .count());
+  }
 
-  WritePersistentCheckpointScratchLayers(scratch, root, out);
+  out.bytes.reserve(out.bytes.size() + EstimateScratchCheckpointBytes(scratch) +
+                    sizeof(std::uint32_t) * 8);
+
+  auto write_t0 = profile ? Clock::now() : Clock::time_point{};
+  WritePersistentCheckpointScratchLayers(scratch, out, nodes);
   WritePersistentCheckpointNodeBaseBindings(saved_bases, out);
+  if (profile) {
+    LogPersistentSnapshotPhase("write_checkpoint_bytes",
+                               std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   Clock::now() - write_t0)
+                                   .count());
+  }
 
+  auto restore_t0 = profile ? Clock::now() : Clock::time_point{};
   RestoreReachableNodeBase(saved_bases);
   for (SavedJournal& entry : saved_journals) {
     entry.node->journal = std::move(entry.journal);
+  }
+  if (profile) {
+    LogPersistentSnapshotPhase("restore_live_graph",
+                               std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   Clock::now() - restore_t0)
+                                   .count());
+    LogPersistentSnapshotPhase("serialize_total",
+                               std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   Clock::now() - t0)
+                                   .count());
+    std::cout << "persistent_snapshot_profile checkpoint_bytes="
+              << out.bytes.size() << '\n';
   }
 }
 

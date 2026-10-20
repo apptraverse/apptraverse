@@ -1,6 +1,9 @@
 #include "apptraverse/application/model_checkpoint_persistence.h"
 
+#include <chrono>
+#include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <vector>
 
 #include "apptraverse/directory_domain_storage.h"
@@ -97,9 +100,32 @@ bool WriteCheckpointBytesAtomically(std::filesystem::path const& temp_path,
 }  // namespace
 
 bool CommitModelCheckpoint(ae::Obj& root, ModelCheckpointPaths const& paths) {
+  using Clock = std::chrono::steady_clock;
+  char const* profile_env = std::getenv("APPTRAVERSE_CHECKPOINT_COMMIT_PROFILE");
+  bool const profile =
+      profile_env != nullptr && profile_env[0] == '1' && profile_env[1] == '\0';
+
   ByteSink bytes;
+  auto const serialize_t0 = profile ? Clock::now() : Clock::time_point{};
   SerializePersistentModelSnapshot(root, bytes);
-  return WriteCheckpointBytesAtomically(paths.temp, paths.active, bytes.bytes);
+  auto const serialize_ms =
+      profile ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                    Clock::now() - serialize_t0)
+                    .count()
+              : 0;
+
+  auto const write_t0 = profile ? Clock::now() : Clock::time_point{};
+  bool const ok =
+      WriteCheckpointBytesAtomically(paths.temp, paths.active, bytes.bytes);
+  if (profile) {
+    auto const write_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              Clock::now() - write_t0)
+                              .count();
+    std::cout << "checkpoint_commit_profile serialize_ms=" << serialize_ms
+              << " write_ms=" << write_ms << " bytes=" << bytes.bytes.size()
+              << " ok=" << (ok ? 1 : 0) << '\n';
+  }
+  return ok;
 }
 
 bool LoadModelCheckpoint(ModelCheckpointPaths const& paths, ae::Domain& domain,

@@ -732,6 +732,7 @@ add_test(
 
 add_executable(apptraverse_surfaces_model_test
   surfaces_model_test.cpp
+  surfaces_test_loaded_bundle.cpp
   surfaces_test_presentation.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_distill.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
@@ -766,6 +767,7 @@ add_custom_target(apptraverse_surfaces_headless_check
 
 add_executable(apptraverse_surfaces_long_journal_save_test
   surfaces_long_journal_save_test.cpp
+  surfaces_test_loaded_bundle.cpp
   surfaces_test_presentation.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_distill.cpp
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
@@ -822,6 +824,7 @@ if(WIN32)
   if(APPTRAVERSE_BUILD_EXAMPLES)
   add_executable(apptraverse_surfaces_win32_smoke_test
     surfaces_win32_smoke_test.cpp
+    surfaces_test_loaded_bundle.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows/win_app.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_runtime_execution.cpp

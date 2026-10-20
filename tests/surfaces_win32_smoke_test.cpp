@@ -30,6 +30,7 @@
 #include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
 #include "surfaces_lifecycle.h"
+#include "surfaces_test_loaded_bundle.h"
 #include "surfaces_win32_capture.h"
 #include "win_app.h"
 
@@ -410,11 +411,9 @@ void TestCloseButtonRemovesOne() {
   gui.join();
   CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 0);
 
-  DirectoryDomainStorage storage{dir};
-  ae::Domain domain{storage};
-  auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+  auto profile_bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  profile_bundle->VerifyOwnerInvariants();
+  Application::ptr const& application = profile_bundle->application;
   CHECK(application->surfaces->surfaces.size() == 3);
   CHECK(application->surfaces->surfaces[0]->number == 1);
   CHECK(application->surfaces->surfaces[1]->number == 3);
@@ -480,11 +479,9 @@ void TestNativeXKeepsAllSurfaces() {
   gui.join();
   CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 0);
 
-  DirectoryDomainStorage storage{dir};
-  ae::Domain domain{storage};
-  auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+  auto profile_bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  profile_bundle->VerifyOwnerInvariants();
+  Application::ptr const& application = profile_bundle->application;
   CHECK(application->surfaces->surfaces.size() == 3);
   CHECK(application->surfaces->surfaces[0]->number == 1);
   CHECK(application->surfaces->surfaces[1]->number == 2);
@@ -516,11 +513,9 @@ void TestNativeXKeepsAllSurfaces() {
   SendMessageW(FindCloseButton(last), BM_CLICK, 0, 0);
   gui2.join();
 
-  DirectoryDomainStorage storage2{dir};
-  ae::Domain domain2{storage2};
-  auto application2 = LoadApplication<Application>(
-      domain2, ae::ObjId{surfaces_demo::ToObjId(
-                   surfaces_demo::ObjId::Application)});
+  auto profile_bundle2 = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  profile_bundle2->VerifyOwnerInvariants();
+  Application::ptr const& application2 = profile_bundle2->application;
   CHECK(application2->surfaces->surfaces.size() == 1);
   CHECK(application2->surfaces->surfaces[0]->number == 3);
 
@@ -618,11 +613,9 @@ void TestActiveZOrderRestored() {
   gui.join();
   CHECK(CountOwnedClass(pid, kSurfacesWindowClass) == 0);
 
-  DirectoryDomainStorage storage{dir};
-  ae::Domain domain{storage};
-  auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+  auto profile_bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  profile_bundle->VerifyOwnerInvariants();
+  Application::ptr const& application = profile_bundle->application;
   CHECK(application->surfaces->mobile_current);
   CHECK(application->surfaces->mobile_current->number == 2);
   CHECK(application->surfaces->desktop_z_order.size() == 3);
@@ -696,11 +689,10 @@ void TestFullDesktopZOrderDistinctStacksSameTop() {
     PostMessageW(close_before_save, WM_CLOSE, 0, 0);
     gui.join();
 
-    DirectoryDomainStorage storage{dir};
-    ae::Domain domain{storage};
-    auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+    auto profile_bundle =
+        LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+    profile_bundle->VerifyOwnerInvariants();
+    Application::ptr const& application = profile_bundle->application;
     CHECK(application->surfaces->desktop_z_order.size() == 4);
     for (std::size_t i = 0; i < scenario.stack.size(); ++i) {
       CHECK(application->surfaces->desktop_z_order[i]->number ==
@@ -891,11 +883,9 @@ void TestControlsFollowPresentationSize() {
   PostMessageW(s1, WM_CLOSE, 0, 0);
   gui.join();
 
-  DirectoryDomainStorage storage{dir};
-  ae::Domain domain{storage};
-  auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+  auto profile_bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  profile_bundle->VerifyOwnerInvariants();
+  Application::ptr const& application = profile_bundle->application;
   Surface& surface = *application->surfaces->surfaces[0];
   CHECK(surface.presentation_width == 700);
   CHECK(surface.presentation_height == 300);
@@ -1044,11 +1034,9 @@ void TestLocalizationEnRuEn() {
   PostMessageW(s1, WM_CLOSE, 0, 0);
   gui.join();
 
-  DirectoryDomainStorage storage{dir};
-  ae::Domain domain{storage};
-  auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+  auto profile_bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  profile_bundle->VerifyOwnerInvariants();
+  Application::ptr const& application = profile_bundle->application;
   CHECK(application->locale->language_index() == 0);
 
   std::filesystem::remove_all(dir);
@@ -1093,11 +1081,9 @@ void TestLoadOnlyRestoresRuProfile() {
   PostMessageW(s1, WM_CLOSE, 0, 0);
   gui.join();
 
-  DirectoryDomainStorage probe{dir};
-  ae::Domain probe_domain{probe};
-  auto saved = LoadApplication<Application>(
-      probe_domain, ae::ObjId{surfaces_demo::ToObjId(
-                        surfaces_demo::ObjId::Application)});
+  auto probe_bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  probe_bundle->VerifyOwnerInvariants();
+  Application::ptr const& saved = probe_bundle->application;
   CHECK(saved->locale->language_index() == 1);
 
   std::filesystem::path const load_only_path{
@@ -1175,11 +1161,9 @@ void TestLoadOnlyRestoresRuProfile() {
   CHECK(exit_code == 0);
   CloseHandle(pi.hProcess);
 
-  DirectoryDomainStorage storage{dir};
-  ae::Domain domain{storage};
-  auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+  auto profile_bundle = LoadedApplicationBundle::LoadFromModelCheckpoint(dir);
+  profile_bundle->VerifyOwnerInvariants();
+  Application::ptr const& application = profile_bundle->application;
   CHECK(application->locale->language_index() == 1);
 
   std::filesystem::remove_all(dir);
