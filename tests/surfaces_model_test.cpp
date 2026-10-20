@@ -1025,25 +1025,32 @@ void TestCollectLiveReachableStableWithLongJournal() {
 }
 
 void TestAddOnSecondSurfaceWhileFirstHasLongJournal() {
-  auto dir = TestDir("apptraverse_surfaces_long_journal_add_sibling");
-  SurfacesModelSession session;
-  session.state_dir = dir;
-  std::thread model{[&] {
-    RunSurfacesDemoModelSession(session,
-        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
-  }};
-  WaitPublished(session);
-  (void)TakeAndWake(session);
+  auto run_scenario = [](char const* tag, auto scenario_fn) {
+    auto dir = TestDir(tag);
+    SurfacesModelSession session;
+    session.state_dir = dir;
+    std::thread model{[&] {
+      RunSurfacesDemoModelSession(session,
+          [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+    }};
+    WaitPublished(session);
+    (void)TakeAndWake(session);
+    LongJournalAddPerfResult const perf = scenario_fn(session, 10000);
+    ReportLongJournalAddPerf(tag, "surfaces_model_test", perf);
+    session.RequestStop();
+    model.join();
+    CHECK(session.shutdown_exit_code == 0);
+    std::filesystem::remove_all(dir);
+    return perf;
+  };
 
-  LongJournalAddPerfResult const perf =
-      RunLongJournalAddSiblingPerfScenario(session, 10000);
-  ReportLongJournalAddPerf("surfaces_model_test", perf);
-  AssertReleaseLongJournalAddPerfGate("surfaces_model_test", perf);
+  LongJournalAddPerfResult const immediate = run_scenario(
+      "apptraverse_surfaces_long_journal_add_immediate",
+      RunAddImmediatelyAfterChanges);
+  AssertReleaseLongJournalAddImmediateGate("surfaces_model_test", immediate);
 
-  session.RequestStop();
-  model.join();
-  CHECK(session.shutdown_exit_code == 0);
-  std::filesystem::remove_all(dir);
+  (void)run_scenario("apptraverse_surfaces_long_journal_add_after_drain",
+                     RunAddAfterPublicationDrain);
 }
 
 void TestGeometryPersistence() {

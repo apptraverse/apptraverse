@@ -1,5 +1,6 @@
 #include "surfaces_test_long_journal_add.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <future>
 #include <iostream>
@@ -7,8 +8,6 @@
 
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_model.h"
-
-#include "apptraverse/application/model_publication_session.h"
 
 namespace apptraverse::test {
 namespace {
@@ -47,42 +46,62 @@ constexpr auto kModelWatchdog = std::chrono::seconds{30};
 constexpr auto kModelWatchdog = std::chrono::seconds{120};
 #endif
 
-template <typename Body>
-LongJournalAddTiming RunOnModelMeasuredSplit(SurfacesModelSession& session,
-                                             Body body) {
+std::int64_t Us(Clock::duration d) {
+  return std::chrono::duration_cast<std::chrono::microseconds>(d).count();
+}
+
+LongJournalAddTiming RunMeasuredAddSurfaceOnFirstSurfaceImpl(
+    SurfacesModelSession& session) {
   LongJournalAddTiming timing;
+  timing.publish_count_at_post = session.channel.publish_count();
+  timing.channel_busy_at_post = session.channel.is_publication_busy();
+
   std::promise<void> done;
   auto future = done.get_future();
   auto const post_time = Clock::now();
-  session.Post([&, body = std::move(body)](ae::Domain& domain) mutable {
-    auto const task_start = Clock::now();
+
+  session.Post([&session, &timing, &done, post_time](ae::Domain& domain) {
+    auto const lambda_start = Clock::now();
+    timing.queue_wait_us = Us(lambda_start - post_time);
+    timing.publish_count_at_task_start = session.channel.publish_count();
+
+    auto const root_start = Clock::now();
     Application& app = ModelApplication(domain);
-    auto const body_start = Clock::now();
-    body(app);
-    auto const body_end = Clock::now();
+    auto const root_end = Clock::now();
+    timing.root_access_us = Us(root_end - root_start);
+
+    auto const add_start = Clock::now();
+    app.surfaces->surfaces[0]->AddSurface();
+    LJ_CHECK(app.surfaces->surfaces.size() == 2);
+    auto const add_end = Clock::now();
+    timing.add_body_us = Us(add_end - add_start);
+
     (void)app;
     auto const task_end = Clock::now();
-    timing.queue_wait_us =
-        std::chrono::duration_cast<std::chrono::microseconds>(body_start -
-                                                              post_time)
-            .count();
-    timing.add_body_us =
-        std::chrono::duration_cast<std::chrono::microseconds>(body_end -
-                                                              body_start)
-            .count();
-    timing.task_cleanup_us =
-        std::chrono::duration_cast<std::chrono::microseconds>(task_end -
-                                                              body_end)
-            .count();
+    timing.cleanup_us = Us(task_end - add_end);
+    done.set_value();
+  });
+
+  LJ_CHECK(future.wait_for(kModelWatchdog) == std::future_status::ready);
+  auto const future_ready = Clock::now();
+  timing.client_wait_us = Us(future_ready - post_time);
+  return timing;
+}
+
+template <typename Body>
+void RunOnModelPlain(SurfacesModelSession& session, Body body) {
+  std::promise<void> done;
+  auto future = done.get_future();
+  session.Post([&](ae::Domain& domain) {
+    body(ModelApplication(domain));
     done.set_value();
   });
   LJ_CHECK(future.wait_for(kModelWatchdog) == std::future_status::ready);
-  auto const future_ready = Clock::now();
-  timing.client_wait_us =
-      std::chrono::duration_cast<std::chrono::microseconds>(future_ready -
-                                                            post_time)
-          .count();
-  return timing;
+}
+
+bool PendingWorkEmpty(SurfacesModelSession& session) {
+  std::lock_guard<std::mutex> lock{session.mu};
+  return session.pending_work.empty();
 }
 
 }  // namespace
@@ -112,88 +131,116 @@ void SurfaceJournalFingerprint::ExpectEqual(
   LJ_CHECK(presentation_heights == other.presentation_heights);
 }
 
-void SeedLongJournalOnModel(SurfacesModelSession& session, int event_count) {
-  RunOnModelMeasuredSplit(session, [event_count](Application& app) {
+LongJournalSeedStats SeedLongJournalOnModel(SurfacesModelSession& session,
+                                            int event_count) {
+  LongJournalSeedStats stats;
+  stats.publish_count_before = session.channel.publish_count();
+  RunOnModelPlain(session, [&](Application& app) {
     Surface& surface = *app.surfaces->surfaces[0];
     for (int i = 0; i < event_count; ++i) {
       surface.SetPresentationSize(500 + i, 700 - i);
     }
     LJ_CHECK(surface.journal.size() >=
              static_cast<std::size_t>(event_count / 2));
+    stats.journal_event_count = surface.journal.size();
   });
+  stats.publish_count_after = session.channel.publish_count();
+  stats.channel_busy_after_seed = session.channel.is_publication_busy();
+  return stats;
 }
 
 void WaitModelPublicationBacklogDrained(SurfacesModelSession& session) {
-  std::uint64_t last_publish_count = session.channel.publish_count();
-  int stable_passes = 0;
-  while (stable_passes < 4) {
+  int idle_passes = 0;
+  while (idle_passes < 6) {
     while (session.channel.has_unread_published()) {
       TakeAndWake(session);
-      stable_passes = 0;
+      idle_passes = 0;
     }
-    RunOnModelMeasuredSplit(session, [](Application&) {});
-    std::uint64_t const publish_count = session.channel.publish_count();
-    if (publish_count == last_publish_count) {
-      ++stable_passes;
+    std::uint64_t const before = session.channel.publish_count();
+    RunOnModelPlain(session, [](Application&) {});
+    while (session.channel.has_unread_published()) {
+      TakeAndWake(session);
+      idle_passes = 0;
+    }
+    std::uint64_t const after = session.channel.publish_count();
+    if (after == before && PendingWorkEmpty(session) &&
+        !session.channel.has_unread_published() &&
+        !session.channel.is_publication_busy()) {
+      ++idle_passes;
     } else {
-      last_publish_count = publish_count;
-      stable_passes = 0;
+      idle_passes = 0;
     }
   }
 }
 
-SurfaceJournalFingerprint CaptureLongJournalFingerprintOnModel(
-    SurfacesModelSession& session) {
-  SurfaceJournalFingerprint captured;
-  RunOnModelMeasuredSplit(session, [&](Application& app) {
-    captured = SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
-  });
-  return captured;
-}
-
 LongJournalAddTiming RunMeasuredAddSurfaceOnFirstSurface(
     SurfacesModelSession& session) {
-  return RunOnModelMeasuredSplit(session, [](Application& app) {
-    app.surfaces->surfaces[0]->AddSurface();
-    LJ_CHECK(app.surfaces->surfaces.size() == 2);
-  });
+  return RunMeasuredAddSurfaceOnFirstSurfaceImpl(session);
 }
 
-LongJournalAddPerfResult RunLongJournalAddSiblingPerfScenario(
+LongJournalAddPerfResult RunAddImmediatelyAfterChanges(
     SurfacesModelSession& session, int event_count) {
   LongJournalAddPerfResult result;
-  SeedLongJournalOnModel(session, event_count);
-  WaitModelPublicationBacklogDrained(session);
-  result.fingerprint_before_add = CaptureLongJournalFingerprintOnModel(session);
-  result.journal_size_after_seed = result.fingerprint_before_add.journal_size;
-  result.timing = RunMeasuredAddSurfaceOnFirstSurface(session);
+  result.seed = SeedLongJournalOnModel(session, event_count);
+  result.journal_size_after_seed = result.seed.journal_event_count;
+  result.timing = RunMeasuredAddSurfaceOnFirstSurfaceImpl(session);
+  RunOnModelPlain(session, [&](Application& app) {
+    result.fingerprint =
+        SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
+  });
   return result;
 }
 
-void ReportLongJournalAddPerf(char const* label,
-                              LongJournalAddPerfResult const& result) {
-  auto const& t = result.timing;
-  std::cout << "long_journal_add_perf label=" << label
-            << " journal_size=" << result.journal_size_after_seed
-            << " client_wait_ms=" << (t.client_wait_us / 1000)
-            << " queue_wait_ms=" << (t.queue_wait_us / 1000)
-            << " add_body_ms=" << (t.add_body_us / 1000)
-            << " task_cleanup_ms=" << (t.task_cleanup_us / 1000) << '\n';
+LongJournalAddPerfResult RunAddAfterPublicationDrain(
+    SurfacesModelSession& session, int event_count) {
+  LongJournalAddPerfResult result;
+  result.seed = SeedLongJournalOnModel(session, event_count);
+  result.journal_size_after_seed = result.seed.journal_event_count;
+  WaitModelPublicationBacklogDrained(session);
+  result.publish_count_after_drain = session.channel.publish_count();
+  result.timing = RunMeasuredAddSurfaceOnFirstSurfaceImpl(session);
+  RunOnModelPlain(session, [&](Application& app) {
+    result.fingerprint =
+        SurfaceJournalFingerprint::Capture(*app.surfaces->surfaces[0]);
+  });
+  return result;
 }
 
-void AssertReleaseLongJournalAddPerfGate(char const* label,
-                                         LongJournalAddPerfResult const& result) {
+void ReportLongJournalAddPerf(char const* scenario, char const* label,
+                              LongJournalAddPerfResult const& result) {
+  auto const& t = result.timing;
+  auto const& s = result.seed;
+  std::cout << "long_journal_add_perf scenario=" << scenario
+            << " label=" << label << " journal_events=" << s.journal_event_count
+            << " seed_publish_delta=" << (s.publish_count_after - s.publish_count_before)
+            << " dirty_obj_ids~" << LongJournalAddPerfResult::kDirtyObjIdsSingleSurfaceSeed
+            << " publish_after_drain=" << result.publish_count_after_drain
+            << " channel_busy_after_seed=" << (s.channel_busy_after_seed ? 1 : 0)
+            << " publish_at_post=" << t.publish_count_at_post
+            << " channel_busy_at_post=" << (t.channel_busy_at_post ? 1 : 0)
+            << " client_wait_ms=" << (t.client_wait_us / 1000)
+            << " queue_wait_ms=" << (t.queue_wait_us / 1000)
+            << " root_access_ms=" << (t.root_access_us / 1000)
+            << " add_body_ms=" << (t.add_body_us / 1000)
+            << " cleanup_ms=" << (t.cleanup_us / 1000) << '\n';
+}
+
+void AssertReleaseLongJournalAddImmediateGate(
+    char const* label, LongJournalAddPerfResult const& result) {
 #ifndef NDEBUG
   (void)label;
   (void)result;
 #else
   if (result.timing.client_wait_us >= 4'000'000) {
-    std::cerr << "PERF FAIL: " << label << " client_wait_ms="
-              << (result.timing.client_wait_us / 1000)
+    std::cerr << "PERF FAIL (immediate): " << label
+              << " client_wait_ms=" << (result.timing.client_wait_us / 1000)
               << " (Release threshold 4000 ms)"
               << " queue_wait_ms=" << (result.timing.queue_wait_us / 1000)
+              << " root_access_ms=" << (result.timing.root_access_us / 1000)
               << " add_body_ms=" << (result.timing.add_body_us / 1000)
-              << " task_cleanup_ms=" << (result.timing.task_cleanup_us / 1000)
+              << " cleanup_ms=" << (result.timing.cleanup_us / 1000)
+              << " seed_publish_delta="
+              << (result.seed.publish_count_after - result.seed.publish_count_before)
               << '\n';
     LJ_CHECK(false);
   }

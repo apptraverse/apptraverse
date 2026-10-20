@@ -341,6 +341,15 @@ void ModelPublicationSession::Run(
 
     }
 
+    // Re-enter the loop before publishing so newly posted ModelWork (e.g. Add
+    // right after a long seed task) is not starved by incremental publications.
+    {
+      std::lock_guard<std::mutex> lock{mu};
+      if (!pending_work.empty()) {
+        continue;
+      }
+    }
+
 
 
     {
@@ -375,65 +384,67 @@ void ModelPublicationSession::Run(
 
     }
 
-    for (;;) {
+    std::uint32_t pending_id = 0;
 
-      std::uint32_t pending_id = 0;
+    {
 
-      {
+      std::lock_guard<std::mutex> lock{mu};
 
-        std::lock_guard<std::mutex> lock{mu};
-
-        if (stop || channel.is_publication_busy() || pending_dirty.empty()) {
-
-          break;
-
-        }
-
-        pending_id = pending_dirty.PopFront();
-
-      }
-
-      if (live_ids.count(pending_id) == 0) {
+      if (stop || channel.is_publication_busy() || pending_dirty.empty()) {
 
         continue;
 
       }
 
-      auto object = domain.Find(ae::ObjId{pending_id});
-
-      if (!object) {
+      if (!pending_work.empty()) {
 
         continue;
 
       }
 
-      Node* const to_publish = object.as<Node>();
-
-      if (to_publish == nullptr) {
-
-        continue;
-
-      }
-
-      auto* pub = channel.AcquireProducer();
-
-      SerializeStructuralNodePublication(*to_publish, pub->sink);
-
-      {
-
-        std::lock_guard<std::mutex> lock{mu};
-
-        channel.NotePublished();
-
-        channel.PublishProducer();
-
-      }
-
-      cv.notify_all();
-
-      on_published(ModelPublicationKind::Incremental);
+      pending_id = pending_dirty.PopFront();
 
     }
+
+    if (live_ids.count(pending_id) == 0) {
+
+      continue;
+
+    }
+
+    auto object = domain.Find(ae::ObjId{pending_id});
+
+    if (!object) {
+
+      continue;
+
+    }
+
+    Node* const to_publish = object.as<Node>();
+
+    if (to_publish == nullptr) {
+
+      continue;
+
+    }
+
+    auto* pub = channel.AcquireProducer();
+
+    SerializeStructuralNodePublication(*to_publish, pub->sink);
+
+    {
+
+      std::lock_guard<std::mutex> lock{mu};
+
+      channel.NotePublished();
+
+      channel.PublishProducer();
+
+    }
+
+    cv.notify_all();
+
+    on_published(ModelPublicationKind::Incremental);
 
   }
 

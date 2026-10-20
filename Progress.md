@@ -4153,27 +4153,40 @@ Profiling hooks: **`APPTRAVERSE_PERSISTENT_SNAPSHOT_PROFILE=1`**, **`APPTRAVERSE
 - **`apptraverse_surfaces_long_journal_save_test`**: **PASS**
 - Debug **`apptraverse_surfaces_model_test`**: **PASS** (functional; **`TestAddOnSecondSurfaceWhileFirstHasLongJournal`** Add **81780 ms** — perf gate skipped under **`NDEBUG`**; first long stage is Add on 10k journal, not shutdown).
 
-## Release Add@10k PERF alignment (2026-10-19)
+## Release Add@10k: busy vs idle + model responsiveness (2026-10-20)
 
-Baseline: **`e709ff4`**.
+Baseline: **`b7a9321`**.
 
-### Why 1195 ms vs 5501 ms (not flaky)
-- **`surfaces_model_test`** timed **Post→future** immediately after seed while **~10k resize publications** were still draining; **`queue_wait` dominated**.
-- **`long_journal_save_test`** ran **fingerprint `RunOnModel` first**, which overlapped with draining the publication channel — **Add timer started closer to idle model**.
-- Not different Add body cost: aligned scenario shows **`add_body_ms` ~900–1030**, **`queue_wait_ms` ~66–82**, **`client_wait_ms` ~970–1110** in both tests and isolated process (**`--add-perf-only`**, 3 runs).
+### Two measured scenarios (same helpers in both test executables)
+- **`RunAddImmediatelyAfterChanges`**: seed **10000** `Commit`s in **one** model task → **Post Add immediately** (no drain / fingerprint / warmup between seed and timed Add). Fingerprint **after** Add. Release gate **4000 ms** on **`client_wait_us`** (**immediate only**).
+- **`RunAddAfterPublicationDrain`**: same seed → **`WaitModelPublicationBacklogDrained`** (consume unread, idle when `publish_count` stable, `pending_work` empty, channel not busy — **not** “four stable publish_count” alone) → measured Add → fingerprint.
 
-### Fix (test contract, not retention/schema)
-- Shared **`RunLongJournalAddSiblingPerfScenario`**: seed → **`WaitModelPublicationBacklogDrained`** (barrier + consume publications) → fingerprint → measured Add with split timing (`queue_wait` / `add_body` / `task_cleanup` / `client_wait`).
-- **`done.set_value()`** after body scope ends on model thread.
-- Release gate **4000 ms** on **`client_wait_us`** in **both** tests.
+### Timing splits (`RunOnModelMeasuredSplit`)
+- **`queue_wait_us`**: Post → lambda start (excludes `ModelApplication` lookup).
+- **`root_access_us`**: root find on model thread.
+- **`add_body_us`**: `AddSurface` only.
+- **`cleanup_us`**: task teardown after Add body.
+- **`client_wait_us`**: Post → future ready.
 
-### Verified (Release `build-presenter-decomp-msvc-rel`)
-- **`apptraverse_surfaces_model_test`**: **PASS** (`client_wait_ms` **1061** for Add@10k).
-- **`apptraverse_surfaces_long_journal_save_test`**: **PASS** (`client_wait_ms` **1101**).
-- Isolated **`--add-perf-only`**: **971 / 1090 / 1110 ms**.
-- Checkpoint regressions + **`apptraverse_surfaces_win32_smoke_test`** (incl. load_only): **PASS**.
+### Publications vs Events (10k seed on one Surface)
+- **10000** retained journal **Events**; **`PendingDirtyNodes`** dedupes by **ObjId** → **~1** dirty node for this seed (not 10k publications).
+- **`seed_publish_delta=0`** is expected while the seed runs inside a single model task: **`publish_count`** advances when incremental publishes **complete**, after the seed task returns.
+- Same graph @10k (Release): **`CollectLiveReachableObjects` p95 ~568 ms**, **`SerializeStructuralNodePublication` p95 ~1027 ms** (one structural snapshot prep — not 10k serializations).
 
-Shutdown **~3 s** (`application_save` ~**2.6 s**) remains a separate open PERF item.
+### Product fix (not test-only drain)
+- **`model_publication_session.cpp`**: after each **`ModelWork`**, re-enter loop if **`pending_work`** non-empty; **one** incremental publish per outer turn (no inner multi-publish drain). **Intent:** immediate Add after long seed is not starved behind a full structural publish prep on the dirty Surface (~prior **~5 s queue_wait**).
+
+### Verified (Release `build-presenter-decomp-msvc-rel`, this pass)
+- **`--add-perf-only`** (3× immediate + after_drain): immediate **`client_wait_ms` 1361 / 1719 / 1825**; after_drain **1437 / 2000 / 1603**; **`queue_wait_ms` ~454–655** (immediate), **`add_body_ms` ~843–1089**.
+- **`apptraverse_surfaces_model_test`**: **PASS** — immediate **2266 ms** (`queue_wait` 788, `add_body` 1388); after_drain **3557 ms** (`queue_wait` 1104, `add_body` 2206).
+- **`apptraverse_surfaces_long_journal_save_test`** (ctest): **PASS** (~54 s).
+- **`apptraverse_publication_channel_test`**, checkpoint regressions, **`apptraverse_surfaces_win32_smoke_test`**: **PASS**.
+- **`win32_surfaces_demo_load_only.exe` SHA256:** `BDE32EC9CF798824825B141705B63D65852A9532B733D28A7017528D11ECA0B1`.
+
+### Debug
+- **`apptraverse_surfaces_model_test`**: Add@10k scenarios completed; Release perf gate skipped under **`NDEBUG`**. Observed (Debug, **`OBJ_SYS` interleaves stdout — treat ms as approximate**): immediate **`client_wait_ms` ~57561** (`queue_wait` ~20117, `add_body` ~35 s); after_drain **`client_wait_ms` ~47125**. Full Debug run hit **`TestConcurrentSessionsGenerateDistinctObjIds`** **`seen.insert(id)`** (known race-smoke flake; not Add@10k). **Not** explained without Debug profiling; do not treat as closed.
+
+Shutdown **~3 s** (`application_save` ~**2.6 s**) remains a separate open PERF item. **Phase 1 not complete.**
 
 ### aether-objects pin
 - Patches (in order): **`aether-objects-local-persistent-load.patch`** (hunk fix), **`aether-objects-domain-storage-access.patch`**, **`aether-objects-checkpoint-shell.patch`**

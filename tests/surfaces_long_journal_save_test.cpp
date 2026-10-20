@@ -103,10 +103,10 @@ void TestLongJournalAddSiblingShutdownSave(int event_count) {
   (void)TakeAndWake(session);
 
   LongJournalAddPerfResult const perf =
-      RunLongJournalAddSiblingPerfScenario(session, event_count);
-  ReportLongJournalAddPerf("long_journal_save", perf);
-  AssertReleaseLongJournalAddPerfGate("long_journal_save", perf);
-  SurfaceJournalFingerprint const before_save = perf.fingerprint_before_add;
+      RunAddImmediatelyAfterChanges(session, event_count);
+  ReportLongJournalAddPerf("immediate", "long_journal_save", perf);
+  AssertReleaseLongJournalAddImmediateGate("long_journal_save", perf);
+  SurfaceJournalFingerprint const before_save = perf.fingerprint;
 
   if (event_count == 10000) {
     SetEnvFlag("APPTRAVERSE_SURFACES_SHUTDOWN_TRACE", "1");
@@ -325,13 +325,31 @@ void TestLongJournalAddPerfIsolatedProcess() {
     }};
     WaitPublished(session);
     (void)TakeAndWake(session);
-    LongJournalAddPerfResult const perf =
-        RunLongJournalAddSiblingPerfScenario(session, 10000);
-    ReportLongJournalAddPerf("isolated", perf);
-    AssertReleaseLongJournalAddPerfGate("isolated", perf);
+    LongJournalAddPerfResult const immediate =
+        RunAddImmediatelyAfterChanges(session, 10000);
+    ReportLongJournalAddPerf("immediate", "isolated", immediate);
+    AssertReleaseLongJournalAddImmediateGate("isolated", immediate);
     session.RequestStop();
     model.join();
     std::filesystem::remove_all(dir);
+
+    auto dir_idle = TestDir("apptraverse_surfaces_long_journal_add_idle_iso");
+    SurfacesModelSession session_idle;
+    session_idle.state_dir = dir_idle;
+    std::thread model_idle{[&] {
+      RunSurfacesDemoModelSession(session_idle,
+                                  [&session_idle](SurfacesPublicationKind) {
+                                    session_idle.cv.notify_all();
+                                  });
+    }};
+    WaitPublished(session_idle);
+    (void)TakeAndWake(session_idle);
+    LongJournalAddPerfResult const idle =
+        RunAddAfterPublicationDrain(session_idle, 10000);
+    ReportLongJournalAddPerf("after_drain", "isolated", idle);
+    session_idle.RequestStop();
+    model_idle.join();
+    std::filesystem::remove_all(dir_idle);
   }
   std::cout << "long_journal_add_perf OK\n";
 }
