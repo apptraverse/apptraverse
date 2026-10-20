@@ -40,6 +40,7 @@
 #include "apptraverse/surfaces/surfaces_registration.h"
 #include "surfaces_test_presenter_counters.h"
 #include "surfaces_test_loaded_bundle.h"
+#include "surfaces_test_long_journal_add.h"
 
 namespace apptraverse::test {
 
@@ -1034,35 +1035,10 @@ void TestAddOnSecondSurfaceWhileFirstHasLongJournal() {
   WaitPublished(session);
   (void)TakeAndWake(session);
 
-  RunOnModel(session, [](Application& app) {
-    Surface& surface = *app.surfaces->surfaces[0];
-    for (int i = 0; i < 10000; ++i) {
-      surface.SetPresentationSize(500 + i, 700 - i);
-    }
-    CHECK(surface.journal.size() >= 5000);
-  });
-
-  auto const t0 = std::chrono::steady_clock::now();
-  RunOnModel(session, [](Application& app) {
-    app.surfaces->surfaces[0]->AddSurface();
-    CHECK(app.surfaces->surfaces.size() == 2);
-  });
-  auto const add_ns = std::chrono::steady_clock::now() - t0;
-  std::cout << "AddSurface with long journal ms="
-            << std::chrono::duration_cast<std::chrono::milliseconds>(add_ns)
-                   .count()
-            << '\n';
-#ifndef NDEBUG
-  (void)add_ns;
-#else
-  if (add_ns >= std::chrono::milliseconds{4000}) {
-    std::cerr << "PERF FAIL: AddSurface with long journal ms="
-              << std::chrono::duration_cast<std::chrono::milliseconds>(add_ns)
-                     .count()
-              << " (Release threshold 4000 ms)\n";
-    CHECK(false);
-  }
-#endif
+  LongJournalAddPerfResult const perf =
+      RunLongJournalAddSiblingPerfScenario(session, 10000);
+  ReportLongJournalAddPerf("surfaces_model_test", perf);
+  AssertReleaseLongJournalAddPerfGate("surfaces_model_test", perf);
 
   session.RequestStop();
   model.join();

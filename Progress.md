@@ -4153,6 +4153,28 @@ Profiling hooks: **`APPTRAVERSE_PERSISTENT_SNAPSHOT_PROFILE=1`**, **`APPTRAVERSE
 - **`apptraverse_surfaces_long_journal_save_test`**: **PASS**
 - Debug **`apptraverse_surfaces_model_test`**: **PASS** (functional; **`TestAddOnSecondSurfaceWhileFirstHasLongJournal`** Add **81780 ms** — perf gate skipped under **`NDEBUG`**; first long stage is Add on 10k journal, not shutdown).
 
+## Release Add@10k PERF alignment (2026-10-19)
+
+Baseline: **`e709ff4`**.
+
+### Why 1195 ms vs 5501 ms (not flaky)
+- **`surfaces_model_test`** timed **Post→future** immediately after seed while **~10k resize publications** were still draining; **`queue_wait` dominated**.
+- **`long_journal_save_test`** ran **fingerprint `RunOnModel` first**, which overlapped with draining the publication channel — **Add timer started closer to idle model**.
+- Not different Add body cost: aligned scenario shows **`add_body_ms` ~900–1030**, **`queue_wait_ms` ~66–82**, **`client_wait_ms` ~970–1110** in both tests and isolated process (**`--add-perf-only`**, 3 runs).
+
+### Fix (test contract, not retention/schema)
+- Shared **`RunLongJournalAddSiblingPerfScenario`**: seed → **`WaitModelPublicationBacklogDrained`** (barrier + consume publications) → fingerprint → measured Add with split timing (`queue_wait` / `add_body` / `task_cleanup` / `client_wait`).
+- **`done.set_value()`** after body scope ends on model thread.
+- Release gate **4000 ms** on **`client_wait_us`** in **both** tests.
+
+### Verified (Release `build-presenter-decomp-msvc-rel`)
+- **`apptraverse_surfaces_model_test`**: **PASS** (`client_wait_ms` **1061** for Add@10k).
+- **`apptraverse_surfaces_long_journal_save_test`**: **PASS** (`client_wait_ms` **1101**).
+- Isolated **`--add-perf-only`**: **971 / 1090 / 1110 ms**.
+- Checkpoint regressions + **`apptraverse_surfaces_win32_smoke_test`** (incl. load_only): **PASS**.
+
+Shutdown **~3 s** (`application_save` ~**2.6 s**) remains a separate open PERF item.
+
 ### aether-objects pin
 - Patches (in order): **`aether-objects-local-persistent-load.patch`** (hunk fix), **`aether-objects-domain-storage-access.patch`**, **`aether-objects-checkpoint-shell.patch`**
 - Objects SHA unchanged: **`79283b667cabf689da1059d618fe2a22abf51db4`**

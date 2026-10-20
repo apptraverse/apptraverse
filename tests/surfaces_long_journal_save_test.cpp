@@ -1,6 +1,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <string_view>
 #if defined(_WIN32)
 #include <stdlib.h>
 #endif
@@ -28,6 +29,7 @@
 #include "surfaces_distill.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_test_loaded_bundle.h"
+#include "surfaces_test_long_journal_add.h"
 
 namespace apptraverse::test {
 namespace {
@@ -87,48 +89,6 @@ void RunOnModel(SurfacesModelSession& session,
         std::future_status::ready);
 }
 
-struct SurfaceJournalFingerprint {
-  std::size_t journal_size{0};
-  std::vector<std::uint32_t> event_obj_ids;
-  std::vector<std::uint32_t> event_class_ids;
-  std::vector<std::int32_t> presentation_widths;
-  std::vector<std::int32_t> presentation_heights;
-
-  static SurfaceJournalFingerprint Capture(Surface const& surface) {
-    SurfaceJournalFingerprint fp;
-    fp.journal_size = surface.journal.size();
-    for (EventRecord const& record : surface.journal) {
-      CHECK(record.event.is_valid());
-      fp.event_obj_ids.push_back(record.event->obj_id.id());
-      fp.event_class_ids.push_back(record.event->GetClassId());
-      if (SurfacePresentationSizeChangedEvent::ptr size_event{record.event}) {
-        fp.presentation_widths.push_back(size_event->width);
-        fp.presentation_heights.push_back(size_event->height);
-      }
-    }
-    return fp;
-  }
-
-  void ExpectEqual(SurfaceJournalFingerprint const& other) const {
-    CHECK(journal_size == other.journal_size);
-    CHECK(event_obj_ids == other.event_obj_ids);
-    CHECK(event_class_ids == other.event_class_ids);
-    CHECK(presentation_widths == other.presentation_widths);
-    CHECK(presentation_heights == other.presentation_heights);
-  }
-};
-
-void SeedLongJournal(SurfacesModelSession& session, int event_count) {
-  RunOnModel(session, [event_count](Application& app) {
-    Surface& surface = *app.surfaces->surfaces[0];
-    for (int i = 0; i < event_count; ++i) {
-      surface.SetPresentationSize(500 + i, 700 - i);
-    }
-    CHECK(surface.journal.size() >=
-          static_cast<std::size_t>(event_count / 2));
-  });
-}
-
 void TestLongJournalAddSiblingShutdownSave(int event_count) {
   auto dir = TestDir("apptraverse_surfaces_long_journal_save_profile");
   SurfacesModelSession session;
@@ -142,33 +102,11 @@ void TestLongJournalAddSiblingShutdownSave(int event_count) {
   WaitPublished(session);
   (void)TakeAndWake(session);
 
-  SeedLongJournal(session, event_count);
-
-  SurfaceJournalFingerprint before_save;
-  RunOnModel(session, [&](Application& app) {
-    before_save = SurfaceJournalFingerprint::Capture(
-        *app.surfaces->surfaces[0]);
-  });
-
-  auto const add_t0 = std::chrono::steady_clock::now();
-  RunOnModel(session, [](Application& app) {
-    app.surfaces->surfaces[0]->AddSurface();
-    CHECK(app.surfaces->surfaces.size() == 2);
-  });
-  auto const add_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now() - add_t0);
-
-  std::cout << "long_journal_save events=" << event_count
-            << " add_ms=" << add_ms.count() << '\n';
-#ifndef NDEBUG
-  (void)add_ms;
-#else
-  if (add_ms >= std::chrono::milliseconds{4000}) {
-    std::cerr << "PERF FAIL: long_journal AddSurface ms=" << add_ms.count()
-              << " (Release threshold 4000 ms)\n";
-    CHECK(false);
-  }
-#endif
+  LongJournalAddPerfResult const perf =
+      RunLongJournalAddSiblingPerfScenario(session, event_count);
+  ReportLongJournalAddPerf("long_journal_save", perf);
+  AssertReleaseLongJournalAddPerfGate("long_journal_save", perf);
+  SurfaceJournalFingerprint const before_save = perf.fingerprint_before_add;
 
   if (event_count == 10000) {
     SetEnvFlag("APPTRAVERSE_SURFACES_SHUTDOWN_TRACE", "1");
@@ -374,6 +312,30 @@ void ProfilePackedCheckpointPhases(int event_count) {
   std::filesystem::remove_all(profile_dir);
 }
 
+void TestLongJournalAddPerfIsolatedProcess() {
+  std::cout << "long_journal_add_perf: isolated process\n";
+  for (int run = 0; run < 3; ++run) {
+    auto dir = TestDir("apptraverse_surfaces_long_journal_add_perf_iso");
+    SurfacesModelSession session;
+    session.state_dir = dir;
+    std::thread model{[&] {
+      RunSurfacesDemoModelSession(session, [&session](SurfacesPublicationKind) {
+        session.cv.notify_all();
+      });
+    }};
+    WaitPublished(session);
+    (void)TakeAndWake(session);
+    LongJournalAddPerfResult const perf =
+        RunLongJournalAddSiblingPerfScenario(session, 10000);
+    ReportLongJournalAddPerf("isolated", perf);
+    AssertReleaseLongJournalAddPerfGate("isolated", perf);
+    session.RequestStop();
+    model.join();
+    std::filesystem::remove_all(dir);
+  }
+  std::cout << "long_journal_add_perf OK\n";
+}
+
 void TestCheckpointCommitFailureKeepsPriorFile() {
   auto dir = TestDir("apptraverse_surfaces_checkpoint_atomic");
   ae::RamDomainStorage ram;
@@ -398,12 +360,18 @@ void TestCheckpointCommitFailureKeepsPriorFile() {
 }  // namespace
 }  // namespace apptraverse::test
 
-int main() {
+int main(int argc, char** argv) {
   apptraverse::EnableNoninteractiveCrt();
-  std::cout << "long_journal_save: start\n" << std::flush;
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSurfacesRegistration();
   apptraverse::EnsureWin32SurfacesPresenterRegistration();
+
+  if (argc > 1 && std::string_view{argv[1]} == "--add-perf-only") {
+    apptraverse::test::TestLongJournalAddPerfIsolatedProcess();
+    return 0;
+  }
+
+  std::cout << "long_journal_save: start\n" << std::flush;
 
   std::cout << "long_journal_save: atomic test\n" << std::flush;
   apptraverse::test::TestCheckpointCommitFailureKeepsPriorFile();
