@@ -26,6 +26,7 @@ endif()
 
 add_library(surfaces_demo_evolution STATIC
   common/surfaces_evolution_ops.cpp
+  common/surfaces_session_automation.cpp
 )
 target_link_libraries(surfaces_demo_evolution PUBLIC apptraverse_surfaces)
 target_include_directories(surfaces_demo_evolution PUBLIC
@@ -72,6 +73,7 @@ if(WIN32 AND NOT EMSCRIPTEN)
 
   add_library(surfaces_demo_evolution_v1 STATIC
     common/surfaces_evolution_ops.cpp
+    common/surfaces_session_automation.cpp
     common/surfaces_v1_package.cpp
   )
   target_link_libraries(surfaces_demo_evolution_v1 PUBLIC apptraverse_surfaces_v1)

@@ -8,9 +8,17 @@
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
 #include "apptraverse/platform/windows/surfaces_win32_z_order.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
+#include "apptraverse/platform/windows/win_ui_utf8.h"
+#include "apptraverse/surfaces/surfaces_demo_revision.h"
+#include "apptraverse/surfaces/surfaces_ids.h"
 
 namespace apptraverse {
 namespace {
+
+using surfaces_demo::ObjId;
+using surfaces_demo::ToObjId;
+
+constexpr ae::ObjId kSurface1Id{ToObjId(ObjId::Surface1)};
 
 wchar_t const kNotifyWindowClass[] = L"AppTraverseSurfacesNotify";
 wchar_t const kLoadingWindowClass[] = L"AppTraverseSurfacesLoading";
@@ -137,6 +145,124 @@ void WinApp::RestoreDesktopSurfaceZOrder() {
   }
 }
 
+void WinApp::SetSessionAutomation(
+    std::vector<SurfacesSessionAutomationStep> steps) {
+  session_automation_ = std::move(steps);
+  session_automation_index_ = 0;
+  session_automation_waiting_publication_ = false;
+  session_automation_failed_ = false;
+}
+
+Surface* WinApp::FindUiSurface1() {
+  if (!ui_application_) {
+    return nullptr;
+  }
+  for (auto const& surface : ui_application_->surfaces->surfaces) {
+    if (surface->obj_id == kSurface1Id) {
+      return &*surface;
+    }
+  }
+  return nullptr;
+}
+
+void WinApp::ContinueSessionAutomationAfterPublication() {
+  if (!session_automation_waiting_publication_) {
+    return;
+  }
+  session_automation_waiting_publication_ = false;
+  if (notify_ != nullptr) {
+    if (PostMessageW(notify_, WM_APPTRAVERSE_SESSION_AUTOMATION, 0, 0) == 0) {
+      DWORD const err = GetLastError();
+      FatalWin32("PostMessageW session automation continue", err);
+    }
+  }
+}
+
+void WinApp::RunNextSessionAutomationStep() {
+  if (session_automation_failed_ ||
+      session_automation_index_ >= session_automation_.size()) {
+    return;
+  }
+  SurfacesSessionAutomationStep const& step =
+      session_automation_[session_automation_index_++];
+  if (step.op == SurfacesSessionAutomationOp::Shutdown) {
+    RequestApplicationStop();
+    return;
+  }
+  Surface* surface = FindUiSurface1();
+  if (surface == nullptr) {
+    session_automation_failed_ = true;
+    session_.shutdown_exit_code = 1;
+    RequestApplicationStop();
+    return;
+  }
+  Win32SurfaceWindowPresenter::ptr window =
+      ResolveWin32WindowPresenter(*surface);
+  if (!window || window->hwnd == nullptr) {
+    session_automation_failed_ = true;
+    session_.shutdown_exit_code = 1;
+    RequestApplicationStop();
+    return;
+  }
+  if (step.op == SurfacesSessionAutomationOp::VerifyBounds) {
+    if (surface->desktop_x != step.x || surface->desktop_y != step.y ||
+        surface->desktop_width != step.width ||
+        surface->desktop_height != step.height) {
+      session_automation_failed_ = true;
+      session_.shutdown_exit_code = 1;
+      RequestApplicationStop();
+      return;
+    }
+    if (notify_ != nullptr) {
+      if (PostMessageW(notify_, WM_APPTRAVERSE_SESSION_AUTOMATION, 0, 0) == 0) {
+        DWORD const err = GetLastError();
+        FatalWin32("PostMessageW session automation verify bounds", err);
+      }
+    }
+    return;
+  }
+  if (step.op == SurfacesSessionAutomationOp::SetBounds) {
+    if (SetWindowPos(window->hwnd, nullptr, step.x, step.y, step.width,
+                     step.height,
+                     SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
+      DWORD const err = GetLastError();
+      FatalWin32("SetWindowPos Surface automation", err);
+    }
+    window->QueueCurrentBounds();
+    session_automation_waiting_publication_ = true;
+    return;
+  }
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+  if (step.op == SurfacesSessionAutomationOp::SetSuffix) {
+    model_proxy_->Invoke<Surface>(surface->obj_id,
+                                  &Surface::SetWindowTitleSuffix, step.text);
+    session_automation_waiting_publication_ = true;
+    return;
+  }
+#endif
+  if (step.op == SurfacesSessionAutomationOp::VerifyTitleSuffix) {
+    wchar_t buffer[512]{};
+    GetWindowTextW(window->hwnd, buffer, 512);
+    std::string const title = ui::windows::WideToUtf8(buffer);
+    if (title.find(step.text) == std::string::npos) {
+      session_automation_failed_ = true;
+      session_.shutdown_exit_code = 1;
+      RequestApplicationStop();
+      return;
+    }
+    if (notify_ != nullptr) {
+      if (PostMessageW(notify_, WM_APPTRAVERSE_SESSION_AUTOMATION, 0, 0) == 0) {
+        DWORD const err = GetLastError();
+        FatalWin32("PostMessageW session automation verify", err);
+      }
+    }
+    return;
+  }
+  session_automation_failed_ = true;
+  session_.shutdown_exit_code = 1;
+  RequestApplicationStop();
+}
+
 void WinApp::RequestApplicationStop() {
   SurfacesShutdownTrace::MarkCloseRequested();
   if (ui_application_) {
@@ -161,6 +287,10 @@ LRESULT WinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   }
   if (msg == WM_APPTRAVERSE_STOP) {
     RequestApplicationStop();
+    return 0;
+  }
+  if (msg == WM_APPTRAVERSE_SESSION_AUTOMATION) {
+    RunNextSessionAutomationStep();
     return 0;
   }
   if (msg == WM_PAINT && hwnd == loading_) {
@@ -198,6 +328,12 @@ void WinApp::OnInitialPublished() {
     FatalWin32("DestroyWindow Loading", err);
   }
   loading_ = nullptr;
+  if (!session_automation_.empty() && notify_ != nullptr) {
+    if (PostMessageW(notify_, WM_APPTRAVERSE_SESSION_AUTOMATION, 0, 0) == 0) {
+      DWORD const err = GetLastError();
+      FatalWin32("PostMessageW session automation start", err);
+    }
+  }
 }
 
 void WinApp::OnIncrementalPublished() {
@@ -209,6 +345,7 @@ void WinApp::OnIncrementalPublished() {
   session_.cv.notify_all();
   ApplySurfacesStructural(bytes, *ui_application_, ui_storage_, notify_,
                           &*model_proxy_);
+  ContinueSessionAutomationAfterPublication();
 }
 
 int WinApp::Run(std::filesystem::path const& state_dir) {

@@ -93,6 +93,19 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
       TIMEOUT 120
       LABELS "serialization;evolution;surfaces"
     )
+
+    add_test(
+      NAME apptraverse_surfaces_demo_lifecycle_matrix
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_LIST_DIR}/surfaces_demo_lifecycle_matrix.py"
+        --a "$<TARGET_FILE:win32_surfaces_demo>"
+        --b "$<TARGET_FILE:win32_surfaces_demo_v1>"
+        --work-root "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo lifecycle states"
+    )
+    set_tests_properties(apptraverse_surfaces_demo_lifecycle_matrix PROPERTIES
+      TIMEOUT 180
+      LABELS "serialization;surfaces;lifecycle"
+    )
   endif()
 endif()
 

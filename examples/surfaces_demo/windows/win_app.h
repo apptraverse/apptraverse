@@ -20,12 +20,15 @@
 #include "apptraverse/model_object_proxy.h"
 
 #include "surfaces_lifecycle.h"
+#include "surfaces_session_automation.h"
 #include "apptraverse/surfaces/surfaces_model.h"
 
 namespace apptraverse {
 
 class WinApp {
  public:
+  void SetSessionAutomation(
+      std::vector<SurfacesSessionAutomationStep> steps);
   int Run(std::filesystem::path const& state_dir);
 
  private:
@@ -39,8 +42,15 @@ class WinApp {
   void QueueDesktopZOrderSnapshot();
   void QueueForegroundAsCurrent();
   void RequestApplicationStop();
+  void RunNextSessionAutomationStep();
+  void ContinueSessionAutomationAfterPublication();
+  Surface* FindUiSurface1();
 
   SurfacesModelSession session_;
+  std::vector<SurfacesSessionAutomationStep> session_automation_;
+  std::size_t session_automation_index_{0};
+  bool session_automation_waiting_publication_{false};
+  bool session_automation_failed_{false};
   std::optional<ModelObjectProxy> model_proxy_;
   std::thread model_thread_;
   HWND notify_{nullptr};

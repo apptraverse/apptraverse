@@ -11,6 +11,7 @@ namespace apptraverse {
 inline constexpr UINT WM_APPTRAVERSE_INITIAL_PUBLISHED = WM_APP + 1;
 inline constexpr UINT WM_APPTRAVERSE_INCREMENTAL_PUBLISHED = WM_APP + 2;
 inline constexpr UINT WM_APPTRAVERSE_STOP = WM_APP + 3;
+inline constexpr UINT WM_APPTRAVERSE_SESSION_AUTOMATION = WM_APP + 4;
 
 }  // namespace apptraverse
 
