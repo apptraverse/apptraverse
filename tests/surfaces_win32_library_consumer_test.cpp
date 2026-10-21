@@ -12,7 +12,10 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
+#include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/object_serialization.h"
+#include "apptraverse/runtime_node.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
 #include "apptraverse/surfaces/surfaces_presentation.h"
@@ -59,6 +62,17 @@ Application::ptr BuildMinimalConsumerGraph(ae::Domain& domain) {
   return application;
 }
 
+void ExpectDistilledGraphReady(ae::Obj& root) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(root, nodes);
+  CHECK(!nodes.empty());
+  for (Node* node : nodes) {
+    CHECK(node != nullptr);
+    CHECK(node->base.is_valid());
+    CHECK(node->base.is_loaded());
+  }
+}
+
 }  // namespace
 
 void RunSurfacesWin32LibraryConsumerTest() {
@@ -85,17 +99,22 @@ void RunSurfacesWin32LibraryConsumerTest() {
     work(domain);
   }};
   auto application = BuildMinimalConsumerGraph(domain);
+  FinalizeDistilledGraph(*application);
+  ExpectDistilledGraphReady(*application);
 
+  Surface& surface = *application->surfaces->surfaces[0];
   InitializePresenters(*application, notify, &proxy);
   PumpPendingWin32Messages();
   CHECK(application->surfaces->surfaces.size() == 1);
   if (Win32SurfaceWindowPresenter::ptr window =
-          ResolveWin32WindowPresenter(*application->surfaces->surfaces[0])) {
+          ResolveWin32WindowPresenter(surface)) {
     CHECK(window->hwnd != nullptr);
     CHECK(IsWindow(window->hwnd));
   } else {
     CHECK(false);
   }
+  CHECK(surface.presentation_width > 0);
+  CHECK(surface.presentation_height > 0);
 
   UnloadPresenters(*application);
   PumpPendingWin32Messages();
