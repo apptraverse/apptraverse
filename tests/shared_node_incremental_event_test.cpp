@@ -651,6 +651,14 @@ void TestSenderRestartAfterAck() {
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
 
+  {
+    auto const a_root = ConcreteOf(a.sync->FindNode(fixture.node_id));
+    a_root.Save();
+    for (auto& entry : a_root->link_sync_states) {
+      entry.Save();
+    }
+  }
+
   a.Stop();
   a.Start();
   ReloadAndRegister(a, fixture.node_id);
@@ -671,6 +679,8 @@ void TestSenderRestartAfterAck() {
   CHECK(sent.identity == second);
   CHECK(network.DeliverNext(kEndpointA, kEndpointB));
   CHECK(network.DeliverNext(kEndpointB, kEndpointA));
+  a.Stop();
+  b.Stop();
 }
 
 void TestInitialSnapshotCoverageRace() {

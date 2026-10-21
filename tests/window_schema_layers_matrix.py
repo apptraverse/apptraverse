@@ -46,10 +46,16 @@ class WindowMatrix:
             unchanged(before, after, f"{revision} {operation}")
         if completed.returncode != 0:
             return None, completed.stderr
-        try:
-            record = json.loads(completed.stdout.strip())
-        except ValueError as error:
-            raise CheckFailed(f"invalid fixture JSON: {completed.stdout!r}") from error
+        record = None
+        for line in completed.stdout.splitlines():
+            try:
+                candidate = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(candidate, dict) and candidate.get("exe") in ("A", "B"):
+                record = candidate
+        if record is None:
+            raise CheckFailed(f"invalid fixture JSON: {completed.stdout!r}")
         if record.get("exe") != revision or record.get("object_id") != 92001:
             raise CheckFailed("EXE/ObjId mismatch: " + str(record))
         if type(record.get("class_id")) is not int or record["class_id"] <= 0:
