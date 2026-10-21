@@ -14,6 +14,38 @@ Coding-agent rules (incremental build, fail-fast, no extra entities, no RTTI,
 Event-only Node mutation, commit/push):
 `.cursor/rules/apptraverse-coding-agent.mdc`.
 
+## Active isolated task: serialization baseline v0 (2026-10-21)
+
+This task uses `codex/serialization-v0-evolution`, starting at the explicitly
+requested `8a5a690d396ff09af8bf75f78487f663e6cd4eb7`. The older canonical-branch
+notes below describe other work; they do not authorize merging presenter WIP
+or changing its baseline for this task.
+
+1. Inventory every working and test object layer; preserve ClassIds, base
+   classes, current fields, graph references and journal behavior. Make the
+   current working schemas v0 and remove development-only historical loaders.
+   Old experimental files need not load; do not delete existing profiles.
+2. Verify fresh-state persistence, graph restoration, journal replay and UI
+   model behavior using independent test directories. Preserve the existing
+   two-process native class-layer evolution check and useful rejection checks.
+3. Add independent A/B/C test executables: one family changes program logic
+   with all schemas v0; another evolves isolated fixture base/derived layers.
+   Exercise pairwise transitions and arbitrary chains with an external oracle,
+   stable object IDs, aliases/cycles and byte-preserving refusal checks.
+
+Native downgrade handling must be reported honestly: retained older layer slots
+can let an older reader observe stale data. A fixture-local admission check is
+not a production fix. Keep a separate diagnostic that fails on lost values.
+General rollback policy, transactional checkpoint import, GUI decomposition,
+scheduler changes and long-journal optimization are outside this task.
+
+Baseline issues reproduced during validation and deferred from this schema
+reset: the main-window test's absolute presenter destructor count fails after
+publication hydration; the dynamic-object test crashes while reloading its
+saved model. Fixing general publication/lifetime behavior belongs in a separate
+iteration. Full Debug Surfaces performance validation also remains open after
+a 300-second long-journal timeout; the 37-case functional subset passes.
+
 ## Current canonical application branch
 
 **`surfaces-demo`** — always resolve the live SHA with

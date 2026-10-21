@@ -185,23 +185,11 @@ class UiListContainerPresenter : public Presenter {
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
         layout_height, control_id, notify_list_selection_change);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
     dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
         layout_height, control_id, notify_list_selection_change);
   }

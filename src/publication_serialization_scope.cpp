@@ -23,8 +23,8 @@ void NoteNodeHistorySerialized(std::size_t journal_entries,
   }
 }
 
-void NoteNodeV4PublicationOmitSave() {
-  ++g_stats.node_v4_publication_omit_saves;
+void NoteNodePublicationOmitSave() {
+  ++g_stats.node_publication_omit_saves;
 }
 
 void NoteMaterializedScratchObjectCount(std::size_t count) {

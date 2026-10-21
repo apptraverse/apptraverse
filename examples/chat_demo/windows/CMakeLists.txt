@@ -3,11 +3,11 @@ if(WIN32)
     main.cpp
     win_chat_app.cpp
     app.manifest
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
   )
 
   target_link_libraries(apptraverse_chat PRIVATE
     chat_demo_runtime
+    apptraverse_ui_windows
     user32
     gdi32
     comctl32

@@ -3999,3 +3999,134 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **`apptraverse_surfaces_win32_smoke_test`**: full stack round-trip (3/4 windows), two stacks with same top Surface different rest, remove-middle + add-new; logs `zorder_test … before_close/after_load`.
 - **`apptraverse_surfaces_model_test`**: PASS.
 - Demo EXE SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`**
+
+## Surfaces library independence (2026-10-19, baseline **`4c01acb`**)
+
+### Removed `examples/*` from library targets
+- **`FatalWin32`** moved to **`apptraverse_ui_windows`**: `include/apptraverse/platform/windows/win32_fatal.h`, `src/platform/windows/win32_fatal.cpp`.
+- **`apptraverse_surfaces_windows`**: no CMake include path under `examples/`; presenters include library fatal header only.
+- Examples/tests link **`apptraverse_ui_windows`** instead of compiling `examples/.../win32_fatal.cpp` (demo keeps **`win32_fatal.h`** shim → library header).
+
+### Minimal library consumer (no example `.cpp` in target)
+- **`apptraverse_surfaces_win32_library_consumer_test`**: builds graph in-test, host **`AttachPlatformSurfacePresenters`** in `tests/surfaces_win32_library_consumer_presentation.cpp`, library **`Win32Surface*Presenter`** only.
+- **`APPTRAVERSE_BUILD_EXAMPLES=OFF`**: configure + build consumer **PASS**; example-dependent CTest targets gated on **`APPTRAVERSE_BUILD_EXAMPLES`**.
+
+### Application contract (not universal API)
+- Documented in **`docs/surfaces_library_application_contract.md`**: host **`AttachPlatformSurfacePresenters`**, fixed **`surfaces_demo::ObjId::Application`** in **`Surface::AddSurface`**, Win32 class registration + non-null **`ModelObjectProxy`** for **`WM_SIZE`** during init.
+
+### Verified (Release `build-presenter-decomp-msvc-rel`)
+- **`apptraverse_surfaces_win32_library_consumer_test`**: **PASS** (examples OFF config).
+- **`apptraverse_surfaces_win32_smoke_test`**: **PASS** (Z-order, geometry, EN/RU, fast Add/close, **`load_only`**).
+- **`apptraverse_surfaces_model_test`**: one run **FAIL** timing `AddSurface with long journal` (**4605 ms** > 4000 ms threshold); unrelated to library CMake (retry if needed).
+
+### Artifacts
+- **`win32_surfaces_demo.exe`** SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`** (unchanged vs Z-order pass).
+- **`apptraverse_surfaces_win32_library_consumer_test.exe`** SHA256: **`1593CFAA0D6F92F9F855CDE13C6D7EBC3BB5A268CFB56F69D656B5EA5C1E6806`**
+
+## Serialization v0 work: build prerequisites (2026-10-21)
+
+- Isolated branch `codex/serialization-v0-evolution` starts at the requested
+  `8a5a690d396ff09af8bf75f78487f663e6cd4eb7` baseline. The Windows presenter
+  worktree, its WIP/stash/BMP files and existing profiles are not available in
+  this Linux workspace and have not been touched.
+- Corrected a malformed hunk count in the existing
+  `aether-objects-local-persistent-load.patch`; patch contents are unchanged.
+  A fresh dependency source at the pinned `79283b667cabf689da1059d618fe2a22abf51db4`
+  now accepts the normal CMake patch step.
+- Added `APPTRAVERSE_BUILD_LINUX_GUI` (default `ON`) so example models and their
+  persistence tests can be configured without GTK hosts on a headless Linux
+  machine. The normal GUI build remains enabled by default.
+- Verified: Debug configure with examples/tests enabled and Linux GUI disabled;
+  incremental builds of `apptraverse`, `apptraverse_surfaces` and the first
+  serialization test executables. Native Windows/GTK GUI execution is not
+  available here. Schema reset validation is recorded in the next iteration.
+- Published prerequisite commit: `1c499242b8b352ba5f082a3e55539eaba14e833c`
+  on `codex/serialization-v0-evolution`, without merging or a PR.
+
+## Working serialization schemas reset to v0 (2026-10-21)
+
+- Inventory: `docs/serialization_schema_v0_inventory.md` records all 236 baseline
+  object declarations. All 165 working library/example declarations now use v0;
+  their historical overloads are removed. ClassId strings, names and bases are
+  unchanged. Six incidental test-model version bumps are also reset; the
+  deliberate native class-layer evolution fixture remains versioned.
+- Kept effective current fields, including bitmap pixels, list selection
+  notification, desktop Z-order, chat timestamps and source Event ObjIds.
+  Node journal/publication behavior is unchanged; the obsolete v4 name was
+  removed from the publication counter.
+- Replaced historical flattened-version rejection checks with a complete valid
+  graph whose one layer is moved to an unsupported version. Positive loading,
+  explicit failure, null/unregistered root and unchanged storage are checked.
+- Existing writer/reader evolution now runs as one ordered CTest in a new
+  directory, including spaces in its filename; reader input SHA256 is checked.
+  Presenter persistence now verifies pixels, notification flags, aliases, cycles
+  and exclusively v0 layers. Geometry persistence also verifies Z-order ObjIds
+  and identity with the loaded Surface objects.
+- Made storage write/read failure tests independent of chmod behavior by using
+  filesystem blockers and checking original bytes/marker preservation. No
+  storage implementation changes were made.
+
+### Verification and remaining baseline failures
+
+- GCC 13.3, Debug, C++20 and no RTTI; examples/tests enabled, Aether demos and
+  Linux GTK hosts disabled. All test state lived in new dedicated directories.
+- **19 selected CTests PASS**: core events, journal retention, model persistence
+  and stop, DirectoryDomainStorage, native class layers plus cross-process
+  evolution, SharedNode foundation/initial/incremental sync, closed event graph,
+  checkpoint cycle/rehydration, presenter graph, bitmap publication/structural
+  publication, edit box, control materialization and chat demo model.
+- **37 Surfaces functional cases PASS**, including restart, geometry/Z-order,
+  locale, publication and GUI proxy behavior, using `--skip-long-journal`.
+  This explicitly skips exactly two existing 10,000-event performance cases;
+  no-argument execution still runs all 39 cases.
+- Full Debug `apptraverse_surfaces_model_test`: **TIMEOUT at 300 seconds** in
+  the long-journal benchmark. This is not recorded as PASS; no performance
+  threshold or journal implementation was changed.
+- `apptraverse_main_window_lifecycle_test`: **FAIL** at the absolute presenter
+  destructor count (`tests/main_window_lifecycle_test.cpp:171`).
+  `apptraverse_dynamic_objects_add_test`: **SIGSEGV** during model reload.
+  Both failures were reproduced in a separate clean source worktree at
+  `1c499242` (the requested baseline plus only build prerequisites), using the
+  same dependency sources and fresh profiles. They are pre-existing failures,
+  not evidence of successful functional validation.
+- Chat UI registration/serializers compile with `-fsyntax-only`; native
+  Windows/GTK UI and full Aether demo execution were not available here.
+- Scope is implemented and checked as above, not marked accepted-by-user.
+
+## Independent application/state evolution matrix (2026-10-21)
+
+- Schema reset published as `8b40de6272046152ee470d4cc09a721e9e7f9b54`.
+- Six independent A/B/C executables: stable schemas 0/0 with different program
+  logic, and isolated evolving base/derived schemas 0/0, 1/0, 1/1. Working
+  AppTraverse classes remain v0. The suite is independent of example targets;
+  `APPTRAVERSE_BUILD_EVOLUTION_TESTS` controls its Python 3.9+ dependency.
+- Python runner uses fresh state directories, an external state oracle, separate
+  processes, ObjId/ClassId and alias/cycle checks, binary hashes and complete
+  state manifests. Unsupported transitions return a concrete reason before
+  loading; inspect/refusal must leave storage unchanged, followed by recovery
+  with the last compatible executable. Admission policy is test-local.
+- Default matrix: **24 PASS / 0 FAIL, 179 processes**. Custom chains
+  `C,A,C,B,B,A,C` and `B,A,B,C,A`: **24 PASS / 0 FAIL, 193 processes**.
+- Separate `--native` diagnostic: **2 FAIL, exit 1**, exposing actual stale-slot
+  reads (`value` expected 21, got 11; `label` expected `updated-C`, got `initial`).
+  These failures are not relabeled as PASS or included as `WILL_FAIL` CTests.
+- The fixture's version-1 loader retains the previous cyclic back-reference
+  while replacing it; this resolved a real fixture reload failure without
+  deleting old slots, weakening assertions or changing the native serializer.
+- Full scope, commands, baseline failures and verification limits:
+  `docs/serialization_v0_validation.md` and
+  `tests/application_evolution_matrix.md`. No merge, PR or history rewrite.
+
+## Same-class independent v0/v1 Window fixture (2026-10-21)
+
+- Added cross-process Window EXEs A (x/y v0) and B (x/y v0, size v1),
+  retaining the same ClassId and no artificial type inheritance.
+- A v1-only initial-state package is serialized separately and installed
+  without modifying an existing v0 slot; Load(v0) does not generate size defaults.
+- New CTest verifies alternating A/B moves/resizes, exclusive version-slot
+  changes, SHA256 preservation, missing-package rejection and stable identity.
+- The Python runner passed syntax checking locally. Full native C++ build
+  and CTest execution are NOT verified in this session: the connected GitHub
+  source is unavailable to this container's compiler/dependencies.
+- Changes are restricted to tests/CMake and test fixtures; no changes to
+  production serializers or main. Merge deferred to a separate Cursor task.

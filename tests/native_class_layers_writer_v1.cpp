@@ -69,10 +69,11 @@ APPTRAVERSE_REGISTER(LayerDerived);
 }  // namespace apptraverse::test::evolution
 
 int main(int argc, char* argv[]) {
-  std::string out_path = "/tmp/native_class_layers_evolution.bin";
-  if (argc > 1) {
-    out_path = argv[1];
+  if (argc != 2) {
+    std::cerr << "Usage: native_class_layers_writer_v1 <state-file>\n";
+    return 2;
   }
+  std::string const out_path = argv[1];
 
   apptraverse::EnsureObjectRegistration();
 

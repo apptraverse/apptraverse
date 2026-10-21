@@ -3,7 +3,6 @@
 
 #include <cstdint>
 #include <string>
-#include <stdexcept>
 
 #include "apptraverse/event_for.h"
 #include "apptraverse/link.h"
@@ -21,7 +20,7 @@ class SetValueEvent;
 class SharedValueNode
     : public apptraverse::NodeFor<SharedValueNode, apptraverse::SharedNode> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::shared_node::SharedValueNode",
-                           SharedValueNode, SharedNode, 2)
+                           SharedValueNode, SharedNode, 0)
 
  protected:
   SharedValueNode() = default;
@@ -32,24 +31,12 @@ class SharedValueNode
   AE_OBJECT_REFLECT(AE_MMBR(value))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("SharedValueNode v0 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "SharedValueNode v1 flattened layout is not supported; re-distill with "
-        "a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, value);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, value);
   }
 
@@ -83,7 +70,7 @@ class SetValueEvent
 // Ordinary business object that reuses the same Link instance.
 class Client : public apptraverse::NodeFor<Client> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::shared_node::Client", Client,
-                           Node, 2)
+                           Node, 0)
 
  protected:
   Client() = default;
@@ -94,24 +81,12 @@ class Client : public apptraverse::NodeFor<Client> {
   AE_OBJECT_REFLECT(AE_MMBR(name), AE_MMBR(link))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("Client v0 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "Client v1 flattened layout is not supported; re-distill with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, name, link);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, name, link);
   }
 
@@ -123,7 +98,7 @@ class Client : public apptraverse::NodeFor<Client> {
 class ChildSharedNode
     : public apptraverse::NodeFor<ChildSharedNode, apptraverse::SharedNode> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::shared_node::ChildSharedNode",
-                           ChildSharedNode, SharedNode, 2)
+                           ChildSharedNode, SharedNode, 0)
 
  protected:
   ChildSharedNode() = default;
@@ -134,24 +109,12 @@ class ChildSharedNode
   AE_OBJECT_REFLECT(AE_MMBR(child_value))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("ChildSharedNode v0 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "ChildSharedNode v1 flattened layout is not supported; re-distill with "
-        "a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, child_value);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, child_value);
   }
 
@@ -161,7 +124,7 @@ class ChildSharedNode
 class RootSharedNode
     : public apptraverse::NodeFor<RootSharedNode, apptraverse::SharedNode> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::shared_node::RootSharedNode",
-                           RootSharedNode, SharedNode, 2)
+                           RootSharedNode, SharedNode, 0)
 
  protected:
   RootSharedNode() = default;
@@ -172,24 +135,12 @@ class RootSharedNode
   AE_OBJECT_REFLECT(AE_MMBR(root_value), AE_MMBR(child))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("RootSharedNode v0 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "RootSharedNode v1 flattened layout is not supported; re-distill with "
-        "a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, root_value, child);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, root_value, child);
   }
 

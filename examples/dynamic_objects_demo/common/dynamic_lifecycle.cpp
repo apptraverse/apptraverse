@@ -88,8 +88,6 @@ void DynamicModelSession::Run(
     auto application = LoadApplication<Application>(
         domain, ae::ObjId{dynamic_objects::ToObjId(
                     dynamic_objects::ObjId::Application)});
-    // ItemList::window is schema v1. Pre-v1 state is not repaired at runtime;
-    // re-distill / fresh state is required.
 
     PendingDirtyNodes pending_dirty;
     BindReachableNodesMaterializedChangeNotifier(

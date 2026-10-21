@@ -4,8 +4,6 @@ set(_surfaces_win_sources
 
   win_app.cpp
 
-  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
-
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
 
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_shutdown_trace.cpp

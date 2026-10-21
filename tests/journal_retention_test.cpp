@@ -26,7 +26,7 @@ class RetentionDoc;
 class AddEvent;
 
 class RetentionDoc : public NodeFor<RetentionDoc> {
-  APPTRAVERSE_OBJECT(RetentionDoc, Node, 3)
+  APPTRAVERSE_OBJECT(RetentionDoc, Node, 0)
 
  protected:
   RetentionDoc() = default;
@@ -37,29 +37,12 @@ class RetentionDoc : public NodeFor<RetentionDoc> {
   AE_OBJECT_REFLECT(AE_MMBR(value))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("RetentionDoc v0 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error("RetentionDoc v1 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv&) {
-    throw std::runtime_error(
-        "RetentionDoc v2 flattened layout is not supported; re-distill with a "
-        "fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<3>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, value);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<3>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, value);
   }
 

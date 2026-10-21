@@ -8,7 +8,7 @@
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/surfaces/surfaces_localization.h"
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
-#include "win32_fatal.h"
+#include "apptraverse/platform/windows/win32_fatal.h"
 
 namespace apptraverse {
 

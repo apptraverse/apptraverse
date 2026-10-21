@@ -135,7 +135,7 @@ diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
 index dbeab19..4cc911d 100644
 --- a/src/aether-objects/obj/domain.h
 +++ b/src/aether-objects/obj/domain.h
-@@ -103,6 +103,13 @@ struct DomainBuffer {
+@@ -103,6 +103,16 @@ struct DomainBuffer {
    IDomainStorageReader* reader{nullptr};
  };
  

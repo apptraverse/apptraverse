@@ -2,7 +2,6 @@ set(_dynamic_win_sources
   main.cpp
   win_app.cpp
   win_presenters.cpp
-  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/dynamic_lifecycle.cpp
 )
 
@@ -20,6 +19,7 @@ add_executable(win32_dynamic_objects_demo_load_only ${_dynamic_win_sources})
 foreach(_dyn_demo win32_dynamic_objects_demo win32_dynamic_objects_demo_load_only)
   target_link_libraries(${_dyn_demo} PRIVATE
     dynamic_objects_demo_model
+    apptraverse_ui_windows
     user32
     gdi32
   )

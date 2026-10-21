@@ -30,7 +30,7 @@ class ClientAddedEvent : public EventFor<ChatRoom, ClientAddedEvent> {
 };
 
 class ChatMessageEvent : public EventFor<ChatRoom, ChatMessageEvent> {
-  APPTRAVERSE_NAMED_OBJECT("chat::ChatMessageEvent", ChatMessageEvent, Event, 1)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatMessageEvent", ChatMessageEvent, Event, 0)
 
  protected:
   ChatMessageEvent() = default;
@@ -42,22 +42,11 @@ class ChatMessageEvent : public EventFor<ChatRoom, ChatMessageEvent> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, author, text);
-    sent_at_unix_ms = 0;
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, author, text, sent_at_unix_ms);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, author, text);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
     dnv(base_, author, text, sent_at_unix_ms);
   }
 
