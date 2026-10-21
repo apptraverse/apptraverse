@@ -4022,3 +4022,23 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ### Artifacts
 - **`win32_surfaces_demo.exe`** SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`** (unchanged vs Z-order pass).
 - **`apptraverse_surfaces_win32_library_consumer_test.exe`** SHA256: **`1593CFAA0D6F92F9F855CDE13C6D7EBC3BB5A268CFB56F69D656B5EA5C1E6806`**
+## Serialization v0 work: build prerequisites (2026-10-21)
+
+- Isolated branch `codex/serialization-v0-evolution` starts at the requested
+  `8a5a690d396ff09af8bf75f78487f663e6cd4eb7` baseline. The Windows presenter
+  worktree, its WIP/stash/BMP files and existing profiles are not available in
+  this Linux workspace and have not been touched.
+- Corrected a malformed hunk count in the existing
+  `aether-objects-local-persistent-load.patch`; patch contents are unchanged.
+  A fresh dependency source at the pinned `79283b667cabf689da1059d618fe2a22abf51db4`
+  now accepts the normal CMake patch step.
+- Added `APPTRAVERSE_BUILD_LINUX_GUI` (default `ON`) so example models and their
+  persistence tests can be configured without GTK hosts on a headless Linux
+  machine. The normal GUI build remains enabled by default.
+- Verified: Debug configure with examples/tests enabled and Linux GUI disabled;
+  incremental builds of `apptraverse`, `apptraverse_surfaces` and the first
+  serialization test executables. Native Windows/GTK GUI execution is not
+  available here. Schema reset validation is recorded in the next iteration.
+- Commit/push status: this prerequisite change is committed separately from
+  the serialization reset; the branch will be pushed without merging or a PR.
+

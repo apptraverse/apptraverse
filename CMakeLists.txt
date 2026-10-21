@@ -188,6 +188,7 @@ endif()
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
 option(APPTRAVERSE_BUILD_EXAMPLES "Build upstream AppTraverse examples" OFF)
+option(APPTRAVERSE_BUILD_LINUX_GUI "Build Linux GTK hosts and native GUI tests" ON)
 
 if(APPTRAVERSE_BUILD_AETHER_DEMOS)
   add_subdirectory(examples/model_ui_runtime_demo)
