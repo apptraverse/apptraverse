@@ -172,8 +172,17 @@ int Run(int argc, char** argv) {
     storage.BeginSaveSession();
     auto const result = [&]() -> ae::seri::SeriResult {
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 1
-      if (operation == "package") {
+      if (operation == "package" || operation == "resize") {
         return graph.SaveVersion(ae::Version<1>{}, *window,
+                                 ae::ObjId{kWindowId});
+      }
+      if (operation == "move") {
+        return graph.SaveVersion(ae::Version<0>{}, *window,
+                                 ae::ObjId{kWindowId});
+      }
+#elif APPTRAVERSE_WINDOW_EXE_REVISION == 0
+      if (operation == "move") {
+        return graph.SaveVersion(ae::Version<0>{}, *window,
                                  ae::ObjId{kWindowId});
       }
 #endif
