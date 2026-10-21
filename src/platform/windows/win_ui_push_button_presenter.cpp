@@ -1,7 +1,6 @@
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 
 #include "apptraverse/platform/windows/win_ui_native_push_button.h"
-#include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/ui/ui_localization_string.h"
@@ -34,8 +33,12 @@ bool ReadChildClientFrame(HWND hwnd, int& x, int& y, int& width, int& height) {
     return false;
   }
   POINT origin{rect.left, rect.top};
+  SetLastError(0);
   if (MapWindowPoints(HWND_DESKTOP, parent, &origin, 1) == 0) {
-    return false;
+    DWORD const err = GetLastError();
+    if (err != ERROR_SUCCESS) {
+      return false;
+    }
   }
   x = origin.x;
   y = origin.y;
@@ -44,16 +47,14 @@ bool ReadChildClientFrame(HWND hwnd, int& x, int& y, int& width, int& height) {
 
 }  // namespace
 
-WinDesktopWindowPresenter* WinPushButtonPresenter::Desktop() const {
-  if (!window_presenter) {
-    return nullptr;
-  }
-  return static_cast<WinDesktopWindowPresenter*>(window_presenter.operator->());
-}
-
 void WinPushButtonPresenter::OnLoad() {
-  auto* desktop = Desktop();
-  if (desktop == nullptr || desktop->hwnd() == nullptr) {
+  if (!window_presenter) {
+    FatalWin32("WinPushButtonPresenter OnLoad window_presenter",
+               ERROR_INVALID_PARAMETER);
+  }
+  auto* const parent_hwnd = reinterpret_cast<HWND>(
+      window_presenter->NativeChildParentHandle());
+  if (parent_hwnd == nullptr) {
     FatalWin32("WinPushButtonPresenter OnLoad parent", ERROR_INVALID_PARAMETER);
   }
   if (!button || control_id == 0) {
@@ -65,7 +66,7 @@ void WinPushButtonPresenter::OnLoad() {
         button->label->Resolve(window_presenter->locale->language_index()));
   }
   hwnd_ = CreateChildPushButton({
-      .parent_hwnd = desktop->hwnd(),
+      .parent_hwnd = parent_hwnd,
       .control_id = control_id,
       .initial_caption = caption.c_str(),
       .x = layout_x,

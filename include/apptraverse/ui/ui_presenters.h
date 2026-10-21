@@ -47,6 +47,9 @@ class UiWindowPresenter : public Presenter {
   UiWindow::ptr window;
   ae::ObjPtr<class UiLocalizationString> title;
   ae::ObjPtr<UiLocaleSettings> locale;
+
+  // Runtime-only native parent for child controls (platform interprets void*).
+  virtual void* NativeChildParentHandle() const { return nullptr; }
 };
 
 class UiDesktopWindowPresenter : public UiWindowPresenter {

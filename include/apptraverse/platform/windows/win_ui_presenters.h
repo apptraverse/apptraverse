@@ -102,7 +102,9 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
-
+  void* NativeChildParentHandle() const override {
+    return reinterpret_cast<void*>(hwnd_);
+  }
 
   HWND hwnd() const { return hwnd_; }
 

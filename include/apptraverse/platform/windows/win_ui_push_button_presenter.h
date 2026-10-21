@@ -10,8 +10,6 @@
 
 namespace apptraverse::ui::windows {
 
-class WinDesktopWindowPresenter;
-
 class WinPushButtonPresenter : public UiPushButtonPresenter {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinPushButtonPresenter",
                            WinPushButtonPresenter, UiPushButtonPresenter, 0)
@@ -39,7 +37,6 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
  private:
   void SyncFromMirror();
   void ApplyLayout();
-  WinDesktopWindowPresenter* Desktop() const;
 
   HWND hwnd_{nullptr};
 

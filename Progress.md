@@ -4060,3 +4060,9 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **`WinPushButtonPresenter::ApplyLayout`**: on **`OnModelChanged`** / **`SyncFromMirror`**, **`SetWindowPos`** with **`SWP_NOZORDER | SWP_NOACTIVATE`** when **`layout_*`** differ from current parent-client frame; skip when unchanged; **`FatalWin32`** on failure.
 - **`apptraverse_win_ui_native_push_button_test`**: parent-client geometry, layout update via presenter fields + **`OnModelChanged`**, no redundant **`SetWindowPos`**, routing unchanged.
 - Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): push button + fatal, UI materialization, edit headless, surfaces Win32 smoke **PASS**. Surface Add library wiring **not** done in this step.
+
+### UiWindowPresenter native parent handle (prep for Surface Add)
+- **`UiWindowPresenter::NativeChildParentHandle()`** (runtime-only); **`WinDesktopWindowPresenter`** returns **`hwnd_`**; **`WinPushButtonPresenter::OnLoad`** uses it (no **`WinDesktopWindowPresenter`** cast).
+- **`MapWindowPoints`** guard in layout read: distinguish failure from success when return is zero.
+- **`apptraverse_win_ui_native_push_button_test`**: desktop host + test **`TestBorderlessHostPresenter`** at screen origin (layout 0,0 / no redundant **`SetWindowPos`**).
+- Release verify (2026-10-21): push button + fatal, materialization, edit headless, surfaces smoke **PASS**. Surface Add **not** switched.
