@@ -9,6 +9,7 @@
 #include "apptraverse/surfaces/surfaces_localization.h"
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
+#include "apptraverse/platform/windows/win_ui_native_push_button.h"
 
 namespace apptraverse {
 
@@ -260,16 +261,8 @@ void Win32SurfaceButtonPresenter::OnLoad() {
   if (window == nullptr || window->hwnd == nullptr) {
     return;
   }
-  hwnd = CreateWindowExW(0, L"BUTTON", L"",
-                         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0,
-                         window->hwnd,
-                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
-                         GetModuleHandleW(nullptr), nullptr);
-  if (hwnd == nullptr) {
-    DWORD const err = GetLastError();
-    FatalWin32("CreateWindowExW Surface button", err);
-  }
-  SetHwndUserData(hwnd, this);
+  hwnd = ui::windows::CreateChildPushButton(window->hwnd, control_id, this,
+                                            "CreateWindowExW Surface button");
   SyncCaption();
   ApplyLayout();
 }
@@ -280,14 +273,7 @@ void Win32SurfaceButtonPresenter::OnModelChanged() {
 }
 
 void Win32SurfaceButtonPresenter::OnUnload() {
-  SetHwndUserData(hwnd, nullptr);
-  if (hwnd != nullptr) {
-    if (DestroyWindow(hwnd) == 0) {
-      DWORD const err = GetLastError();
-      FatalWin32("DestroyWindow Surface button", err);
-    }
-    hwnd = nullptr;
-  }
+  ui::windows::DestroyChildPushButton(hwnd, "DestroyWindow Surface button");
 }
 
 void Win32SurfaceButtonPresenter::NotifyClickedFromUi() {
@@ -334,16 +320,9 @@ void Win32SurfaceLanguageButtonPresenter::OnLoad() {
   if (window == nullptr || window->hwnd == nullptr) {
     return;
   }
-  hwnd = CreateWindowExW(0, L"BUTTON", L"",
-                         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0,
-                         window->hwnd,
-                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
-                         GetModuleHandleW(nullptr), nullptr);
-  if (hwnd == nullptr) {
-    DWORD const err = GetLastError();
-    FatalWin32("CreateWindowExW Surface language button", err);
-  }
-  SetHwndUserData(hwnd, this);
+  hwnd = ui::windows::CreateChildPushButton(
+      window->hwnd, control_id, this,
+      "CreateWindowExW Surface language button");
   SyncCaption();
   ApplyLayout();
 }
@@ -354,14 +333,8 @@ void Win32SurfaceLanguageButtonPresenter::OnModelChanged() {
 }
 
 void Win32SurfaceLanguageButtonPresenter::OnUnload() {
-  SetHwndUserData(hwnd, nullptr);
-  if (hwnd != nullptr) {
-    if (DestroyWindow(hwnd) == 0) {
-      DWORD const err = GetLastError();
-      FatalWin32("DestroyWindow Surface language button", err);
-    }
-    hwnd = nullptr;
-  }
+  ui::windows::DestroyChildPushButton(hwnd,
+                                      "DestroyWindow Surface language button");
 }
 
 LRESULT CALLBACK Win32SurfaceWindowPresenter::WndProc(HWND hwnd, UINT msg,

@@ -137,6 +137,7 @@ if(WIN32)
   add_library(apptraverse_ui_windows STATIC
     src/platform/windows/win_ui_utf8.cpp
     src/platform/windows/win_ui_frame.cpp
+    src/platform/windows/win_ui_native_push_button.cpp
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
     src/platform/windows/win32_fatal.cpp

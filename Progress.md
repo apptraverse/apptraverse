@@ -4031,3 +4031,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - Branch: **`cursor/surfaces-library-controls`** — Win32 **`WM_COMMAND`** routing centralized; **`NotifyClickedFromUi()`** for buttons; removed per-presenter **`OnCommand`** filters and decorative layout defaults.
 - Verified Release: UI headless + materialization **PASS**; **`apptraverse_surfaces_win32_smoke_test` PASS** (routing WIP and clean baseline).
 - **`TestCollectLiveReachableStableWithLongJournal`**: artificial direct **`SetPresentationSize`** stress (not WM_SIZE queue path); p95 thresholds **flaky** on same SHA — **not** library-control acceptance gate. Details: **`build-surfaces-library-controls-msvc-rel/verification-results.txt`**.
+
+### Library Win32 PushButton (step 1)
+- Shared **`ui::windows::CreateChildPushButton` / `DestroyChildPushButton`** in **`apptraverse_ui_windows`**; **`Win32SurfaceButtonPresenter`** and **`Win32SurfaceLanguageButtonPresenter`** use it for native create/bind/destroy only.
+- Release **`build-surfaces-library-controls-msvc-rel`**: UI materialization + edit headless + **`apptraverse_surfaces_win32_smoke_test`** + full **`apptraverse_surfaces_model_test`** **PASS** (2026-10-21).
