@@ -4055,3 +4055,8 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ### UiPushButtonPresenter file split (library controls step 4)
 - **`ui_push_button_presenter.h` / `ui_push_button_presenter.cpp`**: mechanical extraction from **`ui_presenters.*`**; **`ui_presenters.h`** aggregate include; registration unchanged in **`ui_registration.cpp`**; **`WinPushButtonPresenter`** still inherits **`UiPushButtonPresenter`**.
 - Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): push button + fatal, UI materialization, edit headless, surfaces Win32 smoke **PASS**.
+
+### WinPushButtonPresenter layout sync (library controls; not Surface Add)
+- **`WinPushButtonPresenter::ApplyLayout`**: on **`OnModelChanged`** / **`SyncFromMirror`**, **`SetWindowPos`** with **`SWP_NOZORDER | SWP_NOACTIVATE`** when **`layout_*`** differ from current parent-client frame; skip when unchanged; **`FatalWin32`** on failure.
+- **`apptraverse_win_ui_native_push_button_test`**: parent-client geometry, layout update via presenter fields + **`OnModelChanged`**, no redundant **`SetWindowPos`**, routing unchanged.
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): push button + fatal, UI materialization, edit headless, surfaces Win32 smoke **PASS**. Surface Add library wiring **not** done in this step.

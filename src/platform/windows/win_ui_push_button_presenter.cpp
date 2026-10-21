@@ -8,6 +8,42 @@
 
 namespace apptraverse::ui::windows {
 
+#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+int WinPushButtonPresenter::test_set_window_pos_count_{0};
+
+int WinPushButtonPresenter::TestSetWindowPosCount() {
+  return test_set_window_pos_count_;
+}
+
+void WinPushButtonPresenter::TestResetSetWindowPosCount() {
+  test_set_window_pos_count_ = 0;
+}
+#endif
+
+namespace {
+
+bool ReadChildClientFrame(HWND hwnd, int& x, int& y, int& width, int& height) {
+  RECT rect{};
+  if (GetWindowRect(hwnd, &rect) == 0) {
+    return false;
+  }
+  width = rect.right - rect.left;
+  height = rect.bottom - rect.top;
+  HWND const parent = GetParent(hwnd);
+  if (parent == nullptr) {
+    return false;
+  }
+  POINT origin{rect.left, rect.top};
+  if (MapWindowPoints(HWND_DESKTOP, parent, &origin, 1) == 0) {
+    return false;
+  }
+  x = origin.x;
+  y = origin.y;
+  return true;
+}
+
+}  // namespace
+
 WinDesktopWindowPresenter* WinPushButtonPresenter::Desktop() const {
   if (!window_presenter) {
     return nullptr;
@@ -53,6 +89,33 @@ void WinPushButtonPresenter::SyncFromMirror() {
                    .c_str());
   }
   EnableWindow(hwnd_, button->enabled() ? TRUE : FALSE);
+  ApplyLayout();
+}
+
+void WinPushButtonPresenter::ApplyLayout() {
+  if (hwnd_ == nullptr) {
+    return;
+  }
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+  if (!ReadChildClientFrame(hwnd_, x, y, width, height)) {
+    DWORD const err = GetLastError();
+    FatalWin32("GetWindowRect Ui push button layout", err);
+  }
+  if (x == layout_x && y == layout_y && width == layout_width &&
+      height == layout_height) {
+    return;
+  }
+#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+  ++test_set_window_pos_count_;
+#endif
+  if (SetWindowPos(hwnd_, nullptr, layout_x, layout_y, layout_width,
+                   layout_height, SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowPos Ui push button", err);
+  }
 }
 
 void WinPushButtonPresenter::OnModelChanged() { SyncFromMirror(); }

@@ -1037,6 +1037,8 @@ if(WIN32)
     apptraverse
     apptraverse_ui_windows
   )
+  target_compile_definitions(apptraverse_win_ui_native_push_button_test PRIVATE
+    APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
   target_include_directories(apptraverse_win_ui_native_push_button_test PRIVATE
     ${CMAKE_SOURCE_DIR}/include
   )

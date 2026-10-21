@@ -92,6 +92,19 @@ HWND CreateTestParent() {
   return parent;
 }
 
+void ReadButtonLayoutInParentClient(HWND btn, int& x, int& y, int& w, int& h) {
+  RECT rect{};
+  CHECK(GetWindowRect(btn, &rect) != 0);
+  w = rect.right - rect.left;
+  h = rect.bottom - rect.top;
+  HWND const parent = GetParent(btn);
+  CHECK(parent != nullptr);
+  POINT origin{rect.left, rect.top};
+  CHECK(MapWindowPoints(HWND_DESKTOP, parent, &origin, 1) != 0);
+  x = origin.x;
+  y = origin.y;
+}
+
 void TestHelperCreateDestroyRecreate() {
   HWND parent = CreateTestParent();
   HWND btn = ui::windows::CreateChildPushButton({
@@ -197,10 +210,16 @@ void TestWinPushButtonPresenterNativeRouting() {
   CHECK(GetDlgCtrlID(btn) == static_cast<int>(kControlId));
   CHECK(reinterpret_cast<void*>(GetWindowLongPtrW(btn, GWLP_USERDATA)) ==
         static_cast<void*>(presenter));
-  RECT rect{};
-  CHECK(GetWindowRect(btn, &rect) != 0);
-  CHECK(rect.right - rect.left == 100);
-  CHECK(rect.bottom - rect.top == 26);
+  CHECK(GetParent(btn) == desktop_presenter->hwnd());
+  int layout_x = 0;
+  int layout_y = 0;
+  int layout_w = 0;
+  int layout_h = 0;
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 8);
+  CHECK(layout_y == 9);
+  CHECK(layout_w == 100);
+  CHECK(layout_h == 26);
   wchar_t caption[64]{};
   CHECK(GetWindowTextW(btn, caption, 64) > 0);
   CHECK(std::wstring{caption} == L"Add");
@@ -243,6 +262,35 @@ void TestWinPushButtonPresenterNativeRouting() {
   presenter->OnModelChanged();
   CHECK(GetWindowTextW(btn, caption, 64) > 0);
   CHECK(std::wstring{caption} == ui::windows::Utf8ToWide("Добавить"));
+
+  presenter->layout_x = 20;
+  presenter->layout_y = 21;
+  presenter->layout_width = 120;
+  presenter->layout_height = 30;
+  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
+  presenter->OnModelChanged();
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 20);
+  CHECK(layout_y == 21);
+  CHECK(layout_w == 120);
+  CHECK(layout_h == 30);
+  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 1);
+  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
+  presenter->OnModelChanged();
+  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 0);
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 20);
+  CHECK(layout_y == 21);
+  CHECK(layout_w == 120);
+  CHECK(layout_h == 30);
+  CHECK(GetDlgCtrlID(btn) == static_cast<int>(kControlId));
+  CHECK(GetParent(btn) == desktop_presenter->hwnd());
+  CHECK(IsWindowEnabled(btn) != FALSE);
+  invoke_count = 0;
+  SendMessageW(desktop_presenter->hwnd(), WM_COMMAND,
+               MAKEWPARAM(static_cast<WPARAM>(kControlId), BN_CLICKED),
+               reinterpret_cast<LPARAM>(btn));
+  CHECK(invoke_count == 1);
 
   UnloadPresenters(*root);
   CHECK(presenter->hwnd() == nullptr);
