@@ -4130,3 +4130,36 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
   source is unavailable to this container's compiler/dependencies.
 - Changes are restricted to tests/CMake and test fixtures; no changes to
   production serializers or main. Merge deferred to a separate Cursor task.
+
+---
+
+## Surfaces library controls baseline (2026-10-21)
+
+- Baseline SHA: **`8a5a690d396ff09af8bf75f78487f663e6cd4eb7`** (`f21c75f^`). Compare worktree: **`apptraverse-baseline-8a5a690-clean`** @ same SHA.
+- Branch: **`cursor/surfaces-library-controls`** — Win32 **`WM_COMMAND`** routing centralized; **`NotifyClickedFromUi()`** for buttons; removed per-presenter **`OnCommand`** filters and decorative layout defaults.
+- Verified Release: UI headless + materialization **PASS**; **`apptraverse_surfaces_win32_smoke_test` PASS** (routing WIP and clean baseline).
+- **`TestCollectLiveReachableStableWithLongJournal`**: artificial direct **`SetPresentationSize`** stress (not WM_SIZE queue path); p95 thresholds **flaky** on same SHA — **not** library-control acceptance gate. Details: **`build-surfaces-library-controls-msvc-rel/verification-results.txt`**.
+
+### Library Win32 PushButton (step 1)
+- Shared **`ui::windows::CreateChildPushButton` / `DestroyChildPushButton`** in **`apptraverse_ui_windows`**; **`Win32SurfaceButtonPresenter`** and **`Win32SurfaceLanguageButtonPresenter`** use it for native create/bind/destroy only.
+- Release **`build-surfaces-library-controls-msvc-rel`**: UI materialization + edit headless + **`apptraverse_surfaces_win32_smoke_test`** + full **`apptraverse_surfaces_model_test`** **PASS** (2026-10-21).
+
+### WinPushButton on shared helper + fail-fast (step 2)
+- **`WinNativePushButtonCreateParams`**: parent, control id, caption, geometry, **`GWLP_USERDATA`**; **`WinPushButtonPresenter`** uses the same helper (no silent create failure).
+- Invariant violations on **`WinPushButtonPresenter::OnLoad`** → **`FatalWin32(ERROR_INVALID_PARAMETER)`**; create/bind/destroy errors → **`FatalWin32`** for all helper users.
+- Tests: **`apptraverse_win_ui_native_push_button_test`**, **`apptraverse_win_ui_native_push_button_fatal_test`** (isolated child process).
+- Release verify (2026-10-21): materialization, edit headless, surfaces smoke, native push button tests **PASS**; **`apptraverse_surfaces_model_test`** **PASS** (10k p95 within budget this run).
+
+### Surface chrome OnLoad fail-fast + WinPushButton native routing tests (step 2 finish)
+- **`Win32SurfaceButtonPresenter::OnLoad`** / **`Win32SurfaceLanguageButtonPresenter::OnLoad`**: missing **`window_presenter`**, non-Win32 parent, or null parent **`hwnd`** → **`FatalWin32(ERROR_INVALID_PARAMETER)`** (no silent return).
+- **`apptraverse_win_ui_native_push_button_test`**: helper create/destroy/recreate; **`WinPushButtonPresenter`** via **`InitializePresenters`** — parent, control id, **`GWLP_USERDATA`**, caption, geometry; **`WM_COMMAND`** **`BN_CLICKED`** on desktop host → one model invoke per click; disabled skips invoke; locale/enabled via commit + **`OnModelChanged`**; **`UnloadPresenters`**.
+- **`apptraverse_win_ui_native_push_button_fatal_test`**: helper null parent + Surface button **`OnLoad`** without parent **`hwnd`** (stderr substring checks).
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): helper + presenter tests **PASS**; fatal child **PASS**; UI materialization + edit headless **PASS**; **`apptraverse_surfaces_win32_smoke_test`** **PASS** (Add/Close/Language, EN/RU, layout, Z-order, load_only unchanged).
+
+### WinPushButtonPresenter file split (library controls step 3)
+- **`win_ui_push_button_presenter.h` / `win_ui_push_button_presenter.cpp`**: mechanical extraction of **`ui::windows::WinPushButtonPresenter`** from **`win_ui_presenters.*`**; **`win_ui_presenters.h`** remains aggregate include; **`apptraverse_ui_windows`** links new `.cpp`; registration unchanged in **`win_ui_registration.cpp`**.
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): **`apptraverse_win_ui_native_push_button_test`**, **`apptraverse_win_ui_native_push_button_fatal_test`**, UI materialization, edit headless, surfaces Win32 smoke **PASS**.
+
+### UiPushButtonPresenter file split (library controls step 4)
+- **`ui_push_button_presenter.h` / `ui_push_button_presenter.cpp`**: mechanical extraction from **`ui_presenters.*`**; **`ui_presenters.h`** aggregate include; registration unchanged in **`ui_registration.cpp`**; **`WinPushButtonPresenter`** still inherits **`UiPushButtonPresenter`**.
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): push button + fatal, UI materialization, edit headless, surfaces Win32 smoke **PASS**.

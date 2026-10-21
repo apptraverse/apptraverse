@@ -8,17 +8,18 @@
 #include "apptraverse/ui/ui_label.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_locale_settings.h"
-#include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_window.h"
+
+#include "apptraverse/ui/ui_push_button_presenter.h"
 
 namespace apptraverse::ui {
 
 struct UiControlLayout {
-  std::int32_t x{0};
-  std::int32_t y{0};
-  std::int32_t width{100};
-  std::int32_t height{24};
-  std::uint32_t control_id{0};
+  std::int32_t x;
+  std::int32_t y;
+  std::int32_t width;
+  std::int32_t height;
+  std::uint32_t control_id;
 };
 
 class UiWindowPresenter : public Presenter {
@@ -110,61 +111,16 @@ class UiEditBoxPresenter : public Presenter {
 
   UiEditBox::ptr edit_box;
   ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x{0};
-  std::int32_t layout_y{0};
-  std::int32_t layout_width{200};
-  std::int32_t layout_height{24};
-  std::uint32_t control_id{0};
+  std::int32_t layout_x;
+  std::int32_t layout_y;
+  std::int32_t layout_width;
+  std::int32_t layout_height;
+  std::uint32_t control_id;
 
   bool ReadyForPresentation() const override;
-
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
 
   void SubmitTextFromUi(std::string text, std::size_t caret_utf8_offset);
   void SubmitCaretFromUi(std::size_t caret_utf8_offset);
-};
-
-class UiPushButtonPresenter : public Presenter {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiPushButtonPresenter",
-                           UiPushButtonPresenter, Presenter, 0)
-
- protected:
-  UiPushButtonPresenter() = default;
-
- public:
-  explicit UiPushButtonPresenter(ae::ObjProp prop) : Presenter{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(button), AE_MMBR(window_presenter), AE_MMBR(layout_x),
-                    AE_MMBR(layout_y), AE_MMBR(layout_width),
-                    AE_MMBR(layout_height), AE_MMBR(control_id))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, button, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, button, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  UiPushButton::ptr button;
-  ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x{0};
-  std::int32_t layout_y{0};
-  std::int32_t layout_width{120};
-  std::int32_t layout_height{28};
-  std::uint32_t control_id{0};
-
-  bool ReadyForPresentation() const override;
-
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
-
-  void SimulateClickForTest();
 };
 
 class UiListContainerPresenter : public Presenter {
@@ -196,18 +152,15 @@ class UiListContainerPresenter : public Presenter {
 
   UiListContainer::ptr container;
   ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x{0};
-  std::int32_t layout_y{0};
-  std::int32_t layout_width{200};
-  std::int32_t layout_height{120};
-  std::uint32_t control_id{0};
-  bool notify_list_selection_change{false};
+  std::int32_t layout_x;
+  std::int32_t layout_y;
+  std::int32_t layout_width;
+  std::int32_t layout_height;
+  std::uint32_t control_id;
+  bool notify_list_selection_change;
 
   bool ReadyForPresentation() const override;
   void OnModelChanged() override;
-
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
 
   virtual void SubmitListRowActivatedFromUi(std::size_t row_index);
   virtual void SubmitListRowSelectionChangedFromUi(std::size_t row_index);
@@ -244,10 +197,10 @@ class UiLabelPresenter : public Presenter {
 
   UiLabel::ptr label;
   ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x{0};
-  std::int32_t layout_y{0};
-  std::int32_t layout_width{200};
-  std::int32_t layout_height{20};
+  std::int32_t layout_x;
+  std::int32_t layout_y;
+  std::int32_t layout_width;
+  std::int32_t layout_height;
 };
 
 void EnsureUiPresenterRegistration();

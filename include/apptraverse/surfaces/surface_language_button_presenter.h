@@ -40,14 +40,13 @@ class SurfaceLanguageButtonPresenter : public Presenter {
   }
 
   bool ReadyForPresentation() const override;
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
+  void NotifyClickedFromUi() override;
 
   Surface::ptr surface;
   ae::ObjPtr<SurfaceWindowPresenter> window_presenter;
   ae::ObjPtr<ui::UiLocaleSettings> locale;
   ae::ObjPtr<ui::UiLocalizationString> language_switch_label;
-  std::uint32_t control_id{0};
+  std::uint32_t control_id;
 };
 
 void EnsureSurfaceLanguageButtonPresenterRegistration();

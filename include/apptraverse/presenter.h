@@ -56,6 +56,9 @@ class Presenter : public ae::Obj {
     return false;
   }
 
+  // BN_CLICKED (or test simulate) after the platform layer validated control id.
+  virtual void NotifyClickedFromUi() {}
+
   // Runtime-only. Not serialized. Win32 Main uses this as the notify HWND
   // for shutdown, not as CreateWindow lpParam.
   void* presentation_host{nullptr};

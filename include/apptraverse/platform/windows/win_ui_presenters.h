@@ -18,7 +18,7 @@
 
 #include "apptraverse/ui/ui_presenters.h"
 
-
+#include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 
 namespace apptraverse::ui::windows {
 
@@ -242,17 +242,7 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
 
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
-
-
-  bool OnCommand(std::uint32_t command_id,
-
-                 std::uint16_t notification_code) override;
-
-
-
   HWND hwnd() const { return hwnd_; }
-
-
 
   void ReadFromNativeAndSubmit();
 
@@ -275,60 +265,6 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
   bool mirror_text_applied_{false};
 
 };
-
-
-
-class WinPushButtonPresenter : public UiPushButtonPresenter {
-
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinPushButtonPresenter",
-
-                           WinPushButtonPresenter, UiPushButtonPresenter, 0)
-
-
-
- protected:
-
-  WinPushButtonPresenter() = default;
-
-
-
- public:
-
-  explicit WinPushButtonPresenter(ae::ObjProp prop)
-
-      : UiPushButtonPresenter{prop} {}
-
-
-
-  void OnLoad() override;
-
-  void OnModelChanged() override;
-
-  void OnUnload() override;
-
-
-
-  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
-
-
-  HWND hwnd() const { return hwnd_; }
-
-
-
- private:
-
-  void SyncFromMirror();
-
-  WinDesktopWindowPresenter* Desktop() const;
-
-
-
-  HWND hwnd_{nullptr};
-
-};
-
-
 
 class WinListContainerPresenter : public UiListContainerPresenter {
 
@@ -360,21 +296,11 @@ class WinListContainerPresenter : public UiListContainerPresenter {
 
   void OnUnload() override;
 
-
-
-  bool OnCommand(std::uint32_t command_id,
-
-                 std::uint16_t notification_code) override;
-
-
-
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
-
 
   HWND hwnd() const { return hwnd_; }
 
-
+  bool HandleListNotification(std::uint16_t notification_code);
 
  private:
 

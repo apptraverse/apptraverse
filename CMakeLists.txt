@@ -109,6 +109,7 @@ add_library(apptraverse STATIC
   src/ui/ui_desktop_window.cpp
   src/ui/ui_edit_box.cpp
   src/ui/ui_push_button.cpp
+  src/ui/ui_push_button_presenter.cpp
   src/ui/ui_list_container.cpp
   src/ui/ui_bitmap_image.cpp
   src/ui/ui_presenters.cpp
@@ -137,6 +138,8 @@ if(WIN32)
   add_library(apptraverse_ui_windows STATIC
     src/platform/windows/win_ui_utf8.cpp
     src/platform/windows/win_ui_frame.cpp
+    src/platform/windows/win_ui_native_push_button.cpp
+    src/platform/windows/win_ui_push_button_presenter.cpp
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
     src/platform/windows/win32_fatal.cpp

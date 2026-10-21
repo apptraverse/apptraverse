@@ -77,8 +77,7 @@ class Win32SurfaceButtonPresenter : public SurfaceButtonPresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
+  void NotifyClickedFromUi() override;
 
   HWND hwnd{nullptr};
 

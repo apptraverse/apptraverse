@@ -1082,6 +1082,53 @@ if(WIN32)
     COMMENT "Isolated FatalWin32 NDEBUG helper check"
   )
 
+  add_executable(apptraverse_win_ui_native_push_button_fatal_child
+    win_ui_native_push_button_fatal_child.cpp
+    surfaces_win32_library_consumer_presentation.cpp
+    ${CMAKE_SOURCE_DIR}/src/noninteractive_crt.cpp
+  )
+  target_include_directories(apptraverse_win_ui_native_push_button_fatal_child
+    PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(apptraverse_win_ui_native_push_button_fatal_child PRIVATE
+    apptraverse
+    apptraverse_surfaces_windows
+    apptraverse_ui_windows
+    apptraverse_compile_policy
+  )
+
+  add_executable(apptraverse_win_ui_native_push_button_fatal_test
+    win_ui_native_push_button_fatal_test.cpp
+  )
+  target_compile_definitions(apptraverse_win_ui_native_push_button_fatal_test
+    PRIVATE
+    "WIN_UI_NATIVE_PUSH_BUTTON_FATAL_CHILD=R\"($<TARGET_FILE:apptraverse_win_ui_native_push_button_fatal_child>)\""
+  )
+  target_link_libraries(apptraverse_win_ui_native_push_button_fatal_test PRIVATE
+    apptraverse_compile_policy
+  )
+  add_dependencies(apptraverse_win_ui_native_push_button_fatal_test
+    apptraverse_win_ui_native_push_button_fatal_child
+  )
+  add_test(
+    NAME apptraverse_win_ui_native_push_button_fatal_test
+    COMMAND apptraverse_win_ui_native_push_button_fatal_test
+  )
+
+  add_executable(apptraverse_win_ui_native_push_button_test
+    win_ui_native_push_button_test.cpp
+  )
+  target_link_libraries(apptraverse_win_ui_native_push_button_test PRIVATE
+    apptraverse
+    apptraverse_ui_windows
+  )
+  target_include_directories(apptraverse_win_ui_native_push_button_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+  )
+  add_test(
+    NAME apptraverse_win_ui_native_push_button_test
+    COMMAND apptraverse_win_ui_native_push_button_test
+  )
+
   if(APPTRAVERSE_BUILD_EXAMPLES AND APPTRAVERSE_BUILD_AETHER_DEMOS)
   add_executable(apptraverse_chat_win32_ui_smoke_test
     chat_win32_ui_smoke_test.cpp

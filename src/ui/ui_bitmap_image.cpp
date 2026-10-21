@@ -5,7 +5,7 @@
 namespace apptraverse::ui {
 
 bool UiBitmapImagePresenter::ReadyForPresentation() const {
-  return window_presenter && window_presenter->presentation_loaded;
+  return window_presenter->presentation_loaded;
 }
 
 void UiBitmapImagePresenter::OnModelChanged() {}
