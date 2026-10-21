@@ -22,12 +22,12 @@ class SurfacesDemoAddButton : public ui::UiPushButton {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, surface, label);
+    dnv(base_, surface);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, surface, label);
+    dnv(base_, surface);
   }
 
   Surface::ptr surface;

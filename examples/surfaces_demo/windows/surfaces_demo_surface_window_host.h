@@ -20,22 +20,19 @@ class SurfacesDemoSurfaceWindowHostPresenter : public ui::UiWindowPresenter {
   explicit SurfacesDemoSurfaceWindowHostPresenter(ae::ObjProp prop)
       : ui::UiWindowPresenter{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(surface_window), AE_MMBR(locale))
+  AE_OBJECT_REFLECT(AE_MMBR(surface_window))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, surface_window, locale);
+    dnv(base_, surface_window);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, surface_window, locale);
+    dnv(base_, surface_window);
   }
 
   Win32SurfaceWindowPresenter::ptr surface_window;
-
-  void OnLoad() override;
-  void OnModelChanged() override;
 
   bool ReadyForPresentation() const override;
   bool PresentationCreateSucceeded() const override;

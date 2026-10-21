@@ -39,9 +39,16 @@
 #include "surfaces_test_presenter_counters.h"
 
 #if defined(_WIN32)
+#include "apptraverse/platform/windows/surfaces_win_presenters.h"
+#include "apptraverse/platform/windows/surfaces_win_registration.h"
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/surfaces/surfaces_chrome_wiring.h"
+#include "apptraverse/surfaces/surfaces_localization.h"
+#include "apptraverse/surfaces/surfaces_presentation.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
+#include "surfaces_demo_add_button.h"
+#include "surfaces_demo_surface_window_host.h"
 #include "surfaces_demo_win32_registration.h"
 #endif
 
@@ -1994,6 +2001,125 @@ void TestStructuralApplyOnModelChangedOnce() {
   std::filesystem::remove_all(dir);
 }
 
+#if defined(_WIN32)
+Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
+  using surfaces_demo::ObjId;
+  using surfaces_demo::ToObjId;
+
+  auto application = Application::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::Application)));
+  auto surfaces = Surfaces::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::Surfaces)));
+  auto surface1 = Surface::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::Surface1)));
+
+  surface1->number = 1;
+  AssignInitialDesktopBounds(*surface1);
+  surface1->surfaces = surfaces;
+  surfaces->surfaces.push_back(surface1);
+  application->surfaces = surfaces;
+
+  InstallSurfacesDemoLocalization(*application, domain);
+
+  Surface& surface = *surface1;
+  auto window = Win32SurfaceWindowPresenter::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::Surface1Presenter)));
+  auto add_host =
+      example::surfaces::SurfacesDemoSurfaceWindowHostPresenter::ptr::Create(
+          ae::CreateWith{domain});
+  auto add_button = example::surfaces::SurfacesDemoAddButton::ptr::Create(
+      ae::CreateWith{domain});
+  auto add_presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
+      ae::CreateWith{domain});
+  auto close_button = Win32SurfaceButtonPresenter::ptr::Create(
+      ae::CreateWith{domain});
+  auto language_button = Win32SurfaceLanguageButtonPresenter::ptr::Create(
+      ae::CreateWith{domain});
+
+  auto surface_ref = Surface::ptr::MakeFromThis(&surface);
+  window->surface = surface_ref;
+  add_button->surface = surface_ref;
+  add_button->label = application->label_add;
+  close_button->surface = surface_ref;
+  language_button->surface = surface_ref;
+
+  add_host->surface_window = window;
+  add_host->locale = application->locale;
+
+  add_presenter->button = add_button;
+  add_presenter->window_presenter = add_host;
+  add_presenter->layout_x = kSurfaceAddButtonLayoutX;
+  add_presenter->layout_y = kSurfaceAddButtonLayoutY;
+  add_presenter->layout_width = kSurfaceAddButtonLayoutWidth;
+  add_presenter->layout_height = kSurfaceAddButtonLayoutHeight;
+  add_presenter->control_id =
+      static_cast<std::uint32_t>(kSurfaceAddButtonId);
+
+  close_button->window_presenter = window;
+  language_button->window_presenter = window;
+  close_button->role = SurfaceButtonRole::Close;
+  close_button->control_id =
+      static_cast<std::uint32_t>(kSurfaceCloseButtonId);
+  language_button->control_id =
+      static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
+
+  surface.chrome.window = window;
+  surface.chrome.add_button = add_presenter;
+  surface.chrome.close_button = close_button;
+  surface.chrome.language_button = language_button;
+
+  WireSurfaceChromeLocalization(surface, *application);
+  return application;
+}
+
+void TestLibraryAddButtonLabelSerializationRoundtrip() {
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+  auto const dir = TestDir("apptraverse_surfaces_library_add_label_roundtrip");
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = BuildWin32LibraryAddRoundtripGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surface& surface = *application->surfaces->surfaces[0];
+  auto add_presenter =
+      ui::windows::WinPushButtonPresenter::ptr{surface.chrome.add_button};
+  CHECK(add_presenter);
+  CHECK(add_presenter->button);
+  CHECK(add_presenter->button->label.is_valid());
+  CHECK(&*add_presenter->button->label == &*application->label_add);
+  CHECK(add_presenter->window_presenter);
+  CHECK(add_presenter->window_presenter->locale.is_valid());
+  CHECK(&*add_presenter->window_presenter->locale == &*application->locale);
+  auto demo_button = example::surfaces::SurfacesDemoAddButton::ptr{
+      add_presenter->button};
+  CHECK(demo_button);
+  CHECK(demo_button->surface.is_valid());
+  CHECK(&*demo_button->surface == &surface);
+  SaveDistilledRoot(*application);
+
+  DirectoryDomainStorage load_storage{dir};
+  ae::Domain load_domain{load_storage};
+  auto loaded = LoadApplication<Application>(
+      load_domain,
+      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
+  Surface& loaded_surface = *loaded->surfaces->surfaces[0];
+  auto loaded_add =
+      ui::windows::WinPushButtonPresenter::ptr{loaded_surface.chrome.add_button};
+  CHECK(loaded_add);
+  CHECK(loaded_add->button);
+  CHECK(loaded_add->button->label.is_valid());
+  CHECK(loaded_add->button->label->Resolve(0) == "Add");
+  CHECK(loaded_add->button->label->Resolve(1) == "Добавить");
+  CHECK(loaded_add->window_presenter);
+  CHECK(loaded_add->window_presenter->locale.is_valid());
+  CHECK(&*loaded_add->window_presenter->locale == &*loaded->locale);
+  auto loaded_demo = example::surfaces::SurfacesDemoAddButton::ptr{
+      loaded_add->button};
+  CHECK(loaded_demo);
+  CHECK(loaded_demo->surface.is_valid());
+  CHECK(&*loaded_demo->surface == &loaded_surface);
+}
+#endif
+
 void TestLocaleCommitAndPersistence() {
   auto const dir = TestDir("apptraverse_surfaces_locale_persist");
   DirectoryDomainStorage storage{dir};
@@ -2039,6 +2165,7 @@ int main() {
 #if defined(_WIN32)
   apptraverse::ui::EnsureUiPresenterRegistration();
   apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
+  apptraverse::EnsureWin32SurfacesPresenterRegistration();
   apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
 #endif
   apptraverse::test::TestInitialGraph();
@@ -2080,6 +2207,9 @@ int main() {
   apptraverse::test::TestInitializeRuntimeNodeStorageWrites();
   apptraverse::test::TestStructuralApplyOnModelChangedOnce();
   apptraverse::test::TestLocaleCommitAndPersistence();
+#if defined(_WIN32)
+  apptraverse::test::TestLibraryAddButtonLabelSerializationRoundtrip();
+#endif
   std::cout << "surfaces_model_test OK\n";
   return 0;
 }

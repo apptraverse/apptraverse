@@ -3,11 +3,9 @@
 #include "surfaces_shutdown_trace.h"
 
 #include "apptraverse/object_serialization.h"
-#include "apptraverse/surfaces/surfaces_chrome_wiring.h"
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
 #include "win32_fatal.h"
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
-#include "surfaces_demo_win_add_caption.h"
 #include "apptraverse/platform/windows/surfaces_win32_z_order.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
 
@@ -193,11 +191,7 @@ void WinApp::OnInitialPublished() {
   auto ui_root = LoadInitialPublication(in, *ui_domain_, ui_storage_);
   ui_application_ = Application::ptr::MakeFromThis(
       static_cast<Application*>(ui_root.get()));
-  for (auto const& surface : ui_application_->surfaces->surfaces) {
-    WireSurfaceChromeLocalization(*surface, *ui_application_);
-  }
   InitializePresenters(*ui_application_, notify_, &*model_proxy_);
-  SyncWinSurfaceLibraryAddButtonCaptions(*ui_application_);
   RestoreDesktopSurfaceZOrder();
   if (DestroyWindow(loading_) == 0) {
     DWORD const err = GetLastError();
@@ -215,11 +209,17 @@ void WinApp::OnIncrementalPublished() {
   session_.cv.notify_all();
   ApplySurfacesStructural(bytes, *ui_application_, ui_storage_, notify_,
                           &*model_proxy_);
-  for (auto const& surface : ui_application_->surfaces->surfaces) {
-    WireSurfaceChromeLocalization(*surface, *ui_application_);
-  }
-  SyncWinSurfaceLibraryAddButtonCaptions(*ui_application_);
 }
+
+#if defined(APPTRAVERSE_SURFACES_WIN32_SMOKE_TEST)
+bool WinApp::PostModelWork(ModelObjectProxy::ModelWork work) {
+  if (!model_proxy_) {
+    return false;
+  }
+  model_proxy_->EnqueueModelWork(std::move(work));
+  return true;
+}
+#endif
 
 int WinApp::Run(std::filesystem::path const& state_dir) {
   HINSTANCE const instance = GetModuleHandleW(nullptr);

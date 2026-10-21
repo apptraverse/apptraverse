@@ -736,6 +736,7 @@ target_link_libraries(apptraverse_surfaces_model_test PRIVATE
 )
 if(WIN32)
   target_link_libraries(apptraverse_surfaces_model_test PRIVATE
+    apptraverse_surfaces_windows
     apptraverse_ui_windows
   )
 endif()
@@ -794,6 +795,7 @@ if(WIN32)
   )
   target_compile_definitions(apptraverse_surfaces_win32_smoke_test PRIVATE
     APPTRAVERSE_ENABLE_DISTILLATION
+    APPTRAVERSE_SURFACES_WIN32_SMOKE_TEST
     "APPTRAVERSE_SURFACES_ACCEPTANCE_DIR=\"${CMAKE_SOURCE_DIR}/docs/surfaces_demo_acceptance\""
     "APPTRAVERSE_SURFACES_LOAD_ONLY_EXE=R\"($<TARGET_FILE:win32_surfaces_demo_load_only>)\""
   )

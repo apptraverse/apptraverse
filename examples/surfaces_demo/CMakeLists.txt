@@ -13,7 +13,6 @@ if(WIN32 AND NOT EMSCRIPTEN)
     windows/surfaces_demo_add_button.cpp
     windows/surfaces_demo_surface_window_host.cpp
     windows/surfaces_demo_win32_registration.cpp
-    windows/surfaces_demo_win_add_caption.cpp
   )
   target_include_directories(surfaces_demo_win32 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/windows

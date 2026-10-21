@@ -2,18 +2,6 @@
 
 namespace apptraverse::example::surfaces {
 
-void SurfacesDemoSurfaceWindowHostPresenter::OnLoad() {
-  if (surface_window && surface_window->locale) {
-    locale = surface_window->locale;
-  }
-}
-
-void SurfacesDemoSurfaceWindowHostPresenter::OnModelChanged() {
-  if (surface_window && surface_window->locale) {
-    locale = surface_window->locale;
-  }
-}
-
 bool SurfacesDemoSurfaceWindowHostPresenter::ReadyForPresentation() const {
   return surface_window && surface_window->presentation_loaded;
 }

@@ -35,6 +35,7 @@
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
+#include "apptraverse/ui/ui_localization_string.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_win32_capture.h"
 #include "win_app.h"
@@ -140,6 +141,30 @@ int CountOwnedClass(DWORD pid, wchar_t const* class_name) {
       },
       reinterpret_cast<LPARAM>(&ctx));
   return ctx.count;
+}
+
+void CommitAddLabelSlotUtf8(ae::Domain& domain, Application& application,
+                            int slot_index, char const* utf8) {
+  auto event = ui::SetUiLocalizationSlotUtf8Event::ptr::Create(
+      ae::CreateWith{domain});
+  event->slot_index = slot_index;
+  event->utf8 = utf8;
+  application.label_add->Commit(std::move(event));
+}
+
+std::wstring WindowText(HWND hwnd);
+void PumpGui(std::chrono::milliseconds slice);
+
+bool WaitForButtonText(HWND button, std::wstring const& expected,
+                       std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (WindowText(button) == expected) {
+      return true;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  return WindowText(button) == expected;
 }
 
 void PumpGui(std::chrono::milliseconds slice) {
@@ -1000,6 +1025,94 @@ void TestPostReleaseOuterFrameStable() {
   std::filesystem::remove_all(dir);
 }
 
+void TestLibraryAddCustomLabelFreshProfile() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_add_custom_fresh";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = BuildSurfacesGraph(domain);
+    FinalizeDistilledGraph(*application);
+    CommitAddLabelSlotUtf8(domain, *application, 0, "Create window");
+    CommitAddLabelSlotUtf8(domain, *application, 1, "Создать окно");
+    SaveDistilledRoot(*application);
+  }
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  HWND add1 = FindAddButton(s1);
+  CHECK(add1 != nullptr);
+  CHECK(WaitForButtonText(add1, L"Create window", std::chrono::seconds{10}));
+
+  SendMessageW(add1, BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  CHECK(WaitForButtonText(FindAddButton(s2), L"Create window",
+                          std::chrono::seconds{10}));
+
+  SendMessageW(FindLanguageButton(s1), BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WaitForButtonText(add1, L"Создать окно", std::chrono::seconds{10}));
+  CHECK(WaitForButtonText(FindAddButton(s2), L"Создать окно",
+                          std::chrono::seconds{10}));
+
+  SendMessageW(FindLanguageButton(s2), BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WaitForButtonText(FindAddButton(s2), L"Create window",
+                          std::chrono::seconds{10}));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestLibraryAddCustomLabelModelEvent() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_add_custom_live";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  HWND add1 = FindAddButton(s1);
+  CHECK(add1 != nullptr);
+  CHECK(WaitForButtonText(add1, L"Add", std::chrono::seconds{10}));
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto loaded = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    CommitAddLabelSlotUtf8(domain, *loaded, 0, "Create window");
+    CommitAddLabelSlotUtf8(domain, *loaded, 1, "Создать окно");
+  }));
+  CHECK(WaitForButtonText(add1, L"Create window", std::chrono::seconds{30}));
+
+  SendMessageW(FindLanguageButton(s1), BM_CLICK, 0, 0);
+  CHECK(WaitForButtonText(add1, L"Создать окно", std::chrono::seconds{10}));
+
+  SendMessageW(FindLanguageButton(s1), BM_CLICK, 0, 0);
+  CHECK(WaitForButtonText(add1, L"Create window", std::chrono::seconds{10}));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestLocalizationEnRuEn() {
   DWORD const pid = GetCurrentProcessId();
   auto dir = std::filesystem::temp_directory_path() /
@@ -1201,6 +1314,8 @@ void TestLoadOnlyRestoresRuProfile() {
 
 int main() {
   apptraverse::test::TestPresenterHierarchy();
+  apptraverse::test::TestLibraryAddCustomLabelFreshProfile();
+  apptraverse::test::TestLibraryAddCustomLabelModelEvent();
   apptraverse::test::TestLocalizationEnRuEn();
   apptraverse::test::TestLoadOnlyRestoresRuProfile();
   apptraverse::test::TestCloseButtonRemovesOne();
