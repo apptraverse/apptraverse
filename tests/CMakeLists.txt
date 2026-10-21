@@ -76,6 +76,24 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     TIMEOUT 90
     LABELS "serialization;evolution;rollback"
   )
+
+  if(APPTRAVERSE_BUILD_EXAMPLES AND WIN32)
+    add_dependencies(apptraverse_application_evolution_fixtures
+      win32_surfaces_demo win32_surfaces_demo_v1)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo version states")
+    add_test(
+      NAME apptraverse_surfaces_demo_version_matrix
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_LIST_DIR}/surfaces_demo_version_matrix.py"
+        --a "$<TARGET_FILE:win32_surfaces_demo>"
+        --b "$<TARGET_FILE:win32_surfaces_demo_v1>"
+        --work-root "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo version states"
+    )
+    set_tests_properties(apptraverse_surfaces_demo_version_matrix PROPERTIES
+      TIMEOUT 120
+      LABELS "serialization;evolution;surfaces"
+    )
+  endif()
 endif()
 
 add_executable(apptraverse_ui_desktop_window_geometry_test
