@@ -734,11 +734,21 @@ target_link_libraries(apptraverse_surfaces_model_test PRIVATE
   surfaces_demo_distill
   apptraverse_surfaces
 )
+if(WIN32)
+  target_link_libraries(apptraverse_surfaces_model_test PRIVATE
+    apptraverse_ui_windows
+  )
+endif()
 
 target_include_directories(apptraverse_surfaces_model_test PRIVATE
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
   ${CMAKE_SOURCE_DIR}/tests
 )
+if(WIN32)
+  target_include_directories(apptraverse_surfaces_model_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows
+  )
+endif()
 
 add_test(
   NAME apptraverse_surfaces_model_test

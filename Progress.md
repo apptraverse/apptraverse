@@ -4066,3 +4066,11 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **`MapWindowPoints`** guard in layout read: distinguish failure from success when return is zero.
 - **`apptraverse_win_ui_native_push_button_test`**: desktop host + test **`TestBorderlessHostPresenter`** at screen origin (layout 0,0 / no redundant **`SetWindowPos`**).
 - Release verify (2026-10-21): push button + fatal, materialization, edit headless, surfaces smoke **PASS**. Surface Add **not** switched.
+
+### Surface Add → library WinPushButton (surfaces_demo Windows)
+- **Add chain**: `BM_CLICK` / `DispatchChildCommand` → `WinPushButtonPresenter::NotifyClickedFromUi` → `UiPushButton::NotifyClicked` → `SurfacesDemoAddButton::HandlePushButtonClicked` → `Surface::AddSurface` (model thread). Close/Language unchanged (`Win32SurfaceButtonPresenter` / `Win32SurfaceLanguageButtonPresenter`).
+- Demo types (v0): `SurfacesDemoAddButton`, `SurfacesDemoSurfaceWindowHostPresenter` (`NativeChildParentHandle` → existing Surface `hwnd`); `WinPushButtonPresenter` layout **12/12/88/28** via shared `kSurfaceAddButtonLayout*` constants.
+- **`WireSurfaceChromeLocalization`**: class-id dispatch for legacy `SurfaceButtonPresenter` vs `UiPushButtonPresenter` Add owners.
+- Dynamic Add: `Surface::AddSurface` initializes library `UiPushButton` node via `UiPushButtonPresenter::button`; initial distill via `FinalizeDistilledGraph`.
+- GUI mirror: `win_app` wires chrome before/after presenter init; `SyncWinSurfaceLibraryAddButtonCaptions` sets Add caption on UI domain (Resolve when available; demo catalog fallback when UI label hydration is empty).
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): push button + fatal, UI materialization, edit headless, **`apptraverse_surfaces_model_test`**, **`apptraverse_surfaces_win32_smoke_test`** **PASS**.

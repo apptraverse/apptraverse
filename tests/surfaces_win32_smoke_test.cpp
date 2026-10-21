@@ -18,12 +18,18 @@
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/object_serialization.h"
 #include "apptraverse/distill.h"
+#include "surfaces_distill.h"
 
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
 #include "apptraverse/platform/windows/surfaces_win32_z_order.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
+#include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/surfaces/surface_button_presenter.h"
+#include "apptraverse/ui/ui_presenters.h"
+#include "surfaces_demo_win32_registration.h"
 #include "apptraverse/surfaces/surface_language_button_presenter.h"
 #include "apptraverse/surfaces/surface_window_presenter.h"
 #include "apptraverse/surfaces/surfaces_ids.h"
@@ -45,6 +51,15 @@ namespace apptraverse::test {
   } while (0)
 
 namespace {
+
+void EnsureWin32SmokeRegistration() {
+  EnsureObjectRegistration();
+  EnsureSurfacesRegistration();
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
+  example::surfaces::EnsureSurfacesDemoWin32Registration();
+}
 
 std::filesystem::path AcceptanceScreenshotDir() {
 #ifdef APPTRAVERSE_SURFACES_ACCEPTANCE_DIR
@@ -325,9 +340,7 @@ void PlaceWindow(HWND hwnd, int x, int y, int w, int h) {
 }
 
 void TestPresenterHierarchy() {
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
   auto& registry = ae::Registry::GetRegistry();
   CHECK(registry.GenerationDistance(SurfacePresenter::kClassId,
                                     DesktopSurfacePresenter::kClassId) == 1);
@@ -340,6 +353,17 @@ void TestPresenterHierarchy() {
   CHECK(registry.GenerationDistance(SurfaceLanguageButtonPresenter::kClassId,
                                     Win32SurfaceLanguageButtonPresenter::
                                         kClassId) == 1);
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surface& surface = *application->surfaces->surfaces[0];
+  auto add = ui::windows::WinPushButtonPresenter::ptr{surface.chrome.add_button};
+  CHECK(add);
+  CHECK(add->button && add->button->label);
+  CHECK(add->window_presenter && add->window_presenter->locale);
+  CHECK(add->button->label->Resolve(0) == "Add");
 }
 
 void TestCloseButtonRemovesOne() {
@@ -348,9 +372,7 @@ void TestCloseButtonRemovesOne() {
              "apptraverse_surfaces_win32_close_btn";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -367,7 +389,8 @@ void TestCloseButtonRemovesOne() {
   auto* close_owner =
       reinterpret_cast<Presenter*>(GetWindowLongPtrW(close1, GWLP_USERDATA));
   CHECK(add_owner != close_owner);
-  CHECK(add_owner->GetClassId() == Win32SurfaceButtonPresenter::kClassId);
+  CHECK(add_owner->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
   CHECK(close_owner->GetClassId() == Win32SurfaceButtonPresenter::kClassId);
   CHECK(GetDlgCtrlID(add1) == kSurfaceAddButtonId);
   CHECK(GetDlgCtrlID(close1) == kSurfaceCloseButtonId);
@@ -448,9 +471,7 @@ void TestNativeXKeepsAllSurfaces() {
              "apptraverse_surfaces_win32_native_x";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -583,9 +604,7 @@ void TestActiveZOrderRestored() {
              "apptraverse_surfaces_win32_zorder";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   std::vector<std::uint32_t> const expected_stack{2, 3, 1};
   std::cout << "zorder_test before_close stack expect:";
@@ -850,9 +869,7 @@ void TestControlsFollowPresentationSize() {
              "apptraverse_surfaces_win32_presentation_size";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -921,9 +938,7 @@ void TestPostReleaseOuterFrameStable() {
              "apptraverse_surfaces_win32_post_release_frame";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -991,9 +1006,7 @@ void TestLocalizationEnRuEn() {
              "apptraverse_surfaces_win32_locale";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -1061,9 +1074,7 @@ void TestLoadOnlyRestoresRuProfile() {
              "apptraverse_surfaces_load_only_acceptance";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};

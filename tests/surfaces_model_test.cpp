@@ -38,6 +38,13 @@
 #include "apptraverse/surfaces/surfaces_registration.h"
 #include "surfaces_test_presenter_counters.h"
 
+#if defined(_WIN32)
+#include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/ui/ui_push_button_presenter.h"
+#include "surfaces_demo_win32_registration.h"
+#endif
+
 namespace apptraverse::test {
 
 namespace {
@@ -117,6 +124,24 @@ void RunOnModel(SurfacesModelSession& session,
         std::future_status::ready);
 }
 
+void CheckAddChromeLocalization(Surface& surface, Application& application) {
+  std::uint32_t const add_class = surface.chrome.add_button->GetClassId();
+  auto& registry = ae::Registry::GetRegistry();
+  if (registry.GenerationDistance(SurfaceButtonPresenter::kClassId,
+                                  add_class) >= 0) {
+    auto add = SurfaceButtonPresenter::ptr{surface.chrome.add_button};
+    CHECK(&*add->locale == &*application.locale);
+    CHECK(&*add->label == &*application.label_add);
+    return;
+  }
+  CHECK(registry.GenerationDistance(ui::UiPushButtonPresenter::kClassId,
+                                    add_class) >= 0);
+  auto library_add =
+      ui::UiPushButtonPresenter::ptr{surface.chrome.add_button};
+  CHECK(&*library_add->window_presenter->locale == &*application.locale);
+  CHECK(&*library_add->button->label == &*application.label_add);
+}
+
 void TestInitialGraph() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -137,9 +162,7 @@ void TestInitialGraph() {
   CHECK(application->locale->language_index() == 0);
   CHECK(application->label_add->Resolve(0) == "Add");
   CHECK(application->label_add->Resolve(1) == "Добавить");
-  auto add = SurfaceButtonPresenter::ptr{surface.chrome.add_button};
-  CHECK(&*add->locale == &*application->locale);
-  CHECK(&*add->label == &*application->label_add);
+  CheckAddChromeLocalization(surface, *application);
   CHECK(surface.chrome.window->obj_id != surface.chrome.add_button->obj_id);
   CHECK(surface.chrome.add_button->obj_id !=
         surface.chrome.close_button->obj_id);
@@ -175,8 +198,7 @@ void TestModelAdd() {
   CHECK(&*surface2->surfaces == &surfaces);
   CHECK(surface2->chrome.window.is_valid());
   CHECK(&*SurfacePresenter::ptr{surface2->chrome.window}->surface == surface2);
-  CHECK(&*SurfaceButtonPresenter::ptr{surface2->chrome.add_button}->locale ==
-        &*application->locale);
+  CheckAddChromeLocalization(*surface2, *application);
   CHECK(IsNodeObj(*surface2));
   CHECK(surface2->base.is_valid());
   CHECK(surface2->journal.empty());
@@ -1996,9 +2018,15 @@ void TestLocaleCommitAndPersistence() {
       ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
   CHECK(loaded->locale->language_index() == 1);
   Surface& surface = *loaded->surfaces->surfaces[0];
-  auto add = SurfaceButtonPresenter::ptr{surface.chrome.add_button};
-  CHECK(&*add->locale == &*loaded->locale);
-  CHECK(add->label->Resolve(1) == "Добавить");
+  CheckAddChromeLocalization(surface, *loaded);
+  ae::ObjPtr<ui::UiLocalizationString> add_label;
+  if (auto legacy = SurfaceButtonPresenter::ptr{surface.chrome.add_button}) {
+    add_label = legacy->label;
+  } else {
+    add_label = ui::UiPushButtonPresenter::ptr{surface.chrome.add_button}
+                    ->button->label;
+  }
+  CHECK(add_label->Resolve(1) == "Добавить");
 }
 
 }  // namespace
@@ -2008,6 +2036,11 @@ void TestLocaleCommitAndPersistence() {
 int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSurfacesRegistration();
+#if defined(_WIN32)
+  apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+#endif
   apptraverse::test::TestInitialGraph();
   apptraverse::test::TestModelAdd();
   apptraverse::test::TestAddFromSecondSurface();

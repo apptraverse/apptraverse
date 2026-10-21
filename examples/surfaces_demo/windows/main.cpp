@@ -14,7 +14,10 @@
 #include "win_app.h"
 #include "surfaces_shutdown_trace.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
+#include "apptraverse/ui/ui_presenters.h"
+#include "surfaces_demo_win32_registration.h"
 
 int main(int argc, char** argv) {
   if (!apptraverse::SurfacesShutdownTrace::Enabled()) {
@@ -32,7 +35,10 @@ int main(int argc, char** argv) {
   }
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSurfacesRegistration();
+  apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
   apptraverse::EnsureWin32SurfacesPresenterRegistration();
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
   apptraverse::WinApp app;
   int const code = app.Run(state_dir);
   apptraverse::SurfacesShutdownTrace::MarkProcessExit();

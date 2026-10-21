@@ -23,6 +23,12 @@
 #include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
 
+#if defined(_WIN32)
+#include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/ui/ui_presenters.h"
+#include "surfaces_demo_win32_registration.h"
+#endif
+
 namespace apptraverse {
 
 void SurfacesModelSession::RequestStop() {
@@ -59,6 +65,11 @@ void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
 void SurfacesModelSession::Run(
     std::function<void(SurfacesPublicationKind)> on_published) {
   EnsureSurfacesRegistration();
+#if defined(_WIN32)
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  example::surfaces::EnsureSurfacesDemoWin32Registration();
+#endif
   presentation_size_queue.BindPostWork(
       [this](ModelObjectProxy::ModelWork work) { Post(std::move(work)); });
 

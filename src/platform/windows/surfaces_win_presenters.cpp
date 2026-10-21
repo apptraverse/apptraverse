@@ -17,10 +17,10 @@ bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
 
 namespace {
 
-constexpr int kMargin = 12;
+constexpr int kMargin = kSurfaceChromeMargin;
 constexpr int kGap = 8;
-constexpr int kAddW = 88;
-constexpr int kAddH = 28;
+constexpr int kAddW = kSurfaceAddButtonLayoutWidth;
+constexpr int kAddH = kSurfaceAddButtonLayoutHeight;
 constexpr int kLangW = 48;
 constexpr int kLangH = 28;
 constexpr int kCloseW = 200;
