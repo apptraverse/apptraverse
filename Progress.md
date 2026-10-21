@@ -4116,3 +4116,17 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - Full scope, commands, baseline failures and verification limits:
   `docs/serialization_v0_validation.md` and
   `tests/application_evolution_matrix.md`. No merge, PR or history rewrite.
+
+## Same-class independent v0/v1 Window fixture (2026-10-21)
+
+- Added cross-process Window EXEs A (x/y v0) and B (x/y v0, size v1),
+  retaining the same ClassId and no artificial type inheritance.
+- A v1-only initial-state package is serialized separately and installed
+  without modifying an existing v0 slot; Load(v0) does not generate size defaults.
+- New CTest verifies alternating A/B moves/resizes, exclusive version-slot
+  changes, SHA256 preservation, missing-package rejection and stable identity.
+- The Python runner passed syntax checking locally. Full native C++ build
+  and CTest execution are NOT verified in this session: the connected GitHub
+  source is unavailable to this container's compiler/dependencies.
+- Changes are restricted to tests/CMake and test fixtures; no changes to
+  production serializers or main. Merge deferred to a separate Cursor task.

@@ -49,6 +49,33 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     TIMEOUT 180
     LABELS "serialization;evolution"
   )
+  # A/B share one Window ClassId. v0 stores x/y, v1 stores width/height.
+  add_executable(apptraverse_window_layers_a window_schema_layers_fixture.cpp)
+  add_executable(apptraverse_window_layers_b window_schema_layers_fixture.cpp)
+  target_link_libraries(apptraverse_window_layers_a PRIVATE apptraverse)
+  target_link_libraries(apptraverse_window_layers_b PRIVATE apptraverse)
+  target_compile_definitions(apptraverse_window_layers_a PRIVATE
+    APPTRAVERSE_WINDOW_EXE_REVISION=0)
+  target_compile_definitions(apptraverse_window_layers_b PRIVATE
+    APPTRAVERSE_WINDOW_EXE_REVISION=1)
+  add_custom_target(apptraverse_window_schema_layers_fixtures DEPENDS
+    apptraverse_window_layers_a apptraverse_window_layers_b)
+  add_dependencies(apptraverse_application_evolution_fixtures
+    apptraverse_window_schema_layers_fixtures)
+
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/window layer states")
+  add_test(
+    NAME apptraverse_window_schema_layers_roundtrip
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/window_schema_layers_matrix.py"
+      --a "$<TARGET_FILE:apptraverse_window_layers_a>"
+      --b "$<TARGET_FILE:apptraverse_window_layers_b>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/window layer states"
+  )
+  set_tests_properties(apptraverse_window_schema_layers_roundtrip PROPERTIES
+    TIMEOUT 90
+    LABELS "serialization;evolution;rollback"
+  )
 endif()
 
 add_executable(apptraverse_ui_desktop_window_geometry_test
