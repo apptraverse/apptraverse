@@ -14,19 +14,13 @@ void EnsureSurfaceLanguageButtonPresenterRegistration() {
 }
 
 bool SurfaceLanguageButtonPresenter::ReadyForPresentation() const {
-  return window_presenter && window_presenter->presentation_loaded;
+  return window_presenter->presentation_loaded;
 }
 
-bool SurfaceLanguageButtonPresenter::OnCommand(std::uint32_t command_id,
-                                               std::uint16_t notification_code) {
-  (void)notification_code;
-  if (command_id != control_id || !model_proxy || !locale) {
-    return false;
-  }
+void SurfaceLanguageButtonPresenter::NotifyClickedFromUi() {
   int const next = 1 - locale->language_index();
   model_proxy->Invoke<ui::UiLocaleSettings>(
       locale->obj_id, &ui::UiLocaleSettings::SubmitLanguageIndexFromUi, next);
-  return true;
 }
 
 }  // namespace apptraverse

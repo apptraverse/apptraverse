@@ -136,13 +136,20 @@ bool DispatchChildCommand(WPARAM wparam, LPARAM lparam) {
   if (child == nullptr) {
     return false;
   }
+  std::uint32_t const command_id = static_cast<std::uint32_t>(LOWORD(wparam));
+  std::uint16_t const notification_code =
+      static_cast<std::uint16_t>(HIWORD(wparam));
+  if (static_cast<std::uint32_t>(GetDlgCtrlID(child)) != command_id ||
+      notification_code != BN_CLICKED) {
+    return false;
+  }
   auto* owner =
       reinterpret_cast<Presenter*>(GetWindowLongPtrW(child, GWLP_USERDATA));
   if (owner == nullptr) {
     return false;
   }
-  return owner->OnCommand(static_cast<std::uint32_t>(LOWORD(wparam)),
-                          static_cast<std::uint16_t>(HIWORD(wparam)));
+  owner->NotifyClickedFromUi();
+  return true;
 }
 
 Win32SurfaceWindowPresenter::ptr ResolveWin32WindowPresenter(
@@ -283,24 +290,16 @@ void Win32SurfaceButtonPresenter::OnUnload() {
   }
 }
 
-bool Win32SurfaceButtonPresenter::OnCommand(std::uint32_t command_id,
-                                            std::uint16_t notification_code) {
-  if (notification_code != BN_CLICKED || command_id != control_id) {
-    return false;
-  }
-  if (!model_proxy || !surface) {
-    return false;
-  }
+void Win32SurfaceButtonPresenter::NotifyClickedFromUi() {
   if (role == SurfaceButtonRole::Add) {
     model_proxy->Invoke<Surface>(surface->obj_id, &Surface::AddSurface);
-    return true;
+    return;
   }
   if (surface->surfaces->surfaces.size() == 1) {
     PostApplicationStop(presentation_host);
-  } else {
-    model_proxy->Invoke<Surface>(surface->obj_id, &Surface::Remove);
+    return;
   }
-  return true;
+  model_proxy->Invoke<Surface>(surface->obj_id, &Surface::Remove);
 }
 
 void Win32SurfaceLanguageButtonPresenter::SyncCaption() {

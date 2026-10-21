@@ -14,11 +14,11 @@
 namespace apptraverse::ui {
 
 struct UiControlLayout {
-  std::int32_t x{0};
-  std::int32_t y{0};
-  std::int32_t width{100};
-  std::int32_t height{24};
-  std::uint32_t control_id{0};
+  std::int32_t x;
+  std::int32_t y;
+  std::int32_t width;
+  std::int32_t height;
+  std::uint32_t control_id;
 };
 
 class UiWindowPresenter : public Presenter {
@@ -110,16 +110,13 @@ class UiEditBoxPresenter : public Presenter {
 
   UiEditBox::ptr edit_box;
   ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x{0};
-  std::int32_t layout_y{0};
-  std::int32_t layout_width{200};
-  std::int32_t layout_height{24};
-  std::uint32_t control_id{0};
+  std::int32_t layout_x;
+  std::int32_t layout_y;
+  std::int32_t layout_width;
+  std::int32_t layout_height;
+  std::uint32_t control_id;
 
   bool ReadyForPresentation() const override;
-
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
 
   void SubmitTextFromUi(std::string text, std::size_t caret_utf8_offset);
   void SubmitCaretFromUi(std::size_t caret_utf8_offset);
@@ -153,16 +150,15 @@ class UiPushButtonPresenter : public Presenter {
 
   UiPushButton::ptr button;
   ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x{0};
-  std::int32_t layout_y{0};
-  std::int32_t layout_width{120};
-  std::int32_t layout_height{28};
-  std::uint32_t control_id{0};
+  std::int32_t layout_x;
+  std::int32_t layout_y;
+  std::int32_t layout_width;
+  std::int32_t layout_height;
+  std::uint32_t control_id;
 
   bool ReadyForPresentation() const override;
 
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
+  void NotifyClickedFromUi() override;
 
   void SimulateClickForTest();
 };
@@ -208,18 +204,15 @@ class UiListContainerPresenter : public Presenter {
 
   UiListContainer::ptr container;
   ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x{0};
-  std::int32_t layout_y{0};
-  std::int32_t layout_width{200};
-  std::int32_t layout_height{120};
-  std::uint32_t control_id{0};
-  bool notify_list_selection_change{false};
+  std::int32_t layout_x;
+  std::int32_t layout_y;
+  std::int32_t layout_width;
+  std::int32_t layout_height;
+  std::uint32_t control_id;
+  bool notify_list_selection_change;
 
   bool ReadyForPresentation() const override;
   void OnModelChanged() override;
-
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
 
   virtual void SubmitListRowActivatedFromUi(std::size_t row_index);
   virtual void SubmitListRowSelectionChangedFromUi(std::size_t row_index);
@@ -256,10 +249,10 @@ class UiLabelPresenter : public Presenter {
 
   UiLabel::ptr label;
   ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x{0};
-  std::int32_t layout_y{0};
-  std::int32_t layout_width{200};
-  std::int32_t layout_height{20};
+  std::int32_t layout_x;
+  std::int32_t layout_y;
+  std::int32_t layout_width;
+  std::int32_t layout_height;
 };
 
 void EnsureUiPresenterRegistration();

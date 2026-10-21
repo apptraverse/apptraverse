@@ -11,6 +11,7 @@ namespace {
 constexpr wchar_t kDesktopWindowClass[] = L"AppTraverseUiDesktopWindow";
 constexpr wchar_t kBitmapViewportClass[] = L"AppTraverseUiBitmapViewport";
 constexpr std::uint16_t kEnChange = 0x0300;
+constexpr std::uint16_t kBnClicked = 0;
 constexpr std::uint16_t kLbnSelchange = 1;
 constexpr std::uint16_t kLbnDblclk = 2;
 
@@ -288,19 +289,28 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged() {
 bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
                                                   std::uint16_t notification_code,
                                                   HWND child) {
+  if (child == nullptr ||
+      static_cast<std::uint32_t>(GetDlgCtrlID(child)) != command_id) {
+    return false;
+  }
   auto* child_presenter = PresenterFromChildHwnd(child);
   if (child_presenter == nullptr) {
     return false;
   }
   if (notification_code == kEnChange) {
-    auto* edit = static_cast<WinEditBoxPresenter*>(child_presenter);
-    if (!edit->OnCommand(command_id, notification_code)) {
-      return false;
-    }
-    edit->ReadFromNativeAndSubmit();
+    static_cast<WinEditBoxPresenter*>(child_presenter)->ReadFromNativeAndSubmit();
     return true;
   }
-  return child_presenter->OnCommand(command_id, notification_code);
+  if (notification_code == kBnClicked) {
+    child_presenter->NotifyClickedFromUi();
+    return true;
+  }
+  if (notification_code == kLbnSelchange ||
+      notification_code == kLbnDblclk) {
+    return static_cast<WinListContainerPresenter*>(child_presenter)
+        ->HandleListNotification(notification_code);
+  }
+  return false;
 }
 
 void WinDesktopWindowPresenter::OnModelChanged() {
@@ -388,11 +398,6 @@ void WinEditBoxPresenter::ReadFromNativeAndSubmit() {
   auto const utf8 = WideToUtf8(wide);
   auto const caret = Utf8OffsetFromWideCaret(wide, wide_caret);
   SubmitTextFromUi(utf8, caret);
-}
-
-bool WinEditBoxPresenter::OnCommand(std::uint32_t command_id,
-                                    std::uint16_t notification_code) {
-  return UiEditBoxPresenter::OnCommand(command_id, notification_code);
 }
 
 void WinEditBoxPresenter::OnModelChanged() { SyncFromMirror(); }
@@ -483,11 +488,8 @@ void WinListContainerPresenter::OnLoad() {
   SyncFromMirror();
 }
 
-bool WinListContainerPresenter::OnCommand(std::uint32_t command_id,
-                                          std::uint16_t notification_code) {
-  if (control_id == 0 || command_id != control_id || hwnd_ == nullptr) {
-    return UiListContainerPresenter::OnCommand(command_id, notification_code);
-  }
+bool WinListContainerPresenter::HandleListNotification(
+    std::uint16_t notification_code) {
   if (notify_list_selection_change &&
       notification_code == kLbnSelchange) {
     LRESULT const sel = SendMessageW(hwnd_, LB_GETCURSEL, 0, 0);
@@ -498,7 +500,7 @@ bool WinListContainerPresenter::OnCommand(std::uint32_t command_id,
     return true;
   }
   if (notification_code != kLbnDblclk) {
-    return UiListContainerPresenter::OnCommand(command_id, notification_code);
+    return false;
   }
   LRESULT const sel = SendMessageW(hwnd_, LB_GETCURSEL, 0, 0);
   if (sel == LB_ERR) {

@@ -4022,3 +4022,12 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ### Artifacts
 - **`win32_surfaces_demo.exe`** SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`** (unchanged vs Z-order pass).
 - **`apptraverse_surfaces_win32_library_consumer_test.exe`** SHA256: **`1593CFAA0D6F92F9F855CDE13C6D7EBC3BB5A268CFB56F69D656B5EA5C1E6806`**
+
+---
+
+## Surfaces library controls baseline (2026-10-21)
+
+- Baseline SHA: **`8a5a690d396ff09af8bf75f78487f663e6cd4eb7`** (`f21c75f^`). Compare worktree: **`apptraverse-baseline-8a5a690-clean`** @ same SHA.
+- Branch: **`cursor/surfaces-library-controls`** — Win32 **`WM_COMMAND`** routing centralized; **`NotifyClickedFromUi()`** for buttons; removed per-presenter **`OnCommand`** filters and decorative layout defaults.
+- Verified Release: UI headless + materialization **PASS**; **`apptraverse_surfaces_win32_smoke_test` PASS** (routing WIP and clean baseline).
+- **`TestCollectLiveReachableStableWithLongJournal`**: artificial direct **`SetPresentationSize`** stress (not WM_SIZE queue path); p95 thresholds **flaky** on same SHA — **not** library-control acceptance gate. Details: **`build-surfaces-library-controls-msvc-rel/verification-results.txt`**.

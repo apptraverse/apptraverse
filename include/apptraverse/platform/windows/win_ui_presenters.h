@@ -242,17 +242,7 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
 
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
-
-
-  bool OnCommand(std::uint32_t command_id,
-
-                 std::uint16_t notification_code) override;
-
-
-
   HWND hwnd() const { return hwnd_; }
-
-
 
   void ReadFromNativeAndSubmit();
 
@@ -360,21 +350,11 @@ class WinListContainerPresenter : public UiListContainerPresenter {
 
   void OnUnload() override;
 
-
-
-  bool OnCommand(std::uint32_t command_id,
-
-                 std::uint16_t notification_code) override;
-
-
-
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
-
 
   HWND hwnd() const { return hwnd_; }
 
-
+  bool HandleListNotification(std::uint16_t notification_code);
 
  private:
 

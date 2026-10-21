@@ -44,13 +44,12 @@ class SurfaceButtonPresenter : public Presenter {
   }
 
   bool ReadyForPresentation() const override;
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
+  void NotifyClickedFromUi() override;
 
   Surface::ptr surface;
   ae::ObjPtr<SurfaceWindowPresenter> window_presenter;
-  SurfaceButtonRole role{SurfaceButtonRole::Add};
-  std::uint32_t control_id{0};
+  SurfaceButtonRole role;
+  std::uint32_t control_id;
   ae::ObjPtr<ui::UiLocaleSettings> locale;
   ae::ObjPtr<ui::UiLocalizationString> label;
 };

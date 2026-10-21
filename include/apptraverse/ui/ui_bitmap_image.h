@@ -80,10 +80,10 @@ class UiBitmapImagePresenter : public Presenter {
 
   UiBitmapImage::ptr image;
   ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x{0};
-  std::int32_t layout_y{0};
-  std::int32_t layout_width{0};
-  std::int32_t layout_height{0};
+  std::int32_t layout_x;
+  std::int32_t layout_y;
+  std::int32_t layout_width;
+  std::int32_t layout_height;
 
   bool ReadyForPresentation() const override;
   void OnModelChanged() override;
