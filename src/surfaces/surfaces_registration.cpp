@@ -90,6 +90,10 @@ APPTRAVERSE_REGISTER(SurfaceBoundsChangedEvent);
 
 APPTRAVERSE_REGISTER(SurfacePresentationSizeChangedEvent);
 
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+APPTRAVERSE_REGISTER(SurfaceWindowTitleSuffixChangedEvent);
+#endif
+
 APPTRAVERSE_REGISTER(Application);
 
 

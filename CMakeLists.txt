@@ -150,7 +150,7 @@ if(WIN32)
   )
 endif()
 
-add_library(apptraverse_surfaces STATIC
+set(_apptraverse_surfaces_common_sources
   src/surfaces/surfaces_model.cpp
   src/surfaces/surfaces_localization.cpp
   src/surfaces/surfaces_registration.cpp
@@ -161,31 +161,51 @@ add_library(apptraverse_surfaces STATIC
   src/surfaces/surfaces_chrome_wiring.cpp
   src/surfaces/surfaces_presentation_size_queue.cpp
 )
-target_link_libraries(apptraverse_surfaces PUBLIC apptraverse)
-target_include_directories(apptraverse_surfaces PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-target_compile_features(apptraverse_surfaces PUBLIC cxx_std_20)
-if(MSVC)
-  target_compile_options(apptraverse_surfaces PRIVATE /bigobj)
-endif()
 
-if(WIN32)
-  add_library(apptraverse_surfaces_windows STATIC
-    src/platform/windows/surfaces_win_presenters.cpp
-    src/platform/windows/surfaces_win32_z_order.cpp
-    src/platform/windows/surfaces_win_registration.cpp
-  )
-  target_link_libraries(apptraverse_surfaces_windows PUBLIC
-    apptraverse_surfaces
-    apptraverse_ui_windows
-    user32
-    gdi32
-  )
-  target_include_directories(apptraverse_surfaces_windows PUBLIC
+function(apptraverse_add_surfaces_library target revision)
+  set(_sources ${_apptraverse_surfaces_common_sources})
+  if(revision EQUAL 1)
+    list(APPEND _sources src/surfaces/surfaces_v1_hooks_impl.cpp)
+  endif()
+  add_library(${target} STATIC ${_sources})
+  target_link_libraries(${target} PUBLIC apptraverse)
+  target_include_directories(${target} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
-  target_compile_features(apptraverse_surfaces_windows PUBLIC cxx_std_20)
+  target_compile_features(${target} PUBLIC cxx_std_20)
+  target_compile_definitions(${target} PUBLIC
+    APPTRAVERSE_SURFACE_DEMO_REVISION=${revision})
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /bigobj)
+  endif()
+endfunction()
+
+apptraverse_add_surfaces_library(apptraverse_surfaces 0)
+apptraverse_add_surfaces_library(apptraverse_surfaces_v1 1)
+
+if(WIN32)
+  function(apptraverse_add_surfaces_windows_library target surfaces_lib)
+    add_library(${target} STATIC
+      src/platform/windows/surfaces_win_presenters.cpp
+      src/platform/windows/surfaces_win32_z_order.cpp
+      src/platform/windows/surfaces_win_registration.cpp
+    )
+    target_link_libraries(${target} PUBLIC
+      ${surfaces_lib}
+      apptraverse_ui_windows
+      user32
+      gdi32
+    )
+    target_include_directories(${target} PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_compile_features(${target} PUBLIC cxx_std_20)
+  endfunction()
+
+  apptraverse_add_surfaces_windows_library(apptraverse_surfaces_windows
+    apptraverse_surfaces)
+  apptraverse_add_surfaces_windows_library(apptraverse_surfaces_windows_v1
+    apptraverse_surfaces_v1)
 endif()
 
 target_compile_features(apptraverse PUBLIC cxx_std_20)

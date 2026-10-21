@@ -15,6 +15,7 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 
+#include "apptraverse/surfaces/surfaces_demo_revision.h"
 #include "apptraverse/surfaces/surfaces_ids.h"
 
 namespace apptraverse {
@@ -30,6 +31,9 @@ class SetCurrentSurfaceEvent;
 class SetDesktopZOrderEvent;
 class SurfaceBoundsChangedEvent;
 class SurfacePresentationSizeChangedEvent;
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+class SurfaceWindowTitleSuffixChangedEvent;
+#endif
 
 struct SurfaceChromePresenters {
   ae::ObjPtr<SurfacePresenter> window;
@@ -76,6 +80,18 @@ class Surface : public NodeFor<Surface> {
         chrome.add_button, chrome.close_button, chrome.language_button);
   }
 
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, window_title_suffix);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, window_title_suffix);
+  }
+#endif
+
   // Model-thread: create sibling Surface + AddSurfaceEvent on parent Surfaces.
   void AddSurface();
   // Model-thread: RemoveSurfaceEvent when still live; stale double-remove no-op.
@@ -91,6 +107,10 @@ class Surface : public NodeFor<Surface> {
 
   void Apply(SurfaceBoundsChangedEvent const& event);
   void Apply(SurfacePresentationSizeChangedEvent const& event);
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+  void Apply(SurfaceWindowTitleSuffixChangedEvent const& event);
+  void SetWindowTitleSuffix(std::string suffix);
+#endif
 
   std::uint32_t number{0};
   // Desktop outer-frame placement (screen top-left + outer size). Mobile ignores.
@@ -104,6 +124,9 @@ class Surface : public NodeFor<Surface> {
   std::int32_t presentation_height{0};
   ae::ObjPtr<Surfaces> surfaces;
   SurfaceChromePresenters chrome;
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+  std::string window_title_suffix;
+#endif
 };
 
 class SurfacePresenter : public Presenter {
@@ -348,6 +371,36 @@ class SurfacePresentationSizeChangedEvent
   std::int32_t width{0};
   std::int32_t height{0};
 };
+
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+class SurfaceWindowTitleSuffixChangedEvent
+    : public EventFor<Surface, SurfaceWindowTitleSuffixChangedEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SurfaceWindowTitleSuffixChangedEvent",
+      SurfaceWindowTitleSuffixChangedEvent, Event, 0)
+
+ protected:
+  SurfaceWindowTitleSuffixChangedEvent() = default;
+
+ public:
+  explicit SurfaceWindowTitleSuffixChangedEvent(ae::ObjProp prop)
+      : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(suffix))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, suffix);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, suffix);
+  }
+
+  std::string suffix;
+};
+#endif
 
 class Application : public ae::Obj {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::Application",

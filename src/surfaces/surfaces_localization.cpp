@@ -45,4 +45,15 @@ std::string FormatSurfaceWindowTitle(ui::UiLocalizationString const& prefix,
   return prefix.Resolve(language_index) + std::to_string(number);
 }
 
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+std::string FormatSurfaceWindowTitleWithSuffix(
+    ui::UiLocalizationString const& prefix, int language_index,
+    Surface const& surface) {
+  std::string title =
+      FormatSurfaceWindowTitle(prefix, language_index, surface.number);
+  title += surface.window_title_suffix;
+  return title;
+}
+#endif
+
 }  // namespace apptraverse

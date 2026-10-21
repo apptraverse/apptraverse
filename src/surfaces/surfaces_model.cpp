@@ -10,6 +10,7 @@
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_presentation.h"
 #include "apptraverse/surfaces/surfaces_presentation_size_queue.h"
+#include "apptraverse/surfaces/surfaces_v1_hooks.h"
 
 namespace apptraverse {
 
@@ -151,7 +152,27 @@ void Surface::AddSurface() {
   auto event = AddSurfaceEvent::ptr::Create(ae::CreateWith{*parent.domain});
   event->surface = sibling;
   parent.Commit(event);
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+  SurfacesDemoOnSurfaceAdded(*sibling);
+#endif
 }
+
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+void Surface::Apply(SurfaceWindowTitleSuffixChangedEvent const& event) {
+  window_title_suffix = event.suffix;
+  NoteMaterializedChange();
+}
+
+void Surface::SetWindowTitleSuffix(std::string suffix) {
+  if (window_title_suffix == suffix) {
+    return;
+  }
+  auto event = SurfaceWindowTitleSuffixChangedEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  event->suffix = std::move(suffix);
+  Commit(event);
+}
+#endif
 
 void Surface::Remove() {
   Surfaces& parent = *surfaces;

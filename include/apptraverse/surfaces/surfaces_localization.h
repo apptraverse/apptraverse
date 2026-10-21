@@ -9,6 +9,7 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 
+#include "apptraverse/surfaces/surfaces_demo_revision.h"
 #include "apptraverse/surfaces/surfaces_model.h"
 
 namespace apptraverse {
@@ -19,6 +20,12 @@ void InstallSurfacesDemoLocalization(Application& application,
 
 std::string FormatSurfaceWindowTitle(ui::UiLocalizationString const& prefix,
                                      int language_index, std::uint32_t number);
+
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+std::string FormatSurfaceWindowTitleWithSuffix(
+    ui::UiLocalizationString const& prefix, int language_index,
+    Surface const& surface);
+#endif
 
 }  // namespace apptraverse
 

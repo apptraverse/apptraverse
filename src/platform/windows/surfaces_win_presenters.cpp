@@ -187,8 +187,13 @@ void Win32SurfaceWindowPresenter::SyncWindowTitle() {
   if (hwnd == nullptr || !locale || !window_title_prefix || !surface) {
     return;
   }
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+  std::string const title = FormatSurfaceWindowTitleWithSuffix(
+      *window_title_prefix, locale->language_index(), *surface);
+#else
   std::string const title = FormatSurfaceWindowTitle(
       *window_title_prefix, locale->language_index(), surface->number);
+#endif
   SetWindowTextW(hwnd, ui::windows::Utf8ToWide(title).c_str());
 }
 
