@@ -147,7 +147,7 @@ class SurfacePresenter : public Presenter {
 
 class Surfaces : public NodeFor<Surfaces> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::Surfaces", Surfaces,
-                           Node, 1)
+                           Node, 0)
 
  protected:
   Surfaces() = default;
@@ -160,17 +160,11 @@ class Surfaces : public NodeFor<Surfaces> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, surfaces, mobile_current);
-    desktop_z_order.clear();
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, surfaces, mobile_current, desktop_z_order);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, surfaces, mobile_current, desktop_z_order);
   }
 
@@ -180,7 +174,7 @@ class Surfaces : public NodeFor<Surfaces> {
   // once and leave it empty, the same way mobile ignores desktop_*.
   Surface::ptr mobile_current;
   // Desktop-only persisted Z-order: top → bottom among live Surface windows.
-  // Empty on legacy profiles and non-desktop hosts.
+  // Empty when no desktop window order has been captured.
   std::vector<Surface::ptr> desktop_z_order;
 
   void Apply(AddSurfaceEvent const& event);

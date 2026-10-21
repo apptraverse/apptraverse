@@ -90,10 +90,11 @@ APPTRAVERSE_REGISTER(LayerDerived);
   } while (0)
 
 int main(int argc, char* argv[]) {
-  std::string in_path = "/tmp/native_class_layers_evolution.bin";
-  if (argc > 1) {
-    in_path = argv[1];
+  if (argc != 2) {
+    std::cerr << "Usage: native_class_layers_reader_v2 <state-file>\n";
+    return 2;
   }
+  std::string const in_path = argv[1];
 
   apptraverse::EnsureObjectRegistration();
 

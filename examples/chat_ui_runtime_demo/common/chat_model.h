@@ -2,7 +2,6 @@
 #define CHAT_MODEL_H_
 
 #include <cstdint>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -58,7 +57,7 @@ inline constexpr std::uint32_t kChatFeedKindJoin = 1;
 inline constexpr std::uint32_t kChatFeedKindMessage = 2;
 
 class ChatClient : public NodeFor<ChatClient> {
-  APPTRAVERSE_NAMED_OBJECT("chat::ChatClient", ChatClient, Node, 2)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatClient", ChatClient, Node, 0)
 
  protected:
   ChatClient() = default;
@@ -70,25 +69,12 @@ class ChatClient : public NodeFor<ChatClient> {
                     AE_MMBR(presence))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "ChatClient v0 is not supported; start with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "ChatClient v1 flattened layout is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, display_name, aether_uid, presence);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, display_name, aether_uid, presence);
   }
 
@@ -143,7 +129,7 @@ class ChatClient : public NodeFor<ChatClient> {
 };
 
 class ChatFeedItem : public ae::Obj {
-  APPTRAVERSE_NAMED_OBJECT("chat::ChatFeedItem", ChatFeedItem, ae::Obj, 1)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatFeedItem", ChatFeedItem, ae::Obj, 0)
 
  protected:
   ChatFeedItem() = default;
@@ -156,23 +142,11 @@ class ChatFeedItem : public ae::Obj {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, kind, client, body);
-    sent_at_unix_ms = 0;
-    source_event_obj_id = 0;
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, kind, client, body, sent_at_unix_ms, source_event_obj_id);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, kind, client, body);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
     dnv(base_, kind, client, body, sent_at_unix_ms, source_event_obj_id);
   }
 
@@ -184,7 +158,7 @@ class ChatFeedItem : public ae::Obj {
 };
 
 class ChatRoom : public NodeFor<ChatRoom> {
-  APPTRAVERSE_NAMED_OBJECT("chat::ChatRoom", ChatRoom, Node, 2)
+  APPTRAVERSE_NAMED_OBJECT("chat::ChatRoom", ChatRoom, Node, 0)
 
  protected:
   ChatRoom() = default;
@@ -195,25 +169,12 @@ class ChatRoom : public NodeFor<ChatRoom> {
   AE_OBJECT_REFLECT(AE_MMBR(clients), AE_MMBR(feed))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "ChatRoom v0 is not supported; start with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "ChatRoom v1 flattened layout is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, clients, feed);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, clients, feed);
   }
 

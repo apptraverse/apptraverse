@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <limits>
 #include <map>
-#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -33,8 +32,8 @@ inline std::uint64_t SystemUtcMicros() {
 }
 
 class Node : public ae::Obj {
-  // Version 4: native base-class serialization (separate class layers).
-  APPTRAVERSE_OBJECT(Node, ae::Obj, 4)
+  // Native base-class serialization uses separate class layers.
+  APPTRAVERSE_OBJECT(Node, ae::Obj, 0)
 
  protected:
   Node() = default;
@@ -45,42 +44,14 @@ class Node : public ae::Obj {
   AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "AppTraverse Node journal v0 (timestamp_us) is not supported; "
-        "re-distill with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "AppTraverse Node journal v1 ordered by (lamport, origin_uid, "
-        "origin_sequence); re-distill with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv&) {
-    throw std::runtime_error(
-        "AppTraverse Node journal v2 ordered by (lamport, origin_uid, "
-        "origin_sequence); re-distill with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<3>, Dnv&) {
-    throw std::runtime_error(
-        "AppTraverse Node v3 flattened journal layout is not supported; "
-        "re-distill with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<4>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, base, journal);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<4>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     if (detail::OmitNodeHistoryForPublication(dnv)) {
-      detail::NoteNodeV4PublicationOmitSave();
+      detail::NoteNodePublicationOmitSave();
       SharedPtr<Node> empty_base{};
       static std::vector<EventRecord> const kEmptyJournal{};
       dnv(base_, empty_base, kEmptyJournal);

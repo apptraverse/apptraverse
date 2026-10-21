@@ -4022,6 +4022,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ### Artifacts
 - **`win32_surfaces_demo.exe`** SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`** (unchanged vs Z-order pass).
 - **`apptraverse_surfaces_win32_library_consumer_test.exe`** SHA256: **`1593CFAA0D6F92F9F855CDE13C6D7EBC3BB5A268CFB56F69D656B5EA5C1E6806`**
+
 ## Serialization v0 work: build prerequisites (2026-10-21)
 
 - Isolated branch `codex/serialization-v0-evolution` starts at the requested
@@ -4039,6 +4040,56 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
   incremental builds of `apptraverse`, `apptraverse_surfaces` and the first
   serialization test executables. Native Windows/GTK GUI execution is not
   available here. Schema reset validation is recorded in the next iteration.
-- Commit/push status: this prerequisite change is committed separately from
-  the serialization reset; the branch will be pushed without merging or a PR.
+- Published prerequisite commit: `1c499242b8b352ba5f082a3e55539eaba14e833c`
+  on `codex/serialization-v0-evolution`, without merging or a PR.
+
+## Working serialization schemas reset to v0 (2026-10-21)
+
+- Inventory: `docs/serialization_schema_v0_inventory.md` records all 236 baseline
+  object declarations. All 165 working library/example declarations now use v0;
+  their historical overloads are removed. ClassId strings, names and bases are
+  unchanged. Six incidental test-model version bumps are also reset; the
+  deliberate native class-layer evolution fixture remains versioned.
+- Kept effective current fields, including bitmap pixels, list selection
+  notification, desktop Z-order, chat timestamps and source Event ObjIds.
+  Node journal/publication behavior is unchanged; the obsolete v4 name was
+  removed from the publication counter.
+- Replaced historical flattened-version rejection checks with a complete valid
+  graph whose one layer is moved to an unsupported version. Positive loading,
+  explicit failure, null/unregistered root and unchanged storage are checked.
+- Existing writer/reader evolution now runs as one ordered CTest in a new
+  directory, including spaces in its filename; reader input SHA256 is checked.
+  Presenter persistence now verifies pixels, notification flags, aliases, cycles
+  and exclusively v0 layers. Geometry persistence also verifies Z-order ObjIds
+  and identity with the loaded Surface objects.
+- Made storage write/read failure tests independent of chmod behavior by using
+  filesystem blockers and checking original bytes/marker preservation. No
+  storage implementation changes were made.
+
+### Verification and remaining baseline failures
+
+- GCC 13.3, Debug, C++20 and no RTTI; examples/tests enabled, Aether demos and
+  Linux GTK hosts disabled. All test state lived in new dedicated directories.
+- **19 selected CTests PASS**: core events, journal retention, model persistence
+  and stop, DirectoryDomainStorage, native class layers plus cross-process
+  evolution, SharedNode foundation/initial/incremental sync, closed event graph,
+  checkpoint cycle/rehydration, presenter graph, bitmap publication/structural
+  publication, edit box, control materialization and chat demo model.
+- **37 Surfaces functional cases PASS**, including restart, geometry/Z-order,
+  locale, publication and GUI proxy behavior, using `--skip-long-journal`.
+  This explicitly skips exactly two existing 10,000-event performance cases;
+  no-argument execution still runs all 39 cases.
+- Full Debug `apptraverse_surfaces_model_test`: **TIMEOUT at 300 seconds** in
+  the long-journal benchmark. This is not recorded as PASS; no performance
+  threshold or journal implementation was changed.
+- `apptraverse_main_window_lifecycle_test`: **FAIL** at the absolute presenter
+  destructor count (`tests/main_window_lifecycle_test.cpp:171`).
+  `apptraverse_dynamic_objects_add_test`: **SIGSEGV** during model reload.
+  Both failures were reproduced in a separate clean source worktree at
+  `1c499242` (the requested baseline plus only build prerequisites), using the
+  same dependency sources and fresh profiles. They are pre-existing failures,
+  not evidence of successful functional validation.
+- Chat UI registration/serializers compile with `-fsyntax-only`; native
+  Windows/GTK UI and full Aether demo execution were not available here.
+- Scope is implemented and checked as above, not marked accepted-by-user.
 

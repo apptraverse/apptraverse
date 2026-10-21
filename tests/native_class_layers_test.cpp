@@ -1,11 +1,10 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
 #include <iostream>
 #include <memory>
-#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "aether-miscpp/serialization/binary_archive.h"
@@ -286,15 +285,15 @@ void TestRealModelLayers_SharedValueNode() {
 
   // 1. Storage must contain separate layers for Node, SharedNode, SharedValueNode
   auto node_load = storage.Load(
-      ae::DomainQuery{target_id, Node::kClassId, 4});
+      ae::DomainQuery{target_id, Node::kClassId, 0});
   CHECK(node_load.result == ae::DomainLoadResult::kLoaded);
 
   auto shared_node_load = storage.Load(
-      ae::DomainQuery{target_id, SharedNode::kClassId, 2});
+      ae::DomainQuery{target_id, SharedNode::kClassId, 0});
   CHECK(shared_node_load.result == ae::DomainLoadResult::kLoaded);
 
   auto svn_load = storage.Load(
-      ae::DomainQuery{target_id, SharedValueNode::kClassId, 2});
+      ae::DomainQuery{target_id, SharedValueNode::kClassId, 0});
   CHECK(svn_load.result == ae::DomainLoadResult::kLoaded);
 
   // 2. Verify no duplicate copies: SharedValueNode layer has only its own fields (value)
@@ -343,7 +342,7 @@ void TestRealModelLayers_MemoryLink() {
 
   // 1. Storage must contain separate layers for Node, Link, MemoryLink
   auto node_load = storage.Load(
-      ae::DomainQuery{target_id, Node::kClassId, 4});
+      ae::DomainQuery{target_id, Node::kClassId, 0});
   CHECK(node_load.result == ae::DomainLoadResult::kLoaded);
 
   auto link_load = storage.Load(
@@ -351,7 +350,7 @@ void TestRealModelLayers_MemoryLink() {
   CHECK(link_load.result == ae::DomainLoadResult::kLoaded);
 
   auto mem_load = storage.Load(
-      ae::DomainQuery{target_id, MemoryLink::kClassId, 2});
+      ae::DomainQuery{target_id, MemoryLink::kClassId, 0});
   CHECK(mem_load.result == ae::DomainLoadResult::kLoaded);
 
   // 2. Verify no duplicate copies: MemoryLink layer contains endpoint_uid and heartbeat_interval_ms
@@ -406,11 +405,11 @@ void TestRealModelLayers_LinkSyncState() {
 
   // 1. Storage must contain separate layers for Node, LinkSyncState
   auto node_load = storage.Load(
-      ae::DomainQuery{target_id, Node::kClassId, 4});
+      ae::DomainQuery{target_id, Node::kClassId, 0});
   CHECK(node_load.result == ae::DomainLoadResult::kLoaded);
 
   auto lss_load = storage.Load(
-      ae::DomainQuery{target_id, LinkSyncState::kClassId, 3});
+      ae::DomainQuery{target_id, LinkSyncState::kClassId, 0});
   CHECK(lss_load.result == ae::DomainLoadResult::kLoaded);
 
   // 2. Verify no duplicate copies: LinkSyncState layer has share_id first
@@ -530,142 +529,62 @@ void TestLinkSyncStatePersistenceAcrossBusinessReplay() {
   CHECK(node->GetInitialSyncPhase(link) == InitialSyncPhase::Complete);
 }
 
-void TestOldFlattenedStateRejected() {
+void TestUnsupportedSchemaRejected() {
   using example::shared_node::SharedValueNode;
 
-  // 1. Old Node version 3 layer rejection
-  {
+  auto check_rejected = []<typename T>(ae::ObjId target_id,
+                                      std::uint32_t layer_class_id) {
     ae::RamDomainStorage storage;
-    ae::ObjId target_id{80001};
-
-    // Synthesize old Node v3 entry: storage key has class_id = Node::kClassId, version = 3
-    storage.state[target_id].emplace();
-    (*storage.state[target_id])[Node::kClassId][3] = std::vector<std::uint8_t>{0x01, 0x02, 0x03};
-
-    auto original_state = storage.state;
-
-    ae::Domain domain{storage};
-    ae::DomainGraph graph{&domain};
-
-    bool threw = false;
-    try {
-      (void)graph.LoadRoot(target_id);
-    } catch (std::runtime_error const& e) {
-      threw = true;
-      std::string msg = e.what();
-      CHECK(msg.find("Node v3") != std::string::npos ||
-            msg.find("not supported") != std::string::npos);
+    {
+      ae::Domain domain{storage};
+      auto source = ae::MakePtr<T>();
+      domain.AddObject(target_id, source);
+      source->domain = &domain;
+      source->obj_id = target_id;
+      ae::DomainGraph graph{&domain};
+      CHECK(graph.SaveRoot(source, target_id));
     }
-    CHECK(threw);
-    // Storage must not be mutated
-    CHECK(storage.state == original_state);
-  }
 
-  // 2. Old SharedValueNode version 1 layer rejection
-  {
-    ae::RamDomainStorage storage;
-    ae::ObjId target_id{80002};
-
-    storage.state[target_id].emplace();
-    (*storage.state[target_id])[SharedValueNode::kClassId][1] =
-        std::vector<std::uint8_t>{0x11, 0x22};
-
-    auto original_state = storage.state;
-
-    ae::Domain domain{storage};
-    ae::DomainGraph graph{&domain};
-
-    bool threw = false;
-    try {
-      (void)graph.LoadRoot(target_id);
-    } catch (std::runtime_error const& e) {
-      threw = true;
-      std::string msg = e.what();
-      CHECK(msg.find("SharedValueNode v1") != std::string::npos ||
-            msg.find("not supported") != std::string::npos);
+    // Prove that this complete graph loads before changing only its schema key.
+    auto const valid_state = storage.state;
+    {
+      ae::Domain domain{storage};
+      ae::DomainGraph graph{&domain};
+      auto root = graph.LoadRoot(target_id);
+      CHECK(root);
+      CHECK(root->GetClassId() == T::kClassId);
+      CHECK(root->obj_id == target_id);
     }
-    CHECK(threw);
-    CHECK(storage.state == original_state);
-  }
+    CHECK(storage.state == valid_state);
 
-  // 3. Old MemoryLink version 1 layer rejection
-  {
-    ae::RamDomainStorage storage;
-    ae::ObjId target_id{80003};
+    auto& versions = storage.state.at(target_id)->at(layer_class_id);
+    CHECK(versions.size() == 1);
+    auto layer = versions.extract(0);
+    CHECK(!layer.empty());
+    layer.key() = 1;
+    versions.insert(std::move(layer));
+    auto const incompatible_state = storage.state;
 
-    storage.state[target_id].emplace();
-    (*storage.state[target_id])[MemoryLink::kClassId][1] =
-        std::vector<std::uint8_t>{0x33, 0x44};
-
-    auto original_state = storage.state;
-
-    ae::Domain domain{storage};
-    ae::DomainGraph graph{&domain};
-
-    bool threw = false;
-    try {
-      (void)graph.LoadRoot(target_id);
-    } catch (std::runtime_error const& e) {
-      threw = true;
-      std::string msg = e.what();
-      CHECK(msg.find("MemoryLink v1") != std::string::npos ||
-            msg.find("not supported") != std::string::npos);
+    {
+      ae::Domain domain{storage};
+      ae::DomainGraph graph{&domain};
+      ae::Ptr<ae::Obj> root;
+      auto result = graph.LoadRoot(target_id, root);
+      CHECK(result.IsErr());
+      CHECK(!root);
+      CHECK(!domain.Find(target_id));
     }
-    CHECK(threw);
-    CHECK(storage.state == original_state);
-  }
-
-  // 4. Old LinkSyncState version 2 layer rejection
-  {
-    ae::RamDomainStorage storage;
-    ae::ObjId target_id{80004};
-
-    storage.state[target_id].emplace();
-    (*storage.state[target_id])[LinkSyncState::kClassId][2] =
-        std::vector<std::uint8_t>{0x55, 0x66};
-
-    auto original_state = storage.state;
-
-    ae::Domain domain{storage};
-    ae::DomainGraph graph{&domain};
-
-    bool threw = false;
-    try {
-      (void)graph.LoadRoot(target_id);
-    } catch (std::runtime_error const& e) {
-      threw = true;
-      std::string msg = e.what();
-      CHECK(msg.find("LinkSyncState v2") != std::string::npos ||
-            msg.find("not supported") != std::string::npos);
-    }
-    CHECK(threw);
-    CHECK(storage.state == original_state);
-  }
-}
-
-void TestCrossProcessEvolution() {
-  auto find_exe = [](std::string const& bin_name) {
-    if (std::filesystem::exists("./" + bin_name)) {
-      return "./" + bin_name;
-    }
-    if (std::filesystem::exists("./tests/" + bin_name)) {
-      return "./tests/" + bin_name;
-    }
-    if (std::filesystem::exists("./build/linux-x64-ninja-gcc-debug/tests/" + bin_name)) {
-      return "./build/linux-x64-ninja-gcc-debug/tests/" + bin_name;
-    }
-    return bin_name;
+    CHECK(storage.state == incompatible_state);
   };
 
-  std::string file_path = "/tmp/native_class_layers_evolution_test.bin";
-  std::string writer_cmd = find_exe("native_class_layers_writer_v1") + " " + file_path;
-  int w_rc = std::system(writer_cmd.c_str());
-  CHECK(w_rc == 0);
-
-  std::string reader_cmd = find_exe("native_class_layers_reader_v2") + " " + file_path;
-  int r_rc = std::system(reader_cmd.c_str());
-  CHECK(r_rc == 0);
+  check_rejected.operator()<SharedValueNode>(ae::ObjId{80001}, Node::kClassId);
+  check_rejected.operator()<SharedValueNode>(ae::ObjId{80002},
+                                            SharedValueNode::kClassId);
+  check_rejected.operator()<MemoryLink>(ae::ObjId{80003}, MemoryLink::kClassId);
+  check_rejected.operator()<LinkSyncState>(ae::ObjId{80004},
+                                          LinkSyncState::kClassId);
 }
+
 
 }  // namespace
 }  // namespace apptraverse::test
@@ -681,8 +600,7 @@ int main() {
   apptraverse::test::TestRealModelLayers_LinkSyncState();
   apptraverse::test::TestBaseSnapshotAndMidJournalReplay();
   apptraverse::test::TestLinkSyncStatePersistenceAcrossBusinessReplay();
-  apptraverse::test::TestOldFlattenedStateRejected();
-  apptraverse::test::TestCrossProcessEvolution();
+  apptraverse::test::TestUnsupportedSchemaRejected();
 
   std::cout << "apptraverse_native_class_layers_test: PASS\n";
   return 0;

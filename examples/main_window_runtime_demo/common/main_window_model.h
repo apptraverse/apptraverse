@@ -2,7 +2,6 @@
 #define APPTRAVERSE_MAIN_WINDOW_MODEL_H_
 
 #include <cstdint>
-#include <stdexcept>
 
 #include "aether-objects/obj/obj.h"
 
@@ -20,7 +19,7 @@ class WindowChangedEvent;
 
 class MainWindow : public NodeFor<MainWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::MainWindow", MainWindow, Node,
-                           5)
+                           0)
 
  protected:
   MainWindow() = default;
@@ -32,41 +31,12 @@ class MainWindow : public NodeFor<MainWindow> {
                     AE_MMBR(presenter))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("MainWindow v0 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error("MainWindow v1 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv&) {
-    throw std::runtime_error("MainWindow v2 is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<3>, Dnv&) {
-    throw std::runtime_error(
-        "MainWindow v3 flattened layout is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<4>, Dnv&) {
-    throw std::runtime_error(
-        "MainWindow v4 flattened layout is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<5>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, x, y, width, height, presenter);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<5>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, x, y, width, height, presenter);
   }
 

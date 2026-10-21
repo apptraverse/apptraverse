@@ -3,7 +3,9 @@
 #include <fstream>
 #include <iostream>
 #include <cstring>
+#include <iterator>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "aether-objects/obj/domain.h"
@@ -211,9 +213,10 @@ void TestWriteFailurePreservesPreviousLayer() {
     WriteRawLayer(*writer, first);
   }
   auto const path = DirectoryDomainStorageLayerPath(root, query);
-  std::filesystem::permissions(
-      path, std::filesystem::perms::owner_read,
-      std::filesystem::perm_options::replace);
+  // A directory cannot be opened as the temporary output file, including when
+  // the test runs as root or the platform permits replacing read-only files.
+  std::filesystem::path const temporary_path{path.string() + ".tmp"};
+  CHECK(std::filesystem::create_directory(temporary_path));
 
   storage.BeginSaveSession();
   {
@@ -222,12 +225,11 @@ void TestWriteFailurePreservesPreviousLayer() {
   }
   auto const stats = storage.SnapshotSaveSessionStats();
   CHECK(stats.layers_failed_commits >= 1);
+  CHECK(stats.layers_written == 0);
   CHECK(storage.SaveSessionHadFailure());
   CHECK(ReadLayerBytes(root, query) == SerializedLayerBytes(first));
+  CHECK(std::filesystem::is_directory(temporary_path));
 
-  std::filesystem::permissions(
-      path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-      std::filesystem::perm_options::replace);
   std::filesystem::remove_all(root);
 }
 
@@ -242,13 +244,18 @@ void TestCompareReadErrorFailsSave() {
   SaveNode(storage, node);
   ae::DomainQuery const query = FindSavedProbeLayer(root);
   auto const path = DirectoryDomainStorageLayerPath(root, query);
-  std::filesystem::create_directories(path.parent_path());
+  // Make the existing layer unreadable as a regular file without relying on
+  // permissions. Its marker must survive the failed compare-before-write.
+  CHECK(std::filesystem::remove(path));
+  CHECK(std::filesystem::create_directory(path));
+  auto const marker = path / "marker";
+  std::string const marker_bytes{"seed"};
   {
-    std::ofstream out{path, std::ios::binary};
-    out << "seed";
+    std::ofstream out{marker, std::ios::binary};
+    CHECK(out);
+    out << marker_bytes;
+    CHECK(out);
   }
-  std::filesystem::permissions(path, std::filesystem::perms::none,
-                               std::filesystem::perm_options::replace);
 
   storage.BeginSaveSession();
   {
@@ -258,14 +265,25 @@ void TestCompareReadErrorFailsSave() {
   CHECK(storage.SaveSessionHadFailure());
   auto const stats = storage.SnapshotSaveSessionStats();
   CHECK(stats.layers_failed_commits >= 1);
+  CHECK(stats.layers_written == 0);
+  CHECK(std::filesystem::is_directory(path));
+  CHECK(std::filesystem::is_regular_file(marker));
+  {
+    std::ifstream in{marker, std::ios::binary};
+    CHECK(in);
+    std::string const actual{std::istreambuf_iterator<char>{in},
+                             std::istreambuf_iterator<char>{}};
+    CHECK(actual == marker_bytes);
+  }
+  for (auto const& entry : std::filesystem::directory_iterator{path}) {
+    CHECK(entry.path() == marker);
+  }
+  CHECK(!std::filesystem::exists(path.string() + ".tmp"));
 
-  std::filesystem::permissions(
-      path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-      std::filesystem::perm_options::replace);
   std::filesystem::remove_all(root);
 }
 
-void TestFinalizeRenameFailure() {
+void TestNonDirectoryObjectPathFailsSave() {
   auto root = std::filesystem::temp_directory_path() /
               "apptraverse_directory_domain_storage_finalize_fail";
   std::filesystem::remove_all(root);
@@ -300,7 +318,7 @@ int main() {
   apptraverse::test::TestReplaceNonEmptyWithEmpty();
   apptraverse::test::TestWriteFailurePreservesPreviousLayer();
   apptraverse::test::TestCompareReadErrorFailsSave();
-  apptraverse::test::TestFinalizeRenameFailure();
+  apptraverse::test::TestNonDirectoryObjectPathFailsSave();
   std::cout << "directory_domain_storage_test OK\n";
   return 0;
 }

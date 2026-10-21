@@ -2,7 +2,6 @@
 #define APPTRAVERSE_EXAMPLE_CHAT_DEMO_CHAT_MODEL_H_
 
 #include <cstdint>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -103,7 +102,7 @@ class ScrollChangedEvent;
 // Not a SharedNode; local to this device.
 class ChatEntry : public apptraverse::NodeFor<ChatEntry, apptraverse::Node> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::chat_demo::ChatEntry",
-                           ChatEntry, Node, 1)
+                           ChatEntry, Node, 0)
 
  protected:
   ChatEntry() = default;
@@ -116,19 +115,12 @@ class ChatEntry : public apptraverse::NodeFor<ChatEntry, apptraverse::Node> {
                     AE_MMBR(scroll))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "This profile uses an incompatible chat example schema. Choose a "
-        "different --state-dir; the existing directory was not modified.");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, peer_uid, display_name, peer_link, room, draft, scroll);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, peer_uid, display_name, peer_link, room, draft, scroll);
   }
 
@@ -180,7 +172,7 @@ class HostUidInputChangedEvent;
 class ChatWorkspace
     : public apptraverse::NodeFor<ChatWorkspace, apptraverse::Node> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::chat_demo::ChatWorkspace",
-                           ChatWorkspace, Node, 1)
+                           ChatWorkspace, Node, 0)
 
  protected:
   ChatWorkspace() = default;
@@ -194,20 +186,13 @@ class ChatWorkspace
                     AE_MMBR(desktop_bounds))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "This profile uses an incompatible chat example schema. Choose a "
-        "different --state-dir; the existing directory was not modified.");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, demo_role, host_uid_input, local_endpoint_uid,
         next_message_sequence, chats, selected_chat_id, desktop_bounds);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, demo_role, host_uid_input, local_endpoint_uid,
         next_message_sequence, chats, selected_chat_id, desktop_bounds);
   }

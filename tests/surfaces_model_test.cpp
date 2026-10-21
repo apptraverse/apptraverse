@@ -770,7 +770,7 @@ std::chrono::nanoseconds CollectLiveReachableOnce(Application& application) {
   CHECK(ActivePublicationSerializationStats().journal_entries_serialized == 0);
   CHECK(ActivePublicationSerializationStats().node_base_snapshots_serialized ==
         0);
-  CHECK(ActivePublicationSerializationStats().node_v4_publication_omit_saves > 0);
+  CHECK(ActivePublicationSerializationStats().node_publication_omit_saves > 0);
   CHECK(ActivePublicationSerializationStats().materialized_historical_event_objects ==
         0);
   return std::chrono::steady_clock::now() - t0;
@@ -785,7 +785,7 @@ std::chrono::nanoseconds SerializeSurfacePublicationOnce(Surface& surface) {
   CHECK(ActivePublicationSerializationStats().journal_entries_serialized == 0);
   CHECK(ActivePublicationSerializationStats().node_base_snapshots_serialized ==
         0);
-  CHECK(ActivePublicationSerializationStats().node_v4_publication_omit_saves >
+  CHECK(ActivePublicationSerializationStats().node_publication_omit_saves >
         0);
   CHECK(ActivePublicationSerializationStats().materialized_historical_event_objects ==
         0);
@@ -1058,6 +1058,8 @@ void TestGeometryPersistence() {
     surface1_id = surfaces.surfaces[0]->obj_id;
     surface2_id = surfaces.surfaces[1]->obj_id;
     surface3_id = surfaces.surfaces[2]->obj_id;
+    surfaces.SetDesktopZOrderFromObjIds(
+        {surface2_id.id(), surface3_id.id(), surface1_id.id()});
     SaveDistilledRoot(*application);
   }
 
@@ -1071,6 +1073,13 @@ void TestGeometryPersistence() {
   CHECK(surfaces.surfaces[0]->obj_id == surface1_id);
   CHECK(surfaces.surfaces[1]->obj_id == surface2_id);
   CHECK(surfaces.surfaces[2]->obj_id == surface3_id);
+  CHECK(surfaces.desktop_z_order.size() == 3);
+  CHECK(surfaces.desktop_z_order[0]->obj_id == surface2_id);
+  CHECK(surfaces.desktop_z_order[1]->obj_id == surface3_id);
+  CHECK(surfaces.desktop_z_order[2]->obj_id == surface1_id);
+  CHECK(&*surfaces.desktop_z_order[0] == &*surfaces.surfaces[1]);
+  CHECK(&*surfaces.desktop_z_order[1] == &*surfaces.surfaces[2]);
+  CHECK(&*surfaces.desktop_z_order[2] == &*surfaces.surfaces[0]);
   CHECK(surfaces.surfaces[0]->desktop_x == 40);
   CHECK(surfaces.surfaces[0]->desktop_y == 50);
   CHECK(surfaces.surfaces[0]->desktop_width == 320);
@@ -2005,7 +2014,15 @@ void TestLocaleCommitAndPersistence() {
 
 }  // namespace apptraverse::test
 
-int main() {
+int main(int argc, char** argv) {
+  bool skip_long_journal = false;
+  if (argc == 2 && std::string{argv[1]} == "--skip-long-journal") {
+    skip_long_journal = true;
+  } else if (argc != 1) {
+    std::cerr << "Usage: surfaces_model_test [--skip-long-journal]\n";
+    return 2;
+  }
+
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSurfacesRegistration();
   apptraverse::test::TestInitialGraph();
@@ -2025,8 +2042,15 @@ int main() {
   apptraverse::test::TestPresentationSizeCoalescesUnderBurst();
   apptraverse::test::TestPresentationSizeYieldsForAddDuringStream();
   apptraverse::test::TestTwoSessionsPresentationSizeRouting();
-  apptraverse::test::TestCollectLiveReachableStableWithLongJournal();
-  apptraverse::test::TestAddOnSecondSurfaceWhileFirstHasLongJournal();
+  if (skip_long_journal) {
+    std::cout << "SKIP TestCollectLiveReachableStableWithLongJournal "
+                 "(--skip-long-journal)\n"
+              << "SKIP TestAddOnSecondSurfaceWhileFirstHasLongJournal "
+                 "(--skip-long-journal)\n";
+  } else {
+    apptraverse::test::TestCollectLiveReachableStableWithLongJournal();
+    apptraverse::test::TestAddOnSecondSurfaceWhileFirstHasLongJournal();
+  }
   apptraverse::test::TestGeometryPersistence();
   apptraverse::test::TestCurrentPageReplay();
   apptraverse::test::TestCurrentPageIdentitySurvivesRemoveBefore();
@@ -2047,6 +2071,11 @@ int main() {
   apptraverse::test::TestInitializeRuntimeNodeStorageWrites();
   apptraverse::test::TestStructuralApplyOnModelChangedOnce();
   apptraverse::test::TestLocaleCommitAndPersistence();
-  std::cout << "surfaces_model_test OK\n";
+  if (skip_long_journal) {
+    std::cout << "surfaces_model_test functional subset OK "
+                 "(2 long-journal tests skipped)\n";
+  } else {
+    std::cout << "surfaces_model_test OK\n";
+  }
   return 0;
 }

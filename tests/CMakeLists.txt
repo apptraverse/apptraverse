@@ -139,14 +139,18 @@ target_link_libraries(native_class_layers_reader_v2 PRIVATE
   apptraverse
 )
 
-add_test(
-  NAME apptraverse_native_class_layers_writer_v1
-  COMMAND native_class_layers_writer_v1
+add_dependencies(apptraverse_native_class_layers_test
+  native_class_layers_writer_v1
+  native_class_layers_reader_v2
 )
 
 add_test(
-  NAME apptraverse_native_class_layers_reader_v2
-  COMMAND native_class_layers_reader_v2
+  NAME apptraverse_native_class_layers_evolution_test
+  COMMAND "${CMAKE_COMMAND}"
+    "-DWRITER_EXE=$<TARGET_FILE:native_class_layers_writer_v1>"
+    "-DREADER_EXE=$<TARGET_FILE:native_class_layers_reader_v2>"
+    "-DSTATE_PARENT=${CMAKE_CURRENT_BINARY_DIR}/native class evolution states"
+    -P "${CMAKE_CURRENT_LIST_DIR}/native_class_layers_evolution_run.cmake"
 )
 
 add_executable(apptraverse_native_object_graph_serialization_test

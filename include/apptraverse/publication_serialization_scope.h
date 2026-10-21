@@ -13,7 +13,7 @@ struct PublicationSerializationStats {
   std::uint64_t journal_entries_serialized{0};
   std::uint64_t node_base_snapshots_serialized{0};
   std::uint64_t journal_replay_calls{0};
-  std::uint64_t node_v4_publication_omit_saves{0};
+  std::uint64_t node_publication_omit_saves{0};
   std::uint64_t materialized_scratch_object_count{0};
   std::uint64_t materialized_historical_event_objects{0};
   std::uint64_t materialized_scratch_layer_bytes{0};
@@ -55,7 +55,7 @@ bool OmitNodeHistoryForPublication(Dnv& dnv) {
 void NoteNodeHistorySerialized(std::size_t journal_entries,
                                bool base_snapshot);
 
-void NoteNodeV4PublicationOmitSave();
+void NoteNodePublicationOmitSave();
 
 void NoteMaterializedScratchObjectCount(std::size_t count);
 

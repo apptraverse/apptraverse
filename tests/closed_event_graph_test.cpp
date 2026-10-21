@@ -118,7 +118,7 @@ class Detail : public ae::Obj {
 
 // 2. Item : Node
 class Item : public NodeFor<Item> {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::Item", Item, Node, 1)
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::Item", Item, Node, 0)
 
  protected:
   Item() = default;
@@ -130,17 +130,12 @@ class Item : public NodeFor<Item> {
                     AE_MMBR(local_link))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("Item v0 flattened layout is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, name, scalar_old_id, metadata, local_link);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, name, scalar_old_id, metadata, local_link);
   }
 
@@ -270,7 +265,7 @@ class AddItemEvent : public EventFor<ContainerNode, AddItemEvent> {
 
 class ContainerNode : public NodeFor<ContainerNode> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::ContainerNode", ContainerNode,
-                           Node, 1)
+                           Node, 0)
 
  protected:
   ContainerNode() = default;
@@ -281,17 +276,12 @@ class ContainerNode : public NodeFor<ContainerNode> {
   AE_OBJECT_REFLECT(AE_MMBR(items))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error("ContainerNode v0 flattened layout is not supported");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, items);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, items);
   }
 
