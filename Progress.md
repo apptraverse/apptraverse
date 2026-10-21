@@ -4116,4 +4116,3 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - Full scope, commands, baseline failures and verification limits:
   `docs/serialization_v0_validation.md` and
   `tests/application_evolution_matrix.md`. No merge, PR or history rewrite.
-

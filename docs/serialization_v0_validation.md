@@ -5,6 +5,7 @@ Date: 2026-10-21. Branch: `codex/serialization-v0-evolution`.
 Requested source baseline: `8a5a690d396ff09af8bf75f78487f663e6cd4eb7`.
 Build prerequisites: `1c499242b8b352ba5f082a3e55539eaba14e833c`.
 Working schema reset: `8b40de6272046152ee470d4cc09a721e9e7f9b54`.
+Evolution matrix: `262192073571ae59310714352df4c89be2229f80`.
 
 This report does not claim a completely passing repository test suite or native
 GUI acceptance. The table below distinguishes passing checks, baseline failures,
