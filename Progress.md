@@ -4041,3 +4041,9 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - Invariant violations on **`WinPushButtonPresenter::OnLoad`** → **`FatalWin32(ERROR_INVALID_PARAMETER)`**; create/bind/destroy errors → **`FatalWin32`** for all helper users.
 - Tests: **`apptraverse_win_ui_native_push_button_test`**, **`apptraverse_win_ui_native_push_button_fatal_test`** (isolated child process).
 - Release verify (2026-10-21): materialization, edit headless, surfaces smoke, native push button tests **PASS**; **`apptraverse_surfaces_model_test`** **PASS** (10k p95 within budget this run).
+
+### Surface chrome OnLoad fail-fast + WinPushButton native routing tests (step 2 finish)
+- **`Win32SurfaceButtonPresenter::OnLoad`** / **`Win32SurfaceLanguageButtonPresenter::OnLoad`**: missing **`window_presenter`**, non-Win32 parent, or null parent **`hwnd`** → **`FatalWin32(ERROR_INVALID_PARAMETER)`** (no silent return).
+- **`apptraverse_win_ui_native_push_button_test`**: helper create/destroy/recreate; **`WinPushButtonPresenter`** via **`InitializePresenters`** — parent, control id, **`GWLP_USERDATA`**, caption, geometry; **`WM_COMMAND`** **`BN_CLICKED`** on desktop host → one model invoke per click; disabled skips invoke; locale/enabled via commit + **`OnModelChanged`**; **`UnloadPresenters`**.
+- **`apptraverse_win_ui_native_push_button_fatal_test`**: helper null parent + Surface button **`OnLoad`** without parent **`hwnd`** (stderr substring checks).
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): helper + presenter tests **PASS**; fatal child **PASS**; UI materialization + edit headless **PASS**; **`apptraverse_surfaces_win32_smoke_test`** **PASS** (Add/Close/Language, EN/RU, layout, Z-order, load_only unchanged).

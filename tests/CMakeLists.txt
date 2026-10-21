@@ -1000,11 +1000,14 @@ if(WIN32)
 
   add_executable(apptraverse_win_ui_native_push_button_fatal_child
     win_ui_native_push_button_fatal_child.cpp
+    surfaces_win32_library_consumer_presentation.cpp
     ${CMAKE_SOURCE_DIR}/src/noninteractive_crt.cpp
   )
   target_include_directories(apptraverse_win_ui_native_push_button_fatal_child
     PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(apptraverse_win_ui_native_push_button_fatal_child PRIVATE
+    apptraverse
+    apptraverse_surfaces_windows
     apptraverse_ui_windows
     apptraverse_compile_policy
   )
@@ -1029,11 +1032,10 @@ if(WIN32)
 
   add_executable(apptraverse_win_ui_native_push_button_test
     win_ui_native_push_button_test.cpp
-    ${CMAKE_SOURCE_DIR}/src/noninteractive_crt.cpp
   )
   target_link_libraries(apptraverse_win_ui_native_push_button_test PRIVATE
+    apptraverse
     apptraverse_ui_windows
-    apptraverse_compile_policy
   )
   target_include_directories(apptraverse_win_ui_native_push_button_test PRIVATE
     ${CMAKE_SOURCE_DIR}/include

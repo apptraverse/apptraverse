@@ -33,13 +33,14 @@ std::string ReadAll(std::filesystem::path const& path) {
   return out;
 }
 
-int main() {
+void RunChildExpectingFatal(std::filesystem::path const& child,
+                            std::wstring const& args,
+                            char const* expected_fatal_substring) {
   auto err_path = std::filesystem::temp_directory_path() /
                   "apptraverse_win_ui_native_push_button_fatal.stderr.txt";
   std::filesystem::remove(err_path);
 
-  std::filesystem::path child{WIN_UI_NATIVE_PUSH_BUTTON_FATAL_CHILD};
-  std::wstring cmd = L"\"" + child.wstring() + L"\"";
+  std::wstring cmd = L"\"" + child.wstring() + L"\"" + args;
   std::vector<wchar_t> buf(cmd.begin(), cmd.end());
   buf.push_back(L'\0');
 
@@ -76,12 +77,23 @@ int main() {
   CHECK(code != 0);
 
   std::string err = ReadAll(err_path);
-  if (err.find("fatal: CreateWindowExW native push button fatal test") ==
-      std::string::npos) {
-    std::cerr << "Expected FatalWin32 stderr, got:\n" << err << '\n';
+  if (err.find(expected_fatal_substring) == std::string::npos) {
+    std::cerr << "Expected FatalWin32 stderr containing: "
+              << expected_fatal_substring << "\nGot:\n"
+              << err << '\n';
     std::exit(1);
   }
   std::filesystem::remove(err_path);
+}
+
+int main() {
+  std::filesystem::path const child{WIN_UI_NATIVE_PUSH_BUTTON_FATAL_CHILD};
+  RunChildExpectingFatal(
+      child, L"",
+      "fatal: CreateWindowExW native push button fatal test");
+  RunChildExpectingFatal(
+      child, L" surface_button_onload",
+      "fatal: Win32SurfaceButtonPresenter OnLoad parent hwnd");
   std::cout << "win_ui_native_push_button_fatal_test OK\n";
   return 0;
 }

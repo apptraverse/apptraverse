@@ -257,9 +257,18 @@ void Win32SurfaceButtonPresenter::ApplyLayout() {
 }
 
 void Win32SurfaceButtonPresenter::OnLoad() {
-  auto* window = AsWin32Window(&*window_presenter);
-  if (window == nullptr || window->hwnd == nullptr) {
-    return;
+  if (!window_presenter) {
+    FatalWin32("Win32SurfaceButtonPresenter OnLoad window_presenter",
+               ERROR_INVALID_PARAMETER);
+  }
+  auto* window = AsWin32Window(window_presenter.operator->());
+  if (window == nullptr) {
+    FatalWin32("Win32SurfaceButtonPresenter OnLoad Win32 window",
+               ERROR_INVALID_PARAMETER);
+  }
+  if (window->hwnd == nullptr) {
+    FatalWin32("Win32SurfaceButtonPresenter OnLoad parent hwnd",
+               ERROR_INVALID_PARAMETER);
   }
   hwnd = ui::windows::CreateChildPushButton({
       .parent_hwnd = window->hwnd,
@@ -320,9 +329,18 @@ void Win32SurfaceLanguageButtonPresenter::ApplyLayout() {
 }
 
 void Win32SurfaceLanguageButtonPresenter::OnLoad() {
-  auto* window = AsWin32Window(&*window_presenter);
-  if (window == nullptr || window->hwnd == nullptr) {
-    return;
+  if (!window_presenter) {
+    FatalWin32("Win32SurfaceLanguageButtonPresenter OnLoad window_presenter",
+               ERROR_INVALID_PARAMETER);
+  }
+  auto* window = AsWin32Window(window_presenter.operator->());
+  if (window == nullptr) {
+    FatalWin32("Win32SurfaceLanguageButtonPresenter OnLoad Win32 window",
+               ERROR_INVALID_PARAMETER);
+  }
+  if (window->hwnd == nullptr) {
+    FatalWin32("Win32SurfaceLanguageButtonPresenter OnLoad parent hwnd",
+               ERROR_INVALID_PARAMETER);
   }
   hwnd = ui::windows::CreateChildPushButton({
       .parent_hwnd = window->hwnd,
