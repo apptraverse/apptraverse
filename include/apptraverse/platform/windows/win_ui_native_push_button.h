@@ -10,11 +10,22 @@
 
 namespace apptraverse::ui::windows {
 
-// Child BS_PUSHBUTTON at (0,0) size 0; caller sets caption and layout.
-HWND CreateChildPushButton(HWND parent_hwnd, std::uint32_t control_id,
-                           void* presenter_user_data,
-                           char const* create_fatal_operation);
+struct WinNativePushButtonCreateParams {
+  HWND parent_hwnd{nullptr};
+  std::uint32_t control_id{0};
+  wchar_t const* initial_caption{L""};
+  std::int32_t x{0};
+  std::int32_t y{0};
+  std::int32_t width{0};
+  std::int32_t height{0};
+  void* presenter_user_data{nullptr};
+  char const* create_fatal_operation{nullptr};
+};
 
+// WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON. Binds GWLP_USERDATA on success.
+HWND CreateChildPushButton(WinNativePushButtonCreateParams const& params);
+
+// No-op when hwnd is already null (normal OnUnload).
 void DestroyChildPushButton(HWND& hwnd, char const* destroy_fatal_operation);
 
 }  // namespace apptraverse::ui::windows

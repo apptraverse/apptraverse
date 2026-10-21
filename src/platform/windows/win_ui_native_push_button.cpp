@@ -16,18 +16,26 @@ void SetChildUserData(HWND hwnd, void* value, char const* fatal_operation) {
 
 }  // namespace
 
-HWND CreateChildPushButton(HWND parent_hwnd, std::uint32_t control_id,
-                           void* presenter_user_data,
-                           char const* create_fatal_operation) {
+HWND CreateChildPushButton(WinNativePushButtonCreateParams const& params) {
+  if (params.parent_hwnd == nullptr || params.control_id == 0 ||
+      params.create_fatal_operation == nullptr) {
+    FatalWin32(params.create_fatal_operation != nullptr
+                   ? params.create_fatal_operation
+                   : "CreateChildPushButton",
+               ERROR_INVALID_PARAMETER);
+  }
   HWND const hwnd = CreateWindowExW(
-      0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0,
-      parent_hwnd,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
+      0, L"BUTTON",
+      params.initial_caption != nullptr ? params.initial_caption : L"",
+      WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, params.x, params.y, params.width,
+      params.height, params.parent_hwnd,
+      reinterpret_cast<HMENU>(static_cast<INT_PTR>(params.control_id)),
       GetModuleHandleW(nullptr), nullptr);
   if (hwnd == nullptr) {
-    FatalWin32(create_fatal_operation, GetLastError());
+    FatalWin32(params.create_fatal_operation, GetLastError());
   }
-  SetChildUserData(hwnd, presenter_user_data, "SetWindowLongPtrW GWLP_USERDATA");
+  SetChildUserData(hwnd, params.presenter_user_data,
+                   "SetWindowLongPtrW GWLP_USERDATA");
   return hwnd;
 }
 

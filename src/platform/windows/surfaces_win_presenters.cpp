@@ -261,8 +261,12 @@ void Win32SurfaceButtonPresenter::OnLoad() {
   if (window == nullptr || window->hwnd == nullptr) {
     return;
   }
-  hwnd = ui::windows::CreateChildPushButton(window->hwnd, control_id, this,
-                                            "CreateWindowExW Surface button");
+  hwnd = ui::windows::CreateChildPushButton({
+      .parent_hwnd = window->hwnd,
+      .control_id = control_id,
+      .presenter_user_data = this,
+      .create_fatal_operation = "CreateWindowExW Surface button",
+  });
   SyncCaption();
   ApplyLayout();
 }
@@ -320,9 +324,12 @@ void Win32SurfaceLanguageButtonPresenter::OnLoad() {
   if (window == nullptr || window->hwnd == nullptr) {
     return;
   }
-  hwnd = ui::windows::CreateChildPushButton(
-      window->hwnd, control_id, this,
-      "CreateWindowExW Surface language button");
+  hwnd = ui::windows::CreateChildPushButton({
+      .parent_hwnd = window->hwnd,
+      .control_id = control_id,
+      .presenter_user_data = this,
+      .create_fatal_operation = "CreateWindowExW Surface language button",
+  });
   SyncCaption();
   ApplyLayout();
 }

@@ -4035,3 +4035,9 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ### Library Win32 PushButton (step 1)
 - Shared **`ui::windows::CreateChildPushButton` / `DestroyChildPushButton`** in **`apptraverse_ui_windows`**; **`Win32SurfaceButtonPresenter`** and **`Win32SurfaceLanguageButtonPresenter`** use it for native create/bind/destroy only.
 - Release **`build-surfaces-library-controls-msvc-rel`**: UI materialization + edit headless + **`apptraverse_surfaces_win32_smoke_test`** + full **`apptraverse_surfaces_model_test`** **PASS** (2026-10-21).
+
+### WinPushButton on shared helper + fail-fast (step 2)
+- **`WinNativePushButtonCreateParams`**: parent, control id, caption, geometry, **`GWLP_USERDATA`**; **`WinPushButtonPresenter`** uses the same helper (no silent create failure).
+- Invariant violations on **`WinPushButtonPresenter::OnLoad`** → **`FatalWin32(ERROR_INVALID_PARAMETER)`**; create/bind/destroy errors → **`FatalWin32`** for all helper users.
+- Tests: **`apptraverse_win_ui_native_push_button_test`**, **`apptraverse_win_ui_native_push_button_fatal_test`** (isolated child process).
+- Release verify (2026-10-21): materialization, edit headless, surfaces smoke, native push button tests **PASS**; **`apptraverse_surfaces_model_test`** **PASS** (10k p95 within budget this run).

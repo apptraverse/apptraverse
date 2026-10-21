@@ -2,7 +2,9 @@
 
 #include "apptraverse/platform/windows/win_presentation_host.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
+#include "apptraverse/platform/windows/win_ui_native_push_button.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
+#include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
 namespace apptraverse::ui::windows {
@@ -418,25 +420,28 @@ WinDesktopWindowPresenter* WinPushButtonPresenter::Desktop() const {
 
 void WinPushButtonPresenter::OnLoad() {
   auto* desktop = Desktop();
-  if (desktop == nullptr || desktop->hwnd() == nullptr || !button ||
-      control_id == 0) {
-    return;
+  if (desktop == nullptr || desktop->hwnd() == nullptr) {
+    FatalWin32("WinPushButtonPresenter OnLoad parent", ERROR_INVALID_PARAMETER);
+  }
+  if (!button || control_id == 0) {
+    FatalWin32("WinPushButtonPresenter OnLoad button", ERROR_INVALID_PARAMETER);
   }
   std::wstring caption;
   if (button->label && window_presenter && window_presenter->locale) {
     caption = Utf8ToWide(
         button->label->Resolve(window_presenter->locale->language_index()));
   }
-  hwnd_ = CreateWindowExW(
-      0, L"BUTTON", caption.c_str(),
-      WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, layout_x, layout_y, layout_width,
-      layout_height, desktop->hwnd(),
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
-      GetModuleHandleW(nullptr), nullptr);
-  if (CreateFailed(hwnd_)) {
-    return;
-  }
-  SetUserData(hwnd_, this);
+  hwnd_ = CreateChildPushButton({
+      .parent_hwnd = desktop->hwnd(),
+      .control_id = control_id,
+      .initial_caption = caption.c_str(),
+      .x = layout_x,
+      .y = layout_y,
+      .width = layout_width,
+      .height = layout_height,
+      .presenter_user_data = this,
+      .create_fatal_operation = "CreateWindowExW Ui push button",
+  });
   SyncFromMirror();
 }
 
@@ -456,10 +461,7 @@ void WinPushButtonPresenter::SyncFromMirror() {
 void WinPushButtonPresenter::OnModelChanged() { SyncFromMirror(); }
 
 void WinPushButtonPresenter::OnUnload() {
-  if (hwnd_ != nullptr) {
-    DestroyWindow(hwnd_);
-    hwnd_ = nullptr;
-  }
+  DestroyChildPushButton(hwnd_, "DestroyWindow Ui push button");
 }
 
 WinDesktopWindowPresenter* WinListContainerPresenter::Desktop() const {
