@@ -18,6 +18,7 @@ int main() { return 0; }
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_push_button_presenter.h"
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_localization_string.h"

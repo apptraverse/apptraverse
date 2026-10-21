@@ -109,6 +109,7 @@ add_library(apptraverse STATIC
   src/ui/ui_desktop_window.cpp
   src/ui/ui_edit_box.cpp
   src/ui/ui_push_button.cpp
+  src/ui/ui_push_button_presenter.cpp
   src/ui/ui_list_container.cpp
   src/ui/ui_bitmap_image.cpp
   src/ui/ui_presenters.cpp

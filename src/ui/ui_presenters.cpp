@@ -27,21 +27,6 @@ void UiEditBoxPresenter::SubmitCaretFromUi(std::size_t caret_utf8_offset) {
                       caret_utf8_offset);
 }
 
-bool UiPushButtonPresenter::ReadyForPresentation() const {
-  return window_presenter->presentation_loaded;
-}
-
-void UiPushButtonPresenter::NotifyClickedFromUi() {
-  if (!button->enabled()) {
-    return;
-  }
-  model_proxy->Invoke(button->obj_id, &UiPushButton::NotifyClicked);
-}
-
-void UiPushButtonPresenter::SimulateClickForTest() {
-  NotifyClickedFromUi();
-}
-
 bool UiListContainerPresenter::ReadyForPresentation() const {
   return window_presenter->presentation_loaded;
 }

@@ -8,8 +8,9 @@
 #include "apptraverse/ui/ui_label.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_locale_settings.h"
-#include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_window.h"
+
+#include "apptraverse/ui/ui_push_button_presenter.h"
 
 namespace apptraverse::ui {
 
@@ -120,47 +121,6 @@ class UiEditBoxPresenter : public Presenter {
 
   void SubmitTextFromUi(std::string text, std::size_t caret_utf8_offset);
   void SubmitCaretFromUi(std::size_t caret_utf8_offset);
-};
-
-class UiPushButtonPresenter : public Presenter {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiPushButtonPresenter",
-                           UiPushButtonPresenter, Presenter, 0)
-
- protected:
-  UiPushButtonPresenter() = default;
-
- public:
-  explicit UiPushButtonPresenter(ae::ObjProp prop) : Presenter{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(button), AE_MMBR(window_presenter), AE_MMBR(layout_x),
-                    AE_MMBR(layout_y), AE_MMBR(layout_width),
-                    AE_MMBR(layout_height), AE_MMBR(control_id))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, button, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, button, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  UiPushButton::ptr button;
-  ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x;
-  std::int32_t layout_y;
-  std::int32_t layout_width;
-  std::int32_t layout_height;
-  std::uint32_t control_id;
-
-  bool ReadyForPresentation() const override;
-
-  void NotifyClickedFromUi() override;
-
-  void SimulateClickForTest();
 };
 
 class UiListContainerPresenter : public Presenter {

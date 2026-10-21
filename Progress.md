@@ -4051,3 +4051,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ### WinPushButtonPresenter file split (library controls step 3)
 - **`win_ui_push_button_presenter.h` / `win_ui_push_button_presenter.cpp`**: mechanical extraction of **`ui::windows::WinPushButtonPresenter`** from **`win_ui_presenters.*`**; **`win_ui_presenters.h`** remains aggregate include; **`apptraverse_ui_windows`** links new `.cpp`; registration unchanged in **`win_ui_registration.cpp`**.
 - Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): **`apptraverse_win_ui_native_push_button_test`**, **`apptraverse_win_ui_native_push_button_fatal_test`**, UI materialization, edit headless, surfaces Win32 smoke **PASS**.
+
+### UiPushButtonPresenter file split (library controls step 4)
+- **`ui_push_button_presenter.h` / `ui_push_button_presenter.cpp`**: mechanical extraction from **`ui_presenters.*`**; **`ui_presenters.h`** aggregate include; registration unchanged in **`ui_registration.cpp`**; **`WinPushButtonPresenter`** still inherits **`UiPushButtonPresenter`**.
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): push button + fatal, UI materialization, edit headless, surfaces Win32 smoke **PASS**.
