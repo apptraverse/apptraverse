@@ -1,84 +1,65 @@
 set(_surfaces_win_sources
-
   main.cpp
-
   win_app.cpp
-
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
-
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_shutdown_trace.cpp
-
 )
 
+function(apptraverse_add_surfaces_demo_executable target distill_lib evolution_lib windows_lib)
+  add_executable(${target} ${_surfaces_win_sources})
+  target_compile_definitions(${target} PRIVATE APPTRAVERSE_ENABLE_DISTILLATION)
+  target_link_libraries(${target} PRIVATE
+    ${distill_lib}
+    ${evolution_lib}
+    ${windows_lib}
+    user32
+    gdi32
+  )
+  target_include_directories(${target} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+  )
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /utf-8)
+    set_target_properties(${target} PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_link_options(${target} PRIVATE /ENTRY:mainCRTStartup)
+  endif()
+  if(MINGW)
+    set_target_properties(${target} PROPERTIES EXCLUDE_FROM_ALL TRUE)
+  endif()
+endfunction()
 
-
-add_executable(win32_surfaces_demo ${_surfaces_win_sources})
-
-target_compile_definitions(win32_surfaces_demo PRIVATE
-
-  APPTRAVERSE_ENABLE_DISTILLATION
-
-)
+apptraverse_add_surfaces_demo_executable(win32_surfaces_demo
+  surfaces_demo_distill surfaces_demo_evolution surfaces_demo_win32)
+apptraverse_add_surfaces_demo_executable(win32_surfaces_demo_v1
+  surfaces_demo_distill_v1 surfaces_demo_evolution_v1 surfaces_demo_win32_v1)
 
 add_executable(win32_surfaces_demo_load_only ${_surfaces_win_sources})
-
-
-
-target_link_libraries(win32_surfaces_demo PRIVATE
-
-  surfaces_demo_distill
-
-  surfaces_demo_win32
-
-)
-
-
-
 target_link_libraries(win32_surfaces_demo_load_only PRIVATE
-
   surfaces_demo_win32
-
+  surfaces_demo_evolution
+  user32
+  gdi32
 )
+target_include_directories(win32_surfaces_demo_load_only PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
+  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+)
+if(MSVC)
+  target_compile_options(win32_surfaces_demo_load_only PRIVATE /utf-8)
+  set_target_properties(win32_surfaces_demo_load_only PROPERTIES WIN32_EXECUTABLE TRUE)
+  target_link_options(win32_surfaces_demo_load_only PRIVATE /ENTRY:mainCRTStartup)
+endif()
 
-
-
-foreach(_surfaces_demo win32_surfaces_demo win32_surfaces_demo_load_only)
-
-  target_link_libraries(${_surfaces_demo} PRIVATE
-
-    apptraverse_surfaces_windows
-
-    user32
-
-    gdi32
-
-  )
-
-  target_include_directories(${_surfaces_demo} PRIVATE
-
-    ${CMAKE_CURRENT_SOURCE_DIR}
-
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common
-
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
-
-  )
-
-  if(MSVC)
-
-    target_compile_options(${_surfaces_demo} PRIVATE /utf-8)
-
-    set_target_properties(${_surfaces_demo} PROPERTIES WIN32_EXECUTABLE TRUE)
-
-    target_link_options(${_surfaces_demo} PRIVATE /ENTRY:mainCRTStartup)
-
-  endif()
-
-  if(MINGW)
-
-    set_target_properties(${_surfaces_demo} PROPERTIES EXCLUDE_FROM_ALL TRUE)
-
-  endif()
-
-endforeach()
-
+if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package")
+  foreach(_demo_target win32_surfaces_demo_v1)
+    add_custom_command(TARGET ${_demo_target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package"
+        "$<TARGET_FILE_DIR:${_demo_target}>/surface_v1_package"
+      COMMENT "Copy bundled Surface v1 package next to ${_demo_target}"
+    )
+  endforeach()
+endif()

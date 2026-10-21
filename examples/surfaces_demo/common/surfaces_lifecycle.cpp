@@ -21,7 +21,12 @@
 
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_model.h"
+#include "apptraverse/surfaces/surfaces_demo_revision.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
+
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+#include "surfaces_v1_package.h"
+#endif
 
 namespace apptraverse {
 
@@ -62,8 +67,8 @@ void SurfacesModelSession::Run(
   presentation_size_queue.BindPostWork(
       [this](ModelObjectProxy::ModelWork work) { Post(std::move(work)); });
 
-#ifdef APPTRAVERSE_ENABLE_DISTILLATION
   bool state_missing = true;
+#ifdef APPTRAVERSE_ENABLE_DISTILLATION
   if (std::filesystem::exists(state_dir)) {
     DirectoryDomainStorage probe{state_dir};
     state_missing =
@@ -78,6 +83,14 @@ void SurfacesModelSession::Run(
     auto bootstrap_app = BuildSurfacesGraph(bootstrap_domain);
     FinalizeDistilledGraph(*bootstrap_app);
     SaveDistilledRoot(*bootstrap_app);
+  }
+#endif
+
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+  if (!state_missing) {
+    SurfacesDemoInstallBundledV1Layers(
+        state_dir, SurfacesDemoBundledV1PackageDirectory());
+    SurfacesDemoEnsureMissingSurfaceV1Layers(state_dir);
   }
 #endif
 

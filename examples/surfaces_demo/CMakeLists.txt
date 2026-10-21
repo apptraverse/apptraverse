@@ -24,6 +24,15 @@ else()
   set(_surfaces_demo_presentation_lib surfaces_demo_presentation)
 endif()
 
+add_library(surfaces_demo_evolution STATIC
+  common/surfaces_evolution_ops.cpp
+)
+target_link_libraries(surfaces_demo_evolution PUBLIC apptraverse_surfaces)
+target_include_directories(surfaces_demo_evolution PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/common
+)
+target_compile_features(surfaces_demo_evolution PUBLIC cxx_std_20)
+
 add_library(surfaces_demo_distill STATIC
   common/surfaces_distill.cpp
 )
@@ -35,6 +44,42 @@ target_include_directories(surfaces_demo_distill PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common
 )
 target_compile_features(surfaces_demo_distill PUBLIC cxx_std_20)
+
+if(WIN32 AND NOT EMSCRIPTEN)
+  add_library(surfaces_demo_win32_v1 STATIC
+    windows/surface_graph_win.cpp
+  )
+  target_include_directories(surfaces_demo_win32_v1 PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/windows
+    ${CMAKE_CURRENT_SOURCE_DIR}/common
+  )
+  target_link_libraries(surfaces_demo_win32_v1 PUBLIC
+    apptraverse_surfaces_windows_v1
+  )
+  target_compile_features(surfaces_demo_win32_v1 PUBLIC cxx_std_20)
+
+  add_library(surfaces_demo_distill_v1 STATIC
+    common/surfaces_distill.cpp
+  )
+  target_link_libraries(surfaces_demo_distill_v1 PUBLIC
+    apptraverse_surfaces_v1
+    surfaces_demo_win32_v1
+  )
+  target_include_directories(surfaces_demo_distill_v1 PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/common
+  )
+  target_compile_features(surfaces_demo_distill_v1 PUBLIC cxx_std_20)
+
+  add_library(surfaces_demo_evolution_v1 STATIC
+    common/surfaces_evolution_ops.cpp
+    common/surfaces_v1_package.cpp
+  )
+  target_link_libraries(surfaces_demo_evolution_v1 PUBLIC apptraverse_surfaces_v1)
+  target_include_directories(surfaces_demo_evolution_v1 PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/common
+  )
+  target_compile_features(surfaces_demo_evolution_v1 PUBLIC cxx_std_20)
+endif()
 
 add_library(surfaces_demo_mobile STATIC
   mobile/mobile_surface_presenter.cpp
