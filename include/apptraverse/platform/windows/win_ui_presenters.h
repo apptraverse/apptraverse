@@ -18,7 +18,7 @@
 
 #include "apptraverse/ui/ui_presenters.h"
 
-
+#include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 
 namespace apptraverse::ui::windows {
 
@@ -265,60 +265,6 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
   bool mirror_text_applied_{false};
 
 };
-
-
-
-class WinPushButtonPresenter : public UiPushButtonPresenter {
-
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinPushButtonPresenter",
-
-                           WinPushButtonPresenter, UiPushButtonPresenter, 0)
-
-
-
- protected:
-
-  WinPushButtonPresenter() = default;
-
-
-
- public:
-
-  explicit WinPushButtonPresenter(ae::ObjProp prop)
-
-      : UiPushButtonPresenter{prop} {}
-
-
-
-  void OnLoad() override;
-
-  void OnModelChanged() override;
-
-  void OnUnload() override;
-
-
-
-  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
-
-
-  HWND hwnd() const { return hwnd_; }
-
-
-
- private:
-
-  void SyncFromMirror();
-
-  WinDesktopWindowPresenter* Desktop() const;
-
-
-
-  HWND hwnd_{nullptr};
-
-};
-
-
 
 class WinListContainerPresenter : public UiListContainerPresenter {
 

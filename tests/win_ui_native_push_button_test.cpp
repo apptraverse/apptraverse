@@ -14,6 +14,7 @@ int main() { return 0; }
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/windows/win_ui_native_push_button.h"
+#include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/runtime_node.h"

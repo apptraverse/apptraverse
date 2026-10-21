@@ -138,6 +138,7 @@ if(WIN32)
     src/platform/windows/win_ui_utf8.cpp
     src/platform/windows/win_ui_frame.cpp
     src/platform/windows/win_ui_native_push_button.cpp
+    src/platform/windows/win_ui_push_button_presenter.cpp
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
     src/platform/windows/win32_fatal.cpp
