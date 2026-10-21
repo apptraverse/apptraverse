@@ -1,3 +1,56 @@
+option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
+  "Build isolated application/state evolution fixtures and their Python matrix" ON)
+
+if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
+  find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+
+  function(apptraverse_add_evolution_fixture target exe_revision schema_revision evolution_mode)
+    add_executable(${target} application_evolution_fixture.cpp)
+    target_link_libraries(${target} PRIVATE apptraverse)
+    target_compile_definitions(${target} PRIVATE
+      APPTRAVERSE_EXE_REVISION=${exe_revision}
+      APPTRAVERSE_SCHEMA_REVISION=${schema_revision}
+      APPTRAVERSE_EVOLUTION_MODE=${evolution_mode}
+    )
+  endfunction()
+
+  apptraverse_add_evolution_fixture(apptraverse_evolution_stable_a 0 0 0)
+  apptraverse_add_evolution_fixture(apptraverse_evolution_stable_b 1 0 0)
+  apptraverse_add_evolution_fixture(apptraverse_evolution_stable_c 2 0 0)
+  apptraverse_add_evolution_fixture(apptraverse_evolution_schema_a 0 0 1)
+  apptraverse_add_evolution_fixture(apptraverse_evolution_schema_b 1 1 1)
+  apptraverse_add_evolution_fixture(apptraverse_evolution_schema_c 2 2 1)
+
+  add_custom_target(apptraverse_application_evolution_fixtures DEPENDS
+    apptraverse_evolution_stable_a
+    apptraverse_evolution_stable_b
+    apptraverse_evolution_stable_c
+    apptraverse_evolution_schema_a
+    apptraverse_evolution_schema_b
+    apptraverse_evolution_schema_c
+  )
+
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/application evolution states")
+  add_test(
+    NAME apptraverse_application_evolution_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/application_evolution_matrix.py"
+      --stable
+        "$<TARGET_FILE:apptraverse_evolution_stable_a>"
+        "$<TARGET_FILE:apptraverse_evolution_stable_b>"
+        "$<TARGET_FILE:apptraverse_evolution_stable_c>"
+      --evolving
+        "$<TARGET_FILE:apptraverse_evolution_schema_a>"
+        "$<TARGET_FILE:apptraverse_evolution_schema_b>"
+        "$<TARGET_FILE:apptraverse_evolution_schema_c>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/application evolution states"
+  )
+  set_tests_properties(apptraverse_application_evolution_matrix PROPERTIES
+    TIMEOUT 180
+    LABELS "serialization;evolution"
+  )
+endif()
+
 add_executable(apptraverse_ui_desktop_window_geometry_test
   ui/ui_desktop_window_geometry_test.cpp
 )

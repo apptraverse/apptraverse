@@ -4093,3 +4093,27 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
   Windows/GTK UI and full Aether demo execution were not available here.
 - Scope is implemented and checked as above, not marked accepted-by-user.
 
+## Independent application/state evolution matrix (2026-10-21)
+
+- Schema reset published as `8b40de6272046152ee470d4cc09a721e9e7f9b54`.
+- Six independent A/B/C executables: stable schemas 0/0 with different program
+  logic, and isolated evolving base/derived schemas 0/0, 1/0, 1/1. Working
+  AppTraverse classes remain v0. The suite is independent of example targets;
+  `APPTRAVERSE_BUILD_EVOLUTION_TESTS` controls its Python 3.9+ dependency.
+- Python runner uses fresh state directories, an external state oracle, separate
+  processes, ObjId/ClassId and alias/cycle checks, binary hashes and complete
+  state manifests. Unsupported transitions return a concrete reason before
+  loading; inspect/refusal must leave storage unchanged, followed by recovery
+  with the last compatible executable. Admission policy is test-local.
+- Default matrix: **24 PASS / 0 FAIL, 179 processes**. Custom chains
+  `C,A,C,B,B,A,C` and `B,A,B,C,A`: **24 PASS / 0 FAIL, 193 processes**.
+- Separate `--native` diagnostic: **2 FAIL, exit 1**, exposing actual stale-slot
+  reads (`value` expected 21, got 11; `label` expected `updated-C`, got `initial`).
+  These failures are not relabeled as PASS or included as `WILL_FAIL` CTests.
+- The fixture's version-1 loader retains the previous cyclic back-reference
+  while replacing it; this resolved a real fixture reload failure without
+  deleting old slots, weakening assertions or changing the native serializer.
+- Full scope, commands, baseline failures and verification limits:
+  `docs/serialization_v0_validation.md` and
+  `tests/application_evolution_matrix.md`. No merge, PR or history rewrite.
+
