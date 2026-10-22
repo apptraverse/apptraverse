@@ -263,12 +263,36 @@ class WindowMatrix:
         self.verify("C", state, 17, 29, 840, 580, 8)
         self.verify("A", state, 17, 29)
         self.verify("B", state, 17, 29, 840, 580)
+        v0_frozen = digest(self.slot(state, 0))
+        v2_frozen = digest(self.slot(state, 2))
+        v1_before = digest(self.slot(state, 1))
+        self.run("C", "resize", state)
+        if digest(self.slot(state, 0)) != v0_frozen:
+            raise CheckFailed("C resize changed v0 position bytes")
+        if digest(self.slot(state, 2)) != v2_frozen:
+            raise CheckFailed("C resize changed untouched v2 bytes")
+        if digest(self.slot(state, 1)) == v1_before:
+            raise CheckFailed("C resize did not update v1")
+        self.verify("C", state, 17, 29, 940, 630, 8)
+        v0_before = digest(self.slot(state, 0))
+        v1_before = digest(self.slot(state, 1))
+        v2_frozen = digest(self.slot(state, 2))
+        self.run("C", "move-resize", state)
+        if digest(self.slot(state, 0)) == v0_before:
+            raise CheckFailed("C move-resize did not update v0")
+        if digest(self.slot(state, 1)) == v1_before:
+            raise CheckFailed("C move-resize did not update v1")
+        if digest(self.slot(state, 2)) != v2_frozen:
+            raise CheckFailed("C move-resize changed untouched v2 bytes")
+        self.verify("C", state, 30, 46, 1040, 680, 8)
+        self.verify("A", state, 30, 46)
+        self.verify("B", state, 30, 46, 1040, 680)
         self.layers(state, {0, 1, 2})
         if digest(self.slot(package_b, 1)) != package_b_hash:
             raise CheckFailed("immutable packaged v1 source changed")
         if digest(self.slot(package_c, 2)) != package_c_hash:
             raise CheckFailed("immutable packaged v2 source changed")
-        return "A/B/C rollback: (17,29), 840x580, border 8; three Window slots"
+        return "A/B/C rollback: (30,46), 1040x680, border 8; three Window slots"
 
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
