@@ -252,6 +252,19 @@ void TestLocalizationLazyInitialPublication() {
   CHECK(!model_root->strings[1].is_loaded());
   CHECK(model_root->Resolve(0) == kEnText);
 
+  char const* const kRuUpdated = "Publication RU slot updated";
+  {
+    auto edit = SetUiLocalizationSlotUtf8Event::ptr::Create(
+        ae::CreateWith{model_domain});
+    edit->slot_index = 1;
+    edit->utf8 = kRuUpdated;
+    model_root->Commit(std::move(edit));
+  }
+  CHECK(model_root->strings[0].is_loaded());
+  CHECK(!model_root->strings[1].is_loaded());
+  CHECK(model_root->strings[0].id() == en_string_id);
+  CHECK(model_root->strings[1].id() == ru_string_id);
+
   ByteSink sink;
   SerializeInitialPublication(*model_root, sink);
 
@@ -293,7 +306,7 @@ void TestLocalizationLazyInitialPublication() {
   CHECK(model_root->strings[1].is_loaded());
   CHECK(model_root->strings[0].id() == en_string_id);
   CHECK(model_root->strings[1].id() == ru_string_id);
-  CHECK(model_root->Resolve(1) == kRuText);
+  CHECK(model_root->Resolve(1) == kRuUpdated);
 
   ByteSink structural;
   SerializeStructuralNodePublication(*model_root, structural);
@@ -309,7 +322,7 @@ void TestLocalizationLazyInitialPublication() {
   CHECK(ui_root->strings[1].id() == ru_string_id);
   CHECK(!ui_root->strings[0].is_loaded());
   CHECK(ui_root->strings[1].is_loaded());
-  CHECK(ui_root->Resolve(1) == kRuText);
+  CHECK(ui_root->Resolve(1) == kRuUpdated);
   ae::ClassList const ru_layers_after = ui_storage.Enumerate(ru_string_id);
   CHECK(!ru_layers_after.empty());
 }

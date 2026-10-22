@@ -45,13 +45,25 @@ void UiLocalizationString::Apply(SetUiLocalizationSlotUtf8Event const& event) {
     return;
   }
   auto const index = static_cast<std::size_t>(event.slot_index);
-  if (index >= strings.size() || !strings[index]) {
+  if (index >= strings.size() || !strings[index].is_valid()) {
     return;
   }
-  if (strings[index]->utf8 == event.utf8) {
+  if (strings[index].is_loaded()) {
+    if (strings[index]->utf8 == event.utf8) {
+      return;
+    }
+    strings[index]->utf8 = event.utf8;
+    NoteMaterializedChange();
     return;
   }
-  strings[index]->utf8 = event.utf8;
+  auto loaded = strings[index].Load();
+  if (loaded->utf8 == event.utf8) {
+    strings[index].Reset();
+    return;
+  }
+  loaded->utf8 = event.utf8;
+  strings[index].Save();
+  strings[index].Reset();
   NoteMaterializedChange();
 }
 
