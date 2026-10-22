@@ -78,15 +78,21 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
   )
 
   add_executable(apptraverse_event_downgrade_a event_downgrade_fixture.cpp)
+  add_executable(apptraverse_event_downgrade_a_late event_downgrade_fixture.cpp)
   add_executable(apptraverse_event_downgrade_b event_downgrade_fixture.cpp)
   target_link_libraries(apptraverse_event_downgrade_a PRIVATE apptraverse)
+  target_link_libraries(apptraverse_event_downgrade_a_late PRIVATE apptraverse)
   target_link_libraries(apptraverse_event_downgrade_b PRIVATE apptraverse)
   target_compile_definitions(apptraverse_event_downgrade_a PRIVATE
     APPTRAVERSE_EVENT_EXE_REVISION=0)
+  target_compile_definitions(apptraverse_event_downgrade_a_late PRIVATE
+    APPTRAVERSE_EVENT_EXE_REVISION=2)
   target_compile_definitions(apptraverse_event_downgrade_b PRIVATE
     APPTRAVERSE_EVENT_EXE_REVISION=1)
   add_custom_target(apptraverse_event_downgrade_fixtures DEPENDS
-    apptraverse_event_downgrade_a apptraverse_event_downgrade_b)
+    apptraverse_event_downgrade_a
+    apptraverse_event_downgrade_a_late
+    apptraverse_event_downgrade_b)
   add_dependencies(apptraverse_application_evolution_fixtures
     apptraverse_event_downgrade_fixtures)
 
@@ -100,6 +106,20 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
       --work-root "${CMAKE_CURRENT_BINARY_DIR}/event downgrade states"
   )
   set_tests_properties(apptraverse_event_downgrade_matrix PROPERTIES
+    TIMEOUT 60
+    LABELS "serialization;evolution;rollback"
+  )
+
+  add_test(
+    NAME apptraverse_event_downgrade_chain_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/event_downgrade_chain_matrix.py"
+      --a "$<TARGET_FILE:apptraverse_event_downgrade_a>"
+      --a-late "$<TARGET_FILE:apptraverse_event_downgrade_a_late>"
+      --b "$<TARGET_FILE:apptraverse_event_downgrade_b>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/event downgrade states"
+  )
+  set_tests_properties(apptraverse_event_downgrade_chain_matrix PROPERTIES
     TIMEOUT 60
     LABELS "serialization;evolution;rollback"
   )

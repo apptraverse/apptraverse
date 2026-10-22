@@ -8,6 +8,10 @@ import tempfile
 from pathlib import Path
 
 from application_evolution_matrix import CheckFailed, manifest
+from event_downgrade_storage_checks import (
+    assert_a_refused_without_storage_change,
+    assert_b_inspect_unchanged,
+)
 
 
 def run(exe, state_dir, op):
@@ -51,36 +55,36 @@ def main():
     if probe_layer not in before:
         raise CheckFailed("B did not persist probe event layer")
 
+    code, b_before_inspect, _ = run(args.b, state, "inspect")
+    if code != 0 or not b_before_inspect or not b_before_inspect.get("ok"):
+        raise CheckFailed("B inspect after write failed")
+    before_class_ids = list(b_before_inspect.get("class_ids", []))
+
     code, a_load, _ = run(args.a, state, "resave")
     after = manifest(state)
-    added_layers = sorted(k for k in after if k not in before and k.startswith(obj_key_prefix))
+    forbidden = set()
+    if a_load and "other_event_class_id" in a_load:
+        forbidden.add(int(a_load["other_event_class_id"]))
+    if a_load and "other_event_alt_class_id" in a_load:
+        forbidden.add(int(a_load["other_event_alt_class_id"]))
 
-    if code == 0 and a_load and a_load.get("ok"):
-        raise CheckFailed(
-            "A must refuse LoadRoot/resave for storage with unknown Event class"
-        )
-    if a_load and a_load.get("ok"):
-        raise CheckFailed("A reported successful load for unknown Event storage")
-    if after != before:
-        raise CheckFailed(
-            "storage must be unchanged after A resave refusal; "
-            f"diff keys: {sorted(set(after) ^ set(before))[:8]}"
-        )
-    if added_layers:
-        raise CheckFailed(
-            "A added foreign class layers on probe ObjId: " + ", ".join(added_layers)
-        )
-    if after.get(probe_layer) != before.get(probe_layer):
-        raise CheckFailed("A changed serialized bytes of unknown probe layer")
+    assert_a_refused_without_storage_change(
+        before=before,
+        after=after,
+        obj_key_prefix=obj_key_prefix,
+        probe_layer=probe_layer,
+        a_code=code,
+        a_record=a_load,
+        forbidden_class_ids=forbidden,
+    )
 
     code, b_inspect, _ = run(args.b, state, "inspect")
-    if code != 0 or not b_inspect or not b_inspect.get("ok"):
-        raise CheckFailed("B inspect failed after A resave")
-    class_ids = set(b_inspect.get("class_ids", []))
-    if probe_class_id not in class_ids:
-        raise CheckFailed("B lost probe class layer after A resave")
-    if len(class_ids) != len(b_inspect.get("class_ids", [])):
-        raise CheckFailed("duplicate class ids in storage listing")
+    assert_b_inspect_unchanged(
+        b_code=code,
+        b_inspect=b_inspect,
+        probe_class_id=probe_class_id,
+        before_class_ids=before_class_ids,
+    )
 
     print(json.dumps({"result": "PASS", "probe_class_id": probe_class_id}, indent=2))
     return 0
