@@ -49,6 +49,9 @@ Three independent EXEs use exactly the same named Window ClassId; no Window inhe
    into the binary (`--embedded-backing` RAM overlay). This validates cross-process
    embedded supply semantics only; it is not automatic build-time resource packing
    for production apps.
+13. `embedded-first-install`: EXE C restores full initial Window state from
+   embedded v0/v1/v2 when USER is empty; USER layers appear only after user
+   mutations (`{2}` then `{0,2}` then `{0,1,2}` in the matrix sequence).
 
 ## Run
 

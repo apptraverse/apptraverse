@@ -208,6 +208,12 @@ APPTRAVERSE_REGISTER(Window);
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
+constexpr std::uint8_t kEmbeddedWindowV0Layer[] = {
+
+    0x0A, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00,
+
+};
+
 constexpr std::uint8_t kEmbeddedWindowV1Layer[] = {
 
     0x80, 0x02, 0x00, 0x00, 0xE0, 0x01, 0x00, 0x00,
@@ -334,7 +340,23 @@ int Run(int argc, char** argv) {
 
   } else if (!std::filesystem::is_directory(state_dir)) {
 
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+
+    if (!(embedded_backing &&
+
+          (operation == "inspect" || operation == "move" ||
+
+           operation == "resize" || operation == "change-border"))) {
+
+      throw std::runtime_error("state directory does not exist");
+
+    }
+
+#else
+
     throw std::runtime_error("state directory does not exist");
+
+#endif
 
   }
 
@@ -390,7 +412,7 @@ int Run(int argc, char** argv) {
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
-    if (embedded_backing && (version == 1 || version == 2)) {
+    if (embedded_backing && version <= 2) {
 
       return true;
 
@@ -470,9 +492,19 @@ int Run(int argc, char** argv) {
 
     embedded_storage = std::make_unique<ae::RamDomainStorage>();
 
+    ae::DomainQuery const v0_query{ae::ObjId{kWindowId}, Window::kClassId, 0};
+
     ae::DomainQuery const v1_query{ae::ObjId{kWindowId}, Window::kClassId, 1};
 
     ae::DomainQuery const v2_query{ae::ObjId{kWindowId}, Window::kClassId, 2};
+
+    ae::DomainQuery const obj_v0_query{ae::ObjId{kWindowId}, ae::Obj::kClassId, 0};
+
+    WriteEmbeddedLayer(*embedded_storage, obj_v0_query, nullptr, 0);
+
+    WriteEmbeddedLayer(*embedded_storage, v0_query, kEmbeddedWindowV0Layer,
+
+                       sizeof(kEmbeddedWindowV0Layer));
 
     WriteEmbeddedLayer(*embedded_storage, v1_query, kEmbeddedWindowV1Layer,
 
@@ -627,6 +659,32 @@ int Run(int argc, char** argv) {
 
 
   if (operation != "inspect") {
+
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+
+    if (embedded_backing) {
+
+      ae::DomainQuery const obj_v0_query{ae::ObjId{kWindowId}, ae::Obj::kClassId,
+
+                                         0};
+
+      if (!DirectoryDomainStorageLayerFileExists(state_dir, obj_v0_query)) {
+
+        std::unique_ptr<ae::IDomainStorageWriter> obj_writer =
+
+            user_storage.Store(obj_v0_query);
+
+        if (!obj_writer->Write(ae::seri::DataWriteTag{nullptr, 0})) {
+
+          throw std::runtime_error("obj v0 seed write failed");
+
+        }
+
+      }
+
+    }
+
+#endif
 
     user_storage.BeginSaveSession();
 

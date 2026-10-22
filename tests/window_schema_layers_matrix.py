@@ -639,6 +639,51 @@ class WindowMatrix:
                 raise CheckFailed(f"unexpected external supply directory: {path}")
         return "EXE C compiles embedded v1/v2; each process reloads RAM backing"
 
+    def embedded_first_install(self, case_dir):
+        user = case_dir / "empty user first install"
+        user.mkdir()
+        user_manifest = manifest(user)
+        self.verify("C", user, 10, 20, 640, 480, 4, embedded_backing=True)
+        unchanged(user_manifest, manifest(user), "user after first embedded inspect")
+        if self.slot(user, 0).parent.is_dir():
+            self.layers(user, set())
+        self.run("C", "change-border", user, embedded_backing=True)
+        self.verify("C", user, 10, 20, 640, 480, 6, embedded_backing=True)
+        self.layers(user, {2})
+        if self.slot(user, 0).exists() or self.slot(user, 1).exists():
+            raise CheckFailed("user v0/v1 present after first change-border")
+        user_v2_frozen = digest(self.slot(user, 2))
+        self.run("C", "move", user, embedded_backing=True)
+        self.verify("C", user, 23, 37, 640, 480, 6, embedded_backing=True)
+        self.layers(user, {0, 2})
+        if self.slot(user, 1).exists():
+            raise CheckFailed("user v1 present after embedded move")
+        if digest(self.slot(user, 2)) != user_v2_frozen:
+            raise CheckFailed("embedded move changed user v2")
+        user_v0_frozen = digest(self.slot(user, 0))
+        self.run("C", "resize", user, embedded_backing=True)
+        self.verify("C", user, 23, 37, 740, 530, 6, embedded_backing=True)
+        self.layers(user, {0, 1, 2})
+        if digest(self.slot(user, 0)) != user_v0_frozen:
+            raise CheckFailed("embedded resize changed user v0")
+        if digest(self.slot(user, 2)) != user_v2_frozen:
+            raise CheckFailed("embedded resize changed user v2")
+        user_v1_frozen = digest(self.slot(user, 1))
+        self.run("A", "move", user)
+        self.verify("A", user, 30, 46)
+        if digest(self.slot(user, 1)) != user_v1_frozen:
+            raise CheckFailed("A move changed user v1")
+        if digest(self.slot(user, 2)) != user_v2_frozen:
+            raise CheckFailed("A move changed user v2")
+        self.verify("A", user, 30, 46)
+        self.verify("B", user, 30, 46, 740, 530)
+        self.verify("C", user, 30, 46, 740, 530, 6, embedded_backing=True)
+        for path in case_dir.iterdir():
+            lowered = path.name.lower()
+            if "package" in lowered or "backing" in lowered:
+                raise CheckFailed(f"unexpected external supply directory: {path}")
+        return "empty USER: embedded v0/v1/v2 until user writes v2 then v0 then v1"
+
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
             if digest(self.executables[revision]) != expected_hash:
@@ -675,6 +720,7 @@ def main():
     suite.case("backing-overlay-three-version", suite.backing_overlay_three_version)
     suite.case("backing-overlay-untouched-layer", suite.backing_overlay_untouched_layer)
     suite.case("embedded-backing-roundtrip", suite.embedded_backing_roundtrip)
+    suite.case("embedded-first-install", suite.embedded_first_install)
     return suite.finish()
 
 
