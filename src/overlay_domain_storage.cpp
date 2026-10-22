@@ -5,18 +5,22 @@
 namespace apptraverse {
 
 OverlayDomainStorage::OverlayDomainStorage(ae::IDomainStorage& backing)
-    : backing_{backing} {}
+    : writable_overlay_{overlay_}, backing_{backing} {}
+
+OverlayDomainStorage::OverlayDomainStorage(ae::IDomainStorage& writable_overlay,
+                                           ae::IDomainStorage& backing)
+    : writable_overlay_{writable_overlay}, backing_{backing} {}
 
 OverlayDomainStorage::~OverlayDomainStorage() = default;
 
 std::unique_ptr<ae::IDomainStorageWriter> OverlayDomainStorage::Store(
     ae::DomainQuery const& query) {
-  return overlay_.Store(query);
+  return writable_overlay_.Store(query);
 }
 
 ae::ClassList OverlayDomainStorage::Enumerate(ae::ObjId const& obj_id) {
   std::set<std::uint32_t> classes;
-  for (auto class_id : overlay_.Enumerate(obj_id)) {
+  for (auto class_id : writable_overlay_.Enumerate(obj_id)) {
     classes.insert(class_id);
   }
   for (auto class_id : backing_.Enumerate(obj_id)) {
@@ -26,7 +30,7 @@ ae::ClassList OverlayDomainStorage::Enumerate(ae::ObjId const& obj_id) {
 }
 
 ae::DomainLoad OverlayDomainStorage::Load(ae::DomainQuery const& query) {
-  auto overlay_load = overlay_.Load(query);
+  auto overlay_load = writable_overlay_.Load(query);
   if (overlay_load.result == ae::DomainLoadResult::kLoaded ||
       overlay_load.result == ae::DomainLoadResult::kRemoved) {
     return overlay_load;
@@ -36,9 +40,9 @@ ae::DomainLoad OverlayDomainStorage::Load(ae::DomainQuery const& query) {
 
 void OverlayDomainStorage::Remove(ae::ObjId const& obj_id) {
   // Static graph runtime does not use Remove; keep overlay-only minimal mark.
-  overlay_.Remove(obj_id);
+  writable_overlay_.Remove(obj_id);
 }
 
-void OverlayDomainStorage::CleanUp() { overlay_.CleanUp(); }
+void OverlayDomainStorage::CleanUp() { writable_overlay_.CleanUp(); }
 
 }  // namespace apptraverse

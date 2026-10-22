@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <set>
 #include <vector>
@@ -8,6 +9,7 @@
 #include "aether-objects/obj/idomain_storage.h"
 #include "aether-objects/obj/obj.h"
 
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/overlay_domain_storage.h"
 
@@ -278,6 +280,101 @@ void TestNativeVersionedObjectUsesMixedSources() {
   }
 }
 
+void TestDurableVersionedOverlay() {
+  std::filesystem::path const user_root =
+      std::filesystem::temp_directory_path() /
+      "apptraverse_durable_overlay_user_state";
+  std::filesystem::remove_all(user_root);
+
+  ae::RamDomainStorage backing;
+  ae::ObjId const object_id{42};
+  ae::DomainQuery const v0_query{object_id, OverlayVersionedWindow::kClassId, 0};
+  ae::DomainQuery const v1_query{object_id, OverlayVersionedWindow::kClassId, 1};
+
+  {
+    ae::Domain domain{backing};
+    auto created = OverlayVersionedWindow::ptr::Create(
+        ae::CreateWith{domain}.with_id(object_id));
+    ae::Ptr<OverlayVersionedWindow> window = created.Load();
+    window->width = 800;
+    window->posx = 100;
+    ae::DomainGraph graph{&domain};
+    CHECK(graph.SaveRoot(window, object_id).IsOk());
+  }
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(object_id, loaded).IsOk());
+    CHECK(loaded);
+    ae::Ptr<OverlayVersionedWindow> window{loaded};
+    CHECK(window->width == 800);
+    CHECK(window->posx == 100);
+
+    window->width = 900;
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveVersion(ae::Version<0>{}, *window, object_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
+  }
+
+  {
+    ae::Domain domain{backing};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(object_id, loaded).IsOk());
+    CHECK(loaded);
+    ae::Ptr<OverlayVersionedWindow> window{loaded};
+    window->width = 700;
+    window->posx = 200;
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(window, object_id).IsOk());
+  }
+
+  ae::RamDomainStorage::ObjClassData const backing_after_rebundle = backing.state;
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(object_id, loaded).IsOk());
+    CHECK(loaded);
+    ae::Ptr<OverlayVersionedWindow> window{loaded};
+    CHECK(window->width == 900);
+    CHECK(window->posx == 200);
+
+    window->posx = 300;
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(window, object_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
+  }
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(object_id, loaded).IsOk());
+    CHECK(loaded);
+    CHECK(loaded->GetClassId() == OverlayVersionedWindow::kClassId);
+    ae::Ptr<OverlayVersionedWindow> window{loaded};
+    CHECK(window->obj_id == object_id);
+    CHECK(window->width == 900);
+    CHECK(window->posx == 300);
+  }
+
+  CHECK(backing.state == backing_after_rebundle);
+  CHECK(DirectoryDomainStorageLayerFileExists(user_root, v0_query));
+  CHECK(DirectoryDomainStorageLayerFileExists(user_root, v1_query));
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -286,6 +383,7 @@ int main() {
   apptraverse::test::TestOverlayPrefersOverlayAndFallsBackToBacking();
   apptraverse::test::TestSameClassVersionPrecedence();
   apptraverse::test::TestNativeVersionedObjectUsesMixedSources();
+  apptraverse::test::TestDurableVersionedOverlay();
   std::cout << "overlay_domain_storage_test OK\n";
   return 0;
 }

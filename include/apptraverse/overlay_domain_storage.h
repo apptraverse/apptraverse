@@ -12,6 +12,8 @@ namespace apptraverse {
 class OverlayDomainStorage final : public ae::IDomainStorage {
  public:
   explicit OverlayDomainStorage(ae::IDomainStorage& backing);
+  OverlayDomainStorage(ae::IDomainStorage& writable_overlay,
+                       ae::IDomainStorage& backing);
   ~OverlayDomainStorage() override;
 
   std::unique_ptr<ae::IDomainStorageWriter> Store(
@@ -28,6 +30,7 @@ class OverlayDomainStorage final : public ae::IDomainStorage {
 
  private:
   ae::RamDomainStorage overlay_;
+  ae::IDomainStorage& writable_overlay_;
   ae::IDomainStorage& backing_;
 };
 
