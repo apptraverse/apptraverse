@@ -46,6 +46,7 @@
 #include "apptraverse/surfaces/surfaces_chrome_wiring.h"
 #include "apptraverse/surfaces/surfaces_localization.h"
 #include "apptraverse/surfaces/surfaces_presentation.h"
+#include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 #include "surfaces_demo_add_button.h"
@@ -2391,6 +2392,38 @@ void TestLibraryAddButtonLabelSerializationRoundtrip() {
   CHECK(&*loaded_lang_button->locale == &*loaded->locale);
   CHECK(&*loaded_lang->window_presenter == &*loaded_add->window_presenter);
 }
+
+void TestLanguageSwitchPublicationConsistency() {
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto application = BuildWin32LibraryAddRoundtripGraph(model_domain);
+  FinalizeDistilledGraph(*application);
+
+  ByteSink initial;
+  SerializeInitialPublication(*application, initial);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_application = LoadInitialUi(initial.bytes, ui_domain, ui_storage);
+  CHECK(ui_application->locale->language_index() == 0);
+  CHECK(ui_application->label_add->Resolve(0) == "Add");
+
+  application->label_add->MaterializeLanguage(1);
+  CHECK(!application->label_add->strings[0].is_loaded());
+  CHECK(application->label_add->strings[1].is_loaded());
+  CHECK(application->label_add->Resolve(1) == "Добавить");
+
+  ByteSink structural;
+  SerializeStructuralNodePublication(*application->label_add, structural);
+  ByteSource structural_in;
+  structural_in.data = structural.bytes.data();
+  structural_in.size = structural.bytes.size();
+  ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
+
+  CHECK(ui_application->locale->language_index() == 0);
+  CHECK(ui_application->label_add->Resolve(0) == "Add");
+}
 #endif
 
 void TestLocaleCommitAndPersistence() {
@@ -2491,6 +2524,7 @@ void RunSurfacesModelTests(bool functional_only) {
   apptraverse::test::TestDynamicLanguageLibraryPushButtonMaterializedNotifier();
   apptraverse::test::TestDynamicCloseLibraryPushButtonMaterializedNotifier();
   apptraverse::test::TestLibraryAddButtonLabelSerializationRoundtrip();
+  apptraverse::test::TestLanguageSwitchPublicationConsistency();
 #endif
 }
 
