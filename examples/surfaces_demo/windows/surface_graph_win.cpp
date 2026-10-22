@@ -124,13 +124,13 @@ void AttachPlatformSurfacePresenters(Surface& surface, Application& application,
 
       static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
 
-  ComputeSurfaceChromeButtonLayout(
+  language_presenter->layout_x = kSurfaceAddButtonLayoutX;
 
-      *window, static_cast<std::uint32_t>(kSurfaceLanguageButtonId),
+  language_presenter->layout_y = kSurfaceAddButtonLayoutY;
 
-      &language_presenter->layout_x, &language_presenter->layout_y,
+  language_presenter->layout_width = kSurfaceAddButtonLayoutWidth;
 
-      &language_presenter->layout_width, &language_presenter->layout_height);
+  language_presenter->layout_height = kSurfaceAddButtonLayoutHeight;
 
 
 

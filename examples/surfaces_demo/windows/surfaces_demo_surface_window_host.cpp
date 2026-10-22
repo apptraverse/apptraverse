@@ -19,4 +19,18 @@ void* SurfacesDemoSurfaceWindowHostPresenter::NativeChildParentHandle()
   return reinterpret_cast<void*>(surface_window->hwnd);
 }
 
+ui::UiControlLayout SurfacesDemoSurfaceWindowHostPresenter::ResolveChildLayout(
+    ui::UiControlLayout requested) const {
+  if (requested.control_id !=
+          static_cast<std::uint32_t>(kSurfaceLanguageButtonId) ||
+      !surface_window) {
+    return requested;
+  }
+  ui::UiControlLayout resolved = requested;
+  ComputeSurfaceChromeButtonLayout(*surface_window, requested.control_id,
+                                   &resolved.x, &resolved.y, &resolved.width,
+                                   &resolved.height);
+  return resolved;
+}
+
 }  // namespace apptraverse::example::surfaces

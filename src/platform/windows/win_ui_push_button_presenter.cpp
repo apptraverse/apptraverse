@@ -45,6 +45,16 @@ bool ReadChildClientFrame(HWND hwnd, int& x, int& y, int& width, int& height) {
   return true;
 }
 
+ui::UiControlLayout EffectiveLayout(WinPushButtonPresenter const& presenter) {
+  ui::UiControlLayout layout{
+      presenter.layout_x, presenter.layout_y, presenter.layout_width,
+      presenter.layout_height, presenter.control_id};
+  if (presenter.window_presenter) {
+    return presenter.window_presenter->ResolveChildLayout(layout);
+  }
+  return layout;
+}
+
 }  // namespace
 
 void WinPushButtonPresenter::OnLoad() {
@@ -65,14 +75,15 @@ void WinPushButtonPresenter::OnLoad() {
     caption = Utf8ToWide(
         button->label->Resolve(window_presenter->locale->language_index()));
   }
+  ui::UiControlLayout const layout = EffectiveLayout(*this);
   hwnd_ = CreateChildPushButton({
       .parent_hwnd = parent_hwnd,
       .control_id = control_id,
       .initial_caption = caption.c_str(),
-      .x = layout_x,
-      .y = layout_y,
-      .width = layout_width,
-      .height = layout_height,
+      .x = layout.x,
+      .y = layout.y,
+      .width = layout.width,
+      .height = layout.height,
       .presenter_user_data = this,
       .create_fatal_operation = "CreateWindowExW Ui push button",
   });
@@ -105,15 +116,16 @@ void WinPushButtonPresenter::ApplyLayout() {
     DWORD const err = GetLastError();
     FatalWin32("GetWindowRect Ui push button layout", err);
   }
-  if (x == layout_x && y == layout_y && width == layout_width &&
-      height == layout_height) {
+  ui::UiControlLayout const layout = EffectiveLayout(*this);
+  if (x == layout.x && y == layout.y && width == layout.width &&
+      height == layout.height) {
     return;
   }
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
   ++test_set_window_pos_count_;
 #endif
-  if (SetWindowPos(hwnd_, nullptr, layout_x, layout_y, layout_width,
-                   layout_height, SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
+  if (SetWindowPos(hwnd_, nullptr, layout.x, layout.y, layout.width,
+                   layout.height, SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("SetWindowPos Ui push button", err);
   }

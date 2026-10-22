@@ -50,6 +50,10 @@ class UiWindowPresenter : public Presenter {
 
   // Runtime-only native parent for child controls (platform interprets void*).
   virtual void* NativeChildParentHandle() const { return nullptr; }
+
+  virtual UiControlLayout ResolveChildLayout(UiControlLayout requested) const {
+    return requested;
+  }
 };
 
 class UiDesktopWindowPresenter : public UiWindowPresenter {

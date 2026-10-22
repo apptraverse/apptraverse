@@ -2066,10 +2066,10 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
   language_presenter->window_presenter = add_host;
   language_presenter->control_id =
       static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
-  ComputeSurfaceChromeButtonLayout(
-      *window, static_cast<std::uint32_t>(kSurfaceLanguageButtonId),
-      &language_presenter->layout_x, &language_presenter->layout_y,
-      &language_presenter->layout_width, &language_presenter->layout_height);
+  language_presenter->layout_x = kSurfaceAddButtonLayoutX;
+  language_presenter->layout_y = kSurfaceAddButtonLayoutY;
+  language_presenter->layout_width = kSurfaceAddButtonLayoutWidth;
+  language_presenter->layout_height = kSurfaceAddButtonLayoutHeight;
 
   close_button->window_presenter = window;
   close_button->role = SurfaceButtonRole::Close;

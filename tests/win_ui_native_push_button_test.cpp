@@ -475,6 +475,125 @@ void TestWinPushButtonWithBorderlessHostPresenter() {
   DestroyWindow(host);
 }
 
+class TestResolveLayoutHostPresenter : public ui::UiWindowPresenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::TestResolveLayoutHostPresenter",
+                           TestResolveLayoutHostPresenter, UiWindowPresenter, 0)
+
+ protected:
+  TestResolveLayoutHostPresenter() = default;
+
+ public:
+  explicit TestResolveLayoutHostPresenter(ae::ObjProp prop)
+      : UiWindowPresenter{prop} {}
+
+  void OnLoad() override {}
+
+  bool PresentationCreateSucceeded() const override {
+    return host_hwnd_ != nullptr;
+  }
+
+  void* NativeChildParentHandle() const override {
+    return reinterpret_cast<void*>(host_hwnd_);
+  }
+
+  ui::UiControlLayout ResolveChildLayout(
+      ui::UiControlLayout requested) const override {
+    requested.x += 13;
+    requested.y += 14;
+    return requested;
+  }
+
+  HWND host_hwnd_{nullptr};
+};
+
+class PushButtonResolveLayoutRoot : public NodeFor<PushButtonResolveLayoutRoot> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::PushButtonResolveLayoutRoot",
+                           PushButtonResolveLayoutRoot, Node, 0)
+
+ protected:
+  PushButtonResolveLayoutRoot() = default;
+
+ public:
+  explicit PushButtonResolveLayoutRoot(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window_presenter), AE_MMBR(button_presenter))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, window_presenter, button_presenter);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, window_presenter, button_presenter);
+  }
+
+  TestResolveLayoutHostPresenter::ptr window_presenter;
+  ui::windows::WinPushButtonPresenter::ptr button_presenter;
+};
+
+APPTRAVERSE_REGISTER(TestResolveLayoutHostPresenter);
+APPTRAVERSE_REGISTER(PushButtonResolveLayoutRoot);
+
+void TestWinPushButtonResolveChildLayoutFromHost() {
+  EnsureObjectRegistration();
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  (void)&g_apptraverse_registrar_TestResolveLayoutHostPresenter;
+  (void)&g_apptraverse_registrar_PushButtonResolveLayoutRoot;
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto root = PushButtonResolveLayoutRoot::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*root);
+
+  HWND const host = CreateBorderlessHostAtOrigin();
+  root->window_presenter =
+      TestResolveLayoutHostPresenter::ptr::Create(ae::CreateWith{domain});
+  root->window_presenter->host_hwnd_ = host;
+
+  auto button = ui::UiPushButton::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*button, *root);
+
+  root->button_presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
+      ae::CreateWith{domain});
+  root->button_presenter->button = button;
+  root->button_presenter->window_presenter = root->window_presenter;
+  root->button_presenter->layout_x = 5;
+  root->button_presenter->layout_y = 6;
+  root->button_presenter->layout_width = 80;
+  root->button_presenter->layout_height = 24;
+  root->button_presenter->control_id = kControlId;
+
+  ModelObjectProxy proxy{[](ModelObjectProxy::ModelWork work) {
+    ae::RamDomainStorage storage;
+    ae::Domain domain{storage};
+    work(domain);
+  }};
+
+  InitializePresenters(*root, nullptr, &proxy);
+  auto* presenter = root->button_presenter.operator->();
+  HWND const btn = presenter->hwnd();
+  CHECK(btn != nullptr);
+
+  int layout_x = 0;
+  int layout_y = 0;
+  int layout_w = 0;
+  int layout_h = 0;
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 18);
+  CHECK(layout_y == 20);
+  CHECK(layout_w == 80);
+  CHECK(layout_h == 24);
+
+  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
+  presenter->OnModelChanged();
+  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 0);
+
+  UnloadPresenters(*root);
+  DestroyWindow(host);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -483,6 +602,7 @@ int main() {
   apptraverse::test::TestHelperCreateDestroyRecreate();
   apptraverse::test::TestWinPushButtonPresenterNativeRouting();
   apptraverse::test::TestWinPushButtonWithBorderlessHostPresenter();
+  apptraverse::test::TestWinPushButtonResolveChildLayoutFromHost();
   std::cout << "win_ui_native_push_button_test OK\n";
   return 0;
 }
