@@ -234,13 +234,13 @@ int Run(int argc, char** argv) {
 
        operation != "resize" && operation != "move-resize" &&
 
-       operation != "change-border")) {
+       operation != "change-border" && operation != "reconcile")) {
 
     throw std::runtime_error(
 
         "usage: --state-dir PATH --op "
 
-        "create|package|inspect|move|resize|move-resize|change-border");
+        "create|package|inspect|move|resize|move-resize|change-border|reconcile");
 
   }
 
@@ -272,7 +272,9 @@ int Run(int argc, char** argv) {
 
   if (operation == "package" || operation == "resize" ||
 
-      operation == "move-resize" || operation == "change-border") {
+      operation == "move-resize" || operation == "change-border" ||
+
+      operation == "reconcile") {
 
     throw std::runtime_error("v0 EXE does not support v1 fields");
 
@@ -447,6 +449,12 @@ int Run(int argc, char** argv) {
     window->width += 100;
 
     window->height += 50;
+
+  }
+
+  if (operation == "reconcile") {
+
+    window->width = static_cast<std::uint32_t>(1000 - window->x);
 
   }
 

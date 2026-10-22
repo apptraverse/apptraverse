@@ -32,6 +32,9 @@ Three independent EXEs use exactly the same named Window ClassId; no Window inhe
    (final A 17,29; B adds 840x580; C border 8).
 8. The package source and executable hashes must remain unchanged;
    results.json and process logs show value or byte-level failures.
+9. `post-load-reconcile`: rule x+width=1000 is applied only by explicit fixture
+   `reconcile` on B/C after LoadRoot; serializers and Load(v0/v1/v2) never
+   rewrite width automatically (not production startup behavior).
 
 ## Run
 

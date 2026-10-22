@@ -294,6 +294,66 @@ class WindowMatrix:
             raise CheckFailed("immutable packaged v2 source changed")
         return "A/B/C rollback: (30,46), 1040x680, border 8; three Window slots"
 
+    def post_load_reconcile(self, case_dir):
+        state, package_b, package_b_hash = self.prepare(case_dir)
+        package_c = case_dir / "packaged C initial state"
+        self.run("C", "package", package_c)
+        packaged_v2 = self.slot(package_c, 2)
+        if (not packaged_v2.is_file() or self.slot(package_c, 0).exists() or
+                self.slot(package_c, 1).exists()):
+            raise CheckFailed("C package must contain v2, not v0/v1 Window state")
+        package_c_hash = digest(packaged_v2)
+        target_v2 = self.slot(state, 2)
+        if target_v2.exists():
+            raise CheckFailed("installation would overwrite existing v2")
+        shutil.copyfile(packaged_v2, target_v2)
+        self.layers(state, {0, 1, 2})
+        self.verify("B", state, 10, 20, 640, 480)
+        self.verify("C", state, 10, 20, 640, 480, 4)
+        v0_frozen, v2_frozen = digest(self.slot(state, 0)), digest(self.slot(state, 2))
+        v1_before = digest(self.slot(state, 1))
+        self.run("B", "reconcile", state)
+        if digest(self.slot(state, 0)) != v0_frozen:
+            raise CheckFailed("B reconcile changed v0 position bytes")
+        if digest(self.slot(state, 2)) != v2_frozen:
+            raise CheckFailed("B reconcile changed v2 border bytes")
+        if digest(self.slot(state, 1)) == v1_before:
+            raise CheckFailed("B reconcile did not update v1")
+        self.verify("C", state, 10, 20, 990, 480, 4)
+        v1_frozen = digest(self.slot(state, 1))
+        v2_frozen = digest(self.slot(state, 2))
+        self.run("A", "move", state)
+        if digest(self.slot(state, 1)) != v1_frozen:
+            raise CheckFailed("A move changed v1 after reconcile")
+        if digest(self.slot(state, 2)) != v2_frozen:
+            raise CheckFailed("A move changed v2 after reconcile")
+        self.verify("C", state, 17, 29, 990, 480, 4)
+        v0_frozen = digest(self.slot(state, 0))
+        v2_frozen = digest(self.slot(state, 2))
+        v1_before = digest(self.slot(state, 1))
+        self.run("C", "reconcile", state)
+        if digest(self.slot(state, 0)) != v0_frozen:
+            raise CheckFailed("C reconcile changed v0")
+        if digest(self.slot(state, 2)) != v2_frozen:
+            raise CheckFailed("C reconcile changed v2")
+        if digest(self.slot(state, 1)) == v1_before:
+            raise CheckFailed("C reconcile did not update v1")
+        self.verify("C", state, 17, 29, 983, 480, 4)
+        manifest_before = manifest(state)
+        self.run("C", "reconcile", state)
+        manifest_after = manifest(state)
+        if manifest_before != manifest_after:
+            raise CheckFailed("second C reconcile changed storage manifest")
+        self.verify("A", state, 17, 29)
+        self.verify("B", state, 17, 29, 983, 480)
+        self.verify("C", state, 17, 29, 983, 480, 4)
+        self.layers(state, {0, 1, 2})
+        if digest(self.slot(package_b, 1)) != package_b_hash:
+            raise CheckFailed("immutable packaged v1 source changed")
+        if digest(self.slot(package_c, 2)) != package_c_hash:
+            raise CheckFailed("immutable packaged v2 source changed")
+        return "post-load reconcile: x+width=1000 via explicit B/C op, not Load"
+
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
             if digest(self.executables[revision]) != expected_hash:
@@ -325,6 +385,7 @@ def main():
     suite.case("mixed-upgrade-rollback", suite.rollback)
     suite.case("save-root-dual-layer", suite.save_root_dual_layer)
     suite.case("three-version-rollback", suite.three_version_rollback)
+    suite.case("post-load-reconcile", suite.post_load_reconcile)
     return suite.finish()
 
 
