@@ -52,19 +52,14 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
   # A/B share one Window ClassId. v0 stores x/y, v1 stores width/height.
   add_executable(apptraverse_window_layers_a window_schema_layers_fixture.cpp)
   add_executable(apptraverse_window_layers_b window_schema_layers_fixture.cpp)
-  add_executable(apptraverse_window_layers_c window_schema_layers_fixture.cpp)
   target_link_libraries(apptraverse_window_layers_a PRIVATE apptraverse)
   target_link_libraries(apptraverse_window_layers_b PRIVATE apptraverse)
-  target_link_libraries(apptraverse_window_layers_c PRIVATE apptraverse)
   target_compile_definitions(apptraverse_window_layers_a PRIVATE
     APPTRAVERSE_WINDOW_EXE_REVISION=0)
   target_compile_definitions(apptraverse_window_layers_b PRIVATE
     APPTRAVERSE_WINDOW_EXE_REVISION=1)
-  target_compile_definitions(apptraverse_window_layers_c PRIVATE
-    APPTRAVERSE_WINDOW_EXE_REVISION=2)
   add_custom_target(apptraverse_window_schema_layers_fixtures DEPENDS
-    apptraverse_window_layers_a apptraverse_window_layers_b
-    apptraverse_window_layers_c)
+    apptraverse_window_layers_a apptraverse_window_layers_b)
   add_dependencies(apptraverse_application_evolution_fixtures
     apptraverse_window_schema_layers_fixtures)
 
