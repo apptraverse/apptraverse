@@ -52,6 +52,9 @@ Three independent EXEs use exactly the same named Window ClassId; no Window inhe
 13. `embedded-first-install`: EXE C restores full initial Window state from
    embedded v0/v1/v2 when USER is empty; USER layers appear only after user
    mutations (`{2}` then `{0,2}` then `{0,1,2}` in the matrix sequence).
+14. `embedded-rollback-to-a`: after USER holds only Window v2 from EXE C, EXE A
+   with its own embedded v0 can inspect/move without a user v0 file; rollback
+   `{2}` → `{0,2}` uses A embedded backing, then C reads merged state again.
 
 ## Run
 

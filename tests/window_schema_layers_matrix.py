@@ -684,6 +684,42 @@ class WindowMatrix:
                 raise CheckFailed(f"unexpected external supply directory: {path}")
         return "empty USER: embedded v0/v1/v2 until user writes v2 then v0 then v1"
 
+    def embedded_rollback_to_a(self, case_dir):
+        user = case_dir / "user rollback to A"
+        user.mkdir()
+        user_manifest = manifest(user)
+        self.verify("C", user, 10, 20, 640, 480, 4, embedded_backing=True)
+        unchanged(user_manifest, manifest(user), "user after C embedded inspect")
+        if self.slot(user, 0).parent.is_dir():
+            self.layers(user, set())
+        self.run("C", "change-border", user, embedded_backing=True)
+        self.verify("C", user, 10, 20, 640, 480, 6, embedded_backing=True)
+        self.layers(user, {2})
+        if self.slot(user, 0).exists() or self.slot(user, 1).exists():
+            raise CheckFailed("user v0/v1 present before A rollback")
+        user_v2_frozen = digest(self.slot(user, 2))
+        manifest_before_a_inspect = manifest(user)
+        self.verify("A", user, 10, 20, embedded_backing=True)
+        unchanged(manifest_before_a_inspect, manifest(user), "user after A embedded inspect")
+        if self.slot(user, 0).exists():
+            raise CheckFailed("user v0 appeared after A embedded inspect")
+        if digest(self.slot(user, 2)) != user_v2_frozen:
+            raise CheckFailed("A embedded inspect changed user v2")
+        self.run("A", "move", user, embedded_backing=True)
+        self.verify("A", user, 17, 29, embedded_backing=True)
+        self.layers(user, {0, 2})
+        if self.slot(user, 1).exists():
+            raise CheckFailed("user v1 present after A embedded move")
+        if digest(self.slot(user, 2)) != user_v2_frozen:
+            raise CheckFailed("A embedded move changed user v2")
+        manifest_before_c_inspect = manifest(user)
+        self.verify("C", user, 17, 29, 640, 480, 6, embedded_backing=True)
+        unchanged(manifest_before_c_inspect, manifest(user), "user after C embedded inspect")
+        manifest_before_a_final = manifest(user)
+        self.verify("A", user, 17, 29, embedded_backing=True)
+        unchanged(manifest_before_a_final, manifest(user), "user after final A embedded inspect")
+        return "C user v2 only; A embedded v0 rollback then C sees merged state"
+
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
             if digest(self.executables[revision]) != expected_hash:
@@ -721,6 +757,7 @@ def main():
     suite.case("backing-overlay-untouched-layer", suite.backing_overlay_untouched_layer)
     suite.case("embedded-backing-roundtrip", suite.embedded_backing_roundtrip)
     suite.case("embedded-first-install", suite.embedded_first_install)
+    suite.case("embedded-rollback-to-a", suite.embedded_rollback_to_a)
     return suite.finish()
 
 

@@ -206,23 +206,11 @@ APPTRAVERSE_REGISTER(Window);
 
 
 
-#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 0 || APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
 constexpr std::uint8_t kEmbeddedWindowV0Layer[] = {
 
     0x0A, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00,
-
-};
-
-constexpr std::uint8_t kEmbeddedWindowV1Layer[] = {
-
-    0x80, 0x02, 0x00, 0x00, 0xE0, 0x01, 0x00, 0x00,
-
-};
-
-constexpr std::uint8_t kEmbeddedWindowV2Layer[] = {
-
-    0x04, 0x00, 0x00, 0x00,
 
 };
 
@@ -243,6 +231,24 @@ void WriteEmbeddedLayer(ae::RamDomainStorage& storage,
   }
 
 }
+
+#endif
+
+
+
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+
+constexpr std::uint8_t kEmbeddedWindowV1Layer[] = {
+
+    0x80, 0x02, 0x00, 0x00, 0xE0, 0x01, 0x00, 0x00,
+
+};
+
+constexpr std::uint8_t kEmbeddedWindowV2Layer[] = {
+
+    0x04, 0x00, 0x00, 0x00,
+
+};
 
 #endif
 
@@ -286,11 +292,11 @@ int Run(int argc, char** argv) {
 
   }
 
-#if APPTRAVERSE_WINDOW_EXE_REVISION != 2
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 1
 
   if (embedded_backing) {
 
-    throw std::runtime_error("embedded backing is supported only on EXE C");
+    throw std::runtime_error("embedded backing is supported only on EXE A and C");
 
   }
 
@@ -340,23 +346,25 @@ int Run(int argc, char** argv) {
 
   } else if (!std::filesystem::is_directory(state_dir)) {
 
+    bool const embedded_empty_state_ok =
+
+        embedded_backing &&
+
+        (operation == "inspect" || operation == "move"
+
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
-    if (!(embedded_backing &&
+         || operation == "resize" || operation == "change-border"
 
-          (operation == "inspect" || operation == "move" ||
+#endif
 
-           operation == "resize" || operation == "change-border"))) {
+        );
+
+    if (!embedded_empty_state_ok) {
 
       throw std::runtime_error("state directory does not exist");
 
     }
-
-#else
-
-    throw std::runtime_error("state directory does not exist");
-
-#endif
 
   }
 
@@ -486,17 +494,13 @@ int Run(int argc, char** argv) {
 
   }
 
-#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 0 || APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
   else if (embedded_backing) {
 
     embedded_storage = std::make_unique<ae::RamDomainStorage>();
 
     ae::DomainQuery const v0_query{ae::ObjId{kWindowId}, Window::kClassId, 0};
-
-    ae::DomainQuery const v1_query{ae::ObjId{kWindowId}, Window::kClassId, 1};
-
-    ae::DomainQuery const v2_query{ae::ObjId{kWindowId}, Window::kClassId, 2};
 
     ae::DomainQuery const obj_v0_query{ae::ObjId{kWindowId}, ae::Obj::kClassId, 0};
 
@@ -506,6 +510,12 @@ int Run(int argc, char** argv) {
 
                        sizeof(kEmbeddedWindowV0Layer));
 
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+
+    ae::DomainQuery const v1_query{ae::ObjId{kWindowId}, Window::kClassId, 1};
+
+    ae::DomainQuery const v2_query{ae::ObjId{kWindowId}, Window::kClassId, 2};
+
     WriteEmbeddedLayer(*embedded_storage, v1_query, kEmbeddedWindowV1Layer,
 
                        sizeof(kEmbeddedWindowV1Layer));
@@ -513,6 +523,8 @@ int Run(int argc, char** argv) {
     WriteEmbeddedLayer(*embedded_storage, v2_query, kEmbeddedWindowV2Layer,
 
                        sizeof(kEmbeddedWindowV2Layer));
+
+#endif
 
     overlay_storage = std::make_unique<OverlayDomainStorage>(
 
@@ -660,7 +672,7 @@ int Run(int argc, char** argv) {
 
   if (operation != "inspect") {
 
-#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 0 || APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
     if (embedded_backing) {
 
