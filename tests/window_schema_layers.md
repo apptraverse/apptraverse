@@ -37,6 +37,9 @@ Three independent EXEs use exactly the same named Window ClassId; no Window inhe
 9. `post-load-reconcile`: rule x+width=1000 is applied only by explicit fixture
    `reconcile` on B/C after LoadRoot; serializers and Load(v0/v1/v2) never
    rewrite width automatically (not production startup behavior).
+10. `backing-overlay-three-version`: USER v0 plus BACKING v1/v2 (copied from
+   separate B/C packages); mixed overlay reads and per-layer user writes through
+   `--backing-dir` without copying packages into USER.
 
 ## Run
 
