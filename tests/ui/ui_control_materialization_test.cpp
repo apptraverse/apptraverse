@@ -111,6 +111,7 @@ void TestLocalizationLazyLoadRoundtrip() {
   ae::ObjId ru_string_id;
   char const* const kEnText = "Lazy EN slot";
   char const* const kRuText = "Lazy RU slot";
+  char const* const kRuUpdated = "Updated lazy RU";
 
   {
     ae::Domain domain{storage};
@@ -157,8 +158,21 @@ void TestLocalizationLazyLoadRoundtrip() {
   CHECK(!loaded->strings[1].is_loaded());
 
   {
+    auto edit = SetUiLocalizationSlotUtf8Event::ptr::Create(
+        ae::CreateWith{domain});
+    edit->slot_index = 1;
+    edit->utf8 = kRuUpdated;
+    loaded->Commit(std::move(edit));
+  }
+  CHECK(loaded->strings[0].is_loaded());
+  CHECK(!loaded->strings[1].is_loaded());
+  CHECK(loaded->strings[0].id() == en_string_id);
+  CHECK(loaded->strings[1].id() == ru_string_id);
+  CHECK((loaded->strings[1].flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+
+  {
     auto ru_view = loaded->strings[1].Load();
-    CHECK(ru_view->utf8 == kRuText);
+    CHECK(ru_view->utf8 == kRuUpdated);
   }
 
   loaded->strings[0].Save();
@@ -191,13 +205,16 @@ void TestLocalizationLazyLoadRoundtrip() {
   CHECK(!reloaded->strings[0].is_loaded());
   CHECK(!reloaded->strings[1].is_loaded());
 
+  reloaded->MaterializeLanguage(1);
+  CHECK(!reloaded->strings[0].is_loaded());
+  CHECK(reloaded->strings[1].is_loaded());
+  CHECK(reloaded->strings[0].id() == en_string_id);
+  CHECK(reloaded->strings[1].id() == ru_string_id);
+  CHECK(reloaded->Resolve(1) == kRuUpdated);
+
   {
     auto en_view = reloaded->strings[0].Load();
     CHECK(en_view->utf8 == kEnText);
-  }
-  {
-    auto ru_view = reloaded->strings[1].Load();
-    CHECK(ru_view->utf8 == kRuText);
   }
 }
 
