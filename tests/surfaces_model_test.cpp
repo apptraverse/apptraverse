@@ -2394,11 +2394,18 @@ void TestLibraryAddButtonLabelSerializationRoundtrip() {
 }
 
 void TestLanguageSwitchPublicationConsistency() {
+  // Per-node structural publication of label_add alone is not valid here: it
+  // can unload EN strings in the UI mirror while locale still reads EN.
   apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
   auto application = BuildWin32LibraryAddRoundtripGraph(model_domain);
   FinalizeDistilledGraph(*application);
+
+  application->label_add->MaterializeLanguage(0);
+  application->label_close->MaterializeLanguage(0);
+  application->window_title_prefix->MaterializeLanguage(0);
+  application->language_switch_label->MaterializeLanguage(0);
 
   ByteSink initial;
   SerializeInitialPublication(*application, initial);
@@ -2408,21 +2415,53 @@ void TestLanguageSwitchPublicationConsistency() {
   auto ui_application = LoadInitialUi(initial.bytes, ui_domain, ui_storage);
   CHECK(ui_application->locale->language_index() == 0);
   CHECK(ui_application->label_add->Resolve(0) == "Add");
+  CHECK(ui_application->label_close->Resolve(0) == "Close this window");
+  CHECK(ui_application->window_title_prefix->Resolve(0) == "Surface ");
+  CHECK(ui_application->language_switch_label->Resolve(0) == "RU");
 
   application->label_add->MaterializeLanguage(1);
-  CHECK(!application->label_add->strings[0].is_loaded());
-  CHECK(application->label_add->strings[1].is_loaded());
-  CHECK(application->label_add->Resolve(1) == "Добавить");
+  application->label_close->MaterializeLanguage(1);
+  application->window_title_prefix->MaterializeLanguage(1);
+  application->language_switch_label->MaterializeLanguage(1);
+  application->locale->SubmitLanguageIndexFromUi(1);
+  CHECK(application->locale->language_index() == 1);
 
   ByteSink structural;
-  SerializeStructuralNodePublication(*application->label_add, structural);
+  SerializeStructuralNodePublication(*application->surfaces, structural);
   ByteSource structural_in;
   structural_in.data = structural.bytes.data();
   structural_in.size = structural.bytes.size();
   ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
 
-  CHECK(ui_application->locale->language_index() == 0);
-  CHECK(ui_application->label_add->Resolve(0) == "Add");
+  CHECK(ui_application->locale->language_index() == 1);
+  CHECK(ui_application->label_add->Resolve(1) == "Добавить");
+  CHECK(ui_application->label_close->Resolve(1) == "Закрыть это окно");
+  CHECK(ui_application->window_title_prefix->Resolve(1) == "Поверхность ");
+  CHECK(ui_application->language_switch_label->Resolve(1) == "EN");
+
+  CHECK(!ui_application->label_add->strings[0].is_loaded());
+  CHECK(ui_application->label_add->strings[1].is_loaded());
+  CHECK(!ui_application->label_close->strings[0].is_loaded());
+  CHECK(ui_application->label_close->strings[1].is_loaded());
+  CHECK(!ui_application->window_title_prefix->strings[0].is_loaded());
+  CHECK(ui_application->window_title_prefix->strings[1].is_loaded());
+  CHECK(!ui_application->language_switch_label->strings[0].is_loaded());
+  CHECK(ui_application->language_switch_label->strings[1].is_loaded());
+
+  CHECK(ui_application->label_add->strings[0].id() ==
+        application->label_add->strings[0].id());
+  CHECK(ui_application->label_add->strings[1].id() ==
+        application->label_add->strings[1].id());
+  CHECK(ui_application->locale->obj_id == application->locale->obj_id);
+
+  CHECK(!application->label_add->strings[0].is_loaded());
+  CHECK(application->label_add->strings[1].is_loaded());
+  CHECK(!application->label_close->strings[0].is_loaded());
+  CHECK(application->label_close->strings[1].is_loaded());
+  CHECK(!application->window_title_prefix->strings[0].is_loaded());
+  CHECK(application->window_title_prefix->strings[1].is_loaded());
+  CHECK(!application->language_switch_label->strings[0].is_loaded());
+  CHECK(application->language_switch_label->strings[1].is_loaded());
 }
 #endif
 
