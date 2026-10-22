@@ -1213,20 +1213,61 @@ void TestLibraryLanguageSingleModelToggle() {
                   std::chrono::seconds{30}));
   CHECK(WaitSurfaceChromeReady(s1, std::chrono::seconds{30}));
   HWND lang1 = FindLanguageButton(s1);
+
+  auto check_model_lazy_locale = [&](int active_lang) {
+    int const inactive_lang = 1 - active_lang;
+    std::promise<void> promise;
+    std::future<void> future = promise.get_future();
+    CHECK(app.PostModelWork([&](ae::Domain& domain) {
+      auto application = LoadApplication<Application>(
+          domain, ae::ObjId{surfaces_demo::ToObjId(
+                      surfaces_demo::ObjId::Application)});
+      CHECK(application->locale->language_index() == active_lang);
+      ui::UiLocalizationString* localized[] = {
+          &*application->label_add,
+          &*application->label_close,
+          &*application->window_title_prefix,
+          &*application->language_switch_label,
+      };
+      for (ui::UiLocalizationString* loc : localized) {
+        CHECK(loc->strings.size() >= 2);
+        auto const active_slot = static_cast<std::size_t>(active_lang);
+        auto const inactive_slot = static_cast<std::size_t>(inactive_lang);
+        CHECK(loc->strings[active_slot].is_loaded());
+        CHECK(!loc->strings[inactive_slot].is_loaded());
+        ae::ObjId const inactive_id = loc->strings[inactive_slot].id();
+        CHECK(!domain.Find(inactive_id));
+      }
+      promise.set_value();
+    }));
+    auto const deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (future.wait_for(std::chrono::milliseconds{0}) !=
+           std::future_status::ready) {
+      PumpGui(std::chrono::milliseconds{20});
+      CHECK(std::chrono::steady_clock::now() < deadline);
+    }
+  };
+
   CHECK(QueryModelLanguageIndex(app) == 0);
   CHECK(WaitForButtonText(lang1, L"RU", std::chrono::seconds{10}));
+  ExpectEnChrome(s1);
   CHECK(WindowText(s1) == L"Surface 1");
+  check_model_lazy_locale(0);
 
   SendMessageW(lang1, BM_CLICK, 0, 0);
   CHECK(WaitForButtonText(lang1, L"EN", std::chrono::seconds{10}));
   CHECK(WindowText(s1) == L"Поверхность 1");
-  CHECK(WindowText(FindAddButton(s1)) == L"Добавить");
-  CHECK(WindowText(FindCloseButton(s1)) == L"Закрыть это окно");
+  ExpectRuChrome(s1);
   CHECK(QueryModelLanguageIndex(app) == 1);
+  check_model_lazy_locale(1);
 
   SendMessageW(lang1, BM_CLICK, 0, 0);
   CHECK(WaitForButtonText(lang1, L"RU", std::chrono::seconds{10}));
+  ExpectEnChrome(s1);
+  CHECK(WindowText(s1) == L"Surface 1");
   CHECK(QueryModelLanguageIndex(app) == 0);
+  check_model_lazy_locale(0);
 
   PostMessageW(s1, WM_CLOSE, 0, 0);
   gui.join();
