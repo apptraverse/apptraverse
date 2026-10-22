@@ -39,6 +39,9 @@ class SurfacesDemoSurfaceWindowHostPresenter : public ui::UiWindowPresenter {
   void* NativeChildParentHandle() const override;
   ui::UiControlLayout ResolveChildLayout(
       ui::UiControlLayout requested) const override;
+
+  void OnLoad() override;
+  void OnUnload() override;
 };
 
 }  // namespace apptraverse::example::surfaces

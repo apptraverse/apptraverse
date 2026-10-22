@@ -5,6 +5,7 @@
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/presenter.h"
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
+#include "apptraverse/ui/ui_push_button_presenter.h"
 
 #include "surfaces_demo_close_button.h"
 #include "surfaces_demo_surface_window_host.h"
@@ -12,93 +13,92 @@
 namespace apptraverse::example::surfaces {
 namespace {
 
-bool TryHandleDemoLibraryCloseChildCommandImpl(SurfacePresenter* surface_presenter,
-                                               WPARAM wparam, LPARAM lparam) {
-  if (surface_presenter == nullptr) {
+Presenter* CloseChromePresenter(Surface const& surface) {
+  if (!surface.chrome.close_button.is_valid()) {
+    return nullptr;
+  }
+  return surface.chrome.close_button.operator->();
+}
+
+}  // namespace
+
+bool TryHandleDemoLibraryCloseChildCommand(
+    Win32SurfaceWindowPresenter* window, WPARAM wparam, LPARAM lparam) {
+  if (window == nullptr || window->hwnd == nullptr) {
     return false;
   }
-  if (surface_presenter->GetClassId() !=
-      Win32SurfaceWindowPresenter::kClassId) {
-    return false;
-  }
-  auto* window =
-      static_cast<Win32SurfaceWindowPresenter*>(surface_presenter);
-  if (window->hwnd == nullptr) {
-    return false;
+  if (!window->surface || !window->surface->surfaces) {
+    FatalWin32("Surfaces demo Close child command surface wiring",
+               ERROR_INVALID_PARAMETER);
   }
 
-  HWND const child = reinterpret_cast<HWND>(lparam);
-  if (child == nullptr) {
+  SurfaceChildBnClickedTarget target{};
+  if (!TryParseSurfaceChildBnClicked(window->hwnd, wparam, lparam, &target)) {
     return false;
   }
-  if (static_cast<std::uint32_t>(LOWORD(wparam)) !=
+  if (target.control_id !=
       static_cast<std::uint32_t>(kSurfaceCloseButtonId)) {
     return false;
   }
-  if (static_cast<std::uint16_t>(HIWORD(wparam)) != BN_CLICKED) {
+
+  Presenter* const close_chrome = CloseChromePresenter(*window->surface);
+  if (close_chrome == nullptr) {
+    FatalWin32("Surfaces demo Close chrome.close_button wiring",
+               ERROR_INVALID_PARAMETER);
+  }
+  if (target.presenter != close_chrome) {
     return false;
   }
-  if (GetParent(child) != window->hwnd) {
+  if (target.presenter->GetClassId() !=
+      ui::windows::WinPushButtonPresenter::kClassId) {
     return false;
-  }
-  if (IsWindowEnabled(child) == FALSE) {
-    return true;
   }
 
-  auto* owner =
-      reinterpret_cast<Presenter*>(GetWindowLongPtrW(child, GWLP_USERDATA));
-  if (owner == nullptr ||
-      owner->GetClassId() != ui::windows::WinPushButtonPresenter::kClassId) {
-    return false;
-  }
   auto close_presenter =
       ui::windows::WinPushButtonPresenter::ptr::MakeFromThis(
-          static_cast<ui::windows::WinPushButtonPresenter*>(owner));
+          static_cast<ui::windows::WinPushButtonPresenter*>(target.presenter));
   if (!close_presenter->button) {
-    return false;
+    FatalWin32("Surfaces demo Close WinPushButtonPresenter button wiring",
+               ERROR_INVALID_PARAMETER);
   }
-  auto close_button =
-      SurfacesDemoCloseButton::ptr{close_presenter->button};
-  if (!close_button || !close_button->surface) {
-    return false;
+  auto close_button = SurfacesDemoCloseButton::ptr{close_presenter->button};
+  if (!close_button) {
+    FatalWin32("Surfaces demo Close button model type wiring",
+               ERROR_INVALID_PARAMETER);
+  }
+  if (!close_button->surface) {
+    FatalWin32("Surfaces demo Close button surface wiring",
+               ERROR_INVALID_PARAMETER);
   }
   auto host = SurfacesDemoSurfaceWindowHostPresenter::ptr{
       close_presenter->window_presenter};
   if (!host || host->surface_window.operator->() != window) {
-    return false;
+    FatalWin32("Surfaces demo Close host surface_window wiring",
+               ERROR_INVALID_PARAMETER);
   }
   if (&*close_button->surface != &*window->surface) {
     return false;
   }
-  if (!window->surface || !window->surface->surfaces) {
-    return false;
+
+  if (IsWindowEnabled(target.child_hwnd) == FALSE ||
+      !close_presenter->button->enabled()) {
+    return true;
   }
+
   if (window->surface->surfaces->surfaces.size() != 1) {
     return false;
   }
 
-  HWND const notify =
-      reinterpret_cast<HWND>(window->presentation_host);
+  HWND const notify = reinterpret_cast<HWND>(window->presentation_host);
   if (notify == nullptr) {
-    return false;
+    FatalWin32("Surfaces demo Close presentation_host wiring",
+               ERROR_INVALID_PARAMETER);
   }
   if (PostMessageW(notify, WM_APPTRAVERSE_STOP, 0, 0) == 0) {
     DWORD const err = GetLastError();
     FatalWin32("PostMessageW WM_APPTRAVERSE_STOP demo Close", err);
   }
   return true;
-}
-
-}  // namespace
-
-bool TryHandleDemoLibraryCloseChildCommand(SurfacePresenter* surface_presenter,
-                                           WPARAM wparam, LPARAM lparam) {
-  return TryHandleDemoLibraryCloseChildCommandImpl(surface_presenter, wparam,
-                                                   lparam);
-}
-
-void EnsureSurfacesDemoWin32ChildCommandHook() {
-  RegisterSurfaceWin32ChildCommandHook(&TryHandleDemoLibraryCloseChildCommand);
 }
 
 }  // namespace apptraverse::example::surfaces

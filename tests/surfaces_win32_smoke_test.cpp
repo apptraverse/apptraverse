@@ -1383,6 +1383,46 @@ void TestDynamicLanguageLibraryPushButtonNotifierAndEnabled() {
   std::filesystem::remove_all(dir);
 }
 
+void TestPerWindowCloseChildCommandHandlerRouting() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_close_handler_routing";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+
+  SendMessageW(
+      s1, WM_COMMAND,
+      MAKEWPARAM(static_cast<WPARAM>(kSurfaceCloseButtonId), BN_CLICKED),
+      reinterpret_cast<LPARAM>(FindAddButton(s1)));
+  PumpGui(std::chrono::milliseconds{200});
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{5}));
+
+  SendMessageW(
+      s1, WM_COMMAND,
+      MAKEWPARAM(static_cast<WPARAM>(kSurfaceAddButtonId), BN_CLICKED),
+      reinterpret_cast<LPARAM>(FindCloseButton(s1)));
+  PumpGui(std::chrono::milliseconds{200});
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{5}));
+
+  SendMessageW(FindCloseButton(s2), BM_CLICK, 0, 0);
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 1, std::chrono::seconds{30}));
+
+  SendMessageW(FindCloseButton(s1), BM_CLICK, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestDynamicCloseLibraryPushButtonNotifierAndEnabled() {
   DWORD const pid = GetCurrentProcessId();
   auto dir = std::filesystem::temp_directory_path() /
@@ -1759,6 +1799,7 @@ int main() {
   apptraverse::test::TestLanguageLayoutOrientationPreservation();
   apptraverse::test::TestDynamicLanguageLibraryPushButtonNotifierAndEnabled();
   apptraverse::test::TestDynamicCloseLibraryPushButtonNotifierAndEnabled();
+  apptraverse::test::TestPerWindowCloseChildCommandHandlerRouting();
   apptraverse::test::TestLibraryAddCustomLabelFreshProfile();
   apptraverse::test::TestLibraryAddCustomLabelModelEvent();
   apptraverse::test::TestLocalizationEnRuEn();

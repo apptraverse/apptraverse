@@ -34,12 +34,18 @@ void RegisterSurfacesWin32Classes();
 void UnregisterSurfacesWin32Classes();
 void EnsureWin32SurfacesPresenterRegistration();
 
-bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
+class Presenter;
 
-class SurfacePresenter;
-using SurfaceWin32ChildCommandHook = bool (*)(SurfacePresenter* presenter,
-                                              WPARAM wparam, LPARAM lparam);
-void RegisterSurfaceWin32ChildCommandHook(SurfaceWin32ChildCommandHook hook);
+struct SurfaceChildBnClickedTarget {
+  HWND child_hwnd{nullptr};
+  Presenter* presenter{nullptr};
+  std::uint32_t control_id{0};
+};
+
+bool TryParseSurfaceChildBnClicked(HWND parent_hwnd, WPARAM wparam, LPARAM lparam,
+                                   SurfaceChildBnClickedTarget* out);
+
+bool DispatchChildCommand(HWND parent_hwnd, WPARAM wparam, LPARAM lparam);
 
 void ComputeSurfaceChromeButtonLayout(SurfaceWindowPresenter const& window,
                                       std::uint32_t control_id, int* x,
@@ -64,6 +70,10 @@ class Win32SurfaceWindowPresenter : public SurfaceWindowPresenter {
   void OnUnload() override;
 
   void QueueCurrentBounds();
+
+  using ChildCommandHandler = bool (*)(Win32SurfaceWindowPresenter* window,
+                                       WPARAM wparam, LPARAM lparam);
+  ChildCommandHandler child_command_handler{nullptr};
 
   HWND hwnd{nullptr};
 
