@@ -21,9 +21,13 @@ void* SurfacesDemoSurfaceWindowHostPresenter::NativeChildParentHandle()
 
 ui::UiControlLayout SurfacesDemoSurfaceWindowHostPresenter::ResolveChildLayout(
     ui::UiControlLayout requested) const {
+  if (!surface_window) {
+    return requested;
+  }
   if (requested.control_id !=
-          static_cast<std::uint32_t>(kSurfaceLanguageButtonId) ||
-      !surface_window) {
+          static_cast<std::uint32_t>(kSurfaceLanguageButtonId) &&
+      requested.control_id !=
+          static_cast<std::uint32_t>(kSurfaceCloseButtonId)) {
     return requested;
   }
   ui::UiControlLayout resolved = requested;

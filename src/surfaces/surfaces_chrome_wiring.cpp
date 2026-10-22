@@ -43,9 +43,23 @@ void WireSurfaceChromeLocalization(Surface& surface,
       }
     }
   }
-  if (auto close = SurfaceButtonPresenter::ptr{surface.chrome.close_button}) {
-    close->locale = application.locale;
-    close->label = application.label_close;
+  if (surface.chrome.close_button.is_valid()) {
+    std::uint32_t const close_class = surface.chrome.close_button->GetClassId();
+    if (IsClassOrDerived(SurfaceButtonPresenter::kClassId, close_class)) {
+      auto close = SurfaceButtonPresenter::ptr{surface.chrome.close_button};
+      close->locale = application.locale;
+      close->label = application.label_close;
+    } else if (IsClassOrDerived(ui::UiPushButtonPresenter::kClassId,
+                                close_class)) {
+      auto library_close = ui::UiPushButtonPresenter::ptr{
+          surface.chrome.close_button};
+      if (library_close->button) {
+        library_close->button->label = application.label_close;
+      }
+      if (library_close->window_presenter) {
+        library_close->window_presenter->locale = application.locale;
+      }
+    }
   }
   if (surface.chrome.language_button.is_valid()) {
     std::uint32_t const language_class =

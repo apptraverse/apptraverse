@@ -431,6 +431,8 @@ void TestPresenterHierarchy() {
         ui::windows::WinPushButtonPresenter::kClassId);
   CHECK(surface.chrome.language_button->GetClassId() ==
         ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(surface.chrome.close_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
   auto add = ui::windows::WinPushButtonPresenter::ptr{surface.chrome.add_button};
   CHECK(add);
   CHECK(add->button && add->button->label);
@@ -442,8 +444,15 @@ void TestPresenterHierarchy() {
   CHECK(lang->button && lang->button->label);
   CHECK(&*lang->window_presenter == &*add->window_presenter);
   CHECK(lang->button->label->Resolve(0) == "RU");
+  auto close = ui::windows::WinPushButtonPresenter::ptr{
+      surface.chrome.close_button};
+  CHECK(close);
+  CHECK(&*close->window_presenter == &*add->window_presenter);
   CHECK(surface.chrome.add_button->obj_id !=
         surface.chrome.language_button->obj_id);
+  CHECK(surface.chrome.add_button->obj_id != surface.chrome.close_button->obj_id);
+  CHECK(surface.chrome.language_button->obj_id !=
+        surface.chrome.close_button->obj_id);
 }
 
 void TestCloseButtonRemovesOne() {
@@ -474,6 +483,8 @@ void TestCloseButtonRemovesOne() {
           ui::windows::WinPushButtonPresenter::kClassId);
     CHECK(surface.chrome.language_button->GetClassId() ==
           ui::windows::WinPushButtonPresenter::kClassId);
+    CHECK(surface.chrome.close_button->GetClassId() ==
+          ui::windows::WinPushButtonPresenter::kClassId);
   }));
   PumpGui(std::chrono::milliseconds{500});
   auto* add_owner =
@@ -491,7 +502,8 @@ void TestCloseButtonRemovesOne() {
       reinterpret_cast<Presenter*>(GetWindowLongPtrW(lang1, GWLP_USERDATA));
   CHECK(lang_owner->GetClassId() ==
         ui::windows::WinPushButtonPresenter::kClassId);
-  CHECK(close_owner->GetClassId() == Win32SurfaceButtonPresenter::kClassId);
+  CHECK(close_owner->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
   CHECK(GetDlgCtrlID(add1) == kSurfaceAddButtonId);
   CHECK(GetDlgCtrlID(close1) == kSurfaceCloseButtonId);
 
@@ -1371,6 +1383,87 @@ void TestDynamicLanguageLibraryPushButtonNotifierAndEnabled() {
   std::filesystem::remove_all(dir);
 }
 
+void TestDynamicCloseLibraryPushButtonNotifierAndEnabled() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_dynamic_close_notifier";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  HWND close2 = FindCloseButton(s2);
+  CHECK(close2 != nullptr);
+
+  std::promise<bool> notifier_promise;
+  std::future<bool> notifier_future = notifier_promise.get_future();
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto close_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
+    CHECK(close_presenter && close_presenter->button);
+    notifier_promise.set_value(
+        close_presenter->button->HasMaterializedChangeNotifier());
+  }));
+  {
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (notifier_future.wait_for(std::chrono::milliseconds{0}) !=
+           std::future_status::ready) {
+      PumpGui(std::chrono::milliseconds{20});
+      CHECK(std::chrono::steady_clock::now() < deadline);
+    }
+  }
+  CHECK(notifier_future.get());
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto close_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
+    auto disable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    disable->enabled = false;
+    close_presenter->button->Commit(std::move(disable));
+  }));
+  CHECK(WaitForWindowEnabled(close2, false, std::chrono::seconds{30}));
+  SendMessageW(close2, BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{5}));
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto close_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
+    auto enable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    enable->enabled = true;
+    close_presenter->button->Commit(std::move(enable));
+  }));
+  CHECK(WaitForWindowEnabled(close2, true, std::chrono::seconds{30}));
+  SendMessageW(close2, BM_CLICK, 0, 0);
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 1, std::chrono::seconds{30}));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestLibraryAddCustomLabelFreshProfile() {
   DWORD const pid = GetCurrentProcessId();
   auto dir = std::filesystem::temp_directory_path() /
@@ -1665,6 +1758,7 @@ int main() {
   apptraverse::test::TestLibraryLanguageCustomLabelFreshProfile();
   apptraverse::test::TestLanguageLayoutOrientationPreservation();
   apptraverse::test::TestDynamicLanguageLibraryPushButtonNotifierAndEnabled();
+  apptraverse::test::TestDynamicCloseLibraryPushButtonNotifierAndEnabled();
   apptraverse::test::TestLibraryAddCustomLabelFreshProfile();
   apptraverse::test::TestLibraryAddCustomLabelModelEvent();
   apptraverse::test::TestLocalizationEnRuEn();

@@ -36,6 +36,11 @@ void EnsureWin32SurfacesPresenterRegistration();
 
 bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
 
+class SurfacePresenter;
+using SurfaceWin32ChildCommandHook = bool (*)(SurfacePresenter* presenter,
+                                              WPARAM wparam, LPARAM lparam);
+void RegisterSurfaceWin32ChildCommandHook(SurfaceWin32ChildCommandHook hook);
+
 void ComputeSurfaceChromeButtonLayout(SurfaceWindowPresenter const& window,
                                       std::uint32_t control_id, int* x,
                                       int* y, int* w, int* h);

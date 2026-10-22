@@ -7,6 +7,7 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/surfaces/surfaces_localization.h"
+#include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/platform/windows/win_ui_native_push_button.h"
@@ -14,6 +15,13 @@
 namespace apptraverse {
 
 bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
+
+SurfaceWin32ChildCommandHook g_surface_win32_child_command_hook{nullptr};
+
+void RegisterSurfaceWin32ChildCommandHook(
+    SurfaceWin32ChildCommandHook hook) {
+  g_surface_win32_child_command_hook = hook;
+}
 
 namespace {
 
@@ -103,8 +111,14 @@ LRESULT CALLBACK SurfaceHostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
   if (presenter == nullptr) {
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
-  if (msg == WM_COMMAND && DispatchChildCommand(wparam, lparam)) {
-    return 0;
+  if (msg == WM_COMMAND) {
+    if (g_surface_win32_child_command_hook &&
+        g_surface_win32_child_command_hook(presenter, wparam, lparam)) {
+      return 0;
+    }
+    if (DispatchChildCommand(wparam, lparam)) {
+      return 0;
+    }
   }
   if (msg == WM_SIZE) {
     RECT client{};

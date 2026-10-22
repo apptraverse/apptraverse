@@ -736,6 +736,7 @@ target_link_libraries(apptraverse_surfaces_model_test PRIVATE
 )
 if(WIN32)
   target_link_libraries(apptraverse_surfaces_model_test PRIVATE
+    surfaces_demo_win32
     apptraverse_surfaces_windows
     apptraverse_ui_windows
   )
@@ -778,6 +779,7 @@ target_compile_definitions(apptraverse_surfaces_language_isolated_probe_test PRI
 
 target_link_libraries(apptraverse_surfaces_language_isolated_probe_test PRIVATE
   surfaces_demo_distill
+  surfaces_demo_win32_graph
   apptraverse_surfaces
   apptraverse_surfaces_windows
   apptraverse_ui_windows
@@ -849,7 +851,7 @@ if(WIN32)
     win32_surfaces_demo_load_only)
   target_link_libraries(apptraverse_surfaces_win32_smoke_test PRIVATE
     surfaces_demo_distill
-    surfaces_demo_win32
+    surfaces_demo_win32_graph
     apptraverse_surfaces_windows
     user32
     gdi32

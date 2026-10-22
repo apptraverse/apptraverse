@@ -268,13 +268,20 @@ void VerifyDemoChrome(Surface& surface, Application& application,
   auto add = ui::windows::WinPushButtonPresenter::ptr{surface.chrome.add_button};
   auto lang = ui::windows::WinPushButtonPresenter::ptr{
       surface.chrome.language_button};
-  CHECK(add && lang);
+  auto close = ui::windows::WinPushButtonPresenter::ptr{
+      surface.chrome.close_button};
+  CHECK(add && lang && close);
   CHECK(add->obj_id != lang->obj_id);
+  CHECK(add->obj_id != close->obj_id);
+  CHECK(lang->obj_id != close->obj_id);
   CHECK(add->GetClassId() == ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(close->GetClassId() == ui::windows::WinPushButtonPresenter::kClassId);
   CHECK(&*add->window_presenter == &*lang->window_presenter);
+  CHECK(&*close->window_presenter == &*add->window_presenter);
   VerifyLanguageOnly(surface, application, tag, expect_slot0, expect_slot1);
   std::cout << tag << ": add_id=" << add->obj_id.id()
-            << " lang_id=" << lang->obj_id.id() << " shared_host=yes\n";
+            << " lang_id=" << lang->obj_id.id()
+            << " close_id=" << close->obj_id.id() << " shared_host=yes\n";
 }
 
 void ProbeB_MinimalLanguageGraph() {

@@ -157,6 +157,12 @@ void Surface::AddSurface() {
       InitializeRuntimeNode(*language_presenter->button, *this);
     }
   }
+  if (auto close_presenter =
+          ui::UiPushButtonPresenter::ptr{sibling->chrome.close_button}) {
+    if (close_presenter->button) {
+      InitializeRuntimeNode(*close_presenter->button, *this);
+    }
+  }
   // New Surface is a Node: establish base/journal and inherit this Surface's
   // model-runtime notifier before it becomes live.
   InitializeRuntimeNode(*sibling, *this);

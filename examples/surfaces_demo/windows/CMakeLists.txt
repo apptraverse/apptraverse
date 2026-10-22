@@ -28,7 +28,7 @@ target_link_libraries(win32_surfaces_demo PRIVATE
 
   surfaces_demo_distill
 
-  surfaces_demo_win32
+  surfaces_demo_win32_graph
 
 )
 
@@ -36,7 +36,7 @@ target_link_libraries(win32_surfaces_demo PRIVATE
 
 target_link_libraries(win32_surfaces_demo_load_only PRIVATE
 
-  surfaces_demo_win32
+  surfaces_demo_win32_graph
 
 )
 

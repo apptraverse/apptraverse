@@ -49,10 +49,12 @@
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 #include "surfaces_demo_add_button.h"
+#include "surfaces_demo_close_button.h"
 #include "surfaces_demo_language_button.h"
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
 #include "surfaces_demo_surface_window_host.h"
 #include "surfaces_demo_win32_registration.h"
+#include "surfaces_demo_win32_attach.h"
 #endif
 
 namespace apptraverse::test {
@@ -2005,6 +2007,47 @@ void TestStructuralApplyOnModelChangedOnce() {
 }
 
 #if defined(_WIN32)
+void AddWin32LibrarySurface(Surface& from) {
+  Surfaces& parent = *from.surfaces;
+  auto sibling = Surface::ptr::Create(ae::CreateWith{*parent.domain});
+  std::uint32_t next_number = 1;
+  for (auto const& existing : parent.surfaces) {
+    if (existing->number >= next_number) {
+      next_number = existing->number + 1;
+    }
+  }
+  sibling->number = next_number;
+  AssignInitialDesktopBounds(*sibling);
+  sibling->surfaces = from.surfaces;
+  auto application = parent.domain->Find(ae::ObjId{surfaces_demo::ToObjId(
+      surfaces_demo::ObjId::Application)});
+  assert(application && "AddWin32LibrarySurface requires Application");
+  example::surfaces::AttachSurfacesDemoWin32SurfacePresenters(
+      *sibling, static_cast<Application&>(*application), *parent.domain);
+  if (auto add_presenter =
+          ui::UiPushButtonPresenter::ptr{sibling->chrome.add_button}) {
+    if (add_presenter->button) {
+      InitializeRuntimeNode(*add_presenter->button, from);
+    }
+  }
+  if (auto language_presenter =
+          ui::UiPushButtonPresenter::ptr{sibling->chrome.language_button}) {
+    if (language_presenter->button) {
+      InitializeRuntimeNode(*language_presenter->button, from);
+    }
+  }
+  if (auto close_presenter =
+          ui::UiPushButtonPresenter::ptr{sibling->chrome.close_button}) {
+    if (close_presenter->button) {
+      InitializeRuntimeNode(*close_presenter->button, from);
+    }
+  }
+  InitializeRuntimeNode(*sibling, from);
+  auto event = AddSurfaceEvent::ptr::Create(ae::CreateWith{*parent.domain});
+  event->surface = sibling;
+  parent.Commit(event);
+}
+
 Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
   using surfaces_demo::ObjId;
   using surfaces_demo::ToObjId;
@@ -2034,7 +2077,9 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
       ae::CreateWith{domain});
   auto add_presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
       ae::CreateWith{domain});
-  auto close_button = Win32SurfaceButtonPresenter::ptr::Create(
+  auto close_button = example::surfaces::SurfacesDemoCloseButton::ptr::Create(
+      ae::CreateWith{domain});
+  auto close_presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
       ae::CreateWith{domain});
   auto language_button =
       example::surfaces::SurfacesDemoLanguageButton::ptr::Create(
@@ -2047,6 +2092,7 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
   add_button->surface = surface_ref;
   add_button->label = application->label_add;
   close_button->surface = surface_ref;
+  close_button->label = application->label_close;
   language_button->locale = application->locale;
   language_button->label = application->language_switch_label;
 
@@ -2071,14 +2117,18 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
   language_presenter->layout_width = kSurfaceAddButtonLayoutWidth;
   language_presenter->layout_height = kSurfaceAddButtonLayoutHeight;
 
-  close_button->window_presenter = window;
-  close_button->role = SurfaceButtonRole::Close;
-  close_button->control_id =
+  close_presenter->button = close_button;
+  close_presenter->window_presenter = add_host;
+  close_presenter->control_id =
       static_cast<std::uint32_t>(kSurfaceCloseButtonId);
+  close_presenter->layout_x = kSurfaceAddButtonLayoutX;
+  close_presenter->layout_y = kSurfaceAddButtonLayoutY;
+  close_presenter->layout_width = kSurfaceAddButtonLayoutWidth;
+  close_presenter->layout_height = kSurfaceAddButtonLayoutHeight;
 
   surface.chrome.window = window;
   surface.chrome.add_button = add_presenter;
-  surface.chrome.close_button = close_button;
+  surface.chrome.close_button = close_presenter;
   surface.chrome.language_button = language_presenter;
 
   WireSurfaceChromeLocalization(surface, *application);
@@ -2097,8 +2147,14 @@ void TestBootstrapSaveLoadChromePresenterClassIds() {
         ui::windows::WinPushButtonPresenter::kClassId);
   CHECK(surface.chrome.language_button->GetClassId() ==
         ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(surface.chrome.close_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
   CHECK(surface.chrome.add_button->obj_id !=
         surface.chrome.language_button->obj_id);
+  CHECK(surface.chrome.add_button->obj_id !=
+        surface.chrome.close_button->obj_id);
+  CHECK(surface.chrome.language_button->obj_id !=
+        surface.chrome.close_button->obj_id);
   SaveDistilledRoot(*application);
 
   DirectoryDomainStorage load_storage{dir};
@@ -2111,6 +2167,80 @@ void TestBootstrapSaveLoadChromePresenterClassIds() {
         ui::windows::WinPushButtonPresenter::kClassId);
   CHECK(loaded_surface.chrome.language_button->GetClassId() ==
         ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(loaded_surface.chrome.close_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
+}
+
+void TestLibraryCloseButtonRemoveSemantics() {
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildWin32LibraryAddRoundtripGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surface& surface1 = *application->surfaces->surfaces[0];
+  AddWin32LibrarySurface(surface1);
+  AddWin32LibrarySurface(surface1);
+  CHECK(application->surfaces->surfaces.size() == 3);
+  Surface& surface2 = *application->surfaces->surfaces[1];
+  auto close_presenter =
+      ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
+  CHECK(close_presenter);
+  auto close_button =
+      example::surfaces::SurfacesDemoCloseButton::ptr{close_presenter->button};
+  CHECK(close_button);
+  CHECK(close_button->surface);
+  CHECK(&*close_button->surface == &surface2);
+  close_button->HandlePushButtonClicked();
+  CHECK(application->surfaces->surfaces.size() == 2);
+  CHECK(application->surfaces->surfaces[0]->number == 1);
+  CHECK(application->surfaces->surfaces[1]->number == 3);
+
+  while (application->surfaces->surfaces.size() > 1) {
+    Surface& remaining = *application->surfaces->surfaces.back();
+    auto last_close = example::surfaces::SurfacesDemoCloseButton::ptr{
+        ui::UiPushButtonPresenter::ptr{remaining.chrome.close_button}
+            ->button};
+    CHECK(last_close);
+    last_close->HandlePushButtonClicked();
+  }
+  CHECK(application->surfaces->surfaces.size() == 1);
+  auto close_last = example::surfaces::SurfacesDemoCloseButton::ptr{
+      ui::UiPushButtonPresenter::ptr{
+          application->surfaces->surfaces[0]->chrome.close_button}
+          ->button};
+  CHECK(close_last);
+  close_last->HandlePushButtonClicked();
+  CHECK(application->surfaces->surfaces.size() == 1);
+  close_last->HandlePushButtonClicked();
+  CHECK(application->surfaces->surfaces.size() == 1);
+}
+
+void TestDynamicCloseLibraryPushButtonMaterializedNotifier() {
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildWin32LibraryAddRoundtripGraph(domain);
+  FinalizeDistilledGraph(*application);
+
+  PendingDirtyNodes pending;
+  BindReachableNodesMaterializedChangeNotifier(*application, &pending,
+                                               &PendingDirtyNodesNotify);
+
+  Surface& surface1 = *application->surfaces->surfaces[0];
+  AddWin32LibrarySurface(surface1);
+  Surface& surface2 = *application->surfaces->surfaces[1];
+  auto close_presenter =
+      ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
+  CHECK(close_presenter);
+  CHECK(close_presenter->button);
+  CHECK(close_presenter->button->HasMaterializedChangeNotifier());
+
+  pending.membership.clear();
+  auto disable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+      ae::CreateWith{domain});
+  disable->enabled = false;
+  close_presenter->button->Commit(std::move(disable));
+  CHECK(pending.membership.count(close_presenter->button->obj_id.id()) == 1);
 }
 
 void TestDynamicLanguageLibraryPushButtonMaterializedNotifier() {
@@ -2125,7 +2255,7 @@ void TestDynamicLanguageLibraryPushButtonMaterializedNotifier() {
                                                &PendingDirtyNodesNotify);
 
   Surface& surface1 = *application->surfaces->surfaces[0];
-  surface1.AddSurface();
+  AddWin32LibrarySurface(surface1);
   Surface& surface2 = *application->surfaces->surfaces[1];
   auto lang_presenter =
       ui::UiPushButtonPresenter::ptr{surface2.chrome.language_button};
@@ -2153,7 +2283,7 @@ void TestDynamicAddLibraryPushButtonMaterializedNotifier() {
                                                &PendingDirtyNodesNotify);
 
   Surface& surface1 = *application->surfaces->surfaces[0];
-  surface1.AddSurface();
+  AddWin32LibrarySurface(surface1);
   CHECK(application->surfaces->surfaces.size() == 2);
   Surface& surface2 = *application->surfaces->surfaces[1];
   auto add_presenter =
@@ -2323,8 +2453,10 @@ void RunSurfacesModelTests(bool functional_only) {
   apptraverse::test::TestLocaleCommitAndPersistence();
 #if defined(_WIN32)
   apptraverse::test::TestBootstrapSaveLoadChromePresenterClassIds();
+  apptraverse::test::TestLibraryCloseButtonRemoveSemantics();
   apptraverse::test::TestDynamicAddLibraryPushButtonMaterializedNotifier();
   apptraverse::test::TestDynamicLanguageLibraryPushButtonMaterializedNotifier();
+  apptraverse::test::TestDynamicCloseLibraryPushButtonMaterializedNotifier();
   apptraverse::test::TestLibraryAddButtonLabelSerializationRoundtrip();
 #endif
 }
