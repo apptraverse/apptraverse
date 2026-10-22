@@ -77,6 +77,33 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     LABELS "serialization;evolution;rollback"
   )
 
+  add_executable(apptraverse_event_downgrade_a event_downgrade_fixture.cpp)
+  add_executable(apptraverse_event_downgrade_b event_downgrade_fixture.cpp)
+  target_link_libraries(apptraverse_event_downgrade_a PRIVATE apptraverse)
+  target_link_libraries(apptraverse_event_downgrade_b PRIVATE apptraverse)
+  target_compile_definitions(apptraverse_event_downgrade_a PRIVATE
+    APPTRAVERSE_EVENT_EXE_REVISION=0)
+  target_compile_definitions(apptraverse_event_downgrade_b PRIVATE
+    APPTRAVERSE_EVENT_EXE_REVISION=1)
+  add_custom_target(apptraverse_event_downgrade_fixtures DEPENDS
+    apptraverse_event_downgrade_a apptraverse_event_downgrade_b)
+  add_dependencies(apptraverse_application_evolution_fixtures
+    apptraverse_event_downgrade_fixtures)
+
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/event downgrade states")
+  add_test(
+    NAME apptraverse_event_downgrade_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/event_downgrade_matrix.py"
+      --a "$<TARGET_FILE:apptraverse_event_downgrade_a>"
+      --b "$<TARGET_FILE:apptraverse_event_downgrade_b>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/event downgrade states"
+  )
+  set_tests_properties(apptraverse_event_downgrade_matrix PROPERTIES
+    TIMEOUT 60
+    LABELS "serialization;evolution;rollback"
+  )
+
   if(APPTRAVERSE_BUILD_EXAMPLES AND WIN32)
     add_dependencies(apptraverse_application_evolution_fixtures
       win32_surfaces_demo win32_surfaces_demo_v1)
@@ -105,6 +132,18 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     set_tests_properties(apptraverse_surfaces_demo_lifecycle_matrix PROPERTIES
       TIMEOUT 180
       LABELS "serialization;surfaces;lifecycle"
+    )
+    add_test(
+      NAME apptraverse_surfaces_demo_lifecycle_corruption_guard
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_LIST_DIR}/surfaces_demo_lifecycle_corruption_guard.py"
+        --a "$<TARGET_FILE:win32_surfaces_demo>"
+        --b "$<TARGET_FILE:win32_surfaces_demo_v1>"
+        --work-root "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo lifecycle states"
+    )
+    set_tests_properties(apptraverse_surfaces_demo_lifecycle_corruption_guard PROPERTIES
+      TIMEOUT 180
+      LABELS "serialization;surfaces;lifecycle;rollback"
     )
   endif()
 endif()

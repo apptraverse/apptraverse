@@ -154,6 +154,7 @@ class LifecycleMatrix:
         code, rec = self.inspect("B")
         if code != 0:
             raise CheckFailed("B1 inspect failed")
+        self.manifest_after_b1 = manifest(self.state_dir)
         self.expect_bounds(rec, A1_BOUNDS, "B1 bounds from A")
         surface = self.surface1(rec)
         if surface.get("window_title_suffix") != B_SUFFIX:
@@ -182,16 +183,26 @@ class LifecycleMatrix:
         else:
             a2_detail = f"GUI exit {a2.returncode}"
 
+        manifest_after_b1 = getattr(self, "manifest_after_b1", manifest(self.state_dir))
+        manifest_after_a2 = manifest(self.state_dir)
+        if manifest_after_b1 != manifest_after_a2:
+            raise CheckFailed(
+                "A2 must not mutate storage (corruption guard); "
+                "see apptraverse_surfaces_demo_lifecycle_corruption_guard"
+            )
+
         if digest(self.slot(1)) != self.v1_sha_after_b:
             raise CheckFailed("A2 changed v1 layer bytes (must preserve unknown v1)")
 
         if not a2_ok or not a2_load_ok:
             return {
-                "result": "FAIL",
-                "stage": "A2 rollback",
+                "result": "BLOCKED",
+                "stage": "full A→B→A→B rollback",
                 "detail": a2_detail,
                 "a2_gui_exit": a2.returncode,
                 "v1_preserved": True,
+                "note": "Safe refusal expected until unknown Event policy exists; "
+                "corruption guard is a separate PASS test.",
             }
 
         _, rec_after_a2_a = self.inspect("A")
@@ -255,6 +266,7 @@ def main():
     out = matrix.root / "lifecycle_result.json"
     out.write_text(json.dumps(outcome, indent=2), encoding="utf-8")
     print(f"{outcome['result']}: {outcome.get('detail', outcome)}", flush=True)
+    # Full cross-version rollback is not PASS until unknown Event replay exists.
     raise SystemExit(0 if outcome.get("result") == "PASS" else 1)
 
 
