@@ -72,8 +72,6 @@ def assert_b_load_verify(
             f"loaded_class_id={record.get('loaded_class_id')} "
             f"expected={probe_class_id}"
         )
-    if int(record.get("object_id", -1)) != int(record.get("object_id", 0)):
-        pass
     obj_base = int(record.get("obj_base_class_id", 0))
     class_ids = [int(x) for x in record.get("class_ids", [])]
     if obj_base and obj_base not in class_ids:
