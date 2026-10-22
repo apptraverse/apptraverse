@@ -8,9 +8,11 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_edit_box.h"
+#include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_push_button.h"
+#include "apptraverse/ui/ui_string.h"
 #include "apptraverse/ui/ui_window.h"
 
 using namespace apptraverse;
@@ -100,6 +102,94 @@ void TestEditBoxMaterializationNotifiesOnChange() {
   button->ClearMaterializedChangeNotifier();
 }
 
+void TestLocalizationLazyLoadRoundtrip() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const root_id{1};
+  ae::ObjId en_string_id;
+  ae::ObjId ru_string_id;
+  char const* const kEnText = "Lazy EN slot";
+  char const* const kRuText = "Lazy RU slot";
+
+  {
+    ae::Domain domain{storage};
+    auto localized = ui::UiLocalizationString::ptr::Create(
+        ae::CreateWith{domain}.with_id(root_id));
+    InitializeRuntimeNode(*localized);
+
+    auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    en->utf8 = kEnText;
+    auto ru = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    ru->utf8 = kRuText;
+    en_string_id = en->obj_id;
+    ru_string_id = ru->obj_id;
+    en.Save();
+    ru.Save();
+
+    localized->strings = {
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(en_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(ru_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+    };
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+  }
+
+  ae::Domain domain{storage};
+  auto loaded = ui::UiLocalizationString::ptr::Declare(
+      ae::CreateWith{domain}.with_id(root_id));
+  loaded.Load();
+  CHECK(loaded->strings.size() == 2);
+  CHECK(loaded->strings[0].id() == en_string_id);
+  CHECK(loaded->strings[1].id() == ru_string_id);
+  CHECK(!loaded->strings[0].is_loaded());
+  CHECK(!loaded->strings[1].is_loaded());
+
+  {
+    auto en_view = loaded->strings[0].Load();
+    CHECK(en_view->utf8 == kEnText);
+  }
+  CHECK(!loaded->strings[1].is_loaded());
+
+  {
+    auto ru_view = loaded->strings[1].Load();
+    CHECK(ru_view->utf8 == kRuText);
+  }
+
+  loaded->strings[0].Save();
+  loaded->strings[0].Reset();
+  CHECK(loaded->strings[0].id() == en_string_id);
+  CHECK(!loaded->strings[0].is_loaded());
+  CHECK((loaded->strings[0].flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+
+  {
+    ae::Ptr<ui::UiString> en_owned = domain.Find(en_string_id);
+    en_owned.Reset();
+  }
+  CHECK(!domain.Find(en_string_id));
+
+  ui::UiLocalizationString::ptr::MakeFromThis(&*loaded).Save();
+
+  ae::Domain reload{storage};
+  auto reloaded = ui::UiLocalizationString::ptr::Declare(
+      ae::CreateWith{reload}.with_id(root_id));
+  reloaded.Load();
+  CHECK(!reloaded->strings[0].is_loaded());
+  CHECK(!reloaded->strings[1].is_loaded());
+
+  {
+    auto en_view = reloaded->strings[0].Load();
+    CHECK(en_view->utf8 == kEnText);
+  }
+  {
+    auto ru_view = reloaded->strings[1].Load();
+    CHECK(ru_view->utf8 == kRuText);
+  }
+}
+
 void TestPushButtonClickViaPresenter() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -137,6 +227,7 @@ int main() {
   EnsureTestRegistration();
 
   TestEditBoxMaterializationNotifiesOnChange();
+  TestLocalizationLazyLoadRoundtrip();
   TestPushButtonClickViaPresenter();
   return 0;
 }
