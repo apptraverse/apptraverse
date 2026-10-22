@@ -720,6 +720,45 @@ class WindowMatrix:
         unchanged(manifest_before_a_final, manifest(user), "user after final A embedded inspect")
         return "C user v2 only; A embedded v0 rollback then C sees merged state"
 
+    def embedded_rollback_to_b(self, case_dir):
+        user = case_dir / "user rollback to B"
+        user.mkdir()
+        user_manifest = manifest(user)
+        self.verify("C", user, 10, 20, 640, 480, 4, embedded_backing=True)
+        unchanged(user_manifest, manifest(user), "user after C embedded inspect")
+        if self.slot(user, 0).parent.is_dir():
+            self.layers(user, set())
+        self.run("C", "change-border", user, embedded_backing=True)
+        self.verify("C", user, 10, 20, 640, 480, 6, embedded_backing=True)
+        self.layers(user, {2})
+        if self.slot(user, 0).exists() or self.slot(user, 1).exists():
+            raise CheckFailed("user v0/v1 present before B rollback")
+        user_v2_frozen = digest(self.slot(user, 2))
+        manifest_before_b_inspect = manifest(user)
+        self.verify("B", user, 10, 20, 640, 480, embedded_backing=True)
+        unchanged(manifest_before_b_inspect, manifest(user), "user after B embedded inspect")
+        if self.slot(user, 0).exists() or self.slot(user, 1).exists():
+            raise CheckFailed("user v0/v1 appeared after B embedded inspect")
+        if digest(self.slot(user, 2)) != user_v2_frozen:
+            raise CheckFailed("B embedded inspect changed user v2")
+        self.run("B", "resize", user, embedded_backing=True)
+        self.verify("B", user, 10, 20, 740, 530, embedded_backing=True)
+        self.layers(user, {1, 2})
+        if self.slot(user, 0).exists():
+            raise CheckFailed("user v0 present after B embedded resize")
+        if digest(self.slot(user, 2)) != user_v2_frozen:
+            raise CheckFailed("B embedded resize changed user v2")
+        manifest_before_c_inspect = manifest(user)
+        self.verify("C", user, 10, 20, 740, 530, 6, embedded_backing=True)
+        unchanged(manifest_before_c_inspect, manifest(user), "user after C embedded inspect")
+        manifest_before_b_final = manifest(user)
+        self.verify("B", user, 10, 20, 740, 530, embedded_backing=True)
+        unchanged(manifest_before_b_final, manifest(user), "user after final B embedded inspect")
+        manifest_before_c_final = manifest(user)
+        self.verify("C", user, 10, 20, 740, 530, 6, embedded_backing=True)
+        unchanged(manifest_before_c_final, manifest(user), "user after final C embedded inspect")
+        return "C user v2 only; B embedded v0/v1 rollback then C sees merged size"
+
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
             if digest(self.executables[revision]) != expected_hash:
@@ -758,6 +797,7 @@ def main():
     suite.case("embedded-backing-roundtrip", suite.embedded_backing_roundtrip)
     suite.case("embedded-first-install", suite.embedded_first_install)
     suite.case("embedded-rollback-to-a", suite.embedded_rollback_to_a)
+    suite.case("embedded-rollback-to-b", suite.embedded_rollback_to_b)
     return suite.finish()
 
 

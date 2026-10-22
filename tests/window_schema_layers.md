@@ -55,6 +55,9 @@ Three independent EXEs use exactly the same named Window ClassId; no Window inhe
 14. `embedded-rollback-to-a`: after USER holds only Window v2 from EXE C, EXE A
    with its own embedded v0 can inspect/move without a user v0 file; rollback
    `{2}` → `{0,2}` uses A embedded backing, then C reads merged state again.
+15. `embedded-rollback-to-b`: with USER holding only v2, EXE B embedded v0/v1
+   supplies position and size without user v0/v1 files; `{2}` → `{1,2}` after
+   B resize, then C reads merged 740×530 and border=6 again.
 
 ## Run
 
