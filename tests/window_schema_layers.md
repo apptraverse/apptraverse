@@ -9,6 +9,8 @@ Three independent EXEs use exactly the same named Window ClassId; no Window inhe
 - B produces a serialized *package* with the Window v1 layer (640x480).
 - C produces a serialized *package* with the Window v2 layer (border_width=4).
 - The runner copies packaged layers into a v0 profile without overwriting present slots.
+- Golden SHA256 for initial A v0, B package v1, and C package v2 layers are fixed
+  constants in `window_schema_layers_matrix.py` (same bytes in Debug and Release).
 
 ## Verified contract (requires native CTest run)
 

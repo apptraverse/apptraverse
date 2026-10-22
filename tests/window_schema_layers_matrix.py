@@ -10,6 +10,13 @@ import tempfile
 
 from application_evolution_matrix import CheckFailed, digest, manifest, unchanged
 
+# Frozen Window layer bytes (Debug/Release identical); A create, B/C package ops.
+EXPECTED_WINDOW_LAYER_SHA256 = {
+    0: "0d9330506fd1d6da3fbc3a5b83eb6dd05f86bdad7ce710c0fae1d68955f03fb4",
+    1: "da75e0116e19d6ec0ac0951d9c53268415e841d95a2591651e3317b7648710c4",
+    2: "fb5e512425fc9449316ec95969ebe71e2d576dbab833d61e2a5b9330fd70ee02",
+}
+
 
 class WindowMatrix:
     def __init__(self, args):
@@ -99,6 +106,8 @@ class WindowMatrix:
         self.run("A", "create", state)
         self.verify("A", state, 10, 20)
         self.layers(state, {0})
+        if digest(self.slot(state, 0)) != EXPECTED_WINDOW_LAYER_SHA256[0]:
+            raise CheckFailed("Window v0 golden SHA256 mismatch")
         _, reason = self.run("B", "inspect", state, expect_exit=2)
         if "MISSING_STATE_LAYER" not in reason or "version=1" not in reason:
             raise CheckFailed("B did not reject missing packaged v1 state")
@@ -107,6 +116,8 @@ class WindowMatrix:
         packaged_layer = self.slot(package, 1)
         if not packaged_layer.is_file() or self.slot(package, 0).exists():
             raise CheckFailed("B package must contain v1, not v0 Window state")
+        if digest(packaged_layer) != EXPECTED_WINDOW_LAYER_SHA256[1]:
+            raise CheckFailed("Window v1 golden SHA256 mismatch")
         package_hash = digest(packaged_layer)
         target = self.slot(state, 1)
         if target.exists():
@@ -214,6 +225,8 @@ class WindowMatrix:
         if (not packaged_v2.is_file() or self.slot(package_c, 0).exists() or
                 self.slot(package_c, 1).exists()):
             raise CheckFailed("C package must contain v2, not v0/v1 Window state")
+        if digest(packaged_v2) != EXPECTED_WINDOW_LAYER_SHA256[2]:
+            raise CheckFailed("Window v2 golden SHA256 mismatch")
         package_c_hash = digest(packaged_v2)
         v0_frozen, v1_frozen = digest(self.slot(state, 0)), digest(self.slot(state, 1))
         target_v2 = self.slot(state, 2)
