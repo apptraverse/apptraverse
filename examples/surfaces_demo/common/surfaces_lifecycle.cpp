@@ -22,6 +22,7 @@
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
+#include "apptraverse/ui/ui_localization_string.h"
 
 #if defined(_WIN32)
 #include "apptraverse/platform/windows/win_ui_presenters.h"
@@ -105,6 +106,11 @@ void SurfacesModelSession::Run(
     auto application = LoadApplication<Application>(
         domain, ae::ObjId{surfaces_demo::ToObjId(
                     surfaces_demo::ObjId::Application)});
+    int const language = application->locale->language_index();
+    application->label_add->MaterializeLanguage(language);
+    application->label_close->MaterializeLanguage(language);
+    application->window_title_prefix->MaterializeLanguage(language);
+    application->language_switch_label->MaterializeLanguage(language);
     PendingDirtyNodes pending_dirty;
     BindReachableNodesMaterializedChangeNotifier(
         *application, &pending_dirty, &PendingDirtyNodesNotify);

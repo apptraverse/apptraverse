@@ -2472,10 +2472,6 @@ void TestLanguageSwitchSessionAtomicPublication() {
     ae::Domain domain{storage};
     auto application = BuildWin32LibraryAddRoundtripGraph(domain);
     FinalizeDistilledGraph(*application);
-    application->label_add->MaterializeLanguage(0);
-    application->label_close->MaterializeLanguage(0);
-    application->window_title_prefix->MaterializeLanguage(0);
-    application->language_switch_label->MaterializeLanguage(0);
     SaveDistilledRoot(*application);
   }
 
@@ -2498,6 +2494,24 @@ void TestLanguageSwitchSessionAtomicPublication() {
   CHECK(ui_app->language_switch_label->Resolve(0) == "RU");
   CHECK(ui_app->label_add->strings[0].is_loaded());
   CHECK(!ui_app->label_add->strings[1].is_loaded());
+  CHECK(ui_app->label_close->strings[0].is_loaded());
+  CHECK(!ui_app->label_close->strings[1].is_loaded());
+  CHECK(ui_app->window_title_prefix->strings[0].is_loaded());
+  CHECK(!ui_app->window_title_prefix->strings[1].is_loaded());
+  CHECK(ui_app->language_switch_label->strings[0].is_loaded());
+  CHECK(!ui_app->language_switch_label->strings[1].is_loaded());
+
+  RunOnModel(session, [&](Application& app) {
+    CHECK(app.locale->language_index() == 0);
+    CHECK(app.label_add->strings[0].is_loaded());
+    CHECK(!app.label_add->strings[1].is_loaded());
+    CHECK(app.label_close->strings[0].is_loaded());
+    CHECK(!app.label_close->strings[1].is_loaded());
+    CHECK(app.window_title_prefix->strings[0].is_loaded());
+    CHECK(!app.window_title_prefix->strings[1].is_loaded());
+    CHECK(app.language_switch_label->strings[0].is_loaded());
+    CHECK(!app.language_switch_label->strings[1].is_loaded());
+  });
 
   auto const publish_before_switch = session.channel.publish_count();
   RunOnModel(session, [&](Application& app) {
