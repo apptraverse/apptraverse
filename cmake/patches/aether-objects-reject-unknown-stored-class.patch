@@ -1,0 +1,17 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 3035e43..a4c1e2b 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -191,6 +191,12 @@ Factory* Domain::GetMostRelatedFactory(ObjId id) {
+   AE_LOG_MACRO("For obj {} enumerated classes [{}]", id.id(), classes);
+ #endif
+ 
++  for (auto const class_id : classes) {
++    if (!IsExisting(class_id)) {
++      return nullptr;
++    }
++  }
++
+   classes = KnownStoredClasses(id);
+   if (classes.empty()) {
+     return nullptr;
