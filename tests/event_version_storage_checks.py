@@ -78,3 +78,47 @@ def assert_journal_len(record: dict, expected: int, *, who: str) -> None:
         raise CheckFailed(
             f"{who} journal_len expected {expected}, got {record.get('journal_len')}"
         )
+
+
+def assert_replay(
+    record: dict,
+    *,
+    who: str,
+    tally: int,
+    journal_len: int,
+    extension: int | None = None,
+) -> None:
+    if record.get("stage") not in (
+        "replay-from-base",
+        "replay-from-base-fault",
+        "replay-from-base-save",
+    ):
+        raise CheckFailed(f"{who} replay returned unexpected stage: {record.get('stage')}")
+    if record.get("replay_ok") is not True:
+        raise CheckFailed(f"{who} TryReplayFromBase failed: {record}")
+    assert_tally(record, tally, who=who)
+    assert_journal_len(record, journal_len, who=who)
+    if extension is not None:
+        assert_extension(record, extension, who=who)
+    if int(record.get("tally_after_first_replay", -1)) != tally:
+        raise CheckFailed(f"{who} first replay tally mismatch")
+    if int(record.get("tally_after_second_replay", -1)) != tally:
+        raise CheckFailed(f"{who} second replay tally mismatch (double apply)")
+    if extension is not None:
+        if int(record.get("extension_after_first_replay", -1)) != extension:
+            raise CheckFailed(f"{who} first replay extension mismatch")
+        if int(record.get("extension_after_second_replay", -1)) != extension:
+            raise CheckFailed(f"{who} second replay extension mismatch")
+
+
+def assert_base_v1_probe(record: dict, *, who: str, base_id: int) -> None:
+    if int(record.get("base_object_id", -1)) != base_id:
+        raise CheckFailed(f"{who} base_object_id mismatch")
+    if int(record.get("base_extension", -1)) != 640:
+        raise CheckFailed(
+            f"{who} base_extension expected 640, got {record.get('base_extension')}"
+        )
+    if int(record.get("extension", -1)) != 640:
+        raise CheckFailed(
+            f"{who} document extension expected 640 at probe, got {record.get('extension')}"
+        )
