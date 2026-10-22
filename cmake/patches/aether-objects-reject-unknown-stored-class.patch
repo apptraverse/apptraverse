@@ -2,7 +2,7 @@
 index 3035e43..d6e9479 100644
 --- a/src/aether-objects/obj/domain.cpp
 +++ b/src/aether-objects/obj/domain.cpp
-@@ -191,6 +191,30 @@ Factory* Domain::GetMostRelatedFactory(ObjId id) {
+@@ -189,10 +189,35 @@ Factory* Domain::GetMostRelatedFactory(ObjId id) {
    AE_LOG_MACRO("For obj {} enumerated classes [{}]", id.id(), classes);
  #endif
  
