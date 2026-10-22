@@ -1,6 +1,40 @@
 #include "apptraverse/ui/ui_localization_string.h"
 
+#include <cstdlib>
+
 namespace apptraverse::ui {
+
+void UiLocalizationString::MaterializeLanguage(int language_index) {
+  if (language_index < 0 ||
+      static_cast<std::size_t>(language_index) >= strings.size()) {
+    std::abort();
+  }
+  auto const slot = static_cast<std::size_t>(language_index);
+  for (auto const& entry : strings) {
+    if (!entry.is_valid()) {
+      std::abort();
+    }
+  }
+
+  bool changed = false;
+  if (!strings[slot].is_loaded()) {
+    strings[slot].Load();
+    changed = true;
+  }
+  for (std::size_t i = 0; i < strings.size(); ++i) {
+    if (i == slot) {
+      continue;
+    }
+    if (strings[i].is_loaded()) {
+      strings[i].Save();
+      strings[i].Reset();
+      changed = true;
+    }
+  }
+  if (changed) {
+    NoteMaterializedChange();
+  }
+}
 
 std::string UiLocalizationString::Resolve(int language_index) const {
   return ResolveLocalization(this, language_index);

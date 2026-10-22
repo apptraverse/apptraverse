@@ -244,11 +244,13 @@ void TestLocalizationLazyInitialPublication() {
   CHECK(!model_root->strings[0].is_loaded());
   CHECK(!model_root->strings[1].is_loaded());
 
-  {
-    auto en_view = model_root->strings[0].Load();
-    CHECK(en_view->utf8 == kEnText);
-  }
+  int materialize_notify = 0;
+  model_root->BindMaterializedChangeNotifier(&materialize_notify, &PendingNotify);
+  model_root->MaterializeLanguage(0);
+  CHECK(materialize_notify == 1);
+  CHECK(model_root->strings[0].is_loaded());
   CHECK(!model_root->strings[1].is_loaded());
+  CHECK(model_root->Resolve(0) == kEnText);
 
   ByteSink sink;
   SerializeInitialPublication(*model_root, sink);
@@ -282,16 +284,16 @@ void TestLocalizationLazyInitialPublication() {
 
   CHECK(ui_root->Resolve(0) == kEnText);
 
-  {
-    auto ru_view = model_root->strings[1].Load();
-    CHECK(ru_view->utf8 == kRuText);
-  }
-  model_root->strings[0].Save();
-  model_root->strings[0].Reset();
+  materialize_notify = 0;
+  model_root->MaterializeLanguage(1);
+  CHECK(materialize_notify == 1);
+  model_root->MaterializeLanguage(1);
+  CHECK(materialize_notify == 1);
   CHECK(!model_root->strings[0].is_loaded());
   CHECK(model_root->strings[1].is_loaded());
   CHECK(model_root->strings[0].id() == en_string_id);
   CHECK(model_root->strings[1].id() == ru_string_id);
+  CHECK(model_root->Resolve(1) == kRuText);
 
   ByteSink structural;
   SerializeStructuralNodePublication(*model_root, structural);

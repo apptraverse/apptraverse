@@ -51,6 +51,8 @@ class UiLocalizationString : public NodeFor<UiLocalizationString> {
 
   std::string Resolve(int language_index) const;
 
+  void MaterializeLanguage(int language_index);
+
   void Apply(SetUiLocalizationSlotUtf8Event const& event);
 };
 
