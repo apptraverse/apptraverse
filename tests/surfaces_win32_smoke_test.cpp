@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -36,6 +37,7 @@
 #include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
 #include "apptraverse/ui/ui_localization_string.h"
+#include "apptraverse/ui/ui_push_button.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_win32_capture.h"
 #include "win_app.h"
@@ -154,6 +156,18 @@ void CommitAddLabelSlotUtf8(ae::Domain& domain, Application& application,
 
 std::wstring WindowText(HWND hwnd);
 void PumpGui(std::chrono::milliseconds slice);
+
+bool WaitForWindowEnabled(HWND hwnd, bool enabled,
+                          std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if ((IsWindowEnabled(hwnd) != FALSE) == enabled) {
+      return true;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  return (IsWindowEnabled(hwnd) != FALSE) == enabled;
+}
 
 bool WaitForButtonText(HWND button, std::wstring const& expected,
                        std::chrono::milliseconds timeout) {
@@ -1025,6 +1039,92 @@ void TestPostReleaseOuterFrameStable() {
   std::filesystem::remove_all(dir);
 }
 
+void TestDynamicAddLibraryPushButtonNotifierAndEnabled() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_dynamic_add_notifier";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  HWND add2 = FindAddButton(s2);
+  CHECK(add2 != nullptr);
+  CHECK(IsWindowEnabled(add2) != FALSE);
+
+  std::promise<bool> notifier_promise;
+  std::future<bool> notifier_future = notifier_promise.get_future();
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    CHECK(application->surfaces->surfaces.size() == 2);
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto add_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.add_button};
+    CHECK(add_presenter);
+    CHECK(add_presenter->button);
+    notifier_promise.set_value(
+        add_presenter->button->HasMaterializedChangeNotifier());
+  }));
+  {
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (notifier_future.wait_for(std::chrono::milliseconds{0}) !=
+           std::future_status::ready) {
+      PumpGui(std::chrono::milliseconds{20});
+      CHECK(std::chrono::steady_clock::now() < deadline);
+    }
+  }
+  CHECK(notifier_future.get());
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto add_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.add_button};
+    auto disable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    disable->enabled = false;
+    add_presenter->button->Commit(std::move(disable));
+  }));
+  CHECK(WaitForWindowEnabled(add2, false, std::chrono::seconds{30}));
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto add_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.add_button};
+    auto enable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    enable->enabled = true;
+    add_presenter->button->Commit(std::move(enable));
+  }));
+  CHECK(WaitForWindowEnabled(add2, true, std::chrono::seconds{30}));
+
+  SendMessageW(add2, BM_CLICK, 0, 0);
+  HWND s3 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &s3,
+                  std::chrono::seconds{30}));
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{10}));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestLibraryAddCustomLabelFreshProfile() {
   DWORD const pid = GetCurrentProcessId();
   auto dir = std::filesystem::temp_directory_path() /
@@ -1314,6 +1414,7 @@ void TestLoadOnlyRestoresRuProfile() {
 
 int main() {
   apptraverse::test::TestPresenterHierarchy();
+  apptraverse::test::TestDynamicAddLibraryPushButtonNotifierAndEnabled();
   apptraverse::test::TestLibraryAddCustomLabelFreshProfile();
   apptraverse::test::TestLibraryAddCustomLabelModelEvent();
   apptraverse::test::TestLocalizationEnRuEn();

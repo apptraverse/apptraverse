@@ -46,6 +46,7 @@
 #include "apptraverse/surfaces/surfaces_chrome_wiring.h"
 #include "apptraverse/surfaces/surfaces_localization.h"
 #include "apptraverse/surfaces/surfaces_presentation.h"
+#include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 #include "surfaces_demo_add_button.h"
 #include "surfaces_demo_surface_window_host.h"
@@ -2072,6 +2073,35 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
   return application;
 }
 
+void TestDynamicAddLibraryPushButtonMaterializedNotifier() {
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildWin32LibraryAddRoundtripGraph(domain);
+  FinalizeDistilledGraph(*application);
+
+  PendingDirtyNodes pending;
+  BindReachableNodesMaterializedChangeNotifier(*application, &pending,
+                                               &PendingDirtyNodesNotify);
+
+  Surface& surface1 = *application->surfaces->surfaces[0];
+  surface1.AddSurface();
+  CHECK(application->surfaces->surfaces.size() == 2);
+  Surface& surface2 = *application->surfaces->surfaces[1];
+  auto add_presenter =
+      ui::UiPushButtonPresenter::ptr{surface2.chrome.add_button};
+  CHECK(add_presenter);
+  CHECK(add_presenter->button);
+  CHECK(add_presenter->button->HasMaterializedChangeNotifier());
+
+  pending.membership.clear();
+  auto disable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+      ae::CreateWith{domain});
+  disable->enabled = false;
+  add_presenter->button->Commit(std::move(disable));
+  CHECK(pending.membership.count(add_presenter->button->obj_id.id()) == 1);
+}
+
 void TestLibraryAddButtonLabelSerializationRoundtrip() {
   apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
   auto const dir = TestDir("apptraverse_surfaces_library_add_label_roundtrip");
@@ -2208,6 +2238,7 @@ int main() {
   apptraverse::test::TestStructuralApplyOnModelChangedOnce();
   apptraverse::test::TestLocaleCommitAndPersistence();
 #if defined(_WIN32)
+  apptraverse::test::TestDynamicAddLibraryPushButtonMaterializedNotifier();
   apptraverse::test::TestLibraryAddButtonLabelSerializationRoundtrip();
 #endif
   std::cout << "surfaces_model_test OK\n";

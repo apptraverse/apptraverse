@@ -148,7 +148,7 @@ void Surface::AddSurface() {
   if (auto add_presenter =
           ui::UiPushButtonPresenter::ptr{sibling->chrome.add_button}) {
     if (add_presenter->button) {
-      InitializeRuntimeNode(*add_presenter->button, *sibling);
+      InitializeRuntimeNode(*add_presenter->button, *this);
     }
   }
   // New Surface is a Node: establish base/journal and inherit this Surface's
