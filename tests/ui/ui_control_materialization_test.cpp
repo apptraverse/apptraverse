@@ -281,6 +281,35 @@ void TestLocalizationLazyInitialPublication() {
   CHECK(!ui_domain.Find(ru_string_id));
 
   CHECK(ui_root->Resolve(0) == kEnText);
+
+  {
+    auto ru_view = model_root->strings[1].Load();
+    CHECK(ru_view->utf8 == kRuText);
+  }
+  model_root->strings[0].Save();
+  model_root->strings[0].Reset();
+  CHECK(!model_root->strings[0].is_loaded());
+  CHECK(model_root->strings[1].is_loaded());
+  CHECK(model_root->strings[0].id() == en_string_id);
+  CHECK(model_root->strings[1].id() == ru_string_id);
+
+  ByteSink structural;
+  SerializeStructuralNodePublication(*model_root, structural);
+  CHECK(!model_root->strings[0].is_loaded());
+  CHECK(model_root->strings[1].is_loaded());
+
+  ByteSource structural_in;
+  structural_in.data = structural.bytes.data();
+  structural_in.size = structural.bytes.size();
+  ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
+
+  CHECK(ui_root->strings[0].id() == en_string_id);
+  CHECK(ui_root->strings[1].id() == ru_string_id);
+  CHECK(!ui_root->strings[0].is_loaded());
+  CHECK(ui_root->strings[1].is_loaded());
+  CHECK(ui_root->Resolve(1) == kRuText);
+  ae::ClassList const ru_layers_after = ui_storage.Enumerate(ru_string_id);
+  CHECK(!ru_layers_after.empty());
 }
 
 void TestPushButtonClickViaPresenter() {
