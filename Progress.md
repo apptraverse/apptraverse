@@ -4094,3 +4094,11 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Tests**: **`TestWinPushButtonResolveChildLayoutFromHost`** (override at HWND create, no redundant **`SetWindowPos`**); isolated probes A/B/C **PASS**; layout-leaf repro EXE only.
 - **Release verify** (2026-10-21, **`build-presenter-decomp-msvc-rel`**): **`apptraverse_win_ui_native_push_button_test`**, **`apptraverse_win_ui_native_push_button_fatal_test`**, **`apptraverse_ui_control_materialization_test`**, **`apptraverse_ui_edit_box_headless_test`**, **`apptraverse_surfaces_win32_smoke_test`** **PASS** (horizontal→vertical→horizontal Language, toggle, custom labels, disable/enable, dynamic Surface, load_only). **`apptraverse_surfaces_model_test`**: **FAIL** at **`TestCollectLiveReachableStableWithLongJournal`** — **`us(live_p95) < 1'100'000`** at **`surfaces_model_test.cpp:1021`** (10k gate; threshold not changed). Win32 tail tests (**`TestBootstrapSaveLoadChromePresenterClassIds`**, Language notifier) not reached in that run — re-run after gate or run smoke/model Win32 sections separately.
 - Log: **`verification-language-adaptive-layout-20251021.txt`** (not committed).
+
+### Functional model suite split (Add/Language verification gate)
+- **Starting SHA**: **`b103f1be8c77f1bbb42ae61ed99666e639c7a080`**
+- **`apptraverse_surfaces_model_test --functional-only`**: runs the full existing functional sequence, skipping only **`TestCollectLiveReachableStableWithLongJournal`** and **`TestAddOnSecondSurfaceWhileFirstHasLongJournal`**. Default invocation (no args) unchanged — still runs both performance gates.
+- **CTest**: **`apptraverse_surfaces_model_functional_test`** → same executable with **`--functional-only`**; **`apptraverse_surfaces_model_test`** unchanged (full mode).
+- **Functional suite: PASS** (2026-10-21, **`build-presenter-decomp-msvc-rel`**: functional model, Win32 smoke, native push button + fatal, UI materialization, edit headless, isolated probes A/B/C).
+- **Full model suite**: last observed **FAIL** on unstable **`TestCollectLiveReachableStableWithLongJournal`** 10k gate (`surfaces_model_test.cpp:1021`); **not fixed in this step** (thresholds unchanged; full suite not re-run for flaky PASS).
+- Log: **`verification-functional-model-suite-20251021.txt`** (not committed).

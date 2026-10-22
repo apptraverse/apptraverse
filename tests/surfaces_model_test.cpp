@@ -2269,15 +2269,17 @@ void TestLocaleCommitAndPersistence() {
 
 }  // namespace apptraverse::test
 
-int main() {
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::EnsureSurfacesRegistration();
-#if defined(_WIN32)
-  apptraverse::ui::EnsureUiPresenterRegistration();
-  apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
-  apptraverse::EnsureWin32SurfacesPresenterRegistration();
-  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
-#endif
+namespace {
+
+void RunSurfacesModelTests(bool functional_only) {
+  if (functional_only) {
+    std::cout << "surfaces_model_test mode: functional-only "
+                 "(skipping long-journal performance gates)\n";
+  } else {
+    std::cout << "surfaces_model_test mode: full "
+                 "(functionality + performance)\n";
+  }
+
   apptraverse::test::TestInitialGraph();
   apptraverse::test::TestModelAdd();
   apptraverse::test::TestAddFromSecondSurface();
@@ -2295,8 +2297,10 @@ int main() {
   apptraverse::test::TestPresentationSizeCoalescesUnderBurst();
   apptraverse::test::TestPresentationSizeYieldsForAddDuringStream();
   apptraverse::test::TestTwoSessionsPresentationSizeRouting();
-  apptraverse::test::TestCollectLiveReachableStableWithLongJournal();
-  apptraverse::test::TestAddOnSecondSurfaceWhileFirstHasLongJournal();
+  if (!functional_only) {
+    apptraverse::test::TestCollectLiveReachableStableWithLongJournal();
+    apptraverse::test::TestAddOnSecondSurfaceWhileFirstHasLongJournal();
+  }
   apptraverse::test::TestGeometryPersistence();
   apptraverse::test::TestCurrentPageReplay();
   apptraverse::test::TestCurrentPageIdentitySurvivesRemoveBefore();
@@ -2323,6 +2327,35 @@ int main() {
   apptraverse::test::TestDynamicLanguageLibraryPushButtonMaterializedNotifier();
   apptraverse::test::TestLibraryAddButtonLabelSerializationRoundtrip();
 #endif
-  std::cout << "surfaces_model_test OK\n";
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  bool functional_only = false;
+  for (int i = 1; i < argc; ++i) {
+    if (std::string(argv[i]) == "--functional-only") {
+      functional_only = true;
+      continue;
+    }
+    std::cerr << "surfaces_model_test: unknown argument: " << argv[i] << '\n';
+    return 2;
+  }
+
+  apptraverse::EnsureObjectRegistration();
+  apptraverse::EnsureSurfacesRegistration();
+#if defined(_WIN32)
+  apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
+  apptraverse::EnsureWin32SurfacesPresenterRegistration();
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+#endif
+
+  RunSurfacesModelTests(functional_only);
+  if (functional_only) {
+    std::cout << "surfaces_model_test functional-only OK\n";
+  } else {
+    std::cout << "surfaces_model_test OK\n";
+  }
   return 0;
 }

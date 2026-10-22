@@ -756,6 +756,11 @@ add_test(
   COMMAND apptraverse_surfaces_model_test
 )
 
+add_test(
+  NAME apptraverse_surfaces_model_functional_test
+  COMMAND apptraverse_surfaces_model_test --functional-only
+)
+
 add_custom_target(apptraverse_surfaces_headless_check
   COMMAND $<TARGET_FILE:apptraverse_surfaces_model_test>
   DEPENDS apptraverse_surfaces_model_test
