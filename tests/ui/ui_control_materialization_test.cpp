@@ -164,7 +164,16 @@ void TestLocalizationLazyLoadRoundtrip() {
   CHECK(loaded->strings[0].id() == en_string_id);
   CHECK(!loaded->strings[0].is_loaded());
   CHECK((loaded->strings[0].flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+  CHECK((loaded->strings[0].flags() & ae::ObjFlags::kUnloaded) != 0);
 
+  {
+    auto en_view = loaded->strings[0].Load();
+    CHECK(en_view->utf8 == kEnText);
+  }
+  CHECK((loaded->strings[0].flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+  CHECK((loaded->strings[0].flags() & ae::ObjFlags::kUnloaded) == 0);
+
+  loaded->strings[0].Reset();
   {
     ae::Ptr<ui::UiString> en_owned = domain.Find(en_string_id);
     en_owned.Reset();

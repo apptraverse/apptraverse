@@ -1,0 +1,13 @@
+diff --git a/src/aether-objects/obj/obj_ptr_base.cpp b/src/aether-objects/obj/obj_ptr_base.cpp
+index 8e4b2a1..c3f91d4 100644
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -86,7 +86,7 @@ void ObjectPtrBase::Save() const {
+ 
+ void ObjectPtrBase::Reset() {
+   cached_.Reset();
+-  flags_ = flags_ & ObjFlags::kUnloaded;
++  flags_ = flags_ | ObjFlags::kUnloaded;
+ }
+ 
+ Ptr<Obj> const& ObjectPtrBase::cached() const { return cached_; }
