@@ -40,6 +40,9 @@ Three independent EXEs use exactly the same named Window ClassId; no Window inhe
 10. `backing-overlay-three-version`: USER v0 plus BACKING v1/v2 (copied from
    separate B/C packages); mixed overlay reads and per-layer user writes through
    `--backing-dir` without copying packages into USER.
+11. `backing-overlay-untouched-layer`: SaveRoot through overlay must not create
+   a USER layer when serialized bytes match BACKING; only changed layers (e.g.
+   v2 border) are materialized while v1 stays on BACKING alone.
 
 ## Run
 

@@ -280,6 +280,43 @@ void TestNativeVersionedObjectUsesMixedSources() {
   }
 }
 
+void TestUnchangedBackingLayerIsNotMaterialized() {
+  ae::RamDomainStorage backing;
+  OverlayDomainStorage overlay{backing};
+
+  ae::ObjId const id{42};
+  ae::DomainQuery const query{id, 9, 0};
+
+  WriteBytes(backing, query, {10, 20});
+  WriteBytes(overlay, query, {10, 20});
+  CHECK(overlay.overlay().state.empty());
+  CHECK(ReadAll(overlay.Load(query)) == (std::vector<std::uint8_t>{10, 20}));
+
+  WriteBytes(overlay, query, {17, 29});
+  {
+    ae::RamDomainStorage::ObjClassData const& overlay_ram = overlay.overlay().state;
+    CHECK(overlay_ram.count(id) == 1);
+    CHECK(overlay_ram.at(id).has_value());
+    CHECK(overlay_ram.at(id)->at(9).count(0) == 1);
+  }
+  CHECK(ReadAll(overlay.Load(query)) == (std::vector<std::uint8_t>{17, 29}));
+
+  WriteBytes(overlay, query, {10, 20});
+  {
+    ae::RamDomainStorage::ObjClassData const& overlay_ram = overlay.overlay().state;
+    CHECK(overlay_ram.count(id) == 1);
+    CHECK(overlay_ram.at(id).has_value());
+    CHECK(overlay_ram.at(id)->at(9).count(0) == 1);
+  }
+  CHECK(ReadAll(overlay.Load(query)) == (std::vector<std::uint8_t>{10, 20}));
+
+  ae::RamDomainStorage::ObjClassData const backing_before = backing.state;
+  WriteBytes(backing, query, {30, 40});
+  CHECK(backing.state != backing_before);
+  CHECK(ReadAll(overlay.Load(query)) == (std::vector<std::uint8_t>{10, 20}));
+  CHECK(ReadAll(backing.Load(query)) == (std::vector<std::uint8_t>{30, 40}));
+}
+
 void TestDurableVersionedOverlay() {
   std::filesystem::path const user_root =
       std::filesystem::temp_directory_path() /
@@ -383,6 +420,7 @@ int main() {
   apptraverse::test::TestOverlayPrefersOverlayAndFallsBackToBacking();
   apptraverse::test::TestSameClassVersionPrecedence();
   apptraverse::test::TestNativeVersionedObjectUsesMixedSources();
+  apptraverse::test::TestUnchangedBackingLayerIsNotMaterialized();
   apptraverse::test::TestDurableVersionedOverlay();
   std::cout << "overlay_domain_storage_test OK\n";
   return 0;

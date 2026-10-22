@@ -6,9 +6,11 @@
 
 namespace apptraverse {
 
-// Writable RAM overlay over a read-only backing distribution storage.
-// Store always writes the overlay. Load prefers overlay, then backing.
-// Backing is never mutated through this facade.
+// Writable overlay over read-only backing distribution storage.
+// Load prefers overlay, then backing. Backing is never mutated here.
+// Store writes the overlay when the user layer is missing only if serialized
+// bytes differ from backing; unchanged layers are not materialized in USER.
+// Existing USER layers are always written through the writable storage.
 class OverlayDomainStorage final : public ae::IDomainStorage {
  public:
   explicit OverlayDomainStorage(ae::IDomainStorage& backing);

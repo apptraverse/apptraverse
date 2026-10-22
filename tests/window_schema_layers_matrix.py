@@ -491,6 +491,61 @@ class WindowMatrix:
             raise CheckFailed("package C v2 bytes changed")
         return "overlay backing v1+v2: user layers grow without mutating packages"
 
+    def backing_overlay_untouched_layer(self, case_dir):
+        user = case_dir / "user untouched overlay"
+        package_b = case_dir / "package B v1"
+        package_c = case_dir / "package C v2"
+        backing = case_dir / "combined backing v1 v2"
+        self.run("A", "create", user)
+        self.layers(user, {0})
+        if digest(self.slot(user, 0)) != EXPECTED_WINDOW_LAYER_SHA256[0]:
+            raise CheckFailed("Window v0 golden SHA256 mismatch")
+        self.run("B", "package", package_b)
+        if digest(self.slot(package_b, 1)) != EXPECTED_WINDOW_LAYER_SHA256[1]:
+            raise CheckFailed("Window v1 golden SHA256 mismatch")
+        self.run("C", "package", package_c)
+        if digest(self.slot(package_c, 2)) != EXPECTED_WINDOW_LAYER_SHA256[2]:
+            raise CheckFailed("Window v2 golden SHA256 mismatch")
+        package_b_manifest = manifest(package_b)
+        package_c_manifest = manifest(package_c)
+        package_b_v1_hash = digest(self.slot(package_b, 1))
+        package_c_v2_hash = digest(self.slot(package_c, 2))
+        backing.mkdir()
+        backing_v1 = self.slot(backing, 1)
+        backing_v1.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(self.slot(package_b, 1), backing_v1)
+        backing_v2 = self.slot(backing, 2)
+        backing_v2.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(self.slot(package_c, 2), backing_v2)
+        backing_manifest = manifest(backing)
+        backing_v2_hash = digest(backing_v2)
+        user_manifest = manifest(user)
+        self.verify("C", user, 10, 20, 640, 480, 4, backing_dir=backing)
+        self.layers(user, {0})
+        unchanged(user_manifest, manifest(user), "user after C inspect overlay")
+        unchanged(backing_manifest, manifest(backing), "backing after C inspect")
+        v0_frozen = digest(self.slot(user, 0))
+        self.run("C", "change-border", user, backing_dir=backing)
+        self.verify("C", user, 10, 20, 640, 480, 6, backing_dir=backing)
+        if digest(self.slot(user, 0)) != v0_frozen:
+            raise CheckFailed("change-border changed user v0")
+        if self.slot(user, 1).exists():
+            raise CheckFailed("user v1 materialized without width/height mutation")
+        if not self.slot(user, 2).is_file():
+            raise CheckFailed("user v2 missing after change-border")
+        if digest(backing_v2) != backing_v2_hash:
+            raise CheckFailed("backing v2 changed during change-border")
+        self.verify("C", user, 10, 20, 640, 480, 6, backing_dir=backing)
+        self.layers(user, {0, 2})
+        unchanged(package_b_manifest, manifest(package_b), "package B source")
+        unchanged(package_c_manifest, manifest(package_c), "package C source")
+        unchanged(backing_manifest, manifest(backing), "combined backing")
+        if digest(self.slot(package_b, 1)) != package_b_v1_hash:
+            raise CheckFailed("package B v1 bytes changed")
+        if digest(self.slot(package_c, 2)) != package_c_v2_hash:
+            raise CheckFailed("package C v2 bytes changed")
+        return "SaveRoot must not materialize user v1 when only v2 changes"
+
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
             if digest(self.executables[revision]) != expected_hash:
@@ -525,6 +580,7 @@ def main():
     suite.case("post-load-reconcile", suite.post_load_reconcile)
     suite.case("backing-overlay-roundtrip", suite.backing_overlay_roundtrip)
     suite.case("backing-overlay-three-version", suite.backing_overlay_three_version)
+    suite.case("backing-overlay-untouched-layer", suite.backing_overlay_untouched_layer)
     return suite.finish()
 
 
