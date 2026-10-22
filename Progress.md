@@ -4086,6 +4086,14 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Tests**: smoke **`TestDynamicAddLibraryPushButtonNotifierAndEnabled`** (notifier on model, disable/enable HWND via publication, one Add after re-enable); model **`TestDynamicAddLibraryPushButtonMaterializedNotifier`** (pending dirty on enabled commit). Pre-fix smoke fails **`notifier_future.get()`** at **`surfaces_win32_smoke_test.cpp`**.
 - Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): listed Release tests **PASS** (model test may need retry on 10k journal timing gate only).
 
+### Surface Language → library WinPushButton (surfaces_demo Windows)
+- **Starting SHA**: **`fa9ad254d72cf7c74b5b0d2f2b1bc6b145bcae9a`**
+- **Model**: **`SurfacesDemoLanguageButton`** (`UiPushButton`, v0 **`base_` + `locale`** only). **`HandlePushButtonClicked`** reads **`locale->language_index()`** on model thread and calls **`SubmitLanguageIndexFromUi`** (no new Event). **`button.label`** → **`application.language_switch_label`**; caption locale via shared **`SurfacesDemoSurfaceWindowHostPresenter::locale`**.
+- **UI chain**: **`BM_CLICK`** → **`WinPushButtonPresenter::NotifyClickedFromUi`** → model proxy → **`UiPushButton::NotifyClicked`** → **`SurfacesDemoLanguageButton::HandlePushButtonClicked`** → **`UiLocaleSettings::SubmitLanguageIndexFromUi`** → publication → mirror/GUI.
+- **Layout**: adaptive Language/Close geometry via host **`ResolveChildLayout`** + **`ComputeSurfaceChromeButtonLayout`** (Add fixed **`layout_*`**). **`SurfacesDemoLayoutPushButtonPresenter`** stays **repro-only** (registering it in the main demo breaks Add **`WinPushButtonPresenter`** save/load leaf factory).
+- **Dynamic Surface**: **`InitializeRuntimeNode(*language_button, *source_surface)`** on Add (same as Add button, post-**`fa9ad254`**).
+- **Release verify** (2026-10-22, **`build-presenter-decomp-msvc-rel`**): functional **`apptraverse_surfaces_model_test --functional-only`**, **`apptraverse_surfaces_win32_smoke_test`**, native push button + fatal, UI materialization, edit headless **PASS**. Full **`apptraverse_surfaces_model_test`**: **FAIL** **`add_ns < 4000ms`** at **`surfaces_model_test.cpp:1068`** (4498ms observed; threshold unchanged). Log: **`verification-language-20251022-model-full.txt`**.
+
 ### Language adaptive layout via `ResolveChildLayout` (library Win push button)
 - **Starting SHA**: **`495e8fb7b7e2255f5748743b7f858a50bbb87a68`**
 - **Contract**: **`ui::UiWindowPresenter::ResolveChildLayout(UiControlLayout)`** — default pass-through; no new serialized fields or platform types in UI layer.

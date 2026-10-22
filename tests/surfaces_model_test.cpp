@@ -2112,10 +2112,6 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
   language_presenter->window_presenter = add_host;
   language_presenter->control_id =
       static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
-  language_presenter->layout_x = kSurfaceAddButtonLayoutX;
-  language_presenter->layout_y = kSurfaceAddButtonLayoutY;
-  language_presenter->layout_width = kSurfaceAddButtonLayoutWidth;
-  language_presenter->layout_height = kSurfaceAddButtonLayoutHeight;
 
   close_presenter->button = close_button;
   close_presenter->window_presenter = add_host;

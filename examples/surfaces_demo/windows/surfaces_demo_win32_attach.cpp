@@ -64,10 +64,6 @@ void AttachSurfacesDemoWin32SurfacePresenters(Surface& surface,
   language_presenter->window_presenter = chrome_host;
   language_presenter->control_id =
       static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
-  language_presenter->layout_x = kSurfaceAddButtonLayoutX;
-  language_presenter->layout_y = kSurfaceAddButtonLayoutY;
-  language_presenter->layout_width = kSurfaceAddButtonLayoutWidth;
-  language_presenter->layout_height = kSurfaceAddButtonLayoutHeight;
 
   close_presenter->button = close_button;
   close_presenter->window_presenter = chrome_host;
@@ -84,6 +80,9 @@ void AttachSurfacesDemoWin32SurfacePresenters(Surface& surface,
   surface.chrome.language_button = language_presenter;
 
   WireSurfaceChromeLocalization(surface, application);
+  if (auto demo_lang = SurfacesDemoLanguageButton::ptr{language_button}) {
+    demo_lang->locale = application.locale;
+  }
 }
 
 }  // namespace apptraverse::example::surfaces
