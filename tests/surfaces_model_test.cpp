@@ -2463,6 +2463,93 @@ void TestLanguageSwitchPublicationConsistency() {
   CHECK(!application->language_switch_label->strings[0].is_loaded());
   CHECK(application->language_switch_label->strings[1].is_loaded());
 }
+
+void TestLanguageSwitchSessionAtomicPublication() {
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+  auto const dir = TestDir("apptraverse_surfaces_lang_switch_atomic");
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = BuildWin32LibraryAddRoundtripGraph(domain);
+    FinalizeDistilledGraph(*application);
+    application->label_add->MaterializeLanguage(0);
+    application->label_close->MaterializeLanguage(0);
+    application->window_title_prefix->MaterializeLanguage(0);
+    application->language_switch_label->MaterializeLanguage(0);
+    SaveDistilledRoot(*application);
+  }
+
+  SurfacesModelSession session;
+  session.state_dir = dir;
+  std::thread model{[&] {
+    session.Run(
+        [&session](SurfacesPublicationKind) { session.cv.notify_all(); });
+  }};
+  WaitPublished(session);
+  CHECK(session.channel.publish_count() == 1);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
+  CHECK(ui_app->locale->language_index() == 0);
+  CHECK(ui_app->label_add->Resolve(0) == "Add");
+  CHECK(ui_app->label_close->Resolve(0) == "Close this window");
+  CHECK(ui_app->window_title_prefix->Resolve(0) == "Surface ");
+  CHECK(ui_app->language_switch_label->Resolve(0) == "RU");
+  CHECK(ui_app->label_add->strings[0].is_loaded());
+  CHECK(!ui_app->label_add->strings[1].is_loaded());
+
+  auto const publish_before_switch = session.channel.publish_count();
+  RunOnModel(session, [&](Application& app) {
+    app.label_add->MaterializeLanguage(1);
+    app.label_close->MaterializeLanguage(1);
+    app.window_title_prefix->MaterializeLanguage(1);
+    app.language_switch_label->MaterializeLanguage(1);
+    app.locale->SubmitLanguageIndexFromUi(1);
+    CHECK(app.locale->language_index() == 1);
+  });
+  WaitPublished(session);
+  CHECK(session.channel.publish_count() == publish_before_switch + 1);
+
+  {
+    auto const structural_bytes = TakeAndWake(session);
+    ByteSource structural_in;
+    structural_in.data = structural_bytes.data();
+    structural_in.size = structural_bytes.size();
+    ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
+  }
+
+  CHECK(ui_app->locale->language_index() == 1);
+  CHECK(ui_app->label_add->Resolve(1) == "Добавить");
+  CHECK(ui_app->label_close->Resolve(1) == "Закрыть это окно");
+  CHECK(ui_app->window_title_prefix->Resolve(1) == "Поверхность ");
+  CHECK(ui_app->language_switch_label->Resolve(1) == "EN");
+  CHECK(!ui_app->label_add->strings[0].is_loaded());
+  CHECK(ui_app->label_add->strings[1].is_loaded());
+  CHECK(!ui_app->label_close->strings[0].is_loaded());
+  CHECK(ui_app->label_close->strings[1].is_loaded());
+  CHECK(!ui_app->window_title_prefix->strings[0].is_loaded());
+  CHECK(ui_app->window_title_prefix->strings[1].is_loaded());
+  CHECK(!ui_app->language_switch_label->strings[0].is_loaded());
+  CHECK(ui_app->language_switch_label->strings[1].is_loaded());
+  CHECK(!ui_app->label_add->Resolve(1).empty());
+  CHECK(!ui_app->label_close->Resolve(1).empty());
+
+  auto const publish_after_apply = session.channel.publish_count();
+  RunOnModel(session, [&](Application& app) {
+    CHECK(app.locale->language_index() == 1);
+    (void)app;
+  });
+  {
+    std::unique_lock<std::mutex> lock{session.mu};
+    session.cv.wait_for(lock, std::chrono::milliseconds{200});
+  }
+  CHECK(session.channel.publish_count() == publish_after_apply);
+
+  session.RequestStop();
+  model.join();
+  std::filesystem::remove_all(dir);
+}
 #endif
 
 void TestLocaleCommitAndPersistence() {
@@ -2564,6 +2651,7 @@ void RunSurfacesModelTests(bool functional_only) {
   apptraverse::test::TestDynamicCloseLibraryPushButtonMaterializedNotifier();
   apptraverse::test::TestLibraryAddButtonLabelSerializationRoundtrip();
   apptraverse::test::TestLanguageSwitchPublicationConsistency();
+  apptraverse::test::TestLanguageSwitchSessionAtomicPublication();
 #endif
 }
 

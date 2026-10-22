@@ -174,6 +174,30 @@ void SurfacesModelSession::Run(
           live_ids.insert(obj->obj_id.id());
         }
       }
+      {
+        bool publish_surfaces_for_locale = false;
+        {
+          std::lock_guard<std::mutex> lock{mu};
+          if (!stop && !channel.is_publication_busy() && !pending_dirty.empty() &&
+              pending_dirty.membership.count(
+                  application->locale->obj_id.id()) != 0) {
+            publish_surfaces_for_locale = true;
+          }
+        }
+        if (publish_surfaces_for_locale) {
+          auto* pub = channel.AcquireProducer();
+          SerializeStructuralNodePublication(*application->surfaces, pub->sink);
+          {
+            std::lock_guard<std::mutex> lock{mu};
+            pending_dirty.Clear();
+            channel.NotePublished();
+            channel.PublishProducer();
+          }
+          cv.notify_all();
+          on_published(SurfacesPublicationKind::Incremental);
+          continue;
+        }
+      }
       for (;;) {
         std::uint32_t pending_id = 0;
         {
