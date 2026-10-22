@@ -4,11 +4,17 @@
 import argparse
 import json
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 
-from application_evolution_matrix import CheckFailed, digest, manifest, unchanged
+from application_evolution_matrix import CheckFailed, digest, manifest
+from event_version_runner import (
+    assert_baseline_doc_only_v1_replay,
+    assert_v1_layers_unchanged,
+    invoke_fixture,
+    run_runner_selftests,
+    v1_layer_snapshot,
+)
 from event_version_storage_checks import (
     assert_base_v1_probe,
     assert_class_ids_match,
@@ -19,37 +25,9 @@ from event_version_storage_checks import (
     assert_tally,
     doc_version_slots,
     event_versions,
-    last_event,
-    parse_fixture_record,
 )
 
 BASE_ID = 94002
-PACKAGED_EXTENSION = 640
-
-
-def run(exe: Path, state_dir: Path, op: str, *, delta=None, extension_delta=None):
-    command = [str(exe), "--state-dir", str(state_dir), "--op", op]
-    if delta is not None:
-        command.extend(["--delta", str(delta)])
-    if extension_delta is not None:
-        command.extend(["--extension-delta", str(extension_delta)])
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=60,
-    )
-    record = None
-    for line in completed.stdout.splitlines():
-        try:
-            candidate = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(candidate, dict) and candidate.get("ok"):
-            record = candidate
-    return completed.returncode, record, completed
 
 
 def install_v1_layer(state: Path, package: Path, obj_id: int, class_id: int):
@@ -64,53 +42,113 @@ def install_v1_layer(state: Path, package: Path, obj_id: int, class_id: int):
     shutil.copyfile(source, target)
 
 
-def run_commit_sequence(a_exe: Path, b_exe: Path, state: Path, event_class_id: int):
-    code, b1, _ = run(b_exe, state, "commit-v1", delta=1, extension_delta=5)
-    if code != 0:
-        raise CheckFailed("B commit-v1 failed")
-    code, a1, _ = run(a_exe, state, "commit-v0", delta=2)
-    if code != 0:
-        raise CheckFailed("A commit-v0 failed")
-    run(b_exe, state, "commit-v0", delta=4)
-    run(b_exe, state, "commit-v1", delta=0, extension_delta=0)
-    code, a2, _ = run(a_exe, state, "commit-v0", delta=10)
-    if code != 0:
-        raise CheckFailed("A final commit-v0 failed")
-    assert_tally(a2, 17, who="A final")
-    return b1
+def run_commit_sequence(
+    a_exe: Path,
+    b_exe: Path,
+    state: Path,
+    doc_id: int,
+    base_id: int,
+    doc_class_id: int,
+    event_class_id: int,
+):
+    def snap_v1() -> dict[str, str]:
+        return v1_layer_snapshot(
+            manifest(state),
+            doc_id=doc_id,
+            base_id=base_id,
+            doc_class_id=doc_class_id,
+            event_class_id=event_class_id,
+        )
+
+    invoke_fixture(
+        b_exe,
+        "B",
+        state,
+        "commit-v1",
+        delta=1,
+        extension_delta=5,
+        check_storage_unchanged=False,
+    )
+    v1_before_a = snap_v1()
+    invoke_fixture(
+        a_exe, "A", state, "commit-v0", delta=2, check_storage_unchanged=False
+    )
+    assert_v1_layers_unchanged(
+        v1_before_a, snap_v1(), context="A commit-v0 preserves v1 layers"
+    )
+
+    invoke_fixture(
+        b_exe, "B", state, "commit-v0", delta=4, check_storage_unchanged=False
+    )
+    invoke_fixture(
+        b_exe,
+        "B",
+        state,
+        "commit-v1",
+        delta=0,
+        extension_delta=0,
+        check_storage_unchanged=False,
+    )
+
+    v1_before_a_final = snap_v1()
+    a_final = invoke_fixture(
+        a_exe, "A", state, "commit-v0", delta=10, check_storage_unchanged=False
+    )
+    assert_v1_layers_unchanged(
+        v1_before_a_final, snap_v1(), context="A final commit-v0 preserves v1 layers"
+    )
+    assert_tally(a_final, 17, who="A final")
 
 
-def record_baseline_replay_doc_only_v1(a_exe: Path, b_exe: Path, work: Path):
-    """Replay with document v1 only (base snapshot missing v1) — expect wrong extension."""
+def record_baseline_replay_doc_only_v1(a_exe: Path, b_exe: Path, work: Path) -> dict:
     state = work / "baseline-state"
     package = work / "baseline-package"
     state.mkdir()
     package.mkdir()
-    code, a0, _ = run(a_exe, state, "create")
-    if code != 0 or not a0:
-        raise CheckFailed("baseline A create failed")
+    a0 = invoke_fixture(a_exe, "A", state, "create", expect_stage="create")
     doc_id = int(a0["document_id"])
     doc_class_id = int(a0["document_class_id"])
-    run(b_exe, package, "export-doc-v1-package")
+    event_class_id = int(a0["event_class_id"])
+
+    invoke_fixture(
+        b_exe,
+        "B",
+        package,
+        "export-doc-v1-package",
+        expect_stage="export-doc-v1-package",
+        check_storage_unchanged=False,
+    )
     install_v1_layer(state, package, doc_id, doc_class_id)
-    after_install = manifest(state)
-    base_v1_at_install = f"{BASE_ID}/{doc_class_id}/1" in after_install
-    if base_v1_at_install:
+    if f"{BASE_ID}/{doc_class_id}/1" in manifest(state):
         raise CheckFailed("baseline doc-only install must not add base v1 layer")
-    run_commit_sequence(a_exe, b_exe, state, int(a0["event_class_id"]))
+
+    run_commit_sequence(
+        a_exe, b_exe, state, doc_id, BASE_ID, doc_class_id, event_class_id
+    )
     before = manifest(state)
-    code, replay, _ = run(b_exe, state, "replay-from-base")
+    replay = invoke_fixture(
+        b_exe,
+        "B",
+        state,
+        "replay-from-base",
+        expect_stage="replay-from-base",
+        check_storage_unchanged=True,
+    )
     after = manifest(state)
-    unchanged(before, after, "baseline replay-from-base must not write storage")
+    assert_baseline_doc_only_v1_replay(
+        replay,
+        exit_code=0,
+        before_manifest=before,
+        after_manifest=after,
+    )
     baseline = {
-        "replay_exit_code": code,
-        "replay_ok": replay.get("replay_ok") if replay else None,
-        "tally": replay.get("tally") if replay else None,
-        "extension": replay.get("extension") if replay else None,
-        "journal_len": replay.get("journal_len") if replay else None,
-        "expected_extension": 645,
-        "expected_tally": 17,
-        "base_v1_at_install": base_v1_at_install,
+        "replay_exit_code": 0,
+        "replay_ok": True,
+        "tally": 17,
+        "extension": 5,
+        "journal_len": 5,
+        "base_v1_at_install": False,
+        "event_class_id": event_class_id,
     }
     print(json.dumps({"baseline_replay_doc_only_v1": baseline}), flush=True)
     return baseline
@@ -123,30 +161,30 @@ def main():
     parser.add_argument("--work-root", type=Path, required=True)
     args = parser.parse_args()
     args.work_root.mkdir(parents=True, exist_ok=True)
+
+    run_runner_selftests()
+
     root = Path(tempfile.mkdtemp(prefix="event-version-", dir=args.work_root))
     baseline_work = root / "baseline"
     baseline_work.mkdir()
     print("Run directory: " + str(root), flush=True)
 
     baseline = record_baseline_replay_doc_only_v1(args.a, args.b, baseline_work)
-    if baseline.get("extension") == 645:
-        raise CheckFailed(
-            "baseline replay unexpectedly matched extension=645 "
-            "(doc-only v1: base snapshot lacks packaged extension)"
-        )
 
     state = root / "state"
     package = root / "packaged-v1"
     state.mkdir()
     package.mkdir()
 
-    code, a0, _ = run(args.a, state, "create")
-    if code != 0 or not a0:
-        raise CheckFailed("A create failed")
-
-    code, b_pkg, _ = run(args.b, package, "export-v1-package")
-    if code != 0 or not b_pkg:
-        raise CheckFailed("B export-v1-package failed")
+    a0 = invoke_fixture(args.a, "A", state, "create", expect_stage="create")
+    b_pkg = invoke_fixture(
+        args.b,
+        "B",
+        package,
+        "export-v1-package",
+        expect_stage="export-v1-package",
+        check_storage_unchanged=False,
+    )
     assert_class_ids_match(a0, b_pkg)
 
     doc_id = int(a0["document_id"])
@@ -166,23 +204,19 @@ def main():
     if doc_version_slots(manifest(state), BASE_ID, doc_class_id) != {0, 1}:
         raise CheckFailed("base snapshot missing v0/v1 slots")
 
-    code, probe, _ = run(args.b, state, "probe-v1-state")
-    if code != 0:
-        raise CheckFailed("B probe-v1-state failed")
+    probe = invoke_fixture(args.b, "B", state, "probe-v1-state")
     assert_base_v1_probe(probe, who="B probe after install", base_id=BASE_ID)
-    before_probe = manifest(state)
-    unchanged(before_probe, before_probe, "probe-v1-state")
 
-    code, a_inst, _ = run(args.a, state, "inspect")
+    a_inst = invoke_fixture(args.a, "A", state, "inspect")
     assert_tally(a_inst, 0, who="A after v1 install")
     assert_no_extension_field(a_inst, who="A")
 
-    run_commit_sequence(args.a, args.b, state, event_class_id)
+    run_commit_sequence(
+        args.a, args.b, state, doc_id, BASE_ID, doc_class_id, event_class_id
+    )
     doc_v1_hash = manifest(state)[f"{doc_id}/{doc_class_id}/1"]
 
-    before_replay = manifest(state)
-    code, b_replay, _ = run(args.b, state, "replay-from-base")
-    unchanged(before_replay, manifest(state), "B replay-from-base read-only")
+    b_replay = invoke_fixture(args.b, "B", state, "replay-from-base")
     assert_replay(
         b_replay,
         who="B replay after sequence",
@@ -191,7 +225,7 @@ def main():
         journal_len=5,
     )
 
-    code, b_fault, _ = run(args.b, state, "replay-from-base-fault")
+    b_fault = invoke_fixture(args.b, "B", state, "replay-from-base-fault")
     assert_replay(
         b_fault,
         who="B fault replay",
@@ -200,7 +234,7 @@ def main():
         journal_len=5,
     )
 
-    code, a_replay, _ = run(args.a, state, "replay-from-base")
+    a_replay = invoke_fixture(args.a, "A", state, "replay-from-base")
     assert_replay(
         a_replay,
         who="A replay",
@@ -210,9 +244,33 @@ def main():
     )
     assert_no_extension_field(a_replay, who="A replay output")
 
-    before_a_save = manifest(state)
-    code, a_save, _ = run(args.a, state, "replay-from-base-save")
+    v1_before_a_save = v1_layer_snapshot(
+        manifest(state),
+        doc_id=doc_id,
+        base_id=BASE_ID,
+        doc_class_id=doc_class_id,
+        event_class_id=event_class_id,
+    )
+    a_save = invoke_fixture(
+        args.a,
+        "A",
+        state,
+        "replay-from-base-save",
+        expect_stage="replay-from-base-save",
+        check_storage_unchanged=False,
+    )
     after_a_save = manifest(state)
+    assert_v1_layers_unchanged(
+        v1_before_a_save,
+        v1_layer_snapshot(
+            after_a_save,
+            doc_id=doc_id,
+            base_id=BASE_ID,
+            doc_class_id=doc_class_id,
+            event_class_id=event_class_id,
+        ),
+        context="A replay-save preserves v1 layers",
+    )
     if after_a_save.get(f"{doc_id}/{doc_class_id}/1") != doc_v1_hash:
         raise CheckFailed("A replay-save changed document v1 layer bytes")
     assert_replay(
@@ -223,7 +281,7 @@ def main():
         extension=None,
     )
 
-    code, b_after_a_save, _ = run(args.b, state, "replay-from-base")
+    b_after_a_save = invoke_fixture(args.b, "B", state, "replay-from-base")
     assert_replay(
         b_after_a_save,
         who="B replay after A replay-save",
@@ -232,7 +290,7 @@ def main():
         journal_len=5,
     )
 
-    code, b_load, _ = run(args.b, state, "reload")
+    b_load = invoke_fixture(args.b, "B", state, "reload")
     assert_tally(b_load, 17, who="B reload (materialized load)")
     assert_extension(b_load, 645, who="B reload")
     assert_journal_len(b_load, 5, who="B reload")
@@ -245,6 +303,7 @@ def main():
         json.dumps(
             {
                 "result": "PASS",
+                "runner_selftests": "PASS",
                 "baseline_replay_doc_only_v1": baseline,
                 "document_class_id": doc_class_id,
                 "event_class_id": event_class_id,
