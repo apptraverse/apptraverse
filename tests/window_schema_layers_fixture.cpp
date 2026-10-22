@@ -86,8 +86,10 @@ int Run(int argc, char** argv) {
   if (state_dir.empty() ||
       (operation != "create" && operation != "package" &&
        operation != "inspect" && operation != "move" &&
-       operation != "resize")) {
-    throw std::runtime_error("usage: --state-dir PATH --op create|package|inspect|move|resize");
+       operation != "resize" && operation != "move-resize")) {
+    throw std::runtime_error(
+        "usage: --state-dir PATH --op "
+        "create|package|inspect|move|resize|move-resize");
   }
 
   bool const new_state = operation == "create" || operation == "package";
@@ -102,7 +104,8 @@ int Run(int argc, char** argv) {
   }
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 0
-  if (operation == "package" || operation == "resize") {
+  if (operation == "package" || operation == "resize" ||
+      operation == "move-resize") {
     throw std::runtime_error("v0 EXE does not support v1 fields");
   }
 #else
@@ -121,7 +124,6 @@ int Run(int argc, char** argv) {
   EnsureObjectRegistration();
   DirectoryDomainStorage storage{state_dir};
   ae::Domain domain{storage};
-  ae::DomainGraph graph{&domain};
 
   ae::Ptr<Window> window;
   if (new_state) {
@@ -140,8 +142,9 @@ int Run(int argc, char** argv) {
     }
 #endif
   } else {
+    ae::DomainGraph load_graph{&domain};
     ae::Ptr<ae::Obj> loaded;
-    if (!graph.LoadRoot(ae::ObjId{kWindowId}, loaded).IsOk() || !loaded ||
+    if (!load_graph.LoadRoot(ae::ObjId{kWindowId}, loaded).IsOk() || !loaded ||
         loaded->GetClassId() != Window::kClassId) {
       throw std::runtime_error("LoadRoot failed or Window ClassId changed");
     }
@@ -166,28 +169,27 @@ int Run(int argc, char** argv) {
     window->width += 100;
     window->height += 50;
   }
+  if (operation == "move-resize") {
+    window->x += 13;
+    window->y += 17;
+    window->width += 100;
+    window->height += 50;
+  }
 #endif
 
   if (operation != "inspect") {
     storage.BeginSaveSession();
-    auto const result = [&]() -> ae::seri::SeriResult {
+    ae::DomainGraph save_graph{&domain};
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 1
-      if (operation == "package" || operation == "resize") {
-        return graph.SaveVersion(ae::Version<1>{}, *window,
-                                 ae::ObjId{kWindowId});
-      }
-      if (operation == "move") {
-        return graph.SaveVersion(ae::Version<0>{}, *window,
-                                 ae::ObjId{kWindowId});
-      }
-#elif APPTRAVERSE_WINDOW_EXE_REVISION == 0
-      if (operation == "move") {
-        return graph.SaveVersion(ae::Version<0>{}, *window,
-                                 ae::ObjId{kWindowId});
-      }
+    ae::seri::SeriResult const result =
+        operation == "package"
+            ? save_graph.SaveVersion(ae::Version<1>{}, *window,
+                                      ae::ObjId{kWindowId})
+            : save_graph.SaveRoot(window, ae::ObjId{kWindowId});
+#else
+    ae::seri::SeriResult const result =
+        save_graph.SaveRoot(window, ae::ObjId{kWindowId});
 #endif
-      return graph.SaveRoot(window, ae::ObjId{kWindowId});
-    }();
     if (!result.IsOk() || storage.SaveSessionHadFailure()) {
       throw std::runtime_error("saving Window state failed");
     }

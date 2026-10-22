@@ -18,11 +18,16 @@ Two independent EXEs use exactly the same named Window ClassId; no Window inheri
 2. B's package creates a native serialized v1 slot, but no Window v0 slot.
    Installation preserves v0 bytes exactly and adds v1 without rewriting v0.
 3. Both EXEs retain ObjId and ClassId. A reads only x/y, B reads both layers.
-4. An A or B move changes only the v0 bytes, preserving v1 SHA256.
-   A B resize changes only v1, preserving v0 SHA256.
-5. Repeated B-A-B transitions use new processes and must retain the
+4. User mutations use `SaveRoot` on a fresh `DomainGraph` after load (load uses
+   its own graph). Only the B `package` op writes v1 via `SaveVersion<1>`.
+   An A or B move changes only the v0 bytes, preserving v1 SHA256.
+   A B resize changes only v1, preserving v0 SHA256. SaveRoot may invoke both
+   serializers; the contract is byte-stable untouched layers, not skipped saves.
+5. B `move-resize` (SaveRoot) updates both layers; a follow-up A move updates
+   only v0 while v1 stays byte-identical (23,37,740,530 then 30,46,740,530).
+6. Repeated B-A-B transitions use new processes and must retain the
    latest position and size independently.
-6. The package source and executable hashes must remain unchanged;
+7. The package source and executable hashes must remain unchanged;
    results.json and process logs show value or byte-level failures.
 
 ## Run

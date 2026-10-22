@@ -168,6 +168,30 @@ class WindowMatrix:
             raise CheckFailed("immutable packaged v1 source changed")
         return f"mixed A/B rollback: ({x},{y}), {width}x{height}, separate v0/v1 slots"
 
+    def save_root_dual_layer(self, case_dir):
+        state, package, package_hash = self.prepare(case_dir)
+        v0_before, v1_before = digest(self.slot(state, 0)), digest(self.slot(state, 1))
+        self.run("B", "move-resize", state)
+        v0_after_resize = digest(self.slot(state, 0))
+        v1_after_resize = digest(self.slot(state, 1))
+        if v0_after_resize == v0_before:
+            raise CheckFailed("move-resize did not update v0 position bytes")
+        if v1_after_resize == v1_before:
+            raise CheckFailed("move-resize did not update v1 size bytes")
+        self.verify("B", state, 23, 37, 740, 530)
+        self.verify("A", state, 23, 37)
+        v1_frozen = digest(self.slot(state, 1))
+        self.run("A", "move", state)
+        if digest(self.slot(state, 1)) != v1_frozen:
+            raise CheckFailed("A move changed untouched v1 bytes after SaveRoot")
+        if digest(self.slot(state, 0)) == v0_after_resize:
+            raise CheckFailed("A move did not update v0")
+        self.verify("A", state, 30, 46)
+        self.verify("B", state, 30, 46, 740, 530)
+        if digest(self.slot(package, 1)) != package_hash:
+            raise CheckFailed("immutable packaged v1 source changed")
+        return "SaveRoot dual-layer: B move-resize then A move preserves v1 bytes"
+
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
             if digest(self.executables[revision]) != expected_hash:
@@ -196,6 +220,7 @@ def main():
     suite = WindowMatrix(args)
     suite.case("new-exe-supplies-v1-state", suite.supplied_layer)
     suite.case("mixed-upgrade-rollback", suite.rollback)
+    suite.case("save-root-dual-layer", suite.save_root_dual_layer)
     return suite.finish()
 
 

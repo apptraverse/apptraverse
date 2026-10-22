@@ -4131,6 +4131,18 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - Changes are restricted to tests/CMake and test fixtures; no changes to
   production serializers or main. Merge deferred to a separate Cursor task.
 
+## Window SaveRoot independent layers (2026-10-22)
+
+- Starting SHA: `55f516038d4d6b76ca7c1caaea03be9b6ed2cd5a`
+- Branch: `integration/serialization-surfaces`
+- `window_schema_layers_fixture`: load uses a local `DomainGraph`; save uses a
+  fresh graph and `SaveRoot` for create/move/resize/move-resize; B `package`
+  alone keeps `SaveVersion<1>`.
+- Runner: new `save-root-dual-layer` case (B move-resize then A move; v1 bytes
+  frozen after dual-layer write).
+- `apptraverse_window_schema_layers_roundtrip`: **PASS** Debug
+  (`build/win64-ninja-msvc-debug`) and Release (`build/win64-ninja-msvc-release`).
+
 ---
 
 ## Surfaces library controls baseline (2026-10-21)
