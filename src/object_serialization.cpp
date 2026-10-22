@@ -1227,14 +1227,18 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   return changed;
 }
 
-void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
-                                            ae::Obj const& root, ByteSink& out) {
+void WritePersistentCheckpointScratchLayers(
+    ae::RamDomainStorage const& scratch, ae::Obj const& root, ByteSink& out,
+    std::unordered_set<std::uint32_t> const& export_object_ids) {
   auto const count_at = out.bytes.size();
   std::uint32_t layer_count = 0;
   out.write(&layer_count, sizeof(layer_count));
 
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
+      continue;
+    }
+    if (!export_object_ids.contains(obj_id.id())) {
       continue;
     }
     auto obj = root.domain->Find(obj_id);
@@ -1261,6 +1265,9 @@ void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
   out.write(&node_generation_count, sizeof(node_generation_count));
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
+      continue;
+    }
+    if (!export_object_ids.contains(obj_id.id())) {
       continue;
     }
     auto obj = root.domain->Find(obj_id);
@@ -1390,7 +1397,24 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
   SaveObjectGraphToScratch(root, scratch);
   EnsurePersistentCheckpointBaseObjectsInScratch(saved_bases, scratch);
 
-  WritePersistentCheckpointScratchLayers(scratch, root, out);
+  std::unordered_set<std::uint32_t> checkpoint_export_ids;
+  {
+    std::vector<ae::Obj*> persisted_reachable;
+    CollectReachableObjects(root, persisted_reachable);
+    checkpoint_export_ids.reserve(persisted_reachable.size() + saved_bases.size());
+    for (ae::Obj* obj : persisted_reachable) {
+      checkpoint_export_ids.insert(obj->obj_id.id());
+    }
+  }
+  for (SavedNodeBaseOnly const& entry : saved_bases) {
+    checkpoint_export_ids.insert(entry.node->obj_id.id());
+    if (entry.base.is_valid()) {
+      checkpoint_export_ids.insert(entry.base.id().id());
+    }
+  }
+
+  WritePersistentCheckpointScratchLayers(scratch, root, out,
+                                       checkpoint_export_ids);
   WritePersistentCheckpointNodeBaseBindings(saved_bases, out);
 
   RestoreReachableNodeBase(saved_bases);
