@@ -45,6 +45,10 @@ Three independent EXEs use exactly the same named Window ClassId; no Window inhe
    v2 border) are materialized while v1 stays on BACKING alone. After a simulated
    supply refresh (new backing v1 at 740x530), C still reads updated v1 from
    backing without materializing USER v1; user v0/v2 overrides remain.
+12. `embedded-backing-roundtrip`: EXE C loads fixed v1/v2 byte arrays linked
+   into the binary (`--embedded-backing` RAM overlay). This validates cross-process
+   embedded supply semantics only; it is not automatic build-time resource packing
+   for production apps.
 
 ## Run
 

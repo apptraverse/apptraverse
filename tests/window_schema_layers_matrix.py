@@ -32,11 +32,13 @@ class WindowMatrix:
         print("Run directory: " + str(self.root), flush=True)
 
     def run(self, revision, operation, directory, expect_exit=0,
-            backing_dir=None):
+            backing_dir=None, embedded_backing=False):
         command = [str(self.executables[revision]), "--state-dir", str(directory),
                    "--op", operation]
         if backing_dir is not None:
             command.extend(["--backing-dir", str(backing_dir)])
+        if embedded_backing:
+            command.append("--embedded-backing")
         before = manifest(directory)
         self.count += 1
         try:
@@ -78,9 +80,10 @@ class WindowMatrix:
         return record, ""
 
     def verify(self, revision, directory, x, y, width=None, height=None,
-               border_width=None, backing_dir=None):
+               border_width=None, backing_dir=None, embedded_backing=False):
         record, _ = self.run(revision, "inspect", directory,
-                             backing_dir=backing_dir)
+                             backing_dir=backing_dir,
+                             embedded_backing=embedded_backing)
         expected = {"x": x, "y": y}
         if revision == "B":
             expected.update(width=width, height=height)
@@ -593,6 +596,49 @@ class WindowMatrix:
             raise CheckFailed("package C v2 bytes changed after supply")
         return ("untouched v1 overlay: user v2 only; refreshed backing v1 740x530 visible to C")
 
+    def embedded_backing_roundtrip(self, case_dir):
+        user = case_dir / "user embedded overlay"
+        self.run("A", "create", user)
+        self.verify("A", user, 10, 20)
+        self.layers(user, {0})
+        if digest(self.slot(user, 0)) != EXPECTED_WINDOW_LAYER_SHA256[0]:
+            raise CheckFailed("Window v0 golden SHA256 mismatch")
+        user_manifest = manifest(user)
+        self.verify("C", user, 10, 20, 640, 480, 4, embedded_backing=True)
+        self.layers(user, {0})
+        unchanged(user_manifest, manifest(user), "user after embedded inspect")
+        v0_frozen = digest(self.slot(user, 0))
+        self.run("C", "change-border", user, embedded_backing=True)
+        self.verify("C", user, 10, 20, 640, 480, 6, embedded_backing=True)
+        if digest(self.slot(user, 0)) != v0_frozen:
+            raise CheckFailed("embedded change-border changed user v0")
+        if self.slot(user, 1).exists():
+            raise CheckFailed("user v1 present before embedded resize")
+        self.layers(user, {0, 2})
+        user_v2_frozen = digest(self.slot(user, 2))
+        self.run("C", "resize", user, embedded_backing=True)
+        self.verify("C", user, 10, 20, 740, 530, 6, embedded_backing=True)
+        self.layers(user, {0, 1, 2})
+        if digest(self.slot(user, 0)) != v0_frozen:
+            raise CheckFailed("embedded resize changed user v0")
+        if digest(self.slot(user, 2)) != user_v2_frozen:
+            raise CheckFailed("embedded resize changed user v2")
+        user_v1_frozen = digest(self.slot(user, 1))
+        self.run("A", "move", user)
+        self.verify("A", user, 17, 29)
+        if digest(self.slot(user, 1)) != user_v1_frozen:
+            raise CheckFailed("A move changed user v1")
+        if digest(self.slot(user, 2)) != user_v2_frozen:
+            raise CheckFailed("A move changed user v2")
+        self.verify("A", user, 17, 29)
+        self.verify("B", user, 17, 29, 740, 530)
+        self.verify("C", user, 17, 29, 740, 530, 6, embedded_backing=True)
+        for path in case_dir.iterdir():
+            lowered = path.name.lower()
+            if "package" in lowered or "backing" in lowered:
+                raise CheckFailed(f"unexpected external supply directory: {path}")
+        return "EXE C compiles embedded v1/v2; each process reloads RAM backing"
+
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
             if digest(self.executables[revision]) != expected_hash:
@@ -628,6 +674,7 @@ def main():
     suite.case("backing-overlay-roundtrip", suite.backing_overlay_roundtrip)
     suite.case("backing-overlay-three-version", suite.backing_overlay_three_version)
     suite.case("backing-overlay-untouched-layer", suite.backing_overlay_untouched_layer)
+    suite.case("embedded-backing-roundtrip", suite.embedded_backing_roundtrip)
     return suite.finish()
 
 

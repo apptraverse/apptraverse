@@ -14,6 +14,8 @@
 
 
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
+
 #include "aether-objects/obj/domain.h"
 
 #include "aether-objects/obj/obj.h"
@@ -204,11 +206,49 @@ APPTRAVERSE_REGISTER(Window);
 
 
 
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+
+constexpr std::uint8_t kEmbeddedWindowV1Layer[] = {
+
+    0x80, 0x02, 0x00, 0x00, 0xE0, 0x01, 0x00, 0x00,
+
+};
+
+constexpr std::uint8_t kEmbeddedWindowV2Layer[] = {
+
+    0x04, 0x00, 0x00, 0x00,
+
+};
+
+
+
+void WriteEmbeddedLayer(ae::RamDomainStorage& storage,
+
+                        ae::DomainQuery const& query,
+
+                        std::uint8_t const* data, std::size_t size) {
+
+  std::unique_ptr<ae::IDomainStorageWriter> writer = storage.Store(query);
+
+  if (!writer->Write(ae::seri::DataWriteTag{data, size})) {
+
+    throw std::runtime_error("embedded layer write failed");
+
+  }
+
+}
+
+#endif
+
+
+
 int Run(int argc, char** argv) {
 
   std::filesystem::path state_dir;
 
   std::filesystem::path backing_dir;
+
+  bool embedded_backing = false;
 
   std::string operation;
 
@@ -224,6 +264,10 @@ int Run(int argc, char** argv) {
 
       backing_dir = argv[++i];
 
+    } else if (argument == "--embedded-backing") {
+
+      embedded_backing = true;
+
     } else if (argument == "--op" && i + 1 < argc) {
 
       operation = argv[++i];
@@ -233,6 +277,24 @@ int Run(int argc, char** argv) {
       throw std::runtime_error("invalid or incomplete argument");
 
     }
+
+  }
+
+#if APPTRAVERSE_WINDOW_EXE_REVISION != 2
+
+  if (embedded_backing) {
+
+    throw std::runtime_error("embedded backing is supported only on EXE C");
+
+  }
+
+#endif
+
+  if (embedded_backing && !backing_dir.empty()) {
+
+    throw std::runtime_error(
+
+        "--embedded-backing and --backing-dir are mutually exclusive");
 
   }
 
@@ -326,6 +388,16 @@ int Run(int argc, char** argv) {
 
     }
 
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+
+    if (embedded_backing && (version == 1 || version == 2)) {
+
+      return true;
+
+    }
+
+#endif
+
     return false;
 
   };
@@ -372,6 +444,8 @@ int Run(int argc, char** argv) {
 
   std::unique_ptr<DirectoryDomainStorage> backing_storage;
 
+  std::unique_ptr<ae::RamDomainStorage> embedded_storage;
+
   std::unique_ptr<OverlayDomainStorage> overlay_storage;
 
   ae::IDomainStorage* domain_storage = &user_storage;
@@ -389,6 +463,34 @@ int Run(int argc, char** argv) {
     domain_storage = overlay_storage.get();
 
   }
+
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+
+  else if (embedded_backing) {
+
+    embedded_storage = std::make_unique<ae::RamDomainStorage>();
+
+    ae::DomainQuery const v1_query{ae::ObjId{kWindowId}, Window::kClassId, 1};
+
+    ae::DomainQuery const v2_query{ae::ObjId{kWindowId}, Window::kClassId, 2};
+
+    WriteEmbeddedLayer(*embedded_storage, v1_query, kEmbeddedWindowV1Layer,
+
+                       sizeof(kEmbeddedWindowV1Layer));
+
+    WriteEmbeddedLayer(*embedded_storage, v2_query, kEmbeddedWindowV2Layer,
+
+                       sizeof(kEmbeddedWindowV2Layer));
+
+    overlay_storage = std::make_unique<OverlayDomainStorage>(
+
+        user_storage, *embedded_storage);
+
+    domain_storage = overlay_storage.get();
+
+  }
+
+#endif
 
   ae::Domain domain{*domain_storage};
 
