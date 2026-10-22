@@ -4,6 +4,8 @@
 
 #include <iostream>
 
+#include <memory>
+
 #include <stdexcept>
 
 #include <string>
@@ -21,6 +23,8 @@
 #include "apptraverse/directory_domain_storage.h"
 
 #include "apptraverse/object_macros.h"
+
+#include "apptraverse/overlay_domain_storage.h"
 
 
 
@@ -204,6 +208,8 @@ int Run(int argc, char** argv) {
 
   std::filesystem::path state_dir;
 
+  std::filesystem::path backing_dir;
+
   std::string operation;
 
   for (int i = 1; i < argc; ++i) {
@@ -213,6 +219,10 @@ int Run(int argc, char** argv) {
     if (argument == "--state-dir" && i + 1 < argc) {
 
       state_dir = argv[++i];
+
+    } else if (argument == "--backing-dir" && i + 1 < argc) {
+
+      backing_dir = argv[++i];
 
     } else if (argument == "--op" && i + 1 < argc) {
 
@@ -298,11 +308,29 @@ int Run(int argc, char** argv) {
 
 #endif
 
-  if (operation != "package" &&
+  auto const layer_exists = [&](std::uint8_t version) {
 
-      !DirectoryDomainStorageLayerFileExists(
+    ae::DomainQuery const query{ae::ObjId{kWindowId}, Window::kClassId, version};
 
-          state_dir, ae::DomainQuery{ae::ObjId{kWindowId}, Window::kClassId, 1})) {
+    if (DirectoryDomainStorageLayerFileExists(state_dir, query)) {
+
+      return true;
+
+    }
+
+    if (!backing_dir.empty() &&
+
+        DirectoryDomainStorageLayerFileExists(backing_dir, query)) {
+
+      return true;
+
+    }
+
+    return false;
+
+  };
+
+  if (operation != "package" && !layer_exists(1)) {
 
     std::cerr << "MISSING_STATE_LAYER class=" << Window::kClassId
 
@@ -314,11 +342,7 @@ int Run(int argc, char** argv) {
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
-  if (operation != "package" &&
-
-      !DirectoryDomainStorageLayerFileExists(
-
-          state_dir, ae::DomainQuery{ae::ObjId{kWindowId}, Window::kClassId, 2})) {
+  if (operation != "package" && !layer_exists(2)) {
 
     std::cerr << "MISSING_STATE_LAYER class=" << Window::kClassId
 
@@ -334,11 +358,39 @@ int Run(int argc, char** argv) {
 
 
 
+  if (!backing_dir.empty() && !std::filesystem::is_directory(backing_dir)) {
+
+    throw std::runtime_error("backing directory does not exist");
+
+  }
+
+
+
   EnsureObjectRegistration();
 
-  DirectoryDomainStorage storage{state_dir};
+  DirectoryDomainStorage user_storage{state_dir};
 
-  ae::Domain domain{storage};
+  std::unique_ptr<DirectoryDomainStorage> backing_storage;
+
+  std::unique_ptr<OverlayDomainStorage> overlay_storage;
+
+  ae::IDomainStorage* domain_storage = &user_storage;
+
+  if (!backing_dir.empty()) {
+
+    backing_storage =
+
+        std::make_unique<DirectoryDomainStorage>(backing_dir);
+
+    overlay_storage = std::make_unique<OverlayDomainStorage>(
+
+        user_storage, *backing_storage);
+
+    domain_storage = overlay_storage.get();
+
+  }
+
+  ae::Domain domain{*domain_storage};
 
 
 
@@ -474,7 +526,7 @@ int Run(int argc, char** argv) {
 
   if (operation != "inspect") {
 
-    storage.BeginSaveSession();
+    user_storage.BeginSaveSession();
 
     ae::DomainGraph save_graph{&domain};
 
@@ -510,7 +562,7 @@ int Run(int argc, char** argv) {
 
 #endif
 
-    if (!result.IsOk() || storage.SaveSessionHadFailure()) {
+    if (!result.IsOk() || user_storage.SaveSessionHadFailure()) {
 
       throw std::runtime_error("saving Window state failed");
 

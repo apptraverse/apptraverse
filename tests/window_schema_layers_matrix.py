@@ -31,9 +31,12 @@ class WindowMatrix:
         self.class_id = None
         print("Run directory: " + str(self.root), flush=True)
 
-    def run(self, revision, operation, directory, expect_exit=0):
+    def run(self, revision, operation, directory, expect_exit=0,
+            backing_dir=None):
         command = [str(self.executables[revision]), "--state-dir", str(directory),
                    "--op", operation]
+        if backing_dir is not None:
+            command.extend(["--backing-dir", str(backing_dir)])
         before = manifest(directory)
         self.count += 1
         try:
@@ -75,8 +78,9 @@ class WindowMatrix:
         return record, ""
 
     def verify(self, revision, directory, x, y, width=None, height=None,
-               border_width=None):
-        record, _ = self.run(revision, "inspect", directory)
+               border_width=None, backing_dir=None):
+        record, _ = self.run(revision, "inspect", directory,
+                             backing_dir=backing_dir)
         expected = {"x": x, "y": y}
         if revision == "B":
             expected.update(width=width, height=height)
@@ -367,6 +371,41 @@ class WindowMatrix:
             raise CheckFailed("immutable packaged v2 source changed")
         return "post-load reconcile: x+width=1000 via explicit B/C op, not Load"
 
+    def backing_overlay_roundtrip(self, case_dir):
+        user = case_dir / "user overlay state"
+        package = case_dir / "packaged v1 only"
+        self.run("A", "create", user)
+        self.layers(user, {0})
+        if digest(self.slot(user, 0)) != EXPECTED_WINDOW_LAYER_SHA256[0]:
+            raise CheckFailed("Window v0 golden SHA256 mismatch")
+        self.run("B", "package", package)
+        if digest(self.slot(package, 1)) != EXPECTED_WINDOW_LAYER_SHA256[1]:
+            raise CheckFailed("Window v1 golden SHA256 mismatch")
+        package_v1_hash = digest(self.slot(package, 1))
+        package_manifest = manifest(package)
+        self.verify("B", user, 10, 20, 640, 480, backing_dir=package)
+        unchanged(package_manifest, manifest(package), "package on B inspect overlay")
+        if self.slot(user, 1).exists():
+            raise CheckFailed("user v1 present before first overlay write")
+        v0_before_resize = digest(self.slot(user, 0))
+        self.run("B", "resize", user, backing_dir=package)
+        self.verify("B", user, 10, 20, 740, 530, backing_dir=package)
+        if digest(self.slot(user, 0)) != v0_before_resize:
+            raise CheckFailed("B resize changed user v0 bytes")
+        if digest(self.slot(package, 1)) != package_v1_hash:
+            raise CheckFailed("packaged v1 changed after overlay resize")
+        if not self.slot(user, 1).is_file():
+            raise CheckFailed("user v1 missing after overlay resize")
+        user_v1_hash = digest(self.slot(user, 1))
+        self.run("A", "move", user)
+        self.verify("A", user, 17, 29)
+        if digest(self.slot(user, 1)) != user_v1_hash:
+            raise CheckFailed("A move changed user v1 bytes")
+        self.verify("B", user, 17, 29, 740, 530, backing_dir=package)
+        if digest(self.slot(package, 1)) != package_v1_hash:
+            raise CheckFailed("packaged v1 changed at end of overlay scenario")
+        return "Directory overlay: v1 from backing until user resize, then user layers"
+
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
             if digest(self.executables[revision]) != expected_hash:
@@ -399,6 +438,7 @@ def main():
     suite.case("save-root-dual-layer", suite.save_root_dual_layer)
     suite.case("three-version-rollback", suite.three_version_rollback)
     suite.case("post-load-reconcile", suite.post_load_reconcile)
+    suite.case("backing-overlay-roundtrip", suite.backing_overlay_roundtrip)
     return suite.finish()
 
 
