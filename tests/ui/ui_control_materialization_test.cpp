@@ -1,10 +1,12 @@
 #include <iostream>
+#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/object_serialization.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_edit_box.h"
@@ -199,6 +201,87 @@ void TestLocalizationLazyLoadRoundtrip() {
   }
 }
 
+void TestLocalizationLazyInitialPublication() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const root_id{2};
+  ae::ObjId en_string_id;
+  ae::ObjId ru_string_id;
+  char const* const kEnText = "Publication EN slot";
+  char const* const kRuText = "Publication RU slot";
+
+  {
+    ae::Domain domain{storage};
+    auto localized = ui::UiLocalizationString::ptr::Create(
+        ae::CreateWith{domain}.with_id(root_id));
+    InitializeRuntimeNode(*localized);
+
+    auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    en->utf8 = kEnText;
+    auto ru = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    ru->utf8 = kRuText;
+    en_string_id = en->obj_id;
+    ru_string_id = ru->obj_id;
+    en.Save();
+    ru.Save();
+
+    localized->strings = {
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(en_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(ru_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+    };
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+  }
+
+  ae::Domain model_domain{storage};
+  auto model_root = ui::UiLocalizationString::ptr::Declare(
+      ae::CreateWith{model_domain}.with_id(root_id));
+  model_root.Load();
+  CHECK(!model_root->strings[0].is_loaded());
+  CHECK(!model_root->strings[1].is_loaded());
+
+  {
+    auto en_view = model_root->strings[0].Load();
+    CHECK(en_view->utf8 == kEnText);
+  }
+  CHECK(!model_root->strings[1].is_loaded());
+
+  ByteSink sink;
+  SerializeInitialPublication(*model_root, sink);
+
+  CHECK(!model_root->strings[1].is_loaded());
+  CHECK((model_root->strings[0].flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+  CHECK((model_root->strings[1].flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  std::vector<std::uint8_t> publication_bytes = sink.bytes;
+  ByteSource in;
+  in.data = publication_bytes.data();
+  in.size = publication_bytes.size();
+  auto ui_root_obj = LoadInitialPublication(in, ui_domain, ui_storage);
+  CHECK(ui_root_obj);
+  auto ui_root = ui::UiLocalizationString::ptr::MakeFromThis(
+      static_cast<ui::UiLocalizationString*>(ui_root_obj.get()));
+
+  CHECK(ui_root->strings[0].id() == en_string_id);
+  CHECK(ui_root->strings[1].id() == ru_string_id);
+  CHECK(ui_root->strings[0].is_loaded());
+  CHECK(!ui_root->strings[1].is_loaded());
+  CHECK(!ui_domain.Find(ru_string_id));
+
+  ae::ClassList const en_layers = ui_storage.Enumerate(en_string_id);
+  ae::ClassList const ru_layers = ui_storage.Enumerate(ru_string_id);
+  CHECK(!en_layers.empty());
+  CHECK(ru_layers.empty());
+
+  CHECK(ui_root->Resolve(0) == kEnText);
+}
+
 void TestPushButtonClickViaPresenter() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -237,6 +320,7 @@ int main() {
 
   TestEditBoxMaterializationNotifiesOnChange();
   TestLocalizationLazyLoadRoundtrip();
+  TestLocalizationLazyInitialPublication();
   TestPushButtonClickViaPresenter();
   return 0;
 }
