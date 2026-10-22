@@ -1,14 +1,14 @@
 # Same-class version layers and EXE rollback
 
-Two independent EXEs use exactly the same named Window ClassId; no Window inheritance.
+Three independent EXEs use exactly the same named Window ClassId; no Window inheritance.
 
 - A: Window v0 reads/writes x and y.
-- B: Window current schema v1. Load/Save(v0) handles x/y only;
+- B: Window schema v1. Load/Save(v0) handles x/y only;
   Load/Save(v1) handles width/height only. Both operations are independent.
-- B produces a serialized *package* state with the Window v1 layer (640x480).
-  Its Load(v0) neither supplies size defaults nor migrates v0 to v1.
-- The runner copies only the packaged version-1 layer into a new v0 profile.
-  Existing user position is retained; the runner never overwrites a present v1.
+- C: Window schema v2. Load/Save(v2) handles border_width only; still loads v0/v1.
+- B produces a serialized *package* with the Window v1 layer (640x480).
+- C produces a serialized *package* with the Window v2 layer (border_width=4).
+- The runner copies packaged layers into a v0 profile without overwriting present slots.
 
 ## Verified contract (requires native CTest run)
 
@@ -27,7 +27,10 @@ Two independent EXEs use exactly the same named Window ClassId; no Window inheri
    only v0 while v1 stays byte-identical (23,37,740,530 then 30,46,740,530).
 6. Repeated B-A-B transitions use new processes and must retain the
    latest position and size independently.
-7. The package source and executable hashes must remain unchanged;
+7. `three-version-rollback`: after B supplies v1 and resizes, C refuses until v2
+   is packaged and installed; A/B/C mutations touch only their layer bytes
+   (final A 17,29; B adds 840x580; C border 8).
+8. The package source and executable hashes must remain unchanged;
    results.json and process logs show value or byte-level failures.
 
 ## Run

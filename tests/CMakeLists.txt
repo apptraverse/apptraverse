@@ -75,6 +75,7 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
       "${CMAKE_CURRENT_LIST_DIR}/window_schema_layers_matrix.py"
       --a "$<TARGET_FILE:apptraverse_window_layers_a>"
       --b "$<TARGET_FILE:apptraverse_window_layers_b>"
+      --c "$<TARGET_FILE:apptraverse_window_layers_c>"
       --work-root "${CMAKE_CURRENT_BINARY_DIR}/window layer states"
   )
   set_tests_properties(apptraverse_window_schema_layers_roundtrip PROPERTIES

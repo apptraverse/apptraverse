@@ -14,7 +14,8 @@ from application_evolution_matrix import CheckFailed, digest, manifest, unchange
 class WindowMatrix:
     def __init__(self, args):
         self.executables = {"A": args.a.resolve(strict=True),
-                            "B": args.b.resolve(strict=True)}
+                            "B": args.b.resolve(strict=True),
+                            "C": args.c.resolve(strict=True)}
         self.exe_hashes = {rev: digest(path) for rev, path in self.executables.items()}
         self.root = Path(tempfile.mkdtemp(prefix="window-v0-v1-", dir=args.work_root))
         self.timeout = args.timeout
@@ -52,7 +53,7 @@ class WindowMatrix:
                 candidate = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(candidate, dict) and candidate.get("exe") in ("A", "B"):
+            if isinstance(candidate, dict) and candidate.get("exe") in ("A", "B", "C"):
                 record = candidate
         if record is None:
             raise CheckFailed(f"invalid fixture JSON: {completed.stdout!r}")
@@ -63,16 +64,23 @@ class WindowMatrix:
         if self.class_id is None:
             self.class_id = record["class_id"]
         elif self.class_id != record["class_id"]:
-            raise CheckFailed("ClassId differs between A and B")
+            raise CheckFailed("ClassId differs between EXEs")
         return record, ""
 
-    def verify(self, revision, directory, x, y, width=None, height=None):
+    def verify(self, revision, directory, x, y, width=None, height=None,
+               border_width=None):
         record, _ = self.run(revision, "inspect", directory)
         expected = {"x": x, "y": y}
         if revision == "B":
             expected.update(width=width, height=height)
+            if "border_width" in record:
+                raise CheckFailed("v1 EXE unexpectedly reads v2 fields")
+        elif revision == "C":
+            expected.update(width=width, height=height, border_width=border_width)
         elif "width" in record or "height" in record:
             raise CheckFailed("v0 EXE unexpectedly reads v1 fields")
+        if revision == "A" and "border_width" in record:
+            raise CheckFailed("v0 EXE unexpectedly reads v2 fields")
         for key, value in expected.items():
             if type(record.get(key)) is not int or record[key] != value:
                 raise CheckFailed(f"{revision} {key}: expected {value}, got {record.get(key)}")
@@ -192,6 +200,76 @@ class WindowMatrix:
             raise CheckFailed("immutable packaged v1 source changed")
         return "SaveRoot dual-layer: B move-resize then A move preserves v1 bytes"
 
+    def three_version_rollback(self, case_dir):
+        state, package_b, package_b_hash = self.prepare(case_dir)
+        package_c = case_dir / "packaged C initial state"
+        self.run("B", "resize", state)
+        self.verify("B", state, 10, 20, 740, 530)
+        self.verify("A", state, 10, 20)
+        _, reason = self.run("C", "inspect", state, expect_exit=2)
+        if "MISSING_STATE_LAYER" not in reason or "version=2" not in reason:
+            raise CheckFailed("C did not reject missing packaged v2 state")
+        self.run("C", "package", package_c)
+        packaged_v2 = self.slot(package_c, 2)
+        if (not packaged_v2.is_file() or self.slot(package_c, 0).exists() or
+                self.slot(package_c, 1).exists()):
+            raise CheckFailed("C package must contain v2, not v0/v1 Window state")
+        package_c_hash = digest(packaged_v2)
+        v0_frozen, v1_frozen = digest(self.slot(state, 0)), digest(self.slot(state, 1))
+        target_v2 = self.slot(state, 2)
+        if target_v2.exists():
+            raise CheckFailed("installation would overwrite existing v2")
+        shutil.copyfile(packaged_v2, target_v2)
+        if digest(self.slot(state, 0)) != v0_frozen:
+            raise CheckFailed("installing v2 changed the user's v0 position")
+        if digest(self.slot(state, 1)) != v1_frozen:
+            raise CheckFailed("installing v2 changed the user's v1 size")
+        if digest(target_v2) != package_c_hash:
+            raise CheckFailed("installed v2 bytes differ from packaged state")
+        self.layers(state, {0, 1, 2})
+        self.verify("C", state, 10, 20, 740, 530, 4)
+        v2_before = digest(self.slot(state, 2))
+        self.run("C", "change-border", state)
+        if digest(self.slot(state, 0)) != v0_frozen:
+            raise CheckFailed("change-border changed v0 position bytes")
+        if digest(self.slot(state, 1)) != v1_frozen:
+            raise CheckFailed("change-border changed v1 size bytes")
+        if digest(self.slot(state, 2)) == v2_before:
+            raise CheckFailed("change-border did not update v2")
+        self.verify("C", state, 10, 20, 740, 530, 6)
+        v1_frozen = digest(self.slot(state, 1))
+        v2_frozen = digest(self.slot(state, 2))
+        self.run("A", "move", state)
+        if digest(self.slot(state, 1)) != v1_frozen:
+            raise CheckFailed("A move changed untouched v1 bytes")
+        if digest(self.slot(state, 2)) != v2_frozen:
+            raise CheckFailed("A move changed untouched v2 bytes")
+        self.verify("A", state, 17, 29)
+        v0_frozen = digest(self.slot(state, 0))
+        v2_frozen = digest(self.slot(state, 2))
+        self.run("B", "resize", state)
+        if digest(self.slot(state, 0)) != v0_frozen:
+            raise CheckFailed("B resize changed v0 position bytes")
+        if digest(self.slot(state, 2)) != v2_frozen:
+            raise CheckFailed("B resize changed untouched v2 bytes")
+        self.verify("B", state, 17, 29, 840, 580)
+        v0_frozen = digest(self.slot(state, 0))
+        v1_frozen = digest(self.slot(state, 1))
+        self.run("C", "change-border", state)
+        if digest(self.slot(state, 0)) != v0_frozen:
+            raise CheckFailed("final change-border changed v0")
+        if digest(self.slot(state, 1)) != v1_frozen:
+            raise CheckFailed("final change-border changed v1")
+        self.verify("C", state, 17, 29, 840, 580, 8)
+        self.verify("A", state, 17, 29)
+        self.verify("B", state, 17, 29, 840, 580)
+        self.layers(state, {0, 1, 2})
+        if digest(self.slot(package_b, 1)) != package_b_hash:
+            raise CheckFailed("immutable packaged v1 source changed")
+        if digest(self.slot(package_c, 2)) != package_c_hash:
+            raise CheckFailed("immutable packaged v2 source changed")
+        return "A/B/C rollback: (17,29), 840x580, border 8; three Window slots"
+
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
             if digest(self.executables[revision]) != expected_hash:
@@ -210,6 +288,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--a", type=Path, required=True)
     parser.add_argument("--b", type=Path, required=True)
+    parser.add_argument("--c", type=Path, required=True)
     parser.add_argument("--work-root", type=Path, default=None)
     parser.add_argument("--timeout", type=float, default=30)
     args = parser.parse_args()
@@ -221,6 +300,7 @@ def main():
     suite.case("new-exe-supplies-v1-state", suite.supplied_layer)
     suite.case("mixed-upgrade-rollback", suite.rollback)
     suite.case("save-root-dual-layer", suite.save_root_dual_layer)
+    suite.case("three-version-rollback", suite.three_version_rollback)
     return suite.finish()
 
 
