@@ -2501,11 +2501,15 @@ void TestLanguageSwitchSessionAtomicPublication() {
 
   auto const publish_before_switch = session.channel.publish_count();
   RunOnModel(session, [&](Application& app) {
-    app.label_add->MaterializeLanguage(1);
-    app.label_close->MaterializeLanguage(1);
-    app.window_title_prefix->MaterializeLanguage(1);
-    app.language_switch_label->MaterializeLanguage(1);
-    app.locale->SubmitLanguageIndexFromUi(1);
+    Surface& surface = *app.surfaces->surfaces[0];
+    auto lang_presenter =
+        ui::UiPushButtonPresenter::ptr{surface.chrome.language_button};
+    CHECK(lang_presenter);
+    CHECK(lang_presenter->button);
+    auto lang_button =
+        example::surfaces::SurfacesDemoLanguageButton::ptr{lang_presenter->button};
+    CHECK(lang_button);
+    lang_button->HandlePushButtonClicked();
     CHECK(app.locale->language_index() == 1);
   });
   WaitPublished(session);
