@@ -11,9 +11,23 @@ if(WIN32 AND NOT EMSCRIPTEN)
   add_library(surfaces_demo_win32 STATIC
     windows/surface_graph_win.cpp
     windows/surfaces_demo_add_button.cpp
+    windows/surfaces_demo_language_button.cpp
     windows/surfaces_demo_surface_window_host.cpp
     windows/surfaces_demo_win32_registration.cpp
   )
+  add_library(surfaces_demo_win32_layout_repro STATIC
+    windows/surfaces_demo_layout_push_button_presenter.cpp
+    windows/surfaces_demo_win32_layout_repro_registration.cpp
+  )
+  target_include_directories(surfaces_demo_win32_layout_repro PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/windows
+    ${CMAKE_CURRENT_SOURCE_DIR}/common
+  )
+  target_link_libraries(surfaces_demo_win32_layout_repro PUBLIC
+    apptraverse_surfaces_windows
+    apptraverse_ui_windows
+  )
+  target_compile_features(surfaces_demo_win32_layout_repro PUBLIC cxx_std_20)
   target_include_directories(surfaces_demo_win32 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/windows
     ${CMAKE_CURRENT_SOURCE_DIR}/common

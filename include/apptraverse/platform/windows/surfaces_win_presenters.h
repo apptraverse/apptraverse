@@ -36,6 +36,10 @@ void EnsureWin32SurfacesPresenterRegistration();
 
 bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
 
+void ComputeSurfaceChromeButtonLayout(SurfaceWindowPresenter const& window,
+                                      std::uint32_t control_id, int* x,
+                                      int* y, int* w, int* h);
+
 class Win32SurfaceWindowPresenter : public SurfaceWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::surfaces::Win32SurfaceWindowPresenter",

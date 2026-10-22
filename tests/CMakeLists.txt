@@ -763,6 +763,47 @@ add_custom_target(apptraverse_surfaces_headless_check
   COMMENT "Surfaces common model headless checks"
 )
 
+add_executable(apptraverse_surfaces_language_isolated_probe_test
+  surfaces_language_isolated_probe_test.cpp
+)
+
+target_compile_definitions(apptraverse_surfaces_language_isolated_probe_test PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+
+target_link_libraries(apptraverse_surfaces_language_isolated_probe_test PRIVATE
+  surfaces_demo_distill
+  apptraverse_surfaces
+  apptraverse_surfaces_windows
+  apptraverse_ui_windows
+)
+
+target_include_directories(apptraverse_surfaces_language_isolated_probe_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows
+)
+
+add_executable(apptraverse_surfaces_factory_layout_leaf_repro_test
+  surfaces_factory_layout_leaf_repro_test.cpp
+)
+
+target_compile_definitions(apptraverse_surfaces_factory_layout_leaf_repro_test PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+
+target_link_libraries(apptraverse_surfaces_factory_layout_leaf_repro_test PRIVATE
+  surfaces_demo_win32
+  surfaces_demo_win32_layout_repro
+  apptraverse_surfaces
+  apptraverse_surfaces_windows
+  apptraverse_ui_windows
+)
+
+target_include_directories(apptraverse_surfaces_factory_layout_leaf_repro_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows
+)
+
 endif() # APPTRAVERSE_BUILD_EXAMPLES
 
 if(WIN32)

@@ -151,6 +151,12 @@ void Surface::AddSurface() {
       InitializeRuntimeNode(*add_presenter->button, *this);
     }
   }
+  if (auto language_presenter =
+          ui::UiPushButtonPresenter::ptr{sibling->chrome.language_button}) {
+    if (language_presenter->button) {
+      InitializeRuntimeNode(*language_presenter->button, *this);
+    }
+  }
   // New Surface is a Node: establish base/journal and inherit this Surface's
   // model-runtime notifier before it becomes live.
   InitializeRuntimeNode(*sibling, *this);

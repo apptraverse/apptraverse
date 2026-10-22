@@ -49,6 +49,8 @@
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 #include "surfaces_demo_add_button.h"
+#include "surfaces_demo_language_button.h"
+#include "apptraverse/platform/windows/surfaces_win_presenters.h"
 #include "surfaces_demo_surface_window_host.h"
 #include "surfaces_demo_win32_registration.h"
 #endif
@@ -2034,7 +2036,10 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
       ae::CreateWith{domain});
   auto close_button = Win32SurfaceButtonPresenter::ptr::Create(
       ae::CreateWith{domain});
-  auto language_button = Win32SurfaceLanguageButtonPresenter::ptr::Create(
+  auto language_button =
+      example::surfaces::SurfacesDemoLanguageButton::ptr::Create(
+          ae::CreateWith{domain});
+  auto language_presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
       ae::CreateWith{domain});
 
   auto surface_ref = Surface::ptr::MakeFromThis(&surface);
@@ -2042,7 +2047,8 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
   add_button->surface = surface_ref;
   add_button->label = application->label_add;
   close_button->surface = surface_ref;
-  language_button->surface = surface_ref;
+  language_button->locale = application->locale;
+  language_button->label = application->language_switch_label;
 
   add_host->surface_window = window;
   add_host->locale = application->locale;
@@ -2056,21 +2062,83 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
   add_presenter->control_id =
       static_cast<std::uint32_t>(kSurfaceAddButtonId);
 
+  language_presenter->button = language_button;
+  language_presenter->window_presenter = add_host;
+  language_presenter->control_id =
+      static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
+  ComputeSurfaceChromeButtonLayout(
+      *window, static_cast<std::uint32_t>(kSurfaceLanguageButtonId),
+      &language_presenter->layout_x, &language_presenter->layout_y,
+      &language_presenter->layout_width, &language_presenter->layout_height);
+
   close_button->window_presenter = window;
-  language_button->window_presenter = window;
   close_button->role = SurfaceButtonRole::Close;
   close_button->control_id =
       static_cast<std::uint32_t>(kSurfaceCloseButtonId);
-  language_button->control_id =
-      static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
 
   surface.chrome.window = window;
   surface.chrome.add_button = add_presenter;
   surface.chrome.close_button = close_button;
-  surface.chrome.language_button = language_button;
+  surface.chrome.language_button = language_presenter;
 
   WireSurfaceChromeLocalization(surface, *application);
   return application;
+}
+
+void TestBootstrapSaveLoadChromePresenterClassIds() {
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+  auto const dir = TestDir("apptraverse_surfaces_bootstrap_chrome_types");
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto application = BuildWin32LibraryAddRoundtripGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surface& surface = *application->surfaces->surfaces[0];
+  CHECK(surface.chrome.add_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(surface.chrome.language_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(surface.chrome.add_button->obj_id !=
+        surface.chrome.language_button->obj_id);
+  SaveDistilledRoot(*application);
+
+  DirectoryDomainStorage load_storage{dir};
+  ae::Domain load_domain{load_storage};
+  auto loaded = LoadApplication<Application>(
+      load_domain,
+      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
+  Surface& loaded_surface = *loaded->surfaces->surfaces[0];
+  CHECK(loaded_surface.chrome.add_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(loaded_surface.chrome.language_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
+}
+
+void TestDynamicLanguageLibraryPushButtonMaterializedNotifier() {
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildWin32LibraryAddRoundtripGraph(domain);
+  FinalizeDistilledGraph(*application);
+
+  PendingDirtyNodes pending;
+  BindReachableNodesMaterializedChangeNotifier(*application, &pending,
+                                               &PendingDirtyNodesNotify);
+
+  Surface& surface1 = *application->surfaces->surfaces[0];
+  surface1.AddSurface();
+  Surface& surface2 = *application->surfaces->surfaces[1];
+  auto lang_presenter =
+      ui::UiPushButtonPresenter::ptr{surface2.chrome.language_button};
+  CHECK(lang_presenter);
+  CHECK(lang_presenter->button);
+  CHECK(lang_presenter->button->HasMaterializedChangeNotifier());
+
+  pending.membership.clear();
+  auto disable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+      ae::CreateWith{domain});
+  disable->enabled = false;
+  lang_presenter->button->Commit(std::move(disable));
+  CHECK(pending.membership.count(lang_presenter->button->obj_id.id()) == 1);
 }
 
 void TestDynamicAddLibraryPushButtonMaterializedNotifier() {
@@ -2147,6 +2215,18 @@ void TestLibraryAddButtonLabelSerializationRoundtrip() {
   CHECK(loaded_demo);
   CHECK(loaded_demo->surface.is_valid());
   CHECK(&*loaded_demo->surface == &loaded_surface);
+  auto loaded_lang =
+      ui::UiPushButtonPresenter::ptr{loaded_surface.chrome.language_button};
+  CHECK(loaded_lang);
+  CHECK(loaded_lang->button->label.is_valid());
+  CHECK(&*loaded_lang->button->label == &*loaded->language_switch_label);
+  CHECK(loaded_lang->button->label->Resolve(0) == "RU");
+  auto loaded_lang_button =
+      example::surfaces::SurfacesDemoLanguageButton::ptr{loaded_lang->button};
+  CHECK(loaded_lang_button);
+  CHECK(loaded_lang_button->locale.is_valid());
+  CHECK(&*loaded_lang_button->locale == &*loaded->locale);
+  CHECK(&*loaded_lang->window_presenter == &*loaded_add->window_presenter);
 }
 #endif
 
@@ -2238,7 +2318,9 @@ int main() {
   apptraverse::test::TestStructuralApplyOnModelChangedOnce();
   apptraverse::test::TestLocaleCommitAndPersistence();
 #if defined(_WIN32)
+  apptraverse::test::TestBootstrapSaveLoadChromePresenterClassIds();
   apptraverse::test::TestDynamicAddLibraryPushButtonMaterializedNotifier();
+  apptraverse::test::TestDynamicLanguageLibraryPushButtonMaterializedNotifier();
   apptraverse::test::TestLibraryAddButtonLabelSerializationRoundtrip();
 #endif
   std::cout << "surfaces_model_test OK\n";

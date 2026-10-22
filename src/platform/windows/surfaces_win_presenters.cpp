@@ -132,6 +132,12 @@ LRESULT CALLBACK SurfaceHostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
 
 }  // namespace
 
+void ComputeSurfaceChromeButtonLayout(SurfaceWindowPresenter const& window,
+                                      std::uint32_t control_id, int* x,
+                                      int* y, int* w, int* h) {
+  SurfaceButtonLayout(window, control_id, x, y, w, h);
+}
+
 bool DispatchChildCommand(WPARAM wparam, LPARAM lparam) {
   HWND const child = reinterpret_cast<HWND>(lparam);
   if (child == nullptr) {

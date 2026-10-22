@@ -73,6 +73,11 @@ void AppendSurfaceLiveGraphEdges(ae::Obj& object, ae::Obj& walk_root,
   push(surface->chrome.close_button);
 
   push(surface->chrome.language_button);
+  if (auto library_language =
+          ui::UiPushButtonPresenter::ptr{surface->chrome.language_button}) {
+    push(library_language->button);
+    push(library_language->window_presenter);
+  }
 
 }
 

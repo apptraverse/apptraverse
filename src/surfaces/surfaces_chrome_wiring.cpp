@@ -47,10 +47,26 @@ void WireSurfaceChromeLocalization(Surface& surface,
     close->locale = application.locale;
     close->label = application.label_close;
   }
-  if (auto language = SurfaceLanguageButtonPresenter::ptr{
-          surface.chrome.language_button}) {
-    language->locale = application.locale;
-    language->language_switch_label = application.language_switch_label;
+  if (surface.chrome.language_button.is_valid()) {
+    std::uint32_t const language_class =
+        surface.chrome.language_button->GetClassId();
+    if (IsClassOrDerived(SurfaceLanguageButtonPresenter::kClassId,
+                         language_class)) {
+      auto language = SurfaceLanguageButtonPresenter::ptr{
+          surface.chrome.language_button};
+      language->locale = application.locale;
+      language->language_switch_label = application.language_switch_label;
+    } else if (IsClassOrDerived(ui::UiPushButtonPresenter::kClassId,
+                                language_class)) {
+      auto library_language = ui::UiPushButtonPresenter::ptr{
+          surface.chrome.language_button};
+      if (library_language->button) {
+        library_language->button->label = application.language_switch_label;
+      }
+      if (library_language->window_presenter) {
+        library_language->window_presenter->locale = application.locale;
+      }
+    }
   }
 }
 
