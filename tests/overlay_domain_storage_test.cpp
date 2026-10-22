@@ -78,11 +78,58 @@ void TestOverlayPrefersOverlayAndFallsBackToBacking() {
         (std::vector<std::uint8_t>{10, 11}));
 }
 
+void TestSameClassVersionPrecedence() {
+  ae::RamDomainStorage backing;
+  OverlayDomainStorage overlay{backing};
+
+  ae::ObjId const id{42};
+  ae::DomainQuery const v0{id, 9, 0};
+  ae::DomainQuery const v1{id, 9, 1};
+  ae::DomainQuery const v2{id, 9, 2};
+
+  WriteBytes(backing, v0, {10, 20});
+  WriteBytes(backing, v1, {64, 48});
+  CHECK(overlay.overlay().state.empty());
+  CHECK(ReadAll(overlay.Load(v0)) == (std::vector<std::uint8_t>{10, 20}));
+  CHECK(ReadAll(overlay.Load(v1)) == (std::vector<std::uint8_t>{64, 48}));
+  CHECK(overlay.overlay().state.empty());
+
+  WriteBytes(overlay, v0, {17, 29});
+  CHECK(ReadAll(overlay.Load(v0)) == (std::vector<std::uint8_t>{17, 29}));
+  CHECK(ReadAll(overlay.Load(v1)) == (std::vector<std::uint8_t>{64, 48}));
+  CHECK(ReadAll(backing.Load(v0)) == (std::vector<std::uint8_t>{10, 20}));
+
+  WriteBytes(overlay, v1, {74, 53});
+  WriteBytes(backing, v0, {100, 200});
+  WriteBytes(backing, v1, {80, 60});
+  WriteBytes(backing, v2, {4});
+  CHECK(ReadAll(overlay.Load(v0)) == (std::vector<std::uint8_t>{17, 29}));
+  CHECK(ReadAll(overlay.Load(v1)) == (std::vector<std::uint8_t>{74, 53}));
+  CHECK(ReadAll(overlay.Load(v2)) == (std::vector<std::uint8_t>{4}));
+  {
+    auto const obj_it = overlay.overlay().state.find(id);
+    if (obj_it != overlay.overlay().state.end() && obj_it->second.has_value()) {
+      auto const class_it = obj_it->second->find(9);
+      if (class_it != obj_it->second->end()) {
+        CHECK(class_it->second.find(2) == class_it->second.end());
+      }
+    }
+  }
+
+  ae::RamDomainStorage::ObjClassData const backing_before = backing.state;
+  WriteBytes(overlay, v0, {30, 46});
+  CHECK(backing.state == backing_before);
+  CHECK(ReadAll(overlay.Load(v0)) == (std::vector<std::uint8_t>{30, 46}));
+  CHECK(ReadAll(overlay.Load(v1)) == (std::vector<std::uint8_t>{74, 53}));
+  CHECK(ReadAll(overlay.Load(v2)) == (std::vector<std::uint8_t>{4}));
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::test::TestOverlayPrefersOverlayAndFallsBackToBacking();
+  apptraverse::test::TestSameClassVersionPrecedence();
   std::cout << "overlay_domain_storage_test OK\n";
   return 0;
 }
