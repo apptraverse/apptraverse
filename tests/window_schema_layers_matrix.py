@@ -544,7 +544,54 @@ class WindowMatrix:
             raise CheckFailed("package B v1 bytes changed")
         if digest(self.slot(package_c, 2)) != package_c_v2_hash:
             raise CheckFailed("package C v2 bytes changed")
-        return "SaveRoot must not materialize user v1 when only v2 changes"
+        v1_supply = case_dir / "supply v1 resize scratch"
+        self.run("A", "create", v1_supply)
+        shutil.copyfile(self.slot(package_b, 1), self.slot(v1_supply, 1))
+        self.run("B", "resize", v1_supply)
+        self.verify("B", v1_supply, 10, 20, 740, 530)
+        supply_v1_hash = digest(self.slot(v1_supply, 1))
+        if supply_v1_hash == EXPECTED_WINDOW_LAYER_SHA256[1]:
+            raise CheckFailed("supply v1 SHA256 unchanged from golden v1")
+        if supply_v1_hash == digest(backing_v1):
+            raise CheckFailed("supply v1 matches old backing v1")
+        backing_v2_dir = case_dir / "combined backing v1 v2 refresh"
+        shutil.copytree(backing, backing_v2_dir)
+        shutil.copyfile(self.slot(v1_supply, 1), self.slot(backing_v2_dir, 1))
+        if digest(self.slot(backing_v2_dir, 1)) == digest(backing_v1):
+            raise CheckFailed("BACKING_V2 v1 unchanged from original backing v1")
+        if digest(self.slot(backing_v2_dir, 2)) != backing_v2_hash:
+            raise CheckFailed("BACKING_V2 v2 differs from original backing v2")
+        backing_v2_layers = {
+            p.name for p in self.slot(backing_v2_dir, 1).parent.iterdir() if p.is_file()}
+        if backing_v2_layers != {"1", "2"}:
+            raise CheckFailed(f"BACKING_V2 version slots: expected {{1, 2}}, got {backing_v2_layers}")
+        backing_v2_manifest = manifest(backing_v2_dir)
+        user_before_supply_inspect = manifest(user)
+        self.verify("C", user, 10, 20, 740, 530, 6, backing_dir=backing_v2_dir)
+        unchanged(user_before_supply_inspect, manifest(user), "user after supply inspect")
+        unchanged(backing_v2_manifest, manifest(backing_v2_dir), "BACKING_V2 after supply inspect")
+        if self.slot(user, 1).exists():
+            raise CheckFailed("user v1 appeared after updated backing inspect")
+        user_v2_before_supply_border = digest(self.slot(user, 2))
+        self.run("C", "change-border", user, backing_dir=backing_v2_dir)
+        self.verify("C", user, 10, 20, 740, 530, 8, backing_dir=backing_v2_dir)
+        if digest(self.slot(user, 0)) != v0_frozen:
+            raise CheckFailed("supply change-border changed user v0")
+        if self.slot(user, 1).exists():
+            raise CheckFailed("user v1 materialized after supply change-border")
+        if digest(self.slot(user, 2)) == user_v2_before_supply_border:
+            raise CheckFailed("supply change-border did not update user v2")
+        unchanged(backing_v2_manifest, manifest(backing_v2_dir), "BACKING_V2 after supply change-border")
+        self.verify("C", user, 10, 20, 740, 530, 8, backing_dir=backing_v2_dir)
+        self.layers(user, {0, 2})
+        unchanged(package_b_manifest, manifest(package_b), "package B source after supply")
+        unchanged(package_c_manifest, manifest(package_c), "package C source after supply")
+        unchanged(backing_manifest, manifest(backing), "original combined backing after supply")
+        if digest(self.slot(package_b, 1)) != package_b_v1_hash:
+            raise CheckFailed("package B v1 bytes changed after supply")
+        if digest(self.slot(package_c, 2)) != package_c_v2_hash:
+            raise CheckFailed("package C v2 bytes changed after supply")
+        return ("untouched v1 overlay: user v2 only; refreshed backing v1 740x530 visible to C")
 
     def finish(self):
         for revision, expected_hash in self.exe_hashes.items():
