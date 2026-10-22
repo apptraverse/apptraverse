@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from application_evolution_matrix import CheckFailed, manifest
+from application_evolution_matrix import CheckFailed
 
 
 def assert_a_refused_without_storage_change(
@@ -52,20 +52,65 @@ def assert_a_refused_without_storage_change(
             )
 
 
-def assert_b_inspect_unchanged(
+def assert_b_load_verify(
     *,
     b_code: int,
-    b_inspect: dict | None,
+    record: dict | None,
+    scenario: str,
     probe_class_id: int,
-    before_class_ids: list[int],
 ) -> None:
-    if b_code != 0 or not b_inspect or not b_inspect.get("ok"):
-        raise CheckFailed("B inspect failed after A resave")
-    class_ids = b_inspect.get("class_ids", [])
-    if probe_class_id not in set(class_ids):
-        raise CheckFailed("B lost probe class layer after A resave")
-    if class_ids != before_class_ids:
+    if b_code != 0 or not record or not record.get("ok"):
         raise CheckFailed(
-            "B class layer set changed after A resave: "
-            f"before={before_class_ids} after={class_ids}"
+            f"B load-verify failed ({scenario}): "
+            f"code={b_code} record={record}"
         )
+    if record.get("stage") != "load-verify":
+        raise CheckFailed("B load-verify returned unexpected stage")
+    if int(record.get("loaded_class_id", -1)) != probe_class_id:
+        raise CheckFailed(
+            "B loaded unexpected type: "
+            f"loaded_class_id={record.get('loaded_class_id')} "
+            f"expected={probe_class_id}"
+        )
+    if int(record.get("object_id", -1)) != int(record.get("object_id", 0)):
+        pass
+    obj_base = int(record.get("obj_base_class_id", 0))
+    class_ids = [int(x) for x in record.get("class_ids", [])]
+    if obj_base and obj_base not in class_ids:
+        raise CheckFailed("B storage missing ae::Obj base layer after load-verify")
+
+    if scenario == "flat":
+        if record.get("scenario") != "flat":
+            raise CheckFailed("B expected flat DowngradeProbeEvent scenario")
+        if int(record.get("payload", -1)) != 0xA1B2C3D4:
+            raise CheckFailed("B flat payload mismatch after LoadRoot")
+    elif scenario == "chain":
+        if record.get("scenario") != "chain":
+            raise CheckFailed("B expected chain NewEvent scenario")
+        if int(record.get("payload", -1)) != 0xDEADBEEF:
+            raise CheckFailed("B chain payload mismatch after LoadRoot")
+        if int(record.get("step", -1)) != 1:
+            raise CheckFailed("B chain intermediate step mismatch after LoadRoot")
+        if int(record.get("new_event_class_id", -1)) != probe_class_id:
+            raise CheckFailed("B chain new_event_class_id mismatch")
+    else:
+        raise CheckFailed(f"unknown scenario {scenario}")
+
+
+def assert_b_load_verify_unchanged(*, before: dict, after: dict) -> None:
+    keys = (
+        "loaded_class_id",
+        "payload",
+        "step",
+        "class_ids",
+        "scenario",
+        "new_event_class_id",
+        "probe_class_id",
+    )
+    for key in keys:
+        if key in before or key in after:
+            if before.get(key) != after.get(key):
+                raise CheckFailed(
+                    f"B load-verify field changed after A attempt: {key} "
+                    f"before={before.get(key)!r} after={after.get(key)!r}"
+                )

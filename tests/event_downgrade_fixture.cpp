@@ -242,10 +242,10 @@ int Run(int argc, char** argv) {
   }
   if (state_dir.empty() ||
       (operation != "write-unknown" && operation != "write-chain" &&
-       operation != "resave" && operation != "inspect")) {
+       operation != "resave" && operation != "load-verify")) {
     throw std::runtime_error(
         "usage: --state-dir PATH --op "
-        "write-unknown|write-chain|resave|inspect");
+        "write-unknown|write-chain|resave|load-verify");
   }
 
   EnsureRegistration();
@@ -309,26 +309,60 @@ int Run(int argc, char** argv) {
     return 0;
   }
 
-  auto const layers = storage.Enumerate(ae::ObjId{kEventObjId});
-  std::cout << "{\"ok\":true,\"object_id\":" << kEventObjId
-            << ",\"class_ids\":[";
-  for (std::size_t i = 0; i < layers.size(); ++i) {
-    if (i != 0) {
-      std::cout << ',';
+  if (operation == "load-verify") {
+    auto const layers = storage.Enumerate(ae::ObjId{kEventObjId});
+    ae::Ptr<ae::Obj> loaded;
+    auto const load = graph.LoadRoot(ae::ObjId{kEventObjId}, loaded);
+    if (!load.IsOk() || !loaded) {
+      std::cout << "{\"ok\":false,\"stage\":\"load-verify\",\"error\":"
+                   "\"LoadRoot\",\"object_id\":"
+                << kEventObjId << ",\"class_ids\":[";
+      for (std::size_t i = 0; i < layers.size(); ++i) {
+        if (i != 0) {
+          std::cout << ',';
+        }
+        std::cout << layers[i];
+      }
+      std::cout << "]}\n";
+      return 2;
     }
-    std::cout << layers[i];
-  }
-  std::cout << ']';
+
+    std::cout << "{\"ok\":true,\"stage\":\"load-verify\",\"object_id\":"
+              << kEventObjId << ",\"loaded_class_id\":"
+              << loaded->GetClassId() << ",\"obj_base_class_id\":"
+              << ae::Obj::kClassId << ",\"class_ids\":[";
+    for (std::size_t i = 0; i < layers.size(); ++i) {
+      if (i != 0) {
+        std::cout << ',';
+      }
+      std::cout << layers[i];
+    }
+    std::cout << ']';
+
 #if APPTRAVERSE_EVENT_EXE_REVISION == 1
-  std::cout << ",\"probe_class_id\":" << DowngradeProbeEvent::kClassId
-            << ",\"new_event_class_id\":" << NewEvent::kClassId;
+    if (loaded->GetClassId() == NewEvent::kClassId) {
+      auto const* event = static_cast<NewEvent*>(&*loaded);
+      std::cout << ",\"scenario\":\"chain\",\"new_event_class_id\":"
+                << NewEvent::kClassId
+                << ",\"intermediate_class_id\":" << IntermediateEvent::kClassId
+                << ",\"step\":" << event->step << ",\"payload\":"
+                << event->payload;
+    } else if (loaded->GetClassId() == DowngradeProbeEvent::kClassId) {
+      auto const* event = static_cast<DowngradeProbeEvent*>(&*loaded);
+      std::cout << ",\"scenario\":\"flat\",\"probe_class_id\":"
+                << DowngradeProbeEvent::kClassId << ",\"payload\":"
+                << event->payload;
+    } else {
+      std::cout << ",\"scenario\":\"unexpected\"";
+    }
+#else
+    std::cout << ",\"scenario\":\"foreign-to-a\"";
 #endif
-#if APPTRAVERSE_EVENT_EXE_REVISION == 0 || APPTRAVERSE_EVENT_EXE_REVISION == 2
-  std::cout << ",\"other_event_class_id\":" << OtherEvent::kClassId
-            << ",\"other_event_alt_class_id\":" << OtherEventAlt::kClassId;
-#endif
-  std::cout << "}\n";
-  return 0;
+    std::cout << "}\n";
+    return 0;
+  }
+
+  throw std::runtime_error("unhandled operation");
 }
 
 }  // namespace apptraverse::test::event_downgrade

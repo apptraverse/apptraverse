@@ -10,7 +10,8 @@ from pathlib import Path
 from application_evolution_matrix import CheckFailed, manifest
 from event_downgrade_storage_checks import (
     assert_a_refused_without_storage_change,
-    assert_b_inspect_unchanged,
+    assert_b_load_verify,
+    assert_b_load_verify_unchanged,
 )
 
 
@@ -47,18 +48,21 @@ def main():
     code, b_write, _ = run(args.b, state, "write-unknown")
     if code != 0 or not b_write or not b_write.get("ok"):
         raise CheckFailed("B write-unknown failed")
-    probe_class_id = b_write["probe_class_id"]
+    probe_class_id = int(b_write["probe_class_id"])
     obj_key_prefix = f"{b_write['object_id']}/"
+    probe_layer = f"{obj_key_prefix}{probe_class_id}/0"
 
     before = manifest(state)
-    probe_layer = f"{obj_key_prefix}{probe_class_id}/0"
     if probe_layer not in before:
         raise CheckFailed("B did not persist probe event layer")
 
-    code, b_before_inspect, _ = run(args.b, state, "inspect")
-    if code != 0 or not b_before_inspect or not b_before_inspect.get("ok"):
-        raise CheckFailed("B inspect after write failed")
-    before_class_ids = list(b_before_inspect.get("class_ids", []))
+    code, b_before, _ = run(args.b, state, "load-verify")
+    assert_b_load_verify(
+        b_code=code,
+        record=b_before,
+        scenario="flat",
+        probe_class_id=probe_class_id,
+    )
 
     code, a_load, _ = run(args.a, state, "resave")
     after = manifest(state)
@@ -78,13 +82,14 @@ def main():
         forbidden_class_ids=forbidden,
     )
 
-    code, b_inspect, _ = run(args.b, state, "inspect")
-    assert_b_inspect_unchanged(
+    code, b_after, _ = run(args.b, state, "load-verify")
+    assert_b_load_verify(
         b_code=code,
-        b_inspect=b_inspect,
+        record=b_after,
+        scenario="flat",
         probe_class_id=probe_class_id,
-        before_class_ids=before_class_ids,
     )
+    assert_b_load_verify_unchanged(before=b_before, after=b_after)
 
     print(json.dumps({"result": "PASS", "probe_class_id": probe_class_id}, indent=2))
     return 0

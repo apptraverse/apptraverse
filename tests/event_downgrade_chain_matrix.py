@@ -10,7 +10,8 @@ from pathlib import Path
 from application_evolution_matrix import CheckFailed, manifest
 from event_downgrade_storage_checks import (
     assert_a_refused_without_storage_change,
-    assert_b_inspect_unchanged,
+    assert_b_load_verify,
+    assert_b_load_verify_unchanged,
 )
 
 
@@ -50,10 +51,13 @@ def run_scenario(name, a_exe, b_exe, work_root):
     if probe_layer not in before:
         raise CheckFailed(f"{name}: B did not persist NewEvent layer")
 
-    code, b_before_inspect, _ = run(b_exe, state, "inspect")
-    if code != 0 or not b_before_inspect or not b_before_inspect.get("ok"):
-        raise CheckFailed(f"{name}: B inspect after write failed")
-    before_class_ids = list(b_before_inspect.get("class_ids", []))
+    code, b_before, _ = run(b_exe, state, "load-verify")
+    assert_b_load_verify(
+        b_code=code,
+        record=b_before,
+        scenario="chain",
+        probe_class_id=probe_class_id,
+    )
 
     code, a_load, _ = run(a_exe, state, "resave")
     after = manifest(state)
@@ -74,13 +78,14 @@ def run_scenario(name, a_exe, b_exe, work_root):
         forbidden_class_ids=forbidden,
     )
 
-    code, b_inspect, _ = run(b_exe, state, "inspect")
-    assert_b_inspect_unchanged(
+    code, b_after, _ = run(b_exe, state, "load-verify")
+    assert_b_load_verify(
         b_code=code,
-        b_inspect=b_inspect,
+        record=b_after,
+        scenario="chain",
         probe_class_id=probe_class_id,
-        before_class_ids=before_class_ids,
     )
+    assert_b_load_verify_unchanged(before=b_before, after=b_after)
 
     return {"scenario": name, "probe_class_id": probe_class_id}
 
