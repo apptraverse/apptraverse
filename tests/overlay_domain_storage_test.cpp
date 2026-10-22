@@ -4,11 +4,53 @@
 #include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/idomain_storage.h"
+#include "aether-objects/obj/obj.h"
 
+#include "apptraverse/object_macros.h"
 #include "apptraverse/overlay_domain_storage.h"
 
 namespace apptraverse::test {
+
+class OverlayVersionedWindow : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::OverlayVersionedWindow",
+                           OverlayVersionedWindow, ae::Obj, 1)
+
+ protected:
+  OverlayVersionedWindow() = default;
+
+ public:
+  explicit OverlayVersionedWindow(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(posx))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, width);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, width);
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, posx);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, posx);
+  }
+
+  std::uint32_t width;
+  std::int32_t posx;
+};
+
+APPTRAVERSE_REGISTER(OverlayVersionedWindow);
+
 namespace {
 
 #define CHECK(cond)                                                          \
@@ -124,12 +166,126 @@ void TestSameClassVersionPrecedence() {
   CHECK(ReadAll(overlay.Load(v2)) == (std::vector<std::uint8_t>{4}));
 }
 
+void TestNativeVersionedObjectUsesMixedSources() {
+  ae::RamDomainStorage backing;
+  OverlayDomainStorage overlay{backing};
+  ae::ObjId const object_id{42};
+
+  {
+    ae::Domain domain{backing};
+    auto created = OverlayVersionedWindow::ptr::Create(
+        ae::CreateWith{domain}.with_id(object_id));
+    ae::Ptr<OverlayVersionedWindow> window = created.Load();
+    window->width = 800;
+    window->posx = 100;
+    ae::DomainGraph graph{&domain};
+    CHECK(graph.SaveRoot(window, object_id).IsOk());
+  }
+
+  ae::RamDomainStorage::ObjClassData const backing_after_bundle = backing.state;
+
+  {
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(object_id, loaded).IsOk());
+    CHECK(loaded);
+    CHECK(loaded->GetClassId() == OverlayVersionedWindow::kClassId);
+    ae::Ptr<OverlayVersionedWindow> window{loaded};
+    CHECK(window->obj_id == object_id);
+    CHECK(window->width == 800);
+    CHECK(window->posx == 100);
+    CHECK(overlay.overlay().state.empty());
+
+    window->width = 900;
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveVersion(ae::Version<0>{}, *window, object_id).IsOk());
+  }
+
+  CHECK(backing.state == backing_after_bundle);
+  {
+    ae::RamDomainStorage::ObjClassData const& overlay_ram = overlay.overlay().state;
+    CHECK(overlay_ram.count(object_id) == 1);
+    CHECK(overlay_ram.at(object_id).has_value());
+    ae::RamDomainStorage::VersionData const& versions =
+        overlay_ram.at(object_id)->at(OverlayVersionedWindow::kClassId);
+    CHECK(versions.count(0) == 1);
+    CHECK(versions.count(1) == 0);
+  }
+
+  {
+    ae::Domain domain{backing};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(object_id, loaded).IsOk());
+    CHECK(loaded);
+    ae::Ptr<OverlayVersionedWindow> window{loaded};
+    window->width = 700;
+    window->posx = 200;
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(window, object_id).IsOk());
+  }
+
+  ae::RamDomainStorage::ObjClassData const backing_before_user_save = backing.state;
+  ae::RamDomainStorage::ObjClassData const overlay_before_mixed_load =
+      overlay.overlay().state;
+
+  {
+    ae::Domain domain{overlay};
+    CHECK(overlay.overlay().state == overlay_before_mixed_load);
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(object_id, loaded).IsOk());
+    CHECK(overlay.overlay().state == overlay_before_mixed_load);
+    CHECK(loaded);
+    CHECK(loaded->GetClassId() == OverlayVersionedWindow::kClassId);
+    ae::Ptr<OverlayVersionedWindow> window{loaded};
+    CHECK(window->width == 900);
+    CHECK(window->posx == 200);
+
+    window->posx = 300;
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(window, object_id).IsOk());
+  }
+
+  CHECK(backing.state == backing_before_user_save);
+  {
+    ae::RamDomainStorage::ObjClassData const& overlay_ram = overlay.overlay().state;
+    CHECK(overlay_ram.count(object_id) == 1);
+    CHECK(overlay_ram.at(object_id).has_value());
+    ae::RamDomainStorage::VersionData const& versions =
+        overlay_ram.at(object_id)->at(OverlayVersionedWindow::kClassId);
+    CHECK(versions.count(0) == 1);
+    CHECK(versions.count(1) == 1);
+  }
+
+  ae::RamDomainStorage::ObjClassData const overlay_after_user_save =
+      overlay.overlay().state;
+
+  {
+    ae::Domain domain{overlay};
+    CHECK(overlay.overlay().state == overlay_after_user_save);
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(object_id, loaded).IsOk());
+    CHECK(overlay.overlay().state == overlay_after_user_save);
+    CHECK(loaded);
+    CHECK(loaded->GetClassId() == OverlayVersionedWindow::kClassId);
+    ae::Ptr<OverlayVersionedWindow> window{loaded};
+    CHECK(window->obj_id == object_id);
+    CHECK(window->width == 900);
+    CHECK(window->posx == 300);
+  }
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestOverlayPrefersOverlayAndFallsBackToBacking();
   apptraverse::test::TestSameClassVersionPrecedence();
+  apptraverse::test::TestNativeVersionedObjectUsesMixedSources();
   std::cout << "overlay_domain_storage_test OK\n";
   return 0;
 }
