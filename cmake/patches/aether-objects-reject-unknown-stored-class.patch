@@ -1,17 +1,40 @@
-diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
-index 3035e43..a4c1e2b 100644
+﻿diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 3035e43..d6e9479 100644
 --- a/src/aether-objects/obj/domain.cpp
 +++ b/src/aether-objects/obj/domain.cpp
-@@ -191,6 +191,12 @@ Factory* Domain::GetMostRelatedFactory(ObjId id) {
+@@ -191,6 +191,30 @@ Factory* Domain::GetMostRelatedFactory(ObjId id) {
    AE_LOG_MACRO("For obj {} enumerated classes [{}]", id.id(), classes);
  #endif
  
-+  for (auto const class_id : classes) {
-+    if (!IsExisting(class_id)) {
-+      return nullptr;
++  bool const had_unknown_stored_class = [&] {
++    for (auto const class_id : classes) {
++      if (!IsExisting(class_id)) {
++        return true;
++      }
 +    }
-+  }
++    return false;
++  }();
 +
    classes = KnownStoredClasses(id);
    if (classes.empty()) {
      return nullptr;
+   }
++
++  if (had_unknown_stored_class) {
++    std::size_t typed_known_classes = 0;
++    for (auto const class_id : classes) {
++      if (IsLast(class_id)) {
++        ++typed_known_classes;
++        continue;
++      }
++      if (registry_->relations.find(class_id) != registry_->relations.end()) {
++        ++typed_known_classes;
++      }
++    }
++    if (typed_known_classes <= 1 && !IsLast(classes.back())) {
++      return nullptr;
++    }
++  }
+ 
+   // Find the Final class for the most derived class provided and create it.
+   for (auto& f : registry_->factories) {

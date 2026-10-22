@@ -158,11 +158,11 @@ int Run(int argc, char** argv) {
     }
     std::cout << layers[i];
   }
-  std::cout << "]}";
+  std::cout << ']';
 #if APPTRAVERSE_EVENT_EXE_REVISION == 1
   std::cout << ",\"probe_class_id\":" << DowngradeProbeEvent::kClassId;
 #endif
-  std::cout << "\n";
+  std::cout << "}\n";
   return 0;
 }
 
