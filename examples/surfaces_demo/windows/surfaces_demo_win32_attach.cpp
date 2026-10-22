@@ -64,15 +64,19 @@ void AttachSurfacesDemoWin32SurfacePresenters(Surface& surface,
   language_presenter->window_presenter = chrome_host;
   language_presenter->control_id =
       static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
+  ComputeSurfaceChromeButtonLayout(
+      *window, static_cast<std::uint32_t>(kSurfaceLanguageButtonId),
+      &language_presenter->layout_x, &language_presenter->layout_y,
+      &language_presenter->layout_width, &language_presenter->layout_height);
 
   close_presenter->button = close_button;
   close_presenter->window_presenter = chrome_host;
   close_presenter->control_id =
       static_cast<std::uint32_t>(kSurfaceCloseButtonId);
-  close_presenter->layout_x = kSurfaceAddButtonLayoutX;
-  close_presenter->layout_y = kSurfaceAddButtonLayoutY;
-  close_presenter->layout_width = kSurfaceAddButtonLayoutWidth;
-  close_presenter->layout_height = kSurfaceAddButtonLayoutHeight;
+  ComputeSurfaceChromeButtonLayout(
+      *window, static_cast<std::uint32_t>(kSurfaceCloseButtonId),
+      &close_presenter->layout_x, &close_presenter->layout_y,
+      &close_presenter->layout_width, &close_presenter->layout_height);
 
   surface.chrome.window = window;
   surface.chrome.add_button = add_presenter;

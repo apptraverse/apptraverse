@@ -2112,15 +2112,19 @@ Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
   language_presenter->window_presenter = add_host;
   language_presenter->control_id =
       static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
+  ComputeSurfaceChromeButtonLayout(
+      *window, static_cast<std::uint32_t>(kSurfaceLanguageButtonId),
+      &language_presenter->layout_x, &language_presenter->layout_y,
+      &language_presenter->layout_width, &language_presenter->layout_height);
 
   close_presenter->button = close_button;
   close_presenter->window_presenter = add_host;
   close_presenter->control_id =
       static_cast<std::uint32_t>(kSurfaceCloseButtonId);
-  close_presenter->layout_x = kSurfaceAddButtonLayoutX;
-  close_presenter->layout_y = kSurfaceAddButtonLayoutY;
-  close_presenter->layout_width = kSurfaceAddButtonLayoutWidth;
-  close_presenter->layout_height = kSurfaceAddButtonLayoutHeight;
+  ComputeSurfaceChromeButtonLayout(
+      *window, static_cast<std::uint32_t>(kSurfaceCloseButtonId),
+      &close_presenter->layout_x, &close_presenter->layout_y,
+      &close_presenter->layout_width, &close_presenter->layout_height);
 
   surface.chrome.window = window;
   surface.chrome.add_button = add_presenter;
@@ -2151,6 +2155,36 @@ void TestBootstrapSaveLoadChromePresenterClassIds() {
         surface.chrome.close_button->obj_id);
   CHECK(surface.chrome.language_button->obj_id !=
         surface.chrome.close_button->obj_id);
+  auto const& window_presenter =
+      static_cast<SurfaceWindowPresenter const&>(*surface.chrome.window);
+  auto const language_id =
+      static_cast<std::uint32_t>(kSurfaceLanguageButtonId);
+  auto const close_id = static_cast<std::uint32_t>(kSurfaceCloseButtonId);
+  auto check_language_close_layout =
+      [&](Surface const& s, SurfaceWindowPresenter const& window) {
+        auto lang = ui::UiPushButtonPresenter::ptr{s.chrome.language_button};
+        auto close = ui::UiPushButtonPresenter::ptr{s.chrome.close_button};
+        int lx = 0;
+        int ly = 0;
+        int lw = 0;
+        int lh = 0;
+        int cx = 0;
+        int cy = 0;
+        int cw = 0;
+        int ch = 0;
+        ComputeSurfaceChromeButtonLayout(window, language_id, &lx, &ly, &lw,
+                                         &lh);
+        ComputeSurfaceChromeButtonLayout(window, close_id, &cx, &cy, &cw, &ch);
+        CHECK(lang->layout_x == lx);
+        CHECK(lang->layout_y == ly);
+        CHECK(lang->layout_width == lw);
+        CHECK(lang->layout_height == lh);
+        CHECK(close->layout_x == cx);
+        CHECK(close->layout_y == cy);
+        CHECK(close->layout_width == cw);
+        CHECK(close->layout_height == ch);
+      };
+  check_language_close_layout(surface, window_presenter);
   SaveDistilledRoot(*application);
 
   DirectoryDomainStorage load_storage{dir};
@@ -2165,6 +2199,9 @@ void TestBootstrapSaveLoadChromePresenterClassIds() {
         ui::windows::WinPushButtonPresenter::kClassId);
   CHECK(loaded_surface.chrome.close_button->GetClassId() ==
         ui::windows::WinPushButtonPresenter::kClassId);
+  auto const& loaded_window_presenter = static_cast<SurfaceWindowPresenter const&>(
+      *loaded_surface.chrome.window);
+  check_language_close_layout(loaded_surface, loaded_window_presenter);
 }
 
 void TestLibraryCloseButtonRemoveSemantics() {
