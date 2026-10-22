@@ -124,6 +124,34 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     LABELS "serialization;evolution;rollback"
   )
 
+  add_executable(apptraverse_event_version_a event_version_fixture.cpp)
+  add_executable(apptraverse_event_version_b event_version_fixture.cpp)
+  target_link_libraries(apptraverse_event_version_a PRIVATE apptraverse)
+  target_link_libraries(apptraverse_event_version_b PRIVATE apptraverse)
+  target_compile_definitions(apptraverse_event_version_a PRIVATE
+    APPTRAVERSE_EVENT_VERSION_EXE_REVISION=0)
+  target_compile_definitions(apptraverse_event_version_b PRIVATE
+    APPTRAVERSE_EVENT_VERSION_EXE_REVISION=1)
+  add_custom_target(apptraverse_event_version_fixtures DEPENDS
+    apptraverse_event_version_a
+    apptraverse_event_version_b)
+  add_dependencies(apptraverse_application_evolution_fixtures
+    apptraverse_event_version_fixtures)
+
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/event version states")
+  add_test(
+    NAME apptraverse_event_version_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/event_version_matrix.py"
+      --a "$<TARGET_FILE:apptraverse_event_version_a>"
+      --b "$<TARGET_FILE:apptraverse_event_version_b>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/event version states"
+  )
+  set_tests_properties(apptraverse_event_version_matrix PROPERTIES
+    TIMEOUT 90
+    LABELS "serialization;evolution;journal"
+  )
+
   if(APPTRAVERSE_BUILD_EXAMPLES AND WIN32)
     add_dependencies(apptraverse_application_evolution_fixtures
       win32_surfaces_demo win32_surfaces_demo_v1)
