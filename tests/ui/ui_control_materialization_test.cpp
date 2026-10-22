@@ -270,14 +270,15 @@ void TestLocalizationLazyInitialPublication() {
 
   CHECK(ui_root->strings[0].id() == en_string_id);
   CHECK(ui_root->strings[1].id() == ru_string_id);
-  CHECK(ui_root->strings[0].is_loaded());
-  CHECK(!ui_root->strings[1].is_loaded());
-  CHECK(!ui_domain.Find(ru_string_id));
 
   ae::ClassList const en_layers = ui_storage.Enumerate(en_string_id);
   ae::ClassList const ru_layers = ui_storage.Enumerate(ru_string_id);
   CHECK(!en_layers.empty());
   CHECK(ru_layers.empty());
+
+  CHECK(ui_root->strings[0].is_loaded());
+  CHECK(!ui_root->strings[1].is_loaded());
+  CHECK(!ui_domain.Find(ru_string_id));
 
   CHECK(ui_root->Resolve(0) == kEnText);
 }
