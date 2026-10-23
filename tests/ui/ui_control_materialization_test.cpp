@@ -346,6 +346,111 @@ void TestLocalizationLazyInitialPublication() {
   CHECK(!ru_layers_after.empty());
 }
 
+void TestWindowLazyStateRoundtrip() {
+  ae::RamDomainStorage storage;
+  ae::ObjId window_a_id;
+  ae::ObjId window_b_id;
+  ae::ObjId window_a_base_id;
+  ae::ObjId window_a_event0_id;
+
+  {
+    ae::Domain domain{storage};
+    auto window_a = UiWindow::ptr::Create(
+        ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
+    InitializeRuntimeNode(*window_a);
+    auto window_b = UiWindow::ptr::Create(
+        ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
+    InitializeRuntimeNode(*window_b);
+
+    auto set_a = SetUiWindowClientSizeEvent::ptr::Create(
+        ae::CreateWith{domain});
+    set_a->width = 640;
+    set_a->height = 480;
+    window_a->Commit(std::move(set_a));
+
+    auto set_b = SetUiWindowClientSizeEvent::ptr::Create(
+        ae::CreateWith{domain});
+    set_b->width = 900;
+    set_b->height = 700;
+    window_b->Commit(std::move(set_b));
+
+    window_a_id = window_a->obj_id;
+    window_b_id = window_b->obj_id;
+    window_a_base_id = window_a->base->obj_id;
+    CHECK(window_a->journal.size() == 1);
+    window_a_event0_id = window_a->journal[0].event->obj_id;
+
+    UiWindow::ptr::MakeFromThis(&*window_a).Save();
+    UiWindow::ptr::MakeFromThis(&*window_b).Save();
+  }
+
+  {
+    ae::Domain domain{storage};
+    UiWindow::ptr window_a = UiWindow::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(window_a_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    UiWindow::ptr window_b = UiWindow::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(window_b_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+
+    window_a.Load();
+    CHECK(window_a->client_width() == 640);
+    CHECK(window_a->client_height() == 480);
+    CHECK(window_a->obj_id == window_a_id);
+    CHECK(window_a->base->obj_id == window_a_base_id);
+    CHECK(window_a->journal.size() == 1);
+    CHECK(window_a->journal[0].event->obj_id == window_a_event0_id);
+
+    CHECK(!window_b.is_loaded());
+    CHECK(!domain.Find(window_b_id));
+
+    auto const journal_before = window_a->journal.size();
+    auto resize = SetUiWindowClientSizeEvent::ptr::Create(
+        ae::CreateWith{domain});
+    resize->width = 740;
+    resize->height = 530;
+    window_a->Commit(std::move(resize));
+    CHECK(window_a->journal.size() == journal_before + 1);
+
+    window_a.Save();
+    window_a.Reset();
+    CHECK(window_a.id() == window_a_id);
+    CHECK((window_a.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+    CHECK((window_a.flags() & ae::ObjFlags::kUnloaded) != 0);
+    CHECK(!domain.Find(window_a_id));
+    CHECK(!window_b.is_loaded());
+    CHECK(!domain.Find(window_b_id));
+
+    window_a.Load();
+    CHECK(window_a->client_width() == 740);
+    CHECK(window_a->client_height() == 530);
+    CHECK(window_a->base->obj_id == window_a_base_id);
+    CHECK(window_a->journal.size() == 2);
+    CHECK(window_a->journal[0].event->obj_id == window_a_event0_id);
+    CHECK(!window_b.is_loaded());
+    CHECK(!domain.Find(window_b_id));
+  }
+
+  {
+    ae::Domain domain{storage};
+    UiWindow::ptr window_a = UiWindow::ptr::Declare(
+        ae::CreateWith{domain}.with_id(window_a_id));
+    window_a.Load();
+    CHECK(window_a->client_width() == 740);
+    CHECK(window_a->client_height() == 530);
+    CHECK(window_a->journal.size() == 2);
+    CHECK(window_a->base->obj_id == window_a_base_id);
+
+    UiWindow::ptr window_b = UiWindow::ptr::Declare(
+        ae::CreateWith{domain}.with_id(window_b_id));
+    window_b.Load();
+    CHECK(window_b->client_width() == 900);
+    CHECK(window_b->client_height() == 700);
+  }
+}
+
 void TestPushButtonClickViaPresenter() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -385,6 +490,7 @@ int main() {
   TestEditBoxMaterializationNotifiesOnChange();
   TestLocalizationLazyLoadRoundtrip();
   TestLocalizationLazyInitialPublication();
+  TestWindowLazyStateRoundtrip();
   TestPushButtonClickViaPresenter();
   return 0;
 }
