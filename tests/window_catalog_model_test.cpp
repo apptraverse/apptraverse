@@ -53,6 +53,41 @@ void ShutdownSaveCatalog(WindowCatalog& catalog,
   CHECK(!storage.SaveSessionHadFailure());
 }
 
+void CopyStorageProfile(std::filesystem::path const& from,
+                        std::filesystem::path const& to) {
+  std::error_code ec;
+  std::filesystem::remove_all(to, ec);
+  std::filesystem::create_directories(to, ec);
+  std::filesystem::copy(
+      from, to,
+      std::filesystem::copy_options::recursive |
+          std::filesystem::copy_options::overwrite_existing,
+      ec);
+  CHECK(!ec);
+}
+
+void LoadPersistentCheckpointIntoCatalog(
+    ae::Domain& domain, DirectoryDomainStorage& storage,
+    WindowCatalog& catalog, std::filesystem::path const& profile_dir) {
+  std::ifstream checkpoint_in(profile_dir / "persistent_model_checkpoint.bin",
+                              std::ios::binary | std::ios::ate);
+  CHECK(checkpoint_in);
+  auto const checkpoint_size =
+      static_cast<std::size_t>(checkpoint_in.tellg());
+  checkpoint_in.seekg(0, std::ios::beg);
+  std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
+  if (checkpoint_size > 0) {
+    checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
+                       static_cast<std::streamsize>(checkpoint_size));
+    CHECK(static_cast<bool>(checkpoint_in));
+  }
+  ByteSource checkpoint;
+  checkpoint.data = checkpoint_bytes.data();
+  checkpoint.size = checkpoint_bytes.size();
+  checkpoint.pos = 0;
+  LoadPersistentModelSnapshot(checkpoint, domain, storage, catalog);
+}
+
 void ExpectReflectedGraphEdge(
     std::unordered_set<ae::ObjId::Type> const& reflected_ids,
     ae::ObjectPtrBase const& ref) {
@@ -735,6 +770,8 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   ae::ObjId persisted_holder2_id{};
   ae::ObjId persisted_window1_id{};
   ae::ObjId persisted_window2_id{};
+  ae::ObjId persisted_base_id{};
+  std::size_t saved_journal_size{};
   std::vector<ae::ObjId> persisted_open_close_event_ids;
 
   {
@@ -765,6 +802,7 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
     persisted_holder2_id = p2->obj_id;
     persisted_window1_id = p1->window.id();
     persisted_window2_id = p2->window.id();
+    persisted_base_id = persist->base.id();
     for (auto const& record : persist->journal) {
       if (!record.event.is_valid()) {
         continue;
@@ -776,29 +814,9 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
     }
     CHECK(persisted_open_close_event_ids.size() == 3);
 
-    std::size_t const saved_journal_size = persist->journal.size();
+    saved_journal_size = persist->journal.size();
     ShutdownSaveCatalog(*persist, persist_storage);
     persist.Reset();
-
-    DirectoryDomainStorage replay_storage{dir};
-    ae::Domain replay_domain{replay_storage};
-    auto replay_catalog =
-        LoadApplication<WindowCatalog>(replay_domain, catalog_id);
-    RepairWindowCatalogEmbeddedStrings(*replay_catalog);
-    CHECK(replay_catalog->journal.size() == saved_journal_size);
-    CHECK(replay_catalog->list->rows.size() == 2);
-    CHECK(replay_catalog->TryReplayFromBase());
-    CHECK(replay_catalog->list->rows.size() == 2);
-    WindowHolder* r1 = AsHolder(replay_catalog->list->rows[0]);
-    WindowHolder* r2 = AsHolder(replay_catalog->list->rows[1]);
-    CHECK(r1->obj_id == persisted_holder1_id);
-    CHECK(r2->obj_id == persisted_holder2_id);
-    CHECK(r1->window.id() == persisted_window1_id);
-    CHECK(r2->window.id() == persisted_window2_id);
-    CHECK(!HasUnloadedByDefault(r1->window.flags()));
-    CHECK(HasUnloadedByDefault(r2->window.flags()));
-    CHECK(replay_catalog->next_window_number == 3);
-    replay_catalog.Reset();
   }
 
   DirectoryDomainStorage load_storage{dir};
@@ -868,6 +886,60 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   CHECK(l2->window->y() == 60);
   CHECK(l2->window->client_width() == 400);
   CHECK(l2->window->client_height() == 300);
+
+  auto const invalid_base_profile_dir =
+      TestDir("apptraverse_window_catalog_open_close_invalid_base_copy");
+  CopyStorageProfile(dir, invalid_base_profile_dir);
+
+  {
+    DirectoryDomainStorage replay_storage{invalid_base_profile_dir};
+    ae::Domain replay_domain{replay_storage};
+    auto replay_catalog =
+        LoadApplication<WindowCatalog>(replay_domain, catalog_id);
+    LoadPersistentCheckpointIntoCatalog(replay_domain, replay_storage,
+                                        *replay_catalog, invalid_base_profile_dir);
+    std::size_t const journal_size_before = replay_catalog->journal.size();
+    std::size_t const rows_before = replay_catalog->list->rows.size();
+    std::uint32_t const next_before = replay_catalog->next_window_number;
+    std::uint64_t const generation_before = replay_catalog->Generation();
+    replay_catalog->base = {};
+    CHECK(!replay_catalog->TryReplayFromBase());
+    CHECK(replay_catalog->journal.size() == journal_size_before);
+    CHECK(replay_catalog->list->rows.size() == rows_before);
+    CHECK(replay_catalog->next_window_number == next_before);
+    CHECK(replay_catalog->Generation() == generation_before);
+    replay_catalog.Reset();
+  }
+
+  auto const replay_profile_dir =
+      TestDir("apptraverse_window_catalog_open_close_replay_copy");
+  CopyStorageProfile(dir, replay_profile_dir);
+
+  {
+    DirectoryDomainStorage replay_storage{replay_profile_dir};
+    ae::Domain replay_domain{replay_storage};
+    auto replay_catalog =
+        LoadApplication<WindowCatalog>(replay_domain, catalog_id);
+    LoadPersistentCheckpointIntoCatalog(replay_domain, replay_storage,
+                                        *replay_catalog, replay_profile_dir);
+    CHECK(replay_catalog->journal.size() == saved_journal_size);
+    CHECK(replay_catalog->base.is_valid());
+    CHECK(replay_catalog->base.is_loaded());
+    CHECK(replay_catalog->base.id() != replay_catalog->obj_id);
+    CHECK(replay_catalog->base.id() == persisted_base_id);
+    CHECK(replay_catalog->TryReplayFromBase());
+    CHECK(replay_catalog->list->rows.size() == 2);
+    WindowHolder* r1 = AsHolder(replay_catalog->list->rows[0]);
+    WindowHolder* r2 = AsHolder(replay_catalog->list->rows[1]);
+    CHECK(r1->obj_id == persisted_holder1_id);
+    CHECK(r2->obj_id == persisted_holder2_id);
+    CHECK(r1->window.id() == persisted_window1_id);
+    CHECK(r2->window.id() == persisted_window2_id);
+    CHECK(!HasUnloadedByDefault(r1->window.flags()));
+    CHECK(HasUnloadedByDefault(r2->window.flags()));
+    CHECK(replay_catalog->next_window_number == 3);
+    replay_catalog.Reset();
+  }
 }
 
 void TestManyHoldersClosedGraphsAbsentFromDomain() {

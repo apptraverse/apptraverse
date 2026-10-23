@@ -161,6 +161,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   WindowCatalogButtons buttons;
   WindowCatalogPresenters presenters;
 
+  [[nodiscard]] bool CanApply(AddWindowCatalogEntryEvent const& event) const;
   void Apply(AddWindowCatalogEntryEvent const& event);
   void Apply(RemoveWindowCatalogEntryEvent const& event);
   void Apply(SetWindowCatalogSelectionEvent const& event);

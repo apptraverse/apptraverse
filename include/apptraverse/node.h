@@ -262,12 +262,24 @@ class Node : public ae::Obj {
 
   template <typename ConcreteNode>
   bool TryRebuildFromBaseAndReplay(ConcreteNode& target) {
+    if (domain == nullptr || !base.is_valid() || !base.is_loaded() ||
+        base.id() == obj_id) {
+      return false;
+    }
     auto owner_id = obj_id;
     auto saved_base = base;
     auto saved_journal = journal;
     target.StashLocalPersistentAcrossRebuild();
     ae::DomainGraph graph{domain};
-    graph.Load(target, saved_base.id());
+    std::optional<ae::seri::SeriResult> const load_result =
+        graph.Load(target, saved_base.id());
+    if (!load_result.has_value() || !load_result->IsOk()) {
+      obj_id = owner_id;
+      base = saved_base;
+      journal = std::move(saved_journal);
+      target.RestoreLocalPersistentAcrossRebuild();
+      return false;
+    }
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);

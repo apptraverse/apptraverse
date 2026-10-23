@@ -221,18 +221,24 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
                                kHeight);
 }
 
-void WindowCatalog::Apply(AddWindowCatalogEntryEvent const& event) {
-  if (!event.holder.is_valid()) {
-    return;
+bool WindowCatalog::CanApply(AddWindowCatalogEntryEvent const& event) const {
+  if (!event.holder.is_valid() || !list) {
+    return false;
   }
   for (auto const& row : list->rows) {
     if (!row) {
       continue;
     }
-    if (static_cast<WindowHolder*>(&*row)->obj_id == event.holder->obj_id) {
-      return;
+    if (static_cast<WindowHolder const*>(&*row)->obj_id ==
+        event.holder->obj_id) {
+      return false;
     }
   }
+  return true;
+}
+
+void WindowCatalog::Apply(AddWindowCatalogEntryEvent const& event) {
+  assert(CanApply(event));
   list->rows.push_back(event.holder);
   ++next_window_number;
   int const language = locale ? locale->language_index() : 0;
