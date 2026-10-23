@@ -394,27 +394,55 @@ void TestUnreferencedEventDirsAreNotLoaded() {
 
 void TestZeroRetentionFiveHundred() {
   ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto doc = MakeDoc(domain);
-  doc->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
-  for (int i = 0; i < 500; ++i) {
-    doc->Commit(MakeAdd(domain, 1));
-  }
-  CHECK(doc->journal.size() == 500);
-  auto const generation = doc->Generation();
-  doc->CompactJournal(SystemUtcMicros());
-  CHECK(doc->journal.size() == 0);
-  CHECK(doc->value == 500);
-  CHECK(doc->Generation() == generation);
-  CHECK(CountReachableAddEvents(*doc) == 0);
+  ae::ObjId saved_doc_id;
+  ae::ObjId saved_base_id;
 
-  doc.Save();
-  auto reloaded =
-      RetentionDoc::ptr::Declare(ae::CreateWith{domain}.with_id(doc.id()));
-  reloaded.Load();
-  CHECK(reloaded);
-  CHECK(reloaded->value == 500);
-  CHECK(reloaded->journal.size() == 0);
+  {
+    ae::Domain domain{storage};
+    auto doc = MakeDoc(domain);
+    saved_doc_id = doc.id();
+    saved_base_id = doc->base.id();
+    doc->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+    for (int i = 0; i < 500; ++i) {
+      doc->Commit(MakeAdd(domain, 1));
+    }
+    CHECK(doc->journal.size() == 500);
+    auto const generation = doc->Generation();
+    doc->CompactJournal(SystemUtcMicros());
+    CHECK(doc->journal.size() == 0);
+    CHECK(doc->value == 500);
+    CHECK(doc->Generation() == generation);
+    CHECK(doc->base.id() == saved_base_id);
+    CHECK(CountReachableAddEvents(*doc) == 0);
+    doc.Save();
+  }
+
+  ae::RamDomainStorage::ObjClassData const storage_snapshot = storage.state;
+
+  {
+    ae::Domain domain{storage};
+    auto reloaded = RetentionDoc::ptr::Declare(
+        ae::CreateWith{domain}.with_id(saved_doc_id));
+    reloaded.Load();
+    CHECK(reloaded);
+    CHECK(reloaded.id() == saved_doc_id);
+    CHECK(reloaded->GetClassId() == RetentionDoc::kClassId);
+    CHECK(reloaded->value == 500);
+    CHECK(reloaded->journal.empty());
+    CHECK(reloaded->base.is_valid());
+    CHECK(reloaded->base.is_loaded());
+    CHECK(reloaded->base.id() == saved_base_id);
+    CHECK(reloaded->base->GetClassId() == RetentionDoc::kClassId);
+    CHECK(static_cast<RetentionDoc&>(*reloaded->base).value == 500);
+
+    reloaded->value = -1;
+    CHECK(reloaded->TryReplayFromBase());
+    CHECK(reloaded->value == 500);
+    CHECK(reloaded->journal.empty());
+    CHECK(reloaded->base.id() == saved_base_id);
+  }
+
+  CHECK(storage.state == storage_snapshot);
 }
 
 void TestRetentionTenReachable() {
