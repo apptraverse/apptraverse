@@ -169,11 +169,7 @@ void TestLocalizationLazyLoadRoundtrip() {
   CHECK(loaded->strings[0].id() == en_string_id);
   CHECK(loaded->strings[1].id() == ru_string_id);
   CHECK((loaded->strings[1].flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
-
-  {
-    auto ru_view = loaded->strings[1].Load();
-    CHECK(ru_view->utf8 == kRuUpdated);
-  }
+  CHECK(!domain.Find(ru_string_id));
 
   loaded->strings[0].Save();
   loaded->strings[0].Reset();
@@ -196,7 +192,13 @@ void TestLocalizationLazyLoadRoundtrip() {
   }
   CHECK(!domain.Find(en_string_id));
 
+  CHECK(!loaded->strings[1].is_loaded());
+  CHECK(!domain.Find(ru_string_id));
+
   ui::UiLocalizationString::ptr::MakeFromThis(&*loaded).Save();
+
+  CHECK(!loaded->strings[1].is_loaded());
+  CHECK(!domain.Find(ru_string_id));
 
   ae::Domain reload{storage};
   auto reloaded = ui::UiLocalizationString::ptr::Declare(
