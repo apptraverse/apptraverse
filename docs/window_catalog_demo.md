@@ -10,10 +10,10 @@ Target: Windows `win32_surfaces_demo` with a main catalog window (ListBox + Add/
 
 ## Current tree state
 
+- **Done (stage 2):** CMake targets `surfaces_demo_window_catalog` and `apptraverse_window_catalog_model_test` (CTest label `window_catalog`, not part of default full sweep). Model/graph compile; `tests/window_catalog_model_test.cpp` passes Release (`Add`/`Open`/`Close`/`Delete`, monotonic numbers, `DirectoryDomainStorage` roundtrip, 100 holders / 10 loaded).
 - **Done:** Stage 1 test revert (`27dee80`). List selection uses `UiListContainer.selection_index` (not locale index).
-- **WIP (not wired to EXE):** `examples/surfaces_demo/common/window_catalog_model.*`, `window_catalog_graph.cpp`, localization, registration; model test source present but not in CMake until compile issues are fixed.
 - **Not started:** `window_catalog_lifecycle`, `WinApp`/`main` switch, WM_CLOSE host wiring, acceptance test, `load_only` profile `surfaces_catalog_state`.
 
-## Blocker
+## MSVC note
 
-Catalog graph registration / reflect graph hits MSVC limits and namespace wiring; lifecycle and UI integration require the next iteration before a runnable EXE.
+`WindowCatalog` keeps full `Load`/`Save` field lists; `AE_OBJECT_REFLECT` lists a subset so `APPTRAVERSE_REGISTER(WindowCatalog)` stays under MSVC nested-initializer depth (C1054).

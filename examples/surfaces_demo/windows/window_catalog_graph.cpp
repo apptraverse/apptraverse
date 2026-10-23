@@ -5,14 +5,14 @@
 #include "window_catalog_model.h"
 
 #include "apptraverse/model_object_proxy.h"
-#include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_push_button.h"
 
-namespace apptraverse {
-namespace example {
-namespace surfaces {
+namespace apptraverse::example::surfaces {
 
 constexpr std::int32_t kMainClientWidth = 640;
 constexpr std::int32_t kMainClientHeight = 480;
@@ -32,18 +32,54 @@ constexpr std::uint32_t kLanguageControlId = 5005;
 class CatalogAddButton : public ui::UiPushButton {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogAddButton",
                            CatalogAddButton, ui::UiPushButton, 0)
+
+ protected:
+  CatalogAddButton() = default;
+
  public:
   explicit CatalogAddButton(ae::ObjProp prop) : UiPushButton{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(catalog))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, catalog);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, catalog);
+  }
+
   WindowCatalog::ptr catalog;
+
   void HandlePushButtonClicked() override;
 };
 
 class CatalogOpenButton : public ui::UiPushButton {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogOpenButton",
                            CatalogOpenButton, ui::UiPushButton, 0)
+
+ protected:
+  CatalogOpenButton() = default;
+
  public:
   explicit CatalogOpenButton(ae::ObjProp prop) : UiPushButton{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(catalog))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, catalog);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, catalog);
+  }
+
   WindowCatalog::ptr catalog;
+
   void HandlePushButtonClicked() override;
 };
 
@@ -51,9 +87,27 @@ class CatalogDeleteButton : public ui::UiPushButton {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::surfaces::CatalogDeleteButton",
       CatalogDeleteButton, ui::UiPushButton, 0)
+
+ protected:
+  CatalogDeleteButton() = default;
+
  public:
   explicit CatalogDeleteButton(ae::ObjProp prop) : UiPushButton{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(catalog))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, catalog);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, catalog);
+  }
+
   WindowCatalog::ptr catalog;
+
   void HandlePushButtonClicked() override;
 };
 
@@ -61,20 +115,57 @@ class CatalogLanguageButton : public ui::UiPushButton {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::surfaces::CatalogLanguageButton",
       CatalogLanguageButton, ui::UiPushButton, 0)
+
+ protected:
+  CatalogLanguageButton() = default;
+
  public:
   explicit CatalogLanguageButton(ae::ObjProp prop) : UiPushButton{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(catalog))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, catalog);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, catalog);
+  }
+
   WindowCatalog::ptr catalog;
+
   void HandlePushButtonClicked() override;
 };
 
-class CatalogListContainerPresenter : public ui::windows::WinListContainerPresenter {
+class CatalogListContainerPresenter
+    : public ui::windows::WinListContainerPresenter {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::surfaces::CatalogListContainerPresenter",
       CatalogListContainerPresenter, ui::windows::WinListContainerPresenter, 0)
+
+ protected:
+  CatalogListContainerPresenter() = default;
+
  public:
   explicit CatalogListContainerPresenter(ae::ObjProp prop)
       : WinListContainerPresenter{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(catalog))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, catalog);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, catalog);
+  }
+
   WindowCatalog::ptr catalog;
+
   void SubmitListRowSelectionChangedFromUi(std::size_t row_index) override;
   void SubmitListRowActivatedFromUi(std::size_t row_index) override;
 };
@@ -124,8 +215,8 @@ void CatalogListContainerPresenter::SubmitListRowActivatedFromUi(
 }
 
 ui::windows::WinPushButtonPresenter::ptr MakeButtonPresenter(
-    ae::Domain& domain, WindowCatalog& catalog,
-    ui::UiPushButton::ptr button, std::int32_t x, std::uint32_t control_id) {
+    ae::Domain& domain, WindowCatalog& catalog, ui::UiPushButton::ptr button,
+    std::int32_t x, std::uint32_t control_id) {
   auto presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
       ae::CreateWith{domain});
   presenter->button = button;
@@ -138,13 +229,42 @@ ui::windows::WinPushButtonPresenter::ptr MakeButtonPresenter(
   return presenter;
 }
 
-}  // namespace surfaces
-}  // namespace example
+APPTRAVERSE_REGISTER(CatalogAddButton);
+APPTRAVERSE_REGISTER(CatalogOpenButton);
+APPTRAVERSE_REGISTER(CatalogDeleteButton);
+APPTRAVERSE_REGISTER(CatalogLanguageButton);
+APPTRAVERSE_REGISTER(CatalogListContainerPresenter);
+
+}  // namespace apptraverse::example::surfaces
+
+namespace apptraverse {
 
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
-  using namespace example::surfaces;
+  using example::surfaces::CatalogAddButton;
+  using example::surfaces::CatalogDeleteButton;
+  using example::surfaces::CatalogLanguageButton;
+  using example::surfaces::CatalogListContainerPresenter;
+  using example::surfaces::CatalogOpenButton;
+  using example::surfaces::MakeButtonPresenter;
+  using example::surfaces::kAddControlId;
+  using example::surfaces::kButtonH;
+  using example::surfaces::kButtonW;
+  using example::surfaces::kButtonY;
+  using example::surfaces::kDeleteControlId;
+  using example::surfaces::kLanguageControlId;
+  using example::surfaces::kListControlId;
+  using example::surfaces::kListH;
+  using example::surfaces::kListW;
+  using example::surfaces::kListX;
+  using example::surfaces::kListY;
+  using example::surfaces::kMainClientHeight;
+  using example::surfaces::kMainClientWidth;
+  using example::surfaces::kOpenControlId;
   using window_catalog_demo::ObjId;
   using window_catalog_demo::ToObjId;
+
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
 
   auto catalog = WindowCatalog::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Catalog)));
@@ -153,14 +273,14 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   auto list = CatalogListContainer::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::CatalogList)));
   InitializeRuntimeNode(*list, *catalog);
-  list->catalog_id = catalog->obj_id;
+  list->catalog = catalog;
   catalog->list = list;
 
   auto main_window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
   InitializeRuntimeNode(*main_window, *catalog);
   main_window->SubmitFrameFromNative(80, 80, kMainClientWidth,
-                                       kMainClientHeight);
+                                     kMainClientHeight);
   catalog->main_window = main_window;
 
   auto main_presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
@@ -227,24 +347,15 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   return catalog;
 }
 
-namespace example {
-namespace surfaces {
-
 void EnsureWindowCatalogGraphRegistration() {
   EnsureWindowCatalogModelRegistration();
-  (void)&g_apptraverse_registrar_CatalogAddButton;
-  (void)&g_apptraverse_registrar_CatalogOpenButton;
-  (void)&g_apptraverse_registrar_CatalogDeleteButton;
-  (void)&g_apptraverse_registrar_CatalogLanguageButton;
-  (void)&g_apptraverse_registrar_CatalogListContainerPresenter;
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  (void)&example::surfaces::g_apptraverse_registrar_CatalogAddButton;
+  (void)&example::surfaces::g_apptraverse_registrar_CatalogOpenButton;
+  (void)&example::surfaces::g_apptraverse_registrar_CatalogDeleteButton;
+  (void)&example::surfaces::g_apptraverse_registrar_CatalogLanguageButton;
+  (void)&example::surfaces::g_apptraverse_registrar_CatalogListContainerPresenter;
 }
 
-APPTRAVERSE_REGISTER(CatalogAddButton);
-APPTRAVERSE_REGISTER(CatalogOpenButton);
-APPTRAVERSE_REGISTER(CatalogDeleteButton);
-APPTRAVERSE_REGISTER(CatalogLanguageButton);
-APPTRAVERSE_REGISTER(CatalogListContainerPresenter);
-
-}  // namespace surfaces
-}  // namespace example
 }  // namespace apptraverse

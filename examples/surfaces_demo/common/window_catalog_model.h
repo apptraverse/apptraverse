@@ -63,12 +63,12 @@ class WindowHolder : public ui::UiListRow {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, primary_text, delete_button, presenter, window_number, window);
+    dnv(base_, window_number, window);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, primary_text, delete_button, presenter, window_number, window);
+    dnv(base_, window_number, window);
   }
 
   std::uint32_t window_number{0};
@@ -78,33 +78,6 @@ class WindowHolder : public ui::UiListRow {
 class AddWindowCatalogEntryEvent;
 class RemoveWindowCatalogEntryEvent;
 class SetWindowCatalogSelectionEvent;
-
-class CatalogListContainer : public ui::UiListContainer {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogListContainer",
-                           CatalogListContainer, ui::UiListContainer, 0)
-
- protected:
-  CatalogListContainer() = default;
-
- public:
-  explicit CatalogListContainer(ae::ObjProp prop) : UiListContainer{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(catalog_id))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, rows, catalog_id);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, rows, catalog_id);
-  }
-
-  ae::ObjId catalog_id;
-
-  void HandleListRowActivated(std::size_t row_index) override;
-};
 
 class WindowCatalog : public NodeFor<WindowCatalog> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::WindowCatalog",
@@ -119,14 +92,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   AE_OBJECT_REFLECT(AE_MMBR(next_window_number), AE_MMBR(selected),
                     AE_MMBR(list), AE_MMBR(main_window),
                     AE_MMBR(main_window_presenter), AE_MMBR(locale),
-                    AE_MMBR(label_add), AE_MMBR(label_open),
-                    AE_MMBR(label_delete), AE_MMBR(label_language),
-                    AE_MMBR(window_title_prefix), AE_MMBR(add_button),
-                    AE_MMBR(open_button), AE_MMBR(delete_button),
-                    AE_MMBR(language_button), AE_MMBR(list_presenter),
-                    AE_MMBR(add_button_presenter), AE_MMBR(open_button_presenter),
-                    AE_MMBR(delete_button_presenter),
-                    AE_MMBR(language_button_presenter))
+                    AE_MMBR(window_title_prefix))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -148,7 +114,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   std::uint32_t next_window_number{1};
   WindowHolder::ptr selected;
-  CatalogListContainer::ptr list;
+  ae::ObjPtr<CatalogListContainer> list;
   ui::UiDesktopWindow::ptr main_window;
   ui::windows::WinDesktopWindowPresenter::ptr main_window_presenter;
   ae::ObjPtr<ui::UiLocaleSettings> locale;
@@ -190,6 +156,33 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void SubmitSelectionFromUi(std::size_t row_index);
 
   ae::ObjId pending_focus_window_id{};
+};
+
+class CatalogListContainer : public ui::UiListContainer {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogListContainer",
+                           CatalogListContainer, ui::UiListContainer, 0)
+
+ protected:
+  CatalogListContainer() = default;
+
+ public:
+  explicit CatalogListContainer(ae::ObjProp prop) : UiListContainer{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(catalog))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, catalog);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, catalog);
+  }
+
+  ae::ObjPtr<WindowCatalog> catalog;
+
+  void HandleListRowActivated(std::size_t row_index) override;
 };
 
 class AddWindowCatalogEntryEvent

@@ -811,6 +811,34 @@ target_include_directories(apptraverse_surfaces_factory_layout_leaf_repro_test P
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows
 )
 
+if(WIN32)
+  add_executable(apptraverse_window_catalog_model_test
+    window_catalog_model_test.cpp
+  )
+  target_compile_definitions(apptraverse_window_catalog_model_test PRIVATE
+    APPTRAVERSE_ENABLE_DISTILLATION
+  )
+  target_link_libraries(apptraverse_window_catalog_model_test PRIVATE
+    surfaces_demo_window_catalog
+    apptraverse_surfaces
+    apptraverse_ui_windows
+  )
+  target_include_directories(apptraverse_window_catalog_model_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows
+  )
+  if(MSVC)
+    target_compile_options(apptraverse_window_catalog_model_test PRIVATE /utf-8)
+  endif()
+  add_test(
+    NAME apptraverse_window_catalog_model_test
+    COMMAND apptraverse_window_catalog_model_test
+  )
+  set_tests_properties(apptraverse_window_catalog_model_test PROPERTIES
+    LABELS "window_catalog"
+  )
+endif()
+
 endif() # APPTRAVERSE_BUILD_EXAMPLES
 
 if(WIN32)

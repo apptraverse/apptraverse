@@ -50,6 +50,24 @@ if(WIN32 AND NOT EMSCRIPTEN)
     apptraverse_ui_windows
   )
   target_compile_features(surfaces_demo_win32 PUBLIC cxx_std_20)
+  add_library(surfaces_demo_window_catalog STATIC
+    common/window_catalog_model.cpp
+    common/window_catalog_localization.cpp
+    common/window_catalog_registration.cpp
+    windows/window_catalog_graph.cpp
+  )
+  target_include_directories(surfaces_demo_window_catalog PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/windows
+  )
+  target_link_libraries(surfaces_demo_window_catalog PUBLIC
+    apptraverse_surfaces
+    apptraverse_ui_windows
+  )
+  target_compile_features(surfaces_demo_window_catalog PUBLIC cxx_std_20)
+  if(MSVC)
+    target_compile_options(surfaces_demo_window_catalog PRIVATE /utf-8)
+  endif()
   set(_surfaces_demo_presentation_lib surfaces_demo_win32)
 else()
   set(_surfaces_demo_presentation_lib surfaces_demo_presentation)

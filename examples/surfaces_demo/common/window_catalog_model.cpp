@@ -14,6 +14,32 @@ namespace apptraverse {
 
 namespace {
 
+ae::ObjFlags ClearUnloadedDefault(ae::ObjFlags flags) {
+  return static_cast<ae::ObjFlags>(
+      flags & ~ae::ObjFlags::kUnloadedByDefault);
+}
+
+ae::ObjFlags ClearUnloaded(ae::ObjFlags flags) {
+  return static_cast<ae::ObjFlags>(flags & ~ae::ObjFlags::kUnloaded);
+}
+
+ae::ObjFlags OpenObjFlags(ae::ObjFlags flags) {
+  return ClearUnloaded(ClearUnloadedDefault(flags));
+}
+
+ae::ObjFlags SetUnloadedDefault(ae::ObjFlags flags) {
+  return static_cast<ae::ObjFlags>(
+      flags | ae::ObjFlags::kUnloadedByDefault);
+}
+
+std::string ReadPrefixText(ui::UiLocalizationString& prefix, int language_index,
+                           int restore_language_index) {
+  prefix.MaterializeLanguage(language_index);
+  std::string const text = prefix.Resolve(language_index);
+  prefix.MaterializeLanguage(restore_language_index);
+  return text;
+}
+
 ui::UiLocalizationString::ptr MakeHolderTitleString(ae::Domain& domain,
                                                     WindowCatalog& catalog,
                                                     std::uint32_t number) {
@@ -25,39 +51,48 @@ ui::UiLocalizationString::ptr MakeHolderTitleString(ae::Domain& domain,
   auto ru_string = ui::UiString::ptr::Create(
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   localized->strings = {en_string, ru_string};
-  int const language = catalog.locale ? catalog.locale->language_index() : 0;
-  en_string->utf8 =
-      FormatCatalogWindowTitle(*catalog.window_title_prefix, 0, number);
-  ru_string->utf8 =
-      FormatCatalogWindowTitle(*catalog.window_title_prefix, 1, number);
-  localized->MaterializeLanguage(language);
+
+  int const restore_language =
+      catalog.locale ? catalog.locale->language_index() : 0;
+  std::string const en_prefix =
+      ReadPrefixText(*catalog.window_title_prefix, 0, restore_language);
+  std::string const ru_prefix =
+      ReadPrefixText(*catalog.window_title_prefix, 1, restore_language);
+  en_string->utf8 = en_prefix + std::to_string(number);
+  ru_string->utf8 = ru_prefix + std::to_string(number);
+  localized->MaterializeLanguage(restore_language);
   return localized;
 }
 
-ae::ObjFlags ClearUnloadedDefault(ae::ObjFlags flags) {
-  return static_cast<ae::ObjFlags>(
-      flags & ~ae::ObjFlags::kUnloadedByDefault);
-}
-
-ae::ObjFlags SetUnloadedDefault(ae::ObjFlags flags) {
-  return static_cast<ae::ObjFlags>(
-      flags | ae::ObjFlags::kUnloadedByDefault);
+void SaveCatalogWindowGraph(CatalogWindow& window) {
+  if (window.window_presenter.is_valid() &&
+      window.window_presenter.is_loaded()) {
+    window.window_presenter.Save();
+  }
+  CatalogWindow::ptr::MakeFromThis(&window).Save();
 }
 
 void UnloadCatalogWindowGraph(CatalogWindow::ptr& window) {
   if (!window.is_valid()) {
     return;
   }
-  if (window.is_loaded()) {
-    if (window->window_presenter.is_valid()) {
-      if (window->window_presenter.is_loaded()) {
-        window->window_presenter.Save();
-      }
-      window->window_presenter.Reset();
-    }
-    window.Save();
-    window.SetFlags(SetUnloadedDefault(window.flags()));
-    window.Reset();
+  if (!window.is_loaded()) {
+    return;
+  }
+  SaveCatalogWindowGraph(*window);
+  if (window->window_presenter.is_valid() &&
+      window->window_presenter.is_loaded()) {
+    window->window_presenter.Reset();
+  }
+  window.SetFlags(SetUnloadedDefault(window.flags()));
+  window.Reset();
+}
+
+void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
+  std::vector<Node*> live;
+  CollectLiveReachableNodes(window, live);
+  for (Node* node : live) {
+    node->CopyMaterializedChangeNotifierFrom(catalog);
   }
 }
 
@@ -78,6 +113,7 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
 
 void WindowCatalog::Apply(AddWindowCatalogEntryEvent const& event) {
   list->rows.push_back(event.holder);
+  ++next_window_number;
   NoteMaterializedChange();
 }
 
@@ -105,14 +141,10 @@ void WindowCatalog::Apply(SetWindowCatalogSelectionEvent const& event) {
 }
 
 void CatalogListContainer::HandleListRowActivated(std::size_t row_index) {
-  if (domain == nullptr || !catalog_id.is_valid()) {
+  if (!catalog) {
     return;
   }
-  auto catalog_obj = domain->Find(catalog_id);
-  if (!catalog_obj) {
-    return;
-  }
-  static_cast<WindowCatalog&>(*catalog_obj).OpenRow(row_index);
+  catalog->OpenRow(row_index);
 }
 
 namespace {
@@ -179,14 +211,8 @@ void WindowCatalog::MaterializeCatalogStrings(int language_index) {
 
 void WindowCatalog::MaterializeHolderListText(WindowHolder& holder,
                                               int language_index) {
-  if (!holder.primary_text || !window_title_prefix) {
+  if (!holder.primary_text) {
     return;
-  }
-  if (holder.primary_text->strings.size() >= 2) {
-    holder.primary_text->strings[0]->utf8 = FormatCatalogWindowTitle(
-        *window_title_prefix, 0, holder.window_number);
-    holder.primary_text->strings[1]->utf8 = FormatCatalogWindowTitle(
-        *window_title_prefix, 1, holder.window_number);
   }
   holder.primary_text->MaterializeLanguage(language_index);
   if (holder.window.is_loaded() && holder.window->title) {
@@ -215,25 +241,30 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
     return;
   }
   if (holder.window.is_loaded()) {
+    holder.window.SetFlags(OpenObjFlags(holder.window.flags()));
+    if (holder.window->window_presenter.is_valid()) {
+      if (!holder.window->window_presenter.is_loaded()) {
+        holder.window->window_presenter.Load();
+      }
+      holder.window->window_presenter.SetFlags(
+          OpenObjFlags(holder.window->window_presenter.flags()));
+    }
     pending_focus_window_id = holder.window.id();
     NoteMaterializedChange();
     return;
   }
   holder.window.Load();
-  holder.window.SetFlags(ClearUnloadedDefault(holder.window.flags()));
-  if (holder.window->window_presenter.is_valid() &&
-      !holder.window->window_presenter.is_loaded()) {
-    holder.window->window_presenter.Load();
+  holder.window.SetFlags(OpenObjFlags(holder.window.flags()));
+  if (holder.window->window_presenter.is_valid()) {
+    if (!holder.window->window_presenter.is_loaded()) {
+      holder.window->window_presenter.Load();
+    }
     holder.window->window_presenter.SetFlags(
-        ClearUnloadedDefault(holder.window->window_presenter.flags()));
+        OpenObjFlags(holder.window->window_presenter.flags()));
   }
   int const language = locale ? locale->language_index() : 0;
   MaterializeHolderListText(holder, language);
-  std::vector<Node*> live;
-  CollectLiveReachableNodes(*holder.window, live);
-  for (Node* node : live) {
-    node->CopyMaterializedChangeNotifierFrom(*this);
-  }
+  BindLiveWindowNotifiers(*this, *holder.window);
   NoteMaterializedChange();
 }
 
@@ -245,32 +276,35 @@ void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
 void WindowCatalog::AddWindow() {
   assert(list && list->domain != nullptr);
   ae::Domain& domain = *list->domain;
-  std::uint32_t const number = next_window_number++;
+  std::uint32_t const number = next_window_number;
   auto holder = WindowHolder::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*holder, *this);
   holder->window_number = number;
   holder->primary_text = MakeHolderTitleString(domain, *this, number);
   holder->delete_button = {};
 
-  auto window = CatalogWindow::ptr::Create(
-      ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
+  auto window = CatalogWindow::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*window, *this);
   AssignInitialCatalogWindowBounds(*window, number);
   window->title = holder->primary_text;
 
   auto presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
+      ae::CreateWith{domain});
   presenter->window = window;
   presenter->locale = locale;
   window->window_presenter = presenter;
 
   holder->window = window;
+  holder->window.SetFlags(OpenObjFlags(holder->window.flags()));
+  holder->window->window_presenter.SetFlags(
+      OpenObjFlags(holder->window->window_presenter.flags()));
+
+  BindLiveWindowNotifiers(*this, *window);
 
   auto add = AddWindowCatalogEntryEvent::ptr::Create(ae::CreateWith{domain});
   add->holder = holder;
   Commit(std::move(add));
   SelectHolder(holder);
-  OpenHolderWindow(*holder);
 }
 
 void WindowCatalog::OpenRow(std::size_t row_index) {
