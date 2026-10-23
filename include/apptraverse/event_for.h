@@ -1,7 +1,11 @@
 #ifndef APPTRAVERSE_EVENT_FOR_H_
 #define APPTRAVERSE_EVENT_FOR_H_
 
+#include <cstdint>
+#include <limits>
 #include <type_traits>
+
+#include "aether-objects/obj/idomain_storage.h"
 
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
@@ -21,6 +25,27 @@ bool CanApplyEventTo(Target const& target, ConcreteEvent const& event) {
     return target.CanApply(event);
   } else {
     return true;
+  }
+}
+
+template <typename T>
+bool CanCompactStoredEventLayers(ae::IDomainStorage& storage,
+                                 ae::ObjId object_id) {
+  for (unsigned version =
+           static_cast<unsigned>(T::kCurrentVersion.value) + 1U;
+       version <= static_cast<unsigned>(std::numeric_limits<std::uint8_t>::max());
+       ++version) {
+    ae::DomainLoad const load = storage.Load(ae::DomainQuery{
+        object_id, T::kClassId, static_cast<std::uint8_t>(version)});
+    if (load.result == ae::DomainLoadResult::kLoaded ||
+        load.result == ae::DomainLoadResult::kRemoved) {
+      return false;
+    }
+  }
+  if constexpr (std::is_same_v<T, ae::Obj>) {
+    return true;
+  } else {
+    return CanCompactStoredEventLayers<typename T::Base>(storage, object_id);
   }
 }
 
@@ -45,6 +70,14 @@ class EventFor : public Event {
   }
 
   std::uint32_t TargetClassIdImpl() const override { return Target::kClassId; }
+
+  bool CanCompactStoredState() const override {
+    if (domain == nullptr) {
+      return true;
+    }
+    return detail::CanCompactStoredEventLayers<ConcreteEvent>(
+        domain->domain_storage(), obj_id);
+  }
 };
 
 }  // namespace apptraverse

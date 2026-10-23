@@ -353,6 +353,10 @@ class Node : public ae::Obj {
       if (retain) {
         return i;
       }
+      auto const& event = journal[i].event;
+      if (event.is_valid() && !event->CanCompactStoredState()) {
+        return i;
+      }
     }
     return journal.size();
   }

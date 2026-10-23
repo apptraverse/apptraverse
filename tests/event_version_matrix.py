@@ -234,11 +234,20 @@ def run_overlay_version_roundtrip(a_exe: Path, b_exe: Path, work: Path) -> None:
     )
     assert_tally(compact_a, 3, who="A compact-zero")
     assert_no_extension_field(compact_a, who="A compact-zero")
-    journal_len_after_a = int(compact_a.get("journal_len", -1))
-    if journal_len_after_a < 0 or journal_len_after_a > 2:
-        raise CheckFailed(
-            f"A compact-zero journal_len out of range: {journal_len_after_a}"
-        )
+    assert_journal_len(compact_a, 2, who="A compact-zero")
+    if int(compact_a.get("base_tally", -1)) != 0:
+        raise CheckFailed("A compact-zero base_tally expected 0")
+    events_after_a = compact_a.get("events") or []
+    if len(events_after_a) != 2:
+        raise CheckFailed("A compact-zero expected two journal events")
+    if int(events_after_a[0]["event_id"]) != int(events[0]["event_id"]):
+        raise CheckFailed("A compact-zero first event id changed")
+    if int(events_after_a[1]["event_id"]) != int(events[1]["event_id"]):
+        raise CheckFailed("A compact-zero second event id changed")
+    if int(events_after_a[0]["delta"]) != 1:
+        raise CheckFailed("A compact-zero first event delta expected 1")
+    if int(events_after_a[1]["delta"]) != 2:
+        raise CheckFailed("A compact-zero second event delta expected 2")
     assert_v1_layers_unchanged(
         v1_before_a_compact,
         v1_layer_snapshot(
@@ -256,35 +265,69 @@ def run_overlay_version_roundtrip(a_exe: Path, b_exe: Path, work: Path) -> None:
     )
     assert_tally(reload_after_a, 3, who="B reload after A compaction")
     assert_extension(reload_after_a, 645, who="B reload after A compaction")
-    assert_journal_len(
-        reload_after_a, journal_len_after_a, who="B reload after A compaction"
-    )
+    assert_journal_len(reload_after_a, 2, who="B reload after A compaction")
+    if int(reload_after_a.get("base_extension", -1)) != 640:
+        raise CheckFailed("B reload after A compaction base_extension expected 640")
 
     user_before_replay_a = manifest(copy_by_a)
     replay_after_a = invoke_fixture(
         b_exe, "B", copy_by_a, "replay-from-base-fault"
     )
-    try:
-        assert_replay(
-            replay_after_a,
-            who="B replay after A compaction",
-            tally=3,
-            journal_len=journal_len_after_a,
-            extension=645,
-        )
-    except CheckFailed as error:
-        raise CheckFailed(
-            f"{error}; A journal_len={journal_len_after_a}; "
-            f"B reload extension={reload_after_a.get('extension')}; "
-            f"base_extension={reload_after_a.get('base_extension')}; "
-            f"replay extension={replay_after_a.get('extension')}; "
-            f"v1_bytes_preserved="
-            f"{v1_before_a_compact == v1_layer_snapshot(manifest(copy_by_a), doc_id=doc_id, base_id=BASE_ID, doc_class_id=doc_class_id, event_class_id=event_class_id)}"
-        ) from error
+    assert_replay(
+        replay_after_a,
+        who="B replay after A compaction",
+        tally=3,
+        journal_len=2,
+        extension=645,
+    )
+    if int(replay_after_a.get("base_extension", -1)) != 640:
+        raise CheckFailed("B replay after A compaction base_extension expected 640")
     unchanged(
         user_before_replay_a,
         manifest(copy_by_a),
         "B replay after A compaction USER",
+    )
+
+    v0_control_user = work / "a-v0-compact-control"
+    v0_control_user.mkdir()
+    invoke_fixture(
+        a_exe, "A", v0_control_user, "create", expect_stage="create"
+    )
+    invoke_fixture(
+        a_exe,
+        "A",
+        v0_control_user,
+        "commit-v0",
+        delta=3,
+        check_storage_unchanged=False,
+    )
+    compact_v0 = invoke_fixture(
+        a_exe,
+        "A",
+        v0_control_user,
+        "compact-zero",
+        expect_stage="compact-zero",
+        check_storage_unchanged=False,
+    )
+    assert_tally(compact_v0, 3, who="A v0 compact control")
+    assert_journal_len(compact_v0, 0, who="A v0 compact control")
+    if int(compact_v0.get("base_tally", -1)) != 3:
+        raise CheckFailed("A v0 compact control base_tally expected 3")
+    user_before_v0_replay = manifest(v0_control_user)
+    replay_v0 = invoke_fixture(
+        a_exe, "A", v0_control_user, "replay-from-base-fault"
+    )
+    assert_replay(
+        replay_v0,
+        who="A v0 compact control replay",
+        tally=3,
+        journal_len=0,
+        extension=None,
+    )
+    unchanged(
+        user_before_v0_replay,
+        manifest(v0_control_user),
+        "A v0 compact control replay USER",
     )
 
 

@@ -44,6 +44,10 @@ class Event : public ae::Obj {
   // or ApplyTo would static_cast.
   std::uint32_t TargetClassId() const { return TargetClassIdImpl(); }
 
+  // False when persisted layers exist for versions above what this build can
+  // represent; compaction must not remove such journal entries.
+  virtual bool CanCompactStoredState() const { return false; }
+
  private:
   void ApplyTo(ae::Obj& target) const { ApplyToImpl(target); }
 
