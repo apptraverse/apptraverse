@@ -55,7 +55,7 @@ class UiListContainer : public NodeFor<UiListContainer> {
  public:
   explicit UiListContainer(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(rows))
+  AE_OBJECT_REFLECT(AE_MMBR(rows), AE_MMBR(selection_index))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -67,7 +67,18 @@ class UiListContainer : public NodeFor<UiListContainer> {
     dnv(base_, rows);
   }
 
+  template <typename Dnv>
+  void Load(ae::Version<1>, Dnv& dnv) {
+    dnv(base_, rows, selection_index);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const {
+    dnv(base_, rows, selection_index);
+  }
+
   std::vector<UiListRow::ptr> rows;
+  std::int32_t selection_index{-1};
 
   void Apply(RemoveUiListRowEvent const& event);
 

@@ -514,15 +514,13 @@ void WinListContainerPresenter::SyncFromMirror() {
 
   std::vector<std::wstring> const current = ReadListBoxStrings(hwnd_);
   if (current == desired) {
-    if (notify_list_selection_change && window_presenter &&
-        window_presenter->locale) {
-      int const language_index = window_presenter->locale->language_index();
+    if (notify_list_selection_change && container &&
+        container->selection_index >= 0 &&
+        container->selection_index < static_cast<std::int32_t>(desired.size())) {
       LRESULT const cur_sel = SendMessageW(hwnd_, LB_GETCURSEL, 0, 0);
-      if (language_index >= 0 &&
-          language_index < static_cast<int>(desired.size()) &&
-          cur_sel != language_index) {
+      if (cur_sel != container->selection_index) {
         SendMessageW(hwnd_, LB_SETCURSEL,
-                     static_cast<WPARAM>(language_index), 0);
+                     static_cast<WPARAM>(container->selection_index), 0);
       }
     }
     return;
@@ -563,14 +561,11 @@ void WinListContainerPresenter::SyncFromMirror() {
     SendMessageW(hwnd_, LB_SETTOPINDEX, static_cast<WPARAM>(previous_top), 0);
   }
 
-  if (notify_list_selection_change && window_presenter &&
-      window_presenter->locale) {
-    int const language_index = window_presenter->locale->language_index();
-    if (language_index >= 0 &&
-        language_index < static_cast<int>(desired.size())) {
-      SendMessageW(hwnd_, LB_SETCURSEL,
-                   static_cast<WPARAM>(language_index), 0);
-    }
+  if (notify_list_selection_change && container &&
+      container->selection_index >= 0 &&
+      container->selection_index < static_cast<std::int32_t>(desired.size())) {
+    SendMessageW(hwnd_, LB_SETCURSEL,
+                 static_cast<WPARAM>(container->selection_index), 0);
   }
 }
 

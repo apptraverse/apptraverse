@@ -44,6 +44,7 @@ void UiListContainerPresenter::SubmitListRowSelectionChangedFromUi(
     std::size_t row_index) {
   OnListRowSelectionChanged(row_index);
 }
+// Default selection stays local until a platform presenter overrides.
 
 void UiListContainerPresenter::OnListRowActivated(std::size_t row_index) {
   static_cast<void>(row_index);
