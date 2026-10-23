@@ -322,10 +322,19 @@ void WinDesktopWindowPresenter::OnModelChanged() {
 }
 
 void WinDesktopWindowPresenter::OnUnload() {
-  if (hwnd_ != nullptr) {
-    DestroyWindow(hwnd_);
-    hwnd_ = nullptr;
+  if (hwnd_ == nullptr) {
+    return;
   }
+  SetLastError(0);
+  LONG_PTR const previous = SetWindowLongPtrW(
+      hwnd_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(nullptr));
+  if (previous == 0 && GetLastError() != 0) {
+    FatalWin32("SetWindowLongPtrW GWLP_USERDATA", GetLastError());
+  }
+  if (DestroyWindow(hwnd_) == 0) {
+    FatalWin32("DestroyWindow Ui desktop window", GetLastError());
+  }
+  hwnd_ = nullptr;
 }
 
 WinDesktopWindowPresenter* WinEditBoxPresenter::Desktop() const {

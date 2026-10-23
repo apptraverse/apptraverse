@@ -653,7 +653,9 @@ void TestLazyDesktopWindowNativeLifecycle() {
   ae::Domain ui_domain{ui_storage};
 
   ae::Domain model_domain{storage};
+  int proxy_invoke_count = 0;
   ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    ++proxy_invoke_count;
     work(model_domain);
   }};
 
@@ -705,8 +707,10 @@ void TestLazyDesktopWindowNativeLifecycle() {
   ByteSource unload_in;
   unload_in.data = unload_sink.bytes.data();
   unload_in.size = unload_sink.bytes.size();
+  int const proxy_before_unload_apply = proxy_invoke_count;
   ApplyStructuralPublicationAndUpdatePresenters(unload_in, ui_domain, ui_storage,
                                                 *ui_root, nullptr, &proxy);
+  CHECK(proxy_invoke_count == proxy_before_unload_apply);
 
   CHECK(IsWindow(first_hwnd) == 0);
   CHECK(ui_root->window.id() == window_id);
@@ -739,7 +743,9 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(ui_root->window.id() == window_id);
   CHECK(ui_root->window_presenter.id() == presenter_id);
 
+  int const proxy_before_final_unload = proxy_invoke_count;
   UnloadPresenters(*ui_root);
+  CHECK(proxy_invoke_count == proxy_before_final_unload);
   CHECK(IsWindow(second_hwnd) == 0);
   CHECK(ui_desktop->hwnd() == nullptr);
 }
