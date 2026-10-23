@@ -51,7 +51,34 @@ class OverlayVersionedWindow : public ae::Obj {
   std::int32_t posx;
 };
 
+class OverlayLazyRoot : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::OverlayLazyRoot", OverlayLazyRoot,
+                           ae::Obj, 0)
+
+ protected:
+  OverlayLazyRoot() = default;
+
+ public:
+  explicit OverlayLazyRoot(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(first), AE_MMBR(second))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, first, second);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, first, second);
+  }
+
+  OverlayVersionedWindow::ptr first;
+  OverlayVersionedWindow::ptr second;
+};
+
 APPTRAVERSE_REGISTER(OverlayVersionedWindow);
+APPTRAVERSE_REGISTER(OverlayLazyRoot);
 
 namespace {
 
@@ -412,6 +439,151 @@ void TestDurableVersionedOverlay() {
   CHECK(DirectoryDomainStorageLayerFileExists(user_root, v1_query));
 }
 
+void TestLazyGraphPreservesUnloadedChildren() {
+  std::filesystem::path const user_root =
+      std::filesystem::temp_directory_path() /
+      "apptraverse_lazy_graph_overlay_user_state";
+  std::filesystem::remove_all(user_root);
+
+  ae::RamDomainStorage backing;
+  ae::ObjId const root_id{42000};
+  ae::ObjId const child1_id{42001};
+  ae::ObjId const child2_id{42002};
+  ae::DomainQuery const child1_v0{child1_id, OverlayVersionedWindow::kClassId,
+                                  0};
+  ae::DomainQuery const child1_v1{child1_id, OverlayVersionedWindow::kClassId,
+                                  1};
+  ae::DomainQuery const child2_v0{child2_id, OverlayVersionedWindow::kClassId,
+                                  0};
+  ae::DomainQuery const child2_v1{child2_id, OverlayVersionedWindow::kClassId,
+                                  1};
+
+  {
+    ae::Domain domain{backing};
+    ae::Ptr<OverlayLazyRoot> root =
+        OverlayLazyRoot::ptr::Create(ae::CreateWith{domain}.with_id(root_id))
+            .Load();
+    OverlayVersionedWindow::ptr child1_ref =
+        OverlayVersionedWindow::ptr::Create(
+            ae::CreateWith{domain}
+                .with_id(child1_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    ae::Ptr<OverlayVersionedWindow> child1 = child1_ref.Load();
+    child1->width = 800;
+    child1->posx = 100;
+    OverlayVersionedWindow::ptr child2_ref =
+        OverlayVersionedWindow::ptr::Create(
+            ae::CreateWith{domain}
+                .with_id(child2_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    ae::Ptr<OverlayVersionedWindow> child2 = child2_ref.Load();
+    child2->width = 600;
+    child2->posx = 200;
+    root->first = child1_ref;
+    root->second = child2_ref;
+    ae::DomainGraph graph{&domain};
+    CHECK(graph.SaveRoot(root, root_id).IsOk());
+    CHECK(backing.state.count(child1_id) == 1);
+    CHECK(backing.state.count(child2_id) == 1);
+    CHECK(backing.state.at(child1_id).has_value());
+    CHECK(backing.state.at(child2_id).has_value());
+    CHECK(backing.state.at(child1_id)
+              ->at(OverlayVersionedWindow::kClassId)
+              .count(0) == 1);
+    CHECK(backing.state.at(child1_id)
+              ->at(OverlayVersionedWindow::kClassId)
+              .count(1) == 1);
+    CHECK(backing.state.at(child2_id)
+              ->at(OverlayVersionedWindow::kClassId)
+              .count(0) == 1);
+    CHECK(backing.state.at(child2_id)
+              ->at(OverlayVersionedWindow::kClassId)
+              .count(1) == 1);
+  }
+
+  ae::RamDomainStorage::ObjClassData const backing_snapshot = backing.state;
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(root_id, loaded).IsOk());
+    ae::Ptr<OverlayLazyRoot> root{loaded};
+    CHECK(root->first.id() == child1_id);
+    CHECK(root->second.id() == child2_id);
+    CHECK(!root->first.is_loaded());
+    CHECK(!root->second.is_loaded());
+    ae::Ptr<OverlayVersionedWindow> child1 = root->first.Load();
+    CHECK(child1->width == 800);
+    CHECK(child1->posx == 100);
+    child1->posx = 111;
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(root, root_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
+    CHECK(!root->second.is_loaded());
+    CHECK(DirectoryDomainStorageLayerFileExists(user_root, child1_v1));
+    CHECK(!DirectoryDomainStorageLayerFileExists(user_root, child1_v0));
+    CHECK(!DirectoryDomainStorageLayerFileExists(user_root, child2_v0));
+    CHECK(!DirectoryDomainStorageLayerFileExists(user_root, child2_v1));
+    CHECK(backing.state == backing_snapshot);
+  }
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(root_id, loaded).IsOk());
+    ae::Ptr<OverlayLazyRoot> root{loaded};
+    CHECK(!root->first.is_loaded());
+    CHECK(!root->second.is_loaded());
+    ae::Ptr<OverlayVersionedWindow> child2 = root->second.Load();
+    CHECK(child2->width == 600);
+    CHECK(child2->posx == 200);
+    child2->width = 700;
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(root, root_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
+    CHECK(!root->first.is_loaded());
+    CHECK(DirectoryDomainStorageLayerFileExists(user_root, child1_v1));
+    CHECK(!DirectoryDomainStorageLayerFileExists(user_root, child1_v0));
+    CHECK(DirectoryDomainStorageLayerFileExists(user_root, child2_v0));
+    CHECK(!DirectoryDomainStorageLayerFileExists(user_root, child2_v1));
+    CHECK(backing.state == backing_snapshot);
+  }
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(root_id, loaded).IsOk());
+    ae::Ptr<OverlayLazyRoot> root{loaded};
+    CHECK(root->obj_id == root_id);
+    CHECK(root->first.id() == child1_id);
+    CHECK(root->second.id() == child2_id);
+    CHECK(!root->first.is_loaded());
+    CHECK(!root->second.is_loaded());
+    ae::Ptr<OverlayVersionedWindow> child1 = root->first.Load();
+    ae::Ptr<OverlayVersionedWindow> child2 = root->second.Load();
+    CHECK(child1->width == 800);
+    CHECK(child1->posx == 111);
+    CHECK(child2->width == 700);
+    CHECK(child2->posx == 200);
+    CHECK(DirectoryDomainStorageLayerFileExists(user_root, child1_v1));
+    CHECK(!DirectoryDomainStorageLayerFileExists(user_root, child1_v0));
+    CHECK(DirectoryDomainStorageLayerFileExists(user_root, child2_v0));
+    CHECK(!DirectoryDomainStorageLayerFileExists(user_root, child2_v1));
+    CHECK(backing.state == backing_snapshot);
+  }
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -422,6 +594,7 @@ int main() {
   apptraverse::test::TestNativeVersionedObjectUsesMixedSources();
   apptraverse::test::TestUnchangedBackingLayerIsNotMaterialized();
   apptraverse::test::TestDurableVersionedOverlay();
+  apptraverse::test::TestLazyGraphPreservesUnloadedChildren();
   std::cout << "overlay_domain_storage_test OK\n";
   return 0;
 }
