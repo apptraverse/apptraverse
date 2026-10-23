@@ -768,6 +768,18 @@ void RunDistilledLazyOverlayTest() {
     CHECK(first->base.id() == first_base_id);
     CHECK(static_cast<DocNode&>(*first->base).label == "first-compacted");
     CHECK(!root->second.is_loaded());
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        compact_user_root, ae::DomainQuery{first_id, Node::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        compact_user_root, ae::DomainQuery{first_base_id, ae::Obj::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        compact_user_root, ae::DomainQuery{first_base_id, Node::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        compact_user_root, ae::DomainQuery{first_base_id, DocNode::kClassId, 0}));
+    CHECK(CountClassLayersForObject(compact_user_root, second_id.id()) == 0);
+    CHECK(!DirectoryDomainStorageLayerFileExists(
+        compact_user_root, ae::DomainQuery{second_base_id, ae::Obj::kClassId, 0}));
+    CHECK(backing.state == backing_snapshot);
 
     user_storage.BeginSaveSession();
     ae::DomainGraph save_graph{&domain};

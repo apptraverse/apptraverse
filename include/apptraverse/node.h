@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -18,11 +19,26 @@
 #include "apptraverse/event_record.h"
 #include "apptraverse/event_record_publication_seri.h"
 #include "apptraverse/journal_retention_policy.h"
+#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/publication_serialization_scope.h"
 
 namespace apptraverse {
+
+namespace detail {
+
+inline void const* DomainStorageVtable(ae::IDomainStorage const& storage) {
+  return *reinterpret_cast<void const* const*>(&storage);
+}
+
+inline bool IsOverlayDomainStorage(ae::IDomainStorage const& storage) {
+  ae::RamDomainStorage backing;
+  OverlayDomainStorage const probe{backing};
+  return DomainStorageVtable(storage) == DomainStorageVtable(probe);
+}
+
+}  // namespace detail
 
 inline std::uint64_t SystemUtcMicros() {
   using Clock = std::chrono::system_clock;
@@ -376,6 +392,18 @@ class Node : public ae::Obj {
       CaptureBaseStateInto(target);
       generation_ = saved_generation;
       applied_journal_size_ = kJournalFullyMaterialized;
+      if (domain != nullptr &&
+          detail::IsOverlayDomainStorage(domain->domain_storage())) {
+        ae::DomainGraph graph{domain,
+                              ae::GraphSerializationScope::LocalPersistent};
+        graph.force_materialize = true;
+        ae::ObjId const owner_id = obj_id;
+        std::optional<ae::seri::SeriResult> const save_result =
+            graph.Save(static_cast<Node const&>(target), owner_id);
+        if (!save_result || !save_result->IsOk()) {
+          std::abort();
+        }
+      }
       return;
     }
 
