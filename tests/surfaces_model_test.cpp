@@ -2369,7 +2369,9 @@ void TestLibraryAddButtonLabelSerializationRoundtrip() {
   CHECK(loaded_add);
   CHECK(loaded_add->button);
   CHECK(loaded_add->button->label.is_valid());
+  loaded_add->button->label->MaterializeLanguage(0);
   CHECK(loaded_add->button->label->Resolve(0) == "Add");
+  loaded_add->button->label->MaterializeLanguage(1);
   CHECK(loaded_add->button->label->Resolve(1) == "Добавить");
   CHECK(loaded_add->window_presenter);
   CHECK(loaded_add->window_presenter->locale.is_valid());
@@ -2384,6 +2386,7 @@ void TestLibraryAddButtonLabelSerializationRoundtrip() {
   CHECK(loaded_lang);
   CHECK(loaded_lang->button->label.is_valid());
   CHECK(&*loaded_lang->button->label == &*loaded->language_switch_label);
+  loaded->language_switch_label->MaterializeLanguage(0);
   CHECK(loaded_lang->button->label->Resolve(0) == "RU");
   auto loaded_lang_button =
       example::surfaces::SurfacesDemoLanguageButton::ptr{loaded_lang->button};
@@ -2593,6 +2596,29 @@ void TestLocaleCommitAndPersistence() {
       load_domain,
       ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
   CHECK(loaded->locale->language_index() == 1);
+  ui::UiLocalizationString* localized[] = {
+      &*loaded->label_add,
+      &*loaded->label_close,
+      &*loaded->window_title_prefix,
+      &*loaded->language_switch_label,
+  };
+  for (ui::UiLocalizationString* loc : localized) {
+    CHECK(loc->strings.size() >= 2);
+    for (std::size_t slot = 0; slot < 2; ++slot) {
+      CHECK((loc->strings[slot].flags() & ae::ObjFlags::kUnloadedByDefault) !=
+            0);
+      CHECK(!loc->strings[slot].is_loaded());
+      CHECK(!load_domain.Find(loc->strings[slot].id()));
+    }
+  }
+
+  loaded->window_title_prefix->MaterializeLanguage(1);
+  loaded->label_add->MaterializeLanguage(1);
+  CHECK(loaded->window_title_prefix->Resolve(1) == "Поверхность ");
+  CHECK(loaded->label_add->Resolve(1) == "Добавить");
+  CHECK(!loaded->window_title_prefix->strings[0].is_loaded());
+  CHECK(!loaded->label_add->strings[0].is_loaded());
+
   Surface& surface = *loaded->surfaces->surfaces[0];
   CheckAddChromeLocalization(surface, *loaded);
   ae::ObjPtr<ui::UiLocalizationString> add_label;

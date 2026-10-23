@@ -12,9 +12,11 @@ ui::UiLocalizationString::ptr MakeLocalizedString(
   auto localized = ui::UiLocalizationString::ptr::Create(
       ae::CreateWith{domain});
   InitializeRuntimeNode(*localized, surfaces);
-  auto en_string = ui::UiString::ptr::Create(ae::CreateWith{domain});
+  auto en_string = ui::UiString::ptr::Create(
+      ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   en_string->utf8 = en;
-  auto ru_string = ui::UiString::ptr::Create(ae::CreateWith{domain});
+  auto ru_string = ui::UiString::ptr::Create(
+      ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   ru_string->utf8 = ru;
   localized->strings = {en_string, ru_string};
   return localized;
