@@ -9,7 +9,7 @@
 
 **Baseline SHA (верифицированные fixtures / старт tracking):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
-**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, каталоги `state/R`, единый Release config и полный lifecycle **не реализованы**. Итерация **01** — **PASS** *(завершён аудит 01A–01D; код не менялся)*. **Следующий шаг:** итерация **02** — фиксирование каталогов и номеров поставок (не начата).
+**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, единый Release config, resolver и полный lifecycle **не реализованы** в коде. Итерации **01** (аудит) и **02** (layout каталогов в [PLAN.md](./PLAN.md)) — **PASS** *(только документ)*. **Следующий шаг:** итерация **03** — release config и метаданные EXE (не начата).
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -36,8 +36,8 @@ SHA последних связанных коммитов на baseline: `19d7d
 
 ## Ещё не реализовано (целевая архитектура)
 
-- Единый **Release R** и `active-release`
-- Каталоги **`state/0` … `state/5`** как поставки констант
+- Единый **Release R** и `active-release` *(имена layout — **02 PASS** doc; resolver — **08**)*
+- Реализация на диске **`state/user`**, **`state/<R>/`**, **`state/active-release`** *(решение **02**; миграция Surfaces `--state-dir` — **06**+)*
 - Официальные **бинарные дельты** констант (offline → `state/R`)
 - Единый контракт **const vs dynamic** (не через scope Ptr)
 - **Метаданные** встроенной версии / R в EXE (single source of truth)
@@ -159,7 +159,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 | ID | Status | SHA | Tests | Notes |
 | --- | --- | --- | --- | --- |
 | 01 | PASS | — | — | Аудит **01A–01D** (doc only); код не менялся |
-| 02 | TODO | — | — | Имена каталогов, layout |
+| 02 | PASS | — | — | Layout `state/`, `user/`, `<R>/`, `active-release` ([PLAN §02](./PLAN.md#решение-итерации-02--каталоги-и-номера-поставок)); код не менялся |
 | 03 | TODO | — | — | Release config + EXE metadata |
 | 04 | TODO | — | — | Const/dynamic контракт |
 | 05 | TODO | — | — | Distill + lazy в EXE |
@@ -200,5 +200,6 @@ SHA последних связанных коммитов на baseline: `19d7d
 - **2026-10-23** — **01B:** аудит `DirectoryDomainStorage` / `OverlayDomainStorage`; код просмотрен на **`0f46dec`**; doc-only commit отдельно; тесты не запускались.
 - **2026-10-23** — **01C:** аудит const/dynamic и ссылок (Surfaces localization, aether-objects pin **`79283b6`**); код просмотрен на **`1b0e9cb`**; doc-only; тесты не запускались.
 - **2026-10-23** — **01D:** избыточность/очистка; **01 PASS** (аудит 01A–01D завершён, production не менялся); срез **`7dd187f`**; тесты не запускались (SHA — commit этого изменения).
+- **2026-10-23** — **02:** layout каталогов и различие R/S/EXE в [PLAN.md](./PLAN.md); **02 PASS** (doc only); срез документов **`f27617a`**; код/миграция/`--state-dir` не менялись; тесты не запускались (SHA — commit этого изменения).
 
-*(Baseline fixtures: `19d7da6`; итерация 01 — только документальный аудит; реализация release lifecycle с **02**.)*
+*(Baseline fixtures: `19d7da6`; **01–02** — документ; реализация с **03** (config EXE) и **06+** (USER на диске).)*
