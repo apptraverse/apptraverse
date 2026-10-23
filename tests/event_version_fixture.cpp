@@ -14,6 +14,7 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/event_for.h"
+#include "apptraverse/journal_retention_policy.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 
@@ -519,6 +520,15 @@ int Run(int argc, char** argv) {
     return 0;
   }
 
+  if (operation == "compact-zero") {
+    auto doc = LoadDocument(domain);
+    doc->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+    doc->CompactJournal(SystemUtcMicros());
+    SaveDocument(storage, doc);
+    WriteInspect(doc, *domain_storage, "compact-zero");
+    return 0;
+  }
+
 #if APPTRAVERSE_EVENT_VERSION_EXE_REVISION >= 1
   if (operation == "commit-v1") {
     auto doc = LoadDocument(domain);
@@ -536,7 +546,7 @@ int Run(int argc, char** argv) {
   throw std::runtime_error(
       "usage: --state-dir PATH --op "
       "create|inspect|reload|probe-v1-state|replay-from-base|"
-      "replay-from-base-fault|replay-from-base-save|commit-v0|"
+      "replay-from-base-fault|replay-from-base-save|commit-v0|compact-zero|"
       "export-doc-v1-package|export-v1-package|install-doc-v1-from-user|"
       "commit-v1 [--delta N] [--extension-delta N]");
 }

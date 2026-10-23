@@ -153,7 +153,139 @@ def run_overlay_version_roundtrip(a_exe: Path, b_exe: Path, work: Path) -> None:
     assert_tally(reload_g, 3, who="overlay B final reload")
     assert_extension(reload_g, 645, who="overlay B final reload")
     assert_journal_len(reload_g, 2, who="overlay B final reload")
+    if int(reload_g.get("base_tally", -1)) != 0:
+        raise CheckFailed("overlay prepared state base_tally expected 0")
+    if int(reload_g.get("base_extension", -1)) != 640:
+        raise CheckFailed("overlay prepared state base_extension expected 640")
+    events = reload_g.get("events") or []
+    if len(events) != 2:
+        raise CheckFailed("overlay prepared state expected two journal events")
+    if int(events[0]["delta"]) != 1:
+        raise CheckFailed("overlay first event delta expected 1")
+    if int(events[0].get("extension_delta", -1)) != 5:
+        raise CheckFailed("overlay first event extension_delta expected 5")
+    if int(events[1]["delta"]) != 2:
+        raise CheckFailed("overlay second event delta expected 2")
     unchanged(package_snapshot, manifest(package), "overlay PACKAGE unchanged")
+
+    copy_by_b = work / "compact-by-b"
+    copy_by_a = work / "compact-by-a"
+    shutil.copytree(state, copy_by_b)
+    shutil.copytree(state, copy_by_a)
+
+    compact_b = invoke_fixture(
+        b_exe,
+        "B",
+        copy_by_b,
+        "compact-zero",
+        expect_stage="compact-zero",
+        check_storage_unchanged=False,
+    )
+    assert_tally(compact_b, 3, who="B compaction control compact-zero")
+    assert_extension(compact_b, 645, who="B compaction control compact-zero")
+    assert_journal_len(compact_b, 0, who="B compaction control compact-zero")
+    if int(compact_b.get("base_tally", -1)) != 3:
+        raise CheckFailed("B compaction control base_tally expected 3")
+    if int(compact_b.get("base_extension", -1)) != 645:
+        raise CheckFailed("B compaction control base_extension expected 645")
+
+    reload_b_control = invoke_fixture(
+        b_exe, "B", copy_by_b, "reload", expect_stage="reload"
+    )
+    assert_tally(reload_b_control, 3, who="B compaction control reload")
+    assert_extension(reload_b_control, 645, who="B compaction control reload")
+    assert_journal_len(reload_b_control, 0, who="B compaction control reload")
+    if int(reload_b_control.get("base_tally", -1)) != 3:
+        raise CheckFailed("B compaction control reload base_tally expected 3")
+    if int(reload_b_control.get("base_extension", -1)) != 645:
+        raise CheckFailed("B compaction control reload base_extension expected 645")
+
+    user_before_replay_b = manifest(copy_by_b)
+    replay_b_control = invoke_fixture(
+        b_exe, "B", copy_by_b, "replay-from-base-fault"
+    )
+    assert_replay(
+        replay_b_control,
+        who="B compaction control replay",
+        tally=3,
+        journal_len=0,
+        extension=645,
+    )
+    unchanged(
+        user_before_replay_b,
+        manifest(copy_by_b),
+        "B compaction control replay USER",
+    )
+
+    v1_before_a_compact = v1_layer_snapshot(
+        manifest(copy_by_a),
+        doc_id=doc_id,
+        base_id=BASE_ID,
+        doc_class_id=doc_class_id,
+        event_class_id=event_class_id,
+    )
+    compact_a = invoke_fixture(
+        a_exe,
+        "A",
+        copy_by_a,
+        "compact-zero",
+        expect_stage="compact-zero",
+        check_storage_unchanged=False,
+    )
+    assert_tally(compact_a, 3, who="A compact-zero")
+    assert_no_extension_field(compact_a, who="A compact-zero")
+    journal_len_after_a = int(compact_a.get("journal_len", -1))
+    if journal_len_after_a < 0 or journal_len_after_a > 2:
+        raise CheckFailed(
+            f"A compact-zero journal_len out of range: {journal_len_after_a}"
+        )
+    assert_v1_layers_unchanged(
+        v1_before_a_compact,
+        v1_layer_snapshot(
+            manifest(copy_by_a),
+            doc_id=doc_id,
+            base_id=BASE_ID,
+            doc_class_id=doc_class_id,
+            event_class_id=event_class_id,
+        ),
+        context="A compact-zero preserves v1 layer bytes",
+    )
+
+    reload_after_a = invoke_fixture(
+        b_exe, "B", copy_by_a, "reload", expect_stage="reload"
+    )
+    assert_tally(reload_after_a, 3, who="B reload after A compaction")
+    assert_extension(reload_after_a, 645, who="B reload after A compaction")
+    assert_journal_len(
+        reload_after_a, journal_len_after_a, who="B reload after A compaction"
+    )
+
+    user_before_replay_a = manifest(copy_by_a)
+    replay_after_a = invoke_fixture(
+        b_exe, "B", copy_by_a, "replay-from-base-fault"
+    )
+    try:
+        assert_replay(
+            replay_after_a,
+            who="B replay after A compaction",
+            tally=3,
+            journal_len=journal_len_after_a,
+            extension=645,
+        )
+    except CheckFailed as error:
+        raise CheckFailed(
+            f"{error}; A journal_len={journal_len_after_a}; "
+            f"B reload extension={reload_after_a.get('extension')}; "
+            f"base_extension={reload_after_a.get('base_extension')}; "
+            f"replay extension={replay_after_a.get('extension')}; "
+            f"v1_bytes_preserved="
+            f"{v1_before_a_compact == v1_layer_snapshot(manifest(copy_by_a), doc_id=doc_id, base_id=BASE_ID, doc_class_id=doc_class_id, event_class_id=event_class_id)}"
+        ) from error
+    unchanged(
+        user_before_replay_a,
+        manifest(copy_by_a),
+        "B replay after A compaction USER",
+    )
 
 
 def install_v1_layer(state: Path, package: Path, obj_id: int, class_id: int):
