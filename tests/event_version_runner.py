@@ -87,17 +87,21 @@ def invoke_fixture(
     delta: int | None = None,
     extension_delta: int | None = None,
     check_storage_unchanged: bool | None = None,
+    backing_dir: Path | None = None,
 ) -> dict | None:
     if check_storage_unchanged is None:
         check_storage_unchanged = op in READ_ONLY_OPS
     stage = expect_stage if expect_stage is not None else op
     command = [str(exe), "--state-dir", str(state_dir), "--op", op]
+    if backing_dir is not None:
+        command.extend(["--backing-dir", str(backing_dir)])
     if delta is not None:
         command.extend(["--delta", str(delta)])
     if extension_delta is not None:
         command.extend(["--extension-delta", str(extension_delta)])
 
     before = manifest(state_dir) if check_storage_unchanged else None
+    backing_before = manifest(backing_dir) if backing_dir is not None else None
     try:
         proc = subprocess.run(
             command,
@@ -126,6 +130,12 @@ def invoke_fixture(
     if check_storage_unchanged:
         after = manifest(state_dir)
         unchanged(before, after, f"{exe_rev} {op} read-only storage")
+    if backing_dir is not None:
+        unchanged(
+            backing_before,
+            manifest(backing_dir),
+            f"{exe_rev} {op} backing storage",
+        )
     return record
 
 

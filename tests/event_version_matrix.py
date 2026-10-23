@@ -7,7 +7,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from application_evolution_matrix import CheckFailed, digest, manifest
+from application_evolution_matrix import CheckFailed, digest, manifest, unchanged
 from event_version_runner import (
     assert_baseline_doc_only_v1_replay,
     assert_v1_layers_unchanged,
@@ -28,6 +28,132 @@ from event_version_storage_checks import (
 )
 
 BASE_ID = 94002
+
+
+def run_overlay_version_roundtrip(a_exe: Path, b_exe: Path, work: Path) -> None:
+    state = work / "user"
+    package = work / "package"
+    state.mkdir()
+    package.mkdir()
+
+    a_create = invoke_fixture(
+        a_exe, "A", state, "create", expect_stage="create"
+    )
+    doc_id = int(a_create["document_id"])
+    doc_class_id = int(a_create["document_class_id"])
+    event_class_id = int(a_create["event_class_id"])
+    assert_tally(a_create, 0, who="overlay A create")
+    assert_journal_len(a_create, 0, who="overlay A create")
+    user_after_create = manifest(state)
+    if f"{doc_id}/{doc_class_id}/1" in user_after_create:
+        raise CheckFailed("overlay A create: document v1 must not be in USER")
+    if f"{BASE_ID}/{doc_class_id}/1" in user_after_create:
+        raise CheckFailed("overlay A create: base v1 must not be in USER")
+
+    invoke_fixture(
+        b_exe,
+        "B",
+        package,
+        "export-v1-package",
+        expect_stage="export-v1-package",
+        check_storage_unchanged=False,
+    )
+    package_snapshot = manifest(package)
+
+    user_before_inspect = manifest(state)
+    inspect_c = invoke_fixture(
+        b_exe,
+        "B",
+        state,
+        "inspect",
+        backing_dir=package,
+    )
+    assert_tally(inspect_c, 0, who="overlay B inspect with backing")
+    assert_extension(inspect_c, 640, who="overlay B inspect with backing")
+    assert_journal_len(inspect_c, 0, who="overlay B inspect with backing")
+    if int(inspect_c.get("base_extension", -1)) != 640:
+        raise CheckFailed("overlay B inspect base_extension expected 640")
+    unchanged(user_before_inspect, manifest(state), "overlay B inspect USER")
+    user_after_inspect = manifest(state)
+    if f"{doc_id}/{doc_class_id}/1" in user_after_inspect:
+        raise CheckFailed("overlay B inspect: document v1 must not be in USER")
+    if f"{BASE_ID}/{doc_class_id}/1" in user_after_inspect:
+        raise CheckFailed("overlay B inspect: base v1 must not be in USER")
+
+    commit_d = invoke_fixture(
+        b_exe,
+        "B",
+        state,
+        "commit-v1",
+        delta=1,
+        extension_delta=5,
+        backing_dir=package,
+        check_storage_unchanged=False,
+    )
+    assert_tally(commit_d, 1, who="overlay B commit-v1")
+    assert_extension(commit_d, 645, who="overlay B commit-v1")
+    assert_journal_len(commit_d, 1, who="overlay B commit-v1")
+    event_id = int(commit_d["events"][0]["event_id"])
+    user_after_commit = manifest(state)
+    for key in (
+        f"{doc_id}/{doc_class_id}/1",
+        f"{BASE_ID}/{doc_class_id}/1",
+        f"{event_id}/{event_class_id}/1",
+    ):
+        if key not in user_after_commit:
+            raise CheckFailed(f"overlay B commit-v1: missing USER layer {key}")
+
+    inspect_d = invoke_fixture(b_exe, "B", state, "inspect")
+    assert_tally(inspect_d, 1, who="overlay B inspect after commit")
+    assert_extension(inspect_d, 645, who="overlay B inspect after commit")
+    if int(inspect_d.get("base_extension", -1)) != 640:
+        raise CheckFailed("overlay B inspect after commit base_extension expected 640")
+    assert_journal_len(inspect_d, 1, who="overlay B inspect after commit")
+
+    v1_before_a = v1_layer_snapshot(
+        user_after_commit,
+        doc_id=doc_id,
+        base_id=BASE_ID,
+        doc_class_id=doc_class_id,
+        event_class_id=event_class_id,
+    )
+
+    commit_e = invoke_fixture(
+        a_exe, "A", state, "commit-v0", delta=2, check_storage_unchanged=False
+    )
+    assert_tally(commit_e, 3, who="overlay A commit-v0")
+    assert_journal_len(commit_e, 2, who="overlay A commit-v0")
+    assert_no_extension_field(commit_e, who="overlay A commit-v0")
+    assert_v1_layers_unchanged(
+        v1_before_a,
+        v1_layer_snapshot(
+            manifest(state),
+            doc_id=doc_id,
+            base_id=BASE_ID,
+            doc_class_id=doc_class_id,
+            event_class_id=event_class_id,
+        ),
+        context="overlay A commit-v0 preserves v1 layers",
+    )
+
+    user_before_fault = manifest(state)
+    fault_f = invoke_fixture(b_exe, "B", state, "replay-from-base-fault")
+    assert_replay(
+        fault_f,
+        who="overlay B replay-from-base-fault",
+        tally=3,
+        journal_len=2,
+        extension=645,
+    )
+    if int(fault_f.get("base_extension", -1)) != 640:
+        raise CheckFailed("overlay B fault replay base_extension expected 640")
+    unchanged(user_before_fault, manifest(state), "overlay B fault replay USER")
+
+    reload_g = invoke_fixture(b_exe, "B", state, "reload")
+    assert_tally(reload_g, 3, who="overlay B final reload")
+    assert_extension(reload_g, 645, who="overlay B final reload")
+    assert_journal_len(reload_g, 2, who="overlay B final reload")
+    unchanged(package_snapshot, manifest(package), "overlay PACKAGE unchanged")
 
 
 def install_v1_layer(state: Path, package: Path, obj_id: int, class_id: int):
@@ -299,6 +425,10 @@ def main():
     if event_versions(manifest(state), first_event_id, event_class_id) != {0, 1}:
         raise CheckFailed("first v1 event layers must remain after replay roundtrip")
 
+    overlay_work = root / "overlay-roundtrip"
+    overlay_work.mkdir()
+    run_overlay_version_roundtrip(args.a, args.b, overlay_work)
+
     print(
         json.dumps(
             {
@@ -309,6 +439,7 @@ def main():
                 "event_class_id": event_class_id,
                 "save_load": "PASS",
                 "replay": "PASS",
+                "overlay_roundtrip": "PASS",
                 "final_tally": 17,
                 "final_extension": 645,
                 "journal_len": 5,

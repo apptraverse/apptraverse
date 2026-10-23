@@ -1,15 +1,18 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/idomain_storage.h"
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
@@ -188,7 +191,7 @@ void WriteBaseFields(std::ostream& out, VersionProbeDocument::ptr const& base) {
 }
 
 void WriteInspect(VersionProbeDocument::ptr const& doc,
-                  DirectoryDomainStorage& storage, std::string_view stage) {
+                  ae::IDomainStorage& storage, std::string_view stage) {
   auto base = VersionProbeDocument::ptr{doc->base};
   if (base.is_valid() && !base.is_loaded()) {
     base.Load();
@@ -355,6 +358,7 @@ bool RunReplayFromBase(VersionProbeDocument::ptr const& doc, bool fault_inject,
 
 int Run(int argc, char** argv) {
   std::filesystem::path state_dir;
+  std::filesystem::path backing_dir;
   std::string operation;
   std::int32_t delta = 0;
   std::int32_t extension_delta = 0;
@@ -363,6 +367,8 @@ int Run(int argc, char** argv) {
     std::string_view const argument{argv[i]};
     if (argument == "--state-dir" && i + 1 < argc) {
       state_dir = argv[++i];
+    } else if (argument == "--backing-dir" && i + 1 < argc) {
+      backing_dir = argv[++i];
     } else if (argument == "--op" && i + 1 < argc) {
       operation = argv[++i];
     } else if (argument == "--delta" && i + 1 < argc) {
@@ -380,7 +386,17 @@ int Run(int argc, char** argv) {
 
   EnsureRegistration();
   DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
+  std::unique_ptr<DirectoryDomainStorage> backing_storage;
+  std::unique_ptr<OverlayDomainStorage> overlay;
+  ae::IDomainStorage* domain_storage = &storage;
+  if (!backing_dir.empty()) {
+    backing_storage =
+        std::make_unique<DirectoryDomainStorage>(backing_dir);
+    overlay = std::make_unique<OverlayDomainStorage>(
+        storage, *backing_storage);
+    domain_storage = overlay.get();
+  }
+  ae::Domain domain{*domain_storage};
 
   if (operation == "create") {
     RequireEmptyStateDir(state_dir);
