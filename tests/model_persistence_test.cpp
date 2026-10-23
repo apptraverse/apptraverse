@@ -7,10 +7,15 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/obj.h"
 
+#include "aether-objects/obj/domain.h"
+
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/distill.h"
 #include "apptraverse/journal_retention_policy.h"
 #include "apptraverse/model_persistence.h"
+#include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/partitioned_model_domain_storage.h"
 #include "apptraverse/runtime_lifecycle.h"
 #include "apptraverse/runtime_node.h"
@@ -87,9 +92,36 @@ class DocChangedEvent : public EventFor<DocNode, DocChangedEvent> {
   std::string label;
 };
 
+class LazyDistilledRoot : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::LazyDistilledRoot",
+                           LazyDistilledRoot, ae::Obj, 0)
+
+ protected:
+  LazyDistilledRoot() = default;
+
+ public:
+  explicit LazyDistilledRoot(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(first), AE_MMBR(second))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, first, second);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, first, second);
+  }
+
+  DocNode::ptr first;
+  DocNode::ptr second;
+};
+
 APPTRAVERSE_REGISTER(DocNode);
 APPTRAVERSE_REGISTER(DocChildNode);
 APPTRAVERSE_REGISTER(DocChangedEvent);
+APPTRAVERSE_REGISTER(LazyDistilledRoot);
 
 void DocNode::Apply(DocChangedEvent const& event) {
   label = event.label;
@@ -389,13 +421,181 @@ void RunCheckpointSidecarStorageEquivalenceTest() {
   std::filesystem::remove_all(temp, ec);
 }
 
+void RunDistilledLazyOverlayTest() {
+  std::filesystem::path const user_root =
+      std::filesystem::temp_directory_path() /
+      "apptraverse_distilled_lazy_overlay_user_state";
+  std::filesystem::remove_all(user_root);
+
+  ae::RamDomainStorage backing;
+  ae::ObjId const root_id{43000};
+  ae::ObjId const first_id{43001};
+  ae::ObjId const second_id{43002};
+  ae::DomainQuery const first_doc_v0{first_id, DocNode::kClassId, 0};
+  ae::DomainQuery const second_doc_v0{second_id, DocNode::kClassId, 0};
+
+  ae::ObjId first_base_id{};
+  ae::ObjId second_base_id{};
+
+  {
+    ae::Domain domain{backing};
+    LazyDistilledRoot::ptr root_ref =
+        LazyDistilledRoot::ptr::Create(ae::CreateWith{domain}.with_id(root_id));
+    ae::Ptr<LazyDistilledRoot> root = root_ref.Load();
+    DocNode::ptr first_ref = DocNode::ptr::Create(
+        ae::CreateWith{domain}
+            .with_id(first_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    ae::Ptr<DocNode> first = first_ref.Load();
+    first->label = "first-initial";
+    DocNode::ptr second_ref = DocNode::ptr::Create(
+        ae::CreateWith{domain}
+            .with_id(second_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    ae::Ptr<DocNode> second = second_ref.Load();
+    second->label = "second-initial";
+    root->first = first_ref;
+    root->second = second_ref;
+
+    FinalizeDistilledGraph(*root);
+    CHECK(first->base.is_valid());
+    CHECK(first->base.is_loaded());
+    CHECK(first->journal.empty());
+    CHECK(second->base.is_valid());
+    CHECK(second->base.is_loaded());
+    CHECK(second->journal.empty());
+    first_base_id = first->base->obj_id;
+    second_base_id = second->base->obj_id;
+
+    SaveDistilledRoot(*root);
+
+    CHECK(backing.state.count(root_id) == 1);
+    CHECK(backing.state.count(first_id) == 1);
+    CHECK(backing.state.count(second_id) == 1);
+    CHECK(backing.state.count(first_base_id) == 1);
+    CHECK(backing.state.count(second_base_id) == 1);
+    CHECK(backing.state.at(root_id)->count(LazyDistilledRoot::kClassId) == 1);
+    CHECK(backing.state.at(first_id)->count(DocNode::kClassId) == 1);
+    CHECK(backing.state.at(second_id)->count(DocNode::kClassId) == 1);
+    CHECK(backing.state.at(first_base_id)->count(Node::kClassId) == 1);
+    CHECK(backing.state.at(second_base_id)->count(Node::kClassId) == 1);
+  }
+
+  ae::RamDomainStorage::ObjClassData const backing_snapshot = backing.state;
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(root_id, loaded).IsOk());
+    ae::Ptr<LazyDistilledRoot> root{loaded};
+    CHECK(root->first.id() == first_id);
+    CHECK(root->second.id() == second_id);
+    CHECK(!root->first.is_loaded());
+    CHECK(!root->second.is_loaded());
+
+    ae::Ptr<DocNode> first = root->first.Load();
+    CHECK(first->label == "first-initial");
+    CHECK(first->base.is_valid());
+    CHECK(first->journal.empty());
+
+    auto event = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
+    event->label = "first-updated";
+    first->Commit(event);
+    CHECK(first->label == "first-updated");
+    CHECK(first->journal.size() == 1);
+    CHECK(!root->second.is_loaded());
+
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(root, root_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
+    CHECK(DirectoryDomainStorageLayerFileExists(user_root, first_doc_v0));
+    CHECK(CountClassLayersForObject(user_root, second_id.id()) == 0);
+    CHECK(root->second.id() == second_id);
+    CHECK(backing.state == backing_snapshot);
+  }
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(root_id, loaded).IsOk());
+    ae::Ptr<LazyDistilledRoot> root{loaded};
+    CHECK(!root->first.is_loaded());
+    CHECK(!root->second.is_loaded());
+
+    ae::Ptr<DocNode> second = root->second.Load();
+    CHECK(second->label == "second-initial");
+    CHECK(second->base.is_valid());
+    CHECK(second->journal.empty());
+
+    auto event = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
+    event->label = "second-updated";
+    second->Commit(event);
+    CHECK(second->journal.size() == 1);
+
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(root, root_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
+    CHECK(!root->first.is_loaded());
+    CHECK(DirectoryDomainStorageLayerFileExists(user_root, first_doc_v0));
+    CHECK(DirectoryDomainStorageLayerFileExists(user_root, second_doc_v0));
+    CHECK(backing.state == backing_snapshot);
+  }
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(root_id, loaded).IsOk());
+    ae::Ptr<LazyDistilledRoot> root{loaded};
+    CHECK(root->first.id() == first_id);
+    CHECK(root->second.id() == second_id);
+    CHECK(!root->first.is_loaded());
+    CHECK(!root->second.is_loaded());
+
+    ae::Ptr<DocNode> first = root->first.Load();
+    ae::Ptr<DocNode> second = root->second.Load();
+    CHECK(first->label == "first-updated");
+    CHECK(second->label == "second-updated");
+    CHECK(first->journal.size() == 1);
+    CHECK(second->journal.size() == 1);
+    CHECK(first->base.is_valid());
+    CHECK(first->base.is_loaded());
+    CHECK(second->base.is_valid());
+    CHECK(second->base.is_loaded());
+    CHECK(first->obj_id == first_id);
+    CHECK(second->obj_id == second_id);
+
+    first->label = "stale-first";
+    CHECK(first->TryReplayFromBase());
+    CHECK(first->label == "first-updated");
+    second->label = "stale-second";
+    CHECK(second->TryReplayFromBase());
+    CHECK(second->label == "second-updated");
+    CHECK(backing.state == backing_snapshot);
+  }
+
+  std::filesystem::remove_all(user_root);
+}
+
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::RunModelPersistenceTest();
   apptraverse::test::RunSaveToStorageDoesNotMutateLiveGraphTest();
   apptraverse::test::RunSaveToStorageColdDirectoryRoundTripTest();
   apptraverse::test::RunPersistentJournalCheckpointRoundTripTest();
   apptraverse::test::RunCheckpointSidecarStorageEquivalenceTest();
+  apptraverse::test::RunDistilledLazyOverlayTest();
   return 0;
 }
