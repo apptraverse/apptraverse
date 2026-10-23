@@ -16,6 +16,7 @@ int main() { return 0; }
 #include "apptraverse/platform/windows/win_ui_native_push_button.h"
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/platform/windows/win_presentation_host.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
@@ -54,6 +55,8 @@ class PushButtonRoutingRoot : public NodeFor<PushButtonRoutingRoot> {
   PushButtonRoutingRoot() = default;
 
  public:
+  using Node::NoteMaterializedChange;
+
   explicit PushButtonRoutingRoot(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(window_presenter),
@@ -726,7 +729,40 @@ void TestLazyDesktopWindowNativeLifecycle() {
   auto ui_root = PushButtonRoutingRoot::ptr::MakeFromThis(
       static_cast<PushButtonRoutingRoot*>(ui_root_obj.get()));
 
-  InitializePresenters(*ui_root, nullptr, &proxy);
+  ui::windows::WinPresentationHost host{};
+  int desktop_user_close_count = 0;
+  ae::ObjId desktop_user_close_window_id{};
+  struct {
+    int* close_count;
+    ae::ObjId* close_window_id;
+    ModelObjectProxy* proxy;
+    ae::ObjId root_id;
+    ae::ObjId expected_window_id;
+  } close_opaque{&desktop_user_close_count, &desktop_user_close_window_id,
+                 &proxy, root_id, window_id};
+  host.opaque = &close_opaque;
+  host.on_desktop_window_user_close = [](void* opaque, ae::Obj* desktop_window) {
+    auto& op = *static_cast<decltype(close_opaque)*>(opaque);
+    ++(*op.close_count);
+    *op.close_window_id = desktop_window->obj_id;
+    op.proxy->EnqueueModelWork(
+        [root_id = op.root_id, window_id = desktop_window->obj_id](
+            ae::Domain& domain) {
+          auto root_obj = domain.Find(root_id);
+          CHECK(root_obj);
+          auto* root = root_obj.as<PushButtonRoutingRoot>();
+          CHECK(root->window.id() == window_id);
+          root->button_presenter.Save();
+          root->window.Save();
+          root->window_presenter.Save();
+          root->button_presenter.Reset();
+          root->window_presenter.Reset();
+          root->window.Reset();
+          root->NoteMaterializedChange();
+        });
+  };
+
+  InitializePresenters(*ui_root, &host, &proxy);
 
   auto* ui_desktop = ui_root->window_presenter.operator->();
   HWND const first_hwnd = ui_desktop->hwnd();
@@ -786,19 +822,18 @@ void TestLazyDesktopWindowNativeLifecycle() {
     disable_in.data = disable_sink.bytes.data();
     disable_in.size = disable_sink.bytes.size();
     ApplyStructuralPublicationAndUpdatePresenters(
-        disable_in, ui_domain, ui_storage, *ui_root, nullptr, &proxy);
+        disable_in, ui_domain, ui_storage, *ui_root, &host, &proxy);
   }
   CHECK(IsWindowEnabled(first_button_hwnd) == FALSE);
   int const proxy_before_disabled_click = proxy_invoke_count;
   SendMessageW(first_button_hwnd, BM_CLICK, 0, 0);
   CHECK(proxy_invoke_count == proxy_before_disabled_click);
 
-  model_root->button_presenter.Save();
-  model_root->window.Save();
-  model_root->window_presenter.Save();
-  model_root->button_presenter.Reset();
-  model_root->window_presenter.Reset();
-  model_root->window.Reset();
+  int const proxy_before_wm_close = proxy_invoke_count;
+  SendMessageW(first_hwnd, WM_CLOSE, 0, 0);
+  CHECK(desktop_user_close_count == 1);
+  CHECK(desktop_user_close_window_id == window_id);
+  CHECK(proxy_invoke_count == proxy_before_wm_close + 1);
   CHECK(model_root->window.is_valid());
   CHECK(model_root->window_presenter.is_valid());
   CHECK(model_root->button_presenter.is_valid());
@@ -809,6 +844,8 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(!model_domain.Find(presenter_id));
   CHECK(!model_domain.Find(button_id));
   CHECK(!model_domain.Find(button_presenter_id));
+  CHECK(IsWindow(first_hwnd) != 0);
+  CHECK(IsWindow(first_button_hwnd) != 0);
 
   ByteSink unload_sink;
   SerializeStructuralNodePublication(*model_root, unload_sink);
@@ -817,8 +854,9 @@ void TestLazyDesktopWindowNativeLifecycle() {
   unload_in.size = unload_sink.bytes.size();
   int const proxy_before_unload_apply = proxy_invoke_count;
   ApplyStructuralPublicationAndUpdatePresenters(unload_in, ui_domain, ui_storage,
-                                                *ui_root, nullptr, &proxy);
+                                                *ui_root, &host, &proxy);
   CHECK(proxy_invoke_count == proxy_before_unload_apply);
+  CHECK(desktop_user_close_count == 1);
 
   CHECK(IsWindow(first_hwnd) == 0);
   CHECK(IsWindow(first_button_hwnd) == 0);
@@ -850,7 +888,7 @@ void TestLazyDesktopWindowNativeLifecycle() {
   reload_in.data = reload_sink.bytes.data();
   reload_in.size = reload_sink.bytes.size();
   ApplyStructuralPublicationAndUpdatePresenters(reload_in, ui_domain, ui_storage,
-                                                *ui_root, nullptr, &proxy);
+                                                *ui_root, &host, &proxy);
 
   ui_desktop = ui_root->window_presenter.operator->();
   HWND const second_hwnd = ui_desktop->hwnd();
@@ -900,7 +938,7 @@ void TestLazyDesktopWindowNativeLifecycle() {
     enable_in.data = enable_sink.bytes.data();
     enable_in.size = enable_sink.bytes.size();
     ApplyStructuralPublicationAndUpdatePresenters(
-        enable_in, ui_domain, ui_storage, *ui_root, nullptr, &proxy);
+        enable_in, ui_domain, ui_storage, *ui_root, &host, &proxy);
   }
   CHECK(IsWindowEnabled(second_button_hwnd) != FALSE);
   int const proxy_before_enabled_click = proxy_invoke_count;
