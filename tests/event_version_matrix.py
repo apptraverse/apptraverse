@@ -330,6 +330,188 @@ def run_overlay_version_roundtrip(a_exe: Path, b_exe: Path, work: Path) -> None:
         "A v0 compact control replay USER",
     )
 
+    overlay_state_snapshot = manifest(state)
+    prefix_user = work / "known-prefix-newer-event"
+    prefix_user.mkdir()
+    invoke_fixture(a_exe, "A", prefix_user, "create", expect_stage="create")
+    invoke_fixture(
+        a_exe,
+        "A",
+        prefix_user,
+        "commit-v0",
+        delta=10,
+        check_storage_unchanged=False,
+    )
+    invoke_fixture(
+        a_exe,
+        "A",
+        prefix_user,
+        "commit-v0",
+        delta=1,
+        check_storage_unchanged=False,
+    )
+    commit_three = invoke_fixture(
+        a_exe,
+        "A",
+        prefix_user,
+        "commit-v0",
+        delta=2,
+        check_storage_unchanged=False,
+    )
+    assert_tally(commit_three, 13, who="known-prefix last commit")
+    assert_journal_len(commit_three, 3, who="known-prefix last commit")
+    if int(commit_three.get("base_tally", -1)) != 0:
+        raise CheckFailed("known-prefix prepare base_tally expected 0")
+    prefix_events = commit_three.get("events") or []
+    if len(prefix_events) != 3:
+        raise CheckFailed("known-prefix prepare expected three journal events")
+    prefix_event_ids = [int(entry["event_id"]) for entry in prefix_events]
+    if [int(entry["delta"]) for entry in prefix_events] != [10, 1, 2]:
+        raise CheckFailed("known-prefix prepare event deltas expected [10, 1, 2]")
+
+    doc_v1_rel = Path(str(doc_id)) / str(doc_class_id) / "1"
+    base_v1_rel = Path(str(BASE_ID)) / str(doc_class_id) / "1"
+    event_v1_src = Path(str(event_id)) / str(event_class_id) / "1"
+    event_v1_dst = (
+        Path(str(prefix_event_ids[1])) / str(event_class_id) / "1"
+    )
+    shutil.copyfile(state / doc_v1_rel, prefix_user / doc_v1_rel)
+    shutil.copyfile(state / base_v1_rel, prefix_user / base_v1_rel)
+    (prefix_user / event_v1_dst.parent).mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(state / event_v1_src, prefix_user / event_v1_dst)
+
+    prefix_manifest = manifest(prefix_user)
+    if event_versions(prefix_manifest, prefix_event_ids[0], event_class_id) != {0}:
+        raise CheckFailed("known-prefix first event versions expected {0}")
+    if event_versions(prefix_manifest, prefix_event_ids[1], event_class_id) != {
+        0,
+        1,
+    }:
+        raise CheckFailed("known-prefix second event versions expected {0, 1}")
+    if event_versions(prefix_manifest, prefix_event_ids[2], event_class_id) != {0}:
+        raise CheckFailed("known-prefix third event versions expected {0}")
+
+    inspect_prefix = invoke_fixture(b_exe, "B", prefix_user, "inspect")
+    assert_tally(inspect_prefix, 13, who="known-prefix B inspect")
+    assert_extension(inspect_prefix, 645, who="known-prefix B inspect")
+    assert_journal_len(inspect_prefix, 3, who="known-prefix B inspect")
+    if int(inspect_prefix.get("base_tally", -1)) != 0:
+        raise CheckFailed("known-prefix B inspect base_tally expected 0")
+    if int(inspect_prefix.get("base_extension", -1)) != 640:
+        raise CheckFailed("known-prefix B inspect base_extension expected 640")
+    inspect_events = inspect_prefix.get("events") or []
+    if [int(entry["event_id"]) for entry in inspect_events] != prefix_event_ids:
+        raise CheckFailed("known-prefix B inspect event order changed")
+    if int(inspect_events[1].get("extension_delta", -1)) != 5:
+        raise CheckFailed("known-prefix B inspect second event extension_delta expected 5")
+
+    v1_before_prefix_compact = v1_layer_snapshot(
+        manifest(prefix_user),
+        doc_id=doc_id,
+        base_id=BASE_ID,
+        doc_class_id=doc_class_id,
+        event_class_id=event_class_id,
+    )
+
+    compact_prefix_a = invoke_fixture(
+        a_exe,
+        "A",
+        prefix_user,
+        "compact-zero",
+        expect_stage="compact-zero",
+        check_storage_unchanged=False,
+    )
+    assert_tally(compact_prefix_a, 13, who="known-prefix A compact-zero")
+    assert_no_extension_field(compact_prefix_a, who="known-prefix A compact-zero")
+    assert_journal_len(compact_prefix_a, 2, who="known-prefix A compact-zero")
+    if int(compact_prefix_a.get("base_tally", -1)) != 10:
+        raise CheckFailed("known-prefix A compact-zero base_tally expected 10")
+    compact_events = compact_prefix_a.get("events") or []
+    if len(compact_events) != 2:
+        raise CheckFailed("known-prefix A compact-zero expected two journal events")
+    if [int(entry["event_id"]) for entry in compact_events] != prefix_event_ids[1:]:
+        raise CheckFailed("known-prefix A compact-zero retained wrong events")
+    if [int(entry["delta"]) for entry in compact_events] != [1, 2]:
+        raise CheckFailed("known-prefix A compact-zero retained event deltas expected [1, 2]")
+    assert_v1_layers_unchanged(
+        v1_before_prefix_compact,
+        v1_layer_snapshot(
+            manifest(prefix_user),
+            doc_id=doc_id,
+            base_id=BASE_ID,
+            doc_class_id=doc_class_id,
+            event_class_id=event_class_id,
+        ),
+        context="known-prefix A compact-zero preserves v1 layer bytes",
+    )
+
+    reload_prefix = invoke_fixture(
+        b_exe, "B", prefix_user, "reload", expect_stage="reload"
+    )
+    assert_tally(reload_prefix, 13, who="known-prefix B reload after A compact")
+    assert_extension(reload_prefix, 645, who="known-prefix B reload after A compact")
+    assert_journal_len(reload_prefix, 2, who="known-prefix B reload after A compact")
+    if int(reload_prefix.get("base_tally", -1)) != 10:
+        raise CheckFailed("known-prefix B reload base_tally expected 10")
+    if int(reload_prefix.get("base_extension", -1)) != 640:
+        raise CheckFailed("known-prefix B reload base_extension expected 640")
+    reload_events = reload_prefix.get("events") or []
+    if [int(entry["event_id"]) for entry in reload_events] != prefix_event_ids[1:]:
+        raise CheckFailed("known-prefix B reload event order changed")
+
+    user_before_prefix_replay = manifest(prefix_user)
+    replay_prefix = invoke_fixture(
+        b_exe, "B", prefix_user, "replay-from-base-fault"
+    )
+    assert_replay(
+        replay_prefix,
+        who="known-prefix B replay after A compact",
+        tally=13,
+        journal_len=2,
+        extension=645,
+    )
+    unchanged(
+        user_before_prefix_replay,
+        manifest(prefix_user),
+        "known-prefix B replay after A compact USER",
+    )
+
+    compact_prefix_b = invoke_fixture(
+        b_exe,
+        "B",
+        prefix_user,
+        "compact-zero",
+        expect_stage="compact-zero",
+        check_storage_unchanged=False,
+    )
+    assert_tally(compact_prefix_b, 13, who="known-prefix B compact-zero")
+    assert_extension(compact_prefix_b, 645, who="known-prefix B compact-zero")
+    assert_journal_len(compact_prefix_b, 0, who="known-prefix B compact-zero")
+    if int(compact_prefix_b.get("base_tally", -1)) != 13:
+        raise CheckFailed("known-prefix B compact-zero base_tally expected 13")
+    if int(compact_prefix_b.get("base_extension", -1)) != 645:
+        raise CheckFailed("known-prefix B compact-zero base_extension expected 645")
+
+    user_before_prefix_final_replay = manifest(prefix_user)
+    replay_prefix_final = invoke_fixture(
+        b_exe, "B", prefix_user, "replay-from-base-fault"
+    )
+    assert_replay(
+        replay_prefix_final,
+        who="known-prefix B final replay",
+        tally=13,
+        journal_len=0,
+        extension=645,
+    )
+    unchanged(
+        user_before_prefix_final_replay,
+        manifest(prefix_user),
+        "known-prefix B final replay USER",
+    )
+
+    unchanged(overlay_state_snapshot, manifest(state), "overlay state after prefix block")
+    unchanged(package_snapshot, manifest(package), "overlay PACKAGE after prefix block")
+
 
 def install_v1_layer(state: Path, package: Path, obj_id: int, class_id: int):
     rel = Path(str(obj_id)) / str(class_id) / "1"
