@@ -406,6 +406,31 @@ void TestWindowLazyStateRoundtrip() {
     CHECK(!window_b.is_loaded());
     CHECK(!domain.Find(window_b_id));
 
+    ae::RamDomainStorage ui_storage;
+    ae::Domain ui_domain{ui_storage};
+    ByteSink initial_sink;
+    SerializeInitialPublication(*window_a, initial_sink);
+    ByteSource initial_in;
+    initial_in.data = initial_sink.bytes.data();
+    initial_in.size = initial_sink.bytes.size();
+    auto ui_root_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+    CHECK(ui_root_obj);
+    auto ui_a = UiWindow::ptr::MakeFromThis(
+        static_cast<UiWindow*>(ui_root_obj.get()));
+    UiWindow* const ui_a_object = &*ui_a;
+    CHECK(ui_a->obj_id == window_a_id);
+    CHECK(ui_a->client_width() == 640);
+    CHECK(ui_a->client_height() == 480);
+    CHECK(!ui_a->base.is_valid());
+    CHECK(ui_a->journal.empty());
+    CHECK(!ui_storage.Enumerate(window_a_id).empty());
+    CHECK(ui_storage.Enumerate(window_a_base_id).empty());
+    CHECK(ui_storage.Enumerate(window_a_event0_id).empty());
+    CHECK(ui_storage.Enumerate(window_b_id).empty());
+    CHECK(window_a->journal.size() == 1);
+    CHECK(!window_b.is_loaded());
+    CHECK(!domain.Find(window_b_id));
+
     auto const journal_before = window_a->journal.size();
     auto resize = SetUiWindowClientSizeEvent::ptr::Create(
         ae::CreateWith{domain});
@@ -413,6 +438,33 @@ void TestWindowLazyStateRoundtrip() {
     resize->height = 530;
     window_a->Commit(std::move(resize));
     CHECK(window_a->journal.size() == journal_before + 1);
+
+    ae::ObjId const window_a_event1_id = window_a->journal[1].event->obj_id;
+    auto const model_generation = window_a->Generation();
+
+    ByteSink structural_sink;
+    SerializeStructuralNodePublication(*window_a, structural_sink);
+    ByteSource structural_in;
+    structural_in.data = structural_sink.bytes.data();
+    structural_in.size = structural_sink.bytes.size();
+    ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
+
+    CHECK(&*ui_a == ui_a_object);
+    CHECK(ui_a->obj_id == window_a_id);
+    CHECK(ui_a->client_width() == 740);
+    CHECK(ui_a->client_height() == 530);
+    CHECK(ui_a->Generation() == model_generation);
+    CHECK(!ui_a->base.is_valid());
+    CHECK(ui_a->journal.empty());
+    CHECK(ui_storage.Enumerate(window_a_base_id).empty());
+    CHECK(ui_storage.Enumerate(window_a_event0_id).empty());
+    CHECK(ui_storage.Enumerate(window_a_event1_id).empty());
+    CHECK(ui_storage.Enumerate(window_b_id).empty());
+    CHECK(window_a->journal.size() == 2);
+    CHECK(window_a->journal[0].event->obj_id == window_a_event0_id);
+    CHECK(window_a->journal[1].event->obj_id == window_a_event1_id);
+    CHECK(!window_b.is_loaded());
+    CHECK(!domain.Find(window_b_id));
 
     window_a.Save();
     window_a.Reset();
