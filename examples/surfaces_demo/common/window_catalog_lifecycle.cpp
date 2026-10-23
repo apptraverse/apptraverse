@@ -83,6 +83,8 @@ void WindowCatalogModelSession::Run(
     DirectoryDomainStorage durable_storage{state_dir};
     ae::Domain domain{durable_storage};
     auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootId());
+    EnsureCatalogButtonCatalogLinks(*catalog);
+    EnsureWindowCatalogControlLinks(*catalog);
     RepairWindowCatalogEmbeddedStrings(*catalog);
     int const language =
         catalog->locale ? catalog->locale->language_index() : 0;

@@ -167,6 +167,22 @@ void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
   SaveWindowCatalogPersistentSnapshotImpl(catalog);
 }
 
+void EnsureCatalogButtonCatalogLinks(WindowCatalog& catalog) {
+  auto load_button = [](ae::ObjPtr<ui::UiPushButton>& btn) {
+    if (btn.is_valid() && !btn.is_loaded()) {
+      btn.Load();
+    }
+  };
+  load_button(catalog.buttons.add_button);
+  load_button(catalog.buttons.open_button);
+  load_button(catalog.buttons.delete_button);
+  load_button(catalog.buttons.language_button);
+  if (catalog.list && catalog.list->catalog.is_valid() &&
+      !catalog.list->catalog.is_loaded()) {
+    catalog.list->catalog.Load();
+  }
+}
+
 void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
   if (!catalog.list) {
     return;
@@ -211,6 +227,8 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
 void WindowCatalog::Apply(AddWindowCatalogEntryEvent const& event) {
   list->rows.push_back(event.holder);
   ++next_window_number;
+  int const language = locale ? locale->language_index() : 0;
+  MaterializeHolderListText(*event.holder, language);
   NoteMaterializedChange();
 }
 

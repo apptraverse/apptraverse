@@ -155,6 +155,9 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     }
   }
   if (msg == WM_CLOSE) {
+    if (!presenter->applying_native_frame_) {
+      presenter->HandleNativeFrameChanged();
+    }
     auto* host =
         static_cast<WinPresentationHost*>(presenter->presentation_host);
     if (host != nullptr) {

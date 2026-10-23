@@ -29,6 +29,20 @@ constexpr std::uint32_t kOpenControlId = 5003;
 constexpr std::uint32_t kDeleteControlId = 5004;
 constexpr std::uint32_t kLanguageControlId = 5005;
 
+namespace {
+
+WindowCatalog& LoadedCatalog(WindowCatalog::ptr& catalog) {
+  if (!catalog.is_valid()) {
+    std::abort();
+  }
+  if (!catalog.is_loaded()) {
+    catalog.Load();
+  }
+  return *catalog;
+}
+
+}  // namespace
+
 class CatalogAddButton : public ui::UiPushButton {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogAddButton",
                            CatalogAddButton, ui::UiPushButton, 0)
@@ -171,38 +185,36 @@ class CatalogListContainerPresenter
 };
 
 void CatalogAddButton::HandlePushButtonClicked() {
-  if (catalog) {
-    catalog->AddWindow();
-  }
+  LoadedCatalog(catalog).AddWindow();
 }
 
 void CatalogOpenButton::HandlePushButtonClicked() {
-  if (!catalog || !catalog->list) {
+  WindowCatalog& cat = LoadedCatalog(catalog);
+  if (!cat.list) {
     return;
   }
-  if (catalog->list->selection_index >= 0 &&
-      static_cast<std::size_t>(catalog->list->selection_index) <
-          catalog->list->rows.size()) {
-    catalog->OpenListRowFromUi(
-        static_cast<std::size_t>(catalog->list->selection_index));
+  if (cat.list->selection_index >= 0 &&
+      static_cast<std::size_t>(cat.list->selection_index) <
+          cat.list->rows.size()) {
+    cat.OpenListRowFromUi(
+        static_cast<std::size_t>(cat.list->selection_index));
     return;
   }
-  catalog->OpenSelected();
+  cat.OpenSelected();
 }
 
 void CatalogDeleteButton::HandlePushButtonClicked() {
-  if (catalog) {
-    catalog->DeleteSelected();
-  }
+  LoadedCatalog(catalog).DeleteSelected();
 }
 
 void CatalogLanguageButton::HandlePushButtonClicked() {
-  if (!catalog || !catalog->locale) {
+  WindowCatalog& cat = LoadedCatalog(catalog);
+  if (!cat.locale) {
     return;
   }
-  int const next = 1 - catalog->locale->language_index();
-  catalog->MaterializeCatalogStrings(next);
-  catalog->locale->SubmitLanguageIndexFromUi(next);
+  int const next = 1 - cat.locale->language_index();
+  cat.MaterializeCatalogStrings(next);
+  cat.locale->SubmitLanguageIndexFromUi(next);
 }
 
 void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
@@ -246,6 +258,58 @@ APPTRAVERSE_REGISTER(CatalogListContainerPresenter);
 }  // namespace apptraverse::example::surfaces
 
 namespace apptraverse {
+
+void EnsureWindowCatalogControlLinks(WindowCatalog& catalog) {
+  using example::surfaces::CatalogAddButton;
+  using example::surfaces::CatalogDeleteButton;
+  using example::surfaces::CatalogLanguageButton;
+  using example::surfaces::CatalogOpenButton;
+  WindowCatalog::ptr const root = WindowCatalog::ptr::MakeFromThis(&catalog);
+  auto wire_catalog_field = [&](WindowCatalog::ptr& catalog_ref) {
+    if (!catalog_ref.is_valid()) {
+      catalog_ref = root;
+    }
+    if (!catalog_ref.is_loaded()) {
+      catalog_ref.Load();
+    }
+  };
+  auto load_button = [](ui::UiPushButton::ptr& button) {
+    if (!button.is_valid()) {
+      std::abort();
+    }
+    if (!button.is_loaded()) {
+      button.Load();
+    }
+  };
+  load_button(catalog.buttons.add_button);
+  wire_catalog_field(
+      static_cast<CatalogAddButton*>(catalog.buttons.add_button.operator->())
+          ->catalog);
+  load_button(catalog.buttons.open_button);
+  wire_catalog_field(
+      static_cast<CatalogOpenButton*>(catalog.buttons.open_button.operator->())
+          ->catalog);
+  load_button(catalog.buttons.delete_button);
+  wire_catalog_field(static_cast<CatalogDeleteButton*>(
+                         catalog.buttons.delete_button.operator->())
+                         ->catalog);
+  load_button(catalog.buttons.language_button);
+  wire_catalog_field(static_cast<CatalogLanguageButton*>(
+                         catalog.buttons.language_button.operator->())
+                         ->catalog);
+  if (!catalog.list) {
+    std::abort();
+  }
+  if (!catalog.list.is_loaded()) {
+    catalog.list.Load();
+  }
+  if (!catalog.list->catalog.is_valid()) {
+    catalog.list->catalog = root;
+  }
+  if (!catalog.list->catalog.is_loaded()) {
+    catalog.list->catalog.Load();
+  }
+}
 
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   using example::surfaces::CatalogAddButton;
