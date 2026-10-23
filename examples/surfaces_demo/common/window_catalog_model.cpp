@@ -55,9 +55,9 @@ ui::UiLocalizationString::ptr MakeHolderTitleString(ae::Domain& domain,
   int const restore_language =
       catalog.locale ? catalog.locale->language_index() : 0;
   std::string const en_prefix =
-      ReadPrefixText(*catalog.window_title_prefix, 0, restore_language);
+      ReadPrefixText(*catalog.texts.window_title_prefix, 0, restore_language);
   std::string const ru_prefix =
-      ReadPrefixText(*catalog.window_title_prefix, 1, restore_language);
+      ReadPrefixText(*catalog.texts.window_title_prefix, 1, restore_language);
   en_string->utf8 = en_prefix + std::to_string(number);
   ru_string->utf8 = ru_prefix + std::to_string(number);
   localized->MaterializeLanguage(restore_language);
@@ -187,20 +187,20 @@ std::size_t WindowCatalog::RowIndexForHolder(WindowHolder const& holder) const {
 }
 
 void WindowCatalog::MaterializeCatalogStrings(int language_index) {
-  if (label_add) {
-    label_add->MaterializeLanguage(language_index);
+  if (texts.label_add) {
+    texts.label_add->MaterializeLanguage(language_index);
   }
-  if (label_open) {
-    label_open->MaterializeLanguage(language_index);
+  if (texts.label_open) {
+    texts.label_open->MaterializeLanguage(language_index);
   }
-  if (label_delete) {
-    label_delete->MaterializeLanguage(language_index);
+  if (texts.label_delete) {
+    texts.label_delete->MaterializeLanguage(language_index);
   }
-  if (label_language) {
-    label_language->MaterializeLanguage(language_index);
+  if (texts.label_language) {
+    texts.label_language->MaterializeLanguage(language_index);
   }
-  if (window_title_prefix) {
-    window_title_prefix->MaterializeLanguage(language_index);
+  if (texts.window_title_prefix) {
+    texts.window_title_prefix->MaterializeLanguage(language_index);
   }
   for (auto const& row : list->rows) {
     if (row) {

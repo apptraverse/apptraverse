@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "aether-miscpp/reflect/reflect.h"
+
 #include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
@@ -79,6 +81,38 @@ class AddWindowCatalogEntryEvent;
 class RemoveWindowCatalogEntryEvent;
 class SetWindowCatalogSelectionEvent;
 
+struct WindowCatalogTexts {
+  ae::ObjPtr<ui::UiLocalizationString> label_add;
+  ae::ObjPtr<ui::UiLocalizationString> label_open;
+  ae::ObjPtr<ui::UiLocalizationString> label_delete;
+  ae::ObjPtr<ui::UiLocalizationString> label_language;
+  ae::ObjPtr<ui::UiLocalizationString> window_title_prefix;
+
+  AE_REFLECT_MEMBERS(label_add, label_open, label_delete, label_language,
+                     window_title_prefix)
+};
+
+struct WindowCatalogButtons {
+  ae::ObjPtr<ui::UiPushButton> add_button;
+  ae::ObjPtr<ui::UiPushButton> open_button;
+  ae::ObjPtr<ui::UiPushButton> delete_button;
+  ae::ObjPtr<ui::UiPushButton> language_button;
+
+  AE_REFLECT_MEMBERS(add_button, open_button, delete_button, language_button)
+};
+
+struct WindowCatalogPresenters {
+  Presenter::ptr list_presenter;
+  Presenter::ptr add_button_presenter;
+  Presenter::ptr open_button_presenter;
+  Presenter::ptr delete_button_presenter;
+  Presenter::ptr language_button_presenter;
+
+  AE_REFLECT_MEMBERS(list_presenter, add_button_presenter,
+                     open_button_presenter, delete_button_presenter,
+                     language_button_presenter)
+};
+
 class WindowCatalog : public NodeFor<WindowCatalog> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::WindowCatalog",
                            WindowCatalog, Node, 0)
@@ -92,24 +126,28 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   AE_OBJECT_REFLECT(AE_MMBR(next_window_number), AE_MMBR(selected),
                     AE_MMBR(list), AE_MMBR(main_window),
                     AE_MMBR(main_window_presenter), AE_MMBR(locale),
-                    AE_MMBR(window_title_prefix))
+                    AE_MMBR(texts), AE_MMBR(buttons), AE_MMBR(presenters))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, next_window_number, selected, list, main_window,
-        main_window_presenter, locale, label_add, label_open, label_delete,
-        label_language, window_title_prefix, add_button, open_button,
-        delete_button, language_button, list_presenter, add_button_presenter,
-        open_button_presenter, delete_button_presenter, language_button_presenter);
+        main_window_presenter, locale, texts.label_add, texts.label_open,
+        texts.label_delete, texts.label_language, texts.window_title_prefix,
+        buttons.add_button, buttons.open_button, buttons.delete_button,
+        buttons.language_button, presenters.list_presenter,
+        presenters.add_button_presenter, presenters.open_button_presenter,
+        presenters.delete_button_presenter, presenters.language_button_presenter);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, next_window_number, selected, list, main_window,
-        main_window_presenter, locale, label_add, label_open, label_delete,
-        label_language, window_title_prefix, add_button, open_button,
-        delete_button, language_button, list_presenter, add_button_presenter,
-        open_button_presenter, delete_button_presenter, language_button_presenter);
+        main_window_presenter, locale, texts.label_add, texts.label_open,
+        texts.label_delete, texts.label_language, texts.window_title_prefix,
+        buttons.add_button, buttons.open_button, buttons.delete_button,
+        buttons.language_button, presenters.list_presenter,
+        presenters.add_button_presenter, presenters.open_button_presenter,
+        presenters.delete_button_presenter, presenters.language_button_presenter);
   }
 
   std::uint32_t next_window_number{1};
@@ -118,20 +156,9 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   ui::UiDesktopWindow::ptr main_window;
   ui::windows::WinDesktopWindowPresenter::ptr main_window_presenter;
   ae::ObjPtr<ui::UiLocaleSettings> locale;
-  ae::ObjPtr<ui::UiLocalizationString> label_add;
-  ae::ObjPtr<ui::UiLocalizationString> label_open;
-  ae::ObjPtr<ui::UiLocalizationString> label_delete;
-  ae::ObjPtr<ui::UiLocalizationString> label_language;
-  ae::ObjPtr<ui::UiLocalizationString> window_title_prefix;
-  ae::ObjPtr<ui::UiPushButton> add_button;
-  ae::ObjPtr<ui::UiPushButton> open_button;
-  ae::ObjPtr<ui::UiPushButton> delete_button;
-  ae::ObjPtr<ui::UiPushButton> language_button;
-  Presenter::ptr list_presenter;
-  Presenter::ptr add_button_presenter;
-  Presenter::ptr open_button_presenter;
-  Presenter::ptr delete_button_presenter;
-  Presenter::ptr language_button_presenter;
+  WindowCatalogTexts texts;
+  WindowCatalogButtons buttons;
+  WindowCatalogPresenters presenters;
 
   void Apply(AddWindowCatalogEntryEvent const& event);
   void Apply(RemoveWindowCatalogEntryEvent const& event);

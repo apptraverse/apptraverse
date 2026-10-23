@@ -276,7 +276,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   list->catalog = catalog;
   catalog->list = list;
 
-  auto main_window = ui::UiDesktopWindow::ptr::Create(
+  auto main_window = CatalogWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
   InitializeRuntimeNode(*main_window, *catalog);
   main_window->SubmitFrameFromNative(80, 80, kMainClientWidth,
@@ -306,39 +306,39 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::AddButton)));
   InitializeRuntimeNode(*add_button, *catalog);
   add_button->catalog = catalog;
-  add_button->label = catalog->label_add;
+  add_button->label = catalog->texts.label_add;
 
   auto open_button = CatalogOpenButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::OpenButton)));
   InitializeRuntimeNode(*open_button, *catalog);
   open_button->catalog = catalog;
-  open_button->label = catalog->label_open;
+  open_button->label = catalog->texts.label_open;
 
   auto delete_button = CatalogDeleteButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeleteButton)));
   InitializeRuntimeNode(*delete_button, *catalog);
   delete_button->catalog = catalog;
-  delete_button->label = catalog->label_delete;
+  delete_button->label = catalog->texts.label_delete;
 
   auto language_button = CatalogLanguageButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::LanguageButton)));
   InitializeRuntimeNode(*language_button, *catalog);
   language_button->catalog = catalog;
-  language_button->label = catalog->label_language;
+  language_button->label = catalog->texts.label_language;
 
-  catalog->add_button = add_button;
-  catalog->open_button = open_button;
-  catalog->delete_button = delete_button;
-  catalog->language_button = language_button;
-  catalog->list_presenter = list_presenter;
-  catalog->add_button_presenter =
+  catalog->buttons.add_button = add_button;
+  catalog->buttons.open_button = open_button;
+  catalog->buttons.delete_button = delete_button;
+  catalog->buttons.language_button = language_button;
+  catalog->presenters.list_presenter = list_presenter;
+  catalog->presenters.add_button_presenter =
       MakeButtonPresenter(domain, *catalog, add_button, 12, kAddControlId);
-  catalog->open_button_presenter = MakeButtonPresenter(
+  catalog->presenters.open_button_presenter = MakeButtonPresenter(
       domain, *catalog, open_button, 12 + kButtonW + 8, kOpenControlId);
-  catalog->delete_button_presenter = MakeButtonPresenter(
+  catalog->presenters.delete_button_presenter = MakeButtonPresenter(
       domain, *catalog, delete_button, 12 + 2 * (kButtonW + 8),
       kDeleteControlId);
-  catalog->language_button_presenter = MakeButtonPresenter(
+  catalog->presenters.language_button_presenter = MakeButtonPresenter(
       domain, *catalog, language_button, 12 + 3 * (kButtonW + 8),
       kLanguageControlId);
 

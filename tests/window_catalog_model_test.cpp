@@ -1,11 +1,13 @@
 #include <filesystem>
 #include <iostream>
+#include <unordered_set>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/graph_walk.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
@@ -36,6 +38,105 @@ std::filesystem::path TestDir(char const* name) {
 
 WindowHolder* AsHolder(ui::UiListRow::ptr const& row) {
   return static_cast<WindowHolder*>(row.operator->());
+}
+
+void ExpectReflectedGraphEdge(
+    std::unordered_set<ae::ObjId::Type> const& reflected_ids,
+    ae::ObjectPtrBase const& ref) {
+  CHECK(ref.is_valid());
+  CHECK(reflected_ids.count(ref.id().id()) == 1);
+}
+
+void TestCatalogReflectionTopologyAndInitialPublication() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto catalog = BuildWindowCatalogGraph(model_domain);
+  FinalizeDistilledGraph(*catalog);
+
+  std::unordered_set<ae::ObjId::Type> reflected_ids;
+  ForEachGraphEdgeObjPtrOn(*catalog, [&](auto& edge) {
+    if (!edge.is_valid()) {
+      return;
+    }
+    reflected_ids.insert(edge.id().id());
+  });
+
+  ExpectReflectedGraphEdge(reflected_ids, catalog->main_window);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->main_window_presenter);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->list);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->locale);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->texts.label_add);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->texts.label_open);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->texts.label_delete);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->texts.label_language);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->texts.window_title_prefix);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->buttons.add_button);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->buttons.open_button);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->buttons.delete_button);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->buttons.language_button);
+  ExpectReflectedGraphEdge(reflected_ids, catalog->presenters.list_presenter);
+  ExpectReflectedGraphEdge(reflected_ids,
+                           catalog->presenters.add_button_presenter);
+  ExpectReflectedGraphEdge(reflected_ids,
+                           catalog->presenters.open_button_presenter);
+  ExpectReflectedGraphEdge(reflected_ids,
+                           catalog->presenters.delete_button_presenter);
+  ExpectReflectedGraphEdge(reflected_ids,
+                           catalog->presenters.language_button_presenter);
+  if (catalog->selected.is_valid()) {
+    ExpectReflectedGraphEdge(reflected_ids, catalog->selected);
+  }
+
+  catalog->AddWindow();
+  catalog->AddWindow();
+  WindowHolder* closed_holder = AsHolder(catalog->list->rows[0]);
+  WindowHolder* open_holder = AsHolder(catalog->list->rows[1]);
+  ae::ObjId const closed_window_id = closed_holder->window.id();
+  ae::ObjId const open_window_id = open_holder->window.id();
+  catalog->SelectHolder(catalog->list->rows[0]);
+  catalog->CloseHolderWindow(*closed_holder);
+  CHECK(!closed_holder->window.is_loaded());
+  CHECK(closed_holder->window.is_valid());
+  CHECK(!model_domain.Find(closed_window_id));
+  CHECK(open_holder->window.is_loaded());
+  catalog->MaterializeCatalogStrings(0);
+
+  ByteSink sink;
+  SerializeInitialPublication(*catalog, sink);
+  CHECK(!model_domain.Find(closed_window_id));
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSource in;
+  in.data = sink.bytes.data();
+  in.size = sink.bytes.size();
+  auto ui_root = LoadInitialPublication(in, ui_domain, ui_storage);
+  auto ui_catalog = WindowCatalog::ptr::MakeFromThis(
+      static_cast<WindowCatalog*>(ui_root.get()));
+
+  CHECK(ui_catalog->main_window_presenter.is_loaded());
+  CHECK(ui_domain.Find(ui_catalog->main_window_presenter.id()));
+  CHECK(ui_catalog->presenters.list_presenter.is_loaded());
+  CHECK(ui_domain.Find(ui_catalog->presenters.list_presenter.id()));
+  CHECK(ui_catalog->presenters.add_button_presenter.is_loaded());
+  CHECK(ui_domain.Find(ui_catalog->presenters.add_button_presenter.id()));
+  CHECK(ui_catalog->presenters.open_button_presenter.is_loaded());
+  CHECK(ui_domain.Find(ui_catalog->presenters.open_button_presenter.id()));
+  CHECK(ui_catalog->presenters.delete_button_presenter.is_loaded());
+  CHECK(ui_domain.Find(ui_catalog->presenters.delete_button_presenter.id()));
+  CHECK(ui_catalog->presenters.language_button_presenter.is_loaded());
+  CHECK(ui_domain.Find(ui_catalog->presenters.language_button_presenter.id()));
+  CHECK(ui_catalog->presenters.add_button_presenter.id() ==
+        catalog->presenters.add_button_presenter.id());
+
+  CHECK(!ui_domain.Find(closed_window_id));
+  CHECK(!model_domain.Find(closed_window_id));
+  CHECK(open_holder->window.is_loaded());
+  CHECK(model_domain.Find(open_window_id));
 }
 
 void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
@@ -187,6 +288,7 @@ void TestManyHoldersClosedGraphsAbsentFromDomain() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::test::TestCatalogReflectionTopologyAndInitialPublication();
   apptraverse::test::TestCatalogHolderOpenCloseAndMonotonicNumbers();
   apptraverse::test::TestManyHoldersClosedGraphsAbsentFromDomain();
   std::cout << "window_catalog_model_test OK\n";

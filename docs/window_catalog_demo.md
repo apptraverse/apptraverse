@@ -10,10 +10,10 @@ Target: Windows `win32_surfaces_demo` with a main catalog window (ListBox + Add/
 
 ## Current tree state
 
-- **Done (stage 2):** CMake targets `surfaces_demo_window_catalog` and `apptraverse_window_catalog_model_test` (CTest label `window_catalog`, not part of default full sweep). Model/graph compile; `tests/window_catalog_model_test.cpp` passes Release (`Add`/`Open`/`Close`/`Delete`, monotonic numbers, `DirectoryDomainStorage` roundtrip, 100 holders / 10 loaded).
+- **Done (stage 2–3):** CMake targets `surfaces_demo_window_catalog` and `apptraverse_window_catalog_model_test` (CTest label `window_catalog`, not part of default full sweep). Model/graph compile; `tests/window_catalog_model_test.cpp` passes Release (`Add`/`Open`/`Close`/`Delete`, monotonic numbers, `DirectoryDomainStorage` roundtrip, 100 holders / 10 loaded, full reflection topology via `ForEachGraphEdgeObjPtrOn`, headless `SerializeInitialPublication` / `LoadInitialPublication` with closed child absent from model and UI). Main chrome window is `CatalogWindow` at fixed id 2 so initial publication hydrates the final stored class.
 - **Done:** Stage 1 test revert (`27dee80`). List selection uses `UiListContainer.selection_index` (not locale index).
 - **Not started:** `window_catalog_lifecycle`, `WinApp`/`main` switch, WM_CLOSE host wiring, acceptance test, `load_only` profile `surfaces_catalog_state`.
 
-## MSVC note
+## Reflection
 
-`WindowCatalog` keeps full `Load`/`Save` field lists; `AE_OBJECT_REFLECT` lists a subset so `APPTRAVERSE_REGISTER(WindowCatalog)` stays under MSVC nested-initializer depth (C1054).
+`WindowCatalog` groups ObjPtr fields into `WindowCatalogTexts`, `WindowCatalogButtons`, and `WindowCatalogPresenters` (`AE_REFLECT_MEMBERS`) so full `AE_OBJECT_REFLECT` topology fits MSVC; v0 `Load`/`Save` wire order is unchanged.

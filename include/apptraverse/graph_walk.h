@@ -16,6 +16,10 @@
 namespace apptraverse {
 namespace detail {
 
+template <typename T, typename Fn>
+  requires(ae::reflect::Reflectable<T>)
+void ForEachReflectedGraphEdgeObjPtr(T& obj, Fn&& fn);
+
 template <typename T>
 constexpr bool IsExecutionTarget =
     std::is_same_v<T, Node> || std::is_same_v<T, Event>;
@@ -60,7 +64,12 @@ void CallIfGraphEdgeObjPtr(T& value, Fn&& fn) {
 }
 
 template <typename Fn>
-void CallIfGraphEdgeObjPtr(auto&, Fn&&) {}
+void CallIfGraphEdgeObjPtr(ae::Obj&, Fn&&) {}
+
+template <typename T, typename Fn>
+  requires(!ae::reflect::Reflectable<std::decay_t<T>> &&
+           !std::is_base_of_v<ae::Obj, std::decay_t<T>>)
+void CallIfGraphEdgeObjPtr(T&, Fn&&) {}
 
 template <typename Elem, typename Fn>
 void CallIfGraphEdgeObjPtr(std::vector<Elem>& vec, Fn&& fn) {
