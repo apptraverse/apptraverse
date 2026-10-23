@@ -845,6 +845,10 @@ void TestLazyDesktopWindowNativeLifecycle() {
   PendingDirtyNodes pending_dirty;
   model_root->BindMaterializedChangeNotifier(&pending_dirty,
                                              &PendingDirtyNodesNotify);
+  ui::UiPushButton& model_button_before_close =
+      *model_root->button_presenter->button;
+  model_button_before_close.CopyMaterializedChangeNotifierFrom(*model_root);
+  CHECK(model_button_before_close.HasMaterializedChangeNotifier());
   std::uint64_t const root_generation_before_close = model_root->Generation();
 
   int const proxy_before_wm_close = proxy_invoke_count;
@@ -902,7 +906,6 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(pending_dirty.empty());
   run_pending_model_work();
   CHECK(pending_dirty.empty());
-  model_root->ClearMaterializedChangeNotifier();
 
   CHECK(IsWindow(first_hwnd) == 0);
   CHECK(IsWindow(first_button_hwnd) == 0);
@@ -926,6 +929,10 @@ void TestLazyDesktopWindowNativeLifecycle() {
     CHECK(!model_button.enabled());
     CHECK(model_button.journal.size() == button_journal_size_after_disable);
     CHECK(model_button.journal.back().event->obj_id == disable_event_id);
+    CHECK(!model_button.HasMaterializedChangeNotifier());
+    model_button.CopyMaterializedChangeNotifierFrom(*model_root);
+    CHECK(model_button.HasMaterializedChangeNotifier());
+    CHECK(!model_button.base->HasMaterializedChangeNotifier());
   }
 
   ByteSink reload_sink;
@@ -974,18 +981,30 @@ void TestLazyDesktopWindowNativeLifecycle() {
 
   {
     ui::UiPushButton& model_button = *model_root->button_presenter->button;
+    CHECK(pending_dirty.empty());
     auto enable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
         ae::CreateWith{model_domain});
     enable->enabled = true;
     model_button.Commit(std::move(enable));
+    CHECK(pending_dirty.ordered.size() == 1U);
+    CHECK(pending_dirty.ordered.front() == button_id.id());
+    CHECK(pending_dirty.membership.size() == 1U);
+    CHECK(pending_dirty.membership.count(button_id.id()) == 1);
+    CHECK(pending_dirty.membership.count(root_id.id()) == 0);
 
+    std::uint32_t const enable_dirty_id = pending_dirty.PopFront();
+    Node* const enable_dirty_node =
+        FindLiveReachableNode(*model_root, enable_dirty_id);
+    CHECK(enable_dirty_node != nullptr);
+    CHECK(enable_dirty_node->obj_id == button_id);
     ByteSink enable_sink;
-    SerializeStructuralNodePublication(model_button, enable_sink);
+    SerializeStructuralNodePublication(*enable_dirty_node, enable_sink);
     ByteSource enable_in;
     enable_in.data = enable_sink.bytes.data();
     enable_in.size = enable_sink.bytes.size();
     ApplyStructuralPublicationAndUpdatePresenters(
         enable_in, ui_domain, ui_storage, *ui_root, &host, &proxy);
+    CHECK(pending_dirty.empty());
   }
   run_pending_model_work();
   CHECK(IsWindowEnabled(second_button_hwnd) != FALSE);
@@ -1003,6 +1022,9 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(IsWindow(second_button_hwnd) == 0);
   CHECK(ui_root->window_presenter.operator->()->hwnd() == nullptr);
   CHECK(ui_root->button_presenter.operator->()->hwnd() == nullptr);
+
+  model_root->button_presenter->button->ClearMaterializedChangeNotifier();
+  model_root->ClearMaterializedChangeNotifier();
 }
 
 }  // namespace
