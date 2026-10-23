@@ -7,7 +7,6 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
-#include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -167,13 +166,8 @@ class CatalogListContainerPresenter
 
   WindowCatalog::ptr catalog;
 
-  void OnLoad() override;
-  void OnModelChanged() override;
   void SubmitListRowSelectionChangedFromUi(std::size_t row_index) override;
   void SubmitListRowActivatedFromUi(std::size_t row_index) override;
-
- private:
-  void SyncCatalogListTitlesFromMirror();
 };
 
 void CatalogAddButton::HandlePushButtonClicked() {
@@ -183,9 +177,17 @@ void CatalogAddButton::HandlePushButtonClicked() {
 }
 
 void CatalogOpenButton::HandlePushButtonClicked() {
-  if (catalog) {
-    catalog->OpenSelected();
+  if (!catalog || !catalog->list) {
+    return;
   }
+  if (catalog->list->selection_index >= 0 &&
+      static_cast<std::size_t>(catalog->list->selection_index) <
+          catalog->list->rows.size()) {
+    catalog->OpenListRowFromUi(
+        static_cast<std::size_t>(catalog->list->selection_index));
+    return;
+  }
+  catalog->OpenSelected();
 }
 
 void CatalogDeleteButton::HandlePushButtonClicked() {
@@ -201,64 +203,6 @@ void CatalogLanguageButton::HandlePushButtonClicked() {
   int const next = 1 - catalog->locale->language_index();
   catalog->MaterializeCatalogStrings(next);
   catalog->locale->SubmitLanguageIndexFromUi(next);
-}
-
-void CatalogListContainerPresenter::SyncCatalogListTitlesFromMirror() {
-  HWND const list_hwnd = hwnd();
-  if (list_hwnd == nullptr || !container || !catalog) {
-    return;
-  }
-  int language_index = 0;
-  if (window_presenter && window_presenter->locale) {
-    language_index = window_presenter->locale->language_index();
-  }
-  auto const& rows =
-      (catalog->list && !catalog->list->rows.empty()) ? catalog->list->rows
-                                                      : container->rows;
-  std::vector<std::wstring> desired;
-  desired.reserve(rows.size());
-  for (auto const& row : rows) {
-    if (!row) {
-      continue;
-    }
-    auto const* holder = static_cast<WindowHolder const*>(row.operator->());
-    std::string utf8;
-    if (row->primary_text) {
-      utf8 = row->primary_text->Resolve(language_index);
-    }
-    if (utf8.empty()) {
-      if (catalog->texts.window_title_prefix) {
-        utf8 = FormatCatalogWindowTitle(*catalog->texts.window_title_prefix,
-                                        language_index, holder->window_number);
-      }
-      if (utf8.empty()) {
-        char const* prefix = language_index == 1 ? "\xD0\x9E\xD0\xBA\xD0\xBD\xD0\xBE "
-                                                 : "Window ";
-        utf8 = std::string(prefix) + std::to_string(holder->window_number);
-      }
-    }
-    desired.push_back(ui::windows::Utf8ToWide(utf8));
-  }
-  SendMessageW(list_hwnd, LB_RESETCONTENT, 0, 0);
-  for (auto const& text : desired) {
-    SendMessageW(list_hwnd, LB_ADDSTRING, 0,
-                 reinterpret_cast<LPARAM>(text.c_str()));
-  }
-  if (container->selection_index >= 0 &&
-      container->selection_index < static_cast<std::int32_t>(desired.size())) {
-    SendMessageW(list_hwnd, LB_SETCURSEL,
-                   static_cast<WPARAM>(container->selection_index), 0);
-  }
-}
-
-void CatalogListContainerPresenter::OnLoad() {
-  WinListContainerPresenter::OnLoad();
-  SyncCatalogListTitlesFromMirror();
-}
-
-void CatalogListContainerPresenter::OnModelChanged() {
-  WinListContainerPresenter::OnModelChanged();
-  SyncCatalogListTitlesFromMirror();
 }
 
 void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(

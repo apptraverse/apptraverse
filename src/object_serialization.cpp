@@ -1357,6 +1357,36 @@ bool SkipPersistentCheckpointNodeBaseBindings(ByteSource& in) {
   return true;
 }
 
+void AppendUnloadedCheckpointTargets(ae::Obj& root,
+                                     ae::RamDomainStorage& scratch) {
+  ae::Domain& domain = *root.domain;
+  ae::DomainGraph graph{&domain, ae::GraphSerializationScope::LocalPersistent};
+  std::unordered_set<std::uint32_t> seen;
+  std::vector<ae::ObjId> queue;
+
+  auto schedule = [&](ae::Obj& obj) {
+    ForEachGraphEdgeObjPtrOn(obj, [&](auto& edge) {
+      if (!edge.is_valid() || edge.is_loaded()) {
+        return;
+      }
+      if (seen.insert(edge.id().id()).second) {
+        queue.push_back(edge.id());
+      }
+    });
+  };
+
+  schedule(root);
+  for (std::size_t i = 0; i < queue.size(); ++i) {
+    ae::ObjId const id = queue[i];
+    ae::Ptr<ae::Obj> loaded = graph.LoadRoot(id);
+    if (!loaded) {
+      continue;
+    }
+    SaveObjectGraphToScratch(*loaded, scratch);
+    schedule(*loaded);
+  }
+}
+
 void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
   std::uint32_t const root_id = root.obj_id.id();
   out.write(&root_id, sizeof(root_id));
@@ -1388,6 +1418,7 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
 
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(root, scratch);
+  AppendUnloadedCheckpointTargets(root, scratch);
   EnsurePersistentCheckpointBaseObjectsInScratch(saved_bases, scratch);
 
   WritePersistentCheckpointScratchLayers(scratch, root, out);

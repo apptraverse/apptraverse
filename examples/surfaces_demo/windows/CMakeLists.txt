@@ -106,10 +106,6 @@ target_compile_definitions(win32_window_catalog_demo PRIVATE
 
 add_executable(win32_window_catalog_demo_load_only ${_window_catalog_win_sources})
 
-target_compile_definitions(win32_window_catalog_demo_load_only PRIVATE
-  APPTRAVERSE_ENABLE_DISTILLATION
-)
-
 foreach(_catalog_demo win32_window_catalog_demo win32_window_catalog_demo_load_only)
 
   target_link_libraries(${_catalog_demo} PRIVATE

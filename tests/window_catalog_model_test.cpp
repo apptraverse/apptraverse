@@ -450,6 +450,18 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
       static_cast<WindowCatalog*>(ui_root.get()));
   CHECK(ui_catalog->list.is_valid());
   CHECK(ui_catalog->list->rows.size() == 3);
+  int const ui_language =
+      ui_catalog->locale ? ui_catalog->locale->language_index() : 0;
+  for (std::size_t i = 0; i < ui_catalog->list->rows.size(); ++i) {
+    auto* ui_holder =
+        AsHolder(ui_catalog->list->rows[i]);
+    CHECK(ui_holder->primary_text.is_valid());
+    if (!ui_holder->primary_text.is_loaded()) {
+      ui_holder->primary_text.Load();
+    }
+    std::string const title = ui_holder->primary_text->Resolve(ui_language);
+    CHECK(title == ("Window " + std::to_string(ui_holder->window_number)));
+  }
 }
 
 void TestCatalogSaveAfterLanguageToggleAndChildClose() {

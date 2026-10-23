@@ -5,29 +5,27 @@ Windows catalog host: main window (ListBox + Add/Open/Delete + EN/RU), lazy chil
 ## Executables
 
 - `win32_window_catalog_demo` — bootstrap + run (`APPTRAVERSE_ENABLE_DISTILLATION`).
-- `win32_window_catalog_demo_load_only` — load existing profile only (`APPTRAVERSE_ENABLE_DISTILLATION`).
+- `win32_window_catalog_demo_load_only` — load existing profile only (no distillation; missing/empty profile is fatal).
 
 Build (Release example): `build-presenter-decomp-msvc-rel/examples/surfaces_demo/windows/win32_window_catalog_demo.exe`
 
-## Verified behavior (Release, 2025-10-23)
+## Layer / v0 contract (2025-10-23)
 
-- Shutdown: `BeginSaveSession` → `SaveWindowCatalogPersistentSnapshot` → `SavePersistentModelSnapshotToStorage`; process exit code 0 required.
-- Persistence v0: `CatalogListContainer` saves `rows` + `selection_index`; `WindowHolder` saves `primary_text` / list row fields with `window_number` + `window`.
-- Load repair: `RepairWindowCatalogEmbeddedStrings` rebuilds holder list titles from `window_title_prefix` + `window_number` when UTF-8 slots are empty after load.
-- Model restart path: `TestCatalogRuntimeSavePreservesOpenWindowLoadedState` (bootstrap → load → add/close → shutdown save → reload) **PASS**.
-- Win32 acceptance: restart scenario (close child 2, load_only, open 2, add 4, second demo) **FAIL** at load_only ListBox (see boundary below).
-- EN/RU + focus: covered in `RunLanguageAndFocusAcceptance` (separate temp profile); unchanged from prior commit when run after restart block.
+- `UiListContainer` v0: `rows` + `selection_index` (base layer only).
+- `CatalogListContainer` / `WindowHolder` derived Save/Load: `base_` + own fields only (`catalog`; `window_number`, `window`).
+- ListBox titles come from stored `UiListRow.primary_text` (no `RepairHolderPrimaryText` on load).
+- Shutdown: `SaveWindowCatalogPersistentSnapshot` (holder `primary_text` + open windows + `catalog.Save()`) then `SavePersistentModelSnapshotToStorage` (includes `AppendUnloadedCheckpointTargets` for valid unloaded child windows, e.g. closed catalog children).
 
-## Known gap (first proven boundary on FAIL)
+## Verified (Release, incremental build)
 
-- **After shutdown save**, read-only `LoadApplication` probe shows **model** `list->rows.size()==3` and stable ObjIds.
-- **load_only** UI after `LoadInitialPublication` + presenters: ListBox does not show full `Window 1/2/3` row set (boundary **E**: UI mirror / list presenter vs complete model list on subprocess restart).
+- `apptraverse_window_catalog_model_test` — **PASS** (incl. UI mirror row titles after `SerializeInitialPublication` / `LoadInitialPublication`).
+- `apptraverse_window_catalog_win32_acceptance_test` — **FAIL** in this branch run: `ExpectListRows` after load_only and/or reopen closed window 2 (Open chrome vs list-activate race); restart list rows were observed **PASS** mid-fix before regressions tied to rebuild/link lock.
+
+## Removed 275e099 workarounds
+
+- Duplicate list/holder serialization in derived classes, `SyncCatalogListTitlesFromMirror`, `RepairHolderPrimaryText`, `MarkRowsMaterialized`, distillation on load_only.
 
 ## Holder / ObjPtr contract
 
-- `WindowHolder` in list until Delete; `window.is_loaded()` = open; valid+unloaded = closed.
-- Main ListBox uses `primary_text` (repaired on load when needed).
-
-## Reflection
-
-`WindowCatalog` groups ObjPtr fields (`WindowCatalogTexts`, `WindowCatalogButtons`, `WindowCatalogPresenters`) for full MSVC `AE_OBJECT_REFLECT`; v0 wire includes list `rows` and holder `primary_text`.
+- `WindowHolder` stays in list until Delete; `window.is_loaded()` = open HWND path.
+- Reopen closed holder: `OpenHolderWindow` uses `DomainGraph::LoadRoot` when `ObjPtr::Load()` does not hydrate after checkpoint reload.

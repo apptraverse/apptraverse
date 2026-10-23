@@ -153,6 +153,7 @@ void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
       }
     }
   }
+  WindowCatalog::ptr::MakeFromThis(&catalog).Save();
 }
 
 }  // namespace
@@ -207,14 +208,9 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
                                kHeight);
 }
 
-void CatalogListContainer::MarkRowsMaterialized() {
-  NoteMaterializedChange();
-}
-
 void WindowCatalog::Apply(AddWindowCatalogEntryEvent const& event) {
   list->rows.push_back(event.holder);
   ++next_window_number;
-  list->MarkRowsMaterialized();
   NoteMaterializedChange();
 }
 
@@ -225,7 +221,6 @@ void WindowCatalog::Apply(RemoveWindowCatalogEntryEvent const& event) {
       [&](WindowHolder::ptr const& row) { return &*row == &*event.holder; });
   assert(it != rows.end());
   rows.erase(it);
-  list->MarkRowsMaterialized();
   if (selected && &*selected == &*event.holder) {
     selected = {};
   }
@@ -317,8 +312,11 @@ void WindowCatalog::MaterializeCatalogStrings(int language_index) {
 
 void WindowCatalog::MaterializeHolderListText(WindowHolder& holder,
                                               int language_index) {
-  if (!holder.primary_text) {
+  if (!holder.primary_text.is_valid()) {
     return;
+  }
+  if (!holder.primary_text.is_loaded()) {
+    holder.primary_text.Load();
   }
   holder.primary_text->MaterializeLanguage(language_index);
   EnsureHolderWindowTitleLinksImpl(holder, *this);
@@ -342,6 +340,11 @@ void WindowCatalog::SubmitSelectionFromUi(std::size_t row_index) {
   SelectHolder(WindowHolder::ptr::MakeFromThis(AsHolder(*list->rows[row_index])));
 }
 
+void WindowCatalog::OpenListRowFromUi(std::size_t row_index) {
+  SubmitSelectionFromUi(row_index);
+  OpenRow(row_index);
+}
+
 void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   if (!holder.window.is_valid()) {
     return;
@@ -361,7 +364,17 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
     NoteMaterializedChange();
     return;
   }
-  holder.window.Load();
+  ae::Domain& domain = *list->domain;
+  ae::DomainGraph load_graph{&domain, ae::GraphSerializationScope::LocalPersistent};
+  if (ae::Ptr<ae::Obj> loaded = load_graph.LoadRoot(holder.window.id())) {
+    holder.window = CatalogWindow::ptr::MakeFromThis(
+        static_cast<CatalogWindow*>(loaded.get()));
+  } else {
+    holder.window.Load();
+  }
+  if (!holder.window.is_loaded()) {
+    return;
+  }
   holder.window.SetFlags(OpenObjFlags(holder.window.flags()));
   if (holder.window->window_presenter.is_valid()) {
     if (!holder.window->window_presenter.is_loaded()) {

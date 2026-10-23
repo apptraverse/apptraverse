@@ -115,7 +115,6 @@ void WindowCatalogModelSession::Run(
           holder->primary_text.Load();
         }
       }
-      catalog->list->MarkRowsMaterialized();
     }
 
     PendingDirtyNodes pending_dirty;
@@ -191,9 +190,6 @@ void WindowCatalogModelSession::Run(
     }
 
     ClearLiveReachableNodesMaterializedChangeNotifier(*catalog);
-    if (catalog->list) {
-      catalog->list->MarkRowsMaterialized();
-    }
 
     durable_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(*catalog);

@@ -25,6 +25,8 @@
 #include "window_catalog_ids.h"
 #include "window_catalog_model.h"
 
+#include "apptraverse/ui/ui_localization_string.h"
+
 namespace apptraverse::test {
 namespace {
 
@@ -291,8 +293,26 @@ void CloseProcessGracefully(HWND main, PROCESS_INFORMATION& pi) {
   CloseHandle(pi.hProcess);
 }
 
-void ProbeProfileListRows(std::filesystem::path const& state_dir,
-                            std::size_t expected_rows) {
+std::string ProbeRowPrimaryUtf8(WindowHolder const& holder, int language_index) {
+  CHECK(holder.primary_text.is_valid());
+  if (!holder.primary_text.is_loaded()) {
+    holder.primary_text.Load();
+  }
+  ui::UiLocalizationString const& localized = *holder.primary_text;
+  if (language_index >= 0 &&
+      static_cast<std::size_t>(language_index) < localized.strings.size()) {
+    ui::UiString::ptr const& entry = localized.strings[language_index];
+    if (entry.is_valid() && !entry.is_loaded()) {
+      entry.Load();
+    }
+  }
+  return localized.Resolve(language_index);
+}
+
+void ProbeProfileListRows(
+    std::filesystem::path const& state_dir, std::size_t expected_rows,
+    std::vector<ae::ObjId>* out_holder_ids = nullptr,
+    std::vector<ae::ObjId> const* expected_holder_prefix = nullptr) {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
   EnsureWindowCatalogGraphRegistration();
@@ -304,12 +324,34 @@ void ProbeProfileListRows(std::filesystem::path const& state_dir,
           window_catalog_demo::ObjId::Catalog)});
   CHECK(catalog->list.is_valid());
   CHECK(catalog->list->rows.size() == expected_rows);
+  if (expected_holder_prefix != nullptr) {
+    CHECK(expected_holder_prefix->size() <= expected_rows);
+    for (std::size_t i = 0; i < expected_holder_prefix->size(); ++i) {
+      auto* h =
+          static_cast<WindowHolder*>(catalog->list->rows[i].operator->());
+      CHECK(h->obj_id == (*expected_holder_prefix)[i]);
+    }
+  }
+  if (out_holder_ids != nullptr) {
+    out_holder_ids->clear();
+    out_holder_ids->reserve(expected_rows);
+  }
   for (std::size_t i = 0; i < expected_rows; ++i) {
     auto* h = static_cast<WindowHolder*>(catalog->list->rows[i].operator->());
-    CHECK(h->window_number == static_cast<int>(i + 1));
+    CHECK(h->window_number == static_cast<std::uint32_t>(i + 1));
+    std::string const title = ProbeRowPrimaryUtf8(*h, 0);
+    CHECK(title == ("Window " + std::to_string(h->window_number)));
+    if (out_holder_ids != nullptr) {
+      out_holder_ids->push_back(h->obj_id);
+    }
+    if (h->window.is_valid() && h->window.is_loaded()) {
+      CHECK(domain.Find(h->window.id()) != nullptr);
+    } else if (h->window.is_valid()) {
+      CHECK(domain.Find(h->window.id()) == nullptr);
+    }
   }
   CHECK(catalog->next_window_number ==
-        static_cast<int>(expected_rows + 1));
+        static_cast<std::uint32_t>(expected_rows + 1));
 }
 
 void RunRestartPersistenceAcceptance() {
@@ -343,7 +385,9 @@ void RunRestartPersistenceAcceptance() {
   ExpectListRows(main, {L"Window 1", L"Window 2", L"Window 3"});
 
   CloseProcessGracefully(main, pi);
-  ProbeProfileListRows(state_dir, 3);
+  std::vector<ae::ObjId> saved_holder_ids;
+  ProbeProfileListRows(state_dir, 3, &saved_holder_ids);
+  CHECK(saved_holder_ids.size() == 3);
 
   pi = StartDemo(load_only, state_dir);
   main = WaitCatalogMainWindow(pi.dwProcessId, std::chrono::seconds{30});
@@ -355,8 +399,12 @@ void RunRestartPersistenceAcceptance() {
   CHECK(FindTopLevelWithTitle(pi.dwProcessId, L"Window 3") != nullptr);
   CHECK(TopLevelWindowsForPid(pi.dwProcessId).size() == 3);
 
-  SelectListIndex(main, 1);
-  ClickControl(main, kOpenControlId);
+  HWND const list_hwnd = GetDlgItem(main, static_cast<int>(kListControlId));
+  CHECK(list_hwnd != nullptr);
+  SendMessageW(list_hwnd, LB_SETCURSEL, 1, 0);
+  SendMessageW(main, WM_COMMAND,
+               MAKEWPARAM(kListControlId, LBN_DBLCLK),
+               reinterpret_cast<LPARAM>(list_hwnd));
   CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
     return FindTopLevelWithTitle(pi.dwProcessId, L"Window 2") != nullptr;
   }));
@@ -365,7 +413,8 @@ void RunRestartPersistenceAcceptance() {
   ExpectListRows(main, {L"Window 1", L"Window 2", L"Window 3", L"Window 4"});
 
   CloseProcessGracefully(main, pi);
-  ProbeProfileListRows(state_dir, 4);
+  ProbeProfileListRows(state_dir, 4, nullptr, &saved_holder_ids);
+  CHECK(saved_holder_ids.size() == 3);
 
   pi = StartDemo(demo, state_dir);
   main = WaitCatalogMainWindow(pi.dwProcessId, std::chrono::seconds{30});

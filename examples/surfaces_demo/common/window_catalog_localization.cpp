@@ -71,54 +71,6 @@ void RepairLocalizationSlot(ui::UiLocalizationString::ptr& localized,
   repair_slot(1, ru);
 }
 
-void RepairHolderPrimaryText(WindowHolder& holder,
-                             WindowCatalog& catalog) {
-  if (!holder.primary_text.is_valid() ||
-      !catalog.texts.window_title_prefix.is_valid()) {
-    return;
-  }
-  if (!holder.primary_text.is_loaded()) {
-    holder.primary_text.Load();
-  }
-  ui::UiLocalizationString& localized = *holder.primary_text;
-  if (localized.strings.size() < 2) {
-    return;
-  }
-  auto prefix_utf8 = [&](std::size_t slot, char const* fallback) {
-    ui::UiLocalizationString& prefix = *catalog.texts.window_title_prefix;
-    if (slot >= prefix.strings.size() || !prefix.strings[slot].is_valid()) {
-      return std::string(fallback);
-    }
-    ui::UiString::ptr& prefix_entry = prefix.strings[slot];
-    if (!prefix_entry.is_loaded()) {
-      prefix_entry.Load();
-    }
-    if (prefix_entry->utf8.empty()) {
-      return std::string(fallback);
-    }
-    return prefix_entry->utf8;
-  };
-  auto repair_slot = [&](std::size_t slot, int language_index,
-                         char const* prefix_fallback) {
-    ui::UiString::ptr& entry = localized.strings[slot];
-    if (!entry.is_valid()) {
-      return;
-    }
-    std::string const expected =
-        prefix_utf8(static_cast<std::size_t>(language_index), prefix_fallback) +
-        std::to_string(holder.window_number);
-    if (!entry.is_loaded()) {
-      entry.Load();
-    }
-    if (entry->utf8.empty() || entry->utf8 != expected) {
-      entry->utf8 = expected;
-      PersistUiStringUtf8(entry);
-    }
-  };
-  repair_slot(0, 0, "Window ");
-  repair_slot(1, 1, "\xD0\x9E\xD0\xBA\xD0\xBD\xD0\xBE ");
-}
-
 }  // namespace
 
 void InstallWindowCatalogLocalization(WindowCatalog& catalog,
@@ -159,14 +111,6 @@ void RepairWindowCatalogEmbeddedStrings(WindowCatalog& catalog) {
     } else {
       RepairLocalizationSlot(catalog.main_window_presenter->title,
                              "Window Catalog", "Каталог окон");
-    }
-  }
-  if (catalog.list) {
-    for (auto const& row : catalog.list->rows) {
-      if (!row) {
-        continue;
-      }
-      RepairHolderPrimaryText(*static_cast<WindowHolder*>(&*row), catalog);
     }
   }
   int const language = catalog.locale ? catalog.locale->language_index() : 0;

@@ -59,21 +59,11 @@ class UiListContainer : public NodeFor<UiListContainer> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, rows);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, rows);
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, rows, selection_index);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, rows, selection_index);
   }
 

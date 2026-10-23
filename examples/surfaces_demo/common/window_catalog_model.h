@@ -61,18 +61,16 @@ class WindowHolder : public ui::UiListRow {
  public:
   explicit WindowHolder(ae::ObjProp prop) : UiListRow{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(primary_text), AE_MMBR(delete_button),
-                    AE_MMBR(presenter), AE_MMBR(window_number),
-                    AE_MMBR(window))
+  AE_OBJECT_REFLECT(AE_MMBR(window_number), AE_MMBR(window))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, primary_text, delete_button, presenter, window_number, window);
+    dnv(base_, window_number, window);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, primary_text, delete_button, presenter, window_number, window);
+    dnv(base_, window_number, window);
   }
 
   std::uint32_t window_number{0};
@@ -183,6 +181,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void MaterializeHolderListText(WindowHolder& holder, int language_index);
 
   void SubmitSelectionFromUi(std::size_t row_index);
+  void OpenListRowFromUi(std::size_t row_index);
   void ClearPendingFocusWindow();
   void RefreshChromeButtonEnabledState();
 
@@ -204,21 +203,20 @@ class CatalogListContainer : public ui::UiListContainer {
  public:
   explicit CatalogListContainer(ae::ObjProp prop) : UiListContainer{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(rows), AE_MMBR(selection_index), AE_MMBR(catalog))
+  AE_OBJECT_REFLECT(AE_MMBR(catalog))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, rows, selection_index, catalog);
+    dnv(base_, catalog);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, rows, selection_index, catalog);
+    dnv(base_, catalog);
   }
 
   ae::ObjPtr<WindowCatalog> catalog;
 
-  void MarkRowsMaterialized();
   void HandleListRowActivated(std::size_t row_index) override;
 };
 
