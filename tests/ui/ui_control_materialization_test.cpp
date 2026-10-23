@@ -6,6 +6,7 @@
 
 #include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/runtime_node.h"
@@ -48,8 +49,37 @@ class TestClickButton : public NodeFor<TestClickButton, UiPushButton> {
 
 APPTRAVERSE_REGISTER(TestClickButton);
 
+class TestLazyWindowsRoot : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::TestLazyWindowsRoot",
+                           TestLazyWindowsRoot, ae::Obj, 0)
+
+ protected:
+  TestLazyWindowsRoot() = default;
+
+ public:
+  explicit TestLazyWindowsRoot(ae::ObjProp prop) : ae::Obj{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window_a), AE_MMBR(window_b))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, window_a, window_b);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, window_a, window_b);
+  }
+
+  ui::UiWindow::ptr window_a;
+  ui::UiWindow::ptr window_b;
+};
+
+APPTRAVERSE_REGISTER(TestLazyWindowsRoot);
+
 void EnsureTestRegistration() {
   (void)&g_apptraverse_registrar_TestClickButton;
+  (void)&g_apptraverse_registrar_TestLazyWindowsRoot;
 }
 
 void PendingNotify(void* ctx, Node&) {
@@ -503,6 +533,113 @@ void TestWindowLazyStateRoundtrip() {
   }
 }
 
+void TestWindowLazyGraphInitialPublication() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const root_id{0x83000001u};
+  ae::ObjId window_a_id;
+  ae::ObjId window_b_id;
+  ae::ObjId window_a_base_id;
+  ae::ObjId window_a_event0_id;
+
+  {
+    ae::Domain domain{storage};
+    auto window_a = UiWindow::ptr::Create(
+        ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
+    InitializeRuntimeNode(*window_a);
+    auto window_b = UiWindow::ptr::Create(
+        ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
+    InitializeRuntimeNode(*window_b);
+
+    auto set_a = SetUiWindowClientSizeEvent::ptr::Create(
+        ae::CreateWith{domain});
+    set_a->width = 640;
+    set_a->height = 480;
+    window_a->Commit(std::move(set_a));
+
+    auto set_b = SetUiWindowClientSizeEvent::ptr::Create(
+        ae::CreateWith{domain});
+    set_b->width = 900;
+    set_b->height = 700;
+    window_b->Commit(std::move(set_b));
+
+    window_a_id = window_a->obj_id;
+    window_b_id = window_b->obj_id;
+    window_a_event0_id = window_a->journal[0].event->obj_id;
+
+    auto root = TestLazyWindowsRoot::ptr::Create(
+        ae::CreateWith{domain}.with_id(root_id));
+    root->window_a = window_a;
+    root->window_b = window_b;
+
+    UiWindow::ptr::MakeFromThis(&*window_a).Save();
+    UiWindow::ptr::MakeFromThis(&*window_b).Save();
+    TestLazyWindowsRoot::ptr::MakeFromThis(&*root).Save();
+  }
+
+  {
+    ae::Domain domain{storage};
+    TestLazyWindowsRoot::ptr root = TestLazyWindowsRoot::ptr::Declare(
+        ae::CreateWith{domain}.with_id(root_id));
+    root.Load();
+
+    CHECK(root->window_a.is_valid());
+    CHECK(root->window_b.is_valid());
+    CHECK(root->window_a.id() == window_a_id);
+    CHECK(root->window_b.id() == window_b_id);
+    CHECK((root->window_a.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+    CHECK((root->window_b.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+    CHECK(!root->window_a.is_loaded());
+    CHECK(!root->window_b.is_loaded());
+    CHECK(!domain.Find(window_a_id));
+    CHECK(!domain.Find(window_b_id));
+
+    root->window_a.Load();
+    CHECK(root->window_a->client_width() == 640);
+    CHECK(root->window_a->client_height() == 480);
+    CHECK(root->window_a->journal.size() == 1);
+    CHECK(root->window_a->journal[0].event->obj_id == window_a_event0_id);
+    window_a_base_id = root->window_a->base->obj_id;
+
+    CHECK(!root->window_b.is_loaded());
+    CHECK(!domain.Find(window_b_id));
+
+    ae::RamDomainStorage ui_storage;
+    ae::Domain ui_domain{ui_storage};
+    ByteSink initial_sink;
+    SerializeInitialPublication(*root, initial_sink);
+    ByteSource initial_in;
+    initial_in.data = initial_sink.bytes.data();
+    initial_in.size = initial_sink.bytes.size();
+    auto ui_root_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+    CHECK(ui_root_obj);
+    auto ui_root = TestLazyWindowsRoot::ptr::MakeFromThis(
+        static_cast<TestLazyWindowsRoot*>(ui_root_obj.get()));
+
+    CHECK(ui_root->window_a.id() == window_a_id);
+    CHECK(ui_root->window_b.id() == window_b_id);
+    CHECK(ui_root->window_a.is_loaded());
+    CHECK(ui_root->window_a->client_width() == 640);
+    CHECK(ui_root->window_a->client_height() == 480);
+    CHECK(!ui_root->window_b.is_loaded());
+    CHECK(!ui_domain.Find(window_b_id));
+
+    CHECK(!ui_storage.Enumerate(root_id).empty());
+    CHECK(!ui_storage.Enumerate(window_a_id).empty());
+    CHECK(ui_storage.Enumerate(window_b_id).empty());
+
+    CHECK(!ui_root->window_a->base.is_valid());
+    CHECK(ui_root->window_a->journal.empty());
+    CHECK(ui_storage.Enumerate(window_a_base_id).empty());
+    CHECK(ui_storage.Enumerate(window_a_event0_id).empty());
+
+    CHECK(root->window_a->journal.size() == 1);
+    CHECK(root->window_a->journal[0].event->obj_id == window_a_event0_id);
+    CHECK((root->window_b.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+    CHECK(!root->window_b.is_loaded());
+    CHECK(!domain.Find(window_b_id));
+  }
+}
+
 void TestPushButtonClickViaPresenter() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -543,6 +680,7 @@ int main() {
   TestLocalizationLazyLoadRoundtrip();
   TestLocalizationLazyInitialPublication();
   TestWindowLazyStateRoundtrip();
+  TestWindowLazyGraphInitialPublication();
   TestPushButtonClickViaPresenter();
   return 0;
 }
