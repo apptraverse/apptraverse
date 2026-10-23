@@ -20,7 +20,7 @@ Build (Release example): `build-presenter-decomp-msvc-rel/examples/surfaces_demo
 ## Verified (Release, incremental build)
 
 - `apptraverse_window_catalog_model_test` — **PASS** (checkpoint reload + Add via `NotifyClicked` after reopen closed holder).
-- `apptraverse_window_catalog_win32_acceptance_test` — run after rebuild (load-only → Open → Add → restart).
+- `apptraverse_window_catalog_win32_acceptance_test` — **PASS** (load-only → Open → Add → restart; geometry + holder ObjId checks).
 
 ## Removed 275e099 workarounds
 
