@@ -193,8 +193,8 @@ state/
 - **Область:** `src/`, `include/apptraverse/`, tests fixtures, CMake distill hooks.
 - **Можно:** документы, таблицы расхождений.
 - **Нельзя:** менять поведение production.
-- **Результат:** отчёт в PROGRESS, приоритет для 02–04.
-- **T:** — | **Зависимости:** — | **Статус:** TODO
+- **Результат:** отчёт в [PROGRESS.md](./PROGRESS.md) (**01A** startup/distillation, **01B** storage, **01C** const/links, **01D** redundancy/cleanup order); приоритет для 02–04.
+- **T:** — | **Зависимости:** — | **Статус:** PASS *(завершён аудит; production-код не менялся)*
 
 ### 02 — Имена каталогов и номера поставок
 
