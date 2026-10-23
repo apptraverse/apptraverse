@@ -2,6 +2,7 @@
 int main() { return 0; }
 #else
 
+#include <deque>
 #include <iostream>
 #include <string>
 
@@ -705,9 +706,17 @@ void TestLazyDesktopWindowNativeLifecycle() {
 
   ae::Domain model_domain{storage};
   int proxy_invoke_count = 0;
+  std::deque<ModelObjectProxy::ModelWork> model_work_queue;
+  auto run_pending_model_work = [&]() {
+    while (!model_work_queue.empty()) {
+      ModelObjectProxy::ModelWork work = std::move(model_work_queue.front());
+      model_work_queue.pop_front();
+      work(model_domain);
+    }
+  };
   ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
     ++proxy_invoke_count;
-    work(model_domain);
+    model_work_queue.push_back(std::move(work));
   }};
   ae::ObjId disable_event_id;
   std::size_t button_journal_size_after_disable = 0;
@@ -763,6 +772,7 @@ void TestLazyDesktopWindowNativeLifecycle() {
   };
 
   InitializePresenters(*ui_root, &host, &proxy);
+  run_pending_model_work();
 
   auto* ui_desktop = ui_root->window_presenter.operator->();
   HWND const first_hwnd = ui_desktop->hwnd();
@@ -806,6 +816,7 @@ void TestLazyDesktopWindowNativeLifecycle() {
   int const proxy_before_first_click = proxy_invoke_count;
   SendMessageW(first_button_hwnd, BM_CLICK, 0, 0);
   CHECK(proxy_invoke_count == proxy_before_first_click + 1);
+  run_pending_model_work();
 
   {
     ui::UiPushButton& model_button = *model_root->button_presenter->button;
@@ -824,16 +835,30 @@ void TestLazyDesktopWindowNativeLifecycle() {
     ApplyStructuralPublicationAndUpdatePresenters(
         disable_in, ui_domain, ui_storage, *ui_root, &host, &proxy);
   }
+  run_pending_model_work();
   CHECK(IsWindowEnabled(first_button_hwnd) == FALSE);
   int const proxy_before_disabled_click = proxy_invoke_count;
   SendMessageW(first_button_hwnd, BM_CLICK, 0, 0);
   CHECK(proxy_invoke_count == proxy_before_disabled_click);
+  CHECK(model_work_queue.empty());
 
   int const proxy_before_wm_close = proxy_invoke_count;
   SendMessageW(first_hwnd, WM_CLOSE, 0, 0);
   CHECK(desktop_user_close_count == 1);
   CHECK(desktop_user_close_window_id == window_id);
   CHECK(proxy_invoke_count == proxy_before_wm_close + 1);
+  CHECK(model_work_queue.size() == 1U);
+  CHECK(model_domain.Find(window_id));
+  CHECK(model_domain.Find(presenter_id));
+  CHECK(model_domain.Find(button_id));
+  CHECK(model_domain.Find(button_presenter_id));
+  CHECK(model_root->window.is_loaded());
+  CHECK(model_root->window_presenter.is_loaded());
+  CHECK(model_root->button_presenter.is_loaded());
+  CHECK(IsWindow(first_hwnd) != 0);
+  CHECK(IsWindow(first_button_hwnd) != 0);
+
+  run_pending_model_work();
   CHECK(model_root->window.is_valid());
   CHECK(model_root->window_presenter.is_valid());
   CHECK(model_root->button_presenter.is_valid());
@@ -857,6 +882,7 @@ void TestLazyDesktopWindowNativeLifecycle() {
                                                 *ui_root, &host, &proxy);
   CHECK(proxy_invoke_count == proxy_before_unload_apply);
   CHECK(desktop_user_close_count == 1);
+  CHECK(model_work_queue.empty());
 
   CHECK(IsWindow(first_hwnd) == 0);
   CHECK(IsWindow(first_button_hwnd) == 0);
@@ -889,6 +915,7 @@ void TestLazyDesktopWindowNativeLifecycle() {
   reload_in.size = reload_sink.bytes.size();
   ApplyStructuralPublicationAndUpdatePresenters(reload_in, ui_domain, ui_storage,
                                                 *ui_root, &host, &proxy);
+  run_pending_model_work();
 
   ui_desktop = ui_root->window_presenter.operator->();
   HWND const second_hwnd = ui_desktop->hwnd();
@@ -940,14 +967,18 @@ void TestLazyDesktopWindowNativeLifecycle() {
     ApplyStructuralPublicationAndUpdatePresenters(
         enable_in, ui_domain, ui_storage, *ui_root, &host, &proxy);
   }
+  run_pending_model_work();
   CHECK(IsWindowEnabled(second_button_hwnd) != FALSE);
   int const proxy_before_enabled_click = proxy_invoke_count;
   SendMessageW(second_button_hwnd, BM_CLICK, 0, 0);
   CHECK(proxy_invoke_count == proxy_before_enabled_click + 1);
+  run_pending_model_work();
 
   int const proxy_before_final_unload = proxy_invoke_count;
   UnloadPresenters(*ui_root);
   CHECK(proxy_invoke_count == proxy_before_final_unload);
+  CHECK(model_work_queue.empty());
+  CHECK(desktop_user_close_count == 1);
   CHECK(IsWindow(second_hwnd) == 0);
   CHECK(IsWindow(second_button_hwnd) == 0);
   CHECK(ui_root->window_presenter.operator->()->hwnd() == nullptr);
