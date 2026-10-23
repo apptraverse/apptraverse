@@ -1,3 +1,5 @@
+**Release versioning (R0–R5):** фактический прогресс и roadmap — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md), контракт — [docs/versioning/PLAN.md](docs/versioning/PLAN.md). Для задач версионирования поставок читать их первыми; правила из `.cursor/rules/apptraverse-coding-agent.mdc` по-прежнему обязательны.
+
 ## Host	oClient delivery (2026-09-17) ? NOT FIXED
 
 Starting SHA: `d9b11a48771d077f0208543fbd1663ca71224d1e`

@@ -1,6 +1,8 @@
 Status: active
 Progress: Progress.md
 
+**Release versioning (R0–R5):** для задач релизного версионирования сначала читать [docs/versioning/PLAN.md](docs/versioning/PLAN.md) и [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md). Общие coding-agent rules остаются обязательными.
+
 # App Traverse — next application
 
 This plan sequences the next App Traverse work after surfaces.
