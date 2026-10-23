@@ -540,6 +540,8 @@ void TestWindowLazyGraphInitialPublication() {
   ae::ObjId window_b_id;
   ae::ObjId window_a_base_id;
   ae::ObjId window_a_event0_id;
+  ae::ObjId window_b_base_id;
+  ae::ObjId window_b_event0_id;
 
   {
     ae::Domain domain{storage};
@@ -614,6 +616,7 @@ void TestWindowLazyGraphInitialPublication() {
     CHECK(ui_root_obj);
     auto ui_root = TestLazyWindowsRoot::ptr::MakeFromThis(
         static_cast<TestLazyWindowsRoot*>(ui_root_obj.get()));
+    TestLazyWindowsRoot* const ui_root_object = &*ui_root;
 
     CHECK(ui_root->window_a.id() == window_a_id);
     CHECK(ui_root->window_b.id() == window_b_id);
@@ -637,6 +640,58 @@ void TestWindowLazyGraphInitialPublication() {
     CHECK((root->window_b.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
     CHECK(!root->window_b.is_loaded());
     CHECK(!domain.Find(window_b_id));
+
+    root->window_b.Load();
+    CHECK(root->window_b->client_width() == 900);
+    CHECK(root->window_b->client_height() == 700);
+    CHECK(root->window_b->journal.size() == 1);
+    window_b_event0_id = root->window_b->journal[0].event->obj_id;
+    window_b_base_id = root->window_b->base->obj_id;
+
+    root->window_a.Save();
+    root->window_a.Reset();
+    CHECK(root->window_a.is_valid());
+    CHECK(root->window_a.id() == window_a_id);
+    CHECK((root->window_a.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+    CHECK(!root->window_a.is_loaded());
+    CHECK(!domain.Find(window_a_id));
+    CHECK(root->window_b.is_loaded());
+
+    ByteSink graph_sink;
+    SerializeObjectGraphToBuffer(*root, graph_sink);
+    {
+      StructuralPresentationKeepalive keepalive =
+          CaptureStructuralPresentationKeepalive(*ui_root);
+      ByteSource graph_in;
+      graph_in.data = graph_sink.bytes.data();
+      graph_in.size = graph_sink.bytes.size();
+      DeserializeObjectGraphFromBuffer(*ui_root, graph_in, ui_domain,
+                                         ui_storage);
+
+      CHECK(&*ui_root == ui_root_object);
+      CHECK(ui_root->obj_id == root_id);
+      CHECK(ui_root->window_a.id() == window_a_id);
+      CHECK(ui_root->window_b.id() == window_b_id);
+      CHECK(!ui_root->window_a.is_loaded());
+      CHECK(ui_root->window_b.is_loaded());
+      CHECK(ui_root->window_b->client_width() == 900);
+      CHECK(ui_root->window_b->client_height() == 700);
+      CHECK(!ui_root->window_b->base.is_valid());
+      CHECK(ui_root->window_b->journal.empty());
+      CHECK(ui_storage.Enumerate(window_b_base_id).empty());
+      CHECK(ui_storage.Enumerate(window_b_event0_id).empty());
+      CHECK(!ui_storage.Enumerate(window_b_id).empty());
+
+      CHECK(root->window_b->journal.size() == 1);
+      CHECK(root->window_b->journal[0].event->obj_id == window_b_event0_id);
+      CHECK(!root->window_a.is_loaded());
+      CHECK(!domain.Find(window_a_id));
+      CHECK(!storage.Enumerate(window_a_id).empty());
+    }
+    CHECK(!ui_domain.Find(window_a_id));
+    CHECK(!ui_root->window_a.is_loaded());
+    CHECK(ui_root->window_b.is_loaded());
+    CHECK(ui_root->window_b->client_width() == 900);
   }
 }
 
