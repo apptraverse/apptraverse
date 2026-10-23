@@ -37,6 +37,7 @@ class WindowCatalogWinApp {
   void OnInitialPublished();
   void OnIncrementalPublished();
   void RequestApplicationStop();
+  void ApplyPendingFocusWindow();
   bool IsMainCatalogWindow(ae::Obj const& desktop_window) const;
 
   static void OnDesktopWindowUserClose(void* opaque, ae::Obj* desktop_window);

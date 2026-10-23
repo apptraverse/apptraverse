@@ -7,6 +7,17 @@
 namespace apptraverse {
 namespace {
 
+void PersistUiStringUtf8(ui::UiString::ptr& string) {
+  if (!string.is_valid()) {
+    return;
+  }
+  if (!string.is_loaded()) {
+    string.Load();
+  }
+  string.Save();
+  string.Reset();
+}
+
 ui::UiLocalizationString::ptr MakeLocalizedString(ae::Domain& domain,
                                                  Node& owner, char const* en,
                                                  char const* ru) {
@@ -15,12 +26,49 @@ ui::UiLocalizationString::ptr MakeLocalizedString(ae::Domain& domain,
   InitializeRuntimeNode(*localized, owner);
   auto en_string = ui::UiString::ptr::Create(
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
-  en_string->utf8 = en;
   auto ru_string = ui::UiString::ptr::Create(
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
-  ru_string->utf8 = ru;
   localized->strings = {en_string, ru_string};
+
+  en_string.Load();
+  en_string->utf8 = en;
+  PersistUiStringUtf8(en_string);
+  ru_string.Load();
+  ru_string->utf8 = ru;
+  PersistUiStringUtf8(ru_string);
+  localized->MaterializeLanguage(0);
   return localized;
+}
+
+void RepairLocalizationSlot(ui::UiLocalizationString::ptr& localized,
+                            char const* en, char const* ru) {
+  if (!localized) {
+    return;
+  }
+  if (localized->strings.size() < 2) {
+    return;
+  }
+  auto repair_slot = [&](std::size_t slot, char const* expected) {
+    auto& entry = localized->strings[slot];
+    if (!entry.is_valid()) {
+      return;
+    }
+    bool const needs_repair = [&] {
+      if (!entry.is_loaded()) {
+        entry.Load();
+      }
+      if (entry->utf8.empty()) {
+        entry->utf8 = expected;
+        PersistUiStringUtf8(entry);
+        return true;
+      }
+      entry.Reset();
+      return false;
+    }();
+    (void)needs_repair;
+  };
+  repair_slot(0, en);
+  repair_slot(1, ru);
 }
 
 }  // namespace
@@ -40,6 +88,33 @@ void InstallWindowCatalogLocalization(WindowCatalog& catalog,
       MakeLocalizedString(domain, catalog, "RU", "EN");
   catalog.texts.window_title_prefix =
       MakeLocalizedString(domain, catalog, "Window ", "Окно ");
+}
+
+void AttachMainWindowTitle(WindowCatalog& catalog, ae::Domain& domain) {
+  if (!catalog.main_window_presenter) {
+    return;
+  }
+  auto title = MakeLocalizedString(domain, catalog, "Window Catalog",
+                                   "Каталог окон");
+  catalog.main_window_presenter->title = title;
+}
+
+void RepairWindowCatalogEmbeddedStrings(WindowCatalog& catalog) {
+  RepairLocalizationSlot(catalog.texts.label_add, "Add", "Добавить");
+  RepairLocalizationSlot(catalog.texts.label_open, "Open", "Открыть");
+  RepairLocalizationSlot(catalog.texts.label_delete, "Delete", "Удалить");
+  RepairLocalizationSlot(catalog.texts.label_language, "RU", "EN");
+  RepairLocalizationSlot(catalog.texts.window_title_prefix, "Window ", "Окно ");
+  if (catalog.main_window_presenter) {
+    if (!catalog.main_window_presenter->title.is_valid()) {
+      AttachMainWindowTitle(catalog, *catalog.domain);
+    } else {
+      RepairLocalizationSlot(catalog.main_window_presenter->title,
+                             "Window Catalog", "Каталог окон");
+    }
+  }
+  int const language = catalog.locale ? catalog.locale->language_index() : 0;
+  catalog.MaterializeCatalogStrings(language);
 }
 
 std::string FormatCatalogWindowTitle(ui::UiLocalizationString const& prefix,

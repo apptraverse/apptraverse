@@ -3,7 +3,10 @@
 #include "apptraverse/platform/windows/win32_fatal.h"
 
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
+
+#include "window_catalog_ids.h"
 
 namespace apptraverse {
 namespace {
@@ -32,7 +35,14 @@ void WindowCatalogWinApp::OnDesktopWindowUserClose(void* opaque,
   auto* app = static_cast<WindowCatalogWinApp*>(opaque);
   if (app->IsMainCatalogWindow(*desktop_window)) {
     app->RequestApplicationStop();
+    return;
   }
+  ae::ObjId const window_id = desktop_window->obj_id;
+  if (!app->model_proxy_ || !app->ui_catalog_) {
+    return;
+  }
+  app->model_proxy_->Invoke(app->ui_catalog_->obj_id,
+                            &WindowCatalog::UserCloseWindow, window_id);
 }
 
 bool WindowCatalogWinApp::IsMainCatalogWindow(
@@ -89,6 +99,58 @@ LRESULT WindowCatalogWinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam,
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+namespace {
+
+ui::windows::WinDesktopWindowPresenter* FindChildWindowPresenter(
+    WindowCatalog& catalog, ae::ObjId window_id) {
+  if (!catalog.list) {
+    return nullptr;
+  }
+  for (auto const& row : catalog.list->rows) {
+    if (!row) {
+      continue;
+    }
+    auto* holder = static_cast<WindowHolder*>(&*row);
+    if (!holder->window.is_valid() || !holder->window.is_loaded()) {
+      continue;
+    }
+    if (holder->window.id() != window_id) {
+      continue;
+    }
+    if (!holder->window->window_presenter.is_valid() ||
+        !holder->window->window_presenter.is_loaded()) {
+      return nullptr;
+    }
+    return static_cast<ui::windows::WinDesktopWindowPresenter*>(
+        holder->window->window_presenter.operator->());
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+void WindowCatalogWinApp::ApplyPendingFocusWindow() {
+  if (!ui_catalog_ || !model_proxy_) {
+    return;
+  }
+  ae::ObjId const focus_id = ui_catalog_->pending_focus_window_id;
+  if (!focus_id.is_valid()) {
+    return;
+  }
+  ui::windows::WinDesktopWindowPresenter* presenter =
+      FindChildWindowPresenter(*ui_catalog_, focus_id);
+  if (presenter == nullptr || presenter->hwnd() == nullptr) {
+    return;
+  }
+  HWND const hwnd = presenter->hwnd();
+  if (IsIconic(hwnd)) {
+    ShowWindow(hwnd, SW_RESTORE);
+  }
+  SetForegroundWindow(hwnd);
+  model_proxy_->Invoke(ui_catalog_->obj_id,
+                       &WindowCatalog::ClearPendingFocusWindow);
+}
+
 void WindowCatalogWinApp::OnInitialPublished() {
   std::vector<std::uint8_t> bytes;
   {
@@ -104,6 +166,7 @@ void WindowCatalogWinApp::OnInitialPublished() {
   ui_catalog_ =
       WindowCatalog::ptr::MakeFromThis(static_cast<WindowCatalog*>(ui_root.get()));
   InitializePresenters(*ui_catalog_, &presentation_host_, &*model_proxy_);
+  ApplyPendingFocusWindow();
   if (DestroyWindow(loading_) == 0) {
     FatalWin32("DestroyWindow Loading", GetLastError());
   }
@@ -119,6 +182,7 @@ void WindowCatalogWinApp::OnIncrementalPublished() {
   session_.cv.notify_all();
   ApplyWindowCatalogStructural(bytes, *ui_catalog_, ui_storage_,
                                &presentation_host_, &*model_proxy_);
+  ApplyPendingFocusWindow();
 }
 
 int WindowCatalogWinApp::Run(std::filesystem::path const& state_dir) {

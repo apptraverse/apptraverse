@@ -15,6 +15,10 @@ std::string FormatCatalogWindowTitle(ui::UiLocalizationString const& prefix,
 void MaterializeWindowHolderTitle(WindowHolder& holder, int language_index,
                                   ui::UiLocalizationString const& prefix);
 
+void AttachMainWindowTitle(WindowCatalog& catalog, ae::Domain& domain);
+
+void RepairWindowCatalogEmbeddedStrings(WindowCatalog& catalog);
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_WINDOW_CATALOG_LOCALIZATION_H_

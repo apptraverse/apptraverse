@@ -1,19 +1,28 @@
-# Window catalog demo (in progress)
+# Window catalog demo
 
-Target: Windows catalog host with a main window (ListBox + Add/Open/Delete + EN/RU), lazy child `CatalogWindow` graphs per `WindowHolder`, persistence under `{exe_dir}/surfaces_catalog_state`.
+Windows catalog host: main window (ListBox + Add/Open/Delete + EN/RU), lazy child `CatalogWindow` per `WindowHolder`, persistence under `{exe_dir}/surfaces_catalog_state` (override `--state-dir`).
+
+## Executables
+
+- `win32_window_catalog_demo` — bootstrap + run (`APPTRAVERSE_ENABLE_DISTILLATION`).
+- `win32_window_catalog_demo_load_only` — load existing profile only.
+
+Build (Release example): `build-presenter-decomp-msvc-rel/examples/surfaces_demo/windows/win32_window_catalog_demo.exe`
+
+## Verified behavior (Release)
+
+- EN/RU: `UiString` slots persisted before materialize; chrome and list rows show full text both ways; selection preserved across language switch.
+- Titles: main `Window Catalog` / `Каталог окон` via `main_window_presenter->title`; child titles share `WindowHolder::primary_text`.
+- Child WM_CLOSE: model `UserCloseWindow` → unload graph → structural publication → HWND destroyed; holder remains in list.
+- Open: closed window loads and publishes; open window sets `pending_focus_window_id` → UI restore/focus after publication (no duplicate HWND).
+- Restart: `SaveWindowCatalogPersistentSnapshot` before exit; load-only process restores open children’s HWND via initial publication.
+- Tests: `apptraverse_window_catalog_model_test`, `apptraverse_window_catalog_win32_acceptance_test` (label `window_catalog`).
 
 ## Holder / ObjPtr contract
 
-- `WindowHolder` extends `UiListRow`; `primary_text` is the list name; `window` is `CatalogWindow::ptr`.
-- Open: loaded `holder.window` without `kUnloadedByDefault`. Closed: valid unloaded ref. Deleted: row removed from `CatalogListContainer.rows`.
-- `next_window_number` is monotonic across delete/restart.
-
-## Current tree state
-
-- **Done (stage 2–3):** CMake `surfaces_demo_window_catalog`, `apptraverse_window_catalog_model_test` (headless reflection + initial publication).
-- **Done (stage 4):** `win32_window_catalog_demo` and `win32_window_catalog_demo_load_only` — Model thread loads `WindowCatalog`, initial/structural publication into UI Domain, library `WinListContainerPresenter` + four `WinPushButtonPresenter` on ~640×480 main HWND. Default state `{exe_dir}/surfaces_catalog_state`; `--state-dir` override. Main chrome is `CatalogWindow` at fixed id 2. WM_CLOSE on main window shuts down cleanly (model save, presenter unload).
-- **Not started:** child-window close → `UserCloseWindow`, full Add/Open/Delete acceptance, switch `win32_surfaces_demo` to catalog.
+- `WindowHolder` in list until Delete; `window.is_loaded()` = open; valid+unloaded = closed.
+- Main ListBox uses `primary_text` only (closed windows stay unloaded in model).
 
 ## Reflection
 
-`WindowCatalog` groups ObjPtr fields into `WindowCatalogTexts`, `WindowCatalogButtons`, and `WindowCatalogPresenters` (`AE_REFLECT_MEMBERS`) so full `AE_OBJECT_REFLECT` topology fits MSVC; v0 `Load`/`Save` wire order is unchanged.
+`WindowCatalog` groups ObjPtr fields (`WindowCatalogTexts`, `WindowCatalogButtons`, `WindowCatalogPresenters`) for full MSVC `AE_OBJECT_REFLECT`; v0 wire order unchanged.

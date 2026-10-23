@@ -13,7 +13,10 @@
 
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_localization.h"
 #include "window_catalog_model.h"
+
+#include "apptraverse/ui/ui_localization_string.h"
 
 namespace apptraverse::test {
 namespace {
@@ -255,6 +258,116 @@ void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
   CHECK(r3->window->window_presenter.is_loaded());
 }
 
+std::string ReadInactiveUtf8(ui::UiLocalizationString& localized,
+                            std::size_t slot) {
+  int const restore = 0;
+  localized.MaterializeLanguage(static_cast<int>(slot));
+  std::string const text = localized.Resolve(static_cast<int>(slot));
+  localized.MaterializeLanguage(restore);
+  return text;
+}
+
+void TestCatalogLocalizationUtf8Persisted() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  catalog->AddWindow();
+  catalog->AddWindow();
+  catalog->SelectHolder(catalog->list->rows[0]);
+
+  catalog->MaterializeCatalogStrings(1);
+  catalog->locale->SubmitLanguageIndexFromUi(1);
+  CHECK(catalog->texts.label_add->Resolve(1) == "Добавить");
+  CHECK(catalog->texts.label_open->Resolve(1) == "Открыть");
+  CHECK(catalog->texts.label_delete->Resolve(1) == "Удалить");
+  CHECK(catalog->texts.label_language->Resolve(1) == "EN");
+  WindowHolder* h0 = AsHolder(catalog->list->rows[0]);
+  CHECK(h0->primary_text->Resolve(1) == "Окно 1");
+
+  catalog->MaterializeCatalogStrings(0);
+  catalog->locale->SubmitLanguageIndexFromUi(0);
+  CHECK(catalog->texts.label_add->Resolve(0) == "Add");
+  CHECK(h0->primary_text->Resolve(0) == "Window 1");
+  CHECK(ReadInactiveUtf8(*catalog->texts.label_add, 1) == "Добавить");
+  CHECK(ReadInactiveUtf8(*h0->primary_text, 1) == "Окно 1");
+
+  auto const dir = TestDir("apptraverse_window_catalog_localization_save");
+  {
+    DirectoryDomainStorage persist{dir};
+    ae::Domain persist_domain{persist};
+    auto persist_catalog = BuildWindowCatalogGraph(persist_domain);
+    FinalizeDistilledGraph(*persist_catalog);
+    persist_catalog->AddWindow();
+    persist_catalog->AddWindow();
+    persist_catalog->MaterializeCatalogStrings(1);
+    persist_catalog->locale->SubmitLanguageIndexFromUi(1);
+    SaveWindowCatalogPersistentSnapshot(*persist_catalog);
+    persist_catalog.Reset();
+  }
+  DirectoryDomainStorage reload_storage{dir};
+  ae::Domain reload_domain{reload_storage};
+  auto reloaded = LoadApplication<WindowCatalog>(
+      reload_domain,
+      ae::ObjId{window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)});
+  RepairWindowCatalogEmbeddedStrings(*reloaded);
+  reloaded->MaterializeCatalogStrings(0);
+  CHECK(reloaded->texts.label_add->Resolve(0) == "Add");
+  CHECK(ReadInactiveUtf8(*reloaded->texts.label_add, 1) == "Добавить");
+  WindowHolder* r0 = AsHolder(reloaded->list->rows[0]);
+  CHECK(r0->primary_text->Resolve(0) == "Window 1");
+  CHECK(ReadInactiveUtf8(*r0->primary_text, 1) == "Окно 1");
+  CHECK(reloaded->main_window_presenter->title->Resolve(0) == "Window Catalog");
+  CHECK(ReadInactiveUtf8(*reloaded->main_window_presenter->title, 1) ==
+        "Каталог окон");
+}
+
+void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  auto const dir = TestDir("apptraverse_window_catalog_runtime_save");
+  ae::ObjId open_window_id{};
+  ae::ObjId closed_window_id{};
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto catalog = BuildWindowCatalogGraph(domain);
+    FinalizeDistilledGraph(*catalog);
+    catalog->AddWindow();
+    catalog->AddWindow();
+    catalog->AddWindow();
+    WindowHolder* open = AsHolder(catalog->list->rows[0]);
+    WindowHolder* closed = AsHolder(catalog->list->rows[1]);
+    open_window_id = open->window.id();
+    closed_window_id = closed->window.id();
+    catalog->CloseHolderWindow(*closed);
+    CHECK(open->window.is_loaded());
+    CHECK(!closed->window.is_loaded());
+    SaveWindowCatalogPersistentSnapshot(*catalog);
+    catalog.Reset();
+  }
+  DirectoryDomainStorage load_storage{dir};
+  ae::Domain load_domain{load_storage};
+  auto catalog = LoadApplication<WindowCatalog>(
+      load_domain,
+      ae::ObjId{window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)});
+  WindowHolder* r0 = AsHolder(catalog->list->rows[0]);
+  WindowHolder* r1 = AsHolder(catalog->list->rows[1]);
+  WindowHolder* r2 = AsHolder(catalog->list->rows[2]);
+  CHECK(r0->window.is_loaded());
+  CHECK(r0->window.id() == open_window_id);
+  CHECK(!r1->window.is_loaded());
+  CHECK(r1->window.id() == closed_window_id);
+  CHECK(r2->window.is_loaded());
+  CHECK(!load_domain.Find(closed_window_id));
+}
+
 void TestManyHoldersClosedGraphsAbsentFromDomain() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -290,6 +403,8 @@ void TestManyHoldersClosedGraphsAbsentFromDomain() {
 int main() {
   apptraverse::test::TestCatalogReflectionTopologyAndInitialPublication();
   apptraverse::test::TestCatalogHolderOpenCloseAndMonotonicNumbers();
+  apptraverse::test::TestCatalogLocalizationUtf8Persisted();
+  apptraverse::test::TestCatalogRuntimeSavePreservesOpenWindowLoadedState();
   apptraverse::test::TestManyHoldersClosedGraphsAbsentFromDomain();
   std::cout << "window_catalog_model_test OK\n";
   return 0;

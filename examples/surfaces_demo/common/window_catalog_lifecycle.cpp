@@ -10,6 +10,7 @@
 
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_localization.h"
 #include "window_catalog_model.h"
 
 #include "apptraverse/directory_domain_storage.h"
@@ -86,8 +87,15 @@ void WindowCatalogModelSession::Run(
     DirectoryDomainStorage durable_storage{state_dir};
     ae::Domain domain{durable_storage};
     auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootId());
-    int const language = catalog->locale->language_index();
-    catalog->MaterializeCatalogStrings(language);
+    RepairWindowCatalogEmbeddedStrings(*catalog);
+    for (auto const& row : catalog->list->rows) {
+      if (!row) {
+        continue;
+      }
+      EnsureHolderWindowTitleLinks(
+          *static_cast<WindowHolder*>(&*row), *catalog);
+    }
+    catalog->RefreshChromeButtonEnabledState();
 
     PendingDirtyNodes pending_dirty;
     BindReachableNodesMaterializedChangeNotifier(
@@ -162,7 +170,7 @@ void WindowCatalogModelSession::Run(
     ClearLiveReachableNodesMaterializedChangeNotifier(*catalog);
 
     durable_storage.BeginSaveSession();
-    catalog.Save();
+    SaveWindowCatalogPersistentSnapshot(*catalog);
     if (durable_storage.SaveSessionHadFailure()) {
       shutdown_exit_code = 1;
     }

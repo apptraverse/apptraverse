@@ -40,6 +40,17 @@ std::string ReadPrefixText(ui::UiLocalizationString& prefix, int language_index,
   return text;
 }
 
+void PersistUiStringUtf8(ui::UiString::ptr& string) {
+  if (!string.is_valid()) {
+    return;
+  }
+  if (!string.is_loaded()) {
+    string.Load();
+  }
+  string.Save();
+  string.Reset();
+}
+
 ui::UiLocalizationString::ptr MakeHolderTitleString(ae::Domain& domain,
                                                     WindowCatalog& catalog,
                                                     std::uint32_t number) {
@@ -58,8 +69,12 @@ ui::UiLocalizationString::ptr MakeHolderTitleString(ae::Domain& domain,
       ReadPrefixText(*catalog.texts.window_title_prefix, 0, restore_language);
   std::string const ru_prefix =
       ReadPrefixText(*catalog.texts.window_title_prefix, 1, restore_language);
+  en_string.Load();
   en_string->utf8 = en_prefix + std::to_string(number);
+  PersistUiStringUtf8(en_string);
+  ru_string.Load();
   ru_string->utf8 = ru_prefix + std::to_string(number);
+  PersistUiStringUtf8(ru_string);
   localized->MaterializeLanguage(restore_language);
   return localized;
 }
@@ -96,7 +111,54 @@ void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
   }
 }
 
+void EnsureHolderWindowTitleLinksImpl(WindowHolder& holder,
+                                      WindowCatalog& catalog) {
+  if (!holder.primary_text.is_valid()) {
+    return;
+  }
+  if (holder.window.is_valid() && holder.window.is_loaded()) {
+    holder.window->title = holder.primary_text;
+    if (holder.window->window_presenter.is_valid() &&
+        holder.window->window_presenter.is_loaded()) {
+      holder.window->window_presenter->title = holder.primary_text;
+      holder.window->window_presenter->locale = catalog.locale;
+    }
+  }
+}
+
+void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
+  if (catalog.main_window.is_valid() && catalog.main_window.is_loaded()) {
+    SaveCatalogWindowGraph(
+        static_cast<CatalogWindow&>(*catalog.main_window.operator->()));
+  }
+  if (catalog.main_window_presenter.is_valid() &&
+      catalog.main_window_presenter.is_loaded()) {
+    catalog.main_window_presenter.Save();
+  }
+  if (catalog.list) {
+    for (auto const& row : catalog.list->rows) {
+      if (!row) {
+        continue;
+      }
+      auto* holder = static_cast<WindowHolder*>(&*row);
+      if (holder->window.is_valid() && holder->window.is_loaded()) {
+        SaveCatalogWindowGraph(*holder->window);
+      }
+    }
+  }
+  WindowCatalog::ptr::MakeFromThis(&catalog).Save();
+}
+
 }  // namespace
+
+void EnsureHolderWindowTitleLinks(WindowHolder& holder,
+                                    WindowCatalog& catalog) {
+  EnsureHolderWindowTitleLinksImpl(holder, catalog);
+}
+
+void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
+  SaveWindowCatalogPersistentSnapshotImpl(catalog);
+}
 
 void AssignInitialCatalogWindowBounds(CatalogWindow& window,
                                       std::uint32_t number) {
@@ -137,6 +199,7 @@ void WindowCatalog::Apply(SetWindowCatalogSelectionEvent const& event) {
         event.holder ? static_cast<std::int32_t>(RowIndexForHolder(*event.holder))
                      : -1;
   }
+  RefreshChromeButtonEnabledState();
   NoteMaterializedChange();
 }
 
@@ -202,6 +265,9 @@ void WindowCatalog::MaterializeCatalogStrings(int language_index) {
   if (texts.window_title_prefix) {
     texts.window_title_prefix->MaterializeLanguage(language_index);
   }
+  if (main_window_presenter && main_window_presenter->title.is_valid()) {
+    main_window_presenter->title->MaterializeLanguage(language_index);
+  }
   for (auto const& row : list->rows) {
     if (row) {
       MaterializeHolderListText(*AsHolder(*row), language_index);
@@ -215,8 +281,8 @@ void WindowCatalog::MaterializeHolderListText(WindowHolder& holder,
     return;
   }
   holder.primary_text->MaterializeLanguage(language_index);
+  EnsureHolderWindowTitleLinksImpl(holder, *this);
   if (holder.window.is_loaded() && holder.window->title) {
-    holder.window->title = holder.primary_text;
     holder.window->title->MaterializeLanguage(language_index);
   }
 }
@@ -241,6 +307,7 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
     return;
   }
   if (holder.window.is_loaded()) {
+    EnsureHolderWindowTitleLinksImpl(holder, *this);
     holder.window.SetFlags(OpenObjFlags(holder.window.flags()));
     if (holder.window->window_presenter.is_valid()) {
       if (!holder.window->window_presenter.is_loaded()) {
@@ -248,6 +315,7 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
       }
       holder.window->window_presenter.SetFlags(
           OpenObjFlags(holder.window->window_presenter.flags()));
+      EnsureHolderWindowTitleLinksImpl(holder, *this);
     }
     pending_focus_window_id = holder.window.id();
     NoteMaterializedChange();
@@ -264,7 +332,9 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   }
   int const language = locale ? locale->language_index() : 0;
   MaterializeHolderListText(holder, language);
+  EnsureHolderWindowTitleLinksImpl(holder, *this);
   BindLiveWindowNotifiers(*this, *holder.window);
+  pending_focus_window_id = holder.window.id();
   NoteMaterializedChange();
 }
 
@@ -292,7 +362,9 @@ void WindowCatalog::AddWindow() {
       ae::CreateWith{domain});
   presenter->window = window;
   presenter->locale = locale;
+  presenter->title = holder->primary_text;
   window->window_presenter = presenter;
+  window->title = holder->primary_text;
 
   holder->window = window;
   holder->window.SetFlags(OpenObjFlags(holder->window.flags()));
@@ -340,7 +412,24 @@ void WindowCatalog::UserCloseWindow(ae::ObjId window_obj_id) {
   if (holder == nullptr) {
     return;
   }
+  if (!holder->window.is_loaded()) {
+    return;
+  }
   CloseHolderWindow(*holder);
+}
+
+void WindowCatalog::ClearPendingFocusWindow() {
+  pending_focus_window_id = {};
+}
+
+void WindowCatalog::RefreshChromeButtonEnabledState() {
+  bool const has_selection = selected.is_valid();
+  if (buttons.open_button) {
+    buttons.open_button->MaterializeEnabled(has_selection);
+  }
+  if (buttons.delete_button) {
+    buttons.delete_button->MaterializeEnabled(has_selection);
+  }
 }
 
 }  // namespace apptraverse

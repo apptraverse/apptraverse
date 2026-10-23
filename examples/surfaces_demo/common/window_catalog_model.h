@@ -181,9 +181,14 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void MaterializeHolderListText(WindowHolder& holder, int language_index);
 
   void SubmitSelectionFromUi(std::size_t row_index);
+  void ClearPendingFocusWindow();
+  void RefreshChromeButtonEnabledState();
 
   ae::ObjId pending_focus_window_id{};
 };
+
+void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog);
+void EnsureHolderWindowTitleLinks(WindowHolder& holder, WindowCatalog& catalog);
 
 class CatalogListContainer : public ui::UiListContainer {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogListContainer",

@@ -343,6 +343,8 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
       kLanguageControlId);
 
   main_presenter->locale = catalog->locale;
+  AttachMainWindowTitle(*catalog, domain);
+  catalog->RefreshChromeButtonEnabledState();
 
   return catalog;
 }

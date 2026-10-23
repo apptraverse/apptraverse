@@ -837,6 +837,27 @@ if(WIN32)
   set_tests_properties(apptraverse_window_catalog_model_test PROPERTIES
     LABELS "window_catalog"
   )
+
+  add_executable(apptraverse_window_catalog_win32_acceptance_test
+    window_catalog_win32_acceptance_test.cpp
+  )
+  add_dependencies(apptraverse_window_catalog_win32_acceptance_test
+    win32_window_catalog_demo
+    win32_window_catalog_demo_load_only
+  )
+  target_link_libraries(apptraverse_window_catalog_win32_acceptance_test PRIVATE
+    user32
+  )
+  if(MSVC)
+    target_compile_options(apptraverse_window_catalog_win32_acceptance_test PRIVATE /utf-8)
+  endif()
+  add_test(
+    NAME apptraverse_window_catalog_win32_acceptance_test
+    COMMAND apptraverse_window_catalog_win32_acceptance_test
+  )
+  set_tests_properties(apptraverse_window_catalog_win32_acceptance_test PROPERTIES
+    LABELS "window_catalog"
+  )
 endif()
 
 endif() # APPTRAVERSE_BUILD_EXAMPLES
