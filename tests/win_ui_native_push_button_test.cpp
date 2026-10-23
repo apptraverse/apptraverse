@@ -42,6 +42,9 @@ constexpr std::uint32_t kControlId = 4242;
 constexpr ae::ObjId kLazyDesktopRootId{0x75000001u};
 constexpr ae::ObjId kLazyDesktopWindowId{0x75000002u};
 constexpr ae::ObjId kLazyDesktopPresenterId{0x75000003u};
+constexpr ae::ObjId kLazyDesktopLocaleId{0x75000004u};
+constexpr ae::ObjId kLazyDesktopButtonId{0x75000005u};
+constexpr ae::ObjId kLazyDesktopButtonPresenterId{0x75000006u};
 
 class PushButtonRoutingRoot : public NodeFor<PushButtonRoutingRoot> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::PushButtonRoutingRoot",
@@ -607,12 +610,23 @@ void TestLazyDesktopWindowNativeLifecycle() {
   ae::ObjId root_id;
   ae::ObjId window_id;
   ae::ObjId presenter_id;
+  ae::ObjId button_id;
+  ae::ObjId button_presenter_id;
 
   {
     ae::Domain domain{storage};
     auto root = PushButtonRoutingRoot::ptr::Create(
         ae::CreateWith{domain}.with_id(kLazyDesktopRootId));
     InitializeRuntimeNode(*root);
+
+    auto locale = ui::UiLocaleSettings::ptr::Create(
+        ae::CreateWith{domain}.with_id(kLazyDesktopLocaleId));
+    InitializeRuntimeNode(*locale);
+    auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
+    InitializeRuntimeNode(*label, *locale);
+    auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    en->utf8 = "Add";
+    label->strings = {en};
 
     auto window = ui::UiDesktopWindow::ptr::Create(
         ae::CreateWith{domain}
@@ -628,13 +642,42 @@ void TestLazyDesktopWindowNativeLifecycle() {
     presenter->window = window;
     presenter->window.SetFlags(presenter->window.flags() &
                               ~ae::ObjFlags::kUnloadedByDefault);
+    presenter->locale = locale;
+
+    auto button = ui::UiPushButton::ptr::Create(
+        ae::CreateWith{domain}.with_id(kLazyDesktopButtonId));
+    button->label = label;
+    InitializeRuntimeNode(*button, *window);
+
+    auto button_presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
+        ae::CreateWith{domain}
+            .with_id(kLazyDesktopButtonPresenterId)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    button_presenter->button = button;
+    button_presenter->button.SetFlags(button_presenter->button.flags() &
+                                      ~ae::ObjFlags::kUnloadedByDefault);
+    button_presenter->window_presenter = presenter;
+    button_presenter->window_presenter.SetFlags(
+        button_presenter->window_presenter.flags() &
+        ~ae::ObjFlags::kUnloadedByDefault);
+    button_presenter->layout_x = 8;
+    button_presenter->layout_y = 9;
+    button_presenter->layout_width = 100;
+    button_presenter->layout_height = 26;
+    button_presenter->control_id = kControlId;
 
     root_id = kLazyDesktopRootId;
     window_id = kLazyDesktopWindowId;
     presenter_id = kLazyDesktopPresenterId;
+    button_id = kLazyDesktopButtonId;
+    button_presenter_id = kLazyDesktopButtonPresenterId;
 
+    ui::UiLocaleSettings::ptr::MakeFromThis(&*locale).Save();
     ui::UiDesktopWindow::ptr::MakeFromThis(&*window).Save();
+    ui::UiPushButton::ptr::MakeFromThis(&*button).Save();
     ui::windows::WinDesktopWindowPresenter::ptr::MakeFromThis(&*presenter)
+        .Save();
+    ui::windows::WinPushButtonPresenter::ptr::MakeFromThis(&*button_presenter)
         .Save();
 
     root->window = ui::UiDesktopWindow::ptr::Declare(
@@ -645,6 +688,11 @@ void TestLazyDesktopWindowNativeLifecycle() {
         ui::windows::WinDesktopWindowPresenter::ptr::Declare(
             ae::CreateWith{domain}
                 .with_id(presenter_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    root->button_presenter =
+        ui::windows::WinPushButtonPresenter::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(button_presenter_id)
                 .with_flags(ae::ObjFlags::kUnloadedByDefault));
     PushButtonRoutingRoot::ptr::MakeFromThis(&*root).Save();
   }
@@ -664,6 +712,7 @@ void TestLazyDesktopWindowNativeLifecycle() {
   model_root.Load();
   model_root->window.Load();
   model_root->window_presenter.Load();
+  model_root->button_presenter.Load();
 
   ByteSink initial_sink;
   SerializeInitialPublication(*model_root, initial_sink);
@@ -687,20 +736,57 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(client.bottom - client.top == 480);
   CHECK(ui_desktop->presentation_loaded);
 
+  auto* ui_button_presenter = ui_root->button_presenter.operator->();
+  HWND const first_button_hwnd = ui_button_presenter->hwnd();
+  CHECK(first_button_hwnd != nullptr);
+  CHECK(IsWindow(first_button_hwnd) != 0);
+  CHECK(GetParent(first_button_hwnd) == first_hwnd);
+  CHECK(GetDlgCtrlID(first_button_hwnd) == static_cast<int>(kControlId));
+  int layout_x = 0;
+  int layout_y = 0;
+  int layout_w = 0;
+  int layout_h = 0;
+  ReadButtonLayoutInParentClient(first_button_hwnd, layout_x, layout_y,
+                                 layout_w, layout_h);
+  CHECK(layout_x == 8);
+  CHECK(layout_y == 9);
+  CHECK(layout_w == 100);
+  CHECK(layout_h == 26);
+  wchar_t caption[64]{};
+  CHECK(GetWindowTextW(first_button_hwnd, caption, 64) > 0);
+  CHECK(std::wstring{caption} == L"Add");
+  CHECK(ui_button_presenter->presentation_load_order >
+        ui_desktop->presentation_load_order);
+
   auto* model_desktop = model_root->window_presenter.operator->();
   CHECK(!model_desktop->presentation_loaded);
   CHECK(model_desktop->hwnd() == nullptr);
+  auto* model_button_presenter = model_root->button_presenter.operator->();
+  CHECK(!model_button_presenter->presentation_loaded);
+  CHECK(model_button_presenter->hwnd() == nullptr);
 
+  int const proxy_before_first_click = proxy_invoke_count;
+  SendMessageW(first_hwnd, WM_COMMAND,
+               MAKEWPARAM(static_cast<WPARAM>(kControlId), BN_CLICKED),
+               reinterpret_cast<LPARAM>(first_button_hwnd));
+  CHECK(proxy_invoke_count == proxy_before_first_click + 1);
+
+  model_root->button_presenter.Save();
   model_root->window.Save();
   model_root->window_presenter.Save();
+  model_root->button_presenter.Reset();
   model_root->window_presenter.Reset();
   model_root->window.Reset();
   CHECK(model_root->window.is_valid());
   CHECK(model_root->window_presenter.is_valid());
+  CHECK(model_root->button_presenter.is_valid());
   CHECK(model_root->window.id() == window_id);
   CHECK(model_root->window_presenter.id() == presenter_id);
+  CHECK(model_root->button_presenter.id() == button_presenter_id);
   CHECK(!model_domain.Find(window_id));
   CHECK(!model_domain.Find(presenter_id));
+  CHECK(!model_domain.Find(button_id));
+  CHECK(!model_domain.Find(button_presenter_id));
 
   ByteSink unload_sink;
   SerializeStructuralNodePublication(*model_root, unload_sink);
@@ -713,15 +799,21 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(proxy_invoke_count == proxy_before_unload_apply);
 
   CHECK(IsWindow(first_hwnd) == 0);
+  CHECK(IsWindow(first_button_hwnd) == 0);
   CHECK(ui_root->window.id() == window_id);
   CHECK(ui_root->window_presenter.id() == presenter_id);
+  CHECK(ui_root->button_presenter.id() == button_presenter_id);
   CHECK(!ui_root->window.is_loaded());
   CHECK(!ui_root->window_presenter.is_loaded());
+  CHECK(!ui_root->button_presenter.is_loaded());
   CHECK(!ui_domain.Find(window_id));
   CHECK(!ui_domain.Find(presenter_id));
+  CHECK(!ui_domain.Find(button_id));
+  CHECK(!ui_domain.Find(button_presenter_id));
 
   model_root->window.Load();
   model_root->window_presenter.Load();
+  model_root->button_presenter.Load();
 
   ByteSink reload_sink;
   SerializeStructuralNodePublication(*model_root, reload_sink);
@@ -742,12 +834,38 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(ui_root->window.is_loaded());
   CHECK(ui_root->window.id() == window_id);
   CHECK(ui_root->window_presenter.id() == presenter_id);
+  CHECK(ui_root->button_presenter.id() == button_presenter_id);
+
+  ui_button_presenter = ui_root->button_presenter.operator->();
+  HWND const second_button_hwnd = ui_button_presenter->hwnd();
+  CHECK(second_button_hwnd != nullptr);
+  CHECK(IsWindow(second_button_hwnd) != 0);
+  CHECK(GetParent(second_button_hwnd) == second_hwnd);
+  CHECK(GetDlgCtrlID(second_button_hwnd) == static_cast<int>(kControlId));
+  ReadButtonLayoutInParentClient(second_button_hwnd, layout_x, layout_y,
+                                 layout_w, layout_h);
+  CHECK(layout_x == 8);
+  CHECK(layout_y == 9);
+  CHECK(layout_w == 100);
+  CHECK(layout_h == 26);
+  CHECK(GetWindowTextW(second_button_hwnd, caption, 64) > 0);
+  CHECK(std::wstring{caption} == L"Add");
+  CHECK(ui_button_presenter->presentation_load_order >
+        ui_desktop->presentation_load_order);
+
+  int const proxy_before_second_click = proxy_invoke_count;
+  SendMessageW(second_hwnd, WM_COMMAND,
+               MAKEWPARAM(static_cast<WPARAM>(kControlId), BN_CLICKED),
+               reinterpret_cast<LPARAM>(second_button_hwnd));
+  CHECK(proxy_invoke_count == proxy_before_second_click + 1);
 
   int const proxy_before_final_unload = proxy_invoke_count;
   UnloadPresenters(*ui_root);
   CHECK(proxy_invoke_count == proxy_before_final_unload);
   CHECK(IsWindow(second_hwnd) == 0);
-  CHECK(ui_desktop->hwnd() == nullptr);
+  CHECK(IsWindow(second_button_hwnd) == 0);
+  CHECK(ui_root->window_presenter.operator->()->hwnd() == nullptr);
+  CHECK(ui_root->button_presenter.operator->()->hwnd() == nullptr);
 }
 
 }  // namespace
