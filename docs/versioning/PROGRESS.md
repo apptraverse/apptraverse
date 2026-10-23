@@ -9,7 +9,7 @@
 
 **Baseline SHA (верифицированные fixtures / старт tracking):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
-**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, каталоги `state/R`, единый Release config и полный lifecycle **не реализованы**. Итерация **01** (аудит кода vs PLAN) **IN_PROGRESS** — завершена только часть **01A** (startup/distillation Surfaces Demo); части **01B** (storage/каталоги), **01C** (const/dynamic), **01D** (дубли) — позже.
+**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, каталоги `state/R`, единый Release config и полный lifecycle **не реализованы**. Итерация **01** (аудит кода vs PLAN) **IN_PROGRESS** — выполнены **01A** (startup/distillation) и **01B** (storage/каталоги); **01C** (const/dynamic), **01D** (дубли) — TODO.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
