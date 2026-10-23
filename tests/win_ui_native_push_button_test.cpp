@@ -39,6 +39,9 @@ namespace {
 
 constexpr wchar_t kParentClass[] = L"AppTraverseNativePushButtonTestParent";
 constexpr std::uint32_t kControlId = 4242;
+constexpr ae::ObjId kLazyDesktopRootId{0x75000001u};
+constexpr ae::ObjId kLazyDesktopWindowId{0x75000002u};
+constexpr ae::ObjId kLazyDesktopPresenterId{0x75000003u};
 
 class PushButtonRoutingRoot : public NodeFor<PushButtonRoutingRoot> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::PushButtonRoutingRoot",
@@ -594,6 +597,153 @@ void TestWinPushButtonResolveChildLayoutFromHost() {
   DestroyWindow(host);
 }
 
+void TestLazyDesktopWindowNativeLifecycle() {
+  EnsureObjectRegistration();
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  (void)&g_apptraverse_registrar_PushButtonRoutingRoot;
+
+  ae::RamDomainStorage storage;
+  ae::ObjId root_id;
+  ae::ObjId window_id;
+  ae::ObjId presenter_id;
+
+  {
+    ae::Domain domain{storage};
+    auto root = PushButtonRoutingRoot::ptr::Create(
+        ae::CreateWith{domain}.with_id(kLazyDesktopRootId));
+    InitializeRuntimeNode(*root);
+
+    auto window = ui::UiDesktopWindow::ptr::Create(
+        ae::CreateWith{domain}
+            .with_id(kLazyDesktopWindowId)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    InitializeRuntimeNode(*window, *root);
+    window->SubmitFrameFromNative(0, 0, 640, 480);
+
+    auto presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
+        ae::CreateWith{domain}
+            .with_id(kLazyDesktopPresenterId)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    presenter->window = window;
+    presenter->window.SetFlags(presenter->window.flags() &
+                              ~ae::ObjFlags::kUnloadedByDefault);
+
+    root_id = kLazyDesktopRootId;
+    window_id = kLazyDesktopWindowId;
+    presenter_id = kLazyDesktopPresenterId;
+
+    ui::UiDesktopWindow::ptr::MakeFromThis(&*window).Save();
+    ui::windows::WinDesktopWindowPresenter::ptr::MakeFromThis(&*presenter)
+        .Save();
+
+    root->window = ui::UiDesktopWindow::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(window_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    root->window_presenter =
+        ui::windows::WinDesktopWindowPresenter::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(presenter_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    PushButtonRoutingRoot::ptr::MakeFromThis(&*root).Save();
+  }
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+
+  ae::Domain model_domain{storage};
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    work(model_domain);
+  }};
+
+  PushButtonRoutingRoot::ptr model_root = PushButtonRoutingRoot::ptr::Declare(
+      ae::CreateWith{model_domain}.with_id(root_id));
+  model_root.Load();
+  model_root->window.Load();
+  model_root->window_presenter.Load();
+
+  ByteSink initial_sink;
+  SerializeInitialPublication(*model_root, initial_sink);
+  ByteSource initial_in;
+  initial_in.data = initial_sink.bytes.data();
+  initial_in.size = initial_sink.bytes.size();
+  auto ui_root_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+  CHECK(ui_root_obj);
+  auto ui_root = PushButtonRoutingRoot::ptr::MakeFromThis(
+      static_cast<PushButtonRoutingRoot*>(ui_root_obj.get()));
+
+  InitializePresenters(*ui_root, nullptr, &proxy);
+
+  auto* ui_desktop = ui_root->window_presenter.operator->();
+  HWND const first_hwnd = ui_desktop->hwnd();
+  CHECK(first_hwnd != nullptr);
+  CHECK(IsWindow(first_hwnd) != 0);
+  RECT client{};
+  CHECK(GetClientRect(first_hwnd, &client) != 0);
+  CHECK(client.right - client.left == 640);
+  CHECK(client.bottom - client.top == 480);
+  CHECK(ui_desktop->presentation_loaded);
+
+  auto* model_desktop = model_root->window_presenter.operator->();
+  CHECK(!model_desktop->presentation_loaded);
+  CHECK(model_desktop->hwnd() == nullptr);
+
+  model_root->window.Save();
+  model_root->window_presenter.Save();
+  model_root->window_presenter.Reset();
+  model_root->window.Reset();
+  CHECK(model_root->window.is_valid());
+  CHECK(model_root->window_presenter.is_valid());
+  CHECK(model_root->window.id() == window_id);
+  CHECK(model_root->window_presenter.id() == presenter_id);
+  CHECK(!model_domain.Find(window_id));
+  CHECK(!model_domain.Find(presenter_id));
+
+  ByteSink unload_sink;
+  SerializeStructuralNodePublication(*model_root, unload_sink);
+  ByteSource unload_in;
+  unload_in.data = unload_sink.bytes.data();
+  unload_in.size = unload_sink.bytes.size();
+  ApplyStructuralPublicationAndUpdatePresenters(unload_in, ui_domain, ui_storage,
+                                                *ui_root, nullptr, &proxy);
+
+  CHECK(IsWindow(first_hwnd) == 0);
+  CHECK(ui_root->window.id() == window_id);
+  CHECK(ui_root->window_presenter.id() == presenter_id);
+  CHECK(!ui_root->window.is_loaded());
+  CHECK(!ui_root->window_presenter.is_loaded());
+  CHECK(!ui_domain.Find(window_id));
+  CHECK(!ui_domain.Find(presenter_id));
+
+  model_root->window.Load();
+  model_root->window_presenter.Load();
+
+  ByteSink reload_sink;
+  SerializeStructuralNodePublication(*model_root, reload_sink);
+  ByteSource reload_in;
+  reload_in.data = reload_sink.bytes.data();
+  reload_in.size = reload_sink.bytes.size();
+  ApplyStructuralPublicationAndUpdatePresenters(reload_in, ui_domain, ui_storage,
+                                                *ui_root, nullptr, &proxy);
+
+  ui_desktop = ui_root->window_presenter.operator->();
+  HWND const second_hwnd = ui_desktop->hwnd();
+  CHECK(second_hwnd != nullptr);
+  CHECK(IsWindow(second_hwnd) != 0);
+  CHECK(GetClientRect(second_hwnd, &client) != 0);
+  CHECK(client.right - client.left == 640);
+  CHECK(client.bottom - client.top == 480);
+  CHECK(ui_desktop->presentation_loaded);
+  CHECK(ui_root->window.is_loaded());
+  CHECK(ui_root->window.id() == window_id);
+  CHECK(ui_root->window_presenter.id() == presenter_id);
+
+  UnloadPresenters(*ui_root);
+  CHECK(IsWindow(second_hwnd) == 0);
+  CHECK(ui_desktop->hwnd() == nullptr);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -603,6 +753,7 @@ int main() {
   apptraverse::test::TestWinPushButtonPresenterNativeRouting();
   apptraverse::test::TestWinPushButtonWithBorderlessHostPresenter();
   apptraverse::test::TestWinPushButtonResolveChildLayoutFromHost();
+  apptraverse::test::TestLazyDesktopWindowNativeLifecycle();
   std::cout << "win_ui_native_push_button_test OK\n";
   return 0;
 }
