@@ -412,6 +412,7 @@ void TestZeroRetentionFiveHundred() {
   auto reloaded =
       RetentionDoc::ptr::Declare(ae::CreateWith{domain}.with_id(doc.id()));
   reloaded.Load();
+  CHECK(reloaded);
   CHECK(reloaded->value == 500);
   CHECK(reloaded->journal.size() == 0);
 }
@@ -434,6 +435,7 @@ void TestRetentionTenReachable() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestMaxEventsTen();
   apptraverse::test::TestAgeRetentionInclusive();
   apptraverse::test::TestCountAgeUnion();
