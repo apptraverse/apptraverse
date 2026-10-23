@@ -842,12 +842,19 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(proxy_invoke_count == proxy_before_disabled_click);
   CHECK(model_work_queue.empty());
 
+  PendingDirtyNodes pending_dirty;
+  model_root->BindMaterializedChangeNotifier(&pending_dirty,
+                                             &PendingDirtyNodesNotify);
+  std::uint64_t const root_generation_before_close = model_root->Generation();
+
   int const proxy_before_wm_close = proxy_invoke_count;
   SendMessageW(first_hwnd, WM_CLOSE, 0, 0);
   CHECK(desktop_user_close_count == 1);
   CHECK(desktop_user_close_window_id == window_id);
   CHECK(proxy_invoke_count == proxy_before_wm_close + 1);
   CHECK(model_work_queue.size() == 1U);
+  CHECK(pending_dirty.empty());
+  CHECK(model_root->Generation() == root_generation_before_close);
   CHECK(model_domain.Find(window_id));
   CHECK(model_domain.Find(presenter_id));
   CHECK(model_domain.Find(button_id));
@@ -859,6 +866,11 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(IsWindow(first_button_hwnd) != 0);
 
   run_pending_model_work();
+  CHECK(model_root->Generation() > root_generation_before_close);
+  CHECK(pending_dirty.ordered.size() == 1U);
+  CHECK(pending_dirty.ordered.front() == root_id.id());
+  CHECK(pending_dirty.membership.size() == 1U);
+  CHECK(pending_dirty.membership.count(root_id.id()) == 1);
   CHECK(model_root->window.is_valid());
   CHECK(model_root->window_presenter.is_valid());
   CHECK(model_root->button_presenter.is_valid());
@@ -872,8 +884,12 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(IsWindow(first_hwnd) != 0);
   CHECK(IsWindow(first_button_hwnd) != 0);
 
+  std::uint32_t const dirty_node_id = pending_dirty.PopFront();
+  Node* const dirty_node = FindLiveReachableNode(*model_root, dirty_node_id);
+  CHECK(dirty_node != nullptr);
+  CHECK(dirty_node->obj_id == root_id);
   ByteSink unload_sink;
-  SerializeStructuralNodePublication(*model_root, unload_sink);
+  SerializeStructuralNodePublication(*dirty_node, unload_sink);
   ByteSource unload_in;
   unload_in.data = unload_sink.bytes.data();
   unload_in.size = unload_sink.bytes.size();
@@ -883,6 +899,10 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(proxy_invoke_count == proxy_before_unload_apply);
   CHECK(desktop_user_close_count == 1);
   CHECK(model_work_queue.empty());
+  CHECK(pending_dirty.empty());
+  run_pending_model_work();
+  CHECK(pending_dirty.empty());
+  model_root->ClearMaterializedChangeNotifier();
 
   CHECK(IsWindow(first_hwnd) == 0);
   CHECK(IsWindow(first_button_hwnd) == 0);
