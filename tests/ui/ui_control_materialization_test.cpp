@@ -644,17 +644,23 @@ void TestWindowLazyGraphInitialPublication() {
     CHECK(root->window_a->journal[0].event->obj_id == window_a_event0_id);
     window_a_base_id = root->window_a->base->obj_id;
 
-    CHECK(!root->window_b.is_loaded());
-    CHECK(!domain.Find(window_b_id));
-    CHECK(!root->presenter_b.is_loaded());
-    CHECK(!domain.Find(presenter_b_id));
     CHECK(!root->presenter_a->presentation_loaded);
-    CHECK(!root->presenter_b->presentation_loaded);
+
+    CHECK(!root->presenter_b.is_loaded());
+    CHECK(!root->window_b.is_loaded());
+    CHECK(!domain.Find(presenter_b_id));
+    CHECK(!domain.Find(window_b_id));
 
     ae::RamDomainStorage ui_storage;
     ae::Domain ui_domain{ui_storage};
     ByteSink initial_sink;
     SerializeInitialPublication(*root, initial_sink);
+
+    CHECK(!root->presenter_b.is_loaded());
+    CHECK(!root->window_b.is_loaded());
+    CHECK(!domain.Find(presenter_b_id));
+    CHECK(!domain.Find(window_b_id));
+
     ByteSource initial_in;
     initial_in.data = initial_sink.bytes.data();
     initial_in.size = initial_sink.bytes.size();
@@ -687,7 +693,6 @@ void TestWindowLazyGraphInitialPublication() {
     CHECK(!ui_root->presenter_b.is_loaded());
     CHECK(!ui_domain.Find(presenter_b_id));
     CHECK(!root->presenter_a->presentation_loaded);
-    CHECK(!root->presenter_b->presentation_loaded);
 
     CHECK(!ui_storage.Enumerate(root_id).empty());
     CHECK(!ui_storage.Enumerate(window_a_id).empty());
@@ -700,12 +705,9 @@ void TestWindowLazyGraphInitialPublication() {
 
     CHECK(root->window_a->journal.size() == 1);
     CHECK(root->window_a->journal[0].event->obj_id == window_a_event0_id);
-    CHECK((root->window_b.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
-    CHECK(!root->window_b.is_loaded());
-    CHECK(!domain.Find(window_b_id));
-
     root->window_b.Load();
     root->presenter_b.Load();
+    CHECK(!root->presenter_b->presentation_loaded);
     CHECK(root->window_b->client_width() == 900);
     CHECK(root->window_b->client_height() == 700);
     CHECK(root->window_b->journal.size() == 1);
