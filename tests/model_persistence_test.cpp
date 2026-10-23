@@ -584,6 +584,118 @@ void RunDistilledLazyOverlayTest() {
     CHECK(backing.state == backing_snapshot);
   }
 
+  ae::RamDomainStorage replacement_backing;
+  ae::ObjId replacement_first_base_id{};
+  ae::ObjId replacement_second_base_id{};
+  {
+    ae::Domain domain{replacement_backing};
+    LazyDistilledRoot::ptr root_ref =
+        LazyDistilledRoot::ptr::Create(ae::CreateWith{domain}.with_id(root_id));
+    ae::Ptr<LazyDistilledRoot> root = root_ref.Load();
+    DocNode::ptr first_ref = DocNode::ptr::Create(
+        ae::CreateWith{domain}
+            .with_id(first_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    ae::Ptr<DocNode> first = first_ref.Load();
+    first->label = "first-initial";
+    DocNode::ptr second_ref = DocNode::ptr::Create(
+        ae::CreateWith{domain}
+            .with_id(second_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    ae::Ptr<DocNode> second = second_ref.Load();
+    second->label = "second-initial";
+    root->first = first_ref;
+    root->second = second_ref;
+
+    FinalizeDistilledGraph(*root);
+    SaveDistilledRoot(*root);
+
+    replacement_first_base_id = first->base->obj_id;
+    replacement_second_base_id = second->base->obj_id;
+
+    CHECK(replacement_backing.state.count(root_id) == 1);
+    CHECK(replacement_backing.state.count(first_id) == 1);
+    CHECK(replacement_backing.state.count(second_id) == 1);
+    CHECK(replacement_backing.state.count(replacement_first_base_id) == 1);
+    CHECK(replacement_backing.state.count(replacement_second_base_id) == 1);
+    CHECK(replacement_backing.state.at(first_id)->count(DocNode::kClassId) == 1);
+    CHECK(replacement_backing.state.at(second_id)->count(DocNode::kClassId) == 1);
+    CHECK(replacement_backing.state.at(replacement_first_base_id)
+              ->count(Node::kClassId) == 1);
+    CHECK(replacement_backing.state.at(replacement_second_base_id)
+              ->count(Node::kClassId) == 1);
+  }
+
+  ae::RamDomainStorage::ObjClassData const replacement_backing_snapshot =
+      replacement_backing.state;
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    user_storage.BeginSaveSession();
+    OverlayDomainStorage overlay{user_storage, replacement_backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(root_id, loaded).IsOk());
+    ae::Ptr<LazyDistilledRoot> root{loaded};
+    CHECK(root->obj_id == root_id);
+    CHECK(root->first.id() == first_id);
+    CHECK(root->second.id() == second_id);
+    CHECK(!root->first.is_loaded());
+    CHECK(!root->second.is_loaded());
+
+    ae::Ptr<DocNode> first = root->first.Load();
+    if (!first) {
+      std::cerr << "stage E2: First failed to load; old base="
+                << first_base_id.id() << " new base="
+                << replacement_first_base_id.id() << " old base in USER="
+                << DirectoryDomainStorageLayerFileExists(
+                       user_root,
+                       ae::DomainQuery{first_base_id, Node::kClassId, 0})
+                << " old base in replacement="
+                << (replacement_backing.state.count(first_base_id) != 0)
+                << '\n';
+    }
+    CHECK(first);
+    ae::Ptr<DocNode> second = root->second.Load();
+    if (!second) {
+      std::cerr << "stage E2: Second failed to load; old base="
+                << second_base_id.id() << " new base="
+                << replacement_second_base_id.id() << " old base in USER="
+                << DirectoryDomainStorageLayerFileExists(
+                       user_root,
+                       ae::DomainQuery{second_base_id, Node::kClassId, 0})
+                << " old base in replacement="
+                << (replacement_backing.state.count(second_base_id) != 0)
+                << '\n';
+    }
+    CHECK(second);
+
+    CHECK(first->label == "first-updated");
+    CHECK(second->label == "second-updated");
+    CHECK(first->journal.size() == 1);
+    CHECK(second->journal.size() == 1);
+    CHECK(first->base.is_valid());
+    CHECK(first->base.is_loaded());
+    CHECK(second->base.is_valid());
+    CHECK(second->base.is_loaded());
+    CHECK(first->obj_id == first_id);
+    CHECK(second->obj_id == second_id);
+
+    first->label = "stale-first";
+    CHECK(first->TryReplayFromBase());
+    CHECK(first->label == "first-updated");
+    second->label = "stale-second";
+    CHECK(second->TryReplayFromBase());
+    CHECK(second->label == "second-updated");
+
+    DirectoryDomainStorageStoreStats const stats =
+        user_storage.SnapshotSaveSessionStats();
+    CHECK(stats.layer_store_calls == 0);
+    CHECK(replacement_backing.state == replacement_backing_snapshot);
+    CHECK(backing.state == backing_snapshot);
+  }
+
   std::filesystem::remove_all(user_root);
 }
 
