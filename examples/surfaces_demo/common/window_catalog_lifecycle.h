@@ -31,6 +31,7 @@ struct WindowCatalogModelSession {
   std::condition_variable cv;
   bool stop{false};
   int shutdown_exit_code{0};
+  std::uint32_t pending_focus_for_ui{0};
   std::deque<ModelWork> pending_work;
 
   void RequestStop();

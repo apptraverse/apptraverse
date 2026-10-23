@@ -26,6 +26,7 @@ namespace {
     }                                                                        \
   } while (false)
 
+constexpr std::uint32_t kListControlId = 5001;
 constexpr std::uint32_t kAddControlId = 5002;
 constexpr std::uint32_t kOpenControlId = 5003;
 constexpr std::uint32_t kDeleteControlId = 5004;
@@ -122,7 +123,7 @@ int CountChildClass(HWND parent, wchar_t const* class_name) {
   return ctx.count;
 }
 
-std::vector<HWND> TopLevelWindowsForPidFixed(DWORD pid) {
+std::vector<HWND> TopLevelWindowsForPid(DWORD pid) {
   std::vector<HWND> out;
   struct Ctx {
     DWORD pid;
@@ -166,20 +167,96 @@ std::wstring GetWindowTextHwnd(HWND hwnd) {
   return text;
 }
 
+std::wstring GetControlText(HWND parent, std::uint32_t id) {
+  return GetWindowTextHwnd(GetDlgItem(parent, static_cast<int>(id)));
+}
+
+std::wstring ListBoxItem(HWND list, int index) {
+  LRESULT const len = SendMessageW(list, LB_GETTEXTLEN, index, 0);
+  if (len == LB_ERR) {
+    return {};
+  }
+  std::wstring buf(static_cast<std::size_t>(len + 1), L'\0');
+  SendMessageW(list, LB_GETTEXT, index,
+               reinterpret_cast<LPARAM>(buf.data()));
+  buf.resize(static_cast<std::size_t>(len));
+  return buf;
+}
+
+HWND FindTopLevelWithTitle(DWORD pid, std::wstring const& needle) {
+  for (HWND h : TopLevelWindowsForPid(pid)) {
+    if (GetWindowTextHwnd(h).find(needle) != std::wstring::npos) {
+      return h;
+    }
+  }
+  return nullptr;
+}
+
 void WaitChromeReady(HWND main) {
   CHECK(WaitUntil(std::chrono::seconds{20}, [&] {
     return CountChildClass(main, L"Button") >= 4;
   }));
 }
 
-void RunAcceptance() {
-  auto const state_dir = FreshStateDir("window_catalog_win32_acceptance");
-  auto const demo = DemoExe("win32_window_catalog_demo.exe");
-  auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
-  CHECK(std::filesystem::exists(demo));
-  CHECK(std::filesystem::exists(load_only));
+void EnsureCatalogMainWindow(DWORD pid, HWND& main) {
+  if (main != nullptr && IsWindow(main) &&
+      CountChildClass(main, L"ListBox") >= 1) {
+    return;
+  }
+  main = WaitCatalogMainWindow(pid, std::chrono::seconds{10});
+  CHECK(main != nullptr);
+  WaitChromeReady(main);
+}
 
-  std::wstring cmd = L"\"" + demo.wstring() + L"\" --state-dir \"" +
+void SelectListIndex(HWND main, int index) {
+  HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
+  CHECK(list != nullptr);
+  SendMessageW(list, LB_SETCURSEL, index, 0);
+  SendMessageW(main, WM_COMMAND,
+               MAKEWPARAM(kListControlId, LBN_SELCHANGE),
+               reinterpret_cast<LPARAM>(list));
+}
+
+bool ListRowsMatch(HWND main, std::vector<std::wstring> const& expected) {
+  HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
+  if (!list) {
+    return false;
+  }
+  LRESULT const count = SendMessageW(list, LB_GETCOUNT, 0, 0);
+  if (static_cast<std::size_t>(count) != expected.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < expected.size(); ++i) {
+    if (ListBoxItem(list, static_cast<int>(i)) != expected[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void ExpectListRows(HWND main, std::vector<std::wstring> const& expected) {
+  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
+    return ListRowsMatch(main, expected);
+  }));
+}
+
+void ExpectChromeEn(HWND main) {
+  CHECK(GetControlText(main, kAddControlId) == L"Add");
+  CHECK(GetControlText(main, kOpenControlId) == L"Open");
+  CHECK(GetControlText(main, kDeleteControlId) == L"Delete");
+  CHECK(GetControlText(main, kLanguageControlId) == L"RU");
+}
+
+void ExpectChromeRu(HWND main) {
+  CHECK(GetControlText(main, kAddControlId) == L"\x0414\x043E\x0431\x0430\x0432\x0438\x0442\x044C");
+  CHECK(GetControlText(main, kOpenControlId) == L"\x041E\x0442\x043A\x0440\x044B\x0442\x044C");
+  CHECK(GetControlText(main, kDeleteControlId) == L"\x0423\x0434\x0430\x043B\x0438\x0442\x044C");
+  CHECK(GetControlText(main, kLanguageControlId) == L"EN");
+}
+
+PROCESS_INFORMATION StartDemo(std::filesystem::path const& exe,
+                              std::filesystem::path const& state_dir) {
+  std::wstring cmd = L"\"" + exe.wstring() + L"\" --state-dir \"" +
                      state_dir.wstring() + L"\"";
   std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());
   cmd_buf.push_back(L'\0');
@@ -189,78 +266,116 @@ void RunAcceptance() {
   CHECK(CreateProcessW(nullptr, cmd_buf.data(), nullptr, nullptr, FALSE, 0,
                        nullptr, nullptr, &si, &pi));
   CloseHandle(pi.hThread);
+  return pi;
+}
+
+void CloseProcessGracefully(HWND main, PROCESS_INFORMATION& pi) {
+  SendMessageW(main, WM_CLOSE, 0, 0);
+  CHECK(WaitUntil(std::chrono::seconds{20}, [&] {
+    return WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0;
+  }));
+  CloseHandle(pi.hProcess);
+}
+
+void RunAcceptance() {
+  auto const state_dir = FreshStateDir("window_catalog_win32_acceptance");
+  auto const demo = DemoExe("win32_window_catalog_demo.exe");
+  auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
+  CHECK(std::filesystem::exists(demo));
+  CHECK(std::filesystem::exists(load_only));
+
+  PROCESS_INFORMATION pi = StartDemo(demo, state_dir);
   HWND main = WaitCatalogMainWindow(pi.dwProcessId, std::chrono::seconds{30});
   CHECK(main != nullptr);
   WaitChromeReady(main);
+  ExpectChromeEn(main);
   CHECK(GetWindowTextHwnd(main).find(L"Window Catalog") != std::wstring::npos);
 
   for (int i = 0; i < 3; ++i) {
     ClickControl(main, kAddControlId);
     WaitUntil(std::chrono::seconds{5}, [&] {
-      return CountChildClass(main, L"ListBox") >= 1;
+      HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
+      return list && SendMessageW(list, LB_GETCOUNT, 0, 0) > i;
     });
   }
-  WaitUntil(std::chrono::seconds{10}, [&] {
-    return TopLevelWindowsForPidFixed(pi.dwProcessId).size() >= 4;
-  });
-  auto tops = TopLevelWindowsForPidFixed(pi.dwProcessId);
-  CHECK(tops.size() >= 4);
-
-  HWND child2 = tops.size() >= 2 ? tops[1] : nullptr;
-  for (HWND h : tops) {
-    if (h != main && GetWindowTextHwnd(h).find(L"Window 2") != std::wstring::npos) {
-      child2 = h;
-      break;
-    }
-  }
-  CHECK(child2 != nullptr);
-  SendMessageW(child2, WM_CLOSE, 0, 0);
+  ExpectListRows(main, {L"Window 1", L"Window 2", L"Window 3"});
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return !IsWindow(child2);
+    return TopLevelWindowsForPid(pi.dwProcessId).size() >= 4;
+  }));
+  CHECK(FindTopLevelWithTitle(pi.dwProcessId, L"Window 1") != nullptr);
+  CHECK(FindTopLevelWithTitle(pi.dwProcessId, L"Window 2") != nullptr);
+  CHECK(FindTopLevelWithTitle(pi.dwProcessId, L"Window 3") != nullptr);
+
+  HWND const child2_before =
+      FindTopLevelWithTitle(pi.dwProcessId, L"Window 2");
+  CHECK(child2_before != nullptr);
+  SendMessageW(child2_before, WM_CLOSE, 0, 0);
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    return !IsWindow(child2_before);
+  }));
+  ExpectListRows(main, {L"Window 1", L"Window 2", L"Window 3"});
+  CHECK(TopLevelWindowsForPid(pi.dwProcessId).size() == 3);
+
+  SelectListIndex(main, 1);
+  ClickControl(main, kOpenControlId);
+  HWND child2_reopened = nullptr;
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    child2_reopened = FindTopLevelWithTitle(pi.dwProcessId, L"Window 2");
+    return child2_reopened != nullptr;
+  }));
+  CHECK(child2_reopened != child2_before);
+
+  ClickControl(main, kOpenControlId);
+  Sleep(100);
+  HWND const child2_second_open =
+      FindTopLevelWithTitle(pi.dwProcessId, L"Window 2");
+  CHECK(child2_second_open == child2_reopened);
+  CHECK(TopLevelWindowsForPid(pi.dwProcessId).size() == 4);
+
+  ShowWindow(child2_reopened, SW_MINIMIZE);
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    return IsIconic(child2_reopened);
+  }));
+  SelectListIndex(main, 1);
+  ClickControl(main, kOpenControlId);
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    return !IsIconic(child2_reopened);
   }));
 
-  HWND list = GetDlgItem(main, static_cast<int>(5001));
-  CHECK(list != nullptr);
-  SendMessageW(list, LB_SETCURSEL, 1, 0);
-  ClickControl(main, kOpenControlId);
-  WaitUntil(std::chrono::seconds{10}, [&] {
-    for (HWND h : TopLevelWindowsForPidFixed(pi.dwProcessId)) {
-      if (GetWindowTextHwnd(h).find(L"Window 2") != std::wstring::npos) {
-        return true;
-      }
-    }
-    return false;
-  });
+  ClickControl(main, kLanguageControlId);
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    return GetControlText(main, kAddControlId).find(L"\x0414") !=
+           std::wstring::npos;
+  }));
+  ExpectChromeRu(main);
+  ExpectListRows(main,
+                 {L"\x041E\x043A\x043D\x043E 1", L"\x041E\x043A\x043D\x043E 2",
+                  L"\x041E\x043A\x043D\x043E 3"});
+  CHECK(GetWindowTextHwnd(main).find(L"\x041A\x0430\x0442\x0430\x043B\x043E\x0433") !=
+        std::wstring::npos);
 
   ClickControl(main, kLanguageControlId);
-  WaitUntil(std::chrono::seconds{10}, [&] {
-    return GetWindowTextHwnd(GetDlgItem(main, kAddControlId)).find(L"\x0414") !=
-               std::wstring::npos ||
-           GetWindowTextHwnd(GetDlgItem(main, kAddControlId)).find(L"Добавить") !=
-               std::wstring::npos;
-  });
-  ClickControl(main, kLanguageControlId);
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    return GetControlText(main, kAddControlId) == L"Add";
+  }));
+  EnsureCatalogMainWindow(pi.dwProcessId, main);
+  ExpectChromeEn(main);
 
-  SendMessageW(main, WM_CLOSE, 0, 0);
-  CHECK(WaitUntil(std::chrono::seconds{20}, [&] { return WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0; }));
-  CloseHandle(pi.hProcess);
+  CloseProcessGracefully(main, pi);
 
-  cmd = L"\"" + load_only.wstring() + L"\" --state-dir \"" +
-        state_dir.wstring() + L"\"";
-  cmd_buf.assign(cmd.begin(), cmd.end());
-  cmd_buf.push_back(L'\0');
-  CHECK(CreateProcessW(nullptr, cmd_buf.data(), nullptr, nullptr, FALSE, 0,
-                       nullptr, nullptr, &si, &pi));
-  CloseHandle(pi.hThread);
+  pi = StartDemo(load_only, state_dir);
   main = WaitCatalogMainWindow(pi.dwProcessId, std::chrono::seconds{30});
   CHECK(main != nullptr);
   WaitChromeReady(main);
-  WaitUntil(std::chrono::seconds{10}, [&] {
-    return TopLevelWindowsForPidFixed(pi.dwProcessId).size() >= 3;
-  });
-  SendMessageW(main, WM_CLOSE, 0, 0);
-  CHECK(WaitUntil(std::chrono::seconds{20}, [&] { return WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0; }));
-  CloseHandle(pi.hProcess);
+  EnsureCatalogMainWindow(pi.dwProcessId, main);
+  CHECK(WaitUntil(std::chrono::seconds{30}, [&] {
+    return TopLevelWindowsForPid(pi.dwProcessId).size() >= 4;
+  }));
+  CHECK(FindTopLevelWithTitle(pi.dwProcessId, L"Window 1") != nullptr);
+  CHECK(FindTopLevelWithTitle(pi.dwProcessId, L"Window 2") != nullptr);
+  CHECK(FindTopLevelWithTitle(pi.dwProcessId, L"Window 3") != nullptr);
+
+  CloseProcessGracefully(main, pi);
 }
 
 }  // namespace

@@ -184,11 +184,13 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void ClearPendingFocusWindow();
   void RefreshChromeButtonEnabledState();
 
-  ae::ObjId pending_focus_window_id{};
+  // Model-thread one-shot focus request; copied to UI session on publish.
+  std::uint32_t pending_focus_window_id{};
 };
 
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog);
 void EnsureHolderWindowTitleLinks(WindowHolder& holder, WindowCatalog& catalog);
+void RestoreLoadedCatalogWindows(WindowCatalog& catalog);
 
 class CatalogListContainer : public ui::UiListContainer {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogListContainer",

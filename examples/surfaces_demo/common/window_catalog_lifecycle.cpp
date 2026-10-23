@@ -88,14 +88,21 @@ void WindowCatalogModelSession::Run(
     ae::Domain domain{durable_storage};
     auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootId());
     RepairWindowCatalogEmbeddedStrings(*catalog);
+    int const language =
+        catalog->locale ? catalog->locale->language_index() : 0;
     for (auto const& row : catalog->list->rows) {
       if (!row) {
         continue;
       }
-      EnsureHolderWindowTitleLinks(
-          *static_cast<WindowHolder*>(&*row), *catalog);
+      auto* holder = static_cast<WindowHolder*>(&*row);
+      if (holder->primary_text.is_valid() && !holder->primary_text.is_loaded()) {
+        holder->primary_text.Load();
+      }
+      catalog->MaterializeHolderListText(*holder, language);
+      EnsureHolderWindowTitleLinks(*holder, *catalog);
     }
     catalog->RefreshChromeButtonEnabledState();
+    RestoreLoadedCatalogWindows(*catalog);
 
     PendingDirtyNodes pending_dirty;
     BindReachableNodesMaterializedChangeNotifier(
@@ -158,6 +165,8 @@ void WindowCatalogModelSession::Run(
         SerializeStructuralNodePublication(*catalog, pub->sink);
         {
           std::lock_guard<std::mutex> lock{mu};
+          pending_focus_for_ui = catalog->pending_focus_window_id;
+          catalog->pending_focus_window_id = 0;
           pending_dirty.Clear();
           channel.NotePublished();
           channel.PublishProducer();

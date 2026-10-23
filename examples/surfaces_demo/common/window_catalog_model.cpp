@@ -160,6 +160,34 @@ void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
   SaveWindowCatalogPersistentSnapshotImpl(catalog);
 }
 
+void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
+  if (!catalog.list) {
+    return;
+  }
+  int const language = catalog.locale ? catalog.locale->language_index() : 0;
+  for (auto const& row : catalog.list->rows) {
+    if (!row) {
+      continue;
+    }
+    WindowHolder& holder = *static_cast<WindowHolder*>(&*row);
+    if (!holder.window.is_valid() || !holder.window.is_loaded()) {
+      continue;
+    }
+    holder.window.SetFlags(OpenObjFlags(holder.window.flags()));
+    if (holder.window->window_presenter.is_valid()) {
+      if (!holder.window->window_presenter.is_loaded()) {
+        holder.window->window_presenter.Load();
+      }
+      holder.window->window_presenter.SetFlags(
+          OpenObjFlags(holder.window->window_presenter.flags()));
+      holder.window->window_presenter->locale = catalog.locale;
+    }
+    catalog.MaterializeHolderListText(holder, language);
+    EnsureHolderWindowTitleLinksImpl(holder, catalog);
+    BindLiveWindowNotifiers(catalog, *holder.window);
+  }
+}
+
 void AssignInitialCatalogWindowBounds(CatalogWindow& window,
                                       std::uint32_t number) {
   constexpr std::int32_t kWidth = 480;
@@ -317,7 +345,7 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
           OpenObjFlags(holder.window->window_presenter.flags()));
       EnsureHolderWindowTitleLinksImpl(holder, *this);
     }
-    pending_focus_window_id = holder.window.id();
+    pending_focus_window_id = holder.window.id().id();
     NoteMaterializedChange();
     return;
   }
@@ -334,7 +362,7 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   MaterializeHolderListText(holder, language);
   EnsureHolderWindowTitleLinksImpl(holder, *this);
   BindLiveWindowNotifiers(*this, *holder.window);
-  pending_focus_window_id = holder.window.id();
+  pending_focus_window_id = holder.window.id().id();
   NoteMaterializedChange();
 }
 

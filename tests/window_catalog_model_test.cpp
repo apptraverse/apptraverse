@@ -368,6 +368,59 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
   CHECK(!load_domain.Find(closed_window_id));
 }
 
+void TestCatalogSaveAfterLanguageToggleAndChildClose() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  auto const dir = TestDir("apptraverse_window_catalog_save_lang_close");
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto catalog = BuildWindowCatalogGraph(domain);
+    FinalizeDistilledGraph(*catalog);
+    catalog->AddWindow();
+    catalog->AddWindow();
+    catalog->AddWindow();
+    WindowHolder* row1 = AsHolder(catalog->list->rows[1]);
+    catalog->CloseHolderWindow(*row1);
+    catalog->OpenHolderWindow(*row1);
+    catalog->MaterializeCatalogStrings(1);
+    catalog->MaterializeCatalogStrings(0);
+    catalog->CloseHolderWindow(*AsHolder(catalog->list->rows[2]));
+    SaveWindowCatalogPersistentSnapshot(*catalog);
+    catalog.Reset();
+  }
+
+  DirectoryDomainStorage load_storage{dir};
+  ae::Domain load_domain{load_storage};
+  auto catalog = LoadApplication<WindowCatalog>(load_domain, catalog_id);
+  CHECK(catalog->list->rows.size() == 3);
+  CHECK(AsHolder(catalog->list->rows[0])->window.is_loaded());
+  CHECK(AsHolder(catalog->list->rows[1])->window.is_loaded());
+  CHECK(!AsHolder(catalog->list->rows[2])->window.is_loaded());
+}
+
+void TestOpenLoadedWindowSetsPendingFocusRequest() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto catalog = BuildWindowCatalogGraph(model_domain);
+  FinalizeDistilledGraph(*catalog);
+  catalog->AddWindow();
+  WindowHolder* holder = AsHolder(catalog->list->rows[0]);
+  ae::ObjId const window_id = holder->window.id();
+  catalog->pending_focus_window_id = 0;
+  catalog->OpenHolderWindow(*holder);
+  CHECK(catalog->pending_focus_window_id == window_id.id());
+}
+
 void TestManyHoldersClosedGraphsAbsentFromDomain() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -405,6 +458,8 @@ int main() {
   apptraverse::test::TestCatalogHolderOpenCloseAndMonotonicNumbers();
   apptraverse::test::TestCatalogLocalizationUtf8Persisted();
   apptraverse::test::TestCatalogRuntimeSavePreservesOpenWindowLoadedState();
+  apptraverse::test::TestCatalogSaveAfterLanguageToggleAndChildClose();
+  apptraverse::test::TestOpenLoadedWindowSetsPendingFocusRequest();
   apptraverse::test::TestManyHoldersClosedGraphsAbsentFromDomain();
   std::cout << "window_catalog_model_test OK\n";
   return 0;

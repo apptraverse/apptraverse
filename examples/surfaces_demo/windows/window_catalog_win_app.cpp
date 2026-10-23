@@ -129,11 +129,12 @@ ui::windows::WinDesktopWindowPresenter* FindChildWindowPresenter(
 
 }  // namespace
 
-void WindowCatalogWinApp::ApplyPendingFocusWindow() {
+void WindowCatalogWinApp::ApplyPendingFocusWindow(
+    std::uint32_t focus_window_id) {
   if (!ui_catalog_ || !model_proxy_) {
     return;
   }
-  ae::ObjId const focus_id = ui_catalog_->pending_focus_window_id;
+  ae::ObjId const focus_id{focus_window_id};
   if (!focus_id.is_valid()) {
     return;
   }
@@ -147,8 +148,6 @@ void WindowCatalogWinApp::ApplyPendingFocusWindow() {
     ShowWindow(hwnd, SW_RESTORE);
   }
   SetForegroundWindow(hwnd);
-  model_proxy_->Invoke(ui_catalog_->obj_id,
-                       &WindowCatalog::ClearPendingFocusWindow);
 }
 
 void WindowCatalogWinApp::OnInitialPublished() {
@@ -166,7 +165,7 @@ void WindowCatalogWinApp::OnInitialPublished() {
   ui_catalog_ =
       WindowCatalog::ptr::MakeFromThis(static_cast<WindowCatalog*>(ui_root.get()));
   InitializePresenters(*ui_catalog_, &presentation_host_, &*model_proxy_);
-  ApplyPendingFocusWindow();
+  ApplyPendingFocusWindow(0);
   if (DestroyWindow(loading_) == 0) {
     FatalWin32("DestroyWindow Loading", GetLastError());
   }
@@ -175,14 +174,17 @@ void WindowCatalogWinApp::OnInitialPublished() {
 
 void WindowCatalogWinApp::OnIncrementalPublished() {
   std::vector<std::uint8_t> bytes;
+  std::uint32_t focus_window_id = 0;
   {
     std::lock_guard<std::mutex> lock{session_.mu};
     bytes = session_.channel.TakePublishedCopy();
+    focus_window_id = session_.pending_focus_for_ui;
+    session_.pending_focus_for_ui = 0;
   }
   session_.cv.notify_all();
   ApplyWindowCatalogStructural(bytes, *ui_catalog_, ui_storage_,
                                &presentation_host_, &*model_proxy_);
-  ApplyPendingFocusWindow();
+  ApplyPendingFocusWindow(focus_window_id);
 }
 
 int WindowCatalogWinApp::Run(std::filesystem::path const& state_dir) {
