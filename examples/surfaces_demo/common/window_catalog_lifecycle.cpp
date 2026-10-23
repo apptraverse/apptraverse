@@ -68,13 +68,9 @@ void WindowCatalogModelSession::Run(
   EnsureWindowCatalogGraphRegistration();
 
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
-  ae::ObjId const catalog_id = CatalogRootId();
-  bool state_missing = true;
-  if (std::filesystem::exists(state_dir)) {
-    DirectoryDomainStorage probe{state_dir};
-    state_missing = probe.Enumerate(catalog_id).empty();
-  }
-  if (state_missing) {
+  bool const profile_absent = !std::filesystem::exists(state_dir) ||
+                              std::filesystem::is_empty(state_dir);
+  if (profile_absent) {
     DirectoryDomainStorage bootstrap_storage{state_dir};
     ae::Domain bootstrap_domain{bootstrap_storage};
     auto bootstrap_catalog = BuildWindowCatalogGraph(bootstrap_domain);
@@ -103,6 +99,24 @@ void WindowCatalogModelSession::Run(
     }
     catalog->RefreshChromeButtonEnabledState();
     RestoreLoadedCatalogWindows(*catalog);
+    if (catalog->list) {
+      if (!catalog->list.is_loaded()) {
+        catalog->list.Load();
+      }
+      for (auto const& row : catalog->list->rows) {
+        if (row.is_valid() && !row.is_loaded()) {
+          row.Load();
+        }
+        if (!row) {
+          continue;
+        }
+        auto* holder = static_cast<WindowHolder*>(&*row);
+        if (holder->primary_text.is_valid() && !holder->primary_text.is_loaded()) {
+          holder->primary_text.Load();
+        }
+      }
+      catalog->list->MarkRowsMaterialized();
+    }
 
     PendingDirtyNodes pending_dirty;
     BindReachableNodesMaterializedChangeNotifier(
@@ -177,9 +191,15 @@ void WindowCatalogModelSession::Run(
     }
 
     ClearLiveReachableNodesMaterializedChangeNotifier(*catalog);
+    if (catalog->list) {
+      catalog->list->MarkRowsMaterialized();
+    }
 
     durable_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(*catalog);
+    if (!SavePersistentModelSnapshotToStorage(*catalog, durable_storage)) {
+      shutdown_exit_code = 1;
+    }
     if (durable_storage.SaveSessionHadFailure()) {
       shutdown_exit_code = 1;
     }

@@ -846,7 +846,14 @@ if(WIN32)
     win32_window_catalog_demo_load_only
   )
   target_link_libraries(apptraverse_window_catalog_win32_acceptance_test PRIVATE
+    surfaces_demo_window_catalog
+    apptraverse_surfaces
+    apptraverse_ui_windows
     user32
+  )
+  target_include_directories(apptraverse_window_catalog_win32_acceptance_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows
   )
   if(MSVC)
     target_compile_options(apptraverse_window_catalog_win32_acceptance_test PRIVATE /utf-8)

@@ -141,12 +141,18 @@ void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
         continue;
       }
       auto* holder = static_cast<WindowHolder*>(&*row);
+      if (holder->primary_text.is_valid()) {
+        if (!holder->primary_text.is_loaded()) {
+          holder->primary_text.Load();
+        }
+        holder->primary_text.Save();
+        holder->primary_text.Reset();
+      }
       if (holder->window.is_valid() && holder->window.is_loaded()) {
         SaveCatalogWindowGraph(*holder->window);
       }
     }
   }
-  WindowCatalog::ptr::MakeFromThis(&catalog).Save();
 }
 
 }  // namespace
@@ -201,9 +207,14 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
                                kHeight);
 }
 
+void CatalogListContainer::MarkRowsMaterialized() {
+  NoteMaterializedChange();
+}
+
 void WindowCatalog::Apply(AddWindowCatalogEntryEvent const& event) {
   list->rows.push_back(event.holder);
   ++next_window_number;
+  list->MarkRowsMaterialized();
   NoteMaterializedChange();
 }
 
@@ -214,6 +225,7 @@ void WindowCatalog::Apply(RemoveWindowCatalogEntryEvent const& event) {
       [&](WindowHolder::ptr const& row) { return &*row == &*event.holder; });
   assert(it != rows.end());
   rows.erase(it);
+  list->MarkRowsMaterialized();
   if (selected && &*selected == &*event.holder) {
     selected = {};
   }
