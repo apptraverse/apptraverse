@@ -728,7 +728,139 @@ void RunDistilledLazyOverlayTest() {
     CHECK(backing.state == backing_snapshot);
   }
 
+  std::filesystem::path const compact_user_root =
+      std::filesystem::temp_directory_path() /
+      "apptraverse_distilled_lazy_compact_user_state";
+  std::filesystem::remove_all(compact_user_root);
+
+  {
+    DirectoryDomainStorage user_storage{compact_user_root};
+    OverlayDomainStorage overlay{user_storage, backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(root_id, loaded).IsOk());
+    ae::Ptr<LazyDistilledRoot> root{loaded};
+    CHECK(root->first.id() == first_id);
+    CHECK(root->second.id() == second_id);
+    CHECK(!root->first.is_loaded());
+    CHECK(!root->second.is_loaded());
+
+    ae::Ptr<DocNode> first = root->first.Load();
+    CHECK(first);
+    CHECK(first->label == "first-initial");
+    CHECK(first->journal.empty());
+    CHECK(first->base.is_valid());
+    CHECK(first->base.is_loaded());
+    CHECK(first->base.id() == first_base_id);
+    CHECK(!root->second.is_loaded());
+
+    auto event = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
+    event->label = "first-compacted";
+    first->Commit(event);
+    CHECK(first->label == "first-compacted");
+    CHECK(first->journal.size() == 1);
+
+    first->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+    first->CompactJournal(SystemUtcMicros());
+    CHECK(first->label == "first-compacted");
+    CHECK(first->journal.empty());
+    CHECK(first->base.id() == first_base_id);
+    CHECK(static_cast<DocNode&>(*first->base).label == "first-compacted");
+    CHECK(!root->second.is_loaded());
+
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(root, root_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
+    CHECK(DirectoryDomainStorageLayerFileExists(compact_user_root, first_doc_v0));
+    CHECK(CountClassLayersForObject(compact_user_root, second_id.id()) == 0);
+    CHECK(!DirectoryDomainStorageLayerFileExists(
+        compact_user_root, ae::DomainQuery{second_base_id, ae::Obj::kClassId, 0}));
+    CHECK(backing.state == backing_snapshot);
+  }
+
+  {
+    DirectoryDomainStorage user_storage{compact_user_root};
+    user_storage.BeginSaveSession();
+    OverlayDomainStorage overlay{user_storage, replacement_backing};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(root_id, loaded).IsOk());
+    ae::Ptr<LazyDistilledRoot> root{loaded};
+    CHECK(root->obj_id == root_id);
+    CHECK(root->first.id() == first_id);
+    CHECK(root->second.id() == second_id);
+    CHECK(!root->first.is_loaded());
+    CHECK(!root->second.is_loaded());
+
+    ae::Ptr<DocNode> first = root->first.Load();
+    if (!first) {
+      std::cerr << "stage F2: First failed to load; expected base="
+                << first_base_id.id() << " old base Obj in USER="
+                << DirectoryDomainStorageLayerFileExists(
+                       compact_user_root,
+                       ae::DomainQuery{first_base_id, ae::Obj::kClassId, 0})
+                << " Node="
+                << DirectoryDomainStorageLayerFileExists(
+                       compact_user_root,
+                       ae::DomainQuery{first_base_id, Node::kClassId, 0})
+                << " DocNode="
+                << DirectoryDomainStorageLayerFileExists(
+                       compact_user_root,
+                       ae::DomainQuery{first_base_id, DocNode::kClassId, 0})
+                << '\n';
+    }
+    CHECK(first);
+    if (first->base.id() != first_base_id) {
+      std::cerr << "stage F2: base ObjId expected=" << first_base_id.id()
+                << " actual=" << first->base.id().id()
+                << " replacement_first_base=" << replacement_first_base_id.id()
+                << " old base Obj in USER="
+                << DirectoryDomainStorageLayerFileExists(
+                       compact_user_root,
+                       ae::DomainQuery{first_base_id, ae::Obj::kClassId, 0})
+                << " Node="
+                << DirectoryDomainStorageLayerFileExists(
+                       compact_user_root,
+                       ae::DomainQuery{first_base_id, Node::kClassId, 0})
+                << " DocNode="
+                << DirectoryDomainStorageLayerFileExists(
+                       compact_user_root,
+                       ae::DomainQuery{first_base_id, DocNode::kClassId, 0})
+                << " label=" << first->label << " base_label="
+                << static_cast<DocNode&>(*first->base).label << '\n';
+    }
+    CHECK(first->label == "first-compacted");
+    CHECK(first->journal.empty());
+    CHECK(first->base.is_valid());
+    CHECK(first->base.is_loaded());
+    CHECK(first->base.id() == first_base_id);
+    CHECK(static_cast<DocNode&>(*first->base).label == "first-compacted");
+    CHECK(!root->second.is_loaded());
+
+    first->label = "stale-compacted";
+    bool const replay_ok = first->TryReplayFromBase();
+    if (!replay_ok || first->label != "first-compacted") {
+      std::cerr << "stage F2: replay failed ok=" << replay_ok << " label="
+                << first->label << " base_id=" << first->base.id().id()
+                << " base_label="
+                << static_cast<DocNode&>(*first->base).label << '\n';
+    }
+    CHECK(replay_ok);
+    CHECK(first->label == "first-compacted");
+
+    DirectoryDomainStorageStoreStats const stats =
+        user_storage.SnapshotSaveSessionStats();
+    CHECK(stats.layer_store_calls == 0);
+    CHECK(backing.state == backing_snapshot);
+    CHECK(replacement_backing.state == replacement_backing_snapshot);
+    CHECK(!root->second.is_loaded());
+  }
+
   std::filesystem::remove_all(user_root);
+  std::filesystem::remove_all(compact_user_root);
 }
 
 }  // namespace apptraverse::test
