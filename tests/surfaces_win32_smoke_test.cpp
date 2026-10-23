@@ -1709,6 +1709,30 @@ void TestLoadOnlyRestoresRuProfile() {
 
   EnsureWin32SmokeRegistration();
 
+  auto check_lazy_localization_slots =
+      [](ae::Domain& domain, DirectoryDomainStorage& storage,
+         Application& application) {
+        ui::UiLocalizationString* localized[] = {
+            &*application.label_add,
+            &*application.label_close,
+            &*application.window_title_prefix,
+            &*application.language_switch_label,
+        };
+        for (ui::UiLocalizationString* loc : localized) {
+          CHECK(loc->strings.size() >= 2);
+          for (std::size_t slot = 0; slot < 2; ++slot) {
+            CHECK(loc->strings[slot].is_valid());
+            ae::ObjId const slot_id = loc->strings[slot].id();
+            CHECK((loc->strings[slot].flags() & ae::ObjFlags::kUnloadedByDefault) !=
+                  0);
+            CHECK(!loc->strings[slot].is_loaded());
+            CHECK(!domain.Find(slot_id));
+            ae::ClassList const layers = storage.Enumerate(slot_id);
+            CHECK(!layers.empty());
+          }
+        }
+      };
+
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
 
@@ -1743,6 +1767,7 @@ void TestLoadOnlyRestoresRuProfile() {
       probe_domain, ae::ObjId{surfaces_demo::ToObjId(
                         surfaces_demo::ObjId::Application)});
   CHECK(saved->locale->language_index() == 1);
+  check_lazy_localization_slots(probe_domain, probe, *saved);
 
   std::filesystem::path const load_only_path{
       APPTRAVERSE_SURFACES_LOAD_ONLY_EXE};
@@ -1825,6 +1850,7 @@ void TestLoadOnlyRestoresRuProfile() {
       domain, ae::ObjId{surfaces_demo::ToObjId(
                   surfaces_demo::ObjId::Application)});
   CHECK(application->locale->language_index() == 1);
+  check_lazy_localization_slots(domain, storage, *application);
 
   std::filesystem::remove_all(dir);
 #endif
