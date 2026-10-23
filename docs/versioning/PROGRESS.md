@@ -27,8 +27,8 @@
 | Сохранение истории после полной компактации | `model_persistence` F, post-compact `Save(Node)` | До первого SaveRoot |
 | Event A/B rollback / replay | `apptraverse_event_version_matrix` | v0/v1 same ClassId |
 | Барьер компактации на неизвестном v1 событии | `CanCompactStoredState`, matrix overlay | A оставляет journal=2 |
-| Частичная компактация известного префикса | `known-prefix-newer-event` в matrix | base_tally=10, journal=2 |
-| Холодная загрузка после компактации | `journal_retention_test` `TestZeroRetentionFiveHundred` | Два Domain, replay |
+| Частичная компактация известного префикса | `known-prefix-newer-event` в matrix | Фрагмент **T17**; base_tally=10, journal=2 |
+| Холодная загрузка после компактации | `journal_retention_test` `TestZeroRetentionFiveHundred` | Фрагмент **T17**; два Domain, replay |
 
 SHA последних связанных коммитов на baseline: `19d7da6` (partial compact test), `1676efa` (compaction invariants), `d3bbe2e` (CanCompactStoredState), `d80223f` (overlay roundtrip), `57838c2` / `4454340` (distilled lazy / force_materialize).
 
@@ -41,9 +41,13 @@ SHA последних связанных коммитов на baseline: `19d7d
 - Официальные **бинарные дельты** констант (offline → `state/R`)
 - Единый контракт **const vs dynamic** (не через scope Ptr)
 - **Метаданные** встроенной версии / R в EXE (single source of truth)
-- Полный **lifecycle** R0→R5→R0→R5 в одном matrix
-- Независимые тесты **отката** по T08–T10
-- **T17:** новый S у исторического пользовательского base (ObjId от старой поставки)
+- Полный **lifecycle** R0→R5→R0→R5 в одном matrix (**T01–T08**, **T15** и связанные)
+- Пошаговый **откат** и повторное обновление (**T07**, **T08**)
+- Изменения пользователя после отката (**T09**, **T10**)
+- **T11–T15:** чистые установки, эквивалентность EXE/пакетов, правила активной поставки, цикл констант A→B→A
+- **T16:** новый динамический S у исторического пользовательского `Node::base` (ObjId от старой поставки)
+- **T17:** полная матрица компактации журнала через откаты (fixtures покрывают только фрагменты)
+- **T18:** несовместимый EXE/пакет или отсутствие обязательного слоя — явный отказ без порчи USER
 
 ---
 
@@ -61,9 +65,9 @@ SHA последних связанных коммитов на baseline: `19d7d
 | 08 | TODO | — | — | active-release, resolver |
 | 09 | TODO | — | — | Пакет ≡ полный EXE |
 | 10 | TODO | — | — | Новый S при USER |
-| 11 | TODO | — | — | Historical base, replay |
+| 11 | TODO | — | — | **T16** historical base; **T17** compaction/replay |
 | 12 | TODO | — | — | Logic-only + constants R3/R4 |
-| 13 | TODO | — | — | R0→R5→R0→R5 matrix |
+| 13 | TODO | — | — | **T01–T10**, **T15** lifecycle matrix |
 | 14 | TODO | — | — | Cleanup + интеграция |
 
 Статусы: **TODO** / **IN_PROGRESS** / **PASS** / **FAIL** / **BLOCKED**.
@@ -88,4 +92,6 @@ SHA последних связанных коммитов на baseline: `19d7d
 - известные ограничения;
 - push.
 
-*(Пусто — итерации 01–14 ещё не начинались; baseline tracking создан вместе с PLAN/PROGRESS.)*
+- **2026-10-23** — doc-only: нумерация **T01–T18** в [PLAN.md](./PLAN.md) / PROGRESS синхронизирована с исходным архитектурным Doc; итерации 01–14 **TODO**; статус **PLANNED**; тесты не запускались (SHA — commit этого изменения).
+
+*(Итерации 01–14 кода/тестов ещё не начинались; baseline tracking создан вместе с PLAN/PROGRESS на `19d7da6`.)*
