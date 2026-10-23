@@ -706,6 +706,8 @@ void TestLazyDesktopWindowNativeLifecycle() {
     ++proxy_invoke_count;
     work(model_domain);
   }};
+  ae::ObjId disable_event_id;
+  std::size_t button_journal_size_after_disable = 0;
 
   PushButtonRoutingRoot::ptr model_root = PushButtonRoutingRoot::ptr::Declare(
       ae::CreateWith{model_domain}.with_id(root_id));
@@ -766,10 +768,30 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(model_button_presenter->hwnd() == nullptr);
 
   int const proxy_before_first_click = proxy_invoke_count;
-  SendMessageW(first_hwnd, WM_COMMAND,
-               MAKEWPARAM(static_cast<WPARAM>(kControlId), BN_CLICKED),
-               reinterpret_cast<LPARAM>(first_button_hwnd));
+  SendMessageW(first_button_hwnd, BM_CLICK, 0, 0);
   CHECK(proxy_invoke_count == proxy_before_first_click + 1);
+
+  {
+    ui::UiPushButton& model_button = *model_root->button_presenter->button;
+    auto disable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{model_domain});
+    disable->enabled = false;
+    model_button.Commit(std::move(disable));
+    disable_event_id = model_button.journal.back().event->obj_id;
+    button_journal_size_after_disable = model_button.journal.size();
+
+    ByteSink disable_sink;
+    SerializeStructuralNodePublication(model_button, disable_sink);
+    ByteSource disable_in;
+    disable_in.data = disable_sink.bytes.data();
+    disable_in.size = disable_sink.bytes.size();
+    ApplyStructuralPublicationAndUpdatePresenters(
+        disable_in, ui_domain, ui_storage, *ui_root, nullptr, &proxy);
+  }
+  CHECK(IsWindowEnabled(first_button_hwnd) == FALSE);
+  int const proxy_before_disabled_click = proxy_invoke_count;
+  SendMessageW(first_button_hwnd, BM_CLICK, 0, 0);
+  CHECK(proxy_invoke_count == proxy_before_disabled_click);
 
   model_root->button_presenter.Save();
   model_root->window.Save();
@@ -814,6 +836,13 @@ void TestLazyDesktopWindowNativeLifecycle() {
   model_root->window.Load();
   model_root->window_presenter.Load();
   model_root->button_presenter.Load();
+  {
+    ui::UiPushButton& model_button = *model_root->button_presenter->button;
+    CHECK(model_button.obj_id == button_id);
+    CHECK(!model_button.enabled());
+    CHECK(model_button.journal.size() == button_journal_size_after_disable);
+    CHECK(model_button.journal.back().event->obj_id == disable_event_id);
+  }
 
   ByteSink reload_sink;
   SerializeStructuralNodePublication(*model_root, reload_sink);
@@ -853,11 +882,30 @@ void TestLazyDesktopWindowNativeLifecycle() {
   CHECK(ui_button_presenter->presentation_load_order >
         ui_desktop->presentation_load_order);
 
-  int const proxy_before_second_click = proxy_invoke_count;
-  SendMessageW(second_hwnd, WM_COMMAND,
-               MAKEWPARAM(static_cast<WPARAM>(kControlId), BN_CLICKED),
-               reinterpret_cast<LPARAM>(second_button_hwnd));
-  CHECK(proxy_invoke_count == proxy_before_second_click + 1);
+  CHECK(IsWindowEnabled(second_button_hwnd) == FALSE);
+  int const proxy_before_reopen_disabled_click = proxy_invoke_count;
+  SendMessageW(second_button_hwnd, BM_CLICK, 0, 0);
+  CHECK(proxy_invoke_count == proxy_before_reopen_disabled_click);
+
+  {
+    ui::UiPushButton& model_button = *model_root->button_presenter->button;
+    auto enable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{model_domain});
+    enable->enabled = true;
+    model_button.Commit(std::move(enable));
+
+    ByteSink enable_sink;
+    SerializeStructuralNodePublication(model_button, enable_sink);
+    ByteSource enable_in;
+    enable_in.data = enable_sink.bytes.data();
+    enable_in.size = enable_sink.bytes.size();
+    ApplyStructuralPublicationAndUpdatePresenters(
+        enable_in, ui_domain, ui_storage, *ui_root, nullptr, &proxy);
+  }
+  CHECK(IsWindowEnabled(second_button_hwnd) != FALSE);
+  int const proxy_before_enabled_click = proxy_invoke_count;
+  SendMessageW(second_button_hwnd, BM_CLICK, 0, 0);
+  CHECK(proxy_invoke_count == proxy_before_enabled_click + 1);
 
   int const proxy_before_final_unload = proxy_invoke_count;
   UnloadPresenters(*ui_root);
