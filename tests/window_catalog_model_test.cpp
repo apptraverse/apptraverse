@@ -640,6 +640,236 @@ void TestCatalogWindowFrameSurvivesCloseReload() {
   CHECK(r0->window->client_height() == 430);
 }
 
+std::size_t CountSetWindowCatalogOpenEvents(WindowCatalog const& catalog,
+                                            bool open_value) {
+  std::size_t count = 0;
+  for (auto const& record : catalog.journal) {
+    if (!record.event.is_valid()) {
+      continue;
+    }
+    if (record.event->GetClassId() != SetWindowCatalogOpenEvent::kClassId) {
+      continue;
+    }
+    auto const& open_event =
+        static_cast<SetWindowCatalogOpenEvent const&>(*record.event);
+    if (open_event.open == open_value) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+bool HasUnloadedByDefault(ae::ObjFlags flags) {
+  return (static_cast<std::uint32_t>(flags) &
+          static_cast<std::uint32_t>(ae::ObjFlags::kUnloadedByDefault)) != 0;
+}
+
+void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::RamDomainStorage ram_storage;
+  ae::Domain ram_domain{ram_storage};
+  auto catalog = BuildWindowCatalogGraph(ram_domain);
+  FinalizeDistilledGraph(*catalog);
+
+  catalog->AddWindow();
+  catalog->AddWindow();
+  CHECK(catalog->list->rows.size() == 2);
+  WindowHolder* holder1 = AsHolder(catalog->list->rows[0]);
+  WindowHolder* holder2 = AsHolder(catalog->list->rows[1]);
+  ae::ObjId const holder1_id = holder1->obj_id;
+  ae::ObjId const holder2_id = holder2->obj_id;
+  ae::ObjId const window1_id = holder1->window.id();
+  ae::ObjId const window2_id = holder2->window.id();
+  holder1->window->SubmitFrameFromNative(111, 222, 333, 444);
+
+  catalog->CloseHolderWindow(*holder1);
+  CHECK(holder1->window.is_valid());
+  CHECK(!holder1->window.is_loaded());
+  CHECK(HasUnloadedByDefault(holder1->window.flags()));
+  CHECK(!ram_domain.Find(window1_id));
+
+  catalog->OpenHolderWindow(*holder1);
+  CHECK(holder1->window.is_loaded());
+  CHECK(holder1->window.id() == window1_id);
+  CHECK(holder1->window->x() == 111);
+  CHECK(holder1->window->y() == 222);
+  CHECK(holder1->window->client_width() == 333);
+  CHECK(holder1->window->client_height() == 444);
+
+  std::size_t const open_events_before_repeat =
+      CountSetWindowCatalogOpenEvents(*catalog, true);
+  catalog->OpenHolderWindow(*holder1);
+  CHECK(CountSetWindowCatalogOpenEvents(*catalog, true) ==
+        open_events_before_repeat);
+
+  catalog->CloseHolderWindow(*holder2);
+  CHECK(holder2->window.is_valid());
+  CHECK(!holder2->window.is_loaded());
+  CHECK(!ram_domain.Find(window2_id));
+
+  CHECK(CountSetWindowCatalogOpenEvents(*catalog, false) == 2);
+  CHECK(CountSetWindowCatalogOpenEvents(*catalog, true) == 1);
+  CHECK(holder1->window.is_loaded());
+  CHECK(!holder2->window.is_loaded());
+
+  std::vector<ae::ObjId> open_close_event_ids;
+  for (auto const& record : catalog->journal) {
+    if (!record.event.is_valid()) {
+      continue;
+    }
+    if (record.event->GetClassId() != SetWindowCatalogOpenEvent::kClassId) {
+      continue;
+    }
+    open_close_event_ids.push_back(record.event->obj_id);
+  }
+  CHECK(open_close_event_ids.size() == 3);
+
+  auto const dir = TestDir("apptraverse_window_catalog_open_close_journal");
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+
+  ae::ObjId persisted_holder1_id{};
+  ae::ObjId persisted_holder2_id{};
+  ae::ObjId persisted_window1_id{};
+  ae::ObjId persisted_window2_id{};
+  std::vector<ae::ObjId> persisted_open_close_event_ids;
+
+  {
+    DirectoryDomainStorage persist_storage{dir};
+    ae::Domain persist_domain{persist_storage};
+    auto persist = BuildWindowCatalogGraph(persist_domain);
+    FinalizeDistilledGraph(*persist);
+    SaveDistilledRoot(*persist);
+    persist.Reset();
+  }
+
+  {
+    DirectoryDomainStorage persist_storage{dir};
+    ae::Domain persist_domain{persist_storage};
+    auto persist = LoadApplication<WindowCatalog>(persist_domain, catalog_id);
+    RepairWindowCatalogEmbeddedStrings(*persist);
+    persist->AddWindow();
+    persist->AddWindow();
+    WindowHolder* p1 = AsHolder(persist->list->rows[0]);
+    WindowHolder* p2 = AsHolder(persist->list->rows[1]);
+    p1->window->SubmitFrameFromNative(111, 222, 333, 444);
+    p2->window->SubmitFrameFromNative(50, 60, 400, 300);
+    persist->CloseHolderWindow(*p1);
+    persist->OpenHolderWindow(*p1);
+    persist->CloseHolderWindow(*p2);
+
+    persisted_holder1_id = p1->obj_id;
+    persisted_holder2_id = p2->obj_id;
+    persisted_window1_id = p1->window.id();
+    persisted_window2_id = p2->window.id();
+    for (auto const& record : persist->journal) {
+      if (!record.event.is_valid()) {
+        continue;
+      }
+      if (record.event->GetClassId() != SetWindowCatalogOpenEvent::kClassId) {
+        continue;
+      }
+      persisted_open_close_event_ids.push_back(record.event->obj_id);
+    }
+    CHECK(persisted_open_close_event_ids.size() == 3);
+
+    std::size_t const saved_journal_size = persist->journal.size();
+    ShutdownSaveCatalog(*persist, persist_storage);
+    persist.Reset();
+
+    DirectoryDomainStorage replay_storage{dir};
+    ae::Domain replay_domain{replay_storage};
+    auto replay_catalog =
+        LoadApplication<WindowCatalog>(replay_domain, catalog_id);
+    RepairWindowCatalogEmbeddedStrings(*replay_catalog);
+    CHECK(replay_catalog->journal.size() == saved_journal_size);
+    CHECK(replay_catalog->list->rows.size() == 2);
+    CHECK(replay_catalog->TryReplayFromBase());
+    CHECK(replay_catalog->list->rows.size() == 2);
+    WindowHolder* r1 = AsHolder(replay_catalog->list->rows[0]);
+    WindowHolder* r2 = AsHolder(replay_catalog->list->rows[1]);
+    CHECK(r1->obj_id == persisted_holder1_id);
+    CHECK(r2->obj_id == persisted_holder2_id);
+    CHECK(r1->window.id() == persisted_window1_id);
+    CHECK(r2->window.id() == persisted_window2_id);
+    CHECK(!HasUnloadedByDefault(r1->window.flags()));
+    CHECK(HasUnloadedByDefault(r2->window.flags()));
+    CHECK(replay_catalog->next_window_number == 3);
+    replay_catalog.Reset();
+  }
+
+  DirectoryDomainStorage load_storage{dir};
+  ae::Domain load_domain{load_storage};
+  auto loaded = LoadApplication<WindowCatalog>(load_domain, catalog_id);
+  std::ifstream checkpoint_in(dir / "persistent_model_checkpoint.bin",
+                              std::ios::binary | std::ios::ate);
+  CHECK(checkpoint_in);
+  auto const checkpoint_size =
+      static_cast<std::size_t>(checkpoint_in.tellg());
+  checkpoint_in.seekg(0, std::ios::beg);
+  std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
+  if (checkpoint_size > 0) {
+    checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
+                       static_cast<std::streamsize>(checkpoint_size));
+    CHECK(static_cast<bool>(checkpoint_in));
+  }
+  ByteSource checkpoint;
+  checkpoint.data = checkpoint_bytes.data();
+  checkpoint.size = checkpoint_bytes.size();
+  checkpoint.pos = 0;
+  LoadPersistentModelSnapshot(checkpoint, load_domain, load_storage, *loaded);
+  RepairWindowCatalogEmbeddedStrings(*loaded);
+
+  CHECK(loaded->list->rows.size() == 2);
+  CHECK(loaded->next_window_number == 3);
+  WindowHolder* l1 = AsHolder(loaded->list->rows[0]);
+  WindowHolder* l2 = AsHolder(loaded->list->rows[1]);
+  CHECK(l1->obj_id == persisted_holder1_id);
+  CHECK(l2->obj_id == persisted_holder2_id);
+  CHECK(l1->window_number == 1);
+  CHECK(l2->window_number == 2);
+  CHECK(l1->window.is_loaded());
+  CHECK(l1->window.id() == persisted_window1_id);
+  CHECK(!l2->window.is_loaded());
+  CHECK(l2->window.id() == persisted_window2_id);
+  CHECK(!load_domain.Find(persisted_window2_id));
+
+  std::size_t persisted_open_events = 0;
+  for (auto const& record : loaded->journal) {
+    if (!record.event.is_valid()) {
+      continue;
+    }
+    if (record.event->GetClassId() != SetWindowCatalogOpenEvent::kClassId) {
+      continue;
+    }
+    auto const& ev =
+        static_cast<SetWindowCatalogOpenEvent const&>(*record.event);
+    if (ev.open) {
+      ++persisted_open_events;
+    }
+    bool found = false;
+    for (ae::ObjId const id : persisted_open_close_event_ids) {
+      if (id == record.event->obj_id) {
+        found = true;
+        break;
+      }
+    }
+    CHECK(found);
+  }
+  CHECK(persisted_open_events == 1);
+
+  loaded->OpenHolderWindow(*l2);
+  CHECK(l2->window.is_loaded());
+  CHECK(l2->window.id() == persisted_window2_id);
+  CHECK(l2->window->x() == 50);
+  CHECK(l2->window->y() == 60);
+  CHECK(l2->window->client_width() == 400);
+  CHECK(l2->window->client_height() == 300);
+}
+
 void TestManyHoldersClosedGraphsAbsentFromDomain() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -680,6 +910,7 @@ int main() {
   apptraverse::test::TestCatalogSaveAfterLanguageToggleAndChildClose();
   apptraverse::test::TestOpenLoadedWindowSetsPendingFocusRequest();
   apptraverse::test::TestCatalogWindowFrameSurvivesCloseReload();
+  apptraverse::test::TestWindowCatalogOpenCloseEventJournalCheckpoint();
   apptraverse::test::TestManyHoldersClosedGraphsAbsentFromDomain();
   std::cout << "window_catalog_model_test OK\n";
   return 0;

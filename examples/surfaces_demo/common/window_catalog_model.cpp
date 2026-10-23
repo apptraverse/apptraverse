@@ -87,7 +87,7 @@ void SaveCatalogWindowGraph(CatalogWindow& window) {
   CatalogWindow::ptr::MakeFromThis(&window).Save();
 }
 
-void UnloadCatalogWindowGraph(CatalogWindow::ptr& window) {
+void SaveAndResetCatalogWindowMaterialization(CatalogWindow::ptr& window) {
   if (!window.is_valid()) {
     return;
   }
@@ -99,7 +99,20 @@ void UnloadCatalogWindowGraph(CatalogWindow::ptr& window) {
       window->window_presenter.is_loaded()) {
     window->window_presenter.Reset();
   }
-  window.SetFlags(SetUnloadedDefault(window.flags()));
+  window.Reset();
+}
+
+void ResetLoadedCatalogWindowMaterialization(CatalogWindow::ptr& window) {
+  if (!window.is_valid()) {
+    return;
+  }
+  if (!window.is_loaded()) {
+    return;
+  }
+  if (window->window_presenter.is_valid() &&
+      window->window_presenter.is_loaded()) {
+    window->window_presenter.Reset();
+  }
   window.Reset();
 }
 
@@ -209,6 +222,17 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
 }
 
 void WindowCatalog::Apply(AddWindowCatalogEntryEvent const& event) {
+  if (!event.holder.is_valid()) {
+    return;
+  }
+  for (auto const& row : list->rows) {
+    if (!row) {
+      continue;
+    }
+    if (static_cast<WindowHolder*>(&*row)->obj_id == event.holder->obj_id) {
+      return;
+    }
+  }
   list->rows.push_back(event.holder);
   ++next_window_number;
   int const language = locale ? locale->language_index() : 0;
@@ -257,7 +281,40 @@ WindowHolder const* AsHolder(ui::UiListRow const& row) {
   return static_cast<WindowHolder const*>(&row);
 }
 
+WindowHolder* FindListHolderByIdentity(WindowCatalog const& catalog,
+                                       WindowHolder const& target) {
+  if (!catalog.list) {
+    return nullptr;
+  }
+  for (auto const& row : catalog.list->rows) {
+    if (!row) {
+      continue;
+    }
+    WindowHolder* holder = AsHolder(*row);
+    if (holder->obj_id == target.obj_id) {
+      return holder;
+    }
+  }
+  return nullptr;
+}
+
 }  // namespace
+
+void WindowCatalog::Apply(SetWindowCatalogOpenEvent const& event) {
+  if (!event.holder.is_valid()) {
+    return;
+  }
+  WindowHolder* holder = FindListHolderByIdentity(*this, *event.holder);
+  if (holder == nullptr || !holder->window.is_valid()) {
+    return;
+  }
+  if (event.open) {
+    holder->window.SetFlags(OpenObjFlags(holder->window.flags()));
+  } else {
+    holder->window.SetFlags(SetUnloadedDefault(holder->window.flags()));
+  }
+  NoteMaterializedChange();
+}
 
 WindowHolder* WindowCatalog::FindHolderForWindow(ae::ObjId window_id) {
   for (auto const& row : list->rows) {
@@ -353,31 +410,27 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   }
   if (holder.window.is_loaded()) {
     EnsureHolderWindowTitleLinksImpl(holder, *this);
-    holder.window.SetFlags(OpenObjFlags(holder.window.flags()));
-    if (holder.window->window_presenter.is_valid()) {
-      if (!holder.window->window_presenter.is_loaded()) {
-        holder.window->window_presenter.Load();
-      }
-      holder.window->window_presenter.SetFlags(
-          OpenObjFlags(holder.window->window_presenter.flags()));
-      EnsureHolderWindowTitleLinksImpl(holder, *this);
-    }
     pending_focus_window_id = holder.window.id().id();
     NoteMaterializedChange();
     return;
   }
   ae::Domain& domain = *list->domain;
+  ae::ObjId const window_id = holder.window.id();
   ae::DomainGraph load_graph{&domain, ae::GraphSerializationScope::LocalPersistent};
-  if (ae::Ptr<ae::Obj> loaded = load_graph.LoadRoot(holder.window.id())) {
+  if (ae::Ptr<ae::Obj> loaded = load_graph.LoadRoot(window_id)) {
     holder.window = CatalogWindow::ptr::MakeFromThis(
         static_cast<CatalogWindow*>(loaded.get()));
   } else {
     holder.window.Load();
   }
-  if (!holder.window.is_loaded()) {
+  if (!holder.window.is_loaded() || holder.window.id() != window_id) {
     return;
   }
-  holder.window.SetFlags(OpenObjFlags(holder.window.flags()));
+  auto open_event = SetWindowCatalogOpenEvent::ptr::Create(
+      ae::CreateWith{domain});
+  open_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
+  open_event->open = true;
+  Commit(std::move(open_event));
   if (holder.window->window_presenter.is_valid()) {
     if (!holder.window->window_presenter.is_loaded()) {
       holder.window->window_presenter.Load();
@@ -394,8 +447,16 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
 }
 
 void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
-  UnloadCatalogWindowGraph(holder.window);
-  NoteMaterializedChange();
+  if (!holder.window.is_valid() || !holder.window.is_loaded()) {
+    return;
+  }
+  SaveCatalogWindowGraph(*holder.window);
+  auto close_event = SetWindowCatalogOpenEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  close_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
+  close_event->open = false;
+  Commit(std::move(close_event));
+  ResetLoadedCatalogWindowMaterialization(holder.window);
 }
 
 void WindowCatalog::AddWindow() {
@@ -454,7 +515,7 @@ void WindowCatalog::DeleteSelected() {
   }
   WindowHolder::ptr target = selected;
   if (target->window.is_valid() && target->window.is_loaded()) {
-    UnloadCatalogWindowGraph(target->window);
+    SaveAndResetCatalogWindowMaterialization(target->window);
   }
   auto remove = RemoveWindowCatalogEntryEvent::ptr::Create(
       ae::CreateWith{*domain});

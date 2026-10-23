@@ -9,6 +9,7 @@ APPTRAVERSE_REGISTER(CatalogListContainer);
 APPTRAVERSE_REGISTER(AddWindowCatalogEntryEvent);
 APPTRAVERSE_REGISTER(RemoveWindowCatalogEntryEvent);
 APPTRAVERSE_REGISTER(SetWindowCatalogSelectionEvent);
+APPTRAVERSE_REGISTER(SetWindowCatalogOpenEvent);
 
 void EnsureWindowCatalogModelRegistration() {
   (void)&g_apptraverse_registrar_WindowCatalog;
@@ -18,6 +19,7 @@ void EnsureWindowCatalogModelRegistration() {
   (void)&g_apptraverse_registrar_AddWindowCatalogEntryEvent;
   (void)&g_apptraverse_registrar_RemoveWindowCatalogEntryEvent;
   (void)&g_apptraverse_registrar_SetWindowCatalogSelectionEvent;
+  (void)&g_apptraverse_registrar_SetWindowCatalogOpenEvent;
 }
 
 }  // namespace apptraverse

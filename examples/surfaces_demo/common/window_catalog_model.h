@@ -80,6 +80,7 @@ class WindowHolder : public ui::UiListRow {
 class AddWindowCatalogEntryEvent;
 class RemoveWindowCatalogEntryEvent;
 class SetWindowCatalogSelectionEvent;
+class SetWindowCatalogOpenEvent;
 
 struct WindowCatalogTexts {
   ae::ObjPtr<ui::UiLocalizationString> label_add;
@@ -163,6 +164,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void Apply(AddWindowCatalogEntryEvent const& event);
   void Apply(RemoveWindowCatalogEntryEvent const& event);
   void Apply(SetWindowCatalogSelectionEvent const& event);
+  void Apply(SetWindowCatalogOpenEvent const& event);
 
   void AddWindow();
   void OpenSelected();
@@ -252,6 +254,24 @@ class RemoveWindowCatalogEntryEvent
   AE_OBJECT_REFLECT(AE_MMBR(holder))
 
   WindowHolder::ptr holder;
+};
+
+class SetWindowCatalogOpenEvent
+    : public EventFor<WindowCatalog, SetWindowCatalogOpenEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SetWindowCatalogOpenEvent",
+      SetWindowCatalogOpenEvent, Event, 0)
+
+ protected:
+  SetWindowCatalogOpenEvent() = default;
+
+ public:
+  explicit SetWindowCatalogOpenEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(holder), AE_MMBR(open))
+
+  WindowHolder::ptr holder;
+  bool open{false};
 };
 
 class SetWindowCatalogSelectionEvent
