@@ -512,7 +512,20 @@ void RunDistilledLazyOverlayTest() {
     ae::DomainGraph save_graph{&domain};
     CHECK(save_graph.SaveRoot(root, root_id).IsOk());
     CHECK(!user_storage.SaveSessionHadFailure());
+    CHECK(first->base->obj_id == first_base_id);
     CHECK(DirectoryDomainStorageLayerFileExists(user_root, first_doc_v0));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{first_base_id, ae::Obj::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{first_base_id, Node::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{first_base_id, DocNode::kClassId, 0}));
+    CHECK(!DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{second_base_id, ae::Obj::kClassId, 0}));
+    CHECK(!DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{second_base_id, Node::kClassId, 0}));
+    CHECK(!DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{second_base_id, DocNode::kClassId, 0}));
     CHECK(CountClassLayersForObject(user_root, second_id.id()) == 0);
     CHECK(root->second.id() == second_id);
     CHECK(backing.state == backing_snapshot);
@@ -546,6 +559,19 @@ void RunDistilledLazyOverlayTest() {
     CHECK(!root->first.is_loaded());
     CHECK(DirectoryDomainStorageLayerFileExists(user_root, first_doc_v0));
     CHECK(DirectoryDomainStorageLayerFileExists(user_root, second_doc_v0));
+    CHECK(second->base->obj_id == second_base_id);
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{second_base_id, ae::Obj::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{second_base_id, Node::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{second_base_id, DocNode::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{first_base_id, ae::Obj::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{first_base_id, Node::kClassId, 0}));
+    CHECK(DirectoryDomainStorageLayerFileExists(
+        user_root, ae::DomainQuery{first_base_id, DocNode::kClassId, 0}));
     CHECK(backing.state == backing_snapshot);
   }
 
@@ -681,6 +707,12 @@ void RunDistilledLazyOverlayTest() {
     CHECK(second->base.is_loaded());
     CHECK(first->obj_id == first_id);
     CHECK(second->obj_id == second_id);
+    CHECK(first->base.id() == first_base_id);
+    CHECK(second->base.id() == second_base_id);
+    CHECK(first->base.id() != replacement_first_base_id);
+    CHECK(second->base.id() != replacement_second_base_id);
+    CHECK(static_cast<DocNode&>(*first->base).label == "first-initial");
+    CHECK(static_cast<DocNode&>(*second->base).label == "second-initial");
 
     first->label = "stale-first";
     CHECK(first->TryReplayFromBase());

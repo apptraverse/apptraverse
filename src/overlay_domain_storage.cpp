@@ -91,6 +91,9 @@ OverlayDomainStorage::~OverlayDomainStorage() = default;
 
 std::unique_ptr<ae::IDomainStorageWriter> OverlayDomainStorage::Store(
     ae::DomainQuery const& query) {
+  if (query.force_materialize) {
+    return writable_overlay_.Store(query);
+  }
   ae::DomainLoad overlay_load = writable_overlay_.Load(query);
   ae::DomainLoadResult const overlay_result = overlay_load.result;
   overlay_load = {};

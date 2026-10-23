@@ -58,7 +58,24 @@ class Node : public ae::Obj {
       return;
     }
     detail::NoteNodeHistorySerialized(journal.size(), base.is_valid());
-    dnv(base_, base, journal);
+    ae::DomainGraph* const graph =
+        detail::DnvSerializationScope<std::decay_t<Dnv>>::GetGraph(dnv);
+    bool const force_historical_base =
+        graph != nullptr &&
+        graph->serialization_scope ==
+            ae::GraphSerializationScope::LocalPersistent &&
+        !journal.empty() && base.is_valid();
+    dnv(base_);
+    bool saved_force_materialize = false;
+    if (force_historical_base) {
+      saved_force_materialize = graph->force_materialize;
+      graph->force_materialize = true;
+    }
+    dnv(base);
+    if (force_historical_base) {
+      graph->force_materialize = saved_force_materialize;
+    }
+    dnv(journal);
   }
 
   SharedPtr<Node> base;

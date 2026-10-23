@@ -37,9 +37,12 @@ template <typename Dnv>
 struct DnvSerializationScope<
     Dnv, std::void_t<decltype(std::declval<Dnv>().visitor.bin_archive.buffer()
                                   .domain_graph)>> {
+  static ae::DomainGraph* GetGraph(Dnv& dnv) {
+    return dnv.visitor.bin_archive.buffer().domain_graph;
+  }
+
   static ae::GraphSerializationScope* Get(Dnv& dnv) {
-    ae::DomainGraph* graph =
-        dnv.visitor.bin_archive.buffer().domain_graph;
+    ae::DomainGraph* graph = GetGraph(dnv);
     return graph != nullptr ? &graph->serialization_scope : nullptr;
   }
 };
