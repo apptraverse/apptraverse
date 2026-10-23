@@ -190,7 +190,6 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 };
 
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog);
-void EnsureCatalogButtonCatalogLinks(WindowCatalog& catalog);
 void EnsureHolderWindowTitleLinks(WindowHolder& holder, WindowCatalog& catalog);
 void RestoreLoadedCatalogWindows(WindowCatalog& catalog);
 

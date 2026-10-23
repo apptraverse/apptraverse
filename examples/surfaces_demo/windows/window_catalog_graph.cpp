@@ -259,58 +259,6 @@ APPTRAVERSE_REGISTER(CatalogListContainerPresenter);
 
 namespace apptraverse {
 
-void EnsureWindowCatalogControlLinks(WindowCatalog& catalog) {
-  using example::surfaces::CatalogAddButton;
-  using example::surfaces::CatalogDeleteButton;
-  using example::surfaces::CatalogLanguageButton;
-  using example::surfaces::CatalogOpenButton;
-  WindowCatalog::ptr const root = WindowCatalog::ptr::MakeFromThis(&catalog);
-  auto wire_catalog_field = [&](WindowCatalog::ptr& catalog_ref) {
-    if (!catalog_ref.is_valid()) {
-      catalog_ref = root;
-    }
-    if (!catalog_ref.is_loaded()) {
-      catalog_ref.Load();
-    }
-  };
-  auto load_button = [](ui::UiPushButton::ptr& button) {
-    if (!button.is_valid()) {
-      std::abort();
-    }
-    if (!button.is_loaded()) {
-      button.Load();
-    }
-  };
-  load_button(catalog.buttons.add_button);
-  wire_catalog_field(
-      static_cast<CatalogAddButton*>(catalog.buttons.add_button.operator->())
-          ->catalog);
-  load_button(catalog.buttons.open_button);
-  wire_catalog_field(
-      static_cast<CatalogOpenButton*>(catalog.buttons.open_button.operator->())
-          ->catalog);
-  load_button(catalog.buttons.delete_button);
-  wire_catalog_field(static_cast<CatalogDeleteButton*>(
-                         catalog.buttons.delete_button.operator->())
-                         ->catalog);
-  load_button(catalog.buttons.language_button);
-  wire_catalog_field(static_cast<CatalogLanguageButton*>(
-                         catalog.buttons.language_button.operator->())
-                         ->catalog);
-  if (!catalog.list) {
-    std::abort();
-  }
-  if (!catalog.list.is_loaded()) {
-    catalog.list.Load();
-  }
-  if (!catalog.list->catalog.is_valid()) {
-    catalog.list->catalog = root;
-  }
-  if (!catalog.list->catalog.is_loaded()) {
-    catalog.list->catalog.Load();
-  }
-}
-
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   using example::surfaces::CatalogAddButton;
   using example::surfaces::CatalogDeleteButton;

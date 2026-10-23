@@ -14,12 +14,13 @@ Build (Release example): `build-presenter-decomp-msvc-rel/examples/surfaces_demo
 - `UiListContainer` v0: `rows` + `selection_index` (base layer only).
 - `CatalogListContainer` / `WindowHolder` derived Save/Load: `base_` + own fields only (`catalog`; `window_number`, `window`).
 - ListBox titles come from stored `UiListRow.primary_text` (no `RepairHolderPrimaryText` on load).
-- Shutdown: `SaveWindowCatalogPersistentSnapshot` (holder `primary_text` + open windows + `catalog.Save()`) then `SavePersistentModelSnapshotToStorage` (includes `AppendUnloadedCheckpointTargets` for valid unloaded child windows, e.g. closed catalog children).
+- Shutdown: `SaveWindowCatalogPersistentSnapshot` (holder `primary_text` + open windows + `catalog.Save()`) then `SavePersistentModelSnapshotToStorage` (writes `persistent_model_checkpoint.bin` under `--state-dir`, including `AppendUnloadedCheckpointTargets` for closed child windows).
+- Startup (`WindowCatalogModelSession::Run`): `LoadApplication` then, when the sidecar exists, `LoadPersistentModelSnapshot` from that file (same domain/storage/root) before localization repair and initial publication — restores Node `base`/journal so post-reload `Commit` (Add) works.
 
 ## Verified (Release, incremental build)
 
-- `apptraverse_window_catalog_model_test` — **PASS** (incl. UI mirror row titles after `SerializeInitialPublication` / `LoadInitialPublication`).
-- `apptraverse_window_catalog_win32_acceptance_test` — **FAIL** in this branch run: `ExpectListRows` after load_only and/or reopen closed window 2 (Open chrome vs list-activate race); restart list rows were observed **PASS** mid-fix before regressions tied to rebuild/link lock.
+- `apptraverse_window_catalog_model_test` — **PASS** (checkpoint reload + Add via `NotifyClicked` after reopen closed holder).
+- `apptraverse_window_catalog_win32_acceptance_test` — run after rebuild (load-only → Open → Add → restart).
 
 ## Removed 275e099 workarounds
 

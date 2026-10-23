@@ -585,6 +585,7 @@ void RunRestartPersistenceAcceptance() {
     CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
       return FramesNearEqual(ReadCatalogFrame(child1_loaded), saved_frame);
     }));
+    CHECK(ControlEnabled(main, kAddControlId));
 
     ClickControl(main, kAddControlId);
     CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
@@ -600,8 +601,15 @@ void RunRestartPersistenceAcceptance() {
     load_session.Release();
   }
 
-  ProbeProfileListRows(state_dir, 3, nullptr, &saved_holder_ids);
-  CHECK(saved_holder_ids.size() == 3);
+  std::vector<ae::ObjId> const original_holder_ids = saved_holder_ids;
+  std::vector<ae::ObjId> reloaded_holder_ids;
+  ProbeProfileListRows(state_dir, 3, &reloaded_holder_ids);
+  CHECK(reloaded_holder_ids.size() == 3);
+  CHECK(original_holder_ids.size() == 2);
+  CHECK(reloaded_holder_ids[0] == original_holder_ids[0]);
+  CHECK(reloaded_holder_ids[1] == original_holder_ids[1]);
+  CHECK(reloaded_holder_ids[2] != original_holder_ids[0]);
+  CHECK(reloaded_holder_ids[2] != original_holder_ids[1]);
 
   {
     ActiveDemoProcess restart_session{StartDemo(demo, state_dir)};

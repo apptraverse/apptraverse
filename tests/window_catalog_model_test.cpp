@@ -1,6 +1,8 @@
+#include <fstream>
 #include <filesystem>
 #include <iostream>
 #include <unordered_set>
+#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -391,13 +393,81 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
     CHECK(h1->window.is_valid());
     CHECK(!domain_b.Find(window2_id));
 
+    std::size_t const saved_journal_size = catalog->journal.size();
     ShutdownSaveCatalog(*catalog, storage_b);
     catalog.Reset();
+
+    DirectoryDomainStorage storage_c{dir};
+    ae::Domain domain_c{storage_c};
+    auto reloaded = LoadApplication<WindowCatalog>(domain_c, ae::ObjId{catalog_id});
+    std::ifstream checkpoint_in(dir / "persistent_model_checkpoint.bin",
+                                std::ios::binary | std::ios::ate);
+    CHECK(checkpoint_in);
+    auto const checkpoint_size =
+        static_cast<std::size_t>(checkpoint_in.tellg());
+    checkpoint_in.seekg(0, std::ios::beg);
+    std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
+    if (checkpoint_size > 0) {
+      checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
+                       static_cast<std::streamsize>(checkpoint_size));
+      CHECK(static_cast<bool>(checkpoint_in));
+    }
+    ByteSource checkpoint;
+    checkpoint.data = checkpoint_bytes.data();
+    checkpoint.size = checkpoint_bytes.size();
+    checkpoint.pos = 0;
+    LoadPersistentModelSnapshot(checkpoint, domain_c, storage_c, *reloaded);
+
+    CHECK(reloaded->base.is_valid());
+    CHECK(reloaded->base.is_loaded());
+    CHECK(reloaded->base.id() != reloaded->obj_id);
+    CHECK(reloaded->journal.size() == saved_journal_size);
+    CHECK(reloaded->list->rows.size() == 3);
+    CHECK(reloaded->next_window_number == 4);
+    WindowHolder* c0 = AsHolder(reloaded->list->rows[0]);
+    WindowHolder* c1 = AsHolder(reloaded->list->rows[1]);
+    WindowHolder* c2 = AsHolder(reloaded->list->rows[2]);
+    CHECK(c0->obj_id == holder1_id);
+    CHECK(c1->obj_id == holder2_id);
+    CHECK(c2->obj_id == holder3_id);
+    CHECK(!c1->window.is_loaded());
+    CHECK(!domain_c.Find(window2_id));
+    reloaded->OpenHolderWindow(*c1);
+    CHECK(c1->window.is_loaded());
+    CHECK(c1->window.id() == window2_id);
+    if (!reloaded->buttons.add_button.is_loaded()) {
+      reloaded->buttons.add_button.Load();
+    }
+    reloaded->buttons.add_button->NotifyClicked();
+    CHECK(reloaded->list->rows.size() == 4);
+    CHECK(reloaded->next_window_number == 5);
+    WindowHolder* c3 = AsHolder(reloaded->list->rows[3]);
+    CHECK(c3->obj_id != holder1_id);
+    CHECK(c3->obj_id != holder2_id);
+    CHECK(c3->obj_id != holder3_id);
+    CHECK(c3->window_number == 4);
+    reloaded.Reset();
   }
 
   DirectoryDomainStorage storage_c{dir};
   ae::Domain domain_c{storage_c};
   auto catalog = LoadApplication<WindowCatalog>(domain_c, ae::ObjId{catalog_id});
+  std::ifstream checkpoint_in(dir / "persistent_model_checkpoint.bin",
+                              std::ios::binary | std::ios::ate);
+  CHECK(checkpoint_in);
+  auto const checkpoint_size = static_cast<std::size_t>(checkpoint_in.tellg());
+  checkpoint_in.seekg(0, std::ios::beg);
+  std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
+  if (checkpoint_size > 0) {
+    checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
+                     static_cast<std::streamsize>(checkpoint_size));
+    CHECK(static_cast<bool>(checkpoint_in));
+  }
+  ByteSource checkpoint;
+  checkpoint.data = checkpoint_bytes.data();
+  checkpoint.size = checkpoint_bytes.size();
+  checkpoint.pos = 0;
+  LoadPersistentModelSnapshot(checkpoint, domain_c, storage_c, *catalog);
   CHECK(catalog->list.is_valid());
   CHECK(catalog->list->rows.size() == 3);
   CHECK(catalog->next_window_number == 4);

@@ -1,9 +1,7 @@
 #include "window_catalog_lifecycle.h"
 
-#ifdef APPTRAVERSE_ENABLE_DISTILLATION
 #include <filesystem>
-#endif
-
+#include <fstream>
 #include <optional>
 #include <unordered_set>
 #include <vector>
@@ -15,6 +13,7 @@
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/object_macros.h"
@@ -83,8 +82,36 @@ void WindowCatalogModelSession::Run(
     DirectoryDomainStorage durable_storage{state_dir};
     ae::Domain domain{durable_storage};
     auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootId());
-    EnsureCatalogButtonCatalogLinks(*catalog);
-    EnsureWindowCatalogControlLinks(*catalog);
+    std::filesystem::path const checkpoint_path =
+        state_dir / "persistent_model_checkpoint.bin";
+    if (std::filesystem::exists(checkpoint_path)) {
+      std::ifstream checkpoint_in(checkpoint_path,
+                                  std::ios::binary | std::ios::ate);
+      if (!checkpoint_in) {
+        WriteFatalStderr(
+            "fatal: failed to open persistent_model_checkpoint.bin for read\n");
+        std::abort();
+      }
+      auto const checkpoint_size =
+          static_cast<std::size_t>(checkpoint_in.tellg());
+      checkpoint_in.seekg(0, std::ios::beg);
+      std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
+      if (checkpoint_size > 0) {
+        checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
+                           static_cast<std::streamsize>(checkpoint_size));
+        if (!checkpoint_in) {
+          WriteFatalStderr(
+              "fatal: failed to read persistent_model_checkpoint.bin\n");
+          std::abort();
+        }
+      }
+      ByteSource checkpoint;
+      checkpoint.data = checkpoint_bytes.data();
+      checkpoint.size = checkpoint_bytes.size();
+      checkpoint.pos = 0;
+      LoadPersistentModelSnapshot(checkpoint, domain, durable_storage,
+                                  *catalog);
+    }
     RepairWindowCatalogEmbeddedStrings(*catalog);
     int const language =
         catalog->locale ? catalog->locale->language_index() : 0;
