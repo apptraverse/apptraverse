@@ -59,20 +59,23 @@ class TestLazyWindowsRoot : public ae::Obj {
  public:
   explicit TestLazyWindowsRoot(ae::ObjProp prop) : ae::Obj{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(window_a), AE_MMBR(window_b))
+  AE_OBJECT_REFLECT(AE_MMBR(window_a), AE_MMBR(window_b), AE_MMBR(presenter_a),
+                    AE_MMBR(presenter_b))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, window_a, window_b);
+    dnv(base_, window_a, window_b, presenter_a, presenter_b);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, window_a, window_b);
+    dnv(base_, window_a, window_b, presenter_a, presenter_b);
   }
 
   ui::UiWindow::ptr window_a;
   ui::UiWindow::ptr window_b;
+  ui::UiWindowPresenter::ptr presenter_a;
+  ui::UiWindowPresenter::ptr presenter_b;
 };
 
 APPTRAVERSE_REGISTER(TestLazyWindowsRoot);
@@ -538,6 +541,8 @@ void TestWindowLazyGraphInitialPublication() {
   ae::ObjId const root_id{0x83000001u};
   ae::ObjId window_a_id;
   ae::ObjId window_b_id;
+  ae::ObjId presenter_a_id;
+  ae::ObjId presenter_b_id;
   ae::ObjId window_a_base_id;
   ae::ObjId window_a_event0_id;
   ae::ObjId window_b_base_id;
@@ -568,13 +573,43 @@ void TestWindowLazyGraphInitialPublication() {
     window_b_id = window_b->obj_id;
     window_a_event0_id = window_a->journal[0].event->obj_id;
 
+    auto presenter_a = ui::UiWindowPresenter::ptr::Create(
+        ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
+    auto presenter_b = ui::UiWindowPresenter::ptr::Create(
+        ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
+    presenter_a->window = window_a;
+    presenter_b->window = window_b;
+    presenter_a->window.SetFlags(presenter_a->window.flags() &
+                                 ~ae::ObjFlags::kUnloadedByDefault);
+    presenter_b->window.SetFlags(presenter_b->window.flags() &
+                                 ~ae::ObjFlags::kUnloadedByDefault);
+    presenter_a_id = presenter_a->obj_id;
+    presenter_b_id = presenter_b->obj_id;
+
     auto root = TestLazyWindowsRoot::ptr::Create(
         ae::CreateWith{domain}.with_id(root_id));
-    root->window_a = window_a;
-    root->window_b = window_b;
 
     UiWindow::ptr::MakeFromThis(&*window_a).Save();
     UiWindow::ptr::MakeFromThis(&*window_b).Save();
+    ui::UiWindowPresenter::ptr::MakeFromThis(&*presenter_a).Save();
+    ui::UiWindowPresenter::ptr::MakeFromThis(&*presenter_b).Save();
+
+    root->window_a = UiWindow::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(window_a_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    root->window_b = UiWindow::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(window_b_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    root->presenter_a = ui::UiWindowPresenter::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(presenter_a_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    root->presenter_b = ui::UiWindowPresenter::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(presenter_b_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
     TestLazyWindowsRoot::ptr::MakeFromThis(&*root).Save();
   }
 
@@ -590,12 +625,19 @@ void TestWindowLazyGraphInitialPublication() {
     CHECK(root->window_b.id() == window_b_id);
     CHECK((root->window_a.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
     CHECK((root->window_b.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+    CHECK((root->presenter_a.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+    CHECK((root->presenter_b.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
     CHECK(!root->window_a.is_loaded());
     CHECK(!root->window_b.is_loaded());
+    CHECK(!root->presenter_a.is_loaded());
+    CHECK(!root->presenter_b.is_loaded());
     CHECK(!domain.Find(window_a_id));
     CHECK(!domain.Find(window_b_id));
+    CHECK(!domain.Find(presenter_a_id));
+    CHECK(!domain.Find(presenter_b_id));
 
     root->window_a.Load();
+    root->presenter_a.Load();
     CHECK(root->window_a->client_width() == 640);
     CHECK(root->window_a->client_height() == 480);
     CHECK(root->window_a->journal.size() == 1);
@@ -604,6 +646,10 @@ void TestWindowLazyGraphInitialPublication() {
 
     CHECK(!root->window_b.is_loaded());
     CHECK(!domain.Find(window_b_id));
+    CHECK(!root->presenter_b.is_loaded());
+    CHECK(!domain.Find(presenter_b_id));
+    CHECK(!root->presenter_a->presentation_loaded);
+    CHECK(!root->presenter_b->presentation_loaded);
 
     ae::RamDomainStorage ui_storage;
     ae::Domain ui_domain{ui_storage};
@@ -620,11 +666,28 @@ void TestWindowLazyGraphInitialPublication() {
 
     CHECK(ui_root->window_a.id() == window_a_id);
     CHECK(ui_root->window_b.id() == window_b_id);
+    CHECK(ui_root->presenter_a.id() == presenter_a_id);
+    CHECK(ui_root->presenter_b.id() == presenter_b_id);
     CHECK(ui_root->window_a.is_loaded());
     CHECK(ui_root->window_a->client_width() == 640);
     CHECK(ui_root->window_a->client_height() == 480);
     CHECK(!ui_root->window_b.is_loaded());
     CHECK(!ui_domain.Find(window_b_id));
+    CHECK(!ui_root->presenter_b.is_loaded());
+    CHECK(!ui_domain.Find(presenter_b_id));
+    CHECK(ui_storage.Enumerate(presenter_b_id).empty());
+
+    InitializePresenters(*ui_root);
+    CHECK(ui_root->presenter_a.is_loaded());
+    CHECK(ui_root->presenter_a->presentation_loaded);
+    CHECK(ui_root->presenter_a->presentation_load_order != 0);
+    CHECK(ui_root->presenter_a->window.is_loaded());
+    CHECK(ui_root->presenter_a->window.id() == window_a_id);
+    CHECK(&*ui_root->presenter_a->window == &*ui_root->window_a);
+    CHECK(!ui_root->presenter_b.is_loaded());
+    CHECK(!ui_domain.Find(presenter_b_id));
+    CHECK(!root->presenter_a->presentation_loaded);
+    CHECK(!root->presenter_b->presentation_loaded);
 
     CHECK(!ui_storage.Enumerate(root_id).empty());
     CHECK(!ui_storage.Enumerate(window_a_id).empty());
@@ -642,6 +705,7 @@ void TestWindowLazyGraphInitialPublication() {
     CHECK(!domain.Find(window_b_id));
 
     root->window_b.Load();
+    root->presenter_b.Load();
     CHECK(root->window_b->client_width() == 900);
     CHECK(root->window_b->client_height() == 700);
     CHECK(root->window_b->journal.size() == 1);
@@ -649,13 +713,21 @@ void TestWindowLazyGraphInitialPublication() {
     window_b_base_id = root->window_b->base->obj_id;
 
     root->window_a.Save();
+    root->presenter_a.Save();
     root->window_a.Reset();
+    root->presenter_a.Reset();
     CHECK(root->window_a.is_valid());
     CHECK(root->window_a.id() == window_a_id);
+    CHECK(root->presenter_a.is_valid());
+    CHECK(root->presenter_a.id() == presenter_a_id);
     CHECK((root->window_a.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+    CHECK((root->presenter_a.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
     CHECK(!root->window_a.is_loaded());
+    CHECK(!root->presenter_a.is_loaded());
     CHECK(!domain.Find(window_a_id));
+    CHECK(!domain.Find(presenter_a_id));
     CHECK(root->window_b.is_loaded());
+    CHECK(root->presenter_b.is_loaded());
 
     ByteSink graph_sink;
     SerializeObjectGraphToBuffer(*root, graph_sink);
@@ -667,13 +739,34 @@ void TestWindowLazyGraphInitialPublication() {
       graph_in.size = graph_sink.bytes.size();
       DeserializeObjectGraphFromBuffer(*ui_root, graph_in, ui_domain,
                                          ui_storage);
+      UpdatePresentersAfterStructuralPublication(*ui_root,
+                                                 keepalive.active_presenters);
+
+      Presenter* keepalive_presenter_a = nullptr;
+      for (Presenter::ptr const& held : keepalive.active_presenters) {
+        if (held.is_valid() && held.is_loaded() &&
+            held.id() == presenter_a_id) {
+          keepalive_presenter_a = &*held;
+          break;
+        }
+      }
+      CHECK(keepalive_presenter_a != nullptr);
+      CHECK(!keepalive_presenter_a->presentation_loaded);
 
       CHECK(&*ui_root == ui_root_object);
       CHECK(ui_root->obj_id == root_id);
       CHECK(ui_root->window_a.id() == window_a_id);
       CHECK(ui_root->window_b.id() == window_b_id);
+      CHECK(ui_root->presenter_a.id() == presenter_a_id);
+      CHECK(ui_root->presenter_b.id() == presenter_b_id);
       CHECK(!ui_root->window_a.is_loaded());
       CHECK(ui_root->window_b.is_loaded());
+      CHECK(ui_root->presenter_b.is_loaded());
+      CHECK(ui_root->presenter_b->presentation_loaded);
+      CHECK(ui_root->presenter_b->presentation_load_order != 0);
+      CHECK(ui_root->presenter_b->window.is_loaded());
+      CHECK(ui_root->presenter_b->window.id() == window_b_id);
+      CHECK(&*ui_root->presenter_b->window == &*ui_root->window_b);
       CHECK(ui_root->window_b->client_width() == 900);
       CHECK(ui_root->window_b->client_height() == 700);
       CHECK(!ui_root->window_b->base.is_valid());
@@ -686,12 +779,25 @@ void TestWindowLazyGraphInitialPublication() {
       CHECK(root->window_b->journal[0].event->obj_id == window_b_event0_id);
       CHECK(!root->window_a.is_loaded());
       CHECK(!domain.Find(window_a_id));
+      CHECK(!domain.Find(presenter_a_id));
       CHECK(!storage.Enumerate(window_a_id).empty());
+
+      keepalive.active_presenters.clear();
+      keepalive.live_objects.clear();
+      CHECK(!ui_domain.Find(window_a_id));
+      CHECK(!ui_domain.Find(presenter_a_id));
     }
     CHECK(!ui_domain.Find(window_a_id));
+    CHECK(!ui_domain.Find(presenter_a_id));
     CHECK(!ui_root->window_a.is_loaded());
+    CHECK(!ui_root->presenter_a.is_loaded());
     CHECK(ui_root->window_b.is_loaded());
     CHECK(ui_root->window_b->client_width() == 900);
+
+    UnloadPresenters(*ui_root);
+    CHECK(ui_root->presenter_b.is_loaded());
+    CHECK(!ui_root->presenter_b->presentation_loaded);
+    CHECK(ui_root->presenter_b->presentation_load_order == 0);
   }
 }
 
