@@ -354,7 +354,10 @@ class Node : public ae::Obj {
         return i;
       }
       auto const& event = journal[i].event;
-      if (event.is_valid() && !event->CanCompactStoredState()) {
+      if (!event.is_valid() || !event.is_loaded()) {
+        std::abort();
+      }
+      if (!event->CanCompactStoredState()) {
         return i;
       }
     }

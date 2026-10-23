@@ -2,6 +2,7 @@
 #define APPTRAVERSE_EVENT_FOR_H_
 
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <type_traits>
 
@@ -73,7 +74,7 @@ class EventFor : public Event {
 
   bool CanCompactStoredState() const override {
     if (domain == nullptr) {
-      return true;
+      std::abort();
     }
     return detail::CanCompactStoredEventLayers<ConcreteEvent>(
         domain->domain_storage(), obj_id);
