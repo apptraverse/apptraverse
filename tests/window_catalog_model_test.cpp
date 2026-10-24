@@ -1176,6 +1176,106 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   }
 }
 
+void AssertCatalogChromeButtonDistilledReplay(
+    WindowCatalog const& catalog,
+    ae::ObjPtr<ui::UiPushButton> const& catalog_button_slot,
+    ae::ObjId const& expected_button_id, ae::ObjId const& expected_label_id,
+    ae::ObjId const& expected_catalog_id, bool expected_enabled) {
+  CHECK(catalog_button_slot.is_valid());
+  CHECK(catalog_button_slot.is_loaded());
+  CHECK(catalog.obj_id == expected_catalog_id);
+  CHECK(catalog_button_slot->base.is_valid());
+  ui::UiPushButton& button = *catalog_button_slot.operator->();
+  CHECK(button.obj_id == expected_button_id);
+  CHECK(button.base.is_valid());
+  CHECK(button.base.is_loaded());
+  ae::ObjId const expected_base_id = button.base.id();
+  CHECK(button.label.is_valid());
+  CHECK(button.label.id() == expected_label_id);
+  auto const& button_base =
+      static_cast<ui::UiPushButton const&>(*button.base);
+  CHECK(button_base.label.is_valid());
+  CHECK(button_base.label.id() == expected_label_id);
+  CHECK(button.enabled() == expected_enabled);
+
+  CHECK(button.TryReplayFromBase());
+  CHECK(button.obj_id == expected_button_id);
+  CHECK(button.base.is_valid());
+  CHECK(button.base.id() == expected_base_id);
+  CHECK(button.label.is_valid());
+  CHECK(button.label.id() == expected_label_id);
+  CHECK(button.enabled() == expected_enabled);
+  CHECK(catalog_button_slot.is_valid());
+  CHECK(catalog_button_slot.is_loaded());
+  CHECK(catalog.obj_id == expected_catalog_id);
+}
+
+void TestWindowCatalogChromeButtonDistilledBaseReplay() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  using window_catalog_demo::ObjId;
+  using window_catalog_demo::ToObjId;
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+
+  ae::ObjId const catalog_id = ToObjId(ObjId::Catalog);
+  CHECK(catalog->obj_id == catalog_id);
+  CHECK(catalog->texts.label_add->Resolve(0) == "Add");
+  CHECK(catalog->texts.label_open->Resolve(0) == "Open");
+  CHECK(catalog->texts.label_delete->Resolve(0) == "Delete");
+  CHECK(catalog->texts.label_language->Resolve(0) == "RU");
+
+  AssertCatalogChromeButtonDistilledReplay(
+      *catalog, catalog->buttons.add_button, ToObjId(ObjId::AddButton),
+      catalog->texts.label_add.id(), catalog_id, true);
+  AssertCatalogChromeButtonDistilledReplay(
+      *catalog, catalog->buttons.open_button, ToObjId(ObjId::OpenButton),
+      catalog->texts.label_open.id(), catalog_id, false);
+  AssertCatalogChromeButtonDistilledReplay(
+      *catalog, catalog->buttons.delete_button, ToObjId(ObjId::DeleteButton),
+      catalog->texts.label_delete.id(), catalog_id, false);
+  AssertCatalogChromeButtonDistilledReplay(
+      *catalog, catalog->buttons.language_button, ToObjId(ObjId::LanguageButton),
+      catalog->texts.label_language.id(), catalog_id, true);
+
+  auto const dir = TestDir("apptraverse_window_catalog_chrome_button_base");
+  {
+    DirectoryDomainStorage persist_storage{dir};
+    ae::Domain persist_domain{persist_storage};
+    auto persist = BuildWindowCatalogGraph(persist_domain);
+    FinalizeDistilledGraph(*persist);
+    ShutdownSaveCatalog(*persist, persist_storage);
+    persist.Reset();
+  }
+  {
+    DirectoryDomainStorage load_storage{dir};
+    ae::Domain load_domain{load_storage};
+    auto loaded =
+        LoadApplication<WindowCatalog>(load_domain, ToObjId(ObjId::Catalog));
+    RepairWindowCatalogEmbeddedStrings(*loaded);
+    FinalizeDistilledGraph(*loaded);
+    AssertCatalogChromeButtonDistilledReplay(
+        *loaded, loaded->buttons.add_button, ToObjId(ObjId::AddButton),
+        loaded->texts.label_add.id(), loaded->obj_id, true);
+    AssertCatalogChromeButtonDistilledReplay(
+        *loaded, loaded->buttons.open_button, ToObjId(ObjId::OpenButton),
+        loaded->texts.label_open.id(), loaded->obj_id, false);
+    AssertCatalogChromeButtonDistilledReplay(
+        *loaded, loaded->buttons.delete_button, ToObjId(ObjId::DeleteButton),
+        loaded->texts.label_delete.id(), loaded->obj_id, false);
+    AssertCatalogChromeButtonDistilledReplay(
+        *loaded, loaded->buttons.language_button,
+        ToObjId(ObjId::LanguageButton), loaded->texts.label_language.id(),
+        loaded->obj_id, true);
+    loaded.Reset();
+  }
+}
+
 void TestManyHoldersClosedGraphsAbsentFromDomain() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -1217,6 +1317,7 @@ int main() {
   apptraverse::test::TestOpenLoadedWindowSetsPendingFocusRequest();
   apptraverse::test::TestCatalogWindowFrameSurvivesCloseReload();
   apptraverse::test::TestWindowCatalogOpenCloseEventJournalCheckpoint();
+  apptraverse::test::TestWindowCatalogChromeButtonDistilledBaseReplay();
   apptraverse::test::TestManyHoldersClosedGraphsAbsentFromDomain();
   std::cout << "window_catalog_model_test OK\n";
   return 0;

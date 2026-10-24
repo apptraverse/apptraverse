@@ -323,25 +323,21 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
 
   auto add_button = CatalogAddButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::AddButton)));
-  InitializeRuntimeNode(*add_button, *catalog);
   add_button->catalog = catalog;
   add_button->label = catalog->texts.label_add;
 
   auto open_button = CatalogOpenButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::OpenButton)));
-  InitializeRuntimeNode(*open_button, *catalog);
   open_button->catalog = catalog;
   open_button->label = catalog->texts.label_open;
 
   auto delete_button = CatalogDeleteButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeleteButton)));
-  InitializeRuntimeNode(*delete_button, *catalog);
   delete_button->catalog = catalog;
   delete_button->label = catalog->texts.label_delete;
 
   auto language_button = CatalogLanguageButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::LanguageButton)));
-  InitializeRuntimeNode(*language_button, *catalog);
   language_button->catalog = catalog;
   language_button->label = catalog->texts.label_language;
 
@@ -364,6 +360,11 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   main_presenter->locale = catalog->locale;
   AttachMainWindowTitle(*catalog, domain);
   catalog->RefreshChromeButtonEnabledState();
+
+  InitializeRuntimeNode(*add_button, *catalog);
+  InitializeRuntimeNode(*open_button, *catalog);
+  InitializeRuntimeNode(*delete_button, *catalog);
+  InitializeRuntimeNode(*language_button, *catalog);
 
   list->catalog = catalog;
   catalog->list = list;
