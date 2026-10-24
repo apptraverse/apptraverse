@@ -4169,6 +4169,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - MinSizeRel win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 335872 bytes.
 
 ### Application framework extraction / headless contract
+- **Land SHA**: **`1dd8d57187276a61d021b675055269821c34922b`** (`Introduce UiPresentedWindow and wire headless contract graph through window presenter.`)
 - **Baseline (pre-step)**: **`b18cf9db94c237ce6c5e008e1626e8b7a100a6d6`**
 - **WindowCatalog** remains the reference implementation for Events, mirrors,
   localization, lazy windows, and desktop frame paths; **`CatalogWindow.window_presenter`**
