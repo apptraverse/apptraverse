@@ -7,8 +7,16 @@ namespace apptraverse::test::prefab_release {
 
 inline constexpr ae::ObjId::Type kMainWindowPrefabId = 60001;
 inline constexpr ae::ObjId::Type kToolWindowPrefabId = 60002;
+inline constexpr ae::ObjId::Type kMainLocalizationId = 60003;
+inline constexpr ae::ObjId::Type kToolLocalizationId = 60004;
+inline constexpr ae::ObjId::Type kMainPrefabBaseId = 60005;
+inline constexpr ae::ObjId::Type kToolPrefabBaseId = 60006;
 inline constexpr ae::ObjId::Type kMainLabelConstId = 60011;
 inline constexpr ae::ObjId::Type kToolLabelConstId = 60012;
+
+inline constexpr char kMainTitleR0[] = "main-title-A";
+inline constexpr char kMainTitleR1[] = "main-title-B";
+inline constexpr char kToolTitle[] = "tool-title";
 
 inline constexpr ae::ObjId::Type kWorkspaceId = 61000;
 inline constexpr ae::ObjId::Type kWindowAId = 61001;

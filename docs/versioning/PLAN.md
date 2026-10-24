@@ -391,8 +391,8 @@ Wire-формат и новый GraphManager **не** добавлялись.
 ### 07 — Один бинарный пакет констант
 
 - **Цель:** offline `state/R` + старый EXE читает через backing.
-- **Область:** packaging tool (отдельный repo/tooling — не в этой итерации), fixture pattern как `export-v1-package`.
-- **T:** T02, T12 | **Зав.:** 04, 06 | **Статус:** TODO
+- **Область:** [`distilled_supply_package`](../../include/apptraverse/distilled_supply_package.h) (APSP v0); fixture `export_prefab_release_r1_package` + `apptraverse_prefab_release_lifecycle_matrix`; явный `--supply-package` (без resolver / `active-release`).
+- **T:** T02, T12 *(фрагменты)* | **Зав.:** 04, 06 | **Статус:** PASS *(один R1 package; полный T12 — нет)*
 
 ### 08 — Выбор активной поставки
 

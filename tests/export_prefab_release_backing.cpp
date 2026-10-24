@@ -16,6 +16,9 @@
 #ifndef APPTRAVERSE_PREFAB_EXPORT_MAIN_POSX
 #define APPTRAVERSE_PREFAB_EXPORT_MAIN_POSX 10
 #endif
+#ifndef APPTRAVERSE_PREFAB_EXPORT_MAIN_TITLE
+#define APPTRAVERSE_PREFAB_EXPORT_MAIN_TITLE kMainTitleR0
+#endif
 
 #define STRINGIZE2(x) #x
 #define STRINGIZE(x) STRINGIZE2(x)
@@ -39,7 +42,8 @@ int main(int argc, char** argv) {
   apptraverse::test::prefab_release::EnsurePrefabReleaseRegistration();
 
   ae::RamDomainStorage const storage =
-      apptraverse::test::prefab_release::BuildPrefabSupplyGraphWithMainPosx(
+      apptraverse::test::prefab_release::BuildPrefabSupplyGraphWithMainTitleAndPosx(
+          APPTRAVERSE_PREFAB_EXPORT_MAIN_TITLE,
           APPTRAVERSE_PREFAB_EXPORT_MAIN_POSX);
   std::set<ae::ObjId> const object_filter =
       apptraverse::CollectStoredObjectIds(storage);

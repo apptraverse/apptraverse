@@ -64,7 +64,8 @@ bool ApplyDistilledSupplyPackage(
 bool WriteDistilledSupplyPackageFile(
     std::filesystem::path const& path,
     DistilledSupplyPackage const& package,
-    DistilledSupplyPackageError* error_out);
+    DistilledSupplyPackageError* error_out,
+    bool require_canonical = true);
 
 std::optional<std::vector<std::uint8_t>> ReadDistilledSupplyPackageFile(
     std::filesystem::path const& path,

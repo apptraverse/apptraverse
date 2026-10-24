@@ -33,6 +33,8 @@ PrefabDefaults ToolWindowPrefabDefaults();
 
 ae::RamDomainStorage BuildPrefabSupplyGraph();
 ae::RamDomainStorage BuildPrefabSupplyGraphWithMainPosx(std::int32_t main_posx);
+ae::RamDomainStorage BuildPrefabSupplyGraphWithMainTitleAndPosx(
+    char const* main_title, std::int32_t main_posx);
 
 ClonePlan PlanCloneFromPrefabGraph(ae::Domain const& domain);
 

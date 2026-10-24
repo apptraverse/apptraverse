@@ -60,14 +60,16 @@ class ConstLabelString : public ae::Obj {
   std::string text;
 };
 
-class PrefabLocalization : public NodeFor<PrefabLocalization> {
-  APPTRAVERSE_OBJECT(PrefabLocalization, Node, 0)
+class PrefabLocalization : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::test::prefab_release::PrefabLocalization",
+      PrefabLocalization, ae::Obj, 0)
 
  protected:
   PrefabLocalization() = default;
 
  public:
-  explicit PrefabLocalization(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit PrefabLocalization(ae::ObjProp prop) : Obj{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(strings))
 
@@ -395,26 +397,37 @@ struct BuiltPrefab {
 };
 
 BuiltPrefab BuildSinglePrefab(ae::Domain& domain, ae::ObjId prefab_id,
+                              ae::ObjId prefab_base_id,
+                              ae::ObjId localization_id,
                               PrefabDefaults const& defaults,
                               ae::ObjId label_const_id, char const* label) {
   BuiltPrefab out;
+  auto base_ref = PrefabWindow::ptr::Create(
+      ae::CreateWith{domain}.with_id(prefab_base_id));
+  ae::Ptr<PrefabWindow> base = base_ref.Load();
+  base->width = defaults.width;
+  base->posx = defaults.posx;
+
   out.window = PrefabWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(prefab_id));
   ae::Ptr<PrefabWindow> window = out.window.Load();
   window->width = defaults.width;
   window->posx = defaults.posx;
+  window->base = base_ref;
 
   auto label_obj = ConstLabelString::ptr::Create(
       ae::CreateWith{domain}.with_id(label_const_id));
   label_obj.Load()->text = label;
   out.const_string_ids.push_back(label_const_id);
 
-  out.localization = PrefabLocalization::ptr::Create(ae::CreateWith{domain});
+  out.localization = PrefabLocalization::ptr::Create(
+      ae::CreateWith{domain}.with_id(localization_id));
   out.localization.Load()->strings.push_back(label_obj);
 
   FinalizeDistilledGraph(*window);
   StabilizeDistilledPersistentSnapshot(*window);
   SaveDistilledRoot(*window);
+  out.localization.Save();
 
   return out;
 }
@@ -450,17 +463,42 @@ ae::RamDomainStorage BuildPrefabSupplyGraph() {
 }
 
 ae::RamDomainStorage BuildPrefabSupplyGraphWithMainPosx(std::int32_t main_posx) {
+  return BuildPrefabSupplyGraphWithMainTitleAndPosx(kMainTitleR0, main_posx);
+}
+
+ae::RamDomainStorage BuildPrefabSupplyGraphWithMainTitleAndPosx(
+    char const* main_title, std::int32_t main_posx) {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   EnsurePrefabReleaseRegistration();
 
   PrefabDefaults main_defaults = MainWindowPrefabDefaults();
   main_defaults.posx = main_posx;
-  (void)BuildSinglePrefab(domain, ae::ObjId{kMainWindowPrefabId}, main_defaults,
-                          ae::ObjId{kMainLabelConstId}, "main-title");
+  (void)BuildSinglePrefab(domain, ae::ObjId{kMainWindowPrefabId},
+                          ae::ObjId{kMainPrefabBaseId}, ae::ObjId{kMainLocalizationId},
+                          main_defaults, ae::ObjId{kMainLabelConstId}, main_title);
   (void)BuildSinglePrefab(domain, ae::ObjId{kToolWindowPrefabId},
-                          ToolWindowPrefabDefaults(), ae::ObjId{kToolLabelConstId},
-                          "tool-title");
+                          ae::ObjId{kToolPrefabBaseId},
+                          ae::ObjId{kToolLocalizationId}, ToolWindowPrefabDefaults(),
+                          ae::ObjId{kToolLabelConstId}, kToolTitle);
+
+#if APPTRAVERSE_PREFAB_EXE_REVISION == 0
+  for (auto& [obj_id, class_map_opt] : storage.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    auto class_it = class_map_opt->find(PrefabWindow::kClassId);
+    if (class_it != class_map_opt->end()) {
+      class_it->second.erase(1);
+      if (class_it->second.empty()) {
+        class_map_opt->erase(class_it);
+      }
+    }
+    if (class_map_opt->empty()) {
+      storage.state.erase(obj_id);
+    }
+  }
+#endif
 
   return storage;
 }
@@ -510,6 +548,8 @@ ae::ObjPtr<ae::Obj> CloneWorkspaceFromPrefabs(ae::Domain& domain,
 
   auto presenter = NullPresenterNode::ptr::Create(
       ae::CreateWith{domain}.with_id(ae::ObjId{kNullPresenterId}));
+  presenter.Load()->localization = PrefabLocalization::ptr::Declare(
+      ae::CreateWith{domain}.with_id(ae::ObjId{kMainLocalizationId}));
   presenter.Load()->window = window_a_ref;
 
   auto layout = LayoutNode::ptr::Create(ae::CreateWith{domain}.with_id(kLayoutId));
@@ -694,15 +734,20 @@ void ResetLazyLoadCount() { g_lazy_load_count = 0; }
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/distilled_supply_package.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/overlay_domain_storage.h"
 
-#include "embedded_distilled_prefab_release_supply.h"
-#if APPTRAVERSE_PREFAB_EXE_REVISION >= 1
+#if APPTRAVERSE_PREFAB_EXE_REVISION == 0
+#include "embedded_distilled_prefab_release_r0_supply.h"
+#include "embedded_release_metadata.h"
+#else
+#include "embedded_distilled_prefab_release_r2_supply.h"
 #include "embedded_distilled_prefab_release_supply_v30.h"
 #endif
 
@@ -717,19 +762,30 @@ std::string JsonOk(std::string_view fields) {
 
 enum class PrefabBackingKind { kDefault, kMainPosx30 };
 
+struct FixtureBacking {
+  ae::RamDomainStorage embedded_backing;
+  ae::RamDomainStorage effective_backing;
+  std::set<ae::ObjId> supply_ids;
+  bool package_applied{false};
+};
+
 struct FixtureStorage {
-  ae::RamDomainStorage backing;
   DirectoryDomainStorage user;
+  FixtureBacking backing;
   OverlayDomainStorage overlay;
   ae::Domain domain;
 
+  FixtureStorage(std::filesystem::path const& user_root,
+                 PrefabBackingKind kind,
+                 std::filesystem::path const& package_path)
+      : user{user_root},
+        backing{BuildFixtureBacking(kind, package_path)},
+        overlay{user, backing.effective_backing, backing.supply_ids},
+        domain{overlay} {}
+
   explicit FixtureStorage(std::filesystem::path const& user_root,
                           PrefabBackingKind kind = PrefabBackingKind::kDefault)
-      : user{user_root},
-        overlay{user, backing, EmbeddedSupplyConstantIdSet(GraphFor(kind))},
-        domain{overlay} {
-    InstallEmbeddedDistilledBacking(backing, GraphFor(kind));
-  }
+      : FixtureStorage(user_root, kind, {}) {}
 
  private:
   static apptraverse::EmbeddedDistilledGraph const& GraphFor(
@@ -738,13 +794,75 @@ struct FixtureStorage {
     if (kind == PrefabBackingKind::kMainPosx30) {
       return embedded_distilled::prefab_release_v30::kEmbeddedGraph;
     }
+    return embedded_distilled::prefab_release_r2::kEmbeddedGraph;
+#else
+    (void)kind;
+    return embedded_distilled::prefab_release_r0::kEmbeddedGraph;
 #endif
-    return embedded_distilled::prefab_release::kEmbeddedGraph;
+  }
+
+  static std::set<ae::ObjId> SupplyIdSetFromPackage(
+      DistilledSupplyPackage const& package) {
+    std::set<ae::ObjId> ids;
+    for (auto id : package.target_supply_constant_ids) {
+      ids.insert(ae::ObjId{id});
+    }
+    return ids;
+  }
+
+  static FixtureBacking BuildFixtureBacking(
+      PrefabBackingKind kind, std::filesystem::path const& package_path) {
+    FixtureBacking out{};
+    InstallEmbeddedDistilledBacking(out.embedded_backing, GraphFor(kind));
+    out.supply_ids = EmbeddedSupplyConstantIdSet(GraphFor(kind));
+    out.effective_backing = out.embedded_backing;
+
+    if (package_path.empty()) {
+      return out;
+    }
+#if APPTRAVERSE_PREFAB_EXE_REVISION == 0
+    DistilledSupplyPackageError pkg_error{};
+    auto const bytes = ReadDistilledSupplyPackageFile(package_path, &pkg_error);
+    if (!bytes) {
+      throw std::runtime_error(pkg_error.message ? pkg_error.message
+                                                 : "package-read");
+    }
+    auto package = ParseDistilledSupplyPackage(*bytes, &pkg_error);
+    if (!package) {
+      throw std::runtime_error(pkg_error.message ? pkg_error.message
+                                                 : "package-parse");
+    }
+    if (package->base_release != prefab_release_lifecycle::kEmbeddedRelease) {
+      throw std::runtime_error("package-base-release");
+    }
+    std::set<ae::ObjId> base_layer_ids;
+    auto const& graph = GraphFor(kind);
+    for (std::size_t i = 0; i < graph.layer_count; ++i) {
+      base_layer_ids.insert(ae::ObjId{graph.layers[i].object_id});
+    }
+    if (!ValidateDistilledSupplyPackage(*package, out.supply_ids, base_layer_ids,
+                                        &pkg_error)) {
+      throw std::runtime_error(pkg_error.message ? pkg_error.message
+                                                 : "package-validate");
+    }
+    if (!ApplyDistilledSupplyPackage(out.effective_backing, *package,
+                                     &pkg_error)) {
+      throw std::runtime_error(pkg_error.message ? pkg_error.message
+                                                 : "package-apply");
+    }
+    out.supply_ids = SupplyIdSetFromPackage(*package);
+    out.package_applied = true;
+    return out;
+#else
+    (void)kind;
+    throw std::runtime_error("package-on-r2");
+#endif
   }
 };
 
 PrefabBackedLoadContext MakeLoadContext(FixtureStorage& stores) {
-  return PrefabBackedLoadContext{stores.domain, stores.backing, stores.user};
+  return PrefabBackedLoadContext{stores.domain, stores.backing.effective_backing,
+                                 stores.user};
 }
 
 ae::ObjId::Type PrefabBaseObjIdFromBacking(ae::RamDomainStorage const& backing,
@@ -798,15 +916,33 @@ bool PrefabBaseChainOk(PrefabPtr<PrefabWindow> const& canonical,
 
 }  // namespace
 
+std::optional<std::string> ReadLocalizationLabel(ae::Domain& domain,
+                                                 ae::ObjId localization_id) {
+  PrefabLocalization::ptr loc_ref = PrefabLocalization::ptr::Declare(
+      ae::CreateWith{domain}.with_id(localization_id));
+  ae::Ptr<PrefabLocalization> loc = loc_ref.Load();
+  if (!loc || loc->strings.empty()) {
+    return std::nullopt;
+  }
+  ae::Ptr<ConstLabelString> label{loc->strings[0].Load()};
+  if (!label) {
+    return std::nullopt;
+  }
+  return label->text;
+}
+
 int RunPrefabReleaseFixture(int argc, char** argv) {
   EnsurePrefabReleaseRegistration();
 
   std::filesystem::path state_dir;
+  std::filesystem::path supply_package_path;
   std::string op;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
     if (arg == "--state-dir" && i + 1 < argc) {
       state_dir = argv[++i];
+    } else if (arg == "--supply-package" && i + 1 < argc) {
+      supply_package_path = argv[++i];
     } else if (arg == "--op" && i + 1 < argc) {
       op = argv[++i];
     } else {
@@ -817,6 +953,55 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
   if (state_dir.empty() || op.empty()) {
     PrintJson("{\"ok\":false,\"error\":\"usage\"}");
     return 2;
+  }
+
+  auto make_stores = [&](PrefabBackingKind kind = PrefabBackingKind::kDefault) {
+    return FixtureStorage{state_dir, kind, supply_package_path};
+  };
+
+  if (op == "r0-read-labels") {
+    try {
+      FixtureStorage stores = make_stores();
+      ae::DomainGraph graph{&stores.domain};
+      ae::Ptr<ae::Obj> loaded;
+      if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+        PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+        return 1;
+      }
+      ae::Ptr<WorkspaceRoot> ws{loaded};
+      std::optional<std::string> main_label =
+          ReadLocalizationLabel(stores.domain, ae::ObjId{kMainLocalizationId});
+      std::optional<std::string> tool_label =
+          ReadLocalizationLabel(stores.domain, ae::ObjId{kToolLocalizationId});
+      if (!main_label || !tool_label) {
+        PrintJson("{\"ok\":false,\"error\":\"missing-label\"}");
+        return 1;
+      }
+      PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+      ae::Ptr<PrefabWindow> a =
+          MaterializePrefabBackedWindow(ws->window_a, ctx);
+      PrintJson(JsonOk(
+          "\"op\":\"r0-read-labels\""
+          ",\"main_label\":\"" +
+          *main_label + "\",\"tool_label\":\"" + *tool_label +
+          "\",\"posx_a\":" + std::to_string(a->posx) +
+          ",\"package_applied\":" +
+          (stores.backing.package_applied ? "true" : "false") +
+          ",\"window_a_instance_id\":" +
+          std::to_string(ws->window_a.instance_id().id()) +
+#if APPTRAVERSE_PREFAB_EXE_REVISION == 0
+          ",\"embedded_release\":" +
+          std::to_string(prefab_release_lifecycle::kEmbeddedRelease)
+#else
+          ",\"embedded_release\":0"
+#endif
+              ));
+      return 0;
+    } catch (std::exception const& ex) {
+      PrintJson(std::string("{\"ok\":false,\"error\":\"package\",\"detail\":\"") +
+                ex.what() + "\"}");
+      return 3;
+    }
   }
 
   if (op == "r0-init" || op == "d1-r0-init" || op == "d1l-r0-init") {
@@ -921,7 +1106,9 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     ae::Ptr<PrefabWindow> a = MaterializePrefabBackedWindow(ws->window_a, ctx);
     if (delta) {
       if (!EnsurePrefabVersionInHistoricalBase(ws->window_a, *a, stores.domain,
-                                               stores.user, stores.backing, 1)) {
+                                               stores.user,
+                                               stores.backing.effective_backing,
+                                               1)) {
         PrintJson("{\"ok\":false,\"error\":\"ensure-base-s1\"}");
         return 1;
       }
@@ -1006,7 +1193,9 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     PrefabBackedLoadContext ctx = MakeLoadContext(stores);
     ae::Ptr<PrefabWindow> a = MaterializePrefabBackedWindow(ws->window_a, ctx);
     if (!EnsurePrefabVersionInHistoricalBase(ws->window_a, *a, stores.domain,
-                                             stores.user, stores.backing, 1)) {
+                                             stores.user,
+                                             stores.backing.effective_backing,
+                                             1)) {
       PrintJson("{\"ok\":false,\"error\":\"ensure-base-s1\"}");
       return 1;
     }
@@ -1041,7 +1230,7 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
         base_id.is_valid() &&
         UserHasLayerForInstance(stores.user, base_id, PrefabWindow::kClassId, 1);
     ae::ObjId::Type const prefab_base_id = PrefabBaseObjIdFromBacking(
-        stores.backing, ws->window_a.prefab_id());
+        stores.backing.effective_backing, ws->window_a.prefab_id());
     PrintJson(JsonOk(
         std::string("\"op\":\"d1-r2-inspect-a\",\"posx_a\":") +
         std::to_string(a->posx) + ",\"base_posx\":" +
@@ -1108,7 +1297,9 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     PrefabBackedLoadContext ctx = MakeLoadContext(stores);
     ae::Ptr<PrefabWindow> b = MaterializePrefabBackedWindow(ws->window_b, ctx);
     if (!EnsurePrefabVersionInHistoricalBase(ws->window_b, *b, stores.domain,
-                                             stores.user, stores.backing, 1)) {
+                                             stores.user,
+                                             stores.backing.effective_backing,
+                                             1)) {
       PrintJson("{\"ok\":false,\"error\":\"ensure-base-s1\"}");
       return 1;
     }
@@ -1162,7 +1353,7 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     a->ReplayFromBase();
     std::int32_t const replay_again = a->posx;
     bool const base_prefab_chain_ok =
-        PrefabBaseChainOk(ws->window_a, *a, stores.backing);
+        PrefabBaseChainOk(ws->window_a, *a, stores.backing.effective_backing);
     PrintJson(JsonOk(
         "\"op\":\"replay-check\""
         ",\"materialized_posx\":" +

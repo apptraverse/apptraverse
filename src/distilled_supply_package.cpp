@@ -304,9 +304,11 @@ bool ApplyDistilledSupplyPackage(
 bool WriteDistilledSupplyPackageFile(
     std::filesystem::path const& path,
     DistilledSupplyPackage const& package,
-    DistilledSupplyPackageError* error_out) {
-  if (!IsSortedUniqueSupplyIds(package.target_supply_constant_ids) ||
-      !IsSortedUniqueOps(package.operations)) {
+    DistilledSupplyPackageError* error_out,
+    bool require_canonical) {
+  if (require_canonical &&
+      (!IsSortedUniqueSupplyIds(package.target_supply_constant_ids) ||
+       !IsSortedUniqueOps(package.operations))) {
     if (error_out != nullptr) {
       error_out->message = "package-not-canonical";
     }
