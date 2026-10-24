@@ -1176,38 +1176,84 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   }
 }
 
-void AssertCatalogChromeButtonDistilledReplay(
+struct CatalogChromeButtonExpectations {
+  ae::ObjId button_id{};
+  ae::ObjId base_id{};
+  ae::ObjId label_id{};
+  ae::ObjId catalog_id{};
+  bool enabled{false};
+  std::string label_text_en;
+};
+
+void AssertDemoChromeButtonReflectsCatalog(ui::UiPushButton& button,
+                                           ae::ObjId const& catalog_id) {
+  CHECK(button.domain != nullptr);
+  std::vector<ae::Obj*> reachable;
+  CollectReachableObjects(static_cast<ae::Obj&>(button), reachable);
+  bool linked_to_catalog = false;
+  for (ae::Obj* obj : reachable) {
+    if (obj->obj_id == catalog_id) {
+      linked_to_catalog = true;
+      break;
+    }
+  }
+  CHECK(linked_to_catalog);
+}
+
+void AssertCatalogChromeButtonMatchesExpectations(
     WindowCatalog const& catalog,
     ae::ObjPtr<ui::UiPushButton> const& catalog_button_slot,
-    ae::ObjId const& expected_button_id, ae::ObjId const& expected_label_id,
-    ae::ObjId const& expected_catalog_id, bool expected_enabled) {
+    CatalogChromeButtonExpectations const& expect) {
+  CHECK(catalog.obj_id == expect.catalog_id);
   CHECK(catalog_button_slot.is_valid());
   CHECK(catalog_button_slot.is_loaded());
-  CHECK(catalog.obj_id == expected_catalog_id);
-  CHECK(catalog_button_slot->base.is_valid());
+  CHECK(catalog_button_slot.id() == expect.button_id);
   ui::UiPushButton& button = *catalog_button_slot.operator->();
-  CHECK(button.obj_id == expected_button_id);
+  CHECK(button.obj_id == expect.button_id);
   CHECK(button.base.is_valid());
   CHECK(button.base.is_loaded());
-  ae::ObjId const expected_base_id = button.base.id();
+  CHECK(button.base.id() == expect.base_id);
   CHECK(button.label.is_valid());
-  CHECK(button.label.id() == expected_label_id);
+  CHECK(button.label.is_loaded());
+  CHECK(button.label.id() == expect.label_id);
+  CHECK(button.label.id() == catalog_button_slot->label.id());
+  CHECK(button.label->Resolve(0) == expect.label_text_en);
   auto const& button_base =
       static_cast<ui::UiPushButton const&>(*button.base);
   CHECK(button_base.label.is_valid());
-  CHECK(button_base.label.id() == expected_label_id);
-  CHECK(button.enabled() == expected_enabled);
+  CHECK(button_base.label.id() == expect.label_id);
+  CHECK(button.enabled() == expect.enabled);
+  AssertDemoChromeButtonReflectsCatalog(button, expect.catalog_id);
+}
 
+CatalogChromeButtonExpectations CaptureCatalogChromeButtonExpectations(
+    WindowCatalog const& catalog,
+    ae::ObjPtr<ui::UiPushButton> const& catalog_button_slot,
+    ae::ObjId const& button_id, ae::ObjId const& label_id,
+    ae::ObjId const& catalog_id, bool enabled,
+    std::string label_text_en) {
+  CatalogChromeButtonExpectations expect;
+  expect.button_id = button_id;
+  expect.base_id = catalog_button_slot->base.id();
+  expect.label_id = label_id;
+  expect.catalog_id = catalog_id;
+  expect.enabled = enabled;
+  expect.label_text_en = std::move(label_text_en);
+  AssertCatalogChromeButtonMatchesExpectations(catalog, catalog_button_slot,
+                                               expect);
+  return expect;
+}
+
+void AssertCatalogChromeButtonDistilledReplay(
+    WindowCatalog const& catalog,
+    ae::ObjPtr<ui::UiPushButton> const& catalog_button_slot,
+    CatalogChromeButtonExpectations const& expect) {
+  AssertCatalogChromeButtonMatchesExpectations(catalog, catalog_button_slot,
+                                               expect);
+  ui::UiPushButton& button = *catalog_button_slot.operator->();
   CHECK(button.TryReplayFromBase());
-  CHECK(button.obj_id == expected_button_id);
-  CHECK(button.base.is_valid());
-  CHECK(button.base.id() == expected_base_id);
-  CHECK(button.label.is_valid());
-  CHECK(button.label.id() == expected_label_id);
-  CHECK(button.enabled() == expected_enabled);
-  CHECK(catalog_button_slot.is_valid());
-  CHECK(catalog_button_slot.is_loaded());
-  CHECK(catalog.obj_id == expected_catalog_id);
+  AssertCatalogChromeButtonMatchesExpectations(catalog, catalog_button_slot,
+                                               expect);
 }
 
 void TestWindowCatalogChromeButtonDistilledBaseReplay() {
@@ -1230,49 +1276,95 @@ void TestWindowCatalogChromeButtonDistilledBaseReplay() {
   CHECK(catalog->texts.label_delete->Resolve(0) == "Delete");
   CHECK(catalog->texts.label_language->Resolve(0) == "RU");
 
-  AssertCatalogChromeButtonDistilledReplay(
+  auto const add_expect = CaptureCatalogChromeButtonExpectations(
       *catalog, catalog->buttons.add_button, ToObjId(ObjId::AddButton),
-      catalog->texts.label_add.id(), catalog_id, true);
-  AssertCatalogChromeButtonDistilledReplay(
+      catalog->texts.label_add.id(), catalog_id, true, "Add");
+  auto const open_expect = CaptureCatalogChromeButtonExpectations(
       *catalog, catalog->buttons.open_button, ToObjId(ObjId::OpenButton),
-      catalog->texts.label_open.id(), catalog_id, false);
-  AssertCatalogChromeButtonDistilledReplay(
+      catalog->texts.label_open.id(), catalog_id, false, "Open");
+  auto const delete_expect = CaptureCatalogChromeButtonExpectations(
       *catalog, catalog->buttons.delete_button, ToObjId(ObjId::DeleteButton),
-      catalog->texts.label_delete.id(), catalog_id, false);
-  AssertCatalogChromeButtonDistilledReplay(
-      *catalog, catalog->buttons.language_button, ToObjId(ObjId::LanguageButton),
-      catalog->texts.label_language.id(), catalog_id, true);
+      catalog->texts.label_delete.id(), catalog_id, false, "Delete");
+  auto const language_expect = CaptureCatalogChromeButtonExpectations(
+      *catalog, catalog->buttons.language_button,
+      ToObjId(ObjId::LanguageButton), catalog->texts.label_language.id(),
+      catalog_id, true, "RU");
+
+  AssertCatalogChromeButtonDistilledReplay(*catalog, catalog->buttons.add_button,
+                                           add_expect);
+  AssertCatalogChromeButtonDistilledReplay(*catalog,
+                                           catalog->buttons.open_button,
+                                           open_expect);
+  AssertCatalogChromeButtonDistilledReplay(*catalog,
+                                           catalog->buttons.delete_button,
+                                           delete_expect);
+  AssertCatalogChromeButtonDistilledReplay(*catalog,
+                                           catalog->buttons.language_button,
+                                           language_expect);
 
   auto const dir = TestDir("apptraverse_window_catalog_chrome_button_base");
+  CatalogChromeButtonExpectations cold_add_expect;
+  CatalogChromeButtonExpectations cold_open_expect;
+  CatalogChromeButtonExpectations cold_delete_expect;
+  CatalogChromeButtonExpectations cold_language_expect;
   {
     DirectoryDomainStorage persist_storage{dir};
     ae::Domain persist_domain{persist_storage};
     auto persist = BuildWindowCatalogGraph(persist_domain);
     FinalizeDistilledGraph(*persist);
+    ae::ObjId const persist_catalog_id = persist->obj_id;
+    cold_add_expect = CaptureCatalogChromeButtonExpectations(
+        *persist, persist->buttons.add_button, ToObjId(ObjId::AddButton),
+        persist->texts.label_add.id(), persist_catalog_id, true, "Add");
+    cold_open_expect = CaptureCatalogChromeButtonExpectations(
+        *persist, persist->buttons.open_button, ToObjId(ObjId::OpenButton),
+        persist->texts.label_open.id(), persist_catalog_id, false, "Open");
+    cold_delete_expect = CaptureCatalogChromeButtonExpectations(
+        *persist, persist->buttons.delete_button,
+        ToObjId(ObjId::DeleteButton), persist->texts.label_delete.id(),
+        persist_catalog_id, false, "Delete");
+    cold_language_expect = CaptureCatalogChromeButtonExpectations(
+        *persist, persist->buttons.language_button,
+        ToObjId(ObjId::LanguageButton), persist->texts.label_language.id(),
+        persist_catalog_id, true, "RU");
     ShutdownSaveCatalog(*persist, persist_storage);
     persist.Reset();
   }
   {
-    DirectoryDomainStorage load_storage{dir};
-    ae::Domain load_domain{load_storage};
-    auto loaded =
-        LoadApplication<WindowCatalog>(load_domain, ToObjId(ObjId::Catalog));
-    RepairWindowCatalogEmbeddedStrings(*loaded);
-    FinalizeDistilledGraph(*loaded);
+    DirectoryDomainStorage cold_storage{dir};
+    ae::Domain cold_domain{cold_storage};
+    auto cold_catalog =
+        LoadApplication<WindowCatalog>(cold_domain, ToObjId(ObjId::Catalog));
+    LoadPersistentCheckpointIntoCatalog(cold_domain, cold_storage, *cold_catalog,
+                                        dir);
+    CHECK(cold_catalog->locale.is_valid());
+    CHECK(cold_catalog->locale.is_loaded());
+    cold_catalog->MaterializeCatalogStrings(
+        cold_catalog->locale->language_index());
+
+    AssertCatalogChromeButtonMatchesExpectations(
+        *cold_catalog, cold_catalog->buttons.add_button, cold_add_expect);
+    AssertCatalogChromeButtonMatchesExpectations(
+        *cold_catalog, cold_catalog->buttons.open_button, cold_open_expect);
+    AssertCatalogChromeButtonMatchesExpectations(
+        *cold_catalog, cold_catalog->buttons.delete_button, cold_delete_expect);
+    AssertCatalogChromeButtonMatchesExpectations(
+        *cold_catalog, cold_catalog->buttons.language_button,
+        cold_language_expect);
+
+    AssertCatalogChromeButtonDistilledReplay(*cold_catalog,
+                                             cold_catalog->buttons.add_button,
+                                             cold_add_expect);
+    AssertCatalogChromeButtonDistilledReplay(*cold_catalog,
+                                             cold_catalog->buttons.open_button,
+                                             cold_open_expect);
+    AssertCatalogChromeButtonDistilledReplay(*cold_catalog,
+                                             cold_catalog->buttons.delete_button,
+                                             cold_delete_expect);
     AssertCatalogChromeButtonDistilledReplay(
-        *loaded, loaded->buttons.add_button, ToObjId(ObjId::AddButton),
-        loaded->texts.label_add.id(), loaded->obj_id, true);
-    AssertCatalogChromeButtonDistilledReplay(
-        *loaded, loaded->buttons.open_button, ToObjId(ObjId::OpenButton),
-        loaded->texts.label_open.id(), loaded->obj_id, false);
-    AssertCatalogChromeButtonDistilledReplay(
-        *loaded, loaded->buttons.delete_button, ToObjId(ObjId::DeleteButton),
-        loaded->texts.label_delete.id(), loaded->obj_id, false);
-    AssertCatalogChromeButtonDistilledReplay(
-        *loaded, loaded->buttons.language_button,
-        ToObjId(ObjId::LanguageButton), loaded->texts.label_language.id(),
-        loaded->obj_id, true);
-    loaded.Reset();
+        *cold_catalog, cold_catalog->buttons.language_button,
+        cold_language_expect);
+    cold_catalog.Reset();
   }
 }
 
