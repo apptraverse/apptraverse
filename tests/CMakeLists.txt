@@ -415,6 +415,62 @@ if(TARGET apptraverse_export_surfaces_distilled_graph)
   )
 endif()
 
+if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
+  function(apptraverse_add_prefab_release_exe target revision)
+    add_executable(${target}
+      prefab_release_fixture.cpp
+      prefab_release_model.cpp
+    )
+    target_link_libraries(${target} PRIVATE apptraverse)
+    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+    target_compile_definitions(${target} PRIVATE
+      APPTRAVERSE_PREFAB_EXE_REVISION=${revision}
+      APPTRAVERSE_PREFAB_FIXTURE_IMPL=1)
+    apptraverse_embed_distilled_supply(
+      ${target}
+      apptraverse_export_prefab_release_backing
+      embedded_distilled_prefab_release_supply.h)
+  endfunction()
+
+  add_executable(apptraverse_export_prefab_release_backing
+    export_prefab_release_backing.cpp
+    prefab_release_model.cpp
+  )
+  target_compile_definitions(apptraverse_export_prefab_release_backing PRIVATE
+    APPTRAVERSE_PREFAB_EXE_REVISION=1)
+  target_link_libraries(apptraverse_export_prefab_release_backing PRIVATE apptraverse)
+  target_include_directories(apptraverse_export_prefab_release_backing PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR})
+
+  apptraverse_add_prefab_release_exe(apptraverse_prefab_release_r0 0)
+  apptraverse_add_prefab_release_exe(apptraverse_prefab_release_r2 1)
+
+  add_executable(apptraverse_prefab_unknown_old prefab_release_unknown_event.cpp)
+  add_executable(apptraverse_prefab_unknown_new prefab_release_unknown_event.cpp)
+  target_compile_definitions(apptraverse_prefab_unknown_old PRIVATE
+    APPTRAVERSE_PREFAB_UNKNOWN_EXE_REVISION=0)
+  target_compile_definitions(apptraverse_prefab_unknown_new PRIVATE
+    APPTRAVERSE_PREFAB_UNKNOWN_EXE_REVISION=1)
+  target_link_libraries(apptraverse_prefab_unknown_old PRIVATE apptraverse)
+  target_link_libraries(apptraverse_prefab_unknown_new PRIVATE apptraverse)
+
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/prefab release states")
+  add_test(
+    NAME apptraverse_prefab_release_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/prefab_release_matrix.py"
+      --r0 "$<TARGET_FILE:apptraverse_prefab_release_r0>"
+      --r2 "$<TARGET_FILE:apptraverse_prefab_release_r2>"
+      --unknown-old "$<TARGET_FILE:apptraverse_prefab_unknown_old>"
+      --unknown-new "$<TARGET_FILE:apptraverse_prefab_unknown_new>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/prefab release states"
+  )
+  set_tests_properties(apptraverse_prefab_release_matrix PROPERTIES
+    TIMEOUT 120
+    LABELS "serialization;prefab;evolution"
+  )
+endif()
+
 if(APPTRAVERSE_BUILD_EXAMPLES)
 
 add_executable(apptraverse_shared_node_foundation_test
