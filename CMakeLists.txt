@@ -93,6 +93,7 @@ add_library(apptraverse STATIC
   src/overlay_domain_storage.cpp
   src/embedded_distilled_domain.cpp
   src/distilled_domain_export.cpp
+  src/distilled_supply_package.cpp
   src/partitioned_model_domain_storage.cpp
   src/model_persistence.cpp
   src/model_object_proxy.cpp
