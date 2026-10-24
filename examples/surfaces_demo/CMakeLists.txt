@@ -1,3 +1,7 @@
+# Build-time Release R: examples/surfaces_demo/release.json (field "release").
+# Embedded via cmake/apptraverse_surfaces_release_metadata.cmake (iter 03 probe;
+# Surfaces EXE wiring in later iterations).
+
 add_library(surfaces_demo_presentation STATIC
   common/surface_graph_headless.cpp
 )

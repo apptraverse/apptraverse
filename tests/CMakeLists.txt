@@ -253,6 +253,92 @@ add_test(
   COMMAND apptraverse_event_sourced_core_test
 )
 
+find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_surfaces_release_metadata.cmake)
+
+add_executable(apptraverse_release_metadata_probe release_metadata_probe.cpp)
+target_compile_features(apptraverse_release_metadata_probe PRIVATE cxx_std_20)
+target_link_libraries(apptraverse_release_metadata_probe PRIVATE
+  apptraverse_compile_policy)
+apptraverse_embed_surfaces_release_metadata(
+  apptraverse_release_metadata_probe
+  "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json")
+
+add_executable(apptraverse_release_metadata_probe_alt release_metadata_probe.cpp)
+target_compile_features(apptraverse_release_metadata_probe_alt PRIVATE cxx_std_20)
+target_link_libraries(apptraverse_release_metadata_probe_alt PRIVATE
+  apptraverse_compile_policy)
+apptraverse_embed_surfaces_release_metadata(
+  apptraverse_release_metadata_probe_alt
+  "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/release_metadata/release_1.json")
+
+set(_release_metadata_gen
+    "${CMAKE_SOURCE_DIR}/cmake/generate_surfaces_release_metadata.cmake")
+set(_release_metadata_fail_out
+    "${CMAKE_CURRENT_BINARY_DIR}/release_metadata_config_fail.h")
+
+add_test(
+  NAME apptraverse_release_metadata_probe
+  COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_LIST_DIR}/release_metadata_probe_test.py"
+    --probe "$<TARGET_FILE:apptraverse_release_metadata_probe>"
+    --config "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}")
+
+add_test(
+  NAME apptraverse_release_metadata_probe_isolated
+  COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_LIST_DIR}/release_metadata_probe_test.py"
+    --probe "$<TARGET_FILE:apptraverse_release_metadata_probe>"
+    --config "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json"
+    --isolated-cwd
+  WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}")
+
+add_test(
+  NAME apptraverse_release_metadata_probe_dual
+  COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_LIST_DIR}/release_metadata_probe_dual_test.py"
+    --probe0 "$<TARGET_FILE:apptraverse_release_metadata_probe>"
+    --config0 "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json"
+    --probe1 "$<TARGET_FILE:apptraverse_release_metadata_probe_alt>"
+    --config1 "${CMAKE_CURRENT_LIST_DIR}/fixtures/release_metadata/release_1.json"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}")
+
+function(_apptraverse_release_metadata_config_fail_test test_name config_path)
+  add_test(
+    NAME ${test_name}
+    COMMAND ${CMAKE_COMMAND}
+      "-DCONFIG_JSON=${config_path}"
+      "-DOUTPUT=${_release_metadata_fail_out}"
+      -P "${_release_metadata_gen}")
+  set_tests_properties(${test_name} PROPERTIES WILL_FAIL TRUE)
+endfunction()
+
+_apptraverse_release_metadata_config_fail_test(
+  apptraverse_release_metadata_config_missing_field
+  "${CMAKE_CURRENT_LIST_DIR}/fixtures/release_metadata/no_release_field.json")
+_apptraverse_release_metadata_config_fail_test(
+  apptraverse_release_metadata_config_string_release
+  "${CMAKE_CURRENT_LIST_DIR}/fixtures/release_metadata/string_release.json")
+_apptraverse_release_metadata_config_fail_test(
+  apptraverse_release_metadata_config_negative_release
+  "${CMAKE_CURRENT_LIST_DIR}/fixtures/release_metadata/negative_release.json")
+_apptraverse_release_metadata_config_fail_test(
+  apptraverse_release_metadata_config_fractional_release
+  "${CMAKE_CURRENT_LIST_DIR}/fixtures/release_metadata/fractional_release.json")
+_apptraverse_release_metadata_config_fail_test(
+  apptraverse_release_metadata_config_overflow_release
+  "${CMAKE_CURRENT_LIST_DIR}/fixtures/release_metadata/overflow_release.json")
+
+add_test(
+  NAME apptraverse_release_metadata_config_missing_file
+  COMMAND ${CMAKE_COMMAND}
+    "-DCONFIG_JSON=${CMAKE_CURRENT_BINARY_DIR}/release_metadata_no_such.json"
+    "-DOUTPUT=${_release_metadata_fail_out}"
+    -P "${_release_metadata_gen}")
+set_tests_properties(apptraverse_release_metadata_config_missing_file
+                     PROPERTIES WILL_FAIL TRUE)
+
 if(APPTRAVERSE_BUILD_EXAMPLES)
 
 add_executable(apptraverse_shared_node_foundation_test

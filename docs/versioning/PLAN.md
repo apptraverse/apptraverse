@@ -108,6 +108,23 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 
 ---
 
+## Решение итерации 03 — release config и встроенные метаданные EXE
+
+**Статус:** build-time источник R и probe **реализованы** (итерация **03 PASS**); полный дистиллированный граф в EXE — **05**; бинарный пакет — **07**; `state/active-release` / resolver — **08**. **Не** путать с runtime `state/active-release` и **не** выводить R из `APPTRAVERSE_SURFACE_DEMO_REVISION`, schema S, Git SHA или имени конфигурации CMake.
+
+| Элемент | Значение |
+| --- | --- |
+| Config | [`examples/surfaces_demo/release.json`](../../examples/surfaces_demo/release.json) |
+| Поле | **`release`** — обязательное JSON-число, неотрицательное **целое**, диапазон **`0` … `4294967295`** (`std::uint32_t`) |
+| Генерация | [`cmake/generate_surfaces_release_metadata.cmake`](../../cmake/generate_surfaces_release_metadata.cmake) → build-tree header `surfaces_embedded_release.h` с `apptraverse::surfaces_demo::kEmbeddedRelease` (`unsigned`, диапазон проверяется как `uint32_t`) |
+| Подключение | [`cmake/apptraverse_surfaces_release_metadata.cmake`](../../cmake/apptraverse_surfaces_release_metadata.cmake) — `apptraverse_embed_surfaces_release_metadata(target, config_json)`; зависимость от config → инкрементальная пересборка target |
+| Проверка | `apptraverse_release_metadata_probe` + CTest ([`release_metadata_probe_test.py`](../../tests/release_metadata_probe_test.py)); runner читает JSON отдельно от EXE |
+| Surfaces Demo EXE | Config **не** подключён к GUI startup в 03; `--state-dir` без изменений |
+
+Ошибки config (нет поля, не число, дробь, отрицательное, переполнение, отсутствующий файл) → **FATAL** на этапе generate, **без** fallback `R=0`.
+
+---
+
 ## Константные объекты
 
 - Обновляются внешними бинарными поставками (offline-инструмент кладёт файлы в `state/R`).
@@ -250,11 +267,11 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 
 ### 03 — Release config и метаданные EXE
 
-- **Цель:** single source of truth для R; чтение при старте.
-- **Область:** новый config (путь TBD), embed в EXE/build (TBD).
-- **Нельзя:** разброс R по десятку CMake defines.
-- **Результат:** чтение R в тестовом harness.
-- **T:** T12, T13 | **Зав.:** 02 | **Статус:** TODO
+- **Цель:** single source of truth для R на этапе сборки; встроенное значение в probe/EXE.
+- **Область:** `release.json`, CMake generate, `apptraverse_release_metadata_probe`, CTest.
+- **Нельзя:** разброс R по CMake defines; runtime parser; изменение Surfaces startup в 03.
+- **Результат:** раздел [Решение итерации 03](#решение-итерации-03--release-config-и-встроенные-метаданные-exe); probe PASS Debug/Release.
+- **T:** T12, T13 *(подготовка; полный EXE/пакет — позже)* | **Зав.:** 02 | **Статус:** PASS *(embedded R + probe; не полный lifecycle)*
 
 ### 04 — Константность и правила хранения
 

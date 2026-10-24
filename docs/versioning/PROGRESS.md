@@ -9,7 +9,7 @@
 
 **Baseline SHA (верифицированные fixtures / старт tracking):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
-**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, единый Release config, resolver и полный lifecycle **не реализованы** в коде. Итерации **01** (аудит) и **02** (layout каталогов в [PLAN.md](./PLAN.md)) — **PASS** *(только документ)*. **Следующий шаг:** итерация **03** — release config и метаданные EXE (не начата).
+**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, resolver и полный lifecycle **не реализованы** в коде. Итерации **01** (аудит) и **02** (layout) — **PASS** *(doc)*; **03** — build-time `release.json` + probe EXE — **PASS** *(код + CTest)*. **Следующий шаг:** итерация **04** — const/dynamic контракт. **T01–T18** не PASS.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -40,7 +40,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 - Реализация на диске **`state/user`**, **`state/<R>/`**, **`state/active-release`** *(решение **02**; миграция Surfaces `--state-dir` — **06**+)*
 - Официальные **бинарные дельты** констант (offline → `state/R`)
 - Единый контракт **const vs dynamic** (не через scope Ptr)
-- **Метаданные** встроенной версии / R в EXE (single source of truth)
+- **Метаданные** R в production Surfaces EXE и полный embedded graph *(probe + CMake generate — **03 PASS**; Surfaces wiring — **05+**)*
 - Полный **lifecycle** R0→R5→R0→R5 в одном matrix (**T01–T08**, **T15** и связанные)
 - Пошаговый **откат** и повторное обновление (**T07**, **T08**)
 - Изменения пользователя после отката (**T09**, **T10**)
@@ -160,7 +160,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 | --- | --- | --- | --- | --- |
 | 01 | PASS | — | — | Аудит **01A–01D** (doc only); код не менялся |
 | 02 | PASS | — | — | Layout `state/`, `user/`, `<R>/`, `active-release` ([PLAN §02](./PLAN.md#решение-итерации-02--каталоги-и-номера-поставок)); код не менялся |
-| 03 | TODO | — | — | Release config + EXE metadata |
+| 03 | PASS | *(commit)* | `ctest -R release_metadata` Debug + Release (9/9 each) | `examples/surfaces_demo/release.json` + probe; не Surfaces GUI |
 | 04 | TODO | — | — | Const/dynamic контракт |
 | 05 | TODO | — | — | Distill + lazy в EXE |
 | 06 | TODO | — | — | Пустой USER, старт из EXE |
@@ -201,5 +201,6 @@ SHA последних связанных коммитов на baseline: `19d7d
 - **2026-10-23** — **01C:** аудит const/dynamic и ссылок (Surfaces localization, aether-objects pin **`79283b6`**); код просмотрен на **`1b0e9cb`**; doc-only; тесты не запускались.
 - **2026-10-23** — **01D:** избыточность/очистка; **01 PASS** (аудит 01A–01D завершён, production не менялся); срез **`7dd187f`**; тесты не запускались (SHA — commit этого изменения).
 - **2026-10-23** — **02:** layout каталогов и различие R/S/EXE в [PLAN.md](./PLAN.md); **02 PASS** (doc only); срез документов **`f27617a`**; код/миграция/`--state-dir` не менялись; тесты не запускались (SHA — commit этого изменения).
+- **2026-10-23** — **03:** `release.json`, CMake generate → `surfaces_embedded_release.h`, `apptraverse_release_metadata_probe` (+ alt/dual/isolated + invalid-config WILL_FAIL); Surfaces startup не менялся; **03 PASS**; Debug + Release `ctest -R release_metadata` 9/9; push — SHA commit ниже.
 
-*(Baseline fixtures: `19d7da6`; **01–02** — документ; реализация с **03** (config EXE) и **06+** (USER на диске).)*
+*(Baseline fixtures: `19d7da6`; **01–02** — документ; **03** — build-time R для probe; **04+** const/dynamic; **06+** USER на диске.)*
