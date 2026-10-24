@@ -446,13 +446,18 @@ PrefabDefaults ToolWindowPrefabDefaults() {
 }
 
 ae::RamDomainStorage BuildPrefabSupplyGraph() {
+  return BuildPrefabSupplyGraphWithMainPosx(MainWindowPrefabDefaults().posx);
+}
+
+ae::RamDomainStorage BuildPrefabSupplyGraphWithMainPosx(std::int32_t main_posx) {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   EnsurePrefabReleaseRegistration();
 
-  (void)BuildSinglePrefab(domain, ae::ObjId{kMainWindowPrefabId},
-                          MainWindowPrefabDefaults(), ae::ObjId{kMainLabelConstId},
-                          "main-title");
+  PrefabDefaults main_defaults = MainWindowPrefabDefaults();
+  main_defaults.posx = main_posx;
+  (void)BuildSinglePrefab(domain, ae::ObjId{kMainWindowPrefabId}, main_defaults,
+                          ae::ObjId{kMainLabelConstId}, "main-title");
   (void)BuildSinglePrefab(domain, ae::ObjId{kToolWindowPrefabId},
                           ToolWindowPrefabDefaults(), ae::ObjId{kToolLabelConstId},
                           "tool-title");
@@ -601,6 +606,61 @@ bool ValidateWorkspaceCanonicalPrefabPtrs(WorkspaceRoot const& ws,
   return true;
 }
 
+bool EnsurePrefabVersionInHistoricalBase(
+    PrefabPtr<PrefabWindow> const& canonical, PrefabWindow& instance,
+    ae::Domain& domain, DirectoryDomainStorage& user,
+    ae::RamDomainStorage const& backing, std::uint8_t version) {
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 1
+  if (version != 1 || !instance.base.is_valid() ||
+      !canonical.prefab_id().is_valid()) {
+    return false;
+  }
+  ae::ObjId const base_id = instance.base.id();
+  if (UserHasLayerForInstance(user, base_id, PrefabWindow::kClassId, version)) {
+    return true;
+  }
+  ae::Domain backing_domain{const_cast<ae::RamDomainStorage&>(backing)};
+  PrefabWindow::ptr prefab_ref = PrefabWindow::ptr::Declare(
+      ae::CreateWith{backing_domain}.with_id(canonical.prefab_id()));
+  ae::Ptr<PrefabWindow> prefab = prefab_ref.Load();
+  if (!prefab) {
+    return false;
+  }
+  std::optional<std::int32_t> default_posx =
+      ReadPrefabPosxFromBacking(backing, canonical.prefab_id());
+  if (prefab->base.is_valid()) {
+    ae::Ptr<PrefabWindow> prefab_base{prefab->base.Load()};
+    if (prefab_base) {
+      default_posx = prefab_base->posx;
+    }
+  }
+  if (!default_posx) {
+    return false;
+  }
+  ae::Ptr<PrefabWindow> inst_base{instance.base.Load()};
+  if (!inst_base) {
+    return false;
+  }
+  inst_base->posx = *default_posx;
+  inst_base->user_owned_s1 = false;
+  user.BeginSaveSession();
+  ae::DomainGraph graph{&domain};
+  if (!graph.SaveVersion(ae::Version<1>{}, *inst_base, base_id).IsOk() ||
+      user.SaveSessionHadFailure()) {
+    return false;
+  }
+  return true;
+#else
+  (void)canonical;
+  (void)instance;
+  (void)domain;
+  (void)user;
+  (void)backing;
+  (void)version;
+  return false;
+#endif
+}
+
 ae::Ptr<PrefabWindow> MaterializePrefabBackedWindow(
     PrefabPtr<PrefabWindow> const& canonical,
     PrefabBackedLoadContext const& ctx) {
@@ -642,6 +702,9 @@ void ResetLazyLoadCount() { g_lazy_load_count = 0; }
 #include "apptraverse/overlay_domain_storage.h"
 
 #include "embedded_distilled_prefab_release_supply.h"
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 1
+#include "embedded_distilled_prefab_release_supply_v30.h"
+#endif
 
 namespace apptraverse::test::prefab_release {
 namespace {
@@ -652,25 +715,62 @@ std::string JsonOk(std::string_view fields) {
   return std::string{"{\"ok\":true,"} + std::string{fields} + "}";
 }
 
+enum class PrefabBackingKind { kDefault, kMainPosx30 };
+
 struct FixtureStorage {
   ae::RamDomainStorage backing;
   DirectoryDomainStorage user;
   OverlayDomainStorage overlay;
   ae::Domain domain;
 
-  explicit FixtureStorage(std::filesystem::path const& user_root)
+  explicit FixtureStorage(std::filesystem::path const& user_root,
+                          PrefabBackingKind kind = PrefabBackingKind::kDefault)
       : user{user_root},
-        overlay{user, backing,
-                EmbeddedSupplyConstantIdSet(
-                    embedded_distilled::prefab_release::kEmbeddedGraph)},
+        overlay{user, backing, EmbeddedSupplyConstantIdSet(GraphFor(kind))},
         domain{overlay} {
-    InstallEmbeddedDistilledBacking(
-        backing, embedded_distilled::prefab_release::kEmbeddedGraph);
+    InstallEmbeddedDistilledBacking(backing, GraphFor(kind));
+  }
+
+ private:
+  static apptraverse::EmbeddedDistilledGraph const& GraphFor(
+      PrefabBackingKind kind) {
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 1
+    if (kind == PrefabBackingKind::kMainPosx30) {
+      return embedded_distilled::prefab_release_v30::kEmbeddedGraph;
+    }
+#endif
+    return embedded_distilled::prefab_release::kEmbeddedGraph;
   }
 };
 
 PrefabBackedLoadContext MakeLoadContext(FixtureStorage& stores) {
   return PrefabBackedLoadContext{stores.domain, stores.backing, stores.user};
+}
+
+ae::ObjId::Type PrefabBaseObjIdFromBacking(ae::RamDomainStorage const& backing,
+                                           ae::ObjId prefab_id) {
+  if (!prefab_id.is_valid()) {
+    return 0;
+  }
+  ae::Domain backing_domain{const_cast<ae::RamDomainStorage&>(backing)};
+  PrefabWindow::ptr prefab_ref = PrefabWindow::ptr::Declare(
+      ae::CreateWith{backing_domain}.with_id(prefab_id));
+  ae::Ptr<PrefabWindow> prefab = prefab_ref.Load();
+  if (!prefab || !prefab->base.is_valid()) {
+    return 0;
+  }
+  return prefab->base.id().id();
+}
+
+std::optional<std::int32_t> InstanceBasePosx(PrefabWindow const& instance) {
+  if (!instance.base.is_valid()) {
+    return std::nullopt;
+  }
+  ae::Ptr<PrefabWindow> base{instance.base.Load()};
+  if (!base) {
+    return std::nullopt;
+  }
+  return base->posx;
 }
 
 bool PrefabBaseChainOk(PrefabPtr<PrefabWindow> const& canonical,
@@ -719,7 +819,7 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     return 2;
   }
 
-  if (op == "r0-init") {
+  if (op == "r0-init" || op == "d1-r0-init" || op == "d1l-r0-init") {
     if (std::filesystem::exists(state_dir) &&
         (!std::filesystem::is_directory(state_dir) ||
          !std::filesystem::is_empty(state_dir))) {
@@ -820,6 +920,11 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     PrefabBackedLoadContext ctx = MakeLoadContext(stores);
     ae::Ptr<PrefabWindow> a = MaterializePrefabBackedWindow(ws->window_a, ctx);
     if (delta) {
+      if (!EnsurePrefabVersionInHistoricalBase(ws->window_a, *a, stores.domain,
+                                               stores.user, stores.backing, 1)) {
+        PrintJson("{\"ok\":false,\"error\":\"ensure-base-s1\"}");
+        return 1;
+      }
       auto event = SetPosxDeltaEvent::ptr::Create(ae::CreateWith{stores.domain});
       event.Load()->delta = 5;
       a->Commit(event);
@@ -856,6 +961,190 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     PrintJson(JsonOk("\"op\":\"r2-load-lazy-b\",\"posx_b\":" +
                      std::to_string(b->posx) + ",\"lazy_load_count\":" +
                      std::to_string(LazyLoadCount())));
+    return 0;
+  }
+
+  if (op == "d1-r2-readonly-a") {
+    ResetLazyLoadCount();
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> a = MaterializePrefabBackedWindow(ws->window_a, ctx);
+    ae::ObjId const base_id = a->base.id();
+    bool const user_s1_instance = UserHasLayerForInstance(
+        stores.user, ws->window_a.instance_id(), PrefabWindow::kClassId, 1);
+    bool const user_s1_base =
+        base_id.is_valid() &&
+        UserHasLayerForInstance(stores.user, base_id, PrefabWindow::kClassId, 1);
+    PrintJson(JsonOk(
+        "\"op\":\"d1-r2-readonly-a\""
+        ",\"posx_a\":" +
+        std::to_string(a->posx) + ",\"user_s1_instance_present\":" +
+        (user_s1_instance ? "true" : "false") + ",\"user_s1_base_present\":" +
+        (user_s1_base ? "true" : "false") + ",\"window_class_id\":" +
+        std::to_string(PrefabWindow::kClassId) + ",\"instance_base_id\":" +
+        std::to_string(base_id.id()) + ",\"lazy_load_count\":" +
+        std::to_string(LazyLoadCount())));
+    return 0;
+  }
+
+  if (op == "d1-r2-delta-a") {
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> a = MaterializePrefabBackedWindow(ws->window_a, ctx);
+    if (!EnsurePrefabVersionInHistoricalBase(ws->window_a, *a, stores.domain,
+                                             stores.user, stores.backing, 1)) {
+      PrintJson("{\"ok\":false,\"error\":\"ensure-base-s1\"}");
+      return 1;
+    }
+    auto event = SetPosxDeltaEvent::ptr::Create(ae::CreateWith{stores.domain});
+    event.Load()->delta = 5;
+    a->Commit(event);
+    stores.user.BeginSaveSession();
+    ae::DomainGraph save_graph{&stores.domain};
+    if (!save_graph.SaveRoot(loaded, ae::ObjId{kWorkspaceId}).IsOk() ||
+        stores.user.SaveSessionHadFailure()) {
+      PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
+      return 1;
+    }
+    PrintJson(JsonOk("\"op\":\"d1-r2-delta-a\",\"posx_a\":" +
+                     std::to_string(a->posx)));
+    return 0;
+  }
+
+  if (op == "d1-r2-inspect-a") {
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded);
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> a = MaterializePrefabBackedWindow(ws->window_a, ctx);
+    ae::ObjId const base_id = a->base.id();
+    std::optional<std::int32_t> base_posx = InstanceBasePosx(*a);
+    bool const user_s1_instance = UserHasLayerForInstance(
+        stores.user, ws->window_a.instance_id(), PrefabWindow::kClassId, 1);
+    bool const user_s1_base =
+        base_id.is_valid() &&
+        UserHasLayerForInstance(stores.user, base_id, PrefabWindow::kClassId, 1);
+    ae::ObjId::Type const prefab_base_id = PrefabBaseObjIdFromBacking(
+        stores.backing, ws->window_a.prefab_id());
+    PrintJson(JsonOk(
+        std::string("\"op\":\"d1-r2-inspect-a\",\"posx_a\":") +
+        std::to_string(a->posx) + ",\"base_posx\":" +
+        std::to_string(base_posx.value_or(-1)) + ",\"journal_len\":" +
+        std::to_string(a->journal.size()) + ",\"user_s1_instance\":" +
+        (user_s1_instance ? "true" : "false") + ",\"user_s1_base\":" +
+        (user_s1_base ? "true" : "false") + ",\"instance_base_id\":" +
+        std::to_string(base_id.id()) + ",\"prefab_base_id\":" +
+        std::to_string(prefab_base_id) + ",\"window_class_id\":" +
+        std::to_string(PrefabWindow::kClassId)));
+    return 0;
+  }
+
+  if (op == "d1-r2-replay-a" || op == "d1-r2-replay-a-fault" ||
+      op == "d1-r2-replay-a-v30") {
+    bool const fault = op == "d1-r2-replay-a-fault";
+    PrefabBackingKind const backing_kind =
+        op == "d1-r2-replay-a-v30" ? PrefabBackingKind::kMainPosx30
+                                   : PrefabBackingKind::kDefault;
+    FixtureStorage stores{state_dir, backing_kind};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded);
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> a = MaterializePrefabBackedWindow(ws->window_a, ctx);
+    std::int32_t const materialized = a->posx;
+    if (fault) {
+      a->posx = 999;
+    }
+    a->ReplayFromBase();
+    std::int32_t const replay_once = a->posx;
+    a->ReplayFromBase();
+    std::int32_t const replay_twice = a->posx;
+    PrintJson(JsonOk(
+        "\"op\":\"" + op + "\",\"materialized_posx\":" +
+        std::to_string(materialized) + ",\"replay_posx\":" +
+        std::to_string(replay_once) + ",\"replay_twice\":" +
+        std::to_string(replay_twice)));
+    return 0;
+  }
+
+  if (op == "d1l-r2-load-ws") {
+    ResetLazyLoadCount();
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded);
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    PrintJson(JsonOk(
+        "\"op\":\"d1l-r2-load-ws\",\"window_b_loaded\":" +
+        std::string(ws->window_b.is_loaded() ? "true" : "false") +
+        ",\"lazy_load_count\":" + std::to_string(LazyLoadCount())));
+    return ws->window_b.is_loaded() ? 1 : 0;
+  }
+
+  if (op == "d1l-r2-delta-b") {
+    ResetLazyLoadCount();
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded);
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> b = MaterializePrefabBackedWindow(ws->window_b, ctx);
+    if (!EnsurePrefabVersionInHistoricalBase(ws->window_b, *b, stores.domain,
+                                             stores.user, stores.backing, 1)) {
+      PrintJson("{\"ok\":false,\"error\":\"ensure-base-s1\"}");
+      return 1;
+    }
+    auto event = SetPosxDeltaEvent::ptr::Create(ae::CreateWith{stores.domain});
+    event.Load()->delta = 7;
+    b->Commit(event);
+    stores.user.BeginSaveSession();
+    ae::DomainGraph save_graph{&stores.domain};
+    if (!save_graph.SaveRoot(loaded, ae::ObjId{kWorkspaceId}).IsOk() ||
+        stores.user.SaveSessionHadFailure()) {
+      PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
+      return 1;
+    }
+    PrintJson(JsonOk(
+        std::string("\"op\":\"d1l-r2-delta-b\",\"posx_b\":") +
+        std::to_string(b->posx) + ",\"lazy_load_count\":" +
+        std::to_string(LazyLoadCount())));
+    return 0;
+  }
+
+  if (op == "d1l-r2-replay-b") {
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded);
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> b = MaterializePrefabBackedWindow(ws->window_b, ctx);
+    std::int32_t const materialized = b->posx;
+    b->ReplayFromBase();
+    std::int32_t const replay = b->posx;
+    b->ReplayFromBase();
+    PrintJson(JsonOk(
+        "\"op\":\"d1l-r2-replay-b\",\"materialized_posx\":" +
+        std::to_string(materialized) + ",\"replay_posx\":" +
+        std::to_string(replay)));
     return 0;
   }
 

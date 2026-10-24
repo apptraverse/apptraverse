@@ -23,7 +23,7 @@
 - **Константы** (Localization / label strings) живут **в графе рядом с местом использования** (Presenter → Localization → `strings[]`), а не в отдельном `SupplyCatalog`.
 - **Динамические экземпляры** создаются из **prefab-графов** (два prefab одного класса с разными defaults); **origin** `instance ObjId → prefab ObjId` сериализуется только в каноническом test-only **`PrefabPtr<T>`** (`prefab_id` + instance `ObjPtr`; lazy — flags `ObjPtr`).
 - **Aliases** (Preferences → WindowA, Presenter → Window) — обычные `ObjPtr` / ссылки; **не** второй `PrefabPtr` на тот же instance.
-- **Unknown Event (T18 fixture):** текущий `prefab_release_unknown_*` проверяет fail-closed **`LoadRoot`** при Event ClassId, отсутствующем у старого EXE; **unknown Event внутри `Node::journal`** — отдельный regression, не PASS полного T18.
+- **Unknown Event (T18 fixture):** `prefab_release_unknown_*` — (1) flat Event root: fail-closed **`LoadRoot`**; (2) **`write-journal-unknown` / `load-journal-target`**: fail-closed load при Event в **`Node::journal`**. Полный **T18** PASS — не заявляется.
 - **T18:** отдельная ветка fixture — Event с **неизвестным ClassId** для старого EXE → **явный отказ до изменения USER**; новый EXE повторно загружает payload и журнал.
 
 Механизм build-time embed/distill (**итерация 05**) **сохраняется** и переиспользуется для prefab BACKING в fixture (`apptraverse_prefab_release_*`).

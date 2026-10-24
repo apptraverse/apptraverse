@@ -2,6 +2,7 @@
 #define APPTRAVERSE_TESTS_PREFAB_RELEASE_MODEL_H_
 
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -31,6 +32,7 @@ PrefabDefaults MainWindowPrefabDefaults();
 PrefabDefaults ToolWindowPrefabDefaults();
 
 ae::RamDomainStorage BuildPrefabSupplyGraph();
+ae::RamDomainStorage BuildPrefabSupplyGraphWithMainPosx(std::int32_t main_posx);
 
 ClonePlan PlanCloneFromPrefabGraph(ae::Domain const& domain);
 
@@ -55,6 +57,12 @@ ae::Ptr<PrefabWindow> MaterializePrefabBackedWindow(
 
 bool ValidateWorkspaceCanonicalPrefabPtrs(WorkspaceRoot const& ws,
                                           char const** error_out);
+
+// Fixture-only: materialize historical base S1 from prefab-base before first S1 Event.
+bool EnsurePrefabVersionInHistoricalBase(
+    PrefabPtr<PrefabWindow> const& canonical, PrefabWindow& instance,
+    ae::Domain& domain, DirectoryDomainStorage& user,
+    ae::RamDomainStorage const& backing, std::uint8_t version);
 
 int RunPrefabReleaseFixture(int argc, char** argv);
 

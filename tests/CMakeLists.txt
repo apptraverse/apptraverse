@@ -442,8 +442,25 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
   target_include_directories(apptraverse_export_prefab_release_backing PRIVATE
     ${CMAKE_CURRENT_LIST_DIR})
 
+  add_executable(apptraverse_export_prefab_release_backing_v30
+    export_prefab_release_backing.cpp
+    prefab_release_model.cpp
+  )
+  target_compile_definitions(apptraverse_export_prefab_release_backing_v30 PRIVATE
+    APPTRAVERSE_PREFAB_EXE_REVISION=1
+    APPTRAVERSE_PREFAB_EXPORT_MAIN_POSX=30
+    APPTRAVERSE_PREFAB_EXPORT_GRAPH_NAMESPACE=prefab_release_v30
+    APPTRAVERSE_PREFAB_EXPORT_HEADER_GUARD=APPTRAVERSE_EMBEDDED_PREFAB_RELEASE_SUPPLY_V30_H_)
+  target_link_libraries(apptraverse_export_prefab_release_backing_v30 PRIVATE apptraverse)
+  target_include_directories(apptraverse_export_prefab_release_backing_v30 PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR})
+
   apptraverse_add_prefab_release_exe(apptraverse_prefab_release_r0 0)
   apptraverse_add_prefab_release_exe(apptraverse_prefab_release_r2 1)
+  apptraverse_embed_distilled_supply(
+    apptraverse_prefab_release_r2
+    apptraverse_export_prefab_release_backing_v30
+    embedded_distilled_prefab_release_supply_v30.h)
 
   add_executable(apptraverse_prefab_unknown_old prefab_release_unknown_event.cpp)
   add_executable(apptraverse_prefab_unknown_new prefab_release_unknown_event.cpp)

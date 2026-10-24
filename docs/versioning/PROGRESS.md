@@ -9,7 +9,7 @@
 
 **Baseline SHA (верифицированные fixtures / старт tracking):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
-**Текущий статус:** **PLANNED** — полный R0–R5 runner **не** реализован. **01–06** PASS (06 = headless prefab R0→R2 proof, не Surfaces GUI); **07–14** TODO. **T01–T18** не PASS (T18 проверяется только fixture-веткой unknown Event).
+**Текущий статус:** **PLANNED** — полный R0–R5 runner **не** реализован. **01–06** PASS (06/06B = headless prefab fixture: R0→R2, delta-first historical base S1, journal unknown fail-closed; не Surfaces GUI); **07–14** TODO. **T01–T18** не PASS (**T16**/**T18** целиком — нет; fixture: historical base S1 + unknown Event в journal).
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -163,7 +163,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 | 03 | PASS | — | `ctest -R release_metadata` Debug + Release (9/9 each) | `examples/surfaces_demo/release.json` + probe; не Surfaces GUI |
 | 04 | PASS | — | `apptraverse_overlay_domain_storage_test` + `apptraverse_model_persistence_test` Debug/Release | Storage discard-only; без runtime const checks |
 | 05 | PASS | `b3134f4` | `apptraverse_*_distilled_embedded_matrix`, overlay + model_persistence Debug/Release | Exporter→generated header→consumer |
-| 06 | PASS | `ef1d22f` | `apptraverse_prefab_release_matrix` Debug/Release | Headless prefab R0→R2; Surfaces startup **отменён** |
+| 06 | PASS | `bab4c72` | `apptraverse_prefab_release_matrix` Debug/Release | Headless prefab R0→R2 + **06B** delta-first base S1, v30 BACKING replay, lazy B, journal unknown; Surfaces **не** менялись |
 | 07 | TODO | — | — | Бинарный пакет констант |
 | 08 | TODO | — | — | active-release, resolver |
 | 09 | TODO | — | — | Пакет ≡ полный EXE |
@@ -206,6 +206,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 - **2026-10-23** — **04 (storage):** `OverlayDomainStorage` supply constants + overlay tests; push — `3cf56cd`.
 - **2026-10-23** — **04 (policy):** runtime const-mutation checks **отменены**; storage discard-only для const USER; Cursor rule Events; **04 PASS**; Debug/Release overlay + model_persistence; push — SHA commit ниже.
 - **2026-10-24** — **05:** build-time `BuildSurfacesGraph`/lazy distill → `WriteEmbeddedDistilledSupplyHeader`; `InstallEmbeddedDistilledBacking` + `OverlayDomainStorage` supply ids; load-only consumers + Python matrix (пустой cwd); headless distill embed (`surfaces_demo_distill_embed`); **05 PASS**; Debug/Release 4/4 ctest; push — **`b3134f4`**.
+- **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`bab4c72`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
 

@@ -6,11 +6,26 @@
 #include "prefab_release_ids.h"
 #include "prefab_release_model.h"
 
+#ifndef APPTRAVERSE_PREFAB_EXPORT_GRAPH_NAMESPACE
+#define APPTRAVERSE_PREFAB_EXPORT_GRAPH_NAMESPACE prefab_release
+#endif
+#ifndef APPTRAVERSE_PREFAB_EXPORT_HEADER_GUARD
+#define APPTRAVERSE_PREFAB_EXPORT_HEADER_GUARD \
+  APPTRAVERSE_EMBEDDED_PREFAB_RELEASE_SUPPLY_H_
+#endif
+#ifndef APPTRAVERSE_PREFAB_EXPORT_MAIN_POSX
+#define APPTRAVERSE_PREFAB_EXPORT_MAIN_POSX 10
+#endif
+
+#define STRINGIZE2(x) #x
+#define STRINGIZE(x) STRINGIZE2(x)
+
 namespace {
 
 constexpr char kHeaderGuard[] =
-    "APPTRAVERSE_EMBEDDED_PREFAB_RELEASE_SUPPLY_H_";
-constexpr char kGraphNamespace[] = "prefab_release";
+    STRINGIZE(APPTRAVERSE_PREFAB_EXPORT_HEADER_GUARD);
+constexpr char kGraphNamespace[] =
+    STRINGIZE(APPTRAVERSE_PREFAB_EXPORT_GRAPH_NAMESPACE);
 
 }  // namespace
 
@@ -24,7 +39,8 @@ int main(int argc, char** argv) {
   apptraverse::test::prefab_release::EnsurePrefabReleaseRegistration();
 
   ae::RamDomainStorage const storage =
-      apptraverse::test::prefab_release::BuildPrefabSupplyGraph();
+      apptraverse::test::prefab_release::BuildPrefabSupplyGraphWithMainPosx(
+          APPTRAVERSE_PREFAB_EXPORT_MAIN_POSX);
   std::set<ae::ObjId> const object_filter =
       apptraverse::CollectStoredObjectIds(storage);
   std::vector<ae::ObjId> const supply_ids = {
