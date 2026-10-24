@@ -4169,12 +4169,17 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - MinSizeRel win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 335872 bytes.
 
 ### Application framework extraction / headless contract
-- **Land SHA**: **`1dd8d57187276a61d021b675055269821c34922b`** (`Introduce UiPresentedWindow and wire headless contract graph through window presenter.`)
-- **Baseline (pre-step)**: **`b18cf9db94c237ce6c5e008e1626e8b7a100a6d6`**
-- **WindowCatalog** remains the reference implementation for Events, mirrors,
-  localization, lazy windows, and desktop frame paths; **`CatalogWindow.window_presenter`**
-  / title duplication is **unchanged** until the next step (migrate catalog onto
-  **`UiPresentedWindow::presenter`**).
+- **Baseline (WindowCatalog migration)**: **`62fe908e837d910b8b96edf6cb638e308338ae03`**
+- **Land SHA (UiPresentedWindow)**: **`1dd8d57187276a61d021b675055269821c34922b`**
+- **WindowCatalog presenter ownership**: removed **`CatalogWindow.window_presenter`**
+  / **`CatalogWindow.title`** and **`WindowCatalog.main_window_presenter`**; presenter
+  lives only on **`UiPresentedWindow::presenter`** with title/locale on
+  **`UiWindowPresenter`**. Removed **`EnsureHolderWindowTitleLinks`** / post-load
+  rewiring; lazy close saves presenter+window, resets presenter, re-saves window, then
+  unloads window (same pattern as headless contract). **`window_catalog_model.h`**
+  no longer includes Windows presenter headers.
+- **WindowCatalog** remains the reference app for Events, mirrors, localization, lazy
+  windows, and desktop frame paths.
 - **Distillation / versioning** are intentionally out of scope on this branch
   (see **`integration/serialization-surfaces`**).
 - **Hierarchy** (production): `UiWindow` → **`UiPresentedWindow`** (`presenter` only,
@@ -4187,7 +4192,9 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
   **No post-load repair** of presenter/window/title/locale after reopen.
 - **Production tweak** (prior commit on branch): `ApplyUiDesktopFrameRequestPresentation`
   matches any `UiDesktopWindowPresenter` (GenerationDistance), not only Win32.
-- **Release verify** (2026-10-24, **`build-b18-msvc-rel`**, post-UiPresentedWindow):
+- **Next step**: extract shared presented-window composition + save/unload/reload
+  helpers from headless contract + WindowCatalog into library APIs (plan §1.5 items 3–4).
+- **Release verify** (2026-10-24, **`build-b18-msvc-rel`**, post-WindowCatalog migration):
   all **7** CTests **PASS** — `apptraverse_application_contract_headless_test`,
   `apptraverse_ui_desktop_window_geometry_test`,
   `apptraverse_window_catalog_model_test`,

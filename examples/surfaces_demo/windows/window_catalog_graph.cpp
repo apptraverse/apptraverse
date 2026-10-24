@@ -9,6 +9,7 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_push_button.h"
 
@@ -240,7 +241,8 @@ ui::windows::WinPushButtonPresenter::ptr MakeButtonPresenter(
   auto presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
       ae::CreateWith{domain});
   presenter->button = button;
-  presenter->window_presenter = catalog.main_window_presenter;
+  presenter->window_presenter =
+      static_cast<ui::UiPresentedWindow&>(*catalog.main_window).presenter;
   presenter->layout_x = x;
   presenter->layout_y = kButtonY;
   presenter->layout_width = kButtonW;
@@ -305,7 +307,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   auto main_presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindowPresenter)));
   main_presenter->window = main_window;
-  catalog->main_window_presenter = main_presenter;
+  static_cast<ui::UiPresentedWindow&>(*main_window).presenter = main_presenter;
 
   InstallWindowCatalogLocalization(*catalog, domain);
 

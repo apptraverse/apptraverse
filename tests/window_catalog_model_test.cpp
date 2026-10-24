@@ -19,6 +19,7 @@
 #include "window_catalog_model.h"
 
 #include "apptraverse/ui/ui_localization_string.h"
+#include "apptraverse/ui/ui_presented_window.h"
 
 namespace apptraverse::test {
 namespace {
@@ -43,6 +44,18 @@ std::filesystem::path TestDir(char const* name) {
 
 WindowHolder* AsHolder(ui::UiListRow::ptr const& row) {
   return static_cast<WindowHolder*>(row.operator->());
+}
+
+ui::UiPresentedWindow& CatalogWindowPresented(CatalogWindow& window) {
+  return static_cast<ui::UiPresentedWindow&>(window);
+}
+
+ui::UiPresentedWindow const& CatalogWindowPresented(CatalogWindow const& window) {
+  return static_cast<ui::UiPresentedWindow const&>(window);
+}
+
+ui::UiPresentedWindow& MainWindowPresented(WindowCatalog& catalog) {
+  return static_cast<ui::UiPresentedWindow&>(*catalog.main_window);
 }
 
 void ShutdownSaveCatalog(WindowCatalog& catalog,
@@ -114,7 +127,10 @@ void TestCatalogReflectionTopologyAndInitialPublication() {
   });
 
   ExpectReflectedGraphEdge(reflected_ids, catalog->main_window);
-  ExpectReflectedGraphEdge(reflected_ids, catalog->main_window_presenter);
+  CHECK(MainWindowPresented(*catalog).presenter.is_valid());
+  CHECK(MainWindowPresented(*catalog).presenter.id() ==
+        window_catalog_demo::ToObjId(
+            window_catalog_demo::ObjId::MainWindowPresenter));
   ExpectReflectedGraphEdge(reflected_ids, catalog->list);
   ExpectReflectedGraphEdge(reflected_ids, catalog->locale);
   ExpectReflectedGraphEdge(reflected_ids, catalog->texts.label_add);
@@ -166,8 +182,8 @@ void TestCatalogReflectionTopologyAndInitialPublication() {
   auto ui_catalog = WindowCatalog::ptr::MakeFromThis(
       static_cast<WindowCatalog*>(ui_root.get()));
 
-  CHECK(ui_catalog->main_window_presenter.is_loaded());
-  CHECK(ui_domain.Find(ui_catalog->main_window_presenter.id()));
+  CHECK(MainWindowPresented(*ui_catalog).presenter.is_loaded());
+  CHECK(ui_domain.Find(MainWindowPresented(*ui_catalog).presenter.id()));
   CHECK(ui_catalog->presenters.list_presenter.is_loaded());
   CHECK(ui_domain.Find(ui_catalog->presenters.list_presenter.id()));
   CHECK(ui_catalog->presenters.add_button_presenter.is_loaded());
@@ -295,13 +311,17 @@ void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
   CHECK(!load_domain.Find(saved_window3_id));
   CHECK(r4->window.is_loaded());
   CHECK(r4->window.id() == saved_window4_id);
-  CHECK(r4->window->window_presenter.is_loaded());
-  CHECK(r4->window->title.is_valid());
+  CHECK(CatalogWindowPresented(*r4->window).presenter.is_loaded());
+  CHECK(CatalogWindowPresented(*r4->window).presenter->title.is_valid());
+  CHECK(CatalogWindowPresented(*r4->window).presenter->title.id() ==
+        r4->primary_text.id());
 
   reloaded->OpenHolderWindow(*r3);
   CHECK(r3->window.is_loaded());
   CHECK(r3->window.id() == saved_window3_id);
-  CHECK(r3->window->window_presenter.is_loaded());
+  CHECK(CatalogWindowPresented(*r3->window).presenter.is_loaded());
+  CHECK(CatalogWindowPresented(*r3->window).presenter->window.id() ==
+        r3->window.id());
 }
 
 std::string ReadInactiveUtf8(ui::UiLocalizationString& localized,
@@ -367,8 +387,9 @@ void TestCatalogLocalizationUtf8Persisted() {
   WindowHolder* r0 = AsHolder(reloaded->list->rows[0]);
   CHECK(r0->primary_text->Resolve(0) == "Window 1");
   CHECK(ReadInactiveUtf8(*r0->primary_text, 1) == "Окно 1");
-  CHECK(reloaded->main_window_presenter->title->Resolve(0) == "Window Catalog");
-  CHECK(ReadInactiveUtf8(*reloaded->main_window_presenter->title, 1) ==
+  CHECK(MainWindowPresented(*reloaded).presenter->title->Resolve(0) ==
+        "Window Catalog");
+  CHECK(ReadInactiveUtf8(*MainWindowPresented(*reloaded).presenter->title, 1) ==
         "Каталог окон");
 }
 
@@ -538,7 +559,6 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
       holder->primary_text.Load();
     }
     catalog->MaterializeHolderListText(*holder, language);
-    EnsureHolderWindowTitleLinks(*holder, *catalog);
   }
   catalog->RefreshChromeButtonEnabledState();
   RestoreLoadedCatalogWindows(*catalog);
@@ -710,9 +730,10 @@ void CheckDistilledCatalogBaseLinks(WindowCatalog const& catalog) {
   CHECK(catalog_base.list.id() == ToObjId(ObjId::CatalogList));
   CHECK(catalog_base.main_window.is_valid());
   CHECK(catalog_base.main_window.id() == ToObjId(ObjId::MainWindow));
-  CHECK(catalog_base.main_window_presenter.is_valid());
-  CHECK(catalog_base.main_window_presenter.id() ==
-        ToObjId(ObjId::MainWindowPresenter));
+  auto const& main_presented =
+      static_cast<ui::UiPresentedWindow const&>(*catalog_base.main_window);
+  CHECK(main_presented.presenter.is_valid());
+  CHECK(main_presented.presenter.id() == ToObjId(ObjId::MainWindowPresenter));
   CHECK(catalog_base.locale.is_valid());
   CHECK(catalog_base.texts.label_add.is_valid());
   CHECK(catalog_base.texts.label_open.is_valid());
@@ -756,7 +777,8 @@ void CheckLiveCatalogChromeLinks(WindowCatalog const& catalog,
   CHECK(catalog.list->catalog.operator->() == &catalog);
   CHECK(catalog.main_window.is_valid());
   CHECK(catalog.main_window.id() == ToObjId(ObjId::MainWindow));
-  CHECK(catalog.main_window_presenter.is_valid());
+  CHECK(MainWindowPresented(const_cast<WindowCatalog&>(catalog))
+            .presenter.is_valid());
   CHECK(catalog.locale.is_valid());
   CHECK(catalog.texts.label_add.is_valid());
   CHECK(catalog.texts.label_open.is_valid());
@@ -1397,10 +1419,115 @@ void TestManyHoldersClosedGraphsAbsentFromDomain() {
   CHECK(loaded_count == 10);
 }
 
+void TestCatalogPresentedWindowGraph() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  using window_catalog_demo::ObjId;
+  using window_catalog_demo::ToObjId;
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+
+  CHECK(MainWindowPresented(*catalog).presenter.is_valid());
+  CHECK(MainWindowPresented(*catalog).presenter->window.id() ==
+        catalog->main_window.id());
+  CHECK(MainWindowPresented(*catalog).presenter->locale.id() ==
+        catalog->locale.id());
+  CHECK(MainWindowPresented(*catalog).presenter->title.is_valid());
+
+  catalog->AddWindow();
+  WindowHolder* holder = AsHolder(catalog->list->rows[0]);
+  CHECK(CatalogWindowPresented(*holder->window).presenter.is_valid());
+  CHECK(CatalogWindowPresented(*holder->window).presenter->window.id() ==
+        holder->window.id());
+  CHECK(CatalogWindowPresented(*holder->window).presenter->title.id() ==
+        holder->primary_text.id());
+  CHECK(CatalogWindowPresented(*holder->window).presenter->locale.id() ==
+        catalog->locale.id());
+
+  ae::ObjId const child_window_id = holder->window.id();
+  catalog->CloseHolderWindow(*holder);
+  CHECK(holder->window.is_valid());
+  CHECK(!holder->window.is_loaded());
+  CHECK(!domain.Find(child_window_id));
+
+  auto const dir = TestDir("apptraverse_window_catalog_presenter_graph");
+  ae::ObjId const catalog_id{ToObjId(ObjId::Catalog)};
+  {
+    DirectoryDomainStorage persist{dir};
+    ae::Domain persist_domain{persist};
+    auto persist_catalog = BuildWindowCatalogGraph(persist_domain);
+    FinalizeDistilledGraph(*persist_catalog);
+    persist_catalog->AddWindow();
+    WindowHolder* p_holder = AsHolder(persist_catalog->list->rows[0]);
+    ae::ObjId const p_window_id = p_holder->window.id();
+    ae::ObjId const p_presenter_id =
+        CatalogWindowPresented(*p_holder->window).presenter.id();
+    persist_catalog->CloseHolderWindow(*p_holder);
+    ShutdownSaveCatalog(*persist_catalog, persist);
+    persist_catalog.Reset();
+
+    DirectoryDomainStorage reload_storage{dir};
+    ae::Domain reload_domain{reload_storage};
+    auto reloaded = LoadApplication<WindowCatalog>(reload_domain, catalog_id);
+    RepairWindowCatalogEmbeddedStrings(*reloaded);
+    WindowHolder* r0 = AsHolder(reloaded->list->rows[0]);
+    CHECK(r0->window.id() == p_window_id);
+    CHECK(!r0->window.is_loaded());
+    reloaded->OpenHolderWindow(*r0);
+    CHECK(r0->window.is_loaded());
+    CHECK(CatalogWindowPresented(*r0->window).presenter.id() == p_presenter_id);
+    CHECK(CatalogWindowPresented(*r0->window).presenter->window.id() ==
+          r0->window.id());
+    CHECK(CatalogWindowPresented(*r0->window).presenter->title.id() ==
+          r0->primary_text.id());
+  }
+
+  auto const cold_dir = TestDir("apptraverse_window_catalog_presenter_cold");
+  ae::ObjId saved_child_window_id{};
+  ae::ObjId saved_child_presenter_id{};
+  ae::ObjId saved_title_id{};
+  {
+    DirectoryDomainStorage cold_storage{cold_dir};
+    ae::Domain cold_domain{cold_storage};
+    auto saved = BuildWindowCatalogGraph(cold_domain);
+    FinalizeDistilledGraph(*saved);
+    saved->AddWindow();
+    WindowHolder* saved_holder = AsHolder(saved->list->rows[0]);
+    saved_child_window_id = saved_holder->window.id();
+    saved_child_presenter_id =
+        CatalogWindowPresented(*saved_holder->window).presenter.id();
+    saved_title_id = saved_holder->primary_text.id();
+    ShutdownSaveCatalog(*saved, cold_storage);
+    saved.Reset();
+  }
+
+  DirectoryDomainStorage cold_load_storage{cold_dir};
+  ae::Domain cold_load_domain{cold_load_storage};
+  auto cold = LoadApplication<WindowCatalog>(cold_load_domain, catalog_id);
+  RepairWindowCatalogEmbeddedStrings(*cold);
+  CHECK(MainWindowPresented(*cold).presenter.id() ==
+        ToObjId(ObjId::MainWindowPresenter));
+  CHECK(cold->main_window.id() == ToObjId(ObjId::MainWindow));
+  WindowHolder* cold_row = AsHolder(cold->list->rows[0]);
+  CHECK(cold_row->primary_text.id() == saved_title_id);
+  cold->OpenHolderWindow(*cold_row);
+  CHECK(cold_row->window.id() == saved_child_window_id);
+  CHECK(CatalogWindowPresented(*cold_row->window).presenter.id() ==
+        saved_child_presenter_id);
+  CHECK(CatalogWindowPresented(*cold_row->window).presenter->title.id() ==
+        saved_title_id);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::test::TestCatalogPresentedWindowGraph();
   apptraverse::test::TestCatalogReflectionTopologyAndInitialPublication();
   apptraverse::test::TestCatalogHolderOpenCloseAndMonotonicNumbers();
   apptraverse::test::TestCatalogLocalizationUtf8Persisted();

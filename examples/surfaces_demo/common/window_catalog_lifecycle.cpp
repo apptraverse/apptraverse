@@ -141,7 +141,6 @@ void WindowCatalogModelSession::Run(
         holder->primary_text.Load();
       }
       catalog->MaterializeHolderListText(*holder, language);
-      EnsureHolderWindowTitleLinks(*holder, *catalog);
     }
     catalog->RefreshChromeButtonEnabledState();
     RestoreLoadedCatalogWindows(*catalog);

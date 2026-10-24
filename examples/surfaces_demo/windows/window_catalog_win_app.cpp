@@ -3,7 +3,11 @@
 #include "apptraverse/platform/windows/win32_fatal.h"
 
 #include "apptraverse/object_serialization.h"
+#include "aether-objects/obj/registry.h"
+
 #include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/ui/ui_presented_window.h"
+#include "apptraverse/ui/ui_window_presenter.h"
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
 
 #include "window_catalog_ids.h"
@@ -117,12 +121,19 @@ ui::windows::WinDesktopWindowPresenter* FindChildWindowPresenter(
     if (holder->window.id() != window_id) {
       continue;
     }
-    if (!holder->window->window_presenter.is_valid() ||
-        !holder->window->window_presenter.is_loaded()) {
+    auto& presented =
+        static_cast<ui::UiPresentedWindow&>(*holder->window.operator->());
+    if (!presented.presenter.is_valid() || !presented.presenter.is_loaded()) {
       return nullptr;
     }
-    return static_cast<ui::windows::WinDesktopWindowPresenter*>(
-        holder->window->window_presenter.operator->());
+    ui::UiWindowPresenter* base = presented.presenter.operator->();
+    auto& registry = ae::Registry::GetRegistry();
+    if (registry.GenerationDistance(
+            ui::windows::WinDesktopWindowPresenter::kClassId,
+            base->GetClassId()) < 0) {
+      return nullptr;
+    }
+    return static_cast<ui::windows::WinDesktopWindowPresenter*>(base);
   }
   return nullptr;
 }
