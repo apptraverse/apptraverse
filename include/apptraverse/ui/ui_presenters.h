@@ -138,33 +138,22 @@ class UiListContainerPresenter : public Presenter {
   UiListContainerPresenter() = default;
 
  public:
-  explicit UiListContainerPresenter(ae::ObjProp prop) : Presenter{prop} {}
+  explicit UiListContainerPresenter(ae::ObjProp prop)
+      : Presenter{prop}, notify_list_selection_change{false} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(container), AE_MMBR(window_presenter),
                     AE_MMBR(layout_x), AE_MMBR(layout_y),
                     AE_MMBR(layout_width), AE_MMBR(layout_height),
-                    AE_MMBR(control_id))
+                    AE_MMBR(control_id), AE_MMBR(notify_list_selection_change))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
         layout_height, control_id, notify_list_selection_change);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
     dnv(base_, container, window_presenter, layout_x, layout_y, layout_width,
         layout_height, control_id, notify_list_selection_change);
   }

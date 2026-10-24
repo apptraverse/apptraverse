@@ -53,7 +53,7 @@ class UiListContainer : public NodeFor<UiListContainer> {
   UiListContainer() = default;
 
  public:
-  explicit UiListContainer(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit UiListContainer(ae::ObjProp prop) : NodeFor{prop}, selection_index{-1} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(rows), AE_MMBR(selection_index))
 
@@ -68,7 +68,7 @@ class UiListContainer : public NodeFor<UiListContainer> {
   }
 
   std::vector<UiListRow::ptr> rows;
-  std::int32_t selection_index{-1};
+  std::int32_t selection_index;
 
   void Apply(RemoveUiListRowEvent const& event);
 

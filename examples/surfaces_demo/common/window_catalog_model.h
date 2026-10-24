@@ -59,7 +59,7 @@ class WindowHolder : public ui::UiListRow {
   WindowHolder() = default;
 
  public:
-  explicit WindowHolder(ae::ObjProp prop) : UiListRow{prop} {}
+  explicit WindowHolder(ae::ObjProp prop) : UiListRow{prop}, window_number{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(window_number), AE_MMBR(window))
 
@@ -73,7 +73,7 @@ class WindowHolder : public ui::UiListRow {
     dnv(base_, window_number, window);
   }
 
-  std::uint32_t window_number{0};
+  std::uint32_t window_number;
   CatalogWindow::ptr window;
 };
 
@@ -119,10 +119,10 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
                            WindowCatalog, Node, 0)
 
  protected:
-  WindowCatalog() = default;
+  WindowCatalog() : pending_focus_window_id{} {}
 
  public:
-  explicit WindowCatalog(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit WindowCatalog(ae::ObjProp prop) : NodeFor{prop}, next_window_number{1}, pending_focus_window_id{} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(next_window_number), AE_MMBR(selected),
                     AE_MMBR(list), AE_MMBR(main_window),
@@ -151,7 +151,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
         presenters.delete_button_presenter, presenters.language_button_presenter);
   }
 
-  std::uint32_t next_window_number{1};
+  std::uint32_t next_window_number;
   WindowHolder::ptr selected;
   ae::ObjPtr<CatalogListContainer> list;
   ui::UiDesktopWindow::ptr main_window;
@@ -189,7 +189,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void RefreshChromeButtonEnabledState();
 
   // Model-thread one-shot focus request; copied to UI session on publish.
-  std::uint32_t pending_focus_window_id{};
+  std::uint32_t pending_focus_window_id;
 };
 
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog);
@@ -267,12 +267,12 @@ class SetWindowCatalogOpenEvent
   SetWindowCatalogOpenEvent() = default;
 
  public:
-  explicit SetWindowCatalogOpenEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit SetWindowCatalogOpenEvent(ae::ObjProp prop) : EventFor{prop}, open{false} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(holder), AE_MMBR(open))
 
   WindowHolder::ptr holder;
-  bool open{false};
+  bool open;
 };
 
 class SetWindowCatalogSelectionEvent

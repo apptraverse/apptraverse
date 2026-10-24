@@ -2,7 +2,6 @@
 #define APPTRAVERSE_RUNTIME_LIFECYCLE_H_
 
 #include <cstdint>
-#include <stdexcept>
 #include <string>
 
 #include "aether-objects/obj/obj.h"
@@ -40,83 +39,55 @@ class AetherRegistrationCompletedEvent;
 
 class ApplicationRuntimeState
     : public NodeFor<ApplicationRuntimeState> {
-  APPTRAVERSE_OBJECT(ApplicationRuntimeState, Node, 2)
+  APPTRAVERSE_OBJECT(ApplicationRuntimeState, Node, 0)
 
  protected:
   ApplicationRuntimeState() = default;
 
  public:
-  explicit ApplicationRuntimeState(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit ApplicationRuntimeState(ae::ObjProp prop) : NodeFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "ApplicationRuntimeState v0 is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "ApplicationRuntimeState v1 flattened layout is not supported; start "
-        "with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, run_id);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, run_id);
   }
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 
   bool CanApply(ApplicationStartedEvent const& event) const;
   void Apply(ApplicationStartedEvent const& event);
 };
 
 class NetworkState : public NodeFor<NetworkState> {
-  APPTRAVERSE_OBJECT(NetworkState, Node, 2)
+  APPTRAVERSE_OBJECT(NetworkState, Node, 0)
 
  protected:
   NetworkState() = default;
 
  public:
-  explicit NetworkState(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit NetworkState(ae::ObjProp prop) : NodeFor{prop}, run_id{0}, availability{static_cast<std::uint8_t>(NetworkAvailability::kInitializing)} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id), AE_MMBR(availability))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "NetworkState v0 is not supported; start with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "NetworkState v1 flattened layout is not supported; start with a "
-        "fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, run_id, availability);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, run_id, availability);
   }
 
-  std::uint64_t run_id{0};
-  std::uint8_t availability{
-      static_cast<std::uint8_t>(NetworkAvailability::kInitializing)};
+  std::uint64_t run_id;
+  std::uint8_t availability;
 
   NetworkAvailability GetAvailability() const {
     return static_cast<NetworkAvailability>(availability);
@@ -133,45 +104,30 @@ class NetworkState : public NodeFor<NetworkState> {
 };
 
 class AetherRegistrationState : public NodeFor<AetherRegistrationState> {
-  APPTRAVERSE_OBJECT(AetherRegistrationState, Node, 2)
+  APPTRAVERSE_OBJECT(AetherRegistrationState, Node, 0)
 
  protected:
   AetherRegistrationState() = default;
 
  public:
-  explicit AetherRegistrationState(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit AetherRegistrationState(ae::ObjProp prop) : NodeFor{prop}, run_id{0}, registered_run_id{0}, phase{static_cast<std::uint8_t>(AetherRegistrationPhase::kRegistering)} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id), AE_MMBR(registered_run_id), AE_MMBR(phase),
                     AE_MMBR(uid))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "AetherRegistrationState v0 is not supported; start with a fresh "
-        "state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "AetherRegistrationState v1 flattened layout is not supported; start "
-        "with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, run_id, registered_run_id, phase, uid);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, run_id, registered_run_id, phase, uid);
   }
 
-  std::uint64_t run_id{0};
-  std::uint64_t registered_run_id{0};
-  std::uint8_t phase{
-      static_cast<std::uint8_t>(AetherRegistrationPhase::kRegistering)};
+  std::uint64_t run_id;
+  std::uint64_t registered_run_id;
+  std::uint8_t phase;
   std::string uid;
 
   AetherRegistrationPhase GetPhase() const {
@@ -205,11 +161,11 @@ class ApplicationStartedEvent
   ApplicationStartedEvent() = default;
 
  public:
-  explicit ApplicationStartedEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit ApplicationStartedEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class NetworkInitializingEvent
@@ -220,11 +176,11 @@ class NetworkInitializingEvent
   NetworkInitializingEvent() = default;
 
  public:
-  explicit NetworkInitializingEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit NetworkInitializingEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class NetworkInterfaceUnavailableEvent
@@ -236,11 +192,11 @@ class NetworkInterfaceUnavailableEvent
 
  public:
   explicit NetworkInterfaceUnavailableEvent(ae::ObjProp prop)
-      : EventFor{prop} {}
+      : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class InternetUnavailableEvent
@@ -251,11 +207,11 @@ class InternetUnavailableEvent
   InternetUnavailableEvent() = default;
 
  public:
-  explicit InternetUnavailableEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit InternetUnavailableEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class NetworkAvailableEvent
@@ -266,11 +222,11 @@ class NetworkAvailableEvent
   NetworkAvailableEvent() = default;
 
  public:
-  explicit NetworkAvailableEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit NetworkAvailableEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class AetherRegistrationStartedEvent
@@ -281,11 +237,11 @@ class AetherRegistrationStartedEvent
   AetherRegistrationStartedEvent() = default;
 
  public:
-  explicit AetherRegistrationStartedEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit AetherRegistrationStartedEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class AetherRegistrationCompletedEvent
@@ -298,11 +254,11 @@ class AetherRegistrationCompletedEvent
 
  public:
   explicit AetherRegistrationCompletedEvent(ae::ObjProp prop)
-      : EventFor{prop} {}
+      : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id), AE_MMBR(uid))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
   std::string uid;
 };
 

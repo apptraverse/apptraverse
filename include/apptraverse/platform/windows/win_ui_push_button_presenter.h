@@ -15,11 +15,11 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
                            WinPushButtonPresenter, UiPushButtonPresenter, 0)
 
  protected:
-  WinPushButtonPresenter() = default;
+  WinPushButtonPresenter() : hwnd_{nullptr} {}
 
  public:
   explicit WinPushButtonPresenter(ae::ObjProp prop)
-      : UiPushButtonPresenter{prop} {}
+      : UiPushButtonPresenter{prop}, hwnd_{nullptr} {}
 
   void OnLoad() override;
   void OnModelChanged() override;
@@ -38,7 +38,7 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
   void SyncFromMirror();
   void ApplyLayout();
 
-  HWND hwnd_{nullptr};
+  HWND hwnd_;
 
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
   static int test_set_window_pos_count_;

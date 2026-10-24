@@ -4,8 +4,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <mutex>
-#include <unordered_set>
 
 #include "aether-objects/obj/idomain_storage.h"
 
@@ -57,50 +55,8 @@ class DirectoryDomainStorage final : public ae::IDomainStorage {
   LayerCommitOutcome last_layer_commit_{LayerCommitOutcome::kNone};
 };
 
-struct InstrumentedDomainStorageStats {
-  std::size_t store_calls{0};
-  std::size_t load_calls{0};
-  std::size_t store_bytes_accepted{0};
-  std::size_t load_bytes{0};
-  std::size_t store_new_layers{0};
-  std::size_t store_overwrite_layers{0};
-  std::size_t store_skipped_unchanged_layers{0};
-  std::size_t store_disk_bytes_written{0};
-  std::size_t store_failed_commits{0};
-  std::unordered_set<std::uint32_t> store_obj_ids;
-};
-
 std::filesystem::path DirectoryDomainStorageLayerPath(
     std::filesystem::path const& root, ae::DomainQuery const& query);
-
-class InstrumentedDomainStorage final : public ae::IDomainStorage {
- public:
-  explicit InstrumentedDomainStorage(ae::IDomainStorage& inner);
-  InstrumentedDomainStorage(ae::IDomainStorage& inner,
-                            std::filesystem::path const& layer_root,
-                            DirectoryDomainStorage* directory_inner);
-
-  std::unique_ptr<ae::IDomainStorageWriter> Store(
-      ae::DomainQuery const& query) override;
-  ae::ClassList Enumerate(ae::ObjId const& obj_id) override;
-  ae::DomainLoad Load(ae::DomainQuery const& query) override;
-  void Remove(ae::ObjId const& obj_id) override;
-  void CleanUp() override;
-
-  InstrumentedDomainStorageStats SnapshotStats() const;
-
- private:
-  ae::IDomainStorage& inner_;
-  DirectoryDomainStorage* directory_inner_{nullptr};
-  std::filesystem::path const* layer_root_{nullptr};
-  mutable std::mutex mu_;
-  InstrumentedDomainStorageStats stats_;
-};
-
-void LogInstrumentedDomainStorageStats(InstrumentedDomainStorageStats const& stats);
-
-bool DirectoryDomainStorageLayerFileExists(std::filesystem::path const& root,
-                                           ae::DomainQuery const& query);
 
 }  // namespace apptraverse
 

@@ -19,10 +19,10 @@ std::filesystem::path DefaultStateDir() {
   wchar_t module_path[MAX_PATH]{};
   DWORD const len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
   if (len == 0 || len >= MAX_PATH) {
-    return std::filesystem::path{"surfaces_catalog_state"};
+    return std::filesystem::path{"surfaces_catalog_v0_state"};
   }
   return std::filesystem::path{module_path}.parent_path() /
-         "surfaces_catalog_state";
+         "surfaces_catalog_v0_state";
 }
 
 }  // namespace

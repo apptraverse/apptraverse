@@ -67,8 +67,18 @@ void WindowCatalogModelSession::Run(
   EnsureWindowCatalogGraphRegistration();
 
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
-  bool const profile_absent = !std::filesystem::exists(state_dir) ||
-                              std::filesystem::is_empty(state_dir);
+  std::error_code profile_error;
+  bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect catalog profile\n");
+    std::abort();
+  }
+  bool const profile_absent = !profile_exists ||
+      std::filesystem::is_empty(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect catalog profile contents\n");
+    std::abort();
+  }
   if (profile_absent) {
     DirectoryDomainStorage bootstrap_storage{state_dir};
     ae::Domain bootstrap_domain{bootstrap_storage};
@@ -84,7 +94,14 @@ void WindowCatalogModelSession::Run(
     auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootId());
     std::filesystem::path const checkpoint_path =
         state_dir / "persistent_model_checkpoint.bin";
-    if (std::filesystem::exists(checkpoint_path)) {
+    std::error_code checkpoint_error;
+    bool const has_checkpoint =
+        std::filesystem::exists(checkpoint_path, checkpoint_error);
+    if (checkpoint_error) {
+      WriteFatalStderr("fatal: cannot inspect catalog checkpoint\n");
+      std::abort();
+    }
+    if (has_checkpoint) {
       std::ifstream checkpoint_in(checkpoint_path,
                                   std::ios::binary | std::ios::ate);
       if (!checkpoint_in) {

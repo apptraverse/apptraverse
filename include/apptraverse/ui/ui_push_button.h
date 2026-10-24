@@ -20,7 +20,7 @@ class UiPushButton : public NodeFor<UiPushButton> {
   UiPushButton() = default;
 
  public:
-  explicit UiPushButton(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit UiPushButton(ae::ObjProp prop) : NodeFor{prop}, enabled_{true} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(label), AE_MMBR(enabled_))
 
@@ -45,7 +45,7 @@ class UiPushButton : public NodeFor<UiPushButton> {
   void Apply(SetUiPushButtonEnabledEvent const& event);
 
  private:
-  bool enabled_{true};
+  bool enabled_;
 };
 
 class SetUiPushButtonEnabledEvent
@@ -57,11 +57,11 @@ class SetUiPushButtonEnabledEvent
   SetUiPushButtonEnabledEvent() = default;
 
  public:
-  explicit SetUiPushButtonEnabledEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit SetUiPushButtonEnabledEvent(ae::ObjProp prop) : EventFor{prop}, enabled{true} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(enabled))
 
-  bool enabled{true};
+  bool enabled;
 };
 
 class UiPushButtonClickedEvent

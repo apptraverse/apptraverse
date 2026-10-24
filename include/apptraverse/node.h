@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <limits>
 #include <map>
-#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -33,60 +32,30 @@ inline std::uint64_t SystemUtcMicros() {
 }
 
 class Node : public ae::Obj {
-  // Version 4: native base-class serialization (separate class layers).
-  APPTRAVERSE_OBJECT(Node, ae::Obj, 4)
+  // Current development schema: native base-class layers, v0 only.
+  APPTRAVERSE_OBJECT(Node, ae::Obj, 0)
 
  protected:
-  Node() = default;
+  Node() : materialized_change_ctx_{nullptr}, materialized_change_fn_{nullptr}, generation_{1}, applied_journal_size_{kJournalFullyMaterialized}, journal_retention_policy_{}, journal_compaction_blocked_{false}, suppress_materialized_change_{false} {}
 
  public:
-  explicit Node(ae::ObjProp prop) : Obj{prop} {}
+  explicit Node(ae::ObjProp prop) : Obj{prop}, materialized_change_ctx_{nullptr}, materialized_change_fn_{nullptr}, generation_{1}, applied_journal_size_{kJournalFullyMaterialized}, journal_retention_policy_{}, journal_compaction_blocked_{false}, suppress_materialized_change_{false} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal))
 
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv&) {
-    throw std::runtime_error(
-        "AppTraverse Node journal v0 (timestamp_us) is not supported; "
-        "re-distill with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv&) {
-    throw std::runtime_error(
-        "AppTraverse Node journal v1 ordered by (lamport, origin_uid, "
-        "origin_sequence); re-distill with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<2>, Dnv&) {
-    throw std::runtime_error(
-        "AppTraverse Node journal v2 ordered by (lamport, origin_uid, "
-        "origin_sequence); re-distill with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<3>, Dnv&) {
-    throw std::runtime_error(
-        "AppTraverse Node v3 flattened journal layout is not supported; "
-        "re-distill with a fresh state dir");
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<4>, Dnv& dnv) {
+  void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, base, journal);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<4>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     if (detail::OmitNodeHistoryForPublication(dnv)) {
-      detail::NoteNodeV4PublicationOmitSave();
       SharedPtr<Node> empty_base{};
       static std::vector<EventRecord> const kEmptyJournal{};
       dnv(base_, empty_base, kEmptyJournal);
       return;
     }
-    detail::NoteNodeHistorySerialized(journal.size(), base.is_valid());
     dnv(base_, base, journal);
   }
 
@@ -198,6 +167,7 @@ class Node : public ae::Obj {
     (void)ok;
   }
 
+#if APPTRAVERSE_ENABLE_SHARED_NODE
   // Insert a remotely originated shared Event at its own identity and
   // timestamp. Dispatches to the most-derived NodeFor so Apply sees the
   // concrete Node.
@@ -229,6 +199,8 @@ class Node : public ae::Obj {
     }
     return nullptr;
   }
+
+#endif
 
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
@@ -502,6 +474,7 @@ class Node : public ae::Obj {
     InsertEvent(target, std::move(record));
   }
 
+#if APPTRAVERSE_ENABLE_SHARED_NODE
   // Shared commit: the Event keeps the identity and timestamp it was given.
   // A remotely originated Event is inserted at its own timestamp; nothing here
   // rewrites it from local state.
@@ -533,6 +506,8 @@ class Node : public ae::Obj {
     (void)ok;
   }
 
+#endif
+
  private:
   virtual void CaptureBaseStateImpl() {
     assert(false && "Concrete Node must inherit through NodeFor");
@@ -553,6 +528,7 @@ class Node : public ae::Obj {
     return false;
   }
 
+#if APPTRAVERSE_ENABLE_SHARED_NODE
   virtual bool TryInsertSharedImpl(Event::ptr event, SharedEventId identity,
                                    SharedEventOrder order) {
     (void)event;
@@ -562,17 +538,19 @@ class Node : public ae::Obj {
     return false;
   }
 
+#endif
+
   static constexpr std::size_t kJournalFullyMaterialized =
       (std::numeric_limits<std::size_t>::max)();
 
-  void* materialized_change_ctx_{nullptr};
-  MaterializedChangeFn materialized_change_fn_{nullptr};
+  void* materialized_change_ctx_;
+  MaterializedChangeFn materialized_change_fn_;
 
-  std::uint64_t generation_{1};
-  std::size_t applied_journal_size_{kJournalFullyMaterialized};
-  JournalRetentionPolicy journal_retention_policy_{};
-  bool journal_compaction_blocked_{false};
-  bool suppress_materialized_change_{false};
+  std::uint64_t generation_;
+  std::size_t applied_journal_size_;
+  JournalRetentionPolicy journal_retention_policy_;
+  bool journal_compaction_blocked_;
+  bool suppress_materialized_change_;
 };
 
 // Ordered unique dirty set for GUI publication. Entries are ObjIds, not Node

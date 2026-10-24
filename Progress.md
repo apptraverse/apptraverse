@@ -4140,3 +4140,31 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Fix**: In **`BuildWindowCatalogGraph`**, wire four demo buttons, assign into **`catalog->buttons`**, presenters, then **`RefreshChromeButtonEnabledState`**, then one **`InitializeRuntimeNode`** per button, then catalog last (unchanged rule).
 - **Regression**: **`TestWindowCatalogChromeButtonDistilledBaseReplay`** — before **`ShutdownSaveCatalog`**, capture per-button **`button` / `base` / `label` / `catalog` ObjIds**, enabled, and EN label text as plain values; RAM distilled replay for all four; then cold **`LoadApplication` + `LoadPersistentCheckpointIntoCatalog`** in a new Domain (**no** post-load **`FinalizeDistilledGraph`**, **`RepairWindowCatalogEmbeddedStrings`**, or chrome rewiring). Cold pre/post checks assert the same ObjIds and distilled base (**`base_id` not recomputed from loaded objects**), canonical label text after checkpoint **`MaterializeCatalogStrings`**, enabled invariants, demo button→catalog link via **`CollectReachableObjects`** Save topology (derived **`catalog`** member is not visible to static **`UiPushButton`** graph walk), and per-button **`TryReplayFromBase`** without **`RefreshChromeButtonEnabledState`**.
 - **Release verify** (2026-10-23, **`build-presenter-decomp-msvc-rel`**, baseline **`1568c23`**): **`apptraverse_window_catalog_model_test`**, **`apptraverse_window_catalog_win32_acceptance_test`** **PASS** — four chrome **`base` ObjIds** unchanged through cold load and replay.
+
+
+### WindowCatalog-only v0 / no-exceptions cleanup
+- Scope: the active build now contains WindowCatalog, core UI, and focused tests;
+  SharedNode, lifecycle/network registration, chat/other demos and aether-client-cpp
+  are not fetched/linked by this build. Historical sources remain outside it.
+- Owned library schemas are v0 only; obsolete throwing readers are deleted.
+  ClassIds and current field sets are retained. New default profile is
+  `surfaces_catalog_v0_state`; existing profiles are not migrated or deleted.
+- Serialized member defaults moved into creation constructors; native lifetime
+  state is initialized on both Create and Load construction paths. The base-class
+  reference binding and business defaults in non-object records remain.
+- Extended edit notifications use the existing virtual `Presenter::OnCommand`;
+  registration installs no process-global router. Routing regression added.
+- Instrumented storage logger and global publication profiling counters removed.
+  Fatal diagnostics/error results remain; no replacement telemetry is introduced.
+- No C++ RTTI/exceptions; compile-time exception guard added. Throwing filesystem
+  enumeration/name parsing replaced with error-code operations / `from_chars`.
+  Requested MinSizeRel `/GS-`, `/GUARD:NO`, `/fp:fast`, size and LTCG options retained.
+- Verification: prepared for Windows Release and MinSizeRel CI; no PASS claimed
+  until the corresponding workflow build and CTest results are available.
+
+- Windows CI validation: Release and MinSizeRel configure/build/CTest passed (all six focused tests in each configuration). Run: https://github.com/apptraverse/apptraverse/actions/runs/40073197303
+- Clean runner exposed malformed dependency patch hunk counts; corrected headers only. GUI tests now retain a valid model proxy/unload HWNDs and wait for all localized controls rather than only Add. No production workaround or relaxed expected values.
+- Release win32_window_catalog_demo.exe (BUILD_TESTING=ON): 440320 bytes.
+- Release win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 429056 bytes.
+- MinSizeRel win32_window_catalog_demo.exe (BUILD_TESTING=ON): 344064 bytes.
+- MinSizeRel win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 335872 bytes.

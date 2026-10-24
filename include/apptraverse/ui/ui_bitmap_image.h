@@ -15,13 +15,13 @@ class UiBitmapImagePresenter;
 
 class UiBitmapImage : public NodeFor<UiBitmapImage> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiBitmapImage", UiBitmapImage, Node,
-                           1)
+                           0)
 
  protected:
   UiBitmapImage() = default;
 
  public:
-  explicit UiBitmapImage(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit UiBitmapImage(ae::ObjProp prop) : NodeFor{prop}, width{0}, height{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height), AE_MMBR(bgra_bytes),
                     AE_MMBR(presenter))
@@ -32,22 +32,12 @@ class UiBitmapImage : public NodeFor<UiBitmapImage> {
   }
 
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
-    dnv(base_, width, height, presenter);
-  }
-
-  template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, width, height, bgra_bytes, presenter);
   }
 
-  template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
-    dnv(base_, width, height, presenter);
-  }
-
-  std::uint32_t width{0};
-  std::uint32_t height{0};
+  std::uint32_t width;
+  std::uint32_t height;
   std::vector<std::uint8_t> bgra_bytes;
   ae::ObjPtr<UiBitmapImagePresenter> presenter;
 };

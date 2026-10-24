@@ -494,26 +494,9 @@ void EnsurePersistentCheckpointBaseObjectsInScratch(
 }
 
 void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
-  ResetPublicationSerializationStats();
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(
       root, scratch, ae::GraphSerializationScope::MaterializedPublication);
-  std::uint64_t layer_bytes = 0;
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    for (auto const& [class_id, versions] : *class_map_opt) {
-      for (auto const& [version, data] : versions) {
-        layer_bytes += data.size();
-      }
-    }
-  }
-  detail::NoteMaterializedScratchObjectCount(scratch.state.size());
-  ActivePublicationSerializationStats().materialized_scratch_layer_bytes =
-      layer_bytes;
-  ActivePublicationSerializationStats().materialized_historical_event_objects = 0;
-
   std::unordered_set<std::uint32_t> distilled_base_ids;
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
@@ -589,7 +572,6 @@ void CollectMaterializedReachableObjects(ae::Obj& root,
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(
       root, scratch, ae::GraphSerializationScope::MaterializedPublication);
-  detail::NoteMaterializedScratchObjectCount(scratch.state.size());
   out.clear();
   out.reserve(scratch.state.size());
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
@@ -604,7 +586,6 @@ void CollectMaterializedReachableObjects(ae::Obj& root,
 }
 
 void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
-  ResetPublicationSerializationStats();
   CollectReachableObjectsFromLiveFields(root, out);
   std::unordered_set<std::uint32_t> seen;
   seen.reserve(out.size() + 16);
@@ -615,7 +596,6 @@ void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(
       root, scratch, ae::GraphSerializationScope::MaterializedPublication);
-  detail::NoteMaterializedScratchObjectCount(scratch.state.size());
   out.reserve(out.size() + scratch.state.size());
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
@@ -1658,7 +1638,13 @@ bool TryLoadPersistedModelFromStorageSidecar(
   }
   auto sidecar =
       PersistentModelCheckpointSidecarPath(*storage.checkpoint_sidecar_directory());
-  if (!std::filesystem::exists(sidecar)) {
+  std::error_code ec;
+  bool const exists = std::filesystem::exists(sidecar, ec);
+  if (ec) {
+    WriteFatalStderr("fatal: cannot inspect persistent checkpoint\n");
+    std::abort();
+  }
+  if (!exists) {
     return false;
   }
   std::ifstream in{sidecar, std::ios::binary | std::ios::ate};

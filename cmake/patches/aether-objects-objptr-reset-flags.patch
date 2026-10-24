@@ -11,7 +11,7 @@ index 8e4b2a1..d4e8b2c 100644
  }
  
  Ptr<Obj> const& ObjectPtrBase::cached() const { return cached_; }
-@@ -129,7 +129,18 @@ SeriResult ObjPtrBaseSerializer::Seri(Archive& archive,
+@@ -129,6 +129,18 @@ SeriResult ObjPtrBaseSerializer::Seri(Archive& archive,
                                        Meta<ObjectPtrBase const> meta) {
    TRY_RESULT((archive.buffer().Write(DataTag{meta.value.id_})));
 -  TRY_RESULT((archive.buffer().Write(DataTag{meta.value.flags_})));

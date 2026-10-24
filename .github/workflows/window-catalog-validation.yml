@@ -17,14 +17,27 @@ permissions:
   contents: read
 
 jobs:
-  source-snapshot:
-    runs-on: ubuntu-latest
+  windows:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Release, MinSizeRel]
     steps:
       - uses: actions/checkout@v4
-      - name: Archive exact source revision for review
-        run: git archive --format=zip --output=window-catalog-source.zip HEAD
-      - uses: actions/upload-artifact@v4
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
-          name: window-catalog-source
-          path: window-catalog-source.zip
-          retention-days: 1
+          arch: x64
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.configuration }} -DBUILD_TESTING=ON "-DPATCH_EXECUTABLE=C:/Program Files/Git/usr/bin/patch.exe"
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 180
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalog-${{ matrix.configuration }}-test-results
+          path: build/Testing/Temporary/*.log
+          if-no-files-found: ignore
+          retention-days: 7

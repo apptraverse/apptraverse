@@ -21,6 +21,7 @@ class NodeFor : public BaseNode {
   explicit NodeFor(ae::ObjProp prop) : BaseNode{prop} {}
 
  public:
+#if APPTRAVERSE_ENABLE_SHARED_NODE
   // Shared replication insert at the Event's own timestamp (may mid-insert).
   void InsertSharedOrderedEvent(Event::ptr event, SharedEventId identity,
                                 SharedEventOrder order) {
@@ -36,6 +37,8 @@ class NodeFor : public BaseNode {
     Node::CommitSharedInto(static_cast<ConcreteNode&>(*this), std::move(event),
                            std::move(identity), std::move(order));
   }
+
+#endif
 
  private:
   void CaptureBaseStateImpl() override {
@@ -54,12 +57,15 @@ class NodeFor : public BaseNode {
     return Node::TryRebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
   }
 
+#if APPTRAVERSE_ENABLE_SHARED_NODE
   bool TryInsertSharedImpl(Event::ptr event, SharedEventId identity,
                            SharedEventOrder order) override {
     return Node::TryCommitSharedInto(static_cast<ConcreteNode&>(*this),
                                      std::move(event), std::move(identity),
                                      std::move(order));
   }
+
+#endif
 
  protected:
   void RebuildFromBaseAndReplay() {

@@ -57,11 +57,11 @@ class Win32SurfaceWindowPresenter : public SurfaceWindowPresenter {
       Win32SurfaceWindowPresenter, SurfaceWindowPresenter, 0)
 
  protected:
-  Win32SurfaceWindowPresenter() = default;
+  Win32SurfaceWindowPresenter() : child_command_handler{nullptr}, hwnd{nullptr} {}
 
  public:
   explicit Win32SurfaceWindowPresenter(ae::ObjProp prop)
-      : SurfaceWindowPresenter{prop} {}
+      : SurfaceWindowPresenter{prop}, child_command_handler{nullptr}, hwnd{nullptr} {}
 
   AE_OBJECT_REFLECT()
 
@@ -73,9 +73,9 @@ class Win32SurfaceWindowPresenter : public SurfaceWindowPresenter {
 
   using ChildCommandHandler = bool (*)(Win32SurfaceWindowPresenter* window,
                                        WPARAM wparam, LPARAM lparam);
-  ChildCommandHandler child_command_handler{nullptr};
+  ChildCommandHandler child_command_handler;
 
-  HWND hwnd{nullptr};
+  HWND hwnd;
 
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);
@@ -90,11 +90,11 @@ class Win32SurfaceButtonPresenter : public SurfaceButtonPresenter {
       Win32SurfaceButtonPresenter, SurfaceButtonPresenter, 0)
 
  protected:
-  Win32SurfaceButtonPresenter() = default;
+  Win32SurfaceButtonPresenter() : hwnd{nullptr} {}
 
  public:
   explicit Win32SurfaceButtonPresenter(ae::ObjProp prop)
-      : SurfaceButtonPresenter{prop} {}
+      : SurfaceButtonPresenter{prop}, hwnd{nullptr} {}
 
   AE_OBJECT_REFLECT()
 
@@ -103,7 +103,7 @@ class Win32SurfaceButtonPresenter : public SurfaceButtonPresenter {
   void OnUnload() override;
   void NotifyClickedFromUi() override;
 
-  HWND hwnd{nullptr};
+  HWND hwnd;
 
  private:
   void ApplyLayout();
@@ -117,11 +117,11 @@ class Win32SurfaceLanguageButtonPresenter
       Win32SurfaceLanguageButtonPresenter, SurfaceLanguageButtonPresenter, 0)
 
  protected:
-  Win32SurfaceLanguageButtonPresenter() = default;
+  Win32SurfaceLanguageButtonPresenter() : hwnd{nullptr} {}
 
  public:
   explicit Win32SurfaceLanguageButtonPresenter(ae::ObjProp prop)
-      : SurfaceLanguageButtonPresenter{prop} {}
+      : SurfaceLanguageButtonPresenter{prop}, hwnd{nullptr} {}
 
   AE_OBJECT_REFLECT()
 
@@ -129,7 +129,7 @@ class Win32SurfaceLanguageButtonPresenter
   void OnModelChanged() override;
   void OnUnload() override;
 
-  HWND hwnd{nullptr};
+  HWND hwnd;
 
  private:
   void ApplyLayout();

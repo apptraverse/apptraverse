@@ -374,18 +374,32 @@ void ExpectListRows(HWND main, std::vector<std::wstring> const& expected) {
   }
 }
 
+void ExpectChrome(HWND main, wchar_t const* add, wchar_t const* open,
+                  wchar_t const* remove, wchar_t const* language) {
+  // Native controls are updated sequentially. Observing Add alone does not
+  // mean that the same publication has reached the other three HWNDs yet.
+  bool const ready = WaitUntil(std::chrono::seconds{10}, [&] {
+    return GetControlText(main, kAddControlId) == add &&
+           GetControlText(main, kOpenControlId) == open &&
+           GetControlText(main, kDeleteControlId) == remove &&
+           GetControlText(main, kLanguageControlId) == language;
+  });
+  if (!ready) {
+    std::wcerr << L"Chrome did not converge: Add=["
+               << GetControlText(main, kAddControlId) << L"], Open=["
+               << GetControlText(main, kOpenControlId) << L"], Delete=["
+               << GetControlText(main, kDeleteControlId) << L"], Language=["
+               << GetControlText(main, kLanguageControlId) << L"]\n";
+  }
+  CHECK(ready);
+}
+
 void ExpectChromeEn(HWND main) {
-  CHECK(GetControlText(main, kAddControlId) == L"Add");
-  CHECK(GetControlText(main, kOpenControlId) == L"Open");
-  CHECK(GetControlText(main, kDeleteControlId) == L"Delete");
-  CHECK(GetControlText(main, kLanguageControlId) == L"RU");
+  ExpectChrome(main, L"Add", L"Open", L"Delete", L"RU");
 }
 
 void ExpectChromeRu(HWND main) {
-  CHECK(GetControlText(main, kAddControlId) == L"\x0414\x043E\x0431\x0430\x0432\x0438\x0442\x044C");
-  CHECK(GetControlText(main, kOpenControlId) == L"\x041E\x0442\x043A\x0440\x044B\x0442\x044C");
-  CHECK(GetControlText(main, kDeleteControlId) == L"\x0423\x0434\x0430\x043B\x0438\x0442\x044C");
-  CHECK(GetControlText(main, kLanguageControlId) == L"EN");
+  ExpectChrome(main, L"Добавить", L"Открыть", L"Удалить", L"EN");
 }
 
 PROCESS_INFORMATION StartDemo(std::filesystem::path const& exe,
@@ -681,19 +695,12 @@ void RunLanguageAndFocusAcceptance() {
   }));
 
   ClickControl(main, kLanguageControlId);
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return GetControlText(main, kAddControlId).find(L"\x0414") !=
-           std::wstring::npos;
-  }));
   ExpectChromeRu(main);
   ExpectListRows(main,
                  {L"\x041E\x043A\x043D\x043E 1", L"\x041E\x043A\x043D\x043E 2",
                   L"\x041E\x043A\x043D\x043E 3"});
 
   ClickControl(main, kLanguageControlId);
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return GetControlText(main, kAddControlId) == L"Add";
-  }));
   EnsureCatalogMainWindow(pi.dwProcessId, main);
   ExpectChromeEn(main);
 

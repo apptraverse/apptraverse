@@ -55,7 +55,7 @@ class Surface : public NodeFor<Surface> {
   Surface() = default;
 
  public:
-  explicit Surface(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit Surface(ae::ObjProp prop) : NodeFor{prop}, number{0}, desktop_x{0}, desktop_y{0}, desktop_width{0}, desktop_height{0}, presentation_width{0}, presentation_height{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(number), AE_MMBR(desktop_x), AE_MMBR(desktop_y),
                     AE_MMBR(desktop_width), AE_MMBR(desktop_height),
@@ -92,16 +92,16 @@ class Surface : public NodeFor<Surface> {
   void Apply(SurfaceBoundsChangedEvent const& event);
   void Apply(SurfacePresentationSizeChangedEvent const& event);
 
-  std::uint32_t number{0};
+  std::uint32_t number;
   // Desktop outer-frame placement (screen top-left + outer size). Mobile ignores.
-  std::int32_t desktop_x{0};
-  std::int32_t desktop_y{0};
-  std::int32_t desktop_width{0};
-  std::int32_t desktop_height{0};
+  std::int32_t desktop_x;
+  std::int32_t desktop_y;
+  std::int32_t desktop_width;
+  std::int32_t desktop_height;
   // Native presentation/content area used for derived UI decisions (e.g. IsWide).
   // Not desktop placement. Mobile and desktop hosts both report this.
-  std::int32_t presentation_width{0};
-  std::int32_t presentation_height{0};
+  std::int32_t presentation_width;
+  std::int32_t presentation_height;
   ae::ObjPtr<Surfaces> surfaces;
   SurfaceChromePresenters chrome;
 };
@@ -147,7 +147,7 @@ class SurfacePresenter : public Presenter {
 
 class Surfaces : public NodeFor<Surfaces> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::Surfaces", Surfaces,
-                           Node, 1)
+                           Node, 0)
 
  protected:
   Surfaces() = default;
@@ -160,17 +160,11 @@ class Surfaces : public NodeFor<Surfaces> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, surfaces, mobile_current);
-    desktop_z_order.clear();
-  }
-
-  template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, surfaces, mobile_current, desktop_z_order);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const {
+  void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, surfaces, mobile_current, desktop_z_order);
   }
 
@@ -306,7 +300,7 @@ class SurfaceBoundsChangedEvent
   SurfaceBoundsChangedEvent() = default;
 
  public:
-  explicit SurfaceBoundsChangedEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit SurfaceBoundsChangedEvent(ae::ObjProp prop) : EventFor{prop}, x{0}, y{0}, width{0}, height{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height))
 
@@ -320,10 +314,10 @@ class SurfaceBoundsChangedEvent
     dnv(base_, x, y, width, height);
   }
 
-  std::int32_t x{0};
-  std::int32_t y{0};
-  std::int32_t width{0};
-  std::int32_t height{0};
+  std::int32_t x;
+  std::int32_t y;
+  std::int32_t width;
+  std::int32_t height;
 };
 
 class SurfacePresentationSizeChangedEvent
@@ -337,7 +331,7 @@ class SurfacePresentationSizeChangedEvent
 
  public:
   explicit SurfacePresentationSizeChangedEvent(ae::ObjProp prop)
-      : EventFor{prop} {}
+      : EventFor{prop}, width{0}, height{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height))
 
@@ -351,8 +345,8 @@ class SurfacePresentationSizeChangedEvent
     dnv(base_, width, height);
   }
 
-  std::int32_t width{0};
-  std::int32_t height{0};
+  std::int32_t width;
+  std::int32_t height;
 };
 
 class Application : public ae::Obj {

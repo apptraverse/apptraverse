@@ -22,10 +22,10 @@ class Presenter : public ae::Obj {
   APPTRAVERSE_OBJECT(Presenter, ae::Obj, 0)
 
  protected:
-  Presenter() = default;
+  Presenter() : presentation_host{nullptr}, model_proxy{nullptr}, presentation_loaded{false}, presentation_load_order{0} {}
 
  public:
-  explicit Presenter(ae::ObjProp prop) : Obj{prop} {}
+  explicit Presenter(ae::ObjProp prop) : Obj{prop}, presentation_host{nullptr}, model_proxy{nullptr}, presentation_loaded{false}, presentation_load_order{0} {}
 
   AE_OBJECT_REFLECT()
 
@@ -61,20 +61,20 @@ class Presenter : public ae::Obj {
 
   // Runtime-only. Not serialized. Win32 Main uses this as the notify HWND
   // for shutdown, not as CreateWindow lpParam.
-  void* presentation_host{nullptr};
+  void* presentation_host;
 
   // Runtime-only. Not serialized. Queues ObjId-targeted method invokes onto
   // the model Domain. Distinct from presentation_host (native HWND/host).
-  class ModelObjectProxy* model_proxy{nullptr};
+  class ModelObjectProxy* model_proxy;
 
   // Runtime-only. Set by InitializePresenters / InitializeNewPresenters after
   // OnLoad. Used so incremental graph growth activates only new presenters.
-  bool presentation_loaded{false};
+  bool presentation_loaded;
 
   // Runtime-only. Monotonic OnLoad sequence for this process. Unload uses
   // descending order so children tear down before parents, independent of
   // ObjId / Save collect order. Not serialized.
-  std::uint64_t presentation_load_order{0};
+  std::uint64_t presentation_load_order;
 };
 
 }  // namespace apptraverse

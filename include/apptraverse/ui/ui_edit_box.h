@@ -20,7 +20,7 @@ class UiEditBox : public NodeFor<UiEditBox> {
   UiEditBox() = default;
 
  public:
-  explicit UiEditBox(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit UiEditBox(ae::ObjProp prop) : NodeFor{prop}, caret_utf8_offset_{0}, read_only_{false} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(text_), AE_MMBR(caret_utf8_offset_),
                     AE_MMBR(read_only_))
@@ -50,8 +50,8 @@ class UiEditBox : public NodeFor<UiEditBox> {
 
  private:
   std::string text_;
-  std::size_t caret_utf8_offset_{0};
-  bool read_only_{false};
+  std::size_t caret_utf8_offset_;
+  bool read_only_;
 };
 
 class SetUiEditBoxTextEvent : public EventFor<UiEditBox, SetUiEditBoxTextEvent> {
@@ -78,11 +78,11 @@ class SetUiEditBoxCaretEvent
   SetUiEditBoxCaretEvent() = default;
 
  public:
-  explicit SetUiEditBoxCaretEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit SetUiEditBoxCaretEvent(ae::ObjProp prop) : EventFor{prop}, caret_utf8_offset{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(caret_utf8_offset))
 
-  std::size_t caret_utf8_offset{0};
+  std::size_t caret_utf8_offset;
 };
 
 }  // namespace apptraverse::ui

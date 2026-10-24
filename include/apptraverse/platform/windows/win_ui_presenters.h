@@ -2,8 +2,6 @@
 
 #define APPTRAVERSE_PLATFORM_WINDOWS_WIN_UI_PRESENTERS_H_
 
-
-
 #ifndef WIN32_LEAN_AND_MEAN
 
 #define WIN32_LEAN_AND_MEAN
@@ -11,8 +9,6 @@
 #endif
 
 #include <windows.h>
-
-
 
 #include "apptraverse/ui/ui_bitmap_image.h"
 
@@ -22,29 +18,21 @@
 
 namespace apptraverse::ui::windows {
 
-
-
 class WinWindowPresenter : public UiWindowPresenter {
 
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinWindowPresenter",
 
                            WinWindowPresenter, UiWindowPresenter, 0)
 
-
-
  protected:
 
   WinWindowPresenter() = default;
-
-
 
  public:
 
   explicit WinWindowPresenter(ae::ObjProp prop) : UiWindowPresenter{prop} {}
 
 };
-
-
 
 class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
@@ -54,21 +42,23 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
                            UiDesktopWindowPresenter, 0)
 
-
-
  protected:
 
-  WinDesktopWindowPresenter() = default;
-
-
+  WinDesktopWindowPresenter() : hwnd_{nullptr}, applying_native_frame_{false}, interactive_move_active_{false} {
+#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+    test_model_frame_submit_count_ = 0;
+#endif
+  }
 
  public:
 
   explicit WinDesktopWindowPresenter(ae::ObjProp prop)
 
-      : UiDesktopWindowPresenter{prop} {}
-
-
+      : UiDesktopWindowPresenter{prop}, hwnd_{nullptr}, applying_native_frame_{false}, interactive_move_active_{false} {
+#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+    test_model_frame_submit_count_ = 0;
+#endif
+  }
 
   template <typename Dnv>
 
@@ -78,8 +68,6 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   }
 
-
-
   template <typename Dnv>
 
   void Save(ae::Version<0>, Dnv& dnv) const {
@@ -87,8 +75,6 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
     dnv(base_);
 
   }
-
-
 
   void OnLoad() override;
 
@@ -98,8 +84,6 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   void ApplyRequestedFrameFromMirror() override;
 
-
-
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
   void* NativeChildParentHandle() const override {
@@ -108,35 +92,27 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   HWND hwnd() const { return hwnd_; }
 
-
-
   bool RouteChildCommand(std::uint32_t command_id,
 
                          std::uint16_t notification_code, HWND child);
-
-
 
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
 
                                   LPARAM lparam);
 
-
-
  private:
 
   struct ClientFrame {
 
-    std::int32_t x{0};
+    std::int32_t x;
 
-    std::int32_t y{0};
+    std::int32_t y;
 
-    std::int32_t client_width{0};
+    std::int32_t client_width;
 
-    std::int32_t client_height{0};
+    std::int32_t client_height;
 
   };
-
-
 
   void HandleNativeFrameChanged();
 
@@ -150,15 +126,11 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   static bool FramesEqual(ClientFrame a, ClientFrame b);
 
+  HWND hwnd_;
 
+  bool applying_native_frame_;
 
-  HWND hwnd_{nullptr};
-
-  bool applying_native_frame_{false};
-
-  bool interactive_move_active_{false};
-
-
+  bool interactive_move_active_;
 
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
 
@@ -200,19 +172,15 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   void TestResetModelFrameSubmitCount() { test_model_frame_submit_count_ = 0; }
 
-
-
  private:
 
   static int test_set_window_pos_count_;
 
-  int test_model_frame_submit_count_{0};
+  int test_model_frame_submit_count_;
 
 #endif
 
 };
-
-
 
 class WinEditBoxPresenter : public UiEditBoxPresenter {
 
@@ -220,19 +188,13 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
 
                            WinEditBoxPresenter, UiEditBoxPresenter, 0)
 
-
-
  protected:
 
-  WinEditBoxPresenter() = default;
-
-
+  WinEditBoxPresenter() : hwnd_{nullptr}, applying_mirror_text_{false}, last_applied_generation_{0}, mirror_text_applied_{false} {}
 
  public:
 
-  explicit WinEditBoxPresenter(ae::ObjProp prop) : UiEditBoxPresenter{prop} {}
-
-
+  explicit WinEditBoxPresenter(ae::ObjProp prop) : UiEditBoxPresenter{prop}, hwnd_{nullptr}, applying_mirror_text_{false}, last_applied_generation_{0}, mirror_text_applied_{false} {}
 
   void OnLoad() override;
 
@@ -240,15 +202,13 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
 
   void OnUnload() override;
 
-
-
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
   HWND hwnd() const { return hwnd_; }
 
   void ReadFromNativeAndSubmit();
-
-
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
 
  private:
 
@@ -256,15 +216,13 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
 
   WinDesktopWindowPresenter* Desktop() const;
 
+  HWND hwnd_;
 
+  bool applying_mirror_text_;
 
-  HWND hwnd_{nullptr};
+  std::uint64_t last_applied_generation_;
 
-  bool applying_mirror_text_{false};
-
-  std::uint64_t last_applied_generation_{0};
-
-  bool mirror_text_applied_{false};
+  bool mirror_text_applied_;
 
 };
 
@@ -276,21 +234,15 @@ class WinListContainerPresenter : public UiListContainerPresenter {
 
                            0)
 
-
-
  protected:
 
-  WinListContainerPresenter() = default;
-
-
+  WinListContainerPresenter() : hwnd_{nullptr} {}
 
  public:
 
   explicit WinListContainerPresenter(ae::ObjProp prop)
 
-      : UiListContainerPresenter{prop} {}
-
-
+      : UiListContainerPresenter{prop}, hwnd_{nullptr} {}
 
   void OnLoad() override;
 
@@ -310,13 +262,9 @@ class WinListContainerPresenter : public UiListContainerPresenter {
 
   WinDesktopWindowPresenter* Desktop() const;
 
-
-
-  HWND hwnd_{nullptr};
+  HWND hwnd_;
 
 };
-
-
 
 class WinLabelPresenter : public UiLabelPresenter {
 
@@ -324,19 +272,13 @@ class WinLabelPresenter : public UiLabelPresenter {
 
                            WinLabelPresenter, UiLabelPresenter, 0)
 
-
-
  protected:
 
-  WinLabelPresenter() = default;
-
-
+  WinLabelPresenter() : hwnd_{nullptr} {}
 
  public:
 
-  explicit WinLabelPresenter(ae::ObjProp prop) : UiLabelPresenter{prop} {}
-
-
+  explicit WinLabelPresenter(ae::ObjProp prop) : UiLabelPresenter{prop}, hwnd_{nullptr} {}
 
   void OnLoad() override;
 
@@ -344,11 +286,7 @@ class WinLabelPresenter : public UiLabelPresenter {
 
   void OnUnload() override;
 
-
-
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
-
 
  private:
 
@@ -356,13 +294,9 @@ class WinLabelPresenter : public UiLabelPresenter {
 
   WinDesktopWindowPresenter* Desktop() const;
 
-
-
-  HWND hwnd_{nullptr};
+  HWND hwnd_;
 
 };
-
-
 
 class WinBitmapImagePresenter : public UiBitmapImagePresenter {
 
@@ -370,21 +304,15 @@ class WinBitmapImagePresenter : public UiBitmapImagePresenter {
 
                            WinBitmapImagePresenter, UiBitmapImagePresenter, 0)
 
-
-
  protected:
 
-  WinBitmapImagePresenter() = default;
-
-
+  WinBitmapImagePresenter() : hwnd_{nullptr} {}
 
  public:
 
   explicit WinBitmapImagePresenter(ae::ObjProp prop)
 
-      : UiBitmapImagePresenter{prop} {}
-
-
+      : UiBitmapImagePresenter{prop}, hwnd_{nullptr} {}
 
   void OnLoad() override;
 
@@ -392,34 +320,22 @@ class WinBitmapImagePresenter : public UiBitmapImagePresenter {
 
   void OnUnload() override;
 
-
-
   bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
-
-
   void PaintToHdc(HDC hdc) const;
-
-
 
  private:
 
   WinDesktopWindowPresenter* Desktop() const;
 
-
-
-  HWND hwnd_{nullptr};
+  HWND hwnd_;
 
 };
-
-
 
 void EnsureWinUiPresenterRegistration();
 void EnsureExtendedWinUiPresenterRegistration();
 
 }  // namespace apptraverse::ui::windows
-
-
 
 #endif  // APPTRAVERSE_PLATFORM_WINDOWS_WIN_UI_PRESENTERS_H_
 

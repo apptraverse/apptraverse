@@ -12,7 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Emscripten pthreads require atomics/bulk-memory on every TU that ends up in
 # a -pthread link. Apply once for the whole tree (including aether-objects).
 if(EMSCRIPTEN)
-  add_compile_options(-pthread -fexceptions)
+  add_compile_options(-pthread)
   add_link_options(-pthread)
 endif()
 
@@ -74,34 +74,39 @@ CPMAddPackage(
     "AE_BUILD_TESTS OFF"
 )
 
-CPMAddPackage(
-  NAME aether-client-cpp
-  GITHUB_REPOSITORY aethernetio/aether-client-cpp
-  GIT_TAG ${APPTRAVERSE_AETHER_GIT_TAG}
-  EXCLUDE_FROM_ALL NO
-  OPTIONS
-    "AE_INSTALL OFF"
-    "AE_BUILD_TESTS ${APPTRAVERSE_BUILD_AETHER_DEMOS}"
-)
+# The same exception/STL policy is required on the object/serialization
+# dependency TUs as on their consumers. No parent CMake cache is rewritten.
+foreach(_dependency aether::objects aether::miscpp)
+  get_target_property(_real_target ${_dependency} ALIASED_TARGET)
+  if(NOT _real_target)
+    set(_real_target ${_dependency})
+  endif()
+  get_target_property(_type ${_real_target} TYPE)
+  if(_type STREQUAL "INTERFACE_LIBRARY")
+    target_link_libraries(${_real_target} INTERFACE apptraverse_compile_policy)
+  else()
+    target_link_libraries(${_real_target} PUBLIC apptraverse_compile_policy)
+  endif()
+endforeach()
 
-option(APPTRAVERSE_ENABLE_SHARED_NODE
-       "Build SharedNode, sync transport, and shared network graph" ON)
+# This development branch builds only the window catalog application.
+# SharedNode/network/chat and the historical demos are not part of its graph.
+set(APPTRAVERSE_ENABLE_SHARED_NODE OFF)
+set(APPTRAVERSE_BUILD_AETHER_DEMOS OFF)
+option(APPTRAVERSE_BUILD_EXAMPLES "Build the window catalog demo" ON)
 
-set(_apptraverse_sources
+add_library(apptraverse STATIC
   src/apptraverse.cpp
   src/noninteractive_crt.cpp
-  src/runtime_lifecycle.cpp
   src/directory_domain_storage.cpp
   src/overlay_domain_storage.cpp
   src/partitioned_model_domain_storage.cpp
   src/model_persistence.cpp
   src/model_object_proxy.cpp
   src/object_serialization.cpp
-  src/publication_serialization_scope.cpp
   src/ui_mirror.cpp
   src/model_runtime.cpp
   src/graph_mirror.cpp
-  src/link.cpp
   src/ui/ui_localization_string.cpp
   src/ui/ui_locale_settings.cpp
   src/ui/ui_window.cpp
@@ -112,39 +117,15 @@ set(_apptraverse_sources
   src/ui/ui_presenters.cpp
   src/ui/ui_registration.cpp
 )
-if(APPTRAVERSE_ENABLE_SHARED_NODE)
-  list(APPEND _apptraverse_sources
-    src/shared_node.cpp
-    src/shared_network_graph.cpp
-    src/memory_transport.cpp
-    src/sync_frame.cpp
-    src/shared_sync_runtime.cpp
-  )
-endif()
-
-add_library(apptraverse STATIC ${_apptraverse_sources})
-if(APPTRAVERSE_ENABLE_SHARED_NODE)
-  target_compile_definitions(apptraverse PUBLIC APPTRAVERSE_ENABLE_SHARED_NODE=1)
-else()
-  target_compile_definitions(apptraverse PUBLIC APPTRAVERSE_ENABLE_SHARED_NODE=0)
-endif()
-target_include_directories(apptraverse PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-# Object graph only. Full Aether client is linked by chat/presence targets.
-# PUBLIC compile policy so every AppTraverse-owned consumer gets /GR- or -fno-rtti.
+target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(apptraverse PUBLIC
-  aether::objects
-  aether::miscpp
-  apptraverse_compile_policy
-)
-
+  aether::objects aether::miscpp apptraverse_compile_policy)
+target_compile_features(apptraverse PUBLIC cxx_std_20)
 target_compile_definitions(apptraverse PUBLIC
-  AE_DISTILLATION=1
-  AE_FILTRATION=1
-)
+  APPTRAVERSE_ENABLE_SHARED_NODE=0 AE_DISTILLATION=1 AE_FILTRATION=1)
 
-add_library(apptraverse_ui_extended STATIC
+# Optional controls do not enter a catalog-only build or its registration.
+add_library(apptraverse_ui_extended STATIC EXCLUDE_FROM_ALL
   src/ui/ui_edit_box.cpp
   src/ui/ui_bitmap_image.cpp
   src/ui/ui_presenters_edit_box.cpp
@@ -153,10 +134,7 @@ add_library(apptraverse_ui_extended STATIC
 target_link_libraries(apptraverse_ui_extended PUBLIC apptraverse)
 
 if(WIN32)
-  target_compile_definitions(apptraverse PUBLIC
-    NOMINMAX
-    WIN32_LEAN_AND_MEAN
-  )
+  target_compile_definitions(apptraverse PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   add_library(apptraverse_ui_windows STATIC
     src/platform/windows/win_ui_utf8.cpp
     src/platform/windows/win_ui_frame.cpp
@@ -164,77 +142,19 @@ if(WIN32)
     src/platform/windows/win_ui_push_button_presenter.cpp
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
-    src/platform/windows/win_ui_extended_child_routing.cpp
     src/platform/windows/win32_fatal.cpp
   )
-  target_link_libraries(apptraverse_ui_windows PUBLIC apptraverse user32 gdi32 comctl32)
-  target_include_directories(apptraverse_ui_windows PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-  )
-  add_library(apptraverse_ui_windows_extended STATIC
+  target_link_libraries(apptraverse_ui_windows PUBLIC
+    apptraverse user32 gdi32 comctl32)
+  add_library(apptraverse_ui_windows_extended STATIC EXCLUDE_FROM_ALL
     src/platform/windows/win_ui_presenters_extended.cpp
     src/platform/windows/win_ui_registration_extended.cpp
   )
   target_link_libraries(apptraverse_ui_windows_extended PUBLIC
-    apptraverse_ui_windows
-    apptraverse_ui_extended
-  )
-endif()
-
-add_library(apptraverse_surfaces STATIC
-  src/surfaces/surfaces_model.cpp
-  src/surfaces/surfaces_localization.cpp
-  src/surfaces/surfaces_registration.cpp
-  src/surfaces/desktop_surface_presenter.cpp
-  src/surfaces/surface_window_presenter.cpp
-  src/surfaces/surface_button_presenter.cpp
-  src/surfaces/surface_language_button_presenter.cpp
-  src/surfaces/surfaces_chrome_wiring.cpp
-  src/surfaces/surfaces_presentation_size_queue.cpp
-)
-target_link_libraries(apptraverse_surfaces PUBLIC apptraverse)
-target_include_directories(apptraverse_surfaces PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-target_compile_features(apptraverse_surfaces PUBLIC cxx_std_20)
-if(MSVC)
-  target_compile_options(apptraverse_surfaces PRIVATE /bigobj)
-endif()
-
-if(WIN32)
-  add_library(apptraverse_surfaces_windows STATIC
-    src/platform/windows/surfaces_win_presenters.cpp
-    src/platform/windows/surfaces_win32_z_order.cpp
-    src/platform/windows/surfaces_win_registration.cpp
-  )
-  target_link_libraries(apptraverse_surfaces_windows PUBLIC
-    apptraverse_surfaces
-    apptraverse_ui_windows
-    user32
-    gdi32
-  )
-  target_include_directories(apptraverse_surfaces_windows PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-  )
-  target_compile_features(apptraverse_surfaces_windows PUBLIC cxx_std_20)
-endif()
-
-target_compile_features(apptraverse PUBLIC cxx_std_20)
-
-option(APPTRAVERSE_BUILD_EXAMPLES "Build upstream AppTraverse examples" OFF)
-
-if(APPTRAVERSE_BUILD_AETHER_DEMOS)
-  add_subdirectory(examples/model_ui_runtime_demo)
-  add_subdirectory(examples/chat_ui_runtime_demo)
-  add_subdirectory(examples/aether_presence_monitor)
-endif()
-
-if(APPTRAVERSE_BUILD_EXAMPLES)
-add_subdirectory(examples/main_window_runtime_demo)
-add_subdirectory(examples/dynamic_objects_demo)
-add_subdirectory(examples/surfaces_demo)
-add_subdirectory(examples/shared_node_demo)
-add_subdirectory(examples/chat_demo)
+    apptraverse_ui_windows apptraverse_ui_extended)
+  if(APPTRAVERSE_BUILD_EXAMPLES)
+    add_subdirectory(examples/surfaces_demo)
+  endif()
 endif()
 
 include(CTest)

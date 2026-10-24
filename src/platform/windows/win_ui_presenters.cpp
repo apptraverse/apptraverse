@@ -1,6 +1,5 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 
-#include "apptraverse/platform/windows/win_ui_extended_child_routing.h"
 #include "apptraverse/platform/windows/win_presentation_host.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
@@ -269,7 +268,7 @@ bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
   if (child_presenter == nullptr) {
     return false;
   }
-  if (TryRouteExtendedChildCommand(notification_code, child_presenter)) {
+  if (child_presenter->OnCommand(command_id, notification_code)) {
     return true;
   }
   if (notification_code == kBnClicked) {

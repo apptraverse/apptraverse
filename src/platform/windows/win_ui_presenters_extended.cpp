@@ -54,6 +54,17 @@ WinDesktopWindowPresenter* WinEditBoxPresenter::Desktop() const {
   return static_cast<WinDesktopWindowPresenter*>(window_presenter.operator->());
 }
 
+bool WinEditBoxPresenter::OnCommand(std::uint32_t command_id,
+                                     std::uint16_t notification_code) {
+  // The window router already validated HWND parent and control id.
+  (void)command_id;
+  if (notification_code != EN_CHANGE) {
+    return false;
+  }
+  ReadFromNativeAndSubmit();
+  return true;
+}
+
 void WinEditBoxPresenter::OnLoad() {
   auto* desktop = Desktop();
   if (desktop == nullptr || desktop->hwnd() == nullptr || !edit_box ||
