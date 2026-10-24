@@ -49,7 +49,7 @@ jobs:
           path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'window-catalog.patch'
           path.write_bytes(patch)
           subprocess.run(['git', 'apply', '--index', str(path)], check=True)
-          for sha in ['9fcefe1ae01fb07cda45437430df7690d0b05a92']:
+          for sha in ['9fcefe1ae01fb07cda45437430df7690d0b05a92', 'bc89b5bbfedfe1b11f567e76f39ffa0581b147fb']:
               path.write_bytes(fetch_blob(sha))
               subprocess.run(['git', 'apply', '--index', str(path)], check=True)
           workflow = pathlib.Path('.github/workflows/window-catalog-validation.yml')
@@ -89,10 +89,11 @@ jobs:
               raise SystemExit('Branch moved during validation; refusing to overwrite newer work')
           progress = pathlib.Path('Progress.md')
           note = '\n- Windows CI validation: Release and MinSizeRel configure/build/CTest passed (all six focused tests in each configuration). Run: ' + os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID'] + '\n'
+          note += '- Clean runner exposed malformed dependency patch hunk counts; corrected headers only. GUI tests now retain a valid model proxy/unload HWNDs and wait for all localized controls rather than only Add. No production workaround or relaxed expected values.\n'
           for config in ('Release', 'MinSizeRel'):
               for name in ('win32_window_catalog_demo', 'win32_window_catalog_demo_load_only'):
                   path = pathlib.Path('build') / config / 'examples/surfaces_demo/windows' / (name + '.exe')
-                  note += '- ' + config + ' ' + name + '.exe: ' + str(path.stat().st_size) + ' bytes.\n'
+                  note += '- ' + config + ' ' + name + '.exe (BUILD_TESTING=ON): ' + str(path.stat().st_size) + ' bytes.\n'
           progress.write_bytes((progress.read_text(encoding='utf-8') + note).encode('utf-8'))
           subprocess.run(['git', 'add', 'Progress.md'], check=True)
           subprocess.run(['git', 'rm', '.github/workflows/window-catalog-cleanup-once.yml'], check=True)
