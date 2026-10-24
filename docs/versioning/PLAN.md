@@ -127,7 +127,7 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 
 ## Решение итерации 04 — контракт const vs dynamic
 
-**Статус:** контракт **зафиксирован в документе** (итерация **04 IN_PROGRESS**); **enforcement** в storage/serializer/graph — **не реализован** (ожидается **05–08+**). Физический формат метаданных поставки в пакете — **07**; выбор backing по R — **08**. Аудит фактического кода — **01C** ([PROGRESS §01C](./PROGRESS.md#итерация-01c--константность-и-ссылки)); здесь — **нормативный** контракт, не повтор аудита.
+**Статус:** контракт **зафиксирован**; **storage-enforcement** в [`OverlayDomainStorage`](../../include/apptraverse/overlay_domain_storage.h) — **реализован** (набор `supply_constant_ids` на время жизни storage); **контроль мутаций модели** (до Apply/events) — **ещё нет**. Итерация **04 IN_PROGRESS**. Источник набора ObjId сейчас — вызывающий код/fixture; позже — описание графа (**05+**). Пакет метаданных — **07**; resolver R — **08**. Аудит фактов — **01C** ([PROGRESS §01C](./PROGRESS.md#итерация-01c--константность-и-ссылки)).
 
 ### Идентичность и классификация
 
@@ -168,15 +168,15 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 | --- | --- | --- |
 | **Роль объекта** | Описание поставляемого графа (**05+**); до появления manifest — таблица ролей по `ObjId` при bootstrap/load. Demo: тексты [`UiLocalizationString`](../../include/apptraverse/ui/ui_localization_string.h) / вложенные [`UiString`](../../include/apptraverse/ui/ui_string.h) — **кандидаты** на константы поставки; [`UiLocaleSettings::language_index_`](../../include/apptraverse/ui/ui_locale_settings.h) — **динамика** пользователя. **Не** объявлять все `UiString` константными по типу. |
 | **Контроль изменения** | События/Apply (напр. [`SetUiLocalizationSlotUtf8Event`](../../src/ui/ui_localization_string.cpp)) — для **dynamic**; для **const** — отказ до записи в объект или до `SaveRoot`. |
-| **Запрет USER-записи слоёв** | [`OverlayDomainStorage::Store`](../../src/overlay_domain_storage.cpp) / writer path: для ObjId с ролью «константа» — **не** создавать writable-слой тела объекта; `force_materialize` — исключение **только** для dynamic/historical правил, не для const body. |
-| **Ссылки и обход** | [`Serializer<ObjectLink>` / `HandlePointerSeri`](../../include/apptraverse/object_link.h), `ae::ObjPtr` SaveRoot в aether-objects: сохранять ссылку; для const referent — **не** рекурсивный SaveRoot тела в USER; для dynamic потомков — обход без принудительного Load const-веток. |
-| **Load** | `OverlayDomainStorage::Load`: USER → backing; для const — backing обязателен; отсутствие слоя — ошибка. |
+| **Запрет USER-записи слоёв** | **Реализовано:** `Store` проверяет роль **до** `force_materialize`; `SupplyConstantStorageWriter` сравнивает байты с backing, **не** пишет USER; расхождение / отсутствие backing при ненулевой сериализации → `SUPPLY_CONST_VIOLATION` + abort. |
+| **Ссылки и обход** | **Без изменений Seri:** штатный SaveRoot; политика storage на **собственные** слои ObjId; dynamic-потомки через const-контейнер сохраняются ([`overlay_domain_storage_test.cpp`](../../tests/overlay_domain_storage_test.cpp)). |
+| **Load / Enumerate** | **Реализовано:** const — только backing; USER/tombstone не перекрывает. Dynamic — прежний overlay-приоритет. |
 
-Новые публичные API, флаги wire и изменения сериализации **не** вводятся в итерации 04.
+Wire-формат и новый GraphManager **не** добавлялись.
 
-### Будущие проверки (для enforcement-итераций)
+### Проверки storage-enforcement
 
-Минимальный набор **будущих** тестов (не PASS в 04):
+Реализовано в [`overlay_domain_storage_test.cpp`](../../tests/overlay_domain_storage_test.cpp) (SaveRoot/LoadRoot, Debug + Release):
 
 1. Save динамического корня с ссылкой на константу: в USER — **ссылка**, **нет** файлов слоёв тела константы; BACKING неизменён.
 2. Mutable alias (`T*` / событие) на const `ObjId` — **явный отказ**, без появления USER-слоя константы.
@@ -352,9 +352,9 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 ### 04 — Константность и правила хранения
 
 - **Цель:** явный контракт const vs dynamic (не только Ptr scope).
-- **Область:** docs; привязка к `object_link`, overlay, UI localization (без кода).
-- **Результат:** раздел [Решение итерации 04](#решение-итерации-04--контракт-const-vs-dynamic); таблица Load/Save; будущие тесты; T02, T05 *(подготовка)*.
-- **T:** T02, T05 | **Зав.:** 01, 02, 03 | **Статус:** IN_PROGRESS *(контракт описан; enforcement — 05–08+)*
+- **Область:** docs + `OverlayDomainStorage` supply constants + overlay tests.
+- **Результат:** раздел [Решение итерации 04](#решение-итерации-04--контракт-const-vs-dynamic); storage PASS; model Apply — TODO в 04.
+- **T:** T02, T05 *(подготовка)* | **Зав.:** 01, 02, 03 | **Статус:** IN_PROGRESS *(storage enforcement; Surfaces/graph manifest — 05+)*
 
 ### 05 — Полная дистилляция с lazy
 
