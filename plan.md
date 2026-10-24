@@ -687,3 +687,82 @@ structural keepalive (`Domain::Find`), instance-scoped Node materialized-change
 notifier (no process-global callback), native-X app STOP + Close-button Remove,
 shutdown geometry snapshot before RequestStop, distill separation, no RTTI,
 invariant-driven checks.
+
+---
+
+# Application framework extraction and versioning integration boundary
+
+## 1.1 Existing architectural contract (WindowCatalog reference)
+
+WindowCatalog is the reference application today. It already demonstrates:
+
+1. **Canonical persistent state** changes through Events/Commit. Derived
+   materialized/runtime state may be updated directly but does not replace
+   business Events.
+2. **Model Domain and UI Domain** are separate. Presenters use the UI mirror
+   and send actions through `ModelObjectProxy`.
+3. **Desktop window geometry** has two paths:
+   - Native frame already changed: `ReportUiDesktopWindowFrameFromNativeEvent`
+     records fact in the model without applying frame back to native UI.
+   - Model requests frame: `RequestUiDesktopWindowFrameEvent` → publication
+     sidecar → presenter `ApplyRequestedFrameFromMirror`.
+4. **Localization**: selected language changes via Event;
+   `UiLocalizationString` materializes only the current language string; other
+   languages are Save + Reset and absent from memory; lazy load is independent
+   of const/dynamic storage policy; after future merge, const strings re-read
+   from BACKING and dynamic strings from USER/BACKING overlay.
+5. **Lazy window lifecycle**: on close, window and presenter are saved; cached
+   model objects unload; ObjId is kept; reopen loads the same object; UI mirror
+   removes then re-materializes the presenter.
+
+## 1.2 Target structure
+
+**A. AppTraverse libraries:** apptraverse core; apptraverse_ui; platform UI
+libraries; application runtime; platform application host.
+
+**B. Minimal application template:** no buttons, lists, or business logic;
+only application root, UI composition, and shared lifecycle startup.
+
+**C. WindowCatalog:** reference/acceptance application demonstrating Events,
+mirrors, localization, lazy windows, native/model frame paths, and persistence;
+must not duplicate shared runtime/host after refactor completes.
+
+## 1.3 Future window hierarchy
+
+```
+UiWindow
+  └─ UiPresentedWindow
+       ├─ UiDesktopWindow
+       └─ (future) UiMobileWindow
+```
+
+`UiPresentedWindow` holds only a serializable reference to the base
+`UiWindowPresenter`. It must not contain title, locale, x/y, frame, HWND/native
+handles, or desktop/mobile-specific state. `UiWindowPresenter` owns window,
+optional localized title, and locale. `UiDesktopWindow` adds desktop frame and
+frame Events. `UiMobileWindow` is deferred until the mobile port.
+
+## 1.4 Boundary with versioning project
+
+**`integration/serialization-surfaces`:** build-time distillation; embedded
+distilled graph; const/dynamic backing policy; state/user and state/&lt;R&gt;;
+Release R; binary packages; active-release resolver; update/rollback matrix.
+
+**This branch (`cursor/surfaces-library-controls`):** canonical model execution;
+publication; UI mirror; presenters; application lifecycle; platform host;
+reusable UI composition.
+
+Application runtime will accept prepared storage, model Domain, application
+root, and save/shutdown hooks — not how release resolver obtains storage/root.
+
+## 1.5 Work order (not pre-declared complete)
+
+0. Headless contract test (`apptraverse_application_contract_headless_test`).
+1. `UiPresentedWindow` and migrate `UiDesktopWindow` onto it.
+2. Shared presented-window composition (window ↔ presenter ↔ locale/title).
+3. Generic save/unload/reload lifecycle for presented windows.
+4. Generic model application runtime.
+5. Generic Windows application host.
+6. Minimal application template without controls.
+7. WindowCatalog as pure consumer.
+8. Separate integration branch with the versioning project.

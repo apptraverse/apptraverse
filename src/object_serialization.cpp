@@ -25,10 +25,7 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
 #include "apptraverse/ui/ui_desktop_window.h"
-
-#if defined(_WIN32)
-#include "apptraverse/platform/windows/win_ui_presenters.h"
-#endif
+#include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse {
 namespace {
@@ -70,20 +67,22 @@ ui::UiDesktopWindow* AsUiDesktopWindow(ae::Obj* obj) {
   return AsObjOf<ui::UiDesktopWindow>(obj);
 }
 
-#if defined(_WIN32)
 void ApplyUiDesktopFrameRequestPresentation(ae::Obj& gui_root,
                                            ae::ObjId window_id) {
   std::vector<ae::Obj*> objects;
   CollectLiveReachableObjects(gui_root, objects);
+  auto& registry = ae::Registry::GetRegistry();
   for (ae::Obj* obj : objects) {
     Presenter* const presenter = AsPresenter(obj);
-    if (presenter == nullptr ||
-        presenter->GetClassId() !=
-            ui::windows::WinDesktopWindowPresenter::kClassId) {
+    if (presenter == nullptr) {
+      continue;
+    }
+    if (registry.GenerationDistance(ui::UiDesktopWindowPresenter::kClassId,
+                                    presenter->GetClassId()) < 0) {
       continue;
     }
     auto* desktop_presenter =
-        static_cast<ui::windows::WinDesktopWindowPresenter*>(presenter);
+        static_cast<ui::UiDesktopWindowPresenter*>(presenter);
     auto const window = desktop_presenter->desktop_window();
     if (!window.is_valid() || window->obj_id != window_id) {
       continue;
@@ -92,7 +91,6 @@ void ApplyUiDesktopFrameRequestPresentation(ae::Obj& gui_root,
     return;
   }
 }
-#endif
 
 void SaveObjectGraphToScratch(ae::Obj const& object,
                               ae::RamDomainStorage& scratch,
@@ -1191,13 +1189,9 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   std::uint8_t sidecar = kStructuralPublicationSidecarNone;
   ae::Obj& changed =
       ApplyStructuralPublication(in, domain, storage, &sidecar);
-#if defined(_WIN32)
   if (sidecar == kStructuralPublicationSidecarUiDesktopFrameRequest) {
     ApplyUiDesktopFrameRequestPresentation(gui_root, changed.obj_id);
   }
-#else
-  (void)sidecar;
-#endif
   UpdatePresentersAfterStructuralPublication(
       gui_root, keepalive.active_presenters, host, model_proxy);
   // Release presenter anchors before live_objects so derived Presenter::ptr

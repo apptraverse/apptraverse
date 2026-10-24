@@ -4141,7 +4141,6 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Regression**: **`TestWindowCatalogChromeButtonDistilledBaseReplay`** — before **`ShutdownSaveCatalog`**, capture per-button **`button` / `base` / `label` / `catalog` ObjIds**, enabled, and EN label text as plain values; RAM distilled replay for all four; then cold **`LoadApplication` + `LoadPersistentCheckpointIntoCatalog`** in a new Domain (**no** post-load **`FinalizeDistilledGraph`**, **`RepairWindowCatalogEmbeddedStrings`**, or chrome rewiring). Cold pre/post checks assert the same ObjIds and distilled base (**`base_id` not recomputed from loaded objects**), canonical label text after checkpoint **`MaterializeCatalogStrings`**, enabled invariants, demo button→catalog link via **`CollectReachableObjects`** Save topology (derived **`catalog`** member is not visible to static **`UiPushButton`** graph walk), and per-button **`TryReplayFromBase`** without **`RefreshChromeButtonEnabledState`**.
 - **Release verify** (2026-10-23, **`build-presenter-decomp-msvc-rel`**, baseline **`1568c23`**): **`apptraverse_window_catalog_model_test`**, **`apptraverse_window_catalog_win32_acceptance_test`** **PASS** — four chrome **`base` ObjIds** unchanged through cold load and replay.
 
-
 ### WindowCatalog-only v0 / no-exceptions cleanup
 - Scope: the active build now contains WindowCatalog, core UI, and focused tests;
   SharedNode, lifecycle/network registration, chat/other demos and aether-client-cpp
@@ -4168,3 +4167,37 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - Release win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 429056 bytes.
 - MinSizeRel win32_window_catalog_demo.exe (BUILD_TESTING=ON): 344064 bytes.
 - MinSizeRel win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 335872 bytes.
+
+### Application framework extraction / headless contract
+- **Baseline**: **`fa2ebe0e310bb5fe4b4de7960a9dda788ec336ee`**
+- **WindowCatalog** remains the reference implementation for Events, mirrors,
+  localization, lazy windows, and desktop frame paths.
+- The five architectural invariants (§1.1 in root **`plan.md`**) are partially
+  covered by existing model/Win32 tests; a single platform-independent contract
+  test did not exist yet.
+- **Distillation / versioning** are intentionally out of scope on this branch
+  (see **`integration/serialization-surfaces`**).
+- **Next gate**: **`apptraverse_application_contract_headless_test`**
+  (`tests/application_contract_headless_test.cpp`) — RamDomainStorage, separate
+  model/UI Domains, real publication and presenter lifecycle, test-only graph
+  (`ContractApplicationRoot`, `ContractWindow`, `HeadlessDesktopWindowPresenter`).
+- **`UiPresentedWindow`** is planned only; not implemented in this step.
+- After the headless gate passes, first production refactor:
+  **`UiPresentedWindow`** (no title/locale/frame on window node) + migrate
+  **`UiDesktopWindow`**.
+- **Production tweak**: `ApplyUiDesktopFrameRequestPresentation` in
+  `object_serialization.cpp` now matches any `UiDesktopWindowPresenter`
+  (GenerationDistance), not only Win32 desktop presenter; sidecar apply runs on
+  all platforms.
+- **Release verify** (2026-10-24, **`build-presenter-decomp-msvc-rel`**):
+  focused 7-test run **PASS** — `apptraverse_application_contract_headless_test`,
+  `apptraverse_ui_desktop_window_geometry_test`,
+  `apptraverse_node_local_commit_journal_scaling_test`,
+  `apptraverse_ui_edit_box_headless_test`,
+  `apptraverse_ui_control_materialization_test`,
+  `apptraverse_presenter_graph_persistence_test`,
+  `apptraverse_window_catalog_model_test`.
+- **MinSizeRel verify** (2026-10-24, **`build-presenter-decomp-msvc-minsizerel`**):
+  same 7-test run **PASS**.
+- **`apptraverse_application_contract_headless_test`**: links only `apptraverse`
+  (no `user32`/`gdi32`, no `surfaces_demo` / WindowCatalog model).
