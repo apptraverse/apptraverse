@@ -164,7 +164,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 | 04 | PASS | — | `apptraverse_overlay_domain_storage_test` + `apptraverse_model_persistence_test` Debug/Release | Storage discard-only; без runtime const checks |
 | 05 | PASS | `b3134f4` | `apptraverse_*_distilled_embedded_matrix`, overlay + model_persistence Debug/Release | Exporter→generated header→consumer |
 | 06 | PASS | `ce46b80` | `apptraverse_prefab_release_matrix` Debug/Release | Headless prefab R0→R2 + **06B** delta-first base S1, v30 BACKING replay, lazy B, journal unknown; Surfaces **не** менялись |
-| 07 | PASS | *(push SHA)* | `apptraverse_prefab_release_lifecycle_matrix`, supply split, prefab matrix Debug/Release | Один R1 `supply.bin` (APSP v0); R0 EXE + `--supply-package`; T02/T12/T18 — фрагменты |
+| 07 | PASS | `0d98fa5` | `apptraverse_prefab_release_lifecycle_matrix`, supply split, prefab matrix Debug/Release | Один R1 `supply.bin` (APSP v0); R0 EXE + `--supply-package`; T02/T12/T18 — фрагменты |
 | 08 | TODO | — | — | active-release, resolver |
 | 09 | TODO | — | — | Пакет ≡ полный EXE |
 | 10 | TODO | — | — | Новый S при USER |
