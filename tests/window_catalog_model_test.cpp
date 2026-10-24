@@ -927,17 +927,92 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
     CHECK(replay_catalog->base.is_loaded());
     CHECK(replay_catalog->base.id() != replay_catalog->obj_id);
     CHECK(replay_catalog->base.id() == persisted_base_id);
+
+    CHECK(replay_catalog->list.is_valid());
+    CHECK(replay_catalog->list.is_loaded());
+    CatalogListContainer* list_container = replay_catalog->list.operator->();
+    CHECK(list_container != nullptr);
+    CHECK(list_container->GetClassId() == CatalogListContainer::kClassId);
+    CHECK(list_container->base.is_valid());
+    CHECK(list_container->base.is_loaded());
+    CHECK(list_container->base.id() != list_container->obj_id);
+
+    ae::ObjId const catalog_obj_id_before = replay_catalog->obj_id;
+    ae::ObjId const list_obj_id_before = list_container->obj_id;
+    std::size_t const catalog_journal_size_before = replay_catalog->journal.size();
+    std::uint32_t const next_window_number_before =
+        replay_catalog->next_window_number;
+    std::vector<ae::ObjId> catalog_event_ids_before;
+    catalog_event_ids_before.reserve(replay_catalog->journal.size());
+    for (auto const& record : replay_catalog->journal) {
+      if (record.event.is_valid()) {
+        catalog_event_ids_before.push_back(record.event->obj_id);
+      }
+    }
+
+    CHECK(list_container->TryReplayFromBase());
+    CHECK(list_container->rows.empty());
+    CHECK(list_container->selection_index == -1);
+    CHECK(list_container->journal.empty());
+    CHECK(replay_catalog->base.is_valid());
+    CHECK(replay_catalog->base.is_loaded());
+    CHECK(replay_catalog->obj_id == catalog_obj_id_before);
+    CHECK(list_container->obj_id == list_obj_id_before);
+    CHECK(replay_catalog->journal.size() == catalog_journal_size_before);
+    CHECK(replay_catalog->next_window_number == next_window_number_before);
+    CHECK(catalog_event_ids_before.size() == replay_catalog->journal.size());
+    for (std::size_t i = 0; i < replay_catalog->journal.size(); ++i) {
+      CHECK(replay_catalog->journal[i].event.is_valid());
+      CHECK(replay_catalog->journal[i].event->obj_id ==
+            catalog_event_ids_before[i]);
+    }
+
+    CHECK(list_container->rows.empty());
+    CHECK(replay_catalog->list.is_valid());
+    CHECK(replay_catalog->list.is_loaded());
+    CHECK(replay_catalog->list.id() == list_obj_id_before);
+    CHECK(replay_catalog->list->obj_id == list_obj_id_before);
     CHECK(replay_catalog->TryReplayFromBase());
+    CHECK(replay_catalog->obj_id == catalog_obj_id_before);
+    CHECK(list_container->obj_id == list_obj_id_before);
+    CHECK(replay_catalog->list.is_valid());
+    CHECK(replay_catalog->list.is_loaded());
+    CHECK(replay_catalog->list.id() == list_obj_id_before);
+    CHECK(replay_catalog->list.operator->() == list_container);
+    CHECK(list_container->catalog.is_valid());
+    CHECK(list_container->catalog.id() == catalog_obj_id_before);
+    CHECK(list_container->catalog.is_loaded());
     CHECK(replay_catalog->list->rows.size() == 2);
     WindowHolder* r1 = AsHolder(replay_catalog->list->rows[0]);
     WindowHolder* r2 = AsHolder(replay_catalog->list->rows[1]);
     CHECK(r1->obj_id == persisted_holder1_id);
     CHECK(r2->obj_id == persisted_holder2_id);
+    CHECK(r1->obj_id != r2->obj_id);
     CHECK(r1->window.id() == persisted_window1_id);
     CHECK(r2->window.id() == persisted_window2_id);
+    CHECK(r1->window.id() != r2->window.id());
     CHECK(!HasUnloadedByDefault(r1->window.flags()));
     CHECK(HasUnloadedByDefault(r2->window.flags()));
     CHECK(replay_catalog->next_window_number == 3);
+    CHECK(replay_catalog->journal.size() == saved_journal_size);
+    CHECK(catalog_event_ids_before.size() == replay_catalog->journal.size());
+    for (std::size_t i = 0; i < replay_catalog->journal.size(); ++i) {
+      CHECK(replay_catalog->journal[i].event->obj_id ==
+            catalog_event_ids_before[i]);
+    }
+
+    replay_catalog->OpenHolderWindow(*r1);
+    CHECK(r1->window.is_loaded());
+    CHECK(r1->window->x() == 111);
+    CHECK(r1->window->y() == 222);
+    CHECK(r1->window->client_width() == 333);
+    CHECK(r1->window->client_height() == 444);
+    replay_catalog->OpenHolderWindow(*r2);
+    CHECK(r2->window.is_loaded());
+    CHECK(r2->window->x() == 50);
+    CHECK(r2->window->y() == 60);
+    CHECK(r2->window->client_width() == 400);
+    CHECK(r2->window->client_height() == 300);
     replay_catalog.Reset();
   }
 }
