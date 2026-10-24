@@ -699,6 +699,81 @@ bool HasUnloadedByDefault(ae::ObjFlags flags) {
           static_cast<std::uint32_t>(ae::ObjFlags::kUnloadedByDefault)) != 0;
 }
 
+void CheckDistilledCatalogBaseLinks(WindowCatalog const& catalog) {
+  using window_catalog_demo::ObjId;
+  using window_catalog_demo::ToObjId;
+
+  CHECK(catalog.base.is_valid());
+  CHECK(catalog.base.is_loaded());
+  auto const& catalog_base = static_cast<WindowCatalog const&>(*catalog.base);
+  CHECK(catalog_base.list.is_valid());
+  CHECK(catalog_base.list.id() == ToObjId(ObjId::CatalogList));
+  CHECK(catalog_base.main_window.is_valid());
+  CHECK(catalog_base.main_window.id() == ToObjId(ObjId::MainWindow));
+  CHECK(catalog_base.main_window_presenter.is_valid());
+  CHECK(catalog_base.main_window_presenter.id() ==
+        ToObjId(ObjId::MainWindowPresenter));
+  CHECK(catalog_base.locale.is_valid());
+  CHECK(catalog_base.texts.label_add.is_valid());
+  CHECK(catalog_base.texts.label_open.is_valid());
+  CHECK(catalog_base.texts.label_delete.is_valid());
+  CHECK(catalog_base.texts.label_language.is_valid());
+  CHECK(catalog_base.texts.window_title_prefix.is_valid());
+  CHECK(catalog_base.buttons.add_button.is_valid());
+  CHECK(catalog_base.buttons.add_button.id() == ToObjId(ObjId::AddButton));
+  CHECK(catalog_base.buttons.open_button.is_valid());
+  CHECK(catalog_base.buttons.delete_button.is_valid());
+  CHECK(catalog_base.buttons.language_button.is_valid());
+  CHECK(catalog_base.presenters.list_presenter.is_valid());
+  CHECK(catalog_base.presenters.list_presenter.id() ==
+        ToObjId(ObjId::CatalogListPresenter));
+  CHECK(catalog_base.presenters.add_button_presenter.is_valid());
+  CHECK(catalog_base.presenters.open_button_presenter.is_valid());
+  CHECK(catalog_base.presenters.delete_button_presenter.is_valid());
+  CHECK(catalog_base.presenters.language_button_presenter.is_valid());
+
+  CHECK(catalog.list.is_valid());
+  CHECK(catalog.list.is_loaded());
+  CHECK(catalog.list->catalog.is_valid());
+  CHECK(catalog.list->catalog.id() == ToObjId(ObjId::Catalog));
+  CHECK(catalog.list->base.is_valid());
+  CHECK(catalog.list->base.is_loaded());
+}
+
+void CheckLiveCatalogChromeLinks(WindowCatalog const& catalog,
+                                 ae::ObjId const& catalog_id) {
+  using window_catalog_demo::ObjId;
+  using window_catalog_demo::ToObjId;
+
+  CHECK(catalog.obj_id == catalog_id);
+  CHECK(catalog.list.is_valid());
+  CHECK(catalog.list.is_loaded());
+  CHECK(catalog.list.id() ==
+        ToObjId(window_catalog_demo::ObjId::CatalogList));
+  CHECK(catalog.list->catalog.is_valid());
+  CHECK(catalog.list->catalog.is_loaded());
+  CHECK(catalog.list->catalog.id() == catalog_id);
+  CHECK(catalog.list->catalog.operator->() == &catalog);
+  CHECK(catalog.main_window.is_valid());
+  CHECK(catalog.main_window.id() == ToObjId(ObjId::MainWindow));
+  CHECK(catalog.main_window_presenter.is_valid());
+  CHECK(catalog.locale.is_valid());
+  CHECK(catalog.texts.label_add.is_valid());
+  CHECK(catalog.texts.label_open.is_valid());
+  CHECK(catalog.texts.label_delete.is_valid());
+  CHECK(catalog.texts.label_language.is_valid());
+  CHECK(catalog.texts.window_title_prefix.is_valid());
+  CHECK(catalog.buttons.add_button.is_valid());
+  CHECK(catalog.buttons.open_button.is_valid());
+  CHECK(catalog.buttons.delete_button.is_valid());
+  CHECK(catalog.buttons.language_button.is_valid());
+  CHECK(catalog.presenters.list_presenter.is_valid());
+  CHECK(catalog.presenters.add_button_presenter.is_valid());
+  CHECK(catalog.presenters.open_button_presenter.is_valid());
+  CHECK(catalog.presenters.delete_button_presenter.is_valid());
+  CHECK(catalog.presenters.language_button_presenter.is_valid());
+}
+
 void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -708,6 +783,7 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   ae::Domain ram_domain{ram_storage};
   auto catalog = BuildWindowCatalogGraph(ram_domain);
   FinalizeDistilledGraph(*catalog);
+  CheckDistilledCatalogBaseLinks(*catalog);
 
   catalog->AddWindow();
   catalog->AddWindow();
@@ -779,6 +855,7 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
     ae::Domain persist_domain{persist_storage};
     auto persist = BuildWindowCatalogGraph(persist_domain);
     FinalizeDistilledGraph(*persist);
+    CheckDistilledCatalogBaseLinks(*persist);
     SaveDistilledRoot(*persist);
     persist.Reset();
   }
@@ -982,7 +1059,12 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
     CHECK(list_container->catalog.is_valid());
     CHECK(list_container->catalog.id() == catalog_obj_id_before);
     CHECK(list_container->catalog.is_loaded());
+    CHECK(list_container->catalog.operator->() == replay_catalog.operator->());
+    CheckLiveCatalogChromeLinks(*replay_catalog, catalog_obj_id_before);
     CHECK(replay_catalog->list->rows.size() == 2);
+    CHECK(replay_catalog->list->selection_index == 1);
+    CHECK(replay_catalog->selected.is_valid());
+    CHECK(replay_catalog->selected->obj_id == persisted_holder2_id);
     WindowHolder* r1 = AsHolder(replay_catalog->list->rows[0]);
     WindowHolder* r2 = AsHolder(replay_catalog->list->rows[1]);
     CHECK(r1->obj_id == persisted_holder1_id);
@@ -1000,6 +1082,51 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
       CHECK(replay_catalog->journal[i].event->obj_id ==
             catalog_event_ids_before[i]);
     }
+
+    ae::ObjId const cold_catalog_id = replay_catalog->obj_id;
+    ae::ObjId const cold_list_id = replay_catalog->list.id();
+    auto const cold_dir =
+        TestDir("apptraverse_window_catalog_open_close_replay_cold");
+    {
+      DirectoryDomainStorage cold_storage{cold_dir};
+      ShutdownSaveCatalog(*replay_catalog, cold_storage);
+      replay_catalog.Reset();
+    }
+    {
+      DirectoryDomainStorage cold_storage{cold_dir};
+      ae::Domain cold_domain{cold_storage};
+      auto cold_catalog =
+          LoadApplication<WindowCatalog>(cold_domain, catalog_id);
+      LoadPersistentCheckpointIntoCatalog(cold_domain, cold_storage, *cold_catalog,
+                                          cold_dir);
+      CHECK(cold_catalog->obj_id == cold_catalog_id);
+      CHECK(cold_catalog->list.id() == cold_list_id);
+      CheckLiveCatalogChromeLinks(*cold_catalog, cold_catalog_id);
+      CHECK(cold_catalog->list->rows.size() == 2);
+      CHECK(AsHolder(cold_catalog->list->rows[0])->obj_id ==
+            persisted_holder1_id);
+      CHECK(AsHolder(cold_catalog->list->rows[1])->obj_id ==
+            persisted_holder2_id);
+      CHECK(!HasUnloadedByDefault(
+          AsHolder(cold_catalog->list->rows[0])->window.flags()));
+      CHECK(HasUnloadedByDefault(
+          AsHolder(cold_catalog->list->rows[1])->window.flags()));
+      CHECK(cold_catalog->list->selection_index == 1);
+      CHECK(cold_catalog->next_window_number == 3);
+      CHECK(cold_catalog->journal.size() == saved_journal_size);
+      CHECK(!AsHolder(cold_catalog->list->rows[1])->window.is_loaded());
+      cold_catalog.Reset();
+    }
+
+    replay_catalog =
+        LoadApplication<WindowCatalog>(replay_domain, catalog_id);
+    LoadPersistentCheckpointIntoCatalog(replay_domain, replay_storage,
+                                        *replay_catalog, replay_profile_dir);
+    list_container = replay_catalog->list.operator->();
+    CHECK(list_container->TryReplayFromBase());
+    CHECK(replay_catalog->TryReplayFromBase());
+    r1 = AsHolder(replay_catalog->list->rows[0]);
+    r2 = AsHolder(replay_catalog->list->rows[1]);
 
     replay_catalog->OpenHolderWindow(*r1);
     CHECK(r1->window.is_loaded());

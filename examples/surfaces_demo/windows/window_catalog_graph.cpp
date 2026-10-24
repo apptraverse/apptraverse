@@ -288,13 +288,12 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
 
   auto catalog = WindowCatalog::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Catalog)));
-  InitializeRuntimeNode(*catalog);
 
   auto list = CatalogListContainer::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::CatalogList)));
-  InitializeRuntimeNode(*list, *catalog);
   list->catalog = catalog;
   catalog->list = list;
+  InitializeRuntimeNode(*list, *catalog);
 
   auto main_window = CatalogWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
@@ -365,6 +364,10 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   main_presenter->locale = catalog->locale;
   AttachMainWindowTitle(*catalog, domain);
   catalog->RefreshChromeButtonEnabledState();
+
+  list->catalog = catalog;
+  catalog->list = list;
+  InitializeRuntimeNode(*catalog);
 
   return catalog;
 }

@@ -176,24 +176,6 @@ void EnsureHolderWindowTitleLinks(WindowHolder& holder,
   EnsureHolderWindowTitleLinksImpl(holder, catalog);
 }
 
-void WindowCatalog::StashLocalPersistentAcrossRebuild() {
-  rebuild_list_stash_ = list;
-}
-
-void WindowCatalog::RestoreLocalPersistentAcrossRebuild() {
-  if (rebuild_list_stash_.is_valid()) {
-    list = rebuild_list_stash_;
-    if (list.is_loaded() && domain != nullptr) {
-      list->catalog =
-          WindowCatalog::ptr::Declare(ae::CreateWith{*domain}.with_id(obj_id));
-      if (!list->catalog.is_loaded()) {
-        list->catalog.Load();
-      }
-    }
-  }
-  rebuild_list_stash_ = {};
-}
-
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
   SaveWindowCatalogPersistentSnapshotImpl(catalog);
 }

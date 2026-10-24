@@ -188,14 +188,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void ClearPendingFocusWindow();
   void RefreshChromeButtonEnabledState();
 
-  void StashLocalPersistentAcrossRebuild() override;
-  void RestoreLocalPersistentAcrossRebuild() override;
-
   // Model-thread one-shot focus request; copied to UI session on publish.
   std::uint32_t pending_focus_window_id{};
-
- private:
-  ae::ObjPtr<CatalogListContainer> rebuild_list_stash_;
 };
 
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog);
