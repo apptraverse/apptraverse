@@ -1,0 +1,30 @@
+name: Window catalog validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cursor/surfaces-library-controls]
+    paths:
+      - '.github/workflows/window-catalog-validation.yml'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'include/**'
+      - 'src/**'
+      - 'examples/surfaces_demo/**'
+      - 'tests/**'
+
+permissions:
+  contents: read
+
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive exact source revision for review
+        run: git archive --format=zip --output=window-catalog-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: window-catalog-source
+          path: window-catalog-source.zip
+          retention-days: 1
