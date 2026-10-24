@@ -232,13 +232,7 @@ class SupplyConstantStorageWriter final : public ae::IDomainStorageWriter {
 
     if (!backing_layer_present_) {
 
-      if (!new_bytes_.empty()) {
-
-        AbortSupplyConstantViolation("missing backing layer for supply constant");
-
-      }
-
-      return;
+      AbortSupplyConstantViolation("missing backing layer for supply constant");
 
     }
 

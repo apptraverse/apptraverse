@@ -80,8 +80,32 @@ class OverlayLazyRoot : public ae::Obj {
   OverlayVersionedWindow::ptr second;
 };
 
+class OverlayEmptyBodyConstant : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::OverlayEmptyBodyConstant",
+                           OverlayEmptyBodyConstant, ae::Obj, 0)
+
+ protected:
+  OverlayEmptyBodyConstant() = default;
+
+ public:
+  explicit OverlayEmptyBodyConstant(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT()
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_);
+  }
+};
+
 APPTRAVERSE_REGISTER(OverlayVersionedWindow);
 APPTRAVERSE_REGISTER(OverlayLazyRoot);
+APPTRAVERSE_REGISTER(OverlayEmptyBodyConstant);
 
 namespace {
 
@@ -839,6 +863,74 @@ void TestSupplyConstantLazyNotLoadedOnSave() {
                       OverlayVersionedWindow::kClassId, 0));
 }
 
+void StripApplicationLayerZero(ae::RamDomainStorage& ram, ae::ObjId id,
+                              std::uint32_t class_id) {
+  auto obj_it = ram.state.find(id);
+  if (obj_it == ram.state.end() || !obj_it->second.has_value()) {
+    return;
+  }
+  auto class_it = obj_it->second->find(class_id);
+  if (class_it != obj_it->second->end()) {
+    class_it->second.erase(0);
+  }
+}
+
+void TestSupplyConstantPresentEmptyBackingLayer() {
+  std::filesystem::path const user_root =
+      std::filesystem::temp_directory_path() /
+      "apptraverse_supply_const_empty_layer_user";
+  std::filesystem::remove_all(user_root);
+
+  ae::RamDomainStorage backing;
+  ae::ObjId const const_id{88700};
+  std::set<ae::ObjId> const_ids{const_id};
+  ae::DomainQuery const app_v0{const_id, OverlayEmptyBodyConstant::kClassId, 0};
+
+  {
+    ae::Domain domain{backing};
+    auto created = OverlayEmptyBodyConstant::ptr::Create(
+        ae::CreateWith{domain}.with_id(const_id));
+    ae::DomainGraph graph{&domain};
+    CHECK(graph.SaveRoot(created.Load(), const_id).IsOk());
+  }
+  CHECK(ReadAll(backing.Load(app_v0)).empty());
+
+  ae::RamDomainStorage::ObjClassData const backing_before = backing.state;
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing, const_ids};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(const_id, loaded).IsOk());
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(loaded, const_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
+    CHECK(!DirectoryDomainStorageLayerFileExists(user_root, app_v0));
+  }
+
+  CHECK(backing.state == backing_before);
+
+  {
+    DirectoryDomainStorage user_storage{user_root};
+    OverlayDomainStorage overlay{user_storage, backing, const_ids};
+    ae::Domain domain{overlay};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(load_graph.LoadRoot(const_id, loaded).IsOk());
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    save_graph.force_materialize = true;
+    CHECK(save_graph.SaveRoot(loaded, const_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
+    CHECK(!DirectoryDomainStorageLayerFileExists(user_root, app_v0));
+  }
+
+  CHECK(backing.state == backing_before);
+}
+
 void TestSupplyConstantForceMaterializeDynamicOnly() {
   std::filesystem::path const user_root =
       std::filesystem::temp_directory_path() /
@@ -953,6 +1045,14 @@ ChildRunResult RunChildProcess(char const* exe_path, char const* mode) {
   std::exit(0);
 }
 
+void TestSupplyConstantMissingApplicationLayerRejected(char const* exe_path) {
+  ChildRunResult const run =
+      RunChildProcess(exe_path, "child_missing_empty_app_layer");
+  CHECK(run.output.find("SUPPLY_CONST_VIOLATION") != std::string::npos);
+  CHECK(run.output.find("missing backing layer") != std::string::npos);
+  CHECK(run.exit_code != 0);
+}
+
 void TestSupplyConstantMutationRejected(char const* exe_path) {
   for (char const* mode :
        {"child_write_equal_len", "child_write_shorter", "child_write_longer",
@@ -970,6 +1070,30 @@ void TestSupplyConstantRemoveRejected(char const* exe_path) {
 }
 
 [[noreturn]] void RunChildMode(char const* mode) {
+  if (std::strcmp(mode, "child_missing_empty_app_layer") == 0) {
+    ae::RamDomainStorage backing;
+    ae::ObjId const const_id{88701};
+    std::set<ae::ObjId> const_ids{const_id};
+    ae::DomainQuery const app_v0{const_id, OverlayEmptyBodyConstant::kClassId, 0};
+    {
+      ae::Domain domain{backing};
+      auto created = OverlayEmptyBodyConstant::ptr::Create(
+          ae::CreateWith{domain}.with_id(const_id));
+      ae::DomainGraph graph{&domain};
+      CHECK(graph.SaveRoot(created.Load(), const_id).IsOk());
+    }
+    StripApplicationLayerZero(backing, const_id,
+                              OverlayEmptyBodyConstant::kClassId);
+    CHECK(backing.Load(app_v0).result == ae::DomainLoadResult::kEmpty);
+    ae::RamDomainStorage::ObjClassData const backing_before = backing.state;
+    OverlayDomainStorage overlay{backing, std::move(const_ids)};
+    ae::Domain domain{overlay};
+    auto created = OverlayEmptyBodyConstant::ptr::Create(
+        ae::CreateWith{domain}.with_id(const_id));
+    ae::DomainGraph save_graph{&domain};
+    CHECK(save_graph.SaveRoot(created.Load(), const_id).IsOk());
+    CHECK(backing.state == backing_before);
+  }
   if (std::strcmp(mode, "child_remove") == 0) {
     ae::RamDomainStorage backing;
     ae::ObjId const const_id{88600};
@@ -999,7 +1123,10 @@ int main(int argc, char** argv) {
   apptraverse::test::TestSupplyConstantSaveRootKeepsReferenceNotBody();
   apptraverse::test::TestSupplyConstantContainerDynamicChild();
   apptraverse::test::TestSupplyConstantLazyNotLoadedOnSave();
+  apptraverse::test::TestSupplyConstantPresentEmptyBackingLayer();
   apptraverse::test::TestSupplyConstantForceMaterializeDynamicOnly();
+  apptraverse::test::TestSupplyConstantMissingApplicationLayerRejected(
+      exe_path.string().c_str());
   apptraverse::test::TestSupplyConstantMutationRejected(exe_path.string().c_str());
   apptraverse::test::TestSupplyConstantRemoveRejected(exe_path.string().c_str());
   std::cout << "overlay_domain_storage_test OK\n";
