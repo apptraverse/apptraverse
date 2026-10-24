@@ -54,7 +54,7 @@ jobs:
           text = workflow.read_text(encoding='utf-8')
           assert text.count('-DBUILD_TESTING=ON') == 1
           text = text.replace('-DBUILD_TESTING=ON', '-DBUILD_TESTING=ON "-DPATCH_EXECUTABLE=C:/Program Files/Git/usr/bin/patch.exe"')
-          workflow.write_text(text, encoding='utf-8')
+          workflow.write_bytes(text.encode('utf-8'))
           subprocess.run(['git', 'add', str(workflow)], check=True)
           subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
       - name: Configure MinSizeRel
@@ -83,7 +83,7 @@ jobs:
               for name in ('win32_window_catalog_demo', 'win32_window_catalog_demo_load_only'):
                   path = pathlib.Path('build') / config / 'examples/surfaces_demo/windows' / (name + '.exe')
                   note += '- ' + config + ' ' + name + '.exe: ' + str(path.stat().st_size) + ' bytes.\n'
-          progress.write_text(progress.read_text(encoding='utf-8') + note, encoding='utf-8')
+          progress.write_bytes((progress.read_text(encoding='utf-8') + note).encode('utf-8'))
           subprocess.run(['git', 'add', 'Progress.md'], check=True)
           subprocess.run(['git', 'rm', '.github/workflows/window-catalog-cleanup-once.yml'], check=True)
           subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
