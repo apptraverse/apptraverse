@@ -50,15 +50,21 @@ jobs:
           path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'window-catalog.patch'
           path.write_bytes(patch)
           subprocess.run(['git', 'apply', '--index', str(path)], check=True)
+          workflow = pathlib.Path('.github/workflows/window-catalog-validation.yml')
+          text = workflow.read_text(encoding='utf-8')
+          assert text.count('-DBUILD_TESTING=ON') == 1
+          text = text.replace('-DBUILD_TESTING=ON', '-DBUILD_TESTING=ON "-DPATCH_EXECUTABLE=C:/Program Files/Git/usr/bin/patch.exe"')
+          workflow.write_text(text, encoding='utf-8')
+          subprocess.run(['git', 'add', str(workflow)], check=True)
           subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
       - name: Configure MinSizeRel
-        run: cmake -S . -B build/MinSizeRel -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_TESTING=ON -DCPM_SOURCE_CACHE=${{ github.workspace }}/build/cpm.cache
+        run: cmake -S . -B build/MinSizeRel -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_TESTING=ON -DCPM_SOURCE_CACHE=${{ github.workspace }}/build/cpm.cache "-DPATCH_EXECUTABLE=C:/Program Files/Git/usr/bin/patch.exe"
       - name: Build MinSizeRel
         run: cmake --build build/MinSizeRel --parallel 2
       - name: Test MinSizeRel
         run: ctest --test-dir build/MinSizeRel --output-on-failure --timeout 180
       - name: Configure Release
-        run: cmake -S . -B build/Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DCPM_SOURCE_CACHE=${{ github.workspace }}/build/cpm.cache
+        run: cmake -S . -B build/Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DCPM_SOURCE_CACHE=${{ github.workspace }}/build/cpm.cache "-DPATCH_EXECUTABLE=C:/Program Files/Git/usr/bin/patch.exe"
       - name: Build Release
         run: cmake --build build/Release --parallel 2
       - name: Test Release
