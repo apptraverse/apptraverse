@@ -158,7 +158,7 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 
 ### force_materialize и историческое состояние
 
-- [`DomainQuery::force_materialize`](../../include/apptraverse/overlay_domain_storage.h) **не** даёт права записывать **константы** в USER; назначение для **04** — по-прежнему **динамика**: `Node::base`, журналы, историческое состояние, обязательная материализация при Save/replay/compaction (как сегодня в overlay — см. **01B**).
+- `ae::DomainQuery::force_materialize` ([`OverlayDomainStorage::Store`](../../src/overlay_domain_storage.cpp), также `DomainGraph::force_materialize` в [`node.h`](../../include/apptraverse/node.h)) **не** даёт права записывать **константы** в USER; назначение для **04** — по-прежнему **динамика**: `Node::base`, журналы, историческое состояние, обязательная материализация при Save/replay/compaction (как сегодня в overlay — см. **01B**).
 - **`Node::base` нельзя** классифицировать как константу только потому, что байты совпали с поставкой; historical base остаётся **динамическим** контекстом (**T16** не PASS).
 - Правила replay/compaction (**T17**) **не** меняются в 04 и **не** объявляются решёнными.
 
