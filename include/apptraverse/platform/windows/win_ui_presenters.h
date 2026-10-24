@@ -415,8 +415,7 @@ class WinBitmapImagePresenter : public UiBitmapImagePresenter {
 
 
 void EnsureWinUiPresenterRegistration();
-
-
+void EnsureExtendedWinUiPresenterRegistration();
 
 }  // namespace apptraverse::ui::windows
 

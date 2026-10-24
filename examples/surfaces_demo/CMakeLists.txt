@@ -61,7 +61,7 @@ if(WIN32 AND NOT EMSCRIPTEN)
     ${CMAKE_CURRENT_SOURCE_DIR}/windows
   )
   target_link_libraries(surfaces_demo_window_catalog PUBLIC
-    apptraverse_surfaces
+    apptraverse
     apptraverse_ui_windows
   )
   target_compile_features(surfaces_demo_window_catalog PUBLIC cxx_std_20)

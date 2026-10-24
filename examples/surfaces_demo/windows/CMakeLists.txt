@@ -109,15 +109,10 @@ add_executable(win32_window_catalog_demo_load_only ${_window_catalog_win_sources
 foreach(_catalog_demo win32_window_catalog_demo win32_window_catalog_demo_load_only)
 
   target_link_libraries(${_catalog_demo} PRIVATE
-
     surfaces_demo_window_catalog
-
-    apptraverse_surfaces_windows
-
+    apptraverse_ui_windows
     user32
-
     gdi32
-
   )
 
   target_include_directories(${_catalog_demo} PRIVATE
@@ -135,6 +130,10 @@ foreach(_catalog_demo win32_window_catalog_demo win32_window_catalog_demo_load_o
     set_target_properties(${_catalog_demo} PROPERTIES WIN32_EXECUTABLE TRUE)
 
     target_link_options(${_catalog_demo} PRIVATE /ENTRY:mainCRTStartup)
+    target_link_libraries(${_catalog_demo} PRIVATE apptraverse_compile_policy)
+    target_link_options(${_catalog_demo} PRIVATE
+      "$<$<CONFIG:MinSizeRel>:/LTCG;/OPT:REF;/OPT:ICF=5;/GUARD:NO;/MAP:${CMAKE_CURRENT_BINARY_DIR}/$<TARGET_FILE_BASE_NAME:${_catalog_demo}>.map>"
+    )
 
   endif()
 

@@ -223,6 +223,7 @@ class UiLabelPresenter : public Presenter {
 };
 
 void EnsureUiPresenterRegistration();
+void EnsureExtendedUiPresenterRegistration();
 
 }  // namespace apptraverse::ui
 

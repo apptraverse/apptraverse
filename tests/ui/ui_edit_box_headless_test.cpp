@@ -28,6 +28,7 @@ int main() {
   EnableNoninteractiveCrt();
   EnsureObjectRegistration();
   EnsureUiPresenterRegistration();
+  EnsureExtendedUiPresenterRegistration();
 
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};

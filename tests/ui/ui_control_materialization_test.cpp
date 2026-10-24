@@ -380,6 +380,7 @@ int main() {
   EnableNoninteractiveCrt();
   EnsureObjectRegistration();
   apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::ui::EnsureExtendedUiPresenterRegistration();
   EnsureTestRegistration();
 
   TestEditBoxMaterializationNotifiesOnChange();

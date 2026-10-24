@@ -12,21 +12,6 @@ void UiDesktopWindowPresenter::SubmitFrameFromNative(
                       x, y, client_width, client_height);
 }
 
-bool UiEditBoxPresenter::ReadyForPresentation() const {
-  return window_presenter->presentation_loaded;
-}
-
-void UiEditBoxPresenter::SubmitTextFromUi(std::string text,
-                                          std::size_t caret_utf8_offset) {
-  model_proxy->Invoke(edit_box->obj_id, &UiEditBox::SubmitTextFromUi,
-                      std::move(text), caret_utf8_offset);
-}
-
-void UiEditBoxPresenter::SubmitCaretFromUi(std::size_t caret_utf8_offset) {
-  model_proxy->Invoke(edit_box->obj_id, &UiEditBox::SubmitCaretFromUi,
-                      caret_utf8_offset);
-}
-
 bool UiListContainerPresenter::ReadyForPresentation() const {
   return window_presenter->presentation_loaded;
 }
@@ -44,7 +29,6 @@ void UiListContainerPresenter::SubmitListRowSelectionChangedFromUi(
     std::size_t row_index) {
   OnListRowSelectionChanged(row_index);
 }
-// Default selection stays local until a platform presenter overrides.
 
 void UiListContainerPresenter::OnListRowActivated(std::size_t row_index) {
   static_cast<void>(row_index);

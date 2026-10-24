@@ -8,6 +8,7 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_edit_box.h"
+#include "apptraverse/ui/ui_presenters.h"
 
 using namespace apptraverse;
 using namespace apptraverse::ui;
@@ -68,6 +69,8 @@ void TestLocalCommitScalesWithJournalSize() {
 int main() {
   EnableNoninteractiveCrt();
   EnsureObjectRegistration();
+  EnsureUiPresenterRegistration();
+  EnsureExtendedUiPresenterRegistration();
   TestLocalCommitScalesWithJournalSize();
   std::cout << "node_local_commit_journal_scaling_test OK\n";
   return 0;

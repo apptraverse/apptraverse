@@ -9,6 +9,7 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_bitmap_image.h"
+#include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::test {
 namespace {
@@ -54,6 +55,7 @@ APPTRAVERSE_REGISTER(BitmapPublicationRoot);
 
 void RunUiBitmapPublicationTest() {
   EnsureObjectRegistration();
+  ui::EnsureExtendedUiPresenterRegistration();
   (void)&g_apptraverse_registrar_BitmapPublicationRoot;
 
   std::vector<std::uint8_t> const pixels{

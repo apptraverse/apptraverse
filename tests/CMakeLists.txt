@@ -14,6 +14,7 @@ add_executable(apptraverse_node_local_commit_journal_scaling_test
 )
 target_link_libraries(apptraverse_node_local_commit_journal_scaling_test PRIVATE
   apptraverse
+  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_node_local_commit_journal_scaling_test
@@ -23,7 +24,10 @@ add_test(
 add_executable(apptraverse_ui_edit_box_headless_test
   ui/ui_edit_box_headless_test.cpp
 )
-target_link_libraries(apptraverse_ui_edit_box_headless_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_ui_edit_box_headless_test PRIVATE
+  apptraverse
+  apptraverse_ui_extended
+)
 add_test(
   NAME apptraverse_ui_edit_box_headless_test
   COMMAND apptraverse_ui_edit_box_headless_test
@@ -32,7 +36,10 @@ add_test(
 add_executable(apptraverse_ui_control_materialization_test
   ui/ui_control_materialization_test.cpp
 )
-target_link_libraries(apptraverse_ui_control_materialization_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_ui_control_materialization_test PRIVATE
+  apptraverse
+  apptraverse_ui_extended
+)
 add_test(
   NAME apptraverse_ui_control_materialization_test
   COMMAND apptraverse_ui_control_materialization_test
@@ -1412,6 +1419,7 @@ add_executable(apptraverse_ui_bitmap_publication_test
 )
 target_link_libraries(apptraverse_ui_bitmap_publication_test PRIVATE
   apptraverse
+  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_ui_bitmap_publication_test
@@ -1423,6 +1431,7 @@ add_executable(apptraverse_ui_bitmap_structural_publication_test
 )
 target_link_libraries(apptraverse_ui_bitmap_structural_publication_test PRIVATE
   apptraverse
+  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_ui_bitmap_structural_publication_test
@@ -1445,6 +1454,7 @@ add_executable(apptraverse_presenter_graph_persistence_test
 )
 target_link_libraries(apptraverse_presenter_graph_persistence_test PRIVATE
   apptraverse
+  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_presenter_graph_persistence_test

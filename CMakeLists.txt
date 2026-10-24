@@ -84,7 +84,10 @@ CPMAddPackage(
     "AE_BUILD_TESTS ${APPTRAVERSE_BUILD_AETHER_DEMOS}"
 )
 
-add_library(apptraverse STATIC
+option(APPTRAVERSE_ENABLE_SHARED_NODE
+       "Build SharedNode, sync transport, and shared network graph" ON)
+
+set(_apptraverse_sources
   src/apptraverse.cpp
   src/noninteractive_crt.cpp
   src/runtime_lifecycle.cpp
@@ -99,23 +102,32 @@ add_library(apptraverse STATIC
   src/model_runtime.cpp
   src/graph_mirror.cpp
   src/link.cpp
-  src/shared_node.cpp
-  src/shared_network_graph.cpp
-  src/memory_transport.cpp
-  src/sync_frame.cpp
-  src/shared_sync_runtime.cpp
   src/ui/ui_localization_string.cpp
   src/ui/ui_locale_settings.cpp
   src/ui/ui_window.cpp
   src/ui/ui_desktop_window.cpp
-  src/ui/ui_edit_box.cpp
   src/ui/ui_push_button.cpp
   src/ui/ui_push_button_presenter.cpp
   src/ui/ui_list_container.cpp
-  src/ui/ui_bitmap_image.cpp
   src/ui/ui_presenters.cpp
   src/ui/ui_registration.cpp
 )
+if(APPTRAVERSE_ENABLE_SHARED_NODE)
+  list(APPEND _apptraverse_sources
+    src/shared_node.cpp
+    src/shared_network_graph.cpp
+    src/memory_transport.cpp
+    src/sync_frame.cpp
+    src/shared_sync_runtime.cpp
+  )
+endif()
+
+add_library(apptraverse STATIC ${_apptraverse_sources})
+if(APPTRAVERSE_ENABLE_SHARED_NODE)
+  target_compile_definitions(apptraverse PUBLIC APPTRAVERSE_ENABLE_SHARED_NODE=1)
+else()
+  target_compile_definitions(apptraverse PUBLIC APPTRAVERSE_ENABLE_SHARED_NODE=0)
+endif()
 target_include_directories(apptraverse PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -131,6 +143,15 @@ target_compile_definitions(apptraverse PUBLIC
   AE_DISTILLATION=1
   AE_FILTRATION=1
 )
+
+add_library(apptraverse_ui_extended STATIC
+  src/ui/ui_edit_box.cpp
+  src/ui/ui_bitmap_image.cpp
+  src/ui/ui_presenters_edit_box.cpp
+  src/ui/ui_registration_extended.cpp
+)
+target_link_libraries(apptraverse_ui_extended PUBLIC apptraverse)
+
 if(WIN32)
   target_compile_definitions(apptraverse PUBLIC
     NOMINMAX
@@ -143,11 +164,20 @@ if(WIN32)
     src/platform/windows/win_ui_push_button_presenter.cpp
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
+    src/platform/windows/win_ui_extended_child_routing.cpp
     src/platform/windows/win32_fatal.cpp
   )
   target_link_libraries(apptraverse_ui_windows PUBLIC apptraverse user32 gdi32 comctl32)
   target_include_directories(apptraverse_ui_windows PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  add_library(apptraverse_ui_windows_extended STATIC
+    src/platform/windows/win_ui_presenters_extended.cpp
+    src/platform/windows/win_ui_registration_extended.cpp
+  )
+  target_link_libraries(apptraverse_ui_windows_extended PUBLIC
+    apptraverse_ui_windows
+    apptraverse_ui_extended
   )
 endif()
 

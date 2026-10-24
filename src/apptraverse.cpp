@@ -16,7 +16,11 @@ APPTRAVERSE_REGISTER(Presenter);
 
 void ForceLifecycleRegistration();
 void ForceLinkRegistration();
+#if APPTRAVERSE_ENABLE_SHARED_NODE
 void ForceSharedNodeRegistration();
+#else
+void ForceSharedNodeRegistration() {}
+#endif
 
 namespace ui {
 void ForceUiRegistration();
