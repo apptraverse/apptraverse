@@ -4169,6 +4169,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - MinSizeRel win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 335872 bytes.
 
 ### Application framework extraction / headless contract
+- **Land SHA (WindowCatalog migration)**: **`946a54d`** (`Migrate WindowCatalog to UiPresentedWindow presenter ownership.`)
 - **Baseline (WindowCatalog migration)**: **`62fe908e837d910b8b96edf6cb638e308338ae03`**
 - **Land SHA (UiPresentedWindow)**: **`1dd8d57187276a61d021b675055269821c34922b`**
 - **WindowCatalog presenter ownership**: removed **`CatalogWindow.window_presenter`**
