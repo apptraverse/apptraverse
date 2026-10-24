@@ -360,7 +360,7 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 - **Цель:** EXE содержит все слои и lazy-ссылки согласно R.
 - **Область:** distill pipeline, `InitializeRuntimeNode`, graph export.
-- **T:** T01, T06 | **Зав.:** 03, 04 | **Статус:** TODO
+- **T:** T01, T06 | **Зав.:** 03, 04 | **Статус:** PASS *(build-time export + load-only consumers; Surfaces GUI startup — 06)*
 
 ### 06 — Старт при пустом USER
 

@@ -9,7 +9,7 @@
 
 **Baseline SHA (верифицированные fixtures / старт tracking):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
-**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, resolver и полный lifecycle **не реализованы** в коде. **01–02** PASS *(doc)*; **03** PASS *(probe + CTest)*; **04** **PASS** *(storage + dev-time Event review)* — [контракт §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic); runtime-проверки const **отменены**; Cursor rule для Events/Apply. **05+** TODO (manifest/graph). **T01–T18** не PASS.
+**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, resolver и полный lifecycle **не реализованы** в коде. **01–02** PASS *(doc)*; **03** PASS *(probe + CTest)*; **04** **PASS** *(storage + dev-time Event review)*; **05** **PASS** *(build-time distill → embedded BACKING, load-only EXE, lazy)* — Surfaces GUI startup **не** переключён (**06**). **06–14** TODO. **T01–T18** не PASS.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -161,8 +161,8 @@ SHA последних связанных коммитов на baseline: `19d7d
 | 01 | PASS | — | — | Аудит **01A–01D** (doc only); код не менялся |
 | 02 | PASS | — | — | Layout `state/`, `user/`, `<R>/`, `active-release` ([PLAN §02](./PLAN.md#решение-итерации-02--каталоги-и-номера-поставок)); код не менялся |
 | 03 | PASS | — | `ctest -R release_metadata` Debug + Release (9/9 each) | `examples/surfaces_demo/release.json` + probe; не Surfaces GUI |
-| 04 | IN_PROGRESS | — | `apptraverse_overlay_domain_storage_test` + `apptraverse_model_persistence_test` Debug/Release | Storage enforcement; model Apply TODO |
-| 05 | TODO | — | — | Distill + lazy в EXE |
+| 04 | PASS | — | `apptraverse_overlay_domain_storage_test` + `apptraverse_model_persistence_test` Debug/Release | Storage discard-only; без runtime const checks |
+| 05 | PASS | *(commit below)* | `apptraverse_*_distilled_embedded_matrix`, overlay + model_persistence Debug/Release | Exporter→generated header→consumer; GUI startup — **06** |
 | 06 | TODO | — | — | Пустой USER, старт из EXE |
 | 07 | TODO | — | — | Бинарный пакет констант |
 | 08 | TODO | — | — | active-release, resolver |
@@ -205,8 +205,9 @@ SHA последних связанных коммитов на baseline: `19d7d
 - **2026-10-23** — **04 (doc):** нормативный контракт в [PLAN §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic); срез **`b5d6f5a`**; **`6969ad2`** link fix (SHA — отдельные commits).
 - **2026-10-23** — **04 (storage):** `OverlayDomainStorage` supply constants + overlay tests; push — `3cf56cd`.
 - **2026-10-23** — **04 (policy):** runtime const-mutation checks **отменены**; storage discard-only для const USER; Cursor rule Events; **04 PASS**; Debug/Release overlay + model_persistence; push — SHA commit ниже.
+- **2026-10-24** — **05:** build-time `BuildSurfacesGraph`/lazy distill → `WriteEmbeddedDistilledSupplyHeader`; `InstallEmbeddedDistilledBacking` + `OverlayDomainStorage` supply ids; load-only consumers + Python matrix (пустой cwd); headless distill embed (`surfaces_demo_distill_embed`); **05 PASS**; Debug/Release 4/4 ctest; push — SHA commit ниже.
 
-*(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05+** distill/enforcement; **06+** USER на диске.)*
+*(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
 
 ---
 
@@ -216,4 +217,4 @@ SHA последних связанных коммитов на baseline: `19d7d
 
 **Итог (doc):** идентичность по `ObjId`, Load/Save, ссылки/lazy, `force_materialize` — [PLAN §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic).
 
-**Итог (код):** [`OverlayDomainStorage`](../../include/apptraverse/overlay_domain_storage.h) — `supply_constant_ids`; const Load/Enumerate с BACKING; Store discard (USER не для тел const); тесты в [`overlay_domain_storage_test.cpp`](../../tests/overlay_domain_storage_test.cpp). **Runtime const-mutation checks:** не делаются (архитектурное решение); **Cursor** проверяет Events при изменении кода. **Не сделано:** Surfaces/manifest wiring (**05+**). **T01–T18:** не PASS. **T16/T17:** не решены.
+**Итог (код):** [`OverlayDomainStorage`](../../include/apptraverse/overlay_domain_storage.h) — `supply_constant_ids`; const Load/Enumerate с BACKING; Store discard (USER не для тел const); тесты в [`overlay_domain_storage_test.cpp`](../../tests/overlay_domain_storage_test.cpp). **Runtime const-mutation checks:** не делаются (архитектурное решение); **Cursor** проверяет Events при изменении кода. **Не сделано:** Surfaces GUI startup из embedded (**06**). **T01–T18:** не PASS. **T16/T17:** не решены.

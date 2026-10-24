@@ -424,6 +424,22 @@ void CollectPersistentSerializationReachableObjects(
   }
 }
 
+std::set<ae::ObjId> CollectPersistedSerializationObjectIds(ae::Obj& root) {
+  ae::RamDomainStorage scratch;
+  SaveObjectGraphToScratch(root, scratch);
+  std::set<ae::ObjId> ids;
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (class_map_opt) {
+      ids.insert(obj_id);
+    }
+  }
+  return ids;
+}
+
+void SavePersistedObjectGraphToRam(ae::Obj& root, ae::RamDomainStorage& out) {
+  SaveObjectGraphToScratch(root, out);
+}
+
 struct SavedNodeBookkeeping {
   Node* node;
   Node::ptr base;

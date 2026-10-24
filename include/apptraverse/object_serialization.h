@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <vector>
 
 #include "aether-objects/obj/domain.h"
@@ -105,6 +106,12 @@ void CollectLiveReachableNodes(ae::Obj& root, std::vector<Node*>& out);
 
 void CollectPersistentSerializationReachableObjects(
     ae::Obj& root, std::vector<ae::Obj*>& out);
+
+// ObjIds that appear in a scratch save of the persisted graph (includes
+// Node::base snapshots and unloaded lazy targets).
+std::set<ae::ObjId> CollectPersistedSerializationObjectIds(ae::Obj& root);
+
+void SavePersistedObjectGraphToRam(ae::Obj& root, ae::RamDomainStorage& out);
 
 // Reachability for presentation: omits Node::base and Node::journal so
 // historical Event-held objects are not treated as live UI topology.

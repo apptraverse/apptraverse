@@ -339,6 +339,82 @@ add_test(
 set_tests_properties(apptraverse_release_metadata_config_missing_file
                      PROPERTIES WILL_FAIL TRUE)
 
+include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+
+add_library(apptraverse_distilled_lazy_graph_bootstrap STATIC
+  distilled_lazy_graph_bootstrap.cpp
+)
+target_link_libraries(apptraverse_distilled_lazy_graph_bootstrap PUBLIC apptraverse)
+target_include_directories(apptraverse_distilled_lazy_graph_bootstrap PUBLIC
+  ${CMAKE_CURRENT_LIST_DIR}
+)
+
+add_executable(apptraverse_export_lazy_distilled_graph
+  export_lazy_distilled_graph.cpp
+)
+target_link_libraries(apptraverse_export_lazy_distilled_graph PRIVATE
+  apptraverse_distilled_lazy_graph_bootstrap
+  apptraverse
+)
+
+add_executable(apptraverse_lazy_distilled_load_consumer
+  lazy_distilled_load_consumer.cpp
+)
+target_link_libraries(apptraverse_lazy_distilled_load_consumer PRIVATE
+  apptraverse_distilled_lazy_graph_bootstrap
+  apptraverse
+)
+apptraverse_embed_distilled_supply(
+  apptraverse_lazy_distilled_load_consumer
+  apptraverse_export_lazy_distilled_graph
+  embedded_distilled_lazy_doc_supply.h
+)
+
+add_test(
+  NAME apptraverse_lazy_distilled_embedded_matrix
+  COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_LIST_DIR}/lazy_distilled_embedded_test.py"
+    --consumer "$<TARGET_FILE:apptraverse_lazy_distilled_load_consumer>"
+)
+set_tests_properties(apptraverse_lazy_distilled_embedded_matrix PROPERTIES
+  TIMEOUT 60
+  LABELS "serialization;distilled"
+)
+
+if(TARGET apptraverse_export_surfaces_distilled_graph)
+  add_executable(apptraverse_surfaces_distilled_load_consumer
+    surfaces_distilled_load_consumer.cpp
+  )
+  target_link_libraries(apptraverse_surfaces_distilled_load_consumer PRIVATE
+    surfaces_demo_presentation
+    apptraverse_surfaces
+    apptraverse
+  )
+  target_include_directories(apptraverse_surfaces_distilled_load_consumer PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+  )
+  apptraverse_embed_surfaces_release_metadata(
+    apptraverse_surfaces_distilled_load_consumer
+    "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json")
+  apptraverse_embed_distilled_supply(
+    apptraverse_surfaces_distilled_load_consumer
+    apptraverse_export_surfaces_distilled_graph
+    embedded_distilled_surfaces_supply.h
+  )
+
+  add_test(
+    NAME apptraverse_surfaces_distilled_embedded_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/surfaces_distilled_load_test.py"
+      --consumer "$<TARGET_FILE:apptraverse_surfaces_distilled_load_consumer>"
+      --config "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json"
+  )
+  set_tests_properties(apptraverse_surfaces_distilled_embedded_matrix PROPERTIES
+    TIMEOUT 90
+    LABELS "serialization;distilled;surfaces"
+  )
+endif()
+
 if(APPTRAVERSE_BUILD_EXAMPLES)
 
 add_executable(apptraverse_shared_node_foundation_test

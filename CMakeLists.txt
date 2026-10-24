@@ -91,6 +91,8 @@ add_library(apptraverse STATIC
   src/runtime_lifecycle.cpp
   src/directory_domain_storage.cpp
   src/overlay_domain_storage.cpp
+  src/embedded_distilled_domain.cpp
+  src/distilled_domain_export.cpp
   src/partitioned_model_domain_storage.cpp
   src/model_persistence.cpp
   src/model_object_proxy.cpp
@@ -224,9 +226,12 @@ endif()
 if(APPTRAVERSE_BUILD_EXAMPLES)
 add_subdirectory(examples/main_window_runtime_demo)
 add_subdirectory(examples/dynamic_objects_demo)
-add_subdirectory(examples/surfaces_demo)
 add_subdirectory(examples/shared_node_demo)
 add_subdirectory(examples/chat_demo)
+endif()
+
+if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)
+  add_subdirectory(examples/surfaces_demo)
 endif()
 
 include(CTest)
