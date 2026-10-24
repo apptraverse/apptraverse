@@ -992,6 +992,10 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
       TestDir("apptraverse_window_catalog_open_close_replay_copy");
   CopyStorageProfile(dir, replay_profile_dir);
 
+  ae::ObjId expected_replay_catalog_id{};
+  ae::ObjId expected_replay_list_id{};
+  std::vector<ae::ObjId> expected_replay_event_ids;
+
   {
     DirectoryDomainStorage replay_storage{replay_profile_dir};
     ae::Domain replay_domain{replay_storage};
@@ -1083,64 +1087,92 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
             catalog_event_ids_before[i]);
     }
 
-    ae::ObjId const cold_catalog_id = replay_catalog->obj_id;
-    ae::ObjId const cold_list_id = replay_catalog->list.id();
-    auto const cold_dir =
-        TestDir("apptraverse_window_catalog_open_close_replay_cold");
-    {
-      DirectoryDomainStorage cold_storage{cold_dir};
-      ShutdownSaveCatalog(*replay_catalog, cold_storage);
-      replay_catalog.Reset();
-    }
-    {
-      DirectoryDomainStorage cold_storage{cold_dir};
-      ae::Domain cold_domain{cold_storage};
-      auto cold_catalog =
-          LoadApplication<WindowCatalog>(cold_domain, catalog_id);
-      LoadPersistentCheckpointIntoCatalog(cold_domain, cold_storage, *cold_catalog,
-                                          cold_dir);
-      CHECK(cold_catalog->obj_id == cold_catalog_id);
-      CHECK(cold_catalog->list.id() == cold_list_id);
-      CheckLiveCatalogChromeLinks(*cold_catalog, cold_catalog_id);
-      CHECK(cold_catalog->list->rows.size() == 2);
-      CHECK(AsHolder(cold_catalog->list->rows[0])->obj_id ==
-            persisted_holder1_id);
-      CHECK(AsHolder(cold_catalog->list->rows[1])->obj_id ==
-            persisted_holder2_id);
-      CHECK(!HasUnloadedByDefault(
-          AsHolder(cold_catalog->list->rows[0])->window.flags()));
-      CHECK(HasUnloadedByDefault(
-          AsHolder(cold_catalog->list->rows[1])->window.flags()));
-      CHECK(cold_catalog->list->selection_index == 1);
-      CHECK(cold_catalog->next_window_number == 3);
-      CHECK(cold_catalog->journal.size() == saved_journal_size);
-      CHECK(!AsHolder(cold_catalog->list->rows[1])->window.is_loaded());
-      cold_catalog.Reset();
-    }
-
-    replay_catalog =
-        LoadApplication<WindowCatalog>(replay_domain, catalog_id);
-    LoadPersistentCheckpointIntoCatalog(replay_domain, replay_storage,
-                                        *replay_catalog, replay_profile_dir);
-    list_container = replay_catalog->list.operator->();
-    CHECK(list_container->TryReplayFromBase());
-    CHECK(replay_catalog->TryReplayFromBase());
-    r1 = AsHolder(replay_catalog->list->rows[0]);
-    r2 = AsHolder(replay_catalog->list->rows[1]);
-
-    replay_catalog->OpenHolderWindow(*r1);
     CHECK(r1->window.is_loaded());
     CHECK(r1->window->x() == 111);
     CHECK(r1->window->y() == 222);
     CHECK(r1->window->client_width() == 333);
     CHECK(r1->window->client_height() == 444);
-    replay_catalog->OpenHolderWindow(*r2);
-    CHECK(r2->window.is_loaded());
-    CHECK(r2->window->x() == 50);
-    CHECK(r2->window->y() == 60);
-    CHECK(r2->window->client_width() == 400);
-    CHECK(r2->window->client_height() == 300);
+
+    expected_replay_catalog_id = catalog_obj_id_before;
+    expected_replay_list_id = list_obj_id_before;
+    expected_replay_event_ids = catalog_event_ids_before;
+
+    ShutdownSaveCatalog(*replay_catalog, replay_storage);
     replay_catalog.Reset();
+  }
+
+  {
+    DirectoryDomainStorage cold_storage{replay_profile_dir};
+    ae::Domain cold_domain{cold_storage};
+    auto cold_catalog =
+        LoadApplication<WindowCatalog>(cold_domain, catalog_id);
+    LoadPersistentCheckpointIntoCatalog(cold_domain, cold_storage, *cold_catalog,
+                                        replay_profile_dir);
+
+    CHECK(cold_catalog->obj_id == expected_replay_catalog_id);
+    CHECK(cold_catalog->base.is_valid());
+    CHECK(cold_catalog->base.is_loaded());
+    CHECK(cold_catalog->base.id() == persisted_base_id);
+    CHECK(cold_catalog->list.is_valid());
+    CHECK(cold_catalog->list.is_loaded());
+    CHECK(cold_catalog->list.id() == expected_replay_list_id);
+    CHECK(cold_catalog->list->obj_id == expected_replay_list_id);
+    CHECK(cold_catalog->list->catalog.is_valid());
+    CHECK(cold_catalog->list->catalog.is_loaded());
+    CHECK(cold_catalog->list->catalog.id() == expected_replay_catalog_id);
+    CHECK(cold_catalog->list->catalog.operator->() == cold_catalog.operator->());
+    CheckLiveCatalogChromeLinks(*cold_catalog, expected_replay_catalog_id);
+
+    CHECK(cold_catalog->list->rows.size() == 2);
+    CHECK(cold_catalog->list->selection_index == 1);
+    CHECK(cold_catalog->selected.is_valid());
+    CHECK(cold_catalog->selected->obj_id == persisted_holder2_id);
+    CHECK(cold_catalog->next_window_number == 3);
+    CHECK(cold_catalog->journal.size() == saved_journal_size);
+    CHECK(expected_replay_event_ids.size() == cold_catalog->journal.size());
+    for (std::size_t i = 0; i < cold_catalog->journal.size(); ++i) {
+      CHECK(cold_catalog->journal[i].event.is_valid());
+      CHECK(cold_catalog->journal[i].event->obj_id ==
+            expected_replay_event_ids[i]);
+    }
+
+    WindowHolder* cold_h1 = AsHolder(cold_catalog->list->rows[0]);
+    WindowHolder* cold_h2 = AsHolder(cold_catalog->list->rows[1]);
+    CHECK(cold_h1->obj_id == persisted_holder1_id);
+    CHECK(cold_h2->obj_id == persisted_holder2_id);
+    CHECK(cold_h1->window.id() == persisted_window1_id);
+    CHECK(cold_h2->window.id() == persisted_window2_id);
+    CHECK(!HasUnloadedByDefault(cold_h1->window.flags()));
+    CHECK(HasUnloadedByDefault(cold_h2->window.flags()));
+    CHECK(cold_h1->window.is_loaded());
+    CHECK(!cold_h2->window.is_loaded());
+    CHECK(!cold_domain.Find(persisted_window2_id));
+    CHECK(cold_h1->window->x() == 111);
+    CHECK(cold_h1->window->y() == 222);
+    CHECK(cold_h1->window->client_width() == 333);
+    CHECK(cold_h1->window->client_height() == 444);
+
+    std::size_t const open_events_before_lazy_open =
+        CountSetWindowCatalogOpenEvents(*cold_catalog, true);
+    cold_catalog->OpenHolderWindow(*cold_h2);
+    CHECK(cold_h2->window.is_loaded());
+    CHECK(cold_h2->window.id() == persisted_window2_id);
+    CHECK(cold_domain.Find(persisted_window2_id));
+    CHECK(cold_h2->window->x() == 50);
+    CHECK(cold_h2->window->y() == 60);
+    CHECK(cold_h2->window->client_width() == 400);
+    CHECK(cold_h2->window->client_height() == 300);
+    CHECK(CountSetWindowCatalogOpenEvents(*cold_catalog, true) ==
+          open_events_before_lazy_open + 1);
+
+    std::size_t const open_events_before_repeat =
+        CountSetWindowCatalogOpenEvents(*cold_catalog, true);
+    cold_catalog->OpenHolderWindow(*cold_h1);
+    CHECK(cold_h1->window.is_loaded());
+    CHECK(CountSetWindowCatalogOpenEvents(*cold_catalog, true) ==
+          open_events_before_repeat);
+
+    cold_catalog.Reset();
   }
 }
 
