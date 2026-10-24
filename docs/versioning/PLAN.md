@@ -21,8 +21,9 @@
 - **Release-lifecycle** (R0→R5, USER/backing, schema S) проверяется **отдельным headless-приложением** с **NullPresenter**, не Surfaces Demo GUI/Win32 lifecycle.
 - **Surfaces Demo** остаётся demo/evolution; **не** oracle для R0–R5 и **не** получает переключение startup на embedded/backing в этой ветке (итерация **06** Surfaces **отменена**).
 - **Константы** (Localization / label strings) живут **в графе рядом с местом использования** (Presenter → Localization → `strings[]`), а не в отдельном `SupplyCatalog`.
-- **Динамические экземпляры** создаются из **prefab-графов** (два prefab одного класса с разными defaults); каждый prefab-backed instance хранит **origin** `instance ObjId → prefab ObjId` (test-only **`PrefabPtr<T>`** + поле `prefab_origin` на Node для persistence/base).
+- **Динамические экземпляры** создаются из **prefab-графов** (два prefab одного класса с разными defaults); **origin** `instance ObjId → prefab ObjId` сериализуется только в каноническом test-only **`PrefabPtr<T>`** (`prefab_id` + instance `ObjPtr`; lazy — flags `ObjPtr`).
 - **Aliases** (Preferences → WindowA, Presenter → Window) — обычные `ObjPtr` / ссылки; **не** второй `PrefabPtr` на тот же instance.
+- **Unknown Event (T18 fixture):** текущий `prefab_release_unknown_*` проверяет fail-closed **`LoadRoot`** при Event ClassId, отсутствующем у старого EXE; **unknown Event внутри `Node::journal`** — отдельный regression, не PASS полного T18.
 - **T18:** отдельная ветка fixture — Event с **неизвестным ClassId** для старого EXE → **явный отказ до изменения USER**; новый EXE повторно загружает payload и журнал.
 
 Механизм build-time embed/distill (**итерация 05**) **сохраняется** и переиспользуется для prefab BACKING в fixture (`apptraverse_prefab_release_*`).

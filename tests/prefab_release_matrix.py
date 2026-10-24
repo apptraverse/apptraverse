@@ -57,8 +57,14 @@ def main():
     parse_ok(rec)
     if rec.get("window_b_loaded"):
         raise CheckFailed("lazy window B loaded early")
-    if int(rec.get("prefab_origin_a", 0)) != 60001:
-        raise CheckFailed("prefab origin mismatch")
+    if int(rec.get("window_a_instance_id", 0)) != 61001:
+        raise CheckFailed("window A instance id mismatch")
+    if int(rec.get("window_a_prefab_id", 0)) != 60001:
+        raise CheckFailed("window A prefab id mismatch")
+    if int(rec.get("window_b_instance_id", 0)) != 61002:
+        raise CheckFailed("window B instance id mismatch")
+    if int(rec.get("window_b_prefab_id", 0)) != 60001:
+        raise CheckFailed("window B prefab id mismatch")
     if rec.get("alias_ok") != True:
         raise CheckFailed("preferences alias mismatch")
     if int(rec.get("width_a", 0)) != 640:
@@ -71,6 +77,13 @@ def main():
     if rec.get("user_s1_a") != True:
         raise CheckFailed("USER S1 not written after event")
 
+    code, rec, _ = run(args.r2, state, "r2-get-posx-a")
+    parse_ok(rec)
+    if int(rec.get("posx_a", 0)) != 99:
+        raise CheckFailed("USER override not restored in new process")
+    if rec.get("user_s1_a") != True:
+        raise CheckFailed("USER S1 missing after override in new process")
+
     code, rec, _ = run(args.r2, state, "r2-load-lazy-b")
     parse_ok(rec)
     if int(rec.get("posx_b", 0)) != 10:
@@ -82,11 +95,8 @@ def main():
     parse_ok(rec)
     if rec.get("replay_idempotent") != True:
         raise CheckFailed("replay not idempotent")
-    if rec.get("base_prefab_origin_ok") != True:
-        raise CheckFailed("base prefab origin gap")
-
-    code, rec, _ = run(args.r2, state, "direct-load-refuse")
-    parse_ok(rec)
+    if rec.get("base_prefab_chain_ok") != True:
+        raise CheckFailed("instance base / prefab base chain gap")
 
     unknown_state = root / "unknown"
     unknown_state.mkdir()

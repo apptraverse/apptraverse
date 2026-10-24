@@ -41,6 +41,21 @@ ae::ObjPtr<ae::Obj> CloneWorkspaceFromPrefabs(ae::Domain& domain,
 std::uint32_t LazyLoadCount();
 void ResetLazyLoadCount();
 
+class PrefabWindow;
+class WorkspaceRoot;
+
+struct PrefabBackedLoadContext {
+  ae::Domain& domain;
+  ae::RamDomainStorage const& backing;
+  DirectoryDomainStorage const& user;
+};
+
+ae::Ptr<PrefabWindow> MaterializePrefabBackedWindow(
+    PrefabPtr<PrefabWindow> const& canonical, PrefabBackedLoadContext const& ctx);
+
+bool ValidateWorkspaceCanonicalPrefabPtrs(WorkspaceRoot const& ws,
+                                          char const** error_out);
+
 int RunPrefabReleaseFixture(int argc, char** argv);
 
 }  // namespace apptraverse::test::prefab_release
