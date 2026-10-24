@@ -1,6 +1,4 @@
-#include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <set>
@@ -981,138 +979,72 @@ void TestSupplyConstantForceMaterializeDynamicOnly() {
   }
 }
 
-struct ChildRunResult {
-  int exit_code;
-  std::string output;
-};
+void TestSupplyConstantInMemoryMutationSaveSkipsUserLayer() {
+  std::filesystem::path const user_root =
+      std::filesystem::temp_directory_path() /
+      "apptraverse_supply_const_mutated_save_user";
+  std::filesystem::remove_all(user_root);
 
-ChildRunResult RunChildProcess(char const* exe_path, char const* mode) {
-  std::string const cmd =
-      std::string("\"") + exe_path + "\" " + mode + " 2>&1";
-  ChildRunResult result{};
-  FILE* pipe = _popen(cmd.c_str(), "r");
-  if (pipe == nullptr) {
-    result.exit_code = -1;
-    return result;
-  }
-  char buffer[256];
-  while (std::fgets(buffer, sizeof buffer, pipe) != nullptr) {
-    result.output += buffer;
-  }
-  result.exit_code = _pclose(pipe);
-  return result;
-}
-
-[[noreturn]] void ChildAbortAfterMutation(char const* mode) {
   ae::RamDomainStorage backing;
   ae::ObjId const const_id{88500};
   std::set<ae::ObjId> const_ids{const_id};
-  OverlayDomainStorage overlay{backing, std::move(const_ids)};
   ae::DomainQuery const v0{const_id, OverlayVersionedWindow::kClassId, 0};
 
-  if (std::strcmp(mode, "child_write_shorter") == 0) {
-    WriteBytes(backing, v0, {1, 2, 3, 4});
-    WriteBytes(overlay, v0, {9, 9});
-  } else if (std::strcmp(mode, "child_write_longer") == 0) {
-    WriteBytes(backing, v0, {1, 2});
-    WriteBytes(overlay, v0, {9, 9, 9, 9, 9});
-  } else if (std::strcmp(mode, "child_write_equal_len") == 0) {
-    WriteBytes(backing, v0, {1, 2, 3, 4});
-    WriteBytes(overlay, v0, {9, 9, 9, 9});
-  } else if (std::strcmp(mode, "child_save_mutate") == 0) {
-    {
-      ae::Domain domain{backing};
-      auto created = OverlayVersionedWindow::ptr::Create(
-          ae::CreateWith{domain}.with_id(const_id));
-      ae::Ptr<OverlayVersionedWindow> window = created.Load();
-      window->width = 10;
-      window->posx = 20;
-      ae::DomainGraph graph{&domain};
-      CHECK(graph.SaveRoot(window, const_id).IsOk());
-    }
-    ae::Domain domain{overlay};
-    ae::DomainGraph load_graph{&domain};
-    ae::Ptr<ae::Obj> loaded;
-    CHECK(load_graph.LoadRoot(const_id, loaded).IsOk());
-    ae::Ptr<OverlayVersionedWindow> window{loaded};
-    window->width = 11;
-    ae::DomainGraph save_graph{&domain};
-    CHECK(save_graph.SaveRoot(window, const_id).IsOk());
-  } else {
-    std::cerr << "unknown child mode\n";
-    std::exit(2);
-  }
-  std::exit(0);
-}
-
-void TestSupplyConstantMissingApplicationLayerRejected(char const* exe_path) {
-  ChildRunResult const run =
-      RunChildProcess(exe_path, "child_missing_empty_app_layer");
-  CHECK(run.output.find("SUPPLY_CONST_VIOLATION") != std::string::npos);
-  CHECK(run.output.find("missing backing layer") != std::string::npos);
-  CHECK(run.exit_code != 0);
-}
-
-void TestSupplyConstantMutationRejected(char const* exe_path) {
-  for (char const* mode :
-       {"child_write_equal_len", "child_write_shorter", "child_write_longer",
-        "child_save_mutate"}) {
-    ChildRunResult const run = RunChildProcess(exe_path, mode);
-    CHECK(run.output.find("SUPPLY_CONST_VIOLATION") != std::string::npos);
-    CHECK(run.exit_code != 0);
-  }
-}
-
-void TestSupplyConstantRemoveRejected(char const* exe_path) {
-  ChildRunResult const run = RunChildProcess(exe_path, "child_remove");
-  CHECK(run.output.find("SUPPLY_CONST_VIOLATION") != std::string::npos);
-  CHECK(run.exit_code != 0);
-}
-
-[[noreturn]] void RunChildMode(char const* mode) {
-  if (std::strcmp(mode, "child_missing_empty_app_layer") == 0) {
-    ae::RamDomainStorage backing;
-    ae::ObjId const const_id{88701};
-    std::set<ae::ObjId> const_ids{const_id};
-    ae::DomainQuery const app_v0{const_id, OverlayEmptyBodyConstant::kClassId, 0};
-    {
-      ae::Domain domain{backing};
-      auto created = OverlayEmptyBodyConstant::ptr::Create(
-          ae::CreateWith{domain}.with_id(const_id));
-      ae::DomainGraph graph{&domain};
-      CHECK(graph.SaveRoot(created.Load(), const_id).IsOk());
-    }
-    StripApplicationLayerZero(backing, const_id,
-                              OverlayEmptyBodyConstant::kClassId);
-    CHECK(backing.Load(app_v0).result == ae::DomainLoadResult::kEmpty);
-    ae::RamDomainStorage::ObjClassData const backing_before = backing.state;
-    OverlayDomainStorage overlay{backing, std::move(const_ids)};
-    ae::Domain domain{overlay};
-    auto created = OverlayEmptyBodyConstant::ptr::Create(
+  {
+    ae::Domain domain{backing};
+    auto created = OverlayVersionedWindow::ptr::Create(
         ae::CreateWith{domain}.with_id(const_id));
-    ae::DomainGraph save_graph{&domain};
-    CHECK(save_graph.SaveRoot(created.Load(), const_id).IsOk());
-    CHECK(backing.state == backing_before);
+    ae::Ptr<OverlayVersionedWindow> window = created.Load();
+    window->width = 10;
+    window->posx = 20;
+    ae::DomainGraph graph{&domain};
+    CHECK(graph.SaveRoot(window, const_id).IsOk());
   }
-  if (std::strcmp(mode, "child_remove") == 0) {
-    ae::RamDomainStorage backing;
-    ae::ObjId const const_id{88600};
-    OverlayDomainStorage overlay{backing, std::set<ae::ObjId>{const_id}};
-    overlay.Remove(const_id);
+
+  ae::RamDomainStorage::ObjClassData const backing_before = backing.state;
+
+  DirectoryDomainStorage user_storage{user_root};
+  OverlayDomainStorage overlay{user_storage, backing, const_ids};
+  ae::Domain domain{overlay};
+  ae::DomainGraph load_graph{&domain};
+  ae::Ptr<ae::Obj> loaded;
+  CHECK(load_graph.LoadRoot(const_id, loaded).IsOk());
+  ae::Ptr<OverlayVersionedWindow> window{loaded};
+  window->width = 11;
+  user_storage.BeginSaveSession();
+  ae::DomainGraph save_graph{&domain};
+  CHECK(save_graph.SaveRoot(window, const_id).IsOk());
+  CHECK(!user_storage.SaveSessionHadFailure());
+  CHECK(!DirectoryDomainStorageLayerFileExists(user_root, v0));
+  CHECK(backing.state == backing_before);
+}
+
+void TestSupplyConstantRemoveIsNoOpOnBacking() {
+  ae::RamDomainStorage backing;
+  ae::ObjId const const_id{88600};
+  std::set<ae::ObjId> const_ids{const_id};
+  ae::DomainQuery const v0{const_id, OverlayVersionedWindow::kClassId, 0};
+
+  {
+    ae::Domain domain{backing};
+    auto created = OverlayVersionedWindow::ptr::Create(
+        ae::CreateWith{domain}.with_id(const_id));
+    ae::Ptr<OverlayVersionedWindow> window = created.Load();
+    window->width = 5;
+    ae::DomainGraph graph{&domain};
+    CHECK(graph.SaveRoot(window, const_id).IsOk());
   }
-  ChildAbortAfterMutation(mode);
+
+  OverlayDomainStorage overlay{backing, const_ids};
+  overlay.Remove(const_id);
+  CHECK(backing.Load(v0).result == ae::DomainLoadResult::kLoaded);
 }
 
 }  // namespace
 }  // namespace apptraverse::test
 
-int main(int argc, char** argv) {
+int main() {
   apptraverse::EnsureObjectRegistration();
-  if (argc >= 2) {
-    apptraverse::test::RunChildMode(argv[1]);
-  }
-  std::filesystem::path const exe_path =
-      std::filesystem::absolute(argv[0]).string();
   apptraverse::test::TestOverlayPrefersOverlayAndFallsBackToBacking();
   apptraverse::test::TestSameClassVersionPrecedence();
   apptraverse::test::TestNativeVersionedObjectUsesMixedSources();
@@ -1125,10 +1057,8 @@ int main(int argc, char** argv) {
   apptraverse::test::TestSupplyConstantLazyNotLoadedOnSave();
   apptraverse::test::TestSupplyConstantPresentEmptyBackingLayer();
   apptraverse::test::TestSupplyConstantForceMaterializeDynamicOnly();
-  apptraverse::test::TestSupplyConstantMissingApplicationLayerRejected(
-      exe_path.string().c_str());
-  apptraverse::test::TestSupplyConstantMutationRejected(exe_path.string().c_str());
-  apptraverse::test::TestSupplyConstantRemoveRejected(exe_path.string().c_str());
+  apptraverse::test::TestSupplyConstantInMemoryMutationSaveSkipsUserLayer();
+  apptraverse::test::TestSupplyConstantRemoveIsNoOpOnBacking();
   std::cout << "overlay_domain_storage_test OK\n";
   return 0;
 }

@@ -4,8 +4,6 @@
 
 #include <cstdlib>
 
-#include <iostream>
-
 #include <set>
 
 #include <utility>
@@ -67,16 +65,6 @@ void FailIfWriteError(ae::seri::SeriResult const& result) {
     std::abort();
 
   }
-
-}
-
-
-
-[[noreturn]] void AbortSupplyConstantViolation(char const* reason) {
-
-  std::cerr << "SUPPLY_CONST_VIOLATION: " << reason << '\n';
-
-  std::abort();
 
 }
 
@@ -170,92 +158,19 @@ class BackingComparedStorageWriter final : public ae::IDomainStorageWriter {
 
 
 
-class SupplyConstantStorageWriter final : public ae::IDomainStorageWriter {
-
+// Supply-constant layers are never persisted to USER; serialized bytes are not
+// compared to BACKING (mutation correctness is a development-time rule).
+class SupplyConstantDiscardWriter final : public ae::IDomainStorageWriter {
  public:
-
-  SupplyConstantStorageWriter(ae::DomainQuery query, bool backing_layer_present,
-
-                              ae::ObjectData backing_bytes)
-
-      : query_{std::move(query)},
-
-        backing_layer_present_{backing_layer_present},
-
-        backing_bytes_{std::move(backing_bytes)},
-
-        new_bytes_{} {}
-
-
-
-  ~SupplyConstantStorageWriter() override { CommitOrAbort(); }
-
-
-
   ae::seri::SeriResult Write(ae::seri::SizeWriteTag data) override {
-
-    auto const u_size = static_cast<std::uint32_t>(data.size);
-
-    return Write(ae::seri::DataTag{u_size});
-
+    (void)data;
+    return ae::Ok{ae::seri::good};
   }
-
-
 
   ae::seri::SeriResult Write(ae::seri::DataWriteTag data) override {
-
-    if (failed_) {
-
-      return ae::Error{ae::seri::write_error};
-
-    }
-
-    auto const* begin = static_cast<std::uint8_t const*>(data.data);
-
-    new_bytes_.insert(new_bytes_.end(), begin, begin + data.size);
-
+    (void)data;
     return ae::Ok{ae::seri::good};
-
   }
-
-
-
- private:
-
-  void CommitOrAbort() {
-
-    if (failed_) {
-
-      return;
-
-    }
-
-    if (!backing_layer_present_) {
-
-      AbortSupplyConstantViolation("missing backing layer for supply constant");
-
-    }
-
-    if (new_bytes_ != backing_bytes_) {
-
-      AbortSupplyConstantViolation("serialized bytes differ from backing");
-
-    }
-
-  }
-
-
-
-  ae::DomainQuery query_;
-
-  bool backing_layer_present_;
-
-  ae::ObjectData backing_bytes_;
-
-  ae::ObjectData new_bytes_;
-
-  bool failed_{false};
-
 };
 
 
@@ -323,25 +238,7 @@ std::unique_ptr<ae::IDomainStorageWriter> OverlayDomainStorage::Store(
     ae::DomainQuery const& query) {
 
   if (IsSupplyConstant(query.id)) {
-
-    ae::DomainLoad backing_load = backing_.Load(query);
-
-    bool const backing_layer_present =
-
-        backing_load.result == ae::DomainLoadResult::kLoaded;
-
-    ae::ObjectData backing_bytes;
-
-    if (backing_layer_present) {
-
-      backing_bytes = ReadLoadedLayerBytes(std::move(backing_load));
-
-    }
-
-    return std::make_unique<SupplyConstantStorageWriter>(
-
-        query, backing_layer_present, std::move(backing_bytes));
-
+    return std::make_unique<SupplyConstantDiscardWriter>();
   }
 
 
@@ -441,9 +338,7 @@ ae::DomainLoad OverlayDomainStorage::Load(ae::DomainQuery const& query) {
 void OverlayDomainStorage::Remove(ae::ObjId const& obj_id) {
 
   if (IsSupplyConstant(obj_id)) {
-
-    AbortSupplyConstantViolation("Remove on supply constant ObjId");
-
+    return;
   }
 
   writable_overlay_.Remove(obj_id);

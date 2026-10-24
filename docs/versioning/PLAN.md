@@ -127,7 +127,7 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 
 ## Решение итерации 04 — контракт const vs dynamic
 
-**Статус:** контракт **зафиксирован**; **storage-enforcement** в [`OverlayDomainStorage`](../../include/apptraverse/overlay_domain_storage.h) — **реализован** (набор `supply_constant_ids` на время жизни storage); **контроль мутаций модели** (до Apply/events) — **ещё нет**. Итерация **04 IN_PROGRESS**. Источник набора ObjId сейчас — вызывающий код/fixture; позже — описание графа (**05+**). Пакет метаданных — **07**; resolver R — **08**. Аудит фактов — **01C** ([PROGRESS §01C](./PROGRESS.md#итерация-01c--константность-и-ссылки)).
+**Статус:** контракт **зафиксирован**; **storage** в [`OverlayDomainStorage`](../../include/apptraverse/overlay_domain_storage.h) — **реализован** (`supply_constant_ids`: Load/Enumerate с BACKING, тела const **не** пишутся в USER, в т.ч. `force_materialize`; **без** сравнения сериализованных байтов с BACKING и **без** runtime-отказа Event/Apply/Commit). **Контроль корректности Events**, меняющих объекты поставки, — **обязанность разработки**: статический разбор Cursor ([`.cursor/rules/apptraverse-coding-agent.mdc`](../../.cursor/rules/apptraverse-coding-agent.mdc)) и code review; **не** формальное доказательство неизменяемости. Итерация **04 PASS** *(storage + dev review)*; источник ролей в продукте — **05+** (manifest/embedded graph). Пакет метаданных — **07**; resolver R — **08**. Аудит фактов — **01C** ([PROGRESS §01C](./PROGRESS.md#итерация-01c--константность-и-ссылки)).
 
 ### Идентичность и классификация
 
@@ -146,8 +146,8 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 | **Load** | Слои читаются из **backing** выбранной поставки R (resolver — **08**). Отсутствие обязательного слоя константы в backing — **ошибка загрузки**, не подстановка runtime-default. | Сначала **USER** (writable overlay); при отсутствии — fallback на начальное состояние в **BACKING** ([`OverlayDomainStorage::Load`](../../src/overlay_domain_storage.cpp)). |
 | **Save (обычный)** | **Собственные** сериализованные слои константы **не** записываются в USER. **Ссылки** (`ObjId` + flags) на константу в USER **допустимы** — referent не копируется. | Пользовательские изменения **пишутся в USER**. USER имеет **приоритет** над backing при Load. |
 | **Save + совпадение с backing** | Нет USER-слоя для константы (не создавать «тихий» skip вместо политики). Текущий overlay skip unchanged ([`BackingComparedStorageWriter`](../../src/overlay_domain_storage.cpp)) — механизм **динамики**, не определение const. | Если USER-слой уже есть и байты снова равны backing — **USER override не удаляется** (01B). |
-| **Изменение в runtime** | Попытка изменить состояние константы (в т.ч. через mutable alias) **отклоняется явно** (ошибка / отказ операции), а не «проглатывается» при Save. | Изменения через модель/events допустимы; persist в USER. |
-| **Граница «неизменяемости»** | Запрет записи слоёв константы в USER **не** объявляет полную runtime-immutability: отдельно фиксируется **граница контроля** — политика storage/serializer + отказ мутаций на уровне модели для роли «константа»; C++ const на указателе **не** считается enforcement. | — |
+| **Изменение в runtime** | Модель меняется **только через Events**; Events **не должны** менять const-объекты — проверяется при разработке (Cursor/review), **не** runtime-валидацией в Node/Commit/Apply. Save **не** материализует тело const в USER даже при in-memory мутации. | Изменения через модель/events допустимы; persist в USER. |
+| **Граница «неизменяемости»** | Storage не пишет тела const в USER; это **не** полная runtime-immutability и **не** доказательство корректности Events. C++ const на указателе **не** считается enforcement. | — |
 
 ### Ссылки и обход графа
 
@@ -167,8 +167,8 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 | Зона | Файлы | Будущая ответственность |
 | --- | --- | --- |
 | **Роль объекта** | Описание поставляемого графа (**05+**); до появления manifest — таблица ролей по `ObjId` при bootstrap/load. Demo: тексты [`UiLocalizationString`](../../include/apptraverse/ui/ui_localization_string.h) / вложенные [`UiString`](../../include/apptraverse/ui/ui_string.h) — **кандидаты** на константы поставки; [`UiLocaleSettings::language_index_`](../../include/apptraverse/ui/ui_locale_settings.h) — **динамика** пользователя. **Не** объявлять все `UiString` константными по типу. |
-| **Контроль изменения** | События/Apply (напр. [`SetUiLocalizationSlotUtf8Event`](../../src/ui/ui_localization_string.cpp)) — для **dynamic**; для **const** — отказ до записи в объект или до `SaveRoot`. |
-| **Запрет USER-записи слоёв** | **Реализовано:** `Store` проверяет роль **до** `force_materialize`; `SupplyConstantStorageWriter` сравнивает байты с backing, **не** пишет USER; расхождение / отсутствие backing при ненулевой сериализации → `SUPPLY_CONST_VIOLATION` + abort. |
+| **Контроль изменения** | **Dev-time:** Cursor/review при изменении Event/Apply (см. coding-agent rules); **не** добавлять runtime CanApply/Env/abort для const. |
+| **Запрет USER-записи слоёв** | **Реализовано:** `Store` для const → discard writer, USER не создаётся (**до** ветки `force_materialize` для dynamic). |
 | **Ссылки и обход** | **Без изменений Seri:** штатный SaveRoot; политика storage на **собственные** слои ObjId; dynamic-потомки через const-контейнер сохраняются ([`overlay_domain_storage_test.cpp`](../../tests/overlay_domain_storage_test.cpp)). |
 | **Load / Enumerate** | **Реализовано:** const — только backing; USER/tombstone не перекрывает. Dynamic — прежний overlay-приоритет. |
 
@@ -179,7 +179,7 @@ Wire-формат и новый GraphManager **не** добавлялись.
 Реализовано в [`overlay_domain_storage_test.cpp`](../../tests/overlay_domain_storage_test.cpp) (SaveRoot/LoadRoot, Debug + Release):
 
 1. Save динамического корня с ссылкой на константу: в USER — **ссылка**, **нет** файлов слоёв тела константы; BACKING неизменён.
-2. Mutable alias (`T*` / событие) на const `ObjId` — **явный отказ**, без появления USER-слоя константы.
+2. In-memory mutation / Event на const `ObjId` + SaveRoot — **нет USER-слоя** тела const (BACKING неизменён); корректность Event — dev review, не runtime abort.
 3. Lazy const referent: Save **без** предварительного Load тела константы (ссылка сохраняется).
 4. Два `UiString` с разными `ObjId`: один const, один dynamic — обе роли на одном типе.
 5. `force_materialize`: **не** создаёт USER-слой для const body; **по-прежнему** материализует dynamic historical `Node::base` / journal сценарии (расширение overlay/fixture tests).
@@ -353,8 +353,8 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 - **Цель:** явный контракт const vs dynamic (не только Ptr scope).
 - **Область:** docs + `OverlayDomainStorage` supply constants + overlay tests.
-- **Результат:** раздел [Решение итерации 04](#решение-итерации-04--контракт-const-vs-dynamic); storage PASS; model Apply — TODO в 04.
-- **T:** T02, T05 *(подготовка)* | **Зав.:** 01, 02, 03 | **Статус:** IN_PROGRESS *(storage enforcement; Surfaces/graph manifest — 05+)*
+- **Результат:** раздел [Решение итерации 04](#решение-итерации-04--контракт-const-vs-dynamic); storage PASS; dev-time Event review (Cursor rule); **без** runtime const checks в Node/Event.
+- **T:** T02, T05 *(подготовка)* | **Зав.:** 01, 02, 03 | **Статус:** PASS *(storage + dev review; manifest/Surfaces wiring — 05+)*
 
 ### 05 — Полная дистилляция с lazy
 

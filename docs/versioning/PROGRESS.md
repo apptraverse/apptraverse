@@ -9,7 +9,7 @@
 
 **Baseline SHA (верифицированные fixtures / старт tracking):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
-**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, resolver и полный lifecycle **не реализованы** в коде. **01–02** PASS *(doc)*; **03** PASS *(probe + CTest)*; **04** **IN_PROGRESS** — [контракт §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic) + **storage enforcement** в `OverlayDomainStorage`; контроль мутаций модели **нет**. **Следующий шаг:** завершить 04 (model) / **05** (graph). **T01–T18** не PASS.
+**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, resolver и полный lifecycle **не реализованы** в коде. **01–02** PASS *(doc)*; **03** PASS *(probe + CTest)*; **04** **PASS** *(storage + dev-time Event review)* — [контракт §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic); runtime-проверки const **отменены**; Cursor rule для Events/Apply. **05+** TODO (manifest/graph). **T01–T18** не PASS.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -39,7 +39,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 - Единый **Release R** и `active-release` *(имена layout — **02 PASS** doc; resolver — **08**)*
 - Реализация на диске **`state/user`**, **`state/<R>/`**, **`state/active-release`** *(решение **02**; миграция Surfaces `--state-dir` — **06**+)*
 - Официальные **бинарные дельты** констант (offline → `state/R`)
-- Enforcement **const vs dynamic** в storage (`supply_constant_ids`) — **частично** [PLAN §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic); model/events — **04 TODO**; факты — [01C](#итерация-01c--константность-и-ссылки)
+- **04 PASS:** storage `supply_constant_ids` + dev-time Event review [PLAN §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic); без runtime const checks; факты — [01C](#итерация-01c--константность-и-ссылки)
 - **Метаданные** R в production Surfaces EXE и полный embedded graph *(probe + CMake generate — **03 PASS**; Surfaces wiring — **05+**)*
 - Полный **lifecycle** R0→R5→R0→R5 в одном matrix (**T01–T08**, **T15** и связанные)
 - Пошаговый **откат** и повторное обновление (**T07**, **T08**)
@@ -203,7 +203,8 @@ SHA последних связанных коммитов на baseline: `19d7d
 - **2026-10-23** — **02:** layout каталогов и различие R/S/EXE в [PLAN.md](./PLAN.md); **02 PASS** (doc only); срез документов **`f27617a`**; код/миграция/`--state-dir` не менялись; тесты не запускались (SHA — commit этого изменения).
 - **2026-10-23** — **03:** `release.json`, CMake generate → `surfaces_embedded_release.h`, `apptraverse_release_metadata_probe` (+ alt/dual/isolated + invalid-config WILL_FAIL); Surfaces startup не менялся; **03 PASS**; Debug + Release `ctest -R release_metadata` 9/9; push — **`c139267`**.
 - **2026-10-23** — **04 (doc):** нормативный контракт в [PLAN §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic); срез **`b5d6f5a`**; **`6969ad2`** link fix (SHA — отдельные commits).
-- **2026-10-23** — **04 (storage):** `OverlayDomainStorage` supply constants + overlay tests; **04 IN_PROGRESS**; Debug/Release overlay + model_persistence; push — SHA commit ниже.
+- **2026-10-23** — **04 (storage):** `OverlayDomainStorage` supply constants + overlay tests; push — `3cf56cd`.
+- **2026-10-23** — **04 (policy):** runtime const-mutation checks **отменены**; storage discard-only для const USER; Cursor rule Events; **04 PASS**; Debug/Release overlay + model_persistence; push — SHA commit ниже.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05+** distill/enforcement; **06+** USER на диске.)*
 
@@ -215,4 +216,4 @@ SHA последних связанных коммитов на baseline: `19d7d
 
 **Итог (doc):** идентичность по `ObjId`, Load/Save, ссылки/lazy, `force_materialize` — [PLAN §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic).
 
-**Итог (код):** [`OverlayDomainStorage`](../../include/apptraverse/overlay_domain_storage.h) — опциональный `std::set<ae::ObjId> supply_constant_ids`; Load/Enumerate/Store/Remove для const; тесты supply-constant в [`overlay_domain_storage_test.cpp`](../../tests/overlay_domain_storage_test.cpp). **Не сделано:** отказ мутаций до Save (T* / events), Surfaces wiring, manifest. **T01–T18:** не PASS. **T16/T17:** не решены.
+**Итог (код):** [`OverlayDomainStorage`](../../include/apptraverse/overlay_domain_storage.h) — `supply_constant_ids`; const Load/Enumerate с BACKING; Store discard (USER не для тел const); тесты в [`overlay_domain_storage_test.cpp`](../../tests/overlay_domain_storage_test.cpp). **Runtime const-mutation checks:** не делаются (архитектурное решение); **Cursor** проверяет Events при изменении кода. **Не сделано:** Surfaces/manifest wiring (**05+**). **T01–T18:** не PASS. **T16/T17:** не решены.

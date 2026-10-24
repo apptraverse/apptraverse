@@ -14,8 +14,9 @@ namespace apptraverse {
 // bytes differ from backing; unchanged layers are not materialized in USER.
 // Existing USER layers are always written through the writable storage.
 //
-// Optional supply_constant_ids: ObjIds whose own layers are read only from
-// backing and never persisted to USER (see docs/versioning PLAN §04).
+// Optional supply_constant_ids: ObjIds whose own layers load from backing only
+// and are never persisted to USER (including force_materialize). Event/model
+// correctness for supply constants is enforced at development time, not here.
 class OverlayDomainStorage final : public ae::IDomainStorage {
  public:
   explicit OverlayDomainStorage(ae::IDomainStorage& backing);

@@ -174,6 +174,33 @@ After every finished iteration: commit and push the current working branch. Do n
 
 Do not change `main`, merge, or rewrite published history without an explicit request.
 
+## Supply constants vs dynamic objects (Events only)
+
+The model changes **only through Events**. Supply-constant objects must not be
+mutated by Events or Apply code you add or change.
+
+`OverlayDomainStorage` (`include/apptraverse/overlay_domain_storage.h`)
+decides **where layers load and save** (const bodies stay on BACKING, not USER).
+It does **not** validate Event correctness at runtime. Do **not** add runtime
+const checks in `Node`, `Commit`, `Apply`, `Domain`, or `ae::Env`.
+
+When you create or modify an Event, `Apply`, or any other model mutation path:
+
+1. Identify every object and field whose persisted state would change.
+2. From the supplied graph description (fixture, PLAN/PROGRESS, distill/manifest
+   docs when present), classify each affected `ObjId` as supply-constant or
+   dynamic. One C++ type can be both roles on different instances.
+3. Follow nested references and aliases (`ObjPtr`, `ObjectLink`, shared
+   `ObjId`), not only the Event’s primary target type.
+4. **Reject** changes that mutate a supply-constant object. Fix the source;
+   do not add runtime guards instead.
+5. If you cannot classify an object statically, say so explicitly and do not
+   treat the review as complete.
+
+Check direct assignments and methods that change materialized state. Cursor
+review and human code review are the enforcement boundary; they are not a formal
+immutability proof.
+
 ## No hidden refactors
 
 Keep each iteration small and reviewable. Do not “fix” neighboring architecture in passing. If you find a separate problem: record it in `plan.md` / `Progress.md` as TODO and leave it for a later iteration.
