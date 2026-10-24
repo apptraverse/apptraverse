@@ -5,7 +5,7 @@
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 
-#include "apptraverse/ui/ui_window.h"
+#include "apptraverse/ui/ui_presented_window.h"
 
 namespace apptraverse::ui {
 
@@ -13,9 +13,9 @@ class SetUiDesktopWindowFrameEvent;
 class ReportUiDesktopWindowFrameFromNativeEvent;
 class RequestUiDesktopWindowFrameEvent;
 
-class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiWindow> {
+class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiPresentedWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiDesktopWindow",
-                           UiDesktopWindow, UiWindow, 0)
+                           UiDesktopWindow, UiPresentedWindow, 0)
 
  protected:
   UiDesktopWindow() : frame_request_pending_publication_{false} {}

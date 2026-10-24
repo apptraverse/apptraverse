@@ -4169,35 +4169,31 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - MinSizeRel win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 335872 bytes.
 
 ### Application framework extraction / headless contract
-- **Baseline**: **`fa2ebe0e310bb5fe4b4de7960a9dda788ec336ee`**
+- **Baseline (pre-step)**: **`b18cf9db94c237ce6c5e008e1626e8b7a100a6d6`**
 - **WindowCatalog** remains the reference implementation for Events, mirrors,
-  localization, lazy windows, and desktop frame paths.
-- The five architectural invariants (§1.1 in root **`plan.md`**) are partially
-  covered by existing model/Win32 tests; a single platform-independent contract
-  test did not exist yet.
+  localization, lazy windows, and desktop frame paths; **`CatalogWindow.window_presenter`**
+  / title duplication is **unchanged** until the next step (migrate catalog onto
+  **`UiPresentedWindow::presenter`**).
 - **Distillation / versioning** are intentionally out of scope on this branch
   (see **`integration/serialization-surfaces`**).
-- **Next gate**: **`apptraverse_application_contract_headless_test`**
-  (`tests/application_contract_headless_test.cpp`) — RamDomainStorage, separate
-  model/UI Domains, real publication and presenter lifecycle, test-only graph
-  (`ContractApplicationRoot`, `ContractWindow`, `HeadlessDesktopWindowPresenter`).
-- **`UiPresentedWindow`** is planned only; not implemented in this step.
-- After the headless gate passes, first production refactor:
-  **`UiPresentedWindow`** (no title/locale/frame on window node) + migrate
-  **`UiDesktopWindow`**.
-- **Production tweak**: `ApplyUiDesktopFrameRequestPresentation` in
-  `object_serialization.cpp` now matches any `UiDesktopWindowPresenter`
-  (GenerationDistance), not only Win32 desktop presenter; sidecar apply runs on
-  all platforms.
-- **Release verify** (2026-10-24, **`build-presenter-decomp-msvc-rel`**):
-  focused 7-test run **PASS** — `apptraverse_application_contract_headless_test`,
+- **Hierarchy** (production): `UiWindow` → **`UiPresentedWindow`** (`presenter` only,
+  v0) → **`UiDesktopWindow`** (frame Events unchanged; **`UiDesktopWindow::kClassId`**
+  unchanged). **`UiWindowPresenter`** moved to **`include/apptraverse/ui/ui_window_presenter.h`**
+  (title/locale stay on presenter).
+- **Headless contract graph**: **`ContractApplicationRoot`** owns
+  **`presented_window`** only; presenter is reached via
+  **`presented_window->presenter`** with window↔presenter wiring at create time.
+  **No post-load repair** of presenter/window/title/locale after reopen.
+- **Production tweak** (prior commit on branch): `ApplyUiDesktopFrameRequestPresentation`
+  matches any `UiDesktopWindowPresenter` (GenerationDistance), not only Win32.
+- **Release verify** (2026-10-24, **`build-b18-msvc-rel`**, post-UiPresentedWindow):
+  all **7** CTests **PASS** — `apptraverse_application_contract_headless_test`,
   `apptraverse_ui_desktop_window_geometry_test`,
-  `apptraverse_node_local_commit_journal_scaling_test`,
-  `apptraverse_ui_edit_box_headless_test`,
-  `apptraverse_ui_control_materialization_test`,
-  `apptraverse_presenter_graph_persistence_test`,
-  `apptraverse_window_catalog_model_test`.
-- **MinSizeRel verify** (2026-10-24, **`build-presenter-decomp-msvc-minsizerel`**):
-  same 7-test run **PASS**.
+  `apptraverse_window_catalog_model_test`,
+  `apptraverse_window_catalog_win32_acceptance_test`,
+  `apptraverse_win_ui_native_push_button_test`,
+  `apptraverse_presenter_win_desktop_frame_sync_test`,
+  `apptraverse_win_ui_command_routing_test`.
+- **MinSizeRel verify** (2026-10-24, **`build-b18-msvc-minsizerel`**): same **7** tests **PASS**.
 - **`apptraverse_application_contract_headless_test`**: links only `apptraverse`
-  (no `user32`/`gdi32`, no `surfaces_demo` / WindowCatalog model).
+  (dumpbin: no `user32`/`gdi32`; no `surfaces_demo` / WindowCatalog link).

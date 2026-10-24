@@ -2,6 +2,7 @@
 #include <deque>
 #include <iostream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
@@ -13,6 +14,7 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_desktop_window.h"
+#include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -116,24 +118,23 @@ class ContractApplicationRoot : public NodeFor<ContractApplicationRoot> {
  public:
   explicit ContractApplicationRoot(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(presented_window), AE_MMBR(window_presenter),
-                    AE_MMBR(locale), AE_MMBR(localized_title), AE_MMBR(marker),
+  AE_OBJECT_REFLECT(AE_MMBR(presented_window), AE_MMBR(locale),
+                    AE_MMBR(localized_title), AE_MMBR(marker),
                     AE_MMBR(presented_open))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, presented_window, window_presenter, locale, localized_title,
-        marker, presented_open);
+    dnv(base_, presented_window, locale, localized_title, marker,
+        presented_open);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, presented_window, window_presenter, locale, localized_title,
-        marker, presented_open);
+    dnv(base_, presented_window, locale, localized_title, marker,
+        presented_open);
   }
 
   ContractWindow::ptr presented_window;
-  HeadlessDesktopWindowPresenter::ptr window_presenter;
   ui::UiLocaleSettings::ptr locale;
   ui::UiLocalizationString::ptr localized_title;
   int marker{0};
@@ -215,21 +216,33 @@ void HeadlessDesktopWindowPresenter::RefreshResolvedTitle() {
   last_resolved_localized_text = title->Resolve(locale->language_index());
 }
 
+HeadlessDesktopWindowPresenter& HeadlessOn(ui::UiDesktopWindow& window) {
+  CHECK(window.presenter.is_valid());
+  CHECK(window.presenter.is_loaded());
+  auto& registry = ae::Registry::GetRegistry();
+  CHECK(registry.GenerationDistance(HeadlessDesktopWindowPresenter::kClassId,
+                                    window.presenter->GetClassId()) >= 0);
+  return static_cast<HeadlessDesktopWindowPresenter&>(*window.presenter);
+}
+
 void ContractApplicationRoot::ClosePresentedWindowImpl() {
   if (!presented_open) {
     return;
   }
   if (presented_window.is_valid() && presented_window.is_loaded()) {
-    if (window_presenter.is_valid() && window_presenter.is_loaded()) {
-      window_presenter.Save();
+    if (presented_window->presenter.is_valid() &&
+        presented_window->presenter.is_loaded()) {
+      presented_window->presenter.Save();
     }
     ContractWindow::ptr::MakeFromThis(&*presented_window).Save();
   }
   presented_open = false;
-  if (window_presenter.is_valid() && window_presenter.is_loaded()) {
-    window_presenter.Reset();
-  }
   if (presented_window.is_valid() && presented_window.is_loaded()) {
+    if (presented_window->presenter.is_valid() &&
+        presented_window->presenter.is_loaded()) {
+      presented_window->presenter.Reset();
+    }
+    ContractWindow::ptr::MakeFromThis(&*presented_window).Save();
     presented_window.Reset();
   }
   ContractApplicationRoot::ptr::MakeFromThis(this).Save();
@@ -250,17 +263,18 @@ void ContractApplicationRoot::OpenPresentedWindowImpl() {
           static_cast<ContractWindow*>(loaded.get()));
     }
   }
-  if (window_presenter.is_valid() && !window_presenter.is_loaded()) {
-    window_presenter.Load();
-  }
   if (!presented_window.is_loaded() || presented_window.id() != window_id) {
     return;
   }
-  window_presenter->window = presented_window;
-  window_presenter->title = localized_title;
-  window_presenter->locale = locale;
+  if (presented_window->presenter.is_valid() &&
+      !presented_window->presenter.is_loaded()) {
+    presented_window->presenter.Load();
+  }
   presented_window.SetFlags(OpenObjFlags(presented_window.flags()));
-  window_presenter.SetFlags(OpenObjFlags(window_presenter.flags()));
+  if (presented_window->presenter.is_valid()) {
+    presented_window->presenter.SetFlags(
+        OpenObjFlags(presented_window->presenter.flags()));
+  }
   presented_open = true;
   ContractApplicationRoot::ptr::MakeFromThis(this).Save();
   NoteMaterializedChange();
@@ -369,11 +383,12 @@ struct ContractHarness {
     model_root->presented_window = ContractWindow::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kWindowId));
     InitializeRuntimeNode(*model_root->presented_window, *model_root);
-    model_root->window_presenter = HeadlessDesktopWindowPresenter::ptr::Create(
+    auto headless_presenter = HeadlessDesktopWindowPresenter::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kPresenterId));
-    model_root->window_presenter->window = model_root->presented_window;
-    model_root->window_presenter->title = model_root->localized_title;
-    model_root->window_presenter->locale = model_root->locale;
+    model_root->presented_window->presenter = headless_presenter;
+    headless_presenter->window = model_root->presented_window;
+    headless_presenter->title = model_root->localized_title;
+    headless_presenter->locale = model_root->locale;
     model_root->presented_open = true;
 
     if (materialize_en_title) {
@@ -390,8 +405,7 @@ struct ContractHarness {
   }
 
   HeadlessDesktopWindowPresenter& headless() {
-    return static_cast<HeadlessDesktopWindowPresenter&>(
-        *ui_root->window_presenter);
+    return HeadlessOn(*ui_root->presented_window);
   }
 
   void WireHeadlessPresenterOwner() {
@@ -418,7 +432,7 @@ struct ContractHarness {
     auto ui_obj = LoadInitialPublication(in, ui_domain, ui_storage);
     ui_root = ContractApplicationRoot::ptr::MakeFromThis(
         static_cast<ContractApplicationRoot*>(ui_obj.get()));
-    ui_root->window_presenter->model_proxy = &model_proxy;
+    ui_root->presented_window->presenter->model_proxy = &model_proxy;
     headless().owner_harness = this;
     InitializePresenters(*ui_root, nullptr, &model_proxy);
   }
@@ -464,8 +478,55 @@ void HeadlessDesktopWindowPresenter::OnUnload() {
   }
 }
 
+void TestUiPresentedWindowHierarchy() {
+  CHECK((std::is_base_of_v<ui::UiPresentedWindow, ui::UiDesktopWindow>));
+  CHECK((std::is_base_of_v<ui::UiWindow, ui::UiPresentedWindow>));
+  CHECK((std::is_base_of_v<ui::UiDesktopWindow, ContractWindow>));
+  CHECK(ui::UiPresentedWindow::kClassId != ui::UiDesktopWindow::kClassId);
+  CHECK(ui::UiPresentedWindow::kClassId != ui::UiWindow::kClassId);
+}
+
+void TestPresenterReachableOnlyViaWindow() {
+  ContractHarness h{false};
+  CHECK(h.model_root->presented_window->presenter.is_valid());
+  CHECK(h.model_root->presented_window->presenter.id() == kPresenterId);
+  CHECK(h.ui_root->presented_window->presenter.id() == kPresenterId);
+  CHECK(&*h.model_root->presented_window->presenter !=
+        &*h.ui_root->presented_window->presenter);
+  CHECK(h.model_root->presented_window->presenter->domain !=
+        h.ui_root->presented_window->presenter->domain);
+}
+
+void TestWindowPresenterSaveLoadRoundtrip() {
+  ContractHarness h{true};
+  h.model_root->presented_window->RequestFrame(77, 88, 640, 480);
+  ContractWindow::ptr::MakeFromThis(&*h.model_root->presented_window).Save();
+  h.model_root->presented_window->presenter.Save();
+
+  h.model_root->presented_window.Reset();
+  CHECK(!h.model_domain.Find(kWindowId));
+
+  auto reloaded = ContractWindow::ptr::Declare(
+      ae::CreateWith{h.model_domain}.with_id(kWindowId));
+  reloaded.Load();
+  CHECK(reloaded->presenter.is_valid());
+  reloaded->presenter.Load();
+  CHECK(reloaded->presenter.id() == kPresenterId);
+  CHECK(reloaded->presenter->window.is_valid());
+  CHECK(reloaded->presenter->window.is_loaded());
+  CHECK(reloaded->presenter->window.id() == kWindowId);
+  CHECK(&*reloaded->presenter->window == &*reloaded);
+  CHECK(reloaded->presenter->title.id() == kTitleId);
+  CHECK(reloaded->presenter->locale.id() == kLocaleId);
+  CHECK(reloaded->presenter->title->domain == reloaded->domain);
+  CHECK(reloaded->presenter->locale->domain == reloaded->domain);
+  CHECK(reloaded->x() == 77);
+  CHECK(reloaded->y() == 88);
+}
+
 void TestEventModelPublicationUiMirror() {
   ContractHarness h{false};
+  CHECK(h.model_root->presented_window->presenter.id() == kPresenterId);
   CHECK(h.model_root->presented_window.id() == h.ui_root->presented_window.id());
   CHECK(&*h.model_root->presented_window != &*h.ui_root->presented_window);
   CHECK(h.model_root->presented_window->domain != h.ui_root->presented_window->domain);
@@ -574,9 +635,8 @@ void TestLazyPresentedWindowUnloadReload() {
   CHECK(!h.model_domain.Find(kWindowId));
 
   h.PublishStructuralFromRoot();
-  CHECK(!h.ui_root->window_presenter.is_loaded());
-  CHECK(!h.ui_root->presented_window.is_loaded());
   CHECK(h.presenter_unload_events == 1);
+  CHECK(!h.ui_root->presented_window.is_loaded());
   CHECK(!h.ui_domain.Find(kWindowId));
 
   auto open = ContractOpenPresentedWindowEvent::ptr::Create(
@@ -585,7 +645,10 @@ void TestLazyPresentedWindowUnloadReload() {
   CHECK(h.model_root->presented_open);
   CHECK(h.model_root->presented_window.is_loaded());
   CHECK(h.model_root->presented_window.id() == kWindowId);
-  CHECK(h.model_root->window_presenter.id() == kPresenterId);
+  CHECK(h.model_root->presented_window->presenter.id() == kPresenterId);
+  CHECK(h.model_root->presented_window->presenter->window.id() == kWindowId);
+  CHECK(h.model_root->presented_window->presenter->title.id() == kTitleId);
+  CHECK(h.model_root->presented_window->presenter->locale.id() == kLocaleId);
 
   int presenter_loads_before_reopen = 0;
   if (ae::Ptr<ae::Obj> held = h.ui_domain.Find(kPresenterId)) {
@@ -593,10 +656,13 @@ void TestLazyPresentedWindowUnloadReload() {
         static_cast<HeadlessDesktopWindowPresenter&>(*held).on_load_count;
   }
   h.PublishStructuralFromRoot();
-  CHECK(h.ui_root->window_presenter.is_loaded());
+  CHECK(h.ui_root->presented_window->presenter.is_loaded());
   CHECK(h.ui_domain.Find(kWindowId));
   CHECK(h.ui_root->presented_window.id() == kWindowId);
-  CHECK(h.ui_root->window_presenter.id() == kPresenterId);
+  CHECK(h.ui_root->presented_window->presenter.id() == kPresenterId);
+  CHECK(h.ui_root->presented_window->presenter->window.id() == kWindowId);
+  CHECK(h.ui_root->presented_window->presenter->title.id() == kTitleId);
+  CHECK(h.ui_root->presented_window->presenter->locale.id() == kLocaleId);
   ae::Ptr<ae::Obj> reloaded_presenter = h.ui_domain.Find(kPresenterId);
   CHECK(reloaded_presenter);
   CHECK(static_cast<HeadlessDesktopWindowPresenter&>(*reloaded_presenter)
@@ -611,6 +677,9 @@ void TestLazyPresentedWindowUnloadReload() {
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::test::TestUiPresentedWindowHierarchy();
+  apptraverse::test::TestPresenterReachableOnlyViaWindow();
+  apptraverse::test::TestWindowPresenterSaveLoadRoundtrip();
   apptraverse::test::TestEventModelPublicationUiMirror();
   apptraverse::test::TestNativeFrameReport();
   apptraverse::test::TestModelRequestedFrame();

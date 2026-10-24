@@ -1,6 +1,7 @@
 #include "apptraverse/object_macros.h"
 
 #include "apptraverse/ui/ui_desktop_window.h"
+#include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_localization_string.h"
@@ -19,6 +20,7 @@ APPTRAVERSE_REGISTER(UiLocaleSettings);
 APPTRAVERSE_REGISTER(SetUiLanguageIndexEvent);
 APPTRAVERSE_REGISTER(UiWindow);
 APPTRAVERSE_REGISTER(SetUiWindowClientSizeEvent);
+APPTRAVERSE_REGISTER(UiPresentedWindow);
 APPTRAVERSE_REGISTER(UiDesktopWindow);
 APPTRAVERSE_REGISTER(SetUiDesktopWindowFrameEvent);
 APPTRAVERSE_REGISTER(ReportUiDesktopWindowFrameFromNativeEvent);
@@ -47,6 +49,7 @@ void EnsureUiPresenterRegistration() {
 
 void ForceUiRegistration() {
   (void)&g_apptraverse_registrar_UiString;
+  (void)&g_apptraverse_registrar_UiPresentedWindow;
   EnsureUiPresenterRegistration();
 }
 

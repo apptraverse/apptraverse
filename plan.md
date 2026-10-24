@@ -757,8 +757,8 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
 
 ## 1.5 Work order (not pre-declared complete)
 
-0. Headless contract test (`apptraverse_application_contract_headless_test`).
-1. `UiPresentedWindow` and migrate `UiDesktopWindow` onto it.
+0. Headless contract test (`apptraverse_application_contract_headless_test`) — done.
+1. `UiPresentedWindow` and migrate `UiDesktopWindow` onto it — done.
 2. Shared presented-window composition (window ↔ presenter ↔ locale/title).
 3. Generic save/unload/reload lifecycle for presented windows.
 4. Generic model application runtime.
