@@ -9,7 +9,7 @@
 
 **Baseline SHA (верифицированные fixtures / старт tracking):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
-**Текущий статус:** **PLANNED** — сквозная release-архитектура R0–R5, resolver и полный lifecycle **не реализованы** в коде. **01–02** PASS *(doc)*; **03** PASS *(probe + CTest)*; **04** **PASS** *(storage + dev-time Event review)*; **05** **PASS** *(build-time distill → embedded BACKING, load-only EXE, lazy)* — Surfaces GUI startup **не** переключён (**06**). **06–14** TODO. **T01–T18** не PASS.
+**Текущий статус:** **PLANNED** — полный R0–R5 runner **не** реализован. **01–06** PASS (06 = headless prefab R0→R2 proof, не Surfaces GUI); **07–14** TODO. **T01–T18** не PASS (T18 проверяется только fixture-веткой unknown Event).
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -162,8 +162,8 @@ SHA последних связанных коммитов на baseline: `19d7d
 | 02 | PASS | — | — | Layout `state/`, `user/`, `<R>/`, `active-release` ([PLAN §02](./PLAN.md#решение-итерации-02--каталоги-и-номера-поставок)); код не менялся |
 | 03 | PASS | — | `ctest -R release_metadata` Debug + Release (9/9 each) | `examples/surfaces_demo/release.json` + probe; не Surfaces GUI |
 | 04 | PASS | — | `apptraverse_overlay_domain_storage_test` + `apptraverse_model_persistence_test` Debug/Release | Storage discard-only; без runtime const checks |
-| 05 | PASS | `b3134f4` | `apptraverse_*_distilled_embedded_matrix`, overlay + model_persistence Debug/Release | Exporter→generated header→consumer; GUI startup — **06** |
-| 06 | TODO | — | — | Пустой USER, старт из EXE |
+| 05 | PASS | `b3134f4` | `apptraverse_*_distilled_embedded_matrix`, overlay + model_persistence Debug/Release | Exporter→generated header→consumer |
+| 06 | PASS | `ef1d22f` | `apptraverse_prefab_release_matrix` Debug/Release | Headless prefab R0→R2; Surfaces startup **отменён** |
 | 07 | TODO | — | — | Бинарный пакет констант |
 | 08 | TODO | — | — | active-release, resolver |
 | 09 | TODO | — | — | Пакет ≡ полный EXE |

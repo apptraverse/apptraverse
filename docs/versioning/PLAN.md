@@ -14,6 +14,21 @@
 
 ---
 
+## Решение: headless prefab proof (Surfaces 06 отменён)
+
+**Статус:** принято в документе; проверяется fixture **до** полного R0–R5 runner.
+
+- **Release-lifecycle** (R0→R5, USER/backing, schema S) проверяется **отдельным headless-приложением** с **NullPresenter**, не Surfaces Demo GUI/Win32 lifecycle.
+- **Surfaces Demo** остаётся demo/evolution; **не** oracle для R0–R5 и **не** получает переключение startup на embedded/backing в этой ветке (итерация **06** Surfaces **отменена**).
+- **Константы** (Localization / label strings) живут **в графе рядом с местом использования** (Presenter → Localization → `strings[]`), а не в отдельном `SupplyCatalog`.
+- **Динамические экземпляры** создаются из **prefab-графов** (два prefab одного класса с разными defaults); каждый prefab-backed instance хранит **origin** `instance ObjId → prefab ObjId` (test-only **`PrefabPtr<T>`** + поле `prefab_origin` на Node для persistence/base).
+- **Aliases** (Preferences → WindowA, Presenter → Window) — обычные `ObjPtr` / ссылки; **не** второй `PrefabPtr` на тот же instance.
+- **T18:** отдельная ветка fixture — Event с **неизвестным ClassId** для старого EXE → **явный отказ до изменения USER**; новый EXE повторно загружает payload и журнал.
+
+Механизм build-time embed/distill (**итерация 05**) **сохраняется** и переиспользуется для prefab BACKING в fixture (`apptraverse_prefab_release_*`).
+
+---
+
 ## Три независимые сущности
 
 ### Release R
@@ -360,13 +375,17 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 - **Цель:** EXE содержит все слои и lazy-ссылки согласно R.
 - **Область:** distill pipeline, `InitializeRuntimeNode`, graph export.
-- **T:** T01, T06 | **Зав.:** 03, 04 | **Статус:** PASS *(build-time export + load-only consumers; Surfaces GUI startup — 06)*
+- **T:** T01, T06 | **Зав.:** 03, 04 | **Статус:** PASS *(build-time export + load-only consumers)*
 
-### 06 — Старт при пустом USER
+### 06 — Headless prefab-aware proof (бывш. Surfaces startup)
 
-- **Цель:** загрузка только из EXE + выбранного R; USER пуст.
-- **Область:** startup, `OverlayDomainStorage` / backing selection.
-- **T:** T01, T11 | **Зав.:** 05 | **Статус:** TODO
+- **Цель:** минимальный headless R0→R2 + prefab clone + lazy + historical base/replay + T18 unknown Event; **без** Surfaces GUI.
+- **Область:** `PrefabPtr`, prefab fixture EXE, embed BACKING (05), `apptraverse_prefab_release_matrix`.
+- **T:** T01, T03, T16, T18 *(фрагменты)* | **Зав.:** 05 | **Статус:** IN_PROGRESS *(matrix Debug/Release)*
+
+### 06 (отменено) — Surfaces startup из EXE
+
+- Surfaces Demo **не** переводится на release-lifecycle / embedded startup; пункт заменён headless proof выше.
 
 ### 07 — Один бинарный пакет констант
 
