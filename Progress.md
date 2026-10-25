@@ -4247,4 +4247,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Release verify** (`build-b18-msvc-rel`): **7/7** CTests **PASS**. Headless **315392** B; demo **436224** B.
 - **MinSizeRel verify** (`build-b18-msvc-minsizerel`): **7/7** CTests **PASS**. Headless **252416** B; demo **343040** B.
 - **Next step**: generic model application runtime (plan §1.5 item 5).
-- **Land SHA**: *(pending main commit)*.
+- **Land SHA**: **`23fe2f7`** (`Add generic UiPresentedWindow save/unload/reload lifecycle helpers.`).
