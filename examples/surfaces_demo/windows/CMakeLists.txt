@@ -2,8 +2,6 @@ set(_window_catalog_win_sources
 
   window_catalog_main.cpp
 
-  window_catalog_win_app.cpp
-
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_lifecycle.cpp
 
 )

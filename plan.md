@@ -788,5 +788,5 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
    (2026-10-24).
 7. Minimal application template without controls — **`examples/minimal_app`**
    (`win32_minimal_app` / load-only) — done (2026-10-24).
-8. WindowCatalog as independent consumer + final audit — TODO.
+8. WindowCatalog as independent consumer + final audit — done (2026-10-24).
 9. Separate integration branch with the versioning project.

@@ -31,7 +31,7 @@ ae::ObjId CatalogRootId() {
 }  // namespace
 
 void WindowCatalogModelSession::Run(
-    std::function<void(WindowCatalogPublicationKind)> on_published) {
+    ApplicationPublishedCallback on_published) {
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
 
@@ -96,14 +96,7 @@ void WindowCatalogModelSession::Run(
     catalog->RefreshChromeButtonEnabledState();
     RestoreLoadedCatalogWindows(*catalog);
 
-    runtime.Run(
-        domain, *catalog,
-        [&](ApplicationPublicationKind kind) {
-          on_published(kind == ApplicationPublicationKind::Initial
-                           ? WindowCatalogPublicationKind::Initial
-                           : WindowCatalogPublicationKind::Incremental);
-        },
-        [&] {
+    runtime.Run(domain, *catalog, std::move(on_published), [&] {
           pending_focus_for_ui = catalog->pending_focus_window.is_valid()
                                      ? catalog->pending_focus_window.id()
                                      : ae::ObjId{};

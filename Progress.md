@@ -4320,4 +4320,18 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Release verify** (`build-presenter-decomp-msvc-rel`): **13/13** CTests **PASS**. Minimal dev **379392** B; load-only **370176** B; catalog demo **449024** B.
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **13/13** CTests **PASS**. Minimal dev **288768** B; load-only **284160** B; catalog demo **349184** B.
 - **Next step**: WindowCatalog independent consumer audit (plan §1.5 item 8).
+- **Land SHA**: **`09dd2201892aac77c87c1169f6686c7ea1968efc`** (`Add minimal AppTraverse application template with empty desktop window.`).
+
+## WindowCatalog independent consumer (8) (2026-10-24)
+
+- **Baseline**: `ef00773f9d0bd4604884614bc2a9d3dc89e6bd33`.
+- **Removed**: `WindowCatalogWinApp` (`window_catalog_win_app.h/.cpp`); `WindowCatalogPublicationKind`; session `Post`/`RequestStop` forwards.
+- **Entry**: `window_catalog_main.cpp` wires `WindowCatalogModelSession` + `WinApplicationHostCallbacks` directly (same behavior: focus sidecar, main vs child close, loading options).
+- **Lifecycle**: `WindowCatalogModelSession::Run(ApplicationPublishedCallback)` passes library callback through to `ApplicationModelRuntime::Run` without enum adapter.
+- **CMake dependency graph (logical)**: `apptraverse` ← `apptraverse_ui_windows` ← `{minimal_app_common → win32_minimal_app*}`, `{surfaces_demo_window_catalog → win32_window_catalog_demo*}`; no cross-link between example apps; core libraries include no `examples/` headers.
+- **Application-specific code remaining in WindowCatalog**: model graph/events, localization, `WindowHolder`/`CatalogWindow`, Add/Open/Delete, lazy window state, `pending_focus_for_ui` sidecar, persistence in `window_catalog_lifecycle.cpp`.
+- **Audit**: no `WINDOW_CATALOG` / `minimal_application` in `include/` or `src/`; host/runtime/ui session unchanged for catalog.
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **13/13** CTests **PASS**. Minimal dev **379392** B; load-only **370176** B; catalog dev **445952** B; catalog load-only **434176** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **13/13** CTests **PASS**. Minimal dev **288768** B; load-only **284160** B; catalog dev **351232** B; catalog load-only **343040** B.
+- **Next step**: versioning integration branch (plan §1.5 item 9).
 - **Land SHA**: *(pending commit)*.
