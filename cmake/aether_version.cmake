@@ -11,6 +11,8 @@ set(APPTRAVERSE_AETHER_OBJECTS_REJECT_UNKNOWN_STORED_CLASS_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-reject-unknown-stored-class.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_FORCE_MATERIALIZE_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-force-materialize.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_SHOULD_SAVE_VERSION_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-should-save-version.patch")
 
 set(APPTRAVERSE_AETHER_GIT_TAG "feature/percentile8-policy-v1")
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).

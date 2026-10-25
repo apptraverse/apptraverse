@@ -173,6 +173,24 @@ def main():
     if rec.get("user_s1_instance") or rec.get("user_s1_base"):
         raise CheckFailed("R2 readonly: USER S1 must stay absent for WindowC")
 
+    before_touch = manifest(user_root)
+    run_ok(r2, state_root, "touch-save-workspace")
+    after_touch = manifest(user_root)
+    unchanged(before_touch, after_touch, "R2 touch-save-workspace (10E)")
+    rec = run_ok(r2, state_root, "inspect-window-c")
+    assert_identity(rec, window_c_id, window_c_base_id)
+    if int(rec.get("posx_a", 0)) != MAIN_POSX:
+        raise CheckFailed("R2 after touch-save: WindowA prefab posx")
+    if int(rec.get("posx_c", 0)) != TOOL_POSX:
+        raise CheckFailed("R2 after touch-save: WindowC prefab posx")
+    if rec.get("user_s1_instance") or rec.get("user_s1_base"):
+        raise CheckFailed("R2 touch-save: USER S1 must stay absent for WindowC")
+    touch_manifest = manifest(user_root)
+    assert_no_s1(touch_manifest, WINDOW_A, class_id)
+    assert_no_s1(touch_manifest, WINDOW_B, class_id)
+    assert_no_s1(touch_manifest, window_c_id, class_id)
+    assert_no_s1(touch_manifest, window_c_base_id, class_id)
+
     rec = run_ok(r2, state_root, "delta-posx-c")
     if int(rec.get("posx_c", 0)) != TOOL_POSX_USER:
         raise CheckFailed("R2 delta-posx-c: posx")
@@ -224,7 +242,35 @@ def main():
     if int(rec.get("replay_width", 0)) != TOOL_WIDTH:
         raise CheckFailed("replay: width")
 
+    run_prefab_default_override_scenario(r0, r1, r2, work_root / "prefab_default_override")
+
     print("prefab_late_instance_matrix OK", flush=True)
+
+
+def run_prefab_default_override_scenario(r0, r1, r2, work_root: Path):
+    state_root = work_root / "state"
+    user_root = state_root / "user"
+    if state_root.exists():
+        shutil.rmtree(state_root)
+    state_root.mkdir(parents=True)
+    user_root.mkdir(parents=True, exist_ok=True)
+
+    run_ok(r0, state_root, "r0-init")
+    created = run_ok(r1, state_root, "create-tool-window")
+    window_c_id = int(created["window_c_instance_id"])
+    window_c_base_id = int(created["window_c_instance_base_id"])
+
+    run_ok(r2, state_root, "set-posx-c-prefab-default")
+    rec = run_ok(r2, state_root, "inspect-window-c")
+    class_id = int(rec["window_class_id"])
+    if int(rec.get("posx_c", 0)) != TOOL_POSX:
+        raise CheckFailed("prefab-default override: posx_c")
+    if not rec.get("user_s1_instance"):
+        raise CheckFailed("prefab-default override: USER S1 on WindowC")
+    user_manifest = manifest(user_root)
+    assert_has_s1(user_manifest, window_c_id, class_id)
+    assert_no_s1(user_manifest, WINDOW_A, class_id)
+    assert_no_s1(user_manifest, window_c_base_id, class_id)
 
 
 if __name__ == "__main__":

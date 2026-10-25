@@ -125,6 +125,8 @@ class PrefabWindow : public NodeFor<PrefabWindow> {
   void Save(ae::Version<1>, Dnv& dnv) const {
     dnv(base_, posx, user_owned_s1);
   }
+
+  bool ShouldSaveVersion(ae::Version<1>) const { return user_owned_s1; }
 #endif
 
   void Apply(SetPosxAbsoluteEvent const& event);
@@ -476,6 +478,9 @@ BuiltPrefab BuildSinglePrefab(ae::Domain& domain, ae::ObjId prefab_id,
   ae::Ptr<PrefabWindow> base = base_ref.Load();
   base->width = defaults.width;
   base->posx = defaults.posx;
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 2
+  base->user_owned_s1 = true;
+#endif
 
   out.window = PrefabWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(prefab_id));
@@ -483,6 +488,9 @@ BuiltPrefab BuildSinglePrefab(ae::Domain& domain, ae::ObjId prefab_id,
   window->width = defaults.width;
   window->posx = defaults.posx;
   window->base = base_ref;
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 2
+  window->user_owned_s1 = true;
+#endif
 
   auto label_obj = ConstLabelString::ptr::Create(
       ae::CreateWith{domain}.with_id(label_const_id));
@@ -1229,8 +1237,10 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
       return 1;
     }
     FinalizeDistilledGraph(*ws);
-    SaveDistilledRoot(*ws);
-    if (user.SaveSessionHadFailure()) {
+    user.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    if (!save_graph.SaveRoot(ws_obj, ae::ObjId{kWorkspaceId}).IsOk() ||
+        user.SaveSessionHadFailure()) {
       PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
       return 1;
     }
@@ -1615,6 +1625,39 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     return 0;
   }
 
+  if (op == "set-posx-c-prefab-default") {
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    if (!ws->window_c.is_valid()) {
+      PrintJson("{\"ok\":false,\"error\":\"missing-window-c\"}");
+      return 1;
+    }
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> c =
+        MaterializePrefabBackedWindow(ws->window_c, ctx);
+    auto event =
+        SetPosxAbsoluteEvent::ptr::Create(ae::CreateWith{stores.domain});
+    event.Load()->posx = ToolWindowPrefabDefaults().posx;
+    c->Commit(event);
+    stores.user.BeginSaveSession();
+    ae::DomainGraph save_graph{&stores.domain};
+    if (!save_graph.SaveRoot(loaded, ae::ObjId{kWorkspaceId}).IsOk() ||
+        stores.user.SaveSessionHadFailure()) {
+      PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
+      return 1;
+    }
+    PrintJson(JsonOk("\"op\":\"set-posx-c-prefab-default\",\"posx_c\":" +
+                     std::to_string(c->posx) + ",\"user_owned_s1\":" +
+                     (c->user_owned_s1 ? "true" : "false")));
+    return 0;
+  }
+
   if (op == "delta-posx-c") {
     FixtureStorage stores{state_dir};
     ae::DomainGraph graph{&stores.domain};
@@ -1643,8 +1686,7 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     c->Commit(event);
     stores.user.BeginSaveSession();
     ae::DomainGraph save_graph{&stores.domain};
-    ae::ObjId const window_c_id = ws->window_c.instance_id();
-    if (!save_graph.SaveRoot(c, window_c_id).IsOk() ||
+    if (!save_graph.SaveRoot(loaded, ae::ObjId{kWorkspaceId}).IsOk() ||
         stores.user.SaveSessionHadFailure()) {
       PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
       return 1;

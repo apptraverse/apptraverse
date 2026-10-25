@@ -273,10 +273,7 @@ std::unique_ptr<ae::IDomainStorageWriter> OverlayDomainStorage::Store(
 
   ae::ObjectData const backing_bytes = ReadLoadedLayerBytes(std::move(backing_load));
 
-
-
   return std::make_unique<BackingComparedStorageWriter>(query, writable_overlay_,
-
                                                         backing_bytes);
 
 }

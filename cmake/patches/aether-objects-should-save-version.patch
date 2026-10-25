@@ -1,0 +1,14 @@
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 9a2b3c4..b4c5d6e7 100644
+@@ -282,6 +282,11 @@
+           if (result.IsErr()) {
+             return;
+           }
++          if constexpr (requires { obj.ShouldSaveVersion(version); }) {
++            if (!obj.ShouldSaveVersion(version)) {
++              return;
++            }
++          }
+           result = this->SaveVersion(version, obj, obj_id);
+         });
+     return result;
