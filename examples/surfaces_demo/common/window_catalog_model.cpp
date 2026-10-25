@@ -7,6 +7,7 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_string.h"
 #include "apptraverse/ui/ui_presented_window_composition.h"
+#include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/ui/ui_window_presenter.h"
 #if defined(_WIN32)
 #include "apptraverse/platform/windows/win_ui_presenters.h"
@@ -79,28 +80,6 @@ ui::UiLocalizationString::ptr MakeHolderTitleString(ae::Domain& domain,
   localized->MaterializeLanguage(restore_language);
   return localized;
 }
-void SaveCatalogWindowGraph(CatalogWindow& window) {
-  auto& presented = Presented(window);
-  if (presented.presenter.is_valid() && presented.presenter.is_loaded()) {
-    presented.presenter.Save();
-  }
-  CatalogWindow::ptr::MakeFromThis(&window).Save();
-}
-void SaveAndResetCatalogWindowMaterialization(CatalogWindow::ptr& window) {
-  if (!window.is_valid()) {
-    return;
-  }
-  if (!window.is_loaded()) {
-    return;
-  }
-  SaveCatalogWindowGraph(*window);
-  auto& presented = Presented(*window);
-  if (presented.presenter.is_valid() && presented.presenter.is_loaded()) {
-    presented.presenter.Reset();
-  }
-  CatalogWindow::ptr::MakeFromThis(&*window).Save();
-  window.Reset();
-}
 void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
   std::vector<Node*> live;
   CollectLiveReachableNodes(window, live);
@@ -110,7 +89,7 @@ void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
 }
 void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
   if (catalog.main_window.is_loaded()) {
-    SaveCatalogWindowGraph(*catalog.main_window);
+    ui::SavePresentedWindow(catalog.main_window);
   }
   for (auto const& row : catalog.list->rows) {
     auto* holder = static_cast<WindowHolder*>(&*row);
@@ -120,7 +99,7 @@ void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
     holder->primary_text.Save();
     holder->primary_text.Reset();
     if (holder->window.is_loaded()) {
-      SaveCatalogWindowGraph(*holder->window);
+      ui::SavePresentedWindow(holder->window);
     }
   }
   WindowCatalog::ptr::MakeFromThis(&catalog).Save();
@@ -136,12 +115,7 @@ void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
     if (!holder.window.is_loaded()) {
       continue;
     }
-    holder.window.SetFlags(OpenObjFlags(holder.window.flags()));
-    auto& presented = Presented(*holder.window);
-    if (!presented.presenter.is_loaded()) {
-      presented.presenter.Load();
-    }
-    presented.presenter.SetFlags(OpenObjFlags(presented.presenter.flags()));
+    ui::LoadPresentedWindow(holder.window);
     catalog.MaterializeHolderListText(holder, language);
     BindLiveWindowNotifiers(catalog, *holder.window);
   }
@@ -320,21 +294,12 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
     return;
   }
   ae::Domain& domain = *list->domain;
-  ae::ObjId const window_id = holder.window.id();
-  ae::DomainGraph load_graph{&domain,
-                             ae::GraphSerializationScope::LocalPersistent};
-  holder.window = CatalogWindow::ptr::MakeFromThis(static_cast<CatalogWindow*>(
-      load_graph.LoadRoot(window_id).get()));
+  ui::LoadPresentedWindow(holder.window);
   auto open_event = SetWindowCatalogOpenEvent::ptr::Create(
       ae::CreateWith{domain});
   open_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
   open_event->open = true;
   Commit(std::move(open_event));
-  auto& presented = Presented(*holder.window);
-  if (!presented.presenter.is_loaded()) {
-    presented.presenter.Load();
-  }
-  presented.presenter.SetFlags(OpenObjFlags(presented.presenter.flags()));
   int const language = locale->language_index();
   MaterializeHolderListText(holder, language);
   BindLiveWindowNotifiers(*this, *holder.window);
@@ -342,21 +307,12 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   NoteMaterializedChange();
 }
 void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
-  if (!holder.window.is_valid() || !holder.window.is_loaded()) {
-    return;
-  }
-  SaveCatalogWindowGraph(*holder.window);
   auto close_event = SetWindowCatalogOpenEvent::ptr::Create(
       ae::CreateWith{*domain});
   close_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
   close_event->open = false;
   Commit(std::move(close_event));
-  auto& presented = Presented(*holder.window);
-  if (presented.presenter.is_valid() && presented.presenter.is_loaded()) {
-    presented.presenter.Reset();
-  }
-  CatalogWindow::ptr::MakeFromThis(&*holder.window).Save();
-  holder.window.Reset();
+  ui::UnloadPresentedWindow(holder.window);
 }
 void WindowCatalog::AddWindow() {
   assert(list && list->domain != nullptr);
@@ -405,8 +361,8 @@ void WindowCatalog::DeleteSelected() {
     return;
   }
   WindowHolder::ptr target = selected;
-  if (target->window.is_valid() && target->window.is_loaded()) {
-    SaveAndResetCatalogWindowMaterialization(target->window);
+  if (target->window.is_loaded()) {
+    ui::UnloadPresentedWindow(target->window);
   }
   auto remove = RemoveWindowCatalogEntryEvent::ptr::Create(
       ae::CreateWith{*domain});

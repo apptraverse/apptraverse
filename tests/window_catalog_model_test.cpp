@@ -1584,12 +1584,54 @@ void TestCatalogPresentedWindowGraph() {
         saved_title_id);
 }
 
+void TestCatalogRepeatedOpenKeepsPresenterIdentity() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  catalog->AddWindow();
+  WindowHolder* holder = AsHolder(catalog->list->rows[0]);
+  ae::ObjId const window_id = holder->window.id();
+  ae::ObjId const presenter_id =
+      CatalogWindowPresented(*holder->window).presenter.id();
+  catalog->OpenHolderWindow(*holder);
+  CHECK(holder->window.id() == window_id);
+  CHECK(CatalogWindowPresented(*holder->window).presenter.id() == presenter_id);
+}
+
+void TestCatalogDeleteUnloadedWindowDoesNotLoad() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  catalog->AddWindow();
+  WindowHolder* holder = AsHolder(catalog->list->rows[0]);
+  ae::ObjId const window_id = holder->window.id();
+  catalog->CloseHolderWindow(*holder);
+  CHECK(holder->window.is_valid());
+  CHECK(!holder->window.is_loaded());
+  CHECK(!domain.Find(window_id));
+  catalog->SelectHolder(WindowHolder::ptr::MakeFromThis(holder));
+  catalog->DeleteSelected();
+  CHECK(catalog->list->rows.empty());
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::test::TestCatalogPresentedWindowDistilledBaseReplay();
   apptraverse::test::TestCatalogPresentedWindowGraph();
+  apptraverse::test::TestCatalogRepeatedOpenKeepsPresenterIdentity();
+  apptraverse::test::TestCatalogDeleteUnloadedWindowDoesNotLoad();
   apptraverse::test::TestCatalogReflectionTopologyAndInitialPublication();
   apptraverse::test::TestCatalogHolderOpenCloseAndMonotonicNumbers();
   apptraverse::test::TestCatalogLocalizationUtf8Persisted();

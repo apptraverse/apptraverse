@@ -4231,3 +4231,20 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-b18-msvc-minsizerel`): **7/7** CTests **PASS**. Headless **252928** B; demo **343552** B.
 - **Next step**: generic presented-window save/unload/reload helper (plan §1.5 item 4).
 - **Land SHA**: **`807afe7`** (`Add ComposePresentedWindow and WindowCatalog prototype hardening.`).
+
+---
+
+## Generic presented-window lifecycle helpers (2026-10-24)
+
+- **Baseline**: `f91dafc65c814311183107a29eb7a1396a11053a`.
+- **API** (`include/apptraverse/ui/ui_presented_window_lifecycle.h`): **`SavePresentedWindow`**, **`UnloadPresentedWindow`**, **`LoadPresentedWindow`** — typed `ObjPtr<WindowT>&` only; no ObjId/Domain overloads.
+- **Unload**: save window graph → `presenter.Reset()` → window save → `window.Reset()` (presenter link stays valid, unloaded).
+- **Load**: `window.Load()` then `window->presenter.Load()` via typed links; no manual `DomainGraph` / `LoadRoot` / rewiring.
+- **Removed app-specific sequences**: `SaveCatalogWindowGraph`, `SaveAndResetCatalogWindowMaterialization`; headless close/open manual save-reset and LoadRoot path.
+- **WindowCatalog**: snapshot uses `SavePresentedWindow`; close/delete use `UnloadPresentedWindow` after open Events; open/restore use `LoadPresentedWindow`.
+- **Headless contract**: `ClosePresentedWindowImpl` / `OpenPresentedWindowImpl` delegate to helpers; lazy unload/reload scenarios unchanged.
+- **Allowed production ObjId boundaries** (unchanged): distill/test ids; `UserCloseWindow(ObjId)`; `FindHolderForWindow(ObjId)`; focus session `pending_focus_for_ui`; WinApp `ApplyPendingFocusWindow(ObjId)`; framework publication/storage keys.
+- **Release verify** (`build-b18-msvc-rel`): **7/7** CTests **PASS**. Headless **315392** B; demo **436224** B.
+- **MinSizeRel verify** (`build-b18-msvc-minsizerel`): **7/7** CTests **PASS**. Headless **252416** B; demo **343040** B.
+- **Next step**: generic model application runtime (plan §1.5 item 5).
+- **Land SHA**: *(pending main commit)*.

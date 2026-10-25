@@ -17,6 +17,7 @@
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_presented_window_composition.h"
+#include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -68,6 +69,10 @@ class ContractWindow : public NodeFor<ContractWindow, ui::UiDesktopWindow> {
  public:
   explicit ContractWindow(ae::ObjProp prop) : NodeFor{prop} {}
 };
+
+// ui_presented_window_lifecycle.h is header-only; this target links without
+// user32/gdi32 or WindowCatalog.
+static_assert(std::is_base_of_v<ui::UiPresentedWindow, ContractWindow>);
 
 class HeadlessDesktopWindowPresenter
     : public ui::UiDesktopWindowPresenter {
@@ -231,22 +236,8 @@ void ContractApplicationRoot::ClosePresentedWindowImpl() {
   if (!presented_open) {
     return;
   }
-  if (presented_window.is_valid() && presented_window.is_loaded()) {
-    if (presented_window->presenter.is_valid() &&
-        presented_window->presenter.is_loaded()) {
-      presented_window->presenter.Save();
-    }
-    ContractWindow::ptr::MakeFromThis(&*presented_window).Save();
-  }
   presented_open = false;
-  if (presented_window.is_valid() && presented_window.is_loaded()) {
-    if (presented_window->presenter.is_valid() &&
-        presented_window->presenter.is_loaded()) {
-      presented_window->presenter.Reset();
-    }
-    ContractWindow::ptr::MakeFromThis(&*presented_window).Save();
-    presented_window.Reset();
-  }
+  ui::UnloadPresentedWindow(presented_window);
   ContractApplicationRoot::ptr::MakeFromThis(this).Save();
   NoteMaterializedChange();
 }
@@ -255,28 +246,7 @@ void ContractApplicationRoot::OpenPresentedWindowImpl() {
   if (presented_open) {
     return;
   }
-  ae::Domain& domain = *this->domain;
-  ae::ObjId const window_id = presented_window.id();
-  if (!presented_window.is_loaded()) {
-    ae::DomainGraph load_graph{&domain,
-                               ae::GraphSerializationScope::LocalPersistent};
-    if (ae::Ptr<ae::Obj> loaded = load_graph.LoadRoot(window_id)) {
-      presented_window = ContractWindow::ptr::MakeFromThis(
-          static_cast<ContractWindow*>(loaded.get()));
-    }
-  }
-  if (!presented_window.is_loaded() || presented_window.id() != window_id) {
-    return;
-  }
-  if (presented_window->presenter.is_valid() &&
-      !presented_window->presenter.is_loaded()) {
-    presented_window->presenter.Load();
-  }
-  presented_window.SetFlags(OpenObjFlags(presented_window.flags()));
-  if (presented_window->presenter.is_valid()) {
-    presented_window->presenter.SetFlags(
-        OpenObjFlags(presented_window->presenter.flags()));
-  }
+  ui::LoadPresentedWindow(presented_window);
   presented_open = true;
   ContractApplicationRoot::ptr::MakeFromThis(this).Save();
   NoteMaterializedChange();
