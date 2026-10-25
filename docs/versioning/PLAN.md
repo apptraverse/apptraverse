@@ -402,8 +402,9 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 ### 09 — Эквивалентность пакета и полного EXE
 
-- **Цель:** oracle: bytes/state equal после load.
-- **T:** T12 | **Зав.:** 07, 08 | **Статус:** TODO
+- **Цель:** oracle: RAM backing A (R0 embed + R1 BIN) ≡ B (R1 embed); один USER — одинаковое read-only состояние через R0+active-release и R1 EXE.
+- **Область (09A PASS):** `apptraverse_prefab_release_r1`; `prefab_release_r1_supply_equivalence_test`; `prefab_release_r1_user_equivalence_matrix`; op `read-user-equivalence`. **Не** чистая установка (R0 `r0-init` нужен); **не** полный T11/T12.
+- **T:** T12 *(фрагмент)* | **Зав.:** 07, 08 | **Статус:** PASS *(09A scope)*
 
 ### 10 — Новый динамический слой при существующем USER
 

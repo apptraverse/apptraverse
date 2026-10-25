@@ -87,8 +87,11 @@ class PrefabLocalization : public ae::Obj {
 };
 
 class PrefabWindow : public NodeFor<PrefabWindow> {
-  APPTRAVERSE_OBJECT(PrefabWindow, Node,
-                     APPTRAVERSE_PREFAB_EXE_REVISION)
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 2
+  APPTRAVERSE_OBJECT(PrefabWindow, Node, 1)
+#else
+  APPTRAVERSE_OBJECT(PrefabWindow, Node, 0)
+#endif
 
  protected:
   PrefabWindow() = default;
@@ -110,7 +113,7 @@ class PrefabWindow : public NodeFor<PrefabWindow> {
     dnv(base_, width, user_owned_s0);
   }
 
-#if APPTRAVERSE_PREFAB_EXE_REVISION >= 1
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 2
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, posx, user_owned_s1);
@@ -597,7 +600,7 @@ bool UserHasLayerForInstance(DirectoryDomainStorage const& user,
 
 std::optional<std::int32_t> ReadPrefabPosxFromBacking(
     ae::RamDomainStorage const& backing, ae::ObjId prefab_id) {
-#if APPTRAVERSE_PREFAB_EXE_REVISION >= 1
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 2
   ae::Domain backing_domain{const_cast<ae::RamDomainStorage&>(backing)};
   PrefabWindow::ptr ref = PrefabWindow::ptr::Declare(
       ae::CreateWith{backing_domain}.with_id(prefab_id));
@@ -654,7 +657,7 @@ bool EnsurePrefabVersionInHistoricalBase(
     PrefabPtr<PrefabWindow> const& canonical, PrefabWindow& instance,
     ae::Domain& domain, DirectoryDomainStorage& user,
     ae::RamDomainStorage const& backing, std::uint8_t version) {
-#if APPTRAVERSE_PREFAB_EXE_REVISION >= 1
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 2
   if (version != 1 || !instance.base.is_valid() ||
       !canonical.prefab_id().is_valid()) {
     return false;
@@ -712,7 +715,7 @@ ae::Ptr<PrefabWindow> MaterializePrefabBackedWindow(
   if (!window || !canonical.prefab_id().is_valid()) {
     return {};
   }
-#if APPTRAVERSE_PREFAB_EXE_REVISION >= 1
+#if APPTRAVERSE_PREFAB_EXE_REVISION >= 2
   if (!window->user_owned_s1 &&
       !UserHasLayerForInstance(ctx.user, canonical.instance_id(),
                                PrefabWindow::kClassId, 1)) {
@@ -749,6 +752,8 @@ void ResetLazyLoadCount() { g_lazy_load_count = 0; }
 
 #if APPTRAVERSE_PREFAB_EXE_REVISION == 0
 #include "embedded_distilled_prefab_release_r0_supply.h"
+#elif APPTRAVERSE_PREFAB_EXE_REVISION == 1
+#include "embedded_distilled_prefab_release_r1_supply.h"
 #else
 #include "embedded_distilled_prefab_release_r2_supply.h"
 #include "embedded_distilled_prefab_release_supply_v30.h"
@@ -797,7 +802,10 @@ struct FixtureStorage {
  private:
   static apptraverse::EmbeddedDistilledGraph const& GraphFor(
       PrefabBackingKind kind) {
-#if APPTRAVERSE_PREFAB_EXE_REVISION >= 1
+#if APPTRAVERSE_PREFAB_EXE_REVISION == 1
+    (void)kind;
+    return embedded_distilled::prefab_release_r1::kEmbeddedGraph;
+#elif APPTRAVERSE_PREFAB_EXE_REVISION >= 2
     if (kind == PrefabBackingKind::kMainPosx30) {
       return embedded_distilled::prefab_release_v30::kEmbeddedGraph;
     }
@@ -1021,6 +1029,64 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
           ",\"embedded_release\":" +
           std::to_string(prefab_release_lifecycle::kEmbeddedRelease) +
           ",\"active_release\":" + std::to_string(active)));
+      return 0;
+    } catch (std::exception const& ex) {
+      PrintJson(std::string("{\"ok\":false,\"error\":\"package\",\"detail\":\"") +
+                ex.what() + "\"}");
+      return 3;
+    }
+  }
+
+  if (op == "read-user-equivalence") {
+    try {
+      FixtureStorage stores = make_stores();
+      ae::DomainGraph graph{&stores.domain};
+      ae::Ptr<ae::Obj> loaded;
+      if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+        PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+        return 1;
+      }
+      ae::Ptr<WorkspaceRoot> ws{loaded};
+      std::optional<std::string> main_label =
+          ReadLocalizationLabel(stores.domain, ae::ObjId{kMainLocalizationId});
+      std::optional<std::string> tool_label =
+          ReadLocalizationLabel(stores.domain, ae::ObjId{kToolLocalizationId});
+      if (!main_label || !tool_label) {
+        PrintJson("{\"ok\":false,\"error\":\"missing-label\"}");
+        return 1;
+      }
+      bool const window_b_loaded_before = ws->window_b.is_loaded();
+      PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+      ae::Ptr<PrefabWindow> a =
+          MaterializePrefabBackedWindow(ws->window_a, ctx);
+      ae::ObjId::Type const prefab_base_id = PrefabBaseObjIdFromBacking(
+          stores.backing.effective_backing, ws->window_a.prefab_id());
+      PrintJson(JsonOk(
+          "\"op\":\"read-user-equivalence\""
+          ",\"main_label\":\"" +
+          *main_label + "\",\"tool_label\":\"" + *tool_label +
+          "\",\"width_a\":" + std::to_string(a->width) +
+          ",\"posx_a\":" + std::to_string(a->posx) +
+          ",\"window_a_instance_id\":" +
+          std::to_string(ws->window_a.instance_id().id()) +
+          ",\"window_a_prefab_id\":" +
+          std::to_string(ws->window_a.prefab_id().id()) +
+          ",\"window_b_instance_id\":" +
+          std::to_string(ws->window_b.instance_id().id()) +
+          ",\"window_b_prefab_id\":" +
+          std::to_string(ws->window_b.prefab_id().id()) +
+          ",\"window_b_loaded\":" +
+          (window_b_loaded_before ? "true" : "false") +
+          ",\"journal_len_a\":" + std::to_string(a->journal.size()) +
+          ",\"alias_ok\":" +
+          (ws->preferences.Load()->window_a_alias.id() == ws->window_a.id()
+               ? "true"
+               : "false") +
+          ",\"prefab_base_id\":" + std::to_string(prefab_base_id) +
+          ",\"package_applied\":" +
+          (stores.backing.package_applied ? "true" : "false") +
+          ",\"embedded_release\":" +
+          std::to_string(prefab_release_lifecycle::kEmbeddedRelease)));
       return 0;
     } catch (std::exception const& ex) {
       PrintJson(std::string("{\"ok\":false,\"error\":\"package\",\"detail\":\"") +

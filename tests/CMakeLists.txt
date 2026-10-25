@@ -458,7 +458,7 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     APPTRAVERSE_PREFAB_EXPORT_HEADER_GUARD=APPTRAVERSE_EMBEDDED_PREFAB_RELEASE_R1_SUPPLY_H_
     "APPTRAVERSE_PREFAB_EXPORT_MAIN_TITLE=\"main-title-B\"")
 
-  apptraverse_add_prefab_export_exe(apptraverse_export_prefab_release_r2_backing 1)
+  apptraverse_add_prefab_export_exe(apptraverse_export_prefab_release_r2_backing 2)
   target_compile_definitions(apptraverse_export_prefab_release_r2_backing PRIVATE
     APPTRAVERSE_PREFAB_EXPORT_GRAPH_NAMESPACE=prefab_release_r2
     APPTRAVERSE_PREFAB_EXPORT_HEADER_GUARD=APPTRAVERSE_EMBEDDED_PREFAB_RELEASE_R2_SUPPLY_H_
@@ -469,7 +469,7 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     prefab_release_model.cpp
   )
   target_compile_definitions(apptraverse_export_prefab_release_backing_v30 PRIVATE
-    APPTRAVERSE_PREFAB_EXE_REVISION=1
+    APPTRAVERSE_PREFAB_EXE_REVISION=2
     APPTRAVERSE_PREFAB_EXPORT_MAIN_POSX=30
     APPTRAVERSE_PREFAB_EXPORT_GRAPH_NAMESPACE=prefab_release_v30
     APPTRAVERSE_PREFAB_EXPORT_HEADER_GUARD=APPTRAVERSE_EMBEDDED_PREFAB_RELEASE_SUPPLY_V30_H_
@@ -485,7 +485,14 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     "${CMAKE_CURRENT_LIST_DIR}/release_lifecycle/releases/r0/release.json"
     apptraverse::test::prefab_release_lifecycle)
 
-  apptraverse_add_prefab_release_exe(apptraverse_prefab_release_r2 1
+  apptraverse_add_prefab_release_exe(apptraverse_prefab_release_r1 1
+    apptraverse_export_prefab_release_r1_backing
+    embedded_distilled_prefab_release_r1_supply.h)
+  apptraverse_embed_release_metadata(apptraverse_prefab_release_r1
+    "${CMAKE_CURRENT_LIST_DIR}/release_lifecycle/releases/r1/release.json"
+    apptraverse::test::prefab_release_lifecycle)
+
+  apptraverse_add_prefab_release_exe(apptraverse_prefab_release_r2 2
     apptraverse_export_prefab_release_r2_backing
     embedded_distilled_prefab_release_r2_supply.h)
   apptraverse_embed_release_metadata(apptraverse_prefab_release_r2
@@ -522,7 +529,7 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     prefab_release_model.cpp
   )
   target_compile_definitions(apptraverse_export_prefab_release_r2_package PRIVATE
-    APPTRAVERSE_PREFAB_EXE_REVISION=1)
+    APPTRAVERSE_PREFAB_EXE_REVISION=2)
   target_link_libraries(apptraverse_export_prefab_release_r2_package PRIVATE apptraverse)
   target_include_directories(apptraverse_export_prefab_release_r2_package PRIVATE
     ${CMAKE_CURRENT_LIST_DIR})
@@ -541,6 +548,43 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     TIMEOUT 120
     LABELS "serialization;prefab;evolution;lifecycle;active-release"
   )
+
+  add_executable(apptraverse_prefab_release_r1_supply_equivalence_test
+    prefab_release_r1_supply_equivalence_test.cpp
+  )
+  target_link_libraries(apptraverse_prefab_release_r1_supply_equivalence_test
+    PRIVATE apptraverse)
+  target_include_directories(apptraverse_prefab_release_r1_supply_equivalence_test
+    PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+  apptraverse_embed_distilled_supply(
+    apptraverse_prefab_release_r1_supply_equivalence_test
+    apptraverse_export_prefab_release_r0_backing
+    embedded_distilled_prefab_release_r0_supply.h)
+  apptraverse_embed_distilled_supply(
+    apptraverse_prefab_release_r1_supply_equivalence_test
+    apptraverse_export_prefab_release_r1_backing
+    embedded_distilled_prefab_release_r1_supply.h)
+  add_dependencies(apptraverse_prefab_release_r1_supply_equivalence_test
+    apptraverse_prefab_r1_supply_bin)
+  add_test(
+    NAME apptraverse_prefab_release_r1_supply_equivalence_test
+    COMMAND apptraverse_prefab_release_r1_supply_equivalence_test
+      "${_prefab_r1_package}")
+  set_tests_properties(apptraverse_prefab_release_r1_supply_equivalence_test
+    PROPERTIES TIMEOUT 60 LABELS "serialization;prefab;evolution;equivalence")
+
+  add_test(
+    NAME apptraverse_prefab_release_r1_user_equivalence_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/prefab_release_r1_user_equivalence_matrix.py"
+      --r0 "$<TARGET_FILE:apptraverse_prefab_release_r0>"
+      --r1 "$<TARGET_FILE:apptraverse_prefab_release_r1>"
+      --package-tool "$<TARGET_FILE:apptraverse_export_prefab_release_r1_package>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/r1_user_equivalence_states"
+  )
+  set_tests_properties(apptraverse_prefab_release_r1_user_equivalence_matrix
+    PROPERTIES TIMEOUT 120
+    LABELS "serialization;prefab;evolution;equivalence;lifecycle")
 
   add_executable(apptraverse_prefab_release_supply_split_test
     prefab_release_supply_split_test.cpp
