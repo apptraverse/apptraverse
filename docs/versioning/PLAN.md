@@ -465,8 +465,54 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 ### 12 — Системный origin
 
-- **Цель:** origin у каждого клонированного экземпляра (не только `PrefabPtr`); хранение в объектной системе **без** изменения опубликованных S0; Save/Load через стандартный Æther serializer; обычные `ObjPtr` — обычные ссылки.
-- **T:** T16 *(фрагмент)* | **Зав.:** 11 | **Статус:** TODO
+- **Цель:** origin у каждого клонированного экземпляра (не только `PrefabPtr`); хранение в объектной системе **без** изменения опубликованных S0 прикладных классов; Save/Load через штатный `BinaryArchive`; обычные `ObjPtr` — обычные ссылки без origin на wire.
+- **T:** T16 *(фрагмент)* | **Зав.:** 11 | **Статус:** IN_PROGRESS *(12A — решение; 12B — код)*
+
+#### 12A — место хранения (решение)
+
+**Выбор:** системный persisted-слой **`ae::Obj` schema S1** — отдельный файл `ObjId / ae::Obj::kClassId / 1`, payload = один `ae::ObjId origin` (BinaryArchive), **без** загрузки referent P при Save/Load.
+
+**Почему не другие варианты (кратко):**
+
+| Отвергнуто | Причина |
+| --- | --- |
+| `PrefabPtr<T>` / поле в Window | origin не прикладной; не для любого `ae::Obj`. |
+| Параллельный реестр / map instance→origin | вне штатной сериализации. |
+| `PrefabWindow` S2 / новый S прикладного класса | смешивает origin с posx S1; другой `ClassId`; ломает семантику fixture S1. |
+| Промежуточный `AppTraverseObj` только под Node | не покрывает «любой `ae::Obj`» единообразно; лишний `ClassId` на каждом типе. |
+| Расширение существующего **S0** прикладного класса | нарушает «не менять опубликованные S0». |
+
+**Почему не «просто добавить `Obj::Save(V1)` в наследниках»:** `DomainGraph::Save<T>` для `T = PrefabWindow` вызывает `version_iterator<VersionSaveTrait>` **только по методам `T::Save(V*)`**, с ключом **`PrefabWindow::kClassId`**. Методы `ae::Obj::Save(V1)` **не** участвуют в этом обходе и **не** перехватывают `PrefabWindow::Save(V1)` (S1 posx остаётся `…/PrefabWindow::kClassId/1`). Системный origin требует **отдельного** `SaveVersion` с ключом **`Obj::kClassId/1`**.
+
+**Реализация (12B, CPM-патч Æther + AppTraverse API):**
+
+1. **`aether-objects` (patch, pin `79283b667cabf689da1059d618fe2a22abf51db4`):**
+   - Поле runtime `ae::ObjId origin_id_{}` на `ae::Obj` (invalid = нет origin).
+   - `Load(ae::Version<1>, Dnv&)`, `Save(ae::Version<1>, Dnv&) const` — только `origin_id_`.
+   - `ShouldSaveVersion(ae::Version<1>) const` → `origin_id_.is_valid()` (как **10E**, без пустых слоёв).
+   - **`Obj::kCurrentVersion` остаёт `Version<0>`** — не объявляем «Obj S0» на диске для всех объектов; существующие **S0 прикладных классов** (`PrefabWindow/0`, `Node/0`, …) **не меняются**.
+2. **`DomainGraph::Save<T>` (patch, рядом с `ShouldSaveVersion`):** после успешного save версий **T**, если `T` наследует `ae::Obj`, один вызов `SaveVersion(ae::Version<1>{}, static_cast<ae::Obj const&>(obj), obj_id)` — запись facet **Obj/1** независимо от `T`.
+3. **Load:** существующий `LoadStoredLayers` (patch local-persistent) уже поднимает каждый `(ClassId, S)` с диска; при наличии `Obj/1` вызывается `Obj::Load(V1)` — origin восстанавливается **без** `LoadRoot(P)`.
+4. **AppTraverse API** (`include/apptraverse/object_origin.h`, **12B**): `SetObjectOrigin(ae::Obj&, ae::ObjId)`, `GetObjectOrigin(ae::Obj const&)` → чтение/запись `origin_id_`; **не** трогает `ObjPtr` wire.
+
+**Совместимость:**
+
+| Слой | Изменение |
+| --- | --- |
+| `…/DerivedClassId/0` (S0) | **Без изменений** (width, journal ptr, …). |
+| `…/PrefabWindow::kClassId/1` (S1 posx) | **Без изменений** (`ShouldSaveVersion` fixture). |
+| `…/Obj::kClassId/1` | **Новый**, только если `origin_id_` valid. |
+| `ObjPtr` / lazy | **Без изменений** — origin не в flags ObjPtr. |
+
+**Старые EXE (R0/R1 без patch):** не пишут `Obj/1`; объекты без origin — как сейчас. USER с `Obj/1`, записанный новым EXE, старый EXE **может** не загрузить объект (нет `Load(V1)` / unknown layer) — **прототип**: 12B проверяет roundtrip **одной** сборки; смешение old EXE + new USER — **22**, не блокер 12B.
+
+**12B — файлы:** `cmake/patches/aether-objects-obj-origin-v1.patch` (+ hook в `domain.h` Save); `cmake/aether_version.cmake`, корневой `CMakeLists.txt` PATCHES; `include/apptraverse/object_origin.h`; headless test (например `tests/object_origin_roundtrip_test.cpp`) + CTest.
+
+**Критерий 12B (E2E):** P const; dynamic A, `SetObjectOrigin(A,P)`; `DomainGraph::Save`/`LoadRoot`; cold read `GetObjectOrigin(A)==P` без load P; S0 P/A и `PrefabWindow` S1 regression без изменений.
+
+**13 (Clone):** при создании экземпляра `SetObjectOrigin(instance, P)`; цепочка P→A→B→C — у **каждого** нового ObjId **origin=P** (не «родитель»).
+
+**14 (historical base):** `Node::base` — отдельный `ObjId`; при создании/клонировании base копировать **тот же** `origin_id_`, что у instance (устойчивый P), не prefab ObjId из fixture `PrefabPtr`.
 
 ### 13 — Универсальный Clone
 

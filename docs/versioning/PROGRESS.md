@@ -11,9 +11,9 @@
 
 **Baseline SHA (старт tracking fixtures):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
-**Текущий этап:** итерация **11 IN_PROGRESS** (fixture compaction/replay; **11A** + **11B.2 PASS**). **01–10** PASS в заявленном scope; **11B.1** — зафиксированная регрессия до fix. **12–22** — **TODO** ([PLAN §12–22](./PLAN.md)). **T16/T17** — фрагменты, **не** PASS. Полный **R0–R5** и **T01–T18** — **не** завершены.
+**Текущий этап:** итерация **12 IN_PROGRESS** (**12A** — архитектурное решение origin, doc-only **`6edd855`**+); **11** fixture compaction (**11A**, **11B.2 PASS**). **01–10** PASS в scope. **12B** — код roundtrip origin (следующий commit). **13–22** — **TODO**. **T16/T17** — фрагменты.
 
-**Следующий приоритет:** **12** (системный origin) → **13** (универсальный Clone) → **14** (универсальные S / historical base; остаток **T16/T17**). Production-hardening (**22**) сознательно **отложен** ([PLAN §принцип v0.3](./PLAN.md#принцип-разработки-v03)).
+**Следующий приоритет:** **12B** (CPM `Obj/1` + API + roundtrip test) → **13** Clone → **14** S/historical base. Hardening (**22**) отложен ([PLAN §принцип v0.3](./PLAN.md#принцип-разработки-v03)).
 
 **Fixture vs библиотека:** PASS prefab/overlay matrices **не** означает готовность production Clone/origin/S-resolution — origin сейчас в **`PrefabPtr`**, Clone в fixture вручную.
 
@@ -181,7 +181,7 @@ Happy path и семантические инварианты — сейчас; 
 | 09 | PASS | `1ce8901` | `prefab_release_r1_supply_equivalence_test`, `prefab_release_r1_user_equivalence_matrix` + prefab matrices Debug/Release | **09A:** R1 BIN ≡ R1 embed; один USER; не clean install; T12 фрагмент |
 | 10 | PASS | `ce4f1a3` | `prefab_late_instance_matrix`, `prefab_release_matrix`, `prefab_dynamic_layer_roundtrip_matrix`, `overlay_domain_storage_test`, R1 supply + user equivalence Debug/Release | **10A–10E:** dynamic S0/S1, late WindowC, root-save без лишнего USER S1 (`ShouldSaveVersion`), historical base S1, 0-byte Event; T03/T09 фрагменты; T07–T10 не PASS |
 | 11 | IN_PROGRESS | `5653a9b` | compaction + old-exe guard + prefab/journal matrices Debug/Release | **11A+11B.2 PASS**; **11B.1** регрессия задокументирована; T16/T17 фрагменты |
-| 12 | TODO | — | — | **Системный origin** (не PrefabPtr-only) |
+| 12 | IN_PROGRESS | — | — | **12A PASS (doc):** origin = `Obj::kClassId/1`; **12B** — реализация ([PLAN §12A](./PLAN.md#12a--место-хранения-решение)) |
 | 13 | TODO | — | — | **Универсальный Clone** |
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
 | 15 | TODO | — | — | Единая модель поставок R/E/B/S; **T11–T15** |
@@ -239,6 +239,7 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-25** — **11B.1:** `prefab_old_exe_compaction_guard_matrix.py`; R1 compact после R2 delta — journal=0, replay 27→20; регрессия; push — **`4f9389f`**.
 - **2026-10-25** — **11B.2:** `CanCompactStoredObjectVersions` + guard в `CompactJournalInto`; guard matrix CTest PASS; **11B.2 PASS**; Debug/Release; push — **`5653a9b`**.
 - **2026-10-25** — **doc v0.3:** roadmap **12–22**, контрольные точки A–F, prototype-first; история **01–11** сохранена; код baseline **`66515d8`**; тесты не запускались; push — **`3eb6f15`**.
+- **2026-10-25** — **12A (doc):** системный origin — persisted **`ae::Obj` S1** (`ObjId/Obj::kClassId/1`), отдельный `SaveVersion` в `DomainGraph::Save`; API `object_origin.h` в **12B**; код не менялся; push — SHA ниже.
 - **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`ce46b80`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
