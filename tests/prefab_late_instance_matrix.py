@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Late WindowC from Tool prefab after R0 bootstrap (iteration 10B)."""
+"""Late WindowC from Tool prefab: create, S1 default, user S1 delta (10B+10C)."""
 
 import argparse
 import json
@@ -16,9 +16,12 @@ MAIN_PREFAB = 60001
 TOOL_PREFAB = 60002
 MAIN_PREFAB_BASE = 60005
 TOOL_PREFAB_BASE = 60006
+MAIN_LABEL_CONST = 60011
+TOOL_LABEL_CONST = 60012
 
 TOOL_WIDTH = 480
 TOOL_POSX = 20
+TOOL_POSX_USER = 27
 MAIN_POSX = 10
 
 FORBIDDEN_INSTANCE_IDS = frozenset(
@@ -73,7 +76,20 @@ def assert_no_s1(manifest_map, obj_id: int, class_id: int):
         raise CheckFailed(f"unexpected USER S1 layer {key}")
 
 
-def assert_identity(rec, window_c_id: int):
+def assert_has_s1(manifest_map, obj_id: int, class_id: int):
+    key = layer_key(obj_id, class_id, 1)
+    if key not in manifest_map:
+        raise CheckFailed(f"missing USER S1 layer {key}")
+
+
+def assert_no_const_in_user(manifest_map, obj_id: int):
+    prefix = f"{obj_id}/"
+    for key in manifest_map:
+        if key.startswith(prefix):
+            raise CheckFailed(f"const layer in USER: {key}")
+
+
+def assert_identity(rec, window_c_id: int, window_c_base_id: int):
     if int(rec.get("window_a_instance_id", 0)) != WINDOW_A:
         raise CheckFailed("WindowA instance ObjId")
     if int(rec.get("window_a_prefab_id", 0)) != MAIN_PREFAB:
@@ -82,6 +98,8 @@ def assert_identity(rec, window_c_id: int):
         raise CheckFailed("WindowC instance ObjId changed")
     if int(rec.get("window_c_prefab_id", 0)) != TOOL_PREFAB:
         raise CheckFailed("WindowC prefab ObjId")
+    if int(rec.get("instance_base_id", 0)) != window_c_base_id:
+        raise CheckFailed("WindowC historical base ObjId changed")
     if not rec.get("alias_ok"):
         raise CheckFailed("alias must point to WindowA")
     if rec.get("window_b_loaded"):
@@ -128,7 +146,7 @@ def main():
         raise CheckFailed("generated base id is reserved")
 
     rec = run_ok(r1, state_root, "inspect-window-c")
-    assert_identity(rec, window_c_id)
+    assert_identity(rec, window_c_id, window_c_base_id)
     assert_unique_ids(rec)
     class_id = int(rec["window_class_id"])
     if int(rec.get("width_c", 0)) != TOOL_WIDTH:
@@ -138,29 +156,71 @@ def main():
     user_manifest = manifest(user_root)
     assert_no_s1(user_manifest, window_c_id, class_id)
     assert_no_s1(user_manifest, window_c_base_id, class_id)
+    assert_no_const_in_user(user_manifest, MAIN_LABEL_CONST)
+    assert_no_const_in_user(user_manifest, TOOL_LABEL_CONST)
 
     before_r2 = manifest(user_root)
     rec = run_ok(r2, state_root, "inspect-window-c")
     after_r2_read = manifest(user_root)
     unchanged(before_r2, after_r2_read, "R2 read-only inspect")
-    assert_identity(rec, window_c_id)
+    assert_identity(rec, window_c_id, window_c_base_id)
     if int(rec.get("width_c", 0)) != TOOL_WIDTH:
         raise CheckFailed("R2 cold load: width_c")
     if int(rec.get("posx_c", 0)) != TOOL_POSX:
         raise CheckFailed("R2 cold load: prefab S1 posx on WindowC")
     if int(rec.get("posx_a", 0)) != MAIN_POSX:
-        raise CheckFailed("R2: WindowA main prefab posx")
+        raise CheckFailed("R2 readonly: WindowA main prefab posx")
     if rec.get("user_s1_instance") or rec.get("user_s1_base"):
-        raise CheckFailed("R2: USER S1 must stay absent for WindowC")
+        raise CheckFailed("R2 readonly: USER S1 must stay absent for WindowC")
+
+    rec = run_ok(r2, state_root, "delta-posx-c")
+    if int(rec.get("posx_c", 0)) != TOOL_POSX_USER:
+        raise CheckFailed("R2 delta-posx-c: posx")
+
+    rec = run_ok(r2, state_root, "inspect-window-c")
+    assert_identity(rec, window_c_id, window_c_base_id)
+    if int(rec.get("posx_a", 0)) != MAIN_POSX:
+        raise CheckFailed("R2 after delta: WindowA posx")
+    if int(rec.get("width_c", 0)) != TOOL_WIDTH:
+        raise CheckFailed("R2 after delta: width_c")
+    if int(rec.get("posx_c", 0)) != TOOL_POSX_USER:
+        raise CheckFailed("R2 after delta: posx_c")
+    if int(rec.get("base_posx_c", 0)) != TOOL_POSX:
+        raise CheckFailed("R2 after delta: historical base S1 posx")
+    if int(rec.get("journal_len_c", 0)) != 1:
+        raise CheckFailed("R2 after delta: journal_len_c")
+    if not rec.get("user_s1_instance") or not rec.get("user_s1_base"):
+        raise CheckFailed("R2 after delta: USER S1 on instance and base")
+    user_manifest = manifest(user_root)
+    assert_has_s1(user_manifest, window_c_id, class_id)
+    assert_has_s1(user_manifest, window_c_base_id, class_id)
 
     run_ok(r1, state_root, "touch-save-workspace")
 
     rec = run_ok(r2, state_root, "inspect-window-c")
-    assert_identity(rec, window_c_id)
+    assert_identity(rec, window_c_id, window_c_base_id)
+    if int(rec.get("posx_a", 0)) != MAIN_POSX:
+        raise CheckFailed("R2 after R1 rollback: WindowA posx")
     if int(rec.get("width_c", 0)) != TOOL_WIDTH:
         raise CheckFailed("R2 after R1 touch-save: width_c")
-    if int(rec.get("posx_c", 0)) != TOOL_POSX:
+    if int(rec.get("posx_c", 0)) != TOOL_POSX_USER:
         raise CheckFailed("R2 after R1 touch-save: posx_c")
+    if int(rec.get("base_posx_c", 0)) != TOOL_POSX:
+        raise CheckFailed("R2 after R1 rollback: base S1 preserved")
+    if not rec.get("user_s1_instance") or not rec.get("user_s1_base"):
+        raise CheckFailed("R2 after R1 rollback: USER S1 layers")
+
+    rec = run_ok(r2, state_root, "replay-window-c")
+    if int(rec.get("materialized_posx", 0)) != TOOL_POSX_USER:
+        raise CheckFailed("replay: materialized posx")
+    if int(rec.get("replay_posx", 0)) != TOOL_POSX_USER:
+        raise CheckFailed("replay: posx")
+    if int(rec.get("replay_posx_twice", 0)) != TOOL_POSX_USER:
+        raise CheckFailed("replay: posx idempotent")
+    if int(rec.get("materialized_width", 0)) != TOOL_WIDTH:
+        raise CheckFailed("replay: materialized width")
+    if int(rec.get("replay_width", 0)) != TOOL_WIDTH:
+        raise CheckFailed("replay: width")
 
     print("prefab_late_instance_matrix OK", flush=True)
 

@@ -1585,6 +1585,7 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
         UserHasLayerForInstance(stores.user, c_base_id, PrefabWindow::kClassId,
                                 1);
     bool const b_loaded_before = ws->window_b.is_loaded();
+    std::optional<std::int32_t> base_posx_c = InstanceBasePosx(*c);
     PrintJson(JsonOk(
         "\"op\":\"inspect-window-c\""
         ",\"window_c_instance_id\":" +
@@ -1593,6 +1594,8 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
         std::to_string(ws->window_c.prefab_id().id()) +
         ",\"width_c\":" + std::to_string(c->width) +
         ",\"posx_c\":" + std::to_string(c->posx) +
+        ",\"base_posx_c\":" + std::to_string(base_posx_c.value_or(-1)) +
+        ",\"journal_len_c\":" + std::to_string(c->journal.size()) +
         ",\"instance_base_id\":" + std::to_string(c_base_id.id()) +
         ",\"user_s1_instance\":" + (user_s1_c ? "true" : "false") +
         ",\"user_s1_base\":" + (user_s1_c_base ? "true" : "false") +
@@ -1609,6 +1612,81 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
              : "false") +
         ",\"window_class_id\":" + std::to_string(PrefabWindow::kClassId) +
         ",\"lazy_load_count\":" + std::to_string(LazyLoadCount())));
+    return 0;
+  }
+
+  if (op == "delta-posx-c") {
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    if (!ws->window_c.is_valid()) {
+      PrintJson("{\"ok\":false,\"error\":\"missing-window-c\"}");
+      return 1;
+    }
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    (void)MaterializePrefabBackedWindow(ws->window_a, ctx);
+    ae::Ptr<PrefabWindow> c =
+        MaterializePrefabBackedWindow(ws->window_c, ctx);
+    if (!EnsurePrefabVersionInHistoricalBase(ws->window_c, *c, stores.domain,
+                                             stores.user,
+                                             stores.backing.effective_backing,
+                                             1)) {
+      PrintJson("{\"ok\":false,\"error\":\"ensure-base-s1\"}");
+      return 1;
+    }
+    auto event = SetPosxDeltaEvent::ptr::Create(ae::CreateWith{stores.domain});
+    event.Load()->delta = 7;
+    c->Commit(event);
+    stores.user.BeginSaveSession();
+    ae::DomainGraph save_graph{&stores.domain};
+    if (!save_graph.SaveRoot(loaded, ae::ObjId{kWorkspaceId}).IsOk() ||
+        stores.user.SaveSessionHadFailure()) {
+      PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
+      return 1;
+    }
+    PrintJson(JsonOk("\"op\":\"delta-posx-c\",\"posx_c\":" +
+                     std::to_string(c->posx)));
+    return 0;
+  }
+
+  if (op == "replay-window-c") {
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    if (!ws->window_c.is_valid()) {
+      PrintJson("{\"ok\":false,\"error\":\"missing-window-c\"}");
+      return 1;
+    }
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> c =
+        MaterializePrefabBackedWindow(ws->window_c, ctx);
+    std::uint32_t const materialized_width = c->width;
+    std::int32_t const materialized_posx = c->posx;
+    c->ReplayFromBase();
+    std::uint32_t const replay_width = c->width;
+    std::int32_t const replay_posx = c->posx;
+    c->ReplayFromBase();
+    std::uint32_t const replay_width_twice = c->width;
+    std::int32_t const replay_posx_twice = c->posx;
+    PrintJson(JsonOk(
+        "\"op\":\"replay-window-c\""
+        ",\"materialized_width\":" +
+        std::to_string(materialized_width) + ",\"materialized_posx\":" +
+        std::to_string(materialized_posx) + ",\"replay_width\":" +
+        std::to_string(replay_width) + ",\"replay_posx\":" +
+        std::to_string(replay_posx) + ",\"replay_width_twice\":" +
+        std::to_string(replay_width_twice) + ",\"replay_posx_twice\":" +
+        std::to_string(replay_posx_twice)));
     return 0;
   }
 
