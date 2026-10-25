@@ -4413,4 +4413,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Parallel branch** (`integration/serialization-surfaces`): C0 cleanup, origin 12A fix, 12R, 12B, 13, 14 — object core, Clone/origin, schema compatibility; **9G blocked** until that core is ready. Do not merge branches in doc-only tasks.
 - **Prototype principles** (now in `plan.md` §1.6): standard serialization only; typed refs in graph; no implicit required defaults; all-or-nothing load; no corrupted-file hardening in prototype; preserve USER/journal/historical base; no duplicate runtime/managers; small verified iterations.
 - **FUTURE** (documented, does not block I0/9D/9E): optional supply/localization/cache, Universal ArtifactSource, SharedNode, DLL/SO plugins.
-- **Land SHA (this doc revision)**: *(pending commit)*.
+- **Land SHA (this doc revision)**: **`ab11a900423ba4f45d3c48350636d45342b8874e`** (`Document agreed Application Framework + Versioning roadmap revision.`).
