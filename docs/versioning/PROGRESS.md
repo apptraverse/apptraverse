@@ -167,7 +167,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 | 07 | PASS | `ae495b6` | `apptraverse_prefab_release_lifecycle_matrix`, supply split, prefab matrix Debug/Release | Prototype `supply.bin` (BinaryArchive upsert delta); R0 `--supply-package`; semantic matrix; T02/T12 — фрагменты |
 | 08 | PASS | `95968bd` | `apptraverse_prefab_active_release_matrix`, prefab/lifecycle/supply split Debug/Release | `active-release` BinaryArchive; `state/<R>/supply.bin`; embedded wins when `active <= embedded`; T13/T14 фрагменты |
 | 09 | PASS | `1ce8901` | `prefab_release_r1_supply_equivalence_test`, `prefab_release_r1_user_equivalence_matrix` + prefab matrices Debug/Release | **09A:** R1 BIN ≡ R1 embed; один USER; не clean install; T12 фрагмент |
-| 10 | IN_PROGRESS | *(push SHA)* | `prefab_dynamic_layer_roundtrip_matrix` + prefab matrices Debug/Release | **10A PASS:** R0→R1→R2→R1→R2 width/posx + S1 preserved; T03/T09 фрагмент; не T07–T10 |
+| 10 | IN_PROGRESS | `02ca209` | `prefab_dynamic_layer_roundtrip_matrix` + prefab matrices Debug/Release | **10A PASS:** R0→R1→R2→R1→R2 width/posx + S1 preserved; T03/T09 фрагмент; не T07–T10 |
 | 11 | TODO | — | — | **T16** historical base; **T17** compaction/replay |
 | 12 | TODO | — | — | Logic-only + constants R3/R4 |
 | 13 | TODO | — | — | **T01–T10**, **T15** lifecycle matrix |
