@@ -4390,4 +4390,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **17/17** CTests **PASS**. Minimal dev **288768** B; load-only **283648** B; catalog dev **349184** B; catalog load-only **340480** B.
 - **Known limits**: generated header not wired into production MinimalApplication startup (**9D**); ObjIds in export still depend on distill-time allocation (stable within one exporter run).
 - **Next step**: **9D** — embedded startup for MinimalApplication.
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`b773937`** (`Add build-time MinimalApplication embedded distilled graph export.`).
