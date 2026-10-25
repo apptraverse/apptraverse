@@ -92,12 +92,6 @@ class BackingComparedStorageWriter final : public ae::IDomainStorageWriter {
 
   ~BackingComparedStorageWriter() override {
 
-    if (failed_) {
-
-      return;
-
-    }
-
     if (new_bytes_ == backing_bytes_) {
 
       return;
@@ -126,12 +120,6 @@ class BackingComparedStorageWriter final : public ae::IDomainStorageWriter {
 
   ae::seri::SeriResult Write(ae::seri::DataWriteTag data) override {
 
-    if (failed_) {
-
-      return ae::Error{ae::seri::write_error};
-
-    }
-
     auto const* begin = static_cast<std::uint8_t const*>(data.data);
 
     new_bytes_.insert(new_bytes_.end(), begin, begin + data.size);
@@ -151,8 +139,6 @@ class BackingComparedStorageWriter final : public ae::IDomainStorageWriter {
   ae::ObjectData backing_bytes_;
 
   ae::ObjectData new_bytes_;
-
-  bool failed_{false};
 
 };
 
