@@ -14,6 +14,9 @@ apptraverse_add_test(apptraverse_embedded_distilled_domain_test
 apptraverse_add_test(apptraverse_overlay_user_backing_test
   overlay_user_backing_test.cpp)
 
+apptraverse_add_test(apptraverse_historical_base_materialization_test
+  historical_base_materialization_test.cpp)
+
 apptraverse_add_test(apptraverse_application_model_runtime_test
   application_model_runtime_test.cpp)
 

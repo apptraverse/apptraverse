@@ -1,0 +1,40 @@
+diff --git a/src/aether-objects/obj/idomain_storage.h b/src/aether-objects/obj/idomain_storage.h
+index 6e8b0a1..7f1c2d3 100644
+--- a/src/aether-objects/obj/idomain_storage.h
++++ b/src/aether-objects/obj/idomain_storage.h
+@@ -40,6 +40,7 @@ struct DomainQuery {
+   ObjId id;
+   std::uint32_t class_id;
+   std::uint8_t version;
++  bool force_materialize{false};
+ };
+ 
+ // BinaryBuffer implementation for storage writer
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 4cc911d..9a2b3c4 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -147,6 +147,7 @@ class DomainGraph {
+   DomainCycleDetector cycle_detector{};
+   GraphSerializationScope serialization_scope{
+       GraphSerializationScope::LocalPersistent};
++  bool force_materialize{false};
+ 
+  private:
+   void LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id);
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 3abf8f4..a1b2c3d 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -115,7 +115,10 @@ DomainLoad DomainGraph::GetReader(DomainQuery const& query) {
+ 
+ std::unique_ptr<IDomainStorageWriter> DomainGraph::GetWriter(
+     DomainQuery const& query) {
+-  auto writer = domain->storage_->Store(query);
++  DomainQuery store_query = query;
++  store_query.force_materialize =
++      store_query.force_materialize || force_materialize;
++  auto writer = domain->storage_->Store(store_query);
+   assert(writer && "Writer must be created!");
+   return writer;
+ }

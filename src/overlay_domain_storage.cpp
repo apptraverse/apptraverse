@@ -117,6 +117,9 @@ std::unique_ptr<ae::IDomainStorageWriter> OverlayDomainStorage::Store(
   if (IsSupplyConstant(query.id)) {
     return std::make_unique<SupplyConstantDiscardWriter>();
   }
+  if (query.force_materialize) {
+    return writable_overlay_.Store(query);
+  }
 
   ae::DomainLoad overlay_load = writable_overlay_.Load(query);
   ae::DomainLoadResult const overlay_result = overlay_load.result;

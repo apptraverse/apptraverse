@@ -797,7 +797,7 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
    - **9B1** — USER/BACKING `OverlayDomainStorage` + supply constants — done
      (2026-10-25).
    - **9B2** — `force_materialize` + historical dynamic base materialization —
-     TODO.
+     done on integration branch (2026-10-25).
    - **9C+** — build-time export, embedded app startup, release packages /
      active-release, historical base & schema compatibility, T01–T18 matrix —
      TODO.

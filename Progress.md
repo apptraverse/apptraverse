@@ -4361,3 +4361,18 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **15/15** CTests **PASS**. Minimal dev **290816** B; load-only **286208** B; catalog dev **350720** B; catalog load-only **342528** B.
 - **Next step**: **9B2** — `aether-objects-force-materialize.patch` + historical dynamic base materialization.
 - **Land SHA**: **`cdabb6c30ca4460a88da752f52b333c2940278d7`** (`Integrate USER/BACKING OverlayDomainStorage with supply constants.`).
+
+## Historical dynamic base materialization (9B2) (2026-10-25)
+
+- **Baseline**: `cad49a2a5b06df56b663f0c121f87b2fe69ffdb4` (9B1 docs land).
+- **Reference patch source**: `integration/serialization-surfaces@17b7830ae397871ee90e31dc65feb82cfdfc6716` (`aether-objects-force-materialize.patch` mechanism; pinned Æther **`79283b667cabf689da1059d618fe2a22abf51db4`** unchanged).
+- **Æther**: `cmake/patches/aether-objects-force-materialize.patch` — `DomainQuery.force_materialize`, `DomainGraph.force_materialize`, OR-merge in `DomainGraph::GetWriter` before `storage_->Store`.
+- **OverlayDomainStorage**: `Store` — supply constant discard, then `force_materialize` direct USER write, then 9B1 skip-unchanged policy.
+- **Node::Save** v0: `DnvSerializationScope::GetGraph`; temporary `force_materialize` only while serializing historical `base` (`LocalPersistent`, non-empty journal, valid `base`); publication omit branch unchanged; field order `base_`, `base`, `journal` preserved.
+- **Test**: `apptraverse_historical_base_materialization_test` — query-level force, `DomainGraph` propagation, historical base USER layer + sibling unchanged, BACKING swap + `ReplayFromBase`, materialized publication regression, supply constant with journaled root.
+- **Unchanged**: examples startup, `ApplicationModelRuntime`, host stack, v0 ClassId schemas, publication wire format, `reject-unknown-stored-class` / `should-save-version` patches, release resolver.
+- **Release verify** (`build-application-versioning-msvc-rel`): **16/16** CTests **PASS**. Minimal dev **379904** B; load-only **373760** B; catalog dev **450560** B; catalog load-only **439296** B.
+- **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **16/16** CTests **PASS**. Minimal dev **288768** B; load-only **283648** B; catalog dev **349184** B; catalog load-only **340480** B.
+- **Known limits**: T16/T17 downgrade/replay matrix and historical S1 evolution not claimed; 9B2 covers USER retention of historical dynamic `Node::base` when bytes match current BACKING.
+- **Next step**: **9C** — build-time embedded export.
+- **Land SHA**: *(pending commit)*.

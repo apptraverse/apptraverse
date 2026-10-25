@@ -9,6 +9,8 @@ set(APPTRAVERSE_AETHER_OBJECTS_DOMAIN_STORAGE_ACCESS_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-domain-storage-access.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_OBJPTR_RESET_FLAGS_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-objptr-reset-flags.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_FORCE_MATERIALIZE_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-force-materialize.patch")
 
 set(APPTRAVERSE_AETHER_GIT_TAG "feature/percentile8-policy-v1")
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
