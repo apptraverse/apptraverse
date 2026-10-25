@@ -1,8 +1,10 @@
 # I0 — Architecture cleanup ledger
 
-Inventory for **`integration/application-versioning`** (stage **I0.1**).  
-**Baseline (I0.1):** `36b0a5c08780a7a0136587a7bf3858b86b334982`  
-**I0.2 orphan slice baseline:** `6e952d181295d17f9944b225a6a3c36f0587199e`  
+Inventory for **`integration/application-versioning`** (stages **I0.1** + **I0.2** slice).
+
+**Baseline (I0.1):** `36b0a5c08780a7a0136587a7bf3858b86b334982`
+**I0.2 orphan slice baseline:** `6e952d181295d17f9944b225a6a3c36f0587199e`
+
 **Configuration reviewed:** Windows + `APPTRAVERSE_BUILD_EXAMPLES=ON`, CTest as in
 `tests/CMakeLists.txt` (17 tests when examples enabled).  
 **Method:** source + `rg` call-site survey + CMake target lists. I0.1 inventory

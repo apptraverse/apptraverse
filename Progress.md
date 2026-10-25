@@ -4446,4 +4446,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **EXE sizes (unchanged vs 9C report):** Release minimal dev **379904** B, load-only **373760** B, catalog dev **450560** B, catalog load-only **439296** B; MinSizeRel minimal dev **288768** B, load-only **283648** B, catalog dev **349184** B, catalog load-only **340480** B.
 - **Does not prove:** disabled historical demos/tests that referenced removed units still build or run.
 - **NEXT (I0.2):** ledger §C #2 — redundant Win ensure in `BuildMinimalApplicationGraph` after entry-point audit.
-- **Land SHA**: *(record after commit)*.
+- **Land SHA**: **`9c96d9001548bb9b46b449c8576cba4f69fa1bdd`** (`I0.2: remove seven orphan src implementations not in CMake targets.`).
