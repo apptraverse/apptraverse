@@ -8,6 +8,9 @@ endfunction()
 apptraverse_add_test(apptraverse_application_contract_headless_test
   application_contract_headless_test.cpp)
 
+apptraverse_add_test(apptraverse_application_model_runtime_test
+  application_model_runtime_test.cpp)
+
 apptraverse_add_test(apptraverse_ui_desktop_window_geometry_test
   ui/ui_desktop_window_geometry_test.cpp)
 

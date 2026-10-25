@@ -132,12 +132,8 @@ void WindowCatalogWinApp::ApplyPendingFocusWindow(ae::ObjId focus_id) {
 }
 
 void WindowCatalogWinApp::OnInitialPublished() {
-  std::vector<std::uint8_t> bytes;
-  {
-    std::lock_guard<std::mutex> lock{session_.mu};
-    bytes = session_.channel.TakePublishedCopy();
-  }
-  session_.cv.notify_all();
+  std::vector<std::uint8_t> bytes = session_.runtime.TakePublishedCopy();
+  session_.runtime.NotifyPublicationConsumed();
   ui_domain_ = std::make_unique<ae::Domain>(ui_storage_);
   ByteSource in;
   in.data = bytes.data();
@@ -154,15 +150,12 @@ void WindowCatalogWinApp::OnInitialPublished() {
 }
 
 void WindowCatalogWinApp::OnIncrementalPublished() {
-  std::vector<std::uint8_t> bytes;
   ae::ObjId focus_window_id{};
-  {
-    std::lock_guard<std::mutex> lock{session_.mu};
-    bytes = session_.channel.TakePublishedCopy();
+  std::vector<std::uint8_t> bytes = session_.runtime.TakePublishedCopy([&] {
     focus_window_id = session_.pending_focus_for_ui;
     session_.pending_focus_for_ui = {};
-  }
-  session_.cv.notify_all();
+  });
+  session_.runtime.NotifyPublicationConsumed();
   ApplyWindowCatalogStructural(bytes, *ui_catalog_, ui_storage_,
                                &presentation_host_, &*model_proxy_);
   ApplyPendingFocusWindow(focus_window_id);

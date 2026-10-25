@@ -774,7 +774,10 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
    **`SavePresentedWindow` / `UnloadPresentedWindow` / `LoadPresentedWindow`**
    in `ui_presented_window_lifecycle.h`; headless contract + WindowCatalog — done
    (2026-10-24).
-5. Generic model application runtime.
+5. Generic model application runtime — **`ApplicationModelRuntime`** (5A model
+   execution/publication loop only; load/save stay in app adapter) — done
+   (2026-10-24). **TODO:** consolidate legacy **`ModelRuntime`/`UiMirror`** with
+   the new path; do not treat both as target architecture.
 6. Generic Windows application host.
 7. Minimal application template without controls.
 8. WindowCatalog as pure consumer (runtime/host extraction).

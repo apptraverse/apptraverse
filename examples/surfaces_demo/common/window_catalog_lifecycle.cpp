@@ -30,25 +30,6 @@ ae::ObjId CatalogRootId() {
 
 }  // namespace
 
-void WindowCatalogModelSession::RequestStop() {
-  {
-    std::lock_guard<std::mutex> lock{mu};
-    stop = true;
-  }
-  cv.notify_all();
-}
-
-void WindowCatalogModelSession::Post(ModelWork work) {
-  {
-    std::lock_guard<std::mutex> lock{mu};
-    if (stop) {
-      return;
-    }
-    pending_work.push_back(std::move(work));
-  }
-  cv.notify_all();
-}
-
 void ApplyWindowCatalogStructural(std::vector<std::uint8_t> const& bytes,
                                   WindowCatalog& ui_catalog,
                                   ae::IDomainStorage& ui_storage, void* host,
@@ -127,82 +108,19 @@ void WindowCatalogModelSession::Run(
     catalog->RefreshChromeButtonEnabledState();
     RestoreLoadedCatalogWindows(*catalog);
 
-    PendingDirtyNodes pending_dirty;
-    BindReachableNodesMaterializedChangeNotifier(
-        *catalog, &pending_dirty, &PendingDirtyNodesNotify);
-
-    auto* buffer = channel.AcquireProducer();
-    SerializeInitialPublication(*catalog, buffer->sink);
-    {
-      std::lock_guard<std::mutex> lock{mu};
-      channel.NotePublished();
-      channel.PublishProducer();
-    }
-    cv.notify_all();
-    on_published(WindowCatalogPublicationKind::Initial);
-
-    for (;;) {
-      std::optional<ModelWork> work;
-      bool draining = false;
-      {
-        std::unique_lock<std::mutex> lock{mu};
-        cv.wait(lock, [&] {
-          if (stop) {
-            return true;
-          }
-          if (!pending_work.empty()) {
-            return true;
-          }
-          return !pending_dirty.empty() && !channel.is_publication_busy();
-        });
-        if (stop) {
-          if (pending_work.empty()) {
-            break;
-          }
-          work = std::move(pending_work.front());
-          pending_work.pop_front();
-          draining = true;
-        } else if (!pending_work.empty()) {
-          work = std::move(pending_work.front());
-          pending_work.pop_front();
-        }
-      }
-
-      if (work) {
-        (*work)(domain);
-      }
-
-      if (draining) {
-        continue;
-      }
-
-      bool publish_catalog = false;
-      {
-        std::lock_guard<std::mutex> lock{mu};
-        if (!stop && !pending_dirty.empty() && !channel.is_publication_busy()) {
-          publish_catalog = true;
-        }
-      }
-      if (publish_catalog) {
-        auto* pub = channel.AcquireProducer();
-        SerializeStructuralNodePublication(*catalog, pub->sink);
-        {
-          std::lock_guard<std::mutex> lock{mu};
-          pending_focus_for_ui =
-              catalog->pending_focus_window.is_valid()
-                  ? catalog->pending_focus_window.id()
-                  : ae::ObjId{};
+    runtime.Run(
+        domain, *catalog,
+        [&](ApplicationPublicationKind kind) {
+          on_published(kind == ApplicationPublicationKind::Initial
+                           ? WindowCatalogPublicationKind::Initial
+                           : WindowCatalogPublicationKind::Incremental);
+        },
+        [&] {
+          pending_focus_for_ui = catalog->pending_focus_window.is_valid()
+                                     ? catalog->pending_focus_window.id()
+                                     : ae::ObjId{};
           catalog->pending_focus_window = {};
-          pending_dirty.Clear();
-          channel.NotePublished();
-          channel.PublishProducer();
-        }
-        cv.notify_all();
-        on_published(WindowCatalogPublicationKind::Incremental);
-      }
-    }
-
-    ClearLiveReachableNodesMaterializedChangeNotifier(*catalog);
+        });
 
     SaveWindowCatalogPersistentSnapshot(*catalog);
     SavePersistentModelSnapshotToStorage(*catalog, durable_storage);

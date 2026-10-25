@@ -4248,3 +4248,16 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-b18-msvc-minsizerel`): **7/7** CTests **PASS**. Headless **252416** B; demo **343040** B.
 - **Next step**: generic model application runtime (plan §1.5 item 5).
 - **Land SHA**: **`23fe2f7`** (`Add generic UiPresentedWindow save/unload/reload lifecycle helpers.`).
+
+## ApplicationModelRuntime (5A) (2026-10-24)
+
+- **Baseline**: `015062ca30dba1170464104735e4f26b7a01311e`.
+- **API** (`include/apptraverse/application_model_runtime.h`, `src/application_model_runtime.cpp`): **`ApplicationModelRuntime`** — `Post`, `RequestStop`, `Run(domain, application_root, on_published, before_incremental)`, `TakePublishedCopy(sidecar)`, `NotifyPublicationConsumed`, `publish_count()`. Owns `PublicationChannel<3>`, work queue, stop flag; does not own Domain, storage, or model thread.
+- **Semantics**: initial + structural publication via existing serializers; coalesce dirty nodes until publish; no overwrite while channel busy; drain queued work after `RequestStop`; clear reachable notifiers on exit. Legacy **`ModelRuntime`/`UiMirror`** unchanged.
+- **WindowCatalogModelSession removed**: `channel`, `mu`, `cv`, `stop`, `pending_work`, inline scheduler. Retains `state_dir`, `runtime`, `pending_focus_for_ui`; focus sidecar via `before_incremental` + `TakePublishedCopy` sidecar (Model → UI ObjId boundary only).
+- **Test**: `apptraverse_application_model_runtime_test` (apptraverse only; no Win32/WindowCatalog).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **8/8** CTests **PASS**. Headless **316928** B; runtime test **272896** B; demo **438784** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **8/8** CTests **PASS**. Headless **252928** B; runtime test **220160** B; demo **344576** B.
+- **Allowed production ObjId boundaries** (unchanged): distill ids; catalog `UserCloseWindow` / `FindHolderForWindow`; `pending_focus_for_ui` / `ApplyPendingFocusWindow`; framework publication/storage.
+- **Next step**: generic Windows application host (plan §1.5 item 6); later consolidate legacy model runtime.
+- **Land SHA**: *(pending commit)*.
