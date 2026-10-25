@@ -615,6 +615,20 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     LABELS "serialization;prefab;evolution;lifecycle;late-instance"
   )
 
+  add_test(
+    NAME apptraverse_prefab_compaction_roundtrip_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/prefab_compaction_roundtrip_matrix.py"
+      --r0 "$<TARGET_FILE:apptraverse_prefab_release_r0>"
+      --r1 "$<TARGET_FILE:apptraverse_prefab_release_r1>"
+      --r2 "$<TARGET_FILE:apptraverse_prefab_release_r2>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/compaction_roundtrip_states"
+  )
+  set_tests_properties(apptraverse_prefab_compaction_roundtrip_matrix
+    PROPERTIES TIMEOUT 120
+    LABELS "serialization;prefab;evolution;lifecycle;compaction"
+  )
+
   add_executable(apptraverse_prefab_release_supply_split_test
     prefab_release_supply_split_test.cpp
   )

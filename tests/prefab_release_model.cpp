@@ -10,6 +10,7 @@
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/journal_retention_policy.h"
 #include "apptraverse/node.h"
 #include "apptraverse/presenter.h"
 
@@ -1693,6 +1694,53 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     }
     PrintJson(JsonOk("\"op\":\"delta-posx-c\",\"posx_c\":" +
                      std::to_string(c->posx)));
+    return 0;
+  }
+
+  if (op == "compact-window-c") {
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    if (!ws->window_c.is_valid()) {
+      PrintJson("{\"ok\":false,\"error\":\"missing-window-c\"}");
+      return 1;
+    }
+    ae::ObjId const instance_id = ws->window_c.instance_id();
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> c =
+        MaterializePrefabBackedWindow(ws->window_c, ctx);
+    std::uint64_t const generation_before = c->Generation();
+    ae::ObjId const instance_base_id = c->base.id();
+    std::uint32_t const width_before = c->width;
+    std::int32_t const posx_before = c->posx;
+    c->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+    c->CompactJournal(SystemUtcMicros());
+    std::uint64_t const generation_after = c->Generation();
+    stores.user.BeginSaveSession();
+    ae::DomainGraph save_graph{&stores.domain};
+    if (!save_graph.SaveRoot(c, instance_id).IsOk() ||
+        stores.user.SaveSessionHadFailure()) {
+      PrintJson("{\"ok\":false,\"error\":\"save-window-c\"}");
+      return 1;
+    }
+    std::optional<std::int32_t> base_posx_c = InstanceBasePosx(*c);
+    PrintJson(JsonOk(
+        "\"op\":\"compact-window-c\""
+        ",\"journal_len_c\":" +
+        std::to_string(c->journal.size()) + ",\"base_posx_c\":" +
+        std::to_string(base_posx_c.value_or(-1)) + ",\"posx_c\":" +
+        std::to_string(c->posx) + ",\"width_c\":" + std::to_string(c->width) +
+        ",\"generation_before\":" + std::to_string(generation_before) +
+        ",\"generation_after\":" + std::to_string(generation_after) +
+        ",\"instance_base_id\":" + std::to_string(instance_base_id.id()) +
+        ",\"window_c_instance_id\":" + std::to_string(instance_id.id()) +
+        ",\"width_before\":" + std::to_string(width_before) +
+        ",\"posx_before\":" + std::to_string(posx_before)));
     return 0;
   }
 

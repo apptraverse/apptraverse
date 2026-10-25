@@ -419,7 +419,8 @@ Wire-формат и новый GraphManager **не** добавлялись.
 ### 11 — Исторические base, компактация, replay
 
 - **Цель:** **T16** (исторический `Node::base` + новый S); **T17** (компактация журнала через откаты и до первого `SaveRoot`).
-- **T:** T16, T17 | **Зав.:** 10 | **Статус:** TODO (частично: event overlay, `model_persistence` F — фрагменты T17)
+- **Область (11A PASS):** op `compact-window-c` (`JournalRetentionPolicy.max_events=0`, `CompactJournal`, `SaveRoot` по instance WindowC); `prefab_compaction_roundtrip_matrix` — delta S1 → полная компактация (journal=0, base S1=27), cold load, откат R1 `touch-save-workspace`, `replay-window-c` ×2; Generation/ObjId/base chain и width=480; WindowA/B без лишнего USER S1; const не в USER. **Не** удаление orphaned Event-файлов; **не** изменение production `Node`/Æther.
+- **T:** T16, T17 *(фрагменты)* | **Зав.:** 10 | **Статус:** IN_PROGRESS *(11A PASS; полный T16/T17 — нет)*
 
 ### 12 — Логика-only, затем константы
 
