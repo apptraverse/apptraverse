@@ -71,6 +71,28 @@ downgrade-replay matrix remains future work.
 9B1 overlay policy + 9B2 historical dynamic base materialization (verified
 16/16 CTests Release and MinSizeRel on integration build trees).
 
+## Stage 9C — DONE (build-time embedded export)
+
+Build-time exporter for MinimalApplication distilled graph:
+
+```text
+BuildMinimalApplicationGraph → FinalizeDistilledGraph
+  → StabilizeDistilledPersistentSnapshot → persistent save → RamDomainStorage
+  → WriteEmbeddedDistilledSupplyHeader → generated C++ header (build tree only)
+```
+
+Files: `distilled_domain_export.h/.cpp`, `cmake/apptraverse_embed_distilled_supply.cmake`,
+`apptraverse_export_minimal_distilled_graph`, generated
+`embedded_distilled_minimal_app_supply.h` (namespace
+`apptraverse::embedded_distilled::minimal`).
+
+CTest: `apptraverse_minimal_app_embedded_export_test` — loads CMake-generated header
+without linking `minimal_app_graph.cpp`; cold `LoadApplication`, USER/BACKING overlay,
+geometry Event persistence.
+
+Not in 9C: production embedded startup (**9D**), WindowCatalog export, release packages,
+active-release, T16/T17 matrix. Examples still use directory distill bootstrap at runtime.
+
 ## Compatible mechanisms (both lines)
 
 - Native `ObjPtr` and ClassId
@@ -101,7 +123,7 @@ on either line alone. Import incrementally, not in one commit.
 
 ## Next steps (planned)
 
-1. **9C** — build-time export tooling (`distilled_domain_export`).
-3. Minimal app / WindowCatalog embedded startup (replacing dev distill bootstrap).
-4. Release packages, active-release selection.
-5. Historical base / schema compatibility and acceptance matrix vs versioning PLAN.
+1. **9D** — MinimalApplication production embedded startup (consume generated header).
+2. WindowCatalog embedded startup + build-time export.
+3. Release packages, active-release selection.
+4. Historical base / schema compatibility and acceptance matrix vs versioning PLAN.

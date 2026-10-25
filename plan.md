@@ -798,7 +798,10 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
      (2026-10-25).
    - **9B2** — `force_materialize` + historical dynamic base materialization —
      done on integration branch (2026-10-25).
-   - **9C+** — build-time export, embedded app startup, release packages /
+   - **9C** — build-time embedded distilled export (MinimalApplication exporter +
+     CMake-generated header + independent consumer test) — done on integration
+     branch (2026-10-25).
+   - **9D+** — embedded app startup, WindowCatalog export, release packages /
      active-release, historical base & schema compatibility, T01–T18 matrix —
      TODO.
    Legacy **`ModelRuntime` / `UiMirror`** consolidation with the new application

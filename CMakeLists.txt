@@ -110,6 +110,7 @@ add_library(apptraverse STATIC
   src/application_model_runtime.cpp
   src/application_ui_session.cpp
   src/embedded_distilled_domain.cpp
+  src/distilled_domain_export.cpp
   src/graph_mirror.cpp
   src/ui/ui_localization_string.cpp
   src/ui/ui_locale_settings.cpp

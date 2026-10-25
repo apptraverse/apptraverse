@@ -4375,4 +4375,19 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **16/16** CTests **PASS**. Minimal dev **288768** B; load-only **283648** B; catalog dev **349184** B; catalog load-only **340480** B.
 - **Known limits**: T16/T17 downgrade/replay matrix and historical S1 evolution not claimed; 9B2 covers USER retention of historical dynamic `Node::base` when bytes match current BACKING.
 - **Next step**: **9C** — build-time embedded export.
-- **Land SHA**: **`64c97f0a8b8e8c0e8f6e8b8e8c0e8f6e8b8e8c0e`** — use short hash from git after doc commit.
+- **Land SHA**: **`64c97f062b4414e905ad2eb1f9331d79e5429fc2`** (`Force-materialize historical Node::base for USER overlay retention.`).
+
+## Build-time embedded distilled export (9C) (2026-10-25)
+
+- **Baseline**: `3d6273ed5a2d86eec744a40ccb6a96ccf0f7fd52`.
+- **Reference exporter**: `integration/serialization-surfaces@17b7830ae397871ee90e31dc65feb82cfdfc6716` (`distilled_domain_export`, `apptraverse_embed_distilled_supply.cmake`; no directory RAM loader).
+- **Library**: `distilled_domain_export.h/.cpp` — `CollectStoredObjectIds`, `WriteEmbeddedDistilledSupplyHeader` (sorted ObjId → ClassId → version layers, zero-byte dummy pointer, supply id sort/dedupe).
+- **Exporter**: `apptraverse_export_minimal_distilled_graph` — `BuildMinimalApplicationGraph` + distill/stabilize + persistent RAM save + header `embedded_distilled_minimal_app_supply.h` (`APPTRAVERSE_EMBEDDED_DISTILLED_MINIMAL_APP_SUPPLY_H_`, namespace `embedded_distilled::minimal`, empty supply constants).
+- **CMake**: `apptraverse_embed_distilled_supply()` custom command in build tree; `apptraverse_minimal_app_embedded_export_test` depends on exporter + graph sources.
+- **Consumer test**: cold `InstallEmbeddedDistilledBacking` → `OverlayDomainStorage` → `LoadApplication<MinimalApplication>`; descriptor, geometry 120/80/640×480, historical base, USER skip-unchanged + Event geometry override replay.
+- **Unchanged**: `RunMinimalApplicationModel`, host/runtime/session, Win32 app startup, v0 schemas, `apptraverse_embedded_distilled_domain_test`.
+- **Release verify** (`build-application-versioning-msvc-rel`): **17/17** CTests **PASS**. Minimal dev **379904** B; load-only **373760** B; catalog dev **450560** B; catalog load-only **439296** B.
+- **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **17/17** CTests **PASS**. Minimal dev **288768** B; load-only **283648** B; catalog dev **349184** B; catalog load-only **340480** B.
+- **Known limits**: generated header not wired into production MinimalApplication startup (**9D**); ObjIds in export still depend on distill-time allocation (stable within one exporter run).
+- **Next step**: **9D** — embedded startup for MinimalApplication.
+- **Land SHA**: *(pending commit)*.

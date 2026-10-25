@@ -17,6 +17,34 @@ apptraverse_add_test(apptraverse_overlay_user_backing_test
 apptraverse_add_test(apptraverse_historical_base_materialization_test
   historical_base_materialization_test.cpp)
 
+if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
+  include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+  add_executable(apptraverse_minimal_app_embedded_export_test
+    minimal_app_embedded_export_test.cpp)
+  target_link_libraries(apptraverse_minimal_app_embedded_export_test PRIVATE
+    minimal_app_common apptraverse apptraverse_ui_windows)
+  target_include_directories(apptraverse_minimal_app_embedded_export_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/common
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows)
+  if(MSVC)
+    target_compile_options(apptraverse_minimal_app_embedded_export_test PRIVATE
+      /utf-8)
+  endif()
+  set(_minimal_embed_graph_sources
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows/minimal_app_graph.cpp
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows/minimal_app_export.cpp
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/common/minimal_application.cpp)
+  apptraverse_embed_distilled_supply(
+    apptraverse_minimal_app_embedded_export_test
+    apptraverse_export_minimal_distilled_graph
+    embedded_distilled_minimal_app_supply.h
+    ${_minimal_embed_graph_sources})
+  add_dependencies(apptraverse_minimal_app_embedded_export_test
+    apptraverse_export_minimal_distilled_graph)
+  add_test(NAME apptraverse_minimal_app_embedded_export_test
+    COMMAND apptraverse_minimal_app_embedded_export_test)
+endif()
+
 apptraverse_add_test(apptraverse_application_model_runtime_test
   application_model_runtime_test.cpp)
 

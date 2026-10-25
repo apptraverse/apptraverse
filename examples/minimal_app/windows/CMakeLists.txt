@@ -3,6 +3,23 @@ set(_minimal_app_win_sources
   ../common/minimal_app_lifecycle.cpp
 )
 
+add_executable(apptraverse_export_minimal_distilled_graph
+  minimal_app_export.cpp
+  minimal_app_graph.cpp
+)
+target_link_libraries(apptraverse_export_minimal_distilled_graph PRIVATE
+  minimal_app_common
+  apptraverse
+  apptraverse_ui_windows
+)
+target_include_directories(apptraverse_export_minimal_distilled_graph PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
+)
+if(MSVC)
+  target_compile_options(apptraverse_export_minimal_distilled_graph PRIVATE /utf-8)
+endif()
+
 add_executable(win32_minimal_app
   ${_minimal_app_win_sources}
   minimal_app_graph.cpp
