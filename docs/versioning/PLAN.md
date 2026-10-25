@@ -2,7 +2,9 @@
 
 **Статус документа:** архитектурный контракт и roadmap. Это не описание уже реализованной сквозной release-модели.
 
-**Архитектурная редакция:** **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)** — приоритет roadmap после итерации **11**; подтверждённый код на **`66515d8`**.
+**Архитектурная редакция:** **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)**; детализация Object Core — **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)). Согласовано с параллельной веткой **`integration/application-versioning`**.
+
+**Подтверждённый HEAD (код):** **`66515d8`**; документы roadmap — **`4bda0ad`**.
 
 **Сверка с Google Doc:** прямой доступ к документу «AppTraverse — версионирование состояния и жизненный цикл поставок» ([ссылка](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit)) недоступен (403). Нумерация **T01–T18** приведена в соответствие с текстом исходного Doc (ручная сверка по постановке); остальной контракт — из аудита репозитория на baseline `19d7da6`.
 
@@ -22,11 +24,30 @@
 - Использовать штатную сериализацию Æther **`BinaryArchive`** и существующую объектную систему; не усложнять API ради гипотетических сценариев.
 - То же относится к будущим **Download Manager**, **Update Manager**, plugins и package loading: на этапе прототипа артефакты считаются **корректными**, созданными нашими средствами и совместимыми по **заранее выбранному** сценарию.
 
-**Production-hardening** (подписи, recovery, malformed files, sandbox plugins и т.д.) — **отдельная заключительная фаза** ([итерация 22](#22--production-hardening--отдельно-после-функционального-прототипа)); **не** является условием завершения функционального прототипа (итерации **12–21**).
+**Production-hardening** (подписи, recovery, malformed files, sandbox plugins и т.д.) — **отдельная заключительная фаза** ([итерация 22](#22--production-hardening--отдельно-после-функционального-прототипа)); **не** является условием завершения функционального прототипа (итерации **C0**, **12–21**).
 
 ---
 
-## Текущее состояние (HEAD `66515d8`)
+## Нормативные правила Object Core (v0.3 / 01 plan)
+
+1. Только штатные **`DomainGraph`**, **`Load`/`Save(Version<S>)`**, **`BinaryArchive`**.
+2. Связи внутри графа — **`ObjPtr`**, **`LocalPtr`**, **`SharedPtr`** по семантике scope. Голый **`ObjId`** — identity, ключи storage, индексы, границы Domain; **не** вместо живой объектной связи в persisted-полях.
+3. Обязательные persisted-поля **без** неявных defaults из constructors, member initializers или fallback.
+4. Required graph — all-or-nothing; **lazy unloaded** — нормальное состояние.
+5. Артефакты прототипа считаются корректными: **не** добавлять CRC, hashes, signatures, malformed/corrupt-file tests, recovery, дополнительные лимиты (см. **22**).
+6. Семантические инварианты обязательны: USER, origin, history, replay, unknown layers, compaction guard (**11B.2**).
+7. **Не** создавать дополнительные managers, registries, wrappers и параллельные runtime paths.
+8. Маленькие итерации, существующие регрессии, Google C++ Style, C++20, без RTTI/exceptions.
+
+---
+
+## Порядок работ (после 11)
+
+**Сейчас:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**. Этапы **17–22** — roadmap; часть application/UI — параллельно в **`integration/application-versioning`** ([координация](#координация-с-integrationapplication-versioning)).
+
+---
+
+## Текущее состояние (код `66515d8`, docs `4bda0ad`)
 
 История итераций **01–11** не переписывается.
 
@@ -41,9 +62,11 @@
 | **T16/T17** | Частичное покрытие; **не** PASS. |
 | **Полный R0–R5**, **T01–T18** | **Не** завершены. |
 
-**Архитектурный пробел (v0.3):** **origin** сейчас только в тестовом **`PrefabPtr<T>`**; **Clone** частично вручную в fixture; **нет** универсального production **Clone/origin** и системного разрешения нового **S** для произвольного Node — следующий приоритет: итерации **12–14**.
+**12A (doc, `ed5eef9`):** выполнен; payload **`ObjId`** в **12A** — **исторический черновик**, пересматривается в **12R** (lazy **`ObjPtr`**). **12R/12B** — **не** реализованы и **не** протестированы.
 
-Fixture **PASS** ≠ готовность библиотечного механизма в production API.
+**Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
+
+**Следующий активный шаг:** **C0.1** (аудит избыточности). Fixture **PASS** ≠ библиотечный механизм.
 
 ---
 
@@ -463,14 +486,40 @@ Wire-формат и новый GraphManager **не** добавлялись.
 - **Область (11B.2 PASS):** `detail::CanCompactStoredObjectVersions` в `node.h`; `CompactJournalInto` — проверка instance + historical base **до** изменения journal/base; `EventFor` использует тот же helper. `apptraverse_prefab_old_exe_compaction_guard_matrix` — R1 не компактит (journal=1), R2 replay=27; R2 full compact (11A) без регрессии. **Правило:** нельзя сворачивать journal, если на Node или base есть persisted версии выше `kCurrentVersion` текущего EXE.
 - **T:** T16, T17 *(фрагменты)* | **Зав.:** 10 | **Статус:** IN_PROGRESS *(11A+11B.2 PASS; полный T16/T17 — нет)*
 
+### C0 — Очистка архитектуры (до новой функциональности)
+
+- **Цель:** убрать доказанно лишние обходы **до** **12R**; сохранить основания **10E**, **11B.2**, journal/base, Æther serialization.
+- **C0.1 — аудит (TODO, первая задача):** таблица `файл | избыточный механизм | на что заменить | защищающий тест`. Область проверки: `tests/prefab_ptr.h`, `tests/prefab_release_model.cpp`, `include/apptraverse/object_link.h`, `src/distilled_supply_package.cpp`, `src/overlay_domain_storage.cpp`, `include/apptraverse/node.h`, `include/apptraverse/event_for.h`, `include/apptraverse/distilled_domain_export.h`, `cmake/patches/*`. Предмет: wrappers/managers; ручные ObjId вместо ссылок; дубли serialize/init; неявные persisted defaults; лишние Ensure*/fallback; остатки file-validation. **C0.1 не выполнен.**
+- **C0.2 — минимальная очистка:** только доказанно лишнее; малые PR; существующие позитивные регрессии. **Не** возвращать APSP (уже удалён). **Не** переносить test-only **`PrefabPtr<T>`** в production.
+- **C0.3 — сохранить без удаления без замены:** `EnsureObjectRegistration`; `force_materialize`; `ShouldSaveVersion`; guard **11B.2**; ключ `ObjId/ClassId/S`; unknown newer S; historical base + journal; штатный Æther. **Не** менять опубликованные ClassId, S0, семантику старых Events ради очистки.
+- **PASS:** только после **C0.2** с зелёными регрессиями | **Статус:** **TODO**
+
 ### 12 — Системный origin
 
-- **Цель:** origin у каждого клонированного экземпляра (не только `PrefabPtr`); хранение в объектной системе **без** изменения опубликованных S0 прикладных классов; Save/Load через штатный `BinaryArchive`; обычные `ObjPtr` — обычные ссылки без origin на wire.
-- **T:** T16 *(фрагмент)* | **Зав.:** 11 | **Статус:** IN_PROGRESS *(12A — решение; 12B — код)*
+- **Цель:** origin у каждого клонированного экземпляра; **не** `PrefabPtr`; **без** изменения опубликованных S0 и **PrefabWindow/S1**; штатный **`BinaryArchive`**; обычные ссылки на другие объекты — как сейчас.
+- **T:** T16 *(фрагмент)* | **Зав.:** 11, **C0 PASS** | **Статус:** **TODO** *(12A doc — см. ниже; код — 12R→12B)*
 
-#### 12A — место хранения (решение)
+#### 12A — документ (выполнено, payload устарел)
 
-**Выбор:** системный persisted-слой **`ae::Obj` schema S1** — отдельный файл `ObjId / ae::Obj::kClassId / 1`, payload = один `ae::ObjId origin` (BinaryArchive), **без** загрузки referent P при Save/Load.
+**Исторический факт (`ed5eef9`):** выбран persisted-слой **`ae::Obj` S1** (`ObjId / Obj::kClassId / 1`) и отдельный `SaveVersion` в `DomainGraph::Save` — **не** перехватывает `PrefabWindow::Save(V1)`.
+
+**Устаревшая часть 12A:** payload = голый **`ae::ObjId`**. **Не** является финальным решением; **не** реализовано в коде.
+
+#### 12R — уточнение origin (TODO, после C0)
+
+**Целевой контракт (согласованный план):** тот же слой **`ae::Obj` S1**, поле — **штатная lazy object reference** (`ae::ObjPtr<ae::Obj>` или существующий scoped reference type с проверкой на актуальных исходниках). Origin **не** Window/Node; **нет** external registry; **нет** `PrefabPtr` в production.
+
+**Проверить на коде:** graph visitor; `DomainGraph::Save/Load`; наследование `Save(Version<S>)`; сосуществование **Obj/S1** и **PrefabWindow/S1**; **LocalPersistent** vs **NetworkShared**; **нет** автоматического `Load(P)`; **нет** записи тела const **P** в USER при Save origin.
+
+**Если тип ссылки нарушает инварианты** — другой **существующий** object-reference тип; **новый wire format запрещён**. **12R PASS** — отдельная будущая верификация; **не** объявлять в doc-only задаче.
+
+#### 12B — origin roundtrip (TODO, после 12R)
+
+Первый новый код после **C0**/**12R** (не универсальный Clone): **P(const) → A(dynamic)**, `origin(A)→P`; новый ObjId у **A**; штатный Save/Load; cold process; origin без load **P**; тело **P** не в USER; S0/S1 без регрессии.
+
+**Файлы (после 12R):** CPM-патч Æther (Obj S1 + hook `DomainGraph::Save`); `include/apptraverse/object_origin.h`; headless roundtrip test + CTest.
+
+#### 12A — справка (слой и отвергнутые альтернативы)
 
 **Почему не другие варианты (кратко):**
 
@@ -482,81 +531,54 @@ Wire-формат и новый GraphManager **не** добавлялись.
 | Промежуточный `AppTraverseObj` только под Node | не покрывает «любой `ae::Obj`» единообразно; лишний `ClassId` на каждом типе. |
 | Расширение существующего **S0** прикладного класса | нарушает «не менять опубликованные S0». |
 
-**Почему не «просто добавить `Obj::Save(V1)` в наследниках»:** `DomainGraph::Save<T>` для `T = PrefabWindow` вызывает `version_iterator<VersionSaveTrait>` **только по методам `T::Save(V*)`**, с ключом **`PrefabWindow::kClassId`**. Методы `ae::Obj::Save(V1)` **не** участвуют в этом обходе и **не** перехватывают `PrefabWindow::Save(V1)` (S1 posx остаётся `…/PrefabWindow::kClassId/1`). Системный origin требует **отдельного** `SaveVersion` с ключом **`Obj::kClassId/1`**.
+**Почему отдельный `Obj::kClassId/1`:** `DomainGraph::Save<T>` для `PrefabWindow` пишет только **`PrefabWindow::kClassId`** версии; facet origin — **отдельный** `SaveVersion` для **`Obj::kClassId/1`** (см. **12R**).
 
-**Реализация (12B, CPM-патч Æther + AppTraverse API):**
-
-1. **`aether-objects` (patch, pin `79283b667cabf689da1059d618fe2a22abf51db4`):**
-   - Поле runtime `ae::ObjId origin_id_{}` на `ae::Obj` (invalid = нет origin).
-   - `Load(ae::Version<1>, Dnv&)`, `Save(ae::Version<1>, Dnv&) const` — только `origin_id_`.
-   - `ShouldSaveVersion(ae::Version<1>) const` → `origin_id_.is_valid()` (как **10E**, без пустых слоёв).
-   - **`Obj::kCurrentVersion` остаёт `Version<0>`** — не объявляем «Obj S0» на диске для всех объектов; существующие **S0 прикладных классов** (`PrefabWindow/0`, `Node/0`, …) **не меняются**.
-2. **`DomainGraph::Save<T>` (patch, рядом с `ShouldSaveVersion`):** после успешного save версий **T**, если `T` наследует `ae::Obj`, один вызов `SaveVersion(ae::Version<1>{}, static_cast<ae::Obj const&>(obj), obj_id)` — запись facet **Obj/1** независимо от `T`.
-3. **Load:** существующий `LoadStoredLayers` (patch local-persistent) уже поднимает каждый `(ClassId, S)` с диска; при наличии `Obj/1` вызывается `Obj::Load(V1)` — origin восстанавливается **без** `LoadRoot(P)`.
-4. **AppTraverse API** (`include/apptraverse/object_origin.h`, **12B**): `SetObjectOrigin(ae::Obj&, ae::ObjId)`, `GetObjectOrigin(ae::Obj const&)` → чтение/запись `origin_id_`; **не** трогает `ObjPtr` wire.
-
-**Совместимость:**
-
-| Слой | Изменение |
-| --- | --- |
-| `…/DerivedClassId/0` (S0) | **Без изменений** (width, journal ptr, …). |
-| `…/PrefabWindow::kClassId/1` (S1 posx) | **Без изменений** (`ShouldSaveVersion` fixture). |
-| `…/Obj::kClassId/1` | **Новый**, только если `origin_id_` valid. |
-| `ObjPtr` / lazy | **Без изменений** — origin не в flags ObjPtr. |
-
-**Старые EXE (R0/R1 без patch):** не пишут `Obj/1`; объекты без origin — как сейчас. USER с `Obj/1`, записанный новым EXE, старый EXE **может** не загрузить объект (нет `Load(V1)` / unknown layer) — **прототип**: 12B проверяет roundtrip **одной** сборки; смешение old EXE + new USER — **22**, не блокер 12B.
-
-**12B — файлы:** `cmake/patches/aether-objects-obj-origin-v1.patch` (+ hook в `domain.h` Save); `cmake/aether_version.cmake`, корневой `CMakeLists.txt` PATCHES; `include/apptraverse/object_origin.h`; headless test (например `tests/object_origin_roundtrip_test.cpp`) + CTest.
-
-**Критерий 12B (E2E):** P const; dynamic A, `SetObjectOrigin(A,P)`; `DomainGraph::Save`/`LoadRoot`; cold read `GetObjectOrigin(A)==P` без load P; S0 P/A и `PrefabWindow` S1 regression без изменений.
-
-**13 (Clone):** при создании экземпляра `SetObjectOrigin(instance, P)`; цепочка P→A→B→C — у **каждого** нового ObjId **origin=P** (не «родитель»).
-
-**14 (historical base):** `Node::base` — отдельный `ObjId`; при создании/клонировании base копировать **тот же** `origin_id_`, что у instance (устойчивый P), не prefab ObjId из fixture `PrefabPtr`.
+**Совместимость слоёв (целевая):** S0 прикладных классов и **PrefabWindow/S1** без изменений; **Obj/S1** — только при заданном origin; wire origin — **lazy reference**, не materialize **P** в USER (**12R**).
 
 ### 13 — Универсальный Clone
 
-- **Цель:** Clone const → dynamic; Clone dynamic; цепочка P→A→B→C (новые ObjId, общий origin=P); Clone подграфа (remap, aliases, cycles, const refs); lazy сохраняется; **без** привязки к Window-классам fixture.
-- **T:** T03, T09 *(фрагменты)* | **Зав.:** 12 | **Статус:** TODO
+- **Цель:** **P→A→B→C**; Clone const и dynamic; общий устойчивый **origin=P** на каждом новом экземпляре; remap, aliases, cycles, const referents; lazy; Clone копирует **текущее каноническое** состояние источника; **без** Window-only fixture API.
+- **OPEN:** динамический источник **без** устойчивого **P** — явное решение, **не** silent fallback.
+- **T:** T03, T09 *(фрагменты)* | **Зав.:** **12B** | **Статус:** TODO
 
-### 14 — Универсальные S и historical base
+### 14 — Автоматическая эволюция S и history
 
-- **Цель:** перенести семантику `MaterializePrefabBackedWindow` / `EnsurePrefabVersionInHistoricalBase` на системный уровень; новый S из origin, если USER без слоя; старые USER-слои не перезаписываются; historical base независим от текущего объекта; завершить основные сценарии **T16/T17** (частичная компактация, replay); сохранить guard **11B.2**.
+- **Цель:** новый **S** только из **origin**, если нет USER-override; historical base расширяется **отдельно**; старые **S0** не заменяются; replay/compaction + guard **11B.2**; основные **T16/T17**.
 - **T:** T16, T17 | **Зав.:** 13 | **Статус:** TODO
 
-### 15 — Единая модель поставок
+### 15 — Единый Release R/E/B/S
 
-- **Цель:** R / E / B / S; самодостаточный embedded initial graph; первый запуск с пустым USER **без** обязательной runtime-distillation; const-дельты, active-release; эквивалентность full EXE и EXE+package; основные **T11–T15**.
+- **Цель:** самодостаточный embedded EXE; первый запуск с пустым USER; const-дельты; active-release; эквивалентность binary package и full EXE; **T11–T15**.
 - **T:** T11–T15 | **Зав.:** 14 | **Статус:** TODO
 
-### 16 — R3–R5 и полный lifecycle
+### 16 — Полный R0–R5→R0→R5
 
-- **Цель:** R3 logic-only, R4 constants, R5 dynamic S2; **R0→R5→R0→R5** на одном USER; изменения после отката; Load/replay; неизвестные старому EXE слои сохраняются; функциональная матрица **T01–T18** в поддерживаемом прототипом сценарии.
+- **Цель:** **R3** logic-only, **R4** constants, **R5** новый dynamic **S2**; откаты и изменения после отката; сохранение USER/lazy/history; **T01–T18** в prototype scope.
 - **T:** T01–T10, T15, T18 *(фрагменты)* | **Зав.:** 15 | **Статус:** TODO
 
-### 17 — Библиотечная интеграция и UI
+### 17 — Application / UI integration
 
-- **Цель:** startup embedded B + selected R + USER; ModelObjectProxy, UI mirror, Presenters, Surfaces; native UI open/close/recreate; второй потребитель библиотек со своим root/Node/Event; **не** привязка к одной demo.
-- **T:** — | **Зав.:** 16 | **Статус:** TODO
+- **Цель:** общий runtime; UI mirror; platform presenters; второй независимый consumer; **не** дублировать уже существующий integration framework в application-ветке.
+- **T:** — | **Зав.:** 16 | **Статус:** TODO *(частично параллельно — см. координацию)*
 
-### 18 — Optional resources, localization и cache
+### 18 — Optional resources и cache
 
-- **Цель:** embedded EN; доп. языки/ресурсы как канонические компоненты; `requested_locale` / `effective_locale`; local file source; производный cache, per-layer LZMA; функциональные сценарии **без** production-hardening.
+- **Цель:** EN embedded; языки по требованию; канонические пакеты; удаляемый cache; optional per-layer LZMA.
 - **T:** — | **Зав.:** 17 | **Статус:** TODO
 
-### 19 — Получение обновлений через Æther
+### 19 — Æther updates
 
-- **Цель:** простой **ArtifactSource** (local/file, затем Æther adapter); control plane сообщения; получение пакетов и EXE; staging и применение совместимой поставки; end-to-end update **без** сложного recovery и проверок повреждений.
+- **Цель:** простой **ArtifactSource**; штатно сериализованные control messages; потоковая передача файлов; **FileSource** / **ÆtherSource**; basic resume через `.partial`; end-to-end activation; **без** production recovery/security.
 - **T:** T12–T14 *(расширение)* | **Зав.:** 15, 18 | **Статус:** TODO
 
-### 20 — SharedNode integration
+### 20 — SharedNode
 
-- **Цель:** snapshot/Event/ACK; репликация поддерживаемого подграфа; события с новыми объектами; системный Clone/origin; локальная работа **без** обязательной сети.
+- **Цель:** опциональная репликация; snapshot, Events, ACK; новые объекты + origin; **без** больших file/media payload в journal.
 - **T:** — | **Зав.:** 13, 17 | **Статус:** TODO
 
-### 21 — Plugins и платформы
+### 21 — Plugins
 
-- **Цель:** независимые R/E/B/S и USER плагина; простая загрузка совместимого DLL/SO; plugin-owned объекты; save после disconnect/reconnect; общая модель Windows/macOS/Linux/Android/iOS/Web — **постепенно**, не блокируя первую рабочую систему всеми платформами.
+- **Цель:** desktop DLL/SO; независимые версии и USER; совместимая load/restart; save plugin state; остальные платформы постепенно.
 - **T:** — | **Зав.:** 17, 19 | **Статус:** TODO
 
 ### 22 — Production-hardening — отдельно, после функционального прототипа
@@ -567,11 +589,22 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 ---
 
+## Координация с `integration/application-versioning`
+
+| Ветка | Ответственность |
+| --- | --- |
+| **`integration/serialization-surfaces`** | Object Core: origin, Clone, новые S, historical base, guarded compaction, headless **R0–R5**, **T01–T18** в prototype scope. |
+| **`integration/application-versioning`** | `ApplicationModelRuntime`, `ApplicationUiSession`, `WinApplicationHost`, embedded startup (**MinimalApplication** / **WindowCatalog**), реальные UI lifecycle. После собственной очистки **I0** — **9D/9E** независимо. |
+
+**Правила:** **не** mass-merge двух веток; **не** дублировать реализации; **не** переносить **`PrefabPtr`** в production; origin/Clone/S в application — **только** после PASS соответствующих тестов versioning-ветки, малыми шагами, с синхронизацией pin/CPM patches. **Не** менять core одновременно в обеих ветках без согласования.
+
+---
+
 ## Контрольные точки A–F (v0.3)
 
 | Точка | Итерации | Зависимости | Критерий PASS (функциональный E2E) |
 | --- | --- | --- | --- |
-| **A. Object Core** | 12–14 | 11 | Системный origin + Clone + S/historical base/replay/compaction guard на **библиотечном** API; не только prefab fixture. |
+| **A. Object Core** | **C0**, **12R–14** | 11 | Origin (lazy ref), Clone, S/history/replay/compaction guard на **библиотечном** API. |
 | **B. Local App** | 15–16 | A | Embedded startup, USER, полный **R0–R5** на одном USER; UI необязателен на этом шаге. |
 | **C. Resource App** | 18 | B | Optional components, locale, cache — рабочий сценарий загрузки/переключения. |
 | **D. Updatable App** | 19 | B, 15 | Получение и применение совместимой поставки (file/Æther), без hardening. |
@@ -582,7 +615,9 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 ---
 
-## Обязательный этап очистки (в рамках 16–22)
+## Обязательный этап очистки (историческая заметка → **C0**)
+
+Нормативный порядок очистки — **[C0](#c0--очистка-архитектуры-до-новой-функциональности)** (**C0.1** аудит → **C0.2** → **C0.3**). Ниже — ранний чеклист (01D); не дублирует таблицу **C0.1**.
 
 Проверить и **после анализа** убрать дубли, не «Ensure» слепо:
 
@@ -605,7 +640,7 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 ## Критерии завершения программы
 
-**Функциональный прототип (итерации 01–21, контрольные точки A–F):**
+**Функциональный прототип (итерации 01–11, C0, 12–21; контрольные точки A–F):**
 
 - **T01–T18** PASS в Debug/Release на согласованном CI-subset **в поддерживаемом прототипом сценарии** (полный lifecycle **T07–T08**, **T09–T10**, **T16–T17** — через **14** и **16**, не через hardening).
 - Документированный release config; один способ выбора R; USER — пользовательская динамика; константы из `state/R` или EXE.
