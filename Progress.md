@@ -4261,3 +4261,15 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Allowed production ObjId boundaries** (unchanged): distill ids; catalog `UserCloseWindow` / `FindHolderForWindow`; `pending_focus_for_ui` / `ApplyPendingFocusWindow`; framework publication/storage.
 - **Next step**: generic Windows application host (plan §1.5 item 6); later consolidate legacy model runtime.
 - **Land SHA**: **`2f69e2c`** (`Extract ApplicationModelRuntime for model work and publication loop.`).
+
+## WinApplicationMessageHost (6A) (2026-10-24)
+
+- **Baseline**: `41f29117caa73144566de0ffbc377deda6028c66`.
+- **API** (`include/apptraverse/platform/windows/win_application_message_host.h`): **`apptraverse::windows::WinApplicationMessageHost`** — message-only notify HWND (`AppTraverseApplicationNotify`), `StartModelThread`, `NotifyPublished(ApplicationPublicationKind)`, `PumpUntilModelDone`, `JoinModelThread`; internal `WM_APP+1/+2` publication messages (not `surfaces_win32_messages.h`).
+- **Removed from `WindowCatalogWinApp`**: `model_thread_`, `notify_`, notify class registration, done event, message pump, notify `WndProc` publication/stop paths.
+- **Preserved**: loading window (`AppTraverseWindowCatalogLoading`), `OnInitialPublished` / `OnIncrementalPublished`, focus sidecar, `session_.runtime`, desktop close routing, `WM_QUIT` policy (`loading_ == nullptr`).
+- **Test**: `apptraverse_win_application_message_host_test` (`apptraverse_ui_windows` only).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **9/9** CTests **PASS**. Headless **316928** B; host test **37376** B; demo **442880** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **9/9** CTests **PASS**. Headless **252928** B; host test **32768** B; demo **344576** B.
+- **Next step**: Windows host **6B** — generic UI Domain/mirror/presenter application shell (plan §1.5 item 6B).
+- **Land SHA**: *(pending commit)*.

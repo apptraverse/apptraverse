@@ -144,6 +144,7 @@ if(WIN32)
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
     src/platform/windows/win32_fatal.cpp
+    src/platform/windows/win_application_message_host.cpp
   )
   target_link_libraries(apptraverse_ui_windows PUBLIC
     apptraverse user32 gdi32 comctl32)

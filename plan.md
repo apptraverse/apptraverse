@@ -778,7 +778,10 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
    execution/publication loop only; load/save stay in app adapter) — done
    (2026-10-24). **TODO:** consolidate legacy **`ModelRuntime`/`UiMirror`** with
    the new path; do not treat both as target architecture.
-6. Generic Windows application host.
+6. Generic Windows application host — **6A:** `WinApplicationMessageHost`
+   (notify HWND, publication PostMessage, model thread, done event, message pump)
+   — done (2026-10-24). **6B:** generic UI Domain / mirror / presenter wiring
+   (loading window, teardown order) — TODO.
 7. Minimal application template without controls.
 8. WindowCatalog as pure consumer (runtime/host extraction).
 9. Separate integration branch with the versioning project.

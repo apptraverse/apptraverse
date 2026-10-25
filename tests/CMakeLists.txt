@@ -32,6 +32,8 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   # All TUs including these presenters must share the test-only ABI.
   target_compile_definitions(apptraverse_ui_windows PUBLIC
     APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
+  apptraverse_add_test(apptraverse_win_application_message_host_test
+    win_application_message_host_test.cpp apptraverse_ui_windows)
   apptraverse_add_test(apptraverse_win_ui_native_push_button_test
     win_ui_native_push_button_test.cpp apptraverse_ui_windows)
   apptraverse_add_test(apptraverse_presenter_win_desktop_frame_sync_test
