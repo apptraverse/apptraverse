@@ -2,11 +2,11 @@
 #include <algorithm>
 #include <cassert>
 #include "window_catalog_localization.h"
-#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_string.h"
+#include "apptraverse/ui/ui_presented_window_composition.h"
 #include "apptraverse/ui/ui_window_presenter.h"
 #if defined(_WIN32)
 #include "apptraverse/platform/windows/win_ui_presenters.h"
@@ -35,71 +35,6 @@ ui::UiPresentedWindow const& Presented(CatalogWindow const& window) {
 }
 ui::UiPresentedWindow& MainPresented(WindowCatalog const& catalog) {
   return static_cast<ui::UiPresentedWindow&>(*catalog.main_window);
-}
-[[noreturn]] void FailCatalogWindowWiring(char const* message) {
-  WriteFatalStderr(message);
-  std::abort();
-}
-ui::UiWindowPresenter* LoadedWindowPresenter(CatalogWindow& window) {
-  auto& presented = Presented(window);
-  if (!presented.presenter.is_valid()) {
-    return nullptr;
-  }
-  if (!presented.presenter.is_loaded()) {
-    return nullptr;
-  }
-  return &*presented.presenter;
-}
-void RequireLoadedChildWindowWiring(WindowHolder const& holder,
-                                    WindowCatalog const& catalog) {
-  if (!holder.window.is_valid() || !holder.window.is_loaded()) {
-    return;
-  }
-  auto& presented = Presented(*holder.window);
-  if (!presented.presenter.is_valid() || !presented.presenter.is_loaded()) {
-    FailCatalogWindowWiring(
-        "fatal: catalog child window missing loaded presenter");
-  }
-  ui::UiWindowPresenter& presenter = *presented.presenter;
-  if (!presenter.window.is_valid() ||
-      presenter.window.id() != holder.window.id()) {
-    FailCatalogWindowWiring(
-        "fatal: catalog child presenter.window does not reference window");
-  }
-  if (!holder.primary_text.is_valid() || !presenter.title.is_valid() ||
-      presenter.title.id() != holder.primary_text.id()) {
-    FailCatalogWindowWiring(
-        "fatal: catalog child presenter.title does not reference holder text");
-  }
-  if (!catalog.locale.is_valid() || !presenter.locale.is_valid() ||
-      presenter.locale.id() != catalog.locale.id()) {
-    FailCatalogWindowWiring(
-        "fatal: catalog child presenter.locale does not reference catalog locale");
-  }
-}
-void RequireLoadedMainWindowWiring(WindowCatalog const& catalog) {
-  if (!catalog.main_window.is_valid() || !catalog.main_window.is_loaded()) {
-    return;
-  }
-  auto& presented = MainPresented(catalog);
-  if (!presented.presenter.is_valid() || !presented.presenter.is_loaded()) {
-    FailCatalogWindowWiring(
-        "fatal: catalog main window missing loaded presenter");
-  }
-  ui::UiWindowPresenter& presenter = *presented.presenter;
-  if (!presenter.window.is_valid() ||
-      presenter.window.id() != catalog.main_window.id()) {
-    FailCatalogWindowWiring(
-        "fatal: catalog main presenter.window does not reference main_window");
-  }
-  if (!presenter.title.is_valid()) {
-    FailCatalogWindowWiring("fatal: catalog main presenter missing title");
-  }
-  if (!catalog.locale.is_valid() || !presenter.locale.is_valid() ||
-      presenter.locale.id() != catalog.locale.id()) {
-    FailCatalogWindowWiring(
-        "fatal: catalog main presenter.locale does not reference catalog locale");
-  }
 }
 std::string ReadPrefixText(ui::UiLocalizationString& prefix, int language_index,
                            int restore_language_index) {
@@ -174,26 +109,18 @@ void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
   }
 }
 void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
-  if (catalog.main_window.is_valid() && catalog.main_window.is_loaded()) {
-    SaveCatalogWindowGraph(
-        static_cast<CatalogWindow&>(*catalog.main_window.operator->()));
+  if (catalog.main_window.is_loaded()) {
+    SaveCatalogWindowGraph(*catalog.main_window);
   }
-  if (catalog.list) {
-    for (auto const& row : catalog.list->rows) {
-      if (!row) {
-        continue;
-      }
-      auto* holder = static_cast<WindowHolder*>(&*row);
-      if (holder->primary_text.is_valid()) {
-        if (!holder->primary_text.is_loaded()) {
-          holder->primary_text.Load();
-        }
-        holder->primary_text.Save();
-        holder->primary_text.Reset();
-      }
-      if (holder->window.is_valid() && holder->window.is_loaded()) {
-        SaveCatalogWindowGraph(*holder->window);
-      }
+  for (auto const& row : catalog.list->rows) {
+    auto* holder = static_cast<WindowHolder*>(&*row);
+    if (!holder->primary_text.is_loaded()) {
+      holder->primary_text.Load();
+    }
+    holder->primary_text.Save();
+    holder->primary_text.Reset();
+    if (holder->window.is_loaded()) {
+      SaveCatalogWindowGraph(*holder->window);
     }
   }
   WindowCatalog::ptr::MakeFromThis(&catalog).Save();
@@ -203,32 +130,21 @@ void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
   SaveWindowCatalogPersistentSnapshotImpl(catalog);
 }
 void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
-  if (!catalog.list) {
-    return;
-  }
-  int const language = catalog.locale ? catalog.locale->language_index() : 0;
+  int const language = catalog.locale->language_index();
   for (auto const& row : catalog.list->rows) {
-    if (!row) {
-      continue;
-    }
     WindowHolder& holder = *static_cast<WindowHolder*>(&*row);
-    if (!holder.window.is_valid() || !holder.window.is_loaded()) {
+    if (!holder.window.is_loaded()) {
       continue;
     }
     holder.window.SetFlags(OpenObjFlags(holder.window.flags()));
     auto& presented = Presented(*holder.window);
-    if (presented.presenter.is_valid()) {
-      if (!presented.presenter.is_loaded()) {
-        presented.presenter.Load();
-      }
-      presented.presenter.SetFlags(
-          OpenObjFlags(presented.presenter.flags()));
+    if (!presented.presenter.is_loaded()) {
+      presented.presenter.Load();
     }
-    RequireLoadedChildWindowWiring(holder, catalog);
+    presented.presenter.SetFlags(OpenObjFlags(presented.presenter.flags()));
     catalog.MaterializeHolderListText(holder, language);
     BindLiveWindowNotifiers(catalog, *holder.window);
   }
-  RequireLoadedMainWindowWiring(catalog);
 }
 void AssignInitialCatalogWindowBounds(CatalogWindow& window,
                                       std::uint32_t number) {
@@ -357,50 +273,27 @@ std::size_t WindowCatalog::RowIndexForHolder(WindowHolder const& holder) const {
   return rows.size();
 }
 void WindowCatalog::MaterializeCatalogStrings(int language_index) {
-  if (texts.label_add) {
-    texts.label_add->MaterializeLanguage(language_index);
-  }
-  if (texts.label_open) {
-    texts.label_open->MaterializeLanguage(language_index);
-  }
-  if (texts.label_delete) {
-    texts.label_delete->MaterializeLanguage(language_index);
-  }
-  if (texts.label_language) {
-    texts.label_language->MaterializeLanguage(language_index);
-  }
-  if (texts.window_title_prefix) {
-    texts.window_title_prefix->MaterializeLanguage(language_index);
-  }
-  if (main_window.is_valid() && main_window.is_loaded()) {
-    auto& presented = MainPresented(*this);
-    if (presented.presenter.is_valid() && presented.presenter.is_loaded() &&
-        presented.presenter->title.is_valid()) {
-      presented.presenter->title->MaterializeLanguage(language_index);
-    }
+  texts.label_add->MaterializeLanguage(language_index);
+  texts.label_open->MaterializeLanguage(language_index);
+  texts.label_delete->MaterializeLanguage(language_index);
+  texts.label_language->MaterializeLanguage(language_index);
+  texts.window_title_prefix->MaterializeLanguage(language_index);
+  if (main_window.is_loaded()) {
+    MainPresented(*this).presenter->title->MaterializeLanguage(language_index);
   }
   for (auto const& row : list->rows) {
-    if (row) {
-      MaterializeHolderListText(*AsHolder(*row), language_index);
-    }
+    MaterializeHolderListText(*AsHolder(*row), language_index);
   }
 }
 void WindowCatalog::MaterializeHolderListText(WindowHolder& holder,
                                               int language_index) {
-  if (!holder.primary_text.is_valid()) {
-    return;
-  }
   if (!holder.primary_text.is_loaded()) {
     holder.primary_text.Load();
   }
   holder.primary_text->MaterializeLanguage(language_index);
-  if (holder.window.is_valid() && holder.window.is_loaded()) {
-    if (ui::UiWindowPresenter* presenter =
-            LoadedWindowPresenter(*holder.window)) {
-      if (presenter->title.is_valid()) {
-        presenter->title->MaterializeLanguage(language_index);
-      }
-    }
+  if (holder.window.is_loaded()) {
+    Presented(*holder.window).presenter->title->MaterializeLanguage(
+        language_index);
   }
 }
 void WindowCatalog::SelectHolder(WindowHolder::ptr holder) {
@@ -421,12 +314,8 @@ void WindowCatalog::OpenListRowFromUi(std::size_t row_index) {
   OpenRow(row_index);
 }
 void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
-  if (!holder.window.is_valid()) {
-    return;
-  }
   if (holder.window.is_loaded()) {
-    RequireLoadedChildWindowWiring(holder, *this);
-    pending_focus_window_id = holder.window.id().id();
+    pending_focus_window = holder.window;
     NoteMaterializedChange();
     return;
   }
@@ -434,32 +323,22 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   ae::ObjId const window_id = holder.window.id();
   ae::DomainGraph load_graph{&domain,
                              ae::GraphSerializationScope::LocalPersistent};
-  if (ae::Ptr<ae::Obj> loaded = load_graph.LoadRoot(window_id)) {
-    holder.window = CatalogWindow::ptr::MakeFromThis(
-        static_cast<CatalogWindow*>(loaded.get()));
-  } else {
-    holder.window.Load();
-  }
-  if (!holder.window.is_loaded() || holder.window.id() != window_id) {
-    return;
-  }
+  holder.window = CatalogWindow::ptr::MakeFromThis(static_cast<CatalogWindow*>(
+      load_graph.LoadRoot(window_id).get()));
   auto open_event = SetWindowCatalogOpenEvent::ptr::Create(
       ae::CreateWith{domain});
   open_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
   open_event->open = true;
   Commit(std::move(open_event));
   auto& presented = Presented(*holder.window);
-  if (presented.presenter.is_valid()) {
-    if (!presented.presenter.is_loaded()) {
-      presented.presenter.Load();
-    }
-    presented.presenter.SetFlags(OpenObjFlags(presented.presenter.flags()));
+  if (!presented.presenter.is_loaded()) {
+    presented.presenter.Load();
   }
-  RequireLoadedChildWindowWiring(holder, *this);
-  int const language = locale ? locale->language_index() : 0;
+  presented.presenter.SetFlags(OpenObjFlags(presented.presenter.flags()));
+  int const language = locale->language_index();
   MaterializeHolderListText(holder, language);
   BindLiveWindowNotifiers(*this, *holder.window);
-  pending_focus_window_id = holder.window.id().id();
+  pending_focus_window = holder.window;
   NoteMaterializedChange();
 }
 void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
@@ -496,17 +375,13 @@ void WindowCatalog::AddWindow() {
 #else
   presenter = ui::UiWindowPresenter::ptr::Create(ae::CreateWith{domain});
 #endif
-  Presented(*window).presenter = presenter;
-  presenter->window = window;
-  presenter->title = holder->primary_text;
-  presenter->locale = locale;
+  ui::ComposePresentedWindow(window, presenter, holder->primary_text, locale);
   InitializeRuntimeNode(*window, *this);
   AssignInitialCatalogWindowBounds(*window, number);
   holder->window = window;
   holder->window.SetFlags(OpenObjFlags(holder->window.flags()));
   Presented(*window).presenter.SetFlags(
       OpenObjFlags(Presented(*window).presenter.flags()));
-  RequireLoadedChildWindowWiring(*holder, *this);
   BindLiveWindowNotifiers(*this, *window);
   auto add = AddWindowCatalogEntryEvent::ptr::Create(ae::CreateWith{domain});
   add->holder = holder;
@@ -549,7 +424,7 @@ void WindowCatalog::UserCloseWindow(ae::ObjId window_obj_id) {
   CloseHolderWindow(*holder);
 }
 void WindowCatalog::ClearPendingFocusWindow() {
-  pending_focus_window_id = {};
+  pending_focus_window = {};
 }
 void WindowCatalog::RefreshChromeButtonEnabledState() {
   bool const has_selection = selected.is_valid();

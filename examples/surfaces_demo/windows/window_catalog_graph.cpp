@@ -9,6 +9,7 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_presented_window_composition.h"
 #include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_push_button.h"
@@ -297,18 +298,18 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   catalog->list = list;
   InitializeRuntimeNode(*list, *catalog);
 
+  InstallWindowCatalogLocalization(*catalog, domain);
+  auto main_title = CreateMainWindowTitle(*catalog, domain);
   auto main_window = CatalogWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
   auto main_presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindowPresenter)));
-  static_cast<ui::UiPresentedWindow&>(*main_window).presenter = main_presenter;
-  main_presenter->window = main_window;
-  catalog->main_window = main_window;
+  ui::ComposePresentedWindow(main_window, main_presenter, main_title,
+                             catalog->locale);
   InitializeRuntimeNode(*main_window, *catalog);
   main_window->SubmitFrameFromNative(80, 80, kMainClientWidth,
                                      kMainClientHeight);
-
-  InstallWindowCatalogLocalization(*catalog, domain);
+  catalog->main_window = main_window;
 
   auto list_presenter = CatalogListContainerPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::CatalogListPresenter)));
@@ -358,8 +359,6 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
       domain, *catalog, language_button, 12 + 3 * (kButtonW + 8),
       kLanguageControlId);
 
-  main_presenter->locale = catalog->locale;
-  AttachMainWindowTitle(*catalog, domain);
   catalog->RefreshChromeButtonEnabledState();
 
   InitializeRuntimeNode(*add_button, *catalog);

@@ -178,11 +178,12 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
  protected:
 
-  WindowCatalog() : pending_focus_window_id{} {}
+  WindowCatalog() = default;
 
  public:
 
-  explicit WindowCatalog(ae::ObjProp prop) : NodeFor{prop}, next_window_number{1}, pending_focus_window_id{} {}
+  explicit WindowCatalog(ae::ObjProp prop)
+      : NodeFor{prop}, next_window_number{1} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(next_window_number), AE_MMBR(selected),
 
@@ -236,7 +237,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   ae::ObjPtr<CatalogListContainer> list;
 
-  ui::UiDesktopWindow::ptr main_window;
+  CatalogWindow::ptr main_window;
 
   ae::ObjPtr<ui::UiLocaleSettings> locale;
 
@@ -290,9 +291,9 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   void RefreshChromeButtonEnabledState();
 
-  // Model-thread one-shot focus request; copied to UI session on publish.
+  // Model-thread one-shot focus request (runtime-only); copied to UI on publish.
 
-  std::uint32_t pending_focus_window_id;
+  CatalogWindow::ptr pending_focus_window;
 
 };
 

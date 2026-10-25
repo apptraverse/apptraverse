@@ -239,19 +239,10 @@ void SurfacesModelSession::Run(
     ClearLiveReachableNodesMaterializedChangeNotifier(*application);
     SurfacesShutdownTrace::MarkClearLiveNotifiersDone();
 
-    durable_storage.BeginSaveSession();
     SurfacesShutdownTrace::MarkApplicationSaveStart();
     application.Save();
     SurfacesShutdownTrace::MarkApplicationSaveEnd();
-    DirectoryDomainStorageStoreStats const store_stats =
-        durable_storage.SnapshotSaveSessionStats();
-    if (durable_storage.SaveSessionHadFailure()) {
-      shutdown_exit_code = 1;
-    }
-    SurfacesShutdownTrace::LogStorageStoreStats(
-        store_stats.layer_store_calls, store_stats.layers_bytes_accepted,
-        store_stats.layers_written, store_stats.layers_skipped_unchanged,
-        store_stats.layers_written_bytes, store_stats.layers_failed_commits);
+    SurfacesShutdownTrace::LogStorageStoreStats(0, 0, 0, 0, 0, 0);
     if (instrumented_storage) {
       InstrumentedDomainStorageStats const save_stats =
           instrumented_storage->SnapshotStats();

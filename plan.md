@@ -680,6 +680,13 @@ event semantics.
 ModelWork execution is independent of GUI publication consumption.
 `PublicationChannel` backpressure delays only the next GUI snapshot.
 
+## Prototype coding rules (WindowCatalog-only build)
+
+Permanent agent rules in **`.cursor/rules/apptraverse-coding-agent.mdc`**: typed
+object references (no bare integer identity), all-or-nothing required graph after
+load/build boundaries, trusted on-disk prototype storage (no repair/integrity
+stats). Versioning / distillation integration boundary unchanged.
+
 ## Foundation still in force
 
 Independent Model/GUI Domains, Event-only Node mutation, presentation_load_order,
@@ -760,7 +767,9 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
 0. Headless contract test (`apptraverse_application_contract_headless_test`) — done.
 1. `UiPresentedWindow` and migrate `UiDesktopWindow` onto it — done.
 2. WindowCatalog consumer migration onto `UiPresentedWindow::presenter` — done.
-3. Shared presented-window composition (window ↔ presenter ↔ locale/title) — extract from headless + WindowCatalog; distilled-base replay regression in place (not the library helper yet).
+3. Shared presented-window composition — **`ComposePresentedWindow`** in
+   `include/apptraverse/ui/ui_presented_window_composition.h`; headless contract +
+   WindowCatalog graph use it before **`InitializeRuntimeNode`** — done (2026-10-24).
 4. Generic save/unload/reload lifecycle for presented windows (separate step after composition).
 5. Generic model application runtime.
 6. Generic Windows application host.

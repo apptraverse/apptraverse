@@ -4215,3 +4215,19 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (2026-10-24, **`build-b18-msvc-minsizerel`**): same **7** tests **PASS**.
 - **`apptraverse_application_contract_headless_test`**: links only `apptraverse`
   (dumpbin: no `user32`/`gdi32`; no `surfaces_demo` / WindowCatalog link).
+
+---
+
+## WindowCatalog prototype rules + composition helper (2026-10-24)
+
+- **Baseline**: `4a0f868b6e0ec8ddfa0ffccfe6e4ccfa90f72dc9` (early CaptureBaseState wiring).
+- **Coding rules**: `.cursor/rules/apptraverse-coding-agent.mdc` — typed refs, required graph, trusted storage.
+- **Helper**: `ui::ComposePresentedWindow` (`include/apptraverse/ui/ui_presented_window_composition.h`); headless contract + WindowCatalog graph/`AddWindow`; **`CreateMainWindowTitle`** replaces post-hoc title attach.
+- **Typed identity**: `WindowCatalog::main_window` → **`CatalogWindow::ptr`**; model focus **`CatalogWindow::ptr pending_focus_window`** (runtime-only); session/UI boundary **`ae::ObjId pending_focus_for_ui`** / **`ApplyPendingFocusWindow(ae::ObjId)`**.
+- **Removed**: `RepairWindowCatalogEmbeddedStrings`, `RepairLocalizationSlot`, `Require*Wiring` / cascade presenter guards, storage save-session stats / `.tmp` commit path, checkpoint/storage failure exit codes.
+- **Storage**: straight write + byte-compare skip unchanged layers; trusted read path.
+- **Allowed production `ae::ObjId` boundaries** (WindowCatalog active path): distill/root ids (`window_catalog_ids.h`); **`UserCloseWindow(ae::ObjId)`** UI→model; **`FindHolderForWindow(ae::ObjId)`** cross-holder lookup; session **`pending_focus_for_ui`**; WinApp focus resolver input; storage **`DomainQuery.id`** (framework).
+- **Release verify** (`build-b18-msvc-rel`): **7/7** CTests **PASS**. Headless **316928** B; demo **437248** B.
+- **MinSizeRel verify** (`build-b18-msvc-minsizerel`): **7/7** CTests **PASS**. Headless **252928** B; demo **343552** B.
+- **Next step**: generic presented-window save/unload/reload helper (plan §1.5 item 4).
+- **Land SHA**: **`f4af6f3`** (`Add ComposePresentedWindow and WindowCatalog prototype hardening.`).

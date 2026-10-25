@@ -16,6 +16,7 @@
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_presented_window.h"
+#include "apptraverse/ui/ui_presented_window_composition.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -386,10 +387,9 @@ struct ContractHarness {
         ae::CreateWith{model_domain}.with_id(kWindowId));
     auto headless_presenter = HeadlessDesktopWindowPresenter::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kPresenterId));
-    model_root->presented_window->presenter = headless_presenter;
-    headless_presenter->window = model_root->presented_window;
-    headless_presenter->title = model_root->localized_title;
-    headless_presenter->locale = model_root->locale;
+    ui::ComposePresentedWindow(model_root->presented_window, headless_presenter,
+                               model_root->localized_title,
+                               model_root->locale);
     InitializeRuntimeNode(*model_root->presented_window, *model_root);
     model_root->presented_open = true;
 
@@ -503,10 +503,8 @@ void TestPresentedWindowDistilledBaseReplay() {
       ae::CreateWith{domain}.with_id(kWindowId));
   auto presenter = HeadlessDesktopWindowPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(kPresenterId));
-  window->presenter = presenter;
-  presenter->window = window;
-  presenter->title = root->localized_title;
-  presenter->locale = root->locale;
+  ui::ComposePresentedWindow(window, presenter, root->localized_title,
+                             root->locale);
   InitializeRuntimeNode(*window, *root);
   root->presented_window = window;
 

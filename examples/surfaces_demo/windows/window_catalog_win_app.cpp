@@ -1,5 +1,6 @@
 #include "window_catalog_win_app.h"
 
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
 
 #include "apptraverse/object_serialization.h"
@@ -33,27 +34,18 @@ void PaintLoading(HWND hwnd) {
 
 void WindowCatalogWinApp::OnDesktopWindowUserClose(void* opaque,
                                                    ae::Obj* desktop_window) {
-  if (opaque == nullptr || desktop_window == nullptr) {
-    return;
-  }
   auto* app = static_cast<WindowCatalogWinApp*>(opaque);
   if (app->IsMainCatalogWindow(*desktop_window)) {
     app->RequestApplicationStop();
     return;
   }
   ae::ObjId const window_id = desktop_window->obj_id;
-  if (!app->model_proxy_ || !app->ui_catalog_) {
-    return;
-  }
   app->model_proxy_->Invoke(app->ui_catalog_->obj_id,
                             &WindowCatalog::UserCloseWindow, window_id);
 }
 
 bool WindowCatalogWinApp::IsMainCatalogWindow(
     ae::Obj const& desktop_window) const {
-  if (!ui_catalog_ || !ui_catalog_->main_window.is_valid()) {
-    return false;
-  }
   return ui_catalog_->main_window.id() == desktop_window.obj_id;
 }
 
@@ -105,17 +97,11 @@ LRESULT WindowCatalogWinApp::Handle(HWND hwnd, UINT msg, WPARAM wparam,
 
 namespace {
 
-ui::windows::WinDesktopWindowPresenter* FindChildWindowPresenter(
+ui::windows::WinDesktopWindowPresenter& FindChildWindowPresenter(
     WindowCatalog& catalog, ae::ObjId window_id) {
-  if (!catalog.list) {
-    return nullptr;
-  }
   for (auto const& row : catalog.list->rows) {
-    if (!row) {
-      continue;
-    }
     auto* holder = static_cast<WindowHolder*>(&*row);
-    if (!holder->window.is_valid() || !holder->window.is_loaded()) {
+    if (!holder->window.is_loaded()) {
       continue;
     }
     if (holder->window.id() != window_id) {
@@ -123,38 +109,22 @@ ui::windows::WinDesktopWindowPresenter* FindChildWindowPresenter(
     }
     auto& presented =
         static_cast<ui::UiPresentedWindow&>(*holder->window.operator->());
-    if (!presented.presenter.is_valid() || !presented.presenter.is_loaded()) {
-      return nullptr;
-    }
-    ui::UiWindowPresenter* base = presented.presenter.operator->();
-    auto& registry = ae::Registry::GetRegistry();
-    if (registry.GenerationDistance(
-            ui::windows::WinDesktopWindowPresenter::kClassId,
-            base->GetClassId()) < 0) {
-      return nullptr;
-    }
-    return static_cast<ui::windows::WinDesktopWindowPresenter*>(base);
+    return static_cast<ui::windows::WinDesktopWindowPresenter&>(
+        *presented.presenter);
   }
-  return nullptr;
+  WriteFatalStderr("fatal: pending focus window not found in UI catalog\n");
+  std::abort();
 }
 
 }  // namespace
 
-void WindowCatalogWinApp::ApplyPendingFocusWindow(
-    std::uint32_t focus_window_id) {
-  if (!ui_catalog_ || !model_proxy_) {
-    return;
-  }
-  ae::ObjId const focus_id{focus_window_id};
+void WindowCatalogWinApp::ApplyPendingFocusWindow(ae::ObjId focus_id) {
   if (!focus_id.is_valid()) {
     return;
   }
-  ui::windows::WinDesktopWindowPresenter* presenter =
+  ui::windows::WinDesktopWindowPresenter& presenter =
       FindChildWindowPresenter(*ui_catalog_, focus_id);
-  if (presenter == nullptr || presenter->hwnd() == nullptr) {
-    return;
-  }
-  HWND const hwnd = presenter->hwnd();
+  HWND const hwnd = presenter.hwnd();
   if (IsIconic(hwnd)) {
     ShowWindow(hwnd, SW_RESTORE);
   }
@@ -176,7 +146,7 @@ void WindowCatalogWinApp::OnInitialPublished() {
   ui_catalog_ =
       WindowCatalog::ptr::MakeFromThis(static_cast<WindowCatalog*>(ui_root.get()));
   InitializePresenters(*ui_catalog_, &presentation_host_, &*model_proxy_);
-  ApplyPendingFocusWindow(0);
+  ApplyPendingFocusWindow(ae::ObjId{});
   if (DestroyWindow(loading_) == 0) {
     FatalWin32("DestroyWindow Loading", GetLastError());
   }
@@ -185,12 +155,12 @@ void WindowCatalogWinApp::OnInitialPublished() {
 
 void WindowCatalogWinApp::OnIncrementalPublished() {
   std::vector<std::uint8_t> bytes;
-  std::uint32_t focus_window_id = 0;
+  ae::ObjId focus_window_id{};
   {
     std::lock_guard<std::mutex> lock{session_.mu};
     bytes = session_.channel.TakePublishedCopy();
     focus_window_id = session_.pending_focus_for_ui;
-    session_.pending_focus_for_ui = 0;
+    session_.pending_focus_for_ui = {};
   }
   session_.cv.notify_all();
   ApplyWindowCatalogStructural(bytes, *ui_catalog_, ui_storage_,
@@ -307,7 +277,7 @@ int WindowCatalogWinApp::Run(std::filesystem::path const& state_dir) {
   if (CloseHandle(done_event) == 0) {
     FatalWin32("CloseHandle done_event", GetLastError());
   }
-  return session_.shutdown_exit_code;
+  return 0;
 }
 
 }  // namespace apptraverse

@@ -97,18 +97,9 @@ void WindowCatalogModelSession::Run(
     std::error_code checkpoint_error;
     bool const has_checkpoint =
         std::filesystem::exists(checkpoint_path, checkpoint_error);
-    if (checkpoint_error) {
-      WriteFatalStderr("fatal: cannot inspect catalog checkpoint\n");
-      std::abort();
-    }
     if (has_checkpoint) {
       std::ifstream checkpoint_in(checkpoint_path,
                                   std::ios::binary | std::ios::ate);
-      if (!checkpoint_in) {
-        WriteFatalStderr(
-            "fatal: failed to open persistent_model_checkpoint.bin for read\n");
-        std::abort();
-      }
       auto const checkpoint_size =
           static_cast<std::size_t>(checkpoint_in.tellg());
       checkpoint_in.seekg(0, std::ios::beg);
@@ -116,11 +107,6 @@ void WindowCatalogModelSession::Run(
       if (checkpoint_size > 0) {
         checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
                            static_cast<std::streamsize>(checkpoint_size));
-        if (!checkpoint_in) {
-          WriteFatalStderr(
-              "fatal: failed to read persistent_model_checkpoint.bin\n");
-          std::abort();
-        }
       }
       ByteSource checkpoint;
       checkpoint.data = checkpoint_bytes.data();
@@ -129,38 +115,17 @@ void WindowCatalogModelSession::Run(
       LoadPersistentModelSnapshot(checkpoint, domain, durable_storage,
                                   *catalog);
     }
-    RepairWindowCatalogEmbeddedStrings(*catalog);
-    int const language =
-        catalog->locale ? catalog->locale->language_index() : 0;
+    int const language = catalog->locale->language_index();
+    catalog->MaterializeCatalogStrings(language);
     for (auto const& row : catalog->list->rows) {
-      if (!row) {
-        continue;
-      }
       auto* holder = static_cast<WindowHolder*>(&*row);
-      if (holder->primary_text.is_valid() && !holder->primary_text.is_loaded()) {
+      if (!holder->primary_text.is_loaded()) {
         holder->primary_text.Load();
       }
       catalog->MaterializeHolderListText(*holder, language);
     }
     catalog->RefreshChromeButtonEnabledState();
     RestoreLoadedCatalogWindows(*catalog);
-    if (catalog->list) {
-      if (!catalog->list.is_loaded()) {
-        catalog->list.Load();
-      }
-      for (auto const& row : catalog->list->rows) {
-        if (row.is_valid() && !row.is_loaded()) {
-          row.Load();
-        }
-        if (!row) {
-          continue;
-        }
-        auto* holder = static_cast<WindowHolder*>(&*row);
-        if (holder->primary_text.is_valid() && !holder->primary_text.is_loaded()) {
-          holder->primary_text.Load();
-        }
-      }
-    }
 
     PendingDirtyNodes pending_dirty;
     BindReachableNodesMaterializedChangeNotifier(
@@ -223,8 +188,11 @@ void WindowCatalogModelSession::Run(
         SerializeStructuralNodePublication(*catalog, pub->sink);
         {
           std::lock_guard<std::mutex> lock{mu};
-          pending_focus_for_ui = catalog->pending_focus_window_id;
-          catalog->pending_focus_window_id = 0;
+          pending_focus_for_ui =
+              catalog->pending_focus_window.is_valid()
+                  ? catalog->pending_focus_window.id()
+                  : ae::ObjId{};
+          catalog->pending_focus_window = {};
           pending_dirty.Clear();
           channel.NotePublished();
           channel.PublishProducer();
@@ -236,14 +204,8 @@ void WindowCatalogModelSession::Run(
 
     ClearLiveReachableNodesMaterializedChangeNotifier(*catalog);
 
-    durable_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(*catalog);
-    if (!SavePersistentModelSnapshotToStorage(*catalog, durable_storage)) {
-      shutdown_exit_code = 1;
-    }
-    if (durable_storage.SaveSessionHadFailure()) {
-      shutdown_exit_code = 1;
-    }
+    SavePersistentModelSnapshotToStorage(*catalog, durable_storage);
   }
 }
 

@@ -63,10 +63,8 @@ ui::UiPresentedWindow& MainWindowPresented(WindowCatalog& catalog) {
 
 void ShutdownSaveCatalog(WindowCatalog& catalog,
                          DirectoryDomainStorage& storage) {
-  storage.BeginSaveSession();
   SaveWindowCatalogPersistentSnapshot(catalog);
-  CHECK(SavePersistentModelSnapshotToStorage(catalog, storage));
-  CHECK(!storage.SaveSessionHadFailure());
+  SavePersistentModelSnapshotToStorage(catalog, storage);
 }
 
 void CopyStorageProfile(std::filesystem::path const& from,
@@ -298,7 +296,6 @@ void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
   DirectoryDomainStorage load_storage{dir};
   ae::Domain load_domain{load_storage};
   auto reloaded = LoadApplication<WindowCatalog>(load_domain, ae::ObjId{catalog_id});
-  RepairWindowCatalogEmbeddedStrings(*reloaded);
   CHECK(reloaded->list->rows.size() == 2);
   CHECK(reloaded->next_window_number == 5);
 
@@ -383,7 +380,6 @@ void TestCatalogLocalizationUtf8Persisted() {
   auto reloaded = LoadApplication<WindowCatalog>(
       reload_domain,
       ae::ObjId{window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)});
-  RepairWindowCatalogEmbeddedStrings(*reloaded);
   reloaded->MaterializeCatalogStrings(0);
   CHECK(reloaded->texts.label_add->Resolve(0) == "Add");
   CHECK(ReadInactiveUtf8(*reloaded->texts.label_add, 1) == "Добавить");
@@ -425,7 +421,6 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
     DirectoryDomainStorage storage_b{dir};
     ae::Domain domain_b{storage_b};
     auto catalog = LoadApplication<WindowCatalog>(domain_b, ae::ObjId{catalog_id});
-    RepairWindowCatalogEmbeddedStrings(*catalog);
     catalog->AddWindow();
     catalog->AddWindow();
     catalog->AddWindow();
@@ -548,21 +543,11 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
   CHECK(r2->window.is_loaded());
   CHECK(r1->window.is_valid());
   CHECK(!domain_c.Find(window2_id));
-  RepairWindowCatalogEmbeddedStrings(*catalog);
+  int const language = catalog->locale->language_index();
+  catalog->MaterializeCatalogStrings(language);
   CHECK(r0->primary_text->Resolve(0) == "Window 1");
   CHECK(r1->primary_text->Resolve(0) == "Window 2");
   CHECK(r2->primary_text->Resolve(0) == "Window 3");
-  int const language = catalog->locale ? catalog->locale->language_index() : 0;
-  for (auto const& row : catalog->list->rows) {
-    if (!row) {
-      continue;
-    }
-    auto* holder = AsHolder(row);
-    if (holder->primary_text.is_valid() && !holder->primary_text.is_loaded()) {
-      holder->primary_text.Load();
-    }
-    catalog->MaterializeHolderListText(*holder, language);
-  }
   catalog->RefreshChromeButtonEnabledState();
   RestoreLoadedCatalogWindows(*catalog);
   CHECK(catalog->list->rows.size() == 3);
@@ -640,9 +625,9 @@ void TestOpenLoadedWindowSetsPendingFocusRequest() {
   catalog->AddWindow();
   WindowHolder* holder = AsHolder(catalog->list->rows[0]);
   ae::ObjId const window_id = holder->window.id();
-  catalog->pending_focus_window_id = 0;
+  catalog->pending_focus_window = {};
   catalog->OpenHolderWindow(*holder);
-  CHECK(catalog->pending_focus_window_id == window_id.id());
+  CHECK(catalog->pending_focus_window.id() == window_id);
 }
 
 void TestCatalogWindowFrameSurvivesCloseReload() {
@@ -689,7 +674,6 @@ void TestCatalogWindowFrameSurvivesCloseReload() {
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   auto reloaded = LoadApplication<WindowCatalog>(load_domain, catalog_id);
-  RepairWindowCatalogEmbeddedStrings(*reloaded);
   WindowHolder* r0 = AsHolder(reloaded->list->rows[0]);
   reloaded->OpenHolderWindow(*r0);
   CHECK(r0->window->x() == 280);
@@ -889,7 +873,6 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
     DirectoryDomainStorage persist_storage{dir};
     ae::Domain persist_domain{persist_storage};
     auto persist = LoadApplication<WindowCatalog>(persist_domain, catalog_id);
-    RepairWindowCatalogEmbeddedStrings(*persist);
     persist->AddWindow();
     persist->AddWindow();
     WindowHolder* p1 = AsHolder(persist->list->rows[0]);
@@ -941,7 +924,6 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   checkpoint.size = checkpoint_bytes.size();
   checkpoint.pos = 0;
   LoadPersistentModelSnapshot(checkpoint, load_domain, load_storage, *loaded);
-  RepairWindowCatalogEmbeddedStrings(*loaded);
 
   CHECK(loaded->list->rows.size() == 2);
   CHECK(loaded->next_window_number == 3);
@@ -1555,7 +1537,6 @@ void TestCatalogPresentedWindowGraph() {
     DirectoryDomainStorage reload_storage{dir};
     ae::Domain reload_domain{reload_storage};
     auto reloaded = LoadApplication<WindowCatalog>(reload_domain, catalog_id);
-    RepairWindowCatalogEmbeddedStrings(*reloaded);
     WindowHolder* r0 = AsHolder(reloaded->list->rows[0]);
     CHECK(r0->window.id() == p_window_id);
     CHECK(!r0->window.is_loaded());
@@ -1590,7 +1571,6 @@ void TestCatalogPresentedWindowGraph() {
   DirectoryDomainStorage cold_load_storage{cold_dir};
   ae::Domain cold_load_domain{cold_load_storage};
   auto cold = LoadApplication<WindowCatalog>(cold_load_domain, catalog_id);
-  RepairWindowCatalogEmbeddedStrings(*cold);
   CHECK(MainWindowPresented(*cold).presenter.id() ==
         ToObjId(ObjId::MainWindowPresenter));
   CHECK(cold->main_window.id() == ToObjId(ObjId::MainWindow));

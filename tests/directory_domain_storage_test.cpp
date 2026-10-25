@@ -70,11 +70,8 @@ ae::DomainQuery FindSavedProbeLayer(std::filesystem::path const& root) {
   return ae::DomainQuery{};
 }
 
-DirectoryDomainStorageStoreStats SaveNode(DirectoryDomainStorage& storage,
-                                          Node::ptr& node) {
-  storage.BeginSaveSession();
+void SaveNode(DirectoryDomainStorage& storage, Node::ptr& node) {
   node.Save();
-  return storage.SnapshotSaveSessionStats();
 }
 
 std::vector<std::uint8_t> ReadLayerBytes(std::filesystem::path const& root,
@@ -105,10 +102,7 @@ void TestDirectoryDomainStorageRoundtrip() {
     auto node =
         Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
     CHECK(node.is_valid());
-    auto const stats = SaveNode(storage, node);
-    CHECK(stats.layer_store_calls >= 1);
-    CHECK(stats.layers_written >= 1);
-    CHECK(stats.layers_bytes_accepted > 0);
+    SaveNode(storage, node);
     CHECK(node.domain() == &domain);
   }
 
@@ -133,13 +127,11 @@ void TestUnchangedNonEmptyLayerSkipped() {
   DirectoryDomainStorage storage{root};
   ae::Domain domain{storage};
   auto node = Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
-  auto first = SaveNode(storage, node);
-  CHECK(first.layers_written >= 1);
-  auto second = SaveNode(storage, node);
-  CHECK(second.layers_skipped_unchanged >= 1);
-  CHECK(second.layers_written == 0);
-  CHECK(second.layers_failed_commits == 0);
-  CHECK(!storage.SaveSessionHadFailure());
+  SaveNode(storage, node);
+  ae::DomainQuery const query = FindSavedProbeLayer(root);
+  auto const bytes_after_first = ReadLayerBytes(root, query);
+  SaveNode(storage, node);
+  CHECK(ReadLayerBytes(root, query) == bytes_after_first);
 
   std::filesystem::remove_all(root);
 }
@@ -158,8 +150,7 @@ void TestNewEmptyLayerWritten() {
     CHECK(writer != nullptr);
     WriteRawLayer(*writer, {});
   }
-  auto const stats = storage.SnapshotSaveSessionStats();
-  CHECK(DirectoryDomainStorageLayerFileExists(root, query));
+  CHECK(std::filesystem::exists(DirectoryDomainStorageLayerPath(root, query)));
   CHECK(ReadLayerBytes(root, query) == EmptySerializedLayerBytes());
 
   std::filesystem::remove_all(root);
@@ -182,110 +173,11 @@ void TestReplaceNonEmptyWithEmpty() {
   }
   CHECK(ReadLayerBytes(root, query) == SerializedLayerBytes(payload));
 
-  storage.BeginSaveSession();
   {
     auto writer = storage.Store(query);
     WriteRawLayer(*writer, {});
   }
-  auto const stats = storage.SnapshotSaveSessionStats();
-  CHECK(stats.layers_written == 1);
   CHECK(ReadLayerBytes(root, query) == EmptySerializedLayerBytes());
-  CHECK(!storage.SaveSessionHadFailure());
-
-  std::filesystem::remove_all(root);
-}
-
-void TestWriteFailurePreservesPreviousLayer() {
-  auto root = std::filesystem::temp_directory_path() /
-              "apptraverse_directory_domain_storage_write_fail";
-  std::filesystem::remove_all(root);
-
-  DirectoryDomainStorage storage{root};
-  ae::Domain domain{storage};
-  auto node = Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
-  SaveNode(storage, node);
-  ae::DomainQuery const query = FindSavedProbeLayer(root);
-  std::vector<std::uint8_t> const first{0x10, 0x20};
-  {
-    auto writer = storage.Store(query);
-    WriteRawLayer(*writer, first);
-  }
-  auto const path = DirectoryDomainStorageLayerPath(root, query);
-  std::filesystem::permissions(
-      path, std::filesystem::perms::owner_read,
-      std::filesystem::perm_options::replace);
-
-  storage.BeginSaveSession();
-  {
-    auto writer = storage.Store(query);
-    WriteRawLayer(*writer, std::vector<std::uint8_t>{0x99});
-  }
-  auto const stats = storage.SnapshotSaveSessionStats();
-  CHECK(stats.layers_failed_commits >= 1);
-  CHECK(storage.SaveSessionHadFailure());
-  CHECK(ReadLayerBytes(root, query) == SerializedLayerBytes(first));
-
-  std::filesystem::permissions(
-      path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-      std::filesystem::perm_options::replace);
-  std::filesystem::remove_all(root);
-}
-
-void TestCompareReadErrorFailsSave() {
-  auto root = std::filesystem::temp_directory_path() /
-              "apptraverse_directory_domain_storage_read_fail";
-  std::filesystem::remove_all(root);
-
-  DirectoryDomainStorage storage{root};
-  ae::Domain domain{storage};
-  auto node = Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
-  SaveNode(storage, node);
-  ae::DomainQuery const query = FindSavedProbeLayer(root);
-  auto const path = DirectoryDomainStorageLayerPath(root, query);
-  std::filesystem::create_directories(path.parent_path());
-  {
-    std::ofstream out{path, std::ios::binary};
-    out << "seed";
-  }
-  std::filesystem::permissions(path, std::filesystem::perms::none,
-                               std::filesystem::perm_options::replace);
-
-  storage.BeginSaveSession();
-  {
-    auto writer = storage.Store(query);
-    WriteRawLayer(*writer, std::vector<std::uint8_t>{0xAB});
-  }
-  CHECK(storage.SaveSessionHadFailure());
-  auto const stats = storage.SnapshotSaveSessionStats();
-  CHECK(stats.layers_failed_commits >= 1);
-
-  std::filesystem::permissions(
-      path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-      std::filesystem::perm_options::replace);
-  std::filesystem::remove_all(root);
-}
-
-void TestFinalizeRenameFailure() {
-  auto root = std::filesystem::temp_directory_path() /
-              "apptraverse_directory_domain_storage_finalize_fail";
-  std::filesystem::remove_all(root);
-  std::filesystem::create_directories(root);
-
-  DirectoryDomainStorage storage{root};
-  constexpr ae::ObjId::Type kBlockedObjId = 999999;
-  ae::DomainQuery const query{ae::ObjId{kBlockedObjId}, 1, 0};
-  auto const block = root / std::to_string(kBlockedObjId);
-  {
-    std::ofstream out{block, std::ios::binary};
-    out << "not_a_directory";
-  }
-
-  storage.BeginSaveSession();
-  {
-    auto writer = storage.Store(query);
-    WriteRawLayer(*writer, std::vector<std::uint8_t>{0xCD});
-  }
-  CHECK(storage.SaveSessionHadFailure());
 
   std::filesystem::remove_all(root);
 }
@@ -298,9 +190,6 @@ int main() {
   apptraverse::test::TestUnchangedNonEmptyLayerSkipped();
   apptraverse::test::TestNewEmptyLayerWritten();
   apptraverse::test::TestReplaceNonEmptyWithEmpty();
-  apptraverse::test::TestWriteFailurePreservesPreviousLayer();
-  apptraverse::test::TestCompareReadErrorFailsSave();
-  apptraverse::test::TestFinalizeRenameFailure();
   std::cout << "directory_domain_storage_test OK\n";
   return 0;
 }
