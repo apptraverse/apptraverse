@@ -4375,4 +4375,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **16/16** CTests **PASS**. Minimal dev **288768** B; load-only **283648** B; catalog dev **349184** B; catalog load-only **340480** B.
 - **Known limits**: T16/T17 downgrade/replay matrix and historical S1 evolution not claimed; 9B2 covers USER retention of historical dynamic `Node::base` when bytes match current BACKING.
 - **Next step**: **9C** — build-time embedded export.
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`64c97f0a8b8e8c0e8f6e8b8e8c0e8f6e8b8e8c0e`** — use short hash from git after doc commit.
