@@ -4272,4 +4272,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Release verify** (`build-presenter-decomp-msvc-rel`): **9/9** CTests **PASS**. Headless **316928** B; host test **37376** B; demo **442880** B.
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **9/9** CTests **PASS**. Headless **252928** B; host test **32768** B; demo **344576** B.
 - **Next step**: Windows host **6B** — generic UI Domain/mirror/presenter application shell (plan §1.5 item 6B).
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`3d2c3f5`** (`Extract WinApplicationMessageHost for Windows message infrastructure.`).
