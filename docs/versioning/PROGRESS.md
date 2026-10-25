@@ -193,7 +193,7 @@ Happy path и семантические инварианты — сейчас; 
 | `distilled_supply_package.cpp` — wire + diff | `BinaryArchive`: `(ObjId, ClassId, S, bytes)` + `target_supply_constant_ids`; diff по storage map | Допустимый **индекс слоёв**, не семантические межобъектные ссылки; APSP удалён | **KEEP** | `apptraverse_prefab_release_lifecycle_matrix`, supply split / equivalence |
 | `distilled_domain_export.cpp` — `WriteEmbeddedDistilledSupplyHeader` | Экспорт тех же ключей слоёв в embedded header | Параллельный `LayerKey` с package — косметический DRY, не второй wire | **KEEP**; опциональный DRY — **DEFER** (низкий приоритет) | `apptraverse_*_distilled_embedded_matrix` |
 | `overlay_domain_storage.cpp` — `BackingComparedStorageWriter` | Skip USER write если байты = backing; `force_materialize` → прямой USER | USER-over-backing (**04**); легитимные 0-byte Event | **KEEP** | `apptraverse_overlay_domain_storage_test` |
-| `overlay_domain_storage.cpp` — `failed_` в writer | Проверки `if (failed_)`; **нигде не присваивается `true`** | Мёртвые ветки (см. **01D**) | **SIMPLIFY** — удалить поле/ветки без смены compare | `TestUnchangedBackingLayerIsNotMaterialized` |
+| ~~`overlay_domain_storage.cpp` — `failed_`~~ | *(удалено **C0.2.2**)* | — | **DONE (C0.2.2)** | `apptraverse_overlay_domain_storage_test` + persistence + prefab regressions |
 | `overlay_domain_storage.cpp` — `SupplyConstantDiscardWriter` | Discard Store для `supply_constant_ids` | Const не в USER | **KEEP** | `overlay_domain_storage_test` supply-constant cases |
 | `node.h` — `CanCompactStoredObjectVersions` | Блок компактации при unknown newer S на объекте/base chain | Guard **11B.2** | **KEEP** | `apptraverse_prefab_old_exe_compaction_guard_matrix` |
 | `node.h` — `Save(V0)` + `force_materialize` для historical `base` | Материализует base при LocalPersistent + непустой journal | Journal/base replay (**10E**, compaction) | **KEEP** | `model_persistence`, compaction matrices |
@@ -207,11 +207,13 @@ Happy path и семантические инварианты — сейчас; 
 
 **Не найдено** доказанных безопасных **REMOVE** в production `src/`/`include/` (кроме test-only dead API выше). Массовая очистка fixture origin/clone **не** планируется до **12R–14**.
 
-### C0.2 — упорядоченные минимальные изменения
+### C0.2 — упорядоченные минимальные изменения (**PASS**)
 
-1. ~~**C0.2.1 PASS** — dead `ClonePlan` API~~ (см. [историю](#iteration-history)).
-2. **C0.2.2 TODO:** `BackingComparedStorageWriter::failed_` и связанные ветки в `overlay_domain_storage.cpp`. **Тест:** `apptraverse_overlay_domain_storage_test`.
+1. ~~**C0.2.1 PASS** — dead `ClonePlan` API~~ ([история](#iteration-history)).
+2. ~~**C0.2.2 PASS** — `BackingComparedStorageWriter::failed_`~~ ([история](#iteration-history)).
 3. **STOP:** дальнейшие C0.2 пункты **не** планировать без нового аудита после **12R**/**13** (origin/Clone заменят fixture API).
+
+**Следующий шаг C0:** **C0.3** (верификация сохранённых оснований, без новых удалений).
 
 ---
 
@@ -230,7 +232,7 @@ Happy path и семантические инварианты — сейчас; 
 | 09 | PASS | `1ce8901` | `prefab_release_r1_supply_equivalence_test`, `prefab_release_r1_user_equivalence_matrix` + prefab matrices Debug/Release | **09A:** R1 BIN ≡ R1 embed; один USER; не clean install; T12 фрагмент |
 | 10 | PASS | `ce4f1a3` | `prefab_late_instance_matrix`, `prefab_release_matrix`, `prefab_dynamic_layer_roundtrip_matrix`, `overlay_domain_storage_test`, R1 supply + user equivalence Debug/Release | **10A–10E:** dynamic S0/S1, late WindowC, root-save без лишнего USER S1 (`ShouldSaveVersion`), historical base S1, 0-byte Event; T03/T09 фрагменты; T07–T10 не PASS |
 | 11 | IN_PROGRESS | `5653a9b` | compaction + old-exe guard + prefab/journal matrices Debug/Release | **11A+11B.2 PASS**; **11B.1** исторически обнаружен и исправлен; T16/T17 фрагменты |
-| C0 | IN_PROGRESS | — | prefab matrices 8/8 Debug+Release (**C0.2.1**) | **C0.1 PASS (doc)**; **C0.2.1 PASS**; **C0.2.2**/**C0.3** TODO |
+| C0 | IN_PROGRESS | — | overlay + persistence + prefab **11/11 Debug**, **10+overlay exe Release** (**C0.2.2**) | **C0.1–C0.2 PASS**; **C0.3 TODO**; **C0 PASS** — после C0.3 |
 | C0.1 | PASS (doc) | `b6dcdae` | — | Аудит Object Core — [§C0.1](#c01--аудит-избыточности-object-core) |
 | 12A | PASS (doc) | `ed5eef9` / `4bda0ad` | — | Слой **`Obj/S1`** + отдельный `SaveVersion`; payload **`ObjId`** — **устаревший черновик** → **12R** |
 | 12R | TODO | — | — | Origin = lazy **`ObjPtr<ae::Obj>`** (или существующий scoped ref); **не** PASS в doc-only |
@@ -295,7 +297,8 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-25** — **12A (doc):** системный origin — persisted **`ae::Obj` S1** (`ObjId/Obj::kClassId/1`), отдельный `SaveVersion` в `DomainGraph::Save`; черновик payload **`ObjId`**; код не менялся; push — **`ed5eef9`**, roadmap tip **`4bda0ad`**.
 - **2026-10-25** — **doc sync (01 plan):** PLAN/PROGRESS ↔ **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)**; **C0** перед **12R/12B**; **12R** lazy origin ref; координация с **application-versioning**; код baseline **`66515d8`**; тесты не запускались; push — **`b6dcdae`**.
 - **2026-10-25** — **C0.1 (doc):** аудит избыточности Object Core → [§C0.1](#c01--аудит-избыточности-object-core); **C0.1 PASS**; **C0 IN_PROGRESS**; код не менялся; тесты не запускались; push — **`4a51d5c`**.
-- **2026-10-25** — **C0.2.1:** удалены `ClonePlan`, `PlanCloneFromPrefabGraph`; `CloneWorkspaceFromPrefabs(ae::Domain&, bool)`; `#include <unordered_map>` перенесён в `.cpp` для `ValidateWorkspaceCanonicalPrefabPtrs`; Debug + Release prefab CTest **8/8 PASS**; **C0.2.1 PASS**; push — SHA commit ниже.
+- **2026-10-25** — **C0.2.1:** удалены `ClonePlan`, `PlanCloneFromPrefabGraph`; `CloneWorkspaceFromPrefabs(ae::Domain&, bool)`; Debug + Release prefab CTest **8/8 PASS**; **C0.2.1 PASS**; push — **`f36fc1d`**.
+- **2026-10-25** — **C0.2.2:** `BackingComparedStorageWriter::failed_` и мёртвые ветки в `overlay_domain_storage.cpp`; Debug CTest overlay + model_persistence* + prefab **11/11 PASS**; Release те же (overlay — exe после rebuild `apptraverse.lib`); **C0.2 PASS**; **C0 IN_PROGRESS** → **C0.3**; push — SHA commit ниже.
 - **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`ce46b80`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
