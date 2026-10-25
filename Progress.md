@@ -4295,4 +4295,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Release verify** (`build-presenter-decomp-msvc-rel`): **11/11** CTests **PASS**. Loading test **23552** B; demo **444928** B.
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **11/11** CTests **PASS**. Loading test **22016** B; demo **344576** B.
 - **Next step**: **6C2** — final platform application host composition (plan §1.5 item 6C2).
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`433942f`** (`Extract WinApplicationLoadingWindow for reusable Win32 startup shell.`).
