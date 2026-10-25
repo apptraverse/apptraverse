@@ -786,6 +786,7 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
    done (2026-10-24). **6C2:** **`WinApplicationHost`** — composes runtime,
    proxy, loading, message host, presentation host, UI session — done
    (2026-10-24).
-7. Minimal application template without controls.
-8. WindowCatalog as pure consumer (runtime/host extraction).
+7. Minimal application template without controls — **`examples/minimal_app`**
+   (`win32_minimal_app` / load-only) — done (2026-10-24).
+8. WindowCatalog as independent consumer + final audit — TODO.
 9. Separate integration branch with the versioning project.

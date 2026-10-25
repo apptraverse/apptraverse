@@ -39,6 +39,17 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   add_dependencies(apptraverse_window_catalog_win32_acceptance_test
     win32_window_catalog_demo win32_window_catalog_demo_load_only)
 
+  apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
+    minimal_app_win32_acceptance_test.cpp minimal_app_common)
+  if(MSVC)
+    target_compile_options(apptraverse_minimal_app_win32_acceptance_test PRIVATE
+      /utf-8)
+  endif()
+  set_tests_properties(apptraverse_minimal_app_win32_acceptance_test PROPERTIES
+    LABELS "minimal_app")
+  add_dependencies(apptraverse_minimal_app_win32_acceptance_test
+    win32_minimal_app win32_minimal_app_load_only)
+
   # All TUs including these presenters must share the test-only ABI.
   target_compile_definitions(apptraverse_ui_windows PUBLIC
     APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)

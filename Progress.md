@@ -4307,4 +4307,17 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Release verify** (`build-presenter-decomp-msvc-rel`): **12/12** CTests **PASS**. Host test **310272** B; demo **449024** B.
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **12/12** CTests **PASS**. Host test **241152** B; demo **344576** B.
 - **Next step**: minimal empty application template (plan §1.5 item 7).
+- **Land SHA**: **`5d0584a`** (`Extract WinApplicationHost composing Windows application platform stack.`).
+
+## Minimal application template (7) (2026-10-24)
+
+- **Baseline**: `d2767a8c46c4ba30ac5b983b1914c452efdce5d0`.
+- **Template** (`examples/minimal_app/`): `MinimalApplication` (`apptraverse::example::minimal::MinimalApplication`, v0) with single `main_window`; bootstrap graph in `minimal_app_graph.cpp`; model session in `minimal_app_lifecycle.cpp`; Win32 entry via `WinApplicationHost` in `minimal_app_main.cpp`.
+- **ObjIds** (template state-dir only): root `0x07A10001`, window `0x07A10002`, presenter `0x07A10003`.
+- **Executables**: `win32_minimal_app` (distill bootstrap) / `win32_minimal_app_load_only`; default state `minimal_app_v0_state`.
+- **No demo controls** — empty `WinDesktopWindowPresenter`; empty title/locale refs.
+- **Test**: `apptraverse_minimal_app_win32_acceptance_test` (links `minimal_app_common` only; not WindowCatalog).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **13/13** CTests **PASS**. Minimal dev **379392** B; load-only **370176** B; catalog demo **449024** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **13/13** CTests **PASS**. Minimal dev **292864** B; load-only **287744** B; catalog demo **349184** B.
+- **Next step**: WindowCatalog independent consumer audit (plan §1.5 item 8).
 - **Land SHA**: *(pending commit)*.

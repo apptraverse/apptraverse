@@ -159,6 +159,7 @@ if(WIN32)
     apptraverse_ui_windows apptraverse_ui_extended)
   if(APPTRAVERSE_BUILD_EXAMPLES)
     add_subdirectory(examples/surfaces_demo)
+    add_subdirectory(examples/minimal_app)
   endif()
 endif()
 
