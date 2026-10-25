@@ -4260,4 +4260,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **8/8** CTests **PASS**. Headless **252928** B; runtime test **220160** B; demo **344576** B.
 - **Allowed production ObjId boundaries** (unchanged): distill ids; catalog `UserCloseWindow` / `FindHolderForWindow`; `pending_focus_for_ui` / `ApplyPendingFocusWindow`; framework publication/storage.
 - **Next step**: generic Windows application host (plan §1.5 item 6); later consolidate legacy model runtime.
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`2f69e2c`** (`Extract ApplicationModelRuntime for model work and publication loop.`).
