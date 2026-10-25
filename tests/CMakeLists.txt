@@ -8,6 +8,9 @@ endfunction()
 apptraverse_add_test(apptraverse_application_contract_headless_test
   application_contract_headless_test.cpp)
 
+apptraverse_add_test(apptraverse_embedded_distilled_domain_test
+  embedded_distilled_domain_test.cpp)
+
 apptraverse_add_test(apptraverse_application_model_runtime_test
   application_model_runtime_test.cpp)
 

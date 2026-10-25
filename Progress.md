@@ -4335,3 +4335,17 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **13/13** CTests **PASS**. Minimal dev **288768** B; load-only **284160** B; catalog dev **351232** B; catalog load-only **343040** B.
 - **Next step**: versioning integration branch (plan §1.5 item 9).
 - **Land SHA**: **`de7bcc1c16e3447b7c0b90095bb89aba4140d6bb`** (`Make WindowCatalog a direct WinApplicationHost consumer.`).
+
+## Embedded distilled backing (9A) (2026-10-25)
+
+- **Integration branch**: `integration/application-versioning` (worktree `apptraverse-wt-application-versioning`).
+- **Application baseline**: `cursor/surfaces-library-controls` @ **`55c4d539c9454b0df3768feb938aea466092f09f`**.
+- **Versioning source** (mechanism only, no merge): `integration/serialization-surfaces` @ **`17b7830ae397871ee90e31dc65feb82cfdfc6716`**.
+- **Added**: `embedded_distilled_domain.h/.cpp` (`InstallEmbeddedDistilledBacking`, `EmbeddedSupplyConstantIdSet`); `docs/integration/application-versioning.md`; CTest **`apptraverse_embedded_distilled_domain_test`** (links `apptraverse` only; no user32/gdi32).
+- **Behavior**: compile-time `EmbeddedDistilledGraph` layer records copy into `RamDomainStorage`; headless test builds real distilled v0 graph (`SaveDistilledRoot` + layer export), cold `LoadApplication` from embedded backing; lazy child, historical `Node::base`, backing immutability on read.
+- **Unchanged**: examples/minimal_app, WindowCatalog startup, `OverlayDomainStorage`, `ApplicationModelRuntime`, host stack, ClassId v0 schemas.
+- **Release verify** (`build-application-versioning-msvc-rel`): **14/14** CTests **PASS**. Minimal dev **374784** B; load-only **368128** B; catalog dev **445952** B; catalog load-only **434176** B.
+- **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **14/14** CTests **PASS**. Minimal dev **290816** B; load-only **286208** B; catalog dev **350720** B; catalog load-only **342528** B.
+- **Open conflicts for later**: versioning `OverlayDomainStorage` USER/BACKING policy; Node/EventFor historical-base deltas; extra Æther CPM patches; release R / T01–T18 matrix (see `docs/integration/application-versioning.md`).
+- **Next step**: **9B** USER/BACKING overlay integration.
+- **Land SHA**: *(pending commit)*.

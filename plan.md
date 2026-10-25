@@ -789,4 +789,14 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
 7. Minimal application template without controls — **`examples/minimal_app`**
    (`win32_minimal_app` / load-only) — done (2026-10-24).
 8. WindowCatalog as independent consumer + final audit — done (2026-10-24).
-9. Separate integration branch with the versioning project.
+9. Versioning integration on **`integration/application-versioning`** (from
+   application @ `55c4d53` + mechanisms from serialization-surfaces @
+   `17b7830`; no branch merge):
+   - **9A** — `EmbeddedDistilledGraph` → `RamDomainStorage` primitive + headless
+     test — done on integration branch (2026-10-25).
+   - **9B** — USER/BACKING `OverlayDomainStorage` with supply constants — TODO.
+   - **9C+** — build-time export, embedded app startup, release packages /
+     active-release, historical base & schema compatibility, T01–T18 matrix —
+     TODO.
+   Legacy **`ModelRuntime` / `UiMirror`** consolidation with the new application
+   path remains a separate TODO (plan §1.5 item 5).
