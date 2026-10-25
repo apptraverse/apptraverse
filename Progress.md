@@ -4296,3 +4296,15 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **11/11** CTests **PASS**. Loading test **22016** B; demo **344576** B.
 - **Next step**: **6C2** — final platform application host composition (plan §1.5 item 6C2).
 - **Land SHA**: **`433942f`** (`Extract WinApplicationLoadingWindow for reusable Win32 startup shell.`).
+
+## WinApplicationHost (6C2) (2026-10-24)
+
+- **Baseline**: `66a3e83c90f03c65bfa664ef120a4b23fc07563f`.
+- **API** (`include/apptraverse/platform/windows/win_application_host.h`): **`WinApplicationHost`** — composes external `ApplicationModelRuntime`, `ModelObjectProxy`, `WinPresentationHost`, `WinApplicationLoadingWindow`, `WinApplicationMessageHost`, `ApplicationUiSession`; `WinApplicationLoadingOptions` + `WinApplicationHostCallbacks` (`run_model`, `request_stop`, `on_desktop_window_close`, optional `take_incremental_sidecar`, `after_incremental`).
+- **WindowCatalogWinApp**: retains `WindowCatalogModelSession` only; `Run` wires catalog callbacks (publication kind mapping, focus sidecar, desktop close, loading options) and calls `host.Run()`.
+- **Removed from catalog app**: direct ownership of proxy/UI session/presentation/loading/message host; publication handler methods.
+- **Test**: `apptraverse_win_application_host_test` (`apptraverse_ui_windows`; no WindowCatalog).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **12/12** CTests **PASS**. Host test **310272** B; demo **449024** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **12/12** CTests **PASS**. Demo **344576** B.
+- **Next step**: minimal empty application template (plan §1.5 item 7).
+- **Land SHA**: *(pending commit)*.

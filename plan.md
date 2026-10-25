@@ -783,8 +783,9 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
    — done (2026-10-24). **6B:** **`ApplicationUiSession`** — generic UI Domain /
    mirror / presenter lifecycle (`apptraverse` only) — done (2026-10-24).
    **6C1:** **`WinApplicationLoadingWindow`** — reusable Win32 loading shell —
-   done (2026-10-24). **6C2:** final platform application host composition —
-   TODO.
+   done (2026-10-24). **6C2:** **`WinApplicationHost`** — composes runtime,
+   proxy, loading, message host, presentation host, UI session — done
+   (2026-10-24).
 7. Minimal application template without controls.
 8. WindowCatalog as pure consumer (runtime/host extraction).
 9. Separate integration branch with the versioning project.

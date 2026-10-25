@@ -20,6 +20,8 @@ apptraverse_add_test(apptraverse_ui_desktop_window_geometry_test
 if(WIN32)
   apptraverse_add_test(apptraverse_win_application_loading_window_test
     win_application_loading_window_test.cpp apptraverse_ui_windows)
+  apptraverse_add_test(apptraverse_win_application_host_test
+    win_application_host_test.cpp apptraverse_ui_windows)
 endif()
 
 if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
