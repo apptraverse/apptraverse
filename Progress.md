@@ -4334,4 +4334,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Release verify** (`build-presenter-decomp-msvc-rel`): **13/13** CTests **PASS**. Minimal dev **379392** B; load-only **370176** B; catalog dev **445952** B; catalog load-only **434176** B.
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **13/13** CTests **PASS**. Minimal dev **288768** B; load-only **284160** B; catalog dev **351232** B; catalog load-only **343040** B.
 - **Next step**: versioning integration branch (plan §1.5 item 9).
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`de7bcc1c16e3447b7c0b90095bb89aba4140d6bb`** (`Make WindowCatalog a direct WinApplicationHost consumer.`).
