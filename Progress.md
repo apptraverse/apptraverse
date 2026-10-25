@@ -4360,4 +4360,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Release verify** (`build-application-versioning-msvc-rel`): **15/15** CTests **PASS**. Minimal dev **374784** B; load-only **368128** B; catalog dev **445952** B; catalog load-only **434176** B.
 - **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **15/15** CTests **PASS**. Minimal dev **290816** B; load-only **286208** B; catalog dev **350720** B; catalog load-only **342528** B.
 - **Next step**: **9B2** — `aether-objects-force-materialize.patch` + historical dynamic base materialization.
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`cdabb6c30ca4460a88da752f52b333c2940278d7`** (`Integrate USER/BACKING OverlayDomainStorage with supply constants.`).
