@@ -396,9 +396,9 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 ### 08 — Выбор активной поставки
 
-- **Цель:** `active-release`, поиск слоёв по R.
-- **Область:** storage resolver, overlay backing chain.
-- **T:** T13, T14 | **Зав.:** 03, 07 | **Статус:** TODO
+- **Цель:** `active-release` + `state/<R>/supply.bin` → effective RAM backing (headless fixture).
+- **Область:** `tests/prefab_fixture_state.*` (`active-release` = один `uint32_t` через `BinaryArchive`); последовательное применение packages при `active > embedded`; `OverlayDomainStorage`; **без** resolver-класса, сканирования max-R, auto-write `active-release`; Surfaces не подключён; malformed files вне scope.
+- **T:** T13, T14 *(фрагменты)* | **Зав.:** 03, 07 | **Статус:** PASS *(R0/R1 switch + R2 embedded vs active=1)*
 
 ### 09 — Эквивалентность пакета и полного EXE
 

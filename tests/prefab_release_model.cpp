@@ -483,6 +483,13 @@ ae::RamDomainStorage BuildPrefabSupplyGraphWithMainTitleAndPosx(
                           ae::ObjId{kToolLabelConstId}, kToolTitle);
 
 #if APPTRAVERSE_PREFAB_EXE_REVISION == 0
+  StripPrefabWindowS1FromSupplyGraph(storage);
+#endif
+
+  return storage;
+}
+
+void StripPrefabWindowS1FromSupplyGraph(ae::RamDomainStorage& storage) {
   for (auto& [obj_id, class_map_opt] : storage.state) {
     if (!class_map_opt) {
       continue;
@@ -498,9 +505,6 @@ ae::RamDomainStorage BuildPrefabSupplyGraphWithMainTitleAndPosx(
       storage.state.erase(obj_id);
     }
   }
-#endif
-
-  return storage;
 }
 
 ClonePlan PlanCloneFromPrefabGraph(ae::Domain const& domain) {
@@ -745,11 +749,12 @@ void ResetLazyLoadCount() { g_lazy_load_count = 0; }
 
 #if APPTRAVERSE_PREFAB_EXE_REVISION == 0
 #include "embedded_distilled_prefab_release_r0_supply.h"
-#include "embedded_release_metadata.h"
 #else
 #include "embedded_distilled_prefab_release_r2_supply.h"
 #include "embedded_distilled_prefab_release_supply_v30.h"
 #endif
+#include "embedded_release_metadata.h"
+#include "prefab_fixture_state.h"
 
 namespace apptraverse::test::prefab_release {
 namespace {
@@ -770,22 +775,24 @@ struct FixtureBacking {
 };
 
 struct FixtureStorage {
+  prefab_fixture::StateLayout layout;
   DirectoryDomainStorage user;
   FixtureBacking backing;
   OverlayDomainStorage overlay;
   ae::Domain domain;
 
-  FixtureStorage(std::filesystem::path const& user_root,
+  FixtureStorage(std::filesystem::path const& state_dir,
                  PrefabBackingKind kind,
-                 std::filesystem::path const& package_path)
-      : user{user_root},
-        backing{BuildFixtureBacking(kind, package_path)},
+                 std::filesystem::path const& explicit_package_path)
+      : layout{prefab_fixture::ResolveStateLayout(state_dir)},
+        user{layout.user_root},
+        backing{BuildFixtureBacking(layout, kind, explicit_package_path)},
         overlay{user, backing.effective_backing, backing.supply_ids},
         domain{overlay} {}
 
-  explicit FixtureStorage(std::filesystem::path const& user_root,
+  explicit FixtureStorage(std::filesystem::path const& state_dir,
                           PrefabBackingKind kind = PrefabBackingKind::kDefault)
-      : FixtureStorage(user_root, kind, {}) {}
+      : FixtureStorage(state_dir, kind, {}) {}
 
  private:
   static apptraverse::EmbeddedDistilledGraph const& GraphFor(
@@ -810,17 +817,8 @@ struct FixtureStorage {
     return ids;
   }
 
-  static FixtureBacking BuildFixtureBacking(
-      PrefabBackingKind kind, std::filesystem::path const& package_path) {
-    FixtureBacking out{};
-    InstallEmbeddedDistilledBacking(out.embedded_backing, GraphFor(kind));
-    out.supply_ids = EmbeddedSupplyConstantIdSet(GraphFor(kind));
-    out.effective_backing = out.embedded_backing;
-
-    if (package_path.empty()) {
-      return out;
-    }
-#if APPTRAVERSE_PREFAB_EXE_REVISION == 0
+  static void ApplyPackageFile(FixtureBacking& out,
+                               std::filesystem::path const& package_path) {
     auto package = ReadDistilledSupplyPackageFile(package_path);
     if (!package) {
       throw std::runtime_error("supply-package");
@@ -828,11 +826,43 @@ struct FixtureStorage {
     ApplyDistilledSupplyPackage(out.effective_backing, *package);
     out.supply_ids = SupplyIdSetFromPackage(*package);
     out.package_applied = true;
+  }
+
+  static FixtureBacking BuildFixtureBacking(
+      prefab_fixture::StateLayout const& layout, PrefabBackingKind kind,
+      std::filesystem::path const& explicit_package_path) {
+    FixtureBacking out{};
+    InstallEmbeddedDistilledBacking(out.embedded_backing, GraphFor(kind));
+    out.supply_ids = EmbeddedSupplyConstantIdSet(GraphFor(kind));
+    out.effective_backing = out.embedded_backing;
+
+    std::uint32_t const embedded =
+        prefab_release_lifecycle::kEmbeddedRelease;
+
+    if (!explicit_package_path.empty()) {
+      ApplyPackageFile(out, explicit_package_path);
+      return out;
+    }
+
+    if (layout.state_root.empty()) {
+      return out;
+    }
+
+    std::uint32_t const active =
+        prefab_fixture::ActiveReleaseForStateRoot(layout.state_root, embedded);
+    if (active <= embedded) {
+      return out;
+    }
+
+    for (std::uint32_t r = embedded + 1; r <= active; ++r) {
+      auto const package_path =
+          layout.state_root / std::to_string(r) / "supply.bin";
+      if (!std::filesystem::exists(package_path)) {
+        continue;
+      }
+      ApplyPackageFile(out, package_path);
+    }
     return out;
-#else
-    (void)kind;
-    throw std::runtime_error("package-on-r2");
-#endif
   }
 };
 
@@ -912,6 +942,7 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
 
   std::filesystem::path state_dir;
   std::filesystem::path supply_package_path;
+  std::optional<std::uint32_t> active_release_value;
   std::string op;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
@@ -919,6 +950,8 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
       state_dir = argv[++i];
     } else if (arg == "--supply-package" && i + 1 < argc) {
       supply_package_path = argv[++i];
+    } else if (arg == "--active-release" && i + 1 < argc) {
+      active_release_value = static_cast<std::uint32_t>(std::stoul(argv[++i]));
     } else if (arg == "--op" && i + 1 < argc) {
       op = argv[++i];
     } else {
@@ -935,9 +968,29 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     return FixtureStorage{state_dir, kind, supply_package_path};
   };
 
+  if (op == "set-active-release") {
+    auto layout = prefab_fixture::ResolveStateLayout(state_dir);
+    if (layout.state_root.empty() || !active_release_value) {
+      PrintJson("{\"ok\":false,\"error\":\"usage\"}");
+      return 2;
+    }
+    std::filesystem::create_directories(layout.state_root);
+    if (!prefab_fixture::WriteActiveReleaseFile(
+            layout.state_root / "active-release", *active_release_value)) {
+      PrintJson("{\"ok\":false,\"error\":\"write-active-release\"}");
+      return 1;
+    }
+    PrintJson(JsonOk("\"op\":\"set-active-release\",\"active_release\":" +
+                     std::to_string(*active_release_value)));
+    return 0;
+  }
+
   if (op == "r0-read-labels") {
     try {
       FixtureStorage stores = make_stores();
+      std::uint32_t const active = prefab_fixture::ActiveReleaseForStateRoot(
+          stores.layout.state_root,
+          prefab_release_lifecycle::kEmbeddedRelease);
       ae::DomainGraph graph{&stores.domain};
       ae::Ptr<ae::Obj> loaded;
       if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
@@ -965,13 +1018,9 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
           (stores.backing.package_applied ? "true" : "false") +
           ",\"window_a_instance_id\":" +
           std::to_string(ws->window_a.instance_id().id()) +
-#if APPTRAVERSE_PREFAB_EXE_REVISION == 0
           ",\"embedded_release\":" +
-          std::to_string(prefab_release_lifecycle::kEmbeddedRelease)
-#else
-          ",\"embedded_release\":0"
-#endif
-              ));
+          std::to_string(prefab_release_lifecycle::kEmbeddedRelease) +
+          ",\"active_release\":" + std::to_string(active)));
       return 0;
     } catch (std::exception const& ex) {
       PrintJson(std::string("{\"ok\":false,\"error\":\"package\",\"detail\":\"") +
@@ -981,13 +1030,15 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
   }
 
   if (op == "r0-init" || op == "d1-r0-init" || op == "d1l-r0-init") {
-    if (std::filesystem::exists(state_dir) &&
-        (!std::filesystem::is_directory(state_dir) ||
-         !std::filesystem::is_empty(state_dir))) {
+    auto layout = prefab_fixture::ResolveStateLayout(state_dir);
+    if (std::filesystem::exists(layout.user_root) &&
+        (!std::filesystem::is_directory(layout.user_root) ||
+         !std::filesystem::is_empty(layout.user_root))) {
       PrintJson("{\"ok\":false,\"error\":\"state-not-empty\"}");
       return 1;
     }
-    DirectoryDomainStorage user{state_dir};
+    std::filesystem::create_directories(layout.user_root);
+    DirectoryDomainStorage user{layout.user_root};
     ae::Domain domain{user};
     ae::ObjPtr<ae::Obj> ws_root = CloneWorkspaceFromPrefabs(domain, {}, false);
     ae::Ptr<ae::Obj> ws_obj = ws_root.Load();

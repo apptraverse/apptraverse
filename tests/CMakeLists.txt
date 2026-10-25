@@ -433,6 +433,7 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     add_executable(${target}
       prefab_release_fixture.cpp
       prefab_release_model.cpp
+      prefab_fixture_state.cpp
     )
     target_link_libraries(${target} PRIVATE apptraverse)
     target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_LIST_DIR})
@@ -487,6 +488,9 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
   apptraverse_add_prefab_release_exe(apptraverse_prefab_release_r2 1
     apptraverse_export_prefab_release_r2_backing
     embedded_distilled_prefab_release_r2_supply.h)
+  apptraverse_embed_release_metadata(apptraverse_prefab_release_r2
+    "${CMAKE_CURRENT_LIST_DIR}/release_lifecycle/releases/r2/release.json"
+    apptraverse::test::prefab_release_lifecycle)
   apptraverse_embed_distilled_supply(
     apptraverse_prefab_release_r2
     apptraverse_export_prefab_release_backing_v30
@@ -512,6 +516,31 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     COMMENT "Generate prefab R1 supply.bin")
   add_custom_target(apptraverse_prefab_r1_supply_bin ALL
     DEPENDS "${_prefab_r1_package}")
+
+  add_executable(apptraverse_export_prefab_release_r2_package
+    export_prefab_release_r2_package.cpp
+    prefab_release_model.cpp
+  )
+  target_compile_definitions(apptraverse_export_prefab_release_r2_package PRIVATE
+    APPTRAVERSE_PREFAB_EXE_REVISION=1)
+  target_link_libraries(apptraverse_export_prefab_release_r2_package PRIVATE apptraverse)
+  target_include_directories(apptraverse_export_prefab_release_r2_package PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR})
+
+  add_test(
+    NAME apptraverse_prefab_active_release_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/prefab_active_release_matrix.py"
+      --r0 "$<TARGET_FILE:apptraverse_prefab_release_r0>"
+      --r2 "$<TARGET_FILE:apptraverse_prefab_release_r2>"
+      --r1-package-tool "$<TARGET_FILE:apptraverse_export_prefab_release_r1_package>"
+      --r2-package-tool "$<TARGET_FILE:apptraverse_export_prefab_release_r2_package>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/active_release_states"
+  )
+  set_tests_properties(apptraverse_prefab_active_release_matrix PROPERTIES
+    TIMEOUT 120
+    LABELS "serialization;prefab;evolution;lifecycle;active-release"
+  )
 
   add_executable(apptraverse_prefab_release_supply_split_test
     prefab_release_supply_split_test.cpp

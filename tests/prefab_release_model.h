@@ -36,6 +36,8 @@ ae::RamDomainStorage BuildPrefabSupplyGraphWithMainPosx(std::int32_t main_posx);
 ae::RamDomainStorage BuildPrefabSupplyGraphWithMainTitleAndPosx(
     char const* main_title, std::int32_t main_posx);
 
+void StripPrefabWindowS1FromSupplyGraph(ae::RamDomainStorage& storage);
+
 ClonePlan PlanCloneFromPrefabGraph(ae::Domain const& domain);
 
 ae::ObjPtr<ae::Obj> CloneWorkspaceFromPrefabs(ae::Domain& domain,
