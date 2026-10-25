@@ -3,13 +3,19 @@
 ## Source of truth
 
 1. Google Doc: [AppTraverse — версионирование состояния и жизненный цикл поставок](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit) — **прямая сверка не выполнена** (403 при fetch).
-2. Архитектурный контракт и roadmap: [PLAN.md](./PLAN.md).
+2. Архитектурный контракт и roadmap: [PLAN.md](./PLAN.md) — синхронизирован с **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)**.
 
 **Branch:** `integration/serialization-surfaces`
 
-**Baseline SHA (верифицированные fixtures / старт tracking):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
+**Подтверждённый HEAD (код/тесты):** `66515d8` (doc-only обновления roadmap — отдельный commit).
 
-**Текущий статус:** **PLANNED** — полный R0–R5 runner **не** реализован. **01–06** PASS (06/06B = headless prefab fixture: R0→R2, delta-first historical base S1, journal unknown fail-closed; не Surfaces GUI); **07–14** TODO. **T01–T18** не PASS (**T16**/**T18** целиком — нет; fixture: historical base S1 + unknown Event в journal).
+**Baseline SHA (старт tracking fixtures):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
+
+**Текущий этап:** итерация **11 IN_PROGRESS** (fixture compaction/replay; **11A** + **11B.2 PASS**). **01–10** PASS в заявленном scope; **11B.1** — зафиксированная регрессия до fix. **12–22** — **TODO** ([PLAN §12–22](./PLAN.md)). **T16/T17** — фрагменты, **не** PASS. Полный **R0–R5** и **T01–T18** — **не** завершены.
+
+**Следующий приоритет:** **12** (системный origin) → **13** (универсальный Clone) → **14** (универсальные S / historical base; остаток **T16/T17**). Production-hardening (**22**) сознательно **отложен** ([PLAN §принцип v0.3](./PLAN.md#принцип-разработки-v03)).
+
+**Fixture vs библиотека:** PASS prefab/overlay matrices **не** означает готовность production Clone/origin/S-resolution — origin сейчас в **`PrefabPtr`**, Clone в fixture вручную.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -154,7 +160,13 @@ SHA последних связанных коммитов на baseline: `19d7d
 
 ---
 
-## Итерации 01–14
+## Прототип-first (v0.3, кратко)
+
+Happy path и семантические инварианты — сейчас; CRC/signatures/defensive parsing/malformed tests/recovery/managers — **не** в scope до **22**. Подробности: [PLAN §принцип v0.3](./PLAN.md#принцип-разработки-v03).
+
+---
+
+## Итерации 01–22
 
 | ID | Status | SHA | Tests | Notes |
 | --- | --- | --- | --- | --- |
@@ -168,10 +180,18 @@ SHA последних связанных коммитов на baseline: `19d7d
 | 08 | PASS | `95968bd` | `apptraverse_prefab_active_release_matrix`, prefab/lifecycle/supply split Debug/Release | `active-release` BinaryArchive; `state/<R>/supply.bin`; embedded wins when `active <= embedded`; T13/T14 фрагменты |
 | 09 | PASS | `1ce8901` | `prefab_release_r1_supply_equivalence_test`, `prefab_release_r1_user_equivalence_matrix` + prefab matrices Debug/Release | **09A:** R1 BIN ≡ R1 embed; один USER; не clean install; T12 фрагмент |
 | 10 | PASS | `ce4f1a3` | `prefab_late_instance_matrix`, `prefab_release_matrix`, `prefab_dynamic_layer_roundtrip_matrix`, `overlay_domain_storage_test`, R1 supply + user equivalence Debug/Release | **10A–10E:** dynamic S0/S1, late WindowC, root-save без лишнего USER S1 (`ShouldSaveVersion`), historical base S1, 0-byte Event; T03/T09 фрагменты; T07–T10 не PASS |
-| 11 | IN_PROGRESS | `5653a9b` | compaction + old-exe guard + prefab/journal matrices Debug/Release | **11A+11B.2 PASS**; guard via `CanCompactStoredObjectVersions` on target/base; T16/T17 фрагменты |
-| 12 | TODO | — | — | Logic-only + constants R3/R4 |
-| 13 | TODO | — | — | **T01–T10**, **T15** lifecycle matrix |
-| 14 | TODO | — | — | Cleanup + интеграция |
+| 11 | IN_PROGRESS | `5653a9b` | compaction + old-exe guard + prefab/journal matrices Debug/Release | **11A+11B.2 PASS**; **11B.1** регрессия задокументирована; T16/T17 фрагменты |
+| 12 | TODO | — | — | **Системный origin** (не PrefabPtr-only) |
+| 13 | TODO | — | — | **Универсальный Clone** |
+| 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
+| 15 | TODO | — | — | Единая модель поставок R/E/B/S; **T11–T15** |
+| 16 | TODO | — | — | **R0–R5** lifecycle; **T01–T18** subset |
+| 17 | TODO | — | — | Библиотечный startup + Surfaces/UI |
+| 18 | TODO | — | — | Optional resources, locale, cache |
+| 19 | TODO | — | — | Æther updates (ArtifactSource) |
+| 20 | TODO | — | — | SharedNode |
+| 21 | TODO | — | — | Plugins + платформы (постепенно) |
+| 22 | TODO | — | — | **Production-hardening** (после функционального прототипа) |
 
 Статусы: **TODO** / **IN_PROGRESS** / **PASS** / **FAIL** / **BLOCKED**.
 
@@ -218,6 +238,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 - **2026-10-24** — **11A:** `compact-window-c`; `prefab_compaction_roundtrip_matrix`; штатный `Node::CompactJournal`/`CaptureBaseStateInto`; **11A PASS**; Debug/Release; push — **`237a5bb`**.
 - **2026-10-25** — **11B.1:** `prefab_old_exe_compaction_guard_matrix.py`; R1 compact после R2 delta — journal=0, replay 27→20; регрессия; push — **`4f9389f`**.
 - **2026-10-25** — **11B.2:** `CanCompactStoredObjectVersions` + guard в `CompactJournalInto`; guard matrix CTest PASS; **11B.2 PASS**; Debug/Release; push — **`5653a9b`**.
+- **2026-10-25** — **doc v0.3:** roadmap **12–22**, контрольные точки A–F, prototype-first; история **01–11** сохранена; код baseline **`66515d8`**; тесты не запускались; push — SHA ниже.
 - **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`ce46b80`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
