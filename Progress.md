@@ -4318,6 +4318,6 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **No demo controls** — empty `WinDesktopWindowPresenter`; empty title/locale refs.
 - **Test**: `apptraverse_minimal_app_win32_acceptance_test` (links `minimal_app_common` only; not WindowCatalog).
 - **Release verify** (`build-presenter-decomp-msvc-rel`): **13/13** CTests **PASS**. Minimal dev **379392** B; load-only **370176** B; catalog demo **449024** B.
-- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **13/13** CTests **PASS**. Minimal dev **292864** B; load-only **287744** B; catalog demo **349184** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **13/13** CTests **PASS**. Minimal dev **288768** B; load-only **284160** B; catalog demo **349184** B.
 - **Next step**: WindowCatalog independent consumer audit (plan §1.5 item 8).
 - **Land SHA**: *(pending commit)*.
