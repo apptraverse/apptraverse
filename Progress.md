@@ -4348,4 +4348,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **14/14** CTests **PASS**. Minimal dev **290816** B; load-only **286208** B; catalog dev **350720** B; catalog load-only **342528** B.
 - **Open conflicts for later**: versioning `OverlayDomainStorage` USER/BACKING policy; Node/EventFor historical-base deltas; extra Æther CPM patches; release R / T01–T18 matrix (see `docs/integration/application-versioning.md`).
 - **Next step**: **9B** USER/BACKING overlay integration.
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`3aa7320b52113ee3c3b2b8afe3a493ef0d5c9b86`** (`Add embedded distilled graph backing for RamDomainStorage.`).
