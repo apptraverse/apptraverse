@@ -1,11 +1,13 @@
 # I0 — Architecture cleanup ledger
 
 Inventory for **`integration/application-versioning`** (stage **I0.1**).  
-**Baseline:** `36b0a5c08780a7a0136587a7bf3858b86b334982`  
+**Baseline (I0.1):** `36b0a5c08780a7a0136587a7bf3858b86b334982`  
+**I0.2 orphan slice baseline:** `6e952d181295d17f9944b225a6a3c36f0587199e`  
 **Configuration reviewed:** Windows + `APPTRAVERSE_BUILD_EXAMPLES=ON`, CTest as in
 `tests/CMakeLists.txt` (17 tests when examples enabled).  
-**Method:** source + `rg` call-site survey + CMake target lists. **No builds or
-CTest were run for this inventory.**
+**Method:** source + `rg` call-site survey + CMake target lists. I0.1 inventory
+had no builds; **I0.2 slice verified** with incremental Release/MinSizeRel build +
+**17/17 CTest PASS** (2026-10-25).
 
 ## A. Scope and build map
 
@@ -43,13 +45,20 @@ CTest were run for this inventory.**
 `apptraverse_presenter_win_desktop_frame_sync_test`,  
 `apptraverse_win_ui_command_routing_test`.
 
-### `src/` present but **not** compiled into `apptraverse` (DISABLED/HISTORICAL)
+### Orphan `src/*.cpp` removed in I0.2 (2026-10-25)
 
-| File | Notes |
-|------|--------|
-| `src/runtime_lifecycle.cpp` | Only referenced from disabled tests/demos (`chat_ui_runtime_demo`, etc.) |
-| `src/shared_node.cpp`, `src/shared_network_graph.cpp`, `src/shared_sync_runtime.cpp` | SharedNode stack; `APPTRAVERSE_ENABLE_SHARED_NODE=0` |
-| `src/memory_transport.cpp`, `src/sync_frame.cpp`, `src/link.cpp` | Network/chat transport; no active CMake target on this branch |
+These seven files were **not** listed in any active CMake target; **deleted** on
+`integration/application-versioning`. Matching **public headers remain** (API
+declarations only — **not implemented** on this branch until FUTURE SharedNode /
+transport work restores `.cpp` from Git history or parallel branch):
+
+- `src/runtime_lifecycle.cpp`
+- `src/shared_node.cpp`, `src/shared_network_graph.cpp`, `src/shared_sync_runtime.cpp`
+- `src/memory_transport.cpp`, `src/sync_frame.cpp`, `src/link.cpp`
+
+Disabled historical demos/tests that referenced these units are **unchanged** and
+**not** in current CTest; deleting orphan sources does **not** prove those demos
+link or run.
 
 ### Examples present in tree but **not** added by root `CMakeLists.txt`
 
@@ -77,8 +86,8 @@ Status legend: **ACTIVE** | **TEST-ONLY** | **COMPILED-UNREFERENCED** (in
 | Presenter wiring | `ComposePresentedWindow` (`ui_presented_window_composition.h`) | `minimal_app_graph.cpp`, `window_catalog_graph.cpp`, contract test | **ACTIVE** | Required typed cross-links (window ↔ presenter ↔ title/locale) | Keep | `apptraverse_application_contract_headless_test` | Low |
 | Presenter lifecycle | `LoadPresentedWindow` / `SavePresentedWindow` / `UnloadPresentedWindow` | `minimal_app_lifecycle.cpp`, `window_catalog_model.cpp` | **ACTIVE** | App-specific call sites; helpers are shared | Keep | Win32 acceptance, catalog model test | Low |
 | Direct presenter init | `InitializePresenters` (`ui_presenters.cpp`) | `ApplicationUiSession` ctor; disabled `surfaces_demo` platform apps | **ACTIVE** (via session) | Old demos called directly; production apps use session | Keep | `apptraverse_application_ui_session_test` | Low |
-| Runtime lifecycle API | `runtime_lifecycle.h` / `runtime_lifecycle.cpp` | Chat demo sources only | **DISABLED/HISTORICAL** | Orphan `.cpp` not in any active target | Remove `.cpp` + header when chat demo formally dropped (I0.2) | None active | Low–Med |
-| SharedNode sources | `shared_node.cpp`, etc. | Disabled tests / demos | **DISABLED/HISTORICAL** | Branch flag `APPTRAVERSE_ENABLE_SHARED_NODE=0` | No action until SharedNode FUTURE | N/A | Low |
+| Runtime lifecycle API | `runtime_lifecycle.h` (header only) | Chat demo sources (not built) | **DISABLED/HISTORICAL** | `.cpp` **removed I0.2**; header kept | Defer header removal until chat demo dropped | None active | Low–Med |
+| SharedNode / transport | `shared_node.h`, `shared_sync_runtime.h`, etc. (headers only) | FUTURE roadmap; disabled demos | **DEFERRED/FUTURE** | `.cpp` **removed I0.2**; `APPTRAVERSE_ENABLE_SHARED_NODE=0` | Restore implementation when SharedNode returns | N/A | Low |
 | Persistent checkpoint | `SavePersistentModelSnapshotToStorage` / `LoadPersistentModelSnapshot` | `minimal_app_lifecycle`, `window_catalog_lifecycle`, catalog/minimal tests | **ACTIVE** | Separate from layer-wise `DirectoryDomainStorage` + optional checkpoint blob | Keep; embedded startup (9D) must define whether checkpoint remains | `apptraverse_minimal_app_win32_acceptance_test`, catalog model test | Med (9D design) |
 | Runtime distill bootstrap | `BuildMinimalApplicationGraph` + `SaveDistilledRoot` in `minimal_app_lifecycle.cpp` (`APPTRAVERSE_ENABLE_DISTILLATION`) | `win32_minimal_app` only (not load-only) | **ACTIVE** | Duplicates build-time graph in `apptraverse_export_minimal_distilled_graph` (9C) | **Deferred to 9D** — remove only after embedded startup E2E PASS | `apptraverse_minimal_app_embedded_export_test` (partial), future 9D | High |
 | Runtime distill bootstrap | `BuildWindowCatalogGraph` + distill in `window_catalog_lifecycle.cpp` | `win32_window_catalog_demo` | **ACTIVE** | No build-time export yet (9E) | **Deferred to 9E** | Catalog acceptance | High |
@@ -111,7 +120,7 @@ Status legend: **ACTIVE** | **TEST-ONLY** | **COMPILED-UNREFERENCED** (in
 
 | # | Action | Rationale | Depends on | Tests |
 |---|--------|-----------|------------|-------|
-| 1 | Remove orphan `src/*.cpp` not listed in root `CMakeLists.txt` (`runtime_lifecycle.cpp`, `shared_node.cpp`, `shared_network_graph.cpp`, `shared_sync_runtime.cpp`, `memory_transport.cpp`, `sync_frame.cpp`, `link.cpp`) | Zero references from active CMake targets; grep confirms no `add_subdirectory` pull-in on this branch | Confirm no out-of-tree build scripts | Rebuild `apptraverse` + 17 CTest |
+| 1 | ~~Remove orphan `src/*.cpp`~~ | **DONE (2026-10-25)** — seven files listed in §A removed; headers kept | — | Release + MinSizeRel **17/17 PASS** |
 | 2 | Remove duplicate `EnsureWinUiPresenterRegistration()` call at start of `BuildMinimalApplicationGraph` | Lifecycle + exporter already register; graph builder runs after ensures in all known entry points | Verify no entry calls graph builder without prior ensure | `apptraverse_minimal_app_embedded_export_test`, minimal acceptance |
 | 3 | Archive or delete `tests/model_ui_runtime_test.cpp` + `tests/model_runtime_stop_test.cpp` **only after** (1) legacy runtime moved to EXCLUDE_FROM_ALL lib or removed | Frees `ModelRuntime`/`UiMirror` removal | Decision on keeping legacy demo sources | N/A until re-added to CTest |
 
@@ -134,21 +143,22 @@ Status legend: **ACTIVE** | **TEST-ONLY** | **COMPILED-UNREFERENCED** (in
 
 ---
 
-## E. Recommended first I0.2 slice
+## E. I0.2 slices
 
-**Slice:** Delete the seven orphan `src/*.cpp` files that are not part of any
-CMake target on `integration/application-versioning` (section A table), plus their
-public headers if nothing includes them from compiled TUs.
+### First slice — **DONE** (2026-10-25)
 
-**Why this slice:** No active consumer; lowest functional risk; reduces confusion
-during later runtime migration.
+Deleted the seven orphan `src/*.cpp` files (§A). Public headers **not** deleted.
+Incremental build reported `ninja: no work to do` (files were never in targets);
+CTest **17/17 PASS** Release and MinSizeRel.
 
-**If blocked:** Before deletion, run one incremental Release build and confirm
-link of `apptraverse` does not reference symbols only defined in those files
-(linker map / `nm` — optional verification step for I0.2 executor).
+### Next recommended slice
 
-**If orphan deletion is rejected:** Fall back to slice #2 (redundant Win ensure in
-`BuildMinimalApplicationGraph`) with the two minimal/catalog-related CTests.
+Review redundant `EnsureWinUiPresenterRegistration()` at the start of
+`BuildMinimalApplicationGraph` (§C #2) after confirming all entry points already
+call Win/UI ensures.
+
+**Still deferred:** legacy `ModelRuntime`/`UiMirror` migration (§C #3); runtime
+bootstrap removal (**9D/9E**); I0.3 cold-load contract.
 
 ---
 

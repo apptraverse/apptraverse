@@ -4430,4 +4430,20 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Safe toward I0.2**: delete CMake-unreferenced orphan `src` units (first recommended slice); optional redundant Win ensure in `BuildMinimalApplicationGraph` after consumer check.
 - **Blocked / deferred**: remove runtime bootstrap (**9D/9E**); remove `ModelRuntime`/`UiMirror` from core lib until legacy consumers retired; versioning Æther patches (**9G**); I0.3 cold-load contract work.
 - **NEXT (I0.2)**: one slice — remove seven orphan `src/*.cpp` files not in any active target (see ledger §E); verify with incremental build + 17 CTests when executing I0.2.
-- **Land SHA**: **`ca17e1b`** (`I0.1: add architecture cleanup ledger and update plan/Progress.`).
+- **Land SHA**: **`ca17e1b0272f438a91fc66ab91eee07c3451aac0`** (`I0.1: add architecture cleanup ledger and update plan/Progress.`).
+
+## I0.2 — Orphan implementation cleanup (2026-10-25)
+
+- **Baseline**: **`6e952d181295d17f9944b225a6a3c36f0587199e`** (`integration/application-versioning`).
+- **Removed (git rm, not in any active CMake target):**
+  - `src/runtime_lifecycle.cpp`
+  - `src/shared_node.cpp`, `src/shared_network_graph.cpp`, `src/shared_sync_runtime.cpp`
+  - `src/memory_transport.cpp`, `src/sync_frame.cpp`, `src/link.cpp`
+- **Evidence:** root `CMakeLists.txt`, `tests/CMakeLists.txt`, app/example/platform CMake — none list these sources; `rg` shows no `#include` of removed `.cpp` from active code; disabled demos/tests unchanged.
+- **Preserved:** public headers (`runtime_lifecycle.h`, SharedNode/transport headers); `ApplicationModelRuntime`, `ApplicationUiSession`, `ModelRuntime`, `UiMirror`, serialization, embedded export, overlay, Æther patches, runtime bootstrap; **CMakeLists unchanged**; **tests unchanged**.
+- **SharedNode / transport:** **FUTURE** / deferred — implementations live in Git history; this branch does not ship linkable bodies for those APIs.
+- **Verify:** incremental `build-application-versioning-msvc-rel` and `build-application-versioning-msvc-minsizerel` (`ninja: no work to do`); **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS** (including contract, model runtime, UI session, embedded export, minimal/catalog acceptance).
+- **EXE sizes (unchanged vs 9C report):** Release minimal dev **379904** B, load-only **373760** B, catalog dev **450560** B, catalog load-only **439296** B; MinSizeRel minimal dev **288768** B, load-only **283648** B, catalog dev **349184** B, catalog load-only **340480** B.
+- **Does not prove:** disabled historical demos/tests that referenced removed units still build or run.
+- **NEXT (I0.2):** ledger §C #2 — redundant Win ensure in `BuildMinimalApplicationGraph` after entry-point audit.
+- **Land SHA**: *(record after commit)*.
