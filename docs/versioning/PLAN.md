@@ -420,8 +420,9 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 - **Цель:** **T16** (исторический `Node::base` + новый S); **T17** (компактация журнала через откаты и до первого `SaveRoot`).
 - **Область (11A PASS):** op `compact-window-c` (`JournalRetentionPolicy.max_events=0`, `CompactJournal`, `SaveRoot` по instance WindowC); `prefab_compaction_roundtrip_matrix` — delta S1 → полная компактация (journal=0, base S1=27), cold load, откат R1 `touch-save-workspace`, `replay-window-c` ×2; Generation/ObjId/base chain и width=480; WindowA/B без лишнего USER S1; const не в USER. **Не** удаление orphaned Event-файлов; **не** изменение production `Node`/Æther.
-- **Область (11B.1 BLOCKED):** `prefab_old_exe_compaction_guard_matrix.py` — R1 `compact-window-c` после R2 `delta-posx-c`. **Факт:** R1 сворачивает journal (`journal_len=0`), т.к. `SetPosxDeltaEvent::CanCompactStoredState` смотрит только слои **Event** ObjId (нет v1+), а не USER S1 экземпляра; R1 `PrefabWindow` без `Save(V1)` → `CaptureBaseStateInto` не переносит `posx` в historical base (остаётся 20); R1 видит `posx=0` в RAM. USER S1 instance может остаться, но **replay → 20** (потеря эффекта delta). **11B.2 (мин. инвариант):** не сворачивать journal, если compacting EXE не может материализовать эффект Event в base/target (неизвестные persisted schema layers **цели** Event или отсутствие сериализации результата на base). Сценарий воспроизводим; **не** в CTest (ожидаемый FAIL до fix).
-- **T:** T16, T17 *(фрагменты)* | **Зав.:** 10 | **Статус:** BLOCKED *(11A PASS; 11B.1 guard FAIL)*
+- **Область (11B.1):** регрессия до fix — R1 `CompactJournal` сворачивал S1-journal, т.к. `CanCompactStoredState` проверял только Event ObjId.
+- **Область (11B.2 PASS):** `detail::CanCompactStoredObjectVersions` в `node.h`; `CompactJournalInto` — проверка instance + historical base **до** изменения journal/base; `EventFor` использует тот же helper. `apptraverse_prefab_old_exe_compaction_guard_matrix` — R1 не компактит (journal=1), R2 replay=27; R2 full compact (11A) без регрессии. **Правило:** нельзя сворачивать journal, если на Node или base есть persisted версии выше `kCurrentVersion` текущего EXE.
+- **T:** T16, T17 *(фрагменты)* | **Зав.:** 10 | **Статус:** IN_PROGRESS *(11A+11B.2 PASS; полный T16/T17 — нет)*
 
 ### 12 — Логика-only, затем константы
 

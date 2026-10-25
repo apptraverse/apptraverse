@@ -14,6 +14,7 @@
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/idomain_storage.h"
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/event_record.h"
@@ -24,6 +25,31 @@
 #include "apptraverse/publication_serialization_scope.h"
 
 namespace apptraverse {
+
+namespace detail {
+
+template <typename T>
+bool CanCompactStoredObjectVersions(ae::IDomainStorage& storage,
+                                    ae::ObjId object_id) {
+  for (unsigned version =
+           static_cast<unsigned>(T::kCurrentVersion.value) + 1U;
+       version <= static_cast<unsigned>(std::numeric_limits<std::uint8_t>::max());
+       ++version) {
+    ae::DomainLoad const load = storage.Load(ae::DomainQuery{
+        object_id, T::kClassId, static_cast<std::uint8_t>(version)});
+    if (load.result == ae::DomainLoadResult::kLoaded ||
+        load.result == ae::DomainLoadResult::kRemoved) {
+      return false;
+    }
+  }
+  if constexpr (std::is_same_v<T, ae::Obj>) {
+    return true;
+  } else {
+    return CanCompactStoredObjectVersions<typename T::Base>(storage, object_id);
+  }
+}
+
+}  // namespace detail
 
 inline std::uint64_t SystemUtcMicros() {
   using Clock = std::chrono::system_clock;
@@ -369,6 +395,19 @@ class Node : public ae::Obj {
     auto const collapse = CollapsiblePrefixCount(now_us);
     if (collapse == 0) {
       return;
+    }
+
+    assert(domain != nullptr);
+    ae::IDomainStorage& storage = domain->domain_storage();
+    if (!detail::CanCompactStoredObjectVersions<ConcreteNode>(storage,
+                                                              target.obj_id)) {
+      return;
+    }
+    if (target.base.is_valid() && target.base.is_loaded()) {
+      if (!detail::CanCompactStoredObjectVersions<ConcreteNode>(
+              storage, target.base.id())) {
+        return;
+      }
     }
 
     auto const saved_generation = generation_;

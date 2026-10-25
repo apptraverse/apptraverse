@@ -629,6 +629,20 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     LABELS "serialization;prefab;evolution;lifecycle;compaction"
   )
 
+  add_test(
+    NAME apptraverse_prefab_old_exe_compaction_guard_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/prefab_old_exe_compaction_guard_matrix.py"
+      --r0 "$<TARGET_FILE:apptraverse_prefab_release_r0>"
+      --r1 "$<TARGET_FILE:apptraverse_prefab_release_r1>"
+      --r2 "$<TARGET_FILE:apptraverse_prefab_release_r2>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/old_exe_compaction_guard_states"
+  )
+  set_tests_properties(apptraverse_prefab_old_exe_compaction_guard_matrix
+    PROPERTIES TIMEOUT 120
+    LABELS "serialization;prefab;evolution;lifecycle;compaction;guard"
+  )
+
   add_executable(apptraverse_prefab_release_supply_split_test
     prefab_release_supply_split_test.cpp
   )

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """R1 must not compact S1 journal effects it cannot promote into historical base (11B.1).
 
-Diagnostic only — not registered in CTest while 11B is BLOCKED (expected FAIL).
-Run: python prefab_old_exe_compaction_guard_matrix.py --r0 ... --r1 ... --r2 ...
+11B.2 guard matrix (R1 must not compact when target/base have unknown stored versions).
 """
 
 import argparse
@@ -125,9 +124,12 @@ def main():
         raise CheckFailed("R2 inspect: instance posx must stay 27")
     if not rec.get("user_s1_instance"):
         raise CheckFailed("R2 inspect: USER S1 on instance required")
+    if not rec.get("user_s1_base"):
+        raise CheckFailed("R2 inspect: USER S1 on historical base required")
 
     user_manifest = manifest(user_root)
     assert_has_s1(user_manifest, window_c_id, class_id)
+    assert_has_s1(user_manifest, window_c_base_id, class_id)
 
     for _ in range(2):
         replay = run_ok(r2, state_root, "replay-window-c")
