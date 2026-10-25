@@ -35,6 +35,7 @@ class NullPresenterNode;
 class SetPosxAbsoluteEvent;
 class SetPosxDeltaEvent;
 class SetWidthEvent;
+class WindowCAddedEvent;
 
 class ConstLabelString : public ae::Obj {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::prefab_release::ConstLabelString",
@@ -282,15 +283,14 @@ class PreferencesNode : public NodeFor<PreferencesNode> {
   ae::ObjPtr<PrefabWindow> window_a_alias;
 };
 
-class WorkspaceRoot : public ae::Obj {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::prefab_release::WorkspaceRoot",
-                           WorkspaceRoot, ae::Obj, 0)
+class WorkspaceRoot : public NodeFor<WorkspaceRoot> {
+  APPTRAVERSE_OBJECT(WorkspaceRoot, Node, 0)
 
  protected:
   WorkspaceRoot() = default;
 
  public:
-  explicit WorkspaceRoot(ae::ObjProp prop) : Obj{prop} {}
+  explicit WorkspaceRoot(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(window_a), AE_MMBR(window_b), AE_MMBR(window_c),
                     AE_MMBR(presenter), AE_MMBR(layout), AE_MMBR(details),
@@ -308,6 +308,8 @@ class WorkspaceRoot : public ae::Obj {
         preferences);
   }
 
+  void Apply(WindowCAddedEvent const& event);
+
   PrefabPtr<PrefabWindow> window_a;
   PrefabPtr<PrefabWindow> window_b;
   PrefabPtr<PrefabWindow> window_c;
@@ -316,6 +318,36 @@ class WorkspaceRoot : public ae::Obj {
   ae::ObjPtr<DetailsNode> details;
   ae::ObjPtr<PreferencesNode> preferences;
 };
+
+class WindowCAddedEvent : public EventFor<WorkspaceRoot, WindowCAddedEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::test::prefab_release::WindowCAddedEvent",
+      WindowCAddedEvent, Event, 0)
+
+ protected:
+  WindowCAddedEvent() = default;
+
+ public:
+  explicit WindowCAddedEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window_c))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, window_c);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, window_c);
+  }
+
+  PrefabPtr<PrefabWindow> window_c;
+};
+
+void WorkspaceRoot::Apply(WindowCAddedEvent const& event) {
+  window_c = event.window_c;
+}
 
 class SetPosxAbsoluteEvent
     : public EventFor<PrefabWindow, SetPosxAbsoluteEvent> {
@@ -420,6 +452,7 @@ APPTRAVERSE_REGISTER(DetailsNode);
 APPTRAVERSE_REGISTER(HistoryNode);
 APPTRAVERSE_REGISTER(PreferencesNode);
 APPTRAVERSE_REGISTER(WorkspaceRoot);
+APPTRAVERSE_REGISTER(WindowCAddedEvent);
 APPTRAVERSE_REGISTER(SetPosxAbsoluteEvent);
 APPTRAVERSE_REGISTER(SetPosxDeltaEvent);
 APPTRAVERSE_REGISTER(SetWidthEvent);
@@ -482,6 +515,7 @@ void EnsurePrefabReleaseRegistration() {
   (void)&g_apptraverse_registrar_HistoryNode;
   (void)&g_apptraverse_registrar_PreferencesNode;
   (void)&g_apptraverse_registrar_WorkspaceRoot;
+  (void)&g_apptraverse_registrar_WindowCAddedEvent;
   (void)&g_apptraverse_registrar_SetPosxAbsoluteEvent;
   (void)&g_apptraverse_registrar_SetPosxDeltaEvent;
   (void)&g_apptraverse_registrar_SetWidthEvent;
@@ -650,6 +684,50 @@ std::optional<std::int32_t> ReadPrefabPosxFromBacking(
 }
 
 }  // namespace
+
+std::optional<std::uint32_t> ReadPrefabWidthFromBacking(
+    ae::RamDomainStorage const& backing, ae::ObjId prefab_id) {
+  ae::Domain backing_domain{const_cast<ae::RamDomainStorage&>(backing)};
+  PrefabWindow::ptr prefab_ref = PrefabWindow::ptr::Declare(
+      ae::CreateWith{backing_domain}.with_id(prefab_id));
+  ae::Ptr<PrefabWindow> prefab = prefab_ref.Load();
+  if (!prefab) {
+    return std::nullopt;
+  }
+  return prefab->width;
+}
+
+CreatedToolWindowInstance CreateToolWindowInstanceFromBacking(
+    ae::Domain& domain, ae::RamDomainStorage const& backing) {
+  ae::ObjId const tool_prefab_id{ae::ObjId{kToolWindowPrefabId}};
+  std::optional<std::uint32_t> const prefab_width =
+      ReadPrefabWidthFromBacking(backing, tool_prefab_id);
+  if (!prefab_width) {
+    std::abort();
+  }
+
+  ae::ObjId const instance_id = ae::ObjId::GenerateUnique();
+  ae::ObjId const instance_base_id = ae::ObjId::GenerateUnique();
+
+  PrefabWindow::ptr base_ref = PrefabWindow::ptr::Create(
+      ae::CreateWith{domain}.with_id(instance_base_id));
+  ae::Ptr<PrefabWindow> hist_base = base_ref.Load();
+  hist_base->width = *prefab_width;
+
+  PrefabWindow::ptr instance_ref = PrefabWindow::ptr::Create(
+      ae::CreateWith{domain}.with_id(instance_id));
+  ae::Ptr<PrefabWindow> instance = instance_ref.Load();
+  instance->width = *prefab_width;
+  instance->base = base_ref;
+
+  CreatedToolWindowInstance out;
+  out.canonical = PrefabPtr<PrefabWindow>::FromInstance(instance_ref,
+                                                        tool_prefab_id);
+  out.instance_id = instance_id;
+  out.instance_base_id = instance_base_id;
+  out.width = *prefab_width;
+  return out;
+}
 
 bool ValidateWorkspaceCanonicalPrefabPtrs(WorkspaceRoot const& ws,
                                           char const** error_out) {
@@ -1438,6 +1516,118 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     }
     PrintJson(JsonOk("\"op\":\"set-width-a\",\"width_a\":" +
                      std::to_string(a->width)));
+    return 0;
+  }
+
+  if (op == "create-tool-window") {
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    if (ws->window_c.is_valid()) {
+      PrintJson("{\"ok\":false,\"error\":\"window-c-exists\"}");
+      return 1;
+    }
+    CreatedToolWindowInstance created = CreateToolWindowInstanceFromBacking(
+        stores.domain, stores.backing.effective_backing);
+    auto event =
+        WindowCAddedEvent::ptr::Create(ae::CreateWith{stores.domain});
+    event.Load()->window_c = created.canonical;
+    ws->Commit(event);
+    FinalizeDistilledGraph(*ws);
+    stores.user.BeginSaveSession();
+    ae::DomainGraph save_graph{&stores.domain};
+    if (!save_graph.SaveRoot(loaded, ae::ObjId{kWorkspaceId}).IsOk() ||
+        stores.user.SaveSessionHadFailure()) {
+      PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
+      return 1;
+    }
+    PrintJson(JsonOk(
+        "\"op\":\"create-tool-window\""
+        ",\"window_c_instance_id\":" +
+        std::to_string(created.instance_id.id()) +
+        ",\"window_c_instance_base_id\":" +
+        std::to_string(created.instance_base_id.id()) +
+        ",\"window_c_prefab_id\":" +
+        std::to_string(kToolWindowPrefabId) + ",\"width_c\":" +
+        std::to_string(created.width)));
+    return 0;
+  }
+
+  if (op == "inspect-window-c") {
+    ResetLazyLoadCount();
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    if (!ws->window_c.is_valid()) {
+      PrintJson("{\"ok\":false,\"error\":\"missing-window-c\"}");
+      return 1;
+    }
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> a =
+        MaterializePrefabBackedWindow(ws->window_a, ctx);
+    ae::Ptr<PrefabWindow> c =
+        MaterializePrefabBackedWindow(ws->window_c, ctx);
+    ae::ObjId const c_base_id = c->base.id();
+    bool const user_s1_c = UserHasLayerForInstance(
+        stores.user, ws->window_c.instance_id(), PrefabWindow::kClassId, 1);
+    bool const user_s1_c_base =
+        c_base_id.is_valid() &&
+        UserHasLayerForInstance(stores.user, c_base_id, PrefabWindow::kClassId,
+                                1);
+    bool const b_loaded_before = ws->window_b.is_loaded();
+    PrintJson(JsonOk(
+        "\"op\":\"inspect-window-c\""
+        ",\"window_c_instance_id\":" +
+        std::to_string(ws->window_c.instance_id().id()) +
+        ",\"window_c_prefab_id\":" +
+        std::to_string(ws->window_c.prefab_id().id()) +
+        ",\"width_c\":" + std::to_string(c->width) +
+        ",\"posx_c\":" + std::to_string(c->posx) +
+        ",\"instance_base_id\":" + std::to_string(c_base_id.id()) +
+        ",\"user_s1_instance\":" + (user_s1_c ? "true" : "false") +
+        ",\"user_s1_base\":" + (user_s1_c_base ? "true" : "false") +
+        ",\"window_a_instance_id\":" +
+        std::to_string(ws->window_a.instance_id().id()) +
+        ",\"window_a_prefab_id\":" +
+        std::to_string(ws->window_a.prefab_id().id()) +
+        ",\"posx_a\":" + std::to_string(a->posx) +
+        ",\"width_a\":" + std::to_string(a->width) +
+        ",\"window_b_loaded\":" + (b_loaded_before ? "true" : "false") +
+        ",\"alias_ok\":" +
+        (ws->preferences.Load()->window_a_alias.id() == ws->window_a.id()
+             ? "true"
+             : "false") +
+        ",\"window_class_id\":" + std::to_string(PrefabWindow::kClassId) +
+        ",\"lazy_load_count\":" + std::to_string(LazyLoadCount())));
+    return 0;
+  }
+
+  if (op == "touch-save-workspace") {
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    stores.user.BeginSaveSession();
+    ae::DomainGraph save_graph{&stores.domain};
+    if (!save_graph.SaveRoot(loaded, ae::ObjId{kWorkspaceId}).IsOk() ||
+        stores.user.SaveSessionHadFailure()) {
+      PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
+      return 1;
+    }
+    PrintJson(JsonOk("\"op\":\"touch-save-workspace\""));
     return 0;
   }
 

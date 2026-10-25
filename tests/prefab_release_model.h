@@ -56,6 +56,19 @@ struct PrefabBackedLoadContext {
   DirectoryDomainStorage const& user;
 };
 
+struct CreatedToolWindowInstance {
+  PrefabPtr<PrefabWindow> canonical;
+  ae::ObjId instance_id;
+  ae::ObjId instance_base_id;
+  std::uint32_t width{0};
+};
+
+std::optional<std::uint32_t> ReadPrefabWidthFromBacking(
+    ae::RamDomainStorage const& backing, ae::ObjId prefab_id);
+
+CreatedToolWindowInstance CreateToolWindowInstanceFromBacking(
+    ae::Domain& domain, ae::RamDomainStorage const& backing);
+
 ae::Ptr<PrefabWindow> MaterializePrefabBackedWindow(
     PrefabPtr<PrefabWindow> const& canonical, PrefabBackedLoadContext const& ctx);
 
