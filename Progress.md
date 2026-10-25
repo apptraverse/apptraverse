@@ -4447,3 +4447,14 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Does not prove:** disabled historical demos/tests that referenced removed units still build or run.
 - **NEXT (I0.2):** ledger §C #2 — redundant Win ensure in `BuildMinimalApplicationGraph` after entry-point audit.
 - **Land SHA**: **`9c96d9001548bb9b46b449c8576cba4f69fa1bdd`** (`I0.2: remove seven orphan src implementations not in CMake targets.`).
+
+## I0.2 — Remove redundant graph-builder registration (2026-10-25)
+
+- **Baseline**: **`feb9c8057f2a67c5999e3345b4d8ca4a6e364640`** (`integration/application-versioning`).
+- **Change**: removed `ui::windows::EnsureWinUiPresenterRegistration();` from `BuildMinimalApplicationGraph` in `examples/minimal_app/windows/minimal_app_graph.cpp` only.
+- **Call graph verified:** `BuildMinimalApplicationGraph` has two production callers — `RunMinimalApplicationModel` (`minimal_app_lifecycle.cpp`, Win ensure at lines 28–30 before distill bootstrap) and `minimal_app_export.cpp` `main` (Win ensure before graph build); load-only exe has no graph builder; no test calls graph builder directly (`minimal_app_embedded_export_test` keeps its own ensure).
+- **Unchanged:** ClassId/schemas v0, CMake, serialization, startup paths, `EnsureWinUiPresenterRegistration` implementation, catalog registration, ModelRuntime/UiMirror, runtime bootstrap.
+- **Verify:** incremental Release + MinSizeRel rebuild (`win32_minimal_app`, exporter, embedded export test); **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
+- **EXE sizes:** not re-measured (expect negligible delta from one removed call site in shared TU).
+- **NEXT:** **I0.3** — required graph cold-load contract.
+- **Land SHA**: *(record after commit)*.

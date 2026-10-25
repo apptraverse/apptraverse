@@ -8,7 +8,6 @@
 namespace apptraverse::example::minimal {
 
 MinimalApplication::ptr BuildMinimalApplicationGraph(ae::Domain& domain) {
-  ui::windows::EnsureWinUiPresenterRegistration();
   auto application = MinimalApplication::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalApplicationRootId()));
 

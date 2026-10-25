@@ -98,7 +98,7 @@ Status legend: **ACTIVE** | **TEST-ONLY** | **COMPILED-UNREFERENCED** (in
 | Overlay | `OverlayDomainStorage` | Versioning tests; embedded export test (USER overlay) | **ACTIVE** | Not duplicated | Keep | `apptraverse_overlay_user_backing_test`, historical base test | Low |
 | Registration core | `EnsureObjectRegistration` (`apptraverse.cpp`) | Every app, test, exporter entry | **ACTIVE** | Forces link of core `APPTRAVERSE_REGISTER` statics | Keep (required for static lib) | All headless tests | Low |
 | Registration UI | `EnsureUiPresenterRegistration` | Apps/tests; called from `EnsureWinUiPresenterRegistration` | **ACTIVE** | Idempotent with Win ensure | Keep | Contract, UI tests | Low |
-| Registration Win | `EnsureWinUiPresenterRegistration` | Minimal/catalog lifecycle, graph builders, Win tests | **ACTIVE** | Also invoked inside `BuildMinimalApplicationGraph` while lifecycle already called Win ensure | **Optional I0.2:** drop redundant call inside graph builder only if proven same process + already registered | Minimal/catalog acceptance | Low |
+| Registration Win | `EnsureWinUiPresenterRegistration` | `RunMinimalApplicationModel`, `minimal_app_export.cpp`, tests, catalog lifecycle | **ACTIVE** | Redundant call **removed from** `BuildMinimalApplicationGraph` (I0.2 slice #2) | Callers must register before graph build (static lib link) | embedded export + minimal acceptance | Low |
 | Registration app | `EnsureMinimalApplicationRegistration`, `EnsureWindowCatalogGraphRegistration` | Respective apps/tests/exporter | **ACTIVE** | App-specific static registrars | Keep | App tests | Low |
 | Registration chain | `EnsureWindowCatalogGraphRegistration` | Catalog lifecycle/tests | **ACTIVE** | Re-calls UI+Win ensure (already in lifecycle) | Document as intentional; trim only with proof | Catalog tests | Low |
 | Historical test | `tests/overlay_domain_storage_test.cpp` | — | **DISABLED/HISTORICAL** | Superseded by `overlay_user_backing_test` in CTest | Re-enable or delete in I0.2 after diff review | Was standalone; not in CTest | Low |
@@ -123,7 +123,7 @@ Status legend: **ACTIVE** | **TEST-ONLY** | **COMPILED-UNREFERENCED** (in
 | # | Action | Rationale | Depends on | Tests |
 |---|--------|-----------|------------|-------|
 | 1 | ~~Remove orphan `src/*.cpp`~~ | **DONE (2026-10-25)** — seven files listed in §A removed; headers kept | — | Release + MinSizeRel **17/17 PASS** |
-| 2 | Remove duplicate `EnsureWinUiPresenterRegistration()` call at start of `BuildMinimalApplicationGraph` | Lifecycle + exporter already register; graph builder runs after ensures in all known entry points | Verify no entry calls graph builder without prior ensure | `apptraverse_minimal_app_embedded_export_test`, minimal acceptance |
+| 2 | ~~Remove duplicate `EnsureWinUiPresenterRegistration()` in `BuildMinimalApplicationGraph`~~ | **DONE (2026-10-25)** — entry points: `RunMinimalApplicationModel` (`minimal_app_lifecycle.cpp`), `minimal_app_export.cpp`; load-only has no graph builder; tests use own ensures | Static `APPTRAVERSE_REGISTER` still requires explicit `Ensure*` at process entry | Release + MinSizeRel **17/17 PASS** |
 | 3 | Archive or delete `tests/model_ui_runtime_test.cpp` + `tests/model_runtime_stop_test.cpp` **only after** (1) legacy runtime moved to EXCLUDE_FROM_ALL lib or removed | Frees `ModelRuntime`/`UiMirror` removal | Decision on keeping legacy demo sources | N/A until re-added to CTest |
 
 **Not safe in I0.2:** removing `ModelRuntime`/`UiMirror`/`graph_mirror.cpp` from `apptraverse` without migration; removing runtime distill bootstrap (9D/9E); removing `SavePersistentModelSnapshot` paths; adding versioning Æther patches.
@@ -153,14 +153,29 @@ Deleted the seven orphan `src/*.cpp` files (§A). Public headers **not** deleted
 Incremental build reported `ninja: no work to do` (files were never in targets);
 CTest **17/17 PASS** Release and MinSizeRel.
 
-### Next recommended slice
+### Second slice — **DONE** (2026-10-25)
 
-Review redundant `EnsureWinUiPresenterRegistration()` at the start of
-`BuildMinimalApplicationGraph` (§C #2) after confirming all entry points already
-call Win/UI ensures.
+Removed `ui::windows::EnsureWinUiPresenterRegistration()` from
+`BuildMinimalApplicationGraph` (`minimal_app_graph.cpp`). Confirmed callers:
 
-**Still deferred:** legacy `ModelRuntime`/`UiMirror` migration (§C #3); runtime
-bootstrap removal (**9D/9E**); I0.3 cold-load contract.
+- **Dev / distill bootstrap:** `RunMinimalApplicationModel` → ensures (object, UI,
+  Win, minimal app) → `BuildMinimalApplicationGraph` when profile empty.
+- **Build-time exporter:** `minimal_app_export.cpp` `main` → same ensures → graph
+  builder.
+- **Load-only** executable does not compile graph builder path for bootstrap.
+- **Tests** do not call `BuildMinimalApplicationGraph` directly;
+  `apptraverse_minimal_app_embedded_export_test` keeps its own Win ensure before
+  cold load.
+
+**Registration note:** Win/UI presenter types still rely on explicit `Ensure*`
+at executable or test entry — required for static registrar linkage; graph builder
+is not a registration root.
+
+**I0.2 status:** no further **proven** safe dead-path removals in ledger §C;
+§C #3 (legacy tests / `ModelRuntime`) remains **deferred**.
+
+**Next stage:** **I0.3** required graph cold-load contract. **Still deferred:**
+legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 ---
 

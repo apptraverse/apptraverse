@@ -825,10 +825,10 @@ wording where it conflicted.
 | 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
 | 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
 | 9C | Build-time embedded export (MinimalApplication) | **DONE** |
-| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.1 done; I0.2–I0.3 remain) |
+| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.1–I0.2 done; **I0.3 NEXT**) |
 | I0.1 | Inventory / cleanup ledger | **DONE** — [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md) |
-| I0.2 | Remove verified dead paths | **IN_PROGRESS** (orphan `.cpp` slice **DONE**; more slices remain) |
-| I0.3 | Required graph cold-load contract | TODO (after I0.1) |
+| I0.2 | Remove verified dead paths | **DONE** (orphan `.cpp` + redundant graph-builder Win ensure; legacy runtime **deferred**) |
+| I0.3 | Required graph cold-load contract | **NEXT** |
 | 9D | MinimalApplication embedded startup | **PLANNED** (after I0 + 9C) |
 | 9E | WindowCatalog embedded startup | **PLANNED** |
 | 9F | Unified release bootstrap R/E/B/S | **PLANNED** |
@@ -895,22 +895,18 @@ Hunt for: legacy `ModelRuntime`/`UiMirror` vs `ApplicationModelRuntime`/
 unnecessary persisted defaults; parallel serialization paths; duplicate bootstrap;
 extra validators.
 
-#### I0.2 — Remove verified dead paths (IN_PROGRESS)
+#### I0.2 — Remove verified dead paths (DONE)
 
-First slice **DONE** (2026-10-25): removed seven CMake-unreferenced orphan
-`src/*.cpp` units (ledger §C #1); public headers retained; SharedNode/transport
-implementations deferred to **FUTURE** / Git history — not implemented on this
-branch.
+Completed 2026-10-25 (ledger §C #1–#2): seven orphan `src/*.cpp` removed;
+redundant `EnsureWinUiPresenterRegistration()` removed from
+`BuildMinimalApplicationGraph` (callers register at entry). Public SharedNode/
+transport headers remain; bodies deferred to **FUTURE** / Git history.
 
-Remove only code proven dead or superseded **after** I0.1. If a legacy path still
-has a live consumer, keep it until migration. Do not break other apps for cleanup.
-Do not introduce a third universal runtime. Drop runtime distillation/USER bootstrap
-only after a **passing** embedded replacement test.
+**Deferred (not I0.2):** legacy `ModelRuntime`/`UiMirror` and disabled historical
+tests (ledger §C #3); runtime distill bootstrap (**9D/9E**); catalog graph-builder
+registration pattern unchanged.
 
-**Next small slice:** review redundant `EnsureWinUiPresenterRegistration` in
-`BuildMinimalApplicationGraph` (ledger §C #2).
-
-#### I0.3 — Required graph cold-load contract
+#### I0.3 — Required graph cold-load contract (NEXT)
 
 Document and test (only if gaps exist):
 
