@@ -1,6 +1,7 @@
 #include "prefab_release_model.h"
 
 #include <cstdlib>
+#include <unordered_map>
 
 #include "aether-objects/obj/obj.h"
 
@@ -587,18 +588,7 @@ void StripPrefabWindowS1FromSupplyGraph(ae::RamDomainStorage& storage) {
   }
 }
 
-ClonePlan PlanCloneFromPrefabGraph(ae::Domain const& domain) {
-  ClonePlan plan;
-  plan.supply_constant_ids = {ae::ObjId{kMainLabelConstId},
-                              ae::ObjId{kToolLabelConstId}};
-  plan.instance_remap[kMainWindowPrefabId] = kWindowAId;
-  plan.instance_remap[kMainWindowPrefabId + 100000] = kWindowBId;
-  (void)domain;
-  return plan;
-}
-
 ae::ObjPtr<ae::Obj> CloneWorkspaceFromPrefabs(ae::Domain& domain,
-                                               ClonePlan const& plan,
                                                bool create_window_c) {
   EnsurePrefabReleaseRegistration();
 
@@ -662,7 +652,6 @@ ae::ObjPtr<ae::Obj> CloneWorkspaceFromPrefabs(ae::Domain& domain,
   root->details = details;
   root->preferences = preferences;
 
-  (void)plan;
   return ae::ObjPtr<ae::Obj>{workspace};
 }
 
@@ -1230,7 +1219,7 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     std::filesystem::create_directories(layout.user_root);
     DirectoryDomainStorage user{layout.user_root};
     ae::Domain domain{user};
-    ae::ObjPtr<ae::Obj> ws_root = CloneWorkspaceFromPrefabs(domain, {}, false);
+    ae::ObjPtr<ae::Obj> ws_root = CloneWorkspaceFromPrefabs(domain, false);
     ae::Ptr<ae::Obj> ws_obj = ws_root.Load();
     ae::Ptr<WorkspaceRoot> ws{ws_obj};
     if (!ws) {

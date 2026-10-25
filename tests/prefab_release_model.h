@@ -3,8 +3,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <unordered_map>
-#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -21,11 +19,6 @@ struct PrefabDefaults {
   std::int32_t posx{};
 };
 
-struct ClonePlan {
-  std::unordered_map<ae::ObjId::Type, ae::ObjId::Type> instance_remap;
-  std::vector<ae::ObjId> supply_constant_ids;
-};
-
 void EnsurePrefabReleaseRegistration();
 
 PrefabDefaults MainWindowPrefabDefaults();
@@ -38,10 +31,7 @@ ae::RamDomainStorage BuildPrefabSupplyGraphWithMainTitleAndPosx(
 
 void StripPrefabWindowS1FromSupplyGraph(ae::RamDomainStorage& storage);
 
-ClonePlan PlanCloneFromPrefabGraph(ae::Domain const& domain);
-
 ae::ObjPtr<ae::Obj> CloneWorkspaceFromPrefabs(ae::Domain& domain,
-                                              ClonePlan const& plan,
                                               bool create_window_c);
 
 std::uint32_t LazyLoadCount();

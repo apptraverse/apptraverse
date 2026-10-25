@@ -67,7 +67,7 @@
 
 **Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
 
-**Следующий активный шаг:** **C0.2.1** — удалить мёртвые `PlanCloneFromPrefabGraph` / `ClonePlan` / неиспользуемый параметр `plan` в `CloneWorkspaceFromPrefabs` ([PROGRESS §C0.2](./PROGRESS.md#c02--упорядоченные-минимальные-изменения-todo)). Fixture **PASS** ≠ библиотечный механизм.
+**Следующий активный шаг:** **C0.2.2** — удалить мёртвое поле `failed_` в `BackingComparedStorageWriter` ([PROGRESS §C0.2](./PROGRESS.md#c02--упорядоченные-минимальные-изменения-todo)). **C0.2.1 PASS** — dead `ClonePlan` API удалён. Fixture **PASS** ≠ библиотечный механизм.
 
 ---
 
@@ -491,7 +491,7 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 - **Цель:** убрать доказанно лишние обходы **до** **12R**; сохранить основания **10E**, **11B.2**, journal/base, Æther serialization.
 - **C0.1 — аудит:** **PASS (doc, `b6dcdae`)** — таблица в [PROGRESS §C0.1](./PROGRESS.md#c01--аудит-избыточности-object-core) (KEEP/REMOVE/SIMPLIFY/DEFER).
-- **C0.2 — минимальная очистка (TODO):** первая задача — **C0.2.1** dead `PlanCloneFromPrefabGraph` + упрощение `CloneWorkspaceFromPrefabs` ([PROGRESS §C0.2](./PROGRESS.md#c02--упорядоченные-минимальные-изменения-todo)); затем **C0.2.2** `failed_` в overlay writer. Только доказанно лишнее; малые PR; позитивные регрессии. **Не** возвращать APSP. **Не** переносить **`PrefabPtr<T>`** в production; **не** удалять fixture origin до **12R–14**.
+- **C0.2 — минимальная очистка (IN_PROGRESS):** **C0.2.1 PASS** — удалены `ClonePlan`, `PlanCloneFromPrefabGraph`, параметр `plan`; сигнатура `CloneWorkspaceFromPrefabs(domain, create_window_c)`. **C0.2.2 TODO** — `failed_` в overlay writer. Только доказанно лишнее; малые PR; позитивные регрессии. **Не** возвращать APSP. **Не** переносить **`PrefabPtr<T>`** в production; **не** удалять fixture origin до **12R–14**.
 - **C0.3 — сохранить без удаления без замены:** `EnsureObjectRegistration`; `force_materialize`; `ShouldSaveVersion`; guard **11B.2**; ключ `ObjId/ClassId/S`; unknown newer S; historical base + journal; штатный Æther. **Не** менять опубликованные ClassId, S0, семантику старых Events ради очистки.
 - **PASS:** только после **C0.2** с зелёными регрессиями | **Статус:** **TODO**
 
