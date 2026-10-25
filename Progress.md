@@ -4349,3 +4349,15 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Open conflicts for later**: versioning `OverlayDomainStorage` USER/BACKING policy; Node/EventFor historical-base deltas; extra Æther CPM patches; release R / T01–T18 matrix (see `docs/integration/application-versioning.md`).
 - **Next step**: **9B** USER/BACKING overlay integration.
 - **Land SHA**: **`3aa7320b52113ee3c3b2b8afe3a493ef0d5c9b86`** (`Add embedded distilled graph backing for RamDomainStorage.`).
+
+## USER/BACKING overlay storage (9B1) (2026-10-25)
+
+- **Baseline**: `bb95adde983d388824e4fd42a8c2ed91560269ef`.
+- **Reference**: `integration/serialization-surfaces@17b7830ae397871ee90e31dc65feb82cfdfc6716` (overlay policy only; no `force_materialize` patch in 9B1).
+- **OverlayDomainStorage**: four constructors (internal RAM USER or external USER + BACKING + optional `supply_constant_ids`); `IsSupplyConstant`; supply Load/Enumerate from BACKING only; `SupplyConstantDiscardWriter`; dynamic `BackingComparedStorageWriter` skip-unchanged; Remove/CleanUp policy.
+- **Test**: `apptraverse_overlay_user_backing_test` — source precedence, supply vs dynamic same ClassId, dynamic layer skip/retain, real v0 graph, embedded supply set, `DirectoryDomainStorage` USER persistence; links `apptraverse` only.
+- **Unchanged**: examples, host/runtime, Node/EventFor, Æther patches, application checkpoints.
+- **Release verify** (`build-application-versioning-msvc-rel`): **15/15** CTests **PASS**. Minimal dev **374784** B; load-only **368128** B; catalog dev **445952** B; catalog load-only **434176** B.
+- **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **15/15** CTests **PASS**. Minimal dev **290816** B; load-only **286208** B; catalog dev **350720** B; catalog load-only **342528** B.
+- **Next step**: **9B2** — `aether-objects-force-materialize.patch` + historical dynamic base materialization.
+- **Land SHA**: *(pending commit)*.

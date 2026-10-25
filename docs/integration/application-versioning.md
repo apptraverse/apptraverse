@@ -33,9 +33,7 @@ ApplicationUiSession
 WinApplicationHost
 ```
 
-## Stage 9A (this slice)
-
-Implemented and tested:
+## Stage 9A — DONE
 
 ```text
 EmbeddedDistilledGraph → RamDomainStorage → LoadApplication (headless)
@@ -43,8 +41,16 @@ EmbeddedDistilledGraph → RamDomainStorage → LoadApplication (headless)
 
 Files: `embedded_distilled_domain.h/.cpp`, `apptraverse_embedded_distilled_domain_test`.
 
-Not in 9A: USER/BACKING overlay policy, release packages, active-release, production
-startup changes, or edits to `examples/minimal_app` / WindowCatalog executables.
+## Stage 9B1 — DONE (storage primitive)
+
+`OverlayDomainStorage` with internal or external USER storage, BACKING, supply
+constant ObjIds, dynamic skip-unchanged Store, and supply-constant discard Store.
+
+CTest: `apptraverse_overlay_user_backing_test`.
+
+Not in 9B1: `force_materialize` / historical dynamic base materialization (**9B2**),
+build-time export (**9C**), application startup on embedded release, release packages,
+active-release, T01–T18 matrix. Examples still use `DirectoryDomainStorage` only.
 
 ## Compatible mechanisms (both lines)
 
@@ -57,8 +63,9 @@ startup changes, or edits to `examples/minimal_app` / WindowCatalog executables.
 
 ## Requires separate integration tasks
 
-**OverlayDomainStorage** — application branch: simple RAM overlay; versioning branch:
-writable USER, BACKING, supply constants, dynamic layer comparison.
+**OverlayDomainStorage (9B1 landed)** — USER/BACKING/supply-constant policy ported;
+**9B2** still needs Æther `force_materialize` patch before historical dynamic base
+Save paths match versioning branch.
 
 **Node / EventFor** — versioning adds historical-base semantics, event-layer
 compatibility, compaction on rollback; must not overwrite application `Node`
@@ -77,8 +84,8 @@ on either line alone. Import incrementally, not in one commit.
 
 ## Next steps (planned)
 
-1. **9B** — USER/BACKING `OverlayDomainStorage` integration with supply constants.
-2. Build-time export tooling (`distilled_domain_export`) wired into apps.
+1. **9B2** — `aether-objects-force-materialize.patch` + historical dynamic base Save.
+2. **9C** — build-time export tooling (`distilled_domain_export`).
 3. Minimal app / WindowCatalog embedded startup (replacing dev distill bootstrap).
 4. Release packages, active-release selection.
 5. Historical base / schema compatibility and acceptance matrix vs versioning PLAN.

@@ -11,6 +11,9 @@ apptraverse_add_test(apptraverse_application_contract_headless_test
 apptraverse_add_test(apptraverse_embedded_distilled_domain_test
   embedded_distilled_domain_test.cpp)
 
+apptraverse_add_test(apptraverse_overlay_user_backing_test
+  overlay_user_backing_test.cpp)
+
 apptraverse_add_test(apptraverse_application_model_runtime_test
   application_model_runtime_test.cpp)
 

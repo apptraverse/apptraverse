@@ -794,7 +794,10 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
    `17b7830`; no branch merge):
    - **9A** — `EmbeddedDistilledGraph` → `RamDomainStorage` primitive + headless
      test — done on integration branch (2026-10-25).
-   - **9B** — USER/BACKING `OverlayDomainStorage` with supply constants — TODO.
+   - **9B1** — USER/BACKING `OverlayDomainStorage` + supply constants — done
+     (2026-10-25).
+   - **9B2** — `force_materialize` + historical dynamic base materialization —
+     TODO.
    - **9C+** — build-time export, embedded app startup, release packages /
      active-release, historical base & schema compatibility, T01–T18 matrix —
      TODO.
