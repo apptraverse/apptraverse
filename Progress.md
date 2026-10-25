@@ -4457,4 +4457,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Verify:** incremental Release + MinSizeRel rebuild (`win32_minimal_app`, exporter, embedded export test); **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
 - **EXE sizes:** not re-measured (expect negligible delta from one removed call site in shared TU).
 - **NEXT:** **I0.3** — required graph cold-load contract.
-- **Land SHA**: *(record after commit)*.
+- **Land SHA**: **`7be64df4841812ae1694186c1d8cc6a5a66cce26`** (`I0.2: drop redundant Win UI registration from minimal graph builder.`).
