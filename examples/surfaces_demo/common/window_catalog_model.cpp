@@ -123,12 +123,12 @@ ui::UiLocalizationString::ptr MakeHolderTitleString(ae::Domain& domain,
                                                     std::uint32_t number) {
   auto localized = ui::UiLocalizationString::ptr::Create(
       ae::CreateWith{domain});
-  InitializeRuntimeNode(*localized, catalog);
   auto en_string = ui::UiString::ptr::Create(
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   auto ru_string = ui::UiString::ptr::Create(
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   localized->strings = {en_string, ru_string};
+  InitializeRuntimeNode(*localized, catalog);
   int const restore_language =
       catalog.locale ? catalog.locale->language_index() : 0;
   std::string const en_prefix =
@@ -489,8 +489,6 @@ void WindowCatalog::AddWindow() {
   holder->primary_text = MakeHolderTitleString(domain, *this, number);
   holder->delete_button = {};
   auto window = CatalogWindow::ptr::Create(ae::CreateWith{domain});
-  InitializeRuntimeNode(*window, *this);
-  AssignInitialCatalogWindowBounds(*window, number);
   ui::UiWindowPresenter::ptr presenter;
 #if defined(_WIN32)
   presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
@@ -498,10 +496,12 @@ void WindowCatalog::AddWindow() {
 #else
   presenter = ui::UiWindowPresenter::ptr::Create(ae::CreateWith{domain});
 #endif
-  presenter->window = window;
-  presenter->locale = locale;
-  presenter->title = holder->primary_text;
   Presented(*window).presenter = presenter;
+  presenter->window = window;
+  presenter->title = holder->primary_text;
+  presenter->locale = locale;
+  InitializeRuntimeNode(*window, *this);
+  AssignInitialCatalogWindowBounds(*window, number);
   holder->window = window;
   holder->window.SetFlags(OpenObjFlags(holder->window.flags()));
   Presented(*window).presenter.SetFlags(

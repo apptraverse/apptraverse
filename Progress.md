@@ -4169,7 +4169,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - MinSizeRel win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 335872 bytes.
 
 ### Application framework extraction / headless contract
-- **Land SHA (WindowCatalog migration)**: **`946a54d`** (`Migrate WindowCatalog to UiPresentedWindow presenter ownership.`)
+- **Land SHA (WindowCatalog migration)**: **`456c58256df3f049d9a88613ad7d78b294f23ce2`** (`Migrate WindowCatalog to UiPresentedWindow presenter ownership.`)
 - **Baseline (WindowCatalog migration)**: **`62fe908e837d910b8b96edf6cb638e308338ae03`**
 - **Land SHA (UiPresentedWindow)**: **`1dd8d57187276a61d021b675055269821c34922b`**
 - **WindowCatalog presenter ownership**: removed **`CatalogWindow.window_presenter`**
@@ -4193,8 +4193,17 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
   **No post-load repair** of presenter/window/title/locale after reopen.
 - **Production tweak** (prior commit on branch): `ApplyUiDesktopFrameRequestPresentation`
   matches any `UiDesktopWindowPresenter` (GenerationDistance), not only Win32.
-- **Next step**: extract shared presented-window composition + save/unload/reload
-  helpers from headless contract + WindowCatalog into library APIs (plan §1.5 items 3–4).
+- **Distilled base completeness (early CaptureBaseState)**: `InitializeRuntimeNode` calls
+  `CaptureBaseState` immediately; wiring must finish first. Fixed graph build order for
+  **`UiPresentedWindow::presenter`**, **`UiWindowPresenter`** back-links, and
+  **`UiLocalizationString::strings`** in headless contract + WindowCatalog (main graph,
+  `AddWindow`, `MakeLocalizedString` / `MakeHolderTitleString` / `BuildLazyTitle`).
+  Regression: **`TestPresentedWindowDistilledBaseReplay`** and
+  **`TestCatalogPresentedWindowDistilledBaseReplay`** assert presenter/title/locale/slot
+  ObjIds in historical base and after **`TryReplayFromBase()`** without repair. **FAIL**
+  before order fix; **PASS** after (Release + MinSizeRel, all 7 CTests).
+- **Next step**: extract shared presented-window composition helper (plan §1.5 item 3);
+  save/unload/reload helper remains a separate follow-on (item 4).
 - **Release verify** (2026-10-24, **`build-b18-msvc-rel`**, post-WindowCatalog migration):
   all **7** CTests **PASS** — `apptraverse_application_contract_headless_test`,
   `apptraverse_ui_desktop_window_geometry_test`,

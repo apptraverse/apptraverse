@@ -24,12 +24,12 @@ ui::UiLocalizationString::ptr MakeLocalizedString(ae::Domain& domain,
                                                  char const* ru) {
   auto localized = ui::UiLocalizationString::ptr::Create(
       ae::CreateWith{domain});
-  InitializeRuntimeNode(*localized, owner);
   auto en_string = ui::UiString::ptr::Create(
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   auto ru_string = ui::UiString::ptr::Create(
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   localized->strings = {en_string, ru_string};
+  InitializeRuntimeNode(*localized, owner);
 
   en_string.Load();
   en_string->utf8 = en;

@@ -8,6 +8,7 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
+#include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/node.h"
 #include "apptraverse/noninteractive_crt.h"
@@ -321,7 +322,8 @@ std::size_t CountJournalEventsWithClass(Node const& node,
 
 ui::UiLocalizationString::ptr BuildLazyTitle(ae::Domain& domain,
                                              ae::ObjId const& title_id,
-                                             ae::ObjId& en_id, ae::ObjId& ru_id) {
+                                             ae::ObjId& en_id, ae::ObjId& ru_id,
+                                             Node& owner) {
   auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
   en->utf8 = kEnTitle;
   auto ru = ui::UiString::ptr::Create(ae::CreateWith{domain});
@@ -333,7 +335,6 @@ ui::UiLocalizationString::ptr BuildLazyTitle(ae::Domain& domain,
 
   auto localized = ui::UiLocalizationString::ptr::Create(
       ae::CreateWith{domain}.with_id(title_id));
-  InitializeRuntimeNode(*localized);
   localized->strings = {
       ui::UiString::ptr::Declare(
           ae::CreateWith{domain}
@@ -344,6 +345,7 @@ ui::UiLocalizationString::ptr BuildLazyTitle(ae::Domain& domain,
               .with_id(ru_id)
               .with_flags(ae::ObjFlags::kUnloadedByDefault)),
   };
+  InitializeRuntimeNode(*localized, owner);
   ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
   return localized;
 }
@@ -378,17 +380,17 @@ struct ContractHarness {
     model_root->locale = ui::UiLocaleSettings::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kLocaleId));
     InitializeRuntimeNode(*model_root->locale, *model_root);
-    model_root->localized_title =
-        BuildLazyTitle(model_domain, kTitleId, en_string_id, ru_string_id);
+    model_root->localized_title = BuildLazyTitle(
+        model_domain, kTitleId, en_string_id, ru_string_id, *model_root);
     model_root->presented_window = ContractWindow::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kWindowId));
-    InitializeRuntimeNode(*model_root->presented_window, *model_root);
     auto headless_presenter = HeadlessDesktopWindowPresenter::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kPresenterId));
     model_root->presented_window->presenter = headless_presenter;
     headless_presenter->window = model_root->presented_window;
     headless_presenter->title = model_root->localized_title;
     headless_presenter->locale = model_root->locale;
+    InitializeRuntimeNode(*model_root->presented_window, *model_root);
     model_root->presented_open = true;
 
     if (materialize_en_title) {
@@ -476,6 +478,68 @@ void HeadlessDesktopWindowPresenter::OnUnload() {
     auto* harness = static_cast<ContractHarness*>(owner_harness);
     ++harness->presenter_unload_events;
   }
+}
+
+void TestPresentedWindowDistilledBaseReplay() {
+  EnsureObjectRegistration();
+  ui::EnsureUiPresenterRegistration();
+  EnsureContractTestRegistration();
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  ae::ObjId en_string_id{};
+  ae::ObjId ru_string_id{};
+
+  auto root = ContractApplicationRoot::ptr::Create(
+      ae::CreateWith{domain}.with_id(kRootId));
+  InitializeRuntimeNode(*root);
+  root->locale = ui::UiLocaleSettings::ptr::Create(
+      ae::CreateWith{domain}.with_id(kLocaleId));
+  InitializeRuntimeNode(*root->locale, *root);
+  root->localized_title =
+      BuildLazyTitle(domain, kTitleId, en_string_id, ru_string_id, *root);
+
+  auto window = ContractWindow::ptr::Create(
+      ae::CreateWith{domain}.with_id(kWindowId));
+  auto presenter = HeadlessDesktopWindowPresenter::ptr::Create(
+      ae::CreateWith{domain}.with_id(kPresenterId));
+  window->presenter = presenter;
+  presenter->window = window;
+  presenter->title = root->localized_title;
+  presenter->locale = root->locale;
+  InitializeRuntimeNode(*window, *root);
+  root->presented_window = window;
+
+  FinalizeDistilledGraph(*root);
+
+  ContractWindow& live_window = *window;
+  CHECK(live_window.base.is_valid());
+  CHECK(live_window.base.is_loaded());
+  CHECK(live_window.base->GetClassId() == ContractWindow::kClassId);
+  auto& base_window = static_cast<ContractWindow&>(*live_window.base);
+  auto& base_presented = static_cast<ui::UiPresentedWindow&>(base_window);
+  CHECK(base_presented.presenter.is_valid());
+  CHECK(base_presented.presenter.id() == kPresenterId);
+
+  ui::UiLocalizationString& title = *root->localized_title;
+  CHECK(title.base.is_valid());
+  CHECK(title.base.is_loaded());
+  auto& title_base = static_cast<ui::UiLocalizationString&>(*title.base);
+  CHECK(title_base.strings.size() == 2);
+  CHECK(title_base.strings[0].id() == en_string_id);
+  CHECK(title_base.strings[1].id() == ru_string_id);
+
+  CHECK(live_window.TryReplayFromBase());
+  CHECK(live_window.presenter.is_valid());
+  CHECK(live_window.presenter.id() == kPresenterId);
+  CHECK(live_window.presenter->window.id() == kWindowId);
+  CHECK(live_window.presenter->title.id() == kTitleId);
+  CHECK(live_window.presenter->locale.id() == kLocaleId);
+
+  CHECK(title.TryReplayFromBase());
+  CHECK(title.strings.size() == 2);
+  CHECK(title.strings[0].id() == en_string_id);
+  CHECK(title.strings[1].id() == ru_string_id);
 }
 
 void TestUiPresentedWindowHierarchy() {
@@ -677,6 +741,7 @@ void TestLazyPresentedWindowUnloadReload() {
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::test::TestPresentedWindowDistilledBaseReplay();
   apptraverse::test::TestUiPresentedWindowHierarchy();
   apptraverse::test::TestPresenterReachableOnlyViaWindow();
   apptraverse::test::TestWindowPresenterSaveLoadRoundtrip();

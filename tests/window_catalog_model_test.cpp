@@ -13,6 +13,8 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
+#include "apptraverse/platform/windows/win_ui_presenters.h"
+
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
@@ -20,6 +22,7 @@
 
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_presented_window.h"
+#include "apptraverse/ui/ui_string.h"
 
 namespace apptraverse::test {
 namespace {
@@ -1419,6 +1422,84 @@ void TestManyHoldersClosedGraphsAbsentFromDomain() {
   CHECK(loaded_count == 10);
 }
 
+void TestCatalogPresentedWindowDistilledBaseReplay() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  using window_catalog_demo::ObjId;
+  using window_catalog_demo::ToObjId;
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+
+  CatalogWindow& main =
+      static_cast<CatalogWindow&>(*catalog->main_window.operator->());
+  ae::ObjId const main_presenter_id =
+      MainWindowPresented(*catalog).presenter.id();
+  ae::ObjId const main_window_id = catalog->main_window.id();
+  CHECK(main.base.is_valid());
+  CHECK(main.base.is_loaded());
+  CHECK(main.base->GetClassId() == CatalogWindow::kClassId);
+  auto& main_base = static_cast<CatalogWindow&>(*main.base);
+  CHECK(CatalogWindowPresented(main_base).presenter.is_valid());
+  CHECK(CatalogWindowPresented(main_base).presenter.id() == main_presenter_id);
+
+  ui::UiLocalizationString& label_add = *catalog->texts.label_add;
+  ae::ObjId const label_en_id = label_add.strings[0].id();
+  ae::ObjId const label_ru_id = label_add.strings[1].id();
+  CHECK(label_add.base.is_valid());
+  CHECK(label_add.base.is_loaded());
+  auto& label_base = static_cast<ui::UiLocalizationString&>(*label_add.base);
+  CHECK(label_base.strings.size() == 2);
+  CHECK(label_base.strings[0].id() == label_en_id);
+  CHECK(label_base.strings[1].id() == label_ru_id);
+
+  CHECK(main.TryReplayFromBase());
+  CHECK(MainWindowPresented(*catalog).presenter.id() == main_presenter_id);
+  CHECK(MainWindowPresented(*catalog).presenter->window.id() == main_window_id);
+  CHECK(MainWindowPresented(*catalog).presenter->locale.id() ==
+        catalog->locale.id());
+
+  CHECK(label_add.TryReplayFromBase());
+  CHECK(label_add.strings[0].id() == label_en_id);
+  CHECK(label_add.strings[1].id() == label_ru_id);
+
+  catalog->AddWindow();
+  WindowHolder* holder = AsHolder(catalog->list->rows[0]);
+  CatalogWindow& child = *holder->window;
+  ae::ObjId const child_presenter_id =
+      CatalogWindowPresented(child).presenter.id();
+  ae::ObjId const child_window_id = child.obj_id;
+  ae::ObjId const holder_title_id = holder->primary_text.id();
+  ae::ObjId const holder_en_id = holder->primary_text->strings[0].id();
+  ae::ObjId const holder_ru_id = holder->primary_text->strings[1].id();
+
+  CHECK(child.base.is_valid());
+  CHECK(child.base.is_loaded());
+  auto& child_base = static_cast<CatalogWindow&>(*child.base);
+  CHECK(CatalogWindowPresented(child_base).presenter.id() == child_presenter_id);
+
+  CHECK(holder->primary_text->base.is_valid());
+  CHECK(holder->primary_text->base.is_loaded());
+  auto& holder_title_base =
+      static_cast<ui::UiLocalizationString&>(*holder->primary_text->base);
+  CHECK(holder_title_base.strings[0].id() == holder_en_id);
+  CHECK(holder_title_base.strings[1].id() == holder_ru_id);
+
+  CHECK(child.TryReplayFromBase());
+  CHECK(CatalogWindowPresented(child).presenter.id() == child_presenter_id);
+  CHECK(CatalogWindowPresented(child).presenter->window.id() == child_window_id);
+  CHECK(CatalogWindowPresented(child).presenter->title.id() == holder_title_id);
+  CHECK(CatalogWindowPresented(child).presenter->locale.id() ==
+        catalog->locale.id());
+  CHECK(child.GetClassId() == CatalogWindow::kClassId);
+  CHECK(CatalogWindowPresented(child).presenter->GetClassId() ==
+        ui::windows::WinDesktopWindowPresenter::kClassId);
+}
+
 void TestCatalogPresentedWindowGraph() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -1527,6 +1608,7 @@ void TestCatalogPresentedWindowGraph() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::test::TestCatalogPresentedWindowDistilledBaseReplay();
   apptraverse::test::TestCatalogPresentedWindowGraph();
   apptraverse::test::TestCatalogReflectionTopologyAndInitialPublication();
   apptraverse::test::TestCatalogHolderOpenCloseAndMonotonicNumbers();

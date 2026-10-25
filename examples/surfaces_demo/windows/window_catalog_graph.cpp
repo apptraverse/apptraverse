@@ -299,15 +299,14 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
 
   auto main_window = CatalogWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
+  auto main_presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindowPresenter)));
+  static_cast<ui::UiPresentedWindow&>(*main_window).presenter = main_presenter;
+  main_presenter->window = main_window;
+  catalog->main_window = main_window;
   InitializeRuntimeNode(*main_window, *catalog);
   main_window->SubmitFrameFromNative(80, 80, kMainClientWidth,
                                      kMainClientHeight);
-  catalog->main_window = main_window;
-
-  auto main_presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindowPresenter)));
-  main_presenter->window = main_window;
-  static_cast<ui::UiPresentedWindow&>(*main_window).presenter = main_presenter;
 
   InstallWindowCatalogLocalization(*catalog, domain);
 

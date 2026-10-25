@@ -760,8 +760,8 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
 0. Headless contract test (`apptraverse_application_contract_headless_test`) — done.
 1. `UiPresentedWindow` and migrate `UiDesktopWindow` onto it — done.
 2. WindowCatalog consumer migration onto `UiPresentedWindow::presenter` — done.
-3. Shared presented-window composition (window ↔ presenter ↔ locale/title) — extract from headless + WindowCatalog.
-4. Generic save/unload/reload lifecycle for presented windows.
+3. Shared presented-window composition (window ↔ presenter ↔ locale/title) — extract from headless + WindowCatalog; distilled-base replay regression in place (not the library helper yet).
+4. Generic save/unload/reload lifecycle for presented windows (separate step after composition).
 5. Generic model application runtime.
 6. Generic Windows application host.
 7. Minimal application template without controls.
