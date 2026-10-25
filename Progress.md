@@ -4305,6 +4305,6 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Removed from catalog app**: direct ownership of proxy/UI session/presentation/loading/message host; publication handler methods.
 - **Test**: `apptraverse_win_application_host_test` (`apptraverse_ui_windows`; no WindowCatalog).
 - **Release verify** (`build-presenter-decomp-msvc-rel`): **12/12** CTests **PASS**. Host test **310272** B; demo **449024** B.
-- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **12/12** CTests **PASS**. Demo **344576** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **12/12** CTests **PASS**. Host test **241152** B; demo **344576** B.
 - **Next step**: minimal empty application template (plan §1.5 item 7).
 - **Land SHA**: *(pending commit)*.
