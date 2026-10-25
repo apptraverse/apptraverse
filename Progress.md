@@ -4430,3 +4430,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Safe toward I0.2**: delete CMake-unreferenced orphan `src` units (first recommended slice); optional redundant Win ensure in `BuildMinimalApplicationGraph` after consumer check.
 - **Blocked / deferred**: remove runtime bootstrap (**9D/9E**); remove `ModelRuntime`/`UiMirror` from core lib until legacy consumers retired; versioning Æther patches (**9G**); I0.3 cold-load contract work.
 - **NEXT (I0.2)**: one slice — remove seven orphan `src/*.cpp` files not in any active target (see ledger §E); verify with incremental build + 17 CTests when executing I0.2.
+- **Land SHA**: **`ca17e1b`** (`I0.1: add architecture cleanup ledger and update plan/Progress.`).
