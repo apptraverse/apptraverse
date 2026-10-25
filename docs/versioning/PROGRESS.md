@@ -167,7 +167,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 | 07 | PASS | `ae495b6` | `apptraverse_prefab_release_lifecycle_matrix`, supply split, prefab matrix Debug/Release | Prototype `supply.bin` (BinaryArchive upsert delta); R0 `--supply-package`; semantic matrix; T02/T12 — фрагменты |
 | 08 | PASS | `95968bd` | `apptraverse_prefab_active_release_matrix`, prefab/lifecycle/supply split Debug/Release | `active-release` BinaryArchive; `state/<R>/supply.bin`; embedded wins when `active <= embedded`; T13/T14 фрагменты |
 | 09 | PASS | `1ce8901` | `prefab_release_r1_supply_equivalence_test`, `prefab_release_r1_user_equivalence_matrix` + prefab matrices Debug/Release | **09A:** R1 BIN ≡ R1 embed; один USER; не clean install; T12 фрагмент |
-| 10 | PASS | `df02038` | `prefab_late_instance_matrix`, `prefab_release_matrix`, `prefab_dynamic_layer_roundtrip_matrix`, `overlay_domain_storage_test`, R1 supply + user equivalence Debug/Release | **10A–10E:** dynamic S0/S1, late WindowC, root-save без лишнего USER S1 (`ShouldSaveVersion`), historical base S1, 0-byte Event; T03/T09 фрагменты; T07–T10 не PASS |
+| 10 | PASS | `ce4f1a3` | `prefab_late_instance_matrix`, `prefab_release_matrix`, `prefab_dynamic_layer_roundtrip_matrix`, `overlay_domain_storage_test`, R1 supply + user equivalence Debug/Release | **10A–10E:** dynamic S0/S1, late WindowC, root-save без лишнего USER S1 (`ShouldSaveVersion`), historical base S1, 0-byte Event; T03/T09 фрагменты; T07–T10 не PASS |
 | 11 | TODO | — | — | **T16** historical base; **T17** compaction/replay |
 | 12 | TODO | — | — | Logic-only + constants R3/R4 |
 | 13 | TODO | — | — | **T01–T10**, **T15** lifecycle matrix |
@@ -214,7 +214,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 - **2026-10-24** — **10B:** `WindowCAddedEvent` + `create-tool-window`; `prefab_late_instance_matrix`; **10 IN_PROGRESS** (10A+10B PASS); push — **`60a0f4f`**.
 - **2026-10-24** — **10C:** `delta-posx-c`, `replay-window-c`; late WindowC USER S1 + R1 rollback + replay; **10 PASS** (10A–10C scope); push — **`2941722`**.
 - **2026-10-24** — **10D:** `delta-posx-c` → `SaveRoot(WindowC)` only; matrix: no USER S1 on WindowA/B; push — **`913b3ff`**.
-- **2026-10-24** — **10E:** Æther CPM `aether-objects-should-save-version.patch`; `PrefabWindow::ShouldSaveVersion(V1)`; overlay 0-byte Event; historical base via explicit `SaveVersion`; **10 PASS** (10A–10E); Debug/Release prefab + overlay + R1 equivalence; push — **`df02038`**.
+- **2026-10-24** — **10E:** Æther CPM `aether-objects-should-save-version.patch`; `PrefabWindow::ShouldSaveVersion(V1)`; overlay 0-byte Event; historical base via explicit `SaveVersion`; **10 PASS** (10A–10E); Debug/Release prefab + overlay + R1 equivalence; push — **`ce4f1a3`**.
 - **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`ce46b80`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
