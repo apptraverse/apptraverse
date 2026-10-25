@@ -1629,7 +1629,6 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
       return 1;
     }
     PrefabBackedLoadContext ctx = MakeLoadContext(stores);
-    (void)MaterializePrefabBackedWindow(ws->window_a, ctx);
     ae::Ptr<PrefabWindow> c =
         MaterializePrefabBackedWindow(ws->window_c, ctx);
     if (!EnsurePrefabVersionInHistoricalBase(ws->window_c, *c, stores.domain,
@@ -1644,7 +1643,8 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     c->Commit(event);
     stores.user.BeginSaveSession();
     ae::DomainGraph save_graph{&stores.domain};
-    if (!save_graph.SaveRoot(loaded, ae::ObjId{kWorkspaceId}).IsOk() ||
+    ae::ObjId const window_c_id = ws->window_c.instance_id();
+    if (!save_graph.SaveRoot(c, window_c_id).IsOk() ||
         stores.user.SaveSessionHadFailure()) {
       PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
       return 1;

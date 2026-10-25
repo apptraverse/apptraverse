@@ -194,6 +194,8 @@ def main():
     user_manifest = manifest(user_root)
     assert_has_s1(user_manifest, window_c_id, class_id)
     assert_has_s1(user_manifest, window_c_base_id, class_id)
+    assert_no_s1(user_manifest, WINDOW_A, class_id)
+    assert_no_s1(user_manifest, WINDOW_B, class_id)
 
     run_ok(r1, state_root, "touch-save-workspace")
 

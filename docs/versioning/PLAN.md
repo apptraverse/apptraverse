@@ -412,7 +412,9 @@ Wire-формат и новый GraphManager **не** добавлялись.
 - **Область (10A PASS):** `SetWidthEvent` (S0); op `set-width-a`; `prefab_dynamic_layer_roundtrip_matrix` — цепочка **R0→R1→R2→R1→R2** на одном USER (`width` S0 + `posx` S1 + `ReplayFromBase`).
 - **Область (10B PASS):** `WindowCAddedEvent`; op `create-tool-window` (`ObjId::GenerateUnique`, S0 из backing prefab 60002, historical base); поздний WindowC, R2 подставляет S1 `posx` без USER S1.
 - **Область (10C PASS):** ops `delta-posx-c`, `replay-window-c`; расширенный `inspect-window-c`; `prefab_late_instance_matrix` — USER S1 на позднем WindowC, откат R1, replay. **Не** полный graph clone, **не** T07–T10, **не** R0–R5 chain.
-- **T:** T03, T09 *(фрагменты)*; T06, T07–T08, T10 — **не** PASS | **Зав.:** 06, 09 | **Статус:** PASS *(10A+10B+10C scope: dynamic S0/S1 + late instance)*
+- **Область (10D PASS):** `delta-posx-c` сохраняет только **WindowC** (`DomainGraph::SaveRoot` по instance ObjId), без materialize WindowA; матрица требует **отсутствие USER S1** у WindowA/B после delta на C.
+- **TODO (перед 11, не 10D):** при `SaveRoot(Workspace)` в R2 нет общей политики «не писать новый S1» для незатронутых prefab-экземпляров, наследующих default из backing (цепочка: `ObjPtrBaseSerializer::Seri` → `DomainGraph::SaveRoot` → `SaveVersion` → `OverlayDomainStorage::Store`). Принудительный materialize всех prefab instances **не** считается решением.
+- **T:** T03, T09 *(фрагменты)*; T06, T07–T08, T10 — **не** PASS | **Зав.:** 06, 09 | **Статус:** PASS *(10A–10D scope: dynamic S0/S1 + late instance)*
 
 ### 11 — Исторические base, компактация, replay
 
