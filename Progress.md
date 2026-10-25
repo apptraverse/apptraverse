@@ -4413,4 +4413,20 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Parallel branch** (`integration/serialization-surfaces`): C0 cleanup, origin 12A fix, 12R, 12B, 13, 14 — object core, Clone/origin, schema compatibility; **9G blocked** until that core is ready. Do not merge branches in doc-only tasks.
 - **Prototype principles** (now in `plan.md` §1.6): standard serialization only; typed refs in graph; no implicit required defaults; all-or-nothing load; no corrupted-file hardening in prototype; preserve USER/journal/historical base; no duplicate runtime/managers; small verified iterations.
 - **FUTURE** (documented, does not block I0/9D/9E): optional supply/localization/cache, Universal ArtifactSource, SharedNode, DLL/SO plugins.
-- **Land SHA (this doc revision)**: **`ab11a900423ba4f45d3c48350636d45342b8874e`** (`Document agreed Application Framework + Versioning roadmap revision.`).
+- **Land SHA (this doc revision)**: **`e045dc4e4672c620ff22202a5d9049f23228c581`** (`Document agreed Application Framework + Versioning roadmap revision.`).
+
+## I0.1 — Architecture cleanup inventory (2026-10-25)
+
+- **Baseline**: **`36b0a5c08780a7a0136587a7bf3858b86b334982`** (`integration/application-versioning`).
+- **Scope**: inventory and documentation only — **no C++, CMake, or test changes**; **builds and CTest not run** for this step.
+- **Ledger**: [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md).
+- **Reviewed**: root and app CMake targets; `tests/CMakeLists.txt` (17 active CTests); production path `ApplicationModelRuntime` / `ApplicationUiSession` / `WinApplicationHost`; legacy `ModelRuntime` / `UiMirror` / `CopyModelGraphToUiDomain`; composition/lifecycle helpers; registration entry points; persistent vs publication vs embedded serialization; Æther patches in `cmake/aether_version.cmake`; `examples/minimal_app` and `examples/surfaces_demo` (window catalog).
+- **Duplicate / overlap categories found**:
+  - Legacy model/UI runtime vs application runtime + publication pipeline (legacy compiled, not used by minimal/catalog).
+  - Runtime distill bootstrap vs build-time embedded export (MinimalApplication only — **9D**, not cleanup).
+  - Redundant idempotent `Ensure*Registration` at graph builder vs lifecycle (optional small I0.2 trim).
+  - Orphan `src/*.cpp` files present in tree but absent from `apptraverse` CMake list.
+  - Disabled historical tests/demos referencing legacy runtime (not in CTest).
+- **Safe toward I0.2**: delete CMake-unreferenced orphan `src` units (first recommended slice); optional redundant Win ensure in `BuildMinimalApplicationGraph` after consumer check.
+- **Blocked / deferred**: remove runtime bootstrap (**9D/9E**); remove `ModelRuntime`/`UiMirror` from core lib until legacy consumers retired; versioning Æther patches (**9G**); I0.3 cold-load contract work.
+- **NEXT (I0.2)**: one slice — remove seven orphan `src/*.cpp` files not in any active target (see ledger §E); verify with incremental build + 17 CTests when executing I0.2.

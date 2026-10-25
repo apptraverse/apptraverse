@@ -825,9 +825,9 @@ wording where it conflicted.
 | 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
 | 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
 | 9C | Build-time embedded export (MinimalApplication) | **DONE** |
-| **I0** | Architecture cleanup | **NEXT** (plan only until I0.1–I0.3 execute) |
-| I0.1 | Inventory / cleanup ledger | **NEXT** (first executable task) |
-| I0.2 | Remove verified dead paths | TODO (after I0.1) |
+| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.1 done; I0.2–I0.3 remain) |
+| I0.1 | Inventory / cleanup ledger | **DONE** — [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md) |
+| I0.2 | Remove verified dead paths | **NEXT** (after I0.1) |
 | I0.3 | Required graph cold-load contract | TODO (after I0.1) |
 | 9D | MinimalApplication embedded startup | **PLANNED** (after I0 + 9C) |
 | 9E | WindowCatalog embedded startup | **PLANNED** |
@@ -872,10 +872,11 @@ Do not mark **I0** DONE until I0.1–I0.3 criteria in §1.6.4 are met.
 
 ### I0 — Architecture cleanup
 
-#### I0.1 — Inventory / cleanup ledger (NEXT)
+#### I0.1 — Inventory / cleanup ledger (DONE)
 
-First work **after** this documentation update. **Inventory only** — do not delete
-code in the same change.
+Completed 2026-10-25. Ledger: [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md).
+Baseline `36b0a5c08780a7a0136587a7bf3858b86b334982`. **Inventory only** — no code
+deletions in that change.
 
 Review implementations and consumers, including:
 
