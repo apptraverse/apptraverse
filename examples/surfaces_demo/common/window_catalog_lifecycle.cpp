@@ -30,18 +30,6 @@ ae::ObjId CatalogRootId() {
 
 }  // namespace
 
-void ApplyWindowCatalogStructural(std::vector<std::uint8_t> const& bytes,
-                                  WindowCatalog& ui_catalog,
-                                  ae::IDomainStorage& ui_storage, void* host,
-                                  ModelObjectProxy* model_proxy) {
-  ByteSource in;
-  in.data = bytes.data();
-  in.size = bytes.size();
-  ApplyStructuralPublicationAndUpdatePresenters(in, *ui_catalog.domain,
-                                                ui_storage, ui_catalog, host,
-                                                model_proxy);
-}
-
 void WindowCatalogModelSession::Run(
     std::function<void(WindowCatalogPublicationKind)> on_published) {
   EnsureObjectRegistration();

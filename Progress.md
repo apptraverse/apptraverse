@@ -4273,3 +4273,15 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **9/9** CTests **PASS**. Headless **252928** B; host test **32768** B; demo **344576** B.
 - **Next step**: Windows host **6B** — generic UI Domain/mirror/presenter application shell (plan §1.5 item 6B).
 - **Land SHA**: **`3d2c3f5`** (`Extract WinApplicationMessageHost for Windows message infrastructure.`).
+
+## ApplicationUiSession (6B) (2026-10-24)
+
+- **Baseline**: `dca40c8d170d3a6e962563395670e10374b72ad7`.
+- **API** (`include/apptraverse/application_ui_session.h`, `src/application_ui_session.cpp`): **`ApplicationUiSession`** — owns UI `RamDomainStorage`, UI `Domain`, materialized root (`ae::Ptr<ae::Obj>`), presenter init/teardown via `LoadInitialPublication` / `ApplyStructuralPublicationAndUpdatePresenters` / `UnloadPresenters`. No publication channel, model thread, or platform types.
+- **WindowCatalogWinApp**: replaced `ui_storage_`, `ui_domain_`, `ui_catalog_` with `std::optional<ApplicationUiSession> ui_session_`; `UiCatalog()` typed cast from `ui_session_->root()`; shutdown order after `JoinModelThread`: `ui_session_.reset()` then `model_proxy_.reset()`.
+- **Removed**: `ApplyWindowCatalogStructural` from `window_catalog_lifecycle.*` (generic path in session).
+- **Test**: `apptraverse_application_ui_session_test` (links `apptraverse` only; no Win32 / WindowCatalog).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **10/10** CTests **PASS**. UI session test **292864** B; headless **315392** B; demo **443904** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **10/10** CTests **PASS**. UI session test **226304** B; headless **251904** B; demo **344576** B.
+- **Next step**: **6C** — generic loading window / platform application host extraction (plan §1.5 item 6C).
+- **Land SHA**: *(pending commit)*.

@@ -780,8 +780,10 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
    the new path; do not treat both as target architecture.
 6. Generic Windows application host — **6A:** `WinApplicationMessageHost`
    (notify HWND, publication PostMessage, model thread, done event, message pump)
-   — done (2026-10-24). **6B:** generic UI Domain / mirror / presenter wiring
-   (loading window, teardown order) — TODO.
+   — done (2026-10-24). **6B:** **`ApplicationUiSession`** — generic UI Domain /
+   mirror / presenter lifecycle (`apptraverse` only) — done (2026-10-24).
+   **6C:** generic loading window / final platform application host shell —
+   TODO.
 7. Minimal application template without controls.
 8. WindowCatalog as pure consumer (runtime/host extraction).
 9. Separate integration branch with the versioning project.
