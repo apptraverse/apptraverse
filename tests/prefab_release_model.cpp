@@ -34,6 +34,7 @@ class NullPresenterNode;
 
 class SetPosxAbsoluteEvent;
 class SetPosxDeltaEvent;
+class SetWidthEvent;
 
 class ConstLabelString : public ae::Obj {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::prefab_release::ConstLabelString",
@@ -127,6 +128,7 @@ class PrefabWindow : public NodeFor<PrefabWindow> {
 
   void Apply(SetPosxAbsoluteEvent const& event);
   void Apply(SetPosxDeltaEvent const& event);
+  void Apply(SetWidthEvent const& event);
 
   std::uint32_t width{0};
   std::int32_t posx{0};
@@ -368,6 +370,31 @@ class SetPosxDeltaEvent : public EventFor<PrefabWindow, SetPosxDeltaEvent> {
   std::int32_t delta{0};
 };
 
+class SetWidthEvent : public EventFor<PrefabWindow, SetWidthEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::prefab_release::SetWidthEvent",
+                           SetWidthEvent, Event, 0)
+
+ protected:
+  SetWidthEvent() = default;
+
+ public:
+  explicit SetWidthEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(width))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, width);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, width);
+  }
+
+  std::uint32_t width{0};
+};
+
 void PrefabWindow::Apply(SetPosxAbsoluteEvent const& event) {
   posx = event.posx;
   user_owned_s1 = true;
@@ -376,6 +403,11 @@ void PrefabWindow::Apply(SetPosxAbsoluteEvent const& event) {
 void PrefabWindow::Apply(SetPosxDeltaEvent const& event) {
   posx += event.delta;
   user_owned_s1 = true;
+}
+
+void PrefabWindow::Apply(SetWidthEvent const& event) {
+  width = event.width;
+  user_owned_s0 = true;
 }
 
 APPTRAVERSE_REGISTER(ConstLabelString);
@@ -390,6 +422,7 @@ APPTRAVERSE_REGISTER(PreferencesNode);
 APPTRAVERSE_REGISTER(WorkspaceRoot);
 APPTRAVERSE_REGISTER(SetPosxAbsoluteEvent);
 APPTRAVERSE_REGISTER(SetPosxDeltaEvent);
+APPTRAVERSE_REGISTER(SetWidthEvent);
 
 namespace {
 
@@ -451,6 +484,7 @@ void EnsurePrefabReleaseRegistration() {
   (void)&g_apptraverse_registrar_WorkspaceRoot;
   (void)&g_apptraverse_registrar_SetPosxAbsoluteEvent;
   (void)&g_apptraverse_registrar_SetPosxDeltaEvent;
+  (void)&g_apptraverse_registrar_SetWidthEvent;
 }
 
 PrefabDefaults MainWindowPrefabDefaults() {
@@ -951,6 +985,7 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
   std::filesystem::path state_dir;
   std::filesystem::path supply_package_path;
   std::optional<std::uint32_t> active_release_value;
+  std::optional<std::uint32_t> width_value;
   std::string op;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
@@ -960,6 +995,8 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
       supply_package_path = argv[++i];
     } else if (arg == "--active-release" && i + 1 < argc) {
       active_release_value = static_cast<std::uint32_t>(std::stoul(argv[++i]));
+    } else if (arg == "--width" && i + 1 < argc) {
+      width_value = static_cast<std::uint32_t>(std::stoul(argv[++i]));
     } else if (arg == "--op" && i + 1 < argc) {
       op = argv[++i];
     } else {
@@ -1264,7 +1301,8 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
         UserHasLayerForInstance(stores.user, base_id, PrefabWindow::kClassId, 1);
     PrintJson(JsonOk(
         "\"op\":\"d1-r2-readonly-a\""
-        ",\"posx_a\":" +
+        ",\"width_a\":" +
+        std::to_string(a->width) + ",\"posx_a\":" +
         std::to_string(a->posx) + ",\"user_s1_instance_present\":" +
         (user_s1_instance ? "true" : "false") + ",\"user_s1_base_present\":" +
         (user_s1_base ? "true" : "false") + ",\"window_class_id\":" +
@@ -1325,7 +1363,8 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     ae::ObjId::Type const prefab_base_id = PrefabBaseObjIdFromBacking(
         stores.backing.effective_backing, ws->window_a.prefab_id());
     PrintJson(JsonOk(
-        std::string("\"op\":\"d1-r2-inspect-a\",\"posx_a\":") +
+        std::string("\"op\":\"d1-r2-inspect-a\",\"width_a\":") +
+        std::to_string(a->width) + ",\"posx_a\":" +
         std::to_string(a->posx) + ",\"base_posx\":" +
         std::to_string(base_posx.value_or(-1)) + ",\"journal_len\":" +
         std::to_string(a->journal.size()) + ",\"user_s1_instance\":" +
@@ -1351,18 +1390,54 @@ int RunPrefabReleaseFixture(int argc, char** argv) {
     PrefabBackedLoadContext ctx = MakeLoadContext(stores);
     ae::Ptr<PrefabWindow> a = MaterializePrefabBackedWindow(ws->window_a, ctx);
     std::int32_t const materialized = a->posx;
+    std::uint32_t const materialized_width = a->width;
     if (fault) {
       a->posx = 999;
     }
     a->ReplayFromBase();
     std::int32_t const replay_once = a->posx;
+    std::uint32_t const replay_width_once = a->width;
     a->ReplayFromBase();
     std::int32_t const replay_twice = a->posx;
+    std::uint32_t const replay_width_twice = a->width;
     PrintJson(JsonOk(
         "\"op\":\"" + op + "\",\"materialized_posx\":" +
         std::to_string(materialized) + ",\"replay_posx\":" +
         std::to_string(replay_once) + ",\"replay_twice\":" +
-        std::to_string(replay_twice)));
+        std::to_string(replay_twice) + ",\"materialized_width\":" +
+        std::to_string(materialized_width) + ",\"replay_width\":" +
+        std::to_string(replay_width_once) + ",\"replay_width_twice\":" +
+        std::to_string(replay_width_twice)));
+    return 0;
+  }
+
+  if (op == "set-width-a") {
+    if (!width_value) {
+      PrintJson("{\"ok\":false,\"error\":\"usage\"}");
+      return 2;
+    }
+    FixtureStorage stores{state_dir};
+    ae::DomainGraph graph{&stores.domain};
+    ae::Ptr<ae::Obj> loaded;
+    if (!graph.LoadRoot(ae::ObjId{kWorkspaceId}, loaded).IsOk()) {
+      PrintJson("{\"ok\":false,\"error\":\"load-root\"}");
+      return 1;
+    }
+    ae::Ptr<WorkspaceRoot> ws{loaded};
+    PrefabBackedLoadContext ctx = MakeLoadContext(stores);
+    ae::Ptr<PrefabWindow> a = MaterializePrefabBackedWindow(ws->window_a, ctx);
+    auto event = SetWidthEvent::ptr::Create(ae::CreateWith{stores.domain});
+    event.Load()->width = *width_value;
+    a->Commit(event);
+    stores.user.BeginSaveSession();
+    ae::DomainGraph save_graph{&stores.domain};
+    if (!save_graph.SaveRoot(loaded, ae::ObjId{kWorkspaceId}).IsOk() ||
+        stores.user.SaveSessionHadFailure()) {
+      PrintJson("{\"ok\":false,\"error\":\"save-root\"}");
+      return 1;
+    }
+    PrintJson(JsonOk("\"op\":\"set-width-a\",\"width_a\":" +
+                     std::to_string(a->width)));
     return 0;
   }
 

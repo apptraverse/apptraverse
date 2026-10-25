@@ -586,6 +586,21 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     PROPERTIES TIMEOUT 120
     LABELS "serialization;prefab;evolution;equivalence;lifecycle")
 
+  add_test(
+    NAME apptraverse_prefab_dynamic_layer_roundtrip_matrix
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_LIST_DIR}/prefab_dynamic_layer_roundtrip_matrix.py"
+      --r0 "$<TARGET_FILE:apptraverse_prefab_release_r0>"
+      --r1 "$<TARGET_FILE:apptraverse_prefab_release_r1>"
+      --r2 "$<TARGET_FILE:apptraverse_prefab_release_r2>"
+      --package-tool "$<TARGET_FILE:apptraverse_export_prefab_release_r1_package>"
+      --work-root "${CMAKE_CURRENT_BINARY_DIR}/dynamic_layer_roundtrip_states"
+  )
+  set_tests_properties(apptraverse_prefab_dynamic_layer_roundtrip_matrix
+    PROPERTIES TIMEOUT 120
+    LABELS "serialization;prefab;evolution;lifecycle;roundtrip"
+  )
+
   add_executable(apptraverse_prefab_release_supply_split_test
     prefab_release_supply_split_test.cpp
   )

@@ -408,8 +408,9 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 ### 10 — Новый динамический слой при существующем USER
 
-- **Цель:** S+1 без потери USER v0/v1.
-- **T:** T03, T06 | **Зав.:** 06 | **Статус:** TODO (частично: window/event matrices)
+- **Цель:** S+1 без потери USER v0/v1; откат EXE не стирает USER S0/S1.
+- **Область (10A PASS):** `SetWidthEvent` (S0); op `set-width-a`; `prefab_dynamic_layer_roundtrip_matrix` — цепочка **R0→R1→R2→R1→R2** на одном USER (`width` S0 + `posx` S1 + `ReplayFromBase`). **Не** полный T07–T10, **не** R5 откат.
+- **T:** T03, T09 *(фрагменты)*; T06, T07–T10 — **не** PASS | **Зав.:** 06, 09 | **Статус:** IN_PROGRESS *(10A PASS)*
 
 ### 11 — Исторические base, компактация, replay
 
