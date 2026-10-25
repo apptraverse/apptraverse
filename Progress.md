@@ -4230,4 +4230,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Release verify** (`build-b18-msvc-rel`): **7/7** CTests **PASS**. Headless **316928** B; demo **437248** B.
 - **MinSizeRel verify** (`build-b18-msvc-minsizerel`): **7/7** CTests **PASS**. Headless **252928** B; demo **343552** B.
 - **Next step**: generic presented-window save/unload/reload helper (plan §1.5 item 4).
-- **Land SHA**: **`f4af6f3`** (`Add ComposePresentedWindow and WindowCatalog prototype hardening.`).
+- **Land SHA**: **`807afe7`** (`Add ComposePresentedWindow and WindowCatalog prototype hardening.`).
