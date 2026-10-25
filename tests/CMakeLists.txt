@@ -497,9 +497,7 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     prefab_release_model.cpp
   )
   target_compile_definitions(apptraverse_export_prefab_release_r1_package PRIVATE
-    APPTRAVERSE_PREFAB_EXE_REVISION=0
-    APPTRAVERSE_PREFAB_PACKAGE_BASE_RELEASE=0
-    APPTRAVERSE_PREFAB_PACKAGE_TARGET_RELEASE=1)
+    APPTRAVERSE_PREFAB_EXE_REVISION=0)
   target_link_libraries(apptraverse_export_prefab_release_r1_package PRIVATE apptraverse)
   target_include_directories(apptraverse_export_prefab_release_r1_package PRIVATE
     ${CMAKE_CURRENT_LIST_DIR})

@@ -821,35 +821,11 @@ struct FixtureStorage {
       return out;
     }
 #if APPTRAVERSE_PREFAB_EXE_REVISION == 0
-    DistilledSupplyPackageError pkg_error{};
-    auto const bytes = ReadDistilledSupplyPackageFile(package_path, &pkg_error);
-    if (!bytes) {
-      throw std::runtime_error(pkg_error.message ? pkg_error.message
-                                                 : "package-read");
-    }
-    auto package = ParseDistilledSupplyPackage(*bytes, &pkg_error);
+    auto package = ReadDistilledSupplyPackageFile(package_path);
     if (!package) {
-      throw std::runtime_error(pkg_error.message ? pkg_error.message
-                                                 : "package-parse");
+      throw std::runtime_error("supply-package");
     }
-    if (package->base_release != prefab_release_lifecycle::kEmbeddedRelease) {
-      throw std::runtime_error("package-base-release");
-    }
-    std::set<ae::ObjId> base_layer_ids;
-    auto const& graph = GraphFor(kind);
-    for (std::size_t i = 0; i < graph.layer_count; ++i) {
-      base_layer_ids.insert(ae::ObjId{graph.layers[i].object_id});
-    }
-    if (!ValidateDistilledSupplyPackage(*package, out.supply_ids, base_layer_ids,
-                                        &pkg_error)) {
-      throw std::runtime_error(pkg_error.message ? pkg_error.message
-                                                 : "package-validate");
-    }
-    if (!ApplyDistilledSupplyPackage(out.effective_backing, *package,
-                                     &pkg_error)) {
-      throw std::runtime_error(pkg_error.message ? pkg_error.message
-                                                 : "package-apply");
-    }
+    ApplyDistilledSupplyPackage(out.effective_backing, *package);
     out.supply_ids = SupplyIdSetFromPackage(*package);
     out.package_applied = true;
     return out;

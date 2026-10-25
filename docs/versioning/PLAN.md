@@ -391,7 +391,7 @@ Wire-формат и новый GraphManager **не** добавлялись.
 ### 07 — Один бинарный пакет констант
 
 - **Цель:** offline `state/R` + старый EXE читает через backing.
-- **Область:** [`distilled_supply_package`](../../include/apptraverse/distilled_supply_package.h) (APSP v0); fixture `export_prefab_release_r1_package` + `apptraverse_prefab_release_lifecycle_matrix`; явный `--supply-package` (без resolver / `active-release`).
+- **Область:** [`distilled_supply_package`](../../include/apptraverse/distilled_supply_package.h) — **prototype wire**: Æther `BinaryArchive` (target `supply_constant_ids` + upsert layers); fixture `export_prefab_release_r1_package` + `apptraverse_prefab_release_lifecycle_matrix`; явный `--supply-package` (без resolver / `active-release`). Файл считается корректным выходом нашего exporter; magic/CRC/corruption validation **намеренно нет**; malformed package **вне scope**; **T18** — несовместимость объектной модели/EXE, не случайное повреждение файла.
 - **T:** T02, T12 *(фрагменты)* | **Зав.:** 04, 06 | **Статус:** PASS *(один R1 package; полный T12 — нет)*
 
 ### 08 — Выбор активной поставки

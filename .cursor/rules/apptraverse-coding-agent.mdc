@@ -201,6 +201,25 @@ Check direct assignments and methods that change materialized state. Cursor
 review and human code review are the enforcement boundary; they are not a formal
 immutability proof.
 
+## Prototype: no transport-file hardening
+
+AppTraverse is a **prototype**. Unless the user explicitly asks for it, **do not add**:
+
+- file magic / signatures;
+- format version fields used only to reject files;
+- CRC / checksum / hash integrity for on-disk artifacts;
+- truncated / trailing / corrupt-input detection;
+- malformed-input classification or fail-closed parsers for our own tools' output;
+- size / count limits for defensive rejection;
+- sorted / unique / canonical validation on read;
+- duplicate-key validation on read;
+- atomic apply / rollback / retry / fallback for damaged packages;
+- fuzz or negative tests for corrupted files;
+- golden SHA of binaries to prove file correctness;
+- analysis of whether a file was written correctly or damaged.
+
+Assume files are produced by **our** exporters and are correct. Implement **happy path** plus **application-semantics** checks (labels, USER vs const, ObjId, compatibility). Wrong arbitrary files are out of scope until a dedicated task.
+
 ## No hidden refactors
 
 Keep each iteration small and reviewable. Do not “fix” neighboring architecture in passing. If you find a separate problem: record it in `plan.md` / `Progress.md` as TODO and leave it for a later iteration.

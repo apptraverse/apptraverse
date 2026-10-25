@@ -2,15 +2,12 @@
 """R0 EXE + optional R1 supply.bin (iteration 07 fixture)."""
 
 import argparse
-import hashlib
 import json
 import shutil
-import struct
 import subprocess
-import tempfile
 from pathlib import Path
 
-from application_evolution_matrix import CheckFailed, digest, manifest
+from application_evolution_matrix import CheckFailed, manifest
 
 MAIN_LABEL_A = "main-title-A"
 MAIN_LABEL_B = "main-title-B"
@@ -51,13 +48,6 @@ def run_ok(exe, state_dir, op, package=None):
     return rec
 
 
-def run_fail(exe, state_dir, op, package=None):
-    code, rec, comp = run(exe, state_dir, op, package)
-    if code == 0 and rec and rec.get("ok"):
-        raise CheckFailed(f"expected failure for {op}")
-    return code, rec, comp
-
-
 def assert_manifest_unchanged(before, after):
     if before != after:
         raise CheckFailed("USER manifest changed")
@@ -70,20 +60,10 @@ def assert_no_const_in_user(manifest_map, obj_id):
             raise CheckFailed(f"const layer in USER: {key}")
 
 
-def corrupt_copy(src: Path, dst: Path, mutator):
-    data = bytearray(src.read_bytes())
-    mutator(data)
-    dst.write_bytes(data)
-
-
-def generate_package(tool: Path, out_path: Path, negatives_dir: Path | None = None) -> str:
+def generate_package(tool: Path, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [str(tool), str(out_path)]
-    if negatives_dir is not None:
-        negatives_dir.mkdir(parents=True, exist_ok=True)
-        cmd.extend(["--negatives", str(negatives_dir)])
     code = subprocess.run(
-        cmd,
+        [str(tool), str(out_path)],
         capture_output=True,
         text=True,
         timeout=60,
@@ -91,7 +71,6 @@ def generate_package(tool: Path, out_path: Path, negatives_dir: Path | None = No
     ).returncode
     if code != 0:
         raise CheckFailed("package tool failed")
-    return digest(out_path)
 
 
 def main():
@@ -106,17 +85,8 @@ def main():
     work_root = Path(args.work_root)
     work_root.mkdir(parents=True, exist_ok=True)
 
-    neg_root = work_root / "negative"
     package_path = work_root / "r1" / "supply.bin"
-    sha_a = generate_package(package_tool, package_path, neg_root)
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_pkg = Path(tmp) / "supply.bin"
-        sha_b = generate_package(package_tool, tmp_pkg)
-        if sha_a != sha_b:
-            raise CheckFailed("package generation not deterministic")
-
-    exe_sha = digest(r0)
-    pkg_sha_before = digest(package_path)
+    generate_package(package_tool, package_path)
 
     state = work_root / "user"
     if state.exists():
@@ -163,40 +133,7 @@ def main():
     if rec_no_pkg.get("main_label") != MAIN_LABEL_A:
         raise CheckFailed("revert without package")
 
-    if digest(r0) != exe_sha:
-        raise CheckFailed("EXE sha changed")
-    if digest(package_path) != pkg_sha_before:
-        raise CheckFailed("package sha changed")
-
-    def write_neg(name, mutator):
-        p = neg_root / name
-        corrupt_copy(package_path, p, mutator)
-        return p
-
-    write_neg("bad_magic.bin", lambda d: d.__setitem__(0, 0))
-    write_neg("truncated.bin", lambda d: d.pop())
-    write_neg("bad_crc.bin", lambda d: d.__setitem__(-2, 0))
-    write_neg("trailing.bin", lambda d: d.extend(b"extra"))
-    write_neg("bad_base_release.bin", lambda d: struct.pack_into("<I", d, 8, 9))
-
-    for name in ("duplicate_layer_key.bin", "dynamic_workspace_obj.bin"):
-        bad = neg_root / name
-        if not bad.is_file():
-            raise CheckFailed(f"missing negative fixture {name}")
-    for bad in neg_root.glob("*.bin"):
-        neg_state = work_root / f"neg_{bad.stem}"
-        if neg_state.exists():
-            shutil.rmtree(neg_state)
-        neg_state.mkdir(parents=True)
-        run_ok(r0, neg_state, "r0-init")
-        before = manifest(neg_state)
-        run_fail(r0, neg_state, "r0-read-labels", package=bad)
-        assert_manifest_unchanged(before, manifest(neg_state))
-
-    run_ok(r0, state, "r0-read-labels")
-
     print("prefab_release_lifecycle_matrix OK", flush=True)
-    print(f"package_sha256={sha_a}", flush=True)
 
 
 if __name__ == "__main__":
