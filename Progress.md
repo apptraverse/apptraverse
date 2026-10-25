@@ -4389,5 +4389,28 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Release verify** (`build-application-versioning-msvc-rel`): **17/17** CTests **PASS**. Minimal dev **379904** B; load-only **373760** B; catalog dev **450560** B; catalog load-only **439296** B.
 - **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **17/17** CTests **PASS**. Minimal dev **288768** B; load-only **283648** B; catalog dev **349184** B; catalog load-only **340480** B.
 - **Known limits**: generated header not wired into production MinimalApplication startup (**9D**); ObjIds in export still depend on distill-time allocation (stable within one exporter run).
-- **Next step**: **9D** — embedded startup for MinimalApplication.
-- **Land SHA**: **`b773937`** (`Add build-time MinimalApplication embedded distilled graph export.`).
+- **Next step (at 9C land)**: **9D** — embedded startup for MinimalApplication (superseded by agreed roadmap revision 2026-10-25; see below).
+- **Land SHA**: **`b77393753fa67e1e868feaa621dfd94c5022f9a0`** (`Add build-time MinimalApplication embedded distilled graph export.`).
+
+## Application Framework + Versioning — agreed roadmap revision (2026-10-25)
+
+- **Source plan**: `02_Application_Framework_Integration_PLAN.md` (revision 2026-10-25).
+- **Doc sync HEAD**: **`9f6aa8d3540e6a6f18893beea174d095e18af680`** (`integration/application-versioning`).
+- **Scope of this entry**: documentation-only update to `plan.md` and `Progress.md`; **no code, CMake, tests, or schemas changed**; **tests not re-run** for this revision.
+- **Completed through 9C (unchanged facts)**:
+  - **9C DONE** — main land **`b77393753fa67e1e868feaa621dfd94c5022f9a0`**: `apptraverse_export_minimal_distilled_graph`, CMake-generated `embedded_distilled_minimal_app_supply.h`, `apptraverse_minimal_app_embedded_export_test`, cold load of generated graph without graph builder, geometry Event + USER/BACKING persistence.
+  - **9C verify (already reported, not re-run here)**: Release and MinSizeRel **17/17** CTest PASS; MinSizeRel minimal dev EXE **288768** B; production MinimalApplication startup not changed in 9C.
+- **Order change**: next work is **not** 9D immediately after 9C. Agreed sequence after 9C:
+  - **I0** — architecture cleanup (**not implemented**; plan accepted only).
+  - **I0.1** — inventory / cleanup ledger — **NEXT** executable task.
+  - **I0.2** — remove verified dead paths (after I0.1).
+  - **I0.3** — required graph cold-load contract (after I0.1).
+  - **9D** — MinimalApplication embedded startup (**PLANNED**; deps: I0 + 9C).
+  - **9E** — WindowCatalog embedded startup (**PLANNED**).
+  - **9F** — unified release bootstrap R/E/B/S (**PLANNED**).
+  - **9G** — system origin / Clone / S (**BLOCKED BY VERSIONING** until serialization-surfaces C0 → 12R → 12B → 13 → 14).
+  - **9H** — full functional lifecycle matrix (**PLANNED**; deps: 9F, 9G, versioning matrix).
+- **Parallel branch** (`integration/serialization-surfaces`): C0 cleanup, origin 12A fix, 12R, 12B, 13, 14 — object core, Clone/origin, schema compatibility; **9G blocked** until that core is ready. Do not merge branches in doc-only tasks.
+- **Prototype principles** (now in `plan.md` §1.6): standard serialization only; typed refs in graph; no implicit required defaults; all-or-nothing load; no corrupted-file hardening in prototype; preserve USER/journal/historical base; no duplicate runtime/managers; small verified iterations.
+- **FUTURE** (documented, does not block I0/9D/9E): optional supply/localization/cache, Universal ArtifactSource, SharedNode, DLL/SO plugins.
+- **Land SHA (this doc revision)**: *(pending commit)*.

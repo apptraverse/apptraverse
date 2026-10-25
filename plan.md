@@ -799,10 +799,227 @@ root, and save/shutdown hooks — not how release resolver obtains storage/root.
    - **9B2** — `force_materialize` + historical dynamic base materialization —
      done on integration branch (2026-10-25).
    - **9C** — build-time embedded distilled export (MinimalApplication exporter +
-     CMake-generated header + independent consumer test) — done on integration
-     branch (2026-10-25).
-   - **9D+** — embedded app startup, WindowCatalog export, release packages /
-     active-release, historical base & schema compatibility, T01–T18 matrix —
-     TODO.
-   Legacy **`ModelRuntime` / `UiMirror`** consolidation with the new application
-   path remains a separate TODO (plan §1.5 item 5).
+     CMake-generated header + independent consumer test) — **DONE** on integration
+     branch (2026-10-25; land `b77393753fa67e1e868feaa621dfd94c5022f9a0`).
+   - **NEXT and later stages** — see **§1.6** (agreed roadmap revision 2026-10-25):
+     **I0.1** inventory/cleanup ledger is the active next task; **9D** is not
+     immediate after 9C.
+   Legacy **`ModelRuntime` / `UiMirror`** consolidation is addressed under **I0**
+   (§1.6), not as ad-hoc cleanup before embedded startup.
+
+## 1.6 Application Framework + Versioning integration
+
+**Branch:** `integration/application-versioning`
+**Agreed source plan:** `02_Application_Framework_Integration_PLAN.md` (revision
+2026-10-25). Self-contained summary below; supersedes “9D immediately after 9C”
+wording where it conflicted.
+
+**Sync reference (doc update):** remote HEAD `9f6aa8d3540e6a6f18893beea174d095e18af680`.
+
+### Status overview
+
+| Stage | Topic | Status |
+|------:|-------|--------|
+| 0–8 | Application Framework (contract, presented window, runtime, host, minimal app, WindowCatalog) | **DONE** |
+| 9A | `EmbeddedDistilledGraph` → RAM backing | **DONE** |
+| 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
+| 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
+| 9C | Build-time embedded export (MinimalApplication) | **DONE** |
+| **I0** | Architecture cleanup | **NEXT** (plan only until I0.1–I0.3 execute) |
+| I0.1 | Inventory / cleanup ledger | **NEXT** (first executable task) |
+| I0.2 | Remove verified dead paths | TODO (after I0.1) |
+| I0.3 | Required graph cold-load contract | TODO (after I0.1) |
+| 9D | MinimalApplication embedded startup | **PLANNED** (after I0 + 9C) |
+| 9E | WindowCatalog embedded startup | **PLANNED** |
+| 9F | Unified release bootstrap R/E/B/S | **PLANNED** |
+| 9G | System origin / Clone / S | **BLOCKED BY VERSIONING** |
+| 9H | Full functional lifecycle matrix | **PLANNED** (after 9F, 9G, versioning matrix) |
+
+Do not mark **I0** DONE until I0.1–I0.3 criteria in §1.6.4 are met.
+
+### Prototype development principles
+
+1. **Standard serialization** — Use existing `DomainGraph`, `Load`/`Save(Version<S>)`,
+   `BinaryArchive`, `RamDomainStorage`, `DirectoryDomainStorage`,
+   `OverlayDomainStorage`. No parallel object protocols, custom binary containers,
+   magic/CRC/hash/signatures.
+2. **Typed object references** — Inside the graph: `ObjPtr`, `Ptr`, `LocalPtr`,
+   `SharedPtr` with their normal semantics. Do not replace edges with manual
+   `ObjId` resolution. `ObjId` only at storage/serialization/domain boundaries.
+3. **No implicit defaults for required persisted state** — Required serialized
+   fields get values via distill/init, Events, or standard Load. No `Ensure*`,
+   constructor defaults, or fallback that materialize missing required objects.
+   (Normal C++ init for runtime queues, locks, buffers, counters remains OK.)
+4. **All-or-nothing initial load** — Missing required root/window/presenter,
+   required ClassId, or required schema **S** → explicit load failure. Lazy
+   unloaded refs and optional supply are OK when the contract allows. No
+   half-empty UI.
+5. **No corrupted-file hardening (prototype scope)** — Until a separate
+   production-hardening task: no malformed/truncated/trailing-input torture tests,
+   CRC/hash/integrity, recovery, backup, retries, or extra defensive validation on
+   trusted build artifacts. Functional incompatibility of required ClassId/S must
+   still fail loudly, not silently.
+6. **Preserve functional invariants** — USER dynamic state and journals; no const
+   bodies in USER; historical base; cold load/replay; compaction guards for
+   unknown new Event layers; release compatibility; correct presenter lifecycle.
+7. **No duplicate infrastructure** — No third model runtime, new Managers/Services,
+   duplicate bootstrap, second UI lifecycle, or manual registration bypasses.
+   Fixture `PrefabPtr` stays out of production.
+8. **Small iterations** — C++20, Google style, no RTTI/exceptions, incremental
+   builds. One task → one verifiable outcome. Commit/push working branch only; no
+   merge/PR/reset/clean/force-push. Distinguish implemented / verified PASS /
+   accepted-by-user.
+
+### I0 — Architecture cleanup
+
+#### I0.1 — Inventory / cleanup ledger (NEXT)
+
+First work **after** this documentation update. **Inventory only** — do not delete
+code in the same change.
+
+Review implementations and consumers, including:
+
+- `application_model_runtime.h`, `application_ui_session.h`
+- `model_runtime.h`, `ui_mirror.h`, `runtime_lifecycle.h`
+- `ui_presented_window_composition.h`, `ui_presented_window_lifecycle.h`
+- `embedded_distilled_domain.h` and matching `src/` units
+- `cmake/patches/*`, CMake targets, MinimalApplication, WindowCatalog
+
+Produce a table:
+
+| Area | Real consumer | Duplication / bypass | Safe change | Regression test |
+
+Hunt for: legacy `ModelRuntime`/`UiMirror` vs `ApplicationModelRuntime`/
+`ApplicationUiSession`; duplicate Initialize/Ensure; manual ObjId wiring;
+unnecessary persisted defaults; parallel serialization paths; duplicate bootstrap;
+extra validators.
+
+#### I0.2 — Remove verified dead paths
+
+Remove only code proven dead or superseded **after** I0.1. If a legacy path still
+has a live consumer, keep it until migration. Do not break other apps for cleanup.
+Do not introduce a third universal runtime. Drop runtime distillation/USER bootstrap
+only after a **passing** embedded replacement test.
+
+#### I0.3 — Required graph cold-load contract
+
+Document and test (only if gaps exist):
+
+- Required root/window/presenter without silent defaults; no auto-create on cold
+  Load; missing required layer → explicit initial load failure.
+- Model Domain → publication → UI mirror → presenters; native handles not
+  persisted; shutdown and type registration unchanged.
+
+#### I0 DONE criteria
+
+- Actual duplicates removed or explicitly retained with consumers listed.
+- No new framework layer added.
+- Positive regression tests PASS.
+- Working application lifecycle preserved.
+
+### Library contract (unchanged target after cleanup)
+
+**Model:** canonical persisted graph; Events/Commit; model thread;
+`ApplicationModelRuntime` accepts prepared Domain/root — does **not** own storage.
+
+**UI:** `ApplicationUiSession` (mirror + presenter lifecycle); `WinApplicationHost`
+(platform loop); `ModelObjectProxy` (GUI → model); `UiPresentedWindow` presenter
+ref; desktop geometry via Events; native handles runtime-only.
+
+**Composition/lifecycle:** `ComposePresentedWindow`, `SavePresentedWindow`,
+`UnloadPresentedWindow`, `LoadPresentedWindow`.
+
+Keep application-specific logic in examples/apps, not in generic libraries.
+
+### Storage / release architecture (target)
+
+Three concepts: **R** (release delivery), **E/B** (embedded executable + backing),
+**S** (class schema layer version).
+
+```text
+Build-time distillation → embedded canonical graph → RamDomainStorage BACKING
+  → OverlayDomainStorage → Model Domain → ApplicationModelRuntime
+  → ApplicationUiSession → native presenters
+```
+
+- USER holds dynamic data and history, not constant supply bodies.
+- Constants from embedded graph or selected `state/<R>/supply.bin`.
+- `state/active-release` selects active delivery explicitly — not “max directory
+  number” resolver.
+- Do not copy initial graph into USER on new EXE install.
+- New dynamic schema layer **S** on a historical instance requires system Clone/
+  origin (versioning branch) — no production PrefabPtr or manual instance→prefab
+  tables in this branch.
+
+**9C delivered (facts):** `apptraverse_export_minimal_distilled_graph`,
+CMake-generated `embedded_distilled_minimal_app_supply.h`,
+`apptraverse_minimal_app_embedded_export_test`, cold load without graph builder,
+geometry Event + USER/BACKING persistence; **17/17** CTest PASS (Release &
+MinSizeRel per 9C report); production MinimalApplication startup **unchanged** in
+9C.
+
+### Planned stages after I0
+
+**9D — MinimalApplication embedded startup** (deps: I0 + 9C)
+Wire generated embedded graph into production startup. Positive path: clean install
+→ native main → geometry Event → Save USER → shutdown → cold restart → geometry
+restored. No runtime graph builder or USER distillation. Preserve ClassId/ObjId/v0,
+model/UI thread separation, load-only and shutdown behavior.
+
+**9E — WindowCatalog embedded startup**
+Build-time export + production embedded load; EN/RU supply strings const, selected
+language USER-dynamic. Verify Add/Open/Delete, lazy windows, geometry,
+localization, historical base/journal, restart. Remove old bootstrap/Ensure bypasses
+only after new path tests PASS.
+
+**9F — Unified release bootstrap**
+Minimal release integration: release config, active-release, `state/<R>/supply.bin`,
+backing selection, R1 binary constants on E0, E1 equivalence, shared USER,
+incompatible required ClassId/S → fail before USER mutation. Own build tools only.
+
+**9G — System origin / Clone / S** — **BLOCKED BY VERSIONING**
+Depends on serialization-surfaces **C0 → 12R → 12B → 13 → 14** (origin/Clone/S
+core). Do not start 9G until that core lands. On this branch keep Æther patches:
+`objptr-reset-flags`, `force-materialize`; audit before adding
+`reject-unknown-stored-class`, `should-save-version`. No mass merge from versioning
+branch.
+
+**9H — Functional lifecycle acceptance** (deps: 9F, 9G, full versioning matrix)
+Semantic T01–T18 in agreed prototype scope: clean install E0, R1 constants, E2 new
+S, R3 logic-only, R4 constants, E5 S2, downgrade/upgrade, post-rollback user
+changes, lazy/late clones, journal replay, compaction guards. No corrupted-file
+testing.
+
+### Parallel ownership (do not mix branches)
+
+| `integration/application-versioning` | `integration/serialization-surfaces` |
+|--------------------------------------|--------------------------------------|
+| I0, 9D–9H | C0 cleanup |
+| Platform/application runtime | Fix origin 12A |
+| Embedded startup, UI lifecycle | 12R, 12B, 13, 14 |
+| | Object core, Clone/origin, schema compatibility |
+
+Versioning order: **C0 → 12R → 12B → 13 → 14**. Do not modify serialization-surfaces
+from application-versioning doc-only tasks.
+
+### Future (does not block I0 / 9D / 9E)
+
+- **Optional canonical supply / localization / cache** — embedded startup may ship
+  English only; other locales as optional serialized subgraphs; separate remote
+  fetch, lazy `ObjPtr::Load`, device cache; no partial language switch; optional
+  constants never in USER; LZMA as layer adapter only.
+- **Universal ArtifactSource** — bytes by artifact id + offset/range; FileSource →
+  ÆtherSource → HTTPS later; control plane via normal Events/messages; no early
+  chunk bitmap/recovery/security hardening.
+- **SharedNode** — after Clone/origin; sync versioned state and typed Events; ACK =
+  model accept/save, not external command execution.
+- **DLL/SO plugins** — plugin_id, own R/E/B/S and USER, manifest, native module;
+  host/plugin USER separate; compatibility check before model graph; trusted Windows
+  DLL first, then Linux SO.
+
+### Target platform families
+
+Windows, macOS, Linux, Android, iOS/iPadOS (one family, two form factors), Web.
+First integration and plugin prototype: **Windows desktop**. Demos or partial code
+on other platforms do not imply verified end-to-end release lifecycle until
+explicitly reported.
