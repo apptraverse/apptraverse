@@ -17,6 +17,11 @@ apptraverse_add_test(apptraverse_application_ui_session_test
 apptraverse_add_test(apptraverse_ui_desktop_window_geometry_test
   ui/ui_desktop_window_geometry_test.cpp)
 
+if(WIN32)
+  apptraverse_add_test(apptraverse_win_application_loading_window_test
+    win_application_loading_window_test.cpp apptraverse_ui_windows)
+endif()
+
 if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   foreach(name apptraverse_window_catalog_model_test
                apptraverse_window_catalog_win32_acceptance_test)

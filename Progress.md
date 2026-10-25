@@ -4285,3 +4285,14 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **10/10** CTests **PASS**. UI session test **226304** B; headless **251904** B; demo **344576** B.
 - **Next step**: **6C** — generic loading window / platform application host extraction (plan §1.5 item 6C).
 - **Land SHA**: **`04565c3`** (`Extract ApplicationUiSession for generic UI mirror and presenter lifecycle.`).
+
+## WinApplicationLoadingWindow (6C1) (2026-10-24)
+
+- **Baseline**: `e40d1c2ab5b4d929f67204dc8ddc61a020f81823`.
+- **API** (`include/apptraverse/platform/windows/win_application_loading_window.h`): **`WinApplicationLoadingWindow`** — RAII WNDCLASS + HWND, centered `DrawTextW` paint, `WM_CLOSE` ignored, `Close()` / destructor teardown; no model/UI/session coupling.
+- **WindowCatalogWinApp**: local loading RAII in `Run`; initial publication callback closes loading after `ApplicationUiSession` emplace; `WM_QUIT` policy via `loading.is_open()` unchanged; removed app-specific loading WndProc/class registration.
+- **Test**: `apptraverse_win_application_loading_window_test` (`apptraverse_ui_windows` only).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **11/11** CTests **PASS**. Loading test **23552** B; demo **444928** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **11/11** CTests **PASS**. Loading test **22016** B; demo **344576** B.
+- **Next step**: **6C2** — final platform application host composition (plan §1.5 item 6C2).
+- **Land SHA**: *(pending commit)*.
