@@ -4551,4 +4551,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Deferred**: legacy ModelRuntime/UiMirror, SharedNode/transport, disabled historical tests, runtime distill bootstrap removal, production embedded startup (**9D–9H ON HOLD** until versioning integration decision).
 - **9C**: build-time embedded export **implemented**; production apps still use directory bootstrap when profile absent.
 - **Land SHA**: **`7a5d66e`** (`I0.4: closure audit docs; I0 blocked on CTest 15/17.`).
-- **Doc HEAD (not frozen baseline)**: **`4822beb`** — audit code baseline remains **`168d817`**; branch freeze deferred until **17/17** CTest.
+- **Doc HEAD (not frozen baseline)**: **`c99307f`** — audit code baseline remains **`168d817`**; branch freeze deferred until **17/17** CTest.
