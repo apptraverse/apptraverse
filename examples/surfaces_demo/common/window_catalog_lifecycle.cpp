@@ -111,6 +111,16 @@ void WindowCatalogModelSession::Run(
           "fatal: WindowCatalog required chrome presenter missing\n");
       std::abort();
     }
+    auto& chrome_buttons = catalog->buttons;
+    chrome_buttons.add_button.Load();
+    chrome_buttons.open_button.Load();
+    chrome_buttons.delete_button.Load();
+    chrome_buttons.language_button.Load();
+    if (!chrome_buttons.add_button || !chrome_buttons.open_button ||
+        !chrome_buttons.delete_button || !chrome_buttons.language_button) {
+      WriteFatalStderr("fatal: WindowCatalog required chrome button missing\n");
+      std::abort();
+    }
     int const language = catalog->locale->language_index();
     catalog->MaterializeCatalogStrings(language);
     for (auto const& row : catalog->list->rows) {

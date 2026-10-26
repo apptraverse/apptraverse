@@ -262,7 +262,26 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **Preserved:** main window / list / locale boundaries, buttons and localized strings unchanged, lazy holders, schemas v0.
 
-**NEXT:** **I0.3B2c** — chrome buttons + localized text refs; ClassId/**S** separately.
+**NEXT:** **I0.3B2c2** — required localized text refs (`WindowCatalogTexts`); ClassId/**S** separately.
+
+---
+
+## K. I0.3B2c1 — WindowCatalog required chrome buttons cold load (DONE 2026-10-25)
+
+**Baseline:** `a26d81d3fd871663e6ebb588ea1b1f43bb978a2c`
+
+| Boundary | Change |
+|----------|--------|
+| `WindowCatalogModelSession::Run` | After chrome presenter load, before `MaterializeCatalogStrings`: `Load()` on four `catalog->buttons.*` refs; one combined fail-fast (`WindowCatalog required chrome button missing`). `RefreshChromeButtonEnabledState` unchanged. |
+
+**Required refs:** `add_button`, `open_button`, `delete_button`, `language_button` (from `BuildWindowCatalogGraph`).
+
+**Failure cases verified** (load-only, stderr, 30s timeout):
+
+- Empty ref for each of the four buttons (historical base + `SaveRoot`, re-load assert)
+- `Remove(persisted add_button ObjId)` → non-zero exit + fatal (`LoadApplication failed` or chrome button boundary)
+
+**NEXT (I0.3B2c IN_PROGRESS):** **I0.3B2c2** — localized text refs.
 
 ---
 

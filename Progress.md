@@ -4498,4 +4498,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Unchanged**: `WindowCatalog` Load/Save/fields, `BuildWindowCatalogGraph`, main window + lazy holders, buttons/strings, schema v0, CMake, bootstrap.
 - **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**; positive acceptance (Add/Open/Delete, EN/RU, geometry, persistence) preserved.
 - **NEXT**: **I0.3B2c** — required chrome buttons and localized text refs.
-- **Land SHA**: **`a460ab2`** (`I0.3B2b: require WindowCatalog chrome presenters on cold load.`).
+- **Land SHA**: **`a460ab2e32c393130d57b74f1b6d52889bb9c996`** (`I0.3B2b: require WindowCatalog chrome presenters on cold load.`).

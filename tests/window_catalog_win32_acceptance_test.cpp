@@ -904,6 +904,112 @@ void ExpectFatalLoadOnlyOrLoadApplication(ChildRunResult const& result,
   }
 }
 
+using ChromeButtonMember = ae::ObjPtr<ui::UiPushButton> WindowCatalogButtons::*;
+
+ChromeButtonMember ChromeButtonMemberForSuffix(char const* suffix) {
+  if (std::string{suffix} == "add_button") {
+    return &WindowCatalogButtons::add_button;
+  }
+  if (std::string{suffix} == "open_button") {
+    return &WindowCatalogButtons::open_button;
+  }
+  if (std::string{suffix} == "delete_button") {
+    return &WindowCatalogButtons::delete_button;
+  }
+  if (std::string{suffix} == "language_button") {
+    return &WindowCatalogButtons::language_button;
+  }
+  CHECK(false);
+  return &WindowCatalogButtons::add_button;
+}
+
+void WriteProfileMissingChromeButtonRef(std::filesystem::path const& state_dir,
+                                        ChromeButtonMember member) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  ui::UiPushButton::ptr const empty = ui::UiPushButton::ptr::Declare(
+      ae::CreateWith{domain}.with_id(ae::ObjId{}));
+  catalog->buttons.*member = empty;
+  if (catalog->base.is_valid()) {
+    if (!catalog->base.is_loaded()) {
+      catalog->base.Load();
+    }
+    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
+    base_catalog.buttons.*member = empty;
+    catalog->base.Save();
+  }
+  ae::DomainGraph graph{&domain};
+  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
+}
+
+void AssertChromeButtonRefAbsent(std::filesystem::path const& state_dir,
+                                 ChromeButtonMember member) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  (catalog->buttons.*member).Load();
+  CHECK(!(catalog->buttons.*member).is_valid());
+  CHECK(!(catalog->buttons.*member));
+}
+
+ae::ObjId LoadAddButtonObjId(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  catalog->buttons.add_button.Load();
+  CHECK(catalog->buttons.add_button.is_valid());
+  return catalog->buttons.add_button.id();
+}
+
+ae::ObjId WriteProfileMissingAddButtonObject(
+    std::filesystem::path const& state_dir) {
+  ae::ObjId const button_id = LoadAddButtonObjId(state_dir);
+  DirectoryDomainStorage storage{state_dir};
+  storage.Remove(button_id);
+  return button_id;
+}
+
+void RunRequiredChromeButtonNegativeTests(
+    std::filesystem::path const& good_state,
+    std::filesystem::path const& load_only) {
+  char const* const kRefSuffixes[] = {"add_button", "open_button", "delete_button",
+                                      "language_button"};
+  for (char const* suffix : kRefSuffixes) {
+    std::string const dir_name =
+        std::string{"missing_chrome_"} + suffix + "_ref";
+    auto const dir = NegativeStateDir(dir_name.c_str());
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    ChromeButtonMember const member = ChromeButtonMemberForSuffix(suffix);
+    WriteProfileMissingChromeButtonRef(dir, member);
+    AssertChromeButtonRefAbsent(dir, member);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnly(result,
+                        "fatal: WindowCatalog required chrome button missing");
+  }
+
+  {
+    auto const dir = NegativeStateDir("missing_chrome_add_button_object");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    ae::ObjId const button_id = WriteProfileMissingAddButtonObject(dir);
+    AssertPresenterObjectAbsent(dir, button_id);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnlyOrLoadApplication(
+        result, "fatal: WindowCatalog required chrome button missing");
+  }
+}
+
 void RunRequiredChromePresenterNegativeTests(
     std::filesystem::path const& good_state,
     std::filesystem::path const& load_only) {
@@ -1261,6 +1367,7 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   RunRequiredMainWindowNegativeTests(good_state, load_only);
   RunRequiredListLocaleNegativeTests(good_state, load_only);
   RunRequiredChromePresenterNegativeTests(good_state, load_only);
+  RunRequiredChromeButtonNegativeTests(good_state, load_only);
   RunLanguageAndFocusAcceptance();
 }
 
