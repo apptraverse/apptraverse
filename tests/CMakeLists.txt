@@ -2053,6 +2053,18 @@ add_test(
   COMMAND apptraverse_object_origin_facet_test
 )
 
+add_test(
+  NAME apptraverse_object_origin_disk_roundtrip_test
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:apptraverse_object_origin_facet_test>
+    -DSTATE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/object_origin_disk_roundtrip_state
+    -P ${CMAKE_CURRENT_LIST_DIR}/object_origin_disk_roundtrip_run.cmake
+)
+set_tests_properties(apptraverse_object_origin_disk_roundtrip_test
+  PROPERTIES TIMEOUT 120
+  LABELS "serialization;origin;disk;lifecycle"
+)
+
 add_executable(apptraverse_object_origin_disk_fixture
   object_origin_disk_fixture.cpp
 )

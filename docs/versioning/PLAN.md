@@ -597,9 +597,11 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 #### 12B.2 — disk/process cold roundtrip (**PASS**)
 
-**Fixture:** `apptraverse_object_origin_disk_fixture` (`OriginDiskFacetTargetV0`, ObjId **P=81001**, **A=81002**). **Matrix:** `apptraverse_object_origin_disk_matrix` — каждая операция в **отдельном процессе** (`init-backing` → `create-instance` → `inspect` → `mutate` → `resave` → repeat `inspect`).
+**Тест:** тот же **`apptraverse_object_origin_facet_test`** (`OriginFacetTargetV1`, **P=81001**, **A=81002**, value **150**, tag **251**), режимы **`--write <state-root>`** / **`--read <state-root>`** в **двух отдельных процессах** (`apptraverse_object_origin_disk_roundtrip_test` + `object_origin_disk_roundtrip_run.cmake`).
 
-**Диск:** `DirectoryDomainStorage` **`backing/`** + **`user/`**; **`OverlayDomainStorage(USER, BACKING, {P})`**. Инварианты: USER **`A/Derived/S0`** + **`A/Obj/S1`**; нет **`A/Derived/S1`**; нет слоёв **P** в USER; BACKING byte-for-byte неизменен; cold **`LoadRoot(A)`** без materialize **P**; repeat save/read не меняет USER.
+**Process 1 (`--write`):** **`DirectoryDomainStorage`** **`backing/`** + **`user/`**; **`SaveRoot(P)`** в BACKING; **`OverlayDomainStorage(USER, BACKING, {P})`**; **`SaveRoot(A)`** с **`SetOriginId(P)`** без **`LoadRoot(P)`**. **Process 2 (`--read`):** cold overlay → **`LoadRoot(A)`** → repeat **`SaveRoot(A)`**.
+
+**Диск:** BACKING **P** — **Derived/S0**, **Derived/S1**, штатный **Obj/S0**, нет **Obj/S1**; USER **A** — **Derived/S0**, **Derived/S1**, **Obj/S0**, **Obj/S1**; USER **P** — пусто; BACKING **P** byte-for-byte неизменен после repeat save в Process 2.
 
 **CMake:** `apptraverse_directory_domain_storage_test` и `apptraverse_overlay_domain_storage_test` вынесены из **`APPTRAVERSE_BUILD_EXAMPLES`** (регрессия storage доступна при **`APPTRAVERSE_BUILD_EXAMPLES=OFF`**).
 

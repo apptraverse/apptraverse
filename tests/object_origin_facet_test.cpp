@@ -1,15 +1,21 @@
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <set>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/version_iterator.h"
 
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/overlay_domain_storage.h"
 
@@ -515,6 +521,238 @@ bool BackingStateUnchanged(ae::RamDomainStorage const& backing,
   return backing.state == snapshot;
 }
 
+constexpr ae::ObjId::Type kDiskPrefabIdRaw = 81001u;
+constexpr ae::ObjId::Type kDiskInstanceIdRaw = 81002u;
+constexpr std::uint32_t kDiskValue = 150u;
+constexpr std::uint32_t kDiskTag = 251u;
+
+ae::ObjId const kDiskPrefabId{kDiskPrefabIdRaw};
+ae::ObjId const kDiskInstanceId{kDiskInstanceIdRaw};
+
+std::filesystem::path DiskBackingRoot(std::filesystem::path const& state_root) {
+  return state_root / "backing";
+}
+
+std::filesystem::path DiskUserRoot(std::filesystem::path const& state_root) {
+  return state_root / "user";
+}
+
+StoredLayerSet CollectDiskLayers(std::filesystem::path const& storage_root,
+                                 ae::ObjId object_id) {
+  StoredLayerSet layers;
+  auto const obj_dir = storage_root / std::to_string(object_id.id());
+  if (!std::filesystem::exists(obj_dir)) {
+    return layers;
+  }
+  for (auto const& class_dir : std::filesystem::directory_iterator(obj_dir)) {
+    if (!class_dir.is_directory()) {
+      continue;
+    }
+    std::uint32_t const class_id = static_cast<std::uint32_t>(
+        std::stoul(class_dir.path().filename().string()));
+    for (auto const& version_file :
+         std::filesystem::directory_iterator(class_dir.path())) {
+      if (!version_file.is_regular_file()) {
+        continue;
+      }
+      std::uint8_t const version = static_cast<std::uint8_t>(
+          std::stoul(version_file.path().filename().string()));
+      layers[class_id].insert(version);
+    }
+  }
+  return layers;
+}
+
+bool DiskObjectHasAnyLayers(std::filesystem::path const& storage_root,
+                            ae::ObjId object_id) {
+  return !CollectDiskLayers(storage_root, object_id).empty();
+}
+
+using DiskFileSnapshot =
+    std::map<std::string, std::vector<std::uint8_t>>;
+
+DiskFileSnapshot SnapshotDiskObjectTree(std::filesystem::path const& storage_root,
+                                        ae::ObjId object_id) {
+  DiskFileSnapshot snapshot;
+  auto const obj_dir = storage_root / std::to_string(object_id.id());
+  if (!std::filesystem::exists(obj_dir)) {
+    return snapshot;
+  }
+  for (auto const& entry :
+       std::filesystem::recursive_directory_iterator(obj_dir)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    auto const rel =
+        std::filesystem::relative(entry.path(), obj_dir).generic_string();
+    std::ifstream in{entry.path(), std::ios::binary | std::ios::ate};
+    if (!in) {
+      Fail("failed to read disk layer file");
+    }
+    auto const size = static_cast<std::size_t>(in.tellg());
+    in.seekg(0);
+    std::vector<std::uint8_t> bytes(size);
+    if (size != 0) {
+      in.read(reinterpret_cast<char*>(bytes.data()),
+              static_cast<std::streamsize>(size));
+    }
+    snapshot[rel] = std::move(bytes);
+  }
+  return snapshot;
+}
+
+void ExpectDiskPrefabBackingLayers(StoredLayerSet const& layers) {
+  auto const derived_it = layers.find(OriginFacetTargetV1::kClassId);
+  if (derived_it == layers.end() ||
+      derived_it->second != StoredLayerSet::mapped_type{0, 1}) {
+    Fail("BACKING/P unexpected Derived S layers");
+  }
+  for (auto const& [class_id, versions] : layers) {
+    if (class_id == OriginFacetTargetV1::kClassId) {
+      continue;
+    }
+    if (class_id == ae::Obj::kClassId) {
+      if (versions != std::set<std::uint8_t>{0}) {
+        Fail("BACKING/P must not have Obj/S1 without origin");
+      }
+      continue;
+    }
+    Fail("BACKING/P unexpected ClassId");
+  }
+}
+
+void ExpectDiskInstanceUserLayers(StoredLayerSet const& layers) {
+  if (layers.size() != 2u) {
+    Fail("USER/A unexpected ClassId count");
+  }
+  if (layers.at(OriginFacetTargetV1::kClassId) !=
+      StoredLayerSet::mapped_type{0, 1}) {
+    Fail("USER/A unexpected Derived S layers");
+  }
+  if (layers.at(ae::Obj::kClassId) != std::set<std::uint8_t>{0, 1}) {
+    Fail("USER/A unexpected Obj S layers");
+  }
+}
+
+void RunDiskOriginWrite(std::filesystem::path const& state_root) {
+  std::filesystem::create_directories(state_root);
+  std::filesystem::remove_all(DiskBackingRoot(state_root));
+  std::filesystem::remove_all(DiskUserRoot(state_root));
+  std::filesystem::create_directories(DiskBackingRoot(state_root));
+  std::filesystem::create_directories(DiskUserRoot(state_root));
+
+  {
+    apptraverse::DirectoryDomainStorage backing{DiskBackingRoot(state_root)};
+    ae::Domain domain{backing};
+    OriginFacetTargetV1::ptr prefab = OriginFacetTargetV1::ptr::Create(
+        ae::CreateWith{domain}.with_id(kDiskPrefabId));
+    ae::Ptr<OriginFacetTargetV1> prefab_body = prefab.Load();
+    prefab_body->value = kDiskValue;
+    prefab_body->tag = kDiskTag;
+    ae::DomainGraph graph{&domain};
+    backing.BeginSaveSession();
+    if (!graph.SaveRoot(prefab_body, kDiskPrefabId).IsOk()) {
+      Fail("disk write: SaveRoot P");
+    }
+    if (backing.SaveSessionHadFailure()) {
+      Fail("disk write: backing save session failed");
+    }
+    if (prefab_body->origin_id().is_valid()) {
+      Fail("disk write: P must not have origin");
+    }
+  }
+
+  ExpectDiskPrefabBackingLayers(
+      CollectDiskLayers(DiskBackingRoot(state_root), kDiskPrefabId));
+
+  apptraverse::DirectoryDomainStorage user_storage{DiskUserRoot(state_root)};
+  apptraverse::DirectoryDomainStorage backing_storage{
+      DiskBackingRoot(state_root)};
+  apptraverse::OverlayDomainStorage overlay{
+      user_storage, backing_storage, std::set<ae::ObjId>{kDiskPrefabId}};
+
+  {
+    ae::Domain domain{overlay};
+    OriginFacetTargetV1::ptr instance = OriginFacetTargetV1::ptr::Create(
+        ae::CreateWith{domain}.with_id(kDiskInstanceId));
+    ae::Ptr<OriginFacetTargetV1> instance_body = instance.Load();
+    instance_body->value = kDiskValue;
+    instance_body->tag = kDiskTag;
+    instance_body->SetOriginId(kDiskPrefabId);
+    ae::DomainGraph graph{&domain};
+    user_storage.BeginSaveSession();
+    if (!graph.SaveRoot(instance_body, kDiskInstanceId).IsOk()) {
+      Fail("disk write: SaveRoot A");
+    }
+    if (user_storage.SaveSessionHadFailure()) {
+      Fail("disk write: USER save session failed");
+    }
+  }
+
+  ExpectDiskInstanceUserLayers(
+      CollectDiskLayers(DiskUserRoot(state_root), kDiskInstanceId));
+  if (DiskObjectHasAnyLayers(DiskUserRoot(state_root), kDiskPrefabId)) {
+    Fail("disk write: USER must not contain P layers");
+  }
+}
+
+void RunDiskOriginRead(std::filesystem::path const& state_root) {
+  apptraverse::DirectoryDomainStorage user_storage{DiskUserRoot(state_root)};
+  apptraverse::DirectoryDomainStorage backing_storage{
+      DiskBackingRoot(state_root)};
+  apptraverse::OverlayDomainStorage overlay{
+      user_storage, backing_storage, std::set<ae::ObjId>{kDiskPrefabId}};
+
+  DiskFileSnapshot const backing_p_before =
+      SnapshotDiskObjectTree(DiskBackingRoot(state_root), kDiskPrefabId);
+  StoredLayerSet const user_a_before =
+      CollectDiskLayers(DiskUserRoot(state_root), kDiskInstanceId);
+
+  {
+    ae::Domain domain{overlay};
+    ae::DomainGraph graph{&domain};
+    ae::Ptr<ae::Obj> instance_root;
+    if (!graph.LoadRoot(kDiskInstanceId, instance_root).IsOk()) {
+      Fail("disk read: LoadRoot A");
+    }
+    ae::Ptr<OriginFacetTargetV1> instance{instance_root};
+    if (instance->obj_id != kDiskInstanceId ||
+        instance->GetClassId() != OriginFacetTargetV1::kClassId) {
+      Fail("disk read: A identity");
+    }
+    if (instance->value != kDiskValue || instance->tag != kDiskTag ||
+        instance->origin_id() != kDiskPrefabId) {
+      Fail("disk read: A fields or origin");
+    }
+    if (domain.Find(kDiskPrefabId)) {
+      Fail("disk read: P materialized during LoadRoot(A)");
+    }
+
+    user_storage.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    if (!save_graph.SaveRoot(instance, kDiskInstanceId).IsOk()) {
+      Fail("disk read: repeat SaveRoot A");
+    }
+    if (user_storage.SaveSessionHadFailure()) {
+      Fail("disk read: USER save session failed");
+    }
+  }
+
+  StoredLayerSet const user_a_after =
+      CollectDiskLayers(DiskUserRoot(state_root), kDiskInstanceId);
+  if (user_a_after != user_a_before) {
+    Fail("disk read: repeat SaveRoot changed USER/A layers");
+  }
+  if (DiskObjectHasAnyLayers(DiskUserRoot(state_root), kDiskPrefabId)) {
+    Fail("disk read: USER contains P layers");
+  }
+  DiskFileSnapshot const backing_p_after =
+      SnapshotDiskObjectTree(DiskBackingRoot(state_root), kDiskPrefabId);
+  if (backing_p_after != backing_p_before) {
+    Fail("disk read: BACKING/P changed after repeat SaveRoot(A)");
+  }
+}
+
 void TestFinalOriginRoundtripV0() {
   ae::RamDomainStorage storage;
   ae::ObjId const P_id{700u};
@@ -803,11 +1041,30 @@ void TestLoadRootRejectsObjFacetOnlyStorage() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
   apptraverse::EnsureObjectRegistration();
   (void)&g_apptraverse_registrar_OriginFacetTargetV0;
   (void)&g_apptraverse_registrar_OriginFacetTargetV1;
   (void)&g_apptraverse_registrar_OriginFacetTargetV1Gated;
+
+  if (argc == 3) {
+    std::string_view const mode{argv[1]};
+    std::filesystem::path const state_root{argv[2]};
+    if (mode == "--write") {
+      RunDiskOriginWrite(state_root);
+      return 0;
+    }
+    if (mode == "--read") {
+      RunDiskOriginRead(state_root);
+      return 0;
+    }
+    Fail("unknown disk mode (expected --write or --read)");
+  }
+  if (argc != 1) {
+    Fail("usage: object_origin_facet_test | --write <state-root> | --read "
+         "<state-root>");
+  }
+
   TestManualObjFacetRoundtrip();
   TestOrdinarySaveWithoutOriginFacet();
   TestDerivedWithOwnV1DoesNotWriteObjFacetWithoutOrigin();
