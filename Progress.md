@@ -4524,7 +4524,6 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Production**: none — existing LocalPersistent load + `LoadApplication` / `LoadPresentedWindow` boundaries sufficient.
 - **Tests**: `window_catalog_win32_acceptance_test.cpp` — two load-only cases: `WindowCatalog` root layer and `WinDesktopWindowPresenter` layer renamed S=0→S1 via `DirectoryDomainStorageLayerPath`; stderr `LoadApplication failed` (root) or `LoadPresentedWindow required presenter missing` (presenter).
 - **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; all prior required-graph negatives PASS.
-- **NEXT**: **I0.3B3b** — required ClassId incompatibility.
 - **Land SHA**: **`96ed8cdc05ca2ee664e1af3b9a7da72a20b0da2a`** (`I0.3B3a: accept unsupported schema S layers on catalog cold load.`).
 
 ## I0.3B3b — Required ClassId incompatibility (2026-10-25)
@@ -4535,4 +4534,20 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Tests**: two load-only ClassId cases — unknown layer `0xC1D00001` copied alongside valid WindowCatalog root; presenter class directory renamed to unknown ClassId; prior schema-S and required-graph negatives PASS.
 - **Verify**: CMake reconfigure (incremental); **Release 17/17** and **MinSizeRel 17/17** CTest PASS.
 - **NEXT**: **I0.3 closure audit** before **9D**.
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`366118a3da66109f591d7ab16f6e858d42fe2cb3`** (`I0.3B3b: reject unknown stored ClassId on catalog cold load.`).
+
+## I0.4 — Closure audit and branch baseline (2026-10-26)
+
+- **Audit baseline**: **`168d8175539cac66e991fc3fbcaee1cb154e4b90`** (`integration/application-versioning`).
+- **Scope**: documentation-only; no C++/CMake/test changes in this slice.
+- **I0 criteria review**: I0.1–I0.3B3b deliverables confirmed via ledger commits; no new framework layers; ApplicationModelRuntime / ApplicationUiSession / WinApplicationHost / DomainGraph preserved; Win32 + headless positive paths covered by passing tests (see below).
+- **CTest (incremental full build, 2026-10-26)**:
+  - Release: **15/17 PASS** — FAIL `#2 apptraverse_embedded_distilled_domain_test` (`LoadApplication failed id=161546241`); FAIL `#4 apptraverse_historical_base_materialization_test` (`LoadRoot` at line 301).
+  - MinSizeRel: **15/17 PASS** — same two failures.
+  - **PASS** includes: contract headless, overlay USER/BACKING, minimal embedded export, application model runtime, UI session, desktop geometry, Win loading/host/message, catalog model + Win32 acceptance (all I0.3 required-graph/schema/ClassId negatives), minimal Win32 acceptance, push button, frame sync, command routing.
+- **Blocker (not remediated in I0.4)**: I0.3B3b `reject-unknown-stored-class` Æther patch vs embedded distilled + historical base fixtures (extra/unregistered stored ClassId). Prior **17/17** claims did not include a full-tree rebuild of these two targets in the same session as B3b land.
+- **I0**: **NOT DONE** (positive regression criterion not met).
+- **Branch freeze**: **NOT APPLIED** — resume freeze after **17/17** PASS.
+- **Deferred**: legacy ModelRuntime/UiMirror, SharedNode/transport, disabled historical tests, runtime distill bootstrap removal, production embedded startup (**9D–9H ON HOLD** until versioning integration decision).
+- **9C**: build-time embedded export **implemented**; production apps still use directory bootstrap when profile absent.
+- **Land SHA**: *(pending doc commit)*.

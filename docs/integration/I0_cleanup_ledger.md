@@ -340,7 +340,65 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **I0.3B3 (ClassId + schema S):** **DONE** (B3a + B3b).
 
-**NEXT:** **I0.3 closure audit** — verify §1.6 I0.3 criteria before **9D**.
+**NEXT:** **I0.4** closure audit (2026-10-26).
+
+---
+
+## O. I0 Closure / Frozen Application Framework Baseline (I0.4 audit, 2026-10-26)
+
+**Audit entry baseline (git):** `168d8175539cac66e991fc3fbcaee1cb154e4b90`  
+**Branch:** `integration/application-versioning`  
+**I0 status:** **NOT DONE** — deliverables I0.1–I0.3B3b landed; **full CTest 17/17 not PASS** at audit (see below). Branch **not frozen** until 17/17 restored.
+
+### Completed I0 deliverables (verified by ledger + commits)
+
+| Slice | Status | Evidence |
+|-------|--------|----------|
+| I0.1 | DONE | This ledger; inventory of runtime, UI, serialization, bootstrap |
+| I0.2 | DONE | Seven orphan `src/*.cpp` removed; redundant Win registration removed from minimal graph builder (ledger §A/C) |
+| I0.3A | DONE | MinimalApplication required graph; `apptraverse_minimal_app_win32_acceptance_test` |
+| I0.3B | DONE | WindowCatalog cold-load boundaries (main window, list, locale, presenters, buttons, texts); win32 acceptance negatives |
+| I0.3B3 | DONE | Schema **S** + ClassId negatives; `aether-objects-reject-unknown-stored-class.patch` |
+
+**Framework preserved (no new managers/serializers):** `ApplicationModelRuntime`, `ApplicationUiSession`, `WinApplicationHost`, standard Æther `DomainGraph` / `DirectoryDomainStorage`, presented-window lifecycle helpers. Positive paths covered by active CTest (minimal + catalog Win32 acceptance, model tests, contract/runtime/session, host/presenters).
+
+**Not verified / out of active CTest:** legacy `ModelRuntime`/`UiMirror` demos, SharedNode/transport, disabled historical tests, multi-surface demos, chat/network.
+
+### CTest verification (I0.4 — incremental build, 2026-10-26)
+
+| Config | Result | Notes |
+|--------|--------|-------|
+| Release (`build-application-versioning-msvc-rel`) | **15/17 PASS**, **2 FAIL** | Full tree build + `ctest -C Release` |
+| MinSizeRel (`build-application-versioning-msvc-minsizerel`) | **15/17 PASS**, **2 FAIL** | Full tree build + `ctest -C MinSizeRel` |
+
+**Failures (both configs):**
+
+1. `apptraverse_embedded_distilled_domain_test` — abort `fatal: LoadApplication failed id=161546241` (exit `0xc0000409`).
+2. `apptraverse_historical_base_materialization_test` — `LoadRoot` failed at `historical_base_materialization_test.cpp:301`.
+
+**Likely cause (not fixed in I0.4):** `aether-objects-reject-unknown-stored-class.patch` (I0.3B3b) fail-closed `GetMostRelatedFactory` vs fixtures that persist extra/unregistered ClassId layers (embedded distilled + historical base materialization). WindowCatalog load-only ClassId negatives **PASS**; regression is in headless supply/backing tests.
+
+**15 PASS include:** contract headless, overlay USER/BACKING, minimal embedded export, model runtime, UI session, desktop geometry, Win loading/host/message, catalog model + Win32 acceptance (full required-graph negatives), minimal Win32 acceptance, native push button, frame sync, command routing.
+
+### Architecture boundaries at audit HEAD
+
+- **ClassId / ObjId / schema v0:** unchanged for MinimalApplication and WindowCatalog application objects.
+- **Æther pin:** `79283b667cabf689da1059d618fe2a22abf51db4` (unchanged).
+- **Patches on `aether-objects` (order):** `local-persistent-load`, `domain-storage-access`, `reject-unknown-stored-class`, `objptr-reset-flags`, `force-materialize`.
+- **9C build-time embedded export:** `apptraverse_export_minimal_distilled_graph` + generated supply header; **`apptraverse_minimal_app_embedded_export_test` PASS**; production MinimalApplication/WindowCatalog still use runtime distillation bootstrap when profile absent — **not** production embedded startup (9D).
+
+### Deferred (explicit)
+
+- Legacy `ModelRuntime` / `UiMirror` removal or migration
+- Disabled historical demos/tests (not in CTest)
+- SharedNode, transport, chat demos
+- Removing runtime distillation bootstrap from production apps
+- **9D–9H** production embedded startup, unified R/E/B/S, system origin/Clone/S, full lifecycle matrix
+- Production release readiness / cross-release compatibility claims
+
+### Unfreeze / resume **9D–9H**
+
+Work on **9D–9H** stays **ON HOLD** until: (1) **I0 DONE** with **17/17 CTest PASS**; (2) separate decision to integrate with `integration/serialization-surfaces` and Object Core versioning; (3) branch patch reconciliation, origin/Clone/S alignment, integration plan, merge + regression. **No merge/PR in I0.4.**
 
 ---
 

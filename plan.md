@@ -825,12 +825,14 @@ wording where it conflicted.
 | 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
 | 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
 | 9C | Build-time embedded export (MinimalApplication) | **DONE** |
-| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.3B3 done; **I0.3 closure audit NEXT**) |
-| I0.1 | Inventory / cleanup ledger | **DONE** — [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md) |
+| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.4 audit done; **17/17 CTest blocker**) |
+| I0.1 | Inventory / cleanup ledger | **DONE** |
 | I0.2 | Remove verified dead paths | **DONE** (orphan `.cpp` + redundant graph-builder Win ensure; legacy runtime **deferred**) |
-| I0.3 | Required graph cold-load contract | **IN_PROGRESS** |
+| I0.3 | Required graph cold-load contract | **DONE** (deliverables; see I0.4 CTest note) |
 | I0.3A | MinimalApplication required graph | **DONE** (after PASS) |
-| I0.3B | WindowCatalog + remaining boundaries | **IN_PROGRESS** |
+| I0.3B | WindowCatalog + remaining boundaries | **DONE** (after PASS) |
+| I0.4 | Closure audit / branch baseline | **DONE** (audit docs; **not** branch freeze — CTest 15/17) |
+| `integration/application-versioning` | Application Framework baseline branch | **NOT FROZEN** (pending 17/17 CTest) |
 | I0.3B1 | WindowCatalog required main window | **DONE** (after PASS) |
 | I0.3B2a | WindowCatalog required list / locale | **DONE** (after PASS) |
 | I0.3B2b | WindowCatalog required chrome presenters | **DONE** (after PASS) |
@@ -840,13 +842,19 @@ wording where it conflicted.
 | I0.3B3 | ClassId/schema **S** compatibility | **DONE** (after PASS) |
 | I0.3B3a | Required schema **S** incompatibility | **DONE** (after PASS) |
 | I0.3B3b | Required ClassId incompatibility | **DONE** (after PASS) |
-| 9D | MinimalApplication embedded startup | **PLANNED** (after I0 + 9C) |
-| 9E | WindowCatalog embedded startup | **PLANNED** |
-| 9F | Unified release bootstrap R/E/B/S | **PLANNED** |
-| 9G | System origin / Clone / S | **BLOCKED BY VERSIONING** |
-| 9H | Full functional lifecycle matrix | **PLANNED** (after 9F, 9G, versioning matrix) |
+| 9D | MinimalApplication embedded startup | **ON HOLD** (after I0 DONE + versioning integration decision) |
+| 9E | WindowCatalog embedded startup | **ON HOLD** |
+| 9F | Unified release bootstrap R/E/B/S | **ON HOLD** |
+| 9G | System origin / Clone / S | **ON HOLD** (blocked on versioning architecture) |
+| 9H | Full functional lifecycle matrix | **ON HOLD** (after 9F, 9G, versioning matrix) |
 
-Do not mark **I0** DONE until I0.1–I0.3 criteria in §1.6.4 are met.
+Do not mark **I0** DONE until I0.1–I0.3 criteria in §1.6.4 are met **and** active CTest **17/17 PASS** (Release + MinSizeRel).
+
+### Branch freeze and **9D–9H** resume (I0.4)
+
+**`integration/application-versioning`** is the Application Framework work branch. **Frozen baseline** (no new feature work) applies only after **I0 DONE** and **17/17 CTest PASS**. I0.4 (2026-10-26) recorded audit at **`168d817`**; freeze **deferred** due to **`apptraverse_embedded_distilled_domain_test`** and **`apptraverse_historical_base_materialization_test`** failures after full rebuild with I0.3B3b Æther patch.
+
+**9D–9H** remain **ON HOLD** until a separate decision to integrate with **`integration/serialization-surfaces`**, when required Object Core / versioning mechanisms are implemented and verified. Before integration: reconcile Æther patches on both branches; align origin/Clone/S with Application Framework; prepare an integration plan; execute merge and full regression. **Do not start 9D–9H or integration in I0.4.**
 
 ### Prototype development principles
 
@@ -917,7 +925,7 @@ transport headers remain; bodies deferred to **FUTURE** / Git history.
 tests (ledger §C #3); runtime distill bootstrap (**9D/9E**); catalog graph-builder
 registration pattern unchanged.
 
-#### I0.3 — Required graph cold-load contract (IN_PROGRESS)
+#### I0.3 — Required graph cold-load contract (DONE — deliverables)
 
 **I0.3A — MinimalApplication (DONE, 2026-10-25):** `LoadPresentedWindow` fail-fast
 for missing window/presenter; `RunMinimalApplicationModel` unconditionally loads
@@ -950,7 +958,7 @@ before `MaterializeCatalogStrings`; load-only negatives for each ref class.
 unsupported S layers; B3b reject-unknown-stored-class Æther patch +
 acceptance ClassId negatives. Not corrupted-byte torture.
 
-**NEXT:** **I0.3 closure audit** — confirm I0.3 complete before **9D**.
+**I0.4 — Closure audit (2026-10-26):** Ledger §O; CTest **15/17** Release + MinSizeRel — see blocker above. **I0 not closed.**
 
 Document and test (only if gaps exist):
 
