@@ -4552,3 +4552,13 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **9C**: build-time embedded export **implemented**; production apps still use directory bootstrap when profile absent.
 - **Land SHA**: **`7a5d66e`** (`I0.4: closure audit docs; I0 blocked on CTest 15/17.`).
 - **Doc HEAD (not frozen baseline)**: **`c99307f`** — audit code baseline remains **`168d817`**; branch freeze deferred until **17/17** CTest.
+
+## I0.5 — Restore missing object registration in two tests (2026-10-26)
+
+- **Baseline**: **`d736ea7b3e4f554e7be72e643caea7b4cdcbaca2`**.
+- **Root cause**: I0.3B3b `reject-unknown-stored-class` treats any stored ClassId not in the domain registry (except `ae::Obj::kClassId`) as fail-closed. Both tests distill/save graphs with native **`Node`** (and related) class layers but **`main()`** did not call **`EnsureObjectRegistration()`**, so `APPTRAVERSE_REGISTER(Node|Event|Presenter)` in `apptraverse.cpp` was not linked and **`Node::kClassId`** appeared “unknown” → `GetMostRelatedFactory` returned `nullptr`.
+- **Fix**: `apptraverse::EnsureObjectRegistration();` at start of **`main()`** in `tests/embedded_distilled_domain_test.cpp` and `tests/historical_base_materialization_test.cpp` only. No fixture/serialization/patch changes.
+- **Verify**: incremental Release + MinSizeRel; targeted **2/2 PASS** each config; full CTest **Release 17/17**, **MinSizeRel 17/17** (including `apptraverse_window_catalog_win32_acceptance_test` unknown ClassId negatives).
+- **I0**: **IN_PROGRESS** (CTest blocker cleared; separate closure/freeze step pending).
+- **9D–9H**: **ON HOLD**.
+- **Land SHA**: **`22eee7b`** (`I0.5: call EnsureObjectRegistration in two headless tests.`).

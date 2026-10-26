@@ -348,7 +348,7 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **Audit entry baseline (git):** `168d8175539cac66e991fc3fbcaee1cb154e4b90`  
 **Branch:** `integration/application-versioning`  
-**I0 status:** **NOT DONE** — deliverables I0.1–I0.3B3b landed; **full CTest 17/17 not PASS** at audit (see below). Branch **not frozen** until 17/17 restored.
+**I0 status:** **IN_PROGRESS** — deliverables I0.1–I0.3B3b landed; I0.4 recorded **15/17** CTest; **I0.5** restored **17/17** (see below). Branch **not frozen** until explicit I0 closure step.
 
 ### Completed I0 deliverables (verified by ledger + commits)
 
@@ -376,9 +376,18 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 1. `apptraverse_embedded_distilled_domain_test` — abort `fatal: LoadApplication failed id=161546241` (exit `0xc0000409`).
 2. `apptraverse_historical_base_materialization_test` — `LoadRoot` failed at `historical_base_materialization_test.cpp:301`.
 
-**Likely cause (not fixed in I0.4):** `aether-objects-reject-unknown-stored-class.patch` (I0.3B3b) fail-closed `GetMostRelatedFactory` vs fixtures that persist extra/unregistered ClassId layers (embedded distilled + historical base materialization). WindowCatalog load-only ClassId negatives **PASS**; regression is in headless supply/backing tests.
+**Root cause (confirmed I0.5):** patch correctly fail-closed on unregistered stored ClassIds; tests omitted **`EnsureObjectRegistration()`**, so **`Node::kClassId`** (native layers) was not in the registry — only `ae::Obj::kClassId` is exempt. Not fixture/serialization change.
 
 **15 PASS include:** contract headless, overlay USER/BACKING, minimal embedded export, model runtime, UI session, desktop geometry, Win loading/host/message, catalog model + Win32 acceptance (full required-graph negatives), minimal Win32 acceptance, native push button, frame sync, command routing.
+
+### CTest verification (I0.5 — fix + re-run, 2026-10-26)
+
+| Config | Result | Notes |
+|--------|--------|-------|
+| Release | **17/17 PASS** | `EnsureObjectRegistration()` at start of `main()` in both failing tests |
+| MinSizeRel | **17/17 PASS** | `apptraverse_window_catalog_win32_acceptance_test` unknown ClassId negatives **PASS** |
+
+**Fix scope:** test `main()` only; Æther patch unchanged.
 
 ### Architecture boundaries at audit HEAD
 

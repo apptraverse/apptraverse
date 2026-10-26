@@ -825,14 +825,15 @@ wording where it conflicted.
 | 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
 | 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
 | 9C | Build-time embedded export (MinimalApplication) | **DONE** |
-| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.4 audit done; **17/17 CTest blocker**) |
+| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.5 restored **17/17** CTest; closure/freeze **NEXT**) |
 | I0.1 | Inventory / cleanup ledger | **DONE** |
 | I0.2 | Remove verified dead paths | **DONE** (orphan `.cpp` + redundant graph-builder Win ensure; legacy runtime **deferred**) |
 | I0.3 | Required graph cold-load contract | **DONE** (deliverables; see I0.4 CTest note) |
 | I0.3A | MinimalApplication required graph | **DONE** (after PASS) |
 | I0.3B | WindowCatalog + remaining boundaries | **DONE** (after PASS) |
-| I0.4 | Closure audit / branch baseline | **DONE** (audit docs; **not** branch freeze — CTest 15/17) |
-| `integration/application-versioning` | Application Framework baseline branch | **NOT FROZEN** (pending 17/17 CTest) |
+| I0.4 | Closure audit / branch baseline | **DONE** (historical **15/17** at audit; see I0.5) |
+| I0.5 | Restore headless test registration | **DONE** (after **17/17** PASS) |
+| `integration/application-versioning` | Application Framework baseline branch | **NOT FROZEN** (pending I0 closure step) |
 | I0.3B1 | WindowCatalog required main window | **DONE** (after PASS) |
 | I0.3B2a | WindowCatalog required list / locale | **DONE** (after PASS) |
 | I0.3B2b | WindowCatalog required chrome presenters | **DONE** (after PASS) |
@@ -852,7 +853,7 @@ Do not mark **I0** DONE until I0.1–I0.3 criteria in §1.6.4 are met **and** ac
 
 ### Branch freeze and **9D–9H** resume (I0.4)
 
-**`integration/application-versioning`** is the Application Framework work branch. **Frozen baseline** (no new feature work) applies only after **I0 DONE** and **17/17 CTest PASS**. I0.4 (2026-10-26) recorded audit at **`168d817`**; freeze **deferred** due to **`apptraverse_embedded_distilled_domain_test`** and **`apptraverse_historical_base_materialization_test`** failures after full rebuild with I0.3B3b Æther patch.
+**`integration/application-versioning`** is the Application Framework work branch. **Frozen baseline** applies only after **I0 DONE** and documented closure. I0.4 (2026-10-26) recorded **15/17** CTest at **`168d817`**; **I0.5** (2026-10-26) restored **17/17** by adding **`EnsureObjectRegistration()`** in the two headless tests (missing link of core `Node`/`Event`/`Presenter` registrars — not a contract weakening). Branch freeze remains for a separate closure pass.
 
 **9D–9H** remain **ON HOLD** until a separate decision to integrate with **`integration/serialization-surfaces`**, when required Object Core / versioning mechanisms are implemented and verified. Before integration: reconcile Æther patches on both branches; align origin/Clone/S with Application Framework; prepare an integration plan; execute merge and full regression. **Do not start 9D–9H or integration in I0.4.**
 
