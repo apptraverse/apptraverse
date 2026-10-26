@@ -508,6 +508,16 @@ ae::ObjId CatalogMainWindowPresenterObjId() {
       window_catalog_demo::ObjId::MainWindowPresenter)};
 }
 
+ae::ObjId CatalogListObjId() {
+  return ae::ObjId{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::CatalogList)};
+}
+
+ae::ObjId CatalogLocaleObjId() {
+  return ae::ObjId{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Locale)};
+}
+
 std::filesystem::path NegativeStateDir(char const* suffix) {
   auto dir = std::filesystem::temp_directory_path() / "apptraverse_test" /
              ("window_catalog_win32_acceptance_" + std::string{suffix});
@@ -685,6 +695,174 @@ void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) 
   RegisterCatalogTypes();
   DirectoryDomainStorage storage{state_dir};
   storage.Remove(CatalogMainWindowPresenterObjId());
+}
+
+void WriteProfileMissingListRef(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  catalog->list = CatalogListContainer::ptr::Declare(
+      ae::CreateWith{domain}.with_id(ae::ObjId{}));
+  if (catalog->base.is_valid()) {
+    if (!catalog->base.is_loaded()) {
+      catalog->base.Load();
+    }
+    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
+    base_catalog.list = CatalogListContainer::ptr::Declare(
+        ae::CreateWith{domain}.with_id(ae::ObjId{}));
+    catalog->base.Save();
+  }
+  ae::DomainGraph graph{&domain};
+  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
+}
+
+void AssertListRefAbsent(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  catalog->list.Load();
+  CHECK(!catalog->list.is_valid());
+  CHECK(!catalog->list);
+}
+
+void WriteProfileMissingListObject(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  storage.Remove(CatalogListObjId());
+}
+
+void AssertListObjectAbsent(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  CHECK(storage.Enumerate(CatalogListObjId()).empty());
+}
+
+void WriteProfileMissingLocaleRef(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  catalog->locale = ui::UiLocaleSettings::ptr::Declare(
+      ae::CreateWith{domain}.with_id(ae::ObjId{}));
+  if (catalog->base.is_valid()) {
+    if (!catalog->base.is_loaded()) {
+      catalog->base.Load();
+    }
+    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
+    base_catalog.locale = ui::UiLocaleSettings::ptr::Declare(
+        ae::CreateWith{domain}.with_id(ae::ObjId{}));
+    catalog->base.Save();
+  }
+  ae::DomainGraph graph{&domain};
+  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
+}
+
+void AssertLocaleRefAbsent(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  catalog->locale.Load();
+  CHECK(!catalog->locale.is_valid());
+  CHECK(!catalog->locale);
+}
+
+ae::ObjId LoadCatalogLocaleObjId(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  catalog->locale.Load();
+  CHECK(catalog->locale.is_valid());
+  return catalog->locale.id();
+}
+
+ae::ObjId WriteProfileMissingLocaleObject(
+    std::filesystem::path const& state_dir) {
+  ae::ObjId const locale_id = LoadCatalogLocaleObjId(state_dir);
+  DirectoryDomainStorage storage{state_dir};
+  storage.Remove(locale_id);
+  return locale_id;
+}
+
+void AssertLocaleObjectAbsent(std::filesystem::path const& state_dir,
+                              ae::ObjId locale_id) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  CHECK(storage.Enumerate(locale_id).empty());
+}
+
+void ExpectFatalLoadOnlyOrLoadApplication(ChildRunResult const& result,
+                                          char const* primary_needle) {
+  bool const primary =
+      result.stderr_text.find(primary_needle) != std::string::npos;
+  bool const load_failed =
+      result.stderr_text.find("fatal: LoadApplication failed") !=
+      std::string::npos;
+  CHECK(result.exit_code != 0);
+  CHECK(primary || load_failed);
+  if (!primary && !load_failed) {
+    std::cerr << "load-only stderr was:\n" << result.stderr_text << '\n';
+    std::exit(1);
+  }
+}
+
+void RunRequiredListLocaleNegativeTests(
+    std::filesystem::path const& good_state,
+    std::filesystem::path const& load_only) {
+  {
+    auto const dir = NegativeStateDir("missing_list_ref");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    WriteProfileMissingListRef(dir);
+    AssertListRefAbsent(dir);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnly(result, "fatal: WindowCatalog required list missing");
+  }
+
+  {
+    auto const dir = NegativeStateDir("missing_list_object");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    WriteProfileMissingListObject(dir);
+    AssertListObjectAbsent(dir);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnlyOrLoadApplication(
+        result, "fatal: WindowCatalog required list missing");
+  }
+
+  {
+    auto const dir = NegativeStateDir("missing_locale_ref");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    WriteProfileMissingLocaleRef(dir);
+    AssertLocaleRefAbsent(dir);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnly(result, "fatal: WindowCatalog required locale missing");
+  }
+
+  {
+    auto const dir = NegativeStateDir("missing_locale_object");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    ae::ObjId const locale_id = WriteProfileMissingLocaleObject(dir);
+    AssertLocaleObjectAbsent(dir, locale_id);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnlyOrLoadApplication(
+        result, "fatal: WindowCatalog required locale missing");
+  }
 }
 
 void RunRequiredMainWindowNegativeTests(
@@ -960,8 +1138,9 @@ void RunLanguageAndFocusAcceptance() {
 
 void RunAcceptanceAndRequiredMainWindowNegatives() {
   auto const good_state = RunRestartPersistenceAcceptance();
-  RunRequiredMainWindowNegativeTests(
-      good_state, DemoExe("win32_window_catalog_demo_load_only.exe"));
+  auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
+  RunRequiredMainWindowNegativeTests(good_state, load_only);
+  RunRequiredListLocaleNegativeTests(good_state, load_only);
   RunLanguageAndFocusAcceptance();
 }
 

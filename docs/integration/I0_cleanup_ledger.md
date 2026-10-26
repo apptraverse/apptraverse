@@ -220,7 +220,28 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **Preserved:** Add/Open/Close/Delete, lazy holders, localization, positive acceptance paths.
 
-**NEXT:** **I0.3B2** — list, locale, chrome presenters, ClassId/**S** compatibility.
+**NEXT:** **I0.3B2b** — required chrome graph/presenters; ClassId/**S** compatibility (separate iteration).
+
+---
+
+## I. I0.3B2a — WindowCatalog required list / locale cold load (DONE 2026-10-25)
+
+**Baseline:** `7d3b02d7366fe1f7e63668af1b9c7f4c5ed48661`
+
+| Boundary | Change |
+|----------|--------|
+| `WindowCatalogModelSession::Run` | After checkpoint + `ui::LoadPresentedWindow(catalog->main_window)`, before `language_index()`: `catalog->list.Load()` / `catalog->locale.Load()` with fail-fast (`WindowCatalog required list missing` / `WindowCatalog required locale missing`). Single initial-load check; no repeated guards after success. |
+
+**Failure cases verified** (`apptraverse_window_catalog_win32_acceptance_test`, `win32_window_catalog_demo_load_only.exe`, stderr, 30s timeout):
+
+- Empty catalog `list` ref (`DomainGraph::SaveRoot`, historical base cleared, checkpoint removed, re-load asserts absent ref)
+- `Remove(CatalogList)` → non-zero exit + fatal (`LoadApplication failed` or list boundary)
+- Empty catalog `locale` ref (same profile pattern as list ref)
+- `Remove(actual locale ObjId from profile)` → non-zero exit + fatal (`LoadApplication failed` or locale boundary). Locale is not stored at demo enum id 14; tests resolve the persisted ref before `Remove`.
+
+**Preserved:** main window boundary (I0.3B1), chrome, lazy holders, `RestoreLoadedCatalogWindows`, schemas v0, distillation bootstrap.
+
+**NEXT:** **I0.3B2b** — chrome graph/presenters; ClassId/**S** (not corrupted-byte torture).
 
 ---
 

@@ -86,6 +86,16 @@ void WindowCatalogModelSession::Run(
                                   *catalog);
     }
     ui::LoadPresentedWindow(catalog->main_window);
+    catalog->list.Load();
+    if (!catalog->list) {
+      WriteFatalStderr("fatal: WindowCatalog required list missing\n");
+      std::abort();
+    }
+    catalog->locale.Load();
+    if (!catalog->locale) {
+      WriteFatalStderr("fatal: WindowCatalog required locale missing\n");
+      std::abort();
+    }
     int const language = catalog->locale->language_index();
     catalog->MaterializeCatalogStrings(language);
     for (auto const& row : catalog->list->rows) {

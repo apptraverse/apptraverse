@@ -825,14 +825,15 @@ wording where it conflicted.
 | 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
 | 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
 | 9C | Build-time embedded export (MinimalApplication) | **DONE** |
-| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.3B1 done; **I0.3B2 NEXT**) |
+| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.3B2a done; **I0.3B2b NEXT**) |
 | I0.1 | Inventory / cleanup ledger | **DONE** — [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md) |
 | I0.2 | Remove verified dead paths | **DONE** (orphan `.cpp` + redundant graph-builder Win ensure; legacy runtime **deferred**) |
 | I0.3 | Required graph cold-load contract | **IN_PROGRESS** |
 | I0.3A | MinimalApplication required graph | **DONE** (after PASS) |
 | I0.3B | WindowCatalog + remaining boundaries | **IN_PROGRESS** |
 | I0.3B1 | WindowCatalog required main window | **DONE** (after PASS) |
-| I0.3B2 | Catalog required refs + ClassId/**S** | **NEXT** |
+| I0.3B2a | WindowCatalog required list / locale | **DONE** (after PASS) |
+| I0.3B2b | Catalog chrome presenters + ClassId/**S** | **NEXT** |
 | 9D | MinimalApplication embedded startup | **PLANNED** (after I0 + 9C) |
 | 9E | WindowCatalog embedded startup | **PLANNED** |
 | 9F | Unified release bootstrap R/E/B/S | **PLANNED** |
@@ -924,8 +925,14 @@ calls `ui::LoadPresentedWindow(catalog->main_window)` after checkpoint, before
 `apptraverse_window_catalog_win32_acceptance_test` (load-only). Holder lazy windows
 unchanged.
 
-**I0.3B2 — WindowCatalog remaining required refs + ClassId/**S** (NEXT):** list,
-locale, chrome presenters; compatibility checks (not corrupted-byte tests).
+**I0.3B2a — WindowCatalog list / locale (DONE, 2026-10-25):** after main window
+load, `catalog->list` and `catalog->locale` loaded once via `ObjPtr::Load()` with
+explicit fatals before materialization. Four load-only negatives in
+`apptraverse_window_catalog_win32_acceptance_test` (empty list/locale refs;
+`Remove` for list object and persisted locale ObjId).
+
+**I0.3B2b — WindowCatalog chrome presenters + ClassId/**S** (NEXT):** remaining
+required chrome graph; compatibility checks (not corrupted-byte tests).
 
 Document and test (only if gaps exist):
 

@@ -4479,3 +4479,13 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
 - **NEXT**: **I0.3B2** — remaining WindowCatalog required refs + ClassId/**S** compatibility.
 - **Land SHA**: **`7621820535cbb082f0cd0c0ac77c31959b2ba152`** (`I0.3B1: require WindowCatalog main window cold load before publication.`).
+
+## I0.3B2a — WindowCatalog required list / locale cold load (2026-10-25)
+
+- **Baseline**: **`7d3b02d7366fe1f7e63668af1b9c7f4c5ed48661`** (`integration/application-versioning`).
+- **Production**: `examples/surfaces_demo/common/window_catalog_lifecycle.cpp` — after checkpoint + `LoadPresentedWindow(main_window)`, unconditional `catalog->list.Load()` / `catalog->locale.Load()` with `WriteFatalStderr` + `abort` when empty (before `language_index()` / list row iteration).
+- **Tests**: `tests/window_catalog_win32_acceptance_test.cpp` — four load-only negatives: empty `list` ref, `Remove(CatalogList)`, empty `locale` ref, `Remove` of persisted locale ObjId (resolved via reload; not fixed demo enum id 14); profile re-load / storage enumerate asserts before child spawn; list-object case may fail earlier at `LoadApplication failed`.
+- **Unchanged**: main-window boundary, chrome, lazy holders, `RestoreLoadedCatalogWindows`, constructors, Load/Save, schema v0, CMake, runtime bootstrap.
+- **Verify**: incremental `build-application-versioning-msvc-rel` + `build-application-versioning-msvc-minsizerel`; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
+- **NEXT**: **I0.3B2b** — required chrome graph/presenters (ClassId/**S** separate).
+- **Land SHA**: *(pending commit)*.
