@@ -330,7 +330,7 @@ Happy path и семантические инварианты — сейчас; 
 | 12B.1 | PASS | `4e8662b` | `object_origin_facet_test`, `model_persistence_test`, `overlay_domain_storage_test` Debug+Release | **`TestConstPrefabDynamicInstanceRoundtrip`** (overlay RAM) |
 | 12B.2 | PASS | `02272ab` | `apptraverse_object_origin_disk_roundtrip_test` (`--write`/`--read` on facet EXE) + regressions Debug+Release | Process 1 save / Process 2 cold load; BACKING **P** frozen; no USER **P** |
 | 13 | IN_PROGRESS | — | **13.1 PASS** (doc); **13.2–13.6** TODO | **Canonical scratch clone** — [PLAN §13](./PLAN.md#13--универсальный-clone-in_progress-131-pass-doc) |
-| 13.1 | PASS (doc) | *(land SHA)* | — | Контракт Clone; **`LoadCopy` rejected**; этапы **13.2–13.6** |
+| 13.1 | PASS (doc) | `526ce69` | — | Контракт Clone; **`LoadCopy` rejected**; этапы **13.2–13.6** |
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
 | 15 | TODO | — | — | Единая модель поставок R/E/B/S; **T11–T15** |
 | 16 | TODO | — | — | **R0–R5** lifecycle; **T01–T18** subset |
