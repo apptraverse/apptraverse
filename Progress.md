@@ -4517,3 +4517,12 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; EN/RU acceptance and prior required-graph boundaries preserved.
 - **NEXT**: **I0.3B3** — ClassId/schema **S** compatibility (separate from corrupted-byte tests).
 - **Land SHA**: **`ece8dbcf0e832f995037360d6cff3c0df363aa13`** (`I0.3B2c2: require WindowCatalog localized text refs on cold load.`).
+
+## I0.3B3a — Required schema S incompatibility (2026-10-25)
+
+- **Baseline**: **`e888a6094ac5827fcc69582b929e5da9274cef6b`** (`integration/application-versioning`).
+- **Production**: none — existing LocalPersistent load + `LoadApplication` / `LoadPresentedWindow` boundaries sufficient.
+- **Tests**: `window_catalog_win32_acceptance_test.cpp` — two load-only cases: `WindowCatalog` root layer and `WinDesktopWindowPresenter` layer renamed S=0→S1 via `DirectoryDomainStorageLayerPath`; stderr `LoadApplication failed` (root) or `LoadPresentedWindow required presenter missing` (presenter).
+- **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; all prior required-graph negatives PASS.
+- **NEXT**: **I0.3B3b** — required ClassId incompatibility.
+- **Land SHA**: **`96ed8cdc05ca2ee664e1af3b9a7da72a20b0da2a`** (`I0.3B3a: accept unsupported schema S layers on catalog cold load.`).

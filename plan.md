@@ -837,7 +837,9 @@ wording where it conflicted.
 | I0.3B2c | Catalog chrome buttons + localized text refs | **DONE** (after PASS) |
 | I0.3B2c1 | WindowCatalog required chrome buttons | **DONE** (after PASS) |
 | I0.3B2c2 | WindowCatalog required localized text refs | **DONE** (after PASS) |
-| I0.3B3 | ClassId/schema **S** compatibility | **NEXT** |
+| I0.3B3 | ClassId/schema **S** compatibility | **IN_PROGRESS** |
+| I0.3B3a | Required schema **S** incompatibility | **DONE** (after PASS) |
+| I0.3B3b | Required ClassId incompatibility | **NEXT** |
 | 9D | MinimalApplication embedded startup | **PLANNED** (after I0 + 9C) |
 | 9E | WindowCatalog embedded startup | **PLANNED** |
 | 9F | Unified release bootstrap R/E/B/S | **PLANNED** |
@@ -944,8 +946,14 @@ load-only negatives (five cleared refs + `Remove` of persisted
 2026-10-25):** B2c1 (four buttons) + B2c2 (five `WindowCatalogTexts` refs)
 before `MaterializeCatalogStrings`; load-only negatives for each ref class.
 
-**I0.3B3 — ClassId/schema **S** compatibility (NEXT):** functional
-incompatibility must fail loudly; not corrupted-byte torture tests.
+**I0.3B3 — ClassId/schema **S** compatibility (IN_PROGRESS):**
+
+**I0.3B3a — schema **S** (DONE, 2026-10-25):** acceptance-only; relocate
+required layers from S=0 to S=1 for WindowCatalog root and
+`WinDesktopWindowPresenter`; existing load graph rejects (no production change).
+
+**I0.3B3b — ClassId (NEXT):** functional ClassId mismatch; not corrupted-byte
+torture tests.
 
 Document and test (only if gaps exist):
 
