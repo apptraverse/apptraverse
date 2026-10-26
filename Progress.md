@@ -4499,3 +4499,12 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**; positive acceptance (Add/Open/Delete, EN/RU, geometry, persistence) preserved.
 - **NEXT**: **I0.3B2c** — required chrome buttons and localized text refs.
 - **Land SHA**: **`a460ab2e32c393130d57b74f1b6d52889bb9c996`** (`I0.3B2b: require WindowCatalog chrome presenters on cold load.`).
+
+## I0.3B2c1 — WindowCatalog required chrome buttons cold load (2026-10-25)
+
+- **Baseline**: **`a26d81d3fd871663e6ebb588ea1b1f43bb978a2c`** (`integration/application-versioning`).
+- **Production**: `window_catalog_lifecycle.cpp` — after chrome presenters, `Load()` on `buttons.add_button` / `open_button` / `delete_button` / `language_button`; one fatal `WindowCatalog required chrome button missing` before `MaterializeCatalogStrings`.
+- **Tests**: five load-only negatives (four cleared button refs + `Remove` of persisted `add_button` ObjId); pointer-to-member helper; `RefreshChromeButtonEnabledState` untouched.
+- **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; positive acceptance preserved.
+- **NEXT**: **I0.3B2c2** — required localized text refs (`WindowCatalogTexts`).
+- **Land SHA**: *(pending commit)*.
