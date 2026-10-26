@@ -327,7 +327,7 @@ Happy path и семантические инварианты — сейчас; 
 | 12R.1 | PASS (doc) | `c00aafe`+ | — | Техпроверка pin **`79283b6`** — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only) |
 | 12R.2a | PASS | `ead8e61` | origin facet Debug+Release; persistence/prefab split Debug | [§12R.2a](#12r2a--базовый-objs1-origin-facet-pass-code) |
 | 12B | IN_PROGRESS | — | **12B.1 PASS**; **12B.2** disk/process TODO | P→A overlay origin; не полный **12B PASS** |
-| 12B.1 | PASS | `c1c8a12` | `object_origin_facet_test`, `model_persistence_test`, `overlay_domain_storage_test` Debug+Release; prefab compaction/guard/dynamic-layer matrices Debug+Release | **`TestConstPrefabDynamicInstanceRoundtrip`** (`OriginFacetTargetV1`, USER/BACKING overlay) |
+| 12B.1 | PASS | — | `object_origin_facet_test`, `model_persistence_test` Debug+Release; prefab compaction/guard/dynamic-layer Release (2026-10-26) | **`TestPrefabOriginOverlayRoundtrip`**; **`overlay_domain_storage_test`** — target отсутствует в текущем `out/*/tests` MSBuild tree (**не** пересобирался) |
 | 13 | TODO | — | — | **Универсальный Clone** (после **12B**) |
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
 | 15 | TODO | — | — | Единая модель поставок R/E/B/S; **T11–T15** |
@@ -395,7 +395,7 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-25** — **12R.2a:** CPM origin facet + `apptraverse_object_origin_facet_test`; versioning fix в `domain.h`; Debug origin + model_persistence + prefab supply split; Release origin + model_persistence; **12R.2a PASS**; **12R TODO**; push — **`ead8e61`**.
 - **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`ce46b80`**.
 
-- **2026-10-26** — **12B.1:** `TestConstPrefabDynamicInstanceRoundtrip` in `object_origin_facet_test.cpp` — const **P** in BACKING, dynamic **A** in USER with **`SetOriginId(P)`** via **`OverlayDomainStorage`**; cold **`LoadRoot(A)`** preserves fields/origin without materializing **P**; **12B.1 PASS**; **12B IN_PROGRESS**. Verify: `apptraverse_object_origin_facet_test`, `apptraverse_model_persistence_test`, `apptraverse_overlay_domain_storage_test` Debug+Release; prefab compaction/guard/dynamic-layer matrices Debug+Release. Baseline **`b5f050c`**. Land SHA — commit below.
+- **2026-10-26** — **12B.1:** `TestConstPrefabDynamicInstanceRoundtrip` in `object_origin_facet_test.cpp` — const **P** in BACKING, dynamic **A** in USER with **`SetOriginId(P)`** via **`OverlayDomainStorage`**; cold **`LoadRoot(A)`** preserves fields/origin without materializing **P**; **12B.1 PASS**; **12B IN_PROGRESS**. Verify: `apptraverse_object_origin_facet_test`, `apptraverse_model_persistence_test`, `apptraverse_overlay_domain_storage_test` Debug+Release; prefab compaction/guard/dynamic-layer matrices Debug+Release. Baseline **`b5f050c`**. Push — **`c1c8a12`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
 
