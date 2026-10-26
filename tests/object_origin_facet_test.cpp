@@ -11,6 +11,7 @@
 #include "aether-objects/obj/version_iterator.h"
 
 #include "apptraverse/object_macros.h"
+#include "apptraverse/overlay_domain_storage.h"
 
 namespace {
 
@@ -505,6 +506,15 @@ bool PrefabBodyAbsent(ae::RamDomainStorage const& storage, ae::ObjId prefab_id) 
   return it->second->empty();
 }
 
+bool UserHasAnyLayers(ae::RamDomainStorage const& user, ae::ObjId object_id) {
+  return !PrefabBodyAbsent(user, object_id);
+}
+
+bool BackingStateUnchanged(ae::RamDomainStorage const& backing,
+                           ae::RamDomainStorage::ObjClassData const& snapshot) {
+  return backing.state == snapshot;
+}
+
 void TestFinalOriginRoundtripV0() {
   ae::RamDomainStorage storage;
   ae::ObjId const P_id{700u};
@@ -652,6 +662,151 @@ void TestFinalOriginRoundtripV1WithShouldSaveVersion() {
       });
 }
 
+void TestPrefabOriginOverlayRoundtrip() {
+  ae::ObjId const P_id{81001u};
+  ae::ObjId const A_id{81002u};
+  ae::ObjId const no_origin_id{81003u};
+  std::uint32_t const kPrefabValue = 150u;
+  std::uint32_t const kMutatedValue = 1601u;
+
+  ae::RamDomainStorage backing;
+  {
+    ae::Domain domain{backing};
+    OriginFacetTargetV0::ptr prefab = OriginFacetTargetV0::ptr::Create(
+        ae::CreateWith{domain}.with_id(P_id));
+    prefab.Load()->value = kPrefabValue;
+    ae::DomainGraph graph{&domain};
+    if (!graph.SaveRoot(prefab.Load(), P_id).IsOk()) {
+      Fail("SaveRoot P to BACKING");
+    }
+  }
+  if (!HasStoredLayer(backing, P_id, OriginFacetTargetV0::kClassId, 0)) {
+    Fail("P missing Derived/S0 in BACKING");
+  }
+  ae::RamDomainStorage::ObjClassData const backing_snapshot = backing.state;
+
+  ae::RamDomainStorage user;
+  std::set<ae::ObjId> supply_constants{P_id};
+  apptraverse::OverlayDomainStorage overlay{user, backing, std::move(supply_constants)};
+
+  StoredLayerSet layers_after_first_save;
+  {
+    ae::Domain domain{overlay};
+    ae::DomainGraph graph{&domain};
+    ae::Ptr<ae::Obj> prefab_root;
+    if (!graph.LoadRoot(P_id, prefab_root).IsOk()) {
+      Fail("LoadRoot P from overlay");
+    }
+    ae::Ptr<OriginFacetTargetV0> prefab{prefab_root};
+    if (prefab->value != kPrefabValue) {
+      Fail("prefab field mismatch after load");
+    }
+
+    OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
+        ae::CreateWith{domain}.with_id(A_id));
+    ae::Ptr<OriginFacetTargetV0> instance_body = instance.Load();
+    instance_body->value = prefab->value;
+    instance_body->SetOriginId(P_id);
+    if (A_id == P_id) {
+      Fail("A and P must have distinct ObjIds");
+    }
+    if (!graph.SaveRoot(instance_body, A_id).IsOk()) {
+      Fail("SaveRoot dynamic A");
+    }
+
+    OriginFacetTargetV0::ptr plain = OriginFacetTargetV0::ptr::Create(
+        ae::CreateWith{domain}.with_id(no_origin_id));
+    plain.Load()->value = 9;
+    if (!graph.SaveRoot(plain.Load(), no_origin_id).IsOk()) {
+      Fail("SaveRoot instance without origin");
+    }
+    layers_after_first_save = CollectStoredLayers(user, A_id);
+  }
+
+  if (!HasStoredLayer(user, A_id, OriginFacetTargetV0::kClassId, 0) ||
+      !HasStoredLayer(user, A_id, ae::Obj::kClassId, 1)) {
+    Fail("USER missing Derived/S0 or Obj/S1 for A");
+  }
+  if (HasStoredLayer(user, no_origin_id, ae::Obj::kClassId, 1)) {
+    Fail("Obj/S1 without origin in USER");
+  }
+  if (UserHasAnyLayers(user, P_id)) {
+    Fail("USER contains layers for supply-constant P");
+  }
+  if (!BackingStateUnchanged(backing, backing_snapshot)) {
+    Fail("BACKING changed after SaveRoot(A)");
+  }
+
+  {
+    ae::Domain domain{overlay};
+    ae::DomainGraph graph{&domain};
+    ae::Ptr<ae::Obj> instance_root;
+    if (!graph.LoadRoot(A_id, instance_root).IsOk()) {
+      Fail("cold LoadRoot(A) without loading P first");
+    }
+    ae::Ptr<OriginFacetTargetV0> instance{instance_root};
+    if (instance->obj_id != A_id ||
+        instance->GetClassId() != OriginFacetTargetV0::kClassId) {
+      Fail("cold LoadRoot A identity");
+    }
+    if (instance->value != kPrefabValue || instance->origin_id() != P_id) {
+      Fail("cold LoadRoot A value or origin");
+    }
+    if (domain.Find(P_id)) {
+      Fail("P materialized during cold LoadRoot(A)");
+    }
+
+    instance->value = kMutatedValue;
+    ae::DomainGraph save_graph{&domain};
+    if (!save_graph.SaveRoot(instance, A_id).IsOk()) {
+      Fail("SaveRoot A after field mutation (fresh DomainGraph after LoadRoot)");
+    }
+  }
+
+  if (UserHasAnyLayers(user, P_id)) {
+    Fail("USER gained P layers after mutating A");
+  }
+  if (!BackingStateUnchanged(backing, backing_snapshot)) {
+    Fail("BACKING changed after mutating A");
+  }
+
+  {
+    ae::Domain domain{overlay};
+    ae::DomainGraph graph{&domain};
+    ae::Ptr<ae::Obj> instance_root;
+    if (!graph.LoadRoot(A_id, instance_root).IsOk()) {
+      Fail("second cold LoadRoot(A)");
+    }
+    ae::Ptr<OriginFacetTargetV0> instance{instance_root};
+    if (instance->value != kMutatedValue) {
+      Fail("second cold load A value");
+    }
+    if (instance->origin_id() != P_id) {
+      Fail("second cold load A origin");
+    }
+    if (domain.Find(P_id)) {
+      Fail("P materialized on second cold LoadRoot(A)");
+    }
+
+    ae::Ptr<ae::Obj> prefab_root;
+    if (!graph.LoadRoot(P_id, prefab_root).IsOk()) {
+      Fail("LoadRoot P to verify BACKING constant");
+    }
+    ae::Ptr<OriginFacetTargetV0> prefab{prefab_root};
+    if (prefab->value != kPrefabValue) {
+      Fail("P field changed in BACKING after A mutations");
+    }
+
+    ae::DomainGraph save_graph{&domain};
+    if (!save_graph.SaveRoot(instance, A_id).IsOk()) {
+      Fail("repeat SaveRoot(A) after second cold load");
+    }
+    if (CollectStoredLayers(user, A_id) != layers_after_first_save) {
+      Fail("repeat SaveRoot(A) changed USER layer set");
+    }
+  }
+}
+
 void TestLoadRootRejectsObjFacetOnlyStorage() {
   ae::RamDomainStorage storage;
   ae::ObjId const prefab_id{606u};
@@ -698,6 +853,7 @@ int main() {
   TestLoadRootRejectsObjFacetOnlyStorage();
   TestFinalOriginRoundtripV0();
   TestFinalOriginRoundtripV1WithShouldSaveVersion();
+  TestPrefabOriginOverlayRoundtrip();
   std::cout << "object_origin_facet_test OK\n";
   return 0;
 }

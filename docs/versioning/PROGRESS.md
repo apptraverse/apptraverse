@@ -13,7 +13,7 @@
 
 **Порядок работ:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Текущий этап:** **12R PASS** (origin facet + auto save + cold **`LoadRoot`** + финальный roundtrip); **12B TODO**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); lazy **`ObjPtr`** origin — **12R PASS** (`9981e0f`). **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
+**Текущий этап:** **12B.1 PASS** (P→A overlay roundtrip); **12B TODO** (disk/process). **12R PASS**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); lazy **`ObjPtr`** origin — **12R PASS** (`9981e0f`). **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
 
 **OPEN:** динамический источник Clone **без** устойчивого const **P** — явное решение, не silent fallback ([PLAN §13](./PLAN.md#13--универсальный-clone)).
 
@@ -213,7 +213,7 @@ Happy path и семантические инварианты — сейчас; 
 2. ~~**C0.2.2 PASS** — `BackingComparedStorageWriter::failed_`~~ ([история](#iteration-history)).
 3. **STOP:** дальнейшие C0.2 пункты **не** планировать без нового аудита после **12R**/**13** (origin/Clone заменят fixture API).
 
-**Следующий шаг:** **12B** (P→A roundtrip) — [PLAN §12B](./PLAN.md#12b--origin-roundtrip-todo-после-12r).
+**Следующий шаг:** **12B.2** (disk/process cold roundtrip) — [PLAN §12B](./PLAN.md#12b--origin-roundtrip-12b1-pass-12b-todo-do-diskprocess).
 
 ---
 
@@ -326,7 +326,8 @@ Happy path и семантические инварианты — сейчас; 
 | 12R.3 | PASS | — | **`object_origin_facet_test`** Debug/Release + prefab matrices Release | Domain lifetime fix; **`SaveRoot`** roundtrip |
 | 12R.1 | PASS (doc) | `c00aafe`+ | — | Техпроверка pin **`79283b6`** — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only) |
 | 12R.2a | PASS | `ead8e61` | origin facet Debug+Release; persistence/prefab split Debug | [§12R.2a](#12r2a--базовый-objs1-origin-facet-pass-code) |
-| 12B | TODO | — | — | После **12R:** P(const)→A, roundtrip origin; **не** реализовано |
+| 12B | TODO | — | overlay roundtrip in origin facet test Debug/Release | **12B.1 PASS**; **12B.2** disk/process |
+| 12B.1 | PASS | — | `apptraverse_object_origin_facet_test` Debug/Release; persistence Debug/Release | **`TestPrefabOriginOverlayRoundtrip`**; fresh **`DomainGraph`** after **`LoadRoot`** for save |
 | 13 | TODO | — | — | **Универсальный Clone** (после **12B**) |
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
 | 15 | TODO | — | — | Единая модель поставок R/E/B/S; **T11–T15** |

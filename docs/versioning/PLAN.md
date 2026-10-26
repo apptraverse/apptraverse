@@ -67,7 +67,7 @@
 
 **Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
 
-**Следующий активный шаг:** **12B** (origin roundtrip P→A в product scope). **12R PASS**. **C0 PASS**.
+**Следующий активный шаг:** **12B.2** — cold roundtrip между процессами с дисковым USER. **12B.1 PASS**. **12R PASS**. **C0 PASS**.
 
 ---
 
@@ -585,11 +585,19 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 **Отвергнуто для origin:** голый **`ObjId`** (12A черновик); **`LocalPtr`** (network); **`PrefabPtr`**; materialized **`ObjPtr`** без lazy flags.
 
-#### 12B — origin roundtrip (TODO, после 12R)
+#### 12B — origin roundtrip (**12B.1 PASS**; **12B TODO** до disk/process)
 
-Первый новый код после **C0**/**12R** (не универсальный Clone): **P(const) → A(dynamic)**, `origin(A)→P`; новый ObjId у **A**; штатный Save/Load; cold process; origin без load **P**; тело **P** не в USER; S0/S1 без регрессии.
+Первый новый код после **C0**/**12R** (не универсальный Clone): **P(const) → A(dynamic)**, `origin(A)→P`; новый ObjId у **A**; штатный Save/Load; origin без load **P**; тело **P** не в USER.
 
-**Файлы (после 12R):** CPM-патч Æther (Obj S1 + hook `DomainGraph::Save`); `include/apptraverse/object_origin.h`; headless roundtrip test + CTest.
+#### 12B.1 — P(const) → A(dynamic) overlay roundtrip (**PASS**)
+
+**Тест:** `TestPrefabOriginOverlayRoundtrip` в **`apptraverse_object_origin_facet_test`**: **BACKING** + **USER** (`RamDomainStorage`), **`OverlayDomainStorage`** с **`supply_constant_ids={P}`**; явное копирование полей **P→A**, **`SetOriginId`**, **`SaveRoot(A)`**; cold **`LoadRoot(A)`**; мутация **A** + **`SaveRoot`** на **новом `DomainGraph`** (после **`LoadRoot`** на том же graph иначе **`cycle_detector`** + **`SaveRoot` → `nullopt` masquerades as OK**); **P** не в USER, **BACKING** неизменен.
+
+**Не в scope 12B.1:** **`object_origin.h`**, disk USER, multi-process, Clone.
+
+**12B PASS** — после **12B.2** (cold roundtrip, отдельный процесс, дисковый USER).
+
+**Файлы (12B.2+):** `include/apptraverse/object_origin.h`; headless disk roundtrip + CTest.
 
 #### 12A — справка (слой и отвергнутые альтернативы)
 
