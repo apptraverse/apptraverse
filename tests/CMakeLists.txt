@@ -2053,6 +2053,13 @@ add_test(
   COMMAND apptraverse_object_origin_facet_test
 )
 
+add_executable(apptraverse_object_clone_test object_clone_test.cpp)
+target_link_libraries(apptraverse_object_clone_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_object_clone_test
+  COMMAND apptraverse_object_clone_test
+)
+
 add_test(
   NAME apptraverse_object_origin_disk_roundtrip_test
   COMMAND ${CMAKE_COMMAND}

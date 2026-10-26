@@ -721,14 +721,14 @@ Result<ae::ObjId> CloneCanonicalRoot(
 1. **Вход:** **`Domain&` source**, **`Obj&` source_root**, **`CloneOptions`**: **`stable_origin P`**, **`CloneBoundary boundary_ids`**, **`IdAllocator`**, целевой **`Domain&` target** (тот же или новый **`IDomainStorage`**).
 2. **Проверка origin-policy:** если источник dynamic и политика требует **P**, но **`P`** invalid / не const-stable → **fail** (п.10).
 3. **Snapshot (in-memory):** **`RamDomainStorage scratch`**, **`SaveObjectGraphToScratch(source_root, scratch, LocalPersistent)`**.
-4. **Closure **I**:** ключи **`scratch.state`** с ненулевыми слоями, **минус** **`boundary_ids`** (включая **P**). Объекты только в ссылках, без собственных слоёв в scratch, **не** клонируются как отдельные узлы (остаются внешними ссылками).
+4. **Closure **I**:** объекты с ненулевыми слоями в **`scratch.state`**, которые входят в копируемый подграф. **Корень Clone всегда в **I****, даже если его **ObjId** ∈ **`boundary_ids`** (типично **P→A**: копируется **P**, **P** остаётся const в BACKING). **`boundary_ids`** исключает **внешние** referents из **I**, **не** сам root. Объекты только в ссылках без собственных слоёв в scratch **не** становятся узлами **I** (**13.3+** remap). **13.2:** **I** = `{source_root}` единственный; иначе **`UnsupportedGraph`**.
 5. **Remap:** для каждого **`id ∈ I`** выделить **`new_id = allocator()`**, **`remap[id]=new_id`**. Id ∉ **I** (const/external) → **identity** в remap.
 6. **Переписать scratch под новые id:** для каждого объекта **`id ∈ I`**: (a) перенести map **`scratch.state[id]` → `scratch.state[remap[id]]`**; (b) в каждом layer buffer выполнить **remap ObjId references** (штатный **`BinaryArchive`** / domain buffer visitor — деталь реализации **13.3**). Aliases: один **`new_id`**. Cycles: без спец. case.
 7. **Materialize в target `Domain`:** временный **`Domain scratch_domain(scratch)`** **или** inject layers в storage target; **`DomainGraph load_graph(&target_domain)`**; для каждого **`new_root_id`** (образ **`source_root`**) **`LoadRoot(new_root_id)`** — порядок: топологически по зависимостям (как при обычном load graph). **Lazy:** не вызывать **`LoadRoot`** для **P** / boundary.
 8. **Origin на клоне:** **`clone_root.SetOriginId(P)`** (lazy **`ObjPtr`**, без **`origin_.Load()`** до save — как **12R**).
 9. **Persist:** **новый** **`DomainGraph save_graph(&target_domain)`** (избегать save-no-op на том же graph после load — урок **12B**); **`SaveRoot(clone_root, new_root_id)`** в USER storage.
 
-**Const/dynamic split:** **`CloneBoundary`** = union(caller const set, overlay **`supply_constant_ids`**, **P**). Всё остальное в **I** получает новые id.
+**Const/dynamic split:** **`CloneBoundary`** = union(caller const set, overlay **`supply_constant_ids`**, stable **P** для origin). В **I** попадают клонируемые узлы closure (root **всегда**); const **P** как **origin** не дублируется в USER (**12B**), но **P→A** копирует **тело P** в **A** под новым id.
 
 **P→A→B→C:** **`Clone(A)→B`**, **`Clone(B)→C`**; **`P`** один и тот же; **`origin_id`** на **B** и **C** = **P** (не **A**).
 
@@ -737,7 +737,7 @@ Result<ae::ObjId> CloneCanonicalRoot(
 | Этап | Scope | Критерий PASS |
 | --- | --- | --- |
 | **13.1** | Audit + контракт (этот раздел) | Doc-only (audit) |
-| **13.2** | Один объект, без **`ObjPtr`**-рёбер | In-memory mutate без disk save → Clone → поля совпали; **`SaveRoot`** USER; cold **`LoadRoot`** |
+| **13.2** | Один объект, без **`ObjPtr`**-рёбер (**PASS**) | **`CloneCanonicalRoot`** + **`apptraverse_object_clone_test`**: memory **1601/252** vs disk **150/251**; USER **A** + origin **P**; cold **`LoadRoot`** |
 | **13.3** | Граф + **remap** | Два+ объекта, internal refs remapped; const ref unchanged |
 | **13.4** | Aliases, cycles, lazy | Shared **`ObjPtr`**, cycle A↔B, lazy ref без load const |
 | **13.5** | Dynamic + **P→A→B→C** | Origin chain; **MissingStableOrigin** при отсутствии **P** |
