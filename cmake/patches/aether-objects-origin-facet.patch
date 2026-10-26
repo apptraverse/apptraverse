@@ -1,5 +1,107 @@
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 31431b1..9d2f8cc 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -259,7 +259,8 @@ seri::SeriResult DomainGraph::LoadVersion(Version<V> version, T& obj,
+   auto load_visitor = LoadVisitor{bin_archive};
+ 
+   // if T has any versioned, it also must have Load for this version
+-  if constexpr (HasAnyVersionedLoad<T>::value) {
++  if constexpr (HasAnyVersionedLoad<T>::value ||
++                (std::is_same_v<std::decay_t<T>, Obj> && V == 1)) {
+     auto visitor = VersionNodeVisitor{load_visitor};
+     obj.Load(version, visitor);
+   } else {
+@@ -275,6 +276,7 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
+     return std::nullopt;
+   }
+ 
++  std::optional<seri::SeriResult> save_result;
+   if constexpr (HasAnyVersionedSave<T>::value) {
+     auto result = seri::SeriResult{Ok{seri::good}};
+     version_iterator<VersionSaveTrait>(
+@@ -287,12 +289,40 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
+               return;
+             }
+           }
++          if constexpr (std::is_same_v<std::decay_t<T>, Obj>) {
++            if constexpr (requires { obj.ShouldSaveOriginFacet(version); }) {
++              if (!obj.ShouldSaveOriginFacet(version)) {
++                return;
++              }
++            }
++          }
+           result = this->SaveVersion(version, obj, obj_id);
+         });
+-    return result;
++    save_result = result;
+   } else {
+-    return SaveVersion(T::kCurrentVersion, obj, obj_id);
++    save_result = SaveVersion(T::kCurrentVersion, obj, obj_id);
++  }
++
++  if (!save_result.has_value() || save_result->IsErr()) {
++    return save_result;
+   }
++
++  if constexpr (std::is_base_of_v<Obj, std::decay_t<T>>) {
++    if (serialization_scope == GraphSerializationScope::LocalPersistent &&
++        T::kClassId == obj.GetClassId()) {
++      Obj const& as_obj = static_cast<Obj const&>(obj);
++      if (as_obj.origin_id().is_valid() &&
++          as_obj.ShouldSaveOriginFacet(ae::Version<1>{})) {
++        seri::SeriResult const facet_result =
++            SaveVersion(Version<1>{}, as_obj, obj_id);
++        if (facet_result.IsErr()) {
++          return facet_result;
++        }
++      }
++    }
++  }
++
++  return save_result;
+ }
+ 
+ struct SaveVisitor {
+@@ -319,7 +349,8 @@ seri::SeriResult DomainGraph::SaveVersion(Version<V> version, T const& obj,
+ 
+   auto save_visitor = SaveVisitor{bin_archive};
+ 
+-  if constexpr (HasAnyVersionedSave<T>::value) {
++  if constexpr (HasAnyVersionedSave<T>::value ||
++                (std::is_same_v<std::decay_t<T>, Obj> && V == 1)) {
+     auto visitor = VersionNodeVisitor{save_visitor};
+     obj.Save(version, visitor);
+   } else {
+diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
+index 3279321..aaca824 100644
+--- a/src/aether-objects/obj/obj.cpp
++++ b/src/aether-objects/obj/obj.cpp
+@@ -31,6 +31,22 @@ Obj::~Obj() {
+ 
+ uint32_t Obj::GetClassId() const { return kClassId; }
+ 
++void Obj::SetOriginId(ObjId origin_id) {
++  if (!origin_id.is_valid() || domain == nullptr) {
++    origin_.Reset();
++    return;
++  }
++  origin_ = Obj::ptr::Declare(
++      CreateWith{domain}.with_id(origin_id).with_flags(
++          ObjFlags::kUnloadedByDefault | ObjFlags::kUnloaded));
++}
++
++ObjId Obj::origin_id() const { return origin_.id(); }
++
++bool Obj::ShouldSaveOriginFacet(ae::Version<1>) const {
++  return origin_.is_valid();
++}
++
+ namespace domain_visitor {
+ std::size_t GetObjIndexImpl(Obj const* obj, std::uint32_t class_id) {
+   auto res = crc32::from_buffer(
 diff --git a/src/aether-objects/obj/obj.h b/src/aether-objects/obj/obj.h
-index 94a3b04..a2aa433 100644
+index 94a3b04..3d1cc81 100644
 --- a/src/aether-objects/obj/obj.h
 +++ b/src/aether-objects/obj/obj.h
 @@ -30,6 +30,7 @@
@@ -51,70 +153,3 @@ index 94a3b04..a2aa433 100644
  };
  
  namespace domain_visitor {
-diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
-index 3279321..aaca824 100644
---- a/src/aether-objects/obj/obj.cpp
-+++ b/src/aether-objects/obj/obj.cpp
-@@ -31,6 +31,22 @@ Obj::~Obj() {
- 
- uint32_t Obj::GetClassId() const { return kClassId; }
- 
-+void Obj::SetOriginId(ObjId origin_id) {
-+  if (!origin_id.is_valid() || domain == nullptr) {
-+    origin_.Reset();
-+    return;
-+  }
-+  origin_ = Obj::ptr::Declare(
-+      CreateWith{domain}.with_id(origin_id).with_flags(
-+          ObjFlags::kUnloadedByDefault | ObjFlags::kUnloaded));
-+}
-+
-+ObjId Obj::origin_id() const { return origin_.id(); }
-+
-+bool Obj::ShouldSaveOriginFacet(ae::Version<1>) const {
-+  return origin_.is_valid() && !origin_.is_loaded();
-+}
-+
- namespace domain_visitor {
- std::size_t GetObjIndexImpl(Obj const* obj, std::uint32_t class_id) {
-   auto res = crc32::from_buffer(
-diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
-index 31431b1..77b4af5 100644
---- a/src/aether-objects/obj/domain.h
-+++ b/src/aether-objects/obj/domain.h
-@@ -259,7 +259,8 @@ seri::SeriResult DomainGraph::LoadVersion(Version<V> version, T& obj,
-   auto load_visitor = LoadVisitor{bin_archive};
- 
-   // if T has any versioned, it also must have Load for this version
--  if constexpr (HasAnyVersionedLoad<T>::value) {
-+  if constexpr (HasAnyVersionedLoad<T>::value ||
-+                (std::is_same_v<std::decay_t<T>, Obj> && V == 1)) {
-     auto visitor = VersionNodeVisitor{load_visitor};
-     obj.Load(version, visitor);
-   } else {
-@@ -283,8 +283,15 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
-             return;
-           }
-           if constexpr (requires { obj.ShouldSaveVersion(version); }) {
-             if (!obj.ShouldSaveVersion(version)) {
-               return;
-             }
-           }
-+          if constexpr (std::is_same_v<std::decay_t<T>, Obj>) {
-+            if constexpr (requires { obj.ShouldSaveOriginFacet(version); }) {
-+              if (!obj.ShouldSaveOriginFacet(version)) {
-+                return;
-+              }
-+            }
-+          }
-           result = this->SaveVersion(version, obj, obj_id);
-@@ -319,7 +322,8 @@ seri::SeriResult DomainGraph::SaveVersion(Version<V> version, T const& obj,
- 
-   auto save_visitor = SaveVisitor{bin_archive};
- 
--  if constexpr (HasAnyVersionedSave<T>::value) {
-+  if constexpr (HasAnyVersionedSave<T>::value ||
-+                (std::is_same_v<std::decay_t<T>, Obj> && V == 1)) {
-     auto visitor = VersionNodeVisitor{save_visitor};
-     obj.Save(version, visitor);
-   } else {

@@ -1,5 +1,7 @@
 #include <cstdlib>
 #include <iostream>
+#include <map>
+#include <set>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -9,6 +11,25 @@
 #include "apptraverse/object_macros.h"
 
 namespace {
+
+using StoredLayerSet =
+    std::map<std::uint32_t, std::set<std::uint8_t>>;
+
+StoredLayerSet CollectStoredLayers(ae::RamDomainStorage const& storage,
+                                   ae::ObjId object_id) {
+  StoredLayerSet layers;
+  auto const obj_it = storage.state.find(object_id);
+  if (obj_it == storage.state.end() || !obj_it->second.has_value()) {
+    return layers;
+  }
+  for (auto const& [class_id, versions] : *obj_it->second) {
+    for (auto const& [version, data] : versions) {
+      (void)data;
+      layers[class_id].insert(version);
+    }
+  }
+  return layers;
+}
 
 bool HasStoredLayer(ae::RamDomainStorage const& storage, ae::ObjId object_id,
                     std::uint32_t class_id, std::uint8_t version) {
@@ -173,7 +194,7 @@ void TestOrdinarySaveWithoutOriginFacet() {
   }
 }
 
-void TestDerivedWithOwnV1DoesNotWriteObjFacet() {
+void TestDerivedWithOwnV1DoesNotWriteObjFacetWithoutOrigin() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   ae::ObjId const instance_id{400u};
@@ -196,6 +217,89 @@ void TestDerivedWithOwnV1DoesNotWriteObjFacet() {
   }
   if (HasStoredLayer(storage, instance_id, ae::Obj::kClassId, 1)) {
     Fail("Obj/S1 written implicitly by Save<DerivedWithV1> without origin");
+  }
+}
+
+void TestAutoObjFacetOnSaveRootWithOrigin() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  ae::ObjId const prefab_id{408u};
+  ae::ObjId const instance_id{409u};
+
+  OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
+      ae::CreateWith{domain}.with_id(instance_id));
+  instance.Load()->value = 42;
+  instance.Load()->SetOriginId(prefab_id);
+
+  ae::DomainGraph graph{&domain};
+  if (!graph.Save(*instance.Load(), instance_id).has_value()) {
+    Fail("SaveRoot path Save<T> failed");
+  }
+  if (!HasStoredLayer(storage, instance_id, OriginFacetTargetV0::kClassId, 0)) {
+    Fail("missing Derived/S0 after auto facet Save");
+  }
+  if (!HasStoredLayer(storage, instance_id, ae::Obj::kClassId, 1)) {
+    Fail("missing auto Obj/S1 after Save with origin");
+  }
+  if (HasStoredLayer(storage, instance_id, OriginFacetTargetV0::kClassId, 1)) {
+    Fail("spurious Derived/S1");
+  }
+  if (HasStoredLayer(storage, prefab_id, ae::Obj::kClassId, 0)) {
+    Fail("prefab body written to USER");
+  }
+}
+
+void TestDerivedS0S1PlusAutoObjFacetWithOrigin() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  ae::ObjId const prefab_id{410u};
+  ae::ObjId const instance_id{411u};
+
+  OriginFacetTargetV1::ptr instance = OriginFacetTargetV1::ptr::Create(
+      ae::CreateWith{domain}.with_id(instance_id));
+  ae::Ptr<OriginFacetTargetV1> body = instance.Load();
+  body->value = 1;
+  body->tag = 2;
+  body->SetOriginId(prefab_id);
+
+  ae::DomainGraph graph{&domain};
+  if (!graph.Save(*body, instance_id).has_value()) {
+    Fail("Save derived with origin failed");
+  }
+  if (!HasStoredLayer(storage, instance_id, OriginFacetTargetV1::kClassId, 0) ||
+      !HasStoredLayer(storage, instance_id, OriginFacetTargetV1::kClassId, 1)) {
+    Fail("missing Derived S0/S1 layers");
+  }
+  if (!HasStoredLayer(storage, instance_id, ae::Obj::kClassId, 1)) {
+    Fail("missing auto Obj/S1 alongside Derived S1");
+  }
+}
+
+void TestRepeatSaveRootDoesNotAddExtraLayers() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  ae::ObjId const prefab_id{412u};
+  ae::ObjId const instance_id{413u};
+
+  OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
+      ae::CreateWith{domain}.with_id(instance_id));
+  instance.Load()->value = 1;
+  instance.Load()->SetOriginId(prefab_id);
+  ae::Ptr<OriginFacetTargetV0> body = instance.Load();
+  ae::DomainGraph first_graph{&domain};
+  if (!first_graph.Save(*body, instance_id).has_value()) {
+    Fail("initial Save failed");
+  }
+  StoredLayerSet const after_first =
+      CollectStoredLayers(storage, instance_id);
+  for (int i = 0; i < 2; ++i) {
+    ae::DomainGraph graph{&domain};
+    if (!graph.Save(*body, instance_id).has_value()) {
+      Fail("repeat Save failed");
+    }
+    if (CollectStoredLayers(storage, instance_id) != after_first) {
+      Fail("repeat Save changed stored layer set");
+    }
   }
 }
 
@@ -240,11 +344,10 @@ void TestColdLoadRootAppliesObjFacetOnDerived() {
     if (!graph.Save(*instance.Load(), instance_id).has_value()) {
       Fail("Save Derived/S0 before cold load");
     }
-    if (!graph.SaveVersion(ae::Version<1>{}, static_cast<ae::Obj const&>(obj),
-                           instance_id)
-             .IsOk()) {
-      Fail("Save Obj/S1 before cold load");
+    if (!HasStoredLayer(storage, instance_id, ae::Obj::kClassId, 1)) {
+      Fail("auto Obj/S1 missing before cold load");
     }
+    (void)obj;
   }
 
   ae::Ptr<OriginFacetTargetV0> loaded;
@@ -330,11 +433,10 @@ void TestColdLoadDerivedS1WithObjOriginFacet() {
     if (!graph.Save(*body, instance_id).has_value()) {
       Fail("Save Derived S0/S1");
     }
-    if (!graph.SaveVersion(ae::Version<1>{}, static_cast<ae::Obj const&>(obj),
-                           instance_id)
-             .IsOk()) {
-      Fail("Save Obj/S1 alongside Derived/S1");
+    if (!HasStoredLayer(storage, instance_id, ae::Obj::kClassId, 1)) {
+      Fail("auto Obj/S1 missing alongside Derived/S1");
     }
+    (void)obj;
   }
   ae::Ptr<OriginFacetTargetV1> loaded;
   if (!LoadV1Cold(storage, instance_id, loaded) || loaded->value != 5 ||
@@ -376,7 +478,10 @@ int main() {
   (void)&g_apptraverse_registrar_OriginFacetTargetV1;
   TestManualObjFacetRoundtrip();
   TestOrdinarySaveWithoutOriginFacet();
-  TestDerivedWithOwnV1DoesNotWriteObjFacet();
+  TestDerivedWithOwnV1DoesNotWriteObjFacetWithoutOrigin();
+  TestAutoObjFacetOnSaveRootWithOrigin();
+  TestDerivedS0S1PlusAutoObjFacetWithOrigin();
+  TestRepeatSaveRootDoesNotAddExtraLayers();
   TestShouldSaveOriginFacetBlocksEmptyOrigin();
   TestColdLoadRootAppliesObjFacetOnDerived();
   TestColdLoadWithoutOriginFacet();

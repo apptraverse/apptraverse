@@ -13,7 +13,7 @@
 
 **Порядок работ:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Текущий этап:** **12R.2b.1 PASS** (Obj factory + cold **`LoadRoot`** + Release teardown fix); **12R.2a PASS**. **12R/12B TODO** (auto Save hook — **12R.2b**). **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); payload **`ObjId`** пересматривается в **12R** (lazy **`ObjPtr`**, **не** реализовано). **12R**, **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
+**Текущий этап:** **12R.2b.2 PASS** (auto **`Obj/S1`** на **`DomainGraph::Save<T>`** + **`ShouldSaveOriginFacet`**); **12R.2b.1 PASS**; **12R.2a PASS**. **12R TODO** (полный roundtrip); **12B TODO**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); payload **`ObjId`** пересматривается в **12R** (lazy **`ObjPtr`**, **не** реализовано). **12R**, **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
 
 **OPEN:** динамический источник Clone **без** устойчивого const **P** — явное решение, не silent fallback ([PLAN §13](./PLAN.md#13--универсальный-clone)).
 
@@ -282,18 +282,20 @@ Happy path и семантические инварианты — сейчас; 
 | --- | --- |
 | `SetOriginId(P)` | `ObjPtr<Obj>::Declare` с **`kUnloadedByDefault \| kUnloaded`**, без `cached_`; invalid/`domain==nullptr` → `origin_.Reset()` |
 | `origin_id()` | `origin_.id()` |
-| `ShouldSaveOriginFacet(V1)` | `origin_.is_valid() && !origin_.is_loaded()` |
+| `ShouldSaveOriginFacet(V1)` | `origin_.is_valid()` (materialized → **`Save(V1)`** **`abort()`**, не silent skip) |
 | `Save(V1)` | `dnv(origin_)`; **`std::abort()`** если `origin_.is_loaded()` (fail-closed) |
 | `Load(V1)` | `dnv(origin_)` — после load ссылка lazy |
 | Ручной facet | `SaveVersion(V1, static_cast<Obj const&>(obj), id)` → ключ **`Obj::kClassId/1`**; **не** участвует в `Save<Derived>` без hook |
 
 **Versioning:** protected `Obj::Load/Save(V1)` **не** попадают в `VersionSaveTrait<Derived,1>`; `domain.h` — явный путь **`T==Obj && V==1`**; **`ShouldSaveOriginFacet`** для **`Obj/S1`**; **`ShouldSaveVersion`** — для Derived (**10E**).
 
-**12R.2b.1 PASS:** patches **`obj-facet-factory`**, **`domain-registered-objects`** (minimal lifecycle); **`origin-facet`** — **`ShouldSaveOriginFacet`** (fix регрессии **10E**: лишний **`WindowA/S1`** с `posx=0` после **`delta-posx-c`** из-за `std::is_same_v<T,Obj>` в **`Save<T>`**); цепочка patches 1–8 на pin **79283b6** — **`git apply` OK**; **`apptraverse_object_origin_facet_test`** расширен.
+**12R.2b.1 PASS:** patches **`obj-facet-factory`**, **`domain-registered-objects`** (minimal lifecycle); **`origin-facet`** — **`ShouldSaveOriginFacet`** (fix регрессии **10E**); цепочка patches 1–8 на pin **79283b6** — **`git apply` OK**; **`apptraverse_object_origin_facet_test`** расширен.
 
-**Release SEGFAULT fix:** **`DomainRegisteredObjects`** на heap, unregister в **`~Obj`** через **`registered_objects_`**.
+**12R.2b.2 PASS:** **`origin-facet.patch`** — post-**`Save<T>`** hook: **`SaveVersion(V1, Obj, id)`** при **`LocalPersistent`**, **`T::kClassId == obj.GetClassId()`**, valid **`origin_id()`**; **`ShouldSaveOriginFacet`** = **`origin_.is_valid()`** only; тесты auto facet, Derived+Obj S1, repeat Save, cold load без ручного **`SaveVersion`**.
 
-**Тесты (2026-10-26, incremental `out/release` / `out/debug`):** origin facet Debug/Release **PASS** (Release ×10); persistence Debug/Release **PASS**; runtime_ref Debug/Release **PASS**; prefab release/lifecycle/dynamic layer/compaction roundtrip/old-exe guard Release **PASS**; **`posx_a=10`** после **`delta-posx-c`**, лишний **`WindowA/S1`** в USER **нет**.
+**Release SEGFAULT fix (12R.2b.1):** **`DomainRegisteredObjects`** на heap, unregister в **`~Obj`** через **`registered_objects_`**.
+
+**Тесты (2026-10-26, incremental `out/release` / `out/debug`):** origin facet Debug/Release **PASS**; persistence Debug/Release **PASS**; runtime_ref Release **PASS**; prefab release/lifecycle/dynamic layer/compaction roundtrip/old-exe guard Release **PASS**; **`posx_a=10`** после **`delta-posx-c`**, лишний **`WindowA/S1`** в USER **нет**.
 
 ---
 
@@ -317,7 +319,8 @@ Happy path и семантические инварианты — сейчас; 
 | C0.2 | PASS | `f36fc1d`/`df536e6` | prefab + overlay regressions | **C0.2.1** ClonePlan; **C0.2.2** `failed_` |
 | C0.3 | PASS (doc) | `9e91f4d` | см. [§C0.3](#c03--верификация-сохранённых-механизмов-pass) | Верификация KEEP/DEFER; код не менялся |
 | 12A | PASS (doc) | `ed5eef9` / `4bda0ad` | — | Слой **`Obj/S1`** + отдельный `SaveVersion`; payload **`ObjId`** — **устаревший черновик** → **12R** |
-| 12R | TODO | — | origin facet + persistence + prefab/compaction Debug/Release (2026-10-26) | **12R.2b.1 PASS**; **12R.2b** auto Save hook; полный **12R PASS** — после **12R.2b** |
+| 12R | TODO | — | origin facet + persistence + prefab/compaction Debug/Release (2026-10-26) | **12R.2b.2 PASS**; полный **12R PASS** — после заключительного roundtrip |
+| 12R.2b.2 | PASS | — | origin facet + persistence + prefab compaction/lifecycle/dynamic/guard Release | Auto **`Obj/S1`** hook; **`ShouldSaveOriginFacet`** + materialized **`abort()`** |
 | 12R.1 | PASS (doc) | `c00aafe`+ | — | Техпроверка pin **`79283b6`** — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only) |
 | 12R.2a | PASS | `ead8e61` | origin facet Debug+Release; persistence/prefab split Debug | [§12R.2a](#12r2a--базовый-objs1-origin-facet-pass-code) |
 | 12B | TODO | — | — | После **12R:** P(const)→A, roundtrip origin; **не** реализовано |

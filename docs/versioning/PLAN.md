@@ -67,7 +67,7 @@
 
 **Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
 
-**Следующий активный шаг:** **12R.2b.1** — Obj factory + cold **`LoadRoot`** (без auto Save hook); затем **12R.2b** hook. **12R.2a PASS**. **12R/12B** — **TODO**. **C0 PASS**.
+**Следующий активный шаг:** заключительная проверка **12R** (roundtrip); **12R.2b.2 PASS** (auto **`Obj/S1`** hook). **12R/12B** — **TODO** до полного **12R PASS**. **C0 PASS**.
 
 ---
 
@@ -511,7 +511,7 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 **Целевой контракт (согласованный plan):** persisted-слой **`(instance ObjId, Obj::kClassId, S=1)`** с полем **штатной lazy object reference**; origin **не** Window/Node; **нет** external registry; **нет** `PrefabPtr` в production.
 
-**12R PASS** — после **12R.2b** (auto Save hook + Obj factory + cold load) и полного roundtrip. **12B** — после **12R PASS**.
+**12R PASS** — после **12R.2b.2** (auto Save hook **PASS**) + заключительного roundtrip. **12B** — после **12R PASS**.
 
 #### 12R.2a — базовый Obj/S1 origin facet (**PASS**, code)
 
@@ -522,6 +522,18 @@ Wire-формат и новый GraphManager **не** добавлялись.
 **Тест:** `apptraverse_object_origin_facet_test` (`RamDomainStorage`, ручной `SaveVersion`/`LoadVersion`).
 
 **Не в scope 12R.2a:** автоматический facet save, `LoadStoredLayers` factory, `object_origin.h`, **12B**.
+
+#### 12R.2b.2 — auto Save hook Obj/S1 (**PASS**)
+
+**Patch:** [`aether-objects-origin-facet.patch`](../../cmake/patches/aether-objects-origin-facet.patch) (обновлён на pin **`79283b6`**):
+
+- После успешного **`Save<T>`** ( **`LocalPersistent`**, most-derived **`T::kClassId`**, valid **`origin_id()`** ) → **`SaveVersion(V1, static_cast<Obj const&>(obj), obj_id)`**; ошибка facet пробрасывается.
+- **`ShouldSaveOriginFacet(V1)`** → **`origin_.is_valid()`**; materialized origin не skip — **`Obj::Save(V1)`** **`abort()`**.
+- **`ShouldSaveVersion`** для Derived без изменений (**10E**).
+
+**Тест:** **`apptraverse_object_origin_facet_test`** — auto facet на **`Save`**, Derived S0/S1 + Obj S1, без origin, cold load, repeat Save, ручной facet roundtrip.
+
+**Не в scope:** **`object_origin.h`**, wire **`ObjectPtrBase`**, **12B**.
 
 #### 12R.2b.1 — Obj factory + cold LoadRoot (**PASS**)
 
@@ -553,7 +565,7 @@ Wire-формат и новый GraphManager **не** добавлялись.
 | Load facet **Obj/1** | `LoadStoredLayers` → `FindClassFactory(class_id)` для каждого **`KnownStoredClasses`** (`domain.cpp` + patch **local-persistent-load**); **`KnownStoredClasses` отфильтровывает `!IsExisting`** | **Требуется** минимальная **`RegisterClass(Obj::kClassId, …)`** с `Load` → **`LoadVersion<1>(static_cast<Obj&>(*obj), storage_id)`** (новый фрагмент patch; **не** отдельный wire) |
 | Unknown **Obj/1** на диске | Patch **reject-unknown-stored-class**: **`Obj::kClassId`** **исключён** из fail-closed (`class_id != Obj::kClassId`) | Старый EXE без **Load(V1)** всё ещё риск для USER с **Obj/1** — scope **12B** / **22**, не blocker **12R.1** |
 
-**ShouldSaveOriginFacet / ShouldSaveVersion:** patch **`should-save-version`** — **`ShouldSaveVersion`** для прикладных классов (**10E**); origin facet — **`Obj::ShouldSaveOriginFacet(V1)`** (`origin_.is_valid() && !origin_.is_loaded()`), отдельно от Derived hooks.
+**ShouldSaveOriginFacet / ShouldSaveVersion:** patch **`should-save-version`** — **`ShouldSaveVersion`** для прикладных классов (**10E**); origin facet — **`Obj::ShouldSaveOriginFacet(V1)`** (`origin_.is_valid()`; loaded → **`Save(V1)`** **`abort()`**), отдельно от Derived hooks; auto hook — **12R.2b.2**.
 
 **Минимальные точки изменений (12R.2, только CPM + тонкий API):**
 
