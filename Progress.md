@@ -4526,3 +4526,13 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; all prior required-graph negatives PASS.
 - **NEXT**: **I0.3B3b** — required ClassId incompatibility.
 - **Land SHA**: **`96ed8cdc05ca2ee664e1af3b9a7da72a20b0da2a`** (`I0.3B3a: accept unsupported schema S layers on catalog cold load.`).
+
+## I0.3B3b — Required ClassId incompatibility (2026-10-25)
+
+- **Baseline**: **`85c5c8a00596bfaa100d05af984b9c072f565fa4`** (`integration/application-versioning`).
+- **Production**: `cmake/patches/aether-objects-reject-unknown-stored-class.patch` (provenance: `integration/serialization-surfaces`); `cmake/aether_version.cmake` + `CMakeLists.txt` patch list; pinned Æther SHA unchanged (`79283b667cabf689da1059d618fe2a22abf51db4`).
+- **Mechanism**: `Domain::GetMostRelatedFactory` fail-closed on unregistered stored ClassId (except `ae::Obj::kClassId`); surfaces as `LoadApplication failed` / `LoadPresentedWindow required presenter missing`.
+- **Tests**: two load-only ClassId cases — unknown layer `0xC1D00001` copied alongside valid WindowCatalog root; presenter class directory renamed to unknown ClassId; prior schema-S and required-graph negatives PASS.
+- **Verify**: CMake reconfigure (incremental); **Release 17/17** and **MinSizeRel 17/17** CTest PASS.
+- **NEXT**: **I0.3 closure audit** before **9D**.
+- **Land SHA**: *(pending commit)*.
