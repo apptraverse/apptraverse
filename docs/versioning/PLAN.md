@@ -492,7 +492,7 @@ Wire-формат и новый GraphManager **не** добавлялись.
 - **Цель:** убрать доказанно лишние обходы **до** **12R**; сохранить основания **10E**, **11B.2**, journal/base, Æther serialization.
 - **C0.1 — аудит:** **PASS (doc, `b6dcdae`)** — таблица в [PROGRESS §C0.1](./PROGRESS.md#c01--аудит-избыточности-object-core) (KEEP/REMOVE/SIMPLIFY/DEFER).
 - **C0.2 — минимальная очистка:** **PASS** — **C0.2.1** dead `ClonePlan` API; **C0.2.2** `BackingComparedStorageWriter::failed_`. Дальнейшие удаления в C0.2 **не** планируются (см. [PROGRESS §C0.2](./PROGRESS.md#c02--упорядоченные-минимальные-изменения)).
-- **C0.3 — верификация оснований:** **PASS (doc, `7322b9c`+)** — таблица инвариантов [PROGRESS §C0.3](./PROGRESS.md#c03--верификация-сохранённых-механизмов-pass); код **не** менялся.
+- **C0.3 — верификация оснований:** **PASS (doc)** — таблица инвариантов [PROGRESS §C0.3](./PROGRESS.md#c03--верификация-сохранённых-механизмов-pass); код **не** менялся.
 - **Сохранено без удаления (контракт C0.3):** `EnsureObjectRegistration`; `force_materialize`; `ShouldSaveVersion`; guard **11B.2**; ключ `ObjId/ClassId/S`; unknown newer S; historical base + journal; штатный Æther; опубликованные ClassId/S0/S1 fixture Events.
 - **PASS:** **C0.2** регрессии + **C0.3** верификация | **Статус:** **PASS**
 

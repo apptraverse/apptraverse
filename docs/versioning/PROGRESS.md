@@ -13,7 +13,7 @@
 
 **Порядок работ:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Текущий этап:** **C0** **IN_PROGRESS** (**C0.1 PASS** doc-only на **`b6dcdae`**); следующий код — **C0.2**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); payload **`ObjId`** пересматривается в **12R** (lazy **`ObjPtr`**, **не** реализовано). **12R**, **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
+**Текущий этап:** **C0 PASS** (**C0.3** верификация); следующий код — **12R**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); payload **`ObjId`** пересматривается в **12R** (lazy **`ObjPtr`**, **не** реализовано). **12R**, **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
 
 **OPEN:** динамический источник Clone **без** устойчивого const **P** — явное решение, не silent fallback ([PLAN §13](./PLAN.md#13--универсальный-clone)).
 
@@ -213,7 +213,38 @@ Happy path и семантические инварианты — сейчас; 
 2. ~~**C0.2.2 PASS** — `BackingComparedStorageWriter::failed_`~~ ([история](#iteration-history)).
 3. **STOP:** дальнейшие C0.2 пункты **не** планировать без нового аудита после **12R**/**13** (origin/Clone заменят fixture API).
 
-**Следующий шаг C0:** **C0.3** (верификация сохранённых оснований, без новых удалений).
+**Следующий шаг:** **12R** (системный origin, lazy ref) — [PLAN §12R](./PLAN.md#12r--уточнение-origin-todo-после-c0).
+
+---
+
+## C0.3 — верификация сохранённых механизмов (**PASS**)
+
+**Срез кода:** **`df536e6`**. Doc-only; **src/tests/CMake не менялись.**
+
+**Регрессии (CTest, фактический прогон):**
+
+| Конфигурация | Результат |
+| --- | --- |
+| **Debug** (`win64-ninja-msvc-debug`) | **17/17 PASS** — overlay, model_persistence×2, prefab×9, closed_event_graph, shared_node_foundation, lazy/surfaces distilled embedded |
+| **Release** (`win64-ninja-msvc-release`) | **14/14 PASS** — prefab×9, model_persistence×2, lazy/surfaces distilled embedded, active-release |
+
+**Примечание Release:** в дереве `win64-ninja-msvc-release` **не зарегистрированы** CTest `apptraverse_overlay_domain_storage_test`, `apptraverse_closed_event_graph_test`, `apptraverse_shared_node_foundation_test` (инвентарь сборки, не падение тестов). Инварианты overlay / ObjectLink / SharedNode для Release подтверждены тем же кодом **`df536e6`** через **Debug** CTest выше.
+
+| Invariant | Implementation (библиотека / fixture) | Regression (CTest) | KEEP / DEFER |
+| --- | --- | --- | --- |
+| Регистрация классов | `EnsureObjectRegistration` ([`apptraverse.cpp`](../../src/apptraverse.cpp)); fixture `EnsurePrefabReleaseRegistration` ([`prefab_release_model.cpp`](../../tests/prefab_release_model.cpp)) | prefab release/lifecycle matrices | **KEEP** (lib + fixture) |
+| Scoped links Local vs NetworkShared | [`object_link.h`](../../include/apptraverse/object_link.h) Serializer + `NodeVisitor<LocalPtr>` | `apptraverse_closed_event_graph_test`, `apptraverse_shared_node_foundation_test` (Debug) | **KEEP** |
+| USER-over-BACKING, const discard, 0-byte Event | [`overlay_domain_storage.cpp`](../../src/overlay_domain_storage.cpp) `BackingComparedStorageWriter`, `SupplyConstantDiscardWriter` | `apptraverse_overlay_domain_storage_test` (Debug) | **KEEP** |
+| `force_materialize` для historical base | [`node.h`](../../include/apptraverse/node.h) `Save(V0)`; patch `force-materialize`; overlay `Store` | `apptraverse_model_persistence_test`, compaction matrices | **KEEP** |
+| `ShouldSaveVersion` до writer | CPM [`aether-objects-should-save-version.patch`](../../cmake/patches/aether-objects-should-save-version.patch); fixture `PrefabWindow::ShouldSaveVersion` | dynamic layer roundtrip, overlay (Debug) | **KEEP** (lib patch + fixture hook) |
+| `Node::base`, journal, replay | [`node.h`](../../include/apptraverse/node.h) `ReplayFromBase` / `CompactJournalInto` | `apptraverse_model_persistence_test`, compaction roundtrip | **KEEP** |
+| Compaction guard **11B.2** | `CanCompactStoredObjectVersions`, `EventFor::CanCompactStoredState` | `apptraverse_prefab_old_exe_compaction_guard_matrix` | **KEEP** |
+| Штатный wire слоёв supply | [`distilled_supply_package.cpp`](../../src/distilled_supply_package.cpp), [`distilled_domain_export.cpp`](../../src/distilled_domain_export.cpp) | lifecycle matrix, supply split/equivalence, lazy/surfaces embedded matrices | **KEEP** |
+| CPM patches Æther (5) | `cmake/patches/aether-objects-*.patch` | prefab + overlay + persistence suite | **KEEP** |
+| Published ClassId / S0 / S1 / Events | Fixture `PrefabWindow` S0/S1, prefab Event classes (**без изменений в C0**) | prefab matrices Debug+Release | **KEEP** |
+| Test-only origin / manual clone | `PrefabPtr`, `CloneWorkspaceFromPrefabs` | prefab matrices | **DEFER** → **12R–13** |
+
+**C0.3 PASS** · **C0 PASS** · следующий этап **12R** (**TODO**).
 
 ---
 
@@ -232,8 +263,10 @@ Happy path и семантические инварианты — сейчас; 
 | 09 | PASS | `1ce8901` | `prefab_release_r1_supply_equivalence_test`, `prefab_release_r1_user_equivalence_matrix` + prefab matrices Debug/Release | **09A:** R1 BIN ≡ R1 embed; один USER; не clean install; T12 фрагмент |
 | 10 | PASS | `ce4f1a3` | `prefab_late_instance_matrix`, `prefab_release_matrix`, `prefab_dynamic_layer_roundtrip_matrix`, `overlay_domain_storage_test`, R1 supply + user equivalence Debug/Release | **10A–10E:** dynamic S0/S1, late WindowC, root-save без лишнего USER S1 (`ShouldSaveVersion`), historical base S1, 0-byte Event; T03/T09 фрагменты; T07–T10 не PASS |
 | 11 | IN_PROGRESS | `5653a9b` | compaction + old-exe guard + prefab/journal matrices Debug/Release | **11A+11B.2 PASS**; **11B.1** исторически обнаружен и исправлен; T16/T17 фрагменты |
-| C0 | IN_PROGRESS | — | overlay + persistence + prefab **11/11 Debug**, **10+overlay exe Release** (**C0.2.2**) | **C0.1–C0.2 PASS**; **C0.3 TODO**; **C0 PASS** — после C0.3 |
-| C0.1 | PASS (doc) | `b6dcdae` | — | Аудит Object Core — [§C0.1](#c01--аудит-избыточности-object-core) |
+| C0 | PASS | `df536e6` | C0.3 suite Debug **17/17**, Release **14/14** CTest | **C0.1–C0.3 PASS** — [§C0.3](#c03--верификация-сохранённых-механизмов-pass) |
+| C0.1 | PASS (doc) | `b6dcdae` | — | Аудит — [§C0.1](#c01--аудит-избыточности-object-core) |
+| C0.2 | PASS | `f36fc1d`/`df536e6` | prefab + overlay regressions | **C0.2.1** ClonePlan; **C0.2.2** `failed_` |
+| C0.3 | PASS (doc) | `fe0ff0c` | см. [§C0.3](#c03--верификация-сохранённых-механизмов-pass) | Верификация KEEP/DEFER; код не менялся |
 | 12A | PASS (doc) | `ed5eef9` / `4bda0ad` | — | Слой **`Obj/S1`** + отдельный `SaveVersion`; payload **`ObjId`** — **устаревший черновик** → **12R** |
 | 12R | TODO | — | — | Origin = lazy **`ObjPtr<ae::Obj>`** (или существующий scoped ref); **не** PASS в doc-only |
 | 12B | TODO | — | — | После **12R:** P(const)→A, roundtrip origin; **не** реализовано |
@@ -298,7 +331,8 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-25** — **doc sync (01 plan):** PLAN/PROGRESS ↔ **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)**; **C0** перед **12R/12B**; **12R** lazy origin ref; координация с **application-versioning**; код baseline **`66515d8`**; тесты не запускались; push — **`b6dcdae`**.
 - **2026-10-25** — **C0.1 (doc):** аудит избыточности Object Core → [§C0.1](#c01--аудит-избыточности-object-core); **C0.1 PASS**; **C0 IN_PROGRESS**; код не менялся; тесты не запускались; push — **`4a51d5c`**.
 - **2026-10-25** — **C0.2.1:** удалены `ClonePlan`, `PlanCloneFromPrefabGraph`; `CloneWorkspaceFromPrefabs(ae::Domain&, bool)`; Debug + Release prefab CTest **8/8 PASS**; **C0.2.1 PASS**; push — **`f36fc1d`**.
-- **2026-10-25** — **C0.2.2:** `BackingComparedStorageWriter::failed_` и мёртвые ветки в `overlay_domain_storage.cpp`; Debug CTest overlay + model_persistence* + prefab **11/11 PASS**; Release те же (overlay — exe после rebuild `apptraverse.lib`); **C0.2 PASS**; **C0 IN_PROGRESS** → **C0.3**; push — SHA commit ниже.
+- **2026-10-25** — **C0.2.2:** `BackingComparedStorageWriter::failed_`; Debug **11/11**, Release prefab+persistence **10/10** CTest; **C0.2 PASS**; push — **`df536e6`**, docs **`7322b9c`**.
+- **2026-10-25** — **C0.3 (doc):** верификация оснований Object Core → [§C0.3](#c03--верификация-сохранённых-механизмов-pass); Debug **17/17**, Release **14/14** CTest; **C0.3 PASS**, **C0 PASS**; код не менялся; следующий этап **12R**; push — SHA commit ниже.
 - **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`ce46b80`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
