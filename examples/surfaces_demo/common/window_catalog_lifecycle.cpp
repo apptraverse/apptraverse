@@ -96,6 +96,21 @@ void WindowCatalogModelSession::Run(
       WriteFatalStderr("fatal: WindowCatalog required locale missing\n");
       std::abort();
     }
+    auto& chrome_presenters = catalog->presenters;
+    chrome_presenters.list_presenter.Load();
+    chrome_presenters.add_button_presenter.Load();
+    chrome_presenters.open_button_presenter.Load();
+    chrome_presenters.delete_button_presenter.Load();
+    chrome_presenters.language_button_presenter.Load();
+    if (!chrome_presenters.list_presenter ||
+        !chrome_presenters.add_button_presenter ||
+        !chrome_presenters.open_button_presenter ||
+        !chrome_presenters.delete_button_presenter ||
+        !chrome_presenters.language_button_presenter) {
+      WriteFatalStderr(
+          "fatal: WindowCatalog required chrome presenter missing\n");
+      std::abort();
+    }
     int const language = catalog->locale->language_index();
     catalog->MaterializeCatalogStrings(language);
     for (auto const& row : catalog->list->rows) {

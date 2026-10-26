@@ -241,7 +241,28 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **Preserved:** main window boundary (I0.3B1), chrome, lazy holders, `RestoreLoadedCatalogWindows`, schemas v0, distillation bootstrap.
 
-**NEXT:** **I0.3B2b** — chrome graph/presenters; ClassId/**S** (not corrupted-byte torture).
+**NEXT:** **I0.3B2c** — required chrome buttons and localized text refs; ClassId/**S** (separate iteration).
+
+---
+
+## J. I0.3B2b — WindowCatalog required chrome presenters cold load (DONE 2026-10-25)
+
+**Baseline:** `95db3606d4b2c04a40d0c1f85abd452d99927516`
+
+| Boundary | Change |
+|----------|--------|
+| `WindowCatalogModelSession::Run` | After list/locale load, before `MaterializeCatalogStrings`: `Load()` on all five `catalog->presenters.*` refs; one combined fail-fast (`WindowCatalog required chrome presenter missing`). |
+
+**Required refs** (from `BuildWindowCatalogGraph`): `list_presenter`, `add_button_presenter`, `open_button_presenter`, `delete_button_presenter`, `language_button_presenter`.
+
+**Failure cases verified** (`apptraverse_window_catalog_win32_acceptance_test`, load-only, stderr):
+
+- Empty ref for each of the five presenters (historical base cleared, `SaveRoot`, re-load assert, checkpoint removed)
+- `Remove(persisted add_button_presenter ObjId)` → non-zero exit + fatal (`LoadApplication failed` or chrome presenter boundary)
+
+**Preserved:** main window / list / locale boundaries, buttons and localized strings unchanged, lazy holders, schemas v0.
+
+**NEXT:** **I0.3B2c** — chrome buttons + localized text refs; ClassId/**S** separately.
 
 ---
 

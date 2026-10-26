@@ -4488,4 +4488,14 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Unchanged**: main-window boundary, chrome, lazy holders, `RestoreLoadedCatalogWindows`, constructors, Load/Save, schema v0, CMake, runtime bootstrap.
 - **Verify**: incremental `build-application-versioning-msvc-rel` + `build-application-versioning-msvc-minsizerel`; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
 - **NEXT**: **I0.3B2b** — required chrome graph/presenters (ClassId/**S** separate).
-- **Land SHA**: **`7eacfaf8c0e8f3b0e8b8e8c8e8f3b0e8b8e8c8e8`** — use full hash from git.
+- **Land SHA**: **`7eacfaf3ac259be5f2277796bc4c70f4f6cac0e5`** (`I0.3B2a: require WindowCatalog list and locale on cold load.`).
+
+## I0.3B2b — WindowCatalog required chrome presenters cold load (2026-10-25)
+
+- **Baseline**: **`95db3606d4b2c04a40d0c1f85abd452d99927516`** (`integration/application-versioning`).
+- **Production**: `examples/surfaces_demo/common/window_catalog_lifecycle.cpp` — after list/locale load, `Load()` on five `WindowCatalog::presenters` refs; one fatal `WindowCatalog required chrome presenter missing` before `MaterializeCatalogStrings` / `runtime.Run`.
+- **Tests**: `tests/window_catalog_win32_acceptance_test.cpp` — six load-only negatives: empty ref for `list_presenter`, `add_button_presenter`, `open_button_presenter`, `delete_button_presenter`, `language_button_presenter`; `Remove` of persisted `add_button_presenter` ObjId (not hardcoded demo enum ids).
+- **Unchanged**: `WindowCatalog` Load/Save/fields, `BuildWindowCatalogGraph`, main window + lazy holders, buttons/strings, schema v0, CMake, bootstrap.
+- **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**; positive acceptance (Add/Open/Delete, EN/RU, geometry, persistence) preserved.
+- **NEXT**: **I0.3B2c** — required chrome buttons and localized text refs.
+- **Land SHA**: *(pending commit)*.
