@@ -67,7 +67,7 @@
 
 **Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
 
-**Следующий активный шаг:** **12R** — уточнение origin (`Obj/S1` + lazy `ObjPtr`), проверка на актуальных исходниках; **без** кода в doc-only задачах. **C0 PASS**. Fixture **PASS** ≠ библиотечный origin/Clone (**13**).
+**Следующий активный шаг:** **12R.2** — реализация по [§12R.1](#12r1--техническая-проверка-pass-doc) (CPM + API + тесты). **12R.1 PASS (doc)**. **12R/12B** — **TODO** (код). **C0 PASS**.
 
 ---
 
@@ -507,13 +507,42 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 **Устаревшая часть 12A:** payload = голый **`ae::ObjId`**. **Не** является финальным решением; **не** реализовано в коде.
 
-#### 12R — уточнение origin (TODO, после C0)
+#### 12R — уточнение origin (TODO; **12R.1** doc PASS)
 
-**Целевой контракт (согласованный план):** тот же слой **`ae::Obj` S1**, поле — **штатная lazy object reference** (`ae::ObjPtr<ae::Obj>` или существующий scoped reference type с проверкой на актуальных исходниках). Origin **не** Window/Node; **нет** external registry; **нет** `PrefabPtr` в production.
+**Целевой контракт (согласованный план):** persisted-слой **`(instance ObjId, Obj::kClassId, S=1)`** с полем **штатной lazy object reference**; origin **не** Window/Node; **нет** external registry; **нет** `PrefabPtr` в production.
 
-**Проверить на коде:** graph visitor; `DomainGraph::Save/Load`; наследование `Save(Version<S>)`; сосуществование **Obj/S1** и **PrefabWindow/S1**; **LocalPersistent** vs **NetworkShared**; **нет** автоматического `Load(P)`; **нет** записи тела const **P** в USER при Save origin.
+**12R PASS** — только после **12R.2** (код + roundtrip-тесты). **12B** — после **12R PASS**.
 
-**Если тип ссылки нарушает инварианты** — другой **существующий** object-reference тип; **новый wire format запрещён**. **12R PASS** — отдельная будущая верификация; **не** объявлять в doc-only задаче.
+#### 12R.1 — техническая проверка (PASS, doc-only)
+
+**Срез Æther Objects:** pin **`79283b667cabf689da1059d618fe2a22abf51db4`** (+ существующие AppTraverse CPM patches). Код **не** менялся.
+
+**Выбранный тип ссылки:** **`ae::ObjPtr<ae::Obj>`** с **`ObjFlags::kUnloadedByDefault | ObjFlags::kUnloaded`**, assign через **`ObjPtr<Obj>::Declare(CreateWith{domain}.with_id(P).with_flags(...))`** — **без** `cached_` / **без** `Load()` до Save.
+
+| Invariant | Механизм (pin + patches) | Ограничение |
+| --- | --- | --- |
+| Wire без `SaveRoot(P)` | `ObjectPtrBase::Seri` пишет `ObjId`+`flags`; **`SaveRoot` только если `cached_`** (`obj_ptr_base.cpp`) | Если origin **materialized** (`cached_` set), Save **запишет** subgraph **P** в USER — **discipline API**, не автоматический запрет |
+| Cold load без `Load(P)` | `Deseri`: `LoadRoot` **только** если valid и **нет** `kUnloadedByDefault` **и** **нет** `kUnloaded` | Lazy после load facet **Obj/S1** сохраняется |
+| Deep Save не тянет P | `NodeVisitor<ObjPtr>` обходит **`cached()`** only (`obj_ptr.h`); unloaded → visitor skip | Сериализация поля идёт через **Dnv → ObjPtr Seri**, не через deep walk unloaded |
+| Network / SharedNode | **`SharedPtr`/`ObjectLink`** — тот же wire, что **`ObjPtr`** (`object_link.h`); **`LocalPtr`** в **NetworkShared** → empty wire | Origin — **Shared** семантика; **`LocalPtr` не использовать** для origin |
+| Отдельный **Obj/S1** vs **PrefabWindow/S1** | `DomainGraph::Save<T>`: `version_iterator` вызывает **`T::Save(V*)`** с ключом **`T::kClassId`** (`domain.h`); **`PrefabWindow::Save(V1)`** → `…/PrefabWindow/1`; facet origin → **`SaveVersion(V1, static_cast<Obj const&>(obj), obj_id)`** с **`Obj::kClassId/1`** | **`Obj::Save(V1)` на базе** **не** участвует в обходе **`Save<PrefabWindow>`** (отдельный метод производного класса); **не** добавлять origin в **`PrefabWindow` S1** |
+| **`kCurrentVersion` Obj** | Остаётся **`Version<0>`**; **S0** прикладных классов без изменений | **Obj/1** — optional facet, как в **12A** |
+| Load facet **Obj/1** | `LoadStoredLayers` → `FindClassFactory(class_id)` для каждого **`KnownStoredClasses`** (`domain.cpp` + patch **local-persistent-load**); **`KnownStoredClasses` отфильтровывает `!IsExisting`** | **Требуется** минимальная **`RegisterClass(Obj::kClassId, …)`** с `Load` → **`LoadVersion<1>(static_cast<Obj&>(*obj), storage_id)`** (новый фрагмент patch; **не** отдельный wire) |
+| Unknown **Obj/1** на диске | Patch **reject-unknown-stored-class**: **`Obj::kClassId`** **исключён** из fail-closed (`class_id != Obj::kClassId`) | Старый EXE без **Load(V1)** всё ещё риск для USER с **Obj/1** — scope **12B** / **22**, не blocker **12R.1** |
+
+**ShouldSaveVersion:** существующий patch **`aether-objects-should-save-version`** — **`Obj::ShouldSaveVersion(V1)`** → `origin_.is_valid()` (пустые facet не пишутся, как **10E**).
+
+**Минимальные точки изменений (12R.2, только CPM + тонкий API):**
+
+1. **`obj.h` / `obj.cpp` (Æther patch):** поле **`ObjPtr<Obj> origin_`**; **`Load`/`Save` `Version<1>`** через Dnv; **`ShouldSaveVersion(V1)`**; accessors или friend **`object_origin.h`**.
+2. **`domain.h` (patch, рядом с ShouldSaveVersion):** после успешного **`Save<T>`**, если `T` наследует **`Obj`**, **`SaveVersion(V1, static_cast<Obj const&>(obj), obj_id)`** (отдельный файл **`Obj::kClassId/1`**).
+3. **`registry` / `LoadStoredLayers` (patch):** зарегистрировать **`Obj::kClassId`** factory с **Load** = single-facet **`LoadVersion<1>`** на **`Obj&`** subobject ( **Create/Save** factory могут быть no-op / unused для facet-only).
+4. **AppTraverse `object_origin.h`:** set/get origin через **`Declare` + flags**; **запрет** document/API: не вызывать **`Load()`** на origin перед **`SaveRoot(instance)`**.
+5. **Без изменений wire:** **`ObjectPtrBase`**, **`BinaryArchive`**, новых managers/registries.
+
+**Blockers:** **нет** противоречия «невозможно на штатном wire»; **есть** **операционный** риск **`cached_` → SaveRoot(P)** и **обязательность** Obj factory для load **Obj/1** (минимальный patch, не новый формат).
+
+**Отвергнуто для origin:** голый **`ObjId`** (12A черновик); **`LocalPtr`** (network); **`PrefabPtr`**; materialized **`ObjPtr`** без lazy flags.
 
 #### 12B — origin roundtrip (TODO, после 12R)
 
