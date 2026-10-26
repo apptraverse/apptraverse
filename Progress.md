@@ -4478,4 +4478,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Unchanged**: `LoadPresentedWindow` implementation, `RestoreLoadedCatalogWindows`, graph builder, schemas, CMake, runtime bootstrap.
 - **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
 - **NEXT**: **I0.3B2** — remaining WindowCatalog required refs + ClassId/**S** compatibility.
-- **Land SHA**: *(record after commit)*.
+- **Land SHA**: **`7621820535cbb082f0cd0c0ac77c31959b2ba152`** (`I0.3B1: require WindowCatalog main window cold load before publication.`).
