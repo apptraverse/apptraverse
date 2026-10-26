@@ -851,28 +851,6 @@ add_test(
   COMMAND apptraverse_model_runtime_stop_test
 )
 
-add_executable(apptraverse_directory_domain_storage_test
-  directory_domain_storage_test.cpp
-)
-
-target_link_libraries(apptraverse_directory_domain_storage_test PRIVATE apptraverse)
-
-add_test(
-  NAME apptraverse_directory_domain_storage_test
-  COMMAND apptraverse_directory_domain_storage_test
-)
-
-add_executable(apptraverse_overlay_domain_storage_test
-  overlay_domain_storage_test.cpp
-)
-
-target_link_libraries(apptraverse_overlay_domain_storage_test PRIVATE apptraverse)
-
-add_test(
-  NAME apptraverse_overlay_domain_storage_test
-  COMMAND apptraverse_overlay_domain_storage_test
-)
-
 if(APPTRAVERSE_BUILD_AETHER_DEMOS)
 add_executable(apptraverse_model_ui_runtime_test
   model_ui_runtime_test.cpp
@@ -2075,6 +2053,27 @@ add_test(
   COMMAND apptraverse_object_origin_facet_test
 )
 
+add_executable(apptraverse_object_origin_disk_fixture
+  object_origin_disk_fixture.cpp
+)
+target_link_libraries(apptraverse_object_origin_disk_fixture PRIVATE apptraverse)
+
+if(NOT Python3_EXECUTABLE)
+  find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+endif()
+
+add_test(
+  NAME apptraverse_object_origin_disk_matrix
+  COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_LIST_DIR}/object_origin_disk_matrix.py"
+    --fixture "$<TARGET_FILE:apptraverse_object_origin_disk_fixture>"
+    --work-root "${CMAKE_CURRENT_BINARY_DIR}/object_origin_disk_states"
+)
+set_tests_properties(apptraverse_object_origin_disk_matrix
+  PROPERTIES TIMEOUT 120
+  LABELS "serialization;origin;disk;lifecycle"
+)
+
 add_executable(apptraverse_model_persistence_test
   model_persistence_test.cpp
 )
@@ -2084,5 +2083,23 @@ target_link_libraries(apptraverse_model_persistence_test PRIVATE
 add_test(
   NAME apptraverse_model_persistence_test
   COMMAND apptraverse_model_persistence_test
+)
+
+add_executable(apptraverse_directory_domain_storage_test
+  directory_domain_storage_test.cpp
+)
+target_link_libraries(apptraverse_directory_domain_storage_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_directory_domain_storage_test
+  COMMAND apptraverse_directory_domain_storage_test
+)
+
+add_executable(apptraverse_overlay_domain_storage_test
+  overlay_domain_storage_test.cpp
+)
+target_link_libraries(apptraverse_overlay_domain_storage_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_overlay_domain_storage_test
+  COMMAND apptraverse_overlay_domain_storage_test
 )
 

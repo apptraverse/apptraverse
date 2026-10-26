@@ -13,7 +13,7 @@
 
 **Порядок работ:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Текущий этап:** **12B IN_PROGRESS** (**12B.1 PASS**); **12B.2** — disk/process cold roundtrip **NEXT**. **12R PASS**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); lazy **`ObjPtr`** origin — **12R PASS** (`9981e0f`). **13–22** — **не** реализованы. **T16/T17** — фрагменты.
+**Текущий этап:** **12B PASS** (**12B.1** + **12B.2**). **13 (Clone) TODO**. **12R PASS**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); lazy **`ObjPtr`** origin — **12R PASS** (`9981e0f`). **13–22** — **не** реализованы. **T16/T17** — фрагменты.
 
 **OPEN:** динамический источник Clone **без** устойчивого const **P** — явное решение, не silent fallback ([PLAN §13](./PLAN.md#13--универсальный-clone)).
 
@@ -213,7 +213,7 @@ Happy path и семантические инварианты — сейчас; 
 2. ~~**C0.2.2 PASS** — `BackingComparedStorageWriter::failed_`~~ ([история](#iteration-history)).
 3. **STOP:** дальнейшие C0.2 пункты **не** планировать без нового аудита после **12R**/**13** (origin/Clone заменят fixture API).
 
-**Следующий шаг:** **12B.2** (disk/process cold roundtrip) — [PLAN §12B](./PLAN.md#12b--origin-roundtrip-12b1-pass-12b-todo-do-diskprocess).
+**Следующий шаг:** **13** (универсальный Clone) — [PLAN §13](./PLAN.md#13--универсальный-clone).
 
 ---
 
@@ -326,9 +326,10 @@ Happy path и семантические инварианты — сейчас; 
 | 12R.3 | PASS | — | **`object_origin_facet_test`** Debug/Release + prefab matrices Release | Domain lifetime fix; **`SaveRoot`** roundtrip |
 | 12R.1 | PASS (doc) | `c00aafe`+ | — | Техпроверка pin **`79283b6`** — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only) |
 | 12R.2a | PASS | `ead8e61` | origin facet Debug+Release; persistence/prefab split Debug | [§12R.2a](#12r2a--базовый-objs1-origin-facet-pass-code) |
-| 12B | IN_PROGRESS | — | **12B.1 PASS**; **12B.2** disk/process TODO | P→A overlay origin; не полный **12B PASS** |
-| 12B.1 | PASS | `4e8662b` | `object_origin_facet_test`, `model_persistence_test`, `overlay_domain_storage_test` Debug+Release; prefab compaction/guard/dynamic-layer Debug+Release | **`TestConstPrefabDynamicInstanceRoundtrip`** (`OriginFacetTargetV1`, USER/BACKING overlay) |
-| 13 | TODO | — | — | **Универсальный Clone** (после **12B**) |
+| 12B | PASS | `7b260b0` | **12B.1** + **12B.2** matrices + storage regressions Debug/Release | P→A origin; RAM overlay + disk/process USER |
+| 12B.1 | PASS | `7cb2df3` | `object_origin_facet_test`, `model_persistence_test`, `overlay_domain_storage_test` Debug+Release | **`TestConstPrefabDynamicInstanceRoundtrip`** (overlay RAM) |
+| 12B.2 | PASS | `7b260b0` | `apptraverse_object_origin_disk_matrix` + facet/persistence/directory/overlay tests Debug+Release | Subprocess ops; BACKING frozen; USER **A/Derived/S0** + **A/Obj/S1** only |
+| 13 | TODO | — | — | **Универсальный Clone** (после **12B PASS**) |
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
 | 15 | TODO | — | — | Единая модель поставок R/E/B/S; **T11–T15** |
 | 16 | TODO | — | — | **R0–R5** lifecycle; **T01–T18** subset |
@@ -396,6 +397,7 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`ce46b80`**.
 
 - **2026-10-26** — **12B.1:** `TestConstPrefabDynamicInstanceRoundtrip` in `object_origin_facet_test.cpp` — const **P** in BACKING, dynamic **A** in USER with **`SetOriginId(P)`** via **`OverlayDomainStorage`**; cold **`LoadRoot(A)`** preserves fields/origin without materializing **P**; **12B.1 PASS**; **12B IN_PROGRESS**. Verify: `apptraverse_object_origin_facet_test`, `apptraverse_model_persistence_test`, `apptraverse_overlay_domain_storage_test` Debug+Release; prefab compaction/guard/dynamic-layer matrices Debug+Release. Baseline **`b5f050c`**. Push — **`c1c8a12`**.
+- **2026-10-26** — **12B.2 / 12B PASS:** `object_origin_disk_fixture.cpp` + `object_origin_disk_matrix.py` — subprocess **`init-backing` / `create-instance` / `inspect` / `mutate` / `resave`** on **`DirectoryDomainStorage`** + **`OverlayDomainStorage`**; disk invariants (no **P** in USER, BACKING unchanged, no **Derived/S1**); **`object_origin.h` not added** ( **`SetOriginId`/`origin_id()`** sufficient). CTest: `apptraverse_object_origin_disk_matrix`, `apptraverse_object_origin_facet_test`, `apptraverse_model_persistence_test`, `apptraverse_directory_domain_storage_test`, `apptraverse_overlay_domain_storage_test` Debug+Release **5/5 PASS** each. CMake: directory/overlay storage tests outside **`APPTRAVERSE_BUILD_EXAMPLES`**. Push — **`7b260b0`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
 

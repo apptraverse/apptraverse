@@ -63,11 +63,11 @@
 | **T16/T17** | Частичное покрытие; **не** PASS. |
 | **Полный R0–R5**, **T01–T18** | **Не** завершены. |
 
-**12A (doc, `ed5eef9`):** выполнен; payload **`ObjId`** в **12A** — **исторический черновик**, пересматривается в **12R** (lazy **`ObjPtr`**). **12R/12B** — **не** реализованы и **не** протестированы.
+**12A (doc, `ed5eef9`):** выполнен; payload **`ObjId`** в **12A** — **исторический черновик**, пересматривается в **12R** (lazy **`ObjPtr`**). **12R PASS**; **12B PASS** (overlay RAM + disk/process matrices).
 
-**Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
+**Архитектурный пробел (остаётся):** **Clone** вручную в fixtures; нет универсального Clone/S-evolution (**13+**). Origin на штатном **`Obj::SetOriginId` / `origin_id()`** + **`Obj/S1`** — **12R/12B PASS**; отдельный **`object_origin.h`** для **12B** **не** введён (API достаточен).
 
-**Следующий активный шаг:** **12B.2** — cold roundtrip между процессами с дисковым USER. **12B.1 PASS**. **12R PASS**. **C0 PASS**.
+**Следующий активный шаг:** **13** — универсальный Clone. **12B PASS**. **12R PASS**. **C0 PASS**.
 
 ---
 
@@ -585,19 +585,23 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 **Отвергнуто для origin:** голый **`ObjId`** (12A черновик); **`LocalPtr`** (network); **`PrefabPtr`**; materialized **`ObjPtr`** без lazy flags.
 
-#### 12B — origin roundtrip (**IN_PROGRESS**; **12B.1 PASS**; **12B.2** disk/process)
+#### 12B — origin roundtrip (**PASS**)
 
 Первый новый код после **C0**/**12R** (не универсальный Clone): **P(const) → A(dynamic)**, `origin(A)→P`; новый ObjId у **A**; штатный Save/Load; origin без load **P**; тело **P** не в USER.
 
+**Решение (12B):** отдельный **`object_origin.h`** **не** добавлялся — для roundtrip достаточно **`ae::Obj::SetOriginId` / `origin_id()`** и auto **`Obj/S1`** из **12R.2b.2**.
+
 #### 12B.1 — P(const) → A(dynamic) overlay roundtrip (**PASS**)
 
-**Тест:** `TestConstPrefabDynamicInstanceRoundtrip` в **`apptraverse_object_origin_facet_test`**: **P** (`OriginFacetTargetV1`) в **BACKING**; **`OverlayDomainStorage`** + **`supply_constant_ids={P}`**; **A** с новым ObjId, поля **value/tag** как fixture prep (без Clone), **`SetOriginId(P)`**, **`SaveRoot(A)`** → **Derived S0/S1** + **Obj/S1** в USER; cold **`LoadRoot(A)`** без materialize **P**; repeat **`SaveRoot(A)`**; **P** не в USER, **BACKING** неизменен.
+**Тест:** `TestConstPrefabDynamicInstanceRoundtrip` в **`apptraverse_object_origin_facet_test`**: **P** в **BACKING**; **`OverlayDomainStorage`** + **`supply_constant_ids={P}`**; **A** с новым ObjId, поля как fixture prep (без Clone), **`SetOriginId(P)`**, **`SaveRoot(A)`** → **Derived S0** + **Obj/S1** в USER (без **Derived/S1**); cold **`LoadRoot(A)`** без materialize **P**; repeat **`SaveRoot(A)`** на **новом** **`DomainGraph`** после load; **P** не в USER, **BACKING** неизменен.
 
-**Не в scope 12B.1:** **`object_origin.h`**, disk USER, multi-process, Clone.
+#### 12B.2 — disk/process cold roundtrip (**PASS**)
 
-**12B PASS** — после **12B.2** (cold roundtrip, отдельный процесс, дисковый USER).
+**Fixture:** `apptraverse_object_origin_disk_fixture` (`OriginDiskFacetTargetV0`, ObjId **P=81001**, **A=81002**). **Matrix:** `apptraverse_object_origin_disk_matrix` — каждая операция в **отдельном процессе** (`init-backing` → `create-instance` → `inspect` → `mutate` → `resave` → repeat `inspect`).
 
-**Файлы (12B.2+):** `include/apptraverse/object_origin.h`; headless disk roundtrip + CTest.
+**Диск:** `DirectoryDomainStorage` **`backing/`** + **`user/`**; **`OverlayDomainStorage(USER, BACKING, {P})`**. Инварианты: USER **`A/Derived/S0`** + **`A/Obj/S1`**; нет **`A/Derived/S1`**; нет слоёв **P** в USER; BACKING byte-for-byte неизменен; cold **`LoadRoot(A)`** без materialize **P**; repeat save/read не меняет USER.
+
+**CMake:** `apptraverse_directory_domain_storage_test` и `apptraverse_overlay_domain_storage_test` вынесены из **`APPTRAVERSE_BUILD_EXAMPLES`** (регрессия storage доступна при **`APPTRAVERSE_BUILD_EXAMPLES=OFF`**).
 
 #### 12A — справка (слой и отвергнутые альтернативы)
 
