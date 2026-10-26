@@ -1010,6 +1010,119 @@ void RunRequiredChromeButtonNegativeTests(
   }
 }
 
+using LocalizedTextMember =
+    ae::ObjPtr<ui::UiLocalizationString> WindowCatalogTexts::*;
+
+LocalizedTextMember LocalizedTextMemberForSuffix(char const* suffix) {
+  if (std::string{suffix} == "label_add") {
+    return &WindowCatalogTexts::label_add;
+  }
+  if (std::string{suffix} == "label_open") {
+    return &WindowCatalogTexts::label_open;
+  }
+  if (std::string{suffix} == "label_delete") {
+    return &WindowCatalogTexts::label_delete;
+  }
+  if (std::string{suffix} == "label_language") {
+    return &WindowCatalogTexts::label_language;
+  }
+  if (std::string{suffix} == "window_title_prefix") {
+    return &WindowCatalogTexts::window_title_prefix;
+  }
+  CHECK(false);
+  return &WindowCatalogTexts::label_add;
+}
+
+void WriteProfileMissingLocalizedTextRef(std::filesystem::path const& state_dir,
+                                         LocalizedTextMember member) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  ui::UiLocalizationString::ptr const empty =
+      ui::UiLocalizationString::ptr::Declare(
+          ae::CreateWith{domain}.with_id(ae::ObjId{}));
+  catalog->texts.*member = empty;
+  if (catalog->base.is_valid()) {
+    if (!catalog->base.is_loaded()) {
+      catalog->base.Load();
+    }
+    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
+    base_catalog.texts.*member = empty;
+    catalog->base.Save();
+  }
+  ae::DomainGraph graph{&domain};
+  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
+}
+
+void AssertLocalizedTextRefAbsent(std::filesystem::path const& state_dir,
+                                  LocalizedTextMember member) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  (catalog->texts.*member).Load();
+  CHECK(!(catalog->texts.*member).is_valid());
+  CHECK(!(catalog->texts.*member));
+}
+
+ae::ObjId LoadLabelAddObjId(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  catalog->texts.label_add.Load();
+  CHECK(catalog->texts.label_add.is_valid());
+  return catalog->texts.label_add.id();
+}
+
+ae::ObjId WriteProfileMissingLabelAddObject(
+    std::filesystem::path const& state_dir) {
+  ae::ObjId const text_id = LoadLabelAddObjId(state_dir);
+  DirectoryDomainStorage storage{state_dir};
+  storage.Remove(text_id);
+  return text_id;
+}
+
+void RunRequiredLocalizedTextNegativeTests(
+    std::filesystem::path const& good_state,
+    std::filesystem::path const& load_only) {
+  char const* const kRefSuffixes[] = {
+      "label_add",  "label_open",         "label_delete",
+      "label_language", "window_title_prefix",
+  };
+  for (char const* suffix : kRefSuffixes) {
+    std::string const dir_name =
+        std::string{"missing_localized_text_"} + suffix + "_ref";
+    auto const dir = NegativeStateDir(dir_name.c_str());
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    LocalizedTextMember const member = LocalizedTextMemberForSuffix(suffix);
+    WriteProfileMissingLocalizedTextRef(dir, member);
+    AssertLocalizedTextRefAbsent(dir, member);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnly(result,
+                        "fatal: WindowCatalog required localized text missing");
+  }
+
+  {
+    auto const dir = NegativeStateDir("missing_localized_text_label_add_object");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    ae::ObjId const text_id = WriteProfileMissingLabelAddObject(dir);
+    AssertPresenterObjectAbsent(dir, text_id);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnlyOrLoadApplication(
+        result, "fatal: WindowCatalog required localized text missing");
+  }
+}
+
 void RunRequiredChromePresenterNegativeTests(
     std::filesystem::path const& good_state,
     std::filesystem::path const& load_only) {
@@ -1368,6 +1481,7 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   RunRequiredListLocaleNegativeTests(good_state, load_only);
   RunRequiredChromePresenterNegativeTests(good_state, load_only);
   RunRequiredChromeButtonNegativeTests(good_state, load_only);
+  RunRequiredLocalizedTextNegativeTests(good_state, load_only);
   RunLanguageAndFocusAcceptance();
 }
 

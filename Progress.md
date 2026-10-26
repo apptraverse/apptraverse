@@ -4507,4 +4507,13 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Tests**: five load-only negatives (four cleared button refs + `Remove` of persisted `add_button` ObjId); pointer-to-member helper; `RefreshChromeButtonEnabledState` untouched.
 - **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; positive acceptance preserved.
 - **NEXT**: **I0.3B2c2** — required localized text refs (`WindowCatalogTexts`).
+- **Land SHA**: **`7e62012696fc4e1cc0a8f80d5946be1271fad41f`** (`I0.3B2c1: require WindowCatalog chrome buttons on cold load.`).
+
+## I0.3B2c2 — WindowCatalog required localized text refs cold load (2026-10-25)
+
+- **Baseline**: **`303efd7c1972e0fca3feae10ce7e3783c4776072`** (`integration/application-versioning`).
+- **Production**: `window_catalog_lifecycle.cpp` — after chrome buttons, `Load()` on five `catalog->texts.*` (`label_add`, `label_open`, `label_delete`, `label_language`, `window_title_prefix`); one fatal `WindowCatalog required localized text missing` before `MaterializeCatalogStrings`.
+- **Tests**: six load-only negatives (five cleared text refs + `Remove` of persisted `label_add` ObjId); does not assert inner EN/RU `UiString` slots.
+- **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; EN/RU acceptance and prior required-graph boundaries preserved.
+- **NEXT**: **I0.3B3** — ClassId/schema **S** compatibility (separate from corrupted-byte tests).
 - **Land SHA**: *(pending commit)*.

@@ -121,6 +121,19 @@ void WindowCatalogModelSession::Run(
       WriteFatalStderr("fatal: WindowCatalog required chrome button missing\n");
       std::abort();
     }
+    auto& localized_texts = catalog->texts;
+    localized_texts.label_add.Load();
+    localized_texts.label_open.Load();
+    localized_texts.label_delete.Load();
+    localized_texts.label_language.Load();
+    localized_texts.window_title_prefix.Load();
+    if (!localized_texts.label_add || !localized_texts.label_open ||
+        !localized_texts.label_delete || !localized_texts.label_language ||
+        !localized_texts.window_title_prefix) {
+      WriteFatalStderr(
+          "fatal: WindowCatalog required localized text missing\n");
+      std::abort();
+    }
     int const language = catalog->locale->language_index();
     catalog->MaterializeCatalogStrings(language);
     for (auto const& row : catalog->list->rows) {

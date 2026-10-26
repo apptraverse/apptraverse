@@ -825,7 +825,7 @@ wording where it conflicted.
 | 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
 | 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
 | 9C | Build-time embedded export (MinimalApplication) | **DONE** |
-| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.3B2c1 done; **I0.3B2c2 NEXT**) |
+| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.3B2c done; **I0.3B3 NEXT**) |
 | I0.1 | Inventory / cleanup ledger | **DONE** — [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md) |
 | I0.2 | Remove verified dead paths | **DONE** (orphan `.cpp` + redundant graph-builder Win ensure; legacy runtime **deferred**) |
 | I0.3 | Required graph cold-load contract | **IN_PROGRESS** |
@@ -834,7 +834,10 @@ wording where it conflicted.
 | I0.3B1 | WindowCatalog required main window | **DONE** (after PASS) |
 | I0.3B2a | WindowCatalog required list / locale | **DONE** (after PASS) |
 | I0.3B2b | WindowCatalog required chrome presenters | **DONE** (after PASS) |
-| I0.3B2c | Catalog chrome buttons + localized text refs | **NEXT** |
+| I0.3B2c | Catalog chrome buttons + localized text refs | **DONE** (after PASS) |
+| I0.3B2c1 | WindowCatalog required chrome buttons | **DONE** (after PASS) |
+| I0.3B2c2 | WindowCatalog required localized text refs | **DONE** (after PASS) |
+| I0.3B3 | ClassId/schema **S** compatibility | **NEXT** |
 | 9D | MinimalApplication embedded startup | **PLANNED** (after I0 + 9C) |
 | 9E | WindowCatalog embedded startup | **PLANNED** |
 | 9F | Unified release bootstrap R/E/B/S | **PLANNED** |
@@ -937,9 +940,14 @@ explicit fatals before materialization. Four load-only negatives in
 load-only negatives (five cleared refs + `Remove` of persisted
 `add_button_presenter`).
 
-**I0.3B2c — WindowCatalog chrome buttons + localized text refs (NEXT):**
-remaining required chrome graph refs; ClassId/**S** compatibility separately (not
-corrupted-byte tests).
+**I0.3B2c — WindowCatalog chrome buttons + localized text refs (IN_PROGRESS):**
+
+**I0.3B2c1 — chrome buttons (DONE, 2026-10-25):** load four `catalog->buttons.*`
+before materialization; single fatal if any missing; five load-only negatives.
+
+**I0.3B2c2 — localized text refs (NEXT):** `label_add`, `label_open`,
+`label_delete`, `label_language`, `window_title_prefix`; ClassId/**S**
+separately (not corrupted-byte tests).
 
 Document and test (only if gaps exist):
 
