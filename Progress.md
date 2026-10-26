@@ -4576,5 +4576,5 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **`integration/application-versioning`**: **FROZEN** (organizational)
 - **Code baseline**: **`22eee7b5bb8710de162f30809642e79019faf7a6`**
 - **9D–9H**: **ON HOLD** (unfreeze per `plan.md` §1.6)
-- **Frozen HEAD**: **`e86153b`** (`I0.6: close I0, freeze integration/application-versioning branch.`).
-- **Land SHA (full)**: **`e86153b`** — remote tip after push.
+- **I0.6 doc commit**: **`e86153b9e3241ecb7f608cd31d6ba992c5084f24`** (`I0.6: close I0, freeze integration/application-versioning branch.`).
+- **Frozen HEAD (remote tip)**: **`493b334ee04b04fa34c35b165489d67c15db8cb3`** (`Progress: record I0.6 frozen HEAD SHA.`).
