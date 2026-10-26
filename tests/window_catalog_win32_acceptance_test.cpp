@@ -1474,6 +1474,69 @@ void RunLanguageAndFocusAcceptance() {
   CloseProcessGracefully(main, pi);
 }
 
+void RelocateStoredLayerVersion0To1(std::filesystem::path const& state_dir,
+                                    ae::ObjId obj_id,
+                                    std::uint32_t class_id) {
+  ae::DomainQuery const query_v0{obj_id, class_id, 0};
+  ae::DomainQuery const query_v1{obj_id, class_id, 1};
+  auto const path_v0 = DirectoryDomainStorageLayerPath(state_dir, query_v0);
+  auto const path_v1 = DirectoryDomainStorageLayerPath(state_dir, query_v1);
+  CHECK(std::filesystem::exists(path_v0));
+  std::error_code ec;
+  std::filesystem::create_directories(path_v1.parent_path(), ec);
+  CHECK(!ec);
+  std::filesystem::rename(path_v0, path_v1, ec);
+  CHECK(!ec);
+  DirectoryDomainStorage storage{state_dir};
+  CHECK(storage.Load(query_v0).result == ae::DomainLoadResult::kEmpty);
+  CHECK(storage.Load(query_v1).result == ae::DomainLoadResult::kLoaded);
+}
+
+void ExpectUnsupportedSchemaLoadOnly(ChildRunResult const& result,
+                                     bool allow_presenter_boundary) {
+  bool const load_failed =
+      result.stderr_text.find("fatal: LoadApplication failed") !=
+      std::string::npos;
+  bool const presenter_missing =
+      allow_presenter_boundary &&
+      result.stderr_text.find(
+          "fatal: LoadPresentedWindow required presenter missing") !=
+          std::string::npos;
+  CHECK(result.exit_code != 0);
+  CHECK(load_failed || presenter_missing);
+  if (!load_failed && !presenter_missing) {
+    std::cerr << "unsupported schema load-only stderr was:\n"
+              << result.stderr_text << '\n';
+    std::exit(1);
+  }
+}
+
+void RunRequiredUnsupportedSchemaNegativeTests(
+    std::filesystem::path const& good_state,
+    std::filesystem::path const& load_only) {
+  {
+    auto const dir = NegativeStateDir("unsupported_schema_window_catalog_root");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    RelocateStoredLayerVersion0To1(dir, CatalogRootObjId(),
+                                   WindowCatalog::kClassId);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectUnsupportedSchemaLoadOnly(result, false);
+  }
+
+  {
+    auto const dir =
+        NegativeStateDir("unsupported_schema_main_window_presenter");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    RelocateStoredLayerVersion0To1(
+        dir, CatalogMainWindowPresenterObjId(),
+        ui::windows::WinDesktopWindowPresenter::kClassId);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectUnsupportedSchemaLoadOnly(result, true);
+  }
+}
+
 void RunAcceptanceAndRequiredMainWindowNegatives() {
   auto const good_state = RunRestartPersistenceAcceptance();
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
@@ -1482,6 +1545,7 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   RunRequiredChromePresenterNegativeTests(good_state, load_only);
   RunRequiredChromeButtonNegativeTests(good_state, load_only);
   RunRequiredLocalizedTextNegativeTests(good_state, load_only);
+  RunRequiredUnsupportedSchemaNegativeTests(good_state, load_only);
   RunLanguageAndFocusAcceptance();
 }
 

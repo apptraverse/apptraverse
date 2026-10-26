@@ -302,7 +302,26 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **I0.3B2c (chrome buttons + localized texts):** **DONE** (B2c1 + B2c2).
 
-**NEXT:** **I0.3B3** — ClassId/**S** compatibility.
+**NEXT:** **I0.3B3b** — required ClassId incompatibility.
+
+---
+
+## M. I0.3B3a — Required schema **S** incompatibility (DONE 2026-10-25)
+
+**Baseline:** `e888a6094ac5827fcc69582b929e5da9274cef6b`
+
+| Layer | ObjId | ClassId | S change | Observed failure |
+|-------|-------|---------|----------|------------------|
+| WindowCatalog root | Catalog (1) | `WindowCatalog::kClassId` | 0 → 1 (rename only) | `fatal: LoadApplication failed id=1` |
+| Main window presenter | MainWindowPresenter (3) | `WinDesktopWindowPresenter::kClassId` | 0 → 1 | `fatal: LoadPresentedWindow required presenter missing` (catalog root otherwise loads) |
+
+**Mechanism (existing Æther / apptraverse, no production changes):** `DirectoryDomainStorage` stores layers at `{obj}/{class}/{S}`. Renaming `S=0` → `S=1` leaves required `S=0` as `kEmpty`. LocalPersistent `DomainGraph::LoadStoredLayers` + typed `Load(Version<0>)` cannot materialize the object → root load aborts via `LoadApplication`; presenter gap surfaces at I0.3B1 `LoadPresentedWindow` boundary.
+
+**Tests only:** `apptraverse_window_catalog_win32_acceptance_test` — layer relocate via `DirectoryDomainStorageLayerPath` + `rename`; preflight `DirectoryDomainStorage::Load` asserts `kEmpty`@0 and `kLoaded`@1; serialized bytes unchanged. Not corrupted-byte torture.
+
+**Production / serialization:** unchanged.
+
+**NEXT:** **I0.3B3b** — ClassId incompatibility.
 
 ---
 
