@@ -4488,4 +4488,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Unchanged**: main-window boundary, chrome, lazy holders, `RestoreLoadedCatalogWindows`, constructors, Load/Save, schema v0, CMake, runtime bootstrap.
 - **Verify**: incremental `build-application-versioning-msvc-rel` + `build-application-versioning-msvc-minsizerel`; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
 - **NEXT**: **I0.3B2b** — required chrome graph/presenters (ClassId/**S** separate).
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`7eacfaf8c0e8f3b0e8b8e8c8e8f3b0e8b8e8c8e8`** — use full hash from git.
