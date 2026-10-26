@@ -244,7 +244,31 @@ Happy path и семантические инварианты — сейчас; 
 | Published ClassId / S0 / S1 / Events | Fixture `PrefabWindow` S0/S1, prefab Event classes (**без изменений в C0**) | prefab matrices Debug+Release | **KEEP** |
 | Test-only origin / manual clone | `PrefabPtr`, `CloneWorkspaceFromPrefabs` | prefab matrices | **DEFER** → **12R–13** |
 
-**C0.3 PASS** · **C0 PASS** · следующий этап **12R** (**TODO**).
+**C0.3 PASS** · **C0 PASS** · следующий этап **12R.2** (реализация).
+
+---
+
+## 12R.1 — техническая проверка origin (**PASS**, doc-only)
+
+**Срез:** Æther Objects **`79283b6`**, AppTraverse **`df536e6`**, docs **`c00aafe`**. Код/tests **не** менялись. CTest **не** требовались.
+
+**Решение:** persisted **`Obj::kClassId / S1`** + поле **`ae::ObjPtr<ae::Obj>`** (`origin_`), wire = штатный **`ObjectPtrBase`** (`obj_ptr_base.cpp`: `ObjId`+`flags`, conditional `SaveRoot`); assign **`ObjPtr<Obj>::Declare(..., kUnloadedByDefault|kUnloaded)`** без `cached_`.
+
+**Доказательства по коду (pin):**
+
+| Тема | Файл (Æther / AppTraverse) | Вывод |
+| --- | --- | --- |
+| Save без load P | `obj_ptr_base.cpp` `Seri` L133–136 | `SaveRoot` только при `cached_` |
+| Deseri lazy | `obj_ptr_base.cpp` `Deseri` L146–151 | `LoadRoot` blocked by `kUnloaded*` |
+| Visitor | `obj_ptr.h` `NodeVisitor<ObjPtr>` | deep walk только `cached()` |
+| Отдельный ClassId S1 | `domain.h` `Save<T>` + `SaveVersion` | hook **`Obj::kClassId/1`** отдельно от **`T::kClassId`** |
+| Load multi-facet | `domain.cpp` `LoadStoredLayers` | нужен **`IsExisting(Obj::kClassId)`** → patch registrar |
+| Unknown layer guard | `reject-unknown-stored-class.patch` | **`Obj::kClassId`** whitelisted |
+| Scoped links | `object_link.h` | **`SharedPtr`≈`ObjPtr`**; **`LocalPtr`** excluded NetworkShared |
+
+**Blockers для автоматической safety:** materialized origin → USER write of **P** (discipline); **не** blocker для выбора типа.
+
+**12R** / **12B:** **TODO** (implementation). Детали: [PLAN §12R.1](./PLAN.md#12r1--техническая-проверка-pass-doc-only).
 
 ---
 
@@ -268,7 +292,8 @@ Happy path и семантические инварианты — сейчас; 
 | C0.2 | PASS | `f36fc1d`/`df536e6` | prefab + overlay regressions | **C0.2.1** ClonePlan; **C0.2.2** `failed_` |
 | C0.3 | PASS (doc) | `9e91f4d` | см. [§C0.3](#c03--верификация-сохранённых-механизмов-pass) | Верификация KEEP/DEFER; код не менялся |
 | 12A | PASS (doc) | `ed5eef9` / `4bda0ad` | — | Слой **`Obj/S1`** + отдельный `SaveVersion`; payload **`ObjId`** — **устаревший черновик** → **12R** |
-| 12R | TODO | — | — | Origin = lazy **`ObjPtr<ae::Obj>`** (или существующий scoped ref); **не** PASS в doc-only |
+| 12R | TODO | — | — | **12R.1 PASS (doc):** `ObjPtr<Obj>` lazy + **Obj/S1** facet; **12R.2** код |
+| 12R.1 | PASS (doc) | `c00aafe`+ | — | Техпроверка pin **`79283b6`** — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only) |
 | 12B | TODO | — | — | После **12R:** P(const)→A, roundtrip origin; **не** реализовано |
 | 13 | TODO | — | — | **Универсальный Clone** (после **12B**) |
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
@@ -332,7 +357,8 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-25** — **C0.1 (doc):** аудит избыточности Object Core → [§C0.1](#c01--аудит-избыточности-object-core); **C0.1 PASS**; **C0 IN_PROGRESS**; код не менялся; тесты не запускались; push — **`4a51d5c`**.
 - **2026-10-25** — **C0.2.1:** удалены `ClonePlan`, `PlanCloneFromPrefabGraph`; `CloneWorkspaceFromPrefabs(ae::Domain&, bool)`; Debug + Release prefab CTest **8/8 PASS**; **C0.2.1 PASS**; push — **`f36fc1d`**.
 - **2026-10-25** — **C0.2.2:** `BackingComparedStorageWriter::failed_`; Debug **11/11**, Release prefab+persistence **10/10** CTest; **C0.2 PASS**; push — **`df536e6`**, docs **`7322b9c`**.
-- **2026-10-25** — **C0.3 (doc):** верификация оснований Object Core → [§C0.3](#c03--верификация-сохранённых-механизмов-pass); Debug **17/17**, Release **14/14** CTest; **C0.3 PASS**, **C0 PASS**; код не менялся; следующий этап **12R**; push — SHA commit ниже.
+- **2026-10-25** — **C0.3 (doc):** верификация оснований → [§C0.3](#c03--верификация-сохранённых-механизмов-pass); Debug **17/17**, Release **14/14** CTest; **C0 PASS**; push — **`c00aafe`**.
+- **2026-10-25** — **12R.1 (doc):** техпроверка origin — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only); **12R.1 PASS**; **12R/12B TODO**; push — SHA commit ниже.
 - **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`ce46b80`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
