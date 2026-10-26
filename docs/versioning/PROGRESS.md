@@ -13,13 +13,13 @@
 
 **Порядок работ:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Текущий этап:** **12B PASS** (**12B.1** + **12B.2**). **13 (Clone) TODO**. **12R PASS**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); lazy **`ObjPtr`** origin — **12R PASS** (`9981e0f`). **13–22** — **не** реализованы. **T16/T17** — фрагменты.
+**Текущий этап:** **13 IN_PROGRESS** (**13.1 PASS** doc-only). **12B PASS**. **12R PASS**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); lazy **`ObjPtr`** origin — **12R PASS** (`9981e0f`). **13–22** — **не** реализованы. **T16/T17** — фрагменты.
 
 **OPEN:** динамический источник Clone **без** устойчивого const **P** — явное решение, не silent fallback ([PLAN §13](./PLAN.md#13--универсальный-clone)).
 
 **Нормативные правила Object Core:** [PLAN §нормативные правила](./PLAN.md#нормативные-правила-object-core-v03--01-plan) (здесь не дублируются).
 
-**Fixture vs библиотека:** PASS prefab/overlay matrices **не** означает системный origin/Clone/S — origin в fixture **`PrefabPtr`**, Clone вручную.
+**Fixture vs библиотека:** PASS prefab/overlay matrices **не** означает системный **Clone** — до **13.2+** Clone в fixtures вручную; **origin** — штатный **`Obj/S1`** (**12R/12B PASS**).
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -213,7 +213,7 @@ Happy path и семантические инварианты — сейчас; 
 2. ~~**C0.2.2 PASS** — `BackingComparedStorageWriter::failed_`~~ ([история](#iteration-history)).
 3. **STOP:** дальнейшие C0.2 пункты **не** планировать без нового аудита после **12R**/**13** (origin/Clone заменят fixture API).
 
-**Следующий шаг:** **13** (универсальный Clone) — [PLAN §13](./PLAN.md#13--универсальный-clone).
+**Следующий шаг:** **13.2** (Clone одного объекта без ссылок) — [PLAN §13](./PLAN.md#13--универсальный-clone-in_progress-131-pass-doc).
 
 ---
 
@@ -329,7 +329,8 @@ Happy path и семантические инварианты — сейчас; 
 | 12B | PASS | `02272ab` | **12B.1** + **12B.2**; facet + disk roundtrip + prefab/persistence/overlay Debug/Release **7/7** each | P→A origin; RAM overlay + cross-process disk USER/BACKING |
 | 12B.1 | PASS | `4e8662b` | `object_origin_facet_test`, `model_persistence_test`, `overlay_domain_storage_test` Debug+Release | **`TestConstPrefabDynamicInstanceRoundtrip`** (overlay RAM) |
 | 12B.2 | PASS | `02272ab` | `apptraverse_object_origin_disk_roundtrip_test` (`--write`/`--read` on facet EXE) + regressions Debug+Release | Process 1 save / Process 2 cold load; BACKING **P** frozen; no USER **P** |
-| 13 | TODO | — | — | **Универсальный Clone** (после **12B PASS**) |
+| 13 | IN_PROGRESS | — | **13.1 PASS** (doc); **13.2–13.6** TODO | **Canonical scratch clone** — [PLAN §13](./PLAN.md#13--универсальный-clone-in_progress-131-pass-doc) |
+| 13.1 | PASS (doc) | *(land SHA)* | — | Контракт Clone; **`LoadCopy` rejected**; этапы **13.2–13.6** |
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
 | 15 | TODO | — | — | Единая модель поставок R/E/B/S; **T11–T15** |
 | 16 | TODO | — | — | **R0–R5** lifecycle; **T01–T18** subset |
@@ -398,6 +399,7 @@ Happy path и семантические инварианты — сейчас; 
 
 - **2026-10-26** — **12B.1:** `TestConstPrefabDynamicInstanceRoundtrip` in `object_origin_facet_test.cpp` — const **P** in BACKING, dynamic **A** in USER with **`SetOriginId(P)`** via **`OverlayDomainStorage`**; cold **`LoadRoot(A)`** preserves fields/origin without materializing **P**; **12B.1 PASS**; **12B IN_PROGRESS**. Verify: `apptraverse_object_origin_facet_test`, `apptraverse_model_persistence_test`, `apptraverse_overlay_domain_storage_test` Debug+Release; prefab compaction/guard/dynamic-layer matrices Debug+Release. Baseline **`b5f050c`**. Push — **`c1c8a12`**.
 - **2026-10-26** — **12B.2 / 12B PASS:** **`apptraverse_object_origin_facet_test`** modes **`--write` / `--read`** + **`object_origin_disk_roundtrip_run.cmake`** — Process 1: **`SaveRoot(P)`** to BACKING, **`SaveRoot(A)`** with **`SetOriginId(P)`** via **`OverlayDomainStorage`** (no **`LoadRoot(P)`**); Process 2: cold **`LoadRoot(A)`**, repeat **`SaveRoot(A)`**. Disk: USER **A** — **Derived/S0+S1**, **Obj/S0+S1**; no USER **P**; BACKING **P** unchanged (Derived/S0+S1, **Obj/S0** only). CTest Debug+Release **7/7 PASS:** `apptraverse_object_origin_facet_test`, `apptraverse_object_origin_disk_roundtrip_test`, `apptraverse_model_persistence_test`, `apptraverse_overlay_domain_storage_test`, prefab compaction/guard/dynamic-layer matrices. **`object_origin.h` not added**. Push — **`02272ab`**.
+- **2026-10-26** — **13.1 (doc):** техконтракт универсального Clone — **`SaveObjectGraphToScratch`** + remap + **`LoadRoot`/`SaveRoot`**; **`LoadCopy` rejected** (storage-only). Этапы **13.2–13.6** в [PLAN §13](./PLAN.md#13--универсальный-clone-in_progress-131-pass-doc). Код не менялся; тесты не запускались. Push — SHA ниже.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
 

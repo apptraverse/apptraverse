@@ -43,7 +43,7 @@
 
 ## Порядок работ (после 11)
 
-**Сейчас:** **12R** → **12B** → **13** → **14** → **15** → **16** (**C0 PASS**). Этапы **17–22** — roadmap; часть application/UI — параллельно в **`integration/application-versioning`** ([координация](#координация-с-integrationapplication-versioning)).
+**Сейчас:** **13** (**13.1 PASS** doc) → **13.2–13.6** (код) → **14** → **15** → **16**. **12R** / **12B PASS**. **C0 PASS**. Этапы **17–22** — roadmap; часть application/UI — параллельно в **`integration/application-versioning`** ([координация](#координация-s-integrationapplication-versioning)).
 
 ---
 
@@ -621,11 +621,66 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 **Совместимость слоёв (целевая):** S0 прикладных классов и **PrefabWindow/S1** без изменений; **Obj/S1** — только при заданном origin; wire origin — **lazy reference**, не materialize **P** в USER (**12R**).
 
-### 13 — Универсальный Clone
+### 13 — Универсальный Clone (**IN_PROGRESS**; **13.1 PASS** doc)
 
-- **Цель:** **P→A→B→C**; Clone const и dynamic; общий устойчивый **origin=P** на каждом новом экземпляре; remap, aliases, cycles, const referents; lazy; Clone копирует **текущее каноническое** состояние источника; **без** Window-only fixture API.
-- **OPEN:** динамический источник **без** устойчивого **P** — явное решение, **не** silent fallback.
-- **T:** T03, T09 *(фрагменты)* | **Зав.:** **12B** | **Статус:** TODO
+- **Цель:** **P→A→B→C**; Clone const и dynamic; общий устойчивый **origin=P** на каждом новом экземпляре; remap, aliases, cycles, const referents; lazy; Clone копирует **текущее каноническое** состояние источника (включая несохранённые in-memory изменения); **без** Window-only fixture API.
+- **Зав.:** **12B PASS** | **T:** T03, T09 *(фрагменты)*
+
+#### Почему не `DomainGraph::LoadCopy`
+
+Æther **`LoadCopy` / `LoadCopyImpl`** создаёт объект с **`copy_id`**, но наполняет его через **`LoadStoredLayers(ptr, ref_id)`** — только **слои из `IDomainStorage`**, привязанные к **`ref_id`**. Несохранённые изменения в живом объекте **не** участвуют. **`LoadCopy` не является** универсальным Clone и **не** используется как основа **13** без доказательства эквивалентности in-memory snapshot (такого доказательства нет).
+
+Штатный путь «канонического снимка» уже есть в AppTraverse: **`SaveObjectGraphToScratch`** (`object_serialization.cpp`) — **`factory->save`** на **`DomainGraph`** с **`GraphSerializationScope::LocalPersistent`**, пишет **текущее** состояние достижимого persisted-подграфа в **`RamDomainStorage`** (тот же обход, что и **`SaveRoot`**, включая auto **`Obj/S1`** origin из **12R**). **`CollectPersistedSerializationObjectIds`** / **`SavePersistedObjectGraphToRam`** — обёртки над тем же scratch-save.
+
+#### Контракт Clone (нормативно)
+
+| # | Требование | Механизм |
+| --- | --- | --- |
+| 1 | **P→A→B→C**, у каждого **`origin_id()==P`** | После материализации клона: **`SetOriginId(P)`** на корне (и на каждом новом экземпляре в цепочке); **`P`** — const **ObjId**, не клонируется |
+| 2 | Текущее состояние, в т.ч. без **`SaveRoot`** на диск | **Snapshot:** **`SaveObjectGraphToScratch(source, scratch, LocalPersistent)`** с живого **`Domain`**, не **`LoadStoredLayers`** |
+| 3 | Новый **ObjId** на каждый клонируемый объект | Таблица **`old_id → new_id`**; генератор id — caller / **`Domain`** policy (вне wire) |
+| 4 | **ClassId** и все **S**, которые пишет штатный Save | Копируются **байты слоёв** из scratch (или повторный Save после remap); **без** ручного копирования полей |
+| 5 | Remap внутренних ссылок | **Remap-pass** по wire слоёв (**`ObjPtr` / `ObjectPtrBase`**) для id ∈ **clone closure** |
+| 6 | Aliases и cycles | Один **new_id** на **old_id**; несколько **`ObjPtr`** на тот же id → один remapped id; cycles сохраняются, т.к. save/load уже cycle-safe (**`cycle_detector`**) |
+| 7 | Внешние const referents | Id ∈ **`CloneBoundary`** ( **`OverlayDomainStorage::supply_constant_ids`**, явный caller set, const prefab **P**) **не** в closure → в wire **остаются исходные ObjId**; тела const **не** пишутся в USER |
+| 8 | Lazy без лишней materialize | Snapshot включает только объекты, которые **Save-walk** реально сериализует; неmaterialized lazy targets остаются **id-only** в родительском слое; cold load не тянет **P** |
+| 9 | Тело **P** не в USER | Как **12B**: const **P** только BACKING / boundary; clone closure **не** содержит **P** |
+| 10 | Dynamic без устойчивого **P** | **`CloneError::MissingStableOrigin`** (или эквив.) — **явный отказ**; **не** подставлять source как origin |
+
+**`graph_walk.h`:** обход **live UI / presentation** (**`CollectLiveReachableObjects`**, **`LocalPtr` ignored**). Для Clone closure — **Save-walk** (scratch), не live-walk.
+
+#### Алгоритм **Canonical scratch clone** (выбранный для **13.2+**)
+
+Единая сериализация Æther; **вторая** ad-hoc система полей **не** создаётся.
+
+1. **Вход:** **`Domain&` source**, **`Obj&` source_root**, **`CloneOptions`**: **`stable_origin P`**, **`CloneBoundary boundary_ids`**, **`IdAllocator`**, целевой **`Domain&` target** (тот же или новый **`IDomainStorage`**).
+2. **Проверка origin-policy:** если источник dynamic и политика требует **P**, но **`P`** invalid / не const-stable → **fail** (п.10).
+3. **Snapshot (in-memory):** **`RamDomainStorage scratch`**, **`SaveObjectGraphToScratch(source_root, scratch, LocalPersistent)`**.
+4. **Closure **I**:** ключи **`scratch.state`** с ненулевыми слоями, **минус** **`boundary_ids`** (включая **P**). Объекты только в ссылках, без собственных слоёв в scratch, **не** клонируются как отдельные узлы (остаются внешними ссылками).
+5. **Remap:** для каждого **`id ∈ I`** выделить **`new_id = allocator()`**, **`remap[id]=new_id`**. Id ∉ **I** (const/external) → **identity** в remap.
+6. **Переписать scratch под новые id:** для каждого объекта **`id ∈ I`**: (a) перенести map **`scratch.state[id]` → `scratch.state[remap[id]]`**; (b) в каждом layer buffer выполнить **remap ObjId references** (штатный **`BinaryArchive`** / domain buffer visitor — деталь реализации **13.3**). Aliases: один **`new_id`**. Cycles: без спец. case.
+7. **Materialize в target `Domain`:** временный **`Domain scratch_domain(scratch)`** **или** inject layers в storage target; **`DomainGraph load_graph(&target_domain)`**; для каждого **`new_root_id`** (образ **`source_root`**) **`LoadRoot(new_root_id)`** — порядок: топологически по зависимостям (как при обычном load graph). **Lazy:** не вызывать **`LoadRoot`** для **P** / boundary.
+8. **Origin на клоне:** **`clone_root.SetOriginId(P)`** (lazy **`ObjPtr`**, без **`origin_.Load()`** до save — как **12R**).
+9. **Persist:** **новый** **`DomainGraph save_graph(&target_domain)`** (избегать save-no-op на том же graph после load — урок **12B**); **`SaveRoot(clone_root, new_root_id)`** в USER storage.
+
+**Const/dynamic split:** **`CloneBoundary`** = union(caller const set, overlay **`supply_constant_ids`**, **P**). Всё остальное в **I** получает новые id.
+
+**P→A→B→C:** **`Clone(A)→B`**, **`Clone(B)→C`**; **`P`** один и тот же; **`origin_id`** на **B** и **C** = **P** (не **A**).
+
+#### Разбиение реализации
+
+| Этап | Scope | Критерий PASS |
+| --- | --- | --- |
+| **13.1** | Техконтракт (этот раздел) | **PASS (doc-only)** |
+| **13.2** | Один объект, без **`ObjPtr`**-рёбер | In-memory mutate без disk save → Clone → поля совпали; **`SaveRoot`** USER |
+| **13.3** | Граф + **remap** | Два+ объекта, internal refs remapped; const ref unchanged |
+| **13.4** | Aliases, cycles, lazy | Shared **`ObjPtr`**, cycle A↔B, lazy ref без load const |
+| **13.5** | Dynamic + **P→A→B→C** | Origin chain; **MissingStableOrigin** при отсутствии **P** |
+| **13.6** | Disk / process matrix | Как **12B.2**: subprocess, BACKING **P**, USER только клоны |
+
+**OPEN (зафиксировано):** dynamic источник без устойчивого **P** → **ошибка**, не silent fallback.
+
+**Файлы (план):** `include/apptraverse/object_clone.h` (+ `.cpp`); тесты/fixtures по этапам **13.2–13.6**; **без** изменений Æther wire / **ObjectPtrBase** в **13.1**.
 
 ### 14 — Автоматическая эволюция S и history
 
