@@ -15,6 +15,10 @@ set(APPTRAVERSE_AETHER_OBJECTS_SHOULD_SAVE_VERSION_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-should-save-version.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_ORIGIN_FACET_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-origin-facet.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_OBJ_FACET_FACTORY_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-obj-facet-factory.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_DOMAIN_REGISTERED_OBJECTS_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-domain-registered-objects.patch")
 
 set(APPTRAVERSE_AETHER_GIT_TAG "feature/percentile8-policy-v1")
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).

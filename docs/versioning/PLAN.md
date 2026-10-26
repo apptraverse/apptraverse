@@ -67,7 +67,7 @@
 
 **Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
 
-**Следующий активный шаг:** **12R.2b** — post-`Save<T>` hook + Obj factory для `LoadStoredLayers` (после **12R.2a**). **12R.2a PASS** (facet API + ручной `SaveVersion`/`LoadVersion`, без auto-hook). **12R/12B** — **TODO**. **C0 PASS**.
+**Следующий активный шаг:** **12R.2b.1** — Obj factory + cold **`LoadRoot`** (без auto Save hook); затем **12R.2b** hook. **12R.2a PASS**. **12R/12B** — **TODO**. **C0 PASS**.
 
 ---
 
@@ -515,13 +515,26 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 #### 12R.2a — базовый Obj/S1 origin facet (**PASS**, code)
 
-**Сделано:** CPM [`aether-objects-origin-facet.patch`](../../cmake/patches/aether-objects-origin-facet.patch) на pin **`79283b6`**: `Obj::SetOriginId` / `origin_id()` / `ShouldSaveVersion(V1)` / protected `Load|Save(V1)` + `friend DomainGraph`; **`Obj::CurrentVersion` остаётся V0**; **без** post-`Save<T>` hook и **без** Obj factory.
+**Сделано:** CPM [`aether-objects-origin-facet.patch`](../../cmake/patches/aether-objects-origin-facet.patch) на pin **`79283b6`**: `Obj::SetOriginId` / `origin_id()` / **`ShouldSaveOriginFacet(V1)`** / protected `Load|Save(V1)` + `friend DomainGraph`; **`Obj::CurrentVersion` остаётся V0**; **без** post-`Save<T>` hook и **без** Obj factory.
 
-**Versioning fix (тот же patch, `domain.h`):** `LoadVersion`/`SaveVersion` вызывают protected **`Obj` V1** через `(T==Obj && V==1)` — иначе `HasAnyVersionedSave<Obj>` ложно false; **`ShouldSaveVersion` в `Save<T>`** ограничен **`T==Obj`**, чтобы публичный `Obj::ShouldSaveVersion(V1)` не подавлял **`Derived/S1`**.
+**Versioning fix (тот же patch, `domain.h`):** `LoadVersion`/`SaveVersion` вызывают protected **`Obj` V1** через `(T==Obj && V==1)` — иначе `HasAnyVersionedSave<Obj>` ложно false; **`ShouldSaveOriginFacet`** проверяется **отдельно** для **`T==Obj`**; штатный **`ShouldSaveVersion`** из patch **`should-save-version`** остаётся для **Derived** (**10E**, `PrefabWindow::ShouldSaveVersion`).
 
 **Тест:** `apptraverse_object_origin_facet_test` (`RamDomainStorage`, ручной `SaveVersion`/`LoadVersion`).
 
 **Не в scope 12R.2a:** автоматический facet save, `LoadStoredLayers` factory, `object_origin.h`, **12B**.
+
+#### 12R.2b.1 — Obj factory + cold LoadRoot (**PASS**)
+
+**Patch:** [`aether-objects-obj-facet-factory.patch`](../../cmake/patches/aether-objects-obj-facet-factory.patch) (после origin-facet):
+
+- **`Registry::RegisterClass`:** `relations[base]` для всех `cls_id != base_id` (прямые наследники **`Obj`** попадают в **`relations[Obj]`** → корректный порядок **`KnownStoredClasses`**).
+- **`RegisterObjOriginFacetFactory(Registry&)`** из **`obj.cpp`:** factory **`Obj::kClassId`** — **`load`** → **`LoadVersion(V1, Obj&, id)`** (missing **V1** → OK); **`create`** → `{}`; **`save`** no-op. Регистрация при первом **`Registry::GetRegistry()`** (не static global — иначе MSVC **Release** ломает **`MakePtr`** при **`EnsureObjectRegistration`**).
+- **`GetMostRelatedFactory`:** если единственный stored class — **`Obj`**, **`nullptr`** (Obj/S1-only не root).
+- **`KnownStoredClasses`:** стабильный tie-break **`left < right`** при неоднозначной **`GenerationDistance`** (Release-safe sort).
+
+**Тест:** расширен **`apptraverse_object_origin_facet_test`** — cold **`LoadRoot`**, Obj/S0 без S1, Derived+Obj S1, reject Obj-only.
+
+**Не в scope:** auto Save hook, **`object_origin.h`**, wire **`ObjectPtrBase`**, **12B**.
 
 #### 12R.1 — техническая проверка (PASS, doc-only)
 
@@ -540,11 +553,11 @@ Wire-формат и новый GraphManager **не** добавлялись.
 | Load facet **Obj/1** | `LoadStoredLayers` → `FindClassFactory(class_id)` для каждого **`KnownStoredClasses`** (`domain.cpp` + patch **local-persistent-load**); **`KnownStoredClasses` отфильтровывает `!IsExisting`** | **Требуется** минимальная **`RegisterClass(Obj::kClassId, …)`** с `Load` → **`LoadVersion<1>(static_cast<Obj&>(*obj), storage_id)`** (новый фрагмент patch; **не** отдельный wire) |
 | Unknown **Obj/1** на диске | Patch **reject-unknown-stored-class**: **`Obj::kClassId`** **исключён** из fail-closed (`class_id != Obj::kClassId`) | Старый EXE без **Load(V1)** всё ещё риск для USER с **Obj/1** — scope **12B** / **22**, не blocker **12R.1** |
 
-**ShouldSaveVersion:** существующий patch **`aether-objects-should-save-version`** — **`Obj::ShouldSaveVersion(V1)`** → `origin_.is_valid()` (пустые facet не пишутся, как **10E**).
+**ShouldSaveOriginFacet / ShouldSaveVersion:** patch **`should-save-version`** — **`ShouldSaveVersion`** для прикладных классов (**10E**); origin facet — **`Obj::ShouldSaveOriginFacet(V1)`** (`origin_.is_valid() && !origin_.is_loaded()`), отдельно от Derived hooks.
 
 **Минимальные точки изменений (12R.2, только CPM + тонкий API):**
 
-1. **`obj.h` / `obj.cpp` (Æther patch):** поле **`ObjPtr<Obj> origin_`**; **`Load`/`Save` `Version<1>`** через Dnv; **`ShouldSaveVersion(V1)`**; accessors или friend **`object_origin.h`**.
+1. **`obj.h` / `obj.cpp` (Æther patch):** поле **`ObjPtr<Obj> origin_`**; **`Load`/`Save` `Version<1>`** через Dnv; **`ShouldSaveOriginFacet(V1)`**; accessors или friend **`object_origin.h`**.
 2. **`domain.h` (patch, рядом с ShouldSaveVersion):** после успешного **`Save<T>`**, если `T` наследует **`Obj`**, **`SaveVersion(V1, static_cast<Obj const&>(obj), obj_id)`** (отдельный файл **`Obj::kClassId/1`**).
 3. **`registry` / `LoadStoredLayers` (patch):** зарегистрировать **`Obj::kClassId`** factory с **Load** = single-facet **`LoadVersion<1>`** на **`Obj&`** subobject ( **Create/Save** factory могут быть no-op / unused для facet-only).
 4. **AppTraverse `object_origin.h`:** set/get origin через **`Declare` + flags**; **запрет** document/API: не вызывать **`Load()`** на origin перед **`SaveRoot(instance)`**.

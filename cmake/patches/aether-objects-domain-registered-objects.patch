@@ -1,0 +1,128 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index d033fba..4f69641 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -126,13 +126,22 @@ std::unique_ptr<IDomainStorageWriter> DomainGraph::GetWriter(
+ Domain::Domain(IDomainStorage& storage) : Domain(storage, nullptr) {}
+ 
+ Domain::Domain(IDomainStorage& storage, Env* env)
+-    : storage_{&storage}, registry_{&Registry::GetRegistry()}, env_{env} {}
++    : storage_{&storage},
++      registry_{&Registry::GetRegistry()},
++      env_{env},
++      registered_objects_{std::make_shared<DomainRegisteredObjects>()} {}
++
++void DomainRegisteredObjects::Add(ObjId id, Ptr<Obj> const& obj) {
++  by_id[id.id()] = obj;
++}
++
++void DomainRegisteredObjects::Remove(ObjId::Type id) {
++  by_id.erase(id);
++}
+ 
+ Ptr<Obj> Domain::ConstructObj(Factory const& factory, ObjId obj_id) {
+   Ptr<Obj> o = factory.create();
+   AddObject(obj_id, o);
+-  o->domain = this;
+-  o->obj_id = obj_id;
+   return o;
+ }
+ 
+@@ -145,17 +154,31 @@ bool Domain::IsExisting(uint32_t class_id) const {
+ }
+ 
+ Ptr<Obj> Domain::Find(ObjId obj_id) const {
+-  if (auto it = id_objects_.find(obj_id.id()); it != id_objects_.end()) {
++  if (!registered_objects_) {
++    return {};
++  }
++  if (auto it = registered_objects_->by_id.find(obj_id.id());
++      it != registered_objects_->by_id.end()) {
+     return it->second.Lock();
+   }
+   return {};
+ }
+ 
+ void Domain::AddObject(ObjId id, Ptr<Obj> const& obj) {
+-  id_objects_[id.id()] = obj;
++  if (obj) {
++    obj->registered_objects_ = registered_objects_;
++    obj->domain = this;
++    obj->obj_id = id;
++  }
++  registered_objects_->Add(id, obj);
+ }
+ 
+-void Domain::RemoveObject(Obj* ptr) { id_objects_.erase(ptr->obj_id.id()); }
++void Domain::RemoveObject(Obj* ptr) {
++  if (ptr == nullptr || !ptr->registered_objects_) {
++    return;
++  }
++  ptr->registered_objects_->Remove(ptr->obj_id.id());
++}
+ 
+ std::vector<std::uint32_t> Domain::KnownStoredClasses(ObjId id) {
+   auto classes = storage_->Enumerate(id);
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 77b4af5..03449ff 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -20,6 +20,7 @@
+ #include <cassert>
+ #include <cstdint>
+ #include <map>
++#include <memory>
+ #include <optional>
+ #include <set>
+ #include <type_traits>
+@@ -46,6 +47,14 @@ inline constexpr seri::SeriError missing_version{
+ class Obj;
+ class Domain;
+ class DomainGraph;
++
++struct DomainRegisteredObjects {
++  std::map<ObjId::Type, PtrView<Obj>> by_id;
++
++  void Add(ObjId id, Ptr<Obj> const& obj);
++  void Remove(ObjId::Type id);
++};
++
+ template <typename T>
+ class Registrar;
+ 
+@@ -194,7 +203,7 @@ class Domain {
+   Registry* registry_;
+   Env* env_{};
+ 
+-  std::map<ObjId::Type, PtrView<Obj>> id_objects_;
++  std::shared_ptr<DomainRegisteredObjects> registered_objects_;
+ };
+ 
+ template <typename T>
+diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
+index cb60a41..4445f6c 100644
+--- a/src/aether-objects/obj/obj.cpp
++++ b/src/aether-objects/obj/obj.cpp
+@@ -63,8 +63,8 @@ Obj::Obj() = default;
+ Obj::Obj(ObjProp prop) : domain{prop.domain}, obj_id{prop.id} {}
+ 
+ Obj::~Obj() {
+-  if (domain != nullptr) {
+-    domain->RemoveObject(this);
++  if (registered_objects_) {
++    registered_objects_->Remove(obj_id.id());
+   }
+ }
+ 
+diff --git a/src/aether-objects/obj/obj.h b/src/aether-objects/obj/obj.h
+index a2aa433..685ed50 100644
+--- a/src/aether-objects/obj/obj.h
++++ b/src/aether-objects/obj/obj.h
+@@ -75,6 +75,7 @@ class Obj {
+ 
+   Domain* domain{};
+   ObjId obj_id;
++  std::shared_ptr<DomainRegisteredObjects> registered_objects_;
+ 
+  protected:
+   template <typename Dnv>

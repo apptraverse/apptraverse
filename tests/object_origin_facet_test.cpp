@@ -199,7 +199,7 @@ void TestDerivedWithOwnV1DoesNotWriteObjFacet() {
   }
 }
 
-void TestShouldSaveVersionBlocksEmptyOrigin() {
+void TestShouldSaveOriginFacetBlocksEmptyOrigin() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   ae::ObjId const instance_id{500u};
@@ -207,8 +207,164 @@ void TestShouldSaveVersionBlocksEmptyOrigin() {
   OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
       ae::CreateWith{domain}.with_id(instance_id));
   ae::Obj const& obj = *instance.Load();
-  if (obj.ShouldSaveVersion(ae::Version<1>{})) {
-    Fail("ShouldSaveVersion true without origin");
+  if (obj.ShouldSaveOriginFacet(ae::Version<1>{})) {
+    Fail("ShouldSaveOriginFacet true without origin");
+  }
+}
+
+bool LoadV0Cold(ae::RamDomainStorage& storage, ae::ObjId instance_id,
+                ae::Ptr<OriginFacetTargetV0>& out) {
+  ae::Domain domain{storage};
+  ae::DomainGraph graph{&domain};
+  ae::Ptr<ae::Obj> root = graph.LoadRoot(instance_id);
+  if (!root || root->GetClassId() != OriginFacetTargetV0::kClassId) {
+    return false;
+  }
+  out = ae::Ptr<OriginFacetTargetV0>{root};
+  return true;
+}
+
+void TestColdLoadRootAppliesObjFacetOnDerived() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const prefab_id{600u};
+  ae::ObjId const instance_id{601u};
+
+  {
+    ae::Domain domain{storage};
+    OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
+        ae::CreateWith{domain}.with_id(instance_id));
+    instance.Load()->value = 99;
+    ae::Obj& obj = *instance.Load();
+    obj.SetOriginId(prefab_id);
+    ae::DomainGraph graph{&domain};
+    if (!graph.Save(*instance.Load(), instance_id).has_value()) {
+      Fail("Save Derived/S0 before cold load");
+    }
+    if (!graph.SaveVersion(ae::Version<1>{}, static_cast<ae::Obj const&>(obj),
+                           instance_id)
+             .IsOk()) {
+      Fail("Save Obj/S1 before cold load");
+    }
+  }
+
+  ae::Ptr<OriginFacetTargetV0> loaded;
+  if (!LoadV0Cold(storage, instance_id, loaded)) {
+    Fail("LoadRoot failed for Derived/S0 + Obj/S1");
+  }
+  if (loaded->value != 99 || loaded->origin_id() != prefab_id) {
+    Fail("cold LoadRoot field/origin mismatch");
+  }
+  ae::Domain domain{storage};
+  if (domain.Find(prefab_id)) {
+    Fail("prefab P materialized during cold LoadRoot");
+  }
+}
+
+bool LoadV1Cold(ae::RamDomainStorage& storage, ae::ObjId instance_id,
+                ae::Ptr<OriginFacetTargetV1>& out) {
+  ae::Domain domain{storage};
+  ae::DomainGraph graph{&domain};
+  ae::Ptr<ae::Obj> root = graph.LoadRoot(instance_id);
+  if (!root || root->GetClassId() != OriginFacetTargetV1::kClassId) {
+    return false;
+  }
+  out = ae::Ptr<OriginFacetTargetV1>{root};
+  return true;
+}
+
+void TestColdLoadWithoutOriginFacet() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const instance_id{602u};
+  {
+    ae::Domain domain{storage};
+    OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
+        ae::CreateWith{domain}.with_id(instance_id));
+    instance.Load()->value = 11;
+    ae::DomainGraph graph{&domain};
+    if (!graph.Save(*instance.Load(), instance_id).has_value()) {
+      Fail("Save without origin");
+    }
+  }
+  ae::Ptr<OriginFacetTargetV0> loaded;
+  if (!LoadV0Cold(storage, instance_id, loaded) || loaded->value != 11) {
+    Fail("cold load without origin facet");
+  }
+  if (loaded->origin_id().is_valid()) {
+    Fail("unexpected origin after load without facet");
+  }
+}
+
+void TestColdLoadObjS0WithoutObjS1() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const instance_id{603u};
+  {
+    ae::Domain domain{storage};
+    OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
+        ae::CreateWith{domain}.with_id(instance_id));
+    instance.Load()->value = 3;
+    ae::DomainGraph graph{&domain};
+    if (!graph.Save(*instance.Load(), instance_id).has_value()) {
+      Fail("Save for Obj/S0-only case");
+    }
+  }
+  ae::Ptr<OriginFacetTargetV0> loaded;
+  if (!LoadV0Cold(storage, instance_id, loaded) || loaded->value != 3) {
+    Fail("cold load with Obj/S0 only");
+  }
+}
+
+void TestColdLoadDerivedS1WithObjOriginFacet() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const prefab_id{604u};
+  ae::ObjId const instance_id{605u};
+  {
+    ae::Domain domain{storage};
+    OriginFacetTargetV1::ptr instance = OriginFacetTargetV1::ptr::Create(
+        ae::CreateWith{domain}.with_id(instance_id));
+    ae::Ptr<OriginFacetTargetV1> body = instance.Load();
+    body->value = 5;
+    body->tag = 6;
+    ae::Obj& obj = *body;
+    obj.SetOriginId(prefab_id);
+    ae::DomainGraph graph{&domain};
+    if (!graph.Save(*body, instance_id).has_value()) {
+      Fail("Save Derived S0/S1");
+    }
+    if (!graph.SaveVersion(ae::Version<1>{}, static_cast<ae::Obj const&>(obj),
+                           instance_id)
+             .IsOk()) {
+      Fail("Save Obj/S1 alongside Derived/S1");
+    }
+  }
+  ae::Ptr<OriginFacetTargetV1> loaded;
+  if (!LoadV1Cold(storage, instance_id, loaded) || loaded->value != 5 ||
+      loaded->tag != 6 || loaded->origin_id() != prefab_id) {
+    Fail("Derived S0/S1 + Obj/S1 cold load mismatch");
+  }
+}
+
+void TestLoadRootRejectsObjFacetOnlyStorage() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const prefab_id{606u};
+  ae::ObjId const instance_id{607u};
+  {
+    ae::Domain domain{storage};
+    OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
+        ae::CreateWith{domain}.with_id(instance_id));
+    ae::Obj& obj = *instance.Load();
+    obj.SetOriginId(prefab_id);
+    ae::DomainGraph graph{&domain};
+    if (!graph.SaveVersion(ae::Version<1>{}, static_cast<ae::Obj const&>(obj),
+                           instance_id)
+             .IsOk()) {
+      Fail("write Obj/S1-only storage");
+    }
+    domain.RemoveObject(&obj);
+  }
+  ae::Domain domain{storage};
+  ae::DomainGraph graph{&domain};
+  if (graph.LoadRoot(instance_id)) {
+    Fail("LoadRoot must fail for Obj/S1-only storage");
   }
 }
 
@@ -216,10 +372,17 @@ void TestShouldSaveVersionBlocksEmptyOrigin() {
 
 int main() {
   apptraverse::EnsureObjectRegistration();
+  (void)&g_apptraverse_registrar_OriginFacetTargetV0;
+  (void)&g_apptraverse_registrar_OriginFacetTargetV1;
   TestManualObjFacetRoundtrip();
   TestOrdinarySaveWithoutOriginFacet();
   TestDerivedWithOwnV1DoesNotWriteObjFacet();
-  TestShouldSaveVersionBlocksEmptyOrigin();
+  TestShouldSaveOriginFacetBlocksEmptyOrigin();
+  TestColdLoadRootAppliesObjFacetOnDerived();
+  TestColdLoadWithoutOriginFacet();
+  TestColdLoadObjS0WithoutObjS1();
+  TestColdLoadDerivedS1WithObjOriginFacet();
+  TestLoadRootRejectsObjFacetOnlyStorage();
   std::cout << "object_origin_facet_test OK\n";
   return 0;
 }

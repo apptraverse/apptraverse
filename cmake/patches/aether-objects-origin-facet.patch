@@ -25,7 +25,7 @@ index 94a3b04..a2aa433 100644
 +  void SetOriginId(ObjId origin_id);
 +  ObjId origin_id() const;
 +
-+  bool ShouldSaveVersion(ae::Version<1>) const;
++  bool ShouldSaveOriginFacet(ae::Version<1>) const;
 +
    AE_REFLECT();
  
@@ -71,7 +71,7 @@ index 3279321..aaca824 100644
 +
 +ObjId Obj::origin_id() const { return origin_.id(); }
 +
-+bool Obj::ShouldSaveVersion(ae::Version<1>) const {
++bool Obj::ShouldSaveOriginFacet(ae::Version<1>) const {
 +  return origin_.is_valid() && !origin_.is_loaded();
 +}
 +
@@ -92,18 +92,21 @@ index 31431b1..77b4af5 100644
      auto visitor = VersionNodeVisitor{load_visitor};
      obj.Load(version, visitor);
    } else {
-@@ -283,8 +284,10 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
+@@ -283,8 +283,15 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
              return;
            }
            if constexpr (requires { obj.ShouldSaveVersion(version); }) {
--            if (!obj.ShouldSaveVersion(version)) {
--              return;
-+            if constexpr (std::is_same_v<T, Obj>) {
-+              if (!obj.ShouldSaveVersion(version)) {
-+                return;
-+              }
+             if (!obj.ShouldSaveVersion(version)) {
+               return;
              }
            }
++          if constexpr (std::is_same_v<std::decay_t<T>, Obj>) {
++            if constexpr (requires { obj.ShouldSaveOriginFacet(version); }) {
++              if (!obj.ShouldSaveOriginFacet(version)) {
++                return;
++              }
++            }
++          }
            result = this->SaveVersion(version, obj, obj_id);
 @@ -319,7 +322,8 @@ seri::SeriResult DomainGraph::SaveVersion(Version<V> version, T const& obj,
  

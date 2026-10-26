@@ -1,0 +1,112 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 7031556..d033fba 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -168,14 +168,16 @@ std::vector<std::uint32_t> Domain::KnownStoredClasses(ObjId id) {
+   }
+   std::sort(std::begin(classes), std::end(classes),
+             [this](auto left, auto right) {
++              if (left == right) {
++                return false;
++              }
+               if (registry_->GenerationDistance(right, left) > 0) {
+                 return false;
+               }
+-              if (registry_->GenerationDistance(left, right) >= 0) {
++              if (registry_->GenerationDistance(left, right) > 0) {
+                 return true;
+               }
+-              assert(false);
+-              return false;
++              return left < right;
+             });
+   return classes;
+ }
+@@ -212,6 +214,10 @@ Factory* Domain::GetMostRelatedFactory(ObjId id) {
+     return nullptr;
+   }
+ 
++  if (classes.back() == Obj::kClassId) {
++    return nullptr;
++  }
++
+   // Find the Final class for the most derived class provided and create it.
+   for (auto& f : registry_->factories) {
+     if (IsLast(f.first)) {
+diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
+index aaca824..cb60a41 100644
+--- a/src/aether-objects/obj/obj.cpp
++++ b/src/aether-objects/obj/obj.cpp
+@@ -18,7 +18,46 @@
+ 
+ #include "aether-miscpp/crc.h"
+ 
++#include "aether-objects/obj/domain.h"
++#include "aether-objects/obj/registry.h"
++
+ namespace ae {
++
++Ptr<Obj> ObjFacetFactoryCreateMustNotRun() { return {}; }
++
++std::optional<seri::SeriResult> LoadObjOriginFacet(DomainGraph* domain_graph,
++                                                   Ptr<Obj>& obj,
++                                                   ObjId storage_id) {
++  auto result = domain_graph->LoadVersion(
++      Version<1>{}, static_cast<Obj&>(*obj.get()), storage_id);
++  if (IsMissingVersion(result)) {
++    return Ok{seri::good};
++  }
++  return result;
++}
++
++std::optional<seri::SeriResult> SaveObjOriginFacetUnused(DomainGraph*,
++                                                         Ptr<Obj> const&,
++                                                         ObjId) {
++  return Ok{seri::good};
++}
++
++void RegisterObjOriginFacetFactory(Registry& registry) {
++  if (registry.IsExisting(Obj::kClassId)) {
++    return;
++  }
++  registry.RegisterClass(
++      Obj::kClassId, Obj::kClassId,
++      Factory{ObjFacetFactoryCreateMustNotRun, LoadObjOriginFacet,
++              SaveObjOriginFacetUnused,
++#ifndef NDEBUG
++              std::string{"ae::Obj"},
++              Obj::kClassId,
++              Obj::kClassId,
++#endif
++      });
++}
++
+ Obj::Obj() = default;
+ 
+ Obj::Obj(ObjProp prop) : domain{prop.domain}, obj_id{prop.id} {}
+diff --git a/src/aether-objects/obj/registry.cpp b/src/aether-objects/obj/registry.cpp
+index 3fb1465..738f7a1 100644
+--- a/src/aether-objects/obj/registry.cpp
++++ b/src/aether-objects/obj/registry.cpp
+@@ -23,8 +23,12 @@
+ #include "aether-objects/log.h"
+ 
+ namespace ae {
++
++void RegisterObjOriginFacetFactory(Registry& registry);
++
+ Registry& Registry::GetRegistry() {
+   static Registry registry;
++  RegisterObjOriginFacetFactory(registry);
+   return registry;
+ }
+ 
+@@ -49,7 +53,7 @@ void Registry::RegisterClass(uint32_t cls_id, std::uint32_t base_id,
+ #endif    // !NDEBUG
+   factories.emplace(cls_id, std::move(factory));
+   // TODO: maybe remove this check
+-  if (base_id != crc32::from_literal("Obj").value) {
++  if (cls_id != base_id) {
+     relations[base_id].push_back(cls_id);
+   }
+ }
