@@ -4516,4 +4516,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Tests**: six load-only negatives (five cleared text refs + `Remove` of persisted `label_add` ObjId); does not assert inner EN/RU `UiString` slots.
 - **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; EN/RU acceptance and prior required-graph boundaries preserved.
 - **NEXT**: **I0.3B3** — ClassId/schema **S** compatibility (separate from corrupted-byte tests).
-- **Land SHA**: *(pending commit)*.
+- **Land SHA**: **`ece8dbcf0e832f995037360d6cff3c0df363aa13`** (`I0.3B2c2: require WindowCatalog localized text refs on cold load.`).

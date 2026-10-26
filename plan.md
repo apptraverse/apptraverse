@@ -940,14 +940,12 @@ explicit fatals before materialization. Four load-only negatives in
 load-only negatives (five cleared refs + `Remove` of persisted
 `add_button_presenter`).
 
-**I0.3B2c — WindowCatalog chrome buttons + localized text refs (IN_PROGRESS):**
+**I0.3B2c — WindowCatalog chrome buttons + localized text refs (DONE,
+2026-10-25):** B2c1 (four buttons) + B2c2 (five `WindowCatalogTexts` refs)
+before `MaterializeCatalogStrings`; load-only negatives for each ref class.
 
-**I0.3B2c1 — chrome buttons (DONE, 2026-10-25):** load four `catalog->buttons.*`
-before materialization; single fatal if any missing; five load-only negatives.
-
-**I0.3B2c2 — localized text refs (NEXT):** `label_add`, `label_open`,
-`label_delete`, `label_language`, `window_title_prefix`; ClassId/**S**
-separately (not corrupted-byte tests).
+**I0.3B3 — ClassId/schema **S** compatibility (NEXT):** functional
+incompatibility must fail loudly; not corrupted-byte torture tests.
 
 Document and test (only if gaps exist):
 
