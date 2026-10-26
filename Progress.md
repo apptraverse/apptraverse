@@ -4468,4 +4468,4 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
 - **Confirmed**: no auto-create of main window on load-only; no partial UI when required graph incomplete; positive native Save/reload/shutdown preserved.
 - **NEXT**: **I0.3B** — WindowCatalog required graph boundaries.
-- **Land SHA**: *(record after commit)*.
+- **Land SHA**: **`27b0935`** (`I0.3A: enforce MinimalApplication required graph on cold load.`).
