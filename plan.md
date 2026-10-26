@@ -854,7 +854,7 @@ wording where it conflicted.
 
 ### Branch freeze and **9D–9H** resume (I0.6)
 
-**`integration/application-versioning`** is **FROZEN** (organizational): no further changes on this branch until an explicit unfreeze decision. **Code baseline:** `22eee7b5bb8710de162f30809642e79019faf7a6` (I0.5). **Frozen HEAD:** `57fd7a2e2169e1bc24663cef68634b8cfb8180af` (see `Progress.md`). No Git tag or branch protection.
+**`integration/application-versioning`** is **FROZEN** (organizational): no further changes on this branch until an explicit unfreeze decision. **Code baseline:** `22eee7b5bb8710de162f30809642e79019faf7a6` (I0.5). **Frozen HEAD:** `adcbfce1ad7ebd2e56aadd07eac6a33679b934d9` (see `Progress.md`). No Git tag or branch protection.
 
 Historical: I0.4 recorded **15/17** at **`168d817`**; I0.5 restored **17/17** via **`EnsureObjectRegistration()`** in two headless tests (registrar link — reject-unknown ClassId contract unchanged).
 

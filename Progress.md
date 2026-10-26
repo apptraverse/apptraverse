@@ -4577,4 +4577,5 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Code baseline**: **`22eee7b5bb8710de162f30809642e79019faf7a6`**
 - **9D–9H**: **ON HOLD** (unfreeze per `plan.md` §1.6)
 - **I0.6 doc commit**: **`e86153b9e3241ecb7f608cd31d6ba992c5084f24`** (`I0.6: close I0, freeze integration/application-versioning branch.`).
-- **Frozen HEAD (remote tip)**: **`57fd7a2e2169e1bc24663cef68634b8cfb8180af`** (I0.6 closure + SHA bookkeeping commits).
+- **Frozen HEAD (remote tip)**: **`adcbfce1ad7ebd2e56aadd07eac6a33679b934d9`** (I0.6 closure + SHA bookkeeping commits).
+- **Re-verify (2026-10-26)**: Release **17/17**; MinSizeRel **17/17** (full re-run after transient `#11` fail on first pass).
