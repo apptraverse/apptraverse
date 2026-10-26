@@ -825,7 +825,7 @@ wording where it conflicted.
 | 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
 | 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
 | 9C | Build-time embedded export (MinimalApplication) | **DONE** |
-| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.3B3a done; **I0.3B3b NEXT**) |
+| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.3B3 done; **I0.3 closure audit NEXT**) |
 | I0.1 | Inventory / cleanup ledger | **DONE** — [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md) |
 | I0.2 | Remove verified dead paths | **DONE** (orphan `.cpp` + redundant graph-builder Win ensure; legacy runtime **deferred**) |
 | I0.3 | Required graph cold-load contract | **IN_PROGRESS** |
@@ -837,9 +837,9 @@ wording where it conflicted.
 | I0.3B2c | Catalog chrome buttons + localized text refs | **DONE** (after PASS) |
 | I0.3B2c1 | WindowCatalog required chrome buttons | **DONE** (after PASS) |
 | I0.3B2c2 | WindowCatalog required localized text refs | **DONE** (after PASS) |
-| I0.3B3 | ClassId/schema **S** compatibility | **IN_PROGRESS** |
+| I0.3B3 | ClassId/schema **S** compatibility | **DONE** (after PASS) |
 | I0.3B3a | Required schema **S** incompatibility | **DONE** (after PASS) |
-| I0.3B3b | Required ClassId incompatibility | **NEXT** |
+| I0.3B3b | Required ClassId incompatibility | **DONE** (after PASS) |
 | 9D | MinimalApplication embedded startup | **PLANNED** (after I0 + 9C) |
 | 9E | WindowCatalog embedded startup | **PLANNED** |
 | 9F | Unified release bootstrap R/E/B/S | **PLANNED** |
@@ -946,14 +946,11 @@ load-only negatives (five cleared refs + `Remove` of persisted
 2026-10-25):** B2c1 (four buttons) + B2c2 (five `WindowCatalogTexts` refs)
 before `MaterializeCatalogStrings`; load-only negatives for each ref class.
 
-**I0.3B3 — ClassId/schema **S** compatibility (IN_PROGRESS):**
+**I0.3B3 — ClassId/schema **S** compatibility (DONE, 2026-10-25):** B3a
+unsupported S layers; B3b reject-unknown-stored-class Æther patch +
+acceptance ClassId negatives. Not corrupted-byte torture.
 
-**I0.3B3a — schema **S** (DONE, 2026-10-25):** acceptance-only; relocate
-required layers from S=0 to S=1 for WindowCatalog root and
-`WinDesktopWindowPresenter`; existing load graph rejects (no production change).
-
-**I0.3B3b — ClassId (NEXT):** functional ClassId mismatch; not corrupted-byte
-torture tests.
+**NEXT:** **I0.3 closure audit** — confirm I0.3 complete before **9D**.
 
 Document and test (only if gaps exist):
 

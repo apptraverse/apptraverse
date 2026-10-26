@@ -1,0 +1,28 @@
+﻿diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 3035e43..d6e9479 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -189,10 +189,23 @@ Factory* Domain::GetMostRelatedFactory(ObjId id) {
+   AE_LOG_MACRO("For obj {} enumerated classes [{}]", id.id(), classes);
+ #endif
+ 
++  bool const had_unknown_stored_class = [&] {
++    for (auto const class_id : classes) {
++      if (!IsExisting(class_id) && class_id != Obj::kClassId) {
++        return true;
++      }
++    }
++    return false;
++  }();
++
+   classes = KnownStoredClasses(id);
+   if (classes.empty()) {
+     return nullptr;
+   }
++
++  if (had_unknown_stored_class) {
++    return nullptr;
++  }
+ 
+   // Find the Final class for the most derived class provided and create it.
+   for (auto& f : registry_->factories) {

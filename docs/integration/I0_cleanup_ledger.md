@@ -321,7 +321,26 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **Production / serialization:** unchanged.
 
-**NEXT:** **I0.3B3b** — ClassId incompatibility.
+**NEXT:** **I0.3 closure audit** (before 9D).
+
+---
+
+## N. I0.3B3b — Required ClassId incompatibility (DONE 2026-10-25)
+
+**Baseline:** `85c5c8a00596bfaa100d05af984b9c072f565fa4`
+
+**Production (Æther patch only, pinned SHA unchanged):** `cmake/patches/aether-objects-reject-unknown-stored-class.patch` from `integration/serialization-surfaces` — `Domain::GetMostRelatedFactory` returns `nullptr` when storage enumerates any unregistered ClassId other than `ae::Obj::kClassId` (no silent filter via `KnownStoredClasses` alone). Registered in `cmake/aether_version.cmake` + root `CMakeLists.txt` after `domain-storage-access.patch`.
+
+| Scenario | Manipulation | Observed failure |
+|----------|--------------|------------------|
+| Unknown ClassId alongside valid root | Copy `WindowCatalog` S=0 bytes to unregistered ClassId `0xC1D00001` on Catalog (1); valid catalog layer retained | `fatal: LoadApplication failed id=1` |
+| Required presenter ClassId replaced | Rename presenter object dir from `WinDesktopWindowPresenter::kClassId` → unknown ClassId; bytes/S=0 unchanged | `LoadApplication failed` or `LoadPresentedWindow required presenter missing` |
+
+**Tests:** `apptraverse_window_catalog_win32_acceptance_test` — `Enumerate`/`Load` preflight; load-only 30s stderr. Not malformed-byte torture.
+
+**I0.3B3 (ClassId + schema S):** **DONE** (B3a + B3b).
+
+**NEXT:** **I0.3 closure audit** — verify §1.6 I0.3 criteria before **9D**.
 
 ---
 

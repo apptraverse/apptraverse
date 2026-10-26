@@ -17,6 +17,7 @@
 #include <algorithm>
 
 #include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
@@ -1511,6 +1512,89 @@ void ExpectUnsupportedSchemaLoadOnly(ChildRunResult const& result,
   }
 }
 
+std::uint32_t UnknownStoredClassIdForTests() {
+  constexpr std::uint32_t kUnknown = 0xC1D00001u;
+  CHECK(kUnknown != ae::Obj::kClassId);
+  return kUnknown;
+}
+
+bool EnumerateContainsClass(DirectoryDomainStorage& storage, ae::ObjId obj_id,
+                            std::uint32_t class_id) {
+  for (auto const stored : storage.Enumerate(obj_id)) {
+    if (stored == class_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void CopyStoredLayer(std::filesystem::path const& state_dir,
+                     ae::DomainQuery const& from, ae::DomainQuery const& to) {
+  auto const from_path = DirectoryDomainStorageLayerPath(state_dir, from);
+  auto const to_path = DirectoryDomainStorageLayerPath(state_dir, to);
+  CHECK(std::filesystem::exists(from_path));
+  std::error_code ec;
+  std::filesystem::create_directories(to_path.parent_path(), ec);
+  CHECK(!ec);
+  std::filesystem::copy_file(from_path, to_path, ec);
+  CHECK(!ec);
+}
+
+void AddUnknownStoredClassLayerAlongsideRoot(
+    std::filesystem::path const& state_dir) {
+  std::uint32_t const unknown = UnknownStoredClassIdForTests();
+  ae::ObjId const root = CatalogRootObjId();
+  ae::DomainQuery const src{root, WindowCatalog::kClassId, 0};
+  ae::DomainQuery const dst{root, unknown, 0};
+  CopyStoredLayer(state_dir, src, dst);
+  DirectoryDomainStorage storage{state_dir};
+  CHECK(EnumerateContainsClass(storage, root, WindowCatalog::kClassId));
+  CHECK(EnumerateContainsClass(storage, root, unknown));
+}
+
+void RelocateStoredClassDirectory(std::filesystem::path const& state_dir,
+                                  ae::ObjId obj_id,
+                                  std::uint32_t from_class_id,
+                                  std::uint32_t to_class_id) {
+  auto const object_dir = state_dir / std::to_string(obj_id.id());
+  auto const from_dir = object_dir / std::to_string(from_class_id);
+  auto const to_dir = object_dir / std::to_string(to_class_id);
+  CHECK(std::filesystem::exists(from_dir));
+  std::error_code ec;
+  std::filesystem::rename(from_dir, to_dir, ec);
+  CHECK(!ec);
+  DirectoryDomainStorage storage{state_dir};
+  CHECK(!EnumerateContainsClass(storage, obj_id, from_class_id));
+  CHECK(EnumerateContainsClass(storage, obj_id, to_class_id));
+  ae::DomainQuery const moved_layer{obj_id, to_class_id, 0};
+  CHECK(storage.Load(moved_layer).result == ae::DomainLoadResult::kLoaded);
+}
+
+void RunRequiredUnknownClassIdNegativeTests(
+    std::filesystem::path const& good_state,
+    std::filesystem::path const& load_only) {
+  {
+    auto const dir = NegativeStateDir("unknown_class_id_alongside_root");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    AddUnknownStoredClassLayerAlongsideRoot(dir);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectUnsupportedSchemaLoadOnly(result, false);
+  }
+
+  {
+    auto const dir = NegativeStateDir("unknown_class_id_main_window_presenter");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    RelocateStoredClassDirectory(
+        dir, CatalogMainWindowPresenterObjId(),
+        ui::windows::WinDesktopWindowPresenter::kClassId,
+        UnknownStoredClassIdForTests());
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectUnsupportedSchemaLoadOnly(result, true);
+  }
+}
+
 void RunRequiredUnsupportedSchemaNegativeTests(
     std::filesystem::path const& good_state,
     std::filesystem::path const& load_only) {
@@ -1546,6 +1630,7 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   RunRequiredChromeButtonNegativeTests(good_state, load_only);
   RunRequiredLocalizedTextNegativeTests(good_state, load_only);
   RunRequiredUnsupportedSchemaNegativeTests(good_state, load_only);
+  RunRequiredUnknownClassIdNegativeTests(good_state, load_only);
   RunLanguageAndFocusAcceptance();
 }
 
