@@ -344,11 +344,14 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 ---
 
-## O. I0 Closure / Frozen Application Framework Baseline (I0.4 audit, 2026-10-26)
+## O. I0 Closure / Frozen Application Framework Baseline
 
-**Audit entry baseline (git):** `168d8175539cac66e991fc3fbcaee1cb154e4b90`  
 **Branch:** `integration/application-versioning`  
-**I0 status:** **IN_PROGRESS** — deliverables I0.1–I0.3B3b landed; I0.4 recorded **15/17** CTest; **I0.5** restored **17/17** (see below). Branch **not frozen** until explicit I0 closure step.
+**I0 status:** **DONE** (I0.6 final closure, 2026-10-26)  
+**Code baseline (last C++):** `22eee7b5bb8710de162f30809642e79019faf7a6` (I0.5 — `EnsureObjectRegistration()` in two headless tests)  
+**Frozen HEAD:** I0.6 documentation commit (full SHA in `Progress.md`)  
+**Audit entry baseline (historical):** `168d8175539cac66e991fc3fbcaee1cb154e4b90` (I0.4)  
+**Organizational freeze:** no new commits on this branch until explicit unfreeze decision (no Git tag / branch protection). Not user acceptance or production readiness.
 
 ### Completed I0 deliverables (verified by ledger + commits)
 
@@ -389,7 +392,18 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **Fix scope:** test `main()` only; Æther patch unchanged.
 
-### Architecture boundaries at audit HEAD
+### CTest verification (I0.6 — final regression, 2026-10-26)
+
+| Config | Result | Notes |
+|--------|--------|-------|
+| Release (`build-application-versioning-msvc-rel`) | **17/17 PASS** | Incremental ninja + full `ctest -C Release` at doc baseline **`b2cd97e`** |
+| MinSizeRel (`build-application-versioning-msvc-minsizerel`) | **17/17 PASS** | Incremental ninja + full `ctest -C MinSizeRel` |
+
+**Spot-check (all PASS):** `apptraverse_embedded_distilled_domain_test`, `apptraverse_historical_base_materialization_test`, `apptraverse_window_catalog_win32_acceptance_test` (unknown ClassId negatives), `apptraverse_minimal_app_win32_acceptance_test`.
+
+**I0 criteria closure:** I0.1–I0.2 inventory/dead-path removal; I0.3A/B/B3 required cold-load + ClassId/schema **S**; no new framework layers; core runtime/host/DomainGraph preserved; active CTest covers positive paths within listed test scope. **Æther reject-unknown-stored-class** unchanged and exercised by catalog negatives.
+
+### Architecture boundaries (frozen)
 
 - **ClassId / ObjId / schema v0:** unchanged for MinimalApplication and WindowCatalog application objects.
 - **Æther pin:** `79283b667cabf689da1059d618fe2a22abf51db4` (unchanged).
@@ -407,7 +421,7 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 ### Unfreeze / resume **9D–9H**
 
-Work on **9D–9H** stays **ON HOLD** until: (1) **I0 DONE** with **17/17 CTest PASS**; (2) separate decision to integrate with `integration/serialization-surfaces` and Object Core versioning; (3) branch patch reconciliation, origin/Clone/S alignment, integration plan, merge + regression. **No merge/PR in I0.4.**
+Branch **FROZEN** after I0.6. **9D–9H ON HOLD** until: (1) Object Core / versioning mechanisms complete and verified on **`integration/serialization-surfaces`**; (2) explicit integration decision; (3) Æther patch reconciliation; (4) origin/Clone/S alignment; (5) integration plan + merge/regression by decision. **9C** build-time embedded export **DONE** — not production embedded startup (9D/9E).
 
 ---
 

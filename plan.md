@@ -825,7 +825,7 @@ wording where it conflicted.
 | 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
 | 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
 | 9C | Build-time embedded export (MinimalApplication) | **DONE** |
-| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.5 restored **17/17** CTest; closure/freeze **NEXT**) |
+| **I0** | Architecture cleanup | **DONE** (I0.6 closure + freeze, 2026-10-26) |
 | I0.1 | Inventory / cleanup ledger | **DONE** |
 | I0.2 | Remove verified dead paths | **DONE** (orphan `.cpp` + redundant graph-builder Win ensure; legacy runtime **deferred**) |
 | I0.3 | Required graph cold-load contract | **DONE** (deliverables; see I0.4 CTest note) |
@@ -833,7 +833,8 @@ wording where it conflicted.
 | I0.3B | WindowCatalog + remaining boundaries | **DONE** (after PASS) |
 | I0.4 | Closure audit / branch baseline | **DONE** (historical **15/17** at audit; see I0.5) |
 | I0.5 | Restore headless test registration | **DONE** (after **17/17** PASS) |
-| `integration/application-versioning` | Application Framework baseline branch | **NOT FROZEN** (pending I0 closure step) |
+| I0.6 | Final closure and branch freeze | **DONE** (2026-10-26) |
+| `integration/application-versioning` | Application Framework baseline branch | **FROZEN** (organizational; no new work until unfreeze decision) |
 | I0.3B1 | WindowCatalog required main window | **DONE** (after PASS) |
 | I0.3B2a | WindowCatalog required list / locale | **DONE** (after PASS) |
 | I0.3B2b | WindowCatalog required chrome presenters | **DONE** (after PASS) |
@@ -849,13 +850,22 @@ wording where it conflicted.
 | 9G | System origin / Clone / S | **ON HOLD** (blocked on versioning architecture) |
 | 9H | Full functional lifecycle matrix | **ON HOLD** (after 9F, 9G, versioning matrix) |
 
-Do not mark **I0** DONE until I0.1–I0.3 criteria in §1.6.4 are met **and** active CTest **17/17 PASS** (Release + MinSizeRel).
+**I0** closed **2026-10-26** (I0.6): criteria I0.1–I0.3B3 + **17/17** CTest (Release + MinSizeRel) confirmed at freeze. Not production readiness or release compatibility.
 
-### Branch freeze and **9D–9H** resume (I0.4)
+### Branch freeze and **9D–9H** resume (I0.6)
 
-**`integration/application-versioning`** is the Application Framework work branch. **Frozen baseline** applies only after **I0 DONE** and documented closure. I0.4 (2026-10-26) recorded **15/17** CTest at **`168d817`**; **I0.5** (2026-10-26) restored **17/17** by adding **`EnsureObjectRegistration()`** in the two headless tests (missing link of core `Node`/`Event`/`Presenter` registrars — not a contract weakening). Branch freeze remains for a separate closure pass.
+**`integration/application-versioning`** is **FROZEN** (organizational): no further changes on this branch until an explicit unfreeze decision. **Code baseline:** `22eee7b5bb8710de162f30809642e79019faf7a6` (I0.5). **Frozen HEAD:** final I0.6 documentation commit (see `Progress.md`). No Git tag or branch protection.
 
-**9D–9H** remain **ON HOLD** until a separate decision to integrate with **`integration/serialization-surfaces`**, when required Object Core / versioning mechanisms are implemented and verified. Before integration: reconcile Æther patches on both branches; align origin/Clone/S with Application Framework; prepare an integration plan; execute merge and full regression. **Do not start 9D–9H or integration in I0.4.**
+Historical: I0.4 recorded **15/17** at **`168d817`**; I0.5 restored **17/17** via **`EnsureObjectRegistration()`** in two headless tests (registrar link — reject-unknown ClassId contract unchanged).
+
+**9D–9H** remain **ON HOLD** until a separate decision to integrate with **`integration/serialization-surfaces`**. Before unfreeze/integration:
+
+1. Complete required Object Core mechanisms on **`integration/serialization-surfaces`** and verify them.
+2. Reconcile Æther SHAs and patch sets on both branches.
+3. Align system origin/Clone/S with Application Framework.
+4. Prepare a dedicated integration plan; execute merge and full regression only by explicit decision.
+
+**Do not start 9D–9H or cross-branch integration while frozen.**
 
 ### Prototype development principles
 
@@ -959,7 +969,7 @@ before `MaterializeCatalogStrings`; load-only negatives for each ref class.
 unsupported S layers; B3b reject-unknown-stored-class Æther patch +
 acceptance ClassId negatives. Not corrupted-byte torture.
 
-**I0.4 — Closure audit (2026-10-26):** Ledger §O; CTest **15/17** Release + MinSizeRel — see blocker above. **I0 not closed.**
+**I0.4 — Closure audit (2026-10-26):** Ledger §O; historical CTest **15/17**. **I0.5** restored **17/17**. **I0.6** closed I0 and froze branch — see § status table.
 
 Document and test (only if gaps exist):
 

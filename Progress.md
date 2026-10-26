@@ -4561,4 +4561,19 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Verify**: incremental Release + MinSizeRel; targeted **2/2 PASS** each config; full CTest **Release 17/17**, **MinSizeRel 17/17** (including `apptraverse_window_catalog_win32_acceptance_test` unknown ClassId negatives).
 - **I0**: **IN_PROGRESS** (CTest blocker cleared; separate closure/freeze step pending).
 - **9D–9H**: **ON HOLD**.
-- **Land SHA**: **`22eee7b`** (`I0.5: call EnsureObjectRegistration in two headless tests.`).
+- **Land SHA**: **`22eee7b5bb8710de162f30809642e79019faf7a6`** (`I0.5: call EnsureObjectRegistration in two headless tests.`).
+
+## I0.6 — Final closure and branch freeze (2026-10-26)
+
+- **Baseline**: **`b2cd97e5963c9c3bc1ac082c3099a254edb48b45`** (docs-only pre-closure).
+- **Scope**: documentation-only; re-verified existing build trees (no C++/CMake changes).
+- **I0 criteria**: I0.1–I0.3B3 **DONE**; I0.4 historical **15/17** preserved; I0.5 fix confirmed; Æther ClassId rejection unchanged.
+- **CTest (I0.6 final regression)**:
+  - Release: **17/17 PASS**
+  - MinSizeRel: **17/17 PASS**
+  - Includes embedded distilled, historical base materialization, catalog + minimal Win32 acceptance.
+- **I0**: **DONE**
+- **`integration/application-versioning`**: **FROZEN** (organizational)
+- **Code baseline**: **`22eee7b5bb8710de162f30809642e79019faf7a6`**
+- **9D–9H**: **ON HOLD** (unfreeze per `plan.md` §1.6)
+- **Frozen HEAD**: *(pending I0.6 doc commit)*.
