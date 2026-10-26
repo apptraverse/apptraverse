@@ -220,7 +220,7 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **Preserved:** Add/Open/Close/Delete, lazy holders, localization, positive acceptance paths.
 
-**NEXT:** **I0.3B2b** — required chrome graph/presenters; ClassId/**S** compatibility (separate iteration).
+**NEXT:** **I0.3B2c** — required chrome buttons and localized text refs (ClassId/**S** separate).
 
 ---
 
