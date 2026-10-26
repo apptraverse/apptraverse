@@ -349,7 +349,7 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 **Branch:** `integration/application-versioning`  
 **I0 status:** **DONE** (I0.6 final closure, 2026-10-26)  
 **Code baseline (last C++):** `22eee7b5bb8710de162f30809642e79019faf7a6` (I0.5 — `EnsureObjectRegistration()` in two headless tests)  
-**Frozen HEAD:** `493b334ee04b04fa34c35b165489d67c15db8cb3` (I0.6 closure docs; primary commit `e86153b9e3241ecb7f608cd31d6ba992c5084f24`)  
+**Frozen HEAD:** `57fd7a2e2169e1bc24663cef68634b8cfb8180af` (remote tip; I0.6 closure `e86153b9e3241ecb7f608cd31d6ba992c5084f24`)  
 **Audit entry baseline (historical):** `168d8175539cac66e991fc3fbcaee1cb154e4b90` (I0.4)  
 **Organizational freeze:** no new commits on this branch until explicit unfreeze decision (no Git tag / branch protection). Not user acceptance or production readiness.
 
