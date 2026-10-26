@@ -82,12 +82,7 @@ void RunMinimalApplicationModel(
                                   *application);
     }
 
-    if (application->main_window.is_valid()) {
-      if (!application->main_window.is_loaded()) {
-        application->main_window.Load();
-      }
-      ui::LoadPresentedWindow(application->main_window);
-    }
+    ui::LoadPresentedWindow(application->main_window);
 
     runtime.Run(domain, *application, on_published);
 

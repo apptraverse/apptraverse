@@ -4458,3 +4458,14 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **EXE sizes:** not re-measured (expect negligible delta from one removed call site in shared TU).
 - **NEXT:** **I0.3** — required graph cold-load contract.
 - **Land SHA**: **`7be64df4841812ae1694186c1d8cc6a5a66cce26`** (`I0.2: drop redundant Win UI registration from minimal graph builder.`).
+
+## I0.3A — MinimalApplication required graph cold load (2026-10-25)
+
+- **Baseline**: **`92b63ae844f157b454cccf890b452dc7806568b8`** (`integration/application-versioning`).
+- **Production changes**: `include/apptraverse/ui/ui_presented_window_lifecycle.h` (`LoadPresentedWindow` fail-fast via `WriteFatalStderr`); `examples/minimal_app/common/minimal_app_lifecycle.cpp` (unconditional `LoadPresentedWindow` before `runtime.Run`; removed optional `main_window` skip).
+- **Tests**: extended `tests/minimal_app_win32_acceptance_test.cpp` — positive dev/load-only lifecycle unchanged; negative load-only scenarios (missing root, empty `main_window`, empty presenter ref, removed presenter object) via separate state dirs, stderr capture, 30s timeout.
+- **Unchanged**: `LoadApplication`, schemas/ClassId v0, CMake, embedded export, runtime bootstrap, ApplicationModelRuntime/UiSession/Host, WindowCatalog.
+- **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
+- **Confirmed**: no auto-create of main window on load-only; no partial UI when required graph incomplete; positive native Save/reload/shutdown preserved.
+- **NEXT**: **I0.3B** — WindowCatalog required graph boundaries.
+- **Land SHA**: *(record after commit)*.

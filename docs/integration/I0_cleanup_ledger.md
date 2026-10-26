@@ -174,8 +174,31 @@ is not a registration root.
 **I0.2 status:** no further **proven** safe dead-path removals in ledger §C;
 §C #3 (legacy tests / `ModelRuntime`) remains **deferred**.
 
-**Next stage:** **I0.3** required graph cold-load contract. **Still deferred:**
+**Next stage:** **I0.3B** WindowCatalog required graph. **Still deferred:**
 legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
+
+---
+
+## G. I0.3A — MinimalApplication required cold-load boundary (DONE 2026-10-25)
+
+**Baseline:** `92b63ae844f157b454cccf890b452dc7806568b8`
+
+| Boundary | Change |
+|----------|--------|
+| `ui::LoadPresentedWindow` | After `window.Load()` / `presenter.Load()`, empty result → `WriteFatalStderr` + `std::abort()` (required window/presenter). |
+| `RunMinimalApplicationModel` | Removed optional `if (main_window.is_valid())`; always `LoadPresentedWindow(main_window)` before `runtime.Run`. |
+| `LoadApplication` | **Unchanged** (root missing still fails there). |
+
+**Failure cases verified** (`apptraverse_minimal_app_win32_acceptance_test`, load-only child processes):
+
+- Empty `--state-dir` → `fatal: LoadApplication failed`
+- Root persisted, empty `main_window` ref (DomainGraph `SaveRoot`, checkpoint sidecar removed)
+- Window persisted, empty `presenter` ref
+- Presenter object removed via `DirectoryDomainStorage::Remove(MinimalPresenterId())` → fail-fast before publication (message may be load root or presenter boundary)
+
+**Preserved:** optional/lazy catalog windows (`RestoreLoadedCatalogWindows` skips unloaded holders); dev distillation bootstrap; registration at entry; no auto-create of main window on load-only.
+
+**NEXT:** **I0.3B** WindowCatalog required graph + ClassId/**S** compatibility (not corrupted-byte torture).
 
 ---
 
