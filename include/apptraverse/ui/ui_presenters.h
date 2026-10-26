@@ -7,47 +7,11 @@
 #include "apptraverse/ui/ui_edit_box.h"
 #include "apptraverse/ui/ui_label.h"
 #include "apptraverse/ui/ui_list_container.h"
-#include "apptraverse/ui/ui_locale_settings.h"
-#include "apptraverse/ui/ui_window.h"
+#include "apptraverse/ui/ui_window_presenter.h"
 
 #include "apptraverse/ui/ui_push_button_presenter.h"
 
 namespace apptraverse::ui {
-
-struct UiControlLayout {
-  std::int32_t x;
-  std::int32_t y;
-  std::int32_t width;
-  std::int32_t height;
-  std::uint32_t control_id;
-};
-
-class UiWindowPresenter : public Presenter {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiWindowPresenter",
-                           UiWindowPresenter, Presenter, 0)
-
- protected:
-  UiWindowPresenter() = default;
-
- public:
-  explicit UiWindowPresenter(ae::ObjProp prop) : Presenter{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(title), AE_MMBR(locale))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, window, title, locale);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, window, title, locale);
-  }
-
-  UiWindow::ptr window;
-  ae::ObjPtr<class UiLocalizationString> title;
-  ae::ObjPtr<UiLocaleSettings> locale;
-};
 
 class UiDesktopWindowPresenter : public UiWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiDesktopWindowPresenter",
@@ -131,12 +95,13 @@ class UiListContainerPresenter : public Presenter {
   UiListContainerPresenter() = default;
 
  public:
-  explicit UiListContainerPresenter(ae::ObjProp prop) : Presenter{prop} {}
+  explicit UiListContainerPresenter(ae::ObjProp prop)
+      : Presenter{prop}, notify_list_selection_change{false} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(container), AE_MMBR(window_presenter),
                     AE_MMBR(layout_x), AE_MMBR(layout_y),
                     AE_MMBR(layout_width), AE_MMBR(layout_height),
-                    AE_MMBR(control_id))
+                    AE_MMBR(control_id), AE_MMBR(notify_list_selection_change))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -204,6 +169,7 @@ class UiLabelPresenter : public Presenter {
 };
 
 void EnsureUiPresenterRegistration();
+void EnsureExtendedUiPresenterRegistration();
 
 }  // namespace apptraverse::ui
 

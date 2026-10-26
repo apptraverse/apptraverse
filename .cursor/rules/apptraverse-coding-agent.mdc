@@ -228,6 +228,45 @@ For AppTraverse, only **standard** Æther/AppTraverse serialization is allowed (
 
 Keep each iteration small and reviewable. Do not “fix” neighboring architecture in passing. If you find a separate problem: record it in `plan.md` / `Progress.md` as TODO and leave it for a later iteration.
 
+## Typed object references (not bare integer identity)
+
+In the model and runtime graph, object identity is represented by `T::ptr`,
+`ae::ObjPtr<T>`, `ae::Ptr<T>`, or `T&` when lifetime is already guaranteed.
+
+Do not use `std::uint32_t` as object identity. `ae::ObjId` is allowed only at
+real boundaries: storage/serialization keys, wire/publication payloads, Model
+Domain ↔ UI Domain handoff, intentional unloaded lookup, fixed distill/test
+IDs.
+
+Forbidden: storing both `ObjPtr` and a copied ID for the same object; passing
+IDs between functions in one domain when a typed ptr exists; replacing model
+relationships with ID fields; `ObjId → uint32_t → ObjId`; ID lookup after the
+object is already available as ptr/reference. Raw IDs on allowed boundaries stay
+`ae::ObjId`, not integer. ClassId, schema version, storage keys, and fixed
+distill ObjIds are not “file magic” and are not removed.
+
+## Required graph is all-or-nothing
+
+After a successful build/load boundary, the required graph is complete. No
+cascade guards on required refs (`if (!catalog) return`, repeated
+`is_valid()`/`is_loaded()` on the same chain, `Require…Wiring`, repair after
+load). Wire required refs at composition, persist, load, then use directly.
+Production does not re-validate the same chain everywhere; model/headless tests
+do. Keep `if` only for real runtime alternatives (optional selection, lazy
+unload, missing checkpoint, stop, no publication, pre-`GWLP_USERDATA` WndProc,
+invalid user index). Native handles are checked once at acquisition.
+
+## Trusted prototype storage (WindowCatalog-only build)
+
+Prototype files are trusted. Do not add or keep in the active path: magic/header
+signatures, checksums, integrity verification, recovery/repair/backup, retries,
+atomic `.tmp` + rename, duplicated stream-state checks, storage commit
+statistics, or fallback to a default graph after failed load. Allowed branches:
+optional file/storage/tombstone present vs absent; if an optional file exists,
+read it straight and treat as correct. Do not remove serializer size/count
+fields. Do not apply this policy to versioning/distillation integration; it
+applies to the current WindowCatalog-only prototype build.
+
 ## plan.md / Progress.md
 
 Before each task, read `plan.md`, `Progress.md`, and these repository instructions.

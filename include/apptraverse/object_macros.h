@@ -4,6 +4,7 @@
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/no_rtti.h"
+#include "apptraverse/no_exceptions.h"
 
 // CLASS_NAME is the serialized ClassId string (CRC32). Generic App Traverse
 // types use APPTRAVERSE_OBJECT, which prefixes "apptraverse::". Application

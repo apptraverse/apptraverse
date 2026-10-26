@@ -11,6 +11,13 @@ function(apptraverse_embed_distilled_supply target exporter_exe header_basename)
     message(FATAL_ERROR "apptraverse_embed_distilled_supply: header_basename required")
   endif()
 
+  set(_extra_deps "")
+  if(ARGC GREATER 3)
+    foreach(_dep IN LISTS ARGN)
+      list(APPEND _extra_deps "${_dep}")
+    endforeach()
+  endif()
+
   set(_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled/${target}")
   file(MAKE_DIRECTORY "${_gen_dir}")
   set(_header "${_gen_dir}/${header_basename}")
@@ -18,7 +25,7 @@ function(apptraverse_embed_distilled_supply target exporter_exe header_basename)
   add_custom_command(
     OUTPUT "${_header}"
     COMMAND "$<TARGET_FILE:${exporter_exe}>" "${_header}"
-    DEPENDS ${exporter_exe}
+    DEPENDS ${exporter_exe} ${_extra_deps}
     VERBATIM
     COMMENT "Embed distilled domain supply for ${target}")
 

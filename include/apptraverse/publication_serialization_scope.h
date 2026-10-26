@@ -1,7 +1,10 @@
 #ifndef APPTRAVERSE_PUBLICATION_SERIALIZATION_SCOPE_H_
 #define APPTRAVERSE_PUBLICATION_SERIALIZATION_SCOPE_H_
 
+#include <cstddef>
 #include <cstdint>
+#include <type_traits>
+#include <utility>
 
 #include "aether-objects/obj/domain.h"
 

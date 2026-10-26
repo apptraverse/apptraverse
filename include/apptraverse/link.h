@@ -49,7 +49,7 @@ class MemoryLink : public NodeFor<MemoryLink, Link> {
   MemoryLink() = default;
 
  public:
-  explicit MemoryLink(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit MemoryLink(ae::ObjProp prop) : NodeFor{prop}, heartbeat_interval_ms{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(endpoint_uid), AE_MMBR(heartbeat_interval_ms))
 
@@ -66,7 +66,7 @@ class MemoryLink : public NodeFor<MemoryLink, Link> {
   std::string const& EndpointUid() const override { return endpoint_uid; }
 
   std::string endpoint_uid;
-  std::uint32_t heartbeat_interval_ms{0};
+  std::uint32_t heartbeat_interval_ms;
 };
 
 }  // namespace apptraverse

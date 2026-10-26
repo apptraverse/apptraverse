@@ -21,6 +21,7 @@
 #include "apptraverse/surfaces/surface_window_presenter.h"
 
 #include "apptraverse/surfaces/surfaces_model.h"
+#include "apptraverse/ui/ui_push_button_presenter.h"
 
 
 
@@ -63,10 +64,25 @@ void AppendSurfaceLiveGraphEdges(ae::Obj& object, ae::Obj& walk_root,
   push(surface->chrome.window);
 
   push(surface->chrome.add_button);
+  if (auto library_add =
+          ui::UiPushButtonPresenter::ptr{surface->chrome.add_button}) {
+    push(library_add->button);
+    push(library_add->window_presenter);
+  }
 
   push(surface->chrome.close_button);
+  if (auto library_close =
+          ui::UiPushButtonPresenter::ptr{surface->chrome.close_button}) {
+    push(library_close->button);
+    push(library_close->window_presenter);
+  }
 
   push(surface->chrome.language_button);
+  if (auto library_language =
+          ui::UiPushButtonPresenter::ptr{surface->chrome.language_button}) {
+    push(library_language->button);
+    push(library_language->window_presenter);
+  }
 
 }
 

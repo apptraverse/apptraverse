@@ -63,10 +63,10 @@ class Node : public ae::Obj {
   APPTRAVERSE_OBJECT(Node, ae::Obj, 0)
 
  protected:
-  Node() = default;
+  Node() : materialized_change_ctx_{nullptr}, materialized_change_fn_{nullptr}, generation_{1}, applied_journal_size_{kJournalFullyMaterialized}, journal_retention_policy_{}, journal_compaction_blocked_{false}, suppress_materialized_change_{false} {}
 
  public:
-  explicit Node(ae::ObjProp prop) : Obj{prop} {}
+  explicit Node(ae::ObjProp prop) : Obj{prop}, materialized_change_ctx_{nullptr}, materialized_change_fn_{nullptr}, generation_{1}, applied_journal_size_{kJournalFullyMaterialized}, journal_retention_policy_{}, journal_compaction_blocked_{false}, suppress_materialized_change_{false} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal))
 
@@ -213,6 +213,7 @@ class Node : public ae::Obj {
     (void)ok;
   }
 
+#if APPTRAVERSE_ENABLE_SHARED_NODE
   // Insert a remotely originated shared Event at its own identity and
   // timestamp. Dispatches to the most-derived NodeFor so Apply sees the
   // concrete Node.
@@ -244,6 +245,8 @@ class Node : public ae::Obj {
     }
     return nullptr;
   }
+
+#endif
 
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
@@ -277,12 +280,24 @@ class Node : public ae::Obj {
 
   template <typename ConcreteNode>
   bool TryRebuildFromBaseAndReplay(ConcreteNode& target) {
+    if (domain == nullptr || !base.is_valid() || !base.is_loaded() ||
+        base.id() == obj_id) {
+      return false;
+    }
     auto owner_id = obj_id;
     auto saved_base = base;
     auto saved_journal = journal;
     target.StashLocalPersistentAcrossRebuild();
     ae::DomainGraph graph{domain};
-    graph.Load(target, saved_base.id());
+    std::optional<ae::seri::SeriResult> const load_result =
+        graph.Load(target, saved_base.id());
+    if (!load_result.has_value() || !load_result->IsOk()) {
+      obj_id = owner_id;
+      base = saved_base;
+      journal = std::move(saved_journal);
+      target.RestoreLocalPersistentAcrossRebuild();
+      return false;
+    }
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
@@ -534,6 +549,7 @@ class Node : public ae::Obj {
     InsertEvent(target, std::move(record));
   }
 
+#if APPTRAVERSE_ENABLE_SHARED_NODE
   // Shared commit: the Event keeps the identity and timestamp it was given.
   // A remotely originated Event is inserted at its own timestamp; nothing here
   // rewrites it from local state.
@@ -565,6 +581,8 @@ class Node : public ae::Obj {
     (void)ok;
   }
 
+#endif
+
  private:
   virtual void CaptureBaseStateImpl() {
     assert(false && "Concrete Node must inherit through NodeFor");
@@ -585,6 +603,7 @@ class Node : public ae::Obj {
     return false;
   }
 
+#if APPTRAVERSE_ENABLE_SHARED_NODE
   virtual bool TryInsertSharedImpl(Event::ptr event, SharedEventId identity,
                                    SharedEventOrder order) {
     (void)event;
@@ -594,17 +613,19 @@ class Node : public ae::Obj {
     return false;
   }
 
+#endif
+
   static constexpr std::size_t kJournalFullyMaterialized =
       (std::numeric_limits<std::size_t>::max)();
 
-  void* materialized_change_ctx_{nullptr};
-  MaterializedChangeFn materialized_change_fn_{nullptr};
+  void* materialized_change_ctx_;
+  MaterializedChangeFn materialized_change_fn_;
 
-  std::uint64_t generation_{1};
-  std::size_t applied_journal_size_{kJournalFullyMaterialized};
-  JournalRetentionPolicy journal_retention_policy_{};
-  bool journal_compaction_blocked_{false};
-  bool suppress_materialized_change_{false};
+  std::uint64_t generation_;
+  std::size_t applied_journal_size_;
+  JournalRetentionPolicy journal_retention_policy_;
+  bool journal_compaction_blocked_;
+  bool suppress_materialized_change_;
 };
 
 // Ordered unique dirty set for GUI publication. Entries are ObjIds, not Node

@@ -18,7 +18,7 @@ class UiWindow : public NodeFor<UiWindow> {
   void SetClientSizeInternal(std::int32_t width, std::int32_t height);
 
  public:
-  explicit UiWindow(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit UiWindow(ae::ObjProp prop) : NodeFor{prop}, client_width_{800}, client_height_{600} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(client_width_), AE_MMBR(client_height_))
 
@@ -38,8 +38,8 @@ class UiWindow : public NodeFor<UiWindow> {
   void Apply(SetUiWindowClientSizeEvent const& event);
 
  private:
-  std::int32_t client_width_{800};
-  std::int32_t client_height_{600};
+  std::int32_t client_width_;
+  std::int32_t client_height_;
 };
 
 class SetUiWindowClientSizeEvent
@@ -51,12 +51,12 @@ class SetUiWindowClientSizeEvent
   SetUiWindowClientSizeEvent() = default;
 
  public:
-  explicit SetUiWindowClientSizeEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit SetUiWindowClientSizeEvent(ae::ObjProp prop) : EventFor{prop}, width{0}, height{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height))
 
-  std::int32_t width{0};
-  std::int32_t height{0};
+  std::int32_t width;
+  std::int32_t height;
 };
 
 }  // namespace apptraverse::ui

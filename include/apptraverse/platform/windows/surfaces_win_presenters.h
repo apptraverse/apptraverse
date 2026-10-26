@@ -21,6 +21,11 @@
 namespace apptraverse {
 
 inline wchar_t const kSurfacesWindowClass[] = L"AppTraverseSurfacesWindow";
+inline constexpr int kSurfaceChromeMargin = 12;
+inline constexpr int kSurfaceAddButtonLayoutX = kSurfaceChromeMargin;
+inline constexpr int kSurfaceAddButtonLayoutY = kSurfaceChromeMargin;
+inline constexpr int kSurfaceAddButtonLayoutWidth = 88;
+inline constexpr int kSurfaceAddButtonLayoutHeight = 28;
 inline constexpr int kSurfaceAddButtonId = 1001;
 inline constexpr int kSurfaceCloseButtonId = 1002;
 inline constexpr int kSurfaceLanguageButtonId = 1003;
@@ -29,7 +34,22 @@ void RegisterSurfacesWin32Classes();
 void UnregisterSurfacesWin32Classes();
 void EnsureWin32SurfacesPresenterRegistration();
 
-bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
+class Presenter;
+
+struct SurfaceChildBnClickedTarget {
+  HWND child_hwnd{nullptr};
+  Presenter* presenter{nullptr};
+  std::uint32_t control_id{0};
+};
+
+bool TryParseSurfaceChildBnClicked(HWND parent_hwnd, WPARAM wparam, LPARAM lparam,
+                                   SurfaceChildBnClickedTarget* out);
+
+bool DispatchChildCommand(HWND parent_hwnd, WPARAM wparam, LPARAM lparam);
+
+void ComputeSurfaceChromeButtonLayout(SurfaceWindowPresenter const& window,
+                                      std::uint32_t control_id, int* x,
+                                      int* y, int* w, int* h);
 
 class Win32SurfaceWindowPresenter : public SurfaceWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
@@ -37,11 +57,11 @@ class Win32SurfaceWindowPresenter : public SurfaceWindowPresenter {
       Win32SurfaceWindowPresenter, SurfaceWindowPresenter, 0)
 
  protected:
-  Win32SurfaceWindowPresenter() = default;
+  Win32SurfaceWindowPresenter() : child_command_handler{nullptr}, hwnd{nullptr} {}
 
  public:
   explicit Win32SurfaceWindowPresenter(ae::ObjProp prop)
-      : SurfaceWindowPresenter{prop} {}
+      : SurfaceWindowPresenter{prop}, child_command_handler{nullptr}, hwnd{nullptr} {}
 
   AE_OBJECT_REFLECT()
 
@@ -51,7 +71,11 @@ class Win32SurfaceWindowPresenter : public SurfaceWindowPresenter {
 
   void QueueCurrentBounds();
 
-  HWND hwnd{nullptr};
+  using ChildCommandHandler = bool (*)(Win32SurfaceWindowPresenter* window,
+                                       WPARAM wparam, LPARAM lparam);
+  ChildCommandHandler child_command_handler;
+
+  HWND hwnd;
 
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);
@@ -66,11 +90,11 @@ class Win32SurfaceButtonPresenter : public SurfaceButtonPresenter {
       Win32SurfaceButtonPresenter, SurfaceButtonPresenter, 0)
 
  protected:
-  Win32SurfaceButtonPresenter() = default;
+  Win32SurfaceButtonPresenter() : hwnd{nullptr} {}
 
  public:
   explicit Win32SurfaceButtonPresenter(ae::ObjProp prop)
-      : SurfaceButtonPresenter{prop} {}
+      : SurfaceButtonPresenter{prop}, hwnd{nullptr} {}
 
   AE_OBJECT_REFLECT()
 
@@ -79,7 +103,7 @@ class Win32SurfaceButtonPresenter : public SurfaceButtonPresenter {
   void OnUnload() override;
   void NotifyClickedFromUi() override;
 
-  HWND hwnd{nullptr};
+  HWND hwnd;
 
  private:
   void ApplyLayout();
@@ -93,11 +117,11 @@ class Win32SurfaceLanguageButtonPresenter
       Win32SurfaceLanguageButtonPresenter, SurfaceLanguageButtonPresenter, 0)
 
  protected:
-  Win32SurfaceLanguageButtonPresenter() = default;
+  Win32SurfaceLanguageButtonPresenter() : hwnd{nullptr} {}
 
  public:
   explicit Win32SurfaceLanguageButtonPresenter(ae::ObjProp prop)
-      : SurfaceLanguageButtonPresenter{prop} {}
+      : SurfaceLanguageButtonPresenter{prop}, hwnd{nullptr} {}
 
   AE_OBJECT_REFLECT()
 
@@ -105,7 +129,7 @@ class Win32SurfaceLanguageButtonPresenter
   void OnModelChanged() override;
   void OnUnload() override;
 
-  HWND hwnd{nullptr};
+  HWND hwnd;
 
  private:
   void ApplyLayout();

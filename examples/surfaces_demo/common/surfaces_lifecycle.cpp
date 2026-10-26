@@ -23,6 +23,13 @@
 #include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_demo_revision.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
+#include "apptraverse/ui/ui_localization_string.h"
+
+#if defined(_WIN32)
+#include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/ui/ui_presenters.h"
+#include "surfaces_demo_win32_registration.h"
+#endif
 
 #if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
 #include "surfaces_v1_package.h"
@@ -64,6 +71,11 @@ void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
 void SurfacesModelSession::Run(
     std::function<void(SurfacesPublicationKind)> on_published) {
   EnsureSurfacesRegistration();
+#if defined(_WIN32)
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  example::surfaces::EnsureSurfacesDemoWin32Registration();
+#endif
   presentation_size_queue.BindPostWork(
       [this](ModelObjectProxy::ModelWork work) { Post(std::move(work)); });
 
@@ -107,6 +119,11 @@ void SurfacesModelSession::Run(
     auto application = LoadApplication<Application>(
         domain, ae::ObjId{surfaces_demo::ToObjId(
                     surfaces_demo::ObjId::Application)});
+    int const language = application->locale->language_index();
+    application->label_add->MaterializeLanguage(language);
+    application->label_close->MaterializeLanguage(language);
+    application->window_title_prefix->MaterializeLanguage(language);
+    application->language_switch_label->MaterializeLanguage(language);
     PendingDirtyNodes pending_dirty;
     BindReachableNodesMaterializedChangeNotifier(
         *application, &pending_dirty, &PendingDirtyNodesNotify);
@@ -174,6 +191,30 @@ void SurfacesModelSession::Run(
         live_ids.reserve(live.size());
         for (ae::Obj* obj : live) {
           live_ids.insert(obj->obj_id.id());
+        }
+      }
+      {
+        bool publish_surfaces_for_locale = false;
+        {
+          std::lock_guard<std::mutex> lock{mu};
+          if (!stop && !channel.is_publication_busy() && !pending_dirty.empty() &&
+              pending_dirty.membership.count(
+                  application->locale->obj_id.id()) != 0) {
+            publish_surfaces_for_locale = true;
+          }
+        }
+        if (publish_surfaces_for_locale) {
+          auto* pub = channel.AcquireProducer();
+          SerializeStructuralNodePublication(*application->surfaces, pub->sink);
+          {
+            std::lock_guard<std::mutex> lock{mu};
+            pending_dirty.Clear();
+            channel.NotePublished();
+            channel.PublishProducer();
+          }
+          cv.notify_all();
+          on_published(SurfacesPublicationKind::Incremental);
+          continue;
         }
       }
       for (;;) {

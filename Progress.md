@@ -4177,3 +4177,527 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ### UiPushButtonPresenter file split (library controls step 4)
 - **`ui_push_button_presenter.h` / `ui_push_button_presenter.cpp`**: mechanical extraction from **`ui_presenters.*`**; **`ui_presenters.h`** aggregate include; registration unchanged in **`ui_registration.cpp`**; **`WinPushButtonPresenter`** still inherits **`UiPushButtonPresenter`**.
 - Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): push button + fatal, UI materialization, edit headless, surfaces Win32 smoke **PASS**.
+
+### WinPushButtonPresenter layout sync (library controls; not Surface Add)
+- **`WinPushButtonPresenter::ApplyLayout`**: on **`OnModelChanged`** / **`SyncFromMirror`**, **`SetWindowPos`** with **`SWP_NOZORDER | SWP_NOACTIVATE`** when **`layout_*`** differ from current parent-client frame; skip when unchanged; **`FatalWin32`** on failure.
+- **`apptraverse_win_ui_native_push_button_test`**: parent-client geometry, layout update via presenter fields + **`OnModelChanged`**, no redundant **`SetWindowPos`**, routing unchanged.
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): push button + fatal, UI materialization, edit headless, surfaces Win32 smoke **PASS**. Surface Add library wiring **not** done in this step.
+
+### UiWindowPresenter native parent handle (prep for Surface Add)
+- **`UiWindowPresenter::NativeChildParentHandle()`** (runtime-only); **`WinDesktopWindowPresenter`** returns **`hwnd_`**; **`WinPushButtonPresenter::OnLoad`** uses it (no **`WinDesktopWindowPresenter`** cast).
+- **`MapWindowPoints`** guard in layout read: distinguish failure from success when return is zero.
+- **`apptraverse_win_ui_native_push_button_test`**: desktop host + test **`TestBorderlessHostPresenter`** at screen origin (layout 0,0 / no redundant **`SetWindowPos`**).
+- Release verify (2026-10-21): push button + fatal, materialization, edit headless, surfaces smoke **PASS**. Surface Add **not** switched.
+
+### Surface Add → library WinPushButton (surfaces_demo Windows)
+- **Add chain**: `BM_CLICK` / `DispatchChildCommand` → `WinPushButtonPresenter::NotifyClickedFromUi` → `UiPushButton::NotifyClicked` → `SurfacesDemoAddButton::HandlePushButtonClicked` → `Surface::AddSurface` (model thread). Close/Language unchanged (`Win32SurfaceButtonPresenter` / `Win32SurfaceLanguageButtonPresenter`).
+- Demo types (v0): `SurfacesDemoAddButton`, `SurfacesDemoSurfaceWindowHostPresenter` (`NativeChildParentHandle` → existing Surface `hwnd`); `WinPushButtonPresenter` layout **12/12/88/28** via shared `kSurfaceAddButtonLayout*` constants.
+- **`WireSurfaceChromeLocalization`**: class-id dispatch for legacy `SurfaceButtonPresenter` vs `UiPushButtonPresenter` Add owners.
+- Dynamic Add: `Surface::AddSurface` initializes library `UiPushButton` node via `UiPushButtonPresenter::button`; initial distill via `FinalizeDistilledGraph`.
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): push button + fatal, UI materialization, edit headless, **`apptraverse_surfaces_model_test`**, **`apptraverse_surfaces_win32_smoke_test`** **PASS** (commit **`c925b89`**).
+
+### Surface Add localization via publication (no win_app caption repair)
+- **Root cause**: `SurfacesDemoAddButton` / `SurfacesDemoSurfaceWindowHostPresenter` **Save/Load** listed inherited **`label`** / **`locale`** in the derived **`dnv`** alongside **`surface`** / **`surface_window`**, shadowing **`UiPushButton`** / **`UiWindowPresenter`** base layers. After save/load and UI hydration, **`button->label`** and host **`locale`** did not round-trip; **`WinPushButtonPresenter`** had nothing to resolve → empty Add HWND text while legacy Close (label on **`SurfaceButtonPresenter`**) still worked. Initial/incremental publication and presenter wiring were fine; loss was at **persistence + UI mirror label/locale refs**.
+- **Fix**: derived v0 layers persist only **`surface`** / **`surface_window`**; **`label`** / **`locale`** stay on base classes. Removed **`SyncWinSurfaceLibraryAddButtonCaptions`**, post-load **`WireSurfaceChromeLocalization`** / caption sync in **`win_app`**, and host **`OnLoad`/`OnModelChanged`** locale copy from **`surface_window`**. Add caption comes only from **`WinPushButtonPresenter::OnModelChanged`** / mirror.
+- **Tests**: smoke **`TestLibraryAddCustomLabelFreshProfile`** / **`TestLibraryAddCustomLabelModelEvent`** (`SetUiLocalizationSlotUtf8Event`, HWND text after publication); model **`TestLibraryAddButtonLabelSerializationRoundtrip`** (Win32 demo Add graph save/load, label + locale + **`surface`** refs).
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**, post-fix): **`apptraverse_win_ui_native_push_button_test`**, **`apptraverse_win_ui_native_push_button_fatal_test`**, **`apptraverse_ui_control_materialization_test`**, **`apptraverse_ui_edit_box_headless_test`**, **`apptraverse_surfaces_model_test`**, **`apptraverse_surfaces_win32_smoke_test`** **PASS**.
+
+### Dynamic Add library UiPushButton materialized notifier
+- **Bug**: `Surface::AddSurface` called `InitializeRuntimeNode(*add_button, *sibling)` before `InitializeRuntimeNode(*sibling, *this)`, so the new **`UiPushButton`** copied an empty notifier from an unbound sibling. `SetUiPushButtonEnabledEvent` did not reach **`ModelRuntime`** / publication → **`WinPushButtonPresenter`** did not update **`EnableWindow`** for dynamically added Surfaces.
+- **Fix**: inherit notifier from the source Surface **`InitializeRuntimeNode(*add_button, *this)`** (order of sibling init unchanged).
+- **Tests**: smoke **`TestDynamicAddLibraryPushButtonNotifierAndEnabled`** (notifier on model, disable/enable HWND via publication, one Add after re-enable); model **`TestDynamicAddLibraryPushButtonMaterializedNotifier`** (pending dirty on enabled commit). Pre-fix smoke fails **`notifier_future.get()`** at **`surfaces_win32_smoke_test.cpp`**.
+- Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): listed Release tests **PASS** (model test may need retry on 10k journal timing gate only).
+
+### Surface Language → library WinPushButton (surfaces_demo Windows)
+- **Starting SHA**: **`fa9ad254d72cf7c74b5b0d2f2b1bc6b145bcae9a`**
+- **Model**: **`SurfacesDemoLanguageButton`** (`UiPushButton`, v0 **`base_` + `locale`** only). **`HandlePushButtonClicked`** reads **`locale->language_index()`** on model thread and calls **`SubmitLanguageIndexFromUi`** (no new Event). **`button.label`** → **`application.language_switch_label`**; caption locale via shared **`SurfacesDemoSurfaceWindowHostPresenter::locale`**.
+- **UI chain**: **`BM_CLICK`** → **`WinPushButtonPresenter::NotifyClickedFromUi`** → model proxy → **`UiPushButton::NotifyClicked`** → **`SurfacesDemoLanguageButton::HandlePushButtonClicked`** → **`UiLocaleSettings::SubmitLanguageIndexFromUi`** → publication → mirror/GUI.
+- **Layout**: adaptive Language/Close geometry via host **`ResolveChildLayout`** + **`ComputeSurfaceChromeButtonLayout`** (Add fixed **`layout_*`**). **`SurfacesDemoLayoutPushButtonPresenter`** stays **repro-only** (registering it in the main demo breaks Add **`WinPushButtonPresenter`** save/load leaf factory).
+- **Dynamic Surface**: **`InitializeRuntimeNode(*language_button, *source_surface)`** on Add (same as Add button, post-**`fa9ad254`**).
+- **Release verify** (2026-10-22, **`build-presenter-decomp-msvc-rel`**): functional **`apptraverse_surfaces_model_test --functional-only`**, **`apptraverse_surfaces_win32_smoke_test`**, native push button + fatal, UI materialization, edit headless **PASS**. Full **`apptraverse_surfaces_model_test`**: **FAIL** **`add_ns < 4000ms`** at **`surfaces_model_test.cpp:1068`** (4498ms observed; threshold unchanged). Log: **`verification-language-20251022-model-full.txt`**.
+
+### Language adaptive layout via `ResolveChildLayout` (library Win push button)
+- **Starting SHA**: **`495e8fb7b7e2255f5748743b7f858a50bbb87a68`**
+- **Contract**: **`ui::UiWindowPresenter::ResolveChildLayout(UiControlLayout)`** — default pass-through; no new serialized fields or platform types in UI layer.
+- **Library**: **`WinPushButtonPresenter`** resolves effective geometry from **`window_presenter`** once per **`OnLoad`** / **`ApplyLayout`** (compare and **`SetWindowPos`** use the same effective values; stored **`layout_*`** unchanged).
+- **Demo host**: **`SurfacesDemoSurfaceWindowHostPresenter::ResolveChildLayout`** — **`kSurfaceLanguageButtonId`** → **`ComputeSurfaceChromeButtonLayout(*surface_window, …)`** from UI mirror **`Surface`**; other control ids unchanged. No Layout presenter in active registry.
+- **Tests**: **`TestWinPushButtonResolveChildLayoutFromHost`** (override at HWND create, no redundant **`SetWindowPos`**); isolated probes A/B/C **PASS**; layout-leaf repro EXE only.
+- **Release verify** (2026-10-21, **`build-presenter-decomp-msvc-rel`**): **`apptraverse_win_ui_native_push_button_test`**, **`apptraverse_win_ui_native_push_button_fatal_test`**, **`apptraverse_ui_control_materialization_test`**, **`apptraverse_ui_edit_box_headless_test`**, **`apptraverse_surfaces_win32_smoke_test`** **PASS** (horizontal→vertical→horizontal Language, toggle, custom labels, disable/enable, dynamic Surface, load_only). **`apptraverse_surfaces_model_test`**: **FAIL** at **`TestCollectLiveReachableStableWithLongJournal`** — **`us(live_p95) < 1'100'000`** at **`surfaces_model_test.cpp:1021`** (10k gate; threshold not changed). Win32 tail tests (**`TestBootstrapSaveLoadChromePresenterClassIds`**, Language notifier) not reached in that run — re-run after gate or run smoke/model Win32 sections separately.
+- Log: **`verification-language-adaptive-layout-20251021.txt`** (not committed).
+
+### Functional model suite split (Add/Language verification gate)
+- **Starting SHA**: **`b103f1be8c77f1bbb42ae61ed99666e639c7a080`**
+- **`apptraverse_surfaces_model_test --functional-only`**: runs the full existing functional sequence, skipping only **`TestCollectLiveReachableStableWithLongJournal`** and **`TestAddOnSecondSurfaceWhileFirstHasLongJournal`**. Default invocation (no args) unchanged — still runs both performance gates.
+- **CTest**: **`apptraverse_surfaces_model_functional_test`** → same executable with **`--functional-only`**; **`apptraverse_surfaces_model_test`** unchanged (full mode).
+- **Functional suite: PASS** (2026-10-21, **`build-presenter-decomp-msvc-rel`**: functional model, Win32 smoke, native push button + fatal, UI materialization, edit headless, isolated probes A/B/C).
+- **Full model suite**: last observed **FAIL** on unstable **`TestCollectLiveReachableStableWithLongJournal`** 10k gate (`surfaces_model_test.cpp:1021`); **not fixed in this step** (thresholds unchanged; full suite not re-run for flaky PASS).
+- Log: **`verification-functional-model-suite-20251021.txt`** (not committed).
+
+### Surface Close → library WinPushButton (surfaces_demo Windows)
+- **Starting SHA**: **`91910cac71fa715ca877a74aba648cbc280f9600`**
+- **Model**: demo-only **`SurfacesDemoCloseButton`** (`UiPushButton`, v0 **`base_` + `surface`**). **`HandlePushButtonClicked`** on model thread: **`Surface::Remove()`** only when the bound surface is still in the list and **`surfaces.size() > 1`**; last surface never removed (no **`RemoveSurfaceEvent`** on single-window Close).
+- **UI chain (multi-window)**: **`WM_COMMAND` / `BN_CLICKED`** → **`WinPushButtonPresenter::NotifyClickedFromUi`** → model proxy → **`SurfacesDemoCloseButton::HandlePushButtonClicked`** → **`Surface::Remove()`** → publication → GUI update. Add/Language/Close share **`WinPushButtonPresenter::kClassId`** and **`SurfacesDemoSurfaceWindowHostPresenter`**; distinct button **`ObjId`** / demo model types.
+- **Last-window Close**: per-**`Win32SurfaceWindowPresenter`** runtime **`child_command_handler`** (not serialized). **`SurfacesDemoSurfaceWindowHostPresenter::OnLoad`** / **`OnUnload`** attach/detach **`TryHandleDemoLibraryCloseChildCommand`** after parent **`hwnd`** exists; **`SurfaceHostWndProc`** invokes only that window’s handler before **`DispatchChildCommand`**. Shared **`TryParseSurfaceChildBnClicked`** validates **`BN_CLICKED`**, parent, control id, and presenter **`GWLP_USERDATA`** once; demo handler adds Close chrome/model/host/surface/enabled checks and **`WM_APPTRAVERSE_STOP`** when mirror has one surface (no **`RemoveSurfaceEvent`**).
+- **Layout**: host **`ResolveChildLayout`** for Close + Language via **`ComputeSurfaceChromeButtonLayout`**; Add fixed geometry pass-through.
+- **Build/link**: **`AttachSurfacesDemoWin32SurfacePresenters`** in **`surfaces_demo_win32_attach.cpp`**; **`surface_graph_win.cpp`** only exports **`AttachPlatformSurfacePresenters`** for demo binaries. Model tests keep test **`AttachPlatformSurfacePresenters`** + **`AddWin32LibrarySurface`** for library chrome graphs.
+- **Release verify** (2026-10-21, **`build-presenter-decomp-msvc-rel`**): **`apptraverse_surfaces_model_functional_test`**, **`apptraverse_surfaces_win32_smoke_test`**, native push button + fatal, UI materialization, edit headless, isolated probes A/B/C **PASS**. Log: **`verification-close-library-20251021.txt`** (not committed).
+
+### Close last-window routing: per-presenter handler (not global hook)
+- **Starting SHA**: **`5c79e8ff29995071e2975d7793f9890f0df971e2`**
+- Removed process-wide **`RegisterSurfaceWin32ChildCommandHook`**; demo policy lives on **`Win32SurfaceWindowPresenter::child_command_handler`**, wired by **`SurfacesDemoSurfaceWindowHostPresenter`** GUI lifecycle (not registration, not serialized).
+- **`TryParseSurfaceChildBnClicked`**: single BN_CLICKED / parent / **`GetDlgCtrlID`** / **`GWLP_USERDATA`** gate for **`DispatchChildCommand`** and demo Close handler.
+- **Smoke**: **`TestPerWindowCloseChildCommandHandlerRouting`** (mismatched **`WM_COMMAND`** ignored; multi-surface Close remove + last-surface exit). Existing **`TestCloseButtonRemovesOne`** / load_only ObjId unchanged.
+- **Release verify** (2026-10-21, **`build-presenter-decomp-msvc-rel`**): functional model, Win32 smoke, library consumer, native push button + fatal, UI materialization, edit headless **PASS**.
+
+### WindowCatalog sequential replay — complete distilled base (surfaces_demo)
+- **Starting SHA**: **`23500979992f6d9e93df7431b8947ecdb0ffaebf`** (stash workaround); root cause fix replaces it.
+- **Established cause**: **`BuildWindowCatalogGraph`** called **`InitializeRuntimeNode(*catalog)`** before chrome wiring and **`InitializeRuntimeNode(*list)`** before **`list->catalog = catalog`**. **`CaptureBaseState`** on the catalog therefore persisted a base layer **without** valid **`list` / main_window / locale / buttons / presenters`** ObjIds ( **`id().is_valid()` / `is_valid()`** on those **`ObjPtr`** fields). After list replay, catalog **`TryReplayFromBase`** **`DomainGraph::Load`** returned Ok but **`catalog.list`** failed replay checks: **`list.is_valid()==false`** ( **`ObjPtr`** identity/cached handle), while **`is_loaded()`** is the **`cached`**-presence predicate — these are related but not interchangeable wording. Preflight **`CanApplyTo`** on the journal did not prove ordered replay. Loader-only cycle failure was **not reproduced** as the primary defect.
+- **Fix**: Bootstrap order in **`window_catalog_graph.cpp`**: wire **`list↔catalog`**, then **`InitializeRuntimeNode(*list)`**; assign all catalog chrome; **`InitializeRuntimeNode(*catalog)`** last. Removed **`WindowCatalog`** list stash / manual **`Declare+Load`** (unnecessary after complete base). **`CheckDistilledCatalogBaseLinks`** asserts **`catalog.base`** forward refs (fixed ObjIds where assigned); live **`list->catalog`**; list base **`catalog`** back-ref not asserted on the detached base object (live link verified).
+- **Regression**: **`TestWindowCatalogOpenCloseEventJournalCheckpoint`** — base completeness, list→catalog replay, chrome/selection/flags/journal invariants; **replay → `ShutdownSaveCatalog` on same Domain/storage → destroy Domain → cold `LoadApplication`+checkpoint** (lazy window still unloaded; **`Find(window_id)`** absent); explicit **`OpenHolderWindow`** on cold graph for lazy window + geometry; repeat-open does not duplicate open-events; invalid-base negative unchanged.
+- **Release verify** (2026-10-23, **`build-presenter-decomp-msvc-rel`**): **`apptraverse_window_catalog_model_test`**, **`apptraverse_window_catalog_win32_acceptance_test`** **PASS** (post cold-load completion **`d820c85`** follow-up).
+
+### WindowCatalog chrome button distilled base (surfaces_demo)
+- **Starting SHA**: **`d820c85dbae0732f35634ee07a84a8fda1f85ef6`**
+- **FAIL before fix**: **`InitializeRuntimeNode(*Catalog*Button)`** ran before **`catalog`/`label`** wiring and before **`RefreshChromeButtonEnabledState`**. Each button base lacked label/catalog ObjIds; Open/Delete base had **`enabled_==true`**. **`TryReplayFromBase`** on a button restored wrong enabled (Open/Delete enabled without selection) and broke label identity checks in **`TestWindowCatalogChromeButtonDistilledBaseReplay`**.
+- **Fix**: In **`BuildWindowCatalogGraph`**, wire four demo buttons, assign into **`catalog->buttons`**, presenters, then **`RefreshChromeButtonEnabledState`**, then one **`InitializeRuntimeNode`** per button, then catalog last (unchanged rule).
+- **Regression**: **`TestWindowCatalogChromeButtonDistilledBaseReplay`** — before **`ShutdownSaveCatalog`**, capture per-button **`button` / `base` / `label` / `catalog` ObjIds**, enabled, and EN label text as plain values; RAM distilled replay for all four; then cold **`LoadApplication` + `LoadPersistentCheckpointIntoCatalog`** in a new Domain (**no** post-load **`FinalizeDistilledGraph`**, **`RepairWindowCatalogEmbeddedStrings`**, or chrome rewiring). Cold pre/post checks assert the same ObjIds and distilled base (**`base_id` not recomputed from loaded objects**), canonical label text after checkpoint **`MaterializeCatalogStrings`**, enabled invariants, demo button→catalog link via **`CollectReachableObjects`** Save topology (derived **`catalog`** member is not visible to static **`UiPushButton`** graph walk), and per-button **`TryReplayFromBase`** without **`RefreshChromeButtonEnabledState`**.
+- **Release verify** (2026-10-23, **`build-presenter-decomp-msvc-rel`**, baseline **`1568c23`**): **`apptraverse_window_catalog_model_test`**, **`apptraverse_window_catalog_win32_acceptance_test`** **PASS** — four chrome **`base` ObjIds** unchanged through cold load and replay.
+
+### WindowCatalog-only v0 / no-exceptions cleanup
+- Scope: the active build now contains WindowCatalog, core UI, and focused tests;
+  SharedNode, lifecycle/network registration, chat/other demos and aether-client-cpp
+  are not fetched/linked by this build. Historical sources remain outside it.
+- Owned library schemas are v0 only; obsolete throwing readers are deleted.
+  ClassIds and current field sets are retained. New default profile is
+  `surfaces_catalog_v0_state`; existing profiles are not migrated or deleted.
+- Serialized member defaults moved into creation constructors; native lifetime
+  state is initialized on both Create and Load construction paths. The base-class
+  reference binding and business defaults in non-object records remain.
+- Extended edit notifications use the existing virtual `Presenter::OnCommand`;
+  registration installs no process-global router. Routing regression added.
+- Instrumented storage logger and global publication profiling counters removed.
+  Fatal diagnostics/error results remain; no replacement telemetry is introduced.
+- No C++ RTTI/exceptions; compile-time exception guard added. Throwing filesystem
+  enumeration/name parsing replaced with error-code operations / `from_chars`.
+  Requested MinSizeRel `/GS-`, `/GUARD:NO`, `/fp:fast`, size and LTCG options retained.
+- Verification: prepared for Windows Release and MinSizeRel CI; no PASS claimed
+  until the corresponding workflow build and CTest results are available.
+
+- Windows CI validation: Release and MinSizeRel configure/build/CTest passed (all six focused tests in each configuration). Run: https://github.com/apptraverse/apptraverse/actions/runs/40073197303
+- Clean runner exposed malformed dependency patch hunk counts; corrected headers only. GUI tests now retain a valid model proxy/unload HWNDs and wait for all localized controls rather than only Add. No production workaround or relaxed expected values.
+- Release win32_window_catalog_demo.exe (BUILD_TESTING=ON): 440320 bytes.
+- Release win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 429056 bytes.
+- MinSizeRel win32_window_catalog_demo.exe (BUILD_TESTING=ON): 344064 bytes.
+- MinSizeRel win32_window_catalog_demo_load_only.exe (BUILD_TESTING=ON): 335872 bytes.
+
+### Application framework extraction / headless contract
+- **Land SHA (WindowCatalog migration)**: **`456c58256df3f049d9a88613ad7d78b294f23ce2`** (`Migrate WindowCatalog to UiPresentedWindow presenter ownership.`)
+- **Baseline (WindowCatalog migration)**: **`62fe908e837d910b8b96edf6cb638e308338ae03`**
+- **Land SHA (UiPresentedWindow)**: **`1dd8d57187276a61d021b675055269821c34922b`**
+- **WindowCatalog presenter ownership**: removed **`CatalogWindow.window_presenter`**
+  / **`CatalogWindow.title`** and **`WindowCatalog.main_window_presenter`**; presenter
+  lives only on **`UiPresentedWindow::presenter`** with title/locale on
+  **`UiWindowPresenter`**. Removed **`EnsureHolderWindowTitleLinks`** / post-load
+  rewiring; lazy close saves presenter+window, resets presenter, re-saves window, then
+  unloads window (same pattern as headless contract). **`window_catalog_model.h`**
+  no longer includes Windows presenter headers.
+- **WindowCatalog** remains the reference app for Events, mirrors, localization, lazy
+  windows, and desktop frame paths.
+- **Distillation / versioning** are intentionally out of scope on this branch
+  (see **`integration/serialization-surfaces`**).
+- **Hierarchy** (production): `UiWindow` → **`UiPresentedWindow`** (`presenter` only,
+  v0) → **`UiDesktopWindow`** (frame Events unchanged; **`UiDesktopWindow::kClassId`**
+  unchanged). **`UiWindowPresenter`** moved to **`include/apptraverse/ui/ui_window_presenter.h`**
+  (title/locale stay on presenter).
+- **Headless contract graph**: **`ContractApplicationRoot`** owns
+  **`presented_window`** only; presenter is reached via
+  **`presented_window->presenter`** with window↔presenter wiring at create time.
+  **No post-load repair** of presenter/window/title/locale after reopen.
+- **Production tweak** (prior commit on branch): `ApplyUiDesktopFrameRequestPresentation`
+  matches any `UiDesktopWindowPresenter` (GenerationDistance), not only Win32.
+- **Distilled base completeness (early CaptureBaseState)**: `InitializeRuntimeNode` calls
+  `CaptureBaseState` immediately; wiring must finish first. Fixed graph build order for
+  **`UiPresentedWindow::presenter`**, **`UiWindowPresenter`** back-links, and
+  **`UiLocalizationString::strings`** in headless contract + WindowCatalog (main graph,
+  `AddWindow`, `MakeLocalizedString` / `MakeHolderTitleString` / `BuildLazyTitle`).
+  Regression: **`TestPresentedWindowDistilledBaseReplay`** and
+  **`TestCatalogPresentedWindowDistilledBaseReplay`** assert presenter/title/locale/slot
+  ObjIds in historical base and after **`TryReplayFromBase()`** without repair. **FAIL**
+  before order fix; **PASS** after (Release + MinSizeRel, all 7 CTests).
+- **Next step**: extract shared presented-window composition helper (plan §1.5 item 3);
+  save/unload/reload helper remains a separate follow-on (item 4).
+- **Release verify** (2026-10-24, **`build-b18-msvc-rel`**, post-WindowCatalog migration):
+  all **7** CTests **PASS** — `apptraverse_application_contract_headless_test`,
+  `apptraverse_ui_desktop_window_geometry_test`,
+  `apptraverse_window_catalog_model_test`,
+  `apptraverse_window_catalog_win32_acceptance_test`,
+  `apptraverse_win_ui_native_push_button_test`,
+  `apptraverse_presenter_win_desktop_frame_sync_test`,
+  `apptraverse_win_ui_command_routing_test`.
+- **MinSizeRel verify** (2026-10-24, **`build-b18-msvc-minsizerel`**): same **7** tests **PASS**.
+- **`apptraverse_application_contract_headless_test`**: links only `apptraverse`
+  (dumpbin: no `user32`/`gdi32`; no `surfaces_demo` / WindowCatalog link).
+
+---
+
+## WindowCatalog prototype rules + composition helper (2026-10-24)
+
+- **Baseline**: `4a0f868b6e0ec8ddfa0ffccfe6e4ccfa90f72dc9` (early CaptureBaseState wiring).
+- **Coding rules**: `.cursor/rules/apptraverse-coding-agent.mdc` — typed refs, required graph, trusted storage.
+- **Helper**: `ui::ComposePresentedWindow` (`include/apptraverse/ui/ui_presented_window_composition.h`); headless contract + WindowCatalog graph/`AddWindow`; **`CreateMainWindowTitle`** replaces post-hoc title attach.
+- **Typed identity**: `WindowCatalog::main_window` → **`CatalogWindow::ptr`**; model focus **`CatalogWindow::ptr pending_focus_window`** (runtime-only); session/UI boundary **`ae::ObjId pending_focus_for_ui`** / **`ApplyPendingFocusWindow(ae::ObjId)`**.
+- **Removed**: `RepairWindowCatalogEmbeddedStrings`, `RepairLocalizationSlot`, `Require*Wiring` / cascade presenter guards, storage save-session stats / `.tmp` commit path, checkpoint/storage failure exit codes.
+- **Storage**: straight write + byte-compare skip unchanged layers; trusted read path.
+- **Allowed production `ae::ObjId` boundaries** (WindowCatalog active path): distill/root ids (`window_catalog_ids.h`); **`UserCloseWindow(ae::ObjId)`** UI→model; **`FindHolderForWindow(ae::ObjId)`** cross-holder lookup; session **`pending_focus_for_ui`**; WinApp focus resolver input; storage **`DomainQuery.id`** (framework).
+- **Release verify** (`build-b18-msvc-rel`): **7/7** CTests **PASS**. Headless **316928** B; demo **437248** B.
+- **MinSizeRel verify** (`build-b18-msvc-minsizerel`): **7/7** CTests **PASS**. Headless **252928** B; demo **343552** B.
+- **Next step**: generic presented-window save/unload/reload helper (plan §1.5 item 4).
+- **Land SHA**: **`807afe7`** (`Add ComposePresentedWindow and WindowCatalog prototype hardening.`).
+
+---
+
+## Generic presented-window lifecycle helpers (2026-10-24)
+
+- **Baseline**: `f91dafc65c814311183107a29eb7a1396a11053a`.
+- **API** (`include/apptraverse/ui/ui_presented_window_lifecycle.h`): **`SavePresentedWindow`**, **`UnloadPresentedWindow`**, **`LoadPresentedWindow`** — typed `ObjPtr<WindowT>&` only; no ObjId/Domain overloads.
+- **Unload**: save window graph → `presenter.Reset()` → window save → `window.Reset()` (presenter link stays valid, unloaded).
+- **Load**: `window.Load()` then `window->presenter.Load()` via typed links; no manual `DomainGraph` / `LoadRoot` / rewiring.
+- **Removed app-specific sequences**: `SaveCatalogWindowGraph`, `SaveAndResetCatalogWindowMaterialization`; headless close/open manual save-reset and LoadRoot path.
+- **WindowCatalog**: snapshot uses `SavePresentedWindow`; close/delete use `UnloadPresentedWindow` after open Events; open/restore use `LoadPresentedWindow`.
+- **Headless contract**: `ClosePresentedWindowImpl` / `OpenPresentedWindowImpl` delegate to helpers; lazy unload/reload scenarios unchanged.
+- **Allowed production ObjId boundaries** (unchanged): distill/test ids; `UserCloseWindow(ObjId)`; `FindHolderForWindow(ObjId)`; focus session `pending_focus_for_ui`; WinApp `ApplyPendingFocusWindow(ObjId)`; framework publication/storage keys.
+- **Release verify** (`build-b18-msvc-rel`): **7/7** CTests **PASS**. Headless **315392** B; demo **436224** B.
+- **MinSizeRel verify** (`build-b18-msvc-minsizerel`): **7/7** CTests **PASS**. Headless **252416** B; demo **343040** B.
+- **Next step**: generic model application runtime (plan §1.5 item 5).
+- **Land SHA**: **`23fe2f7`** (`Add generic UiPresentedWindow save/unload/reload lifecycle helpers.`).
+
+## ApplicationModelRuntime (5A) (2026-10-24)
+
+- **Baseline**: `015062ca30dba1170464104735e4f26b7a01311e`.
+- **API** (`include/apptraverse/application_model_runtime.h`, `src/application_model_runtime.cpp`): **`ApplicationModelRuntime`** — `Post`, `RequestStop`, `Run(domain, application_root, on_published, before_incremental)`, `TakePublishedCopy(sidecar)`, `NotifyPublicationConsumed`, `publish_count()`. Owns `PublicationChannel<3>`, work queue, stop flag; does not own Domain, storage, or model thread.
+- **Semantics**: initial + structural publication via existing serializers; coalesce dirty nodes until publish; no overwrite while channel busy; drain queued work after `RequestStop`; clear reachable notifiers on exit. Legacy **`ModelRuntime`/`UiMirror`** unchanged.
+- **WindowCatalogModelSession removed**: `channel`, `mu`, `cv`, `stop`, `pending_work`, inline scheduler. Retains `state_dir`, `runtime`, `pending_focus_for_ui`; focus sidecar via `before_incremental` + `TakePublishedCopy` sidecar (Model → UI ObjId boundary only).
+- **Test**: `apptraverse_application_model_runtime_test` (apptraverse only; no Win32/WindowCatalog).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **8/8** CTests **PASS**. Headless **316928** B; runtime test **272896** B; demo **438784** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **8/8** CTests **PASS**. Headless **252928** B; runtime test **220160** B; demo **344576** B.
+- **Allowed production ObjId boundaries** (unchanged): distill ids; catalog `UserCloseWindow` / `FindHolderForWindow`; `pending_focus_for_ui` / `ApplyPendingFocusWindow`; framework publication/storage.
+- **Next step**: generic Windows application host (plan §1.5 item 6); later consolidate legacy model runtime.
+- **Land SHA**: **`2f69e2c`** (`Extract ApplicationModelRuntime for model work and publication loop.`).
+
+## WinApplicationMessageHost (6A) (2026-10-24)
+
+- **Baseline**: `41f29117caa73144566de0ffbc377deda6028c66`.
+- **API** (`include/apptraverse/platform/windows/win_application_message_host.h`): **`apptraverse::windows::WinApplicationMessageHost`** — message-only notify HWND (`AppTraverseApplicationNotify`), `StartModelThread`, `NotifyPublished(ApplicationPublicationKind)`, `PumpUntilModelDone`, `JoinModelThread`; internal `WM_APP+1/+2` publication messages (not `surfaces_win32_messages.h`).
+- **Removed from `WindowCatalogWinApp`**: `model_thread_`, `notify_`, notify class registration, done event, message pump, notify `WndProc` publication/stop paths.
+- **Preserved**: loading window (`AppTraverseWindowCatalogLoading`), `OnInitialPublished` / `OnIncrementalPublished`, focus sidecar, `session_.runtime`, desktop close routing, `WM_QUIT` policy (`loading_ == nullptr`).
+- **Test**: `apptraverse_win_application_message_host_test` (`apptraverse_ui_windows` only).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **9/9** CTests **PASS**. Headless **316928** B; host test **37376** B; demo **442880** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **9/9** CTests **PASS**. Headless **252928** B; host test **32768** B; demo **344576** B.
+- **Next step**: Windows host **6B** — generic UI Domain/mirror/presenter application shell (plan §1.5 item 6B).
+- **Land SHA**: **`3d2c3f5`** (`Extract WinApplicationMessageHost for Windows message infrastructure.`).
+
+## ApplicationUiSession (6B) (2026-10-24)
+
+- **Baseline**: `dca40c8d170d3a6e962563395670e10374b72ad7`.
+- **API** (`include/apptraverse/application_ui_session.h`, `src/application_ui_session.cpp`): **`ApplicationUiSession`** — owns UI `RamDomainStorage`, UI `Domain`, materialized root (`ae::Ptr<ae::Obj>`), presenter init/teardown via `LoadInitialPublication` / `ApplyStructuralPublicationAndUpdatePresenters` / `UnloadPresenters`. No publication channel, model thread, or platform types.
+- **WindowCatalogWinApp**: replaced `ui_storage_`, `ui_domain_`, `ui_catalog_` with `std::optional<ApplicationUiSession> ui_session_`; `UiCatalog()` typed cast from `ui_session_->root()`; shutdown order after `JoinModelThread`: `ui_session_.reset()` then `model_proxy_.reset()`.
+- **Removed**: `ApplyWindowCatalogStructural` from `window_catalog_lifecycle.*` (generic path in session).
+- **Test**: `apptraverse_application_ui_session_test` (links `apptraverse` only; no Win32 / WindowCatalog).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **10/10** CTests **PASS**. UI session test **292864** B; headless **315392** B; demo **443904** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **10/10** CTests **PASS**. UI session test **226304** B; headless **251904** B; demo **344576** B.
+- **Next step**: **6C** — generic loading window / platform application host extraction (plan §1.5 item 6C).
+- **Land SHA**: **`04565c3`** (`Extract ApplicationUiSession for generic UI mirror and presenter lifecycle.`).
+
+## WinApplicationLoadingWindow (6C1) (2026-10-24)
+
+- **Baseline**: `e40d1c2ab5b4d929f67204dc8ddc61a020f81823`.
+- **API** (`include/apptraverse/platform/windows/win_application_loading_window.h`): **`WinApplicationLoadingWindow`** — RAII WNDCLASS + HWND, centered `DrawTextW` paint, `WM_CLOSE` ignored, `Close()` / destructor teardown; no model/UI/session coupling.
+- **WindowCatalogWinApp**: local loading RAII in `Run`; initial publication callback closes loading after `ApplicationUiSession` emplace; `WM_QUIT` policy via `loading.is_open()` unchanged; removed app-specific loading WndProc/class registration.
+- **Test**: `apptraverse_win_application_loading_window_test` (`apptraverse_ui_windows` only).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **11/11** CTests **PASS**. Loading test **23552** B; demo **444928** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **11/11** CTests **PASS**. Loading test **22016** B; demo **344576** B.
+- **Next step**: **6C2** — final platform application host composition (plan §1.5 item 6C2).
+- **Land SHA**: **`433942f`** (`Extract WinApplicationLoadingWindow for reusable Win32 startup shell.`).
+
+## WinApplicationHost (6C2) (2026-10-24)
+
+- **Baseline**: `66a3e83c90f03c65bfa664ef120a4b23fc07563f`.
+- **API** (`include/apptraverse/platform/windows/win_application_host.h`): **`WinApplicationHost`** — composes external `ApplicationModelRuntime`, `ModelObjectProxy`, `WinPresentationHost`, `WinApplicationLoadingWindow`, `WinApplicationMessageHost`, `ApplicationUiSession`; `WinApplicationLoadingOptions` + `WinApplicationHostCallbacks` (`run_model`, `request_stop`, `on_desktop_window_close`, optional `take_incremental_sidecar`, `after_incremental`).
+- **WindowCatalogWinApp**: retains `WindowCatalogModelSession` only; `Run` wires catalog callbacks (publication kind mapping, focus sidecar, desktop close, loading options) and calls `host.Run()`.
+- **Removed from catalog app**: direct ownership of proxy/UI session/presentation/loading/message host; publication handler methods.
+- **Test**: `apptraverse_win_application_host_test` (`apptraverse_ui_windows`; no WindowCatalog).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **12/12** CTests **PASS**. Host test **310272** B; demo **449024** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **12/12** CTests **PASS**. Host test **241152** B; demo **344576** B.
+- **Next step**: minimal empty application template (plan §1.5 item 7).
+- **Land SHA**: **`5d0584a`** (`Extract WinApplicationHost composing Windows application platform stack.`).
+
+## Minimal application template (7) (2026-10-24)
+
+- **Baseline**: `d2767a8c46c4ba30ac5b983b1914c452efdce5d0`.
+- **Template** (`examples/minimal_app/`): `MinimalApplication` (`apptraverse::example::minimal::MinimalApplication`, v0) with single `main_window`; bootstrap graph in `minimal_app_graph.cpp`; model session in `minimal_app_lifecycle.cpp`; Win32 entry via `WinApplicationHost` in `minimal_app_main.cpp`.
+- **ObjIds** (template state-dir only): root `0x07A10001`, window `0x07A10002`, presenter `0x07A10003`.
+- **Executables**: `win32_minimal_app` (distill bootstrap) / `win32_minimal_app_load_only`; default state `minimal_app_v0_state`.
+- **No demo controls** — empty `WinDesktopWindowPresenter`; empty title/locale refs.
+- **Test**: `apptraverse_minimal_app_win32_acceptance_test` (links `minimal_app_common` only; not WindowCatalog).
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **13/13** CTests **PASS**. Minimal dev **379392** B; load-only **370176** B; catalog demo **449024** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **13/13** CTests **PASS**. Minimal dev **288768** B; load-only **284160** B; catalog demo **349184** B.
+- **Next step**: WindowCatalog independent consumer audit (plan §1.5 item 8).
+- **Land SHA**: **`09dd2201892aac77c87c1169f6686c7ea1968efc`** (`Add minimal AppTraverse application template with empty desktop window.`).
+
+## WindowCatalog independent consumer (8) (2026-10-24)
+
+- **Baseline**: `ef00773f9d0bd4604884614bc2a9d3dc89e6bd33`.
+- **Removed**: `WindowCatalogWinApp` (`window_catalog_win_app.h/.cpp`); `WindowCatalogPublicationKind`; session `Post`/`RequestStop` forwards.
+- **Entry**: `window_catalog_main.cpp` wires `WindowCatalogModelSession` + `WinApplicationHostCallbacks` directly (same behavior: focus sidecar, main vs child close, loading options).
+- **Lifecycle**: `WindowCatalogModelSession::Run(ApplicationPublishedCallback)` passes library callback through to `ApplicationModelRuntime::Run` without enum adapter.
+- **CMake dependency graph (logical)**: `apptraverse` ← `apptraverse_ui_windows` ← `{minimal_app_common → win32_minimal_app*}`, `{surfaces_demo_window_catalog → win32_window_catalog_demo*}`; no cross-link between example apps; core libraries include no `examples/` headers.
+- **Application-specific code remaining in WindowCatalog**: model graph/events, localization, `WindowHolder`/`CatalogWindow`, Add/Open/Delete, lazy window state, `pending_focus_for_ui` sidecar, persistence in `window_catalog_lifecycle.cpp`.
+- **Audit**: no `WINDOW_CATALOG` / `minimal_application` in `include/` or `src/`; host/runtime/ui session unchanged for catalog.
+- **Release verify** (`build-presenter-decomp-msvc-rel`): **13/13** CTests **PASS**. Minimal dev **379392** B; load-only **370176** B; catalog dev **445952** B; catalog load-only **434176** B.
+- **MinSizeRel verify** (`build-presenter-decomp-msvc-minsizerel`): **13/13** CTests **PASS**. Minimal dev **288768** B; load-only **284160** B; catalog dev **351232** B; catalog load-only **343040** B.
+- **Next step**: versioning integration branch (plan §1.5 item 9).
+- **Land SHA**: **`de7bcc1c16e3447b7c0b90095bb89aba4140d6bb`** (`Make WindowCatalog a direct WinApplicationHost consumer.`).
+
+## Embedded distilled backing (9A) (2026-10-25)
+
+- **Integration branch**: `integration/application-versioning` (worktree `apptraverse-wt-application-versioning`).
+- **Application baseline**: `cursor/surfaces-library-controls` @ **`55c4d539c9454b0df3768feb938aea466092f09f`**.
+- **Versioning source** (mechanism only, no merge): `integration/serialization-surfaces` @ **`17b7830ae397871ee90e31dc65feb82cfdfc6716`**.
+- **Added**: `embedded_distilled_domain.h/.cpp` (`InstallEmbeddedDistilledBacking`, `EmbeddedSupplyConstantIdSet`); `docs/integration/application-versioning.md`; CTest **`apptraverse_embedded_distilled_domain_test`** (links `apptraverse` only; no user32/gdi32).
+- **Behavior**: compile-time `EmbeddedDistilledGraph` layer records copy into `RamDomainStorage`; headless test builds real distilled v0 graph (`SaveDistilledRoot` + layer export), cold `LoadApplication` from embedded backing; lazy child, historical `Node::base`, backing immutability on read.
+- **Unchanged**: examples/minimal_app, WindowCatalog startup, `OverlayDomainStorage`, `ApplicationModelRuntime`, host stack, ClassId v0 schemas.
+- **Release verify** (`build-application-versioning-msvc-rel`): **14/14** CTests **PASS**. Minimal dev **374784** B; load-only **368128** B; catalog dev **445952** B; catalog load-only **434176** B.
+- **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **14/14** CTests **PASS**. Minimal dev **290816** B; load-only **286208** B; catalog dev **350720** B; catalog load-only **342528** B.
+- **Open conflicts for later**: versioning `OverlayDomainStorage` USER/BACKING policy; Node/EventFor historical-base deltas; extra Æther CPM patches; release R / T01–T18 matrix (see `docs/integration/application-versioning.md`).
+- **Next step**: **9B** USER/BACKING overlay integration.
+- **Land SHA**: **`3aa7320b52113ee3c3b2b8afe3a493ef0d5c9b86`** (`Add embedded distilled graph backing for RamDomainStorage.`).
+
+## USER/BACKING overlay storage (9B1) (2026-10-25)
+
+- **Baseline**: `bb95adde983d388824e4fd42a8c2ed91560269ef`.
+- **Reference**: `integration/serialization-surfaces@17b7830ae397871ee90e31dc65feb82cfdfc6716` (overlay policy only; no `force_materialize` patch in 9B1).
+- **OverlayDomainStorage**: four constructors (internal RAM USER or external USER + BACKING + optional `supply_constant_ids`); `IsSupplyConstant`; supply Load/Enumerate from BACKING only; `SupplyConstantDiscardWriter`; dynamic `BackingComparedStorageWriter` skip-unchanged; Remove/CleanUp policy.
+- **Test**: `apptraverse_overlay_user_backing_test` — source precedence, supply vs dynamic same ClassId, dynamic layer skip/retain, real v0 graph, embedded supply set, `DirectoryDomainStorage` USER persistence; links `apptraverse` only.
+- **Unchanged**: examples, host/runtime, Node/EventFor, Æther patches, application checkpoints.
+- **Release verify** (`build-application-versioning-msvc-rel`): **15/15** CTests **PASS**. Minimal dev **374784** B; load-only **368128** B; catalog dev **445952** B; catalog load-only **434176** B.
+- **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **15/15** CTests **PASS**. Minimal dev **290816** B; load-only **286208** B; catalog dev **350720** B; catalog load-only **342528** B.
+- **Next step**: **9B2** — `aether-objects-force-materialize.patch` + historical dynamic base materialization.
+- **Land SHA**: **`cdabb6c30ca4460a88da752f52b333c2940278d7`** (`Integrate USER/BACKING OverlayDomainStorage with supply constants.`).
+
+## Historical dynamic base materialization (9B2) (2026-10-25)
+
+- **Baseline**: `cad49a2a5b06df56b663f0c121f87b2fe69ffdb4` (9B1 docs land).
+- **Reference patch source**: `integration/serialization-surfaces@17b7830ae397871ee90e31dc65feb82cfdfc6716` (`aether-objects-force-materialize.patch` mechanism; pinned Æther **`79283b667cabf689da1059d618fe2a22abf51db4`** unchanged).
+- **Æther**: `cmake/patches/aether-objects-force-materialize.patch` — `DomainQuery.force_materialize`, `DomainGraph.force_materialize`, OR-merge in `DomainGraph::GetWriter` before `storage_->Store`.
+- **OverlayDomainStorage**: `Store` — supply constant discard, then `force_materialize` direct USER write, then 9B1 skip-unchanged policy.
+- **Node::Save** v0: `DnvSerializationScope::GetGraph`; temporary `force_materialize` only while serializing historical `base` (`LocalPersistent`, non-empty journal, valid `base`); publication omit branch unchanged; field order `base_`, `base`, `journal` preserved.
+- **Test**: `apptraverse_historical_base_materialization_test` — query-level force, `DomainGraph` propagation, historical base USER layer + sibling unchanged, BACKING swap + `ReplayFromBase`, materialized publication regression, supply constant with journaled root.
+- **Unchanged**: examples startup, `ApplicationModelRuntime`, host stack, v0 ClassId schemas, publication wire format, `reject-unknown-stored-class` / `should-save-version` patches, release resolver.
+- **Release verify** (`build-application-versioning-msvc-rel`): **16/16** CTests **PASS**. Minimal dev **379904** B; load-only **373760** B; catalog dev **450560** B; catalog load-only **439296** B.
+- **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **16/16** CTests **PASS**. Minimal dev **288768** B; load-only **283648** B; catalog dev **349184** B; catalog load-only **340480** B.
+- **Known limits**: T16/T17 downgrade/replay matrix and historical S1 evolution not claimed; 9B2 covers USER retention of historical dynamic `Node::base` when bytes match current BACKING.
+- **Next step**: **9C** — build-time embedded export.
+- **Land SHA**: **`64c97f062b4414e905ad2eb1f9331d79e5429fc2`** (`Force-materialize historical Node::base for USER overlay retention.`).
+
+## Build-time embedded distilled export (9C) (2026-10-25)
+
+- **Baseline**: `3d6273ed5a2d86eec744a40ccb6a96ccf0f7fd52`.
+- **Reference exporter**: `integration/serialization-surfaces@17b7830ae397871ee90e31dc65feb82cfdfc6716` (`distilled_domain_export`, `apptraverse_embed_distilled_supply.cmake`; no directory RAM loader).
+- **Library**: `distilled_domain_export.h/.cpp` — `CollectStoredObjectIds`, `WriteEmbeddedDistilledSupplyHeader` (sorted ObjId → ClassId → version layers, zero-byte dummy pointer, supply id sort/dedupe).
+- **Exporter**: `apptraverse_export_minimal_distilled_graph` — `BuildMinimalApplicationGraph` + distill/stabilize + persistent RAM save + header `embedded_distilled_minimal_app_supply.h` (`APPTRAVERSE_EMBEDDED_DISTILLED_MINIMAL_APP_SUPPLY_H_`, namespace `embedded_distilled::minimal`, empty supply constants).
+- **CMake**: `apptraverse_embed_distilled_supply()` custom command in build tree; `apptraverse_minimal_app_embedded_export_test` depends on exporter + graph sources.
+- **Consumer test**: cold `InstallEmbeddedDistilledBacking` → `OverlayDomainStorage` → `LoadApplication<MinimalApplication>`; descriptor, geometry 120/80/640×480, historical base, USER skip-unchanged + Event geometry override replay.
+- **Unchanged**: `RunMinimalApplicationModel`, host/runtime/session, Win32 app startup, v0 schemas, `apptraverse_embedded_distilled_domain_test`.
+- **Release verify** (`build-application-versioning-msvc-rel`): **17/17** CTests **PASS**. Minimal dev **379904** B; load-only **373760** B; catalog dev **450560** B; catalog load-only **439296** B.
+- **MinSizeRel verify** (`build-application-versioning-msvc-minsizerel`): **17/17** CTests **PASS**. Minimal dev **288768** B; load-only **283648** B; catalog dev **349184** B; catalog load-only **340480** B.
+- **Known limits**: generated header not wired into production MinimalApplication startup (**9D**); ObjIds in export still depend on distill-time allocation (stable within one exporter run).
+- **Next step (at 9C land)**: **9D** — embedded startup for MinimalApplication (superseded by agreed roadmap revision 2026-10-25; see below).
+- **Land SHA**: **`b77393753fa67e1e868feaa621dfd94c5022f9a0`** (`Add build-time MinimalApplication embedded distilled graph export.`).
+
+## Application Framework + Versioning — agreed roadmap revision (2026-10-25)
+
+- **Source plan**: `02_Application_Framework_Integration_PLAN.md` (revision 2026-10-25).
+- **Doc sync HEAD**: **`9f6aa8d3540e6a6f18893beea174d095e18af680`** (`integration/application-versioning`).
+- **Scope of this entry**: documentation-only update to `plan.md` and `Progress.md`; **no code, CMake, tests, or schemas changed**; **tests not re-run** for this revision.
+- **Completed through 9C (unchanged facts)**:
+  - **9C DONE** — main land **`b77393753fa67e1e868feaa621dfd94c5022f9a0`**: `apptraverse_export_minimal_distilled_graph`, CMake-generated `embedded_distilled_minimal_app_supply.h`, `apptraverse_minimal_app_embedded_export_test`, cold load of generated graph without graph builder, geometry Event + USER/BACKING persistence.
+  - **9C verify (already reported, not re-run here)**: Release and MinSizeRel **17/17** CTest PASS; MinSizeRel minimal dev EXE **288768** B; production MinimalApplication startup not changed in 9C.
+- **Order change**: next work is **not** 9D immediately after 9C. Agreed sequence after 9C:
+  - **I0** — architecture cleanup (**not implemented**; plan accepted only).
+  - **I0.1** — inventory / cleanup ledger — **NEXT** executable task.
+  - **I0.2** — remove verified dead paths (after I0.1).
+  - **I0.3** — required graph cold-load contract (after I0.1).
+  - **9D** — MinimalApplication embedded startup (**PLANNED**; deps: I0 + 9C).
+  - **9E** — WindowCatalog embedded startup (**PLANNED**).
+  - **9F** — unified release bootstrap R/E/B/S (**PLANNED**).
+  - **9G** — system origin / Clone / S (**BLOCKED BY VERSIONING** until serialization-surfaces C0 → 12R → 12B → 13 → 14).
+  - **9H** — full functional lifecycle matrix (**PLANNED**; deps: 9F, 9G, versioning matrix).
+- **Parallel branch** (`integration/serialization-surfaces`): C0 cleanup, origin 12A fix, 12R, 12B, 13, 14 — object core, Clone/origin, schema compatibility; **9G blocked** until that core is ready. Do not merge branches in doc-only tasks.
+- **Prototype principles** (now in `plan.md` §1.6): standard serialization only; typed refs in graph; no implicit required defaults; all-or-nothing load; no corrupted-file hardening in prototype; preserve USER/journal/historical base; no duplicate runtime/managers; small verified iterations.
+- **FUTURE** (documented, does not block I0/9D/9E): optional supply/localization/cache, Universal ArtifactSource, SharedNode, DLL/SO plugins.
+- **Land SHA (this doc revision)**: **`e045dc4e4672c620ff22202a5d9049f23228c581`** (`Document agreed Application Framework + Versioning roadmap revision.`).
+
+## I0.1 — Architecture cleanup inventory (2026-10-25)
+
+- **Baseline**: **`36b0a5c08780a7a0136587a7bf3858b86b334982`** (`integration/application-versioning`).
+- **Scope**: inventory and documentation only — **no C++, CMake, or test changes**; **builds and CTest not run** for this step.
+- **Ledger**: [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md).
+- **Reviewed**: root and app CMake targets; `tests/CMakeLists.txt` (17 active CTests); production path `ApplicationModelRuntime` / `ApplicationUiSession` / `WinApplicationHost`; legacy `ModelRuntime` / `UiMirror` / `CopyModelGraphToUiDomain`; composition/lifecycle helpers; registration entry points; persistent vs publication vs embedded serialization; Æther patches in `cmake/aether_version.cmake`; `examples/minimal_app` and `examples/surfaces_demo` (window catalog).
+- **Duplicate / overlap categories found**:
+  - Legacy model/UI runtime vs application runtime + publication pipeline (legacy compiled, not used by minimal/catalog).
+  - Runtime distill bootstrap vs build-time embedded export (MinimalApplication only — **9D**, not cleanup).
+  - Redundant idempotent `Ensure*Registration` at graph builder vs lifecycle (optional small I0.2 trim).
+  - Orphan `src/*.cpp` files present in tree but absent from `apptraverse` CMake list.
+  - Disabled historical tests/demos referencing legacy runtime (not in CTest).
+- **Safe toward I0.2**: delete CMake-unreferenced orphan `src` units (first recommended slice); optional redundant Win ensure in `BuildMinimalApplicationGraph` after consumer check.
+- **Blocked / deferred**: remove runtime bootstrap (**9D/9E**); remove `ModelRuntime`/`UiMirror` from core lib until legacy consumers retired; versioning Æther patches (**9G**); I0.3 cold-load contract work.
+- **NEXT (I0.2)**: one slice — remove seven orphan `src/*.cpp` files not in any active target (see ledger §E); verify with incremental build + 17 CTests when executing I0.2.
+- **Land SHA**: **`ca17e1b0272f438a91fc66ab91eee07c3451aac0`** (`I0.1: add architecture cleanup ledger and update plan/Progress.`).
+
+## I0.2 — Orphan implementation cleanup (2026-10-25)
+
+- **Baseline**: **`6e952d181295d17f9944b225a6a3c36f0587199e`** (`integration/application-versioning`).
+- **Removed (git rm, not in any active CMake target):**
+  - `src/runtime_lifecycle.cpp`
+  - `src/shared_node.cpp`, `src/shared_network_graph.cpp`, `src/shared_sync_runtime.cpp`
+  - `src/memory_transport.cpp`, `src/sync_frame.cpp`, `src/link.cpp`
+- **Evidence:** root `CMakeLists.txt`, `tests/CMakeLists.txt`, app/example/platform CMake — none list these sources; `rg` shows no `#include` of removed `.cpp` from active code; disabled demos/tests unchanged.
+- **Preserved:** public headers (`runtime_lifecycle.h`, SharedNode/transport headers); `ApplicationModelRuntime`, `ApplicationUiSession`, `ModelRuntime`, `UiMirror`, serialization, embedded export, overlay, Æther patches, runtime bootstrap; **CMakeLists unchanged**; **tests unchanged**.
+- **SharedNode / transport:** **FUTURE** / deferred — implementations live in Git history; this branch does not ship linkable bodies for those APIs.
+- **Verify:** incremental `build-application-versioning-msvc-rel` and `build-application-versioning-msvc-minsizerel` (`ninja: no work to do`); **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS** (including contract, model runtime, UI session, embedded export, minimal/catalog acceptance).
+- **EXE sizes (unchanged vs 9C report):** Release minimal dev **379904** B, load-only **373760** B, catalog dev **450560** B, catalog load-only **439296** B; MinSizeRel minimal dev **288768** B, load-only **283648** B, catalog dev **349184** B, catalog load-only **340480** B.
+- **Does not prove:** disabled historical demos/tests that referenced removed units still build or run.
+- **NEXT (I0.2):** ledger §C #2 — redundant Win ensure in `BuildMinimalApplicationGraph` after entry-point audit.
+- **Land SHA**: **`9c96d9001548bb9b46b449c8576cba4f69fa1bdd`** (`I0.2: remove seven orphan src implementations not in CMake targets.`).
+
+## I0.2 — Remove redundant graph-builder registration (2026-10-25)
+
+- **Baseline**: **`feb9c8057f2a67c5999e3345b4d8ca4a6e364640`** (`integration/application-versioning`).
+- **Change**: removed `ui::windows::EnsureWinUiPresenterRegistration();` from `BuildMinimalApplicationGraph` in `examples/minimal_app/windows/minimal_app_graph.cpp` only.
+- **Call graph verified:** `BuildMinimalApplicationGraph` has two production callers — `RunMinimalApplicationModel` (`minimal_app_lifecycle.cpp`, Win ensure at lines 28–30 before distill bootstrap) and `minimal_app_export.cpp` `main` (Win ensure before graph build); load-only exe has no graph builder; no test calls graph builder directly (`minimal_app_embedded_export_test` keeps its own ensure).
+- **Unchanged:** ClassId/schemas v0, CMake, serialization, startup paths, `EnsureWinUiPresenterRegistration` implementation, catalog registration, ModelRuntime/UiMirror, runtime bootstrap.
+- **Verify:** incremental Release + MinSizeRel rebuild (`win32_minimal_app`, exporter, embedded export test); **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
+- **EXE sizes:** not re-measured (expect negligible delta from one removed call site in shared TU).
+- **NEXT:** **I0.3** — required graph cold-load contract.
+- **Land SHA**: **`7be64df4841812ae1694186c1d8cc6a5a66cce26`** (`I0.2: drop redundant Win UI registration from minimal graph builder.`).
+
+## I0.3A — MinimalApplication required graph cold load (2026-10-25)
+
+- **Baseline**: **`92b63ae844f157b454cccf890b452dc7806568b8`** (`integration/application-versioning`).
+- **Production changes**: `include/apptraverse/ui/ui_presented_window_lifecycle.h` (`LoadPresentedWindow` fail-fast via `WriteFatalStderr`); `examples/minimal_app/common/minimal_app_lifecycle.cpp` (unconditional `LoadPresentedWindow` before `runtime.Run`; removed optional `main_window` skip).
+- **Tests**: extended `tests/minimal_app_win32_acceptance_test.cpp` — positive dev/load-only lifecycle unchanged; negative load-only scenarios (missing root, empty `main_window`, empty presenter ref, removed presenter object) via separate state dirs, stderr capture, 30s timeout.
+- **Unchanged**: `LoadApplication`, schemas/ClassId v0, CMake, embedded export, runtime bootstrap, ApplicationModelRuntime/UiSession/Host, WindowCatalog.
+- **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
+- **Confirmed**: no auto-create of main window on load-only; no partial UI when required graph incomplete; positive native Save/reload/shutdown preserved.
+- **NEXT**: **I0.3B** — WindowCatalog required graph boundaries.
+- **Land SHA**: **`27b09351324f67aefe7f3c710ca4232ddd37c808`** (`I0.3A: enforce MinimalApplication required graph on cold load.`).
+
+## I0.3B1 — WindowCatalog required main window cold load (2026-10-25)
+
+- **Baseline**: **`d3e6e3f7e82e9c1ddab5fc9f024fc3bbcf3db079`** (`integration/application-versioning`).
+- **Production**: `examples/surfaces_demo/common/window_catalog_lifecycle.cpp` — `ui::LoadPresentedWindow(catalog->main_window)` after checkpoint, before `MaterializeCatalogStrings` / holder materialization.
+- **Tests**: `tests/window_catalog_win32_acceptance_test.cpp` — four load-only negative scenarios (missing root, empty main window ref, empty presenter ref, removed presenter object) using profile copy from positive acceptance; checkpoint sidecar stripped for cases 2–4.
+- **Unchanged**: `LoadPresentedWindow` implementation, `RestoreLoadedCatalogWindows`, graph builder, schemas, CMake, runtime bootstrap.
+- **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
+- **NEXT**: **I0.3B2** — remaining WindowCatalog required refs + ClassId/**S** compatibility.
+- **Land SHA**: **`7621820535cbb082f0cd0c0ac77c31959b2ba152`** (`I0.3B1: require WindowCatalog main window cold load before publication.`).
+
+## I0.3B2a — WindowCatalog required list / locale cold load (2026-10-25)
+
+- **Baseline**: **`7d3b02d7366fe1f7e63668af1b9c7f4c5ed48661`** (`integration/application-versioning`).
+- **Production**: `examples/surfaces_demo/common/window_catalog_lifecycle.cpp` — after checkpoint + `LoadPresentedWindow(main_window)`, unconditional `catalog->list.Load()` / `catalog->locale.Load()` with `WriteFatalStderr` + `abort` when empty (before `language_index()` / list row iteration).
+- **Tests**: `tests/window_catalog_win32_acceptance_test.cpp` — four load-only negatives: empty `list` ref, `Remove(CatalogList)`, empty `locale` ref, `Remove` of persisted locale ObjId (resolved via reload; not fixed demo enum id 14); profile re-load / storage enumerate asserts before child spawn; list-object case may fail earlier at `LoadApplication failed`.
+- **Unchanged**: main-window boundary, chrome, lazy holders, `RestoreLoadedCatalogWindows`, constructors, Load/Save, schema v0, CMake, runtime bootstrap.
+- **Verify**: incremental `build-application-versioning-msvc-rel` + `build-application-versioning-msvc-minsizerel`; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
+- **NEXT**: **I0.3B2b** — required chrome graph/presenters (ClassId/**S** separate).
+- **Land SHA**: **`7eacfaf3ac259be5f2277796bc4c70f4f6cac0e5`** (`I0.3B2a: require WindowCatalog list and locale on cold load.`).
+
+## I0.3B2b — WindowCatalog required chrome presenters cold load (2026-10-25)
+
+- **Baseline**: **`95db3606d4b2c04a40d0c1f85abd452d99927516`** (`integration/application-versioning`).
+- **Production**: `examples/surfaces_demo/common/window_catalog_lifecycle.cpp` — after list/locale load, `Load()` on five `WindowCatalog::presenters` refs; one fatal `WindowCatalog required chrome presenter missing` before `MaterializeCatalogStrings` / `runtime.Run`.
+- **Tests**: `tests/window_catalog_win32_acceptance_test.cpp` — six load-only negatives: empty ref for `list_presenter`, `add_button_presenter`, `open_button_presenter`, `delete_button_presenter`, `language_button_presenter`; `Remove` of persisted `add_button_presenter` ObjId (not hardcoded demo enum ids).
+- **Unchanged**: `WindowCatalog` Load/Save/fields, `BuildWindowCatalogGraph`, main window + lazy holders, buttons/strings, schema v0, CMake, bootstrap.
+- **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**; positive acceptance (Add/Open/Delete, EN/RU, geometry, persistence) preserved.
+- **NEXT**: **I0.3B2c** — required chrome buttons and localized text refs.
+- **Land SHA**: **`a460ab2e32c393130d57b74f1b6d52889bb9c996`** (`I0.3B2b: require WindowCatalog chrome presenters on cold load.`).
+
+## I0.3B2c1 — WindowCatalog required chrome buttons cold load (2026-10-25)
+
+- **Baseline**: **`a26d81d3fd871663e6ebb588ea1b1f43bb978a2c`** (`integration/application-versioning`).
+- **Production**: `window_catalog_lifecycle.cpp` — after chrome presenters, `Load()` on `buttons.add_button` / `open_button` / `delete_button` / `language_button`; one fatal `WindowCatalog required chrome button missing` before `MaterializeCatalogStrings`.
+- **Tests**: five load-only negatives (four cleared button refs + `Remove` of persisted `add_button` ObjId); pointer-to-member helper; `RefreshChromeButtonEnabledState` untouched.
+- **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; positive acceptance preserved.
+- **NEXT**: **I0.3B2c2** — required localized text refs (`WindowCatalogTexts`).
+- **Land SHA**: **`7e62012696fc4e1cc0a8f80d5946be1271fad41f`** (`I0.3B2c1: require WindowCatalog chrome buttons on cold load.`).
+
+## I0.3B2c2 — WindowCatalog required localized text refs cold load (2026-10-25)
+
+- **Baseline**: **`303efd7c1972e0fca3feae10ce7e3783c4776072`** (`integration/application-versioning`).
+- **Production**: `window_catalog_lifecycle.cpp` — after chrome buttons, `Load()` on five `catalog->texts.*` (`label_add`, `label_open`, `label_delete`, `label_language`, `window_title_prefix`); one fatal `WindowCatalog required localized text missing` before `MaterializeCatalogStrings`.
+- **Tests**: six load-only negatives (five cleared text refs + `Remove` of persisted `label_add` ObjId); does not assert inner EN/RU `UiString` slots.
+- **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; EN/RU acceptance and prior required-graph boundaries preserved.
+- **NEXT**: **I0.3B3** — ClassId/schema **S** compatibility (separate from corrupted-byte tests).
+- **Land SHA**: **`ece8dbcf0e832f995037360d6cff3c0df363aa13`** (`I0.3B2c2: require WindowCatalog localized text refs on cold load.`).
+
+## I0.3B3a — Required schema S incompatibility (2026-10-25)
+
+- **Baseline**: **`e888a6094ac5827fcc69582b929e5da9274cef6b`** (`integration/application-versioning`).
+- **Production**: none — existing LocalPersistent load + `LoadApplication` / `LoadPresentedWindow` boundaries sufficient.
+- **Tests**: `window_catalog_win32_acceptance_test.cpp` — two load-only cases: `WindowCatalog` root layer and `WinDesktopWindowPresenter` layer renamed S=0→S1 via `DirectoryDomainStorageLayerPath`; stderr `LoadApplication failed` (root) or `LoadPresentedWindow required presenter missing` (presenter).
+- **Verify**: **Release 17/17** and **MinSizeRel 17/17** CTest PASS; all prior required-graph negatives PASS.
+- **Land SHA**: **`96ed8cdc05ca2ee664e1af3b9a7da72a20b0da2a`** (`I0.3B3a: accept unsupported schema S layers on catalog cold load.`).
+
+## I0.3B3b — Required ClassId incompatibility (2026-10-25)
+
+- **Baseline**: **`85c5c8a00596bfaa100d05af984b9c072f565fa4`** (`integration/application-versioning`).
+- **Production**: `cmake/patches/aether-objects-reject-unknown-stored-class.patch` (provenance: `integration/serialization-surfaces`); `cmake/aether_version.cmake` + `CMakeLists.txt` patch list; pinned Æther SHA unchanged (`79283b667cabf689da1059d618fe2a22abf51db4`).
+- **Mechanism**: `Domain::GetMostRelatedFactory` fail-closed on unregistered stored ClassId (except `ae::Obj::kClassId`); surfaces as `LoadApplication failed` / `LoadPresentedWindow required presenter missing`.
+- **Tests**: two load-only ClassId cases — unknown layer `0xC1D00001` copied alongside valid WindowCatalog root; presenter class directory renamed to unknown ClassId; prior schema-S and required-graph negatives PASS.
+- **Verify**: CMake reconfigure (incremental); **Release 17/17** and **MinSizeRel 17/17** CTest PASS.
+- **NEXT**: **I0.3 closure audit** before **9D**.
+- **Land SHA**: **`366118a3da66109f591d7ab16f6e858d42fe2cb3`** (`I0.3B3b: reject unknown stored ClassId on catalog cold load.`).
+
+## I0.4 — Closure audit and branch baseline (2026-10-26)
+
+- **Audit baseline**: **`168d8175539cac66e991fc3fbcaee1cb154e4b90`** (`integration/application-versioning`).
+- **Scope**: documentation-only; no C++/CMake/test changes in this slice.
+- **I0 criteria review**: I0.1–I0.3B3b deliverables confirmed via ledger commits; no new framework layers; ApplicationModelRuntime / ApplicationUiSession / WinApplicationHost / DomainGraph preserved; Win32 + headless positive paths covered by passing tests (see below).
+- **CTest (incremental full build, 2026-10-26)**:
+  - Release: **15/17 PASS** — FAIL `#2 apptraverse_embedded_distilled_domain_test` (`LoadApplication failed id=161546241`); FAIL `#4 apptraverse_historical_base_materialization_test` (`LoadRoot` at line 301).
+  - MinSizeRel: **15/17 PASS** — same two failures.
+  - **PASS** includes: contract headless, overlay USER/BACKING, minimal embedded export, application model runtime, UI session, desktop geometry, Win loading/host/message, catalog model + Win32 acceptance (all I0.3 required-graph/schema/ClassId negatives), minimal Win32 acceptance, push button, frame sync, command routing.
+- **Blocker (not remediated in I0.4)**: I0.3B3b `reject-unknown-stored-class` Æther patch vs embedded distilled + historical base fixtures (extra/unregistered stored ClassId). Prior **17/17** claims did not include a full-tree rebuild of these two targets in the same session as B3b land.
+- **I0**: **NOT DONE** (positive regression criterion not met).
+- **Branch freeze**: **NOT APPLIED** — resume freeze after **17/17** PASS.
+- **Deferred**: legacy ModelRuntime/UiMirror, SharedNode/transport, disabled historical tests, runtime distill bootstrap removal, production embedded startup (**9D–9H ON HOLD** until versioning integration decision).
+- **9C**: build-time embedded export **implemented**; production apps still use directory bootstrap when profile absent.
+- **Land SHA**: **`7a5d66e`** (`I0.4: closure audit docs; I0 blocked on CTest 15/17.`).
+- **Doc HEAD (not frozen baseline)**: **`c99307f`** — audit code baseline remains **`168d817`**; branch freeze deferred until **17/17** CTest.
+
+## I0.5 — Restore missing object registration in two tests (2026-10-26)
+
+- **Baseline**: **`d736ea7b3e4f554e7be72e643caea7b4cdcbaca2`**.
+- **Root cause**: I0.3B3b `reject-unknown-stored-class` treats any stored ClassId not in the domain registry (except `ae::Obj::kClassId`) as fail-closed. Both tests distill/save graphs with native **`Node`** (and related) class layers but **`main()`** did not call **`EnsureObjectRegistration()`**, so `APPTRAVERSE_REGISTER(Node|Event|Presenter)` in `apptraverse.cpp` was not linked and **`Node::kClassId`** appeared “unknown” → `GetMostRelatedFactory` returned `nullptr`.
+- **Fix**: `apptraverse::EnsureObjectRegistration();` at start of **`main()`** in `tests/embedded_distilled_domain_test.cpp` and `tests/historical_base_materialization_test.cpp` only. No fixture/serialization/patch changes.
+- **Verify**: incremental Release + MinSizeRel; targeted **2/2 PASS** each config; full CTest **Release 17/17**, **MinSizeRel 17/17** (including `apptraverse_window_catalog_win32_acceptance_test` unknown ClassId negatives).
+- **I0**: **IN_PROGRESS** (CTest blocker cleared; separate closure/freeze step pending).
+- **9D–9H**: **ON HOLD**.
+- **Land SHA**: **`22eee7b5bb8710de162f30809642e79019faf7a6`** (`I0.5: call EnsureObjectRegistration in two headless tests.`).
+
+## I0.6 — Final closure and branch freeze (2026-10-26)
+
+- **Baseline**: **`b2cd97e5963c9c3bc1ac082c3099a254edb48b45`** (docs-only pre-closure).
+- **Scope**: documentation-only; re-verified existing build trees (no C++/CMake changes).
+- **I0 criteria**: I0.1–I0.3B3 **DONE**; I0.4 historical **15/17** preserved; I0.5 fix confirmed; Æther ClassId rejection unchanged.
+- **CTest (I0.6 final regression)**:
+  - Release: **17/17 PASS**
+  - MinSizeRel: **17/17 PASS**
+  - Includes embedded distilled, historical base materialization, catalog + minimal Win32 acceptance.
+- **I0**: **DONE**
+- **`integration/application-versioning`**: **FROZEN** (organizational)
+- **Code baseline**: **`22eee7b5bb8710de162f30809642e79019faf7a6`**
+- **9D–9H**: **ON HOLD** (unfreeze per `plan.md` §1.6)
+- **I0.6 doc commit**: **`e86153b9e3241ecb7f608cd31d6ba992c5084f24`** (`I0.6: close I0, freeze integration/application-versioning branch.`).
+- **Frozen HEAD (remote tip)**: **`adcbfce1ad7ebd2e56aadd07eac6a33679b934d9`** (I0.6 closure + SHA bookkeeping commits).
+- **Re-verify (2026-10-26)**: Release **17/17**; MinSizeRel **17/17** (full re-run after transient `#11` fail on first pass).

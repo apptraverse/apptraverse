@@ -172,6 +172,8 @@ BuiltGraph BuildGraph(ae::Domain& domain) {
 void RunPresenterGraphPersistenceTest() {
   EnableNoninteractiveCrt();
   EnsureObjectRegistration();
+  ui::EnsureUiPresenterRegistration();
+  ui::EnsureExtendedUiPresenterRegistration();
   (void)&g_apptraverse_registrar_PresenterGraphRoot;
 
   ByteSink snapshot;

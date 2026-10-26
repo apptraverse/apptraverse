@@ -8,6 +8,7 @@ int main() { return 0; }
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
+#include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
 // ApplyStructuralPublicationAndUpdatePresenters
@@ -80,6 +81,12 @@ struct Harness {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   FrameSyncRoot::ptr root;
+  // Tests deliver acknowledgements explicitly with ApplyFrameToMirror. Keep
+  // native reports queued instead of invoking a null model proxy on ShowWindow.
+  std::vector<ModelObjectProxy::ModelWork> pending_reports;
+  ModelObjectProxy proxy{[this](ModelObjectProxy::ModelWork work) {
+    pending_reports.push_back(std::move(work));
+  }};
   ui::windows::WinDesktopWindowPresenter* presenter{nullptr};
 
   Harness() {
@@ -97,11 +104,13 @@ struct Harness {
             ae::CreateWith{domain}.with_id(kPresenterId));
     root->window_presenter->window = root->window;
 
-    InitializePresenters(*root, nullptr, nullptr);
+    InitializePresenters(*root, nullptr, &proxy);
     presenter = &*root->window_presenter;
     CHECK(presenter->hwnd() != nullptr);
     ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   }
+
+  ~Harness() { UnloadPresenters(*root); }
 };
 
 void TestStalePublicationDuringDrag() {
@@ -164,7 +173,7 @@ void ApplyModelStructuralPublication(Harness& h) {
   in.data = sink.bytes.data();
   in.size = sink.bytes.size();
   ApplyStructuralPublicationAndUpdatePresenters(in, h.domain, h.storage, *h.root,
-                                                nullptr, nullptr);
+                                                nullptr, &h.proxy);
 }
 
 void TestProgrammaticMoveAfterSync() {

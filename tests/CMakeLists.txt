@@ -158,7 +158,7 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
     LABELS "serialization;evolution;journal"
   )
 
-  if(APPTRAVERSE_BUILD_EXAMPLES AND WIN32)
+  if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND WIN32)
     add_dependencies(apptraverse_application_evolution_fixtures
       win32_surfaces_demo win32_surfaces_demo_v1)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo version states")
@@ -218,6 +218,7 @@ add_executable(apptraverse_node_local_commit_journal_scaling_test
 )
 target_link_libraries(apptraverse_node_local_commit_journal_scaling_test PRIVATE
   apptraverse
+  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_node_local_commit_journal_scaling_test
@@ -227,7 +228,7 @@ add_test(
 add_executable(apptraverse_ui_edit_box_headless_test
   ui/ui_edit_box_headless_test.cpp
 )
-target_link_libraries(apptraverse_ui_edit_box_headless_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_ui_edit_box_headless_test PRIVATE apptraverse apptraverse_ui_extended)
 add_test(
   NAME apptraverse_ui_edit_box_headless_test
   COMMAND apptraverse_ui_edit_box_headless_test
@@ -236,7 +237,7 @@ add_test(
 add_executable(apptraverse_ui_control_materialization_test
   ui/ui_control_materialization_test.cpp
 )
-target_link_libraries(apptraverse_ui_control_materialization_test PRIVATE apptraverse)
+target_link_libraries(apptraverse_ui_control_materialization_test PRIVATE apptraverse apptraverse_ui_extended)
 add_test(
   NAME apptraverse_ui_control_materialization_test
   COMMAND apptraverse_ui_control_materialization_test
@@ -699,7 +700,7 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
   )
 endif()
 
-if(APPTRAVERSE_BUILD_EXAMPLES)
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
 
 add_executable(apptraverse_shared_node_foundation_test
   shared_node_foundation_test.cpp
@@ -1384,7 +1385,7 @@ add_custom_target(apptraverse_surfaces_headless_check
   COMMENT "Surfaces common model headless checks"
 )
 
-endif() # APPTRAVERSE_BUILD_EXAMPLES
+endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 
 if(WIN32)
   add_executable(apptraverse_surfaces_win32_library_consumer_test
@@ -1407,7 +1408,7 @@ if(WIN32)
     COMMAND apptraverse_surfaces_win32_library_consumer_test
   )
 
-  if(APPTRAVERSE_BUILD_EXAMPLES)
+  if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
   add_executable(apptraverse_surfaces_win32_smoke_test
     surfaces_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows/win_app.cpp
@@ -1449,10 +1450,10 @@ if(WIN32)
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Surfaces Windows multi-window smoke"
   )
-  endif() # APPTRAVERSE_BUILD_EXAMPLES
+  endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 endif()
 
-if(APPTRAVERSE_BUILD_EXAMPLES AND APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
   add_executable(apptraverse_surfaces_linux_smoke_test
@@ -1487,7 +1488,7 @@ if(APPTRAVERSE_BUILD_EXAMPLES AND APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AND NOT A
   )
 endif()
 
-if(APPTRAVERSE_BUILD_EXAMPLES AND APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   enable_language(OBJCXX)
   set_source_files_properties(
     surfaces_macos_smoke_test.mm
@@ -1551,7 +1552,7 @@ add_test(
   COMMAND apptraverse_presenter_load_order_test
 )
 
-if(APPTRAVERSE_BUILD_EXAMPLES)
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
 add_custom_target(apptraverse_dynamic_objects_headless_check
   COMMAND $<TARGET_FILE:apptraverse_dynamic_objects_add_test>
   COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
@@ -1566,7 +1567,7 @@ add_custom_target(apptraverse_dynamic_objects_headless_check
 endif()
 
 if(WIN32)
-  if(APPTRAVERSE_BUILD_EXAMPLES)
+  if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
   # Windows CreateProcess parent. Debug binary (not NDEBUG): aether-objects
   # Factory layout is #ifndef NDEBUG. Missing Application is still abort().
   add_executable(apptraverse_main_window_missing_load_test
@@ -1588,7 +1589,7 @@ if(WIN32)
   add_dependencies(apptraverse_main_window_headless_check
     apptraverse_main_window_missing_load_test
   )
-  endif() # APPTRAVERSE_BUILD_EXAMPLES
+  endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 
   # Isolated FatalWin32 + WriteFatalStderr with NDEBUG. No aether-objects.
   add_executable(apptraverse_win32_fatal_ndebug_child
@@ -1677,7 +1678,7 @@ if(WIN32)
     COMMAND apptraverse_win_ui_native_push_button_test
   )
 
-  if(APPTRAVERSE_BUILD_EXAMPLES AND APPTRAVERSE_BUILD_AETHER_DEMOS)
+  if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND APPTRAVERSE_BUILD_AETHER_DEMOS)
   add_executable(apptraverse_chat_win32_ui_smoke_test
     chat_win32_ui_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/chat_ui_runtime_demo/windows/win_presenters.cpp
@@ -1737,9 +1738,9 @@ if(WIN32)
       COMMAND apptraverse_chat_windows_smoke_test
     )
   endif()
-  endif() # APPTRAVERSE_BUILD_EXAMPLES AND APPTRAVERSE_BUILD_AETHER_DEMOS
+  endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND APPTRAVERSE_BUILD_AETHER_DEMOS
 
-  if(APPTRAVERSE_BUILD_EXAMPLES)
+  if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
   add_executable(apptraverse_main_window_win32_smoke_test
     main_window_win32_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_app.cpp
@@ -1855,10 +1856,10 @@ if(WIN32)
     NAME apptraverse_dynamic_two_main_win32_test
     COMMAND apptraverse_dynamic_two_main_win32_test
   )
-  endif() # APPTRAVERSE_BUILD_EXAMPLES
+  endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 endif()
 
-if(APPTRAVERSE_BUILD_EXAMPLES AND APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AND NOT APPLE AND NOT ANDROID AND APPTRAVERSE_BUILD_AETHER_DEMOS)
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AND NOT APPLE AND NOT ANDROID AND APPTRAVERSE_BUILD_AETHER_DEMOS)
   if(TARGET chat_demo_aether)
     find_package(PkgConfig QUIET)
     if(PKG_CONFIG_FOUND)
@@ -1926,6 +1927,7 @@ add_executable(apptraverse_ui_bitmap_publication_test
 )
 target_link_libraries(apptraverse_ui_bitmap_publication_test PRIVATE
   apptraverse
+  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_ui_bitmap_publication_test
@@ -1937,6 +1939,7 @@ add_executable(apptraverse_ui_bitmap_structural_publication_test
 )
 target_link_libraries(apptraverse_ui_bitmap_structural_publication_test PRIVATE
   apptraverse
+  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_ui_bitmap_structural_publication_test
@@ -1959,6 +1962,7 @@ add_executable(apptraverse_presenter_graph_persistence_test
 )
 target_link_libraries(apptraverse_presenter_graph_persistence_test PRIVATE
   apptraverse
+  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_presenter_graph_persistence_test
@@ -1978,7 +1982,7 @@ if(WIN32)
     COMMAND apptraverse_presenter_win_hwnd_persistence_test
   )
 
-  target_compile_definitions(apptraverse_ui_windows PRIVATE
+  target_compile_definitions(apptraverse_ui_windows PUBLIC
     APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
   add_executable(apptraverse_presenter_win_desktop_frame_sync_test
     presenter_win_desktop_frame_sync_test.cpp
@@ -2122,3 +2126,97 @@ add_test(
   COMMAND apptraverse_overlay_domain_storage_test
 )
 
+# WindowCatalog / MinimalApplication tests and their reusable UI.
+# apptraverse_ui_desktop_window_geometry_test,
+# apptraverse_win_ui_native_push_button_test and
+# apptraverse_presenter_win_desktop_frame_sync_test are defined above.
+function(apptraverse_add_test name source)
+  add_executable(${name} ${source})
+  target_link_libraries(${name} PRIVATE apptraverse ${ARGN})
+  add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+apptraverse_add_test(apptraverse_application_contract_headless_test
+  application_contract_headless_test.cpp)
+
+apptraverse_add_test(apptraverse_embedded_distilled_domain_test
+  embedded_distilled_domain_test.cpp)
+
+apptraverse_add_test(apptraverse_overlay_user_backing_test
+  overlay_user_backing_test.cpp)
+
+apptraverse_add_test(apptraverse_historical_base_materialization_test
+  historical_base_materialization_test.cpp)
+
+if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
+  include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+  add_executable(apptraverse_minimal_app_embedded_export_test
+    minimal_app_embedded_export_test.cpp)
+  target_link_libraries(apptraverse_minimal_app_embedded_export_test PRIVATE
+    minimal_app_common apptraverse apptraverse_ui_windows)
+  target_include_directories(apptraverse_minimal_app_embedded_export_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/common
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows)
+  if(MSVC)
+    target_compile_options(apptraverse_minimal_app_embedded_export_test PRIVATE
+      /utf-8)
+  endif()
+  set(_minimal_embed_graph_sources
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows/minimal_app_graph.cpp
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows/minimal_app_export.cpp
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/common/minimal_application.cpp)
+  apptraverse_embed_distilled_supply(
+    apptraverse_minimal_app_embedded_export_test
+    apptraverse_export_minimal_distilled_graph
+    embedded_distilled_minimal_app_supply.h
+    ${_minimal_embed_graph_sources})
+  add_dependencies(apptraverse_minimal_app_embedded_export_test
+    apptraverse_export_minimal_distilled_graph)
+  add_test(NAME apptraverse_minimal_app_embedded_export_test
+    COMMAND apptraverse_minimal_app_embedded_export_test)
+endif()
+
+apptraverse_add_test(apptraverse_application_model_runtime_test
+  application_model_runtime_test.cpp)
+
+apptraverse_add_test(apptraverse_application_ui_session_test
+  application_ui_session_test.cpp)
+
+if(WIN32)
+  apptraverse_add_test(apptraverse_win_application_loading_window_test
+    win_application_loading_window_test.cpp apptraverse_ui_windows)
+  apptraverse_add_test(apptraverse_win_application_host_test
+    win_application_host_test.cpp apptraverse_ui_windows)
+endif()
+
+if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
+  foreach(name apptraverse_window_catalog_model_test
+               apptraverse_window_catalog_win32_acceptance_test)
+    string(REPLACE "apptraverse_" "" source ${name})
+    apptraverse_add_test(${name} ${source}.cpp surfaces_demo_window_catalog)
+    if(MSVC)
+      target_compile_options(${name} PRIVATE /utf-8)
+    endif()
+    set_tests_properties(${name} PROPERTIES LABELS "window_catalog")
+  endforeach()
+  target_compile_definitions(apptraverse_window_catalog_model_test PRIVATE
+    APPTRAVERSE_ENABLE_DISTILLATION)
+  add_dependencies(apptraverse_window_catalog_win32_acceptance_test
+    win32_window_catalog_demo win32_window_catalog_demo_load_only)
+
+  apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
+    minimal_app_win32_acceptance_test.cpp minimal_app_common)
+  if(MSVC)
+    target_compile_options(apptraverse_minimal_app_win32_acceptance_test PRIVATE
+      /utf-8)
+  endif()
+  set_tests_properties(apptraverse_minimal_app_win32_acceptance_test PROPERTIES
+    LABELS "minimal_app")
+  add_dependencies(apptraverse_minimal_app_win32_acceptance_test
+    win32_minimal_app win32_minimal_app_load_only)
+
+  apptraverse_add_test(apptraverse_win_application_message_host_test
+    win_application_message_host_test.cpp apptraverse_ui_windows)
+  apptraverse_add_test(apptraverse_win_ui_command_routing_test
+    win_ui_command_routing_test.cpp apptraverse_ui_windows_extended)
+endif()

@@ -1,9 +1,7 @@
 #include "apptraverse/object_macros.h"
 
-#include "apptraverse/ui/ui_bitmap_image.h"
 #include "apptraverse/ui/ui_desktop_window.h"
-#include "apptraverse/ui/ui_edit_box.h"
-#include "apptraverse/ui/ui_label.h"
+#include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_localization_string.h"
@@ -22,45 +20,36 @@ APPTRAVERSE_REGISTER(UiLocaleSettings);
 APPTRAVERSE_REGISTER(SetUiLanguageIndexEvent);
 APPTRAVERSE_REGISTER(UiWindow);
 APPTRAVERSE_REGISTER(SetUiWindowClientSizeEvent);
+APPTRAVERSE_REGISTER(UiPresentedWindow);
 APPTRAVERSE_REGISTER(UiDesktopWindow);
 APPTRAVERSE_REGISTER(SetUiDesktopWindowFrameEvent);
 APPTRAVERSE_REGISTER(ReportUiDesktopWindowFrameFromNativeEvent);
 APPTRAVERSE_REGISTER(RequestUiDesktopWindowFrameEvent);
-APPTRAVERSE_REGISTER(UiEditBox);
-APPTRAVERSE_REGISTER(SetUiEditBoxTextEvent);
-APPTRAVERSE_REGISTER(SetUiEditBoxCaretEvent);
 APPTRAVERSE_REGISTER(UiPushButton);
 APPTRAVERSE_REGISTER(UiPushButtonClickedEvent);
 APPTRAVERSE_REGISTER(SetUiPushButtonEnabledEvent);
-APPTRAVERSE_REGISTER(UiLabel);
-APPTRAVERSE_REGISTER(UiBitmapImage);
-APPTRAVERSE_REGISTER(UiBitmapImagePresenter);
 APPTRAVERSE_REGISTER(UiListRow);
 APPTRAVERSE_REGISTER(UiListContainer);
 APPTRAVERSE_REGISTER(RemoveUiListRowEvent);
 APPTRAVERSE_REGISTER(UiListRowPresenter);
 APPTRAVERSE_REGISTER(UiWindowPresenter);
 APPTRAVERSE_REGISTER(UiDesktopWindowPresenter);
-APPTRAVERSE_REGISTER(UiEditBoxPresenter);
 APPTRAVERSE_REGISTER(UiPushButtonPresenter);
 APPTRAVERSE_REGISTER(UiListContainerPresenter);
-APPTRAVERSE_REGISTER(UiLabelPresenter);
 
 }  // namespace
 
 void EnsureUiPresenterRegistration() {
   (void)&g_apptraverse_registrar_UiWindowPresenter;
   (void)&g_apptraverse_registrar_UiDesktopWindowPresenter;
-  (void)&g_apptraverse_registrar_UiEditBoxPresenter;
   (void)&g_apptraverse_registrar_UiPushButtonPresenter;
   (void)&g_apptraverse_registrar_UiListContainerPresenter;
-  (void)&g_apptraverse_registrar_UiLabelPresenter;
   (void)&g_apptraverse_registrar_UiListRowPresenter;
-  (void)&g_apptraverse_registrar_UiBitmapImagePresenter;
 }
 
 void ForceUiRegistration() {
   (void)&g_apptraverse_registrar_UiString;
+  (void)&g_apptraverse_registrar_UiPresentedWindow;
   EnsureUiPresenterRegistration();
 }
 

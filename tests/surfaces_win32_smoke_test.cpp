@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -18,17 +19,25 @@
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/object_serialization.h"
 #include "apptraverse/distill.h"
+#include "surfaces_distill.h"
 
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
 #include "apptraverse/platform/windows/surfaces_win32_z_order.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
+#include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/surfaces/surface_button_presenter.h"
+#include "apptraverse/ui/ui_presenters.h"
+#include "surfaces_demo_win32_registration.h"
 #include "apptraverse/surfaces/surface_language_button_presenter.h"
 #include "apptraverse/surfaces/surface_window_presenter.h"
 #include "apptraverse/surfaces/surfaces_ids.h"
 #include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
+#include "apptraverse/ui/ui_localization_string.h"
+#include "apptraverse/ui/ui_push_button.h"
 #include "surfaces_lifecycle.h"
 #include "surfaces_win32_capture.h"
 #include "win_app.h"
@@ -45,6 +54,15 @@ namespace apptraverse::test {
   } while (0)
 
 namespace {
+
+void EnsureWin32SmokeRegistration() {
+  EnsureObjectRegistration();
+  EnsureSurfacesRegistration();
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  EnsureWin32SurfacesPresenterRegistration();
+  example::surfaces::EnsureSurfacesDemoWin32Registration();
+}
 
 std::filesystem::path AcceptanceScreenshotDir() {
 #ifdef APPTRAVERSE_SURFACES_ACCEPTANCE_DIR
@@ -125,6 +143,71 @@ int CountOwnedClass(DWORD pid, wchar_t const* class_name) {
       },
       reinterpret_cast<LPARAM>(&ctx));
   return ctx.count;
+}
+
+void CommitAddLabelSlotUtf8(ae::Domain& domain, Application& application,
+                            int slot_index, char const* utf8) {
+  auto event = ui::SetUiLocalizationSlotUtf8Event::ptr::Create(
+      ae::CreateWith{domain});
+  event->slot_index = slot_index;
+  event->utf8 = utf8;
+  application.label_add->Commit(std::move(event));
+}
+
+void CommitLanguageSwitchLabelSlotUtf8(ae::Domain& domain,
+                                       Application& application,
+                                       int slot_index, char const* utf8) {
+  auto event = ui::SetUiLocalizationSlotUtf8Event::ptr::Create(
+      ae::CreateWith{domain});
+  event->slot_index = slot_index;
+  event->utf8 = utf8;
+  application.language_switch_label->Commit(std::move(event));
+}
+
+void PumpGui(std::chrono::milliseconds slice);
+
+int QueryModelLanguageIndex(WinApp& app) {
+  std::promise<int> promise;
+  std::future<int> future = promise.get_future();
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    promise.set_value(application->locale->language_index());
+  }));
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  while (future.wait_for(std::chrono::milliseconds{0}) != std::future_status::ready) {
+    PumpGui(std::chrono::milliseconds{20});
+    CHECK(std::chrono::steady_clock::now() < deadline);
+  }
+  return future.get();
+}
+
+std::wstring WindowText(HWND hwnd);
+void PumpGui(std::chrono::milliseconds slice);
+
+bool WaitForWindowEnabled(HWND hwnd, bool enabled,
+                          std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if ((IsWindowEnabled(hwnd) != FALSE) == enabled) {
+      return true;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  return (IsWindowEnabled(hwnd) != FALSE) == enabled;
+}
+
+bool WaitForButtonText(HWND button, std::wstring const& expected,
+                       std::chrono::milliseconds timeout) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (WindowText(button) == expected) {
+      return true;
+    }
+    PumpGui(std::chrono::milliseconds{20});
+  }
+  return WindowText(button) == expected;
 }
 
 void PumpGui(std::chrono::milliseconds slice) {
@@ -325,9 +408,7 @@ void PlaceWindow(HWND hwnd, int x, int y, int w, int h) {
 }
 
 void TestPresenterHierarchy() {
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
   auto& registry = ae::Registry::GetRegistry();
   CHECK(registry.GenerationDistance(SurfacePresenter::kClassId,
                                     DesktopSurfacePresenter::kClassId) == 1);
@@ -340,6 +421,38 @@ void TestPresenterHierarchy() {
   CHECK(registry.GenerationDistance(SurfaceLanguageButtonPresenter::kClassId,
                                     Win32SurfaceLanguageButtonPresenter::
                                         kClassId) == 1);
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto application = BuildSurfacesGraph(domain);
+  FinalizeDistilledGraph(*application);
+  Surface& surface = *application->surfaces->surfaces[0];
+  CHECK(surface.chrome.add_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(surface.chrome.language_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(surface.chrome.close_button->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
+  auto add = ui::windows::WinPushButtonPresenter::ptr{surface.chrome.add_button};
+  CHECK(add);
+  CHECK(add->button && add->button->label);
+  CHECK(add->window_presenter && add->window_presenter->locale);
+  CHECK(add->button->label->Resolve(0) == "Add");
+  auto lang = ui::windows::WinPushButtonPresenter::ptr{
+      surface.chrome.language_button};
+  CHECK(lang);
+  CHECK(lang->button && lang->button->label);
+  CHECK(&*lang->window_presenter == &*add->window_presenter);
+  CHECK(lang->button->label->Resolve(0) == "RU");
+  auto close = ui::windows::WinPushButtonPresenter::ptr{
+      surface.chrome.close_button};
+  CHECK(close);
+  CHECK(&*close->window_presenter == &*add->window_presenter);
+  CHECK(surface.chrome.add_button->obj_id !=
+        surface.chrome.language_button->obj_id);
+  CHECK(surface.chrome.add_button->obj_id != surface.chrome.close_button->obj_id);
+  CHECK(surface.chrome.language_button->obj_id !=
+        surface.chrome.close_button->obj_id);
 }
 
 void TestCloseButtonRemovesOne() {
@@ -348,9 +461,7 @@ void TestCloseButtonRemovesOne() {
              "apptraverse_surfaces_win32_close_btn";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -362,13 +473,37 @@ void TestCloseButtonRemovesOne() {
   HWND close1 = FindCloseButton(s1);
   CHECK(add1 != nullptr);
   CHECK(close1 != nullptr);
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto app_obj = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
+        surfaces_demo::ObjId::Application)});
+    CHECK(app_obj);
+    Surface& surface =
+        *static_cast<Application&>(*app_obj).surfaces->surfaces[0];
+    CHECK(surface.chrome.add_button->GetClassId() ==
+          ui::windows::WinPushButtonPresenter::kClassId);
+    CHECK(surface.chrome.language_button->GetClassId() ==
+          ui::windows::WinPushButtonPresenter::kClassId);
+    CHECK(surface.chrome.close_button->GetClassId() ==
+          ui::windows::WinPushButtonPresenter::kClassId);
+  }));
+  PumpGui(std::chrono::milliseconds{500});
   auto* add_owner =
       reinterpret_cast<Presenter*>(GetWindowLongPtrW(add1, GWLP_USERDATA));
   auto* close_owner =
       reinterpret_cast<Presenter*>(GetWindowLongPtrW(close1, GWLP_USERDATA));
   CHECK(add_owner != close_owner);
-  CHECK(add_owner->GetClassId() == Win32SurfaceButtonPresenter::kClassId);
-  CHECK(close_owner->GetClassId() == Win32SurfaceButtonPresenter::kClassId);
+  auto& registry = ae::Registry::GetRegistry();
+  CHECK(registry.GenerationDistance(
+            ui::windows::WinPushButtonPresenter::kClassId,
+            add_owner->GetClassId()) >= 0);
+  HWND lang1 = FindLanguageButton(s1);
+  CHECK(lang1 != nullptr);
+  auto* lang_owner =
+      reinterpret_cast<Presenter*>(GetWindowLongPtrW(lang1, GWLP_USERDATA));
+  CHECK(lang_owner->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
+  CHECK(close_owner->GetClassId() ==
+        ui::windows::WinPushButtonPresenter::kClassId);
   CHECK(GetDlgCtrlID(add1) == kSurfaceAddButtonId);
   CHECK(GetDlgCtrlID(close1) == kSurfaceCloseButtonId);
 
@@ -448,9 +583,7 @@ void TestNativeXKeepsAllSurfaces() {
              "apptraverse_surfaces_win32_native_x";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -583,9 +716,7 @@ void TestActiveZOrderRestored() {
              "apptraverse_surfaces_win32_zorder";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   std::vector<std::uint32_t> const expected_stack{2, 3, 1};
   std::cout << "zorder_test before_close stack expect:";
@@ -850,9 +981,7 @@ void TestControlsFollowPresentationSize() {
              "apptraverse_surfaces_win32_presentation_size";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -921,9 +1050,7 @@ void TestPostReleaseOuterFrameStable() {
              "apptraverse_surfaces_win32_post_release_frame";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -985,15 +1112,534 @@ void TestPostReleaseOuterFrameStable() {
   std::filesystem::remove_all(dir);
 }
 
+void TestDynamicAddLibraryPushButtonNotifierAndEnabled() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_dynamic_add_notifier";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  HWND add2 = FindAddButton(s2);
+  CHECK(add2 != nullptr);
+  CHECK(IsWindowEnabled(add2) != FALSE);
+
+  std::promise<bool> notifier_promise;
+  std::future<bool> notifier_future = notifier_promise.get_future();
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    CHECK(application->surfaces->surfaces.size() == 2);
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto add_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.add_button};
+    CHECK(add_presenter);
+    CHECK(add_presenter->button);
+    notifier_promise.set_value(
+        add_presenter->button->HasMaterializedChangeNotifier());
+  }));
+  {
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (notifier_future.wait_for(std::chrono::milliseconds{0}) !=
+           std::future_status::ready) {
+      PumpGui(std::chrono::milliseconds{20});
+      CHECK(std::chrono::steady_clock::now() < deadline);
+    }
+  }
+  CHECK(notifier_future.get());
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto add_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.add_button};
+    auto disable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    disable->enabled = false;
+    add_presenter->button->Commit(std::move(disable));
+  }));
+  CHECK(WaitForWindowEnabled(add2, false, std::chrono::seconds{30}));
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto add_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.add_button};
+    auto enable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    enable->enabled = true;
+    add_presenter->button->Commit(std::move(enable));
+  }));
+  CHECK(WaitForWindowEnabled(add2, true, std::chrono::seconds{30}));
+
+  SendMessageW(add2, BM_CLICK, 0, 0);
+  HWND s3 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 3", &s3,
+                  std::chrono::seconds{30}));
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 3, std::chrono::seconds{10}));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestLibraryLanguageSingleModelToggle() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_language_toggle";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  CHECK(WaitSurfaceChromeReady(s1, std::chrono::seconds{30}));
+  HWND lang1 = FindLanguageButton(s1);
+
+  auto check_model_lazy_locale = [&](int active_lang) {
+    int const inactive_lang = 1 - active_lang;
+    std::promise<void> promise;
+    std::future<void> future = promise.get_future();
+    CHECK(app.PostModelWork([&](ae::Domain& domain) {
+      auto application = LoadApplication<Application>(
+          domain, ae::ObjId{surfaces_demo::ToObjId(
+                      surfaces_demo::ObjId::Application)});
+      CHECK(application->locale->language_index() == active_lang);
+      ui::UiLocalizationString* localized[] = {
+          &*application->label_add,
+          &*application->label_close,
+          &*application->window_title_prefix,
+          &*application->language_switch_label,
+      };
+      for (ui::UiLocalizationString* loc : localized) {
+        CHECK(loc->strings.size() >= 2);
+        auto const active_slot = static_cast<std::size_t>(active_lang);
+        auto const inactive_slot = static_cast<std::size_t>(inactive_lang);
+        CHECK(loc->strings[active_slot].is_loaded());
+        CHECK(!loc->strings[inactive_slot].is_loaded());
+        ae::ObjId const inactive_id = loc->strings[inactive_slot].id();
+        CHECK(!domain.Find(inactive_id));
+      }
+      promise.set_value();
+    }));
+    auto const deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (future.wait_for(std::chrono::milliseconds{0}) !=
+           std::future_status::ready) {
+      PumpGui(std::chrono::milliseconds{20});
+      CHECK(std::chrono::steady_clock::now() < deadline);
+    }
+  };
+
+  CHECK(QueryModelLanguageIndex(app) == 0);
+  CHECK(WaitForButtonText(lang1, L"RU", std::chrono::seconds{10}));
+  ExpectEnChrome(s1);
+  CHECK(WindowText(s1) == L"Surface 1");
+  check_model_lazy_locale(0);
+
+  SendMessageW(lang1, BM_CLICK, 0, 0);
+  CHECK(WaitForButtonText(lang1, L"EN", std::chrono::seconds{10}));
+  CHECK(WindowText(s1) == L"Поверхность 1");
+  ExpectRuChrome(s1);
+  CHECK(QueryModelLanguageIndex(app) == 1);
+  check_model_lazy_locale(1);
+
+  SendMessageW(lang1, BM_CLICK, 0, 0);
+  CHECK(WaitForButtonText(lang1, L"RU", std::chrono::seconds{10}));
+  ExpectEnChrome(s1);
+  CHECK(WindowText(s1) == L"Surface 1");
+  CHECK(QueryModelLanguageIndex(app) == 0);
+  check_model_lazy_locale(0);
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestLibraryLanguageCustomLabelFreshProfile() {
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_language_custom_fresh";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = BuildSurfacesGraph(domain);
+    FinalizeDistilledGraph(*application);
+    CommitLanguageSwitchLabelSlotUtf8(domain, *application, 0, "Switch");
+    CommitLanguageSwitchLabelSlotUtf8(domain, *application, 1, "Язык");
+    SaveDistilledRoot(*application);
+  }
+
+  DWORD const pid = GetCurrentProcessId();
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  HWND lang1 = FindLanguageButton(s1);
+  CHECK(WaitForButtonText(lang1, L"Switch", std::chrono::seconds{10}));
+  SendMessageW(lang1, BM_CLICK, 0, 0);
+  CHECK(WaitForButtonText(lang1, L"Язык", std::chrono::seconds{10}));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestLanguageLayoutOrientationPreservation() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_language_layout";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  PlaceClientSize(s1, 800, 400);
+  WaitHorizontalButtons(s1);
+  RECT const outer_at_start = WindowRect(s1);
+  RECT const add_at_start = ScreenRect(FindAddButton(s1));
+  RECT const lang_at_start = ScreenRect(FindLanguageButton(s1));
+  RECT const close_at_start = ScreenRect(FindCloseButton(s1));
+
+  PlaceClientSize(s1, 400, 800);
+  WaitVerticalButtons(s1);
+
+  PlaceClientSize(s1, 800, 400);
+  WaitHorizontalButtons(s1);
+  CHECK(RectNear(WindowRect(s1), outer_at_start, 2));
+  CHECK(RectNear(ScreenRect(FindAddButton(s1)), add_at_start, 2));
+  CHECK(RectNear(ScreenRect(FindLanguageButton(s1)), lang_at_start, 2));
+  CHECK(RectNear(ScreenRect(FindCloseButton(s1)), close_at_start, 2));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestDynamicLanguageLibraryPushButtonNotifierAndEnabled() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_dynamic_language_notifier";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  HWND lang2 = FindLanguageButton(s2);
+  CHECK(lang2 != nullptr);
+
+  std::promise<bool> notifier_promise;
+  std::future<bool> notifier_future = notifier_promise.get_future();
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto lang_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.language_button};
+    CHECK(lang_presenter && lang_presenter->button);
+    notifier_promise.set_value(
+        lang_presenter->button->HasMaterializedChangeNotifier());
+  }));
+  {
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (notifier_future.wait_for(std::chrono::milliseconds{0}) !=
+           std::future_status::ready) {
+      PumpGui(std::chrono::milliseconds{20});
+      CHECK(std::chrono::steady_clock::now() < deadline);
+    }
+  }
+  CHECK(notifier_future.get());
+
+  int const index_before = QueryModelLanguageIndex(app);
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto lang_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.language_button};
+    auto disable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    disable->enabled = false;
+    lang_presenter->button->Commit(std::move(disable));
+  }));
+  CHECK(WaitForWindowEnabled(lang2, false, std::chrono::seconds{30}));
+  SendMessageW(lang2, BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(QueryModelLanguageIndex(app) == index_before);
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto lang_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.language_button};
+    auto enable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    enable->enabled = true;
+    lang_presenter->button->Commit(std::move(enable));
+  }));
+  CHECK(WaitForWindowEnabled(lang2, true, std::chrono::seconds{30}));
+  SendMessageW(lang2, BM_CLICK, 0, 0);
+  CHECK(WaitForButtonText(lang2, L"EN", std::chrono::seconds{10}));
+  CHECK(QueryModelLanguageIndex(app) == 1 - index_before);
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestPerWindowCloseChildCommandHandlerRouting() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_close_handler_routing";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+
+  SendMessageW(
+      s1, WM_COMMAND,
+      MAKEWPARAM(static_cast<WPARAM>(kSurfaceCloseButtonId), BN_CLICKED),
+      reinterpret_cast<LPARAM>(FindAddButton(s1)));
+  PumpGui(std::chrono::milliseconds{200});
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{5}));
+
+  SendMessageW(
+      s1, WM_COMMAND,
+      MAKEWPARAM(static_cast<WPARAM>(kSurfaceAddButtonId), BN_CLICKED),
+      reinterpret_cast<LPARAM>(FindCloseButton(s1)));
+  PumpGui(std::chrono::milliseconds{200});
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{5}));
+
+  SendMessageW(FindCloseButton(s2), BM_CLICK, 0, 0);
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 1, std::chrono::seconds{30}));
+
+  SendMessageW(FindCloseButton(s1), BM_CLICK, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestDynamicCloseLibraryPushButtonNotifierAndEnabled() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_dynamic_close_notifier";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  SendMessageW(FindAddButton(s1), BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  HWND close2 = FindCloseButton(s2);
+  CHECK(close2 != nullptr);
+
+  std::promise<bool> notifier_promise;
+  std::future<bool> notifier_future = notifier_promise.get_future();
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto close_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
+    CHECK(close_presenter && close_presenter->button);
+    notifier_promise.set_value(
+        close_presenter->button->HasMaterializedChangeNotifier());
+  }));
+  {
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (notifier_future.wait_for(std::chrono::milliseconds{0}) !=
+           std::future_status::ready) {
+      PumpGui(std::chrono::milliseconds{20});
+      CHECK(std::chrono::steady_clock::now() < deadline);
+    }
+  }
+  CHECK(notifier_future.get());
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto close_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
+    auto disable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    disable->enabled = false;
+    close_presenter->button->Commit(std::move(disable));
+  }));
+  CHECK(WaitForWindowEnabled(close2, false, std::chrono::seconds{30}));
+  SendMessageW(close2, BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 2, std::chrono::seconds{5}));
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    Surface& surface2 = *application->surfaces->surfaces[1];
+    auto close_presenter =
+        ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
+    auto enable = ui::SetUiPushButtonEnabledEvent::ptr::Create(
+        ae::CreateWith{domain});
+    enable->enabled = true;
+    close_presenter->button->Commit(std::move(enable));
+  }));
+  CHECK(WaitForWindowEnabled(close2, true, std::chrono::seconds{30}));
+  SendMessageW(close2, BM_CLICK, 0, 0);
+  CHECK(WaitCount(pid, kSurfacesWindowClass, 1, std::chrono::seconds{30}));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestLibraryAddCustomLabelFreshProfile() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_add_custom_fresh";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto application = BuildSurfacesGraph(domain);
+    FinalizeDistilledGraph(*application);
+    CommitAddLabelSlotUtf8(domain, *application, 0, "Create window");
+    CommitAddLabelSlotUtf8(domain, *application, 1, "Создать окно");
+    SaveDistilledRoot(*application);
+  }
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  HWND add1 = FindAddButton(s1);
+  CHECK(add1 != nullptr);
+  CHECK(WaitForButtonText(add1, L"Create window", std::chrono::seconds{10}));
+
+  SendMessageW(add1, BM_CLICK, 0, 0);
+  HWND s2 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 2", &s2,
+                  std::chrono::seconds{30}));
+  CHECK(WaitForButtonText(FindAddButton(s2), L"Create window",
+                          std::chrono::seconds{10}));
+
+  SendMessageW(FindLanguageButton(s1), BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WaitForButtonText(add1, L"Создать окно", std::chrono::seconds{10}));
+  CHECK(WaitForButtonText(FindAddButton(s2), L"Создать окно",
+                          std::chrono::seconds{10}));
+
+  SendMessageW(FindLanguageButton(s2), BM_CLICK, 0, 0);
+  PumpGui(std::chrono::milliseconds{500});
+  CHECK(WaitForButtonText(FindAddButton(s2), L"Create window",
+                          std::chrono::seconds{10}));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
+void TestLibraryAddCustomLabelModelEvent() {
+  DWORD const pid = GetCurrentProcessId();
+  auto dir = std::filesystem::temp_directory_path() /
+             "apptraverse_surfaces_win32_add_custom_live";
+  std::filesystem::remove_all(dir);
+
+  EnsureWin32SmokeRegistration();
+
+  WinApp app;
+  std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
+
+  HWND s1 = nullptr;
+  CHECK(WaitOwned(pid, kSurfacesWindowClass, L"Surface 1", &s1,
+                  std::chrono::seconds{30}));
+  HWND add1 = FindAddButton(s1);
+  CHECK(add1 != nullptr);
+  CHECK(WaitForButtonText(add1, L"Add", std::chrono::seconds{10}));
+
+  CHECK(app.PostModelWork([&](ae::Domain& domain) {
+    auto loaded = LoadApplication<Application>(
+        domain, ae::ObjId{surfaces_demo::ToObjId(
+                    surfaces_demo::ObjId::Application)});
+    CommitAddLabelSlotUtf8(domain, *loaded, 0, "Create window");
+    CommitAddLabelSlotUtf8(domain, *loaded, 1, "Создать окно");
+  }));
+  CHECK(WaitForButtonText(add1, L"Create window", std::chrono::seconds{30}));
+
+  SendMessageW(FindLanguageButton(s1), BM_CLICK, 0, 0);
+  CHECK(WaitForButtonText(add1, L"Создать окно", std::chrono::seconds{10}));
+
+  SendMessageW(FindLanguageButton(s1), BM_CLICK, 0, 0);
+  CHECK(WaitForButtonText(add1, L"Create window", std::chrono::seconds{10}));
+
+  PostMessageW(s1, WM_CLOSE, 0, 0);
+  gui.join();
+  std::filesystem::remove_all(dir);
+}
+
 void TestLocalizationEnRuEn() {
   DWORD const pid = GetCurrentProcessId();
   auto dir = std::filesystem::temp_directory_path() /
              "apptraverse_surfaces_win32_locale";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -1061,9 +1707,31 @@ void TestLoadOnlyRestoresRuProfile() {
              "apptraverse_surfaces_load_only_acceptance";
   std::filesystem::remove_all(dir);
 
-  EnsureObjectRegistration();
-  EnsureSurfacesRegistration();
-  EnsureWin32SurfacesPresenterRegistration();
+  EnsureWin32SmokeRegistration();
+
+  auto check_lazy_localization_slots =
+      [](ae::Domain& domain, DirectoryDomainStorage& storage,
+         Application& application) {
+        ui::UiLocalizationString* localized[] = {
+            &*application.label_add,
+            &*application.label_close,
+            &*application.window_title_prefix,
+            &*application.language_switch_label,
+        };
+        for (ui::UiLocalizationString* loc : localized) {
+          CHECK(loc->strings.size() >= 2);
+          for (std::size_t slot = 0; slot < 2; ++slot) {
+            CHECK(loc->strings[slot].is_valid());
+            ae::ObjId const slot_id = loc->strings[slot].id();
+            CHECK((loc->strings[slot].flags() & ae::ObjFlags::kUnloadedByDefault) !=
+                  0);
+            CHECK(!loc->strings[slot].is_loaded());
+            CHECK(!domain.Find(slot_id));
+            ae::ClassList const layers = storage.Enumerate(slot_id);
+            CHECK(!layers.empty());
+          }
+        }
+      };
 
   WinApp app;
   std::thread gui{[&] { CHECK(app.Run(dir) == 0); }};
@@ -1099,6 +1767,7 @@ void TestLoadOnlyRestoresRuProfile() {
       probe_domain, ae::ObjId{surfaces_demo::ToObjId(
                         surfaces_demo::ObjId::Application)});
   CHECK(saved->locale->language_index() == 1);
+  check_lazy_localization_slots(probe_domain, probe, *saved);
 
   std::filesystem::path const load_only_path{
       APPTRAVERSE_SURFACES_LOAD_ONLY_EXE};
@@ -1181,6 +1850,7 @@ void TestLoadOnlyRestoresRuProfile() {
       domain, ae::ObjId{surfaces_demo::ToObjId(
                   surfaces_demo::ObjId::Application)});
   CHECK(application->locale->language_index() == 1);
+  check_lazy_localization_slots(domain, storage, *application);
 
   std::filesystem::remove_all(dir);
 #endif
@@ -1190,6 +1860,15 @@ void TestLoadOnlyRestoresRuProfile() {
 
 int main() {
   apptraverse::test::TestPresenterHierarchy();
+  apptraverse::test::TestDynamicAddLibraryPushButtonNotifierAndEnabled();
+  apptraverse::test::TestLibraryLanguageSingleModelToggle();
+  apptraverse::test::TestLibraryLanguageCustomLabelFreshProfile();
+  apptraverse::test::TestLanguageLayoutOrientationPreservation();
+  apptraverse::test::TestDynamicLanguageLibraryPushButtonNotifierAndEnabled();
+  apptraverse::test::TestDynamicCloseLibraryPushButtonNotifierAndEnabled();
+  apptraverse::test::TestPerWindowCloseChildCommandHandlerRouting();
+  apptraverse::test::TestLibraryAddCustomLabelFreshProfile();
+  apptraverse::test::TestLibraryAddCustomLabelModelEvent();
   apptraverse::test::TestLocalizationEnRuEn();
   apptraverse::test::TestLoadOnlyRestoresRuProfile();
   apptraverse::test::TestCloseButtonRemovesOne();

@@ -92,6 +92,21 @@ HWND CreateTestParent() {
   return parent;
 }
 
+void ReadButtonLayoutInParentClient(HWND btn, int& x, int& y, int& w, int& h) {
+  RECT rect{};
+  CHECK(GetWindowRect(btn, &rect) != 0);
+  w = rect.right - rect.left;
+  h = rect.bottom - rect.top;
+  HWND const parent = GetParent(btn);
+  CHECK(parent != nullptr);
+  POINT origin{rect.left, rect.top};
+  SetLastError(0);
+  CHECK(MapWindowPoints(HWND_DESKTOP, parent, &origin, 1) != 0 ||
+         GetLastError() == ERROR_SUCCESS);
+  x = origin.x;
+  y = origin.y;
+}
+
 void TestHelperCreateDestroyRecreate() {
   HWND parent = CreateTestParent();
   HWND btn = ui::windows::CreateChildPushButton({
@@ -191,16 +206,25 @@ void TestWinPushButtonPresenterNativeRouting() {
   invoke_count = 0;
   auto* desktop_presenter = root->window_presenter.operator->();
   CHECK(desktop_presenter->hwnd() != nullptr);
+  CHECK(reinterpret_cast<HWND>(
+            root->window_presenter->NativeChildParentHandle()) ==
+        desktop_presenter->hwnd());
   auto* presenter = root->button_presenter.operator->();
   HWND const btn = presenter->hwnd();
   CHECK(btn != nullptr);
   CHECK(GetDlgCtrlID(btn) == static_cast<int>(kControlId));
   CHECK(reinterpret_cast<void*>(GetWindowLongPtrW(btn, GWLP_USERDATA)) ==
         static_cast<void*>(presenter));
-  RECT rect{};
-  CHECK(GetWindowRect(btn, &rect) != 0);
-  CHECK(rect.right - rect.left == 100);
-  CHECK(rect.bottom - rect.top == 26);
+  CHECK(GetParent(btn) == desktop_presenter->hwnd());
+  int layout_x = 0;
+  int layout_y = 0;
+  int layout_w = 0;
+  int layout_h = 0;
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 8);
+  CHECK(layout_y == 9);
+  CHECK(layout_w == 100);
+  CHECK(layout_h == 26);
   wchar_t caption[64]{};
   CHECK(GetWindowTextW(btn, caption, 64) > 0);
   CHECK(std::wstring{caption} == L"Add");
@@ -244,9 +268,330 @@ void TestWinPushButtonPresenterNativeRouting() {
   CHECK(GetWindowTextW(btn, caption, 64) > 0);
   CHECK(std::wstring{caption} == ui::windows::Utf8ToWide("Добавить"));
 
+  presenter->layout_x = 20;
+  presenter->layout_y = 21;
+  presenter->layout_width = 120;
+  presenter->layout_height = 30;
+  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
+  presenter->OnModelChanged();
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 20);
+  CHECK(layout_y == 21);
+  CHECK(layout_w == 120);
+  CHECK(layout_h == 30);
+  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 1);
+  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
+  presenter->OnModelChanged();
+  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 0);
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 20);
+  CHECK(layout_y == 21);
+  CHECK(layout_w == 120);
+  CHECK(layout_h == 30);
+  CHECK(GetDlgCtrlID(btn) == static_cast<int>(kControlId));
+  CHECK(GetParent(btn) == desktop_presenter->hwnd());
+  CHECK(IsWindowEnabled(btn) != FALSE);
+  invoke_count = 0;
+  SendMessageW(desktop_presenter->hwnd(), WM_COMMAND,
+               MAKEWPARAM(static_cast<WPARAM>(kControlId), BN_CLICKED),
+               reinterpret_cast<LPARAM>(btn));
+  CHECK(invoke_count == 1);
+
   UnloadPresenters(*root);
   CHECK(presenter->hwnd() == nullptr);
   CHECK(desktop_presenter->hwnd() == nullptr);
+}
+
+constexpr wchar_t kBorderlessHostClass[] =
+    L"AppTraverseNativePushButtonTestBorderlessHost";
+
+LRESULT CALLBACK BorderlessHostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
+                                       LPARAM lparam) {
+  if (msg == WM_COMMAND) {
+    HWND const child = reinterpret_cast<HWND>(lparam);
+    if (child != nullptr &&
+        static_cast<std::uint16_t>(HIWORD(wparam)) == BN_CLICKED) {
+      auto* child_presenter = reinterpret_cast<apptraverse::Presenter*>(
+          GetWindowLongPtrW(child, GWLP_USERDATA));
+      if (child_presenter != nullptr) {
+        child_presenter->NotifyClickedFromUi();
+        return 0;
+      }
+    }
+  }
+  return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+HWND CreateBorderlessHostAtOrigin() {
+  static bool registered = false;
+  if (!registered) {
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = BorderlessHostWndProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = kBorderlessHostClass;
+    CHECK(RegisterClassW(&wc) != 0);
+    registered = true;
+  }
+  HWND host = CreateWindowExW(0, kBorderlessHostClass, L"", WS_POPUP | WS_VISIBLE,
+                                0, 0, 640, 480, nullptr, nullptr,
+                                GetModuleHandleW(nullptr), nullptr);
+  CHECK(host != nullptr);
+  return host;
+}
+
+class TestBorderlessHostPresenter : public ui::UiWindowPresenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::TestBorderlessHostPresenter",
+                           TestBorderlessHostPresenter, UiWindowPresenter, 0)
+
+ protected:
+  TestBorderlessHostPresenter() = default;
+
+ public:
+  explicit TestBorderlessHostPresenter(ae::ObjProp prop)
+      : UiWindowPresenter{prop} {}
+
+  void OnLoad() override {}
+
+  bool PresentationCreateSucceeded() const override {
+    return host_hwnd_ != nullptr;
+  }
+
+  void* NativeChildParentHandle() const override {
+    return reinterpret_cast<void*>(host_hwnd_);
+  }
+
+  HWND host_hwnd_{nullptr};
+};
+
+class PushButtonAltHostRoot : public NodeFor<PushButtonAltHostRoot> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::PushButtonAltHostRoot",
+                           PushButtonAltHostRoot, Node, 0)
+
+ protected:
+  PushButtonAltHostRoot() = default;
+
+ public:
+  explicit PushButtonAltHostRoot(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window_presenter), AE_MMBR(button_presenter))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, window_presenter, button_presenter);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, window_presenter, button_presenter);
+  }
+
+  TestBorderlessHostPresenter::ptr window_presenter;
+  ui::windows::WinPushButtonPresenter::ptr button_presenter;
+};
+
+APPTRAVERSE_REGISTER(TestBorderlessHostPresenter);
+APPTRAVERSE_REGISTER(PushButtonAltHostRoot);
+
+void TestWinPushButtonWithBorderlessHostPresenter() {
+  EnsureObjectRegistration();
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  (void)&g_apptraverse_registrar_TestBorderlessHostPresenter;
+  (void)&g_apptraverse_registrar_PushButtonAltHostRoot;
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto root = PushButtonAltHostRoot::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*root);
+
+  HWND const host = CreateBorderlessHostAtOrigin();
+
+  auto locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*locale);
+  auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*label, *locale);
+  auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+  en->utf8 = "Add";
+  label->strings = {en};
+
+  root->window_presenter =
+      TestBorderlessHostPresenter::ptr::Create(ae::CreateWith{domain});
+  root->window_presenter->host_hwnd_ = host;
+  root->window_presenter->locale = locale;
+
+  auto button = ui::UiPushButton::ptr::Create(ae::CreateWith{domain});
+  button->label = label;
+  InitializeRuntimeNode(*button, *root);
+
+  root->button_presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
+      ae::CreateWith{domain});
+  root->button_presenter->button = button;
+  root->button_presenter->window_presenter = root->window_presenter;
+  root->button_presenter->layout_x = 0;
+  root->button_presenter->layout_y = 0;
+  root->button_presenter->layout_width = 80;
+  root->button_presenter->layout_height = 24;
+  root->button_presenter->control_id = kControlId;
+
+  int invoke_count = 0;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    ++invoke_count;
+    work(domain);
+  }};
+
+  InitializePresenters(*root, nullptr, &proxy);
+  invoke_count = 0;
+
+  auto* host_presenter = root->window_presenter.operator->();
+  CHECK(reinterpret_cast<HWND>(host_presenter->NativeChildParentHandle()) ==
+        host);
+  auto* presenter = root->button_presenter.operator->();
+  HWND const btn = presenter->hwnd();
+  CHECK(btn != nullptr);
+  CHECK(GetParent(btn) == host);
+  CHECK(GetDlgCtrlID(btn) == static_cast<int>(kControlId));
+
+  int layout_x = 0;
+  int layout_y = 0;
+  int layout_w = 0;
+  int layout_h = 0;
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 0);
+  CHECK(layout_y == 0);
+  CHECK(layout_w == 80);
+  CHECK(layout_h == 24);
+
+  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
+  presenter->OnModelChanged();
+  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 0);
+
+  SendMessageW(host, WM_COMMAND,
+               MAKEWPARAM(static_cast<WPARAM>(kControlId), BN_CLICKED),
+               reinterpret_cast<LPARAM>(btn));
+  CHECK(invoke_count == 1);
+
+  UnloadPresenters(*root);
+  CHECK(presenter->hwnd() == nullptr);
+  DestroyWindow(host);
+}
+
+class TestResolveLayoutHostPresenter : public ui::UiWindowPresenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::TestResolveLayoutHostPresenter",
+                           TestResolveLayoutHostPresenter, UiWindowPresenter, 0)
+
+ protected:
+  TestResolveLayoutHostPresenter() = default;
+
+ public:
+  explicit TestResolveLayoutHostPresenter(ae::ObjProp prop)
+      : UiWindowPresenter{prop} {}
+
+  void OnLoad() override {}
+
+  bool PresentationCreateSucceeded() const override {
+    return host_hwnd_ != nullptr;
+  }
+
+  void* NativeChildParentHandle() const override {
+    return reinterpret_cast<void*>(host_hwnd_);
+  }
+
+  ui::UiControlLayout ResolveChildLayout(
+      ui::UiControlLayout requested) const override {
+    requested.x += 13;
+    requested.y += 14;
+    return requested;
+  }
+
+  HWND host_hwnd_{nullptr};
+};
+
+class PushButtonResolveLayoutRoot : public NodeFor<PushButtonResolveLayoutRoot> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::PushButtonResolveLayoutRoot",
+                           PushButtonResolveLayoutRoot, Node, 0)
+
+ protected:
+  PushButtonResolveLayoutRoot() = default;
+
+ public:
+  explicit PushButtonResolveLayoutRoot(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window_presenter), AE_MMBR(button_presenter))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, window_presenter, button_presenter);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, window_presenter, button_presenter);
+  }
+
+  TestResolveLayoutHostPresenter::ptr window_presenter;
+  ui::windows::WinPushButtonPresenter::ptr button_presenter;
+};
+
+APPTRAVERSE_REGISTER(TestResolveLayoutHostPresenter);
+APPTRAVERSE_REGISTER(PushButtonResolveLayoutRoot);
+
+void TestWinPushButtonResolveChildLayoutFromHost() {
+  EnsureObjectRegistration();
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  (void)&g_apptraverse_registrar_TestResolveLayoutHostPresenter;
+  (void)&g_apptraverse_registrar_PushButtonResolveLayoutRoot;
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto root = PushButtonResolveLayoutRoot::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*root);
+
+  HWND const host = CreateBorderlessHostAtOrigin();
+  root->window_presenter =
+      TestResolveLayoutHostPresenter::ptr::Create(ae::CreateWith{domain});
+  root->window_presenter->host_hwnd_ = host;
+
+  auto button = ui::UiPushButton::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*button, *root);
+
+  root->button_presenter = ui::windows::WinPushButtonPresenter::ptr::Create(
+      ae::CreateWith{domain});
+  root->button_presenter->button = button;
+  root->button_presenter->window_presenter = root->window_presenter;
+  root->button_presenter->layout_x = 5;
+  root->button_presenter->layout_y = 6;
+  root->button_presenter->layout_width = 80;
+  root->button_presenter->layout_height = 24;
+  root->button_presenter->control_id = kControlId;
+
+  ModelObjectProxy proxy{[](ModelObjectProxy::ModelWork work) {
+    ae::RamDomainStorage storage;
+    ae::Domain domain{storage};
+    work(domain);
+  }};
+
+  InitializePresenters(*root, nullptr, &proxy);
+  auto* presenter = root->button_presenter.operator->();
+  HWND const btn = presenter->hwnd();
+  CHECK(btn != nullptr);
+
+  int layout_x = 0;
+  int layout_y = 0;
+  int layout_w = 0;
+  int layout_h = 0;
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 18);
+  CHECK(layout_y == 20);
+  CHECK(layout_w == 80);
+  CHECK(layout_h == 24);
+
+  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
+  presenter->OnModelChanged();
+  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 0);
+
+  UnloadPresenters(*root);
+  DestroyWindow(host);
 }
 
 }  // namespace
@@ -256,6 +601,8 @@ int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestHelperCreateDestroyRecreate();
   apptraverse::test::TestWinPushButtonPresenterNativeRouting();
+  apptraverse::test::TestWinPushButtonWithBorderlessHostPresenter();
+  apptraverse::test::TestWinPushButtonResolveChildLayoutFromHost();
   std::cout << "win_ui_native_push_button_test OK\n";
   return 0;
 }

@@ -69,7 +69,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
   LinkSyncState() = default;
 
  public:
-  explicit LinkSyncState(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit LinkSyncState(ae::ObjProp prop) : NodeFor{prop}, initial_sync_phase{static_cast<std::uint8_t>(InitialSyncPhase::NotStarted)} {}
 
   // Persist via explicit Load/Save. Reflection lists only graph edges
   // DomainVisitor must follow; MSVC cannot nest mirrors for all wire fields.
@@ -93,8 +93,7 @@ class LinkSyncState : public NodeFor<LinkSyncState> {
 
   ae::ObjId share_id;
   Link::ptr link;
-  std::uint8_t initial_sync_phase{
-      static_cast<std::uint8_t>(InitialSyncPhase::NotStarted)};
+  std::uint8_t initial_sync_phase;
 
   // Sender side: the exact frozen initial-state frame, resent byte for byte
   // until it is acknowledged. Retries never rebuild it from current state.
@@ -153,12 +152,11 @@ class SetLinkInitialSyncPhaseEvent
   SetLinkInitialSyncPhaseEvent() = default;
 
  public:
-  explicit SetLinkInitialSyncPhaseEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit SetLinkInitialSyncPhaseEvent(ae::ObjProp prop) : EventFor{prop}, phase{static_cast<std::uint8_t>(InitialSyncPhase::NotStarted)} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(phase))
 
-  std::uint8_t phase{
-      static_cast<std::uint8_t>(InitialSyncPhase::NotStarted)};
+  std::uint8_t phase;
 };
 
 // Freeze one initial-state packet for this relationship. The packet identity
@@ -334,13 +332,12 @@ class AddShareEvent : public EventFor<SharedNode, AddShareEvent> {
   AddShareEvent() = default;
 
  public:
-  explicit AddShareEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit AddShareEvent(ae::ObjProp prop) : EventFor{prop}, access{static_cast<std::uint8_t>(ShareAccess::ReadWrite)} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(link), AE_MMBR(access))
 
   Link::ptr link;
-  std::uint8_t access{
-      static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
+  std::uint8_t access;
 };
 
 // Names the Share relationship being closed, not the transport endpoint: the
@@ -367,13 +364,12 @@ class ChangeShareAccessEvent
   ChangeShareAccessEvent() = default;
 
  public:
-  explicit ChangeShareAccessEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit ChangeShareAccessEvent(ae::ObjProp prop) : EventFor{prop}, access{static_cast<std::uint8_t>(ShareAccess::ReadWrite)} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(share_id), AE_MMBR(access))
 
   ae::ObjId share_id;
-  std::uint8_t access{
-      static_cast<std::uint8_t>(ShareAccess::ReadWrite)};
+  std::uint8_t access;
 };
 
 }  // namespace apptraverse

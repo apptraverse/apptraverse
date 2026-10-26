@@ -45,7 +45,7 @@ class ApplicationRuntimeState
   ApplicationRuntimeState() = default;
 
  public:
-  explicit ApplicationRuntimeState(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit ApplicationRuntimeState(ae::ObjProp prop) : NodeFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
@@ -59,7 +59,7 @@ class ApplicationRuntimeState
     dnv(base_, run_id);
   }
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 
   bool CanApply(ApplicationStartedEvent const& event) const;
   void Apply(ApplicationStartedEvent const& event);
@@ -72,7 +72,7 @@ class NetworkState : public NodeFor<NetworkState> {
   NetworkState() = default;
 
  public:
-  explicit NetworkState(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit NetworkState(ae::ObjProp prop) : NodeFor{prop}, run_id{0}, availability{static_cast<std::uint8_t>(NetworkAvailability::kInitializing)} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id), AE_MMBR(availability))
 
@@ -86,9 +86,8 @@ class NetworkState : public NodeFor<NetworkState> {
     dnv(base_, run_id, availability);
   }
 
-  std::uint64_t run_id{0};
-  std::uint8_t availability{
-      static_cast<std::uint8_t>(NetworkAvailability::kInitializing)};
+  std::uint64_t run_id;
+  std::uint8_t availability;
 
   NetworkAvailability GetAvailability() const {
     return static_cast<NetworkAvailability>(availability);
@@ -111,7 +110,7 @@ class AetherRegistrationState : public NodeFor<AetherRegistrationState> {
   AetherRegistrationState() = default;
 
  public:
-  explicit AetherRegistrationState(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit AetherRegistrationState(ae::ObjProp prop) : NodeFor{prop}, run_id{0}, registered_run_id{0}, phase{static_cast<std::uint8_t>(AetherRegistrationPhase::kRegistering)} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id), AE_MMBR(registered_run_id), AE_MMBR(phase),
                     AE_MMBR(uid))
@@ -126,10 +125,9 @@ class AetherRegistrationState : public NodeFor<AetherRegistrationState> {
     dnv(base_, run_id, registered_run_id, phase, uid);
   }
 
-  std::uint64_t run_id{0};
-  std::uint64_t registered_run_id{0};
-  std::uint8_t phase{
-      static_cast<std::uint8_t>(AetherRegistrationPhase::kRegistering)};
+  std::uint64_t run_id;
+  std::uint64_t registered_run_id;
+  std::uint8_t phase;
   std::string uid;
 
   AetherRegistrationPhase GetPhase() const {
@@ -163,11 +161,11 @@ class ApplicationStartedEvent
   ApplicationStartedEvent() = default;
 
  public:
-  explicit ApplicationStartedEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit ApplicationStartedEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class NetworkInitializingEvent
@@ -178,11 +176,11 @@ class NetworkInitializingEvent
   NetworkInitializingEvent() = default;
 
  public:
-  explicit NetworkInitializingEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit NetworkInitializingEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class NetworkInterfaceUnavailableEvent
@@ -194,11 +192,11 @@ class NetworkInterfaceUnavailableEvent
 
  public:
   explicit NetworkInterfaceUnavailableEvent(ae::ObjProp prop)
-      : EventFor{prop} {}
+      : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class InternetUnavailableEvent
@@ -209,11 +207,11 @@ class InternetUnavailableEvent
   InternetUnavailableEvent() = default;
 
  public:
-  explicit InternetUnavailableEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit InternetUnavailableEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class NetworkAvailableEvent
@@ -224,11 +222,11 @@ class NetworkAvailableEvent
   NetworkAvailableEvent() = default;
 
  public:
-  explicit NetworkAvailableEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit NetworkAvailableEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class AetherRegistrationStartedEvent
@@ -239,11 +237,11 @@ class AetherRegistrationStartedEvent
   AetherRegistrationStartedEvent() = default;
 
  public:
-  explicit AetherRegistrationStartedEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit AetherRegistrationStartedEvent(ae::ObjProp prop) : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
 };
 
 class AetherRegistrationCompletedEvent
@@ -256,11 +254,11 @@ class AetherRegistrationCompletedEvent
 
  public:
   explicit AetherRegistrationCompletedEvent(ae::ObjProp prop)
-      : EventFor{prop} {}
+      : EventFor{prop}, run_id{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(run_id), AE_MMBR(uid))
 
-  std::uint64_t run_id{0};
+  std::uint64_t run_id;
   std::string uid;
 };
 

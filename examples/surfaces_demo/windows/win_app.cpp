@@ -348,6 +348,16 @@ void WinApp::OnIncrementalPublished() {
   ContinueSessionAutomationAfterPublication();
 }
 
+#if defined(APPTRAVERSE_SURFACES_WIN32_SMOKE_TEST)
+bool WinApp::PostModelWork(ModelObjectProxy::ModelWork work) {
+  if (!model_proxy_) {
+    return false;
+  }
+  model_proxy_->EnqueueModelWork(std::move(work));
+  return true;
+}
+#endif
+
 int WinApp::Run(std::filesystem::path const& state_dir) {
   HINSTANCE const instance = GetModuleHandleW(nullptr);
   EnsureWin32SurfacePresenterRegistration();

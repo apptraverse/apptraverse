@@ -31,6 +31,10 @@ class WinApp {
       std::vector<SurfacesSessionAutomationStep> steps);
   int Run(std::filesystem::path const& state_dir);
 
+#if defined(APPTRAVERSE_SURFACES_WIN32_SMOKE_TEST)
+  bool PostModelWork(ModelObjectProxy::ModelWork work);
+#endif
+
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
                                   LPARAM lparam);

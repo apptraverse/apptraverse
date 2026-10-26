@@ -25,10 +25,7 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
 #include "apptraverse/ui/ui_desktop_window.h"
-
-#if defined(_WIN32)
-#include "apptraverse/platform/windows/win_ui_presenters.h"
-#endif
+#include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse {
 namespace {
@@ -70,20 +67,22 @@ ui::UiDesktopWindow* AsUiDesktopWindow(ae::Obj* obj) {
   return AsObjOf<ui::UiDesktopWindow>(obj);
 }
 
-#if defined(_WIN32)
 void ApplyUiDesktopFrameRequestPresentation(ae::Obj& gui_root,
                                            ae::ObjId window_id) {
   std::vector<ae::Obj*> objects;
   CollectLiveReachableObjects(gui_root, objects);
+  auto& registry = ae::Registry::GetRegistry();
   for (ae::Obj* obj : objects) {
     Presenter* const presenter = AsPresenter(obj);
-    if (presenter == nullptr ||
-        presenter->GetClassId() !=
-            ui::windows::WinDesktopWindowPresenter::kClassId) {
+    if (presenter == nullptr) {
+      continue;
+    }
+    if (registry.GenerationDistance(ui::UiDesktopWindowPresenter::kClassId,
+                                    presenter->GetClassId()) < 0) {
       continue;
     }
     auto* desktop_presenter =
-        static_cast<ui::windows::WinDesktopWindowPresenter*>(presenter);
+        static_cast<ui::UiDesktopWindowPresenter*>(presenter);
     auto const window = desktop_presenter->desktop_window();
     if (!window.is_valid() || window->obj_id != window_id) {
       continue;
@@ -92,7 +91,6 @@ void ApplyUiDesktopFrameRequestPresentation(ae::Obj& gui_root,
     return;
   }
 }
-#endif
 
 void SaveObjectGraphToScratch(ae::Obj const& object,
                               ae::RamDomainStorage& scratch,
@@ -1227,13 +1225,9 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   std::uint8_t sidecar = kStructuralPublicationSidecarNone;
   ae::Obj& changed =
       ApplyStructuralPublication(in, domain, storage, &sidecar);
-#if defined(_WIN32)
   if (sidecar == kStructuralPublicationSidecarUiDesktopFrameRequest) {
     ApplyUiDesktopFrameRequestPresentation(gui_root, changed.obj_id);
   }
-#else
-  (void)sidecar;
-#endif
   UpdatePresentersAfterStructuralPublication(
       gui_root, keepalive.active_presenters, host, model_proxy);
   // Release presenter anchors before live_objects so derived Presenter::ptr
@@ -1380,6 +1374,36 @@ bool SkipPersistentCheckpointNodeBaseBindings(ByteSource& in) {
   return true;
 }
 
+void AppendUnloadedCheckpointTargets(ae::Obj& root,
+                                     ae::RamDomainStorage& scratch) {
+  ae::Domain& domain = *root.domain;
+  ae::DomainGraph graph{&domain, ae::GraphSerializationScope::LocalPersistent};
+  std::unordered_set<std::uint32_t> seen;
+  std::vector<ae::ObjId> queue;
+
+  auto schedule = [&](ae::Obj& obj) {
+    ForEachGraphEdgeObjPtrOn(obj, [&](auto& edge) {
+      if (!edge.is_valid() || edge.is_loaded()) {
+        return;
+      }
+      if (seen.insert(edge.id().id()).second) {
+        queue.push_back(edge.id());
+      }
+    });
+  };
+
+  schedule(root);
+  for (std::size_t i = 0; i < queue.size(); ++i) {
+    ae::ObjId const id = queue[i];
+    ae::Ptr<ae::Obj> loaded = graph.LoadRoot(id);
+    if (!loaded) {
+      continue;
+    }
+    SaveObjectGraphToScratch(*loaded, scratch);
+    schedule(*loaded);
+  }
+}
+
 void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
   std::uint32_t const root_id = root.obj_id.id();
   out.write(&root_id, sizeof(root_id));
@@ -1411,6 +1435,7 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
 
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(root, scratch);
+  AppendUnloadedCheckpointTargets(root, scratch);
   EnsurePersistentCheckpointBaseObjectsInScratch(saved_bases, scratch);
 
   std::unordered_set<std::uint32_t> checkpoint_export_ids;
@@ -1667,7 +1692,13 @@ bool TryLoadPersistedModelFromStorageSidecar(
   }
   auto sidecar =
       PersistentModelCheckpointSidecarPath(*storage.checkpoint_sidecar_directory());
-  if (!std::filesystem::exists(sidecar)) {
+  std::error_code ec;
+  bool const exists = std::filesystem::exists(sidecar, ec);
+  if (ec) {
+    WriteFatalStderr("fatal: cannot inspect persistent checkpoint\n");
+    std::abort();
+  }
+  if (!exists) {
     return false;
   }
   std::ifstream in{sidecar, std::ios::binary | std::ios::ate};

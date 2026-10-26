@@ -10,18 +10,16 @@
 
 namespace apptraverse::ui::windows {
 
-class WinDesktopWindowPresenter;
-
 class WinPushButtonPresenter : public UiPushButtonPresenter {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinPushButtonPresenter",
                            WinPushButtonPresenter, UiPushButtonPresenter, 0)
 
  protected:
-  WinPushButtonPresenter() = default;
+  WinPushButtonPresenter() : hwnd_{nullptr} {}
 
  public:
   explicit WinPushButtonPresenter(ae::ObjProp prop)
-      : UiPushButtonPresenter{prop} {}
+      : UiPushButtonPresenter{prop}, hwnd_{nullptr} {}
 
   void OnLoad() override;
   void OnModelChanged() override;
@@ -31,11 +29,20 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
 
   HWND hwnd() const { return hwnd_; }
 
+#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+  static int TestSetWindowPosCount();
+  static void TestResetSetWindowPosCount();
+#endif
+
  private:
   void SyncFromMirror();
-  WinDesktopWindowPresenter* Desktop() const;
+  void ApplyLayout();
 
-  HWND hwnd_{nullptr};
+  HWND hwnd_;
+
+#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
+  static int test_set_window_pos_count_;
+#endif
 };
 
 }  // namespace apptraverse::ui::windows

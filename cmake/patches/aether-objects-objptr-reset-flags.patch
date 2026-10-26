@@ -1,0 +1,33 @@
+diff --git a/src/aether-objects/obj/obj_ptr_base.cpp b/src/aether-objects/obj/obj_ptr_base.cpp
+index 8e4b2a1..d4e8b2c 100644
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -86,7 +86,7 @@ void ObjectPtrBase::Save() const {
+ 
+ void ObjectPtrBase::Reset() {
+   cached_.Reset();
+-  flags_ = flags_ & ObjFlags::kUnloaded;
++  flags_ = flags_ | ObjFlags::kUnloaded;
+ }
+ 
+ Ptr<Obj> const& ObjectPtrBase::cached() const { return cached_; }
+@@ -129,6 +129,18 @@ SeriResult ObjPtrBaseSerializer::Seri(Archive& archive,
+                                       Meta<ObjectPtrBase const> meta) {
+   TRY_RESULT((archive.buffer().Write(DataTag{meta.value.id_})));
+-  TRY_RESULT((archive.buffer().Write(DataTag{meta.value.flags_})));
++  ObjFlags::Type publish_flag_bits =
++      static_cast<ObjFlags::Type>(meta.value.flags_);
++  if (archive.buffer().domain_graph->serialization_scope ==
++          GraphSerializationScope::MaterializedPublication &&
++      meta.value.cached_) {
++    ObjFlags::Type const lazy_flags =
++        static_cast<ObjFlags::Type>(ObjFlags::kUnloadedByDefault) |
++        static_cast<ObjFlags::Type>(ObjFlags::kUnloaded);
++    publish_flag_bits = static_cast<ObjFlags::Type>(
++        publish_flag_bits & static_cast<ObjFlags::Type>(~lazy_flags));
++  }
++  ObjFlags const publish_flags{publish_flag_bits};
++  TRY_RESULT((archive.buffer().Write(DataTag{publish_flags})));
+   if (meta.value.cached_) {
+     TRY_RESULT(archive.buffer().domain_graph->SaveRoot(meta.value.cached_,
+                                                        meta.value.id_));

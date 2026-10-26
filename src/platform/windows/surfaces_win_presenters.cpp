@@ -5,22 +5,22 @@
 #include <string>
 
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/presenter.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/surfaces/surfaces_localization.h"
+#include "apptraverse/surfaces/surfaces_model.h"
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/platform/windows/win_ui_native_push_button.h"
 
 namespace apptraverse {
 
-bool DispatchChildCommand(WPARAM wparam, LPARAM lparam);
-
 namespace {
 
-constexpr int kMargin = 12;
+constexpr int kMargin = kSurfaceChromeMargin;
 constexpr int kGap = 8;
-constexpr int kAddW = 88;
-constexpr int kAddH = 28;
+constexpr int kAddW = kSurfaceAddButtonLayoutWidth;
+constexpr int kAddH = kSurfaceAddButtonLayoutHeight;
 constexpr int kLangW = 48;
 constexpr int kLangH = 28;
 constexpr int kCloseW = 200;
@@ -103,8 +103,15 @@ LRESULT CALLBACK SurfaceHostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
   if (presenter == nullptr) {
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
-  if (msg == WM_COMMAND && DispatchChildCommand(wparam, lparam)) {
-    return 0;
+  if (msg == WM_COMMAND) {
+    auto* window = static_cast<Win32SurfaceWindowPresenter*>(presenter);
+    if (window->child_command_handler != nullptr &&
+        window->child_command_handler(window, wparam, lparam)) {
+      return 0;
+    }
+    if (DispatchChildCommand(window->hwnd, wparam, lparam)) {
+      return 0;
+    }
   }
   if (msg == WM_SIZE) {
     RECT client{};
@@ -132,16 +139,31 @@ LRESULT CALLBACK SurfaceHostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
 
 }  // namespace
 
-bool DispatchChildCommand(WPARAM wparam, LPARAM lparam) {
+void ComputeSurfaceChromeButtonLayout(SurfaceWindowPresenter const& window,
+                                      std::uint32_t control_id, int* x,
+                                      int* y, int* w, int* h) {
+  SurfaceButtonLayout(window, control_id, x, y, w, h);
+}
+
+bool TryParseSurfaceChildBnClicked(HWND parent_hwnd, WPARAM wparam,
+                                   LPARAM lparam,
+                                   SurfaceChildBnClickedTarget* out) {
+  if (out == nullptr || parent_hwnd == nullptr) {
+    return false;
+  }
+  *out = {};
+  if (static_cast<std::uint16_t>(HIWORD(wparam)) != BN_CLICKED) {
+    return false;
+  }
   HWND const child = reinterpret_cast<HWND>(lparam);
-  if (child == nullptr) {
+  if (child == nullptr || !IsWindow(child)) {
+    return false;
+  }
+  if (GetParent(child) != parent_hwnd) {
     return false;
   }
   std::uint32_t const command_id = static_cast<std::uint32_t>(LOWORD(wparam));
-  std::uint16_t const notification_code =
-      static_cast<std::uint16_t>(HIWORD(wparam));
-  if (static_cast<std::uint32_t>(GetDlgCtrlID(child)) != command_id ||
-      notification_code != BN_CLICKED) {
+  if (static_cast<std::uint32_t>(GetDlgCtrlID(child)) != command_id) {
     return false;
   }
   auto* owner =
@@ -149,7 +171,18 @@ bool DispatchChildCommand(WPARAM wparam, LPARAM lparam) {
   if (owner == nullptr) {
     return false;
   }
-  owner->NotifyClickedFromUi();
+  out->child_hwnd = child;
+  out->presenter = owner;
+  out->control_id = command_id;
+  return true;
+}
+
+bool DispatchChildCommand(HWND parent_hwnd, WPARAM wparam, LPARAM lparam) {
+  SurfaceChildBnClickedTarget target{};
+  if (!TryParseSurfaceChildBnClicked(parent_hwnd, wparam, lparam, &target)) {
+    return false;
+  }
+  target.presenter->NotifyClickedFromUi();
   return true;
 }
 
@@ -215,6 +248,7 @@ void Win32SurfaceWindowPresenter::OnLoad() {
 void Win32SurfaceWindowPresenter::OnModelChanged() { SyncWindowTitle(); }
 
 void Win32SurfaceWindowPresenter::OnUnload() {
+  child_command_handler = nullptr;
   SetHwndUserData(hwnd, nullptr);
   if (hwnd != nullptr) {
     if (DestroyWindow(hwnd) == 0) {

@@ -714,6 +714,13 @@ event semantics.
 ModelWork execution is independent of GUI publication consumption.
 `PublicationChannel` backpressure delays only the next GUI snapshot.
 
+## Prototype coding rules (WindowCatalog-only build)
+
+Permanent agent rules in **`.cursor/rules/apptraverse-coding-agent.mdc`**: typed
+object references (no bare integer identity), all-or-nothing required graph after
+load/build boundaries, trusted on-disk prototype storage (no repair/integrity
+stats). Versioning / distillation integration boundary unchanged.
+
 ## Foundation still in force
 
 Independent Model/GUI Domains, Event-only Node mutation, presentation_load_order,
@@ -721,3 +728,400 @@ structural keepalive (`Domain::Find`), instance-scoped Node materialized-change
 notifier (no process-global callback), native-X app STOP + Close-button Remove,
 shutdown geometry snapshot before RequestStop, distill separation, no RTTI,
 invariant-driven checks.
+
+---
+
+# Application framework extraction and versioning integration boundary
+
+## 1.1 Existing architectural contract (WindowCatalog reference)
+
+WindowCatalog is the reference application today. It already demonstrates:
+
+1. **Canonical persistent state** changes through Events/Commit. Derived
+   materialized/runtime state may be updated directly but does not replace
+   business Events.
+2. **Model Domain and UI Domain** are separate. Presenters use the UI mirror
+   and send actions through `ModelObjectProxy`.
+3. **Desktop window geometry** has two paths:
+   - Native frame already changed: `ReportUiDesktopWindowFrameFromNativeEvent`
+     records fact in the model without applying frame back to native UI.
+   - Model requests frame: `RequestUiDesktopWindowFrameEvent` → publication
+     sidecar → presenter `ApplyRequestedFrameFromMirror`.
+4. **Localization**: selected language changes via Event;
+   `UiLocalizationString` materializes only the current language string; other
+   languages are Save + Reset and absent from memory; lazy load is independent
+   of const/dynamic storage policy; after future merge, const strings re-read
+   from BACKING and dynamic strings from USER/BACKING overlay.
+5. **Lazy window lifecycle**: on close, window and presenter are saved; cached
+   model objects unload; ObjId is kept; reopen loads the same object; UI mirror
+   removes then re-materializes the presenter.
+
+## 1.2 Target structure
+
+**A. AppTraverse libraries:** apptraverse core; apptraverse_ui; platform UI
+libraries; application runtime; platform application host.
+
+**B. Minimal application template:** no buttons, lists, or business logic;
+only application root, UI composition, and shared lifecycle startup.
+
+**C. WindowCatalog:** reference/acceptance application demonstrating Events,
+mirrors, localization, lazy windows, native/model frame paths, and persistence;
+must not duplicate shared runtime/host after refactor completes.
+
+## 1.3 Future window hierarchy
+
+```
+UiWindow
+  └─ UiPresentedWindow
+       ├─ UiDesktopWindow
+       └─ (future) UiMobileWindow
+```
+
+`UiPresentedWindow` holds only a serializable reference to the base
+`UiWindowPresenter`. It must not contain title, locale, x/y, frame, HWND/native
+handles, or desktop/mobile-specific state. `UiWindowPresenter` owns window,
+optional localized title, and locale. `UiDesktopWindow` adds desktop frame and
+frame Events. `UiMobileWindow` is deferred until the mobile port.
+
+## 1.4 Boundary with versioning project
+
+**`integration/serialization-surfaces`:** build-time distillation; embedded
+distilled graph; const/dynamic backing policy; state/user and state/&lt;R&gt;;
+Release R; binary packages; active-release resolver; update/rollback matrix.
+
+**This branch (`cursor/surfaces-library-controls`):** canonical model execution;
+publication; UI mirror; presenters; application lifecycle; platform host;
+reusable UI composition.
+
+Application runtime will accept prepared storage, model Domain, application
+root, and save/shutdown hooks — not how release resolver obtains storage/root.
+
+## 1.5 Work order (not pre-declared complete)
+
+0. Headless contract test (`apptraverse_application_contract_headless_test`) — done.
+1. `UiPresentedWindow` and migrate `UiDesktopWindow` onto it — done.
+2. WindowCatalog consumer migration onto `UiPresentedWindow::presenter` — done.
+3. Shared presented-window composition — **`ComposePresentedWindow`** in
+   `include/apptraverse/ui/ui_presented_window_composition.h`; headless contract +
+   WindowCatalog graph use it before **`InitializeRuntimeNode`** — done (2026-10-24).
+4. Generic save/unload/reload lifecycle for presented windows —
+   **`SavePresentedWindow` / `UnloadPresentedWindow` / `LoadPresentedWindow`**
+   in `ui_presented_window_lifecycle.h`; headless contract + WindowCatalog — done
+   (2026-10-24).
+5. Generic model application runtime — **`ApplicationModelRuntime`** (5A model
+   execution/publication loop only; load/save stay in app adapter) — done
+   (2026-10-24). **TODO:** consolidate legacy **`ModelRuntime`/`UiMirror`** with
+   the new path; do not treat both as target architecture.
+6. Generic Windows application host — **6A:** `WinApplicationMessageHost`
+   (notify HWND, publication PostMessage, model thread, done event, message pump)
+   — done (2026-10-24). **6B:** **`ApplicationUiSession`** — generic UI Domain /
+   mirror / presenter lifecycle (`apptraverse` only) — done (2026-10-24).
+   **6C1:** **`WinApplicationLoadingWindow`** — reusable Win32 loading shell —
+   done (2026-10-24). **6C2:** **`WinApplicationHost`** — composes runtime,
+   proxy, loading, message host, presentation host, UI session — done
+   (2026-10-24).
+7. Minimal application template without controls — **`examples/minimal_app`**
+   (`win32_minimal_app` / load-only) — done (2026-10-24).
+8. WindowCatalog as independent consumer + final audit — done (2026-10-24).
+9. Versioning integration on **`integration/application-versioning`** (from
+   application @ `55c4d53` + mechanisms from serialization-surfaces @
+   `17b7830`; no branch merge):
+   - **9A** — `EmbeddedDistilledGraph` → `RamDomainStorage` primitive + headless
+     test — done on integration branch (2026-10-25).
+   - **9B1** — USER/BACKING `OverlayDomainStorage` + supply constants — done
+     (2026-10-25).
+   - **9B2** — `force_materialize` + historical dynamic base materialization —
+     done on integration branch (2026-10-25).
+   - **9C** — build-time embedded distilled export (MinimalApplication exporter +
+     CMake-generated header + independent consumer test) — **DONE** on integration
+     branch (2026-10-25; land `b77393753fa67e1e868feaa621dfd94c5022f9a0`).
+   - **NEXT and later stages** — see **§1.6** (agreed roadmap revision 2026-10-25):
+     **I0.1** inventory/cleanup ledger is the active next task; **9D** is not
+     immediate after 9C.
+   Legacy **`ModelRuntime` / `UiMirror`** consolidation is addressed under **I0**
+   (§1.6), not as ad-hoc cleanup before embedded startup.
+
+## 1.6 Application Framework + Versioning integration
+
+**Branch:** `integration/application-versioning`
+**Agreed source plan:** `02_Application_Framework_Integration_PLAN.md` (revision
+2026-10-25). Self-contained summary below; supersedes “9D immediately after 9C”
+wording where it conflicted.
+
+**Sync reference (doc update):** remote HEAD `9f6aa8d3540e6a6f18893beea174d095e18af680`.
+
+### Status overview
+
+| Stage | Topic | Status |
+|------:|-------|--------|
+| 0–8 | Application Framework (contract, presented window, runtime, host, minimal app, WindowCatalog) | **DONE** |
+| 9A | `EmbeddedDistilledGraph` → RAM backing | **DONE** |
+| 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
+| 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
+| 9C | Build-time embedded export (MinimalApplication) | **DONE** |
+| **I0** | Architecture cleanup | **DONE** (I0.6 closure + freeze, 2026-10-26) |
+| I0.1 | Inventory / cleanup ledger | **DONE** |
+| I0.2 | Remove verified dead paths | **DONE** (orphan `.cpp` + redundant graph-builder Win ensure; legacy runtime **deferred**) |
+| I0.3 | Required graph cold-load contract | **DONE** (deliverables; see I0.4 CTest note) |
+| I0.3A | MinimalApplication required graph | **DONE** (after PASS) |
+| I0.3B | WindowCatalog + remaining boundaries | **DONE** (after PASS) |
+| I0.4 | Closure audit / branch baseline | **DONE** (historical **15/17** at audit; see I0.5) |
+| I0.5 | Restore headless test registration | **DONE** (after **17/17** PASS) |
+| I0.6 | Final closure and branch freeze | **DONE** (2026-10-26) |
+| `integration/application-versioning` | Application Framework baseline branch | **FROZEN** (organizational; no new work until unfreeze decision) |
+| I0.3B1 | WindowCatalog required main window | **DONE** (after PASS) |
+| I0.3B2a | WindowCatalog required list / locale | **DONE** (after PASS) |
+| I0.3B2b | WindowCatalog required chrome presenters | **DONE** (after PASS) |
+| I0.3B2c | Catalog chrome buttons + localized text refs | **DONE** (after PASS) |
+| I0.3B2c1 | WindowCatalog required chrome buttons | **DONE** (after PASS) |
+| I0.3B2c2 | WindowCatalog required localized text refs | **DONE** (after PASS) |
+| I0.3B3 | ClassId/schema **S** compatibility | **DONE** (after PASS) |
+| I0.3B3a | Required schema **S** incompatibility | **DONE** (after PASS) |
+| I0.3B3b | Required ClassId incompatibility | **DONE** (after PASS) |
+| 9D | MinimalApplication embedded startup | **ON HOLD** (after I0 DONE + versioning integration decision) |
+| 9E | WindowCatalog embedded startup | **ON HOLD** |
+| 9F | Unified release bootstrap R/E/B/S | **ON HOLD** |
+| 9G | System origin / Clone / S | **ON HOLD** (blocked on versioning architecture) |
+| 9H | Full functional lifecycle matrix | **ON HOLD** (after 9F, 9G, versioning matrix) |
+
+**I0** closed **2026-10-26** (I0.6): criteria I0.1–I0.3B3 + **17/17** CTest (Release + MinSizeRel) confirmed at freeze. Not production readiness or release compatibility.
+
+### Branch freeze and **9D–9H** resume (I0.6)
+
+**`integration/application-versioning`** is **FROZEN** (organizational): no further changes on this branch until an explicit unfreeze decision. **Code baseline:** `22eee7b5bb8710de162f30809642e79019faf7a6` (I0.5). **Frozen HEAD:** `adcbfce1ad7ebd2e56aadd07eac6a33679b934d9` (see `Progress.md`). No Git tag or branch protection.
+
+Historical: I0.4 recorded **15/17** at **`168d817`**; I0.5 restored **17/17** via **`EnsureObjectRegistration()`** in two headless tests (registrar link — reject-unknown ClassId contract unchanged).
+
+**9D–9H** remain **ON HOLD** until a separate decision to integrate with **`integration/serialization-surfaces`**. Before unfreeze/integration:
+
+1. Complete required Object Core mechanisms on **`integration/serialization-surfaces`** and verify them.
+2. Reconcile Æther SHAs and patch sets on both branches.
+3. Align system origin/Clone/S with Application Framework.
+4. Prepare a dedicated integration plan; execute merge and full regression only by explicit decision.
+
+**Do not start 9D–9H or cross-branch integration while frozen.**
+
+### Prototype development principles
+
+1. **Standard serialization** — Use existing `DomainGraph`, `Load`/`Save(Version<S>)`,
+   `BinaryArchive`, `RamDomainStorage`, `DirectoryDomainStorage`,
+   `OverlayDomainStorage`. No parallel object protocols, custom binary containers,
+   magic/CRC/hash/signatures.
+2. **Typed object references** — Inside the graph: `ObjPtr`, `Ptr`, `LocalPtr`,
+   `SharedPtr` with their normal semantics. Do not replace edges with manual
+   `ObjId` resolution. `ObjId` only at storage/serialization/domain boundaries.
+3. **No implicit defaults for required persisted state** — Required serialized
+   fields get values via distill/init, Events, or standard Load. No `Ensure*`,
+   constructor defaults, or fallback that materialize missing required objects.
+   (Normal C++ init for runtime queues, locks, buffers, counters remains OK.)
+4. **All-or-nothing initial load** — Missing required root/window/presenter,
+   required ClassId, or required schema **S** → explicit load failure. Lazy
+   unloaded refs and optional supply are OK when the contract allows. No
+   half-empty UI.
+5. **No corrupted-file hardening (prototype scope)** — Until a separate
+   production-hardening task: no malformed/truncated/trailing-input torture tests,
+   CRC/hash/integrity, recovery, backup, retries, or extra defensive validation on
+   trusted build artifacts. Functional incompatibility of required ClassId/S must
+   still fail loudly, not silently.
+6. **Preserve functional invariants** — USER dynamic state and journals; no const
+   bodies in USER; historical base; cold load/replay; compaction guards for
+   unknown new Event layers; release compatibility; correct presenter lifecycle.
+7. **No duplicate infrastructure** — No third model runtime, new Managers/Services,
+   duplicate bootstrap, second UI lifecycle, or manual registration bypasses.
+   Fixture `PrefabPtr` stays out of production.
+8. **Small iterations** — C++20, Google style, no RTTI/exceptions, incremental
+   builds. One task → one verifiable outcome. Commit/push working branch only; no
+   merge/PR/reset/clean/force-push. Distinguish implemented / verified PASS /
+   accepted-by-user.
+
+### I0 — Architecture cleanup
+
+#### I0.1 — Inventory / cleanup ledger (DONE)
+
+Completed 2026-10-25. Ledger: [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md).
+Baseline `36b0a5c08780a7a0136587a7bf3858b86b334982`. **Inventory only** — no code
+deletions in that change.
+
+Review implementations and consumers, including:
+
+- `application_model_runtime.h`, `application_ui_session.h`
+- `model_runtime.h`, `ui_mirror.h`, `runtime_lifecycle.h`
+- `ui_presented_window_composition.h`, `ui_presented_window_lifecycle.h`
+- `embedded_distilled_domain.h` and matching `src/` units
+- `cmake/patches/*`, CMake targets, MinimalApplication, WindowCatalog
+
+Produce a table:
+
+| Area | Real consumer | Duplication / bypass | Safe change | Regression test |
+
+Hunt for: legacy `ModelRuntime`/`UiMirror` vs `ApplicationModelRuntime`/
+`ApplicationUiSession`; duplicate Initialize/Ensure; manual ObjId wiring;
+unnecessary persisted defaults; parallel serialization paths; duplicate bootstrap;
+extra validators.
+
+#### I0.2 — Remove verified dead paths (DONE)
+
+Completed 2026-10-25 (ledger §C #1–#2): seven orphan `src/*.cpp` removed;
+redundant `EnsureWinUiPresenterRegistration()` removed from
+`BuildMinimalApplicationGraph` (callers register at entry). Public SharedNode/
+transport headers remain; bodies deferred to **FUTURE** / Git history.
+
+**Deferred (not I0.2):** legacy `ModelRuntime`/`UiMirror` and disabled historical
+tests (ledger §C #3); runtime distill bootstrap (**9D/9E**); catalog graph-builder
+registration pattern unchanged.
+
+#### I0.3 — Required graph cold-load contract (DONE — deliverables)
+
+**I0.3A — MinimalApplication (DONE, 2026-10-25):** `LoadPresentedWindow` fail-fast
+for missing window/presenter; `RunMinimalApplicationModel` unconditionally loads
+required main window before publication. Negative cases in
+`apptraverse_minimal_app_win32_acceptance_test` (empty profile, missing
+`main_window`, missing presenter ref/object). `LoadApplication` unchanged.
+
+**I0.3B1 — WindowCatalog main window (DONE, 2026-10-25):** `WindowCatalogModelSession::Run`
+calls `ui::LoadPresentedWindow(catalog->main_window)` after checkpoint, before
+`MaterializeCatalogStrings`. Negative cases in
+`apptraverse_window_catalog_win32_acceptance_test` (load-only). Holder lazy windows
+unchanged.
+
+**I0.3B2a — WindowCatalog list / locale (DONE, 2026-10-25):** after main window
+load, `catalog->list` and `catalog->locale` loaded once via `ObjPtr::Load()` with
+explicit fatals before materialization. Four load-only negatives in
+`apptraverse_window_catalog_win32_acceptance_test` (empty list/locale refs;
+`Remove` for list object and persisted locale ObjId).
+
+**I0.3B2b — WindowCatalog chrome presenters (DONE, 2026-10-25):** load all five
+`catalog->presenters.*` before materialization; single fatal if any missing. Six
+load-only negatives (five cleared refs + `Remove` of persisted
+`add_button_presenter`).
+
+**I0.3B2c — WindowCatalog chrome buttons + localized text refs (DONE,
+2026-10-25):** B2c1 (four buttons) + B2c2 (five `WindowCatalogTexts` refs)
+before `MaterializeCatalogStrings`; load-only negatives for each ref class.
+
+**I0.3B3 — ClassId/schema **S** compatibility (DONE, 2026-10-25):** B3a
+unsupported S layers; B3b reject-unknown-stored-class Æther patch +
+acceptance ClassId negatives. Not corrupted-byte torture.
+
+**I0.4 — Closure audit (2026-10-26):** Ledger §O; historical CTest **15/17**. **I0.5** restored **17/17**. **I0.6** closed I0 and froze branch — see § status table.
+
+Document and test (only if gaps exist):
+
+- Required root/window/presenter without silent defaults; no auto-create on cold
+  Load; missing required layer → explicit initial load failure.
+- Model Domain → publication → UI mirror → presenters; native handles not
+  persisted; shutdown and type registration unchanged.
+
+#### I0 DONE criteria
+
+- Actual duplicates removed or explicitly retained with consumers listed.
+- No new framework layer added.
+- Positive regression tests PASS.
+- Working application lifecycle preserved.
+
+### Library contract (unchanged target after cleanup)
+
+**Model:** canonical persisted graph; Events/Commit; model thread;
+`ApplicationModelRuntime` accepts prepared Domain/root — does **not** own storage.
+
+**UI:** `ApplicationUiSession` (mirror + presenter lifecycle); `WinApplicationHost`
+(platform loop); `ModelObjectProxy` (GUI → model); `UiPresentedWindow` presenter
+ref; desktop geometry via Events; native handles runtime-only.
+
+**Composition/lifecycle:** `ComposePresentedWindow`, `SavePresentedWindow`,
+`UnloadPresentedWindow`, `LoadPresentedWindow`.
+
+Keep application-specific logic in examples/apps, not in generic libraries.
+
+### Storage / release architecture (target)
+
+Three concepts: **R** (release delivery), **E/B** (embedded executable + backing),
+**S** (class schema layer version).
+
+```text
+Build-time distillation → embedded canonical graph → RamDomainStorage BACKING
+  → OverlayDomainStorage → Model Domain → ApplicationModelRuntime
+  → ApplicationUiSession → native presenters
+```
+
+- USER holds dynamic data and history, not constant supply bodies.
+- Constants from embedded graph or selected `state/<R>/supply.bin`.
+- `state/active-release` selects active delivery explicitly — not “max directory
+  number” resolver.
+- Do not copy initial graph into USER on new EXE install.
+- New dynamic schema layer **S** on a historical instance requires system Clone/
+  origin (versioning branch) — no production PrefabPtr or manual instance→prefab
+  tables in this branch.
+
+**9C delivered (facts):** `apptraverse_export_minimal_distilled_graph`,
+CMake-generated `embedded_distilled_minimal_app_supply.h`,
+`apptraverse_minimal_app_embedded_export_test`, cold load without graph builder,
+geometry Event + USER/BACKING persistence; **17/17** CTest PASS (Release &
+MinSizeRel per 9C report); production MinimalApplication startup **unchanged** in
+9C.
+
+### Planned stages after I0
+
+**9D — MinimalApplication embedded startup** (deps: I0 + 9C)
+Wire generated embedded graph into production startup. Positive path: clean install
+→ native main → geometry Event → Save USER → shutdown → cold restart → geometry
+restored. No runtime graph builder or USER distillation. Preserve ClassId/ObjId/v0,
+model/UI thread separation, load-only and shutdown behavior.
+
+**9E — WindowCatalog embedded startup**
+Build-time export + production embedded load; EN/RU supply strings const, selected
+language USER-dynamic. Verify Add/Open/Delete, lazy windows, geometry,
+localization, historical base/journal, restart. Remove old bootstrap/Ensure bypasses
+only after new path tests PASS.
+
+**9F — Unified release bootstrap**
+Minimal release integration: release config, active-release, `state/<R>/supply.bin`,
+backing selection, R1 binary constants on E0, E1 equivalence, shared USER,
+incompatible required ClassId/S → fail before USER mutation. Own build tools only.
+
+**9G — System origin / Clone / S** — **BLOCKED BY VERSIONING**
+Depends on serialization-surfaces **C0 → 12R → 12B → 13 → 14** (origin/Clone/S
+core). Do not start 9G until that core lands. On this branch keep Æther patches:
+`objptr-reset-flags`, `force-materialize`; audit before adding
+`reject-unknown-stored-class`, `should-save-version`. No mass merge from versioning
+branch.
+
+**9H — Functional lifecycle acceptance** (deps: 9F, 9G, full versioning matrix)
+Semantic T01–T18 in agreed prototype scope: clean install E0, R1 constants, E2 new
+S, R3 logic-only, R4 constants, E5 S2, downgrade/upgrade, post-rollback user
+changes, lazy/late clones, journal replay, compaction guards. No corrupted-file
+testing.
+
+### Parallel ownership (do not mix branches)
+
+| `integration/application-versioning` | `integration/serialization-surfaces` |
+|--------------------------------------|--------------------------------------|
+| I0, 9D–9H | C0 cleanup |
+| Platform/application runtime | Fix origin 12A |
+| Embedded startup, UI lifecycle | 12R, 12B, 13, 14 |
+| | Object core, Clone/origin, schema compatibility |
+
+Versioning order: **C0 → 12R → 12B → 13 → 14**. Do not modify serialization-surfaces
+from application-versioning doc-only tasks.
+
+### Future (does not block I0 / 9D / 9E)
+
+- **Optional canonical supply / localization / cache** — embedded startup may ship
+  English only; other locales as optional serialized subgraphs; separate remote
+  fetch, lazy `ObjPtr::Load`, device cache; no partial language switch; optional
+  constants never in USER; LZMA as layer adapter only.
+- **Universal ArtifactSource** — bytes by artifact id + offset/range; FileSource →
+  ÆtherSource → HTTPS later; control plane via normal Events/messages; no early
+  chunk bitmap/recovery/security hardening.
+- **SharedNode** — after Clone/origin; sync versioned state and typed Events; ACK =
+  model accept/save, not external command execution.
+- **DLL/SO plugins** — plugin_id, own R/E/B/S and USER, manifest, native module;
+  host/plugin USER separate; compatibility check before model graph; trusted Windows
+  DLL first, then Linux SO.
+
+### Target platform families
+
+Windows, macOS, Linux, Android, iOS/iPadOS (one family, two form factors), Web.
+First integration and plugin prototype: **Windows desktop**. Demos or partial code
+on other platforms do not imply verified end-to-end release lifecycle until
+explicitly reported.

@@ -51,6 +51,8 @@ class UiLocalizationString : public NodeFor<UiLocalizationString> {
 
   std::string Resolve(int language_index) const;
 
+  void MaterializeLanguage(int language_index);
+
   void Apply(SetUiLocalizationSlotUtf8Event const& event);
 };
 
@@ -63,11 +65,11 @@ class SetUiLocalizationSlotUtf8Event
   SetUiLocalizationSlotUtf8Event() = default;
 
  public:
-  explicit SetUiLocalizationSlotUtf8Event(ae::ObjProp prop) : EventFor{prop} {}
+  explicit SetUiLocalizationSlotUtf8Event(ae::ObjProp prop) : EventFor{prop}, slot_index{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(slot_index), AE_MMBR(utf8))
 
-  int slot_index{0};
+  int slot_index;
   std::string utf8;
 };
 

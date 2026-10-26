@@ -17,7 +17,7 @@ class UiLocaleSettings : public NodeFor<UiLocaleSettings> {
   UiLocaleSettings() = default;
 
  public:
-  explicit UiLocaleSettings(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit UiLocaleSettings(ae::ObjProp prop) : NodeFor{prop}, language_index_{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(language_index_))
 
@@ -37,7 +37,7 @@ class UiLocaleSettings : public NodeFor<UiLocaleSettings> {
   void SubmitLanguageIndexFromUi(int language_index);
 
  private:
-  int language_index_{0};
+  int language_index_;
 };
 
 class SetUiLanguageIndexEvent
@@ -49,11 +49,11 @@ class SetUiLanguageIndexEvent
   SetUiLanguageIndexEvent() = default;
 
  public:
-  explicit SetUiLanguageIndexEvent(ae::ObjProp prop) : EventFor{prop} {}
+  explicit SetUiLanguageIndexEvent(ae::ObjProp prop) : EventFor{prop}, language_index{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(language_index))
 
-  int language_index{0};
+  int language_index;
 };
 
 }  // namespace apptraverse::ui

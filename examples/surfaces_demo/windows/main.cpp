@@ -18,7 +18,10 @@
 #include "surfaces_session_automation.h"
 #include "surfaces_shutdown_trace.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
+#include "apptraverse/ui/ui_presenters.h"
+#include "surfaces_demo_win32_registration.h"
 
 int main(int argc, char** argv) {
   std::filesystem::path state_dir{"surfaces_runtime_state"};
@@ -63,7 +66,10 @@ int main(int argc, char** argv) {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSurfacesRegistration();
+  apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
   apptraverse::EnsureWin32SurfacesPresenterRegistration();
+  apptraverse::example::surfaces::EnsureSurfacesDemoWin32Registration();
   apptraverse::WinApp app;
   if (!session_automation.empty()) {
     app.SetSessionAutomation(

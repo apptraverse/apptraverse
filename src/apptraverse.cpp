@@ -14,10 +14,6 @@ APPTRAVERSE_REGISTER(Presenter);
 
 }  // namespace
 
-void ForceLifecycleRegistration();
-void ForceLinkRegistration();
-void ForceSharedNodeRegistration();
-
 namespace ui {
 void ForceUiRegistration();
 }  // namespace ui
@@ -25,9 +21,6 @@ void ForceUiRegistration();
 // Forces the static library object file (and its Registrars) to be linked.
 void EnsureObjectRegistration() {
   EnableNoninteractiveCrt();
-  ForceLifecycleRegistration();
-  ForceLinkRegistration();
-  ForceSharedNodeRegistration();
   ui::ForceUiRegistration();
 }
 

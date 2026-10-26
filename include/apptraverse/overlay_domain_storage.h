@@ -8,23 +8,25 @@
 
 namespace apptraverse {
 
-// Writable overlay over read-only backing distribution storage.
-// Load prefers overlay, then backing. Backing is never mutated here.
-// Store writes the overlay when the user layer is missing only if serialized
-// bytes differ from backing; unchanged layers are not materialized in USER.
-// Existing USER layers are always written through the writable storage.
+// Writable USER overlay over read-only BACKING distribution storage.
+// Load prefers USER for dynamic objects, then BACKING. BACKING is never
+// mutated through this facade.
 //
-// Optional supply_constant_ids: ObjIds whose own layers load from backing only
-// and are never persisted to USER (including force_materialize). Event/model
-// correctness for supply constants is enforced at development time, not here.
+// Store on dynamic layers: write USER when a USER layer already exists or
+// bytes differ from BACKING; skip USER materialization when bytes match BACKING
+// and no USER layer exists yet. An existing USER override is kept even when
+// new bytes match BACKING again.
+//
+// supply_constant_ids: ObjIds whose layers always load/enumerate from BACKING
+// only and are never persisted to USER. Role is ObjId membership only.
 class OverlayDomainStorage final : public ae::IDomainStorage {
  public:
   explicit OverlayDomainStorage(ae::IDomainStorage& backing);
-  OverlayDomainStorage(ae::IDomainStorage& writable_overlay,
+  OverlayDomainStorage(ae::IDomainStorage& writable_user,
                        ae::IDomainStorage& backing);
   OverlayDomainStorage(ae::IDomainStorage& backing,
                        std::set<ae::ObjId> supply_constant_ids);
-  OverlayDomainStorage(ae::IDomainStorage& writable_overlay,
+  OverlayDomainStorage(ae::IDomainStorage& writable_user,
                        ae::IDomainStorage& backing,
                        std::set<ae::ObjId> supply_constant_ids);
   ~OverlayDomainStorage() override;

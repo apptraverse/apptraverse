@@ -12,7 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Emscripten pthreads require atomics/bulk-memory on every TU that ends up in
 # a -pthread link. Apply once for the whole tree (including aether-objects).
 if(EMSCRIPTEN)
-  add_compile_options(-pthread -fexceptions)
+  add_compile_options(-pthread)
   add_link_options(-pthread)
 endif()
 
@@ -69,6 +69,7 @@ CPMAddPackage(
   PATCHES "${APPTRAVERSE_AETHER_OBJECTS_LOCAL_PERSISTENT_LOAD_PATCH}"
           "${APPTRAVERSE_AETHER_OBJECTS_DOMAIN_STORAGE_ACCESS_PATCH}"
           "${APPTRAVERSE_AETHER_OBJECTS_REJECT_UNKNOWN_STORED_CLASS_PATCH}"
+          "${APPTRAVERSE_AETHER_OBJECTS_OBJPTR_RESET_FLAGS_PATCH}"
           "${APPTRAVERSE_AETHER_OBJECTS_FORCE_MATERIALIZE_PATCH}"
           "${APPTRAVERSE_AETHER_OBJECTS_SHOULD_SAVE_VERSION_PATCH}"
           "${APPTRAVERSE_AETHER_OBJECTS_ORIGIN_FACET_PATCH}"
@@ -79,15 +80,43 @@ CPMAddPackage(
     "AE_BUILD_TESTS OFF"
 )
 
-CPMAddPackage(
-  NAME aether-client-cpp
-  GITHUB_REPOSITORY aethernetio/aether-client-cpp
-  GIT_TAG ${APPTRAVERSE_AETHER_GIT_TAG}
-  EXCLUDE_FROM_ALL NO
-  OPTIONS
-    "AE_INSTALL OFF"
-    "AE_BUILD_TESTS ${APPTRAVERSE_BUILD_AETHER_DEMOS}"
-)
+# The same exception/STL policy is required on the object/serialization
+# dependency TUs as on their consumers. No parent CMake cache is rewritten.
+foreach(_dependency aether::objects aether::miscpp)
+  get_target_property(_real_target ${_dependency} ALIASED_TARGET)
+  if(NOT _real_target)
+    set(_real_target ${_dependency})
+  endif()
+  get_target_property(_type ${_real_target} TYPE)
+  if(_type STREQUAL "INTERFACE_LIBRARY")
+    target_link_libraries(${_real_target} INTERFACE apptraverse_compile_policy)
+  else()
+    target_link_libraries(${_real_target} PUBLIC apptraverse_compile_policy)
+  endif()
+endforeach()
+
+# SharedNode/link/sync sources are part of the object core and its tests.
+set(APPTRAVERSE_ENABLE_SHARED_NODE ON)
+option(APPTRAVERSE_BUILD_EXAMPLES
+  "Build the window catalog and minimal application" ON)
+option(APPTRAVERSE_BUILD_LEGACY_EXAMPLES
+  "Build historical demos (main window, dynamic objects, SharedNode, chat) and their tests" OFF)
+option(APPTRAVERSE_BUILD_AETHER_DEMOS
+  "Build Aether network demos and their tests" OFF)
+option(APPTRAVERSE_BUILD_LINUX_GUI "Build Linux GTK hosts and native GUI tests" ON)
+
+# Full Aether client is needed only by chat/presence targets.
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES OR APPTRAVERSE_BUILD_AETHER_DEMOS)
+  CPMAddPackage(
+    NAME aether-client-cpp
+    GITHUB_REPOSITORY aethernetio/aether-client-cpp
+    GIT_TAG ${APPTRAVERSE_AETHER_GIT_TAG}
+    EXCLUDE_FROM_ALL NO
+    OPTIONS
+      "AE_INSTALL OFF"
+      "AE_BUILD_TESTS ${APPTRAVERSE_BUILD_AETHER_DEMOS}"
+  )
+endif()
 
 add_library(apptraverse STATIC
   src/apptraverse.cpp
@@ -106,6 +135,8 @@ add_library(apptraverse STATIC
   src/publication_serialization_scope.cpp
   src/ui_mirror.cpp
   src/model_runtime.cpp
+  src/application_model_runtime.cpp
+  src/application_ui_session.cpp
   src/graph_mirror.cpp
   src/link.cpp
   src/shared_node.cpp
@@ -117,34 +148,30 @@ add_library(apptraverse STATIC
   src/ui/ui_locale_settings.cpp
   src/ui/ui_window.cpp
   src/ui/ui_desktop_window.cpp
-  src/ui/ui_edit_box.cpp
   src/ui/ui_push_button.cpp
   src/ui/ui_push_button_presenter.cpp
   src/ui/ui_list_container.cpp
-  src/ui/ui_bitmap_image.cpp
   src/ui/ui_presenters.cpp
   src/ui/ui_registration.cpp
 )
-target_include_directories(apptraverse PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-# Object graph only. Full Aether client is linked by chat/presence targets.
-# PUBLIC compile policy so every AppTraverse-owned consumer gets /GR- or -fno-rtti.
+target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(apptraverse PUBLIC
-  aether::objects
-  aether::miscpp
-  apptraverse_compile_policy
-)
-
+  aether::objects aether::miscpp apptraverse_compile_policy)
+target_compile_features(apptraverse PUBLIC cxx_std_20)
 target_compile_definitions(apptraverse PUBLIC
-  AE_DISTILLATION=1
-  AE_FILTRATION=1
+  APPTRAVERSE_ENABLE_SHARED_NODE=1 AE_DISTILLATION=1 AE_FILTRATION=1)
+
+# Optional controls do not enter a catalog-only build or its registration.
+add_library(apptraverse_ui_extended STATIC EXCLUDE_FROM_ALL
+  src/ui/ui_edit_box.cpp
+  src/ui/ui_bitmap_image.cpp
+  src/ui/ui_presenters_edit_box.cpp
+  src/ui/ui_registration_extended.cpp
 )
+target_link_libraries(apptraverse_ui_extended PUBLIC apptraverse)
+
 if(WIN32)
-  target_compile_definitions(apptraverse PUBLIC
-    NOMINMAX
-    WIN32_LEAN_AND_MEAN
-  )
+  target_compile_definitions(apptraverse PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   add_library(apptraverse_ui_windows STATIC
     src/platform/windows/win_ui_utf8.cpp
     src/platform/windows/win_ui_frame.cpp
@@ -153,11 +180,18 @@ if(WIN32)
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
     src/platform/windows/win32_fatal.cpp
+    src/platform/windows/win_application_message_host.cpp
+    src/platform/windows/win_application_loading_window.cpp
+    src/platform/windows/win_application_host.cpp
   )
-  target_link_libraries(apptraverse_ui_windows PUBLIC apptraverse user32 gdi32 comctl32)
-  target_include_directories(apptraverse_ui_windows PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  target_link_libraries(apptraverse_ui_windows PUBLIC
+    apptraverse user32 gdi32 comctl32)
+  add_library(apptraverse_ui_windows_extended STATIC EXCLUDE_FROM_ALL
+    src/platform/windows/win_ui_presenters_extended.cpp
+    src/platform/windows/win_ui_registration_extended.cpp
   )
+  target_link_libraries(apptraverse_ui_windows_extended PUBLIC
+    apptraverse_ui_windows apptraverse_ui_extended)
 endif()
 
 set(_apptraverse_surfaces_common_sources
@@ -218,26 +252,25 @@ if(WIN32)
     apptraverse_surfaces_v1)
 endif()
 
-target_compile_features(apptraverse PUBLIC cxx_std_20)
-
-option(APPTRAVERSE_BUILD_EXAMPLES "Build upstream AppTraverse examples" OFF)
-option(APPTRAVERSE_BUILD_LINUX_GUI "Build Linux GTK hosts and native GUI tests" ON)
-
 if(APPTRAVERSE_BUILD_AETHER_DEMOS)
   add_subdirectory(examples/model_ui_runtime_demo)
   add_subdirectory(examples/chat_ui_runtime_demo)
   add_subdirectory(examples/aether_presence_monitor)
 endif()
 
-if(APPTRAVERSE_BUILD_EXAMPLES)
-add_subdirectory(examples/main_window_runtime_demo)
-add_subdirectory(examples/dynamic_objects_demo)
-add_subdirectory(examples/shared_node_demo)
-add_subdirectory(examples/chat_demo)
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
+  add_subdirectory(examples/main_window_runtime_demo)
+  add_subdirectory(examples/dynamic_objects_demo)
+  add_subdirectory(examples/shared_node_demo)
+  add_subdirectory(examples/chat_demo)
 endif()
 
 if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)
   add_subdirectory(examples/surfaces_demo)
+endif()
+
+if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
+  add_subdirectory(examples/minimal_app)
 endif()
 
 include(CTest)

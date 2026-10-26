@@ -21,7 +21,7 @@ class UiBitmapImage : public NodeFor<UiBitmapImage> {
   UiBitmapImage() = default;
 
  public:
-  explicit UiBitmapImage(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit UiBitmapImage(ae::ObjProp prop) : NodeFor{prop}, width{0}, height{0} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height), AE_MMBR(bgra_bytes),
                     AE_MMBR(presenter))
