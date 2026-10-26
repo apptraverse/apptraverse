@@ -7,7 +7,7 @@
 
 **Branch:** `integration/serialization-surfaces` (параллельно: **`integration/application-versioning`** — UI/host; см. [PLAN §координация](./PLAN.md#координация-с-integrationapplication-versioning)).
 
-**Подтверждённый HEAD (код):** **`df536e6`** (C0.2.2 overlay cleanup); roadmap docs — после **C0.3** (commit ниже).
+**Подтверждённый HEAD (код):** **`df536e6`** (C0.2.2); roadmap docs — **`9e91f4d`** (C0.3 PASS).
 
 **Baseline SHA (старт tracking fixtures):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
@@ -266,7 +266,7 @@ Happy path и семантические инварианты — сейчас; 
 | C0 | PASS | `df536e6` | C0.3 suite Debug **17/17**, Release **14/14** CTest | **C0.1–C0.3 PASS** — [§C0.3](#c03--верификация-сохранённых-механизмов-pass) |
 | C0.1 | PASS (doc) | `b6dcdae` | — | Аудит — [§C0.1](#c01--аудит-избыточности-object-core) |
 | C0.2 | PASS | `f36fc1d`/`df536e6` | prefab + overlay regressions | **C0.2.1** ClonePlan; **C0.2.2** `failed_` |
-| C0.3 | PASS (doc) | `fe0ff0c` | см. [§C0.3](#c03--верификация-сохранённых-механизмов-pass) | Верификация KEEP/DEFER; код не менялся |
+| C0.3 | PASS (doc) | `9e91f4d` | см. [§C0.3](#c03--верификация-сохранённых-механизмов-pass) | Верификация KEEP/DEFER; код не менялся |
 | 12A | PASS (doc) | `ed5eef9` / `4bda0ad` | — | Слой **`Obj/S1`** + отдельный `SaveVersion`; payload **`ObjId`** — **устаревший черновик** → **12R** |
 | 12R | TODO | — | — | Origin = lazy **`ObjPtr<ae::Obj>`** (или существующий scoped ref); **не** PASS в doc-only |
 | 12B | TODO | — | — | После **12R:** P(const)→A, roundtrip origin; **не** реализовано |
