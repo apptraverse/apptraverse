@@ -327,7 +327,7 @@ Happy path и семантические инварианты — сейчас; 
 | 12R.1 | PASS (doc) | `c00aafe`+ | — | Техпроверка pin **`79283b6`** — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only) |
 | 12R.2a | PASS | `ead8e61` | origin facet Debug+Release; persistence/prefab split Debug | [§12R.2a](#12r2a--базовый-objs1-origin-facet-pass-code) |
 | 12B | IN_PROGRESS | — | **12B.1 PASS**; **12B.2** disk/process TODO | P→A overlay origin; не полный **12B PASS** |
-| 12B.1 | PASS | *(land SHA below)* | `object_origin_facet_test`, `model_persistence_test`, `overlay_domain_storage_test` Debug+Release; prefab compaction/guard/dynamic-layer matrices Debug+Release | **`TestConstPrefabDynamicInstanceRoundtrip`** (`OriginFacetTargetV1`, USER/BACKING overlay) |
+| 12B.1 | PASS | `c1c8a12` | `object_origin_facet_test`, `model_persistence_test`, `overlay_domain_storage_test` Debug+Release; prefab compaction/guard/dynamic-layer matrices Debug+Release | **`TestConstPrefabDynamicInstanceRoundtrip`** (`OriginFacetTargetV1`, USER/BACKING overlay) |
 | 13 | TODO | — | — | **Универсальный Clone** (после **12B**) |
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
 | 15 | TODO | — | — | Единая модель поставок R/E/B/S; **T11–T15** |
