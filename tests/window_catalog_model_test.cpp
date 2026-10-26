@@ -102,6 +102,14 @@ void LoadPersistentCheckpointIntoCatalog(
   LoadPersistentModelSnapshot(checkpoint, domain, storage, catalog);
 }
 
+WindowCatalog::ptr LoadPersistedWindowCatalog(
+    ae::Domain& domain, DirectoryDomainStorage& storage,
+    ae::ObjId const& catalog_id, std::filesystem::path const& profile_dir) {
+  auto catalog = LoadApplication<WindowCatalog>(domain, catalog_id);
+  LoadPersistentCheckpointIntoCatalog(domain, storage, *catalog, profile_dir);
+  return catalog;
+}
+
 void ExpectReflectedGraphEdge(
     std::unordered_set<ae::ObjId::Type> const& reflected_ids,
     ae::ObjectPtrBase const& ref) {
@@ -295,7 +303,8 @@ void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
 
   DirectoryDomainStorage load_storage{dir};
   ae::Domain load_domain{load_storage};
-  auto reloaded = LoadApplication<WindowCatalog>(load_domain, ae::ObjId{catalog_id});
+  auto reloaded =
+      LoadPersistedWindowCatalog(load_domain, load_storage, catalog_id, dir);
   CHECK(reloaded->list->rows.size() == 2);
   CHECK(reloaded->next_window_number == 5);
 
@@ -377,9 +386,10 @@ void TestCatalogLocalizationUtf8Persisted() {
   }
   DirectoryDomainStorage reload_storage{dir};
   ae::Domain reload_domain{reload_storage};
-  auto reloaded = LoadApplication<WindowCatalog>(
-      reload_domain,
-      ae::ObjId{window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)});
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+  auto reloaded = LoadPersistedWindowCatalog(reload_domain, reload_storage,
+                                             catalog_id, dir);
   reloaded->MaterializeCatalogStrings(0);
   CHECK(reloaded->texts.label_add->Resolve(0) == "Add");
   CHECK(ReadInactiveUtf8(*reloaded->texts.label_add, 1) == "Добавить");
@@ -453,24 +463,8 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
 
     DirectoryDomainStorage storage_c{dir};
     ae::Domain domain_c{storage_c};
-    auto reloaded = LoadApplication<WindowCatalog>(domain_c, ae::ObjId{catalog_id});
-    std::ifstream checkpoint_in(dir / "persistent_model_checkpoint.bin",
-                                std::ios::binary | std::ios::ate);
-    CHECK(checkpoint_in);
-    auto const checkpoint_size =
-        static_cast<std::size_t>(checkpoint_in.tellg());
-    checkpoint_in.seekg(0, std::ios::beg);
-    std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
-    if (checkpoint_size > 0) {
-      checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
-                       static_cast<std::streamsize>(checkpoint_size));
-      CHECK(static_cast<bool>(checkpoint_in));
-    }
-    ByteSource checkpoint;
-    checkpoint.data = checkpoint_bytes.data();
-    checkpoint.size = checkpoint_bytes.size();
-    checkpoint.pos = 0;
-    LoadPersistentModelSnapshot(checkpoint, domain_c, storage_c, *reloaded);
+    auto reloaded =
+        LoadPersistedWindowCatalog(domain_c, storage_c, catalog_id, dir);
 
     CHECK(reloaded->base.is_valid());
     CHECK(reloaded->base.is_loaded());
@@ -505,23 +499,8 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
 
   DirectoryDomainStorage storage_c{dir};
   ae::Domain domain_c{storage_c};
-  auto catalog = LoadApplication<WindowCatalog>(domain_c, ae::ObjId{catalog_id});
-  std::ifstream checkpoint_in(dir / "persistent_model_checkpoint.bin",
-                              std::ios::binary | std::ios::ate);
-  CHECK(checkpoint_in);
-  auto const checkpoint_size = static_cast<std::size_t>(checkpoint_in.tellg());
-  checkpoint_in.seekg(0, std::ios::beg);
-  std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
-  if (checkpoint_size > 0) {
-    checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
-                     static_cast<std::streamsize>(checkpoint_size));
-    CHECK(static_cast<bool>(checkpoint_in));
-  }
-  ByteSource checkpoint;
-  checkpoint.data = checkpoint_bytes.data();
-  checkpoint.size = checkpoint_bytes.size();
-  checkpoint.pos = 0;
-  LoadPersistentModelSnapshot(checkpoint, domain_c, storage_c, *catalog);
+  auto catalog =
+      LoadPersistedWindowCatalog(domain_c, storage_c, catalog_id, dir);
   CHECK(catalog->list.is_valid());
   CHECK(catalog->list->rows.size() == 3);
   CHECK(catalog->next_window_number == 4);
@@ -606,7 +585,8 @@ void TestCatalogSaveAfterLanguageToggleAndChildClose() {
 
   DirectoryDomainStorage load_storage{dir};
   ae::Domain load_domain{load_storage};
-  auto catalog = LoadApplication<WindowCatalog>(load_domain, catalog_id);
+  auto catalog =
+      LoadPersistedWindowCatalog(load_domain, load_storage, catalog_id, dir);
   CHECK(catalog->list->rows.size() == 3);
   CHECK(AsHolder(catalog->list->rows[0])->window.is_loaded());
   CHECK(AsHolder(catalog->list->rows[1])->window.is_loaded());
@@ -673,7 +653,8 @@ void TestCatalogWindowFrameSurvivesCloseReload() {
   ae::Domain load_domain{load_storage};
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
-  auto reloaded = LoadApplication<WindowCatalog>(load_domain, catalog_id);
+  auto reloaded =
+      LoadPersistedWindowCatalog(load_domain, load_storage, catalog_id, dir);
   WindowHolder* r0 = AsHolder(reloaded->list->rows[0]);
   reloaded->OpenHolderWindow(*r0);
   CHECK(r0->window->x() == 280);
@@ -906,24 +887,8 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
 
   DirectoryDomainStorage load_storage{dir};
   ae::Domain load_domain{load_storage};
-  auto loaded = LoadApplication<WindowCatalog>(load_domain, catalog_id);
-  std::ifstream checkpoint_in(dir / "persistent_model_checkpoint.bin",
-                              std::ios::binary | std::ios::ate);
-  CHECK(checkpoint_in);
-  auto const checkpoint_size =
-      static_cast<std::size_t>(checkpoint_in.tellg());
-  checkpoint_in.seekg(0, std::ios::beg);
-  std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
-  if (checkpoint_size > 0) {
-    checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
-                       static_cast<std::streamsize>(checkpoint_size));
-    CHECK(static_cast<bool>(checkpoint_in));
-  }
-  ByteSource checkpoint;
-  checkpoint.data = checkpoint_bytes.data();
-  checkpoint.size = checkpoint_bytes.size();
-  checkpoint.pos = 0;
-  LoadPersistentModelSnapshot(checkpoint, load_domain, load_storage, *loaded);
+  auto loaded =
+      LoadPersistedWindowCatalog(load_domain, load_storage, catalog_id, dir);
 
   CHECK(loaded->list->rows.size() == 2);
   CHECK(loaded->next_window_number == 3);
@@ -978,10 +943,8 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   {
     DirectoryDomainStorage replay_storage{invalid_base_profile_dir};
     ae::Domain replay_domain{replay_storage};
-    auto replay_catalog =
-        LoadApplication<WindowCatalog>(replay_domain, catalog_id);
-    LoadPersistentCheckpointIntoCatalog(replay_domain, replay_storage,
-                                        *replay_catalog, invalid_base_profile_dir);
+    auto replay_catalog = LoadPersistedWindowCatalog(
+        replay_domain, replay_storage, catalog_id, invalid_base_profile_dir);
     std::size_t const journal_size_before = replay_catalog->journal.size();
     std::size_t const rows_before = replay_catalog->list->rows.size();
     std::uint32_t const next_before = replay_catalog->next_window_number;
@@ -1006,10 +969,8 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   {
     DirectoryDomainStorage replay_storage{replay_profile_dir};
     ae::Domain replay_domain{replay_storage};
-    auto replay_catalog =
-        LoadApplication<WindowCatalog>(replay_domain, catalog_id);
-    LoadPersistentCheckpointIntoCatalog(replay_domain, replay_storage,
-                                        *replay_catalog, replay_profile_dir);
+    auto replay_catalog = LoadPersistedWindowCatalog(
+        replay_domain, replay_storage, catalog_id, replay_profile_dir);
     CHECK(replay_catalog->journal.size() == saved_journal_size);
     CHECK(replay_catalog->base.is_valid());
     CHECK(replay_catalog->base.is_loaded());
@@ -1111,10 +1072,8 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   {
     DirectoryDomainStorage cold_storage{replay_profile_dir};
     ae::Domain cold_domain{cold_storage};
-    auto cold_catalog =
-        LoadApplication<WindowCatalog>(cold_domain, catalog_id);
-    LoadPersistentCheckpointIntoCatalog(cold_domain, cold_storage, *cold_catalog,
-                                        replay_profile_dir);
+    auto cold_catalog = LoadPersistedWindowCatalog(
+        cold_domain, cold_storage, catalog_id, replay_profile_dir);
 
     CHECK(cold_catalog->obj_id == expected_replay_catalog_id);
     CHECK(cold_catalog->base.is_valid());
@@ -1340,10 +1299,9 @@ void TestWindowCatalogChromeButtonDistilledBaseReplay() {
   {
     DirectoryDomainStorage cold_storage{dir};
     ae::Domain cold_domain{cold_storage};
-    auto cold_catalog =
-        LoadApplication<WindowCatalog>(cold_domain, ToObjId(ObjId::Catalog));
-    LoadPersistentCheckpointIntoCatalog(cold_domain, cold_storage, *cold_catalog,
-                                        dir);
+    ae::ObjId const cold_catalog_id = ToObjId(ObjId::Catalog);
+    auto cold_catalog = LoadPersistedWindowCatalog(
+        cold_domain, cold_storage, cold_catalog_id, dir);
     CHECK(cold_catalog->locale.is_valid());
     CHECK(cold_catalog->locale.is_loaded());
     cold_catalog->MaterializeCatalogStrings(
@@ -1536,7 +1494,8 @@ void TestCatalogPresentedWindowGraph() {
 
     DirectoryDomainStorage reload_storage{dir};
     ae::Domain reload_domain{reload_storage};
-    auto reloaded = LoadApplication<WindowCatalog>(reload_domain, catalog_id);
+    auto reloaded =
+        LoadPersistedWindowCatalog(reload_domain, reload_storage, catalog_id, dir);
     WindowHolder* r0 = AsHolder(reloaded->list->rows[0]);
     CHECK(r0->window.id() == p_window_id);
     CHECK(!r0->window.is_loaded());
@@ -1570,7 +1529,8 @@ void TestCatalogPresentedWindowGraph() {
 
   DirectoryDomainStorage cold_load_storage{cold_dir};
   ae::Domain cold_load_domain{cold_load_storage};
-  auto cold = LoadApplication<WindowCatalog>(cold_load_domain, catalog_id);
+  auto cold = LoadPersistedWindowCatalog(cold_load_domain, cold_load_storage,
+                                         catalog_id, cold_dir);
   CHECK(MainWindowPresented(*cold).presenter.id() ==
         ToObjId(ObjId::MainWindowPresenter));
   CHECK(cold->main_window.id() == ToObjId(ObjId::MainWindow));
