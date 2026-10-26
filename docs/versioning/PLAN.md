@@ -67,7 +67,7 @@
 
 **Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
 
-**Следующий активный шаг:** **12R.2** — реализация по [§12R.1](#12r1--техническая-проверка-pass-doc) (CPM + API + тесты). **12R.1 PASS (doc)**. **12R/12B** — **TODO** (код). **C0 PASS**.
+**Следующий активный шаг:** **12R.2b** — post-`Save<T>` hook + Obj factory для `LoadStoredLayers` (после **12R.2a**). **12R.2a PASS** (facet API + ручной `SaveVersion`/`LoadVersion`, без auto-hook). **12R/12B** — **TODO**. **C0 PASS**.
 
 ---
 
@@ -507,11 +507,21 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 **Устаревшая часть 12A:** payload = голый **`ae::ObjId`**. **Не** является финальным решением; **не** реализовано в коде.
 
-#### 12R — уточнение origin (TODO; **12R.1** doc PASS)
+#### 12R — уточнение origin (TODO; **12R.1** doc PASS; **12R.2a** code PASS)
 
-**Целевой контракт (согласованный план):** persisted-слой **`(instance ObjId, Obj::kClassId, S=1)`** с полем **штатной lazy object reference**; origin **не** Window/Node; **нет** external registry; **нет** `PrefabPtr` в production.
+**Целевой контракт (согласованный plan):** persisted-слой **`(instance ObjId, Obj::kClassId, S=1)`** с полем **штатной lazy object reference**; origin **не** Window/Node; **нет** external registry; **нет** `PrefabPtr` в production.
 
-**12R PASS** — только после **12R.2** (код + roundtrip-тесты). **12B** — после **12R PASS**.
+**12R PASS** — после **12R.2b** (auto Save hook + Obj factory + cold load) и полного roundtrip. **12B** — после **12R PASS**.
+
+#### 12R.2a — базовый Obj/S1 origin facet (**PASS**, code)
+
+**Сделано:** CPM [`aether-objects-origin-facet.patch`](../../cmake/patches/aether-objects-origin-facet.patch) на pin **`79283b6`**: `Obj::SetOriginId` / `origin_id()` / `ShouldSaveVersion(V1)` / protected `Load|Save(V1)` + `friend DomainGraph`; **`Obj::CurrentVersion` остаётся V0**; **без** post-`Save<T>` hook и **без** Obj factory.
+
+**Versioning fix (тот же patch, `domain.h`):** `LoadVersion`/`SaveVersion` вызывают protected **`Obj` V1** через `(T==Obj && V==1)` — иначе `HasAnyVersionedSave<Obj>` ложно false; **`ShouldSaveVersion` в `Save<T>`** ограничен **`T==Obj`**, чтобы публичный `Obj::ShouldSaveVersion(V1)` не подавлял **`Derived/S1`**.
+
+**Тест:** `apptraverse_object_origin_facet_test` (`RamDomainStorage`, ручной `SaveVersion`/`LoadVersion`).
+
+**Не в scope 12R.2a:** автоматический facet save, `LoadStoredLayers` factory, `object_origin.h`, **12B**.
 
 #### 12R.1 — техническая проверка (PASS, doc-only)
 

@@ -2066,6 +2066,15 @@ add_test(
     -P ${CMAKE_CURRENT_LIST_DIR}/presenter_platform_persist_run.cmake
 )
 
+add_executable(apptraverse_object_origin_facet_test
+  object_origin_facet_test.cpp
+)
+target_link_libraries(apptraverse_object_origin_facet_test PRIVATE apptraverse)
+add_test(
+  NAME apptraverse_object_origin_facet_test
+  COMMAND apptraverse_object_origin_facet_test
+)
+
 add_executable(apptraverse_model_persistence_test
   model_persistence_test.cpp
 )

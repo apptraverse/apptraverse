@@ -13,7 +13,7 @@
 
 **Порядок работ:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Текущий этап:** **12R.1 PASS (doc)**; следующий код — **12R.2** (CPM + API). **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); payload **`ObjId`** пересматривается в **12R** (lazy **`ObjPtr`**, **не** реализовано). **12R**, **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
+**Текущий этап:** **12R.2a PASS**; следующий код — **12R.2b** (Save hook + Obj factory). **12R/12B TODO**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); payload **`ObjId`** пересматривается в **12R** (lazy **`ObjPtr`**, **не** реализовано). **12R**, **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
 
 **OPEN:** динамический источник Clone **без** устойчивого const **P** — явное решение, не silent fallback ([PLAN §13](./PLAN.md#13--универсальный-clone)).
 
@@ -268,7 +268,30 @@ Happy path и семантические инварианты — сейчас; 
 
 **Blockers для автоматической safety:** materialized origin → USER write of **P** (discipline); **не** blocker для выбора типа.
 
-**12R** / **12B:** **TODO** (implementation). Детали: [PLAN §12R.1](./PLAN.md#12r1--техническая-проверка-pass-doc-only).
+**12R** / **12B:** **TODO** (implementation). **12R.2a PASS** — [§12R.2a](#12r2a--базовый-objs1-origin-facet-pass-code). Детали: [PLAN §12R.1](./PLAN.md#12r1--техническая-проверка-pass-doc-only).
+
+---
+
+## 12R.2a — базовый Obj/S1 origin facet (**PASS**, code)
+
+**Patch:** [`aether-objects-origin-facet.patch`](../../cmake/patches/aether-objects-origin-facet.patch) (`obj.h` / `obj.cpp` / `domain.h`), подключён в `cmake/aether_version.cmake` + root `CMakeLists.txt`.
+
+**Семантика API:**
+
+| API | Поведение |
+| --- | --- |
+| `SetOriginId(P)` | `ObjPtr<Obj>::Declare` с **`kUnloadedByDefault \| kUnloaded`**, без `cached_`; invalid/`domain==nullptr` → `origin_.Reset()` |
+| `origin_id()` | `origin_.id()` |
+| `ShouldSaveVersion(V1)` | `origin_.is_valid() && !origin_.is_loaded()` |
+| `Save(V1)` | `dnv(origin_)`; **`std::abort()`** если `origin_.is_loaded()` (fail-closed) |
+| `Load(V1)` | `dnv(origin_)` — после load ссылка lazy |
+| Ручной facet | `SaveVersion(V1, static_cast<Obj const&>(obj), id)` → ключ **`Obj::kClassId/1`**; **не** участвует в `Save<Derived>` без hook |
+
+**Versioning:** protected `Obj::Load/Save(V1)` **не** попадают в `VersionSaveTrait<Derived,1>`; `domain.h` — явный путь **`T==Obj && V==1`**; `ShouldSaveVersion` в обходе `Save<T>` только для **`T==Obj`**.
+
+**Тесты (выполнено):** Debug — `apptraverse_object_origin_facet_test`, `apptraverse_model_persistence_test`, `apptraverse_prefab_release_supply_split_test` **PASS**; Release — origin + model_persistence **PASS**.
+
+**Ограничения / следующий шаг:** нет auto-hook в `DomainGraph::Save<T>`; нет Obj factory → cold **`LoadStoredLayers`** для **Obj/1** не покрыт; materialized origin по-прежнему operational risk (**12R.2b+**).
 
 ---
 
@@ -292,8 +315,9 @@ Happy path и семантические инварианты — сейчас; 
 | C0.2 | PASS | `f36fc1d`/`df536e6` | prefab + overlay regressions | **C0.2.1** ClonePlan; **C0.2.2** `failed_` |
 | C0.3 | PASS (doc) | `9e91f4d` | см. [§C0.3](#c03--верификация-сохранённых-механизмов-pass) | Верификация KEEP/DEFER; код не менялся |
 | 12A | PASS (doc) | `ed5eef9` / `4bda0ad` | — | Слой **`Obj/S1`** + отдельный `SaveVersion`; payload **`ObjId`** — **устаревший черновик** → **12R** |
-| 12R | TODO | — | — | **12R.1 PASS (doc):** `ObjPtr<Obj>` lazy + **Obj/S1** facet; **12R.2** код |
+| 12R | TODO | — | — | **12R.2a PASS**; **12R.2b** hook + factory; полный **12R PASS** — после **12R.2b** |
 | 12R.1 | PASS (doc) | `c00aafe`+ | — | Техпроверка pin **`79283b6`** — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only) |
+| 12R.2a | PASS | (commit) | origin facet Debug+Release; persistence/prefab split Debug | [§12R.2a](#12r2a--базовый-objs1-origin-facet-pass-code) |
 | 12B | TODO | — | — | После **12R:** P(const)→A, roundtrip origin; **не** реализовано |
 | 13 | TODO | — | — | **Универсальный Clone** (после **12B**) |
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
@@ -359,6 +383,7 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-25** — **C0.2.2:** `BackingComparedStorageWriter::failed_`; Debug **11/11**, Release prefab+persistence **10/10** CTest; **C0.2 PASS**; push — **`df536e6`**, docs **`7322b9c`**.
 - **2026-10-25** — **C0.3 (doc):** верификация оснований → [§C0.3](#c03--верификация-сохранённых-механизмов-pass); Debug **17/17**, Release **14/14** CTest; **C0 PASS**; push — **`c00aafe`**.
 - **2026-10-25** — **12R.1 (doc):** техпроверка origin — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only); **12R.1 PASS**; **12R/12B TODO**; push — SHA commit ниже.
+- **2026-10-25** — **12R.2a:** CPM origin facet + `apptraverse_object_origin_facet_test`; versioning fix в `domain.h`; Debug origin + model_persistence + prefab supply split; Release origin + model_persistence; **12R.2a PASS**; **12R TODO**; push — SHA commit ниже.
 - **2026-10-24** — **06B:** fixture `EnsurePrefabVersionInHistoricalBase` (S1 в instance `Node::base` при первом delta-Event); embed BACKING v30 (`posx=30`) replay остаётся 15; delta-first eager/lazy; `FutureUnknownJournalEvent` fail-closed на old EXE; matrix runner (отдельные state dirs, exit=0, manifest); **06B PASS**; Debug/Release `apptraverse_prefab_release_matrix`; push — **`ce46b80`**.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
