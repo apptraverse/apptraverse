@@ -433,6 +433,7 @@ void TestSupplyConstantWithHistoricalBaseSave() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestQueryLevelForceMaterialize();
   apptraverse::test::TestDomainGraphForcePropagation();
   apptraverse::test::TestHistoricalBaseUserMaterialization();

@@ -294,6 +294,7 @@ void TestDistilledGraphLoadFromEmbeddedBacking() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestLayerInstallation();
   apptraverse::test::TestDistilledGraphLoadFromEmbeddedBacking();
   return 0;
