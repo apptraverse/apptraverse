@@ -662,28 +662,34 @@ void TestFinalOriginRoundtripV1WithShouldSaveVersion() {
       });
 }
 
-void TestPrefabOriginOverlayRoundtrip() {
+void TestConstPrefabDynamicInstanceRoundtrip() {
   ae::ObjId const P_id{81001u};
   ae::ObjId const A_id{81002u};
-  std::uint32_t const kPrefabValue = 150u;
-  std::uint32_t const kMutatedValue = 1601u;
+  std::uint32_t const kValue = 150u;
+  std::uint32_t const kTag = 251u;
 
   ae::RamDomainStorage backing;
   {
     ae::Domain domain{backing};
-    OriginFacetTargetV0::ptr prefab = OriginFacetTargetV0::ptr::Create(
+    OriginFacetTargetV1::ptr prefab = OriginFacetTargetV1::ptr::Create(
         ae::CreateWith{domain}.with_id(P_id));
-    prefab.Load()->value = kPrefabValue;
+    ae::Ptr<OriginFacetTargetV1> prefab_body = prefab.Load();
+    prefab_body->value = kValue;
+    prefab_body->tag = kTag;
     ae::DomainGraph graph{&domain};
-    if (!graph.SaveRoot(prefab.Load(), P_id).IsOk()) {
+    if (!graph.SaveRoot(prefab_body, P_id).IsOk()) {
       Fail("SaveRoot P to BACKING");
     }
-    if (prefab.Load()->origin_id().is_valid()) {
+    if (prefab_body->origin_id().is_valid()) {
       Fail("P must not have origin");
     }
-  }
-  if (!HasStoredLayer(backing, P_id, OriginFacetTargetV0::kClassId, 0)) {
-    Fail("P missing Derived/S0 in BACKING");
+    if (!HasStoredLayer(backing, P_id, OriginFacetTargetV1::kClassId, 0) ||
+        !HasStoredLayer(backing, P_id, OriginFacetTargetV1::kClassId, 1)) {
+      Fail("P missing Derived S0/S1 in BACKING");
+    }
+    if (HasStoredLayer(backing, P_id, ae::Obj::kClassId, 1)) {
+      Fail("P must not persist Obj/S1 without origin");
+    }
   }
   ae::RamDomainStorage::ObjClassData const backing_snapshot = backing.state;
 
@@ -691,39 +697,29 @@ void TestPrefabOriginOverlayRoundtrip() {
   std::set<ae::ObjId> supply_constants{P_id};
   apptraverse::OverlayDomainStorage overlay{user, backing, std::move(supply_constants)};
 
-  StoredLayerSet layers_after_first_save;
+  StoredLayerSet layers_after_save;
   {
     ae::Domain domain{overlay};
-    ae::DomainGraph graph{&domain};
-    ae::Ptr<ae::Obj> prefab_root;
-    if (!graph.LoadRoot(P_id, prefab_root).IsOk()) {
-      Fail("LoadRoot P from overlay");
-    }
-    ae::Ptr<OriginFacetTargetV0> prefab{prefab_root};
-    if (prefab->value != kPrefabValue) {
-      Fail("prefab field mismatch after load");
-    }
-
-    OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
+    OriginFacetTargetV1::ptr instance = OriginFacetTargetV1::ptr::Create(
         ae::CreateWith{domain}.with_id(A_id));
-    ae::Ptr<OriginFacetTargetV0> instance_body = instance.Load();
-    instance_body->value = prefab->value;
+    ae::Ptr<OriginFacetTargetV1> instance_body = instance.Load();
+    instance_body->value = kValue;
+    instance_body->tag = kTag;
     instance_body->SetOriginId(P_id);
     if (A_id == P_id) {
       Fail("A and P must have distinct ObjIds");
     }
+    ae::DomainGraph graph{&domain};
     if (!graph.SaveRoot(instance_body, A_id).IsOk()) {
-      Fail("SaveRoot dynamic A");
+      Fail("SaveRoot dynamic A to USER");
     }
-    layers_after_first_save = CollectStoredLayers(user, A_id);
+    layers_after_save = CollectStoredLayers(user, A_id);
   }
 
-  if (!HasStoredLayer(user, A_id, OriginFacetTargetV0::kClassId, 0) ||
+  if (!HasStoredLayer(user, A_id, OriginFacetTargetV1::kClassId, 0) ||
+      !HasStoredLayer(user, A_id, OriginFacetTargetV1::kClassId, 1) ||
       !HasStoredLayer(user, A_id, ae::Obj::kClassId, 1)) {
-    Fail("USER missing Derived/S0 or Obj/S1 for A");
-  }
-  if (HasStoredLayer(user, A_id, OriginFacetTargetV0::kClassId, 1)) {
-    Fail("spurious Derived/S1 on A in USER");
+    Fail("USER missing A Derived S0/S1 or Obj/S1");
   }
   if (UserHasAnyLayers(user, P_id)) {
     Fail("USER contains layers for supply-constant P");
@@ -731,8 +727,17 @@ void TestPrefabOriginOverlayRoundtrip() {
   if (!BackingStateUnchanged(backing, backing_snapshot)) {
     Fail("BACKING changed after SaveRoot(A)");
   }
-  if (layers_after_first_save.size() != 2u) {
+  if (layers_after_save.size() != 2u) {
     Fail("unexpected ClassId count on A in USER");
+  }
+  if (layers_after_save[OriginFacetTargetV1::kClassId] !=
+      StoredLayerSet::mapped_type{0, 1}) {
+    Fail("unexpected Derived S versions on A in USER");
+  }
+  auto const& obj_layers = layers_after_save.at(ae::Obj::kClassId);
+  if (obj_layers.count(1) == 0 ||
+      obj_layers != std::set<std::uint8_t>{0, 1}) {
+    Fail("unexpected Obj S layers on A in USER (expected S0+S1 with origin facet)");
   }
 
   {
@@ -740,66 +745,34 @@ void TestPrefabOriginOverlayRoundtrip() {
     ae::DomainGraph graph{&domain};
     ae::Ptr<ae::Obj> instance_root;
     if (!graph.LoadRoot(A_id, instance_root).IsOk()) {
-      Fail("cold LoadRoot(A) without loading P first");
+      Fail("cold LoadRoot(A) without loading P");
     }
-    ae::Ptr<OriginFacetTargetV0> instance{instance_root};
+    ae::Ptr<OriginFacetTargetV1> instance{instance_root};
     if (instance->obj_id != A_id ||
-        instance->GetClassId() != OriginFacetTargetV0::kClassId) {
+        instance->GetClassId() != OriginFacetTargetV1::kClassId) {
       Fail("cold LoadRoot A identity");
     }
-    if (instance->value != kPrefabValue || instance->origin_id() != P_id) {
-      Fail("cold LoadRoot A value or origin");
+    if (instance->value != kValue || instance->tag != kTag ||
+        instance->origin_id() != P_id) {
+      Fail("cold LoadRoot A value/tag/origin");
     }
     if (domain.Find(P_id)) {
       Fail("P materialized during cold LoadRoot(A)");
     }
-
-    instance->value = kMutatedValue;
     ae::DomainGraph save_graph{&domain};
     if (!save_graph.SaveRoot(instance, A_id).IsOk()) {
-      Fail("SaveRoot A after field mutation");
+      Fail("repeat SaveRoot(A) after cold load");
     }
-  }
-
-  if (UserHasAnyLayers(user, P_id)) {
-    Fail("USER gained P layers after mutating A");
-  }
-  if (!BackingStateUnchanged(backing, backing_snapshot)) {
-    Fail("BACKING changed after mutating A");
-  }
-
-  {
-    ae::Domain domain{overlay};
-    ae::DomainGraph graph{&domain};
-    ae::Ptr<ae::Obj> instance_root;
-    if (!graph.LoadRoot(A_id, instance_root).IsOk()) {
-      Fail("second cold LoadRoot(A)");
-    }
-    ae::Ptr<OriginFacetTargetV0> instance{instance_root};
-    if (instance->value != kMutatedValue) {
-      Fail("second cold load A value");
-    }
-    if (instance->origin_id() != P_id) {
-      Fail("second cold load A origin");
-    }
-    if (domain.Find(P_id)) {
-      Fail("P materialized on second cold LoadRoot(A)");
-    }
-
-    ae::DomainGraph save_graph{&domain};
-    if (!save_graph.SaveRoot(instance, A_id).IsOk()) {
-      Fail("repeat SaveRoot(A) after second cold load");
-    }
-    if (CollectStoredLayers(user, A_id) != layers_after_first_save) {
+    if (CollectStoredLayers(user, A_id) != layers_after_save) {
       Fail("repeat SaveRoot(A) changed USER layer set");
     }
   }
 
   if (UserHasAnyLayers(user, P_id)) {
-    Fail("P present in USER after full roundtrip");
+    Fail("P present in USER after cold load cycle");
   }
   if (!BackingStateUnchanged(backing, backing_snapshot)) {
-    Fail("BACKING changed after full roundtrip");
+    Fail("BACKING changed after cold load cycle");
   }
 }
 
@@ -849,7 +822,7 @@ int main() {
   TestLoadRootRejectsObjFacetOnlyStorage();
   TestFinalOriginRoundtripV0();
   TestFinalOriginRoundtripV1WithShouldSaveVersion();
-  TestPrefabOriginOverlayRoundtrip();
+  TestConstPrefabDynamicInstanceRoundtrip();
   std::cout << "object_origin_facet_test OK\n";
   return 0;
 }

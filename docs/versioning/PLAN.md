@@ -591,7 +591,7 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 #### 12B.1 — P(const) → A(dynamic) overlay roundtrip (**PASS**)
 
-**Тест:** `TestPrefabOriginOverlayRoundtrip` в **`apptraverse_object_origin_facet_test`**: **P** (`OriginFacetTargetV0`) в **BACKING**; **`OverlayDomainStorage`** + **`supply_constant_ids={P}`**; загрузка **P**, явное копирование полей в **A**, **`SetOriginId(P)`**, **`SaveRoot(A)`** → **Derived/S0** + **Obj/S1** в USER; cold **`LoadRoot(A)`**; мутация **A** + **`SaveRoot`** на **новом `DomainGraph`**; второй cold load; **P** не в USER, **BACKING** неизменен.
+**Тест:** `TestConstPrefabDynamicInstanceRoundtrip` в **`apptraverse_object_origin_facet_test`**: **P** (`OriginFacetTargetV1`) в **BACKING**; **`OverlayDomainStorage`** + **`supply_constant_ids={P}`**; **A** с новым ObjId, поля **value/tag** как fixture prep (без Clone), **`SetOriginId(P)`**, **`SaveRoot(A)`** → **Derived S0/S1** + **Obj/S1** в USER; cold **`LoadRoot(A)`** без materialize **P**; repeat **`SaveRoot(A)`**; **P** не в USER, **BACKING** неизменен.
 
 **Не в scope 12B.1:** **`object_origin.h`**, disk USER, multi-process, Clone.
 
