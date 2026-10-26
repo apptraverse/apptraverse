@@ -4,7 +4,7 @@
 
 **Архитектурная редакция:** **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)**; детализация Object Core — **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)). Согласовано с параллельной веткой **`integration/application-versioning`**.
 
-**Подтверждённый HEAD (код):** **`66515d8`**; документы roadmap — **`4bda0ad`**.
+**Подтверждённый HEAD (код):** **`df536e6`** (C0.2.2); roadmap docs — обновляются с **C0.3** (базовый Object Core **`66515d8`**).
 
 **Сверка с Google Doc:** прямой доступ к документу «AppTraverse — версионирование состояния и жизненный цикл поставок» ([ссылка](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit)) недоступен (403). Нумерация **T01–T18** приведена в соответствие с текстом исходного Doc (ручная сверка по постановке); остальной контракт — из аудита репозитория на baseline `19d7da6`.
 
@@ -43,11 +43,11 @@
 
 ## Порядок работ (после 11)
 
-**Сейчас:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**. Этапы **17–22** — roadmap; часть application/UI — параллельно в **`integration/application-versioning`** ([координация](#координация-с-integrationapplication-versioning)).
+**Сейчас:** **12R** → **12B** → **13** → **14** → **15** → **16** (**C0 PASS**). Этапы **17–22** — roadmap; часть application/UI — параллельно в **`integration/application-versioning`** ([координация](#координация-с-integrationapplication-versioning)).
 
 ---
 
-## Текущее состояние (код `66515d8`, docs `4bda0ad`)
+## Текущее состояние (код `df536e6`)
 
 История итераций **01–11** не переписывается.
 
@@ -58,7 +58,7 @@
 | **11A** | **PASS** — полная compaction WindowC на R2. |
 | **11B.1** | Обнаруженная и воспроизведённая регрессия (R1 compact без guard). |
 | **11B.2** | **PASS** — guard компактации при неизвестных persisted S у Node и historical base. |
-| **C0** | **IN_PROGRESS** — **C0.1 PASS (doc, `b6dcdae`)**; **C0.2**/**C0.3** TODO. |
+| **C0** | **PASS** — **C0.1** doc, **C0.2.1**/`C0.2.2` код, **C0.3** верификация ([PROGRESS §C0.3](./PROGRESS.md#c03--верификация-сохранённых-механизмов-pass)). |
 | **Итерация 11** | **IN_PROGRESS** (fixture compaction/replay; полный **T16/T17** — нет). |
 | **T16/T17** | Частичное покрытие; **не** PASS. |
 | **Полный R0–R5**, **T01–T18** | **Не** завершены. |
@@ -67,7 +67,7 @@
 
 **Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
 
-**Следующий активный шаг:** **C0.3** — зафиксировать сохранённые основания (EnsureObjectRegistration, `force_materialize`, `ShouldSaveVersion`, guard **11B.2**, Æther patches) без дальнейшего удаления до **12R**. **C0.2 PASS** (**C0.2.1** + **C0.2.2**). Fixture **PASS** ≠ библиотечный механизм.
+**Следующий активный шаг:** **12R** — уточнение origin (`Obj/S1` + lazy `ObjPtr`), проверка на актуальных исходниках; **без** кода в doc-only задачах. **C0 PASS**. Fixture **PASS** ≠ библиотечный origin/Clone (**13**).
 
 ---
 
@@ -492,9 +492,9 @@ Wire-формат и новый GraphManager **не** добавлялись.
 - **Цель:** убрать доказанно лишние обходы **до** **12R**; сохранить основания **10E**, **11B.2**, journal/base, Æther serialization.
 - **C0.1 — аудит:** **PASS (doc, `b6dcdae`)** — таблица в [PROGRESS §C0.1](./PROGRESS.md#c01--аудит-избыточности-object-core) (KEEP/REMOVE/SIMPLIFY/DEFER).
 - **C0.2 — минимальная очистка:** **PASS** — **C0.2.1** dead `ClonePlan` API; **C0.2.2** `BackingComparedStorageWriter::failed_`. Дальнейшие удаления в C0.2 **не** планируются (см. [PROGRESS §C0.2](./PROGRESS.md#c02--упорядоченные-минимальные-изменения)).
-- **C0.3 — сохранить основания (TODO):** без удаления без замены — см. bullet **C0.3** ниже; завершение **C0 PASS** после верификации списка + регрессий.
-- **C0.3 — сохранить без удаления без замены:** `EnsureObjectRegistration`; `force_materialize`; `ShouldSaveVersion`; guard **11B.2**; ключ `ObjId/ClassId/S`; unknown newer S; historical base + journal; штатный Æther. **Не** менять опубликованные ClassId, S0, семантику старых Events ради очистки.
-- **PASS:** только после **C0.2** с зелёными регрессиями | **Статус:** **TODO**
+- **C0.3 — верификация оснований:** **PASS (doc, `7322b9c`+)** — таблица инвариантов [PROGRESS §C0.3](./PROGRESS.md#c03--верификация-сохранённых-механизмов-pass); код **не** менялся.
+- **Сохранено без удаления (контракт C0.3):** `EnsureObjectRegistration`; `force_materialize`; `ShouldSaveVersion`; guard **11B.2**; ключ `ObjId/ClassId/S`; unknown newer S; historical base + journal; штатный Æther; опубликованные ClassId/S0/S1 fixture Events.
+- **PASS:** **C0.2** регрессии + **C0.3** верификация | **Статус:** **PASS**
 
 ### 12 — Системный origin
 

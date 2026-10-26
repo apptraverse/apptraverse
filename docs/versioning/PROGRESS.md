@@ -7,7 +7,7 @@
 
 **Branch:** `integration/serialization-surfaces` (параллельно: **`integration/application-versioning`** — UI/host; см. [PLAN §координация](./PLAN.md#координация-с-integrationapplication-versioning)).
 
-**Подтверждённый HEAD (код/тесты):** `66515d8`; docs до этой синхронизации — **`4bda0ad`**.
+**Подтверждённый HEAD (код):** **`df536e6`** (C0.2.2 overlay cleanup); roadmap docs — после **C0.3** (commit ниже).
 
 **Baseline SHA (старт tracking fixtures):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
