@@ -13,7 +13,7 @@
 
 **Порядок работ:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Текущий этап:** **12R PASS** (origin facet + auto save + cold **`LoadRoot`** + финальный roundtrip); **12B TODO**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); payload **`ObjId`** пересматривается в **12R** (lazy **`ObjPtr`**, **не** реализовано). **12R**, **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
+**Текущий этап:** **12R PASS** (origin facet + auto save + cold **`LoadRoot`** + финальный roundtrip); **12B TODO**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); lazy **`ObjPtr`** origin — **12R PASS** (`9981e0f`). **12B**, **13–22** — **не** реализованы. **T16/T17** — фрагменты.
 
 **OPEN:** динамический источник Clone **без** устойчивого const **P** — явное решение, не silent fallback ([PLAN §13](./PLAN.md#13--универсальный-clone)).
 
@@ -213,7 +213,7 @@ Happy path и семантические инварианты — сейчас; 
 2. ~~**C0.2.2 PASS** — `BackingComparedStorageWriter::failed_`~~ ([история](#iteration-history)).
 3. **STOP:** дальнейшие C0.2 пункты **не** планировать без нового аудита после **12R**/**13** (origin/Clone заменят fixture API).
 
-**Следующий шаг:** **12R** (системный origin, lazy ref) — [PLAN §12R](./PLAN.md#12r--уточнение-origin-todo-после-c0).
+**Следующий шаг:** **12B** (P→A roundtrip) — [PLAN §12B](./PLAN.md#12b--origin-roundtrip-todo-после-12r).
 
 ---
 
@@ -321,7 +321,7 @@ Happy path и семантические инварианты — сейчас; 
 | C0.2 | PASS | `f36fc1d`/`df536e6` | prefab + overlay regressions | **C0.2.1** ClonePlan; **C0.2.2** `failed_` |
 | C0.3 | PASS (doc) | `9e91f4d` | см. [§C0.3](#c03--верификация-сохранённых-механизмов-pass) | Верификация KEEP/DEFER; код не менялся |
 | 12A | PASS (doc) | `ed5eef9` / `4bda0ad` | — | Слой **`Obj/S1`** + отдельный `SaveVersion`; payload **`ObjId`** — **устаревший черновик** → **12R** |
-| 12R | PASS | — | origin facet + persistence + prefab/compaction Debug/Release (2026-10-26) | **12R.3** final roundtrip; **12B** next |
+| 12R | PASS | `9981e0f` | origin facet + persistence + prefab/compaction Debug/Release (2026-10-26) | **12R.3** final roundtrip; **12B** next |
 | 12R.2b.2 | PASS | `4ced1fa` | см. **12R** | Auto **`Obj/S1`** hook |
 | 12R.3 | PASS | — | **`object_origin_facet_test`** Debug/Release + prefab matrices Release | Domain lifetime fix; **`SaveRoot`** roundtrip |
 | 12R.1 | PASS (doc) | `c00aafe`+ | — | Техпроверка pin **`79283b6`** — [§12R.1](#12r1--техническая-проверка-origin-pass-doc-only) |
