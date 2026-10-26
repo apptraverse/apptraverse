@@ -20,8 +20,11 @@
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
@@ -490,7 +493,254 @@ void ProbeProfileListRows(
         static_cast<std::uint32_t>(expected_rows + 1));
 }
 
-void RunRestartPersistenceAcceptance() {
+ae::ObjId CatalogRootObjId() {
+  return ae::ObjId{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+}
+
+ae::ObjId CatalogMainWindowObjId() {
+  return ae::ObjId{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::MainWindow)};
+}
+
+ae::ObjId CatalogMainWindowPresenterObjId() {
+  return ae::ObjId{window_catalog_demo::ToObjId(
+      window_catalog_demo::ObjId::MainWindowPresenter)};
+}
+
+std::filesystem::path NegativeStateDir(char const* suffix) {
+  auto dir = std::filesystem::temp_directory_path() / "apptraverse_test" /
+             ("window_catalog_win32_acceptance_" + std::string{suffix});
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  return dir;
+}
+
+void CopyStateDir(std::filesystem::path const& from,
+                  std::filesystem::path const& to) {
+  std::error_code ec;
+  std::filesystem::copy(from, to,
+                        std::filesystem::copy_options::recursive |
+                            std::filesystem::copy_options::overwrite_existing,
+                        ec);
+  CHECK(!ec);
+}
+
+void RemoveCheckpointSidecar(std::filesystem::path const& state_dir) {
+  std::error_code ec;
+  std::filesystem::remove(state_dir / "persistent_model_checkpoint.bin", ec);
+}
+
+std::string ReadAllBytes(std::filesystem::path const& path) {
+  HANDLE file =
+      CreateFileW(path.wstring().c_str(), GENERIC_READ,
+                  FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                  FILE_ATTRIBUTE_NORMAL, nullptr);
+  CHECK(file != INVALID_HANDLE_VALUE);
+  DWORD size = GetFileSize(file, nullptr);
+  CHECK(size != INVALID_FILE_SIZE);
+  std::string out(size, '\0');
+  DWORD read = 0;
+  CHECK(ReadFile(file, out.data(), size, &read, nullptr) != 0);
+  CloseHandle(file);
+  out.resize(read);
+  return out;
+}
+
+std::size_t CountNeedle(std::string const& hay, char const* needle) {
+  std::size_t n = 0;
+  for (std::size_t pos = 0;;) {
+    pos = hay.find(needle, pos);
+    if (pos == std::string::npos) {
+      break;
+    }
+    ++n;
+    ++pos;
+  }
+  return n;
+}
+
+struct ChildRunResult {
+  DWORD exit_code = 0;
+  std::string stderr_text;
+};
+
+ChildRunResult RunLoadOnlyCaptureStderr(
+    std::filesystem::path const& exe,
+    std::filesystem::path const& state_dir,
+    DWORD timeout_ms = 30000) {
+  auto err_path = state_dir;
+  err_path += L".stderr.txt";
+  std::error_code ec;
+  std::filesystem::remove(err_path, ec);
+
+  std::wstring cmd = L"\"" + exe.wstring() + L"\" --state-dir \"" +
+                     state_dir.wstring() + L"\"";
+  std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());
+  cmd_buf.push_back(L'\0');
+
+  SECURITY_ATTRIBUTES sa{};
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+  HANDLE errf = CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE,
+                            FILE_SHARE_READ, &sa, CREATE_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL, nullptr);
+  CHECK(errf != INVALID_HANDLE_VALUE);
+  HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                           OPEN_EXISTING, 0, nullptr);
+  CHECK(nul != INVALID_HANDLE_VALUE);
+
+  STARTUPINFOW si{};
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdInput = nul;
+  si.hStdOutput = nul;
+  si.hStdError = errf;
+  PROCESS_INFORMATION pi{};
+  BOOL ok = CreateProcessW(exe.wstring().c_str(), cmd_buf.data(), nullptr,
+                           nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr,
+                           &si, &pi);
+  CloseHandle(errf);
+  CloseHandle(nul);
+  CHECK(ok);
+  CloseHandle(pi.hThread);
+
+  DWORD wait = WaitForSingleObject(pi.hProcess, timeout_ms);
+  if (wait == WAIT_TIMEOUT) {
+    TerminateProcess(pi.hProcess, 1);
+    CloseHandle(pi.hProcess);
+    CHECK(false);
+  }
+  ChildRunResult result;
+  GetExitCodeProcess(pi.hProcess, &result.exit_code);
+  CloseHandle(pi.hProcess);
+  result.stderr_text = ReadAllBytes(err_path);
+  std::filesystem::remove(err_path, ec);
+  return result;
+}
+
+void ExpectFatalLoadOnly(ChildRunResult const& result, char const* needle) {
+  CHECK(result.exit_code != 0);
+  if (result.stderr_text.find(needle) == std::string::npos) {
+    std::cerr << "load-only stderr was:\n" << result.stderr_text << '\n';
+    std::exit(1);
+  }
+  CHECK(CountNeedle(result.stderr_text, needle) >= 1);
+}
+
+void RegisterCatalogTypes() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogGraphRegistration();
+}
+
+void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  catalog->main_window = CatalogWindow::ptr::Declare(
+      ae::CreateWith{domain}.with_id(ae::ObjId{}));
+  if (catalog->base.is_valid()) {
+    if (!catalog->base.is_loaded()) {
+      catalog->base.Load();
+    }
+    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
+    base_catalog.main_window = CatalogWindow::ptr::Declare(
+        ae::CreateWith{domain}.with_id(ae::ObjId{}));
+    catalog->base.Save();
+  }
+  ae::DomainGraph graph{&domain};
+  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
+}
+
+void AssertMainWindowRefAbsent(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  CHECK(!catalog->main_window.is_valid());
+}
+
+void WriteProfileMissingPresenter(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  ae::Domain domain{storage};
+  WindowCatalog::ptr loaded =
+      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  ae::Ptr<WindowCatalog> catalog = loaded.Load();
+  ae::Ptr<CatalogWindow> window = catalog->main_window.Load();
+  window->presenter = ui::windows::WinDesktopWindowPresenter::ptr::Declare(
+      ae::CreateWith{domain}.with_id(ae::ObjId{}));
+  ae::DomainGraph graph{&domain};
+  CHECK(graph.SaveRoot(window, CatalogMainWindowObjId()).IsOk());
+}
+
+void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage storage{state_dir};
+  storage.Remove(CatalogMainWindowPresenterObjId());
+}
+
+void RunRequiredMainWindowNegativeTests(
+    std::filesystem::path const& good_state,
+    std::filesystem::path const& load_only) {
+  {
+    auto const empty_dir = NegativeStateDir("missing_root");
+    auto const result = RunLoadOnlyCaptureStderr(load_only, empty_dir);
+    ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
+  }
+
+  {
+    auto const dir = NegativeStateDir("missing_main_window");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    WriteProfileMissingMainWindow(dir);
+    AssertMainWindowRefAbsent(dir);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnly(result,
+                        "fatal: LoadPresentedWindow required window missing");
+  }
+
+  {
+    auto const dir = NegativeStateDir("missing_presenter_ref");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    WriteProfileMissingPresenter(dir);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectFatalLoadOnly(result,
+                        "fatal: LoadPresentedWindow required presenter missing");
+  }
+
+  {
+    auto const dir = NegativeStateDir("missing_presenter_object");
+    CopyStateDir(good_state, dir);
+    RemoveCheckpointSidecar(dir);
+    WriteProfileMissingPresenterObject(dir);
+    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    bool const presenter_missing =
+        result.stderr_text.find(
+            "fatal: LoadPresentedWindow required presenter missing") !=
+        std::string::npos;
+    bool const load_failed =
+        result.stderr_text.find("fatal: LoadApplication failed") !=
+        std::string::npos;
+    CHECK(result.exit_code != 0);
+    CHECK(presenter_missing || load_failed);
+    if (!presenter_missing && !load_failed) {
+      std::cerr << "missing presenter object stderr was:\n"
+                << result.stderr_text << '\n';
+      std::exit(1);
+    }
+  }
+}
+
+std::filesystem::path RunRestartPersistenceAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_acceptance");
   auto const demo = DemoExe("win32_window_catalog_demo.exe");
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
@@ -638,6 +888,7 @@ void RunRestartPersistenceAcceptance() {
     CloseProcessGracefully(main, restart_session.pi);
     restart_session.Release();
   }
+  return state_dir;
 }
 
 void RunLanguageAndFocusAcceptance() {
@@ -707,12 +958,18 @@ void RunLanguageAndFocusAcceptance() {
   CloseProcessGracefully(main, pi);
 }
 
+void RunAcceptanceAndRequiredMainWindowNegatives() {
+  auto const good_state = RunRestartPersistenceAcceptance();
+  RunRequiredMainWindowNegativeTests(
+      good_state, DemoExe("win32_window_catalog_demo_load_only.exe"));
+  RunLanguageAndFocusAcceptance();
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::test::RunRestartPersistenceAcceptance();
-  apptraverse::test::RunLanguageAndFocusAcceptance();
+  apptraverse::test::RunAcceptanceAndRequiredMainWindowNegatives();
   std::cout << "window_catalog_win32_acceptance_test OK\n";
   return 0;
 }

@@ -4469,3 +4469,13 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Confirmed**: no auto-create of main window on load-only; no partial UI when required graph incomplete; positive native Save/reload/shutdown preserved.
 - **NEXT**: **I0.3B** — WindowCatalog required graph boundaries.
 - **Land SHA**: **`27b09351324f67aefe7f3c710ca4232ddd37c808`** (`I0.3A: enforce MinimalApplication required graph on cold load.`).
+
+## I0.3B1 — WindowCatalog required main window cold load (2026-10-25)
+
+- **Baseline**: **`d3e6e3f7e82e9c1ddab5fc9f024fc3bbcf3db079`** (`integration/application-versioning`).
+- **Production**: `examples/surfaces_demo/common/window_catalog_lifecycle.cpp` — `ui::LoadPresentedWindow(catalog->main_window)` after checkpoint, before `MaterializeCatalogStrings` / holder materialization.
+- **Tests**: `tests/window_catalog_win32_acceptance_test.cpp` — four load-only negative scenarios (missing root, empty main window ref, empty presenter ref, removed presenter object) using profile copy from positive acceptance; checkpoint sidecar stripped for cases 2–4.
+- **Unchanged**: `LoadPresentedWindow` implementation, `RestoreLoadedCatalogWindows`, graph builder, schemas, CMake, runtime bootstrap.
+- **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
+- **NEXT**: **I0.3B2** — remaining WindowCatalog required refs + ClassId/**S** compatibility.
+- **Land SHA**: *(record after commit)*.

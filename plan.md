@@ -825,12 +825,14 @@ wording where it conflicted.
 | 9B1 | USER/BACKING `OverlayDomainStorage` + supply constants | **DONE** |
 | 9B2 | Historical `Node::base` `force_materialize` | **DONE** |
 | 9C | Build-time embedded export (MinimalApplication) | **DONE** |
-| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.3A done; **I0.3B NEXT**) |
+| **I0** | Architecture cleanup | **IN_PROGRESS** (I0.3B1 done; **I0.3B2 NEXT**) |
 | I0.1 | Inventory / cleanup ledger | **DONE** — [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md) |
 | I0.2 | Remove verified dead paths | **DONE** (orphan `.cpp` + redundant graph-builder Win ensure; legacy runtime **deferred**) |
 | I0.3 | Required graph cold-load contract | **IN_PROGRESS** |
 | I0.3A | MinimalApplication required graph | **DONE** (after PASS) |
-| I0.3B | WindowCatalog + remaining boundaries | **NEXT** |
+| I0.3B | WindowCatalog + remaining boundaries | **IN_PROGRESS** |
+| I0.3B1 | WindowCatalog required main window | **DONE** (after PASS) |
+| I0.3B2 | Catalog required refs + ClassId/**S** | **NEXT** |
 | 9D | MinimalApplication embedded startup | **PLANNED** (after I0 + 9C) |
 | 9E | WindowCatalog embedded startup | **PLANNED** |
 | 9F | Unified release bootstrap R/E/B/S | **PLANNED** |
@@ -916,8 +918,14 @@ required main window before publication. Negative cases in
 `apptraverse_minimal_app_win32_acceptance_test` (empty profile, missing
 `main_window`, missing presenter ref/object). `LoadApplication` unchanged.
 
-**I0.3B — WindowCatalog + remaining boundaries (NEXT):** catalog required graph,
-broader ClassId/**S** compatibility (separate from corrupted-byte tests).
+**I0.3B1 — WindowCatalog main window (DONE, 2026-10-25):** `WindowCatalogModelSession::Run`
+calls `ui::LoadPresentedWindow(catalog->main_window)` after checkpoint, before
+`MaterializeCatalogStrings`. Negative cases in
+`apptraverse_window_catalog_win32_acceptance_test` (load-only). Holder lazy windows
+unchanged.
+
+**I0.3B2 — WindowCatalog remaining required refs + ClassId/**S** (NEXT):** list,
+locale, chrome presenters; compatibility checks (not corrupted-byte tests).
 
 Document and test (only if gaps exist):
 

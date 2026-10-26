@@ -18,6 +18,7 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
 namespace apptraverse {
 
@@ -84,6 +85,7 @@ void WindowCatalogModelSession::Run(
       LoadPersistentModelSnapshot(checkpoint, domain, durable_storage,
                                   *catalog);
     }
+    ui::LoadPresentedWindow(catalog->main_window);
     int const language = catalog->locale->language_index();
     catalog->MaterializeCatalogStrings(language);
     for (auto const& row : catalog->list->rows) {

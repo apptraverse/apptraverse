@@ -198,7 +198,29 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **Preserved:** optional/lazy catalog windows (`RestoreLoadedCatalogWindows` skips unloaded holders); dev distillation bootstrap; registration at entry; no auto-create of main window on load-only.
 
-**NEXT:** **I0.3B** WindowCatalog required graph + ClassId/**S** compatibility (not corrupted-byte torture).
+**NEXT:** **I0.3B2** WindowCatalog remaining required refs + ClassId/**S** (not corrupted-byte torture).
+
+---
+
+## H. I0.3B1 — WindowCatalog required main window cold load (DONE 2026-10-25)
+
+**Baseline:** `d3e6e3f7e82e9c1ddab5fc9f024fc3bbcf3db079`
+
+| Boundary | Change |
+|----------|--------|
+| `WindowCatalogModelSession::Run` | After checkpoint replay, **before** `MaterializeCatalogStrings`: unconditional `ui::LoadPresentedWindow(catalog->main_window)` (reuses I0.3A helper; no duplicate checks). |
+| `RestoreLoadedCatalogWindows` | **Unchanged** — holder windows remain lazy until open/restore. |
+
+**Failure cases verified** (`apptraverse_window_catalog_win32_acceptance_test`, `win32_window_catalog_demo_load_only.exe`, stderr, 30s timeout):
+
+- Empty profile → `fatal: LoadApplication failed`
+- Empty catalog `main_window` ref (`DomainGraph::SaveRoot`, base cleared, checkpoint removed, re-load asserts absent ref)
+- Empty main-window `presenter` ref
+- `Remove(MainWindowPresenter)` → non-zero exit + fatal (`LoadApplication failed` or presenter boundary)
+
+**Preserved:** Add/Open/Close/Delete, lazy holders, localization, positive acceptance paths.
+
+**NEXT:** **I0.3B2** — list, locale, chrome presenters, ClassId/**S** compatibility.
 
 ---
 
