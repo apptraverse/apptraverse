@@ -67,7 +67,7 @@
 
 **Архитектурный пробел:** **origin** в fixture **`PrefabPtr<T>`**; **Clone** вручную; нет системного origin/Clone/S на библиотечном API.
 
-**Следующий активный шаг:** заключительная проверка **12R** (roundtrip); **12R.2b.2 PASS** (auto **`Obj/S1`** hook). **12R/12B** — **TODO** до полного **12R PASS**. **C0 PASS**.
+**Следующий активный шаг:** **12B** (origin roundtrip P→A в product scope). **12R PASS**. **C0 PASS**.
 
 ---
 
@@ -507,11 +507,11 @@ Wire-формат и новый GraphManager **не** добавлялись.
 
 **Устаревшая часть 12A:** payload = голый **`ae::ObjId`**. **Не** является финальным решением; **не** реализовано в коде.
 
-#### 12R — уточнение origin (TODO; **12R.1** doc PASS; **12R.2a** code PASS)
+#### 12R — уточнение origin (**PASS**; **12R.1** doc; **12R.2a–12R.3** code)
 
 **Целевой контракт (согласованный plan):** persisted-слой **`(instance ObjId, Obj::kClassId, S=1)`** с полем **штатной lazy object reference**; origin **не** Window/Node; **нет** external registry; **нет** `PrefabPtr` в production.
 
-**12R PASS** — после **12R.2b.2** (auto Save hook **PASS**) + заключительного roundtrip. **12B** — после **12R PASS**.
+**12R PASS** — **12R.2b.2** (auto Save hook) + **12R.3** (финальный **`SaveRoot`/`LoadRoot`** roundtrip, lifetime-safe tests). **12B** — следующий шаг.
 
 #### 12R.2a — базовый Obj/S1 origin facet (**PASS**, code)
 
@@ -522,6 +522,12 @@ Wire-формат и новый GraphManager **не** добавлялись.
 **Тест:** `apptraverse_object_origin_facet_test` (`RamDomainStorage`, ручной `SaveVersion`/`LoadVersion`).
 
 **Не в scope 12R.2a:** автоматический facet save, `LoadStoredLayers` factory, `object_origin.h`, **12B**.
+
+#### 12R.3 — финальный origin roundtrip (**PASS**)
+
+**Тест:** **`apptraverse_object_origin_facet_test`** — cold load только при живом **`Domain`** (`WithColdLoadV0/V1`); **`TestFinalOriginRoundtripV0/V1`**: два независимых **`Domain`**, общий **`RamDomainStorage`**, **`SaveRoot`/`LoadRoot`**, **P** не в storage и не materialized, repeat **`SaveRoot`**, **`OriginFacetTargetV1Gated`** + **`ShouldSaveVersion`**.
+
+**Не в scope:** **`object_origin.h`**, **12B**, Clone.
 
 #### 12R.2b.2 — auto Save hook Obj/S1 (**PASS**)
 
