@@ -17,6 +17,9 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/partitioned_model_domain_storage.h"
 
+#include "aether-miscpp/reflect/reflect.h"
+#include "aether-miscpp/serialization/binary_archive.h"
+
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/registry.h"
 
@@ -504,6 +507,155 @@ void EnsurePersistentCheckpointBaseObjectsInScratch(
     if (auto obj = entry.node->domain->Find(base_id)) {
       SaveObjectGraphToScratch(*obj, scratch);
     }
+  }
+}
+
+struct PersistentModelCheckpointLayer {
+  ae::ObjId::Type object_id{};
+  std::uint32_t class_id{};
+  std::uint8_t version{};
+  std::vector<std::uint8_t> bytes;
+  AE_REFLECT_MEMBERS(object_id, class_id, version, bytes)
+};
+
+struct PersistentModelCheckpointNodeGeneration {
+  ae::ObjId::Type object_id{};
+  std::uint64_t generation{};
+  AE_REFLECT_MEMBERS(object_id, generation)
+};
+
+struct PersistentModelCheckpointNodeBaseBinding {
+  ae::ObjId::Type node_object_id{};
+  ae::ObjId::Type base_object_id{};
+  AE_REFLECT_MEMBERS(node_object_id, base_object_id)
+};
+
+struct PersistentModelCheckpointPayload {
+  ae::ObjId::Type root_id{};
+  std::vector<PersistentModelCheckpointLayer> layers;
+  std::vector<PersistentModelCheckpointNodeGeneration> node_generations;
+  std::vector<PersistentModelCheckpointNodeBaseBinding> node_base_bindings;
+  AE_REFLECT_MEMBERS(root_id, layers, node_generations, node_base_bindings)
+};
+
+void PopulatePersistentModelCheckpointPayload(
+    ae::RamDomainStorage const& scratch, ae::Obj const& root,
+    std::unordered_set<std::uint32_t> const& export_object_ids,
+    std::vector<SavedNodeBaseOnly> const& saved_bases,
+    PersistentModelCheckpointPayload& payload) {
+  payload.root_id = root.obj_id.id();
+  payload.layers.clear();
+  payload.node_generations.clear();
+  payload.node_base_bindings.clear();
+
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    if (!export_object_ids.contains(obj_id.id())) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj) {
+      continue;
+    }
+    for (auto const& [class_id, versions] : *class_map_opt) {
+      for (auto const& [version, data] : versions) {
+        PersistentModelCheckpointLayer layer;
+        layer.object_id = obj_id.id();
+        layer.class_id = class_id;
+        layer.version = version;
+        layer.bytes = data;
+        payload.layers.push_back(std::move(layer));
+      }
+    }
+  }
+
+  for (auto const& [obj_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    if (!export_object_ids.contains(obj_id.id())) {
+      continue;
+    }
+    auto obj = root.domain->Find(obj_id);
+    if (!obj) {
+      continue;
+    }
+    auto* node = AsObjOf<Node>(obj.get());
+    if (node == nullptr) {
+      continue;
+    }
+    PersistentModelCheckpointNodeGeneration entry;
+    entry.object_id = obj_id.id();
+    entry.generation = node->Generation();
+    payload.node_generations.push_back(entry);
+  }
+
+  for (SavedNodeBaseOnly const& saved : saved_bases) {
+    if (!saved.base.is_valid()) {
+      continue;
+    }
+    PersistentModelCheckpointNodeBaseBinding binding;
+    binding.node_object_id = saved.node->obj_id.id();
+    binding.base_object_id = saved.base.id().id();
+    payload.node_base_bindings.push_back(binding);
+  }
+}
+
+bool TryLoadPersistentModelCheckpointPayload(
+    ByteSource& in, PersistentModelCheckpointPayload& payload) {
+  if (in.pos > in.size) {
+    return false;
+  }
+  std::size_t const remaining = in.size - in.pos;
+  std::vector<std::uint8_t> copy(in.data + in.pos,
+                                 in.data + in.pos + remaining);
+  ae::seri::BinaryVectorBuffer buffer{copy};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  if (archive.Load(payload).IsErr()) {
+    return false;
+  }
+  in.pos = in.size;
+  return in.ok;
+}
+
+bool InjectPersistentModelCheckpointLayers(
+    PersistentModelCheckpointPayload const& payload,
+    ae::IDomainStorage& storage) {
+  for (PersistentModelCheckpointLayer const& layer : payload.layers) {
+    if (!InjectObjectBytes(storage,
+                           {ae::ObjId{layer.object_id}, layer.class_id,
+                            layer.version},
+                           layer.bytes.data(), layer.bytes.size())) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void RestorePersistedNodeBaseBindings(
+    ae::Domain& domain,
+    std::vector<PersistentModelCheckpointNodeBaseBinding> const& bindings) {
+  for (PersistentModelCheckpointNodeBaseBinding const& entry : bindings) {
+    auto node_obj = domain.Find(ae::ObjId{entry.node_object_id});
+    if (!node_obj) {
+      continue;
+    }
+    auto* node = AsObjOf<Node>(node_obj.get());
+    if (node == nullptr || node->base.is_valid()) {
+      continue;
+    }
+    ae::Ptr<ae::Obj> held = domain.Find(ae::ObjId{entry.base_object_id});
+    if (!held) {
+      ae::DomainGraph graph{&domain};
+      held = graph.LoadRoot(ae::ObjId{entry.base_object_id});
+    }
+    if (!held) {
+      continue;
+    }
+    node->base = Node::ptr{node->domain, ae::ObjId{entry.base_object_id}, {},
+                           std::move(held)};
   }
 }
 
@@ -1237,143 +1389,6 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   return changed;
 }
 
-void WritePersistentCheckpointScratchLayers(
-    ae::RamDomainStorage const& scratch, ae::Obj const& root, ByteSink& out,
-    std::unordered_set<std::uint32_t> const& export_object_ids) {
-  auto const count_at = out.bytes.size();
-  std::uint32_t layer_count = 0;
-  out.write(&layer_count, sizeof(layer_count));
-
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    if (!export_object_ids.contains(obj_id.id())) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    for (auto const& [class_id, versions] : *class_map_opt) {
-      for (auto const& [version, data] : versions) {
-        auto const oid = obj_id.id();
-        out.write(&oid, sizeof(oid));
-        out.write(&class_id, sizeof(class_id));
-        out.write(&version, sizeof(version));
-        auto const size = static_cast<std::uint32_t>(data.size());
-        out.write(&size, sizeof(size));
-        out.write(data.data(), data.size());
-        ++layer_count;
-      }
-    }
-  }
-  std::memcpy(out.bytes.data() + count_at, &layer_count, sizeof(layer_count));
-
-  auto const gen_count_at = out.bytes.size();
-  std::uint32_t node_generation_count = 0;
-  out.write(&node_generation_count, sizeof(node_generation_count));
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    if (!export_object_ids.contains(obj_id.id())) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    auto* node = AsObjOf<Node>(obj.get());
-    if (node == nullptr) {
-      continue;
-    }
-    auto const oid = obj_id.id();
-    auto const generation = node->Generation();
-    out.write(&oid, sizeof(oid));
-    out.write(&generation, sizeof(generation));
-    ++node_generation_count;
-  }
-  std::memcpy(out.bytes.data() + gen_count_at, &node_generation_count,
-              sizeof(node_generation_count));
-}
-
-void WritePersistentCheckpointNodeBaseBindings(
-    std::vector<SavedNodeBaseOnly> const& saved_bases, ByteSink& out) {
-  auto const count_at = out.bytes.size();
-  std::uint32_t binding_count = 0;
-  out.write(&binding_count, sizeof(binding_count));
-  for (SavedNodeBaseOnly const& entry : saved_bases) {
-    if (!entry.base.is_valid()) {
-      continue;
-    }
-    std::uint32_t const node_id = entry.node->obj_id.id();
-    std::uint32_t const base_id = entry.base.id().id();
-    out.write(&node_id, sizeof(node_id));
-    out.write(&base_id, sizeof(base_id));
-    ++binding_count;
-  }
-  std::memcpy(out.bytes.data() + count_at, &binding_count, sizeof(binding_count));
-}
-
-void RestorePersistedNodeBaseBindings(ByteSource& in, ae::Domain& domain) {
-  if (in.pos + sizeof(std::uint32_t) > in.size) {
-    return;
-  }
-  std::uint32_t binding_count = 0;
-  in.read(&binding_count, sizeof(binding_count));
-  if (!in.ok) {
-    return;
-  }
-  for (std::uint32_t i = 0; i < binding_count; ++i) {
-    std::uint32_t node_id = 0;
-    std::uint32_t base_id = 0;
-    in.read(&node_id, sizeof(node_id));
-    in.read(&base_id, sizeof(base_id));
-    if (!in.ok) {
-      return;
-    }
-    auto node_obj = domain.Find(ae::ObjId{node_id});
-    if (!node_obj) {
-      continue;
-    }
-    auto* node = AsObjOf<Node>(node_obj.get());
-    if (node == nullptr || node->base.is_valid()) {
-      continue;
-    }
-    ae::Ptr<ae::Obj> held = domain.Find(ae::ObjId{base_id});
-    if (!held) {
-      ae::DomainGraph graph{&domain};
-      held = graph.LoadRoot(ae::ObjId{base_id});
-    }
-    if (!held) {
-      continue;
-    }
-    node->base = Node::ptr{node->domain, ae::ObjId{base_id}, {}, std::move(held)};
-  }
-}
-
-bool SkipPersistentCheckpointNodeBaseBindings(ByteSource& in) {
-  if (in.pos + sizeof(std::uint32_t) > in.size) {
-    return true;
-  }
-  std::uint32_t binding_count = 0;
-  in.read(&binding_count, sizeof(binding_count));
-  if (!in.ok) {
-    return false;
-  }
-  for (std::uint32_t i = 0; i < binding_count; ++i) {
-    std::uint32_t node_id = 0;
-    std::uint32_t base_id = 0;
-    in.read(&node_id, sizeof(node_id));
-    in.read(&base_id, sizeof(base_id));
-    if (!in.ok) {
-      return false;
-    }
-  }
-  return true;
-}
-
 void AppendUnloadedCheckpointTargets(ae::Obj& root,
                                      ae::RamDomainStorage& scratch) {
   ae::Domain& domain = *root.domain;
@@ -1405,9 +1420,6 @@ void AppendUnloadedCheckpointTargets(ae::Obj& root,
 }
 
 void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
-  std::uint32_t const root_id = root.obj_id.id();
-  out.write(&root_id, sizeof(root_id));
-
   std::vector<Node*> nodes;
   CollectReachableNodes(root, nodes);
   struct SavedJournal {
@@ -1454,43 +1466,32 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
     }
   }
 
-  WritePersistentCheckpointScratchLayers(scratch, root, out,
-                                       checkpoint_export_ids);
-  WritePersistentCheckpointNodeBaseBindings(saved_bases, out);
+  PersistentModelCheckpointPayload payload;
+  PopulatePersistentModelCheckpointPayload(scratch, root, checkpoint_export_ids,
+                                         saved_bases, payload);
 
   RestoreReachableNodeBase(saved_bases);
   for (SavedJournal& entry : saved_journals) {
     entry.node->journal = std::move(entry.journal);
   }
+
+  out.bytes.clear();
+  ae::seri::BinaryVectorBuffer buffer{out.bytes};
+  ae::seri::BinaryArchive archive{buffer};
+  assert(archive.Save(payload).IsOk());
 }
 
 void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
                                  ae::IDomainStorage& storage, ae::Obj& root) {
-  std::uint32_t root_id = 0;
-  in.read(&root_id, sizeof(root_id));
-  assert(in.ok);
-  assert(root.obj_id.id() == root_id);
-
-  std::uint32_t layer_count = 0;
-  in.read(&layer_count, sizeof(layer_count));
-  assert(in.ok);
+  PersistentModelCheckpointPayload payload;
+  assert(TryLoadPersistentModelCheckpointPayload(in, payload));
+  assert(root.obj_id.id() == payload.root_id);
+  assert(InjectPersistentModelCheckpointLayers(payload, storage));
 
   std::vector<ae::ObjId> loaded_ids;
-  loaded_ids.reserve(layer_count);
-  for (std::uint32_t i = 0; i < layer_count; ++i) {
-    std::uint32_t obj_id = 0;
-    std::uint32_t class_id = 0;
-    std::uint8_t version = 0;
-    std::uint32_t size = 0;
-    in.read(&obj_id, sizeof(obj_id));
-    in.read(&class_id, sizeof(class_id));
-    in.read(&version, sizeof(version));
-    in.read(&size, sizeof(size));
-    assert(in.ok && in.pos + size <= in.size);
-    InjectObjectBytes(storage, {ae::ObjId{obj_id}, class_id, version},
-                      in.data + in.pos, size);
-    in.pos += size;
-    ae::ObjId const id{obj_id};
+  loaded_ids.reserve(payload.layers.size());
+  for (PersistentModelCheckpointLayer const& layer : payload.layers) {
+    ae::ObjId const id{layer.object_id};
     if (std::find(loaded_ids.begin(), loaded_ids.end(), id) == loaded_ids.end()) {
       loaded_ids.push_back(id);
     }
@@ -1546,25 +1547,18 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
   }
   load_checkpoint_object(root.obj_id);
 
-  std::uint32_t node_generation_count = 0;
-  in.read(&node_generation_count, sizeof(node_generation_count));
-  assert(in.ok);
-  for (std::uint32_t i = 0; i < node_generation_count; ++i) {
-    std::uint32_t obj_id = 0;
-    std::uint64_t generation = 0;
-    in.read(&obj_id, sizeof(obj_id));
-    in.read(&generation, sizeof(generation));
-    assert(in.ok);
-    auto object = domain.Find(ae::ObjId{obj_id});
+  for (PersistentModelCheckpointNodeGeneration const& entry :
+       payload.node_generations) {
+    auto object = domain.Find(ae::ObjId{entry.object_id});
     if (!object) {
       continue;
     }
     if (auto* node = AsObjOf<Node>(object.get())) {
-      node->AdoptPublishedGeneration(generation);
+      node->AdoptPublishedGeneration(entry.generation);
     }
   }
 
-  RestorePersistedNodeBaseBindings(in, domain);
+  RestorePersistedNodeBaseBindings(domain, payload.node_base_bindings);
   SanitizeLoadedPersistentObjPtrs(root, loaded_ids);
   std::vector<Node*> loaded_nodes;
   CollectReachableNodes(root, loaded_nodes);
@@ -1585,51 +1579,14 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
 bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
                                             ae::IDomainStorage& storage,
                                             std::uint32_t expected_root_id) {
-  std::uint32_t root_id = 0;
-  in.read(&root_id, sizeof(root_id));
-  if (!in.ok || root_id != expected_root_id) {
+  PersistentModelCheckpointPayload payload;
+  if (!TryLoadPersistentModelCheckpointPayload(in, payload)) {
     return false;
   }
-
-  std::uint32_t layer_count = 0;
-  in.read(&layer_count, sizeof(layer_count));
-  if (!in.ok) {
+  if (payload.root_id != expected_root_id) {
     return false;
   }
-  for (std::uint32_t i = 0; i < layer_count; ++i) {
-    std::uint32_t obj_id = 0;
-    std::uint32_t class_id = 0;
-    std::uint8_t version = 0;
-    std::uint32_t size = 0;
-    in.read(&obj_id, sizeof(obj_id));
-    in.read(&class_id, sizeof(class_id));
-    in.read(&version, sizeof(version));
-    in.read(&size, sizeof(size));
-    if (!in.ok || in.pos + size > in.size) {
-      return false;
-    }
-    if (!InjectObjectBytes(storage, {ae::ObjId{obj_id}, class_id, version},
-                           in.data + in.pos, size)) {
-      return false;
-    }
-    in.pos += size;
-  }
-
-  std::uint32_t node_generation_count = 0;
-  in.read(&node_generation_count, sizeof(node_generation_count));
-  if (!in.ok) {
-    return false;
-  }
-  for (std::uint32_t i = 0; i < node_generation_count; ++i) {
-    std::uint32_t obj_id = 0;
-    std::uint64_t generation = 0;
-    in.read(&obj_id, sizeof(obj_id));
-    in.read(&generation, sizeof(generation));
-    if (!in.ok) {
-      return false;
-    }
-  }
-  return SkipPersistentCheckpointNodeBaseBindings(in);
+  return InjectPersistentModelCheckpointLayers(payload, storage);
 }
 
 namespace {

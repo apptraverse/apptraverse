@@ -41,6 +41,8 @@
 | **P1.1** — удаление сети/replication | см. §P1.1 ниже | **PASS** (Debug build + model test; см. evidence) |
 | **P2.a** — единая загрузка checkpoint | см. §P2.a ниже | **PASS** |
 | **P2.b** — MinimalApp без runtime Stabilize | см. §P2.b ниже | **PASS** |
+| **P2.d.1** — checkpoint `BinaryArchive` | **`f6452f8`**, §P2.d.1 | **PASS** |
+| **P2.d** — штатная сериализация (publication) | **NEXT: P2.d.2** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -76,6 +78,18 @@
 **Изменение:** из `RunMinimalApplicationModel` убран вызов `StabilizeDistilledPersistentSnapshot` перед shutdown-save; `StabilizeDistilledPersistentSnapshot` в `distill.h` без изменений (build-time export).
 
 **Debug evidence (`build/win64-ninja-msvc-debug`):** инкрементальная сборка `win32_minimal_app`, `win32_minimal_app_load_only` **OK**; профиль `%TEMP%\apptraverse_p2b_minimal_dev`: первый запуск → WM_CLOSE → exit **0**, checkpoint создан → `win32_minimal_app_load_only` с тем же `--state-dir` → exit **0** (без проверки пользовательских Events / Commit после reload).
+
+---
+
+## P2.d.1 — checkpoint через Æther BinaryArchive (2026-10-27, **`f6452f8`**)
+
+**Формат `persistent_model_checkpoint.bin`:** один blob `ae::seri::BinaryArchive` для `PersistentModelCheckpointPayload` (`root_id`, `layers[]` с `object_id/class_id/version/bytes`, `node_generations[]`, `node_base_bindings[]`; `AE_REFLECT_MEMBERS`). Старый ручной envelope (root + layer_count + …) **не** читается — новый dev `--state-dir`.
+
+**Удалено:** `WritePersistentCheckpointScratchLayers`, `WritePersistentCheckpointNodeBaseBindings`, `RestorePersistedNodeBaseBindings(ByteSource&)`, `SkipPersistentCheckpointNodeBaseBindings`. Подготовка scratch/export filter и hydrate/load_keepalive без изменений по смыслу.
+
+**Debug evidence (`build/win64-ninja-msvc-debug`):** targets `apptraverse_model_persistence_test`, `apptraverse_window_catalog_model_test`, `win32_minimal_app`, `win32_minimal_app_load_only`, `win32_window_catalog_demo` — сборка **OK**; оба model-теста **exit 0**; MinimalApp `docs/smoke_artifacts/p2d1_minimal_checkpoint_verify`: первый запуск → WM_CLOSE → **exit 0**, sidecar есть → `win32_minimal_app_load_only` → **exit 0**.
+
+**NEXT (не начато):** **P2.d.2** — штатная сериализация initial/structural publication.
 
 ---
 

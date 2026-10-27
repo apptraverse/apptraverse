@@ -11,7 +11,9 @@
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/event_for.h"
 #include "apptraverse/journal_retention_policy.h"
+#include "apptraverse/node_for.h"
 #include "apptraverse/model_persistence.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"

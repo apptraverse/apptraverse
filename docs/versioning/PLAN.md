@@ -60,7 +60,9 @@
 | --- | --- | --- |
 | P2.a | Единая загрузка checkpoint | **PASS** — `TryLoadPersistedModelFromStorageSidecar(DirectoryDomainStorage&)` |
 | P2.b | Убрать runtime `StabilizeDistilledPersistentSnapshot` (MinimalApp) | **PASS** — `minimal_app_lifecycle.cpp` |
-| P2.d | Штатная сериализация вместо ручных envelope | `object_serialization`, `publication_channel` |
+| **P2.d.1** | Checkpoint через `BinaryArchive` (typed payload) | **PASS** — `SerializePersistentModelSnapshot` / `LoadPersistentModelSnapshot` |
+| **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — `publication_channel`, envelope publication |
+| P2.d | Штатная сериализация (checkpoint + publication) | **IN_PROGRESS** (P2.d.1 PASS) |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
 
