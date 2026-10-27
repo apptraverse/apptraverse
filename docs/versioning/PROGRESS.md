@@ -49,7 +49,7 @@
 | **P2.d.1R.2b.2** — cycle/rehydration DomainGraph | **`bc4d03f`**, §P2.d.1R.2b.2 | **PASS** |
 | **P2.d.1R.2b.3a** — PresenterGraph DomainGraph | **`8ca6a23`**, §P2.d.1R.2b.3a | **PASS** |
 | **P2.d.1R.2b.3b.1** — Win HWND DomainGraph | **`3d85a31`**, §P2.d.1R.2b.3b.1 | **PASS** |
-| **P2.d.1R.2b.3b.2** — cross-process presenter storage | **PLACEHOLDER**, §P2.d.1R.2b.3b.2 | **PASS** |
+| **P2.d.1R.2b.3b.2** — cross-process presenter storage | **`e750166`**, §P2.d.1R.2b.3b.2 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -175,7 +175,7 @@
 
 ---
 
-## P2.d.1R.2b.3b.2 — cross-process presenter через DirectoryDomainStorage (2026-10-27)
+## P2.d.1R.2b.3b.2 — cross-process presenter через DirectoryDomainStorage (2026-10-27, **`e750166`**)
 
 **Test:** `apptraverse_presenter_platform_persist_roundtrip` — Save EXE / Load EXE делят `DirectoryDomainStorage` (`presenter_platform_persist_state`); `SaveRoot(kRootId)` / cold `LoadRoot` без checkpoint blob, sidecar `.bin` или pre-created root shell.
 
