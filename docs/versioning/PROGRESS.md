@@ -44,7 +44,7 @@
 | **P2.d.1** — checkpoint `BinaryArchive` | **`6676f7d`**, §P2.d.1 | **PASS (исторически; superseded)** |
 | **P2.d.1R.1** — MinimalApp без sidecar | **`9f1d0a7`**, §P2.d.1R.1 | **PASS** |
 | **P2.d.1R.2a** — WindowCatalog без sidecar | **`93a18dc`**, §P2.d.1R.2a | **PASS** |
-| **P2.X1** — обязательный граф UI, assert side effects | §P2.X1 | **PASS** |
+| **P2.X1** — обязательный граф UI, assert side effects | **`51ecd2b`**, §P2.X1 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b**, затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -122,7 +122,7 @@
 
 ---
 
-## P2.X1 — обязательный граф UI и assert без побочных эффектов (2026-10-27)
+## P2.X1 — обязательный граф UI и assert без побочных эффектов (2026-10-27, **`51ecd2b`**)
 
 **Runtime:** `WinPushButtonPresenter` / `CreateChildPushButton` — без повторной проверки обязательных связей, пустой подписи при отсутствии label/locale, fallback layout и ранних return в `SyncFromMirror`/`ApplyLayout` (кроме «геометрия не изменилась»).
 
