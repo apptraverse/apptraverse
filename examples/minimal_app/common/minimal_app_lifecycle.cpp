@@ -21,7 +21,7 @@
 
 namespace apptraverse::example::minimal {
 
-void RunMinimalApplicationModel(
+int RunMinimalApplicationModel(
     std::filesystem::path const& state_dir,
     ApplicationModelRuntime& runtime,
     ApplicationPublishedCallback on_published) {
@@ -86,11 +86,18 @@ void RunMinimalApplicationModel(
 
     runtime.Run(domain, *application, on_published);
 
+    durable_storage.BeginSaveSession();
     StabilizeDistilledPersistentSnapshot(*application);
     ui::SavePresentedWindow(application->main_window);
     MinimalApplication::ptr::MakeFromThis(&*application).Save();
-    SavePersistentModelSnapshotToStorage(*application, durable_storage);
+    bool const checkpoint_ok = SavePersistentModelSnapshotToStorage(
+        *application, durable_storage);
+    if (!checkpoint_ok || durable_storage.SaveSessionHadFailure()) {
+      WriteFatalStderr("fatal: MinimalApplication shutdown save failed\n");
+      return 1;
+    }
   }
+  return 0;
 }
 
 }  // namespace apptraverse::example::minimal

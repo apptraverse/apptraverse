@@ -31,7 +31,7 @@ ae::ObjId CatalogRootId() {
 
 }  // namespace
 
-void WindowCatalogModelSession::Run(
+int WindowCatalogModelSession::Run(
     ApplicationPublishedCallback on_published) {
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
@@ -153,9 +153,16 @@ void WindowCatalogModelSession::Run(
           catalog->pending_focus_window = {};
         });
 
+    durable_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(*catalog);
-    SavePersistentModelSnapshotToStorage(*catalog, durable_storage);
+    bool const checkpoint_ok =
+        SavePersistentModelSnapshotToStorage(*catalog, durable_storage);
+    if (!checkpoint_ok || durable_storage.SaveSessionHadFailure()) {
+      WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
+      return 1;
+    }
   }
+  return 0;
 }
 
 }  // namespace apptraverse

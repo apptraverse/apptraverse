@@ -39,10 +39,11 @@ int main(int argc, char** argv) {
   }
 
   apptraverse::ApplicationModelRuntime runtime;
+  int model_exit_status = 1;
 
   apptraverse::windows::WinApplicationHostCallbacks callbacks;
   callbacks.run_model = [&](apptraverse::ApplicationPublishedCallback on_published) {
-    apptraverse::example::minimal::RunMinimalApplicationModel(
+    model_exit_status = apptraverse::example::minimal::RunMinimalApplicationModel(
         state_dir, runtime, on_published);
   };
   callbacks.request_stop = [&] { runtime.RequestStop(); };
@@ -58,5 +59,5 @@ int main(int argc, char** argv) {
   apptraverse::windows::WinApplicationHost host(runtime, loading,
                                               std::move(callbacks));
   host.Run();
-  return 0;
+  return model_exit_status;
 }

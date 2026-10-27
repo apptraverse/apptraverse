@@ -57,14 +57,14 @@
 | Ручной Windows WindowCatalog | **U2** | **manual PASS** (не полный regression) |
 | Синхронизация PLAN/PROGRESS | **U3** | **PASS** (doc-only) |
 | Аудит объединённой архитектуры | **U4** | **PASS** (audit-only) — [unified-architecture-audit.md](../integration/unified-architecture-audit.md) |
-| Минимальная очистка по аудиту | **U5** | TODO |
+| Минимальная очистка по аудиту | **U5** | **IN_PROGRESS** — **U5.1 PASS**; **NEXT: U5.2** |
 | Итоговая проверка unified (Object Core + apps, MinimalApp) | **U6** | TODO |
 | Embedded startup **9D/9E**, R/E/B/S в приложениях | после **U6** | TODO |
 | **13.3+**, Clone графов, release lifecycle | после стабилизации app | TODO |
 
 **Принято:** сначала работающее Windows-приложение и ручная проверка (**U2**), затем архитектурный порядок (**U4–U6**), без mass-refactor и без новой параллельной application-ветки.
 
-**Открыто (не менять в U3):** `DirectoryDomainStorage` может фиксировать ошибки записи; часть production callers **не** проверяет результат `SavePersistentModelSnapshotToStorage` — отдельная задача (явная ошибка вызывающему коду).
+**Открыто:** WindowCatalog/MinimalApp shutdown-save проверяет checkpoint + save session (**U5.1 PASS**); атомарность и rollback sidecar vs layers — этап **22** ([аудит U4](../integration/unified-architecture-audit.md)).
 
 ---
 
@@ -88,7 +88,7 @@
 
 **Архитектурный пробел (остаётся):** **Clone** вручную в fixtures; нет универсального Clone/S-evolution (**13+**). Origin на штатном **`Obj::SetOriginId` / `origin_id()`** + **`Obj/S1`** — **12R/12B PASS**; отдельный **`object_origin.h`** для **12B** **не** введён (API достаточен).
 
-**Следующий активный шаг Object Core:** **13.3** — graph closure + remap (**13.1–13.2 PASS**). **Следующий шаг unified:** **U5** — минимальная очистка по [аудиту U4](../integration/unified-architecture-audit.md) (**U1–U4 PASS**; U5 стартует только по отдельному заданию).
+**Следующий активный шаг Object Core:** **13.3** — graph closure + remap (**13.1–13.2 PASS**). **Следующий шаг unified:** **U5.2** — убрать `StabilizeDistilledPersistentSnapshot` из runtime-shutdown MinimalApp (**U5 IN_PROGRESS**, **U5.1 PASS**).
 
 ---
 

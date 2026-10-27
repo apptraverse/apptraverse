@@ -14,7 +14,7 @@ struct WindowCatalogModelSession {
   ApplicationModelRuntime runtime;
   ae::ObjId pending_focus_for_ui{};
 
-  void Run(ApplicationPublishedCallback on_published);
+  int Run(ApplicationPublishedCallback on_published);
 };
 
 }  // namespace apptraverse

@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Порядок unified:** **U1 PASS** → **U2 manual PASS** → **U3 PASS** (doc) → **U4 PASS** (audit-only) → **U5–U6** → **9D/9E** → **13.3+** ([PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge)).
+**Порядок unified:** **U1 PASS** → **U2 manual PASS** → **U3 PASS** (doc) → **U4 PASS** (audit-only) → **U5 IN_PROGRESS** (**U5.1 PASS**) → **U6** → **9D/9E** → **13.3+** ([PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge)).
 
 **Текущий этап Object Core:** **13 IN_PROGRESS**; **NEXT: 13.3**. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Object Core regressions на unified **не** PASS до **U6**.
 
@@ -36,11 +36,12 @@
 | **U2** — `win32_window_catalog_demo` ручной сценарий | incremental build, без кода | **manual PASS** (не full regression) |
 | **U3** — PLAN/PROGRESS sync | doc-only | **PASS** (commit U3) |
 | **U4** — аудит объединённой архитектуры | [unified-architecture-audit.md](../integration/unified-architecture-audit.md) | **PASS** (audit-only) |
-| **U5–U6** | — | **TODO** |
+| **U5.1** — shutdown-save → exit code | Release CTest 65–67 | **PASS** |
+| **U5.2–U5.6**, **U6** | — | **TODO** / **NEXT: U5.2** |
 
 **Application (baseline scope):** **I0 DONE**; **9A–9C DONE**; **9D/9E** embedded startup — **TODO**; **9F–9H** — **TODO**. R/E/B/S в shipping apps — **не интегрировано**.
 
-**Открыто:** часть callers не проверяет ошибки `SavePersistentModelSnapshotToStorage` / `DirectoryDomainStorage` (отдельная задача; U3 не меняет поведение).
+**Открыто:** shutdown-save WindowCatalog/MinimalApp проверяет checkpoint + `SaveSessionHadFailure` (**U5.1**); ветка ошибки в CTest **не** инжектировалась; частичная запись профиля — этап **22**.
 
 ---
 
@@ -426,6 +427,7 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-26** — **U2 manual PASS:** пользователь — **`win32_window_catalog_demo`** (Add/Open/Delete, EN/RU, геометрия, restart с `--state-dir`); **не** заявление о полном CTest/regression PASS.
 - **2026-10-26** — **U3 PASS (doc):** синхронизация [PLAN.md](./PLAN.md), PROGRESS, [application-versioning.md](../integration/application-versioning.md), [window_catalog_demo.md](../window_catalog_demo.md); код не менялся; push — **`integration/unified-application`** (commit U3 doc sync).
 - **2026-10-26** — **U4 PASS (audit-only):** [unified-architecture-audit.md](../integration/unified-architecture-audit.md) — Critical 2 / Major 5 / Minor 6 / Deferred 4; план U5.1–U5.5; production-код, тесты и CMake не менялись, сборка не запускалась.
+- **2026-10-26** — **U5.1 PASS:** shutdown-save WindowCatalog/MinimalApp — `BeginSaveSession`, проверка checkpoint + layer commits, exit code через lifecycle → `main`; CTest **65–67** Release **3/3**; ветка ошибки не инжектировалась.
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
 

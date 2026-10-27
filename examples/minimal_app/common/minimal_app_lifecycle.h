@@ -7,7 +7,7 @@
 
 namespace apptraverse::example::minimal {
 
-void RunMinimalApplicationModel(
+int RunMinimalApplicationModel(
     std::filesystem::path const& state_dir,
     ApplicationModelRuntime& runtime,
     ApplicationPublishedCallback on_published);

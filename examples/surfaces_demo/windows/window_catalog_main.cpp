@@ -70,11 +70,13 @@ int main(int argc, char** argv) {
   session.state_dir = state_dir;
 
   ae::ObjId pending_focus{};
+  int model_exit_status = 1;
 
   apptraverse::windows::WinApplicationHostCallbacks callbacks;
   callbacks.run_model =
-      [&session](apptraverse::ApplicationPublishedCallback on_published) {
-        session.Run(std::move(on_published));
+      [&session, &model_exit_status](
+          apptraverse::ApplicationPublishedCallback on_published) {
+        model_exit_status = session.Run(std::move(on_published));
       };
   callbacks.request_stop = [&] { session.runtime.RequestStop(); };
   callbacks.on_desktop_window_close =
@@ -115,5 +117,5 @@ int main(int argc, char** argv) {
   apptraverse::windows::WinApplicationHost host(session.runtime, loading,
                                               std::move(callbacks));
   host.Run();
-  return 0;
+  return model_exit_status;
 }

@@ -63,8 +63,10 @@ ui::UiPresentedWindow& MainWindowPresented(WindowCatalog& catalog) {
 
 void ShutdownSaveCatalog(WindowCatalog& catalog,
                          DirectoryDomainStorage& storage) {
+  storage.BeginSaveSession();
   SaveWindowCatalogPersistentSnapshot(catalog);
-  SavePersistentModelSnapshotToStorage(catalog, storage);
+  CHECK(SavePersistentModelSnapshotToStorage(catalog, storage));
+  CHECK(!storage.SaveSessionHadFailure());
 }
 
 void CopyStorageProfile(std::filesystem::path const& from,
