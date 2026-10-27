@@ -47,7 +47,7 @@
 | **P2.X1** — обязательный граф UI, assert side effects | **`51ecd2b`**, §P2.X1 | **PASS** |
 | **P2.d.1R.2b.1** — persistence tests без checkpoint | **`63d3b18`**, §P2.d.1R.2b.1 | **PASS** |
 | **P2.d.1R.2b.2** — cycle/rehydration DomainGraph | **`bc4d03f`**, §P2.d.1R.2b.2 | **PASS** |
-| **P2.d.1R.2b.3a** — PresenterGraph DomainGraph | §P2.d.1R.2b.3a | **PASS** |
+| **P2.d.1R.2b.3a** — PresenterGraph DomainGraph | **`8ca6a23`**, §P2.d.1R.2b.3a | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -161,7 +161,7 @@
 
 ---
 
-## P2.d.1R.2b.3a — PresenterGraph через SaveRoot/LoadRoot (2026-10-27)
+## P2.d.1R.2b.3a — PresenterGraph через SaveRoot/LoadRoot (2026-10-27, **`8ca6a23`**)
 
 **Test:** `RunPresenterGraphPersistenceTest` — один `RamDomainStorage`, `SaveRoot(kRootId)` / cold `LoadRoot` без checkpoint blob или pre-created root shell.
 
