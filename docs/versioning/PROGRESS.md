@@ -50,7 +50,7 @@
 | **P2.d.1R.2b.3a** — PresenterGraph DomainGraph | **`8ca6a23`**, §P2.d.1R.2b.3a | **PASS** |
 | **P2.d.1R.2b.3b.1** — Win HWND DomainGraph | **`3d85a31`**, §P2.d.1R.2b.3b.1 | **PASS** |
 | **P2.d.1R.2b.3b.2** — cross-process presenter storage | **`e750166`**, §P2.d.1R.2b.3b.2 | **PASS** |
-| **P2.d.1R.2b.4** — runtime_observer DomainGraph | **PLACEHOLDER**, §P2.d.1R.2b.4 | **PASS** |
+| **P2.d.1R.2b.4** — runtime_observer DomainGraph | **`90908ce`**, §P2.d.1R.2b.4 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
