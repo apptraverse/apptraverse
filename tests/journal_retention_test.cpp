@@ -16,8 +16,7 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_event_order.h"
+#include "apptraverse/event_order.h"
 
 namespace apptraverse::test {
 namespace {
@@ -50,21 +49,11 @@ class RetentionDoc : public NodeFor<RetentionDoc> {
 
   void Apply(AddEvent const& event);
 
-  void InsertSharedForTest(Event::ptr event, SharedEventId identity,
-                           SharedEventOrder order,
-                           std::uint64_t retained_since_us) {
-    InsertEvent(EventRecord{.event = std::move(event),
-                            .identity = std::move(identity),
-                            .order = std::move(order),
-                            .retained_since_us = retained_since_us});
-  }
-
   void InsertLocalForTest(Event::ptr event, std::uint64_t timestamp_us,
                           std::uint64_t retained_since_us) {
     InsertEvent(EventRecord{
         .event = std::move(event),
-        .identity = {},
-        .order = SharedEventOrder{.timestamp_us = timestamp_us},
+        .order = EventOrder{.timestamp_us = timestamp_us},
         .retained_since_us = retained_since_us});
   }
 };
@@ -139,7 +128,7 @@ void TestMaxEventsTen() {
   CHECK(doc->journal.size() == 100);
   auto const generation = doc->Generation();
   auto const last_orders = [&] {
-    std::vector<SharedEventOrder> orders;
+    std::vector<EventOrder> orders;
     for (std::size_t i = 90; i < 100; ++i) {
       orders.push_back(doc->journal[i].order);
     }
@@ -294,30 +283,24 @@ void TestDynamicPolicy() {
   CHECK(doc->value == 50);
 }
 
-void TestSharedOrderPreserved() {
+void TestEventOrderPreservedAfterCompact() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto doc = MakeDoc(domain);
   doc->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 2});
 
   for (int i = 0; i < 5; ++i) {
-    SharedEventId id{.origin_uid = "peer-a",
-                     .origin_sequence = static_cast<std::uint64_t>(i + 1)};
-    SharedEventOrder order{
+    EventOrder order{
         .timestamp_us = static_cast<std::uint64_t>((i + 1) * 10)};
-    doc->InsertSharedForTest(MakeAdd(domain, 1), id, order,
-                             static_cast<std::uint64_t>(i + 1) * 1'000'000ull);
+    doc->InsertLocalForTest(MakeAdd(domain, 1), order.timestamp_us,
+                            static_cast<std::uint64_t>(i + 1) * 1'000'000ull);
   }
-  auto const id4 = doc->journal[3].identity;
   auto const order4 = doc->journal[3].order;
-  auto const id5 = doc->journal[4].identity;
   auto const order5 = doc->journal[4].order;
 
   doc->CompactJournal(SystemUtcMicros());
   CHECK(doc->journal.size() == 2);
-  CHECK(doc->journal[0].identity == id4);
   CHECK(doc->journal[0].order == order4);
-  CHECK(doc->journal[1].identity == id5);
   CHECK(doc->journal[1].order == order5);
   CHECK(doc->value == 5);
 }
@@ -329,17 +312,11 @@ void TestMidInsertWhileBlocked() {
   doc->SetJournalCompactionBlocked(true);
   doc->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
 
-  SharedEventId id1{.origin_uid = "a", .origin_sequence = 1};
-  SharedEventOrder o1{.timestamp_us = 10};
-  SharedEventId id3{.origin_uid = "a", .origin_sequence = 3};
-  SharedEventOrder o3{.timestamp_us = 30};
-  doc->InsertSharedForTest(MakeAdd(domain, 1), id1, o1, 1);
-  doc->InsertSharedForTest(MakeAdd(domain, 10), id3, o3, 2);
+  doc->InsertLocalForTest(MakeAdd(domain, 1), 10, 1);
+  doc->InsertLocalForTest(MakeAdd(domain, 10), 30, 2);
   CHECK(doc->value == 11);
 
-  SharedEventId id2{.origin_uid = "a", .origin_sequence = 2};
-  SharedEventOrder o2{.timestamp_us = 20};
-  doc->InsertSharedForTest(MakeAdd(domain, 100), id2, o2, 3);
+  doc->InsertLocalForTest(MakeAdd(domain, 100), 20, 3);
   CHECK(doc->journal.size() == 3);
   CHECK(doc->journal[0].order.timestamp_us == 10);
   CHECK(doc->journal[1].order.timestamp_us == 20);
@@ -469,7 +446,7 @@ int main() {
   apptraverse::test::TestCountAgeUnion();
   apptraverse::test::TestCompactionBlocked();
   apptraverse::test::TestDynamicPolicy();
-  apptraverse::test::TestSharedOrderPreserved();
+  apptraverse::test::TestEventOrderPreservedAfterCompact();
   apptraverse::test::TestMidInsertWhileBlocked();
   apptraverse::test::TestZeroRetentionFiveHundred();
   apptraverse::test::TestRetentionTenReachable();

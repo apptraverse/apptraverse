@@ -5,8 +5,6 @@
 #include <utility>
 
 #include "apptraverse/node.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_event_order.h"
 
 namespace apptraverse {
 
@@ -19,26 +17,6 @@ class NodeFor : public BaseNode {
   NodeFor() = default;
 
   explicit NodeFor(ae::ObjProp prop) : BaseNode{prop} {}
-
- public:
-#if APPTRAVERSE_ENABLE_SHARED_NODE
-  // Shared replication insert at the Event's own timestamp (may mid-insert).
-  void InsertSharedOrderedEvent(Event::ptr event, SharedEventId identity,
-                                SharedEventOrder order) {
-    EventRecord record{.event = std::move(event),
-                       .identity = std::move(identity),
-                       .order = std::move(order)};
-    InsertEvent(std::move(record));
-  }
-
-  // Shared local commit: identity/order known before journal insertion.
-  void CommitShared(Event::ptr event, SharedEventId identity,
-                    SharedEventOrder order) {
-    Node::CommitSharedInto(static_cast<ConcreteNode&>(*this), std::move(event),
-                           std::move(identity), std::move(order));
-  }
-
-#endif
 
  private:
   void CaptureBaseStateImpl() override {
@@ -56,16 +34,6 @@ class NodeFor : public BaseNode {
   bool TryReplayFromBaseImpl() override {
     return Node::TryRebuildFromBaseAndReplay(static_cast<ConcreteNode&>(*this));
   }
-
-#if APPTRAVERSE_ENABLE_SHARED_NODE
-  bool TryInsertSharedImpl(Event::ptr event, SharedEventId identity,
-                           SharedEventOrder order) override {
-    return Node::TryCommitSharedInto(static_cast<ConcreteNode&>(*this),
-                                     std::move(event), std::move(identity),
-                                     std::move(order));
-  }
-
-#endif
 
  protected:
   void RebuildFromBaseAndReplay() {

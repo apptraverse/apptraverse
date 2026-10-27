@@ -32,7 +32,7 @@ Build-time distilled graph
           ↓
 EmbeddedDistilledGraph / Directory bootstrap (переходный)
           ↓
-DirectoryDomainStorage (+ checkpoint sidecar)
+DirectoryDomainStorage (+ checkpoint sidecar)  ← переходная реализация (не целевой контракт)
           ↓
 Model Domain
           ↓
@@ -43,7 +43,9 @@ ApplicationUiSession (UI mirror)
 Platform presenters / host
 ```
 
-Детали persistence, checkpoint и template — **P2** в PLAN; не дублировать канон здесь.
+**Целевая цепочка persistence:** embedded **BACKING** + **USER** (см. PLAN **P2**). Текущий **DirectoryDomainStorage + checkpoint sidecar** — переходный путь WindowCatalog на Windows; совместимость старых профилей после смены формата **EventRecord** (P1.1) не обещается — для разработки использовать **новый** state-dir.
+
+Детали checkpoint/template — **P2** в PLAN; не дублировать канон здесь.
 
 ---
 

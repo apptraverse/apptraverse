@@ -21,9 +21,8 @@
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_event_id.h"
-#include "apptraverse/shared_event_order.h"
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/closed_event_graph.h"
+#include "apptraverse/event_order.h"
 
 namespace apptraverse::test {
 namespace {
@@ -291,6 +290,12 @@ class ContainerNode : public NodeFor<ContainerNode> {
   }
 
   bool CanApply(AddItemEvent const&) const { return true; }
+
+  void InsertJournalEventForTest(Event::ptr event, EventOrder order) {
+    InsertEvent(EventRecord{.event = std::move(event),
+                            .order = std::move(order),
+                            .retained_since_us = SystemUtcMicros()});
+  }
 
   void Apply(EventWithExternalRef const&);
   bool CanApply(EventWithExternalRef const&) const;
@@ -857,9 +862,8 @@ void TestAddItemApplicationAndForcedReplay() {
   // Commit to journal for replay
   Event::ptr const event_ptr{&receiver_domain, imported->obj_id,
                              ae::ObjFlags::kNone, imported};
-  container->CommitShared(
-      event_ptr, SharedEventId{"test-origin", 1},
-      SharedEventOrder{100});
+  container->InsertJournalEventForTest(event_ptr,
+                                       EventOrder{.timestamp_us = 100});
   CHECK(container->journal.size() == 1);
 
   // Forced replay from base

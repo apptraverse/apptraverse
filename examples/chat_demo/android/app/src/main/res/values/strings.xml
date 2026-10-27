@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-  <string name="app_name">AppTraverse Chat</string>
-  <string name="host_uid_hint">Enter host UID</string>
-  <string name="join_host">Join</string>
-  <string name="send_draft">Send</string>
-  <string name="draft_hint">Draft</string>
-  <string name="loading">Starting…</string>
-</resources>

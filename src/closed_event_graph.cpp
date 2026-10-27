@@ -1,4 +1,4 @@
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/closed_event_graph.h"
 
 #include <algorithm>
 #include <cassert>
@@ -18,9 +18,10 @@
 #include "apptraverse/operation_storage.h"
 
 namespace apptraverse {
+namespace {
 
-void BuildNetworkSharedScratch(ae::Obj const& root,
-                               ae::RamDomainStorage& scratch) {
+void BuildEventExportScratch(ae::Obj const& root,
+                             ae::RamDomainStorage& scratch) {
   EnsureObjectRegistration();
   assert(root.domain != nullptr);
 
@@ -35,6 +36,8 @@ void BuildNetworkSharedScratch(ae::Obj const& root,
   assert(factory->save != nullptr);
   factory->save(&graph, ptr, root.obj_id);
 }
+
+}  // namespace
 
 namespace {
 
@@ -82,22 +85,6 @@ ae::ObjId AllocateUniqueReceiverObjId(
 
 }  // namespace
 
-void CopyNetworkSharedObjectGraph(ae::Obj const& root,
-                                  ae::IDomainStorage& target_storage) {
-  ae::RamDomainStorage scratch;
-  BuildNetworkSharedScratch(root, scratch);
-  CommitObjectGraph(scratch, target_storage);
-}
-
-void CopySharedNetworkGraph(SharedNode::ptr source,
-                            ae::Domain& target_domain,
-                            ae::IDomainStorage& target_storage) {
-  assert(source.is_valid());
-  assert(source.is_loaded());
-  (void)target_domain;
-  CopyNetworkSharedObjectGraph(*source, target_storage);
-}
-
 bool SerializeObjectGraph(ae::RamDomainStorage const& storage,
                           std::vector<std::uint8_t>& out) {
   out.clear();
@@ -123,38 +110,6 @@ bool DeserializeObjectGraph(std::vector<std::uint8_t> const& payload,
     return false;
   }
   return archive.buffer().read_position() == payload.size();
-}
-
-std::vector<std::uint8_t> SerializeNetworkSharedObjectGraph(
-    ae::Obj const& root) {
-  ae::RamDomainStorage scratch;
-  BuildNetworkSharedScratch(root, scratch);
-  return SerializeObjectGraph(scratch);
-}
-
-FrozenNodeState FreezeNetworkSharedNodeState(SharedNode const& root) {
-  ae::RamDomainStorage scratch;
-  BuildNetworkSharedScratch(root, scratch);
-
-  std::vector<SharedEventId> covered_event_ids;
-  {
-    ae::Domain scratch_domain{scratch};
-    ae::DomainGraph scratch_graph{&scratch_domain};
-    auto loaded_root = scratch_graph.LoadRoot(root.obj_id);
-    assert(loaded_root);
-    auto const& scratch_shared_node =
-        static_cast<SharedNode const&>(*loaded_root);
-    for (auto const& record : scratch_shared_node.journal) {
-      if (record.HasSharedIdentity()) {
-        covered_event_ids.push_back(record.identity);
-      }
-    }
-  }
-
-  return FrozenNodeState{
-      .payload = SerializeObjectGraph(scratch),
-      .covered_event_ids = std::move(covered_event_ids),
-  };
 }
 
 bool ValidateStoredClassChains(
@@ -296,7 +251,7 @@ bool FreezeEventPayload(
   }
 
   ae::RamDomainStorage scratch;
-  BuildNetworkSharedScratch(event, scratch);
+  BuildEventExportScratch(event, scratch);
 
   for (auto const& [obj_id, classes] : scratch.state) {
     if (!classes.has_value()) {

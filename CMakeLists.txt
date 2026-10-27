@@ -95,33 +95,15 @@ foreach(_dependency aether::objects aether::miscpp)
   endif()
 endforeach()
 
-# SharedNode/link/sync sources are part of the object core and its tests.
-set(APPTRAVERSE_ENABLE_SHARED_NODE ON)
 option(APPTRAVERSE_BUILD_EXAMPLES
   "Build the window catalog and minimal application" ON)
 option(APPTRAVERSE_BUILD_LEGACY_EXAMPLES
-  "Build historical demos (main window, dynamic objects, SharedNode, chat) and their tests" OFF)
-option(APPTRAVERSE_BUILD_AETHER_DEMOS
-  "Build Aether network demos and their tests" OFF)
+  "Build historical demos (main window, dynamic objects) and their tests" OFF)
 option(APPTRAVERSE_BUILD_LINUX_GUI "Build Linux GTK hosts and native GUI tests" ON)
-
-# Full Aether client is needed only by chat/presence targets.
-if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES OR APPTRAVERSE_BUILD_AETHER_DEMOS)
-  CPMAddPackage(
-    NAME aether-client-cpp
-    GITHUB_REPOSITORY aethernetio/aether-client-cpp
-    GIT_TAG ${APPTRAVERSE_AETHER_GIT_TAG}
-    EXCLUDE_FROM_ALL NO
-    OPTIONS
-      "AE_INSTALL OFF"
-      "AE_BUILD_TESTS ${APPTRAVERSE_BUILD_AETHER_DEMOS}"
-  )
-endif()
 
 add_library(apptraverse STATIC
   src/apptraverse.cpp
   src/noninteractive_crt.cpp
-  src/runtime_lifecycle.cpp
   src/directory_domain_storage.cpp
   src/overlay_domain_storage.cpp
   src/embedded_distilled_domain.cpp
@@ -138,12 +120,7 @@ add_library(apptraverse STATIC
   src/application_model_runtime.cpp
   src/application_ui_session.cpp
   src/graph_mirror.cpp
-  src/link.cpp
-  src/shared_node.cpp
-  src/shared_network_graph.cpp
-  src/memory_transport.cpp
-  src/sync_frame.cpp
-  src/shared_sync_runtime.cpp
+  src/closed_event_graph.cpp
   src/ui/ui_localization_string.cpp
   src/ui/ui_locale_settings.cpp
   src/ui/ui_window.cpp
@@ -158,8 +135,7 @@ target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/includ
 target_link_libraries(apptraverse PUBLIC
   aether::objects aether::miscpp apptraverse_compile_policy)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
-target_compile_definitions(apptraverse PUBLIC
-  APPTRAVERSE_ENABLE_SHARED_NODE=1 AE_DISTILLATION=1 AE_FILTRATION=1)
+target_compile_definitions(apptraverse PUBLIC AE_DISTILLATION=1)
 
 # Optional controls do not enter a catalog-only build or its registration.
 add_library(apptraverse_ui_extended STATIC EXCLUDE_FROM_ALL
@@ -252,17 +228,9 @@ if(WIN32)
     apptraverse_surfaces_v1)
 endif()
 
-if(APPTRAVERSE_BUILD_AETHER_DEMOS)
-  add_subdirectory(examples/model_ui_runtime_demo)
-  add_subdirectory(examples/chat_ui_runtime_demo)
-  add_subdirectory(examples/aether_presence_monitor)
-endif()
-
 if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
   add_subdirectory(examples/main_window_runtime_demo)
   add_subdirectory(examples/dynamic_objects_demo)
-  add_subdirectory(examples/shared_node_demo)
-  add_subdirectory(examples/chat_demo)
 endif()
 
 if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)

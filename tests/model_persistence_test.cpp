@@ -17,7 +17,6 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/partitioned_model_domain_storage.h"
-#include "apptraverse/runtime_lifecycle.h"
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse::test {
@@ -26,6 +25,31 @@ namespace {
 class DocNode;
 class DocChildNode;
 class DocChangedEvent;
+class EphemeralObserverNode;
+
+class EphemeralObserverNode : public NodeFor<EphemeralObserverNode> {
+  APPTRAVERSE_OBJECT(EphemeralObserverNode, Node, 0)
+
+ protected:
+  EphemeralObserverNode() = default;
+
+ public:
+  explicit EphemeralObserverNode(ae::ObjProp prop) : NodeFor{prop}, run_id{0} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(run_id))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, run_id);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, run_id);
+  }
+
+  std::uint64_t run_id;
+};
 
 class DocChildNode : public NodeFor<DocChildNode> {
   APPTRAVERSE_OBJECT(DocChildNode, Node, 0)
@@ -118,6 +142,7 @@ class LazyDistilledRoot : public ae::Obj {
   DocNode::ptr second;
 };
 
+APPTRAVERSE_REGISTER(EphemeralObserverNode);
 APPTRAVERSE_REGISTER(DocNode);
 APPTRAVERSE_REGISTER(DocChildNode);
 APPTRAVERSE_REGISTER(DocChangedEvent);
@@ -196,11 +221,10 @@ void RunModelPersistenceTest() {
   ae::Domain domain{storage};
   auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*doc);
-  auto runtime = NetworkState::ptr::Create(ae::CreateWith{domain});
+  auto runtime = EphemeralObserverNode::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*runtime, *doc);
+  runtime->run_id = 1;
   doc->label = "before";
-
-  static_cast<void>(CommitNetworkAvailable(*runtime, 1));
 
   std::uint64_t const gen_before = doc->Generation();
   std::size_t const journal_before = doc->journal.size();
@@ -223,12 +247,13 @@ void RunModelPersistenceTest() {
   in.pos = 0;
   LoadPersistentModelSnapshot(in, load_domain, load_storage, *load_doc);
   CHECK(load_doc->label == "before");
-  CHECK(!StorageContainsClass(load_storage, NetworkState::kClassId));
+  CHECK(!StorageContainsClass(load_storage, EphemeralObserverNode::kClassId));
 
-  auto fresh_runtime = NetworkState::ptr::Create(ae::CreateWith{load_domain});
+  auto fresh_runtime =
+      EphemeralObserverNode::ptr::Create(ae::CreateWith{load_domain});
   InitializeRuntimeNode(*fresh_runtime, *load_doc);
-  static_cast<void>(CommitNetworkInitializing(*fresh_runtime, 2));
-  CHECK(fresh_runtime->GetAvailability() == NetworkAvailability::kInitializing);
+  fresh_runtime->run_id = 2;
+  CHECK(fresh_runtime->run_id == 2);
 
   auto event = DocChangedEvent::ptr::Create(ae::CreateWith{load_domain});
   event->label = "after";

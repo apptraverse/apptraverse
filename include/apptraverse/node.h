@@ -129,8 +129,7 @@ class Node : public ae::Obj {
     return journal_retention_policy_;
   }
 
-  // Synchronization safety hold. Independent of retention count/age.
-  // Future sync frontiers will drive this; bool is enough for this slice.
+  // Retention safety hold independent of count/age policy (e.g. tests).
   void SetJournalCompactionBlocked(bool blocked) {
     journal_compaction_blocked_ = blocked;
   }
@@ -204,7 +203,7 @@ class Node : public ae::Obj {
   // Rebuild materialized state from base and replay the journal.
   // Note: Speculative replay is intended for disposable scratch copies only.
   // If historical replay fails, the scratch object is left partially modified
-  // and must not be reused. Network admission discards the scratch graph on failure.
+  // and must not be reused.
   bool TryReplayFromBase() { return TryReplayFromBaseImpl(); }
 
   void ReplayFromBase() {
@@ -212,41 +211,6 @@ class Node : public ae::Obj {
     assert(ok && "ReplayFromBase invariant broken");
     (void)ok;
   }
-
-#if APPTRAVERSE_ENABLE_SHARED_NODE
-  // Insert a remotely originated shared Event at its own identity and
-  // timestamp. Dispatches to the most-derived NodeFor so Apply sees the
-  // concrete Node.
-  // Note: Speculative insertion is intended for disposable scratch copies only.
-  // If historical replay fails, the scratch object is left partially modified
-  // and must not be reused. Network admission discards the scratch graph on failure.
-  bool TryInsertShared(Event::ptr event, SharedEventId identity,
-                       SharedEventOrder order) {
-    return TryInsertSharedImpl(std::move(event), std::move(identity),
-                               std::move(order));
-  }
-
-  void InsertShared(Event::ptr event, SharedEventId identity,
-                    SharedEventOrder order) {
-    bool const ok = TryInsertShared(std::move(event), std::move(identity),
-                                    std::move(order));
-    assert(ok && "InsertShared invariant broken");
-    (void)ok;
-  }
-
-  EventRecord const* FindSharedEvent(SharedEventId const& identity) const {
-    if (identity.origin_uid.empty()) {
-      return nullptr;
-    }
-    for (auto const& record : journal) {
-      if (record.HasSharedIdentity() && record.identity == identity) {
-        return &record;
-      }
-    }
-    return nullptr;
-  }
-
-#endif
 
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
@@ -272,9 +236,9 @@ class Node : public ae::Obj {
     (void)ok;
   }
 
-  // Local-persistent fields (e.g. SharedNode LocalPtr sync metadata) must
-  // survive mid-journal RebuildFromBaseAndReplay. Base snapshots may predate
-  // those fields; Load from base must not discard the live local state.
+  // Local-persistent fields must survive mid-journal RebuildFromBaseAndReplay.
+  // Base snapshots may predate those fields; Load from base must not discard
+  // the live local state.
   virtual void StashLocalPersistentAcrossRebuild() {}
   virtual void RestoreLocalPersistentAcrossRebuild() {}
 
@@ -466,7 +430,7 @@ class Node : public ae::Obj {
 
   // Speculative insertion is for disposable scratch copies only.
   // If historical replay fails, the scratch object is left partially modified
-  // and must be discarded. Network admission discards the scratch graph on failure.
+  // and must be discarded.
   template <typename ConcreteNode>
   bool TryInsertEvent(ConcreteNode& target, EventRecord record) {
     if (domain == nullptr || !base.is_valid() || !base.is_loaded() ||
@@ -477,17 +441,6 @@ class Node : public ae::Obj {
 
     if (record.retained_since_us == 0) {
       record.retained_since_us = SystemUtcMicros();
-    }
-
-    // Identity is what must be unique. Two different Events sharing a
-    // timestamp is an accepted, unresolved case, not an error.
-    if (record.HasSharedIdentity()) {
-      for (auto const& existing : journal) {
-        if (existing.HasSharedIdentity() &&
-            existing.identity == record.identity) {
-          return false;
-        }
-      }
     }
 
     // A record with a timestamp already present lands before the records that
@@ -542,46 +495,11 @@ class Node : public ae::Obj {
 
     EventRecord record{
         .event = std::move(event),
-        .identity = {},
-        .order = SharedEventOrder{.timestamp_us = timestamp_us},
+        .order = EventOrder{.timestamp_us = timestamp_us},
         .retained_since_us = SystemUtcMicros(),
     };
     InsertEvent(target, std::move(record));
   }
-
-#if APPTRAVERSE_ENABLE_SHARED_NODE
-  // Shared commit: the Event keeps the identity and timestamp it was given.
-  // A remotely originated Event is inserted at its own timestamp; nothing here
-  // rewrites it from local state.
-  template <typename ConcreteNode>
-  bool TryCommitSharedInto(ConcreteNode& target, Event::ptr event,
-                           SharedEventId identity, SharedEventOrder order) {
-    if (!event.is_valid() || !event.is_loaded() || identity.origin_uid.empty()) {
-      return false;
-    }
-    if (!event->MatchesSharedMetadata(identity, order)) {
-      return false;
-    }
-
-    EventRecord record{
-        .event = std::move(event),
-        .identity = std::move(identity),
-        .order = std::move(order),
-        .retained_since_us = SystemUtcMicros(),
-    };
-    return TryInsertEvent(target, std::move(record));
-  }
-
-  template <typename ConcreteNode>
-  void CommitSharedInto(ConcreteNode& target, Event::ptr event,
-                        SharedEventId identity, SharedEventOrder order) {
-    bool const ok = TryCommitSharedInto(target, std::move(event),
-                                        std::move(identity), std::move(order));
-    assert(ok && "CommitSharedInto invariant broken");
-    (void)ok;
-  }
-
-#endif
 
  private:
   virtual void CaptureBaseStateImpl() {
@@ -602,18 +520,6 @@ class Node : public ae::Obj {
     assert(false && "Concrete Node must inherit through NodeFor");
     return false;
   }
-
-#if APPTRAVERSE_ENABLE_SHARED_NODE
-  virtual bool TryInsertSharedImpl(Event::ptr event, SharedEventId identity,
-                                   SharedEventOrder order) {
-    (void)event;
-    (void)identity;
-    (void)order;
-    assert(false && "Concrete Node must inherit through NodeFor");
-    return false;
-  }
-
-#endif
 
   static constexpr std::size_t kJournalFullyMaterialized =
       (std::numeric_limits<std::size_t>::max)();

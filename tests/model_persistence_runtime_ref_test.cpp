@@ -7,9 +7,9 @@
 
 #include "apptraverse/graph_walk.h"
 #include "apptraverse/model_persistence.h"
+#include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
-#include "apptraverse/runtime_lifecycle.h"
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse::test {
@@ -17,8 +17,33 @@ namespace {
 
 class PersistentDoc;
 class PersistentDocChangedEvent;
+class PersistentObserverNode;
 
-class PersistentDoc : public NodeFor<PersistentDoc> {
+class PersistentObserverNode : public NodeFor<PersistentObserverNode> {
+  APPTRAVERSE_OBJECT(PersistentObserverNode, Node, 0)
+
+ protected:
+  PersistentObserverNode() = default;
+
+ public:
+  explicit PersistentObserverNode(ae::ObjProp prop) : NodeFor{prop}, run_id{0} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(run_id))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, run_id);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, run_id);
+  }
+
+  std::uint64_t run_id;
+};
+
+class PersistentDoc : public apptraverse::NodeFor<PersistentDoc> {
   APPTRAVERSE_OBJECT(PersistentDoc, Node, 0)
 
  protected:
@@ -40,7 +65,7 @@ class PersistentDoc : public NodeFor<PersistentDoc> {
   }
 
   std::string label;
-  NetworkState::ptr runtime_observer;
+  PersistentObserverNode::ptr runtime_observer;
 
   void Apply(PersistentDocChangedEvent const& event);
 };
@@ -60,6 +85,7 @@ class PersistentDocChangedEvent
   std::string label;
 };
 
+APPTRAVERSE_REGISTER(PersistentObserverNode);
 APPTRAVERSE_REGISTER(PersistentDoc);
 APPTRAVERSE_REGISTER(PersistentDocChangedEvent);
 
@@ -91,12 +117,11 @@ void RunModelPersistenceRuntimeRefTest() {
       ae::CreateWith{domain}.with_id(kDocId));
   CHECK(doc->obj_id == kDocId);
   InitializeRuntimeNode(*doc);
-  auto runtime = NetworkState::ptr::Create(ae::CreateWith{domain});
+  auto runtime = PersistentObserverNode::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*runtime, *doc);
+  runtime->run_id = 1;
   doc->runtime_observer = runtime;
   doc->label = "linked";
-
-  static_cast<void>(CommitNetworkAvailable(*runtime, 1));
 
   ByteSink snapshot;
   SerializePersistentModelSnapshot(*doc, snapshot);

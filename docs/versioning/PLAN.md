@@ -38,7 +38,7 @@
 | Этап | Содержание | Статус |
 | --- | --- | --- |
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
-| **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **NEXT → P1.1** |
+| **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **IN_PROGRESS → P2** |
 | **P2** | Общий application template + минимум persistence/Clone | TODO |
 | **P3** | Windows + первый другой backend (Web **или** Android) | TODO |
 | **P4** | Остальные платформы (reuse Surfaces native) | TODO |
@@ -49,7 +49,7 @@
 
 | ID | Область | Результат |
 | --- | --- | --- |
-| **P1.1** | `shared_*.cpp`, `memory_transport`, `sync_frame`, `link`, `APPTRAVERSE_ENABLE_SHARED_NODE`, legacy chat/shared demos, `aether-client-cpp`, связанные CTest | Core + catalog/minimal без replication/network; Windows catalog tests PASS |
+| **P1.1** | `shared_*.cpp`, `memory_transport`, `sync_frame`, `link`, `APPTRAVERSE_ENABLE_SHARED_NODE`, legacy chat/shared demos, `aether-client-cpp`, связанные CTest | **DONE** — core + catalog/minimal без replication/network |
 | **P1.2+** | По графу после P1.1 | Удалять только unreachable |
 
 ### P2 — application template (минимум)
@@ -60,7 +60,6 @@
 | --- | --- | --- |
 | P2.a | Единая загрузка checkpoint | `object_serialization`, lifecycles, tests |
 | P2.b | Убрать runtime `StabilizeDistilledPersistentSnapshot` (MinimalApp) | `minimal_app_lifecycle.cpp` |
-| P2.c | Fail-fast формат checkpoint (без recovery) | `LoadPersistentModelSnapshot` |
 | P2.d | Штатная сериализация вместо ручных envelope | `object_serialization`, `publication_channel` |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
@@ -157,7 +156,7 @@
 
 **Архитектурный пробел (остаётся):** **Clone** вручную в fixtures; нет универсального Clone/S-evolution (**13+**). Origin на штатном **`Obj::SetOriginId` / `origin_id()`** + **`Obj/S1`** — **12R/12B PASS**; отдельный **`object_origin.h`** для **12B** **не** введён (API достаточен).
 
-**Следующий активный шаг (application):** **P1.1** — удаление SharedNode/replication/network из core и CMake. **Object Core roadmap** (13.3+, release fixtures) — справочно; не блокирует P1–P4, полезные пункты в **P2/P5**.
+**Следующий активный шаг (application):** **P2** — application template (минимум persistence/Clone). **Object Core roadmap** (13.3+, release fixtures) — справочно; не блокирует P1–P4, полезные пункты в **P2/P5**.
 
 ---
 

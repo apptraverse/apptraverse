@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок:** **P0 DONE** → **P1.1** (удаление сети/replication) → **P2–P6** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
+**Активный порядок:** **P0 DONE** → **P1.1 DONE** → **P2–P6** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
 
 **Текущий этап Object Core:** **13 IN_PROGRESS**; **NEXT: 13.3**. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Object Core regressions на unified **не** PASS до **U6**.
 
@@ -38,11 +38,24 @@
 | **U4** — аудит объединённой архитектуры | [unified-architecture-audit.md](../integration/unified-architecture-audit.md) | **PASS** (audit-only) |
 | **U5.1** — shutdown-save → exit code | **`8c863bc`**, CTest 65–67 | **PASS** (история) |
 | **P0** — канон + sync docs/rules | doc-only | **DONE** |
-| **P1–P6** | — | **NEXT: P1.1** |
+| **P1.1** — удаление сети/replication | см. §P1.1 ниже | **PASS** (Debug build + model test; см. evidence) |
+| **P2–P6** | — | **NEXT: P2** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
 
 **Открыто:** атомарность профиля и corrupt-checkpoint hardening **не** в scope прототипа; **U5.1** exit code — факт **`8c863bc`**, failure branch в CTest не инжектировался.
+
+---
+
+## P1.1 — удаление сетевой синхронизации (2026-10-27, **`28c3668`**)
+
+**Удалено:** SharedNode, SharedSyncRuntime, SharedNetworkGraph (transport/replication), `Link` (replication), SyncFrame/ACK/presence path, ByteTransport/MemoryTransport, `runtime_lifecycle` (NetworkState/Aether registration), `aether-client-cpp` из CMake, chat/shared/aether demos и связанные CTest targets.
+
+**Локальный журнал:** `EventRecord` = `event` + `EventOrder` (`timestamp_us`) + `retained_since_us`; поле `SharedEventId identity` убрано. Отражённая сериализация journal меняет on-disk layout Node — **старые профили не совместимы**; dev: новый `--state-dir` (например `%TEMP%\apptraverse_p11_catalog_dev`).
+
+**Сохранено:** `Node::Commit`, mid-journal insert/replay, retention/compaction block, closed Event graph helpers → `closed_event_graph.{h,cpp}` (без SharedNode export).
+
+**Debug evidence (`build/win64-ninja-msvc-debug`):** `apptraverse_window_catalog_model_test` **PASS**; `win32_window_catalog_demo` запуск с новым профилем **OK** (краткий smoke, без полного GUI-сценария).
 
 ---
 

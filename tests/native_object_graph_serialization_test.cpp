@@ -22,7 +22,7 @@
 #include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/shared_network_graph.h"
+#include "apptraverse/closed_event_graph.h"
 
 namespace apptraverse::test {
 namespace {
