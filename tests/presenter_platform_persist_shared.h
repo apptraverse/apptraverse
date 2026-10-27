@@ -3,13 +3,11 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <vector>
 
-#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
@@ -68,7 +66,7 @@ class SaveBackendDesktopWindowPresenter : public ui::UiDesktopWindowPresenter {
   explicit SaveBackendDesktopWindowPresenter(ae::ObjProp prop)
       : ui::UiDesktopWindowPresenter{prop} {}
 
-  int backend_tag_on_save{1};
+  int backend_tag_on_save;
 };
 
 class LoadBackendDesktopWindowPresenter : public ui::UiDesktopWindowPresenter {
@@ -77,43 +75,22 @@ class LoadBackendDesktopWindowPresenter : public ui::UiDesktopWindowPresenter {
                            ui::UiDesktopWindowPresenter, 0)
 
  protected:
-  LoadBackendDesktopWindowPresenter() = default;
+  LoadBackendDesktopWindowPresenter() : backend_tag_on_load{2} {}
 
  public:
   explicit LoadBackendDesktopWindowPresenter(ae::ObjProp prop)
-      : ui::UiDesktopWindowPresenter{prop} {}
+      : ui::UiDesktopWindowPresenter{prop}, backend_tag_on_load{2} {}
 
-  int backend_tag_on_load{2};
+  int backend_tag_on_load;
 };
 
-inline void WriteSnapshotFile(std::filesystem::path const& path,
-                              std::vector<std::uint8_t> const& bytes) {
-  std::ofstream out{path, std::ios::binary | std::ios::trunc};
-  if (!out) {
-    std::cerr << "failed to open snapshot for write: " << path << '\n';
-    std::exit(1);
-  }
-  out.write(reinterpret_cast<char const*>(bytes.data()),
-            static_cast<std::streamsize>(bytes.size()));
-}
-
-inline std::vector<std::uint8_t> ReadSnapshotFile(
-    std::filesystem::path const& path) {
-  std::ifstream in{path, std::ios::binary};
-  if (!in) {
-    std::cerr << "failed to open snapshot for read: " << path << '\n';
-    std::exit(1);
-  }
-  return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), {});
-}
-
-inline int RunSaveBackend(std::filesystem::path const& path) {
+inline int RunSaveBackend(std::filesystem::path const& state_dir) {
   APPTRAVERSE_REGISTER(SaveBackendDesktopWindowPresenter);
   EnsureObjectRegistration();
   (void)&g_apptraverse_registrar_PlatformPersistRoot;
   (void)&g_apptraverse_registrar_SaveBackendDesktopWindowPresenter;
 
-  ae::RamDomainStorage storage;
+  apptraverse::DirectoryDomainStorage storage{state_dir};
   ae::Domain domain{storage};
   auto root = PlatformPersistRoot::ptr::Create(
       ae::CreateWith{domain}.with_id(kRootId));
@@ -127,30 +104,50 @@ inline int RunSaveBackend(std::filesystem::path const& path) {
   presenter->backend_tag_on_save = 9;
   root->window_presenter = presenter;
 
-  ByteSink snapshot;
-  SerializePersistentModelSnapshot(*root, snapshot);
-  WriteSnapshotFile(path, snapshot.bytes);
+  storage.BeginSaveSession();
+  ae::DomainGraph save_graph{&domain};
+  ae::Ptr<ae::Obj> save_root = domain.Find(kRootId);
+  if (!save_root || !save_graph.SaveRoot(save_root, kRootId).IsOk() ||
+      storage.SaveSessionHadFailure()) {
+    std::cerr << "SaveRoot failed\n";
+    return 1;
+  }
   return 0;
 }
 
-inline int RunLoadBackend(std::filesystem::path const& path) {
+inline int RunLoadBackend(std::filesystem::path const& state_dir) {
   APPTRAVERSE_REGISTER(LoadBackendDesktopWindowPresenter);
   EnsureObjectRegistration();
   (void)&g_apptraverse_registrar_PlatformPersistRoot;
   (void)&g_apptraverse_registrar_LoadBackendDesktopWindowPresenter;
 
-  ae::RamDomainStorage storage;
+  apptraverse::DirectoryDomainStorage storage{state_dir};
   ae::Domain domain{storage};
-  auto root = PlatformPersistRoot::ptr::Create(
-      ae::CreateWith{domain}.with_id(kRootId));
-  InitializeRuntimeNode(*root);
-
-  auto const bytes = ReadSnapshotFile(path);
-  ByteSource in;
-  in.data = bytes.data();
-  in.size = bytes.size();
-  in.pos = 0;
-  LoadPersistentModelSnapshot(in, domain, storage, *root);
+  ae::DomainGraph load_graph{&domain};
+  ae::Ptr<ae::Obj> loaded_obj;
+  if (!load_graph.LoadRoot(kRootId, loaded_obj).IsOk()) {
+    std::cerr << "LoadRoot failed\n";
+    return 1;
+  }
+  ae::Ptr<PlatformPersistRoot> root{loaded_obj};
+  if (root->obj_id != kRootId) {
+    std::cerr << "unexpected root id\n";
+    return 1;
+  }
+  if (root->window.id() != kWindowId) {
+    std::cerr << "unexpected window id\n";
+    return 1;
+  }
+  if (!root->window_presenter.is_valid() ||
+      root->window_presenter.id() != kPresenterId) {
+    std::cerr << "unexpected presenter id\n";
+    return 1;
+  }
+  ae::Ptr<ae::Obj> const found_presenter = domain.Find(kPresenterId);
+  if (!found_presenter || found_presenter.get() != &*root->window_presenter) {
+    std::cerr << "presenter not in load domain\n";
+    return 1;
+  }
 
   auto presenter = LoadBackendDesktopWindowPresenter::ptr::MakeFromThis(
       static_cast<LoadBackendDesktopWindowPresenter*>(&*root->window_presenter));

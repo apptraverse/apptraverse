@@ -1335,7 +1335,7 @@ target_link_libraries(apptraverse_presenter_platform_persist_load PRIVATE
 add_test(
   NAME apptraverse_presenter_platform_persist_roundtrip
   COMMAND ${CMAKE_COMMAND}
-    -DSNAPSHOT=${CMAKE_CURRENT_BINARY_DIR}/presenter_platform_persist.bin
+    -DSTATE_DIR=${CMAKE_CURRENT_BINARY_DIR}/presenter_platform_persist_state
     -DSAVE_EXE=$<TARGET_FILE:apptraverse_presenter_platform_persist_save>
     -DLOAD_EXE=$<TARGET_FILE:apptraverse_presenter_platform_persist_load>
     -P ${CMAKE_CURRENT_LIST_DIR}/presenter_platform_persist_run.cmake

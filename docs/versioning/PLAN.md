@@ -69,7 +69,8 @@
 | **P2.d.1R.2b.2** | Cycle/rehydration tests через DomainGraph | **PASS** — `checkpoint_load_cycle_persistence_test`, `checkpoint_load_rehydration_test` |
 | **P2.d.1R.2b.3a** | PresenterGraph persistence через DomainGraph | **PASS** — `presenter_graph_persistence_test` |
 | **P2.d.1R.2b.3b.1** | Windows HWND persistence через DomainGraph | **PASS** — `presenter_win_hwnd_persistence_test` |
-| **P2.d.1R.2b** | Оставшиеся потребители + удаление checkpoint API | **IN_PROGRESS** — **NEXT: P2.d.1R.2b.3b.2** cross-process presenter, затем удаление API |
+| **P2.d.1R.2b.3b.2** | Cross-process presenter через DirectoryDomainStorage | **PASS** — `apptraverse_presenter_platform_persist_roundtrip` |
+| **P2.d.1R.2b** | Оставшиеся потребители + удаление checkpoint API | **IN_PROGRESS** — **NEXT: P2.d.1R.2b.4** `model_persistence_runtime_ref_test`, затем удаление API |
 | **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — **после P2.d.1R.2b** |
 | P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |

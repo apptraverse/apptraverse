@@ -49,6 +49,7 @@
 | **P2.d.1R.2b.2** — cycle/rehydration DomainGraph | **`bc4d03f`**, §P2.d.1R.2b.2 | **PASS** |
 | **P2.d.1R.2b.3a** — PresenterGraph DomainGraph | **`8ca6a23`**, §P2.d.1R.2b.3a | **PASS** |
 | **P2.d.1R.2b.3b.1** — Win HWND DomainGraph | **`3d85a31`**, §P2.d.1R.2b.3b.1 | **PASS** |
+| **P2.d.1R.2b.3b.2** — cross-process presenter storage | **PLACEHOLDER**, §P2.d.1R.2b.3b.2 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -170,7 +171,19 @@
 
 **Debug:** `apptraverse_presenter_graph_persistence_test` **exit 0**.
 
-**NEXT:** **P2.d.1R.2b.3b.2** — cross-process presenter persistence.
+**NEXT:** **P2.d.1R.2b.3b.2** — cross-process presenter persistence (см. § ниже).
+
+---
+
+## P2.d.1R.2b.3b.2 — cross-process presenter через DirectoryDomainStorage (2026-10-27)
+
+**Test:** `apptraverse_presenter_platform_persist_roundtrip` — Save EXE / Load EXE делят `DirectoryDomainStorage` (`presenter_platform_persist_state`); `SaveRoot(kRootId)` / cold `LoadRoot` без checkpoint blob, sidecar `.bin` или pre-created root shell.
+
+**Проверки после load:** root/window/presenter ObjId, window↔presenter, `LoadBackendDesktopWindowPresenter` (тот же serialized ClassId, другой C++ backend), `backend_tag_on_load == 2` (runtime-only; save tag 9 не persisted).
+
+**Debug:** `apptraverse_presenter_platform_persist_roundtrip` **exit 0**; save/load EXE **exit 0**.
+
+**NEXT:** **P2.d.1R.2b.4** — `model_persistence_runtime_ref_test`.
 
 ---
 
