@@ -41,8 +41,9 @@
 | **P1.1** — удаление сети/replication | см. §P1.1 ниже | **PASS** (Debug build + model test; см. evidence) |
 | **P2.a** — единая загрузка checkpoint | см. §P2.a ниже | **PASS** |
 | **P2.b** — MinimalApp без runtime Stabilize | см. §P2.b ниже | **PASS** |
-| **P2.d.1** — checkpoint `BinaryArchive` | **`6676f7d`**, §P2.d.1 | **PASS** |
-| **P2.d** — штатная сериализация (publication) | **NEXT: P2.d.2** | **IN_PROGRESS** |
+| **P2.d.1** — checkpoint `BinaryArchive` | **`6676f7d`**, §P2.d.1 | **PASS (исторически; superseded)** |
+| **P2.d.1R.1** — MinimalApp без sidecar | **`17c7cb9`**, §P2.d.1R.1 | **PASS** |
+| **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2**, затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -89,7 +90,21 @@
 
 **Debug evidence (`build/win64-ninja-msvc-debug`):** targets `apptraverse_model_persistence_test`, `apptraverse_window_catalog_model_test`, `win32_minimal_app`, `win32_minimal_app_load_only`, `win32_window_catalog_demo` — сборка **OK**; оба model-теста **exit 0**; MinimalApp `docs/smoke_artifacts/p2d1_minimal_checkpoint_verify`: первый запуск → WM_CLOSE → **exit 0**, sidecar есть → `win32_minimal_app_load_only` → **exit 0**.
 
-**NEXT (не начато):** **P2.d.2** — штатная сериализация initial/structural publication.
+**Статус:** typed checkpoint **`6676f7d`** выполнен, но **не** конечная архитектура; заменяется штатным объектным storage (P2.d.1R).
+
+---
+
+## P2.d.1R.1 — MinimalApp: штатный Save без sidecar (2026-10-27, **`17c7cb9`**)
+
+**MinimalApp:** убраны `TryLoadPersistedModelFromStorageSidecar` и `SavePersistentModelSnapshotToStorage`; cold load через `LoadApplication`, shutdown — `BeginSaveSession` + `SavePresentedWindow` + `MinimalApplication::Save`.
+
+**Headless:** `RunStandardDirectoryStorageNodeJournalRoundTripTest` — два Commit, `DomainGraph::SaveRoot` в `DirectoryDomainStorage`, cold `LoadRoot`, проверка label/base/journal, третий Commit и повторная загрузка (без checkpoint API).
+
+**Sidecar-потребители (не тронуты):** WindowCatalog lifecycle, Host/Admin session, множество shell tests, `SerializePersistentModelSnapshot` в library tests.
+
+**Седьмая платформа (Headless):** зафиксирована в каноне; полный E2E **не** PASS.
+
+**Debug evidence (`build/win64-ninja-msvc-debug`):** `apptraverse_model_persistence_test` **exit 0** (`RunStandardDirectoryStorageNodeJournalRoundTripTest`); MinimalApp `docs/smoke_artifacts/p2d1r1_minimal_std_storage`: первый run → WM_CLOSE **0**, `persistent_model_checkpoint.bin` **отсутствует**, layer dirs **6** → `load_only` → WM_CLOSE **0**.
 
 ---
 

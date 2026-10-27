@@ -348,6 +348,89 @@ void RunSaveToStorageColdDirectoryRoundTripTest() {
   std::filesystem::remove_all(temp, ec);
 }
 
+void RunStandardDirectoryStorageNodeJournalRoundTripTest() {
+  auto const temp =
+      std::filesystem::temp_directory_path() /
+      ("apptraverse_std_storage_journal_" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code ec;
+  std::filesystem::remove_all(temp, ec);
+
+  ae::ObjId doc_id;
+  std::size_t journal_after_two_commits = 0;
+
+  {
+    apptraverse::DirectoryDomainStorage durable{temp};
+    ae::Domain domain{durable};
+    auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
+    InitializeRuntimeNode(*doc);
+    CHECK(doc->base.is_valid());
+    doc->label = "v0";
+
+    auto ev1 = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
+    ev1->label = "v1";
+    doc->Commit(ev1);
+    auto ev2 = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
+    ev2->label = "v2";
+    doc->Commit(ev2);
+    CHECK(doc->label == "v2");
+    journal_after_two_commits = doc->journal.size();
+    CHECK(journal_after_two_commits >= 2);
+    doc_id = doc->obj_id;
+
+    durable.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    ae::Ptr<ae::Obj> save_root = domain.Find(doc_id);
+    CHECK(save_root);
+    CHECK(save_graph.SaveRoot(save_root, doc_id).IsOk());
+    CHECK(!durable.SaveSessionHadFailure());
+  }
+
+  {
+    apptraverse::DirectoryDomainStorage durable{temp};
+    ae::Domain domain{durable};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded_obj;
+    CHECK(load_graph.LoadRoot(doc_id, loaded_obj).IsOk());
+    ae::Ptr<DocNode> doc{loaded_obj};
+    CHECK(doc->label == "v2");
+    CHECK(doc->base.is_valid());
+    CHECK(doc->journal.size() == journal_after_two_commits);
+
+    auto ev3 = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
+    ev3->label = "v3";
+    doc->Commit(ev3);
+    CHECK(doc->label == "v3");
+
+    durable.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    ae::Ptr<ae::Obj> save_root = domain.Find(doc_id);
+    CHECK(save_root);
+    CHECK(save_graph.SaveRoot(save_root, doc_id).IsOk());
+    CHECK(!durable.SaveSessionHadFailure());
+  }
+
+  {
+    apptraverse::DirectoryDomainStorage durable{temp};
+    ae::Domain domain{durable};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded_obj;
+    CHECK(load_graph.LoadRoot(doc_id, loaded_obj).IsOk());
+    ae::Ptr<DocNode> doc{loaded_obj};
+    CHECK(doc->label == "v3");
+    CHECK(doc->base.is_valid());
+    CHECK(doc->journal.size() >= journal_after_two_commits + 1);
+
+    auto ev4 = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
+    ev4->label = "v4";
+    doc->Commit(ev4);
+    CHECK(doc->label == "v4");
+  }
+
+  std::filesystem::remove_all(temp, ec);
+}
+
 void RunPersistentJournalCheckpointRoundTripTest() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -909,6 +992,7 @@ int main() {
   apptraverse::test::RunModelPersistenceTest();
   apptraverse::test::RunSaveToStorageDoesNotMutateLiveGraphTest();
   apptraverse::test::RunSaveToStorageColdDirectoryRoundTripTest();
+  apptraverse::test::RunStandardDirectoryStorageNodeJournalRoundTripTest();
   apptraverse::test::RunPersistentJournalCheckpointRoundTripTest();
   apptraverse::test::RunCheckpointSidecarStorageEquivalenceTest();
   apptraverse::test::RunDistilledLazyOverlayTest();

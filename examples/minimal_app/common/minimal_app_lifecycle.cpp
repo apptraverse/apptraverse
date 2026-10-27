@@ -12,7 +12,6 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
@@ -56,8 +55,6 @@ int RunMinimalApplicationModel(
     ae::Domain domain{durable_storage};
     auto application =
         LoadApplication<MinimalApplication>(domain, MinimalApplicationRootId());
-    static_cast<void>(TryLoadPersistedModelFromStorageSidecar(
-        domain, durable_storage, *application));
 
     ui::LoadPresentedWindow(application->main_window);
 
@@ -66,9 +63,7 @@ int RunMinimalApplicationModel(
     durable_storage.BeginSaveSession();
     ui::SavePresentedWindow(application->main_window);
     MinimalApplication::ptr::MakeFromThis(&*application).Save();
-    bool const checkpoint_ok = SavePersistentModelSnapshotToStorage(
-        *application, durable_storage);
-    if (!checkpoint_ok || durable_storage.SaveSessionHadFailure()) {
+    if (durable_storage.SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: MinimalApplication shutdown save failed\n");
       return 1;
     }

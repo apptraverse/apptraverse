@@ -60,9 +60,12 @@
 | --- | --- | --- |
 | P2.a | Единая загрузка checkpoint | **PASS** — `TryLoadPersistedModelFromStorageSidecar(DirectoryDomainStorage&)` |
 | P2.b | Убрать runtime `StabilizeDistilledPersistentSnapshot` (MinimalApp) | **PASS** — `minimal_app_lifecycle.cpp` |
-| **P2.d.1** | Checkpoint через `BinaryArchive` (typed payload) | **PASS** — `SerializePersistentModelSnapshot` / `LoadPersistentModelSnapshot` |
-| **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — `publication_channel`, envelope publication |
-| P2.d | Штатная сериализация (checkpoint + publication) | **IN_PROGRESS** (P2.d.1 PASS) |
+| **P2.d.1** | Checkpoint через `BinaryArchive` (typed payload) | **PASS (исторически `6676f7d`)** — заменяется P2.d.1R |
+| **P2.d.1R** | Устранение отдельного persistent checkpoint | **IN_PROGRESS** |
+| **P2.d.1R.1** | MinimalApp + headless persistence через storage | **PASS** — `minimal_app_lifecycle`, `model_persistence_test` |
+| **P2.d.1R.2** | WindowCatalog + удаление библиотечного sidecar API | TODO |
+| **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — **после P2.d.1R.2** |
+| P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
 
@@ -70,8 +73,8 @@
 
 ### P3–P6
 
-- **P3:** тот же catalog на Windows + Web **или** Android; нормальный запуск.
-- **P4:** macOS, Linux, mobile/Web; desktop — окна, mobile/Web — страницы/пanels; updater не блокирует.
+- **P3:** тот же catalog на Windows + Web **или** Android; нормальный запуск; Headless — те же model/storage тесты без native UI.
+- **P4:** macOS, Linux, mobile/Web; desktop — окна, mobile/Web — страницы/panels; Headless в общем E2E; updater не блокирует.
 - **P5:** набор resource states; switch после готовности всего набора; один upgrade/downgrade; новый S через origin; USER + headless replay; локализация — малый пример (**String** = UTF-8; без persistent wchar cache).
 - **P6:** только реально прогнанные E2E; недоступный port — «не проверен».
 
@@ -82,7 +85,7 @@
 | Core CMake | SharedNode в core, `APPTRAVERSE_ENABLE_SHARED_NODE=1` | P1.1 |
 | `node.h` | SharedNode-члены за `#if` | P1.1 |
 | Lifecycles | Inline checkpoint ×4 | **P2.a PASS** |
-| Serialization | Ручные envelope checkpoint/publication | P2.d |
+| Serialization | Sidecar checkpoint / ручные envelope publication | **P2.d.1R** / P2.d.2 |
 | MinimalApp | Runtime Stabilize at shutdown | **P2.b PASS** |
 | Catalog graph | Win32 presenter types в portable graph | P2–P4 |
 | Web CMake | `-fexceptions` в Surfaces web | P4 |
