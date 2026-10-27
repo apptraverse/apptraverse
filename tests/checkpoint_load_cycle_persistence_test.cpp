@@ -5,9 +5,9 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
+#include "apptraverse/distill.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/presenter.h"
 #include "apptraverse/ui/ui_locale_settings.h"
@@ -114,58 +114,62 @@ APPTRAVERSE_REGISTER(CycleApp);
 APPTRAVERSE_REGISTER(CycleWindow);
 APPTRAVERSE_REGISTER(CyclePresenter);
 
-void RunCheckpointLoadCyclePersistenceTest() {
+void RunCycleGraphStorageRoundTripTest() {
   EnsureObjectRegistration();
   (void)&g_apptraverse_registrar_CycleApp;
   (void)&g_apptraverse_registrar_CycleWindow;
   (void)&g_apptraverse_registrar_CyclePresenter;
 
   ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto app = CycleApp::ptr::Create(ae::CreateWith{domain}.with_id(kAppId));
-  InitializeRuntimeNode(*app);
-  auto window = CycleWindow::ptr::Create(ae::CreateWith{domain}.with_id(kWindowId));
-  InitializeRuntimeNode(*window, *app);
-  auto locale = ui::UiLocaleSettings::ptr::Create(
-      ae::CreateWith{domain}.with_id(kLocaleId));
-  InitializeRuntimeNode(*locale, *window);
-  auto presenter = CyclePresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(kPresenterId));
-  presenter->window = window;
-  presenter->locale = locale;
-  app->window = window;
-  window->app = app;
-  window->locale = locale;
-  window->window_presenter = presenter;
 
-  ByteSink snapshot;
-  SerializePersistentModelSnapshot(*app, snapshot);
+  {
+    ae::Domain domain{storage};
+    auto app = CycleApp::ptr::Create(ae::CreateWith{domain}.with_id(kAppId));
+    InitializeRuntimeNode(*app);
+    auto window =
+        CycleWindow::ptr::Create(ae::CreateWith{domain}.with_id(kWindowId));
+    InitializeRuntimeNode(*window, *app);
+    auto locale = ui::UiLocaleSettings::ptr::Create(
+        ae::CreateWith{domain}.with_id(kLocaleId));
+    InitializeRuntimeNode(*locale, *window);
+    auto presenter = CyclePresenter::ptr::Create(
+        ae::CreateWith{domain}.with_id(kPresenterId));
+    presenter->window = window;
+    presenter->locale = locale;
+    app->window = window;
+    window->app = app;
+    window->locale = locale;
+    window->window_presenter = presenter;
 
-  storage = ae::RamDomainStorage{};
-  ae::Domain load_domain{storage};
-  auto load_app = CycleApp::ptr::Create(ae::CreateWith{load_domain}.with_id(kAppId));
-  InitializeRuntimeNode(*load_app);
-  ByteSource in;
-  in.data = snapshot.bytes.data();
-  in.size = snapshot.bytes.size();
-  in.pos = 0;
-  LoadPersistentModelSnapshot(in, load_domain, storage, *load_app);
+    ae::DomainGraph save_graph{&domain};
+    ae::Ptr<ae::Obj> save_root = domain.Find(kAppId);
+    CHECK(save_root);
+    CHECK(save_graph.SaveRoot(save_root, kAppId).IsOk());
+  }
 
-  CHECK(load_app->window.is_valid());
-  CHECK(&*load_app->window == &*load_domain.Find(kWindowId));
-  CHECK(&*load_app->window->app == &*load_app);
-  CHECK(load_app->window->locale.is_valid());
-  CHECK(load_app->window->window_presenter.is_valid());
-  CHECK(&*load_app->window->window_presenter->window == &*load_app->window);
-  CHECK(&*load_app->window->window_presenter->locale ==
-        &*load_app->window->locale);
+  {
+    ae::Domain load_domain{storage};
+    ae::DomainGraph load_graph{&load_domain};
+    ae::Ptr<ae::Obj> loaded_obj;
+    CHECK(load_graph.LoadRoot(kAppId, loaded_obj).IsOk());
+    ae::Ptr<CycleApp> load_app{loaded_obj};
+
+    CHECK(load_app->window.is_valid());
+    CHECK(&*load_app->window == &*load_domain.Find(kWindowId));
+    CHECK(&*load_app->window->app == &*load_app);
+    CHECK(load_app->window->locale.is_valid());
+    CHECK(load_app->window->window_presenter.is_valid());
+    CHECK(&*load_app->window->window_presenter->window == &*load_app->window);
+    CHECK(&*load_app->window->window_presenter->locale ==
+          &*load_app->window->locale);
+  }
 }
 
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::test::RunCheckpointLoadCyclePersistenceTest();
+  apptraverse::test::RunCycleGraphStorageRoundTripTest();
   std::cout << "checkpoint_load_cycle_persistence_test OK\n";
   return 0;
 }

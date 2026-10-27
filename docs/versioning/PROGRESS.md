@@ -46,6 +46,7 @@
 | **P2.d.1R.2a** — WindowCatalog без sidecar | **`93a18dc`**, §P2.d.1R.2a | **PASS** |
 | **P2.X1** — обязательный граф UI, assert side effects | **`51ecd2b`**, §P2.X1 | **PASS** |
 | **P2.d.1R.2b.1** — persistence tests без checkpoint | **`63d3b18`**, §P2.d.1R.2b.1 | **PASS** |
+| **P2.d.1R.2b.2** — cycle/rehydration DomainGraph | §P2.d.1R.2b.2 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -145,7 +146,17 @@
 
 **Debug:** `apptraverse_model_persistence_test` **exit 0**; acceptance target собран (GUI/negative suite не прогонялся по scope).
 
-**NEXT:** оставшиеся shell/cycle presenter tests → удаление библиотечного checkpoint API.
+**NEXT:** оставшиеся presenter persistence tests → удаление библиотечного checkpoint API.
+
+---
+
+## P2.d.1R.2b.2 — cycle/rehydration через SaveRoot/LoadRoot (2026-10-27)
+
+**Tests:** `RunCycleGraphStorageRoundTripTest`, `RunCycleGraphLocaleRehydrationTest` — один `ae::RamDomainStorage`, save scope `DomainGraph::SaveRoot`, destroy domain, cold `LoadRoot(kAppId)` без pre-created shells; циклы App↔Window↔Presenter, locale aliases, journal/base, language Commit после load.
+
+**Debug:** `apptraverse_checkpoint_load_cycle_persistence_test`, `apptraverse_checkpoint_load_rehydration_test` **exit 0**.
+
+**NEXT:** presenter persistence tests (2b продолжается).
 
 ---
 

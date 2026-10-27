@@ -2,13 +2,14 @@
 #include <cstdint>
 #include <iostream>
 #include <unordered_map>
+#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
+#include "apptraverse/distill.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_serialization.h"
 #include "apptraverse/presenter.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_locale_settings.h"
@@ -130,77 +131,84 @@ void CheckUniqueDomainObjects(ae::Domain& domain,
   }
 }
 
-void RunCheckpointLoadRehydrationTest() {
+void RunCycleGraphLocaleRehydrationTest() {
   EnsureObjectRegistration();
   (void)&g_apptraverse_registrar_RehydrationCycleApp;
   (void)&g_apptraverse_registrar_RehydrationCycleWindow;
   (void)&g_apptraverse_registrar_RehydrationCyclePresenter;
 
   ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto app = RehydrationCycleApp::ptr::Create(ae::CreateWith{domain}.with_id(kAppId));
-  InitializeRuntimeNode(*app);
-  auto window = RehydrationCycleWindow::ptr::Create(
-      ae::CreateWith{domain}.with_id(kWindowId));
-  InitializeRuntimeNode(*window, *app);
-  auto locale = ui::UiLocaleSettings::ptr::Create(
-      ae::CreateWith{domain}.with_id(kLocaleId));
-  InitializeRuntimeNode(*locale, *window);
-  auto presenter = RehydrationCyclePresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(kPresenterId));
-  presenter->window = window;
-  presenter->locale = locale;
-  app->window = window;
-  window->app = app;
-  window->locale = locale;
-  window->window_presenter = presenter;
+  std::size_t locale_journal_before = 0;
+  std::size_t window_journal_before = 0;
 
-  auto lang = ui::SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{domain});
-  lang->language_index = 1;
-  locale->Commit(lang);
-  CHECK(locale->language_index() == 1);
+  {
+    ae::Domain domain{storage};
+    auto app = RehydrationCycleApp::ptr::Create(
+        ae::CreateWith{domain}.with_id(kAppId));
+    InitializeRuntimeNode(*app);
+    auto window = RehydrationCycleWindow::ptr::Create(
+        ae::CreateWith{domain}.with_id(kWindowId));
+    InitializeRuntimeNode(*window, *app);
+    auto locale = ui::UiLocaleSettings::ptr::Create(
+        ae::CreateWith{domain}.with_id(kLocaleId));
+    InitializeRuntimeNode(*locale, *window);
+    auto presenter = RehydrationCyclePresenter::ptr::Create(
+        ae::CreateWith{domain}.with_id(kPresenterId));
+    presenter->window = window;
+    presenter->locale = locale;
+    app->window = window;
+    window->app = app;
+    window->locale = locale;
+    window->window_presenter = presenter;
 
-  std::size_t const locale_journal_before = locale->journal.size();
-  std::uint64_t const locale_gen_before = locale->Generation();
-  std::size_t const window_journal_before = window->journal.size();
-  CHECK(window->base.is_valid());
+    auto lang = ui::SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{domain});
+    lang->language_index = 1;
+    locale->Commit(lang);
+    CHECK(locale->language_index() == 1);
 
-  ByteSink snapshot;
-  SerializePersistentModelSnapshot(*app, snapshot);
-  CHECK(locale->journal.size() == locale_journal_before);
-  CHECK(locale->Generation() == locale_gen_before);
+    locale_journal_before = locale->journal.size();
+    std::uint64_t const locale_gen_before = locale->Generation();
+    window_journal_before = window->journal.size();
+    CHECK(window->base.is_valid());
 
-  storage = ae::RamDomainStorage{};
-  ae::Domain load_domain{storage};
-  auto load_app = RehydrationCycleApp::ptr::Create(
-      ae::CreateWith{load_domain}.with_id(kAppId));
-  InitializeRuntimeNode(*load_app);
-  ByteSource in;
-  in.data = snapshot.bytes.data();
-  in.size = snapshot.bytes.size();
-  in.pos = 0;
-  LoadPersistentModelSnapshot(in, load_domain, storage, *load_app);
+    ae::DomainGraph save_graph{&domain};
+    ae::Ptr<ae::Obj> save_root = domain.Find(kAppId);
+    CHECK(save_root);
+    CHECK(save_graph.SaveRoot(save_root, kAppId).IsOk());
+    CHECK(locale->journal.size() == locale_journal_before);
+    CHECK(locale->Generation() == locale_gen_before);
+  }
 
-  std::vector<ae::ObjId> const ids{kAppId, kWindowId, kLocaleId, kPresenterId};
-  CheckUniqueDomainObjects(load_domain, ids);
+  {
+    ae::Domain load_domain{storage};
+    ae::DomainGraph load_graph{&load_domain};
+    ae::Ptr<ae::Obj> loaded_obj;
+    CHECK(load_graph.LoadRoot(kAppId, loaded_obj).IsOk());
+    ae::Ptr<RehydrationCycleApp> load_app{loaded_obj};
 
-  CHECK(load_app->window->locale->language_index() == 1);
-  CHECK(load_app->window->journal.size() == window_journal_before);
-  CHECK(load_app->window->locale->journal.size() == locale_journal_before);
-  CHECK(load_app->window->base.is_valid());
-  CHECK(&*load_app->window->app == &*load_app);
+    std::vector<ae::ObjId> const ids{kAppId, kWindowId, kLocaleId,
+                                     kPresenterId};
+    CheckUniqueDomainObjects(load_domain, ids);
 
-  auto lang2 = ui::SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{load_domain});
-  lang2->language_index = 0;
-  load_app->window->locale->Commit(lang2);
-  CHECK(load_app->window->locale->language_index() == 0);
+    CHECK(load_app->window->locale->language_index() == 1);
+    CHECK(load_app->window->journal.size() == window_journal_before);
+    CHECK(load_app->window->locale->journal.size() == locale_journal_before);
+    CHECK(load_app->window->base.is_valid());
+    CHECK(&*load_app->window->app == &*load_app);
+
+    auto lang2 =
+        ui::SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{load_domain});
+    lang2->language_index = 0;
+    load_app->window->locale->Commit(lang2);
+    CHECK(load_app->window->locale->language_index() == 0);
+  }
 }
 
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::test::RunCheckpointLoadRehydrationTest();
+  apptraverse::test::RunCycleGraphLocaleRehydrationTest();
   std::cout << "checkpoint_load_rehydration_test OK\n";
   return 0;
 }
