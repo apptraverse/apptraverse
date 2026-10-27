@@ -10,7 +10,6 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/graph_walk.h"
-#include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
 #include "apptraverse/platform/windows/win_ui_presenters.h"
@@ -65,8 +64,9 @@ void ShutdownSaveCatalog(WindowCatalog& catalog,
                          DirectoryDomainStorage& storage) {
   storage.BeginSaveSession();
   SaveWindowCatalogPersistentSnapshot(catalog);
-  CHECK(SavePersistentModelSnapshotToStorage(catalog, storage));
   CHECK(!storage.SaveSessionHadFailure());
+  CHECK(!std::filesystem::exists(
+      storage.root() / "persistent_model_checkpoint.bin"));
 }
 
 void CopyStorageProfile(std::filesystem::path const& from,
@@ -82,13 +82,9 @@ void CopyStorageProfile(std::filesystem::path const& from,
   CHECK(!ec);
 }
 
-WindowCatalog::ptr LoadPersistedWindowCatalog(
-    ae::Domain& domain, DirectoryDomainStorage& storage,
-    ae::ObjId const& catalog_id, std::filesystem::path const& profile_dir) {
-  (void)profile_dir;
-  auto catalog = LoadApplication<WindowCatalog>(domain, catalog_id);
-  CHECK(TryLoadPersistedModelFromStorageSidecar(domain, storage, *catalog));
-  return catalog;
+WindowCatalog::ptr LoadPersistedWindowCatalog(ae::Domain& domain,
+                                              ae::ObjId const& catalog_id) {
+  return LoadApplication<WindowCatalog>(domain, catalog_id);
 }
 
 void ExpectReflectedGraphEdge(
@@ -285,7 +281,7 @@ void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
   DirectoryDomainStorage load_storage{dir};
   ae::Domain load_domain{load_storage};
   auto reloaded =
-      LoadPersistedWindowCatalog(load_domain, load_storage, catalog_id, dir);
+      LoadPersistedWindowCatalog(load_domain, catalog_id);
   CHECK(reloaded->list->rows.size() == 2);
   CHECK(reloaded->next_window_number == 5);
 
@@ -369,8 +365,7 @@ void TestCatalogLocalizationUtf8Persisted() {
   ae::Domain reload_domain{reload_storage};
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
-  auto reloaded = LoadPersistedWindowCatalog(reload_domain, reload_storage,
-                                             catalog_id, dir);
+  auto reloaded = LoadPersistedWindowCatalog(reload_domain, catalog_id);
   reloaded->MaterializeCatalogStrings(0);
   CHECK(reloaded->texts.label_add->Resolve(0) == "Add");
   CHECK(ReadInactiveUtf8(*reloaded->texts.label_add, 1) == "Добавить");
@@ -444,8 +439,7 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
 
     DirectoryDomainStorage storage_c{dir};
     ae::Domain domain_c{storage_c};
-    auto reloaded =
-        LoadPersistedWindowCatalog(domain_c, storage_c, catalog_id, dir);
+    auto reloaded = LoadPersistedWindowCatalog(domain_c, catalog_id);
 
     CHECK(reloaded->base.is_valid());
     CHECK(reloaded->base.is_loaded());
@@ -480,8 +474,7 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
 
   DirectoryDomainStorage storage_c{dir};
   ae::Domain domain_c{storage_c};
-  auto catalog =
-      LoadPersistedWindowCatalog(domain_c, storage_c, catalog_id, dir);
+  auto catalog = LoadPersistedWindowCatalog(domain_c, catalog_id);
   CHECK(catalog->list.is_valid());
   CHECK(catalog->list->rows.size() == 3);
   CHECK(catalog->next_window_number == 4);
@@ -567,7 +560,7 @@ void TestCatalogSaveAfterLanguageToggleAndChildClose() {
   DirectoryDomainStorage load_storage{dir};
   ae::Domain load_domain{load_storage};
   auto catalog =
-      LoadPersistedWindowCatalog(load_domain, load_storage, catalog_id, dir);
+      LoadPersistedWindowCatalog(load_domain, catalog_id);
   CHECK(catalog->list->rows.size() == 3);
   CHECK(AsHolder(catalog->list->rows[0])->window.is_loaded());
   CHECK(AsHolder(catalog->list->rows[1])->window.is_loaded());
@@ -635,7 +628,7 @@ void TestCatalogWindowFrameSurvivesCloseReload() {
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   auto reloaded =
-      LoadPersistedWindowCatalog(load_domain, load_storage, catalog_id, dir);
+      LoadPersistedWindowCatalog(load_domain, catalog_id);
   WindowHolder* r0 = AsHolder(reloaded->list->rows[0]);
   reloaded->OpenHolderWindow(*r0);
   CHECK(r0->window->x() == 280);
@@ -745,7 +738,7 @@ void CheckLiveCatalogChromeLinks(WindowCatalog const& catalog,
   CHECK(catalog.presenters.language_button_presenter.is_valid());
 }
 
-void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
+void TestWindowCatalogOpenCloseEventJournalPersistence() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
   EnsureWindowCatalogGraphRegistration();
@@ -869,7 +862,7 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   DirectoryDomainStorage load_storage{dir};
   ae::Domain load_domain{load_storage};
   auto loaded =
-      LoadPersistedWindowCatalog(load_domain, load_storage, catalog_id, dir);
+      LoadPersistedWindowCatalog(load_domain, catalog_id);
 
   CHECK(loaded->list->rows.size() == 2);
   CHECK(loaded->next_window_number == 3);
@@ -924,8 +917,8 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   {
     DirectoryDomainStorage replay_storage{invalid_base_profile_dir};
     ae::Domain replay_domain{replay_storage};
-    auto replay_catalog = LoadPersistedWindowCatalog(
-        replay_domain, replay_storage, catalog_id, invalid_base_profile_dir);
+    auto replay_catalog =
+        LoadPersistedWindowCatalog(replay_domain, catalog_id);
     std::size_t const journal_size_before = replay_catalog->journal.size();
     std::size_t const rows_before = replay_catalog->list->rows.size();
     std::uint32_t const next_before = replay_catalog->next_window_number;
@@ -950,8 +943,8 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   {
     DirectoryDomainStorage replay_storage{replay_profile_dir};
     ae::Domain replay_domain{replay_storage};
-    auto replay_catalog = LoadPersistedWindowCatalog(
-        replay_domain, replay_storage, catalog_id, replay_profile_dir);
+    auto replay_catalog =
+        LoadPersistedWindowCatalog(replay_domain, catalog_id);
     CHECK(replay_catalog->journal.size() == saved_journal_size);
     CHECK(replay_catalog->base.is_valid());
     CHECK(replay_catalog->base.is_loaded());
@@ -1053,8 +1046,7 @@ void TestWindowCatalogOpenCloseEventJournalCheckpoint() {
   {
     DirectoryDomainStorage cold_storage{replay_profile_dir};
     ae::Domain cold_domain{cold_storage};
-    auto cold_catalog = LoadPersistedWindowCatalog(
-        cold_domain, cold_storage, catalog_id, replay_profile_dir);
+    auto cold_catalog = LoadPersistedWindowCatalog(cold_domain, catalog_id);
 
     CHECK(cold_catalog->obj_id == expected_replay_catalog_id);
     CHECK(cold_catalog->base.is_valid());
@@ -1281,8 +1273,7 @@ void TestWindowCatalogChromeButtonDistilledBaseReplay() {
     DirectoryDomainStorage cold_storage{dir};
     ae::Domain cold_domain{cold_storage};
     ae::ObjId const cold_catalog_id = ToObjId(ObjId::Catalog);
-    auto cold_catalog = LoadPersistedWindowCatalog(
-        cold_domain, cold_storage, cold_catalog_id, dir);
+    auto cold_catalog = LoadPersistedWindowCatalog(cold_domain, cold_catalog_id);
     CHECK(cold_catalog->locale.is_valid());
     CHECK(cold_catalog->locale.is_loaded());
     cold_catalog->MaterializeCatalogStrings(
@@ -1475,8 +1466,7 @@ void TestCatalogPresentedWindowGraph() {
 
     DirectoryDomainStorage reload_storage{dir};
     ae::Domain reload_domain{reload_storage};
-    auto reloaded =
-        LoadPersistedWindowCatalog(reload_domain, reload_storage, catalog_id, dir);
+    auto reloaded = LoadPersistedWindowCatalog(reload_domain, catalog_id);
     WindowHolder* r0 = AsHolder(reloaded->list->rows[0]);
     CHECK(r0->window.id() == p_window_id);
     CHECK(!r0->window.is_loaded());
@@ -1510,8 +1500,7 @@ void TestCatalogPresentedWindowGraph() {
 
   DirectoryDomainStorage cold_load_storage{cold_dir};
   ae::Domain cold_load_domain{cold_load_storage};
-  auto cold = LoadPersistedWindowCatalog(cold_load_domain, cold_load_storage,
-                                         catalog_id, cold_dir);
+  auto cold = LoadPersistedWindowCatalog(cold_load_domain, catalog_id);
   CHECK(MainWindowPresented(*cold).presenter.id() ==
         ToObjId(ObjId::MainWindowPresenter));
   CHECK(cold->main_window.id() == ToObjId(ObjId::MainWindow));
@@ -1580,7 +1569,7 @@ int main() {
   apptraverse::test::TestCatalogSaveAfterLanguageToggleAndChildClose();
   apptraverse::test::TestOpenLoadedWindowSetsPendingFocusRequest();
   apptraverse::test::TestCatalogWindowFrameSurvivesCloseReload();
-  apptraverse::test::TestWindowCatalogOpenCloseEventJournalCheckpoint();
+  apptraverse::test::TestWindowCatalogOpenCloseEventJournalPersistence();
   apptraverse::test::TestWindowCatalogChromeButtonDistilledBaseReplay();
   apptraverse::test::TestManyHoldersClosedGraphsAbsentFromDomain();
   std::cout << "window_catalog_model_test OK\n";

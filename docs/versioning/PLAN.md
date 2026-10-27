@@ -63,8 +63,9 @@
 | **P2.d.1** | Checkpoint через `BinaryArchive` (typed payload) | **PASS (исторически `6676f7d`)** — заменяется P2.d.1R |
 | **P2.d.1R** | Устранение отдельного persistent checkpoint | **IN_PROGRESS** |
 | **P2.d.1R.1** | MinimalApp + headless persistence через storage | **PASS** — `minimal_app_lifecycle`, `model_persistence_test` |
-| **P2.d.1R.2** | WindowCatalog + удаление библиотечного sidecar API | TODO |
-| **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — **после P2.d.1R.2** |
+| **P2.d.1R.2a** | WindowCatalog без sidecar | **PASS** — `window_catalog_lifecycle`, `window_catalog_model_test` |
+| **P2.d.1R.2b** | Оставшиеся потребители + удаление checkpoint API | TODO |
+| **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — **после P2.d.1R.2b** |
 | P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |

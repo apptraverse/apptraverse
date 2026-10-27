@@ -43,7 +43,8 @@
 | **P2.b** — MinimalApp без runtime Stabilize | см. §P2.b ниже | **PASS** |
 | **P2.d.1** — checkpoint `BinaryArchive` | **`6676f7d`**, §P2.d.1 | **PASS (исторически; superseded)** |
 | **P2.d.1R.1** — MinimalApp без sidecar | **`9f1d0a7`**, §P2.d.1R.1 | **PASS** |
-| **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2**, затем P2.d.2 | **IN_PROGRESS** |
+| **P2.d.1R.2a** — WindowCatalog без sidecar | §P2.d.1R.2a | **PASS** (SHA после commit) |
+| **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b**, затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -100,11 +101,23 @@
 
 **Headless:** `RunStandardDirectoryStorageNodeJournalRoundTripTest` — два Commit, `DomainGraph::SaveRoot` в `DirectoryDomainStorage`, cold `LoadRoot`, проверка label/base/journal, третий Commit и повторная загрузка (без checkpoint API).
 
-**Sidecar-потребители (не тронуты):** WindowCatalog lifecycle, Host/Admin session, множество shell tests, `SerializePersistentModelSnapshot` в library tests.
+**Sidecar-потребители (на момент P2.d.1R.1):** Host/Admin session, shell tests, library checkpoint API (WindowCatalog переведён в P2.d.1R.2a).
 
-**Седьмая платформа (Headless):** зафиксирована в каноне; полный E2E **не** PASS.
+**Debug evidence (`build/win64-ninja-msvc-debug`):** `apptraverse_model_persistence_test` **exit 0** (`RunStandardDirectoryStorageNodeJournalRoundTripTest`); MinimalApp `%TEMP%` profile: WM_CLOSE **0**, sidecar **нет** → `load_only` **0**.
 
-**Debug evidence (`build/win64-ninja-msvc-debug`):** `apptraverse_model_persistence_test` **exit 0** (`RunStandardDirectoryStorageNodeJournalRoundTripTest`); MinimalApp `docs/smoke_artifacts/p2d1r1_minimal_std_storage`: первый run → WM_CLOSE **0**, `persistent_model_checkpoint.bin` **отсутствует**, layer dirs **6** → `load_only` → WM_CLOSE **0**.
+---
+
+## P2.d.1R.2a — WindowCatalog: штатный Save без sidecar (2026-10-27)
+
+**Lifecycle:** убраны `TryLoadPersistedModelFromStorageSidecar` и `SavePersistentModelSnapshotToStorage`; cold load — `LoadApplication<WindowCatalog>`; shutdown — `SaveWindowCatalogPersistentSnapshot` + `SaveSessionHadFailure()`.
+
+**Tests:** `ShutdownSaveCatalog` / `LoadPersistedWindowCatalog` без sidecar; `TestWindowCatalogOpenCloseEventJournalPersistence` (бывш. …Checkpoint) — Add/Open/Close, cold reload, Open после load, replay/base/journal; `ShutdownSaveCatalog` проверяет отсутствие `persistent_model_checkpoint.bin`.
+
+**Sidecar-потребители (остались):** Host/Admin session, shell tests, `model_persistence_test` checkpoint paths, distill tools.
+
+**Debug evidence:** `apptraverse_window_catalog_model_test` **exit 0**; `%TEMP%\apptraverse_p2d1r2a_catalog`: demo → WM_CLOSE **0**, sidecar **нет** → `load_only` **0**.
+
+**NEXT (не начато):** **P2.d.1R.2b** — оставшиеся потребители и удаление общего checkpoint API.
 
 ---
 

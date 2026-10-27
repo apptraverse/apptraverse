@@ -14,7 +14,6 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/node.h"
-#include "apptraverse/object_serialization.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
@@ -61,8 +60,6 @@ int WindowCatalogModelSession::Run(
     DirectoryDomainStorage durable_storage{state_dir};
     ae::Domain domain{durable_storage};
     auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootId());
-    static_cast<void>(TryLoadPersistedModelFromStorageSidecar(
-        domain, durable_storage, *catalog));
     ui::LoadPresentedWindow(catalog->main_window);
     catalog->list.Load();
     if (!catalog->list) {
@@ -133,9 +130,7 @@ int WindowCatalogModelSession::Run(
 
     durable_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(*catalog);
-    bool const checkpoint_ok =
-        SavePersistentModelSnapshotToStorage(*catalog, durable_storage);
-    if (!checkpoint_ok || durable_storage.SaveSessionHadFailure()) {
+    if (durable_storage.SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;
     }
