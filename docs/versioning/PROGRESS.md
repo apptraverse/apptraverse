@@ -41,7 +41,7 @@
 | **P1.1** — удаление сети/replication | см. §P1.1 ниже | **PASS** (Debug build + model test; см. evidence) |
 | **P2.a** — единая загрузка checkpoint | см. §P2.a ниже | **PASS** |
 | **P2.b** — MinimalApp без runtime Stabilize | см. §P2.b ниже | **PASS** |
-| **P2.d.1** — checkpoint `BinaryArchive` | **`f6452f8`**, §P2.d.1 | **PASS** |
+| **P2.d.1** — checkpoint `BinaryArchive` | **`6676f7d`**, §P2.d.1 | **PASS** |
 | **P2.d** — штатная сериализация (publication) | **NEXT: P2.d.2** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -81,7 +81,7 @@
 
 ---
 
-## P2.d.1 — checkpoint через Æther BinaryArchive (2026-10-27, **`f6452f8`**)
+## P2.d.1 — checkpoint через Æther BinaryArchive (2026-10-27, **`6676f7d`**)
 
 **Формат `persistent_model_checkpoint.bin`:** один blob `ae::seri::BinaryArchive` для `PersistentModelCheckpointPayload` (`root_id`, `layers[]` с `object_id/class_id/version/bytes`, `node_generations[]`, `node_base_bindings[]`; `AE_REFLECT_MEMBERS`). Старый ручной envelope (root + layer_count + …) **не** читается — новый dev `--state-dir`.
 
