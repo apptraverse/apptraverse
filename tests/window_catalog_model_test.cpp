@@ -82,33 +82,12 @@ void CopyStorageProfile(std::filesystem::path const& from,
   CHECK(!ec);
 }
 
-void LoadPersistentCheckpointIntoCatalog(
-    ae::Domain& domain, DirectoryDomainStorage& storage,
-    WindowCatalog& catalog, std::filesystem::path const& profile_dir) {
-  std::ifstream checkpoint_in(profile_dir / "persistent_model_checkpoint.bin",
-                              std::ios::binary | std::ios::ate);
-  CHECK(checkpoint_in);
-  auto const checkpoint_size =
-      static_cast<std::size_t>(checkpoint_in.tellg());
-  checkpoint_in.seekg(0, std::ios::beg);
-  std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
-  if (checkpoint_size > 0) {
-    checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
-                       static_cast<std::streamsize>(checkpoint_size));
-    CHECK(static_cast<bool>(checkpoint_in));
-  }
-  ByteSource checkpoint;
-  checkpoint.data = checkpoint_bytes.data();
-  checkpoint.size = checkpoint_bytes.size();
-  checkpoint.pos = 0;
-  LoadPersistentModelSnapshot(checkpoint, domain, storage, catalog);
-}
-
 WindowCatalog::ptr LoadPersistedWindowCatalog(
     ae::Domain& domain, DirectoryDomainStorage& storage,
     ae::ObjId const& catalog_id, std::filesystem::path const& profile_dir) {
+  (void)profile_dir;
   auto catalog = LoadApplication<WindowCatalog>(domain, catalog_id);
-  LoadPersistentCheckpointIntoCatalog(domain, storage, *catalog, profile_dir);
+  CHECK(TryLoadPersistedModelFromStorageSidecar(domain, storage, *catalog));
   return catalog;
 }
 

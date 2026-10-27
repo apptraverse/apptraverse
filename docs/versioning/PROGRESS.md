@@ -39,6 +39,7 @@
 | **U5.1** — shutdown-save → exit code | **`8c863bc`**, CTest 65–67 | **PASS** (история) |
 | **P0** — канон + sync docs/rules | doc-only | **DONE** |
 | **P1.1** — удаление сети/replication | см. §P1.1 ниже | **PASS** (Debug build + model test; см. evidence) |
+| **P2.a** — единая загрузка checkpoint | см. §P2.a ниже | **PASS** |
 | **P2.b** — MinimalApp без runtime Stabilize | см. §P2.b ниже | **PASS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -57,6 +58,16 @@
 **Сохранено:** `Node::Commit`, mid-journal insert/replay, retention/compaction block, closed Event graph helpers → `closed_event_graph.{h,cpp}` (без SharedNode export).
 
 **Debug evidence (`build/win64-ninja-msvc-debug`):** `apptraverse_window_catalog_model_test` **PASS**; `win32_window_catalog_demo` запуск с новым профилем **OK** (краткий smoke, без полного GUI-сценария).
+
+---
+
+## P2.a — единая загрузка persistent checkpoint (2026-10-27)
+
+**API:** `TryLoadPersistedModelFromStorageSidecar(ae::Domain&, DirectoryDomainStorage&, ae::Obj&)`; общее чтение `persistent_model_checkpoint.bin` через внутренние `TryReadPersistentModelCheckpointSidecarBytes` / `TryLoadPersistedModelFromSidecarRoot` (sidecar root = `storage.root()`).
+
+**Удалены дубли:** ручное чтение sidecar в `window_catalog_lifecycle.cpp`, `minimal_app_lifecycle.cpp`, `LoadPersistentCheckpointIntoCatalog` в `window_catalog_model_test.cpp`, `ProbePersistedGraph` в `minimal_app_win32_acceptance_test.cpp`.
+
+**Debug:** сборка catalog/minimal targets **OK**; `apptraverse_window_catalog_model_test` **PASS**; MinimalApp `%TEMP%\apptraverse_p2a_minimal_dev3` bootstrap → WM_CLOSE → load-only **exit 0/0**.
 
 ---
 

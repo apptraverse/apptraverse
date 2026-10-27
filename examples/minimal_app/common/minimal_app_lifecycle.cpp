@@ -2,7 +2,6 @@
 
 #include "minimal_application.h"
 
-#include <fstream>
 #include <vector>
 
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
@@ -57,30 +56,8 @@ int RunMinimalApplicationModel(
     ae::Domain domain{durable_storage};
     auto application =
         LoadApplication<MinimalApplication>(domain, MinimalApplicationRootId());
-
-    std::filesystem::path const checkpoint_path =
-        state_dir / "persistent_model_checkpoint.bin";
-    std::error_code checkpoint_error;
-    bool const has_checkpoint =
-        std::filesystem::exists(checkpoint_path, checkpoint_error);
-    if (has_checkpoint) {
-      std::ifstream checkpoint_in(checkpoint_path,
-                                  std::ios::binary | std::ios::ate);
-      auto const checkpoint_size =
-          static_cast<std::size_t>(checkpoint_in.tellg());
-      checkpoint_in.seekg(0, std::ios::beg);
-      std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
-      if (checkpoint_size > 0) {
-        checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
-                           static_cast<std::streamsize>(checkpoint_size));
-      }
-      ByteSource checkpoint;
-      checkpoint.data = checkpoint_bytes.data();
-      checkpoint.size = checkpoint_bytes.size();
-      checkpoint.pos = 0;
-      LoadPersistentModelSnapshot(checkpoint, domain, durable_storage,
-                                  *application);
-    }
+    static_cast<void>(TryLoadPersistedModelFromStorageSidecar(
+        domain, durable_storage, *application));
 
     ui::LoadPresentedWindow(application->main_window);
 

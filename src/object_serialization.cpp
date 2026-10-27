@@ -1685,13 +1685,10 @@ bool SavePersistentModelSnapshotToStorage(
   return SavePersistentModelSnapshotToStorageImpl(root, storage, sidecar_root);
 }
 
-bool TryLoadPersistedModelFromStorageSidecar(
-    ae::Domain& domain, PartitionedModelDomainStorage& storage, ae::Obj& root) {
-  if (!storage.checkpoint_sidecar_directory()) {
-    return false;
-  }
-  auto sidecar =
-      PersistentModelCheckpointSidecarPath(*storage.checkpoint_sidecar_directory());
+bool TryReadPersistentModelCheckpointSidecarBytes(
+    std::filesystem::path const& model_root,
+    std::vector<std::uint8_t>& out_bytes) {
+  auto const sidecar = PersistentModelCheckpointSidecarPath(model_root);
   std::error_code ec;
   bool const exists = std::filesystem::exists(sidecar, ec);
   if (ec) {
@@ -1707,13 +1704,24 @@ bool TryLoadPersistedModelFromStorageSidecar(
   }
   auto const size = static_cast<std::size_t>(in.tellg());
   in.seekg(0);
-  std::vector<std::uint8_t> bytes(size);
+  out_bytes.resize(size);
   if (size > 0) {
-    in.read(reinterpret_cast<char*>(bytes.data()),
+    in.read(reinterpret_cast<char*>(out_bytes.data()),
             static_cast<std::streamsize>(size));
     if (!in) {
       return false;
     }
+  }
+  return true;
+}
+
+bool TryLoadPersistedModelFromSidecarRoot(ae::Domain& domain,
+                                          ae::IDomainStorage& storage,
+                                          ae::Obj& root,
+                                          std::filesystem::path const& model_root) {
+  std::vector<std::uint8_t> bytes;
+  if (!TryReadPersistentModelCheckpointSidecarBytes(model_root, bytes)) {
+    return false;
   }
   ByteSource checkpoint;
   checkpoint.data = bytes.data();
@@ -1721,6 +1729,21 @@ bool TryLoadPersistedModelFromStorageSidecar(
   checkpoint.pos = 0;
   LoadPersistentModelSnapshot(checkpoint, domain, storage, root);
   return true;
+}
+
+bool TryLoadPersistedModelFromStorageSidecar(
+    ae::Domain& domain, PartitionedModelDomainStorage& storage, ae::Obj& root) {
+  if (!storage.checkpoint_sidecar_directory()) {
+    return false;
+  }
+  return TryLoadPersistedModelFromSidecarRoot(
+      domain, storage, root, *storage.checkpoint_sidecar_directory());
+}
+
+bool TryLoadPersistedModelFromStorageSidecar(
+    ae::Domain& domain, DirectoryDomainStorage& storage, ae::Obj& root) {
+  return TryLoadPersistedModelFromSidecarRoot(domain, storage, root,
+                                              storage.root());
 }
 
 }  // namespace apptraverse

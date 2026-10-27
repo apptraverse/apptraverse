@@ -58,7 +58,7 @@
 
 | ID | Смысл | Область |
 | --- | --- | --- |
-| P2.a | Единая загрузка checkpoint | `object_serialization`, lifecycles, tests |
+| P2.a | Единая загрузка checkpoint | **PASS** — `TryLoadPersistedModelFromStorageSidecar(DirectoryDomainStorage&)` |
 | P2.b | Убрать runtime `StabilizeDistilledPersistentSnapshot` (MinimalApp) | **PASS** — `minimal_app_lifecycle.cpp` |
 | P2.d | Штатная сериализация вместо ручных envelope | `object_serialization`, `publication_channel` |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
@@ -79,7 +79,7 @@
 | --- | --- | --- |
 | Core CMake | SharedNode в core, `APPTRAVERSE_ENABLE_SHARED_NODE=1` | P1.1 |
 | `node.h` | SharedNode-члены за `#if` | P1.1 |
-| Lifecycles | Inline checkpoint ×4 | P2.a |
+| Lifecycles | Inline checkpoint ×4 | **P2.a PASS** |
 | Serialization | Ручные envelope checkpoint/publication | P2.d |
 | MinimalApp | Runtime Stabilize at shutdown | **P2.b PASS** |
 | Catalog graph | Win32 presenter types в portable graph | P2–P4 |

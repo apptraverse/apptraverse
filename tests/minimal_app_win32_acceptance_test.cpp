@@ -394,26 +394,8 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
   auto application = LoadApplication<example::minimal::MinimalApplication>(
       domain, example::minimal::MinimalApplicationRootId());
 
-  std::filesystem::path const checkpoint_path =
-      state_dir / "persistent_model_checkpoint.bin";
-  std::error_code checkpoint_error;
-  if (std::filesystem::exists(checkpoint_path, checkpoint_error)) {
-    std::ifstream checkpoint_in(checkpoint_path,
-                                std::ios::binary | std::ios::ate);
-    auto const checkpoint_size =
-        static_cast<std::size_t>(checkpoint_in.tellg());
-    checkpoint_in.seekg(0, std::ios::beg);
-    std::vector<std::uint8_t> checkpoint_bytes(checkpoint_size);
-    if (checkpoint_size > 0) {
-      checkpoint_in.read(reinterpret_cast<char*>(checkpoint_bytes.data()),
-                         static_cast<std::streamsize>(checkpoint_size));
-    }
-    ByteSource checkpoint;
-    checkpoint.data = checkpoint_bytes.data();
-    checkpoint.size = checkpoint_bytes.size();
-    checkpoint.pos = 0;
-    LoadPersistentModelSnapshot(checkpoint, domain, storage, *application);
-  }
+  static_cast<void>(TryLoadPersistedModelFromStorageSidecar(
+      domain, storage, *application));
 
   CHECK(application->obj_id == example::minimal::MinimalApplicationRootId());
   CHECK(application->main_window.is_valid());

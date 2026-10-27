@@ -231,6 +231,10 @@ inline bool SavePersistentModelSnapshotToStorage(
 bool TryLoadPersistedModelFromStorageSidecar(
     ae::Domain& domain, PartitionedModelDomainStorage& storage, ae::Obj& root);
 
+bool TryLoadPersistedModelFromStorageSidecar(ae::Domain& domain,
+                                             DirectoryDomainStorage& storage,
+                                             ae::Obj& root);
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_OBJECT_SERIALIZATION_H_
