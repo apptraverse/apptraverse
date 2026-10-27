@@ -54,7 +54,7 @@
 | **P2.d.1R.2b.5** — удаление checkpoint API | **`15f1879`**, §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.1R** — без отдельного persistent checkpoint | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.1R.2b** — миграция + удаление API | §P2.d.1R.2b.5 | **PASS** |
-| **P2.d.2.1** — structural envelope BinaryArchive | **PLACEHOLDER**, §P2.d.2.1 | **PASS** |
+| **P2.d.2.1** — structural envelope BinaryArchive | **`d8e0094`**, §P2.d.2.1 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.2.2** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -214,7 +214,7 @@
 
 ---
 
-## P2.d.2.1 — structural envelope через BinaryArchive (2026-10-27)
+## P2.d.2.1 — structural envelope через BinaryArchive (2026-10-27, **`d8e0094`**)
 
 **Изменение:** `SerializeStructuralNodePublication` / `ApplyStructuralPublication` — `StructuralPublicationEnvelope` (`object_id`, `generation`, `graph_bytes`, `sidecar`) через `ae::seri::BinaryArchive`; внутренний payload по-прежнему `SerializeObjectGraphToBuffer` / `DeserializeObjectGraphFromBuffer`. Sidecar frame request без изменений.
 
