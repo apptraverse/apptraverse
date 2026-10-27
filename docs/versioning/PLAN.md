@@ -61,7 +61,7 @@
 | P2.a | Единая загрузка checkpoint | **PASS** — `TryLoadPersistedModelFromStorageSidecar(DirectoryDomainStorage&)` |
 | P2.b | Убрать runtime `StabilizeDistilledPersistentSnapshot` (MinimalApp) | **PASS** — `minimal_app_lifecycle.cpp` |
 | **P2.d.1** | Checkpoint через `BinaryArchive` (typed payload) | **PASS (исторически `6676f7d`)** — заменяется P2.d.1R |
-| **P2.d.1R** | Устранение отдельного persistent checkpoint | **IN_PROGRESS** |
+| **P2.d.1R** | Устранение отдельного persistent checkpoint | **PASS** |
 | **P2.d.1R.1** | MinimalApp + headless persistence через storage | **PASS** — `minimal_app_lifecycle`, `model_persistence_test` |
 | **P2.d.1R.2a** | WindowCatalog без sidecar | **PASS** — `window_catalog_lifecycle`, `window_catalog_model_test` |
 | **P2.X1** | Обязательный граф UI + assert без side effects | **PASS** — `WinPushButtonPresenter`, `InitializeNewPresenters`, checkpoint Save/Load |
@@ -71,9 +71,10 @@
 | **P2.d.1R.2b.3b.1** | Windows HWND persistence через DomainGraph | **PASS** — `presenter_win_hwnd_persistence_test` |
 | **P2.d.1R.2b.3b.2** | Cross-process presenter через DirectoryDomainStorage | **PASS** — `apptraverse_presenter_platform_persist_roundtrip` |
 | **P2.d.1R.2b.4** | Runtime ObjPtr ref persistence через DomainGraph | **PASS** — `model_persistence_runtime_ref_test` |
-| **P2.d.1R.2b** | Оставшиеся потребители + удаление checkpoint API | **IN_PROGRESS** — **NEXT: P2.d.1R.2b.5** аудит call sites + удаление API |
-| **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — **после P2.d.1R.2b** |
-| P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** |
+| **P2.d.1R.2b.5** | Удаление persistent checkpoint API из библиотеки | **PASS** — regression: model/presenter persistence + catalog model |
+| **P2.d.1R.2b** | Миграция потребителей + удаление checkpoint API | **PASS** |
+| **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — **NEXT** |
+| P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** — **NEXT: P2.d.2** |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
 
@@ -93,7 +94,7 @@
 | Core CMake | SharedNode в core, `APPTRAVERSE_ENABLE_SHARED_NODE=1` | P1.1 |
 | `node.h` | SharedNode-члены за `#if` | P1.1 |
 | Lifecycles | Inline checkpoint ×4 | **P2.a PASS** |
-| Serialization | Sidecar checkpoint / ручные envelope publication | **P2.d.1R** / P2.d.2 |
+| Serialization | Ручные envelope publication (UI) | **P2.d.2** (checkpoint sidecar **PASS** P2.d.1R) |
 | MinimalApp | Runtime Stabilize at shutdown | **P2.b PASS** |
 | Catalog graph | Win32 presenter types в portable graph | P2–P4 |
 | Web CMake | `-fexceptions` в Surfaces web | P4 |

@@ -1,4 +1,4 @@
-#include "apptraverse/object_serialization.h"
+﻿#include "apptraverse/object_serialization.h"
 #include "apptraverse/publication_serialization_scope.h"
 #include "apptraverse/event.h"
 #include "apptraverse/surfaces/surfaces_model.h"
@@ -8,14 +8,9 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
-#include <optional>
 #include <utility>
 #include <unordered_set>
 #include <vector>
-
-#include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/partitioned_model_domain_storage.h"
 
 #include "aether-miscpp/reflect/reflect.h"
 #include "aether-miscpp/serialization/binary_archive.h"
@@ -24,7 +19,6 @@
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/graph_walk.h"
-#include "apptraverse/model_persistence.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/presenter.h"
 #include "apptraverse/ui/ui_desktop_window.h"
@@ -277,7 +271,7 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
   // Load each published object with its own DomainGraph (same pattern as
   // CopyModelGraphToUiDomain). Nested LoadRoot alone can return an empty UI
   // shell that was ConstructObj'd earlier in the shared graph walk without
-  // reloading bytes from storage — which left ImmutableString bodies empty.
+  // reloading bytes from storage вЂ” which left ImmutableString bodies empty.
   std::vector<ae::ObjId> object_ids;
   object_ids.reserve(layer_count);
   for (std::uint32_t i = 0; i < layer_count; ++i) {
@@ -303,7 +297,7 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
   // First load the published root (may ConstructObj empty shells for newly
   // referenced objects when nested LoadRoot short-circuits). Then refresh every
   // injected object with a fresh DomainGraph so storage bytes (e.g. message
-  // bodies) actually populate those shells — matching CopyModelGraphToUiDomain.
+  // bodies) actually populate those shells вЂ” matching CopyModelGraphToUiDomain.
   LoadExistingObjectUnchecked(existing_root, domain);
   for (ae::ObjId const id : object_ids) {
     if (auto object = domain.Find(id); object) {
@@ -466,197 +460,6 @@ void RestoreReachableNodeHistory(std::vector<SavedNodeBookkeeping>& saved) {
     entry.node->journal = std::move(entry.journal);
   }
   saved.clear();
-}
-
-struct SavedNodeBaseOnly {
-  Node* node;
-  Node::ptr base;
-};
-
-void ClearReachableNodeBaseForCheckpointSave(
-    ae::Obj const& root, std::vector<SavedNodeBaseOnly>& saved) {
-  std::vector<Node*> nodes;
-  CollectReachableNodes(const_cast<ae::Obj&>(root), nodes);
-  saved.clear();
-  saved.reserve(nodes.size());
-  for (Node* node : nodes) {
-    saved.push_back(SavedNodeBaseOnly{node, node->base});
-    node->base = Node::ptr{};
-  }
-}
-
-void RestoreReachableNodeBase(std::vector<SavedNodeBaseOnly>& saved) {
-  for (SavedNodeBaseOnly& entry : saved) {
-    entry.node->base = std::move(entry.base);
-  }
-  saved.clear();
-}
-
-void EnsurePersistentCheckpointBaseObjectsInScratch(
-    std::vector<SavedNodeBaseOnly> const& saved_bases,
-    ae::RamDomainStorage& scratch) {
-  for (SavedNodeBaseOnly const& entry : saved_bases) {
-    if (!entry.base.is_valid()) {
-      continue;
-    }
-    ae::ObjId const base_id = entry.base.id();
-    auto scratch_it = scratch.state.find(base_id);
-    if (scratch_it != scratch.state.end() && scratch_it->second.has_value()) {
-      continue;
-    }
-    if (auto obj = entry.node->domain->Find(base_id)) {
-      SaveObjectGraphToScratch(*obj, scratch);
-    }
-  }
-}
-
-struct PersistentModelCheckpointLayer {
-  ae::ObjId::Type object_id{};
-  std::uint32_t class_id{};
-  std::uint8_t version{};
-  std::vector<std::uint8_t> bytes;
-  AE_REFLECT_MEMBERS(object_id, class_id, version, bytes)
-};
-
-struct PersistentModelCheckpointNodeGeneration {
-  ae::ObjId::Type object_id{};
-  std::uint64_t generation{};
-  AE_REFLECT_MEMBERS(object_id, generation)
-};
-
-struct PersistentModelCheckpointNodeBaseBinding {
-  ae::ObjId::Type node_object_id{};
-  ae::ObjId::Type base_object_id{};
-  AE_REFLECT_MEMBERS(node_object_id, base_object_id)
-};
-
-struct PersistentModelCheckpointPayload {
-  ae::ObjId::Type root_id{};
-  std::vector<PersistentModelCheckpointLayer> layers;
-  std::vector<PersistentModelCheckpointNodeGeneration> node_generations;
-  std::vector<PersistentModelCheckpointNodeBaseBinding> node_base_bindings;
-  AE_REFLECT_MEMBERS(root_id, layers, node_generations, node_base_bindings)
-};
-
-void PopulatePersistentModelCheckpointPayload(
-    ae::RamDomainStorage const& scratch, ae::Obj const& root,
-    std::unordered_set<std::uint32_t> const& export_object_ids,
-    std::vector<SavedNodeBaseOnly> const& saved_bases,
-    PersistentModelCheckpointPayload& payload) {
-  payload.root_id = root.obj_id.id();
-  payload.layers.clear();
-  payload.node_generations.clear();
-  payload.node_base_bindings.clear();
-
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    if (!export_object_ids.contains(obj_id.id())) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    for (auto const& [class_id, versions] : *class_map_opt) {
-      for (auto const& [version, data] : versions) {
-        PersistentModelCheckpointLayer layer;
-        layer.object_id = obj_id.id();
-        layer.class_id = class_id;
-        layer.version = version;
-        layer.bytes = data;
-        payload.layers.push_back(std::move(layer));
-      }
-    }
-  }
-
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    if (!export_object_ids.contains(obj_id.id())) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    auto* node = AsObjOf<Node>(obj.get());
-    if (node == nullptr) {
-      continue;
-    }
-    PersistentModelCheckpointNodeGeneration entry;
-    entry.object_id = obj_id.id();
-    entry.generation = node->Generation();
-    payload.node_generations.push_back(entry);
-  }
-
-  for (SavedNodeBaseOnly const& saved : saved_bases) {
-    if (!saved.base.is_valid()) {
-      continue;
-    }
-    PersistentModelCheckpointNodeBaseBinding binding;
-    binding.node_object_id = saved.node->obj_id.id();
-    binding.base_object_id = saved.base.id().id();
-    payload.node_base_bindings.push_back(binding);
-  }
-}
-
-bool TryLoadPersistentModelCheckpointPayload(
-    ByteSource& in, PersistentModelCheckpointPayload& payload) {
-  if (in.pos > in.size) {
-    return false;
-  }
-  std::size_t const remaining = in.size - in.pos;
-  std::vector<std::uint8_t> copy(in.data + in.pos,
-                                 in.data + in.pos + remaining);
-  ae::seri::BinaryVectorBuffer buffer{copy};
-  ae::seri::BinaryArchive archive{std::move(buffer)};
-  if (archive.Load(payload).IsErr()) {
-    return false;
-  }
-  in.pos = in.size;
-  return in.ok;
-}
-
-bool InjectPersistentModelCheckpointLayers(
-    PersistentModelCheckpointPayload const& payload,
-    ae::IDomainStorage& storage) {
-  for (PersistentModelCheckpointLayer const& layer : payload.layers) {
-    if (!InjectObjectBytes(storage,
-                           {ae::ObjId{layer.object_id}, layer.class_id,
-                            layer.version},
-                           layer.bytes.data(), layer.bytes.size())) {
-      return false;
-    }
-  }
-  return true;
-}
-
-void RestorePersistedNodeBaseBindings(
-    ae::Domain& domain,
-    std::vector<PersistentModelCheckpointNodeBaseBinding> const& bindings) {
-  for (PersistentModelCheckpointNodeBaseBinding const& entry : bindings) {
-    auto node_obj = domain.Find(ae::ObjId{entry.node_object_id});
-    if (!node_obj) {
-      continue;
-    }
-    auto* node = AsObjOf<Node>(node_obj.get());
-    if (node == nullptr || node->base.is_valid()) {
-      continue;
-    }
-    ae::Ptr<ae::Obj> held = domain.Find(ae::ObjId{entry.base_object_id});
-    if (!held) {
-      ae::DomainGraph graph{&domain};
-      held = graph.LoadRoot(ae::ObjId{entry.base_object_id});
-    }
-    if (!held) {
-      continue;
-    }
-    node->base = Node::ptr{node->domain, ae::ObjId{entry.base_object_id}, {},
-                           std::move(held)};
-  }
 }
 
 void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
@@ -1352,7 +1155,7 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
     keepalive.live_objects.push_back(std::move(held));
     Presenter* const presenter = AsPresenter(obj);
     if (presenter != nullptr && presenter->presentation_loaded) {
-      // Keep the Domain::Find Ptr as Obj — do not re-wrap through
+      // Keep the Domain::Find Ptr as Obj вЂ” do not re-wrap through
       // Ptr<Presenter>{Ptr<Obj>} with a separate static_cast path. ObjPtr
       // stores Ptr<Obj> in ObjectPtrBase; Presenter::ptr from Find is enough
       // for OnUnload while the keepalive still owns the Obj.
@@ -1385,324 +1188,4 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
   keepalive.live_objects.clear();
   return changed;
 }
-
-void AppendUnloadedCheckpointTargets(ae::Obj& root,
-                                     ae::RamDomainStorage& scratch) {
-  ae::Domain& domain = *root.domain;
-  ae::DomainGraph graph{&domain, ae::GraphSerializationScope::LocalPersistent};
-  std::unordered_set<std::uint32_t> seen;
-  std::vector<ae::ObjId> queue;
-
-  auto schedule = [&](ae::Obj& obj) {
-    ForEachGraphEdgeObjPtrOn(obj, [&](auto& edge) {
-      if (!edge.is_valid() || edge.is_loaded()) {
-        return;
-      }
-      if (seen.insert(edge.id().id()).second) {
-        queue.push_back(edge.id());
-      }
-    });
-  };
-
-  schedule(root);
-  for (std::size_t i = 0; i < queue.size(); ++i) {
-    ae::ObjId const id = queue[i];
-    ae::Ptr<ae::Obj> loaded = graph.LoadRoot(id);
-    if (!loaded) {
-      continue;
-    }
-    SaveObjectGraphToScratch(*loaded, scratch);
-    schedule(*loaded);
-  }
-}
-
-void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
-  std::vector<Node*> nodes;
-  CollectReachableNodes(root, nodes);
-  struct SavedJournal {
-    Node* node;
-    std::vector<EventRecord> journal;
-  };
-  std::vector<SavedJournal> saved_journals;
-  saved_journals.reserve(nodes.size());
-  for (Node* node : nodes) {
-    SavedJournal saved_entry;
-    saved_entry.node = node;
-    saved_entry.journal = node->journal;
-    node->journal.clear();
-    for (EventRecord const& record : saved_entry.journal) {
-      if (!record.event.is_valid()) {
-        continue;
-      }
-      node->journal.push_back(record);
-    }
-    saved_journals.push_back(std::move(saved_entry));
-  }
-
-  std::vector<SavedNodeBaseOnly> saved_bases;
-  ClearReachableNodeBaseForCheckpointSave(root, saved_bases);
-
-  ae::RamDomainStorage scratch;
-  SaveObjectGraphToScratch(root, scratch);
-  AppendUnloadedCheckpointTargets(root, scratch);
-  EnsurePersistentCheckpointBaseObjectsInScratch(saved_bases, scratch);
-
-  std::unordered_set<std::uint32_t> checkpoint_export_ids;
-  {
-    std::vector<ae::Obj*> persisted_reachable;
-    CollectReachableObjects(root, persisted_reachable);
-    checkpoint_export_ids.reserve(persisted_reachable.size() + saved_bases.size());
-    for (ae::Obj* obj : persisted_reachable) {
-      checkpoint_export_ids.insert(obj->obj_id.id());
-    }
-  }
-  for (SavedNodeBaseOnly const& entry : saved_bases) {
-    checkpoint_export_ids.insert(entry.node->obj_id.id());
-    if (entry.base.is_valid()) {
-      checkpoint_export_ids.insert(entry.base.id().id());
-    }
-  }
-
-  PersistentModelCheckpointPayload payload;
-  PopulatePersistentModelCheckpointPayload(scratch, root, checkpoint_export_ids,
-                                         saved_bases, payload);
-
-  RestoreReachableNodeBase(saved_bases);
-  for (SavedJournal& entry : saved_journals) {
-    entry.node->journal = std::move(entry.journal);
-  }
-
-  out.bytes.clear();
-  ae::seri::BinaryVectorBuffer buffer{out.bytes};
-  ae::seri::BinaryArchive archive{buffer};
-  bool const payload_saved = archive.Save(payload).IsOk();
-  assert(payload_saved);
-}
-
-void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
-                                 ae::IDomainStorage& storage, ae::Obj& root) {
-  PersistentModelCheckpointPayload payload;
-  bool const payload_loaded =
-      TryLoadPersistentModelCheckpointPayload(in, payload);
-  assert(payload_loaded);
-  assert(root.obj_id.id() == payload.root_id);
-  bool const layers_injected =
-      InjectPersistentModelCheckpointLayers(payload, storage);
-  assert(layers_injected);
-
-  std::vector<ae::ObjId> loaded_ids;
-  loaded_ids.reserve(payload.layers.size());
-  for (PersistentModelCheckpointLayer const& layer : payload.layers) {
-    ae::ObjId const id{layer.object_id};
-    if (std::find(loaded_ids.begin(), loaded_ids.end(), id) == loaded_ids.end()) {
-      loaded_ids.push_back(id);
-    }
-  }
-
-  InitialPublicationLoadDiagnostics diagnostics;
-  std::vector<ae::Ptr<ae::Obj>> load_keepalive;
-  load_keepalive.reserve(loaded_ids.size());
-  ae::DomainGraph hydrate_graph{&domain};
-  auto materialize_checkpoint_shell = [&](ae::ObjId const id) -> ae::Obj& {
-    ae::Ptr<ae::Obj> object = domain.Find(id);
-    if (!object) {
-      object = hydrate_graph.LoadRoot(id);
-    }
-    if (!object) {
-      char message[512];
-      std::snprintf(message, sizeof(message),
-                    "fatal: persistent checkpoint missing domain object id=%u\n",
-                    id.id());
-      WriteFatalStderr(message);
-      std::abort();
-    }
-    load_keepalive.push_back(object);
-    return *object;
-  };
-  auto load_checkpoint_object = [&](ae::ObjId const id) {
-    ae::Obj& object = materialize_checkpoint_shell(id);
-    diagnostics = {};
-    if (!LoadExistingObject(object, domain, &storage, &diagnostics)) {
-      diagnostics.obj_id = id.id();
-      char message[512];
-      FormatInitialPublicationLoadDiagnostics(diagnostics, message,
-                                            sizeof(message));
-      WriteFatalStderr(message);
-      std::abort();
-    }
-  };
-  // Checkpoint hydrate: materialize every saved shell while load_keepalive holds
-  // strong refs (Domain only stores PtrView). Load non-root objects before root,
-  // then root, so cyclic ObjPtr fields resolve without a second full reload pass.
-  for (ae::ObjId const id : loaded_ids) {
-    if (id == root.obj_id) {
-      continue;
-    }
-    materialize_checkpoint_shell(id);
-  }
-  materialize_checkpoint_shell(root.obj_id);
-  for (ae::ObjId const id : loaded_ids) {
-    if (id == root.obj_id) {
-      continue;
-    }
-    load_checkpoint_object(id);
-  }
-  load_checkpoint_object(root.obj_id);
-
-  for (PersistentModelCheckpointNodeGeneration const& entry :
-       payload.node_generations) {
-    auto object = domain.Find(ae::ObjId{entry.object_id});
-    if (!object) {
-      continue;
-    }
-    if (auto* node = AsObjOf<Node>(object.get())) {
-      node->AdoptPublishedGeneration(entry.generation);
-    }
-  }
-
-  RestorePersistedNodeBaseBindings(domain, payload.node_base_bindings);
-  SanitizeLoadedPersistentObjPtrs(root, loaded_ids);
-  std::vector<Node*> loaded_nodes;
-  CollectReachableNodes(root, loaded_nodes);
-  for (Node* node : loaded_nodes) {
-    for (EventRecord const& record : node->journal) {
-      if (!record.event.is_valid() || record.event.is_loaded()) {
-        continue;
-      }
-      if (auto event_obj = domain.Find(record.event.id())) {
-        InitialPublicationLoadDiagnostics event_diagnostics;
-        LoadExistingObject(*event_obj, domain, &storage, &event_diagnostics);
-      }
-    }
-    node->AdoptMaterializedPersistentCheckpointJournal();
-  }
-}
-
-bool InjectPersistentModelSnapshotToStorage(ByteSource& in,
-                                            ae::IDomainStorage& storage,
-                                            std::uint32_t expected_root_id) {
-  PersistentModelCheckpointPayload payload;
-  if (!TryLoadPersistentModelCheckpointPayload(in, payload)) {
-    return false;
-  }
-  if (payload.root_id != expected_root_id) {
-    return false;
-  }
-  return InjectPersistentModelCheckpointLayers(payload, storage);
-}
-
-namespace {
-
-constexpr char kPersistentModelCheckpointSidecar[] =
-    "persistent_model_checkpoint.bin";
-
-std::filesystem::path PersistentModelCheckpointSidecarPath(
-    std::filesystem::path const& model_root) {
-  return model_root / kPersistentModelCheckpointSidecar;
-}
-
-bool WritePersistentModelCheckpointSidecar(std::filesystem::path const& model_root,
-                                           ByteSink const& bytes) {
-  std::ofstream out{PersistentModelCheckpointSidecarPath(model_root),
-                    std::ios::binary | std::ios::trunc};
-  if (!out) {
-    return false;
-  }
-  out.write(reinterpret_cast<char const*>(bytes.bytes.data()),
-            static_cast<std::streamsize>(bytes.bytes.size()));
-  return static_cast<bool>(out);
-}
-
-bool SavePersistentModelSnapshotToStorageImpl(ae::Obj& root,
-                                              ae::IDomainStorage& storage,
-                                              std::filesystem::path const*
-                                                  sidecar_root) {
-  ByteSink bytes;
-  SerializePersistentModelSnapshot(root, bytes);
-  if (sidecar_root != nullptr &&
-      !WritePersistentModelCheckpointSidecar(*sidecar_root, bytes)) {
-    return false;
-  }
-  ByteSource in;
-  in.data = bytes.bytes.data();
-  in.size = bytes.bytes.size();
-  in.pos = 0;
-  return InjectPersistentModelSnapshotToStorage(in, storage, root.obj_id.id());
-}
-
-}  // namespace
-
-bool SavePersistentModelSnapshotToStorage(
-    ae::Obj& root, ae::IDomainStorage& storage,
-    std::optional<std::filesystem::path> checkpoint_sidecar_directory) {
-  std::filesystem::path const* sidecar_root = nullptr;
-  std::filesystem::path sidecar_path_storage;
-  if (checkpoint_sidecar_directory) {
-    sidecar_path_storage = *checkpoint_sidecar_directory;
-    sidecar_root = &sidecar_path_storage;
-  }
-  return SavePersistentModelSnapshotToStorageImpl(root, storage, sidecar_root);
-}
-
-bool TryReadPersistentModelCheckpointSidecarBytes(
-    std::filesystem::path const& model_root,
-    std::vector<std::uint8_t>& out_bytes) {
-  auto const sidecar = PersistentModelCheckpointSidecarPath(model_root);
-  std::error_code ec;
-  bool const exists = std::filesystem::exists(sidecar, ec);
-  if (ec) {
-    WriteFatalStderr("fatal: cannot inspect persistent checkpoint\n");
-    std::abort();
-  }
-  if (!exists) {
-    return false;
-  }
-  std::ifstream in{sidecar, std::ios::binary | std::ios::ate};
-  if (!in) {
-    return false;
-  }
-  auto const size = static_cast<std::size_t>(in.tellg());
-  in.seekg(0);
-  out_bytes.resize(size);
-  if (size > 0) {
-    in.read(reinterpret_cast<char*>(out_bytes.data()),
-            static_cast<std::streamsize>(size));
-    if (!in) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool TryLoadPersistedModelFromSidecarRoot(ae::Domain& domain,
-                                          ae::IDomainStorage& storage,
-                                          ae::Obj& root,
-                                          std::filesystem::path const& model_root) {
-  std::vector<std::uint8_t> bytes;
-  if (!TryReadPersistentModelCheckpointSidecarBytes(model_root, bytes)) {
-    return false;
-  }
-  ByteSource checkpoint;
-  checkpoint.data = bytes.data();
-  checkpoint.size = bytes.size();
-  checkpoint.pos = 0;
-  LoadPersistentModelSnapshot(checkpoint, domain, storage, root);
-  return true;
-}
-
-bool TryLoadPersistedModelFromStorageSidecar(
-    ae::Domain& domain, PartitionedModelDomainStorage& storage, ae::Obj& root) {
-  if (!storage.checkpoint_sidecar_directory()) {
-    return false;
-  }
-  return TryLoadPersistedModelFromSidecarRoot(
-      domain, storage, root, *storage.checkpoint_sidecar_directory());
-}
-
-bool TryLoadPersistedModelFromStorageSidecar(
-    ae::Domain& domain, DirectoryDomainStorage& storage, ae::Obj& root) {
-  return TryLoadPersistedModelFromSidecarRoot(domain, storage, root,
-                                              storage.root());
-}
-
 }  // namespace apptraverse

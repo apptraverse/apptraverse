@@ -110,7 +110,6 @@ add_library(apptraverse STATIC
   src/distilled_domain_export.cpp
   src/distilled_supply_package.cpp
   src/partitioned_model_domain_storage.cpp
-  src/model_persistence.cpp
   src/model_object_proxy.cpp
   src/object_serialization.cpp
   src/object_clone.cpp

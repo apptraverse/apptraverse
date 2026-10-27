@@ -41,7 +41,7 @@ Requires an existing profile created by `win32_minimal_app`. No bootstrap.
 | Win32 entry + host wiring | `windows/minimal_app_main.cpp` |
 
 Persistent save uses `SavePresentedWindow`, application `Save()`, and
-`SavePersistentModelSnapshotToStorage` at the end of the model session.
+`DirectoryDomainStorage::BeginSaveSession` and object-layer save at the end of the model session.
 
 ## Extending
 

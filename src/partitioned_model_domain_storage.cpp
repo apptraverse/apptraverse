@@ -10,8 +10,7 @@ PartitionedModelDomainStorage::PartitionedModelDomainStorage(
 
 PartitionedModelDomainStorage::PartitionedModelDomainStorage(
     DirectoryDomainStorage& durable_directory)
-    : durable_backing_{durable_directory},
-      checkpoint_sidecar_directory_{durable_directory.root()} {}
+    : durable_backing_{durable_directory} {}
 
 std::unique_ptr<ae::IDomainStorageWriter> PartitionedModelDomainStorage::Store(
     ae::DomainQuery const& query) {

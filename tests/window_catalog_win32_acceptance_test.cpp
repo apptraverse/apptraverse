@@ -538,11 +538,6 @@ void CopyStateDir(std::filesystem::path const& from,
   CHECK(!ec);
 }
 
-void RemoveCheckpointSidecar(std::filesystem::path const& state_dir) {
-  std::error_code ec;
-  std::filesystem::remove(state_dir / "persistent_model_checkpoint.bin", ec);
-}
-
 std::string ReadAllBytes(std::filesystem::path const& path) {
   HANDLE file =
       CreateFileW(path.wstring().c_str(), GENERIC_READ,
@@ -990,7 +985,6 @@ void RunRequiredChromeButtonNegativeTests(
         std::string{"missing_chrome_"} + suffix + "_ref";
     auto const dir = NegativeStateDir(dir_name.c_str());
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     ChromeButtonMember const member = ChromeButtonMemberForSuffix(suffix);
     WriteProfileMissingChromeButtonRef(dir, member);
     AssertChromeButtonRefAbsent(dir, member);
@@ -1002,7 +996,6 @@ void RunRequiredChromeButtonNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_chrome_add_button_object");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     ae::ObjId const button_id = WriteProfileMissingAddButtonObject(dir);
     AssertPresenterObjectAbsent(dir, button_id);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
@@ -1103,7 +1096,6 @@ void RunRequiredLocalizedTextNegativeTests(
         std::string{"missing_localized_text_"} + suffix + "_ref";
     auto const dir = NegativeStateDir(dir_name.c_str());
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     LocalizedTextMember const member = LocalizedTextMemberForSuffix(suffix);
     WriteProfileMissingLocalizedTextRef(dir, member);
     AssertLocalizedTextRefAbsent(dir, member);
@@ -1115,7 +1107,6 @@ void RunRequiredLocalizedTextNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_localized_text_label_add_object");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     ae::ObjId const text_id = WriteProfileMissingLabelAddObject(dir);
     AssertPresenterObjectAbsent(dir, text_id);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
@@ -1136,7 +1127,6 @@ void RunRequiredChromePresenterNegativeTests(
     std::string const dir_name = std::string{"missing_chrome_"} + suffix + "_ref";
     auto const dir = NegativeStateDir(dir_name.c_str());
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     ChromePresenterMember const member = ChromePresenterMemberForSuffix(suffix);
     WriteProfileMissingChromePresenterRef(dir, member);
     AssertChromePresenterRefAbsent(dir, member);
@@ -1148,7 +1138,6 @@ void RunRequiredChromePresenterNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_chrome_add_button_presenter_object");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     ae::ObjId const presenter_id =
         WriteProfileMissingAddButtonPresenterObject(dir);
     AssertPresenterObjectAbsent(dir, presenter_id);
@@ -1164,7 +1153,6 @@ void RunRequiredListLocaleNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_list_ref");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     WriteProfileMissingListRef(dir);
     AssertListRefAbsent(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
@@ -1174,7 +1162,6 @@ void RunRequiredListLocaleNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_list_object");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     WriteProfileMissingListObject(dir);
     AssertListObjectAbsent(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
@@ -1185,7 +1172,6 @@ void RunRequiredListLocaleNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_locale_ref");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     WriteProfileMissingLocaleRef(dir);
     AssertLocaleRefAbsent(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
@@ -1195,7 +1181,6 @@ void RunRequiredListLocaleNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_locale_object");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     ae::ObjId const locale_id = WriteProfileMissingLocaleObject(dir);
     AssertLocaleObjectAbsent(dir, locale_id);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
@@ -1216,7 +1201,6 @@ void RunRequiredMainWindowNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_main_window");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     WriteProfileMissingMainWindow(dir);
     AssertMainWindowRefAbsent(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
@@ -1227,7 +1211,6 @@ void RunRequiredMainWindowNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_presenter_ref");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     WriteProfileMissingPresenter(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
     ExpectFatalLoadOnly(result,
@@ -1237,7 +1220,6 @@ void RunRequiredMainWindowNegativeTests(
   {
     auto const dir = NegativeStateDir("missing_presenter_object");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     WriteProfileMissingPresenterObject(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
     bool const presenter_missing =
@@ -1576,7 +1558,6 @@ void RunRequiredUnknownClassIdNegativeTests(
   {
     auto const dir = NegativeStateDir("unknown_class_id_alongside_root");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     AddUnknownStoredClassLayerAlongsideRoot(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
     ExpectUnsupportedSchemaLoadOnly(result, false);
@@ -1585,7 +1566,6 @@ void RunRequiredUnknownClassIdNegativeTests(
   {
     auto const dir = NegativeStateDir("unknown_class_id_main_window_presenter");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     RelocateStoredClassDirectory(
         dir, CatalogMainWindowPresenterObjId(),
         ui::windows::WinDesktopWindowPresenter::kClassId,
@@ -1601,7 +1581,6 @@ void RunRequiredUnsupportedSchemaNegativeTests(
   {
     auto const dir = NegativeStateDir("unsupported_schema_window_catalog_root");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     RelocateStoredLayerVersion0To1(dir, CatalogRootObjId(),
                                    WindowCatalog::kClassId);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
@@ -1612,7 +1591,6 @@ void RunRequiredUnsupportedSchemaNegativeTests(
     auto const dir =
         NegativeStateDir("unsupported_schema_main_window_presenter");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     RelocateStoredLayerVersion0To1(
         dir, CatalogMainWindowPresenterObjId(),
         ui::windows::WinDesktopWindowPresenter::kClassId);

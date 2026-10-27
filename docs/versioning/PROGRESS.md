@@ -51,7 +51,10 @@
 | **P2.d.1R.2b.3b.1** — Win HWND DomainGraph | **`3d85a31`**, §P2.d.1R.2b.3b.1 | **PASS** |
 | **P2.d.1R.2b.3b.2** — cross-process presenter storage | **`e750166`**, §P2.d.1R.2b.3b.2 | **PASS** |
 | **P2.d.1R.2b.4** — runtime_observer DomainGraph | **`90908ce`**, §P2.d.1R.2b.4 | **PASS** |
-| **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
+| **P2.d.1R.2b.5** — удаление checkpoint API | **PLACEHOLDER**, §P2.d.1R.2b.5 | **PASS** |
+| **P2.d.1R** — без отдельного persistent checkpoint | §P2.d.1R.2b.5 | **PASS** |
+| **P2.d.1R.2b** — миграция + удаление API | §P2.d.1R.2b.5 | **PASS** |
+| **P2.d** — штатная сериализация | **NEXT: P2.d.2** (UI publication) | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -188,13 +191,25 @@
 
 ---
 
-## P2.d.1R.2b.4 — runtime_observer ref через SaveRoot/LoadRoot (2026-10-27)
+## P2.d.1R.2b.4 — runtime_observer ref через SaveRoot/LoadRoot (2026-10-27, **`90908ce`**)
 
 **Test:** `RunModelPersistenceRuntimeRefTest` — один `RamDomainStorage`, save scope → `SaveRoot(kDocId)` → destroy Domain → cold `LoadRoot` без pre-created doc; отражённый `runtime_observer` ObjPtr и historical `base` root Node сохраняются.
 
 **Debug:** `apptraverse_model_persistence_runtime_ref_test` **exit 0**.
 
-**NEXT:** **P2.d.1R.2b.5** — аудит оставшихся call sites checkpoint API в `integration/unified-application` и удаление неиспользуемой инфраструктуры.
+**NEXT:** **P2.d.1R.2b.5** — удаление checkpoint API (см. § ниже).
+
+---
+
+## P2.d.1R.2b.5 — удаление persistent checkpoint API (2026-10-27)
+
+**Удалено из библиотеки:** `SerializePersistentModelSnapshot` / `LoadPersistentModelSnapshot`, sidecar `persistent_model_checkpoint.bin`, inject/hydrate helpers, `model_persistence.h` / `model_persistence.cpp`, `Node::AdoptMaterializedPersistentCheckpointJournal`, `PartitionedModelDomainStorage::checkpoint_sidecar_directory`.
+
+**Сохранено:** штатная object serialization, UI publication, `StructuralPublicationSidecar`, `ClearReachableNodeHistoryForPublicationSave` / `RestoreReachableNodeHistory`, `PartitionedModelDomainStorage` как forwarder.
+
+**Debug regression:** `apptraverse_model_persistence_test`, `apptraverse_model_persistence_runtime_ref_test`, `apptraverse_checkpoint_load_cycle_persistence_test`, `apptraverse_checkpoint_load_rehydration_test`, `apptraverse_presenter_graph_persistence_test`, `apptraverse_presenter_win_hwnd_persistence_test`, `apptraverse_presenter_platform_persist_roundtrip`, `apptraverse_partitioned_model_domain_storage_test`, `apptraverse_window_catalog_model_test`; link **PASS** `win32_window_catalog_demo`, `win32_minimal_app`.
+
+**NEXT:** **P2.d.2** — штатная сериализация UI publication.
 
 ---
 

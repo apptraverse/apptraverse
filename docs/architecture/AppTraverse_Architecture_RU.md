@@ -189,7 +189,7 @@ Lazy loading сохраняет логический граф полным, да
 
 Наличие локальной копии ресурса также не равно наличию native-представления. Изображение может быть получено, но не декодировано; строка может иметь сериализованные байты, но не быть загружена; presenter может существовать в зеркале, но ещё не пройти активацию после загрузки родителя.
 
-**В исходниках.** Есть отдельные `CollectLiveReachableObjects`, `CollectPersistentSerializationReachableObjects`, `CollectLiveReachableNodes` и другие обходы. `FindLiveReachableNode` существует именно потому, что `Domain::Find` может вернуть объект, удерживаемый историей. В то же время `AppendUnloadedCheckpointTargets` действительно вызывает `LoadRoot` для незагруженных целей при сборке checkpoint. Поэтому текущую checkpoint-упаковку нельзя описывать как чистое копирование байтов без материализации. [C06]
+**В исходниках.** Есть отдельные `CollectLiveReachableObjects`, `CollectPersistentSerializationReachableObjects`, `CollectLiveReachableNodes` и другие обходы. `FindLiveReachableNode` существует именно потому, что `Domain::Find` может вернуть объект, удерживаемый историей. Штатное durable-сохранение (`DomainGraph::SaveRoot` / `LoadRoot` через `IDomainStorage`) записывает canonical state, historical `Node::base` и `journal` обычными объектными слоями; отдельный persistent checkpoint больше не требуется для восстановления. [C06]
 
 ## 10. Events и изменение модели
 
@@ -221,7 +221,7 @@ Generation отражает текущую материализацию для U
 
 Полная компактация требует сохранности нового base и связи владельца с ним. Частичная — восстановления соответствующей точки, захвата нового base и replay оставшегося хвоста. Обычный shutdown не является разрешением вызвать `journal.clear()` и переснять базу без этой семантики.
 
-**В исходниках (срез 8c863bc, исторически).** `SerializePersistentModelSnapshot` и sidecar `persistent_model_checkpoint.bin` упаковывали слои, поколения и Node→base отдельно от обычного storage; это не конечная архитектура persistence. Целевой путь — штатный Save/LoadRoot через `IDomainStorage` с сериализованными `base`/`journal` в слоях Node. [C06]
+**В исходниках (срез 8c863bc, исторически).** Отдельный `SerializePersistentModelSnapshot` и sidecar `persistent_model_checkpoint.bin` упаковывали слои, поколения и Node→base вне обычного storage; этот путь снят с эксплуатации. Актуальный контракт — штатный `SaveRoot`/`LoadRoot` через `IDomainStorage`: canonical state, historical base и journal сохраняются в сериализованных слоях Node и связанных объектов. [C06]
 
 При корректном восстановлении новые Events продолжают историю. При загрузке только слоя с отсутствующим base `TryInsertEvent` может отказать: это различие путей восстановления, а не повод автоматически придумать новый base из текущих значений.
 
@@ -365,9 +365,9 @@ Native handles, адреса callbacks, ссылки на host и статус `
 
 CMake-подключение не должно предполагать, что AppTraverse является корневым проектом. Пути библиотеки разрешаются относительно её модулей; потребитель может иметь собственный `CMAKE_SOURCE_DIR`. Система генерации и упаковки поддерживает host-exporter и отдельный target-runtime.
 
-**В исходниках.** `WinApplicationHost` соединяет runtime, proxy, loading/message host и `ApplicationUiSession`. `Run` запускает model callback, обслуживает цикл и выполняет `JoinModelThread` до уничтожения UI session. При этом WindowCatalog и MinimalApp пока имеют собственные функции загрузки, inline-чтение checkpoint и shutdown-save. Значит, переиспользование runtime существует, но весь lifecycle ещё не является одной готовой библиотечной точкой входа. [C03, C18, C19]
+**В исходниках.** `WinApplicationHost` соединяет runtime, proxy, loading/message host и `ApplicationUiSession`. `Run` запускает model callback, обслуживает цикл и выполняет `JoinModelThread` до уничтожения UI session. WindowCatalog и MinimalApp загружают и сохраняют модель через штатный `DirectoryDomainStorage` и `DomainGraph` (без отдельного checkpoint sidecar). Переиспользование runtime существует, но весь lifecycle ещё не является одной готовой библиотечной точкой входа. [C03, C18, C19]
 
-**В исходниках (дополнение, U5.1, тот же SHA).** При штатном shutdown WindowCatalog и MinimalApp вызывают `DirectoryDomainStorage::BeginSaveSession()` до сохранения окон и объектов, проверяют результат `SavePersistentModelSnapshotToStorage` и `SaveSessionHadFailure()`; при ошибке пишут в stderr через `WriteFatalStderr` и возвращают код `1` из lifecycle, который `main` передаёт как exit code процесса после `JoinModelThread`. Это явная передача ошибки вызывающему коду, а не атомарность профиля и не production-hardening.
+**В исходниках (дополнение, U5.1, тот же SHA).** При штатном shutdown WindowCatalog и MinimalApp вызывают `DirectoryDomainStorage::BeginSaveSession()` до сохранения окон и объектов, проверяют `SaveSessionHadFailure()`; при ошибке пишут в stderr через `WriteFatalStderr` и возвращают код `1` из lifecycle, который `main` передаёт как exit code процесса после `JoinModelThread`. Это явная передача ошибки вызывающему коду, а не атомарность профиля и не production-hardening.
 
 ## 19. Общие компоненты и смысл WindowCatalog
 
