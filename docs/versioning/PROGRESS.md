@@ -45,7 +45,7 @@
 | **P2.d.1R.1** — MinimalApp без sidecar | **`9f1d0a7`**, §P2.d.1R.1 | **PASS** |
 | **P2.d.1R.2a** — WindowCatalog без sidecar | **`93a18dc`**, §P2.d.1R.2a | **PASS** |
 | **P2.X1** — обязательный граф UI, assert side effects | **`51ecd2b`**, §P2.X1 | **PASS** |
-| **P2.d.1R.2b.1** — persistence tests без checkpoint | §P2.d.1R.2b.1 | **PASS** |
+| **P2.d.1R.2b.1** — persistence tests без checkpoint | **`63d3b18`**, §P2.d.1R.2b.1 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -137,7 +137,7 @@
 
 ---
 
-## P2.d.1R.2b.1 — persistence tests без checkpoint API (2026-10-27)
+## P2.d.1R.2b.1 — persistence tests без checkpoint API (2026-10-27, **`63d3b18`**)
 
 **`model_persistence_test`:** `RunModelPersistenceTest`, `RunSaveToStorageDoesNotMutateLiveGraphTest`, `RunSaveToStorageColdDirectoryRoundTripTest` — `DirectoryDomainStorage` + `DomainGraph::SaveRoot` / `LoadRoot`; удалены `RunPersistentJournalCheckpointRoundTripTest` (дубль `RunStandardDirectoryStorageNodeJournalRoundTripTest`) и `RunCheckpointSidecarStorageEquivalenceTest`.
 
