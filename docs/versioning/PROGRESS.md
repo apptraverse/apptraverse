@@ -60,7 +60,7 @@
 
 ---
 
-## P2.b — MinimalApp shutdown без distillation normalize (2026-10-27)
+## P2.b — MinimalApp shutdown без distillation normalize (2026-10-27, **`efe653e`**)
 
 **Изменение:** из `RunMinimalApplicationModel` убран вызов `StabilizeDistilledPersistentSnapshot` перед shutdown-save; `StabilizeDistilledPersistentSnapshot` в `distill.h` без изменений (build-time export).
 
