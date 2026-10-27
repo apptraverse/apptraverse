@@ -65,7 +65,8 @@
 | **P2.d.1R.1** | MinimalApp + headless persistence через storage | **PASS** — `minimal_app_lifecycle`, `model_persistence_test` |
 | **P2.d.1R.2a** | WindowCatalog без sidecar | **PASS** — `window_catalog_lifecycle`, `window_catalog_model_test` |
 | **P2.X1** | Обязательный граф UI + assert без side effects | **PASS** — `WinPushButtonPresenter`, `InitializeNewPresenters`, checkpoint Save/Load |
-| **P2.d.1R.2b** | Оставшиеся потребители + удаление checkpoint API | TODO — **NEXT после P2.X1** |
+| **P2.d.1R.2b.1** | Persistence-тесты без checkpoint API | **PASS** — `model_persistence_test`, `minimal_app_win32_acceptance_test` |
+| **P2.d.1R.2b** | Оставшиеся потребители + удаление checkpoint API | **IN_PROGRESS** — shell/cycle tests, затем удаление API |
 | **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — **после P2.d.1R.2b** |
 | P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |

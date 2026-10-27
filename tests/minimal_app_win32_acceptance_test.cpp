@@ -134,11 +134,6 @@ void CopyStateDir(std::filesystem::path const& from,
   CHECK(!ec);
 }
 
-void RemoveCheckpointSidecar(std::filesystem::path const& state_dir) {
-  std::error_code ec;
-  std::filesystem::remove(state_dir / "persistent_model_checkpoint.bin", ec);
-}
-
 std::string ReadAllBytes(std::filesystem::path const& path) {
   HANDLE file =
       CreateFileW(path.wstring().c_str(), GENERIC_READ,
@@ -394,9 +389,6 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
   auto application = LoadApplication<example::minimal::MinimalApplication>(
       domain, example::minimal::MinimalApplicationRootId());
 
-  static_cast<void>(TryLoadPersistedModelFromStorageSidecar(
-      domain, storage, *application));
-
   CHECK(application->obj_id == example::minimal::MinimalApplicationRootId());
   CHECK(application->main_window.is_valid());
   CHECK(application->main_window.id() ==
@@ -487,7 +479,6 @@ void RunRequiredGraphNegativeTests(std::filesystem::path const& good_state,
   {
     auto const dir = NegativeStateDir("missing_main_window");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     WriteProfileMissingMainWindow(dir);
     AssertMainWindowRefAbsent(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
@@ -498,7 +489,6 @@ void RunRequiredGraphNegativeTests(std::filesystem::path const& good_state,
   {
     auto const dir = NegativeStateDir("missing_presenter_ref");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     WriteProfileMissingPresenter(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
     ExpectFatalLoadOnly(result,
@@ -508,7 +498,6 @@ void RunRequiredGraphNegativeTests(std::filesystem::path const& good_state,
   {
     auto const dir = NegativeStateDir("missing_presenter_object");
     CopyStateDir(good_state, dir);
-    RemoveCheckpointSidecar(dir);
     WriteProfileMissingPresenterObject(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
     bool const presenter_missing =

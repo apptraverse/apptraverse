@@ -1,4 +1,4 @@
-#include <chrono>
+﻿#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -14,11 +14,8 @@
 #include "apptraverse/event_for.h"
 #include "apptraverse/journal_retention_policy.h"
 #include "apptraverse/node_for.h"
-#include "apptraverse/model_persistence.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_serialization.h"
 #include "apptraverse/overlay_domain_storage.h"
-#include "apptraverse/partitioned_model_domain_storage.h"
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse::test {
@@ -203,76 +200,74 @@ std::size_t CountClassLayersForObject(std::filesystem::path const& root,
   return count;
 }
 
-bool StorageContainsClass(ae::RamDomainStorage const& storage,
-                          std::uint32_t class_id) {
-  for (auto const& [obj_id, class_map_opt] : storage.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    if (class_map_opt->count(class_id) != 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
 }  // namespace
 
 void RunModelPersistenceTest() {
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
-  InitializeRuntimeNode(*doc);
-  auto runtime = EphemeralObserverNode::ptr::Create(ae::CreateWith{domain});
-  InitializeRuntimeNode(*runtime, *doc);
-  runtime->run_id = 1;
-  doc->label = "before";
+  auto const temp =
+      std::filesystem::temp_directory_path() /
+      ("apptraverse_model_persist_" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code ec;
+  std::filesystem::remove_all(temp, ec);
 
-  std::uint64_t const gen_before = doc->Generation();
-  std::size_t const journal_before = doc->journal.size();
+  ae::ObjId doc_id;
+  ae::ObjId runtime_id;
+  std::uint64_t gen_before = 0;
+  std::size_t journal_before = 0;
 
-  ByteSink snapshot;
-  SerializePersistentModelSnapshot(*doc, snapshot);
-  CHECK(doc->Generation() == gen_before);
-  CHECK(doc->journal.size() == journal_before);
-  CHECK(doc->label == "before");
+  {
+    apptraverse::DirectoryDomainStorage durable{temp};
+    ae::Domain domain{durable};
+    auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
+    InitializeRuntimeNode(*doc);
+    auto runtime = EphemeralObserverNode::ptr::Create(ae::CreateWith{domain});
+    InitializeRuntimeNode(*runtime, *doc);
+    runtime->run_id = 1;
+    doc->label = "before";
+    doc_id = doc->obj_id;
+    runtime_id = runtime->obj_id;
+    gen_before = doc->Generation();
+    journal_before = doc->journal.size();
 
-  ae::RamDomainStorage scratch;
-  ae::RamDomainStorage load_storage;
-  ae::Domain load_domain{load_storage};
-  auto load_doc =
-      DocNode::ptr::Create(ae::CreateWith{load_domain}.with_id(doc->obj_id));
-  InitializeRuntimeNode(*load_doc);
-  ByteSource in;
-  in.data = snapshot.bytes.data();
-  in.size = snapshot.bytes.size();
-  in.pos = 0;
-  LoadPersistentModelSnapshot(in, load_domain, load_storage, *load_doc);
-  CHECK(load_doc->label == "before");
-  CHECK(!StorageContainsClass(load_storage, EphemeralObserverNode::kClassId));
+    durable.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    ae::Ptr<ae::Obj> save_root = domain.Find(doc_id);
+    CHECK(save_root);
+    CHECK(save_graph.SaveRoot(save_root, doc_id).IsOk());
+    CHECK(!durable.SaveSessionHadFailure());
 
-  auto fresh_runtime =
-      EphemeralObserverNode::ptr::Create(ae::CreateWith{load_domain});
-  InitializeRuntimeNode(*fresh_runtime, *load_doc);
-  fresh_runtime->run_id = 2;
-  CHECK(fresh_runtime->run_id == 2);
+    CHECK(doc->Generation() == gen_before);
+    CHECK(doc->journal.size() == journal_before);
+    CHECK(doc->label == "before");
+  }
 
-  auto event = DocChangedEvent::ptr::Create(ae::CreateWith{load_domain});
-  event->label = "after";
-  load_doc->Commit(event);
-  CHECK(load_doc->label == "after");
+  {
+    apptraverse::DirectoryDomainStorage durable{temp};
+    ae::Domain load_domain{durable};
+    ae::DomainGraph load_graph{&load_domain};
+    ae::Ptr<ae::Obj> loaded_obj;
+    CHECK(load_graph.LoadRoot(doc_id, loaded_obj).IsOk());
+    ae::Ptr<DocNode> load_doc{loaded_obj};
+    CHECK(load_doc->label == "before");
+    CHECK(!load_domain.Find(runtime_id));
+
+    auto fresh_runtime =
+        EphemeralObserverNode::ptr::Create(ae::CreateWith{load_domain});
+    InitializeRuntimeNode(*fresh_runtime, *load_doc);
+    fresh_runtime->run_id = 2;
+    CHECK(fresh_runtime->run_id == 2);
+
+    auto event = DocChangedEvent::ptr::Create(ae::CreateWith{load_domain});
+    event->label = "after";
+    load_doc->Commit(event);
+    CHECK(load_doc->label == "after");
+  }
+
+  std::filesystem::remove_all(temp, ec);
 }
 
 void RunSaveToStorageDoesNotMutateLiveGraphTest() {
-  ae::RamDomainStorage ram;
-  ae::Domain domain{ram};
-  auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
-  InitializeRuntimeNode(*doc);
-  doc->label = "checkpoint";
-
-  std::uint64_t const gen_before = doc->Generation();
-  std::size_t const journal_before = doc->journal.size();
-
   auto const temp =
       std::filesystem::temp_directory_path() /
       ("apptraverse_save_to_storage_" +
@@ -282,18 +277,32 @@ void RunSaveToStorageDoesNotMutateLiveGraphTest() {
   std::filesystem::remove_all(temp, ec);
 
   apptraverse::DirectoryDomainStorage durable{temp};
-  CHECK(apptraverse::SavePersistentModelSnapshotToStorage(*doc, durable));
+  ae::Domain domain{durable};
+  auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*doc);
+  doc->label = "checkpoint";
+  ae::ObjId const doc_id = doc->obj_id;
+
+  std::uint64_t const gen_before = doc->Generation();
+  std::size_t const journal_before = doc->journal.size();
+
+  durable.BeginSaveSession();
+  ae::DomainGraph save_graph{&domain};
+  ae::Ptr<ae::Obj> save_root = domain.Find(doc_id);
+  CHECK(save_root);
+  CHECK(save_graph.SaveRoot(save_root, doc_id).IsOk());
+  CHECK(!durable.SaveSessionHadFailure());
 
   CHECK(doc->Generation() == gen_before);
   CHECK(doc->journal.size() == journal_before);
   CHECK(doc->label == "checkpoint");
 
-  apptraverse::PartitionedModelDomainStorage load_model{durable};
-  ae::Domain load_domain{load_model};
-  auto load_doc =
-      DocNode::ptr::Declare(ae::CreateWith{load_domain}.with_id(doc->obj_id));
-  load_doc.Load();
-  CHECK(load_doc);
+  apptraverse::DirectoryDomainStorage load_durable{temp};
+  ae::Domain load_domain{load_durable};
+  ae::DomainGraph load_graph{&load_domain};
+  ae::Ptr<ae::Obj> loaded_obj;
+  CHECK(load_graph.LoadRoot(doc_id, loaded_obj).IsOk());
+  ae::Ptr<DocNode> load_doc{loaded_obj};
   CHECK(load_doc->label == "checkpoint");
 }
 
@@ -310,8 +319,8 @@ void RunSaveToStorageColdDirectoryRoundTripTest() {
   std::uint32_t child_id = 0;
 
   {
-    ae::RamDomainStorage ram;
-    ae::Domain domain{ram};
+    apptraverse::DirectoryDomainStorage durable{temp};
+    ae::Domain domain{durable};
     auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
     InitializeRuntimeNode(*doc);
     auto child = DocChildNode::ptr::Create(ae::CreateWith{domain});
@@ -320,8 +329,13 @@ void RunSaveToStorageColdDirectoryRoundTripTest() {
     child->tag = "persisted-child";
     doc->child = child;
 
-    apptraverse::DirectoryDomainStorage durable{temp};
-    CHECK(apptraverse::SavePersistentModelSnapshotToStorage(*doc, durable));
+    ae::ObjId const doc_id = doc->obj_id;
+    durable.BeginSaveSession();
+    ae::DomainGraph save_graph{&domain};
+    ae::Ptr<ae::Obj> save_root = domain.Find(doc_id);
+    CHECK(save_root);
+    CHECK(save_graph.SaveRoot(save_root, doc_id).IsOk());
+    CHECK(!durable.SaveSessionHadFailure());
 
     root_id = doc->obj_id.id();
     child_id = child->obj_id.id();
@@ -335,10 +349,10 @@ void RunSaveToStorageColdDirectoryRoundTripTest() {
   {
     apptraverse::DirectoryDomainStorage durable{temp};
     ae::Domain domain{durable};
-    auto load_doc =
-        DocNode::ptr::Declare(ae::CreateWith{domain}.with_id(ae::ObjId{root_id}));
-    load_doc.Load();
-    CHECK(load_doc);
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> loaded_obj;
+    CHECK(load_graph.LoadRoot(ae::ObjId{root_id}, loaded_obj).IsOk());
+    ae::Ptr<DocNode> load_doc{loaded_obj};
     CHECK(load_doc->label == "persisted-root");
     CHECK(load_doc->child.is_valid());
     CHECK(load_doc->child->obj_id.id() == child_id);
@@ -431,105 +445,6 @@ void RunStandardDirectoryStorageNodeJournalRoundTripTest() {
   std::filesystem::remove_all(temp, ec);
 }
 
-void RunPersistentJournalCheckpointRoundTripTest() {
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
-  InitializeRuntimeNode(*doc);
-  CHECK(doc->base.is_valid());
-  doc->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 10});
-  doc->label = "v0";
-
-  auto ev1 = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
-  ev1->label = "v1";
-  doc->Commit(ev1);
-  auto ev2 = DocChangedEvent::ptr::Create(ae::CreateWith{domain});
-  ev2->label = "v2";
-  doc->Commit(ev2);
-  CHECK(doc->label == "v2");
-  CHECK(doc->journal.size() >= 2);
-
-  std::size_t const journal_before = doc->journal.size();
-  std::uint64_t const gen_before = doc->Generation();
-
-  ByteSink snapshot;
-  SerializePersistentModelSnapshot(*doc, snapshot);
-  CHECK(doc->journal.size() == journal_before);
-  CHECK(doc->Generation() == gen_before);
-
-  ae::RamDomainStorage load_storage;
-  ae::Domain load_domain{load_storage};
-  auto load_doc =
-      DocNode::ptr::Create(ae::CreateWith{load_domain}.with_id(doc->obj_id));
-  InitializeRuntimeNode(*load_doc);
-  ByteSource in;
-  in.data = snapshot.bytes.data();
-  in.size = snapshot.bytes.size();
-  LoadPersistentModelSnapshot(in, load_domain, load_storage, *load_doc);
-  CHECK(load_doc->label == "v2");
-  CHECK(load_doc->journal.size() == journal_before);
-  CHECK(load_doc->base.is_valid());
-
-  auto ev3 = DocChangedEvent::ptr::Create(ae::CreateWith{load_domain});
-  ev3->label = "v3";
-  load_doc->Commit(ev3);
-  CHECK(load_doc->label == "v3");
-
-  ByteSink snapshot2;
-  SerializePersistentModelSnapshot(*load_doc, snapshot2);
-  ae::RamDomainStorage load_storage2;
-  ae::Domain load_domain2{load_storage2};
-  auto load_doc2 =
-      DocNode::ptr::Create(ae::CreateWith{load_domain2}.with_id(doc->obj_id));
-  InitializeRuntimeNode(*load_doc2);
-  ByteSource in2;
-  in2.data = snapshot2.bytes.data();
-  in2.size = snapshot2.bytes.size();
-  LoadPersistentModelSnapshot(in2, load_domain2, load_storage2, *load_doc2);
-  CHECK(load_doc2->label == "v3");
-  CHECK(load_doc2->journal.size() >= journal_before);
-}
-
-void RunCheckpointSidecarStorageEquivalenceTest() {
-  auto const temp =
-      std::filesystem::temp_directory_path() /
-      ("apptraverse_sidecar_equiv_" +
-       std::to_string(
-           std::chrono::steady_clock::now().time_since_epoch().count()));
-  std::error_code ec;
-  std::filesystem::remove_all(temp, ec);
-
-  ae::RamDomainStorage ram;
-  ae::Domain domain{ram};
-  auto doc = DocNode::ptr::Create(ae::CreateWith{domain});
-  InitializeRuntimeNode(*doc);
-  doc->label = "equiv";
-
-  apptraverse::DirectoryDomainStorage durable{temp};
-  CHECK(SavePersistentModelSnapshotToStorage(*doc, durable));
-  CHECK(std::filesystem::exists(temp / "persistent_model_checkpoint.bin"));
-
-  std::filesystem::remove_all(temp, ec);
-  apptraverse::DirectoryDomainStorage durable2{temp};
-  ae::IDomainStorage& storage_ref = durable2;
-  CHECK(SavePersistentModelSnapshotToStorage(*doc, storage_ref, durable2.root()));
-  CHECK(std::filesystem::exists(temp / "persistent_model_checkpoint.bin"));
-
-  apptraverse::PartitionedModelDomainStorage partitioned{durable2};
-  ae::Domain load_domain{partitioned};
-  auto load_doc =
-      DocNode::ptr::Create(ae::CreateWith{load_domain}.with_id(doc->obj_id));
-  CHECK(TryLoadPersistedModelFromStorageSidecar(load_domain, partitioned,
-                                                *load_doc));
-  CHECK(load_doc->label == "equiv");
-
-  ae::RamDomainStorage ram_backing;
-  apptraverse::PartitionedModelDomainStorage ram_partition{ram_backing};
-  CHECK(SavePersistentModelSnapshotToStorage(*doc, ram_partition));
-  CHECK(!ram_partition.checkpoint_sidecar_directory());
-
-  std::filesystem::remove_all(temp, ec);
-}
 
 void RunDistilledLazyOverlayTest() {
   std::filesystem::path const user_root =
@@ -993,8 +908,6 @@ int main() {
   apptraverse::test::RunSaveToStorageDoesNotMutateLiveGraphTest();
   apptraverse::test::RunSaveToStorageColdDirectoryRoundTripTest();
   apptraverse::test::RunStandardDirectoryStorageNodeJournalRoundTripTest();
-  apptraverse::test::RunPersistentJournalCheckpointRoundTripTest();
-  apptraverse::test::RunCheckpointSidecarStorageEquivalenceTest();
   apptraverse::test::RunDistilledLazyOverlayTest();
   return 0;
 }

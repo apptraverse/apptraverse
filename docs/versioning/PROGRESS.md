@@ -45,7 +45,8 @@
 | **P2.d.1R.1** — MinimalApp без sidecar | **`9f1d0a7`**, §P2.d.1R.1 | **PASS** |
 | **P2.d.1R.2a** — WindowCatalog без sidecar | **`93a18dc`**, §P2.d.1R.2a | **PASS** |
 | **P2.X1** — обязательный граф UI, assert side effects | **`51ecd2b`**, §P2.X1 | **PASS** |
-| **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b**, затем P2.d.2 | **IN_PROGRESS** |
+| **P2.d.1R.2b.1** — persistence tests без checkpoint | §P2.d.1R.2b.1 | **PASS** |
+| **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -133,6 +134,18 @@
 **Debug evidence (`build/win64-ninja-msvc-debug`):** `apptraverse_window_catalog_model_test`, `apptraverse_model_persistence_test` **exit 0**; `win32_window_catalog_demo` старт с dev-профилем **OK**.
 
 **NEXT:** **P2.d.1R.2b** (без изменений очереди).
+
+---
+
+## P2.d.1R.2b.1 — persistence tests без checkpoint API (2026-10-27)
+
+**`model_persistence_test`:** `RunModelPersistenceTest`, `RunSaveToStorageDoesNotMutateLiveGraphTest`, `RunSaveToStorageColdDirectoryRoundTripTest` — `DirectoryDomainStorage` + `DomainGraph::SaveRoot` / `LoadRoot`; удалены `RunPersistentJournalCheckpointRoundTripTest` (дубль `RunStandardDirectoryStorageNodeJournalRoundTripTest`) и `RunCheckpointSidecarStorageEquivalenceTest`.
+
+**`minimal_app_win32_acceptance_test`:** `ProbePersistedGraph` — только `LoadApplication`; удалены `RemoveCheckpointSidecar` и sidecar hydrate.
+
+**Debug:** `apptraverse_model_persistence_test` **exit 0**; acceptance target собран (GUI/negative suite не прогонялся по scope).
+
+**NEXT:** оставшиеся shell/cycle presenter tests → удаление библиотечного checkpoint API.
 
 ---
 
