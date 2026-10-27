@@ -43,7 +43,7 @@
 | **P2.b** — MinimalApp без runtime Stabilize | см. §P2.b ниже | **PASS** |
 | **P2.d.1** — checkpoint `BinaryArchive` | **`6676f7d`**, §P2.d.1 | **PASS (исторически; superseded)** |
 | **P2.d.1R.1** — MinimalApp без sidecar | **`9f1d0a7`**, §P2.d.1R.1 | **PASS** |
-| **P2.d.1R.2a** — WindowCatalog без sidecar | §P2.d.1R.2a | **PASS** (SHA после commit) |
+| **P2.d.1R.2a** — WindowCatalog без sidecar | **`93a18dc`**, §P2.d.1R.2a | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b**, затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
