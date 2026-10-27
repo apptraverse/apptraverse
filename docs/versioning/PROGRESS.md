@@ -42,7 +42,7 @@
 | **P2.a** — единая загрузка checkpoint | см. §P2.a ниже | **PASS** |
 | **P2.b** — MinimalApp без runtime Stabilize | см. §P2.b ниже | **PASS** |
 | **P2.d.1** — checkpoint `BinaryArchive` | **`6676f7d`**, §P2.d.1 | **PASS (исторически; superseded)** |
-| **P2.d.1R.1** — MinimalApp без sidecar | **`17c7cb9`**, §P2.d.1R.1 | **PASS** |
+| **P2.d.1R.1** — MinimalApp без sidecar | **`9f1d0a7`**, §P2.d.1R.1 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2**, затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -94,7 +94,7 @@
 
 ---
 
-## P2.d.1R.1 — MinimalApp: штатный Save без sidecar (2026-10-27, **`17c7cb9`**)
+## P2.d.1R.1 — MinimalApp: штатный Save без sidecar (2026-10-27, **`9f1d0a7`**)
 
 **MinimalApp:** убраны `TryLoadPersistedModelFromStorageSidecar` и `SavePersistentModelSnapshotToStorage`; cold load через `LoadApplication`, shutdown — `BeginSaveSession` + `SavePresentedWindow` + `MinimalApplication::Save`.
 
