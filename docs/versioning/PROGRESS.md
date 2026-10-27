@@ -47,7 +47,7 @@
 
 ---
 
-## P1.1 — удаление сетевой синхронизации (2026-10-27, **`28c3668`**)
+## P1.1 — удаление сетевой синхронизации (2026-10-27, **`51ef0ce`**)
 
 **Удалено:** SharedNode, SharedSyncRuntime, SharedNetworkGraph (transport/replication), `Link` (replication), SyncFrame/ACK/presence path, ByteTransport/MemoryTransport, `runtime_lifecycle` (NetworkState/Aether registration), `aether-client-cpp` из CMake, chat/shared/aether demos и связанные CTest targets.
 
