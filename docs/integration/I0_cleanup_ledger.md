@@ -1,5 +1,7 @@
 # I0 — Architecture cleanup ledger
 
+> **P0 (2026-10-27):** ledger — **история** I0 на baseline application-versioning. Строка SharedNode «DEFERRED/FUTURE» и `APPTRAVERSE_ENABLE_SHARED_NODE=0` **не** действуют: решение — **полное удаление** replication/network (**P1.1**, [PLAN §P](../versioning/PLAN.md)). Активный канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md).
+
 Inventory for **`integration/application-versioning`** (stages **I0.1** + **I0.2** slice).
 
 **Baseline (I0.1):** `36b0a5c08780a7a0136587a7bf3858b86b334982`

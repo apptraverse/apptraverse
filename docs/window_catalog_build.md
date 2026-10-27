@@ -1,8 +1,10 @@
 # Window-only development build
 
 The active CMake graph builds `win32_window_catalog_demo`, its load-only binary,
-and their UI/model tests. Historical chat, SharedNode and old Surface demos are
-not build targets. The Aether network client is not fetched or linked.
+and their UI/model tests. **P1.1** (see [versioning/PLAN.md](versioning/PLAN.md))
+will **remove** SharedNode/replication sources still linked into core, legacy chat
+demos, and Æther network client fetch — full deletion, not optional OFF.
+Historical multi-platform Surfaces ports remain in tree for **P4** reuse.
 
 All AppTraverse-owned serialized classes have one current schema, v0, retaining
 ClassId. The previous development formats are deliberately unsupported. Use a

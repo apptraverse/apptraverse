@@ -5,6 +5,16 @@ alwaysApply: true
 
 # App Traverse coding-agent rules
 
+## Active plan and canon (2026-10-27)
+
+- **Execution order:** [docs/versioning/PLAN.md §P0–P6](../../docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) only. **U5.2–U6**, **9D–9H** are **not** active queues.
+- **Architecture knowledge:** [docs/architecture/AppTraverse_Architecture_RU.md](../../docs/architecture/AppTraverse_Architecture_RU.md) (snapshot **`8c863bc`**). Do not duplicate canon in PLAN/PROGRESS.
+- **Goal:** one **WindowCatalog** on Windows, macOS, Linux, Android, iOS/iPadOS, Web via public AppTraverse headers/CMake.
+- **SharedNode / SharedSyncRuntime / replication / Æther network client:** **full removal** in **P1** (not OFF, not stubs). Keep Æther Objects, Node, Events, journal, local model/UI queue.
+- **U5.1** (`8c863bc`) shutdown-save exit code is **done**; do not revert.
+- **Default build:** **Debug**, incremental touched targets only. **No** Release runs by default, no ALL_BUILD, clean, cache wipe, or fresh dependency populate unless the user asks. MinSizeRel only on request.
+- **Out of scope** unless explicitly assigned: disk-full, corrupt checkpoint, recovery, security hardening, corner-case matrices.
+
 ## Incremental build only
 
 Never, unless the user explicitly asks:

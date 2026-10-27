@@ -1,149 +1,54 @@
 # Application Framework + Versioning integration
 
-**Рабочая ветка:** **`integration/unified-application`** — единственная активная линия после merge **`4848402`** (`integration/serialization-surfaces` + `integration/application-versioning`).
+**Рабочая ветка:** **`integration/unified-application`**.
 
-**Связанные планы:** Object Core / release roadmap — [docs/versioning/PLAN.md](../versioning/PLAN.md), [docs/versioning/PROGRESS.md](../versioning/PROGRESS.md); WindowCatalog — [window_catalog_demo.md](../window_catalog_demo.md).
+**Активный план (единственный):** [docs/versioning/PLAN.md §P0–P6](../versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6). **Архитектурный канон:** [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md) (срез **`8c863bc`**). **Прогресс:** [PROGRESS.md](../versioning/PROGRESS.md).
 
-**Unified verification (не полный regression):**
-
-| Step | Status | Notes |
-| --- | --- | --- |
-| **U1** | **PASS** (`8835d26`) | Release `apptraverse_window_catalog_model_test` CTest 1/1; checkpoint = production path |
-| **U2** | **manual PASS** | `win32_window_catalog_demo` — пользователь: Add/Open/Delete, EN/RU, геометрия, restart |
-| **U3** | **PASS** (doc) | Синхронизация PLAN/PROGRESS/docs |
-| **U4–U6** | TODO | Аудит, cleanup, regressions + MinimalApp |
-
-**Application scope на baseline (до merge):** **I0 DONE**. **9A–9C DONE**. **9D/9E** production embedded startup — **TODO**. **9F–9H** — **TODO**. Полная интеграция **R/E/B/S** в shipping EXE — **не выполнена**.
-
-**Следующий порядок (пользователь):** **U4** audit → **U5** minimal cleanup → **U6** unified regressions → **9D/9E** → **13.3+** / release lifecycle. Без mass-refactor.
-
-**Открыто:** `DirectoryDomainStorage` может фиксировать ошибки записи; не все callers проверяют `SavePersistentModelSnapshotToStorage` — отдельная задача (поведение не менялось в U1–U3).
+**Цель:** один **WindowCatalog** на шести платформах через публичные headers/CMake AppTraverse; прикладная модель остаётся в примере.
 
 ---
 
-This document describes how the **application-versioning** baseline was integrated. Integration work **continues on `integration/unified-application` only**; source branches are **historical baselines**.
+## Исторический merge (baseline)
 
-## Source baselines (fixed for planning)
+| Event | SHA / notes |
+| --- | --- |
+| Merge serialization-surfaces + application-versioning | **`4848402`** |
+| **U1** catalog model test | **`8835d26`** |
+| **U2** manual Windows catalog | **manual PASS** (Add/Open/Delete, EN/RU, geometry, restart) |
+| **U3** doc sync | doc-only |
+| **U4** architecture audit | [unified-architecture-audit.md](./unified-architecture-audit.md) (срез `53245f0`; рекомендации U5.2+ **не** активная очередь) |
+| **U5.1** shutdown-save exit code | **`8c863bc`** |
 
-| Line | Branch | SHA (start of integration) |
-|------|--------|----------------------------|
-| Application framework | `cursor/surfaces-library-controls` | `55c4d539c9454b0df3768feb938aea466092f09f` |
-| Versioning mechanisms | `integration/serialization-surfaces` | `17b7830ae397871ee90e31dc65feb82cfdfc6716` |
+**U5.2–U6**, **9D–9H** как последовательность исполнения **сняты** (2026-10-27, **P0**). Смысл перенесён в **P1–P6** (см. PLAN).
 
-Pre-merge integration work lived on **`integration/application-versioning`**. Post-merge: **`4848402`** on **`integration/unified-application`**.
+**I0** ledger и **9A–9C** fixtures — историческая инвентаризация; **SharedNode** в I0 «DEFERRED» **отменено** → **полное удаление** в **P1.1**.
 
-## Target runtime chain (full)
+---
+
+## Target runtime chain (контракт)
 
 ```text
 Build-time distilled graph
           ↓
-EmbeddedDistilledGraph
+EmbeddedDistilledGraph / Directory bootstrap (переходный)
           ↓
-RamDomainStorage (BACKING)
-          ↓
-OverlayDomainStorage (USER / BACKING)
+DirectoryDomainStorage (+ checkpoint sidecar)
           ↓
 Model Domain
           ↓
 ApplicationModelRuntime
           ↓
-ApplicationUiSession
+ApplicationUiSession (UI mirror)
           ↓
-WinApplicationHost
+Platform presenters / host
 ```
 
-**WindowCatalog (today on unified):** runtime distill bootstrap + `DirectoryDomainStorage` + checkpoint sidecar (`persistent_model_checkpoint.bin`); **not** embedded BACKING/USER (**9D/9E**).
+Детали persistence, checkpoint и template — **P2** в PLAN; не дублировать канон здесь.
 
-## Stage 9A — DONE
+---
 
-```text
-EmbeddedDistilledGraph → RamDomainStorage → LoadApplication (headless)
-```
+## Связанные документы
 
-Files: `embedded_distilled_domain.h/.cpp`, `apptraverse_embedded_distilled_domain_test`.
-
-## Stage 9B1 — DONE (storage primitive)
-
-`OverlayDomainStorage` with internal or external USER storage, BACKING, supply
-constant ObjIds, dynamic skip-unchanged Store, and supply-constant discard Store.
-
-CTest: `apptraverse_overlay_user_backing_test`.
-
-Not in 9B1: build-time export (**9C**), application startup on embedded release,
-release packages, active-release, T01–T18 matrix. Examples still use
-`DirectoryDomainStorage` only.
-
-## Stage 9B2 — DONE (historical dynamic base)
-
-Æther patch `aether-objects-force-materialize.patch` (`DomainQuery` /
-`DomainGraph::force_materialize`, OR-merge in `GetWriter`). `OverlayDomainStorage::Store`
-honours `force_materialize` after supply-constant discard. `Node::Save` v0 sets
-`force_materialize` only for `base` when `LocalPersistent`, journal non-empty, and
-valid historical `base` reference.
-
-CTest: `apptraverse_historical_base_materialization_test`.
-
-Not in 9B2: build-time export (**9C**), release packages, R/S evolution, event
-compatibility matrix, application embedded startup. Historical S1 / T16 / T17
-downgrade-replay matrix remains future work.
-
-## Stage 9B — DONE
-
-9B1 overlay policy + 9B2 historical dynamic base materialization (verified
-16/16 CTests Release and MinSizeRel on integration build trees).
-
-## Stage 9C — DONE (build-time embedded export)
-
-Build-time exporter for MinimalApplication distilled graph:
-
-```text
-BuildMinimalApplicationGraph → FinalizeDistilledGraph
-  → StabilizeDistilledPersistentSnapshot → persistent save → RamDomainStorage
-  → WriteEmbeddedDistilledSupplyHeader → generated C++ header (build tree only)
-```
-
-Files: `distilled_domain_export.h/.cpp`, `cmake/apptraverse_embed_distilled_supply.cmake`,
-`apptraverse_export_minimal_distilled_graph`, generated
-`embedded_distilled_minimal_app_supply.h` (namespace
-`apptraverse::embedded_distilled::minimal`).
-
-CTest: `apptraverse_minimal_app_embedded_export_test` — loads CMake-generated header
-without linking `minimal_app_graph.cpp`; cold `LoadApplication`, USER/BACKING overlay,
-geometry Event persistence.
-
-Not in 9C: production embedded startup (**9D**), WindowCatalog export, release packages,
-active-release, T16/T17 matrix. WindowCatalog on unified still uses directory distill bootstrap at runtime.
-
-## Compatible mechanisms (both lines)
-
-- Native `ObjPtr` and ClassId
-- v0 object schemas
-- `InitializeRuntimeNode`, historical `Node::base`
-- Standard Æther storage (`RamDomainStorage`, domain load/save)
-- `EmbeddedDistilledGraph` install into backing
-- `ApplicationModelRuntime`, `ApplicationUiSession`, `WinApplicationHost`
-
-## Requires separate integration tasks
-
-**OverlayDomainStorage + historical base (9B landed)** — USER/BACKING/supply-constant
-policy and `force_materialize` historical dynamic `Node::base` Save.
-
-**Node / EventFor** — event-layer compatibility, compaction on rollback, and
-broader historical-base matrix still separate from 9B2.
-
-**Æther CPM patches** — unified branch carries merged patch set from both lines;
-conflict audit — **U4**.
-
-**Storage policy** — application line keeps trusted prototype storage (no automatic
-recovery, integrity telemetry, or temp-file staging from legacy versioning).
-
-**Release R / T01–T18** — headless fixtures on serialization baseline; **not** re-PASS on unified until **U6**.
-
-## Next steps (planned)
-
-1. **U4** — audit unified architecture (Object Core, Windows runtime, serialization, checkpoint, CMake, Æther patches).
-2. **U5** — minimal cleanup from audit + incremental regressions.
-3. **U6** — Object Core + Windows Application regressions, including MinimalApp.
-4. **9D** — MinimalApplication production embedded startup (consume generated header).
-5. **9E** — WindowCatalog embedded startup + build-time export.
-6. Release packages, active-release selection; **9F–9H**; historical base / schema matrix vs versioning PLAN.
+- WindowCatalog demo: [window_catalog_demo.md](../window_catalog_demo.md)
+- Build notes: [window_catalog_build.md](../window_catalog_build.md)
+- I0 inventory: [I0_cleanup_ledger.md](./I0_cleanup_ledger.md) (история; см. пометку P0 в шапке)

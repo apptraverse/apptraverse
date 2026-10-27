@@ -1,4 +1,6 @@
-**Release versioning (R0–R5):** фактический прогресс и roadmap — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md), контракт — [docs/versioning/PLAN.md](docs/versioning/PLAN.md). Для задач версионирования поставок читать их первыми; правила из `.cursor/rules/apptraverse-coding-agent.mdc` по-прежнему обязательны.
+**Active (2026-10-27):** **P0 DONE** — canon imported; **NEXT P1.1** — [docs/versioning/PLAN.md](docs/versioning/PLAN.md), [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md), [docs/architecture/AppTraverse_Architecture_RU.md](docs/architecture/AppTraverse_Architecture_RU.md).
+
+**Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 
 ## Host	oClient delivery (2026-09-17) ? NOT FIXED
 

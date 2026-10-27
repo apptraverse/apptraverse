@@ -8,11 +8,86 @@
 
 **Архитектурная редакция:** **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)**; детализация Object Core — **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)).
 
-**Подтверждённый HEAD Object Core (исторический срез до merge):** **`df536e6`** (C0.2.2); roadmap docs — **C0.3** (базовый Object Core **`66515d8`**). На **`integration/unified-application`** верификация Object Core regressions **не** переобъявляется без прогона на unified (**U6**).
+**Подтверждённый HEAD Object Core (исторический срез до merge):** **`df536e6`** (C0.2.2); roadmap docs — **C0.3** (базовый Object Core **`66515d8`**). Полная matrix Object Core regressions на unified — **не** блокер **P1–P4**; см. **P6** для заявленных E2E.
 
 **Сверка с Google Doc:** прямой доступ к документу «AppTraverse — версионирование состояния и жизненный цикл поставок» ([ссылка](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit)) недоступен (403). Нумерация **T01–T18** приведена в соответствие с текстом исходного Doc (ручная сверка по постановке); остальной контракт — из аудита репозитория на baseline `19d7da6`.
 
-**Связанные материалы:** корневые [plan.md](../../plan.md), [Progress.md](../../Progress.md); инвентарь схем [serialization_schema_v0_inventory.md](../serialization_schema_v0_inventory.md); проверенные fixtures [window_schema_layers.md](../../tests/window_schema_layers.md), [event_version_replay.md](../../tests/event_version_replay.md); правила агента [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc).
+**Связанные материалы:** корневые [plan.md](../../plan.md), [Progress.md](../../Progress.md); **архитектурный канон** [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md); инвентарь схем [serialization_schema_v0_inventory.md](../serialization_schema_v0_inventory.md); проверенные fixtures [window_schema_layers.md](../../tests/window_schema_layers.md), [event_version_replay.md](../../tests/event_version_replay.md); правила агента [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc).
+
+---
+
+## Активный план: мультиплатформенный WindowCatalog (P0–P6)
+
+**Единственная активная последовательность** на `integration/unified-application`. Очереди **U5.2–U6**, **9D–9H** как «следующий шаг» **сняты**; полезные пункты перенесены по смыслу в **P1–P6** (см. [U4 audit](../integration/unified-architecture-audit.md) — исторический срез).
+
+| Документ | Назначение |
+| --- | --- |
+| [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md) | Канон: модель, Events, mirror, persistence (срез **`8c863bc`**) |
+| **PLAN.md** (этот файл) | Порядок реализации **P0–P6** |
+| [PROGRESS.md](./PROGRESS.md) | Фактически выполненные шаги и SHA |
+
+**Цель:** один **WindowCatalog** на **Windows, macOS, Linux, Android, iOS/iPadOS, Web**. Потребитель подключает публичные заголовки и CMake AppTraverse; в примере остаются прикладная модель, Events, дистилляция, prefab и композиция библиотечных компонентов. Lifecycle, storage, UI mirror, маршрутизация действий, общие контролы и платформенная обвязка **переиспользуются**. Не шесть разных прикладных моделей.
+
+**Политика (приоритет над старыми U4/U5/I0):**
+
+- **SharedNode**, **SharedSyncRuntime**, replication-only код, transport, Æther network client и связанные demo/tests/deps — **полное удаление** (не OFF, не optional, не заглушки).
+- Сохранить **Æther Objects**, Node, Events, journal, локальную очередь model/UI.
+- **Не** продолжать disk-full, corrupt checkpoint, recovery, security и corner-case hardening без отдельного задания.
+- **U5.1** (`8c863bc`) — выполненный факт; код **не** откатывать.
+
+| Этап | Содержание | Статус |
+| --- | --- | --- |
+| **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
+| **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **NEXT → P1.1** |
+| **P2** | Общий application template + минимум persistence/Clone | TODO |
+| **P3** | Windows + первый другой backend (Web **или** Android) | TODO |
+| **P4** | Остальные платформы (reuse Surfaces native) | TODO |
+| **P5** | Resource-set delivery, один upgrade/downgrade, S via origin, headless replay | TODO |
+| **P6** | E2E по платформам (не certification / не total regression) | TODO |
+
+### P1 — удаление сетевого (по зависимостям, не по совпадению слова Shared)
+
+| ID | Область | Результат |
+| --- | --- | --- |
+| **P1.1** | `shared_*.cpp`, `memory_transport`, `sync_frame`, `link`, `APPTRAVERSE_ENABLE_SHARED_NODE`, legacy chat/shared demos, `aether-client-cpp`, связанные CTest | Core + catalog/minimal без replication/network; Windows catalog tests PASS |
+| **P1.2+** | По графу после P1.1 | Удалять только unreachable |
+
+### P2 — application template (минимум)
+
+`ApplicationModelRuntime`, `ApplicationUiSession`, `ModelObjectProxy`, platform hosts — общий механизм для **MinimalApp** и **WindowCatalog**.
+
+| ID | Смысл | Область |
+| --- | --- | --- |
+| P2.a | Единая загрузка checkpoint | `object_serialization`, lifecycles, tests |
+| P2.b | Убрать runtime `StabilizeDistilledPersistentSnapshot` (MinimalApp) | `minimal_app_lifecycle.cpp` |
+| P2.c | Fail-fast формат checkpoint (без recovery) | `LoadPersistentModelSnapshot` |
+| P2.d | Штатная сериализация вместо ручных envelope | `object_serialization`, `publication_channel` |
+| P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
+| P2.f | Библиотечная точка lifecycle | новый API + примеры |
+
+Не ждать полной матрицы Clone/update/rollback. Не заменять prefab ручным копированием полей окна.
+
+### P3–P6
+
+- **P3:** тот же catalog на Windows + Web **или** Android; нормальный запуск.
+- **P4:** macOS, Linux, mobile/Web; desktop — окна, mobile/Web — страницы/пanels; updater не блокирует.
+- **P5:** набор resource states; switch после готовности всего набора; один upgrade/downgrade; новый S через origin; USER + headless replay; локализация — малый пример (**String** = UTF-8; без persistent wchar cache).
+- **P6:** только реально прогнанные E2E; недоступный port — «не проверен».
+
+### Соответствие кода правилам (таблица контроля)
+
+| Область | Нарушение / долг | Задача |
+| --- | --- | --- |
+| Core CMake | SharedNode в core, `APPTRAVERSE_ENABLE_SHARED_NODE=1` | P1.1 |
+| `node.h` | SharedNode-члены за `#if` | P1.1 |
+| Lifecycles | Inline checkpoint ×4 | P2.a |
+| Serialization | Ручные envelope checkpoint/publication | P2.d |
+| MinimalApp | Runtime Stabilize at shutdown | P2.b |
+| Catalog graph | Win32 presenter types в portable graph | P2–P4 |
+| Web CMake | `-fexceptions` в Surfaces web | P4 |
+| Style | In-class initializers, лишняя diagnostics (где есть) | P2–P4 по файлу |
+
+**Сборка:** по умолчанию **Debug**, инкрементально. MinSizeRel — по запросу. Release / clean / fresh populate — не по умолчанию.
 
 ---
 
@@ -49,22 +124,16 @@
 
 **Object Core (roadmap на unified, без повторного PASS без тестов):** **13 IN_PROGRESS** — **13.1–13.2 PASS** → **13.3–13.6 TODO** → **14–16 TODO**. **12R** / **12B PASS**. **C0 PASS**. **11** — частичный PASS (**11A**, **11B.2**; полный **T16/T17** — нет). Этапы **17–22** — roadmap.
 
-**Unified application (пользовательский порядок после merge):**
+**Unified integration (историческая координация merge → P0):** **U1–U4 PASS**, **U5.1 PASS** (`8c863bc`); **U5.2–U6** и **9D–9H** как активная очередь **отменены** — см. [§P0–P6](#активный-план-мультиплатформенный-windowcatalog-p0p6). Аудит: [unified-architecture-audit.md](../integration/unified-architecture-audit.md) (срез `53245f0`, рекомендации U5.2+ не исполняются по старой нумерации).
 
-| Шаг | ID | Статус |
+| Шаг | ID | Статус (архив) |
 | --- | --- | --- |
-| Инкрементальная сборка + catalog model test | **U1** | **PASS** (`8835d26`) |
-| Ручной Windows WindowCatalog | **U2** | **manual PASS** (не полный regression) |
-| Синхронизация PLAN/PROGRESS | **U3** | **PASS** (doc-only) |
-| Аудит объединённой архитектуры | **U4** | **PASS** (audit-only) — [unified-architecture-audit.md](../integration/unified-architecture-audit.md) |
-| Минимальная очистка по аудиту | **U5** | **IN_PROGRESS** — **U5.1 PASS**; **NEXT: U5.2** |
-| Итоговая проверка unified (Object Core + apps, MinimalApp) | **U6** | TODO |
-| Embedded startup **9D/9E**, R/E/B/S в приложениях | после **U6** | TODO |
-| **13.3+**, Clone графов, release lifecycle | после стабилизации app | TODO |
-
-**Принято:** сначала работающее Windows-приложение и ручная проверка (**U2**), затем архитектурный порядок (**U4–U6**), без mass-refactor и без новой параллельной application-ветки.
-
-**Открыто:** WindowCatalog/MinimalApp shutdown-save проверяет checkpoint + save session (**U5.1 PASS**); атомарность и rollback sidecar vs layers — этап **22** ([аудит U4](../integration/unified-architecture-audit.md)).
+| Catalog model test | **U1** | **PASS** (`8835d26`) |
+| Ручной Windows WindowCatalog | **U2** | **manual PASS** |
+| PLAN/PROGRESS sync | **U3** | **PASS** |
+| Архитектурный аудит | **U4** | **PASS** (audit-only) |
+| Shutdown-save → exit code | **U5.1** | **PASS** (`8c863bc`) |
+| U5.2–U5.6, U6 | — | **отменены** → **P2–P6** |
 
 ---
 
@@ -88,7 +157,7 @@
 
 **Архитектурный пробел (остаётся):** **Clone** вручную в fixtures; нет универсального Clone/S-evolution (**13+**). Origin на штатном **`Obj::SetOriginId` / `origin_id()`** + **`Obj/S1`** — **12R/12B PASS**; отдельный **`object_origin.h`** для **12B** **не** введён (API достаточен).
 
-**Следующий активный шаг Object Core:** **13.3** — graph closure + remap (**13.1–13.2 PASS**). **Следующий шаг unified:** **U5.2** — убрать `StabilizeDistilledPersistentSnapshot` из runtime-shutdown MinimalApp (**U5 IN_PROGRESS**, **U5.1 PASS**).
+**Следующий активный шаг (application):** **P1.1** — удаление SharedNode/replication/network из core и CMake. **Object Core roadmap** (13.3+, release fixtures) — справочно; не блокирует P1–P4, полезные пункты в **P2/P5**.
 
 ---
 

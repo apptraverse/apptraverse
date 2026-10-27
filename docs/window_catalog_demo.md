@@ -1,6 +1,6 @@
 # Window catalog demo
 
-**Ветка:** **`integration/unified-application`**. Планы: [versioning/PLAN.md](versioning/PLAN.md), [versioning/PROGRESS.md](versioning/PROGRESS.md), [integration/application-versioning.md](integration/application-versioning.md).
+**Ветка:** **`integration/unified-application`**. **План:** [versioning/PLAN.md §P0–P6](versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6). **Канон:** [architecture/AppTraverse_Architecture_RU.md](architecture/AppTraverse_Architecture_RU.md). **Прогресс:** [versioning/PROGRESS.md](versioning/PROGRESS.md).
 
 Windows catalog host: main window (ListBox + Add/Open/Delete + EN/RU), lazy child `CatalogWindow` per `WindowHolder`, persistence under `{exe_dir}/surfaces_catalog_v0_state` (override `--state-dir`).
 
@@ -29,7 +29,7 @@ Manual profile (U2): `--state-dir` e.g. `manual-test-state/window-catalog` under
 | --- | --- | --- |
 | **U1** `apptraverse_window_catalog_model_test` Release CTest | **PASS** | **`8835d26`** — tests use `LoadApplication` + checkpoint like production |
 | **U2** `win32_window_catalog_demo` manual | **manual PASS** | User: Add/Open/Delete, EN/RU, geometry, restart; **not** full project regression |
-| `apptraverse_window_catalog_win32_acceptance_test` | PASS (pre-unified reports) | load-only → Open → Add → restart; re-run on unified — **U6** |
+| `apptraverse_window_catalog_win32_acceptance_test` | PASS (unified **`8c863bc`** era) | load-only → Open → Add → restart; **P3+** — другие платформы **не PASS** |
 
 ## Removed 275e099 workarounds
 

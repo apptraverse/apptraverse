@@ -1,7 +1,9 @@
 Status: active
 Progress: Progress.md
 
-**Release versioning (R0–R5):** для задач релизного версионирования сначала читать [docs/versioning/PLAN.md](docs/versioning/PLAN.md) и [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md). Общие coding-agent rules остаются обязательными.
+**Active work (2026-10-27):** multi-platform **WindowCatalog** — [docs/versioning/PLAN.md §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6). **Architecture canon:** [docs/architecture/AppTraverse_Architecture_RU.md](docs/architecture/AppTraverse_Architecture_RU.md). **P0 DONE**; **NEXT: P1.1** (remove SharedNode/replication/network). Do not treat **U5.2–U6** or **9D–9H** as active queues.
+
+**Release versioning (R0–R5):** fixture roadmap in [docs/versioning/PLAN.md](docs/versioning/PLAN.md) / [PROGRESS.md](docs/versioning/PROGRESS.md) — reference; **P0–P6** is the execution order on `integration/unified-application`. Coding-agent rules remain mandatory.
 
 # App Traverse — next application
 

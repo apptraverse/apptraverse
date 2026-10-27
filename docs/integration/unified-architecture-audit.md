@@ -4,7 +4,9 @@
 
 **Источники:** только исходники ветки (файлы/функции указаны в каждом пункте). Номера строк — на момент `53245f0`.
 
-**Связанные документы:** [PLAN §Unified](../versioning/PLAN.md#unified-integration-историческая-координация--merge), [PROGRESS §Unified](../versioning/PROGRESS.md#unified-integration-integrationunified-application), [I0 ledger](./I0_cleanup_ledger.md), [application-versioning](./application-versioning.md).
+**Связанные документы:** [PLAN §P0–P6](../versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6), [архитектурный канон](../architecture/AppTraverse_Architecture_RU.md), [PROGRESS](../versioning/PROGRESS.md), [I0 ledger](./I0_cleanup_ledger.md).
+
+> **Исполнение (P0, 2026-10-27):** U4 — **исторический** audit-only срез `53245f0`. **U5.2–U5.6**, **U6**, optional SharedNode (**U4-08**) **не** активная очередь. **U5.1** (`8c863bc`) — выполнен; код не откатывать. **SharedNode** — **полное удаление** (**P1.1**), не OFF. Активный порядок — PLAN **P0–P6**; смысл пунктов D/U5 перенесён в **P2** (см. таблицу соответствия в PLAN).
 
 ---
 
@@ -190,12 +192,12 @@ U4-06, U4-07 → **U6**; U4-14, U4-15, U4-17 → **9D/9E**; U4-16 → **11/14**;
 - **U4-04 sidecar:** (а) оставить до этапа 22 и задокументировать; (б) в U5 писать sidecar через tmp+rename тем же способом, что `ReplaceLayerFile` (без межфайловой транзакции).
 - **U4-08 SharedNode:** (а) оставить ON, обновить I0 ledger/комментарий CMake как сознательное решение unified; (б) вернуть решение I0 — опция/OFF и исключение SharedNode-исходников из core (меняет vtable `Node`; требует полной регрессии U6).
 
-### D.3 Решения пользователя (2026-10-26, после U4)
+### D.3 Решения пользователя (2026-10-26, после U4) — частично superseded P0
 
-- **U4-02:** «сворачивание» журнала при выходе MinimalApp не намеренное → **U5.2** выполнять.
-- **U4-04:** sidecar tmp+rename — **этап 22**; в U5 только документируется.
-- **U4-08:** вернуть решение I0 — SharedNode опционально/OFF, исходники вне core → отдельный шаг **U5.6** (последним; меняет vtable `Node`, требует полной регрессии в **U6**).
-- **U6:** отдельный build-каталог с Release-флагами / fresh populate — решение откладывается до U6.
+- **U4-02:** убрать runtime Stabilize MinimalApp → **P2.b** (не U5.2).
+- **U4-04:** sidecar tmp+rename — вне scope прототипа / stage 22.
+- **U4-08 (отменено):** SharedNode **не** OFF — **полное удаление** **P1.1** (P0, 2026-10-27).
+- **U6 (отменено)** как активный шаг → **P6** E2E по платформам.
 
 ---
 
