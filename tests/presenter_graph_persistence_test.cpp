@@ -9,8 +9,8 @@
 
 #include "apptraverse/node_for.h"
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/distill.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_bitmap_image.h"
 #include "apptraverse/ui/ui_desktop_window.h"
@@ -176,9 +176,9 @@ void RunPresenterGraphPersistenceTest() {
   ui::EnsureExtendedUiPresenterRegistration();
   (void)&g_apptraverse_registrar_PresenterGraphRoot;
 
-  ByteSink snapshot;
+  ae::RamDomainStorage storage;
+
   {
-    ae::RamDomainStorage storage;
     ae::Domain domain{storage};
     BuiltGraph const live = BuildGraph(domain);
 
@@ -188,23 +188,20 @@ void RunPresenterGraphPersistenceTest() {
     CHECK(&*live.root->edit_presenter_a->window_presenter ==
           &*live.root->window_presenter);
 
-    SerializePersistentModelSnapshot(*live.root, snapshot);
+    ae::DomainGraph save_graph{&domain};
+    ae::Ptr<ae::Obj> save_root = domain.Find(kRootId);
+    CHECK(save_root);
+    CHECK(save_graph.SaveRoot(save_root, kRootId).IsOk());
     CHECK(live.root->window_presenter.id() == presenter_id_before);
     CHECK(live.locale.id() == locale_id_before);
     CHECK(live.root->window_presenter.is_valid());
   }
 
-  // Recreate the Domain after the saving Domain and its storage are gone.
-  ae::RamDomainStorage load_storage;
-  ae::Domain load_domain{load_storage};
-  auto load_root = PresenterGraphRoot::ptr::Create(
-      ae::CreateWith{load_domain}.with_id(kRootId));
-  InitializeRuntimeNode(*load_root);
-  ByteSource in;
-  in.data = snapshot.bytes.data();
-  in.size = snapshot.bytes.size();
-  in.pos = 0;
-  LoadPersistentModelSnapshot(in, load_domain, load_storage, *load_root);
+  ae::Domain load_domain{storage};
+  ae::DomainGraph load_graph{&load_domain};
+  ae::Ptr<ae::Obj> loaded_obj;
+  CHECK(load_graph.LoadRoot(kRootId, loaded_obj).IsOk());
+  ae::Ptr<PresenterGraphRoot> load_root{loaded_obj};
 
   CHECK(load_root->window_presenter.is_valid());
   CHECK(&*load_root->window_presenter->window == &*load_root->window);
@@ -233,7 +230,7 @@ void RunPresenterGraphPersistenceTest() {
   CHECK(&*load_root->list_presenter->window_presenter ==
         &*load_root->window_presenter);
 
-  for (auto const& [id, object_state] : load_storage.state) {
+  for (auto const& [id, object_state] : storage.state) {
     CHECK(object_state.has_value());
     for (auto const& [class_id, versions] : *object_state) {
       CHECK(versions.size() == 1);

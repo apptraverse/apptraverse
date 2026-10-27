@@ -47,6 +47,7 @@
 | **P2.X1** — обязательный граф UI, assert side effects | **`51ecd2b`**, §P2.X1 | **PASS** |
 | **P2.d.1R.2b.1** — persistence tests без checkpoint | **`63d3b18`**, §P2.d.1R.2b.1 | **PASS** |
 | **P2.d.1R.2b.2** — cycle/rehydration DomainGraph | **`bc4d03f`**, §P2.d.1R.2b.2 | **PASS** |
+| **P2.d.1R.2b.3a** — PresenterGraph DomainGraph | §P2.d.1R.2b.3a | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -157,6 +158,18 @@
 **Debug:** `apptraverse_checkpoint_load_cycle_persistence_test`, `apptraverse_checkpoint_load_rehydration_test` **exit 0**.
 
 **NEXT:** presenter persistence tests (2b продолжается).
+
+---
+
+## P2.d.1R.2b.3a — PresenterGraph через SaveRoot/LoadRoot (2026-10-27)
+
+**Test:** `RunPresenterGraphPersistenceTest` — один `RamDomainStorage`, `SaveRoot(kRootId)` / cold `LoadRoot` без checkpoint blob или pre-created root shell.
+
+**Проверки после load:** aliases window/presenters/edit/locale/bitmap/list, localization, bitmap bytes, `presentation_loaded == false`, layer ClassId/S v0 на storage.
+
+**Debug:** `apptraverse_presenter_graph_persistence_test` **exit 0**.
+
+**NEXT:** **P2.d.1R.2b.3b** — Win HWND / platform presenter persistence.
 
 ---
 
