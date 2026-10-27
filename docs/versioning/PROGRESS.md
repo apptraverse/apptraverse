@@ -61,7 +61,7 @@
 
 ---
 
-## P2.a — единая загрузка persistent checkpoint (2026-10-27)
+## P2.a — единая загрузка persistent checkpoint (2026-10-27, **`6c4a77c`**)
 
 **API:** `TryLoadPersistedModelFromStorageSidecar(ae::Domain&, DirectoryDomainStorage&, ae::Obj&)`; общее чтение `persistent_model_checkpoint.bin` через внутренние `TryReadPersistentModelCheckpointSidecarBytes` / `TryLoadPersistedModelFromSidecarRoot` (sidecar root = `storage.root()`).
 
