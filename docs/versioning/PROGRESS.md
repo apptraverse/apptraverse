@@ -50,6 +50,7 @@
 | **P2.d.1R.2b.3a** — PresenterGraph DomainGraph | **`8ca6a23`**, §P2.d.1R.2b.3a | **PASS** |
 | **P2.d.1R.2b.3b.1** — Win HWND DomainGraph | **`3d85a31`**, §P2.d.1R.2b.3b.1 | **PASS** |
 | **P2.d.1R.2b.3b.2** — cross-process presenter storage | **`e750166`**, §P2.d.1R.2b.3b.2 | **PASS** |
+| **P2.d.1R.2b.4** — runtime_observer DomainGraph | **PLACEHOLDER**, §P2.d.1R.2b.4 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -183,7 +184,17 @@
 
 **Debug:** `apptraverse_presenter_platform_persist_roundtrip` **exit 0**; save/load EXE **exit 0**.
 
-**NEXT:** **P2.d.1R.2b.4** — `model_persistence_runtime_ref_test`.
+**NEXT:** **P2.d.1R.2b.4** — `model_persistence_runtime_ref_test` (см. § ниже).
+
+---
+
+## P2.d.1R.2b.4 — runtime_observer ref через SaveRoot/LoadRoot (2026-10-27)
+
+**Test:** `RunModelPersistenceRuntimeRefTest` — один `RamDomainStorage`, save scope → `SaveRoot(kDocId)` → destroy Domain → cold `LoadRoot` без pre-created doc; отражённый `runtime_observer` ObjPtr и historical `base` root Node сохраняются.
+
+**Debug:** `apptraverse_model_persistence_runtime_ref_test` **exit 0**.
+
+**NEXT:** **P2.d.1R.2b.5** — аудит оставшихся call sites checkpoint API в `integration/unified-application` и удаление неиспользуемой инфраструктуры.
 
 ---
 

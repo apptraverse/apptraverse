@@ -1,15 +1,13 @@
 #include <cstdlib>
-#include <cstring>
 #include <iostream>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 
-#include "apptraverse/graph_walk.h"
-#include "apptraverse/model_persistence.h"
+#include "apptraverse/event_for.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse::test {
@@ -112,36 +110,54 @@ bool StorageContainsObjectId(ae::RamDomainStorage const& storage,
 void RunModelPersistenceRuntimeRefTest() {
   ae::ObjId const kDocId{0x0A11AD01u};
   ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto doc = PersistentDoc::ptr::Create(
-      ae::CreateWith{domain}.with_id(kDocId));
-  CHECK(doc->obj_id == kDocId);
-  InitializeRuntimeNode(*doc);
-  auto runtime = PersistentObserverNode::ptr::Create(ae::CreateWith{domain});
-  InitializeRuntimeNode(*runtime, *doc);
-  runtime->run_id = 1;
-  doc->runtime_observer = runtime;
-  doc->label = "linked";
+  ae::ObjId observer_id;
+  ae::ObjId doc_base_id;
 
-  ByteSink snapshot;
-  SerializePersistentModelSnapshot(*doc, snapshot);
-  CHECK(doc->runtime_observer.is_valid());
-  CHECK(doc->label == "linked");
+  {
+    ae::Domain domain{storage};
+    auto doc = PersistentDoc::ptr::Create(
+        ae::CreateWith{domain}.with_id(kDocId));
+    CHECK(doc->obj_id == kDocId);
+    InitializeRuntimeNode(*doc);
+    auto runtime = PersistentObserverNode::ptr::Create(ae::CreateWith{domain});
+    InitializeRuntimeNode(*runtime, *doc);
+    runtime->run_id = 1;
+    doc->runtime_observer = runtime;
+    doc->label = "linked";
+    observer_id = runtime.id();
+    CHECK(doc->base.is_valid());
+    doc_base_id = doc->base->obj_id;
 
-  ae::RamDomainStorage load_storage;
-  ae::Domain load_domain{load_storage};
-  auto load_doc = PersistentDoc::ptr::Create(
-      ae::CreateWith{load_domain}.with_id(kDocId));
-  InitializeRuntimeNode(*load_doc);
-  ByteSource in;
-  in.data = snapshot.bytes.data();
-  in.size = snapshot.bytes.size();
-  in.pos = 0;
-  LoadPersistentModelSnapshot(in, load_domain, load_storage, *load_doc);
-  CHECK(load_doc->label == "linked");
-  CHECK(load_doc->runtime_observer.is_valid());
-  CHECK(StorageContainsObjectId(load_storage, load_doc->runtime_observer.id()));
-  CHECK(load_doc->runtime_observer->run_id == runtime->run_id);
+    ae::DomainGraph save_graph{&domain};
+    ae::Ptr<ae::Obj> save_root = domain.Find(kDocId);
+    CHECK(save_root);
+    CHECK(save_graph.SaveRoot(save_root, kDocId).IsOk());
+    CHECK(doc->runtime_observer.is_valid());
+    CHECK(doc->label == "linked");
+    CHECK(doc->runtime_observer.id() == observer_id);
+  }
+
+  {
+    ae::Domain load_domain{storage};
+    ae::DomainGraph load_graph{&load_domain};
+    ae::Ptr<ae::Obj> loaded_obj;
+    CHECK(load_graph.LoadRoot(kDocId, loaded_obj).IsOk());
+    ae::Ptr<PersistentDoc> load_doc{loaded_obj};
+
+    CHECK(load_doc->obj_id == kDocId);
+    CHECK(load_doc->label == "linked");
+    CHECK(load_doc->runtime_observer.is_valid());
+    CHECK(load_doc->runtime_observer.id() == observer_id);
+    CHECK(StorageContainsObjectId(storage, observer_id));
+    CHECK(load_doc->runtime_observer->run_id == 1);
+
+    ae::Ptr<ae::Obj> const found_observer = load_domain.Find(observer_id);
+    CHECK(found_observer);
+    CHECK(found_observer.get() == &*load_doc->runtime_observer);
+
+    CHECK(load_doc->base.is_valid());
+    CHECK(load_doc->base->obj_id == doc_base_id);
+  }
 }
 
 }  // namespace apptraverse::test
