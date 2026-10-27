@@ -340,7 +340,7 @@ Native handles, адреса callbacks, ссылки на host и статус `
 
 Зависимость от родителя — реальная часть алгоритма. Последовательность «сначала parent, затем child» не равна retry после неудачного создания окна. В контракте прототипа нет каскада обходов, которые продолжают работу с отсутствующим обязательным native ресурсом. Если рабочий путь требует parent, это устанавливается при композиции и activation.
 
-**В исходниках.** Базовый `Presenter` — `ae::Obj`, не Node. Он имеет `OnLoad`, `OnModelChanged`, `OnUnload`, `ReadyForPresentation` и runtime-ссылки на host/proxy. `InitializeNewPresenters` использует multi-pass по готовности и ведёт `presentation_load_order`; выгрузка идёт в обратном порядке. Наличие `PresentationCreateSucceeded` и защитных checks в текущем коде — факт реализации, не причина делать такие обходы частью общего application API. [C04, C06]
+**В исходниках.** Базовый `Presenter` — `ae::Obj`, не Node. Он имеет `OnLoad`, `OnModelChanged`, `OnUnload`, `ReadyForPresentation` и runtime-ссылки на host/proxy. `InitializeNewPresenters` использует multi-pass по готовности и ведёт `presentation_load_order`; выгрузка идёт в обратном порядке. Обязательные связи дистиллированного графа не дублируются optional-проверками и fallback в runtime (P2.X1). [C04, C06]
 
 ## 18. Шаблон приложения и владение сессией
 

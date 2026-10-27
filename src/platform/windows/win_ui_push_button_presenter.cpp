@@ -49,32 +49,16 @@ ui::UiControlLayout EffectiveLayout(WinPushButtonPresenter const& presenter) {
   ui::UiControlLayout layout{
       presenter.layout_x, presenter.layout_y, presenter.layout_width,
       presenter.layout_height, presenter.control_id};
-  if (presenter.window_presenter) {
-    return presenter.window_presenter->ResolveChildLayout(layout);
-  }
-  return layout;
+  return presenter.window_presenter->ResolveChildLayout(layout);
 }
 
 }  // namespace
 
 void WinPushButtonPresenter::OnLoad() {
-  if (!window_presenter) {
-    FatalWin32("WinPushButtonPresenter OnLoad window_presenter",
-               ERROR_INVALID_PARAMETER);
-  }
   auto* const parent_hwnd = reinterpret_cast<HWND>(
       window_presenter->NativeChildParentHandle());
-  if (parent_hwnd == nullptr) {
-    FatalWin32("WinPushButtonPresenter OnLoad parent", ERROR_INVALID_PARAMETER);
-  }
-  if (!button || control_id == 0) {
-    FatalWin32("WinPushButtonPresenter OnLoad button", ERROR_INVALID_PARAMETER);
-  }
-  std::wstring caption;
-  if (button->label && window_presenter && window_presenter->locale) {
-    caption = Utf8ToWide(
-        button->label->Resolve(window_presenter->locale->language_index()));
-  }
+  std::wstring const caption = Utf8ToWide(
+      button->label->Resolve(window_presenter->locale->language_index()));
   ui::UiControlLayout const layout = EffectiveLayout(*this);
   hwnd_ = CreateChildPushButton({
       .parent_hwnd = parent_hwnd,
@@ -91,23 +75,15 @@ void WinPushButtonPresenter::OnLoad() {
 }
 
 void WinPushButtonPresenter::SyncFromMirror() {
-  if (hwnd_ == nullptr || !button) {
-    return;
-  }
-  if (button->label && window_presenter && window_presenter->locale) {
-    SetWindowTextW(
-        hwnd_, Utf8ToWide(button->label->Resolve(
-                          window_presenter->locale->language_index()))
-                   .c_str());
-  }
+  SetWindowTextW(
+      hwnd_, Utf8ToWide(button->label->Resolve(
+                        window_presenter->locale->language_index()))
+                 .c_str());
   EnableWindow(hwnd_, button->enabled() ? TRUE : FALSE);
   ApplyLayout();
 }
 
 void WinPushButtonPresenter::ApplyLayout() {
-  if (hwnd_ == nullptr) {
-    return;
-  }
   int x = 0;
   int y = 0;
   int width = 0;

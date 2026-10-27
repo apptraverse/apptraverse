@@ -25,8 +25,6 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
-  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
   HWND hwnd() const { return hwnd_; }
 
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)

@@ -17,16 +17,8 @@ void SetChildUserData(HWND hwnd, void* value, char const* fatal_operation) {
 }  // namespace
 
 HWND CreateChildPushButton(WinNativePushButtonCreateParams const& params) {
-  if (params.parent_hwnd == nullptr || params.control_id == 0 ||
-      params.create_fatal_operation == nullptr) {
-    FatalWin32(params.create_fatal_operation != nullptr
-                   ? params.create_fatal_operation
-                   : "CreateChildPushButton",
-               ERROR_INVALID_PARAMETER);
-  }
   HWND const hwnd = CreateWindowExW(
-      0, L"BUTTON",
-      params.initial_caption != nullptr ? params.initial_caption : L"",
+      0, L"BUTTON", params.initial_caption,
       WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, params.x, params.y, params.width,
       params.height, params.parent_hwnd,
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(params.control_id)),

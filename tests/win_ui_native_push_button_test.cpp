@@ -352,10 +352,6 @@ class TestBorderlessHostPresenter : public ui::UiWindowPresenter {
 
   void OnLoad() override {}
 
-  bool PresentationCreateSucceeded() const override {
-    return host_hwnd_ != nullptr;
-  }
-
   void* NativeChildParentHandle() const override {
     return reinterpret_cast<void*>(host_hwnd_);
   }
@@ -487,10 +483,6 @@ class TestResolveLayoutHostPresenter : public ui::UiWindowPresenter {
       : UiWindowPresenter{prop} {}
 
   void OnLoad() override {}
-
-  bool PresentationCreateSucceeded() const override {
-    return host_hwnd_ != nullptr;
-  }
 
   void* NativeChildParentHandle() const override {
     return reinterpret_cast<void*>(host_hwnd_);

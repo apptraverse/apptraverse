@@ -1249,9 +1249,6 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
       presenter->presentation_host = host;
       presenter->model_proxy = model_proxy;
       presenter->OnLoad();
-      if (!presenter->PresentationCreateSucceeded()) {
-        continue;
-      }
       presenter->presentation_loaded = true;
       presenter->presentation_load_order = NextPresentationLoadOrder();
       progress = true;
@@ -1478,15 +1475,20 @@ void SerializePersistentModelSnapshot(ae::Obj& root, ByteSink& out) {
   out.bytes.clear();
   ae::seri::BinaryVectorBuffer buffer{out.bytes};
   ae::seri::BinaryArchive archive{buffer};
-  assert(archive.Save(payload).IsOk());
+  bool const payload_saved = archive.Save(payload).IsOk();
+  assert(payload_saved);
 }
 
 void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
                                  ae::IDomainStorage& storage, ae::Obj& root) {
   PersistentModelCheckpointPayload payload;
-  assert(TryLoadPersistentModelCheckpointPayload(in, payload));
+  bool const payload_loaded =
+      TryLoadPersistentModelCheckpointPayload(in, payload);
+  assert(payload_loaded);
   assert(root.obj_id.id() == payload.root_id);
-  assert(InjectPersistentModelCheckpointLayers(payload, storage));
+  bool const layers_injected =
+      InjectPersistentModelCheckpointLayers(payload, storage);
+  assert(layers_injected);
 
   std::vector<ae::ObjId> loaded_ids;
   loaded_ids.reserve(payload.layers.size());

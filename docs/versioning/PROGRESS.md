@@ -44,6 +44,7 @@
 | **P2.d.1** — checkpoint `BinaryArchive` | **`6676f7d`**, §P2.d.1 | **PASS (исторически; superseded)** |
 | **P2.d.1R.1** — MinimalApp без sidecar | **`9f1d0a7`**, §P2.d.1R.1 | **PASS** |
 | **P2.d.1R.2a** — WindowCatalog без sidecar | **`93a18dc`**, §P2.d.1R.2a | **PASS** |
+| **P2.X1** — обязательный граф UI, assert side effects | §P2.X1 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b**, затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -107,7 +108,7 @@
 
 ---
 
-## P2.d.1R.2a — WindowCatalog: штатный Save без sidecar (2026-10-27)
+## P2.d.1R.2a — WindowCatalog: штатный Save без sidecar (2026-10-27, **`93a18dc`**)
 
 **Lifecycle:** убраны `TryLoadPersistedModelFromStorageSidecar` и `SavePersistentModelSnapshotToStorage`; cold load — `LoadApplication<WindowCatalog>`; shutdown — `SaveWindowCatalogPersistentSnapshot` + `SaveSessionHadFailure()`.
 
@@ -118,6 +119,20 @@
 **Debug evidence:** `apptraverse_window_catalog_model_test` **exit 0**; `%TEMP%\apptraverse_p2d1r2a_catalog`: demo → WM_CLOSE **0**, sidecar **нет** → `load_only` **0**.
 
 **NEXT (не начато):** **P2.d.1R.2b** — оставшиеся потребители и удаление общего checkpoint API.
+
+---
+
+## P2.X1 — обязательный граф UI и assert без побочных эффектов (2026-10-27)
+
+**Runtime:** `WinPushButtonPresenter` / `CreateChildPushButton` — без повторной проверки обязательных связей, пустой подписи при отсутствии label/locale, fallback layout и ранних return в `SyncFromMirror`/`ApplyLayout` (кроме «геометрия не изменилась»).
+
+**Presenters:** удалены `PresentationCreateSucceeded` и ветка «OnLoad без native» в `InitializeNewPresenters`; после нормального `OnLoad` — `presentation_loaded` и load order.
+
+**Checkpoint (ещё для Host/Admin):** `SerializePersistentModelSnapshot` / `LoadPersistentModelSnapshot` — Save/Load/Inject вынесены из `assert`.
+
+**Debug evidence (`build/win64-ninja-msvc-debug`):** `apptraverse_window_catalog_model_test`, `apptraverse_model_persistence_test` **exit 0**; `win32_window_catalog_demo` старт с dev-профилем **OK**.
+
+**NEXT:** **P2.d.1R.2b** (без изменений очереди).
 
 ---
 

@@ -35,7 +35,6 @@ class SurfacesDemoSurfaceWindowHostPresenter : public ui::UiWindowPresenter {
   Win32SurfaceWindowPresenter::ptr surface_window;
 
   bool ReadyForPresentation() const override;
-  bool PresentationCreateSucceeded() const override;
   void* NativeChildParentHandle() const override;
   ui::UiControlLayout ResolveChildLayout(
       ui::UiControlLayout requested) const override;

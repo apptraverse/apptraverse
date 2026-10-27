@@ -84,8 +84,6 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   void ApplyRequestedFrameFromMirror() override;
 
-  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
   void* NativeChildParentHandle() const override {
     return reinterpret_cast<void*>(hwnd_);
   }
@@ -202,8 +200,6 @@ class WinEditBoxPresenter : public UiEditBoxPresenter {
 
   void OnUnload() override;
 
-  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
   HWND hwnd() const { return hwnd_; }
 
   void ReadFromNativeAndSubmit();
@@ -250,8 +246,6 @@ class WinListContainerPresenter : public UiListContainerPresenter {
 
   void OnUnload() override;
 
-  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
   HWND hwnd() const { return hwnd_; }
 
   bool HandleListNotification(std::uint16_t notification_code);
@@ -286,8 +280,6 @@ class WinLabelPresenter : public UiLabelPresenter {
 
   void OnUnload() override;
 
-  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
-
  private:
 
   void SyncFromMirror();
@@ -319,8 +311,6 @@ class WinBitmapImagePresenter : public UiBitmapImagePresenter {
   void OnModelChanged() override;
 
   void OnUnload() override;
-
-  bool PresentationCreateSucceeded() const override { return hwnd_ != nullptr; }
 
   void PaintToHdc(HDC hdc) const;
 
