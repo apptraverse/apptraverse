@@ -39,7 +39,8 @@
 | **U5.1** — shutdown-save → exit code | **`8c863bc`**, CTest 65–67 | **PASS** (история) |
 | **P0** — канон + sync docs/rules | doc-only | **DONE** |
 | **P1.1** — удаление сети/replication | см. §P1.1 ниже | **PASS** (Debug build + model test; см. evidence) |
-| **P2–P6** | — | **NEXT: P2** |
+| **P2.b** — MinimalApp без runtime Stabilize | см. §P2.b ниже | **PASS** |
+| **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
 
@@ -56,6 +57,14 @@
 **Сохранено:** `Node::Commit`, mid-journal insert/replay, retention/compaction block, closed Event graph helpers → `closed_event_graph.{h,cpp}` (без SharedNode export).
 
 **Debug evidence (`build/win64-ninja-msvc-debug`):** `apptraverse_window_catalog_model_test` **PASS**; `win32_window_catalog_demo` запуск с новым профилем **OK** (краткий smoke, без полного GUI-сценария).
+
+---
+
+## P2.b — MinimalApp shutdown без distillation normalize (2026-10-27)
+
+**Изменение:** из `RunMinimalApplicationModel` убран вызов `StabilizeDistilledPersistentSnapshot` перед shutdown-save; `StabilizeDistilledPersistentSnapshot` в `distill.h` без изменений (build-time export).
+
+**Debug evidence (`build/win64-ninja-msvc-debug`):** инкрементальная сборка `win32_minimal_app`, `win32_minimal_app_load_only` **OK**; профиль `%TEMP%\apptraverse_p2b_minimal_dev`: первый запуск → WM_CLOSE → exit **0**, checkpoint создан → `win32_minimal_app_load_only` с тем же `--state-dir` → exit **0** (без проверки пользовательских Events / Commit после reload).
 
 ---
 

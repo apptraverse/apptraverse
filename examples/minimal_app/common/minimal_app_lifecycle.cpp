@@ -87,7 +87,6 @@ int RunMinimalApplicationModel(
     runtime.Run(domain, *application, on_published);
 
     durable_storage.BeginSaveSession();
-    StabilizeDistilledPersistentSnapshot(*application);
     ui::SavePresentedWindow(application->main_window);
     MinimalApplication::ptr::MakeFromThis(&*application).Save();
     bool const checkpoint_ok = SavePersistentModelSnapshotToStorage(

@@ -38,8 +38,8 @@
 | Этап | Содержание | Статус |
 | --- | --- | --- |
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
-| **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **IN_PROGRESS → P2** |
-| **P2** | Общий application template + минимум persistence/Clone | TODO |
+| **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
+| **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
 | **P3** | Windows + первый другой backend (Web **или** Android) | TODO |
 | **P4** | Остальные платформы (reuse Surfaces native) | TODO |
 | **P5** | Resource-set delivery, один upgrade/downgrade, S via origin, headless replay | TODO |
@@ -59,7 +59,7 @@
 | ID | Смысл | Область |
 | --- | --- | --- |
 | P2.a | Единая загрузка checkpoint | `object_serialization`, lifecycles, tests |
-| P2.b | Убрать runtime `StabilizeDistilledPersistentSnapshot` (MinimalApp) | `minimal_app_lifecycle.cpp` |
+| P2.b | Убрать runtime `StabilizeDistilledPersistentSnapshot` (MinimalApp) | **PASS** — `minimal_app_lifecycle.cpp` |
 | P2.d | Штатная сериализация вместо ручных envelope | `object_serialization`, `publication_channel` |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
@@ -81,7 +81,7 @@
 | `node.h` | SharedNode-члены за `#if` | P1.1 |
 | Lifecycles | Inline checkpoint ×4 | P2.a |
 | Serialization | Ручные envelope checkpoint/publication | P2.d |
-| MinimalApp | Runtime Stabilize at shutdown | P2.b |
+| MinimalApp | Runtime Stabilize at shutdown | **P2.b PASS** |
 | Catalog graph | Win32 presenter types в portable graph | P2–P4 |
 | Web CMake | `-fexceptions` в Surfaces web | P4 |
 | Style | In-class initializers, лишняя diagnostics (где есть) | P2–P4 по файлу |
