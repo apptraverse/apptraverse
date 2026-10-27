@@ -54,7 +54,8 @@
 | **P2.d.1R.2b.5** — удаление checkpoint API | **`15f1879`**, §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.1R** — без отдельного persistent checkpoint | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.1R.2b** — миграция + удаление API | §P2.d.1R.2b.5 | **PASS** |
-| **P2.d** — штатная сериализация | **NEXT: P2.d.2** (UI publication) | **IN_PROGRESS** |
+| **P2.d.2.1** — structural envelope BinaryArchive | **PLACEHOLDER**, §P2.d.2.1 | **PASS** |
+| **P2.d** — штатная сериализация | **NEXT: P2.d.2.2** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -209,7 +210,19 @@
 
 **Debug regression:** `apptraverse_model_persistence_test`, `apptraverse_model_persistence_runtime_ref_test`, `apptraverse_checkpoint_load_cycle_persistence_test`, `apptraverse_checkpoint_load_rehydration_test`, `apptraverse_presenter_graph_persistence_test`, `apptraverse_presenter_win_hwnd_persistence_test`, `apptraverse_presenter_platform_persist_roundtrip`, `apptraverse_partitioned_model_domain_storage_test`, `apptraverse_window_catalog_model_test`; link **PASS** `win32_window_catalog_demo`, `win32_minimal_app`.
 
-**NEXT:** **P2.d.2** — штатная сериализация UI publication.
+**NEXT:** **P2.d.2** — штатная сериализация UI publication (см. §P2.d.2.1).
+
+---
+
+## P2.d.2.1 — structural envelope через BinaryArchive (2026-10-27)
+
+**Изменение:** `SerializeStructuralNodePublication` / `ApplyStructuralPublication` — `StructuralPublicationEnvelope` (`object_id`, `generation`, `graph_bytes`, `sidecar`) через `ae::seri::BinaryArchive`; внутренний payload по-прежнему `SerializeObjectGraphToBuffer` / `DeserializeObjectGraphFromBuffer`. Sidecar frame request без изменений.
+
+**Debug PASS:** `apptraverse_ui_bitmap_structural_publication_test`, `apptraverse_application_contract_headless_test`, `apptraverse_application_model_runtime_test`, `apptraverse_presenter_win_desktop_frame_publication_e2e_test`.
+
+**Примечание:** `apptraverse_application_ui_session_test` — `TestPresenterLifecycleCloseOpen` (341) **FAIL** на **`f286dc8`** до envelope; не регрессия P2.d.2.1.
+
+**NEXT:** **P2.d.2.2** — BinaryArchive для object layers + Node generations в graph payload.
 
 ---
 

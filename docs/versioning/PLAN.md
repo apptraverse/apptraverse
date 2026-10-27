@@ -73,8 +73,9 @@
 | **P2.d.1R.2b.4** | Runtime ObjPtr ref persistence через DomainGraph | **PASS** — `model_persistence_runtime_ref_test` |
 | **P2.d.1R.2b.5** | Удаление persistent checkpoint API из библиотеки | **PASS** — regression: model/presenter persistence + catalog model |
 | **P2.d.1R.2b** | Миграция потребителей + удаление checkpoint API | **PASS** |
-| **P2.d.2** | Initial/structural publication через `BinaryArchive` | TODO — **NEXT** |
-| P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** — **NEXT: P2.d.2** |
+| **P2.d.2.1** | Structural publication envelope через `BinaryArchive` | **PASS** — bitmap structural + frame E2E + contract/model runtime |
+| **P2.d.2** | Initial/structural publication через `BinaryArchive` | **IN_PROGRESS** — **NEXT: P2.d.2.2** (graph payload) |
+| P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
 

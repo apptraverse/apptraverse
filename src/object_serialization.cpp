@@ -34,6 +34,14 @@ enum StructuralPublicationSidecar : std::uint8_t {
   kStructuralPublicationSidecarUiDesktopFrameRequest = 1,
 };
 
+struct StructuralPublicationEnvelope {
+  std::uint32_t object_id{};
+  std::uint64_t generation{};
+  std::vector<std::uint8_t> graph_bytes;
+  std::uint8_t sidecar{};
+  AE_REFLECT_MEMBERS(object_id, generation, graph_bytes, sidecar)
+};
+
 template <typename T>
 T* AsObjOf(ae::Obj* obj) {
   if (obj == nullptr) {
@@ -654,50 +662,58 @@ ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
 }
 
 void SerializeStructuralNodePublication(Node const& node, ByteSink& out) {
-  auto const object_id = node.obj_id.id();
-  auto const generation = node.Generation();
-  ByteSink payload;
-  SerializeObjectGraphToBuffer(node, payload);
-  auto const payload_size = static_cast<std::uint32_t>(payload.bytes.size());
-  out.write(&object_id, sizeof(object_id));
-  out.write(&generation, sizeof(generation));
-  out.write(&payload_size, sizeof(payload_size));
-  out.write(payload.bytes.data(), payload.bytes.size());
-  std::uint8_t sidecar = kStructuralPublicationSidecarNone;
+  StructuralPublicationEnvelope envelope;
+  envelope.object_id = node.obj_id.id();
+  envelope.generation = node.Generation();
+  ByteSink graph;
+  SerializeObjectGraphToBuffer(node, graph);
+  envelope.graph_bytes = std::move(graph.bytes);
+  envelope.sidecar = kStructuralPublicationSidecarNone;
   if (ui::UiDesktopWindow* desktop =
           AsUiDesktopWindow(const_cast<Node*>(&node))) {
     if (desktop->TakeFrameRequestPendingPublication()) {
-      sidecar = kStructuralPublicationSidecarUiDesktopFrameRequest;
+      envelope.sidecar = kStructuralPublicationSidecarUiDesktopFrameRequest;
     }
   }
-  out.write(&sidecar, sizeof(sidecar));
+  out.bytes.clear();
+  ae::seri::BinaryVectorBuffer buffer{out.bytes};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  if (!archive.Save(envelope).IsOk()) {
+    WriteFatalStderr(
+        "fatal: structural publication envelope save failed\n");
+    std::abort();
+  }
 }
 
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
                                     ae::IDomainStorage& storage,
                                     std::uint8_t* sidecar_out) {
-  std::uint32_t object_id = 0;
-  std::uint64_t generation = 0;
-  std::uint32_t payload_size = 0;
-  in.read(&object_id, sizeof(object_id));
-  in.read(&generation, sizeof(generation));
-  in.read(&payload_size, sizeof(payload_size));
-  assert(in.ok);
-  assert(in.pos + payload_size <= in.size);
-  ByteSource payload;
-  payload.data = in.data + in.pos;
-  payload.size = payload_size;
-  in.pos += payload_size;
-  auto object = domain.Find(ae::ObjId{object_id});
-  assert(object && "structural publication object must already exist");
-  DeserializeObjectGraphFromBuffer(*object, payload, domain, storage);
-  FinalizeUiNodeState(*object, generation);
-  std::uint8_t sidecar = kStructuralPublicationSidecarNone;
-  if (in.pos < in.size) {
-    in.read(&sidecar, sizeof(sidecar));
+  if (in.pos > in.size) {
+    WriteFatalStderr("fatal: structural publication envelope truncated\n");
+    std::abort();
   }
+  std::vector<std::uint8_t> const envelope_bytes(
+      in.data + in.pos, in.data + in.size);
+  std::vector<std::uint8_t> copy = envelope_bytes;
+  ae::seri::BinaryVectorBuffer buffer{copy};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  StructuralPublicationEnvelope envelope{};
+  if (archive.Load(envelope).IsErr()) {
+    WriteFatalStderr("fatal: structural publication envelope load failed\n");
+    std::abort();
+  }
+  in.pos = in.size;
+
+  auto object = domain.Find(ae::ObjId{envelope.object_id});
+  assert(object && "structural publication object must already exist");
+  ByteSource graph;
+  graph.data = envelope.graph_bytes.data();
+  graph.size = envelope.graph_bytes.size();
+  graph.pos = 0;
+  DeserializeObjectGraphFromBuffer(*object, graph, domain, storage);
+  FinalizeUiNodeState(*object, envelope.generation);
   if (sidecar_out != nullptr) {
-    *sidecar_out = sidecar;
+    *sidecar_out = envelope.sidecar;
   }
   return *object;
 }
