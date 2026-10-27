@@ -5,15 +5,17 @@
 1. Google Doc: [AppTraverse — версионирование состояния и жизненный цикл поставок](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit) — **прямая сверка не выполнена** (403 при fetch).
 2. Архитектурный контракт и roadmap: [PLAN.md](./PLAN.md) — **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)** + Object Core **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)).
 
-**Branch:** `integration/serialization-surfaces` (параллельно: **`integration/application-versioning`** — UI/host; см. [PLAN §координация](./PLAN.md#координация-с-integrationapplication-versioning)).
+**Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
-**Подтверждённый HEAD (код):** **`df536e6`** (C0.2.2); roadmap docs — **`9e91f4d`** (C0.3 PASS).
+**Подтверждённый HEAD (unified, U1):** **`8835d26`**. **Object Core срез до merge:** **`df536e6`** (C0.2.2); docs C0.3 — **`9e91f4d`**. Application docs — [application-versioning.md](../integration/application-versioning.md), [window_catalog_demo.md](../window_catalog_demo.md).
 
 **Baseline SHA (старт tracking fixtures):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
 
-**Порядок работ:** **C0.1** → **C0.2** → **C0.3** → **12R** → **12B** → **13** → **14** → **15** → **16**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
+**Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Текущий этап:** **13 IN_PROGRESS** (**13.1 PASS**, **13.2 PASS**). **NEXT: 13.3** — graph closure + remap. **12B PASS**. **12R PASS**. **C0 PASS**. **11** **IN_PROGRESS** (**11A**, **11B.2 PASS**; **11B.1** — исторический дефект). **01–10** **PASS** в ранее объявленном scope. **12A** — документ выполнен (`ed5eef9`/`4bda0ad`); lazy **`ObjPtr`** origin — **12R PASS** (`9981e0f`). **14–22** — **TODO**. **T16/T17** — фрагменты.
+**Порядок unified:** **U1 PASS** → **U2 manual PASS** → **U3** (doc) → **U4–U6** → **9D/9E** → **13.3+** ([PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge)).
+
+**Текущий этап Object Core:** **13 IN_PROGRESS**; **NEXT: 13.3**. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Object Core regressions на unified **не** PASS до **U6**.
 
 **OPEN:** динамический источник Clone **без** устойчивого const **P** — явное решение, не silent fallback ([PLAN §13](./PLAN.md#13--универсальный-clone)).
 
@@ -22,6 +24,22 @@
 **Fixture vs библиотека:** **`CloneCanonicalRoot`** (**13.2 PASS**) — один объект без **`ObjPtr`**; полный graph Clone — **13.3+**. Prefab fixtures по-прежнему используют ручной graph prep где нужен remap.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
+
+---
+
+## Unified integration (`integration/unified-application`)
+
+| Milestone | SHA / evidence | Status |
+| --- | --- | --- |
+| Merge serialization-surfaces + application-versioning | **`4848402`** | **DONE** |
+| **U1** — `apptraverse_window_catalog_model_test` Release + CTest | **`8835d26`** | **PASS** |
+| **U2** — `win32_window_catalog_demo` ручной сценарий | incremental build, без кода | **manual PASS** (не full regression) |
+| **U3** — PLAN/PROGRESS sync | doc-only | **PASS** (commit U3) |
+| **U4–U6** | — | **TODO** |
+
+**Application (baseline scope):** **I0 DONE**; **9A–9C DONE**; **9D/9E** embedded startup — **TODO**; **9F–9H** — **TODO**. R/E/B/S в shipping apps — **не интегрировано**.
+
+**Открыто:** часть callers не проверяет ошибки `SavePersistentModelSnapshotToStorage` / `DirectoryDomainStorage` (отдельная задача; U3 не меняет поведение).
 
 ---
 
@@ -335,7 +353,7 @@ Happy path и семантические инварианты — сейчас; 
 | 14 | TODO | — | — | **S + historical base**; завершение основных **T16/T17** |
 | 15 | TODO | — | — | Единая модель поставок R/E/B/S; **T11–T15** |
 | 16 | TODO | — | — | **R0–R5** lifecycle; **T01–T18** subset |
-| 17 | TODO | — | — | Application/UI integration; часть параллельно в **application-versioning** |
+| 17 | TODO | — | — | Application/UI integration; baseline в merge **`4848402`**; доведение — **U4–U6**, затем **9D+** |
 | 18 | TODO | — | — | Optional resources, locale, cache |
 | 19 | TODO | — | — | Æther updates (ArtifactSource) |
 | 20 | TODO | — | — | SharedNode |
@@ -402,6 +420,10 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-26** — **12B.2 / 12B PASS:** **`apptraverse_object_origin_facet_test`** modes **`--write` / `--read`** + **`object_origin_disk_roundtrip_run.cmake`** — Process 1: **`SaveRoot(P)`** to BACKING, **`SaveRoot(A)`** with **`SetOriginId(P)`** via **`OverlayDomainStorage`** (no **`LoadRoot(P)`**); Process 2: cold **`LoadRoot(A)`**, repeat **`SaveRoot(A)`**. Disk: USER **A** — **Derived/S0+S1**, **Obj/S0+S1**; no USER **P**; BACKING **P** unchanged (Derived/S0+S1, **Obj/S0** only). CTest Debug+Release **7/7 PASS:** `apptraverse_object_origin_facet_test`, `apptraverse_object_origin_disk_roundtrip_test`, `apptraverse_model_persistence_test`, `apptraverse_overlay_domain_storage_test`, prefab compaction/guard/dynamic-layer matrices. **`object_origin.h` not added**. Push — **`02272ab`**.
 - **2026-10-26** — **13.1 (doc):** [PLAN §13.1](./PLAN.md#131--native-clone-audit-and-implementation-contract) — audit **`ObjPtr::Clone`/`LoadCopyImpl`** (storage-only, 0 call sites); gap table vs **P→A→B→C**; **`SaveObjectGraphToScratch`** + remap + **`SetOriginId(P)`**; fixtures **`CloneWorkspaceFromPrefabs`** / **`PrefabPtr`** не являются universal Clone. **13 IN_PROGRESS**; **NEXT 13.2**. Код не менялся; тесты не запускались. Push — **`44bc222`**.
 - **2026-10-26** — **13.2:** **`CloneCanonicalRoot`** (`object_clone.h/.cpp`) + **`apptraverse_object_clone_test`** — **`SavePersistedObjectGraphToRam`** snapshot, single-object closure, **`SetOriginId(P)`**, **`SaveRoot`**; memory **1601/252** vs BACKING **150/251**; **13.2 PASS**. CTest Debug **4/4**, Release **6/6** (incl. prefab compaction/guard). Push — **`1b9ba5b`**.
+- **2026-10-26** — **Merge unified:** **`4848402`** на **`integration/unified-application`** — Object Core + Windows Application + объединённые тесты/CMake; исходные ветки заморожены как baseline.
+- **2026-10-26** — **U1 PASS:** Release incremental **`apptraverse_window_catalog_model_test`** CTest **1/1**; тесты + Æther patch header fix; push — **`8835d26`**. Object Core matrix на unified **не** перепрогонялся.
+- **2026-10-26** — **U2 manual PASS:** пользователь — **`win32_window_catalog_demo`** (Add/Open/Delete, EN/RU, геометрия, restart с `--state-dir`); **не** заявление о полном CTest/regression PASS.
+- **2026-10-26** — **U3 PASS (doc):** синхронизация [PLAN.md](./PLAN.md), PROGRESS, [application-versioning.md](../integration/application-versioning.md), [window_catalog_demo.md](../window_catalog_demo.md); код не менялся; push — **`integration/unified-application`** (commit U3 doc sync).
 
 *(Baseline fixtures: `19d7da6`; **03** — build-time R; **04** — контракт; **05** — embedded graph; **06+** Surfaces GUI / USER на диске.)*
 

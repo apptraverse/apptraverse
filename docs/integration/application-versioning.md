@@ -1,8 +1,27 @@
 # Application Framework + Versioning integration
 
-This branch combines the working application platform from
-`cursor/surfaces-library-controls` with release/versioning mechanisms from
-`integration/serialization-surfaces`, without merging those branches wholesale.
+**Рабочая ветка:** **`integration/unified-application`** — единственная активная линия после merge **`4848402`** (`integration/serialization-surfaces` + `integration/application-versioning`).
+
+**Связанные планы:** Object Core / release roadmap — [docs/versioning/PLAN.md](../versioning/PLAN.md), [docs/versioning/PROGRESS.md](../versioning/PROGRESS.md); WindowCatalog — [window_catalog_demo.md](../window_catalog_demo.md).
+
+**Unified verification (не полный regression):**
+
+| Step | Status | Notes |
+| --- | --- | --- |
+| **U1** | **PASS** (`8835d26`) | Release `apptraverse_window_catalog_model_test` CTest 1/1; checkpoint = production path |
+| **U2** | **manual PASS** | `win32_window_catalog_demo` — пользователь: Add/Open/Delete, EN/RU, геометрия, restart |
+| **U3** | **PASS** (doc) | Синхронизация PLAN/PROGRESS/docs |
+| **U4–U6** | TODO | Аудит, cleanup, regressions + MinimalApp |
+
+**Application scope на baseline (до merge):** **I0 DONE**. **9A–9C DONE**. **9D/9E** production embedded startup — **TODO**. **9F–9H** — **TODO**. Полная интеграция **R/E/B/S** в shipping EXE — **не выполнена**.
+
+**Следующий порядок (пользователь):** **U4** audit → **U5** minimal cleanup → **U6** unified regressions → **9D/9E** → **13.3+** / release lifecycle. Без mass-refactor.
+
+**Открыто:** `DirectoryDomainStorage` может фиксировать ошибки записи; не все callers проверяют `SavePersistentModelSnapshotToStorage` — отдельная задача (поведение не менялось в U1–U3).
+
+---
+
+This document describes how the **application-versioning** baseline was integrated. Integration work **continues on `integration/unified-application` only**; source branches are **historical baselines**.
 
 ## Source baselines (fixed for planning)
 
@@ -11,7 +30,7 @@ This branch combines the working application platform from
 | Application framework | `cursor/surfaces-library-controls` | `55c4d539c9454b0df3768feb938aea466092f09f` |
 | Versioning mechanisms | `integration/serialization-surfaces` | `17b7830ae397871ee90e31dc65feb82cfdfc6716` |
 
-Integration work lives on **`integration/application-versioning`** only.
+Pre-merge integration work lived on **`integration/application-versioning`**. Post-merge: **`4848402`** on **`integration/unified-application`**.
 
 ## Target runtime chain (full)
 
@@ -32,6 +51,8 @@ ApplicationUiSession
           ↓
 WinApplicationHost
 ```
+
+**WindowCatalog (today on unified):** runtime distill bootstrap + `DirectoryDomainStorage` + checkpoint sidecar (`persistent_model_checkpoint.bin`); **not** embedded BACKING/USER (**9D/9E**).
 
 ## Stage 9A — DONE
 
@@ -91,7 +112,7 @@ without linking `minimal_app_graph.cpp`; cold `LoadApplication`, USER/BACKING ov
 geometry Event persistence.
 
 Not in 9C: production embedded startup (**9D**), WindowCatalog export, release packages,
-active-release, T16/T17 matrix. Examples still use directory distill bootstrap at runtime.
+active-release, T16/T17 matrix. WindowCatalog on unified still uses directory distill bootstrap at runtime.
 
 ## Compatible mechanisms (both lines)
 
@@ -110,20 +131,19 @@ policy and `force_materialize` historical dynamic `Node::base` Save.
 **Node / EventFor** — event-layer compatibility, compaction on rollback, and
 broader historical-base matrix still separate from 9B2.
 
-**Æther CPM patches** — application integration branch: `objptr-reset-flags`,
-`force-materialize`. Not imported: `reject-unknown-stored-class`,
-`should-save-version`; joint application needs a conflict audit before those land.
+**Æther CPM patches** — unified branch carries merged patch set from both lines;
+conflict audit — **U4**.
 
 **Storage policy** — application line keeps trusted prototype storage (no automatic
 recovery, integrity telemetry, or temp-file staging from legacy versioning).
 
-**Release R / T01–T18** — versioning headless fixtures for embedded release, supply
-packages, active-release, USER/BACKING, dynamic schema layers; full matrix not PASS
-on either line alone. Import incrementally, not in one commit.
+**Release R / T01–T18** — headless fixtures on serialization baseline; **not** re-PASS on unified until **U6**.
 
 ## Next steps (planned)
 
-1. **9D** — MinimalApplication production embedded startup (consume generated header).
-2. WindowCatalog embedded startup + build-time export.
-3. Release packages, active-release selection.
-4. Historical base / schema compatibility and acceptance matrix vs versioning PLAN.
+1. **U4** — audit unified architecture (Object Core, Windows runtime, serialization, checkpoint, CMake, Æther patches).
+2. **U5** — minimal cleanup from audit + incremental regressions.
+3. **U6** — Object Core + Windows Application regressions, including MinimalApp.
+4. **9D** — MinimalApplication production embedded startup (consume generated header).
+5. **9E** — WindowCatalog embedded startup + build-time export.
+6. Release packages, active-release selection; **9F–9H**; historical base / schema matrix vs versioning PLAN.

@@ -2,9 +2,13 @@
 
 **Статус документа:** архитектурный контракт и roadmap. Это не описание уже реализованной сквозной release-модели.
 
-**Архитектурная редакция:** **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)**; детализация Object Core — **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)). Согласовано с параллельной веткой **`integration/application-versioning`**.
+**Рабочая ветка (код + docs):** **`integration/unified-application`** — объединение Object Core и Windows Application ([merge **`4848402`**](https://github.com/apptraverse/apptraverse/commit/4848402) ← `integration/serialization-surfaces` + `integration/application-versioning`). Исходные ветки — **исторические baseline**, не параллельная разработка.
 
-**Подтверждённый HEAD (код):** **`df536e6`** (C0.2.2); roadmap docs — обновляются с **C0.3** (базовый Object Core **`66515d8`**).
+**Связанные планы:** прогресс — [PROGRESS.md](./PROGRESS.md); application merge — [application-versioning.md](../integration/application-versioning.md); WindowCatalog demo — [window_catalog_demo.md](../window_catalog_demo.md).
+
+**Архитектурная редакция:** **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)**; детализация Object Core — **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)).
+
+**Подтверждённый HEAD Object Core (исторический срез до merge):** **`df536e6`** (C0.2.2); roadmap docs — **C0.3** (базовый Object Core **`66515d8`**). На **`integration/unified-application`** верификация Object Core regressions **не** переобъявляется без прогона на unified (**U6**).
 
 **Сверка с Google Doc:** прямой доступ к документу «AppTraverse — версионирование состояния и жизненный цикл поставок» ([ссылка](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit)) недоступен (403). Нумерация **T01–T18** приведена в соответствие с текстом исходного Doc (ручная сверка по постановке); остальной контракт — из аудита репозитория на baseline `19d7da6`.
 
@@ -43,11 +47,28 @@
 
 ## Порядок работ (после 11)
 
-**Сейчас:** **13 IN_PROGRESS** (**13.1** audit doc) → **13.2** (код) → **13.3–13.6** → **14** → **15** → **16**. **12R** / **12B PASS**. **C0 PASS**. Этапы **17–22** — roadmap; часть application/UI — параллельно в **`integration/application-versioning`** ([координация](#координация-s-integrationapplication-versioning)).
+**Object Core (roadmap на unified, без повторного PASS без тестов):** **13 IN_PROGRESS** — **13.1–13.2 PASS** → **13.3–13.6 TODO** → **14–16 TODO**. **12R** / **12B PASS**. **C0 PASS**. **11** — частичный PASS (**11A**, **11B.2**; полный **T16/T17** — нет). Этапы **17–22** — roadmap.
+
+**Unified application (пользовательский порядок после merge):**
+
+| Шаг | ID | Статус |
+| --- | --- | --- |
+| Инкрементальная сборка + catalog model test | **U1** | **PASS** (`8835d26`) |
+| Ручной Windows WindowCatalog | **U2** | **manual PASS** (не полный regression) |
+| Синхронизация PLAN/PROGRESS | **U3** | **PASS** (doc-only) |
+| Аудит объединённой архитектуры | **U4** | TODO |
+| Минимальная очистка по аудиту | **U5** | TODO |
+| Итоговая проверка unified (Object Core + apps, MinimalApp) | **U6** | TODO |
+| Embedded startup **9D/9E**, R/E/B/S в приложениях | после **U6** | TODO |
+| **13.3+**, Clone графов, release lifecycle | после стабилизации app | TODO |
+
+**Принято:** сначала работающее Windows-приложение и ручная проверка (**U2**), затем архитектурный порядок (**U4–U6**), без mass-refactor и без новой параллельной application-ветки.
+
+**Открыто (не менять в U3):** `DirectoryDomainStorage` может фиксировать ошибки записи; часть production callers **не** проверяет результат `SavePersistentModelSnapshotToStorage` — отдельная задача (явная ошибка вызывающему коду).
 
 ---
 
-## Текущее состояние (код `df536e6`)
+## Текущее состояние (код `df536e6` — Object Core baseline; unified см. [PROGRESS §Unified](./PROGRESS.md#unified-integration-integrationunified-application))
 
 История итераций **01–11** не переписывается.
 
@@ -67,7 +88,7 @@
 
 **Архитектурный пробел (остаётся):** **Clone** вручную в fixtures; нет универсального Clone/S-evolution (**13+**). Origin на штатном **`Obj::SetOriginId` / `origin_id()`** + **`Obj/S1`** — **12R/12B PASS**; отдельный **`object_origin.h`** для **12B** **не** введён (API достаточен).
 
-**Следующий активный шаг:** **13.2** — первый кодовый срез Clone (один объект, **P→A**). **13.1** — audit (doc). **12B PASS**. **12R PASS**. **C0 PASS**.
+**Следующий активный шаг Object Core:** **13.3** — graph closure + remap (**13.1–13.2 PASS**). **Следующий шаг unified:** **U4** — архитектурный аудит (**U1–U3 PASS**).
 
 ---
 
@@ -795,14 +816,17 @@ Result<ae::ObjId> CloneCanonicalRoot(
 
 ---
 
-## Координация с `integration/application-versioning`
+## Unified integration (историческая координация → merge)
 
-| Ветка | Ответственность |
+| Ветка | Роль сейчас |
 | --- | --- |
-| **`integration/serialization-surfaces`** | Object Core: origin, Clone, новые S, historical base, guarded compaction, headless **R0–R5**, **T01–T18** в prototype scope. |
-| **`integration/application-versioning`** | `ApplicationModelRuntime`, `ApplicationUiSession`, `WinApplicationHost`, embedded startup (**MinimalApplication** / **WindowCatalog**), реальные UI lifecycle. После собственной очистки **I0** — **9D/9E** независимо. |
+| **`integration/unified-application`** | **Единственная рабочая** ветка: Object Core + Windows Application + SharedNode restore + объединённый CMake/тесты. |
+| **`integration/serialization-surfaces`** | **Исторический baseline** Object Core (origin, Clone slice **13.2**, headless **R0–R5**, **T01–T18** fixtures). |
+| **`integration/application-versioning`** | **Исторический baseline** application framework (**I0**, **9A–9C**, `WinApplicationHost`, runtime distill WindowCatalog). |
 
-**Правила:** **не** mass-merge двух веток; **не** дублировать реализации; **не** переносить **`PrefabPtr`** в production; origin/Clone/S в application — **только** после PASS соответствующих тестов versioning-ветки, малыми шагами, с синхронизацией pin/CPM patches. **Не** менять core одновременно в обеих ветках без согласования.
+**Merge:** **`4848402`**. **U1** (`8835d26`) — catalog model test; **U2** — manual **`win32_window_catalog_demo`**.
+
+**Правила (на unified):** **не** дублировать реализации; **не** переносить **`PrefabPtr`** в production; полная интеграция R/E/B/S в EXE (**9D–9H**, **14–16**) — **ещё не выполнена**; origin/Clone/S в production apps — после **U6** и regressions. **U4–U5** — аудит и точечная очистка, **без** новой архитектуры приложения.
 
 ---
 
