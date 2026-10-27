@@ -51,7 +51,7 @@
 | **P2.d.1R.2b.3b.1** — Win HWND DomainGraph | **`3d85a31`**, §P2.d.1R.2b.3b.1 | **PASS** |
 | **P2.d.1R.2b.3b.2** — cross-process presenter storage | **`e750166`**, §P2.d.1R.2b.3b.2 | **PASS** |
 | **P2.d.1R.2b.4** — runtime_observer DomainGraph | **`90908ce`**, §P2.d.1R.2b.4 | **PASS** |
-| **P2.d.1R.2b.5** — удаление checkpoint API | **PLACEHOLDER**, §P2.d.1R.2b.5 | **PASS** |
+| **P2.d.1R.2b.5** — удаление checkpoint API | **`15f1879`**, §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.1R** — без отдельного persistent checkpoint | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.1R.2b** — миграция + удаление API | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.2** (UI publication) | **IN_PROGRESS** |
@@ -201,7 +201,7 @@
 
 ---
 
-## P2.d.1R.2b.5 — удаление persistent checkpoint API (2026-10-27)
+## P2.d.1R.2b.5 — удаление persistent checkpoint API (2026-10-27, **`15f1879`**)
 
 **Удалено из библиотеки:** `SerializePersistentModelSnapshot` / `LoadPersistentModelSnapshot`, sidecar `persistent_model_checkpoint.bin`, inject/hydrate helpers, `model_persistence.h` / `model_persistence.cpp`, `Node::AdoptMaterializedPersistentCheckpointJournal`, `PartitionedModelDomainStorage::checkpoint_sidecar_directory`.
 
