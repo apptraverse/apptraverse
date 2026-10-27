@@ -48,6 +48,7 @@
 | **P2.d.1R.2b.1** — persistence tests без checkpoint | **`63d3b18`**, §P2.d.1R.2b.1 | **PASS** |
 | **P2.d.1R.2b.2** — cycle/rehydration DomainGraph | **`bc4d03f`**, §P2.d.1R.2b.2 | **PASS** |
 | **P2.d.1R.2b.3a** — PresenterGraph DomainGraph | **`8ca6a23`**, §P2.d.1R.2b.3a | **PASS** |
+| **P2.d.1R.2b.3b.1** — Win HWND DomainGraph | §P2.d.1R.2b.3b.1 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.1R.2b** (shell/cycle), затем P2.d.2 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -169,7 +170,17 @@
 
 **Debug:** `apptraverse_presenter_graph_persistence_test` **exit 0**.
 
-**NEXT:** **P2.d.1R.2b.3b** — Win HWND / platform presenter persistence.
+**NEXT:** **P2.d.1R.2b.3b.2** — cross-process presenter persistence.
+
+---
+
+## P2.d.1R.2b.3b.1 — Win HWND persistence через DomainGraph (2026-10-27)
+
+**Test:** `RunWinHwndPersistenceTest` — `RamDomainStorage`, `SaveRoot` / cold `LoadRoot`; snapshot `storage.state` до `InitializePresenters`; после OnLoad повторный `SaveRoot` — слои идентичны; повторный `InitializePresenters` — тот же HWND; `UnloadPresenters` — `hwnd() == nullptr`.
+
+**Минимальный сопутствующий fix:** `UiDesktopWindowPresenter::SubmitFrameFromNative` — no-op при `model_proxy == nullptr` (тест вызывает `InitializePresenters(..., nullptr, nullptr)`; native frame sync не требует model thread в headless persistence).
+
+**Debug:** `apptraverse_presenter_win_hwnd_persistence_test` **exit 0**.
 
 ---
 

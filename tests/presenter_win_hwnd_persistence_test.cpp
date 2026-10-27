@@ -66,44 +66,58 @@ void RunWinHwndPersistenceTest() {
   (void)&g_apptraverse_registrar_WinPersistRoot;
 
   ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto root = WinPersistRoot::ptr::Create(
-      ae::CreateWith{domain}.with_id(kRootId));
-  InitializeRuntimeNode(*root);
-  root->window = ui::UiDesktopWindow::ptr::Create(
-      ae::CreateWith{domain}.with_id(kWindowId));
-  InitializeRuntimeNode(*root->window, *root);
-  root->window_presenter =
-      ui::windows::WinDesktopWindowPresenter::ptr::Create(
-          ae::CreateWith{domain}.with_id(kPresenterId));
-  root->window_presenter->window = root->window;
+  ae::RamDomainStorage::ObjClassData layers_before_native;
 
-  ByteSink before;
-  SerializePersistentModelSnapshot(*root, before);
+  {
+    ae::Domain domain{storage};
+    auto root = WinPersistRoot::ptr::Create(
+        ae::CreateWith{domain}.with_id(kRootId));
+    InitializeRuntimeNode(*root);
+    root->window = ui::UiDesktopWindow::ptr::Create(
+        ae::CreateWith{domain}.with_id(kWindowId));
+    InitializeRuntimeNode(*root->window, *root);
+    root->window_presenter =
+        ui::windows::WinDesktopWindowPresenter::ptr::Create(
+            ae::CreateWith{domain}.with_id(kPresenterId));
+    root->window_presenter->window = root->window;
 
-  ae::RamDomainStorage load_storage;
-  ae::Domain load_domain{load_storage};
-  auto load_root = WinPersistRoot::ptr::Create(
-      ae::CreateWith{load_domain}.with_id(kRootId));
-  InitializeRuntimeNode(*load_root);
-  ByteSource in;
-  in.data = before.bytes.data();
-  in.size = before.bytes.size();
-  in.pos = 0;
-  LoadPersistentModelSnapshot(in, load_domain, load_storage, *load_root);
+    ae::DomainGraph save_graph{&domain};
+    ae::Ptr<ae::Obj> save_root = domain.Find(kRootId);
+    CHECK(save_root);
+    CHECK(save_graph.SaveRoot(save_root, kRootId).IsOk());
+    layers_before_native = storage.state;
+  }
+
+  ae::Domain load_domain{storage};
+  ae::DomainGraph load_graph{&load_domain};
+  ae::Ptr<ae::Obj> loaded_obj;
+  CHECK(load_graph.LoadRoot(kRootId, loaded_obj).IsOk());
+  ae::Ptr<WinPersistRoot> load_root{loaded_obj};
+
   CHECK(load_root->window_presenter.is_valid());
+  CHECK(load_root->window_presenter.id() == kPresenterId);
+  CHECK(load_root->window_presenter->window.is_valid());
+  CHECK(&*load_root->window_presenter->window == &*load_root->window);
   CHECK(load_root->window_presenter->hwnd() == nullptr);
+  CHECK(!load_root->window_presenter->presentation_loaded);
 
   InitializePresenters(*load_root, nullptr, nullptr);
   HWND const hwnd = load_root->window_presenter->hwnd();
   CHECK(hwnd != nullptr);
+  CHECK(load_root->window_presenter->presentation_loaded);
 
-  ByteSink after;
-  SerializePersistentModelSnapshot(*load_root, after);
-  CHECK(before.bytes == after.bytes);
+  ae::DomainGraph save_graph_after_present{&load_domain};
+  ae::Ptr<ae::Obj> save_root_after_present = load_domain.Find(kRootId);
+  CHECK(save_root_after_present);
+  CHECK(save_graph_after_present.SaveRoot(save_root_after_present, kRootId)
+            .IsOk());
+  CHECK(storage.state == layers_before_native);
 
   InitializePresenters(*load_root, reinterpret_cast<void*>(hwnd), nullptr);
   CHECK(load_root->window_presenter->hwnd() == hwnd);
+
+  UnloadPresenters(*load_root);
+  CHECK(load_root->window_presenter->hwnd() == nullptr);
 }
 
 }  // namespace
