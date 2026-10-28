@@ -1,0 +1,24 @@
+﻿diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 59ba43c..a8e4b21 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -121,6 +121,9 @@ enum class GraphSerializationScope : std::uint8_t {
+   // UI structural/incremental publication: materialized fields only; Node
+   // historical base/journal must not expand the Save walk.
+   MaterializedPublication = 2,
++  // Canonical Clone snapshot: current fields and local refs; omit Node
++  // historical base/journal. Origin facet enabled like LocalPersistent.
++  CanonicalClone = 3,
+ };
+ 
+ /**
+@@ -331,7 +334,8 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
+   }
+ 
+   if constexpr (std::is_base_of_v<Obj, std::decay_t<T>>) {
+-    if (serialization_scope == GraphSerializationScope::LocalPersistent &&
++    if ((serialization_scope == GraphSerializationScope::LocalPersistent ||
++         serialization_scope == GraphSerializationScope::CanonicalClone) &&
+         T::kClassId == obj.GetClassId()) {
+       Obj const& as_obj = static_cast<Obj const&>(obj);
+       if (as_obj.origin_id().is_valid() &&

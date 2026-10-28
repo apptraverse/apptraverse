@@ -11,9 +11,13 @@
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/event_for.h"
+#include "apptraverse/node_for.h"
 #include "apptraverse/object_clone.h"
+#include "apptraverse/object_link.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/overlay_domain_storage.h"
+#include "apptraverse/runtime_node.h"
 
 namespace {
 
@@ -128,6 +132,108 @@ class CloneGraphTargetV1 : public ae::Obj {
 APPTRAVERSE_REGISTER(CloneFacetTargetV1);
 APPTRAVERSE_REGISTER(CloneGraphTargetV1);
 
+constexpr ae::ObjId::Type kHistOriginPRaw = 92010u;
+constexpr ae::ObjId::Type kHistOriginQRaw = 92011u;
+constexpr ae::ObjId::Type kHistOriginCRaw = 92012u;
+constexpr ae::ObjId::Type kHistRootRRaw = 92013u;
+constexpr ae::ObjId::Type kHistChildDRaw = 92014u;
+constexpr ae::ObjId::Type kHistCloneRRaw = 92015u;
+
+constexpr std::uint32_t kHistInitialRootValue = 100u;
+constexpr std::uint32_t kHistInitialChildValue = 101u;
+constexpr std::uint32_t kHistSavedRootValue = 200u;
+constexpr std::uint32_t kHistSavedChildValue = 202u;
+constexpr std::uint32_t kHistMemoryRootValue = 3601u;
+constexpr std::uint32_t kHistMemoryChildValue = 3602u;
+constexpr std::uint32_t kHistConstValue = 303u;
+constexpr std::uint32_t kHistPostCloneCommitValue = 4001u;
+
+ae::ObjId const kHistOriginP{kHistOriginPRaw};
+ae::ObjId const kHistOriginQ{kHistOriginQRaw};
+ae::ObjId const kHistOriginC{kHistOriginCRaw};
+ae::ObjId const kHistRootR{kHistRootRRaw};
+ae::ObjId const kHistChildD{kHistChildDRaw};
+ae::ObjId const kHistCloneR{kHistCloneRRaw};
+
+class CloneHistConst : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::CloneHistConst", CloneHistConst,
+                           ae::Obj, 0)
+
+ protected:
+  CloneHistConst() = default;
+
+ public:
+  explicit CloneHistConst(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(value))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, value);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, value);
+  }
+
+  std::uint32_t value{};
+};
+
+class CloneHistNode;
+class CloneHistSetValueEvent;
+
+class CloneHistNode : public apptraverse::NodeFor<CloneHistNode> {
+  APPTRAVERSE_OBJECT(CloneHistNode, apptraverse::Node, 0)
+
+ protected:
+  CloneHistNode() = default;
+
+ public:
+  explicit CloneHistNode(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(value), AE_MMBR(child), AE_MMBR(shared_const))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, value, child, shared_const);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, value, child, shared_const);
+  }
+
+  std::uint32_t value{};
+  CloneHistNode::ptr child{};
+  apptraverse::LocalPtr<CloneHistConst> shared_const{};
+
+  void Apply(CloneHistSetValueEvent const& event);
+};
+
+class CloneHistSetValueEvent
+    : public apptraverse::EventFor<CloneHistNode, CloneHistSetValueEvent> {
+  APPTRAVERSE_OBJECT(CloneHistSetValueEvent, apptraverse::Event, 0)
+
+ protected:
+  CloneHistSetValueEvent() = default;
+
+ public:
+  explicit CloneHistSetValueEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(value))
+
+  std::uint32_t value{};
+};
+
+void CloneHistNode::Apply(CloneHistSetValueEvent const& event) {
+  value = event.value;
+}
+
+APPTRAVERSE_REGISTER(CloneHistConst);
+APPTRAVERSE_REGISTER(CloneHistNode);
+APPTRAVERSE_REGISTER(CloneHistSetValueEvent);
+
 StoredLayerSet CollectDiskLayers(std::filesystem::path const& storage_root,
                                  ae::ObjId object_id) {
   StoredLayerSet layers;
@@ -239,6 +345,41 @@ BackingPqcSnapshot SnapshotBackingPqc(std::filesystem::path const& backing_root)
 
 bool operator==(BackingPqcSnapshot const& left, BackingPqcSnapshot const& right) {
   return left.p == right.p && left.q == right.q && left.c == right.c;
+}
+
+BackingPqcSnapshot SnapshotBackingHist(std::filesystem::path const& backing_root) {
+  return BackingPqcSnapshot{
+      SnapshotDiskObjectTree(backing_root, kHistOriginP),
+      SnapshotDiskObjectTree(backing_root, kHistOriginQ),
+      SnapshotDiskObjectTree(backing_root, kHistOriginC),
+  };
+}
+
+void CollectHistoricalIds(apptraverse::Node& root,
+                          std::set<ae::ObjId::Type>& base_ids,
+                          std::set<ae::ObjId::Type>& event_ids) {
+  std::vector<apptraverse::Node*> nodes;
+  apptraverse::CollectReachableNodes(root, nodes);
+  for (apptraverse::Node* node : nodes) {
+    if (node->base.is_valid()) {
+      base_ids.insert(node->base.id().id());
+    }
+    for (auto const& record : node->journal) {
+      if (record.event.is_valid()) {
+        event_ids.insert(record.event.id().id());
+      }
+    }
+  }
+}
+
+bool TargetUserContainsAnyId(std::filesystem::path const& user_root,
+                             std::set<ae::ObjId::Type> const& ids) {
+  for (ae::ObjId::Type id : ids) {
+    if (DiskObjectHasAnyLayers(user_root, ae::ObjId{id})) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void SeedGraphConstantsOnBacking(std::filesystem::path const& state_root) {
@@ -584,6 +725,267 @@ void TestCanonicalCloneTwoObjectGraphWithConstBoundary() {
   std::filesystem::remove_all(state_root);
 }
 
+void SeedHistOriginsOnBacking(std::filesystem::path const& backing_root) {
+  std::filesystem::create_directories(backing_root);
+  apptraverse::DirectoryDomainStorage backing{backing_root};
+  ae::Domain domain{backing};
+  CloneHistNode::ptr p = CloneHistNode::ptr::Create(
+      ae::CreateWith{domain}.with_id(kHistOriginP));
+  ae::Ptr<CloneHistNode> p_body = p.Load();
+  p_body->value = kHistSavedRootValue;
+  apptraverse::InitializeRuntimeNode(*p_body);
+  CloneHistNode::ptr q = CloneHistNode::ptr::Create(
+      ae::CreateWith{domain}.with_id(kHistOriginQ));
+  ae::Ptr<CloneHistNode> q_body = q.Load();
+  q_body->value = kHistSavedChildValue;
+  apptraverse::InitializeRuntimeNode(*q_body);
+  CloneHistConst::ptr c = CloneHistConst::ptr::Create(
+      ae::CreateWith{domain}.with_id(kHistOriginC));
+  ae::Ptr<CloneHistConst> c_body = c.Load();
+  c_body->value = kHistConstValue;
+  ae::DomainGraph graph{&domain};
+  backing.BeginSaveSession();
+  if (!graph.SaveRoot(p_body, kHistOriginP).IsOk() ||
+      !graph.SaveRoot(q_body, kHistOriginQ).IsOk() ||
+      !graph.SaveRoot(c_body, kHistOriginC).IsOk()) {
+    Fail("SaveRoot hist P/Q/C on BACKING");
+  }
+  if (backing.SaveSessionHadFailure()) {
+    Fail("hist backing save session failed");
+  }
+}
+
+void TestCanonicalCloneNodeGraphWithFreshHistory() {
+  std::filesystem::path const state_root =
+      std::filesystem::temp_directory_path() /
+      "apptraverse_object_clone_node_test";
+  std::filesystem::remove_all(state_root);
+  std::filesystem::create_directories(state_root / "source" / "user");
+  std::filesystem::create_directories(state_root / "target" / "user");
+  std::filesystem::path const backing_root = state_root / "backing";
+  std::filesystem::path const source_user = state_root / "source" / "user";
+  std::filesystem::path const target_user = state_root / "target" / "user";
+  std::set<ae::ObjId> const overlay_constants{kHistOriginP, kHistOriginQ,
+                                              kHistOriginC};
+  SeedHistOriginsOnBacking(backing_root);
+  BackingPqcSnapshot const backing_before =
+      SnapshotBackingHist(backing_root);
+
+  ae::ObjId clone_r_id{};
+  ae::ObjId clone_d_id{};
+  std::set<ae::ObjId::Type> source_base_ids;
+  std::set<ae::ObjId::Type> source_event_ids;
+
+  {
+    DiskStores source_stores =
+        OpenDiskStores(source_user, backing_root, overlay_constants);
+    ae::Domain source_domain{*source_stores.overlay};
+    CloneHistNode::ptr child = CloneHistNode::ptr::Create(
+        ae::CreateWith{source_domain}.with_id(kHistChildD));
+    ae::Ptr<CloneHistNode> child_body = child.Load();
+    child_body->value = kHistInitialChildValue;
+    child_body->SetOriginId(kHistOriginQ);
+    child_body->shared_const = apptraverse::LocalPtr<CloneHistConst>(
+        CloneHistConst::ptr::Declare(
+            ae::CreateWith{&source_domain}
+                .with_id(kHistOriginC)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault |
+                            ae::ObjFlags::kUnloaded)));
+    apptraverse::InitializeRuntimeNode(*child_body);
+
+    CloneHistNode::ptr root = CloneHistNode::ptr::Create(
+        ae::CreateWith{source_domain}.with_id(kHistRootR));
+    ae::Ptr<CloneHistNode> root_body = root.Load();
+    root_body->value = kHistInitialRootValue;
+    root_body->child = child;
+    root_body->SetOriginId(kHistOriginP);
+    apptraverse::InitializeRuntimeNode(*root_body);
+
+    auto saved_root_event =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{source_domain});
+    saved_root_event->value = kHistSavedRootValue;
+    root_body->Commit(saved_root_event);
+    auto saved_child_event =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{source_domain});
+    saved_child_event->value = kHistSavedChildValue;
+    child_body->Commit(saved_child_event);
+
+    source_stores.user->BeginSaveSession();
+    ae::DomainGraph source_save{&source_domain};
+    if (!source_save.SaveRoot(root_body, kHistRootR).IsOk() ||
+        !source_save.SaveRoot(child_body, kHistChildD).IsOk()) {
+      Fail("SaveRoot hist R/D on source USER");
+    }
+    if (source_stores.user->SaveSessionHadFailure()) {
+      Fail("hist source USER save failed");
+    }
+
+    CollectHistoricalIds(*root_body, source_base_ids, source_event_ids);
+    if (source_base_ids.empty()) {
+      Fail("source must have historical bases before clone");
+    }
+
+    DiskFileSnapshot const source_r_before =
+        SnapshotDiskObjectTree(source_user, kHistRootR);
+    DiskFileSnapshot const source_d_before =
+        SnapshotDiskObjectTree(source_user, kHistChildD);
+
+    ae::DomainGraph source_load{&source_domain};
+    ae::Ptr<ae::Obj> loaded_r;
+    if (!source_load.LoadRoot(kHistRootR, loaded_r).IsOk()) {
+      Fail("LoadRoot hist R before clone");
+    }
+    ae::Ptr<CloneHistNode> mutable_r{loaded_r};
+    auto memory_root_event =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{source_domain});
+    memory_root_event->value = kHistMemoryRootValue;
+    mutable_r->Commit(memory_root_event);
+    auto memory_child_event =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{source_domain});
+    memory_child_event->value = kHistMemoryChildValue;
+    mutable_r->child.Load()->Commit(memory_child_event);
+
+    DiskStores target_stores =
+        OpenDiskStores(target_user, backing_root, overlay_constants);
+    ae::Domain target_domain{*target_stores.overlay};
+
+    apptraverse::CloneOptions options{};
+    options.stable_origin = kHistOriginP;
+    options.boundary_ids = {kHistOriginP, kHistOriginQ, kHistOriginC};
+    options.new_root_id = kHistCloneR;
+
+    target_stores.user->BeginSaveSession();
+    apptraverse::CloneCanonicalResult const cloned =
+        apptraverse::CloneCanonicalRoot(source_domain, *mutable_r, target_domain,
+                                        options);
+    if (!cloned || cloned.new_root_id() != kHistCloneR) {
+      Fail("CloneCanonicalRoot hist graph");
+    }
+    if (target_stores.user->SaveSessionHadFailure()) {
+      Fail("hist target USER save failed");
+    }
+
+    ae::Ptr<CloneHistNode> clone_r{ae::Ptr<ae::Obj>{cloned.root.Load()}};
+    clone_r_id = kHistCloneR;
+    clone_d_id = clone_r->child.id();
+    ae::Ptr<CloneHistNode> clone_d{clone_r->child.Load()};
+    if (clone_r->value != kHistMemoryRootValue ||
+        clone_d->value != kHistMemoryChildValue ||
+        !clone_r->journal.empty() || !clone_d->journal.empty() ||
+        !clone_r->base.is_valid() || !clone_d->base.is_valid()) {
+      Fail("clone hist node state after Clone");
+    }
+    ae::Ptr<CloneHistNode> clone_r_base{clone_r->base.Load()};
+    ae::Ptr<CloneHistNode> clone_d_base{clone_d->base.Load()};
+    ae::Ptr<CloneHistNode> source_r_base{mutable_r->base.Load()};
+    ae::Ptr<CloneHistNode> source_d_base{mutable_r->child.Load()->base.Load()};
+    if (clone_r->base.id() == source_r_base->obj_id ||
+        clone_d->base.id() == source_d_base->obj_id) {
+      Fail("clone bases must be new objects");
+    }
+    if (clone_r_base->value != kHistMemoryRootValue ||
+        clone_d_base->value != kHistMemoryChildValue) {
+      Fail("clone bases must capture current state");
+    }
+    if (clone_r_base->origin_id() != kHistOriginP ||
+        clone_d_base->origin_id() != kHistOriginQ) {
+      Fail("clone base origins");
+    }
+    if (!clone_d->shared_const.is_valid() ||
+        clone_d->shared_const.id() != kHistOriginC) {
+      Fail("clone shared_const id");
+    }
+
+    if (TargetUserContainsAnyId(target_user, source_base_ids) ||
+        TargetUserContainsAnyId(target_user, source_event_ids) ||
+        DiskObjectHasAnyLayers(target_user, kHistOriginP) ||
+        DiskObjectHasAnyLayers(target_user, kHistOriginQ) ||
+        DiskObjectHasAnyLayers(target_user, kHistOriginC)) {
+      Fail("target USER must not contain source history or P/Q/C");
+    }
+
+    DiskFileSnapshot const source_r_after =
+        SnapshotDiskObjectTree(source_user, kHistRootR);
+    DiskFileSnapshot const source_d_after =
+        SnapshotDiskObjectTree(source_user, kHistChildD);
+    if (source_r_after != source_r_before || source_d_after != source_d_before) {
+      Fail("hist source USER changed after clone");
+    }
+
+    auto post_commit_root =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{target_domain});
+    post_commit_root->value = kHistPostCloneCommitValue;
+    clone_r->Commit(post_commit_root);
+    clone_r->ReplayFromBase();
+    if (clone_r->value != kHistPostCloneCommitValue) {
+      Fail("ReplayFromBase changed clone R");
+    }
+
+    ae::DomainGraph target_save{&target_domain};
+    target_stores.user->BeginSaveSession();
+    if (!target_save.SaveRoot(clone_r, clone_r_id).IsOk()) {
+      Fail("SaveRoot clone R after Commit");
+    }
+    if (target_stores.user->SaveSessionHadFailure()) {
+      Fail("target USER save after post-clone Commit");
+    }
+  }
+
+  {
+    DiskStores cold =
+        OpenDiskStores(target_user, backing_root, overlay_constants);
+    ae::Domain cold_domain{*cold.overlay};
+    ae::DomainGraph cold_graph{&cold_domain};
+    ae::Ptr<ae::Obj> cold_root;
+    if (!cold_graph.LoadRoot(clone_r_id, cold_root).IsOk()) {
+      Fail("cold LoadRoot hist clone R");
+    }
+    ae::Ptr<CloneHistNode> cold_r{cold_root};
+    ae::Ptr<CloneHistNode> cold_d{cold_r->child.Load()};
+    if (cold_r->value != kHistPostCloneCommitValue ||
+        cold_d->value != kHistMemoryChildValue ||
+        cold_r->child.id() != clone_d_id ||
+        cold_r->origin_id() != kHistOriginP ||
+        cold_d->origin_id() != kHistOriginQ ||
+        cold_d->journal.empty() == false) {
+      Fail("cold hist clone fields");
+    }
+    if (!cold_r->base.is_valid() || !cold_d->base.is_valid()) {
+      Fail("cold hist clone missing fresh bases");
+    }
+    cold_r->ReplayFromBase();
+    if (cold_r->value != kHistPostCloneCommitValue) {
+      Fail("cold ReplayFromBase changed R");
+    }
+    if (!cold_d->shared_const.is_valid() ||
+        cold_d->shared_const.id() != kHistOriginC ||
+        cold_d->shared_const.is_loaded()) {
+      Fail("cold shared_const before Load");
+    }
+    ae::Ptr<CloneHistConst> loaded_c{
+        ae::Ptr<ae::Obj>{cold_d->shared_const.Load()}};
+    if (!loaded_c || loaded_c->obj_id != kHistOriginC ||
+        loaded_c->value != kHistConstValue) {
+      Fail("cold Load(C)");
+    }
+
+    auto cold_commit =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{cold_domain});
+    cold_commit->value = kHistPostCloneCommitValue + 1u;
+    cold_r->Commit(cold_commit);
+    if (cold_r->value != kHistPostCloneCommitValue + 1u) {
+      Fail("cold Commit after load");
+    }
+  }
+
+  BackingPqcSnapshot const backing_after = SnapshotBackingHist(backing_root);
+  if (backing_after != backing_before) {
+    Fail("hist BACKING P/Q/C changed");
+  }
+
+  std::filesystem::remove_all(state_root);
+}
+
 void TestCloneObjIdConflict() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -609,9 +1011,13 @@ int main() {
   apptraverse::EnsureObjectRegistration();
   (void)&g_apptraverse_registrar_CloneFacetTargetV1;
   (void)&g_apptraverse_registrar_CloneGraphTargetV1;
+  (void)&g_apptraverse_registrar_CloneHistConst;
+  (void)&g_apptraverse_registrar_CloneHistNode;
+  (void)&g_apptraverse_registrar_CloneHistSetValueEvent;
 
   TestCanonicalCloneSingleObjectMemoryRoundtrip();
   TestCanonicalCloneTwoObjectGraphWithConstBoundary();
+  TestCanonicalCloneNodeGraphWithFreshHistory();
   TestCloneMissingStableOrigin();
   TestCloneObjIdConflict();
 

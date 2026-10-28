@@ -58,6 +58,14 @@ bool OmitNodeHistoryForPublication(Dnv& dnv) {
          *scope == ae::GraphSerializationScope::MaterializedPublication;
 }
 
+template <typename Dnv>
+bool OmitNodeHistoryForCanonicalClone(Dnv& dnv) {
+  ae::GraphSerializationScope* scope =
+      DnvSerializationScope<std::decay_t<Dnv>>::Get(dnv);
+  return scope != nullptr &&
+         *scope == ae::GraphSerializationScope::CanonicalClone;
+}
+
 void NoteNodeHistorySerialized(std::size_t journal_entries,
                                bool base_snapshot);
 

@@ -21,7 +21,7 @@
 
 **Нормативные правила Object Core:** [PLAN §нормативные правила](./PLAN.md#нормативные-правила-object-core-v03--01-plan) (здесь не дублируются).
 
-**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`** (до R фактическая доступность **C** не проверялась). Node history / lazy closure / полный **13** — **TODO**.
+**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal, Commit→Replay→cold **`LoadRoot`**. Lazy dynamic closure / полный **13** — **TODO**.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -67,7 +67,8 @@
 | **P2.d** — штатная сериализация | §P2.d.2.6 | **PASS** |
 | **P2.e.1R** — graph clone test: shared BACKING, cold + `Load(C)` | **`c23ec0a`**, §P2.e.1R | **PASS** (Debug: `apptraverse_object_clone_test`) |
 | **P2.e.1** — loaded graph Clone + const boundary; Save remap | **`a1a21f1`**, §P2.e.1 | **PASS** (remap; fixture до **P2.e.1R** не проверял lazy **C**) |
-| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (Node history / lazy closure **TODO**) |
+| **P2.e.2** — Node graph Clone + fresh history (`CanonicalClone`) | **`6d734c5`**, §P2.e.2 | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_model_persistence_test`, `apptraverse_application_contract_headless_test`) |
+| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (lazy closure / оконный prefab **TODO**) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.

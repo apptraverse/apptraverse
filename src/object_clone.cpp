@@ -7,8 +7,11 @@
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/registry.h"
 
+#include "apptraverse/node.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
 namespace {
@@ -131,6 +134,63 @@ std::set<ae::ObjId> BuildCopySet(ae::RamDomainStorage const& snapshot,
   return copy_set;
 }
 
+void SaveCanonicalCloneGraphToRam(ae::Obj const& object,
+                                  ae::RamDomainStorage& scratch) {
+  ae::Domain scratch_domain{scratch};
+  ae::DomainGraph graph{&scratch_domain,
+                        ae::GraphSerializationScope::CanonicalClone};
+  ae::Ptr<ae::Obj> ptr = object.domain->Find(object.obj_id);
+  if (!ptr) {
+    return;
+  }
+  auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
+  if (factory == nullptr || factory->save == nullptr) {
+    return;
+  }
+  factory->save(&graph, ptr, object.obj_id);
+}
+
+bool IsNodeObject(ae::Obj const& obj) {
+  return ae::Registry::GetRegistry().GenerationDistance(
+             Node::kClassId, obj.GetClassId()) >= 0;
+}
+
+void InitializeFreshHistoryForClonedNodes(ae::Domain& target,
+                                          ae::Obj& loaded_root) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(loaded_root, nodes);
+  for (Node* node : nodes) {
+    if (node->domain != &target) {
+      continue;
+    }
+    if (node->base.is_valid()) {
+      continue;
+    }
+    InitializeRuntimeNode(*node);
+    if (node->base.is_valid() && node->base.is_loaded()) {
+      node->base.Load()->SetOriginId(node->origin_id());
+    }
+  }
+}
+
+CloneRemap BuildIdentityRemap(CloneRemap const& object_remap,
+                              ae::Obj& loaded_root) {
+  CloneRemap identity_remap;
+  for (auto const& [_, new_id_raw] : object_remap) {
+    identity_remap[new_id_raw] = new_id_raw;
+  }
+  std::vector<Node*> nodes;
+  CollectReachableNodes(loaded_root, nodes);
+  for (Node* node : nodes) {
+    if (!node->base.is_valid()) {
+      continue;
+    }
+    ae::ObjId const base_id = node->base.id();
+    identity_remap[base_id.id()] = base_id.id();
+  }
+  return identity_remap;
+}
+
 }  // namespace
 
 CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root,
@@ -147,7 +207,7 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
   }
 
   ae::RamDomainStorage snapshot;
-  SavePersistedObjectGraphToRam(source_root, snapshot);
+  SaveCanonicalCloneGraphToRam(source_root, snapshot);
 
   std::vector<ae::ObjId> const layered = CollectLayeredObjectIds(snapshot);
   if (layered.empty()) {
@@ -208,7 +268,8 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
 
   ae::RamDomainStorage remapped_scratch;
   ae::Domain remapped_domain{remapped_scratch};
-  ae::DomainGraph remapped_save_graph{&remapped_domain};
+  ae::DomainGraph remapped_save_graph{
+      &remapped_domain, ae::GraphSerializationScope::CanonicalClone};
   remapped_save_graph.SetCloneSaveRemap(&remap);
   if (!remapped_save_graph.SaveRoot(staging_root, source_id).IsOk()) {
     return Fail(CloneError::kPersistFailed);
@@ -244,10 +305,11 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
     }
   }
 
-  CloneRemap identity_remap;
-  for (auto const& [_, new_id_raw] : remap) {
-    identity_remap[new_id_raw] = new_id_raw;
+  if (IsNodeObject(*loaded_root)) {
+    InitializeFreshHistoryForClonedNodes(target, *loaded_root);
   }
+
+  CloneRemap const identity_remap = BuildIdentityRemap(remap, *loaded_root);
   ae::DomainGraph persist_graph{&target};
   persist_graph.SetCloneSaveRemap(&identity_remap);
   if (!persist_graph.SaveRoot(loaded_root, new_root_id).IsOk()) {

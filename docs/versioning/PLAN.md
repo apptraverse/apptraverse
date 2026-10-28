@@ -86,7 +86,8 @@
 | P2.d | Штатная сериализация (storage + publication) | **PASS** — P2.d.1R + P2.d.2 |
 | P2.e.1R | Fixture: общий BACKING, cold load, lazy `Load(C)` | **PASS** — `TestCanonicalCloneTwoObjectGraphWithConstBoundary` |
 | P2.e.1 | Loaded graph R→D + external const C; remap штатного Save (Æther `CloneSaveRemap`) | **PASS** — частично **§13.3**, не PASS **13** |
-| P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | **IN_PROGRESS** — Node history / lazy closure **TODO** |
+| **P2.e.2** | Loaded Node graph: `GraphSerializationScope::CanonicalClone`, fresh base/journal per copy | **PASS** — `TestCanonicalCloneNodeGraphWithFreshHistory` |
+| P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | **IN_PROGRESS** — lazy dynamic closure / оконный prefab **TODO** |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
 
 Не ждать полной матрицы Clone/update/rollback. Не заменять prefab ручным копированием полей окна.
