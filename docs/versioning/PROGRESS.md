@@ -55,7 +55,7 @@
 | **P2.d.1R** — без отдельного persistent checkpoint | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.1R.2b** — миграция + удаление API | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.2.1** — structural envelope BinaryArchive | **`d8e0094`**, §P2.d.2.1 | **PASS** |
-| **P2.d.2.2** — graph payload BinaryArchive | §P2.d.2.2 | **PASS** |
+| **P2.d.2.2** — graph payload BinaryArchive | **`bae3106`**, §P2.d.2.2 | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.2.3** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -227,7 +227,7 @@
 
 ---
 
-## P2.d.2.2 — graph payload через BinaryArchive (2026-10-27)
+## P2.d.2.2 — graph payload через BinaryArchive (2026-10-27, **`bae3106`**)
 
 **Изменение:** `SerializeObjectGraphToBuffer` / `DeserializeObjectGraphFromBuffer` / `TryLoadInitialPublication` — `GraphPublicationPayload` (`ae::RamDomainStorage::ObjClassData layers`, `generations`) через `BinaryArchive`; общий decode/inject helper; удалены ручные `layer_count`, per-layer headers и отдельная generation table в wire format. Внешний initial envelope (`root ObjId`) без изменений.
 
