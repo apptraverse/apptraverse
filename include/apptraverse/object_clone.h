@@ -35,9 +35,9 @@ struct CloneCanonicalResult {
   explicit operator bool() const { return error == CloneError::kNone; }
 };
 
-// Copies canonical in-memory state of source_root (and loaded in-graph referents
-// outside boundary_ids) into target storage under new ObjIds (P2.e.1: small
-// loaded Obj graph with external const boundary; remap via standard Save).
+// Copies canonical in-memory state of source_root and copy-closure (including
+// unloaded ObjPtr referents discovered via DomainGraph clone reference visitor)
+// into target storage under new ObjIds; boundary_ids stay shared.
 // Caller must BeginSaveSession on DirectoryDomainStorage USER before call when
 // persisting to disk USER.
 CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root,

@@ -1,0 +1,47 @@
+﻿diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index a8e4b21..eb47589 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -164,6 +164,19 @@ class DomainGraph {
+     clone_save_remap_ = table;
+   }
+ 
++  using CloneReferenceVisitorFn = void (*)(void* context, ObjId id);
++
++  void SetCloneReferenceVisitor(void* context, CloneReferenceVisitorFn fn) {
++    clone_reference_visitor_context_ = context;
++    clone_reference_visitor_ = fn;
++  }
++
++  void NotifyCloneReference(ObjId id) const {
++    if (clone_reference_visitor_ != nullptr && id.is_valid()) {
++      clone_reference_visitor_(clone_reference_visitor_context_, id);
++    }
++  }
++
+   ObjId CloneSaveRemapId(ObjId id) const;
+   bool CloneSaveShouldTraverse(ObjId id) const;
+ 
+@@ -180,6 +193,8 @@ class DomainGraph {
+   std::unique_ptr<IDomainStorageWriter> GetWriter(DomainQuery const& query);
+ 
+   CloneSaveRemapTable const* clone_save_remap_{nullptr};
++  void* clone_reference_visitor_context_{nullptr};
++  CloneReferenceVisitorFn clone_reference_visitor_{nullptr};
+ };
+ 
+ inline bool IsMissingVersion(seri::SeriResult const& result) {
+diff --git a/src/aether-objects/obj/obj_ptr_base.cpp b/src/aether-objects/obj/obj_ptr_base.cpp
+index 31e855a..693fec3 100644
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -128,6 +128,9 @@ using ObjPtrBaseSerializer =
+ 
+ SeriResult ObjPtrBaseSerializer::Seri(Archive& archive,
+                                       Meta<ObjectPtrBase const> meta) {
++  if (meta.value.id_.is_valid()) {
++    archive.buffer().domain_graph->NotifyCloneReference(meta.value.id_);
++  }
+   ObjId const serialized_id =
+       archive.buffer().domain_graph->CloneSaveRemapId(meta.value.id_);
+   TRY_RESULT((archive.buffer().Write(DataTag{serialized_id})));

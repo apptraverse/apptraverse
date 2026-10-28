@@ -145,6 +145,9 @@ constexpr ae::ObjId::Type kHistOriginContainerRaw = 92016u;
 constexpr ae::ObjId::Type kHistContainerRootRaw = 92017u;
 constexpr ae::ObjId::Type kHistCloneContainerRaw = 92018u;
 constexpr ae::ObjId::Type kHistContainerChildRaw = 92019u;
+constexpr ae::ObjId::Type kHistLazyRootRaw = 92020u;
+constexpr ae::ObjId::Type kHistLazyChildRaw = 92021u;
+constexpr ae::ObjId::Type kHistCloneLazyRootRaw = 92022u;
 
 constexpr std::uint32_t kHistInitialRootValue = 100u;
 constexpr std::uint32_t kHistInitialChildValue = 101u;
@@ -156,6 +159,9 @@ constexpr std::uint32_t kHistConstValue = 303u;
 constexpr std::uint32_t kHistPostCloneCommitValue = 4001u;
 constexpr std::uint32_t kHistContainerChildMemoryValue = 3701u;
 constexpr std::uint32_t kHistContainerPostCloneCommitValue = 3702u;
+constexpr std::uint32_t kHistLazyChildSavedValue = 2201u;
+constexpr std::uint32_t kHistLazyChildMemoryValue = 3801u;
+constexpr std::uint32_t kHistLazyPostCloneCommitValue = 3802u;
 
 ae::ObjId const kHistOriginP{kHistOriginPRaw};
 ae::ObjId const kHistOriginQ{kHistOriginQRaw};
@@ -167,6 +173,12 @@ ae::ObjId const kHistOriginContainer{kHistOriginContainerRaw};
 ae::ObjId const kHistContainerRoot{kHistContainerRootRaw};
 ae::ObjId const kHistCloneContainer{kHistCloneContainerRaw};
 ae::ObjId const kHistContainerChild{kHistContainerChildRaw};
+ae::ObjId const kHistLazyRoot{kHistLazyRootRaw};
+ae::ObjId const kHistLazyChild{kHistLazyChildRaw};
+ae::ObjId const kHistCloneLazyRoot{kHistCloneLazyRootRaw};
+
+ae::ObjFlags const kLazyChildFlags{ae::ObjFlags::kUnloadedByDefault |
+                                   ae::ObjFlags::kUnloaded};
 
 class CloneHistConst : public ae::Obj {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::CloneHistConst", CloneHistConst,
@@ -1224,6 +1236,209 @@ void TestCanonicalCloneObjContainerWithNestedNodeHistory() {
   std::filesystem::remove_all(state_root);
 }
 
+void TestCanonicalCloneUnloadedNodeChild() {
+  std::filesystem::path const state_root =
+      std::filesystem::temp_directory_path() /
+      "apptraverse_object_clone_unloaded_child_test";
+  std::filesystem::remove_all(state_root);
+  std::filesystem::create_directories(state_root / "source" / "user");
+  std::filesystem::create_directories(state_root / "target" / "user");
+  std::filesystem::path const backing_root = state_root / "backing";
+  std::filesystem::path const source_user = state_root / "source" / "user";
+  std::filesystem::path const target_user = state_root / "target" / "user";
+  std::set<ae::ObjId> const overlay_constants{
+      kHistOriginP, kHistOriginQ, kHistOriginC, kHistOriginContainer};
+  SeedHistOriginsOnBacking(backing_root);
+  BackingPqcSnapshot const backing_before =
+      SnapshotBackingHist(backing_root);
+
+  std::set<ae::ObjId::Type> source_base_ids;
+  std::set<ae::ObjId::Type> source_event_ids;
+  ae::ObjId clone_child_id{};
+  ae::ObjId clone_root_id{kHistCloneLazyRootRaw};
+
+  {
+    DiskStores prep_stores =
+        OpenDiskStores(source_user, backing_root, overlay_constants);
+    ae::Domain prep_domain{*prep_stores.overlay};
+
+    CloneHistNode::ptr child = CloneHistNode::ptr::Create(
+        ae::CreateWith{prep_domain}.with_id(kHistLazyChild));
+    ae::Ptr<CloneHistNode> child_body = child.Load();
+    child_body->value = kHistInitialChildValue;
+    child_body->SetOriginId(kHistOriginQ);
+    apptraverse::InitializeRuntimeNode(*child_body);
+    auto saved_event =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{prep_domain});
+    saved_event->value = kHistLazyChildSavedValue;
+    child_body->Commit(saved_event);
+    auto memory_event =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{prep_domain});
+    memory_event->value = kHistLazyChildMemoryValue;
+    child_body->Commit(memory_event);
+
+    CloneHistContainer::ptr container = CloneHistContainer::ptr::Create(
+        ae::CreateWith{prep_domain}.with_id(kHistLazyRoot));
+    ae::Ptr<CloneHistContainer> container_body = container.Load();
+    container_body->SetOriginId(kHistOriginContainer);
+    container_body->child = CloneHistNode::ptr::Declare(
+        ae::CreateWith{&prep_domain}
+            .with_id(kHistLazyChild)
+            .with_flags(kLazyChildFlags));
+
+    prep_stores.user->BeginSaveSession();
+    ae::DomainGraph prep_save{&prep_domain};
+    if (!prep_save.SaveRoot(child_body, kHistLazyChild).IsOk() ||
+        !prep_save.SaveRoot(container_body, kHistLazyRoot).IsOk()) {
+      Fail("SaveRoot lazy prep child/container");
+    }
+    if (prep_stores.user->SaveSessionHadFailure()) {
+      Fail("lazy prep USER save failed");
+    }
+
+    CollectHistoricalIds(*child_body, source_base_ids, source_event_ids);
+  }
+
+  DiskFileSnapshot const source_r_before =
+      SnapshotDiskObjectTree(source_user, kHistLazyRoot);
+  DiskFileSnapshot const source_d_before =
+      SnapshotDiskObjectTree(source_user, kHistLazyChild);
+
+  {
+    DiskStores source_stores =
+        OpenDiskStores(source_user, backing_root, overlay_constants);
+    ae::Domain source_domain{*source_stores.overlay};
+    ae::DomainGraph source_load{&source_domain};
+    ae::Ptr<ae::Obj> loaded_root;
+    if (!source_load.LoadRoot(kHistLazyRoot, loaded_root).IsOk()) {
+      Fail("LoadRoot lazy source container only");
+    }
+    ae::Ptr<CloneHistContainer> source_container{loaded_root};
+    if (!source_container->child.is_valid() ||
+        source_container->child.is_loaded()) {
+      Fail("source child must stay unloaded");
+    }
+    if (source_domain.Find(kHistLazyChild)) {
+      Fail("source must not materialize lazy child");
+    }
+
+    DiskStores target_stores =
+        OpenDiskStores(target_user, backing_root, overlay_constants);
+    ae::Domain target_domain{*target_stores.overlay};
+
+    apptraverse::CloneOptions options{};
+    options.stable_origin = kHistOriginContainer;
+    options.boundary_ids = {kHistOriginP, kHistOriginQ, kHistOriginC,
+                            kHistOriginContainer};
+    options.new_root_id = kHistCloneLazyRoot;
+
+    target_stores.user->BeginSaveSession();
+    apptraverse::CloneCanonicalResult const cloned =
+        apptraverse::CloneCanonicalRoot(source_domain, *source_container,
+                                        target_domain, options);
+    if (!cloned || cloned.new_root_id() != kHistCloneLazyRoot) {
+      Fail("CloneCanonicalRoot lazy child");
+    }
+    if (target_stores.user->SaveSessionHadFailure()) {
+      Fail("lazy target USER save failed");
+    }
+
+    ae::Ptr<CloneHistContainer> clone_container{
+        ae::Ptr<ae::Obj>{cloned.root.Load()}};
+    clone_child_id = clone_container->child.id();
+    if (clone_child_id == kHistLazyChild || !clone_container->child.is_valid() ||
+        clone_container->child.is_loaded() ||
+        (clone_container->child.flags() & kLazyChildFlags) != kLazyChildFlags) {
+      Fail("clone lazy child link");
+    }
+    if (source_container->child.is_loaded() ||
+        source_domain.Find(kHistLazyChild)) {
+      Fail("source mutated or materialized after clone");
+    }
+    if (!DiskObjectHasAnyLayers(target_user, clone_child_id)) {
+      Fail("target USER missing unloaded child layers before Load");
+    }
+
+    if (TargetUserContainsAnyId(target_user, source_base_ids) ||
+        TargetUserContainsAnyId(target_user, source_event_ids)) {
+      Fail("target USER must not contain source history ids");
+    }
+
+    DiskFileSnapshot const source_r_after =
+        SnapshotDiskObjectTree(source_user, kHistLazyRoot);
+    DiskFileSnapshot const source_d_after =
+        SnapshotDiskObjectTree(source_user, kHistLazyChild);
+    if (source_r_after != source_r_before || source_d_after != source_d_before) {
+      Fail("source USER changed after lazy clone");
+    }
+
+    auto post_commit =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{target_domain});
+    post_commit->value = kHistLazyPostCloneCommitValue;
+    ae::Ptr<CloneHistNode> clone_child_body{
+        ae::Ptr<ae::Obj>{clone_container->child.Load()}};
+    clone_child_body->Commit(post_commit);
+    clone_child_body->ReplayFromBase();
+    if (clone_child_body->value != kHistLazyPostCloneCommitValue) {
+      Fail("lazy clone ReplayFromBase");
+    }
+
+    ae::DomainGraph target_save{&target_domain};
+    target_stores.user->BeginSaveSession();
+    if (!target_save.SaveRoot(clone_container, clone_root_id).IsOk()) {
+      Fail("SaveRoot lazy clone container");
+    }
+    if (target_stores.user->SaveSessionHadFailure()) {
+      Fail("lazy target save after Commit");
+    }
+  }
+
+  {
+    DiskStores cold =
+        OpenDiskStores(target_user, backing_root, overlay_constants);
+    ae::Domain cold_domain{*cold.overlay};
+    ae::DomainGraph cold_graph{&cold_domain};
+    ae::Ptr<ae::Obj> cold_root;
+    if (!cold_graph.LoadRoot(clone_root_id, cold_root).IsOk()) {
+      Fail("cold LoadRoot lazy clone container");
+    }
+    ae::Ptr<CloneHistContainer> cold_container{cold_root};
+    if (cold_container->child.is_loaded()) {
+      Fail("cold container child must stay unloaded");
+    }
+    ae::Ptr<CloneHistNode> cold_child{
+        ae::Ptr<ae::Obj>{cold_container->child.Load()}};
+    if (cold_child->obj_id != clone_child_id ||
+        cold_child->value != kHistLazyPostCloneCommitValue ||
+        cold_child->origin_id() != kHistOriginQ ||
+        !cold_child->base.is_valid()) {
+      Fail("cold lazy child after Load");
+    }
+    ae::Ptr<CloneHistNode> cold_base{cold_child->base.Load()};
+    if (cold_base->origin_id() != kHistOriginQ) {
+      Fail("cold lazy child base origin");
+    }
+    cold_child->ReplayFromBase();
+    if (cold_child->value != kHistLazyPostCloneCommitValue) {
+      Fail("cold lazy ReplayFromBase");
+    }
+    auto cold_commit =
+        CloneHistSetValueEvent::ptr::Create(ae::CreateWith{cold_domain});
+    cold_commit->value = kHistLazyPostCloneCommitValue + 1u;
+    cold_child->Commit(cold_commit);
+    if (cold_child->value != kHistLazyPostCloneCommitValue + 1u) {
+      Fail("cold lazy Commit after load");
+    }
+  }
+
+  BackingPqcSnapshot const backing_after = SnapshotBackingHist(backing_root);
+  if (backing_after != backing_before) {
+    Fail("BACKING changed after lazy clone");
+  }
+
+  std::filesystem::remove_all(state_root);
+}
+
 void TestCloneObjIdConflict() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -1258,6 +1473,7 @@ int main() {
   TestCanonicalCloneTwoObjectGraphWithConstBoundary();
   TestCanonicalCloneNodeGraphWithFreshHistory();
   TestCanonicalCloneObjContainerWithNestedNodeHistory();
+  TestCanonicalCloneUnloadedNodeChild();
   TestCloneMissingStableOrigin();
   TestCloneObjIdConflict();
 

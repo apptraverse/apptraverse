@@ -25,6 +25,8 @@ set(APPTRAVERSE_AETHER_OBJECTS_CLONE_SAVE_REMAP_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-clone-save-remap.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_CLONE_CANONICAL_STATE_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-clone-canonical-state.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_CLONE_REFERENCE_VISITOR_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-clone-reference-visitor.patch")
 
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
 set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG
