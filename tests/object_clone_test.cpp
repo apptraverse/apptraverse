@@ -211,15 +211,34 @@ struct DiskStores {
   std::unique_ptr<apptraverse::OverlayDomainStorage> overlay;
 };
 
-DiskStores OpenDiskStores(std::filesystem::path const& state_root,
+DiskStores OpenDiskStores(std::filesystem::path const& user_root,
+                          std::filesystem::path const& backing_root,
                           std::set<ae::ObjId> const& overlay_constants) {
-  auto user = std::make_unique<apptraverse::DirectoryDomainStorage>(
-      state_root / "user");
-  auto backing = std::make_unique<apptraverse::DirectoryDomainStorage>(
-      state_root / "backing");
+  auto user =
+      std::make_unique<apptraverse::DirectoryDomainStorage>(user_root);
+  auto backing =
+      std::make_unique<apptraverse::DirectoryDomainStorage>(backing_root);
   auto overlay = std::make_unique<apptraverse::OverlayDomainStorage>(
       *user, *backing, overlay_constants);
   return DiskStores{std::move(user), std::move(backing), std::move(overlay)};
+}
+
+struct BackingPqcSnapshot {
+  DiskFileSnapshot p;
+  DiskFileSnapshot q;
+  DiskFileSnapshot c;
+};
+
+BackingPqcSnapshot SnapshotBackingPqc(std::filesystem::path const& backing_root) {
+  return BackingPqcSnapshot{
+      SnapshotDiskObjectTree(backing_root, kOriginP),
+      SnapshotDiskObjectTree(backing_root, kOriginQ),
+      SnapshotDiskObjectTree(backing_root, kOriginC),
+  };
+}
+
+bool operator==(BackingPqcSnapshot const& left, BackingPqcSnapshot const& right) {
+  return left.p == right.p && left.q == right.q && left.c == right.c;
 }
 
 void SeedGraphConstantsOnBacking(std::filesystem::path const& state_root) {
@@ -282,7 +301,8 @@ void TestCanonicalCloneSingleObjectMemoryRoundtrip() {
   DiskFileSnapshot const backing_p_before =
       SnapshotDiskObjectTree(state_root / "backing", kPrefabId);
 
-  DiskStores stores = OpenDiskStores(state_root, {kPrefabId});
+  DiskStores stores =
+      OpenDiskStores(state_root / "user", state_root / "backing", {kPrefabId});
   ae::Domain domain{*stores.overlay};
   ae::DomainGraph load_graph{&domain};
   ae::Ptr<ae::Obj> prefab_root;
@@ -343,7 +363,8 @@ void TestCanonicalCloneSingleObjectMemoryRoundtrip() {
   }
 
   {
-    DiskStores cold = OpenDiskStores(state_root, {kPrefabId});
+    DiskStores cold = OpenDiskStores(state_root / "user", state_root / "backing",
+                                      {kPrefabId});
     ae::Domain cold_domain{*cold.overlay};
     ae::DomainGraph cold_graph{&cold_domain};
     ae::Ptr<ae::Obj> cold_root;
@@ -387,13 +408,18 @@ void TestCanonicalCloneTwoObjectGraphWithConstBoundary() {
   std::filesystem::create_directories(state_root / "target" / "user");
   SeedGraphConstantsOnBacking(state_root);
 
+  std::filesystem::path const backing_root = state_root / "backing";
+  std::filesystem::path const source_user = state_root / "source" / "user";
+  std::filesystem::path const target_user = state_root / "target" / "user";
   std::set<ae::ObjId> const overlay_constants{kOriginP, kOriginQ, kOriginC};
-  DiskFileSnapshot const backing_before =
-      SnapshotDiskObjectTree(state_root / "backing", kOriginC);
+  BackingPqcSnapshot const backing_before = SnapshotBackingPqc(backing_root);
+
+  ae::ObjId clone_r_id{};
+  ae::ObjId clone_d_id{};
 
   {
     DiskStores source_stores =
-        OpenDiskStores(state_root / "source", overlay_constants);
+        OpenDiskStores(source_user, backing_root, overlay_constants);
     ae::Domain source_domain{*source_stores.overlay};
     CloneFacetTargetV1::ptr child = CloneFacetTargetV1::ptr::Create(
         ae::CreateWith{source_domain}.with_id(kChildD));
@@ -426,9 +452,9 @@ void TestCanonicalCloneTwoObjectGraphWithConstBoundary() {
     }
 
     DiskFileSnapshot const source_r_before =
-        SnapshotDiskObjectTree(state_root / "source" / "user", kRootR);
+        SnapshotDiskObjectTree(source_user, kRootR);
     DiskFileSnapshot const source_d_before =
-        SnapshotDiskObjectTree(state_root / "source" / "user", kChildD);
+        SnapshotDiskObjectTree(source_user, kChildD);
 
     ae::DomainGraph source_load{&source_domain};
     ae::Ptr<ae::Obj> loaded_r;
@@ -441,7 +467,7 @@ void TestCanonicalCloneTwoObjectGraphWithConstBoundary() {
     mutable_r->child_id_snapshot = kChildD;
 
     DiskStores target_stores =
-        OpenDiskStores(state_root / "target", overlay_constants);
+        OpenDiskStores(target_user, backing_root, overlay_constants);
     ae::Domain target_domain{*target_stores.overlay};
 
     apptraverse::CloneOptions options{};
@@ -470,6 +496,8 @@ void TestCanonicalCloneTwoObjectGraphWithConstBoundary() {
     if (clone_r->child.id() == kCloneR) {
       Fail("clone R child must differ from clone root id");
     }
+    clone_r_id = kCloneR;
+    clone_d_id = clone_r->child.id();
     ae::Ptr<CloneFacetTargetV1> clone_d{clone_r->child.Load()};
     if (!clone_d || clone_d->value != kGraphMemoryChildValue) {
       Fail("clone D value");
@@ -485,48 +513,72 @@ void TestCanonicalCloneTwoObjectGraphWithConstBoundary() {
       Fail("clone origins P/Q");
     }
 
-    if (DiskObjectHasAnyLayers(state_root / "target" / "user", kOriginP) ||
-        DiskObjectHasAnyLayers(state_root / "target" / "user", kOriginQ) ||
-        DiskObjectHasAnyLayers(state_root / "target" / "user", kOriginC)) {
+    if (DiskObjectHasAnyLayers(target_user, kOriginP) ||
+        DiskObjectHasAnyLayers(target_user, kOriginQ) ||
+        DiskObjectHasAnyLayers(target_user, kOriginC)) {
       Fail("target USER must not contain P/Q/C");
     }
 
-    DiskFileSnapshot const source_r_after =
-        SnapshotDiskObjectTree(state_root / "source" / "user", kRootR);
-    DiskFileSnapshot const source_d_after =
-        SnapshotDiskObjectTree(state_root / "source" / "user", kChildD);
+    DiskFileSnapshot const source_r_after = SnapshotDiskObjectTree(source_user, kRootR);
+    DiskFileSnapshot const source_d_after = SnapshotDiskObjectTree(source_user, kChildD);
     if (source_r_after != source_r_before || source_d_after != source_d_before) {
       Fail("source USER R/D changed after clone");
     }
+  }
 
-    DiskFileSnapshot const backing_after =
-        SnapshotDiskObjectTree(state_root / "backing", kOriginC);
-    if (backing_after != backing_before) {
-      Fail("BACKING C changed");
+  {
+    DiskStores cold =
+        OpenDiskStores(target_user, backing_root, overlay_constants);
+    ae::Domain cold_domain{*cold.overlay};
+    ae::DomainGraph cold_graph{&cold_domain};
+    ae::Ptr<ae::Obj> cold_root;
+    if (!cold_graph.LoadRoot(clone_r_id, cold_root).IsOk()) {
+      Fail("cold LoadRoot clone R");
+    }
+    ae::Ptr<CloneGraphTargetV1> cold_r{cold_root};
+    ae::Ptr<CloneFacetTargetV1> cold_d{cold_r->child.Load()};
+    if (cold_r->value != kGraphMemoryRootValue ||
+        cold_d->value != kGraphMemoryChildValue ||
+        cold_r->origin_id() != kOriginP || cold_d->origin_id() != kOriginQ ||
+        cold_r->child.id() != clone_d_id ||
+        cold_r->child_id_snapshot != kChildD) {
+      Fail("cold clone graph fields");
+    }
+    if (!cold_r->shared_const.is_valid() ||
+        cold_r->shared_const.id() != kOriginC) {
+      Fail("cold shared_const id");
+    }
+    if (cold_r->shared_const.is_loaded()) {
+      Fail("cold shared_const must stay unloaded before Load");
+    }
+    if (cold_domain.Find(kOriginP) || cold_domain.Find(kOriginQ) ||
+        cold_domain.Find(kOriginC)) {
+      Fail("P/Q/C materialized before explicit Load(C)");
     }
 
-    {
-      DiskStores cold = OpenDiskStores(state_root / "target", overlay_constants);
-      ae::Domain cold_domain{*cold.overlay};
-      ae::DomainGraph cold_graph{&cold_domain};
-      ae::Ptr<ae::Obj> cold_root;
-      if (!cold_graph.LoadRoot(kCloneR, cold_root).IsOk()) {
-        Fail("cold LoadRoot clone R");
-      }
-      ae::Ptr<CloneGraphTargetV1> cold_r{cold_root};
-      ae::Ptr<CloneFacetTargetV1> cold_d{cold_r->child.Load()};
-      if (cold_r->value != kGraphMemoryRootValue ||
-          cold_d->value != kGraphMemoryChildValue ||
-          cold_r->origin_id() != kOriginP || cold_d->origin_id() != kOriginQ ||
-          cold_r->shared_const.id() != kOriginC ||
-          cold_r->child_id_snapshot != kChildD) {
-        Fail("cold clone graph fields");
-      }
-      if (cold_domain.Find(kOriginP) || cold_domain.Find(kOriginQ) ||
-          cold_domain.Find(kOriginC)) {
-        Fail("P/Q/C materialized during cold load");
-      }
+    ae::Ptr<CloneFacetTargetV1> loaded_c{
+        ae::Ptr<ae::Obj>{cold_r->shared_const.Load()}};
+    if (!loaded_c) {
+      Fail("shared_const.Load() failed");
     }
+    if (loaded_c->obj_id != kOriginC || loaded_c->domain != &cold_domain) {
+      Fail("loaded C id or domain");
+    }
+    if (loaded_c->value != kGraphSavedConstValue ||
+        loaded_c->tag != kGraphMemoryConstTag) {
+      Fail("loaded C fields from BACKING");
+    }
+    if (cold_domain.Find(kOriginP) || cold_domain.Find(kOriginQ)) {
+      Fail("P/Q materialized after Load(C)");
+    }
+    if (DiskObjectHasAnyLayers(target_user, kOriginC)) {
+      Fail("Load(C) must not write C to target USER");
+    }
+  }
+
+  BackingPqcSnapshot const backing_after = SnapshotBackingPqc(backing_root);
+  if (backing_after != backing_before) {
+    Fail("BACKING P/Q/C changed");
   }
 
   std::filesystem::remove_all(state_root);
