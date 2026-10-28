@@ -78,6 +78,8 @@
 | **P2.f.2** — `RunApplicationModelSession` (Load→Prepare→Run→Persist) | §P2.f.2 | **PASS** — `apptraverse_application_model_runtime_test`; demo targets build |
 | **P2.f.3** — embedded BACKING/USER через `RunEmbeddedApplicationModelSession` | §P2.f.3 | **PASS** — `TestEmbeddedModelSessionRoundTrip` |
 | **P2.f** — библиотечный lifecycle | §P2.f | **IN_PROGRESS** |
+| **P3.1a** — WindowCatalog common core/actions (без Win32 graph) | §P3.1a | **PASS** — `surfaces_demo_window_catalog_common`; model + overlay tests |
+| **P3** — мультиплатформенный catalog | §P3 | **IN_PROGRESS** — **NEXT: P3.1b** |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 

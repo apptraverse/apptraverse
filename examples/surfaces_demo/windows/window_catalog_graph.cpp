@@ -1,5 +1,6 @@
 #include "window_catalog_graph.h"
 
+#include "window_catalog_actions.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
 #include "window_catalog_model.h"
@@ -32,130 +33,6 @@ constexpr std::uint32_t kOpenControlId = 5003;
 constexpr std::uint32_t kDeleteControlId = 5004;
 constexpr std::uint32_t kLanguageControlId = 5005;
 
-namespace {
-
-WindowCatalog& LoadedCatalog(WindowCatalog::ptr& catalog) {
-  if (!catalog.is_valid()) {
-    std::abort();
-  }
-  if (!catalog.is_loaded()) {
-    catalog.Load();
-  }
-  return *catalog;
-}
-
-}  // namespace
-
-class CatalogAddButton : public ui::UiPushButton {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogAddButton",
-                           CatalogAddButton, ui::UiPushButton, 0)
-
- protected:
-  CatalogAddButton() = default;
-
- public:
-  explicit CatalogAddButton(ae::ObjProp prop) : UiPushButton{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(catalog))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, catalog);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, catalog);
-  }
-
-  WindowCatalog::ptr catalog;
-
-  void HandlePushButtonClicked() override;
-};
-
-class CatalogOpenButton : public ui::UiPushButton {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogOpenButton",
-                           CatalogOpenButton, ui::UiPushButton, 0)
-
- protected:
-  CatalogOpenButton() = default;
-
- public:
-  explicit CatalogOpenButton(ae::ObjProp prop) : UiPushButton{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(catalog))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, catalog);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, catalog);
-  }
-
-  WindowCatalog::ptr catalog;
-
-  void HandlePushButtonClicked() override;
-};
-
-class CatalogDeleteButton : public ui::UiPushButton {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::CatalogDeleteButton",
-      CatalogDeleteButton, ui::UiPushButton, 0)
-
- protected:
-  CatalogDeleteButton() = default;
-
- public:
-  explicit CatalogDeleteButton(ae::ObjProp prop) : UiPushButton{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(catalog))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, catalog);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, catalog);
-  }
-
-  WindowCatalog::ptr catalog;
-
-  void HandlePushButtonClicked() override;
-};
-
-class CatalogLanguageButton : public ui::UiPushButton {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::CatalogLanguageButton",
-      CatalogLanguageButton, ui::UiPushButton, 0)
-
- protected:
-  CatalogLanguageButton() = default;
-
- public:
-  explicit CatalogLanguageButton(ae::ObjProp prop) : UiPushButton{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(catalog))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, catalog);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, catalog);
-  }
-
-  WindowCatalog::ptr catalog;
-
-  void HandlePushButtonClicked() override;
-};
-
 class CatalogListContainerPresenter
     : public ui::windows::WinListContainerPresenter {
   APPTRAVERSE_NAMED_OBJECT(
@@ -186,39 +63,6 @@ class CatalogListContainerPresenter
   void SubmitListRowSelectionChangedFromUi(std::size_t row_index) override;
   void SubmitListRowActivatedFromUi(std::size_t row_index) override;
 };
-
-void CatalogAddButton::HandlePushButtonClicked() {
-  LoadedCatalog(catalog).AddWindow();
-}
-
-void CatalogOpenButton::HandlePushButtonClicked() {
-  WindowCatalog& cat = LoadedCatalog(catalog);
-  if (!cat.list) {
-    return;
-  }
-  if (cat.list->selection_index >= 0 &&
-      static_cast<std::size_t>(cat.list->selection_index) <
-          cat.list->rows.size()) {
-    cat.OpenListRowFromUi(
-        static_cast<std::size_t>(cat.list->selection_index));
-    return;
-  }
-  cat.OpenSelected();
-}
-
-void CatalogDeleteButton::HandlePushButtonClicked() {
-  LoadedCatalog(catalog).DeleteSelected();
-}
-
-void CatalogLanguageButton::HandlePushButtonClicked() {
-  WindowCatalog& cat = LoadedCatalog(catalog);
-  if (!cat.locale) {
-    return;
-  }
-  int const next = 1 - cat.locale->language_index();
-  cat.MaterializeCatalogStrings(next);
-  cat.locale->SubmitLanguageIndexFromUi(next);
-}
 
 void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
     std::size_t row_index) {
@@ -253,10 +97,6 @@ ui::windows::WinPushButtonPresenter::ptr MakeButtonPresenter(
   return presenter;
 }
 
-APPTRAVERSE_REGISTER(CatalogAddButton);
-APPTRAVERSE_REGISTER(CatalogOpenButton);
-APPTRAVERSE_REGISTER(CatalogDeleteButton);
-APPTRAVERSE_REGISTER(CatalogLanguageButton);
 APPTRAVERSE_REGISTER(CatalogListContainerPresenter);
 
 }  // namespace apptraverse::example::surfaces
@@ -424,11 +264,8 @@ void EnsureWindowCatalogGraphRegistration() {
   EnsureWindowCatalogModelRegistration();
   ui::EnsureUiPresenterRegistration();
   ui::windows::EnsureWinUiPresenterRegistration();
-  (void)&example::surfaces::g_apptraverse_registrar_CatalogAddButton;
-  (void)&example::surfaces::g_apptraverse_registrar_CatalogOpenButton;
-  (void)&example::surfaces::g_apptraverse_registrar_CatalogDeleteButton;
-  (void)&example::surfaces::g_apptraverse_registrar_CatalogLanguageButton;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogListContainerPresenter;
 }
 
 }  // namespace apptraverse
+

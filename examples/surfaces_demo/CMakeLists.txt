@@ -111,6 +111,21 @@ target_include_directories(surfaces_demo_mobile PUBLIC
 target_link_libraries(surfaces_demo_mobile PUBLIC apptraverse_surfaces)
 target_compile_features(surfaces_demo_mobile PUBLIC cxx_std_20)
 
+add_library(surfaces_demo_window_catalog_common STATIC
+  common/window_catalog_model.cpp
+  common/window_catalog_localization.cpp
+  common/window_catalog_registration.cpp
+  common/window_catalog_actions.cpp
+)
+target_include_directories(surfaces_demo_window_catalog_common PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/common
+)
+target_link_libraries(surfaces_demo_window_catalog_common PUBLIC apptraverse)
+target_compile_features(surfaces_demo_window_catalog_common PUBLIC cxx_std_20)
+if(MSVC)
+  target_compile_options(surfaces_demo_window_catalog_common PRIVATE /utf-8)
+endif()
+
 if(BUILD_TESTING OR APPTRAVERSE_BUILD_EXAMPLES)
   add_executable(apptraverse_export_surfaces_distilled_graph
     tools/export_surfaces_distilled_graph.cpp
@@ -128,16 +143,14 @@ endif()
 if(WIN32 AND NOT EMSCRIPTEN)
   # Reusable-window catalog consumer (WindowCatalog application).
   add_library(surfaces_demo_window_catalog STATIC
-    common/window_catalog_model.cpp
-    common/window_catalog_localization.cpp
-    common/window_catalog_registration.cpp
     windows/window_catalog_graph.cpp
   )
   target_include_directories(surfaces_demo_window_catalog PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/common
     ${CMAKE_CURRENT_SOURCE_DIR}/windows)
   target_link_libraries(surfaces_demo_window_catalog PUBLIC
-    apptraverse apptraverse_ui_windows)
+    surfaces_demo_window_catalog_common
+    apptraverse_ui_windows)
   target_compile_features(surfaces_demo_window_catalog PUBLIC cxx_std_20)
   if(MSVC)
     target_compile_options(surfaces_demo_window_catalog PRIVATE /utf-8)
