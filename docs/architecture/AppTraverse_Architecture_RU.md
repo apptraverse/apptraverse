@@ -383,7 +383,7 @@ Add создаёт самостоятельный dynamic экземпляр и�
 
 Геометрия тоже имеет несколько смыслов. Размер содержимого задаёт доступную область layout. Положение внешней desktop-рамки, Z-order и текущая мобильная страница зависят от оболочки. Общая модель не обязана создавать фиктивные координаты рабочего стола на телефоне. Если параметры намеренно сохраняются, native изменение сообщает их в модель Event, а обновлённое состояние возвращается через mirror.
 
-**В исходниках.** Есть `UiPushButton`, `UiPushButtonPresenter`, `UiListContainer`, `UiPresentedWindow`, `UiDesktopWindow`, оконные presenters и locale-объекты. `WindowCatalog::AddWindow` пока выбирает `WinDesktopWindowPresenter` через платформенную ветку и вручную задаёт исходные поля. `window_catalog_graph.cpp` содержит прикладные кнопки рядом с Win32-композицией. Работоспособность демо не доказывает полной независимости его canonical graph от Windows. [C15–C17]
+**В исходниках.** Есть `UiPushButton`, `UiPushButtonPresenter`, `UiListContainer`, `UiPresentedWindow`, `UiDesktopWindow`, оконные presenters и locale-объекты. Композиция WindowCatalog (catalog/list, chrome, prefab W/V, layout/control_id) собирается в `examples/surfaces_demo/common/window_catalog_graph_builder.*` через `WindowCatalogPresenterFactory` (три callback: window, list, button). Windows и Headless задают только backend-presenters (`WinDesktopWindowPresenter` / базовые UI presenters; `CatalogListContainerPresenter` vs `HeadlessCatalogListContainerPresenter` для маршрута selection/activation в модель). Прикладные действия остаются в модели и `Catalog*Button`; Headless проходит UI mirror → `ModelObjectProxy` → Events (E2E на этой машине, не матрица всех OS). Перенос сохранённого профиля между Windows- и Headless-ClassId не заявлен. [C15–C17]
 
 MinimalApp служит независимым минимальным потребителем. Его архитектурная ценность — возможность собрать другое приложение со своим root без файлов WindowCatalog. Он не должен становиться вторым местом хранения framework-кода.
 
@@ -399,9 +399,9 @@ MinimalApp служит независимым минимальным потре
 | iOS/iPadOS | `examples/surfaces_demo/ios`, UIKit/SwiftUI и mobile presenter | Страницы/области той же модели и платформенный lifecycle |
 | Android | `examples/surfaces_demo/android/native`, JNI и native runtime | Мост native оболочки к общей модели; представления не сериализуют JNI handles |
 | Web | `examples/surfaces_demo/web`, DOM bridge, Emscripten и IDBFS | Браузерный UI, отдельная модельная работа и локальное состояние браузера |
-| Headless | `tests/application_contract_headless_test.cpp`, `tests/application_model_runtime_test.cpp`, `tests/model_persistence_test.cpp` | Тот же DomainGraph и storage; модель, Commit и replay без HWND/GTK/JNI/DOM |
+| Headless | `tests/application_contract_headless_test.cpp`, `tests/application_model_runtime_test.cpp`, `tests/model_persistence_test.cpp`, `tests/window_catalog_headless_test.cpp` | Тот же DomainGraph и storage; модель, Commit и replay без HWND/GTK/JNI/DOM; WindowCatalog chrome E2E через mirror/proxy (Debug win64, одна машина) |
 
-Таблица описывает имеющиеся исходные опоры, не доказанную готовность одного WindowCatalog на всех системах (включая Headless E2E). Порт старого Surface-примера может содержать полезную native реализацию, но его product-specific граф, команды и lifecycle не становятся автоматически библиотечным template.
+Таблица описывает имеющиеся исходные опоры, не доказанную готовность одного WindowCatalog на всех системах и не совместимость сохранённых native ClassId между backend. Порт старого Surface-примера может содержать полезную native реализацию, но его product-specific граф, команды и lifecycle не становятся автоматически библиотечным template.
 
 Desktop-окно, мобильная страница и браузерная панель могут представлять один логический объект. Сохранение identity и поведения важнее попытки буквально воспроизвести Win32 multi-window на телефоне. При этом общая композиция контролов не должна разветвляться на шесть разных бизнес-моделей.
 

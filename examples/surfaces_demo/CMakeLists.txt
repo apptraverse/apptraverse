@@ -116,6 +116,8 @@ add_library(surfaces_demo_window_catalog_common STATIC
   common/window_catalog_localization.cpp
   common/window_catalog_registration.cpp
   common/window_catalog_actions.cpp
+  common/window_catalog_graph_builder.cpp
+  common/window_catalog_prepare.cpp
 )
 target_include_directories(surfaces_demo_window_catalog_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common
@@ -124,6 +126,20 @@ target_link_libraries(surfaces_demo_window_catalog_common PUBLIC apptraverse)
 target_compile_features(surfaces_demo_window_catalog_common PUBLIC cxx_std_20)
 if(MSVC)
   target_compile_options(surfaces_demo_window_catalog_common PRIVATE /utf-8)
+endif()
+
+add_library(surfaces_demo_window_catalog_headless STATIC
+  headless/window_catalog_graph_headless.cpp
+)
+target_include_directories(surfaces_demo_window_catalog_headless PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/headless
+  ${CMAKE_CURRENT_SOURCE_DIR}/common
+)
+target_link_libraries(surfaces_demo_window_catalog_headless PUBLIC
+  surfaces_demo_window_catalog_common)
+target_compile_features(surfaces_demo_window_catalog_headless PUBLIC cxx_std_20)
+if(MSVC)
+  target_compile_options(surfaces_demo_window_catalog_headless PRIVATE /utf-8)
 endif()
 
 if(BUILD_TESTING OR APPTRAVERSE_BUILD_EXAMPLES)

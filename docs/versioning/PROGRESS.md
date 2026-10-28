@@ -79,7 +79,8 @@
 | **P2.f.3** — embedded BACKING/USER через `RunEmbeddedApplicationModelSession` | §P2.f.3 | **PASS** — `TestEmbeddedModelSessionRoundTrip` |
 | **P2.f** — библиотечный lifecycle | §P2.f | **IN_PROGRESS** |
 | **P3.1a** — WindowCatalog common core/actions (без Win32 graph) | §P3.1a | **PASS** — `surfaces_demo_window_catalog_common`; model + overlay tests |
-| **P3** — мультиплатформенный catalog | §P3 | **IN_PROGRESS** — **NEXT: P3.1b** |
+| **P3.1b** — общая композиция graph builder; Windows/Headless adapters; Headless E2E | §P3.1b | **PASS** (win64-ninja-msvc-debug, локально) — `apptraverse_window_catalog_headless_test` (Add×2, язык, select, delete, persist/cold load); `apptraverse_window_catalog_model_test`; `apptraverse_window_catalog_embedded_overlay_test`; `win32_window_catalog_demo` + load_only build. Не подтверждает Linux/Web/Android. Headless target без `apptraverse_ui_windows`. |
+| **P3** — мультиплатформенный catalog | §P3 | **IN_PROGRESS** |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 

@@ -105,7 +105,8 @@
 
 - **P3:** тот же catalog на Windows + Web **или** Android; нормальный запуск; Headless — те же model/storage тесты без native UI.
 | **P3.1a** | WindowCatalog common core: model + actions (`Catalog*Button`) без Win32 graph | **PASS** — `surfaces_demo_window_catalog_common`; catalog tests + demo build |
-| P3 | Мультиплатформенный WindowCatalog | **IN_PROGRESS** — **NEXT: P3.1b** graph builder + Headless |
+| **P3.1b** | Общий `BuildWindowCatalogGraph` + Headless adapter + E2E через UI mirror/proxy | **PASS** (win64 Debug, эта машина) — `surfaces_demo_window_catalog_headless`, `apptraverse_window_catalog_headless_test`; Windows regressions без замены |
+| P3 | Мультиплатформенный WindowCatalog | **IN_PROGRESS** — следующий этап не стартует автоматически |
 - **P4:** macOS, Linux, mobile/Web; desktop — окна, mobile/Web — страницы/panels; Headless в общем E2E; updater не блокирует.
 - **P5:** набор resource states; switch после готовности всего набора; один upgrade/downgrade; новый S через origin; USER + headless replay; локализация — малый пример (**String** = UTF-8; без persistent wchar cache).
 - **P6:** только реально прогнанные E2E; недоступный port — «не проверен».

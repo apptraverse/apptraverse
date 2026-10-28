@@ -1441,6 +1441,16 @@ apptraverse_add_test(apptraverse_overlay_user_backing_test
 apptraverse_add_test(apptraverse_historical_base_materialization_test
   historical_base_materialization_test.cpp)
 
+apptraverse_add_test(apptraverse_window_catalog_headless_test
+  window_catalog_headless_test.cpp
+  surfaces_demo_window_catalog_headless)
+target_include_directories(apptraverse_window_catalog_headless_test PRIVATE
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/headless)
+if(MSVC)
+  target_compile_options(apptraverse_window_catalog_headless_test PRIVATE /utf-8)
+endif()
+
 if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
   add_executable(apptraverse_minimal_app_embedded_export_test
