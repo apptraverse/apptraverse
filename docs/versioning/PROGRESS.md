@@ -79,7 +79,9 @@
 | **P2.f.3** — embedded BACKING/USER через `RunEmbeddedApplicationModelSession` | §P2.f.3 | **PASS** — `TestEmbeddedModelSessionRoundTrip` |
 | **P2.f** — библиотечный lifecycle | §P2.f | **IN_PROGRESS** |
 | **P3.1a** — WindowCatalog common core/actions (без Win32 graph) | §P3.1a | **PASS** — `surfaces_demo_window_catalog_common`; model + overlay tests |
-| **P3.1b** — общая композиция graph builder; Windows/Headless adapters; Headless E2E | §P3.1b | **PASS** (win64-ninja-msvc-debug, локально) — `apptraverse_window_catalog_headless_test` (Add×2, язык, select, delete, persist/cold load); `apptraverse_window_catalog_model_test`; `apptraverse_window_catalog_embedded_overlay_test`; `win32_window_catalog_demo` + load_only build. Не подтверждает Linux/Web/Android. Headless target без `apptraverse_ui_windows`. |
+| **P3.1b** — общая композиция graph builder; Windows/Headless adapters; Headless E2E | §P3.1b | **PASS** (win64-ninja-msvc-debug, локально) — `apptraverse_window_catalog_headless_test`; model + overlay tests; demos build. |
+| **P3.2a** — Web initial WindowCatalog chrome (mirror + DOM) | §P3.2a | **IN_PROGRESS** — добавлены `web_window_catalog_demo`, `WebCatalog*Presenter`, `window_catalog_prepare.h`; headless/model/overlay **PASS** после prepare.h. **Браузер: не проверен** — `emcc`/`build/wasm-ninja-debug` отсутствуют на машине (2026-10-28). Smoke: `tools/wasm_window_catalog_browser_smoke.py` + `tools/serve_wasm.py`. |
+| **P3.2** — Web actions + persist | §P3.2 | **IN_PROGRESS** — **NEXT:** подключение действий WindowCatalog в Web |
 | **P3** — мультиплатформенный catalog | §P3 | **IN_PROGRESS** |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |

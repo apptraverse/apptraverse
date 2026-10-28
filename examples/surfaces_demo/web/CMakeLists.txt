@@ -85,3 +85,47 @@ set_target_properties(web_surfaces_model_compile_check PROPERTIES
   OUTPUT_NAME "web_surfaces_model_compile_check"
   SUFFIX ".js"
 )
+
+add_executable(web_window_catalog_demo
+  window_catalog_main.cpp
+  window_catalog_web_app.cpp
+  window_catalog_graph_web.cpp
+)
+
+target_compile_definitions(web_window_catalog_demo PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+
+target_include_directories(web_window_catalog_demo PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+)
+
+target_link_libraries(web_window_catalog_demo PRIVATE
+  surfaces_demo_window_catalog_common
+  apptraverse
+)
+
+target_compile_options(web_window_catalog_demo PRIVATE
+  -pthread
+  -fexceptions
+)
+
+target_link_options(web_window_catalog_demo PRIVATE
+  -pthread
+  -fexceptions
+  -sPTHREAD_POOL_SIZE=1
+  -sINITIAL_MEMORY=268435456
+  -sALLOW_MEMORY_GROWTH=0
+  -sFORCE_FILESYSTEM=1
+  -sEXIT_RUNTIME=0
+  -lidbfs.js
+  -sEXPORTED_FUNCTIONS=_main
+  -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString
+  --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_shell.html
+)
+
+set_target_properties(web_window_catalog_demo PROPERTIES
+  OUTPUT_NAME "web_window_catalog_demo"
+  SUFFIX ".html"
+)

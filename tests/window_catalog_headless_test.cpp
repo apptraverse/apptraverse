@@ -25,7 +25,7 @@
 #include "window_catalog_graph_headless.h"
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_ids.h"
-#include "window_catalog_lifecycle.h"
+#include "window_catalog_prepare.h"
 #include "window_catalog_model.h"
 
 namespace apptraverse::test {

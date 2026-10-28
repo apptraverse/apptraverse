@@ -40,9 +40,9 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Windows + первый другой backend (Web **или** Android) | TODO |
-| **P4** | Остальные платформы (reuse Surfaces native) | TODO |
-| **P5** | Resource-set delivery, один upgrade/downgrade, S via origin, headless replay | TODO |
+| **P3** | Windows + первый non-Windows UI (Web WindowCatalog) | **IN_PROGRESS** |
+| **P4** | Остальные платформы небольшими E2E-шагами (macOS, Linux, mobile) | TODO |
+| **P5** | Расширенные обновления, resource-set delivery, replay | TODO |
 | **P6** | E2E по платформам (не certification / не total regression) | TODO |
 
 ### P1 — удаление сетевого (по зависимостям, не по совпадению слова Shared)
@@ -103,13 +103,20 @@
 
 ### P3–P6
 
-- **P3:** тот же catalog на Windows + Web **или** Android; нормальный запуск; Headless — те же model/storage тесты без native UI.
-| **P3.1a** | WindowCatalog common core: model + actions (`Catalog*Button`) без Win32 graph | **PASS** — `surfaces_demo_window_catalog_common`; catalog tests + demo build |
-| **P3.1b** | Общий `BuildWindowCatalogGraph` + Headless adapter + E2E через UI mirror/proxy | **PASS** (win64 Debug, эта машина) — `surfaces_demo_window_catalog_headless`, `apptraverse_window_catalog_headless_test`; Windows regressions без замены |
-| P3 | Мультиплатформенный WindowCatalog | **IN_PROGRESS** — следующий этап не стартует автоматически |
-- **P4:** macOS, Linux, mobile/Web; desktop — окна, mobile/Web — страницы/panels; Headless в общем E2E; updater не блокирует.
-- **P5:** набор resource states; switch после готовности всего набора; один upgrade/downgrade; новый S через origin; USER + headless replay; локализация — малый пример (**String** = UTF-8; без persistent wchar cache).
-- **P6:** только реально прогнанные E2E; недоступный port — «не проверен».
+| ID | Содержание | Статус |
+| --- | --- | --- |
+| **P3.1a** | WindowCatalog common core + `Catalog*Button` без Win32 graph | **PASS** |
+| **P3.1b** | Общий graph builder; Windows/Headless adapters; Headless E2E | **PASS** (win64 Debug, эта машина) |
+| **P3.2a** | Web: initial publication — главное окно, список, кнопки, локализованные подписи (без действий) | **IN_PROGRESS** — target `web_window_catalog_demo`; браузерная проверка блокируется отсутствием `emcc` в PATH на этой машине |
+| **P3.2** | Web WindowCatalog: действия (Add/Delete/select/language), persist/reload | **IN_PROGRESS** — **NEXT** после P3.2a PASS |
+| **P3** | Мультиплатформенный WindowCatalog | **IN_PROGRESS** |
+| **P4** | Остальные платформы небольшими E2E-шагами | TODO |
+| **P5** | Resource-set delivery, upgrade/downgrade, S via origin, headless replay | TODO |
+| **P6** | Только реально прогнанные E2E | TODO |
+
+После первого рабочего non-Windows UI — первый сценарий **приложения администрирования** на том же библиотечном шаблоне (не ждать полного P4/P5).
+
+**DEFERRED / не блокирует P3** (не DONE, не отказ от контракта): замена `kSupplyConstantIds` (механизм **рабочий**; будущее место const-признака — **OPEN**); получение нового слоя **S** через origin; historical base и полный **T16/T17**; полная матрица Clone/upgrade/downgrade; дополнительные lazy-closure сценарии; докачка и активация resource-set; постоянный кеш из канонического состояния; универсальный экспорт журналов; общий аудит репозитория; production hardening и corner-case matrices.
 
 ### Соответствие кода правилам (таблица контроля)
 

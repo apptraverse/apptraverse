@@ -1,4 +1,4 @@
-**Active (2026-10-27):** **P0 DONE** — canon imported; **NEXT P1.1** — [docs/versioning/PLAN.md](docs/versioning/PLAN.md), [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md), [docs/architecture/AppTraverse_Architecture_RU.md](docs/architecture/AppTraverse_Architecture_RU.md).
+**Active (2026-10-28):** **P3.1a/P3.1b PASS**; **P3.2a IN_PROGRESS** (Web WindowCatalog initial UI) — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md), [docs/versioning/PLAN.md](docs/versioning/PLAN.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 

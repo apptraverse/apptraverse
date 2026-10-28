@@ -1,5 +1,7 @@
 #include "window_catalog_lifecycle.h"
 
+#include "window_catalog_prepare.h"
+
 #include <filesystem>
 #include <optional>
 #include <unordered_set>

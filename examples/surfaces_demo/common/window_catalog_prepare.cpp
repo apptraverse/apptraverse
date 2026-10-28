@@ -1,4 +1,4 @@
-#include "window_catalog_lifecycle.h"
+#include "window_catalog_prepare.h"
 
 #include "window_catalog_model.h"
 

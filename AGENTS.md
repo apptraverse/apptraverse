@@ -18,6 +18,8 @@
 ## Active plan (P0–P6)
 
 - **Order:** [docs/versioning/PLAN.md §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) — **only** active queue. **U5.2–U6**, **9D–9H** are **not** next steps.
+- **Priority:** кроссплатформенный WindowCatalog E2E (Windows → Web → далее P4) и приложение администрирования на том же template после первого non-Windows UI.
+- **Deferred (не возвращать в активную очередь без отдельного задания):** Object Core T16/T17, полная матрица Clone/upgrade, `kSupplyConstantIds` replacement, production hardening, resource download matrices — см. PLAN §P3 DEFERRED.
 - **Canon:** [docs/architecture/AppTraverse_Architecture_RU.md](docs/architecture/AppTraverse_Architecture_RU.md) (`8c863bc` observations).
 - **SharedNode / replication / Æther network client:** **full removal** (**P1.1**), not OFF or stubs.
 - **U5.1** (`8c863bc`) shutdown-save exit code — keep; do not revert.
