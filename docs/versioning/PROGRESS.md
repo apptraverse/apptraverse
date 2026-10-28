@@ -65,8 +65,8 @@
 | **P2.d.2.6** — final UI publication audit | **`c3b709e`**, §P2.d.2.6 | **PASS** |
 | **P2.d.2** — UI publication wire | §P2.d.2.6 | **PASS** |
 | **P2.d** — штатная сериализация | §P2.d.2.6 | **PASS** |
-| **P2.e.1** — graph Clone + Save remap (Æther patch) | §P2.e.1 | **IN_PROGRESS** |
-| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** |
+| **P2.e.1** — loaded graph Clone + const boundary; Save remap | **`a1a21f1`**, §P2.e.1 | **PASS** (Debug: `object_clone_test`, `object_origin_facet_test`, `application_contract_headless_test`) |
+| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (Node history / lazy closure **TODO**) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
