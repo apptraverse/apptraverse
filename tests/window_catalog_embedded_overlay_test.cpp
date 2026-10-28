@@ -8,6 +8,9 @@
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/application_model_runtime.h"
+#include "apptraverse/application_model_session.h"
+#include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/ui/ui_presented_window.h"
@@ -219,6 +222,111 @@ void TestUserOverlayPersistsAddWindow() {
   ExpectNoPrefabBodiesInUser(user_dir);
 }
 
+void TestEmbeddedModelSessionRoundTrip() {
+  EmbeddedDistilledGraph const& graph =
+      embedded_distilled::window_catalog::kEmbeddedGraph;
+  auto const user_dir =
+      TestDir("window_catalog_embedded_model_session_roundtrip");
+
+  ae::ObjId saved_holder_id;
+  ae::ObjId saved_window_id;
+  int prepare_calls = 0;
+  int persist_calls = 0;
+
+  {
+    DirectoryDomainStorage user_storage{user_dir};
+    ApplicationModelRuntime runtime;
+    ApplicationModelSessionHooks<WindowCatalog> hooks;
+    hooks.prepare = [&](WindowCatalog& catalog) {
+      ++prepare_calls;
+      CHECK(std::filesystem::is_empty(user_dir));
+      CHECK(catalog.window_prefab.is_valid());
+      CHECK(!catalog.window_prefab.is_loaded());
+      catalog.list.Load();
+      CHECK(catalog.list->rows.empty());
+      runtime.Post([&](ae::Domain&) { catalog.AddWindow(); });
+    };
+    hooks.persist = [&](WindowCatalog& catalog) -> int {
+      ++persist_calls;
+      catalog.list.Load();
+      CHECK(catalog.list->rows.size() == 1);
+      WindowHolder* holder = AsHolder(catalog.list->rows[0]);
+      saved_holder_id = holder->obj_id;
+      saved_window_id = holder->window.id();
+      CHECK(saved_window_id != kWindowPrefabId);
+      CHECK(holder->window->origin_id() == kWindowPrefabId);
+      auto presenter = LoadCatalogWindowPresenter(*holder->window);
+      CHECK(presenter.id() != kWindowPrefabPresenterId);
+      CHECK(presenter->origin_id() == kWindowPrefabPresenterId);
+      CHECK(!catalog.window_prefab.is_loaded());
+      ShutdownSaveCatalog(catalog, user_storage);
+      ExpectNoPrefabBodiesInUser(user_dir);
+      return 0;
+    };
+    int const result = RunEmbeddedApplicationModelSession(
+        user_storage, graph, runtime,
+        [&](ApplicationPublicationKind kind) {
+          if (kind == ApplicationPublicationKind::Initial) {
+            runtime.TakePublishedCopy();
+            runtime.NotifyPublicationConsumed();
+            runtime.RequestStop();
+          }
+        },
+        hooks);
+    CHECK(result == 0);
+    CHECK(prepare_calls == 1);
+    CHECK(persist_calls == 1);
+  }
+
+  int prepare_calls_2 = 0;
+  int persist_calls_2 = 0;
+  {
+    DirectoryDomainStorage user_storage{user_dir};
+    ApplicationModelRuntime runtime;
+    ApplicationModelSessionHooks<WindowCatalog> hooks;
+    hooks.prepare = [&](WindowCatalog& catalog) {
+      ++prepare_calls_2;
+      catalog.list.Load();
+      CHECK(catalog.list->rows.size() == 1);
+      CHECK(AsHolder(catalog.list->rows[0])->obj_id == saved_holder_id);
+      CHECK(AsHolder(catalog.list->rows[0])->window.id() == saved_window_id);
+      runtime.Post([&](ae::Domain&) { catalog.AddWindow(); });
+    };
+    hooks.persist = [&](WindowCatalog& catalog) -> int {
+      ++persist_calls_2;
+      catalog.list.Load();
+      CHECK(catalog.list->rows.size() == 2);
+      WindowHolder* holder0 = AsHolder(catalog.list->rows[0]);
+      WindowHolder* holder1 = AsHolder(catalog.list->rows[1]);
+      CHECK(holder0->window.id() == saved_window_id);
+      CHECK(holder1->window.id() != saved_window_id);
+      CHECK(holder0->window->origin_id() == kWindowPrefabId);
+      CHECK(holder1->window->origin_id() == kWindowPrefabId);
+      auto presenter0 = LoadCatalogWindowPresenter(*holder0->window);
+      auto presenter1 = LoadCatalogWindowPresenter(*holder1->window);
+      CHECK(presenter0->origin_id() == kWindowPrefabPresenterId);
+      CHECK(presenter1->origin_id() == kWindowPrefabPresenterId);
+      CHECK(!catalog.window_prefab.is_loaded());
+      ShutdownSaveCatalog(catalog, user_storage);
+      ExpectNoPrefabBodiesInUser(user_dir);
+      return 0;
+    };
+    int const result = RunEmbeddedApplicationModelSession(
+        user_storage, graph, runtime,
+        [&](ApplicationPublicationKind kind) {
+          if (kind == ApplicationPublicationKind::Initial) {
+            runtime.TakePublishedCopy();
+            runtime.NotifyPublicationConsumed();
+            runtime.RequestStop();
+          }
+        },
+        hooks);
+    CHECK(result == 0);
+    CHECK(prepare_calls_2 == 1);
+    CHECK(persist_calls_2 == 1);
+  }
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -228,6 +336,7 @@ int main() {
   apptraverse::EnsureWindowCatalogModelRegistration();
   apptraverse::test::TestColdLoadEmptyUserFromEmbeddedBacking();
   apptraverse::test::TestUserOverlayPersistsAddWindow();
+  apptraverse::test::TestEmbeddedModelSessionRoundTrip();
   std::cout << "window_catalog_embedded_overlay_test OK\n";
   return 0;
 }

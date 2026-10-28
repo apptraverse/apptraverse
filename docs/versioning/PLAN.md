@@ -96,7 +96,8 @@
 | **P2.f.1** | WindowCatalog MinSizeRel: RAM **BACKING** + **USER** + `OverlayDomainStorage` | **PASS** — после **P2.f.1R** (W/V supply constants, load_only MinSizeRel) |
 | **P2.f.1R** | W/V (`ObjId` 15/16) в `kSupplyConstants`; MinSizeRel `win32_window_catalog_demo_load_only` + overlay-тест | **PASS** — `apptraverse_window_catalog_embedded_overlay_test`; два запуска load_only + WM_CLOSE |
 | **P2.f.2** | `RunApplicationModelSession` + hooks; WindowCatalog / MinimalApp | **PASS** — `TestModelSessionLoadRunPersist`; оба demo link |
-| P2.f | Библиотечная точка lifecycle | **IN_PROGRESS** — **NEXT: P2.f.3** embedded BACKING/USER composition |
+| **P2.f.3** | `RunEmbeddedApplicationModelSession` (BACKING + USER overlay → model session) | **PASS** — `TestEmbeddedModelSessionRoundTrip` |
+| P2.f | Библиотечная точка lifecycle | **IN_PROGRESS** |
 
 Не ждать полной матрицы Clone/update/rollback. Не заменять prefab ручным копированием полей окна.
 

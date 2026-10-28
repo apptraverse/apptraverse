@@ -76,7 +76,8 @@
 | **P2.f.1** — WindowCatalog BACKING+USER overlay (MinSizeRel) | §P2.f.1 | **PASS** (после **P2.f.1R**) |
 | **P2.f.1R** — W/V supply constants + MinSizeRel load_only embedded | §P2.f.1R | **PASS** — overlay test; MinSizeRel load_only два запуска **exit 0** |
 | **P2.f.2** — `RunApplicationModelSession` (Load→Prepare→Run→Persist) | §P2.f.2 | **PASS** — `apptraverse_application_model_runtime_test`; demo targets build |
-| **P2.f** — библиотечный lifecycle | §P2.f | **IN_PROGRESS** — **NEXT: P2.f.3** |
+| **P2.f.3** — embedded BACKING/USER через `RunEmbeddedApplicationModelSession` | §P2.f.3 | **PASS** — `TestEmbeddedModelSessionRoundTrip` |
+| **P2.f** — библиотечный lifecycle | §P2.f | **IN_PROGRESS** |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 

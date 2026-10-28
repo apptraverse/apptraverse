@@ -2,7 +2,6 @@
 
 #include <filesystem>
 #include <optional>
-#include <set>
 #include <unordered_set>
 #include <vector>
 
@@ -11,12 +10,10 @@
 #include "window_catalog_localization.h"
 #include "window_catalog_model.h"
 
-#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
-#include "apptraverse/embedded_distilled_domain.h"
-#include "apptraverse/overlay_domain_storage.h"
+#include "apptraverse/embedded_application_model_session.h"
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
 #include "apptraverse/distilled_domain_export.h"
 #endif
@@ -117,14 +114,7 @@ int WindowCatalogModelSession::Run(
   };
 
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
-  ae::RamDomainStorage backing_storage;
-  InstallEmbeddedDistilledBacking(
-      backing_storage, embedded_distilled::window_catalog::kEmbeddedGraph);
-  std::set<ae::ObjId> const supply_constants = EmbeddedSupplyConstantIdSet(
-      embedded_distilled::window_catalog::kEmbeddedGraph);
   DirectoryDomainStorage user_storage{state_dir};
-  OverlayDomainStorage domain_storage{user_storage, backing_storage,
-                                      supply_constants};
   hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
     user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
@@ -134,8 +124,9 @@ int WindowCatalogModelSession::Run(
     }
     return 0;
   };
-  return RunApplicationModelSession(domain_storage, CatalogRootId(), runtime,
-                                    std::move(on_published), hooks);
+  return RunEmbeddedApplicationModelSession(
+      user_storage, embedded_distilled::window_catalog::kEmbeddedGraph, runtime,
+      std::move(on_published), hooks);
 #else
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
   std::error_code profile_error;
