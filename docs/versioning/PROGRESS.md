@@ -57,7 +57,7 @@
 | **P2.d.2.1** — structural envelope BinaryArchive | **`d8e0094`**, §P2.d.2.1 | **PASS** |
 | **P2.d.2.2** — graph payload BinaryArchive | **`bae3106`**, §P2.d.2.2 | **PASS** |
 | **P2.d.2.2R** — NDEBUG-safe graph decode/apply | **`a6fa412`**, §P2.d.2.2R | **PASS** |
-| **P2.d.2.3a** — initial envelope BinaryArchive | §P2.d.2.3a | **PASS** |
+| **P2.d.2.3a** — initial envelope BinaryArchive | **`5d420c9`**, §P2.d.2.3a | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.2.3b** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -251,7 +251,7 @@
 
 ---
 
-## P2.d.2.3a — initial envelope через BinaryArchive (2026-10-27)
+## P2.d.2.3a — initial envelope через BinaryArchive (2026-10-27, **`5d420c9`**)
 
 **Изменение:** `SerializeInitialPublication` / `TryLoadInitialPublication` — `InitialPublicationEnvelope` (`root_id`, `graph_bytes`) через `BinaryArchive`; внутренний `GraphPublicationPayload` без изменений. Удалена ручная запись/чтение root ObjId. Диагностика: `ReadEnvelope`.
 
