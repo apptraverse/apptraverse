@@ -65,7 +65,7 @@
 | **P2.d.2.6** — final UI publication audit | **`c3b709e`**, §P2.d.2.6 | **PASS** |
 | **P2.d.2** — UI publication wire | §P2.d.2.6 | **PASS** |
 | **P2.d** — штатная сериализация | §P2.d.2.6 | **PASS** |
-| **P2.e.1R** — graph clone test: shared BACKING, cold + `Load(C)` | §P2.e.1R | **PASS** (Debug: `apptraverse_object_clone_test`) |
+| **P2.e.1R** — graph clone test: shared BACKING, cold + `Load(C)` | **`c23ec0a`**, §P2.e.1R | **PASS** (Debug: `apptraverse_object_clone_test`) |
 | **P2.e.1** — loaded graph Clone + const boundary; Save remap | **`a1a21f1`**, §P2.e.1 | **PASS** (remap; fixture до **P2.e.1R** не проверял lazy **C**) |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (Node history / lazy closure **TODO**) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
