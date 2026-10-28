@@ -81,8 +81,9 @@
 | **P2.d.2.3c** | Single-object `ClassData` через `BinaryArchive` | **PASS** — model runtime direct incremental + contract/catalog |
 | **P2.d.2.4** | Close/Open presenter lifecycle test observation | **PASS** — `application_ui_session_test` (test-only fix) |
 | **P2.d.2.5** | UiMirror batch publication через `BinaryArchive` | **PASS** — `TestUiMirrorBatchPublication` + ui session + contract |
-| **P2.d.2** | Initial/structural publication через `BinaryArchive` | **IN_PROGRESS** — **NEXT:** финальный аудит P2.d.2 |
-| P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** |
+| **P2.d.2.6** | Final UI publication audit | **PASS** — §P2.d.2.6, Debug acceptance matrix |
+| **P2.d.2** | UI publication wire через `BinaryArchive` | **PASS** — P2.d.2.1–P2.d.2.6 |
+| P2.d | Штатная сериализация (storage + publication) | **PASS** — P2.d.1R + P2.d.2 |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
 
@@ -102,7 +103,7 @@
 | Core CMake | SharedNode в core, `APPTRAVERSE_ENABLE_SHARED_NODE=1` | P1.1 |
 | `node.h` | SharedNode-члены за `#if` | P1.1 |
 | Lifecycles | Inline checkpoint ×4 | **P2.a PASS** |
-| Serialization | Ручные envelope publication (UI) | **P2.d.2** (checkpoint sidecar **PASS** P2.d.1R) |
+| Serialization | UI publication wire | **PASS** — `BinaryArchive` envelopes + `ClassData`/`ObjClassData` (P2.d.2); persistent storage без checkpoint sidecar (P2.d.1R) |
 | MinimalApp | Runtime Stabilize at shutdown | **P2.b PASS** |
 | Catalog graph | Win32 presenter types в portable graph | P2–P4 |
 | Web CMake | `-fexceptions` в Surfaces web | P4 |

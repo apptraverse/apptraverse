@@ -62,7 +62,9 @@
 | **P2.d.2.3c** — single-object ClassData BinaryArchive | **`9afad2f`**, §P2.d.2.3c | **PASS** |
 | **P2.d.2.4** — Close/Open lifecycle test | **`1669eb8`**, §P2.d.2.4 | **PASS** |
 | **P2.d.2.5** — UiMirror BinaryArchive batch | **`bc247fe`**, §P2.d.2.5 | **PASS** |
-| **P2.d** — штатная сериализация | §P2.d.2.5 | **IN_PROGRESS** |
+| **P2.d.2.6** — final UI publication audit | §P2.d.2.6 | **PASS** |
+| **P2.d.2** — UI publication wire | §P2.d.2.6 | **PASS** |
+| **P2.d** — штатная сериализация | §P2.d.2.6 | **PASS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -297,13 +299,53 @@
 
 ---
 
-## P2.d.2.5 — UiMirror publication через BinaryArchive (2026-10-28)
+## P2.d.2.5 — UiMirror publication через BinaryArchive (2026-10-28, **`bc247fe`**)
 
 **Изменение:** `UiMirror::Publish` / `ApplyPublished` — `std::vector<UiMirrorPublicationRecord>` (`object_id`, `class_id`, `generation`, `graph_bytes` из `SerializeObjectGraphToBuffer`) через `BinaryArchive`. Удалены `WriteU32`/`ReadU32`/`ReadU64`, `PreferredClassIdFor`, ручные `record_count`/`payload_size`/memcpy backfill; class id берётся из записи публикации.
 
 **Debug PASS:** `apptraverse_application_model_runtime_test` (`TestUiMirrorBatchPublication`), `apptraverse_application_ui_session_test`, `apptraverse_application_contract_headless_test`.
 
 **NEXT (отдельно):** финальный аудит P2.d.2 на оставшиеся ручные форматы в действующих путях.
+
+---
+
+## P2.d.2.6 — final UI publication audit (2026-10-28, HEAD **`8829659`** audit base)
+
+**Scope (read-only):** `object_serialization.*`, `ui_mirror.*`, `graph_mirror.cpp`, `application_model_runtime.cpp`, `application_ui_session.cpp`, `publication_channel.h`. Production-код **не менялся**.
+
+### Матрица путей (wire + тест)
+
+| Путь | Wire-формат | Проверяющий тест (Debug) | Статус |
+| --- | --- | --- | --- |
+| A Initial | `InitialPublicationEnvelope` → `GraphPublicationPayload` | `apptraverse_ui_bitmap_publication_test`, `application_ui_session_test` (`TestInitialMirror`) | **PASS** |
+| B Structural | `StructuralPublicationEnvelope` (+ sidecar byte) → `GraphPublicationPayload` | `apptraverse_ui_bitmap_structural_publication_test`, `application_contract_headless_test`, `application_ui_session_test`, `presenter_win_desktop_frame_publication_e2e_test` | **PASS** |
+| C Incremental | `IncrementalPublicationEnvelope` → `ClassData` in `object_bytes` | `application_model_runtime_test` (`TestDirectIncrementalPublicationApply`) | **PASS** |
+| D UiMirror batch | `vector<UiMirrorPublicationRecord>` → per-record `GraphPublicationPayload` | `application_model_runtime_test` (`TestUiMirrorBatchPublication`, один existing root) | **PASS** (узкий) |
+| E Graph copy | `ClassData` via `SerializeObjectToBuffer` / `DeserializeObjectFromBuffer` | `application_contract_headless_test` (indirect via harness), persistence/graph tests | **PASS** |
+
+### Debug acceptance (`build/win64-ninja-msvc-debug`, exit 0)
+
+`apptraverse_ui_bitmap_publication_test`, `apptraverse_ui_bitmap_structural_publication_test`, `apptraverse_application_model_runtime_test`, `apptraverse_application_ui_session_test`, `apptraverse_application_contract_headless_test`, `apptraverse_window_catalog_model_test`, `apptraverse_model_persistence_test`, `apptraverse_presenter_graph_persistence_test`, `apptraverse_presenter_win_desktop_frame_publication_e2e_test`.
+
+### Критерии (подтверждено по коду)
+
+- DomainGraph scratch Save для слоёв; graph payload — `BinaryArchive` + `RamDomainStorage::ObjClassData`; single-object — `ClassData`; envelopes — `AE_REFLECT_MEMBERS`.
+- В перечисленных файлах **нет** ручного UI wire parse ClassId/S/size (единственный `memcpy` — `ByteSource::read` infra в `publication_channel.h`).
+- Append/in.pos: incremental envelope, single-object, UiMirror channel buffer; initial/structural consume whole buffer by design.
+- Save/Load/Inject publication paths вне `assert` (P2.d.2.2R); structural keepalive без изменений; Close/Open lifecycle — test observation fix (P2.d.2.4).
+- Persistent checkpoint API в библиотеке **отсутствует** (P2.d.1R.2b.5).
+
+### Ручные форматы вне P2.d.2 UI wire
+
+- Embedded/distilled export, `DistilledSupplyPackage`, demo wire, legacy shell test helpers (`DumpPublicationLayersForObj` / old layer_count scan) — **не** UI publication channel.
+- Application-specific префиксы (e.g. `processed_sequence` перед incremental в `main_window_lifecycle.cpp`) — **вне** envelope; covered косвенно `TestDirectIncrementalPublicationApply`.
+
+### Непроверенные ветки (не блокируют P2.d.2 PASS)
+
+- `UiMirror::ApplyPublished`: **несколько** records в одном batch; **CreateUiShell** для отсутствующего UI shell (chat-style new Node) — нет dedicated headless test.
+- `ApplicationModelRuntime` end-to-end incremental с app-specific prefix — не отдельный target (runtime covered structural/incremental косвенно).
+
+**Итог:** **P2.d.2 PASS**, **P2.d PASS** (P2.d.1R persistent + P2.d.2 UI). **NEXT:** **P2.e** — graph Clone prefab.
 
 ---
 
