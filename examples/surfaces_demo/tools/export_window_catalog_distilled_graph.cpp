@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <iostream>
 #include <set>
+#include <vector>
 
 #include "aether-objects/obj/domain.h"
 
@@ -62,9 +63,16 @@ int main(int argc, char** argv) {
       apptraverse::CollectStoredObjectIds(export_storage);
   std::filesystem::remove_all(export_dir, remove_ec);
 
+  std::vector<ae::ObjId> const supply_constant_ids{
+      ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
+          apptraverse::window_catalog_demo::ObjId::WindowPrefab)},
+      ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
+          apptraverse::window_catalog_demo::ObjId::WindowPrefabPresenter)},
+  };
+
   if (!apptraverse::WriteEmbeddedDistilledSupplyHeader(
-          argv[1], kGraphNamespace, kHeaderGuard, CatalogRootId(), {},
-          export_storage, object_filter)) {
+          argv[1], kGraphNamespace, kHeaderGuard, CatalogRootId(),
+          supply_constant_ids, export_storage, object_filter)) {
     std::cerr << "failed to write embedded window catalog supply header\n";
     return 1;
   }

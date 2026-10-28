@@ -93,8 +93,9 @@
 | **P2.e.5** | WindowCatalog `AddWindow` via distilled prefab + `WindowCatalog/S1` (`window_prefab`) | **PASS** — model test; MinSizeRel manual (clone/open/geom/locale) **user confirmed**; Z-order defect → **P2.e.5R** |
 | **P2.e.5R** | Desktop Z-order persist: `WindowCatalog/S2` (`desktop_z_order`), shutdown capture, `after_initial` restore | **PASS** — `TestCatalogDesktopZOrderPersistence`; MinSizeRel manual Z-order **LAUNCHED** |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | **IN_PROGRESS** — полный lazy closure **TODO**; holder/title builder **TODO** |
-| **P2.f.1** | WindowCatalog MinSizeRel: RAM **BACKING** (`kEmbeddedGraph`) + **USER** `DirectoryDomainStorage` + `OverlayDomainStorage` | **PASS** — `apptraverse_window_catalog_embedded_overlay_test`; demo без bootstrap write на disk |
-| P2.f | Библиотечная точка lifecycle | новый API + примеры (**P2.f.1** — WindowCatalog overlay) |
+| **P2.f.1** | WindowCatalog MinSizeRel: RAM **BACKING** + **USER** + `OverlayDomainStorage` | **PASS** — после **P2.f.1R** (W/V supply constants, load_only MinSizeRel) |
+| **P2.f.1R** | W/V (`ObjId` 15/16) в `kSupplyConstants`; MinSizeRel `win32_window_catalog_demo_load_only` + overlay-тест | **PASS** — `apptraverse_window_catalog_embedded_overlay_test`; два запуска load_only + WM_CLOSE |
+| P2.f | Библиотечная точка lifecycle | **IN_PROGRESS** — **NEXT: P2.f.2** общий API для WindowCatalog и MinimalApp |
 
 Не ждать полной матрицы Clone/update/rollback. Не заменять prefab ручным копированием полей окна.
 

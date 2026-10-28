@@ -80,6 +80,15 @@ if(TARGET apptraverse_generate_window_catalog_distilled_header)
     ${CMAKE_SOURCE_DIR}/generated)
 endif()
 add_executable(win32_window_catalog_demo_load_only ${_window_catalog_win_sources})
+target_compile_definitions(win32_window_catalog_demo_load_only PRIVATE
+  $<IF:$<CONFIG:MinSizeRel>,APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL,>
+)
+if(TARGET apptraverse_generate_window_catalog_distilled_header)
+  add_dependencies(win32_window_catalog_demo_load_only
+                   apptraverse_generate_window_catalog_distilled_header)
+  target_include_directories(win32_window_catalog_demo_load_only PRIVATE
+    ${CMAKE_SOURCE_DIR}/generated)
+endif()
 foreach(_catalog_demo win32_window_catalog_demo win32_window_catalog_demo_load_only)
   target_link_libraries(${_catalog_demo} PRIVATE
     surfaces_demo_window_catalog
