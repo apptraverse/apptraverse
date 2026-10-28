@@ -150,43 +150,47 @@ void SaveCanonicalCloneGraphToRam(ae::Obj const& object,
   factory->save(&graph, ptr, object.obj_id);
 }
 
-bool IsNodeObject(ae::Obj const& obj) {
-  return ae::Registry::GetRegistry().GenerationDistance(
-             Node::kClassId, obj.GetClassId()) >= 0;
+Node* AsNode(ae::Obj* obj) {
+  if (obj == nullptr) {
+    return nullptr;
+  }
+  if (ae::Registry::GetRegistry().GenerationDistance(Node::kClassId,
+                                                     obj->GetClassId()) < 0) {
+    return nullptr;
+  }
+  return static_cast<Node*>(obj);
 }
 
-void InitializeFreshHistoryForClonedNodes(ae::Domain& target,
-                                          ae::Obj& loaded_root) {
-  std::vector<Node*> nodes;
-  CollectReachableNodes(loaded_root, nodes);
-  for (Node* node : nodes) {
-    if (node->domain != &target) {
+bool InitializeFreshHistoryForClonedNodes(
+    std::vector<ae::Ptr<ae::Obj>> const& cloned_copies,
+    std::vector<ae::ObjId::Type>& fresh_base_ids) {
+  for (ae::Ptr<ae::Obj> const& obj : cloned_copies) {
+    Node* node = AsNode(obj.get());
+    if (node == nullptr) {
       continue;
     }
-    if (node->base.is_valid()) {
-      continue;
+    if (node->base.is_valid() || !node->journal.empty()) {
+      return false;
     }
     InitializeRuntimeNode(*node);
-    if (node->base.is_valid() && node->base.is_loaded()) {
-      node->base.Load()->SetOriginId(node->origin_id());
+    if (!node->base.is_valid() || !node->base.is_loaded()) {
+      return false;
     }
+    node->base.Load()->SetOriginId(node->origin_id());
+    fresh_base_ids.push_back(node->base.id().id());
   }
+  return true;
 }
 
-CloneRemap BuildIdentityRemap(CloneRemap const& object_remap,
-                              ae::Obj& loaded_root) {
+CloneRemap BuildIdentityRemap(
+    CloneRemap const& object_remap,
+    std::vector<ae::ObjId::Type> const& fresh_base_ids) {
   CloneRemap identity_remap;
   for (auto const& [_, new_id_raw] : object_remap) {
     identity_remap[new_id_raw] = new_id_raw;
   }
-  std::vector<Node*> nodes;
-  CollectReachableNodes(loaded_root, nodes);
-  for (Node* node : nodes) {
-    if (!node->base.is_valid()) {
-      continue;
-    }
-    ae::ObjId const base_id = node->base.id();
-    identity_remap[base_id.id()] = base_id.id();
+  for (ae::ObjId::Type base_id : fresh_base_ids) {
+    identity_remap[base_id] = base_id;
   }
   return identity_remap;
 }
@@ -290,6 +294,17 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
   }
 
   loaded_root->SetOriginId(options.stable_origin);
+
+  std::vector<ae::Ptr<ae::Obj>> cloned_copies;
+  cloned_copies.reserve(remap.size());
+  for (auto const& [_, new_id_raw] : remap) {
+    ae::Ptr<ae::Obj> copy = target.Find(ae::ObjId{new_id_raw});
+    if (!copy) {
+      return Fail(CloneError::kLoadFailed);
+    }
+    cloned_copies.push_back(copy);
+  }
+
   for (auto const& [old_id, new_id_raw] : remap) {
     if (old_id == source_id.id()) {
       continue;
@@ -297,7 +312,7 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
     ae::ObjId const new_id{new_id_raw};
     ae::Ptr<ae::Obj> cloned_child = target.Find(new_id);
     if (!cloned_child) {
-      continue;
+      return Fail(CloneError::kLoadFailed);
     }
     auto const origin_it = origins.find(old_id);
     if (origin_it != origins.end() && origin_it->second.is_valid()) {
@@ -305,11 +320,12 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
     }
   }
 
-  if (IsNodeObject(*loaded_root)) {
-    InitializeFreshHistoryForClonedNodes(target, *loaded_root);
+  std::vector<ae::ObjId::Type> fresh_base_ids;
+  if (!InitializeFreshHistoryForClonedNodes(cloned_copies, fresh_base_ids)) {
+    return Fail(CloneError::kLoadFailed);
   }
 
-  CloneRemap const identity_remap = BuildIdentityRemap(remap, *loaded_root);
+  CloneRemap const identity_remap = BuildIdentityRemap(remap, fresh_base_ids);
   ae::DomainGraph persist_graph{&target};
   persist_graph.SetCloneSaveRemap(&identity_remap);
   if (!persist_graph.SaveRoot(loaded_root, new_root_id).IsOk()) {
