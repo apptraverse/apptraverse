@@ -7,6 +7,7 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_id.h"
+#include "aether-objects/obj/obj_ptr.h"
 
 namespace apptraverse {
 
@@ -26,17 +27,19 @@ struct CloneOptions {
 };
 
 struct CloneCanonicalResult {
-  ae::ObjId new_root_id{};
+  ae::ObjPtr<ae::Obj> root{};
   CloneError error{CloneError::kNone};
+
+  ae::ObjId new_root_id() const { return root.is_valid() ? root.id() : ae::ObjId{}; }
 
   explicit operator bool() const { return error == CloneError::kNone; }
 };
 
-// Copies canonical in-memory state of source_root into target storage under a
-// new ObjId (13.2: single-object closure, no internal ObjPtr remap).
+// Copies canonical in-memory state of source_root (and loaded in-graph referents
+// outside boundary_ids) into target storage under new ObjIds (P2.e.1: small
+// loaded Obj graph with external const boundary; remap via standard Save).
 // Caller must BeginSaveSession on DirectoryDomainStorage USER before call when
-// persisting to disk USER. The cloned object is not kept alive in the Domain
-// after return; use LoadRoot(new_root_id) to obtain a Ptr.
+// persisting to disk USER.
 CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root,
                                       ae::Domain& target,
                                       CloneOptions const& options);

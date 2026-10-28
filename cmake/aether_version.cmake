@@ -21,6 +21,8 @@ set(APPTRAVERSE_AETHER_OBJECTS_OBJ_FACET_FACTORY_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-obj-facet-factory.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_DOMAIN_REGISTERED_OBJECTS_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-domain-registered-objects.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_CLONE_SAVE_REMAP_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-clone-save-remap.patch")
 
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
 set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG

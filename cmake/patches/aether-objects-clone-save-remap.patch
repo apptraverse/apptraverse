@@ -1,0 +1,112 @@
+﻿diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 4f69641..f5648f1 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -101,6 +101,9 @@ seri::SeriResult DomainGraph::SaveRoot(Ptr<Obj> const& ptr, ObjId obj_id) {
+   if (!ptr) {
+     return Error{seri::write_error};
+   }
++  if (clone_save_remap_ != nullptr && !CloneSaveShouldTraverse(obj_id)) {
++    return Ok{seri::good};
++  }
+   if (auto* factory = domain->FindClassFactory(ptr->GetClassId());
+       factory != nullptr) {
+     auto result = factory->save(this, ptr, obj_id);
+@@ -109,6 +112,23 @@ seri::SeriResult DomainGraph::SaveRoot(Ptr<Obj> const& ptr, ObjId obj_id) {
+   return Error{seri::write_error};
+ }
+ 
++ObjId DomainGraph::CloneSaveRemapId(ObjId id) const {
++  if (clone_save_remap_ == nullptr || !id.is_valid()) {
++    return id;
++  }
++  if (auto it = clone_save_remap_->find(id.id()); it != clone_save_remap_->end()) {
++    return ObjId{it->second};
++  }
++  return id;
++}
++
++bool DomainGraph::CloneSaveShouldTraverse(ObjId id) const {
++  if (clone_save_remap_ == nullptr) {
++    return true;
++  }
++  return clone_save_remap_->find(id.id()) != clone_save_remap_->end();
++}
++
+ DomainLoad DomainGraph::GetReader(DomainQuery const& query) {
+   return domain->storage_->Load(query);
+ }
+@@ -118,6 +138,9 @@ std::unique_ptr<IDomainStorageWriter> DomainGraph::GetWriter(
+   DomainQuery store_query = query;
+   store_query.force_materialize =
+       store_query.force_materialize || force_materialize;
++  if (clone_save_remap_ != nullptr) {
++    store_query.id = CloneSaveRemapId(store_query.id);
++  }
+   auto writer = domain->storage_->Store(store_query);
+   assert(writer && "Writer must be created!");
+   return writer;
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 92fd99a..59ba43c 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -24,6 +24,7 @@
+ #include <optional>
+ #include <set>
+ #include <type_traits>
++#include <unordered_map>
+ 
+ #include "aether-miscpp/domain_visitor/domain_visitor.h"
+ #include "aether-miscpp/serialization/binary_archive.h"
+@@ -152,6 +153,17 @@ class DomainGraph {
+   template <typename T, auto V>
+   seri::SeriResult SaveVersion(Version<V> version, T const& obj, ObjId obj_id);
+ 
++  using CloneSaveRemapTable = std::unordered_map<ObjId::Type, ObjId::Type>;
++
++  // Per-Save clone context: remaps storage keys and serialized ObjPtr ids.
++  // Walk/cycle detection continues to use pre-remap ObjIds.
++  void SetCloneSaveRemap(CloneSaveRemapTable const* table) {
++    clone_save_remap_ = table;
++  }
++
++  ObjId CloneSaveRemapId(ObjId id) const;
++  bool CloneSaveShouldTraverse(ObjId id) const;
++
+   Domain* domain{};
+   DomainCycleDetector cycle_detector{};
+   GraphSerializationScope serialization_scope{
+@@ -163,6 +175,8 @@ class DomainGraph {
+ 
+   DomainLoad GetReader(DomainQuery const& query);
+   std::unique_ptr<IDomainStorageWriter> GetWriter(DomainQuery const& query);
++
++  CloneSaveRemapTable const* clone_save_remap_{nullptr};
+ };
+ 
+ inline bool IsMissingVersion(seri::SeriResult const& result) {
+diff --git a/src/aether-objects/obj/obj_ptr_base.cpp b/src/aether-objects/obj/obj_ptr_base.cpp
+index 1913ba6..31e855a 100644
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -128,7 +128,9 @@ using ObjPtrBaseSerializer =
+ 
+ SeriResult ObjPtrBaseSerializer::Seri(Archive& archive,
+                                       Meta<ObjectPtrBase const> meta) {
+-  TRY_RESULT((archive.buffer().Write(DataTag{meta.value.id_})));
++  ObjId const serialized_id =
++      archive.buffer().domain_graph->CloneSaveRemapId(meta.value.id_);
++  TRY_RESULT((archive.buffer().Write(DataTag{serialized_id})));
+   ObjFlags::Type publish_flag_bits =
+       static_cast<ObjFlags::Type>(meta.value.flags_);
+   if (archive.buffer().domain_graph->serialization_scope ==
+@@ -142,7 +144,8 @@ SeriResult ObjPtrBaseSerializer::Seri(Archive& archive,
+   }
+   ObjFlags const publish_flags{publish_flag_bits};
+   TRY_RESULT((archive.buffer().Write(DataTag{publish_flags})));
+-  if (meta.value.cached_) {
++  if (meta.value.cached_ &&
++      archive.buffer().domain_graph->CloneSaveShouldTraverse(meta.value.id_)) {
+     TRY_RESULT(archive.buffer().domain_graph->SaveRoot(meta.value.cached_,
+                                                        meta.value.id_));
+   }

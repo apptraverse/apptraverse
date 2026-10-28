@@ -21,7 +21,7 @@
 
 **Нормативные правила Object Core:** [PLAN §нормативные правила](./PLAN.md#нормативные-правила-object-core-v03--01-plan) (здесь не дублируются).
 
-**Fixture vs библиотека:** **`CloneCanonicalRoot`** (**13.2 PASS**) — один объект без **`ObjPtr`**; полный graph Clone — **13.3+**. Prefab fixtures по-прежнему используют ручной graph prep где нужен remap.
+**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 IN_PROGRESS** — двухобъектный loaded graph + const boundary через remap штатного Save (**13.3** частично, не PASS). Node history / lazy closure / полный **13** — **TODO**.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -65,6 +65,8 @@
 | **P2.d.2.6** — final UI publication audit | **`c3b709e`**, §P2.d.2.6 | **PASS** |
 | **P2.d.2** — UI publication wire | §P2.d.2.6 | **PASS** |
 | **P2.d** — штатная сериализация | §P2.d.2.6 | **PASS** |
+| **P2.e.1** — graph Clone + Save remap (Æther patch) | §P2.e.1 | **IN_PROGRESS** |
+| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -309,7 +311,7 @@
 
 ---
 
-## P2.d.2.6 — final UI publication audit (2026-10-28, HEAD **`8829659`** audit base)
+## P2.d.2.6 — final UI publication audit (2026-10-28, **`c3b709e`**, audit base **`8829659`**)
 
 **Scope (read-only):** `object_serialization.*`, `ui_mirror.*`, `graph_mirror.cpp`, `application_model_runtime.cpp`, `application_ui_session.cpp`, `publication_channel.h`. Production-код **не менялся**.
 

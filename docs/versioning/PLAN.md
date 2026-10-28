@@ -84,7 +84,8 @@
 | **P2.d.2.6** | Final UI publication audit | **PASS** — §P2.d.2.6, Debug acceptance matrix |
 | **P2.d.2** | UI publication wire через `BinaryArchive` | **PASS** — P2.d.2.1–P2.d.2.6 |
 | P2.d | Штатная сериализация (storage + publication) | **PASS** — P2.d.1R + P2.d.2 |
-| P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
+| P2.e.1 | Loaded graph R→D + external const C; remap штатного Save (Æther `CloneSaveRemap`) | **IN_PROGRESS** — `apptraverse_object_clone_test`; частично **§13.3**, не PASS **13** |
+| P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | **IN_PROGRESS** — P2.e.1; Node history / lazy closure **TODO** |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
 
 Не ждать полной матрицы Clone/update/rollback. Не заменять prefab ручным копированием полей окна.
