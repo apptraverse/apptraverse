@@ -42,6 +42,12 @@ struct StructuralPublicationEnvelope {
   AE_REFLECT_MEMBERS(object_id, generation, graph_bytes, sidecar)
 };
 
+struct InitialPublicationEnvelope {
+  std::uint32_t root_id{};
+  std::vector<std::uint8_t> graph_bytes;
+  AE_REFLECT_MEMBERS(root_id, graph_bytes)
+};
+
 struct GraphPublicationNodeGeneration {
   std::uint32_t object_id{};
   std::uint64_t generation{};
@@ -765,9 +771,18 @@ void SerializeInitialPublication(ae::Obj const& root, ByteSink& out) {
   for (Node* node : nodes) {
     node->EnsureCurrentGeneration();
   }
-  auto const root_id = root.obj_id.id();
-  out.write(&root_id, sizeof(root_id));
-  SerializeObjectGraphToBuffer(root, out);
+  InitialPublicationEnvelope envelope;
+  envelope.root_id = root.obj_id.id();
+  ByteSink graph;
+  SerializeObjectGraphToBuffer(root, graph);
+  envelope.graph_bytes = std::move(graph.bytes);
+  out.bytes.clear();
+  ae::seri::BinaryVectorBuffer buffer{out.bytes};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  if (!archive.Save(envelope).IsOk()) {
+    WriteFatalStderr("fatal: initial publication envelope save failed\n");
+    std::abort();
+  }
 }
 
 void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
@@ -779,6 +794,9 @@ void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics c
       break;
     case InitialPublicationLoadStage::ReadRootId:
       stage = "read_root_id";
+      break;
+    case InitialPublicationLoadStage::ReadEnvelope:
+      stage = "read_envelope";
       break;
     case InitialPublicationLoadStage::ReadGraphPayload:
       stage = "read_graph_payload";
@@ -924,19 +942,36 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
   InitialPublicationLoadDiagnostics* diagnostics = diagnostics_out ? diagnostics_out : &local;
   *diagnostics = {};
 
-  std::uint32_t root_id = 0;
-  in.read(&root_id, sizeof(root_id));
-  if (!in.ok) {
-    diagnostics->stage = InitialPublicationLoadStage::ReadRootId;
+  if (in.pos > in.size) {
+    diagnostics->stage = InitialPublicationLoadStage::ReadEnvelope;
     diagnostics->offset = static_cast<std::uint32_t>(in.pos);
     return {};
   }
+  std::vector<std::uint8_t> const envelope_bytes(in.data + in.pos,
+                                                 in.data + in.size);
+  std::vector<std::uint8_t> copy = envelope_bytes;
+  ae::seri::BinaryVectorBuffer buffer{copy};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  InitialPublicationEnvelope envelope{};
+  if (archive.Load(envelope).IsErr()) {
+    diagnostics->stage = InitialPublicationLoadStage::ReadEnvelope;
+    diagnostics->offset = static_cast<std::uint32_t>(in.pos);
+    return {};
+  }
+  in.pos = in.size;
+
+  std::uint32_t const root_id = envelope.root_id;
   diagnostics->root_id = root_id;
 
+  ByteSource graph;
+  graph.data = envelope.graph_bytes.data();
+  graph.size = envelope.graph_bytes.size();
+  graph.pos = 0;
+
   GraphPublicationPayload payload;
-  if (!LoadGraphPublicationPayload(in, payload)) {
+  if (!LoadGraphPublicationPayload(graph, payload)) {
     diagnostics->stage = InitialPublicationLoadStage::ReadGraphPayload;
-    diagnostics->offset = static_cast<std::uint32_t>(in.pos);
+    diagnostics->offset = 0;
     return {};
   }
 

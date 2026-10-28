@@ -39,13 +39,15 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
                                       ae::Domain& domain,
                                       ae::IDomainStorage& domain_storage);
 
-// Full-graph initial publication: root ObjId then SerializeObjectGraphToBuffer.
+// Full-graph initial publication: BinaryArchive InitialPublicationEnvelope
+// (root_id + graph_bytes from SerializeObjectGraphToBuffer).
 // Load creates UI shells from the buffer (no model Domain / model Obj*).
 void SerializeInitialPublication(ae::Obj const& root, ByteSink& out);
 
 enum class InitialPublicationLoadStage : std::uint8_t {
   Ok = 0,
   ReadRootId,
+  ReadEnvelope,
   ReadGraphPayload,
   ReadLayerCount,
   ReadLayerHeader,

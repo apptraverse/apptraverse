@@ -57,7 +57,8 @@
 | **P2.d.2.1** — structural envelope BinaryArchive | **`d8e0094`**, §P2.d.2.1 | **PASS** |
 | **P2.d.2.2** — graph payload BinaryArchive | **`bae3106`**, §P2.d.2.2 | **PASS** |
 | **P2.d.2.2R** — NDEBUG-safe graph decode/apply | **`a6fa412`**, §P2.d.2.2R | **PASS** |
-| **P2.d** — штатная сериализация | **NEXT: P2.d.2.3** | **IN_PROGRESS** |
+| **P2.d.2.3a** — initial envelope BinaryArchive | §P2.d.2.3a | **PASS** |
+| **P2.d** — штатная сериализация | **NEXT: P2.d.2.3b** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -247,6 +248,16 @@
 **Debug PASS:** те же пять regression, что P2.d.2.2 (bitmap structural, contract headless, model runtime, window catalog model, frame E2E).
 
 **NEXT:** **P2.d.2.3**.
+
+---
+
+## P2.d.2.3a — initial envelope через BinaryArchive (2026-10-27)
+
+**Изменение:** `SerializeInitialPublication` / `TryLoadInitialPublication` — `InitialPublicationEnvelope` (`root_id`, `graph_bytes`) через `BinaryArchive`; внутренний `GraphPublicationPayload` без изменений. Удалена ручная запись/чтение root ObjId. Диагностика: `ReadEnvelope`.
+
+**Debug PASS:** `apptraverse_ui_bitmap_publication_test`, `apptraverse_ui_bitmap_structural_publication_test`, `apptraverse_application_contract_headless_test`, `apptraverse_application_model_runtime_test`, `apptraverse_window_catalog_model_test`.
+
+**NEXT:** **P2.d.2.3b** — incremental publication envelope.
 
 ---
 
