@@ -1,7 +1,7 @@
 Status: active
 Progress: Progress.md
 
-**Active work (2026-10-28):** multi-platform **WindowCatalog** — [docs/versioning/PLAN.md §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6). **P3.1a/P3.1b PASS**; **P3.2a IN_PROGRESS** (Web initial chrome); **NEXT:** P3.2a browser verify → Web actions (P3.2). Do not treat **U5.2–U6** or **9D–9H** as active queues.
+**Active work (2026-10-28):** multi-platform **WindowCatalog** — [docs/versioning/PLAN.md §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6). **P3.2a PASS** (WASM + browser smoke); **P3.2/P3 IN_PROGRESS** — **NEXT:** Web WindowCatalog actions (P3.2). Do not treat **U5.2–U6** or **9D–9H** as active queues.
 
 **Release versioning (R0–R5):** fixture roadmap in [docs/versioning/PLAN.md](docs/versioning/PLAN.md) / [PROGRESS.md](docs/versioning/PROGRESS.md) — reference; **P0–P6** is the execution order on `integration/unified-application`. Coding-agent rules remain mandatory.
 

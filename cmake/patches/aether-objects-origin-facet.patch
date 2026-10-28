@@ -44,7 +44,8 @@ index 31431b1..9d2f8cc 100644
 +    return save_result;
    }
 +
-+  if constexpr (std::is_base_of_v<Obj, std::decay_t<T>>) {
++  if constexpr (std::is_base_of_v<Obj, std::decay_t<T>> &&
++                !std::is_same_v<std::decay_t<T>, Obj>) {
 +    if (serialization_scope == GraphSerializationScope::LocalPersistent &&
 +        T::kClassId == obj.GetClassId()) {
 +      Obj const& as_obj = static_cast<Obj const&>(obj);
@@ -152,4 +153,6 @@ index 94a3b04..3d1cc81 100644
 +  ObjPtr<Obj> origin_{};
  };
  
++#include "aether-objects/obj/domain.h"
++
  namespace domain_visitor {

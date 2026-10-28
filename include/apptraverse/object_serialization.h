@@ -5,9 +5,9 @@
 #include <set>
 #include <vector>
 
+#include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/idomain_storage.h"
-#include "aether-objects/obj/obj.h"
 #include "aether-objects/ptr/ptr.h"
 
 #include "apptraverse/node.h"

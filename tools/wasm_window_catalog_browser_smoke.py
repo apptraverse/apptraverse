@@ -5,31 +5,17 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import expect, sync_playwright
 
-
-def wait_ready(page, timeout_ms: int = 60000) -> None:
-    deadline_steps = timeout_ms // 100
-    for _ in range(deadline_steps):
-        ready = page.evaluate(
-            """() => {
-              const title = document.getElementById('catalog-title');
-              const buttons = document.querySelectorAll('#catalog-buttons button');
-              return title && title.textContent && title.textContent !== 'Loading…'
-                     && buttons.length >= 4;
-            }"""
-        )
-        if ready:
-            return
-        page.wait_for_timeout(100)
-    title = page.eval_on_selector("#catalog-title", "el => el ? el.textContent : ''")
-    count = page.eval_on_selector(
-        "#catalog-buttons", "el => el ? el.querySelectorAll('button').length : 0"
-    )
-    raise TimeoutError(
-        f"Timed out waiting for WindowCatalog chrome; title={title!r} buttons={count}"
-    )
+EXPECTED_BUTTONS = {
+    "5002": {"label": "Add", "enabled": True},
+    "5003": {"label": "Open", "enabled": False},
+    "5004": {"label": "Delete", "enabled": False},
+    "5005": {"label": "RU", "enabled": True},
+}
 
 
 def main() -> int:
@@ -37,26 +23,96 @@ def main() -> int:
     parser.add_argument(
         "--url", default="http://127.0.0.1:8765/web_window_catalog_demo.html"
     )
+    parser.add_argument(
+        "--screenshot",
+        default="docs/smoke_artifacts/window_catalog_web_initial.png",
+    )
     args = parser.parse_args()
+
+    page_errors: list[str] = []
+    saw_render_ok = False
+
+    def on_pageerror(err: Exception) -> None:
+        page_errors.append(str(err))
+
+    def on_console(msg) -> None:
+        nonlocal saw_render_ok
+        text = msg.text
+        if "WINDOW_CATALOG_INITIAL_RENDER_OK" in text:
+            saw_render_ok = True
+        if msg.type == "error":
+            if "Failed to load resource:" in text or "favicon.ico" in text:
+                return
+            page_errors.append(f"console.error: {text}")
+
+    def on_requestfailed(request) -> None:
+        name = request.url.rsplit("/", 1)[-1]
+        if name.startswith("web_window_catalog_demo"):
+            page_errors.append(
+                f"requestfailed: {request.url} ({request.failure})"
+            )
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, channel="chrome")
-        page = browser.new_page()
-        page.on("pageerror", lambda err: print(f"PAGEERROR: {err}", file=sys.stderr))
-        page.on(
-            "console",
-            lambda msg: print(f"CONSOLE[{msg.type}]: {msg.text}")
-            if "WINDOW_CATALOG" in msg.text or msg.type == "error"
-            else None,
-        )
-        page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
-        wait_ready(page, timeout_ms=60000)
-        title = page.eval_on_selector("#catalog-title", "el => el.textContent.trim()")
-        labels = page.eval_on_selector_all(
-            "#catalog-buttons button", "els => els.map(e => e.textContent.trim())"
-        )
-        print(f"PASS title={title!r} buttons={labels}")
-        browser.close()
+        context = browser.new_context()
+        page = context.new_page()
+        page.on("pageerror", on_pageerror)
+        page.on("console", on_console)
+        page.on("requestfailed", on_requestfailed)
+
+        try:
+            page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
+            expect(page.locator("#catalog-title")).to_have_text(
+                "Window Catalog", timeout=60000
+            )
+            expect(page.locator("#catalog-list li")).to_have_count(0, timeout=5000)
+            expect(page.locator("#catalog-buttons button.catalog-button")).to_have_count(
+                4, timeout=60000
+            )
+
+            for control_id, spec in EXPECTED_BUTTONS.items():
+                btn = page.locator(
+                    f'#catalog-buttons button[data-control-id="{control_id}"]'
+                )
+                expect(btn).to_have_count(1, timeout=5000)
+                expect(btn).to_have_text(spec["label"], timeout=5000)
+                if spec["enabled"]:
+                    expect(btn).to_be_enabled(timeout=5000)
+                else:
+                    expect(btn).to_be_disabled(timeout=5000)
+
+            isolated = page.evaluate("() => crossOriginIsolated === true")
+            if not isolated:
+                print("FAIL: crossOriginIsolated is not true", file=sys.stderr)
+                return 1
+            sab = page.evaluate(
+                "() => typeof SharedArrayBuffer !== 'undefined'"
+            )
+            if not sab:
+                print("FAIL: SharedArrayBuffer unavailable", file=sys.stderr)
+                return 1
+            if not saw_render_ok:
+                print(
+                    "FAIL: missing console marker WINDOW_CATALOG_INITIAL_RENDER_OK",
+                    file=sys.stderr,
+                )
+                return 1
+
+            shot = Path(args.screenshot)
+            shot.parent.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(shot), full_page=True)
+            print(f"PASS screenshot={shot}")
+        except (PlaywrightError, TimeoutError, AssertionError) as exc:
+            print(f"FAIL: {exc}", file=sys.stderr)
+            return 1
+        finally:
+            context.close()
+            browser.close()
+
+    if page_errors:
+        for err in page_errors:
+            print(f"PAGEERROR: {err}", file=sys.stderr)
+        return 1
     return 0
 
 

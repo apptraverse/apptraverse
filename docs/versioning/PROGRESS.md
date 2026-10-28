@@ -80,7 +80,7 @@
 | **P2.f** — библиотечный lifecycle | §P2.f | **IN_PROGRESS** |
 | **P3.1a** — WindowCatalog common core/actions (без Win32 graph) | §P3.1a | **PASS** — `surfaces_demo_window_catalog_common`; model + overlay tests |
 | **P3.1b** — общая композиция graph builder; Windows/Headless adapters; Headless E2E | §P3.1b | **PASS** (win64-ninja-msvc-debug, локально) — `apptraverse_window_catalog_headless_test`; model + overlay tests; demos build. |
-| **P3.2a** — Web initial WindowCatalog chrome (mirror + DOM) | §P3.2a | **IN_PROGRESS** — добавлены `web_window_catalog_demo`, `WebCatalog*Presenter`, `window_catalog_prepare.h`; headless/model/overlay **PASS** после prepare.h. **Браузер: не проверен** — `emcc`/`build/wasm-ninja-debug` отсутствуют на машине (2026-10-28). Smoke: `tools/wasm_window_catalog_browser_smoke.py` + `tools/serve_wasm.py`. |
+| **P3.2a** — Web initial WindowCatalog chrome (mirror + DOM) | §P3.2a | **PASS** — Emscripten **3.1.64** (`emsdk` session), `build/wasm-ninja-debug`, target `web_window_catalog_demo`; browser smoke `tools/wasm_window_catalog_browser_smoke.py` + `tools/serve_wasm.py` (COOP/COEP, SAB, `WINDOW_CATALOG_INITIAL_RENDER_OK`, screenshot `docs/smoke_artifacts/window_catalog_web_initial.png`). Æther-objects: include-order hotfix в shared CPM tree (Clang/Emscripten); follow-up patch pending. |
 | **P3.2** — Web actions + persist | §P3.2 | **IN_PROGRESS** — **NEXT:** подключение действий WindowCatalog в Web |
 | **P3** — мультиплатформенный catalog | §P3 | **IN_PROGRESS** |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder) |

@@ -1,9 +1,9 @@
 #ifndef APPTRAVERSE_GRAPH_MIRROR_H_
 #define APPTRAVERSE_GRAPH_MIRROR_H_
 
+#include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/idomain_storage.h"
-#include "aether-objects/obj/obj.h"
 
 namespace apptraverse {
 

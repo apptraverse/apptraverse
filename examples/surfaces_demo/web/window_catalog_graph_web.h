@@ -3,9 +3,9 @@
 
 #include "aether-objects/obj/domain.h"
 
-namespace apptraverse {
+#include "window_catalog_model.h"
 
-class WindowCatalog;
+namespace apptraverse {
 
 WindowCatalog::ptr BuildWebWindowCatalogGraph(ae::Domain& domain);
 void EnsureWebWindowCatalogGraphRegistration();

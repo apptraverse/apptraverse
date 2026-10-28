@@ -107,8 +107,8 @@
 | --- | --- | --- |
 | **P3.1a** | WindowCatalog common core + `Catalog*Button` без Win32 graph | **PASS** |
 | **P3.1b** | Общий graph builder; Windows/Headless adapters; Headless E2E | **PASS** (win64 Debug, эта машина) |
-| **P3.2a** | Web: initial publication — главное окно, список, кнопки, локализованные подписи (без действий) | **IN_PROGRESS** — target `web_window_catalog_demo`; браузерная проверка блокируется отсутствием `emcc` в PATH на этой машине |
-| **P3.2** | Web WindowCatalog: действия (Add/Delete/select/language), persist/reload | **IN_PROGRESS** — **NEXT** после P3.2a PASS |
+| **P3.2a** | Web: initial publication — главное окно, список, кнопки, локализованные подписи (без действий) | **PASS** — WASM Debug build + browser smoke (Emscripten 3.1.64) |
+| **P3.2** | Web WindowCatalog: действия (Add/Delete/select/language), persist/reload | **IN_PROGRESS** — **NEXT:** onclick / Add / Delete / Open / select / language в Web |
 | **P3** | Мультиплатформенный WindowCatalog | **IN_PROGRESS** |
 | **P4** | Остальные платформы небольшими E2E-шагами | TODO |
 | **P5** | Resource-set delivery, upgrade/downgrade, S via origin, headless replay | TODO |

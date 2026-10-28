@@ -108,12 +108,10 @@ target_link_libraries(web_window_catalog_demo PRIVATE
 
 target_compile_options(web_window_catalog_demo PRIVATE
   -pthread
-  -fexceptions
 )
 
 target_link_options(web_window_catalog_demo PRIVATE
   -pthread
-  -fexceptions
   -sPTHREAD_POOL_SIZE=1
   -sINITIAL_MEMORY=268435456
   -sALLOW_MEMORY_GROWTH=0
