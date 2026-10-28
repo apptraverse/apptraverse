@@ -105,6 +105,72 @@ void ApplyPublicationBytes(std::vector<std::uint8_t> const& bytes, ae::Domain& u
   ApplyStructuralPublication(in, ui_domain, ui_storage);
 }
 
+void TestDirectIncrementalPublicationApply() {
+  ae::RamDomainStorage model_storage;
+  ae::RamDomainStorage ui_storage;
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
+
+  auto root = RuntimeTestRoot::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(kRootId));
+  InitializeRuntimeNode(*root);
+  root->value = 0;
+  CommitBump(*root, model_domain, 7);
+  CHECK(root->value == 7);
+
+  ByteSink initial_out;
+  SerializeInitialPublication(*root, initial_out);
+  ByteSource initial_in;
+  initial_in.data = initial_out.bytes.data();
+  initial_in.size = initial_out.bytes.size();
+  auto ui_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+  CHECK(ui_obj);
+  auto ui_root = RuntimeTestRoot::ptr::MakeFromThis(
+      static_cast<RuntimeTestRoot*>(ui_obj.get()));
+  RuntimeTestRoot* const ui_root_ptr = &*ui_root;
+  CHECK(ReadUiValue(*ui_root) == 7);
+  CHECK(!ui_root->base.is_valid());
+  CHECK(ui_root->journal.empty());
+
+  CommitBump(*root, model_domain, 5);
+  CHECK(root->value == 12);
+  CHECK(ReadUiValue(*ui_root) == 7);
+
+  std::int32_t const model_value_before_publish = root->value;
+  std::size_t const model_journal_size = root->journal.size();
+  bool const model_had_base = root->base.is_valid();
+  std::uint64_t const published_generation = root->Generation();
+
+  std::uint64_t const processed_sequence = 42;
+  ByteSink out;
+  out.write(&processed_sequence, sizeof(processed_sequence));
+  std::size_t const prefix_size = out.bytes.size();
+  SerializeIncrementalNodePublication(*root, out);
+  CHECK(out.bytes.size() > prefix_size);
+  CHECK(out.bytes[0] == static_cast<std::uint8_t>(processed_sequence & 0xFFu));
+
+  ByteSource in;
+  in.data = out.bytes.data();
+  in.size = out.bytes.size();
+  in.pos = 0;
+  std::uint64_t read_sequence = 0;
+  in.read(&read_sequence, sizeof(read_sequence));
+  CHECK(in.ok);
+  CHECK(read_sequence == processed_sequence);
+
+  ae::Obj& applied =
+      ApplyIncrementalPublication(in, ui_domain, ui_storage);
+  CHECK(&applied == ui_root_ptr);
+  CHECK(ReadUiValue(*ui_root) == 12);
+  CHECK(ui_root->Generation() == published_generation);
+  CHECK(!ui_root->base.is_valid());
+  CHECK(ui_root->journal.empty());
+  CHECK(in.pos == in.size);
+  CHECK(root->value == model_value_before_publish);
+  CHECK(root->journal.size() == model_journal_size);
+  CHECK(root->base.is_valid() == model_had_base);
+}
+
 void TestInitialAndIncrementalPublication() {
   ae::RamDomainStorage model_storage;
   ae::RamDomainStorage ui_storage;
@@ -403,6 +469,7 @@ void TestNotifierDetachedAfterRun() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureObjectRegistration();
+  apptraverse::test::TestDirectIncrementalPublicationApply();
   apptraverse::test::TestInitialAndIncrementalPublication();
   apptraverse::test::TestCoalesceAndBackpressure();
   apptraverse::test::TestStopDrainsAcceptedWork();

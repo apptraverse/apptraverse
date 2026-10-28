@@ -170,8 +170,10 @@ void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 
 // PUBLISH uses SerializeObjectToBuffer, which writes a temporary
 // RamDomainStorage scratch, not DirectoryDomainStorage.
-// One changed Node for an incremental GUI publication. Envelope:
-// object id, generation, payload length, SerializeObjectToBuffer payload.
+// One changed Node for an incremental GUI publication. Appends a
+// BinaryArchive IncrementalPublicationEnvelope (object_id, generation,
+// object_bytes from SerializeObjectToBuffer) to out.bytes; callers may
+// prefix the sink (e.g. processed_sequence) before calling.
 //
 // The MainWindow layer written here is an ordinary object Save, so it still
 // contains Node base/journal references. Referenced Event object layers are

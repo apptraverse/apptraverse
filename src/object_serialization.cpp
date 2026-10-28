@@ -48,6 +48,13 @@ struct InitialPublicationEnvelope {
   AE_REFLECT_MEMBERS(root_id, graph_bytes)
 };
 
+struct IncrementalPublicationEnvelope {
+  std::uint32_t object_id;
+  std::uint64_t generation;
+  std::vector<std::uint8_t> object_bytes;
+  AE_REFLECT_MEMBERS(object_id, generation, object_bytes)
+};
+
 struct GraphPublicationNodeGeneration {
   std::uint32_t object_id{};
   std::uint64_t generation{};
@@ -675,36 +682,48 @@ void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation) {
 }
 
 void SerializeIncrementalNodePublication(Node const& node, ByteSink& out) {
-  auto const object_id = node.obj_id.id();
-  auto const generation = node.Generation();
   ByteSink payload;
   SerializeObjectToBuffer(node, payload,
                           ae::GraphSerializationScope::MaterializedPublication);
-  auto const payload_size = static_cast<std::uint32_t>(payload.bytes.size());
-  out.write(&object_id, sizeof(object_id));
-  out.write(&generation, sizeof(generation));
-  out.write(&payload_size, sizeof(payload_size));
-  out.write(payload.bytes.data(), payload.bytes.size());
+  IncrementalPublicationEnvelope envelope;
+  envelope.object_id = node.obj_id.id();
+  envelope.generation = node.Generation();
+  envelope.object_bytes = std::move(payload.bytes);
+  ae::seri::BinaryVectorBuffer buffer{out.bytes};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  if (!archive.Save(envelope).IsOk()) {
+    WriteFatalStderr("fatal: incremental publication envelope save failed\n");
+    std::abort();
+  }
 }
 
 ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
                                      ae::IDomainStorage& storage) {
-  std::uint32_t object_id = 0;
-  std::uint64_t generation = 0;
-  std::uint32_t payload_size = 0;
-  in.read(&object_id, sizeof(object_id));
-  in.read(&generation, sizeof(generation));
-  in.read(&payload_size, sizeof(payload_size));
-  assert(in.ok);
-  assert(in.pos + payload_size <= in.size);
+  if (in.pos > in.size) {
+    WriteFatalStderr("fatal: incremental publication envelope truncated\n");
+    std::abort();
+  }
+  std::vector<std::uint8_t> copy(in.data + in.pos, in.data + in.size);
+  ae::seri::BinaryVectorBuffer buffer{copy};
+  ae::seri::BinaryArchive archive{std::move(buffer)};
+  IncrementalPublicationEnvelope envelope;
+  if (archive.Load(envelope).IsErr()) {
+    WriteFatalStderr("fatal: incremental publication envelope load failed\n");
+    std::abort();
+  }
+  in.pos += archive.buffer().read_position();
+  auto object = domain.Find(ae::ObjId{envelope.object_id});
+  if (!object) {
+    WriteFatalStderr(
+        "fatal: incremental publication object must already exist\n");
+    std::abort();
+  }
   ByteSource payload;
-  payload.data = in.data + in.pos;
-  payload.size = payload_size;
-  in.pos += payload_size;
-  auto object = domain.Find(ae::ObjId{object_id});
-  assert(object && "incremental publication object must already exist");
+  payload.data = envelope.object_bytes.data();
+  payload.size = envelope.object_bytes.size();
+  payload.pos = 0;
   DeserializeObjectFromBuffer(*object, payload, domain, storage);
-  FinalizeUiNodeState(*object, generation);
+  FinalizeUiNodeState(*object, envelope.generation);
   return *object;
 }
 
