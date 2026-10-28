@@ -55,7 +55,8 @@
 | **P2.d.1R** — без отдельного persistent checkpoint | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.1R.2b** — миграция + удаление API | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.2.1** — structural envelope BinaryArchive | **`d8e0094`**, §P2.d.2.1 | **PASS** |
-| **P2.d** — штатная сериализация | **NEXT: P2.d.2.2** | **IN_PROGRESS** |
+| **P2.d.2.2** — graph payload BinaryArchive | §P2.d.2.2 | **PASS** |
+| **P2.d** — штатная сериализация | **NEXT: P2.d.2.3** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -223,6 +224,18 @@
 **Примечание:** `apptraverse_application_ui_session_test` — `TestPresenterLifecycleCloseOpen` (341) **FAIL** на **`f286dc8`** до envelope; не регрессия P2.d.2.1.
 
 **NEXT:** **P2.d.2.2** — BinaryArchive для object layers + Node generations в graph payload.
+
+---
+
+## P2.d.2.2 — graph payload через BinaryArchive (2026-10-27)
+
+**Изменение:** `SerializeObjectGraphToBuffer` / `DeserializeObjectGraphFromBuffer` / `TryLoadInitialPublication` — `GraphPublicationPayload` (`ae::RamDomainStorage::ObjClassData layers`, `generations`) через `BinaryArchive`; общий decode/inject helper; удалены ручные `layer_count`, per-layer headers и отдельная generation table в wire format. Внешний initial envelope (`root ObjId`) без изменений.
+
+**Debug PASS:** `apptraverse_ui_bitmap_structural_publication_test`, `apptraverse_application_contract_headless_test`, `apptraverse_application_model_runtime_test`, `apptraverse_window_catalog_model_test`, `apptraverse_presenter_win_desktop_frame_publication_e2e_test`.
+
+**Примечание:** `apptraverse_application_ui_session_test` — `TestPresenterLifecycleCloseOpen` (341) **FAIL** (pre-existing на **`f286dc8`**); не регрессия P2.d.2.2.
+
+**NEXT:** **P2.d.2.3** — оставшиеся initial/incremental envelopes и single-object serialization.
 
 ---
 

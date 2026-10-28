@@ -74,7 +74,8 @@
 | **P2.d.1R.2b.5** | Удаление persistent checkpoint API из библиотеки | **PASS** — regression: model/presenter persistence + catalog model |
 | **P2.d.1R.2b** | Миграция потребителей + удаление checkpoint API | **PASS** |
 | **P2.d.2.1** | Structural publication envelope через `BinaryArchive` | **PASS** — bitmap structural + frame E2E + contract/model runtime |
-| **P2.d.2** | Initial/structural publication через `BinaryArchive` | **IN_PROGRESS** — **NEXT: P2.d.2.2** (graph payload) |
+| **P2.d.2.2** | Graph payload (`ObjClassData` + Node generations) через `BinaryArchive` | **PASS** — те же regression + `window_catalog_model_test` |
+| **P2.d.2** | Initial/structural publication через `BinaryArchive` | **IN_PROGRESS** — **NEXT: P2.d.2.3** (initial/incremental envelopes + single-object) |
 | P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |

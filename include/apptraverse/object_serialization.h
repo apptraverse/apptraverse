@@ -46,6 +46,7 @@ void SerializeInitialPublication(ae::Obj const& root, ByteSink& out);
 enum class InitialPublicationLoadStage : std::uint8_t {
   Ok = 0,
   ReadRootId,
+  ReadGraphPayload,
   ReadLayerCount,
   ReadLayerHeader,
   ReadLayerPayload,
