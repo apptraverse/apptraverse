@@ -61,7 +61,8 @@
 | **P2.d.2.3b** — incremental envelope BinaryArchive | **`4e8ba30`**, §P2.d.2.3b | **PASS** |
 | **P2.d.2.3c** — single-object ClassData BinaryArchive | **`9afad2f`**, §P2.d.2.3c | **PASS** |
 | **P2.d.2.4** — Close/Open lifecycle test | **`1669eb8`**, §P2.d.2.4 | **PASS** |
-| **P2.d** — штатная сериализация | §P2.d.2.4 | **IN_PROGRESS** |
+| **P2.d.2.5** — UiMirror BinaryArchive batch | §P2.d.2.5 | **PASS** |
+| **P2.d** — штатная сериализация | §P2.d.2.5 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -293,6 +294,16 @@
 **Счётчики по этапам:** после initial OnLoad=1/OnUnload=0; после Close OnLoad=1/OnUnload=1; после Open OnLoad=2/OnUnload=1; после уничтожения session OnLoad=2/OnUnload=2.
 
 **Debug PASS:** `apptraverse_application_ui_session_test`, `apptraverse_application_contract_headless_test`, `apptraverse_window_catalog_model_test`.
+
+---
+
+## P2.d.2.5 — UiMirror publication через BinaryArchive (2026-10-28)
+
+**Изменение:** `UiMirror::Publish` / `ApplyPublished` — `std::vector<UiMirrorPublicationRecord>` (`object_id`, `class_id`, `generation`, `graph_bytes` из `SerializeObjectGraphToBuffer`) через `BinaryArchive`. Удалены `WriteU32`/`ReadU32`/`ReadU64`, `PreferredClassIdFor`, ручные `record_count`/`payload_size`/memcpy backfill; class id берётся из записи публикации.
+
+**Debug PASS:** `apptraverse_application_model_runtime_test` (`TestUiMirrorBatchPublication`), `apptraverse_application_ui_session_test`, `apptraverse_application_contract_headless_test`.
+
+**NEXT (отдельно):** финальный аудит P2.d.2 на оставшиеся ручные форматы в действующих путях.
 
 ---
 

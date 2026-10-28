@@ -1,68 +1,34 @@
 #include "apptraverse/ui_mirror.h"
 
 #include <cassert>
-#include <cstring>
 #include <vector>
 
+#include "aether-miscpp/reflect/reflect.h"
+#include "aether-miscpp/serialization/binary_archive.h"
 #include "aether-objects/obj/registry.h"
 
 #include "apptraverse/node.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
 
 namespace apptraverse {
 namespace {
 
-void WriteU32(ByteSink& out, std::uint32_t value) {
-  out.write(&value, sizeof(value));
-}
-void WriteU64(ByteSink& out, std::uint64_t value) {
-  out.write(&value, sizeof(value));
-}
-
-void ReadU32(ByteSource& in, std::uint32_t* value) {
-  in.read(value, sizeof(*value));
-}
-void ReadU64(ByteSource& in, std::uint64_t* value) {
-  in.read(value, sizeof(*value));
-}
+struct UiMirrorPublicationRecord {
+  std::uint32_t object_id;
+  std::uint32_t class_id;
+  std::uint64_t generation;
+  std::vector<std::uint8_t> graph_bytes;
+  AE_REFLECT_MEMBERS(object_id, class_id, generation, graph_bytes)
+};
 
 struct PublishedRecord {
   std::uint32_t obj_id{0};
+  std::uint32_t class_id{0};
   std::uint64_t generation{0};
-  ByteSource payload;
+  std::vector<std::uint8_t> graph_bytes;
   bool applied{false};
 };
-
-std::uint32_t PreferredClassIdFor(ByteSource in, std::uint32_t want_id) {
-  std::uint32_t layer_count = 0;
-  in.read(&layer_count, sizeof(layer_count));
-  std::uint32_t first = 0;
-  std::uint32_t derived = 0;
-  for (std::uint32_t i = 0; i < layer_count && in.ok; ++i) {
-    std::uint32_t oid = 0;
-    std::uint32_t class_id = 0;
-    std::uint8_t version = 0;
-    std::uint32_t size = 0;
-    in.read(&oid, sizeof(oid));
-    in.read(&class_id, sizeof(class_id));
-    in.read(&version, sizeof(version));
-    in.read(&size, sizeof(size));
-    if (!in.ok || in.pos + size > in.size) {
-      break;
-    }
-    in.pos += size;
-    if (oid != want_id) {
-      continue;
-    }
-    if (first == 0) {
-      first = class_id;
-    }
-    if (class_id != Node::kClassId) {
-      derived = class_id;
-    }
-  }
-  return derived != 0 ? derived : first;
-}
 
 ae::Ptr<ae::Obj> CreateUiShell(ae::Domain& ui_domain, ae::ObjId id,
                                std::uint32_t class_id) {
@@ -118,20 +84,29 @@ bool UiMirror::Publish(std::uint32_t root_id,
   }
 
   auto* buffer = channel.AcquireProducer();
-  assert(buffer != nullptr);
-  ByteSink& out = buffer->sink;
-  WriteU32(out, static_cast<std::uint32_t>(changed.size()));
-
+  if (buffer == nullptr) {
+    WriteFatalStderr("fatal: ui mirror publication channel exhausted\n");
+    std::abort();
+  }
+  std::vector<UiMirrorPublicationRecord> wire_records;
+  wire_records.reserve(changed.size());
   for (Node* node : changed) {
-    WriteU32(out, node->obj_id.id());
-    WriteU64(out, node->Generation());
-    auto const size_at = out.bytes.size();
-    WriteU32(out, 0);
-    auto const payload_at = out.bytes.size();
-    SerializeObjectGraphToBuffer(*node, out);
-    auto const payload_size =
-        static_cast<std::uint32_t>(out.bytes.size() - payload_at);
-    std::memcpy(out.bytes.data() + size_at, &payload_size, sizeof(payload_size));
+    UiMirrorPublicationRecord rec;
+    rec.object_id = node->obj_id.id();
+    rec.class_id = node->GetClassId();
+    rec.generation = node->Generation();
+    ByteSink payload;
+    SerializeObjectGraphToBuffer(*node, payload);
+    rec.graph_bytes = std::move(payload.bytes);
+    wire_records.push_back(std::move(rec));
+  }
+
+  ByteSink& out = buffer->sink;
+  ae::seri::BinaryVectorBuffer archive_buffer{out.bytes};
+  ae::seri::BinaryArchive archive{std::move(archive_buffer)};
+  if (!archive.Save(wire_records).IsOk()) {
+    WriteFatalStderr("fatal: ui mirror publication save failed\n");
+    std::abort();
   }
 
   channel.NotePublished();
@@ -151,28 +126,24 @@ UiApplyResult UiMirror::ApplyPublished(PublicationChannel<3>& channel,
     return result;
   }
 
-  ByteSource in;
-  in.data = buffer->sink.bytes.data();
-  in.size = buffer->sink.bytes.size();
-
-  std::uint32_t record_count = 0;
-  ReadU32(in, &record_count);
-  assert(in.ok);
+  std::vector<std::uint8_t> copy = buffer->sink.bytes;
+  ae::seri::BinaryVectorBuffer archive_buffer{copy};
+  ae::seri::BinaryArchive archive{std::move(archive_buffer)};
+  std::vector<UiMirrorPublicationRecord> wire_records;
+  if (archive.Load(wire_records).IsErr()) {
+    WriteFatalStderr("fatal: ui mirror publication load failed\n");
+    std::abort();
+  }
 
   std::vector<PublishedRecord> records;
-  records.reserve(record_count);
-  for (std::uint32_t i = 0; i < record_count; ++i) {
+  records.reserve(wire_records.size());
+  for (UiMirrorPublicationRecord const& wire : wire_records) {
     PublishedRecord rec;
-    std::uint32_t payload_size = 0;
-    ReadU32(in, &rec.obj_id);
-    ReadU64(in, &rec.generation);
-    ReadU32(in, &payload_size);
-    assert(in.ok);
-    assert(in.pos + payload_size <= in.size);
-    rec.payload.data = in.data + in.pos;
-    rec.payload.size = payload_size;
-    in.pos += payload_size;
-    records.push_back(rec);
+    rec.obj_id = wire.object_id;
+    rec.class_id = wire.class_id;
+    rec.generation = wire.generation;
+    rec.graph_bytes = wire.graph_bytes;
+    records.push_back(std::move(rec));
   }
 
   auto apply_existing = [&](PublishedRecord& rec) -> bool {
@@ -183,7 +154,10 @@ UiApplyResult UiMirror::ApplyPublished(PublicationChannel<3>& channel,
     if (!object) {
       return false;
     }
-    ByteSource payload = rec.payload;
+    ByteSource payload;
+    payload.data = rec.graph_bytes.data();
+    payload.size = rec.graph_bytes.size();
+    payload.pos = 0;
     DeserializeObjectGraphFromBuffer(*object, payload, ui_domain_,
                                      ui_storage_);
     FinalizeUiNodeState(*object, rec.generation);
@@ -216,13 +190,17 @@ UiApplyResult UiMirror::ApplyPublished(PublicationChannel<3>& channel,
     if (rec.applied) {
       continue;
     }
-    std::uint32_t const class_id =
-        PreferredClassIdFor(rec.payload, rec.obj_id);
-    auto created = CreateUiShell(ui_domain_, ae::ObjId{rec.obj_id}, class_id);
-    assert(created);
+    auto created =
+        CreateUiShell(ui_domain_, ae::ObjId{rec.obj_id}, rec.class_id);
+    if (!created) {
+      WriteFatalStderr("fatal: ui mirror shell create failed\n");
+      std::abort();
+    }
     keepalive.push_back(created);
-    static_cast<void>(apply_existing(rec));
-    assert(rec.applied);
+    if (!apply_existing(rec)) {
+      WriteFatalStderr("fatal: ui mirror published record apply failed\n");
+      std::abort();
+    }
   }
 
   channel.ReleaseConsumer();

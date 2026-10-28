@@ -19,6 +19,7 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui_mirror.h"
 
 namespace apptraverse::test {
 namespace {
@@ -103,6 +104,60 @@ void ApplyPublicationBytes(std::vector<std::uint8_t> const& bytes, ae::Domain& u
   in.size = bytes.size();
   if (initial) { auto ui_obj = LoadInitialPublication(in, ui_domain, ui_storage); CHECK(ui_obj); CHECK(ui_obj->obj_id == kRootId); ui_root = RuntimeTestRoot::ptr::MakeFromThis(static_cast<RuntimeTestRoot*>(ui_obj.get())); return; }
   ApplyStructuralPublication(in, ui_domain, ui_storage);
+}
+
+void TestUiMirrorBatchPublication() {
+  ae::RamDomainStorage model_storage;
+  ae::RamDomainStorage ui_storage;
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
+
+  auto root = RuntimeTestRoot::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(kRootId));
+  InitializeRuntimeNode(*root);
+  CommitBump(*root, model_domain, 7);
+
+  ByteSink initial_out;
+  SerializeInitialPublication(*root, initial_out);
+  ByteSource initial_in;
+  initial_in.data = initial_out.bytes.data();
+  initial_in.size = initial_out.bytes.size();
+  auto ui_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+  CHECK(ui_obj);
+  auto ui_root = RuntimeTestRoot::ptr::MakeFromThis(
+      static_cast<RuntimeTestRoot*>(ui_obj.get()));
+  RuntimeTestRoot* const ui_root_ptr = &*ui_root;
+  CHECK(ReadUiValue(*ui_root) == 7);
+
+  UiMirror mirror(ui_domain, ui_storage, nullptr);
+  std::uint32_t const root_wire_id = kRootId.id();
+
+  CommitBump(*root, model_domain, 5);
+  CHECK(root->value == 12);
+  CHECK(ReadUiValue(*ui_root) == 7);
+
+  std::int32_t const model_value_before_publish = root->value;
+  std::size_t const model_journal_size = root->journal.size();
+  std::uint64_t const published_generation = root->Generation();
+
+  std::vector<Node*> changed{&*root};
+  CHECK(mirror.Publish(root_wire_id, changed));
+  CHECK(ReadUiValue(*ui_root) == 7);
+  CHECK(!mirror.Publish(root_wire_id, changed));
+
+  auto& channel = mirror.ChannelFor(root_wire_id);
+  UiApplyResult applied = mirror.ApplyPublished(channel, root_wire_id);
+  CHECK(ReadUiValue(*ui_root) == 12);
+  CHECK(ui_root_ptr == &*ui_root);
+  CHECK(applied.changed_obj_ids.size() == 1);
+  CHECK(applied.changed_obj_ids[0] == root_wire_id);
+  CHECK(ui_root->Generation() == published_generation);
+  CHECK(!ui_root->base.is_valid());
+  CHECK(ui_root->journal.empty());
+  CHECK(root->value == model_value_before_publish);
+  CHECK(root->journal.size() == model_journal_size);
+  CHECK(!channel.has_unread_published());
+  CHECK(mirror.Publish(root_wire_id, changed));
 }
 
 void TestDirectIncrementalPublicationApply() {
@@ -469,6 +524,7 @@ void TestNotifierDetachedAfterRun() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureObjectRegistration();
+  apptraverse::test::TestUiMirrorBatchPublication();
   apptraverse::test::TestDirectIncrementalPublicationApply();
   apptraverse::test::TestInitialAndIncrementalPublication();
   apptraverse::test::TestCoalesceAndBackpressure();
