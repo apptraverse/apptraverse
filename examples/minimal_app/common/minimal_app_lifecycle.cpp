@@ -8,6 +8,7 @@
 #include "minimal_app_graph.h"
 #endif
 
+#include "apptraverse/application_model_session.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/noninteractive_crt.h"
@@ -50,25 +51,25 @@ int RunMinimalApplicationModel(
   }
 #endif
 
-  {
-    DirectoryDomainStorage durable_storage{state_dir};
-    ae::Domain domain{durable_storage};
-    auto application =
-        LoadApplication<MinimalApplication>(domain, MinimalApplicationRootId());
-
-    ui::LoadPresentedWindow(application->main_window);
-
-    runtime.Run(domain, *application, on_published);
-
+  DirectoryDomainStorage durable_storage{state_dir};
+  ApplicationModelSessionHooks<MinimalApplication> hooks;
+  hooks.prepare = [](MinimalApplication& application) {
+    ui::LoadPresentedWindow(application.main_window);
+  };
+  hooks.persist = [&durable_storage](MinimalApplication& application) -> int {
     durable_storage.BeginSaveSession();
-    ui::SavePresentedWindow(application->main_window);
-    MinimalApplication::ptr::MakeFromThis(&*application).Save();
+    ui::SavePresentedWindow(application.main_window);
+    MinimalApplication::ptr::MakeFromThis(&application).Save();
     if (durable_storage.SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: MinimalApplication shutdown save failed\n");
       return 1;
     }
-  }
-  return 0;
+    return 0;
+  };
+
+  return RunApplicationModelSession(
+      durable_storage, MinimalApplicationRootId(), runtime,
+      std::move(on_published), hooks);
 }
 
 }  // namespace apptraverse::example::minimal

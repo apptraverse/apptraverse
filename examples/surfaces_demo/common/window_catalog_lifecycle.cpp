@@ -12,6 +12,7 @@
 #include "window_catalog_model.h"
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "apptraverse/application_model_session.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_distilled_domain.h"
@@ -37,23 +38,21 @@ ae::ObjId CatalogRootId() {
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
 }
 
-void RunCatalogSession(ae::Domain& domain, DirectoryDomainStorage& user_storage,
-                       ApplicationModelRuntime& runtime,
-                       ApplicationPublishedCallback on_published,
-                       ae::ObjId& pending_focus_for_ui) {
-  auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootId());
-  ui::LoadPresentedWindow(catalog->main_window);
-  catalog->list.Load();
-  if (!catalog->list) {
+}  // namespace
+
+void PrepareWindowCatalogForRun(WindowCatalog& catalog) {
+  ui::LoadPresentedWindow(catalog.main_window);
+  catalog.list.Load();
+  if (!catalog.list) {
     WriteFatalStderr("fatal: WindowCatalog required list missing\n");
     std::abort();
   }
-  catalog->locale.Load();
-  if (!catalog->locale) {
+  catalog.locale.Load();
+  if (!catalog.locale) {
     WriteFatalStderr("fatal: WindowCatalog required locale missing\n");
     std::abort();
   }
-  auto& chrome_presenters = catalog->presenters;
+  auto& chrome_presenters = catalog.presenters;
   chrome_presenters.list_presenter.Load();
   chrome_presenters.add_button_presenter.Load();
   chrome_presenters.open_button_presenter.Load();
@@ -68,7 +67,7 @@ void RunCatalogSession(ae::Domain& domain, DirectoryDomainStorage& user_storage,
         "fatal: WindowCatalog required chrome presenter missing\n");
     std::abort();
   }
-  auto& chrome_buttons = catalog->buttons;
+  auto& chrome_buttons = catalog.buttons;
   chrome_buttons.add_button.Load();
   chrome_buttons.open_button.Load();
   chrome_buttons.delete_button.Load();
@@ -78,7 +77,7 @@ void RunCatalogSession(ae::Domain& domain, DirectoryDomainStorage& user_storage,
     WriteFatalStderr("fatal: WindowCatalog required chrome button missing\n");
     std::abort();
   }
-  auto& localized_texts = catalog->texts;
+  auto& localized_texts = catalog.texts;
   localized_texts.label_add.Load();
   localized_texts.label_open.Load();
   localized_texts.label_delete.Load();
@@ -90,35 +89,32 @@ void RunCatalogSession(ae::Domain& domain, DirectoryDomainStorage& user_storage,
     WriteFatalStderr("fatal: WindowCatalog required localized text missing\n");
     std::abort();
   }
-  int const language = catalog->locale->language_index();
-  catalog->MaterializeCatalogStrings(language);
-  for (auto const& row : catalog->list->rows) {
+  int const language = catalog.locale->language_index();
+  catalog.MaterializeCatalogStrings(language);
+  for (auto const& row : catalog.list->rows) {
     auto* holder = static_cast<WindowHolder*>(&*row);
     if (!holder->primary_text.is_loaded()) {
       holder->primary_text.Load();
     }
-    catalog->MaterializeHolderListText(*holder, language);
+    catalog.MaterializeHolderListText(*holder, language);
   }
-  catalog->RefreshChromeButtonEnabledState();
-  RestoreLoadedCatalogWindows(*catalog);
-
-  runtime.Run(domain, *catalog, std::move(on_published), [&] {
-    pending_focus_for_ui = catalog->pending_focus_window.is_valid()
-                               ? catalog->pending_focus_window.id()
-                               : ae::ObjId{};
-    catalog->pending_focus_window = {};
-  });
-
-  user_storage.BeginSaveSession();
-  SaveWindowCatalogPersistentSnapshot(*catalog);
+  catalog.RefreshChromeButtonEnabledState();
+  RestoreLoadedCatalogWindows(catalog);
 }
-
-}  // namespace
 
 int WindowCatalogModelSession::Run(
     ApplicationPublishedCallback on_published) {
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
+
+  ApplicationModelSessionHooks<WindowCatalog> hooks;
+  hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.before_incremental = [this](WindowCatalog& catalog) {
+    pending_focus_for_ui = catalog.pending_focus_window.is_valid()
+                               ? catalog.pending_focus_window.id()
+                               : ae::ObjId{};
+    catalog.pending_focus_window = {};
+  };
 
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
   ae::RamDomainStorage backing_storage;
@@ -129,13 +125,17 @@ int WindowCatalogModelSession::Run(
   DirectoryDomainStorage user_storage{state_dir};
   OverlayDomainStorage domain_storage{user_storage, backing_storage,
                                       supply_constants};
-  ae::Domain domain{domain_storage};
-  RunCatalogSession(domain, user_storage, runtime, std::move(on_published),
-                    pending_focus_for_ui);
-  if (user_storage.SaveSessionHadFailure()) {
-    WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
-    return 1;
-  }
+  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
+    user_storage.BeginSaveSession();
+    SaveWindowCatalogPersistentSnapshot(catalog);
+    if (user_storage.SaveSessionHadFailure()) {
+      WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
+      return 1;
+    }
+    return 0;
+  };
+  return RunApplicationModelSession(domain_storage, CatalogRootId(), runtime,
+                                    std::move(on_published), hooks);
 #else
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
   std::error_code profile_error;
@@ -160,15 +160,18 @@ int WindowCatalogModelSession::Run(
 #endif
 
   DirectoryDomainStorage user_storage{state_dir};
-  ae::Domain domain{user_storage};
-  RunCatalogSession(domain, user_storage, runtime, std::move(on_published),
-                    pending_focus_for_ui);
-  if (user_storage.SaveSessionHadFailure()) {
-    WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
-    return 1;
-  }
+  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
+    user_storage.BeginSaveSession();
+    SaveWindowCatalogPersistentSnapshot(catalog);
+    if (user_storage.SaveSessionHadFailure()) {
+      WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
+      return 1;
+    }
+    return 0;
+  };
+  return RunApplicationModelSession(user_storage, CatalogRootId(), runtime,
+                                    std::move(on_published), hooks);
 #endif
-  return 0;
 }
 
 }  // namespace apptraverse

@@ -12,6 +12,8 @@
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/application_model_runtime.h"
+#include "apptraverse/application_model_session.h"
+#include "apptraverse/distill.h"
 #include "apptraverse/event_for.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/node_for.h"
@@ -484,6 +486,111 @@ void TestBeforeIncrementalSidecarAtTake() {
   model_thread.join();
 }
 
+void TestModelSessionLoadRunPersist() {
+  ae::RamDomainStorage model_storage;
+  {
+    ae::Domain prep_domain{model_storage};
+    auto root = RuntimeTestRoot::ptr::Create(
+        ae::CreateWith{prep_domain}.with_id(kRootId));
+    root->value = 7;
+    InitializeRuntimeNode(*root);
+    ae::DomainGraph graph{&prep_domain};
+    CHECK(graph.SaveRoot(root.Load(), kRootId).IsOk());
+  }
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  RuntimeTestRoot::ptr ui_root;
+
+  ApplicationModelRuntime runtime;
+  Sync sync;
+  int prepare_calls = 0;
+  int persist_calls = 0;
+  int before_incremental_calls = 0;
+  ae::ObjId base_id_at_prepare{};
+  std::size_t journal_size_at_prepare = 0;
+  bool initial_ready = false;
+  bool incremental_ready = false;
+  int session_result = -1;
+
+  ApplicationModelSessionHooks<RuntimeTestRoot> hooks;
+  hooks.prepare = [&](RuntimeTestRoot& root) {
+    ++prepare_calls;
+    CHECK(root.value == 7);
+    CHECK(root.base.is_valid());
+    base_id_at_prepare = root.base.id();
+    journal_size_at_prepare = root.journal.size();
+  };
+  hooks.before_incremental = [&](RuntimeTestRoot& root) {
+    ++before_incremental_calls;
+    CHECK(root.value == 12);
+  };
+  hooks.persist = [&](RuntimeTestRoot& root) -> int {
+    ++persist_calls;
+    CHECK(root.value == 13);
+    RuntimeTestRoot::ptr root_ref = RuntimeTestRoot::ptr::MakeFromThis(&root);
+    ae::DomainGraph graph{root.domain};
+    CHECK(graph.SaveRoot(root_ref.Load(), kRootId).IsOk());
+    return 0;
+  };
+
+  std::thread model_thread{[&] {
+    session_result = RunApplicationModelSession(
+        model_storage, kRootId, runtime,
+        [&](ApplicationPublicationKind kind) {
+          if (kind == ApplicationPublicationKind::Initial) {
+            std::vector<std::uint8_t> bytes = runtime.TakePublishedCopy();
+            runtime.NotifyPublicationConsumed();
+            ApplyPublicationBytes(bytes, ui_domain, ui_storage, true, ui_root);
+            CHECK(ReadUiValue(*ui_root) == 7);
+            runtime.Post([&](ae::Domain& domain) {
+              CommitBump(
+                  *static_cast<RuntimeTestRoot*>(domain.Find(kRootId).get()),
+                  domain, 5);
+            });
+            initial_ready = true;
+            sync.cv.notify_all();
+            return;
+          }
+          std::vector<std::uint8_t> bytes = runtime.TakePublishedCopy();
+          runtime.NotifyPublicationConsumed();
+          ApplyPublicationBytes(bytes, ui_domain, ui_storage, false, ui_root);
+          CHECK(ReadUiValue(*ui_root) == 12);
+          runtime.Post([&](ae::Domain& domain) {
+            CommitBump(
+                *static_cast<RuntimeTestRoot*>(domain.Find(kRootId).get()),
+                domain, 1);
+          });
+          runtime.RequestStop();
+          incremental_ready = true;
+          sync.cv.notify_all();
+        },
+        hooks);
+  }};
+
+  {
+    std::unique_lock<std::mutex> lock{sync.mu};
+    sync.cv.wait(lock, [&] { return initial_ready; });
+  }
+  {
+    std::unique_lock<std::mutex> lock{sync.mu};
+    sync.cv.wait(lock, [&] { return incremental_ready; });
+  }
+  model_thread.join();
+
+  CHECK(session_result == 0);
+  CHECK(prepare_calls == 1);
+  CHECK(persist_calls == 1);
+  CHECK(before_incremental_calls == 1);
+
+  ae::Domain cold_domain{model_storage};
+  auto cold_root = LoadApplication<RuntimeTestRoot>(cold_domain, kRootId);
+  CHECK(cold_root->value == 13);
+  CHECK(cold_root->base.is_valid());
+  CHECK(cold_root->base.id() == base_id_at_prepare);
+  CHECK(cold_root->journal.size() >= journal_size_at_prepare);
+}
+
 void TestNotifierDetachedAfterRun() {
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
@@ -531,6 +638,7 @@ int main() {
   apptraverse::test::TestStopDrainsAcceptedWork();
   apptraverse::test::TestCallbackCanPostAfterPublication();
   apptraverse::test::TestBeforeIncrementalSidecarAtTake();
+  apptraverse::test::TestModelSessionLoadRunPersist();
   apptraverse::test::TestNotifierDetachedAfterRun();
   std::cout << "application_model_runtime_test OK\n";
   return 0;

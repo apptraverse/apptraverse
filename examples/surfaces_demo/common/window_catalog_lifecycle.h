@@ -9,6 +9,10 @@
 
 namespace apptraverse {
 
+class WindowCatalog;
+
+void PrepareWindowCatalogForRun(WindowCatalog& catalog);
+
 struct WindowCatalogModelSession {
   std::filesystem::path state_dir;
   ApplicationModelRuntime runtime;
