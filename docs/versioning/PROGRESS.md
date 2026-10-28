@@ -60,7 +60,8 @@
 | **P2.d.2.3a** — initial envelope BinaryArchive | **`5d420c9`**, §P2.d.2.3a | **PASS** |
 | **P2.d.2.3b** — incremental envelope BinaryArchive | **`4e8ba30`**, §P2.d.2.3b | **PASS** |
 | **P2.d.2.3c** — single-object ClassData BinaryArchive | **`9afad2f`**, §P2.d.2.3c | **PASS** |
-| **P2.d** — штатная сериализация | §P2.d.2.3c | **IN_PROGRESS** |
+| **P2.d.2.4** — Close/Open lifecycle test | §P2.d.2.4 | **PASS** |
+| **P2.d** — штатная сериализация | §P2.d.2.4 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -278,6 +279,20 @@
 **Изменение:** `SerializeObjectToBuffer` / `DeserializeObjectFromBuffer` — один `ae::RamDomainStorage::ClassData` через `BinaryArchive` (append в `out.bytes`; decode с `in.pos`, advance по `read_position`); удалены `AppendSavedObjectLayers` / `InjectSavedObjectLayers` и ручные class_id/version/size/layer bytes.
 
 **Debug PASS:** `apptraverse_application_model_runtime_test` (`TestDirectIncrementalPublicationApply`), `apptraverse_application_contract_headless_test`, `apptraverse_window_catalog_model_test`.
+
+---
+
+## P2.d.2.4 — Close/Open presenter lifecycle (2026-10-28)
+
+**История:** `apptraverse_application_ui_session_test` / `TestPresenterLifecycleCloseOpen` — **FAIL** на **`f286dc8`** и до P2.d.2.4 на **`f5757f9`**: чтение `presenter.on_unload_count` после structural Close при уже освобождённом keepalive (`ApplyStructuralPublicationAndUpdatePresenters`).
+
+**Причина (подтверждено):** ошибка наблюдения в тесте (use-after-free ссылки на presenter), не ошибка live-топологии в `object_serialization.cpp`. Production-код не менялся.
+
+**Исправление:** `TestPresenterLifecycleCloseOpen` — `g_session_presenter_load_total` / `g_session_presenter_unload_total`, проверки model/UI `presented_open` и lazy `presented_window` без разыменования unloaded окна; nested scope для финальной выгрузки session (2× OnUnload суммарно).
+
+**Счётчики по этапам:** после initial OnLoad=1/OnUnload=0; после Close OnLoad=1/OnUnload=1; после Open OnLoad=2/OnUnload=1; после уничтожения session OnLoad=2/OnUnload=2.
+
+**Debug PASS:** `apptraverse_application_ui_session_test`, `apptraverse_application_contract_headless_test`, `apptraverse_window_catalog_model_test`.
 
 ---
 

@@ -327,30 +327,53 @@ void TestPresenterLifecycleCloseOpen() {
   ModelFixture fixture;
   g_session_presenter_load_total = 0;
   g_session_presenter_unload_total = 0;
-  ApplicationUiSession ui_session(fixture.SerializeInitial(), nullptr,
-                                  fixture.model_proxy);
-  auto& ui_root = static_cast<UiSessionTestRoot&>(ui_session.root());
-  SessionHeadlessPresenter& presenter =
-      HeadlessOn(static_cast<SessionWindow&>(*ui_root.presented_window));
-  CHECK(g_session_presenter_load_total == 1);
+  {
+    ApplicationUiSession ui_session(fixture.SerializeInitial(), nullptr,
+                                    fixture.model_proxy);
+    auto& ui_root = static_cast<UiSessionTestRoot&>(ui_session.root());
+    SessionHeadlessPresenter& presenter =
+        HeadlessOn(static_cast<SessionWindow&>(*ui_root.presented_window));
+    CHECK(presenter.presentation_loaded);
+    CHECK(g_session_presenter_load_total == 1);
+    CHECK(g_session_presenter_unload_total == 0);
 
-  auto close_ev = UiSessionCloseWindowEvent::ptr::Create(
-      ae::CreateWith{fixture.model_domain});
-  fixture.model_root->Commit(std::move(close_ev));
-  ui_session.ApplyStructural(fixture.SerializeStructural());
-  CHECK(presenter.on_unload_count == 1);
-  CHECK(g_session_presenter_unload_total == 1);
-  CHECK(!ui_root.presented_window.is_loaded());
+    auto close_ev = UiSessionCloseWindowEvent::ptr::Create(
+        ae::CreateWith{fixture.model_domain});
+    fixture.model_root->Commit(std::move(close_ev));
+    CHECK(!fixture.model_root->presented_open);
+    CHECK(fixture.model_root->presented_window.is_valid());
+    CHECK(fixture.model_root->presented_window.id() == kWindowId);
+    CHECK(!fixture.model_root->presented_window.is_loaded());
 
-  auto open_ev = UiSessionOpenWindowEvent::ptr::Create(
-      ae::CreateWith{fixture.model_domain});
-  fixture.model_root->Commit(std::move(open_ev));
-  ui_session.ApplyStructural(fixture.SerializeStructural());
-  SessionHeadlessPresenter& reopened =
-      HeadlessOn(static_cast<SessionWindow&>(*ui_root.presented_window));
-  CHECK(reopened.on_load_count == 1);
-  CHECK(g_session_presenter_load_total == 2);
-  CHECK(ui_root.presented_window.is_loaded());
+    ui_session.ApplyStructural(fixture.SerializeStructural());
+    CHECK(!ui_root.presented_open);
+    CHECK(ui_root.presented_window.is_valid());
+    CHECK(ui_root.presented_window.id() == kWindowId);
+    CHECK(!ui_root.presented_window.is_loaded());
+    CHECK(g_session_presenter_unload_total == 1);
+    CHECK(g_session_presenter_load_total == 1);
+
+    auto open_ev = UiSessionOpenWindowEvent::ptr::Create(
+        ae::CreateWith{fixture.model_domain});
+    fixture.model_root->Commit(std::move(open_ev));
+    CHECK(fixture.model_root->presented_open);
+    CHECK(fixture.model_root->presented_window.is_loaded());
+    CHECK(fixture.model_root->presented_window.id() == kWindowId);
+    CHECK(fixture.model_root->presented_window->presenter.id() == kPresenterId);
+
+    ui_session.ApplyStructural(fixture.SerializeStructural());
+    CHECK(ui_root.presented_open);
+    CHECK(ui_root.presented_window.is_loaded());
+    CHECK(ui_root.presented_window.id() == kWindowId);
+    CHECK(ui_root.presented_window->presenter.id() == kPresenterId);
+    SessionHeadlessPresenter& reopened =
+        HeadlessOn(static_cast<SessionWindow&>(*ui_root.presented_window));
+    CHECK(reopened.presentation_loaded);
+    CHECK(reopened.on_load_count == 1);
+    CHECK(g_session_presenter_load_total == 2);
+    CHECK(g_session_presenter_unload_total == 1);
+  }
+  CHECK(g_session_presenter_unload_total == 2);
 }
 
 void TestDestructorUnloadsPresenters() {
