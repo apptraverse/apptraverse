@@ -92,8 +92,9 @@
 | **P2.e.4** | Presented window prefab: `stable_prefab_ids`, W/V origins, double clone | **PASS** — `TestCanonicalClonePresentedWindowPrefab` |
 | **P2.e.5** | WindowCatalog `AddWindow` via distilled prefab + `WindowCatalog/S1` (`window_prefab`) | **PASS** — model test; MinSizeRel manual (clone/open/geom/locale) **user confirmed**; Z-order defect → **P2.e.5R** |
 | **P2.e.5R** | Desktop Z-order persist: `WindowCatalog/S2` (`desktop_z_order`), shutdown capture, `after_initial` restore | **PASS** — `TestCatalogDesktopZOrderPersistence`; MinSizeRel manual Z-order **LAUNCHED** |
-| P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | **IN_PROGRESS** — полный lazy closure **TODO**; holder/title builder и embedded BACKING/USER lifecycle **вне scope** |
-| P2.f | Библиотечная точка lifecycle | новый API + примеры |
+| P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | **IN_PROGRESS** — полный lazy closure **TODO**; holder/title builder **TODO** |
+| **P2.f.1** | WindowCatalog MinSizeRel: RAM **BACKING** (`kEmbeddedGraph`) + **USER** `DirectoryDomainStorage` + `OverlayDomainStorage` | **PASS** — `apptraverse_window_catalog_embedded_overlay_test`; demo без bootstrap write на disk |
+| P2.f | Библиотечная точка lifecycle | новый API + примеры (**P2.f.1** — WindowCatalog overlay) |
 
 Не ждать полной матрицы Clone/update/rollback. Не заменять prefab ручным копированием полей окна.
 

@@ -21,7 +21,7 @@
 
 **Нормативные правила Object Core:** [PLAN §нормативные правила](./PLAN.md#нормативные-правила-object-core-v03--01-plan) (здесь не дублируются).
 
-**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal; **P2.e.2R PASS** — fresh history по remap-набору (Obj-корень + вложенный Node); **P2.e.3 PASS** — unloaded **`ObjPtr`** child через **`NotifyCloneReference`**, lazy сохранён; **P2.e.4 PASS** — **`UiDesktopWindow`** ↔ **`UiDesktopWindowPresenter`**, **`stable_prefab_ids`**, двойной Clone W→A→B; **P2.e.5 PASS** — **`WindowCatalog::AddWindow`** через **`CloneCanonicalRoot`**, **`WindowCatalog/S1`**; MinSizeRel manual (prefab Add/Open/Close/geom/locale/restart) **user confirmed**; дефект Z-order → **P2.e.5R PASS** — **`WindowCatalog/S2`** (`desktop_z_order`), **`SetWindowCatalogDesktopZOrderEvent`**, shutdown HWND→ObjId capture, **`WinApplicationHostCallbacks::after_initial`**. Полный lazy closure / **13** — **TODO**; holder/title builder и общий embedded lifecycle — **TODO**.
+**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal; **P2.e.2R PASS** — fresh history по remap-набору (Obj-корень + вложенный Node); **P2.e.3 PASS** — unloaded **`ObjPtr`** child через **`NotifyCloneReference`**, lazy сохранён; **P2.e.4 PASS** — **`UiDesktopWindow`** ↔ **`UiDesktopWindowPresenter`**, **`stable_prefab_ids`**, двойной Clone W→A→B; **P2.e.5 PASS** — **`WindowCatalog::AddWindow`** через **`CloneCanonicalRoot`**, **`WindowCatalog/S1`**; MinSizeRel manual (prefab Add/Open/Close/geom/locale/restart) **user confirmed**; дефект Z-order → **P2.e.5R PASS** — **`WindowCatalog/S2`** (`desktop_z_order`), **`SetWindowCatalogDesktopZOrderEvent`**, shutdown HWND→ObjId capture, **`WinApplicationHostCallbacks::after_initial`**. **P2.f.1 PASS** — MinSizeRel **`WindowCatalogModelSession`**: **`InstallEmbeddedDistilledBacking`** + USER dir + **`OverlayDomainStorage`** (без **`WriteEmbeddedDistilledGraphToDirectory`** на cold start); **`apptraverse_window_catalog_embedded_overlay_test`**. Полный lazy closure / **13** — **TODO**; holder/title builder — **TODO**; библиотечный lifecycle API (**P2.f** целиком) — **TODO**.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -73,7 +73,8 @@
 | **P2.e.4** — Presented window prefab clone + repeat origin | **`016c3a3`**, §P2.e.4 | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_application_contract_headless_test`) |
 | **P2.e.5** — WindowCatalog Add via prefab + S1 link | **`a5e4d6f`**, §P2.e.5 | **PASS** (model); MinSizeRel manual (без Z-order) **user confirmed** |
 | **P2.e.5R** — desktop Z-order S2 + Win32 restore | **`6c34008`**, §P2.e.5R | **PASS** (Debug/MinSizeRel: `apptraverse_window_catalog_model_test`); manual Z-order **LAUNCHED** |
-| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder; embedded lifecycle) |
+| **P2.f.1** — WindowCatalog BACKING+USER overlay (MinSizeRel) | §P2.f.1 | **PASS** (Debug: `apptraverse_window_catalog_embedded_overlay_test`; MinSizeRel: `win32_window_catalog_demo` build) |
+| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -390,7 +391,7 @@
 
 **MinSizeRel PASS:** `apptraverse_window_catalog_model_test` exit 0; demo **LAUNCHED** — `manual-test-state/window-catalog-zorder-manual` (Z-order manual **не PASS** до подтверждения пользователя).
 
-**Push SHA:** *(commit этого раздела)*.
+**Push SHA:** **`6c34008`**.
 
 ---
 

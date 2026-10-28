@@ -1467,6 +1467,25 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     apptraverse_export_minimal_distilled_graph)
   add_test(NAME apptraverse_minimal_app_embedded_export_test
     COMMAND apptraverse_minimal_app_embedded_export_test)
+
+  add_executable(apptraverse_window_catalog_embedded_overlay_test
+    window_catalog_embedded_overlay_test.cpp)
+  target_link_libraries(apptraverse_window_catalog_embedded_overlay_test PRIVATE
+    surfaces_demo_window_catalog apptraverse)
+  target_include_directories(apptraverse_window_catalog_embedded_overlay_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/generated
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows)
+  if(MSVC)
+    target_compile_options(apptraverse_window_catalog_embedded_overlay_test PRIVATE
+      /utf-8)
+  endif()
+  if(TARGET apptraverse_generate_window_catalog_distilled_header)
+    add_dependencies(apptraverse_window_catalog_embedded_overlay_test
+      apptraverse_generate_window_catalog_distilled_header)
+  endif()
+  add_test(NAME apptraverse_window_catalog_embedded_overlay_test
+    COMMAND apptraverse_window_catalog_embedded_overlay_test)
 endif()
 
 apptraverse_add_test(apptraverse_application_model_runtime_test

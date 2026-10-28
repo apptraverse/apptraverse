@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <unordered_set>
 #include <vector>
 
@@ -10,9 +11,14 @@
 #include "window_catalog_localization.h"
 #include "window_catalog_model.h"
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/embedded_distilled_domain.h"
+#include "apptraverse/overlay_domain_storage.h"
+#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
 #include "apptraverse/distilled_domain_export.h"
+#endif
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
 #include "window_catalog_distilled.h"
 #endif
@@ -31,6 +37,82 @@ ae::ObjId CatalogRootId() {
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
 }
 
+void RunCatalogSession(ae::Domain& domain, DirectoryDomainStorage& user_storage,
+                       ApplicationModelRuntime& runtime,
+                       ApplicationPublishedCallback on_published,
+                       ae::ObjId& pending_focus_for_ui) {
+  auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootId());
+  ui::LoadPresentedWindow(catalog->main_window);
+  catalog->list.Load();
+  if (!catalog->list) {
+    WriteFatalStderr("fatal: WindowCatalog required list missing\n");
+    std::abort();
+  }
+  catalog->locale.Load();
+  if (!catalog->locale) {
+    WriteFatalStderr("fatal: WindowCatalog required locale missing\n");
+    std::abort();
+  }
+  auto& chrome_presenters = catalog->presenters;
+  chrome_presenters.list_presenter.Load();
+  chrome_presenters.add_button_presenter.Load();
+  chrome_presenters.open_button_presenter.Load();
+  chrome_presenters.delete_button_presenter.Load();
+  chrome_presenters.language_button_presenter.Load();
+  if (!chrome_presenters.list_presenter ||
+      !chrome_presenters.add_button_presenter ||
+      !chrome_presenters.open_button_presenter ||
+      !chrome_presenters.delete_button_presenter ||
+      !chrome_presenters.language_button_presenter) {
+    WriteFatalStderr(
+        "fatal: WindowCatalog required chrome presenter missing\n");
+    std::abort();
+  }
+  auto& chrome_buttons = catalog->buttons;
+  chrome_buttons.add_button.Load();
+  chrome_buttons.open_button.Load();
+  chrome_buttons.delete_button.Load();
+  chrome_buttons.language_button.Load();
+  if (!chrome_buttons.add_button || !chrome_buttons.open_button ||
+      !chrome_buttons.delete_button || !chrome_buttons.language_button) {
+    WriteFatalStderr("fatal: WindowCatalog required chrome button missing\n");
+    std::abort();
+  }
+  auto& localized_texts = catalog->texts;
+  localized_texts.label_add.Load();
+  localized_texts.label_open.Load();
+  localized_texts.label_delete.Load();
+  localized_texts.label_language.Load();
+  localized_texts.window_title_prefix.Load();
+  if (!localized_texts.label_add || !localized_texts.label_open ||
+      !localized_texts.label_delete || !localized_texts.label_language ||
+      !localized_texts.window_title_prefix) {
+    WriteFatalStderr("fatal: WindowCatalog required localized text missing\n");
+    std::abort();
+  }
+  int const language = catalog->locale->language_index();
+  catalog->MaterializeCatalogStrings(language);
+  for (auto const& row : catalog->list->rows) {
+    auto* holder = static_cast<WindowHolder*>(&*row);
+    if (!holder->primary_text.is_loaded()) {
+      holder->primary_text.Load();
+    }
+    catalog->MaterializeHolderListText(*holder, language);
+  }
+  catalog->RefreshChromeButtonEnabledState();
+  RestoreLoadedCatalogWindows(*catalog);
+
+  runtime.Run(domain, *catalog, std::move(on_published), [&] {
+    pending_focus_for_ui = catalog->pending_focus_window.is_valid()
+                               ? catalog->pending_focus_window.id()
+                               : ae::ObjId{};
+    catalog->pending_focus_window = {};
+  });
+
+  user_storage.BeginSaveSession();
+  SaveWindowCatalogPersistentSnapshot(*catalog);
+}
+
 }  // namespace
 
 int WindowCatalogModelSession::Run(
@@ -38,8 +120,24 @@ int WindowCatalogModelSession::Run(
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
 
-#if defined(APPTRAVERSE_ENABLE_DISTILLATION) ||                           \
-    defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+  ae::RamDomainStorage backing_storage;
+  InstallEmbeddedDistilledBacking(
+      backing_storage, embedded_distilled::window_catalog::kEmbeddedGraph);
+  std::set<ae::ObjId> const supply_constants = EmbeddedSupplyConstantIdSet(
+      embedded_distilled::window_catalog::kEmbeddedGraph);
+  DirectoryDomainStorage user_storage{state_dir};
+  OverlayDomainStorage domain_storage{user_storage, backing_storage,
+                                      supply_constants};
+  ae::Domain domain{domain_storage};
+  RunCatalogSession(domain, user_storage, runtime, std::move(on_published),
+                    pending_focus_for_ui);
+  if (user_storage.SaveSessionHadFailure()) {
+    WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
+    return 1;
+  }
+#else
+#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
   std::error_code profile_error;
   bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
   if (profile_error) {
@@ -53,103 +151,23 @@ int WindowCatalogModelSession::Run(
     std::abort();
   }
   if (profile_absent) {
-#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
-    if (!WriteEmbeddedDistilledGraphToDirectory(
-            state_dir,
-            embedded_distilled::window_catalog::kEmbeddedGraph)) {
-      WriteFatalStderr(
-          "fatal: embedded window catalog bootstrap write failed\n");
-      std::abort();
-    }
-#else
     DirectoryDomainStorage bootstrap_storage{state_dir};
     ae::Domain bootstrap_domain{bootstrap_storage};
     auto bootstrap_catalog = BuildWindowCatalogGraph(bootstrap_domain);
     FinalizeDistilledGraph(*bootstrap_catalog);
     SaveDistilledRoot(*bootstrap_catalog);
-#endif
   }
 #endif
 
-  {
-    DirectoryDomainStorage durable_storage{state_dir};
-    ae::Domain domain{durable_storage};
-    auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootId());
-    ui::LoadPresentedWindow(catalog->main_window);
-    catalog->list.Load();
-    if (!catalog->list) {
-      WriteFatalStderr("fatal: WindowCatalog required list missing\n");
-      std::abort();
-    }
-    catalog->locale.Load();
-    if (!catalog->locale) {
-      WriteFatalStderr("fatal: WindowCatalog required locale missing\n");
-      std::abort();
-    }
-    auto& chrome_presenters = catalog->presenters;
-    chrome_presenters.list_presenter.Load();
-    chrome_presenters.add_button_presenter.Load();
-    chrome_presenters.open_button_presenter.Load();
-    chrome_presenters.delete_button_presenter.Load();
-    chrome_presenters.language_button_presenter.Load();
-    if (!chrome_presenters.list_presenter ||
-        !chrome_presenters.add_button_presenter ||
-        !chrome_presenters.open_button_presenter ||
-        !chrome_presenters.delete_button_presenter ||
-        !chrome_presenters.language_button_presenter) {
-      WriteFatalStderr(
-          "fatal: WindowCatalog required chrome presenter missing\n");
-      std::abort();
-    }
-    auto& chrome_buttons = catalog->buttons;
-    chrome_buttons.add_button.Load();
-    chrome_buttons.open_button.Load();
-    chrome_buttons.delete_button.Load();
-    chrome_buttons.language_button.Load();
-    if (!chrome_buttons.add_button || !chrome_buttons.open_button ||
-        !chrome_buttons.delete_button || !chrome_buttons.language_button) {
-      WriteFatalStderr("fatal: WindowCatalog required chrome button missing\n");
-      std::abort();
-    }
-    auto& localized_texts = catalog->texts;
-    localized_texts.label_add.Load();
-    localized_texts.label_open.Load();
-    localized_texts.label_delete.Load();
-    localized_texts.label_language.Load();
-    localized_texts.window_title_prefix.Load();
-    if (!localized_texts.label_add || !localized_texts.label_open ||
-        !localized_texts.label_delete || !localized_texts.label_language ||
-        !localized_texts.window_title_prefix) {
-      WriteFatalStderr(
-          "fatal: WindowCatalog required localized text missing\n");
-      std::abort();
-    }
-    int const language = catalog->locale->language_index();
-    catalog->MaterializeCatalogStrings(language);
-    for (auto const& row : catalog->list->rows) {
-      auto* holder = static_cast<WindowHolder*>(&*row);
-      if (!holder->primary_text.is_loaded()) {
-        holder->primary_text.Load();
-      }
-      catalog->MaterializeHolderListText(*holder, language);
-    }
-    catalog->RefreshChromeButtonEnabledState();
-    RestoreLoadedCatalogWindows(*catalog);
-
-    runtime.Run(domain, *catalog, std::move(on_published), [&] {
-          pending_focus_for_ui = catalog->pending_focus_window.is_valid()
-                                     ? catalog->pending_focus_window.id()
-                                     : ae::ObjId{};
-          catalog->pending_focus_window = {};
-        });
-
-    durable_storage.BeginSaveSession();
-    SaveWindowCatalogPersistentSnapshot(*catalog);
-    if (durable_storage.SaveSessionHadFailure()) {
-      WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
-      return 1;
-    }
+  DirectoryDomainStorage user_storage{state_dir};
+  ae::Domain domain{user_storage};
+  RunCatalogSession(domain, user_storage, runtime, std::move(on_published),
+                    pending_focus_for_ui);
+  if (user_storage.SaveSessionHadFailure()) {
+    WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
+    return 1;
   }
+#endif
   return 0;
 }
 
