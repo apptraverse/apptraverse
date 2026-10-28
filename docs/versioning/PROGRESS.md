@@ -60,7 +60,7 @@
 | **P2.d.2.3a** — initial envelope BinaryArchive | **`5d420c9`**, §P2.d.2.3a | **PASS** |
 | **P2.d.2.3b** — incremental envelope BinaryArchive | **`4e8ba30`**, §P2.d.2.3b | **PASS** |
 | **P2.d.2.3c** — single-object ClassData BinaryArchive | **`9afad2f`**, §P2.d.2.3c | **PASS** |
-| **P2.d.2.4** — Close/Open lifecycle test | §P2.d.2.4 | **PASS** |
+| **P2.d.2.4** — Close/Open lifecycle test | **`1669eb8`**, §P2.d.2.4 | **PASS** |
 | **P2.d** — штатная сериализация | §P2.d.2.4 | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -282,7 +282,7 @@
 
 ---
 
-## P2.d.2.4 — Close/Open presenter lifecycle (2026-10-28)
+## P2.d.2.4 — Close/Open presenter lifecycle (2026-10-28, **`1669eb8`**)
 
 **История:** `apptraverse_application_ui_session_test` / `TestPresenterLifecycleCloseOpen` — **FAIL** на **`f286dc8`** и до P2.d.2.4 на **`f5757f9`**: чтение `presenter.on_unload_count` после structural Close при уже освобождённом keepalive (`ApplyStructuralPublicationAndUpdatePresenters`).
 
