@@ -56,7 +56,7 @@
 | **P2.d.1R.2b** — миграция + удаление API | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.2.1** — structural envelope BinaryArchive | **`d8e0094`**, §P2.d.2.1 | **PASS** |
 | **P2.d.2.2** — graph payload BinaryArchive | **`bae3106`**, §P2.d.2.2 | **PASS** |
-| **P2.d.2.2R** — NDEBUG-safe graph decode/apply | §P2.d.2.2R | **PASS** |
+| **P2.d.2.2R** — NDEBUG-safe graph decode/apply | **`a6fa412`**, §P2.d.2.2R | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.2.3** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -240,7 +240,7 @@
 
 ---
 
-## P2.d.2.2R — NDEBUG-safe graph publication decode (2026-10-27)
+## P2.d.2.2R — NDEBUG-safe graph publication decode (2026-10-27, **`a6fa412`**)
 
 **Изменение:** `DeserializeObjectGraphFromBuffer` — `LoadGraphPublicationPayload` и `ApplyGraphPublicationPayloadToUiDomain` выполняются вне `assert`; при ошибке `WriteFatalStderr` + `std::abort()` (как у structural envelope).
 
