@@ -62,7 +62,7 @@
 | **P2.d.2.3c** — single-object ClassData BinaryArchive | **`9afad2f`**, §P2.d.2.3c | **PASS** |
 | **P2.d.2.4** — Close/Open lifecycle test | **`1669eb8`**, §P2.d.2.4 | **PASS** |
 | **P2.d.2.5** — UiMirror BinaryArchive batch | **`bc247fe`**, §P2.d.2.5 | **PASS** |
-| **P2.d.2.6** — final UI publication audit | §P2.d.2.6 | **PASS** |
+| **P2.d.2.6** — final UI publication audit | **`c3b709e`**, §P2.d.2.6 | **PASS** |
 | **P2.d.2** — UI publication wire | §P2.d.2.6 | **PASS** |
 | **P2.d** — штатная сериализация | §P2.d.2.6 | **PASS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
