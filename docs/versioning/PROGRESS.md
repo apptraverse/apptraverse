@@ -262,7 +262,7 @@
 
 ---
 
-## P2.d.2.3b — incremental envelope через BinaryArchive (2026-10-27)
+## P2.d.2.3b — incremental envelope через BinaryArchive (2026-10-27, **`4e8ba30`**)
 
 **Изменение:** `SerializeIncrementalNodePublication` / `ApplyIncrementalPublication` — `IncrementalPublicationEnvelope` (`object_id`, `generation`, `object_bytes`) через `BinaryArchive`; append в конец `out.bytes` (префикс `processed_sequence` сохранён); чтение с `in.pos`, advance по `archive.buffer().read_position()`. Single-object слои внутри envelope без изменений.
 
