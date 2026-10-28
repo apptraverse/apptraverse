@@ -1,17 +1,15 @@
 #include "window_catalog_model.h"
 #include <algorithm>
 #include <cassert>
+#include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
+#include "apptraverse/object_clone.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_string.h"
-#include "apptraverse/ui/ui_presented_window_composition.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/ui/ui_window_presenter.h"
-#if defined(_WIN32)
-#include "apptraverse/platform/windows/win_ui_presenters.h"
-#endif
 namespace apptraverse {
 namespace {
 ae::ObjFlags ClearUnloadedDefault(ae::ObjFlags flags) {
@@ -28,11 +26,43 @@ ae::ObjFlags SetUnloadedDefault(ae::ObjFlags flags) {
   return static_cast<ae::ObjFlags>(
       flags | ae::ObjFlags::kUnloadedByDefault);
 }
+ae::ObjFlags const kLazyPrefabLinkFlags{
+    ae::ObjFlags::kUnloadedByDefault | ae::ObjFlags::kUnloaded};
+ae::ObjId const kWindowPrefabId{
+    window_catalog_demo::ToObjId(window_catalog_demo::ObjId::WindowPrefab)};
+ae::ObjId const kWindowPrefabPresenterId{window_catalog_demo::ToObjId(
+    window_catalog_demo::ObjId::WindowPrefabPresenter)};
+void RestoreUnloadedWindowPrefabLink(WindowCatalog& catalog) {
+  ae::ObjId const prefab_id = catalog.window_prefab.id();
+  catalog.window_prefab.Reset();
+  if (!prefab_id.is_valid()) {
+    return;
+  }
+  catalog.window_prefab = CatalogWindow::ptr::Declare(
+      ae::CreateWith{*catalog.domain}
+          .with_id(prefab_id)
+          .with_flags(kLazyPrefabLinkFlags));
+}
 ui::UiPresentedWindow& Presented(CatalogWindow& window) {
   return static_cast<ui::UiPresentedWindow&>(window);
 }
 ui::UiPresentedWindow const& Presented(CatalogWindow const& window) {
   return static_cast<ui::UiPresentedWindow const&>(window);
+}
+void EvictTransientPrefabObjects(ae::Domain& domain,
+                                 CatalogWindow& prefab_window) {
+  ui::UiPresentedWindow& presented = Presented(prefab_window);
+  ae::Obj* presenter_obj = nullptr;
+  if (presented.presenter.is_valid()) {
+    ae::Ptr<ae::Obj> const presenter_loaded = presented.presenter.Load();
+    if (presenter_loaded) {
+      presenter_obj = presenter_loaded.get();
+    }
+  }
+  domain.RemoveObject(&prefab_window);
+  if (presenter_obj != nullptr) {
+    domain.RemoveObject(presenter_obj);
+  }
 }
 ui::UiPresentedWindow& MainPresented(WindowCatalog const& catalog) {
   return static_cast<ui::UiPresentedWindow&>(*catalog.main_window);
@@ -318,27 +348,47 @@ void WindowCatalog::AddWindow() {
   assert(list && list->domain != nullptr);
   ae::Domain& domain = *list->domain;
   std::uint32_t const number = next_window_number;
+  if (!window_prefab.is_valid()) {
+    assert(false && "WindowCatalog missing window_prefab");
+    return;
+  }
   auto holder = WindowHolder::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*holder, *this);
   holder->window_number = number;
   holder->primary_text = MakeHolderTitleString(domain, *this, number);
   holder->delete_button = {};
-  auto window = CatalogWindow::ptr::Create(ae::CreateWith{domain});
-  ui::UiWindowPresenter::ptr presenter;
-#if defined(_WIN32)
-  presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
-      ae::CreateWith{domain});
-#else
-  presenter = ui::UiWindowPresenter::ptr::Create(ae::CreateWith{domain});
-#endif
-  ui::ComposePresentedWindow(window, presenter, holder->primary_text, locale);
-  InitializeRuntimeNode(*window, *this);
-  AssignInitialCatalogWindowBounds(*window, number);
+  ae::DomainGraph load_graph{&domain};
+  ae::Ptr<ae::Obj> prefab_root;
+  if (window_prefab.is_loaded()) {
+    prefab_root = domain.Find(window_prefab.id());
+  } else if (!load_graph.LoadRoot(window_prefab.id(), prefab_root).IsOk() ||
+             !prefab_root) {
+    assert(false && "LoadRoot window prefab failed");
+    return;
+  }
+  apptraverse::CloneOptions clone_options{};
+  clone_options.stable_origin = kWindowPrefabId;
+  clone_options.stable_prefab_ids = {kWindowPrefabId, kWindowPrefabPresenterId};
+  clone_options.boundary_ids = {texts.window_title_prefix.id(), locale.id()};
+  apptraverse::CloneCanonicalResult const cloned =
+      apptraverse::CloneCanonicalRoot(domain, *prefab_root, domain,
+                                      clone_options);
+  if (!cloned) {
+    assert(false && "CloneCanonicalRoot catalog window failed");
+    return;
+  }
+  EvictTransientPrefabObjects(domain, static_cast<CatalogWindow&>(*prefab_root));
+  RestoreUnloadedWindowPrefabLink(*this);
+  ae::Ptr<CatalogWindow> window_body{ae::Ptr<ae::Obj>{cloned.root.Load()}};
+  CatalogWindow::ptr window =
+      CatalogWindow::ptr::MakeFromThis(window_body.get());
+  Presented(*window_body).presenter->title = holder->primary_text;
+  AssignInitialCatalogWindowBounds(*window_body, number);
   holder->window = window;
   holder->window.SetFlags(OpenObjFlags(holder->window.flags()));
-  Presented(*window).presenter.SetFlags(
-      OpenObjFlags(Presented(*window).presenter.flags()));
-  BindLiveWindowNotifiers(*this, *window);
+  Presented(*window_body).presenter.SetFlags(
+      OpenObjFlags(Presented(*window_body).presenter.flags()));
+  BindLiveWindowNotifiers(*this, *window_body);
   auto add = AddWindowCatalogEntryEvent::ptr::Create(ae::CreateWith{domain});
   add->holder = holder;
   Commit(std::move(add));

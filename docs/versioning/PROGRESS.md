@@ -21,7 +21,7 @@
 
 **Нормативные правила Object Core:** [PLAN §нормативные правила](./PLAN.md#нормативные-правила-object-core-v03--01-plan) (здесь не дублируются).
 
-**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal; **P2.e.2R PASS** — fresh history по remap-набору (Obj-корень + вложенный Node); **P2.e.3 PASS** — unloaded **`ObjPtr`** child через **`NotifyCloneReference`**, lazy сохранён; **P2.e.4 PASS** — **`UiDesktopWindow`** ↔ **`UiDesktopWindowPresenter`**, **`stable_prefab_ids`**, двойной Clone W→A→B. Полный lazy closure / **13** — **TODO**; **WindowCatalog::AddWindow** — **TODO**.
+**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal; **P2.e.2R PASS** — fresh history по remap-набору (Obj-корень + вложенный Node); **P2.e.3 PASS** — unloaded **`ObjPtr`** child через **`NotifyCloneReference`**, lazy сохранён; **P2.e.4 PASS** — **`UiDesktopWindow`** ↔ **`UiDesktopWindowPresenter`**, **`stable_prefab_ids`**, двойной Clone W→A→B; **P2.e.5 PASS** — **`WindowCatalog::AddWindow`** через **`CloneCanonicalRoot`** из дистиллированного prefab, **`WindowCatalog/S1`** (`window_prefab`). Полный lazy closure / **13** — **TODO**; holder/title builder и общий embedded lifecycle — **TODO**.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -71,7 +71,8 @@
 | **P2.e.2R** — fresh history по remap-копиям (Obj→Node) | **`9bfbc9e`**, §P2.e.2R | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_model_persistence_test`) |
 | **P2.e.3** — Clone unloaded dynamic Node child | **`cb4873c`**, §P2.e.3 | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_model_persistence_test`, `apptraverse_application_contract_headless_test`) |
 | **P2.e.4** — Presented window prefab clone + repeat origin | **`016c3a3`**, §P2.e.4 | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_application_contract_headless_test`) |
-| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (WindowCatalog::AddWindow / полный lazy closure **TODO**) |
+| **P2.e.5** — WindowCatalog Add via prefab + S1 link | *(commit below)*, §P2.e.5 | **PASS** (Debug: `apptraverse_window_catalog_model_test`, `apptraverse_object_clone_test`); demo **LAUNCHED** |
+| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder; embedded lifecycle) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -353,6 +354,26 @@
 - `ApplicationModelRuntime` end-to-end incremental с app-specific prefix — не отдельный target (runtime covered structural/incremental косвенно).
 
 **Итог:** **P2.d.2 PASS**, **P2.d PASS** (P2.d.1R persistent + P2.d.2 UI). **NEXT:** **P2.e** — graph Clone prefab.
+
+---
+
+## P2.e.5 — WindowCatalog Add через presented-window prefab (2026-10-28)
+
+**Модель:** `WindowCatalog` class version **1**; **`WindowCatalog/S1`** — только `window_prefab` (`CatalogWindow::ptr`, lazy unloaded). S0 и ClassId без изменений. Prefab ID **15** (W), presenter **16** (V) в [`window_catalog_ids.h`](../../examples/surfaces_demo/common/window_catalog_ids.h).
+
+**Дистилляция:** [`BuildWindowCatalogGraph`](../../examples/surfaces_demo/windows/window_catalog_graph.cpp) — `ComposePresentedWindow` (title prefix + locale), frame 160×120 / 480×320 via FrameEvent/Apply, `SaveRoot` W+V, `catalog.window_prefab` = Declare (`kUnloadedByDefault|kUnloaded`); W/V evicted from domain RAM before `InitializeRuntimeNode(*catalog)`.
+
+**AddWindow:** [`window_catalog_model.cpp`](../../examples/surfaces_demo/common/window_catalog_model.cpp) — `CloneCanonicalRoot` from prefab (stable origin W, `stable_prefab_ids` {W,V}, boundary title prefix + locale); per-instance presenter `title` → holder `primary_text`; no Win32 / no platform presenter create in common code; prefab link restored unloaded after Add.
+
+**Storage:** по-прежнему один `DirectoryDomainStorage` для catalog demo (не production embedded BACKING/USER split).
+
+**Debug PASS:** `apptraverse_window_catalog_model_test` (`TestCatalogAddWindowViaPresentedWindowPrefab` — two Adds, Open/Close, save, cold load, third Add; prefab layers unchanged); `apptraverse_object_clone_test` **exit 0**.
+
+**Demo:** `win32_window_catalog_demo` — **LAUNCHED** with `--state-dir` `manual-test-state/window-catalog-prefab` (не manual PASS).
+
+**Остаётся вне P2.e.5:** holder/title builder в common; полный lazy closure (**13**); embedded lifecycle для catalog.
+
+**Push SHA:** *(commit этого раздела)*.
 
 ---
 

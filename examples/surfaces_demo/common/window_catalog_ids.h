@@ -20,6 +20,8 @@ enum class ObjId : ae::ObjId::Type {
   LanguageButton = 12,
   LanguageButtonPresenter = 13,
   Locale = 14,
+  WindowPrefab = 15,
+  WindowPrefabPresenter = 16,
 };
 
 inline constexpr ae::ObjId::Type ToObjId(ObjId id) {

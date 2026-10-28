@@ -9,6 +9,7 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_presented_window_composition.h"
 #include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -360,6 +361,50 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
       kLanguageControlId);
 
   catalog->RefreshChromeButtonEnabledState();
+
+  constexpr std::int32_t kPrefabFrameX = 160;
+  constexpr std::int32_t kPrefabFrameY = 120;
+  constexpr std::int32_t kPrefabClientWidth = 480;
+  constexpr std::int32_t kPrefabClientHeight = 320;
+  ae::ObjId const window_prefab_id = ToObjId(ObjId::WindowPrefab);
+  ae::ObjId const window_prefab_presenter_id =
+      ToObjId(ObjId::WindowPrefabPresenter);
+  ae::ObjFlags const lazy_prefab_flags =
+      ae::ObjFlags::kUnloadedByDefault | ae::ObjFlags::kUnloaded;
+
+  auto window_prefab = CatalogWindow::ptr::Create(
+      ae::CreateWith{domain}.with_id(window_prefab_id));
+  ae::Ptr<CatalogWindow> window_prefab_body = window_prefab.Load();
+  auto prefab_frame = ui::SetUiDesktopWindowFrameEvent::ptr::Create(
+      ae::CreateWith{domain});
+  prefab_frame->x = kPrefabFrameX;
+  prefab_frame->y = kPrefabFrameY;
+  prefab_frame->client_width = kPrefabClientWidth;
+  prefab_frame->client_height = kPrefabClientHeight;
+  window_prefab_body->Apply(*prefab_frame);
+  auto window_prefab_presenter =
+      ui::windows::WinDesktopWindowPresenter::ptr::Create(
+          ae::CreateWith{domain}.with_id(window_prefab_presenter_id));
+  ui::ComposePresentedWindow(window_prefab, window_prefab_presenter,
+                             catalog->texts.window_title_prefix,
+                             catalog->locale);
+  InitializeRuntimeNode(*window_prefab_body, *catalog);
+
+  ae::DomainGraph distill_save{&domain};
+  ae::Ptr<ui::windows::WinDesktopWindowPresenter> window_prefab_presenter_body =
+      window_prefab_presenter.Load();
+  if (!distill_save.SaveRoot(window_prefab_body, window_prefab_id).IsOk() ||
+      !distill_save
+           .SaveRoot(window_prefab_presenter_body, window_prefab_presenter_id)
+           .IsOk()) {
+    std::abort();
+  }
+  catalog->window_prefab = CatalogWindow::ptr::Declare(
+      ae::CreateWith{domain}
+          .with_id(window_prefab_id)
+          .with_flags(lazy_prefab_flags));
+  domain.RemoveObject(window_prefab_body.get());
+  domain.RemoveObject(window_prefab_presenter_body.get());
 
   InitializeRuntimeNode(*add_button, *catalog);
   InitializeRuntimeNode(*open_button, *catalog);

@@ -174,7 +174,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::WindowCatalog",
 
-                           WindowCatalog, Node, 0)
+                           WindowCatalog, Node, 1)
 
  protected:
 
@@ -189,7 +189,9 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
                     AE_MMBR(list), AE_MMBR(main_window), AE_MMBR(locale),
 
-                    AE_MMBR(texts), AE_MMBR(buttons), AE_MMBR(presenters))
+                    AE_MMBR(texts), AE_MMBR(buttons), AE_MMBR(presenters),
+
+                    AE_MMBR(window_prefab))
 
   template <typename Dnv>
 
@@ -231,6 +233,22 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   }
 
+  template <typename Dnv>
+
+  void Load(ae::Version<1>, Dnv& dnv) {
+
+    dnv(base_, window_prefab);
+
+  }
+
+  template <typename Dnv>
+
+  void Save(ae::Version<1>, Dnv& dnv) const {
+
+    dnv(base_, window_prefab);
+
+  }
+
   std::uint32_t next_window_number;
 
   WindowHolder::ptr selected;
@@ -246,6 +264,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   WindowCatalogButtons buttons;
 
   WindowCatalogPresenters presenters;
+
+  CatalogWindow::ptr window_prefab;
 
   [[nodiscard]] bool CanApply(AddWindowCatalogEntryEvent const& event) const;
 

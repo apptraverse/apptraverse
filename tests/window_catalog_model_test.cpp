@@ -35,6 +35,8 @@ namespace {
     }                                                                        \
   } while (false)
 
+using DiskFileSnapshot = std::map<std::string, std::vector<std::uint8_t>>;
+
 std::filesystem::path TestDir(char const* name) {
   auto const dir =
       std::filesystem::temp_directory_path() / "apptraverse_test" / name;
@@ -94,6 +96,63 @@ void ExpectReflectedGraphEdge(
   CHECK(reflected_ids.count(ref.id().id()) == 1);
 }
 
+bool DiskObjectHasAnyLayers(std::filesystem::path const& storage_root,
+                            ae::ObjId object_id) {
+  auto const obj_dir = storage_root / std::to_string(object_id.id());
+  if (!std::filesystem::exists(obj_dir)) {
+    return false;
+  }
+  for (auto const& entry : std::filesystem::directory_iterator(obj_dir)) {
+    if (entry.is_directory()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+DiskFileSnapshot SnapshotEntireStorageTree(
+    std::filesystem::path const& storage_root) {
+  DiskFileSnapshot snapshot;
+  if (!std::filesystem::exists(storage_root)) {
+    return snapshot;
+  }
+  for (auto const& entry :
+       std::filesystem::recursive_directory_iterator(storage_root)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    auto const rel =
+        std::filesystem::relative(entry.path(), storage_root).generic_string();
+    std::ifstream in{entry.path(), std::ios::binary | std::ios::ate};
+    if (!in) {
+      CHECK(false);
+    }
+    auto const size = static_cast<std::size_t>(in.tellg());
+    in.seekg(0);
+    std::vector<std::uint8_t> bytes(size);
+    if (size != 0) {
+      in.read(reinterpret_cast<char*>(bytes.data()),
+              static_cast<std::streamsize>(size));
+    }
+    snapshot[rel] = std::move(bytes);
+  }
+  return snapshot;
+}
+
+ae::ObjId const kWindowPrefabId{
+    window_catalog_demo::ToObjId(window_catalog_demo::ObjId::WindowPrefab)};
+ae::ObjId const kWindowPrefabPresenterId{window_catalog_demo::ToObjId(
+    window_catalog_demo::ObjId::WindowPrefabPresenter)};
+
+ui::UiDesktopWindowPresenter::ptr LoadCatalogWindowPresenter(
+    CatalogWindow& window) {
+  CHECK(CatalogWindowPresented(window).presenter.is_valid());
+  ae::Ptr<ae::Obj> presenter_obj{CatalogWindowPresented(window).presenter.Load()};
+  CHECK(presenter_obj);
+  return ui::UiDesktopWindowPresenter::ptr::MakeFromThis(
+      static_cast<ui::UiDesktopWindowPresenter*>(presenter_obj.get()));
+}
+
 void TestCatalogReflectionTopologyAndInitialPublication() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -103,6 +162,10 @@ void TestCatalogReflectionTopologyAndInitialPublication() {
   ae::Domain model_domain{model_storage};
   auto catalog = BuildWindowCatalogGraph(model_domain);
   FinalizeDistilledGraph(*catalog);
+  CHECK(catalog->window_prefab.is_valid());
+  CHECK(!catalog->window_prefab.is_loaded());
+  CHECK(!model_domain.Find(kWindowPrefabId));
+  CHECK(!model_domain.Find(kWindowPrefabPresenterId));
 
   std::unordered_set<ae::ObjId::Type> reflected_ids;
   ForEachGraphEdgeObjPtrOn(*catalog, [&](auto& edge) {
@@ -187,6 +250,133 @@ void TestCatalogReflectionTopologyAndInitialPublication() {
   CHECK(!model_domain.Find(closed_window_id));
   CHECK(open_holder->window.is_loaded());
   CHECK(model_domain.Find(open_window_id));
+  CHECK(!ui_domain.Find(kWindowPrefabId));
+  CHECK(!ui_domain.Find(kWindowPrefabPresenterId));
+}
+
+void TestCatalogAddWindowViaPresentedWindowPrefab() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+  auto const dir = TestDir("apptraverse_window_catalog_prefab_clone");
+  DiskFileSnapshot prefab_window_layers_before;
+  DiskFileSnapshot prefab_presenter_layers_before;
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto catalog = BuildWindowCatalogGraph(domain);
+    FinalizeDistilledGraph(*catalog);
+    CHECK(catalog->window_prefab.is_valid());
+    CHECK(!catalog->window_prefab.is_loaded());
+    CHECK(DiskObjectHasAnyLayers(dir, kWindowPrefabId));
+    CHECK(DiskObjectHasAnyLayers(dir, kWindowPrefabPresenterId));
+    prefab_window_layers_before = SnapshotEntireStorageTree(
+        dir / std::to_string(kWindowPrefabId.id()));
+    prefab_presenter_layers_before = SnapshotEntireStorageTree(
+        dir / std::to_string(kWindowPrefabPresenterId.id()));
+
+    catalog->AddWindow();
+    catalog->AddWindow();
+    CHECK(catalog->list->rows.size() == 2);
+    CHECK(catalog->next_window_number == 3);
+    CHECK(!catalog->window_prefab.is_loaded());
+    CHECK(!domain.Find(kWindowPrefabId));
+    CHECK(!domain.Find(kWindowPrefabPresenterId));
+
+    WindowHolder* holder1 = AsHolder(catalog->list->rows[0]);
+    WindowHolder* holder2 = AsHolder(catalog->list->rows[1]);
+    CHECK(holder1->window_number == 1);
+    CHECK(holder2->window_number == 2);
+    CHECK(holder1->window.id() != holder2->window.id());
+    CHECK(holder1->window.id() != kWindowPrefabId);
+    CHECK(holder2->window.id() != kWindowPrefabId);
+    CHECK(holder1->window.is_loaded());
+    CHECK(holder2->window.is_loaded());
+
+    auto presenter1 = LoadCatalogWindowPresenter(*holder1->window);
+    auto presenter2 = LoadCatalogWindowPresenter(*holder2->window);
+    CHECK(presenter1.id() != presenter2.id());
+    CHECK(presenter1.id() != kWindowPrefabPresenterId);
+    CHECK(presenter2.id() != kWindowPrefabPresenterId);
+    CHECK(presenter1->window.id() == holder1->window.id());
+    CHECK(presenter2->window.id() == holder2->window.id());
+    CHECK(holder1->window->origin_id() == kWindowPrefabId);
+    CHECK(holder2->window->origin_id() == kWindowPrefabId);
+    CHECK(presenter1->origin_id() == kWindowPrefabPresenterId);
+    CHECK(presenter2->origin_id() == kWindowPrefabPresenterId);
+    CHECK(presenter1->title.id() == holder1->primary_text.id());
+    CHECK(presenter2->title.id() == holder2->primary_text.id());
+    CHECK(presenter1->locale.id() == catalog->locale.id());
+    CHECK(presenter2->locale.id() == catalog->locale.id());
+    CHECK(!presenter1->presentation_loaded);
+    CHECK(!presenter2->presentation_loaded);
+    CHECK(holder1->window->x() == 160);
+    CHECK(holder1->window->y() == 120);
+    CHECK(holder2->window->x() == 188);
+    CHECK(holder2->window->y() == 148);
+
+    CHECK(SnapshotEntireStorageTree(dir / std::to_string(kWindowPrefabId.id())) ==
+          prefab_window_layers_before);
+    CHECK(SnapshotEntireStorageTree(
+              dir / std::to_string(kWindowPrefabPresenterId.id())) ==
+          prefab_presenter_layers_before);
+
+    catalog->SelectHolder(catalog->list->rows[0]);
+    catalog->CloseHolderWindow(*holder1);
+    ShutdownSaveCatalog(*catalog, storage);
+    catalog.Reset();
+  }
+
+  ae::ObjId saved_window1_id{};
+  ae::ObjId saved_window2_id{};
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto catalog = LoadPersistedWindowCatalog(domain, catalog_id);
+    CHECK(catalog->window_prefab.is_valid());
+    CHECK(!catalog->window_prefab.is_loaded());
+    RestoreLoadedCatalogWindows(*catalog);
+    WindowHolder* holder1 = AsHolder(catalog->list->rows[0]);
+    WindowHolder* holder2 = AsHolder(catalog->list->rows[1]);
+    saved_window1_id = holder1->window.id();
+    saved_window2_id = holder2->window.id();
+    CHECK(holder2->window.is_loaded());
+
+    catalog->AddWindow();
+    CHECK(catalog->next_window_number == 4);
+    WindowHolder* holder3 = AsHolder(catalog->list->rows[2]);
+    CHECK(holder3->window_number == 3);
+    CHECK(holder3->window.id() != saved_window1_id);
+    CHECK(holder3->window.id() != saved_window2_id);
+    auto presenter3 = LoadCatalogWindowPresenter(*holder3->window);
+    CHECK(holder3->window->origin_id() == kWindowPrefabId);
+    CHECK(presenter3->origin_id() == kWindowPrefabPresenterId);
+    CHECK(presenter3->window.id() == holder3->window.id());
+    CHECK(!catalog->window_prefab.is_loaded());
+
+    CHECK(holder1->window.id() == saved_window1_id);
+    CHECK(holder2->window.id() == saved_window2_id);
+    CHECK(holder2->window.is_loaded());
+    ShutdownSaveCatalog(*catalog, storage);
+    catalog.Reset();
+  }
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto catalog = LoadPersistedWindowCatalog(domain, catalog_id);
+    RestoreLoadedCatalogWindows(*catalog);
+    CHECK(catalog->list->rows.size() == 3);
+    CHECK(catalog->next_window_number == 4);
+    WindowHolder* holder2 = AsHolder(catalog->list->rows[1]);
+    CHECK(holder2->window.id() == saved_window2_id);
+    CHECK(holder2->window.is_loaded());
+  }
 }
 
 void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
@@ -1563,6 +1753,7 @@ int main() {
   apptraverse::test::TestCatalogRepeatedOpenKeepsPresenterIdentity();
   apptraverse::test::TestCatalogDeleteUnloadedWindowDoesNotLoad();
   apptraverse::test::TestCatalogReflectionTopologyAndInitialPublication();
+  apptraverse::test::TestCatalogAddWindowViaPresentedWindowPrefab();
   apptraverse::test::TestCatalogHolderOpenCloseAndMonotonicNumbers();
   apptraverse::test::TestCatalogLocalizationUtf8Persisted();
   apptraverse::test::TestCatalogRuntimeSavePreservesOpenWindowLoadedState();
