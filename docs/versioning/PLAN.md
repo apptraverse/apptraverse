@@ -78,7 +78,8 @@
 | **P2.d.2.2R** | NDEBUG-safe `DeserializeObjectGraphFromBuffer` | **PASS** — те же пять Debug regression |
 | **P2.d.2.3a** | Initial publication envelope через `BinaryArchive` | **PASS** — bitmap + structural + contract/model/catalog |
 | **P2.d.2.3b** | Incremental publication envelope через `BinaryArchive` | **PASS** — прямой `ApplyIncrementalPublication` + contract/catalog |
-| **P2.d.2** | Initial/structural publication через `BinaryArchive` | **IN_PROGRESS** — **NEXT: P2.d.2.3c** (single-object serialization) |
+| **P2.d.2.3c** | Single-object `ClassData` через `BinaryArchive` | **PASS** — model runtime direct incremental + contract/catalog |
+| **P2.d.2** | Initial/structural publication через `BinaryArchive` | **IN_PROGRESS** |
 | P2.d | Штатная сериализация (storage + publication) | **IN_PROGRESS** |
 | P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | `object_clone`, `window_catalog_model` |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |

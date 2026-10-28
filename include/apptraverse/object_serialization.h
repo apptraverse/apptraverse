@@ -23,7 +23,10 @@ class ModelObjectProxy;
 // TODO(surfaces): structural publication bandwidth / delta protocol — not this
 // slice; live presentation correctness does not require a smaller payload yet.
 
-// Single-object layers for initial UI shells that already exist.
+// Single-object publication for UI shells that already exist. Appends a
+// BinaryArchive ae::RamDomainStorage::ClassData (all class/S layers for the
+// object from a scratch Save) to out.bytes. Deserialize reads from in.pos,
+// injects layers for object.obj_id, then Load once.
 void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out);
 void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out,
                              ae::GraphSerializationScope scope);

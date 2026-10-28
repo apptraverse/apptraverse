@@ -59,7 +59,8 @@
 | **P2.d.2.2R** — NDEBUG-safe graph decode/apply | **`a6fa412`**, §P2.d.2.2R | **PASS** |
 | **P2.d.2.3a** — initial envelope BinaryArchive | **`5d420c9`**, §P2.d.2.3a | **PASS** |
 | **P2.d.2.3b** — incremental envelope BinaryArchive | **`4e8ba30`**, §P2.d.2.3b | **PASS** |
-| **P2.d** — штатная сериализация | **NEXT: P2.d.2.3c** | **IN_PROGRESS** |
+| **P2.d.2.3c** — single-object ClassData BinaryArchive | §P2.d.2.3c | **PASS** |
+| **P2.d** — штатная сериализация | §P2.d.2.3c | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
@@ -269,6 +270,14 @@
 **Debug PASS:** `apptraverse_application_model_runtime_test` (прямой incremental-сценарий `TestDirectIncrementalPublicationApply`), `apptraverse_application_contract_headless_test`, `apptraverse_window_catalog_model_test`.
 
 **NEXT:** **P2.d.2.3c** — штатная single-object serialization.
+
+---
+
+## P2.d.2.3c — single-object ClassData через BinaryArchive (2026-10-27)
+
+**Изменение:** `SerializeObjectToBuffer` / `DeserializeObjectFromBuffer` — один `ae::RamDomainStorage::ClassData` через `BinaryArchive` (append в `out.bytes`; decode с `in.pos`, advance по `read_position`); удалены `AppendSavedObjectLayers` / `InjectSavedObjectLayers` и ручные class_id/version/size/layer bytes.
+
+**Debug PASS:** `apptraverse_application_model_runtime_test` (`TestDirectIncrementalPublicationApply`), `apptraverse_application_contract_headless_test`, `apptraverse_window_catalog_model_test`.
 
 ---
 
