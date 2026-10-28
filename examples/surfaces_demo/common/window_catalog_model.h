@@ -118,6 +118,8 @@ class SetWindowCatalogSelectionEvent;
 
 class SetWindowCatalogOpenEvent;
 
+class SetWindowCatalogDesktopZOrderEvent;
+
 struct WindowCatalogTexts {
 
   ae::ObjPtr<ui::UiLocalizationString> label_add;
@@ -174,7 +176,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::WindowCatalog",
 
-                           WindowCatalog, Node, 1)
+                           WindowCatalog, Node, 2)
 
  protected:
 
@@ -191,7 +193,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
                     AE_MMBR(texts), AE_MMBR(buttons), AE_MMBR(presenters),
 
-                    AE_MMBR(window_prefab))
+                    AE_MMBR(window_prefab), AE_MMBR(desktop_z_order))
 
   template <typename Dnv>
 
@@ -249,6 +251,22 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   }
 
+  template <typename Dnv>
+
+  void Load(ae::Version<2>, Dnv& dnv) {
+
+    dnv(base_, desktop_z_order);
+
+  }
+
+  template <typename Dnv>
+
+  void Save(ae::Version<2>, Dnv& dnv) const {
+
+    dnv(base_, desktop_z_order);
+
+  }
+
   std::uint32_t next_window_number;
 
   WindowHolder::ptr selected;
@@ -267,6 +285,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   CatalogWindow::ptr window_prefab;
 
+  std::vector<CatalogWindow::ptr> desktop_z_order;
+
   [[nodiscard]] bool CanApply(AddWindowCatalogEntryEvent const& event) const;
 
   void Apply(AddWindowCatalogEntryEvent const& event);
@@ -276,6 +296,10 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void Apply(SetWindowCatalogSelectionEvent const& event);
 
   void Apply(SetWindowCatalogOpenEvent const& event);
+
+  void Apply(SetWindowCatalogDesktopZOrderEvent const& event);
+
+  void SetDesktopZOrderFromObjIds(std::vector<std::uint32_t> ordered_ids);
 
   void AddWindow();
 
@@ -431,6 +455,34 @@ class SetWindowCatalogOpenEvent
 
   bool open;
 
+};
+
+class SetWindowCatalogDesktopZOrderEvent
+    : public EventFor<WindowCatalog, SetWindowCatalogDesktopZOrderEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SetWindowCatalogDesktopZOrderEvent",
+      SetWindowCatalogDesktopZOrderEvent, Event, 0)
+
+ protected:
+  SetWindowCatalogDesktopZOrderEvent() = default;
+
+ public:
+  explicit SetWindowCatalogDesktopZOrderEvent(ae::ObjProp prop)
+      : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(ordered))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, ordered);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, ordered);
+  }
+
+  std::vector<CatalogWindow::ptr> ordered;
 };
 
 class SetWindowCatalogSelectionEvent

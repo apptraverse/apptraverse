@@ -415,6 +415,8 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   catalog->list = list;
   InitializeRuntimeNode(*catalog);
 
+  catalog->desktop_z_order.push_back(catalog->main_window);
+
   return catalog;
 }
 

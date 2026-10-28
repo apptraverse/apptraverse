@@ -239,4 +239,49 @@ bool WriteEmbeddedDistilledSupplyHeader(
   return !ec;
 }
 
+bool WriteEmbeddedDistilledGraphToDirectory(
+    std::filesystem::path const& root, EmbeddedDistilledGraph const& graph) {
+  for (std::size_t i = 0; i < graph.layer_count; ++i) {
+    EmbeddedDistilledLayerRecord const& layer = graph.layers[i];
+    std::filesystem::path const path =
+        root / std::to_string(layer.object_id) /
+        std::to_string(layer.class_id) /
+        std::to_string(static_cast<unsigned>(layer.version));
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) {
+      return false;
+    }
+    auto const tmp = path.string() + ".tmp";
+    std::filesystem::path const tmp_path{tmp};
+    {
+      std::ofstream out{tmp_path,
+                        std::ios::out | std::ios::binary | std::ios::trunc};
+      if (!out) {
+        return false;
+      }
+      if (layer.size != 0) {
+        out.write(reinterpret_cast<char const*>(layer.bytes),
+                  static_cast<std::streamsize>(layer.size));
+        if (!out) {
+          std::filesystem::remove(tmp_path, ec);
+          return false;
+        }
+      }
+      out.flush();
+      if (!out) {
+        std::filesystem::remove(tmp_path, ec);
+        return false;
+      }
+    }
+    ec.clear();
+    std::filesystem::rename(tmp_path, path, ec);
+    if (ec) {
+      std::filesystem::remove(tmp_path, ec);
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace apptraverse

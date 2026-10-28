@@ -1,6 +1,7 @@
 #include "window_catalog_model.h"
 #include <algorithm>
 #include <cassert>
+#include <unordered_set>
 #include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
 #include "apptraverse/object_clone.h"
@@ -237,6 +238,56 @@ WindowHolder* FindListHolderByIdentity(WindowCatalog const& catalog,
   return nullptr;
 }
 }  // namespace
+void WindowCatalog::Apply(SetWindowCatalogDesktopZOrderEvent const& event) {
+  desktop_z_order = event.ordered;
+  NoteMaterializedChange();
+}
+void WindowCatalog::SetDesktopZOrderFromObjIds(
+    std::vector<std::uint32_t> ordered_ids) {
+  ae::ObjId const main_id = main_window.id();
+  auto const is_open_catalog_window = [&](ae::ObjId id) {
+    if (id == main_id) {
+      return true;
+    }
+    WindowHolder* holder = FindHolderForWindow(id);
+    if (holder == nullptr) {
+      return false;
+    }
+    return holder->window.is_valid() && holder->window.is_loaded();
+  };
+  std::vector<CatalogWindow::ptr> ordered;
+  ordered.reserve(ordered_ids.size());
+  std::unordered_set<ae::ObjId::Type> seen;
+  for (std::uint32_t const raw_id : ordered_ids) {
+    ae::ObjId const id{raw_id};
+    if (!id.is_valid() || !seen.insert(raw_id).second) {
+      continue;
+    }
+    if (!is_open_catalog_window(id)) {
+      continue;
+    }
+    ordered.push_back(CatalogWindow::ptr::Declare(
+        ae::CreateWith{*domain}
+            .with_id(id)
+            .with_flags(kLazyPrefabLinkFlags)));
+  }
+  if (desktop_z_order.size() == ordered.size()) {
+    bool same = true;
+    for (std::size_t i = 0; i < ordered.size(); ++i) {
+      if (desktop_z_order[i].id() != ordered[i].id()) {
+        same = false;
+        break;
+      }
+    }
+    if (same) {
+      return;
+    }
+  }
+  auto event = SetWindowCatalogDesktopZOrderEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  event->ordered = std::move(ordered);
+  Commit(std::move(event));
+}
 void WindowCatalog::Apply(SetWindowCatalogOpenEvent const& event) {
   if (!event.holder.is_valid()) {
     return;

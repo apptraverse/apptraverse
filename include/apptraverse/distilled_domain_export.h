@@ -11,6 +11,8 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_id.h"
 
+#include "apptraverse/embedded_distilled_domain.h"
+
 namespace apptraverse {
 
 std::set<ae::ObjId> CollectReachableObjectIds(ae::Obj& root);
@@ -25,6 +27,9 @@ bool WriteEmbeddedDistilledSupplyHeader(
     std::string_view header_guard, ae::ObjId root_id,
     std::vector<ae::ObjId> const& supply_constant_ids,
     ae::RamDomainStorage const& storage, std::set<ae::ObjId> const& object_filter);
+
+bool WriteEmbeddedDistilledGraphToDirectory(
+    std::filesystem::path const& root, EmbeddedDistilledGraph const& graph);
 
 }  // namespace apptraverse
 

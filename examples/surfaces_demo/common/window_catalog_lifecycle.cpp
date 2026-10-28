@@ -12,6 +12,10 @@
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/distilled_domain_export.h"
+#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+#include "window_catalog_distilled.h"
+#endif
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_macros.h"
@@ -34,7 +38,8 @@ int WindowCatalogModelSession::Run(
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
 
-#ifdef APPTRAVERSE_ENABLE_DISTILLATION
+#if defined(APPTRAVERSE_ENABLE_DISTILLATION) ||                           \
+    defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
   std::error_code profile_error;
   bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
   if (profile_error) {
@@ -48,11 +53,21 @@ int WindowCatalogModelSession::Run(
     std::abort();
   }
   if (profile_absent) {
+#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+    if (!WriteEmbeddedDistilledGraphToDirectory(
+            state_dir,
+            embedded_distilled::window_catalog::kEmbeddedGraph)) {
+      WriteFatalStderr(
+          "fatal: embedded window catalog bootstrap write failed\n");
+      std::abort();
+    }
+#else
     DirectoryDomainStorage bootstrap_storage{state_dir};
     ae::Domain bootstrap_domain{bootstrap_storage};
     auto bootstrap_catalog = BuildWindowCatalogGraph(bootstrap_domain);
     FinalizeDistilledGraph(*bootstrap_catalog);
     SaveDistilledRoot(*bootstrap_catalog);
+#endif
   }
 #endif
 

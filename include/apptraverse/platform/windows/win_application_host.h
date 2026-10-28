@@ -41,6 +41,7 @@ struct WinApplicationHostCallbacks {
       on_desktop_window_close;
   TakePublishedSidecarCallback take_incremental_sidecar;
   std::function<void(ae::Obj& application_root)> after_incremental;
+  std::function<void(ae::Obj& application_root)> after_initial;
 };
 
 class WinApplicationHost {

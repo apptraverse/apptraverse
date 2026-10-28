@@ -1704,6 +1704,91 @@ void TestCatalogPresentedWindowGraph() {
         saved_title_id);
 }
 
+std::vector<ae::ObjId::Type> DesktopZOrderRawIds(
+    apptraverse::WindowCatalog const& catalog) {
+  std::vector<ae::ObjId::Type> ids;
+  ids.reserve(catalog.desktop_z_order.size());
+  for (auto const& window_ref : catalog.desktop_z_order) {
+    ids.push_back(window_ref.id().id());
+  }
+  return ids;
+}
+
+void TestCatalogDesktopZOrderPersistence() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+  auto const dir = TestDir("apptraverse_window_catalog_desktop_z_order");
+  DirectoryDomainStorage storage{dir};
+  ae::Domain domain{storage};
+  auto catalog = BuildWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+
+  catalog->AddWindow();
+  catalog->AddWindow();
+  catalog->AddWindow();
+  CHECK(catalog->list->rows.size() == 3);
+
+  WindowHolder* holder0 = AsHolder(catalog->list->rows[0]);
+  WindowHolder* holder1 = AsHolder(catalog->list->rows[1]);
+  WindowHolder* holder2 = AsHolder(catalog->list->rows[2]);
+  catalog->OpenHolderWindow(*holder0);
+  catalog->OpenHolderWindow(*holder1);
+  catalog->OpenHolderWindow(*holder2);
+
+  ae::ObjId const window0_id = holder0->window.id();
+  ae::ObjId const window1_id = holder1->window.id();
+  ae::ObjId const window2_id = holder2->window.id();
+  ae::ObjId const main_window_id = catalog->main_window.id();
+  std::int32_t const window0_x = holder0->window->x();
+  std::int32_t const window0_y = holder0->window->y();
+  ae::ObjId const window0_origin = holder0->window->origin_id();
+  ae::ObjId const presenter0_origin =
+      CatalogWindowPresented(*holder0->window).presenter->origin_id();
+
+  std::vector<ae::ObjId::Type> const list_holder_ids_before{
+      holder0->obj_id.id(), holder1->obj_id.id(), holder2->obj_id.id()};
+
+  std::vector<std::uint32_t> const artificial_order{
+      window2_id.id(), window0_id.id(), window1_id.id(), main_window_id.id()};
+  CHECK(artificial_order[0] != window0_id.id());
+  catalog->SetDesktopZOrderFromObjIds(artificial_order);
+
+  std::vector<ae::ObjId::Type> const saved_z_order =
+      DesktopZOrderRawIds(*catalog);
+  CHECK(saved_z_order == artificial_order);
+  for (auto const& window_ref : catalog->desktop_z_order) {
+    CHECK(!window_ref.is_loaded());
+  }
+
+  ShutdownSaveCatalog(*catalog, storage);
+
+  ae::Domain cold_domain{storage};
+  auto cold_catalog = LoadPersistedWindowCatalog(cold_domain, catalog_id);
+  RestoreLoadedCatalogWindows(*cold_catalog);
+
+  CHECK(DesktopZOrderRawIds(*cold_catalog) == saved_z_order);
+  for (auto const& window_ref : cold_catalog->desktop_z_order) {
+    CHECK(!window_ref.is_loaded());
+  }
+
+  CHECK(cold_catalog->list->rows.size() == 3);
+  for (std::size_t i = 0; i < list_holder_ids_before.size(); ++i) {
+    CHECK(AsHolder(cold_catalog->list->rows[i])->obj_id.id() ==
+          list_holder_ids_before[i]);
+  }
+
+  WindowHolder* cold_holder0 = AsHolder(cold_catalog->list->rows[0]);
+  CHECK(cold_holder0->window->x() == window0_x);
+  CHECK(cold_holder0->window->y() == window0_y);
+  CHECK(cold_holder0->window->origin_id() == window0_origin);
+  CHECK(CatalogWindowPresented(*cold_holder0->window).presenter->origin_id() ==
+        presenter0_origin);
+}
+
 void TestCatalogRepeatedOpenKeepsPresenterIdentity() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -1754,6 +1839,7 @@ int main() {
   apptraverse::test::TestCatalogDeleteUnloadedWindowDoesNotLoad();
   apptraverse::test::TestCatalogReflectionTopologyAndInitialPublication();
   apptraverse::test::TestCatalogAddWindowViaPresentedWindowPrefab();
+  apptraverse::test::TestCatalogDesktopZOrderPersistence();
   apptraverse::test::TestCatalogHolderOpenCloseAndMonotonicNumbers();
   apptraverse::test::TestCatalogLocalizationUtf8Persisted();
   apptraverse::test::TestCatalogRuntimeSavePreservesOpenWindowLoadedState();

@@ -38,6 +38,9 @@ void WinApplicationHost::OnInitialPublished() {
   std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopy();
   runtime_.NotifyPublicationConsumed();
   ui_session_.emplace(bytes, &presentation_host_, model_proxy_);
+  if (callbacks_.after_initial) {
+    callbacks_.after_initial(ui_session_->root());
+  }
 }
 
 void WinApplicationHost::OnIncrementalPublished() {
