@@ -89,7 +89,8 @@
 | **P2.e.2** | Loaded Node graph: `GraphSerializationScope::CanonicalClone`, fresh base/journal per copy | **PASS** — `TestCanonicalCloneNodeGraphWithFreshHistory` |
 | **P2.e.2R** | Fresh history по точному remap-набору копий (любой тип корня) | **PASS** — `TestCanonicalCloneObjContainerWithNestedNodeHistory` |
 | **P2.e.3** | Unloaded dynamic child: reference visitor + lazy link preserved | **PASS** — `TestCanonicalCloneUnloadedNodeChild` |
-| P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | **IN_PROGRESS** — полный lazy closure / оконный prefab **TODO** |
+| **P2.e.4** | Presented window prefab: `stable_prefab_ids`, W/V origins, double clone | **PASS** — `TestCanonicalClonePresentedWindowPrefab` |
+| P2.e | Graph Clone prefab (ObjId remap, origin, shared const) | **IN_PROGRESS** — WindowCatalog::AddWindow / полный lazy closure **TODO** |
 | P2.f | Библиотечная точка lifecycle | новый API + примеры |
 
 Не ждать полной матрицы Clone/update/rollback. Не заменять prefab ручным копированием полей окна.

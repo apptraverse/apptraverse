@@ -242,6 +242,26 @@ bool InitializeFreshHistoryForClonedNodes(
   return true;
 }
 
+ae::ObjId ResolveCloneOriginForCopy(
+    ae::ObjId::Type old_id_raw, ae::ObjId source_id,
+    std::unordered_map<ae::ObjId::Type, ae::ObjId> const& source_origin_by_id,
+    CloneOptions const& options) {
+  if (old_id_raw == source_id.id()) {
+    return options.stable_origin;
+  }
+  auto const it = source_origin_by_id.find(old_id_raw);
+  ae::ObjId const from_source =
+      it != source_origin_by_id.end() ? it->second : ae::ObjId{};
+  if (from_source.is_valid()) {
+    return from_source;
+  }
+  ae::ObjId const old_id{old_id_raw};
+  if (options.stable_prefab_ids.count(old_id) != 0) {
+    return old_id;
+  }
+  return ae::ObjId{};
+}
+
 CloneRemap BuildIdentityRemap(
     CloneRemap const& object_remap,
     std::vector<ae::ObjId::Type> const& fresh_base_ids) {
@@ -324,6 +344,17 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
     origins[id.id()] = loaded->origin_id();
   }
 
+  std::unordered_map<ae::ObjId::Type, ae::ObjId> resolved_origins;
+  resolved_origins.reserve(copy_set.size());
+  for (ae::ObjId const id : copy_set) {
+    ae::ObjId const resolved = ResolveCloneOriginForCopy(
+        id.id(), source_id, origins, options);
+    if (!resolved.is_valid()) {
+      return Fail(CloneError::kMissingStableOrigin);
+    }
+    resolved_origins[id.id()] = resolved;
+  }
+
   ae::RamDomainStorage remapped_scratch;
   ae::Domain remapped_domain{remapped_scratch};
   ae::DomainGraph remapped_save_graph{
@@ -360,8 +391,6 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
     return Fail(CloneError::kLoadFailed);
   }
 
-  loaded_root->SetOriginId(options.stable_origin);
-
   std::vector<ae::Ptr<ae::Obj>> cloned_copies;
   cloned_copies.reserve(remap.size());
   for (auto const& [_, new_id_raw] : remap) {
@@ -373,18 +402,17 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
   }
 
   for (auto const& [old_id, new_id_raw] : remap) {
-    if (old_id == source_id.id()) {
-      continue;
-    }
     ae::ObjId const new_id{new_id_raw};
-    ae::Ptr<ae::Obj> cloned_child = target.Find(new_id);
-    if (!cloned_child) {
+    ae::Ptr<ae::Obj> cloned_copy = target.Find(new_id);
+    if (!cloned_copy) {
       return Fail(CloneError::kLoadFailed);
     }
-    auto const origin_it = origins.find(old_id);
-    if (origin_it != origins.end() && origin_it->second.is_valid()) {
-      cloned_child->SetOriginId(origin_it->second);
+    auto const origin_it = resolved_origins.find(old_id);
+    if (origin_it == resolved_origins.end() ||
+        !origin_it->second.is_valid()) {
+      return Fail(CloneError::kMissingStableOrigin);
     }
+    cloned_copy->SetOriginId(origin_it->second);
   }
 
   std::vector<ae::ObjId::Type> fresh_base_ids;

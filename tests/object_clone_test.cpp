@@ -21,6 +21,12 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_desktop_window.h"
+#include "apptraverse/ui/ui_locale_settings.h"
+#include "apptraverse/ui/ui_localization_string.h"
+#include "apptraverse/ui/ui_presented_window_composition.h"
+#include "apptraverse/ui/ui_presenters.h"
+#include "apptraverse/ui/ui_string.h"
 
 namespace {
 
@@ -177,6 +183,31 @@ ae::ObjId const kHistLazyRoot{kHistLazyRootRaw};
 ae::ObjId const kHistLazyChild{kHistLazyChildRaw};
 ae::ObjId const kHistCloneLazyRoot{kHistCloneLazyRootRaw};
 
+constexpr ae::ObjId::Type kUiPrefabWindowRaw = 93001u;
+constexpr ae::ObjId::Type kUiPrefabPresenterRaw = 93002u;
+constexpr ae::ObjId::Type kUiPrefabTitleRaw = 93003u;
+constexpr ae::ObjId::Type kUiPrefabLocaleRaw = 93004u;
+constexpr ae::ObjId::Type kUiPrefabTitleEnRaw = 93005u;
+constexpr ae::ObjId::Type kUiPrefabTitleRuRaw = 93006u;
+constexpr ae::ObjId::Type kUiCloneInstanceARaw = 93010u;
+constexpr ae::ObjId::Type kUiCloneInstanceBRaw = 93011u;
+
+constexpr std::int32_t kUiPrefabFrameX = 10;
+constexpr std::int32_t kUiPrefabFrameY = 20;
+constexpr std::int32_t kUiPrefabClientWidth = 640;
+constexpr std::int32_t kUiPrefabClientHeight = 480;
+constexpr std::int32_t kUiInstanceMutatedX = 55;
+constexpr std::int32_t kUiInstanceMutatedY = 66;
+
+ae::ObjId const kUiPrefabWindow{kUiPrefabWindowRaw};
+ae::ObjId const kUiPrefabPresenter{kUiPrefabPresenterRaw};
+ae::ObjId const kUiPrefabTitle{kUiPrefabTitleRaw};
+ae::ObjId const kUiPrefabLocale{kUiPrefabLocaleRaw};
+ae::ObjId const kUiPrefabTitleEn{kUiPrefabTitleEnRaw};
+ae::ObjId const kUiPrefabTitleRu{kUiPrefabTitleRuRaw};
+ae::ObjId const kUiCloneInstanceA{kUiCloneInstanceARaw};
+ae::ObjId const kUiCloneInstanceB{kUiCloneInstanceBRaw};
+
 ae::ObjFlags const kLazyChildFlags{ae::ObjFlags::kUnloadedByDefault |
                                    ae::ObjFlags::kUnloaded};
 
@@ -318,6 +349,35 @@ bool DiskObjectHasAnyLayers(std::filesystem::path const& storage_root,
 
 using DiskFileSnapshot =
     std::map<std::string, std::vector<std::uint8_t>>;
+
+DiskFileSnapshot SnapshotEntireStorageTree(
+    std::filesystem::path const& storage_root) {
+  DiskFileSnapshot snapshot;
+  if (!std::filesystem::exists(storage_root)) {
+    return snapshot;
+  }
+  for (auto const& entry :
+       std::filesystem::recursive_directory_iterator(storage_root)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    auto const rel =
+        std::filesystem::relative(entry.path(), storage_root).generic_string();
+    std::ifstream in{entry.path(), std::ios::binary | std::ios::ate};
+    if (!in) {
+      Fail("failed to read storage tree file");
+    }
+    auto const size = static_cast<std::size_t>(in.tellg());
+    in.seekg(0);
+    std::vector<std::uint8_t> bytes(size);
+    if (size != 0) {
+      in.read(reinterpret_cast<char*>(bytes.data()),
+              static_cast<std::streamsize>(size));
+    }
+    snapshot[rel] = std::move(bytes);
+  }
+  return snapshot;
+}
 
 DiskFileSnapshot SnapshotDiskObjectTree(std::filesystem::path const& storage_root,
                                         ae::ObjId object_id) {
@@ -1439,6 +1499,328 @@ void TestCanonicalCloneUnloadedNodeChild() {
   std::filesystem::remove_all(state_root);
 }
 
+std::set<ae::ObjId> UiWindowPrefabOverlayConstants() {
+  return {kUiPrefabTitle, kUiPrefabLocale, kUiPrefabTitleEn, kUiPrefabTitleRu};
+}
+
+apptraverse::CloneOptions UiWindowPrefabCloneOptions(ae::ObjId new_root_id) {
+  apptraverse::CloneOptions options{};
+  options.stable_origin = kUiPrefabWindow;
+  options.stable_prefab_ids = {kUiPrefabWindow, kUiPrefabPresenter};
+  options.boundary_ids = UiWindowPrefabOverlayConstants();
+  options.new_root_id = new_root_id;
+  return options;
+}
+
+void SeedPresentedWindowPrefabOnBacking(std::filesystem::path const& backing_root) {
+  std::filesystem::create_directories(backing_root);
+  apptraverse::DirectoryDomainStorage backing{backing_root};
+  ae::Domain domain{backing};
+
+  apptraverse::ui::UiDesktopWindow::ptr window =
+      apptraverse::ui::UiDesktopWindow::ptr::Create(
+          ae::CreateWith{domain}.with_id(kUiPrefabWindow));
+  ae::Ptr<apptraverse::ui::UiDesktopWindow> window_body = window.Load();
+  auto initial_frame =
+      apptraverse::ui::SetUiDesktopWindowFrameEvent::ptr::Create(
+          ae::CreateWith{domain});
+  initial_frame->x = kUiPrefabFrameX;
+  initial_frame->y = kUiPrefabFrameY;
+  initial_frame->client_width = kUiPrefabClientWidth;
+  initial_frame->client_height = kUiPrefabClientHeight;
+  window_body->Apply(*initial_frame);
+  apptraverse::InitializeRuntimeNode(*window_body);
+
+  apptraverse::ui::UiLocaleSettings::ptr locale =
+      apptraverse::ui::UiLocaleSettings::ptr::Create(
+          ae::CreateWith{domain}.with_id(kUiPrefabLocale));
+  apptraverse::InitializeRuntimeNode(*locale.Load(), *window_body);
+
+  apptraverse::ui::UiLocalizationString::ptr title =
+      apptraverse::ui::UiLocalizationString::ptr::Create(
+          ae::CreateWith{domain}.with_id(kUiPrefabTitle));
+  apptraverse::InitializeRuntimeNode(*title.Load(), *window_body);
+  apptraverse::ui::UiString::ptr title_en =
+      apptraverse::ui::UiString::ptr::Create(
+          ae::CreateWith{domain}.with_id(kUiPrefabTitleEn));
+  title_en->utf8 = "Clone Prefab EN";
+  apptraverse::ui::UiString::ptr title_ru =
+      apptraverse::ui::UiString::ptr::Create(
+          ae::CreateWith{domain}.with_id(kUiPrefabTitleRu));
+  title_ru->utf8 = "Clone Prefab RU";
+  title.Load()->strings = {title_en, title_ru};
+
+  apptraverse::ui::UiDesktopWindowPresenter::ptr presenter =
+      apptraverse::ui::UiDesktopWindowPresenter::ptr::Create(
+          ae::CreateWith{domain}.with_id(kUiPrefabPresenter));
+  apptraverse::ui::ComposePresentedWindow(window, presenter, title, locale);
+
+  if (window_body->origin_id().is_valid() ||
+      presenter.Load()->origin_id().is_valid()) {
+    Fail("prefab W/V must not have origin before clone");
+  }
+  if (window_body->x() != kUiPrefabFrameX ||
+      window_body->y() != kUiPrefabFrameY ||
+      window_body->client_width() != kUiPrefabClientWidth ||
+      window_body->client_height() != kUiPrefabClientHeight) {
+    Fail("prefab window geometry");
+  }
+
+  ae::DomainGraph graph{&domain};
+  backing.BeginSaveSession();
+  ae::Ptr<apptraverse::ui::UiDesktopWindowPresenter> presenter_body =
+      presenter.Load();
+  if (!graph.SaveRoot(window_body, kUiPrefabWindow).IsOk() ||
+      !graph.SaveRoot(presenter_body, kUiPrefabPresenter).IsOk() ||
+      !graph.SaveRoot(title.Load(), kUiPrefabTitle).IsOk() ||
+      !graph.SaveRoot(locale.Load(), kUiPrefabLocale).IsOk() ||
+      !graph.SaveRoot(title_en.Load(), kUiPrefabTitleEn).IsOk() ||
+      !graph.SaveRoot(title_ru.Load(), kUiPrefabTitleRu).IsOk()) {
+    Fail("SaveRoot presented window prefab on BACKING");
+  }
+  if (backing.SaveSessionHadFailure()) {
+    Fail("BACKING save failed for presented window prefab");
+  }
+}
+
+ae::Ptr<apptraverse::ui::UiDesktopWindowPresenter> LoadWindowPresenter(
+    apptraverse::ui::UiDesktopWindow& window) {
+  if (!window.presenter.is_valid()) {
+    Fail("window missing presenter link");
+  }
+  ae::Ptr<ae::Obj> presenter_obj{window.presenter.Load()};
+  if (!presenter_obj) {
+    Fail("presenter Load failed");
+  }
+  return ae::Ptr<apptraverse::ui::UiDesktopWindowPresenter>{presenter_obj};
+}
+
+void ExpectPresentedWindowGeometry(apptraverse::ui::UiDesktopWindow const& window,
+                                   std::int32_t x, std::int32_t y,
+                                   std::int32_t client_width,
+                                   std::int32_t client_height) {
+  if (window.x() != x || window.y() != y ||
+      window.client_width() != client_width ||
+      window.client_height() != client_height) {
+    Fail("presented window geometry mismatch");
+  }
+}
+
+void TestCanonicalClonePresentedWindowPrefab() {
+  namespace ui = apptraverse::ui;
+  std::filesystem::path const state_root =
+      std::filesystem::temp_directory_path() /
+      "apptraverse_object_clone_presented_window_test";
+  std::filesystem::remove_all(state_root);
+  std::filesystem::create_directories(state_root / "instance_a" / "user");
+  std::filesystem::create_directories(state_root / "instance_b" / "user");
+  std::filesystem::path const backing_root = state_root / "backing";
+  std::filesystem::path const instance_a_user = state_root / "instance_a" / "user";
+  std::filesystem::path const instance_b_user = state_root / "instance_b" / "user";
+  std::set<ae::ObjId> const overlay_constants = UiWindowPrefabOverlayConstants();
+
+  SeedPresentedWindowPrefabOnBacking(backing_root);
+  DiskFileSnapshot const backing_before =
+      SnapshotEntireStorageTree(backing_root);
+
+  ae::ObjId clone_presenter_a_id{};
+  DiskFileSnapshot instance_a_user_before_second_clone;
+
+  {
+    DiskStores source_stores = OpenDiskStores(
+        instance_a_user, backing_root, overlay_constants);
+    ae::Domain source_domain{*source_stores.overlay};
+    ae::DomainGraph source_load{&source_domain};
+    ae::Ptr<ae::Obj> prefab_root;
+    if (!source_load.LoadRoot(kUiPrefabWindow, prefab_root).IsOk()) {
+      Fail("LoadRoot prefab window W");
+    }
+    ae::Ptr<ui::UiDesktopWindow> source_w{prefab_root};
+
+    DiskStores target_stores = OpenDiskStores(
+        instance_a_user, backing_root, overlay_constants);
+    ae::Domain target_domain{*target_stores.overlay};
+    target_stores.user->BeginSaveSession();
+    apptraverse::CloneCanonicalResult const cloned =
+        apptraverse::CloneCanonicalRoot(source_domain, *source_w, target_domain,
+                                        UiWindowPrefabCloneOptions(
+                                            kUiCloneInstanceA));
+    if (!cloned || cloned.new_root_id() != kUiCloneInstanceA) {
+      Fail("CloneCanonicalRoot prefab W to A");
+    }
+    if (target_stores.user->SaveSessionHadFailure()) {
+      Fail("instance A USER save failed");
+    }
+
+    ae::Ptr<ui::UiDesktopWindow> instance_a{
+        ae::Ptr<ae::Obj>{cloned.root.Load()}};
+    ae::Ptr<ui::UiDesktopWindowPresenter> presenter_a =
+        LoadWindowPresenter(*instance_a);
+    clone_presenter_a_id = presenter_a->obj_id;
+    if (instance_a->obj_id == kUiPrefabWindow ||
+        clone_presenter_a_id == kUiPrefabPresenter) {
+      Fail("first clone must allocate new W/V ids");
+    }
+    if (presenter_a->window.id() != instance_a->obj_id) {
+      Fail("A presenter window back-ref");
+    }
+    if (instance_a->origin_id() != kUiPrefabWindow ||
+        presenter_a->origin_id() != kUiPrefabPresenter) {
+      Fail("first clone origins W/V");
+    }
+    if (presenter_a->title.id() != kUiPrefabTitle ||
+        presenter_a->locale.id() != kUiPrefabLocale ||
+        presenter_a->title->Resolve(0) != "Clone Prefab EN" ||
+        presenter_a->locale->language_index() != 0) {
+      Fail("first clone shared title/locale");
+    }
+    if (presenter_a->presentation_loaded) {
+      Fail("first clone presenter must stay unloaded");
+    }
+    if (!instance_a->base.is_valid() || !instance_a->journal.empty()) {
+      Fail("first clone window fresh history shape");
+    }
+    ae::Ptr<ui::UiDesktopWindow> instance_a_base{instance_a->base.Load()};
+    if (instance_a_base->origin_id() != kUiPrefabWindow) {
+      Fail("first clone window base origin");
+    }
+    ExpectPresentedWindowGeometry(*instance_a, kUiPrefabFrameX, kUiPrefabFrameY,
+                                  kUiPrefabClientWidth, kUiPrefabClientHeight);
+  }
+
+  {
+    DiskStores source_stores = OpenDiskStores(
+        instance_a_user, backing_root, overlay_constants);
+    ae::Domain source_domain{*source_stores.overlay};
+    ae::DomainGraph source_load{&source_domain};
+    ae::Ptr<ae::Obj> loaded_a;
+    if (!source_load.LoadRoot(kUiCloneInstanceA, loaded_a).IsOk()) {
+      Fail("LoadRoot instance A for second clone");
+    }
+    ae::Ptr<ui::UiDesktopWindow> instance_a{loaded_a};
+    instance_a_user_before_second_clone =
+        SnapshotEntireStorageTree(instance_a_user);
+
+    instance_a->RequestFrame(kUiInstanceMutatedX, kUiInstanceMutatedY,
+                             kUiPrefabClientWidth, kUiPrefabClientHeight);
+    ExpectPresentedWindowGeometry(*instance_a, kUiInstanceMutatedX,
+                                  kUiInstanceMutatedY, kUiPrefabClientWidth,
+                                  kUiPrefabClientHeight);
+
+    DiskStores target_stores = OpenDiskStores(
+        instance_b_user, backing_root, overlay_constants);
+    ae::Domain target_domain{*target_stores.overlay};
+    target_stores.user->BeginSaveSession();
+    apptraverse::CloneCanonicalResult const cloned =
+        apptraverse::CloneCanonicalRoot(source_domain, *instance_a,
+                                        target_domain,
+                                        UiWindowPrefabCloneOptions(
+                                            kUiCloneInstanceB));
+    if (!cloned || cloned.new_root_id() != kUiCloneInstanceB) {
+      Fail("CloneCanonicalRoot instance A to B");
+    }
+    if (target_stores.user->SaveSessionHadFailure()) {
+      Fail("instance B USER save failed");
+    }
+
+    ae::Ptr<ui::UiDesktopWindow> instance_b{
+        ae::Ptr<ae::Obj>{cloned.root.Load()}};
+    ae::Ptr<ui::UiDesktopWindowPresenter> presenter_b =
+        LoadWindowPresenter(*instance_b);
+    if (instance_b->obj_id == instance_a->obj_id ||
+        presenter_b->obj_id == clone_presenter_a_id) {
+      Fail("second clone must allocate new ids");
+    }
+    if (presenter_b->window.id() != instance_b->obj_id) {
+      Fail("B presenter window back-ref");
+    }
+    if (instance_b->origin_id() != kUiPrefabWindow ||
+        presenter_b->origin_id() != kUiPrefabPresenter) {
+      Fail("second clone origins must stay W/V not A/VA");
+    }
+    ExpectPresentedWindowGeometry(*instance_b, kUiInstanceMutatedX,
+                                  kUiInstanceMutatedY, kUiPrefabClientWidth,
+                                  kUiPrefabClientHeight);
+    if (!instance_b->base.is_valid() || !instance_b->journal.empty()) {
+      Fail("second clone fresh history on B");
+    }
+
+    if (instance_a->origin_id() != kUiPrefabWindow ||
+        LoadWindowPresenter(*instance_a)->origin_id() != kUiPrefabPresenter) {
+      Fail("source A origins changed by second clone");
+    }
+    ExpectPresentedWindowGeometry(*instance_a, kUiInstanceMutatedX,
+                                  kUiInstanceMutatedY, kUiPrefabClientWidth,
+                                  kUiPrefabClientHeight);
+
+    DiskFileSnapshot const instance_a_user_after_second_clone =
+        SnapshotEntireStorageTree(instance_a_user);
+    if (instance_a_user_after_second_clone !=
+        instance_a_user_before_second_clone) {
+      Fail("instance A USER changed by second clone");
+    }
+  }
+
+  if (DiskObjectHasAnyLayers(instance_a_user, kUiPrefabWindow) ||
+      DiskObjectHasAnyLayers(instance_a_user, kUiPrefabPresenter) ||
+      DiskObjectHasAnyLayers(instance_b_user, kUiPrefabWindow) ||
+      DiskObjectHasAnyLayers(instance_b_user, kUiPrefabPresenter)) {
+    Fail("USER must not contain prefab W/V bodies");
+  }
+  for (ae::ObjId const shared_id : overlay_constants) {
+    if (DiskObjectHasAnyLayers(instance_a_user, shared_id) ||
+        DiskObjectHasAnyLayers(instance_b_user, shared_id)) {
+      Fail("USER must not contain shared title/locale bodies");
+    }
+  }
+
+  {
+    DiskStores cold =
+        OpenDiskStores(instance_b_user, backing_root, overlay_constants);
+    ae::Domain cold_domain{*cold.overlay};
+    ae::DomainGraph cold_graph{&cold_domain};
+    ae::Ptr<ae::Obj> cold_root;
+    if (!cold_graph.LoadRoot(kUiCloneInstanceB, cold_root).IsOk()) {
+      Fail("cold LoadRoot instance B");
+    }
+    ae::Ptr<ui::UiDesktopWindow> cold_b{cold_root};
+    ae::Ptr<ui::UiDesktopWindowPresenter> cold_presenter_b =
+        LoadWindowPresenter(*cold_b);
+    ExpectPresentedWindowGeometry(*cold_b, kUiInstanceMutatedX,
+                                  kUiInstanceMutatedY, kUiPrefabClientWidth,
+                                  kUiPrefabClientHeight);
+    if (cold_presenter_b->window.id() != cold_b->obj_id ||
+        cold_b->origin_id() != kUiPrefabWindow ||
+        cold_presenter_b->origin_id() != kUiPrefabPresenter) {
+      Fail("cold B cycle or origins");
+    }
+    if (cold_presenter_b->presentation_loaded ||
+        cold_presenter_b->title.id() != kUiPrefabTitle ||
+        cold_presenter_b->locale.id() != kUiPrefabLocale ||
+        cold_presenter_b->title->Resolve(0) != "Clone Prefab EN") {
+      Fail("cold B presenter/title/locale");
+    }
+    if (!cold_b->base.is_valid()) {
+      Fail("cold B missing base");
+    }
+    ae::Ptr<ui::UiDesktopWindow> cold_base{cold_b->base.Load()};
+    if (cold_base->origin_id() != kUiPrefabWindow) {
+      Fail("cold B base origin");
+    }
+    cold_b->ReplayFromBase();
+    ExpectPresentedWindowGeometry(*cold_b, kUiInstanceMutatedX,
+                                  kUiInstanceMutatedY, kUiPrefabClientWidth,
+                                  kUiPrefabClientHeight);
+  }
+
+  DiskFileSnapshot const backing_after = SnapshotEntireStorageTree(backing_root);
+  if (backing_after != backing_before) {
+    Fail("BACKING changed after presented window clone scenario");
+  }
+
+  std::filesystem::remove_all(state_root);
+}
+
 void TestCloneObjIdConflict() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -1474,6 +1856,7 @@ int main() {
   TestCanonicalCloneNodeGraphWithFreshHistory();
   TestCanonicalCloneObjContainerWithNestedNodeHistory();
   TestCanonicalCloneUnloadedNodeChild();
+  TestCanonicalClonePresentedWindowPrefab();
   TestCloneMissingStableOrigin();
   TestCloneObjIdConflict();
 

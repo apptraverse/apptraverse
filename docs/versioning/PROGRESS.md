@@ -21,7 +21,7 @@
 
 **Нормативные правила Object Core:** [PLAN §нормативные правила](./PLAN.md#нормативные-правила-object-core-v03--01-plan) (здесь не дублируются).
 
-**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal; **P2.e.2R PASS** — fresh history по remap-набору (Obj-корень + вложенный Node); **P2.e.3 PASS** — unloaded **`ObjPtr`** child через **`NotifyCloneReference`**, lazy сохранён. Полный lazy closure / **13** — **TODO**.
+**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal; **P2.e.2R PASS** — fresh history по remap-набору (Obj-корень + вложенный Node); **P2.e.3 PASS** — unloaded **`ObjPtr`** child через **`NotifyCloneReference`**, lazy сохранён; **P2.e.4 PASS** — **`UiDesktopWindow`** ↔ **`UiDesktopWindowPresenter`**, **`stable_prefab_ids`**, двойной Clone W→A→B. Полный lazy closure / **13** — **TODO**; **WindowCatalog::AddWindow** — **TODO**.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -70,7 +70,8 @@
 | **P2.e.2** — Node graph Clone + fresh history (`CanonicalClone`) | **`192a4b7`**, §P2.e.2 | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_model_persistence_test`, `apptraverse_application_contract_headless_test`) |
 | **P2.e.2R** — fresh history по remap-копиям (Obj→Node) | **`9bfbc9e`**, §P2.e.2R | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_model_persistence_test`) |
 | **P2.e.3** — Clone unloaded dynamic Node child | **`cb4873c`**, §P2.e.3 | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_model_persistence_test`, `apptraverse_application_contract_headless_test`) |
-| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure / оконный prefab **TODO**) |
+| **P2.e.4** — Presented window prefab clone + repeat origin | §P2.e.4 | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_application_contract_headless_test`) |
+| **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (WindowCatalog::AddWindow / полный lazy closure **TODO**) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
 **Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.

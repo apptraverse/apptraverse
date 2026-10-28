@@ -22,6 +22,9 @@ enum class CloneError {
 
 struct CloneOptions {
   ae::ObjId stable_origin{};
+  // Caller-confirmed prefab ObjIds: when a copied object has no origin on the
+  // source, its clone receives this source ObjId as origin (not the clone root).
+  std::set<ae::ObjId> stable_prefab_ids;
   std::set<ae::ObjId> boundary_ids{};
   std::optional<ae::ObjId> new_root_id{};
 };
