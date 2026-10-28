@@ -71,7 +71,7 @@
 | **P2.e.2R** — fresh history по remap-копиям (Obj→Node) | **`9bfbc9e`**, §P2.e.2R | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_model_persistence_test`) |
 | **P2.e.3** — Clone unloaded dynamic Node child | **`cb4873c`**, §P2.e.3 | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_model_persistence_test`, `apptraverse_application_contract_headless_test`) |
 | **P2.e.4** — Presented window prefab clone + repeat origin | **`016c3a3`**, §P2.e.4 | **PASS** (Debug: `apptraverse_object_clone_test`, `apptraverse_application_contract_headless_test`) |
-| **P2.e.5** — WindowCatalog Add via prefab + S1 link | *(commit below)*, §P2.e.5 | **PASS** (Debug: `apptraverse_window_catalog_model_test`, `apptraverse_object_clone_test`); demo **LAUNCHED** |
+| **P2.e.5** — WindowCatalog Add via prefab + S1 link | **`a5e4d6f`**, §P2.e.5 | **PASS** (Debug: `apptraverse_window_catalog_model_test`, `apptraverse_object_clone_test`); demo **LAUNCHED** |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder; embedded lifecycle) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -373,7 +373,7 @@
 
 **Остаётся вне P2.e.5:** holder/title builder в common; полный lazy closure (**13**); embedded lifecycle для catalog.
 
-**Push SHA:** *(commit этого раздела)*.
+**Push SHA:** **`a5e4d6f`**.
 
 ---
 
