@@ -420,9 +420,15 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
                                       ae::Domain& domain,
                                       ae::IDomainStorage& domain_storage) {
   GraphPublicationPayload payload;
-  assert(LoadGraphPublicationPayload(in, payload));
-  assert(ApplyGraphPublicationPayloadToUiDomain(payload, existing_root, domain,
-                                                domain_storage));
+  if (!LoadGraphPublicationPayload(in, payload)) {
+    WriteFatalStderr("fatal: graph publication payload load failed\n");
+    std::abort();
+  }
+  if (!ApplyGraphPublicationPayloadToUiDomain(payload, existing_root, domain,
+                                              domain_storage)) {
+    WriteFatalStderr("fatal: graph publication payload apply failed\n");
+    std::abort();
+  }
 }
 
 void RegisterLiveGraphEdgeAppender(LiveGraphEdgeAppender appender) {

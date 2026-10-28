@@ -56,6 +56,7 @@
 | **P2.d.1R.2b** — миграция + удаление API | §P2.d.1R.2b.5 | **PASS** |
 | **P2.d.2.1** — structural envelope BinaryArchive | **`d8e0094`**, §P2.d.2.1 | **PASS** |
 | **P2.d.2.2** — graph payload BinaryArchive | **`bae3106`**, §P2.d.2.2 | **PASS** |
+| **P2.d.2.2R** — NDEBUG-safe graph decode/apply | §P2.d.2.2R | **PASS** |
 | **P2.d** — штатная сериализация | **NEXT: P2.d.2.3** | **IN_PROGRESS** |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
@@ -236,6 +237,16 @@
 **Примечание:** `apptraverse_application_ui_session_test` — `TestPresenterLifecycleCloseOpen` (341) **FAIL** (pre-existing на **`f286dc8`**); не регрессия P2.d.2.2.
 
 **NEXT:** **P2.d.2.3** — оставшиеся initial/incremental envelopes и single-object serialization.
+
+---
+
+## P2.d.2.2R — NDEBUG-safe graph publication decode (2026-10-27)
+
+**Изменение:** `DeserializeObjectGraphFromBuffer` — `LoadGraphPublicationPayload` и `ApplyGraphPublicationPayloadToUiDomain` выполняются вне `assert`; при ошибке `WriteFatalStderr` + `std::abort()` (как у structural envelope).
+
+**Debug PASS:** те же пять regression, что P2.d.2.2 (bitmap structural, contract headless, model runtime, window catalog model, frame E2E).
+
+**NEXT:** **P2.d.2.3**.
 
 ---
 
