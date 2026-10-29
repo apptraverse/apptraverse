@@ -103,7 +103,7 @@
 
 В PLAN зафиксированы границы common/backend/application, независимый MinimalApp, переиспользование существующих runtime/session/proxy, platform lifecycle/storage hooks, критерии library controls и запрет копирования старого Surfaces runtime. Старые PASS сохранены как evidence отдельных сценариев; новый P3.T0 — только изменение плана.
 
-**WASM reproducibility (P3.T1):** на **`2c73b99`** smoke проходил с ручным hotfix в shared CPM (`7295`), где origin-facet append в `DomainGraph::Save` был снят. **P3.T1** закрепляет полную patch chain (pin `79283b6` без смены pin), включая **`aether-objects-local-persistent-objptr-seri.patch`** (#14) и восстановленный **`emscripten-domain-include`**. **Win64 Debug (2026-10-28):** `apptraverse_object_origin_facet_test`, CTest `apptraverse_object_origin_disk_roundtrip_test` — **PASS**; `apptraverse_window_catalog_headless_test` — **FAIL** (`window_prefab.is_loaded()` на initial publication, отдельно от WASM load). **WASM Debug:** `web_window_catalog_demo` **build PASS** (CPM `…/aether-objects/8021`); browser smoke **FAIL** — model thread `fatal: LoadApplication failed id=1` после bootstrap `SaveDistilledRoot`. **Первый отказ:** `LoadApplication` → `LoadCached` → `LoadRoot(1)` / `LoadStoredLayers` при stored layers id=1 `[Node/S0 9 B, WindowCatalog/S0–S2]`; на Win64 bootstrap для id=1 дополнительно пишется **`ae::Obj/S0` (2178182515, size 0)**, на WASM этот слой **не** появляется в OBJ_SYS — гипотеза для следующей итерации, не доказанная первопричина. **NEXT P3.T2** только после smoke **PASS**.
+**WASM reproducibility (P3.T1):** pin `79283b6`, **13 patches** (без #14). **2026-10-29:** Headless-регрессия **`window_prefab.is_loaded()`** — побочная eager-материализация lazy `ObjPtr` при LocalPersistent save: patch **`local-persistent-objptr-seri`** (#14, `const_cast` + `LoadCached`/`force_materialize` в `ObjPtrBaseSerializer::Seri`) и правки **`Node::Save` / `CaptureBaseStateInto`** в `5c3826a`; **исправлено** (удалён #14, откат `node.h` к `9d4edb2`, `-fexceptions` снят с `web_window_catalog_demo`). **Win64 Debug:** headless catalog, clone, origin facet, model persistence, disk roundtrip CTest — **PASS**. **WASM:** build **PASS** (без `-fexceptions`); smoke **FAIL** (`LoadApplication id=1`) — отдельный blocker, не `ae::Obj/S0` как доказанная причина.
 
 ---
 
@@ -111,13 +111,13 @@
 
 **Pin (без изменений):** `79283b667cabf689da1059d618fe2a22abf51db4`.
 
-**Patches (CMake `PATCHES`):** … → `clone-reference-visitor` → **`emscripten-domain-include`** → **`local-persistent-objptr-seri`** (#14).
+**Patches (CMake `PATCHES`):** … → `clone-reference-visitor` → **`emscripten-domain-include`** (13 patches; #14 **удалён** 2026-10-29).
 
-**App bootstrap:** model-thread `BootstrapDistilledProfileIfAbsent`; `StabilizeDistilledPersistentSnapshot`; `SaveDistilledRoot` fail-fast; profile `window_catalog_runtime_state_v5`.
+**Headless lazy fix (2026-10-29):** первый отказ — `ApplicationUiSession` initial mirror, `!window_prefab.is_loaded()`; prefab W/V materialized during bootstrap/distill save из-за #14 + eager `Node::Save` / LocalPersistent capture.
 
-**Проверки (2026-10-28):** Win64 — origin facet + disk roundtrip **PASS**; headless catalog **FAIL** (`window_prefab.is_loaded`). WASM build **PASS** (CPM `8021`); smoke **FAIL** — `LoadApplication failed id=1` after bootstrap; stored id=1 `[Node/S0 9 B, WindowCatalog/S0–S2]`; Win64 bootstrap also logs **`ae::Obj/S0` size 0** for id=1, WASM — нет (диагностическое направление).
+**Проверки (2026-10-29):** Win64 headless/clone/origin/model persistence + disk roundtrip — **PASS**. WASM build без exceptions; smoke **FAIL** (`LoadApplication id=1`).
 
-**Blocker / NEXT:** первый сбой `LoadStoredLayers` на WASM; smoke **PASS**; затем **P3.T2**.
+**Blocker / NEXT:** WASM cold load — первый ошибочный layer в `LoadStoredLayers` (id=1); smoke **PASS** → **P3.T2**.
 
 ---
 
