@@ -1,0 +1,15 @@
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 588a50b..c4e8a21 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -383,6 +383,11 @@ struct Serializer<BinaryArchive<DomainBuffer>, T> {
+   }
+ 
+   SeriResult Deseri(Archive& arch, Meta<T> meta_val) const {
++    // Seri() stores embedded Obj via DomainGraph::Save side effects only.
++    if (arch.buffer().reader != nullptr) {
++      return Ok{good};
++    }
+     auto result =
+         arch.buffer().domain_graph->Load(meta_val.value, arch.buffer().id);
+     return result.value_or(Ok{good});

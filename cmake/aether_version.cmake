@@ -29,6 +29,8 @@ set(APPTRAVERSE_AETHER_OBJECTS_CLONE_REFERENCE_VISITOR_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-clone-reference-visitor.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_EMSCRIPTEN_DOMAIN_INCLUDE_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-emscripten-domain-include.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_NESTED_OBJ_ARCHIVE_DESERI_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-nested-obj-archive-deseri.patch")
 
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
 set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG

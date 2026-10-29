@@ -84,7 +84,7 @@
 | **P3.2 (оставшееся)** — Web actions + persist | PLAN §P4 | **Перенесено в P4.C2/Web**; не DONE, не текущий NEXT |
 | **P3** — библиотечный template + controls, семь backend | PLAN §P3.T | **IN_PROGRESS**; прежние PASS не подтверждают новую цель |
 | **P3.T0** — границы и порядок template → catalog → admin | уточнение пользователя, 2026-10-28 | **DONE (doc-only)**; новых code PASS нет |
-| **P3.T1** — воспроизводимый Æther/WASM patch | §P3.T1 ниже | **IN_PROGRESS** — patch chain + Win Debug regressions **PASS**; WASM **build PASS**, browser smoke **FAIL** (`LoadApplication failed id=1` on CPM `bc1a` patched tree) |
+| **P3.T1** — воспроизводимый Æther/WASM patch | §P3.T1 ниже | **PASS** — **14 patches** (incl. nested Obj archive deseri); Win Debug regressions + disk roundtrip **PASS**; WASM build **PASS**, browser smoke **PASS** (`wasm_window_catalog_browser_smoke.py`, `WINDOW_CATALOG_INITIAL_RENDER_OK`) |
 | **P3.T2 / P3.T3** — общий template / библиотечные backend | PLAN §P3.T | **TODO**; готовность семи backend не заявлена |
 | **P4.C1 / P4.C2** — WindowCatalog как тонкий потребитель / семь E2E | PLAN §P4 | **TODO** |
 | **A1** — администрирование | PLAN §A1 | **TODO**, после P3 и P4 на всех семи backend |
@@ -103,31 +103,25 @@
 
 В PLAN зафиксированы границы common/backend/application, независимый MinimalApp, переиспользование существующих runtime/session/proxy, platform lifecycle/storage hooks, критерии library controls и запрет копирования старого Surfaces runtime. Старые PASS сохранены как evidence отдельных сценариев; новый P3.T0 — только изменение плана.
 
-**WASM reproducibility (P3.T1):** pin `79283b6`, **13 patches** (без #14). **2026-10-29:** Headless-регрессия **`window_prefab.is_loaded()`** — побочная eager-материализация lazy `ObjPtr` при LocalPersistent save: patch **`local-persistent-objptr-seri`** (#14, `const_cast` + `LoadCached`/`force_materialize` в `ObjPtrBaseSerializer::Seri`) и правки **`Node::Save` / `CaptureBaseStateInto`** в `5c3826a`; **исправлено** (удалён #14, откат `node.h` к `9d4edb2`, `-fexceptions` снят с `web_window_catalog_demo`). **Win64 Debug:** headless catalog, clone, origin facet, model persistence, disk roundtrip CTest — **PASS**. **WASM:** build **PASS** (без `-fexceptions`); smoke **FAIL** (`LoadApplication id=1`) — отдельный blocker, не `ae::Obj/S0` как доказанная причина.
+**WASM reproducibility (P3.T1):** pin `79283b6`, **14 patches** (без удалённого lazy #14). Lazy headless regression — **исправлено** в `d3b590d`. **WASM cold load (2026-10-29):** первый фатальный сбой — `Node::Load(v0)` аргумент **`base_`** (`ae::Obj&`, тот же ObjId): `Serializer<Obj>::Deseri` вызывал `DomainGraph::Load(Obj)` по storage при активном reader родительского Node S0, тогда как `Seri()` пишет только side-effect слои (inline bytes нет) → `Load(Obj)` version-walk оставался на **`missing_version (1000)`** (не `ae::Obj/S1` facet factory). **Fix:** patch **`aether-objects-nested-obj-archive-deseri`** — skip storage reload when `arch.buffer().reader != nullptr`. Smoke + Win regressions **PASS**.
 
 ---
 
-## P3.T1 — воспроизводимый Æther/WASM patch (2026-10-28, **IN_PROGRESS**)
+## P3.T1 — воспроизводимый Æther/WASM patch (2026-10-28, **PASS**)
 
 **Pin (без изменений):** `79283b667cabf689da1059d618fe2a22abf51db4`.
 
-**Patches (CMake `PATCHES`):** … → `clone-reference-visitor` → **`emscripten-domain-include`** (13 patches; #14 **удалён** 2026-10-29).
+**Patches (CMake `PATCHES`):** … → `emscripten-domain-include` → **`nested-obj-archive-deseri`** (**14** patches; lazy #14 **удалён** 2026-10-29).
 
 **Headless lazy fix (2026-10-29):** первый отказ — `ApplicationUiSession` initial mirror, `!window_prefab.is_loaded()`; prefab W/V materialized during bootstrap/distill save из-за #14 + eager `Node::Save` / LocalPersistent capture.
 
-**Проверки (2026-10-29):** Win64 headless/clone/origin/model persistence + disk roundtrip — **PASS**. WASM build без exceptions; smoke **FAIL** (`LoadApplication id=1`).
+**Проверки (2026-10-29):** `build/win64-ninja-msvc-debug` — `apptraverse_window_catalog_headless_test`, `apptraverse_object_clone_test`, `apptraverse_object_origin_facet_test`, `apptraverse_model_persistence_test`, CTest **`apptraverse_object_origin_disk_roundtrip_test`** — **PASS**. `build/wasm-ninja-debug` — `web_window_catalog_demo` + `wasm_window_catalog_browser_smoke.py` (COOP/SAB, initial DOM, **`WINDOW_CATALOG_INITIAL_RENDER_OK`**, screenshot `docs/smoke_artifacts/window_catalog_web_initial.png`) — **PASS**; `web_window_catalog_demo` без `-fexceptions` в CMake.
 
-**WASM internal load (2026-10-29, `build/wasm-ninja-debug`, CPM `bc1a`, temp probe in cache only — снят):** для catalog root **`ObjId=1`** (`RunApplicationModelSession` cold load после `BootstrapDistilledProfileIfAbsent` + `SaveDistilledRoot`):
+**Root cause (catalog `id=1`):** `Node::Load(v0)` → **`dnv(base_)`** первым; `Serializer<ae::Obj>::Deseri` вызывал **`DomainGraph::Load(Obj)`** из storage при чтении Node S0 blob (reader активен), хотя **`Seri()`** для embedded `base_` не пишет inline bytes — только side-effect `Save`. Version-walk **`Load(Obj)`** без материализованных facet-слоёv → **`missing_version (1000)`** → фатальный `LoadStoredLayers` на Node S0. **`base`/`journal`** не достигались. Origin **`ae::Obj`/v1** missing в factory — отдельно, Ok.
 
-| Шаг | Факт |
-| --- | --- |
-| Первый **missing_layer** в цепочке | **`obj_id=1`**, **`class_id=2178182515`** (`ae::Obj`, origin facet), **`version=1`** — `LoadVersion` → `GetReader` → `kEmpty`; на том же проходе `LoadStoredLayers` для слоя **`3486612257`** (Node **S0/v0**). **Не фатален:** `LoadObjOriginFacet` трактует `IsMissingVersion` как Ok. |
-| Первый **фатальный** отказ | **`obj_id=1`**, **`class_id=3486612257`**, **`version=0`**: `Registrar<Node>::Load` → `LoadVersion` → `domain_visitor`/`LoadVisitor` возвращает **`SeriError` code `1000`** (`missing_version`) → `LoadStoredLayers` сбрасывает объект → `LoadRoot(1)` → `LoadApplication`. Это **не** `no_reader` / `read_error` на reader слоя Node S0 (9 B присутствуют в storage). |
-| Путь от catalog root | **`WindowCatalog id=1`** → `LoadRoot` → `LoadStoredLayers` → **Node S0** (`3486612257`/v0); слои **`3951442439`** (WindowCatalog v0–v2) **не достигаются**. Имена полей ObjPtr в wire **не залогированы** (нет field-level probe). |
-| Bootstrap save (`OBJ_SYS`) для `id=1` | **`3486612257`/v0** size **9**; **`3951442439`/v0** 94, **/v1** 5, **/v2** 9; **`2178182515`/v1** **не** пишется (ожидаемо для origin facet). |
-| Причина | **Доказано:** cold load падает на десериализации **Node S0** catalog root с **пропагацией `missing_version (1000)`** из вложенного load внутри того же `LoadVersion`, до WindowCatalog. **Точная неизвестная:** какой вложенный **`ObjId`/ClassId/version** (вероятно eager **`ObjPtr`** в Node S0 bytes) даёт `1000`; отдельно в той же сессии до `id=1` фиксируются отказы load для **нес table ObjId** (≫16) с тем же паттерном — связь с catalog root **не доказана**. |
+**Fix:** patch **`cmake/patches/aether-objects-nested-obj-archive-deseri.patch`** — при `reader != nullptr` embedded Obj deseri no-op (symmetric Save).
 
-**Blocker / NEXT:** исправить доказанный WASM cold-load дефект (Node S0 / вложенный missing layer для **`id=1`**) → smoke **PASS** → **P3.T2** (см. [PLAN §P3.T1](./PLAN.md#p3t--библиотечный-шаблон-преже-приложения)).
+**NEXT:** **P3.T2** — минимальный общий application template ([PLAN §P3.T2](./PLAN.md#p3t--библиотечный-шаблон-преже-приложения)).
 
 ---
 
