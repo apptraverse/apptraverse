@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-28):** библиотечный template/controls на семи backend (**P3.T**) → WindowCatalog на нём (**P4.C**) → администрирование (**A1**). **P3.T1 PASS**; **NEXT P3.T2** (минимальный application template). **P0/P1 DONE**, выполненные P2 и P3.1a/P3.1b/P3.2a сохраняют свой scope ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
+**Активный порядок (2026-10-29):** библиотечный template/controls на семи backend (**P3.T**) → WindowCatalog на нём (**P4.C**) → администрирование (**A1**). **P3.T1 PASS**; **P3.T2a PASS**; **NEXT P3.T2b** (нейтральные component contracts). **P0/P1 DONE**, выполненные P2 и P3.1a/P3.1b/P3.2a сохраняют свой scope ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -85,7 +85,8 @@
 | **P3** — библиотечный template + controls, семь backend | PLAN §P3.T | **IN_PROGRESS**; прежние PASS не подтверждают новую цель |
 | **P3.T0** — границы и порядок template → catalog → admin | уточнение пользователя, 2026-10-28 | **DONE (doc-only)**; новых code PASS нет |
 | **P3.T1** — воспроизводимый Æther/WASM patch | §P3.T1 ниже | **PASS** — **14 patches**; nested Obj deseri no-op **только** `ae::Obj`; contract/ui_session + Win regressions + WASM smoke **PASS** |
-| **P3.T2 / P3.T3** — общий template / библиотечные backend | PLAN §P3.T | **TODO**; готовность семи backend не заявлена |
+| **P3.T2a** — MinimalApp common builder + Headless session E2E | §P3.T2a ниже | **PASS** — `minimal_app_common`/`minimal_app_headless`, `apptraverse_minimal_app_headless_test`; Win `win32_minimal_app*` build |
+| **P3.T2 / P3.T3** — общий template / библиотечные backend | PLAN §P3.T | **IN_PROGRESS** (P3.T2a PASS); готовность семи backend не заявлена |
 | **P4.C1 / P4.C2** — WindowCatalog как тонкий потребитель / семь E2E | PLAN §P4 | **TODO** |
 | **A1** — администрирование | PLAN §A1 | **TODO**, после P3 и P4 на всех семи backend |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder) |
@@ -121,7 +122,19 @@
 
 **Fix:** patch **`cmake/patches/aether-objects-nested-obj-archive-deseri.patch`** — при `reader != nullptr` no-op **только** для embedded **`ae::Obj`** (`Node::base_`); производные типы по-прежнему **`DomainGraph::Load`**. Contract test: **`TestNativeFrameReport`** — client width/height в model и mirror (lag до structural publish).
 
-**NEXT:** **P3.T2** — минимальный общий application template ([PLAN §P3.T2](./PLAN.md#p3t--библиотечный-шаблон-преже-приложения)).
+**NEXT (исторически):** P3.T2 — закрыт срезом **P3.T2a** ниже.
+
+---
+
+## P3.T2a — MinimalApp на application sessions (2026-10-29, **PASS**)
+
+**Scope:** `examples/minimal_app/common/minimal_app_graph_builder.*` (ComposePresentedWindow + frame 120/80/640/480); Windows overload → `WinDesktopWindowPresenter`; Headless `BuildHeadlessMinimalApplicationGraph` → stock `UiDesktopWindowPresenter`; Windows-only `minimal_app_lifecycle` в `examples/minimal_app/windows/`; CMake: `minimal_app_common` (только `apptraverse`), `minimal_app_headless`, MinimalApp при `APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING`.
+
+**E2E:** `apptraverse_minimal_app_headless_test` — RAM distill bootstrap, `RunApplicationModelSession<MinimalApplication>`, `ApplicationModelRuntime`, `ApplicationUiSession`, `ModelObjectProxy`; `SubmitFrameFromNative` → `ReportUiDesktopWindowFrameFromNativeEvent` на model thread; mirror lag до incremental publish; `RequestStop`/persist через `LoadPresentedWindow`/`SavePresentedWindow` (cold reload — **P3.T3.H**).
+
+**Проверки (win64-ninja-msvc-debug):** `apptraverse_minimal_app_headless_test`, `apptraverse_application_contract_headless_test`, `apptraverse_application_model_runtime_test`, `apptraverse_application_ui_session_test`, `apptraverse_window_catalog_headless_test` — **PASS**; `win32_minimal_app`, `win32_minimal_app_load_only` — **build PASS** (link headless test без `apptraverse_ui_windows`).
+
+**NEXT:** **P3.T2b** — нейтральные библиотечные component contracts.
 
 ---
 

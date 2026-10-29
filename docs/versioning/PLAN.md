@@ -46,7 +46,7 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; P3.T0 doc-only DONE; **P3.T1 PASS**; **NEXT P3.T2** |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; P3.T0 doc-only DONE; **P3.T1 PASS**; **P3.T2a PASS**; **NEXT P3.T2b** |
 | **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
 | **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
 | **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |
@@ -125,7 +125,8 @@
 | --- | --- | --- |
 | **P3.T0** | Зафиксировать границы и новую очередь | **DONE (doc-only)** в этой редакции; ни один новый code/backend PASS не заявлен |
 | **P3.T1 — PASS** | 14-patch chain + lazy-safe save; WASM cold load | Lazy #14 **removed** (`d3b590d`); patch **`nested-obj-archive-deseri`**: no-op deseri при active reader **только** для **`ae::Obj`** (`base_`); contract frame-size checks; Win + WASM smoke **PASS** — [PROGRESS §P3.T1](./PROGRESS.md#p3t1--воспроизводимый-ætherwasm-patch-2026-10-28-pass) |
-| **P3.T2** | Минимальный общий application template и нейтральные component contracts | Используются существующие ApplicationModelRuntime, ApplicationUiSession, ModelObjectProxy, RunApplicationModelSession/RunEmbeddedApplicationModelSession; lifecycle/сохранение не копируются в потребителей; независимый MinimalApp проходит минимальный Headless-срез command → Event → mirror; полный roundtrip — P3.T3.H |
+| **P3.T2a — PASS** | MinimalApp common builder + Headless session E2E | `BuildMinimalApplicationGraph(domain, create_window)`; Headless adapter; `apptraverse_minimal_app_headless_test` (native frame → mirror); Win lifecycle в `windows/` — [PROGRESS §P3.T2a](./PROGRESS.md#p3t2a--minimalapp-на-application-sessions-2026-10-29-pass) |
+| **P3.T2** | Нейтральные component contracts + оставшийся template scope | **IN_PROGRESS**; **NEXT P3.T2b**; полный cold roundtrip — P3.T3.H |
 | **P3.T3.H** | Headless backend шаблона | Полный невизуальный lifecycle + commands/Events + publication/mirror + save/cold load |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
 | **P3.T3.Web** | Web backend и общие Window/List/Button | Та же сессия и компоненты; UI delivery, DOM lifecycle, несколько представлений, сохранение и подтверждение записи browser storage |

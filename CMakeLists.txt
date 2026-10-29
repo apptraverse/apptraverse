@@ -241,7 +241,7 @@ if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)
   add_subdirectory(examples/surfaces_demo)
 endif()
 
-if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
+if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)
   add_subdirectory(examples/minimal_app)
 endif()
 

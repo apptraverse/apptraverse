@@ -1,6 +1,6 @@
 set(_minimal_app_win_sources
   minimal_app_main.cpp
-  ../common/minimal_app_lifecycle.cpp
+  minimal_app_lifecycle.cpp
 )
 
 add_executable(apptraverse_export_minimal_distilled_graph
