@@ -1,5 +1,5 @@
 diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
-index 31431b1..9d2f8cc 100644
+index 31431b1..588a50b 100644
 --- a/src/aether-objects/obj/domain.h
 +++ b/src/aether-objects/obj/domain.h
 @@ -259,7 +259,8 @@ seri::SeriResult DomainGraph::LoadVersion(Version<V> version, T& obj,
@@ -20,7 +20,7 @@ index 31431b1..9d2f8cc 100644
    if constexpr (HasAnyVersionedSave<T>::value) {
      auto result = seri::SeriResult{Ok{seri::good}};
      version_iterator<VersionSaveTrait>(
-@@ -287,12 +289,40 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
+@@ -287,12 +289,41 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
                return;
              }
            }
@@ -64,7 +64,7 @@ index 31431b1..9d2f8cc 100644
  }
  
  struct SaveVisitor {
-@@ -319,7 +349,8 @@ seri::SeriResult DomainGraph::SaveVersion(Version<V> version, T const& obj,
+@@ -319,7 +350,8 @@ seri::SeriResult DomainGraph::SaveVersion(Version<V> version, T const& obj,
  
    auto save_visitor = SaveVisitor{bin_archive};
  
@@ -75,7 +75,7 @@ index 31431b1..9d2f8cc 100644
      obj.Save(version, visitor);
    } else {
 diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
-index 3279321..aaca824 100644
+index 3279321..0a3ac03 100644
 --- a/src/aether-objects/obj/obj.cpp
 +++ b/src/aether-objects/obj/obj.cpp
 @@ -31,6 +31,22 @@ Obj::~Obj() {
@@ -153,6 +153,4 @@ index 94a3b04..3d1cc81 100644
 +  ObjPtr<Obj> origin_{};
  };
  
-+#include "aether-objects/obj/domain.h"
-+
  namespace domain_visitor {

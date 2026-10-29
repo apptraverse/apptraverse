@@ -1,5 +1,5 @@
-﻿diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
-index 59ba43c..a8e4b21 100644
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index d959ded..1c5e914 100644
 --- a/src/aether-objects/obj/domain.h
 +++ b/src/aether-objects/obj/domain.h
 @@ -121,6 +121,9 @@ enum class GraphSerializationScope : std::uint8_t {
@@ -12,10 +12,10 @@ index 59ba43c..a8e4b21 100644
  };
  
  /**
-@@ -331,7 +334,8 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
-   }
+@@ -332,7 +335,8 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
  
-   if constexpr (std::is_base_of_v<Obj, std::decay_t<T>>) {
+   if constexpr (std::is_base_of_v<Obj, std::decay_t<T>> &&
+                 !std::is_same_v<std::decay_t<T>, Obj>) {
 -    if (serialization_scope == GraphSerializationScope::LocalPersistent &&
 +    if ((serialization_scope == GraphSerializationScope::LocalPersistent ||
 +         serialization_scope == GraphSerializationScope::CanonicalClone) &&

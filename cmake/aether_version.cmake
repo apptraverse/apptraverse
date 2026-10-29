@@ -27,6 +27,8 @@ set(APPTRAVERSE_AETHER_OBJECTS_CLONE_CANONICAL_STATE_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-clone-canonical-state.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_CLONE_REFERENCE_VISITOR_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-clone-reference-visitor.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_EMSCRIPTEN_DOMAIN_INCLUDE_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-emscripten-domain-include.patch")
 
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
 set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG

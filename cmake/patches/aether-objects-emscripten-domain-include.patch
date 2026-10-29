@@ -1,0 +1,345 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index f5648f1..6dcefdd 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -14,11 +14,11 @@
+  * limitations under the License.
+  */
+ 
+-#include "aether-objects/obj/domain.h"
++#include "aether-objects/obj/obj.h"
+ 
+ #include <algorithm>
+ 
+-#include "aether-objects/obj/obj.h"
++#include "aether-objects/obj/domain.h"
+ 
+ #include "aether-objects/log.h"
+ 
+@@ -112,6 +112,22 @@ seri::SeriResult DomainGraph::SaveRoot(Ptr<Obj> const& ptr, ObjId obj_id) {
+   return Error{seri::write_error};
+ }
+ 
++seri::SeriResult DomainGraph::TryAppendOriginFacetLayer(
++    Obj const& obj, ObjId obj_id, std::uint32_t concrete_class_id) {
++  if (concrete_class_id != obj.GetClassId()) {
++    return Ok{seri::good};
++  }
++  if (serialization_scope != GraphSerializationScope::LocalPersistent &&
++      serialization_scope != GraphSerializationScope::CanonicalClone) {
++    return Ok{seri::good};
++  }
++  if (!obj.origin_id().is_valid() ||
++      !obj.ShouldSaveOriginFacet(ae::Version<1>{})) {
++    return Ok{seri::good};
++  }
++  return SaveVersion(Version<1>{}, obj, obj_id);
++}
++
+ ObjId DomainGraph::CloneSaveRemapId(ObjId id) const {
+   if (clone_save_remap_ == nullptr || !id.is_valid()) {
+     return id;
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 1032488..8f0fbc6 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -37,6 +37,7 @@
+ #include "aether-objects/obj/obj_id.h"
+ #include "aether-objects/obj/registry.h"
+ #include "aether-objects/obj/version_iterator.h"
++#include "aether-objects/obj/domain_buffer.h"
+ 
+ namespace ae {
+ 
+@@ -80,39 +81,6 @@ struct DomainCycleDetector {
+   std::set<Node> visited_nodes;
+ };
+ 
+-struct DomainBuffer {
+-  seri::SeriResult Write(seri::SizeWriteTag data) const {
+-    if (writer == nullptr) {
+-      return Error{seri::write_error};
+-    }
+-    return writer->Write(data);
+-  }
+-  seri::SeriResult Write(seri::DataWriteTag data) const {
+-    if (writer == nullptr) {
+-      return Error{seri::write_error};
+-    }
+-    return writer->Write(data);
+-  }
+-
+-  seri::SeriResult Read(seri::SizeReadTag data) const {
+-    if (reader == nullptr) {
+-      return Error{seri::read_error};
+-    }
+-    return reader->Read(data);
+-  }
+-  seri::SeriResult Read(seri::DataReadTag data) const {
+-    if (reader == nullptr) {
+-      return Error{seri::read_error};
+-    }
+-    return reader->Read(data);
+-  }
+-
+-  ObjId id;
+-  DomainGraph* domain_graph{};
+-  IDomainStorageWriter* writer{nullptr};
+-  IDomainStorageReader* reader{nullptr};
+-};
+-
+ // Serialization intent for one DomainGraph Save/Load walk. Owned by the
+ // DomainGraph instance (no process-global / thread_local policy registry).
+ enum class GraphSerializationScope : std::uint8_t {
+@@ -187,6 +155,9 @@ class DomainGraph {
+   bool force_materialize{false};
+ 
+  private:
++  seri::SeriResult TryAppendOriginFacetLayer(Obj const& obj, ObjId obj_id,
++                                             std::uint32_t concrete_class_id);
++
+   void LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id);
+ 
+   DomainLoad GetReader(DomainQuery const& query);
+@@ -350,17 +321,11 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
+ 
+   if constexpr (std::is_base_of_v<Obj, std::decay_t<T>> &&
+                 !std::is_same_v<std::decay_t<T>, Obj>) {
+-    if ((serialization_scope == GraphSerializationScope::LocalPersistent ||
+-         serialization_scope == GraphSerializationScope::CanonicalClone) &&
+-        T::kClassId == obj.GetClassId()) {
+-      Obj const& as_obj = static_cast<Obj const&>(obj);
+-      if (as_obj.origin_id().is_valid() &&
+-          as_obj.ShouldSaveOriginFacet(ae::Version<1>{})) {
+-        seri::SeriResult const facet_result =
+-            SaveVersion(Version<1>{}, as_obj, obj_id);
+-        if (facet_result.IsErr()) {
+-          return facet_result;
+-        }
++    if (T::kClassId == obj.GetClassId()) {
++      seri::SeriResult const facet_result = TryAppendOriginFacetLayer(
++          static_cast<Obj const&>(obj), obj_id, T::kClassId);
++      if (facet_result.IsErr()) {
++        return facet_result;
+       }
+     }
+   }
+diff --git a/src/aether-objects/obj/domain_buffer.h b/src/aether-objects/obj/domain_buffer.h
+new file mode 100644
+index 0000000..a0a9588
+--- /dev/null
++++ b/src/aether-objects/obj/domain_buffer.h
+@@ -0,0 +1,49 @@
++#ifndef AETHER_OBJECTS_OBJ_DOMAIN_BUFFER_H_
++#define AETHER_OBJECTS_OBJ_DOMAIN_BUFFER_H_
++
++#include "aether-miscpp/serialization/binary_archive.h"
++#include "aether-miscpp/serialization/serialization.h"
++
++#include "aether-objects/obj/idomain_storage.h"
++#include "aether-objects/obj/obj_id.h"
++
++namespace ae {
++
++class DomainGraph;
++
++struct DomainBuffer {
++  seri::SeriResult Write(seri::SizeWriteTag data) const {
++    if (writer == nullptr) {
++      return Error{seri::write_error};
++    }
++    return writer->Write(data);
++  }
++  seri::SeriResult Write(seri::DataWriteTag data) const {
++    if (writer == nullptr) {
++      return Error{seri::write_error};
++    }
++    return writer->Write(data);
++  }
++
++  seri::SeriResult Read(seri::SizeReadTag data) const {
++    if (reader == nullptr) {
++      return Error{seri::read_error};
++    }
++    return reader->Read(data);
++  }
++  seri::SeriResult Read(seri::DataReadTag data) const {
++    if (reader == nullptr) {
++      return Error{seri::read_error};
++    }
++    return reader->Read(data);
++  }
++
++  ObjId id;
++  DomainGraph* domain_graph{};
++  IDomainStorageWriter* writer{nullptr};
++  IDomainStorageReader* reader{nullptr};
++};
++
++}  // namespace ae
++
++#endif  // AETHER_OBJECTS_OBJ_DOMAIN_BUFFER_H_
+diff --git a/src/aether-objects/obj/obj.h b/src/aether-objects/obj/obj.h
+index 329adcc..d1620a6 100644
+--- a/src/aether-objects/obj/obj.h
++++ b/src/aether-objects/obj/obj.h
+@@ -36,13 +36,15 @@
+ #include "aether-miscpp/crc.h"
+ #include "aether-miscpp/reflect/reflect.h"
+ 
+-#include "aether-objects/obj/domain.h"
+ #include "aether-objects/obj/obj_id.h"
+ #include "aether-objects/obj/obj_ptr.h"
+ #include "aether-objects/obj/registrar.h"  // IWYU pragma:  export
+ #include "aether-objects/obj/registry.h"
+ 
+ namespace ae {
++
++class Domain;
++
+ /**
+  * \brief Base class for all objects.
+  */
+@@ -95,6 +97,45 @@ class Obj {
+   ObjPtr<Obj> origin_{};
+ };
+ 
++#include "aether-objects/obj/domain.h"
++
++template <typename T>
++template <typename... TArgs>
++ObjPtr<T> ObjPtr<T>::Create(CreateWith create_arg, TArgs&&... args) {
++  static_assert(obj_ptr_internal::IsObjType<T>::value,
++                "T Must be an object type");
++  auto* domain = create_arg.domain;
++  auto obj_id = create_arg.obj_id.value_or(ObjId::GenerateUnique());
++  auto flags = create_arg.flags.value_or(ObjFlags{});
++  static_assert(
++      std::is_constructible_v<T, ObjProp, TArgs...>,
++      "Class must be constructible with passed arguments and Domain*");
++  auto ptr = MakePtr<T>(ObjProp{domain, obj_id}, std::forward<TArgs>(args)...);
++  domain->AddObject(obj_id, ptr);
++
++  return ObjPtr<T>(domain, obj_id, flags, std::move(ptr));
++}
++
++template <typename T>
++ObjPtr<T> ObjPtr<T>::Declare(CreateWith create_arg) {
++  static_assert(obj_ptr_internal::IsObjType<T>::value,
++                "T Must be an object type");
++  auto* domain = create_arg.domain;
++  auto obj_id = create_arg.obj_id.value_or(ObjId::GenerateUnique());
++  auto flags = create_arg.flags.value_or(ObjFlags::kUnloaded);
++  return ObjPtr<T>(domain, obj_id, flags);
++}
++
++template <typename T>
++ObjPtr<T> ObjPtr<T>::Clone(ObjId obj_id) const {
++  assert(is_valid() && "Invalid clone ptr");
++  assert(obj_id.is_valid() && "Invalid object ID");
++  auto ptr = DomainGraph{domain()}.template LoadCopy<T>(id(), obj_id);
++  return ObjPtr<T>{domain(), obj_id,
++                   static_cast<std::uint8_t>(flags() & ~ObjFlags::kUnloaded),
++                   std::move(ptr)};
++}
++
+ namespace domain_visitor {
+ extern std::size_t GetObjIndexImpl(Obj const* obj, std::uint32_t class_id);
+ 
+diff --git a/src/aether-objects/obj/obj_ptr.h b/src/aether-objects/obj/obj_ptr.h
+index 167df98..1f1b5c2 100644
+--- a/src/aether-objects/obj/obj_ptr.h
++++ b/src/aether-objects/obj/obj_ptr.h
+@@ -26,7 +26,7 @@
+ #include "aether-miscpp/serialization/binary_archive.h"
+ #include "aether-miscpp/serialization/serialization.h"
+ 
+-#include "aether-objects/obj/domain.h"
++#include "aether-objects/obj/domain_buffer.h"
+ #include "aether-objects/obj/obj_id.h"
+ #include "aether-objects/obj/obj_ptr_base.h"
+ #include "aether-objects/obj/registry.h"
+@@ -205,33 +205,6 @@ class ObjPtr : public ObjectPtrBase {
+   auto WithLoaded(Func&& func) const -> decltype(auto);
+ };
+ 
+-template <typename T>
+-template <typename... TArgs>
+-ObjPtr<T> ObjPtr<T>::Create(CreateWith create_arg, TArgs&&... args) {
+-  static_assert(obj_ptr_internal::IsObjType<T>::value,
+-                "T Must be an object type");
+-  auto* domain = create_arg.domain;
+-  auto obj_id = create_arg.obj_id.value_or(ObjId::GenerateUnique());
+-  auto flags = create_arg.flags.value_or(ObjFlags{});
+-  static_assert(
+-      std::is_constructible_v<T, ObjProp, TArgs...>,
+-      "Class must be constructible with passed arguments and Domain*");
+-  auto ptr = MakePtr<T>(ObjProp{domain, obj_id}, std::forward<TArgs>(args)...);
+-  domain->AddObject(obj_id, ptr);
+-
+-  return ObjPtr<T>(domain, obj_id, flags, std::move(ptr));
+-}
+-
+-template <typename T>
+-ObjPtr<T> ObjPtr<T>::Declare(CreateWith create_arg) {
+-  static_assert(obj_ptr_internal::IsObjType<T>::value,
+-                "T Must be an object type");
+-  auto* domain = create_arg.domain;
+-  auto obj_id = create_arg.obj_id.value_or(ObjId::GenerateUnique());
+-  auto flags = create_arg.flags.value_or(ObjFlags::kUnloaded);
+-  return ObjPtr<T>(domain, obj_id, flags);
+-}
+-
+ template <typename T>
+ ObjPtr<T> ObjPtr<T>::MakeFromThis(T* self) {
+   static_assert(obj_ptr_internal::IsObjType<T>::value,
+@@ -311,16 +284,6 @@ ObjPtr<T> ObjPtr<T>::Clone() const {
+   return Clone(ObjId::GenerateUnique());
+ }
+ 
+-template <typename T>
+-ObjPtr<T> ObjPtr<T>::Clone(ObjId obj_id) const {
+-  assert(is_valid() && "Invalid clone ptr");
+-  assert(obj_id.is_valid() && "Invalid object ID");
+-  auto ptr = DomainGraph{domain()}.template LoadCopy<T>(id(), obj_id);
+-  return ObjPtr<T>{domain(), obj_id,
+-                   static_cast<std::uint8_t>(flags() & ~ObjFlags::kUnloaded),
+-                   std::move(ptr)};
+-}
+-
+ template <typename U, typename Func>
+ auto WithLoadedImpl(U&& obj_ptr, Func&& func) -> decltype(auto) {
+   auto ptr = std::forward<U>(obj_ptr).Load();
+diff --git a/src/aether-objects/obj/obj_ptr_base.cpp b/src/aether-objects/obj/obj_ptr_base.cpp
+index 693fec3..2dfa684 100644
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -18,8 +18,8 @@
+ 
+ #include <utility>
+ 
+-#include "aether-objects/obj/domain.h"
+ #include "aether-objects/obj/obj.h"
++#include "aether-objects/obj/domain.h"
+ #include "aether-objects/obj/obj_id.h"
+ 
+ namespace ae {
+diff --git a/src/aether-objects/obj/obj_ptr_base.h b/src/aether-objects/obj/obj_ptr_base.h
+index d2fe4f2..cb15c71 100644
+--- a/src/aether-objects/obj/obj_ptr_base.h
++++ b/src/aether-objects/obj/obj_ptr_base.h
+@@ -19,12 +19,13 @@
+ 
+ #include "aether-miscpp/serialization/serialization.h"
+ 
+-#include "aether-objects/obj/domain.h"
++#include "aether-objects/obj/domain_buffer.h"
+ #include "aether-objects/obj/obj_id.h"
+ #include "aether-objects/ptr/ptr.h"
+ 
+ namespace ae {
+ 
++class Domain;
+ class Obj;
+ 
+ class ObjectPtrBase {

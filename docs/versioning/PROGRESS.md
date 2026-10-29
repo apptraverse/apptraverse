@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-28):** библиотечный template/controls на семи backend (**P3.T**) → WindowCatalog на нём (**P4.C**) → администрирование (**A1**). **P3.T0 DONE (doc-only); NEXT P3.T1 — воспроизводимый Æther/WASM patch**. **P0/P1 DONE**, выполненные P2 и P3.1a/P3.1b/P3.2a сохраняют свой scope ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
+**Активный порядок (2026-10-28):** библиотечный template/controls на семи backend (**P3.T**) → WindowCatalog на нём (**P4.C**) → администрирование (**A1**). **P3.T1 IN_PROGRESS** (patch chain + Win regressions; WASM browser smoke open). **P0/P1 DONE**, выполненные P2 и P3.1a/P3.1b/P3.2a сохраняют свой scope ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -84,7 +84,7 @@
 | **P3.2 (оставшееся)** — Web actions + persist | PLAN §P4 | **Перенесено в P4.C2/Web**; не DONE, не текущий NEXT |
 | **P3** — библиотечный template + controls, семь backend | PLAN §P3.T | **IN_PROGRESS**; прежние PASS не подтверждают новую цель |
 | **P3.T0** — границы и порядок template → catalog → admin | уточнение пользователя, 2026-10-28 | **DONE (doc-only)**; новых code PASS нет |
-| **P3.T1** — воспроизводимый Æther/WASM patch | локальный hotfix из отчёта `2c73b99` | **TODO / NEXT** |
+| **P3.T1** — воспроизводимый Æther/WASM patch | §P3.T1 ниже | **IN_PROGRESS** — patch chain + Win Debug regressions **PASS**; WASM **build PASS**, browser smoke **FAIL** (`LoadApplication failed id=1` on CPM `bc1a` patched tree) |
 | **P3.T2 / P3.T3** — общий template / библиотечные backend | PLAN §P3.T | **TODO**; готовность семи backend не заявлена |
 | **P4.C1 / P4.C2** — WindowCatalog как тонкий потребитель / семь E2E | PLAN §P4 | **TODO** |
 | **A1** — администрирование | PLAN §A1 | **TODO**, после P3 и P4 на всех семи backend |
@@ -103,9 +103,23 @@
 
 В PLAN зафиксированы границы common/backend/application, независимый MinimalApp, переиспользование существующих runtime/session/proxy, platform lifecycle/storage hooks, критерии library controls и запрет копирования старого Surfaces runtime. Старые PASS сохранены как evidence отдельных сценариев; новый P3.T0 — только изменение плана.
 
-**WASM reproducibility debt:** браузерный smoke на **`2c73b99`** действительно прошёл локально. Однако часть Æther include-order исправлений осталась в shared CPM source tree; отчёт упоминает удаление header-inline origin-facet append. Такой hotfix не доказывает сохранение origin/Save semantics и не входит целиком в репозиторий. **P3.T1** должен закрепить полный patch и целевые регрессии, не отключая origin facet. Чистая воспроизводимость пока не подтверждена.
+**WASM reproducibility (P3.T1):** на **`2c73b99`** smoke проходил с ручным hotfix в shared CPM (`7295`), где origin-facet append в `DomainGraph::Save` был снят. **P3.T1** закрепляет полную цепочку patches (pin `79283b6` без смены pin) + `TryAppendOriginFacetLayer` в `domain.cpp` (LocalPersistent **и** CanonicalClone). Проверка apply: `.aether-patch-verify` @ pin → patches 1–13 **`git apply` OK**. Сборка использует CPM `…/aether-objects/bc1a` (не ручной `7295`). **Win64 Debug:** `apptraverse_object_origin_facet_test`, `apptraverse_object_clone_test`, `apptraverse_window_catalog_headless_test`, CTest `apptraverse_object_origin_disk_roundtrip_test` — **PASS**. **WASM Debug:** `web_window_catalog_demo` **build PASS**; `tools/wasm_window_catalog_browser_smoke.py` — **FAIL** (catalog stuck at «Loading…», worker `fatal: LoadApplication failed id=1`). Smoke blocker открыт; **NEXT P3.T2** только после smoke **PASS**.
 
-**Эта итерация:** изменены только документы/правила; код, dependency cache и профили не менялись, сборки/тесты не запускались. Проверка — согласованность активной очереди и сохранение исторических PASS. Canon не переписан в план. Commit/push — документный commit этой итерации в `integration/unified-application`.
+---
+
+## P3.T1 — воспроизводимый Æther/WASM patch (2026-10-28, **IN_PROGRESS**)
+
+**Pin (без изменений):** `79283b667cabf689da1059d618fe2a22abf51db4`.
+
+**Новые/обновлённые patches (порядок CMake `PATCHES`):** `local-persistent-load` → … → `clone-reference-visitor` → **`aether-objects-emscripten-domain-include.patch`** (новый) + regen **`aether-objects-origin-facet.patch`**, **`aether-objects-clone-canonical-state.patch`**.
+
+**Состав `emscripten-domain-include`:** `domain_buffer.h`; `domain.h`/`domain.cpp` include-order + `DomainBuffer` вынесен; `TryAppendOriginFacetLayer` в `domain.cpp` (LocalPersistent + CanonicalClone, `ShouldSaveOriginFacet`); `Save` template вызывает helper вместо header-inline append; `obj.h` / `obj_ptr*` — `domain.h` после полного `Obj`, Create/Clone/Declare после `domain.h`.
+
+**Воспроизводимость:** pin → 13 patches в `.aether-patch-verify` (**`git apply` OK**). Сборки: CPM tree **`…/aether-objects/bc1a`** содержит `domain_buffer.h` + `TryAppendOriginFacetLayer` (не manual `7295`).
+
+**Проверки (incremental):** Win64 Debug — origin facet, clone, window catalog headless, origin disk roundtrip CTest **PASS**. WASM Debug — `web_window_catalog_demo` **build PASS**; browser smoke **FAIL** (`LoadApplication failed id=1`).
+
+**Blocker / NEXT:** устранить WASM `LoadApplication` после bootstrap save с полной origin-semantics chain; затем **P3.T2** (общий application template).
 
 ---
 

@@ -46,7 +46,7 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; P3.T0 doc-only DONE; NEXT P3.T1 |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; P3.T0 doc-only DONE; **P3.T1 IN_PROGRESS** (WASM smoke open) |
 | **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
 | **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
 | **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |
@@ -124,7 +124,7 @@
 | ID | Узкий результат | Критерий завершения |
 | --- | --- | --- |
 | **P3.T0** | Зафиксировать границы и новую очередь | **DONE (doc-only)** в этой редакции; ни один новый code/backend PASS не заявлен |
-| **P3.T1 — NEXT** | Воспроизводимый Æther include-order fix вместо cache-only WASM hotfix | Полный patch в репозитории и CMake PATCHES; применим к закреплённому исходнику с существующими patches; сохранены origin-facet/Clone/Save; целевая WASM-сборка и выбранные origin/Clone регрессии |
+| **P3.T1 — IN_PROGRESS** | Воспроизводимый Æther include-order fix вместо cache-only WASM hotfix | Patch chain + CMake **PASS**; Win origin/Clone/catalog/disk roundtrip **PASS**; WASM build **PASS**; browser smoke **FAIL** (`LoadApplication id=1`) — blocker перед **P3.T2** |
 | **P3.T2** | Минимальный общий application template и нейтральные component contracts | Используются существующие ApplicationModelRuntime, ApplicationUiSession, ModelObjectProxy, RunApplicationModelSession/RunEmbeddedApplicationModelSession; lifecycle/сохранение не копируются в потребителей; независимый MinimalApp проходит минимальный Headless-срез command → Event → mirror; полный roundtrip — P3.T3.H |
 | **P3.T3.H** | Headless backend шаблона | Полный невизуальный lifecycle + commands/Events + publication/mirror + save/cold load |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
