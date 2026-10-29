@@ -1,4 +1,4 @@
-**Active (2026-10-29):** **P3.T1 IN_PROGRESS** — lazy-регрессия headless **исправлена** (удалён patch #14, откат `node.h`); Win headless/clone/origin/model persistence + disk roundtrip **PASS**; WASM build без `-fexceptions`, smoke **FAIL** (`LoadApplication id=1`). [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-10-29):** **P3.T1 PASS** — nested-Obj deseri bypass сужен до **`ae::Obj`**; contract/ui_session + Win regressions + WASM smoke **PASS**. **NEXT: P3.T2** (минимальный application template). [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 

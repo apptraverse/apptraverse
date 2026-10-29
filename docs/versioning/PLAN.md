@@ -124,7 +124,7 @@
 | ID | Узкий результат | Критерий завершения |
 | --- | --- | --- |
 | **P3.T0** | Зафиксировать границы и новую очередь | **DONE (doc-only)** в этой редакции; ни один новый code/backend PASS не заявлен |
-| **P3.T1 — PASS** | 14-patch chain + lazy-safe save; WASM cold load | Lazy #14 **removed** (`d3b590d`); patch **`nested-obj-archive-deseri`** fixes **`Node::Load`/`base_`** embedded Obj deseri; Win regressions + WASM smoke **PASS** — [PROGRESS §P3.T1](./PROGRESS.md#p3t1--воспроизводимый-ætherwasm-patch-2026-10-28-pass) |
+| **P3.T1 — PASS** | 14-patch chain + lazy-safe save; WASM cold load | Lazy #14 **removed** (`d3b590d`); patch **`nested-obj-archive-deseri`**: no-op deseri при active reader **только** для **`ae::Obj`** (`base_`); contract frame-size checks; Win + WASM smoke **PASS** — [PROGRESS §P3.T1](./PROGRESS.md#p3t1--воспроизводимый-ætherwasm-patch-2026-10-28-pass) |
 | **P3.T2** | Минимальный общий application template и нейтральные component contracts | Используются существующие ApplicationModelRuntime, ApplicationUiSession, ModelObjectProxy, RunApplicationModelSession/RunEmbeddedApplicationModelSession; lifecycle/сохранение не копируются в потребителей; независимый MinimalApp проходит минимальный Headless-срез command → Event → mirror; полный roundtrip — P3.T3.H |
 | **P3.T3.H** | Headless backend шаблона | Полный невизуальный lifecycle + commands/Events + publication/mirror + save/cold load |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |

@@ -581,10 +581,18 @@ void TestEventModelPublicationUiMirror() {
 void TestNativeFrameReport() {
   ContractHarness h{false};
   h.headless().model_proxy = &h.model_proxy;
+  std::int32_t const mirror_width_before =
+      h.ui_root->presented_window->client_width();
+  std::int32_t const mirror_height_before =
+      h.ui_root->presented_window->client_height();
   h.headless().SubmitFrameFromNative(11, 22, 640, 480);
   h.PumpModel();
   CHECK(h.model_root->presented_window->x() == 11);
   CHECK(h.model_root->presented_window->y() == 22);
+  CHECK(h.model_root->presented_window->client_width() == 640);
+  CHECK(h.model_root->presented_window->client_height() == 480);
+  CHECK(h.ui_root->presented_window->client_width() == mirror_width_before);
+  CHECK(h.ui_root->presented_window->client_height() == mirror_height_before);
   CHECK(CountJournalEventsWithClass(
             *h.model_root->presented_window,
             ui::ReportUiDesktopWindowFrameFromNativeEvent::kClassId) == 1);
@@ -592,6 +600,8 @@ void TestNativeFrameReport() {
   h.PublishStructuralFromWindow();
   CHECK(h.ui_root->presented_window->x() == 11);
   CHECK(h.ui_root->presented_window->y() == 22);
+  CHECK(h.ui_root->presented_window->client_width() == 640);
+  CHECK(h.ui_root->presented_window->client_height() == 480);
   CHECK(h.headless().apply_requested_frame_count == 0);
 
   std::size_t const journal_after_first =

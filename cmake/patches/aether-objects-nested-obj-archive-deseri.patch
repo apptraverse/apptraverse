@@ -1,13 +1,15 @@
 diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
-index 588a50b..c4e8a21 100644
+index dbeab19..579ff7e 100644
 --- a/src/aether-objects/obj/domain.h
 +++ b/src/aether-objects/obj/domain.h
-@@ -383,6 +383,11 @@ struct Serializer<BinaryArchive<DomainBuffer>, T> {
+@@ -382,6 +382,11 @@ struct Serializer<BinaryArchive<DomainBuffer>, T> {
+     return result.value_or(Ok{good});
    }
  
    SeriResult Deseri(Archive& arch, Meta<T> meta_val) const {
-+    // Seri() stores embedded Obj via DomainGraph::Save side effects only.
-+    if (arch.buffer().reader != nullptr) {
++    // Node::Load base_ only: Seri() persists ae::Obj via Save side effects, no inline bytes.
++    if (arch.buffer().reader != nullptr &&
++        std::is_same_v<std::decay_t<T>, Obj>) {
 +      return Ok{good};
 +    }
      auto result =
