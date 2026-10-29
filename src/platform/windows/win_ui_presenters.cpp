@@ -268,19 +268,7 @@ bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
   if (child_presenter == nullptr) {
     return false;
   }
-  if (child_presenter->OnCommand(command_id, notification_code)) {
-    return true;
-  }
-  if (notification_code == kBnClicked) {
-    child_presenter->NotifyClickedFromUi();
-    return true;
-  }
-  if (notification_code == kLbnSelchange ||
-      notification_code == kLbnDblclk) {
-    return static_cast<WinListContainerPresenter*>(child_presenter)
-        ->HandleListNotification(notification_code);
-  }
-  return false;
+  return child_presenter->OnCommand(command_id, notification_code);
 }
 
 void WinDesktopWindowPresenter::OnModelChanged() {
@@ -330,6 +318,12 @@ void WinListContainerPresenter::OnLoad() {
   EnableWindow(hwnd_, TRUE);
   SetUserData(hwnd_, this);
   SyncFromMirror();
+}
+
+bool WinListContainerPresenter::OnCommand(std::uint32_t command_id,
+                                          std::uint16_t notification_code) {
+  (void)command_id;
+  return HandleListNotification(notification_code);
 }
 
 bool WinListContainerPresenter::HandleListNotification(

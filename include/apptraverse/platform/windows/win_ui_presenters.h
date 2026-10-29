@@ -248,6 +248,9 @@ class WinListContainerPresenter : public UiListContainerPresenter {
 
   HWND hwnd() const { return hwnd_; }
 
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
+
   bool HandleListNotification(std::uint16_t notification_code);
 
  private:

@@ -1549,6 +1549,13 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
 
   apptraverse_add_test(apptraverse_win_application_message_host_test
     win_application_message_host_test.cpp apptraverse_ui_windows)
-  apptraverse_add_test(apptraverse_win_ui_command_routing_test
-    win_ui_command_routing_test.cpp apptraverse_ui_windows_extended)
+  add_executable(apptraverse_win_ui_command_routing_test
+    win_ui_command_routing_test.cpp
+    win_ui_command_routing_test_nodes.cpp)
+  target_link_libraries(apptraverse_win_ui_command_routing_test PRIVATE
+    apptraverse
+    apptraverse_ui_windows_extended)
+  add_test(
+    NAME apptraverse_win_ui_command_routing_test
+    COMMAND apptraverse_win_ui_command_routing_test)
 endif()

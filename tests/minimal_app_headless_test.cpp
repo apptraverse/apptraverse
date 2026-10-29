@@ -121,91 +121,93 @@ void TestMinimalAppHeadlessSessionE2e() {
   std::size_t native_frame_events_at_incremental = 0;
 
   // --- First model session: load, UI mirror, frame command, persist ---
-  DirectoryDomainStorage session_storage{profile_dir};
-  ApplicationModelRuntime runtime;
-  PublicationWaiter waiter;
-  std::unique_ptr<ApplicationUiSession> ui_session;
-  int session_result = 1;
+  {
+    DirectoryDomainStorage session_storage{profile_dir};
+    ApplicationModelRuntime runtime;
+    PublicationWaiter waiter;
+    std::unique_ptr<ApplicationUiSession> ui_session;
+    int session_result = 1;
 
-  ModelObjectProxy model_proxy{[&runtime](ModelObjectProxy::ModelWork work) {
-    runtime.Post(std::move(work));
-  }};
+    ModelObjectProxy model_proxy{[&runtime](ModelObjectProxy::ModelWork work) {
+      runtime.Post(std::move(work));
+    }};
 
-  ApplicationModelSessionHooks<MinimalApplication> hooks;
-  hooks.prepare = [](MinimalApplication& application) {
-    ui::LoadPresentedWindow(application.main_window);
-  };
-  hooks.before_incremental = [&](MinimalApplication& application) {
-    ui::UiDesktopWindow& window = UiMainWindow(application);
-    CHECK(window.x() == kReportedX);
-    CHECK(window.y() == kReportedY);
-    CHECK(window.client_width() == kReportedW);
-    CHECK(window.client_height() == kReportedH);
-    native_frame_events_at_incremental = CountJournalEventsWithClass(
-        window, ui::ReportUiDesktopWindowFrameFromNativeEvent::kClassId);
+    ApplicationModelSessionHooks<MinimalApplication> hooks;
+    hooks.prepare = [](MinimalApplication& application) {
+      ui::LoadPresentedWindow(application.main_window);
+    };
+    hooks.before_incremental = [&](MinimalApplication& application) {
+      ui::UiDesktopWindow& window = UiMainWindow(application);
+      CHECK(window.x() == kReportedX);
+      CHECK(window.y() == kReportedY);
+      CHECK(window.client_width() == kReportedW);
+      CHECK(window.client_height() == kReportedH);
+      native_frame_events_at_incremental = CountJournalEventsWithClass(
+          window, ui::ReportUiDesktopWindowFrameFromNativeEvent::kClassId);
+      CHECK(native_frame_events_at_incremental == 1);
+    };
+    hooks.persist = [&](MinimalApplication& application) -> int {
+      session_storage.BeginSaveSession();
+      ui::SavePresentedWindow(application.main_window);
+      MinimalApplication::ptr::MakeFromThis(&application).Save();
+      persist_save_failed = session_storage.SaveSessionHadFailure();
+      return persist_save_failed ? 1 : 0;
+    };
+
+    std::thread model_thread{[&] {
+      session_result = RunApplicationModelSession(
+          session_storage, MinimalApplicationRootId(), runtime,
+          [&](ApplicationPublicationKind kind) {
+            {
+              std::lock_guard<std::mutex> lock{waiter.mu};
+              waiter.kind = kind;
+              ++waiter.pending;
+            }
+            waiter.cv.notify_one();
+          },
+          hooks);
+    }};
+
+    CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Initial);
+    std::vector<std::uint8_t> initial_bytes = runtime.TakePublishedCopy();
+    runtime.NotifyPublicationConsumed();
+    ui_session = std::make_unique<ApplicationUiSession>(initial_bytes, nullptr,
+                                                        model_proxy);
+    MinimalApplication& ui_app =
+        static_cast<MinimalApplication&>(ui_session->root());
+    ui::UiDesktopWindow& ui_window = UiMainWindow(ui_app);
+    CHECK(ui_window.obj_id == MinimalMainWindowId());
+    CHECK(ui_window.presenter.id() == MinimalPresenterId());
+    CHECK(ui_window.x() == kInitialX);
+    CHECK(ui_window.y() == kInitialY);
+    CHECK(ui_window.client_width() == kInitialW);
+    CHECK(ui_window.client_height() == kInitialH);
+
+    UiMainPresenter(ui_app).SubmitFrameFromNative(kReportedX, kReportedY,
+                                                  kReportedW, kReportedH);
+
+    CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Incremental);
+    std::vector<std::uint8_t> incremental_bytes = runtime.TakePublishedCopy();
+    runtime.NotifyPublicationConsumed();
+    CHECK(ui_window.x() == kInitialX);
+    CHECK(ui_window.y() == kInitialY);
+    CHECK(ui_window.client_width() == kInitialW);
+    CHECK(ui_window.client_height() == kInitialH);
+
+    ui_session->ApplyStructural(incremental_bytes);
+    CHECK(ui_window.x() == kReportedX);
+    CHECK(ui_window.y() == kReportedY);
+    CHECK(ui_window.client_width() == kReportedW);
+    CHECK(ui_window.client_height() == kReportedH);
+
+    runtime.RequestStop();
+    model_thread.join();
+    ui_session.reset();
+
+    CHECK(session_result == 0);
+    CHECK(!persist_save_failed);
     CHECK(native_frame_events_at_incremental == 1);
-  };
-  hooks.persist = [&](MinimalApplication& application) -> int {
-    session_storage.BeginSaveSession();
-    ui::SavePresentedWindow(application.main_window);
-    MinimalApplication::ptr::MakeFromThis(&application).Save();
-    persist_save_failed = session_storage.SaveSessionHadFailure();
-    return persist_save_failed ? 1 : 0;
-  };
-
-  std::thread model_thread{[&] {
-    session_result = RunApplicationModelSession(
-        session_storage, MinimalApplicationRootId(), runtime,
-        [&](ApplicationPublicationKind kind) {
-          {
-            std::lock_guard<std::mutex> lock{waiter.mu};
-            waiter.kind = kind;
-            ++waiter.pending;
-          }
-          waiter.cv.notify_one();
-        },
-        hooks);
-  }};
-
-  CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Initial);
-  std::vector<std::uint8_t> initial_bytes = runtime.TakePublishedCopy();
-  runtime.NotifyPublicationConsumed();
-  ui_session = std::make_unique<ApplicationUiSession>(initial_bytes, nullptr,
-                                                      model_proxy);
-  MinimalApplication& ui_app =
-      static_cast<MinimalApplication&>(ui_session->root());
-  ui::UiDesktopWindow& ui_window = UiMainWindow(ui_app);
-  CHECK(ui_window.obj_id == MinimalMainWindowId());
-  CHECK(ui_window.presenter.id() == MinimalPresenterId());
-  CHECK(ui_window.x() == kInitialX);
-  CHECK(ui_window.y() == kInitialY);
-  CHECK(ui_window.client_width() == kInitialW);
-  CHECK(ui_window.client_height() == kInitialH);
-
-  UiMainPresenter(ui_app).SubmitFrameFromNative(kReportedX, kReportedY,
-                                                kReportedW, kReportedH);
-
-  CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Incremental);
-  std::vector<std::uint8_t> incremental_bytes = runtime.TakePublishedCopy();
-  runtime.NotifyPublicationConsumed();
-  CHECK(ui_window.x() == kInitialX);
-  CHECK(ui_window.y() == kInitialY);
-  CHECK(ui_window.client_width() == kInitialW);
-  CHECK(ui_window.client_height() == kInitialH);
-
-  ui_session->ApplyStructural(incremental_bytes);
-  CHECK(ui_window.x() == kReportedX);
-  CHECK(ui_window.y() == kReportedY);
-  CHECK(ui_window.client_width() == kReportedW);
-  CHECK(ui_window.client_height() == kReportedH);
-
-  runtime.RequestStop();
-  model_thread.join();
-  ui_session.reset();
-
-  CHECK(session_result == 0);
-  CHECK(!persist_save_failed);
-  CHECK(native_frame_events_at_incremental == 1);
+  }
 
   // --- Second model session: cold LoadApplication only, new runtime/UI ---
   DirectoryDomainStorage cold_storage{profile_dir};

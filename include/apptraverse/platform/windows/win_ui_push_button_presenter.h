@@ -25,6 +25,9 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
+  bool OnCommand(std::uint32_t command_id,
+                 std::uint16_t notification_code) override;
+
   HWND hwnd() const { return hwnd_; }
 
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)

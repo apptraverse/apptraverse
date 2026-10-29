@@ -109,6 +109,16 @@ void WinPushButtonPresenter::ApplyLayout() {
 
 void WinPushButtonPresenter::OnModelChanged() { SyncFromMirror(); }
 
+bool WinPushButtonPresenter::OnCommand(std::uint32_t command_id,
+                                       std::uint16_t notification_code) {
+  (void)command_id;
+  if (notification_code != BN_CLICKED) {
+    return false;
+  }
+  NotifyClickedFromUi();
+  return true;
+}
+
 void WinPushButtonPresenter::OnUnload() {
   DestroyChildPushButton(hwnd_, "DestroyWindow Ui push button");
 }

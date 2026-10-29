@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-29):** библиотечный template/controls на семи backend (**P3.T**) → WindowCatalog на нём (**P4.C**) → администрирование (**A1**). **P3.T1–P3.T2 PASS**; **P3.T3.H PASS**; **NEXT P3.T3.W** (Windows backend шаблона). **P0/P1 DONE**, выполненные P2 и P3.1a/P3.1b/P3.2a сохраняют свой scope ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
+**Активный порядок (2026-10-29):** **P3.T3.W1 PASS** (Windows presenter `OnCommand` routing); **NEXT P3.T3.W2** (list mirror selection sync). **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
