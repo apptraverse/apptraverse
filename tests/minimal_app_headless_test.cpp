@@ -79,13 +79,13 @@ struct PublicationWaiter {
   std::condition_variable cv;
   int pending{0};
   ApplicationPublicationKind kind{ApplicationPublicationKind::Initial};
-  std::vector<std::uint8_t> bytes;
 };
 
-void WaitPublication(PublicationWaiter& waiter) {
+ApplicationPublicationKind WaitPublication(PublicationWaiter& waiter) {
   std::unique_lock<std::mutex> lock{waiter.mu};
   waiter.cv.wait(lock, [&] { return waiter.pending > 0; });
   --waiter.pending;
+  return waiter.kind;
 }
 
 void TestMinimalAppHeadlessSessionE2e() {
@@ -134,12 +134,9 @@ void TestMinimalAppHeadlessSessionE2e() {
     session_result = RunApplicationModelSession(
         model_storage, MinimalApplicationRootId(), runtime,
         [&](ApplicationPublicationKind kind) {
-          std::vector<std::uint8_t> bytes = runtime.TakePublishedCopy();
-          runtime.NotifyPublicationConsumed();
           {
             std::lock_guard<std::mutex> lock{waiter.mu};
             waiter.kind = kind;
-            waiter.bytes = std::move(bytes);
             ++waiter.pending;
           }
           waiter.cv.notify_one();
@@ -147,9 +144,11 @@ void TestMinimalAppHeadlessSessionE2e() {
         hooks);
   }};
 
-  WaitPublication(waiter);
-  CHECK(waiter.kind == ApplicationPublicationKind::Initial);
-  ui_session = std::make_unique<ApplicationUiSession>(waiter.bytes, nullptr,
+  ApplicationPublicationKind const initial_kind = WaitPublication(waiter);
+  CHECK(initial_kind == ApplicationPublicationKind::Initial);
+  std::vector<std::uint8_t> initial_bytes = runtime.TakePublishedCopy();
+  runtime.NotifyPublicationConsumed();
+  ui_session = std::make_unique<ApplicationUiSession>(initial_bytes, nullptr,
                                                       model_proxy);
   MinimalApplication& ui_app =
       static_cast<MinimalApplication&>(ui_session->root());
@@ -162,14 +161,16 @@ void TestMinimalAppHeadlessSessionE2e() {
   UiMainPresenter(ui_app).SubmitFrameFromNative(kReportedX, kReportedY,
                                                 kReportedW, kReportedH);
 
-  WaitPublication(waiter);
-  CHECK(waiter.kind == ApplicationPublicationKind::Incremental);
+  ApplicationPublicationKind const incremental_kind = WaitPublication(waiter);
+  CHECK(incremental_kind == ApplicationPublicationKind::Incremental);
+  std::vector<std::uint8_t> incremental_bytes = runtime.TakePublishedCopy();
+  runtime.NotifyPublicationConsumed();
   CHECK(ui_window.x() == kInitialX);
   CHECK(ui_window.y() == kInitialY);
   CHECK(ui_window.client_width() == kInitialW);
   CHECK(ui_window.client_height() == kInitialH);
 
-  ui_session->ApplyStructural(waiter.bytes);
+  ui_session->ApplyStructural(incremental_bytes);
   CHECK(ui_window.x() == kReportedX);
   CHECK(ui_window.y() == kReportedY);
   CHECK(ui_window.client_width() == kReportedW);
