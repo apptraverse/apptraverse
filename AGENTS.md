@@ -15,6 +15,18 @@
 - Runtime lifecycle states (`ReadyForPresentation`, activated parent, disabled control, closed/lazy window) are real; do not conflate them with missing graph links.
 - Side effects (Save/Load/Inject, I/O, mutation) must not run only inside `assert`; execute once, store the result, assert on that result (must still run under `NDEBUG`).
 
+## Porting and regression (backend / template work)
+
+When a defect appears during porting, fix the **architectural cause** in the right layer first. Then re-run existing E/E2E/smoke for **every backend already verified**, in the **same scope** as their historical PASS. Check the **same boundary** and **analogous call sites** for the same defect and broken shared contracts — not a repo-wide audit.
+
+- Fix new blockers for the current scenario and re-verify before claiming PASS.
+- Record separate non-blocking findings explicitly; do not mark them fixed.
+- Missing toolchain/device → **BLOCKED / NOT RUN**; build alone is not runtime proof.
+- Keep historical PASS records with their scope; record current regressions separately.
+- Non-blocking Object Core matrices and production hardening stay **DEFERRED**.
+
+Order unchanged: template/components on seven backends → WindowCatalog on them → administration.
+
 ## Active plan (P0–P6)
 
 - **Order:** [docs/versioning/PLAN.md §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) — **only** active queue. **U5.2–U6**, **9D–9H** are **not** next steps.

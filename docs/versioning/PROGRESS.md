@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-29):** библиотечный template/controls на семи backend (**P3.T**) → WindowCatalog на нём (**P4.C**) → администрирование (**A1**). **P3.T1 PASS**; **P3.T2 PASS** (T2a+T2b); **NEXT P3.T3.H** (Headless MinimalApp lifecycle/save/cold-load). **P0/P1 DONE**, выполненные P2 и P3.1a/P3.1b/P3.2a сохраняют свой scope ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
+**Активный порядок (2026-10-29):** библиотечный template/controls на семи backend (**P3.T**) → WindowCatalog на нём (**P4.C**) → администрирование (**A1**). **P3.T1–P3.T2 PASS**; **P3.T3.H PASS**; **NEXT P3.T3.W** (Windows backend шаблона). **P0/P1 DONE**, выполненные P2 и P3.1a/P3.1b/P3.2a сохраняют свой scope ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -88,7 +88,8 @@
 | **P3.T2a** — MinimalApp common builder + Headless session E2E | §P3.T2a ниже | **PASS** |
 | **P3.T2b** — нейтральные Window/List/Button contracts | §P3.T2b ниже | **PASS** — `SetUiListSelectionEvent`; `apptraverse_ui_control_materialization_test` |
 | **P3.T2** — минимальный template scope (T2a+T2b) | PLAN §P3.T | **PASS** |
-| **P3.T3 / P3** — backend slices / библиотечный template | PLAN §P3.T | **IN_PROGRESS**; готовность семи backend не заявлена |
+| **P3.T3.H** — Headless MinimalApp lifecycle/save/cold-load | §P3.T3.H ниже | **PASS** |
+| **P3.T3 / P3** — backend slices / библиотечный template | PLAN §P3.T | **IN_PROGRESS**; **NEXT P3.T3.W** |
 | **P4.C1 / P4.C2** — WindowCatalog как тонкий потребитель / семь E2E | PLAN §P4 | **TODO** |
 | **A1** — администрирование | PLAN §A1 | **TODO**, после P3 и P4 на всех семи backend |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder) |
@@ -136,7 +137,23 @@
 
 **Проверки (win64-ninja-msvc-debug):** `apptraverse_minimal_app_headless_test`, `apptraverse_application_contract_headless_test`, `apptraverse_application_model_runtime_test`, `apptraverse_application_ui_session_test`, `apptraverse_window_catalog_headless_test` — **PASS**; `win32_minimal_app`, `win32_minimal_app_load_only` — **build PASS** (link headless test без `apptraverse_ui_windows`).
 
-**NEXT:** **P3.T3.H** — полный Headless lifecycle/save/cold-load MinimalApp.
+**NEXT (исторически):** P3.T3.H — см. §P3.T3.H ниже.
+
+---
+
+## P3.T3.H — Headless MinimalApp lifecycle (2026-10-29, **PASS**)
+
+**T2b уточнение:** `TestListSelectionViaPresenterProxy` — UI-domain presenters + proxy queue; до `PumpModelWork` model/mirror без Event/notify; после pump — model Event, mirror lag до structural apply; duplicate selection после apply.
+
+**E2E:** `apptraverse_minimal_app_headless_test` — temp `DirectoryDomainStorage` profile; distilled bootstrap once; session 1: `RunApplicationModelSession`, frame via `SubmitFrameFromNative`, `BeginSaveSession` persist; teardown runtime/UI; session 2: **новый** storage/domain/runtime, **LoadApplication only**, cold mirror + presenter ids, второй frame + publication; UI `TakePublishedCopy`/`NotifyPublicationConsumed` на main thread.
+
+**Портирование:** правило в [AGENTS.md](../../AGENTS.md), [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc), [PLAN §активный план](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6).
+
+**Проверки (win64-ninja-msvc-debug):** ui_control_materialization, minimal_app_headless, contract, model_runtime, ui_session, model_persistence, catalog headless, **minimal_app_win32_acceptance_test** — **PASS**; `win32_minimal_app*`, `win32_window_catalog_demo` — **build PASS**. **WASM:** `web_window_catalog_demo` + smoke `:8767` — **PASS** (initial render scope).
+
+**Архитектурные дефекты библиотеки:** не выявлены в этом сценарии.
+
+**NEXT:** **P3.T3.W** — Windows backend шаблона и библиотечные Window/List/Button.
 
 ---
 

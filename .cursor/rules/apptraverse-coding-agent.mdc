@@ -17,6 +17,18 @@ alwaysApply: true
 - **Default build:** **Debug**, incremental touched targets only. **No** Release runs by default, no ALL_BUILD, clean, cache wipe, or fresh dependency populate unless the user asks. MinSizeRel only on request.
 - **Out of scope** unless explicitly assigned: disk-full, corrupt checkpoint, recovery, security hardening, corner-case matrices.
 
+## Porting and regression
+
+When porting surfaces a defect, fix the **architectural root cause** in the correct layer first. Then re-run existing E2E/smoke for **each backend already verified**, at the **same scope** as their historical PASS. Inspect the **touched boundary** and **analogous sites** for the same failure — not a whole-repo audit.
+
+- Blockers for the current scenario: fix and re-verify before PASS.
+- Non-blocking findings: document explicitly; do not claim fixed.
+- No toolchain/device → **BLOCKED / NOT RUN**; build is not runtime verification.
+- Preserve historical PASS with scope; record current regressions separately.
+- Object Core matrices and production hardening remain **DEFERRED**.
+
+Order: template/components on seven backends → WindowCatalog → administration.
+
 ## Incremental build only
 
 Never, unless the user explicitly asks:

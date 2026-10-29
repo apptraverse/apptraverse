@@ -41,12 +41,14 @@
 - **Не** продолжать disk-full, corrupt checkpoint, recovery, security и corner-case hardening без отдельного задания.
 - **U5.1** (`8c863bc`) — выполненный факт; код **не** откатывать.
 
+**Портирование и регрессии:** при дефекте во время порта сначала исправить архитектурную причину в нужном слое; затем повторить существующие E2E/smoke **всех ранее проверенных backend** в **подтверждённом объёме**; проверить **затронутую границу** и **анalogичные места** (не общий аудит репозитория). Блокеры текущего сценария — исправить и перепроверить. Неблокирующие находки — записать отдельно. Нет toolchain/устройства → **BLOCKED / NOT RUN** (сборка ≠ runtime). Исторические PASS сохранять со scope; текущие регрессии — отдельно. Object Core matrices и production hardening — **DEFERRED**.
+
 | Этап | Содержание | Статус |
 | --- | --- | --- |
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; P3.T0 doc-only DONE; **P3.T1 PASS**; **P3.T2 PASS**; **NEXT P3.T3.H** |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **NEXT P3.T3.W** |
 | **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
 | **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
 | **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |
@@ -128,7 +130,7 @@
 | **P3.T2a — PASS** | MinimalApp common builder + Headless session E2E | [PROGRESS §P3.T2a](./PROGRESS.md#p3t2a--minimalapp-на-application-sessions-2026-10-29-pass) |
 | **P3.T2b — PASS** | Neutral Window/List/Button input; list selection Event | `SetUiListSelectionEvent`; presenter proxy route; [PROGRESS §P3.T2b](./PROGRESS.md#p3t2b--нейтральные-component-contracts-2026-10-29-pass) |
 | **P3.T2 — PASS** | Minimal template scope (sessions + contracts) | T2a+T2b; **NEXT P3.T3.H** |
-| **P3.T3.H** | Headless backend шаблона | Полный невизуальный lifecycle + commands/Events + publication/mirror + save/cold load |
+| **P3.T3.H — PASS** | Headless MinimalApp lifecycle/save/cold-load | `apptraverse_minimal_app_headless_test` (DirectoryDomainStorage, две sessions); [PROGRESS §P3.T3.H](./PROGRESS.md#p3t3h--headless-minimalapp-lifecycle-2026-10-29-pass) |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
 | **P3.T3.Web** | Web backend и общие Window/List/Button | Та же сессия и компоненты; UI delivery, DOM lifecycle, несколько представлений, сохранение и подтверждение записи browser storage |
 | **P3.T3.A** | Android backend | Тот же template; JNI/View lifecycle, отображение логического окна страницей, background/save/reattach в обычном сценарии |

@@ -386,20 +386,10 @@ void TestListSelectionViaPresenterProxy() {
   InitializeRuntimeNode(*row1, *list);
   list->rows = {row0, row1};
 
-  auto window_presenter = UiWindowPresenter::ptr::Create(
-      ae::CreateWith{model_domain});
-  window_presenter->presentation_loaded = true;
-
   std::deque<ModelObjectProxy::ModelWork> deferred;
   ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
     deferred.push_back(std::move(work));
   }};
-
-  auto list_presenter = UiListContainerPresenter::ptr::Create(
-      ae::CreateWith{model_domain});
-  list_presenter->container = list;
-  list_presenter->window_presenter = window_presenter;
-  list_presenter->model_proxy = &proxy;
 
   ByteSink initial;
   SerializeInitialPublication(*list, initial);
@@ -412,11 +402,26 @@ void TestListSelectionViaPresenterProxy() {
       static_cast<UiListContainer*>(ui_obj.get()));
   CHECK(ui_list->selection_index == -1);
 
+  auto ui_window_presenter = UiWindowPresenter::ptr::Create(
+      ae::CreateWith{ui_domain});
+  ui_window_presenter->presentation_loaded = true;
+  auto ui_list_presenter = UiListContainerPresenter::ptr::Create(
+      ae::CreateWith{ui_domain});
+  ui_list_presenter->container = ui_list;
+  ui_list_presenter->window_presenter = ui_window_presenter;
+  ui_list_presenter->model_proxy = &proxy;
+
   int materialize_notify = 0;
   list->BindMaterializedChangeNotifier(&materialize_notify, &PendingNotify);
 
-  list_presenter->SubmitListRowSelectionChangedFromUi(1);
+  ui_list_presenter->SubmitListRowSelectionChangedFromUi(1);
   CHECK(!deferred.empty());
+  CHECK(list->selection_index == -1);
+  CHECK(ui_list->selection_index == -1);
+  CHECK(materialize_notify == 0);
+  CHECK(CountJournalEventsWithClass(*list, SetUiListSelectionEvent::kClassId) ==
+        0);
+
   PumpModelWork(deferred, model_domain);
 
   CHECK(list->selection_index == 1);
@@ -424,12 +429,6 @@ void TestListSelectionViaPresenterProxy() {
   CHECK(CountJournalEventsWithClass(*list,
                                     SetUiListSelectionEvent::kClassId) == 1);
   CHECK(ui_list->selection_index == -1);
-
-  list_presenter->SubmitListRowSelectionChangedFromUi(1);
-  PumpModelWork(deferred, model_domain);
-  CHECK(CountJournalEventsWithClass(*list,
-                                    SetUiListSelectionEvent::kClassId) == 1);
-  CHECK(materialize_notify == 1);
 
   ByteSink structural;
   SerializeStructuralNodePublication(*list, structural);
@@ -439,6 +438,13 @@ void TestListSelectionViaPresenterProxy() {
   ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
 
   CHECK(ui_list->selection_index == 1);
+
+  ui_list_presenter->SubmitListRowSelectionChangedFromUi(1);
+  PumpModelWork(deferred, model_domain);
+  CHECK(CountJournalEventsWithClass(*list,
+                                    SetUiListSelectionEvent::kClassId) == 1);
+  CHECK(materialize_notify == 1);
+
   list->ClearMaterializedChangeNotifier();
 }
 

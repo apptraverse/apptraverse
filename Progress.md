@@ -1,4 +1,4 @@
-**Active (2026-10-29):** **P3.T2 PASS** (T2a+T2b) — MinimalApp sessions + neutral Window/List/Button input contracts (`SetUiListSelectionEvent`). **NEXT: P3.T3.H** (Headless MinimalApp save/cold-load). [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-10-29):** **P3.T3.H PASS** — Headless MinimalApp persist + cold LoadApplication + UI proxy; правило портирования/регрессий в AGENTS/PLAN. **NEXT: P3.T3.W** (Windows template backend). [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 
